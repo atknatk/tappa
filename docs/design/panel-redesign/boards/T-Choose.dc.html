@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -28,7 +28,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </header>
   <main style="padding: 24px 40px 56px; display: flex; flex-direction: column; gap: 30px">
     <div style="display: flex; flex-direction: column; gap: 10px">
-      <span class="lbl">Signed in · one more step</span>
+      <span class="lbl">Password accepted · one more step</span>
       <h1 style="margin: 0; font-size: 40px; line-height: 1; letter-spacing: -0.035em">Which business?</h1>
       <p style="margin: 0; font-size: 16px; line-height: 1.5; color: rgba(21,34,25,.7); max-width: 560px">You manage more than one. Pick the one you want to work in — you can sign out and switch at any time.</p>
     </div>
@@ -45,7 +45,7 @@ a{color:#1F5C41}a:hover{color:#152219}
               <span class="mono" style="font-size: 13px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase">{{b.role}}</span>
             </div>
           </div>
-          <button type="submit" class="go">Continue
+          <button type="submit" class="go" aria-label="Continue to {{b.name}}">Continue
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           </button>
         </form>

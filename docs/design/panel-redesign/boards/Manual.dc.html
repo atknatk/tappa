@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -18,7 +18,8 @@ a{color:#1F5C41}a:hover{color:#152219}
 .docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
 .docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
 .stamp{display:inline-block;padding:3px 8px;border:2px solid;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-8deg)}
-.stamp--manual{border-color:#152219;border-style:dashed;background:rgba(21,34,25,.05)}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
+.tally{display:inline-block;padding:2px 6px;border:1px solid #152219;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#152219}
 .navlink{display:flex;align-items:center;gap:12px;min-height:44px;padding:0 12px;border-radius:10px;text-decoration:none;color:#EDF0EA;font-family:'Space Grotesk',sans-serif;font-size:15px}
 .navlink:hover{background:rgba(237,240,234,.08);color:#FFFDF4}
 .navlink--on{background:#FFFDF4;color:#152219}
@@ -31,21 +32,14 @@ a{color:#1F5C41}a:hover{color:#152219}
 
   <aside style="flex: 1 1 248px; max-width: 100%; background: #152219; color: #EDF0EA; padding: 24px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px; position: relative">
     <div style="position: absolute; left: 0; top: 0; right: 0; height: 4px; background: #1F5C41"></div>
-    <div style="display: flex; flex-direction: column; gap: 2px; padding: 0 12px">
-      <div style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em">taptime</div>
-      <div class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">punchless</div>
+    <div style="display: flex; flex-direction: column; gap: 4px; padding: 0 12px">
+      <p style="margin: 0; font-size: 16px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; color: #FFFDF4">Kebab Factory</p>
+      <p class="mono" style="margin: 0; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">taptime · punchless</p>
     </div>
-    <button type="button" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 52px; padding: 8px 12px; border-radius: 12px; border: 1px solid rgba(237,240,234,.18); background: transparent; color: #EDF0EA; font: inherit; text-align: left; cursor: pointer">
-      <span style="display: flex; flex-direction: column">
-        <span style="font-size: 14px; font-weight: 700">Kebab Factory</span>
-        <span class="mono" style="font-size: 11px; color: rgba(255,253,244,.7)">9 venues · 112 people</span>
-      </span>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 10l5-5 5 5M7 14l5 5 5-5"/></svg>
-    </button>
     <nav aria-label="Panel sections" style="display: flex; flex-direction: column; gap: 2px">
-      <a href="Main.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">01</span>The Pass</a>
+      <a href="Main.dc.html" class="navlink navlink--on" aria-current="page"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">01</span>The Pass</a>
       <a href="Spike.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">02</span><span style="flex: 1">The Spike</span><span class="mono" style="min-width: 22px; height: 22px; border-radius: 11px; background: #D98E2B; color: #152219; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">4</span></a>
-      <a href="People.dc.html" class="navlink navlink--on" aria-current="page"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">03</span>People</a>
+      <a href="People.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">03</span>People</a>
       <a href="Venues.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">04</span>Venues &amp; plaques</a>
       <a href="Week.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">05</span>The Roll</a>
       <a href="Odd.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">06</span>Odd shapes</a>
@@ -56,12 +50,20 @@ a{color:#1F5C41}a:hover{color:#152219}
       <a href="Account.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Account</a>
       <a href="Developers.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Developers</a>
     </div>
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 12px">
+      <p style="margin: 0; display: flex; flex-direction: column; gap: 2px">
+        <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">Signed in as</span>
+        <span style="font-size: 14px; font-weight: 700; letter-spacing: -0.01em; color: #FFFDF4">[manager name]</span>
+        <span class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">Owner</span>
+      </p>
+      <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid #C9D2C8; background: #FFFDF4; color: #152219; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Sign out</button>
+    </div>
   </aside>
 
   <main style="flex: 999 1 640px; min-width: 0; padding: 28px clamp(16px, 3vw, 44px) 56px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px">
     <header style="display: flex; flex-direction: column; gap: 10px">
       <nav aria-label="Breadcrumb" class="mono" style="font-size: 12px; color: rgba(21,34,25,.7); display: flex; gap: 8px; flex-wrap: wrap">
-        <a href="People.dc.html">People</a><span aria-hidden="true">/</span><a href="People.dc.html">Ana Silva</a><span aria-hidden="true">/</span><span aria-current="page">Manual entry</span>
+        <a href="Main.dc.html">The Pass</a><span aria-hidden="true">/</span><span aria-current="page">Manual entry</span>
       </nav>
       <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px">
         <div style="display: flex; flex-direction: column; gap: 6px">
@@ -69,7 +71,7 @@ a{color:#1F5C41}a:hover{color:#152219}
           <h1 style="margin: 0; font-size: 44px; line-height: 1; letter-spacing: -0.035em">Manual entry</h1>
         </div>
         <ol aria-label="Steps" class="mono" style="list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; font-size: 12px">
-          <sc-for list="{{steps}}" as="s" hint-placeholder-count="3">
+          <sc-for list="{{steps}}" as="s" hint-placeholder-count="2">
             <li style="{{s.style}}" aria-current="{{s.cur}}">{{s.label}}</li>
           </sc-for>
         </ol>
@@ -82,7 +84,7 @@ a{color:#1F5C41}a:hover{color:#152219}
           <div style="display: flex; flex-direction: column; gap: 4px">
             <span class="lbl">Attendance record</span>
             <span style="font-size: 26px; font-weight: 700; letter-spacing: -0.02em">Ana Silva</span>
-            <span class="mono" style="font-size: 13px; color: rgba(21,34,25,.7)">no home venue · Line Cook</span>
+            <span class="mono" style="font-size: 13px; color: rgba(21,34,25,.7)">{{subjectVenue}}</span>
           </div>
           <a href="People.dc.html" style="font-size: 14px; font-weight: 700; min-height: 44px; display: inline-flex; align-items: center">Someone else?</a>
         </div>
@@ -101,16 +103,18 @@ a{color:#1F5C41}a:hover{color:#152219}
               </div>
             </fieldset>
 
-            <div style="display: flex; flex-direction: column; gap: 6px">
-              <label for="m-venue" class="lbl">Venue</label>
-              <select id="m-venue" class="field" style="font-family: 'Space Grotesk', sans-serif">
-                <option>Choose the venue</option>
-                <option selected>KF Msida</option>
-                <option>KF Valletta</option>
-                <option>KF Hamrun</option>
-              </select>
-              <p class="help">Ana Silva has no home venue, so the record is filed at the one you choose.</p>
-            </div>
+            <sc-if value="{{needsVenue}}" hint-placeholder-val="{{true}}">
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <label for="m-venue" class="lbl">Venue</label>
+                <select id="m-venue" class="field" style="font-family: 'Space Grotesk', sans-serif">
+                  <option>Choose the venue</option>
+                  <option selected>KF Msida</option>
+                  <option>KF Valletta</option>
+                  <option>KF Hamrun</option>
+                </select>
+                <p class="help">Ana Silva has no home venue, so the record is filed at the one you choose.</p>
+              </div>
+            </sc-if>
 
             <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">
               <div style="display: flex; flex-direction: column; gap: 6px">
@@ -122,16 +126,16 @@ a{color:#1F5C41}a:hover{color:#152219}
                 <input id="m-time" type="time" class="field" value="09:00">
               </div>
             </div>
-            <p class="mono" style="margin: -6px 0 0; font-size: 12px; color: rgba(21,34,25,.7)">In this venue's own clock · Europe/Malta</p>
+            <p class="mono" style="margin: -6px 0 0; font-size: 13px; color: rgba(21,34,25,.85)">Times are this business's own clock: <strong>Europe/Malta</strong></p>
 
             <div style="display: flex; flex-direction: column; gap: 6px">
               <label for="m-note" class="lbl">Why (optional)</label>
-              <textarea id="m-note" rows="2" class="field" style="padding: 10px 12px; font-family: 'Space Grotesk', sans-serif; resize: vertical">Phone was flat</textarea>
+              <textarea id="m-note" rows="2" class="field" style="padding: 10px 12px; resize: vertical">Phone was flat</textarea>
               <p class="help">It is shown on the record itself, next to the mark that says a manager typed it. "Phone was flat" or "forgot to tap out" is enough.</p>
             </div>
 
             <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center">
-              <button type="button" onClick="{{toConfirm}}" style="min-height: 52px; padding: 0 22px; border-radius: 14px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; cursor: pointer">Check the record</button>
+              <button type="button" onClick="{{toConfirm}}" style="min-height: 52px; padding: 0 22px; border-radius: 14px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; cursor: pointer">Review this record</button>
               <a href="People.dc.html" style="font-weight: 700; font-size: 14px; min-height: 44px; display: inline-flex; align-items: center">Cancel</a>
             </div>
           </form>
@@ -142,54 +146,53 @@ a{color:#1F5C41}a:hover{color:#152219}
             <div style="border: 1px dashed rgba(21,34,25,.5); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px">
               <span class="lbl">About to be recorded</span>
               <span class="mono" style="font-size: 16px; font-weight: 700">{{summary}}</span>
-              <span class="mono" style="font-size: 14px">Tue 20 Oct 2026 · 09:00 Malta</span>
-              <span class="mono" style="font-size: 13px; color: rgba(21,34,25,.7)">07:00 UTC</span>
-              <span class="mono" style="font-size: 14px">At KF Msida</span>
-              <span class="mono" style="font-size: 13px">"Phone was flat"</span>
+              <span class="mono" style="font-size: 14px">Tuesday 20 October 2026, 09:00 <span style="color: rgba(21,34,25,.7)">· Europe/Malta</span></span>
+              <span class="mono" style="font-size: 13px; color: rgba(21,34,25,.7)">2026-10-20T07:00:00Z UTC</span>
+              <sc-if value="{{needsVenue}}" hint-placeholder-val="{{true}}">
+                <span class="mono" style="font-size: 14px">At KF Msida</span>
+              </sc-if>
+              <span class="mono" style="font-size: 13px; color: rgba(21,34,25,.85)">This is a past moment. The record will say it happened then, and it will also carry the time you wrote it.</span>
+              <span class="mono" style="font-size: 13px; color: rgba(21,34,25,.85)">"Phone was flat"</span>
             </div>
             <div role="note" style="border: 1px solid #BE3D2A; background: rgba(190,61,42,.07); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.5">
               <strong>This cannot be edited or removed afterwards</strong>
               <span>Attendance records are permanent — nothing in Taptime can change one or take it back, because a record may be needed as evidence.</span>
               <span>If this is wrong, adding another record later can shorten the shift but never lengthen it. Check the time before you press.</span>
+              <sc-if value="{{isIn}}" hint-placeholder-val="{{true}}">
+                <span>And if you are fixing a check-in you already entered, the old one stays in "needs action" for good: nothing you enter afterwards can close it. Rather than correcting one, get this one right.</span>
+              </sc-if>
             </div>
-            <div style="display: flex; flex-wrap: wrap; gap: 12px">
-              <button type="button" onClick="{{record}}" style="min-height: 52px; padding: 0 22px; border-radius: 14px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; cursor: pointer">Record it</button>
-              <button type="button" onClick="{{back}}" style="min-height: 52px; padding: 0 20px; border-radius: 14px; border: 1px solid #152219; background: transparent; color: #152219; font: 700 16px 'Space Grotesk', sans-serif; cursor: pointer">Change something</button>
+            <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center">
+              <a href="Main.dc.html" style="min-height: 52px; padding: 0 22px; border-radius: 14px; background: #1F5C41; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; text-decoration: none">Record it</a>
+              <a href="People.dc.html" style="font-weight: 700; font-size: 14px; min-height: 44px; display: inline-flex; align-items: center">Cancel</a>
             </div>
-          </div>
-        </sc-if>
-
-        <sc-if value="{{isDone}}" hint-placeholder-val="{{false}}">
-          <div style="display: flex; flex-direction: column; gap: 14px">
-            <div role="status" style="border: 1px solid #1F5C41; background: rgba(31,92,65,.08); border-radius: 12px; padding: 14px 16px; font-size: 15px; line-height: 1.5">
-              <strong>Recorded.</strong> The record is in The Roll for this week, marked as typed by a manager.
-            </div>
-            <div style="display: flex; flex-wrap: wrap; gap: 12px">
-              <a href="Week.dc.html" style="min-height: 48px; padding: 0 18px; border-radius: 14px; background: #152219; color: #FFFDF4; font-weight: 700; display: inline-flex; align-items: center; text-decoration: none">See it in The Roll</a>
-              <button type="button" onClick="{{again}}" style="min-height: 48px; padding: 0 18px; border-radius: 14px; border: 1px solid #152219; background: transparent; color: #152219; font: 700 15px 'Space Grotesk', sans-serif; cursor: pointer">Enter another</button>
-            </div>
+            <p class="help">Recording takes you to The Pass, on that day, with the new record in view.</p>
           </div>
         </sc-if>
       </section>
 
       <aside aria-label="How it will look" style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 14px">
-        <span class="lbl">How it will look in the record</span>
-        <div class="docket" style="padding: 18px 18px 18px; display: flex; flex-direction: column; gap: 10px">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px">
-            <span class="lbl">KF Msida</span>
-            <span class="stamp stamp--manual">Manual</span>
+        <sc-if value="{{isConfirm}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-direction: column; gap: 14px">
+            <span class="lbl">How it will look on The Pass</span>
+            <div class="docket" style="padding: 18px 18px 18px; display: flex; flex-direction: column; gap: 10px">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px">
+                <span class="lbl">KF Msida</span>
+                <span class="stamp stamp--ok">Approved</span>
+              </div>
+              <div style="font-size: 18px; font-weight: 700">Ana Silva</div>
+              <div class="mono" style="display: flex; align-items: baseline; gap: 10px">
+                <span style="font-size: 12px; font-weight: 700; padding: 1px 6px; border: 1px solid #152219">{{dirShort}}</span>
+                <span style="font-size: 22px; font-weight: 700">09:00</span>
+              </div>
+              <div class="mono" style="font-size: 12px; color: rgba(21,34,25,.7); border-top: 1px dashed #C9D2C8; padding-top: 8px; display: flex; flex-direction: column; gap: 6px">
+                <span>No plaque on this record</span>
+                <span><span class="tally">Entered by a manager</span></span>
+                <span style="color: rgba(21,34,25,.85)">Phone was flat</span>
+              </div>
+            </div>
           </div>
-          <div style="font-size: 18px; font-weight: 700">Ana Silva</div>
-          <div class="mono" style="display: flex; align-items: baseline; gap: 10px">
-            <span style="font-size: 12px; font-weight: 700; padding: 1px 6px; border: 1px solid #152219">{{dirShort}}</span>
-            <span style="font-size: 22px; font-weight: 500">09:00:00</span>
-          </div>
-          <div class="mono" style="font-size: 12px; color: rgba(21,34,25,.7); border-top: 1px dashed #C9D2C8; padding-top: 8px; display: flex; flex-direction: column; gap: 3px">
-            <span>CHANNEL manual · no tap evidence</span>
-            <span>ENTERED BY [manager name] · 20 Oct 14:40</span>
-            <span>"Phone was flat"</span>
-          </div>
-        </div>
+        </sc-if>
         <p class="help" style="font-size: 14px">This adds a new record. Nothing existing is changed.</p>
         <p class="help">Manual records are counted in hours and shown apart from tapped ones in The Roll and the CSV, so the accountant can see which ones a person typed.</p>
       </aside>
@@ -197,33 +200,33 @@ a{color:#1F5C41}a:hover{color:#152219}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1120}}'>
+<script type="text/x-dc" data-dc-script data-props='{"step":{"editor":"enum","options":["form","confirm"],"default":"form"},"homeVenue":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":1160}}'>
 class Component extends DCLogic {
-  constructor(props) { super(props); this.state = { step: 'form', dir: 'in' }; }
+  constructor(props) { super(props); this.state = { step: null, dir: 'in' }; }
   renderVals() {
-    const st = this.state.step;
-    const order = ['form', 'confirm', 'done'];
-    const names = { form: '1 Fill in', confirm: '2 Check', done: '3 Recorded' };
+    const st = this.state.step ?? (this.props.step ?? 'form');
+    const order = ['form', 'confirm'];
+    const names = { form: '1 Fill in', confirm: '2 Check' };
     const steps = order.map((k, i) => {
       const cur = k === st, past = order.indexOf(st) > i;
       return { label: names[k], cur: cur ? 'step' : 'false',
-        style: 'padding:6px 10px;border-radius:999px;' + (cur ? 'background:#152219;color:#FFFDF4' : past ? 'background:rgba(31,92,65,.12);color:#1F5C41' : 'border:1px solid #C9D2C8;color:rgba(21,34,25,.7)') };
+        style: 'padding:6px 10px;border-radius:999px;' + (cur ? 'background:#152219;color:#FFFDF4' : past ? 'background:rgba(31,92,65,.12);color:#152219' : 'border:1px solid #C9D2C8;color:rgba(21,34,25,.7)') };
     });
-    const dirs = [['in', 'Checked in', 'started a shift'], ['out', 'Checked out', 'finished a shift']].map(([id, label, sentence]) => {
+    const dirs = [['in', 'Check-in', 'started work'], ['out', 'Checkout', 'stopped work']].map(([id, label, sentence]) => {
       const on = this.state.dir === id;
       return { label, sentence, on: on ? 'true' : 'false', pick: () => this.setState({ dir: id }),
         style: 'min-height:64px;text-align:left;display:flex;flex-direction:column;gap:2px;justify-content:center;padding:10px 14px;border-radius:12px;cursor:pointer;font:inherit;color:#152219;' + (on ? 'background:#FFFDF4;border:2px solid #152219' : 'background:transparent;border:1px solid #C9D2C8') };
     });
     const isIn = this.state.dir === 'in';
+    const home = this.props.homeVenue ?? false;
     return {
-      steps, dirs,
-      isForm: st === 'form', isConfirm: st === 'confirm', isDone: st === 'done',
-      summary: isIn ? 'CHECK-IN — Ana Silva started a shift' : 'CHECKOUT — Ana Silva finished a shift',
+      steps, dirs, isIn,
+      isForm: st === 'form', isConfirm: st === 'confirm',
+      needsVenue: !home,
+      subjectVenue: home ? 'KF Msida' : 'no home venue',
+      summary: isIn ? 'Check-in — Ana Silva started work' : 'Checkout — Ana Silva stopped work',
       dirShort: isIn ? 'IN' : 'OUT',
-      toConfirm: () => this.setState({ step: 'confirm' }),
-      back: () => this.setState({ step: 'form' }),
-      record: () => this.setState({ step: 'done' }),
-      again: () => this.setState({ step: 'form' })
+      toConfirm: () => this.setState({ step: 'confirm' })
     };
   }
 }

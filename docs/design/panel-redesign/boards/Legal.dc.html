@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -28,7 +28,7 @@ a{color:#1F5C41}a:hover{color:#152219}
         <span class="mono" style="font-size: 11px; letter-spacing: .14em; color: rgba(21,34,25,.7)">PUNCHLESS</span>
       </a>
       <div style="display: flex; align-items: center; gap: 10px">
-        <a href="Main.dc.html" style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
+        <a href="SignIn.dc.html" style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
         <a href="Signup.dc.html" style="min-height: 44px; padding: 0 18px; border-radius: 12px; background: #1F5C41; color: #FFFDF4; text-decoration: none; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Start free</a>
       </div>
     </div>
@@ -40,11 +40,11 @@ a{color:#1F5C41}a:hover{color:#152219}
       <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px">
         <sc-for list="{{docs}}" as="d" hint-placeholder-count="4">
           <li>
-            <button type="button" onClick="{{d.pick}}" aria-current="{{d.current}}" style="{{d.style}}">
+            <a href="#" onClick="{{d.pick}}" aria-current="{{d.current}}" style="{{d.style}}">
               <span style="font-size: 15px; font-weight: 700">{{d.title}}</span>
               <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{d.path}}</span>
               <span class="mono" style="align-self: flex-start; font-size: 10px; font-weight: 700; letter-spacing: .1em; padding: 2px 7px; border-radius: 6px; border: 1px dashed #D98E2B; background: rgba(217,142,43,.1); color: #152219">NOT IN FORCE YET</span>
-            </button>
+            </a>
           </li>
         </sc-for>
       </ul>
@@ -80,7 +80,7 @@ a{color:#1F5C41}a:hover{color:#152219}
                     <td style="line-height: 1.5; color: #152219; min-width: 280px">{{c.purpose}}</td>
                     <td class="mono">{{c.life}}</td>
                     <td class="mono">{{c.scope}}</td>
-                    <td class="mono" style="font-size: 12px">HttpOnly · SameSite=Lax · Secure</td>
+                    <td class="mono" style="font-size: 12px">{{c.flags}}</td>
                   </tr>
                 </sc-for>
               </tbody>
@@ -106,15 +106,19 @@ a{color:#1F5C41}a:hover{color:#152219}
   </main>
 
   <footer style="border-top: 1px solid #C9D2C8">
-    <nav aria-label="Legal" style="max-width: 1180px; margin: 0 auto; padding: 12px clamp(16px, 3vw, 40px); display: flex; flex-wrap: wrap; gap: 4px 22px; font-size: 13px">
-      <sc-for list="{{docs}}" as="d" hint-placeholder-count="4">
-        <button type="button" onClick="{{d.pick}}" style="min-height: 44px; padding: 0; border: 0; background: transparent; color: #1F5C41; font: 500 13px 'Space Grotesk', sans-serif; text-decoration: underline; cursor: pointer">{{d.nav}}</button>
-      </sc-for>
-    </nav>
+    <div style="max-width: 1180px; margin: 0 auto; padding: 36px clamp(16px, 3vw, 40px) 40px; display: flex; flex-direction: column; gap: 10px">
+      <span class="lbl">Taptime</span>
+      <p style="margin: 0; max-width: 560px; font-size: 14px; line-height: 1.55; color: rgba(21,34,25,.85)">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p>
+      <nav aria-label="Legal" style="display: flex; flex-wrap: wrap; gap: 0 24px">
+        <sc-for list="{{docs}}" as="d" hint-placeholder-count="4">
+        <a href="#" onClick="{{d.pick}}" class="mono" style="min-height: 44px; display: inline-flex; align-items: center; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: rgba(21,34,25,.7); text-decoration: underline; text-underline-offset: 4px">{{d.nav}}</a>
+        </sc-for>
+      </nav>
+    </div>
   </footer>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1700}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1800}}'>
 class Component extends DCLogic {
   constructor(props) { super(props); this.state = { sel: 'cookies' }; }
   renderVals() {
@@ -144,12 +148,12 @@ class Component extends DCLogic {
       ['tappa_admin_reset_link', 'Carries a recovery link while a new password is being chosen, so the link stays out of the address bar and out of browser history. Cleared as soon as the link is used or refused.', '1 hour', '/admin/reset/new'],
       ['tappa_signup', 'Protects the registration form against being submitted from another site. Exists only while somebody is filling the form in.', '30 minutes', '/signup'],
       ['tappa_signup_state', 'Carries the answers already given — the business name, the VAT number and the places — from one step of the registration form to the next, signed by this server. It never holds a password. Cleared as soon as the business is created.', '30 minutes', '/signup']
-    ].map(([name, purpose, life, scope]) => ({ name, purpose, life, scope }));
+    ].map(([name, purpose, life, scope]) => ({ name, purpose, life, scope, flags: 'HttpOnly · SameSite=Lax · Secure' }));
     const sel = this.state.sel;
     const docs = DOCS.map(d => {
       const on = d.id === sel;
-      return { title: d.title, path: d.path, nav: d.nav, current: on ? 'page' : 'false', pick: () => this.setState({ sel: d.id }),
-        style: 'width:100%;text-align:left;display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:14px;font:inherit;color:#152219;cursor:pointer;min-height:44px;' +
+      return { title: d.title, path: d.path, nav: d.nav, current: on ? 'page' : 'false', pick: (e) => { if (e && e.preventDefault) e.preventDefault(); this.setState({ sel: d.id }); },
+        style: 'width:100%;text-align:left;display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:14px;font:inherit;color:#152219;text-decoration:none;box-sizing:border-box;min-height:44px;' +
           (on ? 'background:#FFFDF4;border:2px solid #152219' : 'background:transparent;border:1px solid #C9D2C8') };
     });
     const d = DOCS.find(x => x.id === sel) || DOCS[3];

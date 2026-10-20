@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -33,10 +33,9 @@ a{color:#1F5C41}a:hover{color:#152219}
 <div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
   <div style="height: 4px; background: #1F5C41"></div>
   <header style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 16px; box-sizing: border-box">
-    <a href="M-People.dc.html" class="iconbtn" aria-label="Back to People" style="margin-left: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
     <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
-      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
-      <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">KEBAB FACTORY</span>
+      <span style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; color: #152219">Kebab Factory</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">taptime · punchless</span>
     </div>
   </header>
 
@@ -48,20 +47,20 @@ a{color:#1F5C41}a:hover{color:#152219}
 
     <sc-if value="{{isAdd}}" hint-placeholder-val="{{true}}">
       <form aria-label="Add somebody to this business" class="card" style="margin: 0; gap: 14px">
-        <div style="display: flex; flex-direction: column; gap: 6px"><label for="ma-name" class="lbl">Name</label><input id="ma-name" class="field" type="text" value="Emma Caruana" required></div>
-        <div style="display: flex; flex-direction: column; gap: 6px"><label for="ma-loc" class="lbl">Venue</label><select id="ma-loc" class="field" required><option>Choose a venue…</option><option selected>KF Valletta</option></select></div>
+        <div style="display: flex; flex-direction: column; gap: 6px"><label for="ma-name" class="lbl">Name</label><input id="ma-name" class="field" type="text" value="Emma Caruana" required><p class="help">What your team calls them. This is the only thing we need.</p></div>
+        <div style="display: flex; flex-direction: column; gap: 6px"><label for="ma-loc" class="lbl">Venue</label><select id="ma-loc" class="field" required><option>Choose a venue…</option><option selected>KF Valletta</option></select><p class="help">Where they normally work. They can still tap in at any of your venues.</p></div>
         <div style="display: flex; flex-direction: column; gap: 6px">
           <label for="ma-dep" class="lbl">Department (optional)</label>
           <select id="ma-dep" class="field"><option selected>No department</option><option>Kitchen</option></select>
-          <p class="help">Only if some staff work different hours from the rest of the venue.</p>
+          <p class="help">Only if some of your staff work different hours from the rest of the venue. It has to be one of the chosen venue's.</p>
         </div>
-        <div style="display: flex; flex-direction: column; gap: 6px"><label for="ma-role" class="lbl">Job title (optional)</label><input id="ma-role" class="field" type="text" value="Line Cook"></div>
+        <div style="display: flex; flex-direction: column; gap: 6px"><label for="ma-role" class="lbl">Job title (optional)</label><input id="ma-role" class="field" type="text" value="Line Cook"><p class="help">Waiter, chef, floor manager — whatever you call it. Nothing depends on it.</p></div>
         <div style="display: flex; flex-direction: column; gap: 6px">
           <label for="ma-email" class="lbl">Email (optional)</label>
           <input id="ma-email" class="field" type="email" placeholder="name@example.com" style="font-family: 'IBM Plex Mono', monospace">
-          <p class="help">Blank is fine — a link can be handed over instead.</p>
+          <p class="help">Leave it blank if they do not have one — an activation link can be handed over instead. Capitals make no difference: two people here cannot share an address.</p>
         </div>
-        <p class="help" style="border-top: 1px dashed #C9D2C8; padding-top: 12px; color: #152219">People count towards your bill when they activate, not when they are added.</p>
+        <p class="help" style="border-top: 1px dashed #C9D2C8; padding-top: 12px; color: #152219">Adding somebody does not change your bill on its own — people start counting towards it when they activate, not when they are added.</p>
       </form>
     </sc-if>
 
@@ -69,32 +68,36 @@ a{color:#1F5C41}a:hover{color:#152219}
       <section class="card" style="flex-direction: row; align-items: center">
         <div class="mono" aria-hidden="true" style="width: 48px; height: 48px; flex: none; border-radius: 12px; background: #152219; color: #FFFDF4; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700">AH</div>
         <div style="display: flex; flex-direction: column; gap: 4px">
-          <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">Kitchen Porter · KF Hamrun</span>
-          <span class="mono" style="align-self: flex-start; font-size: 10px; font-weight: 700; letter-spacing: .06em; padding: 3px 8px; border-radius: 10px; border: 1px dashed #D98E2B; background: rgba(217,142,43,.1); color: #152219">INVITED · WAITING FOR FIRST TAP</span>
+          <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">Kitchen Porter · KF Hamrun · None signed in</span>
+          <span class="mono" style="align-self: flex-start; font-size: 10px; font-weight: 700; letter-spacing: .06em; padding: 3px 8px; border-radius: 999px; border: 1px dashed #D98E2B; background: rgba(217,142,43,.1); color: #152219">INVITED</span>
         </div>
       </section>
       <section class="card">
         <h2 style="margin: 0; font-size: 17px">Invitation</h2>
-        <a href="M-Invite.dc.html" class="btn btn--ink">Email an invitation</a>
-        <a href="M-Invite.dc.html" class="btn btn--line">Show the link on screen</a>
-        <p class="help">A new invitation retires every earlier link.</p>
+        <a href="M-Invite.dc.html" class="btn btn--ink">Send invite</a>
+        <p class="help">The link is shown once, on the next screen. Taptime keeps no copy of it.</p>
+        <p class="help">A new invitation retires every earlier link for Ahmed Hassan.</p>
       </section>
       <form class="card" aria-label="Placement" style="margin: 0">
         <h2 style="margin: 0; font-size: 17px">Where</h2>
         <div style="display: flex; flex-direction: column; gap: 6px"><label for="mm-loc" class="lbl">Venue</label><select id="mm-loc" class="field"><option selected>KF Hamrun</option></select></div>
         <div style="display: flex; flex-direction: column; gap: 6px"><label for="mm-dep" class="lbl">Department</label><select id="mm-dep" class="field"><option selected>No department</option></select></div>
         <button type="button" class="btn btn--line">Save placement</button>
+        <a href="M-People.dc.html" style="align-self: center; font-weight: 700; font-size: 15px; min-height: 44px; display: inline-flex; align-items: center">Close</a>
       </form>
       <section class="card">
         <span class="lbl">Email on file</span>
-        <span class="mono" style="font-size: 15px">a•••@•••.mt</span>
+        <span class="mono" style="font-size: 15px; word-break: break-all">ahmed.hassan@example.com</span>
         <span class="lbl" style="margin-top: 4px">External ref</span>
         <span style="font-size: 14px">Not linked to an HR or ERP record.</span>
         <p class="help">Only the business owner can change these.</p>
       </section>
-      <a href="M-Manual.dc.html" class="btn btn--line">Enter a record by hand</a>
+      <section class="card">
+        <a href="M-Manual.dc.html" class="btn btn--line">Enter a record by hand</a>
+        <p class="help">For somebody with no phone, or a shift nobody tapped out of. It adds a new record, marked as entered by a manager.</p>
+      </section>
       <section class="card" style="border-color: #BE3D2A">
-        <h2 style="margin: 0; font-size: 17px">Stop this person</h2>
+        <h2 style="margin: 0; font-size: 17px">Deactivate</h2>
         <p class="help" style="color: #152219">Their own taps are refused from now on. Every record they made stays, and still counts.</p>
         <button type="button" class="btn" style="border: 2px solid #BE3D2A; background: #FFFDF4; color: #152219">Deactivate</button>
         <p class="help">Asks first. It cannot be undone afterwards.</p>
@@ -104,7 +107,10 @@ a{color:#1F5C41}a:hover{color:#152219}
 
   <sc-if value="{{isAdd}}" hint-placeholder-val="{{true}}">
     <div style="position: sticky; bottom: 68px; padding: 10px 16px; background: #EDF0EA; border-top: 1px solid #C9D2C8">
-      <button type="button" style="width: 100%; min-height: 56px; border-radius: 14px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; cursor: pointer">Add them</button>
+      <div style="display: flex; align-items: center; gap: 12px">
+        <button type="button" style="flex: 1; min-height: 56px; border-radius: 14px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; cursor: pointer">Add them</button>
+        <a href="M-People.dc.html" style="font-weight: 700; font-size: 15px; min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center">Cancel</a>
+      </div>
     </div>
   </sc-if>
 
@@ -117,7 +123,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"mode":{"editor":"enum","options":["add","manage"],"default":"add"},"$preview":{"width":390,"height":1520}}'>
+<script type="text/x-dc" data-dc-script data-props='{"mode":{"editor":"enum","options":["add","manage"],"default":"add"},"$preview":{"width":390,"height":1660}}'>
 class Component extends DCLogic {
   renderVals() {
     const add = (this.props.mode ?? 'add') === 'add';

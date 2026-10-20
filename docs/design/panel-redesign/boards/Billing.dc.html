@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -31,17 +31,10 @@ a{color:#1F5C41}a:hover{color:#152219}
 
   <aside style="flex: 1 1 248px; max-width: 100%; background: #152219; color: #EDF0EA; padding: 24px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px; position: relative">
     <div style="position: absolute; left: 0; top: 0; right: 0; height: 4px; background: #1F5C41"></div>
-    <div style="display: flex; flex-direction: column; gap: 2px; padding: 0 12px">
-      <div style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em">taptime</div>
-      <div class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">punchless</div>
+    <div style="display: flex; flex-direction: column; gap: 4px; padding: 0 12px">
+      <p style="margin: 0; font-size: 16px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; color: #FFFDF4">Kebab Factory</p>
+      <p class="mono" style="margin: 0; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">taptime · punchless</p>
     </div>
-    <button type="button" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 52px; padding: 8px 12px; border-radius: 12px; border: 1px solid rgba(237,240,234,.18); background: transparent; color: #EDF0EA; font: inherit; text-align: left; cursor: pointer">
-      <span style="display: flex; flex-direction: column">
-        <span style="font-size: 14px; font-weight: 700">Kebab Factory</span>
-        <span class="mono" style="font-size: 11px; color: rgba(255,253,244,.7)">9 venues · 112 people</span>
-      </span>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 10l5-5 5 5M7 14l5 5 5-5"/></svg>
-    </button>
     <nav aria-label="Panel sections" style="display: flex; flex-direction: column; gap: 2px">
       <a href="Main.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">01</span>The Pass</a>
       <a href="Spike.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">02</span><span style="flex: 1">The Spike</span><span class="mono" style="min-width: 22px; height: 22px; border-radius: 11px; background: #D98E2B; color: #152219; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">4</span></a>
@@ -56,48 +49,73 @@ a{color:#1F5C41}a:hover{color:#152219}
       <a href="Account.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Account</a>
       <a href="Developers.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Developers</a>
     </div>
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 12px">
+      <p style="margin: 0; display: flex; flex-direction: column; gap: 2px">
+        <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">Signed in as</span>
+        <span style="font-size: 14px; font-weight: 700; letter-spacing: -0.01em; color: #FFFDF4">[manager name]</span>
+        <span class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">Owner</span>
+      </p>
+      <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid #C9D2C8; background: #FFFDF4; color: #152219; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Sign out</button>
+    </div>
   </aside>
 
   <main style="flex: 999 1 640px; min-width: 0; padding: 28px clamp(16px, 3vw, 44px) 56px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px">
     <header style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px">
       <div style="display: flex; flex-direction: column; gap: 8px">
-        <span class="lbl" style="display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 3px 10px; border: 1px solid rgba(21,34,25,.5); border-radius: 12px">
+        <span class="lbl" style="display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 3px 10px; border: 1px solid rgba(21,34,25,.5); border-radius: 999px">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Owner only
         </span>
         <h1 style="margin: 0; font-size: 44px; line-height: 1; letter-spacing: -0.035em">Billing</h1>
       </div>
-      <div class="mono" style="font-size: 13px; color: rgba(21,34,25,.7)">Plan: First 2 months free — ends [DATE]</div>
+      <div class="mono" style="font-size: 13px; color: rgba(21,34,25,.7)">Kebab Factory Ltd. · founding customer · Europe/Malta</div>
     </header>
+
+    <div role="note" style="display: flex; gap: 12px; align-items: flex-start; background: #F7EBD6; border: 1px solid #D98E2B; border-radius: 16px; padding: 16px 20px; max-width: 920px">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#152219" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 2px"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>
+      <span style="display: flex; flex-direction: column; gap: 4px">
+        <strong style="font-size: 15px">The founding offer’s free months have ended</strong>
+        <span style="font-size: 14px; line-height: 1.5">This business’s free window ran to the end of the month before October 2026. From October 2026 onwards each month is charged at €1.50 per person. This notice is here so the free period cannot end quietly.</span>
+      </span>
+    </div>
 
     <div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start">
       <div style="flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 28px">
 
-        <section aria-labelledby="cur-h" style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 26px 28px; display: flex; flex-direction: column; gap: 20px">
+        <section aria-labelledby="cur-h" style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 26px 28px; display: flex; flex-direction: column; gap: 18px">
           <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 10px">
             <h2 id="cur-h" style="margin: 0; font-size: 24px; letter-spacing: -0.02em">October 2026 <span class="mono" style="font-size: 13px; font-weight: 400; color: rgba(21,34,25,.7)">· running</span></h2>
-            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">day 20 of 31 · figure moves until the month ends</span>
+            <a href="#" class="mono" style="font-size: 12px; font-weight: 700">Download CSV</a>
           </div>
+          <p style="margin: 0; font-size: 14px; line-height: 1.5">This month is still running, so this is a live count: anybody hired or leaving before it ends still changes it. A month can only be frozen once it is over.</p>
           <div class="mono" style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 22px; padding: 18px 0; border-top: 1px dashed #C9D2C8; border-bottom: 1px dashed #C9D2C8">
             <div style="display: flex; flex-direction: column; gap: 4px">
-              <span class="lbl">People on the books</span>
-              <span style="font-size: 44px; line-height: 1; font-weight: 500; letter-spacing: -0.03em">[N]</span>
+              <span class="lbl">People counted</span>
+              <span style="font-size: 44px; line-height: 1; font-weight: 400; letter-spacing: -0.03em">104</span>
             </div>
             <span aria-hidden="true" style="font-size: 30px; color: rgba(21,34,25,.7); padding-bottom: 4px">×</span>
             <div style="display: flex; flex-direction: column; gap: 4px">
-              <span class="lbl">Price</span>
-              <span style="font-size: 28px; line-height: 1.2; font-weight: 500">[PRICE / person]</span>
+              <span class="lbl">Price per person</span>
+              <span style="font-size: 28px; line-height: 1.2; font-weight: 400">€1.50</span>
             </div>
             <span aria-hidden="true" style="font-size: 30px; color: rgba(21,34,25,.7); padding-bottom: 4px">=</span>
             <div style="display: flex; flex-direction: column; gap: 4px; margin-left: auto; text-align: right">
               <span class="lbl">So far</span>
-              <span style="font-size: 44px; line-height: 1; font-weight: 700; letter-spacing: -0.03em">[AMOUNT]</span>
+              <span style="font-size: 44px; line-height: 1; font-weight: 700; letter-spacing: -0.03em">€156.00</span>
             </div>
           </div>
-          <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7)">Counted: anyone active on any day of the month. Invited people who never activated are not counted.</p>
+          <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7)">Counted: everybody whose employment overlapped this month — anybody who was on the books for even one day of it — provided their status agrees with their own joining and leaving dates.</p>
+          <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7)">Freezing a month stores the NUMBER of people and not which people, so a frozen figure can never be itemised afterwards.</p>
+          <dl class="mono" style="margin: 0; display: flex; flex-wrap: wrap; gap: 6px 24px; font-size: 11px; color: rgba(21,34,25,.7)">
+            <div>Period starts (UTC) <span style="color: #152219">2026-09-30T22:00:00Z</span></div>
+            <div>Period ends (UTC, exclusive) <span style="color: #152219">2026-10-31T23:00:00Z</span></div>
+          </dl>
         </section>
 
         <section aria-labelledby="hist-h" style="display: flex; flex-direction: column; gap: 18px">
-          <h2 id="hist-h" style="margin: 0; font-size: 22px; letter-spacing: -0.02em">Past months</h2>
+          <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 10px">
+            <h2 id="hist-h" style="margin: 0; font-size: 22px; letter-spacing: -0.02em">Past months</h2>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">the last finished month, then every frozen month, newest first</span>
+          </div>
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 22px; padding-top: 7px">
             <sc-for list="{{months}}" as="m" hint-placeholder-count="3">
               <article class="receipt" style="padding: 22px 22px 24px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 7px">
@@ -110,73 +128,74 @@ a{color:#1F5C41}a:hover{color:#152219}
                 </div>
                 <div style="border-top: 1px dashed #C9D2C8"></div>
                 <div class="mono" style="display: flex; flex-direction: column; gap: 6px; font-size: 13px">
-                  <div style="display: flex; justify-content: space-between"><span>People</span><span>[N]</span></div>
-                  <div style="display: flex; justify-content: space-between"><span>Price</span><span>[PRICE]</span></div>
+                  <div style="display: flex; justify-content: space-between"><span>People</span><span>{{m.people}}</span></div>
+                  <div style="display: flex; justify-content: space-between"><span>Price</span><span>{{m.price}}</span></div>
                 </div>
                 <div style="border-top: 1px dashed #C9D2C8"></div>
                 <div class="mono" style="display: flex; justify-content: space-between; align-items: baseline">
                   <span style="font-size: 12px; font-weight: 700">TOTAL</span>
-                  <span style="font-size: 20px; font-weight: 500">[AMOUNT]</span>
+                  <span style="font-size: 20px; font-weight: 700">{{m.amount}}</span>
                 </div>
+                <span style="font-size: 12px; line-height: 1.45; color: rgba(21,34,25,.7)">{{m.free}}</span>
                 <sc-if value="{{m.canFreeze}}" hint-placeholder-val="{{false}}">
-                  <a href="FreezeMonth.dc.html" style="min-height: 44px; border-radius: 12px; background: #152219; color: #FFFDF4; font: 700 14px 'Space Grotesk', sans-serif; text-decoration: none; display: flex; align-items: center; justify-content: center">Freeze September</a>
-                  <span style="font-size: 12px; line-height: 1.4; color: rgba(21,34,25,.7)">Freezing fixes the figure. It can't be undone.</span>
+                  <a href="FreezeMonth.dc.html" style="min-height: 44px; border-radius: 12px; background: #152219; color: #FFFDF4; font-size: 14px; font-weight: 700; text-decoration: none; display: flex; align-items: center; justify-content: center">Freeze September 2026</a>
                 </sc-if>
                 <sc-if value="{{m.frozen}}" hint-placeholder-val="{{true}}">
-                  <a href="#" style="font-size: 13px; font-weight: 700">Download statement (PDF)</a>
+                  <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); word-break: break-all">frozen {{m.closedAt}}</span>
                 </sc-if>
+                <a href="#" class="mono" style="font-size: 12px; font-weight: 700; min-height: 32px; display: inline-flex; align-items: center">Download CSV</a>
               </article>
             </sc-for>
           </div>
+          <form style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; padding: 14px 16px; border-radius: 14px; border: 1px solid #C9D2C8; background: #FFFDF4">
+            <label class="lbl" style="display: flex; flex-direction: column; gap: 6px">Month
+              <span class="mono" style="min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid #C9D2C8; display: flex; align-items: center; font-size: 14px; letter-spacing: 0; text-transform: none; color: #152219">2026-06</span>
+            </label>
+            <a href="#" style="min-height: 44px; padding: 0 16px; border-radius: 12px; background: #152219; color: #FFFDF4; font-size: 14px; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center">Show</a>
+            <a href="#" style="min-height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(21,34,25,.5); color: #152219; font-size: 14px; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center">Previous month</a>
+            <a href="#" style="min-height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(21,34,25,.5); color: #152219; font-size: 14px; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center">Next month</a>
+            <a href="#" style="min-height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(21,34,25,.5); color: #152219; font-size: 14px; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center">Last finished month</a>
+          </form>
         </section>
       </div>
 
       <aside style="flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
-        <section aria-labelledby="pay-h" style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 22px 24px; display: flex; flex-direction: column; gap: 16px">
-          <h2 id="pay-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Payment</h2>
+        <section aria-labelledby="plan-h" style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 22px 24px; display: flex; flex-direction: column; gap: 14px">
+          <h2 id="plan-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Plan</h2>
           <div style="display: flex; flex-direction: column; gap: 4px">
-            <span class="lbl">Card</span>
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
-              <span class="mono" style="font-size: 15px">[CARD •••• 0000]</span>
-              <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid rgba(21,34,25,.5); background: transparent; color: #152219; font: 700 13px 'Space Grotesk', sans-serif; cursor: pointer">Change</button>
-            </div>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 4px; border-top: 1px dashed #C9D2C8; padding-top: 14px">
-            <span class="lbl">Invoices go to</span>
-            <span class="mono" style="font-size: 14px">[billing email]</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 4px; border-top: 1px dashed #C9D2C8; padding-top: 14px">
             <span class="lbl">Plan</span>
-            <span style="font-size: 14px">First 2 months free — ends <span class="mono">[DATE]</span></span>
+            <span class="mono" style="font-size: 15px">founding customer</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 4px; border-top: 1px dashed #C9D2C8; padding-top: 14px">
+            <span class="lbl">First month that is charged for</span>
+            <span class="mono" style="font-size: 15px">October 2026</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.7)">The founding offer covers a business’s first three billing months.</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 4px; border-top: 1px dashed #C9D2C8; padding-top: 14px">
+            <span class="lbl">Price per person, per month</span>
+            <span class="mono" style="font-size: 15px">€1.50</span>
           </div>
         </section>
+        <div style="border: 1px dashed rgba(21,34,25,.5); border-radius: 18px; padding: 16px 20px; display: flex; flex-direction: column; gap: 6px">
+          <span class="lbl">When it appears · The count above is a floor</span>
+          <span style="font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.7)">If some employee records have a status that disagrees with their own joining and leaving dates, they cannot be counted for any month. The page then says the figure is a FLOOR, with the number of such records as an upper bound — not a shortfall.</span>
+        </div>
       </aside>
     </div>
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1100}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1440}}'>
 class Component extends DCLogic {
-  constructor(props) {
-    super(props);
-    this.state = { sepFrozen: false, confirming: false };
-  }
   renderVals() {
-    const s = this.state;
-    const mk = (name, range, frozen, canFreeze) => ({
-      name, range, frozen, canFreeze,
-      stamp: frozen ? 'Frozen' : 'Ready to freeze',
-      stampCls: frozen ? 'stamp stamp--ok' : 'stamp stamp--flag',
-      confirming: canFreeze && s.confirming,
-      notConfirming: canFreeze && !s.confirming,
-      ask: () => this.setState({ confirming: true }),
-      cancel: () => this.setState({ confirming: false }),
-      confirm: () => this.setState({ sepFrozen: true, confirming: false })
-    });
+    // Last finished month (draft, can be frozen) first, then the frozen months newest first.
+    // Seeded signup in July 2026 + three founding months: July-September are free, October is charged.
+    const freeDraft = 'This month is inside the founding offer’s free window, so the amount is zero because of the offer and not because nobody was employed.';
+    const freeFrozen = 'Inside the founding offer’s free window, so nothing was charged.';
     const months = [
-      mk('September 2026', '1 – 30 Sep', s.sepFrozen, !s.sepFrozen),
-      mk('August 2026', '1 – 31 Aug', true, false),
-      mk('July 2026', '1 – 31 Jul', true, false)
+      { name: 'September 2026', range: '1 – 30 Sep', stamp: 'Draft', stampCls: 'stamp stamp--flag', people: '101', price: '€1.50', amount: '€0.00', free: freeDraft, canFreeze: true, frozen: false, closedAt: '' },
+      { name: 'August 2026', range: '1 – 31 Aug', stamp: 'Frozen', stampCls: 'stamp stamp--ok', people: '98', price: '€1.50', amount: '€0.00', free: freeFrozen, canFreeze: false, frozen: true, closedAt: '2026-09-02T07:14:09Z' },
+      { name: 'July 2026', range: '1 – 31 Jul', stamp: 'Frozen', stampCls: 'stamp stamp--ok', people: '93', price: '€1.50', amount: '€0.00', free: freeFrozen, canFreeze: false, frozen: true, closedAt: '2026-08-03T08:40:51Z' }
     ];
     return { months };
   }

@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -32,59 +32,61 @@ a{color:#1F5C41}a:hover{color:#152219}
   <div style="height: 4px; background: #1F5C41"></div>
   <header style="height: 56px; padding: 0 8px 0 16px; display: flex; align-items: center; justify-content: space-between; box-sizing: border-box">
     <div style="display: flex; flex-direction: column; gap: 1px">
-      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
-      <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">KEBAB FACTORY</span>
+      <span style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; color: #152219">Kebab Factory</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">taptime · punchless</span>
     </div>
-    <button type="button" class="iconbtn" aria-label="Search"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
   </header>
 
   <main style="padding: 16px; display: flex; flex-direction: column; gap: 18px">
     <div style="height: 56px; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px">
-      <span class="lbl">The people who tap</span>
+      <span class="lbl">The people who tap · 112 on the books</span>
       <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">People</h1>
     </div>
 
-    <label style="height: 48px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 12px; background: #FFFDF4; border: 1px solid #C9D2C8">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(21,34,25,.7)" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-      <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Find a person</span>
-      <input type="search" placeholder="Name, role or venue" style="border: 0; outline: 0; background: transparent; font: 15px 'Space Grotesk', sans-serif; color: #152219; flex: 1; min-width: 0">
-    </label>
+    <form role="search" aria-label="Filter employees" style="display: flex; flex-direction: column; gap: 10px; margin: 0">
+      <div style="display: flex; gap: 8px">
+        <label style="flex: 1; height: 48px; box-sizing: border-box; display: flex; align-items: center; padding: 0 14px; border-radius: 12px; background: #FFFDF4; border: 1px solid #C9D2C8">
+          <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Name</span>
+          <input type="text" placeholder="Part of a name" style="border: 0; outline: 0; background: transparent; font: 15px 'Space Grotesk', sans-serif; color: #152219; flex: 1; min-width: 0">
+        </label>
+        <button type="button" style="height: 48px; padding: 0 16px; border-radius: 12px; border: 1px solid #152219; background: transparent; color: #152219; font: 700 15px 'Space Grotesk', sans-serif; cursor: pointer">Apply</button>
+      </div>
+      <label>
+        <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Location</span>
+        <select style="width: 100%; height: 48px; padding: 0 12px; border-radius: 12px; border: 1px solid #C9D2C8; background: #FFFDF4; font: 15px 'Space Grotesk', sans-serif; color: #152219"><option>All locations</option><option>KF Valletta</option><option>KF Hamrun</option></select>
+      </label>
+      <div class="hscroll" role="group" aria-label="Status" style="margin: 0 -16px; padding: 0 16px; height: 48px; display: flex; gap: 6px; align-items: center">
+        <sc-for list="{{chips}}" as="c" hint-placeholder-count="4">
+          <button type="button" onClick="{{c.pick}}" aria-current="{{c.on}}" style="{{c.style}}">{{c.label}} <span class="mono" style="font-size: 12px; opacity: .8">{{c.n}}</span></button>
+        </sc-for>
+      </div>
+    </form>
 
-    <div class="hscroll" role="group" aria-label="Filter by status" style="margin: 0 -16px; padding: 0 16px; height: 40px; display: flex; gap: 6px; align-items: center">
-      <sc-for list="{{chips}}" as="c" hint-placeholder-count="4">
-        <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.on}}" style="{{c.style}}">{{c.label}} <span class="mono" style="font-size: 12px; opacity: .8">{{c.n}}</span></button>
-      </sc-for>
-    </div>
-
-    <button type="button" style="height: 52px; border-radius: 14px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px">
+    <a href="M-StaffForm.dc.html" style="height: 52px; border-radius: 14px; background: #1F5C41; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-      Invite someone
-    </button>
+      Add somebody
+    </a>
 
-    <div style="display: flex; flex-direction: column; gap: 14px">
-      <sc-for list="{{groups}}" as="g" hint-placeholder-count="4">
-        <section style="display: flex; flex-direction: column; gap: 6px">
-          <h2 class="lbl" style="margin: 0; height: 28px; display: flex; align-items: flex-end; justify-content: space-between; font-weight: 400">
-            <span>{{g.venue}}</span><span>{{g.count}}</span>
-          </h2>
-          <ul class="plist" style="list-style: none; margin: 0; padding: 0; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 16px; overflow: hidden">
-            <sc-for list="{{g.people}}" as="p" hint-placeholder-count="3">
-              <li>
-                <button type="button" class="prow">
-                  <span class="mono" aria-hidden="true" style="flex: none; width: 40px; height: 40px; border-radius: 10px; background: #EDF0EA; border: 1px solid #C9D2C8; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700">{{p.ini}}</span>
-                  <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
-                    <span style="font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.name}}</span>
-                    <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.role}} · {{p.last}}</span>
-                  </span>
-                  <span class="mono" style="{{p.pillStyle}}">{{p.status}}</span>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(21,34,25,.7)" stroke-width="2" aria-hidden="true" style="flex: none"><path d="M9 6l6 6-6 6"/></svg>
-                </button>
-              </li>
-            </sc-for>
-          </ul>
-        </section>
+    <ul class="plist" style="list-style: none; margin: 0; padding: 0; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 16px; overflow: hidden">
+      <sc-for list="{{people}}" as="p" hint-placeholder-count="10">
+        <li>
+          <button type="button" class="prow">
+            <span class="mono" aria-hidden="true" style="flex: none; width: 40px; height: 40px; border-radius: 10px; background: #EDF0EA; border: 1px solid #C9D2C8; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700">{{p.ini}}</span>
+            <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+              <span style="font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.name}}</span>
+              <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.role}} · {{p.last}}</span>
+            </span>
+            <span class="mono" style="{{p.pillStyle}}">{{p.status}}</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(21,34,25,.7)" stroke-width="2" aria-hidden="true" style="flex: none"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </li>
       </sc-for>
+    </ul>
+    <div class="mono" style="display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: rgba(21,34,25,.7)">
+      <span>{{footer}}</span>
+      <a href="M-People.dc.html" style="font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 15px; min-height: 44px; display: inline-flex; align-items: center">Next page</a>
     </div>
+    <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">Dates shown in Europe/Malta</span>
   </main>
 
   <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; padding: 0 4px 8px; background: #152219; display: flex">
@@ -96,43 +98,39 @@ a{color:#1F5C41}a:hover{color:#152219}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1260}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1280}}'>
 class Component extends DCLogic {
   constructor(props) { super(props); this.state = { status: 'all' }; }
   renderVals() {
+    // Name order, as the roster query sorts; no venue grouping. Words are the database's own.
     const people = [
-      ['KF Valletta', 'Maria Borg', 'Line Cook', 'active', 'today 14:31'],
-      ['KF Valletta', 'Julia Sciberras', 'Assistant Manager', 'active', 'today 09:02'],
-      ['KF Valletta', 'Marco Bugeja', 'Line Cook', 'invited', 'invite sent Mon'],
-      ['KF Hamrun', 'Kevin Borg', 'Kitchen Porter', 'active', 'today 14:28'],
-      ['KF Hamrun', 'Antoine Vella', 'Line Cook', 'active', 'yesterday 02:14'],
-      ['KF Hamrun', 'Frank Debono', 'Line Cook', 'stopped', 'left 2 Oct'],
-      ['KF St Julians', 'Elena Petrova', 'Bar Manager', 'active', 'today 14:26'],
-      ['KF St Julians', 'Ivan Petrov', 'Bartender', 'invited', 'waiting for first tap'],
-      ['KF Mellieha', 'Nadia Farrugia', 'Kitchen Porter', 'active', 'today 13:58'],
-      ['KF Mellieha', 'George Muscat', 'Line Cook', 'active', 'today 10:04']
+      ['Antoine Vella', 'Line Cook', 'active', '02:14 yesterday'],
+      ['Elena Petrova', 'Bar Manager', 'active', '14:26 today'],
+      ['Frank Debono', 'Line Cook', 'deactivated', '18:40 2 Oct'],
+      ['George Muscat', 'Line Cook', 'active', '10:04 today'],
+      ['Ivan Petrov', 'Bartender', 'invited', 'no taps yet'],
+      ['Julia Sciberras', 'Assistant Manager', 'active', '09:02 today'],
+      ['Kevin Borg', 'Kitchen Porter', 'active', '14:28 today'],
+      ['Marco Bugeja', 'Line Cook', 'invited', 'no taps yet'],
+      ['Maria Borg', 'Line Cook', 'active', '14:31 today'],
+      ['Nadia Farrugia', 'Kitchen Porter', 'active', '13:58 today']
     ];
     const pill = {
-      active: ['Active', 'border:1px solid #1F5C41;background:rgba(31,92,65,.1)'],
-      invited: ['Invited', 'border:1px dashed #D98E2B;background:rgba(217,142,43,.12)'],
-      stopped: ['Stopped', 'border:1px solid #C9D2C8;background:#EDF0EA']
+      active: 'border:1px solid #1F5C41;background:rgba(31,92,65,.1);color:#152219',
+      invited: 'border:1px dashed #D98E2B;background:rgba(217,142,43,.12);color:#152219',
+      deactivated: 'border:1px solid #C9D2C8;color:rgba(21,34,25,.7)'
     };
     const st = this.state.status;
-    const venues = [];
-    people.forEach(([venue, name, role, status, last]) => {
-      if (st !== 'all' && st !== status) return;
-      let g = venues.find(v => v.venue === venue);
-      if (!g) { g = { venue, people: [] }; venues.push(g); }
-      g.people.push({ name, role, last, status: pill[status][0], ini: name.split(' ').map(w => w[0]).join(''),
-        pillStyle: 'flex:none;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 7px;border-radius:6px;color:#152219;' + pill[status][1] });
-    });
-    const groups = venues.map(g => ({ ...g, count: g.people.length + (g.people.length === 1 ? ' person' : ' people') }));
-    const chips = [['all', 'All', '112'], ['active', 'Active', '104'], ['invited', 'Invited', '5'], ['stopped', 'Stopped', '3']].map(([id, label, n]) => {
+    const list = people.filter(p => st === 'all' || p[2] === st).map(([name, role, status, last]) => ({
+      name, role, last, status: status.toUpperCase(), ini: name.split(' ').map(w => w[0]).join(''),
+      pillStyle: 'flex:none;font-size:10px;font-weight:700;letter-spacing:.06em;padding:3px 7px;border-radius:999px;' + pill[status] }));
+    const counts = { all: '112', invited: '5', active: '104', deactivated: '3' };
+    const chips = [['all', 'Everyone'], ['invited', 'Invited'], ['active', 'Active'], ['deactivated', 'Deactivated']].map(([id, label]) => {
       const on = st === id;
-      return { label, n, on: on ? 'true' : 'false', pick: () => this.setState({ status: id }),
-        style: 'flex:none;min-height:36px;padding:0 14px;border-radius:18px;font:500 13px Space Grotesk,sans-serif;cursor:pointer;' + (on ? 'background:#152219;color:#FFFDF4;border:1px solid #152219' : 'background:transparent;color:#152219;border:1px solid rgba(21,34,25,.5)') };
+      return { label, n: counts[id], on: on ? 'true' : 'false', pick: () => this.setState({ status: id }),
+        style: 'flex:none;min-height:44px;padding:0 14px;border-radius:22px;font:500 13px Space Grotesk,sans-serif;cursor:pointer;' + (on ? 'background:#152219;color:#FFFDF4;border:1px solid #152219' : 'background:transparent;color:#152219;border:1px solid rgba(21,34,25,.5)') };
     });
-    return { chips, groups };
+    return { chips, people: list, footer: 'Showing ' + list.length + ' of ' + counts[st] };
   }
 }
 </script>

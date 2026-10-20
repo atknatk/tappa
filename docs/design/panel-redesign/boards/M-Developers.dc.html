@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -32,101 +32,130 @@ a{color:#1F5C41}a:hover{color:#152219}
 <div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
   <div style="height: 4px; background: #1F5C41"></div>
   <header style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 16px; box-sizing: border-box">
-    <a href="M-More.dc.html" class="iconbtn" aria-label="Back to More" style="margin-left: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
     <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
-      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
-      <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">KEBAB FACTORY</span>
+      <span style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; color: #152219">Kebab Factory</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">taptime · punchless</span>
     </div>
-    <button type="button" class="iconbtn" aria-label="Search" style="margin-right: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
   </header>
 
   <main style="padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 18px">
-    <div style="display: flex; flex-direction: column; gap: 6px">
+    <header style="display: flex; flex-direction: column; gap: 8px">
       <span class="lbl">Owner only</span>
       <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">Developers</h1>
-      <a href="/v1/guide.md" style="min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Integration guide →</a>
-    </div>
+      <p style="margin: 0; font-size: 14px; line-height: 1.45; color: rgba(21,34,25,.85)">For the endpoints and the signature, see the integration guide at <span class="mono" style="font-weight: 700">/v1/guide.md</span> on your API host.</p>
+    </header>
 
-    <section class="card" aria-labelledby="keys-h">
+    <section aria-labelledby="keys-h" class="card">
       <h2 id="keys-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Integration keys</h2>
-      <p style="margin: 0; font-size: 13px; color: rgba(21,34,25,.7)">The full key is shown once. After that only its first characters stay on screen.</p>
+      <p style="margin: 0; font-size: 13px; color: rgba(21,34,25,.7)">A key lets another system read punches and manage staff through the API. The full key is shown once, when you create it. After that only its first characters stay on screen.</p>
       <div style="display: flex; flex-direction: column; gap: 6px">
         <label for="kname" class="lbl">Name</label>
-        <input id="kname" class="input" type="text" value="HR sync">
+        <input id="kname" class="input" type="text" value="HR sync" aria-describedby="kname-help">
+        <span id="kname-help" style="font-size: 12px; color: rgba(21,34,25,.7)">Two live keys cannot share a name.</span>
       </div>
-      <button type="button" class="btn1" onClick="{{create}}">Create key</button>
-      <sc-if value="{{revealed}}" hint-placeholder-val="{{false}}">
-        <div role="status" style="border: 2px solid #D98E2B; background: rgba(217,142,43,.1); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
-          <strong style="font-size: 14px">Copy this key now — it is shown once</strong>
-          <code class="mono" style="min-height: 44px; display: flex; align-items: center; padding: 8px 12px; box-sizing: border-box; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 10px; font-size: 12px; word-break: break-all; user-select: all">tt_live_[SHOWN ONCE — 40 CHARS]</code>
-          <div style="display: flex; gap: 8px">
-            <button type="button" class="ghost" style="flex: 1">Copy</button>
-            <button type="button" class="ghost" style="flex: 1" onClick="{{dismiss}}">I've stored it</button>
-          </div>
-          <span style="font-size: 12px; color: #152219">You won't see this again.</span>
+      <button type="button" class="btn1" style="width: 100%">Create key</button>
+      <sc-if value="{{apiReveal}}" hint-placeholder-val="{{false}}">
+        <div role="status" style="border: 2px solid #D98E2B; background: rgba(217,142,43,.1); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px">
+          <strong style="font-size: 15px">Store this key now — it is shown once</strong>
+          <p style="margin: 0; font-size: 13px; line-height: 1.5">This is the key named <span class="mono">HR sync</span>. Give it to your HR or payroll system now. Taptime keeps only a one-way check value of it, so it cannot be shown again: if it is lost, revoke it below and create another.</p>
+          <label for="newkey" class="lbl" style="color: #152219">Your new key</label>
+          <input id="newkey" class="input mono" type="text" readonly value="tt_live_[SHOWN ONCE — 40 CHARS]" style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; user-select: all">
+          <a href="M-Developers.dc.html" style="align-self: flex-start; min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">I've stored it</a>
         </div>
       </sc-if>
-      <ul style="list-style: none; margin: 0; padding: 0">
+      <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
         <sc-for list="{{keys}}" as="k" hint-placeholder-count="3">
-          <li style="display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px dashed #C9D2C8">
-            <span style="display: flex; justify-content: space-between; gap: 8px; align-items: center"><strong style="font-size: 15px">{{k.name}}</strong><span class="mono" style="{{k.pill}}">{{k.status}}</span></span>
-            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{k.hint}} · used {{k.used}}</span>
-            <sc-if value="{{k.canRevoke}}" hint-placeholder-val="{{true}}">
-              <button type="button" class="btnx" onClick="{{k.ask}}" style="align-self: flex-start">Revoke</button>
-            </sc-if>
-            <sc-if value="{{k.asking}}" hint-placeholder-val="{{false}}">
-              <div style="display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 10px; background: rgba(190,61,42,.06)">
-                <span style="font-size: 13px">Systems using this key stop at once.</span>
-                <div style="display: flex; gap: 8px">
-                  <button type="button" class="btnx" onClick="{{k.revoke}}" style="flex: 1">Yes, revoke</button>
-                  <button type="button" class="ghost" onClick="{{k.cancel}}" style="flex: 1">Keep</button>
-                </div>
-              </div>
-            </sc-if>
+          <li style="display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center; padding: 12px 0; border-top: 1px dashed #C9D2C8">
+            <span style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+              <span style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center"><strong style="font-size: 15px">{{k.name}}</strong><span class="mono" style="{{k.pill}}">{{k.status}}</span></span>
+              <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{k.hint}} · created {{k.created}}</span>
+              <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{k.meta}}</span>
+            </span>
+            <sc-if value="{{k.on}}" hint-placeholder-val="{{true}}"><button type="button" class="btnx">Revoke</button></sc-if>
           </li>
         </sc-for>
       </ul>
+      <div style="display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px; border-top: 1px solid #C9D2C8; padding-top: 12px">
+        <label style="display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-size: 14px"><input type="checkbox" style="width: 20px; height: 20px; accent-color: #1F5C41">Yes, stop every integration now</label>
+        <button type="button" class="btnx" style="width: 100%; ">Revoke every key</button>
+      </div>
     </section>
 
-    <section class="card" aria-labelledby="wh-h">
+    <section aria-labelledby="wh-h" class="card">
       <div style="display: flex; justify-content: space-between; align-items: center">
         <h2 id="wh-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Webhook</h2>
-        <span class="mono" style="font-size: 11px; font-weight: 700; letter-spacing: .08em; padding: 3px 10px; border-radius: 999px; border: 1px solid #1F5C41; background: rgba(31,92,65,.1)">ON</span>
+        <span class="mono" style="font-size: 12px; font-weight: 700; letter-spacing: .08em; padding: 3px 10px; border-radius: 999px; border: 1px solid #1F5C41; background: rgba(31,92,65,.1)">ON</span>
       </div>
+      <p style="margin: 0; font-size: 13px; color: rgba(21,34,25,.7)">We send every punch to one address of yours, signed with a key only you and Taptime hold.</p>
+      <sc-if value="{{whReveal}}" hint-placeholder-val="{{false}}">
+        <div role="status" style="border: 2px solid #D98E2B; background: rgba(217,142,43,.1); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px">
+          <strong style="font-size: 15px">Store the webhook's signing key now — it is shown once</strong>
+          <p style="margin: 0; font-size: 13px; line-height: 1.5">Your system uses this key to check that a webhook really comes from Taptime: every message carries an X-Taptime-Signature header, sha256= and the HMAC-SHA256 of the message body under this key. Taptime keeps it sealed and cannot show it again: if it is lost, rotate it below.</p>
+          <label for="newwhsec" class="lbl" style="color: #152219">Signing key</label>
+          <input id="newwhsec" class="input mono" type="text" readonly value="tt_whsec_[SHOWN ONCE]" style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; user-select: all">
+          <a href="M-Developers.dc.html" style="align-self: flex-start; min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">I've stored it</a>
+        </div>
+      </sc-if>
       <div style="display: flex; flex-direction: column; gap: 6px">
         <label for="whurl" class="lbl">Address</label>
         <input id="whurl" class="input" type="url" value="https://[YOUR HOST]/taptime" style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">
-        <span style="font-size: 12px; color: rgba(21,34,25,.7)">https:// and a host name only.</span>
+        <span style="font-size: 12px; color: rgba(21,34,25,.7)">https:// and a host name, standard port, no user name, query string or fragment.</span>
       </div>
-      <dl style="margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; align-items: baseline">
-        <dt class="lbl">Sends</dt><dd style="margin: 0; font-size: 13px">Every punch</dd>
-        <dt class="lbl">Key</dt><dd class="mono" style="margin: 0; font-size: 12px">tt_whsec_••••••••a21c</dd>
-        <dt class="lbl">Tests</dt><dd class="mono" style="margin: 0; font-size: 12px">{{pingsLeft}} of 10 left this hour</dd>
+      <dl style="margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px 16px">
+        <div><dt class="lbl">Sends</dt><dd style="margin: 4px 0 0; font-size: 14px">Every punch, as it is recorded</dd></div>
+        <div><dt class="lbl">Signing key</dt><dd style="margin: 4px 0 0; font-size: 14px">Kept sealed — shown once, when made</dd></div>
+        <div><dt class="lbl">Key rotated</dt><dd class="mono" style="margin: 4px 0 0; font-size: 13px">4 Oct 2026</dd></div>
+        <div><dt class="lbl">Test messages</dt><dd class="mono" style="margin: 4px 0 0; font-size: 13px">9 of 10 left this hour</dd></div>
       </dl>
-      <sc-if value="{{pinged}}" hint-placeholder-val="{{false}}">
-        <div role="status" style="border: 1px solid #1F5C41; background: rgba(31,92,65,.08); border-radius: 12px; padding: 10px 12px; font-size: 13px"><strong>The test message arrived.</strong> Answer 200.</div>
+      <sc-if value="{{pingOk}}" hint-placeholder-val="{{false}}">
+        <div role="status" style="display: flex; flex-direction: column; gap: 4px; border: 1px solid #1F5C41; background: rgba(31,92,65,.1); border-radius: 14px; padding: 14px 16px">
+          <span class="lbl" style="color: #1F5C41">Done</span>
+          <strong style="font-size: 14px">The test message arrived</strong>
+          <p style="margin: 0; font-size: 13px">Your system answered 200. Taptime's webhooks will reach it.</p>
+        </div>
       </sc-if>
-      <button type="button" class="btn1" onClick="{{ping}}">Send a test message</button>
-      <div style="display: flex; gap: 8px">
-        <button type="button" class="ghost" style="flex: 1">Rotate key</button>
-        <button type="button" class="ghost" style="flex: 1">Switch off</button>
+      <sc-if value="{{pingFail}}" hint-placeholder-val="{{false}}">
+        <div role="alert" style="display: flex; flex-direction: column; gap: 4px; border: 2px solid #BE3D2A; background: #FFFDF4; border-radius: 14px; padding: 14px 16px">
+          <span class="lbl" style="color: #152219">Not done</span>
+          <strong style="font-size: 14px">The test message did not arrive</strong>
+          <p style="margin: 0; font-size: 13px">Your system did not answer within 10 seconds.</p>
+        </div>
+      </sc-if>
+      <button type="button" class="btn1" style="width: 100%">Send a test message</button>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+        <button type="button" class="ghost">Change address</button>
+        <button type="button" class="ghost">Switch off</button>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; border-top: 1px dashed #C9D2C8; padding-top: 12px">
+        <label style="display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-size: 14px"><input type="checkbox" style="width: 20px; height: 20px; accent-color: #1F5C41">Yes, replace the signing key now</label>
+        <button type="button" class="ghost" style="width: 100%; ">Rotate the signing key</button>
       </div>
     </section>
 
-    <section class="card" aria-labelledby="dl-h">
-      <h2 id="dl-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Deliveries</h2>
+    <section aria-labelledby="dl-h" class="card">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap">
+        <h2 id="dl-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Deliveries</h2>
+        <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">retries 1 · 5 · 30 min · 2 · 6 h, then failed</span>
+      </div>
       <ul style="list-style: none; margin: 0; padding: 0">
-        <sc-for list="{{deliveries}}" as="d" hint-placeholder-count="5">
-          <li style="display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-top: 1px dashed #C9D2C8">
-            <span style="display: flex; justify-content: space-between; align-items: center; gap: 8px"><span class="mono" style="font-size: 13px; font-weight: 700">{{d.id}}</span><span class="mono" style="{{d.pill}}">{{d.state}}</span></span>
-            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{d.queued}} · tries {{d.tries}} · {{d.answer}}{{d.note}}</span>
+        <sc-for list="{{deliveries}}" as="d" hint-placeholder-count="6">
+          <li style="display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; padding: 10px 0; border-top: 1px dashed #C9D2C8">
+            <span style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+              <span style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center"><span class="mono" style="{{d.pill}}">{{d.state}}</span><span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{d.note}}</span></span>
+              <span class="mono" style="font-size: 12px; word-break: break-all">{{d.id}}</span>
+              <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">queued {{d.queued}} · tries {{d.tries}} · {{d.answer}}</span>
+            </span>
             <sc-if value="{{d.canResend}}" hint-placeholder-val="{{false}}">
-              <button type="button" class="ghost" style="align-self: flex-start">Send again now</button>
+              <button type="button" class="ghost">Send again now</button>
             </sc-if>
           </li>
         </sc-for>
       </ul>
-      <p class="mono" style="margin: 0; font-size: 11px; color: rgba(21,34,25,.7)">Retries after 1 · 5 · 30 min · 2 · 6 h. Status code and error class only, never your server's reply.</p>
+      <div style="display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap">
+        <a href="#" style="min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Newest</a>
+        <a href="#" style="min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Older deliveries →</a>
+      </div>
+      <p style="margin: 0; font-size: 12px; line-height: 1.5; color: rgba(21,34,25,.7)">We keep the status code and a short error class only — never what your server wrote back. A resend uses one of the hour's 10 test-message slots. The log keeps 90 days.</p>
     </section>
   </main>
 
@@ -139,47 +168,40 @@ a{color:#1F5C41}a:hover{color:#152219}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1860}}'>
+<script type="text/x-dc" data-dc-script data-props='{"reveal":{"editor":"enum","options":["none","api-key","webhook-key"],"default":"none"},"ping":{"editor":"enum","options":["none","arrived","failed"],"default":"none"},"$preview":{"width":390,"height":3000}}'>
 class Component extends DCLogic {
-  constructor(props) {
-    super(props);
-    this.state = { revealed: false, asking: null, revoked: [], pings: 9, pinged: false };
-  }
   renderVals() {
-    const s = this.state;
-    const P = 'font-size:11px;font-weight:700;letter-spacing:.08em;padding:2px 8px;border-radius:999px;';
+    const reveal = this.props.reveal ?? 'none';
+    const ping = this.props.ping ?? 'none';
+    const P = 'display:inline-block;font-size:11px;font-weight:700;letter-spacing:.08em;padding:2px 8px;border-radius:999px;color:#152219;';
     const live = P + 'border:1px solid #1F5C41;background:rgba(31,92,65,.1)';
     const dead = P + 'border:1px solid #C9D2C8;color:rgba(21,34,25,.7)';
-    const base = [
-      { id: 'k1', name: 'Payroll sync', hint: 'tt_live_3f9a', used: 'today 14:02', on: true },
-      { id: 'k2', name: 'Rota planner', hint: 'tt_live_81c0', used: 'yesterday', on: true },
-      { id: 'k3', name: 'Old test key', hint: 'tt_live_0d4e', used: '20 Sep', on: false }
-    ];
-    const keys = base.map(k => {
-      const on = k.on && s.revoked.indexOf(k.id) < 0;
-      const asking = on && s.asking === k.id;
-      return { ...k, status: on ? 'Live' : 'Revoked', pill: on ? live : dead, canRevoke: on && !asking, asking,
-        ask: () => this.setState({ asking: k.id }), cancel: () => this.setState({ asking: null }),
-        revoke: () => this.setState({ asking: null, revoked: s.revoked.concat([k.id]) }) };
-    });
+    // Starts with = prefix + the first 4 characters of the key (prefix_hint, internal/apikey/token.go).
+    const keys = [
+      { name: 'Payroll sync', hint: 'tt_live_3f9a…', created: '2 Oct 2026, 09:12', used: '20 Oct 2026, 14:02', on: true, revokedOn: '' },
+      { name: 'Rota planner', hint: 'tt_live_81c0…', created: '9 Oct 2026, 16:40', used: 'Never', on: true, revokedOn: '' },
+      { name: 'Old test key', hint: 'tt_live_0d4e…', created: '12 Sep 2026, 11:05', used: '20 Sep 2026, 08:31', on: false, revokedOn: '3 Oct 2026' }
+    ].map(k => ({ ...k, status: k.on ? 'Live' : 'Revoked', pill: k.on ? live : dead, meta: k.on ? 'last used ' + k.used : 'revoked ' + k.revokedOn }));
+    // The five words of webhookDeliveryWord.
     const st = {
       Delivered: P + 'border:1px solid #1F5C41;background:rgba(31,92,65,.1)',
+      Sending: P + 'border:1px dashed rgba(21,34,25,.5)',
       Retrying: P + 'border:1px dashed #D98E2B;background:rgba(217,142,43,.12)',
       Queued: P + 'border:1px solid rgba(21,34,25,.5)',
       Failed: P + 'border:1px solid #BE3D2A;background:rgba(190,61,42,.1)'
     };
     const deliveries = [
-      ['dlv_7f21', 'today 14:31', 'Delivered', '', '1', '200'],
-      ['dlv_7f20', 'today 14:28', 'Retrying', ' · next try in 5 min', '2', 'timeout'],
-      ['dlv_7f19', 'today 13:58', 'Queued', '', '0', '—'],
-      ['dlv_7e02', 'Mon 09:02', 'Failed', ' · gave up', '6', 'refused'],
-      ['dlv_7dff', 'Mon 08:40', 'Failed', ' · gave up', '6', 'tls']
-    ].map(([id, queued, state, note, tries, answer]) => ({ id, queued, state, note, tries, answer, pill: st[state], canResend: state !== 'Delivered' }));
+      ['3b7e2f10-5d2c-4a8e-9b61-0c7f2d4e9c41', '9f2a6c1e-07b4-4d3a-8e55-31c9a0b2f7e1', '20 Oct, 14:31', 'Delivered', 'arrived 20 Oct, 14:31', '1', 'HTTP 200'],
+      ['3b7e2e88-1a90-4f6b-a2c3-5d8e7f6012d0', '9f2a6b70-c2e1-4b19-9d04-7a3e5f8c21d7', '20 Oct, 14:30', 'Sending', 'being sent now', '1', '—'],
+      ['3b7e2c02-8e4f-4c71-b0d9-2e6a1c3f77aa', '9f2a69f3-4d8a-4e22-b6c1-0f5d2e9a14c3', '20 Oct, 14:28', 'Retrying', 'next try 20 Oct, 14:35', '2', 'no answer in 10 s'],
+      ['3b7e2a51-2c6d-4b93-8f7e-9a1d3c5e04be', '9f2a6812-9e3b-47d5-a1f0-6c2b4d8e33b0', '20 Oct, 13:58', 'Queued', 'waiting for its first try', '0', '—'],
+      ['3a01f7c9-6b2e-4d18-9c3a-7e0f5a2b5e12', '9e11d4a0-3f7c-4e8b-b2d6-1a9c0e5f7740', '19 Oct, 09:02', 'Failed', 'gave up after 6 tries', '6', 'could not be reached'],
+      ['3a01f6aa-0d5b-4a6e-8b17-4c2e9f1da903', '9e11d2be-5a81-4c3f-9e07-8b6d1f2a463c', '19 Oct, 08:40', 'Failed', 'gave up after 6 tries', '6', 'secure connection failed']
+    ].map(([id, punch, queued, state, note, tries, answer]) => ({ id, punch, queued, state, note, tries, answer, pill: st[state], canResend: state === 'Failed' || state === 'Retrying' }));
     return {
-      keys, deliveries, revealed: s.revealed, pinged: s.pinged, pingsLeft: s.pings,
-      create: () => this.setState({ revealed: true }),
-      dismiss: () => this.setState({ revealed: false }),
-      ping: () => this.setState({ pings: Math.max(0, s.pings - 1), pinged: true })
+      keys, deliveries,
+      apiReveal: reveal === 'api-key', whReveal: reveal === 'webhook-key',
+      pingOk: ping === 'arrived', pingFail: ping === 'failed'
     };
   }
 }

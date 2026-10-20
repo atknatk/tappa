@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -41,7 +41,7 @@ a{color:#1F5C41}a:hover{color:#152219}
             <div class="docket" style="width: 100%; margin-top: -4px; padding: 16px 14px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; color: #152219; transform: rotate({{t.tilt}}deg); transform-origin: top center">
               <span class="lbl">{{t.venue}}</span>
               <span style="font-size: 15px; font-weight: 700">{{t.name}}</span>
-              <span class="mono" style="font-size: 18px; font-weight: 500">{{t.dir}} {{t.time}}</span>
+              <span class="mono" style="font-size: 18px; font-weight: 700">{{t.dir}} {{t.time}}</span>
               <sc-if value="{{t.stamp}}" hint-placeholder-val="{{false}}">
                 <span style="align-self: flex-end"><span class="stamp stamp--ok">Approved</span></span>
               </sc-if>
@@ -63,7 +63,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   <main style="flex: 1 1 560px; min-width: 0; padding: 32px clamp(20px, 4vw, 64px) 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
     <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 14px">
       <span style="font-size: 14px; color: rgba(21,34,25,.7)">Not using Taptime yet?</span>
-      <a href="Signup.dc.html" style="display: inline-flex; align-items: center; min-height: 44px; font-weight: 700; font-size: 14px">Start now — first [N] months free →</a>
+      <a href="Signup.dc.html" style="display: inline-flex; align-items: center; min-height: 44px; font-weight: 700; font-size: 14px">Start now — first 3 months free →</a>
     </div>
 
     <div style="flex: 1; display: flex; align-items: center; justify-content: center">

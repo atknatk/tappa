@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -30,17 +30,10 @@ a{color:#1F5C41}a:hover{color:#152219}
 
   <aside style="flex: 1 1 248px; max-width: 100%; background: #152219; color: #EDF0EA; padding: 24px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px; position: relative">
     <div style="position: absolute; left: 0; top: 0; right: 0; height: 4px; background: #1F5C41"></div>
-    <div style="display: flex; flex-direction: column; gap: 2px; padding: 0 12px">
-      <div style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em">taptime</div>
-      <div class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">punchless</div>
+    <div style="display: flex; flex-direction: column; gap: 4px; padding: 0 12px">
+      <p style="margin: 0; font-size: 16px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; color: #FFFDF4">Kebab Factory</p>
+      <p class="mono" style="margin: 0; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">taptime · punchless</p>
     </div>
-    <button type="button" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 52px; padding: 8px 12px; border-radius: 12px; border: 1px solid rgba(237,240,234,.18); background: transparent; color: #EDF0EA; font: inherit; text-align: left; cursor: pointer">
-      <span style="display: flex; flex-direction: column">
-        <span style="font-size: 14px; font-weight: 700">Kebab Factory</span>
-        <span class="mono" style="font-size: 11px; color: rgba(255,253,244,.7)">9 venues · 112 people</span>
-      </span>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 10l5-5 5 5M7 14l5 5 5-5"/></svg>
-    </button>
     <nav aria-label="Panel sections" style="display: flex; flex-direction: column; gap: 2px">
       <a href="Main.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">01</span>The Pass</a>
       <a href="Spike.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">02</span><span style="flex: 1">The Spike</span><span class="mono" style="min-width: 22px; height: 22px; border-radius: 11px; background: #D98E2B; color: #152219; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">4</span></a>
@@ -55,6 +48,14 @@ a{color:#1F5C41}a:hover{color:#152219}
       <a href="Account.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Account</a>
       <a href="Developers.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Developers</a>
     </div>
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 12px">
+      <p style="margin: 0; display: flex; flex-direction: column; gap: 2px">
+        <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">Signed in as</span>
+        <span style="font-size: 14px; font-weight: 700; letter-spacing: -0.01em; color: #FFFDF4">[manager name]</span>
+        <span class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">Owner</span>
+      </p>
+      <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid #C9D2C8; background: #FFFDF4; color: #152219; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Sign out</button>
+    </div>
   </aside>
 
   <main style="flex: 999 1 640px; min-width: 0; padding: 28px clamp(16px, 3vw, 44px) 56px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px">
@@ -62,7 +63,7 @@ a{color:#1F5C41}a:hover{color:#152219}
       <nav aria-label="Breadcrumb" class="mono" style="font-size: 12px; color: rgba(21,34,25,.7); display: flex; gap: 8px; flex-wrap: wrap">
         <a href="People.dc.html">People</a><span aria-hidden="true">/</span><span>Ahmed Hassan</span><span aria-hidden="true">/</span><span aria-current="page">Invitation</span>
       </nav>
-      <span class="lbl">One person · one link · shown once</span>
+      <span class="lbl">{{kicker}}</span>
       <h1 style="margin: 0; font-size: 44px; line-height: 1; letter-spacing: -0.035em">Invitation</h1>
     </header>
 
@@ -83,18 +84,12 @@ a{color:#1F5C41}a:hover{color:#152219}
             </div>
             <div style="display: flex; flex-direction: column; gap: 8px">
               <span class="lbl">Activation link — shown once</span>
-              <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch">
-                <p class="mono" style="flex: 1 1 320px; margin: 0; padding: 14px 16px; border: 2px dashed rgba(21,34,25,.5); border-radius: 12px; font-size: 16px; word-break: break-all; user-select: all; background: #EDF0EA">https://[panel host]/a/XXXX-XXXX-XXXX</p>
-                <button type="button" style="min-height: 52px; padding: 0 20px; border-radius: 12px; border: 0; background: #152219; color: #FFFDF4; font: 700 15px 'Space Grotesk', sans-serif; cursor: pointer; display: inline-flex; align-items: center; gap: 8px">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>
-                  Copy
-                </button>
-              </div>
-              <p class="help" style="font-size: 13px">Shown as text, not a link, so it does not open here and sign your own browser in.</p>
+              <p class="mono" style="margin: 0; padding: 14px 16px; border: 2px dashed rgba(21,34,25,.5); border-radius: 12px; font-size: 16px; word-break: break-all; user-select: all; background: #EDF0EA">https://[panel host]/a/XXXX-XXXX-XXXX</p>
+              <p class="help" style="font-size: 13px">One tap selects it all. Shown as text, not a link, so it does not open here and sign your own browser in.</p>
             </div>
             <div style="border-top: 1px dashed #C9D2C8; padding-top: 14px; display: flex; flex-direction: column; gap: 6px">
               <p class="help">Taptime keeps no copy of this link. If you lose this page, create another invitation.</p>
-              <p class="help">This is the only link that will sign Ahmed Hassan in. Creating another one later retires this one.</p>
+              <p class="help">{{issuedRetired}}</p>
             </div>
           </section>
         </sc-if>
@@ -107,9 +102,9 @@ a{color:#1F5C41}a:hover{color:#152219}
           </div>
           <section class="docket" style="padding: 24px 28px 28px; display: flex; flex-direction: column; gap: 12px">
             <span class="lbl">Sent to</span>
-            <span class="mono" style="font-size: 22px">a•••@•••.mt</span>
+            <span class="mono" style="font-size: 22px; word-break: break-all">ahmed.hassan@example.com</span>
             <p class="help">Sent means our mail service accepted it, not that it has reached their inbox — that can take a few minutes. If it does not arrive, check the address on their card and send it again.</p>
-            <p class="help">This is the only link that will sign Ahmed Hassan in. Sending another one later replaces it.</p>
+            <p class="help">{{sentRetired}}</p>
           </section>
         </sc-if>
 
@@ -118,10 +113,6 @@ a{color:#1F5C41}a:hover{color:#152219}
             <strong>The email may not have gone out</strong>
             <span>We could not confirm that the email to Ahmed Hassan was sent. Try again from their card in a few minutes — the new link replaces this one.</span>
             <span>Any earlier link for Ahmed Hassan has already stopped working, so they need the new one.</span>
-          </div>
-          <div style="display: flex; gap: 12px; flex-wrap: wrap">
-            <button type="button" style="min-height: 52px; padding: 0 22px; border-radius: 14px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; cursor: pointer">Send it again</button>
-            <button type="button" style="min-height: 52px; padding: 0 20px; border-radius: 14px; border: 1px solid #152219; background: transparent; color: #152219; font: 700 15px 'Space Grotesk', sans-serif; cursor: pointer">Show a link instead</button>
           </div>
         </sc-if>
 
@@ -150,16 +141,28 @@ a{color:#1F5C41}a:hover{color:#152219}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"outcome":{"editor":"enum","options":["issued","sent","unsent"],"default":"issued"},"$preview":{"width":1440,"height":1000}}'>
+<script type="text/x-dc" data-dc-script data-props='{"outcome":{"editor":"enum","options":["issued","sent","unsent"],"default":"issued"},"retired":{"editor":"enum","options":["0","1","2"],"default":"0"},"$preview":{"width":1440,"height":960}}'>
 class Component extends DCLogic {
   renderVals() {
     const o = this.props.outcome ?? 'issued';
+    const r = Number(this.props.retired ?? '0');
+    const name = 'Ahmed Hassan';
+    const issuedRetired = r === 1 ? 'The previous link for ' + name + ' no longer works — creating this one retired it. Only this link will sign them in.'
+      : r > 1 ? 'The ' + r + ' earlier links for ' + name + ' no longer work — creating this one retired them. Only this link will sign them in.'
+      : 'This is the only link that will sign ' + name + ' in. Creating another one later retires this one.';
+    const sentRetired = r === 1 ? 'The previous link for ' + name + ' no longer works — this one replaced it. Only the emailed link will sign them in.'
+      : r > 1 ? 'The ' + r + ' earlier links for ' + name + ' no longer work — this one replaced them. Only the emailed link will sign them in.'
+      : 'This is the only link that will sign ' + name + ' in. Sending another one later replaces it.';
     return {
       isIssued: o === 'issued', isSent: o === 'sent', isUnsent: o === 'unsent',
+      kicker: o === 'issued' ? 'One person · one link · shown once' : 'One person · one link · sent by email',
+      issuedRetired, sentRetired,
       steps: [
-        { n: '1', t: 'Opens the link on their own phone', d: 'A short setup opens in the browser. Nothing is installed.' },
-        { n: '2', t: 'Confirms it is them', d: 'One screen with their name and the business. Confirming ties the setup to that browser.' },
-        { n: '3', t: 'Taps any Kebab Factory plaque', d: 'That first real tap finishes the setup. It writes no attendance record — the next tap is a normal check-in.' }
+        o === 'issued'
+          ? { n: '1', t: 'Opens the link on their own phone', d: 'A short setup opens in the browser. Nothing is installed.' }
+          : { n: '1', t: 'Opens the email on their own phone', d: 'The link in it starts a short setup in the browser. Nothing is installed.' },
+        { n: '2', t: 'Confirms it is them', d: 'A few short screens in the browser. Confirming ties the setup to that browser.' },
+        { n: '3', t: 'Taps one of your plaques', d: 'That first real tap finishes the setup. It writes no attendance record — the next tap is a normal check-in.' }
       ]
     };
   }

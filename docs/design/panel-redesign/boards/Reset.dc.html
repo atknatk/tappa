@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -42,10 +42,10 @@ a{color:#1F5C41}a:hover{color:#152219}
                 <span aria-hidden="true" style="flex: 1; width: 2px; min-height: 26px; background: #C9D2C8"></span>
               </sc-if>
             </div>
-            <button type="button" onClick="{{s.pick}}" aria-current="{{s.current}}" style="flex: 1; min-height: 44px; margin-bottom: 14px; padding: 6px 0; border: 0; background: transparent; text-align: left; font: inherit; color: #152219; cursor: pointer; display: flex; flex-direction: column; gap: 2px">
+            <div aria-current="{{s.current}}" style="flex: 1; min-height: 44px; margin-bottom: 14px; padding: 6px 0; border: 0; background: transparent; text-align: left; font: inherit; color: #152219; display: flex; flex-direction: column; gap: 2px">
               <span style="{{s.titleStyle}}">{{s.title}}</span>
               <span style="font-size: 13px; color: rgba(21,34,25,.7)">{{s.sub}}</span>
-            </button>
+            </div>
           </li>
         </sc-for>
       </ol>
@@ -61,10 +61,10 @@ a{color:#1F5C41}a:hover{color:#152219}
           <sc-if value="{{noMail}}" hint-placeholder-val="{{false}}">
             <div role="note" style="border: 1px solid #D98E2B; background: #F7EBD6; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
               <strong style="font-size: 14px">This Taptime cannot send email yet</strong>
-              <span style="font-size: 13px; line-height: 1.45">No recovery link will arrive, whatever address you enter — sending is not switched on for this server. Ask another owner of your business to set a new password for you from the panel.</span>
+              <span style="font-size: 13px; line-height: 1.45">No recovery link will arrive, whatever address you enter — sending is not switched on for this server.</span>
             </div>
           </sc-if>
-          <form onSubmit="{{toSent}}" style="display: flex; flex-direction: column; gap: 16px">
+          <form onSubmit="{{stop}}" style="display: flex; flex-direction: column; gap: 16px">
             <div style="display: flex; flex-direction: column; gap: 6px">
               <label for="rs-email" class="lbl">Email</label>
               <input id="rs-email" class="field" type="email" autocomplete="username" placeholder="you@yourcompany.com">
@@ -82,7 +82,6 @@ a{color:#1F5C41}a:hover{color:#152219}
             <p style="margin: 0; font-size: 15px; line-height: 1.5">If that address belongs to a Taptime administrator, a recovery link is on its way to it. The link works once and expires in an hour.</p>
             <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7)">Nothing has changed yet: your current password still works until you use the link.</p>
             <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7)">If a recovery email reached you, its link works for as long as it says — asking again sends no new link while that one still works.</p>
-            <button type="button" onClick="{{toNew}}" style="align-self: flex-start; min-height: 44px; padding: 0 16px; border-radius: 12px; border: 1px dashed rgba(21,34,25,.5); background: transparent; color: #152219; font: 500 13px 'IBM Plex Mono', monospace; cursor: pointer">Mockup: open the link from the email →</button>
           </div>
         </sc-if>
         <sc-if value="{{noMail}}" hint-placeholder-val="{{false}}">
@@ -100,9 +99,15 @@ a{color:#1F5C41}a:hover{color:#152219}
         <div style="display: flex; flex-direction: column; gap: 20px">
           <div style="display: flex; flex-direction: column; gap: 8px">
             <h1 style="margin: 0; font-size: 32px; letter-spacing: -0.03em">Set a new password</h1>
-            <p style="margin: 0; font-size: 15px; line-height: 1.5; color: rgba(21,34,25,.7)">Choose something you will remember. At least [N] characters — a few words beats a short one.</p>
+            <p style="margin: 0; font-size: 15px; line-height: 1.5; color: rgba(21,34,25,.7)">Choose something you will remember. At least 8 characters — a few words beats a short one.</p>
           </div>
-          <form onSubmit="{{toDone}}" style="display: flex; flex-direction: column; gap: 16px">
+          <sc-if value="{{newError}}" hint-placeholder-val="{{false}}">
+            <div role="alert" style="border: 2px solid #BE3D2A; background: #FFFDF4; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+              <strong style="font-size: 14px">That didn't work</strong>
+              <span style="font-size: 13px; line-height: 1.45">The two passwords are not the same.</span>
+            </div>
+          </sc-if>
+          <form onSubmit="{{stop}}" style="display: flex; flex-direction: column; gap: 16px">
             <div style="display: flex; flex-direction: column; gap: 6px">
               <label for="rs-new" class="lbl">New password</label>
               <input id="rs-new" class="field" type="password" autocomplete="new-password">
@@ -120,27 +125,24 @@ a{color:#1F5C41}a:hover{color:#152219}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"canDeliver":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":820}}'>
+<script type="text/x-dc" data-dc-script data-props='{"step":{"editor":"enum","options":["1","2","3"],"default":"1"},"canDeliver":{"editor":"boolean","default":true},"newError":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":900}}'>
 class Component extends DCLogic {
-  constructor(props) { super(props); this.state = { step: 1 }; }
   renderVals() {
     const can = this.props.canDeliver ?? true;
-    const step = this.state.step;
+    const step = Number(this.props.step ?? '1');
     const stop = (e) => { if (e && e.preventDefault) e.preventDefault(); };
-    const go = (n) => (e) => { stop(e); this.setState({ step: n }); };
-    const defs = [
+        const defs = [
       ['01', 'Ask for a link', 'Your sign-in email'],
       ['02', 'Check your email', 'The link works once, for an hour'],
       ['03', 'Set a new password', 'Signs you out everywhere']
     ];
     const steps = defs.map(([no, title, sub], i) => {
       const n = i + 1, on = n === step, done = n < step;
-      return { no, title, sub, line: n < 3, current: on ? 'step' : 'false', pick: go(n),
+      return { no, title, sub, line: n < 3, current: on ? 'step' : 'false', 
         dot: 'width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;box-sizing:border-box;' + (on ? 'background:#152219;color:#FFFDF4' : done ? 'background:#1F5C41;color:#FFFDF4' : 'border:1px solid rgba(21,34,25,.5);color:#152219;background:#FFFDF4'),
         titleStyle: 'font-size:16px;' + (on ? 'font-weight:700' : 'font-weight:500') };
     });
-    return { steps, s1: step === 1, s2: step === 2, s3: step === 3, canMail: can, noMail: !can,
-      toSent: go(2), toNew: go(3), toDone: stop };
+    return { steps, s1: step === 1, s2: step === 2, s3: step === 3, canMail: can, noMail: !can, stop, newError: !!this.props.newError };
   }
 }
 </script>

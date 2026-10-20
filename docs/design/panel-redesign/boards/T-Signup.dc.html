@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -35,7 +35,7 @@ a{color:#1F5C41}a:hover{color:#152219}
       <span style="font-size: 22px; font-weight: 700; letter-spacing: -0.03em">taptime</span>
       <span class="mono" style="font-size: 11px; letter-spacing: .14em; color: rgba(21,34,25,.7)">PUNCHLESS</span>
     </a>
-    <a href="#" style="min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
+    <a href="T-SignIn.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
   </header>
 
   <main style="padding: 28px 28px 48px; display: flex; flex-direction: column; gap: 24px">
@@ -139,7 +139,7 @@ a{color:#1F5C41}a:hover{color:#152219}
         <div style="display: flex; flex-direction: column; gap: 8px">
           <span class="lbl">Step 3 of 3</span>
           <h1 id="step-h" style="margin: 0; font-size: 30px; line-height: 1.1; letter-spacing: -0.03em">Create your sign-in</h1>
-          <p style="margin: 0; font-size: 15px; line-height: 1.5; color: rgba(21,34,25,.7)">This is the account you will manage {{bizName}} with. You can invite the rest of your managers later.</p>
+          <p style="margin: 0; font-size: 15px; line-height: 1.5; color: rgba(21,34,25,.7)">This is the account you will manage {{bizName}} with.</p>
         </div>
         <div style="display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 22px; align-items: start">
           <div style="display: flex; flex-direction: column; gap: 20px">
@@ -210,14 +210,17 @@ a{color:#1F5C41}a:hover{color:#152219}
           </ol>
         </div>
         <div style="display: flex; flex-wrap: wrap; gap: 12px">
-          <a href="T-Pass.dc.html" class="btn btn--primary">Sign in to your dashboard</a>
-          <button type="button" class="btn btn--quiet" onClick="{{restart}}">Replay the wizard</button>
+          <a href="T-SignIn.dc.html" class="btn btn--primary">Sign in to your dashboard</a>
         </div>
       </sc-if>
     </section>
   </main>
 
   <footer style="border-top: 1px solid #C9D2C8">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 20px 28px 0; display: flex; flex-direction: column; gap: 8px">
+      <span class="lbl">Taptime</span>
+      <p style="margin: 0; max-width: 560px; font-size: 14px; line-height: 1.55; color: rgba(21,34,25,.85)">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p>
+    </div>
     <nav aria-label="Legal" style="padding: 8px 28px; display: flex; flex-wrap: wrap; gap: 4px 22px; font-size: 13px">
       <a href="T-Legal.dc.html" style="min-height: 44px; display: inline-flex; align-items: center">Privacy</a>
       <a href="T-Legal.dc.html" style="min-height: 44px; display: inline-flex; align-items: center">Terms</a>
@@ -227,7 +230,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </footer>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"problem":{"editor":"enum","options":["none","expired","cookie","rate","server"],"default":"none"},"vat":{"editor":"enum","options":["verified","refused","unchecked"],"default":"verified"},"$preview":{"width":834,"height":1180}}'>
+<script type="text/x-dc" data-dc-script data-props='{"problem":{"editor":"enum","options":["none","expired","cookie","rate","server"],"default":"none"},"vat":{"editor":"enum","options":["verified","refused","unchecked"],"default":"verified"},"$preview":{"width":834,"height":1270}}'>
 class Component extends DCLogic {
   constructor(props) {
     super(props);

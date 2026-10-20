@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -30,110 +30,91 @@ a{color:#1F5C41}a:hover{color:#152219}
 <div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
   <div style="height: 4px; background: #1F5C41"></div>
   <header style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 16px; box-sizing: border-box">
-    <a href="M-Rules.dc.html" class="iconbtn" aria-label="Back to Rules" style="margin-left: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
     <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
-      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
-      <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">KEBAB FACTORY</span>
+      <span style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; color: #152219">Kebab Factory</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">taptime · punchless</span>
     </div>
-    <button type="button" class="iconbtn" aria-label="Search" style="margin-right: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
   </header>
 
   <main style="padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 16px">
     <div style="display: flex; flex-direction: column; gap: 6px">
-      <span class="lbl">Rules / review a change</span>
-      <h1 style="margin: 0; font-size: 30px; line-height: 1.05; letter-spacing: -0.035em">Review this change</h1>
-    </div>
-    <div role="group" aria-label="Preview as a role" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 12px; padding: 3px">
-      <sc-for list="{{roles}}" as="r" hint-placeholder-count="2">
-        <button type="button" onClick="{{r.pick}}" aria-pressed="{{r.on}}" style="{{r.style}}">{{r.label}}</button>
-      </sc-for>
+      <a href="M-Rules.dc.html" class="lbl" style="color: rgba(21,34,25,.7)">Rules / review a change</a>
+      <h1 style="margin: 0; font-size: 28px; line-height: 1.05; letter-spacing: -0.035em">Write a new version of your rule</h1>
+      <p style="margin: 0; font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.7)">This stores a NEW VERSION of a rule you already have. Nothing is overwritten — a policy’s versions can never be edited or deleted, so the version this one supersedes stays readable for the records it decided.</p>
     </div>
 
-    <section aria-labelledby="m-diff-h" class="docket" style="padding: 18px 16px 20px; display: flex; flex-direction: column; gap: 14px">
+    <section aria-labelledby="m-diff-h" style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px">
       <div style="display: flex; flex-direction: column; gap: 4px">
-        <span class="lbl">Rung 10 · one of yours</span>
-        <h2 id="m-diff-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">QR scan without the venue network</h2>
-        <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">own:qr-requires-ip · v3 → v4</span>
+        <span class="lbl">One of your own policies</span>
+        <h2 id="m-diff-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">GPS-only at Headquarter and Hamrun</h2>
+        <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">own:gps-only-allow · version 2 → version 3</span>
       </div>
-      <div style="display: flex; flex-direction: column; gap: 8px">
-        <div style="border: 1px solid #C9D2C8; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: #EDF0EA">
-          <span class="lbl">Before · in force</span>
-          <del class="eff" style="background: rgba(217,142,43,.14); border: 1px solid #D98E2B; color: #152219; text-decoration-thickness: 2px; align-self: flex-start">Send to spike</del>
-          <p style="margin: 0; font-size: 13px">Waits for a manager.</p>
-        </div>
-        <div aria-hidden="true" style="display: flex; justify-content: center; color: rgba(21,34,25,.7)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></div>
-        <div style="border: 2px solid #152219; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: #FFFDF4">
-          <span class="lbl" style="color: #152219">After · when you save</span>
-          <ins class="eff" style="background: rgba(31,92,65,.12); border: 1px solid #1F5C41; color: #152219; text-decoration: none; align-self: flex-start">Approve</ins>
-          <p style="margin: 0; font-size: 13px">Approved on its own.</p>
-        </div>
+      <div style="border: 1px solid #C9D2C8; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 6px; background: #EDF0EA">
+        <span class="lbl">Before · version 2, in use</span>
+        <span class="mono" style="font-size: 12px"><del style="text-decoration-color: #BE3D2A; text-decoration-thickness: 2px">GPS-only at Headquarter and Hamrun</del></span>
+        <span class="mono" style="font-size: 12px">Where: KF Headquarter, KF Hamrun</span>
+        <span class="eff" style="align-self: flex-start; min-height: 28px; font-size: 13px; background: #FFFDF4; border: 1px solid #1F5C41">Approve</span>
       </div>
-      <div style="background: rgba(190,61,42,.06); border: 1px solid #BE3D2A; border-radius: 12px; padding: 12px; font-size: 14px; line-height: 1.5">
-        <strong>In plain words:</strong> a printed QR code can be photographed. After this change, someone with a photo of it can be approved from anywhere.
+      <div aria-hidden="true" style="display: flex; justify-content: center; color: rgba(21,34,25,.7)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></div>
+      <div style="border: 2px solid #152219; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 6px; background: #FFFDF4">
+        <span class="lbl" style="color: #152219">After · version 3, from the next tap</span>
+        <span class="mono" style="font-size: 12px"><ins style="text-decoration: none; background: rgba(31,92,65,.12); padding: 0 3px">GPS-only at Headquarter, Hamrun and Mellieha</ins></span>
+        <span class="mono" style="font-size: 12px">Where: KF Headquarter, KF Hamrun, <ins style="text-decoration: none; background: rgba(31,92,65,.12); padding: 0 3px">KF Mellieha</ins></span>
+        <span style="display: flex; align-items: center; gap: 8px"><span class="eff" style="min-height: 28px; font-size: 13px; background: #FFFDF4; border: 1px solid #1F5C41">Approve</span><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">unchanged</span></span>
       </div>
-      <dl class="mono" style="margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; border-top: 1px dashed #C9D2C8; padding-top: 12px">
-        <div style="display: flex; justify-content: space-between; gap: 8px"><dt>Applies to</dt><dd style="margin: 0">QR taps, every venue</dd></div>
-        <div style="display: flex; justify-content: space-between; gap: 8px"><dt>In force</dt><dd style="margin: 0">v3 · 14 Sep 2026</dd></div>
-        <div style="display: flex; justify-content: space-between; gap: 8px"><dt>Who can save</dt><dd style="margin: 0">an owner</dd></div>
+      <span class="mono" style="font-size: 11px; line-height: 1.5; color: rgba(21,34,25,.7)">Answer, condition and reason are copied from “Taptime baseline — GPS-only allowance”. Only the name and the venues are yours.</span>
+      <dl style="margin: 0; display: flex; flex-direction: column; gap: 8px; border-top: 1px dashed #C9D2C8; padding-top: 12px">
+        <div><dt class="lbl">Version in use</dt><dd class="mono" style="margin: 2px 0 0; font-size: 12px">version 2 · 14 Sep 2026 10:22</dd></div>
+        <div><dt class="lbl">Who can save</dt><dd class="mono" style="margin: 2px 0 0; font-size: 12px">you — the rules engine grants you policy:edit</dd></div>
       </dl>
     </section>
 
-    <section aria-labelledby="m-warn-h" style="background: #F7EBD6; border: 1px solid #D98E2B; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px">
-      <h2 id="m-warn-h" style="margin: 0; font-size: 15px">What this changes</h2>
-      <p style="margin: 0; font-size: 14px; line-height: 1.5"><strong>It applies to taps from the moment you save. Past records keep the decision they got.</strong> This release cannot tell you how many past taps would have come out differently.</p>
+    <section aria-labelledby="m-warn-h" style="background: #F7EBD6; border: 1px solid #D98E2B; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px">
+      <h2 id="m-warn-h" style="margin: 0; font-size: 15px; line-height: 1.3">What this changes, and what nobody can tell you yet</h2>
+      <p style="margin: 0; font-size: 13px; line-height: 1.5"><strong>Your copy does NOT switch the Taptime rule off.</strong> Until you do that, both are weighed together and the more specific one wins where they disagree — so a copy scoped to one venue changes that venue and leaves the rest as they were.</p>
+      <p style="margin: 0; font-size: 13px; line-height: 1.5">Records already written are not touched. Where a rule decided one, it names that rule — and if the rule was a stored one, your own or a Taptime baseline, it names the exact version too, which can never be edited or deleted. Where one of the Taptime guarantees decided there is no stored version to name, and a record you typed in by hand names the person who entered it rather than a rule. What changes here is how the NEXT tap is judged.</p>
+      <p style="margin: 0; font-size: 13px; line-height: 1.5">This release cannot tell you how many of last week’s taps would have come out differently — replaying past taps against a changed rulebook is a separate piece of work and it is not built yet. So treat this as a change you are making with your eyes open rather than one that has been checked for you.</p>
     </section>
 
     <section aria-labelledby="m-hist-h" style="display: flex; flex-direction: column; gap: 10px">
-      <div style="display: flex; flex-direction: column; gap: 2px">
-        <h2 id="m-hist-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">History</h2>
-        <span style="font-size: 13px; color: rgba(21,34,25,.7)">Every version is kept. None can be edited or deleted.</span>
-      </div>
+      <h2 id="m-hist-h" class="lbl" style="margin: 0; font-weight: 400">History · each version has a page of its own</h2>
       <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
-        <sc-for list="{{versions}}" as="v" hint-placeholder-count="4">
-          <li style="display: flex; flex-direction: column; gap: 0">
-            <button type="button" onClick="{{v.pick}}" aria-expanded="{{v.open}}" style="{{v.style}}">
+        <sc-for list="{{versions}}" as="v" hint-placeholder-count="2">
+          <li>
+            <a href="#" style="{{v.style}}">
               <span style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px">
-                <span class="mono" style="font-size: 14px; font-weight: 700">{{v.ver}}</span>
+                <span class="mono" style="font-size: 13px; font-weight: 700">{{v.ver}}</span>
                 <span class="mono" style="{{v.markerStyle}}">{{v.marker}}</span>
               </span>
-              <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{v.at}} · {{v.author}}</span>
-            </button>
-            <sc-if value="{{v.isOpen}}" hint-placeholder-val="{{false}}">
-              <div style="background: #FFFDF4; border: 2px solid #152219; border-top: 0; border-radius: 0 0 12px 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; margin-top: -6px">
-                <span style="font-size: 13px">{{v.state}}</span>
-                <sc-if value="{{v.problem}}" hint-placeholder-val="{{false}}">
-                  <div role="note" style="border: 1px solid #BE3D2A; background: rgba(190,61,42,.07); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 4px">
-                    <strong style="font-size: 13px">This version cannot be read by this release</strong>
-                    <span style="font-size: 12px; line-height: 1.45">It is still stored and can never be edited or deleted — its contents are not shown.</span>
-                    <span class="mono" style="font-size: 11px; word-break: break-word">{{v.problem}}</span>
-                  </div>
-                </sc-if>
-                <sc-for list="{{v.statements}}" as="s" hint-placeholder-count="1">
-                  <div style="border-top: 1px solid #C9D2C8; padding-top: 8px; display: flex; flex-direction: column; gap: 4px">
-                    <span class="mono" style="font-size: 12px">{{s.sid}} · {{s.effect}}</span>
-                    <span style="font-size: 13px">{{s.outcome}}</span>
-                    <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{s.actions}} · {{s.where}} · {{s.when}}</span>
-                  </div>
-                </sc-for>
-              </div>
-            </sc-if>
+              <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{v.at}} · {{v.author}} · {{v.bytes}}</span>
+              <span style="font-size: 13px; font-weight: 700; color: #1F5C41">Read it in full →</span>
+            </a>
           </li>
         </sc-for>
       </ol>
+      <span class="lbl" style="padding-top: 6px">State · version page, old version unreadable</span>
+      <article aria-label="Version 1, read in full" class="docket" style="padding: 14px 14px 16px; display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap">
+          <span style="font-weight: 700; font-size: 14px">GPS-only at Headquarter and Hamrun</span>
+          <span class="mono" style="font-size: 10px; letter-spacing: .1em; text-transform: uppercase; border: 1px solid #152219; padding: 1px 6px">an earlier version</span>
+        </div>
+        <span class="mono" style="font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: rgba(21,34,25,.7)">version 1 · 2 Aug 2026 16:05 · KF Owner · 377 bytes</span>
+        <span style="font-size: 12px; line-height: 1.45">A newer version of this rule exists, so this one decides nothing today. It is kept because records decided under it still name it.</span>
+        <div role="note" style="border: 1px solid #BE3D2A; background: rgba(190,61,42,.07); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px">
+          <strong style="font-size: 13px">This version cannot be read by this release</strong>
+          <span style="font-size: 12px; line-height: 1.45">Its stored document is in a form this release does not understand, so what it says is not shown — showing part of a rule would describe rules that are not your rules. It is still stored, and it can never be edited or deleted.</span>
+          <span class="mono" style="font-size: 10px; word-break: break-word">statement 0: condition operator "GeoWithin" is not one this release knows</span>
+        </div>
+      </article>
     </section>
   </main>
 
   <div style="position: sticky; bottom: 68px; padding: 10px 16px; background: rgba(237,240,234,.96); border-top: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 6px">
     <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px">
-      <sc-if value="{{isOwner}}" hint-placeholder-val="{{true}}">
-        <button type="button" style="min-height: 52px; border-radius: 14px; border: 0; background: #152219; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; cursor: pointer">Make this change</button>
-      </sc-if>
-      <sc-if value="{{isManager}}" hint-placeholder-val="{{false}}">
-        <button type="button" disabled aria-describedby="m-owner-only" style="min-height: 52px; border-radius: 14px; border: 2px dashed rgba(21,34,25,.5); background: transparent; color: rgba(21,34,25,.7); font: 700 16px 'Space Grotesk', sans-serif; cursor: not-allowed">Make this change</button>
-      </sc-if>
-      <a href="M-Rules.dc.html" style="min-height: 52px; border-radius: 14px; border: 1px solid rgba(21,34,25,.5); color: #152219; font: 700 15px 'Space Grotesk', sans-serif; display: flex; align-items: center; justify-content: center; text-decoration: none">Cancel</a>
+      <a href="M-Rules.dc.html" style="min-height: 52px; border-radius: 14px; background: #152219; color: #FFFDF4; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; text-decoration: none">Make this change</a>
+      <a href="M-Rules.dc.html" style="min-height: 52px; border-radius: 14px; border: 1px solid rgba(21,34,25,.5); color: #152219; font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center; text-decoration: none">Cancel</a>
     </div>
-    <span id="m-owner-only" style="{{ownerNoteStyle}}">{{ownerNote}}</span>
+    <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">Nothing is written until you press it — and then only this one change.</span>
   </div>
 
   <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; background: #152219; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0 4px 8px">
@@ -145,37 +126,20 @@ a{color:#1F5C41}a:hover{color:#152219}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1700}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":2300}}'>
 class Component extends DCLogic {
-  constructor(props) { super(props); this.state = { role: 'owner', sel: 0 }; }
   renderVals() {
-    const owner = this.state.role === 'owner';
-    const roles = [['owner', 'Owner'], ['manager', 'Manager']].map(([id, label]) => {
-      const on = this.state.role === id;
-      return { label, on: on ? 'true' : 'false', pick: () => this.setState({ role: id }),
-        style: 'min-height:44px;border-radius:9px;border:0;font:500 14px Space Grotesk,sans-serif;cursor:pointer;' + (on ? 'background:#152219;color:#FFFDF4' : 'background:transparent;color:#152219') };
+    const mk = (ver, at, author, bytes, marker, current) => ({
+      ver, at, author, bytes, marker,
+      markerStyle: marker ? 'font-size:11px;font-weight:700;letter-spacing:.08em;padding:1px 7px;border-radius:999px;border:1px solid #1F5C41;background:rgba(31,92,65,.1)' : 'display:none',
+      style: 'display:flex;flex-direction:column;gap:4px;padding:10px 12px;min-height:44px;border-radius:12px;color:#152219;text-decoration:none;' + (current ? 'background:#FFFDF4;border:2px solid #152219' : 'background:transparent;border:1px solid #C9D2C8')
     });
-    const st = (sid, effect, outcome, actions, where, when) => ({ sid, effect, outcome, actions, where, when });
-    const V = [
-      { ver: 'v3', at: '14 Sep 2026', author: '[OWNER NAME]', marker: 'In force', state: 'Switched on. This is the version deciding QR taps today.', problem: '',
-        statements: [st('own:qr-requires-ip', 'flag', 'QR taps with no venue network go to the spike.', 'tap:qr', 'everywhere', 'network matched = no')] },
-      { ver: 'v2', at: '2 Aug 2026', author: '[OWNER NAME]', marker: 'Superseded', state: 'Replaced by v3 on 14 Sep 2026.', problem: '',
-        statements: [st('own:qr-requires-ip', 'flag', 'Same, except at KF Headquarter.', 'tap:qr', 'all but KF Headquarter', 'network matched = no')] },
-      { ver: 'v1', at: '27 Jul 2026', author: '[OWNER NAME]', marker: 'Superseded', state: 'Replaced by v2 on 2 Aug 2026.', problem: 'statement 0: condition key "geo:within" is not one this release knows', statements: [] },
-      { ver: '2026-07-26', at: '26 Jul 2026', author: 'Taptime baseline', marker: 'Baseline', state: 'The Taptime baseline your own version replaced.', problem: '',
-        statements: [st('base:qr-requires-ip', 'flag', 'QR taps with no venue network go to the spike.', 'tap:qr', 'everywhere', 'network matched = no')] }
+    // Rule history of own:gps-only-allow, newest first; "in use" is the only marker the code prints.
+    const versions = [
+      mk('version 2', '14 Sep 2026 10:22', 'KF Owner', '412 bytes', 'in use', true),
+      mk('version 1', '2 Aug 2026 16:05', 'KF Owner', '377 bytes', '', false)
     ];
-    const versions = V.map((v, i) => {
-      const on = i === this.state.sel;
-      return { ...v, open: on ? 'true' : 'false', isOpen: on, pick: () => this.setState({ sel: on ? -1 : i }),
-        markerStyle: 'font-size:11px;font-weight:700;letter-spacing:.08em;padding:1px 7px;border-radius:999px;' + (v.marker === 'In force' ? 'border:1px solid #1F5C41;background:rgba(31,92,65,.1)' : 'border:1px solid #C9D2C8;color:rgba(21,34,25,.7)'),
-        style: 'width:100%;text-align:left;display:flex;flex-direction:column;gap:4px;padding:12px;min-height:56px;border-radius:12px;font:inherit;color:#152219;cursor:pointer;' + (on ? 'background:#FFFDF4;border:2px solid #152219' : 'background:#FFFDF4;border:1px solid #C9D2C8') };
-    });
-    return {
-      roles, isOwner: owner, isManager: !owner, versions,
-      ownerNote: owner ? 'You are an owner, so you can save this.' : 'Only an organisation owner can make this change.',
-      ownerNoteStyle: 'font-size:12px;' + (owner ? 'color:rgba(21,34,25,.7)' : 'color:#152219;font-weight:500')
-    };
+    return { versions };
   }
 }
 </script>

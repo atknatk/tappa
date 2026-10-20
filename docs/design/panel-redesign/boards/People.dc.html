@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -33,17 +33,10 @@ a{color:#1F5C41}a:hover{color:#152219}
 
   <aside style="flex: 1 1 248px; max-width: 100%; background: #152219; color: #EDF0EA; padding: 24px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px; position: relative">
     <div style="position: absolute; left: 0; top: 0; right: 0; height: 4px; background: #1F5C41"></div>
-    <div style="display: flex; flex-direction: column; gap: 2px; padding: 0 12px">
-      <div style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em">taptime</div>
-      <div class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">punchless</div>
+    <div style="display: flex; flex-direction: column; gap: 4px; padding: 0 12px">
+      <p style="margin: 0; font-size: 16px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; color: #FFFDF4">Kebab Factory</p>
+      <p class="mono" style="margin: 0; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">taptime · punchless</p>
     </div>
-    <button type="button" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 52px; padding: 8px 12px; border-radius: 12px; border: 1px solid rgba(237,240,234,.18); background: transparent; color: #EDF0EA; font: inherit; text-align: left; cursor: pointer">
-      <span style="display: flex; flex-direction: column">
-        <span style="font-size: 14px; font-weight: 700">Kebab Factory</span>
-        <span class="mono" style="font-size: 11px; color: rgba(255,253,244,.7)">9 venues · 112 people</span>
-      </span>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 10l5-5 5 5M7 14l5 5 5-5"/></svg>
-    </button>
     <nav aria-label="Panel sections" style="display: flex; flex-direction: column; gap: 2px">
       <a href="Main.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">01</span>The Pass</a>
       <a href="Spike.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">02</span><span style="flex: 1">The Spike</span><span class="mono" style="min-width: 22px; height: 22px; border-radius: 11px; background: #D98E2B; color: #152219; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">4</span></a>
@@ -58,6 +51,14 @@ a{color:#1F5C41}a:hover{color:#152219}
       <a href="Account.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Account</a>
       <a href="Developers.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Developers</a>
     </div>
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 12px">
+      <p style="margin: 0; display: flex; flex-direction: column; gap: 2px">
+        <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">Signed in as</span>
+        <span style="font-size: 14px; font-weight: 700; letter-spacing: -0.01em; color: #FFFDF4">[manager name]</span>
+        <span class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">Owner</span>
+      </p>
+      <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid #C9D2C8; background: #FFFDF4; color: #152219; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Sign out</button>
+    </div>
   </aside>
 
   <main style="flex: 999 1 640px; min-width: 0; padding: 28px clamp(16px, 3vw, 44px) 56px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px">
@@ -66,60 +67,69 @@ a{color:#1F5C41}a:hover{color:#152219}
         <span class="lbl">Who taps · 112 on the books</span>
         <h1 style="margin: 0; font-size: 44px; line-height: 1; letter-spacing: -0.035em">People</h1>
       </div>
-      <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center">
-        <label style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 12px; background: #FFFDF4; border: 1px solid #C9D2C8; min-width: 240px">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(21,34,25,.7)" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-          <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Find a person</span>
-          <input type="search" placeholder="Name or role…" style="border: 0; outline: 0; background: transparent; font: 14px 'Space Grotesk', sans-serif; color: #152219; flex: 1; min-width: 0">
-        </label>
-        <button type="button" style="min-height: 44px; padding: 0 18px; border-radius: 12px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer; display: inline-flex; align-items: center; gap: 8px">
+      <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px; max-width: 360px">
+        <a href="StaffForm.dc.html" style="min-height: 44px; padding: 0 18px; border-radius: 12px; background: #1F5C41; color: #FFFDF4; font: 700 14px 'Space Grotesk', sans-serif; text-decoration: none; display: inline-flex; align-items: center; gap: 8px">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-          Invite someone
-        </button>
+          Add somebody
+        </a>
+        <span style="font-size: 12px; color: rgba(21,34,25,.7); text-align: right">They are added as invited — you send them their activation link afterwards.</span>
       </div>
     </header>
 
-    <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between">
-      <div role="group" aria-label="Status" style="display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 14px">
+    <form role="search" aria-label="Filter employees" style="display: flex; flex-direction: column; gap: 12px; margin: 0">
+      <div role="group" aria-label="Status" style="align-self: flex-start; display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 999px">
         <sc-for list="{{chips}}" as="c" hint-placeholder-count="4">
-          <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.on}}" style="{{c.style}}">{{c.label}} <span class="mono" style="font-size: 12px; opacity: .75">{{c.n}}</span></button>
+          <button type="button" onClick="{{c.pick}}" aria-current="{{c.on}}" style="{{c.style}}">{{c.label}} <span class="mono" style="font-size: 12px; opacity: .75">{{c.n}}</span></button>
         </sc-for>
       </div>
-      <label style="display: flex; align-items: center; gap: 10px">
-        <span class="lbl">Home venue</span>
-        <select style="min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid #C9D2C8; background: #FFFDF4; font: 14px 'Space Grotesk', sans-serif; color: #152219">
-          <option>All venues</option><option>KF Valletta</option><option>KF Hamrun</option><option>KF St Julians</option><option>KF Msida</option>
-        </select>
-      </label>
-    </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end">
+        <label style="display: flex; flex-direction: column; gap: 6px; flex: 1 1 200px">
+          <span class="lbl">Name</span>
+          <input type="text" placeholder="Part of a name" style="min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid #C9D2C8; background: #FFFDF4; font: 14px 'Space Grotesk', sans-serif; color: #152219; box-sizing: border-box">
+        </label>
+        <label style="display: flex; flex-direction: column; gap: 6px; flex: 1 1 180px">
+          <span class="lbl">Location</span>
+          <select style="min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid #C9D2C8; background: #FFFDF4; font: 14px 'Space Grotesk', sans-serif; color: #152219">
+            <option>All locations</option><option>KF Valletta</option><option>KF Hamrun</option><option>KF St Julians</option><option>KF Msida</option>
+          </select>
+        </label>
+        <label style="display: flex; flex-direction: column; gap: 6px; flex: 1 1 180px">
+          <span class="lbl">Department</span>
+          <select style="min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid #C9D2C8; background: #FFFDF4; font: 14px 'Space Grotesk', sans-serif; color: #152219">
+            <option>All departments</option><option>Kitchen</option><option>Front of house</option>
+          </select>
+        </label>
+        <div style="display: flex; gap: 12px; align-items: center">
+          <button type="button" style="min-height: 44px; padding: 0 18px; border-radius: 12px; border: 1px solid #152219; background: transparent; color: #152219; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Apply</button>
+          <sc-if value="{{narrowed}}" hint-placeholder-val="{{false}}">
+            <button type="button" onClick="{{clear}}" style="border: 0; background: transparent; padding: 0; cursor: pointer; color: #1F5C41; font: 700 14px 'Space Grotesk', sans-serif; text-decoration: underline; min-height: 44px; display: inline-flex; align-items: center">Clear</button>
+          </sc-if>
+        </div>
+      </div>
+    </form>
 
     <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
-      <section aria-label="Roster" style="flex: 999 1 560px; min-width: 0; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 8px 0; display: flex; flex-direction: column">
-        <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
-          <div style="display: flex; flex-direction: column">
-            <div style="display: flex; justify-content: space-between; padding: 14px 20px 6px">
-              <span class="lbl">{{g.venue}}</span>
-              <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{g.count}}</span>
-            </div>
-            <ul style="list-style: none; margin: 0; padding: 0">
-              <sc-for list="{{g.people}}" as="p" hint-placeholder-count="3">
-                <li>
-                  <button type="button" onClick="{{p.pick}}" aria-pressed="{{p.on}}" style="{{p.rowStyle}}">
-                    <span class="mono" aria-hidden="true" style="width: 40px; height: 40px; flex: none; border: 1px solid rgba(21,34,25,.5); border-radius: 10px; background: #FFFDF4; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700">{{p.ini}}</span>
-                    <span style="flex: 1 1 160px; min-width: 0; display: flex; flex-direction: column; gap: 2px">
-                      <span style="font-size: 15px; font-weight: 700">{{p.name}}</span>
-                      <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{p.role}} · {{p.venue}}</span>
-                    </span>
-                    <span style="{{p.pillStyle}}">{{p.pill}}</span>
-                    <span class="mono" style="width: 104px; text-align: right; font-size: 12px">{{p.last}}</span>
-                    <span class="mono" style="width: 60px; text-align: right; font-size: 12px; color: rgba(21,34,25,.7)">{{p.phone}}</span>
-                  </button>
-                </li>
-              </sc-for>
-            </ul>
-          </div>
-        </sc-for>
-        <div class="mono" style="padding: 14px 20px 10px; font-size: 12px; color: rgba(21,34,25,.7); border-top: 1px dashed #C9D2C8">Showing 12 of 112 · scroll for more</div>
+      <section aria-label="Roster" style="flex: 999 1 560px; min-width: 0; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 8px 0 0; display: flex; flex-direction: column">
+        <ul style="list-style: none; margin: 0; padding: 0">
+          <sc-for list="{{people}}" as="p" hint-placeholder-count="12">
+            <li>
+              <button type="button" onClick="{{p.pick}}" aria-current="{{p.on}}" style="{{p.rowStyle}}">
+                <span class="mono" aria-hidden="true" style="width: 40px; height: 40px; flex: none; border: 1px solid rgba(21,34,25,.5); border-radius: 10px; background: #FFFDF4; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700">{{p.ini}}</span>
+                <span style="flex: 1 1 160px; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                  <span style="font-size: 15px; font-weight: 700">{{p.name}}</span>
+                  <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{p.meta}}</span>
+                </span>
+                <span class="mono" style="{{p.pillStyle}}">{{p.pill}}</span>
+                <span class="mono" style="width: 112px; text-align: right; font-size: 12px">{{p.last}}</span>
+                <span class="mono" style="width: 104px; text-align: right; font-size: 12px; color: rgba(21,34,25,.7)">{{p.phone}}</span>
+              </button>
+            </li>
+          </sc-for>
+        </ul>
+        <div class="mono" style="padding: 12px 20px; font-size: 12px; color: rgba(21,34,25,.7); border-top: 1px dashed #C9D2C8; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px">
+          <span>{{footer}} · Dates shown in Europe/Malta</span>
+          <a href="People.dc.html" style="font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; min-height: 44px; display: inline-flex; align-items: center">Next page</a>
+        </div>
       </section>
 
       <aside aria-label="Selected person" style="flex: 1 1 340px; min-width: 0; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 20px">
@@ -127,19 +137,22 @@ a{color:#1F5C41}a:hover{color:#152219}
           <span class="mono" aria-hidden="true" style="width: 56px; height: 56px; flex: none; border: 1px solid #152219; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700">{{sel.ini}}</span>
           <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
             <span style="font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.05">{{sel.name}}</span>
-            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{sel.role}} · home {{sel.venue}}</span>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{sel.meta}}</span>
           </div>
         </div>
-        <div><span style="{{sel.pillStyle}}">{{sel.pill}}</span></div>
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center">
+          <span class="mono" style="{{sel.pillStyle}}">{{sel.pill}}</span>
+          <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{sel.since}}</span>
+        </div>
 
         <sc-if value="{{sel.invited}}" hint-placeholder-val="{{false}}">
           <div style="display: flex; flex-direction: column; gap: 12px; border: 1px dashed #D98E2B; background: rgba(217,142,43,.08); border-radius: 12px; padding: 14px">
             <span class="lbl" style="color: #152219">Activation</span>
-            <p style="margin: 0; font-size: 14px; line-height: 1.45">Waiting for the first NFC tap at a Kebab Factory plaque. The invite was sent 2 days ago.</p>
-            <div style="display: flex; flex-wrap: wrap; gap: 8px">
-              <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 12px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Resend invite</button>
-              <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 12px; border: 1px solid #152219; background: transparent; color: #152219; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Copy link</button>
+            <p style="margin: 0; font-size: 14px; line-height: 1.45">Not activated yet. It finishes on their first tap at one of your plaques, after they open their activation link.</p>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+              <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 12px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Send invite</button>
             </div>
+            <p style="margin: 0; font-size: 12px; color: rgba(21,34,25,.7)">The link is shown once, on the next screen. Taptime keeps no copy of it.</p>
           </div>
         </sc-if>
 
@@ -150,7 +163,7 @@ a{color:#1F5C41}a:hover{color:#152219}
               <sc-for list="{{sel.taps}}" as="t" hint-placeholder-count="7">
                 <div class="mini" style="padding: 8px 8px 9px; display: flex; flex-direction: column; gap: 4px">
                   <span class="mono" style="font-size: 10px; color: rgba(21,34,25,.7)">{{t.day}}</span>
-                  <span class="mono" style="font-size: 13px; font-weight: 500"><span style="font-weight: 700">{{t.dir}}</span> {{t.time}}</span>
+                  <span class="mono" style="font-size: 13px"><span style="font-weight: 700">{{t.dir}}</span> {{t.time}}</span>
                   <span class="mono" style="{{t.style}}">{{t.word}}</span>
                 </div>
               </sc-for>
@@ -159,84 +172,114 @@ a{color:#1F5C41}a:hover{color:#152219}
         </sc-if>
 
         <div style="display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed #C9D2C8; padding-top: 16px">
-          <span class="lbl">Phone</span>
+          <span class="lbl">Signed in</span>
           <span style="font-size: 14px">{{sel.phoneLine}}</span>
-          <sc-if value="{{sel.linked}}" hint-placeholder-val="{{true}}">
-            <button type="button" style="align-self: flex-start; min-height: 44px; padding: 0; border: 0; background: transparent; color: #1F5C41; font: 700 14px 'Space Grotesk', sans-serif; text-decoration: underline; text-underline-offset: 4px; cursor: pointer">Unlink phone</button>
+          <sc-if value="{{sel.stopped}}" hint-placeholder-val="{{false}}">
+            <span style="font-size: 12px; color: rgba(21,34,25,.7)">Any phone they signed in on stays signed in; it simply cannot record time any more.</span>
           </sc-if>
+        </div>
+
+        <sc-if value="{{sel.active}}" hint-placeholder-val="{{true}}">
+          <div style="display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed #C9D2C8; padding-top: 16px">
+            <span class="lbl">Invitation</span>
+            <button type="button" style="align-self: flex-start; min-height: 44px; padding: 0 16px; border-radius: 12px; border: 1px solid #152219; background: transparent; color: #152219; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Re-invite</button>
+            <span style="font-size: 12px; color: rgba(21,34,25,.7)">The link is shown once, on the next screen. Taptime keeps no copy of it.</span>
+          </div>
+        </sc-if>
+
+        <div style="display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed #C9D2C8; padding-top: 16px">
+          <a href="Manual.dc.html" style="align-self: flex-start; font-weight: 700; font-size: 14px; min-height: 44px; display: inline-flex; align-items: center">Enter a record by hand</a>
+          <span style="font-size: 12px; color: rgba(21,34,25,.7)">For somebody with no phone, or a shift nobody tapped out of.</span>
+          <a href="StaffForm.dc.html" style="align-self: flex-start; font-weight: 700; font-size: 14px; min-height: 44px; display: inline-flex; align-items: center">Placement, address and external ref</a>
         </div>
 
         <sc-if value="{{sel.canStop}}" hint-placeholder-val="{{true}}">
           <div style="display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed #C9D2C8; padding-top: 16px">
-            <button type="button" style="align-self: flex-start; min-height: 44px; padding: 0 16px; border-radius: 12px; border: 2px solid #BE3D2A; background: #FFFDF4; color: #152219; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Stop this person</button>
-            <span style="font-size: 12px; color: rgba(21,34,25,.7)">They can no longer tap. Their records stay.</span>
+            <button type="button" style="align-self: flex-start; min-height: 44px; padding: 0 16px; border-radius: 12px; border: 2px solid #BE3D2A; background: #FFFDF4; color: #152219; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Deactivate</button>
+            <span style="font-size: 12px; color: rgba(21,34,25,.7)">Asks first. It cannot be undone afterwards.</span>
           </div>
         </sc-if>
         <sc-if value="{{sel.stopped}}" hint-placeholder-val="{{false}}">
-          <p style="margin: 0; font-size: 13px; color: rgba(21,34,25,.7); border-top: 1px dashed #C9D2C8; padding-top: 16px">Stopped on 2 Oct. Any tap from their phone is refused and raises a security note. Their records stay.</p>
+          <div style="display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed #C9D2C8; padding-top: 16px; font-size: 13px; color: rgba(21,34,25,.85)">
+            <p style="margin: 0">Deactivated on 2 Oct 2026. Their taps are refused, and every refusal is still recorded.</p>
+            <p style="margin: 0">Their taps are already being refused. Deactivating again would change nothing.</p>
+            <p style="margin: 0">No invitation can be sent to somebody who has been deactivated.</p>
+          </div>
         </sc-if>
       </aside>
     </div>
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1180}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1240}}'>
 class Component extends DCLogic {
   constructor(props) { super(props); this.state = { sel: 'ep', status: 'all' }; }
   renderVals() {
+    // Name order, as the roster query sorts (full_name, id). No venue grouping.
     const P = [
-      ['mb', 'Maria Borg', 'Line Cook', 'KF Valletta', 'a', '14:31 today'],
-      ['jsc', 'Julia Sciberras', 'Assistant Manager', 'KF Valletta', 'a', '09:02 today'],
-      ['mbu', 'Marco Bugeja', 'Line Cook', 'KF Valletta', 'a', '14:05 today'],
-      ['ah', 'Ahmed Hassan', 'Kitchen Porter', 'KF Valletta', 'i', '—'],
-      ['kb', 'Kevin Borg', 'Kitchen Porter', 'KF Hamrun', 'a', '14:28 today'],
-      ['av', 'Antoine Vella', 'Line Cook', 'KF Hamrun', 'a', '02:14 yesterday'],
-      ['as', 'Ana Silva', 'Line Cook', 'KF Hamrun', 'a', '10:01 today'],
-      ['ep', 'Elena Petrova', 'Bar Manager', 'KF St Julians', 'a', '14:26 today'],
-      ['cm', 'Carlos Mendez', 'Line Cook', 'KF St Julians', 'a', '18:04 yesterday'],
-      ['dn', 'Dragan Nikolic', 'Kitchen Porter', 'KF St Julians', 's', '14:12 refused'],
-      ['ga', 'Grace Attard', 'Line Cook', 'KF Msida', 'a', '14:19 today'],
-      ['ec', 'Emma Caruana', 'Kitchen Porter', 'KF Msida', 'a', '10:12 today']
+      ['ah', 'Ahmed Hassan', 'Kitchen Porter', 'KF Valletta', 'Kitchen', 'invited', '—', 0, '', 'Not activated'],
+      ['as', 'Ana Silva', 'Line Cook', 'KF Hamrun', 'Kitchen', 'active', '10:01 today', 1, '20 Oct 10:01', 'Active since 3 Sep 2026'],
+      ['av', 'Antoine Vella', 'Line Cook', 'KF Hamrun', 'Kitchen', 'active', '02:14 yesterday', 1, '19 Oct 02:14', 'Active since 12 May 2026'],
+      ['cm', 'Carlos Mendez', 'Line Cook', 'KF St Julians', 'Kitchen', 'active', '18:04 yesterday', 2, '19 Oct 18:04', 'Active since 2 Feb 2026'],
+      ['dn', 'Dragan Nikolic', 'Kitchen Porter', 'KF St Julians', 'Kitchen', 'deactivated', '14:12 refused', 1, '20 Oct 14:12', 'Deactivated 2 Oct 2026'],
+      ['ep', 'Elena Petrova', 'Bar Manager', 'KF St Julians', 'Front of house', 'active', '14:26 today', 1, '20 Oct 14:26', 'Active since 14 Mar 2025'],
+      ['ec', 'Emma Caruana', 'Kitchen Porter', 'KF Msida', 'Kitchen', 'active', '10:12 today', 1, '20 Oct 10:12', 'Active since 18 Oct 2026'],
+      ['ga', 'Grace Attard', 'Line Cook', 'KF Msida', 'Kitchen', 'active', '14:19 today', 1, '20 Oct 14:19', 'Active since 9 Jan 2026'],
+      ['jsc', 'Julia Sciberras', 'Assistant Manager', 'KF Valletta', 'Front of house', 'active', '09:02 today', 1, '20 Oct 09:02', 'Active since 21 Nov 2025'],
+      ['kb', 'Kevin Borg', 'Kitchen Porter', 'KF Hamrun', 'Kitchen', 'active', '14:28 today', 1, '20 Oct 14:28', 'Active since 30 Jun 2026'],
+      ['mbu', 'Marco Bugeja', 'Line Cook', 'KF Valletta', 'Kitchen', 'active', '14:05 today', 1, '20 Oct 14:05', 'Active since 4 Apr 2026'],
+      ['mb', 'Maria Borg', 'Line Cook', 'KF Valletta', 'Kitchen', 'active', '14:31 today', 1, '20 Oct 14:31', 'Active since 15 Aug 2025']
     ];
+    // The database's own words (roster.templ lifecycleTally). Word ink, colour in the frame.
     const pill = {
-      a: ['Active', 'padding:3px 10px;border-radius:999px;border:1px solid #1F5C41;background:rgba(31,92,65,.1);font-size:12px;font-weight:500;white-space:nowrap'],
-      i: ['Invited · waiting for first tap', 'padding:3px 10px;border-radius:999px;border:1px dashed #D98E2B;background:rgba(217,142,43,.1);font-size:12px;font-weight:500;white-space:nowrap'],
-      s: ['Stopped', 'padding:3px 10px;border-radius:999px;border:1px solid #C9D2C8;color:rgba(21,34,25,.7);font-size:12px;font-weight:500;white-space:nowrap']
+      invited: ['INVITED', 'padding:3px 10px;border-radius:999px;border:1px dashed #D98E2B;background:rgba(217,142,43,.1);font-size:11px;font-weight:700;letter-spacing:.08em;white-space:nowrap;color:#152219'],
+      active: ['ACTIVE', 'padding:3px 10px;border-radius:999px;border:1px solid #1F5C41;background:rgba(31,92,65,.1);font-size:11px;font-weight:700;letter-spacing:.08em;white-space:nowrap;color:#152219'],
+      deactivated: ['DEACTIVATED', 'padding:3px 10px;border-radius:999px;border:1px solid #C9D2C8;font-size:11px;font-weight:700;letter-spacing:.08em;white-space:nowrap;color:rgba(21,34,25,.7)']
     };
+    // deviceLine: live sessions are counted, never named. Deactivating does not sign a phone out.
+    const deviceShort = n => n <= 0 ? 'None signed in' : n + ' signed in';
+    const deviceLine = (n, used) => n <= 0 ? 'None signed in' : (n + ' signed in') + (used ? ' · last used ' + used : ' · not used yet');
     const st = this.state.status;
-    const ini = n => n.split(' ').map(w => w[0]).join('');
-    const people = P.filter(p => st === 'all' || p[4] === st).map(([id, name, role, venue, s, last]) => ({
-      id, name, role, venue, s, last, ini: ini(name), pill: pill[s][0], pillStyle: pill[s][1],
-      phone: s === 'a' ? '1 phone' : s === 'i' ? 'none' : '—',
+    const ini = n => { const w = n.split(' '); return (w[0][0] + (w.length > 1 ? w[w.length - 1][0] : '')).toUpperCase(); };
+    const people = P.filter(p => st === 'all' || p[5] === st).map(([id, name, role, venue, dept, s, last, n]) => ({
+      id, name, last, ini: ini(name), pill: pill[s][0], pillStyle: pill[s][1],
+      meta: role + ' · ' + venue + ' · ' + dept,
+      phone: deviceShort(n),
       on: this.state.sel === id ? 'true' : 'false',
       pick: () => this.setState({ sel: id }),
-      rowStyle: 'width:100%;display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:10px 20px;border:0;border-top:1px dashed #C9D2C8;font:inherit;color:#152219;text-align:left;cursor:pointer;min-height:60px;' + (this.state.sel === id ? 'background:rgba(31,92,65,.08);box-shadow:inset 3px 0 0 #152219' : 'background:transparent')
+      rowStyle: 'width:100%;box-sizing:border-box;display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:10px 20px;border-top:1px dashed #C9D2C8;color:#152219;font:inherit;text-align:left;cursor:pointer;border-left:0;border-right:0;border-bottom:0;min-height:60px;' + (this.state.sel === id ? 'background:rgba(31,92,65,.08);box-shadow:inset 3px 0 0 #152219' : 'background:transparent')
     }));
-    const venues = [];
-    people.forEach(p => { if (venues.indexOf(p.venue) < 0) venues.push(p.venue); });
-    const groups = venues.map(v => { const ps = people.filter(p => p.venue === v); return { venue: v, count: ps.length + ' shown', people: ps }; });
+    if (people.length) people[0].rowStyle = people[0].rowStyle.replace('border-top:1px dashed #C9D2C8;', 'border-top:0;');
 
-    const counts = { all: 112, a: 104, i: 5, s: 3 };
-    const chips = [['all', 'All'], ['a', 'Active'], ['i', 'Invited'], ['s', 'Stopped']].map(([id, label]) => {
+    // Counts per status honour the other filters; the total is their sum.
+    const counts = { all: 112, invited: 5, active: 104, deactivated: 3 };
+    const chips = [['all', 'Everyone'], ['invited', 'Invited'], ['active', 'Active'], ['deactivated', 'Deactivated']].map(([id, label]) => {
       const on = st === id;
       return { label, n: counts[id], on: on ? 'true' : 'false', pick: () => this.setState({ status: id }),
-        style: 'min-height:40px;padding:0 14px;border-radius:10px;border:0;font:500 14px Space Grotesk,sans-serif;cursor:pointer;' + (on ? 'background:#152219;color:#FFFDF4' : 'background:transparent;color:#152219') };
+        style: 'min-height:44px;padding:0 14px;border-radius:999px;border:0;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font:500 14px Space Grotesk,sans-serif;' + (on ? 'background:#152219;color:#FFFDF4' : 'background:transparent;color:#152219') };
     });
 
-    const found = P.find(p => p[0] === this.state.sel) || P[7];
-    const [id, name, role, venue, s] = found;
+    const found = P.find(p => p[0] === this.state.sel) || P[5];
+    const [, name, role, venue, dept, s, , n, used, since] = found;
     const words = { ok: ['Approved', '#1F5C41'], flag: ['Flagged', '#D98E2B'], reject: ['Rejected', '#BE3D2A'] };
-    const tapsRaw = s === 's'
+    const tapsRaw = s === 'deactivated'
       ? [['Tue 20', 'IN', '14:12', 'reject'], ['Wed 1', 'OUT', '22:04', 'ok'], ['Wed 1', 'IN', '18:01', 'ok']]
       : [['Tue 20', 'IN', '14:26', 'flag'], ['Mon 19', 'OUT', '02:09', 'ok'], ['Sun 18', 'IN', '17:58', 'ok'], ['Sun 18', 'OUT', '01:47', 'ok'], ['Sat 17', 'IN', '18:03', 'ok'], ['Fri 16', 'OUT', '02:15', 'ok'], ['Thu 15', 'IN', '18:00', 'ok']];
-    const taps = tapsRaw.map(([day, dir, time, w]) => ({ day, dir, time, word: words[w][0],
-      style: 'align-self:flex-start;font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:1px 4px;border:1px solid ' + words[w][1] }));
+    const taps = tapsRaw.map(([day, dir, time, w]) => ({ day, dir: w === 'reject' ? '—' : dir, time, word: words[w][0],
+      style: 'align-self:flex-start;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:1px 4px;border:1px solid ' + words[w][1] }));
     const sel = {
-      name, role, venue, ini: ini(name), pill: pill[s][0], pillStyle: pill[s][1],
-      invited: s === 'i', hasTaps: s !== 'i', taps, linked: s === 'a', canStop: s !== 's', stopped: s === 's',
-      phoneLine: s === 'a' ? 'Linked by tap at ' + venue + ' · 3 Sep' : s === 'i' ? 'No phone yet — it links on the first tap.' : 'Unlinked when stopped · 2 Oct'
+      name, ini: ini(name), pill: pill[s][0], pillStyle: pill[s][1], since,
+      meta: role + ' · ' + venue + ' · ' + dept,
+      invited: s === 'invited', active: s === 'active', hasTaps: s !== 'invited', taps,
+      canStop: s !== 'deactivated', stopped: s === 'deactivated',
+      phoneLine: deviceLine(n, used)
     };
-    return { chips, groups, sel };
+    return {
+      chips, people, sel,
+      narrowed: st !== 'all',
+      clear: () => this.setState({ status: 'all' }),
+      footer: 'Showing ' + people.length + ' of ' + counts[st]
+    };
   }
 }
 </script>

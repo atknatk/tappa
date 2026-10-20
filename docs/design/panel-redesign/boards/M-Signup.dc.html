@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -35,7 +35,7 @@ a{color:#1F5C41}a:hover{color:#152219}
       <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
       <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">PUNCHLESS</span>
     </a>
-    <a href="#" style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
+    <a href="M-SignIn.dc.html" style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
   </header>
 
   <div style="position: sticky; top: 0; z-index: 2; background: #EDF0EA; padding: 12px 16px 10px; border-bottom: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 8px">
@@ -122,7 +122,7 @@ a{color:#1F5C41}a:hover{color:#152219}
     <sc-if value="{{showStep2}}" hint-placeholder-val="{{false}}">
       <div style="display: flex; flex-direction: column; gap: 8px">
         <h1 style="margin: 0; font-size: 28px; line-height: 1.1; letter-spacing: -0.03em">Create your sign-in</h1>
-        <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7)">This is the account you will manage {{bizName}} with. You can invite the rest of your managers later.</p>
+        <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7)">This is the account you will manage {{bizName}} with.</p>
       </div>
       <div style="display: flex; flex-direction: column; gap: 6px">
         <label for="m-full" class="lbl">Your name</label>
@@ -180,12 +180,15 @@ a{color:#1F5C41}a:hover{color:#152219}
           <li style="display: grid; grid-template-columns: 28px 1fr; gap: 10px; font-size: 14px; line-height: 1.5"><span class="mono" style="font-weight: 700">03</span><span><strong>Your plaques.</strong> Taptime encodes each one and loads it into your dashboard; ask us for the ones you need. Until one is mounted there is nothing to tap at.</span></li>
         </ol>
       </div>
-      <a href="M-Pass.dc.html" class="btn btn--primary">Sign in to your dashboard</a>
-      <button type="button" class="btn btn--quiet" onClick="{{restart}}">Replay the wizard</button>
+      <a href="M-SignIn.dc.html" class="btn btn--primary">Sign in to your dashboard</a>
     </sc-if>
   </main>
 
   <footer style="border-top: 1px solid #C9D2C8">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 18px 16px 0; display: flex; flex-direction: column; gap: 8px">
+      <span class="lbl">Taptime</span>
+      <p style="margin: 0; max-width: 560px; font-size: 14px; line-height: 1.55; color: rgba(21,34,25,.85)">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p>
+    </div>
     <nav aria-label="Legal" style="padding: 6px 16px 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; font-size: 13px">
       <a href="M-Legal.dc.html" style="min-height: 44px; display: inline-flex; align-items: center">Privacy</a>
       <a href="M-Legal.dc.html" style="min-height: 44px; display: inline-flex; align-items: center">Terms</a>
@@ -195,7 +198,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </footer>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"problem":{"editor":"enum","options":["none","expired","cookie","rate","server"],"default":"none"},"vat":{"editor":"enum","options":["verified","refused","unchecked"],"default":"verified"},"$preview":{"width":390,"height":1400}}'>
+<script type="text/x-dc" data-dc-script data-props='{"problem":{"editor":"enum","options":["none","expired","cookie","rate","server"],"default":"none"},"vat":{"editor":"enum","options":["verified","refused","unchecked"],"default":"verified"},"$preview":{"width":390,"height":1500}}'>
 class Component extends DCLogic {
   constructor(props) {
     super(props);

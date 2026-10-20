@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -31,17 +31,10 @@ a{color:#1F5C41}a:hover{color:#152219}
 
   <aside style="flex: 1 1 248px; max-width: 100%; background: #152219; color: #EDF0EA; padding: 24px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px; position: relative">
     <div style="position: absolute; left: 0; top: 0; right: 0; height: 4px; background: #1F5C41"></div>
-    <div style="display: flex; flex-direction: column; gap: 2px; padding: 0 12px">
-      <div style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em">taptime</div>
-      <div class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">punchless</div>
+    <div style="display: flex; flex-direction: column; gap: 4px; padding: 0 12px">
+      <p style="margin: 0; font-size: 16px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; color: #FFFDF4">Kebab Factory</p>
+      <p class="mono" style="margin: 0; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">taptime · punchless</p>
     </div>
-    <button type="button" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 52px; padding: 8px 12px; border-radius: 12px; border: 1px solid rgba(237,240,234,.18); background: transparent; color: #EDF0EA; font: inherit; text-align: left; cursor: pointer">
-      <span style="display: flex; flex-direction: column">
-        <span style="font-size: 14px; font-weight: 700">Kebab Factory</span>
-        <span class="mono" style="font-size: 11px; color: rgba(255,253,244,.7)">9 venues · 112 people</span>
-      </span>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 10l5-5 5 5M7 14l5 5 5-5"/></svg>
-    </button>
     <nav aria-label="Panel sections" style="display: flex; flex-direction: column; gap: 2px">
       <a href="Main.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">01</span>The Pass</a>
       <a href="Spike.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">02</span><span style="flex: 1">The Spike</span><span class="mono" style="min-width: 22px; height: 22px; border-radius: 11px; background: #D98E2B; color: #152219; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">4</span></a>
@@ -55,6 +48,14 @@ a{color:#1F5C41}a:hover{color:#152219}
       <a href="Billing.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Billing</a>
       <a href="Account.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Account</a>
       <a href="Developers.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Developers</a>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 12px">
+      <p style="margin: 0; display: flex; flex-direction: column; gap: 2px">
+        <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">Signed in as</span>
+        <span style="font-size: 14px; font-weight: 700; letter-spacing: -0.01em; color: #FFFDF4">[manager name]</span>
+        <span class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">Owner</span>
+      </p>
+      <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid #C9D2C8; background: #FFFDF4; color: #152219; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Sign out</button>
     </div>
   </aside>
 
@@ -73,12 +74,13 @@ a{color:#1F5C41}a:hover{color:#152219}
           <div style="display: flex; flex-direction: column; gap: 6px">
             <label for="add-full-name" class="lbl">Name</label>
             <input id="add-full-name" class="field" type="text" value="Emma Caruana" autocomplete="off" required>
+            <p class="help">What your team calls them. This is the only thing we need.</p>
           </div>
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
             <div style="display: flex; flex-direction: column; gap: 6px">
               <label for="add-location" class="lbl">Venue</label>
               <select id="add-location" class="field" required><option>Choose a venue…</option><option selected>KF Valletta</option><option>KF Hamrun</option><option>KF Msida</option></select>
-              <p class="help">Where they usually work. Lateness is measured against this venue's shift.</p>
+              <p class="help">Where they normally work. They can still tap in at any of your venues.</p>
             </div>
             <div style="display: flex; flex-direction: column; gap: 6px">
               <label for="add-department" class="lbl">Department (optional)</label>
@@ -89,6 +91,7 @@ a{color:#1F5C41}a:hover{color:#152219}
           <div style="display: flex; flex-direction: column; gap: 6px">
             <label for="add-role" class="lbl">Job title (optional)</label>
             <input id="add-role" class="field" type="text" value="Line Cook">
+            <p class="help">Waiter, chef, floor manager — whatever you call it. Nothing depends on it.</p>
           </div>
           <div style="display: flex; flex-direction: column; gap: 6px">
             <label for="add-email" class="lbl">Email (optional)</label>
@@ -104,11 +107,11 @@ a{color:#1F5C41}a:hover{color:#152219}
         <aside class="card" style="flex: 1 1 300px; min-width: 0">
           <h2 style="margin: 0; font-size: 18px">After you add them</h2>
           <ol style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; line-height: 1.45">
-            <li>Send an invitation by email, or show a link on screen and hand it over.</li>
-            <li>They open it on their own phone and confirm.</li>
-            <li>Their first tap on a plaque finishes the setup.</li>
+            <li>From their card, send their activation link. It is shown once on screen for you to hand over — or, if this business sends invitations by email, it goes to the address on file.</li>
+            <li>They open it on their own phone and confirm it is them.</li>
+            <li>Their first tap on one of your plaques finishes the setup. That tap writes no attendance record.</li>
           </ol>
-          <p class="help">Until then they show as <strong style="color: #152219">Invited · waiting for first tap</strong> in People.</p>
+          <p class="help">Until then they show as <strong style="color: #152219">INVITED</strong> in People.</p>
         </aside>
       </div>
     </sc-if>
@@ -120,9 +123,9 @@ a{color:#1F5C41}a:hover{color:#152219}
             <div class="mono" aria-hidden="true" style="width: 56px; height: 56px; border-radius: 12px; background: #152219; color: #FFFDF4; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700">AH</div>
             <div style="flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px">
               <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.02em">Ahmed Hassan</span>
-              <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">Kitchen Porter · since 12 Oct 2026 · 0 devices</span>
+              <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">Kitchen Porter · KF Hamrun · None signed in</span>
             </div>
-            <span class="mono" style="font-size: 11px; font-weight: 700; letter-spacing: .08em; padding: 4px 10px; border-radius: 12px; border: 1px dashed #D98E2B; background: rgba(217,142,43,.1); color: #152219">INVITED · WAITING FOR FIRST TAP</span>
+            <span class="mono" style="font-size: 11px; font-weight: 700; letter-spacing: .08em; padding: 4px 10px; border-radius: 999px; border: 1px dashed #D98E2B; background: rgba(217,142,43,.1); color: #152219">INVITED</span>
           </section>
 
           <form class="card" aria-label="Placement" style="margin: 0">
@@ -131,47 +134,62 @@ a{color:#1F5C41}a:hover{color:#152219}
               <div style="display: flex; flex-direction: column; gap: 6px"><label for="m-loc" class="lbl">Venue</label><select id="m-loc" class="field"><option selected>KF Hamrun</option><option>KF Valletta</option></select></div>
               <div style="display: flex; flex-direction: column; gap: 6px"><label for="m-dep" class="lbl">Department</label><select id="m-dep" class="field"><option selected>No department</option><option>Kitchen</option></select></div>
             </div>
-            <button type="button" class="btn btn--line" style="align-self: flex-start">Save placement</button>
+            <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center">
+              <button type="button" class="btn btn--line">Save placement</button>
+              <a href="People.dc.html" style="font-weight: 700; font-size: 14px; min-height: 44px; display: inline-flex; align-items: center">Close</a>
+            </div>
           </form>
 
           <section class="card" aria-label="Invitation">
             <h2 style="margin: 0; font-size: 18px">Invitation</h2>
-            <p class="help">A new invitation retires every earlier link for Ahmed.</p>
-            <div style="display: flex; flex-wrap: wrap; gap: 10px">
-              <a href="Invite.dc.html" class="btn btn--ink">Email an invitation</a>
-              <a href="Invite.dc.html" class="btn btn--line">Show the link on screen</a>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center">
+              <a href="Invite.dc.html" class="btn btn--ink">Send invite</a>
             </div>
+            <p class="help">{{inviteHelp}}</p>
+            <p class="help">A new invitation retires every earlier link for Ahmed Hassan.</p>
           </section>
 
           <section class="card" aria-label="Email and external ref">
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px">
               <div style="display: flex; flex-direction: column; gap: 8px">
                 <span class="lbl">Email on file</span>
-                <span class="mono" style="font-size: 15px">a•••@•••.mt</span>
-                <label for="m-email" class="lbl" style="margin-top: 4px">New address</label>
-                <input id="m-email" class="field" type="email" style="font-family: 'IBM Plex Mono', monospace">
-                <button type="button" class="btn btn--line" style="align-self: flex-start">Save address</button>
+                <span class="mono" style="font-size: 15px; word-break: break-all">ahmed.hassan@example.com</span>
+                <sc-if value="{{isOwner}}" hint-placeholder-val="{{true}}">
+                  <div style="display: flex; flex-direction: column; gap: 8px">
+                    <label for="m-email" class="lbl" style="margin-top: 4px">New address</label>
+                    <input id="m-email" class="field" type="email" value="ahmed.hassan@example.com" style="font-family: 'IBM Plex Mono', monospace">
+                    <p class="help">Leave it empty to remove the address. Saving a different address stops every activation link for Ahmed Hassan that has not been used yet.</p>
+                    <button type="button" class="btn btn--line" style="align-self: flex-start">Save address</button>
+                  </div>
+                </sc-if>
               </div>
               <div style="display: flex; flex-direction: column; gap: 8px">
                 <span class="lbl">External ref</span>
                 <span style="font-size: 14px">Not linked to an HR or ERP record.</span>
-                <label for="m-ref" class="lbl" style="margin-top: 4px">External ref</label>
-                <input id="m-ref" class="field" type="text" style="font-family: 'IBM Plex Mono', monospace">
-                <button type="button" class="btn btn--line" style="align-self: flex-start">Save external ref</button>
+                <sc-if value="{{isOwner}}" hint-placeholder-val="{{true}}">
+                  <div style="display: flex; flex-direction: column; gap: 8px">
+                    <label for="m-ref" class="lbl" style="margin-top: 4px">External ref</label>
+                    <input id="m-ref" class="field" type="text" style="font-family: 'IBM Plex Mono', monospace">
+                    <p class="help">The identifier your HR or ERP system uses for Ahmed Hassan: letters, digits and . _ ~ - only, up to 64 characters. Leave it empty to unlink.</p>
+                    <button type="button" class="btn btn--line" style="align-self: flex-start">Save external ref</button>
+                  </div>
+                </sc-if>
               </div>
             </div>
-            <p class="help">Only the business owner can change an address or an external ref.</p>
+            <sc-if value="{{isManager}}" hint-placeholder-val="{{false}}">
+              <p class="help">Only the business owner can change an address or an external ref.</p>
+            </sc-if>
           </section>
         </div>
 
         <aside style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
           <section class="card">
             <h2 style="margin: 0; font-size: 18px">A missed tap?</h2>
-            <p class="help">Add the record by hand. It is a new record, marked as typed by a manager.</p>
+            <p class="help">For somebody with no phone, or a shift nobody tapped out of. It adds a new record, marked as entered by a manager.</p>
             <a href="Manual.dc.html" class="btn btn--line" style="align-self: flex-start">Enter a record by hand</a>
           </section>
           <section class="card" style="border-color: #BE3D2A">
-            <h2 style="margin: 0; font-size: 18px">Stop this person</h2>
+            <h2 style="margin: 0; font-size: 18px">Deactivate</h2>
             <p class="help" style="color: #152219">Their own taps are refused from now on. Every record they made stays, and still counts.</p>
             <button type="button" class="btn" style="align-self: flex-start; border: 2px solid #BE3D2A; background: #FFFDF4; color: #152219">Deactivate</button>
             <p class="help">Asks first. It cannot be undone afterwards.</p>
@@ -182,12 +200,15 @@ a{color:#1F5C41}a:hover{color:#152219}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"mode":{"editor":"enum","options":["add","manage"],"default":"add"},"$preview":{"width":1440,"height":1160}}'>
+<script type="text/x-dc" data-dc-script data-props='{"mode":{"editor":"enum","options":["add","manage"],"default":"add"},"invite":{"editor":"enum","options":["panel","email"],"default":"panel"},"viewer":{"editor":"enum","options":["owner","manager"],"default":"owner"},"$preview":{"width":1440,"height":1220}}'>
 class Component extends DCLogic {
   renderVals() {
     const add = (this.props.mode ?? 'add') === 'add';
+    const byEmail = (this.props.invite ?? 'panel') === 'email';
+    const owner = (this.props.viewer ?? 'owner') === 'owner';
     return {
-      isAdd: add, isManage: !add,
+      isAdd: add, isManage: !add, isOwner: owner, isManager: !owner,
+      inviteHelp: byEmail ? 'The link goes by email to the address on file below. It is never shown on screen.' : 'The link is shown once, on the next screen. Taptime keeps no copy of it.',
       crumb: add ? 'Add somebody' : 'Ahmed Hassan',
       kicker: add ? 'Add somebody · they activate with their first tap' : 'Managing one person',
       title: add ? 'New person' : 'Ahmed Hassan'

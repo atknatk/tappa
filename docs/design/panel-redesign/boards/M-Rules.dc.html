@@ -9,7 +9,7 @@
 <x-dc>
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
@@ -29,26 +29,24 @@ a{color:#1F5C41}a:hover{color:#152219}
 <div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
   <div style="height: 4px; background: #1F5C41"></div>
   <header style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 16px; box-sizing: border-box">
-    <a href="M-More.dc.html" class="iconbtn" aria-label="Back to More" style="margin-left: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
     <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
-      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
-      <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">KEBAB FACTORY</span>
+      <span style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; color: #152219">Kebab Factory</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">taptime · punchless</span>
     </div>
-    <button type="button" class="iconbtn" aria-label="Search" style="margin-right: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
   </header>
 
   <main style="padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 18px">
     <div style="display: flex; flex-direction: column; gap: 6px">
-      <span class="lbl">First match wins</span>
+      <span class="lbl">Guarantees first · then your rules</span>
       <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">Rules</h1>
     </div>
-    <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7)">Every tap climbs this ladder from the top. The first rung that fits decides. If no rung decides, the tap goes to the spike.</p>
+    <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7)">Every tap meets the Taptime guarantees first, in order — the first that applies decides on its own. Below them your baseline and your own rules are weighed together: the more specific rule decides, and only between equally specific rules does the stricter one win. If nothing at all matches, the tap is sent to The Spike rather than quietly approved.</p>
 
     <ol style="list-style: none; margin: 0; padding: 0 0 0 36px; position: relative; display: flex; flex-direction: column; gap: 10px">
       <li aria-hidden="true" style="position: absolute; left: 12px; top: 8px; bottom: 8px; width: 2px; background: #152219"></li>
 
-      <li class="lbl" style="padding: 2px 0 2px">Guardrails · no business can change these</li>
-      <sc-for list="{{guards}}" as="g" hint-placeholder-count="7">
+      <li class="lbl" style="padding: 2px 0 2px">Taptime guarantees · cannot be switched off</li>
+      <sc-for list="{{guards}}" as="g" hint-placeholder-count="11">
         <li style="position: relative">
           <span class="rung">{{g.no}}</span>
           <div style="position: relative; padding: 14px 16px; border-radius: 12px; background: rgba(21,34,25,.05); border: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 6px">
@@ -58,64 +56,121 @@ a{color:#1F5C41}a:hover{color:#152219}
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(21,34,25,.7)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
               <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{g.id}}</span>
             </span>
-            <span style="font-size: 14px; font-weight: 500; line-height: 1.35">{{g.when}}</span>
-            <span class="mono" style="font-size: 12px; font-weight: 700">→ {{g.then}}</span>
-          </div>
-        </li>
-      </sc-for>
-
-      <li class="lbl" style="padding: 10px 0 2px">Your rules · you choose what happens</li>
-      <sc-for list="{{rules}}" as="r" hint-placeholder-count="5">
-        <li style="position: relative">
-          <span class="rung">{{r.no}}</span>
-          <div style="{{r.cardStyle}}">
-            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{r.id}}</span>
-            <span style="font-size: 15px; font-weight: 700; line-height: 1.35">{{r.when}}</span>
-            <div role="group" aria-label="{{r.groupLabel}}" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid rgba(21,34,25,.5); border-radius: 12px; overflow: hidden">
-              <sc-for list="{{r.opts}}" as="o" hint-placeholder-count="3">
-                <button type="button" onClick="{{o.pick}}" aria-pressed="{{o.on}}" style="{{o.style}}">{{o.label}}</button>
-              </sc-for>
-            </div>
-            <sc-if value="{{r.changed}}" hint-placeholder-val="{{false}}">
-              <span class="mono" style="font-size: 11px; color: #152219">changed · was {{r.was}}</span>
+            <span style="font-size: 14px; font-weight: 700; line-height: 1.35">{{g.when}}</span>
+            <span class="mono" style="font-size: 12px; font-weight: 700">→ {{g.effect}}</span>
+            <span style="font-size: 12px; line-height: 1.4; color: rgba(21,34,25,.7)">{{g.rule}}</span>
+            <sc-if value="{{g.tuned}}" hint-placeholder-val="{{false}}">
+              <span class="mono" style="font-size: 11px; padding: 4px 8px; border-radius: 8px; background: #EDF0EA; border: 1px solid #C9D2C8">{{g.tune}}</span>
             </sc-if>
           </div>
         </li>
       </sc-for>
 
+      <li class="lbl" style="padding: 10px 0 2px">Taptime baseline · weighed together, not in order</li>
+      <li style="font-size: 12px; line-height: 1.45; color: rgba(21,34,25,.7)">Each control opens a review page for that one change. Nothing is written until you confirm there.</li>
+      <sc-for list="{{rules}}" as="r" hint-placeholder-count="9">
+        <li style="position: relative">
+          <span aria-hidden="true" style="position: absolute; left: -31px; top: 18px; width: 16px; height: 16px; border-radius: 50%; background: #FFFDF4; border: 3px solid #152219; box-sizing: border-box"></span>
+          <div style="padding: 14px 16px; border-radius: 12px; background: #FFFDF4; border: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px">
+              <span style="font-size: 15px; font-weight: 700; line-height: 1.3">{{r.title}}</span>
+              <span style="{{r.stateStyle}}">{{r.state}}</span>
+            </div>
+            <span style="font-size: 13px; line-height: 1.4">{{r.when}}</span>
+            <span style="{{r.effStyleM}}">{{r.effect}}</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); word-break: break-word">{{r.meta}}</span>
+            <sc-if value="{{r.outdated}}" hint-placeholder-val="{{false}}">
+              <div style="display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: #F7EBD6; border: 1px solid #D98E2B">
+                <span class="mono" style="align-self: flex-start; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; padding: 1px 8px; border-radius: 999px; border: 1px solid #D98E2B; background: #FFFDF4">Outdated</span>
+                <span style="font-size: 12px; line-height: 1.45">{{r.outdatedText}}</span>
+              </div>
+            </sc-if>
+            <a href="M-PolicyChange.dc.html" style="{{r.switchStyleM}}"><span style="{{r.knobStyle}}"></span>{{r.switchLabel}}</a>
+            <span style="font-size: 11px; line-height: 1.4; color: rgba(21,34,25,.7)">{{r.switchNote}}</span>
+            <sc-if value="{{r.bind}}" hint-placeholder-val="{{false}}">
+              <div style="display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; border: 1px dashed rgba(21,34,25,.5)">
+                <span class="lbl">Bound to · bookkeeping, not scope</span>
+                <span class="mono" style="font-size: 12px">every venue and department</span>
+                <a href="M-PolicyChange.dc.html" style="min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(21,34,25,.5); color: #152219; font-size: 13px; font-weight: 700; text-decoration: none; display: flex; align-items: center">Stop recording it at every venue and department</a>
+                <span class="mono" style="min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid #C9D2C8; font-size: 12px; display: flex; align-items: center; justify-content: space-between">Also record it at: KF St Julians <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span>
+                <a href="M-PolicyChange.dc.html" style="min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(21,34,25,.5); color: #152219; font-size: 13px; font-weight: 700; text-decoration: none; display: flex; align-items: center">Record the binding</a>
+                <span style="font-size: 11px; color: rgba(21,34,25,.7)">Every stored rule has these; shown once here.</span>
+              </div>
+            </sc-if>
+          </div>
+        </li>
+      </sc-for>
+
+      <li class="lbl" style="padding: 10px 0 2px">Your own policies</li>
       <li style="position: relative">
-        <span class="rung">13</span>
-        <div style="padding: 14px 16px; border-radius: 12px; background: #FFFDF4; border: 1px solid #C9D2C8; display: flex; align-items: center; gap: 12px">
-          <span style="flex: 1; display: flex; flex-direction: column; gap: 4px">
-            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">base:cross-location-note</span>
-            <span style="font-size: 15px; font-weight: 700; line-height: 1.35">Note taps at another venue</span>
-            <span style="font-size: 12px; color: rgba(21,34,25,.7)">A note, not a decision. It shows in reports, not on the staff screen.</span>
-          </span>
-          <button type="button" role="switch" aria-checked="{{noteOn}}" aria-label="Note taps at another venue" onClick="{{toggleNote}}" style="{{switchStyle}}"><span style="{{knobStyle}}"></span></button>
+        <span aria-hidden="true" style="position: absolute; left: -31px; top: 18px; width: 16px; height: 16px; border-radius: 50%; background: #FFFDF4; border: 3px solid #152219; box-sizing: border-box"></span>
+        <div style="padding: 14px 16px; border-radius: 12px; background: #FFFDF4; border: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px">
+            <span style="font-size: 15px; font-weight: 700; line-height: 1.3">GPS-only at Headquarter and Hamrun</span>
+            <span style="font-size: 12px; font-weight: 700; white-space: nowrap; padding: 3px 10px; border-radius: 999px; border: 1px solid #1F5C41; background: rgba(31,92,65,.1)">In force</span>
+          </div>
+          <span style="font-size: 13px; line-height: 1.4">No network match, but GPS within the venue radius — only at KF Headquarter and KF Hamrun.</span>
+          <span style="align-self: flex-start; min-height: 34px; padding: 0 12px; border-radius: 10px; background: #FFFDF4; border: 1px solid #1F5C41; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center">Approve</span>
+          <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">own:gps-only-allow · Written by you · version 2</span>
+          <a href="M-PolicyChange.dc.html" style="align-self: flex-start; display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 14px 0 6px; border-radius: 22px; background: rgba(31,92,65,.14); border: 1px solid #1F5C41; color: #152219; font-size: 13px; font-weight: 700; text-decoration: none"><span style="width: 30px; height: 30px; border-radius: 50%; background: #1F5C41"></span>Switch this rule off</a>
+          <a href="#" class="mono" style="min-height: 44px; padding: 6px 12px; border-radius: 10px; border: 2px solid #152219; color: #152219; font-size: 11px; text-decoration: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px">version 2 · 14 Sep 2026 · in use <span style="margin-left: auto; font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 700; color: #1F5C41">Read it in full →</span></a>
+          <a href="#" class="mono" style="min-height: 44px; padding: 6px 12px; border-radius: 10px; border: 1px solid #C9D2C8; color: #152219; font-size: 11px; text-decoration: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px">version 1 · 2 Aug 2026 <span style="margin-left: auto; font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 700; color: #1F5C41">Read it in full →</span></a>
         </div>
       </li>
 
       <li style="position: relative">
-        <span class="rung">14</span>
-        <div style="padding: 14px 16px; border-radius: 12px; background: #F7EBD6; border: 1px solid #D98E2B; display: flex; flex-direction: column; gap: 6px">
+        <span class="rung" style="background: #D98E2B; color: #152219; font-size: 9px">END</span>
+        <div style="padding: 14px 16px; border-radius: 12px; background: #F7EBD6; border: 1px dashed #D98E2B; display: flex; flex-direction: column; gap: 6px">
           <span style="display: flex; align-items: center; gap: 6px">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#152219" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
-            <span class="mono" style="font-size: 11px; color: #152219">base:no-evidence-review · always last</span>
+            <span class="mono" style="font-size: 11px; color: #152219">default · the engine’s own answer</span>
           </span>
-          <span style="font-size: 15px; font-weight: 700">Nothing above matched</span>
-          <span class="mono" style="font-size: 12px; font-weight: 700">→ Send to spike — nothing approves silently</span>
+          <span style="font-size: 15px; font-weight: 700">Nothing decided</span>
+          <span style="font-size: 13px; line-height: 1.4">If nothing at all matches, a tap is sent to The Spike rather than quietly approved. It is still recorded.</span>
+          <span class="mono" style="font-size: 12px; font-weight: 700">→ Send to The Spike</span>
         </div>
       </li>
     </ol>
-  </main>
 
-  <sc-if value="{{dirty}}" hint-placeholder-val="{{false}}">
-    <div style="position: sticky; bottom: 68px; margin: 0 12px 12px; padding: 10px 10px 10px 16px; border-radius: 16px; background: #152219; color: #FFFDF4; display: flex; align-items: center; gap: 8px; box-shadow: 0 6px 18px rgba(21,34,25,.25)">
-      <span style="flex: 1; font-size: 14px; font-weight: 700">{{dirtyLabel}}</span>
-      <button type="button" onClick="{{discard}}" style="min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(255,253,244,.4); background: transparent; color: #FFFDF4; font: 500 13px 'Space Grotesk', sans-serif; cursor: pointer">Discard</button>
-      <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 0; background: #FFFDF4; color: #152219; font: 700 13px 'Space Grotesk', sans-serif; cursor: pointer">Review &amp; save</button>
-    </div>
-  </sc-if>
+    <section aria-labelledby="m-own-h" style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+      <h2 id="m-own-h" style="margin: 0; font-size: 18px; letter-spacing: -0.02em">Write your own version</h2>
+      <p style="margin: 0; font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.7)">Take one of the Taptime rules above and keep it only where you want it. It does NOT switch the original off: until you do that, both apply, and the more specific one decides.</p>
+      <span style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: rgba(21,34,25,.7)">Is this a new rule, or a new version of one of yours?<span style="min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid #C9D2C8; color: #152219; font-size: 14px; display: flex; align-items: center">A new rule of my own</span></span>
+      <span style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: rgba(21,34,25,.7)">What do you want to call it?<span style="min-height: 44px; border-radius: 12px; border: 1px solid #C9D2C8"></span></span>
+      <span style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: rgba(21,34,25,.7)">Which Taptime rule is it a version of?<span style="min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid #C9D2C8; color: #152219; font-size: 14px; display: flex; align-items: center">Taptime baseline — IP proof of place</span></span>
+      <span style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: rgba(21,34,25,.7)">Where does it apply? Tick nothing for every venue · venues only, not departments
+        <span style="display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px">
+          <sc-for list="{{venues}}" as="v" hint-placeholder-count="8">
+            <span style="min-height: 44px; display: flex; align-items: center; gap: 8px; font-size: 13px; color: #152219"><span aria-hidden="true" style="width: 22px; height: 22px; border-radius: 6px; border: 2px solid rgba(21,34,25,.5)"></span>{{v.name}}</span>
+          </sc-for>
+        </span>
+      </span>
+      <a href="M-PolicyChange.dc.html" style="min-height: 48px; border-radius: 12px; background: #152219; color: #FFFDF4; font-size: 15px; font-weight: 700; text-decoration: none; display: flex; align-items: center; justify-content: center">Show me what this would do</a>
+    </section>
+
+    <section aria-labelledby="m-how-h" style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+      <h2 id="m-how-h" style="margin: 0; font-size: 18px; letter-spacing: -0.02em">How a tap is judged</h2>
+      <sc-for list="{{evidence}}" as="e" hint-placeholder-count="4">
+        <div style="display: grid; grid-template-columns: 32px 1fr; gap: 10px; align-items: start">
+          <span class="mono" style="width: 32px; height: 32px; border-radius: 9px; background: #EDF0EA; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">{{e.no}}</span>
+          <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 700">{{e.k}}</span><span style="font-size: 12px; line-height: 1.45; color: rgba(21,34,25,.7)">{{e.v}}</span></span>
+        </div>
+      </sc-for>
+      <span class="mono" style="font-size: 11px; line-height: 1.5; color: rgba(21,34,25,.7); border-top: 1px dashed #C9D2C8; padding-top: 10px">Location is read only at the moment of a tap. Taptime never tracks anyone in the background. GPS radius: 150 m · set by Taptime, within 25 m and 1000 m.</span>
+    </section>
+
+    <section aria-labelledby="m-who-h" style="display: flex; flex-direction: column; gap: 10px">
+      <h2 id="m-who-h" class="lbl" style="margin: 0; font-weight: 400">Who may do what · no grant means no</h2>
+      <sc-for list="{{authorities}}" as="a" hint-placeholder-count="6">
+        <div style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px">
+          <span class="mono" style="font-size: 12px; font-weight: 700">{{a.action}} <span style="font-weight: 400; color: rgba(21,34,25,.7)">· refused unless granted</span></span>
+          <span class="mono" style="font-size: 11px; word-break: break-word">{{a.grants}}</span>
+          <sc-if value="{{a.locked}}" hint-placeholder-val="{{false}}"><span style="font-size: 11px; color: rgba(21,34,25,.7)">Also locked in code by {{a.locked}}.</span></sc-if>
+        </div>
+      </sc-for>
+      <span style="font-size: 12px; line-height: 1.45; color: rgba(21,34,25,.7)">tap:record works the other way: sent for review, never dropped. Only an organisation owner is granted policy:edit — anyone else sees this page with no controls at all.</span>
+    </section>
+  </main>
 
   <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; background: #152219; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0 4px 8px">
     <a href="M-Pass.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
@@ -126,58 +181,80 @@ a{color:#1F5C41}a:hover{color:#152219}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":2120}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":7300}}'>
 class Component extends DCLogic {
-  constructor(props) {
-    super(props);
-    this.state = { eff: {}, note: true };
-  }
   renderVals() {
-    const guards = [
-      ['sys:tenant-mismatch', 'The plaque belongs to a business outside your group', 'Send them to their own panel · no record'],
-      ['sys:tag-not-active', 'The plaque is marked lost or retired', 'Reject'],
-      ['sys:sun-invalid', 'The chip signature is wrong, or its counter did not move', 'Reject'],
-      ['sys:no-session', 'The phone is not signed in as anyone', 'Activation page · no record'],
-      ['sys:employee-deactivated', 'The person no longer works here', 'Reject · security alert'],
-      ['sys:person-debounce', 'Same person again within 60 seconds', 'Ignored'],
-      ['sys:cross-tenant-qr-site-ip', 'QR scan at a partner venue, off its network', 'Send to spike']
-    ].map(([id, when, then], i) => ({ no: i + 1, id, when, then }));
+    // Guarantees: policy.Guardrails in the engine's own order (internal/policy/guardrails.go).
+    // "when" is the short phrase the port adds beside guardrailRules; "rule" is guardrailRules verbatim.
+    const G = [
+      ['01', 'sys:tenant-mismatch', 'The plaque belongs to a business outside your group', 'No record · other business', '§4.5 — one organisation’s records can never be written into another’s. No record is written at all here, so neither business sees the other’s people.', ''],
+      ['02', 'sys:tag-not-active', 'The plaque is lost, retired or not mounted yet', 'Reject · alert if lost', '§5 row 1 — a plaque that is lost, retired or still in its box proves nothing about a place, so a tap on one cannot stand as attendance.', ''],
+      ['03', 'sys:sun-invalid', 'The NFC signature is wrong, or the plaque’s counter did not move', 'Reject', '§4.4 — the plaque’s counter check is what stops a captured link being spent twice. Loosening it would reopen replay.', ''],
+      ['04', 'sys:no-session', 'The phone is not known to Taptime', 'No record · activation page', '§5 row 3 — with nobody identified there is nobody to record. The tap becomes an activation, not an attendance row.', ''],
+      ['05', 'sys:employee-deactivated', 'The person has been deactivated', 'Reject · security alert', '§5 row 4 — somebody who has left cannot clock in, and the attempt is pushed to your managers rather than logged quietly.', ''],
+      ['06', 'sys:tap-freshness', 'The NFC tap page was kept for later', 'Reject', 'ADR 0004 §11 — a tap page that has been kept for later is not a touch. The window is yours to set; switching it off is not.', 'How long a tap page stays good for: 3 min · may be set between 1 min and 15 min'],
+      ['07', 'sys:occurred-at-bound', 'The declared tap time is implausible', 'Reject', 'ADR 0004 §11 — the time a phone declares cannot be invented. The tolerance is yours to set; accepting any time at all is not.', 'How far back a declared tap time may sit: 72 h · may be set between 0 s and 72 h'],
+      ['08', 'sys:person-debounce', 'The same person again inside the repeat window', 'Ignore · recorded, counts nothing', '§5 row 5 — one person’s repeat inside the window is recorded and not counted, so a double tap never becomes a double shift.', 'Repeat window for one person: 1 min · may be set between 30 s and 5 min'],
+      ['09', 'sys:cross-tenant-qr-site-ip', 'A QR scan at a partner business, off that venue’s own network', 'Send to The Spike', 'ADR 0027 §7 — a QR scan at another business of your group counts only from that venue’s own network; anything else waits for your approval. Neither you nor they can change it.', ''],
+      ['10', 'sys:policy-edit-owner-only', 'Someone other than the owner changes a rule', 'Reject', 'ADR 0004 K2 — only the owner may change the rules. A manager who could widen a rule could widen their own pay.', ''],
+      ['11', 'sys:no-self-review', 'Someone reviews their own record', 'Reject', 'ADR 0004 Y-C — nobody approves their own record. This is the one separation a small business cannot organise around.', '']
+    ].map(([no, id, when, effect, rule, tune]) => ({ no, id, when, effect, rule, tune, tuned: tune !== '' }));
+    const guardsTap = G.slice(0, 9);
+    const guardsPanel = G.slice(9);
 
-    const defs = [
-      ['base:ip-or-gps-ok', 'On the venue network, or GPS within 150 m', 'ok'],
-      ['base:gps-only-allow', 'Only GPS matched — no venue network', 'ok'],
-      ['base:qr-requires-ip', 'QR scan without the venue network', 'flag'],
-      ['base:gps-conflict-review', 'GPS says more than 150 m away', 'flag'],
-      ['base:ctr-gap-review', 'The plaque counter jumped since its last tap', 'flag']
+    const chip = (tone) => 'font-size:12px;font-weight:700;white-space:nowrap;padding:3px 10px;border-radius:999px;' +
+      (tone === 'on' ? 'border:1px solid #1F5C41;background:rgba(31,92,65,.1)' : 'border:1px solid rgba(21,34,25,.5);background:#EDF0EA');
+    const pill = (tone) => 'min-height:34px;padding:0 12px;border-radius:10px;background:#FFFDF4;font-size:13px;font-weight:700;white-space:nowrap;display:inline-flex;align-items:center;border:1px solid ' +
+      ({ allow: '#1F5C41', review: '#D98E2B', note: '#C9D2C8' })[tone];
+    const effectLabel = { allow: 'Approve', review: 'Send to The Spike', note: 'Note — decides nothing', grant: 'Grants panel access' };
+    const sw = (on) => 'display:inline-flex;align-items:center;gap:10px;min-height:44px;padding:0 14px 0 6px;border-radius:22px;color:#152219;font-size:13px;font-weight:700;text-decoration:none;' +
+      (on ? 'background:rgba(31,92,65,.14);border:1px solid #1F5C41' : 'background:#EDF0EA;border:1px solid rgba(21,34,25,.5)');
+    const knob = (on) => 'flex:none;width:30px;height:30px;border-radius:50%;box-sizing:border-box;' + (on ? 'background:#1F5C41' : 'background:#FFFDF4;border:1px solid rgba(21,34,25,.5)');
+    const noteOff = 'It is not deleted — its history stays, so records decided under it can still explain themselves.';
+    const noteOn = 'It takes part in every decision again, from the next tap.';
+    const outdated = 'You are running the 2026-07-26 version of this rule; 2026-10-18 has since shipped and changes it. A tap at another of your locations is now only noted on the record and no longer let through by this rule on its own: it gets the outcome the same evidence gets at the employee’s home location. With your current copy, a rule you switch off to be stricter stays loose at your other locations: with “GPS-only allowance” off, a GPS-only tap is still accepted there; with “IP proof of place” off, a tap with a network match; with “no evidence needs review” off, a tap with no proof of place at all. So while your copy is on, those three cannot be switched off. Switching this rule off gives you the new outcome today; the location is still recorded and still shown in your reports. Nothing changes on its own, on purpose — a rule that changed under you would change what past taps meant.';
+
+    // The nine shipped documents, in policy.Baseline() order. Stored stamp 2026-07-26 (this business
+    // was provisioned before 2026-10-18), so only the cross-location rule carries the Outdated line.
+    const R = [
+      ['IP proof of place', 'base:ip-or-gps-ok', 'The phone is on the venue’s network: its address matches one the venue registered.', 'network proof of place: the source IP matches the location', 'allow', true, false],
+      ['GPS-only allowance', 'base:gps-only-allow', 'No network match, but GPS within the venue radius (150 m).', 'verified via GPS only — no network proof of place', 'allow', false, false],
+      ['No evidence needs review', 'base:no-evidence-review', 'Neither the network nor GPS places the tap.', 'neither IP nor GPS could place this tap', 'review', true, false],
+      ['QR requires IP', 'base:qr-requires-ip', 'A QR scan with no network match — GPS alone is not enough.', 'QR tap without an IP match: GPS alone is not sufficient proof of place', 'review', true, false],
+      ['Cross-location note', 'base:cross-location-note', 'Tapped at a venue that is not the person’s home venue.', 'tapped at a location other than the employee’s home location (recorded as cross-location)', 'allow', false, true],
+      ['Queued tap window', 'base:queued-window', 'The declared tap time is more than 2 min in the past.', 'declared tap time is well in the past; likely a queued or backdated tap', 'review', true, false],
+      ['Counter gap review', 'base:ctr-gap-review', 'The plaque’s counter jumped: it was read more times than Taptime saw.', 'the tag counter jumped: reads happened that the server never saw', 'review', true, false],
+      ['GPS conflict review', 'base:gps-conflict-review', 'GPS was read and puts the phone outside the venue radius.', 'GPS was read and puts the device outside this location’s radius', 'review', true, false],
+      ['Panel access by role', 'base:authz-owner · base:authz-manager', 'Owner: every panel action, including changing rules. Manager: review, approve, manual entry, reports and deactivation.', 'organisation owner: full panel authority · manager: review, approve, manual entry, reports and employee deactivation', 'grant', true, false]
     ];
-    const names = { ok: 'Approve', flag: 'Spike', reject: 'Reject' };
-    const onStyle = { ok: 'background:#1F5C41;color:#FFFDF4', flag: 'background:#D98E2B;color:#152219', reject: 'background:#BE3D2A;color:#FFFDF4' };
-    let dirty = 0;
-    const rules = defs.map(([id, when, def], i) => {
-      const cur = this.state.eff[id] || def;
-      const changed = cur !== def;
-      if (changed) dirty++;
-      return {
-        no: i + 8, id, when, changed, was: names[def], groupLabel: 'What happens: ' + when,
-        cardStyle: 'padding:14px 16px;border-radius:12px;background:#FFFDF4;display:flex;flex-direction:column;gap:8px;' + (changed ? 'border:2px solid #D98E2B' : 'border:1px solid #C9D2C8'),
-        opts: ['ok', 'flag', 'reject'].map((k, j) => ({
-          label: names[k], on: cur === k ? 'true' : 'false',
-          pick: () => this.setState({ eff: Object.assign({}, this.state.eff, { [id]: k }) }),
-          style: 'min-height:44px;border:0;font:700 13px Space Grotesk,sans-serif;cursor:pointer;' + (j > 0 ? 'border-left:1px solid rgba(21,34,25,.5);' : '') + (cur === k ? onStyle[k] : 'background:transparent;color:#152219')
-        }))
-      };
-    });
-    if (!this.state.note) dirty++;
-    const noteOn = this.state.note;
-    return {
-      guards, rules, dirty: dirty > 0,
-      dirtyLabel: dirty + (dirty === 1 ? ' rule changed' : ' rules changed'),
-      discard: () => this.setState({ eff: {}, note: true }),
-      noteOn: noteOn ? 'true' : 'false',
-      toggleNote: () => this.setState({ note: !this.state.note }),
-      switchStyle: 'flex:none;width:52px;height:32px;border-radius:16px;border:0;padding:3px;cursor:pointer;display:flex;' + (noteOn ? 'background:#1F5C41;justify-content:flex-end' : 'background:rgba(21,34,25,.5);justify-content:flex-start'),
-      knobStyle: 'width:26px;height:26px;border-radius:50%;background:#FFFDF4;display:block'
-    };
+    const rules = R.map(([title, sid, when, reason, eff, on, old]) => ({
+      title, when, reason,
+      state: on ? 'In force' : 'Switched off by you', stateStyle: chip(on ? 'on' : 'off'),
+      effect: old ? 'Approve (2026-07-26 copy)' : effectLabel[eff], effStyle: pill(eff === 'grant' ? 'allow' : eff),
+      meta: sid + ' · Managed by Taptime · version 1 · 2026-07-26',
+      outdated: old, outdatedText: old ? outdated : '',
+      switchLabel: on ? 'Switch this rule off' : 'Switch this rule back on', switchNote: on ? noteOff : noteOn,
+      switchStyle: sw(on), knobStyle: knob(on),
+      effStyleM: pill(eff === 'grant' ? 'allow' : eff) + ';align-self:flex-start', switchStyleM: sw(on) + ';align-self:flex-start',
+      bind: sid === 'base:ctr-gap-review'
+    }));
+
+    const venues = ['KF Headquarter', 'KF Hamrun', 'KF Mellieha', 'KF Msida', 'KF Paceville', 'KF San Gwann', 'KF St Julians', 'KF Valletta'].map(name => ({ name }));
+    const authorities = [
+      ['report:export', 'owner — base:authz-owner · manager — base:authz-manager', ''],
+      ['tap:approve', 'owner — base:authz-owner · manager — base:authz-manager', ''],
+      ['record:manual', 'owner — base:authz-owner · manager — base:authz-manager', ''],
+      ['record:review', 'owner — base:authz-owner · manager — base:authz-manager', 'sys:no-self-review'],
+      ['employee:deactivate', 'owner — base:authz-owner · manager — base:authz-manager', ''],
+      ['policy:edit', 'owner — base:authz-owner', 'sys:policy-edit-owner-only']
+    ].map(([action, grants, locked]) => ({ action, grants, locked }));
+    const evidence = [
+      ['1', 'Physical tap', 'The plaque signs every NFC touch, with a counter that only goes up: someone held a phone to this plaque just now. A QR scan carries no such proof.'],
+      ['2', 'Who', 'The phone’s own session from activation says which person it is. No app, no fingerprint, no face.'],
+      ['3', 'Where', 'The venue’s network: the phone’s address matches one the venue registered. A list too wide to be one venue’s network counts for nothing, and the Wi-Fi name is not evidence.'],
+      ['4', 'Backup where', 'GPS within 150 m of the venue point — the radius Taptime sets, read only at the moment of the tap.']
+    ].map(([no, k, v]) => ({ no, k, v }));
+    return { guards: G, rules, venues, authorities, evidence };
   }
 }
 </script>
