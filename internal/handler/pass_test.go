@@ -1,8 +1,9 @@
 package handler
 
-// pass_test.go -- The Pass (M12-26): which requests get it, that every widget claims nothing
-// unread and says so when its read failed (§4.6), that the tape draws no future hour, and that
-// the view types it adds carry no field a coordinate could travel in (§4.7).
+// pass_test.go -- The Pass and its ledger (M12-26/27): which layout a request gets, that every
+// widget claims nothing unread and says so when its read failed (§4.6), that the tape draws no
+// future hour, that the hour groups keep the page's order and say "(continued)", and that the
+// view types the two layouts add carry no field a coordinate could travel in (§4.7).
 
 import (
 	"errors"
@@ -23,7 +24,7 @@ import (
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
-// ledgerDayHref is a past day's ledger -- the page that draws the FULL docket. Since
+// ledgerDayHref is a past day's ledger -- the page that draws the FULL docket (M12-27). Since
 // The Pass took /admin alone (M12-26), the docket tests that read the plaque, the counter, the
 // notes and the manager's decision read them here: The Pass's rail docket leaves those to the
 // ledger by design (components.RailDocket).
@@ -135,6 +136,30 @@ func TestPass_EachWidgetClaimsNothingUnreadAndSaysSoWhenItFailed(t *testing.T) {
 		if strings.Contains(body, h) {
 			t.Errorf("the ledger draws The Pass's %q", h)
 		}
+	}
+}
+
+// TestPass_TheTallyIsTriState: the chips' counts and the ledger's summary line are printed only
+// for a measured tally; a failed one says so and prints no zero.
+func TestPass_TheTallyIsTriState(t *testing.T) {
+	path := transactionsHref + "?date=2026-08-05"
+	f := ledgerWithRecords(1, true)
+	body := htmlOf(t, panelBrowserWith(t, f).do(http.MethodGet, path, nil))
+	if strings.Contains(body, "chip-count") || strings.Contains(body, "0 flagged") || strings.Contains(body, "counts could not be read") {
+		t.Error("an unread tally prints counts or a failure")
+	}
+	f.tally = ledger.VerdictTally{State: ledger.ReadFailed}
+	body = htmlOf(t, panelBrowserWith(t, f).do(http.MethodGet, path, nil))
+	if strings.Contains(body, "chip-count") || !strings.Contains(body, "The day's counts could not be read.") {
+		t.Error("a failed tally prints counts, or does not say it failed")
+	}
+	f.tally = ledger.VerdictTally{State: ledger.Measured, Records: 1, Approved: 1, Manual: 1}
+	body = htmlOf(t, panelBrowserWith(t, f).do(http.MethodGet, path, nil))
+	if !strings.Contains(body, "1 record · 1 approved · 0 flagged · 0 rejected · 0 ignored · 1 manual entry") {
+		t.Error("a measured tally does not print the summary line, singular where it is one")
+	}
+	if n := strings.Count(body, `class="chip-count"`); n != 5 {
+		t.Errorf("%d chip counts, want 5 (All and the four verdicts)", n)
 	}
 }
 
@@ -257,6 +282,56 @@ func panelTestIdentity() httpx.AdminIdentity {
 	}}
 }
 
+// TestLedger_HoursAreNewestFirstAndAContinuedHourSaysSo: the page's own order kept, one group per
+// hour, and a page that starts inside the hour the last page ended in says "(continued)".
+func TestLedger_HoursAreNewestFirstAndAContinuedHourSaysSo(t *testing.T) {
+	at := func(h, m int) time.Time { return time.Date(2026, 8, 5, h, m, 0, 0, time.UTC) }
+	page := ledger.Page{Zone: time.UTC, Records: []ledger.Record{
+		{OccurredAt: at(18, 4)}, {OccurredAt: at(18, 0)}, {OccurredAt: at(14, 12)}, {OccurredAt: at(9, 58)},
+	}}
+	dockets := make([]components.DocketView, len(page.Records))
+	g := hourGroups(page, nil, dockets)
+	if len(g) != 3 || g[0].Hour != "18:00" || len(g[0].Dockets) != 2 || g[2].Hour != "09:00" || g[0].Continued || g[0].Weekday != "Wed" {
+		t.Fatalf("groups %+v", g)
+	}
+	seen := map[string]bool{}
+	for _, x := range g {
+		if seen[x.Anchor] {
+			t.Errorf("anchor %q twice", x.Anchor)
+		}
+		seen[x.Anchor] = true
+	}
+	g = hourGroups(page, &ledger.Cursor{At: at(18, 30)}, dockets)
+	if !g[0].Continued || g[1].Continued {
+		t.Error("a page starting inside the hour the last one ended in does not say it is continued")
+	}
+	if g = hourGroups(page, &ledger.Cursor{At: at(19, 0)}, dockets); g[0].Continued {
+		t.Error("a page starting in a new hour says it is continued")
+	}
+}
+
+// TestLedger_TheStepperStopsAtTodayAndKeepsTheFilters.
+func TestLedger_TheStepperStopsAtTodayAndKeepsTheFilters(t *testing.T) {
+	f := ledger.Filter{Channel: "qr", After: &ledger.Cursor{At: time.Now(), ID: uuid.New()}}
+	var v pages.TransactionsView
+	page := ledger.Page{Zone: time.UTC, Day: ledger.Date{Year: 2026, Month: 8, Day: 5}}
+	fillTransactionsView(&v, page, f)
+	fillLedger(&v, page, f, time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC))
+	if v.NextDayHref != "" || v.PrevDayHref != transactionsHref+"?channel=qr&date=2026-08-04" || v.PassHref != transactionsHref {
+		t.Errorf("on today: prev %q next %q", v.PrevDayHref, v.NextDayHref)
+	}
+	if v.Title != "The Pass · Wed 5 Aug" || !strings.Contains(v.Kicker, "records are never edited") || strings.Contains(v.Kicker, "06:00") {
+		t.Errorf("title %q kicker %q", v.Title, v.Kicker)
+	}
+	fillLedger(&v, page, f, time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC))
+	if v.NextDayHref != transactionsHref+"?channel=qr&date=2026-08-06" {
+		t.Errorf("a past day's next arrow is %q", v.NextDayHref)
+	}
+	if v.Filters.ClearHref != transactionsHref+"?date=2026-08-05" {
+		t.Errorf("Clear goes to %q; it must keep the day", v.Filters.ClearHref)
+	}
+}
+
 // TestPassViews_CarryNothingACoordinateCouldTravelIn is §4.7 on the view types The Pass and the
 // ledger add: no field whose name a coordinate, an address or a secret would arrive under, and
 // every leaf a string, a count, a flag or a state.
@@ -288,7 +363,7 @@ func TestPassViews_CarryNothingACoordinateCouldTravelIn(t *testing.T) {
 		}
 	}
 	for _, typ := range []reflect.Type{
-		reflect.TypeOf(pages.VerdictChip{}), reflect.TypeOf(pages.FloorView{}),
+		reflect.TypeOf(pages.VerdictChip{}), reflect.TypeOf(pages.HourGroup{}), reflect.TypeOf(pages.FloorView{}),
 		reflect.TypeOf(pages.SpikeView{}), reflect.TypeOf(pages.LeftOpenView{}), reflect.TypeOf(pages.TapeView{}),
 		reflect.TypeOf(pages.PassPlaquesView{}),
 	} {

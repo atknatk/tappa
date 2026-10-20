@@ -49,32 +49,56 @@ import "github.com/atknatk/tappa/web/templates/components"
 // TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty, not by the shape
 // alone.
 templ AdminTransactions(v TransactionsView) {
-	@PanelShellWithScript(v.PanelChrome, "/static/vendor/htmx.min.js") {
-		// 🔴 MONO, BECAUSE THIS IS DATA RATHER THAN A HEADING. skill tappa-brand:
-		// "IBM Plex Mono - her sayı: saat, süre, tag UID, sayaç... Bir veri hücresi
-		// mono değilse yanlıştır." This line carries a DATE and a TIMEZONE, and it
-		// is the sentence that says which slice of the record the page is showing --
-		// the same class of fact as the times inside the dockets below it, which are
-		// mono. The section's actual heading is the <h1> in PanelShell, set in the
-		// display face; this is not a second one.
-		@templ.Join(keyBudgetBanner(v.KeyBudget), plaqueNotice(v))
-		if v.Today {
-			@passBody(v)
-		} else {
-			<p class="font-mono text-sm text-ink/85">
-				{ v.DayLabel }
-				<span class="text-ink/70">· { v.ZoneLabel }</span>
-			</p>
-			@components.FilterBar(v.Filters)
-			if len(v.Dockets) > 0 {
-				<div class="flex flex-col gap-4">
-					@dockets(v)
-				</div>
-			} else if v.Queried {
-				@transactionsEmpty(v)
+	@PanelActions(transactionsActions(v)) {
+		@PanelShellWithScript(v.PanelChrome, "/static/vendor/htmx.min.js") {
+			// The day and the zone are the heading's eyebrow now (the shell's Kicker slot, mono):
+			// "which day" is meaningless without the zone, and an overnight shift's 02:00
+			// check-out lands on the NEXT day's page.
+			@templ.Join(keyBudgetBanner(v.KeyBudget), plaqueNotice(v))
+			if v.Today {
+				@passBody(v)
+			} else {
+				@ledgerBody(v)
 			}
 		}
 	}
+}
+
+// transactionsActions is the heading's right-hand side: the ledger's day stepper, nothing on
+// The Pass (D1: no "Manual entry" button -- a manual entry starts from a person). A view with
+// no day has no stepper either.
+func transactionsActions(v TransactionsView) templ.Component {
+	if v.Today || v.DayShort == "" {
+		return nil
+	}
+	return dayStepper(v)
+}
+
+// dayStepper steps the ledger one calendar day at a time and returns to The Pass. Each arrow
+// is a link with a name; the arrow after today is not drawn (its place is kept, so the label
+// does not move). The links keep every filter and never a paging position.
+templ dayStepper(v TransactionsView) {
+	<nav aria-label="Day" class="flex flex-wrap items-center gap-2 md:gap-2.5">
+		<div class="inline-flex items-center rounded-xl border border-line bg-paper">
+			if v.PrevDayHref != "" {
+				<a href={ templ.URL(v.PrevDayHref) } aria-label="Previous day" class="inline-flex size-11 min-h-11 items-center justify-center rounded-xl text-ink hover:bg-ink/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink">
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"></path></svg>
+				</a>
+			}
+			<span class="px-1.5 font-mono text-[13px] text-ink">{ v.DayShort }</span>
+			if v.NextDayHref != "" {
+				<a href={ templ.URL(v.NextDayHref) } aria-label="Next day" class="inline-flex size-11 min-h-11 items-center justify-center rounded-xl text-ink hover:bg-ink/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink">
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"></path></svg>
+				</a>
+			} else {
+				<span aria-hidden="true" class="inline-block size-11"></span>
+			}
+		</div>
+		<a href={ templ.URL(v.PassHref) } class="btn btn--ink gap-2">
+			Today
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" focusable="false"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+		</a>
+	</nav>
 }
 
 // passBody is The Pass (M12-26; boards Main, T-Pass, M-Pass): "Right now", the rail of the
@@ -330,6 +354,29 @@ templ plaquesCard(p PassPlaquesView) {
 	}
 }
 
+// ledgerBody is the past day (M12-27; boards Ledger, T-Ledger, M-Ledger): the filters, the day's
+// count line and the verdict chips, then the records grouped by hour, newest first.
+templ ledgerBody(v TransactionsView) {
+	@components.FilterBar(v.Filters)
+	if v.Summary != "" || v.TallyFailed || len(v.Chips) > 0 {
+		<div class="flex flex-col gap-2.5 desk:flex-row desk:flex-wrap desk:items-center desk:justify-between desk:gap-3">
+			if v.Summary != "" {
+				<p class="font-mono text-xs leading-normal text-ink/70 md:text-[13px]">{ v.Summary }</p>
+			} else if v.TallyFailed {
+				<p class="text-[13px] text-ink/70">The day's counts could not be read.</p>
+			}
+			@verdictChips(v.Chips, "Verdict")
+		</div>
+	}
+	if len(v.Hours) > 0 {
+		<div class="flex flex-col gap-6 md:gap-[26px]">
+			@ledgerHours(v)
+		</div>
+	} else if v.Queried {
+		@transactionsEmpty(v)
+	}
+}
+
 // verdictChips are the verdict filters as links; the current one carries aria-current. The
 // count beside each is the day's, and is left out when it was not measured.
 templ verdictChips(chips []VerdictChip, label string) {
@@ -493,19 +540,36 @@ templ plaqueNoticeLink(v TransactionsView) {
 // harmless, and the ordinary link they would have followed instead
 // (v.MoreHref, rendered below) goes to the whole page.
 templ TransactionDockets(v TransactionsView) {
-	@dockets(v)
+	@ledgerHours(v)
 }
 
-// dockets is the shared body: the cards, then whatever continues the list.
-templ dockets(v TransactionsView) {
-	for _, d := range v.Dockets {
-		@components.TransactionDocket(d)
+// ledgerHours is the shared body: the hour groups, newest hour first, then whatever continues
+// the list. An hour is a section headed by its time; a group whose hour began on the page
+// before says "(continued)". From the desk width the hour sits in a column beside its dockets.
+templ ledgerHours(v TransactionsView) {
+	for _, g := range v.Hours {
+		<section aria-labelledby={ g.Anchor } class="flex flex-col gap-3 desk:grid desk:grid-cols-[96px_minmax(0,1fr)] desk:items-start desk:gap-4">
+			<div class="flex items-baseline gap-2 border-t-2 border-ink pt-1.5 desk:flex-col desk:gap-0.5">
+				<h2 id={ g.Anchor } class="font-mono text-lg font-normal leading-tight text-ink md:text-xl desk:text-[22px]">
+					{ g.Hour }
+					if g.Continued {
+						<span class="text-xs text-ink/70">(continued)</span>
+					}
+				</h2>
+				<p class="font-mono text-[11px] text-ink/70">{ g.Weekday }</p>
+			</div>
+			<div class="flex flex-col gap-4 md:grid md:grid-cols-2 md:gap-x-3.5 md:gap-y-5 desk:grid-cols-[repeat(auto-fill,minmax(300px,1fr))] desk:gap-x-4 desk:gap-y-[22px]">
+				for _, d := range g.Dockets {
+					@components.TransactionDocket(d)
+				}
+			</div>
+		</section>
 	}
 	if v.MoreHref != "" {
 		// 🔴 AN ANCHOR THAT HTMX INTERCEPTS, RATHER THAN A BUTTON.
 		//
 		// With the script: hx-get fetches the next fragment and hx-swap="outerHTML"
-		// on hx-target="this" replaces this very control with it — so the new cards
+		// on hx-target="this" replaces this very control with it — so the new hours
 		// land exactly where the control was, and the control that comes back with
 		// them continues the chain.
 		//
@@ -519,7 +583,7 @@ templ dockets(v TransactionsView) {
 		// avoiding all three is what lets the policy stay free of 'unsafe-inline'
 		// and 'unsafe-eval'.
 		<a
-			class="btn btn--quiet self-start"
+			class="btn btn--quiet self-start rounded-xl desk:ml-[112px]"
 			href={ templ.URL(v.MoreHref) }
 			hx-get={ v.MoreFragmentHref }
 			hx-target="this"

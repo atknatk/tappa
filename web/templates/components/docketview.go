@@ -179,6 +179,8 @@ type FilterBarView struct {
 	// Action is where the form submits — the section's own URL, so filtering is a
 	// plain GET and every filtered view is a bookmarkable address.
 	Action string
+	// ClearHref drops every filter and keeps the day; Clear is drawn only when Narrowed.
+	ClearHref string
 	// Date is the ISO day in the box ("2026-08-05").
 	Date string
 

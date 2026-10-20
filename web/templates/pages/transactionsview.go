@@ -71,8 +71,25 @@ type TransactionsView struct {
 	Today bool
 
 	// Chips are the verdict filters as links (All, then the four verdicts), with the day's
-	// count beside each when the tally was measured.
+	// count beside each when the tally was measured. Both layouts draw them.
 	Chips []VerdictChip
+	// Summary is the ledger's one-line count of the day ("10 records · 6 approved · …"), or ""
+	// when the tally was not measured. TallyFailed says it was asked and could not be read.
+	Summary     string
+	TallyFailed bool
+
+	// Hours is the ledger's list: the page's dockets grouped by the hour they happened in,
+	// newest hour first. The rail on The Pass reads Dockets instead.
+	Hours []HourGroup
+
+	// The ledger's day stepper: the day before, the day after (empty when that would be a day
+	// that has not begun -- there is nothing to show there yet) and The Pass. DayShort is the
+	// stepper's label ("Mon 19 Oct").
+	PrevDayHref string
+	NextDayHref string
+	PassHref    string
+	DayShort    string
+
 	// The Pass's widgets (M12-13, 14, 15) and its plaque list. Each carries its own state, so
 	// a widget that was not measured claims nothing and one that failed says so (§4.6).
 	Floor        FloorView
@@ -101,6 +118,20 @@ type VerdictChip struct {
 	Count   string
 	Href    string
 	Current bool
+}
+
+// HourGroup is one hour of the ledger's day.
+type HourGroup struct {
+	// Anchor is the group's heading id, unique on the page (the hour and its first record's
+	// time), for the section's aria-labelledby.
+	Anchor string
+	// Hour is "18:00"; Weekday is "Mon".
+	Hour    string
+	Weekday string
+	// Continued marks a group whose hour began on the page before: a "Show more" page that
+	// starts mid-hour repeats the header with "(continued)".
+	Continued bool
+	Dockets   []components.DocketView
 }
 
 // FloorView is "On the floor now": the number and the per-venue tally from the same read.

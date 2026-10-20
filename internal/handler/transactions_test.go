@@ -458,17 +458,8 @@ func TestTransactionFilters_EveryOfferedOptionIsAccepted(t *testing.T) {
 	fake := ledgerWithRecords(1, true)
 	b := panelBrowserWith(t, fake)
 
-	// THE CHANNEL AND, ON A LEDGER DAY, THE VERDICT ARE DROPDOWNS: each option is driven
-	// through the handler and must render as an option.
-	for _, o := range panelVerdicts {
-		rec := b.do(http.MethodGet, ledgerDayHref+"&verdict="+url.QueryEscape(o.Value), nil)
-		if got := fake.lastFilter(t).Verdict; got != o.Value {
-			t.Errorf("the verdict dropdown offers %q but the handler read %q", o.Value, got)
-		}
-		if body := htmlOf(t, rec); !strings.Contains(body, `value="`+o.Value+`"`) {
-			t.Errorf("the verdict dropdown does not render an option with value %q", o.Value)
-		}
-	}
+	// THE CHANNEL IS STILL A DROPDOWN: each option is driven through the handler and must
+	// render as an option.
 	total := 0
 	for _, o := range panelChannels {
 		total++
@@ -486,12 +477,12 @@ func TestTransactionFilters_EveryOfferedOptionIsAccepted(t *testing.T) {
 		}
 	}
 
-	// ON THE PASS THE VERDICT IS OFFERED AS CHIPS (M12-26): links.
+	// THE VERDICT IS OFFERED AS CHIPS (M12-26/27): links, on The Pass and on a ledger day.
 	// What the product RENDERS is read off the page -- every chip link -- and each one is
 	// followed: the handler must read back exactly the verdict the chip offered, and the chips
 	// must offer every value the validator accepts and nothing else.
 	chipHref := regexp.MustCompile(`<a href="([^"]+)" class="chip-link[^"]*"`)
-	for _, page := range []string{transactionsHref} {
+	for _, page := range []string{transactionsHref, transactionsHref + "?date=2026-08-05&channel=qr"} {
 		body := htmlOf(t, b.do(http.MethodGet, page, nil))
 		offered := map[string]bool{}
 		for _, m := range chipHref.FindAllStringSubmatch(body, -1) {
@@ -518,6 +509,13 @@ func TestTransactionFilters_EveryOfferedOptionIsAccepted(t *testing.T) {
 		for _, o := range panelVerdicts {
 			if !offered[o.Value] {
 				t.Errorf("%s offers no chip for %q, which the validator accepts", page, o.Value)
+			}
+		}
+		// The chosen verdict survives the filter form on the ledger: a hidden field.
+		if page != transactionsHref {
+			withVerdict := htmlOf(t, b.do(http.MethodGet, page+"&verdict=flag", nil))
+			if !strings.Contains(withVerdict, `<input type="hidden" name="verdict" value="flag">`) {
+				t.Error("the ledger's filter form drops the chosen verdict when it is applied")
 			}
 		}
 	}

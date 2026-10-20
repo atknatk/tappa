@@ -1,7 +1,8 @@
 package handler
 
-// pass.go -- The Pass (M12-26), the transactions section's layout for today: which requests
-// get it, and the view pieces only it draws -- the verdict chips and the widgets.
+// pass.go -- the redesign's two layouts of the transactions section (M12-26 The Pass, M12-27 the
+// past day): which one a request gets, and the view pieces only they draw -- the verdict chips,
+// the day's summary line, the hour groups, the day stepper and The Pass's widgets.
 //
 // 🔴 EVERY FIGURE KEEPS ITS STATE (§4.6). A widget the ledger did not read claims nothing, one
 // whose read failed says "could not be read" ("?" in place of its number), and only a measured
@@ -25,6 +26,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -62,6 +64,35 @@ func (a *AdminAuth) fillPass(ctx context.Context, v *pages.TransactionsView, scr
 	v.Tape = tapeView(screen.Tape, local)
 	v.PassPlaques = a.passPlaques(ctx, id, screen.Options.Locations)
 	v.WholeDayHref = transactionsHref + "?date=" + screen.Page.Day.String()
+}
+
+// fillLedger puts the past day's heading on the view: the title with the day, the kicker, and
+// the stepper.
+func fillLedger(v *pages.TransactionsView, page ledger.Page, f ledger.Filter, today time.Time) {
+	zone := page.Zone
+	if zone == nil {
+		zone = time.UTC
+	}
+	day := page.Day
+	start := time.Date(day.Year, day.Month, day.Day, 0, 0, 0, 0, zone)
+	v.DayShort = start.Format("Mon 2 Jan")
+	v.Title = pages.SectionLabel(pages.TabTransactions) + " · " + v.DayShort
+	// "records are never edited" is §4.3 stated where the reader looks at them.
+	v.Kicker = v.DayLabel + " · " + v.ZoneLabel + " · records are never edited"
+
+	prev := start.AddDate(0, 0, -1)
+	v.PrevDayHref = transactionsHref + "?" + filterQuery(f, dateOf(prev)).Encode()
+	// A day that has not begun has nothing to show yet, so the stepper stops at today.
+	t := today.In(zone)
+	todayStart := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, zone)
+	if next := start.AddDate(0, 0, 1); !next.After(todayStart) {
+		v.NextDayHref = transactionsHref + "?" + filterQuery(f, dateOf(next)).Encode()
+	}
+	v.PassHref = transactionsHref
+}
+
+func dateOf(t time.Time) ledger.Date {
+	return ledger.Date{Year: t.Year(), Month: t.Month(), Day: t.Day()}
 }
 
 // verdictChips are the five verdict links: All, then panelVerdicts' own four, in its order and
@@ -103,6 +134,66 @@ func verdictChips(f ledger.Filter, day ledger.Date, pass bool, tally ledger.Verd
 			n = tally.Ignored
 		}
 		out = append(out, pages.VerdictChip{Label: o.Label, Count: count(n), Href: href(o.Value), Current: f.Verdict == o.Value})
+	}
+	return out
+}
+
+// tallySummary is the ledger's count line: "10 records · 6 approved · 2 flagged · 1 rejected ·
+// 0 ignored · 1 manual entry". "" when the tally was not measured -- the line is then not drawn.
+func tallySummary(t ledger.VerdictTally) string {
+	if !t.State.Known() {
+		return ""
+	}
+	return strings.Join([]string{
+		plural(t.Records, "record", "records"),
+		strconv.Itoa(t.Approved) + " approved",
+		strconv.Itoa(t.Flagged) + " flagged",
+		strconv.Itoa(t.Rejected) + " rejected",
+		strconv.Itoa(t.Ignored) + " ignored",
+		plural(t.Manual, "manual entry", "manual entries"),
+	}, " · ")
+}
+
+// hourGroups groups a page's records by the hour they happened in, in the tenant's zone, newest
+// hour first (the page's own order). after is the cursor the page started from: when the first
+// record falls in the same hour as the last one the reader was already shown, the group says it
+// is continued rather than pretending the hour starts here.
+//
+// AN HOUR IS KEYED BY ITS LOCAL DATE, HOUR AND OFFSET, so the hour a clock change repeats is two
+// groups, not one group holding both.
+func hourGroups(page ledger.Page, after *ledger.Cursor, dockets []components.DocketView) []pages.HourGroup {
+	zone := page.Zone
+	if zone == nil {
+		zone = time.UTC
+	}
+	type hourKey struct {
+		y, d, h, off int
+		m            time.Month
+	}
+	keyOf := func(t time.Time) hourKey {
+		l := t.In(zone)
+		_, off := l.Zone()
+		return hourKey{y: l.Year(), m: l.Month(), d: l.Day(), h: l.Hour(), off: off}
+	}
+	var out []pages.HourGroup
+	var last hourKey
+	for i, rec := range page.Records {
+		k := keyOf(rec.OccurredAt)
+		if len(out) == 0 || k != last {
+			l := rec.OccurredAt.In(zone)
+			g := pages.HourGroup{
+				Hour:    fmt.Sprintf("%02d:00", l.Hour()),
+				Weekday: l.Format("Mon"),
+				Anchor:  "hour-" + l.Format("20060102-1504") + "-" + strconv.Itoa(i),
+			}
+			if len(out) == 0 && after != nil && keyOf(after.At) == k {
+				g.Continued = true
+				g.Anchor += "-" + strconv.FormatInt(after.At.UnixNano(), 36)
+			}
+			out = append(out, g)
+			last = k
+		}
+		out[len(out)-1].Dockets = append(out[len(out)-1].Dockets, dockets[i])
 	}
 	return out
 }
