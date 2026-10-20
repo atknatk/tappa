@@ -13627,6 +13627,165 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >    `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` bu dalda kırmızı kalır. **Sevk sırası:** önce APK
 >    (`suspended`'ı tanıyan), sonra sunucu (sınır 12). **K15-13** (çapraz yüzey E2E) C'den sonra.
 
+> **OP-15C — operatörün askı ekranı (askıya al / yeniden etkinleştir)**
+>
+> **Kart düzeltmesi (2026-10-20, taşıma).** C 2026-10-08'de OP-15A'nın o günkü yamasının (migration `00035`;
+> yalnız yerel bir WIP taban commit'i, `b535a1b`) üstüne yazıldı; yapıcı bitti, **üçüncü gözü yarıda kesildi**
+> ve beklemeye alındı (`hold/op15c`, `d27b252` — push edilmedi). Bugün yalnız C'nin farkı (`git diff b535a1b
+> hold/op15c`, 37 dosya) dal `op-15`'e (uç `4d9f65b`: OP-15A 00063 olarak + OP-15B + M11 API-4b birleşik,
+> goose 63) taşındı ve bitirildi; o günkü kart `hold/op15c:docs/plan/hold/op15c-card.md`'dir, aşağıdaki
+> sayılar bugün ölçüldü. Taban kaymasının değiştirdikleri (eski → yeni):
+>
+> | Ne | 2026-10-08 | Bugün | Neden |
+> |---|---|---|---|
+> | `operator.New`'de `SuspensionStore` yuvası | `VATStore`'dan sonra | `HoldingStore`'dan sonra, VIES'ten önce | M11 API-1a'nın yuvası araya girdi |
+> | `configuredSurface`'te havuzun kullanımı / VIES argümanı / metinler | 8 / 9. / 10. | **9 / 10. / 11.** | aynı |
+> | `*OperatorDB` temsilci yöntemi (`TestOperatorDB_EveryMethodDelegatesVerbatim`) | 16 → 18 | **22 → 24** | M11'in dört holding + iki API yöntemi |
+> | `TestOperatorDB_IsTheStoreAndNothingMore`'un arayüzleri | 8 | **9** | `HoldingStore` |
+> | Başlık sınıfları (`classRoutes`, `designedHeaders`) | C166–C190, `classCount` 165 → 190 | **C218–C242**, 217 → **242** | M11: holding C166–C199, API C200–C217 |
+> | `screens()` render / imzalı | 40 → 43 / 31 → 34 | 46 → **49** / 37 → **40** | M11'in holding ve API render'ları |
+> | Yürünen rota öncülü (`TheWalkedRoutesEachHaveAClass`) | 12/20 → 14/22 | 15/24 → **19/28** | M11 API-13a'nın iki rotası öncülde sayılmamıştı; ölçüldü: 19 rota, 28 çift |
+> | Sızıntı kolları / grup / `TouchOperatorSession` | A99–A108 / G19 / 227 → 236 | **A112–A121 / G21 / 238 → 247** | M11: A99–A111, G19 QR, G20 holding adı |
+> | A'nın kopya testi | adında sürüm `00035` | **`TestOperator00063_TheReasonSetIsOneSetInEveryCopy`** | A 00063 olarak taşındı |
+> | Genel bakışta kartın yeri | kimlik kartı ile *"Live now"* arası | **en sonda, *"Integration API"* kartının altında** | genel bakışın tenant'ı değiştiren iki kartı birlikte; ikisi de durum + tek form |
+> | Rig adı çakışması | — | C'nin `overviewOf`'u düşürüldü (M11'inkiyle aynı), `failStore` → `setStoreFailure` | M11 aynı adları tanımladı |
+> | `appRouter` sınıflaması | yoktu | iki POST sınıf 3'te (operatör yüzeyi, sahiplik + önek) — **değişiklik gerekmedi**, ölçüldü | B'nin kompozisyonu |
+> | LC7 / K15-13 (çapraz yüzey E2E) | yok | **kapandı**: `TestE2E_TheOperatorsSuspensionClosesThePanelAndTheAPIAndItsLiftingOpensThem` | B ve API-4b birleşik |
+>
+> Migration, DDL, yeni bağımlılık yok (`go.mod`, `go.sum`, `sqlc.yaml`, `db/` diff'i boş); `make gen` iki kez
+> idempotent. Normatif metin ADR 0025 §5 ve *"C fazı eki"*, ADR 0021 *"OP-15 C fazı eki"* (*"Taşıma"*
+> paragrafı dahil), ADR 0020 §4 *"OP-15 C notu"* — üçü yalnız ekleme.
+>
+> **Yazıldı (ürün):** `internal/handler/operator/suspension.go` (yeni), `surface.go` (yuva, iki bütçe
+> paragrafı), `routes.go` (iki rota), `render.go` (altı sayfa), `tenants.go` (askı bloğu, liste çipi),
+> `web/templates/operatorpages/tenants.templ` (+ üretilen `tenants_templ.go`), `view.go`, `web/static/css/input.css`,
+> `internal/db/operatorpool.go` (iki temsilci), `cmd/tappa/operator.go` (`operatorStore`, dokuzuncu `store`).
+> `app.css` farkı (derlenmiş, commit edilmez): 61 902 → 62 252 B (+350): yeni kurallar `.op-reasons`,
+> `.op-hold-warning`, `.op-reason-hold:checked~.op-hold-warning`, `.list-disc`, `.pl-5`; iki ton grubu
+> birer ad kazandı (`tally--tenant-active` yeşil-açık, `tally--tenant-suspended` tomato/10) — yeni renk yok.
+>
+> **Yazıldı (test):** yeni `internal/handler/operator/op15_test.go`, `op15_db_test.go`,
+> **`op15cross_db_test.go`** (taşımanın yenisi), `cmd/tappa/operatorsuspend_test.go`,
+> `internal/db/operatorsuspendlabels_test.go`; güncellenen (bugünkü sayılarla): `rig_test.go`, `surface_test.go`,
+> `op8_test.go`, `op8r2_test.go`, `op8r5_test.go`, `typepins_test.go`, `leak_test.go`, `export_test.go`,
+> `op10_db_test.go` (`liveStore`'un iki yöntemi; `legalE2E.surface`), `op12_db_test.go`, `op8_db_test.go`,
+> `internal/db/operatorpool_test.go`, `operatorpool_external_test.go`, `operatorsuspend_test.go` (beşinci kopya),
+> `internal/operatorauth/surface_external_test.go`, `passwordok_external_test.go`, `detached_external_test.go`,
+> `cmd/tappa/operator_test.go`.
+>
+> 1. **Kararlar (2026-10-08'den aynen; ADR 0021 C eki md. 1–11):** K-C1 `answered(r)` id denetiminden sonra,
+>    form okumasından önce; K-C2 uyarı betiksiz genel kardeş kuralıyla, stil dosyası yoksa her zaman görünür;
+>    K-C3 çip tonları var olan iki tona ayrı adlarla; K-C4 beşinci kopya kaynaktan okunur; K-C5 gönderilen
+>    değer log'a girmez; K-C6 her handler'da en çok bir `overviewPath(tenant)` yönlendirmesi.
+>    **Taşımanın kararları:** K-C7 kartın yeri (yukarıdaki tablo); K-C8 çapraz yüzey E2E'si
+>    `internal/handler/operator`'da — `cmd/tappa` servis edilen yönlendiriciyi kurar ama geliştirme
+>    veritabanında `tappa_operator` NOLOGIN'dir; operatörün gerçek girişini ve `op_*` yazmalarını yüzeyden
+>    süren tek commit'li rig `newLegalE2E`'dir; panel ve `/v1` dışa açık kurucularıyla gerçek havuz üstünde,
+>    `cmd/tappa`'nın `buildAppFeatures`'ının ve `openAPISurface`'ın kurduğu bağımlılıklarla; tek yönlendirici
+>    `httpx.NewRouter` (üç host). Yeni altyapı: yalnız `legalE2E.surface` alanı ve dosyanın kendi kurulumu.
+> 2. **Kabul — her satır bir test:**
+>
+>    | Kabul / iddia | Test | Sonuç |
+>    |---|---|---|
+>    | İki POST: askısız / askıda / var olmayan → aynı cevap biçimi; PRG 303 | `TestSuspension_TheAnswerIsTheSameWhateverTheTenantHeld`, `TestOperatorHeaders_TheSuspensionClassesCarryThePolicy` (C218–C220, C232–C234) | PASS |
+>    | Onay kutusu yoksa yazma yok | `TestSuspension_NothingIsWrittenWithoutTheBoxOrAKnownReason` (yedi değer × iki yazma), C225, C238 | PASS |
+>    | Kapalı küme dışı gerekçe → yazma yok | `TestSuspension_NothingIsWrittenWithoutTheBoxOrAKnownReason` (on değer), C226 | PASS |
+>    | Tenant yoldandır, formdan değil | `TestSuspension_TheTenantIsThePathsNotTheForms`, başlık tablosunun düşmanca `id`'si, SU3 | PASS |
+>    | `security_hold` uyarısı görünür, metni pinli | `TestSuspendForm_TheHoldWarningIsShownOnlyByTheHoldChoice` | PASS |
+>    | Genel bakış durumu, tek form, bilinmeyen kod | `TestTenantOverview_SaysTheSuspensionAndOffersOneForm` | PASS |
+>    | Liste çipi | `TestTenantList_ASuspendedTenantCarriesTheChip` | PASS |
+>    | Bütçeler | `TestSuspensionBudget_AWriteIsOneRequestAndNoRead` | PASS |
+>    | Yarı kapalı istemci (`answered`) | `TestSuspension_AHalfClosedClientGetsTheSameAnswer` | PASS |
+>    | `WithoutCancel` yazma istemci gidince de yazar; süre sınırı rakamla | `TestSuspension_AClientThatLeavesStillGetsItsWriteMade`, `TestSuspension_TheWriteBoundIsItsNumber`, `TestShutdownBudget_TheSuspensionWriteNestsInsideTheHTTPGrace` | PASS |
+>    | Ret/kesinti fail-closed; log tenant + SQLSTATE | `TestSuspension_EveryRefusalWritesNothing` | PASS |
+>    | Gerekçe dışı girdi log'a girmez | `TestSuspension_NoPostedValueReachesALogLine` | PASS |
+>    | Başlık sınıfları | `TestOperatorHeaders_TheSuspensionClassesCarryThePolicy` (C218–C242) | PASS |
+>    | Sızıntı | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` (A112–A121, G21; Touch 247) | PASS |
+>    | Beşinci kopya (etiketler) | `TestSuspensionWords_NameEveryReasonAndNothingElse`, `TestOperator00063_TheReasonSetIsOneSetInEveryCopy` | PASS |
+>    | Çipler | `TestSuspensionScreen_TheChipsAndTextClearAA` (13,70 / 13,99 / 13,27:1), `TestSuspensionScreen_EachChipHasTheRuleTheContrastTestComputes`, `TestTallyRules_NoToneRuleColoursTheWord` | PASS |
+>    | E2E (gerçek PG, fikstür tenant'ı) | `TestE2E_OperatorSuspendsAndReinstatesAFixtureTenant` | PASS |
+>    | **Çapraz yüzey (K15-13):** operatör ekranından askı → panel POST 403 + `/v1` 403 `tenant_suspended` → yeniden etkinleştirme → ikisi geçer | `TestE2E_TheOperatorsSuspensionClosesThePanelAndTheAPIAndItsLiftingOpensThem` | PASS |
+>    | Yapısal pinler | `TestSuspension_TheListedSitesAloneWrite` (SU1–SU5), `TestFormValues_TheListedSitesAloneRevealOrReadTheForm`, `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions` | PASS |
+>    | Rota monte; ekranların linkleri monte | `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass` (19/28), `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` (49), `TestSurface_TheScreensOfLaterTasksAreNotMounted`, `TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost` | PASS |
+>    | Uygulama geneli sınıflama (B'nin kompozisyonu) | `TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses` (iki POST sınıf 3) | PASS |
+>    | Wiring | `TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds`, `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator`, `TestOperatorDB_IsTheStoreAndNothingMore`, `TestOperatorDB_EveryMethodDelegatesVerbatim`, `TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor` | PASS |
+>
+> 3. **Mutasyonlar — 33/33 kırmızı** (`scratchpad/op15c-builder/mutate.py`; ağaçta yerinde, veritabanı ortamı YOK —
+>    veritabanı testleri atlar, commit eden hiçbir test kümede değil; küme: adında `Suspen` geçen her test ile
+>    `TestTenantOverview_SaysTheSuspensionAndOffersOneForm`, `TestTenantList_ASuspendedTenantCarriesTheChip`,
+>    `TestFormValues_TheListedSitesAloneRevealOrReadTheForm`, `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions`,
+>    `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo`, `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute`,
+>    `TestTallyRules_NoToneRuleColoursTheWord`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`; tabanda yeşil; şablon mutasyonlarından sonra `templ generate`; her mutasyondan
+>    sonra dosyalar geri yazıldı ve sha256 karşılaştırıldı). M1–M28 + M4b + M11b kartın 2026-10-08 seti
+>    (bugünkü koda göre), M29–M31 taşımanın yenisi:
+>
+>    | # | Mutasyon | Sonuç | Kırmızı eden |
+>    |---|---|---|---|
+>    | M1 | the suspend confirm check removed | kırmızı | FV, Leak, Headers, `…AHalfClosedClientGetsTheSameAnswer`, `…NoPostedValueReachesALogLine`, `…NothingIsWrittenWithoutTheBoxOrAKnownReason` |
+>    | M2 | a reason outside the closed set accepted | kırmızı | Leak, Headers, `…AHalfClosedClientGetsTheSameAnswer`, `…NoPostedValueReachesALogLine`, `…NothingIsWrittenWithoutTheBoxOrAKnownReason` |
+>    | M3 | the security hold warning's manual-record sentence removed | kırmızı | HoldWarning |
+>    | M4 | the write on the request's own context (no answered, no WithoutCancel) | kırmızı | `…AClientThatLeavesStillGetsItsWriteMade`, `…AHalfClosedClientGetsTheSameAnswer`, SU |
+>    | M4b | only WithoutCancel dropped (answered kept) | kırmızı | SU |
+>    | M5 | the write bound removed | kırmızı | `…AClientThatLeavesStillGetsItsWriteMade`, SU |
+>    | M6 | the tenant read from the form | kırmızı | FV, Headers, SU, `…TheTenantIsThePathsNotTheForms` |
+>    | M7 | PRG replaced by 200 | kırmızı | Leak, Headers, Budget, `…AClientThatLeavesStillGetsItsWriteMade`, `…AHalfClosedClientGetsTheSameAnswer`, `…NothingIsWrittenWithoutTheBoxOrAKnownReason`, `…TheAnswerIsTheSameWhateverTheTenantHeld`, `…TheTenantIsThePathsNotTheForms` |
+>    | M8 | the write spends a read unit | kırmızı | Budget |
+>    | M9 | a refused reason logged | kırmızı | Leak, `…NoPostedValueReachesALogLine` |
+>    | M10 | the refusal page carries the tenant id | kırmızı | ProblemViews, `…NothingIsWrittenWithoutTheBoxOrAKnownReason` |
+>    | M11 | answered after the form refusals | kırmızı | `…AHalfClosedClientGetsTheSameAnswer`, SU |
+>    | M11b | answered before the id check | kırmızı | SU |
+>    | M12 | the warning's class on another radio | kırmızı | HoldWarning |
+>    | M13 | the reinstate confirm check removed | kırmızı | FV, Headers, `…AHalfClosedClientGetsTheSameAnswer`, `…NoPostedValueReachesALogLine`, `…NothingIsWrittenWithoutTheBoxOrAKnownReason` |
+>    | M14 | the reason trimmed and lower-cased | kırmızı | `…NothingIsWrittenWithoutTheBoxOrAKnownReason`, SU |
+>    | M15 | no option carries Hold | kırmızı | HoldWarning |
+>    | M16 | the fault page says nothing was changed | kırmızı | `…EveryRefusalWritesNothing` |
+>    | M17 | the list chip removed | kırmızı | ListChip |
+>    | M18 | the suspended overview draws both forms | kırmızı | Links, HoldWarning, `…TheAnswerIsTheSameWhateverTheTenantHeld`, Overview |
+>    | M19 | a refused session answers 503 | kırmızı | Leak, Headers, `…EveryRefusalWritesNothing`, `…NoPostedValueReachesALogLine` |
+>    | M20 | one label missing | kırmızı | Words, `…TheAnswerIsTheSameWhateverTheTenantHeld`, Overview |
+>    | M21 | the sibling rule removed from the stylesheet | kırmızı | HoldWarning |
+>    | M22 | the suspended chip in the waiting tone | kırmızı | ChipRule |
+>    | M23 | the reason read with FormValue | kırmızı | FV, SU |
+>    | M24 | the form posts the tenant id in a hidden field | kırmızı | Overview |
+>    | M25 | the suspension written twice | kırmızı | Leak, Headers, Budget, `…AClientThatLeavesStillGetsItsWriteMade`, `…AHalfClosedClientGetsTheSameAnswer`, `…EveryRefusalWritesNothing`, `…NothingIsWrittenWithoutTheBoxOrAKnownReason`, `…TheAnswerIsTheSameWhateverTheTenantHeld`, SU, `…TheTenantIsThePathsNotTheForms` |
+>    | M26 | the fault line drops the tenant id | kırmızı | `…EveryRefusalWritesNothing`, `…NoPostedValueReachesALogLine` |
+>    | M27 | the reinstatement redirects to the list | kırmızı | Headers, `…TheAnswerIsTheSameWhateverTheTenantHeld`, `…TheTenantIsThePathsNotTheForms` |
+>    | M28 | the state line drops the start | kırmızı | `…TheAnswerIsTheSameWhateverTheTenantHeld`, Overview |
+>    | M29 | the suspend makes no store call | kırmızı | Leak, Headers, Budget, `…AClientThatLeavesStillGetsItsWriteMade`, `…AHalfClosedClientGetsTheSameAnswer`, `…EveryRefusalWritesNothing`, `…NoPostedValueReachesALogLine`, `…NothingIsWrittenWithoutTheBoxOrAKnownReason`, `…TheAnswerIsTheSameWhateverTheTenantHeld`, SU, `…TheTenantIsThePathsNotTheForms` |
+>    | M30 | the reinstate makes no store call | kırmızı | Leak, Headers, Budget, `…AClientThatLeavesStillGetsItsWriteMade`, `…AHalfClosedClientGetsTheSameAnswer`, `…EveryRefusalWritesNothing`, `…NoPostedValueReachesALogLine`, `…NothingIsWrittenWithoutTheBoxOrAKnownReason`, `…TheAnswerIsTheSameWhateverTheTenantHeld`, SU, `…TheTenantIsThePathsNotTheForms` |
+>    | M31 | the overview draws no suspension card | kırmızı | Links, HoldWarning, `…TheAnswerIsTheSameWhateverTheTenantHeld`, Overview |
+>
+>    Kısaltmalar: `…` ön eki `TestSuspension_` yerine · SU `TestSuspension_TheListedSitesAloneWrite` · Headers
+>    `TestOperatorHeaders_TheSuspensionClassesCarryThePolicy` · Leak `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` ·
+>    FV `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` · HoldWarning `TestSuspendForm_TheHoldWarningIsShownOnlyByTheHoldChoice` ·
+>    Overview `TestTenantOverview_SaysTheSuspensionAndOffersOneForm` · Links `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` ·
+>    ProblemViews `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` · Budget `TestSuspensionBudget_AWriteIsOneRequestAndNoRead` ·
+>    ListChip `TestTenantList_ASuspendedTenantCarriesTheChip` · Words `TestSuspensionWords_NameEveryReasonAndNothingElse` ·
+>    ChipRule `TestSuspensionScreen_EachChipHasTheRuleTheContrastTestComputes`. İlk koşuda M19, M29, M30 derleme
+>    hatasıyla kırmızıydı (mutasyonun kendi kusuru: kullanılmayan değişken/import); derlenen biçimleriyle yeniden
+>    koşuldu, yukarıdaki satırlar o koşunun.
+>
+>    Yalnız yapısal pinin yakaladıkları (davranışça eşdeğer): M4b (SU2), M11b (SU5), M23 (FV4/FV5, SU4). M29/M30'un davranış yarısı ayrıca
+>    çapraz E2E'nin 2. ve 4. adımıdır (commit eden test; mutasyon kümesinde değil).
+> 4. **Sayılı sınırlar:** ADR 0021 *"OP-15 C fazı eki"* LC1–LC8; **LC7 kapandı** (çapraz E2E). LC1'in sevk sırası
+>    (A → B → C) bu dalda birlikte tutulur.
+> 5. **Devirler:** askıdaki tenant'a *"gerekçeyi değiştir"* formu (LC2, v2 adayı); OP-12 B devir 6 aynen
+>    (faturalama ekranı askıyı göstermez, genel bakış gösterir).
+> 6. **Zincir (2026-10-20, son doğrulama, bir kez):** `gofmt -s -l` boş · `templ fmt` değişiklik yok · `go build ./...`, `go vet ./...`
+>    0 · staticcheck (`GOTOOLCHAIN=go1.26.9 … staticcheck@2025.1.1 ./...`) 0 · `make gen` iki kez idempotent
+>    (`git diff HEAD` parmak izi önce/sonra/sonra `8674ae34…`) · `scripts/redline-check.sh` 0 · `go.mod`,
+>    `go.sum`, `sqlc.yaml`, `db/` diff'i boş · `-race` (`.env`'li, `app.css` derli): `internal/handler/operator`
+>    **187 PASS / 0 FAIL / 0 yarış** (808 sn), `internal/operatorauth` **80 / 0 / 0** (375 sn), `internal/db`
+>    **597 / 0 / 0** (507 sn) · `go test ./cmd/...`: `cmd/tappa` ok, `cmd/opadmin` ok, `cmd/rotatekek`'te tek
+>    kırmızı `TestRotateScript_AccountsForEveryGoToolchainVariable` — yerel varsayılan araç zinciri go1.27.1'in
+>    `GOPACKAGESDRIVER`'ı; `GOTOOLCHAIN=go1.26.9` ile yeşil (bilinen ortam kırmızısı, A kartında da).
+> 7. **Veritabanına bırakılanlar (salt-okur sondalarla sayıldı):** koşulardan sonra **askıdaki tenant sayısı 0**; veritabanı goose
+>    63'te. `FAKE op15c E2E …` fikstürü 5 (`TestE2E_OperatorSuspendsAndReinstatesAFixtureTenant`'in hedefli ve
+>    `-race` koşuları), `FAKE op15c cross …` 2 (çapraz E2E'nin hedefli ve `-race` koşusu); bu fikstürlerin
+>    kendi `audit_log`'unda 7 `tenant.suspended`, 7 `tenant.reinstated`, 2 `tenant.write_refused`;
+>    `newLegalE2E`'nin her koşuda bıraktığı operatör hesabı (devre dışı), oturumları (iptal) ve satırları. Gerçek
+>    hiçbir tenant askıya alınmadı.
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)
