@@ -811,9 +811,9 @@ var guardrailRules = map[string]string{
 	"sys:employee-deactivated": "§5 row 4 — somebody who has left cannot clock in, and the attempt is " +
 		"pushed to your managers rather than logged quietly.",
 	"sys:tap-freshness": "ADR 0004 §11 — a tap page that has been kept for later is not a touch. " +
-		"The window is yours to set; switching it off is not.",
-	"sys:occurred-at-bound": "ADR 0004 §11 — the time a phone declares cannot be invented. The " +
-		"tolerance is yours to set; accepting any time at all is not.",
+		"Taptime sets the window; no business can switch it off.",
+	"sys:occurred-at-bound": "ADR 0004 §11 — the time a phone declares cannot be invented. " +
+		"Taptime sets the tolerance; no business can accept any time at all.",
 	"sys:person-debounce": "§5 row 5 — one person's repeat inside the window is recorded and not " +
 		"counted, so a double tap never becomes a double shift.",
 	"sys:cross-tenant-qr-site-ip": "ADR 0027 §7 — a QR scan at another business of your group counts only " +
