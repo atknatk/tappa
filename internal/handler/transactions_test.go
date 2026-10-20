@@ -700,27 +700,34 @@ func TestTransactionDocket_DistinguishesManualAndPractice(t *testing.T) {
 		{ID: uuid.New(), OccurredAt: time.Now().UTC(), Verdict: "ok", Channel: "nfc", EmployeeName: "Ordinary Person"},
 	}
 	b := panelBrowserWith(t, fake)
-	body := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
 
-	if !strings.Contains(body, "TRAINING") {
-		t.Error("a practice record carries no TRAINING stamp")
-	}
-	if !strings.Contains(body, "Entered by a manager") {
-		t.Error("a manual record is not marked as entered by a manager")
-	}
-	// Neither mark may appear on the ordinary record: exactly one TRAINING and
-	// exactly one manual tally across three cards.
-	if n := strings.Count(body, "TRAINING"); n != 1 {
-		t.Errorf("TRAINING appears %d times across three records, want 1", n)
-	}
-	if n := strings.Count(body, "Entered by a manager</span>"); n != 1 {
-		t.Errorf("the manual tally appears %d times across three records, want 1", n)
-	}
-	for _, forbidden := range []string{"toward your hours", "toward hours", "does not count", "not counted"} {
-		if strings.Contains(strings.ToLower(body), strings.ToLower(forbidden)) {
-			t.Errorf("the panel says %q about a practice tap. Hours are M6-07 and do not "+
-				"exist yet; a screen must not describe arithmetic the product has not "+
-				"done.", forbidden)
+	// BOTH SURFACES (M12-26/27): The Pass draws the records as rail dockets, a ledger day as
+	// full dockets -- two components, so each is measured on its own page. Measured both ways:
+	// dropping the TRAINING stamp from the full docket alone, or the manual tally from the rail
+	// docket alone, turns this red.
+	for _, path := range []string{transactionsHref, ledgerDayHref} {
+		body := htmlOf(t, b.do(http.MethodGet, path, nil))
+
+		if !strings.Contains(body, "TRAINING") {
+			t.Errorf("%s: a practice record carries no TRAINING stamp", path)
+		}
+		if !strings.Contains(body, "Entered by a manager</span>") {
+			t.Errorf("%s: a manual record is not marked as entered by a manager", path)
+		}
+		// Neither mark may appear on the ordinary record: exactly one TRAINING and
+		// exactly one manual tally across three cards.
+		if n := strings.Count(body, "TRAINING"); n != 1 {
+			t.Errorf("%s: TRAINING appears %d times across three records, want 1", path, n)
+		}
+		if n := strings.Count(body, "Entered by a manager</span>"); n != 1 {
+			t.Errorf("%s: the manual tally appears %d times across three records, want 1", path, n)
+		}
+		for _, forbidden := range []string{"toward your hours", "toward hours", "does not count", "not counted"} {
+			if strings.Contains(strings.ToLower(body), strings.ToLower(forbidden)) {
+				t.Errorf("%s: the panel says %q about a practice tap. Hours are M6-07 and do not "+
+					"exist yet; a screen must not describe arithmetic the product has not "+
+					"done.", path, forbidden)
+			}
 		}
 	}
 }

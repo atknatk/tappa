@@ -534,7 +534,18 @@ func TestPanelLanding_LinksOnlyToASectionThatExists(t *testing.T) {
 	fake := newFakeLedger()
 	fake.plaques = ledger.Plaques{Queried: true}
 	b := panelBrowserWith(t, fake)
-	body := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+	page := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+
+	// THE NOTICE ALONE IS READ, NOT THE PAGE. The shell's navigation links to the same section
+	// under the same label, and since M12-26 so does The Pass's plaque card, so a page-wide
+	// search stayed green with the notice's own link removed (measured). The notice is the
+	// warning-toned <section> components.Notice draws.
+	start := strings.Index(page, `<section class="border-l-4 border-saffron`)
+	if start < 0 {
+		t.Fatal("no plaque notice on the page; this test is reading the wrong state")
+	}
+	body := page[start:]
+	body = body[:strings.Index(body, "</section>")]
 
 	if !strings.Contains(body, `href="`+href+`"`) {
 		t.Errorf("the notice does not link to %s", href)
