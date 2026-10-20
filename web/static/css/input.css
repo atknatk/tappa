@@ -422,7 +422,10 @@
 
   /* --- empty state: a section that has nothing in it YET ---
      Dashed rather than solid, because the docket's solid `line` border is what a
-     RECORD looks like and this is the absence of one. */
+     RECORD looks like and this is the absence of one. Its component was retired in
+     M12-48 (panel sections draw PanelEmpty); the one element still carrying this
+     class is the Rules page's "no policies of your own" box, which moves with the
+     Rules port's follow-up, and the rule goes with it. */
   .empty-state {
     @apply flex flex-col items-start gap-1 border border-dashed border-line
            bg-paper px-4 py-8;

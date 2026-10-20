@@ -7,8 +7,9 @@ package components
 // the employee's tap and activation screens and the operator's pages, and the unbranded
 // tap, result and activation renders are pinned byte for byte to a golden
 // (TestUnbrandedScreens_AreByteIdenticalToTheGolden). Restyling them in place would redraw
-// the screen CLAUDE.md §9 calls sacred to dress the manager's panel. EmptyState keeps its
-// markup for the same reason (README §5). These two are called by panel sections alone.
+// the screen CLAUDE.md §9 calls sacred to dress the manager's panel. The old EmptyState kept
+// its markup for the same reason (README §5) until no section called it; M12-48 removed it.
+// These two are called by panel sections alone.
 //
 // THE COMMENTS IN THIS FILE NAME NO CLASS: Tailwind reads them as source (skill
 // tappa-brand, "templ + Tailwind"; README §3 constraint 2).
@@ -121,11 +122,11 @@ type PanelEmptyCTA struct {
 // PanelEmpty is what a panel section shows when it holds nothing.
 //
 // IT IS NOT A RECORD SLIP: a slip's solid edge means a record was printed, and this is the
-// absence of one, so its edge is dashed (the reasoning EmptyState carried, kept).
+// absence of one, so its edge is dashed (the reasoning the retired EmptyState carried, kept).
 //
-// THE SMALL LABEL IS WHERE, NOT HOW LONG. EmptyState opened with "Nothing here yet", and
-// "yet" promised an arrival several sections cannot promise (GRP-1's review found it on
-// the Group page). The label is now the section's own name -- with the sub-list after a
+// THE SMALL LABEL IS WHERE, NOT HOW LONG. The retired EmptyState opened with "Nothing here
+// yet", and "yet" promised an arrival several sections cannot promise (GRP-1's review found
+// it on the Group page). The label is now the section's own name -- with the sub-list after a
 // dot when one page carries several -- and the heading and the sentences say what was
 // asked and what came back, unchanged from each caller.
 //

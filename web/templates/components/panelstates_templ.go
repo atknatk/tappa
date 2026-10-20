@@ -15,8 +15,9 @@ import templruntime "github.com/a-h/templ/runtime"
 // the employee's tap and activation screens and the operator's pages, and the unbranded
 // tap, result and activation renders are pinned byte for byte to a golden
 // (TestUnbrandedScreens_AreByteIdenticalToTheGolden). Restyling them in place would redraw
-// the screen CLAUDE.md §9 calls sacred to dress the manager's panel. EmptyState keeps its
-// markup for the same reason (README §5). These two are called by panel sections alone.
+// the screen CLAUDE.md §9 calls sacred to dress the manager's panel. The old EmptyState kept
+// its markup for the same reason (README §5) until no section called it; M12-48 removed it.
+// These two are called by panel sections alone.
 //
 // THE COMMENTS IN THIS FILE NAME NO CLASS: Tailwind reads them as source (skill
 // tappa-brand, "templ + Tailwind"; README §3 constraint 2).
@@ -66,7 +67,7 @@ func PanelNotice(tone Tone, heading string) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(panelNoticeRole(tone))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/panelstates.templ`, Line: 29, Col: 34}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/panelstates.templ`, Line: 30, Col: 34}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
@@ -157,7 +158,7 @@ func PanelNotice(tone Tone, heading string) templ.Component {
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(PanelNoticeLabel(tone))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/panelstates.templ`, Line: 44, Col: 68}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/panelstates.templ`, Line: 45, Col: 68}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
@@ -175,7 +176,7 @@ func PanelNotice(tone Tone, heading string) templ.Component {
 			var templ_7745c5c3_Var10 string
 			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(heading)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/panelstates.templ`, Line: 46, Col: 72}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/panelstates.templ`, Line: 47, Col: 72}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 			if templ_7745c5c3_Err != nil {
@@ -271,11 +272,11 @@ type PanelEmptyCTA struct {
 // PanelEmpty is what a panel section shows when it holds nothing.
 //
 // IT IS NOT A RECORD SLIP: a slip's solid edge means a record was printed, and this is the
-// absence of one, so its edge is dashed (the reasoning EmptyState carried, kept).
+// absence of one, so its edge is dashed (the reasoning the retired EmptyState carried, kept).
 //
-// THE SMALL LABEL IS WHERE, NOT HOW LONG. EmptyState opened with "Nothing here yet", and
-// "yet" promised an arrival several sections cannot promise (GRP-1's review found it on
-// the Group page). The label is now the section's own name -- with the sub-list after a
+// THE SMALL LABEL IS WHERE, NOT HOW LONG. The retired EmptyState opened with "Nothing here
+// yet", and "yet" promised an arrival several sections cannot promise (GRP-1's review found
+// it on the Group page). The label is now the section's own name -- with the sub-list after a
 // dot when one page carries several -- and the heading and the sentences say what was
 // asked and what came back, unchanged from each caller.
 //
@@ -309,7 +310,7 @@ func PanelEmpty(where, heading string, cta PanelEmptyCTA) templ.Component {
 		var templ_7745c5c3_Var12 string
 		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(where)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/panelstates.templ`, Line: 136, Col: 24}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/panelstates.templ`, Line: 137, Col: 24}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 		if templ_7745c5c3_Err != nil {
@@ -322,7 +323,7 @@ func PanelEmpty(where, heading string, cta PanelEmptyCTA) templ.Component {
 		var templ_7745c5c3_Var13 string
 		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(heading)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/panelstates.templ`, Line: 137, Col: 96}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/panelstates.templ`, Line: 138, Col: 96}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
@@ -357,7 +358,7 @@ func PanelEmpty(where, heading string, cta PanelEmptyCTA) templ.Component {
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(cta.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/panelstates.templ`, Line: 142, Col: 89}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/panelstates.templ`, Line: 143, Col: 89}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 			if templ_7745c5c3_Err != nil {
