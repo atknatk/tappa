@@ -37,7 +37,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/audit"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/review"
+	"github.com/atknatk/tappa/internal/store"
 )
 
 // flaggedIDs returns the tenant's flagged transaction ids, newest first.
@@ -976,5 +978,108 @@ func seedTenantRow(t *testing.T, p *panelHarness, tenantID uuid.UUID, name strin
 		return e
 	}); err != nil {
 		t.Fatalf("insert tenant %s: %v", name, err)
+	}
+}
+
+// TestReviewDB_DecidedTodayCountsThisBusinesssDayOnly is M12-25's read (CountReviewsSince,
+// through ledger.Reader.Queue) against real Postgres: a decision recorded today counts, one
+// recorded before the business's local midnight does not, and another business's decisions
+// never do -- by the figure (arithmetic) and by RLS with no tenant filter in the statement.
+func TestReviewDB_DecidedTodayCountsThisBusinesssDayOnly(t *testing.T) {
+	p := newPanelHarness(t)
+	ctx := context.Background()
+	a := seedPanelTenant(t, p, p.tenantID, "DecidedA", dayOf(), 6) // 3 flagged
+	other := uuid.New()
+	seedTenantRow(t, p, other, "Decided B Ltd")
+	seedPanelTenant(t, p, other, "DecidedB", dayOf(), 6)
+
+	zone, err := time.LoadLocation("Europe/Malta") // both tenants carry 00001's default zone
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := time.Now()
+	l := before.In(zone)
+	midnight := time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, zone)
+
+	decide := func(tenant, txn uuid.UUID, at *time.Time) {
+		t.Helper()
+		if err := p.data.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+			_, e := tx.Exec(ctx,
+				`INSERT INTO transaction_reviews (tenant_id, transaction_id, reviewer_id, outcome, reviewed_at)
+				 VALUES ($1, $2, $3, 'approved', coalesce($4, now()))`, tenant, txn, uuid.New(), at)
+			return e
+		}); err != nil {
+			t.Fatalf("review: %v", err)
+		}
+	}
+	aFlags, bFlags := flaggedIDs(t, p, a.tenantID), flaggedIDs(t, p, other)
+	if len(aFlags) < 2 || len(bFlags) < 2 {
+		t.Fatalf("fixtures hold %d and %d flags; want two each", len(aFlags), len(bFlags))
+	}
+	yesterday := midnight.Add(-time.Hour)
+	decide(a.tenantID, aFlags[0], nil)        // today
+	decide(a.tenantID, aFlags[1], &yesterday) // before the local midnight
+	decide(other, bFlags[0], nil)             // B, today
+	decide(other, bFlags[1], nil)             // B, today
+
+	r, err := ledger.NewReader(p.data, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := r.Queue(ctx, a.tenantID, nil)
+	after := time.Now()
+	if err != nil {
+		t.Fatalf("Queue: %v", err)
+	}
+	d := page.Decided
+	if !d.Queried || d.Failed {
+		t.Fatalf("the count did not answer: %+v", d)
+	}
+	// Since is a LOCAL midnight between the two clock reads (one of two days if the test ran
+	// across midnight -- the expectation below follows whichever it was).
+	ls := d.Since.In(zone)
+	if ls.Hour() != 0 || ls.Minute() != 0 || d.Since.After(after) || d.Since.Before(midnight) {
+		t.Fatalf("Since = %s (%s in Malta), want the local midnight of %s", d.Since, ls, before.In(zone))
+	}
+	want := 0
+	if !before.Before(d.Since) { // the "today" review was written at or after Since
+		want++
+	}
+	if !yesterday.Before(d.Since) {
+		want++
+	}
+	if d.N != want {
+		t.Errorf("decided today = %d, want %d -- %d would be B's decisions leaking in, %d the day before counted",
+			d.N, want, want+2, want+1)
+	}
+
+	// RLS, with NO tenant filter: A's connection asked for B's review rows by transaction id.
+	countIn := func(tenant uuid.UUID) int {
+		t.Helper()
+		var n int
+		if err := p.data.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `SELECT count(*) FROM transaction_reviews WHERE transaction_id = ANY($1::uuid[])`,
+				[]uuid.UUID{bFlags[0], bFlags[1]}).Scan(&n)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := countIn(other); n != 2 {
+		t.Fatalf("CONTROL: B's own context counts %d of B's reviews, want 2 -- the zero below would be vacuous", n)
+	}
+	if n := countIn(a.tenantID); n != 0 {
+		t.Errorf("§4.5 BREACH (RLS): A's connection counts %d of B's reviews with no tenant filter", n)
+	}
+
+	// THE STORE STATEMENT ITSELF in A's context, asked for B's tenant: RLS leaves nothing.
+	if err := p.data.WithTenant(ctx, a.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		n, e := store.New(tx).CountReviewsSince(ctx, store.CountReviewsSinceParams{TenantID: other, Since: yesterday})
+		if e == nil && n != 0 {
+			t.Errorf("§4.5 BREACH: CountReviewsSince(B) in A's context answered %d", n)
+		}
+		return e
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

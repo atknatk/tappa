@@ -258,6 +258,7 @@ var storeSurface = map[string]string{
 	"CountPracticeTaps":                  "(context.Context, CountPracticeTapsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time}) (int64, error)",
 	"CountRecordsAtPartnerVenues":        "(context.Context, CountRecordsAtPartnerVenuesParams{TenantID uuid.UUID; FromAt time.Time; UntilAt time.Time}) (int64, error)",
 	"CountRecentInvites":                 "(context.Context, CountRecentInvitesParams{EmployeeID uuid.UUID; TenantID uuid.UUID}) (CountRecentInvitesRow{TenantLastHour int32; TenantLastDay int32; EmployeeLastHour int32}, error)",
+	"CountReviewsSince":                  "(context.Context, CountReviewsSinceParams{TenantID uuid.UUID; Since time.Time}) (int32, error)",
 	"CountTenantPlaques":                 "(context.Context, uuid.UUID) (CountTenantPlaquesRow{InService int64; InStock int64; ReadyToMount int64; Loaded int64}, error)",
 	"CreateAdminSession":                 "(context.Context, CreateAdminSessionParams{TokenHash string; AdminUserID uuid.UUID; TenantID uuid.UUID}) (CreateAdminSessionRow{ID uuid.UUID; TenantID uuid.UUID; AdminUserID uuid.UUID; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time}, error)",
 	"CreateAdminUser":                    "(context.Context, CreateAdminUserParams{FullName string; Email *string; PasswordHash string; Role string; TenantID uuid.UUID}) (CreateAdminUserRow{ID uuid.UUID; TenantID uuid.UUID; FullName string; Role string; Status string; CreatedAt time.Time}, error)",

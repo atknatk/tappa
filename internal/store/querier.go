@@ -882,6 +882,36 @@ type Querier interface {
 	//
 	// TENANT SCOPE (section 4.5): explicit predicate beside RLS, tenant from the session.
 	CountRecordsAtPartnerVenues(ctx context.Context, arg CountRecordsAtPartnerVenuesParams) (int64, error)
+	// How many flagged records a manager of THIS business decided since @since (M12-25): The Spike's
+	// "N decided today". The caller passes the tenant's LOCAL midnight (ledger.Reader.Queue derives
+	// it from GetTenantClock in the same transaction), so "today" is the business's day and not UTC's
+	// (CLAUDE.md §6).
+	//
+	// IT READS transaction_reviews ONLY. A decision is the manager's row (append-only, §4.3) and its
+	// reviewed_at is the moment it was recorded -- the SERVER's now() at INSERT, never a declared time.
+	// No transactions column is read, so no evidence reaches the figure and the K-39 inventory
+	// (internal/db/evidencereaders_test.go) is not touched: a decision on a record taken at a holding
+	// peer's venue is still this business's decision about its own record.
+	//
+	// NOT CAPPED, AND THE REASON IS STATED RATHER THAN ASSUMED. CountPendingFlagged caps because its
+	// ORDER BY lets an index stop early; here no index leads with reviewed_at (00005 has
+	// (tenant_id, transaction_id) and the UNIQUE (transaction_id)), so a LIMIT would not shorten the
+	// walk when the day is quiet -- the steady state. The figure is a day of one manager's clicks, so
+	// the count itself is small; what grows is the tenant's review history the filter walks past. An
+	// index on (tenant_id, reviewed_at) would bound it and is a migration -- not this card's.
+	//
+	// TENANT SCOPE (§4.5, belt + braces): explicit predicate on top of RLS. @since is a bare parameter.
+	//
+	// MEASURED 2026-10-20 (EXPLAIN ANALYZE as tappa_app in the tenant's context, PREPAREd; seed
+	// tenant 10000000-0000-4000-8000-000000000001 after `make seed` + the simulated day -- 0 reviews of
+	// its own, the table 3 rows in all; after ANALYZE; 3 runs):
+	//
+	//	Aggregate <- Result (One-Time Filter: RLS) <- Seq Scan transaction_reviews
+	//	             (Filter: reviewed_at >= $2 AND tenant_id = $1)   0 rows, 31.3 (cold) / 0.16 / 0.15 ms
+	//
+	// A seq scan of a three-row table is the planner's answer at that size and says nothing about a
+	// business with a year of decisions. One observation with its conditions, not a property.
+	CountReviewsSince(ctx context.Context, arg CountReviewsSinceParams) (int32, error)
 	// HOW MANY PLAQUES THIS BUSINESS HAS, AND HOW MANY OF THEM A TAP CAN ACTUALLY USE.
 	//
 	// IT EXISTS FOR ONE SENTENCE ON ONE SCREEN (M7-03 phase B): the panel's landing
