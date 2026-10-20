@@ -239,7 +239,9 @@ func hLocal(t *testing.T, day, clock string) time.Time {
 // and each reader is asked as the EMPLOYER: the venue is the site's, by name, its shift is the
 // site's, and the site's evidence is not described (K-39). Readers 7 and 8 name the site's plaque
 // NOWHERE at the employer (the site sees it from its projection -- the site half is asserted
-// too), reader 9 is the site's: its venue's references count the peer's taps.
+// too), reader 9 is the site's: its venue's references count the peer's taps. M12's Pass readers
+// follow as cases 10 onward (the panel redesign's D3 reads): each names the site's venue for the
+// employer, carries no evidence, and the site's own reading does not hold the employer's staff.
 func TestEmployerReaders_NineReadersNameTheSite(t *testing.T) {
 	w := newHWorld(t)
 	day := Date{Year: 2026, Month: time.September, Day: 16}
@@ -416,6 +418,107 @@ func TestEmployerReaders_NineReadersNameTheSite(t *testing.T) {
 			}
 			if refs.HoldingCount < 6 {
 				t.Errorf("the site's venue counts %d holding references, want the peer's 6 taps", refs.HoldingCount)
+			}
+		})
+		// THE PASS'S READERS (M12-13 ...), asked at 12:30 on the 17th: e1 and e2 are on the floor at
+		// the site's venue (their 17th check-ins are open), e3's flagged check-in of the 16th is
+		// older than tap.StaleOpenIn and is not.
+		pass := readerAt(t, w.data, hLocal(t, "2026-09-17", "12:30:00"), nil)
+		employerPass, err := pass.Screen(w.ctx, dir.employer, Filter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sitePass, err := pass.Screen(w.ctx, dir.site, Filter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Run(dir.name+"/10 CountOnTheFloorByVenue", func(t *testing.T) {
+			f := employerPass.Floor
+			if f.State != Measured || f.People != 2 || len(f.Venues) != 1 {
+				t.Fatalf("the employer's floor: %+v, want 2 people at one venue", f)
+			}
+			if v := f.Venues[0]; v.Name != venue || !v.Partner || v.LocationID != w.venue[dir.site] || v.People != 2 {
+				t.Errorf("the employer's floor names %+v, want the site's venue %q as a partner venue with 2 people", v, venue)
+			}
+			// The site's own floor does not hold the employer's staff: those records are the
+			// employer's, and RLS keeps them there.
+			if sitePass.Floor.State != Measured {
+				t.Fatalf("the site's floor is %v, want Measured", sitePass.Floor.State)
+			}
+			for _, v := range sitePass.Floor.Venues {
+				if v.LocationID == w.venue[dir.site] {
+					t.Errorf("the site's floor counts %d people at its own venue -- the employer's staff", v.People)
+				}
+			}
+		})
+		t.Run(dir.name+"/11 ListWorkedShiftEvents (the Pass's tape)", func(t *testing.T) {
+			tp := employerPass.Tape
+			if tp.State != Measured || len(tp.Hours) != 13 || len(tp.Venues) != 1 {
+				t.Fatalf("the employer's tape: %v, %d hours, %d venues; want Measured, 13 hours, the site's venue alone", tp.State, len(tp.Hours), len(tp.Venues))
+			}
+			v := tp.Venues[0]
+			if v.Name != venue || !v.Partner || v.LocationID != w.venue[dir.site] {
+				t.Errorf("the employer's tape names %q (partner %v, %s), want the site's venue %q", v.Name, v.Partner, v.LocationID, venue)
+			}
+			for h, n := range v.People {
+				want := 0
+				if h >= 9 {
+					want = 2 // e1 and e2 from their 09:00 check-ins; e3's entry is past tap.StaleOpenIn
+				}
+				if n != want {
+					t.Errorf("the employer's tape at %02d:00 counts %d, want %d (%v)", h, n, want, v.People)
+				}
+			}
+			if sitePass.Tape.State != Measured {
+				t.Fatalf("the site's tape is %v, want Measured", sitePass.Tape.State)
+			}
+			for _, v := range sitePass.Tape.Venues {
+				if v.LocationID == w.venue[dir.site] {
+					t.Errorf("the site's tape has a row for its own venue -- the employer's staff: %v", v.People)
+				}
+			}
+		})
+		t.Run(dir.name+"/12 ListOpenCheckIns (the Pass's left open)", func(t *testing.T) {
+			// Yesterday is the 16th: e1's entry was closed at 17:00, e2's and e3's (flagged) were not.
+			want := LeftOpen{State: Measured, N: 2, Day: day}
+			if employerPass.LeftOpen != want {
+				t.Errorf("the employer's left open: %+v, want %+v", employerPass.LeftOpen, want)
+			}
+			// The site counts its OWN staff's records only. KF's staff have none yet when KF is the
+			// site (the KM-staff direction runs first); KM's have the first direction's two.
+			wantSite := 0
+			if dir.site == w.km {
+				wantSite = 2
+			}
+			if sitePass.LeftOpen.State != Measured || sitePass.LeftOpen.N != wantSite {
+				t.Errorf("the site's left open: %+v, want %d (its own staff's only)", sitePass.LeftOpen, wantSite)
+			}
+		})
+		t.Run(dir.name+"/13 CountPanelTransactionsByVerdict", func(t *testing.T) {
+			// The 16th holds four of the employer's records at the site's venue: three ok, one flag.
+			// They are the employer's own records, so they are counted -- their verdict is the residue
+			// ADR 0027 §13 item 5 names -- and the count equals the list.
+			employer, err := pass.Screen(w.ctx, dir.employer, Filter{Date: day})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := VerdictTally{State: Measured, Records: 4, Approved: 3, Flagged: 1}
+			if employer.Tally != want {
+				t.Errorf("the employer's tally of the 16th: %+v, want %+v", employer.Tally, want)
+			}
+			if n := listed(t, pass, dir.employer, Filter{Date: day}); n != employer.Tally.Records {
+				t.Errorf("the employer's tally says %d, its list shows %d", employer.Tally.Records, n)
+			}
+			site, err := pass.Screen(w.ctx, dir.site, Filter{Date: day})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantSite := 0 // as case 12: the site counts its own staff's records only
+			if dir.site == w.km {
+				wantSite = 4
+			}
+			if site.Tally.State != Measured || site.Tally.Records != wantSite {
+				t.Errorf("the site's tally of the 16th: %+v, want %d records (its own staff's only)", site.Tally, wantSite)
 			}
 		})
 	}

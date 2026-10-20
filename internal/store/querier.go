@@ -772,6 +772,86 @@ type Querier interface {
 	// mean nothing can clear them. There is no dev-only special case anywhere in this
 	// path -- the number says what it counts and the reader decides.
 	CountMaskedOpenCheckIns(ctx context.Context, arg CountMaskedOpenCheckInsParams) (CountMaskedOpenCheckInsRow, error)
+	// The Pass's "on the floor now" (M12-13, D3): how many PEOPLE are checked in right now, per venue.
+	// One row per venue; the big number is the sum of the rows, so the figure and its breakdown come
+	// from one statement and cannot disagree.
+	//
+	// "CHECKED IN" IS GetLastOpenTransaction's PREDICATE, per person: a non-practice `in` with no
+	// `out` of the same person after it. DISTINCT ON keeps each person's LATEST such `in` (by id, in
+	// the subquery), so a person counts once, at the venue of their latest entry -- two unclosed
+	// check-ins in a row (the pre-ADR-0008 shape) do not make one person two. A flagged `in` counts:
+	// it is a record (§4.6), and whether it is approved is the review queue's business, not the
+	// floor's.
+	//
+	// 🔴 @since IS now - tap.StaleOpenIn, COMPUTED IN GO, and it is a bare parameter (no coalesce):
+	// a check-in older than the engine's own "forgotten checkout" horizon is not somebody on the
+	// floor, it is an anomaly (Odd shapes lists it). The clock is the server's (the Go process), the
+	// instant compared is the record's declared occurred_at -- the same pair ListOpenCheckIns uses.
+	// The outer row repeats `occurred_at >= @since`: logically redundant (every id the subquery picks
+	// satisfies it), it is what keeps the outer scan to the window instead of the tenant's history.
+	//
+	// 🔴 §4.1 / §4.2: this is DERIVED FROM RECORDED TAPS, not tracking. Nothing here reads a
+	// coordinate or an address; the venue is the plaque's (location_id) or, for a row taken at a
+	// holding peer's venue, site_location_id (K-30) -- named by internal/domain/ledger from
+	// holding_site_locations (siteVenuesFor), the one way into a peer's venue list. No evidence column
+	// is read (K-39: a partner row adds a person to the count, never a fact about the peer's network).
+	//
+	// A ROW WITH NO EMPLOYEE IS NOT A PERSON and is left out (employee_id IS NOT NULL): a direction
+	// is only ever assigned to a recognised person (internal/domain/tap), so the predicate is a
+	// guard. Rows with neither venue id group under NULL/NULL and are returned, not dropped.
+	//
+	// NO LIMIT: the rows are bounded by the business's venues plus its peers', not by its history.
+	//
+	// TENANT SCOPE (§4.5): the explicit predicate on the outer row, the subquery's row, the
+	// anti-join's row and the join's ON, beside RLS. The tenant comes from the panel session. (The
+	// outer statement is over transactions rather than over a CTE of the picked rows because
+	// internal/domain/tenant's TestTransactionsQueries_CarryAnExplicitTenantPredicate refuses a
+	// statement that reads a tenant table with no WHERE -- the CTE shape's outer SELECT had none.)
+	//
+	// EXPLAIN (ANALYZE, BUFFERS), 2026-10-20, seed tenant 10000000-...-0001 after `make seed` and the
+	// simulated days the test runs leave (72 rows, 70 inside the window; after ANALYZE; host load
+	// average ~100, so the times are noise): Bitmap Index Scan on transactions_tenant_occurred_idx for
+	// the outer window -> Hash Semi Join against the subquery (Bitmap Index Scan on
+	// transactions_tenant_occurred_idx -> Hash Right Anti Join against the tenant's `out` rows ->
+	// Sort + Unique for DISTINCT ON) -> Nested Loop Left Join to locations -> GroupAggregate -> Sort;
+	// shared hit=78 every run, 1.1-6.2 ms warm. On a larger table the anti-join is expected to probe
+	// transactions_tenant_employee_occurred_idx as GetLastOpenTransaction does -- re-measure rather
+	// than believe this line.
+	CountOnTheFloorByVenue(ctx context.Context, arg CountOnTheFloorByVenueParams) ([]CountOnTheFloorByVenueRow, error)
+	// The day's records counted by verdict (M12-16, D3): the ledger's summary line ("10 records · 6
+	// approved · … · 1 manual entry") and the counts on its verdict chips.
+	//
+	// 🔴 THE SAME ROWS ListPanelTransactions LISTS, MINUS TWO PREDICATES, AND THE TWO ARE THE POINT.
+	// Tenant, day window, venue, department, the name CTE and the channel are copied predicate for
+	// predicate; the VERDICT filter is left out because the chips ARE the verdict choice (each chip's
+	// count must hold whichever chip is pressed), and the CURSOR because a count is of the day, not of
+	// a page. So `records` equals the rows the list shows across every page with no verdict chosen,
+	// and each verdict's figure equals the list with that verdict chosen -- pinned by
+	// TestTally_CountsWhatTheListShows. Change a predicate in one statement and not the other and
+	// that test goes red.
+	//
+	// THE NAME CTE IS ListPanelTransactions' OWN, status-agnostic for its reason (§4.6): a person who
+	// has left is found, and their records are counted.
+	//
+	// NO JOIN: the list's joins only NAME a row (LEFT JOINs, and transaction_reviews is UNIQUE per
+	// record), so none of them changes which rows exist or how many. `verdict` is the ENGINE's (§4.3);
+	// a manager's later decision is not folded into it here either.
+	//
+	// ⚠️ IT READS `verdict`, AND A PARTNER-VENUE ROW'S VERDICT IS COUNTED: the residue ADR 0027 §13
+	// item 5 names (the employer sees the outcome of its own staff's taps at a partner venue, never the
+	// evidence behind it). internal/db's evidence inventory files it so.
+	//
+	// Bounds are bare parameters; the optional filters are sqlc.narg, null meaning "do not narrow",
+	// exactly as in ListPanelTransactions.
+	//
+	// TENANT SCOPE (§4.5): explicit predicate on the row and in the CTE, beside RLS; the tenant is the
+	// panel session's. It runs in the SAME WithTenant as the page it summarises (ledger.Screen), in
+	// its own savepoint.
+	//
+	// EXPLAIN (ANALYZE, BUFFERS), 2026-10-20, seed tenant after `make seed` and one simulated day,
+	// today's window, no filter: Bitmap Index Scan on transactions_tenant_occurred_idx -> Bitmap Heap
+	// Scan (21 rows) -> Aggregate, the CTE never executed; shared hit=5, 0.31 ms.
+	CountPanelTransactionsByVerdict(ctx context.Context, arg CountPanelTransactionsByVerdictParams) (CountPanelTransactionsByVerdictRow, error)
 	// reviews.sql -- the FLAGGED approval queue (M6-04): two reads and one write.
 	//
 	// 🔴 SECTION 4.3 IS THE WHOLE DESIGN OF THIS FILE. A manager approving or
@@ -4615,6 +4695,15 @@ type Querier interface {
 	// location_id is NULL (K-30), so the join below finds no name for it; the reader
 	// names it -- and finds its SHIFT -- from holding_site_locations (internal/domain/ledger's siteVenues), the one way into
 	// the peer's venue list. Ids only -- no evidence column is added (K-39).
+	//
+	// A SECOND CALLER: THE PASS'S HOURLY TAPE (M12-14, internal/domain/ledger/tape.go), over
+	// [local midnight - tap.StaleOpenIn, now) with row_limit = TapeEventCap + 1. It reads the
+	// direction chain and the venue only -- not the verdict, not the review, not the shifts -- so the
+	// statement's evidence-inventory entry (`residue`, internal/db) is unchanged by it. EXPLAIN
+	// (ANALYZE, BUFFERS) of that window, 2026-10-20, seed tenant after `make seed` and one simulated
+	// day (22 rows in the table): Bitmap Index Scan on transactions_tenant_occurred_idx -> Bitmap Heap
+	// Scan (Rows Removed by Filter 3) -> the four left joins -> Sort -> Limit; 19 rows, shared hit=19,
+	// 1.06 ms -- one observation on a tiny table, for the reason the block above gives.
 	ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShiftEventsParams) ([]ListWorkedShiftEventsRow, error)
 	// SERIALISE ONE API KEY'S DEACTIVATIONS (M11 API-6, ADR 0028 §12, K-25). The budget is a
 	// READ-THEN-DECIDE over this table (CountAPIDeactivations), and without a lock N concurrent

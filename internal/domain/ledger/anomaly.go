@@ -745,3 +745,57 @@ func mergeSitePlaques(own []AnomalyPlaque, site []store.ListSitePlaqueGapsRow, m
 	}
 	return own, more
 }
+
+// LeftOpen is The Pass's "left open since yesterday" (M12-15, D3): how many of YESTERDAY's
+// check-ins no checkout has closed.
+//
+// IT IS THE ODD SHAPES DEFINITION, NOT A NEW ONE: ListOpenCheckIns (a non-practice `in` with no
+// `out` after it, full stop), over yesterday's calendar day in the tenant's zone. No new SQL --
+// the card's choice -- so the Pass's number and the Odd shapes list cannot disagree about what an
+// open check-in is, and Day is what the Pass links that list with (its `week` parameter).
+//
+// 🔴 §4.6: CAPPED AT AnomalyRowCap, THE SAME CAP THE LIST IT LINKS TO USES. The read asks for one
+// row more; when it arrives N is the cap and Capped says "N+". A partner-venue entry counts (the
+// record is this business's) and adds nothing but one to the number (K-39).
+//
+// EXPLAIN (ANALYZE, BUFFERS) of yesterday's window, 2026-10-20, seed tenant after `make seed` and
+// one simulated day: Index Scan Backward on transactions_tenant_occurred_idx (the day) -> Nested
+// Loop Anti Join probing transactions_tenant_employee_occurred_idx for a later `out` -> the name
+// joins -> Incremental Sort -> Limit 51; 0 rows (the day's one entry was closed), 0.49 ms. One
+// observation on a 22-row table.
+type LeftOpen struct {
+	State Reading
+	// N is the number of yesterday's check-ins still open, exact unless Capped.
+	N int
+	// Capped means there are more than N: the screen prints "N+".
+	Capped bool
+	// Day is yesterday in the tenant's zone -- the day counted and the Odd shapes link's week.
+	Day Date
+}
+
+// leftOpenAt counts yesterday's open check-ins as of now, in zone.
+func leftOpenAt(ctx context.Context, q *store.Queries, tenantID uuid.UUID, now time.Time, zone *time.Location) (LeftOpen, error) {
+	if zone == nil {
+		zone = time.UTC
+	}
+	y, m, d := now.In(zone).Date()
+	today := time.Date(y, m, d, 0, 0, 0, 0, zone)
+	// AddDate, not -24h: a DST day is 23 or 25 hours long.
+	yesterday := today.AddDate(0, 0, -1)
+	rows, err := q.ListOpenCheckIns(ctx, store.ListOpenCheckInsParams{
+		TenantID: tenantID,
+		FromAt:   yesterday,
+		ToAt:     today,
+		RowLimit: anomalyReadLimit(),
+	})
+	if err != nil {
+		return LeftOpen{}, fmt.Errorf("list yesterday's open check-ins: %w", err)
+	}
+	rows, capped := trimAnomalyRows(rows)
+	return LeftOpen{
+		State:  Measured,
+		N:      len(rows),
+		Capped: capped,
+		Day:    Date{Year: yesterday.Year(), Month: yesterday.Month(), Day: yesterday.Day()},
+	}, nil
+}

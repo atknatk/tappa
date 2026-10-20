@@ -254,6 +254,8 @@ var storeSurface = map[string]string{
 	"CountDepartmentReferences":          "(context.Context, CountDepartmentReferencesParams{TenantID uuid.UUID; ID uuid.UUID}) (CountDepartmentReferencesRow{EmployeeCount int64; TransactionCount int64}, error)",
 	"CountLocationReferences":            "(context.Context, CountLocationReferencesParams{TenantID uuid.UUID; ID uuid.UUID}) (CountLocationReferencesRow{DepartmentCount int64; EmployeeCount int64; TagCount int64; TransactionCount int64; HoldingCount int64}, error)",
 	"CountMaskedOpenCheckIns":            "(context.Context, CountMaskedOpenCheckInsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time}) (CountMaskedOpenCheckInsRow{StillOpen int64; ClosedLater int64}, error)",
+	"CountOnTheFloorByVenue":             "(context.Context, CountOnTheFloorByVenueParams{TenantID uuid.UUID; Since time.Time}) ([]CountOnTheFloorByVenueRow{LocationID *uuid.UUID; SiteLocationID *uuid.UUID; LocationName *string; People int64}, error)",
+	"CountPanelTransactionsByVerdict":    "(context.Context, CountPanelTransactionsByVerdictParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; LocationID *uuid.UUID; DepartmentID *uuid.UUID; EmployeeName *string; Channel *string}) (CountPanelTransactionsByVerdictRow{Records int64; Approved int64; Flagged int64; Rejected int64; Ignored int64; Manual int64}, error)",
 	"CountPendingFlagged":                "(context.Context, CountPendingFlaggedParams{TenantID uuid.UUID; Cap int32}) (int32, error)",
 	"CountPracticeTaps":                  "(context.Context, CountPracticeTapsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time}) (int64, error)",
 	"CountRecordsAtPartnerVenues":        "(context.Context, CountRecordsAtPartnerVenuesParams{TenantID uuid.UUID; FromAt time.Time; UntilAt time.Time}) (int64, error)",
@@ -1043,14 +1045,19 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 212 -> 213 on 2026-10-19 (GRP-1): transactions.sql's CountRecordsAtPartnerVenues, a count of the
 	// caller's own rows that name a peer's venue; it calls no definer (holding_group is read by
 	// internal/db/holding.go by hand).
-	if named != 213 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND THIRTEEN were "+
-			"there when this was pinned (2026-10-19: 111 on 2026-08-24, + T73's three "+
+	// 213 -> 214 on 2026-10-20 (M12-13): transactions.sql's CountOnTheFloorByVenue, The Pass's "on the
+	// floor now" over the caller's own rows; it calls no definer (a partner venue's name is read by
+	// internal/db/holding.go by hand).
+	// 214 -> 215 on 2026-10-20 (M12-16): transactions.sql's CountPanelTransactionsByVerdict, the day's
+	// records by verdict under the list's own filters; it calls no definer.
+	if named != 215 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND FIFTEEN were "+
+			"there when this was pinned (2026-10-20: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + M12-13's floor count, + M12-16's verdict count). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
