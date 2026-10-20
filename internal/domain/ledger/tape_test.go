@@ -1,6 +1,8 @@
 package ledger
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -242,5 +244,28 @@ func TestTapeEvents_ACutReadDropsTheLastPersonWhole(t *testing.T) {
 	got := tapeEvents(rows, siteVenues{}, true)
 	if len(got) != 2 || got[0].who != ann || got[1].who != ann {
 		t.Errorf("a cut read kept %+v, want ann's two events only", got)
+	}
+}
+
+// TestTapeEvents_TheReadArrivesByPersonThenTime pins the order tapeEvents' cut rule rests on. A cut
+// read drops the LAST person whole, which is only "the one person whose chain may be short" if
+// ListWorkedShiftEvents hands the rows grouped by person and, within a person, by time -- and
+// tapeOf walks each chain in that order. Reordered (by time first, say), the dropped tail would be
+// the latest taps of several people and the kept rows would still hold half chains, which is the
+// over-count the rule exists to prevent. The body is read comment-free (findQuery), so an ORDER BY
+// mentioned in prose cannot satisfy it.
+func TestTapeEvents_TheReadArrivesByPersonThenTime(t *testing.T) {
+	_, body, ok := findQuery(t, "ListWorkedShiftEvents")
+	if !ok {
+		t.Fatal("ListWorkedShiftEvents was not found in db/queries; this pin is reading nothing")
+	}
+	flat := strings.Join(strings.Fields(body), " ")
+	orders := regexp.MustCompile(`(?i)\bORDER BY ([^;]*?)(?: LIMIT\b|;|$)`).FindAllStringSubmatch(flat, -1)
+	if len(orders) != 1 {
+		t.Fatalf("ListWorkedShiftEvents has %d ORDER BY clause(s), want exactly one: %q", len(orders), flat)
+	}
+	if got, want := strings.TrimSpace(orders[0][1]), "t.employee_id, t.occurred_at, t.id"; got != want {
+		t.Errorf("ListWorkedShiftEvents orders by %q, want %q: tapeEvents drops the last PERSON of a cut "+
+			"read whole, and tapeOf walks each person's chain by time", got, want)
 	}
 }
