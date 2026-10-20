@@ -872,23 +872,31 @@ func TestReportsSection_TheOtherVenueFigureIsTriState(t *testing.T) {
 	}
 }
 
-// reportsPageByteCeiling is how big the Roll may get, whatever the business is.
+// reportsPageByteCeiling is a STRUCTURAL regression net for the Roll's page size -- not a bound
+// on how big the Roll can get.
 //
-// IT IS DERIVED FROM TWO MEASUREMENTS (reports.go, maxReportRows and maxOpenRows), not
-// chosen. Below: the 559 968 B page this section served before its two listing caps -- the
-// failure class, an unbounded list on a no-store page re-sent on every view. Above: the worst
-// full page measured after M12-36, 408 762 B (the page this test renders: both lists at their
-// caps, every day worked and carrying every mark, every qualifier on every person, long
-// names). 450 000 B is that worst page plus 10 %, and 20 % under the control: a wall against
-// the failure class, not a tripwire on a few bytes of markup. Exact row counts are the caps'
-// own tests (TestReportsSection_ListsAtMostMaxReportRowsAndSaysSo,
+// WHAT IT IS MEASURED AGAINST is the fixture below: a heavy but typical full page -- both lists
+// at their caps, every listed day worked and carrying every mark, every qualifier on every
+// person, ~68-rune names, a 25-rune title, a 22-rune home venue -- which renders 408 762 B.
+// 450 000 B is that plus 10 %, and under the 559 968 B page this section served before its
+// two listing caps. It goes red when the markup of a row or a list entry grows (a repeated
+// chain, a list escaping its cap with the count tests changed), which is what it is for.
+//
+// ⚠️ IT DOES NOT BOUND THE PAGE, and the measurements say so (M12-36 re-audit, 2026-10-20):
+// the same page with every field at its legal limit (tenant.MaxEmployeeNameRunes 120,
+// MaxEmployeeRoleRunes 80, MaxVenueNameRunes 80, multi-byte runes such as ż) is ~484 426 B,
+// with names full of `&` (escaped as &amp;) ~628 234 B, and names stored before the rune
+// limit existed (staff.go) are not bounded at all. Those pages are over this ceiling and
+// legal; the per-person cap (maxReportRows) and per-entry cap (maxOpenRows) are what keep the
+// page finite, and their exact counts are their own tests
+// (TestReportsSection_ListsAtMostMaxReportRowsAndSaysSo,
 // TestReportsSection_BoundsTheOpenListAndStillCountsAllOfIt).
 const reportsPageByteCeiling = 450_000
 
 // TestReportsSection_AFullPageStaysUnderItsCeiling is the upward page-size net for the Roll,
 // the twin of the roster's (TestPanelEmployeesDB_APageStaysFarUnderTheControlM603Removed). It
-// renders the WORST full page rather than a typical one: a ceiling asserted against a light
-// page would pass at any cap.
+// renders a HEAVY full page rather than a light one -- a ceiling asserted against a light page
+// would pass at any cap -- but not the heaviest legal one (see reportsPageByteCeiling).
 func TestReportsSection_AFullPageStaysUnderItsCeiling(t *testing.T) {
 	const longName = "Ġużeppi Żammit-Borġ [simulated hire 2026-08-07T10:37:42 abcd]"
 	const people, open = maxReportRows + 40, maxOpenRows + 40
@@ -922,10 +930,17 @@ func TestReportsSection_AFullPageStaysUnderItsCeiling(t *testing.T) {
 	})
 	body := reportBrowser(t, records).do(http.MethodGet, reportsHref, nil).Body.String()
 	rows := strings.Count(body, `<tr class="roll-row">`)
-	if rows != maxReportRows || strings.Count(body[strings.Index(body, "Open — no checkout"):], `<section class="docket">`) != maxOpenRows {
-		t.Fatalf("the page lists %d people; it is not a full page, so a ceiling measured on it proves nothing", rows)
+	at := strings.Index(body, "Open — no checkout")
+	if at < 0 {
+		t.Fatalf("the page has no open list (%d people listed); it is not a full page, so a ceiling "+
+			"measured on it proves nothing", rows)
 	}
-	t.Logf("a full worst-case Roll page: %d B", len(body))
+	opens := strings.Count(body[at:], `<section class="docket">`)
+	if rows != maxReportRows || opens != maxOpenRows {
+		t.Fatalf("the page lists %d people (want %d) and %d open check-ins (want %d); it is not a full "+
+			"page, so a ceiling measured on it proves nothing", rows, maxReportRows, opens, maxOpenRows)
+	}
+	t.Logf("a heavy full Roll page: %d B", len(body))
 	if len(body) > reportsPageByteCeiling {
 		t.Errorf("a full Roll page is %d B, over the %d B ceiling. The page is no-store and re-sent on "+
 			"every view, and before its two listing caps it measured 559 968 B; a page this size "+

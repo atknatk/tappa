@@ -109,11 +109,17 @@ var reportsHref = mustSectionHref(pages.TabReports)
 //	   100   255 008 B    ~2 361 B a row when every worked day carries all three marks
 //
 // The open list adds ~470 B an entry (100 entries: +47 259 B), so an ordinary full page is
-// about 220 KB and the worst full page measured -- every listed day marked, every qualifier on
-// every person, 63-character names, both lists at their caps -- is 408 762 B
-// (TestReportsSection_AFullPageStaysUnderItsCeiling holds it under reportsPageByteCeiling).
-// Twice the docket shape's row, bought by the sr-only words and the phone's day names; both
-// lists stay bounded, which is what the 560 KB failure was about.
+// about 220 KB. A heavy but typical full page -- every listed day marked, every qualifier on
+// every person, ~68-rune names, 25-rune titles, 22-rune venues, both lists at their caps -- is
+// 408 762 B (TestReportsSection_AFullPageStaysUnderItsCeiling holds that fixture under
+// reportsPageByteCeiling, a structural net and not a bound).
+//
+// ⚠️ THAT IS NOT THE HEAVIEST LEGAL PAGE. Measured by the M12-36 re-audit: with every field at
+// its legal limit (names 120 runes, titles and venues 80, multi-byte runes such as ż) the same
+// page is ~484 426 B; with names full of `&` (each escaped as &amp;) ~628 234 B; and names
+// stored before the rune limit existed (staff.go) have no upper bound. What keeps the page
+// finite is the two listing caps, not any byte figure. Each row is about twice the docket
+// shape's, bought by the sr-only words and the phone's day names.
 const maxReportRows = 100
 
 // maxOpenRows is how many unclosed check-ins the screen LISTS. Totals.Open always
