@@ -3479,7 +3479,7 @@ type Querier interface {
 	// records added inside a rolled-back transaction, ANALYZEd, as tappa_app): Nested Loop
 	// over Function Scan on unnest; per id Limit / Incremental Sort (Presorted Key
 	// occurred_at) / Index Scan using transactions_tenant_employee_occurred_idx (loops=25,
-	// Filter NOT practice), 0.4 ms.
+	// 2 rows each, Filter NOT practice), 0.6 ms with the probe's own id array built in.
 	ListLastTapsForEmployees(ctx context.Context, arg ListLastTapsForEmployeesParams) ([]ListLastTapsForEmployeesRow, error)
 	// The resets of one administrator that could still be spent RIGHT NOW: not consumed,
 	// not retired, not expired.
@@ -4311,6 +4311,37 @@ type Querier interface {
 	// The scope's events of the range after the cursor and up to the window's end, seq <= S0, in
 	// (punch_time, seq) order -- one more than the caller hands out. The same columns as ListPunchEvents.
 	ListPunchHistory(ctx context.Context, arg ListPunchHistoryParams) ([]ListPunchHistoryRow, error)
+	// ONE person's last seven records (M12-19, panel redesign D3): the People card's strip of
+	// mini dockets -- day, direction, time, the engine's verdict word and, when a manager has
+	// since decided a flag, the decision.
+	//
+	// Practice rows are skipped (ADR 0008: not attendance, and the roster's last tap skips them
+	// too, so the strip and the row agree on which record is the newest). LIMIT 7 is the card's
+	// figure; the caller asks for exactly that many and does not page.
+	//
+	// type IS SELECTED NULLABLE ON PURPOSE: a refusal or an ignored repeat has no direction
+	// (00014's CHECK), and the strip prints "—" for it rather than guessing one.
+	//
+	// 🔴 K-39 / SECTION 4.7 -- WHAT IT DOES NOT SELECT: note, trust, ip_match, gps_match, gps_lat,
+	// gps_lng, source_ip, matched_sid, policy_context, policy_layer, the venue (location_id or
+	// site_location_id) and the plaque. A record taken at a holding PEER's venue is therefore
+	// day / direction / time / word like any other; its verdict word is the residue ADR 0027 §13
+	// item 5 names (internal/db/evidencereaders_test.go files it so). The review's note is not
+	// selected either -- a manager's free text has no place on a strip of words.
+	//
+	// rv.outcome is ONE ROW AT MOST: transaction_reviews has UNIQUE (transaction_id) (00005).
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): the explicit t.tenant_id predicate is required
+	// even though RLS is on, and the review JOIN restates the tenant in its ON. employee_id only
+	// narrows inside the caller's tenant: a foreign id finds nothing.
+	//
+	// EXPLAIN ANALYZE (2026-10-20, seeded KF tenant, 3 000 synthetic records added inside a
+	// rolled-back transaction, ANALYZEd, as tappa_app): Limit / Incremental Sort (Presorted Key
+	// occurred_at) / Nested Loop Left Join over an Index Scan using
+	// transactions_tenant_employee_occurred_idx (8 rows read for 7, Filter NOT practice); the
+	// review side a Seq Scan of an EMPTY transaction_reviews -- on a populated one it is the
+	// UNIQUE (transaction_id) probe ListPanelTransactions measures. 0.5 ms.
+	ListRecentTapsForEmployee(ctx context.Context, arg ListRecentTapsForEmployeeParams) ([]ListRecentTapsForEmployeeRow, error)
 	// All sessions of one employee, newest first: the read side of the optional
 	// device limit (M5-01 card: "config ile kapali gelebilir" -- NOT enforced here)
 	// and of the M5-02 "is this a new phone or an attack?" decision. Revoked rows are

@@ -564,3 +564,74 @@ func lifecycleStamp(row store.ListPanelEmployeesRow) *time.Time {
 		return nil
 	}
 }
+
+// RecentTapCount is how many records the People card's strip shows (M12-19).
+const RecentTapCount = 7
+
+// RecentTaps is one person's last RecentTapCount non-practice records, newest first (M12-19).
+//
+// State is the §4.6 flag (reading.go). An empty Taps says "no record yet" ONLY when State is
+// Measured; a failed read says it could not be read.
+type RecentTaps struct {
+	State Reading
+	Taps  []RecentTap
+}
+
+// RecentTap is one mini docket of the strip.
+//
+// 🔴 K-39 / §4.7 -- WHAT IT CANNOT CARRY: no venue, no plaque, no note, no trust, no evidence
+// sign. The statement (ListRecentTapsForEmployee) selects five columns and this type has a field
+// for each, so a record at a holding peer's venue is day / direction / time / word like any other.
+type RecentTap struct {
+	At time.Time
+	// Direction is "in" or "out", "" for a record with none (a refusal or an ignored repeat,
+	// 00014's CHECK) -- the screen prints "—", never a guess.
+	Direction string
+	// Verdict is the engine's word (ok, flag, reject, ignored).
+	Verdict string
+	// Channel is nfc, qr or manual.
+	Channel string
+	// Review is a manager's later decision on a flag (approved, rejected), "" when none was
+	// taken. It is the manager's word beside the engine's, never in place of it (§4.3).
+	Review string
+}
+
+// RecentTaps reads one person's last RecentTapCount records.
+//
+// IT NEVER RETURNS AN ERROR, BECAUSE A FAILED STRIP MUST NOT COST THE CARD. It runs in its own
+// transaction -- nothing else rides on it, so there is nothing for a failure to abort -- and a
+// failure is ReadFailed and logged here, with the tenant (§7).
+//
+// employeeID only narrows inside tenantID: a foreign or unknown id finds nothing and answers a
+// Measured empty strip, which is true of this tenant (no record of that id). The card itself is
+// built from tenant.Staff.Person, which already answers "not on this roster".
+func (r *Reader) RecentTaps(ctx context.Context, tenantID, employeeID uuid.UUID) RecentTaps {
+	var out RecentTaps
+	err := r.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := store.New(tx).ListRecentTapsForEmployee(ctx, store.ListRecentTapsForEmployeeParams{
+			TenantID:   tenantID,
+			EmployeeID: &employeeID,
+		})
+		if err != nil {
+			return fmt.Errorf("list recent taps: %w", err)
+		}
+		out.Taps = make([]RecentTap, 0, len(rows))
+		for _, row := range rows {
+			out.Taps = append(out.Taps, RecentTap{
+				At:        row.OccurredAt,
+				Direction: deref(row.Type),
+				Verdict:   row.Verdict,
+				Channel:   row.Channel,
+				Review:    deref(row.ReviewOutcome),
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		r.log.Error("ledger: could not read a person's recent taps; the card will say so "+
+			"rather than show an empty strip", "err", err, "tenant_id", tenantID)
+		return RecentTaps{State: ReadFailed}
+	}
+	out.State = Measured
+	return out
+}

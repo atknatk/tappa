@@ -430,7 +430,7 @@ type peopleTap struct {
 	practice bool
 }
 
-func (p *peopleTenant) tap(r peopleTap) {
+func (p *peopleTenant) tap(r peopleTap) uuid.UUID {
 	p.t.Helper()
 	if r.verdict == "" {
 		r.verdict = "ok"
@@ -445,9 +445,21 @@ func (p *peopleTenant) tap(r peopleTap) {
 	if r.venue != "" {
 		venue = p.venues[r.venue]
 	}
-	p.exec(`INSERT INTO transactions (tenant_id, employee_id, location_id, occurred_at, type, verdict, channel, practice, queued)
-	        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $6 = 'flag')`,
-		p.id, r.who, venue, r.at, kind, r.verdict, r.channel, r.practice)
+	id := uuid.New()
+	p.exec(`INSERT INTO transactions (id, tenant_id, employee_id, location_id, occurred_at, type, verdict, channel, practice, queued)
+	        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $7 = 'flag')`,
+		id, p.id, r.who, venue, r.at, kind, r.verdict, r.channel, r.practice)
+	return id
+}
+
+// review records a manager's decision on a flagged record, by a manager of this business.
+func (p *peopleTenant) review(txn uuid.UUID, outcome string) {
+	p.t.Helper()
+	admin := uuid.New()
+	p.exec(`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'Owner', $3, $4, 'owner')`,
+		admin, p.id, "owner-"+admin.String()[:12]+"@example.test", "$2a$12$"+strings.Repeat("h", 53))
+	p.exec(`INSERT INTO transaction_reviews (tenant_id, transaction_id, reviewer_id, outcome) VALUES ($1, $2, $3, $4)`,
+		p.id, txn, admin, outcome)
 }
 
 // TestRoster_EachRowCarriesItsRoleAndLastTap is M12-18's definition: the role as typed, and the
@@ -624,6 +636,149 @@ func TestRLS_LastTaps_AnotherTenantsRecordsAreNotRead(t *testing.T) {
 			t.Errorf("positive control: B's context, B's last taps: %+v", rows)
 		case ctxTenant == a.id && len(rows) != 0:
 			t.Errorf("RLS: A's context asked for B's last taps and got %+v", rows)
+		}
+	}
+}
+
+// TestRecentTaps_TheLastSevenNewestFirst is M12-19's definition: one person's seven newest
+// non-practice records, newest first, each its instant, direction ("" for none), verdict word,
+// channel and a manager's later decision.
+func TestRecentTaps_TheLastSevenNewestFirst(t *testing.T) {
+	data := peopleDB(t)
+	b := newPeopleTenant(t, data, "Recent")
+	b.venue("Bar")
+	who := b.person(peoplePerson{name: "Has a history", venue: "Bar"})
+	neighbour := b.person(peoplePerson{name: "Taps beside them", venue: "Bar"})
+	base := time.Date(2026, time.September, 1, 9, 0, 0, 0, time.UTC)
+	hour := func(n int) time.Time { return base.Add(time.Duration(n) * time.Hour) }
+	// Ten records over ten hours; the newest seven are hours 3..9 -- except hour 8 is practice,
+	// so the seven are 9, 7, 6, 5, 4, 3, 2.
+	var flagged uuid.UUID
+	for n := 0; n < 10; n++ {
+		r := peopleTap{who: who, venue: "Bar", at: hour(n), kind: []string{"in", "out"}[n%2]}
+		switch n {
+		case 8:
+			r.practice = true
+		case 9:
+			r.kind, r.verdict = "", "reject"
+		case 5:
+			r.verdict = "flag"
+		case 4:
+			r.kind, r.verdict = "", "ignored"
+		case 3:
+			r.channel = "manual"
+		}
+		id := b.tap(r)
+		if n == 5 {
+			flagged = id
+		}
+	}
+	b.review(flagged, "approved")
+	// Another person's newer record is not this person's.
+	b.tap(peopleTap{who: neighbour, venue: "Bar", at: hour(20), kind: "in"})
+
+	r, err := NewReader(data, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := r.RecentTaps(context.Background(), b.id, who)
+	if got.State != Measured || len(got.Taps) != RecentTapCount {
+		t.Fatalf("state %v with %d taps, want Measured and %d", got.State, len(got.Taps), RecentTapCount)
+	}
+	want := []RecentTap{
+		{At: hour(9), Direction: "", Verdict: "reject", Channel: "nfc"},
+		{At: hour(7), Direction: "out", Verdict: "ok", Channel: "nfc"},
+		{At: hour(6), Direction: "in", Verdict: "ok", Channel: "nfc"},
+		{At: hour(5), Direction: "out", Verdict: "flag", Channel: "nfc", Review: "approved"},
+		{At: hour(4), Direction: "", Verdict: "ignored", Channel: "nfc"},
+		{At: hour(3), Direction: "out", Verdict: "ok", Channel: "manual"},
+		{At: hour(2), Direction: "in", Verdict: "ok", Channel: "nfc"},
+	}
+	for i, w := range want {
+		g := got.Taps[i]
+		if !g.At.Equal(w.At) || g.Direction != w.Direction || g.Verdict != w.Verdict || g.Channel != w.Channel || g.Review != w.Review {
+			t.Errorf("tap %d: %+v, want %+v", i, g, w)
+		}
+	}
+
+	// Somebody with no record is a MEASURED empty strip; an id of no one here is the same.
+	none := b.person(peoplePerson{name: "Never tapped", venue: "Bar"})
+	for _, id := range []uuid.UUID{none, uuid.New()} {
+		if got := r.RecentTaps(context.Background(), b.id, id); got.State != Measured || len(got.Taps) != 0 {
+			t.Errorf("%v: state %v with %d taps, want a measured empty strip", id, got.State, len(got.Taps))
+		}
+	}
+}
+
+// TestRecentTaps_AFailedReadSaysSoAndNeverEmpty: the strip's statement failing for real is
+// ReadFailed and logged -- never a Measured empty strip, which would read as "no record yet".
+func TestRecentTaps_AFailedReadSaysSoAndNeverEmpty(t *testing.T) {
+	data := peopleDB(t)
+	b := newPeopleTenant(t, data, "Recent fails")
+	b.venue("Bar")
+	who := b.person(peoplePerson{name: "Tapped", venue: "Bar"})
+	b.tap(peopleTap{who: who, venue: "Bar", at: time.Now().Add(-time.Hour), kind: "in"})
+
+	var logged logCounter
+	r, err := NewReader(failOneQueryDB{real: data, name: "ListRecentTapsForEmployee"}, slog.New(&logged))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.RecentTaps(context.Background(), b.id, who); got.State != ReadFailed || len(got.Taps) != 0 {
+		t.Errorf("state %v with %d taps, want ReadFailed and none", got.State, len(got.Taps))
+	}
+	if logged.errors() != 1 {
+		t.Errorf("%d errors logged, want 1", logged.errors())
+	}
+	ok, err := NewReader(data, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ok.RecentTaps(context.Background(), b.id, who); got.State != Measured || len(got.Taps) != 1 {
+		t.Errorf("control: %v with %d taps", got.State, len(got.Taps))
+	}
+}
+
+// TestRLS_RecentTaps_AnotherTenantsRecordsAreNotRead: A's connection reads none of B's records,
+// even asked for B's employee. The probe carries no tenant predicate (CLAUDE.md §6).
+func TestRLS_RecentTaps_AnotherTenantsRecordsAreNotRead(t *testing.T) {
+	data := peopleDB(t)
+	a := newPeopleTenant(t, data, "RLS recent A")
+	b := newPeopleTenant(t, data, "RLS recent B")
+	b.venue("Door")
+	bWho := b.person(peoplePerson{name: "B", venue: "Door"})
+	b.tap(peopleTap{who: bWho, venue: "Door", at: time.Now().Add(-time.Hour), kind: "in"})
+
+	const whereless = `SELECT count(*) FROM transactions t WHERE t.employee_id = $1 AND NOT t.practice`
+	countBy := func(tenant uuid.UUID) int64 {
+		var n int64
+		if err := data.WithTenant(context.Background(), tenant, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx, whereless, bWho).Scan(&n)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if countBy(b.id) != 1 {
+		t.Fatal("positive control: B's own context does not see B's record")
+	}
+	if n := countBy(a.id); n != 0 {
+		t.Errorf("RLS: A's tenant-filter-free read sees %d of B's records", n)
+	}
+	for _, ctxTenant := range []uuid.UUID{a.id, b.id} {
+		var rows []store.ListRecentTapsForEmployeeRow
+		if err := data.WithTenant(context.Background(), ctxTenant, func(ctx context.Context, tx pgx.Tx) error {
+			var err error
+			rows, err = store.New(tx).ListRecentTapsForEmployee(ctx, store.ListRecentTapsForEmployeeParams{TenantID: b.id, EmployeeID: &bWho})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case ctxTenant == b.id && len(rows) != 1:
+			t.Errorf("positive control: B's context, B's strip: %+v", rows)
+		case ctxTenant == a.id && len(rows) != 0:
+			t.Errorf("RLS: A's context asked for B's strip and got %+v", rows)
 		}
 	}
 }

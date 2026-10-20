@@ -20,6 +20,7 @@ import (
 var peopleReadTypes = []reflect.Type{
 	reflect.TypeOf(ledger.StatusTally{}),
 	reflect.TypeOf(ledger.LastTap{}),
+	reflect.TypeOf(ledger.RecentTaps{}),
 }
 
 // peopleReadFields are the fields M12 added to an existing type, whose other fields predate this

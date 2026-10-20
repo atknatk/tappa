@@ -1261,7 +1261,7 @@ type ListLastTapsForEmployeesRow struct {
 // records added inside a rolled-back transaction, ANALYZEd, as tappa_app): Nested Loop
 // over Function Scan on unnest; per id Limit / Incremental Sort (Presorted Key
 // occurred_at) / Index Scan using transactions_tenant_employee_occurred_idx (loops=25,
-// Filter NOT practice), 0.4 ms.
+// 2 rows each, Filter NOT practice), 0.6 ms with the probe's own id array built in.
 func (q *Queries) ListLastTapsForEmployees(ctx context.Context, arg ListLastTapsForEmployeesParams) ([]ListLastTapsForEmployeesRow, error) {
 	rows, err := q.db.Query(ctx, listLastTapsForEmployees, arg.EmployeeIds, arg.TenantID)
 	if err != nil {

@@ -58,6 +58,8 @@ var evidenceReaders = map[string]evidenceReaderClass{
 	"ListWorkedShiftEvents": {"residue", "", 0,
 		"verdict decides the hours state only; it is not printed as evidence (§13 item 5: the verdict residue)"},
 	"CountPendingFlagged": {"residue", "", 0, "a count of flags to decide; a flag's existence is the verdict residue (§13 item 5)"},
+	"ListRecentTapsForEmployee": {"residue", "", 0,
+		"M12-19: the People card's strip is day, direction, time, the verdict word and a review word; a partner row's verdict is the residue (§13 item 5), no evidence column is selected"},
 	"ListLastTapsForEmployees": {"residue", "", 0,
 		"M12-18: the roster row's last tap is an instant, the verdict word and the channel; a partner row's verdict is the residue (§13 item 5), no evidence column is selected"},
 	"GetLastOpenTransaction":        {"not-rendered", "", 0, "the tap decision's input (direction chain), never shown"},

@@ -76,5 +76,23 @@ func TestPeopleReaders_APartnerVenueTapIsTheEmployersOutcomeOnly(t *testing.T) {
 				t.Errorf("the site reads the employer's last tap: %+v", rows)
 			}
 		})
+		t.Run(dir.name+"/ListRecentTapsForEmployee", func(t *testing.T) {
+			got := w.r.RecentTaps(w.ctx, dir.employer, e)
+			if got.State != Measured || len(got.Taps) != 2 {
+				t.Fatalf("the employer's strip: %v with %+v, want both partner-venue records", got.State, got.Taps)
+			}
+			want := []RecentTap{
+				{At: at.Add(time.Hour), Verdict: "reject", Channel: "nfc"},
+				{At: at, Direction: "in", Verdict: "flag", Channel: "nfc"},
+			}
+			for i, w := range want {
+				if g := got.Taps[i]; !g.At.Equal(w.At) || g != (RecentTap{At: g.At, Direction: w.Direction, Verdict: w.Verdict, Channel: w.Channel}) {
+					t.Errorf("tap %d: %+v, want %+v (day, direction, time and word only)", i, g, w)
+				}
+			}
+			if site := w.r.RecentTaps(w.ctx, dir.site, e); site.State != Measured || len(site.Taps) != 0 {
+				t.Errorf("the site reads the employer's person's strip: %+v", site)
+			}
+		})
 	}
 }

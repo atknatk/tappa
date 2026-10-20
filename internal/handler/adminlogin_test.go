@@ -287,6 +287,11 @@ type fakeLedger struct {
 	rosterTenant  []uuid.UUID
 	rosterFilters []ledger.RosterFilter
 
+	// M12-19's card strip. The zero value is NotQueried: the fake claims nothing about a
+	// person's records unless a test says what they are.
+	recent      ledger.RecentTaps
+	recentAsked []uuid.UUID // tenant, employee, tenant, employee, ...
+
 	// M6-07 phase A's read side. Same rule again: it defaults to "asked, and this
 	// week holds nothing", because an unqueried zero value renders nothing at all and
 	// a test using it would be reading a blank section rather than an empty week.
@@ -428,6 +433,14 @@ func (f *fakeLedger) Roster(_ context.Context, tenantID uuid.UUID, filter ledger
 		s.Zone = time.UTC
 	}
 	return s, nil
+}
+
+// RecentTaps is M12-19's read. It records who was asked about whom.
+func (f *fakeLedger) RecentTaps(_ context.Context, tenantID, employeeID uuid.UUID) ledger.RecentTaps {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.recentAsked = append(f.recentAsked, tenantID, employeeID)
+	return f.recent
 }
 
 // lastRosterFilter is the roster twin of lastFilter.
