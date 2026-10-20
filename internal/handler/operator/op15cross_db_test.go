@@ -9,12 +9,17 @@ package operator_test
 // operator surface over newLegalE2E's tappa_operator connection, the panel and /v1 over tappa_app's
 // pool.
 //
+// WHAT IS NOT REAL, BY NAME: K-19's work set (crossNoWork -- a /v1 write's webhook notice; this test
+// reads no webhook) and the panel's plaque encoder (nil -- no encode relay is driven). Both are off
+// the measured path: the panel's location save and /v1's PUT of a location reach neither. Every other
+// dependency of the three features is the product's own, over the real database.
+//
 // WHY HERE AND NOT IN cmd/tappa. cmd/tappa composes the served router, but its operator side needs a
 // tappa_operator login, which a development database does not have (the role is born NOLOGIN); the
 // one committed rig that drives the operator's real sign-in and real op_* writes through the surface
 // is this package's newLegalE2E. The panel and /v1 are built here from their exported constructors,
-// the dependencies cmd/tappa's buildAppFeatures mirrors, over the real pool -- no fake on any of the
-// three sides. Which router cmd/tappa serves is that package's own test
+// the dependencies cmd/tappa's buildAppFeatures mirrors, over the real pool (the two exceptions are
+// named above). Which router cmd/tappa serves is that package's own test
 // (TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses walks it; the two suspension POSTs are classed
 // there as the operator surface's).
 //
@@ -67,6 +72,7 @@ type crossSurfaces struct {
 	h        http.Handler
 	data     *db.DB
 	biz      uuid.UUID
+	admin    uuid.UUID
 	name     string
 	email    string
 	password string
@@ -104,6 +110,7 @@ func newCrossSurfaces(t *testing.T, l *legalE2E) *crossSurfaces {
 	digest, err := adminauth.Hash(c.password)
 	must(err)
 	admin := uuid.New()
+	c.admin = admin
 	for _, q := range []struct {
 		sql  string
 		args []any
@@ -255,6 +262,40 @@ func (c *crossSurfaces) venuesNamed(t *testing.T, l *legalE2E, name string) int 
 	return l.ownerInt(`SELECT count(*)::int FROM locations WHERE tenant_id = $1 AND name = $2`, c.biz, name)
 }
 
+// refusalRow is one of the business's own tenant.write_refused rows (ADR 0025 §3).
+type refusalRow struct {
+	actor  *uuid.UUID
+	target string
+	detail map[string]any
+}
+
+// refusalRows reads the business's tenant.write_refused rows, oldest first, as the owner.
+func (c *crossSurfaces) refusalRows(t *testing.T, l *legalE2E) []refusalRow {
+	t.Helper()
+	rows, err := l.owner.Query(l.ctx, `SELECT actor_id, target, detail::text FROM audit_log
+	                                   WHERE tenant_id = $1 AND action = 'tenant.write_refused' ORDER BY at, id`, c.biz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []refusalRow
+	for rows.Next() {
+		var r refusalRow
+		var detail string
+		if err := rows.Scan(&r.actor, &r.target, &detail); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal([]byte(detail), &r.detail); err != nil {
+			t.Fatalf("a refusal row's detail is not JSON: %v", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 // TestE2E_TheOperatorsSuspensionClosesThePanelAndTheAPIAndItsLiftingOpensThem is OP-15's closing
 // measurement (K15-13; ADR 0025 C phase annex, LC7 closed), on ONE router and PostgreSQL:
 //
@@ -262,12 +303,15 @@ func (c *crossSurfaces) venuesNamed(t *testing.T, l *legalE2E, name string) int 
 //     the location exists; its /v1 write (PUT /v1/locations/{ref}) is 201;
 //  1. the operator signs in on the operator host and suspends the business from its overview
 //     (POST …/suspend, non_payment, the box ticked): 303 to the overview, which says Suspended;
-//  2. the SAME panel session's next write is 403 and writes no location (phase B's gate); the
-//     /v1 write is 403 with the problem code tenant_suspended and writes no location (API-4b's
-//     checkpoint, reading the column the operator's screen wrote);
+//  2. the SAME panel session's next write is 403, writes no location and leaves exactly ONE
+//     tenant.write_refused row in the business's audit_log -- the owner as actor, the route's pattern
+//     as target, detail exactly {"reason": "non_payment"} (phase B's gate); the /v1 write is 403 with
+//     the problem code tenant_suspended and writes no location (API-4b's checkpoint, reading the
+//     column the operator's screen wrote);
 //  3. the operator lifts the suspension from the overview (POST …/reinstate, the box ticked): 303,
 //     the overview says Active;
-//  4. both writes go through again: the panel's 303 and its location, /v1's 201 and its location.
+//  4. both writes go through again: the panel's 303 and its location, /v1's 201 and its location,
+//     and no further refusal row.
 //
 // MUTANTS (the card's table): the screen's suspend that writes nothing (store not called) leaves step
 // 2's two writes through; the reinstate that writes nothing leaves step 4's two refused.
@@ -282,6 +326,9 @@ func TestE2E_TheOperatorsSuspensionClosesThePanelAndTheAPIAndItsLiftingOpensThem
 	}
 
 	// 0. Control.
+	if n := len(c.refusalRows(t, l)); n != 0 {
+		t.Fatalf("PREMISE: the new business already has %d refusal row(s)", n)
+	}
 	panelSession := c.panelSignIn(t)
 	if w := c.panelSaveVenue(t, panelSession, "Before"); w.Code != http.StatusSeeOther || c.venuesNamed(t, l, "Before") != 1 {
 		t.Fatalf("CONTROL: the panel's location save on a business that is not suspended = %d", w.Code)
@@ -314,6 +361,11 @@ func TestE2E_TheOperatorsSuspensionClosesThePanelAndTheAPIAndItsLiftingOpensThem
 		t.Errorf("the panel's location save on the suspended business = %d (%d location(s)), want 403 and none",
 			w.Code, c.venuesNamed(t, l, "During"))
 	}
+	refused := c.refusalRows(t, l)
+	if len(refused) != 1 || refused[0].actor == nil || *refused[0].actor != c.admin || refused[0].target != "/admin/locations/venue" ||
+		len(refused[0].detail) != 1 || refused[0].detail["reason"] != string(db.SuspensionNonPayment) {
+		t.Errorf("the panel's refusal left %+v, want ONE tenant.write_refused row: the owner, /admin/locations/venue, {reason: non_payment}", refused)
+	}
 	w = c.v1PutVenue(t, "OP15C-DURING", "During API")
 	var problem struct {
 		Code string `json:"code"`
@@ -342,5 +394,8 @@ func TestE2E_TheOperatorsSuspensionClosesThePanelAndTheAPIAndItsLiftingOpensThem
 	}
 	if w := c.v1PutVenue(t, "OP15C-AFTER", "After API"); w.Code != http.StatusCreated || c.venuesNamed(t, l, "After API") != 1 {
 		t.Errorf("the /v1 PUT after the lifting = %d %s, want 201 and one location", w.Code, w.Body.String())
+	}
+	if n := len(c.refusalRows(t, l)); n != 1 {
+		t.Errorf("after the lifting the business has %d refusal row(s), want still the one", n)
 	}
 }

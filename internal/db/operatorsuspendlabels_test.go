@@ -51,8 +51,12 @@ func opOperatorReasonLabels(t *testing.T) []string {
 	var out []string
 	for _, e := range lit.Elts {
 		kv, ok := e.(*ast.KeyValueExpr)
+		if !ok {
+			t.Errorf("%s: an element of suspensionReasonWords is not a key: value pair", path)
+			continue
+		}
 		sel, isSel := kv.Key.(*ast.SelectorExpr)
-		if !ok || !isSel {
+		if !isSel {
 			t.Errorf("%s: a key of suspensionReasonWords is not a selector (db.<Name>)", path)
 			continue
 		}
