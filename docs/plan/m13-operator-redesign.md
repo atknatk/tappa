@@ -278,9 +278,9 @@ testleri), `op14_test.go` (44 px listesi).
   `font-bold`, `tracking-*` — panoların çipi 24 px, 2 px 10 px, kalın, .08em; `text-*`, `bg-*`,
   `border-<renk>`, `opacity` yok); KONTROL: kapsamlı kurala bir renk yardımcısı eklenmiş mutasyon
   kırmızı. **Bu kart, bir `.tally--x` kuralının uygulayabileceğini genişleterek asla geçilmez** —
-  okuyucunun `border-`/`bg-` dışını bulgu sayan kolu aynen kalır. (`a8a06f6`'da yeniden okundu,
-  `27516b7`'de değişmedi: bu test panelin `.tally--pill`'i — `input.css:1292`, `2afa9db` — yüzünden
-  **zaten kırmızı**; düzeltmesi M12-52'nindir ve bu kartın ön koşuludur.)
+  okuyucunun `border-`/`bg-` dışını bulgu sayan kolu aynen kalır. (Bu test panelin `.tally--pill`'i — `2afa9db` — yüzünden kırmızıydı; M12-52'nin ad değişikliği
+  `5524505` + `00ca1e6` (`.pill-tally`, `input.css:1292`) onu yeşile döndürdü — ölçüldü. M12-52'nin kalan
+  mutasyon kontrolü de bu kartın ön koşuludur.)
 - `tally--running`'in yeni tonu iki fatura testinde **aynı commit'te** genişletilir, gevşetilmez:
   `TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes` (`op12_test.go:1532-1583`; `want`
   `BillingToneRunning: {"bg-paper", "border-saffron"}` olur ve yalnız bu ton için üçüncü
