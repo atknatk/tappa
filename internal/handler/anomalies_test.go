@@ -143,14 +143,15 @@ func TestAnomaliesSection_OffersNoWriteAtAll(t *testing.T) {
 	// assertion is about the SET of POST forms rather than their absence. Written as
 	// "contains no method=post" this test was RED on its first run — against a correct
 	// page — which is the shape that gets an assertion loosened until it sees nothing.
+	//
+	// Since the 2026-10-20 shell the sign-out is drawn twice -- the rail/sidebar's foot
+	// and the phone's More sheet, one of them displayed at any width -- so the set is
+	// exactly those two, and every POST form on the page is one of them.
 	posts := countPostForms(body)
-	if posts != 1 {
-		t.Errorf("§4.3: the page renders %d form(s) that POST, want exactly 1 (the shell's "+
-			"sign-out). Nothing on this screen may change a record.", posts)
-	}
-	if !strings.Contains(body, `<form method="post" action="/admin/logout">`) {
-		t.Error("the one POST form on the page is not the shell's sign-out, so the count " +
-			"above is counting something else")
+	signOuts := strings.Count(body, `<form method="post" action="/admin/logout">`)
+	if posts != 2 || signOuts != 2 {
+		t.Errorf("§4.3: the page renders %d form(s) that POST, %d of them the shell's sign-out; "+
+			"want exactly 2, both the sign-out. Nothing on this screen may change a record.", posts, signOuts)
 	}
 	if strings.Contains(body, "csrf") || strings.Contains(body, "CSRF") {
 		t.Error("§4.3: the anomalies section renders a synchronizer token, which only a " +

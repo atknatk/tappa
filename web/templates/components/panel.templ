@@ -3,6 +3,9 @@ package components
 // The PANEL's repeated patterns. Same rule as notice.templ: a chain that will be
 // pasted a second time is a component that has not been written yet.
 //
+// (Until the 2026-10-20 shell the navigation was one horizontal TabBar; it is now
+// SideNav for a tablet or a desktop and BarNav for a phone.)
+//
 // These two are written BEFORE their second caller, which is the opposite of that
 // rule, and the reason is that both already have five callers: the panel has five
 // sections (M6-03, M6-05, M6-06, M6-07, M6-09) and every one of them renders the
@@ -12,10 +15,17 @@ package components
 //
 // IT CARRIES NO "current" FLAG. Which tab is current is a property of the REQUEST,
 // not of the tab, and giving each Tab a bool would let a caller render two current
-// tabs or none. TabBar takes the current href once and compares.
+// tabs or none. SideNav and BarNav take the current href once and compare.
 type Tab struct {
 	Label string
 	Href  string
+	// No is the two-digit number the desktop sidebar prints before the label ("01"),
+	// or "" for a row of the second group, which is unnumbered.
+	No string
+	// Short is the label on the tablet's icon rail, where Label does not fit.
+	Short string
+	// Icon names the line drawing beside the label (NavIcon).
+	Icon string
 	// Badge is a short count printed beside the label — "12", "100+", "?" — or ""
 	// for no badge at all (M6-04's approval queue).
 	//
@@ -31,34 +41,153 @@ type Tab struct {
 	BadgeLabel string
 }
 
-// TabBar is the panel's section navigation.
+// The icon names NavIcon draws (design "The Pass", 2026-10-20).
+const (
+	IconPass       = "pass"
+	IconSpike      = "spike"
+	IconPeople     = "people"
+	IconVenues     = "venues"
+	IconRoll       = "roll"
+	IconOdd        = "odd"
+	IconRules      = "rules"
+	IconBilling    = "billing"
+	IconAccount    = "account"
+	IconDevelopers = "developers"
+	IconMore       = "more"
+)
+
+// SideNav is the panel's section navigation on a tablet and a desktop: the 88px
+// icon rail from md, the 248px numbered sidebar from desk. It is ONE list whose
+// shape the stylesheet changes, and below md it is not displayed at all — the
+// phone gets BarNav — so at any width a reader meets exactly one panel nav.
 //
 // ACCESSIBILITY, and it is the brand's "never colour alone" rule applied to
-// navigation rather than to a stamp: the current tab is marked with
-// aria-current="page", which a screen reader announces, and the green rule under
-// the label only repeats that for people who can see it. Remove the colour and the
-// tab bar still says where you are.
+// navigation rather than to a stamp: the current section is marked with
+// aria-current="page", which a screen reader announces, and the paper fill only
+// repeats that for people who can see it.
 //
-// EACH TAB IS A PLAIN LINK. There is no script on this page and no fragment swap:
-// a tab is a URL, so it can be bookmarked, opened in a new window, and used with
-// JavaScript switched off. See docs/plan/m6-dashboard.md M6-02 for the measured
-// request cost of that choice and the HTMX question it leaves open.
-templ TabBar(tabs []Tab, currentHref string) {
-	<nav class="tab-bar" aria-label="Panel sections">
-		for _, t := range tabs {
+// EACH ENTRY IS A PLAIN LINK. There is no script on these pages and no fragment
+// swap: a section is a URL, so it can be bookmarked, opened in a new window, and
+// used with JavaScript switched off. See docs/plan/m6-dashboard.md M6-02.
+//
+// The number and the icon are aria-hidden; the label the width shows is the
+// link's name (the rail's short one on a tablet, the full one on a desktop).
+templ SideNav(main, foot []Tab, currentHref string) {
+	<nav class="side-nav" aria-label="Panel sections">
+		<div class="side-group">
+			for _, t := range main {
+				@sideLink(t, currentHref)
+			}
+		</div>
+		if len(foot) > 0 {
+			<div class="side-group side-group--foot">
+				for _, t := range foot {
+					@sideLink(t, currentHref)
+				}
+			</div>
+		}
+	</nav>
+}
+
+templ sideLink(t Tab, currentHref string) {
+	if t.Href == currentHref {
+		<a href={ templ.URL(t.Href) } class="tab-link tab-link--current" aria-current="page">
+			@sideLinkBody(t)
+		</a>
+	} else {
+		<a href={ templ.URL(t.Href) } class="tab-link">
+			@sideLinkBody(t)
+		</a>
+	}
+}
+
+templ sideLinkBody(t Tab) {
+	@NavIcon(t.Icon, "tab-icon")
+	if t.No != "" {
+		<span class="tab-no" aria-hidden="true">{ t.No }</span>
+	} else {
+		<span class="tab-no" aria-hidden="true">··</span>
+	}
+	<span class="tab-label">{ t.Label }</span>
+	<span class="tab-short">{ t.Short }</span>
+	@tabBadge(t)
+}
+
+// BarNav is the phone's navigation: a bottom bar of the sections in bar and a
+// "More" disclosure listing the rest, with the children (who is signed in, and
+// sign-out) at the foot of its sheet. It is displayed only below md.
+//
+// MORE IS A <details>, SO IT OPENS WITH JAVASCRIPT OFF — the panel's policy has no
+// script-src on most sections, and a menu that needs a script would be a dead
+// button there. When the current section is in the sheet, More is drawn as the
+// current tab and the sheet's link carries aria-current; otherwise the bar's link
+// does. Either way the nav has exactly one aria-current.
+templ BarNav(bar, sheet []Tab, currentHref string) {
+	<nav class="bar" aria-label="Panel sections, phone">
+		for _, t := range bar {
 			if t.Href == currentHref {
-				<a href={ templ.URL(t.Href) } class="tab-link tab-link--current" aria-current="page">
-					{ t.Label }
+				<a href={ templ.URL(t.Href) } class="bar-link bar-link--current" aria-current="page">
+					@barLinkBody(t.Icon, t.Short)
 					@tabBadge(t)
 				</a>
 			} else {
-				<a href={ templ.URL(t.Href) } class="tab-link">
-					{ t.Label }
+				<a href={ templ.URL(t.Href) } class="bar-link">
+					@barLinkBody(t.Icon, t.Short)
 					@tabBadge(t)
 				</a>
 			}
 		}
+		<details class="bar-more">
+			if tabsHold(sheet, currentHref) {
+				<summary class="bar-link bar-link--current">
+					@barLinkBody(IconMore, "More")
+				</summary>
+			} else {
+				<summary class="bar-link">
+					@barLinkBody(IconMore, "More")
+				</summary>
+			}
+			<div class="bar-sheet">
+				<ul class="sheet-list">
+					for _, t := range sheet {
+						<li>
+							if t.Href == currentHref {
+								<a href={ templ.URL(t.Href) } class="sheet-link sheet-link--current" aria-current="page">
+									@NavIcon(t.Icon, "nav-icon")
+									<span>{ t.Label }</span>
+								</a>
+							} else {
+								<a href={ templ.URL(t.Href) } class="sheet-link">
+									@NavIcon(t.Icon, "nav-icon")
+									<span>{ t.Label }</span>
+								</a>
+							}
+						</li>
+					}
+				</ul>
+				<div class="sheet-foot">
+					{ children... }
+				</div>
+			</div>
+		</details>
 	</nav>
+}
+
+templ barLinkBody(icon, label string) {
+	<span class="bar-pill">
+		@NavIcon(icon, "nav-icon")
+	</span>
+	<span>{ label }</span>
+}
+
+// tabsHold reports whether one of tabs is the current section.
+func tabsHold(tabs []Tab, currentHref string) bool {
+	for _, t := range tabs {
+		if t.Href == currentHref {
+			return true
+		}
+	}
+	return false
 }
 
 // tabBadge prints the count beside a tab's label, or nothing.
@@ -71,6 +200,57 @@ templ tabBadge(t Tab) {
 	if t.Badge != "" {
 		<span class="tab-count" aria-label={ t.BadgeLabel }>{ t.Badge }</span>
 	}
+}
+
+// NavIcon draws one of the navigation's 24x24 line icons (design "The Pass"):
+// stroke in the text colour, 1.8 wide, round caps and joins, 22px on screen. It is
+// decoration — aria-hidden, focusable false — since the label beside it is the
+// name. An unknown name draws an empty frame rather than a wrong picture.
+templ NavIcon(name, class string) {
+	<svg class={ class } viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+		switch name {
+			case IconPass:
+				<path d="M3 5h18"></path>
+				<path d="M7.5 5v3M17.5 5v3"></path>
+				<rect x="5" y="8" width="5" height="9" rx="1"></rect>
+				<rect x="15" y="8" width="5" height="11" rx="1"></rect>
+			case IconSpike:
+				<path d="M12 3v18"></path>
+				<path d="M7 21h10"></path>
+				<rect x="6" y="9" width="12" height="7" rx="1"></rect>
+			case IconPeople:
+				<circle cx="9" cy="8" r="3.5"></circle>
+				<path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"></path>
+				<path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"></path>
+			case IconVenues:
+				<path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"></path>
+				<circle cx="12" cy="9.5" r="2.5"></circle>
+			case IconRoll:
+				<path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"></path>
+				<path d="M9 8h6M9 12h6"></path>
+			case IconOdd:
+				<circle cx="6" cy="17" r="2"></circle>
+				<circle cx="12" cy="10" r="2"></circle>
+				<circle cx="18" cy="15" r="2"></circle>
+				<path d="M15 3.5l5 5M20 3.5l-5 5"></path>
+			case IconRules:
+				<path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path>
+				<circle cx="16" cy="7" r="2"></circle>
+				<circle cx="10" cy="17" r="2"></circle>
+			case IconBilling:
+				<rect x="3" y="5" width="18" height="14" rx="2"></rect>
+				<path d="M3 10h18M7 15h4"></path>
+			case IconAccount:
+				<path d="M4 21V8l8-5 8 5v13"></path>
+				<path d="M9 21v-6h6v6"></path>
+			case IconDevelopers:
+				<path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"></path>
+			case IconMore:
+				<circle cx="5" cy="12" r="1.6"></circle>
+				<circle cx="12" cy="12" r="1.6"></circle>
+				<circle cx="19" cy="12" r="1.6"></circle>
+		}
+	</svg>
 }
 
 // EmptyState is what a section shows when it holds nothing.

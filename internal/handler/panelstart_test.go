@@ -307,8 +307,9 @@ var deliveryClaimCorpus = []string{
 	"They have been sent.",
 	"The package is at our depot.",
 	// --- round 5: a fifth audit. The round-4 anchor missed THE PRODUCT'S OWN SECOND
-	// NAME FOR A PLAQUE: the panel section is called "Locations & Wall Tags"
-	// (PanelSections), and that very phrase sits in the negative corpus below -- so
+	// NAME FOR A PLAQUE: the panel section was called "Locations & Wall Tags"
+	// (PanelSections; "Venues & plaques" since 2026-10-20), and that very phrase sat in
+	// the negative corpus below -- so
 	// the noun-object hole was still open in exactly the words the product uses.
 	// The other three are conjugations and punctuation the round-4 set could not see.
 	"We are printing and posting the wall tags this week.",
@@ -332,7 +333,7 @@ var deliveryAllowedCorpus = []string{
 	"Every plaque this business has is out of service - retired, or reported lost - " +
 		"so nobody can tap in or out. Ask us for a replacement and it will appear in " +
 		"stock, ready to mount.",
-	"Locations & Wall Tags shows every plaque this business has.",
+	"Venues & plaques shows every plaque this business has.",
 	"Taptime encodes each one and loads it into your dashboard; ask us for the ones " +
 		"you need. Until one is mounted there is nothing to tap at.",
 	"Nothing was recorded here on this day. Pick another day above.",
@@ -538,8 +539,8 @@ func TestPanelLanding_LinksOnlyToASectionThatExists(t *testing.T) {
 	if !strings.Contains(body, `href="`+href+`"`) {
 		t.Errorf("the notice does not link to %s", href)
 	}
-	// THE LABEL IS COMPARED IN ITS ESCAPED FORM, because "Locations & Wall Tags"
-	// reaches the page as "Locations &amp; Wall Tags" and a raw comparison would be
+	// THE LABEL IS COMPARED IN ITS ESCAPED FORM, because "Venues & plaques"
+	// reaches the page as "Venues &amp; plaques" and a raw comparison would be
 	// a test that fails for a reason that is not a defect.
 	if !strings.Contains(body, html.EscapeString(label)) {
 		t.Errorf("the notice does not name the section the way the navigation does (%q)", label)

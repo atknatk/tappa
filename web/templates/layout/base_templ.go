@@ -462,7 +462,7 @@ func BrandHeader(b Brand) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = Wordmark().Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = wordmark().Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -588,7 +588,11 @@ func documentHead(title, script string, robots Robots, theme Theme) templ.Compon
 	})
 }
 
-// Wordmark is the brand lockup that opens every screen.
+// wordmark is the brand lockup that opens the tap family's screens (BrandHeader's
+// unbranded shape). It was exported while the panel chrome also drew it; since the
+// 2026-10-20 shell the panel draws its own lockup on ink (pages.PanelWordmark), so
+// nothing outside this package renders it and it is unexported
+// (TestLayoutShells_EveryOneIsActuallyRendered).
 //
 // 🔴 THE TAGLINE'S TONE WAS RAISED ON 2026-08-04, AND THE WCAG LOGOTYPE EXEMPTION
 // WAS CONSIDERED AND DECLINED. "punchless" sat at 40% ink, which measures 2.38:1
@@ -609,7 +613,7 @@ func documentHead(title, script string, robots Robots, theme Theme) templ.Compon
 // stays subordinate by SIZE (10px), case and tracking rather than by being
 // unreadable, and it now matches the docket label, so the product has one quiet
 // tone instead of three. Guarded by TestBrand_EveryInkToneClearsAA.
-func Wordmark() templ.Component {
+func wordmark() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -800,7 +804,7 @@ func PanelWithScript(title, src string, theme Theme) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<body class=\"min-h-screen bg-porcelain text-ink antialiased\"><main class=\"mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<body class=\"min-h-screen bg-porcelain text-ink antialiased\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -808,7 +812,7 @@ func PanelWithScript(title, src string, theme Theme) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</main></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -990,8 +994,8 @@ func MarketingWithScript(title string, robots Robots, src string) templ.Componen
 //
 // IT EXISTS FOR THE PANEL'S SIGN-IN SCREEN AND THE REASON IS A MEASUREMENT, not a
 // preference. The four shells above all hand their children a centred column —
-// Page and PageWithScript a phone-width max-w-md, Panel and PanelWithScript a
-// max-w-5xl content well, Marketing a body the landing page's own .lp wrapper
+// Page and PageWithScript a phone-width max-w-md, Panel and PanelWithScript the
+// panel frame (pages.PanelShell), Marketing a body the landing page's own .lp wrapper
 // re-columns. The sign-in screen the user drew is two panels that meet at a seam
 // and run the full height of the viewport: a dark brand half and a light form
 // half. There is no width at which a centred column renders that, so the choice
@@ -1083,7 +1087,7 @@ func Auth(title, script string) templ.Component {
 // OPERATOR" bar and, on a tenant screen, the banner naming the tenant -- is drawn by
 // operatorpages' screen, scriptedScreen and tenantScreen, and this shell gives it a
 // full-bleed body with no column and no wordmark of the customer product to fight.
-// Panel's max-w-5xl well and Page's phone column both bring a frame the operator
+// The panel frame and Page's phone column both bring a frame the operator
 // chrome would have to undo.
 //
 // WHAT IT DOES NOT CHANGE: the shared document head (no third-party URL, no referrer,

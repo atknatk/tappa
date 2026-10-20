@@ -6,6 +6,11 @@ package pages
 // panels) and are never rewritten from later code: a change to these pages that is meant has to
 // say so by replacing a golden in its own commit. MUTANT (measured): one space added between two
 // sections of either page -> red.
+//
+// RE-RENDERED ON 2026-10-20 FOR THE PANEL SHELL OF DESIGN "THE PASS" (user-approved), which
+// changes the chrome around every panel page. Checked before replacing: with the chrome cut off
+// (everything outside the content well; before, everything outside the tab bar and </main>), each
+// page's own markup is byte for byte the 85b4b8d golden's. The holding claim is unchanged.
 
 import (
 	"bytes"

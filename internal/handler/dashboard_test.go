@@ -188,6 +188,67 @@ func TestPanelSections_EachRequestMarksExactlyItsOwnTabCurrent(t *testing.T) {
 	}
 }
 
+// TestPanelSections_ThePhoneNavMarksExactlyOneCurrentAndOffersEverySection is the
+// same pair of properties for the phone's navigation (design "The Pass", 2026-10-20):
+// a bottom bar of four sections and a "More" <details> sheet with the rest. Over every
+// section's page: the phone nav carries exactly one aria-current, on that section's
+// own link (in the bar or in the sheet); More is drawn current exactly when the
+// section is in the sheet; bar and sheet together link every section once and nothing
+// else; the bar's order is Pass, Spike, Roll, People; and the sheet is a native
+// disclosure (<details>/<summary>), so it opens with no script on a page whose policy
+// has no script-src.
+func TestPanelSections_ThePhoneNavMarksExactlyOneCurrentAndOffersEverySection(t *testing.T) {
+	bodies := sectionBodies(t)
+	navRE := regexp.MustCompile(`(?s)<nav class="bar" aria-label="Panel sections, phone">(.*?)</nav>`)
+	linkRE := regexp.MustCompile(`<a href="([^"]*)" class="(bar-link|sheet-link)[^"]*"([^>]*)>`)
+	wantBar := []string{transactionsHref, reviewHref, "/admin/reports", "/admin/employees"}
+	for _, s := range pages.PanelSections {
+		body := bodies[s.Href]
+		navs := navRE.FindAllStringSubmatch(body, -1)
+		if len(navs) != 1 {
+			t.Fatalf("GET %s renders %d phone navs, want 1", s.Href, len(navs))
+		}
+		nav := navs[0][1]
+		if n := strings.Count(nav, "aria-current"); n != 1 {
+			t.Errorf("GET %s: the phone nav carries %d aria-current, want exactly 1", s.Href, n)
+		}
+		var bar []string
+		seen := map[string]int{}
+		inSheet := false
+		for _, m := range linkRE.FindAllStringSubmatch(nav, -1) {
+			seen[m[1]]++
+			if m[2] == "bar-link" {
+				bar = append(bar, m[1])
+			}
+			current := strings.Contains(m[3], `aria-current="page"`)
+			if current != (m[1] == s.Href) {
+				t.Errorf("GET %s: the phone link to %s is current=%v", s.Href, m[1], current)
+			}
+			if m[1] == s.Href && m[2] == "sheet-link" {
+				inSheet = true
+			}
+		}
+		if !slices.Equal(bar, wantBar) {
+			t.Errorf("GET %s: the bottom bar links %v, want %v", s.Href, bar, wantBar)
+		}
+		for _, sec := range pages.PanelSections {
+			if seen[sec.Href] != 1 {
+				t.Errorf("GET %s: the phone nav links %s %d times, want once", s.Href, sec.Href, seen[sec.Href])
+			}
+		}
+		if len(seen) != len(pages.PanelSections) {
+			t.Errorf("GET %s: the phone nav links %d distinct targets for %d sections", s.Href, len(seen), len(pages.PanelSections))
+		}
+		if !strings.Contains(nav, `<details class="bar-more">`) || strings.Count(nav, "<summary") != 1 {
+			t.Errorf("GET %s: More is not one native <details>/<summary> disclosure", s.Href)
+		}
+		moreCurrent := strings.Contains(nav, `<summary class="bar-link bar-link--current">`)
+		if moreCurrent != inSheet {
+			t.Errorf("GET %s: More drawn current=%v while the section is in the sheet=%v", s.Href, moreCurrent, inSheet)
+		}
+	}
+}
+
 // TestPanelSections_RenderTheirOwnContentAndNoOthers is the property that the
 // shell actually SWITCHES, which the current-tab test above cannot see: a
 // navigation that highlights correctly while rendering the same body five times
@@ -869,6 +930,11 @@ var panelTouchTargets = map[string]int{
 	// It is the first entry whose element ships [hidden] — that changes nothing here,
 	// because a control revealed one keystroke later is pressed by the same thumb.
 	"pw-toggle": 44, // .pw-toggle -> min-h-11/min-w-11 = 2.75rem square
+	// The phone's navigation (design "The Pass", 2026-10-20): the bottom bar's four
+	// links and its More summary are 60px tall, the More sheet's rows 48px. Both are
+	// real <a> elements, so both halves of the pair reach them.
+	"bar-link":   60, // .bar-link   -> min-h-[60px]
+	"sheet-link": 48, // .sheet-link -> min-h-12 = 3rem
 }
 
 func hasTouchTargetClass(classes string) bool {

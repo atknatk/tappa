@@ -538,8 +538,8 @@ func TestPanelE2E_SignInAndOut(t *testing.T) {
 	// SECTION TABLE rather than against a sentence, so this stays true as the
 	// sections are filled in one by one.
 	for _, sec := range pages.PanelSections {
-		// htmlText, not the raw label: "Locations & Wall Tags" reaches the page as
-		// "Locations &amp; Wall Tags", and the first version of this loop compared the
+		// htmlText, not the raw label: "Venues & plaques" reaches the page as
+		// "Venues &amp; plaques", and the first version of this loop compared the
 		// unescaped string and failed on exactly that section.
 		if !strings.Contains(panel, htmlText(sec.Label)) {
 			t.Fatalf("the panel does not offer the %q section", sec.Label)

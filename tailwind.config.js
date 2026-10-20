@@ -23,6 +23,11 @@ module.exports = {
   content: ['./web/templates/**/*.templ', './web/static/js/**/*.js'],
   theme: {
     extend: {
+      // The panel shell's third width (design "The Pass", 2026-10-20): below md a
+      // phone (top bar + bottom tab bar), md up to this a tablet (88px icon rail),
+      // from here a desktop (248px sidebar). Tailwind's xl is 1280, which would
+      // leave a 1200-1279 laptop on the rail, so the edge is named rather than borrowed.
+      screens: { desk: '1200px' },
       colors: {
         ink: '#152219',
         porcelain: '#EDF0EA',

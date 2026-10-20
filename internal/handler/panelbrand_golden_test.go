@@ -22,6 +22,16 @@ package handler
 // command). Since the merge with M10 WL-9 the layout.PageWithScript entry passes a
 // zero layout.Brand, which df544c1 does not have: drop that argument to replay the
 // export. A render that is not in unbrandedChromeRenders is not held -- PART III.
+//
+// 🔴 THE PANEL HALF WAS RE-BASED ON 2026-10-20, AND ONLY THE PANEL HALF. The panel shell
+// of design "The Pass" (user-approved) replaced the chrome every panel entry renders --
+// a sidebar/rail and a phone bar instead of a header and a tab bar -- so those entries
+// can no longer be df544c1's bytes. Their digests (unbrandedPanelShell) were printed by
+// this test from the commit that introduced that shell, with no brand; from there on the
+// claim is the same one WL-8 made: an unbranded business's chrome changes only when the
+// shell itself is meant to change, never because of the brand. What df544c1 proved
+// structurally is asserted structurally for them (unbrandedPanelCarriesNoBrand). The
+// layout entries, which the shell did not touch, are still held to df544c1.
 
 import (
 	"bytes"
@@ -55,13 +65,14 @@ func unbrandedChromeRenders() []unbrandedRender {
 	// The scriptless panel shell on every section's tab, as an owner (who sees every
 	// tab, OwnerOnly included) with records waiting.
 	for _, s := range pages.PanelSections {
+		name := string(s.Tab)
 		if s.Tab == pages.TabAPIKeys {
-			// Born after WL-8 (M11 API-3): there is no "before" for its own page -- the other
-			// renders below carry its tab, which unbrandedAfterWL8Tabs takes out.
-			continue
+			// Named by its label: the tab's id beside a sha256 in the golden below is the
+			// shape make audit's R7d (scripts/secretscan.sh, a0-token) refuses.
+			name = "developers"
 		}
 		out = append(out, unbrandedRender{
-			"PanelShell, owner, tab " + string(s.Tab), pages.PanelShell(chrome("owner", s.Tab, waiting)), body,
+			"PanelShell, owner, tab " + name, pages.PanelShell(chrome("owner", s.Tab, waiting)), body,
 		})
 	}
 	out = append(out,
@@ -124,41 +135,55 @@ func digestUnbranded(b []byte) unbrandedDigest {
 // unbrandedBeforeWL8 is what df544c1 rendered for each entry (printed by this file's
 // corpus in an export of that commit; the WL-8 card has the command).
 var unbrandedBeforeWL8 = map[string]unbrandedDigest{
-	"PanelShell, owner, tab transactions":            {1933, "6ea94a81b3bce260589397d479dae41bdde9f8133c7012d20157d12b94b2736f"},
-	"PanelShell, owner, tab review":                  {1933, "361b043c0cc5c892a16d0655ef5892471d69b76a3b41ea6bccfe3e3e8e274733"},
-	"PanelShell, owner, tab employees":               {1930, "bd791ffea1dff7542bced8ca92250f874f4de890d32b4338bdfdbb717b22ac21"},
-	"PanelShell, owner, tab locations":               {1946, "f600a076e0387f0c4a1a5aeb88cf217d9a6f5dfbfeade7ee842f6eb27f77ffe6"},
-	"PanelShell, owner, tab reports":                 {1928, "7844c43b750d2fc9847b25999640c1b8f6d6fa4f506eab1d9da3ea93ab9d00fc"},
-	"PanelShell, owner, tab anomalies":               {1930, "62f327dae28a7d8ea506038b44a1937d38af95eb3b4c9f50bc9e5757d9ba1f0d"},
-	"PanelShell, owner, tab policies":                {1929, "13d9c5d31714e75cd4fbba91ca4f462635ab14f9d9f357e5ca480273205f8745"},
-	"PanelShell, owner, tab billing":                 {1928, "b760ec0c0d1d0c0849221a20cf6d32c897c214366164cdd04c9a8d8f1eb66744"},
-	"PanelShell, owner, tab account":                 {1928, "9cc375f69698b5a1ddce3ae607278cc9af7b43a189b46bb3af3bedc3ad86c882"},
-	"PanelShell, manager, review, capped badge":      {1897, "e3846d3c5771a4c4dab47c6c0ef72249dedc019757ce34fb3a5a792d205cdbe7"},
-	"PanelShell, owner, transactions, unknown badge": {1952, "427bf16a5eb3ccbe649beb5a8e4c8dd3853be78c2c085fd09179de54749ed69e"},
-	"PanelShell, owner, transactions, empty queue":   {1859, "2d3b205ddf2d180eb008156845647d8310f720902660c5b72e318a4a169460ff"},
-	"PanelShell, owner, an undeclared tab":           {1819, "9ae50ef96516899eebb2e7858d5d00b8badbe690d6dbc390a9ac66fe7ae6842c"},
-	"PanelShell, a name to escape":                   {1963, "d5a731d009615b89436c94e8bc54eb1ed2202e327bc88bd81960beb7cc6ea68e"},
-	"PanelShellWithScript, owner, transactions":      {1989, "6b349a01804a411d79874a66b433cb188a2d3f1580c644d58a2f5cb0370c32a3"},
-	"AdminDashboard, owner, reports":                 {2278, "51c26dfdd840c8656b8c5ccadbe1cbe6a774d7e26fc1f4af6e114d02bededfcc"},
-	"layout.Page":                                    {751, "48e1d0d1e5613447b116b8433e8b09e201c468194fe4f94a5aeaf3c34eded655"},
-	"layout.PageWithScript":                          {798, "651c72839b42551a6243ff04d2108c2dc572d1d340831a0c2599afc506e4085f"},
-	"layout.Marketing, public":                       {418, "7a041e0a20ff3279ea35c4a0d75526c1c1b6a880fe1cb2ab6e77d1936207dc23"},
-	"layout.MarketingWithScript, private":            {473, "136e58c6558802fe7a906e35cd3d0551b6ddd717fb1e60f556c34790582b9469"},
-	"layout.Auth, no script":                         {434, "4058bbc5591c3dd2178648a916508d15c66724d5c5be0cc5266125b7134c19df"},
-	"layout.Auth, a script":                          {483, "9381dd03c38e63d1e44124b3faa39e5e0ae4498a8691dd24d4fd5a86068d39b0"},
-	"layout.Operator":                                {431, "351dc3118a49669cc22ff089e7b395ae6b5ee44c3e694972bcef290a3993463d"},
-	"layout.OperatorWithScript":                      {490, "149cd73492810613e5787970b52b0fa3fd4006866279f0940061bae4b42c663a"},
+	"layout.Page":                         {751, "48e1d0d1e5613447b116b8433e8b09e201c468194fe4f94a5aeaf3c34eded655"},
+	"layout.PageWithScript":               {798, "651c72839b42551a6243ff04d2108c2dc572d1d340831a0c2599afc506e4085f"},
+	"layout.Marketing, public":            {418, "7a041e0a20ff3279ea35c4a0d75526c1c1b6a880fe1cb2ab6e77d1936207dc23"},
+	"layout.MarketingWithScript, private": {473, "136e58c6558802fe7a906e35cd3d0551b6ddd717fb1e60f556c34790582b9469"},
+	"layout.Auth, no script":              {434, "4058bbc5591c3dd2178648a916508d15c66724d5c5be0cc5266125b7134c19df"},
+	"layout.Auth, a script":               {483, "9381dd03c38e63d1e44124b3faa39e5e0ae4498a8691dd24d4fd5a86068d39b0"},
+	"layout.Operator":                     {431, "351dc3118a49669cc22ff089e7b395ae6b5ee44c3e694972bcef290a3993463d"},
+	"layout.OperatorWithScript":           {490, "149cd73492810613e5787970b52b0fa3fd4006866279f0940061bae4b42c663a"},
+}
+
+// unbrandedPanelShell is what the panel entries render with no brand in the shell of
+// design "The Pass" (2026-10-20), printed by this test from the commit that introduced it.
+var unbrandedPanelShell = map[string]unbrandedDigest{
+	"PanelShell, owner, tab transactions":            {11514, "95e04c427d9b6975187f7c7b41d77598660c88e634d92e9994a9114455bf09a2"},
+	"PanelShell, owner, tab review":                  {11515, "8775947a8414f201c451138ffcdd6347fac8a1f399f89976453d4f1e733f5761"},
+	"PanelShell, owner, tab employees":               {11512, "2aec88429a68c49bea4ce27b1e302e182562e4945055d7c005301da5053ab7e8"},
+	"PanelShell, owner, tab locations":               {11546, "f49a46b3e4635c5c4fe072c42be55a0f241a5957149517c143143a559f5028fc"},
+	"PanelShell, owner, tab reports":                 {11514, "b404e3cc36203a067231a8e0938e6a1758e1171acabf86343fb69ecea1f8f80e"},
+	"PanelShell, owner, tab anomalies":               {11536, "f8e4f27b13e7052a7d5cd2867686769d97bfecebd6401bc2b7df577e9e6ca861"},
+	"PanelShell, owner, tab policies":                {11531, "33a902da02be382bb3d08cc3258252018bbedfd1691c6bbca3d81c680a0e14c8"},
+	"PanelShell, owner, tab billing":                 {11533, "2851b46f68e33183ff54c9f786b4872df30afe699ea28401978764eb0d176042"},
+	"PanelShell, owner, tab account":                 {11533, "46f9e0cd36fd664dc1b3100ac883612179afb74bfc802af46047baf3ee04c9cf"},
+	"PanelShell, owner, tab developers":              {11536, "4eb28cdd1db1eed7bd0cbe4f24768a1d745cccc6d78e636ad1900c4dd13718ae"},
+	"PanelShell, manager, review, capped badge":      {9910, "0a4cae3a28f2f3e3db42e83b2ebebb67e2cb819ef975c103c15953730990ac3c"},
+	"PanelShell, owner, transactions, unknown badge": {11552, "f4b7e3f68fb484fea0b509d1d6f875a719a4e9a912181de85a5375517828c67c"},
+	"PanelShell, owner, transactions, empty queue":   {11366, "9bf9cfcb7259914e34c185938997b3b7ee1102db6e2407c7aeaf3c2f050929dd"},
+	"PanelShell, owner, an undeclared tab":           {11366, "c1c3be44486d86147aa4f0a0c82bb4a28b198b4807d70b3a0a951ae3e17ffc67"},
+	"PanelShell, a name to escape":                   {11603, "2400f8023775b1282a3b426253b4b5c2a9eae2a44b5c5cf1dc56794b587a71e5"},
+	"PanelShellWithScript, owner, transactions":      {11570, "f6506638f6ca298ff0f6e072ea0073131356982b15b6168b48bbd3a99d179a1b"},
+	"AdminDashboard, owner, reports":                 {11865, "07e010c0e0e3ae81d9dc48d37416c2f4aa86e2deb0fa98f679434c4aa823119a"},
+}
+
+// isPanelRender says which corpus entries render the panel shell (and so are held to
+// unbrandedPanelShell) rather than one of the layouts df544c1 still pins.
+func isPanelRender(name string) bool {
+	return strings.HasPrefix(name, "PanelShell") || strings.HasPrefix(name, "AdminDashboard")
 }
 
 // TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8 asserts, for every render of
-// unbrandedChromeRenders, that its bytes are the bytes df544c1 rendered (length and
-// sha256), and that the corpus and the golden name the same renders. It prints the
-// count and the names.
+// unbrandedChromeRenders, that its bytes are the bytes its golden holds (length and
+// sha256): df544c1's for a layout, the 2026-10-20 shell's for a panel render -- which
+// must also carry nothing of a brand and the owner-only API keys link exactly for an
+// owner. The corpus and the goldens name the same renders. It prints the count and the
+// names.
 func TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8(t *testing.T) {
 	renders := unbrandedChromeRenders()
-	if len(renders) != len(unbrandedBeforeWL8) {
-		t.Errorf("the corpus has %d renders and the golden %d; they must name the same renders",
-			len(renders), len(unbrandedBeforeWL8))
+	if len(renders) != len(unbrandedBeforeWL8)+len(unbrandedPanelShell) {
+		t.Errorf("the corpus has %d renders and the goldens %d+%d; they must name the same renders",
+			len(renders), len(unbrandedBeforeWL8), len(unbrandedPanelShell))
 	}
 	seen := map[string]bool{}
 	names := make([]string, 0, len(renders))
@@ -168,37 +193,53 @@ func TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8(t *testing.T) {
 		}
 		seen[r.name] = true
 		names = append(names, r.name)
-		want, ok := unbrandedBeforeWL8[r.name]
+		golden, from := unbrandedBeforeWL8, "before WL-8 (df544c1)"
+		if isPanelRender(r.name) {
+			golden, from = unbrandedPanelShell, "in the 2026-10-20 shell"
+		}
+		want, ok := golden[r.name]
 		if !ok {
-			t.Errorf("%s: no digest from before WL-8", r.name)
+			t.Errorf("%s: no digest from %s", r.name, from)
 			continue
 		}
-		body := withoutTabsBornAfterWL8(t, r.name, renderUnbranded(t, r))
+		body := renderUnbranded(t, r)
+		if isPanelRender(r.name) {
+			unbrandedPanelCarriesNoBrand(t, r.name, body)
+		}
 		if got := digestUnbranded(body); got != want {
-			t.Errorf("%s: %d bytes sha256 %s; before WL-8 it was %d bytes sha256 %s.\nrendered:\n%s",
-				r.name, got.n, got.sum, want.n, want.sum, body)
+			t.Errorf("%s: %d bytes sha256 %s; %s it was %d bytes sha256 %s.\nrendered:\n%s",
+				r.name, got.n, got.sum, from, want.n, want.sum, body)
 		}
 	}
-	t.Logf("%d unbranded renders byte-identical to df544c1: %s", len(renders), strings.Join(names, "; "))
+	t.Logf("%d unbranded renders byte-identical to their goldens: %s", len(renders), strings.Join(names, "; "))
 }
 
-// unbrandedAfterWL8Tab is the one tab added to the panel after WL-8: API keys (M11 API-3), an
-// OwnerOnly section, so an OWNER's chrome draws it, not current, between Account and the end of
-// the bar. The golden's claim is about the brand -- an unbranded chrome is the chrome before
-// WL-8 -- so the tab is taken out of an owner's render, exactly once, before the comparison: the
-// rest of the bytes are still the bytes of df544c1. A manager's chrome and the layouts must not
-// carry it at all.
-const unbrandedAfterWL8Tab = `<a href="/admin/api-keys" class="tab-link">API keys</a>`
-
-func withoutTabsBornAfterWL8(t *testing.T, name string, body []byte) []byte {
+// unbrandedPanelCarriesNoBrand is WL-8's "no brand, no change" as properties of one
+// unbranded panel render: app.css is the only stylesheet, and there is no <img>, no
+// stripe, no theme or logo route, no co-brand line; the lockup is the product's
+// (pages.PanelWordmark), once. And the owner-only API keys section (M11 API-3) is
+// linked exactly in an owner's render -- from the sidebar and from the phone's More
+// sheet -- and nowhere in a manager's.
+func unbrandedPanelCarriesNoBrand(t *testing.T, name string, body []byte) {
 	t.Helper()
-	owner := strings.Contains(name, "owner") || name == "PanelShell, a name to escape"
-	n := bytes.Count(body, []byte(unbrandedAfterWL8Tab))
-	switch {
-	case owner && n != 1:
-		t.Errorf("%s: an owner's chrome carries the API keys tab %d times, want once", name, n)
-	case !owner && n != 0:
-		t.Errorf("%s: carries the owner-only API keys tab %d times, want none", name, n)
+	page := string(body)
+	if hrefs, inHead := stylesheetsOf(page); len(hrefs) != 1 || hrefs[0] != "/static/css/app.css" || !inHead {
+		t.Errorf("%s: stylesheets %v (all in head: %v), want app.css alone", name, hrefs, inHead)
 	}
-	return bytes.Replace(body, []byte(unbrandedAfterWL8Tab), nil, 1)
+	for _, never := range []string{"<img", "panel-stripe", "/brand/theme/", "/admin/brand/logo/", "taptime · punchless", "side-head--named"} {
+		if strings.Contains(page, never) {
+			t.Errorf("%s: an unbranded chrome carries %q", name, never)
+		}
+	}
+	if n := strings.Count(page, wordmarkHTML(t)); n != 1 {
+		t.Errorf("%s: the product's lockup is drawn %d times, want once", name, n)
+	}
+	owner := strings.Contains(name, "owner") || name == "PanelShell, a name to escape"
+	n := strings.Count(page, `href="/admin/api-keys"`)
+	switch {
+	case owner && n != 2:
+		t.Errorf("%s: an owner's chrome links the API keys section %d times, want twice (sidebar and More sheet)", name, n)
+	case !owner && n != 0:
+		t.Errorf("%s: links the owner-only API keys section %d times, want none", name, n)
+	}
 }

@@ -428,20 +428,148 @@
            bg-paper px-4 py-8;
   }
 
-  /* --- tab navigation: the panel's sections ---
-     min-h-11 is 44px, which is the touch-target floor rather than a look: the
-     panel is a desktop screen but a manager checks it on a phone at the pass. */
-  .tab-bar {
-    @apply flex flex-wrap items-stretch gap-x-1 border-b border-line;
+  /* --- the panel shell (design "The Pass", user-approved 2026-10-20) ---
+     ONE aside that changes shape with the width, so the business's header, the
+     stripe and the section links exist once in the document: below md it is the
+     phone's top bar (porcelain, the header only); from md it is an 88px ink icon
+     rail; from desk a 248px ink sidebar with numbered labels. The phone's section
+     links are a second nav (.bar), shown only below md -- display none takes the
+     hidden one out of the accessibility tree, so a reader meets one nav at any width.
+
+     CONTRAST ON INK, measured: paper on ink 16.2:1; paper at 70% on ink 8.5:1 (the
+     muted tone used for the tagline, the numbers and the signed-in label); paper at
+     80% on ink 10.7:1 (the phone bar's labels); ink on saffron 6.2:1 (the badge). */
+  .panel-frame {
+    @apply min-h-screen md:flex;
   }
+  .panel-side {
+    @apply flex flex-col bg-porcelain text-ink
+           md:sticky md:top-0 md:h-screen md:w-[88px] md:shrink-0 md:gap-4
+           md:overflow-y-auto md:bg-ink md:pb-4 md:text-paper
+           desk:w-[248px] desk:gap-6;
+  }
+  .side-head {
+    @apply flex flex-col;
+  }
+  .side-lockup {
+    @apply flex min-h-14 items-center gap-3 px-4 py-2
+           md:min-h-0 md:flex-col md:items-center md:gap-1 md:px-2 md:pt-5 md:pb-0
+           desk:flex-row desk:items-center desk:gap-3 desk:px-7 desk:pt-6;
+  }
+  .side-word {
+    @apply font-display text-xl font-bold leading-none tracking-tight md:hidden desk:inline desk:text-2xl;
+  }
+  .side-mark {
+    @apply hidden font-display text-[26px] font-bold leading-none tracking-tight md:inline desk:hidden;
+  }
+  .side-tag {
+    @apply font-mono text-[10px] uppercase tracking-widest text-ink/70
+           md:hidden md:text-paper/70 desk:inline;
+  }
+  .side-words {
+    @apply flex flex-col gap-0.5 md:hidden desk:flex;
+  }
+  /* The logo sits on paper at every width: logos are drawn for a light ground (the
+     Account editor's light-logo warning measures against paper), and the rail and
+     the sidebar are ink. The box keeps the 32px slot; on the 88px rail the image
+     may only shrink, never grow (ADR 0023 WL-8 note). */
+  .side-logo {
+    @apply inline-flex shrink-0 items-center rounded-md bg-paper p-1 md:max-w-[72px] desk:max-w-full;
+  }
+  /* On the sidebar a business's logo stands above its name: side by side, a wide logo
+     (up to 192px) would leave the name no room in a 248px column. */
+  .side-head--named .side-lockup {
+    @apply desk:flex-col desk:items-start desk:gap-2;
+  }
+  .side-logo > img {
+    @apply block h-auto max-w-full;
+  }
+  .side-named {
+    @apply min-w-0 md:sr-only desk:not-sr-only;
+  }
+  .side-name {
+    @apply font-display text-base font-bold leading-tight tracking-tight text-ink md:text-paper;
+  }
+  .side-coline {
+    @apply font-mono text-[10px] uppercase tracking-widest text-ink/70 md:text-paper/70;
+  }
+  .side-nav {
+    @apply hidden md:flex md:flex-1 md:flex-col md:items-center md:gap-1 md:px-2
+           desk:items-stretch desk:gap-0.5 desk:px-4;
+  }
+  .side-group {
+    @apply flex flex-col items-center gap-1 desk:items-stretch desk:gap-0.5;
+  }
+  .side-group--foot {
+    @apply mt-auto border-t border-paper/15 pt-3 desk:pt-4;
+  }
+  /* A section link. min-h-11 is the 44px floor at every width; the rail makes it a
+     72x60 square, the sidebar a full-width row. The current section is named by
+     aria-current as well; the paper fill only repeats it. */
   .tab-link {
-    @apply inline-flex min-h-11 items-center border-b-2 border-transparent px-3 py-2
-           font-display text-sm font-bold tracking-tight text-ink/70
-           hover:text-ink focus:outline-none focus:ring-2 focus:ring-ink
-           motion-safe:transition-colors;
+    @apply relative flex min-h-11 w-[72px] flex-col items-center justify-center gap-1
+           rounded-[14px] py-2 font-display text-[10px] font-medium text-paper
+           hover:bg-paper/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-paper
+           motion-safe:transition-colors
+           md:min-h-[60px]
+           desk:min-h-11 desk:w-full desk:flex-row desk:justify-start desk:gap-3
+           desk:rounded-[10px] desk:px-3 desk:py-0 desk:text-[15px] desk:font-normal;
   }
-  /* The current tab is named by aria-current as well; the colour only repeats it. */
-  .tab-link--current { @apply border-tappa-green text-ink; }
+  .tab-link--current { @apply bg-paper text-ink hover:bg-paper; }
+  .tab-icon { @apply h-[22px] w-[22px] shrink-0 desk:hidden; }
+  .nav-icon { @apply h-[22px] w-[22px] shrink-0; }
+  .tab-no { @apply hidden w-[18px] font-mono text-[11px] text-paper/70 desk:inline; }
+  .tab-link--current .tab-no { @apply text-ink/70; }
+  .tab-label { @apply hidden desk:inline desk:flex-1; }
+  .tab-short { @apply desk:hidden; }
+  .side-foot {
+    @apply hidden md:flex md:flex-col md:items-center md:gap-2 md:px-2 desk:items-stretch desk:px-7;
+  }
+  .side-who { @apply hidden desk:flex desk:flex-col desk:gap-0.5; }
+  .side-who-label { @apply font-mono text-[10px] uppercase tracking-widest text-paper/70; }
+  .side-who-name { @apply font-display text-sm font-bold tracking-tight text-paper; }
+  .side-who-role { @apply font-mono text-[11px] uppercase tracking-widest text-paper/70; }
+  .side-signout { @apply w-full px-1 text-xs desk:px-4 desk:text-sm; }
+
+  .panel-main {
+    @apply min-w-0 flex-1 px-4 pt-4 pb-28 md:px-8 md:pt-7 md:pb-12 desk:px-11;
+  }
+  .panel-well {
+    @apply mx-auto flex w-full max-w-5xl flex-col gap-6;
+  }
+
+  /* The phone's bottom tab bar: four sections and More. It is fixed, so .panel-main
+     carries bottom padding taller than the bar (and the home indicator's inset). */
+  .bar {
+    @apply fixed inset-x-0 bottom-0 z-20 flex bg-ink px-1 pt-1 md:hidden;
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+  .bar-link {
+    @apply relative flex min-h-[60px] flex-1 cursor-pointer list-none flex-col items-center
+           justify-center gap-1 font-display text-[11px] font-medium text-paper/80
+           hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-paper;
+  }
+  .bar-link::-webkit-details-marker { display: none; }
+  .bar-pill { @apply flex h-[30px] w-12 items-center justify-center rounded-[15px]; }
+  .bar-link--current { @apply text-paper; }
+  .bar-link--current .bar-pill { @apply bg-paper text-ink; }
+  .bar-link .tab-count { @apply absolute top-1 left-[calc(50%+6px)] ml-0; }
+  .bar-more { @apply flex flex-1; }
+  .bar-more > .bar-link { @apply w-full; }
+  /* The More sheet: a native disclosure, so it opens and closes with JavaScript off. */
+  .bar-sheet {
+    @apply fixed inset-x-0 z-10 max-h-[75vh] overflow-y-auto rounded-t-2xl
+           border-t border-line bg-paper px-4 pt-4 pb-6 text-ink;
+    /* the bar's own height: 4px top padding, 60px links, and its bottom padding */
+    bottom: calc(64px + max(0.5rem, env(safe-area-inset-bottom)));
+  }
+  .sheet-list { @apply flex flex-col; }
+  .sheet-link {
+    @apply flex min-h-12 items-center gap-3 border-b border-line px-1 font-display text-base
+           text-ink hover:text-tappa-green focus:outline-none focus-visible:ring-2 focus-visible:ring-ink;
+  }
+  .sheet-link--current { @apply font-bold; }
+  .sheet-foot { @apply mt-4 flex flex-col gap-3; }
 
   /* --- filter bar: the panel's six filters (M6-03) ---
      It was M6-02's card item and was MOVED here rather than dropped: M6-02 had
@@ -616,18 +744,18 @@
      mono because it is data. The tab's own label is what a screen reader reads
      first; the badge carries an aria-label of its own so "12" is announced as
      twelve records waiting rather than as a bare number. */
-  /* text-ink is stated EXPLICITLY rather than inherited. .tab-link paints its
-     label at ink/70 and marks the current tab at full ink, so a badge that
-     inherited would have two different contrasts against the same ground
-     depending on which section you happen to be looking at. Full ink on
-     saffron-lite is the same pairing the FLAGGED tally already ships, and it is
-     measured rather than assumed: ink on saffron-lite is 13.97:1 (AA wants
-     4.5:1). saffron-lite's relative luminance is 0.8405, which is LIGHTER than
-     green-lite's 0.8229 -- so this ground does not become the binding one and
-     TestBrand_ProseNamesTheGroundTheMeasurementDERIVES keeps naming green-lite. */
+  /* text-ink is stated EXPLICITLY rather than inherited. A .tab-link paints its
+     label in paper on the ink rail and in ink on the current section's paper fill,
+     so a badge that inherited would change colour with the section you are on.
+     Solid saffron with ink (design "The Pass", 2026-10-20) measures 6.2:1 (AA wants
+     4.5:1); it used to be saffron-lite, which on the ink rail would have been a
+     light chip with no edge. Same rule on the phone's bar, where .bar-link places
+     it over the icon. */
   .tab-count {
-    @apply ml-2 inline-block border border-saffron bg-saffron-lite px-1.5
-           font-mono text-[11px] leading-5 text-ink;
+    @apply ml-2 inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full
+           bg-saffron px-1.5 font-mono text-xs font-bold text-ink
+           md:absolute md:top-1 md:left-[42px] md:ml-0 md:h-[18px] md:min-w-[18px] md:text-[11px]
+           desk:static desk:ml-auto desk:h-[22px] desk:min-w-[22px] desk:text-xs;
   }
 
   /* --- the public page's drawings (M7-01 rebuild, 2026-09-07) ---

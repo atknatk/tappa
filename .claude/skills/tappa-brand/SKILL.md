@@ -410,6 +410,17 @@ handler'da `mayEditAccount`, domain'de ikinci kez, rol ve durum DB'den
 
 ### Panel kabuğu (ADR 0023 WL-8 notu)
 
+- ⚠️ **2026-10-20 — "The Pass" kabuğu (kullanıcı onaylı tasarım).** Başlık artık panelin
+  **yan kolonunun** tepesindedir: < 768 px telefonun porselen üst çubuğu, 768–1199 px 88 px'lik
+  ink ikon rayı, ≥ 1200 px (`desk` ekranı, `tailwind.config.js`) 248 px'lik ink kenar çubuğu.
+  Başlık belgede **bir kez** durur; slotlar aynı: 4 px şerit (yalnız tema bağlıysa, başlığın ilk
+  öğesi, kolonun tepesi boyunca) ve 32 px logo kutusu — logo ink zeminde **paper bir karonun**
+  içindedir (logolar açık zemin için çizilir), rayda yalnız küçülebilir. Ad ve co-brand
+  `side-name` / `side-coline` sınıflarında: porselende ink (14,32:1) ve ink/70 (5,70:1), ink
+  üzerinde paper (16,2:1) ve paper/70 (8,5:1); rayda ad görsel olarak gizli ama okunur.
+  Markasız kilit `pages.PanelWordmark` (ink üzerinde paper "taptime"/"punchless", rayda "t.").
+  Aşağıdaki maddelerin geri kalanı (karar 3, 6, 9) aynen geçerlidir; "porcelain'de" diyen kontrast
+  sayıları yalnız telefon üst çubuğu içindir.
 - *Markalı* = kapıdan **bugün** geçen accent **ya da** logo (karar 3). Markalıda Wordmark'ın
   yerine: 4 px şerit (yalnız accent geçiyorsa; başlığın ilk öğesi, `aria-hidden`) · logo
   (varsa) · işletme adı (Space Grotesk kalın; renk sınıfı yok, sayfanın ink'i — porcelain'de

@@ -1,6 +1,10 @@
 package pages
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/atknatk/tappa/web/templates/components"
+)
 
 // itoa is strconv.Itoa under a shorter name, used by the badge helpers below. It
 // is here rather than inline so the two helpers read as sentences.
@@ -241,6 +245,23 @@ type PanelSection struct {
 	// refusal page still exists for anybody who arrives by a shared link or a stale
 	// bookmark, and §4.6 makes it say why rather than 404.
 	OwnerOnly bool
+
+	// Short is the label on the tablet's 88px icon rail, where Label does not fit
+	// (design "The Pass", 2026-10-20). Label stays the section's name everywhere else.
+	Short string
+	// Icon names the 24x24 line drawing the rail, the phone's bar and the More sheet
+	// draw beside the label (components.NavIcon). Decoration: aria-hidden, never the
+	// only thing that says which section a link opens.
+	Icon string
+	// Footer puts the section in the navigation's second group, under the rule and
+	// unnumbered: the rows read when something about the business changes rather
+	// than during a shift (the argument the Billing, Account and API keys rows below
+	// already make for their position).
+	Footer bool
+	// BarSlot is the section's place on the phone's bottom bar, 1 to 4; 0 sends it
+	// to the More sheet. The bar's order is the design's (Pass, Spike, Roll, People)
+	// rather than the table's, because a thumb reaches the four most-used sections.
+	BarSlot int
 }
 
 // PanelSections is the panel's sections, in the order CLAUDE.md §9 and
@@ -261,23 +282,28 @@ type PanelSection struct {
 // else.
 var PanelSections = []PanelSection{
 	{
-		Tab: TabTransactions, Label: "Transactions", Href: "/admin", Task: "M6-03",
+		Tab: TabTransactions, Label: "The Pass", Href: "/admin", Task: "M6-03",
+		Short: "Pass", Icon: components.IconPass, BarSlot: 1,
 		Blurb: "Every tap of the day as a docket card — who, where, in or out, the trust score, and the stamp that says how it was judged.",
 	},
 	{
-		Tab: TabReview, Label: "Review queue", Href: "/admin/review", Task: "M6-04",
+		Tab: TabReview, Label: "The Spike", Href: "/admin/review", Task: "M6-04",
+		Short: "Spike", Icon: components.IconSpike, BarSlot: 2,
 		Blurb: "The taps the engine could not judge on evidence alone, waiting for somebody who was there to say yes or no.",
 	},
 	{
-		Tab: TabEmployees, Label: "Employees", Href: "/admin/employees", Task: "M6-05",
+		Tab: TabEmployees, Label: "People", Href: "/admin/employees", Task: "M6-05",
+		Short: "People", Icon: components.IconPeople, BarSlot: 4,
 		Blurb: "The people who tap: who is active, who has been invited, and who has stopped working here.",
 	},
 	{
-		Tab: TabLocations, Label: "Locations & Wall Tags", Href: "/admin/locations", Task: "M6-06",
+		Tab: TabLocations, Label: "Venues & plaques", Href: "/admin/locations", Task: "M6-06",
+		Short: "Venues", Icon: components.IconVenues,
 		Blurb: "Your venues and the plaque on each wall — which tag is mounted where, and which one needs replacing.",
 	},
 	{
-		Tab: TabReports, Label: "Reports", Href: "/admin/reports", Task: "M6-07",
+		Tab: TabReports, Label: "The Roll", Href: "/admin/reports", Task: "M6-07",
+		Short: "Roll", Icon: components.IconRoll, BarSlot: 3,
 		Blurb: "Hours worked per person per week, and the CSV your accountant asks for.",
 	},
 	{
@@ -285,11 +311,13 @@ var PanelSections = []PanelSection{
 		// This section is a second reading of the same week the reports section totals
 		// — a manager who has just noticed a short total is one click from "why" — and
 		// it is emphatically NOT a rule screen: it changes nothing and decides nothing.
-		Tab: TabAnomalies, Label: "Anomalies", Href: "/admin/anomalies", Task: "M6-11",
+		Tab: TabAnomalies, Label: "Odd shapes", Href: "/admin/anomalies", Task: "M6-11",
+		Short: "Odd", Icon: components.IconOdd,
 		Blurb: "The week's odd shapes — GPS-only taps, plaque counter gaps, people who always tap together, and check-ins nobody closed.",
 	},
 	{
-		Tab: TabPolicies, Label: "Policies", Href: "/admin/policies", Task: "M6-09",
+		Tab: TabPolicies, Label: "Rules", Href: "/admin/policies", Task: "M6-09",
+		Short: "Rules", Icon: components.IconRules,
 		Blurb: "The rules this business is allowed to change — shown beside the ones no business can.",
 	},
 	{
@@ -313,6 +341,7 @@ var PanelSections = []PanelSection{
 		// Ordering by who may WRITE would have put Policies here too, and Policies is
 		// sixth.
 		Tab: TabBilling, Label: "Billing", Href: "/admin/billing", Task: "M6-12",
+		Short: "Billing", Icon: components.IconBilling, Footer: true,
 		Blurb:     "What each month costs: how many people were on the books, at what price, and the figure you can freeze once the month has ended.",
 		OwnerOnly: true,
 	},
@@ -330,6 +359,7 @@ var PanelSections = []PanelSection{
 		// shift; putting it between Reports and Anomalies would break a run navigated by
 		// habit for a screen read twice a year.
 		Tab: TabAccount, Label: "Account", Href: "/admin/account", Task: "M7-05",
+		Short: "Account", Icon: components.IconAccount, Footer: true,
 		Blurb: "This business as Taptime has it on file: its name, its VAT number and what the register said about it, its timezone, and the send-off your staff read after a good tap.",
 	},
 	{
@@ -338,7 +368,8 @@ var PanelSections = []PanelSection{
 		// holds which key, and the power to issue one, is the owner's. The tab is not drawn for
 		// a manager and the server refuses the route on its own (apikeys.go, 403). It is last:
 		// like Account it is read when something about the business changes, not during a shift.
-		Tab: TabAPIKeys, Label: "API keys", Href: "/admin/api-keys", Task: "API-3",
+		Tab: TabAPIKeys, Label: "Developers", Href: "/admin/api-keys", Task: "API-3",
+		Short: "Developers", Icon: components.IconDevelopers, Footer: true,
 		Blurb:     "The keys your HR or payroll system uses to talk to Taptime: issue one, see it once, revoke it.",
 		OwnerOnly: true,
 	},
