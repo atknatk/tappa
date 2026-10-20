@@ -237,6 +237,10 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 			"built yet. They are never shown on a training tap, or on a tap that is " +
 			"waiting for a manager.",
 	}
+	// The shell's eyebrow above the title (M12-01's slot; the boards' kicker). Every render
+	// of this section goes through here -- the plain load and the refused details, password
+	// and brand saves -- so the heading cannot differ between them.
+	v.Kicker = "Your business, as Taptime knows it"
 	if !v.CanEdit {
 		v.WhyNotEdit = "These details are changed by an owner of the business rather " +
 			"than by a manager. Nothing is wrong with your account, and everything above " +
@@ -247,6 +251,13 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 	// the same predicate /admin/billing refuses on, read rather than restated.
 	if mayManageBilling(id) {
 		v.BillingHref = billingHref
+	}
+	// THE DEVELOPERS CARD FOLLOWS THE SAME RULE (M12-41, D1): it links to a section that
+	// refuses a manager, so it is drawn only for a reader mayManageAPIKeys admits -- the
+	// predicate apikeys.go refuses on, read rather than restated. It is a link and nothing
+	// else; this page reads no key and no webhook.
+	if mayManageAPIKeys(id) {
+		v.DevelopersHref = apiKeysHref
 	}
 	fillAccountVAT(&v, s.VAT, zone)
 	// The "Your brand" editor (M10 WL-7), from the chrome built above -- the one brand

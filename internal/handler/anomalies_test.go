@@ -10,9 +10,12 @@ package handler
 // arithmetic of a rate, and the property that this section offers NO WRITE.
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"reflect"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -448,6 +451,215 @@ func TestAnomaliesSection_ShortenedListsSayTheCapAndSayTheTotalsDoNot(t *testing
 	if !strings.Contains(body, itoaTest(ledger.AnomalyRowCap)) {
 		t.Errorf("the notice does not name the cap (%d); a sentence that cannot name its "+
 			"own limit is one that drifts from it silently", ledger.AnomalyRowCap)
+	}
+	// M12-29: THE GPS-ALONE CARD IS A SUBSET OF THE SHORTENED LIST, so it says it may be
+	// incomplete -- People is capped and ordered by counter gaps first, so a person past the
+	// cap is missing from the subset too.
+	if !strings.Contains(body, "which is shortened, so this list may be incomplete") {
+		t.Error("the GPS-alone card is taken from a shortened per-person list and does not say " +
+			"it may be incomplete")
+	}
+	records.anomalies = anomaliesWith(func(a *ledger.Anomalies) {
+		a.Totals = ledger.AnomalyTotals{Records: 5000, Judged: 5000, DistanceOnly: 900}
+		a.People = []ledger.AnomalyPerson{{Name: "Maria Borg", Records: 9, DistanceOnly: 9}}
+	})
+	if body := b.do(http.MethodGet, anomaliesHref, nil).Body.String(); strings.Contains(body, "may be incomplete") {
+		t.Error("CONTROL: a complete per-person list still calls the GPS-alone card incomplete")
+	}
+}
+
+// oddPage renders the section through the handler's own mapping, drawn at a fixed moment, so
+// a test can read what one domain screen becomes on the page (M12-29).
+func oddPage(t *testing.T, mutate func(*ledger.Anomalies), now time.Time) string {
+	t.Helper()
+	var v pages.AnomaliesView
+	fillAnomaliesView(&v, anomaliesWith(mutate), now)
+	var b strings.Builder
+	if err := pages.AdminAnomalies(v).Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	return b.String()
+}
+
+// TestAnomaliesMix_APartnerVenueGetsTheLabelAndNeverABar is K-39 on the evidence mix: a
+// partner venue's row carries its name, its record count and the label -- no bar, no base, no
+// split, no outside-the-venue figure -- while the business's own venue beside it gets all four.
+func TestAnomaliesMix_APartnerVenueGetsTheLabelAndNeverABar(t *testing.T) {
+	body := oddPage(t, func(a *ledger.Anomalies) {
+		a.Totals = ledger.AnomalyTotals{Records: 30, Judged: 20, Answerable: 30, Partner: 10}
+		a.Venues = []ledger.AnomalyVenue{
+			{Name: "KF Own Venue", Records: 20, Judged: 20, Answerable: 20, Both: 12, NetworkOnly: 4, DistanceOnly: 3, Neither: 1},
+			{Name: "KM Partner Venue", Records: 10, Partner: true},
+		}
+	}, weekOfUTC().To)
+
+	// POSITIVE CONTROL: the own venue's bar and counts are there.
+	for _, want := range []string{
+		`aria-label="KF Own Venue, 20 judged: 12 both, 4 network only, 3 distance only, 1 neither"`,
+		"12 both · 4 network only · 3 distance only · 1 neither",
+		"20 records · 0 of 20 read outside the venue",
+		"Partner venue · evidence not shown",
+		"10 records",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the mix does not print %q", want)
+		}
+	}
+	// THE PARTNER ROW: from its name to the end of its list item, nothing evidence-shaped.
+	at := strings.Index(body, "KM Partner Venue")
+	if at < 0 {
+		t.Fatal("the partner venue's row is not on the page")
+	}
+	row := body[at:]
+	row = row[:strings.Index(row, "</li>")]
+	for _, leak := range []string{`role="img"`, "judged", "both", "network only", "distance only", "neither", "outside the venue", "bg-porcelain"} {
+		if strings.Contains(row, leak) {
+			t.Errorf("K-39: the partner venue's row carries %q -- a bar or an evidence word about "+
+				"a network and a coordinate that are the partner's", leak)
+		}
+	}
+	// One bar on the page: the own venue's.
+	if n := strings.Count(body, `role="img" aria-label="KF`); n != 1 {
+		t.Errorf("the mix draws %d bars, want 1 (the own venue's)", n)
+	}
+}
+
+// TestAnomaliesMix_TheBarIsJudgedSplitWholeAndTheRemainderIsNamed: the widths are steps of
+// five that add up to 100 (components.SplitPct), every part's count is printed, and the part
+// of Judged the four-way split does not place is drawn and named "not split" rather than
+// being spread over the other four.
+func TestAnomaliesMix_TheBarIsJudgedSplitWholeAndTheRemainderIsNamed(t *testing.T) {
+	body := oddPage(t, func(a *ledger.Anomalies) {
+		a.Totals = ledger.AnomalyTotals{Records: 70, Judged: 67, Answerable: 70}
+		a.Venues = []ledger.AnomalyVenue{{Name: "KF Valletta", Records: 70, Judged: 67, Answerable: 70, Both: 52, NetworkOnly: 9, DistanceOnly: 3, Neither: 1}}
+	}, weekOfUTC().To)
+
+	if !strings.Contains(body, "52 both · 9 network only · 3 distance only · 1 neither · 2 not split") {
+		t.Error("the remainder Judged leaves after the four parts is not printed as \"not split\"")
+	}
+	if !strings.Contains(body, ">not split</li>") {
+		t.Error("the legend does not name the remainder the bar draws")
+	}
+	bar := body[strings.Index(body, `role="img" aria-label="KF Valletta`):]
+	bar = bar[:strings.Index(bar, "</div>")]
+	widths := regexp.MustCompile(`w-\[(\d+)%\]|w-full`).FindAllStringSubmatch(bar, -1)
+	sum := 0
+	for _, w := range widths {
+		if w[1] == "" {
+			sum += 100
+			continue
+		}
+		n, _ := strconv.Atoi(w[1])
+		if n%5 != 0 {
+			t.Errorf("a part is %d%% wide, which is not one of the width steps", n)
+		}
+		sum += n
+	}
+	if sum != 100 {
+		t.Errorf("the bar's parts add up to %d%%, want exactly 100 (%v)", sum, widths)
+	}
+	// CONTROL: a venue the split places entirely names no remainder.
+	whole := oddPage(t, func(a *ledger.Anomalies) {
+		a.Venues = []ledger.AnomalyVenue{{Name: "KF Hamrun", Records: 10, Judged: 10, Answerable: 10, Both: 10}}
+	}, weekOfUTC().To)
+	if strings.Contains(whole, "not split") {
+		t.Error("CONTROL: a fully split venue still names a \"not split\" remainder")
+	}
+}
+
+// TestAnomaliesPlaques_EachCounterStateSaysOnlyWhatItKnows is M12-24's four states on the
+// page: read prints "#from → #to" and when (or that the earlier read is not on record),
+// failed says the counters could not be read, elsewhere prints no counter, and not asked
+// claims nothing beyond the gap.
+func TestAnomaliesPlaques_EachCounterStateSaysOnlyWhatItKnows(t *testing.T) {
+	from := weekOfUTC().From
+	prev := from.Add(2*time.Hour + 14*time.Minute)
+	at := from.Add(33*time.Hour + 30*time.Minute)
+	body := oddPage(t, func(a *ledger.Anomalies) {
+		a.Plaques = []ledger.AnomalyPlaque{
+			{TagUID: "04AAAAAAAAAA01", LocationName: "Read Venue", Records: 30, CounterGaps: 1, LargestGap: 36,
+				JumpState: ledger.CounterJumpRead, JumpFrom: 641, JumpTo: 678, JumpAt: at, JumpPreviousAt: &prev},
+			{TagUID: "04AAAAAAAAAA02", LocationName: "Orphan Venue", Records: 3, CounterGaps: 1, LargestGap: 4,
+				JumpState: ledger.CounterJumpRead, JumpFrom: 10, JumpTo: 15, JumpAt: at},
+			{TagUID: "04AAAAAAAAAA03", LocationName: "Failed Venue", Records: 2, CounterGaps: 1, LargestGap: 2,
+				JumpState: ledger.CounterJumpFailed},
+			{TagUID: "04AAAAAAAAAA04", LocationName: "Elsewhere Venue", Records: 2, CounterGaps: 1, LargestGap: 3,
+				JumpState: ledger.CounterJumpElsewhere},
+			{TagUID: "04AAAAAAAAAA05", LocationName: "Unasked Venue", Records: 2, CounterGaps: 1, LargestGap: 5},
+		}
+	}, weekOfUTC().To)
+	rowOf := func(name string) string {
+		i := strings.Index(body, name)
+		if i < 0 {
+			t.Fatalf("the plaque at %s is not on the page", name)
+		}
+		r := body[i:]
+		return r[:strings.Index(r, "</li>")]
+	}
+	for _, c := range []struct {
+		venue        string
+		want, absent []string
+	}{
+		{"Read Venue", []string{"#641", "#678", "Counter #641 → #678, 36 reads missing", "between Mon 3 Aug 02:14 and Tue 4 Aug 09:30"}, []string{"not on record", "could not be read"}},
+		{"Orphan Venue", []string{"#10", "#15", "read Tue 4 Aug 09:30 · the earlier read is not on record"}, []string{"between"}},
+		{"Failed Venue", []string{"2 reads missing", "could not be read"}, []string{"#", "between"}},
+		{"Elsewhere Venue", []string{"3 reads missing", "not on your record, so no counters are printed"}, []string{"#", "between"}},
+		{"Unasked Venue", []string{"5 reads missing"}, []string{"#", "between", "could not be read", "not on your record"}},
+	} {
+		row := rowOf(c.venue)
+		for _, w := range c.want {
+			if !strings.Contains(row, w) {
+				t.Errorf("%s: the row does not say %q", c.venue, w)
+			}
+		}
+		for _, a := range c.absent {
+			if strings.Contains(row, a) {
+				t.Errorf("%s: the row says %q, which its state does not know", c.venue, a)
+			}
+		}
+	}
+}
+
+// TestAnomaliesPairs_TheDotsAreTheWeekAndAnUnreadWeekDrawsNone (M12-23 on the page): one
+// dot per day, the days named in the dots' text and counted against the week; a pair whose
+// days were not read (nil) prints its day count alone, never seven empty dots.
+func TestAnomaliesPairs_TheDotsAreTheWeekAndAnUnreadWeekDrawsNone(t *testing.T) {
+	body := oddPage(t, func(a *ledger.Anomalies) {
+		a.Pairs = []ledger.AnomalyPair{
+			{First: "Ann Read", Second: "Bob Read", Venue: "KF Hamrun", Together: 4, Days: 3, ClosestSeconds: 3,
+				TogetherOn: []bool{true, true, false, true, false, false, false}},
+			{First: "Cat Unread", Second: "Dan Unread", Venue: "KF Hamrun", Together: 2, Days: 2, ClosestSeconds: 5},
+		}
+	}, weekOfUTC().To)
+	if !strings.Contains(body, `aria-label="Together on Mon, Tue, Thu"`) || !strings.Contains(body, "3 of 7 days") {
+		t.Error("the read pair's dots do not name its days or count them against the week")
+	}
+	unread := body[strings.Index(body, "Cat Unread"):]
+	unread = unread[:strings.Index(unread, "</li>")]
+	if strings.Contains(unread, `role="img"`) || strings.Contains(unread, "of 7 days") || !strings.Contains(unread, "2 days") {
+		t.Errorf("a pair whose days were not read draws dots or a week count: %q", unread)
+	}
+}
+
+// TestAnomaliesOpen_AnEntryCarriesItsAgeAndNothingCloses: the age is whole days from the
+// moment the page is drawn (injected), and no row offers to close the entry (D1, §4.3).
+func TestAnomaliesOpen_AnEntryCarriesItsAgeAndNothingCloses(t *testing.T) {
+	from := weekOfUTC().From
+	body := oddPage(t, func(a *ledger.Anomalies) {
+		a.Open = []ledger.AnomalyOpen{
+			{EmployeeName: "Old Entry", LocationName: "KF Hamrun", At: from},
+			{EmployeeName: "New Entry", LocationName: "KF Hamrun", At: from.Add(70 * time.Hour)},
+		}
+	}, from.Add(3*24*time.Hour+time.Hour))
+	for _, want := range []string{"open 3d", "open <1d"} {
+		if !strings.Contains(body, strings.ReplaceAll(want, "<", "&lt;")) {
+			t.Errorf("the open list does not print %q", want)
+		}
+	}
+	for _, forbidden := range []string{"Close it", "close it", "Close entry"} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("an open entry offers %q; this page is read-only by spec (D1, §4.3)", forbidden)
+		}
 	}
 }
 

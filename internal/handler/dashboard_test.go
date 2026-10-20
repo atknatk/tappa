@@ -1192,8 +1192,8 @@ var panelTouchTargets = map[string]int{
 	// the class cannot lose its height silently. The markup gap is recorded rather
 	// than papered over (see TestPanelScreens_FormControlsCarryATouchTargetClass).
 	"filter-input": 44, // .filter-input -> min-h-11 = 2.75rem
-	// The raw utility, used inline by the sign-in form's two fields rather than
-	// through a semantic class. It is a real compiled rule (min-height:2.75rem), so
+	// The raw utility, used inline by links (the sign-in page's lockup, "Forgot
+	// password?" and the sign-up offer among them) rather than through a semantic class. It is a real compiled rule (min-height:2.75rem), so
 	// the stylesheet half below holds it to the same floor.
 	"min-h-11": 44,
 	// The sign-in field's password reveal button (2026-09-14). It is a real <button>,
@@ -1213,8 +1213,12 @@ var panelTouchTargets = map[string]int{
 	// The Venues list's cards (M12-34): each is a link that opens the venue beside the
 	// list, so both halves of the pair reach it.
 	"venue-card": 44, // .venue-card -> min-h-11 = 2.75rem
-	// The redesign's form field (M12-35, the venue and department forms): an input, a
-	// select or a textarea, held by the form-control scan and the stylesheet half.
+	// The Rules screen (M12-37) draws the rule switch, a submit <button>, so both halves
+	// of the pair reach it.
+	"rule-switch": 44, // .rule-switch -> min-h-11 = 2.75rem
+	// The redesign's form field (M12-08), drawn by several screens (sign-in, sign-up,
+	// billing, rules, the venue and department forms). It is an <input>, not an <a> or a
+	// <button>, so the form-control scan and the stylesheet half of the pair hold it.
 	"field-input": 44, // .field-input -> min-h-11 = 2.75rem
 }
 
@@ -1235,7 +1239,6 @@ var panelPendingTouchTargets = map[string]int{
 	"chip-link":        44, // .chip-link        -> min-h-11 (a filter chip, a link)
 	"queue-item":       44, // .queue-item       -> min-h-11 (The Spike's queue)
 	"roster-row":       60, // .roster-row       -> min-h-16, md:min-h-[60px] (People)
-	"rule-switch":      44, // .rule-switch      -> min-h-11 (Rules: a submit button)
 	"stat-card--spike": 44, // .stat-card--spike -> min-h-11 (The Pass: a link to The Spike)
 	"btn--approve":     64, // .btn--approve     -> min-h-16 (The Spike)
 	"btn--reject":      64, // .btn--reject      -> min-h-16 (The Spike)

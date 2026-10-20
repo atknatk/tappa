@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -206,11 +207,25 @@ func policyScreenFixture() tenant.PolicyScreen {
 		Queried:         true,
 		ShippedBaseline: policy.BaselineVersion,
 		Zone:            time.UTC,
+		Radius:          "150 m",
 	}
 	for i, g := range policy.Guardrails(policy.DefaultParams()) {
 		row := tenant.Guardrail{
 			Order: i + 1, Sid: g.Sid, Effect: string(g.Effect), Reason: g.Reason,
 			Rule: "why " + g.Sid + " cannot be switched off",
+			When: "when " + g.Sid + " fires",
+		}
+		if g.Alert != nil {
+			row.Alert = "security alert"
+		}
+		// The domain's words, so the page test can name the two no-record labels; the
+		// derivation itself is pinned in internal/domain/tenant.
+		row.Qualifier = map[string]string{
+			"sys:tenant-mismatch": "other business", "sys:no-session": "activation page",
+		}[g.Sid]
+		row.Guards = tenant.GuardsTaps
+		if g.Sid == "sys:policy-edit-owner-only" || g.Sid == "sys:no-self-review" {
+			row.Guards = tenant.GuardsPanel
 		}
 		if g.Sid == "sys:person-debounce" {
 			row.Bounded = &tenant.BoundedParam{
@@ -763,41 +778,44 @@ func policyTemplBranches(t *testing.T) []templBranch {
 // realism of the page is measured elsewhere (the DB tests and the live page); what
 // these fixtures are for is REACH.
 var policyBranchWitness = map[string]string{
-	"v.VersionsCapped@1":       "Some version history is not on this page",
-	"v.AttachmentsCapped@1":    "Some scope bindings are not on this page",
-	"!v.VersionsCapped@1":      "Everything else on this page is complete",
-	"else@5":                   "Your version history is shortened too",
-	"v.Queried@1":              "How your rules are decided",
-	"v.GuardrailsOnly@1":       "Your rules are not being applied right now",
-	`g.Tunable != ""@1`:        "may be set between",
-	"len(v.Tenant) == 0@1":     "You have not written any policies of your own.",
-	"v.BaselineInForce@1":      "the intended starting point rather than a gap",
-	"else@1":                   "running on the Taptime guarantees alone",
-	"else@2":                   "zz-branch-tenant-rule",
-	"r.Managed@1":              "Managed by Taptime",
-	"else@3":                   "Written by you",
-	`r.Version != ""@1`:        "version 4241",
-	`r.Stamp != ""@1`:          "zz-branch-stamp",
-	`r.Outdated != ""@1`:       "zz-branch-shipped",
-	`r.Problem != ""@1`:        "This rule is not being applied",
-	`s.Reason != ""@1`:         "zz-branch-reason",
-	"len(s.Conditions) > 0@1":  "Only when",
-	"len(r.Attachments) > 0@1": "Bound to",
-	"len(r.History) > 0@1":     "History",
-	`h.Marker != ""@1`:         ">in use<",
-	`r.HistoryNote != ""@1`:    "newest of 9 versions",
-	"v.GuardrailsOnly@2":       "None of these grants is being applied today",
-	"len(a.Grants) > 0@1":      "Granted to",
-	"else@4":                   "so the engine would refuse it",
-	`a.Guardrail != ""@1`:      "zz-branch-authz-guardrail",
-	"len(v.Recording) > 0@1":   "The one that works the other way",
-	`a.Guardrail != ""@2`:      "zz-branch-recording-guardrail",
+	"v.VersionsCapped@1":        "Some version history is not on this page",
+	"v.AttachmentsCapped@1":     "Some scope bindings are not on this page",
+	"!v.VersionsCapped@1":       "Everything else on this page is complete",
+	"else@1":                    "Your version history is shortened too",
+	"v.Queried@1":               "How your rules are decided",
+	"v.GuardrailsOnly@1":        "Your rules are not being applied right now",
+	`g.Tunable != ""@1`:         "may be set between",
+	"len(v.Tenant) == 0@1":      "You have not written any policies of your own.",
+	"v.BaselineInForce@1":       "the intended starting point rather than a gap",
+	"else@3":                    "running on the Taptime guarantees alone",
+	"else@4":                    "zz-branch-tenant-rule",
+	"r.Managed@1":               "Managed by Taptime",
+	"else@5":                    "Written by you",
+	`r.Version != ""@1`:         "version 4241",
+	`r.Stamp != ""@1`:           "zz-branch-stamp",
+	`r.Outdated != ""@1`:        "zz-branch-shipped",
+	`r.Problem != ""@1`:         "This rule is not being applied",
+	`i > 0 && s.Reason != ""@1`: "zz-branch-second-reason",
+	`r.Lead != ""@1`:            "zz-branch-reason",
+	`g.Group != ""@1`:           "Guarantees on the panel itself",
+	"v.MayEdit@2":               "Each control opens a review page",
+	"len(s.Conditions) > 0@1":   "Only when",
+	"len(r.Attachments) > 0@1":  "Bound to",
+	"len(r.History) > 0@1":      "History",
+	`h.Marker != ""@1`:          ">in use<",
+	`r.HistoryNote != ""@1`:     "newest of 9 versions",
+	"v.GuardrailsOnly@2":        "None of these grants is being applied today",
+	"len(a.Grants) > 0@1":       "Granted to",
+	"else@6":                    "so the engine would refuse it",
+	`a.Guardrail != ""@1`:       "zz-branch-authz-guardrail",
+	"len(v.Recording) > 0@1":    "The one that works the other way",
+	`a.Guardrail != ""@2`:       "zz-branch-recording-guardrail",
 
 	// --- M6-09 phase B: the write side ------------------------------------------
 	"v.ScopeCapped@1":           "Some of your venues are not in the scope picker",
 	`v.Problem != ""@1`:         "has been written to your audit trail",
 	"v.MayEdit@1":               "recorded with your name against it",
-	"else@6":                    "does not currently grant you the",
+	"else@2":                    "does not currently grant you the",
 	"len(v.Settings) > 0@1":     "Settings that are not rules",
 	`h.Href != ""@1`:            "Read it in full",
 	`r.Switch.Label != ""@1`:    "Switch this rule off",
@@ -805,6 +823,10 @@ var policyBranchWitness = map[string]string{
 	"len(r.Bindable) > 0@1":     "Record the binding",
 	"len(v.Authorable) > 0@1":   "Show me what this would do",
 	"len(v.Supersedable) > 0@1": "A new version of",
+
+	// --- M12-37: the redesign's two derived blocks --------------------------------
+	"v.Summary != \"\"@1":        "baseline rules ·",
+	"v.DefaultOutcome != \"\"@1": "When nothing decides",
 }
 
 // TestPolicyFixtures_DriveEveryConditionalBranchOfTheTemplate is the derivation's
@@ -1604,6 +1626,9 @@ func policyShellBaseline(t *testing.T) string {
 	t.Helper()
 	c := pages.PanelChrome{
 		FullName: policyTestAdminName, Role: policyTestAdminRole, Tab: pages.TabPolicies,
+		// The section's eyebrow (M12-37) is part of the shell's head, so the baseline the
+		// page is compared with carries the same one -- the same constant, not a copy.
+		Kicker: policiesKicker,
 	}
 	p, err := newFakeLedger().Pending(context.Background(), panelTestTenant)
 	if err != nil {
@@ -1773,6 +1798,11 @@ func policyScreenStates(t *testing.T) map[string]tenant.PolicyScreen {
 				Sid: "own:sentinel", Effect: "review", Actions: []string{"tap:record"},
 				Reason:     "zz-branch-reason",
 				Conditions: []tenant.RuleCondition{{Operator: "Bool", Key: "tap:ipMatch", Value: "false"}},
+			}, {
+				// A SECOND statement, so the arm that prints a later statement's own reason
+				// has a subject (the first one's is the card's sub-line).
+				Sid: "own:sentinel-two", Effect: "allow", Actions: []string{"tap:record"},
+				Reason: "zz-branch-second-reason",
 			}},
 		},
 		{
@@ -2194,6 +2224,194 @@ func TestEffectSentence_TranslatesEveryEffectTheEngineHas(t *testing.T) {
 	if got := effectSentence("something-new"); got != "something-new" {
 		t.Errorf("an unknown effect rendered %q; it must fall through as itself rather than "+
 			"disappearing", got)
+	}
+}
+
+// TestEffectLabel_TranslatesEveryEffectTheEngineHas is the twin of the sentence test for
+// the short label the redesign prints (M12-37): the read-only pill on a statement and the
+// effect on a guarantee's plate. Every effect the engine has gets a word of its own, no
+// two share one (a pill that says the same for review and deny tells nothing), and an
+// unknown keyword falls through as itself rather than as a blank.
+func TestEffectLabel_TranslatesEveryEffectTheEngineHas(t *testing.T) {
+	seen := map[string]policy.Effect{}
+	for _, e := range []policy.Effect{
+		policy.EffectAllow, policy.EffectReview, policy.EffectDeny,
+		policy.EffectIgnore, policy.EffectRedirect, policy.EffectNote,
+	} {
+		got := effectLabel(string(e))
+		if got == string(e) || strings.TrimSpace(got) == "" {
+			t.Errorf("%s has no label; the pill would print the engine's keyword", e)
+		}
+		if other, dup := seen[got]; dup {
+			t.Errorf("%s and %s share the label %q", e, other, got)
+		}
+		seen[got] = e
+	}
+	if got := effectLabel("something-new"); got != "something-new" {
+		t.Errorf("an unknown effect rendered %q; it must fall through as itself", got)
+	}
+	// A GRANT IS NOT AN APPROVAL. The authorization statements allow panel actions, and
+	// "Approve" beside them would read as approving a record.
+	if got := statementLabel("allow", []string{"policy:edit", "report:export"}); got != "Grant" {
+		t.Errorf("an allow over panel actions is labelled %q, want Grant", got)
+	}
+	if got := statementLabel("allow", []string{"tap:record"}); got != effectLabel("allow") {
+		t.Errorf("an allow over tap:record is labelled %q, want %q", got, effectLabel("allow"))
+	}
+	if got := guardrailLabel("deny", "", "security alert"); got != "Reject · security alert" {
+		t.Errorf("a guarantee that raises an alert is labelled %q", got)
+	}
+	if got := guardrailLabel("redirect", "activation page", ""); got != "No record · activation page" {
+		t.Errorf("a redirect is labelled %q", got)
+	}
+	if got := guardrailLabel("deny", "", ""); got != "Reject" {
+		t.Errorf("a guarantee that raises no alert is labelled %q", got)
+	}
+	// THE LAST PLATE'S §4.6 SENTENCE BELONGS TO A REVIEW DEFAULT ONLY. If the engine's
+	// default for a tap were anything else, "sent to The Spike … nothing approves
+	// silently" would be a promise about a default that is not running.
+	for _, e := range []policy.Effect{
+		policy.EffectAllow, policy.EffectReview, policy.EffectDeny,
+		policy.EffectIgnore, policy.EffectRedirect, policy.EffectNote,
+	} {
+		note := defaultTapNote(string(e))
+		promises := strings.Contains(note, "The Spike") || strings.Contains(note, "approves silently")
+		if promises != (e == policy.EffectReview) {
+			t.Errorf("a %s default is described as %q", e, note)
+		}
+	}
+}
+
+// TestPoliciesSection_DrawsTheLadderTheEngineKeeps pins the redesign's ladder (M12-37)
+// to the engine's facts rather than to the board's sample: every guarantee on its own
+// rung, numbered from the engine's Order and in that order, with its condition and its
+// label (the alert included where the engine raises one); the last plate is the engine's
+// DEFAULT, outside the guarantee block; and nothing claims "first match wins" for the
+// whole page -- that is true of the guarantees alone.
+func TestPoliciesSection_DrawsTheLadderTheEngineKeeps(t *testing.T) {
+	screen := policyScreenFixture()
+	body := policyStatePage(t, policyPageState{screen: screen})
+	section, _ := policySectionSlice(t, body)
+	guarantees := policyGuaranteeBytes(t, screen, false)
+
+	last := -1
+	for _, g := range screen.Guardrails {
+		number := fmt.Sprintf(`<span class="rung-no">%02d</span>`, g.Order)
+		at := strings.Index(guarantees, number)
+		if at < 0 {
+			t.Fatalf("guarantee %d (%s) has no rung numbered %s", g.Order, g.Sid, number)
+		}
+		if at < last {
+			t.Errorf("guarantee %d (%s) is drawn before the one above it; the order is the engine's", g.Order, g.Sid)
+		}
+		last = at
+		plate := guarantees[at:]
+		if next := strings.Index(plate[len(number):], `class="rung-no"`); next >= 0 {
+			plate = plate[:len(number)+next]
+		}
+		for _, want := range []string{htmlText(g.When), htmlText(g.Sid), htmlText(guardrailLabel(g.Effect, g.Qualifier, g.Alert))} {
+			if !strings.Contains(plate, want) {
+				t.Errorf("guarantee %s's plate does not carry %q", g.Sid, want)
+			}
+		}
+	}
+	alerts := 0
+	for _, g := range screen.Guardrails {
+		if g.Alert != "" {
+			alerts++
+		}
+	}
+	if alerts == 0 {
+		t.Fatal("the fixture carries no alerting guarantee, so the alert half of the label is untested")
+	}
+	// THE TWO NO-RECORD GUARANTEES ARE TOLD APART BY WHERE THEY LEAVE THE PERSON.
+	for _, want := range []string{"No record · other business", "No record · activation page"} {
+		if !strings.Contains(guarantees, want) {
+			t.Errorf("the guarantee block does not label a redirect %q", want)
+		}
+	}
+	// THE PANEL'S GUARANTEES ARE A GROUP OF THEIR OWN, headed once, right before the first
+	// of them -- and after every tap guarantee.
+	const group = "Guarantees on the panel itself · they guard the rules, not taps"
+	if n := strings.Count(guarantees, group); n != 1 {
+		t.Fatalf("the panel group's heading appears %d times, want 1", n)
+	}
+	at := strings.Index(guarantees, group)
+	for _, g := range screen.Guardrails {
+		pos := strings.Index(guarantees, fmt.Sprintf(`<span class="rung-no">%02d</span>`, g.Order))
+		if (g.Guards == tenant.GuardsPanel) != (pos > at) {
+			t.Errorf("guarantee %s (guards %s) is on the wrong side of the panel group's heading", g.Sid, g.Guards)
+		}
+	}
+
+	if !strings.Contains(section, "When nothing decides") || !strings.Contains(section, htmlText(effectLabel("review"))) {
+		t.Error("the ladder does not end on the engine's default for a tap")
+	}
+	if strings.Contains(guarantees, "When nothing decides") {
+		t.Error("the default plate is drawn inside the guarantee block; it is not a guarantee")
+	}
+	for _, claim := range []string{"First match wins", "first match wins", "read top to bottom"} {
+		if strings.Contains(section, claim) {
+			t.Errorf("the section says %q; below the guarantees the rules are weighed, not read in order", claim)
+		}
+	}
+}
+
+// TestPolicyGuaranteePill_WrapsOnAPhone pins the recipe that keeps a guarantee's
+// effect inside its plate. The pill sits on the plate's own row below md, and the
+// longest label ("Ignore — recorded, counts nothing") in a nowrap pill was measured
+// overflowing the plate by 14 px at 375 px and scrolling the page at 360. The wrap is
+// the cure, and it is only allowed back to nowrap from md, where the plate is wide.
+func TestPolicyGuaranteePill_WrapsOnAPhone(t *testing.T) {
+	raw, err := os.ReadFile("../../web/static/css/input.css")
+	if err != nil {
+		t.Fatalf("reading input.css: %v", err)
+	}
+	m := regexp.MustCompile(`(?s)\.effect-pill--locked\s*\{(.*?)\}`).FindStringSubmatch(string(raw))
+	if m == nil {
+		t.Fatal("input.css declares no .effect-pill--locked rule")
+	}
+	got := strings.Fields(strings.NewReplacer("@apply", " ", ";", " ").Replace(m[1]))
+	for _, want := range []string{"whitespace-normal", "max-w-full", "md:whitespace-nowrap", "min-h-0"} {
+		if !slices.Contains(got, want) {
+			t.Errorf(".effect-pill--locked does not carry %s, so a long guarantee label "+
+				"cannot wrap inside its plate on a phone", want)
+		}
+	}
+	for _, c := range got {
+		if c == "whitespace-nowrap" {
+			t.Error(".effect-pill--locked is nowrap at every width; it must wrap below md")
+		}
+	}
+}
+
+// TestPoliciesSection_TheSwitchIsAButtonThatNamesItsOutcome (M12-37). The redesign draws
+// the on/off control as a switch; what it IS stays a submit button whose words say what
+// pressing it does, with no switch role and no pressed state, posting to the
+// confirmation step -- and there is no effect picker anywhere (the real model is
+// switch, copy, bind; D1).
+func TestPoliciesSection_TheSwitchIsAButtonThatNamesItsOutcome(t *testing.T) {
+	page := policyStatePage(t, policyPageStates(t)["editable"])
+	section, _ := policySectionSlice(t, page)
+	for _, want := range []string{
+		`<button class="rule-switch rule-switch--on" type="submit"><span class="rule-switch-knob"></span>Switch this rule off</button>`,
+		`<button class="rule-switch rule-switch--off" type="submit"><span class="rule-switch-knob"></span>Switch this rule back on</button>`,
+	} {
+		if !strings.Contains(section, want) {
+			t.Errorf("the editable page does not draw %s", want)
+		}
+	}
+	for _, forbidden := range []string{`role="switch"`, "aria-pressed", "aria-checked", `name="effect"`, "Review &amp; save"} {
+		if strings.Contains(section, forbidden) {
+			t.Errorf("the section renders %q", forbidden)
+		}
+	}
+	if n := strings.Count(section, `class="rule-switch `); n != strings.Count(section, `name="op" value="disable"`)+
+		strings.Count(section, `name="op" value="enable"`) {
+		t.Errorf("%d switches for a different number of on/off forms", n)
+	}
+	if n := strings.Count(section, `class="effect-pill`); n == 0 {
+		t.Error("no statement carries its read-only effect pill")
 	}
 }
 

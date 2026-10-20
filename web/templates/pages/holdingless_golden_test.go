@@ -17,6 +17,11 @@ package pages
 // inside the open-check-ins empty state's opening tags (the section, its label -- now the
 // section's name, "Odd shapes · check-ins with no checkout" -- and the h2's and the body
 // div's classes); its heading and sentence are the same bytes. The reports golden is unchanged.
+// M12-29 (Odd shapes ported to the redesign) replaced the anomalies golden again: the bytes
+// differ only inside the content well (common prefix up to and including the well's opening tag,
+// common suffix from its closing tags); the chrome around it is the same bytes. The input lost
+// the venue view's DistanceOnly string (the bar's parts carry that count now). The reports
+// golden is unchanged.
 
 import (
 	"bytes"
@@ -47,7 +52,7 @@ func holdinglessRenders(t *testing.T) map[string][]byte {
 			DistanceOnly: 1, DistanceOnlyLine: "1 of 10 verified by GPS alone", OutsideVenue: 1, OutsideVenueLine: "1 of 11 read outside the venue",
 			OutsideVenueOnNetworkLine: "none on the network", Unanswerable: 1, UnanswerableLine: "1 record carries no policy snapshot"},
 		People:   []AnomalyPersonView{{Name: "Maria Borg", Records: "4 records", DistanceOnly: "1 verified by GPS alone"}},
-		Venues:   []AnomalyVenueView{{Name: "KF St Julians", Records: "12 records", DistanceOnly: "1 of 10", OutsideVenue: "1 of 11"}},
+		Venues:   []AnomalyVenueView{{Name: "KF St Julians", Records: "12 records", OutsideVenue: "1 of 11"}},
 		Policies: []AnomalyPolicyView{{SID: "base:ip-or-gps-ok", Layer: "baseline", Records: "10 records"}},
 		ListCap:  50,
 	}

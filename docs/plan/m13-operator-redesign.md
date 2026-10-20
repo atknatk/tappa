@@ -81,7 +81,7 @@ templ yorumuna yardımcı sınıf adı yazılmaz · tek `<h1>`.
 | ID | Faz | Görev | Ajan | Bağımlılık |
 |---|---|---|---|---|
 | M13-01 | O0 | Operatör kabuğu + gezinme (OP-1): bant, `op-nav` (üç genişlik), tenant alt gezinmesi, içerik sütunu; kabuk testinin genişletilmesi | yapıcı (`tappa-brand`) + güvenlik | — |
-| M13-02 | O1 | Bileşen katmanı: `op-card`, `op-input`, düğmeler, `op-row`, kapsamlı yuvarlak çip, `op-label` | yapıcı (`tappa-brand`) | M13-01 |
+| M13-02 | O1 | Bileşen katmanı: `op-card`, `op-input`, düğmeler, `op-row`, kapsamlı yuvarlak çip, `op-label` | yapıcı (`tappa-brand`) | M13-01, M12-52 |
 | M13-03 | O1 | Operatöre özgü bildirim (`opNotice`) + problem sayfası | yapıcı (`tappa-brand`) | M13-02 |
 | M13-04 | O2 | Ekran: giriş + kod (OpSignIn) | yapıcı (`tappa-brand`) | M13-03 |
 | M13-05 | O2 | Ekran: hesap kurulumu (OpEnroll) | yapıcı (`tappa-brand`) + güvenlik | M13-03 |
@@ -144,10 +144,18 @@ bağlantıları taşıyor (`chrome.templ:19-21`). Bütün ekran kartları bu kab
   (README §6 "Content column"); **`op-main` sınıfı bu kartta konur** — M13-02'nin çip kuralı ona
   bağlıdır. İmzasız ekranların `<main>`'i de `op-main` taşır.
 - `input.css`: `.op-frame`, `.op-nav`, `.op-nav-item`, `.op-nav-label`, `.op-subnav`, `.op-subnav-item`
-  (README §6 tarifleri; tablette `md:static md:border-t-0 md:pb-0`, öğe `md:flex-row md:min-h-11` —
-  telefonun sabit çubuğu tablette sabit kalmaz), basılabilir olanlarda `min-h-11`; `.op-tenant`
+  (README §6 tarifleri; tablette `md:static md:order-first md:mt-0 md:border-t-0 md:pb-0`, öğe
+  `md:flex-row md:min-h-11` — telefonun sticky alt çubuğu tablette üstte, akışta bir satırdır), basılabilir olanlarda `min-h-11`; `.op-tenant`
   çizgisi **1 px** kalır, iç alt dolgusu kalkar (alt gezinme çizginin üstüne oturur); alt gezinme
-  telefonda 14 px ve satır kırar. Telefonda `<main>` alt dolgusu sabit çubuğu aşar.
+  telefonda 14 px ve satır kırar.
+- **Telefon alt çubuğu (cilalı panolar, 2026-10-20):** `fixed` değil **`sticky bottom-0`**; kısa
+  sayfada da görüntü alanının alt kenarına oturur: `.op-frame` en az görüntü alanı yüksekliğinde
+  (bant hariç: `min-h-[calc(100vh-4.25rem)]`) bir **flex sütun**dur, nav `order-last mt-auto`
+  alır (tablette `md:static md:order-first md:mt-0`, masaüstünde `desk:flex-row`,
+  `desk:order-none`). `layout.Operator`'ın `<body>`'sine dokunulmaz (paylaşılan kabuk). Çerçevede
+  ya da nav'ın hiçbir atasında `overflow-*` yok (sticky'yi bozar). Sticky çubuk akışta yer
+  tuttuğundan son denetimi örtmez; `<main>`'in eski `pb-24` boşluğu gerekmez (README §6
+  "Frame", "Main nav", "Content column").
 - Ekran gövdeleri bu kartta **değişmez** (yalnız sarmalayan kabuk); her ekranın kendi "Back to …"
   bağlantıları kalır.
 - ADR 0020'ye (§4 ya da §9 yanına) ve ADR 0023'ün operatör satırına tarihli not: OP-1 gezinmesi
@@ -198,9 +206,12 @@ tipi), her ekranın `@screen` / `@TenantScreen` çağrısı (`home.templ`, `sign
   `TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders` yeşil.
 - `TestCompiledCSS_BrandNamesOccurOnlyInTheGolden`, `TestUnbrandedScreens_AreByteIdenticalToTheGolden`
   yeşil (`layout.*` ve `components.*` değişmedi).
-- 390 / 834 / 1200 / 1440'ta yatay sayfa kaydırması yok; telefonda alt çubuk son denetimi örtmez.
+- 390 / 834 / 1200 / 1440'ta yatay sayfa kaydırması yok; telefonda alt çubuk son denetimi örtmez
+  ve kısa bir sayfada (ör. Home, imzalı problem) görüntü alanının alt kenarında durur.
 
-**Tuzaklar.** Nav'ı üç ayrı DOM olarak yazmak (üç kat bağlantı, üç `aria-current`) · sign-out'u
+**Tuzaklar.** Telefon çubuğunu `fixed` yapmak (kısa sayfada da çalışır ama içerik üstüne biner ve
+`pb-24` ister — panolar sticky + `mt-auto` çizer) · çerçeveye `overflow-hidden` vermek (sticky
+çalışmaz) · Nav'ı üç ayrı DOM olarak yazmak (üç kat bağlantı, üç `aria-current`) · sign-out'u
 telefon için ikinci bir forma kopyalamak (form sayımları kırılır) · panelin `.panel-side`/`.bar-link`
 sınıflarını "yeniden kullanmak" · ikonları CSS arka planı yapmak (CSP'de `img-src` yok) · kayıt
 sayfasına nav koymak (SVG sayımı 1 olmalı; kayıt imzasızdır) · `TenantScreen`'i dışa kapalı yapmak ya
@@ -213,30 +224,75 @@ zemine koymak (panolar bandın içinde çizer) · telefonda sign-out'u ikona çe
 
 ## M13-02 — Bileşen katmanı
 
-- **Bağımlılık:** M13-01
+- **Bağımlılık:** M13-01, **M12-52** (panelin `.tally--pill`'i `TestTallyRules_NoToneRuleColoursTheWord`'ü
+  kırmızıya çevirdi — [m12-panel-redesign.md → M12-52](m12-panel-redesign.md); o kart bitmeden bu kart
+  başlamaz)
 - **Kırmızı çizgi:** — (yalnız sınıflar; D2)
 - **Araç:** yapıcı, skill `tappa-brand`
 - **Commit:** `style(operator): round the operator cards, fields and chips as drawn`
 - **Spec:** [README §5–§6](../design/operator-redesign/README.md)
 
-**Amaç.** README §6'nın operatör sınıflarını `input.css`'in `op-*` bloğunda (`input.css:1045-1092`)
-güncellemek: `.op-card` `rounded-[14px]`, `shadow-sm` düşer, iç boşluklar üç genişlikte; `.op-input`
+**Amaç.** README §6'nın operatör sınıflarını `input.css`'in `op-*` bloğunda (`input.css:1098-1145`,
+`a8a06f6`'da yeniden okundu, `27516b7`'de değişmedi) güncellemek: `.op-card` `rounded-[14px]`, `shadow-sm` düşer (hiçbir operatör kartında gölge yok), iç boşluklar üç genişlikte
+(telefonda **20 px**, `p-5`; tablet/masaüstünde 22 px 24 px); docket dolgusu kapsamlı kuralla
+`.op-main .docket { @apply px-5 py-4 md:px-6 md:py-[18px]; }` — telefonda 16 px 20 px,
+tablet/masaüstünde 18 px 24 px; `.docket`'in kendi `px-4 py-3`'ü panel için kalır. **Tek ölçek, tek
+görünüm:** her operatör ekranında delikli `.docket` (panoların Tenants/Tenant/Plaques/VAT'taki kesikli-üst
+kısayolu da delikli docket'e hizalanıyor) ve her kart/docket için bu tek dolgu ölçeği — ekran başına
+dolgu yok; `.op-input`
 `rounded-[10px]`; `.op-signout` ve operatör ekranlarındaki `btn` `rounded-[10px]`; `.op-row`/`.op-version`
 kesikli ayraç; yeni `.op-label` (mono 11 px etiket); çipler `rounded-full` — **span'e sınıf eklemeden**,
 kapsamlı kural `.op-main .tally` (`op-main` sınıfını M13-01 `<main>`'e koydu).
 
+Cilalı panoların getirdiği yeni sınıflar (yalnız CSS; işaretlemeye ekran kartlarında girer):
+- **`.op-pager`** — Billing / Audit / Holdings sayfalayıcısının çerçeveli düğmesi (panoların
+  `.pgbtn`'i; README §6 "Pager"): `inline-flex min-h-11 items-center justify-center rounded-[10px]
+  border border-ink/30 bg-paper px-[22px] font-display text-[15px] font-bold text-ink no-underline
+  hover:border-ink`. Testlerdeki sınıf değişikliği ekran
+  kartlarında (M13-10, M13-12, M13-13), işaretlemeyle aynı commit'te.
+- **`.op-step`** (Enroll adımları, 16/17 px) ve **`.op-heading`** ("Create a holding", 19 px) —
+  bugün `docket-label` yazılan kart içi başlıklar (README §6).
+- **`.op-receipt`** — fatura satırının dört rakamlık fiş şeridi (README §6 "Billing receipt strip").
+- **Satır içi bağlantı isabet alanı** — denetim satırının tenant bağlantısı için kapsamlı kural,
+  tablet/masaüstünde satır yüksekliğini korur ve 44 px görünmez bir `::before` örtüsü ekler
+  (README §6 "Inline link hit area"); işaretleme değişmez.
+- **`tally--running` yeniden tonlanır, yeni değiştirici yok:** canlı ay kesikli safran çerçeve —
+  seçicisi çizgi grubundan (`input.css:731-736`) çıkar, kendi tek satırlık kuralını alır:
+  `.tally--running { @apply border-dashed border-saffron bg-paper; }` (panoların `.t-saffron-o`'su: kâğıt zeminde kesikli safran çerçeve). Ad `tally--[a-z-]+`'e
+  uyar, çip regex'i değişmez.
+
 **Dosyalar.** `web/static/css/input.css` (`op-*` bloğu); gerekirse `web/templates/operatorpages/*.templ`
-yalnız `op-label` için; `internal/handler/operator/op12_test.go`, `op14_test.go` (44 px ve çip
-kuralları — yalnız yeni sınıf eklenirse).
+yalnız `op-label` için; `internal/handler/operator/op12_test.go` (çip okuyucusu ve fatura ton
+testleri), `op14_test.go` (44 px listesi).
 
 **Kabul kriterleri.**
-- `.docket` keskin kalır (D2); `.tally` temel kuralı ve tonları değişmez (panel de kullanır); yuvarlama
-  yalnız operatör `<main>`'i altında.
+- `.docket` keskin kalır (D2); `.tally` taban kuralı ve `tally--running` **dışındaki** her ton kuralı
+  olduğu gibi kalır (panel de kullanır); `tally--running` yalnız `billing.templ:104`'te yazılır ve
+  aşağıdaki gibi yeniden tonlanır; yuvarlama yalnız operatör `<main>`'i altında.
 - Çip regex'i `<span class="tally (tally--[a-z-]+)">` her ekranda eşleşir; `TestTallyRules_NoToneRuleColoursTheWord`,
   `TestCompiledCSS_TallyWordIsInkOnEveryChip`, her `Test…Screen_EachChipHasTheRuleTheContrastTestComputes` yeşil.
-- `.op-input` / `.op-link` hâlâ `min-h-11` (`op12_test.go:1457`, `op14_test.go:750`).
+- `TestTallyRules_NoToneRuleColoursTheWord`'ün okuyucusu `readTallyRules` (`op12_test.go:1645-1707`)
+  `.tally` geçen her seçiciyi okur ve yalnız taban `.tally` ile `.tally--x` listelerine izin verir —
+  `.op-main .tally` bugün bir bulgudur. Okuyucu **tek bir** yeni biçimle genişletilir: seçicisi
+  **tam olarak** `.op-main .tally` olan, tek `@apply`'lı kural, yalnız biçim ve yazı yardımcıları (`rounded-*`, `px-*`, `py-*`, `min-h-*`,
+  `font-bold`, `tracking-*` — panoların çipi 24 px, 2 px 10 px, kalın, .08em; `text-*`, `bg-*`,
+  `border-<renk>`, `opacity` yok); KONTROL: kapsamlı kurala bir renk yardımcısı eklenmiş mutasyon
+  kırmızı. **Bu kart, bir `.tally--x` kuralının uygulayabileceğini genişleterek asla geçilmez** —
+  okuyucunun `border-`/`bg-` dışını bulgu sayan kolu aynen kalır. (Bu test panelin `.tally--pill`'i — `2afa9db` — yüzünden kırmızıydı; M12-52'nin ad değişikliği
+  `5524505` + `00ca1e6` (`.pill-tally`, `input.css:1292`) onu yeşile döndürdü — ölçüldü. M12-52'nin kalan
+  mutasyon kontrolü de bu kartın ön koşuludur.)
+- `tally--running`'in yeni tonu iki fatura testinde **aynı commit'te** genişletilir, gevşetilmez:
+  `TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes` (`op12_test.go:1532-1583`; `want`
+  `BillingToneRunning: {"bg-paper", "border-saffron"}` olur ve yalnız bu ton için üçüncü
+  belirteç olarak tam `border-dashed`'e izin verilir — başka her ek belirteç yine kırmızı;
+  KONTROL: `border-dashed`'siz canlı kural da kırmızı, yani kesikli çizgi ölçülür) ve
+  `TestBillingScreen_TheChipsAndTextClearAA` (`op12_test.go:1471`; canlı ay mevcut "ink on paper" satırına adıyla taşınır — 16.17:1 —,
+  `line`/10 satırı yalnız before sign-up için kalır).
+  `readTallyRules` `border-dashed`'i zaten kabul eder (`border-` öneki).
+- `.op-input` / `.op-link` hâlâ `min-h-11` (`op12_test.go:1457`, `op14_test.go:750`); `.op-pager`
+  `op14_test.go:750`'deki listeye eklenir.
 - Üretilen işaretleme ekran gövdelerinde değişmez (yalnız CSS) — kabuk testi ve docket anatomisi
-  testleri dokunulmadan yeşil.
+  testleri dokunulmadan yeşil (yeni sınıflar işaretlemeye ekran kartlarında girer).
 
 ## M13-03 — Operatöre özgü bildirim ve problem sayfası
 
@@ -306,7 +362,14 @@ yazılan adres yankılanmaz; "forgot password", kayıt, "remember me" yok.
 - **Spec:** [screens.md §2](../design/operator-redesign/screens.md) · **Panolar:** `OpEnroll`, `T-OpEnroll`, `M-OpEnroll`
 - **Dosyalar:** `web/templates/operatorpages/enroll.templ`, `web/static/css/input.css` (`.op-qr`, `.op-key`, `.op-uri`, `.op-token-field`), `enrollqr_test.go`, `op8r2_test.go`, `op8r4_test.go`
 
-İki adımlı kart, QR → anahtar → URI sırası, betikli/betiksiz jeton alanı, dört bildirim.
+İki adımlı kart, QR → anahtar → URI sırası, betikli/betiksiz jeton alanı, dört bildirim. Cilalı
+panolar: "Step 1 · …" / "Step 2 · …" etiketleri `docket-label` değil, **17 px (telefonda 16 px) kalın
+display başlık** — aynı sözcükler, yeni `.op-step` sınıfı (README §6; öğe `<h2>` olabilir, sayfada
+yine tek `<h1>`). Hiçbir test bu iki satırda `docket-label`'ı sabitlemez (`a8a06f6`'da yeniden okundu, `27516b7`'de değişmedi;
+`internal/handler/operator/*_test.go` içinde "Step 1"/"Step 2" geçmez), güncellenecek test yok.
+Panoların QR'ı artık deponun kodlayıcısıyla basılmış **gerçek bir örnek** (sürüm 8, 57 modül × 4 px
+= 228 px, mürekkep/kâğıt, `op-qr`, `role="img"`, aria-label + `<title>`); port yine `qr.go`'nun
+SVG'sini (`enroll.templ:40-44`) çizer, örneğin içeriği örnek veridir.
 
 **Kabul kriterleri.** O2 ortak kabulü ve: `enroll.js`'e dokunulmaz (`TestEnrollScript_IsTheReviewedBody`, `TestEnrollScript_TouchesTheFragmentAndNothingElse`);
 `enroll-token` / `enroll-token-wrap` kimlikleri aynı; `TestEnrollQR_IsTheKeysURIInkOnPaper`,
@@ -320,7 +383,10 @@ yazılan adres yankılanmaz; "forgot password", kayıt, "remember me" yok.
 - **Spec:** [screens.md §3](../design/operator-redesign/screens.md) · **Panolar:** `OpHome`, `T-OpHome`, `M-OpHome`
 - **Dosyalar:** `web/templates/operatorpages/home.templ`, `op8_test.go`
 
-Kart: etiket, h1, dört bağlantı + açıklamaları, oturum cümlesi. **İkon kutucukları taşınmaz** (D1):
+**Tek `op-card`** (kodun bugünkü biçimi, `home.templ:22-47`; docket değil): mono etiket "Operator
+console", her genişlikte 28 px `<h1>`, dört bağlantı + açıklaması tablet/masaüstünde **iki sütunlu
+ızgara**, telefonda **alt alta 44 px bağlantılar**, oturum cümlesi kartın **içinde** alt bilgi (README
+§6.1 "Home hub"). **İkon kutucukları taşınmaz** (D1):
 panoların eski bir sürümü her bağlantının yanına 48 px ikon kutucuğu çiziyordu; kutucuklar
 `OpHome` / `T-OpHome` / `M-OpHome`'dan kaldırıldı — Home'da bugün yok ve imzalı sayfanın SVG'leri
 tam olarak nav'ın beşi.
@@ -337,7 +403,9 @@ adı/e-postası yok; Home'un store çağrısı 0.
 - **Dosyalar:** `web/templates/operatorpages/tenants.templ` (`Tenants`, `tenantList`, `tenantPager`, `tenantPageForm`), `op11_test.go`
 
 Arama kartı (`role="search"`, POST), sonuç satırı + "Show every tenant", docket satırları, üç boş durum,
-POST sayfalayıcı.
+POST sayfalayıcı. Cilalı panolar: satır tablet/masaüstünde ızgara (ad · Since · plan, id altta tam
+genişlik), telefonda ad bağlantısı ilk satırda tek başına, 44 px (README §6.1 "Tenants row"; kapsamlı
+seçici — `<li class="op-row">` aynen). Sayfalayıcı cilalı listede değil: `op-link` kalır.
 
 **Kabul kriterleri.** O2 ortak kabulü ve: `TestTenantSearch_NoLogLineHeaderOrOtherPageCarriesTheTerm`,
 `TestTenantList_PagesForwardOnlyAfterAFullPage`, `TestTenantScreens_EscapeWhatATenantAndAnOperatorTyped`,
@@ -366,7 +434,11 @@ bir açma ve bir kapama formu, kapalıda yalnız açma formu; `TestTenantOvervie
 - **Spec:** [screens.md §7](../design/operator-redesign/screens.md) · **Panolar:** `OpPlaques`, `T-OpPlaques`, `M-OpPlaques`
 - **Dosyalar:** `web/templates/operatorpages/plaques.templ`, `op13_test.go`
 
-Özet kartı (üç cümleden biri), docket satırları, yedi çip.
+Özet kartı (üç cümleden biri), docket satırları, yedi çip, adsız tenant bandı (cilalı `OpPlaques`
+panolarında da bir durum). Cilalı panolar: satır tablet/masaüstünde **iki sütun** — UID kendi
+sütununda, çip + cümle + olgular yanında tek bir `<div>` içinde; telefonda alt alta (README §6.1
+"Plaque row"). Satır yine UID span'iyle **başlar** (`op13_test.go:285`); `<div>` form ya da düğme
+değildir.
 
 **Kabul kriterleri.** O2 ortak kabulü ve: sayfada tam bir `<form` (sign-out), tam bir `<button`
 (sign-out'un metin düğmesi), hiç `hx-` (`op13_test.go:327-332`);
@@ -379,11 +451,42 @@ plaket QR'ı ya da çizimi yok.
 - **Bağımlılık:** M13-02 · **Araç:** yapıcı (`tappa-brand`) · **Commit:** `feat(operator): port the billing months to the redesign`
 - **Kırmızı çizgi:** §4.6 (okunamayan / kayıt-öncesi ayda rakam yok, "not even a zero")
 - **Spec:** [screens.md §8](../design/operator-redesign/screens.md) · **Panolar:** `OpBilling`, `T-OpBilling`, `M-OpBilling`
-- **Dosyalar:** `web/templates/operatorpages/billing.templ`, `op12_test.go`
+- **Dosyalar:** `web/templates/operatorpages/billing.templ`, `op12_test.go`, `op12_db_test.go` (`screenFact`)
 
 Giriş kartı, docket (beş durum, serbest pencere, taban cümlesi, son sayfa notu), POST sayfalayıcı.
+Cilalı panolar:
+- **Fiş şeridi:** dört rakam (Plan · People counted · Price per person · Amount) satır içi
+  `<span class="text-sm">Plan <span class="font-mono">…</span></span>` yerine küçük etiket üstte, değer
+  altta bir `<dl class="op-receipt">` — etiketler PLAN · PEOPLE COUNTED · PRICE PER PERSON · AMOUNT
+  (kodun sözcükleri, büyük harf CSS'ten), Amount sağa yaslı 20 px kalın; telefonda 2 × 2 (README §6
+  "Billing receipt strip"). Closed / First charged month / Counted over satır içi span kalır.
+- **Sayfalayıcı** "Newer months" / "Older months" çerçeveli düğme: `<button type="submit"
+  class="op-pager">` (README §6 "Pager").
+- **Çip tonları:** canlı = kesikli safran çerçeve (`tally--running`'in yeni tonu, M13-02), bitmiş ama
+  kapanmamış = safran, dondurulmuş = yeşil, kayıt öncesi = çizgi, okunamayan = mürekkep.
 
-**Kabul kriterleri.** O2 ortak kabulü ve: `TestBillingScreen_WearsTheDocketAnatomy`, `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`,
+**Kabul kriterleri.** O2 ortak kabulü ve:
+- **Fiş şeridinin test güncellemesi, aynı commit'te, gevşetmeden:** dört rakamı okuyan her yer yeni
+  işaretlemeyi okur — `fact()` yardımcısı (`op12_test.go:192`; bu dört etiket için yeni biçimi döndürür,
+  ötekiler için eskisini), `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`'in döngüsü
+  (`op12_test.go:513-517`), `TestBillingScreen_WearsTheDocketAnatomy`'nin döngüsü (`op12_test.go:1436-1440`;
+  dört rakam artık şeridin `dt`/`dd` çiftinde mono değerle, üçü eski span'de) ve uçtan uca okuyucu
+  `screenFact` (`op12_db_test.go:166`; şerit hücresini de okur, `len(r.facts)` karşılaştırması
+  `op12_db_test.go:343` aynı kalır). KONTROL: rakamlı bir satırda tam dört şerit hücresi bulunur ve
+  eski `<span class="text-sm">Plan <span class="font-mono">` biçimi sayfada **yoktur**; kayıt öncesi
+  ve okunamayan satırda şerit hiç yoktur (§4.6, "not even a zero").
+- **Sayfalayıcının test güncellemesi, aynı commit'te:** `TestBillingScreen_PagesAreFiveOfTwelve`'in
+  `form` kalıbı (`op12_test.go:1370-1373`) ve `TestBillingScreen_WearsTheDocketAnatomy`'nin düğme
+  iddiası (`op12_test.go:1441`) `class="op-pager"` okur; öğe (`<button`), `type="submit"`, formun
+  `method="post"` + `action` yolu, gizli `page` alanı ve etiket iddiaları aynen kalır; KONTROL:
+  `class="op-link">Older months</button>` / `Newer months</button>` sayfada yok.
+- **AA satırının etiketi, sayfalayıcıyla aynı commit'te:** `TestBillingScreen_TheChipsAndTextClearAA`'nın
+  `"tappa-green on porcelain (the pager, outside the docket)"` satırı (`op12_test.go:1510`) ve doc yorumu
+  (`op12_test.go:1467-1468`) artık sayfalayıcıyı ölçmez — `op-pager`'ın sözcüğü paper üstünde ink'tir.
+  Satır **silinmez** (hesap ve 4.5:1 eşiği aynen); etiketi ve yorumu sayfalayıcıyı anmayacak biçimde
+  yeniden yazılır, sayfalayıcı "ink on paper" satırının etiketine eklenir; `op-pager`'ın `ink/30`
+  çerçevesi metin değildir (README §6 "Pager"). Hiçbir satır, ölçmediği bir öğeyi ölçtüğünü söylemez.
+- `TestBillingScreen_WearsTheDocketAnatomy`, `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`,
 `TestBilling_AFrozenMonthAndALiveMonthDoNotRenderAlike`, `TestBillingScreen_OffersNoItemisationAnywhere`,
 `TestBillingScreen_ReadsNothingFromTheURL` yeşil; page 3'te tam iki sayfalayıcı formu; ödendi/gecikti
 sözcüğü, fatura PDF'i, kişi listesi yok.
@@ -396,7 +499,10 @@ sözcüğü, fatura PDF'i, kişi listesi yok.
 - **Dosyalar:** `web/templates/operatorpages/vat.templ`, `op16_test.go`
 
 "On file" docket'i, dört karar çipi, zaman satırı, "Ask again" kartı (alansız form) ya da
-sorulamaz cümlesi, üç uyarı.
+sorulamaz cümlesi, üç uyarı, adsız tenant bandı (cilalı `OpVat` panolarında da bir durum; fixture
+"tenant VAT, not found"). Cilalı panolar: "On file"un iki olgusu tablet/masaüstünde **yan yana**
+(`dl`, `vat.templ:41` → `md:grid md:grid-cols-2`), telefonda alt alta; sabit
+`<dd class="mt-1 break-all font-mono text-lg font-bold">` (`op16_test.go:1409`) aynen.
 
 **Kabul kriterleri.** O2 ortak kabulü ve: `TestVATScreen_TheFourStatesAreCalledWhatTheAccountScreenCallsThem`,
 `TestVATScreen_EveryStateSaysItsWordAndSentence`, `TestVATRecheck_TheNumberIsTheServersNotTheClients`,
@@ -411,10 +517,24 @@ hiç; numara düzenleme alanı yok; başarı bildirimi yok.
 - **Dosyalar:** `web/templates/operatorpages/audit.templ`, `op14_test.go`, `op14d_test.go`
 
 Süzgeç kartı (`<select id="audit-kind" name="kind" class="op-input">`), docket satırı (her olgu bir
-span), boş/son sayfa durumları, POST sayfalayıcı.
+span), boş/son sayfa durumları, POST sayfalayıcı. Cilalı panolar: operatör ve hesap **adları Space
+Grotesk** (kod onları mono'suz `<bdi>` içinde yazar, `audit.templ:92, 98`); mono yalnız kodun bastığı
+yerde — zaman, sayfa, oturum, kimlikler, belge, bayt. "Of a scope this screen does not show" satırı
+kodda var (`audit.templ:117-118`) ve listelenir. Satır içi tenant bağlantısı tablet/masaüstünde satır
+yüksekliğini korur, **44 px görünmez örtü** alır (README §6 "Inline link hit area"; işaretleme
+`op14_test.go:317, 328, 387`'de sabit, değişmez). Sayfalayıcı çerçeveli düğme: `class="op-pager"`.
 
 **Kabul kriterleri.** O2 ortak kabulü ve: `TestAuditScreen_WearsTheDocketAnatomy`
-(başlık ve sayfalayıcı işaretlemesi aynen), `TestAuditWords_NameEveryKindAndNothingElse`,
+(başlık işaretlemesi aynen; sayfalayıcı iddiaları `op14_test.go:739-740` **aynı commit'te**
+`<button type="submit" class="op-pager">Previous page</button>` / `…Next page</button>` olur — öğe,
+`type`, etiket aynen; `TestAuditScreen_ReadsNothingFromTheURL`'ün form `method`/`action` ve gizli
+`kind` + `page` iddiaları değişmez; KONTROL: `class="op-link">Previous page</button>` sayfada yok),
+**AA satırının etiketi aynı commit'te** — `TestAuditScreen_TheTextClearsAA`'nın doc yorumu
+(`op14_test.go:1011-1012`, "and on porcelain (the pager's links)") ve `"tappa-green on porcelain"` satırı
+(`op14_test.go:1052`) sayfalayıcıyı anmayacak biçimde yeniden yazılır, satır ve eşiği silinmeden;
+sayfalayıcının sözcüğü "ink on paper" satırında (`op14_test.go:1048`) adıyla anılır. (Tenant listesinin
+eşi `op11_test.go:1064`/`:1109` doğru kalır: `tenantPageForm` `op-link` kalıyor ve özetin alt
+bağlantıları sayfa zeminindedir — M13-07 sayfalayıcıyı değiştirirse aynı düzeltme orada yapılır.) `TestAuditWords_NameEveryKindAndNothingElse`,
 `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditScreen_NoCredentialFieldReachesThePage`,
 `TestAuditScreen_ReadsNothingFromTheURL` yeşil; süzülmüş sayfada tam üç form; dışa aktarım, tenant
 başına görünüm, türetilmiş hüküm yok.
@@ -427,7 +547,16 @@ başına görünüm, türetilmiş hüküm yok.
 - **Dosyalar:** `web/templates/operatorpages/holdings.templ`, `holdings_test.go`
 
 Oluşturma kartı, dokuz bildirim + kurallar, holding girdileri (üye satırları, Live/Ended, Remove, ekleme
-formu, sayfa bölünmesi cümleleri), **bağlantı** sayfalayıcısı.
+formu, sayfa bölünmesi cümleleri), **bağlantı** sayfalayıcısı. Cilalı panolar:
+- "Create a holding" **19 px başlık** (`.op-heading`; bugün `<h2 id="holding-create" class="docket-label">`,
+  `holdings.templ:40`) — `id` kalır (kartın `aria-labelledby`'si); bu sınıfı sabitleyen test yok.
+- Üye satırında tenant id **adın altında** — yalnız görsel sıra (CSS `order`, README §6.1
+  "Holdings"); DOM sırası kodunki (`holdings.templ:131-160`), hiçbir test onu sabitlemez.
+- Sayfalayıcı çerçeveli düğme görünümünde **bağlantı** kalır: `<a href="/operator/holdings?page=N"
+  class="op-pager">`. Bağlantının sınıfını sabitleyen test yok; `href` iddiaları
+  (`op8_test.go:890-891`, `holdings_test.go:741, 757`) aynen.
+- "page 3, past the end" durumu ("This page is empty: the list ended on the page before.",
+  `holdings.templ:51-52`; fixture "holdings, past the end") panolarda da var.
 
 **Kabul kriterleri.** O2 ortak kabulü ve: form sayıları
 (`op8_test.go:884-886`) ve çip işaretlemesi (`holdings_test.go:~689, ~987`) aynen;
@@ -444,7 +573,16 @@ yeşil; reddedilen ad yankılanmaz; tenant seçici, holding sayfası, onay adım
 
 Giriş kartı (müşteri sitesi `/legal` metin, bağlantı değil), dört düzenleyici kartı (canlı/yayımlanmamış,
 "behind" uyarısı, textarea, düğme), sürüm docket'i (`<li class="op-version">`, Live çipi, "tenant admin
-(legacy)"), boş ve 100 sınırı notları.
+(legacy)"), boş ve 100 sınırı notları. Cilalı panolar (README §6.1 "Legal editor", "Legal versions"):
+- Belge başına **tam genişlik tek düzenleyici kartı**, yan iç boşluğu tek kart ölçeği: masaüstü / tablet /
+  telefon **24 / 24 / 20 px** (panoların `--edpx`'i 32 / 26 / 18'den hizalandı); başlık satırında solda yol (mono), sağda dekoratif
+  durum noktası (`aria-hidden`; durumu sözcükler taşır) + "Live since …" / "Not published…"; "The public
+  page is behind" uyarısı başlık ile form **arasında** (kodun sırası); "TEXT" etiket çubuklu
+  **çerçeveli textarea**, mono 14 px / 1.7, `rows="12"`; solda yardım, sağda **Publish a new version**
+  (telefonda tam genişlik düğme).
+- Sürüm listesi tablet/masaüstünde **beş sütunlu ızgara** (zaman kalın mono · yol · bayt sağa yaslı ·
+  yayımlayan · Live çipi), telefonda alt alta kartlar; kapsamlı seçici — `<li class="op-version">`
+  aynen (`op10_test.go:308, 631, 656`).
 
 **Kabul kriterleri.** O2 ortak kabulü ve: `TestLegalPage_ShowsWhoPublishedEachVersion`,
 `TestLegalPublish_AFailedRefreshRedirectsAndTheScreenSaysThePageIsBehind`,
