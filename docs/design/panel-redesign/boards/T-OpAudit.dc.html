@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Audit log — Taptime operator</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>:root{--gx:24px;--maxw:none;--tn:34px;--bpt:22px;--mpt:24px;--mpb:48px;--gap:20px;--cp:24px 26px;--h1:28px;--dp:22px;--c1:176px;--btnself:flex-start;--m1:190px;--edcols:minmax(0,1fr)}
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+/* operator shell (OP-1) — identical on every board of this width */
+.oplbl{margin:0;font:400 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.opbar{background:#152219;border-bottom:4px solid #D98E2B;color:#FFFDF4}
+.opbar-in{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:0 24px;box-sizing:border-box}
+.oplock{margin:0;font:700 14px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.28em;text-transform:uppercase;color:#FFFDF4;white-space:nowrap}
+.oplock span{color:#D98E2B}
+.opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
+.opout:hover{border-color:#D98E2B;color:#D98E2B}
+.optabs{display:flex;flex-wrap:wrap;padding:0 12px;background:#FFFDF4;border-bottom:1px solid #C9D2C8}
+.optab{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.optab:hover{color:#152219;background:rgba(21,34,25,.05)}
+.optab--on{border-bottom-color:#152219;font-weight:700}
+.opten{background:#F7EBD6;border-bottom:1px solid #D98E2B}
+.opten-in{max-width:none;box-sizing:border-box;padding:20px 24px 0;display:flex;flex-direction:column;gap:2px}
+.optname{margin:0;font:700 30px/1.12 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219;overflow-wrap:anywhere}
+.optid{margin:2px 0 0;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;word-break:break-all}
+.opsub{display:flex;flex-wrap:wrap;margin:8px 0 0 -12px}
+.opsubt{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
+.opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
+.opmain{width:100%;max-width:none;box-sizing:border-box;padding:24px 24px 48px}
+/* end operator shell */
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{margin:0;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10px;font-weight:400;letter-spacing:.16em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.col{max-width:var(--maxw);display:flex;flex-direction:column;gap:var(--gap)}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:var(--cp);box-shadow:0 1px 2px rgba(21,34,25,.06);display:flex;flex-direction:column;gap:12px;min-width:0}
+.h1{margin:0;font:700 var(--h1)/1.1 'Space Grotesk',sans-serif;letter-spacing:-.03em}
+.h2{margin:0;font:700 18px/1.2 'Space Grotesk',sans-serif;letter-spacing:-.02em}
+.p{margin:0;font-family:'Space Grotesk',sans-serif;font-size:15px;line-height:1.55}
+.small{margin:0;font-family:'Space Grotesk',sans-serif;font-size:13px;line-height:1.5;color:rgba(21,34,25,.7)}
+.links{margin:0;display:flex;flex-wrap:wrap;gap:0 24px}
+.oplink{display:inline-flex;align-items:center;min-height:44px;padding:0;border:0;background:none;font:700 15px 'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:4px;cursor:pointer}
+.oplink:hover{color:#152219}
+.fld{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field{min-height:44px;width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;font:14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+textarea.field{line-height:1.55;resize:vertical;display:block}
+.inline{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
+.inline .field{flex:1 1 240px;width:auto;min-width:0;max-width:100%}
+.btn1{min-height:44px;padding:0 22px;border-radius:10px;border:0;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer;align-self:var(--btnself)}
+.btn1:hover{background:#152219}
+.quiet{min-height:44px;padding:0 16px;border-radius:10px;border:1px solid #C9D2C8;background:#FFFDF4;color:#152219;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer}
+.quiet:hover{border-color:#BE3D2A;color:#BE3D2A}
+.note{border-left:4px solid #C9D2C8;border-radius:0 12px 12px 0;padding:14px 18px;display:flex;flex-direction:column;gap:6px}
+.note--ok{border-left-color:#1F5C41;background:#E1EDE6}
+.note--warn{border-left-color:#D98E2B;background:#F7EBD6}
+.note--alert{border-left-color:#BE3D2A;background:#FFFDF4;border-top:1px solid #C9D2C8;border-right:1px solid #C9D2C8;border-bottom:1px solid #C9D2C8}
+.note-h{margin:0;font:700 16px/1.3 'Space Grotesk',sans-serif;color:#152219}
+.note p{margin:0;font-size:14px;line-height:1.5;color:rgba(21,34,25,.85)}
+.note ul{margin:4px 0 0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:4px;font-size:14px;line-height:1.45;color:rgba(21,34,25,.85)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:20px var(--dp) 20px;box-shadow:0 1px 2px rgba(21,34,25,.06);font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;color:#152219;min-width:0}
+.docket::before,.docket::after{content:'';position:absolute;left:-1px;right:-1px;height:6px;background-image:radial-gradient(circle at 5px 0,#EDF0EA 3px,transparent 3.5px);background-size:10px 6px;background-repeat:repeat-x}
+.docket::before{top:-1px}
+.docket::after{bottom:-1px;transform:rotate(180deg)}
+.dh{padding-bottom:10px;border-bottom:2px dashed #C9D2C8}
+.list{list-style:none;margin:0;padding:0}
+.row{display:grid;grid-template-columns:var(--c1) minmax(0,1fr);gap:6px 20px;align-items:baseline;padding:14px 0;border-bottom:1px solid #C9D2C8}
+.row:last-child{border-bottom:0}
+.rk{font:700 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;min-width:0;overflow-wrap:anywhere}
+.facts{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 18px;min-width:0}
+.fact{font:13px/1.5 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.75);min-width:0;overflow-wrap:anywhere}
+.fact b{font-weight:700;color:#152219}
+.full{flex:1 0 100%;font:14px/1.5 'Space Grotesk',sans-serif;color:#152219}
+.kw{font:700 15px/1.3 'Space Grotesk',sans-serif;color:#152219}
+.rowlink{display:inline-flex;align-items:center;min-height:44px;font:700 14px 'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
+.rowlink:hover{color:#152219}
+.chip{display:inline-flex;align-items:center;min-height:24px;padding:2px 10px;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:999px;font:700 11px/1.3 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#152219}
+.t-green{border-color:#1F5C41;background:#E1EDE6}
+.t-saffron{border-color:#D98E2B;background:#F7EBD6}
+.t-line{border-color:#C9D2C8;background:rgba(201,210,200,.1)}
+.t-ink{border-color:#152219;background:rgba(21,34,25,.1)}
+.pager{display:flex;flex-wrap:wrap;gap:0 28px}
+.pager form{margin:0}
+.idl{font:12px/1.4 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.7);word-break:break-all}
+</style>
+</helmet>
+<div style="width: 834px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+<header class="opbar">
+    <div class="opbar-in">
+      <p class="oplock">TAPTIME <span>OPERATOR</span></p>
+      <form method="post" action="/operator/logout" style="margin: 0"><button type="button" class="opout">Sign out</button></form>
+    </div>
+  </header>
+  <nav aria-label="Operator sections" class="optabs">
+    <a href="T-OpHome.dc.html" class="optab">Console</a>
+    <a href="T-OpTenants.dc.html" class="optab">Tenants</a>
+    <a href="T-OpHoldings.dc.html" class="optab">Holdings</a>
+    <a href="T-OpAudit.dc.html" class="optab optab--on" aria-current="page">Audit log</a>
+    <a href="T-OpLegal.dc.html" class="optab">Legal texts</a>
+  </nav>
+  <main class="main opmain">
+<div class="col">
+
+<section class="card" aria-labelledby="audit-h">
+  <p class="lbl">Audit log</p>
+  <h1 id="audit-h" class="h1">Who did what on this surface</h1>
+  <p class="p">Every sign-in, sign-out, read and publication on the operator surface, newest first, for every operator. Opening this page is a read too, and it is listed.</p>
+  <form method="post" action="#" class="fld" style="margin: 6px 0 0">
+    <label for="audit-kind" class="lbl">Kind</label>
+    <div class="inline">
+      <select id="audit-kind" name="kind" class="field">
+        <sc-for list="{{kinds}}" as="o" hint-placeholder-count="21">
+          <sc-if value="{{o.sel}}"><option value="{{o.value}}" selected>{{o.label}}</option></sc-if>
+          <sc-if value="{{o.unsel}}"><option value="{{o.value}}">{{o.label}}</option></sc-if>
+        </sc-for>
+      </select>
+      <button type="submit" class="btn1">Show</button>
+    </div>
+  </form>
+  <p class="links"><a href="T-OpHome.dc.html" class="oplink">Back to the console</a></p>
+</section>
+
+<section class="docket" aria-labelledby="audit-list">
+  <h2 id="audit-list" class="lbl dh">Newest first · {{filter}} · page <span class="mono">{{page}}</span></h2>
+  <sc-if value="{{emptyKind}}" hint-placeholder-val="{{false}}"><p class="p" style="padding-top: 14px">The log holds no entry of this kind.</p></sc-if>
+  <sc-if value="{{emptyPast}}" hint-placeholder-val="{{false}}"><p class="p" style="padding-top: 14px">This page is empty: the log ended on the page before.</p></sc-if>
+  <sc-if value="{{hasRows}}" hint-placeholder-val="{{true}}">
+    <ol class="list">
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="12">
+        <li class="row">
+          <span class="rk">{{r.at}}</span>
+          <span class="facts">
+            <sc-if value="{{r.known}}" hint-placeholder-val="{{true}}"><span class="kw" style="flex: 1 0 100%">{{r.kind}}</span></sc-if>
+            <sc-if value="{{r.unknown}}" hint-placeholder-val="{{false}}"><span style="flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: center"><span class="mono" style="font-weight: 700; font-size: 14px">{{r.kind}}</span><span class="chip t-ink">Unrecognised</span></span></sc-if>
+            <sc-for list="{{r.facts}}" as="f" hint-placeholder-count="3">
+              <span class="fact">{{f.pre}}<sc-if value="{{f.isLink}}"><a href="T-OpTenant.dc.html" class="rowlink"><bdi>{{f.link}}</bdi></a></sc-if><sc-if value="{{f.isUnnamedLink}}"><a href="T-OpTenant.dc.html" class="rowlink"><i>Unnamed tenant</i></a> </sc-if><sc-if value="{{f.isVal}}"><b>{{f.val}}</b></sc-if>{{f.post}}<sc-if value="{{f.italic}}"><i>Detail not shown</i></sc-if></span>
+            </sc-for>
+          </span>
+        </li>
+      </sc-for>
+    </ol>
+  </sc-if>
+  <sc-if value="{{lastPage}}" hint-placeholder-val="{{false}}">
+    <p class="small" style="margin-top: 14px; padding-top: 12px; border-top: 2px dashed #C9D2C8">This is the last page the screen shows: the newest <span class="mono">50,000</span> entries of the kind chosen.</p>
+  </sc-if>
+</section>
+
+<sc-if value="{{hasPager}}" hint-placeholder-val="{{true}}">
+  <nav class="pager" aria-label="Pages of the audit log">
+    <sc-if value="{{hasPrev}}" hint-placeholder-val="{{false}}">
+      <form method="post" action="#"><input type="hidden" name="kind" value="{{kindValue}}"><input type="hidden" name="page" value="{{prev}}"><button type="submit" class="oplink">Previous page</button></form>
+    </sc-if>
+    <sc-if value="{{hasNext}}" hint-placeholder-val="{{true}}">
+      <form method="post" action="#"><input type="hidden" name="kind" value="{{kindValue}}"><input type="hidden" name="page" value="{{next}}"><button type="submit" class="oplink">Next page</button></form>
+    </sc-if>
+  </nav>
+</sc-if>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"auditView": {"editor": "enum", "options": ["every-kind-page-1", "filtered-signed-in-page-2", "empty-kind", "past-the-end", "last-page-1000"], "default": "every-kind-page-1"}, "$preview": {"width": 834, "height": 1907}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const view = this.props.auditView ?? 'every-kind-page-1';
+    // auditKindWords (audit.go:191-223), in the select's order; "Every kind" first.
+    const K = [
+      ['all', 'Every kind'],
+      ['login_failed', 'Sign-in refused: wrong password'],
+      ['unknown_email', 'Sign-in refused: no active account with that address'],
+      ['totp_failed', 'Code refused'],
+      ['locked', 'Account locked after wrong codes'],
+      ['enrollment_failed', 'Setup link refused'],
+      ['password_ok', 'Password accepted, before the code'],
+      ['login', 'Signed in'],
+      ['enrollment', 'Set up and signed in'],
+      ['logout', 'Signed out'],
+      ['read', 'Read'],
+      ['legal_publish', 'Legal text published'],
+      ['operator_created', 'Operator account created'],
+      ['operator_mfa_reset', 'Operator account reset to a new setup link'],
+      ['operator_disabled', 'Operator account disabled'],
+      ['tenant_vat_checked', 'VAT re-check recorded'],
+      ['tenant_api_enabled', 'Integration API opened'],
+      ['tenant_api_disabled', 'Integration API closed'],
+      ['holding_created', 'Holding created'],
+      ['holding_member_added', 'Asked to add a business to a holding'],
+      ['holding_member_removed', 'Asked to remove a business from a holding']
+    ];
+    const kindValue = { 'filtered-signed-in-page-2': 'login', 'empty-kind': 'operator_disabled' }[view] || 'all';
+    const kinds = K.map(([value, label]) => ({ value, label, sel: value === kindValue, unsel: value !== kindValue }));
+    const filter = K.find(k => k[0] === kindValue)[1];
+    // One fact = one span. Every key present on every fact.
+    const F = o => Object.assign({ pre: '', isLink: false, link: '', isUnnamedLink: false, isVal: false, val: '', post: '', italic: false }, o);
+    const by = n => F({ pre: 'By ', isVal: true, val: n });
+    const plain = t => F({ pre: t });
+    const val = (pre, v, post) => F({ pre, isVal: true, val: v, post: post || '' });
+    const tenant = n => F({ pre: 'Tenant ', isLink: true, link: n });
+    const sess = s => val('Session ', s);
+    const R = (at, kind, facts, unknown) => ({ at: at + ' UTC', kind, known: !unknown, unknown: !!unknown, facts });
+    const A = 'Mara Vella', B = 'Joseph Camilleri';
+    let rows = [], page = 1, hasNext = false, lastPage = false;
+    if (view === 'every-kind-page-1') {
+      hasNext = true;
+      rows = [
+        R('2026-10-20 14:32:07', 'Read', [by(A), plain('Of this audit log'), val('Page ', '1', ' (50 per page)'), val('Filter: ', 'Every kind'), sess('3f9a1c0e')]),
+        R('2026-10-20 14:31:52', 'Read', [by(A), tenant('Kebab Factory Ltd.'), plain('Of a tenant\'s billing'), val('Page ', '1', ' (12 per page)'), sess('3f9a1c0e')]),
+        R('2026-10-20 14:30:10', 'Integration API opened', [by(A), tenant('Kebab Manufacturing Co. Ltd.'), sess('3f9a1c0e')]),
+        R('2026-10-20 14:29:41', 'Read', [by(A), plain('Of the tenant list'), val('Page ', '1', ' (50 per page)'), plain('Searched by name'), sess('3f9a1c0e')]),
+        R('2026-10-20 14:12:03', 'Legal text published', [by(A), val('Document ', 'privacy'), val('', '18432', ' bytes'), sess('3f9a1c0e')]),
+        R('2026-10-20 14:05:19', 'Signed in', [by(A), sess('3f9a1c0e')]),
+        R('2026-10-20 14:04:58', 'Password accepted, before the code', [plain('Before sign-in'), F({ pre: 'Account ', isVal: true, val: A })]),
+        R('2026-10-20 13:58:44', 'Sign-in refused: no active account with that address', [plain('Before sign-in')]),
+        R('2026-10-20 11:20:00', 'Operator account reset to a new setup link', [plain('By the platform owner, with opadmin'), val('Account of an unnamed operator ', '5d0e2a71-4c8b-4f19-a3e6-91b7c2d40f58')]),
+        R('2026-10-20 10:47:31', 'Read', [val('By an unnamed operator ', '5d0e2a71-4c8b-4f19-a3e6-91b7c2d40f58'), F({ pre: 'Tenant ', isUnnamedLink: true, isVal: true, val: 'b4a71e09-2d6c-4e83-9f50-6a1c8d3e7b22' }), plain('Of a tenant\'s plaques'), sess('a07c55d2')]),
+        R('2026-10-20 10:46:02', 'Read', [by(B), val('A tenant id no tenant has ', '0e9d3c4b-7a12-4b6f-8c05-d2f1e6a9b384'), plain('Of a tenant\'s overview'), sess('c81e0b94')]),
+        R('2026-10-20 09:15:12', 'holding_renamed', [by(B), F({ italic: true }), sess('c81e0b94')], true),
+        R('2026-10-20 09:02:40', 'Asked to add a business to a holding', [by(B), tenant('Rusty Bar'), sess('c81e0b94')])
+      ];
+    } else if (view === 'filtered-signed-in-page-2') {
+      page = 2; hasNext = true;
+      rows = [
+        R('2026-10-14 08:31:09', 'Signed in', [by(B), sess('6be20f1a')]),
+        R('2026-10-13 17:02:44', 'Signed in', [by(A), sess('91d4a3c7')]),
+        R('2026-10-13 09:10:27', 'Signed in', [by(B), sess('2c7f8e05')]),
+        R('2026-10-12 15:48:51', 'Signed in', [val('By an unnamed operator ', '5d0e2a71-4c8b-4f19-a3e6-91b7c2d40f58'), sess('e05b9d33')]),
+        R('2026-10-12 08:59:13', 'Signed in', [by(A), sess('48a1c6f2')]),
+        R('2026-10-10 10:22:38', 'Signed in', [by(B), sess('b3e97d10')])
+      ];
+    } else if (view === 'empty-kind') {
+      rows = [];
+    } else if (view === 'past-the-end') {
+      page = 4; rows = [];
+    } else {
+      page = 1000; lastPage = true;
+      rows = [
+        R('2026-08-02 09:41:15', 'Read', [by(A), plain('Of the legal texts'), sess('0d3f7a92')]),
+        R('2026-08-02 09:40:58', 'Signed in', [by(A), sess('0d3f7a92')]),
+        R('2026-08-02 09:40:31', 'Code refused', [plain('Before sign-in'), F({ pre: 'Account ', isVal: true, val: A })]),
+        R('2026-08-01 16:12:04', 'Set up and signed in', [by(A), sess('7ab0c4e1')]),
+        R('2026-08-01 15:47:22', 'Operator account created', [plain('By the platform owner, with opadmin'), F({ pre: 'Account ', isVal: true, val: A })])
+      ];
+    }
+    return {
+      kinds, filter, kindValue, page: String(page), rows,
+      hasRows: rows.length > 0, emptyKind: rows.length === 0 && page === 1, emptyPast: rows.length === 0 && page > 1,
+      lastPage, hasPrev: page > 1, prev: String(page - 1), hasNext, next: String(page + 1),
+      hasPager: page > 1 || hasNext
+    };
+  }
+}
+</script>
+</body>
+</html>

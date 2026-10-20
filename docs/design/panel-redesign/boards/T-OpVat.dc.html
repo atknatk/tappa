@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VAT number — Kebab Factory Ltd. — Taptime operator</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+/* operator shell (OP-1) — identical on every board of this width */
+.oplbl{margin:0;font:400 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.opbar{background:#152219;border-bottom:4px solid #D98E2B;color:#FFFDF4}
+.opbar-in{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:0 24px;box-sizing:border-box}
+.oplock{margin:0;font:700 14px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.28em;text-transform:uppercase;color:#FFFDF4;white-space:nowrap}
+.oplock span{color:#D98E2B}
+.opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
+.opout:hover{border-color:#D98E2B;color:#D98E2B}
+.optabs{display:flex;flex-wrap:wrap;padding:0 12px;background:#FFFDF4;border-bottom:1px solid #C9D2C8}
+.optab{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.optab:hover{color:#152219;background:rgba(21,34,25,.05)}
+.optab--on{border-bottom-color:#152219;font-weight:700}
+.opten{background:#F7EBD6;border-bottom:1px solid #D98E2B}
+.opten-in{max-width:none;box-sizing:border-box;padding:20px 24px 0;display:flex;flex-direction:column;gap:2px}
+.optname{margin:0;font:700 30px/1.12 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219;overflow-wrap:anywhere}
+.optid{margin:2px 0 0;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;word-break:break-all}
+.opsub{display:flex;flex-wrap:wrap;margin:8px 0 0 -12px}
+.opsubt{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
+.opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
+.opmain{width:100%;max-width:none;box-sizing:border-box;padding:24px 24px 48px}
+/* end operator shell */
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:22px 24px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.docket{background:#FFFDF4;border:1px solid #C9D2C8;border-top:2px dashed #C9D2C8;border-radius:0;padding:16px 20px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.h1{margin:0;font:700 28px/1.1 'Space Grotesk',sans-serif;letter-spacing:-0.03em}
+.txt{margin:0;font-size:14px;line-height:1.5}
+.hint{margin:0;font-size:12px;line-height:1.45;color:rgba(21,34,25,.7)}
+.oplink{display:inline-flex;align-items:center;min-height:44px;padding:0;border:0;background:none;color:#1F5C41;font:700 14px 'Space Grotesk',sans-serif;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.oplink:hover{color:#152219}
+.links{display:flex;flex-wrap:wrap;column-gap:24px;margin:0}
+.field{min-height:44px;padding:0 12px;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;font:14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;box-sizing:border-box;width:100%}
+.btnp{min-height:44px;padding:0 20px;border-radius:12px;border:0;background:#1F5C41;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer;white-space:nowrap}
+.btnq{min-height:44px;padding:0 18px;border-radius:12px;border:1px solid #C9D2C8;background:#FFFDF4;color:#152219;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer;white-space:nowrap}
+.btnq:hover{border-color:#BE3D2A;color:#BE3D2A}
+.oprow{border-top:1px dashed #C9D2C8;padding:12px 0;font-size:14px;line-height:1.45}
+.tally{display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:999px;font:700 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#152219;white-space:nowrap;box-sizing:border-box}
+.t-green{border:1px solid #1F5C41;background:rgba(31,92,65,.1)}
+.t-line{border:1px solid #C9D2C8;background:rgba(21,34,25,.05)}
+.t-saffron{border:1px dashed #D98E2B;background:rgba(217,142,43,.12)}
+.t-saffron-solid{border:1px solid #D98E2B;background:rgba(217,142,43,.12)}
+.t-tomato{border:1px solid #BE3D2A;background:rgba(190,61,42,.1)}
+.t-ink{border:1px solid rgba(21,34,25,.5);background:#FFFDF4}
+.t-odd{border:1px dashed rgba(21,34,25,.5);background:#FFFDF4}
+.note{display:flex;flex-direction:column;gap:6px;padding:14px 18px;border-left:4px solid;border-radius:0 10px 10px 0}
+.note--ok{border-color:#1F5C41;background:rgba(31,92,65,.1)}
+.note--warn{border-color:#D98E2B;background:#F7EBD6}
+.note--alert{border-color:#BE3D2A;background:#FFFDF4}
+.note strong{font-size:15px}
+.note p,.note li{margin:0;font-size:14px;line-height:1.5;color:rgba(21,34,25,.85)}
+.note ul{margin:4px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+dl{margin:0}dd{margin:0}
+</style>
+</helmet>
+<div style="width: 834px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <header class="opbar">
+    <div class="opbar-in">
+      <p class="oplock">TAPTIME <span>OPERATOR</span></p>
+      <form method="post" action="/operator/logout" style="margin: 0"><button type="button" class="opout">Sign out</button></form>
+    </div>
+  </header>
+  <nav aria-label="Operator sections" class="optabs">
+    <a href="T-OpHome.dc.html" class="optab">Console</a>
+    <a href="T-OpTenants.dc.html" class="optab optab--on" aria-current="page">Tenants</a>
+    <a href="T-OpHoldings.dc.html" class="optab">Holdings</a>
+    <a href="T-OpAudit.dc.html" class="optab">Audit log</a>
+    <a href="T-OpLegal.dc.html" class="optab">Legal texts</a>
+  </nav>
+  <section class="opten" aria-label="Tenant">
+    <div class="opten-in">
+      <p class="oplbl">Tenant</p>
+      <p class="optname"><bdi>Kebab Factory Ltd.</bdi></p>
+      <nav aria-label="Tenant sections" class="opsub"><a href="T-OpTenant.dc.html" class="opsubt">Overview</a><a href="T-OpPlaques.dc.html" class="opsubt">Plaques</a><a href="T-OpBilling.dc.html" class="opsubt">Billing</a><a href="T-OpVat.dc.html" class="opsubt opsubt--on" aria-current="page">VAT number</a></nav>
+    </div>
+  </section>
+  <main class="opmain" style="display: flex; flex-direction: column; gap: 20px">
+    <section class="card" aria-labelledby="vat-h">
+      <p class="lbl" style="margin: 0">VAT number</p>
+      <h1 id="vat-h" class="h1">VAT re-check</h1>
+      <p class="txt">The VAT number this business registered with, and the answer of the EU VAT register (VIES) on file for it.</p>
+      <p class="links">
+        <a href="T-OpTenant.dc.html" class="oplink">Back to the overview</a>
+        <a href="T-OpTenants.dc.html" class="oplink">Back to the tenants</a>
+      </p>
+    </section>
+
+    <sc-if value="{{hasNotice}}" hint-placeholder-val="{{false}}">
+      <div role="status" class="note note--warn">
+        <strong>{{noticeHeading}}</strong>
+        <p>{{noticeBody}}</p>
+      </div>
+    </sc-if>
+
+    <section class="docket" aria-labelledby="tenant-vat">
+      <h2 id="tenant-vat" class="lbl" style="margin: 0">On file</h2>
+      <dl style="display: flex; flex-direction: column; gap: 12px; padding-top: 4px">
+        <div><dt class="lbl">VAT number</dt><dd class="mono" style="margin-top: 4px; font-size: 18px; font-weight: 700; word-break: break-all">{{number}}</dd></div>
+        <div><dt class="lbl">VIES answer</dt><dd style="margin-top: 6px"><span class="{{chip}}">{{word}}</span></dd></div>
+      </dl>
+      <p class="txt" style="padding-top: 4px">{{sentence}}</p>
+      <sc-if value="{{answered}}" hint-placeholder-val="{{true}}"><p class="txt">Last answer <span class="mono">2026-10-20 09:14 UTC</span></p></sc-if>
+      <sc-if value="{{askedOnly}}" hint-placeholder-val="{{false}}"><p class="txt">Asked <span class="mono">2026-10-19 17:02 UTC</span></p></sc-if>
+      <sc-if value="{{neverAsked}}" hint-placeholder-val="{{false}}"><p class="txt">No time of asking is on file.</p></sc-if>
+    </section>
+
+    <section class="card" aria-labelledby="tenant-vat-ask">
+      <h2 id="tenant-vat-ask" class="lbl" style="margin: 0">Ask again</h2>
+      <sc-if value="{{askable}}" hint-placeholder-val="{{true}}">
+        <p class="txt">Sends the number above to VIES now. If VIES answers, its answer replaces the one on file and is written to this tenant's own audit log; if it does not answer, nothing changes.</p>
+        <form method="post" action="/operator/tenants/5e2a9c74-6d1b-4f83-a0c7-3e9b5f1d2a68/vat" style="margin: 0"><button type="submit" class="btnp">Ask VIES again</button></form>
+      </sc-if>
+      <sc-if value="{{notAskable}}" hint-placeholder-val="{{false}}">
+        <p class="txt">This number is not in the format VIES accepts for its country, so it cannot be sent from here. Only the platform owner can correct it, in the database.</p>
+      </sc-if>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"verdict": {"editor": "enum", "options": ["confirmed", "not-found", "no-answer", "not-checked"], "default": "confirmed"}, "askable": {"editor": "enum", "options": ["yes", "no"], "default": "yes"}, "notice": {"editor": "enum", "options": ["none", "vies-silent", "cannot-be-sent", "too-many"], "default": "none"}, "$preview": {"width": 834, "height": 948}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const verdict = this.props.verdict ?? 'confirmed';
+    const notice = this.props.notice ?? 'none';
+    // A 422 means the stored number is not in VIES's format: such a number is never askable.
+    const askable = (this.props.askable ?? 'yes') === 'yes' && notice !== 'cannot-be-sent';
+    // vat.go: word, chip, sentence, time line (the words match the tenant's Account screen).
+    const V = {
+      confirmed: ['Confirmed', 'tally t-green', 'VIES confirmed this number when it last answered.', 'answered'],
+      'not-found': ['Not found', 'tally t-tomato', "VIES did not recognise this number when it last answered. Nothing in the product depends on it; an invoice to a number the register does not know is a matter for the business's accountant.", 'answered'],
+      'no-answer': ['No answer', 'tally t-saffron-solid', 'VIES was asked about this number and did not answer — an outage at their end, not a verdict about the business.', 'asked'],
+      'not-checked': ['Not checked', 'tally t-line', 'No answer from VIES is on file: nobody asked, or the sign-up asked and could not reach the register — the record cannot tell them apart.', 'never']
+    };
+    const [word, chip, sentence, when] = V[verdict];
+    const N = {
+      'vies-silent': ['VIES did not answer', 'The EU VAT register (VIES) did not answer. Nothing was changed; the result below still stands. Try again in a few minutes.'],
+      'cannot-be-sent': ['This number cannot be sent to VIES', "It is not in the format VIES accepts for its country, so it was not sent. Nothing was changed. The number can only be corrected by the platform owner, in the database: neither the business nor this screen can change it."],
+      'too-many': ['Too many VAT re-checks', 'This session has asked VIES ten times in ten minutes. Wait ten minutes, then try again. Nothing was changed.']
+    };
+    const [noticeHeading, noticeBody] = N[notice] ?? ['', ''];
+    return {
+      number: askable ? 'MT12345678' : 'MT 1234-5678',
+      word, chip, sentence,
+      answered: when === 'answered', askedOnly: when === 'asked', neverAsked: when === 'never',
+      askable, notAskable: !askable,
+      hasNotice: notice !== 'none', noticeHeading, noticeBody
+    };
+  }
+}
+</script>
+</body>
+</html>

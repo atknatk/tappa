@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plaques — Kebab Factory Ltd. — Taptime operator</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+/* operator shell (OP-1) — identical on every board of this width */
+.oplbl{margin:0;font:400 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.opbar{background:#152219;border-bottom:4px solid #D98E2B;color:#FFFDF4}
+.opbar-in{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:0 24px;box-sizing:border-box}
+.oplock{margin:0;font:700 14px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.28em;text-transform:uppercase;color:#FFFDF4;white-space:nowrap}
+.oplock span{color:#D98E2B}
+.opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
+.opout:hover{border-color:#D98E2B;color:#D98E2B}
+.opshell{flex:1;display:flex;align-items:stretch}
+.opside{flex:0 0 232px;width:232px;background:#FFFDF4;border-right:1px solid #C9D2C8;padding:28px 0;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}
+.opside .oplbl{padding:0 24px}
+.opside nav{display:flex;flex-direction:column}
+.opnav{display:flex;align-items:center;min-height:44px;padding:0 16px 0 21px;border-left:3px solid transparent;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif}
+.opnav:hover{background:rgba(21,34,25,.05);color:#152219}
+.opnav--on{border-left-color:#152219;background:rgba(21,34,25,.05);font-weight:700}
+.opcol{flex:1;min-width:0;display:flex;flex-direction:column}
+.opten{background:#F7EBD6;border-bottom:1px solid #D98E2B}
+.opten-in{max-width:960px;box-sizing:border-box;padding:24px 40px 0;display:flex;flex-direction:column;gap:2px}
+.optname{margin:0;font:700 34px/1.12 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219;overflow-wrap:anywhere}
+.optid{margin:2px 0 0;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;word-break:break-all}
+.opsub{display:flex;flex-wrap:wrap;margin:8px 0 0 -12px}
+.opsubt{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
+.opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
+.opmain{width:100%;max-width:960px;box-sizing:border-box;padding:32px 40px 64px}
+/* end operator shell */
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:22px 24px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.docket{background:#FFFDF4;border:1px solid #C9D2C8;border-top:2px dashed #C9D2C8;border-radius:0;padding:16px 20px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.h1{margin:0;font:700 28px/1.1 'Space Grotesk',sans-serif;letter-spacing:-0.03em}
+.txt{margin:0;font-size:14px;line-height:1.5}
+.hint{margin:0;font-size:12px;line-height:1.45;color:rgba(21,34,25,.7)}
+.oplink{display:inline-flex;align-items:center;min-height:44px;padding:0;border:0;background:none;color:#1F5C41;font:700 14px 'Space Grotesk',sans-serif;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.oplink:hover{color:#152219}
+.links{display:flex;flex-wrap:wrap;column-gap:24px;margin:0}
+.field{min-height:44px;padding:0 12px;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;font:14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;box-sizing:border-box;width:100%}
+.btnp{min-height:44px;padding:0 20px;border-radius:12px;border:0;background:#1F5C41;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer;white-space:nowrap}
+.btnq{min-height:44px;padding:0 18px;border-radius:12px;border:1px solid #C9D2C8;background:#FFFDF4;color:#152219;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer;white-space:nowrap}
+.btnq:hover{border-color:#BE3D2A;color:#BE3D2A}
+.oprow{border-top:1px dashed #C9D2C8;padding:12px 0;font-size:14px;line-height:1.45}
+.tally{display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:999px;font:700 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#152219;white-space:nowrap;box-sizing:border-box}
+.t-green{border:1px solid #1F5C41;background:rgba(31,92,65,.1)}
+.t-line{border:1px solid #C9D2C8;background:rgba(21,34,25,.05)}
+.t-saffron{border:1px dashed #D98E2B;background:rgba(217,142,43,.12)}
+.t-saffron-solid{border:1px solid #D98E2B;background:rgba(217,142,43,.12)}
+.t-tomato{border:1px solid #BE3D2A;background:rgba(190,61,42,.1)}
+.t-ink{border:1px solid rgba(21,34,25,.5);background:#FFFDF4}
+.t-odd{border:1px dashed rgba(21,34,25,.5);background:#FFFDF4}
+.note{display:flex;flex-direction:column;gap:6px;padding:14px 18px;border-left:4px solid;border-radius:0 10px 10px 0}
+.note--ok{border-color:#1F5C41;background:rgba(31,92,65,.1)}
+.note--warn{border-color:#D98E2B;background:#F7EBD6}
+.note--alert{border-color:#BE3D2A;background:#FFFDF4}
+.note strong{font-size:15px}
+.note p,.note li{margin:0;font-size:14px;line-height:1.5;color:rgba(21,34,25,.85)}
+.note ul{margin:4px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+dl{margin:0}dd{margin:0}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <header class="opbar">
+    <div class="opbar-in">
+      <p class="oplock">TAPTIME <span>OPERATOR</span></p>
+      <form method="post" action="/operator/logout" style="margin: 0"><button type="button" class="opout">Sign out</button></form>
+    </div>
+  </header>
+  <div class="opshell">
+    <aside class="opside">
+      <p class="oplbl">Platform</p>
+      <nav aria-label="Operator sections">
+        <a href="OpHome.dc.html" class="opnav">Console</a>
+        <a href="OpTenants.dc.html" class="opnav opnav--on" aria-current="page">Tenants</a>
+        <a href="OpHoldings.dc.html" class="opnav">Holdings</a>
+        <a href="OpAudit.dc.html" class="opnav">Audit log</a>
+        <a href="OpLegal.dc.html" class="opnav">Legal texts</a>
+      </nav>
+    </aside>
+    <div class="opcol">
+      <section class="opten" aria-label="Tenant">
+        <div class="opten-in">
+          <p class="oplbl">Tenant</p>
+          <p class="optname"><bdi>Kebab Factory Ltd.</bdi></p>
+          <nav aria-label="Tenant sections" class="opsub"><a href="OpTenant.dc.html" class="opsubt">Overview</a><a href="OpPlaques.dc.html" class="opsubt opsubt--on" aria-current="page">Plaques</a><a href="OpBilling.dc.html" class="opsubt">Billing</a><a href="OpVat.dc.html" class="opsubt">VAT number</a></nav>
+        </div>
+      </section>
+  <main class="opmain" style="display: flex; flex-direction: column; gap: 24px">
+    <section class="card" aria-labelledby="plaques-h">
+      <p class="lbl" style="margin: 0">Plaques</p>
+      <h1 id="plaques-h" class="h1">Plaque inventory</h1>
+      <sc-if value="{{none}}" hint-placeholder-val="{{false}}"><p class="txt">This tenant has no plaques.</p></sc-if>
+      <sc-if value="{{truncated}}" hint-placeholder-val="{{false}}"><p class="txt">The first <span class="mono">200</span> of <span class="mono">214</span> plaques are listed, in the panel's own order: those with no location first.</p></sc-if>
+      <sc-if value="{{whole}}" hint-placeholder-val="{{true}}"><p class="txt"><span class="mono">7</span> plaques, in the panel's own order: those with no location first.</p></sc-if>
+      <p class="hint">Read when this page was opened. Nothing on this page changes a plaque.</p>
+      <p class="links">
+        <a href="OpTenant.dc.html" class="oplink">Back to the overview</a>
+        <a href="OpTenants.dc.html" class="oplink">Back to the tenants</a>
+      </p>
+    </section>
+
+    <sc-if value="{{hasRows}}" hint-placeholder-val="{{true}}">
+      <section class="docket" aria-labelledby="tenant-plaques">
+        <h2 id="tenant-plaques" class="lbl" style="margin: 0">Plaques of this tenant</h2>
+        <ol style="list-style: none; margin: 4px 0 0; padding: 0">
+          <sc-for list="{{rows}}" as="r" hint-placeholder-count="7">
+            <li class="oprow" style="display: flex; flex-direction: column; gap: 6px">
+              <span style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px"><span class="mono" style="font-weight: 700; font-size: 15px">{{r.uid}}</span><span class="{{r.chip}}">{{r.label}}</span></span>
+              <span style="font-size: 14px">{{r.sentence}}</span>
+              <span style="display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 13px; color: rgba(21,34,25,.85)">
+                <sc-if value="{{r.odd}}" hint-placeholder-val="{{false}}"><span>Stored status <span class="mono">{{r.stored}}</span></span></sc-if>
+                <sc-if value="{{r.noLoc}}" hint-placeholder-val="{{false}}"><span>No location</span></sc-if>
+                <sc-if value="{{r.namedLoc}}" hint-placeholder-val="{{true}}"><span>At <bdi>{{r.loc}}</bdi></span></sc-if>
+                <sc-if value="{{r.unnamedLoc}}" hint-placeholder-val="{{false}}"><span>At an unnamed location <span class="mono" style="word-break: break-all">{{r.locId}}</span></span></sc-if>
+                <sc-if value="{{r.encoded}}" hint-placeholder-val="{{true}}"><span>Encoded <span class="mono">{{r.encodedAt}}</span></span></sc-if>
+                <sc-if value="{{r.notEncoded}}" hint-placeholder-val="{{false}}"><span>No encode recorded</span></sc-if>
+                <span>Added <span class="mono">{{r.added}}</span></span>
+                <sc-if value="{{r.retired}}" hint-placeholder-val="{{false}}"><span>Retired <span class="mono">{{r.retiredAt}}</span></span></sc-if>
+                <sc-if value="{{r.replaced}}" hint-placeholder-val="{{false}}"><span>Replaced by <span class="mono">{{r.replacedBy}}</span></span></sc-if>
+                <span>Counter <span class="mono">{{r.ctr}}</span></span>
+              </span>
+            </li>
+          </sc-for>
+        </ol>
+      </section>
+    </sc-if>
+  </main>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"list": {"editor": "enum", "options": ["whole", "first-200", "none"], "default": "whole"}, "$preview": {"width": 1440, "height": 1397}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const state = this.props.list ?? 'whole';
+    // plaques.go plaqueWordFor: word, chip tone, sentence. The panel's own order: no location first.
+    const W = {
+      stock: ['In stock', 'tally t-ink', 'Not on a wall; encoded and ready to mount.'],
+      stockRaw: ['In stock, not encoded', 'tally t-saffron', 'Not on a wall, and it cannot be mounted until its encode is recorded.'],
+      mounted: ['On a wall', 'tally t-green', 'In service at its location; its encode was recorded.'],
+      mountedRaw: ['On a wall, never encoded', 'tally t-saffron', 'Mounted and in service, but no encode was ever recorded for it.'],
+      retired: ['Retired', 'tally t-tomato', 'Taken out of service, with or without a replacement; taps on it are rejected.'],
+      lost: ['Lost', 'tally t-tomato', 'Reported lost; taps on it are rejected.'],
+      odd: ['Unrecognised', 'tally t-odd', "Its stored status and location are not a state this screen knows; the status is shown as stored."]
+    };
+    const R = [
+      // uid, word, stored, loc, locId, encodedAt, added, retiredAt, replacedBy, ctr
+      ['04AC7E550001FF', 'stock', '', '', '', '2026-10-16 10:05 UTC', '2026-10-16 09:58 UTC', '', '', '0'],
+      ['04AC7E55000A12', 'stockRaw', '', '', '', '', '2026-10-19 15:20 UTC', '', '', '0'],
+      ['04AC7E55000101', 'mounted', '', 'Valletta — Merchants Street', 'loc', '2026-07-25 08:40 UTC', '2026-07-25 08:31 UTC', '', '', '1482'],
+      ['04AC7E55000201', 'mountedRaw', '', '', '8c51f3a0-2e7d-4b19-a6c4-1d9e0f7b3a52', '', '2026-08-02 11:12 UTC', '', '', '37'],
+      ['04AC7E55000301', 'retired', '', 'Sliema — Tower Road', 'loc', '2026-07-25 09:02 UTC', '2026-07-25 08:55 UTC', '2026-09-28 18:47 UTC', '04AC7E55000302', '902'],
+      ['04AC7E55000401', 'lost', '', "St Julian's — Spinola Bay", 'loc', '2026-07-26 12:15 UTC', '2026-07-26 12:09 UTC', '', '', '211'],
+      ['04AC7E55000501', 'odd', '"pending"', 'Birkirkara — Valley Road', 'loc', '2026-08-14 07:30 UTC', '2026-08-14 07:26 UTC', '', '', '5']
+    ];
+    const rows = state === 'none' ? [] : R.map(([uid, w, stored, loc, locId, encodedAt, added, retiredAt, replacedBy, ctr]) => {
+      const [label, chip, sentence] = W[w];
+      return { uid, label, chip, sentence, stored, odd: stored !== '',
+        noLoc: locId === '', namedLoc: locId !== '' && loc !== '', unnamedLoc: locId !== '' && loc === '', loc, locId,
+        encoded: encodedAt !== '', notEncoded: encodedAt === '', encodedAt, added,
+        retired: retiredAt !== '', retiredAt, replaced: replacedBy !== '', replacedBy, ctr };
+    });
+    return { rows, hasRows: rows.length > 0, none: state === 'none', truncated: state === 'first-200', whole: state === 'whole' };
+  }
+}
+</script>
+</body>
+</html>

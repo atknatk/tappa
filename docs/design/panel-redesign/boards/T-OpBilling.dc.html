@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Billing — Kebab Factory Ltd. — Taptime operator</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>:root{--gx:24px;--maxw:none;--tn:34px;--bpt:22px;--mpt:24px;--mpb:48px;--gap:20px;--cp:24px 26px;--h1:28px;--dp:22px;--c1:176px;--btnself:flex-start;--m1:190px;--edcols:minmax(0,1fr)}
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+/* operator shell (OP-1) — identical on every board of this width */
+.oplbl{margin:0;font:400 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.opbar{background:#152219;border-bottom:4px solid #D98E2B;color:#FFFDF4}
+.opbar-in{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:0 24px;box-sizing:border-box}
+.oplock{margin:0;font:700 14px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.28em;text-transform:uppercase;color:#FFFDF4;white-space:nowrap}
+.oplock span{color:#D98E2B}
+.opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
+.opout:hover{border-color:#D98E2B;color:#D98E2B}
+.optabs{display:flex;flex-wrap:wrap;padding:0 12px;background:#FFFDF4;border-bottom:1px solid #C9D2C8}
+.optab{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.optab:hover{color:#152219;background:rgba(21,34,25,.05)}
+.optab--on{border-bottom-color:#152219;font-weight:700}
+.opten{background:#F7EBD6;border-bottom:1px solid #D98E2B}
+.opten-in{max-width:none;box-sizing:border-box;padding:20px 24px 0;display:flex;flex-direction:column;gap:2px}
+.optname{margin:0;font:700 30px/1.12 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219;overflow-wrap:anywhere}
+.optid{margin:2px 0 0;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;word-break:break-all}
+.opsub{display:flex;flex-wrap:wrap;margin:8px 0 0 -12px}
+.opsubt{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
+.opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
+.opmain{width:100%;max-width:none;box-sizing:border-box;padding:24px 24px 48px}
+/* end operator shell */
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{margin:0;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10px;font-weight:400;letter-spacing:.16em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.col{max-width:var(--maxw);display:flex;flex-direction:column;gap:var(--gap)}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:var(--cp);box-shadow:0 1px 2px rgba(21,34,25,.06);display:flex;flex-direction:column;gap:12px;min-width:0}
+.h1{margin:0;font:700 var(--h1)/1.1 'Space Grotesk',sans-serif;letter-spacing:-.03em}
+.h2{margin:0;font:700 18px/1.2 'Space Grotesk',sans-serif;letter-spacing:-.02em}
+.p{margin:0;font-family:'Space Grotesk',sans-serif;font-size:15px;line-height:1.55}
+.small{margin:0;font-family:'Space Grotesk',sans-serif;font-size:13px;line-height:1.5;color:rgba(21,34,25,.7)}
+.links{margin:0;display:flex;flex-wrap:wrap;gap:0 24px}
+.oplink{display:inline-flex;align-items:center;min-height:44px;padding:0;border:0;background:none;font:700 15px 'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:4px;cursor:pointer}
+.oplink:hover{color:#152219}
+.fld{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field{min-height:44px;width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;font:14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+textarea.field{line-height:1.55;resize:vertical;display:block}
+.inline{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
+.inline .field{flex:1 1 240px;width:auto;min-width:0;max-width:100%}
+.btn1{min-height:44px;padding:0 22px;border-radius:10px;border:0;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer;align-self:var(--btnself)}
+.btn1:hover{background:#152219}
+.quiet{min-height:44px;padding:0 16px;border-radius:10px;border:1px solid #C9D2C8;background:#FFFDF4;color:#152219;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer}
+.quiet:hover{border-color:#BE3D2A;color:#BE3D2A}
+.note{border-left:4px solid #C9D2C8;border-radius:0 12px 12px 0;padding:14px 18px;display:flex;flex-direction:column;gap:6px}
+.note--ok{border-left-color:#1F5C41;background:#E1EDE6}
+.note--warn{border-left-color:#D98E2B;background:#F7EBD6}
+.note--alert{border-left-color:#BE3D2A;background:#FFFDF4;border-top:1px solid #C9D2C8;border-right:1px solid #C9D2C8;border-bottom:1px solid #C9D2C8}
+.note-h{margin:0;font:700 16px/1.3 'Space Grotesk',sans-serif;color:#152219}
+.note p{margin:0;font-size:14px;line-height:1.5;color:rgba(21,34,25,.85)}
+.note ul{margin:4px 0 0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:4px;font-size:14px;line-height:1.45;color:rgba(21,34,25,.85)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:20px var(--dp) 20px;box-shadow:0 1px 2px rgba(21,34,25,.06);font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;color:#152219;min-width:0}
+.docket::before,.docket::after{content:'';position:absolute;left:-1px;right:-1px;height:6px;background-image:radial-gradient(circle at 5px 0,#EDF0EA 3px,transparent 3.5px);background-size:10px 6px;background-repeat:repeat-x}
+.docket::before{top:-1px}
+.docket::after{bottom:-1px;transform:rotate(180deg)}
+.dh{padding-bottom:10px;border-bottom:2px dashed #C9D2C8}
+.list{list-style:none;margin:0;padding:0}
+.row{display:grid;grid-template-columns:var(--c1) minmax(0,1fr);gap:6px 20px;align-items:baseline;padding:14px 0;border-bottom:1px solid #C9D2C8}
+.row:last-child{border-bottom:0}
+.rk{font:700 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;min-width:0;overflow-wrap:anywhere}
+.facts{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 18px;min-width:0}
+.fact{font:13px/1.5 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.75);min-width:0;overflow-wrap:anywhere}
+.fact b{font-weight:700;color:#152219}
+.full{flex:1 0 100%;font:14px/1.5 'Space Grotesk',sans-serif;color:#152219}
+.kw{font:700 15px/1.3 'Space Grotesk',sans-serif;color:#152219}
+.rowlink{display:inline-flex;align-items:center;min-height:44px;font:700 14px 'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
+.rowlink:hover{color:#152219}
+.chip{display:inline-flex;align-items:center;min-height:24px;padding:2px 10px;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:999px;font:700 11px/1.3 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#152219}
+.t-green{border-color:#1F5C41;background:#E1EDE6}
+.t-saffron{border-color:#D98E2B;background:#F7EBD6}
+.t-line{border-color:#C9D2C8;background:rgba(201,210,200,.1)}
+.t-ink{border-color:#152219;background:rgba(21,34,25,.1)}
+.pager{display:flex;flex-wrap:wrap;gap:0 28px}
+.pager form{margin:0}
+.idl{font:12px/1.4 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.7);word-break:break-all}
+</style>
+</helmet>
+<div style="width: 834px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+<header class="opbar">
+    <div class="opbar-in">
+      <p class="oplock">TAPTIME <span>OPERATOR</span></p>
+      <form method="post" action="/operator/logout" style="margin: 0"><button type="button" class="opout">Sign out</button></form>
+    </div>
+  </header>
+  <nav aria-label="Operator sections" class="optabs">
+    <a href="T-OpHome.dc.html" class="optab">Console</a>
+    <a href="T-OpTenants.dc.html" class="optab optab--on" aria-current="page">Tenants</a>
+    <a href="T-OpHoldings.dc.html" class="optab">Holdings</a>
+    <a href="T-OpAudit.dc.html" class="optab">Audit log</a>
+    <a href="T-OpLegal.dc.html" class="optab">Legal texts</a>
+  </nav>
+  <section class="opten" aria-label="Tenant">
+    <div class="opten-in">
+      <p class="oplbl">Tenant</p>
+      <sc-if value="{{named}}" hint-placeholder-val="{{true}}"><p class="optname"><bdi>Kebab Factory Ltd.</bdi></p></sc-if>
+      <sc-if value="{{unnamed}}" hint-placeholder-val="{{false}}"><p class="optname">Unnamed tenant</p><p class="optid">6f1c2a9e-4b7d-4e21-9a3c-0d5e8b7f1a24</p></sc-if>
+      <nav aria-label="Tenant sections" class="opsub"><a href="T-OpTenant.dc.html" class="opsubt">Overview</a><a href="T-OpPlaques.dc.html" class="opsubt">Plaques</a><a href="T-OpBilling.dc.html" class="opsubt opsubt--on" aria-current="page">Billing</a><a href="T-OpVat.dc.html" class="opsubt">VAT number</a></nav>
+    </div>
+  </section>
+  <main class="main opmain">
+<div class="col">
+
+<section class="card" aria-labelledby="bill-h">
+  <p class="lbl">Billing</p>
+  <h1 id="bill-h" class="h1">Billing months</h1>
+  <p class="p"><span class="mono">12</span> of this tenant's own months per page, newest first, each in the time zone it is counted in. These are the tenant's own figures: the arithmetic of its billing screen, read when this page was opened.</p>
+  <p class="small">Nothing on this page closes, changes or charges a month. A count is all a month keeps: no person is listed, here or anywhere a month links.</p>
+  <p class="links"><a href="T-OpTenant.dc.html" class="oplink">Back to the overview</a><a href="T-OpTenants.dc.html" class="oplink">Back to the tenants</a></p>
+</section>
+
+<section class="docket" aria-labelledby="tenant-billing">
+  <h2 id="tenant-billing" class="lbl dh">Newest first · page <span class="mono">{{page}}</span> of <span class="mono">5</span></h2>
+  <ol class="list">
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="12">
+      <li class="row">
+        <span class="rk">{{r.month}}</span>
+        <span class="facts">
+          <span class="{{r.chipClass}}">{{r.label}}</span>
+          <span class="full">{{r.sentence}}</span>
+          <sc-if value="{{r.figures}}" hint-placeholder-val="{{true}}">
+            <span class="fact">Plan <b>{{r.plan}}</b></span>
+            <span class="fact">People counted <b>{{r.people}}</b></span>
+            <span class="fact">Price per person <b>{{r.price}}</b></span>
+            <span class="fact">Amount <b>{{r.amount}}</b></span>
+            <sc-if value="{{r.hasClosed}}" hint-placeholder-val="{{true}}"><span class="fact">Closed <b>{{r.closed}}</b></span></sc-if>
+            <sc-if value="{{r.hasFirst}}" hint-placeholder-val="{{false}}"><span class="fact">First charged month <b>{{r.first}}</b></span></sc-if>
+            <span class="fact">Counted over <b>{{r.period}}</b></span>
+            <sc-if value="{{r.free}}" hint-placeholder-val="{{false}}"><span class="full">Inside the founding offer's free window: the amount is zero because of the offer, not because nobody was counted.</span></sc-if>
+            <sc-if value="{{r.hasFloor}}" hint-placeholder-val="{{false}}"><span class="full">The count is a FLOOR: <span class="mono" style="font-weight: 700">{{r.floor}}</span> employee records of this business disagree with their own dates and are never counted, so the real count may be higher. That number is an upper bound on the effect, not the amount missing.</span></sc-if>
+          </sc-if>
+        </span>
+      </li>
+    </sc-for>
+  </ol>
+  <sc-if value="{{last}}" hint-placeholder-val="{{false}}">
+    <p class="small" style="margin-top: 14px; padding-top: 12px; border-top: 2px dashed #C9D2C8">This is the oldest page this screen shows: <span class="mono">60</span> months, the tenant's own history depth.</p>
+  </sc-if>
+</section>
+
+<nav class="pager" aria-label="Pages of the billing months">
+  <sc-if value="{{hasNewer}}" hint-placeholder-val="{{false}}">
+    <form method="post" action="#"><input type="hidden" name="page" value="{{newer}}"><button type="submit" class="oplink">Newer months</button></form>
+  </sc-if>
+  <sc-if value="{{hasOlder}}" hint-placeholder-val="{{true}}">
+    <form method="post" action="#"><input type="hidden" name="page" value="{{older}}"><button type="submit" class="oplink">Older months</button></form>
+  </sc-if>
+</nav>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"billingPage": {"editor": "enum", "options": ["page-1-figures", "page-2-before-signup-unreadable", "page-5-oldest"], "default": "page-1-figures"}, "tenant": {"editor": "enum", "options": ["named", "unnamed"], "default": "named"}, "$preview": {"width": 834, "height": 2786}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const which = this.props.billingPage ?? 'page-1-figures';
+    const named = (this.props.tenant ?? 'named') === 'named';
+    // The five states of billing.go:235-249: word, chip tone, sentence (binding copy).
+    const W = {
+      frozen: ['Frozen', 't-green', 'Closed by the business; every figure was read from the frozen record, and nothing recomputes it.'],
+      running: ['Live — month running', 't-line', 'A live count, worked out afresh on each view: it moves until the month ends and the business closes it.'],
+      unclosed: ['Ended, not closed by the business', 't-saffron', 'This month is over and the business has not closed it, so its figures are still a live count, worked out afresh on each view.'],
+      before: ['Before sign-up', 't-line', 'This month is before the business signed up; there is nothing to count for it.'],
+      unreadable: ['Unreadable', 't-ink', "This month's row could not be read as a billing month, so no figure is shown for it — not even a zero."]
+    };
+    const Z = ' Europe/Malta';
+    const span = (a, b) => a + ' 00:00 to ' + b + ' 00:00' + Z;
+    const row = (month, state, f) => {
+      const [label, tone, sentence] = W[state];
+      f = f || null;
+      return {
+        month, label, sentence, chipClass: 'chip ' + tone,
+        figures: !!f,
+        plan: f ? 'founding' : '', people: f ? f.n : '', price: f ? '€2.50' : '', amount: f ? f.amt : '',
+        hasClosed: !!(f && f.closed), closed: f && f.closed ? f.closed + Z : '',
+        hasFirst: !!(f && f.first), first: f && f.first ? f.first : '',
+        period: f ? span(f.from, f.to) : '',
+        free: !!(f && f.free), hasFloor: !!(f && f.floor), floor: f && f.floor ? f.floor : ''
+      };
+    };
+    let page, rows;
+    if (which === 'page-1-figures') {
+      page = 1;
+      rows = [
+        row('October 2026', 'running', { n: '23', amt: '€57.50', first: 'May 2026', from: '2026-10-01', to: '2026-11-01' }),
+        row('September 2026', 'unclosed', { n: '24', amt: '€60.00', first: 'May 2026', from: '2026-09-01', to: '2026-10-01', floor: '2' }),
+        row('August 2026', 'frozen', { n: '22', amt: '€55.00', closed: '2026-09-02 10:14', from: '2026-08-01', to: '2026-09-01' }),
+        row('July 2026', 'frozen', { n: '21', amt: '€52.50', closed: '2026-08-03 09:40', from: '2026-07-01', to: '2026-08-01' }),
+        row('June 2026', 'frozen', { n: '19', amt: '€47.50', closed: '2026-07-01 18:22', from: '2026-06-01', to: '2026-07-01' }),
+        row('May 2026', 'frozen', { n: '18', amt: '€45.00', closed: '2026-06-02 11:05', from: '2026-05-01', to: '2026-06-01' }),
+        row('April 2026', 'frozen', { n: '16', amt: '€0.00', closed: '2026-05-04 08:51', from: '2026-04-01', to: '2026-05-01', free: true }),
+        row('March 2026', 'frozen', { n: '12', amt: '€0.00', closed: '2026-04-01 12:30', from: '2026-03-01', to: '2026-04-01', free: true }),
+        row('February 2026', 'frozen', { n: '9', amt: '€0.00', closed: '2026-03-02 10:02', from: '2026-02-01', to: '2026-03-01', free: true }),
+        row('January 2026', 'before'),
+        row('December 2025', 'before'),
+        row('November 2025', 'before')
+      ];
+    } else if (which === 'page-2-before-signup-unreadable') {
+      page = 2;
+      const m = ['October 2025', 'September 2025', 'August 2025', 'July 2025', 'June 2025', 'May 2025', 'April 2025',
+                 'March 2025', 'February 2025', 'January 2025', 'December 2024', 'November 2024'];
+      rows = m.map(x => row(x, 'before'));
+      rows[3] = row('July 2025', 'unreadable');
+      rows[8] = row('A month with no date', 'unreadable');
+    } else {
+      page = 5;
+      const m = ['October 2022', 'September 2022', 'August 2022', 'July 2022', 'June 2022', 'May 2022', 'April 2022',
+                 'March 2022', 'February 2022', 'January 2022', 'December 2021', 'November 2021'];
+      rows = m.map(x => row(x, 'before'));
+    }
+    return {
+      named, unnamed: !named, tenantName: 'Kebab Factory Ltd.', tenantId: '6f1c2a9e-4b7d-4e21-9a3c-0d5e8b7f1a24',
+      page: String(page), rows, last: page === 5,
+      hasNewer: page > 1, newer: String(page - 1), hasOlder: page < 5, older: String(page + 1)
+    };
+  }
+}
+</script>
+</body>
+</html>

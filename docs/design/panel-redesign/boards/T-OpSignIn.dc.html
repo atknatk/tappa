@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sign in — Taptime operator</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+/* operator shell (OP-1) — identical on every board of this width */
+.oplbl{margin:0;font:400 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.opbar{background:#152219;border-bottom:4px solid #D98E2B;color:#FFFDF4}
+.opbar-in{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:0 24px;box-sizing:border-box}
+.oplock{margin:0;font:700 14px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.28em;text-transform:uppercase;color:#FFFDF4;white-space:nowrap}
+.oplock span{color:#D98E2B}
+.opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
+.opout:hover{border-color:#D98E2B;color:#D98E2B}
+.optabs{display:flex;flex-wrap:wrap;padding:0 12px;background:#FFFDF4;border-bottom:1px solid #C9D2C8}
+.optab{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.optab:hover{color:#152219;background:rgba(21,34,25,.05)}
+.optab--on{border-bottom-color:#152219;font-weight:700}
+.opten{background:#F7EBD6;border-bottom:1px solid #D98E2B}
+.opten-in{max-width:none;box-sizing:border-box;padding:20px 24px 0;display:flex;flex-direction:column;gap:2px}
+.optname{margin:0;font:700 30px/1.12 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219;overflow-wrap:anywhere}
+.optid{margin:2px 0 0;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;word-break:break-all}
+.opsub{display:flex;flex-wrap:wrap;margin:8px 0 0 -12px}
+.opsubt{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
+.opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
+.opmain{width:100%;max-width:none;box-sizing:border-box;padding:24px 24px 48px}
+/* end operator shell */
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:16px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.fld{display:flex;flex-direction:column;gap:6px}
+.field{min-height:44px;width:100%;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;padding:0 12px;font:14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.field:focus{outline:2px solid #1F5C41;outline-offset:1px;border-color:#1F5C41}
+.btn1{min-height:48px;padding:0 20px;border:0;border-radius:12px;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer}
+.btn1:hover{background:#152219}
+.oplink{display:inline-flex;align-items:center;min-height:44px;font-family:'Space Grotesk',sans-serif;font-weight:700;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
+.note{display:flex;flex-direction:column;gap:4px;padding:14px 16px;border-left:4px solid;border-radius:0 10px 10px 0;font-size:14px;line-height:1.45}
+.note strong{font-size:15px;color:#152219;letter-spacing:-0.01em}
+.note p{margin:0;color:rgba(21,34,25,.85)}
+.note--warn{border-left-color:#D98E2B;background:#F7EBD6}
+.note--alert{border-left-color:#BE3D2A;background:#FFFDF4;box-shadow:inset 0 0 0 1px rgba(190,61,42,.35)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0;border-radius:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.anno{display:inline-flex;align-self:flex-start;align-items:center;gap:8px;padding:4px 10px;border:1px dashed rgba(21,34,25,.5);font:700 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7);background:#EDF0EA}
+</style>
+</helmet>
+<div style="width: 834px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <header class="opbar">
+    <div class="opbar-in">
+      <p class="oplock">TAPTIME <span>OPERATOR</span></p>
+    </div>
+  </header>
+  <main style="box-sizing: border-box; padding: 64px 32px 80px; display: flex; justify-content: center">
+    <div style="width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 20px">
+      <section class="card" style="padding: 32px 32px 28px">
+        <sc-if value="{{pw}}" hint-placeholder-val="{{true}}">
+          <div style="display: flex; flex-direction: column; gap: 20px">
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <h1 style="margin: 0; font-size: 30px; line-height: 1.08; letter-spacing: -0.03em">Operator sign-in</h1>
+              <p style="margin: 0; font-size: 14px; line-height: 1.45; color: rgba(21,34,25,.7)">Taptime staff only. This is not the business panel.</p>
+            </div>
+        <sc-if value="{{expired}}" hint-placeholder-val="{{false}}">
+          <div role="status" class="note note--warn"><strong>That sign-in step expired</strong><p>Sign in again with your email address and password.</p></div>
+        </sc-if>
+        <sc-if value="{{failed}}" hint-placeholder-val="{{false}}">
+          <div role="alert" class="note note--alert"><strong>We could not sign you in</strong><p>Check the email address and the password, then try again.</p></div>
+        </sc-if>
+            <form style="margin: 0; display: flex; flex-direction: column; gap: 18px" onSubmit="{{noop}}">
+              <div class="fld">
+                <label for="op-email" class="lbl">Email</label>
+                <input id="op-email" name="email" class="field" type="email" autocomplete="username" required="" />
+              </div>
+              <div class="fld">
+                <label for="op-password" class="lbl">Password</label>
+                <input id="op-password" name="password" class="field" type="password" autocomplete="current-password" required="" />
+              </div>
+              <button type="button" class="btn1">Continue</button>
+            </form>
+          </div>
+        </sc-if>
+        <sc-if value="{{code}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-direction: column; gap: 20px">
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <h1 style="margin: 0; font-size: 30px; line-height: 1.08; letter-spacing: -0.03em">Enter your code</h1>
+              <p style="margin: 0; font-size: 14px; line-height: 1.45; color: rgba(21,34,25,.7)">Type the six-digit code your authenticator app shows for Taptime operator.</p>
+            </div>
+        <sc-if value="{{rejected}}" hint-placeholder-val="{{false}}">
+          <div role="alert" class="note note--alert"><strong>That code was not accepted</strong><p>Check that your phone's clock is right, then type the next code.</p></div>
+        </sc-if>
+        <sc-if value="{{locked}}" hint-placeholder-val="{{false}}">
+          <div role="alert" class="note note--alert"><strong>Sign-in is locked for a while</strong><p>Too many wrong codes. Wait a quarter of an hour, then try again.</p></div>
+        </sc-if>
+            <form style="margin: 0; display: flex; flex-direction: column; gap: 18px" onSubmit="{{noop}}">
+              <div class="fld">
+                <label for="op-code" class="lbl">Code</label>
+                <input id="op-code" name="code" class="field" type="text" inputmode="numeric" autocomplete="one-time-code" required="" style="font-size: 22px; letter-spacing: .3em; min-height: 56px" />
+              </div>
+              <button type="button" class="btn1">Sign in</button>
+            </form>
+            <a href="T-OpSignIn.dc.html" class="oplink" style="align-self: flex-start; font-size: 14px">Start again</a>
+          </div>
+        </sc-if>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"step": {"editor": "enum", "options": ["password", "password-failed", "password-expired", "code", "code-rejected", "code-locked"], "default": "password"}, "$preview": {"width": 834, "height": 567}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const s = this.props.step ?? 'password';
+    const code = s.indexOf('code') === 0;
+    return {
+      pw: !code, code,
+      failed: s === 'password-failed', expired: s === 'password-expired',
+      rejected: s === 'code-rejected', locked: s === 'code-locked',
+      noop: (e) => { if (e && e.preventDefault) e.preventDefault(); }
+    };
+  }
+}
+</script>
+</body>
+</html>

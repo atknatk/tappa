@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Set up your account — Taptime operator</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+/* operator shell (OP-1) — identical on every board of this width */
+.oplbl{margin:0;font:400 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.opbar{background:#152219;border-bottom:4px solid #D98E2B;color:#FFFDF4}
+.opbar-in{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:0 24px;box-sizing:border-box}
+.oplock{margin:0;font:700 14px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.28em;text-transform:uppercase;color:#FFFDF4;white-space:nowrap}
+.oplock span{color:#D98E2B}
+.opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
+.opout:hover{border-color:#D98E2B;color:#D98E2B}
+.opshell{flex:1;display:flex;align-items:stretch}
+.opside{flex:0 0 232px;width:232px;background:#FFFDF4;border-right:1px solid #C9D2C8;padding:28px 0;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}
+.opside .oplbl{padding:0 24px}
+.opside nav{display:flex;flex-direction:column}
+.opnav{display:flex;align-items:center;min-height:44px;padding:0 16px 0 21px;border-left:3px solid transparent;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif}
+.opnav:hover{background:rgba(21,34,25,.05);color:#152219}
+.opnav--on{border-left-color:#152219;background:rgba(21,34,25,.05);font-weight:700}
+.opcol{flex:1;min-width:0;display:flex;flex-direction:column}
+.opten{background:#F7EBD6;border-bottom:1px solid #D98E2B}
+.opten-in{max-width:960px;box-sizing:border-box;padding:24px 40px 0;display:flex;flex-direction:column;gap:2px}
+.optname{margin:0;font:700 34px/1.12 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219;overflow-wrap:anywhere}
+.optid{margin:2px 0 0;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;word-break:break-all}
+.opsub{display:flex;flex-wrap:wrap;margin:8px 0 0 -12px}
+.opsubt{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
+.opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
+.opmain{width:100%;max-width:960px;box-sizing:border-box;padding:32px 40px 64px}
+/* end operator shell */
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:16px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.fld{display:flex;flex-direction:column;gap:6px}
+.field{min-height:44px;width:100%;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;padding:0 12px;font:14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.field:focus{outline:2px solid #1F5C41;outline-offset:1px;border-color:#1F5C41}
+.btn1{min-height:48px;padding:0 20px;border:0;border-radius:12px;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer}
+.btn1:hover{background:#152219}
+.oplink{display:inline-flex;align-items:center;min-height:44px;font-family:'Space Grotesk',sans-serif;font-weight:700;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
+.note{display:flex;flex-direction:column;gap:4px;padding:14px 16px;border-left:4px solid;border-radius:0 10px 10px 0;font-size:14px;line-height:1.45}
+.note strong{font-size:15px;color:#152219;letter-spacing:-0.01em}
+.note p{margin:0;color:rgba(21,34,25,.85)}
+.note--warn{border-left-color:#D98E2B;background:#F7EBD6}
+.note--alert{border-left-color:#BE3D2A;background:#FFFDF4;box-shadow:inset 0 0 0 1px rgba(190,61,42,.35)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0;border-radius:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.anno{display:inline-flex;align-self:flex-start;align-items:center;gap:8px;padding:4px 10px;border:1px dashed rgba(21,34,25,.5);font:700 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7);background:#EDF0EA}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <header class="opbar">
+    <div class="opbar-in">
+      <p class="oplock">TAPTIME <span>OPERATOR</span></p>
+    </div>
+  </header>
+  <main style="flex: 1; box-sizing: border-box; padding: 72px 24px 96px; display: flex; justify-content: center; align-items: flex-start">
+    <div style="width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 20px">
+      <section class="card" style="padding: 32px 32px 28px; gap: 24px">
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <h1 style="margin: 0; font-size: 30px; line-height: 1.08; letter-spacing: -0.03em">Set up your operator account</h1>
+          <p style="margin: 0; font-size: 14px; line-height: 1.45; color: rgba(21,34,25,.7)">This link works once, for 30 minutes from when it was made.</p>
+        </div>
+        <sc-if value="{{first}}" hint-placeholder-val="{{true}}">
+          <div style="display: flex; flex-direction: column; gap: 12px">
+            <p class="lbl" style="margin: 0">Step 1 · Add this key to your authenticator app</p>
+            <sc-if value="{{qr}}" hint-placeholder-val="{{true}}">
+              <div style="display: flex; flex-direction: column; gap: 12px">
+                <div role="img" aria-label="Scan with your authenticator app" style="width: 232px; height: 232px; box-sizing: border-box; background: #FFFDF4; outline: 1px solid #C9D2C8; padding: 16px; display: flex">
+                  <div class="mono" style="flex: 1; border: 2px dashed rgba(21,34,25,.5); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; padding: 12px; font-size: 12px; line-height: 1.4; color: rgba(21,34,25,.7)">
+                    <span style="font-weight: 700; color: #152219">QR rendered by internal/qrcode</span>
+                    <span>otpauth:// URI · ink on paper · quiet zone inside · <span style="white-space: nowrap">~207–264 px</span></span>
+                  </div>
+                </div>
+                <p style="margin: 0; font-size: 14px; color: rgba(21,34,25,.7)">Scan the code with your app, or type this key:</p>
+              </div>
+            </sc-if>
+            <p class="mono" style="margin: 0; font-size: 18px; font-weight: 700; letter-spacing: .14em; word-break: normal; overflow-wrap: anywhere; line-height: 1.5">ABCD EFGH IJKL MNOP QRST UVWX YZ23 4567</p>
+            <p style="margin: 0; font-size: 14px; color: rgba(21,34,25,.7)">If your app takes a setup link instead, use this one:</p>
+            <p class="mono" style="margin: 0; padding: 8px 12px; border: 1px solid #C9D2C8; background: #EDF0EA; font-size: 12px; line-height: 1.5; word-break: break-all">otpauth://totp/Taptime%20operator:ops.taptime.mt?secret=ABCDEFGHIJKLMNOPQRSTUVWXYZ234567&amp;issuer=Taptime%20operator&amp;algorithm=SHA1&amp;digits=6&amp;period=30</p>
+          </div>
+        </sc-if>
+        <sc-if value="{{again}}" hint-placeholder-val="{{false}}">
+          <div role="status" class="note note--warn"><strong>Use the key you already added</strong><p>Type a code from the authenticator entry this page gave you. If you did not add it, open your link again for a new key.</p></div>
+        </sc-if>
+        <sc-if value="{{mismatch}}" hint-placeholder-val="{{false}}">
+          <div role="alert" class="note note--alert"><strong>The two passwords differ</strong><p>Type the same new password in both fields.</p></div>
+        </sc-if>
+        <sc-if value="{{weak}}" hint-placeholder-val="{{false}}">
+          <div role="alert" class="note note--alert"><strong>Choose another password</strong><p>Use at least 14 characters and at most 72 bytes. A letter with an accent, or from another alphabet, takes two bytes or more.</p></div>
+        </sc-if>
+        <sc-if value="{{codeRejected}}" hint-placeholder-val="{{false}}">
+          <div role="alert" class="note note--alert"><strong>That code was not accepted</strong><p>Check that your phone's clock is right, then type the next code.</p></div>
+        </sc-if>
+        <form style="margin: 0; display: flex; flex-direction: column; gap: 18px; border-top: 1px dashed #C9D2C8; padding-top: 22px" onSubmit="{{noop}}">
+          <p class="lbl" style="margin: 0">Step 2 · Choose a password and confirm the code</p>
+          <sc-if value="{{tokenvisible}}" hint-placeholder-val="{{false}}">
+            <div id="enroll-token-wrap" class="fld">
+              <label for="enroll-token" class="lbl">Link code</label>
+              <input id="enroll-token" name="token" class="field" type="password" autocomplete="off" required="" />
+              <p style="margin: 0; font-size: 12px; color: rgba(21,34,25,.7)">The part of your link after the # sign.</p>
+            </div>
+          </sc-if>
+          <div class="fld">
+            <label for="enroll-password" class="lbl">New password</label>
+            <input id="enroll-password" name="password" class="field" type="password" autocomplete="new-password" minlength="14" required="" />
+          </div>
+          <div class="fld">
+            <label for="enroll-password-again" class="lbl">New password again</label>
+            <input id="enroll-password-again" name="password_again" class="field" type="password" autocomplete="new-password" minlength="14" required="" />
+          </div>
+          <div class="fld">
+            <label for="enroll-code" class="lbl">Code from the app</label>
+            <input id="enroll-code" name="code" class="field" type="text" inputmode="numeric" autocomplete="one-time-code" required="" />
+          </div>
+          <button type="button" class="btn1">Finish setup</button>
+        </form>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"state": {"editor": "enum", "options": ["first-load", "first-load-no-script", "first-load-no-qr", "mismatch", "weak-password", "code-rejected"], "default": "first-load"}, "$preview": {"width": 1440, "height": 1224}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const s = this.props.state ?? 'first-load';
+    // The key, its QR and the URI are on the FIRST load only; every re-render is an error answer.
+    const first = s.indexOf('first-load') === 0;
+    return {
+      first, again: !first, qr: s !== 'first-load-no-qr',
+      // enroll.js hides the Link code field once it holds the token; without script it stays.
+      tokenvisible: s === 'first-load-no-script',
+      mismatch: s === 'mismatch', weak: s === 'weak-password', codeRejected: s === 'code-rejected',
+      noop: (e) => { if (e && e.preventDefault) e.preventDefault(); }
+    };
+  }
+}
+</script>
+</body>
+</html>

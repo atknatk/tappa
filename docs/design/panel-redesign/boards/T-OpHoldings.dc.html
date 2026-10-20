@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Holdings — Taptime operator</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>:root{--gx:24px;--maxw:none;--tn:34px;--bpt:22px;--mpt:24px;--mpb:48px;--gap:20px;--cp:24px 26px;--h1:28px;--dp:22px;--c1:176px;--btnself:flex-start;--m1:190px;--edcols:minmax(0,1fr)}
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+/* operator shell (OP-1) — identical on every board of this width */
+.oplbl{margin:0;font:400 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.opbar{background:#152219;border-bottom:4px solid #D98E2B;color:#FFFDF4}
+.opbar-in{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:0 24px;box-sizing:border-box}
+.oplock{margin:0;font:700 14px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.28em;text-transform:uppercase;color:#FFFDF4;white-space:nowrap}
+.oplock span{color:#D98E2B}
+.opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
+.opout:hover{border-color:#D98E2B;color:#D98E2B}
+.optabs{display:flex;flex-wrap:wrap;padding:0 12px;background:#FFFDF4;border-bottom:1px solid #C9D2C8}
+.optab{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.optab:hover{color:#152219;background:rgba(21,34,25,.05)}
+.optab--on{border-bottom-color:#152219;font-weight:700}
+.opten{background:#F7EBD6;border-bottom:1px solid #D98E2B}
+.opten-in{max-width:none;box-sizing:border-box;padding:20px 24px 0;display:flex;flex-direction:column;gap:2px}
+.optname{margin:0;font:700 30px/1.12 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219;overflow-wrap:anywhere}
+.optid{margin:2px 0 0;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;word-break:break-all}
+.opsub{display:flex;flex-wrap:wrap;margin:8px 0 0 -12px}
+.opsubt{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
+.opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
+.opmain{width:100%;max-width:none;box-sizing:border-box;padding:24px 24px 48px}
+/* end operator shell */
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{margin:0;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10px;font-weight:400;letter-spacing:.16em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.col{max-width:var(--maxw);display:flex;flex-direction:column;gap:var(--gap)}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:var(--cp);box-shadow:0 1px 2px rgba(21,34,25,.06);display:flex;flex-direction:column;gap:12px;min-width:0}
+.h1{margin:0;font:700 var(--h1)/1.1 'Space Grotesk',sans-serif;letter-spacing:-.03em}
+.h2{margin:0;font:700 18px/1.2 'Space Grotesk',sans-serif;letter-spacing:-.02em}
+.p{margin:0;font-family:'Space Grotesk',sans-serif;font-size:15px;line-height:1.55}
+.small{margin:0;font-family:'Space Grotesk',sans-serif;font-size:13px;line-height:1.5;color:rgba(21,34,25,.7)}
+.links{margin:0;display:flex;flex-wrap:wrap;gap:0 24px}
+.oplink{display:inline-flex;align-items:center;min-height:44px;padding:0;border:0;background:none;font:700 15px 'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:4px;cursor:pointer}
+.oplink:hover{color:#152219}
+.fld{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field{min-height:44px;width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;font:14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+textarea.field{line-height:1.55;resize:vertical;display:block}
+.inline{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
+.inline .field{flex:1 1 240px;width:auto;min-width:0;max-width:100%}
+.btn1{min-height:44px;padding:0 22px;border-radius:10px;border:0;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer;align-self:var(--btnself)}
+.btn1:hover{background:#152219}
+.quiet{min-height:44px;padding:0 16px;border-radius:10px;border:1px solid #C9D2C8;background:#FFFDF4;color:#152219;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer}
+.quiet:hover{border-color:#BE3D2A;color:#BE3D2A}
+.note{border-left:4px solid #C9D2C8;border-radius:0 12px 12px 0;padding:14px 18px;display:flex;flex-direction:column;gap:6px}
+.note--ok{border-left-color:#1F5C41;background:#E1EDE6}
+.note--warn{border-left-color:#D98E2B;background:#F7EBD6}
+.note--alert{border-left-color:#BE3D2A;background:#FFFDF4;border-top:1px solid #C9D2C8;border-right:1px solid #C9D2C8;border-bottom:1px solid #C9D2C8}
+.note-h{margin:0;font:700 16px/1.3 'Space Grotesk',sans-serif;color:#152219}
+.note p{margin:0;font-size:14px;line-height:1.5;color:rgba(21,34,25,.85)}
+.note ul{margin:4px 0 0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:4px;font-size:14px;line-height:1.45;color:rgba(21,34,25,.85)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:20px var(--dp) 20px;box-shadow:0 1px 2px rgba(21,34,25,.06);font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;color:#152219;min-width:0}
+.docket::before,.docket::after{content:'';position:absolute;left:-1px;right:-1px;height:6px;background-image:radial-gradient(circle at 5px 0,#EDF0EA 3px,transparent 3.5px);background-size:10px 6px;background-repeat:repeat-x}
+.docket::before{top:-1px}
+.docket::after{bottom:-1px;transform:rotate(180deg)}
+.dh{padding-bottom:10px;border-bottom:2px dashed #C9D2C8}
+.list{list-style:none;margin:0;padding:0}
+.row{display:grid;grid-template-columns:var(--c1) minmax(0,1fr);gap:6px 20px;align-items:baseline;padding:14px 0;border-bottom:1px solid #C9D2C8}
+.row:last-child{border-bottom:0}
+.rk{font:700 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;min-width:0;overflow-wrap:anywhere}
+.facts{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 18px;min-width:0}
+.fact{font:13px/1.5 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.75);min-width:0;overflow-wrap:anywhere}
+.fact b{font-weight:700;color:#152219}
+.full{flex:1 0 100%;font:14px/1.5 'Space Grotesk',sans-serif;color:#152219}
+.kw{font:700 15px/1.3 'Space Grotesk',sans-serif;color:#152219}
+.rowlink{display:inline-flex;align-items:center;min-height:44px;font:700 14px 'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
+.rowlink:hover{color:#152219}
+.chip{display:inline-flex;align-items:center;min-height:24px;padding:2px 10px;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:999px;font:700 11px/1.3 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#152219}
+.t-green{border-color:#1F5C41;background:#E1EDE6}
+.t-saffron{border-color:#D98E2B;background:#F7EBD6}
+.t-line{border-color:#C9D2C8;background:rgba(201,210,200,.1)}
+.t-ink{border-color:#152219;background:rgba(21,34,25,.1)}
+.pager{display:flex;flex-wrap:wrap;gap:0 28px}
+.pager form{margin:0}
+.idl{font:12px/1.4 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.7);word-break:break-all}
+
+.mrow{display:grid;grid-template-columns:var(--m1) minmax(0,1fr) auto;gap:4px 18px;align-items:baseline;padding:8px 0;border-bottom:1px solid #C9D2C8}
+.mact{align-self:center}
+.hold{display:flex;flex-direction:column;gap:6px;padding:18px 0 20px;border-bottom:2px dashed #C9D2C8}
+.hold:last-child{border-bottom:0;padding-bottom:4px}
+</style>
+</helmet>
+<div style="width: 834px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+<header class="opbar">
+    <div class="opbar-in">
+      <p class="oplock">TAPTIME <span>OPERATOR</span></p>
+      <form method="post" action="/operator/logout" style="margin: 0"><button type="button" class="opout">Sign out</button></form>
+    </div>
+  </header>
+  <nav aria-label="Operator sections" class="optabs">
+    <a href="T-OpHome.dc.html" class="optab">Console</a>
+    <a href="T-OpTenants.dc.html" class="optab">Tenants</a>
+    <a href="T-OpHoldings.dc.html" class="optab optab--on" aria-current="page">Holdings</a>
+    <a href="T-OpAudit.dc.html" class="optab">Audit log</a>
+    <a href="T-OpLegal.dc.html" class="optab">Legal texts</a>
+  </nav>
+  <main class="main opmain">
+<div class="col">
+
+<section class="card" aria-labelledby="hold-h">
+  <p class="lbl">Holdings</p>
+  <h1 id="hold-h" class="h1">Holdings</h1>
+  <p class="p">A holding groups businesses that work in one timezone; while a business is in one, and for 60 seconds after it leaves, its owner cannot change its timezone. Only this screen changes who is in a holding.</p>
+  <p class="links"><a href="T-OpHome.dc.html" class="oplink">Back to the console</a></p>
+</section>
+
+<sc-if value="{{hasNotice}}" hint-placeholder-val="{{false}}">
+  <div role="status" class="{{noticeClass}}">
+    <p class="note-h">{{noticeHeading}}</p>
+    <p>{{notice}}</p>
+    <sc-if value="{{hasRules}}" hint-placeholder-val="{{false}}">
+      <ul>
+        <sc-for list="{{rules}}" as="x" hint-placeholder-count="4"><li>{{x}}</li></sc-for>
+      </ul>
+    </sc-if>
+  </div>
+</sc-if>
+
+<section class="card" aria-labelledby="holding-create">
+  <h2 id="holding-create" class="lbl">Create a holding</h2>
+  <form method="post" action="#" class="fld">
+    <label for="holding-name" class="lbl">Name</label>
+    <div class="inline">
+      <input id="holding-name" type="text" name="name" maxlength="120" required autocomplete="off" spellcheck="false" class="field">
+      <button type="submit" class="btn1">Create</button>
+    </div>
+    <p class="small">One line of at most 120 characters. The new holding has no business in it yet.</p>
+  </form>
+</section>
+
+<section class="docket" aria-labelledby="holding-list">
+  <h2 id="holding-list" class="lbl dh">Newest first · page <span class="mono">{{page}}</span></h2>
+  <sc-if value="{{noHoldings}}" hint-placeholder-val="{{false}}"><p class="p" style="padding-top: 14px">There are no holdings yet.</p></sc-if>
+  <sc-if value="{{hasHoldings}}" hint-placeholder-val="{{true}}">
+    <ol class="list">
+      <sc-for list="{{holdings}}" as="h" hint-placeholder-count="3">
+        <li class="hold">
+          <sc-if value="{{h.named}}" hint-placeholder-val="{{true}}"><p style="margin: 0; font: 700 20px/1.2 'Space Grotesk', sans-serif; letter-spacing: -0.02em"><bdi>{{h.name}}</bdi></p></sc-if>
+          <sc-if value="{{h.unnamed}}" hint-placeholder-val="{{false}}"><p style="margin: 0; font: italic 700 20px/1.2 'Space Grotesk', sans-serif; letter-spacing: -0.02em">Unnamed holding</p></sc-if>
+          <p class="fact" style="margin: 0">Created <b>{{h.created}}</b></p>
+          <p class="idl" style="margin: 0">{{h.id}}</p>
+          <sc-if value="{{h.before}}" hint-placeholder-val="{{false}}"><p class="full" style="margin: 4px 0 0">Its first memberships are on the page before.</p></sc-if>
+          <sc-if value="{{h.empty}}" hint-placeholder-val="{{false}}"><p class="full" style="margin: 4px 0 0">No business has been in this holding.</p></sc-if>
+          <sc-if value="{{h.hasMembers}}" hint-placeholder-val="{{true}}">
+            <ol class="list" style="margin-top: 6px; border-top: 1px solid #C9D2C8">
+              <sc-for list="{{h.members}}" as="m" hint-placeholder-count="3">
+                <li class="mrow">
+                  <span style="min-width: 0">
+                    <sc-if value="{{m.named}}" hint-placeholder-val="{{true}}"><a href="T-OpTenant.dc.html" class="rowlink"><bdi>{{m.name}}</bdi></a></sc-if>
+                    <sc-if value="{{m.unnamed}}" hint-placeholder-val="{{false}}"><a href="T-OpTenant.dc.html" class="rowlink"><i>Unnamed tenant</i></a></sc-if>
+                  </span>
+                  <span class="facts">
+                    <span class="{{m.chipClass}}">{{m.chip}}</span>
+                    <span class="fact">Timezone <b>{{m.tz}}</b></span>
+                    <sc-if value="{{m.noCode}}" hint-placeholder-val="{{false}}"><span class="fact">No API code</span></sc-if>
+                    <sc-if value="{{m.hasCode}}" hint-placeholder-val="{{true}}"><span class="fact">API code <b>{{m.code}}</b></span></sc-if>
+                    <span class="fact">Joined <b>{{m.joined}}</b></span>
+                    <sc-if value="{{m.ended}}" hint-placeholder-val="{{false}}"><span class="fact">Left <b>{{m.left}}</b></span></sc-if>
+                    <span class="idl" style="flex: 1 0 100%">{{m.id}}</span>
+                  </span>
+                  <span class="mact">
+                    <sc-if value="{{m.live}}" hint-placeholder-val="{{true}}"><form method="post" action="#" style="margin: 0"><button type="submit" class="quiet">Remove</button></form></sc-if>
+                  </span>
+                </li>
+              </sc-for>
+            </ol>
+          </sc-if>
+          <sc-if value="{{h.after}}" hint-placeholder-val="{{false}}"><p class="full" style="margin: 4px 0 0">More of its memberships are on the next page.</p></sc-if>
+          <form method="post" action="#" class="fld" style="margin: 10px 0 0">
+            <label for="{{h.addId}}" class="lbl">Add a business</label>
+            <div class="inline">
+              <input id="{{h.addId}}" type="text" name="tenant_id" maxlength="64" required autocomplete="off" spellcheck="false" class="field">
+              <button type="submit" class="btn1">Add</button>
+            </div>
+            <p class="small">The business's id, from its overview. It must work in the timezone of every member.</p>
+          </form>
+        </li>
+      </sc-for>
+    </ol>
+  </sc-if>
+</section>
+
+<sc-if value="{{hasPager}}" hint-placeholder-val="{{true}}">
+  <nav class="pager" aria-label="Pages of the list">
+    <sc-if value="{{hasPrev}}" hint-placeholder-val="{{false}}"><a href="T-OpHoldings.dc.html?page={{prev}}" class="oplink">Previous page</a></sc-if>
+    <sc-if value="{{hasNext}}" hint-placeholder-val="{{true}}"><a href="T-OpHoldings.dc.html?page={{next}}" class="oplink">Next page</a></sc-if>
+  </nav>
+</sc-if>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"notice": {"editor": "enum", "options": ["none", "created", "added", "not-added", "removed", "nothing-removed", "still-live", "not-on-this-page", "name-refused", "not-a-business-id"], "default": "none"}, "listPage": {"editor": "enum", "options": ["page-1", "page-2", "no-holdings"], "default": "page-1"}, "$preview": {"width": 834, "height": 1979}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const n = this.props.notice ?? 'none';
+    const lp = this.props.listPage ?? 'page-1';
+    // holdingNotice: heading + sentence from holdings.go:443-470 (binding copy).
+    const RULES = [
+      'Its timezone is the timezone of every member of the holding.',
+      'It is in no other holding, and at least 60 seconds have passed since it last left one.',
+      'Its API code is not one a member of the holding already has.',
+      'The holding and the business both exist.'
+    ];
+    const N = {
+      created: ['ok', 'Created.', 'The new holding is in the list below.'],
+      added: ['ok', 'Added.', 'The business is a live member of this holding.'],
+      'not-added': ['warn', 'Not added — nothing changed.', 'The database adds a business only when every rule below holds. The list shows each member\'s timezone and API code.'],
+      removed: ['ok', 'Removed.', 'The business can join a holding again, and its owner can change its timezone, after 60 seconds.'],
+      'nothing-removed': ['warn', 'Nothing was removed — it was not a live member.', 'The list below shows the holding as the database holds it now.'],
+      'still-live': ['warn', 'It is a live member of this holding.', 'The list below shows its membership as the database holds it now. Remove it from there if it should leave.'],
+      'not-on-this-page': ['warn', 'The result is not on this page.', 'This page does not hold the whole holding, so it cannot say what happened. Find the holding below or on the next pages.'],
+      'name-refused': ['warn', 'That name cannot be used', 'A holding\'s name is one line of 1 to 120 characters, with at least one visible character. Nothing was created.'],
+      'not-a-business-id': ['warn', 'That is not a business id', 'Paste the business\'s id from its overview: 36 characters of letters, digits and hyphens. Nothing was changed.']
+    };
+    const note = N[n];
+    const M = (name, live, tz, code, joined, left, id) => ({
+      name, named: name !== '', unnamed: name === '', live, ended: !live,
+      chip: live ? 'Live' : 'Ended', chipClass: 'chip ' + (live ? 't-green' : 't-line'),
+      tz, code, hasCode: code !== '', noCode: code === '', joined: joined + ' UTC', left: left ? left + ' UTC' : '', id
+    });
+    const H = (name, created, id, members, before, after) => ({
+      name, named: name !== '', unnamed: name === '', created: created + ' UTC', id, addId: 'holding-add-' + id,
+      members, hasMembers: members.length > 0, empty: members.length === 0, before: !!before, after: !!after
+    });
+    const TZ = 'Europe/Malta';
+    const harbourA = [
+      M('Harbour Grill', true, TZ, 'HG', '2026-09-21 12:00', '', '3e8b1f62-5c07-4d9a-b214-7f6e0a9c3d15'),
+      M('', true, TZ, 'HB', '2026-09-21 12:03', '', 'b4a71e09-2d6c-4e83-9f50-6a1c8d3e7b22')
+    ];
+    const harbourB = [
+      M('Valletta Bakehouse', true, TZ, '', '2026-09-22 08:15', '', '91c3d7a4-0e5f-4b28-86a1-c4d2e9f07b63'),
+      M('Sliema Kiosk', false, TZ, 'SK', '2026-09-22 08:20', '2026-10-01 17:44', 'f20a6b8e-3d19-4c75-a0e2-5b7c1d9e4a86')
+    ];
+    let page = 1, holdings = [], hasNext = false;
+    if (lp === 'page-1') {
+      hasNext = true;
+      holdings = [
+        H('Sliema Cafés', '2026-10-18 16:40', 'd5f2c8a1-6b3e-4097-8e14-a2c7b9d0e365', []),
+        H('Kebab Group Malta', '2026-09-14 10:02', '2a9e6c14-8f3b-4d70-b5c1-e0d47a2f9b58', [
+          M('Kebab Factory Ltd.', true, TZ, 'KF', '2026-09-14 10:05', '', '5e2a9c74-6d1b-4f83-a0c7-3e9b5f1d2a68'),
+          M('Kebab Manufacturing Co. Ltd.', true, TZ, 'KM', '2026-09-14 10:06', '', '1b8d3e6f-0a7c-4c92-b5e4-8d1f6a2c7e09'),
+          M('Rusty Bar', false, TZ, '', '2026-09-15 09:30', '2026-10-06 18:12', 'e6b91c3d-2f84-4a07-b5e8-9c0d1a4f7b26')
+        ]),
+        H('Harbour Hospitality', '2026-09-02 11:27', '8b04e7d2-1c95-4f6a-a3b8-6d2e0f9c41a7', harbourA, false, true)
+      ];
+    } else if (lp === 'page-2') {
+      page = 2;
+      holdings = [
+        H('Harbour Hospitality', '2026-09-02 11:27', '8b04e7d2-1c95-4f6a-a3b8-6d2e0f9c41a7', harbourB, true, false),
+        H('', '2026-08-28 14:55', '0c7a3e95-4b21-4d8f-9e06-b3f5a1c28d74', [
+          M('Gozo Ferries Catering', false, TZ, 'GF', '2026-08-28 15:01', '2026-09-03 10:20', '5a2d9f07-c6e1-4b83-8f4a-1e7b0c3d9a52')
+        ])
+      ];
+    }
+    return {
+      hasNotice: !!note, noticeClass: note ? 'note note--' + note[0] : 'note', noticeHeading: note ? note[1] : '',
+      notice: note ? note[2] : '', hasRules: n === 'not-added', rules: RULES,
+      page: String(page), holdings, hasHoldings: holdings.length > 0, noHoldings: holdings.length === 0,
+      hasPrev: page > 1, prev: String(page - 1), hasNext, next: String(page + 1), hasPager: page > 1 || hasNext
+    };
+  }
+}
+</script>
+</body>
+</html>

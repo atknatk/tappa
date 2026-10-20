@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>That request did not come from this site — Taptime operator</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+/* operator shell (OP-1) — identical on every board of this width */
+.oplbl{margin:0;font:400 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.opbar{background:#152219;border-bottom:4px solid #D98E2B;color:#FFFDF4}
+.opbar-in{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:0 24px;box-sizing:border-box}
+.oplock{margin:0;font:700 14px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.28em;text-transform:uppercase;color:#FFFDF4;white-space:nowrap}
+.oplock span{color:#D98E2B}
+.opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
+.opout:hover{border-color:#D98E2B;color:#D98E2B}
+.opshell{flex:1;display:flex;align-items:stretch}
+.opside{flex:0 0 232px;width:232px;background:#FFFDF4;border-right:1px solid #C9D2C8;padding:28px 0;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}
+.opside .oplbl{padding:0 24px}
+.opside nav{display:flex;flex-direction:column}
+.opnav{display:flex;align-items:center;min-height:44px;padding:0 16px 0 21px;border-left:3px solid transparent;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif}
+.opnav:hover{background:rgba(21,34,25,.05);color:#152219}
+.opnav--on{border-left-color:#152219;background:rgba(21,34,25,.05);font-weight:700}
+.opcol{flex:1;min-width:0;display:flex;flex-direction:column}
+.opten{background:#F7EBD6;border-bottom:1px solid #D98E2B}
+.opten-in{max-width:960px;box-sizing:border-box;padding:24px 40px 0;display:flex;flex-direction:column;gap:2px}
+.optname{margin:0;font:700 34px/1.12 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219;overflow-wrap:anywhere}
+.optid{margin:2px 0 0;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;word-break:break-all}
+.opsub{display:flex;flex-wrap:wrap;margin:8px 0 0 -12px}
+.opsubt{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
+.opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
+.opmain{width:100%;max-width:960px;box-sizing:border-box;padding:32px 40px 64px}
+/* end operator shell */
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:16px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.fld{display:flex;flex-direction:column;gap:6px}
+.field{min-height:44px;width:100%;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;padding:0 12px;font:14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.field:focus{outline:2px solid #1F5C41;outline-offset:1px;border-color:#1F5C41}
+.btn1{min-height:48px;padding:0 20px;border:0;border-radius:12px;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer}
+.btn1:hover{background:#152219}
+.oplink{display:inline-flex;align-items:center;min-height:44px;font-family:'Space Grotesk',sans-serif;font-weight:700;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
+.note{display:flex;flex-direction:column;gap:4px;padding:14px 16px;border-left:4px solid;border-radius:0 10px 10px 0;font-size:14px;line-height:1.45}
+.note strong{font-size:15px;color:#152219;letter-spacing:-0.01em}
+.note p{margin:0;color:rgba(21,34,25,.85)}
+.note--warn{border-left-color:#D98E2B;background:#F7EBD6}
+.note--alert{border-left-color:#BE3D2A;background:#FFFDF4;box-shadow:inset 0 0 0 1px rgba(190,61,42,.35)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0;border-radius:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.anno{display:inline-flex;align-self:flex-start;align-items:center;gap:8px;padding:4px 10px;border:1px dashed rgba(21,34,25,.5);font:700 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7);background:#EDF0EA}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+<sc-if value="{{signedOut}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; flex: 1">
+  <header class="opbar">
+    <div class="opbar-in">
+      <p class="oplock">TAPTIME <span>OPERATOR</span></p>
+    </div>
+  </header>
+    <main style="flex: 1; box-sizing: border-box; padding: 72px 24px 96px; display: flex; justify-content: center; align-items: flex-start">
+      <div style="width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 16px">
+          <div role="alert" class="note note--alert" style="padding: 24px 28px; gap: 10px">
+            <h1 style="margin: 0; font-size: 28px; line-height: 1.12; letter-spacing: -0.03em">{{pr.title}}</h1>
+            <p style="font-size: 15px; line-height: 1.5">{{pr.message}}</p>
+          </div>
+          <sc-if value="{{pr.hasBack}}" hint-placeholder-val="{{true}}">
+            <p style="margin: 0"><a href="{{pr.href}}" class="oplink" style="font-size: 15px">{{pr.backLabel}}</a></p>
+          </sc-if>
+      </div>
+    </main>
+</div>
+</sc-if>
+<sc-if value="{{signedIn}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; flex: 1">
+  <header class="opbar">
+    <div class="opbar-in">
+      <p class="oplock">TAPTIME <span>OPERATOR</span></p>
+      <form method="post" action="/operator/logout" style="margin: 0"><button type="button" class="opout">Sign out</button></form>
+    </div>
+  </header>
+  <div class="opshell">
+    <aside class="opside">
+      <p class="oplbl">Platform</p>
+      <nav aria-label="Operator sections">
+        <a href="OpHome.dc.html" class="opnav {{nav.console}}" aria-current="{{aria.console}}">Console</a>
+        <a href="OpTenants.dc.html" class="opnav {{nav.tenants}}" aria-current="{{aria.tenants}}">Tenants</a>
+        <a href="OpHoldings.dc.html" class="opnav {{nav.holdings}}" aria-current="{{aria.holdings}}">Holdings</a>
+        <a href="OpAudit.dc.html" class="opnav {{nav.audit}}" aria-current="{{aria.audit}}">Audit log</a>
+        <a href="OpLegal.dc.html" class="opnav {{nav.legal}}" aria-current="{{aria.legal}}">Legal texts</a>
+      </nav>
+    </aside>
+    <div class="opcol">
+  <main class="opmain" style="display: flex; flex-direction: column; gap: 28px">
+        <div style="display: flex; flex-direction: column; gap: 16px; max-width: 640px">
+          <div role="alert" class="note note--alert" style="padding: 24px 28px; gap: 10px">
+            <h1 style="margin: 0; font-size: 28px; line-height: 1.12; letter-spacing: -0.03em">{{pr.title}}</h1>
+            <p style="font-size: 15px; line-height: 1.5">{{pr.message}}</p>
+          </div>
+          <sc-if value="{{pr.hasBack}}" hint-placeholder-val="{{true}}">
+            <p style="margin: 0"><a href="{{pr.href}}" class="oplink" style="font-size: 15px">{{pr.backLabel}}</a></p>
+          </sc-if>
+        </div>
+      </main>
+    </div>
+  </div>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"variant": {"editor": "enum", "options": ["cross-origin", "enroll-refused", "enroll-incomplete", "sign-out-throttled", "too-many-signed-out", "too-many-signed-in", "sign-out-failed", "holding-change", "billing-unreadable", "legal-empty"], "default": "cross-origin"}, "$preview": {"width": 1440, "height": 440}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const navOf = (cur) => {
+      const nav = {}, aria = {};
+      for (const k of ['console', 'tenants', 'holdings', 'audit', 'legal']) {
+        nav[k] = k === cur ? 'opnav--on' : '';
+        aria[k] = k === cur ? 'page' : 'false';
+      }
+      return { nav, aria };
+    };
+    // render.go problem constants (title / message / back / signed-in), verbatim.
+    const P = {
+      'cross-origin': ["That request did not come from this site", "Open the page again and send the form from there.", "OpSignIn.dc.html", "Go to the sign-in", false, ''],
+      'enroll-refused': ["This setup link does not work", "It may have expired (a link lasts 30 minutes) or been used already. Ask for a new one.", "", "", false, ''],
+      'enroll-incomplete': ["This setup link is incomplete", "Open the whole link from your message, including the part after the # sign.", "", "", false, ''],
+      'sign-out-throttled': ["Too many sign-out requests from your network", "This browser no longer holds your session, but the server could not be asked to end it. It ends after 30 minutes without use; if someone else may hold it, ask for it to be revoked.", "OpSignIn.dc.html", "Go to the sign-in", false, ''],
+      'too-many-signed-out': ["Too many requests", "Wait ten minutes, then try again.", "", "", false, ''],
+      'too-many-signed-in': ["Too many requests", "Wait ten minutes, then try again.", "", "", true, ''],
+      'sign-out-failed': ["Sign-out did not finish", "Your session is still open. Try signing out again in a moment.", "OpHome.dc.html", "Back to the console", true, 'console'],
+      'holding-change': ["The change was not confirmed", "The database did not confirm it. Open the holdings again \u2014 the list shows each holding's members as the database holds them \u2014 and try again from there if nothing changed.", "OpHoldings.dc.html", "Back to the holdings", true, 'holdings'],
+      'billing-unreadable': ["This tenant's billing could not be loaded", "Try again in a moment. No figure was read, so none is shown \u2014 not even a zero.", "OpTenants.dc.html", "Back to the tenants", true, 'tenants'],
+      'legal-empty': ["There is no text to publish", "The box had no visible text \u2014 spaces, line breaks and invisible characters do not count. Nothing was published.", "OpLegal.dc.html", "Back to the legal texts", true, 'legal']
+    };
+    const [title, message, href, backLabel, signedIn, section] = P[this.props.variant ?? 'cross-origin'];
+    return {
+      pr: { title, message, href, backLabel, hasBack: href !== '' },
+      signedIn, signedOut: !signedIn,
+      ...navOf(section),
+      noop: (e) => { if (e && e.preventDefault) e.preventDefault(); }
+    };
+  }
+}
+</script>
+</body>
+</html>
