@@ -10,7 +10,7 @@
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
-<style>:root{--gx:16px;--maxw:none;--tn:28px;--bpt:18px;--mpt:18px;--mpb:28px;--gap:16px;--cp:20px 18px;--h1:26px;--dp:16px;--c1:minmax(0,1fr);--btnself:stretch;--m1:minmax(0,1fr);--edcols:minmax(0,1fr)}
+<style>:root{--gx:16px;--maxw:none;--tn:28px;--bpt:18px;--mpt:18px;--mpb:28px;--gap:16px;--cp:20px 18px;--h1:26px;--dp:18px;--c1:minmax(0,1fr);--btnself:stretch;--m1:minmax(0,1fr);--edcols:minmax(0,1fr)}
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
 /* operator shell (OP-1) — identical on every board of this width */
@@ -21,7 +21,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 .oplock span{color:#D98E2B}
 .opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
 .opout:hover{border-color:#D98E2B;color:#D98E2B}
-.opbot{position:sticky;bottom:0;z-index:5;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:#FFFDF4;border-top:1px solid #C9D2C8}
+.opbot{position:sticky;bottom:0;margin-top:auto;z-index:5;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:#FFFDF4;border-top:1px solid #C9D2C8}
 .opbt{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(21,34,25,.7);font:500 11px 'Space Grotesk',sans-serif}
 .opbt:hover{color:#152219}
 .opbt--on{color:#152219;font-weight:700}
@@ -34,73 +34,98 @@ a{color:#1F5C41}a:hover{color:#152219}
 .opsubt{display:flex;align-items:center;min-height:44px;padding:0 10px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 14px 'Space Grotesk',sans-serif;white-space:nowrap}
 .opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
 .opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
-.opmain{width:100%;max-width:none;box-sizing:border-box;padding:20px 16px 32px}
+.opmain{width:100%;max-width:none;box-sizing:border-box;padding:20px 16px 64px}
 /* end operator shell */
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
-.lbl{margin:0;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10px;font-weight:400;letter-spacing:.16em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.lbl{margin:0;font:400 11px/1.4 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:rgba(21,34,25,.7)}
 .col{max-width:var(--maxw);display:flex;flex-direction:column;gap:var(--gap)}
 .card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:var(--cp);box-shadow:0 1px 2px rgba(21,34,25,.06);display:flex;flex-direction:column;gap:12px;min-width:0}
-.h1{margin:0;font:700 var(--h1)/1.1 'Space Grotesk',sans-serif;letter-spacing:-.03em}
-.h2{margin:0;font:700 18px/1.2 'Space Grotesk',sans-serif;letter-spacing:-.02em}
-.p{margin:0;font-family:'Space Grotesk',sans-serif;font-size:15px;line-height:1.55}
-.small{margin:0;font-family:'Space Grotesk',sans-serif;font-size:13px;line-height:1.5;color:rgba(21,34,25,.7)}
+.card > .lbl + .h1{margin-top:-4px}
+.h1{margin:0;font:700 var(--h1)/1.1 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219}
+.h2{margin:0;font:700 19px/1.25 'Space Grotesk',sans-serif;letter-spacing:-.02em;color:#152219}
+.p{margin:0;font:400 15px/1.55 'Space Grotesk',sans-serif;color:#152219;max-width:68ch}
+.small{margin:0;font:400 13px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.7)}
 .links{margin:0;display:flex;flex-wrap:wrap;gap:0 24px}
 .oplink{display:inline-flex;align-items:center;min-height:44px;padding:0;border:0;background:none;font:700 15px 'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:4px;cursor:pointer}
 .oplink:hover{color:#152219}
-.fld{display:flex;flex-direction:column;gap:6px;min-width:0}
-.field{min-height:44px;width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;font:14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
-textarea.field{line-height:1.55;resize:vertical;display:block}
+.fld{display:flex;flex-direction:column;gap:6px;min-width:0;margin:0}
+.field{min-height:44px;width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.field:focus{outline:2px solid #152219;outline-offset:1px}
 .inline{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
-.inline .field{flex:1 1 240px;width:auto;min-width:0;max-width:100%}
-.btn1{min-height:44px;padding:0 22px;border-radius:10px;border:0;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer;align-self:var(--btnself)}
+.inline .field{flex:1 1 240px;width:auto;min-width:0;max-width:var(--fieldmax,100%)}
+.btn1{min-height:44px;padding:0 22px;border-radius:10px;border:0;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer;white-space:nowrap}
 .btn1:hover{background:#152219}
-.quiet{min-height:44px;padding:0 16px;border-radius:10px;border:1px solid #C9D2C8;background:#FFFDF4;color:#152219;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer}
+.quiet{min-height:44px;padding:0 18px;border-radius:10px;border:1px solid #C9D2C8;background:#FFFDF4;color:#152219;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer;white-space:nowrap}
 .quiet:hover{border-color:#BE3D2A;color:#BE3D2A}
 .note{border-left:4px solid #C9D2C8;border-radius:0 12px 12px 0;padding:14px 18px;display:flex;flex-direction:column;gap:6px}
 .note--ok{border-left-color:#1F5C41;background:#E1EDE6}
 .note--warn{border-left-color:#D98E2B;background:#F7EBD6}
-.note--alert{border-left-color:#BE3D2A;background:#FFFDF4;border-top:1px solid #C9D2C8;border-right:1px solid #C9D2C8;border-bottom:1px solid #C9D2C8}
-.note-h{margin:0;font:700 16px/1.3 'Space Grotesk',sans-serif;color:#152219}
-.note p{margin:0;font-size:14px;line-height:1.5;color:rgba(21,34,25,.85)}
-.note ul{margin:4px 0 0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:4px;font-size:14px;line-height:1.45;color:rgba(21,34,25,.85)}
-.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:20px var(--dp) 20px;box-shadow:0 1px 2px rgba(21,34,25,.06);font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;color:#152219;min-width:0}
+.note .note-h{margin:0;font:700 16px/1.3 'Space Grotesk',sans-serif;color:#152219}
+.note p{margin:0;font:400 14px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.85)}
+.note ul{margin:4px 0 0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:4px;font:400 14px/1.45 'Space Grotesk',sans-serif;color:rgba(21,34,25,.85)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:22px var(--dp) 18px;box-shadow:0 1px 2px rgba(21,34,25,.06);font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;color:#152219;min-width:0}
 .docket::before,.docket::after{content:'';position:absolute;left:-1px;right:-1px;height:6px;background-image:radial-gradient(circle at 5px 0,#EDF0EA 3px,transparent 3.5px);background-size:10px 6px;background-repeat:repeat-x}
 .docket::before{top:-1px}
 .docket::after{bottom:-1px;transform:rotate(180deg)}
-.dh{padding-bottom:10px;border-bottom:2px dashed #C9D2C8}
+.dh{padding-bottom:12px;border-bottom:2px dashed #C9D2C8}
+.dh .mono{font-weight:700;color:#152219}
+.dfoot{margin:0;padding-top:12px;border-top:2px dashed #C9D2C8;font:400 13px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.7)}
+.dempty{margin:0;padding:22px 0 8px;font:400 15px/1.5 'Space Grotesk',sans-serif;color:#152219}
 .list{list-style:none;margin:0;padding:0}
-.row{display:grid;grid-template-columns:var(--c1) minmax(0,1fr);gap:6px 20px;align-items:baseline;padding:14px 0;border-bottom:1px solid #C9D2C8}
-.row:last-child{border-bottom:0}
-.rk{font:700 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;min-width:0;overflow-wrap:anywhere}
-.facts{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 18px;min-width:0}
-.fact{font:13px/1.5 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.75);min-width:0;overflow-wrap:anywhere}
-.fact b{font-weight:700;color:#152219}
-.full{flex:1 0 100%;font:14px/1.5 'Space Grotesk',sans-serif;color:#152219}
-.kw{font:700 15px/1.3 'Space Grotesk',sans-serif;color:#152219}
-.rowlink{display:inline-flex;align-items:center;min-height:44px;font:700 14px 'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
-.rowlink:hover{color:#152219}
-.chip{display:inline-flex;align-items:center;min-height:24px;padding:2px 10px;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:999px;font:700 11px/1.3 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#152219}
+.chip{display:inline-flex;align-items:center;min-height:24px;padding:2px 10px;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:999px;font:700 11px/1.3 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#152219;max-width:100%}
 .t-green{border-color:#1F5C41;background:#E1EDE6}
 .t-saffron{border-color:#D98E2B;background:#F7EBD6}
-.t-line{border-color:#C9D2C8;background:rgba(201,210,200,.1)}
+.t-saffron-o{border-color:#D98E2B;background:#FFFDF4;border-style:dashed}
+.t-line{border-color:#C9D2C8;background:rgba(201,210,200,.18)}
 .t-ink{border-color:#152219;background:rgba(21,34,25,.1)}
-.pager{display:flex;flex-wrap:wrap;gap:0 28px}
+.fact{font:400 13px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.72);min-width:0;overflow-wrap:anywhere}
+.fact b{font:700 13px/1.5 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.idl{font:400 12px/1.45 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.7);word-break:break-all}
+.rowlink{position:relative;font:700 inherit;font-family:'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:3px}
+.rowlink::after{content:'';position:absolute;left:0;right:0;top:50%;height:44px;transform:translateY(-50%)}
+.rowlink:hover{color:#152219}
+.pager{display:flex;flex-wrap:wrap;gap:12px}
 .pager form{margin:0}
-.idl{font:12px/1.4 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.7);word-break:break-all}
-.row{grid-template-columns:minmax(0,1fr);gap:8px}
-.inline .field{flex-basis:160px}
-
-.mrow{display:grid;grid-template-columns:var(--m1) minmax(0,1fr) auto;gap:4px 18px;align-items:baseline;padding:8px 0;border-bottom:1px solid #C9D2C8}
-.mact{align-self:center}
-.hold{display:flex;flex-direction:column;gap:6px;padding:18px 0 20px;border-bottom:2px dashed #C9D2C8}
-.hold:last-child{border-bottom:0;padding-bottom:4px}
-
-.mrow{grid-template-columns:minmax(0,1fr)}
-.mact{align-self:flex-start}
+.pgbtn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 22px;box-sizing:border-box;border:1px solid rgba(21,34,25,.3);border-radius:10px;background:#FFFDF4;color:#152219;font:700 15px 'Space Grotesk',sans-serif;text-decoration:none;cursor:pointer;white-space:nowrap}
+.pgbtn:hover{border-color:#152219;color:#152219}
+.ccard .inline .field{max-width:520px}
+.hold{display:flex;flex-direction:column;gap:14px;padding:22px 0 24px;border-bottom:2px dashed #C9D2C8}
+.hold:last-child{border-bottom:0;padding-bottom:8px}
+.hhead{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 20px}
+.hname{margin:0;font:700 21px/1.2 'Space Grotesk',sans-serif;letter-spacing:-.02em;color:#152219;overflow-wrap:anywhere}
+.hname--un{font-style:italic}
+.hmeta{display:flex;flex-direction:column;gap:2px;min-width:0}
+.hsay{margin:0;font:400 14px/1.5 'Space Grotesk',sans-serif;color:#152219}
+.mlist{list-style:none;margin:0;padding:0;border-top:1px solid #C9D2C8}
+.mrow{display:grid;grid-template-columns:var(--mcols);grid-template-areas:var(--mareas);gap:6px 18px;align-items:start;padding:14px 0;border-bottom:1px solid #C9D2C8}
+.mname{grid-area:name;display:flex;flex-direction:column;gap:3px;min-width:0}
+.mtitle{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;font:700 15px/1.35 'Space Grotesk',sans-serif}
+.mtz{grid-area:tz;padding-top:1px;display:flex;flex-direction:column;gap:1px;min-width:0}
+.mwhen{grid-area:when;padding-top:1px;display:flex;flex-direction:column;gap:1px;min-width:0}
+.mact{grid-area:act;align-self:center;display:flex;justify-content:flex-end}
+.mrow .fact{font-size:13px}
+.mrow .fact b{font-weight:400;font-size:12.5px}
+.addbox{margin:0;padding:14px 16px;border:1px dashed #C9D2C8;border-radius:12px;background:rgba(21,34,25,.025);display:flex;flex-direction:column;gap:6px}
+.addbox .inline .field{max-width:440px}
+.mname .idl{font-size:11.5px}
+:root{--mcols:minmax(0,1fr);--mareas:"name" "tz" "when" "act"}
+.mrow{gap:6px;padding:14px 0}
+.mact{justify-content:flex-start;margin-top:4px}
+.mact .quiet{min-width:120px}
+.hhead{flex-direction:column}
+.addbox{padding:14px}
+.addbox .btn1,.ccard .btn1{flex:1 1 100%}
+.mtitle .rowlink{display:inline-flex;align-items:center;min-height:44px}
+.mtitle .rowlink::after{display:none}
+.mact{align-self:start}
+.pager{gap:10px}
+.pager > *{flex:1 1 0}
+.pager .pgbtn{width:100%}
+.p{font-size:15px}
 </style>
 </helmet>
-<div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
-<header class="opbar">
+<div style="width: 390px; min-height: 100vh; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <header class="opbar">
     <div class="opbar-in">
       <p class="oplock">TAPTIME <span>OPERATOR</span></p>
       <form method="post" action="/operator/logout" style="margin: 0"><button type="button" class="opout">Sign out</button></form>
@@ -128,8 +153,8 @@ textarea.field{line-height:1.55;resize:vertical;display:block}
   </div>
 </sc-if>
 
-<section class="card" aria-labelledby="holding-create">
-  <h2 id="holding-create" class="lbl">Create a holding</h2>
+<section class="card ccard" aria-labelledby="holding-create">
+  <h2 id="holding-create" class="h2">Create a holding</h2>
   <form method="post" action="#" class="fld">
     <label for="holding-name" class="lbl">Name</label>
     <div class="inline">
@@ -142,33 +167,42 @@ textarea.field{line-height:1.55;resize:vertical;display:block}
 
 <section class="docket" aria-labelledby="holding-list">
   <h2 id="holding-list" class="lbl dh">Newest first · page <span class="mono">{{page}}</span></h2>
-  <sc-if value="{{noHoldings}}" hint-placeholder-val="{{false}}"><p class="p" style="padding-top: 14px">There are no holdings yet.</p></sc-if>
+  <sc-if value="{{noHoldings}}" hint-placeholder-val="{{false}}"><p class="dempty">There are no holdings yet.</p></sc-if>
+  <sc-if value="{{pastEnd}}" hint-placeholder-val="{{false}}"><p class="dempty">This page is empty: the list ended on the page before.</p></sc-if>
   <sc-if value="{{hasHoldings}}" hint-placeholder-val="{{true}}">
     <ol class="list">
       <sc-for list="{{holdings}}" as="h" hint-placeholder-count="3">
         <li class="hold">
-          <sc-if value="{{h.named}}" hint-placeholder-val="{{true}}"><p style="margin: 0; font: 700 20px/1.2 'Space Grotesk', sans-serif; letter-spacing: -0.02em"><bdi>{{h.name}}</bdi></p></sc-if>
-          <sc-if value="{{h.unnamed}}" hint-placeholder-val="{{false}}"><p style="margin: 0; font: italic 700 20px/1.2 'Space Grotesk', sans-serif; letter-spacing: -0.02em">Unnamed holding</p></sc-if>
-          <p class="fact" style="margin: 0">Created <b>{{h.created}}</b></p>
-          <p class="idl" style="margin: 0">{{h.id}}</p>
-          <sc-if value="{{h.before}}" hint-placeholder-val="{{false}}"><p class="full" style="margin: 4px 0 0">Its first memberships are on the page before.</p></sc-if>
-          <sc-if value="{{h.empty}}" hint-placeholder-val="{{false}}"><p class="full" style="margin: 4px 0 0">No business has been in this holding.</p></sc-if>
+          <div class="hhead">
+            <div class="hmeta">
+              <sc-if value="{{h.named}}" hint-placeholder-val="{{true}}"><p class="hname"><bdi>{{h.name}}</bdi></p></sc-if>
+              <sc-if value="{{h.unnamed}}" hint-placeholder-val="{{false}}"><p class="hname hname--un">Unnamed holding</p></sc-if>
+              <p class="idl" style="margin: 0">{{h.id}}</p>
+            </div>
+            <p class="fact" style="margin: 0">Created <b>{{h.created}}</b></p>
+          </div>
+          <sc-if value="{{h.before}}" hint-placeholder-val="{{false}}"><p class="hsay">Its first memberships are on the page before.</p></sc-if>
+          <sc-if value="{{h.empty}}" hint-placeholder-val="{{false}}"><p class="hsay">No business has been in this holding.</p></sc-if>
           <sc-if value="{{h.hasMembers}}" hint-placeholder-val="{{true}}">
-            <ol class="list" style="margin-top: 6px; border-top: 1px solid #C9D2C8">
+            <ol class="mlist">
               <sc-for list="{{h.members}}" as="m" hint-placeholder-count="3">
                 <li class="mrow">
-                  <span style="min-width: 0">
-                    <sc-if value="{{m.named}}" hint-placeholder-val="{{true}}"><a href="M-OpTenant.dc.html" class="rowlink"><bdi>{{m.name}}</bdi></a></sc-if>
-                    <sc-if value="{{m.unnamed}}" hint-placeholder-val="{{false}}"><a href="M-OpTenant.dc.html" class="rowlink"><i>Unnamed tenant</i></a></sc-if>
+                  <span class="mname">
+                    <span class="mtitle">
+                      <sc-if value="{{m.named}}" hint-placeholder-val="{{true}}"><a href="M-OpTenant.dc.html" class="rowlink"><bdi>{{m.name}}</bdi></a></sc-if>
+                      <sc-if value="{{m.unnamed}}" hint-placeholder-val="{{false}}"><a href="M-OpTenant.dc.html" class="rowlink"><i>Unnamed tenant</i></a></sc-if>
+                      <span class="{{m.chipClass}}">{{m.chip}}</span>
+                    </span>
+                    <span class="idl">{{m.id}}</span>
                   </span>
-                  <span class="facts">
-                    <span class="{{m.chipClass}}">{{m.chip}}</span>
+                  <span class="mtz">
                     <span class="fact">Timezone <b>{{m.tz}}</b></span>
                     <sc-if value="{{m.noCode}}" hint-placeholder-val="{{false}}"><span class="fact">No API code</span></sc-if>
                     <sc-if value="{{m.hasCode}}" hint-placeholder-val="{{true}}"><span class="fact">API code <b>{{m.code}}</b></span></sc-if>
+                  </span>
+                  <span class="mwhen">
                     <span class="fact">Joined <b>{{m.joined}}</b></span>
                     <sc-if value="{{m.ended}}" hint-placeholder-val="{{false}}"><span class="fact">Left <b>{{m.left}}</b></span></sc-if>
-                    <span class="idl" style="flex: 1 0 100%">{{m.id}}</span>
                   </span>
                   <span class="mact">
                     <sc-if value="{{m.live}}" hint-placeholder-val="{{true}}"><form method="post" action="#" style="margin: 0"><button type="submit" class="quiet">Remove</button></form></sc-if>
@@ -177,8 +211,8 @@ textarea.field{line-height:1.55;resize:vertical;display:block}
               </sc-for>
             </ol>
           </sc-if>
-          <sc-if value="{{h.after}}" hint-placeholder-val="{{false}}"><p class="full" style="margin: 4px 0 0">More of its memberships are on the next page.</p></sc-if>
-          <form method="post" action="#" class="fld" style="margin: 10px 0 0">
+          <sc-if value="{{h.after}}" hint-placeholder-val="{{false}}"><p class="hsay">More of its memberships are on the next page.</p></sc-if>
+          <form method="post" action="#" class="fld addbox">
             <label for="{{h.addId}}" class="lbl">Add a business</label>
             <div class="inline">
               <input id="{{h.addId}}" type="text" name="tenant_id" maxlength="64" required autocomplete="off" spellcheck="false" class="field">
@@ -194,8 +228,8 @@ textarea.field{line-height:1.55;resize:vertical;display:block}
 
 <sc-if value="{{hasPager}}" hint-placeholder-val="{{true}}">
   <nav class="pager" aria-label="Pages of the list">
-    <sc-if value="{{hasPrev}}" hint-placeholder-val="{{false}}"><a href="M-OpHoldings.dc.html?page={{prev}}" class="oplink">Previous page</a></sc-if>
-    <sc-if value="{{hasNext}}" hint-placeholder-val="{{true}}"><a href="M-OpHoldings.dc.html?page={{next}}" class="oplink">Next page</a></sc-if>
+    <sc-if value="{{hasPrev}}" hint-placeholder-val="{{false}}"><a href="M-OpHoldings.dc.html?page={{prev}}" class="pgbtn">Previous page</a></sc-if>
+    <sc-if value="{{hasNext}}" hint-placeholder-val="{{true}}"><a href="M-OpHoldings.dc.html?page={{next}}" class="pgbtn">Next page</a></sc-if>
   </nav>
 </sc-if>
 
@@ -210,7 +244,7 @@ textarea.field{line-height:1.55;resize:vertical;display:block}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"notice": {"editor": "enum", "options": ["none", "created", "added", "not-added", "removed", "nothing-removed", "still-live", "not-on-this-page", "name-refused", "not-a-business-id"], "default": "none"}, "listPage": {"editor": "enum", "options": ["page-1", "page-2", "no-holdings"], "default": "page-1"}, "$preview": {"width": 390, "height": 2474}}'>
+<script type="text/x-dc" data-dc-script data-props='{"notice": {"editor": "enum", "options": ["none", "created", "added", "not-added", "removed", "nothing-removed", "still-live", "not-on-this-page", "name-refused", "not-a-business-id"], "default": "none"}, "listPage": {"editor": "enum", "options": ["page-1", "page-2", "page-3-past-the-end", "no-holdings"], "default": "page-1"}, "$preview": {"width": 390, "height": 3022}}'>
 class Component extends DCLogic {
   renderVals() {
     const n = this.props.notice ?? 'none';
@@ -264,6 +298,8 @@ class Component extends DCLogic {
         ]),
         H('Harbour Hospitality', '2026-09-02 11:27', '8b04e7d2-1c95-4f6a-a3b8-6d2e0f9c41a7', harbourA, false, true)
       ];
+    } else if (lp === 'page-3-past-the-end') {
+      page = 3;
     } else if (lp === 'page-2') {
       page = 2;
       holdings = [
@@ -276,7 +312,7 @@ class Component extends DCLogic {
     return {
       hasNotice: !!note, noticeClass: note ? 'note note--' + note[0] : 'note', noticeHeading: note ? note[1] : '',
       notice: note ? note[2] : '', hasRules: n === 'not-added', rules: RULES,
-      page: String(page), holdings, hasHoldings: holdings.length > 0, noHoldings: holdings.length === 0,
+      page: String(page), holdings, hasHoldings: holdings.length > 0, noHoldings: holdings.length === 0 && page === 1, pastEnd: holdings.length === 0 && page > 1,
       hasPrev: page > 1, prev: String(page - 1), hasNext, next: String(page + 1), hasPager: page > 1 || hasNext
     };
   }

@@ -332,7 +332,7 @@ kaldırıldı).
 
 **Amaç.** README §4–§5'in paylaşılan sınıfları `input.css` `@layer components` altında: `.panel-card`,
 `.stat-card`, `.lbl`, `.field-stack` / `.field-input`, `.chip-link` / `.chip-group`, `.pill` + tonlar, `.btn--ink`,
-`.btn--line`, `.btn--danger`, `.btn--approve`, `.btn--reject`, `.tally--pill`, `.ev-tile*`, `.queue-item*`,
+`.btn--line`, `.btn--danger`, `.btn--approve`, `.btn--reject`, `.pill-tally`, `.ev-tile*`, `.queue-item*`,
 `.roster-row`, `.venue-card*`, `.ev-badge*`, `.roll-cell*`, `.tape-bar--1…10`, `.rail-item:nth-child` eğim
 kuralları, `.ladder` / `.rung` / `.plate` / `.lock-glyph`, `.rule-switch*`. Kova yardımcıları **tek bir `.templ`
 dosyasında**: `widthPct` (21 literal), `tapeBar` (10 literal).

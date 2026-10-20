@@ -1289,7 +1289,7 @@
   .pill--invited { @apply border-dashed border-saffron bg-saffron/10; }
   .pill--deactivated { @apply border-line text-ink/70; }
   /* A tally drawn as a pill: the same tones (the .tally--* modifiers above). */
-  .tally--pill { @apply rounded-full px-2 font-bold tracking-[0.08em]; }
+  .pill-tally { @apply rounded-full px-2 font-bold tracking-[0.08em]; }
 
   /* --- buttons: modifiers of .btn, which keeps the height and the focus ring ---
      The accent never reaches them. The destructive pair is an ink word in a
@@ -1405,6 +1405,12 @@
   .rail-item:nth-child(7n+5) article { rotate: -0.9deg; }
   .rail-item:nth-child(7n+6) article { rotate: 0.5deg; }
   .rail-item:nth-child(7n+7) article { rotate: -1.4deg; }
+  /* The business picker (M12-44) hangs its dockets from the rail only from desk;
+     below it they stack full width with no rail and no clip, and a wide docket
+     turned about its top edge would only look crooked. */
+  @media (max-width: 1199.98px) {
+    .choose-rail .rail-item article { rotate: none; }
+  }
 
   /* --- the Rules ladder: CLASS-ONLY on purpose ---
      /admin/policies is held to a short list of tags and attributes (no svg, no
