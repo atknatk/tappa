@@ -16,6 +16,7 @@ package handler
 
 import (
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tenant"
+	"github.com/atknatk/tappa/internal/invite"
 	"github.com/atknatk/tappa/web/templates/components"
 )
 
@@ -354,5 +356,58 @@ func TestPersonForm_TheNextStepsFollowTheDeliveryMode(t *testing.T) {
 		if strings.Contains(tc.body, "aria-label=\"Filter employees\"") || strings.Contains(tc.body, `class="roster-row"`) {
 			t.Errorf("%s mode: the add page still draws the list or the chips", tc.name)
 		}
+	}
+}
+
+// TestInvitePages_TheRedesignAddsNoExposure (M12-32): the issued page shows the link exactly
+// once, as text, under the name and venue of the person it belongs to, with the trail back
+// and the person's next steps -- and with no copy control, no "send it again", no "show a
+// link instead". The e-mail outcomes never carry a link, and only a sent one says it was
+// sent.
+func TestInvitePages_TheRedesignAddsNoExposure(t *testing.T) {
+	b := panelBrowserWithActions(t, &fakeStaff{}, &fakeInviter{})
+	id := uuid.New()
+	rec := b.do(http.MethodPost, employeeInviteHref, url.Values{"id": {id.String()}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("invite answered %d", rec.Code)
+	}
+	body := htmlOf(t, rec)
+	if n := strings.Count(body, "FAKE-CODE-VALUE"); n != 1 {
+		t.Errorf("the activation link appears %d times in the response, want exactly 1", n)
+	}
+	name := strings.Index(body, "Maria Borg")
+	link := strings.Index(body, "FAKE-CODE-VALUE")
+	if name < 0 || name > link {
+		t.Error("the name is not printed before the credential")
+	}
+	for _, want := range []string{
+		`<h1`, `>Invitation</h1>`, "One person · one link · shown once", `aria-current="page">Invitation<`,
+		">KF St Julians<", "select-all", "Shown as text, not a link",
+		"What Maria Borg does next", "Taps one of your plaques", "No app to install.", "Back to the list</a>",
+		managedRosterHref(id),
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the issued page does not carry %q", want)
+		}
+	}
+	for _, never := range []string{">Copy", "Copy link", "Send it again", "Show a link instead", "<script"} {
+		if strings.Contains(body, never) {
+			t.Errorf("the issued page carries %q", never)
+		}
+	}
+
+	sent, _ := emailPanel(t, adminRoleOwner, &fakeStaff{}, &fakeInviter{link: fakeEmailLink,
+		recipient: invite.Recipient{Address: "Maria.Borg@example.test"}}, &fakeTrail{}, &fakeMailSender{})
+	page := htmlOf(t, sent.do(http.MethodPost, employeeInviteHref, url.Values{"id": {id.String()}}))
+	if strings.Contains(page, "FAKEemailCODE") || !strings.Contains(page, "Sent by email") ||
+		!strings.Contains(page, "Opens the email on their own phone") || !strings.Contains(page, "Maria.Borg@example.test") {
+		t.Error("the sent page leaks the link, or lacks its kicker, its next steps or the full address")
+	}
+
+	refused, _ := emailPanel(t, adminRoleOwner, &fakeStaff{}, &fakeInviter{err: invite.ErrNoAddress}, &fakeTrail{}, &fakeMailSender{})
+	page = htmlOf(t, refused.do(http.MethodPost, employeeInviteHref, url.Values{"id": {id.String()}}))
+	if strings.Contains(page, "Sent by email") || strings.Contains(page, "does next") ||
+		!strings.Contains(page, "Invitation by email") || !strings.Contains(page, "Nothing was sent and no link was created") {
+		t.Error("a refused e-mail outcome claims a send, or offers next steps for a link that does not exist")
 	}
 }

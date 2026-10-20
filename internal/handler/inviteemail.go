@@ -391,6 +391,7 @@ func (a *AdminAuth) employeeInviteByEmail(w http.ResponseWriter, r *http.Request
 		RecipientHourLimit: mail.RecipientHourLimit,
 		RecipientDayLimit:  mail.RecipientDayLimit,
 		BackHref:           rosterReturn(f, person.ID, "", ""),
+		ListHref:           rosterReturn(f, uuid.Nil, "", ""),
 	}
 	// PER-REQUEST, ON THE STACK — panelLinkSink's rule: the sink holds the address it
 	// sent to, and a shared one would name one manager's recipient on another's screen.
@@ -515,6 +516,7 @@ func (a *AdminAuth) employeeInviteOnScreen(w http.ResponseWriter, r *http.Reques
 			Name:        person.Name,
 			Outcome:     outcome,
 			BackHref:    rosterReturn(f, person.ID, "", ""),
+			ListHref:    rosterReturn(f, uuid.Nil, "", ""),
 		}
 		a.renderPanel(w, r, http.StatusOK, view.PanelChrome, pages.AdminInviteEmailed(view))
 	}
@@ -556,9 +558,11 @@ func (a *AdminAuth) employeeInviteOnScreen(w http.ResponseWriter, r *http.Reques
 		PanelChrome:   a.chrome(r, pages.TabEmployees),
 		Name:          person.Name,
 		ActivationURL: sink.link,
+		Venue:         inviteVenue(person),
 		Expires:       expiryPhrase(inv.CreatedAt, inv.ExpiresAt),
 		Retired:       inv.RetiredSiblings,
 		BackHref:      rosterReturn(f, person.ID, "", ""),
+		ListHref:      rosterReturn(f, uuid.Nil, "", ""),
 	}
 	a.renderPanel(w, r, http.StatusOK, issued.PanelChrome, pages.AdminInviteIssued(issued))
 }
