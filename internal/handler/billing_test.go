@@ -26,6 +26,7 @@ import (
 // phase A handed over and a reader should be able to find the one they came for:
 //
 //	the floor sentence          TestBilling_SaysTheCountIsAFloor{OnTheScreen,InTheCSV}
+//	the free month's zero       TestBilling_AFreeMonthSaysWhyItsAmountIsZero
 //	frozen vs draft             TestBilling_AFrozenMonthAndADraftDoNotRenderAlike
 //	the founding warning        TestBilling_FoundingWarning*
 //	the close route             TestBillingClose_*
@@ -151,6 +152,31 @@ func TestBilling_SaysTheCountIsAFloorOnTheScreen(t *testing.T) {
 				"Phase A produced the number and deliberately did not say it; saying it is this "+
 				"phase's obligation, and an excluded row that is invisible is exactly what §4.6 forbids.", want)
 		}
+	}
+}
+
+// billingFreeLine is the sentence a free month prints beside its zero (§4.6): "the
+// founding offer covers it" and "nobody was employed" are the same figure and different
+// facts, so the zero may not stand alone.
+const billingFreeLine = "This month is inside the founding offer's free window, so the amount is " +
+	"zero because of the offer and not because nobody was employed."
+
+// TestBilling_AFreeMonthSaysWhyItsAmountIsZero pins that sentence. Removing it from
+// billing.templ used to leave every test green: the fixture's month is free by default,
+// so the sentence rendered on every page and nothing read it. The paid month is the
+// control: the sentence is the offer's, and a month the offer does not cover must not
+// claim it.
+func TestBilling_AFreeMonthSaysWhyItsAmountIsZero(t *testing.T) {
+	free := newFakeBooks()
+	free.draft.Free = true
+	if html := billingPage(t, free); !strings.Contains(html, htmlText(billingFreeLine)) {
+		t.Errorf("a free month's zero stands alone; the screen does not say %q.\n"+
+			"§4.6: a zero the reader cannot tell from \"nobody worked\" is a silent claim.", billingFreeLine)
+	}
+	paid := newFakeBooks()
+	paid.draft.Free = false
+	if html := billingPage(t, paid); strings.Contains(html, htmlText("founding offer's free window")) {
+		t.Error("a month the founding offer does not cover says it is inside the free window")
 	}
 }
 

@@ -1581,10 +1581,25 @@ func TestBrand_DocketLabelClearsAAOnEveryGroundItSitsOn(t *testing.T) {
 // would need to resolve which element ENCLOSES each label, and nothing here parses
 // HTML — the templates are read as text (result_test.go made the same choice and
 // says so). The conservative substitute is exact enough to be worth having, and
-// the arithmetic says why: on Tailwind's standard opacity scale the verdict is the
-// same on every light ground in the palette. ink/60 fails on all four (4.11-4.36)
-// and ink/70 passes on all four (5.58-6.05), so the ground choice never decides a
-// case.
+// the arithmetic says why: on Tailwind's standard opacity scale ink/60 fails on
+// every light ground in the palette (4.11-4.36) and ink/70 passes on every one.
+//
+// ⚠️ "EVERY LIGHT GROUND" IS MORE THAN THE FOUR OPAQUE TOKENS, AND THIS COMMENT USED TO
+// SAY IT WAS NOT. It printed ink/70's range as 5.58-6.05 with green-lite as the
+// darkest ground. The product also paints translucent TINTS that carry text — the
+// roll's worked cells and the switched-on rule switch sit on bg-tappa-green/15 over
+// porcelain, a ground darker than green-lite, where ink/70 is 5.09:1, not 5.58.
+// darkestGroundUnderInk therefore composites every text-bearing tint in use over
+// every opaque light ground in use and takes the darkest result. That pairing is
+// conservative in the same way as above (a tint over green-lite is a combination
+// nothing draws today): the bound it computes is tappa-green/15 over green-lite,
+// where ink/70 is 4.98:1. Still AA, with 10% margin rather than 24%.
+//
+// AND opacity-* FADES TEXT THE SAME WAY A TONE DOES, which this test used to ignore:
+// opacity-70 on .field-help (already text-ink/70) paints ink at 49% and stayed green
+// here. inkTonesUnderOpacity folds every opacity-N into the tone of the list it sits
+// in (its own text-ink tone x N%) and adds the result to the tones checked below; a
+// list that fades text it does not colour itself must be named in opacityInheritors.
 //
 // ⚠️ THE PRICE OF THAT SHORTCUT, MEASURED RATHER THAN HAND-WAVED: the ground choice
 // changes the AA verdict at exactly three opacities — /61, /62 and /63, where paper
@@ -1601,7 +1616,7 @@ func TestBrand_DocketLabelClearsAAOnEveryGroundItSitsOn(t *testing.T) {
 // cannot answer. The ink tones are where all seven real defects were.
 func TestBrand_EveryInkToneClearsAA(t *testing.T) {
 	palette := brandPalette(t)
-	ground, groundName := darkestLightGroundInUse(t, palette)
+	ground, groundName := darkestGroundUnderInk(t, palette)
 	ink := palette["ink"]
 
 	tones, occurrences := inkTonesInUse(t)
@@ -1621,6 +1636,11 @@ func TestBrand_EveryInkToneClearsAA(t *testing.T) {
 			"is a simplification, not a fault. Only a low count of OCCURRENCES is.)",
 			occurrences, len(tones))
 	}
+	for tone, where := range inkTonesUnderOpacity(t) {
+		tones[tone] = append(tones[tone], where...)
+	}
+	worst70 := contrastRatio(composite(ink, 0.70, ground), ground)
+	t.Logf("darkest ground under ink: %s; ink/70 there is %.2f:1; %d distinct tone(s)", groundName, worst70, len(tones))
 	for tone, where := range tones {
 		got := contrastRatio(composite(ink, float64(tone)/100, ground), ground)
 		if got < aaSmallText {
@@ -1628,10 +1648,11 @@ func TestBrand_EveryInkToneClearsAA(t *testing.T) {
 			t.Errorf("text-ink/%d on %s => %.2f:1, want at least %.2f:1.\n"+
 				"Used at: %s\n"+
 				"The smallest standard step that clears AA on every light ground in this "+
-				"palette is /70 (worst 5.58:1). /60 does NOT (worst 4.11:1) — it was "+
+				"palette is /70 (%.2f:1 on this ground). /60 does NOT — it was "+
 				"measured and rejected on 2026-08-04, when six tones like this one were "+
-				"already shipped and one of them rendered on every screen.",
-				tone, groundName, got, aaSmallText, strings.Join(where, ", "))
+				"already shipped and one of them rendered on every screen. A tone that "+
+				"comes from opacity-* is the list's own ink tone times the opacity.",
+				tone, groundName, got, aaSmallText, strings.Join(where, ", "), worst70)
 		}
 	}
 }
@@ -1926,6 +1947,183 @@ func darkestLightGroundInUse(t *testing.T, palette map[string][3]float64) ([3]fl
 			"every ratio computed from this would be meaningless")
 	}
 	return worst, worstName
+}
+
+// nonTextTints are the translucent backgrounds in use that carry no text, each with
+// the reason. darkestGroundUnderInk skips them; every other tint is a ground a tone
+// must clear AA on. The rule is the nonSurfaceGrounds one: the map must shrink, and an
+// entry the product no longer paints is an error, so a reason cannot outlive its tint.
+var nonTextTints = map[string]string{
+	"ink/40":         "the scrim behind the open More menu (.bar-more) and the plaque-wait phone's notch; neither holds text",
+	"ink/50":         "the plate's two rivets (.plate) and the sign-in drawing's phone notch (admin.templ); empty shapes",
+	"ink/70":         "the phone notch in the transactions and sign-in drawings; empty, aria-hidden",
+	"tappa-green/50": "the network-only part of the evidence bar and its legend swatch (anomalies.templ mixTone); empty, the word is beside it",
+}
+
+// tintRE is a translucent background: bg-<token>/<n>.
+var tintRE = regexp.MustCompile(`\bbg-([a-z][a-z-]*)/(\d{1,3})\b`)
+
+// darkestGroundUnderInk is darkestLightGroundInUse widened to the tints: every
+// text-bearing bg-<token>/<n> in use, composited over every opaque light ground in
+// use, and the opaque grounds themselves. It returns the one with the lowest
+// luminance, which is the ground that gives a dark tone the least contrast.
+func darkestGroundUnderInk(t *testing.T, palette map[string][3]float64) ([3]float64, string) {
+	t.Helper()
+	worst, worstName := darkestLightGroundInUse(t, palette)
+	inUse := backgroundTokensInUse(t, palette)
+	var bases []string
+	for name := range docketLabelGrounds {
+		if _, ok := palette[name]; ok && inUse[name] {
+			bases = append(bases, name)
+		}
+	}
+	sort.Strings(bases)
+	tints := map[string]bool{}
+	for path, text := range brandSources(t) {
+		var lists []string
+		if strings.HasSuffix(path, ".css") {
+			for _, m := range applyOnly.FindAllStringSubmatch(cssCommentRE.ReplaceAllString(text, " "), -1) {
+				lists = append(lists, m[1])
+			}
+		} else {
+			lists = classListsIn(text)
+		}
+		for _, list := range lists {
+			for _, m := range tintRE.FindAllStringSubmatch(list, -1) {
+				if _, ok := palette[m[1]]; ok {
+					tints[m[1]+"/"+m[2]] = true
+				}
+			}
+		}
+	}
+	for tint := range nonTextTints {
+		if !tints[tint] {
+			t.Errorf("nonTextTints names bg-%s, which nothing paints any more; remove the entry", tint)
+		}
+	}
+	if len(tints) <= len(nonTextTints) {
+		t.Fatalf("found %d tint(s) in use, no more than the %d listed as carrying no text; "+
+			"the product paints text on a dozen tints, so this scan is reading nothing",
+			len(tints), len(nonTextTints))
+	}
+	for tint := range tints {
+		if _, skip := nonTextTints[tint]; skip {
+			continue
+		}
+		token, n, _ := strings.Cut(tint, "/")
+		pct, err := strconv.Atoi(n)
+		if err != nil || pct <= 0 || pct > 100 {
+			t.Errorf("unreadable tint bg-%s", tint)
+			continue
+		}
+		for _, base := range bases {
+			c := composite(palette[token], float64(pct)/100, palette[base])
+			if relativeLuminance(c) < relativeLuminance(worst) {
+				worst, worstName = c, "bg-"+tint+" over "+base
+			}
+		}
+	}
+	return worst, worstName
+}
+
+// opacityInheritors are the class lists that fade text with opacity-* but give it no
+// ink colour of their own, so the tone they fade is the parent's and this text scan
+// cannot see it. Each names the parent and the ratio measured. An unlisted one is an
+// error; an entry that no longer matches anything is an error too.
+var opacityInheritors = map[string]string{
+	".chip-count": "inside .chip-link only: off, the text is solid text-ink (ink at 80% = 8.54:1 on paper, " +
+		"7.90:1 on porcelain); on, it is text-paper on bg-ink (paper at 80% on ink = 10.72:1)",
+}
+
+var (
+	// opacityRE is opacity-<anything>, bare or behind variants; bg-opacity-* and
+	// text-opacity-* are excluded by requiring a space, a colon or the start before it.
+	opacityRE = regexp.MustCompile(`(?:^|[\s:])opacity-(\S+)`)
+	// cssRuleRE is an innermost CSS rule: its selector and its body.
+	cssRuleRE = regexp.MustCompile(`([^{}]+)\{([^{}]*)\}`)
+)
+
+// inkTonesUnderOpacity is the ink tone every opacity-N in the product actually paints:
+// the list's own text-ink tone (its lowest, if it has several; solid text-ink is 100)
+// times N%, rounded down. opacity-0 hides the text and is skipped. It reads the same
+// class lists as inkTonesInUse, with CSS read rule by rule so a list that has no ink of
+// its own can be named by its selector in opacityInheritors.
+func inkTonesUnderOpacity(t *testing.T) map[int][]string {
+	t.Helper()
+	out := map[int][]string{}
+	seen := map[string]bool{}
+	visit := func(key, list string) {
+		ops := opacityRE.FindAllStringSubmatch(list, -1)
+		if len(ops) == 0 {
+			return
+		}
+		own := 0
+		for _, f := range strings.Fields(list) {
+			if i := strings.LastIndex(f, ":"); i >= 0 {
+				f = f[i+1:]
+			}
+			tone := 0
+			switch {
+			case f == "text-ink":
+				tone = 100
+			case strings.HasPrefix(f, "text-ink/"):
+				v, err := strconv.Atoi(strings.TrimPrefix(f, "text-ink/"))
+				if err != nil || v <= 0 || v > 100 {
+					t.Errorf("%s: unreadable ink tone %q", key, f)
+					continue
+				}
+				tone = v
+			default:
+				continue
+			}
+			if own == 0 || tone < own {
+				own = tone
+			}
+		}
+		for _, op := range ops {
+			n, err := strconv.Atoi(op[1])
+			if err != nil || n < 0 || n > 100 {
+				t.Errorf("%s: opacity-%s is not a standard step this test can fold into a tone", key, op[1])
+				continue
+			}
+			if n == 0 {
+				continue
+			}
+			if own == 0 {
+				if _, ok := opacityInheritors[key]; !ok {
+					t.Errorf("%s fades text with opacity-%d but paints no ink tone of its own, so the "+
+						"tone it fades is the parent's and this scan cannot see it. Give it its own "+
+						"text-ink tone, or name it in opacityInheritors with the parent and the "+
+						"ratio measured.", key, n)
+				}
+				seen[key] = true
+				continue
+			}
+			eff := own * n / 100
+			out[eff] = append(out[eff], fmt.Sprintf("%s (text-ink/%d x opacity-%d)", key, own, n))
+		}
+	}
+	for path, text := range brandSources(t) {
+		if strings.HasSuffix(path, ".css") {
+			code := cssCommentRE.ReplaceAllString(text, " ")
+			for _, rule := range cssRuleRE.FindAllStringSubmatch(code, -1) {
+				selector := strings.Join(strings.Fields(rule[1]), " ")
+				for _, m := range applyOnly.FindAllStringSubmatch(rule[2], -1) {
+					visit(selector, m[1])
+				}
+			}
+			continue
+		}
+		for _, list := range classListsIn(text) {
+			visit(filepath.Base(path)+": "+list, list)
+		}
+	}
+	for key := range opacityInheritors {
+		if !seen[key] {
+			t.Errorf("opacityInheritors names %q, which fades no text any more; remove the entry", key)
+		}
+	}
+	return out
 }
 
 // contrastRatio is WCAG 2.1's formula, on sRGB channels in 0..255.

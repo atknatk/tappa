@@ -381,14 +381,23 @@ func TestInviteEmail_TheCardOffersOnlyWhatTheServerWouldDo(t *testing.T) {
 	}
 }
 
-// TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B is K7B-10's pin: the action
+// TestRosterActions_ThePanelModeCardIsPinned is K7B-10's pin: the action
 // card in the panel mode renders the SAME BYTES as the panel-mode card it was measured
 // on, so an e-mail-mode change cannot leak into it. The four sha256 values were first
 // measured with the templates of HEAD 08b1bd1 (before EM-7B); the panel redesign
 // redrew the card on purpose (M12-30, M12-31), so they are re-pinned to that render, in a
 // commit of their own that says what was checked. Any change to the panel branch of
 // the card turns one red.
-func TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B(t *testing.T) {
+//
+// THE NAME USED TO SAY "IsTheCardBeforeEM7B", which stopped being true at the first
+// re-pin: the hashes are the redesigned panel-mode card's, not the pre-EM-7B one's.
+// What stayed true is that the card is pinned. The four views' sizes, measured at each
+// pin (invited with an address / invited without one / deactivated / active):
+//
+//	before M12   3427 / 2655 / 3085 / 3423 B
+//	2d8cc69      4025 / 3253 / 3552 / 3811 B
+//	b51c4d4      4777 / 4053 / 4174 / 4650 B
+func TestRosterActions_ThePanelModeCardIsPinned(t *testing.T) {
 	want := []string{
 		"64d3763c75492d0224e77f595c7fc30a02e40f7b09a3ecf62a298a354424f90e",
 		"9b17cb57beb14d5b13b67b9741f3ca110878309570bdf2f64436df6c998c077f",
@@ -419,7 +428,7 @@ func TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B(t *testing.T) {
 		}
 		sum := sha256.Sum256([]byte(out.String()))
 		if got := hex.EncodeToString(sum[:]); got != want[i] {
-			t.Errorf("view %d: the panel mode's card renders %s, not the bytes measured before EM-7B (%s)", i, got, want[i])
+			t.Errorf("view %d: the panel mode's card renders %s, not the pinned bytes (%s)", i, got, want[i])
 		}
 	}
 }

@@ -114,7 +114,7 @@ colour-only verdict dots.
 `internal/handler/employees_db_test.go`: `rosterRowRE` (`:203`, X8), `TestPanelEmployeesDB_ListsPeopleWhoHaveLEFT` (`:337`, words `:402-407`), the never-used-device case (`:1112`), the byte ceiling (`:865`), `…PagesThroughEverybodyExactlyOnce` (`:596`), `TestPanelEmployeesDB_ANameWithMarkupInItIsEscaped` (`:1173`, initials too), the no-session-secret case (`:537`).
 `internal/handler/employees_test.go`: `TestEmployeesSection_ConditionalControlsCarryATouchTargetClass` (`:701`), `TestEmployeesSection_LoadsNoScript` (`:758`), `TestEmployeesSection_IsTheOnlySectionRenderingTheRoster` (`:802`), `TestPanelStatuses_AreTheDomainVocabularyAndNothingElse` (`:380`, chips from `panelStatuses`), the device-line table (`:350`), cursor and paging (`:250`, `:302`), `TestComments_DoNotQuoteTheDriftingRosterSize` (`:536`).
 `internal/handler/employeeactions_test.go`: every-control-routes (`:150`), no action until a person is named (`:235`), `…OffersNoActionTheServerWouldRefuse` (`:294`), `TestEmployeeDeactivate_TheConfirmationStepIsENFORCED` (`:366`).
-`internal/handler/inviteemail_test.go` (`:357`; `TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B` `:389` renders `RosterActions` directly); `employeeemail_test.go` (`:220`); `employeeadd_db_test.go` (`:76`, `:170`).
+`internal/handler/inviteemail_test.go` (`:357`; `TestRosterActions_ThePanelModeCardIsPinned` `:389` renders `RosterActions` directly); `employeeemail_test.go` (`:220`); `employeeadd_db_test.go` (`:76`, `:170`).
 New reads: evidence-reader entries; RLS DB test per query written **without** the tenant filter.
 
 ### 1.8 Red lines (People)
