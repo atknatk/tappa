@@ -148,7 +148,8 @@ type ManualEntryView struct {
 	//
 	// IT IS A PICTURE, NOT A SECOND STATEMENT. What is written is decided by the write
 	// route from the posted form and the confirmation bound to it; this carries only
-	// strings already printed above it on the same page.
+	// values resolved on this step plus the constants the ledger prints for a manual
+	// row (trust base, n/a signs, no plaque).
 	Preview components.DocketView
 }
 

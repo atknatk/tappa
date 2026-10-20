@@ -1307,6 +1307,36 @@ func TestManualEntry_TheRedesignsHeadingStepsAndPreview(t *testing.T) {
 		}
 	}
 
+	// AT A PARTNER BUSINESS'S VENUE THE PREVIEW HAS THE LEDGER'S K-39 SHAPE: the venue
+	// marked as a partner's, and no score and no evidence sign -- they are not this
+	// panel's to describe.
+	t.Run("at a partner venue", func(t *testing.T) {
+		site := uuid.New()
+		pb := panelBrowserWithRecorder(t, &fakeRecorder{subject: manual.Subject{
+			Name: "Maria Borg", LocationName: "KF St Julians", Status: "active", Zone: "Europe/Malta",
+			PartnerVenues: []manual.Venue{{ID: site, Name: "KM Factory Floor"}},
+		}})
+		page := htmlOf(t, pb.do(http.MethodPost, manualEntryHref, url.Values{
+			"id": {entryID.String()}, "direction": {"in"},
+			"date": {"2026-08-05"}, "time": {"09:00"}, "site": {site.String()},
+		}))
+		j := strings.Index(page, `<article class="docket">`)
+		if j < 0 || !strings.Contains(page, "Record it") {
+			t.Fatal("the partner-venue review drew no confirmation or no preview docket")
+		}
+		preview := page[j : j+strings.Index(page[j:], "</article>")]
+		for _, want := range []string{"KM Factory Floor · partner venue", "not shown at a partner venue"} {
+			if !strings.Contains(preview, want) {
+				t.Errorf("the partner-venue preview lacks %q", want)
+			}
+		}
+		for _, banned := range []string{"Trust 20", "IP n/a", ">20<"} {
+			if strings.Contains(preview, banned) {
+				t.Errorf("the partner-venue preview prints %q; K-39 shows no score and no sign there", banned)
+			}
+		}
+	})
+
 	// THE CLOCK IS THE BUSINESS'S.
 	refused := htmlOf(t, b.do(http.MethodPost, manualEntryHref, url.Values{
 		"id": {entryID.String()}, "direction": {"out"}, "date": {""}, "time": {"17:00"},
