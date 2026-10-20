@@ -212,7 +212,9 @@ refuses slices) — pass a pre-rendered path string. Card M12-12.
     field) is registered in `panelTouchTargets` (`internal/handler/dashboard_test.go:915`) and in
     the compiled-CSS 44 px check. Until a screen draws it, it is not in app.css, so M12-08 lists it in
     `panelPendingTouchTargets` (heights read from `input.css`); **the screen card that first writes
-    it moves it to `panelTouchTargets`** — the pending test is red until it does.
+    it moves it to `panelTouchTargets`** — the pending test is red until it does. *(M12-48: every
+    class M12-08 listed has been moved; the pending map is empty by design and stays as the way in
+    for a press target defined ahead of its screen.)*
 12. **Status is never colour alone.** Every tone carries a word or an `sr-only` word; marks
     (✓ ✗ –) are `aria-hidden`. Text is at least `ink/70` (6.05:1 on paper); `ink/50` is for
     borders only (3.23:1 on paper fails AA).
@@ -342,9 +344,72 @@ Repeated chains become `@layer components` classes in `input.css` (the report-ro
 | **Delivery status pill** | new (status pill tones) | `inline-flex rounded-md border px-2 py-0.5 font-mono text-[11px] font-bold tracking-[0.08em] text-ink` + delivered green / retrying dashed saffron / queued `border-ink/50` / sending dashed `border-ink/50` / failed tomato | **5 states** incl. Sending; tone from a literal templ switch |
 | **Step progress** | new | dot `inline-flex size-9 items-center justify-center rounded-full font-mono text-xs font-bold`: current `bg-ink text-paper`, done `bg-tappa-green text-paper`, next `border border-ink/50 bg-paper`; connector `w-0.5 min-h-[26px] bg-line`; static `<ol>` with `aria-current="step"` | Reset (3 steps), Signup (3 steps + done; APPROVED stamp when done), Manual entry ("1 Fill in · 2 Check" only). Phone: "Step N of 3" + compact dots / progressbar. Never clickable. |
 | **Split auth layout** | restyles `AdminLogin` inside `layout.Auth` (shell bytes unchanged) | `flex min-h-screen flex-col desk:flex-row`; brand half `bg-ink text-paper desk:flex-[1_1_520px]`; form half `desk:flex-[1_1_560px]`; card `rounded-[18px] border border-line bg-paper px-9 pt-9 pb-8` | phone: brand band + plain form; tablet: band on top; decorative dockets `aria-hidden`, tilt with literal `-rotate-2` classes; decorative `h-1 bg-tappa-green` bar allowed, never `.panel-stripe` / `bg-brand` |
-| **Empty state** | new `components.PanelEmpty(where, heading, cta)` (do not edit `EmptyState` markup in place for shared callers) | `flex flex-col gap-2 rounded-[18px] border border-dashed border-ink/50 p-6`; eyebrow = section name (`.lbl`); h3 `text-[19px]`; body; optional CTA link | keep every existing heading/body variant and the `Queried` gate; callers re-pointed in M12-09 |
+| **Empty state** | new `components.PanelEmpty(where, heading, cta)` (the old `components.EmptyState` / `EmptyStateLabeled` lost their last caller to it and were removed in M12-48) | `flex flex-col gap-2 rounded-[18px] border border-dashed border-ink/50 p-6`; eyebrow = section name (`.lbl`); **h2** `text-[19px]` (as built — this row said h3; the heading sits directly under the shell's h1, so h3 would skip a level); body; optional CTA link | keep every existing heading/body variant and the `Queried` gate; callers re-pointed in M12-09 |
 | **Notice** | new `components.PanelNotice(tone, heading)` (do **not** edit `components.Notice`) | ok `rounded-[14px] border border-tappa-green bg-tappa-green/10 px-[18px] py-4` + label "Done"; warn `border-saffron bg-saffron-lite` + "Heads up"; alert `border-2 border-tomato bg-paper` + "Not done" | `role="alert"` for alert, `role="status"` otherwise; label word first ("Done" in tappa-green on green/10 = 6.63:1) |
 | **Problem** | new `pages.PanelProblem(PanelProblemView{Status, OwnerOnly, Title, Message, Hint, CTAHref, CTALabel})`; `AdminAuth.renderProblem` switches to it (`pages.Problem` stays for tap/activation) | card `rounded-[18px] border border-line bg-paper p-6 flex flex-col gap-3 max-w-xl`; code chip `rounded-md border border-ink px-2 py-0.5 font-mono text-xs font-bold tracking-[0.1em]`; owner pill `rounded-md bg-ink px-2 font-mono text-[11px] text-paper` | code from the status renderProblem already receives; unauthenticated problems link to `/admin/login`, never "Back to The Pass"; no 401 page; per-problem copy stays |
+
+### 5.1 As built — the names the port shipped, and its recorded deviations (M12-48)
+
+The table above is the handoff as written; this is what the code calls things after M12-01 …
+M12-47. Where the two differ, the code is right (D1) and the reason is here.
+
+| Component | Shipped as | Where |
+|---|---|---|
+| Shell heading slots | `PanelChrome.Kicker`, `.Title`, `.Crumbs []Crumb{Label, Href}`; actions through the wrapper `@pages.PanelActions(x) { @PanelShell(…) { … } }` — not a `PanelChrome` field (a `templ.Component` field broke the §4.7 type walks) | `pages/adminview.go`, `pages/admin.templ` |
+| Chip / segmented | `.chip-link`, `.chip-link--on`, `.chip-count`, `.chip-group` | `input.css` |
+| Form field | `.field-stack`, `.field-input`, `.field-input--mono`, `.field-help` | `input.css` |
+| Ladder | `.ladder`, `.rung`, `.rung-no`, `.plate`, `.lock-glyph` (`.lock-mini` small) | `input.css` |
+| Switch | `.rule-switch`, `--on`, `--off`, `.rule-switch-knob` | `input.css` |
+| Tally as a pill | `.pill-tally` beside a `.tally--*` tone | `input.css` |
+| Status pill | `.pill`, `.pill--active`, `.pill--invited`, `.pill--deactivated` (database words) | `input.css`, `components/roster.templ` |
+| Mono pill (key, webhook, delivery) | `.mono-pill` + a tone written beside it in the template | `input.css`, `pages/apikeys.templ` |
+| Stat card | `.stat-card`, `--spike`, `--open` | `input.css` |
+| Evidence tile / badge | `.ev-tile` (`--ok/--bad/--none`, `-mark`, `-value`, `-sub`), `.ev-badge` (`--ok/--none/--wide`) | `input.css` |
+| Queue item, pager | `.queue-item`, `--current`; `.spike-step`, `--off`; decision row `.spike-actions` | `input.css`, `components.SpikeQueueEntry` |
+| Roster row | `.roster-row`, `.roster-initials`, `.roster-chevron` | `input.css`, `components.RosterRow` |
+| Venue card | `.venue-card`, `--on`; `components.VenueCard`, `VenueDetail` | `components/venuedetail.templ` |
+| The Roll | `.roll-table`, `.roll-row`, `.roll-who`, `.roll-name`, `.roll-sub`, `.roll-day`, `.roll-letter`, `.roll-cell` (`--worked/--other/--manual/--open/--none`), `.roll-mark`, `.roll-sum`, `.roll-shifts`, `.roll-body` | `input.css`, `pages/reports.templ` |
+| Odd shapes | `.odd-card`, `.odd-title`, `.odd-chip`, `--open`, `.odd-callout`, `--alert`, `--warn` | `input.css`, `pages/anomalies.templ` |
+| Manual entry | `.manual-dircard`, `.manual-actbar` | `input.css`, `pages/manualentry.templ` |
+| Rule change diff | `.diff-del` / `.diff-ins` — arrive with M12-38 (`pages/policychange.templ`) | M12-38 branch |
+| Stamp | `components.VerdictStamp(verdict)` | `components/docket.templ` |
+| Rail docket | `components.RailDocket(DocketView)`; tilt keyed on `.rail-item … article` | `components/docket.templ`, `input.css` |
+| Notice / empty / problem | `components.PanelNotice(tone, heading)`, `components.PanelEmpty(where, heading, PanelEmptyCTA{Label, Href})`, `pages.PanelProblem(PanelProblemView)` | `components/panelstates.templ`, `pages/panelproblem.templ` |
+| One-time reveal | `components.OneTimeSecret(heading, fieldID, label, secret, doneHref)` | `components/onetimesecret.templ` |
+| Plaque drawing | `components.PlaqueDrawing(PlaqueDrawingView)`, `components.PlaqueNotOnAWall()`; QR from `(*qrcode.Code).SVGPath`, URL from `sun.PlaqueQRURL` | `components/plaquedrawing.templ` |
+| Bucket helpers | `components.WidthPct`, `PctOf`, `SplitPct`, `TapeBar` | `components/buckets.templ` |
+
+**Recorded deviations.**
+
+- **PanelEmpty's heading is an `h2`**, not the `h3` the catalogue row said: it sits directly under
+  the shell's one `<h1>`.
+- **Docket padding recipe not applied** (M12-27): the full docket keeps `.docket`'s own padding,
+  because `TestTransactionDocket_IsADocketAndCarriesEveryFieldTheCardAsksFor` pins its class
+  attribute as exactly `class="docket"` and the class is shared with the employee result screen
+  (§3.5). See the Docket row above.
+- **M-More rows are kept as code** (M12-47, screen row S8): the current board (`fd18724` /
+  `c2dd88d`) draws the shipped flat rows (`.sheet-list`, at least 48 px, a plain bottom rule), not
+  the first full-page More's rounded grouped list with chevrons and dashed separators (`0e31694`).
+  The polish is CSS only: the lift shadow, the scrim over the page and the sign-out radius.
+- **Odd shapes at the desk width uses the tablet arrangement** (M12-29), one DOM: the desk board's
+  own grid does not hold in the 864 px box and one markup cannot carry both column assignments
+  ([spike-odd O.3](screens/spike-odd.md#o3-breakpoints)).
+- **The Pass's phone h1 reads "The Pass · <day>"** (M12-27): the Title is one string printed once;
+  spec L2 asked for the day alone on the phone ([pass-ledger L2](screens/pass-ledger.md)).
+
+**Lessons the port paid for** (each one red at least once):
+
+- **No two-decimal arbitrary value in markup** (e.g. a line height of 1.45 written as an arbitrary
+  value): the coordinate sweep (`decimalDegreeShape`,
+  `TestAnomaliesPages_CarryNoDecimalDegreeInEITHEROfTheOtherTwOShapes`) reads it as a decimal
+  degree. Use a named step (`leading-normal`, `leading-snug`) or a component class.
+- **templ drops a literal leading space of text inside an element**: write `{ " " + x }` (or
+  `{ " " }` before the expression) where a space must separate two pieces.
+- **Tailwind's scan is lexical** (§3.2): a class name that is an ordinary word compiles from prose.
+- **`.tally*` selectors are reserved for tones** (`TestTallyRules_NoToneRuleColoursTheWord`): a
+  tally tone colours the frame and the ground, never the word; layout on a tally goes in its own
+  class (`.pill-tally`).
+
 
 ### Bucket helpers (literal classes, one `.templ` file)
 

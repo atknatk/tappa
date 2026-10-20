@@ -221,6 +221,15 @@ ailesinin tamamı taranıp 0 eşleşme —
 `internal/handler/qr_db_test.go → TestQRScreens_SayNothingAboutTheQRRoute`) ve
 bu **bilinçli**: plaketler henüz QR ile basılmadığı için ekranın var olmayan bir
 şeyi tarif etmesi yanlış olurdu (kullanıcı kararı, 2026-08-01).
+> **D4 (2026-10-20, panel yeniden tasarımı — M12-12, M12-34):** bu bölüm *çalışanın* ekranları
+> içindir. **Panelin** Venues & plaques sayfası artık plaketin **gerçek** QR'ını çizer
+> (`components.PlaqueDrawing`; `<base>/t?tag=<uid>`, `sun.PlaqueQRURL`, sunucuda
+> `internal/qrcode` ile satır içi SVG, `(*qrcode.Code).SVGPath`; sahte desen yok, `?src=qr` yok) ve
+> yukarıdaki plaket metnini (*"Hold your phone here"*, *"Or scan — same thing"*, `PLAQUE 91AC`)
+> taşır — yönetici duvara ne asılacağını görür. **Tap ve aktivasyon ailesi QR'dan hâlâ söz etmez**;
+> `TestQRScreens_SayNothingAboutTheQRRoute` bu aileyi tarar (panel onun kapsamında değildir) ve
+> bu karar aynen geçerlidir.
+>
 > **ADR 0026 (2026-10-04):** aşağıda anılan tur **kaldırıldı**; aktivasyon sihirbazı o
 > cümleyi taşımıyor ve QR'dan bahsetmiyor (tripwire sihirbazın dört adımını da
 > tarıyor). Yerine gelen daha sert kusur: **QR ile aktivasyon YOK** — aktivasyon
@@ -296,6 +305,62 @@ Slogan: **No app. No device. No fingerprints. Just tap.** · Kampanya: *Go punch
   normal metin **4,5:1**. `text-<token>` yazmak "AA" demek değildir.
   Dokunma hedefi ≥ 44px. `prefers-reduced-motion` saygılı.
 - Karanlık tema **yok** (şimdilik) — plaket ortamı aydınlık, yarım iş yapma.
+
+## Panel yeniden tasarımı ("The Pass") — bileşenler ve dersler
+
+> Eklendi 2026-10-20 (M12-48). Normatif kaynak: `docs/design/panel-redesign/README.md` (§3 kısıtlar,
+> §5 katalog, **§5.1 gerçekleşen adlar ve kayıtlı sapmalar**). Kararlar D1–D4 orada. Bu dosya
+> Tailwind'in taramadığı bir dosyadır; aşağıdaki sınıf adları burada kural doğurmaz.
+
+**Bileşen sınıfları — gerçekleşen adlarıyla** (`web/static/css/input.css`, `@layer components`):
+
+| Aile | Sınıflar |
+|---|---|
+| Çip / segmentli | `.chip-link`, `.chip-link--on`, `.chip-count`, `.chip-group` |
+| Form alanı | `.field-stack`, `.field-input`, `.field-input--mono`, `.field-help` |
+| Kural merdiveni / anahtarı | `.ladder`, `.rung`, `.rung-no`, `.plate`, `.lock-glyph`, `.lock-mini` · `.rule-switch`, `--on`, `--off`, `.rule-switch-knob` |
+| Hap | `.pill` + `--active/--invited/--deactivated` (veritabanı kelimeleri) · `.pill-tally` (bir `.tally--*` tonunun yanında) · `.mono-pill` (anahtar, webhook, teslimat; ton şablonda yanına yazılır) |
+| Kartlar | `.panel-card`, `.stat-card` (`--spike`, `--open`), `.venue-card` (`--on`), `.queue-item` (`--current`), `.roster-row` |
+| Kanıt | `.ev-tile` (`--ok/--bad/--none`), `.ev-badge` (`--ok/--none/--wide`) |
+| The Roll | `.roll-*` — `.roll-table`, `.roll-row`, `.roll-cell` (`--worked/--other/--manual/--open/--none`), `.roll-mark`, `.roll-sum` … |
+| Odd shapes | `.odd-*` — `.odd-card`, `.odd-title`, `.odd-chip` (`--open`), `.odd-callout` (`--alert/--warn`) |
+| Manuel kayıt | `.manual-*` — `.manual-dircard`, `.manual-actbar` |
+| The Spike | `.spike-*` — `.spike-step` (`--off`), `.spike-actions` |
+| Kural değişikliği farkı | `.diff-del` / `.diff-ins` (M12-38 dalıyla gelir) |
+
+**Bileşenler (templ):** `components.PanelNotice(tone, heading)` (ok "Done" / warn "Heads up" / alert
+"Not done") · `components.PanelEmpty(where, heading, PanelEmptyCTA{Label, Href})` — başlığı **h2**,
+kabuğun h1'inin altında · `pages.PanelProblem(PanelProblemView)` · `components.RailDocket` ·
+`components.VerdictStamp` · `components.OneTimeSecret` (değer yanıtta **tam bir kez**) ·
+`components.PlaqueDrawing` (gerçek QR — yukarıdaki D4 notu) · kova yardımcıları
+`components.WidthPct` / `PctOf` / `SplitPct` / `TapeBar` (`components/buckets.templ`; sınıf adları
+orada literal yazılı). Kabuk yuvaları `PanelChrome.Kicker` / `.Title` / `.Crumbs`; eylemler
+`@pages.PanelActions(x) { @PanelShell(…) { … } }` sarmalayıcısıyla, alan değil. Sayfada **tek `<h1>`**.
+`components.EmptyState` / `EmptyStateLabeled` M12-48'de kaldırıldı — geri getirme.
+
+`components.Notice`, `components.Card`, `pages.Problem` ve `layout.*` **değişmez** (tap/aktivasyon
+golden'ı); panel yalnız kendi `Panel*` bileşenlerini kullanır.
+
+**Dersler — her biri en az bir kez kırmızı oldu:**
+
+- **İşaretlemede iki ondalıklı keyfi değer yazma** (ör. 1,45'lik satır aralığını köşeli parantezle):
+  koordinat taraması (`decimalDegreeShape`,
+  `TestAnomaliesPages_CarryNoDecimalDegreeInEITHEROfTheOtherTwOShapes`) onu ondalık derece okur.
+  Adlı bir adım (`leading-normal`, `leading-snug`) ya da bir bileşen sınıfı kullan.
+- **templ, bir öğenin içindeki metnin baştaki boşluğunu düşürür:** iki parça arasında boşluk
+  gerekiyorsa `{ " " + x }` (ya da ifadeden önce `{ " " }`) yaz.
+- **Tailwind'in taraması sözcükseldir:** adı sıradan bir kelime olan bir katman sınıfı düzyazıdan
+  derlenir (M12-08 ölçtü: `.chip`, `.field`, `.lock`, `.switch` hiçbir öğe taşımadan +2 479 B). Yeni
+  sınıfa hiçbir cümlenin içermeyeceği bir ad ver.
+- **`.tally*` seçicileri tonlara ayrılmıştır** (`TestTallyRules_NoToneRuleColoursTheWord`): bir ton
+  çerçeveyi ve zemini boyar, kelimeyi asla; tally üzerindeki yerleşim kendi sınıfına gider
+  (`.pill-tally`).
+- **Dokunma hedefi** yeni bir basılabilir sınıfsa `panelTouchTargets`'a girer; ekranından önce
+  tanımlanan sınıf `panelPendingTouchTargets`'ta bekler (bugün boş — tasarım gereği;
+  `TestPanelScreens_PendingTouchTargetClassesReserve44pxInTheSource`).
+- **Docket'in sınıf özniteliği tam `class="docket"`** kalır
+  (`TestTransactionDocket_IsADocketAndCarriesEveryFieldTheCardAsksFor`; sonuç ekranıyla ortak) — tam
+  docket'in dolgusu bu yüzden tasarımın tarifinden farklıdır (README §5.1).
 
 ## Yapma
 

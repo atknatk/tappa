@@ -182,6 +182,14 @@ attribute · no bulk action (`review.go:49-57`).
 
 ## O.3 Breakpoints
 
+> **As built (M12-29, recorded in M12-48):** the desk width uses the **tablet arrangement**, one
+> DOM: the evidence mix across the top, the rule breakdown across the bottom, and two columns
+> between them (pairs and people left; counter gaps, GPS-alone and open entries right). The desk
+> board puts the mix and the rules inside its left column instead. Its own grid does not hold at
+> 1200 px, where the content box is 864 px (README §3.6), and one markup cannot carry both column
+> assignments without a row-aligned grid, which leaves a gap as tall as the longer list beside it
+> (`anomalies.templ`, `AdminAnomalies` comment). Row-level recipes below keep their `desk:` steps.
+
 - Grid `grid grid-cols-1 items-start gap-4 md:grid-cols-2`; mix and rules `md:col-span-2 desk:col-span-1`;
   totals, notices, people and open lists above or as `md:col-span-2` cards. (At 864 px two columns of
   ~424 px.)
