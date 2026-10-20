@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -1202,5 +1203,115 @@ func TestPanelProblemPages_CountTheWriteRoutesStillTellingReadersTheirPageIsEmpt
 		if strings.HasPrefix(entry, "manualEntry") || strings.HasPrefix(entry, "employeeEmail (") {
 			t.Errorf("%s still shows a WRITER the reader's problem page", entry)
 		}
+	}
+}
+
+// TestManualEntry_TheRedesignsHeadingStepsAndPreview is M12-33's acceptance read off the
+// rendered pages (boards Manual / T-Manual / M-Manual; screen file people.md §4):
+//
+//   - the shell carries the heading: one h1 "Manual entry", the trail People → the
+//     person's card → this page, and The Pass stays the current tab;
+//   - the step progress is a static two-step list -- "1 Fill in", "2 Check", no third
+//     step, nothing in it a link -- with aria-current="step" on the step being shown;
+//   - the preview docket appears on the second step only, and it is the ledger's docket
+//     of a manual record: APPROVED, the manager's tally, no plaque, signs not assessed;
+//   - the "when" refusal names the business's clock, not a venue's.
+func TestManualEntry_TheRedesignsHeadingStepsAndPreview(t *testing.T) {
+	stepsRE := regexp.MustCompile(`(?s)<ol aria-label="Steps"[^>]*>(.*?)</ol>`)
+	itemRE := regexp.MustCompile(`(?s)<li\b([^>]*)>(.*?)</li>`)
+	barRE := regexp.MustCompile(`<a href="([^"]*)" class="bar-link[^"]*"([^>]*)>`)
+	tagRE := regexp.MustCompile(`<[^>]*>`)
+
+	b := panelBrowserWithRecorder(t, &fakeRecorder{
+		subject: manual.Subject{Name: "Maria Borg", LocationName: "KF St Julians", Status: "active", Zone: "Europe/Malta"},
+	})
+	form := htmlOf(t, b.do(http.MethodGet, manualFormHref(), nil))
+	review := htmlOf(t, b.do(http.MethodPost, manualEntryHref, url.Values{
+		"id": {entryID.String()}, "direction": {"in"},
+		"date": {"2026-08-05"}, "time": {"09:00"}, "note": {"phone was flat"},
+	}))
+	if !strings.Contains(review, "Record it") {
+		t.Fatal("the review step did not render the confirmation; the assertions below would read the wrong page")
+	}
+
+	for _, c := range []struct {
+		name, page string
+		current    int
+	}{{"the form", form, 1}, {"the review", review, 2}} {
+		t.Run(c.name, func(t *testing.T) {
+			if n := strings.Count(c.page, "<h1"); n != 1 {
+				t.Errorf("%d h1 on the page, want the shell's one", n)
+			}
+			if !strings.Contains(c.page, ">Manual entry</h1>") {
+				t.Error("the h1 is not the screen's title")
+			}
+			for _, want := range []string{
+				`href="` + employeesHref + `" class="panel-crumb">People</a>`,
+				`href="` + employeesHref + "?manage=" + entryID.String() + `" class="panel-crumb">Maria Borg</a>`,
+				`<span aria-current="page">Manual entry</span>`,
+				"Enter a record by hand · adds, never edits",
+			} {
+				if !strings.Contains(c.page, want) {
+					t.Errorf("the heading lacks %q", want)
+				}
+			}
+			current := ""
+			for _, m := range barRE.FindAllStringSubmatch(c.page, -1) {
+				if strings.Contains(m[2], `aria-current="page"`) {
+					current = m[1]
+				}
+			}
+			if current != transactionsHref {
+				t.Errorf("the current section is %q, want The Pass (%s): a manual record is a row of its list", current, transactionsHref)
+			}
+
+			steps := stepsRE.FindAllStringSubmatch(c.page, -1)
+			if len(steps) != 1 {
+				t.Fatalf("%d step lists, want 1", len(steps))
+			}
+			if strings.Contains(steps[0][1], "<a") || strings.Contains(steps[0][1], "<button") {
+				t.Error("a step is pressable; a step is reached by doing the one before it")
+			}
+			items := itemRE.FindAllStringSubmatch(steps[0][1], -1)
+			if len(items) != 2 {
+				t.Fatalf("%d steps, want exactly two (no \"Recorded\" step: the write lands on the record itself)", len(items))
+			}
+			for i, want := range []string{"1 Fill in", "2 Check"} {
+				if got := strings.TrimSpace(tagRE.ReplaceAllString(items[i][2], "")); !strings.HasPrefix(got, want) {
+					t.Errorf("step %d reads %q, want %q", i+1, got, want)
+				}
+				isCurrent := strings.Contains(items[i][1], `aria-current="step"`)
+				if isCurrent != (i+1 == c.current) {
+					t.Errorf("step %d current=%v on %s", i+1, isCurrent, c.name)
+				}
+			}
+			if strings.Contains(c.page, " style=") {
+				t.Error("an inline style attribute; the panel's policy blocks it")
+			}
+		})
+	}
+
+	// THE PREVIEW IS THE SECOND STEP'S ALONE, and it is the ledger's docket of a manual
+	// record.
+	if strings.Contains(form, `<article class="docket">`) {
+		t.Error("the form step draws a record preview; there is no record to preview yet")
+	}
+	i := strings.Index(review, `<article class="docket">`)
+	if i < 0 {
+		t.Fatal("the review step draws no preview docket")
+	}
+	preview := review[i : i+strings.Index(review[i:], "</article>")]
+	for _, want := range []string{"APPROVED", "Entered by a manager", "No plaque on this record", "KF St Julians", "Maria Borg", "09:00:00", "IP n/a · GPS n/a", "phone was flat"} {
+		if !strings.Contains(preview, want) {
+			t.Errorf("the preview docket lacks %q", want)
+		}
+	}
+
+	// THE CLOCK IS THE BUSINESS'S.
+	refused := htmlOf(t, b.do(http.MethodPost, manualEntryHref, url.Values{
+		"id": {entryID.String()}, "direction": {"out"}, "date": {""}, "time": {"17:00"},
+	}))
+	if !strings.Contains(refused, htmlText("in this business's own clock")) || strings.Contains(refused, htmlText("venue's own clock")) {
+		t.Error("the \"when\" refusal does not name the business's own clock")
 	}
 }

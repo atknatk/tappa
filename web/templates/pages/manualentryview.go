@@ -44,6 +44,9 @@ type ManualEntryView struct {
 	// BackHref returns to the person's card on the roster — where the manager came
 	// from, and where every other action on them lives.
 	BackHref string
+	// PeopleHref is the roster itself: "Someone else?" leads there, because a record
+	// starts from a person and the roster is the one place a manager picks one.
+	PeopleHref string
 
 	// EmployeeID is echoed as a hidden field so the second step names the same person
 	// the first one did. It is a narrowing value inside the caller's own tenant: the
@@ -136,6 +139,17 @@ type ManualEntryView struct {
 	// fail closed rather than silently skip the gate.
 	ConfirmToken string
 	ConfirmField string
+
+	// Preview is the record as the day's ledger will draw it once it is written: the
+	// same DocketView the ledger builds for a manual row (verdict ok, the manager's
+	// tally, no plaque, the evidence signs not assessed), filled from the values this
+	// step resolved and nothing else. It is set on the second step only; the first step
+	// has no record to preview.
+	//
+	// IT IS A PICTURE, NOT A SECOND STATEMENT. What is written is decided by the write
+	// route from the posted form and the confirmation bound to it; this carries only
+	// strings already printed above it on the same page.
+	Preview components.DocketView
 }
 
 // ManualDirectionView is one option of the closed direction vocabulary.
