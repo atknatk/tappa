@@ -478,6 +478,22 @@ func TestEmployerReaders_NineReadersNameTheSite(t *testing.T) {
 				}
 			}
 		})
+		t.Run(dir.name+"/12 ListOpenCheckIns (the Pass's left open)", func(t *testing.T) {
+			// Yesterday is the 16th: e1's entry was closed at 17:00, e2's and e3's (flagged) were not.
+			want := LeftOpen{State: Measured, N: 2, Day: day}
+			if employerPass.LeftOpen != want {
+				t.Errorf("the employer's left open: %+v, want %+v", employerPass.LeftOpen, want)
+			}
+			// The site counts its OWN staff's records only. KF's staff have none yet when KF is the
+			// site (the KM-staff direction runs first); KM's have the first direction's two.
+			wantSite := 0
+			if dir.site == w.km {
+				wantSite = 2
+			}
+			if sitePass.LeftOpen.State != Measured || sitePass.LeftOpen.N != wantSite {
+				t.Errorf("the site's left open: %+v, want %d (its own staff's only)", sitePass.LeftOpen, wantSite)
+			}
+		})
 	}
 }
 

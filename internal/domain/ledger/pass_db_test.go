@@ -317,6 +317,7 @@ func TestPass_AFailedWidgetCostsItsFigureAndNeverThePage(t *testing.T) {
 	}{
 		{"CountOnTheFloorByVenue", func(s Screen) Reading { return s.Floor.State }},
 		{"ListWorkedShiftEvents", func(s Screen) Reading { return s.Tape.State }},
+		{"ListOpenCheckIns", func(s Screen) Reading { return s.LeftOpen.State }},
 	} {
 		t.Run(c.statement, func(t *testing.T) {
 			var logged logCounter
@@ -362,6 +363,7 @@ func passStates(s Screen) []struct {
 	}{
 		{"CountOnTheFloorByVenue", s.Floor.State},
 		{"ListWorkedShiftEvents", s.Tape.State},
+		{"ListOpenCheckIns", s.LeftOpen.State},
 	}
 }
 
@@ -494,5 +496,120 @@ func TestRLS_Tape_AnotherTenantsShiftsAreNotOnThisTape(t *testing.T) {
 		if v.LocationID == b.venues["Door"] {
 			t.Errorf("RLS: A's tape has B's venue row %+v", v)
 		}
+	}
+}
+
+// TestLeftOpen_CountsYesterdaysCheckInsNoCheckoutClosed is M12-15 against real rows: yesterday's
+// calendar day in the tenant's zone, edges included and excluded, flagged entries in, training taps
+// and closed entries (closed today included) out.
+func TestLeftOpen_CountsYesterdaysCheckInsNoCheckoutClosed(t *testing.T) {
+	data := passDB(t)
+	now := hLocal(t, "2026-09-02", "10:30:00")
+	b := newPassTenant(t, data, "Left open", "Door")
+	in := func(name, day, clock, verdict string, practice bool) uuid.UUID {
+		who := b.person(name, "Door")
+		b.tap(passTap{who: who, venue: "Door", at: hLocal(t, day, clock), kind: "in", verdict: verdict, practice: practice})
+		return who
+	}
+	in("Open since 08:00", "2026-09-01", "08:00:00", "ok", false)
+	in("Open since the last minute", "2026-09-01", "23:59:00", "ok", false)
+	in("Flagged and open", "2026-09-01", "12:00:00", "flag", false)
+	in("Training tap", "2026-09-01", "09:00:00", "ok", true)
+	in("Open from the day before", "2026-08-31", "23:30:00", "ok", false)
+	in("Open from today", "2026-09-02", "00:00:00", "ok", false)
+	night := in("Closed after midnight", "2026-09-01", "20:00:00", "ok", false)
+	b.tap(passTap{who: night, venue: "Door", at: hLocal(t, "2026-09-02", "02:00:00"), kind: "out"})
+
+	s, err := readerAt(t, data, now, nil).Screen(context.Background(), b.id, Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := LeftOpen{State: Measured, N: 3, Day: Date{Year: 2026, Month: time.September, Day: 1}}
+	if s.LeftOpen != want {
+		t.Errorf("left open %+v, want %+v", s.LeftOpen, want)
+	}
+}
+
+// TestLeftOpen_SaysNPlusPastTheCap: AnomalyRowCap open check-ins are an exact count; one more is
+// "N+" -- the cap of the Odd shapes list the number links to.
+func TestLeftOpen_SaysNPlusPastTheCap(t *testing.T) {
+	data := passDB(t)
+	now := hLocal(t, "2026-09-02", "10:30:00")
+	b := newPassTenant(t, data, "Capped", "Door")
+	who := b.person("Many entries", "Door")
+	add := func(n, offset int) {
+		b.exec(`INSERT INTO transactions (tenant_id, employee_id, location_id, occurred_at, type, verdict, channel)
+		        SELECT $1, $2, $3, $4::timestamptz + make_interval(mins => g), 'in', 'ok', 'nfc'
+		        FROM generate_series($5::int, $5::int + $6::int - 1) g`,
+			b.id, who, b.venues["Door"], hLocal(t, "2026-09-01", "08:00:00"), offset, n)
+	}
+	read := func() LeftOpen {
+		s, err := readerAt(t, data, now, nil).Screen(context.Background(), b.id, Filter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.LeftOpen
+	}
+	add(AnomalyRowCap, 0)
+	if got := read(); got.N != AnomalyRowCap || got.Capped {
+		t.Errorf("exactly the cap: %+v, want N=%d, not capped", got, AnomalyRowCap)
+	}
+	add(1, AnomalyRowCap)
+	if got := read(); got.N != AnomalyRowCap || !got.Capped {
+		t.Errorf("one past the cap: %+v, want N=%d and Capped", got, AnomalyRowCap)
+	}
+}
+
+// TestRLS_LeftOpen_AnotherTenantsOpenCheckInsAreNotCounted: ListOpenCheckIns asked in A's context
+// for B answers nothing; a probe with no tenant predicate in A's context sees A's open check-in and
+// not B's. Positive control: B's own context.
+func TestRLS_LeftOpen_AnotherTenantsOpenCheckInsAreNotCounted(t *testing.T) {
+	data := passDB(t)
+	now := time.Now()
+	a := newPassTenant(t, data, "Open RLS A", "Door")
+	b := newPassTenant(t, data, "Open RLS B", "Door")
+	aWho, bWho := a.person("A open", "Door"), b.person("B open", "Door")
+	from := now.Add(-48 * time.Hour)
+	a.tap(passTap{who: aWho, venue: "Door", at: now.Add(-30 * time.Hour), kind: "in"})
+	b.tap(passTap{who: bWho, venue: "Door", at: now.Add(-30 * time.Hour), kind: "in"})
+
+	count := func(ctxTenant, asked uuid.UUID) int {
+		var n int
+		if err := data.WithTenant(context.Background(), ctxTenant, func(ctx context.Context, tx pgx.Tx) error {
+			rows, err := store.New(tx).ListOpenCheckIns(ctx, store.ListOpenCheckInsParams{TenantID: asked, FromAt: from, ToAt: now, RowLimit: 10})
+			n = len(rows)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count(b.id, b.id); n != 1 {
+		t.Fatalf("positive control: B's context counts %d of B's open check-ins, want 1", n)
+	}
+	if n := count(a.id, b.id); n != 0 {
+		t.Errorf("RLS: A's context asking for B's open check-ins got %d", n)
+	}
+	var seen []uuid.UUID
+	if err := data.WithTenant(context.Background(), a.id, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT t.employee_id FROM transactions t
+		                           LEFT JOIN employees e ON e.id = t.employee_id
+		                           LEFT JOIN locations l ON l.id = t.location_id
+		                           WHERE t.occurred_at >= $1 AND t.occurred_at < $2 AND t.type = 'in' AND NOT t.practice
+		                             AND NOT EXISTS (SELECT 1 FROM transactions o WHERE o.employee_id = t.employee_id
+		                                               AND o.type = 'out' AND o.occurred_at > t.occurred_at)`, from, now)
+		if err != nil {
+			return err
+		}
+		seen, err = pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(seen, aWho) {
+		t.Fatal("positive control: A's tenant-filter-free read does not see A's open check-in")
+	}
+	if slices.Contains(seen, bWho) {
+		t.Error("RLS: A's tenant-filter-free read sees B's open check-in")
 	}
 }

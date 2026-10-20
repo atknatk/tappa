@@ -438,6 +438,8 @@ type Screen struct {
 	// Tape is The Pass's hourly tape (M12-14): today's hours that have begun, people on shift per
 	// venue per hour. Today's view only, like Floor.
 	Tape Tape
+	// LeftOpen is The Pass's "left open since yesterday" (M12-15). Today's view only.
+	LeftOpen LeftOpen
 }
 
 // Day loads one page of dockets for the given filter.
