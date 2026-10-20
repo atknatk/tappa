@@ -145,7 +145,8 @@ func walkConfig(t *testing.T, on bool) *config.Config {
 // registers every route unconditionally and an option changes what a route DOES, not
 // which routes exist.
 // The integration API is built as openAPISurface builds it (that function takes the real
-// pool, so its body is mirrored here) with no sandbox extension -- the production build's.
+// pool, so its body is mirrored here -- the suspension reader included, tenant.WriteSuspension
+// since API-4b) with no sandbox extension -- the production build's.
 func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	t.Helper()
 	log := slog.New(slog.DiscardHandler)
@@ -234,7 +235,7 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	employees, err := tenant.NewEmployeeDirectory(data)
 	must(err)
 	surface, err := api.New(api.Config{
-		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: api.NoSuspensionColumn{}, Work: noWork{},
+		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: noWork{},
 		Locations: venues, Employees: staff, Punches: punches, Directory: employees, Log: log,
 	})
 	must(err)

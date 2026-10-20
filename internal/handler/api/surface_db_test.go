@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,30 +42,15 @@ type dbRig struct {
 	work   *workSet
 	venues *tenant.Venues
 	staff  *tenant.Staff
-	// suspended stands in for OP-15's column (this branch has none): the businesses it names are
-	// suspended, every other is not -- NoSuspensionColumn's answer.
-	suspended *suspendedSet
-	writes    *apikey.Writes
-	s         *Surface
-	h         http.Handler
-}
-
-// suspendedSet is a Suspension over a set of tenants; it reads nothing.
-type suspendedSet struct {
-	mu  sync.Mutex
-	set map[uuid.UUID]bool
-}
-
-func (s *suspendedSet) Suspended(_ context.Context, _ pgx.Tx, t uuid.UUID) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.set[t], nil
-}
-
-func (s *suspendedSet) suspend(t uuid.UUID) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.set[t] = true
+	writes *apikey.Writes
+	s      *Surface
+	h      http.Handler
+	// The suspension is OP-15's column, read by the shipped tenant.WriteSuspension (API-4b), and a
+	// test suspends a business the way the operator does -- suspension_db_test.go's suspend.
+	op operatorFixture
+	// afterAdmit, when set, runs inside the /_probe write right after its checkpoint passed -- the
+	// write's transaction open, before its effect (suspension_db_test.go's in-flight write).
+	afterAdmit atomic.Pointer[func()]
 }
 
 func newDBRig(t *testing.T, opts ...func(*Config)) *dbRig {
@@ -121,8 +107,7 @@ func newDBRig(t *testing.T, opts ...func(*Config)) *dbRig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	suspended := &suspendedSet{set: map[uuid.UUID]bool{}}
-	cfg := Config{Host: apiHost, Keys: chain, Writes: writes, Suspension: suspended, Work: work,
+	cfg := Config{Host: apiHost, Keys: chain, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: work,
 		Locations: venues, Employees: staff, Punches: punches, Directory: directory, Log: slog.New(slog.DiscardHandler)}
 	for _, o := range opts {
 		o(&cfg)
@@ -131,7 +116,7 @@ func newDBRig(t *testing.T, opts ...func(*Config)) *dbRig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &dbRig{t: t, d: d, owner: owner, keys: keys, trail: trail, work: work, venues: venues, staff: staff, suspended: suspended,
+	r := &dbRig{t: t, d: d, owner: owner, keys: keys, trail: trail, work: work, venues: venues, staff: staff,
 		writes: writes, s: s}
 	withTestRoutes(s, func(rt chi.Router) {
 		// A read in the key's tenant: an api_keys row by id, WithTenant + an explicit filter -- the
@@ -168,7 +153,37 @@ func newDBRig(t *testing.T, opts ...func(*Config)) *dbRig {
 				if err := g.Admit(ctx, WriteLocationPut); err != nil {
 					return apikey.Outcome{}, err
 				}
+				if hook := r.afterAdmit.Load(); hook != nil {
+					(*hook)()
+				}
 				id, err := trail.RecordTx(ctx, tx, audit.Event{TenantID: p.TenantID, ActorID: p.Actor(), Action: "api.surface_probe",
+					Target: chi.URLParam(req, "ref"), Detail: p.Attribution()})
+				if err != nil {
+					return apikey.Outcome{}, err
+				}
+				return apikey.Outcome{Status: http.StatusCreated, Ref: &id}, nil
+			})
+			if ok {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(out.Status)
+				_ = json.NewEncoder(w).Encode(map[string]string{"id": out.Ref.String()})
+			}
+		})
+		// A write nobody classified (the zero WriteClass, ADR 0028 §10: "tabloda adı geçmeyen her M11
+		// yazması askıda kapalı") with a committed effect: an audit row, through the runner.
+		rt.Put("/_unclassified/{ref}", func(w http.ResponseWriter, req *http.Request) {
+			body, prob := readBody(req)
+			if prob != nil {
+				writeProblem(w, prob)
+				return
+			}
+			p, _ := PrincipalOf(req)
+			out, _, ok := s.write(w, req, body, func(ctx context.Context, tx pgx.Tx, g *Gate) (apikey.Outcome, error) {
+				var unclassified WriteClass
+				if err := g.Admit(ctx, unclassified); err != nil {
+					return apikey.Outcome{}, err
+				}
+				id, err := trail.RecordTx(ctx, tx, audit.Event{TenantID: p.TenantID, ActorID: p.Actor(), Action: "api.surface_unclassified",
 					Target: chi.URLParam(req, "ref"), Detail: p.Attribution()})
 				if err != nil {
 					return apikey.Outcome{}, err

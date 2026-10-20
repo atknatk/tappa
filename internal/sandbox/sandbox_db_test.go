@@ -97,7 +97,7 @@ func newRigOn(t *testing.T, poolMax int) *rig {
 		t.Fatal(err)
 	}
 	surface, err := api.New(api.Config{
-		Host: apiHost, Keys: chain, Writes: must(apikey.NewWrites(d)), Suspension: api.NoSuspensionColumn{}, Work: noWork{},
+		Host: apiHost, Keys: chain, Writes: must(apikey.NewWrites(d)), Suspension: tenant.WriteSuspension{}, Work: noWork{},
 		Locations: must(tenant.NewVenues(d, trail, quiet)), Employees: must(tenant.NewStaff(d, trail, quiet)),
 		Punches: must(tenant.NewPunchFeed(d)), Directory: must(tenant.NewEmployeeDirectory(d)),
 		Extensions: []api.Extension{sim}, Log: quiet,
@@ -547,6 +547,47 @@ func TestSandbox_KeyWithoutOperatorIs403(t *testing.T) {
 	r.exec(`UPDATE tenants SET api_enabled_at = now() WHERE id = $1`, closed)
 	if b := decodeTap(t, r.tap(key, "E-1", "V-1", "nfc")); b.Verdict != "flag" {
 		t.Fatalf("CONTROL: the opened business's tap: %+v", b)
+	}
+}
+
+// TestSandbox_ASuspendedBusinessCannotSimulate (M11 API-4b; ADR 0028 §10: "tabloda adı geçmeyen her M11
+// yazması askıda kapalı"): the simulation is the one SHIPPED /v1 write of the zero WriteClass, and with
+// the checkpoint reading OP-15's column (tenant.WriteSuspension) a business whose suspended_at is set
+// is answered 403 tenant_suspended -- no plaque provisioned, no tap, no event. Lifted, the same
+// request is 201 (control). The suspension is set by the OWNER (the two columns, as 00063's CHECKs
+// require them): this test's subject is the class on the column; the operator's path end to end is
+// internal/handler/api's suspension_db_test.go. Lifted in t.Cleanup as well (00063's Down refuses
+// while one stands).
+//
+// MUTANT (measured, API-4b report): simulate.go admitting WriteEmployeeCreate (an open class) -> red.
+func TestSandbox_ASuspendedBusinessCannotSimulate(t *testing.T) {
+	r := newRig(t)
+	biz, key := r.business(true, "SUSP")
+	r.venue(key, "S-VLT")
+	r.employee(biz, "E-1", "active")
+	lift := func() {
+		if _, err := r.owner.Exec(context.Background(), `UPDATE tenants SET suspended_at = NULL, suspension_reason = NULL WHERE id = $1`, biz); err != nil {
+			t.Errorf("lift the fixture's suspension: %v", err)
+		}
+	}
+	t.Cleanup(lift)
+	r.exec(`UPDATE tenants SET suspended_at = clock_timestamp(), suspension_reason = 'security_hold' WHERE id = $1`, biz)
+	w := r.tap(key, "E-1", "S-VLT", "nfc")
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), `"code":"tenant_suspended"`) {
+		t.Fatalf("a suspended business's simulation: %d %s, want 403 tenant_suspended", w.Code, w.Body.String())
+	}
+	for what, q := range map[string]string{
+		"plaques": `SELECT count(*) FROM tags WHERE tenant_id = $1`,
+		"taps":    `SELECT count(*) FROM transactions WHERE tenant_id = $1`,
+		"events":  `SELECT count(*) FROM punch_events WHERE tenant_id = $1`,
+	} {
+		if n := r.count(q, biz); n != 0 {
+			t.Fatalf("a refused simulation left %d %s", n, what)
+		}
+	}
+	lift()
+	if w := r.tap(key, "E-1", "S-VLT", "nfc"); w.Code != http.StatusCreated {
+		t.Fatalf("CONTROL, lifted: %d %s, want 201", w.Code, w.Body.String())
 	}
 }
 

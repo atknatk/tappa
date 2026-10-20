@@ -5,12 +5,15 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/google/uuid"
 )
 
 // TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker pins M11 API-4's wiring as the command
@@ -21,7 +24,7 @@ import (
 //	             TestAPIKeyWiring_TheKeysServiceReachesThePanel pins on the panel's apikey.NewKeys, so a
 //	             key the panel issues is a key the chain accepts (plan §5, API-3's hand-over; API-11
 //	             changes both together)
-//	the surface  api.New once, with api.NoSuspensionColumn{} (until OP-15), the worker parameter as
+//	the surface  api.New once, with tenant.WriteSuspension{} (API-4b: OP-15's column), the worker parameter as
 //	             its Work and the venues parameter as its Locations (API-5)
 //	the venues   run() hands openAPISurface, as its venues argument, the identifier it assigned from
 //	             tenant.NewVenues -- the PANEL's venue domain, so a venue the API writes passes the
@@ -126,7 +129,7 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 			}
 			switch kv.Key.(*ast.Ident).Name {
 			case "Suspension":
-				if c, ok := kv.Value.(*ast.CompositeLit); ok && isSel(c.Type, "api", "NoSuspensionColumn") {
+				if c, ok := kv.Value.(*ast.CompositeLit); ok && isSel(c.Type, "tenant", "WriteSuspension") {
 					suspension = true
 				}
 			case "Work":
@@ -149,7 +152,7 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 		}
 	}
 	if !suspension || !work || !locations || !employees || !punches {
-		t.Fatalf("api.New: Suspension api.NoSuspensionColumn{} %v, Work the %q parameter %v, Locations the %q parameter %v, Employees the %q parameter %v, Punches %q %v",
+		t.Fatalf("api.New: Suspension tenant.WriteSuspension{} %v, Work the %q parameter %v, Locations the %q parameter %v, Employees the %q parameter %v, Punches %q %v",
 			suspension, workParam, work, venuesParam, locations, staffParam, employees, punchesIdent, punches)
 	}
 	if n := len(calls(apiFile, "tenant", "NewStaff")); n != 0 {
@@ -270,67 +273,209 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 	}
 }
 
-// TestAPIWiring_TheSuspensionReaderFollowsTheColumn is the tripwire of the suspension checkpoint
-// (API-4 review, both lenses): openAPISurface wires api.NoSuspensionColumn because this branch has no
-// tenants.suspended_at -- a reader that always says "not suspended". The day OP-15 brings the column,
-// that wiring silently keeps every business unsuspendable through /v1. So this test reads whether
-// the column exists, two ways, and refuses the pair "column present + NoSuspensionColumn wired":
+// TestAPIWiring_TheSuspensionReaderFollowsTheColumn was API-4's tripwire (both lenses of its review):
+// openAPISurface wired api.NoSuspensionColumn -- a reader that always said "not suspended" -- because
+// the branch had no tenants.suspended_at, and the test turned red the day OP-15 brought the column.
+// It did (00063); API-4b replaced the reader, and the test now pins the REPLACEMENT -- the arm "the
+// column exists and the always-false reader is wired" is unreachable (the type is gone), so it is not
+// kept; the arm "the column's reader is wired" is tightened to five:
 //
-//	the schema     tenants.suspended_at in the live catalog (DATABASE_URL; skipped without one,
-//	               which CI always has)
-//	the migrations any db/migrations file naming suspended_at (no database needed)
+//	the column      a db/migrations file names suspended_at, and (DATABASE_URL) tenants.suspended_at is
+//	                in the live catalog -- the anti-vacuity of everything below
+//	the wiring      api.New's Suspension in api.go is exactly the literal tenant.WriteSuspension{}
+//	one reader      in the whole module's non-test Go, the ONE method named Suspended is
+//	                tenant.WriteSuspension's -- no stand-in (always false, a cache, a set) can be
+//	                declared beside it and wired instead
+//	its read        that method calls store's GetTenantSuspended and nothing else of store; the query
+//	                (db/queries/tenants.sql) reads suspended_at from tenants by `id = @tenant_id`, with
+//	                no row-lock clause (API-4b's measured decision -- suspension.go)
+//	the behaviour   (DATABASE_URL + DATABASE_MIGRATE_URL) through openAPISurface itself: a business whose
+//	                suspended_at is set is answered 403 tenant_suspended on PUT /v1/locations and the
+//	                venue is not written; once lifted, the same PUT is 201
 //
-// API-4b closes when this turns red and the reader is replaced (plan §5, API-4b).
+// The suspension here is set by the OWNER (a direct UPDATE of the two columns), not by
+// op_suspend_tenant: this test's subject is which reader the command wires, and the operator's path
+// end to end is internal/handler/api's TestSuspension_* (suspension_db_test.go).
 //
-// MUTANT (measured, API-4 review report): the column added to a throwaway database -> red; a
-// migration file naming it -> red.
+// MUTANTS (measured, API-4b report): api.go wiring an always-false reader (re-declared in api) ->
+// red (the wiring, one reader, the behaviour); the query reading another column -> red (its read, the
+// behaviour); FOR SHARE added to the query -> red (its read).
 func TestAPIWiring_TheSuspensionReaderFollowsTheColumn(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join(repoRoot, "cmd", "tappa", "api.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	wired := strings.Contains(string(src), "Suspension: api.NoSuspensionColumn{}")
-	if !wired {
-		t.Log("the checkpoint is no longer wired to api.NoSuspensionColumn; this tripwire has nothing left to guard")
-		return
-	}
 	files, err := filepath.Glob(filepath.Join(repoRoot, "db", "migrations", "*.sql"))
 	if err != nil || len(files) < 50 {
 		t.Fatalf("anti-vacuity: %d migration files (%v)", len(files), err)
 	}
+	named := 0
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if strings.Contains(string(b), "suspended_at") {
-			t.Errorf("%s names suspended_at while /v1's suspension checkpoint is wired to api.NoSuspensionColumn: "+
-				"replace the reader with the column's read and write API-4b's table test", filepath.Base(f))
+			named++
 		}
 	}
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Log("DATABASE_URL not set: the schema arm is skipped (CI runs it)")
-		return
+	if named == 0 {
+		t.Fatal("no migration names suspended_at: the column the checkpoint reads does not exist")
 	}
-	ctx := context.Background()
-	c, err := pgx.Connect(ctx, dsn)
+
+	// The wiring.
+	fset := token.NewFileSet()
+	apiFile, err := parser.ParseFile(fset, filepath.Join(repoRoot, "cmd", "tappa", "api.go"), nil, 0)
 	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	defer func() { _ = c.Close(ctx) }()
-	var has, tenants bool
-	if err := c.QueryRow(ctx, `SELECT to_regclass('public.tenants') IS NOT NULL,
-	                                  EXISTS (SELECT 1 FROM pg_catalog.pg_attribute
-	                                           WHERE attrelid = to_regclass('public.tenants') AND attname = 'suspended_at' AND NOT attisdropped)`).
-		Scan(&tenants, &has); err != nil {
 		t.Fatal(err)
 	}
-	if !tenants {
-		t.Fatal("CONTROL: the database has no tenants table")
+	wired, seen := false, 0
+	ast.Inspect(apiFile, func(n ast.Node) bool {
+		kv, ok := n.(*ast.KeyValueExpr)
+		if !ok {
+			return true
+		}
+		if k, ok := kv.Key.(*ast.Ident); !ok || k.Name != "Suspension" {
+			return true
+		}
+		seen++
+		lit, ok := kv.Value.(*ast.CompositeLit)
+		if !ok || len(lit.Elts) != 0 {
+			return true
+		}
+		if sel, ok := lit.Type.(*ast.SelectorExpr); ok && sel.Sel.Name == "WriteSuspension" && isIdent(sel.X, "tenant") {
+			wired = true
+		}
+		return true
+	})
+	if seen != 1 || !wired {
+		t.Fatalf("api.go: %d Suspension field(s), wired to tenant.WriteSuspension{} %v; want exactly one, that literal", seen, wired)
 	}
-	if has {
-		t.Error("tenants.suspended_at exists while /v1's suspension checkpoint is wired to api.NoSuspensionColumn: " +
-			"every business is unsuspendable through /v1 -- replace the reader and write API-4b's table test")
+
+	// One reader in the module, and what it reads.
+	var readers []string
+	var readerCalls []string
+	err = filepath.WalkDir(repoRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", ".tools", "node_modules", "testdata":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			return err
+		}
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Recv == nil || fd.Name.Name != "Suspended" {
+				continue
+			}
+			recv := fd.Recv.List[0].Type
+			if st, ok := recv.(*ast.StarExpr); ok {
+				recv = st.X
+			}
+			name := "?"
+			if id, ok := recv.(*ast.Ident); ok {
+				name = id.Name
+			}
+			rel, _ := filepath.Rel(repoRoot, path)
+			readers = append(readers, filepath.ToSlash(rel)+":"+name)
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				if c, ok := n.(*ast.CallExpr); ok {
+					if sel, ok := c.Fun.(*ast.SelectorExpr); ok {
+						readerCalls = append(readerCalls, sel.Sel.Name)
+					}
+				}
+				return true
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(readers) != 1 || readers[0] != "internal/domain/tenant/suspension.go:WriteSuspension" {
+		t.Fatalf("methods named Suspended in the module's non-test Go: %v; want only internal/domain/tenant/suspension.go:WriteSuspension", readers)
+	}
+	if !slices.Contains(readerCalls, "GetTenantSuspended") {
+		t.Fatalf("tenant.WriteSuspension.Suspended calls %v; want store's GetTenantSuspended", readerCalls)
+	}
+	q, err := os.ReadFile(filepath.Join(repoRoot, "db", "queries", "tenants.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := strings.Index(string(q), "-- name: GetTenantSuspended :one")
+	if i < 0 {
+		t.Fatal("db/queries/tenants.sql declares no GetTenantSuspended")
+	}
+	body := string(q[i:])
+	if j := strings.Index(body[1:], "-- name: "); j >= 0 {
+		body = body[:j+1]
+	}
+	var stmt []string
+	for _, line := range strings.Split(body, "\n") {
+		if l := strings.TrimSpace(line); l != "" && !strings.HasPrefix(l, "--") {
+			stmt = append(stmt, l)
+		}
+	}
+	want := "SELECT (suspended_at IS NOT NULL)::boolean AS suspended FROM tenants WHERE id = @tenant_id;"
+	if got := strings.Join(stmt, " "); got != want {
+		t.Fatalf("GetTenantSuspended is\n  %s\nwant\n  %s\n(the column, the belt, and no row lock -- suspension.go's measured decision)", got, want)
+	}
+
+	appDSN, ownerDSN := os.Getenv("DATABASE_URL"), os.Getenv("DATABASE_MIGRATE_URL")
+	if appDSN == "" || ownerDSN == "" {
+		t.Log("DATABASE_URL / DATABASE_MIGRATE_URL not set: the schema and behaviour arms are skipped (CI runs them)")
+		return
+	}
+	sh := newShippedAPI(t, "API-4b wiring", "APIFOURB")
+	ctx := context.Background()
+	var has bool
+	if err := sh.owner.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute
+	                                   WHERE attrelid = to_regclass('public.tenants') AND attname = 'suspended_at' AND NOT attisdropped)`).Scan(&has); err != nil || !has {
+		t.Fatalf("tenants.suspended_at in the live catalog: %v (%v)", has, err)
+	}
+	set := func(on bool) {
+		t.Helper()
+		q := `UPDATE tenants SET suspended_at = NULL, suspension_reason = NULL WHERE id = $1`
+		if on {
+			q = `UPDATE tenants SET suspended_at = clock_timestamp(), suspension_reason = 'non_payment' WHERE id = $1`
+		}
+		if _, err := sh.owner.Exec(ctx, q, sh.biz); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A committed suspension left behind would make 00063's Down refuse (K15-6).
+	t.Cleanup(func() {
+		if _, err := sh.owner.Exec(context.Background(), `UPDATE tenants SET suspended_at = NULL, suspension_reason = NULL WHERE id = $1`, sh.biz); err != nil {
+			t.Errorf("lift the fixture's suspension: %v", err)
+		}
+	})
+	ref := "SUSP-" + uuid.NewString()[:8]
+	put := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPut, "http://"+shippedAPIHost+"/v1/locations/"+ref, strings.NewReader(`{"name":"Birgu","active":true}`))
+		req.Header.Set("Authorization", "Bearer "+sh.raw)
+		w := httptest.NewRecorder()
+		sh.h.ServeHTTP(w, req)
+		return w
+	}
+	venues := func() (n int) {
+		t.Helper()
+		if err := sh.owner.QueryRow(ctx, `SELECT count(*) FROM locations WHERE tenant_id = $1 AND external_ref = $2`, sh.biz, ref).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	set(true)
+	if w := put(); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), `"code":"tenant_suspended"`) || venues() != 0 {
+		t.Fatalf("suspended, through the shipped surface: %d %s, %d venue(s); want 403 tenant_suspended and none", w.Code, w.Body.String(), venues())
+	}
+	set(false)
+	if w := put(); w.Code != http.StatusCreated || venues() != 1 {
+		t.Fatalf("lifted, through the shipped surface: %d %s, %d venue(s); want 201 and one", w.Code, w.Body.String(), venues())
 	}
 }

@@ -429,6 +429,26 @@ func TestAPIIdempotencyQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 	fileBelt(t, "apiidempotency.sql", 5)
 }
 
+// TestTenantSuspensionQuery_CarriesAnExplicitTenantPredicate is the §4.5 belt over GetTenantSuspended
+// (M11 API-4b): the read of /v1's suspension checkpoint binds `tenants.id` -- the table's scope column
+// -- to the caller's @tenant_id, beside RLS. Query-derived rather than file-derived: tenants.sql is not
+// belted as a file, because CreateTenant's INSERT names a fresh id the sign-up mints (its own header).
+//
+// MUTANTS (measured, API-4b report): the WHERE dropped, and `WHERE true` -> red, each.
+func TestTenantSuspensionQuery_CarriesAnExplicitTenantPredicate(t *testing.T) {
+	_, body, ok := findQuery(t, "GetTenantSuspended")
+	if !ok {
+		t.Fatal("no GetTenantSuspended in db/queries")
+	}
+	findings, checked := scopeFindings(body, tenantScopedTables(t))
+	for _, f := range findings {
+		t.Errorf("GetTenantSuspended %s", f)
+	}
+	if checked == 0 {
+		t.Error("GetTenantSuspended: the scan found no statement touching a tenant-scoped table, so it checked nothing")
+	}
+}
+
 // TestReviewsQueries_CarryAnExplicitTenantPredicate is the same belt over reviews.sql (M11 API-10 review,
 // D-3). internal/domain/review's TestReviewQueries_CarryAnExplicitTenantPredicate derives its list from
 // the queries THAT package calls -- and API-10's GetReviewedPunchSite (the approval's K-19 read) is called
