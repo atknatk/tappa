@@ -553,9 +553,14 @@ func (f *fakeReviewer) recorded() []review.Decision {
 // transaction — a fake accepts whatever it is told, so those live in
 // employeeactions_db_test.go against real Postgres.
 type fakeStaff struct {
-	mu            sync.Mutex
-	person        *tenant.Person
-	personErr     error
+	mu        sync.Mutex
+	person    *tenant.Person
+	personErr error
+	// M12-20's card summary. The zero value is NotQueried: the fake claims nothing about a
+	// person's sessions or links unless a test says what they are.
+	summary       tenant.PersonSummary
+	summaryErr    error
+	summaryAsked  []uuid.UUID
 	deactivateErr error
 	moveErr       error
 	addErr        error
@@ -685,6 +690,17 @@ func (f *fakeStaff) Person(_ context.Context, _, employeeID uuid.UUID) (tenant.P
 		LocationID:   &panelTestLocation,
 		LocationName: "KF St Julians",
 	}, nil
+}
+
+// Summary is M12-20's read. It records whom it was asked about.
+func (f *fakeStaff) Summary(_ context.Context, _, employeeID uuid.UUID) (tenant.PersonSummary, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.summaryAsked = append(f.summaryAsked, employeeID)
+	if f.summaryErr != nil {
+		return tenant.PersonSummary{}, f.summaryErr
+	}
+	return f.summary, nil
 }
 
 func (f *fakeStaff) Deactivate(_ context.Context, c tenant.DeactivateCommand) (tenant.Person, error) {

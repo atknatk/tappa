@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/internal/domain/tenant"
 )
 
 // peopleReadTypes are the domain types the People reads hand to the panel.
@@ -21,6 +22,7 @@ var peopleReadTypes = []reflect.Type{
 	reflect.TypeOf(ledger.StatusTally{}),
 	reflect.TypeOf(ledger.LastTap{}),
 	reflect.TypeOf(ledger.RecentTaps{}),
+	reflect.TypeOf(tenant.PersonSummary{}),
 }
 
 // peopleReadFields are the fields M12 added to an existing type, whose other fields predate this
@@ -64,6 +66,7 @@ func TestPeopleReads_CarryNothingACoordinateCouldTravelIn(t *testing.T) {
 	allowedLeaf := map[reflect.Type]bool{
 		reflect.TypeOf(uuid.UUID{}):       true,
 		reflect.TypeOf(ledger.Reading(0)): true,
+		reflect.TypeOf(tenant.Reading(0)): true,
 	}
 	seen := map[reflect.Type]bool{}
 	fields := 0

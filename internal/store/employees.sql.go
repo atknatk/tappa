@@ -991,6 +991,105 @@ func (q *Queries) GetPanelEmployeeForAction(ctx context.Context, arg GetPanelEmp
 	return i, err
 }
 
+const getPanelPersonSummary = `-- name: GetPanelPersonSummary :one
+SELECT e.id, e.status, e.role, e.invited_at, e.activated_at, e.deactivated_at,
+       COALESCE(ls.live_sessions, 0)::bigint AS live_sessions,
+       fs.created_at AS first_session_at,
+       ls.last_used_at AS session_last_used_at
+FROM employees e
+LEFT JOIN LATERAL (
+    SELECT s.last_used_at, count(*) OVER () AS live_sessions
+    FROM sessions s
+    WHERE s.tenant_id = $1
+      AND s.employee_id = e.id
+      AND s.revoked_at IS NULL
+    ORDER BY s.last_used_at DESC NULLS LAST
+    LIMIT 1
+) ls ON TRUE
+LEFT JOIN LATERAL (
+    SELECT s.id
+    FROM sessions s
+    WHERE s.tenant_id = $1
+      AND s.employee_id = e.id
+      AND s.revoked_at IS NULL
+    ORDER BY s.created_at ASC, s.id ASC
+    LIMIT 1
+) f ON TRUE
+LEFT JOIN sessions fs ON fs.tenant_id = e.tenant_id AND fs.id = f.id
+WHERE e.tenant_id = $1
+  AND e.id = $2
+`
+
+type GetPanelPersonSummaryParams struct {
+	TenantID   uuid.UUID
+	EmployeeID uuid.UUID
+}
+
+type GetPanelPersonSummaryRow struct {
+	ID                uuid.UUID
+	Status            string
+	Role              *string
+	InvitedAt         *time.Time
+	ActivatedAt       *time.Time
+	DeactivatedAt     *time.Time
+	LiveSessions      int64
+	FirstSessionAt    *time.Time
+	SessionLastUsedAt *time.Time
+}
+
+// ONE person's summary for the People card (M12-20, panel redesign D3): the job title, the
+// lifecycle stamps, and what a manager chasing a phone needs -- how many browser sessions
+// are live, since when the oldest of them, when one was last used.
+//
+// 🔴 IT IS A SEPARATE STATEMENT AND GetPanelEmployeeForAction IS NOT WIDENED. That one is
+// read INSIDE Deactivate and Move, in the write's own transaction, to name the FROM half
+// of the audit row; every column added to it is a column those writes read for nothing.
+//
+// THE LIFECYCLE STAMPS ARE THE COLUMNS AS THEY ARE: invited_at is written by NO statement
+// of this product (CreateEmployee says so), so a person added in the panel has it NULL and
+// the card prints no "invited on" date rather than inventing one -- the pending invitation's
+// own date comes from ListPendingInvitesForEmployee instead.
+//
+// 🔴 SECTION 4.7 -- WHAT IT DOES NOT SELECT: employees.email, sessions.token_hash,
+// sessions.device_info, sessions.id (beyond the join below, never returned), and nothing of
+// employee_invites. The session facts are a COUNT and two INSTANTS.
+//
+// LIVE MEANS revoked_at IS NULL, exactly ListPanelEmployees' lateral: the card's count and
+// the roster row's count are the same number. A deactivated person keeps theirs (user
+// decision 2026-08-07: deactivating does not sign phones out), and the card says so.
+//
+// THE SHAPE IS DICTATED BY sqlc's NULLABILITY INFERENCE, the hazard ListPanelEmployees
+// documents: a LEFT JOIN LATERAL column is typed by its SOURCE column. last_used_at is
+// nullable at the source, so ls.last_used_at types as *time.Time; created_at is NOT NULL, so
+// the oldest live session's created_at is reached by joining sessions back on the lateral's
+// id (fs) -- a LEFT JOIN of a TABLE, which sqlc types nullable, which is what "no session"
+// needs. The count is COALESCEd in the outer select.
+//
+// TENANT SCOPE (section 4.5, belt + braces): the explicit e.tenant_id predicate is required
+// even though RLS is on, both laterals bind the CALLER's tenant parameter, and the sessions
+// join restates the tenant in its ON. A foreign id returns no row.
+//
+// EXPLAIN ANALYZE (2026-10-20, seeded KF tenant, as tappa_app): Index Scan using
+// employees_id_tenant_key for the one person; the two session laterals and the join back
+// Seq Scan a 23-row sessions table (on a large one they probe sessions_tenant_idx
+// (tenant_id, employee_id), as ListPanelEmployees measures), 1.3 ms.
+func (q *Queries) GetPanelPersonSummary(ctx context.Context, arg GetPanelPersonSummaryParams) (GetPanelPersonSummaryRow, error) {
+	row := q.db.QueryRow(ctx, getPanelPersonSummary, arg.TenantID, arg.EmployeeID)
+	var i GetPanelPersonSummaryRow
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.Role,
+		&i.InvitedAt,
+		&i.ActivatedAt,
+		&i.DeactivatedAt,
+		&i.LiveSessions,
+		&i.FirstSessionAt,
+		&i.SessionLastUsedAt,
+	)
+	return i, err
+}
+
 const getRosterCursorAnchor = `-- name: GetRosterCursorAnchor :one
 SELECT full_name
 FROM employees
