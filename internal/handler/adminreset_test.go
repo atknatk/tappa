@@ -497,12 +497,32 @@ func TestAdminReset_WithoutAChannelNothingIsIssuedAndTheScreenSaysSo(t *testing.
 				"say that anywhere in the document, headings and <title> included", promise)
 		}
 	}
+	// ⚠️ AND NO SCREEN OF THIS FLOW PROMISES A WAY ROUND IT THAT DOES NOT EXIST
+	// (M12-05). Both the form and the answer used to send the visitor to "another
+	// owner of your business" to set a password "from the panel"; the panel has no
+	// such form — an administrator can change only their own password.
+	assertNoOwnerResetPromise(t, "the request form", form)
+	assertNoOwnerResetPromise(t, "the answer", body)
 	// 🔴 AND NOTHING HAPPENED. This is the part that matters more than the wording:
 	// issuing would have retired the administrator's pending links (ADR 0015's
 	// accepted harm) in exchange for a link nobody can receive.
 	if issue, _ := resets.calls(); issue != 0 {
 		t.Errorf("IssueForEmail was called %d time(s) on a deployment with no channel; that "+
 			"mints a token nobody can be given and kills any link that was already live", issue)
+	}
+}
+
+// assertNoOwnerResetPromise refuses the sentence M12-05 removed from every
+// recovery screen. Matched in lower case and in pieces, so a rewording that keeps
+// the promise ("ask a co-owner to reset it from the panel") is caught as well.
+func assertNoOwnerResetPromise(t *testing.T, where, body string) {
+	t.Helper()
+	lower := strings.ToLower(body)
+	for _, phrase := range []string{"another owner", "co-owner", "from the panel"} {
+		if strings.Contains(lower, phrase) {
+			t.Errorf("%s says %q: the panel has no form for one administrator to set "+
+				"another's password, so it must not send anybody there", where, phrase)
+		}
 	}
 }
 
@@ -1126,6 +1146,7 @@ func TestAdminResetSubmit_FailsClosedWhenNothingCanDeliver(t *testing.T) {
 	if !strings.Contains(body, "cannot send recovery links") {
 		t.Errorf("the refusal does not say why:\n%s", body)
 	}
+	assertNoOwnerResetPromise(t, "the refusal", body)
 	// The POST too, driven directly since the GET refuses to set up the form.
 	posted := b.do(http.MethodPost, adminResetNewPath, url.Values{
 		"csrf": {"whatever"}, "password": {"a-good-enough-password"}, "password_confirm": {"a-good-enough-password"},
