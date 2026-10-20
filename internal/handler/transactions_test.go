@@ -32,6 +32,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/domain/checkin"
@@ -68,16 +69,20 @@ var coordinateField = regexp.MustCompile(`(?i)^(gps|lat|lng|long|longitude|latit
 // query, the domain record and the view model each have a field set; this walks
 // all three and fails on any field whose NAME says it holds a coordinate or an
 // address -- at the start of the name (coordinateField) or in any word of it
-// (bannedFieldName: TapLat, SiteGPS) -- and on any field whose TYPE is a fraction,
-// or, on the view model, anything but a word or a flag. A future edit that widens the SELECT to "just add gps_lat for a map"
-// turns this red at the first of the three walls, before any template exists to
-// render it.
+// (bannedFieldName: TapLat, SiteGPS) -- and on any field whose TYPE is a fraction
+// (a Go float, or the pgtype.Numeric/Float4/Float8 sqlc generates for a numeric or
+// float column, pointer or not), or, on the view model, anything but a word or a
+// flag. A future edit that widens the SELECT to "just add gps_lat for a map" turns
+// this red at the first of the three walls, before any template exists to render it.
 //
 // 🔴 THE SIGNS ARE THE EXEMPTION AND THEY ARE NAMED, so the rule cannot be
 // satisfied by deleting the evidence entirely: IpMatch/GpsMatch are BOOLEANS and
 // are required to be present. That is the positive control -- it is what makes
 // this test fail if somebody "fixes" it by removing everything that matches.
 func TestTypes_NothingOnTheReadPathCanCarryACoordinate(t *testing.T) {
+	pgFractions := map[reflect.Type]bool{
+		reflect.TypeOf(pgtype.Numeric{}): true, reflect.TypeOf(pgtype.Float4{}): true, reflect.TypeOf(pgtype.Float8{}): true,
+	}
 	// booleans that ARE allowed: they carry the sign, never the value.
 	allowed := map[string]bool{"IpMatch": true, "GpsMatch": true, "IPMatch": true, "GPSMatch": true, "IPSign": true, "GPSSign": true}
 
@@ -102,12 +107,17 @@ func TestTypes_NothingOnTheReadPathCanCarryACoordinate(t *testing.T) {
 			// THE TYPE, NOT ONLY THE NAME: a coordinate is a float whatever it is called,
 			// and on the view model anything but a word or a flag is a value that skipped
 			// the formatting this wall exists to force.
-			k := f.Type.Kind()
-			if k == reflect.Ptr {
-				k = f.Type.Elem().Kind()
+			// The sqlc row is where a coordinate column would arrive first, and sqlc
+			// hands numeric/real/double precision over as pgtype STRUCTS, which a
+			// kind check alone reads as harmless. No field of the three walls is one
+			// of them today.
+			ft := f.Type
+			if ft.Kind() == reflect.Ptr {
+				ft = ft.Elem()
 			}
+			k := ft.Kind()
 			switch {
-			case k == reflect.Float32 || k == reflect.Float64 || k == reflect.Complex64 || k == reflect.Complex128:
+			case k == reflect.Float32 || k == reflect.Float64 || k == reflect.Complex64 || k == reflect.Complex128 || pgFractions[ft]:
 				t.Errorf("%s: %s is a %s -- §4.7: a fractional number on the read path "+
 					"is the shape a raw coordinate arrives in", wall.what, f.Name, f.Type)
 			case wall.words && f.Type.Kind() != reflect.String && f.Type.Kind() != reflect.Bool:
