@@ -719,6 +719,21 @@ func TestPlaquesCard_OpensOnlyWhenNoOtherCardDid(t *testing.T) {
 	if strings.Contains(html, "We could not find that plaque") {
 		t.Fatal("the section reported a plaque missing that it never looked for")
 	}
+	// ⚠️ M12-35 MADE THE TWO ASSERTIONS ABOVE WEAKER THAN THEY READ: an open venue form
+	// is now a page of its own and draws no plaque card at all, so a handler that BUILT
+	// the plaque card anyway would still render no mount form. What the card does that
+	// the page cannot hide is mint: a plaque on a wall with a spare in the box is offered
+	// a replacement, which signs a confirmation into a cookie. Asking for that card beside
+	// a venue must mint nothing.
+	rec := b.do(http.MethodGet,
+		locationsHref+"?venue="+venues.firstVenueID().String()+"&plaque="+uidOnWall, nil)
+	if mintedConfirmation(rec) {
+		t.Fatal("asking for a plaque beside a venue form built the plaque card (it minted a confirmation)")
+	}
+	// THE CONTROL: on its own, the same plaque's card does mint.
+	if !mintedConfirmation(b.do(http.MethodGet, locationsHref+"?plaque="+uidOnWall, nil)) {
+		t.Fatal("control: the plaque's own card minted nothing, so the assertion above proves nothing")
+	}
 }
 
 // --- the writes -------------------------------------------------------------------

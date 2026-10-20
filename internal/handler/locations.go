@@ -308,6 +308,11 @@ func (a *AdminAuth) locationsSection(w http.ResponseWriter, r *http.Request) {
 	// a URL nothing mounts — the failure mustSectionHref exists to make impossible
 	// for the section itself, applied to every write route it mounts.
 	bindFormTargets(&v)
+	if err := a.formPage(r, &v, screen, plaques); err != nil {
+		a.log.Error("panel: could not read the venue behind the open form", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		return
+	}
 	// 🔴 THE PLAQUE CARD IS THE THIRD AND IT OPENS ONLY WHEN NEITHER OF THE OTHER TWO
 	// DID. At most one card is ever open — the rule venueForms already holds for its
 	// pair — so the precedence (venue, then department, then plaque) is written here
@@ -432,6 +437,82 @@ func unresolvedCardProblem(r *http.Request, v pages.LocationsView) string {
 		return "unknown-department"
 	}
 	return ""
+}
+
+// formPage makes an open venue or department form a page of its own (M12-35): the
+// form's heading is the page's title, the trail and Cancel lead back to the venue the
+// form is about, and a venue's form gets its side column, read from the SAVED venue.
+//
+// The venue is looked up the way venueForms looked it up -- the page's list first, the
+// tenant-scoped by-id read for a row past the cap -- so the common path pays nothing.
+// An id that names nothing (a refused edit of a venue removed meanwhile) leaves the
+// side empty rather than inventing one; a failed read is returned.
+func (a *AdminAuth) formPage(r *http.Request, v *pages.LocationsView, screen tenant.VenueScreen, plaques tenant.PlaqueScreen) error {
+	section := pages.SectionLabel(pages.TabLocations)
+	if v.VenueForm != nil || v.DepartmentForm != nil {
+		// The list's count line belongs to the list; a form's page is about one row.
+		v.Kicker = ""
+	}
+	switch {
+	case v.VenueForm != nil:
+		f := v.VenueForm
+		side := &components.VenueFormSide{Radius: gpsRadiusText(a.gpsRadiusM)}
+		v.VenueSide = side
+		v.Title = f.Heading
+		v.Crumbs = []pages.Crumb{{Label: section, Href: locationsHref}, {Label: f.Heading}}
+		id, err := uuid.Parse(f.ID)
+		if err != nil {
+			return nil
+		}
+		ven, found, err := a.venueByID(r, httpx.AdminOf(r).TenantID(), id, screen)
+		switch {
+		case err != nil:
+			return err
+		case !found:
+			return nil
+		}
+		at := locationsHref + "?at=" + ven.ID.String() + "#venue"
+		side.Saved = true
+		side.Name = ven.Name
+		side.Network = proofNetworkText(ven)
+		side.GPS = gpsText(ven.GPS)
+		if side.GPS == "" {
+			side.GPS = "Not set"
+		}
+		side.Departments = departmentRowViews(screen, ven.ID)
+		side.DepartmentCount = ven.DepartmentCount
+		side.AddDepartmentHref = v.AddDepartmentHref
+		side.VenueHref = at
+		detail := &components.VenueDetailView{}
+		a.venuePlaques(detail, plaques, screen, ven.ID)
+		side.Plaques = detail.Plaques
+		v.Crumbs = []pages.Crumb{{Label: section, Href: at}, {Label: ven.Name}}
+		f.CloseHref = at
+	case v.DepartmentForm != nil:
+		f := v.DepartmentForm
+		v.Title = f.Heading
+		back := locationsHref
+		if id, err := uuid.Parse(f.VenueID); err == nil && f.ID != "" {
+			back = locationsHref + "?at=" + id.String() + "#venue"
+			f.CloseHref = back
+		}
+		v.Crumbs = []pages.Crumb{{Label: section, Href: back}, {Label: f.Heading}}
+	}
+	return nil
+}
+
+// proofNetworkText is the saved address list as the form's docket says it.
+func proofNetworkText(v tenant.Venue) string {
+	switch {
+	case v.HasNetworkProof() && len(v.StaticIPs) == 1:
+		return "1 range"
+	case v.HasNetworkProof():
+		return strconv.Itoa(len(v.StaticIPs)) + " ranges"
+	case len(v.StaticIPs) > 0:
+		return "Too wide — not evidence"
+	default:
+		return "Not set"
+	}
 }
 
 // selectVenue opens the venue the request asks for in the detail column, and says

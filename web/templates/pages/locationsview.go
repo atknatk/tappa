@@ -110,6 +110,9 @@ type LocationsView struct {
 	// it is given.
 	VenueForm      *components.VenueFormView
 	DepartmentForm *components.DepartmentFormView
+	// VenueSide is the venue form's right column, read from the saved venue (M12-35);
+	// set whenever VenueForm is.
+	VenueSide *components.VenueFormSide
 
 	// --- the WALL PLAQUES (M6-06 phase B) ---------------------------------------
 
@@ -284,3 +287,11 @@ const (
 	PlaqueCardInStock   = "stock"
 	PlaqueCardElsewhere = "elsewhere"
 )
+
+// venueSide is the venue form's side column, zero when the handler set none.
+func (v LocationsView) venueSide() components.VenueFormSide {
+	if v.VenueSide == nil {
+		return components.VenueFormSide{}
+	}
+	return *v.VenueSide
+}

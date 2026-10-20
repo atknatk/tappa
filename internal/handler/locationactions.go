@@ -302,6 +302,11 @@ func (a *AdminAuth) renderVenueFormAgain(w http.ResponseWriter, r *http.Request,
 	v := a.locationsShell(r, screen, plaques)
 	v.VenueForm = &form
 	bindFormTargets(&v)
+	if err := a.formPage(r, &v, screen, plaques); err != nil {
+		a.log.Error("panel: could not read the venue behind a rejected form", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		return
+	}
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminLocations(v))
 }
 
@@ -354,6 +359,11 @@ func (a *AdminAuth) renderDepartmentFormAgain(w http.ResponseWriter, r *http.Req
 	v := a.locationsShell(r, screen, plaques)
 	v.DepartmentForm = &form
 	bindFormTargets(&v)
+	if err := a.formPage(r, &v, screen, plaques); err != nil {
+		a.log.Error("panel: could not read the venue behind a rejected form", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		return
+	}
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminLocations(v))
 }
 

@@ -324,18 +324,16 @@ func AdminLocations(v LocationsView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				if v.VenueForm != nil {
-					templ_7745c5c3_Err = components.VenueForm(*v.VenueForm).Render(ctx, templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = components.VenueForm(*v.VenueForm, v.venueSide()).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-				}
-				if v.DepartmentForm != nil {
+				} else if v.DepartmentForm != nil {
 					templ_7745c5c3_Err = components.DepartmentForm(*v.DepartmentForm).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-				}
-				if len(v.Venues) > 0 || v.Detail != nil {
+				} else if len(v.Venues) > 0 || v.Detail != nil {
 					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "   <div class=\"flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,300px)_minmax(0,1fr)] desk:items-start\"><section aria-labelledby=\"venues-h\" class=\"min-w-0\"><h2 id=\"venues-h\" class=\"sr-only\">Venues</h2><ul class=\"grid grid-cols-1 gap-2.5 md:grid-cols-2 desk:grid-cols-1 desk:gap-2\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
@@ -438,12 +436,20 @@ func AdminLocations(v LocationsView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = PanelActions(locationsActions(v)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = PanelActions(locationsActionsOf(v)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		return nil
 	})
+}
+
+// locationsActionsOf is the heading's actions: "Add venue" on the list, none on a form.
+func locationsActionsOf(v LocationsView) templ.Component {
+	if v.VenueForm != nil || v.DepartmentForm != nil {
+		return nil
+	}
+	return locationsActions(v)
 }
 
 // locationsActions is the heading's one action: add a venue.
@@ -528,7 +534,7 @@ func locationsCapNotices(v LocationsView) templ.Component {
 				var templ_7745c5c3_Var14 string
 				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(v.VenueLimit)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/locations.templ`, Line: 233, Col: 33}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/locations.templ`, Line: 242, Col: 33}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
@@ -565,7 +571,7 @@ func locationsCapNotices(v LocationsView) templ.Component {
 				var templ_7745c5c3_Var16 string
 				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(v.DepartmentLimit)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/locations.templ`, Line: 241, Col: 40}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/locations.templ`, Line: 250, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 				if templ_7745c5c3_Err != nil {
@@ -602,7 +608,7 @@ func locationsCapNotices(v LocationsView) templ.Component {
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(v.PlaqueLimit)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/locations.templ`, Line: 246, Col: 36}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/locations.templ`, Line: 255, Col: 36}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 				if templ_7745c5c3_Err != nil {
@@ -693,7 +699,7 @@ func locationsPlaqueSections(v LocationsView) templ.Component {
 			var templ_7745c5c3_Var20 string
 			templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(stockCountText(len(v.Stock)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/locations.templ`, Line: 291, Col: 78}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/locations.templ`, Line: 300, Col: 78}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 			if templ_7745c5c3_Err != nil {

@@ -42,7 +42,7 @@ import (
 //	  with the sentence that explains it present, and a NEW department's form as the
 //	  control.
 templ AdminLocations(v LocationsView) {
-	@PanelActions(locationsActions(v)) {
+	@PanelActions(locationsActionsOf(v)) {
 		@PanelShell(v.PanelChrome) {
 			<div class="flex flex-col gap-6">
 				if v.RemovalReceipt != nil {
@@ -163,13 +163,14 @@ templ AdminLocations(v LocationsView) {
 					}
 				}
 				@locationsCapNotices(v)
+				// A VENUE OR DEPARTMENT FORM IS A PAGE OF ITS OWN (M12-35): its title and
+				// trail are the shell's (the handler sets them) and the list and the detail
+				// step aside. The notices above stay -- a capped list is still said to be.
 				if v.VenueForm != nil {
-					@components.VenueForm(*v.VenueForm)
-				}
-				if v.DepartmentForm != nil {
+					@components.VenueForm(*v.VenueForm, v.venueSide())
+				} else if v.DepartmentForm != nil {
 					@components.DepartmentForm(*v.DepartmentForm)
-				}
-				if len(v.Venues) > 0 || v.Detail != nil {
+				} else if len(v.Venues) > 0 || v.Detail != nil {
 					// THE LIST AND ONE VENUE (M12-34). A phone reads the list, then the venue it
 					// opened; a tablet lays the list two abreast above the venue; a desk puts the
 					// list in a column beside it. One markup for the three.
@@ -214,6 +215,14 @@ templ AdminLocations(v LocationsView) {
 			</div>
 		}
 	}
+}
+
+// locationsActionsOf is the heading's actions: "Add venue" on the list, none on a form.
+func locationsActionsOf(v LocationsView) templ.Component {
+	if v.VenueForm != nil || v.DepartmentForm != nil {
+		return nil
+	}
+	return locationsActions(v)
 }
 
 // locationsActions is the heading's one action: add a venue.

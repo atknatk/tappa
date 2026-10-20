@@ -1445,6 +1445,102 @@ func TestOpenVenueAt_AddsOnlyAServerID(t *testing.T) {
 	}
 }
 
+// TestVenueForm_IsAPageAboutOneVenue (M12-35): an open venue form is a page of its own
+// -- its heading is the one <h1>, the trail and Cancel lead back to the venue, the list
+// steps aside -- and its side column shows THIS venue's departments and plaques only,
+// from what is saved.
+func TestVenueForm_IsAPageAboutOneVenue(t *testing.T) {
+	f := twoVenues()
+	other := f.screen.Venues[1].ID
+	f.screen.Departments = append(f.screen.Departments, tenant.Department{
+		ID: uuid.New(), LocationID: other, LocationName: "KF Rusty Bar", Name: "Cellar",
+	})
+	wall := f.firstVenueID()
+	plaques := &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC, Plaques: []tenant.Plaque{
+		{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true, EncodedAt: &fixtureStamp},
+		{UID: uidSpare2, Status: tenant.PlaqueActive, LocationID: &other, Canonical: true, EncodedAt: &fixtureStamp},
+	}}}
+	b := plaqueBrowser(t, f, plaques)
+	body := htmlOf(t, b.do(http.MethodGet, locationsHref+"?venue="+wall.String(), nil))
+
+	if n := strings.Count(body, "<h1"); n != 1 {
+		t.Fatalf("the form page has %d <h1>, want 1", n)
+	}
+	if !regexp.MustCompile(`<h1[^>]*>Edit KF St Julians</h1>`).MatchString(body) {
+		t.Error("the page's title is not the form's heading")
+	}
+	at := locationsHref + "?at=" + wall.String() + "#venue"
+	if !strings.Contains(body, `<a href="`+at+`" class="panel-crumb">`) {
+		t.Error("the trail does not lead back to the venue")
+	}
+	if !strings.Contains(body, `<a class="btn btn--line" href="`+at+`">Cancel</a>`) {
+		t.Error("Cancel does not lead back to the venue")
+	}
+	if strings.Contains(body, "venue-card") || strings.Contains(body, `id="venue-h"`) {
+		t.Error("the venue list and detail are drawn under the form")
+	}
+	if strings.Contains(body, "Add venue") {
+		t.Error("the list's \"Add venue\" action is offered on a form")
+	}
+	// THIS VENUE'S, AND ONLY THIS VENUE'S.
+	for _, want := range []string{"Kitchen", uidOnWall, "1 range", "35.917270, 14.489540", "Plaque tap", "network or GPS", "QR scan", "network only"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the form's side column does not say %q", want)
+		}
+	}
+	for _, not := range []string{"Cellar", uidSpare2} {
+		if strings.Contains(body, not) {
+			t.Errorf("the form shows %q, which belongs to another venue", not)
+		}
+	}
+	// NOT PORTED (screens/venues-roll.md §2.4).
+	for _, not := range []string{"How each line was read", "at most a /7", "20 + 50", "backup check",
+		"radius is fixed", "Preview as", " disabled", "150 m"} {
+		if strings.Contains(body, not) {
+			t.Errorf("the form says %q, which the port leaves out", not)
+		}
+	}
+	// THE NEW VENUE'S PAGE has no saved venue to describe, and its trail leads to the list.
+	add := htmlOf(t, b.do(http.MethodGet, locationsHref+"?venue=new", nil))
+	if !regexp.MustCompile(`<h1[^>]*>Add a venue</h1>`).MatchString(add) {
+		t.Error("the new-venue page's title is not \"Add a venue\"")
+	}
+	if strings.Contains(add, "What a tap here can prove") {
+		t.Error("a venue that does not exist yet is described as saved")
+	}
+}
+
+// TestVenueForm_ARefusedListShowsTheParsersSentence (M12-35): a refused address list
+// comes back in the field's own note, as the parser's sentence word for word, in the
+// error box, tied to the control -- no heading of the page's own names a limit.
+func TestVenueForm_ARefusedListShowsTheParsersSentence(t *testing.T) {
+	f := twoVenues()
+	b := venueBrowser(t, f)
+	rec := b.do(http.MethodPost, venueSaveHref, url.Values{
+		"id": {f.firstVenueID().String()}, "name": {"KF St Julians"}, "static_ips": {"0.0.0.0/1"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a refused list answered %d, want 200 with the form back", rec.Code)
+	}
+	body := htmlOf(t, rec)
+	_, want := parseRanges("0.0.0.0/1")
+	if want == "" {
+		t.Fatal("the parser accepts 0.0.0.0/1; this test's premise is gone")
+	}
+	box := `<p id="venue-ranges-help" role="alert" class="rounded-xl border border-tomato bg-tomato/5 px-3.5 py-3 text-[13px] leading-snug text-ink">` +
+		htmlEscaper.Replace(want) + `</p>`
+	if !strings.Contains(body, box) {
+		t.Errorf("the ranges note is not the parser's sentence in the error box; want\n%s", box)
+	}
+	if !regexp.MustCompile(`name="static_ips"[^>]*aria-invalid="true"[^>]*aria-describedby="venue-ranges-help"`).MatchString(body) {
+		t.Error("the refused control is not marked invalid and tied to its note")
+	}
+	// The docket still describes what is SAVED, not the refused draft.
+	if !strings.Contains(body, "1 range") {
+		t.Error("after a refusal the docket no longer describes the saved venue")
+	}
+}
+
 // --- the writes -------------------------------------------------------------------
 
 // TestSaveVenue_TheTenantAndTheActorComeFromTheSession (§4.5, §4.7).

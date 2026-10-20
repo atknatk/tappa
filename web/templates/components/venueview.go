@@ -222,6 +222,35 @@ type VenueFormView struct {
 	ExternalRef *VenueRefFormView
 }
 
+// VenueFormSide is what the venue form shows beside its fields (M12-35): what a tap at
+// the SAVED venue can prove, its departments and plaques, and the configured radius.
+//
+// IT IS A SEPARATE TYPE FROM VenueFormView ON PURPOSE. VenueFormView is rebuilt from
+// what was POSTED after a refusal (TestVenueFormView_IsRebuiltFromWhatWasPostedNotFromWhatParsed
+// compares it whole), and this is read from the DATABASE: the docket describes the
+// venue as saved, never the draft.
+type VenueFormSide struct {
+	// Saved says the venue exists and the fields below describe it.
+	Saved bool
+	// Name is the saved name, for the breadcrumb.
+	Name string
+	// Network is the saved address list as the docket says it: "1 range", "3 ranges",
+	// "Too wide — not evidence" or "Not set" (tenant.Venue.HasNetworkProof decides).
+	Network string
+	// GPS is the saved coordinate (6 dp) or "Not set".
+	GPS string
+	// Radius is the configured GPS radius ("150 m"), or "" when the panel has none.
+	Radius string
+
+	Departments       []DepartmentRowView
+	DepartmentCount   int
+	AddDepartmentHref string
+	// Plaques are the plaques at this venue that are not in stock.
+	Plaques []PlaqueRowView
+	// VenueHref opens the venue's detail (?at=<id>#venue), where its plaques are managed.
+	VenueHref string
+}
+
 // RemovalView is the delete control on an edit card, or the sentence that stands in
 // for it (user decision, 2026-08-08: option (b) — unreferenced rows only).
 //

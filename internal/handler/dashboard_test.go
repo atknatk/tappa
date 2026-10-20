@@ -1213,6 +1213,9 @@ var panelTouchTargets = map[string]int{
 	// The Venues list's cards (M12-34): each is a link that opens the venue beside the
 	// list, so both halves of the pair reach it.
 	"venue-card": 44, // .venue-card -> min-h-11 = 2.75rem
+	// The redesign's form field (M12-35, the venue and department forms): an input, a
+	// select or a textarea, held by the form-control scan and the stylesheet half.
+	"field-input": 44, // .field-input -> min-h-11 = 2.75rem
 }
 
 // panelPendingTouchTargets are the press-target classes the panel redesign defines
@@ -1233,7 +1236,6 @@ var panelPendingTouchTargets = map[string]int{
 	"queue-item":       44, // .queue-item       -> min-h-11 (The Spike's queue)
 	"roster-row":       60, // .roster-row       -> min-h-16, md:min-h-[60px] (People)
 	"rule-switch":      44, // .rule-switch      -> min-h-11 (Rules: a submit button)
-	"field-input":      44, // .field-input      -> min-h-11 (a form control)
 	"stat-card--spike": 44, // .stat-card--spike -> min-h-11 (The Pass: a link to The Spike)
 	"btn--approve":     64, // .btn--approve     -> min-h-16 (The Spike)
 	"btn--reject":      64, // .btn--reject      -> min-h-16 (The Spike)
