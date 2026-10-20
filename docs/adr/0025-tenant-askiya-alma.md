@@ -1243,3 +1243,13 @@ GATE-1; ADR 0026 aktivasyon dokunuşu) **ölçülerek** taşındı.
     Yazılan tek şey oturumun `last_used_at`'i ve iki dışa aktarımın kendi iz satırıdır (`report.exported`,
     `billing.exported`) —
     `TestPanelSuspensionDB_NoPanelReadWritesBusinessData`. Sınırı: `DELETE`'i ve `tenant_id`'siz tabloları görmez.
+
+- **Not (2026-10-20, API-4b'nin `op-15`'e birleştirilmesi — yalnız ekleme):**
+  - **M11 notunun *"iki M11 panel rotası"* cümlesi ↔ bugünkü panel:** K-26'nın iki eylemi (anahtar iptali, uç nokta
+    devre dışı) panelde **üç** rotadır — `POST /admin/api-keys/revoke`, `POST /admin/api-keys/revoke-all`,
+    `POST /admin/api-keys/webhook/disable`; üçü de kardeş grupta (B fazı eki, sınıflama tablosu). Kapalı istisna
+    listesi on bir rotadır.
+  - **A fazı ekinin LS1 cümlesi** (*"M11'in `/v1` kontrol noktası da okumaz (`api.NoSuspensionColumn`)"*) birleştirmeyle
+    kapandı: kontrol noktası `tenant.WriteSuspension` ile `tenants.suspended_at`'i yazmanın kendi işleminde okur,
+    `NoSuspensionColumn` kaldırıldı, `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` yeşil (ayrıntı ADR 0028 §10
+    *"API-4b eki"*). `appRouter`'ın yürüyüşü `/v1`'i aynı okuyucuyla kurar.

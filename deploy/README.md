@@ -1851,6 +1851,10 @@ beklemeden canlıya çıkar; API-13a'nın *"OP-15 önce canlıda, `00057` onun �
   kurulur ve her işletmeyi *askıda değil* sayar. Prod'da askı kavramı **yoktur** (`tenants.suspended_at`
   yok, operatör ekranında askı yok) — yani bu cevap prod'un gerçeğiyle tutarlıdır; hiçbir askı yok
   sayılmıyor. Panel ve dokunuş yolu da bugün askıyı bilmez.
+  → **2026-10-20:** OP-15 (A + B) ve API-4b dal `op-15`'te birleşti: askı sütunu `00063`'tedir (`00058` değil —
+  arada M11'in sonraki migration'ları geldi); `/v1`'in kontrol noktası `tenant.WriteSuspension` ile sütunu
+  yazmanın kendi işleminde okur (`NoSuspensionColumn` kaldırıldı), panelin yazmaları `ProtectWriting`'in son
+  halkası `suspensionGate`'te kapanır (ADR 0025 *"B fazı eki"*), dokunuş yolu askıyı yine bilmez (§4.6).
 - **Kötüye kullanımda** (bir işletmenin anahtarı sızdı, entegratör hatalı yazıyor): operatör ekranında
   işletmenin özeti → *Integration API* → **"Close the API"** — anahtarlar ve webhook bir sonraki istekten
   itibaren 403 (K-22; (f)'nin ilk maddesi). Askının yerine geçen araç budur.
@@ -1873,6 +1877,8 @@ beklemeden canlıya çıkar; API-13a'nın *"OP-15 önce canlıda, `00057` onun �
      kırmızıya çevirir → `NoSuspensionColumn` yerine sütunun okuması + §4.7'nin hücre hücre testleri
      (plan §5 API-4b). Deploy CI yeşil olmadan koşmaz (`workflow_run`) — yani OP-15 API-4b'siz canlıya
      **çıkamaz**; kapı kapalı düşer.
+     → **2026-10-20:** yapıldı — API-4b `op-15`'e birleşti, `TestAPIWiring_TheSuspensionReaderFollowsTheColumn`
+     yeşil; migration numarası `00063` oldu (1. maddedeki `00058` o günün tahminidir).
 
   Yanlış sıra yüksek sesle düşer: `00036` numarasıyla gelen bir OP-15'i goose durdurur (yukarıda 1.);
   `00058`'in ön koşulu `00057`'nin sonuç tipini ve `md5(prosrc)`'ini sınar (00039'un ve `00057`'nin
