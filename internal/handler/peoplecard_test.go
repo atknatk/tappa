@@ -382,8 +382,8 @@ func TestInvitePages_TheRedesignAddsNoExposure(t *testing.T) {
 	}
 	for _, want := range []string{
 		`<h1`, `>Invitation</h1>`, "One person · one link · shown once", `aria-current="page">Invitation<`,
-		">KF St Julians<", "select-all", "Shown as text, not a link",
-		"What Maria Borg does next", "Taps one of your plaques", "No app to install.", "Back to the list</a>",
+		">KF St Julians<", "select-all", "Shown as text, not a link, so it does not open here and start their setup in your browser.",
+		"What Maria Borg does next", "Taps one of your plaques", "No app to install.", "Back to their card</a>",
 		managedRosterHref(id),
 	} {
 		if !strings.Contains(body, want) {
