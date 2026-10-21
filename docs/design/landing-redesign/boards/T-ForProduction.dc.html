@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>For production — tablet</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.eyebrow{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#1F5C41;margin:0}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.tapdocket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;box-shadow:0 1px 2px rgba(21,34,25,.08);padding:12px 16px;font-family:'IBM Plex Mono',monospace;font-size:14px}
+.tapdocket::before,.tapdocket::after{content:"";position:absolute;left:0;right:0;height:8px;background:radial-gradient(circle at 6px 4px,#EDF0EA 3px,transparent 3.5px) 0 0/12px 8px repeat-x}
+.tapdocket::before{top:-4px}.tapdocket::after{bottom:-4px}
+.stamp{display:inline-block;padding:3px 8px;border:2px solid;border-radius:0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-6deg);white-space:nowrap}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
+.stamp--flag{border-color:#D98E2B;box-shadow:inset 0 0 0 1px #D98E2B;background:rgba(217,142,43,.1);transform:rotate(-3deg)}
+.stamp--rej{border-color:#BE3D2A;box-shadow:inset 0 0 0 1px #BE3D2A;background:rgba(190,61,42,.1);transform:rotate(-10deg)}
+.btn{min-height:48px;padding:0 22px;border-radius:12px;font:700 15px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:9px;text-decoration:none;box-sizing:border-box;white-space:nowrap}
+.btn--green{background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
+.btn--green:hover{background:#152219;color:#FFFDF4}
+.btn--ghost{border:2px solid #152219;color:#152219;background:transparent}
+.btn--ghost:hover{background:#152219;color:#FFFDF4}
+.ico{flex:none;width:44px;height:44px;border-radius:12px;background:#E1EDE6;color:#1F5C41;display:inline-flex;align-items:center;justify-content:center}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:18px;box-sizing:border-box}
+details.qa{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px}
+details.qa summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:44px;font-weight:700;color:#152219}
+details.qa summary::-webkit-details-marker{display:none}
+details.qa .pl{flex:none;width:28px;height:28px;border-radius:50%;border:1px solid #C9D2C8;display:inline-flex;align-items:center;justify-content:center;color:#1F5C41;transition:transform .2s}
+details.qa[open] .pl{transform:rotate(45deg)}
+.flink{min-height:44px;display:inline-flex;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7);text-decoration:underline;text-underline-offset:4px}
+.flink:hover{color:#152219}
+.navlink{min-height:44px;display:inline-flex;align-items:center;font-size:14px;font-weight:500;color:rgba(21,34,25,.85);text-decoration:none}
+.navlink:hover{color:#152219}
+.navlink[aria-current]{color:#152219;font-weight:700;box-shadow:inset 0 -2px 0 #1F5C41}
+.fcol a{min-height:40px;display:flex;align-items:center;font-size:14px;color:rgba(21,34,25,.85);text-decoration:none}
+.fcol a:hover{color:#152219;text-decoration:underline;text-underline-offset:4px}
+details.menu>summary{list-style:none;cursor:pointer;min-height:44px;min-width:44px;padding:0 10px;box-sizing:border-box;border:1.5px solid #152219;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#152219;background:transparent}
+details.menu>summary::-webkit-details-marker{display:none}
+details.menu:not([open])>nav{display:none}
+details.menu[open]>summary{background:#152219;color:#FFFDF4;border-color:#152219}
+details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}details.menu[open] .mopen{display:none}
+.mlink{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:16px;font-weight:700;color:#152219;text-decoration:none;border-top:1px dashed #C9D2C8}
+.mlink:first-child{border-top:0}
+.hbtn{min-height:44px;padding:0 18px;border-radius:12px;font:700 14px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box;white-space:nowrap;background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
+.hbtn:hover{background:#152219;color:#FFFDF4}
+.mlink[aria-current]{color:#1F5C41;box-shadow:inset 3px 0 0 #1F5C41;padding-left:12px}
+:focus-visible{outline:2px solid #152219;outline-offset:2px}
+.ondark :focus-visible,.band--ink :focus-visible{outline-color:#FFFDF4}
+html{scroll-padding-top:72px}
+@media (max-width:599px){html{scroll-padding-bottom:80px}}
+.fitcard{transition:border-color .15s}.fitcard:hover{border-color:#152219;color:#152219}
+.band--paper .card,.band--paper .docket,.band--paper details.qa{border-color:rgba(21,34,25,.24)}
+.band--paper .docket{box-shadow:0 2px 6px rgba(21,34,25,.08)}
+.band--paper .docket::after{background:radial-gradient(circle at 7px 7px,#EDF0EA 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.more{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-weight:700;font-size:15px;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
+
+.stamp--ign{border-color:#C9D2C8;box-shadow:inset 0 0 0 1px #C9D2C8;background:rgba(201,210,200,.1);transform:rotate(-4deg)}
+.stamp--sm{font-size:9.5px;padding:2px 6px;letter-spacing:.12em}
+.chk{display:inline-flex;align-items:center;justify-content:center;flex:none;width:18px;height:18px;border-radius:5px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700}
+.chk--ok{background:#1F5C41;color:#FFFDF4}.chk--no{background:#BE3D2A;color:#FFFDF4}.chk--na{border:1px solid #C9D2C8;color:rgba(21,34,25,.7)}
+.tick{position:absolute;top:0;bottom:0;width:1px;background:rgba(21,34,25,.12)}
+</style>
+</helmet>
+<div style="width: 834px; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
+  <header style="position: sticky; top: 0; z-index: 5; background: rgba(237,240,234,.94); border-bottom: 1px solid #C9D2C8">
+    <div style="padding: 0 40px; box-sizing: border-box; min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 12px">
+      <a href="Landing.dc.html" style="text-decoration: none; color: #152219; display: flex; align-items: center; gap: 10px; min-height: 44px">
+        <span aria-hidden="true" style="flex: none; width: 28px; height: 28px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 6px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
+        <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em">taptime</span>
+        <span class="mono" style="font-size: 11px; letter-spacing: .14em; color: rgba(21,34,25,.7); padding-top: 4px">PUNCHLESS</span>
+      </a>
+      <div style="display: flex; align-items: center; gap: 18px">
+        <nav aria-label="Pages" style="display: flex; align-items: center; gap: 18px"><a href="Product.dc.html" class="navlink">Product</a><a href="Security.dc.html" class="navlink">Security</a><a href="Pricing.dc.html" class="navlink">Pricing</a></nav>
+        <span aria-hidden="true" style="width: 1px; height: 22px; background: #C9D2C8"></span>
+        <a href="SignIn.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
+        <a href="Signup.dc.html" class="hbtn">Start free</a>
+      </div>
+    </div>
+  </header>
+  <section aria-label="Single site, many teams" style="padding: 56px 0 64px">
+    <div style="padding: 0 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 48px">
+      <div style="min-width: 0; display: flex; flex-direction: column">
+        <p class="eyebrow" style="margin-bottom: 18px">Single site, many teams</p>
+        <h1 style="margin: 0 0 22px; font-size: 50px; line-height: 1.04; letter-spacing: -0.035em; font-weight: 700">Production &amp; facilities</h1>
+        <p style="margin: 0 0 16px; font-size: 19px; line-height: 1.55; color: rgba(21,34,25,.85); max-width: 520px">One plaque at the gate; departments resolve automatically from each employee's profile — bakers against their 04:00 shift, meat production against 05:00. No extra hardware per floor.</p>
+        <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.8)">Built for one site with many teams, each starting at its own hour.</p>
+        <div style="display: flex; gap: 12px; margin-top: 14px; flex-wrap: wrap">
+          <a class="btn btn--green" href="Signup.dc.html">Start free — 3 months on us</a>
+          <a class="btn btn--ghost" href="Security.dc.html">How a tap is verified</a>
+        </div>
+      </div>
+      <div role="img" aria-label="One plaque at the gate serving five departments, each with its own shift start" class="card" style="padding: 22px; display: flex; flex-direction: column; gap: 14px; min-width: 0; box-shadow: 0 20px 50px rgba(21,34,25,.10)"><span class="lbl">One plaque · five departments · sample setup</span>
+          <div style="display: flex; align-items: center; gap: 0">
+            <div style="flex: none; width: 132px; box-sizing: border-box; background: #152219; color: #FFFDF4; border-radius: 16px; padding: 20px 14px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; box-shadow: 0 18px 40px rgba(21,34,25,.28)">
+              <span class="mono" style="font-size: 9px; letter-spacing: .26em; color: rgba(255,253,244,.6)">TAPTIME</span>
+              <span style="width: 56px; height: 56px; border-radius: 50%; border: 2px dashed rgba(143,211,175,.75); display: flex; align-items: center; justify-content: center; color: #8FD3AF"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.8 9.2a13.5 13.5 0 0 1 18.4 0"/><path d="M5.9 12.6a9 9 0 0 1 12.2 0"/><path d="M9 16a4.4 4.4 0 0 1 6 0"/><circle cx="12" cy="19.2" r=".9" fill="currentColor"/></svg></span>
+              <span style="font-size: 12px; font-weight: 700; line-height: 1.3">The gate</span>
+              <span class="mono" style="font-size: 9px; color: rgba(255,253,244,.6); border-top: 1px dashed rgba(255,253,244,.2); padding-top: 8px">KM PLANT</span>
+            </div>
+            <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; border-left: 2px solid #1F5C41; margin-left: 16px"><div style="display: flex; align-items: center; gap: 0">
+                <span aria-hidden="true" style="width: 22px; height: 2px; background: #1F5C41"></span>
+                <span style="flex: 1; min-width: 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px; background: #FFFDF4; border: 1px solid #C9D2C8">
+                  <span style="font-size: 13.5px; font-weight: 700; min-width: 0">KM Pastry &amp; Bakery</span>
+                  <span class="mono" style="flex: none; font-size: 11.5px; font-weight: 700; color: #1F5C41">04:00</span>
+                </span>
+              </div><div style="display: flex; align-items: center; gap: 0">
+                <span aria-hidden="true" style="width: 22px; height: 2px; background: #1F5C41"></span>
+                <span style="flex: 1; min-width: 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px; background: #FFFDF4; border: 1px solid #C9D2C8">
+                  <span style="font-size: 13.5px; font-weight: 700; min-width: 0">KM Meat Production</span>
+                  <span class="mono" style="flex: none; font-size: 11.5px; font-weight: 700; color: #1F5C41">05:00</span>
+                </span>
+              </div><div style="display: flex; align-items: center; gap: 0">
+                <span aria-hidden="true" style="width: 22px; height: 2px; background: #1F5C41"></span>
+                <span style="flex: 1; min-width: 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px; background: #FFFDF4; border: 1px solid #C9D2C8">
+                  <span style="font-size: 13.5px; font-weight: 700; min-width: 0">KM Central Kitchen</span>
+                  <span class="mono" style="flex: none; font-size: 11.5px; font-weight: 700; color: #1F5C41">06:00</span>
+                </span>
+              </div><div style="display: flex; align-items: center; gap: 0">
+                <span aria-hidden="true" style="width: 22px; height: 2px; background: #1F5C41"></span>
+                <span style="flex: 1; min-width: 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px; background: #FFFDF4; border: 1px solid #C9D2C8">
+                  <span style="font-size: 13.5px; font-weight: 700; min-width: 0">KM Warehouse &amp; Supply</span>
+                  <span class="mono" style="flex: none; font-size: 11.5px; font-weight: 700; color: #1F5C41">08:00</span>
+                </span>
+              </div><div style="display: flex; align-items: center; gap: 0">
+                <span aria-hidden="true" style="width: 22px; height: 2px; background: #1F5C41"></span>
+                <span style="flex: 1; min-width: 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px; background: #FFFDF4; border: 1px solid #C9D2C8">
+                  <span style="font-size: 13.5px; font-weight: 700; min-width: 0">KM General</span>
+                  <span class="mono" style="flex: none; font-size: 11.5px; font-weight: 700; color: #1F5C41">09:00</span>
+                </span>
+              </div></div>
+          </div>
+          <span class="mono" style="align-self: flex-start; font-size: 11.5px; line-height: 1.5; color: #1F5C41; background: #E1EDE6; border-radius: 10px; padding: 6px 12px">5 departments · per-department shifts · records filtered by department</span></div>
+    </div>
+  </section>
+  <div style="border-top: 1px solid #C9D2C8; border-bottom: 1px solid #C9D2C8; background: rgba(255,253,244,.55)">
+    <div class="mono" style="display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 12px 40px; padding: 20px 24px; font-size: 12px; color: rgba(21,34,25,.75)">
+      <span>Piloting with teams in Malta</span>
+      <b style="color: #152219; letter-spacing: .04em">KEBAB FACTORY LTD. — 9 locations</b>
+      <b style="color: #152219; letter-spacing: .04em">KEBAB MANUFACTURING CO. — 5 departments</b>
+    </div>
+  </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 72px">
+  <section id="shifts" style="padding: 72px 0 0">
+    <div style="padding: 0 40px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">Department shifts</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">One gate, five start times.</h2>
+      <p style="margin: 0 0 40px; max-width: 600px; font-size: 17px; line-height: 1.6; color: rgba(21,34,25,.85)">Lateness is measured against the person's department shift; someone with no department is measured against the site's own hours.</p><div role="img" aria-label="Five department shifts from 04:00 to 17:00 on one timeline; a 04:02 check-in is two minutes late for the bakery shift, while 04:55 is on time for meat production" class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0"><span class="lbl">Department shifts at KM Plant · from our demo data</span>
+          <div style="position: relative; height: 22px; margin-left: 204px">
+              <span class="mono" style="position: absolute; left: 6.89%; top: 0; transform: translateX(-50%); font-size: 11px; font-weight: 700; padding: 1px 6px; border: 1px solid #152219; background: #FFFDF4; white-space: nowrap">04:02</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 8px"><div style="display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 14px; align-items: center"><span style="font-size: 13.5px; font-weight: 700; min-width: 0">KM Pastry &amp; Bakery</span><div style="position: relative; height: 26px; border-radius: 7px; background: #EDF0EA; border: 1px solid #C9D2C8">
+                <span class="tick" style="left: 20.0%"></span><span class="tick" style="left: 40.0%"></span><span class="tick" style="left: 60.0%"></span><span class="tick" style="left: 80.0%"></span>
+                <span style="position: absolute; left: 6.67%; right: 40.0%; top: 4px; bottom: 4px; border-radius: 5px; background: rgba(31,92,65,.22); border: 1px solid #1F5C41"></span>
+                <span class="mono" style="position: absolute; left: 6.67%; top: 5px; padding-left: 6px; font-size: 10px; font-weight: 700; color: #1F5C41">04:00–12:00</span>
+                <span style="position: absolute; left: 6.89%; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: #152219"></span>
+              </div></div><div style="display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 14px; align-items: center"><span style="font-size: 13.5px; font-weight: 700; min-width: 0">KM Meat Production</span><div style="position: relative; height: 26px; border-radius: 7px; background: #EDF0EA; border: 1px solid #C9D2C8">
+                <span class="tick" style="left: 20.0%"></span><span class="tick" style="left: 40.0%"></span><span class="tick" style="left: 60.0%"></span><span class="tick" style="left: 80.0%"></span>
+                <span style="position: absolute; left: 13.33%; right: 33.33%; top: 4px; bottom: 4px; border-radius: 5px; background: rgba(31,92,65,.10); border: 1px solid #1F5C41"></span>
+                <span class="mono" style="position: absolute; left: 13.33%; top: 5px; padding-left: 6px; font-size: 10px; font-weight: 700; color: #1F5C41">05:00–13:00</span>
+                <span style="position: absolute; left: 6.89%; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: #152219"></span>
+              </div></div><div style="display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 14px; align-items: center"><span style="font-size: 13.5px; font-weight: 700; min-width: 0">KM Central Kitchen</span><div style="position: relative; height: 26px; border-radius: 7px; background: #EDF0EA; border: 1px solid #C9D2C8">
+                <span class="tick" style="left: 20.0%"></span><span class="tick" style="left: 40.0%"></span><span class="tick" style="left: 60.0%"></span><span class="tick" style="left: 80.0%"></span>
+                <span style="position: absolute; left: 20.0%; right: 26.67%; top: 4px; bottom: 4px; border-radius: 5px; background: rgba(31,92,65,.10); border: 1px solid #1F5C41"></span>
+                <span class="mono" style="position: absolute; left: 20.0%; top: 5px; padding-left: 6px; font-size: 10px; font-weight: 700; color: #1F5C41">06:00–14:00</span>
+                <span style="position: absolute; left: 6.89%; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: #152219"></span>
+              </div></div><div style="display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 14px; align-items: center"><span style="font-size: 13.5px; font-weight: 700; min-width: 0">KM Warehouse &amp; Supply</span><div style="position: relative; height: 26px; border-radius: 7px; background: #EDF0EA; border: 1px solid #C9D2C8">
+                <span class="tick" style="left: 20.0%"></span><span class="tick" style="left: 40.0%"></span><span class="tick" style="left: 60.0%"></span><span class="tick" style="left: 80.0%"></span>
+                <span style="position: absolute; left: 33.33%; right: 13.33%; top: 4px; bottom: 4px; border-radius: 5px; background: rgba(31,92,65,.10); border: 1px solid #1F5C41"></span>
+                <span class="mono" style="position: absolute; left: 33.33%; top: 5px; padding-left: 6px; font-size: 10px; font-weight: 700; color: #1F5C41">08:00–16:00</span>
+                <span style="position: absolute; left: 6.89%; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: #152219"></span>
+              </div></div><div style="display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 14px; align-items: center"><span style="font-size: 13.5px; font-weight: 700; min-width: 0">KM General</span><div style="position: relative; height: 26px; border-radius: 7px; background: #EDF0EA; border: 1px solid #C9D2C8">
+                <span class="tick" style="left: 20.0%"></span><span class="tick" style="left: 40.0%"></span><span class="tick" style="left: 60.0%"></span><span class="tick" style="left: 80.0%"></span>
+                <span style="position: absolute; left: 40.0%; right: 6.67%; top: 4px; bottom: 4px; border-radius: 5px; background: rgba(31,92,65,.10); border: 1px solid #1F5C41"></span>
+                <span class="mono" style="position: absolute; left: 40.0%; top: 5px; padding-left: 6px; font-size: 10px; font-weight: 700; color: #1F5C41">09:00–17:00</span>
+                <span style="position: absolute; left: 6.89%; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: #152219"></span>
+              </div></div><div style="display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 14px; align-items: center; border-top: 1px dashed #C9D2C8; padding-top: 10px"><span style="font-size: 13px; color: rgba(21,34,25,.75)">No department · site hours</span><div style="position: relative; height: 26px; border-radius: 7px; background: #EDF0EA; border: 1px solid #C9D2C8">
+                <span class="tick" style="left: 20.0%"></span><span class="tick" style="left: 40.0%"></span><span class="tick" style="left: 60.0%"></span><span class="tick" style="left: 80.0%"></span>
+                <span style="position: absolute; left: 40.0%; right: 6.67%; top: 4px; bottom: 4px; border-radius: 5px; background: rgba(31,92,65,.10); border: 1px solid #1F5C41"></span>
+                <span class="mono" style="position: absolute; left: 40.0%; top: 5px; padding-left: 6px; font-size: 10px; font-weight: 700; color: #1F5C41">09:00–17:00</span>
+                <span style="position: absolute; left: 6.89%; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: #152219"></span>
+              </div></div></div>
+            <div style="position: relative; height: 16px; margin-left: 204px"><span class="mono" style="position: absolute; left: 0.0%; top: 0; transform: translateX(-0%); font-size: 10.5px; color: rgba(21,34,25,.75)">03:00</span><span class="mono" style="position: absolute; left: 20.0%; top: 0; transform: translateX(-50%); font-size: 10.5px; color: rgba(21,34,25,.75)">06:00</span><span class="mono" style="position: absolute; left: 40.0%; top: 0; transform: translateX(-50%); font-size: 10.5px; color: rgba(21,34,25,.75)">09:00</span><span class="mono" style="position: absolute; left: 60.0%; top: 0; transform: translateX(-50%); font-size: 10.5px; color: rgba(21,34,25,.75)">12:00</span><span class="mono" style="position: absolute; left: 80.0%; top: 0; transform: translateX(-50%); font-size: 10.5px; color: rgba(21,34,25,.75)">15:00</span><span class="mono" style="position: absolute; left: 100.0%; top: 0; transform: translateX(-100%); font-size: 10.5px; color: rgba(21,34,25,.75)">18:00</span></div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding-bottom: 7px; margin-top: 6px"><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(0deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">KM PLANT · KM PASTRY &amp; BAKERY</span>
+                <span style="flex: none"><span class="stamp stamp--ok stamp--sm" style="flex: none">Approved</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Anna Farrugia</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">IN</span><span style="font-size: 15px">04:02</span></span>
+              
+            </div><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(0deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">KM PLANT · KM MEAT PRODUCTION</span>
+                <span style="flex: none"><span class="stamp stamp--ok stamp--sm" style="flex: none">Approved</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Mark Spiteri</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">IN</span><span style="font-size: 15px">04:55</span></span>
+              
+            </div></div>
+          <span class="mono" style="font-size: 11.5px; line-height: 1.55; color: rgba(21,34,25,.8); border-top: 1px dashed #C9D2C8; padding-top: 10px">Same minute, different yardsticks: against the bakery's 04:00, Anna's 04:02 is 1 late arrival · 0h 02m on The Roll; against meat production's 05:00, Mark's 04:55 is not late.</span></div><div style="margin-top: 24px; max-width: 760px"><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; font-size: 15.5px; line-height: 1.55; color: rgba(21,34,25,.85)"><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>The Roll counts each person's late arrivals and the minutes they add up to.</span></li></ul></div>
+    </div>
+  </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 72px">
+  <section id="departments" style="padding: 72px 0 0">
+    <div style="padding: 0 40px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">Departments</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">Every record knows its department.</h2><div aria-hidden="true" style="height: 24px"></div><div style="display: flex; flex-direction: column; gap: 32px"><div style="display: flex; flex-direction: column; gap: 16px; min-width: 0">
+            <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">A person's department travels on each of their records. The Pass and People filter by it, so each team's day reads on its own.</p>
+            <span class="mono" style="align-self: flex-start; font-size: 12px; color: #1F5C41; background: #E1EDE6; border-radius: 10px; padding: 7px 12px">Locations &amp; departments, each on its own hours</span>
+            <p style="margin: 0 0 0px; font-size: 13px; line-height: 1.6; color: rgba(21,34,25,.7); font-family: 'IBM Plex Mono', monospace">Sample names and times, drawn for this page.</p>
+          </div><div style="min-width: 0"><div role="img" aria-label="Sample screen: The Pass" style="display: flex; border: 1px solid #C9D2C8; border-radius: 18px; overflow: hidden; background: #EDF0EA; box-shadow: 0 18px 40px rgba(21,34,25,.10)">
+            <div aria-hidden="true" style="flex: none; width: 46px; background: #152219; padding: 18px 9px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; position: relative">
+              <span style="position: absolute; left: 0; right: 0; top: 0; height: 3px; background: #1F5C41"></span>
+              <span style="width: 18px; height: 18px; border-radius: 50%; background: #1F5C41; margin-bottom: 8px; box-shadow: inset 0 0 0 4px #152219, inset 0 0 0 6px #FFFDF4"></span>
+              <span style="display: block; height: 8px; border-radius: 4px; background: #FFFDF4; width: 28px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span>
+            </div>
+            <div style="flex: 1; min-width: 0; padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px">
+              <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 10px">
+                <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+                  <span class="lbl" style="font-size: 10px">Today · filtered by department</span>
+                  <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">The Pass</span>
+                </div>
+                
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+              <span class="mono" style="font-size: 11px; padding: 6px 10px; border-radius: 10px; border: 1.5px solid #152219; background: #FFFDF4; display: inline-flex; gap: 8px"><span style="color: rgba(21,34,25,.7)">Department</span><b>KM Pastry &amp; Bakery</b></span>
+              <span class="mono" style="font-size: 11px; padding: 6px 10px; border-radius: 10px; border: 1px solid #C9D2C8; color: rgba(21,34,25,.75)">Today</span>
+            </div><div style="position: relative; padding-top: 6px">
+              <div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 6px; height: 7px; border-radius: 4px; background: #152219"></div>
+              <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 0 6px 12px">
+                <div style="display: flex; flex-direction: column; align-items: center; min-width: 0"><div aria-hidden="true" style="width: 34px; height: 13px; background: rgba(21,34,25,.7); border-radius: 0 0 5px 5px; position: relative; z-index: 1"></div><div style="width: 100%; margin-top: -3px"><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(-1deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">KM PLANT · KM PASTRY &amp; BAKERY</span>
+                <span style="flex: none"><span class="stamp stamp--ok stamp--sm" style="flex: none">Approved</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Anna Farrugia</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">IN</span><span style="font-size: 15px">04:02</span></span>
+              
+            </div></div></div><div style="display: flex; flex-direction: column; align-items: center; min-width: 0"><div aria-hidden="true" style="width: 34px; height: 13px; background: rgba(21,34,25,.7); border-radius: 0 0 5px 5px; position: relative; z-index: 1"></div><div style="width: 100%; margin-top: -3px"><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(1deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">KM PLANT · KM PASTRY &amp; BAKERY</span>
+                <span style="flex: none"><span class="stamp stamp--ok stamp--sm" style="flex: none">Approved</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Joseph Galea</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">IN</span><span style="font-size: 15px">03:57</span></span>
+              
+            </div></div></div><div style="display: flex; flex-direction: column; align-items: center; min-width: 0"><div aria-hidden="true" style="width: 34px; height: 13px; background: rgba(21,34,25,.7); border-radius: 0 0 5px 5px; position: relative; z-index: 1"></div><div style="width: 100%; margin-top: -3px"><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(-0.5deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">KM PLANT · KM PASTRY &amp; BAKERY</span>
+                <span style="flex: none"><span class="stamp stamp--ok stamp--sm" style="flex: none">Approved</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Rita Mifsud</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">IN</span><span style="font-size: 15px">03:52</span></span>
+              
+            </div></div></div>
+              </div>
+            </div>
+            </div>
+          </div></div></div>
+    </div>
+  </section>
+  </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 72px">
+  <section id="queue" style="padding: 72px 0 0">
+    <div style="padding: 0 40px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">Shift change</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">A queue at the gate, one tap each.</h2>
+      <p style="margin: 0 0 40px; max-width: 600px; font-size: 17px; line-height: 1.6; color: rgba(21,34,25,.85)">Debounce is per person: people in a line can tap the same plaque one after another, and each tap is recorded. Only the same person tapping again within 60 seconds (the default window) is ignored.</p><div role="img" aria-label="Three different people tap the gate plaque seconds apart and each is approved; the first person tapping again 30 seconds later is ignored" class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0"><span class="lbl">Shift change at the gate · sample</span>
+          <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px"><div style="min-width: 0; padding-bottom: 7px"><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(-1deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">KM PLANT · KM MEAT PRODUCTION</span>
+                <span style="align-self: flex-end"><span class="stamp stamp--ok stamp--sm" style="flex: none">Approved</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Saviour Bonnici</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">IN</span><span style="font-size: 14px">04:58:10</span></span>
+              
+            </div></div><div style="min-width: 0; padding-bottom: 7px"><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(1deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">KM PLANT · KM MEAT PRODUCTION</span>
+                <span style="align-self: flex-end"><span class="stamp stamp--ok stamp--sm" style="flex: none">Approved</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Dragan Nikolic</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">IN</span><span style="font-size: 14px">04:58:14</span></span>
+              
+            </div></div><div style="min-width: 0; padding-bottom: 7px"><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(-1deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">KM PLANT · KM MEAT PRODUCTION</span>
+                <span style="align-self: flex-end"><span class="stamp stamp--ok stamp--sm" style="flex: none">Approved</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Karl Azzopardi</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">IN</span><span style="font-size: 14px">04:58:19</span></span>
+              
+            </div></div><div style="min-width: 0; padding-bottom: 7px"><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(1deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">KM PLANT · KM MEAT PRODUCTION</span>
+                <span style="align-self: flex-end"><span class="stamp stamp--ign stamp--sm" style="flex: none">Ignored</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Saviour Bonnici</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">NONE</span><span style="font-size: 14px">04:58:40</span></span>
+              <span class="mono" style="font-size: 10.5px; color: rgba(21,34,25,.72); border-top: 1px dashed #C9D2C8; padding-top: 7px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px"><span>same person, 30 s later</span></span>
+            </div></div></div></div><div style="margin-top: 24px; max-width: 760px"><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; font-size: 15.5px; line-height: 1.55; color: rgba(21,34,25,.85)"><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>The ignored tap is still written down, stamped IGNORED.</span></li></ul></div>
+    </div>
+  </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 72px">
+  <section id="floor" style="padding: 72px 0 0">
+    <div style="padding: 0 40px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">On the floor</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">Gloves, flour, and no app to install.</h2><div aria-hidden="true" style="height: 24px"></div><div style="display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 28px; align-items: center"><div style="display: flex; flex-direction: column; gap: 16px"><div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+              <span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V9l9-5 9 5v12"/><path d="M8 21v-7h8v7"/><path d="M12 14v7"/></svg></span>
+              <h3 style="margin: 0; font-size: 17px; line-height: 1.25; letter-spacing: -0.02em">No extra hardware per floor.</h3>
+              <p style="margin: 0 0 0px; font-size: 14.5px; line-height: 1.6; color: rgba(21,34,25,.82)">Every department can share the one plaque at the gate.</p>
+            </div><div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+              <span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21v-4.5L4.6 13a1.7 1.7 0 0 1 2.7-2L9 13V5.2a1.5 1.5 0 0 1 3 0V11V4.2a1.5 1.5 0 0 1 3 0V11V5.6a1.5 1.5 0 0 1 3 0V15c0 3-1.6 6-4.5 6z"/></svg></span>
+              <h3 style="margin: 0; font-size: 17px; line-height: 1.25; letter-spacing: -0.02em">Built for wet or floury hands.</h3>
+              <p style="margin: 0 0 0px; font-size: 14.5px; line-height: 1.6; color: rgba(21,34,25,.82)">The tap screen has one button, at least 64 pixels tall.</p>
+            </div><div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+              <span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1"/><path d="M14 14h2.5v2.5H14zM18 18h2.5v2.5H18zM14 18.5v2M18.5 14h2"/></svg></span>
+              <h3 style="margin: 0; font-size: 17px; line-height: 1.25; letter-spacing: -0.02em">What if the phone has no NFC?</h3>
+              <p style="margin: 0 0 0px; font-size: 14.5px; line-height: 1.6; color: rgba(21,34,25,.82)">The same page opens from a QR code with the camera. A QR tap carries no cryptographic signature — no proof of a physical touch — so it needs your venue's network address to match before it's approved. A position on its own is not enough: without the address it's stored, flagged and queued for review.</p>
+            </div></div><div style="display: flex; justify-content: center; min-width: 0"><div style="display: flex; flex-direction: column; align-items: center">
+        <div role="img" aria-label="The employee's own phone showing the tap screen: Hello {{ticket.n}}, {{ticket.loc}}, one Tap button" style="flex: none; width: 204px; box-sizing: border-box; background: #152219; border-radius: 40px 40px 0 0; padding: 10px 10px 0; box-shadow: 0 -6px 30px rgba(21,34,25,.16)">
+          <div style="width: 184px; height: 178px; border-radius: 31px 31px 0 0; background: #EDF0EA; overflow: hidden; position: relative">
+            <div aria-hidden="true" style="position: absolute; top: 9px; left: 50%; width: 76px; height: 20px; margin-left: -38px; border-radius: 10px; background: #152219; z-index: 2"></div>
+            <div style="width: 375px; height: 363px; transform: scale(0.4907); transform-origin: 0 0; position: absolute; left: 0; top: 0">
+              <div aria-hidden="true" style="height: 54px; padding: 0 30px; display: flex; align-items: center; justify-content: space-between; font: 700 16px 'Space Grotesk', sans-serif; color: #152219">
+                <span>{{ticket.time}}</span>
+                <span style="display: flex; align-items: center; gap: 6px">
+                  <svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.5" width="3" height="9.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+                  <svg width="26" height="13" viewBox="0 0 26 13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x=".7" y=".7" width="21.5" height="11.6" rx="3.5"/><rect x="3" y="3" width="15" height="7" rx="1.6" fill="currentColor" stroke="none"/><path d="M24.4 4.6v3.8" stroke-linecap="round"/></svg>
+                </span>
+              </div>
+              <div style="padding: 32px 16px; display: flex; flex-direction: column; gap: 24px; font-family: 'Space Grotesk', sans-serif; color: #152219">
+                <div style="display: flex; align-items: baseline; justify-content: space-between">
+                  <span style="font-size: 18px; font-weight: 700; letter-spacing: -0.025em; color: #152219">taptime</span>
+                  <span class="mono" style="font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: rgba(21,34,25,.7)">punchless</span>
+                </div>
+                <section class="tapdocket">
+                  <p style="margin: 0; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: rgba(21,34,25,.7)">Tapping</p>
+                  <p style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 30px; line-height: 36px; font-weight: 700; letter-spacing: -0.025em; color: #152219">Hello <span id="pName">{{ticket.n}}</span></p>
+                  <p id="pLoc" style="margin: 4px 0 0; color: rgba(21,34,25,.7)">{{ticket.loc}}</p>
+                </section>
+                <div style="width: 100%; min-height: 64px; border-radius: 2px; background: #1F5C41; color: #FFFDF4; font: 400 20px 'Space Grotesk', sans-serif; letter-spacing: -0.025em; display: flex; align-items: center; justify-content: center">Tap</div>
+              </div>
+            </div>
+          </div>
+        </div>
+          <span aria-hidden="true" style="display: block; width: 204px; height: 4px; background: #152219; border-radius: 0 0 2px 2px"></span>
+          <span aria-hidden="true" style="display: block; width: 204px; margin-top: 6px; border-top: 1.5px dashed rgba(21,34,25,.35)"></span>
+        </div></div></div>
+    </div>
+  </section>
+  </div>
+  <section id="pilot" style="padding: 72px 0 0">
+    <div style="padding: 0 40px; box-sizing: border-box">
+      <div class="ondark" style="background: #1F5C41; border-radius: 24px; padding: 56px 40px; text-align: center; color: #FFFDF4; position: relative; overflow: hidden">
+        <span aria-hidden="true" style="position: absolute; width: 420px; height: 420px; top: -190px; left: -140px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
+        <span aria-hidden="true" style="position: absolute; width: 280px; height: 280px; bottom: -120px; right: -80px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
+        <h2 style="position: relative; margin: 0 0 14px; font-size: 44px; line-height: 1.05; letter-spacing: -0.035em; color: #FFFDF4">Go punchless.</h2>
+        <p style="position: relative; margin: 0 0 30px; font-size: 16.5px; line-height: 1.55; color: rgba(255,253,244,.82)">{{ctaLine}}</p>
+        <a class="btn" href="{{v.signup}}" style="position: relative; background: #FFFDF4; color: #1F5C41">{{ctaBtn}}</a>
+      </div>
+    </div>
+  </section>
+  <footer style="margin-top: 72px; border-top: 1px solid #C9D2C8">
+    <div style="padding: 0 40px; box-sizing: border-box; padding-top: 40px; padding-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 230px 160px; gap: 32px">
+        <div style="display: flex; flex-direction: column; gap: 12px; min-width: 0">
+          <span style="display: flex; align-items: center; gap: 10px">
+            <span aria-hidden="true" style="flex: none; width: 22px; height: 22px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 4px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.8)">© 2026 Taptime · Malta</span>
+          </span>
+          <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">tap in · tap out · that's it</span>
+          <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-width: 460px">
+            <span class="lbl">Taptime</span>
+            <p style="margin: 0; font-size: 14px; line-height: 1.55; color: rgba(21,34,25,.85)">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p>
+          </div>
+        </div>
+        <nav aria-label="Product" class="fcol" style="display: flex; flex-direction: column; min-width: 0">
+          <span class="lbl" style="padding-bottom: 6px">Product</span><a href="Product.dc.html">Product tour</a><a href="Security.dc.html">Security</a><a href="Pricing.dc.html">Pricing</a><a href="ForRestaurants.dc.html">For restaurants & bars</a><a href="ForProduction.dc.html">For production & facilities</a><a href="#api-docs">API docs</a>
+        </nav>
+        <nav aria-label="Legal" class="fcol" style="display: flex; flex-direction: column; min-width: 0">
+          <span class="lbl" style="padding-bottom: 6px">Legal</span><a href="Legal.dc.html">Privacy</a><a href="Legal.dc.html">Terms</a><a href="Legal.dc.html">Company details</a><a href="Legal.dc.html">Cookies</a>
+        </nav>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview": {"width": 834, "height": 4872}}'>
+class Component extends DCLogic {
+  renderVals() {
+    // LandingView values the shared furniture prints (internal/handler builds them): FreeMonths 3.
+    const v = { signup: 'Signup.dc.html', signin: 'SignIn.dc.html', free: 3 };
+    const free = String(v.free);
+    // The production page draws the employee's tap screen (pages.Tap, unchanged) for an INVENTED record at the
+    // seed's single KM venue, KM Plant (test/fixtures/seed.sql).
+    const ticket = { n: 'Anna Farrugia', t: 'CLOCK IN', time: '04:02', loc: 'KM Plant', plaque: 'KM PLANT · 2F04-1B9A' };
+    return {
+      v, ticket,
+      menuOpen: (this.props.menu || 'closed') === 'open',
+      ctaLine: 'Start yourself today — first ' + free + ' months free.',
+      ctaBtn: 'Start free — ' + free + ' months'
+    };
+  }
+}</script>
+</body>
+</html>
