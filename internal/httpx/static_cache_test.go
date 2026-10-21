@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"regexp"
 	"strings"
 	"testing"
@@ -153,8 +154,10 @@ func TestStatic_CacheHeadersAndConditionalRequests(t *testing.T) {
 			})
 		}
 
-		// Directories are still refused, and the refusal carries no cache rule.
-		for _, dir := range []string{"/static/", "/static/fonts/", "/static/fonts", "/static/js/"} {
+		// Directories are still refused, and the refusal carries no cache rule. The last
+		// row is a FILE name with a trailing slash: FileServer answers it with a redirect,
+		// and a redirect pinned for a year under the immutable rule would outlive the file.
+		for _, dir := range []string{"/static/", "/static/fonts/", "/static/fonts", "/static/js/", "/static/" + staticFont + "/"} {
 			r := staticDo(t, srv, http.MethodGet, dir, host, nil)
 			if r.code == http.StatusOK {
 				t.Errorf("GET %s (host %q) = 200: directory listing is open", dir, host)
@@ -162,7 +165,7 @@ func TestStatic_CacheHeadersAndConditionalRequests(t *testing.T) {
 			if strings.Contains(string(r.body), "woff2") {
 				t.Errorf("GET %s (host %q) leaked a file name", dir, host)
 			}
-			if cc, et := r.header.Get("Cache-Control"), r.header.Get("ETag"); et != "" || cc == wantImmutable {
+			if cc, et := r.header.Get("Cache-Control"), r.header.Get("ETag"); et != "" || cc != "" {
 				t.Errorf("GET %s (host %q) = %d with Cache-Control %q, ETag %q; a refusal must not be cached as an asset", dir, host, r.code, cc, et)
 			}
 		}
@@ -228,5 +231,72 @@ func TestStaticImmutableRule_OnlyVersionedNames(t *testing.T) {
 	// CONTROL: the rule is not vacuous -- the six faces are served immutable.
 	if immutable < 6 {
 		t.Errorf("%d of %d files served immutable; want at least the six woff2 faces", immutable, total)
+	}
+}
+
+// readmeDigest is one line of the SHA-256 block in web/static/fonts/README.md
+// (`sha256sum` output: 64 hex, two spaces, file name).
+var readmeDigest = regexp.MustCompile(`(?m)^([0-9a-f]{64})  (\S+)$`)
+
+// TestStaticImmutableRule_BytesMatchTheREADMEDigests closes what a name check cannot:
+// new bytes under an existing versioned name would be pinned in browsers for a year.
+// Every immutable file's embedded bytes must match its row in the fonts README, every
+// immutable file must have a row, and every row must name a file that exists -- so
+// changing a face means a new name AND a new row, and a stale row is red too.
+func TestStaticImmutableRule_BytesMatchTheREADMEDigests(t *testing.T) {
+	readme, err := fs.ReadFile(web.Static(), "fonts/README.md")
+	if err != nil {
+		t.Fatalf("reading the embedded fonts README: %v", err)
+	}
+	rows := map[string]string{}
+	for _, m := range readmeDigest.FindAllStringSubmatch(string(readme), -1) {
+		if _, dup := rows[m[2]]; dup {
+			t.Errorf("fonts/README.md lists %s twice", m[2])
+		}
+		rows[m[2]] = m[1]
+	}
+	// CONTROL: the parser reads the table (six faces and two licence texts today).
+	if len(rows) < 6 {
+		t.Fatalf("parsed %d digest rows from fonts/README.md; the table moved or the parser is blind", len(rows))
+	}
+
+	for name, want := range rows {
+		b, err := fs.ReadFile(web.Static(), path.Join("fonts", name))
+		if err != nil {
+			t.Errorf("fonts/README.md has a digest for %s, but the file is not in the tree: %v", name, err)
+			continue
+		}
+		sum := sha256.Sum256(b)
+		if got := hex.EncodeToString(sum[:]); got != want {
+			t.Errorf("fonts/%s: sha256 %s, README says %s", name, got, want)
+		}
+	}
+
+	srv := httptest.NewServer(httpx.NewRouter(&config.Config{}, nil))
+	t.Cleanup(srv.Close)
+	immutable := 0
+	err = fs.WalkDir(web.Static(), ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		r := staticDo(t, srv, http.MethodHead, "/static/"+name, "", nil)
+		if r.header.Get("Cache-Control") != wantImmutable {
+			return nil
+		}
+		immutable++
+		if path.Dir(name) != "fonts" {
+			t.Errorf("/static/%s is served immutable outside fonts/, where no digest table covers it", name)
+			return nil
+		}
+		if _, ok := rows[path.Base(name)]; !ok {
+			t.Errorf("/static/%s is served immutable but fonts/README.md has no SHA-256 row for it", name)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking the embedded tree: %v", err)
+	}
+	if immutable < 6 {
+		t.Errorf("%d files served immutable; want at least the six woff2 faces", immutable)
 	}
 }
