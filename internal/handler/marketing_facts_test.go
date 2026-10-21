@@ -239,6 +239,26 @@ var punchFeedBodyRE = regexp.MustCompile(`(?s)CREATE FUNCTION public\.punch_feed
 // punchFeedRedefinedRE is any definition of the same trigger function.
 var punchFeedRedefinedRE = regexp.MustCompile(`(?i)CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?punch_feed\s*\(`)
 
+// holdingFeedBodyRE cuts holding_feed() out of 00049's Up section. A holding punch's
+// two events are written by the holding trigger, not punch_feed (K-31), so "every
+// punch" reaches a webhook only if THIS function queues one for the employer too.
+var holdingFeedBodyRE = regexp.MustCompile(`(?s)CREATE OR REPLACE FUNCTION public\.holding_feed\(\).*?\n\$\$;`)
+
+// holdingFeedRedefinedRE is any definition of holding_feed(); 00046 wrote the first
+// one, so only a migration after 00049 makes the reading below stale.
+var holdingFeedRedefinedRE = regexp.MustCompile(`(?i)CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?holding_feed\s*\(`)
+
+// employerWebhookRE is the employer's webhook row inside holding_feed(): the punch
+// belongs to the employer's employee, and it is the employer's HR system the FAQ
+// says can receive it.
+var employerWebhookRE = regexp.MustCompile(`INSERT INTO public\.webhook_deliveries\s*\([^)]*\)\s*VALUES\s*\(v_employer\b`)
+
+// gooseUp is a migration's Up section: what the database runs, not what Down restores.
+func gooseUp(mig string) string {
+	up, _, _ := strings.Cut(mig, "-- +goose Down")
+	return up
+}
+
 // apiWritesViolation is FactAPIWritesPeopleAndLocations' derivation over s. It and
 // its two siblings are package level so the negative control can drive them with a
 // source it took one piece out of.
@@ -271,9 +291,20 @@ func apiFeedViolation(s apiFactSources) string {
 	if !strings.Contains(body, "INSERT INTO public.webhook_deliveries") {
 		return "00049's punch_feed() no longer queues a webhook delivery for a punch"
 	}
+	holding := holdingFeedBodyRE.FindString(gooseUp(s.Mig49))
+	if holding == "" {
+		return "migration 00049's Up no longer defines holding_feed()"
+	}
+	if !employerWebhookRE.MatchString(holding) {
+		return "00049's holding_feed() no longer queues the employer's webhook delivery, so a holding " +
+			"punch (K-31) never reaches the employer's HR system and \"every punch\" is false"
+	}
 	for name, src := range s.Migrations {
 		if name != "00049_write_the_punch_feed.sql" && punchFeedRedefinedRE.MatchString(src) {
 			return name + " redefines punch_feed(); re-derive the webhook half from that definition"
+		}
+		if name > "00049_write_the_punch_feed.sql" && holdingFeedRedefinedRE.MatchString(src) {
+			return name + " redefines holding_feed(); re-derive the holding webhook half from that definition"
 		}
 	}
 	if !regexp.MustCompile(`\bdeliveries, err := delivery\.New\(`).MatchString(s.Cmd) ||
@@ -315,13 +346,21 @@ func apiGateViolation(s apiFactSources) string {
 	return ""
 }
 
-// noAPIClaimRE matches a sentence that says the product has no API. What follows
-// the match is checked separately (noAPIClaimHit): "no API key" or "no API host" is
-// a noun phrase about something else.
-var noAPIClaimRE = regexp.MustCompile(`(?i)\b(?:no|not\s+an?|without\s+an?)\s+(?:(?:integration|public|open|rest)\s+)?APIs?\b`)
+// noAPIClaimRE matches a sentence that says the product has no API: "no API", "not /
+// isn't an API", "without an API", "do / does / did not (or don't, doesn't, didn't)
+// have / offer / provide / expose / ship an API" — straight or curly apostrophe, and
+// any one adjective before the noun ("no web API"). What follows the match is checked
+// separately (noAPIClaimHit), because RE2 has no lookahead.
+var noAPIClaimRE = regexp.MustCompile(`(?i)\b(?:no|not\s+(?:an?|any)|isn['’]t\s+(?:an?|any)|without\s+(?:an?|any)|` +
+	`(?:do|does|did)(?:\s+not|n['’]t)\s+(?:have|offer|provide|expose|ship)\s+(?:an?|any))` +
+	`\s+(?:[a-z]+\s+)?APIs?\b`)
 
-// noAPINounTailRE is the word that turns "no API" into a phrase about something else.
-var noAPINounTailRE = regexp.MustCompile(`(?i)^\s+(?:keys?|hosts?|codes?|calls?|requests?)\b`)
+// noAPINoneRE is the label form: "API: none", "APIs — no".
+var noAPINoneRE = regexp.MustCompile(`(?i)\bAPIs?\s*[:—–-]\s*(?:none|no)\b`)
+
+// noAPINounTailRE is what turns "no API" into a phrase about something else: a noun
+// ("no API key", "No API code") or a hyphenated compound ("not an API-first product").
+var noAPINounTailRE = regexp.MustCompile(`(?i)^(?:-|\s+(?:keys?|hosts?|codes?|calls?|requests?)\b)`)
 
 // noAPIClaimHit returns the first "no API" claim in text, or "".
 func noAPIClaimHit(text string) string {
@@ -330,7 +369,7 @@ func noAPIClaimHit(text string) string {
 			return text[loc[0]:loc[1]]
 		}
 	}
-	return ""
+	return noAPINoneRE.FindString(text)
 }
 
 // authenticatorAPIHit returns the first thing in src (comments stripped) that
@@ -1104,6 +1143,9 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{"locations moved", apiWritesViolation, apiPkg, `locationPath = "/locations/{ref}"`, `locationPath = "/sites/{ref}"`},
 		{"no GET punches", apiFeedViolation, apiPkg, "r.Get(punchesPath,", "r.Head(punchesPath,"},
 		{"the trigger queues no webhook", apiFeedViolation, mig49, "INSERT INTO public.webhook_deliveries", "INSERT INTO public.nothing"},
+		{"a holding punch queues no employer webhook", apiFeedViolation, mig49,
+			"INSERT INTO public.webhook_deliveries (tenant_id, endpoint_id, punch_event_seq) VALUES (v_employer",
+			"INSERT INTO public.nothing (tenant_id, endpoint_id, punch_event_seq) VALUES (v_employer"},
 		{"no webhook sender", apiFeedViolation, cmd, "work.Add(deliveries)", "_ = deliveries"},
 		{"the webhook body is not the punch", apiFeedViolation, delivery, "\tpunchwire.Punch\n", "\tX int\n"},
 		{"a closed API is not refused", apiGateViolation, auth, "case k.APIEnabledAt == nil:", "case false:"},
@@ -1132,12 +1174,23 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 	if apiFeedViolation(redefined) == "" {
 		t.Error("apiFeedViolation does not notice a later migration redefining punch_feed()")
 	}
+	redefined.Migrations = map[string]string{"00099_x.sql": "CREATE OR REPLACE FUNCTION public.holding_feed() RETURNS trigger"}
+	if apiFeedViolation(redefined) == "" {
+		t.Error("apiFeedViolation does not notice a later migration redefining holding_feed()")
+	}
+	redefined.Migrations = map[string]string{"00046_x.sql": "CREATE OR REPLACE FUNCTION public.holding_feed() RETURNS trigger"}
+	if why := apiFeedViolation(redefined); why != "" {
+		t.Errorf("apiFeedViolation refuses holding_feed()'s definition BEFORE 00049, which 00049 replaces: %s", why)
+	}
 
 	// The no-"no API" scanner sees the sentence the FAQ carried until 2026-10-21, and
 	// the other ways of saying it, and not a noun phrase about something else.
 	for _, s := range []string{
 		landingFAQAnswerBeforeM11, "We have no integration API.", "Taptime is not an API product",
 		"works without an API", "No APIs, no fuss.",
+		"There isn't an API.", "There isn’t an API.", "We don't have an API.", "We don’t have an API.",
+		"Taptime does not offer an API.", "doesn't provide an API", "it doesn’t expose any API",
+		"we did not ship an API", "API: none.", "no web API",
 	} {
 		if noAPIClaimHit(s) == "" {
 			t.Errorf("the no-API scanner would not see %q", s)
@@ -1146,6 +1199,7 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 	for _, s := range []string{
 		"the integration API can write your people and locations once Taptime enables it for you",
 		"No API code", "a business with no API key yet", "no API host is configured", "a rapid answer",
+		"Taptime is not an API-first product", "we don't have an API key for you yet",
 	} {
 		if hit := noAPIClaimHit(s); hit != "" {
 			t.Errorf("the no-API scanner matches %q in %q", hit, s)
@@ -1154,6 +1208,21 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 	// AND THE PAGE CHECK ITSELF GOES RED with the old sentence put back.
 	if why := noAPIClaimViolation("/", landingFAQAnswerBeforeM11, api); why == "" {
 		t.Error("noAPIClaimViolation accepts \"There is no API.\" on the landing page while /v1 is mounted")
+	}
+	// And with today's API sentence swapped for another way of denying it.
+	const apiSentence = "Once Taptime enables the integration API for you, your HR or payroll system " +
+		"can also read every punch from a feed or receive it by webhook."
+	swapped := false
+	for _, q := range pages.LandingFAQ {
+		if strings.Contains(q.A, apiSentence) {
+			swapped = true
+			if noAPIClaimViolation("/", strings.Replace(q.A, apiSentence, "We don't have an API.", 1), api) == "" {
+				t.Error("noAPIClaimViolation accepts \"We don't have an API.\" in place of the FAQ's API sentence")
+			}
+		}
+	}
+	if !swapped {
+		t.Errorf("no FAQ answer carries %q any more; the end-to-end mutation would change nothing", apiSentence)
 	}
 	for _, q := range pages.LandingFAQ {
 		if why := noAPIClaimViolation("/", q.A, api); why != "" {

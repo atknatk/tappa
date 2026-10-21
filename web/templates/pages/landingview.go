@@ -312,9 +312,11 @@ const (
 	FactAPIWritesPeopleAndLocations Fact = "route:PUT /v1/locations/{ref}+PUT /v1/employees/{ref}"
 	// Every punch reaches the integration from a feed or a webhook: GET /v1/punches is
 	// mounted (API-7), the punch feed's trigger (00049's punch_feed) queues a
-	// webhook_deliveries row for the business's endpoint, and cmd/tappa runs the
-	// sender (internal/webhook/delivery, API-10) whose body is the same punchwire.Punch
-	// the feed answers. Derived from all four.
+	// webhook_deliveries row for the business's endpoint, and so does the holding
+	// trigger (00049's holding_feed) for the employer of a holding punch — K-31: that
+	// punch's events are not punch_feed's, so "every" needs both — and cmd/tappa runs
+	// the sender (internal/webhook/delivery, API-10) whose body is the same
+	// punchwire.Punch the feed answers. Derived from all five.
 	FactAPIFeedsEveryPunch Fact = "route:GET /v1/punches+webhook:delivery"
 	// The API is opened per business BY TAPPA, not by the business: a key of a tenant
 	// whose api_enabled_at is NULL is refused 403 api_disabled (apikey.ErrAPIClosed,
