@@ -434,8 +434,11 @@ func TestGuardrailRules_SayTaptimeSetsTheDebounceWindow(t *testing.T) {
 			continue
 		}
 		seen = true
-		const want = "Taptime sets the window for every business and measures it on its own " +
-			"server; no business can change it."
+		// ADR 0006: the gap is the smaller of the declared instants' distance and the
+		// recorded tap's age on the database clock (tap.debounceGap).
+		const want = "Taptime sets the window for every business and measures it both in the " +
+			"instants the phone declares and on Taptime's own clock, whichever is closer; no " +
+			"business can change it."
 		if !strings.Contains(g.Rule, want) {
 			t.Errorf("the debounce guarantee says %q; it must say %q", g.Rule, want)
 		}

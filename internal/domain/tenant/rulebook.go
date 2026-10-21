@@ -854,7 +854,8 @@ var guardrailRules = map[string]string{
 		"Taptime sets the tolerance; no business can accept any time at all.",
 	"sys:person-debounce": "§5 row 5 — one person's repeat inside the window is recorded and not " +
 		"counted, so a double tap never becomes a double shift. Taptime sets the window for every " +
-		"business and measures it on its own server; no business can change it.",
+		"business and measures it both in the instants the phone declares and on Taptime's own " +
+		"clock, whichever is closer; no business can change it.",
 	"sys:cross-tenant-qr-site-ip": "ADR 0027 §7 — a QR scan at another business of your group counts only " +
 		"from that venue's own network; anything else waits for your approval. Neither you nor they can change it.",
 	"sys:policy-edit-owner-only": "ADR 0004 K2 — only the owner may change the rules. A manager who could " +
