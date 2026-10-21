@@ -749,7 +749,7 @@ func landingStepIcon(icon StepIcon) templ.Component {
 // native display, and some browser and screen reader pairs then stop exposing the
 // rows and columns at all. Every element carries the role it has natively -- the whole,
 // its two row groups, its rows, two column headers, a row header per aspect and the
-// cells -- so a reader on a phone still hears "Biometric data" as the heading of
+// cells -- so a reader on a phone still hears "If it breaks" as the heading of
 // its row and each answer under its column. The empty corner is a plain cell, not
 // an empty header. TestLandingLedger_KeepsItsRolesWhenThePhoneRestacksIt.
 //
