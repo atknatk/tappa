@@ -11,7 +11,7 @@
 >
 > Kullanıcı **"backlog ekle"** dediğinde madde buraya eklenir.
 
-> **2026-10-21 temizliği:** 99 açık satır ölçüldü (90 + denetim turunda 9; kod + git + 5 prod sorgusu): KAPANDI/DÜŞTÜ 28 (23 kapandı, 2 öncül bayat, 3 ADR 0005'e devredildi) · AÇIK 51 · KISMEN 10 · BİRLEŞTİ 3 · KULLANICI 7. Aşağıdaki "Karar bekleyenler" listesi 10 satır: 7 KULLANICI + kullanıcı yarısı olan T39 ve T71 + kullanıcı eylemi hatırlatması T135. Ölçüm raporları ajan çıktısı, repoda değil.
+> **2026-10-21 temizliği:** 99 açık satır ölçüldü (90 + denetim turunda 9; kod + git + 5 prod sorgusu): KAPANDI/DÜŞTÜ 28 (23 kapandı, 2 öncül bayat, 3 ADR 0005'e devredildi) · AÇIK 51 · KISMEN 10 · BİRLEŞTİ 3 · KULLANICI 7. T141/T142 (eski "Açık/T72-T73") aynı gün kapandı → "Kapananlar". Aşağıdaki "Karar bekleyenler" listesi 10 satır: 7 KULLANICI + kullanıcı yarısı olan T39 ve T71 + kullanıcı eylemi hatırlatması T135. Ölçüm raporları ajan çıktısı, repoda değil.
 
 ---
 
@@ -31,57 +31,6 @@ Ayrıntı ve kanıt "Ertelenmiş teknik borç" tablosundaki satırda; her biri t
 - **T115** — Yedek anahtarı dosyasını TAPPA_TAG_KEK'ten ayrı bir parola yöneticisi kaydına koyup runbook 9(b)'nin sha256 önekiyle doğruladın mı?
 - **T117** — Gizlilik metni canlıda hiç yayımlanmamış (yalnız 81 baytlık `imprint` var): `/operator/legal`'dan R2 alt işleyici satırı ve "log'lar 15 gün" satırıyla yayımlar mısın?
 - **T135** — Docker Hub token'ını ve eski Tailscale auth key'ini iptal edip OAuth öncesinden kalan yedi offline `github-*` cihazı konsoldan sildin mi, ve ~2026-10-22'de Docker Hub `atknatk/tappa` imajlarını private yaptın/sildin mi (public `sha-<12hex>` etiketleri o güne dek dışarıdan okunuyor)? (`KUBE_CONFIG` token'ı 2027-10-19'dan önce yenilenir.)
-
-### T141 — panel, tenant'a veremeyeceği bir ayarı vaat ediyor (eski "Açık/T72")
-
-**Durum:** yürüyor — dal small-panel-brand (2026-10-21) · **Bloklar:** hiçbir şeyi · **İlgili:** M3-policy, M6-dashboard, 19. oturum
-
-> **Yarısı M12-50 (`10fa5bd`) ile kapandı (seçenek a), yarısı yürüyor.** "yours to set" yarısı
-> kapandı: `guardrailRules` artık *"Taptime sets the window; no business can switch it off."*
-> (`internal/domain/tenant/rulebook.go:851`) ve *"Taptime sets the tolerance; no business can
-> accept any time at all."* (`:853`) diyor, ayarlar satırı *"set by Taptime, within …"*
-> (`web/templates/pages/policies.templ:331`). Kalan yarı — `policies.templ:400` *"Some of them can
-> be TUNED inside a range"* ve `:424` *"may be set between"* — dal `small-panel-brand`'deki
-> `d6be42f`'te kapanıyor. Seçenek (b) (tenant başına saklanan bounded param) açılmadı.
-
-**Ne oldu.** Landing'in yeniden tasarımında *"5. satırdaki pencere sizin ayarınız"* cümlesi
-**mount edilmemiş yetenek** olarak bulundu ve kaldırıldı. Ama iddianın **kökü landing değil
-panel**idi: o günkü ölçümde `internal/domain/tenant/rulebook.go` tenant yöneticisine
-*"The window is yours to set"* diyordu (M12-50'de kalktı), ve `web/templates/pages/policies.templ`
-değeri salt-okunur basıyor — o blokta **hiç `<form>` yok**.
-
-**Ölçüldü.** Debounce **süreç geneli tek değer**: `internal/config/config.go` `TAPPA_DEBOUNCE_SECONDS`
-→ `internal/domain/checkin/checkin.go` `params.DebounceWindow` → `cmd/tappa/main.go`
-`tenant.NewRulebook(...)` **tek çağrı, her tenant için aynı**. `internal/handler/dashboard.go`'da
-bounded param için `r.Post` yok. `db/migrations/` içinde debounce yalnız `00005`'te bir
-`transactions` sütunu — **tenant başına saklama yok**.
-
-**Seçenekler.** (a) panel metnini gerçeğe çek (ucuz, dürüst) · (b) bounded param'ı gerçekten
-tenant başına saklanabilir yap (şema + politika motoru işi, M3'ün kapsamı).
-
-**Neden önemli.** Landing'de aynı cümle **bloklayan** sayıldı. Panelde duruyor olması onu
-doğru yapmıyor; yalnız izleyici kitlesi daha dar.
-
-### T142 — `make audit`'te marka kapısı yok (eski "Açık/T73")
-
-**Durum:** yürüyor — dal small-panel-brand (2026-10-21) · **Bloklar:** hiçbir şeyi · **İlgili:** rebrand (`0738d16`), 19. oturum
-
-**Ne oldu.** Kullanıcı-yüzü marka `Taptime`, iç kod adı `tappa` (kullanıcı kararı — teknik
-tanımlayıcılar bilinçli olarak değişmedi). Ama render edilen metinde `Tappa` sızıntısını
-**mekanik olarak tarayan hiçbir şey yok**. Bugüne kadar iki kez **elle** doğrulandı
-(rebrand turunda ve landing yeniden tasarımında), ikisinde de temiz çıktı.
-
-**Risk.** Kod tabanında 5.396 `tappa` tekrarı duruyor. Yeni kullanıcı-yüzü metin yazan
-herkesin (insan ya da ajan) yanlış adı yazması için bolca çağrışım var, ve onu yakalayacak
-bir kapı yok — mevcut testler yalnız **belirli** ekranlarda **belirli** string'leri doğruluyor,
-genel bir tarama değil.
-
-**Ne yapılacak.** `scripts/redline-check.sh`'e (ya da ayrı bir kapıya) render edilen
-şablonlarda/kullanıcıya giden metinlerde `Tappa` arayan bir kural ekle. **Muaf olmalı:**
-`tappa-green` CSS token'ı · import/modül yolları · `tappa_*` DB rolleri · `TAPPA_*` env'ler ·
-Go identifier'ları (`ComparisonRow.Tappa`) · yorumlar. Kapı, rebrand turunun **elle** yaptığı
-doğrulamayı mekanikleştirir.
-
 
 ### B1 — iOS Safari çerez ömrü ölçümü (Q11)
 
@@ -395,5 +344,8 @@ düzeltildi; ilki hâlâ açık.
 ---
 
 ## Kapananlar
+
+- ~~**T141**~~ (eski "Açık/T72") — ✅ **KAPANDI (2026-10-21, seçenek a).** Panel, debounce/tazelik pencerelerini tenant ayarı gibi sunmuyor: M12-50 (`10fa5bd`) *"yours to set"* yarısını kaldırdı; kalan yarıyı `d6be42f` + `1b0206a` kapattı — Kurallar ekranı artık *"· set by Taptime for every business, between 30 s and 5 min"* ve *"No business can change one."* diyor, `sys:person-debounce` cümlesi pencerenin iki ölçünün küçüğüyle (telefonun beyan ettiği an + Taptime'ın kendi saati, ADR 0006) ölçüldüğünü söylüyor. Değer config'ten render ediliyor. Pinler: `TestPoliciesSection_SaysTheDebounceWindowIsTaptimes`, `TestGuardrailRules_SayTaptimeSetsTheDebounceWindow`. Seçenek (b) (tenant başına bounded param) açılmadı.
+- ~~**T142**~~ (eski "Açık/T73") — ✅ **KAPANDI (2026-10-21).** `scripts/redline-check.sh` **B1** (FAIL): kullanıcının okuduğu metinde büyük harfli `Tappa` — `.templ` metni ve öznitelikleri, `web/templates` + `internal` Go string literal'leri, `web/static` html/js/css, servis edilen `openapi.yaml`/sandbox `openapi.json`, `docs/api` rehberi, Android `app/src/main`. Servis edilen yüzeylerde yorumlar da metin sayılır (yalnız Android XML yorumu muaf); identifier'lar, import yolları, `tappa-green`/`tappa_*`/`TAPPA_*`, testler, üretilmiş dosyalar muaf. Commit'ler `e8d788b`, `6cb4d9c`, `e04efdd`, `4fa552c`; pin `cmd/tappa/redline_b1_test.go`. Sınırlar script başlığında (küçük harf `tappa`/`TAPPA` yakalanmaz; `switch` dışında `case …:` biçimli metin satırı; aynı satırda `{` sonrası metin — `templ fmt` + `make check` bunu engeller). Tek bulgu `ErrNotYours` cümlesiydi (ekrana gitmiyordu) → "Taptime".
 
 *(T47 ve T49 satırlarında ✅ ile işaretli — M8-03, `ae07e7c`)*
