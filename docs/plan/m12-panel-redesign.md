@@ -943,5 +943,7 @@ Tam `make check` (fmt + lint + `-race` test), `make audit`, `make check-sandbox`
 ve sızıntılar, K-39 her yeni okuyucu, CSP, betik, accent yuvaları); golden commit'lerinin bayt kontrolü
 yeniden okunur; 390 / 834 / 1200 / 1440 ekran görüntüsü turu. Bulgu → düzeltme → yeni denetçi. Bittiğinde
 `state.md`; `main`'e birleştirme **kullanıcının deploy kararıdır**.
+
+> ✅ **Yapıldı (2026-10-21).** Güvenlik: tüm diff `be1d2d1`'e kadar + delta `be1d2d1..601f880` ONAY. Golden: tüm golden/pin commit'leri yeniden ölçüldü, tap/unbranded/`layout.*` yeniden pinlenmedi. Boşa düşmüş test taraması (7 YÜKSEK, 5 ORTA, 1 canlı kusur) ve 390/834/1200/1440 ekran turu (4 ORTA) şeritlerde kapandı: `fd13294`, `a5adcfe`, `bcf5537`, `25770f3`, `601f880` (ağlar), `3ba9c31` (plaket kartı), `ee32095`+`b8bcf06` (yerleşim), `6ff4dc7` (Rules), `6353de5` (sabit-zamanlı envanter). Tam CI `m12-ci-snapshot` dalında. Kalan küçük işler `docs/backlog.md`'de.
 </content>
 </invoke>
