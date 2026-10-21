@@ -3,6 +3,8 @@ package handler
 import (
 	"fmt"
 	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -289,8 +291,22 @@ func TestLandingCSS_FocusRingClearsThreeToOneOnEveryGround(t *testing.T) {
 	}
 
 	// The translucent tones are a token at an alpha; each channel triplet must be the
-	// hex token it stands for, or "ink at 85%" would quietly be another colour.
-	for _, name := range []string{"ink", "green", "porcelain"} {
+	// hex token it stands for, or "ink at 85%" would quietly be another colour. Every
+	// --*-ch the root declares is checked (LP-03 added paper's and mint's), and the
+	// three the ring and the grounds read must be among them.
+	var channels []string
+	for name := range tokens {
+		if base, ok := strings.CutSuffix(name, "-ch"); ok {
+			channels = append(channels, base)
+		}
+	}
+	sort.Strings(channels)
+	for _, need := range []string{"green", "ink", "porcelain"} {
+		if !slices.Contains(channels, need) {
+			t.Errorf("the .lp root declares no --%s-ch", need)
+		}
+	}
+	for _, name := range channels {
 		want := color(name)
 		got := strings.Fields(tokens[name+"-ch"])
 		if len(got) != 3 {
@@ -659,5 +675,88 @@ func TestLandingCSS_AReusedProductClassKeepsItsInnerSpace(t *testing.T) {
 		if (len(got) > 0) != tc.reported {
 			t.Errorf("CONTROL %s: the scan reported %q, want reported=%v", tc.name, got, tc.reported)
 		}
+	}
+}
+
+// cssAnimationRE finds an animation declaration -- the shorthand or any animation-*
+// longhand -- in a rule's declarations. A transition is not one: the public site's
+// state changes (the FAQ's +, a card's edge) are transitions and stay.
+var cssAnimationRE = regexp.MustCompile(`(?:^|[;{\s])animation(?:-[a-z]+)*\s*:`)
+
+// cssAnimations lists every @keyframes and every animation declaration in css
+// (comments already removed), by where it sits.
+func cssAnimations(css string) []string {
+	var out []string
+	if n := strings.Count(css, "@keyframes"); n > 0 {
+		out = append(out, fmt.Sprintf("%d @keyframes block(s)", n))
+	}
+	for _, r := range flatCSSRules(css) {
+		if r.keyframe {
+			continue
+		}
+		if cssAnimationRE.MatchString(r.decls) {
+			out = append(out, strings.Join(r.selectors, ", ")+" declares an animation")
+		}
+	}
+	return out
+}
+
+// classAttrRE reads a class attribute's value.
+var classAttrRE = regexp.MustCompile(`\bclass="([^"]*)"`)
+
+// TestLandingCSS_ThePublicSiteDeclaresNoAnimation is README O2 (LP-03): the public
+// site's stylesheet -- every .lp block, from the reference's header to the end of
+// input.css -- declares no @keyframes and no animation, and the landing renders no
+// element with the `play` class the reference's hero used to start its loops.
+//
+// 🔴 THE ABSENCE IS THE SAFETY PROPERTY, NOT A STYLE. The hero's ticket was hidden by
+// a clip-path that only an animation (or a reduced-motion rule undoing it) revealed;
+// a still page has nothing to undo, so nothing can be left looking at a hidden card
+// when a second rule is dropped. TestLanding_ReducedMotionLeavesTheDocketVisible
+// guards the sign-up wizard's docket-print, which lives outside this block and stays.
+func TestLandingCSS_ThePublicSiteDeclaresNoAnimation(t *testing.T) {
+	t.Parallel()
+	block := landingCSSBlock(t)
+	if len(flatCSSRules(block)) < 100 {
+		t.Fatal("PREMISE: the scan read too few rules from the .lp block; the parser lost it")
+	}
+	for _, hit := range cssAnimations(block) {
+		t.Errorf("the public site's stylesheet animates: %s. The boards draw no motion "+
+			"(README O2); draw the element in its final state instead", hit)
+	}
+
+	body := mustFetchMarketing(t, marketingRouter(t), "/")
+	classes := 0
+	for _, m := range classAttrRE.FindAllStringSubmatch(body, -1) {
+		classes++
+		if slices.Contains(strings.Fields(m[1]), "play") {
+			t.Errorf("the landing renders class=%q; `play` started the reference hero's loops "+
+				"and has nothing to start now", m[1])
+		}
+	}
+	if classes < 50 {
+		t.Fatalf("PREMISE: the landing rendered %d class attributes; this is not the page", classes)
+	}
+}
+
+// TestLandingCSS_AnimationScanRefusesAKeyframesOrAnAnimation is the scan's control.
+func TestLandingCSS_AnimationScanRefusesAKeyframesOrAnAnimation(t *testing.T) {
+	t.Parallel()
+	for name, css := range map[string]string{
+		"a keyframes block":       ".lp .a { color: red; } @keyframes k { from { opacity: 0; } to { opacity: 1; } }",
+		"the shorthand":           ".lp .a { color: red; animation: k 1s ease-out; }",
+		"a longhand":              ".lp .a { animation-name: k; }",
+		"inside a media query":    "@media (prefers-reduced-motion: no-preference) { .lp .demoDialog[open] { animation: demoIn .18s ease-out both; } }",
+		"first in its rule":       ".lp .a{animation:k 1s}",
+		"a keyframes in a @media": "@media (min-width: 1px) { @keyframes k { to { opacity: 1; } } }",
+	} {
+		if len(cssAnimations(css)) == 0 {
+			t.Errorf("CONTROL %s: the scan passed it", name)
+		}
+	}
+	still := ".lp .a { transition: transform .2s; } .lp .b { transform: rotate(1.5deg); } " +
+		"html:has(.lp) { scroll-behavior: smooth; } .lp .c { clip-path: none; }"
+	if got := cssAnimations(still); len(got) != 0 {
+		t.Errorf("CONTROL: the scan refused a still stylesheet: %q", got)
 	}
 }

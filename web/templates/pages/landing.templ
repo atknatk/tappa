@@ -61,9 +61,11 @@ import (
 // It is not translated into Tailwind utilities: fidelity first, and a rule whose
 // numbers can be read beside the reference's is a rule that can be checked.
 //
-// THE SCRIPT IS THE REFERENCE'S OWN, in web/static/js/landing.js. It is the only
-// page on the public surface that carries one, which is why it is also the only
-// one whose policy names script-src (internal/handler/marketing.go, landingCSP).
+// THE SCRIPT IS web/static/js/landing.js: the reference's record rotation, widened in
+// LP-03 to the plaque and the phone, and the demo dialog's opener. It is the only page
+// on the public surface that carries one, which is why it is also the only one whose
+// policy names script-src (internal/handler/marketing.go, landingCSP). Nothing on the
+// page moves (README O2): the script swaps words, it adds no animation.
 //
 // NO COLOUR IS WRITTEN IN THIS FILE. The plaque's mint wave in the hero was the
 // one raw hex the port carried (the mint, on two SVG attributes); it is now the
@@ -105,37 +107,34 @@ templ Landing(v LandingView) {
 	}
 }
 
-// landingHero is the reference's two-column opener: the slogan, the struck-through
-// creed, the two ways in, and the scene beside them.
+// landingHero is the opener the Landing boards draw (LP-03): the slogan, the
+// struck-through creed, the two ways in, and the scene beside them -- beside on the
+// desktop, under them on the tablet and the phone.
 //
-// ⚠️ THE CREED IS SET IN IBM Plex Mono AT WEIGHT 500 AND WE HOLD 400 AND 700. The
-// reference asks Google Fonts for mono 400/500/600; web/static/fonts carries 400
-// and 700, so the browser picks 400 here (and 700 where the reference asks 600 —
-// the plaque label, the ledger heads, the strip, the docket rows). Reported rather
-// than worked around: the missing weights are two more woff2 files whenever the
-// user wants them.
+// ⚠️ THE CREED IS SET IN IBM Plex Mono AND WE HOLD 400 AND 700. The boards draw the
+// struck words at 400 and "Just tap." in bold; both weights are carried
+// (web/static/fonts), so nothing is substituted here.
 //
 // 🔴 THE SECOND BUTTON SAYS "Watch demo" AND IS STILL AN <a href="#how">
-// (2026-09-14, user's instruction). Its POSITION, CLASSES AND SIZE ARE THE
-// REFERENCE'S, UNCHANGED — only the words and the id are new — and the href is not
-// decoration: it is the fallback. landing.js upgrades this link into the opener for
-// the dialog at the foot of the page and cancels the navigation; a visitor whose
-// browser ran no script, or whose browser has no <dialog>, follows the link and
-// lands on "How it works", which is the section that answers the same question in
-// prose. A <button> here would have been the semantically tidier element and would
-// have done NOTHING at all in those two cases, which is the trade this repository
-// does not make.
+// (2026-09-14, user's instruction). The href is not decoration: it is the fallback.
+// landing.js upgrades this link into the opener for the dialog at the foot of the
+// page and cancels the navigation; a visitor whose browser ran no script, or whose
+// browser has no <dialog>, follows the link and lands on "How it works", which is
+// the section that answers the same question in prose. A <button> here would have
+// been the semantically tidier element and would have done NOTHING at all in those
+// two cases, which is the trade this repository does not make. Both buttons are the
+// public site's button (LP-01): 48px, and the glyph sits in the button's own gap.
 templ landingHero(v LandingView) {
-	<header class="hero">
-		<div class="wrap heroGrid">
-			<div>
-				<p class="eyebrow">Time & attendance for shift teams</p>
-				<h1>Punchless.<br/>Every shift starts with a <span class="tapWord">tap.</span></h1>
+	<section class="hero" aria-label="Taptime">
+		<div class="heroGrid">
+			<div class="heroCopy">
+				<p class="lp-eyebrow heroEyebrow">Time & attendance for shift teams</p>
+				<h1 class="heroTitle">Punchless.<br/>Every shift starts with a <span class="heroTap">tap.</span></h1>
 				<p class="heroSub">{ LandingHeroLede.Text }</p>
-				<p class="heroCreed"><s>No app.</s>{ nbsp }<s>No device.</s>{ nbsp }<s>No fingerprints.</s>{ nbsp }Just tap.</p>
+				<p class="heroCreed"><s>No app.</s>{ nbsp }<s>No device.</s>{ nbsp }<s>No fingerprints.</s>{ nbsp }<b>Just tap.</b></p>
 				<div class="heroBtns">
-					<a class="lp-btn lp-btn-green" href={ templ.URL(v.SignupHref) }>Start free — { strconv.Itoa(v.FreeMonths) } months on us</a>
-					<a class="lp-btn lp-btn-ghost lp-btn-withIcon" id="demoOpen" href="#how">
+					<a class="lp-button lp-button--green" href={ templ.URL(v.SignupHref) }>Start free — { strconv.Itoa(v.FreeMonths) } months on us</a>
+					<a class="lp-button lp-button--ghost" id="demoOpen" href="#how">
 						@landingPlayIcon()
 						Watch demo
 					</a>
@@ -144,16 +143,14 @@ templ landingHero(v LandingView) {
 			</div>
 			@landingScene()
 		</div>
-	</header>
+	</section>
 }
 
 // landingPlayIcon is the play glyph on "Watch demo".
 //
-// It is drawn rather than set as a character: the emoji in the step cards are the
-// reference's own and stay, but a new mark added here would be a second icon
-// vocabulary, and an emoji's shape, weight and colour belong to the reader's font
-// rather than to this page. Stroke 1.6 is the plaque antenna's, so the page's two
-// line drawings are the same hand.
+// It is drawn rather than set as a character: an emoji's shape, weight and colour
+// belong to the reader's font rather than to this page. Stroke 1.6 is the plaque
+// antenna's, so the page's line drawings are the same hand.
 //
 // It carries no accessible name on purpose. The button already says "Watch demo",
 // and a name here would make a screen reader announce the same thing twice.
@@ -164,42 +161,112 @@ templ landingPlayIcon() {
 	</svg>
 }
 
-// landingScene is the dark plaque with its pulsing dashed ring and the ticket that
-// prints over its lower right corner. Both loops are infinite, as the reference
-// draws them, and both stop for a reader who has asked for less motion.
+// landingScene is the boards' hero drawing: the wall plaque, the phone held to it
+// showing the tap screen, and the ticket the plaque prints underneath. It does not
+// move (README O2): the scene is a still, and the record it shows changes only when
+// landing.js swaps the words.
 //
-// THE SVG IS INLINE BECAUSE IT HAS TO BE: the response's policy names no img-src,
-// so a file — ours or anybody else's — would not load. Its two colours are the
-// p-wave and p-dot classes (input.css, --mint) rather than attributes, so that no
-// hex value is written in this file.
+// 🔴 ONE RECORD, THREE PLACES. The plaque's venue line (pPlaque), the phone's
+// greeting and venue (pName, pLoc) and its clock (pTime), and the ticket's four
+// values all show the SAME made-up record; landing.js rotates them together through
+// the same four records. What is written here is the first of the four, so a
+// browser that runs no script shows a consistent still rather than a broken one --
+// TestLandingHero_TheStillIsTheScriptsFirstRecord holds the two together, and
+// TestLandingHero_EveryVenueTheScriptShowsIsASeedVenue holds the venues to the seed.
 //
-// THE FOUR VALUES ON THE TICKET ARE INVENTED AND SAID TO BE: they are the four
-// made-up records web/static/js/landing.js rotates through, and the ticket is a
-// drawing, not a record. No plaque id and no counter value printed here is real.
+// 🔴 THE PHONE IS A DRAWING OF THE TAP SCREEN, NOT THE TAP SCREEN. It imitates
+// pages.TapHeading and the tap button -- the "Tapping" label, "Hello" and the name,
+// the venue, the one word "Tap", the unbranded wordmark in green -- with classes of
+// its own, so nothing here reaches the real screen (CLAUDE.md §9) and the real
+// screen's components are not rendered on a public page. The button is a div: it is
+// a picture of a button, and a picture is not something a visitor can press.
+//
+// THE SVGs ARE INLINE BECAUSE THEY HAVE TO BE: the response's policy names no
+// img-src, so a file would not load. Their colours are classes (input.css, --mint and
+// the green), so no hex value is written in this file.
+//
+// THE FOUR VALUES ON THE TICKET ARE INVENTED AND SAID TO BE: they are the records
+// web/static/js/landing.js rotates through, and the ticket is a drawing, not a
+// record. No plaque id printed here is real.
 templ landingScene() {
-	<div class="scene play" aria-label="A phone taps the Taptime wall plaque and a verified clock-in ticket prints">
-		<div class="plaque">
-			<div class="p-brand">TAPTIME</div>
+	<div class="scene" role="group" aria-label="A phone taps the Taptime wall plaque and a verified clock-in ticket prints">
+		<div class="plaque" aria-hidden="true">
+			// Two classes on one element: the first carries the rule the brand
+			// golden pins byte for byte (internal/brand), the second the phone's
+			// smaller size, which may not be written against the first.
+			<div class="p-brand p-word">TAPTIME</div>
 			<div class="p-ring">
-				<span class="tapPulse" aria-hidden="true"></span>
-				<svg class="p-wave" viewBox="0 0 24 24" fill="none" stroke-width="1.6" aria-hidden="true">
-					<path d="M6 8.5a8 8 0 0 1 12 0M8.5 11a4.5 4.5 0 0 1 7 0" stroke-linecap="round"></path>
+				<span class="p-halo"></span>
+				<svg class="p-wave" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" focusable="false">
+					<path d="M6 8.5a8 8 0 0 1 12 0M8.5 11a4.5 4.5 0 0 1 7 0"></path>
 					<circle class="p-dot" cx="12" cy="14.5" r="1.6" stroke="none"></circle>
 				</svg>
 			</div>
 			<div class="p-txt">Tap here to<br/>clock in / out</div>
-			<div class="p-loc">KF ST JULIANS · 91AC-7E55</div>
+			<div class="p-loc" id="pPlaque">KF ST JULIANS · 91AC-7E55</div>
 		</div>
-		<div class="lp-docket" id="docket">
-			<div class="d-name" id="dName">Maria Vella</div>
-			<span class="d-tag" id="dType">CLOCK IN</span>
-			<div class="d-rows">
-				<div><span>Time</span><b id="dTime">09:58</b></div>
-				<div><span>Location</span><b id="dLoc">KF St Julians</b></div>
-				<div><span>Signature</span><b>SUN valid ✓</b></div>
-				<div><span>On site</span><b>IP + GPS ✓</b></div>
+		<div class="heroWaves" aria-hidden="true">
+			<svg viewBox="0 0 50 110" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" preserveAspectRatio="none" focusable="false">
+				<path d="M14 38a24 24 0 0 1 0 34" opacity=".9"></path>
+				<path d="M22 28a36 36 0 0 1 0 54" opacity=".55"></path>
+				<path d="M30 18a48 48 0 0 1 0 74" opacity=".3"></path>
+			</svg>
+		</div>
+		<div class="heroPhoneCol">
+			<div class="heroPhone" role="img" aria-label="The employee's own phone showing the tap screen: a greeting by name, the venue and one Tap button">
+				<div class="heroScreen">
+					<span class="heroNotch"></span>
+					<div class="heroCanvas">
+						<div class="heroStatus">
+							<span id="pTime">09:58</span>
+							<span class="heroStatusIcons">
+								<svg viewBox="0 0 18 12" width="18" height="12" fill="currentColor" focusable="false">
+									<rect x="0" y="8" width="3" height="4" rx="1"></rect>
+									<rect x="5" y="5" width="3" height="7" rx="1"></rect>
+									<rect x="10" y="2.5" width="3" height="9.5" rx="1"></rect>
+									<rect x="15" y="0" width="3" height="12" rx="1"></rect>
+								</svg>
+								<svg viewBox="0 0 26 13" width="26" height="13" fill="none" stroke="currentColor" stroke-width="1.4" focusable="false">
+									<rect x=".7" y=".7" width="21.5" height="11.6" rx="3.5"></rect>
+									<rect x="3" y="3" width="15" height="7" rx="1.6" fill="currentColor" stroke="none"></rect>
+									<path d="M24.4 4.6v3.8" stroke-linecap="round"></path>
+								</svg>
+							</span>
+						</div>
+						<div class="heroTapScreen">
+							<div class="heroWordmark">
+								<span class="heroWordmarkName">taptime</span>
+								<span class="heroWordmarkTag">punchless</span>
+							</div>
+							<div class="tapdocket">
+								<p class="heroTapLabel">Tapping</p>
+								<p class="heroHello">Hello <span id="pName">Maria Vella</span></p>
+								<p class="heroVenue" id="pLoc">KF St Julians</p>
+							</div>
+							<div class="heroTapButton">Tap</div>
+						</div>
+					</div>
+				</div>
 			</div>
-			<div class="d-stamp">APPROVED</div>
+			<span class="heroPhoneEdge" aria-hidden="true"></span>
+			<span class="heroPhoneCut" aria-hidden="true"></span>
+		</div>
+		<div class="heroPrinter">
+			<span class="heroPrinterBar" aria-hidden="true"></span>
+			<span class="heroPrinterSlot" aria-hidden="true"></span>
+			<div class="lp-slip heroSlip" id="docket">
+				<div class="heroSlipHead">
+					<span class="heroSlipType" id="dType">CLOCK IN</span>
+					<span class="stamp stamp--approved">APPROVED</span>
+				</div>
+				<span class="heroSlipName" id="dName">Maria Vella</span>
+				<div class="heroSlipRows">
+					<div><span>Time</span><b id="dTime">09:58</b></div>
+					<div><span>Location</span><b id="dLoc">KF St Julians</b></div>
+					<div><span>Signature</span><b>SUN valid ✓</b></div>
+					<div><span>On site</span><b>IP + GPS ✓</b></div>
+				</div>
+			</div>
 		</div>
 	</div>
 }
@@ -483,7 +550,7 @@ templ landingDemoDialog(v LandingView) {
 				// It says the recording does not exist, it does not say when it will, and
 				// it ends on the one thing that IS mounted.
 				<div class="demoSoon">
-					<p class="demoSoonKicker">Taptime · demo</p>
+					<p class="lp-eyebrow demoSoonKicker">Taptime · demo</p>
 					<p class="demoSoonLead">There is no recording here yet.</p>
 					<p class="demoSoonBody">
 						This panel will hold it as soon as it is cut. Until then the shortest
@@ -492,7 +559,7 @@ templ landingDemoDialog(v LandingView) {
 						have shown you.
 					</p>
 					if v.SignupHref != "" {
-						<a class="lp-btn lp-btn-green demoSoonCta" href={ templ.URL(v.SignupHref) }>
+						<a class="lp-button lp-button--green demoSoonCta" href={ templ.URL(v.SignupHref) }>
 							Start free — { strconv.Itoa(v.FreeMonths) } months on us
 						</a>
 					}

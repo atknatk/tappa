@@ -1,35 +1,50 @@
-// The landing page's one script: the ticket in the hero rotates through four
+// The landing page's one script. Its first half rotates the hero through four
 // made-up records so the scene reads as a stream of taps rather than a still.
 //
-// 🔴 IT IS THE USER'S OWN SCRIPT, CARRIED OVER FROM
-// docs/design/landing-reference-2026-09-12.html UNCHANGED apart from being a
-// file instead of an inline <script>. Inline would have needed
-// script-src 'unsafe-inline' in the marketing policy; a file needs
-// script-src 'self', which is what internal/handler/marketing.go's landingCSP
-// grants and nothing more.
+// THE ROTATION IS THE REFERENCE'S (docs/design/landing-reference-2026-09-12.html),
+// moved from an inline <script> into this file: inline would have needed
+// script-src 'unsafe-inline' in the marketing policy; a file needs script-src
+// 'self', which is what internal/handler/marketing.go's landingCSP grants and
+// nothing more. LP-03 (2026-10-21) widened it to the plaque and the phone the boards
+// draw, so the ticket, the phone and the plaque always show ONE record.
 //
-// IT TOUCHES NOTHING BUT FOUR TEXT NODES. No fetch, no storage, no cookie, no
+// 🔴 IT MOVES NOTHING (README O2). It swaps words; it adds no class and starts no
+// motion. The page is drawn still and stays still.
+//
+// IT TOUCHES NOTHING BUT EIGHT TEXT NODES. No fetch, no storage, no cookie, no
 // location read (§4.2 — that belongs to tap.js and to the moment of a tap).
-// Everything it writes is invented and is labelled as such on the page.
+// Everything it writes is invented and is labelled as such on the page. Every
+// venue is one of the seed's (test/fixtures/seed.sql), and the page's own markup
+// is the FIRST record below, so a browser that runs no script shows that record
+// whole -- both held by the LandingHero tests in internal/handler.
 //
-// A reader who has asked for less motion gets the first record and no timer.
+// A reader who has asked for less motion gets the first record and no timer, and
+// so does a page that lost one of the eight nodes: a rotation that could fill only
+// some of them would show two records at once.
 (function () {
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var people = [
-    { n: 'Maria Vella', t: 'CLOCK IN', time: '09:58', loc: 'KF St Julians' },
-    { n: 'Kevin Grech', t: 'CLOCK IN', time: '09:52', loc: 'KF St Julians' },
-    { n: 'Anna Farrugia', t: 'CLOCK IN', time: '04:02', loc: 'KM Facility' },
-    { n: 'Luke Borg', t: 'CLOCK OUT', time: '02:04', loc: 'Rusty Bar' }
+    { n: 'Maria Vella', t: 'CLOCK IN', time: '09:58', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55' },
+    { n: 'Kevin Grech', t: 'CLOCK IN', time: '09:52', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55' },
+    { n: 'Anna Farrugia', t: 'CLOCK IN', time: '04:02', loc: 'KM Plant', plaque: 'KM PLANT · 2F04-1B9A' },
+    { n: 'Luke Borg', t: 'CLOCK OUT', time: '02:04', loc: 'Rusty Bar', plaque: 'RUSTY BAR · 6D31-C8E2' }
   ];
+  // id -> the record's field it shows.
+  var slots = {
+    dName: 'n', dType: 't', dTime: 'time', dLoc: 'loc',
+    pName: 'n', pLoc: 'loc', pTime: 'time', pPlaque: 'plaque'
+  };
+  var nodes = {};
+  for (var id in slots) {
+    nodes[id] = document.getElementById(id);
+    if (!nodes[id]) return;
+  }
   var i = 0;
   if (reduced) return;
   setInterval(function () {
     i = (i + 1) % people.length;
     var p = people[i];
-    document.getElementById('dName').textContent = p.n;
-    document.getElementById('dType').textContent = p.t;
-    document.getElementById('dTime').textContent = p.time;
-    document.getElementById('dLoc').textContent = p.loc;
+    for (var id in slots) nodes[id].textContent = p[slots[id]];
   }, 3800);
 })();
 

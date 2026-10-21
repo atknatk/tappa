@@ -69,9 +69,11 @@ import (
 // It is not translated into Tailwind utilities: fidelity first, and a rule whose
 // numbers can be read beside the reference's is a rule that can be checked.
 //
-// THE SCRIPT IS THE REFERENCE'S OWN, in web/static/js/landing.js. It is the only
-// page on the public surface that carries one, which is why it is also the only
-// one whose policy names script-src (internal/handler/marketing.go, landingCSP).
+// THE SCRIPT IS web/static/js/landing.js: the reference's record rotation, widened in
+// LP-03 to the plaque and the phone, and the demo dialog's opener. It is the only page
+// on the public surface that carries one, which is why it is also the only one whose
+// policy names script-src (internal/handler/marketing.go, landingCSP). Nothing on the
+// page moves (README O2): the script swaps words, it adds no animation.
 //
 // NO COLOUR IS WRITTEN IN THIS FILE. The plaque's mint wave in the hero was the
 // one raw hex the port carried (the mint, on two SVG attributes); it is now the
@@ -239,26 +241,23 @@ func Landing(v LandingView) templ.Component {
 	})
 }
 
-// landingHero is the reference's two-column opener: the slogan, the struck-through
-// creed, the two ways in, and the scene beside them.
+// landingHero is the opener the Landing boards draw (LP-03): the slogan, the
+// struck-through creed, the two ways in, and the scene beside them -- beside on the
+// desktop, under them on the tablet and the phone.
 //
-// ⚠️ THE CREED IS SET IN IBM Plex Mono AT WEIGHT 500 AND WE HOLD 400 AND 700. The
-// reference asks Google Fonts for mono 400/500/600; web/static/fonts carries 400
-// and 700, so the browser picks 400 here (and 700 where the reference asks 600 —
-// the plaque label, the ledger heads, the strip, the docket rows). Reported rather
-// than worked around: the missing weights are two more woff2 files whenever the
-// user wants them.
+// ⚠️ THE CREED IS SET IN IBM Plex Mono AND WE HOLD 400 AND 700. The boards draw the
+// struck words at 400 and "Just tap." in bold; both weights are carried
+// (web/static/fonts), so nothing is substituted here.
 //
 // 🔴 THE SECOND BUTTON SAYS "Watch demo" AND IS STILL AN <a href="#how">
-// (2026-09-14, user's instruction). Its POSITION, CLASSES AND SIZE ARE THE
-// REFERENCE'S, UNCHANGED — only the words and the id are new — and the href is not
-// decoration: it is the fallback. landing.js upgrades this link into the opener for
-// the dialog at the foot of the page and cancels the navigation; a visitor whose
-// browser ran no script, or whose browser has no <dialog>, follows the link and
-// lands on "How it works", which is the section that answers the same question in
-// prose. A <button> here would have been the semantically tidier element and would
-// have done NOTHING at all in those two cases, which is the trade this repository
-// does not make.
+// (2026-09-14, user's instruction). The href is not decoration: it is the fallback.
+// landing.js upgrades this link into the opener for the dialog at the foot of the
+// page and cancels the navigation; a visitor whose browser ran no script, or whose
+// browser has no <dialog>, follows the link and lands on "How it works", which is
+// the section that answers the same question in prose. A <button> here would have
+// been the semantically tidier element and would have done NOTHING at all in those
+// two cases, which is the trade this repository does not make. Both buttons are the
+// public site's button (LP-01): 48px, and the glyph sits in the button's own gap.
 func landingHero(v LandingView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -280,14 +279,14 @@ func landingHero(v LandingView) templ.Component {
 			templ_7745c5c3_Var4 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<header class=\"hero\"><div class=\"wrap heroGrid\"><div><p class=\"eyebrow\">Time & attendance for shift teams</p><h1>Punchless.<br>Every shift starts with a <span class=\"tapWord\">tap.</span></h1><p class=\"heroSub\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<section class=\"hero\" aria-label=\"Taptime\"><div class=\"heroGrid\"><div class=\"heroCopy\"><p class=\"lp-eyebrow heroEyebrow\">Time & attendance for shift teams</p><h1 class=\"heroTitle\">Punchless.<br>Every shift starts with a <span class=\"heroTap\">tap.</span></h1><p class=\"heroSub\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(LandingHeroLede.Text)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 134, Col: 45}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 133, Col: 45}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -300,7 +299,7 @@ func landingHero(v LandingView) templ.Component {
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(nbsp)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 135, Col: 45}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 134, Col: 45}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 		if templ_7745c5c3_Err != nil {
@@ -313,7 +312,7 @@ func landingHero(v LandingView) templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(nbsp)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 135, Col: 70}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 134, Col: 70}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
@@ -326,13 +325,13 @@ func landingHero(v LandingView) templ.Component {
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(nbsp)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 135, Col: 101}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 134, Col: 101}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "Just tap.</p><div class=\"heroBtns\"><a class=\"lp-btn lp-btn-green\" href=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<b>Just tap.</b></p><div class=\"heroBtns\"><a class=\"lp-button lp-button--green\" href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -348,13 +347,13 @@ func landingHero(v LandingView) templ.Component {
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(v.FreeMonths))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 137, Col: 112}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 136, Col: 119}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, " months on us</a> <a class=\"lp-btn lp-btn-ghost lp-btn-withIcon\" id=\"demoOpen\" href=\"#how\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, " months on us</a> <a class=\"lp-button lp-button--ghost\" id=\"demoOpen\" href=\"#how\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -369,7 +368,7 @@ func landingHero(v LandingView) templ.Component {
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(LandingHeroFoot.Text)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 143, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 142, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
@@ -383,7 +382,7 @@ func landingHero(v LandingView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</div></header>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</div></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -393,11 +392,9 @@ func landingHero(v LandingView) templ.Component {
 
 // landingPlayIcon is the play glyph on "Watch demo".
 //
-// It is drawn rather than set as a character: the emoji in the step cards are the
-// reference's own and stay, but a new mark added here would be a second icon
-// vocabulary, and an emoji's shape, weight and colour belong to the reader's font
-// rather than to this page. Stroke 1.6 is the plaque antenna's, so the page's two
-// line drawings are the same hand.
+// It is drawn rather than set as a character: an emoji's shape, weight and colour
+// belong to the reader's font rather than to this page. Stroke 1.6 is the plaque
+// antenna's, so the page's line drawings are the same hand.
 //
 // It carries no accessible name on purpose. The button already says "Watch demo",
 // and a name here would make a screen reader announce the same thing twice.
@@ -430,18 +427,33 @@ func landingPlayIcon() templ.Component {
 	})
 }
 
-// landingScene is the dark plaque with its pulsing dashed ring and the ticket that
-// prints over its lower right corner. Both loops are infinite, as the reference
-// draws them, and both stop for a reader who has asked for less motion.
+// landingScene is the boards' hero drawing: the wall plaque, the phone held to it
+// showing the tap screen, and the ticket the plaque prints underneath. It does not
+// move (README O2): the scene is a still, and the record it shows changes only when
+// landing.js swaps the words.
 //
-// THE SVG IS INLINE BECAUSE IT HAS TO BE: the response's policy names no img-src,
-// so a file — ours or anybody else's — would not load. Its two colours are the
-// p-wave and p-dot classes (input.css, --mint) rather than attributes, so that no
-// hex value is written in this file.
+// 🔴 ONE RECORD, THREE PLACES. The plaque's venue line (pPlaque), the phone's
+// greeting and venue (pName, pLoc) and its clock (pTime), and the ticket's four
+// values all show the SAME made-up record; landing.js rotates them together through
+// the same four records. What is written here is the first of the four, so a
+// browser that runs no script shows a consistent still rather than a broken one --
+// TestLandingHero_TheStillIsTheScriptsFirstRecord holds the two together, and
+// TestLandingHero_EveryVenueTheScriptShowsIsASeedVenue holds the venues to the seed.
 //
-// THE FOUR VALUES ON THE TICKET ARE INVENTED AND SAID TO BE: they are the four
-// made-up records web/static/js/landing.js rotates through, and the ticket is a
-// drawing, not a record. No plaque id and no counter value printed here is real.
+// 🔴 THE PHONE IS A DRAWING OF THE TAP SCREEN, NOT THE TAP SCREEN. It imitates
+// pages.TapHeading and the tap button -- the "Tapping" label, "Hello" and the name,
+// the venue, the one word "Tap", the unbranded wordmark in green -- with classes of
+// its own, so nothing here reaches the real screen (CLAUDE.md §9) and the real
+// screen's components are not rendered on a public page. The button is a div: it is
+// a picture of a button, and a picture is not something a visitor can press.
+//
+// THE SVGs ARE INLINE BECAUSE THEY HAVE TO BE: the response's policy names no
+// img-src, so a file would not load. Their colours are classes (input.css, --mint and
+// the green), so no hex value is written in this file.
+//
+// THE FOUR VALUES ON THE TICKET ARE INVENTED AND SAID TO BE: they are the records
+// web/static/js/landing.js rotates through, and the ticket is a drawing, not a
+// record. No plaque id printed here is real.
 func landingScene() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -463,7 +475,7 @@ func landingScene() templ.Component {
 			templ_7745c5c3_Var13 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<div class=\"scene play\" aria-label=\"A phone taps the Taptime wall plaque and a verified clock-in ticket prints\"><div class=\"plaque\"><div class=\"p-brand\">TAPTIME</div><div class=\"p-ring\"><span class=\"tapPulse\" aria-hidden=\"true\"></span> <svg class=\"p-wave\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M6 8.5a8 8 0 0 1 12 0M8.5 11a4.5 4.5 0 0 1 7 0\" stroke-linecap=\"round\"></path> <circle class=\"p-dot\" cx=\"12\" cy=\"14.5\" r=\"1.6\" stroke=\"none\"></circle></svg></div><div class=\"p-txt\">Tap here to<br>clock in / out</div><div class=\"p-loc\">KF ST JULIANS · 91AC-7E55</div></div><div class=\"lp-docket\" id=\"docket\"><div class=\"d-name\" id=\"dName\">Maria Vella</div><span class=\"d-tag\" id=\"dType\">CLOCK IN</span><div class=\"d-rows\"><div><span>Time</span><b id=\"dTime\">09:58</b></div><div><span>Location</span><b id=\"dLoc\">KF St Julians</b></div><div><span>Signature</span><b>SUN valid ✓</b></div><div><span>On site</span><b>IP + GPS ✓</b></div></div><div class=\"d-stamp\">APPROVED</div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<div class=\"scene\" role=\"group\" aria-label=\"A phone taps the Taptime wall plaque and a verified clock-in ticket prints\"><div class=\"plaque\" aria-hidden=\"true\"><div class=\"p-brand p-word\">TAPTIME</div><div class=\"p-ring\"><span class=\"p-halo\"></span> <svg class=\"p-wave\" viewBox=\"0 0 24 24\" fill=\"none\" stroke-width=\"1.6\" stroke-linecap=\"round\" focusable=\"false\"><path d=\"M6 8.5a8 8 0 0 1 12 0M8.5 11a4.5 4.5 0 0 1 7 0\"></path> <circle class=\"p-dot\" cx=\"12\" cy=\"14.5\" r=\"1.6\" stroke=\"none\"></circle></svg></div><div class=\"p-txt\">Tap here to<br>clock in / out</div><div class=\"p-loc\" id=\"pPlaque\">KF ST JULIANS · 91AC-7E55</div></div><div class=\"heroWaves\" aria-hidden=\"true\"><svg viewBox=\"0 0 50 110\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" preserveAspectRatio=\"none\" focusable=\"false\"><path d=\"M14 38a24 24 0 0 1 0 34\" opacity=\".9\"></path> <path d=\"M22 28a36 36 0 0 1 0 54\" opacity=\".55\"></path> <path d=\"M30 18a48 48 0 0 1 0 74\" opacity=\".3\"></path></svg></div><div class=\"heroPhoneCol\"><div class=\"heroPhone\" role=\"img\" aria-label=\"The employee&#39;s own phone showing the tap screen: a greeting by name, the venue and one Tap button\"><div class=\"heroScreen\"><span class=\"heroNotch\"></span><div class=\"heroCanvas\"><div class=\"heroStatus\"><span id=\"pTime\">09:58</span> <span class=\"heroStatusIcons\"><svg viewBox=\"0 0 18 12\" width=\"18\" height=\"12\" fill=\"currentColor\" focusable=\"false\"><rect x=\"0\" y=\"8\" width=\"3\" height=\"4\" rx=\"1\"></rect> <rect x=\"5\" y=\"5\" width=\"3\" height=\"7\" rx=\"1\"></rect> <rect x=\"10\" y=\"2.5\" width=\"3\" height=\"9.5\" rx=\"1\"></rect> <rect x=\"15\" y=\"0\" width=\"3\" height=\"12\" rx=\"1\"></rect></svg> <svg viewBox=\"0 0 26 13\" width=\"26\" height=\"13\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\" focusable=\"false\"><rect x=\".7\" y=\".7\" width=\"21.5\" height=\"11.6\" rx=\"3.5\"></rect> <rect x=\"3\" y=\"3\" width=\"15\" height=\"7\" rx=\"1.6\" fill=\"currentColor\" stroke=\"none\"></rect> <path d=\"M24.4 4.6v3.8\" stroke-linecap=\"round\"></path></svg></span></div><div class=\"heroTapScreen\"><div class=\"heroWordmark\"><span class=\"heroWordmarkName\">taptime</span> <span class=\"heroWordmarkTag\">punchless</span></div><div class=\"tapdocket\"><p class=\"heroTapLabel\">Tapping</p><p class=\"heroHello\">Hello <span id=\"pName\">Maria Vella</span></p><p class=\"heroVenue\" id=\"pLoc\">KF St Julians</p></div><div class=\"heroTapButton\">Tap</div></div></div></div></div><span class=\"heroPhoneEdge\" aria-hidden=\"true\"></span> <span class=\"heroPhoneCut\" aria-hidden=\"true\"></span></div><div class=\"heroPrinter\"><span class=\"heroPrinterBar\" aria-hidden=\"true\"></span> <span class=\"heroPrinterSlot\" aria-hidden=\"true\"></span><div class=\"lp-slip heroSlip\" id=\"docket\"><div class=\"heroSlipHead\"><span class=\"heroSlipType\" id=\"dType\">CLOCK IN</span> <span class=\"stamp stamp--approved\">APPROVED</span></div><span class=\"heroSlipName\" id=\"dName\">Maria Vella</span><div class=\"heroSlipRows\"><div><span>Time</span><b id=\"dTime\">09:58</b></div><div><span>Location</span><b id=\"dLoc\">KF St Julians</b></div><div><span>Signature</span><b>SUN valid ✓</b></div><div><span>On site</span><b>IP + GPS ✓</b></div></div></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -536,7 +548,7 @@ func landingHow() templ.Component {
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(LandingSetupLede.Text)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 230, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 297, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {
@@ -554,7 +566,7 @@ func landingHow() templ.Component {
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(s.Ordinal)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 234, Col: 33}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 301, Col: 33}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 			if templ_7745c5c3_Err != nil {
@@ -567,7 +579,7 @@ func landingHow() templ.Component {
 			var templ_7745c5c3_Var18 string
 			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(s.Icon)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 235, Col: 32}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 302, Col: 32}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 			if templ_7745c5c3_Err != nil {
@@ -580,7 +592,7 @@ func landingHow() templ.Component {
 			var templ_7745c5c3_Var19 string
 			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(s.Title)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 236, Col: 19}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 303, Col: 19}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 			if templ_7745c5c3_Err != nil {
@@ -599,7 +611,7 @@ func landingHow() templ.Component {
 					var templ_7745c5c3_Var20 string
 					templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(run.Text)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 240, Col: 22}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 307, Col: 22}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 					if templ_7745c5c3_Err != nil {
@@ -613,7 +625,7 @@ func landingHow() templ.Component {
 					var templ_7745c5c3_Var21 string
 					templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(run.Text)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 242, Col: 19}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 309, Col: 19}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 					if templ_7745c5c3_Err != nil {
@@ -676,7 +688,7 @@ func landingLedger() templ.Component {
 			var templ_7745c5c3_Var23 string
 			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(row.Aspect)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 280, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 347, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 			if templ_7745c5c3_Err != nil {
@@ -689,7 +701,7 @@ func landingLedger() templ.Component {
 			var templ_7745c5c3_Var24 string
 			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs("✗  " + row.Terminal)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 281, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 348, Col: 49}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 			if templ_7745c5c3_Err != nil {
@@ -702,7 +714,7 @@ func landingLedger() templ.Component {
 			var templ_7745c5c3_Var25 string
 			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs("✓  " + row.Tappa)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 282, Col: 47}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 349, Col: 47}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 			if templ_7745c5c3_Err != nil {
@@ -720,7 +732,7 @@ func landingLedger() templ.Component {
 		var templ_7745c5c3_Var26 string
 		templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(LandingComparisonNote)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 287, Col: 49}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 354, Col: 49}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 		if templ_7745c5c3_Err != nil {
@@ -763,7 +775,7 @@ func landingSecurity() templ.Component {
 		var templ_7745c5c3_Var28 string
 		templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(LandingSecurityLede.Text)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 299, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 366, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 		if templ_7745c5c3_Err != nil {
@@ -781,7 +793,7 @@ func landingSecurity() templ.Component {
 			var templ_7745c5c3_Var29 string
 			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(e.Proof)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 303, Col: 35}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 370, Col: 35}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 			if templ_7745c5c3_Err != nil {
@@ -794,7 +806,7 @@ func landingSecurity() templ.Component {
 			var templ_7745c5c3_Var30 string
 			templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(e.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 304, Col: 19}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 371, Col: 19}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 			if templ_7745c5c3_Err != nil {
@@ -807,7 +819,7 @@ func landingSecurity() templ.Component {
 			var templ_7745c5c3_Var31 string
 			templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(e.Body)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 305, Col: 17}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 372, Col: 17}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 			if templ_7745c5c3_Err != nil {
@@ -825,7 +837,7 @@ func landingSecurity() templ.Component {
 		var templ_7745c5c3_Var32 string
 		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(LandingPrivacyNote.Text)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 310, Col: 55}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 377, Col: 55}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 		if templ_7745c5c3_Err != nil {
@@ -874,7 +886,7 @@ func landingFits() templ.Component {
 			var templ_7745c5c3_Var34 string
 			templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(a.Kicker)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 327, Col: 32}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 394, Col: 32}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 			if templ_7745c5c3_Err != nil {
@@ -887,7 +899,7 @@ func landingFits() templ.Component {
 			var templ_7745c5c3_Var35 string
 			templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(a.Title)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 328, Col: 19}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 395, Col: 19}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 			if templ_7745c5c3_Err != nil {
@@ -900,7 +912,7 @@ func landingFits() templ.Component {
 			var templ_7745c5c3_Var36 string
 			templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(a.Paragraph())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 329, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 396, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 			if templ_7745c5c3_Err != nil {
@@ -913,7 +925,7 @@ func landingFits() templ.Component {
 			var templ_7745c5c3_Var37 string
 			templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(a.Example.Text)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 330, Col: 39}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 397, Col: 39}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 			if templ_7745c5c3_Err != nil {
@@ -968,7 +980,7 @@ func landingPricing(v LandingView) templ.Component {
 		var templ_7745c5c3_Var39 string
 		templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(LandingPricingHeading.Text)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 350, Col: 35}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 417, Col: 35}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 		if templ_7745c5c3_Err != nil {
@@ -981,7 +993,7 @@ func landingPricing(v LandingView) templ.Component {
 		var templ_7745c5c3_Var40 string
 		templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(LandingPricingLede.Text)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 351, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 418, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 		if templ_7745c5c3_Err != nil {
@@ -994,7 +1006,7 @@ func landingPricing(v LandingView) templ.Component {
 		var templ_7745c5c3_Var41 string
 		templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs("€" + v.PricePerEmployeeMonth + " ")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 354, Col: 66}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 421, Col: 66}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 		if templ_7745c5c3_Err != nil {
@@ -1012,7 +1024,7 @@ func landingPricing(v LandingView) templ.Component {
 			var templ_7745c5c3_Var42 string
 			templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(v.ExampleHeadcount))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 356, Col: 63}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 423, Col: 63}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 			if templ_7745c5c3_Err != nil {
@@ -1025,7 +1037,7 @@ func landingPricing(v LandingView) templ.Component {
 			var templ_7745c5c3_Var43 string
 			templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs("€" + v.ExampleMonthly)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 356, Col: 113}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 423, Col: 113}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 			if templ_7745c5c3_Err != nil {
@@ -1043,7 +1055,7 @@ func landingPricing(v LandingView) templ.Component {
 		var templ_7745c5c3_Var44 string
 		templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(v.FreeMonths))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 358, Col: 78}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 425, Col: 78}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 		if templ_7745c5c3_Err != nil {
@@ -1061,7 +1073,7 @@ func landingPricing(v LandingView) templ.Component {
 			var templ_7745c5c3_Var45 string
 			templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(l.Text)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 362, Col: 18}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 429, Col: 18}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 			if templ_7745c5c3_Err != nil {
@@ -1114,7 +1126,7 @@ func landingFAQ() templ.Component {
 			var templ_7745c5c3_Var47 string
 			templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(q.Q)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 379, Col: 20}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 446, Col: 20}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 			if templ_7745c5c3_Err != nil {
@@ -1127,7 +1139,7 @@ func landingFAQ() templ.Component {
 			var templ_7745c5c3_Var48 string
 			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(q.A)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 380, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 447, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 			if templ_7745c5c3_Err != nil {
@@ -1185,7 +1197,7 @@ func landingCTA(v LandingView) templ.Component {
 		var templ_7745c5c3_Var50 string
 		templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(v.FreeMonths))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 406, Col: 66}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 473, Col: 66}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 		if templ_7745c5c3_Err != nil {
@@ -1207,7 +1219,7 @@ func landingCTA(v LandingView) templ.Component {
 		var templ_7745c5c3_Var52 string
 		templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(v.FreeMonths))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 408, Col: 99}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 475, Col: 99}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 		if templ_7745c5c3_Err != nil {
@@ -1296,7 +1308,7 @@ func landingDemoDialog(v LandingView) templ.Component {
 			var templ_7745c5c3_Var54 string
 			templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(v.DemoVideoSrc)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 473, Col: 25}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 540, Col: 25}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 			if templ_7745c5c3_Err != nil {
@@ -1314,7 +1326,7 @@ func landingDemoDialog(v LandingView) templ.Component {
 				var templ_7745c5c3_Var55 string
 				templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(v.DemoPosterSrc)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 475, Col: 30}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 542, Col: 30}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 				if templ_7745c5c3_Err != nil {
@@ -1330,12 +1342,12 @@ func landingDemoDialog(v LandingView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "   <div class=\"demoSoon\"><p class=\"demoSoonKicker\">Taptime · demo</p><p class=\"demoSoonLead\">There is no recording here yet.</p><p class=\"demoSoonBody\">This panel will hold it as soon as it is cut. Until then the shortest way to watch a tap is to do one: put a plaque by a door, open the link on your own phone, and the record you make is the record the demo would have shown you.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "   <div class=\"demoSoon\"><p class=\"lp-eyebrow demoSoonKicker\">Taptime · demo</p><p class=\"demoSoonLead\">There is no recording here yet.</p><p class=\"demoSoonBody\">This panel will hold it as soon as it is cut. Until then the shortest way to watch a tap is to do one: put a plaque by a door, open the link on your own phone, and the record you make is the record the demo would have shown you.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if v.SignupHref != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "<a class=\"lp-btn lp-btn-green demoSoonCta\" href=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "<a class=\"lp-button lp-button--green demoSoonCta\" href=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1351,7 +1363,7 @@ func landingDemoDialog(v LandingView) templ.Component {
 				var templ_7745c5c3_Var57 string
 				templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(v.FreeMonths))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 496, Col: 50}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 563, Col: 50}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
 				if templ_7745c5c3_Err != nil {
@@ -1661,7 +1673,7 @@ func marketingChromeWith(c marketingChromeOpts) templ.Component {
 			var templ_7745c5c3_Var69 string
 			templ_7745c5c3_Var69, templ_7745c5c3_Err = templ.JoinStringErrs(p.NavLabel)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 631, Col: 18}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 698, Col: 18}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var69))
 			if templ_7745c5c3_Err != nil {
