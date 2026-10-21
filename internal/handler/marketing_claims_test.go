@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -583,12 +584,15 @@ func TestLandingSteps_EveryStepIsRenderedInOrder(t *testing.T) {
 	}
 	at := renderedInOrder(t, text, "LandingSteps", titles)
 
+	// Each card's icon is a line drawing, in the step's own place (LP-04: the
+	// reference's emoji became the boards' drawings, README §6).
+	for _, p := range stepIconProblems(mustFetchMarketing(t, marketingRouter(t), "/"), pages.LandingSteps) {
+		t.Error(p)
+	}
+
 	for i, s := range pages.LandingSteps {
 		if want := "STEP " + strconv.Itoa(i+1); s.Ordinal != want {
 			t.Errorf("step %d is printed with the ordinal %q, want %q", i+1, s.Ordinal, want)
-		}
-		if s.Icon == "" || !strings.Contains(text, s.Icon) {
-			t.Errorf("step %d's icon %q is not on the page", i+1, s.Icon)
 		}
 		if at[i] < 0 {
 			continue
@@ -607,6 +611,71 @@ func TestLandingSteps_EveryStepIsRenderedInOrder(t *testing.T) {
 			}
 			from = idx + len(run.Text)
 		}
+	}
+}
+
+// stepIconRE finds a step's icon tile and what it holds, up to the tile's end.
+var stepIconRE = regexp.MustCompile(`(?s)data-step-icon="([^"]*)">(.*?)</span>`)
+
+// stepIconProblems says what is wrong with the steps' icons on the rendered page: a
+// step whose icon is not one of the drawings the template knows, tiles missing or out
+// of the steps' order, a tile with no drawing in it, or an emoji anywhere in the
+// page's text -- the drawing replaced the emoji, and an emoji's shape and colour
+// would be the reader's font's, not the page's.
+func stepIconProblems(body string, steps []pages.Step) []string {
+	var out []string
+	known := map[pages.StepIcon]bool{pages.StepIconPlaque: true, pages.StepIconInvite: true, pages.StepIconTap: true}
+	tiles := stepIconRE.FindAllStringSubmatch(body, -1)
+	if len(tiles) != len(steps) {
+		out = append(out, fmt.Sprintf("the page carries %d step icon tile(s) for %d step(s)", len(tiles), len(steps)))
+	}
+	for i, s := range steps {
+		if !known[s.Icon] {
+			out = append(out, fmt.Sprintf("step %d's icon %q is not a drawing the template knows", i+1, s.Icon))
+		}
+		if i >= len(tiles) {
+			continue
+		}
+		if pages.StepIcon(tiles[i][1]) != s.Icon {
+			out = append(out, fmt.Sprintf("tile %d holds the %q drawing; step %d is %q", i+1, tiles[i][1], i+1, s.Icon))
+		}
+		if !strings.Contains(tiles[i][2], "<svg") {
+			out = append(out, fmt.Sprintf("step %d's icon tile holds no drawing", i+1))
+		}
+	}
+	for _, r := range tagRE.ReplaceAllString(body, " ") {
+		if r >= 0x1F000 || r == 0xFE0F {
+			out = append(out, fmt.Sprintf("the page's text carries the emoji %q (U+%04X)", r, r))
+			break
+		}
+	}
+	return out
+}
+
+// TestLandingSteps_IconCheckRefusesAMissingDrawingOrAnEmoji is stepIconProblems's
+// control: each way of undoing the drawings is reported, the page as built is not.
+func TestLandingSteps_IconCheckRefusesAMissingDrawingOrAnEmoji(t *testing.T) {
+	t.Parallel()
+	steps := []pages.Step{{Icon: pages.StepIconPlaque}, {Icon: pages.StepIconInvite}}
+	tile := func(icon, inner string) string {
+		return `<span class="lp-ico" data-step-icon="` + icon + `">` + inner + `</span>`
+	}
+	good := tile("plaque", "<svg></svg>") + tile("invite", "<svg></svg>")
+	if got := stepIconProblems(good, steps); len(got) != 0 {
+		t.Fatalf("CONTROL: the drawn steps are reported: %q", got)
+	}
+	for name, body := range map[string]string{
+		"an emoji in place of a drawing": tile("plaque", "\U0001F3F7\uFE0F") + tile("invite", "<svg></svg>"),
+		"a tile missing":                 tile("plaque", "<svg></svg>"),
+		"the tiles swapped":              tile("invite", "<svg></svg>") + tile("plaque", "<svg></svg>"),
+		"an emoji elsewhere in the text": good + "<p>\u2709\uFE0F</p>",
+	} {
+		if len(stepIconProblems(body, steps)) == 0 {
+			t.Errorf("CONTROL %s: not reported", name)
+		}
+	}
+	if len(stepIconProblems(good, []pages.Step{{Icon: "emoji"}, {Icon: pages.StepIconInvite}})) == 0 {
+		t.Error("CONTROL a step icon the template does not know: not reported")
 	}
 }
 
@@ -675,6 +744,66 @@ func TestLandingFAQ_EveryQuestionIsRenderedWithItsAnswer(t *testing.T) {
 			t.Errorf("FAQ %d asks:\n    %q\nand its answer is NOT rendered:\n    %q\n"+
 				"A question on a page with no answer under it is worse than no question.",
 				i+1, q.Q, q.A)
+		}
+	}
+}
+
+// faqDetailsRE finds each FAQ item's opening tag.
+var faqDetailsRE = regexp.MustCompile(`<details class="qa"( open)?>`)
+
+// faqDisclosureProblems says what is wrong with the FAQ's disclosures: n of them, each
+// the browser's own <details> with a <summary> (so it opens with no script), and the
+// first one open -- as the boards draw it -- and no other.
+func faqDisclosureProblems(body string, n int) []string {
+	var out []string
+	items := faqDetailsRE.FindAllStringSubmatchIndex(body, -1)
+	if len(items) != n {
+		out = append(out, fmt.Sprintf("the page renders %d FAQ disclosure(s) for %d question(s)", len(items), n))
+	}
+	for i, m := range items {
+		open := m[2] >= 0
+		if want := i == 0; open != want {
+			out = append(out, fmt.Sprintf("FAQ %d ships open=%v; the first ships open and the others closed", i+1, open))
+		}
+		end := len(body)
+		if i+1 < len(items) {
+			end = items[i+1][0]
+		}
+		if !strings.Contains(body[m[1]:end], "<summary>") {
+			out = append(out, fmt.Sprintf("FAQ %d has no <summary>, so it has nothing to press", i+1))
+		}
+	}
+	return out
+}
+
+// TestLandingFAQ_TheAnswersAreNativeDisclosuresWithTheFirstOpen: the FAQ needs no
+// script (the page's one script rotates the hero), and the first answer is visible
+// without a press. CONTROL: a closed first item, a second open one and a missing
+// summary are each reported.
+func TestLandingFAQ_TheAnswersAreNativeDisclosuresWithTheFirstOpen(t *testing.T) {
+	t.Parallel()
+	body := mustFetchMarketing(t, marketingRouter(t), "/")
+	for _, p := range faqDisclosureProblems(body, len(pages.LandingFAQ)) {
+		t.Error(p)
+	}
+
+	item := func(open bool) string {
+		if open {
+			return `<details class="qa" open><summary>Q</summary><p>A</p></details>`
+		}
+		return `<details class="qa"><summary>Q</summary><p>A</p></details>`
+	}
+	if got := faqDisclosureProblems(item(true)+item(false), 2); len(got) != 0 {
+		t.Fatalf("CONTROL: a right FAQ is reported: %q", got)
+	}
+	for name, b := range map[string]string{
+		"the first closed": item(false) + item(false),
+		"a second open":    item(true) + item(true),
+		"no summary":       item(true) + `<details class="qa"><p>A</p></details>`,
+		"one missing":      item(true),
+	} {
+		if len(faqDisclosureProblems(b, 2)) == 0 {
+			t.Errorf("CONTROL %s: not reported", name)
 		}
 	}
 }

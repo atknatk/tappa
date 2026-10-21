@@ -539,22 +539,36 @@ type Span struct {
 
 // Step is one of the three cards under "How it works".
 type Step struct {
-	// Ordinal is printed in the data typeface above the icon — "STEP 1".
+	// Ordinal is printed in the data typeface beside the icon — "STEP 1".
 	Ordinal string
-	// Icon is the reference's own emoji for the card.
-	Icon  string
+	// Icon names the line drawing on the card (LP-04). The reference set an emoji
+	// here; an emoji's shape and colour belong to the reader's font, so the boards
+	// replaced it with a drawing in the page's own stroke, keyed by what it shows.
+	Icon  StepIcon
 	Title string
 	Body  []Span
 	// Facts are the product facts this step rests on — see Fact. Never empty.
 	Facts []Fact
 }
 
+// StepIcon names one of the drawings landingStepIcon renders. The set is closed:
+// a value the template does not know draws nothing, and
+// TestLandingSteps_EveryStepIsRenderedInOrder fails on it.
+type StepIcon string
+
+// The three step drawings: the wall plaque, the invitation, the phone at the tap.
+const (
+	StepIconPlaque StepIcon = "plaque"
+	StepIconInvite StepIcon = "invite"
+	StepIconTap    StepIcon = "tap"
+)
+
 // LandingSteps is the reference's three steps. Two sentences changed, both for a
 // number nobody measured and both recorded on the run that replaced them.
 var LandingSteps = []Step{
 	{
 		Ordinal: "STEP 1",
-		Icon:    "🏷️",
+		Icon:    StepIconPlaque,
 		Title:   "Stick the plaque",
 		Body: []Span{
 			{Text: "One branded A5 plaque per location, placed by the entrance — ideally in view of " +
@@ -566,7 +580,7 @@ var LandingSteps = []Step{
 	},
 	{
 		Ordinal: "STEP 2",
-		Icon:    "✉️",
+		Icon:    StepIconInvite,
 		Title:   "Invite your team",
 		// "30 seconds, ever" → "once, ever": the ONCE is the fact (one activation per
 		// person, GET /activate), the thirty seconds is a stopwatch nobody held.
@@ -582,7 +596,7 @@ var LandingSteps = []Step{
 	},
 	{
 		Ordinal: "STEP 3",
-		Icon:    "📶",
+		Icon:    StepIconTap,
 		Title:   "Tap in, tap out",
 		// "Under two seconds, even with wet or floury hands." → "Built for wet or
 		// floury hands.": the button's 64px floor is the rule the sentence describes

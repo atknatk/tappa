@@ -290,13 +290,14 @@ templ landingScene() {
 // landingStrip is the trust band under the hero.
 //
 // ⚠️ IT IS THE USER'S OWN STATEMENT ABOUT THEIR OWN BUSINESS, not a claim about
-// the product, and it is the one block on this page no pin can hold: nothing in
+// the product, and it is the one part of this page no pin can hold: nothing in
 // this repository can derive who is piloting what. The two names are the seed
 // tenants (skill tappa-seed) and the user's company. It stays as the user wrote it
-// and is reported as such.
+// and is reported as such. LP-04 changed its look only: the boards' paper tint,
+// stacked on the phone and in one row from the tablet.
 templ landingStrip() {
-	<div class="strip">
-		<div class="stripIn">
+	<div class="lp-strip">
+		<div class="lp-stripIn">
 			<span>Piloting with teams in Malta</span>
 			<b>KEBAB FACTORY LTD. — 9 locations</b>
 			<b>KEBAB MANUFACTURING CO. — 5 departments</b>
@@ -305,117 +306,188 @@ templ landingStrip() {
 }
 
 // landingHow is the three-step setup, rendered from LandingSteps.
+//
+// THE PAGE BODY IS THE BOARDS' BANDS (LP-04): each section sits on its own ground
+// (paper, ink or porcelain), and the space between two sections is the band's,
+// 56 / 72 / 96px at the phone, the tablet and the desktop. Every class is a .lp
+// rule in input.css (LP-04): none below is a utility, and no value sits in a style
+// attribute.
+//
+// THE CARD IS ONE DOM AT EVERY WIDTH: the icon, the step number, the heading and the
+// body are four children, and the stylesheet places them -- icon and number on one
+// line over the heading on the phone and the desktop, the icon in a column of its
+// own beside the other three on the tablet, as T-Landing draws it.
 templ landingHow() {
-	<section id="how">
-		<div class="wrap">
-			<p class="secEyebrow">How it works</p>
-			<h2>From box to first clock-in, before the lunch rush.</h2>
-			<p class="secSub">{ LandingSetupLede.Text }</p>
-			<div class="steps">
-				for _, s := range LandingSteps {
-					<div class="step">
-						<span class="n">{ s.Ordinal }</span>
-						<span class="ico">{ s.Icon }</span>
-						<h3>{ s.Title }</h3>
-						<p>
-							for _, run := range s.Body {
-								if run.Strong {
-									<b>{ run.Text }</b>
-								} else {
-									{ run.Text }
+	<div class="band band--paper">
+		<section id="how" class="lp-sec">
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">How it works</p>
+				<h2 class="lp-h2">From box to first clock-in, before the lunch rush.</h2>
+				<p class="lp-lede">{ LandingSetupLede.Text }</p>
+				<div class="lp-steps">
+					for _, s := range LandingSteps {
+						<div class="card lp-step">
+							@landingStepIcon(s.Icon)
+							<span class="lp-stepNo">{ s.Ordinal }</span>
+							<h3 class="lp-stepTitle">{ s.Title }</h3>
+							<p class="lp-stepBody">
+								for _, run := range s.Body {
+									if run.Strong {
+										<b>{ run.Text }</b>
+									} else {
+										{ run.Text }
+									}
 								}
-							}
-						</p>
-					</div>
-				}
+							</p>
+						</div>
+					}
+				</div>
 			</div>
-		</div>
-	</section>
+		</section>
+	</div>
+}
+
+// landingStepIcon is a step's line drawing in the green icon tile, drawn where the
+// reference set an emoji (README §6; the boards' own three drawings). It carries no
+// accessible name: the heading beside it already says what the step is. The tile
+// says which drawing it holds in data-step-icon, which is how
+// TestLandingSteps_EveryStepIsRenderedInOrder finds each one in its place.
+templ landingStepIcon(icon StepIcon) {
+	<span class="lp-ico lp-stepIco" data-step-icon={ string(icon) }>
+		switch icon {
+			case StepIconPlaque:
+				<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+					<rect x="5" y="2.5" width="14" height="19" rx="2.5"></rect>
+					<path d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"></path>
+					<path d="M10.4 12.4a2.2 2.2 0 0 1 3.2 0"></path>
+					<circle cx="12" cy="14.6" r=".5" fill="currentColor"></circle>
+					<path d="M9 18.2h6"></path>
+				</svg>
+			case StepIconInvite:
+				<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+					<rect x="3" y="5" width="18" height="14" rx="2.5"></rect>
+					<path d="M3.8 6.6 12 12.8l8.2-6.2"></path>
+				</svg>
+			case StepIconTap:
+				<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+					<rect x="3.5" y="2.5" width="10" height="19" rx="2.2"></rect>
+					<path d="M7.5 18.5h2"></path>
+					<path d="M17 9a4.5 4.5 0 0 1 0 6"></path>
+					<path d="M19.8 6.6a8 8 0 0 1 0 10.8"></path>
+				</svg>
+		}
+	</span>
 }
 
 // landingLedger is the comparison, on the ink ground, immediately after the steps —
 // the reference's order — rendered from LandingComparison, with the footnote the
 // reference did not have.
 //
-// THE MARKS ARE TYPOGRAPHY AND STAY HERE: the reference sets every device cell as
-// "✗", two no-break spaces and the text, and every Taptime cell as "✓" likewise.
-// They are expressions rather than literal characters because a text node that
-// ENDS in U+00A0 is trimmed by the templ parser (the note on nbsp records the
-// measurement).
+// THE MARKS ARE TYPOGRAPHY: every device cell opens with "✗" and every Taptime cell
+// with "✓", each in a column of its own so a long answer wraps under its words and
+// not under the mark (the boards' 22px gutter).
+//
+// ONE MARKUP AT EVERY WIDTH. M-Landing draws the phone's comparison as a list of
+// rows under two labelled chips rather than as three columns; that is the same
+// markup laid out by the stylesheet below 768px (the head row turns into the two
+// chips, each body row into a stack), so the words exist once and a screen reader
+// on a wide screen still meets real data cells under their column headers.
 templ landingLedger() {
-	<section>
-		<div class="wrap">
-			<div class="ledgerWrap">
-				<p class="secEyebrow onInk">Why switch</p>
-				<h2>Retire the fingerprint box.</h2>
-				<p class="secSub">You know the routine: enrollment queues for every new hire, a dead device blinding a whole site, sensors that refuse kitchen hands.</p>
-				<table class="lp-ledger">
-					<thead>
-						<tr>
-							<th></th>
-							<th>Fingerprint / card devices</th>
-							<th class="tappaCol">Taptime</th>
-						</tr>
-					</thead>
-					<tbody>
-						for _, row := range LandingComparison {
+	<div class="band band--ink">
+		<section class="lp-sec">
+			<div class="lp-wrap">
+				<div class="lp-ledgerBox">
+					<p class="lp-eyebrow lp-secEyebrow">Why switch</p>
+					<h2 class="lp-h2">Retire the fingerprint box.</h2>
+					<p class="lp-lede">You know the routine: enrollment queues for every new hire, a dead device blinding a whole site, sensors that refuse kitchen hands.</p>
+					<table class="lp-ledger">
+						<thead>
 							<tr>
-								<td>{ row.Aspect }</td>
-								<td class="no">{ "✗  " + row.Terminal }</td>
-								<td class="yes">{ "✓  " + row.Tappa }</td>
+								<th></th>
+								<th scope="col" class="lp-ledgerNo">Fingerprint / card devices</th>
+								<th scope="col" class="lp-ledgerYes">Taptime</th>
 							</tr>
-						}
-					</tbody>
-				</table>
-				<p class="ledgerNote">{ LandingComparisonNote }</p>
+						</thead>
+						<tbody>
+							for _, row := range LandingComparison {
+								<tr>
+									<td class="lp-ledgerAspect">{ row.Aspect }</td>
+									<td class="lp-ledgerNo"><span class="lp-ledgerCell"><span>✗</span><span>{ row.Terminal }</span></span></td>
+									<td class="lp-ledgerYes"><span class="lp-ledgerCell"><span>✓</span><span>{ row.Tappa }</span></span></td>
+								</tr>
+							}
+						</tbody>
+					</table>
+					<p class="lp-ledgerNote">{ LandingComparisonNote }</p>
+				</div>
 			</div>
-		</div>
-	</section>
+		</section>
+	</div>
 }
 
-// landingSecurity is the four proofs (LandingEvidence) and the green privacy box.
+// landingSecurity is the four proofs (LandingEvidence), each a paper slip torn at the
+// bottom edge, and the green privacy box with its shield.
+//
+// THE BOARDS END THIS SECTION WITH "How each proof works", A LINK TO /security. It
+// is not here: that page has no route yet, and a link arrives with its route
+// (README O8 -- LP-07 adds both).
 templ landingSecurity() {
-	<section id="security">
-		<div class="wrap">
-			<p class="secEyebrow">Security</p>
-			<h2>Four proofs on every single tap.</h2>
-			<p class="secSub">{ LandingSecurityLede.Text }</p>
-			<div class="chain">
-				for _, e := range LandingEvidence {
-					<div class="link">
-						<span class="proof">{ e.Proof }</span>
-						<h3>{ e.Label }</h3>
-						<p>{ e.Body }</p>
-					</div>
-				}
+	<div class="band band--porcelain">
+		<section id="security" class="lp-sec">
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">Security</p>
+				<h2 class="lp-h2">Four proofs on every single tap.</h2>
+				<p class="lp-lede">{ LandingSecurityLede.Text }</p>
+				<div class="lp-proofs">
+					for _, e := range LandingEvidence {
+						<div class="lp-slip lp-proof">
+							<span class="lp-proofKick">{ e.Proof }</span>
+							<h3 class="lp-proofTitle">{ e.Label }</h3>
+							<p class="lp-proofBody">{ e.Body }</p>
+						</div>
+					}
+				</div>
+				<div class="lp-privacy">
+					<span class="lp-privacyIco">
+						<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+							<path d="M12 3l7 3v5.2c0 4.4-3 8-7 9.8-4-1.8-7-5.4-7-9.8V6z"></path>
+							<path d="M9 12.2l2.1 2.1L15.2 10"></path>
+						</svg>
+					</span>
+					<p><b>Privacy by design:</b> { LandingPrivacyNote.Text }</p>
+				</div>
 			</div>
-			<div class="gdprNote">
-				<b>Privacy by design:</b> { LandingPrivacyNote.Text }
-			</div>
-		</div>
-	</section>
+		</section>
+	</div>
 }
 
 // landingFits is the two shapes of business, rendered from LandingAudiences. The
 // paragraph is Audience.Paragraph: the card's sentences joined by one space.
+//
+// THE BOARDS DRAW EACH CARD AS ONE LINK, to /for/restaurants and /for/production,
+// with a "For restaurants & bars" line at its foot. Neither page has a route yet, so
+// here the cards are plain cards with no link and no such line (README O8 -- LP-09
+// and LP-10 make each card the link to its page in the same change as the route).
 templ landingFits() {
-	<section>
-		<div class="wrap">
-			<p class="secEyebrow">Built for both shapes of business</p>
-			<h2>Chains and facilities, one system.</h2>
-			<p class="secSub">Whether your people are spread across a city or across one production floor, Taptime maps to how you actually operate.</p>
-			<div class="fits">
-				for _, a := range LandingAudiences {
-					<div class="fit">
-						<span class="k">{ a.Kicker }</span>
-						<h3>{ a.Title }</h3>
-						<p>{ a.Paragraph() }</p>
-						<span class="ex">{ a.Example.Text }</span>
-					</div>
-				}
+	<div class="band band--porcelain">
+		<section class="lp-sec">
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">Built for both shapes of business</p>
+				<h2 class="lp-h2">Chains and facilities, one system.</h2>
+				<p class="lp-lede">Whether your people are spread across a city or across one production floor, Taptime maps to how you actually operate.</p>
+				<div class="lp-fits">
+					for _, a := range LandingAudiences {
+						<div class="card lp-fit">
+							<span class="lp-fitKick">{ a.Kicker }</span>
+							<h3 class="lp-fitTitle">{ a.Title }</h3>
+							<p class="lp-fitBody">{ a.Paragraph() }</p>
+							<span class="lp-fitEx">{ a.Example.Text }</span>
+						</div>
+					}
+				</div>
 			</div>
-		</div>
-	</section>
+		</section>
+	</div>
 }
 
 // landingPricing is the one-piece price card.
@@ -426,49 +498,82 @@ templ landingFits() {
 // price by internal/handler (LandingView.ExampleMonthly records why) — and rendered
 // only when it was computed. The reference's "less than one fingerprint terminal's
 // yearly maintenance" is not here: it is a comparison nobody ran.
+//
+// The boards' "Pricing in detail" link under the card waits for /pricing (README
+// O8 -- LP-06 adds the page and the link together). The founding chip's words are
+// ink on the saffron tint, as the boards set them: saffron words measure 2.62:1.
 templ landingPricing(v LandingView) {
-	<section id="pricing">
-		<div class="wrap">
-			<p class="secEyebrow">Pricing</p>
-			<h2>{ LandingPricingHeading.Text }</h2>
-			<p class="secSub">{ LandingPricingLede.Text }</p>
-			<div class="priceCard">
-				<div>
-					<div class="priceNum">{ "€" + v.PricePerEmployeeMonth + " " }<small>/ employee / month</small></div>
-					if v.ExampleMonthly != "" {
-						<p class="priceNote">A { strconv.Itoa(v.ExampleHeadcount) }-person chain runs on { "€" + v.ExampleMonthly }/month.</p>
-					}
-					<span class="founding">FOUNDING OFFER: first { strconv.Itoa(v.FreeMonths) } months free · pricing locked for life</span>
+	<div class="band band--paper">
+		<section id="pricing" class="lp-sec">
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">Pricing</p>
+				<h2 class="lp-h2">{ LandingPricingHeading.Text }</h2>
+				<p class="lp-lede">{ LandingPricingLede.Text }</p>
+				<div class="lp-price">
+					<div class="lp-priceMain">
+						<div class="lp-priceNum">
+							<span class="lp-priceBig">{ "€" + v.PricePerEmployeeMonth }</span>
+							<span class="lp-pricePer">/ employee / month</span>
+						</div>
+						if v.ExampleMonthly != "" {
+							<p class="lp-priceNote">A { strconv.Itoa(v.ExampleHeadcount) }-person chain runs on { "€" + v.ExampleMonthly }/month.</p>
+						}
+						<span class="lp-priceOffer">FOUNDING OFFER: first { strconv.Itoa(v.FreeMonths) } months free · pricing locked for life</span>
+					</div>
+					<ul class="lp-priceList">
+						for _, l := range LandingPricingIncludes {
+							<li>
+								<span class="lp-priceTick">
+									<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+										<path d="M5 12.5l4.2 4.2L19 7"></path>
+									</svg>
+								</span>
+								<span>{ l.Text }</span>
+							</li>
+						}
+					</ul>
 				</div>
-				<ul class="priceList">
-					for _, l := range LandingPricingIncludes {
-						<li>{ l.Text }</li>
-					}
-				</ul>
 			</div>
-		</div>
-	</section>
+		</section>
+	</div>
 }
 
-// landingFAQ is the disclosure widgets, one per LandingFAQ entry.
+// landingFAQ is the disclosure widgets, one per LandingFAQ entry: the browser's own
+// details and summary, so they open and close with no script on a page whose
+// script only rotates the hero. The first one ships open, as the boards draw it.
+// The plus in the round tile turns into a cross when an answer is open; the turn is
+// a state change the reader asks for, and it is still only under no-preference.
+// On the desktop the heading stays in view beside the questions.
 templ landingFAQ() {
-	<section>
-		<div class="wrap">
-			<p class="secEyebrow">Questions, answered</p>
-			<h2>The ones every ops manager asks.</h2>
-			<div class="faq gap44">
-				for _, q := range LandingFAQ {
-					<details>
-						<summary>{ q.Q }</summary>
-						<p class="a">{ q.A }</p>
-					</details>
-				}
+	<div class="band band--porcelain">
+		<section class="lp-sec">
+			<div class="lp-wrap lp-faq">
+				<div class="lp-faqHead">
+					<p class="lp-eyebrow lp-secEyebrow">Questions, answered</p>
+					<h2 class="lp-h2 lp-faqTitle">The ones every ops manager asks.</h2>
+				</div>
+				<div class="lp-faqList">
+					for i, q := range LandingFAQ {
+						<details class="qa" open?={ i == 0 }>
+							<summary>
+								<span>{ q.Q }</span>
+								<span class="pl">
+									<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" focusable="false">
+										<path d="M12 5v14M5 12h14"></path>
+									</svg>
+								</span>
+							</summary>
+							<p>{ q.A }</p>
+						</details>
+					}
+				</div>
 			</div>
-		</div>
-	</section>
+		</section>
+	</div>
 }
 
-// landingCTA is the centred green sign-off with its two decorative rings.
+// landingCTA is the centred green sign-off with its two decorative rings: the public
+// site's green box and the paper button that belongs on it (LP-01).
 //
 // 🔴 THE REFERENCE HAS A SECOND BUTTON, "Book a pilot", AND IT IS NOT HERE. It sent
 // the reader to mailto:hello@tappa.mt, an address this deployment does not own,
@@ -479,17 +584,18 @@ templ landingFAQ() {
 // us. One button, one promise the product keeps. The second returns the day a
 // mailbox and a person behind it exist (user accepted small copy changes,
 // 2026-09-15).
+//
+// It sits on no band: the page's porcelain is its ground, and its own bottom space
+// is the gap the boards draw above the footer's rule.
 templ landingCTA(v LandingView) {
-	<section id="pilot" class="pilotSection">
-		<div class="wrap">
-			<div class="footCta">
-				<span class="ringBg ringBg--one" aria-hidden="true"></span>
-				<span class="ringBg ringBg--two" aria-hidden="true"></span>
-				<h2>Go punchless.</h2>
-				<p>Start yourself today — first { strconv.Itoa(v.FreeMonths) } months free.</p>
-				<div class="ctaBtns">
-					<a class="lp-btn" href={ templ.URL(v.SignupHref) }>Start free — { strconv.Itoa(v.FreeMonths) } months</a>
-				</div>
+	<section id="pilot" class="lp-sec lp-pilot">
+		<div class="lp-wrap">
+			<div class="ondark">
+				<span class="lp-pilotRing lp-pilotRing--one" aria-hidden="true"></span>
+				<span class="lp-pilotRing lp-pilotRing--two" aria-hidden="true"></span>
+				<h2 class="lp-pilotTitle">Go punchless.</h2>
+				<p class="lp-pilotLine">Start yourself today — first { strconv.Itoa(v.FreeMonths) } months free.</p>
+				<a class="lp-button lp-button--paper lp-pilotBtn" href={ templ.URL(v.SignupHref) }>Start free — { strconv.Itoa(v.FreeMonths) } months</a>
 			</div>
 		</div>
 	</section>

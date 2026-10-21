@@ -24,12 +24,14 @@
   sayfa linki).
 - **Sıra:** önce landing/public site (bu faz), sonra operatör (M13).
 
-**Orkestratör kararları** (README §2 tablosu O1–O8, gerekçeleriyle): Product'taki "guarantee"
+**Orkestratör kararları** (README §2 tablosu O1–O9, gerekçeleriyle): Product'taki "guarantee"
 cümleleri yeniden yazılır, regex istisnası yok (O1) · hero animasyonları kaldırılır (O2) · `.lp`
 kapsamlı CSS ile devam (O3) · yeni sayfalar olgu pinleme rejimine ve `marketingURLs()`'e girer (O4) ·
 Signup/Legal/API kılavuzu yeni ortak kabuğa geçer (O5) · rotalar `/product`, `/pricing`,
 `/security`, `/for/restaurants`, `/for/production` (O6) · Pricing'in "Frozen" kaşesi panelin emsali
-`stamp stamp--approved` + FROZEN (O7) · **bağlantı rotasıyla birlikte gelir** (O8 — aşağıda).
+`stamp stamp--approved` + FROZEN (O7) · **bağlantı rotasıyla birlikte gelir** (O8 — aşağıda) ·
+LP-03'ün denetimde kabul edilen iki port sapması: 1200 px altında hero fişinde kaşe kendi satırında,
+sahnede panolarda olmayan bir duraklat düğmesi (O9).
 
 ## Sıralama — boşluk raporundaki §6 sırasından ne değişti ve neden
 
