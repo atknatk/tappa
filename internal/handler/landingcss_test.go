@@ -422,36 +422,143 @@ func TestLandingCSS_EveryPressableClassReservesTheTouchFloor(t *testing.T) {
 	}
 }
 
-// productSpacingRE finds spacing in a product rule: a padding/margin declaration or a
-// Tailwind spacing utility in an @apply (py-1, px-2.5, mt-2 ...).
-var productSpacingRE = regexp.MustCompile(`(?:^|[;\s])(?:padding|margin)[a-z-]*\s*:|@apply[^;]*\s-?(?:p|px|py|pt|pr|pb|pl|ps|pe|m|mx|my|mt|mr|mb|ml|ms|me)-[\w.\[\]/]+`)
-
-// lpSpacingRE finds a padding/margin declaration in a .lp rule.
+// lpSpacingRE finds a padding/margin declaration in a .lp rule (the order check only;
+// whether the value is right is boxOf's question).
 var lpSpacingRE = regexp.MustCompile(`(?:^|[;\s])(?:padding|margin)[a-z-]*\s*:`)
 
 var cssClassRE = regexp.MustCompile(`\.(-?[a-zA-Z_][\w-]*)`)
 
-// zeroedProductClasses names every product class the .lp block uses (by name or by one
-// of its --modifiers) whose OWN rule
-// (selector exactly `.name`, outside the block) sets padding or margin, and which the
-// block does not give a padding/margin back with a `.lp .name` rule. `.lp * { margin: 0;
-// padding: 0 }` has a bare class's specificity and comes after the layers, so inside
-// .lp it wins over the product rule — a product component reused on the public site
-// loses its inner space unless the block restores it.
-func zeroedProductClasses(before, block string) []string {
-	spaced := map[string]bool{}
-	for _, r := range flatCSSRules(before) {
-		if !productSpacingRE.MatchString(r.decls) {
-			continue
+// box is a padding or margin as four lengths in rem: top, right, bottom, left.
+type box [4]float64
+
+// boxOf reads prop ("padding" or "margin") from one rule's declarations: the CSS
+// shorthand (`padding: .25rem .625rem`, px read at 16px to the rem) or, in a product
+// rule, Tailwind's spacing utilities in an @apply (py-1 px-2.5 → .25rem .625rem, the
+// default scale of a quarter rem per step). ok is false when the rule sets neither;
+// problem names a value this reader cannot turn into lengths.
+func boxOf(decls, prop string) (b box, ok bool, problem string) {
+	declRE := regexp.MustCompile(`(?:^|[;\s])` + prop + `\s*:\s*([^;]+)`)
+	if m := declRE.FindStringSubmatch(decls); m != nil {
+		parts := strings.Fields(m[1])
+		var v []float64
+		for _, p := range parts {
+			n, err := cssLengthRem(p)
+			if err != "" {
+				return b, true, err
+			}
+			v = append(v, n)
 		}
+		switch len(v) {
+		case 1:
+			return box{v[0], v[0], v[0], v[0]}, true, ""
+		case 2:
+			return box{v[0], v[1], v[0], v[1]}, true, ""
+		case 3:
+			return box{v[0], v[1], v[2], v[1]}, true, ""
+		case 4:
+			return box{v[0], v[1], v[2], v[3]}, true, ""
+		}
+		return b, true, fmt.Sprintf("%s: %q", prop, m[1])
+	}
+	letter := prop[:1]
+	utilRE := regexp.MustCompile(`(?:^|\s)(` + letter + `[xytrbl]?)-(\S+)`)
+	for _, apply := range regexp.MustCompile(`@apply([^;]*)`).FindAllStringSubmatch(decls, -1) {
+		for _, u := range utilRE.FindAllStringSubmatch(apply[1], -1) {
+			var n float64
+			switch v := u[2]; {
+			case v == "px":
+				n = 1.0 / 16
+			case strings.HasPrefix(v, "[") && strings.HasSuffix(v, "]"):
+				l, problem := cssLengthRem(v[1 : len(v)-1])
+				if problem != "" {
+					return b, true, fmt.Sprintf("%s utility %s-%s: %s", prop, u[1], v, problem)
+				}
+				n = l
+			default:
+				step, err := strconv.ParseFloat(v, 64)
+				if err != nil {
+					return b, true, fmt.Sprintf("%s utility %s-%s is not a length this reader knows", prop, u[1], v)
+				}
+				n = step * 0.25
+			}
+			ok = true
+			switch u[1][1:] {
+			case "":
+				b = box{n, n, n, n}
+			case "x":
+				b[1], b[3] = n, n
+			case "y":
+				b[0], b[2] = n, n
+			case "t":
+				b[0] = n
+			case "r":
+				b[1] = n
+			case "b":
+				b[2] = n
+			case "l":
+				b[3] = n
+			}
+		}
+	}
+	return b, ok, ""
+}
+
+// cssLengthRem reads one length (0, Npx, Nrem) as rem.
+func cssLengthRem(s string) (float64, string) {
+	unit := 1.0
+	switch {
+	case strings.HasSuffix(s, "rem"):
+		s = strings.TrimSuffix(s, "rem")
+	case strings.HasSuffix(s, "px"):
+		s, unit = strings.TrimSuffix(s, "px"), 1.0/16
+	case s == "0":
+	default:
+		return 0, fmt.Sprintf("the length %q is neither 0, px nor rem", s)
+	}
+	n, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, fmt.Sprintf("the length %q: %v", s, err)
+	}
+	return n * unit, ""
+}
+
+// zeroedProductClasses names every product class the .lp block uses (by name or by one
+// of its --modifiers) whose OWN rule (selector exactly `.name`, outside the block) sets
+// a non-zero padding or margin, and which the block does not give back with a `.lp
+// .name` rule carrying THE SAME VALUE. `.lp * { margin: 0; padding: 0 }` has a bare
+// class's specificity and comes after the layers, so inside .lp it wins over the
+// product rule — a product component reused on the public site loses its inner space
+// unless the block restores it, and restoring it to 0 (or to another value) is not
+// restoring the product's component. Each entry is "name: why".
+func zeroedProductClasses(before, block string) []string {
+	type want struct {
+		prop string
+		b    box
+	}
+	product := map[string][]want{}
+	// unread is a product class whose spacing this reader cannot measure; it matters
+	// only if the block uses that class, so it is reported then and not before.
+	unread := map[string]string{}
+	var out []string
+	for _, r := range flatCSSRules(before) {
 		for _, s := range r.selectors {
-			if m := cssClassRE.FindStringSubmatch(s); m != nil && "."+m[1] == s {
-				spaced[m[1]] = true
+			m := cssClassRE.FindStringSubmatch(s)
+			if m == nil || "."+m[1] != s {
+				continue
+			}
+			for _, prop := range []string{"padding", "margin"} {
+				b, ok, problem := boxOf(r.decls, prop)
+				if problem != "" {
+					unread[m[1]] = "the product rule's " + problem
+					continue
+				}
+				if ok && b != (box{}) {
+					product[m[1]] = append(product[m[1]], want{prop, b})
+				}
 			}
 		}
 	}
 	rules := flatCSSRules(block)
-	var out []string
 	seen := map[string]bool{}
 	for _, r := range rules {
 		for _, s := range r.selectors {
@@ -459,18 +566,23 @@ func zeroedProductClasses(before, block string) []string {
 				// A BEM modifier (.stamp--rejected) sits on an element that carries
 				// its base class (.stamp) too, so the modifier names the base as used.
 				name, _, _ := strings.Cut(m[1], "--")
-				if !spaced[name] || seen[name] {
+				if seen[name] {
 					continue
 				}
 				seen[name] = true
-				restored := false
-				for _, own := range landingCSSRulesFor(rules, ".lp ."+name) {
-					if lpSpacingRE.MatchString(own.decls) {
-						restored = true
-					}
+				if why, ok := unread[name]; ok {
+					out = append(out, name+": "+why)
 				}
-				if !restored {
-					out = append(out, name)
+				for _, w := range product[name] {
+					restored := false
+					for _, own := range landingCSSRulesFor(rules, ".lp ."+name) {
+						if b, ok, problem := boxOf(own.decls, w.prop); ok && problem == "" && b == w.b {
+							restored = true
+						}
+					}
+					if !restored {
+						out = append(out, fmt.Sprintf("%s: no `.lp .%s` rule gives back the product's %s %v (rem)", name, name, w.prop, w.b))
+					}
 				}
 			}
 		}
@@ -487,10 +599,10 @@ func TestLandingCSS_AReusedProductClassKeepsItsInnerSpace(t *testing.T) {
 	if problem != "" {
 		t.Fatal(problem)
 	}
-	for _, name := range zeroedProductClasses(before, block) {
-		t.Errorf("the .lp block uses the product class .%s, whose own rule sets padding or margin, "+
-			"and gives none back: `.lp * { padding: 0; margin: 0 }` wins over the product rule "+
-			"inside .lp. Add `.lp .%s { … }` with the product's value.", name, name)
+	for _, why := range zeroedProductClasses(before, block) {
+		t.Errorf("the .lp block reuses a product class and does not give its spacing back — %s. "+
+			"`.lp * { padding: 0; margin: 0 }` wins over the product rule inside .lp; restore "+
+			"the product's own value.", why)
 	}
 
 	rules := flatCSSRules(block)
@@ -522,8 +634,23 @@ func TestLandingCSS_AReusedProductClassKeepsItsInnerSpace(t *testing.T) {
 		}
 	}
 
-	// CONTROL: the shape without the restoring rule is reported.
-	if got := zeroedProductClasses(".stamp { @apply px-2.5 py-1 -rotate-6; }", ".lp .stamp--ok { }"); len(got) != 1 || got[0] != "stamp" {
-		t.Errorf("CONTROL: the scan reported %q for a reused .stamp with no padding back, want [stamp]", got)
+	// CONTROL: every shape that does not give the product's value back is reported,
+	// the one that does is not.
+	const product = ".stamp { @apply px-2.5 py-1 -rotate-6; }"
+	for _, tc := range []struct {
+		name, block string
+		reported    bool
+	}{
+		{"no restoring rule", ".lp .stamp--ok { }", true},
+		{"restored to zero", ".lp .stamp { padding: 0; } .lp .stamp--ok { }", true},
+		{"restored to another value", ".lp .stamp { padding: 0 1px; }", true},
+		{"the board's value, not the product's", ".lp .stamp { padding: 3px 8px; }", true},
+		{"the product's value", ".lp .stamp { padding: .25rem .625rem; }", false},
+		{"the product's value in px", ".lp .stamp { padding: 4px 10px 4px 10px; }", false},
+	} {
+		got := zeroedProductClasses(product, tc.block)
+		if (len(got) > 0) != tc.reported {
+			t.Errorf("CONTROL %s: the scan reported %q, want reported=%v", tc.name, got, tc.reported)
+		}
 	}
 }
