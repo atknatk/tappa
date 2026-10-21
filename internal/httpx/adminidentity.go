@@ -88,6 +88,23 @@ func (a AdminIdentity) AdminUserID() uuid.UUID {
 	return a.Admin.AdminUserID
 }
 
+// Suspension is the suspension of the business this request acts in, and false when
+// it is not suspended or when no live admin resolved (ADR 0025 §3).
+//
+// 🔴 THE NUMBERED EXCEPTION TO THE POLARITY RULE AT AdminState (ADR 0025 §3, K15-9).
+// Here the state you get by doing nothing — a nil adminauth.Resolved.Suspended — is
+// "writes open", not the harmless one. It is confined to a LIVE identity (the only
+// kind adminauth.Manager.Verify produces) and pinned twice: the mapping by
+// TestVerify_CarriesTheSuspensionTheStatementReturned, and the whole path by
+// TestPanelSuspensionDB_TheNextPostOfTheSameSessionIsRefused. The inverse polarity
+// was weighed and refused: it would have changed every handler fake in the repo.
+func (a AdminIdentity) Suspension() (adminauth.Suspension, bool) {
+	if a.State != AdminLive || a.Admin.Suspended == nil {
+		return adminauth.Suspension{}, false
+	}
+	return *a.Admin.Suspended, true
+}
+
 // AdminVerifier is the slice of adminauth.Manager this package needs, declared
 // HERE at the consumer (section 7).
 type AdminVerifier interface {

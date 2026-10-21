@@ -29,6 +29,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -481,11 +482,31 @@ func TestAccountDB_ReadsTheFourVATStates(t *testing.T) {
 // columns) while the role could still write both. 00024 revoked the privilege, so the
 // two are on the closed list now, with `id` beside them (never updatable, 00016), and
 // the table-wide DELETE 00024 also revoked is asserted below.
+//
+// ⚠️ THE CLOSED LIST IS DERIVED SINCE MIGRATION 00063 (M10 OP-15, 2026-10-20): every column of
+// tenants in the catalogue minus the three open ones, so a column a later migration adds is on
+// it the day it exists -- 00063's suspension columns first among them (ADR 0025 §1: a screen
+// that could write suspended_at could lift its own suspension), 00038's two API columns with
+// them. The eight it named by hand before are a floor the derivation must reach (anti-vacuity).
 func TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms(t *testing.T) {
 	f := newAccountFixture(t)
-	closed := []string{"id", "vat_number", "structure", "vat_verified", "vat_checked_at",
-		"plan", "price_per_employee_month", "created_at"}
 	open := []string{"name", "business_type", "timezone"}
+	var closed []string
+	if err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT coalesce(array_agg(a.attname::text ORDER BY a.attnum), '{}')
+			   FROM pg_attribute a
+			  WHERE a.attrelid = 'tenants'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+			    AND a.attname <> ALL ($1::text[])`, open).Scan(&closed)
+	}); err != nil {
+		t.Fatalf("derive the closed columns of tenants: %v", err)
+	}
+	for _, floor := range []string{"id", "vat_number", "structure", "vat_verified", "vat_checked_at",
+		"plan", "price_per_employee_month", "created_at", "suspended_at", "suspension_reason"} {
+		if !slices.Contains(closed, floor) {
+			t.Fatalf("CONTROL: the derived closed list %v lacks %s -- the derivation reads the wrong table", closed, floor)
+		}
+	}
 
 	err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		for _, col := range closed {

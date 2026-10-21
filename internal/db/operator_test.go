@@ -106,9 +106,10 @@ func TestOperatorSQL_OnlyBoundParameters(t *testing.T) {
 	// OP-12 phase B the billing read's own time bound (a SET LOCAL statement_timeout), and
 	// 00034 two (op_read_tenant_vat, op_record_vat_check), and 00042 (M11 API-1a) four
 	// (op_create_holding, op_add_holding_member, op_remove_holding_member, op_read_holdings), and
-	// M11 API-13a two (op_enable_tenant_api, op_disable_tenant_api -- 00039's writes, unused until then).
-	if len(consts) != 24 {
-		t.Fatalf("found %d statement constants in operator.go, want 24 (two lookups, twenty-one op_* calls, one SET LOCAL)", len(consts))
+	// M11 API-13a two (op_enable_tenant_api, op_disable_tenant_api -- 00039's writes, unused until then),
+	// and 00063 (M10 OP-15) two (op_suspend_tenant, op_reinstate_tenant).
+	if len(consts) != 26 {
+		t.Fatalf("found %d statement constants in operator.go, want 26 (two lookups, twenty-three op_* calls, one SET LOCAL)", len(consts))
 	}
 	quoted := regexp.MustCompile(`'[^']*'`)
 	placeholder := regexp.MustCompile(`\$(\d+)`)
@@ -158,8 +159,8 @@ func TestOperatorSQL_OnlyBoundParameters(t *testing.T) {
 		_ = sql
 		return true
 	})
-	if calls != 24 {
-		t.Fatalf("%d Exec/QueryRow/Query call(s) in operator.go, want 24 -- one per statement", calls)
+	if calls != 26 {
+		t.Fatalf("%d Exec/QueryRow/Query call(s) in operator.go, want 26 -- one per statement", calls)
 	}
 
 	doc, err := os.ReadFile(filepath.Join("..", "..", "db", "queries", "operator.sql"))
@@ -300,6 +301,11 @@ func TestOperatorAccessors_TheCustomerRoleCannotUseThem(t *testing.T) {
 		"RecordTenantVATCheck": func(c OperatorConn) error {
 			return RecordTenantVATCheck(ctx, c, opRandHex(t), uuid.New(), "VAT-OP16-ZZ", true)
 		},
+		// OP-15 (00063): each write meets the missing EXECUTE in its one statement.
+		"SuspendTenant": func(c OperatorConn) error {
+			return SuspendTenant(ctx, c, opRandHex(t), uuid.New(), SuspensionNonPayment)
+		},
+		"ReinstateTenant": func(c OperatorConn) error { return ReinstateTenant(ctx, c, opRandHex(t), uuid.New()) },
 	} {
 		err := opAs(t, ctx, tx, "tappa_app", func(sp pgx.Tx) error { return call(sp) })
 		if err == nil || errors.Is(err, ErrOperatorRefused) || errors.Is(err, ErrNoOperator) || !strings.Contains(err.Error(), "SQLSTATE 42501") {

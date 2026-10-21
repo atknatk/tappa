@@ -74,8 +74,8 @@ type TenantStore interface {
 	// db.ErrTenantSearchRefused; a dead session db.ErrOperatorRefused.
 	TenantList(ctx context.Context, sessionHash string, q db.TenantListQuery) ([]db.TenantSummary, error)
 	// TenantDetail is op_begin_read + op_read_tenant_detail: one tenant's identity, four
-	// counts and (00057, M11 API-13a) its integration API state. An id no tenant has is
-	// db.ErrNoSuchTenant -- after the 'read' row naming it committed.
+	// counts, (00057, M11 API-13a) its integration API state and (00063, OP-15) its suspension. An
+	// id no tenant has is db.ErrNoSuchTenant -- after the 'read' row naming it committed.
 	TenantDetail(ctx context.Context, sessionHash string, tenantID uuid.UUID) (db.TenantOverview, error)
 	// EnableTenantAPI is op_enable_tenant_api (M11 API-13a, tenantapi.go): nil says the call was
 	// ACCEPTED, not that the API was opened -- the overview's read says that. A dead session is
@@ -323,6 +323,9 @@ func tenantsView(rows []db.TenantSummary, term formValue, page int32) operatorpa
 			Path:      pathTenants + "/" + x.ID.String(),
 			CreatedAt: utcStamp(x.CreatedAt),
 			Plan:      x.Plan,
+			// The list's chip (ADR 0025 §5, K15-3): op_read_tenants returns the suspension's
+			// start alone; the reason is the overview's.
+			Suspended: x.SuspendedAt != nil,
 		}
 		if namedVisibly(x.Name) {
 			row.Name = x.Name
@@ -334,8 +337,9 @@ func tenantsView(rows []db.TenantSummary, term formValue, page int32) operatorpa
 
 // tenantOverviewView builds the overview screen: the identity facts and the four counts,
 // formatted for the page's mono figures, the paths of the tenant's plaques (OP-13), billing
-// months (OP-12) and VAT number (OP-16), and the integration API section (M11 API-13a): its state
-// as the read returned it, the two forms' paths and the notice.
+// months (OP-12) and VAT number (OP-16), the integration API section (M11 API-13a): its state as
+// the read returned it, the two forms' paths and the notice, and (OP-15 C) its suspension with the
+// one form its state calls for (suspension.go).
 func tenantOverviewView(o db.TenantOverview, name operatorpages.TenantName, notice apiNotice) operatorpages.TenantOverviewView {
 	count := func(n int64) string { return strconv.FormatInt(n, 10) }
 	api := operatorpages.TenantAPIView{
@@ -369,5 +373,6 @@ func tenantOverviewView(o db.TenantOverview, name operatorpages.TenantName, noti
 		ActiveEmployees: count(o.ActiveEmployees),
 		ActivePlaques:   count(o.ActivePlaques),
 		ActiveAdmins:    count(o.ActiveAdmins),
+		Suspension:      suspensionView(o),
 	}
 }

@@ -907,9 +907,14 @@ func TestPlaqueEncode_WritesOnlyDeclaredFaults(t *testing.T) {
 
 	// THE WORDS THEMSELVES, pinned. A wire vocabulary is a contract with the relay as
 	// well as a §4.7 bound, so changing one is a decision, not an edit.
+	//
+	// `suspended` is OP-15 phase B's (ADR 0025 §3, refusal 4): the suspension gate's
+	// answer on the relay's three routes. It changed together with the Android
+	// client's Wording.FAULT_WORDS and RelayLoopTest's word -> status map, which is the
+	// only order ContractPinTest.theFaultVocabulary_matchesPlaqueencodeGo stays green in.
 	wantWords := []string{
 		"already-encoded", "bad-request", "busy", "encode-unavailable", "refused",
-		"server-error", "too-many-rounds", "unknown-session",
+		"server-error", "suspended", "too-many-rounds", "unknown-session",
 	}
 	gotWords := append([]string(nil), encodeFaults...)
 	sort.Strings(gotWords)

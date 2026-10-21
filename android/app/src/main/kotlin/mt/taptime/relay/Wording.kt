@@ -19,6 +19,7 @@ object Wording {
         "already-encoded",
         "too-many-rounds",
         "server-error",
+        "suspended",
     )
 
     fun forFault(fault: String): String = when (fault) {
@@ -43,6 +44,13 @@ object Wording {
             "The encoding budget for this sign-in is spent. Wait ten minutes, or sign out and in again."
         "server-error" ->
             "Something failed on the server. Try again; if it repeats, ask whoever runs it."
+        "suspended" ->
+            // ADR 0025 §3, refusal 4: the BUSINESS is suspended, so the panel refuses its
+            // writes ahead of the relay. Neither the chip nor this phone did anything
+            // wrong, and saying "try a fresh plaque" would waste one. What the plaque
+            // holds depends on where the round stopped -- forOutcome adds that.
+            "This business's Taptime account is paused, so the server is not taking changes from it right now. " +
+                "Nothing is wrong with the plaque or this phone."
         else ->
             "The server answered with a fault this app does not know: $fault."
     }
@@ -63,7 +71,8 @@ object Wording {
                 "Plaque encoded — but the server reported \"${o.trailingFault}\" after the last step. " +
                     "Do NOT encode this plaque again; check the plaque list and tell whoever runs the server."
             }
-        is Outcome.Faulted -> forFault(o.fault)
+        is Outcome.Faulted ->
+            if (o.fault == "suspended") forFault(o.fault) + " " + afterSuspension(o.exchanges) else forFault(o.fault)
         is Outcome.Refused -> forStatus(o.status)
         is Outcome.ChipLost ->
             "The plaque moved away before the round finished. " + afterInterruption(o.exchanges) + abortNote(o.abortSent)
@@ -106,23 +115,85 @@ object Wording {
     }
 
     /**
+     * What a SUSPENSION refusal leaves on the plaque (ADR 0025 §3, refusal 4). The gate
+     * refuses the step that carries the chip's latest response, so for
+     * `Faulted(exchanges = n)` the CHIP has processed n commands and the SERVER has
+     * accepted n − 1 responses (RelayLoop counts an exchange before posting it). The two
+     * milestones are effects on different sides, so they are applied to different counts:
+     *
+     *   n − 1 < ROW        the server never accepted getversion.3's response: no
+     *                      inventory row, nothing installed -- the plaque is blank
+     *                      and can be encoded once the account is back.
+     *   n − 1 ≥ ROW, n < SECRET   the row exists (written when the server accepted the
+     *                      4th response) and the secret is not installed: keep the
+     *                      plaque apart and tell whoever runs the server.
+     *   n ≥ SECRET         the chip processed changekey.sdmfileread: its secret is
+     *                      installed and the round is not finished -- PART-WRITTEN.
+     *                      ADR 0017 §5.3's recovery path is not shipped (T77), so it
+     *                      must be kept apart and never run again.
+     *
+     * Applying the milestones to n alone would call a blank plaque "apart" at n = 4,
+     * where the server had not accepted the row-writing response yet.
+     */
+    fun afterSuspension(exchanges: Int): String = when {
+        exchanges - 1 < ROW_WRITTEN_AFTER_EXCHANGES ->
+            "Nothing was written to this plaque; it is still blank. Ask the business owner to contact Taptime. " +
+                "Open this app again once the account is switched back on."
+        exchanges < SECRET_INSTALLED_AFTER_EXCHANGES ->
+            "The server already holds an inventory row for this plaque. Put it aside, keep it apart from blank plaques, " +
+                "and tell whoever runs the server."
+        else ->
+            "This plaque is PART-WRITTEN: its secret is installed but it is not finished. " +
+                "Do NOT run it again. Keep it apart from blank plaques and tell whoever runs the server."
+    }
+
+    /**
      * Whether the FAULT screen's button may honestly say "Try again". False where the
      * text above says not to: a part-written or row-holding plaque (chip-side and
-     * transport interruptions at or past the row), and the three fault words that mean
-     * the round is over for THIS plaque (refused, unknown-session, already-encoded).
+     * transport interruptions at or past the row), the three fault words that mean
+     * the round is over for THIS plaque (refused, unknown-session, already-encoded),
+     * and `suspended` -- the business is suspended, so a second round meets the same
+     * gate (ADR 0025 §3).
      * For Unreachable/Protocol the count is
      * conservative — it is incremented before the step is posted, so at exactly
      * ROW the row may or may not exist, and the safe reading is "may".
      */
     fun retryIsSafe(o: Outcome): Boolean = when (o) {
         is Outcome.Completed -> false
-        is Outcome.Faulted -> o.fault != "refused" && o.fault != "unknown-session" && o.fault != "already-encoded"
+        is Outcome.Faulted ->
+            o.fault != "refused" && o.fault != "unknown-session" && o.fault != "already-encoded" && o.fault != "suspended"
         is Outcome.Refused -> true
         is Outcome.ChipLost -> o.exchanges < ROW_WRITTEN_AFTER_EXCHANGES
         is Outcome.ChipError -> o.exchanges < ROW_WRITTEN_AFTER_EXCHANGES
         is Outcome.Protocol -> o.exchanges < ROW_WRITTEN_AFTER_EXCHANGES
         is Outcome.Unreachable -> o.exchanges < ROW_WRITTEN_AFTER_EXCHANGES
     }
+
+    /** The fault screen's button when the business is suspended (OP-15B, 2nd round, F4). */
+    const val CLOSE = "Close"
+
+    /**
+     * The FAULT screen's primary button: what pressing it does, in one word, never
+     * contradicting the message above it.
+     *
+     *   suspended          "Close" -- the account is paused, so another round (on this
+     *                      plaque or the next) meets the same gate; the button closes the
+     *                      app instead of re-arming the reader. "Sign out" stays visible
+     *                      beside it (MainActivity shows it on the FAULT screen).
+     *   retry is safe      "Try again"
+     *   otherwise          "Next plaque" -- the round is over for THIS plaque.
+     *
+     * Pure, so RelayLoopTest pins it; MainActivity renders it and asks [primaryCloses].
+     */
+    fun primaryLabel(o: Outcome): String = when {
+        o is Outcome.Completed -> "Next plaque"
+        o is Outcome.Faulted && o.fault == "suspended" -> CLOSE
+        retryIsSafe(o) -> "Try again"
+        else -> "Next plaque"
+    }
+
+    /** Whether the FAULT screen's button closes the app rather than re-arming the reader. */
+    fun primaryCloses(o: Outcome): Boolean = primaryLabel(o) == CLOSE
 
     /**
      * After this many completed exchanges the tags row exists: the accept of the

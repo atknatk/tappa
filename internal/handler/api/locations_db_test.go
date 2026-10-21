@@ -647,7 +647,7 @@ func TestLocationsPut_SuspendedAndClosedWriteNothing(t *testing.T) {
 		t.Fatal(w.Code)
 	}
 	id := r.venuesByRef(biz, existing)[0].id
-	r.suspended.suspend(biz)
+	r.suspend(biz)
 	fresh := newRef("SUSP")
 	for _, c := range []struct{ ref, body string }{
 		{fresh, `{"name":"Msida","active":true}`},

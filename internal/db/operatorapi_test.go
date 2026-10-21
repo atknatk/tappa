@@ -607,7 +607,7 @@ func TestOperator00039_DownGivesBack00034AndUpTakesItAgain(t *testing.T) {
 	at39 := func(s state, when string) {
 		t.Helper()
 		if s.fns != 2 || s.begin != begin39 || s.audit != audit39 || s.kinds != opKindCheckDef(opAuditKinds39) || !s.kindsOK ||
-			s.shape != opTenantWriteShapeDefOf(opTenantWriteKinds) || !s.shapeOK ||
+			s.shape != opTenantWriteShapeDefOf(opTenantWriteKinds39) || !s.shapeOK ||
 			s.tenantsSel != opDefinerTenantsSel39 || s.updates != opDefinerTenantsUpd39 {
 			t.Errorf("%s: not 00039's state: %+v", when, s)
 		}

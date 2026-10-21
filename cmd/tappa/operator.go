@@ -32,11 +32,11 @@ const (
 // with the function that closes what it opened.
 //
 // 🔴 THE OPERATOR'S POOL NEVER LEAVES THIS FUNCTION. It is opened here, handed to
-// configuredSurface (whose syntax tree uses it exactly eight times: as operatorauth.New's
+// configuredSurface (whose syntax tree uses it exactly nine times: as operatorauth.New's
 // Store, through operatorAuthenticator, as operator.New's LegalStore -- OP-10 --, as its
 // TenantStore -- OP-11 --, as its PlaqueStore -- OP-13 --, as its AuditStore -- OP-14 --,
-// as its BillingStore -- OP-12 --, as its VATStore -- OP-16 -- and as its HoldingStore -- M11
-// API-1a),
+// as its BillingStore -- OP-12 --, as its VATStore -- OP-16 --, as its HoldingStore -- M11
+// API-1a -- and as its SuspensionStore -- OP-15 C),
 // and its Close is returned as a bound method value -- which carries one call and no
 // object, so nothing in run() can hand the pool to a customer handler (ADR 0021 §3.6: the
 // operator's pool goes to the operator's side only).
@@ -108,9 +108,10 @@ func openOperatorSurface(ctx context.Context, cfg *config.Config, texts operator
 // operatorStore is what the operator's pool is to the surface: the Authenticator's
 // Store, the legal screen's LegalStore (OP-10), the tenant screens' TenantStore (OP-11),
 // the plaque screen's PlaqueStore (OP-13), the audit screen's AuditStore (OP-14), the
-// billing screen's BillingStore (OP-12), the VAT screen's VATStore (OP-16) and the holdings
-// screen's HoldingStore (M11 API-1a) -- *db.OperatorDB's method set
-// (TestOperatorDB_IsTheStoreAndNothingMore derives it from these eight and Close).
+// billing screen's BillingStore (OP-12), the VAT screen's VATStore (OP-16), the holdings
+// screen's HoldingStore (M11 API-1a) and the overview's SuspensionStore (OP-15 C) --
+// *db.OperatorDB's method set (TestOperatorDB_IsTheStoreAndNothingMore derives it from these
+// nine and Close).
 type operatorStore interface {
 	operatorauth.Store
 	operator.LegalStore
@@ -120,6 +121,7 @@ type operatorStore interface {
 	operator.BillingStore
 	operator.VATStore
 	operator.HoldingStore
+	operator.SuspensionStore
 }
 
 // viesChecker is what this command needs of the sign-up wizard's VIES client
@@ -161,8 +163,9 @@ func viesForOperator(vies viesChecker) operator.VATChecker {
 
 // configuredSurface builds the operator's Authenticator around store and the surface
 // that holds it -- store again as its legal store, its tenant store, its plaque store, its
-// audit store, its billing store, its VAT store and its holding store, vies (adapted) as its VIES
-// client, texts as its legal snapshot -- and announces the configured state. The process keeps the
+// audit store, its billing store, its VAT store, its holding store and its suspension store, vies
+// (adapted) as its VIES client, texts as its legal snapshot -- and announces the configured state.
+// The process keeps the
 // *Authenticator, inside the Surface (m10-platform.md, OP-4 block, OP-7 decision (3)).
 //
 // It is split from openOperatorSurface so the configured path can be driven without a
@@ -173,8 +176,8 @@ func configuredSurface(store operatorStore, texts operator.LegalTexts, vies vies
 	if err != nil {
 		return nil, err
 	}
-	surface, err := operator.New(auth, store, store, store, store, store, store, store, viesForOperator(vies), texts,
-		cfg.OperatorHost, cfg.BaseURL, log)
+	surface, err := operator.New(auth, store, store, store, store, store, store, store, store, viesForOperator(vies),
+		texts, cfg.OperatorHost, cfg.BaseURL, log)
 	if err != nil {
 		return nil, err
 	}

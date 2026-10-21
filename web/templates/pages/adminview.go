@@ -475,6 +475,11 @@ type PanelChrome struct {
 	// crumb before it with no Href is printed as text too -- a link to nowhere looks like a
 	// working control (SectionHref's rule).
 	Crumbs []Crumb
+
+	// Suspension is the strip a suspended business sees on every section (ADR 0025
+	// §3, "Panel kabuğu"). The zero value draws nothing, and the chrome is then
+	// byte-for-byte what it was before OP-15.
+	Suspension PanelSuspension
 }
 
 // Crumb is one step of a section's breadcrumb trail.
@@ -543,6 +548,23 @@ func panelActionsOf(ctx context.Context) templ.Component {
 	a, _ := ctx.Value(panelActionsKey{}).(templ.Component)
 	return a
 }
+
+// PanelSuspension is what the strip says. Every field is already text for a person,
+// written by internal/handler/suspension.go (which owns the wording, beside the 403
+// page that shares it): Since is a date in the business's own timezone and Sentence
+// comes from a closed map. The reason's CODE never reaches this type, so no template
+// can print it.
+type PanelSuspension struct {
+	Heading    string
+	Since      string
+	Sentence   string
+	StillWorks string
+}
+
+// Shown reports whether there is a strip to draw. The handler always fills a sentence
+// for a suspended business (the neutral one when nothing more specific applies), so an
+// empty sentence means "not suspended".
+func (s PanelSuspension) Shown() bool { return s.Sentence != "" }
 
 // PendingBadge is what the navigation knows about the approval queue.
 type PendingBadge struct {

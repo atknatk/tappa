@@ -160,7 +160,8 @@ func holdingOperatorRowsOf(t *testing.T, ctx context.Context, q opQuerier, sessi
 // identities (the session first, no actor; writes return void or the uuid they created; the
 // read takes the RAW ticket and its page), owner, SECURITY DEFINER, proconfig, one overload,
 // EXECUTE for tappa_operator alone; op_begin_read and op_read_audit are 00039's bodies plus
-// exactly 00042's list edits and are the live, newest definitions; HEAD's three CHECKs name the
+// exactly 00042's list edits, and the live bodies are the newest migration's (00063's since M10
+// OP-15); HEAD's three CHECKs name the
 // holding kinds and the read kind; the forward, frozen-clock and read-consumption scans walk the
 // new functions and find nothing.
 func TestOperator00042_TheFunctionsAndTheirExactSignatures(t *testing.T) {
@@ -222,8 +223,10 @@ func TestOperator00042_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 		                             WHERE n.nspname = 'public' AND p.proname = $1`, fn).Scan(&live); err != nil {
 			t.Fatal(err)
 		}
-		if live != b42 || live != opNewestUpBody(t, fn) {
-			t.Errorf("the live %s is not 00042's body (or 00042 is not its newest definition)", fn)
+		// Since 00063 (M10 OP-15) 00042's body is no longer the newest: the live one is the
+		// newest migration's, and 00063's own test holds that one to 00042's plus its edits.
+		if live != opNewestUpBody(t, fn) {
+			t.Errorf("the live %s is not its newest migration's body", fn)
 		}
 	}
 	var live string
@@ -724,8 +727,9 @@ func TestHoldingTimezone_OwnerCannotChangeAMembersTimezone(t *testing.T) {
 // TestHoldingOps_RowLocksNeedNoNewPrivilegeAndFailClosed is ADR 0027 §1's "kilitler yeni bir
 // yetki istemez ... o yetki bir gün kaldırılırsa kilit permission denied ile düşer": the add's
 // FOR SHARE / FOR NO KEY UPDATE on tenants rows is met by tappa_opdefiner's existing UPDATE on
-// four tenants columns (00034's two, 00039's two) -- the add works with them, and with the four
-// revoked (in a savepoint) it is 42501, not an add without the lock.
+// six tenants columns (00034's two, 00039's two and, since 00063 -- M10 OP-15 --, the two
+// suspension columns) -- the add works with them, and with the six revoked (in a savepoint) it is
+// 42501, not an add without the lock.
 func TestHoldingOps_RowLocksNeedNoNewPrivilegeAndFailClosed(t *testing.T) {
 	ctx, tx := opTx(t)
 	a := opNewActive(t, ctx, tx)
@@ -736,11 +740,11 @@ func TestHoldingOps_RowLocksNeedNoNewPrivilegeAndFailClosed(t *testing.T) {
 	}
 	member := holdingTenant(t, ctx, tx, "Europe/Malta", nil)
 	holdingInsertMember(t, ctx, tx, h, holdingMember{member, "1 minute", ""})
-	if got := opColumns(t, ctx, tx, "tappa_opdefiner", "tenants", "UPDATE"); got != opDefinerTenantsUpd39 {
-		t.Fatalf("PREMISE: tappa_opdefiner UPDATE on tenants = (%s), want (%s) -- 00042 adds none", got, opDefinerTenantsUpd39)
+	if got := opColumns(t, ctx, tx, "tappa_opdefiner", "tenants", "UPDATE"); got != opDefinerTenantsUpd63 {
+		t.Fatalf("PREMISE: tappa_opdefiner UPDATE on tenants = (%s), want (%s) -- 00042 adds none", got, opDefinerTenantsUpd63)
 	}
 	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
-		if _, err := sp.Exec(ctx, `REVOKE UPDATE (vat_verified, vat_checked_at, api_enabled_at, api_code) ON tenants FROM tappa_opdefiner`); err != nil {
+		if _, err := sp.Exec(ctx, `REVOKE UPDATE (vat_verified, vat_checked_at, api_enabled_at, api_code, suspended_at, suspension_reason) ON tenants FROM tappa_opdefiner`); err != nil {
 			t.Fatal(err)
 		}
 		joining := holdingTenant(t, ctx, sp, "Europe/Malta", nil)

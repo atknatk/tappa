@@ -92,17 +92,20 @@
 -- exactly (citext) -- only when the term contains '@' --, or the tenant's id when the
 -- whole term is a hyphenated uuid; those two gates are the predicates by which phase
 -- one writes the read's class ('address', 'id') into its audit row. Newest tenant first,
--- capped at 200 rows.
---   SELECT tenant_id, tenant_name, created_at, plan
+-- capped at 200 rows. Since 00063 (M10 OP-15) each row ends with suspended_at: when the tenant's
+-- suspension began, NULL when it is not suspended.
+--   SELECT tenant_id, tenant_name, created_at, plan, suspended_at
 --   FROM public.op_read_tenants($1, $2, $3, $4, $5);
 
 -- ReadTenantDetail -- phase two of the overview: $2 is the RAW ticket, $3 the tenant id
 -- bound in it. Zero rows for an id that names no tenant; otherwise the identity and four
 -- counts (locations; active employees, plaques and panel accounts), and -- since 00057 (M11
--- API-13a) -- the integration API's state: api_enabled_at (NULL while closed) and api_code.
+-- API-13a) -- the integration API's state: api_enabled_at (NULL while closed) and api_code; and
+-- since 00063 (M10 OP-15) the suspension at the end: suspended_at and suspension_reason (both
+-- NULL, or both set -- the reason a code of the closed set, returned as stored).
 --   SELECT tenant_id, tenant_name, created_at, plan, business_type,
 --          location_count, active_employee_count, active_plaque_count, active_admin_count,
---          api_enabled_at, api_code
+--          api_enabled_at, api_code, suspended_at, suspension_reason
 --   FROM public.op_read_tenant_detail($1, $2, $3);
 
 -- ============================================================================
@@ -263,3 +266,28 @@
 --   SELECT holding_id, holding_name, holding_created_at, member_tenant_id, member_name,
 --          member_timezone, member_api_code, joined_at, left_at
 --   FROM public.op_read_holdings($1, $2, $3, $4);
+
+-- ============================================================================
+-- OP-15 (migration 00063): suspending a tenant and lifting the suspension -- two one-phase
+-- writes, RETURNS void (ADR 0025 §2). Inside both functions no row level security applies
+-- (their owner is BYPASSRLS): every statement that names a tenant names $2. The definer writes
+-- the tenant's two suspension columns and nothing else of it, appends the tenant's audit_log
+-- row (K6) and the operator's row. Not bound to a committed read: neither call tests a value
+-- against a stored one (ADR 0025 §2, "Commit edilmiş okumaya bağ — GEREKMEZ").
+
+-- SuspendTenant -- $2 the tenant, $3 the reason: one of 'non_payment', 'terms_breach',
+-- 'security_hold', 'customer_request' (anything else, or a NULL, is refused with 22023 before
+-- anything is read). The tenant's row is locked by its id alone (FOR NO KEY UPDATE); only if
+-- it exists: one wall-clock read AFTER the lock, suspended_at kept if already set (else that
+-- read) and the reason replaced, and the tenant's audit_log row ('tenant.suspended', the
+-- operator as actor, {actor_kind, reason}, `at` the same read). On every accepted call the
+-- operator's 'tenant_suspended' row naming the tenant, detail {}. The answer is the same
+-- whatever the tenant held or whether it exists -- but for a wait while another transaction
+-- holds an existing tenant's row (ADR 0025 limit 5).
+--   SELECT public.op_suspend_tenant($1, $2, $3);
+
+-- ReinstateTenant -- $2 the tenant (NULL is refused with 22023). The same order; only if the
+-- tenant exists: both columns cleared and the tenant's 'tenant.reinstated' row ({actor_kind},
+-- `at` the call's one wall-clock read) -- whether or not it was suspended; on every accepted
+-- call the operator's 'tenant_reinstated' row.
+--   SELECT public.op_reinstate_tenant($1, $2);

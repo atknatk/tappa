@@ -767,7 +767,39 @@ func (a *AdminAuth) Protect() func(http.Handler) http.Handler {
 // copying a pattern without COUNTING ITS PARTS. tap.go's shape is
 // ByAddress -> Identify -> BySession and round 12 copied only the first stage;
 // M6-04 copied sign-out's gate without copying its POSITION.
+//
+// 🔴 ITS LAST RING IS THE SUSPENSION GATE (ADR 0025 §3, OP-15 phase B), so every
+// route mounted behind this chain — today mountWriting's main group with its two
+// nested groups, tomorrow whatever is added there — is refused for a suspended
+// business without a line of its own. It sits after sessionGate because it writes a
+// row per refusal, and suspension.go carries why that order bounds the rows. The
+// routes a suspension must NOT stop are not exempted by path: they hang off
+// protectWritingThroughSuspension, which is this chain without that ring.
 func (a *AdminAuth) ProtectWriting() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return a.floodGate("admin_panel")(
+			a.sameOriginGate(
+				a.requireAdmin()(
+					a.sessionGate(
+						a.suspensionGate(next)))))
+	}
+}
+
+// protectWritingThroughSuspension is ProtectWriting WITHOUT the suspension ring, and
+// nothing else differs: the Origin check ahead of the resolver, the address shield,
+// the identity and the session budget are the same four stages in the same order.
+//
+// 🔴 IT IS THE NAMED CHAIN OF ADR 0025 §3's CLOSED EXCEPTION LIST, and it has exactly
+// one user: the sibling group at the end of mountWriting, which holds the admin's own
+// password, the four record paths (adding a person, re-inviting, and the manual
+// record's two steps) and K-26's defences (revoking API keys, switching the webhook
+// off). The record paths are not the business's settings but how an attendance record
+// gets written or recovered (§4.3, §4.6) -- a suspension stops writes, not evidence --
+// and the defences only take away what the business exposes. An exception made by PATH
+// would open or close silently on a rename; made by GROUP, it is a visible edit in one
+// function, and TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException derives
+// the whole set from the router rather than from this comment.
+func (a *AdminAuth) protectWritingThroughSuspension() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return a.floodGate("admin_panel")(
 			a.sameOriginGate(

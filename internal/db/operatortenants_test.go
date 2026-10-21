@@ -57,12 +57,14 @@ import (
 
 // The two functions 00029 creates and the one it replaces, by their exact catalogue
 // identity. op_begin_read's identity is 00027's: the replacement keeps it.
+// This pin reads the HEAD catalogue, so it carries the newest results: since 00057 (M11 API-13a)
+// the overview ends with the API state, and since 00063 (M10 OP-15) the list ends with
+// suspended_at and the overview with the suspension after the API state (opReadTenantsResult63,
+// opReadDetailResult63; their earlier shapes are operatorsuspend_test.go's).
 var op00029Functions = map[string]struct{ args, result string }{
-	"op_begin_read":   {"p_session text, p_kind text, p_params jsonb", "text"},
-	"op_read_tenants": {"p_session text, p_ticket text, p_query text, p_page_number integer, p_page_size integer", "TABLE(tenant_id uuid, tenant_name text, created_at timestamp with time zone, plan text)"},
-	// Since 00057 (M11 API-13a) the overview ends with the API state; this pin reads the HEAD
-	// catalogue, so it carries 00057's result (00029's nine columns, then the two).
-	"op_read_tenant_detail": {"p_session text, p_ticket text, p_tenant_id uuid", "TABLE(tenant_id uuid, tenant_name text, created_at timestamp with time zone, plan text, business_type text, location_count bigint, active_employee_count bigint, active_plaque_count bigint, active_admin_count bigint, api_enabled_at timestamp with time zone, api_code text)"},
+	"op_begin_read":         {"p_session text, p_kind text, p_params jsonb", "text"},
+	"op_read_tenants":       {"p_session text, p_ticket text, p_query text, p_page_number integer, p_page_size integer", opReadTenantsResult63},
+	"op_read_tenant_detail": {"p_session text, p_ticket text, p_tenant_id uuid", opReadDetailResult63},
 }
 
 const (
@@ -189,10 +191,17 @@ func opForgeDetail(t *testing.T, ctx context.Context, tx pgx.Tx, session, admin,
 	return raw
 }
 
-// opScanTenants runs the shipped list statement and scans it, the database's error
+// opTenantsSQL is the list statement with 00029's four columns, named: it reads the same at
+// every version from 00029 on -- the shipped readTenantsSQL adds 00063's suspended_at (M10 OP-15),
+// which a test that walks the schema back below 00063 would not find (opDetailSQL's reason).
+// The suspension is read through the shipped statement in operatorsuspend_test.go.
+const opTenantsSQL = `SELECT tenant_id, tenant_name, created_at, plan
+FROM public.op_read_tenants($1, $2, $3, $4, $5)`
+
+// opScanTenants runs the list statement (opTenantsSQL) and scans it, the database's error
 // untouched (operatorErr would turn 28000 into a sentinel; these tests want the SQLSTATE).
 func opScanTenants(ctx context.Context, q opQuerier, hash, ticket, query, number, size any) ([]TenantSummary, error) {
-	rows, err := q.Query(ctx, readTenantsSQL, hash, ticket, query, number, size)
+	rows, err := q.Query(ctx, opTenantsSQL, hash, ticket, query, number, size)
 	if err != nil {
 		return nil, err
 	}
@@ -352,6 +361,19 @@ func opPopulate(t *testing.T, ctx context.Context, tx pgx.Tx, f *opFixtureTenant
 		exec(`INSERT INTO admin_users (tenant_id, full_name, email, password_hash, role, status) VALUES ($1, 'op11 former admin', $2, $3, 'manager', 'disabled')`,
 			f.id, email, opFakeDigest("o"))
 	}
+}
+
+// opAllColumns returns every live column of a table in public, in attnum order -- the list a
+// table-level privilege reaches (opColumns' comparison side for "every column").
+func opAllColumns(t *testing.T, ctx context.Context, q opQuerier, table string) string {
+	t.Helper()
+	var got string
+	if err := q.QueryRow(ctx, `SELECT coalesce(string_agg(a.attname, ',' ORDER BY a.attnum), '')
+	                             FROM pg_attribute a
+	                            WHERE a.attrelid = ('public.' || $1)::regclass AND a.attnum > 0 AND NOT a.attisdropped`, table).Scan(&got); err != nil {
+		t.Fatalf("read the columns of %s: %v", table, err)
+	}
+	return got
 }
 
 // opNames returns the names of the rows of a list page, in order.
@@ -590,12 +612,14 @@ func TestOperator00029_TheDefinerReadsNamedColumnsAndNoSecret(t *testing.T) {
 	} {
 		opWant(t, opExecAs(t, ctx, tx, "tappa_app", call.sql, call.args...), sqlstateInsufficientPrivi, "tappa_app calling "+call.name)
 	}
-	// 00038 (M11 API-1) added the two API columns, which tappa_app reads through its
-	// table-level SELECT and cannot write (TestTenantApiColumns_AppCannotWrite).
+	// tappa_app's SELECT on tenants is table-level (00001): EVERY column, derived from the
+	// catalogue -- so a column a later migration adds (00038's two API columns, 00063's two
+	// suspension columns) is on it by construction, and a column-level narrowing would show as a
+	// missing one. The prefix is the floor the derivation must reach.
 	if got, want := opColumns(t, ctx, tx, "tappa_app", "tenants", "SELECT"),
-		"id,name,vat_number,business_type,structure,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,"+
-			"api_enabled_at,api_code"; got != want {
-		t.Errorf("tappa_app SELECT on tenants = (%s), want (%s) -- 00029 must not touch it", got, want)
+		opAllColumns(t, ctx, tx, "tenants"); got != want ||
+		!strings.HasPrefix(got, "id,name,vat_number,business_type,structure,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,") {
+		t.Errorf("tappa_app SELECT on tenants = (%s), want every column (%s) -- 00029 must not touch it", got, want)
 	}
 	a := opNewTenant(t, ctx, tx, "op11 rls a", 0)
 	b := opNewTenant(t, ctx, tx, "op11 rls b", 0)

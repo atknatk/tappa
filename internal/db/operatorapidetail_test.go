@@ -85,9 +85,12 @@ func TestOperator00057_TheOverviewReadsTheAPIState(t *testing.T) {
 // TestOperator00057_DownGivesBack00029AndUpTakesItAgain: 00057's Down leaves op_read_tenant_detail
 // exactly as 00029 made it -- its result, owner, ACL and body (md5(prosrc) is the digest 00057's
 // precondition names) -- and its Up gives it the two API columns again, owner and ACL unchanged; the
-// Up's own precondition passes over the Down. Inside the test's transaction.
+// Up's own precondition passes over the Down. Inside the test's transaction, taken to 00057 first
+// (since 00063 -- M10 OP-15 -- re-created the function with the suspension at the end, HEAD is
+// past 00057: opAtVersion runs 00063's Down, and this test then runs 00057's own Down and Up).
 func TestOperator00057_DownGivesBack00029AndUpTakesItAgain(t *testing.T) {
 	ctx, tx := opTx(t)
+	opAtVersion(t, ctx, tx, 57, opKindsAt42...)
 	up, down := opMigrationSections(t, op00057File)
 	type state struct{ result, owner, acl, md5 string }
 	read := func() state {
@@ -102,14 +105,13 @@ func TestOperator00057_DownGivesBack00029AndUpTakesItAgain(t *testing.T) {
 		return s
 	}
 	head := read()
-	if !strings.HasSuffix(head.result, "active_admin_count bigint, api_enabled_at timestamp with time zone, api_code text)") {
-		t.Fatalf("PREMISE: HEAD's result is %s", head.result)
+	if head.result != opReadDetailResult57 {
+		t.Fatalf("PREMISE: 00057's result is %s", head.result)
 	}
-	opAtVersion(t, ctx, tx, 56, opKindsAt42...)
+	opRunSection(t, ctx, tx, down, "00057 Down")
 	at56 := read()
-	want56 := state{result: op00029Functions["op_read_tenant_detail"].result, owner: "tappa_opdefiner", acl: head.acl,
+	want56 := state{result: opReadDetailResult29, owner: "tappa_opdefiner", acl: head.acl,
 		md5: "86d4081dbdae53b128a701784b8f3deb"}
-	want56.result = strings.Replace(want56.result, ", api_enabled_at timestamp with time zone, api_code text)", ")", 1)
 	if at56 != want56 {
 		t.Errorf("after 00057's Down the function is %+v,\n want 00029's %+v", at56, want56)
 	}
@@ -118,7 +120,7 @@ func TestOperator00057_DownGivesBack00029AndUpTakesItAgain(t *testing.T) {
 	}
 	opRunSection(t, ctx, tx, up, "00057 Up over its Down")
 	if again := read(); again != head {
-		t.Errorf("after Down and Up the function is %+v, want HEAD's %+v", again, head)
+		t.Errorf("after Down and Up the function is %+v, want 00057's %+v", again, head)
 	}
 }
 

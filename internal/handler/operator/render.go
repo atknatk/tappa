@@ -449,6 +449,57 @@ var (
 		BackLabel: "Back to the holdings",
 		SignedIn:  true,
 	}
+	// The suspension's pages (suspension.go); its malformed id answers with the not-an-id page
+	// above. The three refusals are answered before any store call and say nothing was changed;
+	// the two faults do NOT say that -- an error from the one statement does not prove it was not
+	// committed (ADR 0025 §5) -- and send the operator to the overview, which says what the
+	// database holds. NONE NAMES THE TENANT OR REPEATS A POSTED VALUE: each is a fixed page.
+	problemSuspensionFormTooLarge = operatorpages.ProblemView{
+		Title:     "That request was too large",
+		Message:   "Open the tenant's overview again and send the form from there. Nothing was changed.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
+	problemSuspensionUnconfirmed = operatorpages.ProblemView{
+		Title: "The box was not ticked",
+		Message: "A suspension needs the box under the reasons ticked: it is there so a wrong click changes nothing. " +
+			"Nothing was changed. Open the tenant's overview again to suspend it.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
+	problemSuspensionReasonRefused = operatorpages.ProblemView{
+		Title:     "Choose one of the reasons",
+		Message:   "A suspension needs one of the four reasons on the overview's form. Nothing was changed.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
+	problemReinstateUnconfirmed = operatorpages.ProblemView{
+		Title: "The box was not ticked",
+		Message: "Lifting a suspension needs the box above the button ticked: it is there so a wrong click changes " +
+			"nothing. Nothing was changed. Open the tenant's overview again to lift it.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
+	problemSuspendNotConfirmed = operatorpages.ProblemView{
+		Title: "The suspension was not confirmed",
+		Message: "The database did not confirm it, which does not mean it was not made. Open the tenant's overview " +
+			"from the list — it shows whether the business is suspended — before you try again.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
+	problemReinstateNotConfirmed = operatorpages.ProblemView{
+		Title: "Lifting the suspension was not confirmed",
+		Message: "The database did not confirm it, which does not mean it was not made. Open the tenant's overview " +
+			"from the list — it shows whether the business is suspended — before you try again.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
 )
 
 // problemPages lists the variables above and problemTooMany(false) and (true), for the
@@ -468,5 +519,7 @@ func problemPages() []operatorpages.ProblemView {
 		problemHoldingsPageRefused, problemHoldingNotAnID, problemHoldingFormTooLarge, problemHoldingsUnreadable,
 		problemHoldingNotCreated, problemHoldingChangeNotConfirmed,
 		problemTenantAPIFormTooLarge, problemTenantAPINotConfirmed,
+		problemSuspensionFormTooLarge, problemSuspensionUnconfirmed, problemSuspensionReasonRefused,
+		problemReinstateUnconfirmed, problemSuspendNotConfirmed, problemReinstateNotConfirmed,
 	}
 }

@@ -766,12 +766,13 @@ func TestEnrollScreen_TheListedFormsRenderItOnlyInRenderEnroll(t *testing.T) {
 // .Get("slug") and .Get("body"), (OP-11) in (*Surface).searchTenants as .Get("page"),
 // (OP-14) in (*Surface).filterAudit as .Get("kind") and .Get("page"), (OP-12) in
 // (*Surface).pageTenantBilling as .Get("page"), and (M11 API-1a) in (*Surface).createHolding as
-// .Get("name") and in (*Surface).addHoldingMember as .Get("tenant_id"), and (M11 API-13a) in
-// (*Surface).enableTenantAPI as .Get("api_code"), once each. url.URL.Query is read in
-// (*Surface).enrollPage as .Get("id"), (M11 API-1a) in (*Surface).holdingsPage as .Get("page"),
-// .Get("done"), .Get("holding") and .Get("tenant"), and (M11 API-13a) in (*Surface).tenantOverview
-// as .Get("done") and .Get("api_code") -- the 303's query: a closed word and a public label --,
-// once each. CONTROL:
+// .Get("name") and in (*Surface).addHoldingMember as .Get("tenant_id"), (M11 API-13a) in
+// (*Surface).enableTenantAPI as .Get("api_code"), and (OP-15 C) in (*Surface).suspendTenant as
+// .Get("confirm") and .Get("reason") and in (*Surface).reinstateTenant as .Get("confirm"), once
+// each. url.URL.Query is read in (*Surface).enrollPage as .Get("id"), (M11 API-1a) in
+// (*Surface).holdingsPage as .Get("page"), .Get("done"), .Get("holding") and .Get("tenant"), and
+// (M11 API-13a) in (*Surface).tenantOverview as .Get("done") and .Get("api_code") -- the 303's
+// query: a closed word and a public label --, once each. CONTROL:
 // postValue's eight calls resolve, each with a constant credential name.
 //
 // PART II -- red on:
@@ -789,8 +790,10 @@ func TestEnrollScreen_TheListedFormsRenderItOnlyInRenderEnroll(t *testing.T) {
 //	    in (*Surface).searchTenants as .Get("page") (OP-11), in (*Surface).filterAudit as
 //	    .Get("kind") or .Get("page") (OP-14), in (*Surface).pageTenantBilling as
 //	    .Get("page") (OP-12), in (*Surface).createHolding as .Get("name") and in
-//	    (*Surface).addHoldingMember as .Get("tenant_id") (M11 API-1a) -- a count there other
-//	    than one of each;
+//	    (*Surface).addHoldingMember as .Get("tenant_id") (M11 API-1a), in
+//	    (*Surface).suspendTenant as .Get("confirm") or .Get("reason") and in
+//	    (*Surface).reinstateTenant as .Get("confirm") (OP-15 C) -- a count there other than one
+//	    of each;
 //	FV6 url.URL.Query other than once in (*Surface).enrollPage, as .Get("id"), and (M11
 //	    API-1a) once each in (*Surface).holdingsPage as .Get("page"), .Get("done"),
 //	    .Get("holding") and .Get("tenant") -- the list's page and the 303's query, none of
@@ -819,11 +822,14 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 	enableTenantAPI := tp.method(t, "Surface", "enableTenantAPI")
 	tenantOverview := tp.method(t, "Surface", "tenantOverview")
 	apiReads, apiQueries := map[string]int{}, map[string]int{}
+	suspendTenant := tp.method(t, "Surface", "suspendTenant")
+	reinstateTenant := tp.method(t, "Surface", "reinstateTenant")
 	listTenants := tp.method(t, "Surface", "listTenants")
 	searchTerm := lookupFunc(t, tp.pkg, "tenantSearchTerm")
 	tenantsView := lookupFunc(t, tp.pkg, "tenantsView")
 	legalReads, tenantReads, auditReads, billingReads := map[string]int{}, map[string]int{}, map[string]int{}, map[string]int{}
 	holdingReads, holdingQueries := map[string]int{}, map[string]int{}
+	suspendReads, reinstateReads := map[string]int{}, map[string]int{}
 	consumers := map[types.Object]string{}
 	for _, m := range []string{"Password", "TOTP", "CompleteEnrollment"} {
 		consumers[lookupMember(t, oa, "Authenticator", m)] = m
@@ -962,6 +968,18 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 					continue
 				}
 			}
+			if tp.in(suspendTenant, id.Pos()) {
+				if k := tp.getKey(id); k == "confirm" || k == "reason" {
+					suspendReads[k]++
+					continue
+				}
+			}
+			if tp.in(reinstateTenant, id.Pos()) {
+				if k := tp.getKey(id); k == "confirm" {
+					reinstateReads[k]++
+					continue
+				}
+			}
 			bad = append(bad, "FV5 r.PostForm at "+tp.where(id.Pos()))
 		case query:
 			if tp.in(enrollPage, id.Pos()) && tp.getKey(id) == "id" {
@@ -1016,6 +1034,12 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 	}
 	if len(apiQueries) != 2 || apiQueries["done"] != 1 || apiQueries["api_code"] != 1 {
 		bad = append(bad, fmt.Sprintf("FV6 tenantOverview reads URL.Query %v, want done and api_code once each", apiQueries))
+	}
+	if len(suspendReads) != 2 || suspendReads["confirm"] != 1 || suspendReads["reason"] != 1 {
+		bad = append(bad, fmt.Sprintf("FV5 suspendTenant reads r.PostForm %v, want confirm and reason once each", suspendReads))
+	}
+	if len(reinstateReads) != 1 || reinstateReads["confirm"] != 1 {
+		bad = append(bad, fmt.Sprintf("FV5 reinstateTenant reads r.PostForm %v, want confirm once", reinstateReads))
 	}
 	sort.Strings(bad)
 	for _, b := range bad {
@@ -1200,16 +1224,20 @@ var guardedHeaders = map[string]map[string]int{
 // canonical ids -- and TWO (M11 API-13a): in (*Surface).enableTenantAPI and
 // (*Surface).disableTenantAPI, one each, a call of apiResultPath with the path's own tenant id
 // (tenantID's result) and a constant apiDone word
-// (TestOperatorHeaders_TheHoldingClassesCarryThePolicy measures it, C175, C184 and C193).
-// CONTROL: the five names are found and at least ten redirect calls resolve.
+// (TestOperatorHeaders_TheHoldingClassesCarryThePolicy measures it, C175, C184 and C193) -- and
+// TWO (OP-15 C): in (*Surface).suspendTenant and (*Surface).reinstateTenant, the accepted write's
+// POST -> 303 -> GET passes overviewPath of the path's own tenant id, which tenantID parsed
+// (TestOperatorHeaders_TheSuspensionClassesCarryThePolicy measures its value, C218-C220 and
+// C232-C234). CONTROL: the five names are found and at least ten redirect calls resolve.
 //
 // PART II -- red on: RH1 a guardedHeaders name (constant, case aside) outside its functions,
 // or a count other than allowed; RH2 a Header Set or Add whose name is not a constant;
 // RH3 a use of http.Header's Del, of http.Redirect, an index expression on an http.Header,
 // or the builtin delete or clear with an http.Header argument (5th round); RH4 a redirect
 // call whose target is not a constant path of operatorRoutes, other than the one vatPath call
-// of recheckVAT whose argument is the identifier recheckVAT binds tenantID's result to (a
-// second such call is red too) and the one holdingResultPath call in each of the three holding
+// of recheckVAT, the one overviewPath call of each of suspendTenant and reinstateTenant whose
+// argument is the identifier that handler binds tenantID's result to (a second such call in any
+// of the three is red too) and the one holdingResultPath call in each of the three holding
 // writes (a second in one of them, or one elsewhere, is red too); RH5 redirect taken as a method
 // value.
 //
@@ -1269,8 +1297,9 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 	for _, r := range operatorRoutes {
 		mounted[r.path] = true
 	}
-	redirects, toVAT := 0, 0
+	redirects := 0
 	vatPathFn, tenantIDFn := lookupFunc(t, tp.pkg, "vatPath"), lookupFunc(t, tp.pkg, "tenantID")
+	overviewPathFn := lookupFunc(t, tp.pkg, "overviewPath")
 	recheck := tp.method(t, "Surface", "recheckVAT")
 	resultPathFn := lookupFunc(t, tp.pkg, "holdingResultPath")
 	holdingWriters := []*types.Func{tp.method(t, "Surface", "createHolding"), tp.method(t, "Surface", "addHoldingMember"),
@@ -1282,7 +1311,17 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 	apiResultPathFn := lookupFunc(t, tp.pkg, "apiResultPath")
 	apiWriters := []*types.Func{tp.method(t, "Surface", "enableTenantAPI"), tp.method(t, "Surface", "disableTenantAPI")}
 	toOverview := map[string]int{}
-	// pathTenant reports whether e is an identifier recheckVAT defines from tenantID's result.
+	// The redirects whose target is built from the path's own tenant id: the target's function
+	// and the one handler it may be called in, and how many times it was.
+	perTenant := []struct {
+		target, handler *types.Func
+		n               int
+	}{
+		{vatPathFn, recheck, 0},
+		{overviewPathFn, tp.method(t, "Surface", "suspendTenant"), 0},
+		{overviewPathFn, tp.method(t, "Surface", "reinstateTenant"), 0},
+	}
+	// pathTenant reports whether e is an identifier its handler defines from tenantID's result.
 	pathTenant := func(e ast.Expr) bool {
 		id, ok := ast.Unparen(e).(*ast.Ident)
 		if !ok {
@@ -1312,9 +1351,16 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 		}
 		redirects++
 		target := c.Args[len(c.Args)-1]
-		if tc, ok := ast.Unparen(target).(*ast.CallExpr); ok && tp.callee(tc) == vatPathFn && tp.in(recheck, c.Pos()) &&
-			len(tc.Args) == 1 && pathTenant(tc.Args[0]) {
-			toVAT++
+		matched := false
+		if tc, ok := ast.Unparen(target).(*ast.CallExpr); ok && len(tc.Args) == 1 && pathTenant(tc.Args[0]) {
+			for i := range perTenant {
+				if tp.callee(tc) == perTenant[i].target && tp.in(perTenant[i].handler, c.Pos()) {
+					perTenant[i].n++
+					matched = true
+				}
+			}
+		}
+		if matched {
 			continue
 		}
 		if tc, ok := ast.Unparen(target).(*ast.CallExpr); ok && tp.callee(tc) == resultPathFn && len(tc.Args) == 3 &&
@@ -1348,8 +1394,10 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 			bad = append(bad, "RH4 a redirect target that is not a mounted route's constant at "+tp.where(c.Pos()))
 		}
 	}
-	if toVAT > 1 {
-		bad = append(bad, fmt.Sprintf("RH4 %d redirects to vatPath in recheckVAT, want at most the one", toVAT))
+	for _, p := range perTenant {
+		if p.n > 1 {
+			bad = append(bad, fmt.Sprintf("RH4 %d redirects to %s in %s, want at most the one", p.n, p.target.Name(), funcName(p.handler)))
+		}
 	}
 	for name, n := range toHoldings {
 		if n > 1 {

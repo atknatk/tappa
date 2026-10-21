@@ -393,6 +393,16 @@ func TestEmployeeRoutes_DerivationIsNotVacuous(t *testing.T) {
 		// marketing.go's Mount, over pages.LegalPages. PUBLIC, so employeeRoutes() adds
 		// every path in that table — asserted below rather than assumed.
 		"marketing.go:page.Path over pages.LegalPages",
+		// webhooks.go's mountWebhookWrites, over a.webhookWrites (OP-15 phase B: each
+		// webhook write mounted by its suspension class). LICENSED-EXCLUDED by the
+		// run-time assertion below: every entry is under adminauth.CookiePath.
+		"webhooks.go:w.href over a.webhookWrites",
+	}
+	for _, w := range (&AdminAuth{}).webhookWrites() {
+		if !strings.HasPrefix(w.href, adminauth.CookiePath+"/") {
+			t.Fatalf("webhook write %q is outside %q; employeeRoutes() excludes the table on the "+
+				"grounds that every entry is a panel route", w.href, adminauth.CookiePath)
+		}
 	}
 	if !reflect.DeepEqual(selectorRouteExprs, wantSelectors) {
 		t.Fatalf("routes registered under a SELECTOR = %v, want %v.\n"+

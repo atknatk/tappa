@@ -25,14 +25,17 @@ import java.io.IOException
  *       refused · unknown-session   the server has already retired the session
  *                                   (finishLocked retires on any step error) or
  *                                   never had one — nothing to abort.
- *       too-many-rounds · server-error · encode-unavailable
+ *       too-many-rounds · server-error · encode-unavailable · suspended
  *                                   the refusal came from a gate or a condition
  *                                   AHEAD of the handler (encodeGate's budget, a
- *                                   missing identity, no encoder), and an abort
+ *                                   missing identity, no encoder, the panel's
+ *                                   suspension gate — ADR 0025 §3), and an abort
  *                                   travels the same chain and is refused the same
  *                                   way. The session, if any, lives until the
  *                                   server's 90 s TTL — encodeGate's own decision
- *                                   ("LET IT DIE").
+ *                                   ("LET IT DIE"). For `suspended` the plaque may
+ *                                   be part-way through, and Wording says from the
+ *                                   exchange count whether to keep it apart.
  *       busy                        with a live handle this means ANOTHER step is
  *                                   in flight on it (checkout's ErrBusy); this loop
  *                                   is sequential, so that is somebody else's

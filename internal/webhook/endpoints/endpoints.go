@@ -18,10 +18,11 @@
 // need the business's integration API open. SWITCHING OFF never does -- it is a defence (K-26), like
 // revoking a key (ADR 0028's API-3 note item 8).
 //
-// SUSPENSION (ADR 0028 §10; plan §4.7). OP-15's tenants.suspended_at is not on this branch, so no
-// act here reads a suspension yet; the table below is the decision, written where OP-15's gate will
-// read it (OpenWhileSuspended), and pinned (TestEndpoints_SuspensionClassesAreSection10). API-4b
-// measures the gate itself once the column exists.
+// SUSPENSION (ADR 0028 §10; plan §4.7). No act here reads a suspension: the table below is the
+// decision, and the panel's suspension gate (OP-15 phase B, ADR 0025 §3) reads it through the
+// mounting -- internal/handler's mountWebhookWrites puts each act's route behind the gate or in the
+// exempt sibling by OpenWhileSuspended. Pinned here (TestEndpoints_SuspensionClassesAreSection10) and
+// on the panel's router (internal/handler's TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException).
 //
 //	act                          while suspended    ADR 0028 §10
 //	switch off (Disable)         OPEN               K-26: "uç nokta devre dışı bırakma"
@@ -187,7 +188,7 @@ const (
 var openWhileSuspended = map[Act]bool{ActDisable: true}
 
 // OpenWhileSuspended reports whether act stays open while the business is suspended (ADR 0028 §10,
-// K-26). OP-15's gate reads it.
+// K-26). The panel's suspension gate reads it (internal/handler's mountWebhookWrites).
 func OpenWhileSuspended(act Act) bool { return openWhileSuspended[act] }
 
 // Endpoint is the panel's view of the business's endpoint. No key.

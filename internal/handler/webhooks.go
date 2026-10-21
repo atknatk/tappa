@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/audit"
@@ -36,8 +37,10 @@ import (
 // domain answers with fixed sentinels and a closed class). The key is printed on the two responses
 // that create it and on none other, and every panel page is Cache-Control: no-store.
 //
-// SUSPENSION (ADR 0028 §10): OP-15 is not on this branch; the classes are internal/webhook/endpoints'
-// OpenWhileSuspended (switching off open, everything else closed), which OP-15's gate reads.
+// SUSPENSION (ADR 0028 §10; ADR 0025 §3, OP-15 phase B): the classes are internal/webhook/endpoints'
+// OpenWhileSuspended (switching off open, everything else closed), and the panel's suspension gate
+// reads them through the mounting -- webhookWrites names each route's act, and mountWebhookWrites
+// puts the closed ones behind ProtectWriting and the open one in mountWriting's exempt sibling.
 
 // The webhook's routes, under the API keys section.
 var (
@@ -49,6 +52,42 @@ var (
 	webhookPingHref    = webhookHref + "/ping"
 	webhookResendHref  = webhookHref + "/resend"
 )
+
+// webhookWrite is one webhook write route and the act internal/webhook/endpoints classifies it as.
+type webhookWrite struct {
+	href  string
+	act   endpoints.Act
+	serve http.HandlerFunc
+}
+
+// webhookWrites is every webhook write the panel mounts, each with its act. A write added to the
+// section is added HERE with its act -- the act is what decides whether a suspension stops it, so a
+// route cannot be mounted without being classified.
+func (a *AdminAuth) webhookWrites() []webhookWrite {
+	return []webhookWrite{
+		{webhookHref, endpoints.ActCreate, a.webhookCreate},
+		{webhookAddressHref, endpoints.ActReaddress, a.webhookReaddress},
+		{webhookRotateHref, endpoints.ActRotate, a.webhookRotate},
+		{webhookDisableHref, endpoints.ActDisable, a.webhookSwitch(false)},
+		{webhookEnableHref, endpoints.ActEnable, a.webhookSwitch(true)},
+		{webhookPingHref, endpoints.ActPing, a.webhookPing},
+		{webhookResendHref, endpoints.ActResend, a.webhookResend},
+	}
+}
+
+// mountWebhookWrites registers the webhook's writes whose suspension class is open (open
+// true) or closed (open false) -- each act's class read from internal/webhook/endpoints'
+// OpenWhileSuspended, the one table that decides it (ADR 0028 §10, plan §4.7, K-26). The
+// two calls in mountWriting together register every webhook write exactly once, so a
+// change of class in that table moves a route between the gated group and the exempt
+// sibling without an edit here.
+func (a *AdminAuth) mountWebhookWrites(r chi.Router, open bool) {
+	for _, w := range a.webhookWrites() {
+		if endpoints.OpenWhileSuspended(w.act) == open {
+			r.Post(w.href, w.serve)
+		}
+	}
+}
 
 // ActionWebhookRefused records a webhook write the role gate refused.
 const ActionWebhookRefused = "webhook_endpoint.refused"

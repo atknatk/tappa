@@ -642,6 +642,11 @@ func (a *AdminAuth) chromeInGroup(r *http.Request, tab pages.PanelTab, inGroup b
 		Brand:    a.panelBrand(r.Context(), id.TenantID()),
 		InGroup:  inGroup,
 	}
+	// THE SUSPENSION STRIP (ADR 0025 §3) is built here for the reason the badge and the
+	// brand are: it sits in the chrome, so every section gets it from this one place.
+	if s, ok := id.Suspension(); ok {
+		c.Suspension = a.suspensionStrip(r.Context(), id.TenantID(), s)
+	}
 	p, err := a.queue.Pending(r.Context(), id.TenantID())
 	if err != nil {
 		a.log.Error("panel: could not count the review queue", "err", err)

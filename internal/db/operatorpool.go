@@ -25,8 +25,8 @@ import (
 // TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator: the pool goes to the
 // operator's Authenticator and, since OP-10 phase B, to the operator surface's legal
 // slot, (OP-11 phase B) its tenant slot, (OP-13 phase B) its plaque slot, (OP-14 phase B)
-// its audit slot, (OP-12 phase B) its billing slot and (OP-16 phase B) its VAT slot -- and to
-// no other name in cmd/tappa's
+// its audit slot, (OP-12 phase B) its billing slot, (OP-16 phase B) its VAT slot, (M11 API-1a)
+// its holding slot and (OP-15 phase C) its suspension slot -- and to no other name in cmd/tappa's
 // main.go and operator.go, the scope that test reads by syntax; it is not a whole-program
 // proof).
 //
@@ -54,10 +54,10 @@ import (
 //     finds neither the DSN nor its password.
 //
 // It satisfies internal/operatorauth's Store and internal/handler/operator's LegalStore,
-// TenantStore, PlaqueStore, AuditStore, BillingStore and VATStore (none can be imported here --
-// both packages import this one -- so the external test asserts it, and cmd/tappa's wiring
-// does not compile without it). Its method set is those seven interfaces' and Close, derived
-// from them by TestOperatorDB_IsTheStoreAndNothingMore.
+// TenantStore, PlaqueStore, AuditStore, BillingStore, VATStore, HoldingStore and SuspensionStore
+// (none can be imported here -- both packages import this one -- so the external test asserts it,
+// and cmd/tappa's wiring does not compile without it). Its method set is those nine interfaces'
+// and Close, derived from them by TestOperatorDB_IsTheStoreAndNothingMore.
 type OperatorDB struct {
 	pool *pgxpool.Pool
 }
@@ -634,4 +634,20 @@ func (o *OperatorDB) AddHoldingMember(ctx context.Context, sessionHash string, h
 // RemoveHoldingMember is op_remove_holding_member (operator.go).
 func (o *OperatorDB) RemoveHoldingMember(ctx context.Context, sessionHash string, holdingID, tenantID uuid.UUID) error {
 	return RemoveHoldingMember(ctx, o.pool, sessionHash, holdingID, tenantID)
+}
+
+// The two methods below are internal/handler/operator's SuspensionStore (M10 OP-15, phase C): the
+// overview's two writes. Same shape as the twenty-two above; each is one statement, an implicit
+// transaction of its own on the POOL, so its three writes (the tenant's two columns, the tenant's
+// own audit_log row, the operator's row) commit together or not at all and no connection is held
+// once it returns.
+
+// SuspendTenant is op_suspend_tenant (operator.go).
+func (o *OperatorDB) SuspendTenant(ctx context.Context, sessionHash string, tenantID uuid.UUID, reason SuspensionReason) error {
+	return SuspendTenant(ctx, o.pool, sessionHash, tenantID, reason)
+}
+
+// ReinstateTenant is op_reinstate_tenant (operator.go).
+func (o *OperatorDB) ReinstateTenant(ctx context.Context, sessionHash string, tenantID uuid.UUID) error {
+	return ReinstateTenant(ctx, o.pool, sessionHash, tenantID)
 }

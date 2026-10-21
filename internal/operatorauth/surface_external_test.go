@@ -143,8 +143,8 @@ func (surfLegal) Published() map[string]legal.Doc { return map[string]legal.Doc{
 func (surfLegal) Refresh(context.Context) error   { return nil }
 
 // surfTenants is the operator surface's tenant store (OP-11), plaque store (OP-13), audit
-// store (OP-14), billing store (OP-12), VAT store (OP-16) and holding store (M11 API-1a) for the
-// same rig: every call is refused.
+// store (OP-14), billing store (OP-12), VAT store (OP-16), holding store (M11 API-1a) and
+// suspension store (OP-15 C) for the same rig: every call is refused.
 type surfTenants struct{}
 
 func (surfTenants) TenantList(context.Context, string, db.TenantListQuery) ([]db.TenantSummary, error) {
@@ -184,6 +184,12 @@ func (surfTenants) AddHoldingMember(context.Context, string, uuid.UUID, uuid.UUI
 	return db.ErrOperatorRefused
 }
 func (surfTenants) RemoveHoldingMember(context.Context, string, uuid.UUID, uuid.UUID) error {
+	return db.ErrOperatorRefused
+}
+func (surfTenants) SuspendTenant(context.Context, string, uuid.UUID, db.SuspensionReason) error {
+	return db.ErrOperatorRefused
+}
+func (surfTenants) ReinstateTenant(context.Context, string, uuid.UUID) error {
 	return db.ErrOperatorRefused
 }
 
@@ -238,8 +244,8 @@ func newSurfRig(t *testing.T) *surfRig {
 		t.Fatal(err)
 	}
 	g.comparisons, g.digests = operatorauth.CountWork(a)
-	s, err := operator.New(a, surfLegal{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfVIES{},
-		surfLegal{}, surfHost, "https://taptime.mt", log)
+	s, err := operator.New(a, surfLegal{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{},
+		surfVIES{}, surfLegal{}, surfHost, "https://taptime.mt", log)
 	if err != nil {
 		t.Fatal(err)
 	}

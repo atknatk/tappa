@@ -591,6 +591,12 @@ K-26'dır.
 bağlı → API-4 yalnız tek **kontrol noktasını** kurar; tablonun testleri API-4b'dir ve OP-15'e
 bağlıdır.
 
+> **API-4b notu (2026-10-20, ekleme).** Kontrol noktası artık OP-15'in sütununu okur:
+> `tenant.WriteSuspension` → `GetTenantSuspended` (`db/queries/tenants.sql`), yazmanın **kendi
+> işleminde**, açık `id = @tenant_id` + RLS; `NoSuspensionColumn` kaldırıldı. Okuma **satır kilidi
+> almaz** (`FOR SHARE`/`FOR KEY SHARE` yok) — ölçüm, karar ve bedeli dosya sonundaki *"API-4b eki"*nde.
+> Tablonun hücre hücre testleri `internal/handler/api/suspension_db_test.go`'dadır.
+
 ### 11. Sandbox (K-3, K-28) ve panel yazma kapıları (GATE-1, K-37)
 
 **Sandbox:**
@@ -3658,3 +3664,124 @@ ayrılmıştı ama yazılmamıştı — ana oturumun kararıyla T130 aldı, OP-1
     dinamik SQL ile ya da PUBLIC'e verilen yetki ve `E'…'` dizesi R5b'nin görüş alanı dışında (ölçümler ve arkadaki DB kapıları orada);
     `E''` ayırıcının sayılı sınırlarına eklendi. (d) **`apiidempotency.sql` §4.5 kemerinde:** `TestAPIIdempotencyQueries_CarryAnExplicitTenantPredicate`
     (5 sorgu); dış `d.tenant_id`'yi silen (D3) ve CTE'nin tenant yüklemini totolojiye çeviren (E3) mutantlar kırmızı.
+
+## API-4b eki (2026-10-20) — askı kontrol noktası OP-15'in sütununu okur
+
+**Ne yapıldı.** §10'un kontrol noktası (`internal/handler/api/suspension.go`, API-4) OP-15 A'nın
+`tenants.suspended_at`'ine (00063) bağlandı: `tenant.WriteSuspension` (`internal/domain/tenant/suspension.go`)
+sorgu `GetTenantSuspended`'ı — `SELECT (suspended_at IS NOT NULL)::boolean … FROM tenants WHERE id =
+@tenant_id` — yazmanın `apikey.Writes.Run` işleminde koşar; satır yoksa (yok ya da RLS gizliyor) hata,
+kontrol noktası onu **503** ile kapalı yanıtlar. `cmd/tappa/api.go` onu bağlar; API-4'ün her zaman
+*"askıda değil"* diyen `NoSuspensionColumn`'ı kaldırıldı (sandbox derlemesi onu yalnız
+`internal/sandbox/sandbox_db_test.go`'da kullanıyordu; artık gerçek okuyucu). Migration yok; yeni bağımlılık yok.
+
+**Kilit kararı — düz okuma (ölçüldü).** Operatörün `op_suspend_tenant`'ı satırı `FOR NO KEY UPDATE`
+alır (ADR 0025 §2 adım 3). İki oturumlu deney (PostgreSQL 17.10, READ COMMITTED; yazma tarafı satırı
+tutar, operatör tarafı `lock_timeout` 300 ms):
+
+| Yazmanın okuması | Operatörün kilidi | Operatör tutarken yazmanın okuması |
+|---|---|---|
+| düz `SELECT` | 3–7 ms'de alınır | beklemez, **eski** durumu okur |
+| `FOR KEY SHARE` | 4–6 ms'de alınır (çakışmaz) | beklemez, **eski** durumu okur — hiçbir şeyi sıralamaz |
+| `FOR SHARE` | **55P03**, 304–309 ms | operatörün commit'ine kadar bekler, **yeni** durumu okur |
+
+`FOR SHARE`'in bedeli, ölçüldü: (i) operatörün askısı işletmenin uçuştaki her `/v1` yazmasını bekler;
+**üst üste binen paylaşımlı kilitler bekleyen operatörün önüne geçer** — üç örtüşen yazıcı (her biri
+60 ms tutar) varken operatör altı koşuda 0,5–4,5 s bekledi ve bu sürede 23–204 paylaşımlı kilit verildi;
+`lock_timeout` (3 s) beklemeyi sınırlamadı (her yeniden bekleyiş kendi sayacını başlatır: 3,9 ve 4,5 s'de
+geçti). Yani askıya alınan taraf, yazarak, kendi askısını geciktirebilirdi — `security_hold` dahil.
+(ii) Tutulan bir `/v1` yazması (kontrol noktasından sonra bekletilen; mutant koşusu) operatörü **30,1 s**
+bekletti. (iii) Panelin `UpdateTenantAccount`'ı (`UPDATE tenants`) `FOR SHARE` tutulurken 55P03 (305 ms);
+operatörün öteki tenant yazmaları (VAT yeniden denetimi 00034, API kapısı 00039/00042) aynı
+`FOR NO KEY UPDATE`'i alır (kaynaktan; ayrıca ölçülmedi). (iv) Tap'ler etkilenmez (FK `INSERT` 5–6 ms).
+
+**Karar: düz okuma** (gerekçeli; ana oturuma onay için soruldu). Bedeli, adıyla ve pinli: okumasını
+askının commit'inden **önce** yapmış bir yazma commit'ini askıdan **sonra** yapabilir — istek başına bir
+yazma, zaten okumasını geçmiş olan. Sonraki her okuma askıyı görür. Bu, panel kapısının anlamıdır (kapı
+isteğin başında okur; ADR 0025 sınır 6: *"etki bir sonraki istektedir"*). Kilit sıfır: operatör `/v1`'i
+hiç beklemez.
+
+**Testler** (`internal/handler/api/suspension_db_test.go`; askı **operatör yoluyla**: kurulumda bir
+operatör hesabı + MFA'lı oturum satırı commit edilir — giriş yapamaz: sentetik digest ve zarf —, her
+askı/kaldırma `tappa_operator` olarak tek commit'li `db.SuspendTenant`/`db.ReinstateTenant`; internal/db'nin
+operatör tabloları test kilidi paylaşımlı alınır; her askı `t.Cleanup`'ta kaldırılır):
+- `TestSuspension_TheSection47Table` — §4.7'nin `/v1` hücreleri, her biri alt test, askıda (KF) ve askısız
+  ikiz (KM, holding eşi) için: açık — yönlendiriciden türetilen bütün `GET`'ler (`/v1/employees`,
+  `/v1/employees/{ref}`, `/v1/punches`, `/v1/directory`, `openapi.yaml`, `guide.md`, `guide.tr.md`), yeni
+  çalışan `PUT` (201), `resend-activation` (202); kapalı — `PUT /v1/locations` (yeni ve var olan), çalışanı
+  değiştiren `PUT`, `active:false`, `DELETE /v1/employees`, sınıflanmamış yazma (sıfır `WriteClass`):
+  askıda 403 `tenant_suspended` (§8 gövdesi) ve **hiçbir şey yazılmaz** (lokasyon ve çalışan satırları
+  satır satır, iz, Idempotency defteri, akış, davet kuyruğu, davetler); ikiz 2xx ve izi değişir (kontrol);
+  `op_reinstate_tenant`'tan sonra her kapalı hücre KF için de 2xx. Yönlendiricinin her rotası bir hücredir
+  (`chi.Walk`): sonradan eklenen rota bu testi kırmızıya çevirir.
+- `TestSuspension_ARefusedWriteLeavesNoIdempotencyRow` — Idempotency-Key'li 403 defter satırı bırakmaz;
+  aynı istek aynı anahtarla yine 403 (tekrar değil); kaldırınca aynı anahtar **ilk** yazmadır (201,
+  `Idempotent-Replayed` yok), sonraki onun tekrarı. 403 anahtarı yakmaz.
+- `TestSuspension_OneBusinessesSuspensionIsNotAnothers` — kuşak: A'nın askısı B'yi etkilemez, ters yönde de.
+- `TestSuspension_AReadThatFailsIsClosed` — gerçek okuyucu: A bağlamında B'nin satırı ve var olmayan id
+  `pgx.ErrNoRows` sarar; okuması başarısız kontrol noktasıyla açık sınıflar dahil her yazma 503, yazı yok.
+- `TestSuspension_TheReadHoldsNoLockOnTheTenant` — uçuştaki yazma varken `op_suspend_tenant` 300 ms
+  `lock_timeout` altında beklemeden geçer (≈20–25 ms).
+- `TestSuspension_AWriteInFlightAtTheSuspensionIsLetThrough` — bedelin pini: uçuştaki yazma 201, sonraki 403.
+- `TestSuspension_ATapGoesOn` — KF ve KM askıdayken: KF'nin kendi dokunuşu olayı, aktif uç noktayla teslim
+  satırı (geri alınan işlemde), KM@KF holding dokunuşu iki akış olayı ve KF'nin `site_punches` satırı;
+  askıdaki KF `GET /v1/punches` ile ikisini okur.
+- `TestSuspension_NoWorkerOrTriggerReadsIt` — gönderici (`internal/webhook`, `…/delivery`) ve davet kuyruğu
+  (`internal/invite`) ile okudukları sorgu dosyaları askıyı adlandırmaz; veritabanında gövdesi
+  `suspended_at` diyen tek fonksiyonlar 00063'ün `tappa_opdefiner`'a ait `op_*`'larıdır (tetikleyici yok).
+  `internal/webhook/endpoints` panelin uç nokta yönetimidir (OP-15B'nin kapısı) ve taramaya girmez.
+- `TestSuspension_TheOperatorFixtureTakesTheTablesLock` — kilit adının yazımı internal/operatorauth'unkiyle eşit.
+- Ayrıca: `TestSandbox_ASuspendedBusinessCannotSimulate` (sevk edilen tek sıfır sınıflı yazma, sütunla);
+  `TestTenantSuspensionQuery_CarriesAnExplicitTenantPredicate` (kemer); `cmd/tappa`'nın
+  `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` testi yeniden yazıldı: *"sütun var + her zaman
+  false bağlı"* kolu artık erişilemez (tip yok) ve kaldırıldı; yerine beş kol — sütun (migration + canlı
+  katalog), kablolama (`tenant.WriteSuspension{}` tam literal), modülde tek `Suspended` metodu, okuyucunun
+  sorgusu (tam metin, kilitsiz), ve davranış (`openAPISurface`'ın kendisi üzerinden askıda 403, kaldırınca
+  201; askı burada sahip `UPDATE`'iyle — konu kablolamadır). Var olan askı testleri (lokasyon, çalışan,
+  akış, rehber) artık sahte küme yerine operatörün gerçek askısıyla koşar; çalışan testinin iz sayımı
+  askıdan **sonraya** alındı (askının kendi `tenant.suspended` satırı bir `/v1` yazması değildir).
+
+**Mutantlar (ölçüldü; her biri geri alındı, `cmp` ile doğrulandı):**
+
+| Mutant | Kırmızı |
+|---|---|
+| okuyucu hep `false` | `TheSection47Table` (6 kapalı hücre), `ARefusedWriteLeavesNoIdempotencyRow`, `OneBusinessesSuspensionIsNotAnothers`, `AReadThatFailsIsClosed`, `AWriteInFlightAtTheSuspensionIsLetThrough`, `TestEmployees_SuspensionClassesAreSection10`, `TestLocationsPut_SuspendedAndClosedWriteNothing`, `TestSandbox_ASuspendedBusinessCannotSimulate`, `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` |
+| sorguda `tenant` filtresi yok (`WHERE @tenant_id::uuid IS NOT NULL`) | `TestTenantSuspensionQuery_CarriesAnExplicitTenantPredicate`, `AReadThatFailsIsClosed`, `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` — davranış testleri **yeşil** kalır: RLS tek başına tutar (kuşak+kemer'in anlamı) |
+| (`WHERE true`) | derleme kırılır (parametre düşer) |
+| `openWhileSuspended[WriteLocationPut]` | `TheSection47Table` (2 lokasyon hücresi), `ARefusedWriteLeavesNoIdempotencyRow`, `OneBusinessesSuspensionIsNotAnothers`, `AWriteInFlightAtTheSuspensionIsLetThrough`, `TestLocationsPut_SuspendedAndClosedWriteNothing`, `TestWrite_ACommitWithoutTheCheckpointIsRefused`, `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` |
+| `WriteEmployeeChange` açık | `TheSection47Table` (değiştirme, `active:false`), `TestEmployees_SuspensionClassesAreSection10`, `TestWrite_ACommitWithoutTheCheckpointIsRefused` |
+| sıfır sınıf açık | `TheSection47Table` (sınıflanmamış), `TestSandbox_ASuspendedBusinessCannotSimulate`, `TestWrite_ACommitWithoutTheCheckpointIsRefused` |
+| okuma hatası geçiş | `AReadThatFailsIsClosed`, `TestWrite_ACheckpointThatCannotReadIsClosed` |
+| kararı ters çevir: `FOR SHARE` | `TheReadHoldsNoLockOnTheTenant` (55P03, 330 ms), `AWriteInFlightAtTheSuspensionIsLetThrough` (operatör 30,1 s bekledi, yazma 503), `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` |
+| `FOR KEY SHARE` | `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` (metin), `TestTenantSuspensionQuery_CarriesAnExplicitTenantPredicate` (tarayıcı kilit cümlesini `WHERE`'e okur); `TheReadHoldsNoLockOnTheTenant` **yeşil** (çakışmaz — ölçümün kendisi) |
+| `api.go` her zaman `false` okuyucuya geri | `TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker`, `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` |
+| sandbox simülasyonu açık sınıfla | `TestSandbox_ASuspendedBusinessCannotSimulate` |
+| davet kuyruğu askıyı adlandırır | `TestSuspension_NoWorkerOrTriggerReadsIt` |
+
+**Sayılı sınırlar.** (1) Düz okumanın bedeli yukarıda (istek başına bir yazma). (2) Askı fikstürü her
+koşuda geliştirme veritabanında bir operatör hesabı, bir oturum ve askı/kaldırma başına iki append-only
+satır bırakır (internal/operatorauth'un commit eden testlerinin bedeli). (3) `cmd/tappa`'nın
+`TestResolverAccess_NoSqlcQueryNamesADefiner` sayacı 213 → 214.
+
+**API-4b DÜŞÜK turu (2026-10-20, ekleme; iki mercek ONAY, yalnız DÜŞÜK bulgular).**
+1. **Yarış kolu pinlendi.** `PutEmployeeTx`'in `errRefTaken` dalı (yeni ref'i bekleyen PUT, başka işlemin
+   commit ettiği satırla karşılaşır) kontrol noktasına `EmployeeChanges` ile **yeniden** sorar; onu
+   `EmployeeOpens` yapan mutant her yerde yeşildi. `TestSuspension_ARacingNewRefIsAskedAgainAsAChange`:
+   askıdaki işletmede yarışan PUT 403 `tenant_suspended`, tutucunun satırı değişmez; askısız ikizde 200
+   ve satır PUT'un adlarını taşır (kontrol). Mutant artık kırmızı (askıda 200, satır yeniden yazılır).
+2. **"Hiçbir şey yazılmaz" düzeltildi: 403'te iş satırı yazılmaz; iki bakım yazısı istisnadır** —
+   (a) runner'ın tembel `DeleteExpiredIdempotency`'si (24 saatten eski defter satırları), kontrol
+   noktasından **önce** kendi işleminde commit edilir (`internal/apikey/writes.go`, API-4'ün tasarımı);
+   (b) zincirin `Touch`'ı `api_keys.last_used_at`'i yazar (dakikada en çok bir). Davranış değişmedi.
+   `TestSuspension_TheSection47Table` her kapalı hücreden önce süresi geçmiş bir defter satırı ekler ve
+   403'ten sonra süpürüldüğünü ölçer; iz yalnız **canlı** (24 saat içindeki) defter satırlarını sayar.
+   `last_used_at` izin dışında tutulur ve böyle adlandırılır.
+3. **Bedelin toplamı.** "İstek başına bir yazma" doğru, ama toplamda askının commit anında **uçuşta olan
+   her istek** geçebilir (iki mercek 5/5 ölçtü); sınır isteğin kendi sınırlarıdır: `RequestTimeout` 30 sn,
+   `idle_in_transaction_session_timeout` 30 sn, havuz ve anahtar kovası. Test
+   `TestSuspension_AWriteInFlightAtTheSuspensionIsLetThrough` adını aldı ve üç eşzamanlı uçuştaki yazmayla
+   ölçer (üçü de 201, sonraki 403); askı çağrısı 2 sn `lock_timeout` altındadır.
+4. **Cleanup sırası.** Askı kaldırma `t.Cleanup`'ı artık tutulan yazmadan **önce** kaydedilir (LIFO:
+   önce yazma bırakılır, sonra askı kalkar). `FOR SHARE` mutantında `TheReadHoldsNoLockOnTheTenant`
+   30 sn yerine 0,41 sn'de, `AWriteInFlightAtTheSuspensionIsLetThrough` 2,13 sn'de kırmızı; yeşil davranış
+   aynı.

@@ -682,14 +682,16 @@ func (q *Queries) SetOwnAdminPassword(ctx context.Context, arg SetOwnAdminPasswo
 const touchAdminSession = `-- name: TouchAdminSession :one
 UPDATE admin_sessions s
 SET last_used_at = now()
-FROM admin_users a
+FROM admin_users a, tenants t
 WHERE s.id = $1
   AND s.tenant_id = $2
   AND s.revoked_at IS NULL
   AND a.id = s.admin_user_id
   AND a.tenant_id = s.tenant_id
   AND a.status = 'active'
-RETURNING s.id, s.last_used_at, a.id AS admin_user_id, a.role, a.full_name
+  AND t.id = s.tenant_id
+RETURNING s.id, s.last_used_at, a.id AS admin_user_id, a.role, a.full_name,
+          t.suspended_at, t.suspension_reason
 `
 
 type TouchAdminSessionParams struct {
@@ -698,11 +700,13 @@ type TouchAdminSessionParams struct {
 }
 
 type TouchAdminSessionRow struct {
-	ID          uuid.UUID
-	LastUsedAt  *time.Time
-	AdminUserID uuid.UUID
-	Role        string
-	FullName    string
+	ID               uuid.UUID
+	LastUsedAt       *time.Time
+	AdminUserID      uuid.UUID
+	Role             string
+	FullName         string
+	SuspendedAt      *time.Time
+	SuspensionReason *string
 }
 
 // THE per-request authority for the panel, and the reason the session resolver
@@ -726,6 +730,15 @@ type TouchAdminSessionRow struct {
 //
 // last_used_at is the only column written, which is all the 00011 column grant
 // permits.
+//
+// THE BUSINESS'S SUSPENSION RIDES ON THE SAME STATEMENT (ADR 0025 §3, OP-15 phase B):
+// `tenants` is joined by primary key and its two suspension columns come back with the
+// identity, so the panel's write gate costs no second query. The join is INNER and that
+// is the fail-closed half of the design: a tenant row this statement cannot see (RLS
+// reads it in the session's own tenant context) yields 0 rows, i.e. "not signed in" --
+// never "signed in and not suspended". `tenants` is only READ here: UPDATE ... FROM
+// locks the target's rows, not the joined table's, so a suspension being written does
+// not hold this statement up (measured: TestVerifyDB_DoesNotWaitForTheSuspensionsRowLock).
 func (q *Queries) TouchAdminSession(ctx context.Context, arg TouchAdminSessionParams) (TouchAdminSessionRow, error) {
 	row := q.db.QueryRow(ctx, touchAdminSession, arg.ID, arg.TenantID)
 	var i TouchAdminSessionRow
@@ -735,6 +748,8 @@ func (q *Queries) TouchAdminSession(ctx context.Context, arg TouchAdminSessionPa
 		&i.AdminUserID,
 		&i.Role,
 		&i.FullName,
+		&i.SuspendedAt,
+		&i.SuspensionReason,
 	)
 	return i, err
 }

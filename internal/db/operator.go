@@ -40,7 +40,8 @@ import (
 // own log (OP-14) reads one tenant column, the name of each tenant its page's rows name,
 // by the value each row carries. 00034's write (OP-16) is the first that CHANGES a tenant --
 // its VAT verdict, and a row in that tenant's audit_log -- and it too names the tenant in
-// every statement rather than setting a context.
+// every statement rather than setting a context; so do 00063's two (OP-15), which suspend a
+// tenant and lift the suspension.
 //
 // THREE RULES THE OP-7 CARD NAMED, KEPT HERE BECAUSE THE SQL NOW LIVES HERE
 // (m10-platform.md, "Kabullere bağlananlar — OP-7" (b), (c), (d)):
@@ -159,14 +160,18 @@ FROM public.op_read_legal_versions($1, $2, $3, $4)`
 
 	publishLegalSQL = `SELECT public.op_publish_legal($1, $2, $3)`
 
-	// OP-11 (migration 00029). Phase one of both is beginOperatorReadSQL above.
-	readTenantsSQL = `SELECT tenant_id, tenant_name, created_at, plan
+	// OP-11 (migration 00029). Phase one of both is beginOperatorReadSQL above. 00063 (OP-15)
+	// added the suspension at the END of each row: suspended_at to the list, suspended_at and
+	// suspension_reason to the overview.
+	readTenantsSQL = `SELECT tenant_id, tenant_name, created_at, plan, suspended_at
 FROM public.op_read_tenants($1, $2, $3, $4, $5)`
 
-	// M11 API-13a (migration 00057): the API state at the end of the row.
+	// M11 API-13a (migration 00057): the API state at the end of the row; after it, 00063's
+	// (OP-15) suspension.
 	readTenantDetailSQL = `SELECT tenant_id, tenant_name, created_at, plan, business_type,
        location_count, active_employee_count, active_plaque_count, active_admin_count,
-       api_enabled_at, api_code
+       api_enabled_at, api_code,
+       suspended_at, suspension_reason
 FROM public.op_read_tenant_detail($1, $2, $3)`
 
 	// OP-13 (migration 00030). Phase one is beginOperatorReadSQL above.
@@ -494,6 +499,9 @@ type TenantSummary struct {
 	Name      string
 	CreatedAt time.Time
 	Plan      string
+	// SuspendedAt (00063, OP-15) is when the tenant's suspension began, or nil when it is not
+	// suspended -- the list's chip (ADR 0025 §5, K15-3). The reason is the overview's.
+	SuspendedAt *time.Time
 }
 
 // TenantOverview is op_read_tenant_detail's row: the tenant's identity for the banner of
@@ -519,6 +527,13 @@ type TenantOverview struct {
 	// first enable and KEPT by a disable (punches still carry it).
 	APIEnabledAt *time.Time
 	APICode      *string
+	// The suspension (00063, OP-15; ADR 0025 §1): SuspendedAt is when it began (the first
+	// suspending call's wall clock) and SuspensionReason its code -- nil and "" for a tenant
+	// that is not suspended (00063's CHECK makes the two set or unset together). The code is
+	// carried VERBATIM: a code this build does not know reads SuspensionReason.Known() false,
+	// never as a neighbour; its words are the screen's.
+	SuspendedAt      *time.Time
+	SuspensionReason SuspensionReason
 }
 
 // tenantsParams and tenantDetailParams are the two kinds' parameter objects as
@@ -588,7 +603,7 @@ func readTenants(ctx context.Context, c OperatorConn, sessionHash string, t read
 	var out []TenantSummary
 	for rows.Next() {
 		var s TenantSummary
-		if err := rows.Scan(&s.ID, &s.Name, &s.CreatedAt, &s.Plan); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.CreatedAt, &s.Plan, &s.SuspendedAt); err != nil {
 			return nil, operatorErr("read tenants", err)
 		}
 		out = append(out, s)
@@ -603,14 +618,19 @@ func readTenants(ctx context.Context, c OperatorConn, sessionHash string, t read
 // the kind and the tenant id), then the overview -- one row, or none for an unknown id.
 func readTenantDetail(ctx context.Context, c OperatorConn, sessionHash string, t readTicket, tenantID uuid.UUID) (TenantOverview, error) {
 	var o TenantOverview
+	var reason *string
 	err := c.QueryRow(ctx, readTenantDetailSQL, sessionHash, t.reveal(), tenantID).Scan(
 		&o.ID, &o.Name, &o.CreatedAt, &o.Plan, &o.BusinessType,
-		&o.Locations, &o.ActiveEmployees, &o.ActivePlaques, &o.ActiveAdmins, &o.APIEnabledAt, &o.APICode)
+		&o.Locations, &o.ActiveEmployees, &o.ActivePlaques, &o.ActiveAdmins, &o.APIEnabledAt, &o.APICode,
+		&o.SuspendedAt, &reason)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TenantOverview{}, ErrNoSuchTenant
 	}
 	if err != nil {
 		return TenantOverview{}, operatorErr("read tenant detail", err)
+	}
+	if reason != nil {
+		o.SuspensionReason = SuspensionReason(*reason)
 	}
 	return o, nil
 }
@@ -879,6 +899,7 @@ var operatorAuditKinds = [...]OperatorAuditKind{
 	OperatorAuditTenantVATChecked,
 	OperatorAuditTenantAPIEnabled, OperatorAuditTenantAPIDisabled,
 	OperatorAuditHoldingCreated, OperatorAuditHoldingMemberAdded, OperatorAuditHoldingMemberRemoved,
+	OperatorAuditTenantSuspended, OperatorAuditTenantReinstated,
 }
 
 // OperatorAuditKinds returns the closed set of audit kinds, in the CHECK's order -- a fresh
@@ -1581,6 +1602,111 @@ func AddHoldingMember(ctx context.Context, c OperatorConn, sessionHash string, h
 func RemoveHoldingMember(ctx context.Context, c OperatorConn, sessionHash string, holdingID, tenantID uuid.UUID) error {
 	_, err := c.Exec(ctx, removeHoldingMemberSQL, sessionHash, holdingID, tenantID)
 	return operatorErr("remove holding member", err)
+}
+
+// ------------------------------------------------------------------ OP-15 --
+//
+// Suspending a tenant and lifting the suspension (migration 00063; ADR 0025 §1-§2, ADR 0021 §2 v
+// 7, §3). Two one-statement writes in RecordTenantVATCheck's shape -- free functions over an
+// OperatorConn, one Exec each, so each is the caller's ONE statement and its three writes (the
+// tenant's two columns, the tenant's own audit_log row, the operator's row) commit together or
+// not at all. The screen and *OperatorDB's methods are OP-15 phase C; the panel's gate that READS
+// the suspension is phase B.
+//
+// 🔴 NOTHING HERE TELLS WHAT THE TENANT HELD. Both return nil for a suspended tenant, one that
+// is not, and an id that names no tenant alike (ADR 0021 §2 v 7; B14): there is no "already
+// suspended". The result is read back through TenantDetail (the overview's two columns) -- the
+// PRG the operator screen follows. A dead session is ErrOperatorRefused; any other failure is a
+// database error carrying its SQLSTATE and nothing else. One exception is counted (ADR 0025
+// limit 5): while another transaction holds an existing tenant's row the call waits, and a
+// lock_timeout on c turns the wait into 55P03.
+
+// The operator's two kinds (00063, CHECK order: after holding_member_removed). Each is written on
+// EVERY accepted call -- whether the tenant exists and whatever it held -- naming the session, the
+// operator and the tenant and nothing else (operator_audit_log_tenant_write_shape). What changed
+// is the tenant's own audit_log row ('tenant.suspended' / 'tenant.reinstated'), which a call
+// writes only for a tenant that exists.
+const (
+	OperatorAuditTenantSuspended  OperatorAuditKind = "tenant_suspended"
+	OperatorAuditTenantReinstated OperatorAuditKind = "tenant_reinstated"
+)
+
+// SuspensionReason is a suspension's code: the CLOSED set of tenants_suspension_reason_check
+// (00063; ADR 0025 §1, the orchestrator's K15-1). No free text: the tenant reads the reason's
+// sentence and its code enters the tenant's append-only audit_log. The set has five copies -- the
+// CHECK, op_suspend_tenant's refusal, SuspensionReasons below, the panel's sentences (phase B)
+// and the operator's labels (phase C) -- held equal by
+// TestOperator00063_TheReasonSetIsOneSetInEveryCopy (each phase adds its copy there).
+type SuspensionReason string
+
+// The reasons, in the CHECK's order.
+const (
+	SuspensionNonPayment      SuspensionReason = "non_payment"
+	SuspensionTermsBreach     SuspensionReason = "terms_breach"
+	SuspensionSecurityHold    SuspensionReason = "security_hold"
+	SuspensionCustomerRequest SuspensionReason = "customer_request"
+)
+
+// suspensionReasons is the closed set, one array; SuspensionReasons hands out copies.
+var suspensionReasons = [...]SuspensionReason{
+	SuspensionNonPayment, SuspensionTermsBreach, SuspensionSecurityHold, SuspensionCustomerRequest,
+}
+
+// SuspensionReasons returns the closed set of reasons, in the CHECK's order -- a fresh slice the
+// caller may keep.
+func SuspensionReasons() []SuspensionReason {
+	out := make([]SuspensionReason, len(suspensionReasons))
+	copy(out, suspensionReasons[:])
+	return out
+}
+
+// Known reports whether r is a member of the closed set. The comparison is exact -- no case
+// folding, no trimming: the CHECK holds the codes in lower case and anything else is not one.
+func (r SuspensionReason) Known() bool {
+	for _, m := range suspensionReasons {
+		if r == m {
+			return true
+		}
+	}
+	return false
+}
+
+// ErrSuspensionReasonRefused is SuspendTenant's answer for a reason outside the closed set. It
+// is decided here, without a round trip (the database refuses it too, with 22023 and no write)
+// -- the value has no business in a statement. Nothing is written.
+var ErrSuspensionReasonRefused = errors.New("db: suspension reason refused")
+
+// The two statements. Mirrored in db/queries/operator.sql.
+const (
+	suspendTenantSQL = `SELECT public.op_suspend_tenant($1, $2, $3)`
+
+	reinstateTenantSQL = `SELECT public.op_reinstate_tenant($1, $2)`
+)
+
+// SuspendTenant is op_suspend_tenant: the operator suspends one tenant for reason. In one call
+// the database
+//   - for a tenant that exists, after locking its row: sets suspended_at -- KEEPING the time of a
+//     suspension already in force (the first suspension's wall clock) -- and the reason (replaced),
+//     and writes the tenant's own audit_log row: 'tenant.suspended', the operator as actor,
+//     {"actor_kind": "operator", "reason": <code>}, `at` the call's one wall-clock read;
+//   - on every accepted call: the operator's 'tenant_suspended' row naming the tenant.
+//
+// A reason outside the closed set is ErrSuspensionReasonRefused, before a round trip.
+func SuspendTenant(ctx context.Context, c OperatorConn, sessionHash string, tenantID uuid.UUID, reason SuspensionReason) error {
+	if !reason.Known() {
+		return ErrSuspensionReasonRefused
+	}
+	_, err := c.Exec(ctx, suspendTenantSQL, sessionHash, tenantID, string(reason))
+	return operatorErr("suspend tenant", err)
+}
+
+// ReinstateTenant is op_reinstate_tenant: the operator lifts one tenant's suspension. For a tenant
+// that exists the call clears both columns and writes the tenant's 'tenant.reinstated' row
+// ({"actor_kind": "operator"}) -- whether or not it was suspended (the row says the action was
+// applied); on every accepted call the operator's 'tenant_reinstated' row.
+func ReinstateTenant(ctx context.Context, c OperatorConn, sessionHash string, tenantID uuid.UUID) error {
+	_, err := c.Exec(ctx, reinstateTenantSQL, sessionHash, tenantID)
+	return operatorErr("reinstate tenant", err)
 }
 
 // readTicket is op_begin_read's answer: the RAW read ticket, which CLAUDE.md §7 and ADR

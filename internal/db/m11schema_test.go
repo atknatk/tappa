@@ -263,6 +263,12 @@ var m11Columns = []m11Column{
 	// 00043 (M11 API-1b): and tappa_holdingdefiner reads the site's code (holding_tap_site).
 	// 00049 (M11 API-2): and tappa_feedwriter (the event's company code).
 	{"tenants", "api_code", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S"}},
+	// 00063 (M10 OP-15, ADR 0025 §1): the suspension. tappa_app READS both through its table-level
+	// SELECT (00001) and writes neither -- a customer that could would lift its own suspension
+	// (00063's precondition refuses a table-level UPDATE or INSERT reaching it); the one writer is
+	// the operator's definer, op_suspend_tenant / op_reinstate_tenant.
+	{"tenants", "suspended_at", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU"}},
+	{"tenants", "suspension_reason", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU"}},
 	// 00043 (M11 API-1b, ADR 0027 §4): the site of a tap on a peer's plaque. transactions hands
 	// tappa_app table-level SELECT and INSERT (00005) and nothing else, which the new columns
 	// fall under -- the tap path writes them (checkin), never updates them (§4.3).
@@ -291,6 +297,9 @@ var m11Functions = map[string]m11FunctionACL{
 	// 00039 (K-22): op_* of ADR 0021's class.
 	"op_enable_tenant_api(text,uuid,text)": {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
 	"op_disable_tenant_api(text,uuid)":     {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
+	// 00063 (M10 OP-15): op_* of ADR 0021's class -- the suspension's two writes.
+	"op_suspend_tenant(text,uuid,text)": {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
+	"op_reinstate_tenant(text,uuid)":    {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
 	// 00041 (M11 API-1a, ADR 0027 §2): the closed list's two members born here. holding_peer is
 	// SECURITY INVOKER and EXECUTE in its owner alone; the timezone lock is a trigger function,
 	// EXECUTE in its owner alone (HoldingCatalog_TheFunctionsAndTheirExactSignatures pins them

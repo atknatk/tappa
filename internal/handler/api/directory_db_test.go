@@ -600,7 +600,7 @@ func TestDirectory_ClosedIs403RevokedIs401SuspendedIsOpen(t *testing.T) {
 		t.Fatalf("a closed API: %d %s", rec.Code, rec.Body.String())
 	}
 	w.exec(`UPDATE tenants SET api_enabled_at = now() WHERE id = $1`, w.km.id)
-	w.r.suspended.suspend(w.km.id)
+	w.r.suspend(w.km.id)
 	if got, _, _ := w.dirWalk(w.km, "", 1000); sameEntries(got, w.staffOf(w.km.id, w.kf.id)) != nil {
 		t.Fatalf("suspended: %d entries", len(got))
 	}

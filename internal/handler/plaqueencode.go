@@ -167,6 +167,15 @@ const (
 	faultTooMany = "too-many-rounds"
 	// faultServer: an internal failure. Nothing more is said, deliberately.
 	faultServer = "server-error"
+	// faultSuspended: the business is suspended (ADR 0025 §3, refusal 4), so the
+	// panel's write gate refused this request AHEAD of the relay's handlers -- 403,
+	// nothing read, nothing written to the round. It is not the chip's fault and not
+	// the round's: the Android client names the suspension, blames nothing, tells
+	// the operator whether to keep the plaque apart from the exchange count, and does
+	// not offer a retry (the next request meets the same gate). The constant lives
+	// in THIS file because the client's contract test reads the vocabulary from it
+	// (ContractPinTest.theFaultVocabulary_matchesPlaqueencodeGo).
+	faultSuspended = "suspended"
 )
 
 // encodeFaults is the SAME LIST as a value, so a test can assert that every fault
@@ -176,6 +185,24 @@ const (
 var encodeFaults = []string{
 	faultUnavailable, faultBadRequest, faultUnknownSession,
 	faultBusy, faultRefused, faultAlreadyEncoded, faultTooMany, faultServer,
+	faultSuspended,
+}
+
+// encodeRelayRoutes are the relay's three route patterns: the ONLY routes on which the
+// suspension gate answers with this surface's JSON fault instead of the panel's HTML
+// problem page (ADR 0025 §3, refusal 4 -- "the format is chosen by the ROUTE"). The
+// client reads a word before a status and calls a non-JSON body a refused sign-in, so
+// an HTML 403 here would tell the operator to sign in again.
+var encodeRelayRoutes = map[string]bool{
+	plaqueEncodeHref:      true,
+	plaqueEncodeStepHref:  true,
+	plaqueEncodeAbortHref: true,
+}
+
+// refuseSuspendedRelay is the suspension gate's answer on a relay route: the closed
+// word, 403, through the one failure writer -- nothing else touches the writer.
+func refuseSuspendedRelay(w http.ResponseWriter) {
+	writeEncodeFault(w, http.StatusForbidden, faultSuspended)
 }
 
 // encodeReply is the ONE successful body this endpoint produces.

@@ -688,9 +688,15 @@
   /* M10 OP-13: a plaque the operator's inventory shows as retired or lost -- taps on it
      are rejected (§5 row 1), so it takes the rejection tone. Grouped, not copied (the
      M6-05 rule below): one declaration per tone, a separate name per meaning. */
+  /* M10 OP-15 C: a tenant whose panel the operator suspended -- its writes are refused (403), so
+     the list's chip and the overview's take the rejection tone; a tenant that is not suspended is
+     the active tone (below). Separate names from the employee and plaque states on purpose: a
+     tenant's suspension is not a person's or a plaque's state. No ground is new;
+     TestSuspensionScreen_TheChipsAndTextClearAA computes each. */
   .tally--rejected,
   .tally--withdrawn,
-  .tally--vat-not-found { @apply border-tomato bg-tomato/10; }
+  .tally--vat-not-found,
+  .tally--tenant-suspended { @apply border-tomato bg-tomato/10; }
   /* M6-04: the two decided states. Same fixed mapping — a human approval is
      tappa-green, a refusal is tomato — and the same rule that the word carries
      the meaning: the text says "Approved by a manager", not just "Approved", so
@@ -729,7 +735,8 @@
   .tally--active,
   .tally--mounted,
   .tally--frozen,
-  .tally--vat-confirmed { @apply border-tappa-green bg-green-lite; }
+  .tally--vat-confirmed,
+  .tally--tenant-active { @apply border-tappa-green bg-green-lite; }
   .tally--queued,
   .tally--invited,
   .tally--unencoded,
@@ -1691,6 +1698,17 @@
            px-4 py-2.5 md:static md:mx-0 md:border-t-0 md:bg-transparent md:p-0;
     bottom: calc(4rem + max(0.5rem, env(safe-area-inset-bottom)));
   }
+
+  /* The suspend form's reasons (M10 OP-15 C; ADR 0025 §5): each radio beside its label, two
+     columns, the label the 44px touch target. The security hold's warning is the LAST child of
+     the same grid, so the general-sibling rule below can show it when -- and only when -- the
+     security-hold radio is checked: no script (the operator pages' policy allows none) and no
+     :has(). It is hidden by this sheet, so a browser that loads no stylesheet shows it always --
+     the fail-visible direction for a warning. TestSuspendForm_TheHoldWarningIsShownOnlyByTheHoldChoice
+     holds the markup and these three rules together. */
+  .op-reasons { @apply grid grid-cols-[auto_1fr] items-center gap-x-3; }
+  .op-hold-warning { @apply col-span-2 mt-2 hidden; }
+  .op-reason-hold:checked ~ .op-hold-warning { @apply block; }
 }
 
 /* =====================================================================

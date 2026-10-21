@@ -100,7 +100,13 @@ var opAuditKindsAddedBy = map[int][]string{
 	34: {"tenant_vat_checked"},
 	39: {"tenant_api_enabled", "tenant_api_disabled"},
 	42: {"holding_created", "holding_member_added", "holding_member_removed"},
+	63: {"tenant_suspended", "tenant_reinstated"},
 }
+
+// opSuspensionMigration is 00063's number (M10 OP-15): its Down REFUSES while a tenant is
+// suspended (ADR 0025 §2, K15-6), so opAtVersion lifts every suspension inside the test's
+// transaction before it runs that Down.
+const opSuspensionMigration = 63
 
 // opAtVersionSkips are the later migrations opAtVersion does NOT walk back, each with why. They
 // touch no operator object (TestOpAtVersion_SkipsOnlyMigrationsWithoutAnOperatorObject reads
@@ -157,6 +163,28 @@ var opAtVersionSkips = map[int]string{
 // but the delete. (Since OP-13: 00029's Down test reaches 00029 through 00030's Down.)
 func opAtVersion(t *testing.T, ctx context.Context, tx pgx.Tx, version int, kinds ...string) {
 	t.Helper()
+	opAtVersionLocking(t, ctx, tx, version, nil, kinds...)
+}
+
+// opAtVersionLocking is opAtVersion for a test that goes on to take MORE table locks after the walk
+// (a later Down of its own, holdingLockedSavepoint's holdingDownTables): `also` joins the ONE
+// lockForDowns the walk takes first, so the transaction never holds the walk's locks -- tenants'
+// ACCESS EXCLUSIVE among them since 00063 -- while it waits for another table.
+//
+// 🔴 WHY (CI run 39443714553, reproduced on a clean volume, 2026-10-20): the three 00042 tests took
+// opAtVersion(62) -- which walks 00063's Down and keeps ACCESS EXCLUSIVE on tenants -- and THEN, in
+// holdingLockedSavepoint, lockForDowns(holdingDownTables). internal/egress's webhook worker held
+// webhook_deliveries (RowExclusive + RowShare, its claim) and waited for ACCESS SHARE on tenants
+// (the API gate's read); this test held tenants and asked, NOWAIT and then in bounded turns, for
+// webhook_deliveries. A cycle, but never a deadlock PostgreSQL resolves: this side's waits are
+// shorter than deadlock_timeout by design (lockInTurn), so the worker's one deadlock check -- a
+// second after its wait began -- mostly found this side not waiting. Both sides waited 90 s:
+// "lock the tables the Downs touch: N rounds, still busy", and every reader of tenants in every
+// other package behind them. lockForDowns' own argument (no deadlock handed to anyone) holds only
+// when the transaction holds NONE of the tables when it starts; taking the union in one call
+// restores that.
+func opAtVersionLocking(t *testing.T, ctx context.Context, tx pgx.Tx, version int, also []string, kinds ...string) {
+	t.Helper()
 	entries, err := os.ReadDir(filepath.Join("..", "..", "db", "migrations"))
 	if err != nil {
 		t.Fatalf("read db/migrations: %v", err)
@@ -185,7 +213,7 @@ func opAtVersion(t *testing.T, ctx context.Context, tx pgx.Tx, version int, kind
 	// statement before anything else, and after the walk no strong lock may sit outside them.
 	var lockFirst []string
 	if len(later) > 0 {
-		lockFirst = []string{"operator_read_tickets", "operator_audit_log"}
+		lockFirst = append([]string{"operator_read_tickets", "operator_audit_log"}, also...)
 		for _, f := range later {
 			_, down := opMigrationSections(t, f.name)
 			lockFirst = append(lockFirst, downTables(down)...)
@@ -236,8 +264,24 @@ func opAtVersion(t *testing.T, ctx context.Context, tx pgx.Tx, version int, kind
 	// migration's Down runs DDL in this transaction and holds its table locks until the test
 	// ends, so it runs only under the operator-tables lock held EXCLUSIVE (opTx takes it so), and
 	// the strong locks it leaves on tables of public -- anything above what a writer takes -- are
-	// logged with how long they were held ("OP16-T9").
+	// logged with how long they were held ("OP16-T9"). Since 00063 (M10 OP-15) that includes
+	// ACCESS EXCLUSIVE on tenants -- its Down drops two columns, and lockForDowns takes the lock
+	// first -- so every package that touches tenants waits for the test's rollback (ADR 0025
+	// limit 9).
 	opMustHoldTheTablesLockExclusive(t, ctx, tx)
+	// 00063's Down refuses while a tenant is suspended: a committed suspension (an E2E test that
+	// failed before its cleanup reinstated, or a real one on a development database) is lifted
+	// HERE, inside the transaction, and comes back with the rollback. One statement, no row
+	// locked unless such a row exists (tenants is already held: downTables names it).
+	for _, f := range later {
+		if f.n != opSuspensionMigration {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `UPDATE public.tenants SET suspended_at = NULL, suspension_reason = NULL
+		                            WHERE suspended_at IS NOT NULL OR suspension_reason IS NOT NULL`); err != nil {
+			t.Fatalf("lift the suspensions 00063's Down refuses over, inside the transaction: %v", err)
+		}
+	}
 	for _, f := range later {
 		_, down := opMigrationSections(t, f.name)
 		opRunSection(t, ctx, tx, down, f.name+" Down, to reach version "+strconv.Itoa(version))

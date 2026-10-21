@@ -200,6 +200,13 @@ const storeDir = "internal/store"
 // tenant_branding, read by tenant AND digest, exactly as GetTenantLogoRow.Logo. Neither
 // calls a definer; internal/db's TestTenantBranding_PerPageReadsDoNotSelectTheLogo pins
 // the first's select list and the second's positive control.
+//
+// M10 OP-15 phase B (written 2026-10-08, carried onto 00063 on 2026-10-20; ADR 0025 §3) widened TouchAdminSessionRow by two
+// fields, the business's suspension -- tenants.suspended_at (*time.Time) and
+// tenants.suspension_reason (*string, a code from a closed CHECK set) -- read by the
+// panel's per-request statement so the write gate needs no second query. Harmless by
+// this inventory's test: no []byte, no key, no model type, and neither column carries
+// anything but a time and one of four words.
 var storeSurface = map[string]string{
 	// M11 API-6: the API's employee (employees.sql), K-25's budget and the owner's alert (audit.sql)
 	// and the invitation queue (invitequeue.sql). No address is returned (has_email / same_email are
@@ -328,7 +335,9 @@ var storeSurface = map[string]string{
 	"GetTenantClock":           "(context.Context, uuid.UUID) (GetTenantClockRow{ID uuid.UUID; Name string; Timezone string}, error)",
 	"GetTenantLogo":            "(context.Context, GetTenantLogoParams{TenantID uuid.UUID; LogoSha256 string}) (GetTenantLogoRow{Logo []byte; LogoMime *string}, error)",
 	"GetTenantPanelBrand":      "(context.Context, uuid.UUID) (GetTenantPanelBrandRow{Name string; Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32}, error)",
-	"GetTransactionReview":     "(context.Context, GetTransactionReviewParams{TenantID uuid.UUID; TransactionID uuid.UUID}) (GetTransactionReviewRow{ReviewerID uuid.UUID; Outcome string}, error)",
+	// M11 API-4b: /v1's suspension checkpoint -- one boolean, read in the write's own transaction.
+	"GetTenantSuspended":   "(context.Context, uuid.UUID) (bool, error)",
+	"GetTransactionReview": "(context.Context, GetTransactionReviewParams{TenantID uuid.UUID; TransactionID uuid.UUID}) (GetTransactionReviewRow{ReviewerID uuid.UUID; Outcome string}, error)",
 	// M11 API-11: the sandbox simulation's read of the tap it recorded -- the decision's columns, no
 	// source address, no coordinate, no policy context.
 	"GetTapOutcome":                    "(context.Context, GetTapOutcomeParams{TenantID uuid.UUID; ID uuid.UUID}) (GetTapOutcomeRow{ID uuid.UUID; EmployeeID *uuid.UUID; Verdict string; Type *string; Trust *int16; Channel string; OccurredAt time.Time; MatchedSid *string; Practice bool; LocationID *uuid.UUID; SiteLocationID *uuid.UUID; TagUid *string; SiteTagUid *string}, error)",
@@ -395,7 +404,7 @@ var storeSurface = map[string]string{
 	"SetTenantAccent":                  "(context.Context, SetTenantAccentParams{Accent string; UpdatedBy uuid.UUID; TenantID uuid.UUID}) (int64, error)",
 	"SetTenantLogo":                    "(context.Context, SetTenantLogoParams{Logo []byte; LogoSha256 string; LogoMime string; LogoWidth int32; LogoHeight int32; UpdatedBy uuid.UUID; TenantID uuid.UUID}) (int64, error)",
 	"TenantHasAnyTransaction":          "(context.Context, uuid.UUID) (bool, error)",
-	"TouchAdminSession":                "(context.Context, TouchAdminSessionParams{ID uuid.UUID; TenantID uuid.UUID}) (TouchAdminSessionRow{ID uuid.UUID; LastUsedAt *time.Time; AdminUserID uuid.UUID; Role string; FullName string}, error)",
+	"TouchAdminSession":                "(context.Context, TouchAdminSessionParams{ID uuid.UUID; TenantID uuid.UUID}) (TouchAdminSessionRow{ID uuid.UUID; LastUsedAt *time.Time; AdminUserID uuid.UUID; Role string; FullName string; SuspendedAt *time.Time; SuspensionReason *string}, error)",
 	"TouchSession":                     "(context.Context, TouchSessionParams{ID uuid.UUID; TenantID uuid.UUID}) (TouchSessionRow{ID uuid.UUID; LastUsedAt *time.Time}, error)",
 	"UnmountTagFromWall":               "(context.Context, UnmountTagFromWallParams{TenantID uuid.UUID; Uid string}) (UnmountTagFromWallRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
 	"UpdateDepartment":                 "(context.Context, UpdateDepartmentParams{Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; TenantID uuid.UUID; ID uuid.UUID}) (Department{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time}, error)",
@@ -1052,29 +1061,32 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 212 -> 213 on 2026-10-19 (GRP-1): transactions.sql's CountRecordsAtPartnerVenues, a count of the
 	// caller's own rows that name a peer's venue; it calls no definer (holding_group is read by
 	// internal/db/holding.go by hand).
-	// 213 -> 214 on 2026-10-20 (M12-13): transactions.sql's CountOnTheFloorByVenue, The Pass's "on the
+	// 213 -> 214 on 2026-10-20 (M11 API-4b): tenants.sql's GetTenantSuspended, /v1's suspension
+	// checkpoint's read of the caller's own tenant row; it calls no definer.
+	// The M12 rows below were renumbered by one at the merge that brought API-4b from main.
+	// 214 -> 215 on 2026-10-20 (M12-13): transactions.sql's CountOnTheFloorByVenue, The Pass's "on the
 	// floor now" over the caller's own rows; it calls no definer (a partner venue's name is read by
 	// internal/db/holding.go by hand).
-	// 214 -> 215 on 2026-10-20 (M12-16): transactions.sql's CountPanelTransactionsByVerdict, the day's
+	// 215 -> 216 on 2026-10-20 (M12-16): transactions.sql's CountPanelTransactionsByVerdict, the day's
 	// records by verdict under the list's own filters; it calls no definer.
-	// 215 -> 217 on 2026-10-20 (M12-21, M12-25; recounted at the merge that brought C3 beside C1):
+	// 216 -> 218 on 2026-10-20 (M12-21, M12-25; recounted at the merge that brought C3 beside C1):
 	// employees.sql's ListRollEmployees, the Roll's role and home venue per listed person, and
 	// reviews.sql's CountReviewsSince, today's decisions; neither calls a definer.
-	// 217 -> 218 on 2026-10-20 (M12-24; recounted at the merge that brought C4 beside C1 and C3):
+	// 218 -> 219 on 2026-10-20 (M12-24; recounted at the merge that brought C4 beside C1 and C3):
 	// anomalies.sql's ListAnomalyPlaqueJumps, the counters around each listed plaque's largest gap
 	// over the caller's own rows; it calls no definer.
-	// 218 -> 222 on 2026-10-20 (M12-17..19; recounted at the merge that brought C2 beside C1, C3
+	// 219 -> 223 on 2026-10-20 (M12-17..19; recounted at the merge that brought C2 beside C1, C3
 	// and C4): employees.sql's CountPanelEmployeesByStatus (the chips) and GetPanelPersonSummary
 	// (the person card), transactions.sql's ListLastTapsForEmployees (the roster's last tap) and
 	// ListRecentTapsForEmployee (the card's strip); none calls a definer.
-	if named != 222 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND TWENTY-TWO were "+
+	if named != 223 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND TWENTY-THREE were "+
 			"there when this was pinned (2026-10-20: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

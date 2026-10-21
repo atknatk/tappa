@@ -1002,3 +1002,337 @@ dış API'sine de uygulanır — [ADR 0028](0028-dis-api-anahtar-akis-webhook.md
   §3'ün kapalı istisna listesi bu iki M11 panel rotasıyla genişler.
 - Askı sütunları OP-15'e bağlı olduğu için API-4 yalnız tek **kontrol noktasını** kurar; tablonun
   testleri API-4b'dir ve OP-15'e bağlıdır.
+
+## A fazı eki (veri katmanı — 2026-10-08'de migration 00035 olarak yazıldı, 2026-10-20'de 00063 olarak taşındı)
+
+*Bu ek yalnız ekler; yukarıdaki metin değişmedi.* Uygulamanın tam hâli, ölçümleri, sayılı sınırları
+(LS1–LS12) ve üç parçalı güvenlik iddiası [ADR 0021](0021-op-fonksiyonlari-tenant-otesi-erisim.md)
+*"OP-15 uygulama notu"*ndadır; burada yalnız bu ADR'ye göre ne yapıldığı ve nerede bir karar verildiği.
+
+- **Taşıma (2026-10-20):** A 2026-10-08'de 00034'ün üstüne `00035` olarak yazıldı, üçüncü gözün ONAY'ını
+  aldı (güvenlik denetimi yarıda kesildi) ve M11 önce sevk edildiği için beklemeye alındı; bugün `00062`'nin
+  üstüne **`00063`** olarak taşındı. Bu ADR'nin kararları değişmedi. Değişen: değiştirilen gövdeler (00042'nin
+  `op_begin_read`/`op_read_audit`'i, 00057'nin `op_read_tenant_detail`'i — askı API durumundan sonra gelir),
+  audit tür kümesi 20 → 22 ve tenant-yazma türleri 3 → 5 (00039'un API türleri ve 00042'nin holding türleri
+  önce), tanımlayıcının `tenants` listeleri (00039 ve 00042'nin API sütunları dahil), ön koşulun izleri (CHECK'ler
+  bütün metinle, dört gövde `md5` ile) ve Down'ın başına `lock_timeout` (00054'ün kuralı). Sayılar ve gövde
+  özetleri ADR 0021 OP-15 notunun md. 13'ünde.
+- **Sevk edilen:** §1'in iki sütunu ve iki CHECK'i (`tenants_suspension_both_or_neither`,
+  `tenants_suspension_reason_check`), indekssiz; tanımlayıcıya iki sütunda `SELECT` + `UPDATE`;
+  `tenant_suspended` ve `tenant_reinstated` türleri (tür CHECK'i, tenant-yazma CHECK'i, `op_begin_read`
+  ve `op_read_audit`'in birer listesi, `OperatorAuditKinds`, görüntüleyicinin `auditKindWords`'ü);
+  §2'nin iki tanımlayıcısı; §2 *"Okuma"*nın iki okuması **K15-3 dahil** (`op_read_tenants` sona
+  `suspended_at`, `op_read_tenant_detail` sona iki sütun); Go'da `SuspensionReason` (kapalı küme,
+  `Known`), `SuspendTenant`, `ReinstateTenant`, `TenantSummary`/`TenantOverview` alanları. Fatura
+  aritmetiği değişmedi, geçmiş tablosu yok (§6).
+- **§2'nin metnine göre uygulama kararları, adıyla:**
+  - Kilitli okuma `PERFORM t.id FROM public.tenants AS t WHERE t.id = p_tenant_id FOR NO KEY UPDATE`
+    olarak yazıldı: PL/pgSQL hedefsiz `SELECT` yazdırmaz, `PERFORM` aynı ifadedir ve gövdede önceki
+    durumu ya da kimliği tutan **hiçbir değişken** yoktur.
+  - Down'da yeniden yaratılan iki okumanın PUBLIC yetkisi `REVOKE EXECUTE` ile alınır — Down'da hiçbir
+    biçimde `REVOKE ALL` yoktur (*"Down yetkileri adlı sütunlarla geri alır"*ın fonksiyon karşılığı);
+    Up'taki `REVOKE ALL … FROM PUBLIC` yalnız fonksiyonlardadır (ADR 0021 §2 vi'nin kalıbı) ve test
+    bunu pinler.
+  - **Kayma denetimi bu ADR'nin cümlesinden geniştir** (§2 *"Ön koşul"*): tanımlayıcının `tenants` ve
+    `audit_log` erişimi **eksik ve fazla** yönde, sütun listeleri **sıralı küme** olarak karşılaştırılır
+    (`attnum` sırası Down/Up döngülerinden sonra değişebilir — ölçüldü); `tappa_app`'in yanında
+    `tappa_operator` da; ve *"üyelik kalıtımı dahil"* `pg_has_role(…, 'MEMBER')` ile **kalıtımsız
+    (`SET ROLE` ile ulaşılan) üyeliği ve PUBLIC'i** de kapsar — `has_table_privilege` kalıtımsız üyeliği
+    görmez, `SET ROLE` ona ulaşır.
+  - **Down'ın reddi bir kilidin arkasındadır** (3. tur, F1): `lock_timeout`'tan sonraki ilk ifade `tenants`'ta
+    SHARE ROW EXCLUSIVE alır, ret ondan sonradır — kilitsiz ret ile sondaki sütun düşürme arasında commit
+    edilen bir askı sessizce düşerdi. Bu ADR'nin §2 metni Down'ın kilidini söylemiyordu; karar ve bedeli
+    (yükselmede olası 40P01, READ COMMITTED varsayımı) ADR 0021 OP-15 notunun md. 7'sinde ve LS12'de.
+  - `opAtVersion`'ın işlem içi adımı (*"Down — K15-6"*) bir `UPDATE`'tir (`suspended_at IS NOT NULL OR
+    suspension_reason IS NOT NULL` satırlarını temizler) ve yalnız 63 sonraki migration'lar arasındaysa
+    koşar; 63'ün türleri `opAuditKindsAddedBy`'dadır.
+  - Gerekçe kümesinin §1'deki beş kopyasından üçü A'dadır (CHECK, gövdenin ret listesi,
+    `SuspensionReasons`); onları bağlayan tek test `TestOperator00063_TheReasonSetIsOneSetInEveryCopy`'dir
+    ve B'nin cümle haritası ile C'nin etiket haritası **o teste** eklenir.
+- **PART I A'nın test adları** (*"Güvenlik iddiası"*nın *"A fazında yazılacak"* listesi, sırasıyla):
+  yetki — `TestOperator00063_TheAppCannotWriteASuspensionAndTheDefinerWritesOnlyItsColumns` (ve
+  güncellenen `TestOperator00026_PrivilegeMatrix`, `TestTenants00024_TheAppMayUpdateThreeColumnsAndDeleteNothing`,
+  `TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms` — kapalı listeler katalogdan
+  türetilir); durum bağımsızlığı ve B14 — `TestOpSuspendTenant_TheAnswerIsTheSameWhateverTheTenantsState`;
+  kemer — `TestOpSuspendTenant_ACallForOneTenantTouchesNoOther` ve kaynak pinlerinin dört kemer
+  mutasyonu (`TestOperator00063_TheFunctionsAndTheirExactSignatures`); aynı işlem —
+  `TestOpSuspendTenant_TheWritesShareOneTransaction`; duvar saati —
+  `TestOpSuspendTenant_TheTenantRowsTimeIsTheWallClock`; **saatin kilitten sonra okunması** —
+  `TestOpSuspendTenant_TheLockIsTakenBeforeTheClockIsRead`; CHECK'lerin sahibi bağlaması —
+  `TestOperator00063_TheTenantsChecksBindTheOwnerToo`; gerekçe kopyaları —
+  `TestOperator00063_TheReasonSetIsOneSetInEveryCopy`, `TestSuspensionReasons_TheTypedConstantsAreTheList`,
+  `TestSuspendTenant_RefusesAnUnknownReasonWithoutARoundTrip`; geçici tablo gölgesi —
+  `TestOperator00063_CallersTempTableIsNeverRead`; ölü oturumlar — `TestOpSuspendTenant_RefusesEveryDeadSession`;
+  istatistik kehaneti — `TestOpSuspendTenant_TheStatisticsTellOnlyWhetherTheTenantExists`; genişliğe
+  bağlı üç kanal, dolu sayfa dahil — `TestOpSuspendTenant_TheWidthChannelsAreMeasured`; Down/Up ve
+  K15-6 — `TestOperator00063_DownGivesBack00062AndUpTakesItAgain`; Down'ın kilidi —
+  `TestOperator00063_TheDownLocksOutTenantWritesBeforeItLooksForASuspension`; kayma denetimi —
+  `TestOperator00063_PreconditionRefusesAWrongCluster`. Ayrıca: `TestOperator00063_TheTenantWriteKindsNameTheirTenantAndNothingElse`,
+  `TestOpSuspendTenant_ArgumentsAreRefusedBeforeAnythingIsRead`,
+  `TestOpSuspendTenant_WritesTheSuspensionAndBothRowsInOneCall`,
+  `TestOpSuspendTenant_ASecondSuspensionKeepsTheFirstTime`, `TestOpSuspendTenant_TheRowLockLetsTheTenantsWritesThrough`,
+  `TestOpSuspendTenant_ALockWaitTellsOnlyThatTheTenantExists`,
+  `TestOpReadTenantDetail_ReturnsTheNamedTenantsSuspension`.
+- **Sayılı sınırlara eklenen, adıyla (ADR 0021 OP-15 notu):** **A sevk edildiğinde üründe askıyı okuyan
+  hiçbir şey yoktur** (LS1) — kapı B'dedir; sevk sırası A → B → C ve B'den önce yazılan bir askı panelin
+  hiçbir yazmasını durdurmaz. **M11'in `/v1` kontrol noktası da okumaz** (`api.NoSuspensionColumn`;
+  sütunun okuması API-4b'nindir) ve `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` 00063 ile **tasarım
+  gereği kırmızıya döner** — A'nın B'siz ve API-4b'siz sevki bu yüzden bir karar ister (ADR 0021 OP-15 notu
+  md. 14). Sınır 4'ün **sınırı** (yeni sürümün bir durumda sığıp ötekinde sığmadığı pencere) kurulmadı,
+  dolu sayfa vakası ölçüldü (LS4). Sınır 9'un ölçüsü: `opAtVersion`'ın 19 çağrı noktasından 18'i bu Down'ı
+  koşar ve `tenants`'ı yürüyüşün başında ACCESS EXCLUSIVE alır (LS7).
+- **"Sonuçlar"ın ADR 0021 ve ADR 0020 maddeleri (2026-10-08, orkestratörün kararıyla, yalnız ekleme):**
+  ADR 0021 §2 v 7'ye (B14 cümlesine *"kilitli okumanın `FOUND`'una koşullu `INSERT … VALUES`"*) ve §2
+  vii'ye (*"kilit alan bir yazmada saat kilitten sonra"*) tarihli notlar; ADR 0021 *"Karar verilmedi"*nin
+  ve ADR 0020 *"Karar verilmedi"*nin OP-K5 maddelerine kapanış — (a), askıdaki ay normal faturalanır;
+  ADR 0020'nin `actor_kind` maddesine atıf düzeltmesi (`ConfirmRecentRemoval`'ın eylemi bir parametredir,
+  güvence çağıranların kapalı haritalarındadır). ADR 0020 §4'ün rota listesi C fazındadır.
+- **Taşımanın doğrulaması (2026-10-20):** şema parmak izi Up → Down → Up ile 00062'ye bayt bayt döndü ve geri geldi; `internal/db` 597, `internal/domain/tenant` 252, `internal/handler/operator` 168 test `-race` ile yeşil; 35 mutasyonun 35'i kırmızı; tek tasarım gereği kırmızı `cmd/tappa`'nın `TestAPIWiring_TheSuspensionReaderFollowsTheColumn`'ı (API-4b'nin teli). Ayrıntı ADR 0021 OP-15 notu md. 11. **Gerçek hiçbir tenant askıya alınmadı;** görevin
+  veritabanı 63'te.
+
+## B fazı eki (müşteri paneli kapısı — 2026-10-08'de yazıldı, 2026-10-20'de 00063'ün üstüne taşındı ve bitirildi)
+
+*Bu ek yalnız ekler; yukarıdaki metin, M11 notu ve A fazı eki değişmedi.* Taban: dal `op-15` (`71a40e2`,
+OP-15A son hâli, goose 63). Migration, DDL, yeni bağımlılık yok. 2026-10-08'deki yarım hâl (`hold/op15b`,
+`97bb92b`; 2. tur F1–F4 yarıda) bugünkü panele (M11: API anahtarları, webhook + teslim günlüğü, Group sekmesi,
+GATE-1; ADR 0026 aktivasyon dokunuşu) **ölçülerek** taşındı.
+
+- **Sevk edilen (§3 ve §4'e göre):**
+  - `TouchAdminSession` (`db/queries/admins.sql`) `FROM admin_users a, tenants t … AND t.id = s.tenant_id`
+    ile tenant satırını **iç** join'le okur ve `RETURNING`'e iki askı sütununu ekler; sqlc farkı yalnız bu
+    sorgu. RLS altında görünmeyen tenant satırı 0 satırdır → `ErrNoSession` (**fail-closed**).
+  - `adminauth.Resolved.Suspended *Suspension` (`Since`, `Reason string`); `nil` = askısız — K15-9'un sayılı
+    istisnası, iki pinle. Yarım satır askı sayılır. `httpx.AdminIdentity.Suspension()` yalnız `AdminLive`'da.
+  - `ProtectWriting` = `floodGate → sameOriginGate → requireAdmin → sessionGate → suspensionGate`; istisna
+    zinciri `protectWritingThroughSuspension` (aynı dört halka) — tek kullanıcısı `mountWriting`'in
+    **içindeki** kardeş grup.
+  - Ret (`internal/handler/suspension.go`): önce tenant'ın kendi `audit_log` satırı (`tenant.write_refused`,
+    yönetici, chi'nin eşleştirdiği **rota deseni**, `detail` tam `{"reason": <kod>}`), sonra 403; satır
+    yazılamazsa da 403 + tek Error satırı (`tenant_id`, `sqlstate`, `reason` — bilinmeyen kod `unrecognised`).
+    Biçim rotadan: rölenin üç yolu `{"fault":"suspended"}`, gerisi chrome'suz problem sayfası.
+  - Gerekçe cümleleri: `non_payment`, `terms_breach` kendi cümlesi; `security_hold`, `customer_request` ve
+    haritada olmayan kod **tek** nötr sabit. Şerit: her bölümde ürünün `Notice`'i (uyarı tonu), tarih tenant'ın
+    saat diliminde; formlar gizlenmez.
+  - Röle sözcüğü ve Android: §3 ret 4'ün beş yeri aynı değişiklikte; Android'de askıda birincil düğme
+    **"Close"** (uygulamayı kapatır; "Sign out" görünür kalır) — 2026-10-08 kartının açık sorusunun cevabı
+    (2. tur F4).
+  - **Ortak yönlendirici kurucusu (`cmd/tappa/router.go`, `appRouter`) — bugün de gerekli, alındı.** Ölçüm:
+    M11'den sonra da `run()` `httpx.NewRouter`'ı satır içinde, **on dört** argümanla çağırıyordu (iki yeni
+    özellik: entegrasyon API'si ve geliştirme tap simülatörü) ve hiçbir test servis edilen kompozisyonu
+    yürümüyordu. İki yeni özellik `httpx.Mounter` tipli **adlı** parametredir (ikisi de "özellik ya da hiç":
+    `NewRouter` nil arayüzü atlar, içinde nil `*T` olan arayüz nil değildir). `run()`'ın `NewRouter` çağrısını
+    okuyan dört pin `appRouter`'a çevrildi (`TestBrandThemeWiring_RunMountsTheThemeRoute`,
+    `TestPasswordNoticeWiring_ThePanelIsGivenTheMountedRecoveryFlow`,
+    `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator`, M11'in
+    `TestWebhookWiring_TheEndpointServiceReachesThePanel`).
+
+- **M11'in panel yazmaları — sınıflama (M11 notu, plan §4.7, K-26; tabloda adı geçmeyen kapalı):**
+
+  | Rota | Askıda | Dayanak |
+  |---|---|---|
+  | `POST /admin/api-keys/revoke` | **açık** | K-26 *"anahtar iptali"* |
+  | `POST /admin/api-keys/revoke-all` | **açık** | K-26 *"anahtar iptali"* — bütün anahtarları iptal etmek aynı eylemin toplu hâlidir, yetkiyi yalnız daraltır (belirsiz satırın kararı, gerekçeli) |
+  | `POST /admin/api-keys/webhook/disable` | **açık** | K-26 *"uç nokta devre dışı"*; `endpoints.OpenWhileSuspended(ActDisable)` |
+  | `POST /admin/api-keys` (oluşturma) | 403 | §4.7 *"anahtar oluşturma"* |
+  | `…/webhook` (oluşturma), `…/webhook/rotate`, `…/webhook/address` | 403 | §4.7 *"uç nokta oluşturma/döndürme/adres değiştirme"* |
+  | `…/webhook/ping`, `…/webhook/resend` | 403 | §4.7 *"test ping"*, *"yeniden gönder"* |
+  | `…/webhook/enable` | 403 | adı geçmiyor → kapalı (`endpoints`'in tablosu da öyle der) |
+  | `POST /admin/employees/external-ref`, `POST /admin/locations/venue/external-ref` (M11 API-1) | 403 | adı geçmiyor → kapalı; /v1'de *"var olan çalışanı değiştiren PUT"* ve `PUT /locations` da kapalıdır |
+
+  Webhook rotalarının sınıfı **ikinci bir liste değildir**: `internal/handler/webhooks.go`'nun `webhookWrites`'i
+  her rotayı `endpoints.Act`'iyle adlandırır ve `mountWebhookWrites` rotayı `endpoints.OpenWhileSuspended`'ın
+  cevabına göre kapılı gruba ya da kardeş gruba bağlar; o tablo (`endpoints.go`) kendi pinini
+  (`TestEndpoints_SuspensionClassesAreSection10`) taşır.
+  API anahtarlarının bir sınıf tablosu yoktur
+  (`internal/apikey`'in iptali K-22'ye bakmaz, yorumu K-26'yı anar); iki iptal kardeş grupta adıyla durur.
+  **Kapalı istisna listesi bugün on bir rotadır:** §3'ün sekizi + K-26'nın üçü. (M11 notu *"iki M11 panel
+  rotası"* diyor; iki eylem panelde üç rotadır.)
+
+- **Uygulama kararları ve sapmalar, adıyla:**
+  1. **Gerekçe haritası A'nın kopya testine EKLENMEDİ** (A fazı eki: *"B'nin cümle haritası … o teste
+     eklenir"*). `TestOperator00063_TheReasonSetIsOneSetInEveryCopy` `package db`'dir ve `internal/handler`
+     `internal/db`'yi import eder (ters import döngü); ve `db.SuspensionReason` `internal/db`'nin **operatör**
+     dosyasındadır — müşteri paneli onun adlarını kullanmaz (ADR 0021 §3.6, `TestCustomerPanel_ImportsNoOperatorPackage`
+     ilk taslakta kırmızıya döndü). Panelin kopyası düz dizedir; bağ `TestSuspensionSentences_CoverTheClosedReasonSet`'tir.
+  2. **Şeridin saat dilimi bir okumadır**, yalnız askıdaki tenant'ın bölümlerinde; okunamazsa tarih UTC ve `(UTC)`.
+  3. **Log satırı bağlamsız `Error`** (`request_id` yok — SB1).
+  4. **Uygulama düzeyinde sınıf 3'ün iki yarısı sahiplik + önektir:** yapılandırılmış operatör yüzeyinin
+     `/operator` rotaları ve entegrasyon API'sinin `/v1` rotaları. İkisi de ayrı host ve ayrı kimliktedir;
+     `/v1`'in kendi askı denetim noktası vardır (ADR 0028 §10, `api.WriteClass`; ölçümü API-4b'nindir).
+     Geliştirme simülatörünün `POST /dev/simulate-tap`'ı adıyla.
+  5. **Yürüyüş üç isteğe bağlı yüzeyi birlikte kapalı ve birlikte açık kurar**; API yüzeyi `openAPISurface`'in
+     gövdesini aynalar (o fonksiyon gerçek havuzu ister; dosyası API-4b'nindir). Sandbox derlemesinin `/v1`
+     eklentileri yürünmez (SB7).
+  6. **§4.6 tablosu `GET /t` üzerinden** (2. tur F1): her adım plaketin sayfasını açar, sunucunun bastığı
+     bağlamı geri postalar; tarama kümesi `Directory.TapPage`'i (2. tur F1), holding'in `Directory.PeerTapPage`'ini
+     ve `internal/db/holding.go`'yu da okur. Holding çapraz dokunuşu bir adımdır (askısız eşin plaketi ve
+     askıyı yansıtan eşin plaketi). ADR 0026'nın aktivasyon dokunuşu ayrı bir eşitlik testidir.
+  7. **İki rol** (2. tur F2): rota yürüyüşü ve `Verify` eşlemesi `owner` ve `manager` için; `Verify`
+     kapalı kümenin dört kodunun dördüyle.
+
+- **Ölçümler (2026-10-20, `tappa-op15-db`, goose 63; yalnız fikstür tenant'lar askıya alındı, `t.Cleanup`'ta
+  kaldırıldı):**
+  - Panel (`chi.Walk`, `AdminAuth.Mount`): GET/HEAD dışı **42** rota = **31** kapılı + **11** adlı istisna
+    (`mountWriting` 39 POST: 31 + 8; artı üç giriş rotası).
+  - Uygulama (`appRouter`): isteğe bağlı yüzeyler kapalı — sınıf 1 = 31 · 2 = 11 · 3 = 8 · 4 = 24; açık —
+    1 = 31 · 2 = 11 · 3 = 27 (8 adlı + simülatör 1 + operatör 14 + `/v1` 4) · 4 = 8.
+  - §4.6 tablosu (16 adım, iki fikstür): `ok` trust 70 / 100 / 50, `flag` 20 / 50, `ignored`
+    (`sys:person-debounce`), `reject` (`sys:employee-deactivated` + uyarı, `sys:sun-invalid` ×2,
+    `sys:tag-not-active` NFC + QR), holding çapraz dokunuşu iki `ok`, satır 3 → `/activate?from=tap` — iki
+    tenant'ta **birebir**. Aktivasyon dokunuşu: iki tenant'ta 200, *"Activation complete"*, kişi `active`,
+    davet harcandı, 1 oturum, 0 kayıt.
+  - Derlenmiş `app.css`: taban (`git archive HEAD`) ile bu ağaç **bayt-aynı** (61 904 B, sha256 `0e0cb459…`).
+
+- **PART I — B'nin test adları:** rota yürüyüşü ve istisna listesi —
+  `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException` (iki rol × dört kod; kapılı her rota 403 +
+  tam 1 ret satırı + 0 store çağrısı, askısız 403 değil; on bir ad); istisnaların işi —
+  `TestPanelSuspensionDB_TheRecordPathsStayOpenAndWrite` (ekleme, davet, onay, manuel kaydın iki adımı,
+  kendi parolası) ve `TestPanelSuspensionDB_TheDefencesStayOpenAndTakeEffect` (K-26: iptal, toplu iptal,
+  kapatma etkili; oluşturma, adres, döndürme, ping, yeniden gönderme, açma 403 + birer satır); ortak kurucu
+  ve dört sınıf — `TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses`, `TestAppRouter_IsTheOnlyComposition`;
+  okuma eşitliği — `TestSuspensionRoutes_ReadsAnswerTheSameWithOrWithoutASuspension`,
+  `TestPanelSuspensionDB_ReadsExportsSignInAndResetStayOpen`; tap — `TestSuspensionDB_TapsAreDecidedAsIfThereWereNoSuspension`,
+  `TestSuspensionDB_TheActivationTapIsTheSameForASuspendedBusiness`; aynı oturumun sonraki POST'u —
+  `TestPanelSuspensionDB_TheNextPostOfTheSameSessionIsRefused`; satırın sırası —
+  `TestSuspensionGate_TheRowIsWrittenBeforeTheAnswer`; log alanları —
+  `TestSuspensionGate_AFailedRefusalRowStillRefusesAndLogsThreeFields`; ham kod —
+  `TestSuspensionScreens_NeverRenderTheReasonCode`; nötr cümle — `TestSuspensionSentences_OnlyTwoReasonsHaveTheirOwnSentence`,
+  `TestSuspensionSentences_CoverTheClosedReasonSet`; röle — `TestSuspensionRelay_TheThreeRoutesAnswerSuspendedJSONAndTouchNothing`;
+  şerit (ton dahil, 2. tur F3) — `TestSuspensionStrip_EverySectionShowsItInTheBusinesssTimezone`; K15-9 —
+  `TestVerify_CarriesTheSuspensionTheStatementReturned`, `TestVerifyDB_ReturnsTheBusinesssSuspension`;
+  okuyucu kilidi beklemez — `TestVerifyDB_DoesNotWaitForTheSuspensionsRowLock`; Android —
+  `RelayLoopTest.suspended_namesTheSuspension_tiersThePlaqueWarning_andNeverRetries`. Mutasyon tablosu
+  `m10-platform.md`'nin OP-15B kartında.
+
+- **PART II — adlı pinler:** `TestSuspensionChain_TheGateIsTheLastRingOfProtectWriting` (halkaların sırası,
+  iki grup, kardeş grubun yedi işleyicisi + `mountWebhookWrites(r, true)`, kapılı grubun
+  `mountWebhookWrites(r, false)`'ı); `TestSuspension_TheTapPathNeverNamesASuspension`;
+  `TestEndpoints_SuspensionClassesAreSection10`; `TestCustomerPanel_ImportsNoOperatorPackage`;
+  `TestStoreSurface_IsTheOneRecorded`; `TestPlaqueEncode_WritesOnlyDeclaredFaults`;
+  `ContractPinTest.theFaultVocabulary_matchesPlaqueencodeGo`; `TestAdminRoutes_AreAllUnderTheCookiePath` ve
+  `TestPanelProblemPages_CountTheWriteRoutesStillTellingReadersTheirPageIsEmpty` (değişmeden yeşil).
+
+- **Sayılı sınırlar (SB1–SB7):** SB1 log satırında `request_id` yok · SB2 ret sayfası şeridi taşımaz ·
+  SB3 uygulama düzeyinde "kapılı" sahiplikten türer, davranışsal kanıt panel düzeyinde · SB4 mutasyon
+  koşuları veritabanısızdır — tap yolunda askıyı **adlandırmadan** okuyan bir değişikliği (ör. holding
+  tanımlayıcısının SQL gövdesinde — `holding_tap_site` bir migration'dadır, kaynak taraması onu okumaz) yalnız
+  DB eşitlik tablosu yakalar · SB5 ret satırının hedefi rota desenidir · SB6 eski APK (sınır 12; sevk sırası
+  önce APK) · **SB7** sandbox derlemesinin `/v1` eklentileri uygulama yürüyüşünde yok; K-26'nın DB testi kimliği
+  sahte bir doğrulayıcıdan alır (askının oturum ifadesinden gelişi `TestPanelSuspensionDB_TheNextPostOfTheSameSessionIsRefused`'ındır).
+  Sınır 1, 2, 6, 7 (🔴 `tags` satırı asla silinmez), 11, 12, 13 aynen.
+
+- **Güvenlik iddiası (B):** tehdit modeli — *Bu pinler kazara sapmaya karşıdır; bir pini bilerek atlatmak kod
+  incelemesinin konusudur.* PART I yukarıdaki testler ve kartın mutasyonları; PART II yukarıdaki pinler;
+  PART III — *Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.*
+
+- **Not (2026-10-20, B'nin DÜŞÜK turu — iki merceğin ortak bulgusu; yalnız ekleme):**
+  - **SB4'ün cümlesi düzeltilir:** DB eşitlik tablosu yalnız kararı ve kaydı değil, **ekranın içeriğini de**
+    yakalar. Tablo o güne dek sayfanın durumunu, yönlendirmesini ve bağlam basıp basmadığını karşılaştırıyordu,
+    gövdeyi değil; askıda `GetLocationWiFi`'ın ağ adını düşüren ve `GetEmployeeActivationContext`'in işletme
+    adına *" (paused)"* ekleyen iki mutant yeşil kalıyordu. Bugün `TestSuspensionDB_TapsAreDecidedAsIfThereWereNoSuspension`
+    tap sayfasının ve sonuç ekranının gövdesini, `TestSuspensionDB_TheActivationTapIsTheSameForASuspendedBusiness`
+    sihirbazın üç ekranını ve *"Activation complete"*i karşılaştırır — normalize edilerek (imzalı bağlam, CSRF,
+    CSP nonce, id'ler, plaket uid'leri, sayaç ve saat yer tutucuya döner; geri kalan her bayt birebir). Tablonun
+    iki işletmesi de markalıdır (logo + accent), yani işletme adı, logo, accent, mekân ve düğme ekrandadır.
+    Ölçüldü: ağ adı düşen mutant aktivasyon testinde, mekân adı düşen mutant tap tablosunda, *" (paused)"*
+    ikisinde de kırmızı. SB4'ün kalan sınırı aynen: tablo yalnız DB'li koşudadır, mutasyon kümelerinde değil.
+  - **Panelin okumaları iş verisi yazmaz (ölçüldü):** askıdaki bir işletmenin yöneticisiyle `AdminAuth.Mount`'un
+    her GET'i (`chi.Walk`) ve handler'ların okuduğu sorgu biçimleri (kişi kartı ve deaktivasyon onayı, mekân kartı
+    ve kaldırma onayı, kaldırma makbuzu, ay, hafta, onay öğesi, politika sürümü, plaket) istenir; istek süresince
+    verilen işlem kimlikleriyle (`xmin`) bu tenant'ın oluşturulan ya da güncellenen satırları tablo tablo sayılır.
+    Yazılan tek şey oturumun `last_used_at`'i ve iki dışa aktarımın kendi iz satırıdır (`report.exported`,
+    `billing.exported`) —
+    `TestPanelSuspensionDB_NoPanelReadWritesBusinessData`. Sınırı: `DELETE`'i ve `tenant_id`'siz tabloları görmez.
+
+- **Not (2026-10-20, API-4b'nin `op-15`'e birleştirilmesi — yalnız ekleme):**
+  - **M11 notunun *"iki M11 panel rotası"* cümlesi ↔ bugünkü panel:** K-26'nın iki eylemi (anahtar iptali, uç nokta
+    devre dışı) panelde **üç** rotadır — `POST /admin/api-keys/revoke`, `POST /admin/api-keys/revoke-all`,
+    `POST /admin/api-keys/webhook/disable`; üçü de kardeş grupta (B fazı eki, sınıflama tablosu). Kapalı istisna
+    listesi on bir rotadır.
+  - **A fazı ekinin LS1 cümlesi** (*"M11'in `/v1` kontrol noktası da okumaz (`api.NoSuspensionColumn`)"*) birleştirmeyle
+    kapandı: kontrol noktası `tenant.WriteSuspension` ile `tenants.suspended_at`'i yazmanın kendi işleminde okur,
+    `NoSuspensionColumn` kaldırıldı, `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` yeşil (ayrıntı ADR 0028 §10
+    *"API-4b eki"*). `appRouter`'ın yürüyüşü `/v1`'i aynı okuyucuyla kurar.
+
+## C fazı eki (operatörün ekranı — migration yok; 2026-10-08'de yazıldı, 2026-10-20'de OP-15A + B + API-4b'nin üstüne taşındı ve bitirildi)
+
+*Bu ek yalnız ekler; yukarıdaki metin, M11 notu, A ve B fazı ekleri değişmedi.* Taban: dal `op-15` (OP-15A
+00063 olarak, B ve API-4b birleşik, goose 63). 2026-10-08'deki hâl (`hold/op15c`; üçüncü gözü yarıda) yalnız
+farkıyla taşındı; taban kaymasının değiştirdiği sayılar ve yerler ADR 0021 *"OP-15 C fazı eki"*nin
+*"Taşıma"* paragrafında. Uygulamanın tam hâli, kararları, sayılı sınırları
+(LC1–LC8) ve üç parçalı güvenlik iddiası [ADR 0021](0021-op-fonksiyonlari-tenant-otesi-erisim.md)
+*"OP-15 C fazı eki"*ndedir; [ADR 0020](0020-platform-operatoru-ayri-kimlik.md) §4'ün rota listesi bir
+*"OP-15 C notu"* aldı. Burada yalnız §5'e göre ne yapıldığı ve nerede bir karar verildiği.
+
+- **Sevk edilen (§5'in maddeleri sırasıyla):** iki rota konsolun grubunda, aynı zincirle; yoldaki id
+  doğrulanır (bozuksa store'suz `404`), gerekçe kapalı kümede değilse `400` store'suz, gövde
+  `maxFormBytes` ile sınırlı (`413`); tek POST + onay kutusu (K15-10; kutu tam olarak `yes`); `security_hold`
+  seçilince kapalı metinli uyarı (sınır 11 ve 13'ün özü, adlı etkili eylemlerle); PRG — kabul edilen her
+  yazma `303` genel bakışa, `ErrOperatorRefused` `303` girişe, öteki hata `503` *"not confirmed"* (asla
+  *"kaydedilmedi"*); genel bakışta durum satırı (askıda UTC başlangıç + gerekçe etiketi, değilse *Active*)
+  ve duruma göre **tek** form; bilinmeyen kod ham değeriyle ve *Unrecognised* ile; liste çipi (K15-3,
+  ret tonu); bütçe — yazma bir istek birimi, PRG okuması bir okuma birimi.
+- **§5'in metnine göre uygulama kararları, adıyla:**
+  - Yoldaki id `uuid.Parse`'tan **dar** okunur: öteki ekranların `tenantID`'si (36 karakter, tireli) —
+    bir tenant'ın tek yolu olsun diye; `{…}`, `urn:uuid:` ve tiresiz biçim `404`.
+  - `answered(r)` id denetiminden **sonra**, form okumasından **önce**dir (VAT emsali): form ret'leri ve
+    hata sayfası yarı kapalı istemciye de aynı baytlarla gider; yazmanın bağlamı ayrıca
+    `WithoutCancel` + 10 sn (`SuspensionWriteWorstCase`, kapanış bütçesine sığar).
+  - Uyarının görünürlüğü betiksiz bir **genel kardeş kuralıdır** (radyolar ve uyarı aynı ebeveynde,
+    uyarı sonda); stil dosyası yoksa uyarı her zaman görünür.
+  - Genel bakışın askı kartı (*"Panel writes"*) genel bakışın tenant'ı değiştiren iki kartının sonuncusudur —
+    M11 API-13a'nın *"Integration API"* kartının altında, ikisi de durum + o durumun istediği tek form. Kart
+    formun açıklamasında askının istisna listesini (§3'ün sekiz rotası,
+    sözcüklerle), dokunmadıklarını (§4) ve faturalamayı (§6) söyler; tenant'ın şeritte göreceği cümlenin
+    kuralını (§3, *"Nötr cümle PAYLAŞILIR"*) operatöre bildirir.
+  - Gerekçe kümesinin **beşinci kopyası** (operatörün etiket haritası) A'nın testine katıldı
+    (`TestOperator00063_TheReasonSetIsOneSetInEveryCopy`): `internal/db` bu paketi içe aktaramadığı için
+    (döngü) anahtarlar `suspension.go`'nun kaynağından okunup tipli sabitlerle çözülür; ayrıca paket içi
+    `TestSuspensionWords_NameEveryReasonAndNothingElse` ve E2E'nin CHECK karşılaştırması.
+- **Sapma, adıyla (LC2):** §5 *"duruma göre tek form"* dediği için askıdaki bir tenant'ın gerekçesini
+  ekrandan değiştirmek yeniden etkinleştirme + askıya almadır ve `suspended_at`'i yeni çağrının saatine
+  taşır; K15-4'ün *"ilk zaman korunur"*u yalnız formsuz bir doğrudan POST'ta görülür. Karar
+  verilmedi: askıdaki tenant'a ikinci bir *"gerekçeyi değiştir"* formu (v2 adayı).
+- **Sevk sırası (LC1, A'nın LS1'inin C hâli):** ekranın cümleleri (*"The business's panel refuses its
+  writes"*, formun açıklaması, uyarı) B'nin kapısını anlatır; sıra **A → B → C** tutulmalıdır.
+- **PART I C'nin test adları** (*"Güvenlik iddiası"*nın *"C fazında yazılacak"* listesi):
+  operatör E2E'si — `TestE2E_OperatorSuspendsAndReinstatesAFixtureTenant` (giriş → genel bakış → askıya
+  al → `303` → genel bakış askıyı gösterir; görüntüleyicide `tenant_suspended` satırı tenant adıyla;
+  tenant'ın günlüğünde `tenant.suspended`, `actor_kind` operator; yeniden etkinleştirme simetrik; var
+  olmayan id → `303` → genel bakış `404`); `security_hold` uyarısı —
+  `TestSuspendForm_TheHoldWarningIsShownOnlyByTheHoldChoice` (kaydın açık yolları, manuel kaydın geri
+  alınamazlığı ve parola sıfırlama dahil, cümle cümle). Ayrıca: `TestOperatorHeaders_TheSuspensionClassesCarryThePolicy`,
+  `TestSuspension_TheAnswerIsTheSameWhateverTheTenantHeld`, `TestSuspension_TheTenantIsThePathsNotTheForms`,
+  `TestSuspension_NothingIsWrittenWithoutTheBoxOrAKnownReason`, `TestSuspension_EveryRefusalWritesNothing`,
+  `TestSuspension_AClientThatLeavesStillGetsItsWriteMade`, `TestSuspension_AHalfClosedClientGetsTheSameAnswer`,
+  `TestSuspension_TheWriteBoundIsItsNumber`, `TestShutdownBudget_TheSuspensionWriteNestsInsideTheHTTPGrace`,
+  `TestSuspensionBudget_AWriteIsOneRequestAndNoRead`, `TestSuspension_NoPostedValueReachesALogLine`,
+  `TestTenantOverview_SaysTheSuspensionAndOffersOneForm`, `TestTenantList_ASuspendedTenantCarriesTheChip`,
+  `TestSuspensionWords_NameEveryReasonAndNothingElse`, `TestSuspensionScreen_TheChipsAndTextClearAA`,
+  `TestSuspensionScreen_EachChipHasTheRuleTheContrastTestComputes`; adlı pin
+  `TestSuspension_TheListedSitesAloneWrite` (SU1–SU5); başlık sınıfları bugün C218–C242.
+- **PART II'nin C pinleri** (*"aynı commit'te düzenlediği"*): `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute`
+  ve `TestSurface_TheScreensOfLaterTasksAreNotMounted` düzenlendi (iki form yolu monte; alt yolları ve
+  platform geneli bir askı listesi değil); ek olarak `TestFormValues_TheListedSitesAloneRevealOrReadTheForm`
+  (FV5), `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions` (RH4),
+  `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator`, `TestOperatorDB_IsTheStoreAndNothingMore`,
+  `TestOperatorDB_EveryMethodDelegatesVerbatim`.
+- **Kapanış (K15-13) — taşımada yapıldı:** çapraz yüzey E2E'si
+  `TestE2E_TheOperatorsSuspensionClosesThePanelAndTheAPIAndItsLiftingOpensThem`
+  (`internal/handler/operator/op15cross_db_test.go`): tek yönlendiricide (`httpx.NewRouter`, `appRouter`'ın
+  kurduğu üç host) operatör genel bakıştan askıya alır → aynı panel oturumunun sonraki yazması `403`
+  (§3, B'nin kapısı) ve `/v1` yazması `403` `tenant_suspended` (ADR 0028 §10, API-4b) — ikisinde de lokasyon
+  yazılmaz → operatör yeniden etkinleştirir → ikisi de geçer. Yeri: geliştirme veritabanında
+  `tappa_operator` NOLOGIN olduğu için operatörün gerçek girişini ve `op_*` yazmalarını yüzeyden süren tek
+  commit'li rig bu paketin `newLegalE2E`'sidir; panel ve `/v1` dışa açık kurucularıyla gerçek havuz üstünde
+  kurulur (sahte yok). LC7 kapandı.
+- **Gerçek hiçbir tenant askıya alınmadı;** E2E yalnız kendi fikstür tenant'ını askıya aldı ve kaldırdı,
+  koşudan sonra veritabanında askıdaki tenant sayısı 0 (salt-okur sonda); veritabanı 63'te. Çapraz E2E de
+  yalnız kendi fikstür işletmesini askıya aldı ve kaldırdı.
+- *(Not, 2026-10-20, iki merceğin DÜŞÜK turu.)* Yukarıdaki *"(sahte yok)"* fazla geniştir; doğrusu: üç
+  özelliğin bağımlılıkları ürünün kendileridir, **iki istisna adıyla** ölçülen yolun dışındadır — `/v1`'in
+  K-19 iş kümesi (`crossNoWork`; bir webhook bildirimi, test webhook okumaz) ve panelin plaket kodlayıcısı
+  (`nil`; kodlama rölesi sürülmez). Panelin lokasyon kaydı ve `/v1`'in lokasyon `PUT`'u ikisine de ulaşmaz.
+  Aynı turda test, panelin reddinin bıraktığı satırı da pinler: askı adımında işletmenin `audit_log`'unda
+  **tam bir** `tenant.write_refused` (aktör sahip, hedef `/admin/locations/venue`, `detail` tam olarak
+  `{"reason": "non_payment"}`), kaldırmadan sonra yeni ret satırı yok.

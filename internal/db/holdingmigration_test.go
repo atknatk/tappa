@@ -233,6 +233,11 @@ func TestHoldingSchema_AppRoleHasNoVerbOnHoldingTables(t *testing.T) {
 	}
 	check(tx, "on this database")
 
+	// Since 00063 (M10 OP-15) HEAD is past 00062 on the operator surface: 00042's Up composes over
+	// 00039's tenant-write CHECK, which 00063 widened, so the transaction is taken to 00062 first --
+	// holdingDownTables locked WITH the walk's tables, in one lockForDowns, before it holds any
+	// (opAtVersionLocking says why: CI run 39443714553).
+	opAtVersionLocking(t, ctx, tx, 62, holdingDownTables, opKindsAt42...)
 	up41, down41 := opMigrationSections(t, op00041File)
 	up42, down42 := opMigrationSections(t, op00042File)
 	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
@@ -341,6 +346,11 @@ func TestHolding00041_PreconditionRefusesAWrongCluster(t *testing.T) {
 // on: this file must stop, not undo it); and a definer that already reaches what the grants give.
 func TestOperator00042_PreconditionRefusesAWrongCluster(t *testing.T) {
 	ctx, tx := opTx(t)
+	// Since 00063 (M10 OP-15) HEAD is past 00062 on the operator surface: 00042's Up composes over
+	// 00039's tenant-write CHECK, which 00063 widened, so the transaction is taken to 00062 first --
+	// holdingDownTables locked WITH the walk's tables, in one lockForDowns, before it holds any
+	// (opAtVersionLocking says why: CI run 39443714553).
+	opAtVersionLocking(t, ctx, tx, 62, holdingDownTables, opKindsAt42...)
 	pre := holdingPrecondition(t, op00042File)
 	_, down41 := opMigrationSections(t, op00041File)
 	_, down42 := opMigrationSections(t, op00042File)
@@ -445,6 +455,11 @@ func holdingSurfaceOf(t *testing.T, q opQuerier) holdingSurface {
 // compose over that too.
 func TestHolding00041And00042_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 	ctx, tx := opTx(t)
+	// Since 00063 (M10 OP-15) HEAD is past 00062 on the operator surface: 00042's Up composes over
+	// 00039's tenant-write CHECK, which 00063 widened, so the transaction is taken to 00062 first --
+	// holdingDownTables locked WITH the walk's tables, in one lockForDowns, before it holds any
+	// (opAtVersionLocking says why: CI run 39443714553).
+	opAtVersionLocking(t, ctx, tx, 62, holdingDownTables, opKindsAt42...)
 	up41, down41 := opMigrationSections(t, op00041File)
 	up42, down42 := opMigrationSections(t, op00042File)
 	head := holdingSurfaceOf(t, tx)

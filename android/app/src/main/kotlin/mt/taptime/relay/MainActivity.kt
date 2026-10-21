@@ -67,6 +67,9 @@ class MainActivity : Activity() {
     private lateinit var web: WebView
 
     private var state = State.SIGNED_OUT
+
+    /** Set with each FAULT screen: whether its button closes the app (Wording.primaryCloses). */
+    private var faultCloses = false
     private var base: String = DEFAULT_SERVER
     private var nfc: NfcAdapter? = null
 
@@ -301,7 +304,8 @@ class MainActivity : Activity() {
     private fun onPrimary() {
         when (state) {
             State.SIGNED_OUT -> openWebView()
-            State.DONE, State.FAULT -> becomeReady()
+            State.DONE -> becomeReady()
+            State.FAULT -> if (faultCloses) finish() else becomeReady()
             State.READY, State.WRITING -> Unit
         }
     }
@@ -375,12 +379,14 @@ class MainActivity : Activity() {
             val detailLine = "${outcome.exchanges}/$EXPECTED_EXCHANGES exchanges"
             when (outcome) {
                 is Outcome.Completed -> show(State.DONE, Wording.forOutcome(outcome), detailLine)
-                // The button re-arms the reader either way; its LABEL must not say
-                // "try again" under a message that says not to (Wording.retryIsSafe).
-                else -> show(
-                    State.FAULT, Wording.forOutcome(outcome), detailLine,
-                    primary = if (Wording.retryIsSafe(outcome)) "Try again" else "Next plaque",
-                )
+                // The LABEL must not say "try again" under a message that says not to
+                // (Wording.primaryLabel). The button re-arms the reader -- except on a
+                // suspended business's refusal, where it closes the app: every round
+                // would meet the same gate (ADR 0025 §3; OP-15B 2nd round, F4).
+                else -> {
+                    faultCloses = Wording.primaryCloses(outcome)
+                    show(State.FAULT, Wording.forOutcome(outcome), detailLine, primary = Wording.primaryLabel(outcome))
+                }
             }
         }
     }

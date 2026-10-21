@@ -40,8 +40,10 @@ package db
 // THE LOCKS (the OP-16 card's T9): the tests that run 00034's Down (the Down test, the
 // precondition test, and every earlier migration's Down test through opAtVersion) revoke column
 // grants on tenants and audit_log inside their transaction. TestOperator00034_DownGivesBack00033AndUpTakesItAgain
-// measures what that holds: another session's ROW EXCLUSIVE on the two tables -- what an INSERT
-// or an UPDATE takes -- is granted at once.
+// measures what that holds: no stronger mode on either table, and another session's ROW EXCLUSIVE
+// on audit_log -- what an INSERT takes -- is granted at once. Since 00063 (M10 OP-15) every one of
+// those tests first runs 00063's Down through opAtVersion, which holds ACCESS EXCLUSIVE on tenants
+// until the rollback (ADR 0025 limit 9).
 
 import (
 	"context"
@@ -597,11 +599,14 @@ func TestOperator00034_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 	}{
 		// Since 00039 (M11 API-1) two more definer functions write tenants and audit_log: the API
 		// gate's pair, whose own test holds the columns they reach.
-		{"write tenants", `(update|insert into|delete from)\s+public\.tenants`, []string{"op_disable_tenant_api", "op_enable_tenant_api", "op_record_vat_check"}},
+		// Since 00063 (M10 OP-15) the suspension's pair too; its own test holds the columns.
+		{"write tenants", `(update|insert into|delete from)\s+public\.tenants`, []string{"op_disable_tenant_api", "op_enable_tenant_api", "op_record_vat_check",
+			"op_reinstate_tenant", "op_suspend_tenant"}},
 		// Since 00042 (M11 API-1a) the two membership writers name it too (K6 rows of the tenants
-		// whose membership changed); their own test holds which rows.
+		// whose membership changed); their own test holds which rows. Since 00063 (M10 OP-15) the
+		// suspension's pair (their K6 rows).
 		{"name audit_log", `public\.audit_log\M`, []string{"op_add_holding_member", "op_disable_tenant_api", "op_enable_tenant_api",
-			"op_record_vat_check", "op_remove_holding_member"}},
+			"op_record_vat_check", "op_reinstate_tenant", "op_remove_holding_member", "op_suspend_tenant"}},
 		{"name the kind tenant_vat_checked", `tenant_vat_checked`, []string{"op_begin_read", "op_read_audit", "op_record_vat_check"}},
 	} {
 		if got := naming(c.re); !slices.Equal(got, c.want) {
@@ -663,10 +668,11 @@ func TestOperator00034_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 func TestOperator00034_TheDefinerWritesTheVerdictAndNotTheNumber(t *testing.T) {
 	ctx, tx := opTx(t)
 	for _, c := range []struct{ role, table, priv, want string }{
-		// At HEAD: 00034's lists plus 00039's API columns (opDefinerTenantsSel39/Upd39) and
-		// 00042's SELECT on api_code (opDefinerTenantsSel42).
-		{"tappa_opdefiner", "tenants", "SELECT", opDefinerTenantsSel42},
-		{"tappa_opdefiner", "tenants", "UPDATE", opDefinerTenantsUpd39},
+		// At HEAD: 00034's lists plus 00039's API columns (opDefinerTenantsSel39/Upd39),
+		// 00042's SELECT on api_code (opDefinerTenantsSel42) and 00063's two suspension columns
+		// (opDefinerTenantsSel63/Upd63).
+		{"tappa_opdefiner", "tenants", "SELECT", opDefinerTenantsSel63},
+		{"tappa_opdefiner", "tenants", "UPDATE", opDefinerTenantsUpd63},
 		{"tappa_opdefiner", "tenants", "INSERT", ""},
 		{"tappa_opdefiner", "audit_log", "INSERT", opDefinerAuditIns34},
 		{"tappa_opdefiner", "audit_log", "SELECT", ""},
@@ -1027,8 +1033,11 @@ func opVATReadState(t *testing.T, ctx context.Context, q pgx.Tx) opVATState {
 //     too (it composes). The chain 34 -> 33 -> 32 runs without a 23514 with this file's rows
 //     present.
 //   - T9, MEASURED: after the Down's REVOKEs on tenants and audit_log (and before the rollback),
-//     another session's ROW EXCLUSIVE lock on both tables -- what an INSERT or an UPDATE takes --
-//     is granted at once (NOWAIT); the modes this session holds on the two tables are logged.
+//     the Down took no mode on either table beyond what this session held or a writer takes, and
+//     another session's ROW EXCLUSIVE lock on audit_log -- what an INSERT takes -- is granted at
+//     once (NOWAIT); the modes this session holds on the two tables are logged. (Since 00063 the
+//     other session's probe names audit_log only: opAtVersion(34) runs 00063's Down, whose tables
+//     lockForDowns takes ACCESS EXCLUSIVE first -- tenants among them -- until the rollback.)
 func TestOperator00034_DownGivesBack00033AndUpTakesItAgain(t *testing.T) {
 	ctx, tx := opTx(t)
 	opAtVersion(t, ctx, tx, 34, opKindsAt34...)
@@ -1226,6 +1235,13 @@ func TestOperator00034_DownGivesBack00033AndUpTakesItAgain(t *testing.T) {
 			t.Errorf("T9: the Down took %s -- more than a writer of the table takes", m)
 		}
 	}
+	// The other session asks for audit_log ONLY. Since 00063 (M10 OP-15) opAtVersion(34) above ran
+	// 00063's Down, and took ACCESS EXCLUSIVE on tenants before it (lockForDowns -- the Down drops
+	// two columns of tenants), held until this test's rollback (ADR 0025 limit 9;
+	// TestOperator00063_DownGivesBack00062AndUpTakesItAgain measures it), so a probe of tenants
+	// would measure 00063's lock, not 00034's; 00034's half on tenants is the held-mode comparison
+	// above (the Down took no mode on tenants that this session did not already hold or that a
+	// writer would not take).
 	other, err := pgx.Connect(ctx, opOwnerDSN(t))
 	if err != nil {
 		t.Fatalf("a second owner connection: %v", err)
@@ -1234,7 +1250,7 @@ func TestOperator00034_DownGivesBack00033AndUpTakesItAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, locked := otx.Exec(ctx, `LOCK TABLE public.tenants, public.audit_log IN ROW EXCLUSIVE MODE NOWAIT`)
+	_, locked := otx.Exec(ctx, `LOCK TABLE public.audit_log IN ROW EXCLUSIVE MODE NOWAIT`)
 	if err := otx.Rollback(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -1242,7 +1258,7 @@ func TestOperator00034_DownGivesBack00033AndUpTakesItAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	if locked != nil {
-		t.Errorf("T9: after the Down's REVOKEs another session's ROW EXCLUSIVE on tenants and audit_log was not granted at once: %v", locked)
+		t.Errorf("T9: after the Down's REVOKEs another session's ROW EXCLUSIVE on audit_log was not granted at once: %v", locked)
 	}
 	at33(opVATReadState(t, ctx, sp), "after Down (nothing outside the previous sets)", false, false)
 	_, err = opBegin(t, ctx, sp, hash, tenantVATReadKind, opDetailParams(f.id.String()))

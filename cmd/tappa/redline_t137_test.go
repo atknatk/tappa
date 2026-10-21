@@ -192,7 +192,7 @@ func TestRedline_T137_StringAndEnvironmentSwitches(t *testing.T) {
 	})
 }
 
-// TestRedline_T137_TheBodyWhitelistIsPinned: the nine shipped migrations whose bodies hold static
+// TestRedline_T137_TheBodyWhitelistIsPinned: the ten shipped migrations whose bodies hold static
 // DDL are an R5b WARN, each by name; the whole shipped tree exits 0 with no R5b FAIL (so the 40-odd
 // `REVOKE … FROM PUBLIC` and every shipped body stay green). A pinned file whose body code -- or,
 // since fix1, a string constant inside the body -- changes, and a copy of one under a new name, are
@@ -236,6 +236,7 @@ func TestRedline_T137_TheBodyWhitelistIsPinned(t *testing.T) {
 		"db/migrations/00034_recheck_a_tenants_vat_from_the_operator.sql",
 		"db/migrations/00039_open_the_api_from_the_operator.sql",
 		"db/migrations/00042_put_holdings_on_the_operator_surface.sql",
+		"db/migrations/00063_suspend_a_tenant_from_the_operator.sql",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("the WARN names %v, want %v", got, want)
