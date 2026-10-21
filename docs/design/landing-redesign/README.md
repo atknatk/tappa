@@ -12,8 +12,9 @@ discovering surprises in the code.
   ForRestaurants ×3, ForProduction ×3, ShareCards (one board, 2640 wide), States-Public (desktop +
   phone). [`boards/canvas.json`](boards/canvas.json) is the canvas layout reduced to these 23
   boards and the one note that titles them ("Public site — landing & pages"); the panel and
-  operator entries of the source canvas are not carried. The board files are byte-for-byte the
-  exported files — not edited.
+  operator entries of the source canvas are not carried, and its title is "Taptime Public Site
+  Redesign" (the source canvas's title named the backoffice). The board files are byte-for-byte
+  the exported files — not edited.
 - **Task cards:** [`docs/plan/lp-landing-redesign.md`](../../plan/lp-landing-redesign.md)
   (LP-01 … LP-15, ordered, each independently shippable on the branch).
 - **Sibling packages** (read for method, not for rules — the public site has its own):
@@ -60,8 +61,9 @@ with sample data, `data-props` design-time tweaks). Public-site specifics:
 
 **Never copy an inline style.** Every public page is served with `style-src 'self'` and no
 `'unsafe-inline'` (§4), so a `style=` attribute is refused by the browser — the existing landing
-already measured that (comment above `.lp`, `input.css:1745-1754`). Board pages carry 79–377
-`style=` attributes each.
+already measured that (comment above `.lp`, `input.css:1745-1754`). Board pages carry 86 (`T-Pricing`) to 641
+(`States-Public`) `style=` attributes each, counted outside their `<script>`/`<style>` blocks
+(LP-00 re-measured after review).
 
 ---
 
@@ -89,7 +91,7 @@ already measured that (comment above `.lp`, `input.css:1745-1754`). Board pages 
 | # | Decision | Why |
 |---|---|---|
 | O1 | Product's "Taptime guarantees" heading and "The Taptime guarantees come first and cannot be switched off." are **reworded** (suggested: "Taptime's guardrails" / "Taptime's guardrails come first and cannot be switched off."). No regex exception. | `unmeasuredNumber` (`internal/handler/marketing_test.go:985-988`) refuses `\bguarantee(?:d\|s)?\b` on every `marketingURLs()` page; "guardrail" is the product's own word (`sys:*`, CLAUDE.md §5). |
-| O2 | The hero's animations (ticket rotation fade, `docket-print`) **are removed**; the board has no `@keyframes`. | Follow the board. `TestLanding_ReducedMotionLeavesTheDocketVisible` then guards nothing and is retired or inverted **in the same commit** (LP-03). |
+| O2 | The landing's animations **are removed**: the hero's `tapring` / `printout` (`.lp .scene.play …`, `input.css:1862-1868`, their `reduce` rules :1987-1988, the `play` class at landing.templ:197) and — recommended, the boards draw none — the demo dialog's `demoIn` / `demoFade` (`input.css:2054-2062`). | Follow the board; no animation left means no reduced-motion rule to get wrong. ⚠️ `TestLanding_ReducedMotionLeavesTheDocketVisible` is **not** affected: the `docket-print` it guards is used today only by the sign-up wizard (`signup.templ:583`; measured), not by the landing — its comment calling it "the landing page's ONE animation" (`input.css:947`) is stale. The test stays. |
 | O3 | **CSS stays `.lp`-scoped plain CSS in `input.css`** (outside `@layer`), as today. | §5. |
 | O4 | Every new page enters the **fact-pinning** regime and `marketingURLs()`. | §6. |
 | O5 | Signup, Legal and the API guide move onto the **new public header/footer** (States-Public draws them in it). | LP-11. |
@@ -165,7 +167,8 @@ kept honest). Every new route answers **HEAD as well as GET** (Mount's comment, 
 ## 5. CSS strategy — the `.lp` block
 
 The existing landing CSS is one plain-CSS block, every selector under `.lp`, outside `@layer`,
-after `@tailwind utilities` (`input.css:1714-1992`; header comment :1714-1761 records why:
+after `@tailwind utilities` (`input.css:1714-2062`: the reference block :1714-1992, then the demo
+dialog block :1993-2062, also `.lp`-scoped; header comment :1714-1761 records why:
 bare selectors would reach the panel, tap screen and wizard; `.lp-` prefixes where the name was
 taken — `.lp-btn`, `.lp-docket`, `.lp-ledger`). Continue it:
 
@@ -246,8 +249,13 @@ files before writing a sentence):
   Values are `Line{Text, Facts}`, `Step`, `ComparisonRow`, `Evidence`, `Audience`/`Claim`,
   `Question` — rendered from data, never typed in the template.
 - **Closure** (one per vocabulary): every declared constant must be **derived** from the product
-  (a function reading code, schema, migrations, CSS or config — never a sentence) **and claimed**
-  by at least one rendered value; every derivation must hold today.
+  (a function reading code, schema, migrations, CSS or config — never the page's own sentence)
+  **and claimed** by at least one rendered value; every derivation must hold today. Where the fact
+  is a decision recorded only in a repository document, the derivation reads **that document** for
+  the recorded phrase — precedent `FactPlaquesIncludedAndReplacedFree`, whose derivation matches
+  `plaquesIncludedRE` against `docs/handoff.md` §11 (`marketing_facts_test.go:614-619`). U8 (§10)
+  pins the hosting region the same way, against `deploy/README.md`. What is never done is
+  matching the marketing sentence against itself.
   `TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed`,
   `TestLandingSources_EveryDeclaredSourceIsDerivedAndClaimed`,
   `TestLandingAudiences_EveryClaimRestsOnAProductAnchor`. Each has a negative control
@@ -315,9 +323,13 @@ refusals are measured against. **Recommended shape** (LP-12 decides it with the 
 records it in an ADR note): the styled page only for `GET`/`HEAD` on the customer host, only for
 paths **outside** the prefixes whose refusals must stay router-identical (`/brand/`, `/static/`,
 `/operator`, `/v1`, the tap and panel prefixes — inventory them, do not guess); everything else
-stays `http.NotFound`. The brand tests' reference request then moves to an unrouted path **inside**
-the brand prefix, which keeps the property they protect (an attacker probing `/brand/…` sees one
-answer). Not measured yet: whether chi's `NotFound` can be scoped this way without a wrapper.
+stays `http.NotFound`. Of the brand tests, **only the theme reference moves**:
+`brandThemeReference404` requests `/no/route/is/mounted/here`, which would get the page; it moves
+to an unrouted path **inside** `/brand/` (the theme route is `/brand/theme/{file}`,
+`internal/handler/brandtheme.go:15`), which keeps the property it protects (a probe of `/brand/…`
+sees one answer). The logo test compares against a fixed router-404 answer on `/t/logo/…` and
+`/admin/brand/logo/…` (`brandlogo_test.go:551-561`) — unchanged as long as the tap and panel
+prefixes are excluded. Not measured yet: whether chi's `NotFound` can be scoped this way without a wrapper.
 
 ---
 
@@ -328,9 +340,9 @@ answer). Not measured yet: whether chi's `NotFound` can be scoped this way witho
   names each page's `<title>`, `description` and source value. **No price in an image** (board
   rule: the price is derived, an image is not). Names in images are invented samples; KM
   department names are seed data (K1).
-- **How the PNG is produced — not decided by measurement:** exported from the ShareCards canvas
-  (the user's design tool) or captured from the board at exactly 1200×630 per card; either way a
-  committed binary, no generator in the repo.
+- **How the PNG is produced (K3):** exported from the ShareCards canvas in the user's design tool,
+  1200×630 per card, and committed. There is no second route: if the builder cannot export, it
+  asks for the user's export; no screenshot tool, no generator in the repo.
 - **Head tags only in the marketing shells.** `documentHead` (base.templ:206) is shared by every
   shell (tap, activation, panel, operator); the tap/activation heads are pinned byte for byte by
   `TestUnbrandedScreens_AreByteIdenticalToTheGolden`. Add `description` / `og:*` /
@@ -375,9 +387,10 @@ new page goes through §7, and the closure tests are the net — not this table.
 | Test | What changes it | Card |
 |---|---|---|
 | `TestLandingNav_EveryLinkPointsAtASectionOnThePage` (`marketing_facts_test.go:975-1029`) | nav entries stop being in-page anchors once `/pricing` exists; its second half asserts the legal pages carry **no** landing nav and **no** `sticky` (:1015-1028) | LP-06 (first half), LP-11 (second half) — rewritten, assertion intent kept: every nav link resolves; the current page is marked |
-| `TestLanding_ReducedMotionLeavesTheDocketVisible` (`marketing_test.go:2301`) | O2 removes the only animation it guards | LP-03 |
+| `TestLanding_ReducedMotionLeavesTheDocketVisible` (`marketing_test.go:2301`) | **nothing** — it guards the wizard's `docket-print` (`signup.templ:583`), not the hero (O2) | stays green in LP-03; LP-03 adds its own no-animation assertion for `.lp` |
 | `TestLandingDemo_TheScriptDegradesInsteadOfBreaking`, `TestLandingDemo_TheSecondHeroButtonSaysWatchDemoAndOpensTheDialog`, `TestLandingDemo_TheDialogIsLabelledAndCanBeClosedWithoutAMouse` | hero markup and `landing.js` | LP-03 |
 | `TestLanding_UsesOnlyPaletteTokens` | widened to new templ files and pages | LP-06 … LP-10 |
+| `TestMarketing_EveryInternalLinkResolves` — **its link handling** | it fetches each `href` as written; `/#how` and `/security#proofs` reach chi as the path `/#how` and answer 404 (measured by the LP-00 reviewer). It must split the fragment, GET the path (200) **and** find the `id` on that page | LP-06 (LP-07 relies on it) |
 | `TestMarketing_EveryInternalLinkResolves`, `TestMarketing_PolicyNamesWhatThePageLoadsAndNothingElse`, `TestMarketing_AnswersHeadWithNoBodyAndTheSameHeaders`, `TestMarketing_ReachesNoThirdParty` | new URLs join `publicSurfaceURLs()` | LP-06 … LP-10, LP-13 |
 | `TestAPIGuidePages_AreTheGuideInTheMarketingChrome`, `TestAPIGuidePages_FitAPhone`, `TestLegalPages_NavigationMarksTheCurrentDocumentAndWhatIsNotInForce`, `TestSignupSurface_UsesNoUnanchoredCapabilityWord`, `TestSignupSurface_EverySignInLinkGoesToTheSignInPage` | the chrome moves (the signup surface refuses capability words nothing derives — a footer word like "report" or "export" arrives on its screens) | LP-11 |
 | `TestUnbrandedScreens_AreByteIdenticalToTheGolden`, `TestCompiledCSS_BrandNamesOccurOnlyInTheGolden` | must **not** change in this phase; red = a shared component was touched | all |

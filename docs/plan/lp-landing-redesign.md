@@ -82,6 +82,11 @@ Düzeltmeler:
 - **Test sözleşmesi** değişirse test **aynı commit'te**, niyeti korunarak güncellenir; hiçbir iddia
   gevşetilmez. Henüz var olmayan bir testin adı belgeye yazılmaz (`TestEveryNamedTestExists`) — yeni
   testi tarif et, adını yapıcı koyar.
+- **Bir test silinir ya da adı değişirse eski adın her atfı aynı commit'te güncellenir** — Go
+  yorumları, `input.css`, `landingview.go`, tasarım README'si (§11), bu dosya ve depodaki her metin
+  dosyası (`grep -rn '<eski ad>' .` ile bulunur). Kabul: `TestEveryNamedTestExists` yeşil ve
+  `danglingBudget` (`cmd/tappa/testnames_test.go`, bugün 59) **değişmeden** — eşitlikle denetlenen bir
+  cırcırdır; `known-dangling-citations.txt`'ye satır eklenerek geçilmez.
 - **Golden'lar değişmez:** `TestUnbrandedScreens_AreByteIdenticalToTheGolden` ve
   `TestCompiledCSS_BrandNamesOccurOnlyInTheGolden` bu faz boyunca bayt-aynı kalır; kırmızıya dönerse
   kart paylaşılan bir kabuğa/bileşene dokunmuştur ve düzeltilecek olan koddur.
@@ -111,7 +116,7 @@ kaydırması yok · Tailwind yalnız `.templ` ve `web/static/js`'i tarar · **he
 | LP-02 | P0 | Ortak public kabuk (landing'de): header, telefon menüsü, `.mbar`, footer; bağlantı tablosu | 2 | M | LP-01 |
 | LP-03 | P1 | Landing hero: plaket + telefon maketi + docket, animasyonsuz; `landing.js` + demo diyaloğu stili | 2 | M | LP-02 |
 | LP-04 | P1 | Landing gövdesi: How it works, Security, fits, Pricing, FAQ (yalnız görünüm) | 1 | M | LP-02 |
-| LP-05 | P1 | Landing'e "The panel" bölümü (Pass/Spike/Roll minyatürleri) | 1 | M | LP-04 |
+| LP-05 | P1 | Landing'e "The panel" bölümü (Pass/Spike/Roll minyatürleri) | 2 | M | LP-04 |
 | LP-06 | P2 | `/pricing` + yeni sayfaların olgu/URL altyapısı + nav testinin yeniden yazımı | 2 | L | LP-04 |
 | LP-07 | P2 | `/security` (+ `#proofs`, K2) | 2 | L | LP-06 |
 | LP-08 | P2 | `/product` (+ "Take the product tour →") | 2 | L | LP-06, LP-05 |
@@ -124,8 +129,15 @@ kaydırması yok · Tailwind yalnız `.templ` ve `web/static/js`'i tarar · **he
 | LP-15 | P4 | Faz sonu: tam `make check`, `make audit`, güvenlik denetimi, skill/README toparlaması | denetçi + güvenlik | M | hepsi |
 
 P2 kartları (LP-07 … LP-10) LP-06'dan sonra birbirinden bağımsızdır (LP-08 ayrıca LP-05'i bekler:
-"Take the product tour →" o bölümde durur). Her sayfa kartı üç genişliği birlikte, **tek DOM** ile
-taşır.
+"Take the product tour →" o bölümde durur). Bunu doğru kılan **koşullu kabul**dür (denetim
+bulgusu ORTA-1 üzerine seçildi): bir sayfa kartı nav, menü ve footer için **yalnız o ana kadar bağlı
+rotaları** ister — header'ın üç girdisinden her biri, sayfası bağlıysa o sayfaya, değilse landing
+bölümüne (`/#how`, `/#security`) gider; menü ve footer'ın "Product" sütunu bağlı sayfaları listeler.
+Son hâl (header'da Product · Security · Pricing sayfa bağlantıları, menü ve footer'da altı girdinin
+hepsi) **LP-11'in** kabulünde bir kez ölçülür; LP-11 LP-06 … LP-10'un hepsine bağlıdır. Neden açık
+bağımlılık değil: P2 kartlarını sıraya dizmek (LP-07 → LP-08 → LP-09 → LP-10) hiçbir test ya da
+kod gereği olmadan paralelliği kaldırırdı; nav tek tablodan çizildiği için her sıra aynı son hâle
+varır. Her sayfa kartı üç genişliği birlikte, **tek DOM** ile taşır.
 
 **Sayfa kartlarının ortak kabulü (LP-06 … LP-10):** rota `GET` ve `HEAD` 200, `marketingCSP`,
 `public, max-age=300`; sayfa `marketingURLs()`'te (README §7 adım 4) ve oradan bütün public tarayıcı
@@ -139,7 +151,8 @@ render edildiği ölçülür; kapanış testleri (`TestLandingFacts_EveryDeclare
 `TestLandingSources_EveryDeclaredSourceIsDerivedAndClaimed`, `TestLandingAudiences_EveryClaimRestsOnAProductAnchor`)
 yeşil; `TestLanding_UsesOnlyPaletteTokens`'ın kapsamı sayfanın templ dosyasına ve render'ına
 genişletilir (ham hex yok, `style=` yok); header'da sayfanın nav girdisi `aria-current="page"` (varsa),
-menüde ve footer'da sayfanın bağlantısı; telefonda `.mbar`; tek `<h1>`; 390 / 834 / 1200 / 1440'ta
+menüde ve footer'da sayfanın bağlantısı (ve yalnız o ana kadar bağlı rotalar — yukarıdaki koşullu
+kabul); telefonda `.mbar`; tek `<h1>`; 390 / 834 / 1200 / 1440'ta
 yatay kaydırma yok; README §10'daki ilgili iddialar pinli ya da yumuşatılmış; `TestEveryNamedTestExists`
 yeşil.
 
@@ -189,7 +202,9 @@ verilirse sapar.
   şey odak halkası) — 390/1440 ekran görüntüsü önce/sonra.
 - `TestCompiledCSS_BrandNamesOccurOnlyInTheGolden`, `TestCompiledCSS_StampWordIsInk` yeşil.
 
-**Testler.** `go test ./internal/handler -run 'Landing|Marketing'`, `go test ./internal/brand -run CompiledCSS`.
+**Testler.** `go test ./internal/handler -run 'Landing|Marketing|TestCompiledCSS_StampWordIsInk'`
+(`TestCompiledCSS_StampWordIsInk` `internal/handler/result_test.go:1631`'de),
+`go test ./internal/brand -run 'TestCompiledCSS_BrandNamesOccurOnlyInTheGolden'`.
 
 **Tuzaklar.** Ürünün `.btn`/`.docket`/`.stamp`/`.card` adlarını `.lp` altında yeniden tanımlamak
 (kalan özellikler sızar — `.lp-docket`'in var olma sebebi) · kaşe kelimesini renkli yapmak (kelime
@@ -255,7 +270,7 @@ footer cümlesini iki satıra bölmek (R1 satır yereldir) · kabuğu bu kartta 
 
 ## LP-03 — Hero: plaket, telefon maketi ve docket
 
-- **Bağımlılık:** LP-02 · **Mercek:** 2 (gönderilen betik ve iki test sözleşmesi değişir) · **Büyüklük:** M
+- **Bağımlılık:** LP-02 · **Mercek:** 2 (gönderilen betik ve test sözleşmesi değişir) · **Büyüklük:** M
 - **Kırmızı çizgi:** —
 - **Araç:** yapıcı, skill `tappa-brand`
 - **Commit:** `feat(landing): draw the hero as the plaque, the phone and the docket`
@@ -263,11 +278,21 @@ footer cümlesini iki satıra bölmek (R1 satır yereldir) · kabuğu bu kartta 
 
 **Amaç.** Hero sahnesini panodaki gibi kurmak: plaket (`#pPlaque`), telefonda tap ekranı maketi
 (`#pName`/`#pLoc`), eğik docket + `stamp--approved`; metin aynı (`LandingHeroLede`, `LandingHeroFoot`).
-Animasyon yok (O2). Demo diyaloğunun içeriği aynı, yalnız stili.
+Animasyon yok (O2). Demo diyaloğunun içeriği aynı, yalnız stili ve açılış animasyonu kalkar.
 
 **Kapsam.**
-- `landingHero`/`landingScene` (landing.templ:145, :196) yeniden; `@keyframes` ve `docket-print`
-  kuralı silinir.
+- `landingHero`/`landingScene` (landing.templ:145, :196) yeniden. **Silinecek animasyonlar (blok
+  sınırıyla):** `.lp` CSS'i iki bloktur — referans bloğu `input.css:1714-1992` ve demo diyaloğu bloğu
+  :1993-2062. Hero'nun `tapring`/`printout`'u (:1862-1868, `.lp .scene.play …`), onların `reduce`
+  kuralları (:1987-1988) ve `class="scene play"`'in `play`'i (landing.templ:197) silinir; demo
+  diyaloğunun `demoIn`/`demoFade`'i (:2054-2062) **da** silinir — panolarda animasyon yok (öneri, O2),
+  ve hareket kalmayınca azaltılmış hareket kuralına da gerek kalmaz. `html:has(.lp)`'nin
+  `scroll-behavior` `reduce` kuralı animasyon değildir, kalır.
+- **`docket-print`'e dokunulmaz.** `@keyframes docket-print` (`input.css:972-977`, `@layer
+  components` içinde) bugün yalnız sihirbazın `signup.templ:583`'ü tarafından kullanılıyor (ölçüldü:
+  landing'de yok). `TestLanding_ReducedMotionLeavesTheDocketVisible` onu korur ve bu kartta
+  **değişmeden yeşil** kalır; yorumundaki "the landing page's ONE animation" ifadesi
+  (`input.css:947`) eskimiştir — düzeltilirse yalnız yorum, testin adı ve atfı (:965) aynı kalır.
 - `web/static/js/landing.js`: döndürme `pName`/`pLoc`/`pPlaque`'ı da doldurur; animasyon sınıfı
   eklemez; "KM Facility" → **"KM Plant"** (`landing.js:21`; `seed.sql:171`). Betik yoksa sayfa ilk
   kaydı statik gösterir (bozulmaz).
@@ -278,10 +303,14 @@ Animasyon yok (O2). Demo diyaloğunun içeriği aynı, yalnız stili.
 `internal/handler/marketing_test.go`, `marketingdemo_test.go`.
 
 **Kabul kriterleri.**
-- `TestLanding_ReducedMotionLeavesTheDocketVisible` **aynı commit'te** emekliye ayrılır ya da tersine
-  çevrilir: yeni iddia "`.lp` bloğunda `@keyframes`/`animation` yok" (niyet — azaltılmış harekette
-  görünmez kart olmaması — korunur, artık yapısal olarak); KONTROL: bir `@keyframes` eklenmiş
-  mutasyon kırmızı.
+- `TestLanding_ReducedMotionLeavesTheDocketVisible` değişmeden yeşil (bu kart onun koruduğu
+  `docket-print`'e dokunmaz).
+- **Yeni test** (adını yapıcı koyar): `input.css`'in iki `.lp` bloğunda (:1714-2062 aralığı — ya da
+  yapıcının sınırları yorum işaretlerinden okuduğu hâli) hiçbir `animation` bildirimi ve hiçbir
+  `@keyframes` yok, landing'in render'ında `play` sınıfı yok; KONTROL: bloğa bir `@keyframes` ya da
+  `animation:` eklenmiş mutasyon kırmızı.
+- Bu kart bir testi silerse ya da adını değiştirirse "Çalışma modu"ndaki atıf kuralı uygulanır;
+  `TestEveryNamedTestExists` yeşil, `danglingBudget` değişmeden.
 - `TestLandingDemo_TheScriptDegradesInsteadOfBreaking`, `TestLandingDemo_TheSecondHeroButtonSaysWatchDemoAndOpensTheDialog`,
   `TestLandingDemo_TheDialogIsLabelledAndCanBeClosedWithoutAMouse`, `TestLandingLines_EveryLedeIsRenderedAndRestsOnAFact`,
   `TestLanding_CarriesTheSlogan` yeşil.
@@ -292,7 +321,8 @@ Animasyon yok (O2). Demo diyaloğunun içeriği aynı, yalnız stili.
 
 **Testler.** `go test ./internal/handler -run 'Landing|LandingDemo|Marketing'`.
 
-**Tuzaklar.** Animasyonu `reduce` bloğunda kapatarak "korumak" (test zaten bunu yasaklıyordu) ·
+**Tuzaklar.** `docket-print`'i hero'nunki sanıp silmek (sihirbazın docket'i) · animasyonu `reduce`
+bloğunda kapatarak "korumak" ·
 maketteki saat/isimleri ürün metni sanmak (örnek veri) · betiğe `fetch`/konum okuması eklemek
 (`FactPositionReadOnlyOnPress` betikleri tarar).
 
@@ -331,7 +361,9 @@ eklemek.
 
 ## LP-05 — "The panel" bölümü
 
-- **Bağımlılık:** LP-04 · **Mercek:** 1 (metin + görünüm; pinler denetçinin kontrol listesinde) · **Büyüklük:** M
+- **Bağımlılık:** LP-04 · **Mercek:** 2 (test sözleşmesi değişir: `landingLines()`/`claimedFacts()`
+  genişler, yeni Fact türetmesi ve negatif kontrolü, U2/U3/U10'un ilk yayını — "Çalışma modu"nun
+  mercek kuralı) · **Büyüklük:** M
 - **Kırmızı çizgi:** —
 - **Araç:** yapıcı, skill `tappa-brand`
 - **Commit:** `feat(landing): add the panel section`
@@ -392,6 +424,18 @@ altyapıyı kurmak.
   yazılır: her nav girdisi ya landing'de var olan bir `id`'ye giden `/#…` ya da 200 dönen bağlı bir
   rota; geçerli sayfanın girdisi `aria-current="page"` taşır, öteki sayfaların taşımaz (adı
   değişirse yeni adı yapıcı koyar). İkinci yarı (legal sayfaları sade) LP-11'e kadar aynen kalır.
+- **`TestMarketing_EveryInternalLinkResolves` (`marketing_test.go:759-810`) bu kartta değişir.**
+  Bugün her `href`'i olduğu gibi ister; `#` ile başlamayan bir bağlantıyı (`/#how`, `/#security`,
+  LP-07'nin `/security#proofs`'u) chi'ye yol `/#how` olarak gider ve **404** döner (LP-00
+  denetçisi ölçtü: `httptest.NewRequest("GET", "/#how", nil)` yolu `/#how` bırakıyor). Yeni
+  davranış: fragman `#`'ten ayrılır; yol GET ile **200** dönmeli **ve** fragman boş değilse hedef
+  sayfanın render'ında `id="<fragman>"` bulunmalı. KONTROL mutasyonları (testin yanında, adını
+  yapıcı koyar): landing'de olmayan bir `id`'ye giden `/#yok` bağlantısı **kırmızı**; bağlı olmayan
+  `/yok#how` **kırmızı**; doğru `/#how` yeşil. Anti-vakuite eşiği ("followed N link(s)") gevşemez.
+- Bu kart `TestLandingNav_EveryLinkPointsAtASectionOnThePage`'i yeniden adlandırırsa (adı artık
+  "sayfa içi" demeyecekse) eski adın her atfı aynı commit'te güncellenir: `landingview.go:394`,
+  `marketing_facts_test.go:968`, tasarım README'si §11, bu dosya (LP-02, LP-06, LP-11) — "Çalışma
+  modu"ndaki kural; `TestEveryNamedTestExists` yeşil, `danglingBudget` değişmeden.
 - Rota `admincookiepath_test.go` türetmesinin okuyabileceği biçimde bağlanır (README §3).
 
 **Dosyalar.** `internal/handler/marketing.go` (Mount, handler), yeni `web/templates/pages/pricing.templ`
@@ -407,11 +451,14 @@ gerekirse `admincookiepath_test.go`.
   testi kırmızı; tablodan çıkarılan sayfanın rotası hâlâ bağlıyken URL testi kırmızı.
 - Görsellerde fiyat yok, fiyat yalnız metin.
 - `TestEmployeeRoutes_DerivationIsNotVacuous` yeşil.
+- `TestMarketing_EveryInternalLinkResolves` fragmanlı bağlantıları yukarıdaki gibi çözer ve üç
+  KONTROL'ü geçer (ikisi kırmızı, biri yeşil).
 
 **Testler.** `go test ./internal/handler -run 'Landing|Marketing|Pricing|EmployeeRoutes'`.
 
 **Tuzaklar.** Örnek tutarı ("€90") templ'e yazmak · kaşeye yeni bir kelime sınıfı icat etmek ·
-`/#how`'ı httptest'te çözülür sanmak — ölç (fragman istek yoluna girmez varsayımı **doğrulanmadı**) ·
+`/#how`'ın httptest'te çözüldüğünü sanmak (çözülmez — fragman yola girer, 404; yukarıdaki test
+değişikliği şart) ·
 nav'ı `/pricing` için ikinci kez kopyalamak.
 
 ## LP-07 — `/security`
@@ -439,7 +486,10 @@ menü, footer, landing "How each proof works →".
 - Sayfada "Falkenstein", "fsn1", "Hetzner" yok (bir test iddiası); "Hosted in the EU (Germany)" var.
 - Sayılar (16, eleven/11, 150, 60, 256) templ'de yazılı değil, türetilmiş değerden basılır; KONTROL:
   kaynak değer değişince sayfa testi kırmızı.
-- `#proofs` id'si sayfada var; landing'in bağlantısı ona çözülür.
+- `#proofs` id'si sayfada var; landing'in `/security#proofs` bağlantısı LP-06'da fragman ayıracak
+  biçimde değişen `TestMarketing_EveryInternalLinkResolves` ile çözülür (yol 200 **ve** `id` sayfada);
+  LP-06'nın bu değişikliği yoksa ya da geri alınmışsa bu kart başlamaz. KONTROL: `#proofs` id'si
+  kaldırılmış mutasyon kırmızı.
 - §5'in QR cümlesi ("a position on its own is not enough" niyeti) ve satır 6'nın ayrık yapısı
   landing FAQ'daki iddialarla çelişmez (`TestLandingFAQ_EveryAnswerRestsOnAProductFact`'in yasaklı
   ifadeleri bu sayfaya da uygulanır).
@@ -475,8 +525,9 @@ etiket); menü + footer "Product tour"; landing "Take the product tour →".
   regex istisnası **olmadan** yeşil).
 - "On this page" bağlantılarının her biri sayfadaki bir `id`'ye çözülür (test).
 - Davet cümlesi (U5) iki teslim kipini de doğru söyler ya da hiçbirini iddia etmez.
-- Header nav'ı artık üç **sayfa** bağlantısı (Product, Security, Pricing) — LP-06'daki yeniden yazılmış
-  nav testi yeşil.
+- Header nav'ının "Product" girdisi `/product` ve bu sayfada `aria-current="page"`; öteki iki girdi
+  sayfaları o ana kadar bağlıysa sayfalarına, değilse landing bölümlerine gider (koşullu kabul —
+  "Görev listesi" altındaki not); LP-06'da yeniden yazılan nav testi yeşil.
 
 **Testler.** `go test ./internal/handler -run 'Landing|Marketing|Product'`.
 
@@ -524,9 +575,9 @@ takvim gününe göre anlatmak (§5).
 (K1; *gap report* seed.sql:198-211); landing fits'in ikinci kartı bağlantı olur.
 
 **Kabul kriterleri.** Sayfa kartlarının ortak kabulü ve: departman tablosu seed'den (KONTROL ile);
-"60 seconds (the default window)" config varsayılanından türetilir; menü artık altı bağlantının
-hepsini taşır (Product tour, Security, Pricing, iki For, API docs) ve footer Product sütunu panodaki
-altı girdiyle aynı.
+"60 seconds (the default window)" config varsayılanından türetilir; menü ve footer'ın Product
+sütunu bu sayfayı ve **o ana kadar bağlı** öteki sayfaları listeler (koşullu kabul — altı girdinin
+hepsi LP-11'de ölçülür).
 
 **Dosyalar ve testler.** LP-09'un eşi.
 
@@ -567,6 +618,12 @@ dört legal sayfası, `/docs/api` ve `/docs/api/tr`. Gövdeler değişmez.
 **Kabul kriterleri.**
 - On üç sayfada (/, beş yeni, signup, dört legal, iki kılavuz) tek kabuk bileşeni; header/menü/footer
   bağlantıları aynı tablo.
+- **Son hâl (P2'nin koşullu kabulünün kapanışı):** header'ın üç girdisi sayfa bağlantısıdır
+  (Product `/product`, Security `/security`, Pricing `/pricing`) ve hiçbiri `/#…` değil; menü ve
+  footer'ın Product sütunu panodaki altı girdinin hepsini panodaki sırayla taşır (Product tour,
+  Security, Pricing, For restaurants & bars, For production & facilities, API docs).
+- Nav testinin ikinci yarısı tersine çevrilirken testin adı değişirse "Çalışma modu"ndaki atıf kuralı
+  uygulanır; `TestEveryNamedTestExists` yeşil, `danglingBudget` değişmeden.
 - Signup'ta `.mbar` yok; ötekilerin telefon görünümünde var.
 - `TestSignupSurface_UsesNoUnanchoredCapabilityWord`, `TestSignupSurface_EverySignInLinkGoesToTheSignInPage`,
   `TestSignupSurface_EveryCapabilityClaimHoldsToday`, `TestAPIGuidePages_FitAPhone`,
@@ -597,23 +654,27 @@ bağlantısı taşıyan 404 sayfası.
   yer (`apihost.go`, `operatorhost.go`, tema/logo retleri ve testleri, erişim günlüğü).
 - Önerilen biçim (README §8): yalnız `GET`/`HEAD`, yalnız müşteri host'u, ret yanıtları router'la
   özdeş kalması gereken öneklerin (**envanterden**: `/brand/`, `/static/`, `/operator`, `/v1`, tap ve
-  panel önekleri …) **dışında**; geri kalan her 404 `http.NotFound`. Marka testlerinin referans isteği
-  marka önekinin içindeki yönlendirilmemiş bir yola taşınır (koruduğu özellik: `/brand/…` yoklayan
-  aynı yanıtı görür).
+  panel önekleri …) **dışında**; geri kalan her 404 `http.NotFound`.
+- **Taşınan yalnız tema referansıdır:** `brandThemeReference404` (`brandtheme_test.go:537-563`)
+  `/no/route/is/mounted/here`'i ister — bu yol sayfayı alacağı için `/brand/` içindeki
+  yönlendirilmemiş bir yola taşınır (tema rotası `/brand/theme/{file}`, `brandtheme.go:15`; koruduğu
+  özellik: `/brand/…` yoklayan tek yanıt görür). Logo testi (`brandlogo_test.go:545-561`) `/t/logo/…`
+  ve `/admin/brand/logo/…` için **sabit** bir router-404 yanıtıyla karşılaştırır; tap ve panel önekleri
+  dışlandıkça **değişmez**.
 - Durum 404, `marketingCSP`, `noindex`, `Cache-Control` kararı gerekçeli (öneri: `no-store`).
 - ADR notu (ADR 0020 ya da 0023'ün yanına, tarihli): hangi 404 nerede, neden.
 
 **Dosyalar.** `internal/httpx/router.go` (ya da marketing'in bağladığı bir `NotFound`), `internal/handler/marketing.go`,
-yeni `notfound.templ`, `internal/handler/brandtheme_test.go`, `brandlogo_test.go`, yeni testler,
+yeni `notfound.templ`, `internal/handler/brandtheme_test.go` (yalnız referans yolu), yeni testler,
 `docs/adr/…`.
 
 **Kabul kriterleri.**
 - Müşteri host'unda `GET /bilinmeyen` → 404 + kabuk + tek cümle + `/` bağlantısı; `HEAD` gövdesiz.
 - Operatör host'unda bilinmeyen `/operator/…` → bugünkü düz 404 (bayt-aynı); API host'unda her
   bilinmeyen yol → bugünkü yanıt.
-- `TestBrandTheme_OnTheWireOnlyNetHTTPAddsHeaders` ve `TestLogoRoutes_ShapesTheRouteDoesNotMatchGetTheRoutersAnswer`
-  yeşil, referansları niyeti koruyarak taşınmış; KONTROL: marka önekinde düz 404 yerine sayfa dönen
-  mutasyon kırmızı.
+- `TestBrandTheme_OnTheWireOnlyNetHTTPAddsHeaders` yeşil, referans yolu niyeti koruyarak `/brand/`
+  içine taşınmış; `TestLogoRoutes_ShapesTheRouteDoesNotMatchGetTheRoutersAnswer` **değiştirilmeden**
+  yeşil; KONTROL: `/brand/` (ya da tap/panel) önekinde düz 404 yerine sayfa dönen mutasyon kırmızı.
 - `TestAccessLog_UnroutedRequestStillGetsARecord` yeşil (yol günlüğe girmez).
 - `tappa-security-auditor` bulgusuz (ya da bulgular düzeltilip yeniden denetlenmiş).
 
@@ -626,9 +687,10 @@ gerekçesiz.
 
 ## LP-13 — Paylaşım kartları: meta + 9 PNG (K3)
 
-- **Bağımlılık:** LP-11 · **Mercek:** 2 · **Büyüklük:** M
+- **Bağımlılık:** LP-11 · **Mercek:** 2 + agent `tappa-security-auditor` (üçüncü taraf
+  tarayıcısına muafiyet) · **Büyüklük:** M
 - **Kırmızı çizgi:** — (üçüncü taraf yok kuralı)
-- **Araç:** yapıcı, skill `tappa-brand`
+- **Araç:** yapıcı, skill `tappa-brand`, güvenlik denetçisi
 - **Commit:** `feat(landing): add page descriptions and share images`
 - **Spec:** [README §9](../design/landing-redesign/README.md) · **Panolar:** `ShareCards`
 
@@ -637,12 +699,17 @@ gerekçesiz.
 kılavuz sayfası bir görseli paylaşır — README §9).
 
 **Kapsam.**
-- PNG'ler ShareCards tuvalinden (K3; dışa aktarım yolu **doğrulanmadı** — kullanıcının tasarım aracı ya
-  da panonun 1200×630 yakalaması); görselde fiyat yok.
+- PNG'ler K3'e göre **ShareCards tuvalinden dışa aktarılır** (kullanıcının tasarım aracı), kart başına
+  1200×630, ve commit edilir. İkinci bir yol yok: yapıcı dışa aktaramıyorsa kullanıcının
+  aktarımını ister — ekran yakalama aracı ya da depoda üreteç yok. Görselde fiyat yok.
 - Meta yalnız `marketingDocument` yolunda (base.templ:473); `documentHead`'in paylaşılan çıktısı
   değişmez (`TestUnbrandedScreens_AreByteIdenticalToTheGolden`).
 - `og:image` mutlak URL: köken `TAPPA_BASE_URL`'den (`config.go:276`), `NewMarketing`'e verilir
-  (`cmd/tappa/main.go:863`, test yardımcısı `marketingRouterFor`).
+  (`cmd/tappa/main.go:863`). İmza değişikliği **bütün çağıranları** değiştirir (ölçüldü,
+  `grep -rn 'NewMarketing(' .`): `cmd/tappa/serving_test.go:52`, `cmd/tappa/approuter_test.go:221`,
+  `internal/handler/marketing_test.go:91` (`marketingRouterFor`) ve `:544`,
+  `internal/handler/signup_test.go:981, 983`, `internal/handler/apiguidepage_test.go:212, 251`,
+  `internal/handler/operator/op10_db_test.go:319`.
 - `TestMarketing_ReachesNoThirdParty`'nin tarayıcısı `content="https://…"`'yi yakalar → **yalnız**
   yapılandırılmış kökenin `/static/og/` URL'lerine dar bir muafiyet (OpenAPI muafiyetinin biçiminde);
   KONTROL: başka bir host'a `og:image` kırmızı.
@@ -650,7 +717,9 @@ kılavuz sayfası bir görseli paylaşır — README §9).
   `/product`'un açıklaması LP-08'in lede'inden.
 
 **Dosyalar.** `web/templates/layout/base.templ`, `web/templates/pages/*` (çağrılar), `internal/handler/marketing.go`,
-`cmd/tappa/main.go`, `web/static/og/*.png`, `marketing_test.go`.
+`cmd/tappa/main.go`, `web/static/og/*.png`, `NewMarketing`'in yukarıda sayılan çağıranları
+(`cmd/tappa/serving_test.go`, `cmd/tappa/approuter_test.go`, `internal/handler/marketing_test.go`,
+`signup_test.go`, `apiguidepage_test.go`, `internal/handler/operator/op10_db_test.go`).
 
 **Kabul kriterleri.**
 - On üç sayfanın her biri tam bir `description` ve dört `og:*` taşır; `og:image` dosyası embed edilmiş
@@ -660,11 +729,17 @@ kılavuz sayfası bir görseli paylaşır — README §9).
   `TestUnbrandedScreens_AreByteIdenticalToTheGolden`, `TestLayoutShells_EveryOneIsActuallyRendered`,
   `TestAPIGuidePages_NameBothTranslationsInTheHead` yeşil.
 - Description'lar §4 kopya kurallarından geçer (sayı/garanti/iç ad).
+- `tappa-security-auditor` muafiyetin dar olduğunu doğrular (yalnız yapılandırılmış köken, yalnız
+  `/static/og/`, yalnız `og:image`/`twitter:image` içeriği) — bulgusuz ya da düzeltilip yeniden
+  denetlenmiş.
 
-**Testler.** `go test ./internal/handler -run 'Marketing|Landing|APIGuide|Unbranded|LayoutShells'`.
+**Testler.** `go test ./internal/handler -run 'Marketing|Landing|APIGuide|Unbranded|LayoutShells|Signup'`
++ `go vet ./cmd/tappa ./internal/handler/operator` (çağıranların test dosyaları dahil derlendiğini
+saniyeler içinde gösterir) + `go test ./cmd/tappa -run 'Packaging|AppRoute'`.
 
 **Tuzaklar.** Meta'yı `documentHead`'e eklemek (tap/aktivasyon golden'ı) · muafiyeti "her https"
-yapmak · görsele fiyat yazmak · PNG'yi 1200×630 dışında dışa aktarmak.
+yapmak · görsele fiyat yazmak · PNG'yi 1200×630 dışında dışa aktarmak · bir çağıranı unutmak
+(`cmd/tappa` ve `operator` paketleri `./internal/handler` testinde derlenmez).
 
 ## LP-14 — States-Public taraması
 
@@ -687,7 +762,8 @@ tamamlanır.
   odak halkası gösterir, halka zeminde ≥ 3:1.
 - 390 / 834 / 1440 ekran görüntüsü turu (her sayfa).
 
-**Testler.** `go test ./internal/handler -run 'Landing|Marketing'` + `go test ./internal/brand -run CompiledCSS`.
+**Testler.** `go test ./internal/handler -run 'Landing|Marketing|TestCompiledCSS_StampWordIsInk'` +
+`go test ./internal/brand -run 'TestCompiledCSS_BrandNamesOccurOnlyInTheGolden'`.
 
 **Tuzaklar.** Hover'ı telefonda zorunlu sanmak (dokunmada hover yok) · `:visited` rengi eklemek.
 
