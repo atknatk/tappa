@@ -52,7 +52,8 @@ import (
 // unchanged. What changed in the WORDS is recorded beside each line, and it is all
 // of one of the three kinds above: a number nobody measured, a verdict about a
 // device nobody benchmarked, or a capability that is not in the product (an API, a
-// file import, a live headcount, a report by department, "unlimited").
+// file import, a live headcount, a report by department, "unlimited"). The API has
+// since shipped (M11, /v1), and the FAQ names it — see LandingFAQ.
 
 // LandingView is the public landing page.
 //
@@ -233,10 +234,14 @@ const (
 
 // Fact is a PRODUCT fact one of the other blocks rests on.
 //
-// Five of the facts are TRIPWIRES FOR AN ABSENCE — no bulk import, no integration
-// API, no finger or face reader, no background position, and "no" is what the page says —
-// because the user's draft promised the first two and a tripwire fails the day one
-// appears, which is the day that sentence has to be rewritten.
+// Three of the facts are TRIPWIRES FOR AN ABSENCE — no bulk import, no finger or face
+// reader, no background position, and "no" is what the page says — because a tripwire
+// fails the day the capability appears, which is the day that sentence has to be
+// rewritten. There was a fourth, "no integration API", and it shows why: M11 mounted
+// /v1 on its own host while that tripwire scanned only "/api…" literals, so it stayed
+// green over a FAQ that had become false. It is retired; the three FactAPI* facts
+// below say what the API does, and marketing_facts_test.go refuses a "no API"
+// sentence on the public pages for as long as /v1 is mounted.
 type Fact string
 
 const (
@@ -298,11 +303,25 @@ const (
 	// The FAQ says "there is no file import today"; the day one exists this fails
 	// and the sentence is rewritten.
 	FactNoBulkImport Fact = "absent:multipart-upload"
-	// TRIPWIRE: there is no integration API. Derived as an ABSENCE — the only
-	// "/api…" literals in non-test Go source are the tap form's own two POSTs
-	// (/api/checkin, /api/activate). The user's draft promised "a clean API feed";
-	// the FAQ says "There is no API" instead.
-	FactNoIntegrationAPI Fact = "absent:/api beyond the tap form"
+	// The integration API writes a business's locations and people: the api package
+	// mounts PUT /v1/locations/{ref} and PUT /v1/employees/{ref} under httpx.APIPrefix,
+	// and cmd/tappa hands that surface to the router (M11 API-5, API-6). Derived from
+	// the registrations, the path constants and the wiring. What the FAQ says is that
+	// an HR system "can write your people and locations"; it does not call that an
+	// import, because it is one profile per request, not a file.
+	FactAPIWritesPeopleAndLocations Fact = "route:PUT /v1/locations/{ref}+PUT /v1/employees/{ref}"
+	// Every punch reaches the integration from a feed or a webhook: GET /v1/punches is
+	// mounted (API-7), the punch feed's trigger (00049's punch_feed) queues a
+	// webhook_deliveries row for the business's endpoint, and cmd/tappa runs the
+	// sender (internal/webhook/delivery, API-10) whose body is the same punchwire.Punch
+	// the feed answers. Derived from all four.
+	FactAPIFeedsEveryPunch Fact = "route:GET /v1/punches+webhook:delivery"
+	// The API is opened per business BY TAPPA, not by the business: a key of a tenant
+	// whose api_enabled_at is NULL is refused 403 api_disabled (apikey.ErrAPIClosed,
+	// the chain's refuse), migration 00038 refuses to run if tappa_app could write that
+	// column, and op_enable_tenant_api (00039) is the operator's write. Derived from
+	// all four. It is why both FAQ answers say "once Taptime enables it for you".
+	FactAPIEnabledPerBusinessByTaptime Fact = "apikey:ErrAPIClosed(api_enabled_at)+op_enable_tenant_api"
 	// TRIPWIRE (§4.1): nothing in the product reads a finger or a face. Derived as
 	// an ABSENCE — no non-test Go source and no shipped script names the
 	// platform-authenticator API (navigator.credentials, PublicKeyCredential) or a
@@ -775,8 +794,11 @@ var LandingAudiences = []Audience{
 //   - "Live dashboard, flags & manager review queue" — "Live" dropped: the panel
 //     renders on request and pushes nothing.
 //   - "Daily reports, CSV export & API for your payroll flow" — the CSV half is
-//     real; the API half is NOT (FactNoIntegrationAPI is the tripwire), and the
-//     reports are by period, not daily.
+//     real, and the reports are by period, not daily. The API half was false when
+//     this was written and is true since M11, but it is not a line here: the API is
+//     opened per business by Taptime (FactAPIEnabledPerBusinessByTaptime), so it is
+//     not something the price includes for everyone, and the FAQ says it with that
+//     condition attached.
 //   - "Runs alongside your current system during trial" — not a product feature
 //     at all; replaced by the manual entry, which is.
 var LandingPricingIncludes = []Line{
@@ -829,9 +851,12 @@ type Question struct {
 //   - "Import your staff list from a CSV … run both systems side by side … Most
 //     sites switch in one pay period" — there is no import (FactNoBulkImport is
 //     the tripwire), and the rest is a process claim nobody measured.
-//   - "a clean API feed your payroll or HR system directly" — there is no API
-//     (FactNoIntegrationAPI is the tripwire). The last sentence is the user's and
-//     is kept, because it is true.
+//   - "a clean API feed your payroll or HR system directly" — when this was written
+//     there was no API, and the answer said so. M11 shipped one (/v1, its own host),
+//     and "There is no API." stayed on the page because its tripwire only looked
+//     under /api; both migration and data answers now name the API with its one
+//     condition — Taptime enables it per business — and rest on the FactAPI* facts.
+//     The last sentence is the user's and is kept, because it is true.
 var LandingFAQ = []Question{
 	{
 		Q: "What if someone doesn't have their phone that day?",
@@ -867,17 +892,22 @@ var LandingFAQ = []Question{
 	{
 		Q: "How do we migrate from our current device?",
 		A: "Add your people from the dashboard and hand out invite links — one profile at a " +
-			"time; there is no file import today. The old box is yours to unplug whenever " +
-			"you're ready — Taptime doesn't talk to it.",
-		Facts: []Fact{FactPeopleAreInvitedFromTheDashboard, FactNoBulkImport, FactNoIntegrationAPI},
+			"time; there is no file import today. If your HR system already holds the list, " +
+			"the integration API can write your people and locations once Taptime enables it " +
+			"for you. The old box is yours to unplug whenever you're ready — Taptime doesn't " +
+			"talk to it.",
+		Facts: []Fact{FactPeopleAreInvitedFromTheDashboard, FactNoBulkImport,
+			FactAPIWritesPeopleAndLocations, FactAPIEnabledPerBusinessByTaptime},
 	},
 	{
 		Q: "Where does the data go?",
 		A: "Into your dashboard: hours per person and per site, and the monthly headcount " +
-			"you're billed on — both as CSV exports for your payroll. There is no API. " +
-			"Taptime is the source of truth for in/out times — it doesn't try to replace " +
-			"your payroll.",
-		Facts: []Fact{FactReportPerPersonAndVenue, FactHoursExportAsCSV, FactBillingExportAsCSV, FactNoIntegrationAPI},
+			"you're billed on — both as CSV exports for your payroll. Once Taptime enables " +
+			"the integration API for you, your HR or payroll system can also read every " +
+			"punch from a feed or receive it by webhook. Taptime is the source of truth for " +
+			"in/out times — it doesn't try to replace your payroll.",
+		Facts: []Fact{FactReportPerPersonAndVenue, FactHoursExportAsCSV, FactBillingExportAsCSV,
+			FactAPIFeedsEveryPunch, FactAPIEnabledPerBusinessByTaptime},
 	},
 }
 

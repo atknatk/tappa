@@ -37,10 +37,16 @@ import (
 // Source and Anchor closure tests can count a delegating Fact as a claim.
 //
 // ⚠️ THE LIMIT IS THE ONE WRITTEN ON pages.Anchor, WORD FOR WORD: naming a Fact
-// does not make a sentence true. This is a ratchet against drift. Five of the
-// facts are TRIPWIRES FOR AN ABSENCE (no import, no API, no finger or face reader,
-// no background position): they fail the day the capability appears, which is the
-// day the sentence that says "there is none" has to be rewritten.
+// does not make a sentence true. This is a ratchet against drift. Three of the
+// facts are TRIPWIRES FOR AN ABSENCE (no import, no finger or face reader, no
+// background position): they fail the day the capability appears, which is the day
+// the sentence that says "there is none" has to be rewritten.
+//
+// 🔴 A TRIPWIRE IS ONLY AS WIDE AS WHAT IT SCANS. The fourth, "no integration API",
+// read "/api…" literals; M11 mounted the API at /v1 and it stayed green for the whole
+// milestone over a FAQ that said "There is no API." It is retired, the API's three
+// facts are derived from /v1 itself, and TestLanding_ClaimsNoAbsentAPIWhileV1IsMounted
+// reads the PAGE for the sentence rather than the code for one route spelling.
 
 // --- the derivations ---------------------------------------------------------
 
@@ -79,19 +85,10 @@ func bulkImportViolation(goSrc map[string]string) string {
 	return ""
 }
 
-// apiLiteralRE matches a "/api…" route literal in Go source: a path, which is
-// what a registration carries, and not a quoted sentence that happens to start
-// with one (ratelimit.go quotes a card's Turkish sentence about /api/activate).
-var apiLiteralRE = regexp.MustCompile(`"(/api(?:/[A-Za-z0-9_.{}-]+)*/?)"`)
-
 // goLineCommentRE strips `//` comments, line-locally, before a scan — a scan a
 // comment can satisfy pins nothing (the rule marketing_claims_test.go's
 // sqlcQueryBody records).
 var goLineCommentRE = regexp.MustCompile(`(?m)//.*$`)
-
-// tapFormAPIRoutes are the two POSTs the tap surface itself makes. Anything else
-// under /api would be an integration API, and the page says there is none.
-var tapFormAPIRoutes = map[string]bool{"/api/checkin": true, "/api/activate": true}
 
 // authenticatorAPIRE matches the ways a web page or a Go handler would read a
 // finger or a face: the platform-authenticator API and the two vendor readers.
@@ -132,16 +129,208 @@ func cssRuleBody(css, selector string) string {
 	return m[1]
 }
 
-// foreignAPIRoutes returns every "/api…" literal in src that is not one of the
-// tap form's own two. Package level for the negative control.
-func foreignAPIRoutes(src string) []string {
-	var out []string
-	for _, m := range apiLiteralRE.FindAllStringSubmatch(goLineCommentRE.ReplaceAllString(src, ""), -1) {
-		if !tapFormAPIRoutes[m[1]] {
-			out = append(out, m[1])
+// --- the integration API (M11) ---------------------------------------------------
+
+// apiFactSources is what the three FactAPI* derivations read, one field per file (or
+// per package, for the api surface), so the negative control can take one piece away
+// and watch the derivation say no. Go sources are held with `//` comments stripped:
+// a scan a comment can satisfy pins nothing.
+type apiFactSources struct {
+	API      string // every non-test .go file of internal/handler/api, joined
+	APIHost  string // internal/httpx/apihost.go: APIPrefix
+	Cmd      string // cmd/tappa/main.go + api.go: the wiring
+	Delivery string // internal/webhook/delivery/delivery.go: the webhook body
+	Auth     string // internal/apikey/auth.go: the closed-API refusal
+	Mig38    string // api_enabled_at, and the guard that tappa_app cannot write it
+	Mig39    string // op_enable_tenant_api
+	Mig49    string // punch_feed(), which queues the webhook delivery
+	// Migrations is every migration by file name, to see that nothing after 00049
+	// redefines punch_feed(): a later CREATE OR REPLACE would make 00049 stale.
+	Migrations map[string]string
+}
+
+// loadAPIFactSources reads the product for the three FactAPI* derivations.
+func loadAPIFactSources(t *testing.T) apiFactSources {
+	t.Helper()
+	strip := func(s string) string { return goLineCommentRE.ReplaceAllString(s, "") }
+	var api []string
+	for path, src := range nonTestGoSource(t, "internal") {
+		if filepath.Dir(path) == filepath.Join("internal", "handler", "api") {
+			api = append(api, strip(src))
 		}
 	}
-	return out
+	if len(api) < 5 {
+		t.Fatalf("read %d non-test file(s) of internal/handler/api; the surface has more, so "+
+			"this is reading the wrong tree", len(api))
+	}
+	migs := map[string]string{}
+	entries, err := os.ReadDir(filepath.Join("..", "..", "db", "migrations"))
+	if err != nil {
+		t.Fatalf("reading db/migrations: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".sql") {
+			migs[e.Name()] = repoFile(t, "db", "migrations", e.Name())
+		}
+	}
+	return apiFactSources{
+		API:        strings.Join(api, "\n"),
+		APIHost:    strip(repoFile(t, "internal", "httpx", "apihost.go")),
+		Cmd:        strip(repoFile(t, "cmd", "tappa", "main.go") + "\n" + repoFile(t, "cmd", "tappa", "api.go")),
+		Delivery:   strip(repoFile(t, "internal", "webhook", "delivery", "delivery.go")),
+		Auth:       strip(repoFile(t, "internal", "apikey", "auth.go")),
+		Mig38:      migs["00038_add_api_access_to_tenants.sql"],
+		Mig39:      migs["00039_open_the_api_from_the_operator.sql"],
+		Mig49:      migs["00049_write_the_punch_feed.sql"],
+		Migrations: migs,
+	}
+}
+
+// goStringConst reads the value of `name = "…"` (or `name T = "…"`) out of Go
+// source, or "" when the constant is not declared with a string literal.
+func goStringConst(src, name string) string {
+	m := regexp.MustCompile(`(?m)\b` + regexp.QuoteMeta(name) + `(?:\s+\w+)?\s*=\s*"([^"]*)"`).FindStringSubmatch(src)
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
+// v1MountViolation is "" when /v1 is a surface this binary serves: the api package
+// routes Prefix, Prefix is httpx.APIPrefix, APIPrefix is "/v1", and cmd/tappa builds
+// the surface and hands it to the router. Otherwise the reason. Every FactAPI* fact,
+// and the no-"no API" check, starts here.
+func v1MountViolation(s apiFactSources) string {
+	if !regexp.MustCompile(`\bconst\s+Prefix\s*=\s*httpx\.APIPrefix\b`).MatchString(s.API) {
+		return "internal/handler/api no longer declares Prefix = httpx.APIPrefix"
+	}
+	if p := goStringConst(s.APIHost, "APIPrefix"); p != "/v1" {
+		return "httpx.APIPrefix is " + strconv.Quote(p) + ", not \"/v1\""
+	}
+	if !strings.Contains(s.API, "r.Route(Prefix,") {
+		return "internal/handler/api no longer routes Prefix, so /v1 is mounted by nothing"
+	}
+	if !strings.Contains(s.Cmd, "api.New(") {
+		return "cmd/tappa no longer builds the api surface (api.New)"
+	}
+	if !regexp.MustCompile(`\bintegrationAPI, err := openAPISurface\(`).MatchString(s.Cmd) ||
+		!regexp.MustCompile(`\bHandler:\s+appRouter\([^\n]*\bintegrationAPI\b`).MatchString(s.Cmd) {
+		return "cmd/tappa no longer hands the api surface to the router"
+	}
+	return ""
+}
+
+// v1RouteViolation is "" when the api package registers method on the path constant
+// pathConst and that constant is want; otherwise the reason.
+func v1RouteViolation(s apiFactSources, method, pathConst, want string) string {
+	if !regexp.MustCompile(`\br\.` + method + `\(\s*` + regexp.QuoteMeta(pathConst) + `\s*,`).MatchString(s.API) {
+		return "internal/handler/api no longer registers " + strings.ToUpper(method) + " " + pathConst
+	}
+	if got := goStringConst(s.API, pathConst); got != want {
+		return "internal/handler/api's " + pathConst + " is " + strconv.Quote(got) + ", not " + strconv.Quote(want)
+	}
+	return ""
+}
+
+// punchFeedBodyRE cuts 00049's punch_feed() out of the migration, up to its closing
+// dollar quote.
+var punchFeedBodyRE = regexp.MustCompile(`(?s)CREATE FUNCTION public\.punch_feed\(\).*?\n\$\$;`)
+
+// punchFeedRedefinedRE is any definition of the same trigger function.
+var punchFeedRedefinedRE = regexp.MustCompile(`(?i)CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?punch_feed\s*\(`)
+
+// apiWritesViolation is FactAPIWritesPeopleAndLocations' derivation over s. It and
+// its two siblings are package level so the negative control can drive them with a
+// source it took one piece out of.
+func apiWritesViolation(s apiFactSources) string {
+	if why := v1MountViolation(s); why != "" {
+		return why
+	}
+	if why := v1RouteViolation(s, "Put", "locationPath", "/locations/{ref}"); why != "" {
+		return why + ", so the API writes no locations"
+	}
+	if why := v1RouteViolation(s, "Put", "employeePath", "/employees/{ref}"); why != "" {
+		return why + ", so the API writes no people"
+	}
+	return ""
+}
+
+// apiFeedViolation is FactAPIFeedsEveryPunch's: the feed route, the trigger that
+// queues a webhook for each punch, the sender that is running, and its body.
+func apiFeedViolation(s apiFactSources) string {
+	if why := v1MountViolation(s); why != "" {
+		return why
+	}
+	if why := v1RouteViolation(s, "Get", "punchesPath", "/punches"); why != "" {
+		return why + ", so there is no punch feed to read"
+	}
+	body := punchFeedBodyRE.FindString(s.Mig49)
+	if body == "" {
+		return "migration 00049 no longer defines punch_feed()"
+	}
+	if !strings.Contains(body, "INSERT INTO public.webhook_deliveries") {
+		return "00049's punch_feed() no longer queues a webhook delivery for a punch"
+	}
+	for name, src := range s.Migrations {
+		if name != "00049_write_the_punch_feed.sql" && punchFeedRedefinedRE.MatchString(src) {
+			return name + " redefines punch_feed(); re-derive the webhook half from that definition"
+		}
+	}
+	if !regexp.MustCompile(`\bdeliveries, err := delivery\.New\(`).MatchString(s.Cmd) ||
+		!strings.Contains(s.Cmd, "work.Add(deliveries)") {
+		return "cmd/tappa no longer runs the webhook sender (delivery.New, then work.Add)"
+	}
+	if !regexp.MustCompile(`(?s)type Body struct \{[^}]*\bpunchwire\.Punch\b`).MatchString(s.Delivery) {
+		return "the webhook body no longer carries punchwire.Punch, so a webhook is not the punch the feed answers"
+	}
+	return ""
+}
+
+// apiGateViolation is FactAPIEnabledPerBusinessByTaptime's: a closed business's key
+// is refused 403 api_disabled, the business's own role cannot open it, and the
+// operator's function is what does.
+func apiGateViolation(s apiFactSources) string {
+	if why := v1MountViolation(s); why != "" {
+		return why
+	}
+	if !regexp.MustCompile(`case\s+k\.APIEnabledAt\s*==\s*nil:\s*return\s+Principal\{\},\s*ErrAPIClosed\b`).MatchString(s.Auth) {
+		return "apikey's Resolve no longer refuses a key whose business's API is closed (api_enabled_at NULL)"
+	}
+	if !regexp.MustCompile(`\bErrAPIClosed\s*=\s*&AuthError\{http\.StatusForbidden\b`).MatchString(s.Auth) {
+		return "apikey.ErrAPIClosed is no longer a 403"
+	}
+	if !regexp.MustCompile(`case\s+http\.StatusForbidden:\s*writeProblem\(w,\s*problemAPIDisabled\)`).MatchString(s.API) {
+		return "the api chain no longer answers a 403 from the resolver with api_disabled"
+	}
+	if goStringConst(s.API, "CodeAPIDisabled") != "api_disabled" {
+		return "the api package's CodeAPIDisabled is no longer \"api_disabled\""
+	}
+	if !strings.Contains(s.Mig38, "has_column_privilege('tappa_app', 'public.tenants', 'api_enabled_at', 'UPDATE')") {
+		return "migration 00038 no longer refuses a tappa_app that could open its own API, so " +
+			"\"once Taptime enables it\" is no longer what holds the gate"
+	}
+	if !strings.Contains(s.Mig39, "CREATE FUNCTION public.op_enable_tenant_api(") {
+		return "migration 00039 no longer defines op_enable_tenant_api, the operator's write"
+	}
+	return ""
+}
+
+// noAPIClaimRE matches a sentence that says the product has no API. What follows
+// the match is checked separately (noAPIClaimHit): "no API key" or "no API host" is
+// a noun phrase about something else.
+var noAPIClaimRE = regexp.MustCompile(`(?i)\b(?:no|not\s+an?|without\s+an?)\s+(?:(?:integration|public|open|rest)\s+)?APIs?\b`)
+
+// noAPINounTailRE is the word that turns "no API" into a phrase about something else.
+var noAPINounTailRE = regexp.MustCompile(`(?i)^\s+(?:keys?|hosts?|codes?|calls?|requests?)\b`)
+
+// noAPIClaimHit returns the first "no API" claim in text, or "".
+func noAPIClaimHit(text string) string {
+	for _, loc := range noAPIClaimRE.FindAllStringIndex(text, -1) {
+		if !noAPINounTailRE.MatchString(text[loc[1]:]) {
+			return text[loc[0]:loc[1]]
+		}
+	}
+	return ""
 }
 
 // authenticatorAPIHit returns the first thing in src (comments stripped) that
@@ -271,6 +460,7 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 	transactions := createTableBlock(t, mig05, "transactions")
 	goSrc := nonTestGoSource(t, "internal", "cmd")
 	scripts := shippedScripts(t)
+	apiSrc := loadAPIFactSources(t)
 
 	registered := func(src, method, href string) bool {
 		return regexp.MustCompile(`r\.` + method + `\(\s*` + regexp.QuoteMeta(href) + `\s*,`).MatchString(src)
@@ -308,15 +498,9 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 			// exempt file is named, not matched.
 			return bulkImportViolation(goSrc)
 		},
-		pages.FactNoIntegrationAPI: func() string {
-			for path, src := range goSrc {
-				if extra := foreignAPIRoutes(src); len(extra) > 0 {
-					return path + " names " + strings.Join(extra, ", ") + " under /api. The page says " +
-						"there is no API beyond the tap form's own POSTs; if there is one now, rewrite it"
-				}
-			}
-			return ""
-		},
+		pages.FactAPIWritesPeopleAndLocations:    func() string { return apiWritesViolation(apiSrc) },
+		pages.FactAPIFeedsEveryPunch:             func() string { return apiFeedViolation(apiSrc) },
+		pages.FactAPIEnabledPerBusinessByTaptime: func() string { return apiGateViolation(apiSrc) },
 		pages.FactNoAuthenticatorAPI: func() string {
 			for path, src := range goSrc {
 				if hit := authenticatorAPIHit(src); hit != "" {
@@ -842,6 +1026,48 @@ func TestLanding_UsesOnlyPaletteTokens(t *testing.T) {
 	}
 }
 
+// landingFAQAnswerBeforeM11 is "Where does the data go?" as the page answered it until
+// 2026-10-21, long after M11 had mounted /v1. The negative control puts it back.
+const landingFAQAnswerBeforeM11 = "Into your dashboard: hours per person and per site, and the monthly headcount " +
+	"you're billed on — both as CSV exports for your payroll. There is no API. " +
+	"Taptime is the source of truth for in/out times — it doesn't try to replace your payroll."
+
+// noAPIClaimViolation is "" unless text — a public page's screen text — says there is
+// no API while the product mounts /v1. Package level so the negative control can put
+// the old sentence back without touching the shared page data.
+func noAPIClaimViolation(url, text string, s apiFactSources) string {
+	if v1MountViolation(s) != "" {
+		// No /v1, and "there is no API" would be true; the FactAPI* facts go red on
+		// their own, which is where the FAQ's API sentences get rewritten.
+		return ""
+	}
+	if hit := noAPIClaimHit(text); hit != "" {
+		return url + " says " + strconv.Quote(hit) + " while internal/handler/api mounts /v1. The " +
+			"integration API exists (per business, once Taptime enables it); say that, or nothing"
+	}
+	return ""
+}
+
+// TestLanding_ClaimsNoAbsentAPIWhileV1IsMounted reads every public page for a "no
+// API" sentence. It exists because the derivation that used to guard that sentence
+// scanned "/api…" route literals, and the API arrived at /v1: the FAQ said "There is
+// no API." on a product that served one, and every test was green. This one reads
+// what the visitor reads, so a new route spelling cannot walk round it.
+func TestLanding_ClaimsNoAbsentAPIWhileV1IsMounted(t *testing.T) {
+	t.Parallel()
+	api := loadAPIFactSources(t)
+	if why := v1MountViolation(api); why != "" {
+		t.Fatalf("the product no longer mounts /v1 (%s); this check would pass vacuously. If the API "+
+			"is really gone, the FactAPI* facts are red too — rewrite the FAQ and this test together", why)
+	}
+	r := marketingRouter(t)
+	for _, url := range marketingURLs() {
+		if why := noAPIClaimViolation(url, screenText(t, mustFetchMarketing(t, r, url)), api); why != "" {
+			t.Error(why)
+		}
+	}
+}
+
 // --- negative controls -----------------------------------------------------------
 
 // TestFactMechanisms_SayNoWhenTheFactIsAbsent is the negative control for every
@@ -850,18 +1076,89 @@ func TestLanding_UsesOnlyPaletteTokens(t *testing.T) {
 func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 	t.Parallel()
 
-	// The API tripwire sees a third route and ignores the tap form's two.
-	if extra := foreignAPIRoutes(`r.Post("/api/checkin", x); r.Post("/api/activate", y)`); len(extra) != 0 {
-		t.Errorf("foreignAPIRoutes flags the tap form's own routes: %v", extra)
+	// The integration API's three facts: each holds over the real sources and says no
+	// when one piece of what it reads is taken away.
+	api := loadAPIFactSources(t)
+	type field func(*apiFactSources) *string
+	var (
+		apiPkg   field = func(s *apiFactSources) *string { return &s.API }
+		apiHost  field = func(s *apiFactSources) *string { return &s.APIHost }
+		cmd      field = func(s *apiFactSources) *string { return &s.Cmd }
+		delivery field = func(s *apiFactSources) *string { return &s.Delivery }
+		auth     field = func(s *apiFactSources) *string { return &s.Auth }
+		mig38    field = func(s *apiFactSources) *string { return &s.Mig38 }
+		mig39    field = func(s *apiFactSources) *string { return &s.Mig39 }
+		mig49    field = func(s *apiFactSources) *string { return &s.Mig49 }
+	)
+	for _, tc := range []struct {
+		name     string
+		derive   func(apiFactSources) string
+		in       field
+		old, new string
+	}{
+		{"/v1 is not routed", apiWritesViolation, apiPkg, "r.Route(Prefix,", "r.Group("},
+		{"APIPrefix is not /v1", apiFeedViolation, apiHost, `APIPrefix = "/v1"`, `APIPrefix = "/v2"`},
+		{"cmd does not hand the surface to the router", apiGateViolation, cmd, "integrationAPI, devTools)", "devTools)"},
+		{"no PUT locations", apiWritesViolation, apiPkg, "r.Put(locationPath,", "r.Get(locationPath,"},
+		{"no PUT employees", apiWritesViolation, apiPkg, "r.Put(employeePath,", "r.Get(employeePath,"},
+		{"locations moved", apiWritesViolation, apiPkg, `locationPath = "/locations/{ref}"`, `locationPath = "/sites/{ref}"`},
+		{"no GET punches", apiFeedViolation, apiPkg, "r.Get(punchesPath,", "r.Head(punchesPath,"},
+		{"the trigger queues no webhook", apiFeedViolation, mig49, "INSERT INTO public.webhook_deliveries", "INSERT INTO public.nothing"},
+		{"no webhook sender", apiFeedViolation, cmd, "work.Add(deliveries)", "_ = deliveries"},
+		{"the webhook body is not the punch", apiFeedViolation, delivery, "\tpunchwire.Punch\n", "\tX int\n"},
+		{"a closed API is not refused", apiGateViolation, auth, "case k.APIEnabledAt == nil:", "case false:"},
+		{"the refusal is not a 403", apiGateViolation, auth, `&AuthError{http.StatusForbidden, "the integration`, `&AuthError{http.StatusUnauthorized, "the integration`},
+		{"a 403 is not api_disabled", apiGateViolation, apiPkg, "writeProblem(w, problemAPIDisabled)", "writeProblem(w, problemUnauthorized)"},
+		{"tappa_app could open its own API", apiGateViolation, mig38, "'api_enabled_at', 'UPDATE'", "'api_code', 'SELECT'"},
+		{"no operator write", apiGateViolation, mig39, "CREATE FUNCTION public.op_enable_tenant_api(", "CREATE FUNCTION public.op_other("},
+	} {
+		if why := tc.derive(api); why != "" {
+			t.Errorf("API control %q: the derivation does not hold over the real sources: %s", tc.name, why)
+			continue
+		}
+		m := api
+		p := tc.in(&m)
+		if !strings.Contains(*p, tc.old) {
+			t.Errorf("API control %q: %q is gone from the source, so the mutation would change nothing", tc.name, tc.old)
+			continue
+		}
+		*p = strings.Replace(*p, tc.old, tc.new, 1)
+		if tc.derive(m) == "" {
+			t.Errorf("API control %q: the derivation still holds over a source without it", tc.name)
+		}
 	}
-	if extra := foreignAPIRoutes(`r.Get("/api/v1/export", x)`); len(extra) != 1 {
-		t.Errorf("foreignAPIRoutes missed an integration route: %v", extra)
+	redefined := api
+	redefined.Migrations = map[string]string{"00099_x.sql": "CREATE OR REPLACE FUNCTION public.punch_feed() RETURNS trigger"}
+	if apiFeedViolation(redefined) == "" {
+		t.Error("apiFeedViolation does not notice a later migration redefining punch_feed()")
 	}
-	if extra := foreignAPIRoutes(`// and "/api/activate onun kapsamına girmez" says the card`); len(extra) != 0 {
-		t.Errorf("foreignAPIRoutes matches prose in a comment: %v", extra)
+
+	// The no-"no API" scanner sees the sentence the FAQ carried until 2026-10-21, and
+	// the other ways of saying it, and not a noun phrase about something else.
+	for _, s := range []string{
+		landingFAQAnswerBeforeM11, "We have no integration API.", "Taptime is not an API product",
+		"works without an API", "No APIs, no fuss.",
+	} {
+		if noAPIClaimHit(s) == "" {
+			t.Errorf("the no-API scanner would not see %q", s)
+		}
 	}
-	if extra := foreignAPIRoutes(`msg := "/api/checkin is the only route"`); len(extra) != 0 {
-		t.Errorf("foreignAPIRoutes matches a quoted sentence rather than a path: %v", extra)
+	for _, s := range []string{
+		"the integration API can write your people and locations once Taptime enables it for you",
+		"No API code", "a business with no API key yet", "no API host is configured", "a rapid answer",
+	} {
+		if hit := noAPIClaimHit(s); hit != "" {
+			t.Errorf("the no-API scanner matches %q in %q", hit, s)
+		}
+	}
+	// AND THE PAGE CHECK ITSELF GOES RED with the old sentence put back.
+	if why := noAPIClaimViolation("/", landingFAQAnswerBeforeM11, api); why == "" {
+		t.Error("noAPIClaimViolation accepts \"There is no API.\" on the landing page while /v1 is mounted")
+	}
+	for _, q := range pages.LandingFAQ {
+		if why := noAPIClaimViolation("/", q.A, api); why != "" {
+			t.Errorf("noAPIClaimViolation refuses today's answer to %q: %s", q.Q, why)
+		}
 	}
 
 	// The upload tripwire.
