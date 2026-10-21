@@ -79,7 +79,7 @@ Yeniden tartışılmaz; ayrıntı ve gerekçe ADR 0032'de.
 | Ledger de aynı kurala uymalı mı? | `ledger/report.go:964-988` | ⚠️ **Evet — anomali listesi ve talep kapısıyla birlikte, tek bir sınıflandırmayla** (ADR 0032 §A.6). Kart M15-05, M15-06 |
 | `tap.Decide` saf kalır, saat dilimi/DST çağıranda | `decide.go:423-446`, `tzdata.go` | ⚠️ **kısmen yanlış öncül:** Decide bugün de saat dilimi çözüyor (geç kalma). `Input`'a kesim + bölge girer (ADR 0032 §A.3) |
 | Hangi saat dilimi | `00001:34`; `locations`'ta sütun yok | Yalnız `tenants.timezone`; Q01'in `locations.timezone`'u **hiç uygulanmadı** |
-| Tap ekranı metin dili | `tap.templ:117-123`, `view.go:389-399` | İngilizce: düğme **"Tap"**, sonuç *"Tapped in / out"* (Q33) |
+| Tap ekranı metin dili | `tap.templ:117-123`, `view.go:389-399` | İngilizce: düğme **"Tap"**, sonuç *"Tapped in / out"* → *"Clocked in / out"* (Q33, 2026-10-21) |
 | `occurred_at`, 72 sa, M9-01 | `guardrails.go:79`, `baseline.go:229` | ✅; `base:queued-window` 120 sn; M9-01 **todo** ama `occurred_at` alanı canlı |
 | Sonuç ekranında buton yok | `result.templ:8-13` | ✅ |
 | `transaction_reviews` | `00005:260-356` | Yalnız `flag` satırına karar — talepler giremez (M15-15) |
@@ -102,7 +102,7 @@ Yeniden tartışılmaz; ayrıntı ve gerekçe ADR 0032'de.
    değer göndermez (`tap.js:67-71`, `:97-103`); statik gizli alan JS'siz telefonda iki `want` üretir.
 4. **Talep onayıyla saat şişirme** (güvenlik G-Y1) — vardiya bandı dışında tek tık yok, müdür aralığı ve
    süreyi görür (M15-18).
-5. **API akışı** (G-O6) — Q31 Faz B'nin sevk kapısı (M15-13).
+5. **API akışı** (G-O6) — Q31 *evet* (2026-10-21): M15-13 Faz B ile birlikte.
 6. **Saate bağlı DB testleri** (motor M-Y2) — 05:00 varsayılanı göreli saatli testleri günün belirli
    saatlerinde kırmızıya çevirir (M15-04).
 7. **Kartlar kendi commit'inde yeşil olmalı** (motor M-O2) — `@at` ile çağıranı ve motorla kırılan DB alt
@@ -151,7 +151,7 @@ Yeniden tartışılmaz; ayrıntı ve gerekçe ADR 0032'de.
 | **00065** | M15-09 | `transactions.direction_source` + CHECK `NOT VALID` | dolu bir değer varsa **reddeder** |
 | **00066** | M15-09 | iki CHECK'in `VALIDATE`'i (`00044`'ün deseni — `SHARE UPDATE EXCLUSIVE`, tap'in INSERT'ini bekletmez) | `NOT VALID` hâline döner |
 | **00067** | M15-15 | `punch_claims` + `punch_claim_decisions` (append-only, §6 beşlisi, TRUNCATE tetikleyicileri) | satır varsa **reddeder** |
-| **00068** | M15-13 (koşullu) | `/v1` punch olayına `direction_source` (Q31(a) *evet* ise) | dolu bir değer varsa **reddeder** |
+| **00068** | M15-13 | `/v1` punch olayına `direction_source` (Q31 *evet*, 2026-10-21) | dolu bir değer varsa **reddeder** |
 
 **Çakışma — ölçüldü (2026-10-21):** ADR 0031 M14'ün dalında alınmış; M14 migration numarası **ayırmıyor**
 (`000NN` yer tutucusu), hiçbir dalda `00064`+ yok. M14'ün kodu M15'ten önce `main`'e girerse M15 kendi
@@ -162,7 +162,7 @@ asla değişmez. M14'ün dalı `roadmap.md`'ye bir satır ekliyor — metin düz
 
 | ID | Faz | Görev | Araç | Mercek | Bağımlılık |
 |---|---|---|---|---|---|
-| M15-01 | A0 | ADR 0032'nin kabulü + Q30–Q33 | ana oturum + kullanıcı | iki | — |
+| M15-01 | A0 | ADR 0032'nin kabulü + Q30–Q33 (cevaplandı 2026-10-21) | ana oturum + kullanıcı | iki | — |
 | M15-02 | A | Şema 00064 (dört kademe, `business_day_start`, sınıflandırma SQL fonksiyonu); etkin kesim okuması; `GetLastOpenTransaction` `@at` + `id` **ve çağıranı** | agent `tappa-db-migrator` | iki | M15-01 |
 | M15-03 | A | Tap motoru: iş günü kuralı, `S`/`Next`, sınıflandırma Go fonksiyonu, notlar; ters iddiayla yeniden yazılan motor **ve DB** testleri; CLAUDE.md §5 | yapıcı | iki | M15-02 |
 | M15-04 | A | Orkestratör: kesimi topla, iş günü anını yaz, NULL zorlaması; **saate bağlı DB testleri** | yapıcı | iki | M15-02, M15-03 |
@@ -174,7 +174,7 @@ asla değişmez. M14'ün dalı `roadmap.md`'ye bir satır ekliyor — metin düz
 | M15-10 | B | Tap motoru: istenen yön, `DirectionSource`, `PredictDirection`, iki dilli not; CLAUDE.md §5 ikinci paragraf | yapıcı | iki | M15-09 |
 | M15-11 | B | `POST /api/checkin`: `want` (asla 400), kilit altında karar, yazım | yapıcı | iki | M15-06, M15-10 |
 | M15-12 | B | `GET /t` tahmini (**kapılı**) + tap ekranı (§9) + `tap.js` + Account önizlemesi + skill/ADR 0023 notları | yapıcı (`tappa-brand`) | iki | M15-11 |
-| M15-13 | B | **Koşullu:** `/v1` punch akışına `directionSource` (00068) — Q31(a) *evet* ise Faz B'nin sevk kapısı | yapıcı + agent `tappa-db-migrator` | iki | M15-11 |
+| M15-13 | B | `/v1` punch akışına `directionSource` (00068) — Q31 *evet* (2026-10-21), Faz B ile birlikte | yapıcı + agent `tappa-db-migrator` | iki | M15-11 |
 | M15-14 | B | Faz B kapanışı (+ M15-06'nın güvenlik denetimi, gerçek tarayıcıda `want`, anahtar canlıda) | denetçi + güvenlik | iki | M15-06, M15-09…13 |
 | M15-15 | C | Şema 00067: `punch_claims` + `punch_claim_decisions` + RLS + TRUNCATE testi | agent `tappa-db-migrator` | iki | M15-14 |
 | M15-16 | C | Domain: pencere (18 sa kırpılmış, açık uçlar), K3 bandı, K4 gösterim kuralı, yeniden doğrulama, askı | yapıcı | iki | M15-15 |
@@ -186,7 +186,7 @@ asla değişmez. M14'ün dalı `roadmap.md`'ye bir satır ekliyor — metin düz
 07 (A kapanışı)→**08** · 08 (`direction_source` şeması)→**09** · 09 (yetim çıkış)→**06** (Faz A'ya taşındı:
 yetim sınıfları `direction_source`'a değil yalnız S'ye bağlıdır ve Faz A'da da oluşur — M-Y1) · 10→10 ·
 11→11 · 12→12 · 13 (panel/rapor görünürlüğü)→**ertelendi** (çalışanın seçimi fişin notunda zaten görünür;
-rapor sayacı ve CSV sütunu M15 dışı — ürün merceği Ü-Dilim) · **13 yeni:** koşullu API kartı · 14→14 ·
+rapor sayacı ve CSV sütunu M15 dışı — ürün merceği Ü-Dilim) · **13 yeni:** API kartı (Q31 ile koşulsuz) · 14→14 ·
 15–19 aynı. Ürün merceğinin *"08 + 09 birleştir"* önerisi bu biçimde uygulandı: yetim çıkış şemaya değil
 sınıflandırmaya bağlı olduğu için şema kartından ayrılıp Faz A'ya geçti; sıra (sınıflandırma → yetim →
 `POST` → arayüz) korunur.
@@ -211,10 +211,14 @@ kapısı), Q32 (talep sonucu bildirimi), Q33 (sonuç başlığının kelimesi) v
 ayrıca canlıya çıksın mı?"** — **cevaplandı (K6, 2026-10-21): evet**, B ve C'yi beklemeden; B + C toplu
 geçişle.
 
+**Cevaplar (2026-10-21, kullanıcı — hepsinde önerilen seçenek):** ADR 0032 **kabul edildi**. Q30: KF 05:00,
+KM 23:00, yayından önce çakışma kontrolü üretimde yeniden bakılır. Pilot olmayan iki tenant: varsayılan 05:00,
+çakışırsa `PanelNotice`, owner ayarlar. Q31: **evet**, M15-13 koşulsuz. Q32: bildirim yok (M9-05). Q33:
+*"Clocked in / Clocked out"*. K5/K6 önceden. Ayrıntı: ADR 0032 *"Kabul notu"*, `open-questions.md`.
+
 **Kabul kriterleri.**
-- ADR'nin durum satırı *Kabul edildi (tarih)*; Q30–Q33 *cevaplandı* ya da bilinçli olarak *açık* (hangi
-  kartı bloklar yazılı); Faz A'nın ayrı sevki için kullanıcının cevabı `state.md`'de ve bu dosyanın
-  başındaki *"Sevk"* notunda aynı cümleyle.
+- ✅ ADR'nin durum satırı *Kabul edildi (2026-10-21)*; Q30–Q33 *cevaplandı (2026-10-21)*; Faz A'nın ayrı
+  sevki (K6) `state.md`'de ve bu dosyanın başındaki *"Sevk"* notunda aynı cümleyle.
 - `TestEveryNamedTestExists` yeşil.
 - CLAUDE.md **bu kartta değişmez** — her normatif paragraf onu uygulayan kodla aynı commit'te:
 
@@ -679,7 +683,7 @@ kurmak · *"boş = 00:00"* okumak.
 - **Commit:** `test(seed): give each demo business a business day` (+ yalnız düzeltme commit'leri)
 
 **Adımlar.**
-1. Seed: KF kesimi 05:00; KM kesimi **Q30'un cevabı** (öneri 23:00); `tags` satırlarına dokunulmaz.
+1. Seed: KF kesimi 05:00; KM kesimi **23:00** (Q30, 2026-10-21); `tags` satırlarına dokunulmaz.
 2. Tam `make check`, `make audit`; güvenlik merceği Faz A diff'inde.
 3. **Canlı çakışma raporu — tenant başına, owner'ın bağlamında** (güvenlik merceği: *"her tenant için"* bir
    rapor `tappa_app` RLS'i altında yapılamaz ve `op_*` dışında tenant sınırını aşmak §4.5 ihlalidir). Account
@@ -693,9 +697,8 @@ kurmak · *"boş = 00:00"* okumak.
    zaten ters olan zincirler kesimsiz kuralla düzelmez (dün 17:40 `in` aslında çıkıştı → bugün 09:00, 15 sa
    20 dk < 18 sa → yine `out`). **Repoya RLS'i atlayan bir `cmd` aracı eklenmez**, yeni bir `op_*` açılmaz.
 3a. **Canlıda dört tenant var** (`state.md` OP-15 notu: *"askıda tenant 0/4"*); KF ve KM pilottur, öteki
-   ikisi `T2`'de sessizce işletme varsayılanı 05:00'e geçer. **Karar satırı (kullanıcıya, deploy'dan önce):**
-   pilot olmayan iki tenant için kesim ne olacak — owner'ları bilgilendirilip kendi kontrolünü mü yapacak, yoksa
-   05:00 bildirimle mi kabul edilecek. Her iki durumda: *"Business day check"* bir çakışma bulursa owner
+   ikisi `T2`'de işletme varsayılanı 05:00'e geçer. **Karar (kullanıcı, 2026-10-21):** pilot olmayan iki tenant
+   için **varsayılan 05:00 geçerli**; vardiyalarıyla çakışırsa owner kendisi ayarlar. *"Business day check"* bir çakışma bulursa owner
    panelinin **her ekranında** bir `PanelNotice` (*"Your business day setting cuts 2 shifts — review it"*),
    `T0`'dan itibaren, owner bölümü açıp kaydedene ya da çakışma kalkana kadar — RLS'li sıradan bir okuma, yeni
    `op_*` yok (ürün merceği P2).
@@ -720,13 +723,15 @@ kurmak · *"boş = 00:00"* okumak.
   `TestEveryNamedTestExists` yeşil; güvenlik merceği ONAY.
 - KM'nin bir günü (fırın 04:00–12:00 dahil) seed kesimiyle doğru yönlerle geçer.
 - *"Business day check"* bölümü owner dışında görünmez (manager 403/gizli — `mayEditAccount`), yalnız kendi
-  tenant'ını okur (RLS testi); Q30 cevaplandı; duyurunun render testi; `Down`'ın dolu satırla reddi bir kez
+  tenant'ını okur (RLS testi); Q30'un değerleri (KF 05:00, KM 23:00) üretimde yeniden bakıldıktan sonra
+  ayarlandı; duyurunun render testi; `Down`'ın dolu satırla reddi bir kez
   elle ölçüldü.
 - **Faz A ayrı sevk edilir (K6):** bu kartın onayıyla Faz A `main`'e gider (birleştirme anı kullanıcının);
   M15-06 bu kapının parçası değildir (ADR 0032 §A.6: Faz A'da motor çıkışı (b)/(c) olmaz) — M15-14'ün
   kapsamındadır.
 - Duyurunun iki cümlesi iki modda doğru (render testi: anahtar yokken yalnız liste cümlesi); çakışma
-  `PanelNotice`'i owner panelinin her ekranında, çakışma yokken hiçbirinde; 3a'nın kararı `state.md`'de.
+  `PanelNotice`'i owner panelinin her ekranında, çakışma yokken hiçbirinde; 3a'nın kararı (varsayılan 05:00 +
+  `PanelNotice`) deploy notunda.
 
 ---
 
@@ -767,7 +772,7 @@ ayrım testi deseni); feed yazıcısının kolon yetkileri genişlemez.
 **Kural (ADR 0032 §B.3).** `D` motorun yönü. İstek yoksa ya da `D` ise → `D`, `auto`; farklıysa → istenen,
 `employee`. Yalnız `ok`/`flag`'te; verdict, güven puanı etkilenmez; geç kalma kaydedilen yöne göre.
 **İki dilli not** (ADR 0032 §B.4): kayıt *"direction chosen by employee"*, `EmployeeNote` *"You chose
-Clock out."* (metinler Q33 ile birlikte kesinleşir). **Açık bırakılan giriş:** çalışan `in` seçip aynı iş
+Clock out."* (Q33, 2026-10-21: insan dili; metinleri yapıcı ve denetçi kesinleştirir). **Açık bırakılan giriş:** çalışan `in` seçip aynı iş
 günündeki açık girişi açık bırakırsa (bölünmüş vardiya — ürün merceği Ü-O2) `Decision` onu **çıkış talebi
 çapası** olarak işaretler (neden: *çalışan seçimi*) — Faz C kartı bu nedende de **açılır** (önceki sürümün
 *"bu nedende açılmaz"* kararı değişti). Çalışan `out` seçip çıkış yetimse (b/c) karar *"giriş eksik"*
@@ -810,7 +815,7 @@ not (kuyruk `want`'ı saklar).
   sunucunun `Now`'ı değerden önceyken gelen `want` **yok sayılır** — kayıt motorun yönüyle, `auto` (S yokken
   çalışanın seçtiği önsüz bir çıkış (d) olur ve hiçbir yerde görünmezdi). Negatif test: iki kapalı modda
   `want=out` → motorun yönü, `auto`, tam bir satır. Kapı M15-04'ün **tek** fonksiyonudur.
-- **Sevk kapısı:** (1) Q31(a) cevaplandı ve M15-13 gerekiyorsa bitti; (2) **anahtar canlıda ayarlı ve
+- **Sevk kapısı:** (1) M15-13 bitti (Q31 *evet*, 2026-10-21); (2) **anahtar canlıda ayarlı ve
   geçmişte** (K6 ile Faz A önce çıktığı için normalde zaten öyle) — ikisi olmadan bu kart `main`'e girmez.
 
 ## M15-12 — `GET /t` tahmini ve tap ekranı (§9)
@@ -853,9 +858,13 @@ not (kuyruk `want`'ı saklar).
    (varsa yeniden kullanılır ve güncellenir; bfcache ya da ikinci gönderim iki alan üretmez); sonra iki
    düğme birlikte devre dışı. GPS çağrısı tek.
 4. Account önizlemesi (`TapButtonFace(TapButtonPreview)`): *"Clock in"* yüzü, bağlantı yok, `type="button"`.
-5. Goldens: tap render'ları bilinçli yeniden üretilir (diff satır satır raporda); sonuç ve aktivasyon
-   golden'ları değişmez.
-6. **Güncellenecek metinler** (ürün merceği D4): CLAUDE.md §9 tap paragrafı; skill `tappa-brand`
+5. **Sonuç başlığı (Q33, 2026-10-21):** `ResultView.Headline` *"Tapped in / Tapped out"* → *"Clocked in /
+   Clocked out"* (`web/templates/pages/view.go:389-399`; sonuç ekranının metni — kullanıcının §9 kararı); kayıt ve
+   çalışan notları ADR 0032 §B.4'ün insan dili ayrımıyla (M15-10).
+5b. Goldens: tap render'ları **ve** başlık değişikliğiyle sonuç render'ları bilinçli yeniden üretilir (diff
+   satır satır raporda; sonuçta yalnız başlık kelimesi değişir); aktivasyon golden'ları değişmez. M15-17'nin
+   *"kartsız sonuç ekranları bayt-aynı"* kriteri bu kartın yeniden ürettiği golden'lara göredir.
+6. **Güncellenecek metinler** (ürün merceği D4): CLAUDE.md §9 tap paragrafı (başlık kelimesi dahil); skill `tappa-brand`
    `SKILL.md:484` (*"kelimesi 'Tap' … tek yeni metin logonun alt'ıdır"*) ve *"Tap ekranı — kutsal alan"*;
    ADR 0023 §6 madde 10'a (`0023:861`) tarihli not.
 
@@ -880,10 +889,9 @@ not (kuyruk `want`'ı saklar).
 **Tuzaklar.** Bağlantıyı `<a href>` yapmak · ikinci `<form>` · statik gizli alan · tahmini kapısız
 hesaplamak · sayacı sayfaya geri getirmek.
 
-## M15-13 — Koşullu: `/v1` punch akışına `directionSource` (00068)
+## M15-13 — `/v1` punch akışına `directionSource` (00068)
 
-- **Bağımlılık:** M15-11 · **Koşul:** Q31(a) *evet* (canlıda aktif API anahtarı ya da webhook'u olan bir
-  tenant varsa öneri *evet*) — *hayır* ise kart **atlanır** ve gerekçesi ledger'a yazılır
+- **Bağımlılık:** M15-11 · **Karar:** Q31 *evet* (2026-10-21) — kart **koşulsuz**, Faz B ile birlikte sevk edilir
 - **Kırmızı çizgi:** §4.5 (feed yazıcısı tanımlayıcı rolü), §4.3, ADR 0028 (sözleşme)
 - **Araç:** yapıcı + agent `tappa-db-migrator` · **Mercek: iki**
 - **Commit:** `feat(api): say who chose a punch's direction`
@@ -918,7 +926,7 @@ basış**.
 
 **Kabul kriterleri.** Tam suit yeşil; `make audit` exit 0; `TestEveryNamedTestExists` yeşil; güvenlik
 merceği ONAY (M15-06 dahil); beş elle vakada gövdede **tam bir** `want` ve basılan değer, her vakada tam bir
-satır; Q31 cevaplandı ve M15-13 gerekiyorsa bitti; **anahtar canlıda ayarlı ve geçmişte** (`state.md`'de
+satır; M15-13 bitti (Q31 *evet*); **anahtar canlıda ayarlı ve geçmişte** (`state.md`'de
 değeri ve ayarlandığı an).
 
 ---
@@ -1053,7 +1061,7 @@ oturum id'si ek veri, 15 dk), duvar saati → pencere içindeki aday anlardan **
 skill `tappa-brand`'in sonuç ekranı maddesi.
 
 **Kabul kriterleri.**
-- Kartsız sonuç ekranları **bayt-aynı** (`TestUnbrandedScreens_AreByteIdenticalToTheGolden`,
+- Kartsız sonuç ekranları — M15-12'nin (Q33 başlığıyla) yeniden ürettiği golden'lara göre — **bayt-aynı** (`TestUnbrandedScreens_AreByteIdenticalToTheGolden`,
   `TestResultScreen_DrawsTheLogoAndNoAccent` değişmeden yeşil); kartlı şekiller için yeni golden'lar;
   accent yok.
 - **Ü-Y2:** S'si NULL (M15 öncesi) bir açık girişin ardından gelen dokunuşta kart **çıkmaz**.

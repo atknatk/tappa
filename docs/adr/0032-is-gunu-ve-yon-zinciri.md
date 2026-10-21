@@ -1,6 +1,7 @@
 # ADR 0032 — İş günü ve yön zinciri: açık giriş yalnız kendi iş gününde kapanır
 
-- **Durum:** Önerildi (2026-10-21; plan 6. sürümüyle — mercek turları ve kullanıcı kararları K1–K6 işlendi)
+- **Durum:** Kabul edildi (2026-10-21) — plan 6. sürümüyle (`f05c90e`; mercek turları ve kullanıcı kararları
+  K1–K6), M15-01'de kullanıcı onayı. Açık sorular Q30–Q33 aynı gün cevaplandı (aşağıda *"Kabul notu"*).
 - **Karar veren:** kullanıcı, 2026-10-21 — fazlar A/B/C, iki CLAUDE.md §9 onayı (tap ekranında
   tahmini yön + düzeltme bağlantısı; sonuç ekranında eksik yarı talep kartı) ve dört karar:
   **K1** kademe işletme → şube → departman → kişi (şube = çalışanın **profil** şubesi); **K2** geçmiş
@@ -23,6 +24,20 @@
   [ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md) §7 (zincir işverende, K-36) ·
   [ADR 0028](0028-dis-api-anahtar-akis-webhook.md) (punch akışı, K-6) · Q01, Q18 ·
   plan [M15](../plan/m15-is-gunu-ve-yon.md)
+
+## Kabul notu (2026-10-21, M15-01)
+
+Kullanıcı ADR'yi kabul etti ve açık soruları önerilen seçeneklerle cevapladı (AskUserQuestion):
+- **Q30:** KF işletme kesimi **05:00**, KM işletme kesimi **23:00**; yayından önce Account'taki *"Business day
+  check"* üretimde yeniden bakılır (plan M15-08).
+- **Pilot olmayan iki canlı tenant:** işletme varsayılanı 05:00 geçerli; vardiyalarıyla çakışırsa owner panelinin
+  her ekranında `PanelNotice` çıkar, owner kendisi ayarlar (§A.8, plan M15-08 adım 3a).
+- **Q31:** evet — `/v1` punch olayına isteğe bağlı `directionSource: auto|employee` (v1 ile geriye uyumlu), plan
+  M15-13 ile Faz B birlikte (artık koşullu değil); onaylı talepler (manuel) akışa girmez (K-6) (§B.6).
+- **Q32:** M15'te bildirim yok; çalışan sonucu M9-05 ile görür; pilotta istenirse ayrı karar.
+- **Q33:** sonuç başlığı **"Clocked in / Clocked out"**; çalışana görünen notlar insan dilinde (§B.4); golden'lar
+  bilinçli yeniden üretilir (plan M15-12).
+- K5 ve K6 önceden cevaplanmıştı.
 
 ## Bağlam
 
@@ -423,7 +438,7 @@ etkin olur.
 ### Faz B — tahmini yön ve düzeltme
 
 **B.1 Ekran** (kullanıcının §9 onayı, 2026-10-21). Tek birincil düğme tahmini yönü söyler: *"Clock
-in"* / *"Clock out"* (bugünkü düğme *"Tap"*, sonuç *"Tapped in / out"* — Q33). Altında küçük metin
+in"* / *"Clock out"* (bugünkü düğme *"Tap"*; sonuç başlığı *"Tapped in / out"* → *"Clocked in / Clocked out"* — Q33, 2026-10-21). Altında küçük metin
 bağlantısı görünümlü ikinci gönderim: *"Not right? Clock out"* (ya da *in*); ana düğmeyle arasında en
 az 24 px dikey boşluk. Tek **birincil** düğme kuralı korunur; tenant accent'i yalnız birincil düğmenin
 zeminidir (ADR 0023 §2 değişmez), bağlantı accent taşımaz. Tahmin yapılamazsa bugünkü *"Tap"*
@@ -518,9 +533,9 @@ etkin değilken gelen `want` yok sayılır (`auto`) ve Faz B anahtar canlıda ay
 edilmez.
 
 **B.6 Dış API (G-O6).** `/v1` punch akışı canlıdır (`00048`–`00052`) ve olayın `direction`'ı
-`transactions.type`'tır (K-40); çalışanın seçtiği yön dış sisteme **işaretsiz** gider. Q31(a) bu
-yüzden Faz B'nin **sevk kapısıdır**: canlıda aktif API anahtarı ya da webhook'u olan bir tenant varsa
-`directionSource` alanı (eklemeli, v1 ile geriye uyumlu) Faz B ile **birlikte** sevk edilir. Alan saha
+`transactions.type`'tır (K-40); çalışanın seçtiği yön dış sisteme **işaretsiz** gider. **Q31 cevaplandı
+(2026-10-21): evet** — `directionSource: auto|employee` alanı (eklemeli, isteğe bağlı, v1 ile geriye uyumlu)
+Faz B ile **birlikte** sevk edilir; onaylı talepler akışa girmez (K-6). Alan saha
 tenant'ının satırına da geçer (holding punch'ının iki hedefi — ADR 0028 §4); ADR 0027 §9 madde 3
 (`0027:915-918`) sahanın gördüğü sütunları katalogla pinler — o maddeye tarihli bir **K notu** ve katalog
 pininin genişletilmesi kartın kabul kriteridir.
