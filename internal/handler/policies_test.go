@@ -788,7 +788,7 @@ var policyBranchWitness = map[string]string{
 	"else@1":                    "Your version history is shortened too",
 	"v.Queried@1":               "How your rules are decided",
 	"v.GuardrailsOnly@1":        "Your rules are not being applied right now",
-	`g.Tunable != ""@1`:         "may be set between",
+	`g.Tunable != ""@1`:         "set by Taptime for every business, between",
 	"len(v.Tenant) == 0@1":      "You have not written any policies of your own.",
 	"v.BaselineInForce@1":       "the intended starting point rather than a gap",
 	"else@3":                    "running on the Taptime guarantees alone",
@@ -2511,6 +2511,54 @@ func TestPoliciesSection_DrawsTheLadderTheEngineKeeps(t *testing.T) {
 	for _, claim := range []string{"First match wins", "first match wins", "read top to bottom"} {
 		if strings.Contains(section, claim) {
 			t.Errorf("the section says %q; below the guarantees the rules are weighed, not read in order", claim)
+		}
+	}
+}
+
+// TestPoliciesSection_SaysTheDebounceWindowIsTaptimes pins the correction of backlog
+// T72: the panel used to present the repeat window as something the business tunes
+// ("may be set between", "Some of them can be TUNED"). It is not: the window is one
+// process-wide value (TAPPA_DEBOUNCE_SECONDS through checkin.Service.Params into
+// tenant.NewRulebook), there is no per-tenant column and no form for it. So the page
+// must say Taptime sets it for every business, print the value the rulebook carries
+// rather than a constant, and keep printing the range a customer may ask for.
+func TestPoliciesSection_SaysTheDebounceWindowIsTaptimes(t *testing.T) {
+	screen := policyScreenFixture()
+	found := false
+	for i := range screen.Guardrails {
+		if screen.Guardrails[i].Sid != "sys:person-debounce" {
+			continue
+		}
+		found = true
+		// NOT the production default (60 s), so a template that typed the number in
+		// cannot pass for one that printed it.
+		screen.Guardrails[i].Bounded = &tenant.BoundedParam{
+			Label: "Repeat window for one person", Current: "45 s", Min: "30 s", Max: "5 min",
+		}
+	}
+	if !found {
+		t.Fatal("the fixture carries no sys:person-debounce guarantee, so this test reads nothing")
+	}
+	// The settings block prints its range in the same words.
+	screen.Settings = []tenant.Setting{{Label: "How near", Current: "175 m", Min: "25 m", Max: "1000 m", Uses: "zz"}}
+	section, _ := policySectionSlice(t, policyStatePage(t, policyPageState{screen: screen}))
+
+	for _, want := range []string{
+		"45 s",
+		htmlText("· set by Taptime for every business, between 30 s and 5 min"),
+		htmlText("· set by Taptime, between 25 m and 1000 m"),
+		"Some of them compare against a window Taptime sets",
+		"No business can change one.",
+	} {
+		if !strings.Contains(section, want) {
+			t.Errorf("the Rules section does not say %q; the repeat window is Taptime's, "+
+				"set once for every business", want)
+		}
+	}
+	for _, claim := range []string{"may be set between", "can be TUNED", "yours to set", "your setting", ", within"} {
+		if strings.Contains(section, claim) {
+			t.Errorf("the Rules section says %q, which offers the business a setting it "+
+				"cannot change: the window is one value for the whole service", claim)
 		}
 	}
 }

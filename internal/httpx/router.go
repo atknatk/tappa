@@ -127,7 +127,15 @@ func NewRouter(cfg *config.Config, log *slog.Logger, features ...Mounter) http.H
 	// budget and no query behind it.
 	r.Head(HealthPath, live)
 
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(noListing{http.FS(web.Static())})))
+	// /static/* is served by staticFiles (static.go): noListing's directory refusal plus a
+	// strong ETag and a Cache-Control per file. The operator host reaches this same route
+	// (operatorHostOnly passes staticPrefix), so both hosts get the same headers.
+	assets, err := newStaticFiles(web.Static())
+	if err != nil {
+		// The tree is embedded at compile time; a walk that fails here is a broken build.
+		panic(err)
+	}
+	r.Handle("/static/*", http.StripPrefix(staticPrefix, assets))
 
 	for _, f := range features {
 		if f != nil {

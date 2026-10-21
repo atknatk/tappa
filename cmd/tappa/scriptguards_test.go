@@ -914,7 +914,7 @@ func TestRedline_TheCounterSetMarkIsTheTriggersAlone(t *testing.T) {
 			r.write(s, string(b))
 		}
 		// Every tree the script reads exists (a missing one is a scan error, not a clean scan).
-		for _, d := range []string{"cmd", "internal", "db", "web/templates", "web/static/js", "test", "deploy", ".github"} {
+		for _, d := range []string{"cmd", "internal", "db", "web/templates", "web/static/js", "test", "deploy", ".github", "docs/api", "android/app/src/main"} {
 			r.write(d+"/keep.txt", "\n")
 		}
 		if _, ok := files["Makefile"]; !ok {

@@ -111,7 +111,7 @@
 #     annotation here that could turn it off or on for this host alone, and snippet
 #     annotations are disabled by default in ingress-nginx ≥1.9. The application-side
 #     half of T28 — the product setting its own header so it does not depend on a
-#     shared controller's default — is therefore still open.
+#     shared controller's default — is accepted in ADR 0005 (T28), not open.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

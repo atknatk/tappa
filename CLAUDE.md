@@ -37,7 +37,7 @@ make dev           # gen + css + çalıştır → localhost:8080
 make gen           # templ + sqlc üretimi   ← .templ veya .sql değişince ZORUNLU
 make test          # go test -race ./...
 make check         # fmt + lint + test (CI'nin çalıştırdığı)
-make audit         # govulncheck + kırmızı çizgi taraması
+make audit         # govulncheck + kırmızı çizgi + marka (B1: kullanıcı metninde `Tappa`) taraması
 make build-sandbox # sandbox sunucusu (-tags sandbox; Dockerfile hedefi app-sandbox)
 make check-sandbox # -tags sandbox ile vet + staticcheck + etiketin değiştirdiği paketlerin testi
 ```

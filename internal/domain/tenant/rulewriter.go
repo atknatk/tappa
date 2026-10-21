@@ -125,7 +125,7 @@ var (
 	// document may be switched off or superseded; it is never edited in place,
 	// because the tenant did not write it and a "correction" to it would be
 	// indistinguishable from an upgrade Tappa shipped (policy.BaselineVersion).
-	ErrNotYours = errors.New("tenant: a rule Tappa maintains cannot be rewritten here")
+	ErrNotYours = errors.New("tenant: a rule Taptime maintains cannot be rewritten here")
 	// ErrCrossLocationFirst refuses switching OFF an evidence rule
 	// (policy.CrossLocationEvidenceSids) while the cross-location rule's OLD allow is
 	// in force -- a baseline stored before 2026-10-18, or a tenant copy made from it.
