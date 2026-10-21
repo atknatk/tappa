@@ -131,7 +131,7 @@ func TestDecide_CrossLocationGetsTheHomeOutcomePlusANote(t *testing.T) {
 				}
 				// No direction note here (no open check-in), so the home note is the
 				// rule's sentence alone and the note follows it.
-				if strings.Contains(home.Note, staleOpenInNote) {
+				if strings.Contains(home.Note, LeftOpenNote) {
 					t.Fatalf("precondition: home note %q carries a direction note", home.Note)
 				}
 				if wantNote := appendNote(home.Note, reason); other.Note != wantNote {

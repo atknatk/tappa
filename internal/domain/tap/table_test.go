@@ -14,8 +14,8 @@ import (
 // and every M4-07 mandatory edge case. It CLOSES the gaps the earlier M4 test files
 // deliberately left and serves as the single COVERAGE LEDGER for §5. Every Now here
 // is a FIXED UTC instant (the package never calls time.Now()), so nothing breaks at
-// midnight (M4-07 trap). Fixtures (baseInput/onSiteInput/withShift/wantLate/
-// staleOpenInNote) are reused from decide_test.go and lateness_test.go — NOT
+// midnight (M4-07 trap). Fixtures (baseInput/onSiteInput/withShift/wantLate) and
+// LeftOpenNote are reused from decide_test.go, lateness_test.go and decide.go — NOT
 // re-declared — so this file adds coverage without duplicating it.
 //
 // DUPLICATION LEDGER — §5's seven rows and the five M4-07 mandatory cases, each with
@@ -198,7 +198,7 @@ func TestDecide_RustyBarNightShiftFullRound(t *testing.T) {
 	if gotOut.Type == nil || *gotOut.Type != TypeOut {
 		t.Fatalf("02:10 must close the 18:05 check-in (OUT) across midnight; Type = %v", gotOut.Type)
 	}
-	if strings.Contains(gotOut.Note, staleOpenInNote) {
+	if strings.Contains(gotOut.Note, LeftOpenNote) {
 		t.Errorf("an ~8h overnight shift is not a forgotten checkout; Note = %q", gotOut.Note)
 	}
 	if gotOut.MinutesLate != nil {

@@ -32,6 +32,16 @@ var sweepZones = []string{
 //	S(S) = S                      the start is a fixed point (the start instant
 //	                              belongs to the day it starts)
 //	22 h ≤ Next(S) − S ≤ 26 h     no day is lost or doubled across DST
+//	S's wall clock is the cutoff  unless the cutoff falls in a spring gap — no
+//	                              instant within 3 h of S reads it
+//	no earlier instant has S's    a repeated (autumn) wall clock starts the day
+//	wall clock                    at its EARLIER instant
+//
+// The last two are what the first four cannot see: a cutoff shifted by a minute, or
+// the later of two autumn instants chosen consistently, still makes a self-consistent
+// chain of days. They are checked by brute force — every instant within 3 h of S on
+// the 15-minute UTC grid (every offset of these zones, and every cutoff swept, is a
+// multiple of 15 minutes, and no DST step exceeds 2 h) — not by the code under test.
 //
 // 0 violations is the claim; on failure the count per property is reported with the
 // first counterexample.
@@ -93,6 +103,12 @@ func TestDecide_BusinessDayBoundaryHoldsInEveryZoneEveryCutoffEveryFiveMinutes(t
 							if ss, _ := businessDayStartIn(s, cut, loc); !ss.Equal(s) {
 								fail("S(S) != S", at, s, next)
 							}
+							if !wallClockIsTheCutoff(s, cut, loc) {
+								fail("S's wall clock is not the cutoff (and no gap)", at, s, next)
+							}
+							if earlierInstantWithTheSameWallClock(s, loc) {
+								fail("an earlier instant has S's wall clock", at, s, next)
+							}
 							next, _ = nextBusinessDayStartIn(s, cut, loc)
 							if l := next.Sub(s); l < 22*time.Hour || l > 26*time.Hour {
 								fail("day length outside 22-26 h", at, s, next)
@@ -123,6 +139,38 @@ func TestDecide_BusinessDayBoundaryHoldsInEveryZoneEveryCutoffEveryFiveMinutes(t
 			t.Logf("%s: %d days, %d points checked", zone, len(days), points)
 		})
 	}
+}
+
+// wallClockIsTheCutoff reports whether s reads cut on loc's wall clock, or — the one
+// allowed exception — cut is a wall clock that no instant within 3 h of s reads (a
+// spring gap: s is where time.Date normalised the missing wall clock to).
+func wallClockIsTheCutoff(s time.Time, cut time.Duration, loc *time.Location) bool {
+	if localTimeOfDay(s.In(loc)) == cut {
+		return true
+	}
+	// The grid is the UTC 15-minute grid, NOT one relative to s: a wrong s (a cutoff
+	// shifted by a minute) would otherwise put every probe off the grid the cutoff
+	// lives on and the scan would find nothing.
+	for u := s.Add(-3 * time.Hour).Truncate(15 * time.Minute); !u.After(s.Add(3 * time.Hour)); u = u.Add(15 * time.Minute) {
+		if localTimeOfDay(u.In(loc)) == cut {
+			return false
+		}
+	}
+	return true
+}
+
+// earlierInstantWithTheSameWallClock reports whether an instant up to 3 h before s
+// reads the same local date and time as s does.
+func earlierInstantWithTheSameWallClock(s time.Time, loc *time.Location) bool {
+	local := s.In(loc)
+	y, m, d := local.Date()
+	for u := s.Add(-15 * time.Minute); !u.Before(s.Add(-3 * time.Hour)); u = u.Add(-15 * time.Minute) {
+		l := u.In(loc)
+		if ly, lm, ld := l.Date(); ly == y && lm == m && ld == d && localTimeOfDay(l) == localTimeOfDay(local) {
+			return true
+		}
+	}
+	return false
 }
 
 // sweepDays is the UTC days the sweep covers: all of them when full, otherwise the
@@ -168,6 +216,8 @@ func sweepDays(loc *time.Location, from, to time.Time, full bool) []time.Time {
 //     instant and the day before is 25 h; 02:30 and 02:00 happen twice and S is the
 //     EARLIER instant; Go's own time.Date picks the later (pinned here, so the reason
 //     for the explicit code is held, not remembered).
+//   - Lord Howe's autumn step of 30 minutes (2025-04-06): 01:45 happens twice, S is
+//     the earlier instant, Go picks the later.
 //   - Malta's spring-forward (2027-03-28, 02:00 CET → 03:00 CEST): 05:00's day before
 //     is 23 h; 02:30 does not exist and lands where time.Date normalises it (01:30Z).
 func TestDecide_BusinessDayPinsTheMeasuredInstants(t *testing.T) {
@@ -195,6 +245,11 @@ func TestDecide_BusinessDayPinsTheMeasuredInstants(t *testing.T) {
 		{"malta_autumn_0230_earlier_instant", "Europe/Malta", 2*time.Hour + 30*time.Minute, "2026-10-25T00:45:00Z", "2026-10-25T00:30:00Z", "2026-10-26T01:30:00Z"},
 		{"malta_autumn_0230_just_before", "Europe/Malta", 2*time.Hour + 30*time.Minute, "2026-10-25T00:29:00Z", "2026-10-24T00:30:00Z", "2026-10-25T00:30:00Z"},
 		{"malta_autumn_0200_earlier_instant", "Europe/Malta", 2 * time.Hour, "2026-10-25T00:30:00Z", "2026-10-25T00:00:00Z", "2026-10-26T01:00:00Z"},
+		// Lord Howe's autumn step is 30 minutes (2025-04-06 02:00 +11 -> 01:30 +10:30):
+		// 01:45 happens at 14:45Z (+11) and 15:15Z (+10:30); S is the earlier, and that
+		// business day is 24.5 h long.
+		{"lord_howe_autumn_0145_earlier_instant", "Australia/Lord_Howe", time.Hour + 45*time.Minute, "2025-04-05T15:00:00Z", "2025-04-05T14:45:00Z", "2025-04-06T15:15:00Z"},
+		{"lord_howe_autumn_0145_just_before", "Australia/Lord_Howe", time.Hour + 45*time.Minute, "2025-04-05T14:44:00Z", "2025-04-04T14:45:00Z", "2025-04-05T14:45:00Z"},
 		{"malta_spring_0500_short_day_before", "Europe/Malta", 5 * time.Hour, "2027-03-28T02:59:00Z", "2027-03-27T04:00:00Z", "2027-03-28T03:00:00Z"},
 		{"malta_spring_0500", "Europe/Malta", 5 * time.Hour, "2027-03-28T10:00:00Z", "2027-03-28T03:00:00Z", "2027-03-29T03:00:00Z"},
 		{"malta_spring_0230_missing", "Europe/Malta", 2*time.Hour + 30*time.Minute, "2027-03-28T01:30:00Z", "2027-03-28T01:30:00Z", "2027-03-29T00:30:00Z"},
@@ -228,6 +283,13 @@ func TestDecide_BusinessDayPinsTheMeasuredInstants(t *testing.T) {
 	}
 	if got := time.Date(2026, 10, 25, 2, 30, 0, 0, malta).UTC(); !got.Equal(utc("2026-10-25T01:30:00Z")) {
 		t.Errorf("time.Date picks %s for Malta's repeated 02:30; this file says Go picks the later instant (01:30Z)", got)
+	}
+	lordHowe, err := time.LoadLocation("Australia/Lord_Howe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := time.Date(2025, 4, 6, 1, 45, 0, 0, lordHowe).UTC(); !got.Equal(utc("2025-04-05T15:15:00Z")) {
+		t.Errorf("time.Date picks %s for Lord Howe's repeated 01:45; this file says Go picks the later instant (15:15Z)", got)
 	}
 }
 

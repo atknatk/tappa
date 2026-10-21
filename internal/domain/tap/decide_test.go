@@ -532,7 +532,7 @@ func TestDecide_DirectionOutWhenOpenCheckIn(t *testing.T) {
 	if got.Type == nil || *got.Type != TypeOut {
 		t.Fatalf("open check-in must yield OUT; Type = %v", got.Type)
 	}
-	if strings.Contains(got.Note, staleOpenInNote) {
+	if strings.Contains(got.Note, LeftOpenNote) {
 		t.Errorf("a 3h-old open check-in is not stale; Note = %q", got.Note)
 	}
 }
@@ -554,7 +554,7 @@ func TestDecide_DirectionRustyBarOvernight(t *testing.T) {
 	if got.Type == nil || *got.Type != TypeOut {
 		t.Fatalf("02:10 tap must close the previous evening's 18:05 check-in (out), across midnight; Type = %v", got.Type)
 	}
-	if strings.Contains(got.Note, staleOpenInNote) {
+	if strings.Contains(got.Note, LeftOpenNote) {
 		t.Errorf("an ~8h overnight shift is not a forgotten checkout; Note = %q", got.Note)
 	}
 }

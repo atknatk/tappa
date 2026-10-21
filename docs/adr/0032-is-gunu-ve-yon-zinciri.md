@@ -139,8 +139,9 @@ Sınır `tap` paketinde **tek dışa açık saf fonksiyonla** hesaplanır:
 - **`S(at)` — adaylardan ≤ `at` olan en geç.** `at`'in yerel tarihi `d` için üç aday kurulur: `d − 1`,
   `d`, `d + 1`; her aday önce **tarihi normalize edilerek** (`time.Date(y, m, d±1, 12, 0, 0, 0, loc)`'un
   tarihi alınır — `d − 1` ayın 0. günü olabilir) sonra o tarihte kesimin duvar saatiyle kurulur. `S` =
-  `at`'ten sonra olmayan **en geç** aday. *(3. sürümün "o günün adayı, `at`'ten sonraysa bir gün geri"
-  kuralı ölçümde düştü — motor merceği, `scratchpad/m15rev-engine/dst`: `America/Santiago` ve
+  `at`'ten sonra olmayan **en geç** aday. *(4. sürümün "o günün adayı, `at`'ten sonraysa bir gün geri"
+  kuralı ölçümde düştü — motor merceğinin geçici tarama programı (2026-10-21; programın başlığı "Plan v4",
+  M15-03 yapıcısı ve denetçisi aynı sayıları yeniden ölçtü): `America/Santiago` ve
   `America/Havana`'da gece yarısı DST'si var olmayan 00:00'ı Go'nun **geriye** normalize etmesine yol
   açıyor; örn. kesim 00:00, `at` = 2025-09-06 23:00 −04 → `S` = 09-06 00:00, `Next` = 09-06 23:00 —
   `S(S) ≠ S` 3366, `at ≥ Next` 90 ihlal.)*
@@ -151,11 +152,14 @@ Sınır `tap` paketinde **tek dışa açık saf fonksiyonla** hesaplanır:
   (aynı duvar saatini veren daha erken bir an denenir). **Tuzak (ölçüldü):** "erken olanı seç" karşılaştırması
   `d − 1`'in **normalize edilmemiş** tarihiyle yapılırsa Malta'da 02:00 kesiminde `S(S) ≠ S` 114 kez —
   tarih önce normalize edilir.
-- **Ölçüm (2026-10-21, motor merceği, `scratchpad/m15rev-engine/dst/v4`):** bu algoritma on iki bölgede
-  (Europe/Malta, Asia/Beirut, America/Asuncion, Australia/Lord_Howe, Pacific/Chatham, America/Scoresbysund,
-  Antarctica/Troll, Africa/Casablanca, America/St_Johns, Asia/Tehran, America/Santiago, America/Havana),
-  15 dk'lık her kesim, 2025–2027, 5 dk adımla **0 ihlal** verdi (`S(at) ≤ at < Next(S(at))`, `S` monoton,
-  `S(S) = S`, gün uzunluğu 22–26 sa). Bu tarihli bir gözlemdir; kart aynı listeyle bir özellik testi yazar.
+- **Ölçüm (2026-10-21, M15-03, repoda):** bu algoritma on iki bölgede (Europe/Malta, Asia/Beirut,
+  America/Asuncion, Australia/Lord_Howe, Pacific/Chatham, America/Scoresbysund, Antarctica/Troll,
+  Africa/Casablanca, America/St_Johns, Asia/Tehran, America/Santiago, America/Havana), 15 dk'lık her kesim,
+  2025–2027, 5 dk adımla **0 ihlal** verdi (`S(at) ≤ at < Next(S(at))`, `S` monoton, `S(S) = S`, gün uzunluğu
+  22–26 sa; 363 294 720 nokta) — `TestDecide_BusinessDayBoundaryHoldsInEveryZoneEveryCutoffEveryFiveMinutes`,
+  `TAPPA_TEST_FULL_DST_SWEEP=1` ile tam ızgara (varsayılan koşu offset değişimlerinin çevresini tarar). Bu
+  tarihli bir gözlemdir. *(Daha önce burada atıf yapılan geçici tarama programı 0 ihlali değil, düşen 4. sürüm
+  kuralının yukarıdaki karşı örneğini ölçüyordu.)*
 
 Aynı sınırı çıkış sınıflandırması (§A.6), talep penceresi (§C.3), ayar uyarısı (§A.7) ve `GET /t`
 tahmini (§B.2) de ister; çağıranda hesaplanan bir an her birinde ayrı bir kopya olurdu. Kabul edilen

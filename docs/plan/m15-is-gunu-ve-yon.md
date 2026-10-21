@@ -384,8 +384,10 @@ yeniden yazılır:
   Australia/Lord_Howe, Pacific/Chatham, America/Scoresbysund, Antarctica/Troll, Africa/Casablanca,
   America/St_Johns, Asia/Tehran, America/Santiago, America/Havana — × 15 dk'lık her kesim × 2025–2027,
   5 dk adımla: `S(at) ≤ at < Next(S(at))`, `S` monoton, `S(S) = S`, gün uzunluğu 22–26 sa. **0 ihlal** —
-  motor merceğinin aynı algoritmayla ölçtüğü sonuç (`scratchpad/m15rev-engine/dst/v4`, 2026-10-21, tarihli
-  gözlem). Santiago/Havana'nın kesim 00:00 vakası (`at` = 2025-09-06 23:00 −04) adıyla pinlenir.
+  ölçüldü (2026-10-21, M15-03): `TestDecide_BusinessDayBoundaryHoldsInEveryZoneEveryCutoffEveryFiveMinutes`,
+  `TAPPA_TEST_FULL_DST_SWEEP=1` ile tam ızgara, 363 294 720 nokta (tarihli gözlem; motor merceğinin geçici
+  tarama programı düşen 4. sürüm kuralının 3366/90 karşı örneğini ölçüyordu, 0 ihlali değil). Santiago/Havana'nın
+  kesim 00:00 vakası (`at` = 2025-09-06 23:00 −04) adıyla pinlenir.
 - DST: Malta 2026-10-25 ve 2027-03-28'de 05:00 ve 02:30 kesimleri; sonbaharda iki kez yaşanan saatte
   **erken** an.
 - Sınıflandırma: altı sınıfın her hücresi + sınırlar (`in.At == S` kapatır; tam 18 sa kapatır; 18 sa + 1 sn
@@ -500,6 +502,10 @@ aynı sınıflandırmayı kullanır.
    `ListWorkedShiftEvents` ve şeridin okuması `created_at`'i döndürür; ledger kişi başına son `in`'i (`I`,
    sırayla) ve önceki olayın `created_at`'ini (`W`) izler. Dönem sınırı ADR 0032 §A.6'daki gibi.
 4. Yorumlar: `anomalies.sql:647-652`'nin *"meşru fark"* bloğu yeniden yazılır; ekran cümlesi güncellenir.
+   **`internal/domain/ledger/report.go:981`'in yorumu da** (*"The engine annotates a closing tap this far from
+   its check-in as a probable forgotten checkout"* — güvenlik merceğinin M15-03 notu): M15-03'ten sonra yanlış;
+   motor artık `StaleOpenIn`'i aşan bir `out` yazmıyor (o dokunuş `in` olur ve giriş açık kalır), bu dala
+   (sınıf (a)) yalnız tarihsel ve manuel satırlar düşer. Yorum bunu söyleyecek biçimde yeniden yazılır.
 5. **Parite testi** (DB): altı sınıfın her hücresi, sınırlar, **eşzamanlı iki satır** (aynı `occurred_at`,
    `id` sırası — `I`'nın sırayla tanımı dahil), `W` eşitliği (aynı `created_at` → (c)), **mola** ve
    **düzeltme** şekilleri Go ve SQL'de; SQL süresi `pg_get_functiondef`'ten okunup `tap.StaleOpenIn` ile
@@ -728,6 +734,10 @@ kurmak · *"boş = 00:00"* okumak.
 **Kabul kriterleri.**
 - Tam suit yeşil (`-race`) — M15-04'ün saatten bağımsızlık testleri dahil; `make audit` exit 0;
   `TestEveryNamedTestExists` yeşil; güvenlik merceği ONAY.
+- **İş günü sınırının tam taraması bir kez:** `TAPPA_TEST_FULL_DST_SWEEP=1 go test ./internal/domain/tap -run
+  TestDecide_BusinessDayBoundaryHoldsInEveryZoneEveryCutoffEveryFiveMinutes -count=1` — on iki bölge × 96 kesim
+  × 2025–2027 × 5 dk, 0 ihlal (varsayılan koşu yalnız offset değişimlerinin çevresini tarar; M15-03 ölçümü:
+  363 294 720 nokta, ~20 sn / 16 çekirdek, race'siz). Sonuç (nokta sayısı, süre) kapanış notuna tarihli yazılır.
 - KM'nin bir günü (fırın 04:00–12:00 dahil) seed kesimiyle doğru yönlerle geçer.
 - *"Business day check"* bölümü owner dışında görünmez (manager 403/gizli — `mayEditAccount`), yalnız kendi
   tenant'ını okur (RLS testi); Q30'un değerleri (KF 05:00, KM 23:00) üretimde yeniden bakıldıktan sonra
