@@ -31,22 +31,56 @@ const landingCSSComponentsMarker = "THE PUBLIC SITE'S COMPONENTS"
 // comments removed.
 func landingCSSBlock(t *testing.T) string {
 	t.Helper()
-	css := repoFile(t, "web", "static", "css", "input.css")
+	_, block, problem := splitLandingCSS(repoFile(t, "web", "static", "css", "input.css"))
+	if problem != "" {
+		t.Fatal(problem)
+	}
+	return block
+}
+
+// splitLandingCSS cuts css into what precedes the .lp block and the block itself
+// (both without comments), or says why it cannot: no block, no components section, or
+// a block that is not outside every @layer.
+func splitLandingCSS(css string) (before, block, problem string) {
 	at := strings.Index(css, landingCSSMarker)
 	if at < 0 {
-		t.Fatalf("PREMISE: input.css has no %q header", landingCSSMarker)
+		return "", "", fmt.Sprintf("PREMISE: input.css has no %q header", landingCSSMarker)
 	}
 	start := strings.LastIndex(css[:at], "/*")
-	if !strings.Contains(css[start:], landingCSSComponentsMarker) {
-		t.Fatalf("PREMISE: the .lp block carries no %q section", landingCSSComponentsMarker)
+	if start < 0 || !strings.Contains(css[start:], landingCSSComponentsMarker) {
+		return "", "", fmt.Sprintf("PREMISE: the .lp block carries no %q section", landingCSSComponentsMarker)
 	}
-	// Outside @layer: every brace opened before the block is closed before it.
-	before := cssCommentRE.ReplaceAllString(css[:start], "")
+	before = cssCommentRE.ReplaceAllString(css[:start], "")
+	block = cssCommentRE.ReplaceAllString(css[start:], "")
+	// Outside @layer, both ways: every brace opened before the block is closed before
+	// it, and the block opens no layer of its own. Inside an @layer the rules would be
+	// tree-shaken against the template scan.
 	if open := strings.Count(before, "{") - strings.Count(before, "}"); open != 0 {
-		t.Fatalf("the .lp block starts inside %d open block(s) — inside an @layer it would be "+
-			"tree-shaken against the template scan", open)
+		return "", "", fmt.Sprintf("the .lp block starts inside %d open block(s) — inside an @layer "+
+			"it would be tree-shaken against the template scan", open)
 	}
-	return cssCommentRE.ReplaceAllString(css[start:], "")
+	if strings.Contains(block, "@layer") {
+		return "", "", "the .lp block opens an @layer; its rules would be tree-shaken against the " +
+			"template scan — the block is plain CSS after the layers"
+	}
+	return before, block, ""
+}
+
+// TestLandingCSS_LayerCheckRefusesALayerInsideTheBlock is the @layer half's control.
+func TestLandingCSS_LayerCheckRefusesALayerInsideTheBlock(t *testing.T) {
+	t.Parallel()
+	head := "/* " + landingCSSMarker + " */ .lp { } /* " + landingCSSComponentsMarker + " */ "
+	if _, _, p := splitLandingCSS("@layer components { .x { } } " + head + ".lp .a { }"); p != "" {
+		t.Fatalf("CONTROL: a block after a closed layer was refused: %s", p)
+	}
+	for name, css := range map[string]string{
+		"a layer inside the block": head + "@layer components { .lp .a { } }",
+		"the block inside a layer": "@layer components { " + head + ".lp .a { } }",
+	} {
+		if _, _, p := splitLandingCSS(css); p == "" {
+			t.Errorf("%s: the check passed it", name)
+		}
+	}
 }
 
 // lpCSSRule is one style rule: its selector list, its declarations, and whether it is a
@@ -385,5 +419,111 @@ func TestLandingCSS_EveryPressableClassReservesTheTouchFloor(t *testing.T) {
 		if best < floor {
 			t.Errorf("%s reserves min-height %dpx; a pressable class here reserves %dpx", sel, best, floor)
 		}
+	}
+}
+
+// productSpacingRE finds spacing in a product rule: a padding/margin declaration or a
+// Tailwind spacing utility in an @apply (py-1, px-2.5, mt-2 ...).
+var productSpacingRE = regexp.MustCompile(`(?:^|[;\s])(?:padding|margin)[a-z-]*\s*:|@apply[^;]*\s-?(?:p|px|py|pt|pr|pb|pl|ps|pe|m|mx|my|mt|mr|mb|ml|ms|me)-[\w.\[\]/]+`)
+
+// lpSpacingRE finds a padding/margin declaration in a .lp rule.
+var lpSpacingRE = regexp.MustCompile(`(?:^|[;\s])(?:padding|margin)[a-z-]*\s*:`)
+
+var cssClassRE = regexp.MustCompile(`\.(-?[a-zA-Z_][\w-]*)`)
+
+// zeroedProductClasses names every product class the .lp block uses (by name or by one
+// of its --modifiers) whose OWN rule
+// (selector exactly `.name`, outside the block) sets padding or margin, and which the
+// block does not give a padding/margin back with a `.lp .name` rule. `.lp * { margin: 0;
+// padding: 0 }` has a bare class's specificity and comes after the layers, so inside
+// .lp it wins over the product rule — a product component reused on the public site
+// loses its inner space unless the block restores it.
+func zeroedProductClasses(before, block string) []string {
+	spaced := map[string]bool{}
+	for _, r := range flatCSSRules(before) {
+		if !productSpacingRE.MatchString(r.decls) {
+			continue
+		}
+		for _, s := range r.selectors {
+			if m := cssClassRE.FindStringSubmatch(s); m != nil && "."+m[1] == s {
+				spaced[m[1]] = true
+			}
+		}
+	}
+	rules := flatCSSRules(block)
+	var out []string
+	seen := map[string]bool{}
+	for _, r := range rules {
+		for _, s := range r.selectors {
+			for _, m := range cssClassRE.FindAllStringSubmatch(s, -1) {
+				// A BEM modifier (.stamp--rejected) sits on an element that carries
+				// its base class (.stamp) too, so the modifier names the base as used.
+				name, _, _ := strings.Cut(m[1], "--")
+				if !spaced[name] || seen[name] {
+					continue
+				}
+				seen[name] = true
+				restored := false
+				for _, own := range landingCSSRulesFor(rules, ".lp ."+name) {
+					if lpSpacingRE.MatchString(own.decls) {
+						restored = true
+					}
+				}
+				if !restored {
+					out = append(out, name)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// TestLandingCSS_AReusedProductClassKeepsItsInnerSpace: today the one product class the
+// block reuses with spacing is the stamp (README O7). Its padding is the product's; the
+// small stamp overrides it and so must come after it.
+func TestLandingCSS_AReusedProductClassKeepsItsInnerSpace(t *testing.T) {
+	t.Parallel()
+	before, block, problem := splitLandingCSS(repoFile(t, "web", "static", "css", "input.css"))
+	if problem != "" {
+		t.Fatal(problem)
+	}
+	for _, name := range zeroedProductClasses(before, block) {
+		t.Errorf("the .lp block uses the product class .%s, whose own rule sets padding or margin, "+
+			"and gives none back: `.lp * { padding: 0; margin: 0 }` wins over the product rule "+
+			"inside .lp. Add `.lp .%s { … }` with the product's value.", name, name)
+	}
+
+	rules := flatCSSRules(block)
+	stamp := -1
+	var small []int
+	for i, r := range rules {
+		if !lpSpacingRE.MatchString(r.decls) {
+			continue
+		}
+		for _, s := range r.selectors {
+			switch s {
+			case ".lp .stamp":
+				stamp = i
+			case ".lp .lp-stamp-sm":
+				small = append(small, i)
+			}
+		}
+	}
+	if stamp < 0 {
+		t.Fatal("PREMISE: no `.lp .stamp` rule gives the stamp its padding back")
+	}
+	if len(small) == 0 {
+		t.Fatal("PREMISE: no `.lp .lp-stamp-sm` rule sets the small stamp's padding")
+	}
+	for _, i := range small {
+		if i < stamp {
+			t.Errorf("a `.lp .lp-stamp-sm` padding rule (rule %d) comes before `.lp .stamp` (rule %d); "+
+				"at equal specificity the full-size padding would win over the small one", i, stamp)
+		}
+	}
+
+	// CONTROL: the shape without the restoring rule is reported.
+	if got := zeroedProductClasses(".stamp { @apply px-2.5 py-1 -rotate-6; }", ".lp .stamp--ok { }"); len(got) != 1 || got[0] != "stamp" {
+		t.Errorf("CONTROL: the scan reported %q for a reused .stamp with no padding back, want [stamp]", got)
 	}
 }

@@ -2134,6 +2134,11 @@ html:has(.lp) { scroll-behavior: smooth; }
 @media (min-width: 1200px) { .lp .band { padding-bottom: 96px; } }
 .lp .band--paper { background: var(--paper); }
 .lp .band--porcelain { background: var(--porcelain); }
+/* --ring is inherited. A light surface placed INSIDE a dark ground (a paper card on
+   the ink band, a paper panel in the green box) must set it back to ink, or its
+   controls get a paper ring on paper (1:1). The ring test measures only the rules
+   that switch --ring, so such a surface is not caught by it -- it is on the card
+   that draws one. */
 .lp .band--ink { background: var(--ink); color: var(--paper); --ring: var(--paper); }
 /* On paper a hairline in --line all but disappears (1.24:1), so the board darkens
    the edge of whatever sits on a paper band to ink at 24%. */
@@ -2261,7 +2266,16 @@ html:has(.lp) { scroll-behavior: smooth; }
 /* ---------------- stamps ---------------- */
 /* The product stamp (word ink, colour in the frame -- skill tappa-brand). The
    boards tilt two verdicts differently from the panel: rejected -10°, ignored -4°
-   (approved -6° and flagged -3° are already the product's). No colour here. */
+   (approved -6° and flagged -3° are already the product's). No colour here.
+   THE PADDING IS PUT BACK, NOT RESTYLED: `.lp * { padding: 0 }` at the top of this
+   block has the product .stamp rule's specificity and comes after it in app.css, so
+   inside .lp it zeroed the stamp's padding and the word sat on the frame. The value
+   is the product's own (Tailwind's py-1 px-2.5 on .stamp), not the boards' 3px 8px:
+   the public site uses the panel's stamp (README O7), whose letter spacing and
+   corner it already keeps, so its inner space is the panel's too. .lp-stamp-sm
+   below overrides it and must stay AFTER this rule (same specificity). The
+   reused-product-class test holds both. */
+.lp .stamp { padding: .25rem .625rem; }
 .lp .stamp--rejected { transform: rotate(-10deg); }
 .lp .stamp--ignored { transform: rotate(-4deg); }
 .lp .lp-stamp-sm { font-size: 10px; padding: 2px 7px; letter-spacing: .12em; }
