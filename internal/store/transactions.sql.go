@@ -402,19 +402,31 @@ type GetLastOpenTransactionParams struct {
 //     row hide an entry that was open at @at -- the same queued checkout, seen from
 //     the other side.
 //
-// For a live tap @at is now, and the only rows beyond it are a manager's manual
-// record placed up to manual.FutureGrace (one minute) ahead; such a row no longer
-// counts until its instant arrives -- the rule, applied.
+// For a live tap @at is now -- Record's now, read BEFORE the person's advisory lock
+// is taken -- and the rows beyond it are chiefly a manager's manual record: one
+// placed up to manual.FutureGrace (one minute) ahead, or one written while this tap
+// waited for the lock (the manual path does not take the person's lock today; M15-05
+// changes that). Such a row does not count until its instant arrives -- the rule,
+// applied. The same person's concurrent second tap can also land beyond @at; it is
+// inside the 60 s debounce, so it is `ignored` and carries no direction.
 //
 // The order is (occurred_at, id) everywhere: in the row comparison, so of an `in`
 // and an `out` at the SAME instant the one with the larger id is the later one
 // (strict `>` on occurred_at alone made a same-instant out close nothing, and the
 // ORDER BY without id picked either of two same-instant entries), and in the ORDER
 // BY. It is the order the checkout classification (tappa_checkout_class's callers)
-// and the ledger read (ListWorkedShiftEvents: per person, occurred_at then id), so the
-// three readers cannot disagree about which of two same-instant rows came first.
-// id is gen_random_uuid() (00005): the tie-break is arbitrary but total and stable,
-// which is all an order needs.
+// and the ledger read (ListWorkedShiftEvents: per person, occurred_at then id), so
+// the three READERS agree about which of two same-instant rows already in the table
+// came first. id is gen_random_uuid() (00005): the tie-break is arbitrary but total
+// and stable, which is all an order needs.
+//
+// ⚠️ THE WRITER IS NOT ONE OF THEM, for its own row. A tap that declares EXACTLY the
+// microsecond of the open entry is decided as that entry's `out` (the entry is open
+// at @at), but the new row's id is random, so in (occurred_at, id) order the later
+// readers put it BEFORE the entry about half the time (measured in the M15-02
+// security review: 14 of 40) -- then the out is not that entry's closing out and
+// the entry stays open in the list. It takes a hand-written POST that hits the
+// entry's microsecond, and it gains no hours: the pair counts zero time either way.
 //
 // business_day_start is in the list because this query returns the whole store
 // Transaction (a row type without it would be a second model); nothing here

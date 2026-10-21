@@ -32,9 +32,14 @@
 -- THE FIRST STATEMENT IS lock_timeout (00037:52, 00038:39): every ALTER below takes ACCESS
 -- EXCLUSIVE on a table the tap path reads. Behind a long reader the file gives up with 55P03
 -- (nothing changes, run it again at a quiet moment) instead of queueing every later tap behind
--- its lock. The tables are altered in the order the tap path reads them -- the four tables
--- GetEmployeeForTap joins in one statement first, transactions last -- so this file's lock order is
--- the tap's (a tap that already holds transactions holds the other four too).
+-- its lock. The tables are altered in the order an ordinary tap reads them -- the four tables
+-- GetEmployeeForTap joins in one statement first, transactions last -- so for that path this
+-- file's lock order is the tap's. A tap on a PEER's plaque is not that path: holding_tap_site, in
+-- the locked transaction, reads locations and tenants before employees, so a cycle with this file
+-- is possible there. lock_timeout ends it within the second on THIS side (55P03: the file changes
+-- nothing and is run again); if the deadlock detector gets there first (40P01, deadlock_timeout is
+-- also 1 s by default) it may pick either side, and a peer tap it picks answers an error with no row
+-- written -- the person taps again. Run the file at a quiet moment.
 --
 -- PRIVILEGES, MEASURED AT 00063 (has_table_privilege / has_column_privilege, tappa-m15-db):
 --   tenants      tappa_app holds SELECT table-wide and UPDATE COLUMN BY COLUMN (00024:120 --

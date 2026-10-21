@@ -292,6 +292,10 @@ func TestGetEmployeeForTap_TheCutoffIsTheMostSpecificLevel(t *testing.T) {
 		{"the department beats the profile branch -- and the department's own branch is A, the profile branch B",
 			ptr(w.branchB), ptr(w.dept), "", "14:00:00.000000"},
 		{"a department with no cutoff inherits: the profile branch", ptr(w.branchB), ptr(inheriting), "", "03:00:00.000000"},
+		// The branch level is the PROFILE branch, never the department's: profile A (no cutoff), the
+		// inheriting department on B (03:00) -> the business, not B. A join through
+		// coalesce(d.location_id, e.location_id) would answer 03:00 here (measured, M15-02 review).
+		{"the branch level is the profile branch, not the department's branch", ptr(w.branchA), ptr(inheriting), "", "04:45:00.000000"},
 		{"no department: the profile branch beats the business", ptr(w.branchB), nil, "", "03:00:00.000000"},
 		{"a profile branch with no cutoff inherits: the business", ptr(w.branchA), nil, "", "04:45:00.000000"},
 		{"no profile branch (K-14): the branch level is skipped -- the business", nil, nil, "", "04:45:00.000000"},

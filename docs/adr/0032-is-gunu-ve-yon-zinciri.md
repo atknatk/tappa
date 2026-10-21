@@ -169,14 +169,16 @@ yalnız `StaleOpenIn` kuralı; motor 05:00 **uydurmaz**.
 **A.4 Hangi an: `occurred_at`.** `at` = `tapInstant(in)`: istemci bir an beyan ettiyse `OccurredAt`,
 etmediyse `Now` — geç kalmanın bugün kullandığı fonksiyon. Bugünkü `StaleOpenIn` karşılaştırması
 `in.Now` ile yapılıyor; bu ADR onu da `at`'e taşır. `GetLastOpenTransaction` bir `@at` üst sınırı alır
-(*"o an açık olan giriş"*; canlı dokunuşta `@at = now` → sonuç bugünküyle aynı) ve **eşzamanı `id` ile
+(*"o an açık olan giriş"*; canlı dokunuşta `@at = now`) ve **eşzamanı `id` ile
 bozar**: `(o.occurred_at, o.id) > (t.occurred_at, t.id)` ve `ORDER BY occurred_at DESC, id DESC` —
 sınıflandırma ve ledger `(occurred_at, id)` sırasıyla okur (`transactions.sql:893`; `id`
 `gen_random_uuid()`, `00005:49`), sorgu bugün katı `>` ve `id`'siz; aynı ana iki satırda iki okuyucu
-ayrışırdı. *"Sonuç bugünküyle aynı"* iddiası **tam değildir** (M15-02 yapıcısının notu; **ölçüm M15-02
-denetiminde**, sonuç burada iddia edilmez): `manual.FutureGrace` (1 dk) içinde ileri tarihli bir manuel `out`,
-`@at` ona ulaşana kadar girişi kapatmaz, ve aynı `occurred_at`'teki bir `in`/`out` çifti artık `id` sırasıyla
-okunur.
+ayrışırdı. **Eski sorguyla fark (ölçüldü, M15-02 denetimi):** geçmişte kalan, aynı anı paylaşmayan
+satırlarla eski ve yeni sorgu aynı cevabı verir (güvenlik denetimi: rastgele 150 geçmiş, 0 uyuşmazlık); aynı
+`occurred_at`'teki bir `in`/`out` çifti artık bilerek `id` sırasıyla okunur. Tek başka fark `manual.FutureGrace`
+(1 dk) içinde ileri tarihli bir manuel satırdır: eski kod girişi açık bırakıp manuel satırı çıkış sayıyordu,
+yeni kod canlı çıkışla girişi kapatır ve manuel satır (d) sayılır — saat şişmez, müdürün niyetine daha yakın
+(genel denetim ölçümü).
 
 *Neden beyan edilen an?* M9-01'in çevrimdışı kuyruğu (todo; ama `occurred_at` form alanı
 `POST /api/checkin`'de **bugün canlı**) şu şekli üretir: Pzt 17:00 çıkışı kuyruğa girdi, Sal 09:00
@@ -192,6 +194,7 @@ iş gününe düşer ve yanlış yönlenir; beyan edilen ana göre Pzt'nin açı
 | 120 sn – 72 sa geçmiş | `base:queued-window` → **`flag`**; müdür görür | baseline (tenant ayarlayabilir) |
 | ≤ 120 sn geçmiş, kesimi geçecek biçimde | yön `auto` etiketiyle değişir | yalnız kesimin ±2 dk'sında; Faz B'de yön zaten seçilebilir — kazanç yalnız *etiket* |
 | Seçimi yönlendirme (ADR 0006 SELECTION) | `@at` geçmişe çekilmeli → yukarıdaki satırlar | aynı |
+| ≤ 120 sn geriye beyan, son 60–120 sn içindeki kendi satırına göre | yön değişebilir, yalnız kişinin **aleyhine** (kapanmamış `in` ya da erken `out`); saat yaratmaz | ölçüldü, M15-02 güvenlik denetimi |
 
 Yönün kendisi saat **yaratmaz** (§A.6); saat yaratan beyan edilen anın kendisidir ve o yüzey değişmedi
 (ADR 0006, M5-05 K1).
