@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -487,6 +488,15 @@ func heroDrawingProblems(body string) []string {
 	}
 	drawing := body[start:strings.LastIndex(body[:end], "<")]
 	var out []string
+	// The button is the scene's LAST child, so the drawing is everything before it and
+	// nothing hides after it: the button's close is followed by the scene's, the
+	// hero grid's and the hero section's. Without this, an element added after the
+	// button would sit in the scene unread.
+	if close := strings.Index(body[end:], "</button>"); close < 0 ||
+		!strings.HasPrefix(body[end+close+len("</button>"):], "</div></div></section>") {
+		out = append(out, "the pause button is not the scene's last child; whatever follows it in the "+
+			"scene is not read by this check")
+	}
 	for _, must := range []string{`class="heroTapButton"`, `id="docket"`, `class="plaque"`} {
 		if !strings.Contains(drawing, must) {
 			out = append(out, "PREMISE: the drawing carries no "+must+" -- the pause button is not its last child")
@@ -520,19 +530,20 @@ func TestLandingHero_TheDrawingHoldsNoControl(t *testing.T) {
 // TestLandingHero_DrawingCheckRefusesAControlOrAProductClass is that check's control.
 func TestLandingHero_DrawingCheckRefusesAControlOrAProductClass(t *testing.T) {
 	t.Parallel()
-	page := `<div class="scene" role="group"><div class="plaque"></div>` +
+	page := `<section class="hero"><div class="heroGrid"><div class="scene" role="group"><div class="plaque"></div>` +
 		`<div class="heroTapButton">Tap</div><div class="lp-slip heroSlip" id="docket"></div>` +
-		`<button type="button" class="heroPause" id="heroPause" hidden>Pause</button></div>`
+		`<button type="button" class="heroPause" id="heroPause" hidden>Pause</button></div></div></section>`
 	if got := heroDrawingProblems(page); len(got) != 0 {
 		t.Fatalf("CONTROL: the drawing as written was refused: %q", got)
 	}
 	for name, mutated := range map[string]string{
-		"the Tap button a button":  strings.Replace(page, `<div class="heroTapButton">Tap</div>`, `<button class="heroTapButton">Tap</button>`, 1),
-		"the product's tap-button": strings.Replace(page, `class="heroTapButton"`, `class="heroTapButton tap-button"`, 1),
-		"the product's docket":     strings.Replace(page, `class="lp-slip heroSlip"`, `class="docket heroSlip"`, 1),
-		"a focusable ticket":       strings.Replace(page, `id="docket"`, `id="docket" tabindex="0"`, 1),
-		"a link on the plaque":     strings.Replace(page, `<div class="plaque"></div>`, `<div class="plaque"><a href="/t">x</a></div>`, 1),
-		"the button not last":      strings.Replace(page, `<div class="heroTapButton">`, `<button id="heroPause">P</button><div class="heroTapButton">`, 1),
+		"the Tap button a button":    strings.Replace(page, `<div class="heroTapButton">Tap</div>`, `<button class="heroTapButton">Tap</button>`, 1),
+		"the product's tap-button":   strings.Replace(page, `class="heroTapButton"`, `class="heroTapButton tap-button"`, 1),
+		"the product's docket":       strings.Replace(page, `class="lp-slip heroSlip"`, `class="docket heroSlip"`, 1),
+		"a focusable ticket":         strings.Replace(page, `id="docket"`, `id="docket" tabindex="0"`, 1),
+		"a link on the plaque":       strings.Replace(page, `<div class="plaque"></div>`, `<div class="plaque"><a href="/t">x</a></div>`, 1),
+		"the button not last":        strings.Replace(page, `<div class="heroTapButton">`, `<button id="heroPause">P</button><div class="heroTapButton">`, 1),
+		"a control after the button": strings.Replace(page, `Pause</button></div>`, `Pause</button><a href="/t">x</a></div>`, 1),
 	} {
 		if got := heroDrawingProblems(mutated); len(got) == 0 {
 			t.Errorf("CONTROL %s: the check passed it", name)
@@ -542,6 +553,177 @@ func TestLandingHero_DrawingCheckRefusesAControlOrAProductClass(t *testing.T) {
 
 // ---------------------------------------------------------------- the pause --
 
+// pauseState is the pause machine's state: the reader's choice and a mouse over the
+// scene.
+type pauseState struct{ paused, hovered bool }
+
+// pauseMachineWant is every transition the orchestrator decided (LP-03 re-audit),
+// written out state by state rather than computed, so the table in landing.js is
+// compared against a list a person can read:
+//   - press flips paused and leaves hovered alone (one press pauses, one resumes);
+//   - a mouse entering or leaving changes hovered and never paused;
+//   - keyboard focus entering writes paused, for good;
+//   - there is no event that clears paused but press (no focusout, no hover).
+var pauseMachineWant = map[string]map[pauseState]pauseState{
+	"press": {
+		{false, false}: {true, false}, {false, true}: {true, true},
+		{true, false}: {false, false}, {true, true}: {false, true},
+	},
+	"pointerenter": {
+		{false, false}: {false, true}, {false, true}: {false, true},
+		{true, false}: {true, true}, {true, true}: {true, true},
+	},
+	"pointerleave": {
+		{false, false}: {false, false}, {false, true}: {false, false},
+		{true, false}: {true, false}, {true, true}: {true, false},
+	},
+	"keyfocus": {
+		{false, false}: {true, false}, {false, true}: {true, true},
+		{true, false}: {true, false}, {true, true}: {true, true},
+	},
+}
+
+// pauseMachineRE cuts the transition table out of landing.js. It is JSON on one line.
+var pauseMachineRE = regexp.MustCompile(`var PAUSE_MACHINE = (\{.*\});`)
+
+// pauseMachineFuncs are the three functions that read the table and the state, as
+// written (whitespace collapsed). The table says what events do; these say that
+// nothing else does: next() applies the table and only the table, the word comes
+// from paused alone, and the rotation runs while neither fact holds.
+var pauseMachineFuncs = []string{
+	"function next(state, event) { var out = { paused: state.paused, hovered: state.hovered }; " +
+		"var change = PAUSE_MACHINE[event]; " +
+		"for (var k in change) out[k] = change[k] === 'flip' ? !out[k] : change[k]; return out; }",
+	"function label(state) { return state.paused ? 'Play' : 'Pause'; }",
+	"function rotating(state) { return !state.paused && !state.hovered; }",
+}
+
+// pauseMachineWiring is how the page's events reach the machine, as written. A mouse
+// is hover and touch is not; a focus is keyboard focus only when it is :focus-visible.
+var pauseMachineWiring = []string{
+	"pause.addEventListener('click', function () { on('press'); });",
+	"scene.addEventListener('pointerenter', function (e) { if (e.pointerType === 'mouse') on('pointerenter'); });",
+	"scene.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse') on('pointerleave'); });",
+	"scene.addEventListener('focusin', function (e) { if (keyboardFocus(e.target)) on('keyfocus'); });",
+	"function on(event) { state = next(state, event); pause.textContent = label(state); }",
+	"try { return el.matches(':focus-visible'); } catch (err) { return false; }",
+}
+
+// pauseMachineForbidden are the shapes the first version had, each of which undid a
+// decision: a listener that restarts on focus leaving, hover by mouse events that touch
+// also fires, and a write to the state that bypasses next().
+var pauseMachineForbidden = regexp.MustCompile(`'focusout'|'blur'|'mouseenter'|'mouseleave'|` +
+	`\bpaused\s*=[^=]|\bhovered\s*=[^=]|\.textContent\s*=\s*rotating`)
+
+// pauseMachineProblems reads landing.js's pause machine: the table, run over every
+// state against pauseMachineWant; the functions and the wiring as written; and the
+// absence of any other way to change the state.
+func pauseMachineProblems(js string) []string {
+	var out []string
+	m := pauseMachineRE.FindStringSubmatch(js)
+	if m == nil {
+		return []string{"landing.js carries no one-line `var PAUSE_MACHINE = {…};` table"}
+	}
+	var table map[string]map[string]any
+	if err := json.Unmarshal([]byte(m[1]), &table); err != nil {
+		return []string{"PAUSE_MACHINE is not JSON: " + err.Error()}
+	}
+	for event := range table {
+		if _, ok := pauseMachineWant[event]; !ok {
+			out = append(out, fmt.Sprintf("PAUSE_MACHINE has an event %q nobody decided", event))
+		}
+	}
+	for event, want := range pauseMachineWant {
+		change, ok := table[event]
+		if !ok {
+			out = append(out, fmt.Sprintf("PAUSE_MACHINE has no %q", event))
+			continue
+		}
+		for from, to := range want {
+			got := map[string]bool{"paused": from.paused, "hovered": from.hovered}
+			for field, v := range change {
+				if _, known := got[field]; !known {
+					out = append(out, fmt.Sprintf("%s writes %q, which is not a fact of the state", event, field))
+					continue
+				}
+				switch v {
+				case "flip":
+					got[field] = !got[field]
+				case true, false:
+					got[field] = v.(bool)
+				default:
+					out = append(out, fmt.Sprintf("%s sets %s to %v; a change is true, false or \"flip\"", event, field, v))
+				}
+			}
+			if g := (pauseState{got["paused"], got["hovered"]}); g != to {
+				out = append(out, fmt.Sprintf("%s from %+v goes to %+v, want %+v", event, from, g, to))
+			}
+		}
+	}
+	flat := strings.Join(strings.Fields(js), " ")
+	for _, want := range append(append([]string{}, pauseMachineFuncs...), pauseMachineWiring...) {
+		if !strings.Contains(flat, want) {
+			out = append(out, "landing.js does not carry, as written: "+want)
+		}
+	}
+	for _, hit := range pauseMachineForbidden.FindAllString(js, -1) {
+		out = append(out, fmt.Sprintf("landing.js carries %q, a way round the pause machine", hit))
+	}
+	return out
+}
+
+// TestLandingHero_ThePauseMachineIsTheTable holds the pause button's behaviour (LP-03
+// re-audit, orchestrator decision) in the script itself: its transition table, run
+// over all four states for each of the four events, against pauseMachineWant; the
+// three functions that apply it; and the wiring from the page's events. Node is not
+// in this repository, so the table is JSON and Go runs it.
+func TestLandingHero_ThePauseMachineIsTheTable(t *testing.T) {
+	t.Parallel()
+	for _, p := range pauseMachineProblems(readStaticFile(t, "js/landing.js")) {
+		t.Error(p)
+	}
+}
+
+// TestLandingHero_PauseMachineCheckRefusesEachUndoneDecision is that check's control:
+// the first version's two defects and their neighbours are each refused.
+func TestLandingHero_PauseMachineCheckRefusesEachUndoneDecision(t *testing.T) {
+	t.Parallel()
+	js := readStaticFile(t, "js/landing.js")
+	if got := pauseMachineProblems(js); len(got) != 0 {
+		t.Fatalf("PREMISE: the script as written is refused: %q", got)
+	}
+	for name, edit := range map[string][2]string{
+		"hover changes the word": {
+			"function label(state) { return state.paused ? 'Play' : 'Pause'; }",
+			"function label(state) { return state.paused || state.hovered ? 'Play' : 'Pause'; }"},
+		"focus leaving resumes": {
+			"pause.removeAttribute('hidden');",
+			"scene.addEventListener('focusout', function () { state = { paused: false, hovered: false }; });\n  pause.removeAttribute('hidden');"},
+		"press clears hover too": {
+			`"press": {"paused": "flip"}`, `"press": {"paused": "flip", "hovered": false}`},
+		"hover pauses for good": {
+			`"pointerenter": {"hovered": true}`, `"pointerenter": {"hovered": true, "paused": true}`},
+		"keyboard focus only hovers": {
+			`"keyfocus": {"paused": true}`, `"keyfocus": {"hovered": true}`},
+		"touch counts as hover": {
+			"if (e.pointerType === 'mouse') on('pointerenter');", "on('pointerenter');"},
+		"any focus is keyboard focus": {
+			"if (keyboardFocus(e.target)) on('keyfocus');", "on('keyfocus');"},
+		"a write round next()": {
+			"pause.removeAttribute('hidden');", "pause.removeAttribute('hidden'); state.paused = false;"},
+		"a decided event dropped": {
+			`, "keyfocus": {"paused": true}`, ``},
+	} {
+		if !strings.Contains(js, edit[0]) {
+			t.Errorf("CONTROL %s: landing.js no longer carries %q to mutate", name, edit[0])
+			continue
+		}
+		if got := pauseMachineProblems(strings.Replace(js, edit[0], edit[1], 1)); len(got) == 0 {
+			t.Errorf("CONTROL %s: the check passed it", name)
+		}
+	}
+}
+
 // heroPauseTagRE reads the pause button's opening tag and its words.
 var heroPauseTagRE = regexp.MustCompile(`<button\b([^>]*\bid="heroPause"[^>]*)>([^<]*)</button>`)
 
@@ -550,9 +732,9 @@ var heroPauseTagRE = regexp.MustCompile(`<button\b([^>]*\bid="heroPause"[^>]*)>(
 // <button type="button"> named by its words, it ships [hidden] so that a page with no
 // script shows no dead control, and landing.js reveals it -- only after deciding to
 // rotate, and only when it has the button: the rotation never starts without it. The
-// stylesheet honours [hidden] over the class's own display. The behaviour (hover and
-// focus pause it, Play clears all three) is read from the source; it was driven in
-// Chrome for the LP-03 report.
+// stylesheet honours [hidden] over the class's own display. What the button DOES is
+// TestLandingHero_ThePauseMachineIsTheTable; it was also driven in Chrome for the
+// LP-03 report.
 func TestLandingHero_ThePauseButtonShipsHiddenAndTheScriptRevealsIt(t *testing.T) {
 	t.Parallel()
 	body := mustFetchMarketing(t, marketingRouter(t), "/")
@@ -581,11 +763,7 @@ func TestLandingHero_ThePauseButtonShipsHiddenAndTheScriptRevealsIt(t *testing.T
 	}
 	get, guard := find("getElementById('heroPause')"), find("if (reduced || !scene) return;")
 	reveal, timer := find("pause.removeAttribute('hidden')"), find("setInterval(")
-	find("if (!rotating()) return;")
-	for _, ev := range []string{"'click'", "'mouseenter'", "'mouseleave'", "'focusin'", "'focusout'"} {
-		find("addEventListener(" + ev)
-	}
-	find("'Pause' : 'Play'")
+	find("if (!rotating(state)) return;")
 	if !(get < guard && guard < reveal && reveal < timer) {
 		t.Errorf("landing.js does not find the button, give up without it (or under reduced motion), "+
 			"reveal it and only then start the timer, in that order (%d, %d, %d, %d)", get, guard, reveal, timer)

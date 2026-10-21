@@ -11,7 +11,8 @@
 // 🔴 IT MOVES NOTHING (README O2). It swaps words; it adds no class and starts no
 // motion. The page is drawn still and stays still.
 //
-// IT TOUCHES NOTHING BUT EIGHT TEXT NODES. No fetch, no storage, no cookie, no
+// WHAT IT TOUCHES: the eight text nodes of the record, and the scene's pause button
+// -- its words and its [hidden] attribute. No fetch, no storage, no cookie, no
 // location read (§4.2 — that belongs to tap.js and to the moment of a tap).
 // Everything it writes is invented and is labelled as such on the page. Every
 // venue is one of the seed's (test/fixtures/seed.sql), and the page's own markup
@@ -22,19 +23,29 @@
 // so does a page that lost one of the eight nodes: a rotation that could fill only
 // some of them would show two records at once.
 //
-// 🔴 WHAT CHANGES ON ITS OWN MUST BE STOPPABLE (WCAG 2.2.2). The rotation runs only
-// while three things are all false:
-//   - the reader pressed "Pause" (the scene's button, which this file reveals --
-//     it ships [hidden], so with no script there is no dead control, and with no
-//     button there is no rotation at all);
-//   - the pointer is over the scene;
-//   - focus is inside the scene (APG's auto-rotating carousel: focus entering it
-//     stops it, and only the button starts it again).
-// The button always names what pressing it does next: "Play" whenever nothing
-// rotates, for whichever of the three reasons, "Pause" while it rotates. Pressing
-// "Play" clears all three, so it never looks pressed and does nothing.
-// Under reduced motion the button stays hidden: nothing changes on its own, so
-// there is nothing to pause, and a "Play" would offer the motion the reader declined.
+// 🔴 WHAT CHANGES ON ITS OWN MUST BE STOPPABLE (WCAG 2.2.2), AND THE STOPPING IS A
+// STATE MACHINE WRITTEN AS DATA. Two facts: `paused` (the reader's choice) and
+// `hovered` (a mouse over the scene). PAUSE_MACHINE says what each event does to
+// them, next() applies it and nothing else changes them; the rotation runs while
+// both are false. The table is JSON so internal/handler can read it from this file
+// and check every change it makes (TestLandingHero_ThePauseMachineIsTheTable) -- there
+// is no Node here to run this file.
+//   press         the button: flips `paused`, and only `paused`. One press on
+//                 "Pause" stops, one press on "Play" resumes, by mouse, touch,
+//                 Enter or Space alike.
+//   pointerenter  a MOUSE over the scene: a quiet, temporary stop. It does not
+//   pointerleave  change the button's word and a press does not clear it. Touch is
+//                 not hover: a tap's compatibility mouseenter would otherwise stop
+//                 the scene before the press reached the button.
+//   keyfocus      KEYBOARD focus entering the scene (:focus-visible, not a click's
+//                 focus): APG's auto-rotating carousel -- it stops, for good, and
+//                 the button says "Play". Focus leaving does not restart it; only
+//                 the button does.
+// The button's word comes from `paused` alone: it always names what pressing does.
+// The button ships [hidden]: with no script there is no dead control, and with no
+// button there is no rotation. Under reduced motion it stays hidden: nothing changes
+// on its own, so there is nothing to pause, and a "Play" would offer the motion the
+// reader declined.
 (function () {
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var people = [
@@ -48,6 +59,16 @@
     dName: 'n', dType: 't', dTime: 'time', dLoc: 'loc',
     pName: 'n', pLoc: 'loc', pTime: 'time', pPlaque: 'plaque'
   };
+  var PAUSE_MACHINE = {"press": {"paused": "flip"}, "pointerenter": {"hovered": true}, "pointerleave": {"hovered": false}, "keyfocus": {"paused": true}};
+  function next(state, event) {
+    var out = { paused: state.paused, hovered: state.hovered };
+    var change = PAUSE_MACHINE[event];
+    for (var k in change) out[k] = change[k] === 'flip' ? !out[k] : change[k];
+    return out;
+  }
+  function label(state) { return state.paused ? 'Play' : 'Pause'; }
+  function rotating(state) { return !state.paused && !state.hovered; }
+
   var nodes = {};
   for (var id in slots) {
     nodes[id] = document.getElementById(id);
@@ -57,31 +78,23 @@
   var scene = pause && pause.closest('.scene');
   if (reduced || !scene) return;
 
-  var paused = false;   // the reader pressed Pause
-  var hovered = false;  // the pointer is over the scene
-  var focused = false;  // focus is inside the scene
-  function rotating() { return !paused && !hovered && !focused; }
-  function label() { pause.textContent = rotating() ? 'Pause' : 'Play'; }
-
-  pause.addEventListener('click', function () {
-    if (rotating()) {
-      paused = true;
-    } else {
-      paused = hovered = focused = false;
-    }
-    label();
-  });
-  scene.addEventListener('mouseenter', function () { hovered = true; label(); });
-  scene.addEventListener('mouseleave', function () { hovered = false; label(); });
-  scene.addEventListener('focusin', function () { focused = true; label(); });
-  scene.addEventListener('focusout', function (e) {
-    if (!scene.contains(e.relatedTarget)) { focused = false; label(); }
-  });
+  var state = { paused: false, hovered: false };
+  function on(event) {
+    state = next(state, event);
+    pause.textContent = label(state);
+  }
+  function keyboardFocus(el) {
+    try { return el.matches(':focus-visible'); } catch (err) { return false; }
+  }
+  pause.addEventListener('click', function () { on('press'); });
+  scene.addEventListener('pointerenter', function (e) { if (e.pointerType === 'mouse') on('pointerenter'); });
+  scene.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse') on('pointerleave'); });
+  scene.addEventListener('focusin', function (e) { if (keyboardFocus(e.target)) on('keyfocus'); });
   pause.removeAttribute('hidden');
 
   var i = 0;
   setInterval(function () {
-    if (!rotating()) return;
+    if (!rotating(state)) return;
     i = (i + 1) % people.length;
     var p = people[i];
     for (var id in slots) nodes[id].textContent = p[slots[id]];
