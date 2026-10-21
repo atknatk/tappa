@@ -2465,7 +2465,8 @@ report FAIL N1 "Node artefakti — bu repo Node'suzdur" "$node_files"
 #     `/* */`), tanimlayicilar (ComparisonRow.Tappa), import/modul yollari, struct alanlari.
 #   - .templ dosyasinin GO BOLGELERI ayni kuralla okunur: govdenin disi (package,
 #     import, bildirimler), `{` ile biten `if/for/switch/else` ve `:` ile biten
-#     `case/default` satirlari (templ in kendi sarti), `{ ... }` ifadeleri ve
+#     `case/default` satirlari (templ in sartina YAKIN bir bicim kurali; switch
+#     baglami izlenmez — SINIRLAR 5), `{ ... }` ifadeleri ve
 #     `@cagri(...)` argumanlari — yalniz string literal'leri taranir, `Tappa: "x"` ya da
 #     `{ row.Tappa }` gibi tanimlayicilar degil. templ yorumu YALNIZ satirin ilk
 #     bosluk-olmayan karakterinden baslayan `//` ya da `/* */`dir; metin dugumu icindeki
@@ -2493,7 +2494,13 @@ report FAIL N1 "Node artefakti — bu repo Node'suzdur" "$node_files"
 # yaniltabilir — yalniz `Tappa` iceren dosyalar okunur, yani bedel o dosyalarla
 # sinirli. (3) Uretilmis dosyalar (_templ.go) taranmaz; kaynaklari (.templ) taranir.
 # (4) Bulgu satiri eslesmenin CEVRESINI basar (60 karakter once, 70 sonra), satirin
-# basini degil.
+# basini degil. (5) templ lexer'i switch derinligini izlemez: `switch` DISINDA
+# `case …:` ya da `default:` bicimli bir METIN satiri (templ onu ekrana basar,
+# olculdu) Go sayilir ve yalniz string literal'leri taranir. Bugun agacta ornegi yok
+# (380 case/default satirinin hepsi Go); izleme bilerek eklenmedi. (6) Ayni satirda
+# `{` dan SONRA gelen metin (`templ X() { metin`, `} else { metin`,
+# `@cagri(...) { metin`) taranmaz — `templ fmt` bu bicimi ayri satira boler ve
+# `make check` fmt + `git diff --exit-code` kostugu icin bu bicim CI dan gecemez.
 #
 # AYNI KALIP: rg dosyalari ON-SECER (scan_in: cikis kodu okunur, eksik yol = tarama
 # hatasi), lexer yalniz o dosyalari okur; awk hatasi SCAN_ERR'e yazilir — bos bir
@@ -2554,7 +2561,8 @@ b1_lex() {
       if (st == "\"" || st == "\047") { if (hit(buf)) emit(at, buf); st = "code" }
       else if (st == "`" || st == "tq") buf = buf " "
     }
-    # gostmt: satir templ in KENDI sartiyla bir Go kontrol satiri mi. Ilk sozcuk yetmez:
+    # gostmt: satir bir Go kontrol satiri BICIMINDE mi (templ in sartina yakin, ama
+    # switch baglamina bakmaz — basliktaki SINIRLAR 5). Ilk sozcuk yetmez:
     # templ `for every business ...`, `default ...`, `case ...`, `else ...` ile baslayan
     # satiri METIN olarak ekrana basar (olculdu, templ v0.3.833 generate). Blok acan satir
     # (`if/for/switch`, `} else`, `} else if`) `{` ile, `case`/`default` `:` ile biter;
