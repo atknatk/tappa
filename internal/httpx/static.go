@@ -1,13 +1,13 @@
 package httpx
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"path"
 	"strings"
+
+	"github.com/atknatk/tappa/web"
 )
 
 // The cache rules of /static (2026-10-21).
@@ -20,31 +20,62 @@ import (
 // stylesheet and the faces again on every navigation, and because the faces are
 // `font-display: swap` each page first painted the fallback face and then swapped.
 //
-// Two rules, chosen by what the URL promises:
+// The first fix (PR #4) pinned the faces and put everything else under `no-cache` with
+// an ETag. That left one conditional request per navigation for app.css and the page's
+// script, answered 304 -- and a stylesheet BLOCKS RENDER, so on a slow link the page
+// still waited one round trip before it could paint. The rule now is a URL's promise:
 //
-//   - fonts/*.woff2 -- cacheImmutable. The file names carry the upstream version
-//     (-v22-, -v20-; web/static/fonts/README.md), so new bytes arrive under a new
-//     name and the old URL never needs to change. A year with `immutable` means the
-//     browser does not even revalidate, which is what removes the swap flash.
-//     TestStaticImmutableRule_OnlyVersionedNames refuses an unversioned name under
-//     this rule, because a pinned URL whose bytes later change stays stale for a year.
-//   - everything else (app.css, the scripts, the vendored htmx) -- cacheRevalidate.
-//     These keep their names across deploys, so they are cached but checked: one
-//     conditional request per navigation, answered 304 with no body while the bytes
-//     are the same, and the new bytes the moment a deploy changes them.
+//   - /static/<name>?v=<version> -- cacheImmutable, for ANY file, when the version is
+//     the one web.Assets computes from the bytes this binary carries. The pages write
+//     that URL (layout's documentHead through web.AssetURL), so a deploy that changes
+//     app.css changes the URL every page names and the old pin is simply never asked
+//     for again. A year with `immutable` means the browser does not revalidate.
+//   - fonts/*.woff2 with no query -- cacheImmutable. The file names carry the upstream
+//     version (-v22-, -v20-; web/static/fonts/README.md), so new bytes arrive under a
+//     new name. TestStaticImmutableRule_OnlyVersionedNames refuses an unversioned name
+//     under this rule, because a pinned URL whose bytes later change stays stale for
+//     a year.
+//   - everything else -- cacheRevalidate (`no-cache` + the ETag, answered 304 while the
+//     bytes are the same). That is the bare URL (a page rendered by a binary without
+//     the table, a page a browser kept from before this rule) AND A WRONG OR EXTRA
+//     QUERY: ?v= naming another deploy's bytes is served this deploy's bytes, and
+//     pinning them for a year under that URL would lock a browser to bytes that do not
+//     match the HTML that names it -- during a rolling deploy (the page from an old
+//     pod, the asset from a new one) and for good after a rollback brings that HTML
+//     back. The version is compared exactly -- the whole raw query must be
+//     `v=<version>` -- so there is one immutable URL per file, not one per spelling.
 //
-// `public` on the fonts is deliberate: they are the same bytes for everyone and carry
-// no tenant data. taptime.mt is DNS-only on Cloudflare (deploy/k8s/40-ingress.yaml),
-// so no shared cache sits in front today; if one did, caching these would be correct.
+// The table reaches the pages through the request context, installed by cmd/tappa on
+// its http.Server (assetContext) and not by NewRouter: a test that mounts NewRouter
+// renders the bare URLs, so the page tests and byte goldens do not move with app.css.
+//
+// `public` is deliberate: these are the same bytes for everyone and carry no tenant
+// data. taptime.mt is DNS-only on Cloudflare (deploy/k8s/40-ingress.yaml), so no
+// shared cache sits in front today; if one did, caching these would be correct.
 const (
 	cacheImmutable  = "public, max-age=31536000, immutable"
 	cacheRevalidate = "no-cache"
 )
 
-// immutableAsset reports whether the asset at name (a path relative to web/static,
-// no leading slash) is served with cacheImmutable.
-func immutableAsset(name string) bool {
+// immutableName reports whether the asset at name (a path relative to web/static,
+// no leading slash) is pinned by its name alone, with no ?v=.
+func immutableName(name string) bool {
 	return strings.HasPrefix(name, "fonts/") && path.Ext(name) == ".woff2"
+}
+
+// cacheRule is the Cache-Control for name requested with the raw query rawQuery
+// (forceQuery: the URL ended in a bare "?").
+func (s *staticFiles) cacheRule(name, rawQuery string, forceQuery bool) string {
+	if rawQuery == "" && !forceQuery {
+		if immutableName(name) {
+			return cacheImmutable
+		}
+		return cacheRevalidate
+	}
+	if v, ok := s.assets.Version(name); ok && rawQuery == "v="+v {
+		return cacheImmutable
+	}
+	return cacheRevalidate
 }
 
 // staticFiles serves the embedded asset tree with a strong ETag and a Cache-Control
@@ -57,33 +88,18 @@ func immutableAsset(name string) bool {
 // Cache-Control again, so a 416 is never pinned. Last-Modified is not sent: the
 // embedded files have no meaningful time, and the ETag is the stronger validator.
 type staticFiles struct {
-	next  http.Handler
-	etags map[string]string // name relative to the tree root -> `"<hex sha256>"`
+	next   http.Handler
+	assets *web.Assets
 }
 
 // newStaticFiles hashes every file under fsys and returns the handler. It is meant to
 // see the request path with the route prefix already stripped (http.StripPrefix).
 func newStaticFiles(fsys fs.FS) (*staticFiles, error) {
-	etags := make(map[string]string)
-	err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		b, err := fs.ReadFile(fsys, name)
-		if err != nil {
-			return err
-		}
-		sum := sha256.Sum256(b)
-		etags[name] = `"` + hex.EncodeToString(sum[:]) + `"`
-		return nil
-	})
+	assets, err := web.HashAssets(fsys)
 	if err != nil {
-		return nil, fmt.Errorf("static: hashing assets: %w", err)
+		return nil, fmt.Errorf("static: %w", err)
 	}
-	return &staticFiles{next: http.FileServer(noListing{http.FS(fsys)}), etags: etags}, nil
+	return &staticFiles{next: http.FileServer(noListing{http.FS(fsys)}), assets: assets}, nil
 }
 
 func (s *staticFiles) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -92,14 +108,10 @@ func (s *staticFiles) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if p := r.URL.Path; !strings.HasSuffix(p, "/") {
 		// FileServer serves path.Clean("/"+p), so the lookup uses the same name.
 		name := strings.TrimPrefix(path.Clean("/"+p), "/")
-		if tag, ok := s.etags[name]; ok {
+		if sum, ok := s.assets.Sum(name); ok {
 			h := w.Header()
-			h.Set("ETag", tag)
-			if immutableAsset(name) {
-				h.Set("Cache-Control", cacheImmutable)
-			} else {
-				h.Set("Cache-Control", cacheRevalidate)
-			}
+			h.Set("ETag", `"`+sum+`"`)
+			h.Set("Cache-Control", s.cacheRule(name, r.URL.RawQuery, r.URL.ForceQuery))
 		}
 	}
 	s.next.ServeHTTP(w, r)

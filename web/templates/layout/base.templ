@@ -6,6 +6,8 @@
 // environment is lit, and a half-done theme is worse than none.
 package layout
 
+import "github.com/atknatk/tappa/web"
+
 // Page is the shell for a screen that needs NO JavaScript and carries no business's
 // brand: the problem screens (the activation flow's and the tap flow's), the
 // activation flow's "phone already in use" confirmation, the password reset family.
@@ -203,6 +205,15 @@ templ BrandHeader(b Brand) {
 //
 // alternates are the page's translations (layout.Alternate); nil writes nothing, which
 // is every shell but MarketingTranslated.
+//
+// THE STYLESHEET AND THE SCRIPT ARE WRITTEN THROUGH web.AssetURL (2026-10-21), which
+// appends ?v=<content hash> when the serving process put its asset table in the
+// request context, and internal/httpx pins exactly that URL for a year
+// (internal/httpx/static.go). Without the pin every navigation spent one conditional
+// round trip on app.css before it could paint. Without a table -- every test that
+// renders a page -- the URL stays bare, so the byte goldens do not change when app.css
+// does. A query is not part of the path a CSP source expression matches, so the
+// policies that name these files ('self', or the operator's one script path) still do.
 templ documentHead(title, script string, robots Robots, theme Theme, alternates []Alternate) {
 	<head>
 		<meta charset="utf-8"/>
@@ -210,7 +221,7 @@ templ documentHead(title, script string, robots Robots, theme Theme, alternates 
 		<meta name="robots" content={ string(robots) }/>
 		<meta name="referrer" content="no-referrer"/>
 		<title>{ title }</title>
-		<link rel="stylesheet" href="/static/css/app.css"/>
+		<link rel="stylesheet" href={ web.AssetURL(ctx, "/static/css/app.css") }/>
 		if theme.Linked() {
 			<link rel="stylesheet" href={ theme.Href() }/>
 		}
@@ -218,7 +229,7 @@ templ documentHead(title, script string, robots Robots, theme Theme, alternates 
 			<link rel="alternate" hreflang={ a.Lang } href={ a.Href }/>
 		}
 		if script != "" {
-			<script src={ script } defer></script>
+			<script src={ web.AssetURL(ctx, script) } defer></script>
 		}
 	</head>
 }
