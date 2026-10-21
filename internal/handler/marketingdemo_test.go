@@ -104,11 +104,14 @@ func TestLandingDemo_TheSecondHeroButtonSaysWatchDemoAndOpensTheDialog(t *testin
 		}
 	}
 	button := cssRule(t, readStaticFile(t, "css/app.css"), ".lp .lp-button{")
-	for _, want := range []string{"display:inline-flex", "align-items:center", "gap:"} {
+	for _, want := range []string{"display:inline-flex", "align-items:center"} {
 		if !strings.Contains(button, want) {
 			t.Errorf(".lp .lp-button does not declare %s, so the play glyph is not laid out "+
 				"beside the label.\nrule: %s", want, button)
 		}
+	}
+	if !positiveGapRE.MatchString(button) {
+		t.Errorf(".lp .lp-button declares no positive gap, so the play glyph touches the label.\nrule: %s", button)
 	}
 	// The fallback: a browser with no script or no <dialog> follows the href, and it
 	// has to lead to the section that answers the same question in prose.
@@ -178,22 +181,89 @@ func TestLandingDemo_TheDialogIsLabelledAndCanBeClosedWithoutAMouse(t *testing.T
 	// AND IT OPENS WITHOUT MOTION (LP-03, README O2 -- orchestrator decision: follow
 	// the boards, which draw none). Until LP-03 this asserted the opposite shape: an
 	// opening animation declared only inside prefers-reduced-motion: no-preference.
-	// With the animation gone there is no reader to ask, and no rule in the compiled
-	// stylesheet that reaches the dialog -- or its ::backdrop -- may declare one.
-	dialogRules := 0
-	for _, r := range flatCSSRules(css) {
-		if r.keyframe || !strings.Contains(strings.Join(r.selectors, ","), ".demoDialog") {
-			continue
-		}
-		dialogRules++
-		if cssAnimationRE.MatchString(r.decls) {
-			t.Errorf("%s declares an animation; the dialog opens without motion (README O2).\n"+
-				"rule: %s", strings.Join(r.selectors, ", "), r.decls)
+	// With the animation gone there is no reader to ask, and no rule ANYWHERE in the
+	// compiled stylesheet that reaches the dialog -- by its id, by any of its classes,
+	// or as a `dialog` element, its ::backdrop included -- may declare one. The names
+	// are read from the page, so a renamed class is followed.
+	names := demoDialogNames(t, body)
+	hits, reached := dialogAnimations(css, names)
+	if reached < 2 {
+		t.Errorf("PREMISE: %d compiled rule(s) reach %v; the dialog and its backdrop are "+
+			"styled, so the scan read the wrong file", reached, names)
+	}
+	for _, h := range hits {
+		t.Errorf("%s; the dialog opens without motion (README O2)", h)
+	}
+}
+
+// positiveGapRE finds a gap greater than zero.
+var positiveGapRE = regexp.MustCompile(`(?:^|[;{])gap:(?:0*[1-9][0-9]*(?:\.[0-9]+)?|0*\.[0-9]*[1-9][0-9]*)(?:px|rem|em)`)
+
+// demoDialogTagRE reads the dialog's opening tag.
+var demoDialogTagRE = regexp.MustCompile(`<dialog\b[^>]*>`)
+
+// demoDialogNames is everything a stylesheet can name the demo dialog by: the element,
+// its id and its classes, read from the rendered page.
+func demoDialogNames(t *testing.T, body string) []string {
+	t.Helper()
+	tags := demoDialogTagRE.FindAllString(body, -1)
+	if len(tags) != 1 {
+		t.Fatalf("the landing renders %d <dialog> element(s), want one", len(tags))
+	}
+	names := []string{"dialog"}
+	if m := regexp.MustCompile(`\bid="([^"]+)"`).FindStringSubmatch(tags[0]); m != nil {
+		names = append(names, "#"+m[1])
+	}
+	if m := classAttrRE.FindStringSubmatch(tags[0]); m != nil {
+		for _, c := range strings.Fields(m[1]) {
+			names = append(names, "."+c)
 		}
 	}
-	if dialogRules < 2 {
-		t.Errorf("PREMISE: %d compiled rule(s) reach .demoDialog; the dialog and its backdrop "+
-			"are styled, so the scan read the wrong file", dialogRules)
+	if len(names) < 3 {
+		t.Fatalf("the dialog carries no id or class (%s)", tags[0])
+	}
+	return names
+}
+
+// dialogAnimations lists every rule in css that reaches one of names and declares an
+// animation; reached counts the rules that reach them at all.
+func dialogAnimations(css string, names []string) (hits []string, reached int) {
+	rules := cssRulesReaching(css, names)
+	for _, r := range rules {
+		if cssAnimationRE.MatchString(r.decls) {
+			hits = append(hits, strings.Join(r.selectors, ", ")+" declares an animation ("+r.decls+")")
+		}
+	}
+	return hits, len(rules)
+}
+
+// TestLandingDemo_DialogAnimationScanReachesEverySpelling is the scan's control: the
+// auditor's two spellings outside the .lp block (by id, and as an element) and the
+// others a stylesheet could use are reported; a look-alike name is not read.
+func TestLandingDemo_DialogAnimationScanReachesEverySpelling(t *testing.T) {
+	t.Parallel()
+	names := []string{"dialog", "#demoDialog", ".demoDialog"}
+	for name, css := range map[string]string{
+		"by id, outside .lp":         "#demoDialog[open]{animation:demoIn .18s ease-out both}",
+		"as an element":              "dialog[open]{animation:demoIn .18s}",
+		"the element's backdrop":     ".lp dialog::backdrop{animation-name:fade}",
+		"by class, in a media query": "@media (prefers-reduced-motion:no-preference){.lp .demoDialog[open]{animation:x 1s}}",
+		"inside :is()":               ":is(dialog)[open]{animation:x 1s}",
+		"second of a list":           ".lp .a,dialog{animation:x 1s}",
+	} {
+		if hits, _ := dialogAnimations(css, names); len(hits) == 0 {
+			t.Errorf("CONTROL %s: the scan passed it", name)
+		}
+	}
+	lookalikes := ".dialogue{animation:x 1s}.lp .demoDialogue{animation:x 1s}#demoDialogs{animation:x 1s}" +
+		".lp .notdialog{animation:x 1s}dialog{padding:0}"
+	if hits, reached := dialogAnimations(lookalikes, names); len(hits) != 0 || reached != 1 {
+		t.Errorf("CONTROL: the scan read look-alike names: %q over %d rule(s), want none over 1", hits, reached)
+	}
+	if !positiveGapRE.MatchString(".lp .lp-button{display:inline-flex;gap:9px}") ||
+		positiveGapRE.MatchString(".lp .lp-button{display:inline-flex;gap:0}") ||
+		positiveGapRE.MatchString(".lp .lp-button{gap:0px}") {
+		t.Error("CONTROL: positiveGapRE does not tell 9px from 0")
 	}
 }
 

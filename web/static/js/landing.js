@@ -21,6 +21,20 @@
 // A reader who has asked for less motion gets the first record and no timer, and
 // so does a page that lost one of the eight nodes: a rotation that could fill only
 // some of them would show two records at once.
+//
+// 🔴 WHAT CHANGES ON ITS OWN MUST BE STOPPABLE (WCAG 2.2.2). The rotation runs only
+// while three things are all false:
+//   - the reader pressed "Pause" (the scene's button, which this file reveals --
+//     it ships [hidden], so with no script there is no dead control, and with no
+//     button there is no rotation at all);
+//   - the pointer is over the scene;
+//   - focus is inside the scene (APG's auto-rotating carousel: focus entering it
+//     stops it, and only the button starts it again).
+// The button always names what pressing it does next: "Play" whenever nothing
+// rotates, for whichever of the three reasons, "Pause" while it rotates. Pressing
+// "Play" clears all three, so it never looks pressed and does nothing.
+// Under reduced motion the button stays hidden: nothing changes on its own, so
+// there is nothing to pause, and a "Play" would offer the motion the reader declined.
 (function () {
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var people = [
@@ -39,9 +53,35 @@
     nodes[id] = document.getElementById(id);
     if (!nodes[id]) return;
   }
+  var pause = document.getElementById('heroPause');
+  var scene = pause && pause.closest('.scene');
+  if (reduced || !scene) return;
+
+  var paused = false;   // the reader pressed Pause
+  var hovered = false;  // the pointer is over the scene
+  var focused = false;  // focus is inside the scene
+  function rotating() { return !paused && !hovered && !focused; }
+  function label() { pause.textContent = rotating() ? 'Pause' : 'Play'; }
+
+  pause.addEventListener('click', function () {
+    if (rotating()) {
+      paused = true;
+    } else {
+      paused = hovered = focused = false;
+    }
+    label();
+  });
+  scene.addEventListener('mouseenter', function () { hovered = true; label(); });
+  scene.addEventListener('mouseleave', function () { hovered = false; label(); });
+  scene.addEventListener('focusin', function () { focused = true; label(); });
+  scene.addEventListener('focusout', function (e) {
+    if (!scene.contains(e.relatedTarget)) { focused = false; label(); }
+  });
+  pause.removeAttribute('hidden');
+
   var i = 0;
-  if (reduced) return;
   setInterval(function () {
+    if (!rotating()) return;
     i = (i + 1) % people.length;
     var p = people[i];
     for (var id in slots) nodes[id].textContent = p[slots[id]];

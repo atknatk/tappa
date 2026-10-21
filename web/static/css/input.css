@@ -2418,15 +2418,32 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .heroPrinterBar { display: block; width: 100%; height: 8px; border-radius: 4px; background: var(--ink); }
 .lp .heroPrinterSlot { position: relative; z-index: 1; display: block; width: 42px; height: 14px; margin-bottom: -4px; border-radius: 0 0 6px 6px; background: rgb(var(--ink-ch) / .7); }
 .lp .heroSlip { display: flex; flex-direction: column; gap: 9px; width: 100%; padding: 14px 12px; transform: rotate(1.5deg); transform-origin: top center; box-shadow: 0 14px 30px rgb(var(--ink-ch) / .14); }
-.lp .heroSlipHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; }
+/* 🔴 THE TICKET IS ONE HEIGHT FOR EVERY RECORD, because landing.js rotates its words
+   and a ticket that grows pushes the whole page below it down on every tick
+   (measured before this rule: "CLOCK OUT" beside the stamp wrapped at 390 and 834
+   and the scene grew 28px). So nothing on it wraps, and the head does not reflow:
+   below 1200px the stamp always has a line of its own, at the right; from 1200px
+   the longest record's words and the stamp fit on one line (measured, all four).
+   TestLandingHero_TheTicketKeepsItsHeightForEveryRecord reads these rules. */
+.lp .heroSlipHead { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .lp .heroSlipType { padding: 2px 5px; border: 1px solid var(--ink); font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .06em; white-space: nowrap; }
 /* The product stamp, smaller on the phone as M-Landing draws it; the tablet gives
    back the product's own size (input.css .stamp: 11px, .18em, py-1 px-2.5). */
-.lp .heroSlip .stamp { flex: none; margin-left: auto; font-size: 10px; padding: 2px 6px; letter-spacing: .12em; }
-.lp .heroSlipName { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
-.lp .heroSlipRows { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px dashed var(--line); font-family: var(--mono); font-size: 11px; color: rgb(var(--ink-ch) / .75); }
+.lp .heroSlip .stamp { flex: none; align-self: flex-end; white-space: nowrap; font-size: 10px; padding: 2px 6px; letter-spacing: .12em; }
+.lp .heroSlipName { white-space: nowrap; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+.lp .heroSlipRows { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px dashed var(--line); white-space: nowrap; font-family: var(--mono); font-size: 11px; color: rgb(var(--ink-ch) / .75); }
 .lp .heroSlipRows div { display: flex; justify-content: space-between; gap: 8px; }
 .lp .heroSlipRows b { color: var(--ink); }
+
+/* The scene's pause button (WCAG 2.2.2; not on the boards). It sits under the phone,
+   in the row the printer opens, so it adds no height. Mono and quiet, like the
+   board's labels; the word is ink (14.32:1 on porcelain). It ships [hidden] and
+   landing.js reveals it -- the class's display would otherwise win over the UA's
+   [hidden], so the attribute is honoured here explicitly. */
+.lp .heroPause { grid-column: 2 / 4; grid-row: 2; align-self: start; justify-self: center; display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 72px; padding: 0 14px; border: 1px solid rgb(var(--ink-ch) / .24); border-radius: 12px; background: transparent; color: var(--ink); font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; cursor: pointer; }
+.lp .heroPause:hover { background: rgb(var(--ink-ch) / .06); border-color: var(--ink); }
+.lp .heroPause:active { background: rgb(var(--ink-ch) / .12); }
+.lp .heroPause[hidden] { display: none; }
 
 @media (min-width: 768px) {
   .lp .hero { padding: 60px 0 72px; }
@@ -2462,4 +2479,7 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
   .lp .heroWaves svg { width: 70px; }
   .lp .heroScreen { height: 186px; }
   .lp .heroCanvas { transform: scale(.5173); }
+  /* One line from here: the board's head, type left and stamp right. */
+  .lp .heroSlipHead { flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
+  .lp .heroSlip .stamp { align-self: auto; }
 }

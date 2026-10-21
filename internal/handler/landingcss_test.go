@@ -426,6 +426,7 @@ func TestLandingCSS_EveryPressableClassReservesTheTouchFloor(t *testing.T) {
 		".lp .lp-signin":             44,
 		".lp .lp-mark":               44,
 		".lp .lp-skip":               44,
+		".lp .heroPause":             44,
 	} {
 		best := 0
 		for _, r := range landingCSSRulesFor(rules, sel) {

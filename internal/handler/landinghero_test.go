@@ -27,41 +27,65 @@ var heroDocketTagRE = regexp.MustCompile(`<[a-z]+\b[^>]*\bid="docket"[^>]*>`)
 // heroHidingRE finds a declaration that would keep an element from being seen: a
 // clip-path inset that clips the whole box away on one axis, a zero opacity, a hidden
 // visibility or no box at all.
+//
+// ⚠️ ITS REACH IS THE RULES THAT NAME THE TICKET, AND NO FURTHER. It does not read an
+// ANCESTOR's rules (a hidden .scene or .heroPrinter hides the ticket too), nor the other
+// ways a box can vanish -- transform: scale(0), a zero height with overflow hidden, a
+// colour equal to the ground, an off-screen position. Those are not what the reference
+// did; the clip-path it did use is what this pins, and the screenshots at four widths
+// are what showed the ticket on screen.
 var heroHidingRE = regexp.MustCompile(`clip-path\s*:\s*inset\([^)]*100%|` +
 	`(?:^|[;{\s])opacity\s*:\s*(?:0+(?:\.0*)?|\.0+)%?\s*(?:;|$|!)|` +
 	`visibility\s*:\s*hidden|` +
 	`(?:^|[;{\s])display\s*:\s*none`)
+
+// cssNameRE is the pattern for one name in a selector: a class (".heroSlip") or an id
+// ("#docket") followed by anything but a name character, or a bare element name
+// ("dialog") that is not part of a class, an id or a longer name.
+func cssNameRE(name string) *regexp.Regexp {
+	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "#") {
+		return regexp.MustCompile(regexp.QuoteMeta(name) + `(?:$|[^\w-])`)
+	}
+	return regexp.MustCompile(`(?:^|[\s>+~(,])` + regexp.QuoteMeta(name) + `(?:$|[^\w-])`)
+}
+
+// cssRulesReaching is every style rule in css whose selector list reaches one of
+// names (see cssNameRE), keyframe steps aside.
+func cssRulesReaching(css string, names []string) []lpCSSRule {
+	var res []*regexp.Regexp
+	for _, n := range names {
+		res = append(res, cssNameRE(n))
+	}
+	var out []lpCSSRule
+	for _, r := range flatCSSRules(css) {
+		if r.keyframe {
+			continue
+		}
+	selectors:
+		for _, s := range r.selectors {
+			for _, re := range res {
+				if re.MatchString(s) {
+					out = append(out, r)
+					break selectors
+				}
+			}
+		}
+	}
+	return out
+}
 
 // hidingRulesFor lists every rule in css that reaches one of names -- a class
 // (".heroSlip") or an id ("#docket") -- and hides it. reached counts the rules that
 // reach any of them, hiding or not, so a caller can tell an empty match from a clean
 // one.
 func hidingRulesFor(css string, names []string) (hits []string, reached int) {
-	var res []*regexp.Regexp
-	for _, n := range names {
-		res = append(res, regexp.MustCompile(regexp.QuoteMeta(n)+`(?:$|[^\w-])`))
-	}
-	for _, r := range flatCSSRules(css) {
-		if r.keyframe {
-			continue
-		}
-		reaches := false
-		for _, s := range r.selectors {
-			for _, re := range res {
-				if re.MatchString(s) {
-					reaches = true
-				}
-			}
-		}
-		if !reaches {
-			continue
-		}
-		reached++
+	rules := cssRulesReaching(css, names)
+	for _, r := range rules {
 		if m := heroHidingRE.FindString(r.decls); m != "" {
 			hits = append(hits, strings.Join(r.selectors, ", ")+" { "+strings.TrimSpace(m)+" }")
 		}
 	}
-	return hits, reached
+	return hits, len(rules)
 }
 
 // heroDocketNames reads the hero ticket's classes and id out of the rendered page.
@@ -86,7 +110,7 @@ func heroDocketNames(t *testing.T, body string) []string {
 // TestLandingHero_TheDocketIsVisibleWithNoAnimation: the hero's ticket is drawn in its
 // visible state. Every rule in the COMPILED stylesheet that reaches the ticket's id or
 // one of its classes -- read from the rendered page, so a renamed class is followed --
-// is read for a declaration that hides it.
+// is read for a declaration that hides it (heroHidingRE says what that does not cover).
 //
 // 🔴 THE DEFECT THIS EXISTS FOR WAS ONE LINE. The reference hid `.lp-docket` with
 // `clip-path: inset(0 0 100% 0)` and let its print animation (or a reduced-motion rule
@@ -149,15 +173,30 @@ type heroRecord struct{ n, t, time, loc, plaque string }
 var heroRecordRE = regexp.MustCompile(`\{\s*n:\s*'([^']*)',\s*t:\s*'([^']*)',\s*time:\s*'([^']*)',` +
 	`\s*loc:\s*'([^']*)',\s*plaque:\s*'([^']*)'\s*\}`)
 
-// heroRecords reads the script's records, or says why it cannot: a record that does not
-// have the five fields in this shape would otherwise be skipped silently.
+// heroPeopleRE cuts out the `people` list itself, so the count below is of the list's
+// records and of nothing else in the file.
+var heroPeopleRE = regexp.MustCompile(`(?s)var people = \[(.*?)\];`)
+
+// heroRecordKeyRE counts a record however its values are quoted: every record has an
+// `n:` key, in any quotes, and only records do.
+var heroRecordKeyRE = regexp.MustCompile(`\bn\s*:`)
+
+// heroRecords reads the script's records, or says why it cannot. The list's records are
+// COUNTED by their key, independently of the pattern that reads them, so a record in a
+// shape the pattern does not read -- double quotes, another field order, a missing
+// field -- is a failure here rather than a record nobody checked.
 func heroRecords(js string) ([]heroRecord, string) {
+	list := heroPeopleRE.FindStringSubmatch(js)
+	if list == nil {
+		return nil, "landing.js carries no `var people = [ … ];` list"
+	}
 	var out []heroRecord
-	for _, m := range heroRecordRE.FindAllStringSubmatch(js, -1) {
+	for _, m := range heroRecordRE.FindAllStringSubmatch(list[1], -1) {
 		out = append(out, heroRecord{m[1], m[2], m[3], m[4], m[5]})
 	}
-	if declared := strings.Count(js, "{ n: '"); declared != len(out) {
-		return nil, fmt.Sprintf("landing.js declares %d record(s) and %d read with all five fields", declared, len(out))
+	if declared := len(heroRecordKeyRE.FindAllString(list[1], -1)); declared != len(out) {
+		return nil, fmt.Sprintf("landing.js's list declares %d record(s) and %d read with all five fields "+
+			"in single quotes", declared, len(out))
 	}
 	if len(out) == 0 {
 		return nil, "landing.js declares no record"
@@ -239,6 +278,19 @@ func TestLandingHero_VenueCheckRefusesAVenueTheSeedDoesNotHave(t *testing.T) {
 	if _, p := heroRecords("var people = [ { n: 'A', t: 'CLOCK IN', loc: 'KM Plant' } ];"); p == "" {
 		t.Error("CONTROL: a record missing two fields was read as a record")
 	}
+	// The auditor's mutation: a record in DOUBLE quotes, carrying a venue the seed does
+	// not have, beside a good one. The pattern does not read it, so only the count can
+	// catch it -- and before the count was taken from the list's keys, it did not.
+	doubled := "var people = [\n" +
+		"  { n: 'Maria Vella', t: 'CLOCK IN', time: '09:58', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55' },\n" +
+		"  { n: \"Anna Farrugia\", t: \"CLOCK IN\", time: \"04:02\", loc: \"KM Facility\", plaque: \"KM FACILITY · 2F04-1B9A\" }\n" +
+		"];"
+	if recs, p := heroRecords(doubled); p == "" {
+		t.Errorf("CONTROL: a double-quoted record was skipped silently; read %d record(s)", len(recs))
+	}
+	if _, p := heroRecords("var people = [ { n: 'A', t: 'T', time: '1', loc: 'L', plaque: 'L · X' } ];"); p != "" {
+		t.Errorf("CONTROL: a whole single-quoted record was refused: %s", p)
+	}
 }
 
 // heroSlots is landing.js's slot map: the element id and the record field it shows.
@@ -289,5 +341,267 @@ func TestLandingHero_TheStillIsTheScriptsFirstRecord(t *testing.T) {
 	}
 	if n := len(regexp.MustCompile(`\b\w+:\s*'`).FindAllString(slotMap[1], -1)); n != len(heroSlots) {
 		t.Errorf("landing.js fills %d slot(s); the page and this test know %d", n, len(heroSlots))
+	}
+}
+
+// ------------------------------------------------------- the height of a still --
+
+// heroNowrapRE finds `white-space: nowrap` in a rule's declarations.
+var heroNowrapRE = regexp.MustCompile(`white-space\s*:\s*nowrap`)
+
+// heroWrapRE finds a flex line that may break: flex-wrap (or the flex-flow shorthand)
+// set to wrap or wrap-reverse.
+var heroWrapRE = regexp.MustCompile(`flex-(?:wrap|flow)\s*:[^;]*\bwrap\b`)
+
+// heroHeightProblems says why the scene's height could depend on the record shown.
+// rotated maps each class that holds rotated words to whether a rule must declare
+// nowrap for it; the head is the ticket's flex line; screen is the phone's screen,
+// which must clip its own canvas at a fixed height.
+func heroHeightProblems(css string, rotated []string, head, screen string) []string {
+	var out []string
+	for _, class := range rotated {
+		rules := cssRulesReaching(css, []string{class})
+		nowrap := false
+		for _, r := range rules {
+			if heroNowrapRE.MatchString(r.decls) {
+				nowrap = true
+			}
+		}
+		if !nowrap {
+			out = append(out, fmt.Sprintf("no rule gives %s `white-space: nowrap`, so a longer record "+
+				"can take a second line", class))
+		}
+	}
+	headRules := cssRulesReaching(css, []string{head})
+	if len(headRules) == 0 {
+		out = append(out, "no rule reaches "+head)
+	}
+	for _, r := range headRules {
+		if heroWrapRE.MatchString(r.decls) {
+			out = append(out, fmt.Sprintf("%s lets its line wrap (%s), so a longer record moves the stamp "+
+				"to a second line", strings.Join(r.selectors, ", "), r.decls))
+		}
+	}
+	var height, clip bool
+	for _, r := range cssRulesReaching(css, []string{screen}) {
+		if regexp.MustCompile(`(?:^|[;\s])height\s*:\s*\d+px`).MatchString(r.decls) {
+			height = true
+		}
+		if regexp.MustCompile(`overflow\s*:\s*hidden`).MatchString(r.decls) {
+			clip = true
+		}
+	}
+	if !height || !clip {
+		out = append(out, fmt.Sprintf("%s does not hold a fixed height (%v) with its overflow hidden (%v), "+
+			"so the phone's greeting can grow the scene", screen, height, clip))
+	}
+	return out
+}
+
+// heroRotatedClasses are the classes that carry the ticket's and the plaque's rotated
+// words: the type, the name, the rows (time and venue) and the plaque's venue line.
+// The phone's words sit inside .heroScreen, which clips them at a fixed height.
+var heroRotatedClasses = []string{".heroSlipType", ".heroSlipName", ".heroSlipRows", ".p-loc"}
+
+// TestLandingHero_TheTicketKeepsItsHeightForEveryRecord: landing.js rotates four
+// records through the scene, so the scene's height may not depend on which one is
+// shown -- or everything under it jumps on every tick (measured on f357ce6: at 390 and
+// 834 "CLOCK OUT" beside the stamp wrapped and the scene grew by 28px).
+//
+// A Go test cannot measure a font, so this holds the property that makes the height
+// independent of the words: the compiled stylesheet lets none of the rotated words
+// wrap, lets the ticket's head not reflow, and clips the phone's screen at a fixed
+// height. Whether the longest record also FITS its line is a width question, measured
+// in a browser for all four records at 390 / 834 / 1200 / 1440 (LP-03 report); a word
+// that did not fit would overflow sideways, not push the page down.
+//
+// The ids are read from the page, so a slot that moves out of its class is caught.
+func TestLandingHero_TheTicketKeepsItsHeightForEveryRecord(t *testing.T) {
+	t.Parallel()
+	body := mustFetchMarketing(t, marketingRouter(t), "/")
+	for id, class := range map[string]string{"dType": "heroSlipType", "dName": "heroSlipName", "pPlaque": "p-loc"} {
+		re := regexp.MustCompile(`<[a-z]+\b[^>]*\bclass="[^"]*\b` + class + `\b[^"]*"[^>]*\bid="` + id + `"`)
+		if !re.MatchString(body) {
+			t.Errorf("#%s is not the element of class %s; the rule this test reads is not the one on it", id, class)
+		}
+	}
+	rows, screen, edge := strings.Index(body, `class="heroSlipRows"`), strings.Index(body, `class="heroScreen"`),
+		strings.Index(body, `class="heroPhoneEdge"`)
+	for _, id := range []string{"dTime", "dLoc"} {
+		if at := strings.Index(body, `id="`+id+`"`); rows < 0 || at < rows {
+			t.Errorf("#%s is not inside the ticket's rows", id)
+		}
+	}
+	for _, id := range []string{"pName", "pLoc", "pTime"} {
+		if at := strings.Index(body, `id="`+id+`"`); screen < 0 || at < screen || at > edge {
+			t.Errorf("#%s is not inside the phone's screen", id)
+		}
+	}
+	for _, p := range heroHeightProblems(readStaticFile(t, "css/app.css"), heroRotatedClasses, ".heroSlipHead", ".heroScreen") {
+		t.Error(p)
+	}
+}
+
+// TestLandingHero_HeightCheckRefusesAWrapOrAFreeScreen is that check's control: each of
+// the three ways back to a ticket that grows is reported, and the rules as written pass.
+func TestLandingHero_HeightCheckRefusesAWrapOrAFreeScreen(t *testing.T) {
+	t.Parallel()
+	good := ".lp .heroSlipType{white-space:nowrap}.lp .heroSlipName{white-space:nowrap}" +
+		".lp .heroSlipRows{white-space:nowrap}.lp .plaque .p-loc{white-space:nowrap}" +
+		".lp .heroSlipHead{display:flex;flex-direction:column}" +
+		"@media (min-width:1200px){.lp .heroSlipHead{flex-direction:row}}" +
+		".lp .heroScreen{position:relative;overflow:hidden;height:134px}"
+	if got := heroHeightProblems(good, heroRotatedClasses, ".heroSlipHead", ".heroScreen"); len(got) != 0 {
+		t.Fatalf("CONTROL: the rules as written were refused: %q", got)
+	}
+	for name, css := range map[string]string{
+		"the head wraps again (f357ce6)": good + ".lp .heroSlipHead{flex-wrap:wrap}",
+		"the head wraps by shorthand":    good + "@media (min-width:768px){.lp .heroSlipHead{flex-flow:row wrap}}",
+		"the name may wrap":              strings.Replace(good, ".lp .heroSlipName{white-space:nowrap}", "", 1),
+		"the screen has no height":       strings.Replace(good, "height:134px", "min-height:134px", 1),
+		"the screen does not clip":       strings.Replace(good, "overflow:hidden;", "", 1),
+	} {
+		if got := heroHeightProblems(css, heroRotatedClasses, ".heroSlipHead", ".heroScreen"); len(got) == 0 {
+			t.Errorf("CONTROL %s: the check passed it", name)
+		}
+	}
+}
+
+// ----------------------------------------------------- the drawing is a drawing --
+
+// heroControlRE finds anything a visitor could press or tab to.
+var heroControlRE = regexp.MustCompile(`<(?:a|button|input|select|textarea|summary|details)\b|\btabindex=|\bcontenteditable\b|\bhref=`)
+
+// heroProductClasses are the tap screen's own classes; the drawing imitates them with
+// classes of its own (CLAUDE.md §9) and carries none.
+var heroProductClasses = []string{"tap-button", "docket", "docket-label"}
+
+// heroDrawingProblems reads the scene's drawing -- from the scene's opening tag to the
+// pause button, the scene's last child -- for a control or a class of the real tap
+// screen.
+func heroDrawingProblems(body string) []string {
+	start := strings.Index(body, `<div class="scene"`)
+	end := strings.Index(body, `id="heroPause"`)
+	if start < 0 || end < 0 || end < start {
+		return []string{"PREMISE: the page has no scene followed by its pause button"}
+	}
+	drawing := body[start:strings.LastIndex(body[:end], "<")]
+	var out []string
+	for _, must := range []string{`class="heroTapButton"`, `id="docket"`, `class="plaque"`} {
+		if !strings.Contains(drawing, must) {
+			out = append(out, "PREMISE: the drawing carries no "+must+" -- the pause button is not its last child")
+		}
+	}
+	for _, m := range heroControlRE.FindAllString(drawing, -1) {
+		out = append(out, fmt.Sprintf("the drawing carries %q: the phone's Tap button is a picture, and a "+
+			"picture is not something a visitor can press", m))
+	}
+	for _, m := range classAttrRE.FindAllStringSubmatch(drawing, -1) {
+		for _, c := range strings.Fields(m[1]) {
+			if slices.Contains(heroProductClasses, c) {
+				out = append(out, fmt.Sprintf("the drawing carries the tap screen's own class %q; the real "+
+					"screen's styles (and the tenant accent on tap-button) would reach it", c))
+			}
+		}
+	}
+	return out
+}
+
+// TestLandingHero_TheDrawingHoldsNoControl: the plaque, the phone and the ticket are a
+// drawing. Nothing in it can be pressed or focused, and it carries none of the real tap
+// screen's classes. The pause button is the scene's one control and sits after it.
+func TestLandingHero_TheDrawingHoldsNoControl(t *testing.T) {
+	t.Parallel()
+	for _, p := range heroDrawingProblems(mustFetchMarketing(t, marketingRouter(t), "/")) {
+		t.Error(p)
+	}
+}
+
+// TestLandingHero_DrawingCheckRefusesAControlOrAProductClass is that check's control.
+func TestLandingHero_DrawingCheckRefusesAControlOrAProductClass(t *testing.T) {
+	t.Parallel()
+	page := `<div class="scene" role="group"><div class="plaque"></div>` +
+		`<div class="heroTapButton">Tap</div><div class="lp-slip heroSlip" id="docket"></div>` +
+		`<button type="button" class="heroPause" id="heroPause" hidden>Pause</button></div>`
+	if got := heroDrawingProblems(page); len(got) != 0 {
+		t.Fatalf("CONTROL: the drawing as written was refused: %q", got)
+	}
+	for name, mutated := range map[string]string{
+		"the Tap button a button":  strings.Replace(page, `<div class="heroTapButton">Tap</div>`, `<button class="heroTapButton">Tap</button>`, 1),
+		"the product's tap-button": strings.Replace(page, `class="heroTapButton"`, `class="heroTapButton tap-button"`, 1),
+		"the product's docket":     strings.Replace(page, `class="lp-slip heroSlip"`, `class="docket heroSlip"`, 1),
+		"a focusable ticket":       strings.Replace(page, `id="docket"`, `id="docket" tabindex="0"`, 1),
+		"a link on the plaque":     strings.Replace(page, `<div class="plaque"></div>`, `<div class="plaque"><a href="/t">x</a></div>`, 1),
+		"the button not last":      strings.Replace(page, `<div class="heroTapButton">`, `<button id="heroPause">P</button><div class="heroTapButton">`, 1),
+	} {
+		if got := heroDrawingProblems(mutated); len(got) == 0 {
+			t.Errorf("CONTROL %s: the check passed it", name)
+		}
+	}
+}
+
+// ---------------------------------------------------------------- the pause --
+
+// heroPauseTagRE reads the pause button's opening tag and its words.
+var heroPauseTagRE = regexp.MustCompile(`<button\b([^>]*\bid="heroPause"[^>]*)>([^<]*)</button>`)
+
+// TestLandingHero_ThePauseButtonShipsHiddenAndTheScriptRevealsIt is WCAG 2.2.2 for the
+// rotating records (orchestrator decision; not on the boards). The control is a real
+// <button type="button"> named by its words, it ships [hidden] so that a page with no
+// script shows no dead control, and landing.js reveals it -- only after deciding to
+// rotate, and only when it has the button: the rotation never starts without it. The
+// stylesheet honours [hidden] over the class's own display. The behaviour (hover and
+// focus pause it, Play clears all three) is read from the source; it was driven in
+// Chrome for the LP-03 report.
+func TestLandingHero_ThePauseButtonShipsHiddenAndTheScriptRevealsIt(t *testing.T) {
+	t.Parallel()
+	body := mustFetchMarketing(t, marketingRouter(t), "/")
+	m := heroPauseTagRE.FindAllStringSubmatch(body, -1)
+	if len(m) != 1 {
+		t.Fatalf("the landing renders %d pause button(s), want one <button id=\"heroPause\">", len(m))
+	}
+	attrs, words := m[0][1], strings.TrimSpace(m[0][2])
+	if !regexp.MustCompile(`\btype="button"`).MatchString(attrs) {
+		t.Errorf("the pause button is not type=\"button\" (%s)", attrs)
+	}
+	if !regexp.MustCompile(`(?:^|\s)hidden(?:\s|=|$)`).MatchString(attrs) {
+		t.Errorf("the pause button does not ship [hidden] (%s); with no script it would be a dead control", attrs)
+	}
+	if words != "Pause" {
+		t.Errorf("the pause button says %q; it names what pressing it does, \"Pause\" while the records rotate", words)
+	}
+
+	js := readStaticFile(t, "js/landing.js")
+	find := func(s string) int {
+		at := strings.Index(js, s)
+		if at < 0 {
+			t.Errorf("landing.js never does %s", s)
+		}
+		return at
+	}
+	get, guard := find("getElementById('heroPause')"), find("if (reduced || !scene) return;")
+	reveal, timer := find("pause.removeAttribute('hidden')"), find("setInterval(")
+	find("if (!rotating()) return;")
+	for _, ev := range []string{"'click'", "'mouseenter'", "'mouseleave'", "'focusin'", "'focusout'"} {
+		find("addEventListener(" + ev)
+	}
+	find("'Pause' : 'Play'")
+	if !(get < guard && guard < reveal && reveal < timer) {
+		t.Errorf("landing.js does not find the button, give up without it (or under reduced motion), "+
+			"reveal it and only then start the timer, in that order (%d, %d, %d, %d)", get, guard, reveal, timer)
+	}
+
+	css := readStaticFile(t, "css/app.css")
+	hiddenRule := false
+	for _, r := range cssRulesReaching(css, []string{".heroPause"}) {
+		for _, s := range r.selectors {
+			if strings.Contains(s, "[hidden]") && regexp.MustCompile(`display\s*:\s*none`).MatchString(r.decls) {
+				hiddenRule = true
+			}
+		}
+	}
+	if !hiddenRule {
+		t.Error("no compiled rule hides .heroPause[hidden]; the class's own display wins over the UA's " +
+			"[hidden], and the button would show with no script behind it")
 	}
 }

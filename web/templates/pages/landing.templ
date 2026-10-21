@@ -188,8 +188,17 @@ templ landingPlayIcon() {
 // THE FOUR VALUES ON THE TICKET ARE INVENTED AND SAID TO BE: they are the records
 // web/static/js/landing.js rotates through, and the ticket is a drawing, not a
 // record. No plaque id printed here is real.
+//
+// 🔴 THE TICKET IS THE SAME HEIGHT FOR EVERY RECORD. Its words do not wrap and its
+// head does not reflow (below 1200px the stamp has a line of its own), so a record
+// with a longer word -- "CLOCK OUT" -- cannot push the page below it down while the
+// script rotates. TestLandingHero_TheTicketKeepsItsHeightForEveryRecord.
+//
+// THE PAUSE BUTTON IS NOT ON THE BOARDS (a deviation, orchestrator decision): an
+// automatic rotation needs a way to stop it (WCAG 2.2.2), and the scene also stops
+// while the pointer is over it or focus is inside it.
 templ landingScene() {
-	<div class="scene" role="group" aria-label="A phone taps the Taptime wall plaque and a verified clock-in ticket prints">
+	<div class="scene" role="group" aria-label="A phone taps the Taptime wall plaque and a verified ticket prints">
 		<div class="plaque" aria-hidden="true">
 			// Two classes on one element: the first carries the rule the brand
 			// golden pins byte for byte (internal/brand), the second the phone's
@@ -268,6 +277,12 @@ templ landingScene() {
 				</div>
 			</div>
 		</div>
+		// WCAG 2.2.2: the records change on their own, so the reader can stop them.
+		// It ships hidden and landing.js reveals it -- with no script nothing moves,
+		// and a control that does nothing would be a dead button. It is the LAST
+		// child of the scene: everything before it is the drawing, which holds no
+		// control (TestLandingHero_TheDrawingHoldsNoControl).
+		<button type="button" class="heroPause" id="heroPause" hidden>Pause</button>
 	</div>
 }
 

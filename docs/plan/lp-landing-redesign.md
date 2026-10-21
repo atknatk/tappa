@@ -301,7 +301,9 @@ Animasyon yok (O2). Demo diyaloğunun içeriği aynı, yalnız stili ve açılı
 - `web/static/js/landing.js`: döndürme `pName`/`pLoc`/`pPlaque`'ı da doldurur; animasyon sınıfı
   eklemez; "KM Facility" → **"KM Plant"** (`landing.js:21`; `seed.sql:171`). Betik yoksa sayfa ilk
   kaydı statik gösterir (bozulmaz).
-- Kırılımlar: tablet 2 kolon (1.1fr/.9fr), telefon tek kolon (README; *gap report*).
+- Kırılımlar: masaüstü (1200+) 2 kolon (`minmax(0, 1fr)` + 580px sahne), tablet ve telefon tek kolon — sahne
+  metnin altında (`T-Landing` / `M-Landing`). *(Düzeltme, LP-03: buradaki eski "tablet 2 kolon (1.1fr/.9fr)"
+  T-Landing'deki fiyat kartının ızgarasıydı, hero'nun değil.)*
 - Demo diyaloğu (landing.templ:481): yalnız sınıflar; içerik, etiketleme ve klavyeyle kapanma aynı.
 - **`TestLandingDemo_TheDialogIsLabelledAndCanBeClosedWithoutAMouse`'un animasyon iddiası tersine
   çevrilir** (orkestratör kararı (panolara uyulur)): bugün derlenmiş CSS'te
