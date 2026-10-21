@@ -70,3 +70,12 @@ its `unicode-range` in `web/static/css/input.css`, so a browser downloads
 Fetch the new file, put its URL, size and SHA-256 in the table above, and check
 the licence text still matches. Do NOT point `@font-face` at a remote URL — that
 is the red line these files exist to keep.
+
+**A new file needs a new name (2026-10-21).** `/static/fonts/*.woff2` is served
+`Cache-Control: public, max-age=31536000, immutable` (`internal/httpx/static.go`):
+a browser keeps a face for a year without asking again, which is what stopped the
+fallback-face flash on every navigation. So bytes under an existing name must never
+change — keep the upstream version in the name (`-v22-`, `-v20-`) and put new bytes
+under a new one. `TestStaticImmutableRule_OnlyVersionedNames` refuses a `.woff2`
+here without `-vNN-`. Every other `/static` file is `no-cache` with a SHA-256 ETag:
+cached, revalidated per navigation, `304` while unchanged.
