@@ -63,25 +63,61 @@
 -- already costs 10246 buffers today. So this is not a new worst case, it is the
 -- one every ordinary employee's check-in already pays. Making it cheap is an
 -- INDEX question (a migration, deliberately out of M5-11's scope).
+--
+-- @at AND THE id TIE-BREAK (M15-02, ADR 0032 §A.4). The question is "the check-in
+-- open AT the tap's instant", and the instant is the one the tap is decided at --
+-- the declared occurred_at if the client sent one, the server's now otherwise
+-- (checkin.Record's occurredAt; the caller passes it, never a zero value: a zero
+-- @at finds nothing, and every tap would become an `in`). Two bounds, and BOTH
+-- are needed:
+--   * the outer row: an entry declared AFTER @at was not open at @at. Without it a
+--     queued Monday 17:00 checkout (M9-01's offline queue) arriving after Tuesday's
+--     09:00 entry would see Tuesday's entry as "the last open one" and close the
+--     wrong day.
+--   * inside NOT EXISTS: an out declared after @at had not happened at @at, so it
+--     cannot have closed the entry. Bounding only the outer row would let a later
+--     row hide an entry that was open at @at -- the same queued checkout, seen from
+--     the other side.
+-- For a live tap @at is now, and the only rows beyond it are a manager's manual
+-- record placed up to manual.FutureGrace (one minute) ahead; such a row no longer
+-- counts until its instant arrives -- the rule, applied.
+--
+-- The order is (occurred_at, id) everywhere: in the row comparison, so of an `in`
+-- and an `out` at the SAME instant the one with the larger id is the later one
+-- (strict `>` on occurred_at alone made a same-instant out close nothing, and the
+-- ORDER BY without id picked either of two same-instant entries), and in the ORDER
+-- BY. It is the order the checkout classification (tappa_checkout_class's callers)
+-- and the ledger read (ListWorkedShiftEvents: per person, occurred_at then id), so the
+-- three readers cannot disagree about which of two same-instant rows came first.
+-- id is gen_random_uuid() (00005): the tie-break is arbitrary but total and stable,
+-- which is all an order needs.
+--
+-- business_day_start is in the list because this query returns the whole store
+-- Transaction (a row type without it would be a second model); nothing here
+-- filters on it. Whether this entry is still in the tap's business day is the
+-- engine's question (M15-03), and ADR 0032 §A.6 says why this query does not need
+-- the classification while the cutoff stays fixed.
 SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
-       site_tenant_id, site_location_id, site_tag_uid
+       site_tenant_id, site_location_id, site_tag_uid, business_day_start
 FROM transactions t
 WHERE t.tenant_id = @tenant_id
   AND t.employee_id = @employee_id
   AND t.type = 'in'
   AND NOT t.practice
+  AND t.occurred_at <= @at
   AND NOT EXISTS (
       SELECT 1
       FROM transactions o
       WHERE o.tenant_id = t.tenant_id
         AND o.employee_id = t.employee_id
         AND o.type = 'out'
-        AND o.occurred_at > t.occurred_at
+        AND (o.occurred_at, o.id) > (t.occurred_at, t.id)
+        AND o.occurred_at <= @at
   )
-ORDER BY t.occurred_at DESC
+ORDER BY t.occurred_at DESC, t.id DESC
 LIMIT 1;
 
 -- name: LockEmployeeForTap :exec
@@ -203,7 +239,7 @@ SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
-       site_tenant_id, site_location_id, site_tag_uid
+       site_tenant_id, site_location_id, site_tag_uid, business_day_start
 FROM transactions
 WHERE tenant_id = @tenant_id
   AND employee_id = @employee_id
@@ -250,24 +286,34 @@ LIMIT 1;
 -- every other tap. What may stand there is not the caller's word: the composite keys
 -- tie the venue and the plaque to the site tenant, the CHECKs hold the shape by channel,
 -- and holding_site_gate refuses a site that is not a peer of the employer.
+--
+-- business_day_start (M15-02, migration 00064, ADR 0032 §A.5): the UTC start of the
+-- business day a DIRECTED nfc/qr decision was made in, frozen on the row because the
+-- cutoff that produced it may change later. NULL for an undirected decision (reject,
+-- ignored), for the manual channel and for every row before M15; the caller forces
+-- the NULL in code (insertParams, M15-04 -- until then it passes NULL for every
+-- tap), and transactions_business_day_needs_a_direction is the second safety. A tap
+-- on a PEER's plaque is the employer's row (above) and carries the employer's
+-- business day like any other; InsertManualSiteTransaction, the manual site sibling,
+-- has no such parameter.
 INSERT INTO transactions (
     tenant_id, employee_id, location_id, department_id, tag_uid, ctr, type,
     occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match, sun_valid,
     trust, verdict, note, channel, entered_by, practice, queued,
     policy_version_id, matched_sid, policy_layer, policy_context,
-    site_tenant_id, site_location_id, site_tag_uid
+    site_tenant_id, site_location_id, site_tag_uid, business_day_start
 ) VALUES (
     @tenant_id, @employee_id, @location_id, @department_id, @tag_uid, @ctr, @type,
     @occurred_at, @source_ip, @ip_match, @gps_lat, @gps_lng, @gps_match,
     @sun_valid, @trust, @verdict, @note, @channel, @entered_by, @practice, @queued,
     @policy_version_id, @matched_sid, @policy_layer, @policy_context,
-    @site_tenant_id, @site_location_id, @site_tag_uid
+    @site_tenant_id, @site_location_id, @site_tag_uid, @business_day_start
 )
 RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
           type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
           sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
           created_at, policy_version_id, matched_sid, policy_layer, policy_context,
-          site_tenant_id, site_location_id, site_tag_uid;
+          site_tenant_id, site_location_id, site_tag_uid, business_day_start;
 
 -- name: InsertManualTransaction :one
 -- THE MANAGER'S OWN RECORD (M6-08). Somebody with no phone worked a shift, or an

@@ -844,7 +844,7 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 		if err != nil {
 			return err
 		}
-		facts, err = s.gatherWith(ctx, tx, req, tappedWall(tagRow.LocationID), site)
+		facts, err = s.gatherWith(ctx, tx, req, tappedWall(tagRow.LocationID), site, occurredAt)
 		if err != nil {
 			return err
 		}
@@ -1310,8 +1310,8 @@ func tappedWall(id *uuid.UUID) uuid.UUID {
 	return *id
 }
 
-func (s *Service) gather(ctx context.Context, tx pgx.Tx, req Request, tappedLocationID uuid.UUID) (tapFacts, error) {
-	return s.gatherWith(ctx, tx, req, tappedLocationID, nil)
+func (s *Service) gather(ctx context.Context, tx pgx.Tx, req Request, tappedLocationID uuid.UUID, at time.Time) (tapFacts, error) {
+	return s.gatherWith(ctx, tx, req, tappedLocationID, nil, at)
 }
 
 // gatherWith is gather with a PEER's plaque (M11 API-1b, ADR 0027 §5): when site is set the
@@ -1321,7 +1321,13 @@ func (s *Service) gather(ctx context.Context, tx pgx.Tx, req Request, tappedLoca
 // the employee, the department shift, the last tap, the debounce, the last open check-in --
 // is the employer's, read by the same queries as any tap: the record is the employer's
 // (K-1a), the debounce and the direction chain span both tenants' plaques (ADR 0027 §7).
-func (s *Service) gatherWith(ctx context.Context, tx pgx.Tx, req Request, tappedLocationID uuid.UUID, site *db.HoldingSite) (tapFacts, error) {
+//
+// at is the instant the tap is decided at -- Record's occurredAt: the declared occurred_at if
+// the client sent one, the server's now otherwise (ADR 0032 §A.4). The open check-in is the
+// one open AT that instant (GetLastOpenTransaction's @at), so it is passed rather than read
+// from a clock here: a zero value would bound the query below every row and turn every tap
+// into an `in`.
+func (s *Service) gatherWith(ctx context.Context, tx pgx.Tx, req Request, tappedLocationID uuid.UUID, site *db.HoldingSite, at time.Time) (tapFacts, error) {
 	var f tapFacts
 	f.site = site
 	err := func(ctx context.Context, tx pgx.Tx) error {
@@ -1364,7 +1370,7 @@ func (s *Service) gatherWith(ctx context.Context, tx pgx.Tx, req Request, tapped
 				}
 				f.shift = shiftOf(site.ShiftStart, site.ShiftEnd, site.Overnight, zone)
 			}
-			return s.gatherPerson(ctx, q, req, emp, &f)
+			return s.gatherPerson(ctx, q, req, emp, at, &f)
 		}
 		loc, err := q.GetLocationForTap(ctx, store.GetLocationForTapParams{
 			TenantID: req.SessionTenantID, ID: tappedLocationID,
@@ -1383,7 +1389,7 @@ func (s *Service) gatherWith(ctx context.Context, tx pgx.Tx, req Request, tapped
 		default:
 			return fmt.Errorf("load tapped location: %w", err)
 		}
-		return s.gatherPerson(ctx, q, req, emp, &f)
+		return s.gatherPerson(ctx, q, req, emp, at, &f)
 	}(ctx, tx)
 	if err != nil {
 		return tapFacts{}, fmt.Errorf("checkin: gather: %w", err)
@@ -1394,7 +1400,7 @@ func (s *Service) gatherWith(ctx context.Context, tx pgx.Tx, req Request, tapped
 // gatherPerson is the half of the gather that is about the PERSON, read in the session's
 // tenant whatever plaque was tapped: the department shift (which beats the venue's), the
 // last tap, the server-clock debounce leg and the last open check-in.
-func (s *Service) gatherPerson(ctx context.Context, q *store.Queries, req Request, emp store.GetEmployeeForTapRow, f *tapFacts) error {
+func (s *Service) gatherPerson(ctx context.Context, q *store.Queries, req Request, emp store.GetEmployeeForTapRow, at time.Time, f *tapFacts) error {
 	// The department shift BEATS the location shift when there is one (§5, Q17).
 	if emp.DepartmentID != nil {
 		dept, err := q.GetDepartmentShift(ctx, store.GetDepartmentShiftParams{
@@ -1450,7 +1456,7 @@ func (s *Service) gatherPerson(ctx context.Context, q *store.Queries, req Reques
 	}
 
 	open, err := q.GetLastOpenTransaction(ctx, store.GetLastOpenTransactionParams{
-		TenantID: req.SessionTenantID, EmployeeID: &req.EmployeeID,
+		TenantID: req.SessionTenantID, EmployeeID: &req.EmployeeID, At: at,
 	})
 	switch {
 	case err == nil:
@@ -1641,6 +1647,11 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 		MatchedSid:      strPtr(dec.MatchedSid),
 		PolicyLayer:     strPtr(string(dec.Layer)),
 		PolicyContext:   snapshot,
+		// The frozen business day (ADR 0032 §A.5, migration 00064) is NOT written yet:
+		// M15-04 sets it for a directed nfc/qr decision once the cutoff is gathered and
+		// the TAPPA_BUSINESS_DAY_FROM switch is on. Until then every row is NULL, which is
+		// what every row before 00064 carries and what the column's CHECK admits.
+		BusinessDayStart: nil,
 	}
 	// sun_valid is THREE-STATE and the third state is the point (migration 00005:
 	// "NULL = not evaluated for this channel"). An NFC or QR tap really was

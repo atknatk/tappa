@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countPanelEmployeesByStatus = `-- name: CountPanelEmployeesByStatus :many
@@ -758,9 +759,12 @@ func (q *Queries) GetEmployeeEmail(ctx context.Context, arg GetEmployeeEmailPara
 
 const getEmployeeForTap = `-- name: GetEmployeeForTap :one
 SELECT e.status, e.location_id, e.department_id, e.activated_at,
-       t.timezone AS tenant_timezone, t.business_type AS tenant_business_type
+       t.timezone AS tenant_timezone, t.business_type AS tenant_business_type,
+       coalesce(e.day_cutoff, d.day_cutoff, l.day_cutoff, t.day_cutoff)::time AS effective_day_cutoff
 FROM employees e
 JOIN tenants t ON t.id = e.tenant_id
+LEFT JOIN departments d ON d.id = e.department_id AND d.tenant_id = e.tenant_id
+LEFT JOIN locations l ON l.id = e.location_id AND l.tenant_id = e.tenant_id
 WHERE e.tenant_id = $1
   AND e.id = $2
 `
@@ -777,6 +781,7 @@ type GetEmployeeForTapRow struct {
 	ActivatedAt        *time.Time
 	TenantTimezone     string
 	TenantBusinessType string
+	EffectiveDayCutoff pgtype.Time
 }
 
 // Everything the DECISION engine needs to know about the person tapping
@@ -832,6 +837,28 @@ type GetEmployeeForTapRow struct {
 // claim is about the four columns above, not about the whole result set: the two
 // presentation columns exist precisely because the screen that follows the
 // decision has to say something, and neither of them is a name.
+//
+// effective_day_cutoff (M15-02, ADR 0032 §A.2, K1) -> the WALL-CLOCK time this
+// person's business day starts at: the most specific of the four levels wins,
+// coalesce(person, department, PROFILE branch, business). The hierarchy is
+// resolved HERE, in one read, so tap.Decide receives one resolved value and knows
+// nothing of levels (§A.3). Three things the shape is for:
+//   - the branch is the employee's PROFILE branch (e.location_id), never the
+//     tapped one: the direction chain is the person's, and a chain worker who
+//     clocks in at Sliema and out at St Julians must not have one shift cut by two
+//     boundaries. It is the same column as location_id above, joined, not the
+//     tapped location this tap's evidence is matched against.
+//   - e.location_id is NULLABLE (00037:88, an API-managed employee -- K-14): the
+//     LEFT JOIN then finds no branch and the level is skipped --
+//     coalesce(person, department, business).
+//   - the department is read on its OWN, not through its branch: a department
+//     belongs to a branch (departments.location_id) that may differ from the
+//     person's profile branch, and the department is the more specific level.
+//
+// Both joins carry the employee's tenant_id as well as RLS (§4.5), so a
+// department or branch id of another tenant contributes nothing. tenants.day_cutoff
+// is NOT NULL, so the coalesce always has a value. The cutoff is only an input:
+// whether it APPLIES (the TAPPA_BUSINESS_DAY_FROM switch, §A.8) is decided in Go.
 func (q *Queries) GetEmployeeForTap(ctx context.Context, arg GetEmployeeForTapParams) (GetEmployeeForTapRow, error) {
 	row := q.db.QueryRow(ctx, getEmployeeForTap, arg.TenantID, arg.EmployeeID)
 	var i GetEmployeeForTapRow
@@ -842,6 +869,7 @@ func (q *Queries) GetEmployeeForTap(ctx context.Context, arg GetEmployeeForTapPa
 		&i.ActivatedAt,
 		&i.TenantTimezone,
 		&i.TenantBusinessType,
+		&i.EffectiveDayCutoff,
 	)
 	return i, err
 }
@@ -1992,6 +2020,41 @@ func (q *Queries) MoveEmployee(ctx context.Context, arg MoveEmployeeParams) (Mov
 		&i.LocationID,
 		&i.DepartmentID,
 	)
+	return i, err
+}
+
+const setEmployeeDayCutoff = `-- name: SetEmployeeDayCutoff :one
+UPDATE employees
+SET day_cutoff = $1
+WHERE tenant_id = $2
+  AND id = $3
+RETURNING id, day_cutoff
+`
+
+type SetEmployeeDayCutoffParams struct {
+	DayCutoff pgtype.Time
+	TenantID  uuid.UUID
+	ID        uuid.UUID
+}
+
+type SetEmployeeDayCutoffRow struct {
+	ID        uuid.UUID
+	DayCutoff pgtype.Time
+}
+
+// The business-day cutoff of ONE PERSON: the most specific level. It is not a directory
+// column, so it does not move employees.updated_at (00037's trigger)
+// (M15-02, migration 00064, ADR 0032 §A.2). NULL = inherit the next level up;
+// sqlc.narg so "clear the override" is a value the caller can send.
+// WRITES THE SETTING ONLY. Who may change it, the shift-conflict warning, the
+// confirmation and the audit_log row are the panel's (M15-07, ADR 0032 §A.7); this
+// statement is the one write those all go through. It carries its own section 4.5
+// predicate (tenant_id) and is not left to RLS. RETURNING is what was stored, so
+// the screen re-renders from the database, not from the form.
+func (q *Queries) SetEmployeeDayCutoff(ctx context.Context, arg SetEmployeeDayCutoffParams) (SetEmployeeDayCutoffRow, error) {
+	row := q.db.QueryRow(ctx, setEmployeeDayCutoff, arg.DayCutoff, arg.TenantID, arg.ID)
+	var i SetEmployeeDayCutoffRow
+	err := row.Scan(&i.ID, &i.DayCutoff)
 	return i, err
 }
 

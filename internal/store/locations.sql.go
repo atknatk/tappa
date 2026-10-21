@@ -329,7 +329,7 @@ func (q *Queries) DeleteLocation(ctx context.Context, arg DeleteLocationParams) 
 const getLocationByIP = `-- name: GetLocationByIP :one
 
 SELECT id, tenant_id, name, static_ips, gps_lat, gps_lng, shift_start, shift_end,
-       overnight, created_at, wifi_ssid, external_ref, active
+       overnight, created_at, wifi_ssid, external_ref, active, day_cutoff
 FROM locations
 WHERE tenant_id = $1
   AND $2::inet <<= ANY(static_ips)
@@ -361,6 +361,10 @@ type GetLocationByIPParams struct {
 // integrator's identity and active is a label (K-20: the decision engine never sees
 // it). Measured on 00037: without them sqlc emitted GetLocationByIPRow and
 // ListLocationsForTenantRow again.
+//
+// AND FOR day_cutoff (migration 00064, M15-02): named for the mapping. Neither query
+// is the place the cutoff is read -- GetEmployeeForTap resolves it, through the
+// employee's PROFILE branch, never the tapped or matched one (ADR 0032 §A.2).
 // Proof-of-place, IP side (CLAUDE.md section 5, row 6): the location whose
 // static_ips contains the request source IP. static_ips is cidr[]; the source is
 // matched with @src::inet <<= ANY(static_ips), which is TRUE when the address
@@ -400,6 +404,7 @@ func (q *Queries) GetLocationByIP(ctx context.Context, arg GetLocationByIPParams
 		&i.WifiSsid,
 		&i.ExternalRef,
 		&i.Active,
+		&i.DayCutoff,
 	)
 	return i, err
 }
@@ -644,7 +649,7 @@ func (q *Queries) GetPanelLocation(ctx context.Context, arg GetPanelLocationPara
 
 const listLocationsForTenant = `-- name: ListLocationsForTenant :many
 SELECT id, tenant_id, name, static_ips, gps_lat, gps_lng, shift_start, shift_end,
-       overnight, created_at, wifi_ssid, external_ref, active
+       overnight, created_at, wifi_ssid, external_ref, active, day_cutoff
 FROM locations
 WHERE tenant_id = $1
 ORDER BY name
@@ -676,6 +681,7 @@ func (q *Queries) ListLocationsForTenant(ctx context.Context, tenantID uuid.UUID
 			&i.WifiSsid,
 			&i.ExternalRef,
 			&i.Active,
+			&i.DayCutoff,
 		); err != nil {
 			return nil, err
 		}
@@ -897,6 +903,41 @@ func (q *Queries) LockLocationForExternalRefChange(ctx context.Context, arg Lock
 	row := q.db.QueryRow(ctx, lockLocationForExternalRefChange, arg.TenantID, arg.ID)
 	var i LockLocationForExternalRefChangeRow
 	err := row.Scan(&i.ID, &i.ExternalRef)
+	return i, err
+}
+
+const setLocationDayCutoff = `-- name: SetLocationDayCutoff :one
+UPDATE locations
+SET day_cutoff = $1
+WHERE tenant_id = $2
+  AND id = $3
+RETURNING id, day_cutoff
+`
+
+type SetLocationDayCutoffParams struct {
+	DayCutoff pgtype.Time
+	TenantID  uuid.UUID
+	ID        uuid.UUID
+}
+
+type SetLocationDayCutoffRow struct {
+	ID        uuid.UUID
+	DayCutoff pgtype.Time
+}
+
+// The business-day cutoff of a BRANCH: it applies to the employees whose PROFILE branch
+// this is (employees.location_id) -- never to whoever taps one of its plaques
+// (M15-02, migration 00064, ADR 0032 §A.2). NULL = inherit the next level up;
+// sqlc.narg so "clear the override" is a value the caller can send.
+// WRITES THE SETTING ONLY. Who may change it, the shift-conflict warning, the
+// confirmation and the audit_log row are the panel's (M15-07, ADR 0032 §A.7); this
+// statement is the one write those all go through. It carries its own section 4.5
+// predicate (tenant_id) and is not left to RLS. RETURNING is what was stored, so
+// the screen re-renders from the database, not from the form.
+func (q *Queries) SetLocationDayCutoff(ctx context.Context, arg SetLocationDayCutoffParams) (SetLocationDayCutoffRow, error) {
+	row := q.db.QueryRow(ctx, setLocationDayCutoff, arg.DayCutoff, arg.TenantID, arg.ID)
+	var i SetLocationDayCutoffRow
+	err := row.Scan(&i.ID, &i.DayCutoff)
 	return i, err
 }
 

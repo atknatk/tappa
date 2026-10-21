@@ -1266,6 +1266,10 @@ type Querier interface {
 	//
 	// NULL SHIFTS PASS THROUGH AS NULL. See CreateLocation: a zero is not an absence,
 	// and departments_shift_pair refuses a half-filled pair but cannot refuse 00:00.
+	//
+	// day_cutoff (00064) is in RETURNING here and in UpdateDepartment only so that both
+	// keep mapping onto store.Department (the whole row); neither statement writes it --
+	// a new department inherits, and SetDepartmentDayCutoff is the one writer.
 	CreateDepartment(ctx context.Context, arg CreateDepartmentParams) (Department, error)
 	// Puts somebody on the roster (M6-13). It is the ONLY way a row enters `employees`
 	// from inside the product.
@@ -2399,6 +2403,27 @@ type Querier interface {
 	// claim is about the four columns above, not about the whole result set: the two
 	// presentation columns exist precisely because the screen that follows the
 	// decision has to say something, and neither of them is a name.
+	//
+	// effective_day_cutoff (M15-02, ADR 0032 §A.2, K1) -> the WALL-CLOCK time this
+	// person's business day starts at: the most specific of the four levels wins,
+	// coalesce(person, department, PROFILE branch, business). The hierarchy is
+	// resolved HERE, in one read, so tap.Decide receives one resolved value and knows
+	// nothing of levels (§A.3). Three things the shape is for:
+	//   * the branch is the employee's PROFILE branch (e.location_id), never the
+	//     tapped one: the direction chain is the person's, and a chain worker who
+	//     clocks in at Sliema and out at St Julians must not have one shift cut by two
+	//     boundaries. It is the same column as location_id above, joined, not the
+	//     tapped location this tap's evidence is matched against.
+	//   * e.location_id is NULLABLE (00037:88, an API-managed employee -- K-14): the
+	//     LEFT JOIN then finds no branch and the level is skipped --
+	//     coalesce(person, department, business).
+	//   * the department is read on its OWN, not through its branch: a department
+	//     belongs to a branch (departments.location_id) that may differ from the
+	//     person's profile branch, and the department is the more specific level.
+	// Both joins carry the employee's tenant_id as well as RLS (§4.5), so a
+	// department or branch id of another tenant contributes nothing. tenants.day_cutoff
+	// is NOT NULL, so the coalesce always has a value. The cutoff is only an input:
+	// whether it APPLIES (the TAPPA_BUSINESS_DAY_FROM switch, §A.8) is decided in Go.
 	GetEmployeeForTap(ctx context.Context, arg GetEmployeeForTapParams) (GetEmployeeForTapRow, error)
 	// The person's lifecycle state, read BEFORE the minting transaction retires anything: only an
 	// 'invited' person is sent an invitation by the queue (K-15: an activated person gets none; a
@@ -2500,6 +2525,40 @@ type Querier interface {
 	// already costs 10246 buffers today. So this is not a new worst case, it is the
 	// one every ordinary employee's check-in already pays. Making it cheap is an
 	// INDEX question (a migration, deliberately out of M5-11's scope).
+	//
+	// @at AND THE id TIE-BREAK (M15-02, ADR 0032 §A.4). The question is "the check-in
+	// open AT the tap's instant", and the instant is the one the tap is decided at --
+	// the declared occurred_at if the client sent one, the server's now otherwise
+	// (checkin.Record's occurredAt; the caller passes it, never a zero value: a zero
+	// @at finds nothing, and every tap would become an `in`). Two bounds, and BOTH
+	// are needed:
+	//   * the outer row: an entry declared AFTER @at was not open at @at. Without it a
+	//     queued Monday 17:00 checkout (M9-01's offline queue) arriving after Tuesday's
+	//     09:00 entry would see Tuesday's entry as "the last open one" and close the
+	//     wrong day.
+	//   * inside NOT EXISTS: an out declared after @at had not happened at @at, so it
+	//     cannot have closed the entry. Bounding only the outer row would let a later
+	//     row hide an entry that was open at @at -- the same queued checkout, seen from
+	//     the other side.
+	// For a live tap @at is now, and the only rows beyond it are a manager's manual
+	// record placed up to manual.FutureGrace (one minute) ahead; such a row no longer
+	// counts until its instant arrives -- the rule, applied.
+	//
+	// The order is (occurred_at, id) everywhere: in the row comparison, so of an `in`
+	// and an `out` at the SAME instant the one with the larger id is the later one
+	// (strict `>` on occurred_at alone made a same-instant out close nothing, and the
+	// ORDER BY without id picked either of two same-instant entries), and in the ORDER
+	// BY. It is the order the checkout classification (tappa_checkout_class's callers)
+	// and the ledger read (ListWorkedShiftEvents: per person, occurred_at then id), so the
+	// three readers cannot disagree about which of two same-instant rows came first.
+	// id is gen_random_uuid() (00005): the tie-break is arbitrary but total and stable,
+	// which is all an order needs.
+	//
+	// business_day_start is in the list because this query returns the whole store
+	// Transaction (a row type without it would be a second model); nothing here
+	// filters on it. Whether this entry is still in the tap's business day is the
+	// engine's question (M15-03), and ADR 0032 §A.6 says why this query does not need
+	// the classification while the cutoff stays fixed.
 	GetLastOpenTransaction(ctx context.Context, arg GetLastOpenTransactionParams) (Transaction, error)
 	// Debounce basis (CLAUDE.md section 5, row 5): the person's single most recent
 	// tap. Debounce is PER-PERSON, not per-tag, so a queue of different people can
@@ -2555,6 +2614,10 @@ type Querier interface {
 	// integrator's identity and active is a label (K-20: the decision engine never sees
 	// it). Measured on 00037: without them sqlc emitted GetLocationByIPRow and
 	// ListLocationsForTenantRow again.
+	//
+	// AND FOR day_cutoff (migration 00064, M15-02): named for the mapping. Neither query
+	// is the place the cutoff is read -- GetEmployeeForTap resolves it, through the
+	// employee's PROFILE branch, never the tapped or matched one (ADR 0032 §A.2).
 	// Proof-of-place, IP side (CLAUDE.md section 5, row 6): the location whose
 	// static_ips contains the request source IP. static_ips is cidr[]; the source is
 	// matched with @src::inet <<= ANY(static_ips), which is TRUE when the address
@@ -3297,6 +3360,16 @@ type Querier interface {
 	// every other tap. What may stand there is not the caller's word: the composite keys
 	// tie the venue and the plaque to the site tenant, the CHECKs hold the shape by channel,
 	// and holding_site_gate refuses a site that is not a peer of the employer.
+	//
+	// business_day_start (M15-02, migration 00064, ADR 0032 §A.5): the UTC start of the
+	// business day a DIRECTED nfc/qr decision was made in, frozen on the row because the
+	// cutoff that produced it may change later. NULL for an undirected decision (reject,
+	// ignored), for the manual channel and for every row before M15; the caller forces
+	// the NULL in code (insertParams, M15-04 -- until then it passes NULL for every
+	// tap), and transactions_business_day_needs_a_direction is the second safety. A tap
+	// on a PEER's plaque is the employer's row (above) and carries the employer's
+	// business day like any other; InsertManualSiteTransaction, the manual site sibling,
+	// has no such parameter.
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error)
 	// THE decision. One row, append-only, and it is the ONLY write this flow makes to
 	// the record besides audit_log.
@@ -5886,6 +5959,26 @@ type Querier interface {
 	// never debounces (the safe zero value, section 4.6) — the same answer the
 	// unbounded query produced by returning an age too large to win the min.
 	SecondsSinceLastRecordedTap(ctx context.Context, arg SecondsSinceLastRecordedTapParams) (float64, error)
+	// The business-day cutoff of a DEPARTMENT: it applies to its employees whatever their
+	// profile branch, and beats the branch level
+	// (M15-02, migration 00064, ADR 0032 §A.2). NULL = inherit the next level up;
+	// sqlc.narg so "clear the override" is a value the caller can send.
+	// WRITES THE SETTING ONLY. Who may change it, the shift-conflict warning, the
+	// confirmation and the audit_log row are the panel's (M15-07, ADR 0032 §A.7); this
+	// statement is the one write those all go through. It carries its own section 4.5
+	// predicate (tenant_id) and is not left to RLS. RETURNING is what was stored, so
+	// the screen re-renders from the database, not from the form.
+	SetDepartmentDayCutoff(ctx context.Context, arg SetDepartmentDayCutoffParams) (SetDepartmentDayCutoffRow, error)
+	// The business-day cutoff of ONE PERSON: the most specific level. It is not a directory
+	// column, so it does not move employees.updated_at (00037's trigger)
+	// (M15-02, migration 00064, ADR 0032 §A.2). NULL = inherit the next level up;
+	// sqlc.narg so "clear the override" is a value the caller can send.
+	// WRITES THE SETTING ONLY. Who may change it, the shift-conflict warning, the
+	// confirmation and the audit_log row are the panel's (M15-07, ADR 0032 §A.7); this
+	// statement is the one write those all go through. It carries its own section 4.5
+	// predicate (tenant_id) and is not left to RLS. RETURNING is what was stored, so
+	// the screen re-renders from the database, not from the form.
+	SetEmployeeDayCutoff(ctx context.Context, arg SetEmployeeDayCutoffParams) (SetEmployeeDayCutoffRow, error)
 	// Writes the address on file, or clears it (NULL) (M10 EM-6).
 	//
 	// 🔴 IT NAMES email AND NOTHING ELSE. A changed address cannot activate, deactivate
@@ -5924,6 +6017,16 @@ type Querier interface {
 	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. A foreign id
 	// matches nothing.
 	SetEmployeeExternalRef(ctx context.Context, arg SetEmployeeExternalRefParams) (SetEmployeeExternalRefRow, error)
+	// The business-day cutoff of a BRANCH: it applies to the employees whose PROFILE branch
+	// this is (employees.location_id) -- never to whoever taps one of its plaques
+	// (M15-02, migration 00064, ADR 0032 §A.2). NULL = inherit the next level up;
+	// sqlc.narg so "clear the override" is a value the caller can send.
+	// WRITES THE SETTING ONLY. Who may change it, the shift-conflict warning, the
+	// confirmation and the audit_log row are the panel's (M15-07, ADR 0032 §A.7); this
+	// statement is the one write those all go through. It carries its own section 4.5
+	// predicate (tenant_id) and is not left to RLS. RETURNING is what was stored, so
+	// the screen re-renders from the database, not from the form.
+	SetLocationDayCutoff(ctx context.Context, arg SetLocationDayCutoffParams) (SetLocationDayCutoffRow, error)
 	// Binds ONE venue to the integrator's identity, or unbinds it (NULL) (M11 API-1, K-18:
 	// venues are never matched by name -- the owner fills this field, and PUT
 	// /v1/locations/{ref} then updates THIS row instead of opening a second one).
@@ -5970,6 +6073,17 @@ type Querier interface {
 	// back, or pass Color.Hex(), where the exact value matters (an audit row's "after").
 	// Returns the number of rows changed: 1, or 0 when step 1 was skipped.
 	SetTenantAccent(ctx context.Context, arg SetTenantAccentParams) (int64, error)
+	// The business level of the business-day cutoff (M15-02, migration 00064, ADR 0032
+	// §A.2): the wall-clock time at which every business day of this tenant starts unless
+	// a branch, department or person overrides it. NOT NULL -- the business level never
+	// inherits; it is the end of GetEmployeeForTap's coalesce. tappa_app's UPDATE on
+	// tenants is a column list (00024) and 00064 adds day_cutoff to it, nothing else.
+	// WRITES THE SETTING ONLY. Who may change it, the shift-conflict warning, the
+	// confirmation and the audit_log row are the panel's (M15-07, ADR 0032 §A.7); this
+	// statement is the one write those all go through. It carries its own section 4.5
+	// predicate (tenant_id) and is not left to RLS. RETURNING is what was stored, so
+	// the screen re-renders from the database, not from the form.
+	SetTenantDayCutoff(ctx context.Context, arg SetTenantDayCutoffParams) (SetTenantDayCutoffRow, error)
 	// Saves a logo: internal/brand.Logo's Data, SHA256, MIME, Width and Height. All five
 	// together -- the table refuses a partial logo, a digest that is not the sha256 of
 	// the bytes, a type outside image/png and image/jpeg, a size outside 1..512 and more

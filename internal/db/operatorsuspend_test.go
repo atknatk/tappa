@@ -91,8 +91,9 @@ const (
 	opDefinerTenantsSel63 = opDefinerTenantsSel42 + ",suspended_at,suspension_reason"
 	opDefinerTenantsUpd63 = opDefinerTenantsUpd39 + ",suspended_at,suspension_reason"
 
-	// tappa_app's lists on tenants, which 00063 does not touch: 00024's UPDATE, 00016/00017's INSERT.
-	opAppTenantsUpd = "name,business_type,timezone"
+	// tappa_app's lists on tenants, which 00063 does not touch: 00024's UPDATE (and, since 00064 --
+	// M15-02 -- the business-day cutoff, the one column it added to that list), 00016/00017's INSERT.
+	opAppTenantsUpd = "name,business_type,timezone,day_cutoff"
 	opAppTenantsIns = "id,name,vat_number,business_type,structure,timezone,vat_verified,vat_checked_at"
 
 	// The two reads' results: the list at 00029 (and after 00063's Down) and at HEAD; the overview
@@ -727,7 +728,7 @@ func opTenantWriteReach(t *testing.T, ctx context.Context, q opQuerier) []string
 // TestOperator00063_TheAppCannotWriteASuspensionAndTheDefinerWritesOnlyItsColumns is OP-15's
 // "who writes what" on the catalogue and as statements (ADR 0025 §1; the card's acceptance
 // "tappa_app suspended_at UPDATE edemiyor"):
-//   - tappa_app on tenants: UPDATE exactly 00024's three columns and INSERT exactly 00016/00017's
+//   - tappa_app on tenants: UPDATE exactly 00024's three columns (and 00064's day_cutoff) and INSERT exactly 00016/00017's
 //     list -- neither suspension column on either --, SELECT every column (its table-level
 //     grant, derived from the catalogue: the suspension is READ), no table-level UPDATE or INSERT
 //     and no UPDATE or INSERT on a suspension column through ANY role it can become
@@ -759,8 +760,10 @@ func TestOperator00063_TheAppCannotWriteASuspensionAndTheDefinerWritesOnlyItsCol
 			t.Errorf("%s %s on tenants = (%s), want (%s)", c.role, c.priv, got, c.want)
 		}
 	}
-	if !strings.HasSuffix(opAllColumns(t, ctx, tx, "tenants"), ",suspended_at,suspension_reason") {
-		t.Error("PREMISE: the two suspension columns are not tenants' last columns")
+	// The two suspension columns are 00063's, the last it added; what follows them is a later
+	// migration's and none of the definer's (00064's day_cutoff -- tappa_app's setting, M15-02).
+	if !strings.HasSuffix(opAllColumns(t, ctx, tx, "tenants"), ",suspended_at,suspension_reason,day_cutoff") {
+		t.Error("PREMISE: the two suspension columns are not tenants' last columns before 00064's day_cutoff")
 	}
 	if reach := opTenantWriteReach(t, ctx, tx); len(reach) != 0 {
 		t.Errorf("roles tappa_app, tappa_operator or an M11 definer can use write tenants or a suspension column: %v", reach)

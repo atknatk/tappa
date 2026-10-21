@@ -129,7 +129,7 @@ func TestGatherDB_APracticeCheckInIsNeverHandedOnAsAnOpenOne(t *testing.T) {
 				var e error
 				facts, e = svc.gather(ctx, tx, Request{
 					SessionTenantID: tenantID, EmployeeID: employeeID,
-				}, locationID)
+				}, locationID, time.Now())
 				return e
 			})
 			if err != nil {
@@ -288,7 +288,7 @@ func TestGatherDB_APracticeRowDoesNotHideAnOlderOpenCheckIn(t *testing.T) {
 				var e error
 				facts, e = svc.gather(ctx, tx, Request{
 					SessionTenantID: tenantID, EmployeeID: employeeID,
-				}, locationID)
+				}, locationID, time.Now())
 				return e
 			})
 			if err != nil {

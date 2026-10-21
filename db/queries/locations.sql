@@ -19,6 +19,10 @@
 -- integrator's identity and active is a label (K-20: the decision engine never sees
 -- it). Measured on 00037: without them sqlc emitted GetLocationByIPRow and
 -- ListLocationsForTenantRow again.
+--
+-- AND FOR day_cutoff (migration 00064, M15-02): named for the mapping. Neither query
+-- is the place the cutoff is read -- GetEmployeeForTap resolves it, through the
+-- employee's PROFILE branch, never the tapped or matched one (ADR 0032 §A.2).
 
 -- name: GetLocationByIP :one
 -- Proof-of-place, IP side (CLAUDE.md section 5, row 6): the location whose
@@ -44,7 +48,7 @@
 -- TestGetLocationByIP_MatchesEverybodyWhenARangeDoes is the sign hung on this
 -- sleeping surface.
 SELECT id, tenant_id, name, static_ips, gps_lat, gps_lng, shift_start, shift_end,
-       overnight, created_at, wifi_ssid, external_ref, active
+       overnight, created_at, wifi_ssid, external_ref, active, day_cutoff
 FROM locations
 WHERE tenant_id = @tenant_id
   AND @src::inet <<= ANY(static_ips);
@@ -54,7 +58,7 @@ WHERE tenant_id = @tenant_id
 -- computes the haversine distance from the tap's GPS to each location and checks
 -- the < 150 m radius. Returns every location in the tenant so that check can run.
 SELECT id, tenant_id, name, static_ips, gps_lat, gps_lng, shift_start, shift_end,
-       overnight, created_at, wifi_ssid, external_ref, active
+       overnight, created_at, wifi_ssid, external_ref, active, day_cutoff
 FROM locations
 WHERE tenant_id = @tenant_id
 ORDER BY name;
@@ -481,3 +485,19 @@ SELECT id, name, external_ref, active, created_at, static_ips, gps_lat, gps_lng
 FROM locations
 WHERE tenant_id = @tenant_id
   AND id = @id;
+
+-- name: SetLocationDayCutoff :one
+-- The business-day cutoff of a BRANCH: it applies to the employees whose PROFILE branch
+-- this is (employees.location_id) -- never to whoever taps one of its plaques
+-- (M15-02, migration 00064, ADR 0032 §A.2). NULL = inherit the next level up;
+-- sqlc.narg so "clear the override" is a value the caller can send.
+-- WRITES THE SETTING ONLY. Who may change it, the shift-conflict warning, the
+-- confirmation and the audit_log row are the panel's (M15-07, ADR 0032 §A.7); this
+-- statement is the one write those all go through. It carries its own section 4.5
+-- predicate (tenant_id) and is not left to RLS. RETURNING is what was stored, so
+-- the screen re-renders from the database, not from the form.
+UPDATE locations
+SET day_cutoff = sqlc.narg('day_cutoff')
+WHERE tenant_id = @tenant_id
+  AND id = @id
+RETURNING id, day_cutoff;
