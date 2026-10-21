@@ -488,9 +488,16 @@ func TestAccountDB_ReadsTheFourVATStates(t *testing.T) {
 // it the day it exists -- 00063's suspension columns first among them (ADR 0025 §1: a screen
 // that could write suspended_at could lift its own suspension), 00038's two API columns with
 // them. The eight it named by hand before are a floor the derivation must reach (anti-vacuity).
+//
+// ⚠️ day_cutoff IS OPEN SINCE MIGRATION 00064 (M15-02, ADR 0032 §A.2/§A.7), ON PURPOSE: the
+// business-day cutoff is the business level of the K1 hierarchy and the owner sets it on the
+// Account screen (M15-07, through SetTenantDayCutoff), so 00064 grants exactly that one column
+// (`GRANT UPDATE (day_cutoff)`, never table-wide). It is configuration, not evidence or terms --
+// what it produced is frozen per tap in transactions.business_day_start. Being on the open list
+// also makes the second half assert the grant is there; every other column stays derived-closed.
 func TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms(t *testing.T) {
 	f := newAccountFixture(t)
-	open := []string{"name", "business_type", "timezone"}
+	open := []string{"name", "business_type", "timezone", "day_cutoff"}
 	var closed []string
 	if err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
