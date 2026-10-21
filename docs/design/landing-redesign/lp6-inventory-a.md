@@ -1,11 +1,14 @@
 # LP-6 — inventory, builder A (landing additions, /product, /pricing, shared chrome)
 
-> **Copied into the repo 2026-10-21** from the approved builder inventory (independent audit, two rounds +
-> the sec-S36 wording fix) as the claim-level source for [README.md](README.md) Part II and the M14-14…M14-24 cards.
-> `file:line` refers to HEAD `7521dfe` (re-find by symbol). `lpgen/…`, `qa/…` and `bo/project/` are the
-> generator and QA paths outside the repo; the boards themselves are in `docs/design/panel-redesign/boards/`.
+> **Copied into the repo 2026-10-21 and refreshed for LP-7 the same day** from the approved builder
+> inventory (independent audit; LP-6: two rounds + the sec-S36 wording fix; LP-7: three rounds) as the
+> claim-level source for [README.md](README.md) Parts II–III and the M14 cards. `file:line` refers to HEAD `7521dfe` (re-find by symbol).
+> `lpgen/…`, `qa/…` and `bo/project/` are the generator and QA paths outside the repo; the boards themselves
+> are in `docs/design/panel-redesign/boards/`.
 > Claim ids carry their page as a prefix (`land-` landing, `prod-` /product, `price-` /pricing, `sec-`
-> /security, `rest-` /for/restaurants, `fab-` /for/production), added on copy so ids are unambiguous.
+> /security, `rest-` /for/restaurants, `fab-` /for/production, `api-` /docs/api), added on copy so ids are
+> unambiguous. An id keeps the prefix of the page it was first drawn on: the LP-7 move put the `land-T`,
+> `land-S` and `land-I` rows on `/product`, and they keep their `land-` ids (README §21).
 > Test names that do not exist yet are written as descriptions ("new test: …"), never as identifiers
 > (`TestEveryNamedTestExists`); the builder names them.
 
@@ -49,6 +52,65 @@ proposed Fact name is given.
 - Heights: Landing 9177 / 10629 / 14247 · Product 5712 / 7702 / 9893 · Pricing 2912 / 2876 / 3748 · Signup 1482 /
   1304 / 1945 · Legal 2419 / 2514 / 4021 · LandingDemo 900 / 844 (canvas-A.json). QA: 0 findings on all 26 public
   boards, phone Menu closed and open.
+
+**LP-7 audit fixes (chrome port notes):**
+- **Focus ring:** `:focus-visible{outline:2px solid ink; outline-offset:2px}` everywhere; on green or ink surfaces
+  (`.ondark` — the CTA card — and `.band--ink`) the ring is paper. It replaces the 3px saffron ring (2.32:1, fails
+  1.4.11); **port: input.css:1799 (`.lp :focus-visible`) changes** in the same change; the demo dialog's drawn close
+  ring follows.
+- **Focus not obscured (WCAG 2.2 SC 2.4.11):** `html{scroll-padding-top:72px}` at every width (the sticky header) and
+  `scroll-padding-bottom:80px` below 600 px (the sticky "Start free" bar). Port: same two rules in the marketing CSS.
+- **Phone Menu current page:** `.mlink[aria-current]{color:tappa-green; box-shadow:inset 3px 0 0 tappa-green}`
+  (green on paper 7.73:1).
+- **Paper bands:** one rule, applied everywhere: on a paper band, cards, dockets and FAQ items get an ink/24 border
+  (dockets also a light shadow), and the docket perforation's holes are drawn in porcelain, so the tear stays visible.
+- **Hero crop:** the cropped phone ends in a 4 px ink screen-edge line and a dashed crop mark (ink/35), so the cut
+  reads as deliberate.
+
+**LP-7 polish round (user 2026-10-21, applied by builder A):**
+
+1. **Hero balance.** The phone is drawn narrower than the plaque (214 / 204 / 150 px vs the plaque's 226 / 214 / 176)
+   and **cropped to the top of the device** (`phone_frame(crop=True)`: no bottom bezel, the screen runs off the bottom
+   edge, shadow cast upward), so the tap screen fills what is shown. The scene is a grid: plaque · NFC arcs · phone on
+   one row (vertically centred), the docket hanging from its rail under the plaque — the eye reads plaque → tap →
+   docket. Port: fixed `.lp` classes per breakpoint (the crop is a fixed height + `overflow: hidden`, no inline style).
+2. **Landing shortened to eight content sections after the hero:** How it works · Why switch · Security · The panel ·
+   Built for both shapes · Pricing · FAQ · CTA (plus the pilot strip). **Moved, every claim kept:**
+
+   | Moved block | Claims | Now lives on | Where |
+   |---|---|---|---|
+   | For your team (`#team`) | land-T2 "One screen, one button.", land-T3, land-T4–land-T7 points, land-T10 footnote | `/product` | section 01 "The tap", under the plaque + phones stage (h3 + four points + footnote) |
+   | Its two phones + captions | land-T8, land-T9 | `/product` | section 01 stage (already there) |
+   | A shift, start to finish (`#shift`) | land-S1–land-S9 | `/product` | its own section after 07 Rules, before Integrations |
+   | Integrations (`#integrations`) | land-I1–land-I7 | `/product` | last section before the CTA (already there; now only there) |
+
+   Nothing moved to /security or /pricing in this round: the landing keeps its approved Security (four proofs +
+   privacy note) and Pricing (price card) sections, each ending in one link to its page.
+   **Landing tests affected (port):** `TestLandingNav_EveryLinkPointsAtASectionOnThePage` (already rewritten for LP-6:
+   page links) · the rendered-and-claimed tests planned for land-T2–land-T10 / land-S2–land-S9 / land-I2–land-I7 move from the landing to the
+   /product page's test (same Facts, different page) · `TestMarketing_EveryInternalLinkResolves`: `#team`, `#shift`,
+   `#integrations` no longer exist on `/` · the panel showcase tests are unchanged (section stays) ·
+   `TestLandingSteps_EveryStepIsRenderedInOrder` unchanged (How it works stays) · the three LandingAudiences tests (`TestLandingAudiences_EveryClaimRestsOnAProductAnchor`, `TestLandingAudiences_EveryClaimIsActuallyRendered`, `TestLandingAudiences_SayNothingAboutTheTwoBreakdownsThatDoNotExist`): the cards
+   are now whole-card links (text unchanged).
+3. **Section rhythm.** `chrome.bandify` (applied by `chrome.board` to every page that carries the shared header) wraps
+   each top-level section after the hero in a full-width band, alternating **paper / porcelain**, with a bottom padding
+   equal to the section's top padding; a section marked `data-band="ink"` becomes an **ink** band (the landing's Why
+   switch); the CTA (`id="pilot"`) stays on the page's porcelain; `data-band="none"` opts out. B's pages get it through
+   `chrome.board` with no change to gen_b.py. Signup/Legal (re-headed, not built by `board`) stay unbanded — short pages.
+   Port: three classes (`.band--paper`, `.band--porcelain`, `.band--ink`) on section wrappers; palette tokens only.
+4. **One next-step link per section, one style** (`.more`: green, 700, underlined, arrow). Landing: Security → "How each
+   proof works", The panel → "Take the product tour", Pricing → "Pricing in detail"; the two "Built for both shapes"
+   cards are now **whole-card links** (their "For restaurants & bars →" / "For production & facilities →" line is a label
+   inside the card, not a trailing link), so the section ends in no extra link. /product: Integrations → "Read the API
+   docs". /pricing: none.
+5. **Sticky "Start free" bar on phone boards** (`chrome.mbar`, CSS only: `position: sticky; bottom: 0`, the root's last
+   child, so it rides the viewport bottom for the whole page and rests under the footer). Every phone board that uses
+   `chrome.footer` gets it (landing, product, pricing, security, both industry pages, Legal); **Signup does not**
+   (`footer(m, bar=False)` in rehead.py). Label "Start free" (header furniture, no number). In the board screenshots it
+   sits at the bottom of the first 4000-px viewport, as on a real phone.
+
+Heights after LP-7: Landing 7720 / 8522 / 10987 · Product 7455 / 9449 / 12128 · Pricing 3104 / 3020 / 3931 · Signup
+1482 / 1304 / 1945 · Legal 2419 / 2514 / 4092 · LandingDemo 900 / 844. QA: 0 findings on all 26, Menu closed and open.
 
 ---
 

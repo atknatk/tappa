@@ -1,11 +1,14 @@
 # LP-6 public pages, builder B: /security, /for/restaurants, /for/production
 
-> **Copied into the repo 2026-10-21** from the approved builder inventory (independent audit, two rounds +
-> the sec-S36 wording fix) as the claim-level source for [README.md](README.md) Part II and the M14-14…M14-24 cards.
-> `file:line` refers to HEAD `7521dfe` (re-find by symbol). `lpgen/…`, `qa/…` and `bo/project/` are the
-> generator and QA paths outside the repo; the boards themselves are in `docs/design/panel-redesign/boards/`.
+> **Copied into the repo 2026-10-21 and refreshed for LP-7 the same day** from the approved builder
+> inventory (independent audit; LP-6: two rounds + the sec-S36 wording fix; LP-7: three rounds) as the
+> claim-level source for [README.md](README.md) Parts II–III and the M14 cards. `file:line` refers to HEAD `7521dfe` (re-find by symbol).
+> `lpgen/…`, `qa/…` and `bo/project/` are the generator and QA paths outside the repo; the boards themselves
+> are in `docs/design/panel-redesign/boards/`.
 > Claim ids carry their page as a prefix (`land-` landing, `prod-` /product, `price-` /pricing, `sec-`
-> /security, `rest-` /for/restaurants, `fab-` /for/production), added on copy so ids are unambiguous.
+> /security, `rest-` /for/restaurants, `fab-` /for/production, `api-` /docs/api), added on copy so ids are
+> unambiguous. An id keeps the prefix of the page it was first drawn on: the LP-7 move put the `land-T`,
+> `land-S` and `land-I` rows on `/product`, and they keep their `land-` ids (README §21).
 > Test names that do not exist yet are written as descriptions ("new test: …"), never as identifiers
 > (`TestEveryNamedTestExists`); the builder names them.
 
@@ -18,15 +21,15 @@ pilot strip, CTA, phone drawing and mini panel window (`gen.strip`, `gen.cta`, `
 
 | Board | w | h (measured) | title |
 |---|---:|---:|---|
-| Security | 1440 | 7628 | L05 · Security |
-| T-Security | 834 | 9542 | Tablet · Security |
-| M-Security | 390 | 13286 | Mobile · Security |
-| ForRestaurants | 1440 | 5103 | L06 · For restaurants |
-| T-ForRestaurants | 834 | 5948 | Tablet · For restaurants |
-| M-ForRestaurants | 390 | 7241 | Mobile · For restaurants |
-| ForProduction | 1440 | 4367 | L07 · For production |
-| T-ForProduction | 834 | 4584 | Tablet · For production |
-| M-ForProduction | 390 | 6134 | Mobile · For production |
+| Security | 1440 | 8275 | L05 · Security |
+| T-Security | 834 | 10021 | Tablet · Security |
+| M-Security | 390 | 13700 | Mobile · Security |
+| ForRestaurants | 1440 | 5679 | L06 · For restaurants |
+| T-ForRestaurants | 834 | 6380 | Tablet · For restaurants |
+| M-ForRestaurants | 390 | 7648 | Mobile · For restaurants |
+| ForProduction | 1440 | 4655 | L07 · For production |
+| T-ForProduction | 834 | 4872 | Tablet · For production |
+| M-ForProduction | 390 | 6225 | Mobile · For production |
 
 Render QA (`qa/run.py` on the nine boards, fix round 2026-10-21, run by builder A): 0 findings (hOv / txt / bp / holes /
 err all 0) with the phone Menu closed AND open, and the preview height equals the measured height on every board.
@@ -120,7 +123,7 @@ Legend:
 | sec-S32 | H2 "Every business is walled off in the database itself." + "Every record carries the id of the business it belongs to, and the database filters every query by it. The application connects with a role that cannot switch that filter off, and its queries filter by business a second time." + figure ("ROW-LEVEL SECURITY", "Each row carries its business. A query from one side returns none of the other's.") | 00005:178-188 (ENABLE + FORCE RLS, policy on tenant_id); scripts/db-init/01-roles.sql:67 (`tappa_app … NOBYPASSRLS`); CLAUDE.md §4.5 | `FactTenantIsolationByRLS` |
 | sec-S33 | "When Taptime's own staff look into an account, they use a separate sign-in, and every look is written to an operator audit log." | docs/adr/0020 (separate operator identity, internal/operatorauth); docs/adr/0021 (`op_*`); db/migrations/00026…sql:325 (`operator_audit_log`) | `FactOperatorAccessIsAudited` |
 | sec-S34 | "The one sanctioned crossing is a group Taptime sets up for companies that belong together: their staff can clock in at each other's venues, and the record lands with the person's own employer." | docs/adr/0027; CLAUDE.md §4.5 (2), §5 Holding (record written at the employer; membership only via `op_*`) | `FactHoldingIsTheOnlyCrossing` |
-| sec-S35 | H2 "Where your records live." + "Hosted in the EU" + "The production server runs in Falkenstein, Germany, and database backups are encrypted before they are stored, in an EU-jurisdiction bucket." | deploy/README.md:6800-6801, :6817 (node fsn1 = Hetzner Falkenstein, measured); deploy/README.md:835-836, :912 (Cloudflare R2 EU-jurisdiction bucket, rclone `crypt`) | `FactHostedInTheEU` (pinned to deploy/README.md the way `FactPlaquesIncludedAndReplacedFree` is pinned to the handoff). **Needs a user decision; see "Open" below.** |
+| sec-S35 | H2 "Where Taptime runs." (was "Where your records live.", which said more than the server sentence; changed in the LP-7 audit) + "Hosted in Germany" + "Taptime's production server runs in Falkenstein, Germany." (verbatim fragment "Built for GDPR from day one." below it) | deploy/README.md:6800-6801, :6817 (node k8s-1.fsn1 = Hetzner Falkenstein, measured; Postgres runs in-cluster, deploy/k8s/10-postgres.yaml) | `FactProductionServerInGermany`, pinned to deploy/README.md the way `FactPlaquesIncludedAndReplacedFree` is pinned to the handoff. **User approved 2026-10-21 (LP-7): the server sentence only.** The backup / EU-bucket half was dropped. **Port note:** the Privacy page's pending hosting fact ("Where the data is hosted and processed, and the processors involved.", landingview.go:936) must change in the same commit, so the two never disagree. |
 
 Hero drawing labels (no claim beyond sec-S1–sec-S13): "One tap · four checks · sample record", "Proof 1–4", "Plaque signature / Phone
 session / Venue network / GPS position", "Known person ✓", "IP match ✓", "Backup · not needed", and a sample APPROVED
@@ -181,11 +184,7 @@ drawn for this page."
 1. **KM venue name — decided (coordinator n3): "KM Plant" everywhere**, from the seed (seed.sql:167-170). The landing
    hero's rotation record follows: landing.js's Anna Farrugia record changes from "KM Facility" to "KM Plant" and its
    plaque line to "KM PLANT · 2F04-1B9A" (sample data; part of M14-04's rotation edit). Department names follow the seed.
-2. **EU hosting is included (sec-S35), flagged.** deploy/README.md documents and measures the node (fsn1, Falkenstein)
-   and the EU-jurisdiction encrypted backup bucket. However, the published Privacy page is still a skeleton, and it
-   lists "Where the data is hosted and processed, and the processors involved" as a pending fact
-   (landingview.go:936). The transactional mail relay is AWS SES eu-central-1, also EU (deploy/k8s/05-config.yaml:175).
-   **The user should confirm** before the port. Dropping sec-S35 removes one card; nothing else depends on it.
+2. **Hosting (sec-S35) was decided by the user on 2026-10-21 (LP-7):** only the server sentence is kept; see the sec-S35 row.
 3. **Nav state.** /security marks "Security" `aria-current`. The industry pages mark nothing: LP-6's header has no
    industry item. They are reached from the footer Product column and the phone Menu.
 4. **Defaults footnote.** Debounce (TAPPA_DEBOUNCE_SECONDS) and the GPS radius (TAPPA_GPS_RADIUS_M) are deployment

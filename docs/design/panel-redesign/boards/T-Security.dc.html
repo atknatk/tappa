@@ -53,6 +53,15 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
 .mlink:first-child{border-top:0}
 .hbtn{min-height:44px;padding:0 18px;border-radius:12px;font:700 14px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box;white-space:nowrap;background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
 .hbtn:hover{background:#152219;color:#FFFDF4}
+.mlink[aria-current]{color:#1F5C41;box-shadow:inset 3px 0 0 #1F5C41;padding-left:12px}
+:focus-visible{outline:2px solid #152219;outline-offset:2px}
+.ondark :focus-visible,.band--ink :focus-visible{outline-color:#FFFDF4}
+html{scroll-padding-top:72px}
+@media (max-width:599px){html{scroll-padding-bottom:80px}}
+.fitcard{transition:border-color .15s}.fitcard:hover{border-color:#152219;color:#152219}
+.band--paper .card,.band--paper .docket,.band--paper details.qa{border-color:rgba(21,34,25,.24)}
+.band--paper .docket{box-shadow:0 2px 6px rgba(21,34,25,.08)}
+.band--paper .docket::after{background:radial-gradient(circle at 7px 7px,#EDF0EA 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
 .more{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-weight:700;font-size:15px;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
 
 .stamp--ign{border-color:#C9D2C8;box-shadow:inset 0 0 0 1px #C9D2C8;background:rgba(201,210,200,.1);transform:rotate(-4deg)}
@@ -132,6 +141,7 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
             </div></div></div>
     </div>
   </section>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 72px">
   <section id="proofs" style="padding: 72px 0 0">
     <div style="padding: 0 40px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">The four proofs</p>
@@ -272,6 +282,8 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
           </div></div></div>
     </div>
   </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 72px">
   <section id="ladder" style="padding: 72px 0 0">
     <div style="padding: 0 40px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">The decision</p>
@@ -349,6 +361,8 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
             </div></div></div><p class="mono" style="margin: 18px 0 0; font-size: 11.5px; line-height: 1.6; color: rgba(21,34,25,.7)">Five of the eleven guardrails are shown. The others refuse a tap page that is too old and a declared time that is implausible, keep a plaque of a business outside your group out of your records, hold a QR scan at a partner business to that venue's own network, keep rule changes to the owner and stop anyone reviewing their own record. The 60-second window and the 150 m radius are deployment settings; the figures shown are the defaults.</p>
     </div>
   </section>
+  </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 72px">
   <section id="never-lost" style="padding: 72px 0 0">
     <div style="padding: 0 40px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">When the evidence is thin</p>
@@ -380,6 +394,8 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
             </div></div></div><div style="margin-top: 28px; max-width: 760px"><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; font-size: 15.5px; line-height: 1.55; color: rgba(21,34,25,.85)"><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>A manager decides each flagged record once, and nobody can decide on their own record.</span></li><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>Until then its hours are held out of the total, and the Roll says how many are waiting.</span></li><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>The decision is stored beside the record; the record itself never changes.</span></li></ul></div>
     </div>
   </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 72px">
   <section id="immutable" style="padding: 72px 0 0">
     <div style="padding: 0 40px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">Corrections</p>
@@ -410,6 +426,8 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
             </div></div></div>
     </div>
   </section>
+  </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 72px">
   <section id="privacy" style="padding: 72px 0 0">
     <div style="padding: 0 40px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">Privacy</p>
@@ -431,6 +449,8 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
       </div>
     </div>
   </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 72px">
   <section id="isolation" style="padding: 72px 0 0">
     <div style="padding: 0 40px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">Isolation</p>
@@ -450,23 +470,26 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
           <span class="mono" style="font-size: 11.5px; line-height: 1.5; color: rgba(21,34,25,.72); border-top: 1px dashed #C9D2C8; padding-top: 10px">Each row carries its business. A query from one side returns none of the other's.</span></div></div>
     </div>
   </section>
+  </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 72px">
   <section id="hosting" style="padding: 72px 0 0">
     <div style="padding: 0 40px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">Hosting &amp; GDPR</p>
-      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">Where your records live.</h2><div aria-hidden="true" style="height: 24px"></div><div class="card" style="padding: 28px 28px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 24px; align-items: start">
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">Where Taptime runs.</h2><div aria-hidden="true" style="height: 24px"></div><div class="card" style="padding: 28px 28px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 24px; align-items: start">
         <span class="ico" style="width: 56px; height: 56px; border-radius: 16px"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.4 3.6 5.2 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.2-3.6-8.5S9.6 5.9 12 3.5z"/></svg></span>
         <div style="display: flex; flex-direction: column; gap: 12px; min-width: 0">
-          <h3 style="margin: 0; font-size: 22px; line-height: 1.25; letter-spacing: -0.02em">Hosted in the EU</h3>
-          <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">The production server runs in Falkenstein, Germany, and database backups are encrypted before they are stored, in an EU-jurisdiction bucket.</p>
+          <h3 style="margin: 0; font-size: 22px; line-height: 1.25; letter-spacing: -0.02em">Hosted in Germany</h3>
+          <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">Taptime's production server runs in Falkenstein, Germany.</p>
           <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82); font-weight: 700; color: #152219">Built for GDPR from day one.</p>
           <nav aria-label="Legal" style="display: flex; flex-wrap: wrap; border-top: 1px dashed #C9D2C8; padding-top: 4px"><a href="Legal.dc.html" class="flink" style="margin-right: 18px">Privacy</a><a href="Legal.dc.html" class="flink" style="margin-right: 18px">Terms</a><a href="Legal.dc.html" class="flink" style="margin-right: 18px">Company details</a><a href="Legal.dc.html" class="flink" style="margin-right: 18px">Cookies</a></nav>
         </div>
       </div>
     </div>
   </section>
+  </div>
   <section id="pilot" style="padding: 72px 0 0">
     <div style="padding: 0 40px; box-sizing: border-box">
-      <div style="background: #1F5C41; border-radius: 24px; padding: 56px 40px; text-align: center; color: #FFFDF4; position: relative; overflow: hidden">
+      <div class="ondark" style="background: #1F5C41; border-radius: 24px; padding: 56px 40px; text-align: center; color: #FFFDF4; position: relative; overflow: hidden">
         <span aria-hidden="true" style="position: absolute; width: 420px; height: 420px; top: -190px; left: -140px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
         <span aria-hidden="true" style="position: absolute; width: 280px; height: 280px; bottom: -120px; right: -80px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
         <h2 style="position: relative; margin: 0 0 14px; font-size: 44px; line-height: 1.05; letter-spacing: -0.035em; color: #FFFDF4">Go punchless.</h2>
@@ -498,7 +521,7 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
   </footer>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview": {"width": 834, "height": 9542}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview": {"width": 834, "height": 10021}}'>
 class Component extends DCLogic {
   renderVals() {
     // LandingView values the shared furniture prints (internal/handler builds them): FreeMonths 3.

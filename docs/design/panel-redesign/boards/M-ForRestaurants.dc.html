@@ -53,6 +53,15 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
 .mlink:first-child{border-top:0}
 .hbtn{min-height:44px;padding:0 18px;border-radius:12px;font:700 14px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box;white-space:nowrap;background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
 .hbtn:hover{background:#152219;color:#FFFDF4}
+.mlink[aria-current]{color:#1F5C41;box-shadow:inset 3px 0 0 #1F5C41;padding-left:12px}
+:focus-visible{outline:2px solid #152219;outline-offset:2px}
+.ondark :focus-visible,.band--ink :focus-visible{outline-color:#FFFDF4}
+html{scroll-padding-top:72px}
+@media (max-width:599px){html{scroll-padding-bottom:80px}}
+.fitcard{transition:border-color .15s}.fitcard:hover{border-color:#152219;color:#152219}
+.band--paper .card,.band--paper .docket,.band--paper details.qa{border-color:rgba(21,34,25,.24)}
+.band--paper .docket{box-shadow:0 2px 6px rgba(21,34,25,.08)}
+.band--paper .docket::after{background:radial-gradient(circle at 7px 7px,#EDF0EA 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
 .more{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-weight:700;font-size:15px;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
 
 .stamp--ign{border-color:#C9D2C8;box-shadow:inset 0 0 0 1px #C9D2C8;background:rgba(201,210,200,.1);transform:rotate(-4deg)}
@@ -152,6 +161,7 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
       <b style="color: #152219; letter-spacing: .04em">KEBAB MANUFACTURING CO. — 5 departments</b>
     </div>
   </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 56px">
   <section id="overnight" style="padding: 56px 0 0">
     <div style="padding: 0 16px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">Late nights</p>
@@ -195,6 +205,8 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
             </div></div></div></div>
     </div>
   </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 56px">
   <section id="venues" style="padding: 56px 0 0">
     <div style="padding: 0 16px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">Every venue on its own terms</p>
@@ -237,6 +249,8 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
           </div></div></div>
     </div>
   </section>
+  </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 56px">
   <section id="cover" style="padding: 56px 0 0">
     <div style="padding: 0 16px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">Covering another venue</p>
@@ -260,6 +274,8 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
             </div></div></div></div>
     </div>
   </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 56px">
   <section id="forgot" style="padding: 56px 0 0">
     <div style="padding: 0 16px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">When someone forgets</p>
@@ -278,6 +294,8 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
             </div></div></div><div style="margin-top: 24px; max-width: 760px"><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; font-size: 15.5px; line-height: 1.55; color: rgba(21,34,25,.85)"><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>A check-in nobody closed stays open and is listed for a manager, who enters the check-out by hand.</span></li><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>Open check-ins are left out of the hours, and the Roll says how many there are.</span></li></ul></div>
     </div>
   </section>
+  </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 56px">
   <section id="day-to-day" style="padding: 56px 0 0">
     <div style="padding: 0 16px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">Day to day</p>
@@ -300,6 +318,8 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
             </div></div>
     </div>
   </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 56px">
   <section id="hours" style="padding: 56px 0 0">
     <div style="padding: 0 16px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">Hours</p>
@@ -324,9 +344,10 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
         </div></div>
     </div>
   </section>
+  </div>
   <section id="pilot" style="padding: 56px 0 0">
     <div style="padding: 0 16px; box-sizing: border-box">
-      <div style="background: #1F5C41; border-radius: 24px; padding: 44px 22px; text-align: center; color: #FFFDF4; position: relative; overflow: hidden">
+      <div class="ondark" style="background: #1F5C41; border-radius: 24px; padding: 44px 22px; text-align: center; color: #FFFDF4; position: relative; overflow: hidden">
         <span aria-hidden="true" style="position: absolute; width: 420px; height: 420px; top: -190px; left: -140px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
         <span aria-hidden="true" style="position: absolute; width: 280px; height: 280px; bottom: -120px; right: -80px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
         <h2 style="position: relative; margin: 0 0 14px; font-size: 36px; line-height: 1.05; letter-spacing: -0.035em; color: #FFFDF4">Go punchless.</h2>
@@ -356,9 +377,12 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
         </nav>
     </div>
   </footer>
+  <div class="mbar" style="position: sticky; bottom: 0; z-index: 4; padding: 10px 16px 12px; background: rgba(237,240,234,.96); border-top: 1px solid #C9D2C8; box-shadow: 0 -8px 24px rgba(21,34,25,.08)">
+    <a href="Signup.dc.html" class="hbtn" style="width: 100%; min-height: 48px; font-size: 15px">Start free</a>
+  </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"menu": {"editor": "enum", "options": ["closed", "open"], "default": "closed"}, "$preview": {"width": 390, "height": 7241}}'>
+<script type="text/x-dc" data-dc-script data-props='{"menu": {"editor": "enum", "options": ["closed", "open"], "default": "closed"}, "$preview": {"width": 390, "height": 7648}}'>
 class Component extends DCLogic {
   renderVals() {
     // LandingView values the shared furniture prints (internal/handler builds them): FreeMonths 3.

@@ -6,6 +6,9 @@
 > **Teslim paketi (okumadan başlama):** [docs/design/landing-redesign/README.md](../design/landing-redesign/README.md)
 > — **Bölüm II (§10–§19): LP-6** (beş yeni genel sayfa + üç yeni landing bölümü; iddia envanterleri
 > [lp6-inventory-a.md](../design/landing-redesign/lp6-inventory-a.md), [lp6-inventory-b.md](../design/landing-redesign/lp6-inventory-b.md))
+> — **Bölüm III (§20–§28): LP-7 cilası** (sec-S35 onayı + Privacy bağı, landing sekiz bölüm ve taşınan iddialar,
+> bantlar, next-step bağlantıları, yapışkan telefon çubuğu, hero kırpması, tek odak halkası + `scroll-padding`,
+> Menu current, paylaşım kartları + OG, durum panoları; [lp7-share.md](../design/landing-redesign/lp7-share.md)); kartlar M14-25…M14-29
 > — kararlar LP-0…LP-5 ve sonraki iki kullanıcı kararı (R-1 landing.js dönüşü, R-2 FAQ API metni ayrı
 > dalda), kısıtlar (CSP, satır içi stil yok, tek `<nav>` önce, tek `<h1>`), sabitleyen testlerin tam
 > listesi (§4), `.lp` token haritası (§5), bölüm bölüm ekran haritası ve **NEW CLAIM** tablosu (§6),
@@ -112,16 +115,21 @@ altında · palet token'ları + opaklık (README §5) · dokunma hedefi ≥ 44 p
 | M14-12 | L1 | Demo diyaloğu yeniden stili (`soon` / `video`) | yapıcı (`tappa-brand`) | M14-01 |
 | M14-13 | L3 | Faz sonu: tam `make check` + `make audit`, güvenlik denetimi, golden kontrolü, 390/834/1440 ekran turu (M14-24 ile **tek** kapanış olarak koşar) | denetçi + güvenlik | hepsi |
 | M14-14 | P0 | **LP-6** paylaşılan genel kabuk: başlık sayfa bağlantıları, telefonda `<details>` Menu, altbilgi Product/Legal sütunları — `marketingChromeWith` + landing; `PublicPages` listesi; `TestLandingNav_…` bilinçli yeniden yazımı | yapıcı (`tappa-brand`) | M14-02, M14-03 |
-| M14-15 | P1 | Landing `#team` (iki telefon: tap + flag sonucu) | yapıcı (`tappa-brand`) + güvenlik (§9) | M14-04, M14-14 |
-| M14-16 | P1 | Landing `#shift` (altı docket, ray) | yapıcı (`tappa-brand`) | M14-08, M14-14 |
-| M14-17 | P1 | Landing `#integrations` (CSV · API · webhook) + yeni sayfalara bağlantılar | yapıcı (`tappa-brand`) | M14-10, M14-14 |
-| M14-18 | P2 | `/product` (ürün turu, yedi bölüm, üç yeni minyatür) | yapıcı (`tappa-brand`) + ayrı iddia denetimi + güvenlik (§9) | M14-08, M14-14, M14-15, M14-17 |
+| M14-15 | P2 | **LP-7: `/product`'a taşındı** — bölüm 01 sahnesi: iki telefon (tap + flag sonucu) + "For your team" noktaları (land-T2…T10) | yapıcı (`tappa-brand`) + güvenlik (§9) | M14-04, M14-18 |
+| M14-16 | P2 | **LP-7: `/product`'a taşındı** — "A shift, start to finish" (altı docket, ray; 07 Rules'tan sonra) | yapıcı (`tappa-brand`) | M14-08, M14-18 |
+| M14-17 | P2 | **LP-7: `/product`'a taşındı** — Integrations (CSV · API · webhook; CTA'dan önceki son bölüm, yalnız orada). Landing bağlantıları M14-26'da | yapıcı (`tappa-brand`) | M14-10, M14-18 |
+| M14-18 | P2 | `/product` (ürün turu, yedi bölüm, üç yeni minyatür; 15/16/17'nin bölümlerine yer) | yapıcı (`tappa-brand`) + ayrı iddia denetimi + güvenlik (§9) | M14-08, M14-14 |
 | M14-19 | P2 | `/pricing` (sunucuda hesaplanan ekip tablosu, fatura SSS) | yapıcı (`tappa-brand`) + ayrı iddia denetimi | M14-09, M14-10 (`main` birleşmesi: `FactAPIEnabledPerBusinessByTaptime`), M14-14 |
-| M14-20 | P2 | `/security` (S35 **kullanıcı onayına kadar yok**) | yapıcı (`tappa-brand`) + ayrı iddia denetimi + **`tappa-security-auditor`** | M14-07, M14-14 |
+| M14-20 | P2 | `/security` (sec-S35 **LP-7'de onaylandı**: yalnız sunucu cümlesi, Privacy'nin bekleyen barındırma olgusuyla **aynı commit'te**) | yapıcı (`tappa-brand`) + ayrı iddia denetimi + **`tappa-security-auditor`** | M14-07, M14-14 |
 | M14-21 | P2 | `/for/restaurants` | yapıcı (`tappa-brand`) + ayrı iddia denetimi | M14-14, M14-20 (paylaşılan Fact'ler) |
 | M14-22 | P2 | `/for/production` | yapıcı (`tappa-brand`) + ayrı iddia denetimi + güvenlik (§9) | M14-14, M14-20 |
 | M14-23 | P1 | Signup/Legal yeniden başlık: LP-6 kabuğu, gövde bayt-aynı + iki gövde kusuru | yapıcı (`tappa-brand`) | M14-14 |
-| M14-24 | P3 | Faz sonu uzantısı (M14-13 ile tek kapanış): beş sayfa, 26 pano ekran turu, kabuk testi, güvenlik | denetçi + güvenlik | hepsi |
+| M14-25 | P0 | **LP-7** tek odak halkası (2 px ink/paper, 2 px offset; `input.css:1799`'un safran halkası yerine) + `scroll-padding` (SC 2.4.11) — bütün genel sayfalar, Signup ve Legal dahil | yapıcı (`tappa-brand`) | M14-14 |
+| M14-26 | P1 | **LP-7** landing sekiz bölüm + bant ritmi (paper/porcelain/ink) + bölüm başına tek "next step" bağlantısı (`.more`), `.fitcard` bütün-kart bağlantıları | yapıcı (`tappa-brand`) | M14-14, M14-25 |
+| M14-27 | P1 | **LP-7** telefonda yapışkan "Start free" çubuğu (`.mbar`, yalnız CSS, Signup'ta yok) | yapıcı (`tappa-brand`) | M14-14, M14-25 |
+| M14-28 | P2 | **LP-7** paylaşım kartları (`web/static/og/*.png`) + başlık/açıklama/OG/twitter etiketleri; api-N1 | yapıcı (`tappa-brand`) + ayrı iddia denetimi | M14-14, M14-18…M14-22 (sayfalar bağlı) |
+| M14-29 | P2 | **LP-7** durum panoları = etkileşim spec'i: hover/pressed/disabled/visited/current/open her genel denetimde | yapıcı (`tappa-brand`) | M14-25…M14-27 |
+| M14-24 | P3 | Faz sonu uzantısı (M14-13 ile tek kapanış): beş sayfa, 29 pano ekran turu, kabuk testi, LP-7 maddeleri, güvenlik | denetçi + güvenlik | hepsi (M14-25…29 dahil) |
 
 L1 kartları birbirinden bağımsızdır; her biri kendi bağımlılıkları bitince tek başına sevk edilebilir
 (dal üzerinde, CI yeşil). Her kart üç genişliği **birlikte**, tek DOM ile taşır.
@@ -231,6 +239,12 @@ de gizliyor. Yalnız üç çapa gizlenir; Sign in ve Start free her genişlikte 
 - Docket: keskin köşe, delikli alt kenar; APPROVED damgası üst satırda CLOCK IN/OUT etiketinin yanında
   (bugünkü `.d-stamp` mutlak konumu kalkar); satırlar sarar; ad kendi satırında. `dName`, `dType`,
   `dTime`, `dLoc` kimlikleri **kalır**.
+- **LP-7 hero dengesi (README §26, §6.2'nin ölçülerinin yerine):** telefon plaketten **dar** (214 / 204 / 150 px;
+  plaket 226 / 214 / 176) ve **cihazın üstüne kırpılmış** (alt çerçeve yok, ekran alt kenardan taşar, gölge
+  yukarı; kesik 4 px ink ekran-kenarı çizgisi + kesikli kırpma işareti ink/35 ile biter). Sahne bir ızgara:
+  plaket · NFC yayları · telefon tek satırda (dikey ortalı), docket rayından plaketin altında — göz plaket →
+  dokunuş → docket okur. Kırpma sabit yükseklik + `overflow: hidden`, kırılım başına sabit `.lp` sınıfları.
+  Kayıtların KM mekânı "KM Plant" (LP-6).
 - Telefon: `tap.templ`'in landing'e özel kopyası — durum çubuğu, "taptime" + "punchless", docket
   ("TAPPING" / "Hello {name}" / mekân), tek "Tap" (64 px, rounded-sm, yeşil, text-xl 400) — `<span>`,
   `<button>` değil. 375 genişlikte gerçek CSS ölçüleri + sabit ölçek sınıfı (.61 / .58 / .384). Kap
@@ -479,7 +493,7 @@ korunarak güncellenir.
 
 ## M14-13 — Faz sonu: denetim, golden, ekran turu
 
-- **Bağımlılık:** hepsi (M14-01…12 **ve** M14-14…23) · **Araç:** ayrı denetçi + agent `tappa-security-auditor`
+- **Bağımlılık:** hepsi (M14-01…12, M14-14…23 **ve** M14-25…29) · **Araç:** ayrı denetçi + agent `tappa-security-auditor`
 - **Not (LP-6):** M14-13 ile M14-24 ayrı iki tur değil, **tek** kapanıştır — tam `make check` ve
   `make audit` bütün M14 için bir kez koşar.
 - **Kırmızı çizgi:** §9 (çalışan ekranları), §4.6 (vitrinin iddiası), §7 (log/gizlilik — landing sır taşımaz)
@@ -555,6 +569,9 @@ docs) + Legal sütunu.
   basar; `layout.*` değişmez. API rehberinin baytları **bilerek** değişir; `landing.templ:580–585`
   yorumu yeni ölçümle yeniden yazılır (README §7, §12).
 - `LandingNav` paylaşılan genel nav olur; ilk `<nav>` tek kalır, `<details>` ondan sonra ya da içinde.
+- **LP-7 Menu geçerli sayfa stili (README §26):** `.mlink[aria-current="page"]` tappa-green metin + 3 px
+  green iç çubuk (`box-shadow: inset 3px 0 0`), paper'da 7,73:1. Başlığın geçerli bağlantısı LP-6 stilinde.
+  Kabul: her-genel-sayfa testi Menu'de de `aria-current`'ı tam bir ve doğru bağlantıda bulur.
 - Genel sayfaların stil kapsamı kararı (`.lp` paylaşımı ya da ortak kapsam) bu kartta verilir ve README
   §11'e yazılır.
 
@@ -584,21 +601,25 @@ docs) + Legal sütunu.
 
 ## P1 — Landing'in yeni bölümleri
 
-## M14-15 — Landing `#team` ("For your team")
+## M14-15 — `/product` bölüm 01: iki telefon + "For your team" (LP-7: landing'den taşındı)
 
-- **Bağımlılık:** M14-04 (telefon çizimi), M14-14 · **Araç:** yapıcı (`tappa-brand`) + agent
+> **LP-7:** bu blok landing'de **render edilmez** (README §21). Yeri `/product`'ın 01 "The tap" bölümü:
+> plaket + iki telefon sahnesi, altında h3 "One screen, one button." + dört nokta + dipnot. İd'ler `land-`
+> önekini korur. `#team` çapası `/`'da yoktur.
+
+- **Bağımlılık:** M14-04 (telefon çizimi), M14-18 (sayfa) · **Araç:** yapıcı (`tappa-brand`) + agent
   `tappa-security-auditor` (§9: tap ve sonuç ekranı **çizilir**, değiştirilmez)
-- **Commit:** `feat(landing): show the employee's two screens`
-- **Spec:** README §13, envanter A §1.1 (land-T1–land-T10)
+- **Commit:** `feat(marketing): show the employee's two screens on the product tour`
+- **Spec:** README §13, §21, envanter A §1.1 (land-T1–land-T10) ve LP-7 taşıma tablosu
 
 İki telefon gerçek CSS ölçülerinde: tap ekranı ve **flag sonucu** (`result.templ` flag dalı, yön `in`,
 practice değil; damga, kapanış satırı ve "You can close this page." ürünün kendi metni; not =
 `base:no-evidence-review` cümlesi). Örnek: Grace Attard · KF Msida · 09:41 · Trust 20. Her telefon `role="img"`
-+ ad, içinde başlık yok; 390'da alt alta (~0,62 ölçek). Landing'e özel kopyalar (canlı bileşenler
++ ad, içinde başlık yok; 390'da alt alta (~0,62 ölçek). Genel sayfaya özel kopyalar (canlı bileşenler
 çağrılmaz).
 
-**Dosyalar.** `web/templates/pages/landing.templ`, `web/templates/pages/landingview.go`,
-`web/static/css/input.css`, `internal/handler/marketing_facts_test.go`, üretilen `landing_templ.go`.
+**Dosyalar.** `web/templates/pages/product.templ`, `web/templates/pages/landingview.go`,
+`web/static/css/input.css`, `internal/handler/marketing_facts_test.go`, üretilen `*_templ.go`.
 
 **Kabul kriterleri.** land-T2–land-T9'un her biri ortak iddia kuralıyla (yeni Fact'ler: `FactTapScreenHasOneButton`,
 `FactTapScreenNamesTheTappedVenue`, `FactCountedTapClosesWithoutAButton`, `FactFlaggedResultSaysItNeedsApproval`;
@@ -606,18 +627,21 @@ mevcutlar: `FactTapPageNeedsNoApp`, `FactTapPageGreetsByName`, `FactTapButtonSiz
 metinleri `result.templ`'in dizgeleriyle **aynı**: yeni test onları şablonun render'ından okur ve
 karşılaştırır; KONTROL: şablondaki kapanış cümlesi değişince kırmızı. `tap.templ`/`result.templ` diff'i
 boş; `TestUnbrandedScreens_AreByteIdenticalToTheGolden` bayt-aynı; sayfada emoji yok (M14-05 testi).
+İddia testleri `/product`'ı okur; `/` bu metinleri **taşımaz** (yeni iddia: `/`'da land-T2 cümlesi yok).
 
-## M14-16 — Landing `#shift` ("A shift, start to finish")
+## M14-16 — `/product`: "A shift, start to finish" (LP-7: landing'den taşındı)
 
-- **Bağımlılık:** M14-08 (`FactEveryDecidedTapIsRecorded`), M14-14 · **Araç:** yapıcı (`tappa-brand`)
-- **Commit:** `feat(landing): walk one shift from the invite to the payroll file`
-- **Spec:** README §13, envanter A §1.2 (land-S1–land-S9)
+> **LP-7:** kendi bölümü olarak `/product`'ta, 07 Rules'tan sonra, Integrations'tan önce. `#shift` `/`'da yok.
+
+- **Bağımlılık:** M14-08 (`FactEveryDecidedTapIsRecorded`), M14-18 · **Araç:** yapıcı (`tappa-brand`)
+- **Commit:** `feat(marketing): walk one shift from the invite to the payroll file`
+- **Spec:** README §13, §21, envanter A §1.2 (land-S1–land-S9)
 
 Ink ray üzerinde altı docket (masaüstü 1×6, tablet 2×3, telefon numaralı dikey liste); 04 FLAGGED; aktör
 çipleri mobilya; eğimler `nth-child` sınıfları.
 
-**Dosyalar.** `web/templates/pages/landing.templ`, `web/templates/pages/landingview.go`,
-`web/static/css/input.css`, `internal/handler/marketing_facts_test.go`, üretilen `landing_templ.go`.
+**Dosyalar.** `web/templates/pages/product.templ`, `web/templates/pages/landingview.go`,
+`web/static/css/input.css`, `internal/handler/marketing_facts_test.go`, üretilen `*_templ.go`.
 
 **Kabul kriterleri.** land-S2–land-S9 ortak iddia kuralıyla (yeni: `FactActivationTapRecordsNoHours` — aktivasyon
 dokunuşu `transactions` satırı yazmaz; türetme `internal/handler/activate.go`'nun tamamlama yolundan;
@@ -625,19 +649,19 @@ mevcut: `FactPeopleAreInvitedFromTheDashboard`, `FactFlaggedQueueDecidedByAManag
 `FactEveryDecidedTapIsRecorded`). land-S7 "never approved in silence" `base:no-evidence-review` + motorun
 varsayılanına dayanır; KONTROL: varsayılan etki `allow`'a çevrilince kırmızı.
 
-## M14-17 — Landing `#integrations` + yeni sayfalara bağlantılar
+## M14-17 — `/product`: Integrations (LP-7: yalnız orada)
 
-- **Bağımlılık:** M14-10 (`main` + FAQ-API Fact'leri), M14-14 · **Araç:** yapıcı (`tappa-brand`)
-- **Commit:** `feat(landing): show where the hours go after Taptime`
-- **Spec:** README §13, envanter A §1.3 (land-I1–land-I7)
+> **LP-7:** Integrations yalnız `/product`'ta, CTA'dan önceki son bölüm; bölüm tek bir "Read the API docs"
+> bağlantısıyla biter (`.more`, M14-26 stili). Landing'in yeni sayfalara bağlantıları **M14-26**'dadır.
 
-Üç hücre (CSV · integration API · webhooks) + not çubuğu; mono çipler gerçek tanımlayıcılar. Landing'den
-yeni sayfalara mobilya bağlantıları ("How each proof works →", "Take the product tour →", sektör
-bağlantıları — `LandingAudiences`'a `Href`, "Pricing in detail →", "Read the API docs →"); her bağlantı yalnız
-hedef rota bağlıyken render edilir.
+- **Bağımlılık:** M14-10 (`main` + FAQ-API Fact'leri), M14-18 · **Araç:** yapıcı (`tappa-brand`)
+- **Commit:** `feat(marketing): show where the hours go after Taptime`
+- **Spec:** README §13, §21, §23, envanter A §1.3 (land-I1–land-I7)
 
-**Dosyalar.** `web/templates/pages/landing.templ`, `web/templates/pages/landingview.go`,
-`web/static/css/input.css`, `internal/handler/marketing_facts_test.go`, üretilen `landing_templ.go`.
+Üç hücre (CSV · integration API · webhooks) + not çubuğu; mono çipler gerçek tanımlayıcılar.
+
+**Dosyalar.** `web/templates/pages/product.templ`, `web/templates/pages/landingview.go`,
+`web/static/css/input.css`, `internal/handler/marketing_facts_test.go`, üretilen `*_templ.go`.
 
 **Kabul kriterleri.** land-I2–land-I6 ortak iddia kuralıyla (mevcut `FactAPIWritesPeopleAndLocations`,
 `FactAPIFeedsEveryPunch`, `FactAPIEnabledPerBusinessByTaptime` — webhook'lara genişletilir —,
@@ -669,10 +693,12 @@ testi bu sayfalarda yeşil.
 
 ## M14-18 — `/product` (ürün turu)
 
-- **Bağımlılık:** M14-08, M14-14, M14-15 (telefonlar), M14-17 (Integrations değerleri) · **Araç:** yapıcı
-  (`tappa-brand`) + ayrı iddia denetçisi + agent `tappa-security-auditor` (§9: sayfa tap ve sonuç ekranlarını
-  yeniden çizer — M14-15'in telefonları burada yeni bir sahnede, plaketle birlikte; geçiş, çizimin canlı
-  bileşenleri çağırmadığını ve `tap.templ`/`result.templ` diff'inin boş olduğunu yeniden doğrular)
+- **Bağımlılık:** M14-08, M14-14 · **Araç:** yapıcı (`tappa-brand`) + ayrı iddia denetçisi + agent
+  `tappa-security-auditor` (§9: 01 "The tap" bölümünün plaket sahnesi burada çizilir; iki telefon M14-15'te
+  kendi geçişiyle gelir — bu geçiş sahnenin ve minyatürlerin canlı bileşenleri çağırmadığını ve
+  `tap.templ`/`result.templ` diff'inin boş olduğunu doğrular)
+- **LP-7:** sayfa, M14-15 (01 sahnesi + "For your team"), M14-16 ("A shift", Rules'tan sonra) ve M14-17
+  (Integrations, son bölüm) için yer bırakır; o üç kart bu kartın üstüne gelir.
 - **Commit:** `feat(marketing): add the product tour`
 - **Spec:** README §14, envanter A §2 (prod-P1–prod-P30) · **Panolar:** `Product` ×3
 
@@ -720,34 +746,43 @@ Hero (fiyat başlığı ve lede'si, landing'in fiyat kartı aynen) → Examples 
   API fiyatı **iddia edilmez**.
 - Rota ve CSP testleri, ortak kontroller.
 
-## M14-20 — `/security` (sec-S35 kapılı)
+## M14-20 — `/security` (sec-S35: LP-7 onayı, Privacy ile aynı commit)
 
 - **Bağımlılık:** M14-07, M14-14 · **Araç:** yapıcı (`tappa-brand`) + ayrı iddia denetçisi + **agent
   `tappa-security-auditor`** (sayfa §4.1, §4.2, §4.3, §4.5, §4.6, §4.7'yi kamuya anlatır; her cümle kodla
   doğrulanır)
 - **Kırmızı çizgi:** §4 (anlatım doğruluğu), §7 (sayfa sır taşımaz: anahtar, gerçek IP/koordinat yok — örnek
   ağlar `203.0.113.0/24` belge aralığı)
-- **Commit:** `feat(marketing): add the security page`
+- **Commit:** `feat(marketing): add the security page and name where the server runs`
 - **Spec:** README §16, envanter B sec-S1–sec-S36 · **Panolar:** `Security` ×3
 
 Dört kanıt derinlemesine (bağlantı anatomisi, sayaç satırları, oturum kutuları, /7 genişlik ölçeği, GPS
 yarıçapı), karar merdiveni (+ sec-S36 dipnotu), "Flagged, never dropped", değişmezlik, toplanmayanlar, izolasyon.
-**sec-S35 (EU hosting) KULLANICI KARARINA KADAR PORT EDİLMEZ** (README §16.1): kart, Fact'i ve metni bu kartta
-yok; onay gelirse ayrı bir takip kartı ekler.
+**sec-S35 — LP-7'de onaylandı (README §20):** yalnız sunucu cümlesi. Başlık "Where Taptime runs.", kart
+"Hosted in Germany", cümle "Taptime's production server runs in Falkenstein, Germany." + "Built for GDPR
+from day one." (aynen). Yedek/AB-kovası yarısı **yok**. Fact `FactProductionServerInGermany`
+(`deploy/README.md`'ye sabit). **Privacy sayfasının bekleyen barındırma olgusu** ("Where the data is hosted
+and processed, and the processors involved.", `landingview.go:936`) **aynı commit'te** değişir.
 
 **Dosyalar.** yeni `web/templates/pages/security.templ` (+ görünüm `.go`; SVG geometrisi Go'da),
 `web/templates/pages/landingview.go`, `internal/handler/marketing.go`, `web/static/css/input.css`,
 `internal/handler/panelsource_test.go`, `internal/handler/marketing_facts_test.go`,
-`internal/handler/marketing_test.go`, üretilen `*_templ.go`.
+`internal/handler/marketing_test.go`, `web/templates/pages/landingview.go`'nun `LegalPages` Privacy girdisi,
+üretilen `*_templ.go`.
 
 **Kabul kriterleri.**
-- sec-S1–sec-S34 ve sec-S36 ortak iddia kuralıyla (README §18: kripto/oturum, kurallar ve karar, kayıtlar, değişmezlik,
+- sec-S1–sec-S36 (sec-S35 dahil) ortak iddia kuralıyla (README §18: kripto/oturum, kurallar ve karar, kayıtlar, değişmezlik,
   gizlilik/izolasyon grupları). Basılan sayılar koddan: debounce ve yarıçap config varsayılanlarından, güven
   puanı motor sabitlerinden, /7 ve /31 `netx` sabitlerinden, "Five of the eleven" `len(policy.Guardrails(…))`'ten,
   merdiven satırları `policy.Guardrails`/`policy.Baseline`'dan. Her biri için **yeni test** (README §19
   tablosu; adlarını yapıcı koyar) + KONTROL (sabit değişince kırmızı).
-- Sayfada "Falkenstein", "Hetzner", "EU-jurisdiction", "Hosted in the EU" **yok** (yeni test; sec-S35 onaylanınca
-  kaldırılır).
+- sec-S35: `FactProductionServerInGermany` türetmesi `deploy/README.md`'nin düğüm satırından; KONTROL: düğüm adı
+  değişince kırmızı. Sayfada "Hetzner", "EU-jurisdiction", "bucket", "backup", "Hosted in the EU" **yok**
+  (yeni test).
+- **Privacy bağlantısı:** aynı commit'te `LegalPages`'in Privacy bekleyen olgusu güncellenir (sunucu
+  cümlesi; işleyenler kısmı beklemede kalabilir). **Yeni test** (adını yapıcı koyar): `/security` sunucunun
+  yerini söylerken Privacy barındırmayı hâlâ "bekleyen" sayarsa kırmızı; KONTROL: eski satır geri konunca
+  kırmızı. `TestLegalPages_SkeletonsAreNotIndexedAndSayWhatTheyAreWaitingFor` yeşil.
 - `tappa-security-auditor` ONAY: hiçbir cümle kodun yapmadığını vaat etmez; sır, anahtar biçimi örneği ya da
   gerçek ağ yok.
 - Rota ve CSP testleri, ortak kontroller.
@@ -793,11 +828,169 @@ düğme, telefon çizimi ("Hello Anna Farrugia", "KM Plant").
 `tap.MinutesLate` (04:02 / 04:00 → "0h 02m", raporların etiket biçimi); 60 sn config varsayılanından —
 her biri için yeni test + KONTROL. Rota ve CSP testleri, ortak kontroller.
 
+## P4 — LP-7 cilası (kullanıcı, 2026-10-21)
+
+> **Spec:** [README Bölüm III, §20–§28](../design/landing-redesign/README.md) · [lp7-share.md](../design/landing-redesign/lp7-share.md)
+> · envanter A'nın LP-7 blokları. Panolar: 26 genel pano (LP-7'de hepsi değişti), `ShareCards`,
+> `States-Public`, `M-States-Public`. LP-1…LP-6 kuralları aynen.
+
+## M14-25 — Tek odak halkası + `scroll-padding` (bütün genel sayfalar, Signup ve Legal dahil)
+
+- **Bağımlılık:** M14-14 · **Araç:** yapıcı (`tappa-brand`) · **Kırmızı çizgi:** —
+- **Commit:** `fix(marketing): one focus ring that clears 3:1 on every public surface`
+- **Spec:** README §25
+
+**Amaç.** `input.css:1799`'un `.lp :focus-visible { outline: 3px solid var(--saffron); outline-offset: 3px;
+border-radius: 4px; }` kuralı (safran porcelain'de **2,32:1**, paper'da 2,62:1 — WCAG 1.4.11'i geçmez) yerine
+tek halka: `:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px }`, `--ring` = ink; yeşil ve
+ink yüzeylerde (`.ondark` CTA kartı, `.band--ink`) paper. marketingChrome'un (signup, legal, API rehberi)
+Tailwind `focus-visible:` sınıfları aynı ink/paper halkaya geçer; safran halka hiçbir genel sayfada kalmaz.
+Demo diyaloğunun kapatma düğmesi aynı halkayı alır. **Odak örtülmez (SC 2.4.11):** `html { scroll-padding-top:
+72px }` her genişlikte (yapışkan başlık), `scroll-padding-bottom: 80px` 600 px altında (yapışkan çubuk, M14-27).
+
+**Dosyalar.** `web/static/css/input.css`, `web/templates/pages/landing.templ` (yalnız marketingChrome'un
+odak sınıfları), `web/templates/pages/signup.templ`/`legal.templ` (yalnız odak sınıfları gerekiyorsa),
+`internal/handler/marketing_test.go`, üretilen `*_templ.go`. `layout.*`'a dokunulmaz.
+
+**Kabul kriterleri.**
+- **Yeni test** (adını yapıcı koyar): derlenmiş CSS'te genel sayfaların `:focus-visible` kuralları yalnız
+  ink ya da paper renkli, 2 px, 2 px offset; safran (ya da 3:1 altı bir renk) hiçbir genel `:focus-visible`
+  kuralında yok; `html` `scroll-padding-top` ve 600 px altı `scroll-padding-bottom` taşır. KONTROL: eski
+  `.lp :focus-visible` safran kuralı geri konunca kırmızı.
+- Odak turu (klavye) landing, beş sayfa, Signup (her adım) ve Legal'de: her odaklanabilir öğede halka görünür
+  ve yapışkan başlık/çubuğun altında kalmaz — denetimin "odak sondası, 0 hata" koşulu port edilmiş sayfalarda
+  yeniden ölçülür ve sonuç kart notuna yazılır.
+- `TestLandingDemo_TheDialogIsLabelledAndCanBeClosedWithoutAMouse`, `TestTemplates_CarryNoInlineStyle`,
+  `TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8`, `TestUnbrandedScreens_AreByteIdenticalToTheGolden`
+  yeşil/bayt-aynı.
+
+## M14-26 — Landing sekiz bölüm, bant ritmi ve "next step" bağlantıları
+
+- **Bağımlılık:** M14-14, M14-25 · **Araç:** yapıcı (`tappa-brand`) · **Kırmızı çizgi:** —
+- **Commit:** `style(marketing): cut the landing to eight sections and band the public pages`
+- **Spec:** README §21, §22, §23
+
+**Kapsam.**
+- Landing sırası: hero → strip → How it works · Why switch · Security · The panel · Built for both shapes ·
+  Pricing · FAQ · CTA. `#team`/`#shift`/`#integrations` landing'de **yok** (M14-15/16/17 `/product`'ta).
+- Bantlar: hero'dan sonraki her üst düzey bölüm tam genişlik bantta, paper/porcelain sırayla; landing'in Why
+  switch'i ink; CTA (`#pilot`) porcelain'de; Signup/Legal bantsız. Paper bantta kart/docket/FAQ öğesi ink/24
+  kenar, docket hafif gölge, delik porcelain. Sınıflar `.band--paper`, `.band--porcelain`, `.band--ink`
+  şablonda **literal** (sıra sayfa başına sabit).
+- `.more`: her bölüm en çok bir "next step" bağlantısıyla biter, tek stil (green, 700, altı çizili, ok).
+  Landing: Security → "How each proof works" (`/security`), The panel → "Take the product tour" (`/product`),
+  Pricing → "Pricing in detail" (`/pricing`). "Built for both shapes" kartları **bütün-kart bağlantıları**
+  (`.fitcard`; `LandingAudiences`'a `Href`), içte etiket; bölüm sonunda ek bağlantı yok. `/pricing`'te yok.
+  Her bağlantı hedef rota bağlıyken render edilir.
+
+**Dosyalar.** `web/templates/pages/landing.templ`, `web/templates/pages/landingview.go` (`LandingAudiences.Href`),
+sayfa şablonları (bant sınıfları), `web/static/css/input.css`, `internal/handler/marketing_test.go`,
+`internal/handler/marketing_facts_test.go`, üretilen `*_templ.go`.
+
+**Kabul kriterleri.**
+- **Yeni test**: `/` tam bu sekiz bölümü bu sırayla taşır; hiçbir genel sayfa `/#team`, `/#shift`,
+  `/#integrations`'a bağlantı vermez (`TestMarketing_EveryInternalLinkResolves` de yeşil). KONTROL: eski
+  `#team` bölümü geri konunca kırmızı.
+- **Yeni test**: hiçbir genel bölüm birden fazla `.more` taşımaz ve her `.more` bağlı bir rotaya gider;
+  KONTROL: bir bölüme ikinci `.more` eklenince kırmızı.
+- Bant kuralları yalnız palet token'ları (`TestLanding_UsesOnlyPaletteTokens`); `.band--ink` içinde halka
+  paper (M14-25 testi).
+- `TestLandingAudiences_EveryClaimRestsOnAProductAnchor`, `TestLandingAudiences_EveryClaimIsActuallyRendered`,
+  `TestLandingAudiences_SayNothingAboutTheTwoBreakdownsThatDoNotExist`, `TestLandingSteps_EveryStepIsRenderedInOrder`,
+  `TestLandingNav_EveryLinkPointsAtASectionOnThePage` (LP-6 biçimi) yeşil; land-T/S/I iddia testleri
+  `/product`'ı okur.
+
+## M14-27 — Telefonda yapışkan "Start free" çubuğu
+
+- **Bağımlılık:** M14-14, M14-25 · **Araç:** yapıcı (`tappa-brand`) · **Kırmızı çizgi:** —
+- **Commit:** `feat(marketing): keep Start free in reach on a phone`
+- **Spec:** README §24
+
+600 px altında, ortak altbilgili her genel sayfa (landing, beş sayfa, Legal) sayfa kökünün **son çocuğu**
+olarak `.mbar` taşır: "Start free", `position: sticky; bottom: 0`, yalnız CSS, signup rota sabitine giden
+≥ 44 px bağlantı, sayı yok. **Signup'ta yok.** 600 px ve üstünde gizli.
+
+**Dosyalar.** `web/templates/pages/landing.templ` (marketingChromeWith + landing kabuğu), sayfa şablonları,
+`web/static/css/input.css`, `internal/handler/marketing_test.go`, üretilen `*_templ.go`.
+
+**Kabul kriterleri.**
+- **Yeni test**: `.mbar` her genel sayfada tam bir kez ve kökün son öğesi, href signup rotası; Signup'ın hiçbir
+  adımında yok; sayfada `<script>` eklenmedi (betik kümesi aynı). KONTROL: Signup'a çubuk eklenince kırmızı.
+- 390 px ekran görüntüsü: çubuk son denetimi örtmez (`scroll-padding-bottom`, M14-25); altbilginin altında
+  durur.
+- `TestSignup_MountsExactlyTheRoutesTheLandingPageOffers`, `TestMarketing_EveryInternalLinkResolves` yeşil.
+
+## M14-28 — Paylaşım kartları ve başlık/OG etiketleri
+
+- **Bağımlılık:** M14-14, M14-18…M14-22 (rotalar bağlı) · **Araç:** yapıcı (`tappa-brand`) + ayrı iddia denetçisi
+- **Kırmızı çizgi:** §7 (etiketlerde sır yok; mutlak URL yalnız `TAPPA_BASE_URL`'den)
+- **Commit:** `feat(marketing): give every public page a title, a description and a share card`
+- **Spec:** README §27, [lp7-share.md](../design/landing-redesign/lp7-share.md) · **Pano:** `ShareCards`
+
+**Kapsam.**
+- Dokuz PNG (`ShareCards` panosundan, 1200×630) `web/static/og/`'a: `landing`, `product`, `pricing`, `security`,
+  `restaurants`, `production`, `signup`, `legal`, `api`; `web/static/og/README.md` her dosyanın boyutu ve
+  sha256'sı (fontlar README deseni). Görsellerde fiyat ve ücretsiz ay sayısı yok.
+- `documentHead`'e isteğe bağlı OG bloğu (yalnız pazarlama kabukları verir): `<meta name="description">`,
+  `og:type=website`, `og:title`, `og:description`, `og:url` (kanonik mutlak), **mutlak** `og:image`
+  (`config.BaseURL` + `/static/og/<name>.png`), `og:image:width=1200`, `og:image:height=630`,
+  `og:image:alt`, `twitter:card=summary_large_image`. **Sıfır değerli blok bayt üretmez.**
+- Başlık ve açıklamalar `lp7-share.md` tablosundan; açıklamalar **mevcut değişkenlere** başvurur (kopya yok);
+  tek yeni iddia **api-N1** (rehber açıklaması) → `FactAPIGuideCoversPunchesWritesWebhooks` + türetme
+  (`/v1` punch rotası, konum/personel yazmaları, webhook imzalayıcı) + mutasyon kontrolü. Signup açıklamasının
+  "3"ü `FreeMonths`'tan. Signup `RobotsPrivate` kalır.
+
+**Dosyalar.** `web/static/og/*.png`, `web/static/og/README.md`, `web/templates/layout/base.templ`
+(`documentHead` + pazarlama kabuklarının OG parametresi), `web/templates/pages/*.templ` (çağrılar),
+`web/templates/pages/landingview.go`, `internal/handler/marketing.go` (BaseURL'in görünüme geçişi),
+`internal/handler/marketing_test.go`, `internal/handler/marketing_facts_test.go`, üretilen `*_templ.go`.
+
+**Kabul kriterleri.**
+- **Yeni test** (adını yapıcı koyar): **her genel rota** (`/`, beş sayfa, signup adımları, dört legal sayfası,
+  rehberin iki dili) tam bir `<title>`, bir `<meta name="description">`, `og:title`, `og:description`,
+  `og:url`, tam **bir** `og:image` (mutlak, `TAPPA_BASE_URL` köklü), `og:image:width/height`, `og:image:alt`
+  ve `twitter:card=summary_large_image` taşır; `og:image`'ın gösterdiği dosya **gömülü FS'te var** ve
+  1200×630 PNG. KONTROL: bir sayfanın OG bloğu düşürülünce ve bir PNG silinince ayrı ayrı kırmızı.
+- CSP değişmez: `img-src` eklenmedi (`TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage`,
+  `TestMarketing_PolicyNamesWhatThePageLoadsAndNothingElse` yeşil).
+- api-N1 ortak iddia kuralıyla; diğer açıklamalar değişken referansı (yeni test: açıklama dizgesi bir
+  `landingview.go` değerine eşit, kopya değil).
+- Goldenlar: sıfır değerli OG bloğu bayt üretmediği için `TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8`
+  ve `TestUnbrandedScreens_AreByteIdenticalToTheGolden` bayt-aynı; landing'i OG verisiyle render eden bir
+  golden/özet varsa **aynı commit'te** yazılı bayt kontrolüyle yeniden alınır (yalnız eklenen head etiketleri).
+  API rehberinin `layout.MarketingTranslated` başlığı için M12-46 bayt notu güncellenir.
+- `TestSignup_IsNeverIndexed` yeşil.
+
+## M14-29 — Durum panoları: etkileşim spec'i
+
+- **Bağımlılık:** M14-25, M14-26, M14-27 · **Araç:** yapıcı (`tappa-brand`) · **Kırmızı çizgi:** —
+- **Commit:** `style(marketing): give every public control its hover, pressed and current states`
+- **Spec:** README §28 · **Panolar:** `States-Public`, `M-States-Public`
+
+Panolar normatiftir: birincil, ghost, başlık ve CTA-bandı düğmeleri; başlık nav bağlantıları (current =
+`aria-current`), Sign in, altbilgi ve `.flink` bağlantıları, `.more`; kilit ev bağlantısı, `.fitcard`, `/product`
+"On this page" dizini; FAQ `<details>`; telefon Menu özeti, bağlantıları ve açık hali; `.mbar`; demo kapatma
+düğmesi; Legal belge değiştirici; Signup metin girdisi, iş türü çipi, yer sayısı kartı, parola alanı ve
+"Create my account". Kurallar: **pressed** (`:active`) ink + 2 px green iç kenar (yeşil bantta paper), 1 px
+aşağı; **disabled** yalnız form gönder düğmelerinde; **visited** varsayılan rengi korur (`:visited` kuralı yok);
+telefonda hover yok; halka M14-25'inki.
+
+**Dosyalar.** `web/static/css/input.css`, gerekirse şablonlarda sınıf ekleri, `internal/handler/marketing_test.go`,
+üretilen `*_templ.go`.
+
+**Kabul kriterleri.**
+- **Yeni test**: derlenmiş CSS'te panoda sayılan her basılabilir genel sınıf için `:hover`, `:active` ve
+  `:focus-visible` kuralı var; genel kapsamda `:visited` kuralı yok; `:disabled` yalnız form gönder düğmelerinde.
+  KONTROL: bir sınıfın `:active` kuralı silinince kırmızı.
+- Panoya karşı ekran turu (masaüstü + telefon, Menu kapalı/açık): her hücre canlı denetimde eşleşir; farklar
+  kart notunda.
+- Dokunma hedefleri ≥ 44 px; durum asla yalnız renk değil (current = `aria-current` + biçim).
+
 ## P3 — Kapanış
 
 ## M14-24 — Faz sonu uzantısı (M14-13 ile tek kapanış)
 
-- **Bağımlılık:** hepsi · **Araç:** ayrı denetçi + agent `tappa-security-auditor`
+- **Bağımlılık:** hepsi (M14-25…29 dahil) · **Araç:** ayrı denetçi + agent `tappa-security-auditor`
 - **Commit:** M14-13'ünkü (+ yalnız düzeltme commit'leri)
 
 M14-13'ün maddelerine ek olarak:
@@ -810,11 +1003,17 @@ M14-13'ün maddelerine ek olarak:
 - yeni yollar üzerinde ölçülmemiş sayı ve iç ad taramaları;
 - README §18'deki her Fact'in türetilmiş + iddia edilmiş + mutasyon kontrollü olması (denetçi
   rastgele beşini bozar);
-- sec-S35'in hâlâ yok olması (ya da kullanıcı onayının tarihi ve kartı);
-- 26 panonun hepsinin 390 / 834 / 1440 ekran turu (telefonda Menu kapalı ve açık);
+- sec-S35'in yalnız sunucu cümlesiyle olması ve Privacy'nin bekleyen barındırma olgusunun aynı commit'te
+  güncellenmiş olması (LP-7);
+- LP-7: landing'de sekiz bölüm ve `/#team`/`/#shift`/`/#integrations`'a bağlantı yok; bant sınıfları;
+  bölüm başına en çok bir `.more`; `.mbar` Signup dışında her genel telefon sayfasında; tek odak halkası
+  (safran yok) ve `scroll-padding`; paylaşım kartları ve OG etiketleri her genel rotada; durum panolarıyla
+  karşılaştırmalı tur (M14-29);
+- 29 panonun hepsinin 390 / 834 / 1440 ekran turu (telefonda Menu kapalı ve açık; `ShareCards` dosyalarla,
+  `States-Public` ×2 canlı denetimlerle karşılaştırılır);
 - `TestEveryNamedTestExists`;
 - skill `tappa-brand`'e genel sayfa kabuğunun özeti;
-- README Bölüm II gerçekleşen sınıf ve rota adlarıyla güncellenir.
+- README Bölüm II–III gerçekleşen sınıf ve rota adlarıyla güncellenir.
 
 **Kabul kriterleri.** Bulgu → düzeltme → yeni denetçi. Bittiğinde `state.md`. `main`'e birleştirme
 **kullanıcının deploy kararıdır**.

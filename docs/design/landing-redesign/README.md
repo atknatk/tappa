@@ -6,9 +6,12 @@ page from this README and the M14 task cards without discovering surprises in th
 
 - **Boards:** `docs/design/panel-redesign/boards/` — every canvas board lives there, and
   `canvas.json` lays them out (the public row is the note "Public site — landing & pages (desktop /
-  tablet / mobile)", `t7`, at y 32260). **26 public boards** (LP-6 round, 2026-10-21):
-  - `Landing.dc.html` (desktop, 1440, fluid, h 9177) · `T-Landing.dc.html` (834, h 10629) ·
-    `M-Landing.dc.html` (390, h 14247);
+  tablet / mobile)", `t7`, at y 32260). **29 public boards** after LP-7 (2026-10-21; `canvas.json` holds
+  129 boards in all):
+  - `Landing.dc.html` (desktop, 1440, fluid, h 7720) · `T-Landing.dc.html` (834, h 8522) ·
+    `M-Landing.dc.html` (390, h 10987) — cut to eight sections in LP-7 (§21);
+  - `ShareCards.dc.html` (2640 × 4953; one 1200×630 card per public page, §27), `States-Public.dc.html`
+    (1440) and `M-States-Public.dc.html` (390) — the interaction spec (§28);
   - `LandingDemo.dc.html` (1440×900) and `M-LandingDemo.dc.html` (390×844) — the demo dialog (header +
     hero only, no footer, by design);
   - `Product`, `Pricing`, `Security`, `ForRestaurants`, `ForProduction` × desktop / `T-` / `M-` — the LP-6
@@ -18,14 +21,18 @@ page from this README and the M14 task cards without discovering surprises in th
     byte-identical to the approved boards (two pre-existing body defects fixed: Signup chips Plex Mono
     500 → 400, Legal cookie table curly quotes → ASCII).
   Sections 1–9 below were written for the first landing round; where Part II (§10–§19) changes them,
-  Part II wins.
+  Part II wins, and where Part III (§20–§28, LP-7) changes either, Part III wins.
 - **Citations in Part II and in the two LP-6 inventories refer to HEAD `7521dfe`** (Part I's refer to
-  `945b6b9`); re-find moved lines by the symbol named beside them.
+  `945b6b9`, Part III's and `lp7-share.md`'s to `6afba9f`); re-find moved lines by the symbol named beside
+  them.
 - **LP-6 claim inventories:** [`lp6-inventory-a.md`](lp6-inventory-a.md) (landing additions, `/product`,
   `/pricing`, shared chrome, re-head) and [`lp6-inventory-b.md`](lp6-inventory-b.md) (`/security`,
-  `/for/restaurants`, `/for/production`, port feasibility) — every NEW CLAIM row with its code fact.
+  `/for/restaurants`, `/for/production`, port feasibility) — every NEW CLAIM row with its code fact; both
+  refreshed for LP-7. [`lp7-share.md`](lp7-share.md) — share cards, titles, descriptions, the states boards
+  and new claim api-N1.
 - **Task cards:** [`docs/plan/m14-landing-redesign.md`](../../plan/m14-landing-redesign.md)
-  (M14-01 … M14-24, ordered, each independently shippable on the branch; M14-14 … M14-24 are LP-6).
+  (M14-01 … M14-29, ordered, each independently shippable on the branch; M14-14 … M14-24 are LP-6,
+  M14-25 … M14-29 LP-7).
 - **Shared with the panel port** (by reference, not repeated here):
   [`docs/design/panel-redesign/README.md`](../panel-redesign/README.md) §1 (how to read a board —
   bindings, sample data, inline styles that must never be copied) and §4 (palette).
@@ -638,7 +645,7 @@ inventory rows rather than repeating all of them.
     `result.templ` draw them), then the manager panel screen by screen (The Pass, The Spike, The Roll,
     People, Venues & plaques, Rules — real names, real behaviour, D1);
   - **`/security`** — the four proofs in depth, what is never collected, records never lost, immutability,
-    tenant isolation in plain words, EU hosting (**gated**, §16.1), GDPR;
+    tenant isolation in plain words, hosting (gated in LP-6 §16.1; **approved, server sentence only, in LP-7 §20**), GDPR;
   - **`/pricing`** — price per person, the founding offer, a team-size table **computed server-side**,
     what is included, a billing FAQ grounded in the billing code, the "API enabled by Taptime" note;
   - **`/for/restaurants`** and **`/for/production`** — industry pages built on the existing
@@ -742,6 +749,9 @@ order, and the every-public-page-links test is what holds them together.
 
 ## 13. Landing — new order and sections (inventory A §1)
 
+> **Superseded by §21 (LP-7):** the three new sections below no longer render on the landing; their claims
+> moved to `/product`. The table stays as the claim record.
+
 header → hero → strip → how → why switch → **For your team (NEW, `#team`)** → security → the panel → **A
 shift, start to finish (NEW, `#shift`)** → fits → **Integrations (NEW, `#integrations`)** → pricing → FAQ
 → CTA → footer.
@@ -801,14 +811,14 @@ Links to the new pages are furniture, not claims:
   the H1, plus a sample APPROVED docket that matches the landing) → the four proofs in depth (sec-S3–sec-S13, with
   figures: link anatomy, counter rows, session boxes, the /7 width scale, the GPS radius) → the decision
   ladder (sec-S14–sec-S21, sec-S36) → flagged, never dropped (sec-S22–sec-S25) → immutability (sec-S26–sec-S28) → never collected
-  (sec-S29–sec-S31) → isolation (sec-S32–sec-S34) → **EU hosting (sec-S35, gated)** → CTA → footer.
+  (sec-S29–sec-S31) → isolation (sec-S32–sec-S34) → **hosting (sec-S35: "Where Taptime runs.", §20)** → CTA → footer.
 - **Verbatim reuse:** `LandingEvidence` ×4, `LandingSecurityLede`, `LandingPrivacyNote`, and `LegalPages[3].Lede`'s
   cookie sentence.
 - **Port note:** printed figures come from code, never literals: the debounce and the radius from config
   defaults, the trust constants from the engine, the /7 and /31 limits from `netx`, and the guardrail count
   ("Five of the eleven", sec-S36) from `len(policy.Guardrails(…))`.
 
-### 16.1 sec-S35 — EU hosting: **PENDING USER DECISION**
+### 16.1 sec-S35 — EU hosting: **PENDING USER DECISION** — *superseded by §20: the user approved the server sentence only (LP-7)*
 
 sec-S35 ("Where your records live." / "Hosted in the EU" / "The production server runs in Falkenstein,
 Germany, and database backups are encrypted before they are stored, in an EU-jurisdiction bucket.") rests
@@ -869,7 +879,10 @@ then cover each new Fact). Sample data, figure labels and honesty lines are furn
 | Absences (tripwires) | rest-R13 | — | `FactNoAutomaticCheckout` (an absence Fact, like `FactNoBulkImport`) |
 | Integrations | land-I2, land-I3, land-I4, land-I5, land-I6, land-I7, price-R14 | `FactAPIWritesPeopleAndLocations`, `FactAPIFeedsEveryPunch`, `FactAPIEnabledPerBusinessByTaptime` (from the FAQ-API fix, in `main`), `FactHoursExportAsCSV`, `FactBillingExportAsCSV`, `FactReportPerPersonAndVenue` | `FactWebhookIsOneSignedEndpoint` (land-I7's identifiers are pinned to the route and header constants) |
 | Billing | price-R3, price-R4, price-R5, price-R8, price-R9, price-R10, price-R11, price-R12, price-R13 | `FactPricePerEmployee`, `FactBillingExportAsCSV` | `FactMonthIsHeadcountTimesPrice`, `FactFreeMonthsChargeNothing`, `FactHeadcountIsEmploymentOverlap`, `FactEndedMonthIsCountedOverItsOwnDates`, `FactFreezeIsFinalAndOwnerOnly`, `FactBillingNamesFirstChargedMonth` |
-| EU hosting | sec-S35 | — | `FactHostedInTheEU` — **gated, §16.1** |
+| Hosting (LP-7: server sentence only) | sec-S35 | — | `FactProductionServerInGermany` (was `FactHostedInTheEU`) — **approved, ships with the Privacy update, §20** |
+
+**LP-7 additions:** api-N1 (the API guide's share description, `lp7-share.md`, §27) is one more NEW
+CLAIM outside the 120 above. The `land-T`/`land-S`/`land-I` rows now render on `/product` (§21).
 
 **Merge the duplicates.** The two inventories were written in parallel and sometimes name one fact twice;
 the "=" pairs above are one Fact each. The port declares one, and both pages' sentences rest on it. A
@@ -900,3 +913,209 @@ in Go** (the `operatorpages/qr.go` pattern) or **fixed class buckets written lit
 
 The verbatim inventory text for each row is in [`lp6-inventory-b.md`](lp6-inventory-b.md) ("Port feasibility")
 and [`lp6-inventory-a.md`](lp6-inventory-a.md) (§3 computed values, §5 rules checked).
+
+---
+
+# Part III — LP-7: the public-site polish round (user, 2026-10-21)
+
+The user chose a polish round after LP-6, plus a decision on the hosting card. The boards went through an
+independent audit in three rounds. The auditor's last condition was a focus probe with 0 failures on Signup and
+Legal, and it is met. Sources:
+- `lp6-inventory-a.md` — its LP-7 blocks: the moved-claims map and the chrome port notes;
+- `lp6-inventory-b.md` — the sec-S35 row;
+- [`lp7-share.md`](lp7-share.md) — share cards and the states boards.
+
+Citations refer to HEAD `6afba9f`. Every LP-1…LP-6 rule still holds: D1, existing claims verbatim, palette
+tokens, D2, Plex Mono 400/700, no emoji, no `img-src`, no inline style, no new JS.
+
+## 20. sec-S35 — hosting: approved, coupled to the Privacy page
+
+- **Decision (user, LP-7):** keep **only the server sentence**. The section heading is **"Where Taptime
+  runs."**, the card title "Hosted in Germany", and the sentence "Taptime's production server runs in
+  Falkenstein, Germany." The verbatim fragment "Built for GDPR from day one." follows it.
+- **The backup / EU-bucket half is dropped.** `deploy/README.md` only *selects* that bucket; it is not
+  confirmed in operation.
+- **Fact:** `FactProductionServerInGermany`. It is pinned to `deploy/README.md` (node `k8s-1.fsn1` = Hetzner
+  Falkenstein, measured; Postgres runs in-cluster, `deploy/k8s/10-postgres.yaml`), the same way
+  `FactPlaquesIncludedAndReplacedFree` is pinned to the handoff. Its derivation reads that runbook line, and a
+  mutation control changes the node name and watches the test go red.
+- **The card is no longer gated, but it ships coupled.** The Privacy page lists, among its pending facts,
+  "Where the data is hosted and processed, and the processors involved." (`landingview.go:936`). That entry
+  must change **in the same commit** as the S35 card, so the two pages never disagree. Either replace it
+  with the server sentence and keep the processors part pending, or split it.
+  - `TestLegalPages_SkeletonsAreNotIndexedAndSayWhatTheyAreWaitingFor` and the legal pages' tests stay green.
+  - A **new test** (the builder names it) fails if `/security` states where the server runs while Privacy
+    still lists hosting as pending. Its control: restore the old pending line and the test goes red.
+- On the page there is no "EU-jurisdiction", no "bucket", no "backup" and no "Hetzner"; the sentence names
+  only the city and the country.
+
+## 21. Landing cut to eight sections — moved-claims map
+
+**New landing order:** header → hero → strip → **How it works · Why switch · Security · The panel · Built for
+both shapes · Pricing · FAQ · CTA** → footer. The detail lives on `/product`, `/security` and `/pricing`.
+Every approved claim is kept, either on the landing or on the page it moved to:
+
+| Moved block | Claim ids (ids keep their `land-` prefix) | Now on | Where |
+|---|---|---|---|
+| For your team (`#team`) | land-T2, land-T3, land-T4…land-T7 points, land-T10 footnote | `/product` | section 01 "The tap", under the plaque + phones stage (h3 + four points + footnote) |
+| Its two phones + captions | land-T8, land-T9 | `/product` | section 01 stage |
+| A shift, start to finish (`#shift`) | land-S1…land-S9 | `/product` | its own section after 07 Rules, before Integrations |
+| Integrations (`#integrations`) | land-I1…land-I7 | `/product` | the last section before the CTA (now only there) |
+
+Nothing moved to `/security` or `/pricing`: the landing keeps its Security and Pricing sections, each ending
+in one next-step link (§23).
+
+**Landing tests and anchors that change** (deliberately, intent kept):
+- The anchors `#team`, `#shift` and `#integrations` **do not exist on `/`**. They exist on `/product` only if
+  the port gives those sections ids. `TestMarketing_EveryInternalLinkResolves` must find no link to
+  `/#team`, `/#shift` or `/#integrations` anywhere.
+- The rendered-and-claimed tests planned for land-T2…T10, land-S2…S9 and land-I2…I7 read **`/product`**, not
+  `/`. The Facts are the same; only the page changes.
+- `TestLandingNav_EveryLinkPointsAtASectionOnThePage` keeps its LP-6 rewrite (page links).
+- The panel-showcase tests and `TestLandingSteps_EveryStepIsRenderedInOrder` are unchanged, because those
+  sections stay.
+- The three LandingAudiences tests (`TestLandingAudiences_EveryClaimRestsOnAProductAnchor`,
+  `TestLandingAudiences_EveryClaimIsActuallyRendered`,
+  `TestLandingAudiences_SayNothingAboutTheTwoBreakdownsThatDoNotExist`) read the same text. The two cards are
+  now **whole-card links** (`.fitcard`), with "For restaurants & bars →" / "For production & facilities →"
+  as a label inside the card.
+
+## 22. Bands — section rhythm
+
+Each top-level section after the hero gets a full-width band that alternates **paper / porcelain**, with
+bottom padding equal to its top padding.
+- A section marked as ink becomes an **ink** band. On the landing that is Why switch.
+- The CTA (`#pilot`) stays on the page's porcelain.
+- A section can opt out.
+- Signup and Legal stay unbanded (short pages).
+- **On a paper band**, cards, dockets and FAQ items get an ink/24 border (dockets also a light shadow), and the
+  docket perforation's holes are drawn in porcelain, so the tear stays visible.
+
+**Port:** three classes (`.band--paper`, `.band--porcelain`, `.band--ink`) on section wrappers, written
+literally in the templ (the band order is fixed per page, not computed in Go). Palette tokens only. On ink and
+green surfaces the focus ring is paper (§25).
+
+## 23. Next-step links — one per section, one style
+
+Every section ends in **at most one** next-step link, all in one style (`.more`: green, 700, underlined, with
+an arrow).
+
+| Page | Section | Link |
+|---|---|---|
+| Landing | Security | "How each proof works" → `/security` |
+| Landing | The panel | "Take the product tour" → `/product` |
+| Landing | Pricing | "Pricing in detail" → `/pricing` |
+| Landing | Built for both shapes | none: the cards are whole-card links |
+| `/product` | Integrations | "Read the API docs" → `APIGuidePath` |
+| `/pricing` | — | none |
+
+These labels are furniture, not claims. A **new test** checks that no public section carries more than one
+`.more` link and that every `.more` href is a mounted route. Its control: add a second `.more` link to a
+section and the test goes red.
+
+## 24. Sticky phone "Start free" bar
+
+- Below 600 px, every public page with the shared footer ends in `.mbar`: a "Start free" bar,
+  `position: sticky; bottom: 0`, and the **last child** of the page root. It rides the bottom of the viewport
+  for the whole page and comes to rest under the footer.
+- It is pure CSS, with no JS.
+- It is **not on Signup** (the bar would point at the page you are on).
+- The label "Start free" is header furniture and carries no number.
+- `scroll-padding-bottom: 80px` below 600 px keeps a focused element clear of the bar (§25).
+- The bar's link is a ≥ 44 px target and points at the signup route constant.
+
+## 25. Focus ring and scroll-padding (WCAG 2.2)
+
+- **One ring everywhere:** `:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px }`, where
+  `--ring` is ink and becomes paper on green or ink surfaces (the CTA card `.ondark`, `.band--ink`).
+  - Measured contrast: ink on porcelain 14.32:1, ink on paper 16.17:1, paper on green 7.73:1, paper on ink
+    16.17:1.
+  - The 2 px offset keeps the ring on the surrounding surface, so 3:1 always holds.
+- **This replaces `input.css:1799`**, `.lp :focus-visible { outline: 3px solid var(--saffron); outline-offset: 3px;
+  border-radius: 4px; }`. Saffron measures **2.32:1** on porcelain and 2.62:1 on paper, both below 3:1 (WCAG
+  1.4.11). The demo dialog's close-button ring follows.
+- The ring covers **all public pages, including Signup and Legal**: marketingChrome's Tailwind
+  `focus-visible:` utilities move to the same ink/paper ring, with no saffron. The audit's focus probe found 0
+  failures on Signup/Legal.
+- **Focus not obscured (SC 2.4.11):** `html { scroll-padding-top: 72px }` at every width, for the sticky
+  header, and `scroll-padding-bottom: 80px` below 600 px, for the sticky bar. These go in the public CSS, not
+  in `layout.*`.
+
+## 26. Hero crop and Menu current style
+
+- **Hero balance** (supersedes §6.2's sizes):
+  - The phone is drawn **narrower than the plaque**: 214 / 204 / 150 px, against the plaque's 226 / 214 / 176.
+  - It is **cropped to the top of the device**: no bottom bezel, the screen runs off the bottom edge, and the
+    shadow is cast upward. The tap screen fills what is shown.
+  - The cut ends in a 4 px ink screen-edge line and a dashed crop mark (ink/35), so it reads as deliberate.
+  - The scene is a grid: plaque · NFC arcs · phone on one row (vertically centred), with the docket hanging from
+    its rail under the plaque. The eye reads plaque → tap → docket.
+  - **Port:** fixed `.lp` classes per breakpoint; the crop is a fixed height plus `overflow: hidden`, with no
+    inline style.
+- **Menu current page:** `.mlink[aria-current="page"] { color: tappa-green; box-shadow: inset 3px 0 0
+  tappa-green }` (green on paper 7.73:1). The header's current link keeps its LP-6 style (ink, 700, green 2 px
+  underline).
+
+## 27. Share cards and head tags (`lp7-share.md`)
+
+- **One card per public page**, 1200×630, palette only. Each card has the lockup, an eyebrow, the page
+  headline, the "tap in · tap out · that's it" foot and one motif. There are **no photos, no emoji, no price
+  and no free-month count**, because a static image would go stale.
+- Nine files go in **`web/static/og/`**: `landing`, `product`, `pricing`, `security`, `restaurants`,
+  `production`, `signup`, `legal` (shared by the four legal pages) and `api` (shared by both guide
+  languages), each `.png`.
+  - They are embedded like the rest of `web/static`.
+  - A short `web/static/og/README.md` gives each file's size and sha256 (the fonts README pattern).
+  - Every motif text is at least 18 px, so it survives a ~500 px unfurl.
+- **Titles and descriptions per route** (the table in `lp7-share.md`):
+  - Each description is an **existing** `landingview.go` value, referenced by variable and not copied (e.g.
+    `LandingHeroLede`, `LandingSecurityLede`, `LandingAudiences[n]`, the pricing heading/lede, each legal
+    page's `Lede`).
+  - The one exception is the API guide's description, **NEW CLAIM api-N1**: "Read every punch, write people
+    and locations, and receive webhooks: the Taptime integration API, explained." Its proposed Fact is
+    `FactAPIGuideCoversPunchesWritesWebhooks`, derived from the `/v1` punch route, the location/staff writes
+    and the webhook signer.
+  - The four new titles are the pages' own nav labels + " — Taptime".
+  - The signup description's "3" comes from `FreeMonths` at render time.
+- **Head tags** live in `documentHead` as an optional OG block that only the marketing shells pass:
+  - `<meta name="description">`;
+  - `og:type=website`, `og:title`, `og:description`, `og:url` (canonical absolute);
+  - **`og:image` as an absolute URL** built from `TAPPA_BASE_URL` (`config.BaseURL`, `config.go:276`) +
+    `/static/og/<name>.png`, with `og:image:width=1200`, `og:image:height=630` and `og:image:alt` (the card
+    headline);
+  - **`twitter:card=summary_large_image`**.
+- **CSP is unaffected:** crawlers fetch the image and the page never renders it, so no `img-src` is added
+  (`TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage` stays green). Signup stays `RobotsPrivate`; OG tags
+  do not change that.
+- **Goldens.** The zero-value OG block must render **no bytes**. Then `layout.Marketing*` with no OG, the tap
+  and activation shells, and the unbranded digests (`TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8`,
+  `TestUnbrandedScreens_AreByteIdenticalToTheGolden`) stay byte-identical.
+  - The landing's **own** head does change once it carries its tags. Any golden or digest that renders the
+    landing with its OG data is re-taken **in the same commit**, with the written byte check (only the head's
+    added tags differ).
+  - The API guide's head is `layout.MarketingTranslated`: mind the M12-46 byte note (§7).
+
+## 28. The states boards — the interaction spec
+
+`States-Public.dc.html` (desktop) and `M-States-Public.dc.html` (phone) are the **normative interaction
+spec** for every interactive public control. They show default / hover / focus-visible / pressed /
+disabled (where it applies) / current or open for:
+- the primary, ghost, header and CTA-band buttons;
+- the header nav links (current = `aria-current`), Sign in, the footer links and `.flink` legal links, and the
+  next-step link (`.more`);
+- the lockup home link, the landing's whole-card links (`.fitcard`) and the `/product` "On this page" index (a
+  docket entry on desktop, a chip on tablet and phone);
+- the FAQ `<details>`, closed and open;
+- the phone Menu summary (closed/open), its links (current page) and a full open-Menu drawing;
+- the sticky bar `.mbar`;
+- the demo dialog's close button;
+- Legal's document switcher;
+- Signup's text input, business-type chip, place-count card, password field and submit "Create my account".
+
+**Rules the port follows:**
+- **Pressed** (`:active`) is ink with a 2 px green inner edge (paper on the green band), moved down 1 px.
+- **Disabled** exists only on form submit buttons (Signup); ghost buttons and links have none.
+- **Visited** links keep their default colour (navigation, not a reading list), so there is no `:visited`
+  rule.
+- The phone has no hover state; focus-visible stays for keyboards and switch access.
+- The ring is §25's.

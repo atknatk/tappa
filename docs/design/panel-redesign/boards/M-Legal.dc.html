@@ -29,6 +29,11 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
 .mlink:first-child{border-top:0}
 .hbtn{min-height:44px;padding:0 18px;border-radius:12px;font:700 14px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box;white-space:nowrap;background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
 .hbtn:hover{background:#152219;color:#FFFDF4}
+.mlink[aria-current]{color:#1F5C41;box-shadow:inset 3px 0 0 #1F5C41;padding-left:12px}
+:focus-visible{outline:2px solid #152219;outline-offset:2px}
+.ondark :focus-visible,.band--ink :focus-visible{outline-color:#FFFDF4}
+html{scroll-padding-top:72px}
+@media (max-width:599px){html{scroll-padding-bottom:80px}}
 </style>
 </helmet>
 <div style="width: 390px; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
@@ -128,9 +133,12 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
         </nav>
     </div>
   </footer>
+  <div class="mbar" style="position: sticky; bottom: 0; z-index: 4; padding: 10px 16px 12px; background: rgba(237,240,234,.96); border-top: 1px solid #C9D2C8; box-shadow: 0 -8px 24px rgba(21,34,25,.08)">
+    <a href="Signup.dc.html" class="hbtn" style="width: 100%; min-height: 48px; font-size: 15px">Start free</a>
+  </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"menu": {"editor": "enum", "options": ["closed", "open"], "default": "closed"}, "$preview": {"width": 390, "height": 4021}}'>
+<script type="text/x-dc" data-dc-script data-props='{"menu": {"editor": "enum", "options": ["closed", "open"], "default": "closed"}, "$preview": {"width": 390, "height": 4092}}'>
 class Component extends DCLogic {
   constructor(props) { super(props); this.state = { sel: 'cookies' }; }
   renderVals() {

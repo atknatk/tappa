@@ -53,6 +53,15 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
 .mlink:first-child{border-top:0}
 .hbtn{min-height:44px;padding:0 18px;border-radius:12px;font:700 14px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box;white-space:nowrap;background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
 .hbtn:hover{background:#152219;color:#FFFDF4}
+.mlink[aria-current]{color:#1F5C41;box-shadow:inset 3px 0 0 #1F5C41;padding-left:12px}
+:focus-visible{outline:2px solid #152219;outline-offset:2px}
+.ondark :focus-visible,.band--ink :focus-visible{outline-color:#FFFDF4}
+html{scroll-padding-top:72px}
+@media (max-width:599px){html{scroll-padding-bottom:80px}}
+.fitcard{transition:border-color .15s}.fitcard:hover{border-color:#152219;color:#152219}
+.band--paper .card,.band--paper .docket,.band--paper details.qa{border-color:rgba(21,34,25,.24)}
+.band--paper .docket{box-shadow:0 2px 6px rgba(21,34,25,.08)}
+.band--paper .docket::after{background:radial-gradient(circle at 7px 7px,#EDF0EA 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
 .more{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-weight:700;font-size:15px;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
 
 .stamp--ign{border-color:#C9D2C8;box-shadow:inset 0 0 0 1px #C9D2C8;background:rgba(201,210,200,.1);transform:rotate(-4deg)}
@@ -140,6 +149,7 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
       <b style="color: #152219; letter-spacing: .04em">KEBAB MANUFACTURING CO. — 5 departments</b>
     </div>
   </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 72px">
   <section id="shifts" style="padding: 72px 0 0">
     <div style="padding: 0 40px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">Department shifts</p>
@@ -200,6 +210,8 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
           <span class="mono" style="font-size: 11.5px; line-height: 1.55; color: rgba(21,34,25,.8); border-top: 1px dashed #C9D2C8; padding-top: 10px">Same minute, different yardsticks: against the bakery's 04:00, Anna's 04:02 is 1 late arrival · 0h 02m on The Roll; against meat production's 05:00, Mark's 04:55 is not late.</span></div><div style="margin-top: 24px; max-width: 760px"><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; font-size: 15.5px; line-height: 1.55; color: rgba(21,34,25,.85)"><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>The Roll counts each person's late arrivals and the minutes they add up to.</span></li></ul></div>
     </div>
   </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 72px">
   <section id="departments" style="padding: 72px 0 0">
     <div style="padding: 0 40px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">Departments</p>
@@ -258,6 +270,8 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
           </div></div></div>
     </div>
   </section>
+  </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 72px">
   <section id="queue" style="padding: 72px 0 0">
     <div style="padding: 0 40px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">Shift change</p>
@@ -298,6 +312,8 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
             </div></div></div></div><div style="margin-top: 24px; max-width: 760px"><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; font-size: 15.5px; line-height: 1.55; color: rgba(21,34,25,.85)"><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>The ignored tap is still written down, stamped IGNORED.</span></li></ul></div>
     </div>
   </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 72px">
   <section id="floor" style="padding: 72px 0 0">
     <div style="padding: 0 40px; box-sizing: border-box">
       <p class="eyebrow" style="margin-bottom: 14px">On the floor</p>
@@ -313,11 +329,11 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
               <span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1"/><path d="M14 14h2.5v2.5H14zM18 18h2.5v2.5H18zM14 18.5v2M18.5 14h2"/></svg></span>
               <h3 style="margin: 0; font-size: 17px; line-height: 1.25; letter-spacing: -0.02em">What if the phone has no NFC?</h3>
               <p style="margin: 0 0 0px; font-size: 14.5px; line-height: 1.6; color: rgba(21,34,25,.82)">The same page opens from a QR code with the camera. A QR tap carries no cryptographic signature — no proof of a physical touch — so it needs your venue's network address to match before it's approved. A position on its own is not enough: without the address it's stored, flagged and queued for review.</p>
-            </div></div><div style="display: flex; justify-content: center; min-width: 0">
-        <div role="img" aria-label="The employee's own phone showing the tap screen: Hello {{ticket.n}}, {{ticket.loc}}, one Tap button" style="flex: none; width: 240px; box-sizing: border-box; background: #152219; border-radius: 40px; padding: 10px; box-shadow: 0 30px 60px rgba(21,34,25,.28)">
-          <div style="width: 220px; height: 462px; border-radius: 31px; background: #EDF0EA; overflow: hidden; position: relative">
+            </div></div><div style="display: flex; justify-content: center; min-width: 0"><div style="display: flex; flex-direction: column; align-items: center">
+        <div role="img" aria-label="The employee's own phone showing the tap screen: Hello {{ticket.n}}, {{ticket.loc}}, one Tap button" style="flex: none; width: 204px; box-sizing: border-box; background: #152219; border-radius: 40px 40px 0 0; padding: 10px 10px 0; box-shadow: 0 -6px 30px rgba(21,34,25,.16)">
+          <div style="width: 184px; height: 178px; border-radius: 31px 31px 0 0; background: #EDF0EA; overflow: hidden; position: relative">
             <div aria-hidden="true" style="position: absolute; top: 9px; left: 50%; width: 76px; height: 20px; margin-left: -38px; border-radius: 10px; background: #152219; z-index: 2"></div>
-            <div style="width: 379px; height: 797px; transform: scale(0.58); transform-origin: 0 0; position: absolute; left: 0; top: 0">
+            <div style="width: 375px; height: 363px; transform: scale(0.4907); transform-origin: 0 0; position: absolute; left: 0; top: 0">
               <div aria-hidden="true" style="height: 54px; padding: 0 30px; display: flex; align-items: center; justify-content: space-between; font: 700 16px 'Space Grotesk', sans-serif; color: #152219">
                 <span>{{ticket.time}}</span>
                 <span style="display: flex; align-items: center; gap: 6px">
@@ -339,12 +355,16 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
               </div>
             </div>
           </div>
+        </div>
+          <span aria-hidden="true" style="display: block; width: 204px; height: 4px; background: #152219; border-radius: 0 0 2px 2px"></span>
+          <span aria-hidden="true" style="display: block; width: 204px; margin-top: 6px; border-top: 1.5px dashed rgba(21,34,25,.35)"></span>
         </div></div></div>
     </div>
   </section>
+  </div>
   <section id="pilot" style="padding: 72px 0 0">
     <div style="padding: 0 40px; box-sizing: border-box">
-      <div style="background: #1F5C41; border-radius: 24px; padding: 56px 40px; text-align: center; color: #FFFDF4; position: relative; overflow: hidden">
+      <div class="ondark" style="background: #1F5C41; border-radius: 24px; padding: 56px 40px; text-align: center; color: #FFFDF4; position: relative; overflow: hidden">
         <span aria-hidden="true" style="position: absolute; width: 420px; height: 420px; top: -190px; left: -140px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
         <span aria-hidden="true" style="position: absolute; width: 280px; height: 280px; bottom: -120px; right: -80px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
         <h2 style="position: relative; margin: 0 0 14px; font-size: 44px; line-height: 1.05; letter-spacing: -0.035em; color: #FFFDF4">Go punchless.</h2>
@@ -376,7 +396,7 @@ details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}deta
   </footer>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview": {"width": 834, "height": 4584}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview": {"width": 834, "height": 4872}}'>
 class Component extends DCLogic {
   renderVals() {
     // LandingView values the shared furniture prints (internal/handler builds them): FreeMonths 3.
