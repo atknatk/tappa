@@ -518,7 +518,7 @@ button; "Book a pilot" stays absent.
 
 | Element | Source | Status |
 |---|---|---|
-| `<dialog id="demoDialog">`, title, close (autofocus, 44×44) | `:481–501` | EXISTS. The board draws the autofocus ring (saffron, `.lp :focus-visible`). |
+| `<dialog id="demoDialog">`, title, close (autofocus, 44×44) | `:481–501` | EXISTS. The board draws the autofocus ring. **LP-7:** it is §25's one ring (2 px ink — paper on ink/green —, 2 px offset), not the old saffron `.lp :focus-visible` (2.32:1); see M14-12 / M14-25. |
 | `soon` state copy + CTA | `:485–538` | EXISTS (verbatim). Phone: the CTA full width; the dialog centred (`margin: auto`). |
 | `video` state: "The Taptime demo" + native `<video controls preload="metadata" playsinline>` | `:503–519` | EXISTS. The board draws a poster and the browser's own controls (not product UI). |
 | Backdrop | `css` `::backdrop` | ink at .62 (optional change) |

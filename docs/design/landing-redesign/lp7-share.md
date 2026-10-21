@@ -80,8 +80,12 @@ production & facilities", each + " — Taptime"). Each is the page's own nav or 
    - Add a test that every public route renders exactly one `og:image` whose file exists in the embedded FS, and a
      `twitter:card`.
    - Signup stays `RobotsPrivate` (noindex). OG tags do not change that; links shared in chat still unfurl.
-   - The landing's unbranded golden (`panelbrand_golden_test.go`) changes when the head gains these tags. Update it in
-     the same change.
+   - *Editor's fix (on copy into the repo, 2026-10-21; supersedes the builder's note):* the zero-value OG block
+     renders **no bytes**, so the unbranded goldens (`TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8` in
+     `panelbrand_golden_test.go`, which renders `layout.MarketingWithScript` with no OG data, and
+     `TestUnbrandedScreens_AreByteIdenticalToTheGolden`) stay **byte-identical**. Only a golden or digest that
+     renders the landing *with* its OG data changes, and it is re-taken in the same commit with a written byte
+     check (README §27, M14-28).
 6. **The API guide's head** is `layout.MarketingTranslated`. Mind the byte-for-byte note on that shell (M12-46).
 
 ## States boards (L09 / Mobile · States)

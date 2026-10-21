@@ -112,7 +112,7 @@ altında · palet token'ları + opaklık (README §5) · dokunma hedefi ≥ 44 p
 | M14-09 | L1 | Pilot şeridi (telefonda yığılma) + fits + pricing görünümü: yuvarlak çip, kurucu teklif satırı, ✓ → ikon | yapıcı (`tappa-brand`) | M14-01 |
 | M14-10 | L1 | FAQ iki sütun (+ R-2 bağımlılığı) | yapıcı (`tappa-brand`) | M14-01, **`main` (`0e7c158` dahil) iş dalına birleşmiş** |
 | M14-11 | L1 | CTA + altbilgi: bayrak emojisi yok, halka işareti, Legal kartı bağlantı stili | yapıcı (`tappa-brand`) | M14-02 |
-| M14-12 | L1 | Demo diyaloğu yeniden stili (`soon` / `video`) | yapıcı (`tappa-brand`) | M14-01 |
+| M14-12 | L1 | Demo diyaloğu yeniden stili (`soon` / `video`); odak halkası M14-25'inki (önce koşarsa aynı değerleri kendisi verir) | yapıcı (`tappa-brand`) | M14-01 |
 | M14-13 | L3 | Faz sonu: tam `make check` + `make audit`, güvenlik denetimi, golden kontrolü, 390/834/1440 ekran turu (M14-24 ile **tek** kapanış olarak koşar) | denetçi + güvenlik | hepsi |
 | M14-14 | P0 | **LP-6** paylaşılan genel kabuk: başlık sayfa bağlantıları, telefonda `<details>` Menu, altbilgi Product/Legal sütunları — `marketingChromeWith` + landing; `PublicPages` listesi; `TestLandingNav_…` bilinçli yeniden yazımı | yapıcı (`tappa-brand`) | M14-02, M14-03 |
 | M14-15 | P2 | **LP-7: `/product`'a taşındı** — bölüm 01 sahnesi: iki telefon (tap + flag sonucu) + "For your team" noktaları (land-T2…T10) | yapıcı (`tappa-brand`) + güvenlik (§9) | M14-04, M14-18 |
@@ -127,7 +127,7 @@ altında · palet token'ları + opaklık (README §5) · dokunma hedefi ≥ 44 p
 | M14-25 | P0 | **LP-7** tek odak halkası (2 px ink/paper, 2 px offset; `input.css:1799`'un safran halkası yerine) + `scroll-padding` (SC 2.4.11) — bütün genel sayfalar, Signup ve Legal dahil | yapıcı (`tappa-brand`) | M14-14 |
 | M14-26 | P1 | **LP-7** landing sekiz bölüm + bant ritmi (paper/porcelain/ink) + bölüm başına tek "next step" bağlantısı (`.more`), `.fitcard` bütün-kart bağlantıları | yapıcı (`tappa-brand`) | M14-14, M14-25 |
 | M14-27 | P1 | **LP-7** telefonda yapışkan "Start free" çubuğu (`.mbar`, yalnız CSS, Signup'ta yok) | yapıcı (`tappa-brand`) | M14-14, M14-25 |
-| M14-28 | P2 | **LP-7** paylaşım kartları (`web/static/og/*.png`) + başlık/açıklama/OG/twitter etiketleri; api-N1 | yapıcı (`tappa-brand`) + ayrı iddia denetimi | M14-14, M14-18…M14-22 (sayfalar bağlı) |
+| M14-28 | P2 | **LP-7** paylaşım kartları (`web/static/og/*.png`) + başlık/açıklama/OG/twitter etiketleri; api-N1 | yapıcı (`tappa-brand`) + ayrı iddia denetimi + güvenlik (§7) | M14-14, M14-18…M14-22 (sayfalar bağlı) |
 | M14-29 | P2 | **LP-7** durum panoları = etkileşim spec'i: hover/pressed/disabled/visited/current/open her genel denetimde | yapıcı (`tappa-brand`) | M14-25…M14-27 |
 | M14-24 | P3 | Faz sonu uzantısı (M14-13 ile tek kapanış): beş sayfa, 29 pano ekran turu, kabuk testi, LP-7 maddeleri, güvenlik | denetçi + güvenlik | hepsi (M14-25…29 dahil) |
 
@@ -471,8 +471,12 @@ yerinde. CTA metni ve tek düğmesi aynen; "Book a pilot" yok.
   `M-LandingDemo` (`state` = soon | video)
 
 İki durum panolardaki gibi: `soon` metni + CTA (telefonda tam genişlik), `video` yerel `<video controls
-preload="metadata" playsinline>` + poster; kapatma düğmesi 44×44, autofocus halkası saffron; arka plan
-ink/.62 (isteğe bağlı). İşaretleme ve kimlikler aynen.
+preload="metadata" playsinline>` + poster; kapatma düğmesi 44×44, autofocus halkası **README §25 / M14-25'in tek halkası** (2 px ink — ink/yeşil zeminde
+paper —, 2 px offset; safran **yok**); arka plan ink/.62 (isteğe bağlı). İşaretleme ve kimlikler aynen.
+
+> **Sıra notu (LP-7):** bu kart M14-25'ten önce koşabilir. Öyleyse kapatma düğmesine M14-25'in halkasını
+> şimdiden verir (aynı değerler) ve `.lp :focus-visible` safran kuralına dayanmaz; M14-25 kuralı genele
+> taşırken bu düğme değişmeden kalır. Denetçi, düğmenin odak halkasının ink/paper 2 px / 2 px olduğunu doğrular.
 
 **Dosyalar.** `web/templates/pages/landing.templ` (`landingDemoDialog`), `web/static/css/input.css`,
 gerekirse `internal/handler/marketingdemo_test.go` (yalnız niyeti korunan dizge güncellemesi), üretilen
@@ -923,6 +927,9 @@ olarak `.mbar` taşır: "Start free", `position: sticky; bottom: 0`, yalnız CSS
 ## M14-28 — Paylaşım kartları ve başlık/OG etiketleri
 
 - **Bağımlılık:** M14-14, M14-18…M14-22 (rotalar bağlı) · **Araç:** yapıcı (`tappa-brand`) + ayrı iddia denetçisi
+  + agent `tappa-security-auditor` (§7: head etiketlerinde sır, iç host ya da operatör/API host'u yok; `og:url`
+  ve `og:image` yalnız `TAPPA_BASE_URL`'den kurulur, istekten — `Host` başlığından — asla; PNG'lerde gerçek
+  ad/IP/koordinat yok)
 - **Kırmızı çizgi:** §7 (etiketlerde sır yok; mutlak URL yalnız `TAPPA_BASE_URL`'den)
 - **Commit:** `feat(marketing): give every public page a title, a description and a share card`
 - **Spec:** README §27, [lp7-share.md](../design/landing-redesign/lp7-share.md) · **Pano:** `ShareCards`
@@ -997,7 +1004,8 @@ M14-13'ün maddelerine ek olarak:
 - kart başına yapılmış `tappa-security-auditor` geçişlerinin kaydı: **M14-04** (§9, hero telefonu ve
   landing.js), **M14-08** (§4.6, vitrin iddiası), **M14-15** (§9, iki telefon), **M14-18** (§9, ürün
   turundaki telefonlar), **M14-20** (§4/§7, `/security` anlatımı), **M14-22** (§9, üretim sayfasının telefon
-  varyantı) — her biri ONAY'lı; artı bütün M14 diff'i üzerinde son geçiş;
+  varyantı), **M14-28** (§7, head etiketleri ve mutlak URL'ler) — her biri ONAY'lı; artı bütün M14 diff'i
+  üzerinde son geçiş;
 - beş rota; her genel sayfanın CSP'si (yalnız `/` `script-src` taşır);
 - her-genel-sayfa-bağlantıları testi;
 - yeni yollar üzerinde ölçülmemiş sayı ve iç ad taramaları;
