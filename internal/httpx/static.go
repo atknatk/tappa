@@ -112,7 +112,51 @@ func (s *staticFiles) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h := w.Header()
 			h.Set("ETag", `"`+sum+`"`)
 			h.Set("Cache-Control", s.cacheRule(name, r.URL.RawQuery, r.URL.ForceQuery))
+			w = &assetStatus{ResponseWriter: w}
 		}
 	}
 	s.next.ServeHTTP(w, r)
+}
+
+// assetStatus keeps the asset headers on the answers that ARE the file -- 2xx, and 304
+// (the file, unchanged) -- and removes them from every other status before it is written.
+//
+// 🔴 http.ServeContent DOES NOT DO THIS FOR ALL OF ITS ERRORS, AND ONE OF THEM WAS PINNED.
+// Its range failure (416) goes through serveError, which deletes ETag and Cache-Control;
+// its precondition failure does not: `If-Match` naming other bytes on a versioned URL
+// answered 412 carrying `public, max-age=31536000, immutable` (measured by the audit,
+// 2026-10-21). A refusal is not the file and must not be cached as it. The ETag goes with
+// Cache-Control, which is the contract serveError already applies to the 416.
+// TestStatic_VersionedURLsArePinnedOnlyWhenTheVersionMatches holds both statuses.
+type assetStatus struct {
+	http.ResponseWriter
+	wroteHeader bool
+}
+
+func (a *assetStatus) WriteHeader(code int) {
+	if !a.wroteHeader {
+		a.wroteHeader = true
+		if (code < 200 || code > 299) && code != http.StatusNotModified {
+			h := a.Header()
+			h.Del("Cache-Control")
+			h.Del("ETag")
+		}
+	}
+	a.ResponseWriter.WriteHeader(code)
+}
+
+func (a *assetStatus) Write(b []byte) (int, error) {
+	// An implicit header is a 200, which keeps the asset headers.
+	a.wroteHeader = true
+	return a.ResponseWriter.Write(b)
+}
+
+// Unwrap lets http.ResponseController reach the connection's writer (flush, deadlines).
+func (a *assetStatus) Unwrap() http.ResponseWriter { return a.ResponseWriter }
+
+// Flush keeps http.Flusher visible to a caller that type-asserts for it.
+func (a *assetStatus) Flush() {
+	if f, ok := a.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }

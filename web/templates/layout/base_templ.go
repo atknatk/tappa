@@ -1318,8 +1318,10 @@ func Operator(title string) templ.Component {
 // the source today its caller outside this file is operatorpages' scriptedScreen, which
 // Enroll calls with its script (web/static/js/operator/enroll.js) -- read, not pinned.
 //
-// src must be an app-relative path under /static, and "" means no script. This shell
-// writes src as given; the caller passes a constant (enrollScript).
+// src must be an app-relative path under /static, and "" means no script. The caller
+// passes a constant (enrollScript); the head writes it through web.AssetURL, so it
+// carries ?v=<hash> when the server installed its asset table (documentHead). The
+// operator's script-src names the file's path, which a query does not change.
 func OperatorWithScript(title, src string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context

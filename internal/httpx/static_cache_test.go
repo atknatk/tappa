@@ -260,6 +260,42 @@ func TestStatic_VersionedURLsArePinnedOnlyWhenTheVersionMatches(t *testing.T) {
 					}
 				})
 			}
+
+			// A refusal under the matching version is not the file, so it carries neither
+			// asset header -- above all not the year's pin. The 412 is the case
+			// http.ServeContent does not clean up itself (static.go, assetStatus).
+			t.Run(host+"/"+name+"/refusals under the matching version", func(t *testing.T) {
+				url := "/static/" + name + "?v=" + v
+				refusals := []struct {
+					name string
+					hdr  map[string]string
+					code int
+				}{
+					{"range not satisfiable", map[string]string{"Range": "bytes=999999999-"}, http.StatusRequestedRangeNotSatisfiable},
+					{"if-match other bytes", map[string]string{"If-Match": `"y"`}, http.StatusPreconditionFailed},
+				}
+				for _, rf := range refusals {
+					r := staticDo(t, srv, http.MethodGet, url, host, rf.hdr)
+					if r.code != rf.code {
+						t.Errorf("GET %s, %s = %d, want %d", url, rf.name, r.code, rf.code)
+					}
+					if cc, et := r.header.Get("Cache-Control"), r.header.Get("ETag"); cc != "" || et != "" {
+						t.Errorf("GET %s, %s = %d with Cache-Control %q, ETag %q; a refusal must not be cached as the asset", url, rf.name, r.code, cc, et)
+					}
+				}
+				// CONTROL: the same preconditions satisfied answer the file, pinned -- so the
+				// refusals above are the status rule, not headers missing everywhere.
+				ok := staticDo(t, srv, http.MethodGet, url, host, map[string]string{"If-Match": etag})
+				if ok.code != http.StatusOK || ok.header.Get("Cache-Control") != wantImmutable || ok.header.Get("ETag") != etag {
+					t.Errorf("GET %s with If-Match: %s = %d, Cache-Control %q, ETag %q; want 200, %q, %q",
+						url, etag, ok.code, ok.header.Get("Cache-Control"), ok.header.Get("ETag"), wantImmutable, etag)
+				}
+				part := staticDo(t, srv, http.MethodGet, url, host, map[string]string{"Range": "bytes=0-0"})
+				if part.code != http.StatusPartialContent || part.header.Get("Cache-Control") != wantImmutable {
+					t.Errorf("GET %s with Range: bytes=0-0 = %d, Cache-Control %q; want 206 and %q",
+						url, part.code, part.header.Get("Cache-Control"), wantImmutable)
+				}
+			})
 		}
 	}
 
