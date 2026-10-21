@@ -2839,7 +2839,7 @@ tutarken basış 400 ms içinde bitmez; değişiklik commit edince ileti YENİ a
    ayrı ADR, Q13 ile).
 10. **K7B-10:** ConfigMap `panel` kalır, `TestPackaging_TheConfigMapShipsTodaysDelivery` değişmedi.
     Panel modu bayt-aynı: kartın dört görünümünün sha256'sı `08b1bd1`'in şablonlarıyla ölçüldü ve
-    pinlendi (`TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B`); derlenmiş `app.css` iki ağaçta
+    pinlendi (`TestRosterActions_ThePanelModeCardIsPinned`); derlenmiş `app.css` iki ağaçta
     bayt-aynı (51 442 B, `cmp` 0).
 
 **Sapmalar (açıkça):** §10'un anahtar kümesine **ret satırları** için `reason` ve (owner yedeğinde)
@@ -2928,7 +2928,7 @@ bayt-aynıdır; e-posta yolu yalnız `email` modunda kurulur.*
   `invite.show_refused` yine yazılır)
   (manager, boş rol, tanımsız rol; satırdaki rol oturumun) · `TestInviteEmail_TheCardOffersOnlyWhatTheServerWouldDo` ·
   `TestEmailRouteDB_TheOwnersFallbackRequiresNoAddress` · `TestInviteEmail_ThePanelModeNeverMails` ·
-  `TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B` ·
+  `TestRosterActions_ThePanelModeCardIsPinned` ·
   `TestNewAdminAuth_TheInvitationModeMatchesTheConfiguration` · `TestInvitationWiring_OneTransportServesBothFlows` ·
   `TestRLS_InviteRecipient_AnotherTenantsRowsAreNeitherReadNorCounted` ·
   `TestInviteEmailQueries_CarryTheirOwnTenantPredicate`.

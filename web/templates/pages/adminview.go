@@ -1,6 +1,16 @@
 package pages
 
-import "strconv"
+import (
+	"context"
+	"io"
+	"strconv"
+	"strings"
+	"unicode"
+
+	"github.com/a-h/templ"
+
+	"github.com/atknatk/tappa/web/templates/components"
+)
 
 // itoa is strconv.Itoa under a shorter name, used by the badge helpers below. It
 // is here rather than inline so the two helpers read as sentences.
@@ -80,7 +90,19 @@ type AdminLoginView struct {
 	FreeMonths int
 }
 
-// AdminLoginProof is the four-line creed on the sign-in screen's brand panel.
+// AdminLoginPath is where the panel's sign-in page is mounted, for a screen that has
+// no view field to carry the path — the sign-up wizard's header (M12-06). It is the
+// twin of internal/handler's adminLoginPath, which stays a literal so the cookie-net
+// route scan can read it; TestSignupSurface_EverySignInLinkGoesToTheSignInPage fails
+// if the two ever differ.
+const AdminLoginPath = "/admin/login"
+
+// AdminLoginHeadline is the sign-in screen's brand-half heading (design "The Pass",
+// M12-43): the product's own descriptor, the same words as the panel's "punchless"
+// lockup, and a claim about nothing that could stop being true.
+const AdminLoginHeadline = "Punchless time & attendance."
+
+// AdminLoginProof is the paragraph under that heading, one claim per entry.
 //
 // 🔴 EVERY LINE NAMES A CAPABILITY THIS PRODUCT ACTUALLY MOUNTS, and the rule is
 // landingview.go's rather than this file's usual one: a sign-in screen is mostly
@@ -88,35 +110,33 @@ type AdminLoginView struct {
 // claim the product does not keep is a lie that ships. The answer to "which code
 // provides this?" is written beside each line.
 //
-// ⚠️ THREE SHAPES WERE DELIBERATELY NOT WRITTEN, and all three were on the drawing
-// this screen was built from:
+// ⚠️ SHAPES THAT WERE DELIBERATELY NOT WRITTEN, from the drawings this screen has
+// been built from (2026-09-14 and the 2026-10-20 redesign):
 //
 //   - A DELIVERY PROMISE. "Plaques are on us" describes a supply chain that does
 //     not exist yet: no plaque has been encoded (M8-05 phase B3 is blocked on
-//     hardware). The half of that sentence that IS true — nobody buys a reader — is
-//     kept, and the half that is a promise is gone.
+//     hardware).
 //   - A DURATION NOBODY MEASURED. "Minutes away" is the numeric claim
 //     TestLanding_MakesNoUnmeasuredNumericClaim exists to refuse on the public
 //     surface, and this screen is no more entitled to it.
 //   - A PROCESS CLAIM. "Runs beside your current system while you compare" is a
 //     statement about how a rollout goes, not about anything this repository
-//     builds. It is replaced by CLAUDE.md §4.2's red line, which is a product fact
-//     and a better reason to buy.
+//     builds.
+//   - A PRACTICE TAP (M12-04). ADR 0026 replaced it with the activation tap, which
+//     writes no transactions row at all, and no new record is ever practice=true.
+//
+// ⚠️ "EVERY TAP WE RECORD", NOT THE DRAWING'S "EVERY TAP". Two taps write nothing:
+// one from a browser with no session (§5 row 3, the activation page) and the
+// activation tap itself (ADR 0026). Every other tap — rejected ones included — is a
+// transactions row, and the panel shows each as a docket.
 var AdminLoginProof = []string{
-	// No install: the plaque's URL opens in the browser the phone already has
-	// (CLAUDE.md preamble, and the hero's own creed on the landing page).
-	"No app to install — staff tap with the phone in their pocket.",
-	// internal/handler/activate.go: one activation, then the session cookie
-	// recognises the person on every later tap.
-	"Staff activate once; after that it is tap and go.",
-	// CLAUDE.md §5, "Practice tap": the first record after activation carries
-	// practice=true and never counts toward worked hours.
-	"The first tap is a practice run and never counts as worked time.",
-	// CLAUDE.md §4.2: the location is read at the moment of a tap and in no other
-	// shape — nothing runs in the background and no perimeter is watched. (Worded
-	// without §4.2's own vocabulary on purpose: make audit's R2 scan is line-local
-	// and reads a comment the same way it reads code.)
-	"Location is read at the moment of a tap, never in the background.",
+	// The plaque is passive and mounted at the entrance; staff tap their own phone
+	// and the URL opens in the browser it already has (CLAUDE.md preamble).
+	"A plaque on the wall, the phone in their pocket.",
+	// internal/domain/tap + internal/policy decide every recorded tap (judged); the
+	// verdict is the docket's stamp (stamped); transactions takes no UPDATE or
+	// DELETE (CLAUDE.md §4.3 — kept).
+	"Every tap we record lands here as a docket — judged, stamped, kept.",
 }
 
 // AdminBusiness is one row of the "which business?" picker.
@@ -244,6 +264,24 @@ type PanelSection struct {
 	// refusal page still exists for anybody who arrives by a shared link or a stale
 	// bookmark, and §4.6 makes it say why rather than 404.
 	OwnerOnly bool
+
+	// Short is the label on the tablet's 88px icon rail, where Label does not fit
+	// (design "The Pass", 2026-10-20). Label stays the section's name everywhere else.
+	Short string
+	// Icon names the 24x24 line drawing the rail, the phone's bar and the More sheet
+	// draw beside the label (components.NavIcon). Decoration: aria-hidden, never the
+	// only thing that says which section a link opens.
+	Icon string
+	// Footer puts the section in the navigation's second group, under the rule and
+	// unnumbered: the rows read when something about the business changes rather
+	// than during a shift (the argument the Billing, Account and API keys rows below
+	// already make for their position).
+	Footer bool
+	// BarSlot is the section's place on the phone's bottom bar, 1 to 4; 0 sends it
+	// to the More sheet. The bar's order is the design's (Pass, Spike, Roll, People)
+	// rather than the table's, because a thumb reaches the four most-used sections.
+	BarSlot int
+
 	// GroupOnly hides this section's TAB from a business that is not a live member of a holding
 	// (GRP-1) -- the OwnerOnly shape: it changes what is drawn, not what is routed. The route stays
 	// (every row of this table is mounted), and for a business in no group it answers with the
@@ -271,23 +309,28 @@ type PanelSection struct {
 // else.
 var PanelSections = []PanelSection{
 	{
-		Tab: TabTransactions, Label: "Transactions", Href: "/admin", Task: "M6-03",
+		Tab: TabTransactions, Label: "The Pass", Href: "/admin", Task: "M6-03",
+		Short: "Pass", Icon: components.IconPass, BarSlot: 1,
 		Blurb: "Every tap of the day as a docket card — who, where, in or out, the trust score, and the stamp that says how it was judged.",
 	},
 	{
-		Tab: TabReview, Label: "Review queue", Href: "/admin/review", Task: "M6-04",
+		Tab: TabReview, Label: "The Spike", Href: "/admin/review", Task: "M6-04",
+		Short: "Spike", Icon: components.IconSpike, BarSlot: 2,
 		Blurb: "The taps the engine could not judge on evidence alone, waiting for somebody who was there to say yes or no.",
 	},
 	{
-		Tab: TabEmployees, Label: "Employees", Href: "/admin/employees", Task: "M6-05",
+		Tab: TabEmployees, Label: "People", Href: "/admin/employees", Task: "M6-05",
+		Short: "People", Icon: components.IconPeople, BarSlot: 4,
 		Blurb: "The people who tap: who is active, who has been invited, and who has stopped working here.",
 	},
 	{
-		Tab: TabLocations, Label: "Locations & Wall Tags", Href: "/admin/locations", Task: "M6-06",
+		Tab: TabLocations, Label: "Venues & plaques", Href: "/admin/locations", Task: "M6-06",
+		Short: "Venues", Icon: components.IconVenues,
 		Blurb: "Your venues and the plaque on each wall — which tag is mounted where, and which one needs replacing.",
 	},
 	{
-		Tab: TabReports, Label: "Reports", Href: "/admin/reports", Task: "M6-07",
+		Tab: TabReports, Label: "The Roll", Href: "/admin/reports", Task: "M6-07",
+		Short: "Roll", Icon: components.IconRoll, BarSlot: 3,
 		Blurb: "Hours worked per person per week, and the CSV your accountant asks for.",
 	},
 	{
@@ -295,11 +338,13 @@ var PanelSections = []PanelSection{
 		// This section is a second reading of the same week the reports section totals
 		// — a manager who has just noticed a short total is one click from "why" — and
 		// it is emphatically NOT a rule screen: it changes nothing and decides nothing.
-		Tab: TabAnomalies, Label: "Anomalies", Href: "/admin/anomalies", Task: "M6-11",
+		Tab: TabAnomalies, Label: "Odd shapes", Href: "/admin/anomalies", Task: "M6-11",
+		Short: "Odd", Icon: components.IconOdd,
 		Blurb: "The week's odd shapes — GPS-only taps, plaque counter gaps, people who always tap together, and check-ins nobody closed.",
 	},
 	{
-		Tab: TabPolicies, Label: "Policies", Href: "/admin/policies", Task: "M6-09",
+		Tab: TabPolicies, Label: "Rules", Href: "/admin/policies", Task: "M6-09",
+		Short: "Rules", Icon: components.IconRules,
 		Blurb: "The rules this business is allowed to change — shown beside the ones no business can.",
 	},
 	{
@@ -323,6 +368,7 @@ var PanelSections = []PanelSection{
 		// Ordering by who may WRITE would have put Policies here too, and Policies is
 		// sixth.
 		Tab: TabBilling, Label: "Billing", Href: "/admin/billing", Task: "M6-12",
+		Short: "Billing", Icon: components.IconBilling, Footer: true,
 		Blurb:     "What each month costs: how many people were on the books, at what price, and the figure you can freeze once the month has ended.",
 		OwnerOnly: true,
 	},
@@ -340,6 +386,7 @@ var PanelSections = []PanelSection{
 		// shift; putting it between Reports and Anomalies would break a run navigated by
 		// habit for a screen read twice a year.
 		Tab: TabAccount, Label: "Account", Href: "/admin/account", Task: "M7-05",
+		Short: "Account", Icon: components.IconAccount, Footer: true,
 		Blurb: "This business as Taptime has it on file: its name, its VAT number and what the register said about it, its timezone, and the send-off your staff read after a good tap.",
 	},
 	{
@@ -349,6 +396,7 @@ var PanelSections = []PanelSection{
 		// when something changes, not during a shift. For a business in no group the tab is not drawn
 		// and the chrome is byte for byte what it was before GRP-1.
 		Tab: TabGroup, Label: "Group", Href: "/admin/group", Task: "GRP-1",
+		Short: "Group", Icon: components.IconGroup, Footer: true,
 		Blurb:     "The group of businesses yours belongs to: its members, and partner staff at your venues.",
 		GroupOnly: true,
 	},
@@ -358,7 +406,8 @@ var PanelSections = []PanelSection{
 		// holds which key, and the power to issue one, is the owner's. The tab is not drawn for
 		// a manager and the server refuses the route on its own (apikeys.go, 403). It is last:
 		// like Account it is read when something about the business changes, not during a shift.
-		Tab: TabAPIKeys, Label: "API keys", Href: "/admin/api-keys", Task: "API-3",
+		Tab: TabAPIKeys, Label: "Developers", Href: "/admin/api-keys", Task: "API-3",
+		Short: "Developers", Icon: components.IconDevelopers, Footer: true,
 		Blurb:     "The keys your HR or payroll system uses to talk to Taptime: issue one, see it once, revoke it.",
 		OwnerOnly: true,
 	},
@@ -369,7 +418,7 @@ var PanelSections = []PanelSection{
 //
 // 🔴 IT WAS EXTRACTED IN M6-03 AND THE REASON IS THE FAILURE CLASS THIS REPO KEEPS
 // PAYING FOR. Until M6-03 there was one panel page, so the wordmark, the "signed
-// in as" block, the sign-out form and the tab bar lived inside it. M6-03 gives ONE
+// in as" block, the sign-out form and the navigation (then a tab bar) lived inside it. M6-03 gives ONE
 // of the sections real content, and the obvious move — a second page template
 // with the same chrome pasted above it — would have made the navigation, the
 // sign-out button and the brand lockup a SECOND REPRESENTATION, i.e. two places
@@ -403,10 +452,101 @@ type PanelChrome struct {
 	// chrome exactly as it was before GRP-1.
 	InGroup bool
 
+	// THE SECTION'S OWN HEADING (M12-01). Every board of the redesign opens its page the same
+	// way -- a mono eyebrow line, a big title, sometimes a trail back to the parent page and a
+	// control to the right ("New person", "Freeze September 2026", "Review this change") -- and
+	// the shell printed only the section's label. These slots let a section say that without
+	// writing a heading of its own; the fourth, the actions, is PanelActions below.
+	//
+	// 🔴 THE SHELL STILL PRINTS EXACTLY ONE <h1>, and that is why the title is a slot rather than
+	// something a section draws in its body: a page that writes its own <h1> under the shell's
+	// has two (the trap the card names). Heading() picks the one.
+	//
+	// ALL ZERO IS THE CHROME AS IT WAS: the h1 holding the section's label straight in the
+	// content well, no wrapper, no eyebrow, no trail (TestPanelHead_EmptySlotsAreTheShellAsItWas).
+	// The tenant accent reaches none of them -- its slots do not grow (ADR 0023 §2).
+
+	// Kicker is the mono eyebrow line above the title (a date, a clock, "Owner only · …").
+	Kicker string
+	// Title replaces the section's label in the h1 ("New person" on People's form).
+	Title string
+	// Crumbs is the trail from a parent page to this one, in reading order. The LAST crumb is
+	// this page: it is printed as text marked as the current page and its Href is never used. A
+	// crumb before it with no Href is printed as text too -- a link to nowhere looks like a
+	// working control (SectionHref's rule).
+	Crumbs []Crumb
+
 	// Suspension is the strip a suspended business sees on every section (ADR 0025
 	// §3, "Panel kabuğu"). The zero value draws nothing, and the chrome is then
 	// byte-for-byte what it was before OP-15.
 	Suspension PanelSuspension
+}
+
+// Crumb is one step of a section's breadcrumb trail.
+type Crumb struct {
+	Label string
+	Href  string
+}
+
+// Heading is the text of the one <h1>: the Title when a section set one, else the section's
+// label. ok is false when there is neither -- an undeclared tab with no title, which renders
+// no heading at all, exactly as before the slots (Section()'s rule).
+func (c PanelChrome) Heading() (string, bool) {
+	if c.Title != "" {
+		return c.Title, true
+	}
+	if s, ok := c.Section(); ok {
+		return s.Label, true
+	}
+	return "", false
+}
+
+// hasHead says whether any slot that needs the heading's wrapper is set. The Title alone does
+// not: it only changes the h1's words, so a section that sets nothing else gets the bare h1.
+func (c PanelChrome) hasHead(actions templ.Component) bool {
+	return c.Kicker != "" || len(c.Crumbs) > 0 || actions != nil
+}
+
+// panelActionsKey carries a section's heading actions from PanelActions to the shell.
+type panelActionsKey struct{}
+
+// PanelActions draws actions -- a section's own markup: a button, a link, a week stepper -- at
+// the right of the title of the panel shell rendered inside it, wrapping under the title when
+// the row is narrow (M12-01). A section writes
+//
+//	@PanelActions(peopleActions(v)) {
+//		@PanelShell(v.PanelChrome) { …the body… }
+//	}
+//
+// and a nil actions renders the shell exactly as without the wrapper.
+//
+// 🔴 WHY THE ACTIONS ARE NOT A FIELD OF PanelChrome, which is where the card put them and where
+// the other three slots are. PanelChrome is embedded in every section's view, and the §4.7 walls
+// walk those views by TYPE (TestAnomaliesView_CarriesNothingACoordinateCouldHideIn,
+// TestPlaqueViewModels_CannotCarryAKey): every leaf must be a string, a count or a flag,
+// because any other shape -- an interface above all -- is where a key or a coordinate arrives
+// under a harmless name. A templ.Component field broke both (measured), and loosening those
+// walls is not this card's to do. Markup belongs to the template anyway: the view stays data,
+// the template that renders the section supplies its controls.
+//
+// ⚠️ THE ROUTE IS THE CONTEXT, NAMED AT THE CALL. Both shells keep their signatures (the
+// scriptless one still has no string slot; the shell-page checks still find @PanelShell), and
+// the only reader is the shell's heading (panelActionsOf).
+func PanelActions(actions templ.Component) templ.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		children := templ.GetChildren(ctx)
+		ctx = templ.ClearChildren(ctx)
+		if actions != nil {
+			ctx = context.WithValue(ctx, panelActionsKey{}, actions)
+		}
+		return children.Render(ctx, w)
+	})
+}
+
+// panelActionsOf is the actions PanelActions placed around this shell, or nil.
+func panelActionsOf(ctx context.Context) templ.Component {
+	a, _ := ctx.Value(panelActionsKey{}).(templ.Component)
+	return a
 }
 
 // PanelSuspension is what the strip says. Every field is already text for a person,
@@ -521,7 +661,7 @@ func SectionLabel(tab PanelTab) string {
 	return ""
 }
 
-// CurrentHref is the href TabBar compares against. An unknown tab yields "",
+// CurrentHref is the href SideNav and BarNav compare against. An unknown tab yields "",
 // which marks no tab current rather than marking the first one — see Section().
 func (c PanelChrome) CurrentHref() string {
 	s, ok := c.Section()
@@ -543,4 +683,15 @@ func (c PanelChrome) CurrentHref() string {
 // somebody makes on purpose.
 type AdminDashboardView struct {
 	PanelChrome
+}
+
+// initialOf is the first letter of a business's name, upper-cased, for the tablet rail's
+// mark when the business is branded but has no logo; "" when the name has no letter.
+func initialOf(name string) string {
+	for _, r := range strings.TrimSpace(name) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return string(unicode.ToUpper(r))
+		}
+	}
+	return ""
 }

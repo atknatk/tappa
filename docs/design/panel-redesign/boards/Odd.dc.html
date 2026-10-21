@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Odd shapes — Taptime panel</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.stamp{display:inline-block;padding:3px 8px;border:2px solid;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-3deg)}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
+.stamp--flag{border-color:#D98E2B;box-shadow:inset 0 0 0 1px #D98E2B;background:rgba(217,142,43,.1)}
+.stamp--reject{border-color:#BE3D2A;box-shadow:inset 0 0 0 1px #BE3D2A;background:rgba(190,61,42,.1)}
+.navlink{display:flex;align-items:center;gap:12px;min-height:44px;padding:0 12px;border-radius:10px;text-decoration:none;color:#EDF0EA;font-family:'Space Grotesk',sans-serif;font-size:15px}
+.navlink:hover{background:rgba(237,240,234,.08);color:#FFFDF4}
+.navlink--on{background:#FFFDF4;color:#152219}
+.navlink--on:hover{background:#FFFDF4;color:#152219}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:18px;padding:22px 24px;display:flex;flex-direction:column;gap:14px;min-width:0}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+
+  <aside style="flex: 1 1 248px; max-width: 100%; background: #152219; color: #EDF0EA; padding: 24px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px; position: relative">
+    <div style="position: absolute; left: 0; top: 0; right: 0; height: 4px; background: #1F5C41"></div>
+    <div style="display: flex; flex-direction: column; gap: 4px; padding: 0 12px">
+      <p style="margin: 0; font-size: 16px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; color: #FFFDF4">Kebab Factory</p>
+      <p class="mono" style="margin: 0; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">taptime · punchless</p>
+    </div>
+    <nav aria-label="Panel sections" style="display: flex; flex-direction: column; gap: 2px">
+      <a href="Main.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">01</span>The Pass</a>
+      <a href="Spike.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">02</span><span style="flex: 1">The Spike</span><span class="mono" style="min-width: 22px; height: 22px; border-radius: 11px; background: #D98E2B; color: #152219; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">4</span></a>
+      <a href="People.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">03</span>People</a>
+      <a href="Venues.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">04</span>Venues &amp; plaques</a>
+      <a href="Week.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">05</span>The Roll</a>
+      <a href="Odd.dc.html" class="navlink navlink--on" aria-current="page"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">06</span>Odd shapes</a>
+      <a href="Rules.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">07</span>Rules</a>
+    </nav>
+    <div style="margin-top: auto; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid rgba(237,240,234,.14); padding-top: 16px">
+      <a href="Billing.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Billing</a>
+      <a href="Account.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Account</a>
+      <a href="Developers.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Developers</a>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 12px">
+      <p style="margin: 0; display: flex; flex-direction: column; gap: 2px">
+        <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">Signed in as</span>
+        <span style="font-size: 14px; font-weight: 700; letter-spacing: -0.01em; color: #FFFDF4">[manager name]</span>
+        <span class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">Owner</span>
+      </p>
+      <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid #C9D2C8; background: #FFFDF4; color: #152219; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Sign out</button>
+    </div>
+  </aside>
+
+  <main style="flex: 999 1 640px; min-width: 0; padding: 28px clamp(16px, 3vw, 44px) 56px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+    <header style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span class="lbl">Week 42 · 12–18 Oct · nothing here decides anything</span>
+        <h1 style="margin: 0; font-size: 44px; line-height: 1; letter-spacing: -0.035em">Odd shapes</h1>
+      </div>
+      <div role="group" aria-label="Week" style="display: flex; align-items: center; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 12px">
+        <a href="#" aria-label="Previous week" style="width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; color: #152219"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+        <span class="mono" style="font-size: 13px; padding: 0 6px">12 – 18 Oct</span>
+        <a href="#" aria-label="Next week" style="width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; color: #152219"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></a>
+      </div>
+    </header>
+
+    <form method="get" aria-label="Choose a week" style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px 16px">
+      <p class="mono" style="margin: 0; font-size: 13px; color: rgba(21,34,25,.85)">Mon 12 – Sun 18 October 2026 <span style="color: rgba(21,34,25,.7)">· Europe/Malta</span></p>
+      <span style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px">
+        <label for="odd-week" class="lbl" style="align-self: center">Week containing</label>
+        <input id="odd-week" type="date" name="week" value="2026-10-14" style="min-height: 44px; padding: 0 10px; border: 1px solid #C9D2C8; border-radius: 10px; background: #FFFDF4; font: 13px 'IBM Plex Mono', monospace; color: #152219">
+        <button type="submit" style="min-height: 44px; padding: 0 16px; border-radius: 12px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Show</button>
+        <a href="#" style="min-height: 44px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(21,34,25,.5); background: #FFFDF4; color: #152219; text-decoration: none; font-weight: 700; font-size: 14px">This week</a>
+      </span>
+    </form>
+
+    <section class="docket" aria-labelledby="tot-h" style="padding: 22px 24px 24px; display: flex; flex-direction: column; gap: 8px">
+      <span id="tot-h" class="lbl">Records examined this week</span>
+      <span class="mono" style="font-size: 30px; font-weight: 700; letter-spacing: -0.02em">{{totals.records}}</span>
+      <p style="margin: 0; font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.85)">{{totals.judged}}</p>
+      <p style="margin: 0; font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.7)">{{totals.basis}}</p>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px; padding-top: 6px">
+        <sc-for list="{{totalChips}}" as="c" hint-placeholder-count="6"><span style="{{c.style}}">{{c.text}}</span></sc-for>
+      </div>
+      <p style="margin: 6px 0 0; font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.85)">{{totals.onNetwork}}</p>
+      <p style="margin: 0; font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.7)">{{totals.unanswerable}}</p>
+      <p style="margin: 0; font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.7)">{{totals.partner}}</p>
+    </section>
+
+    <div role="alert" style="display: flex; flex-direction: column; gap: 10px; padding: 16px 20px; border-radius: 14px; border: 1px solid #C9D2C8; border-left: 4px solid #BE3D2A; background: #FFFDF4">
+      <span style="font-weight: 700; font-size: 15px">A lost plaque was tapped</span>
+      <span style="font-size: 14px; line-height: 1.5">Staff of another business in your group touched a plaque you reported lost or retired. Their employer refused the tap. If the plaque is still on a wall, take it down.</span>
+      <sc-for list="{{lost}}" as="l" hint-placeholder-count="1">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding-top: 10px; border-top: 1px dashed #C9D2C8">
+          <span style="font-weight: 700; font-size: 14px">{{l.venue}}</span>
+          <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">Plaque {{l.uid}} · {{l.last}}</span>
+          <sc-for list="{{l.chips}}" as="c" hint-placeholder-count="1"><span style="{{c.style}}">{{c.text}}</span></sc-for>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px; padding: 16px 20px; border-radius: 14px; border: 1px solid #C9D2C8; border-left: 4px solid #D98E2B; background: #FFFDF4; font-size: 13px; line-height: 1.5">
+      <span style="font-weight: 700; font-size: 15px">What this page does not see</span>
+      <span>A plaque page that was opened and never used is not recorded anywhere, so the number of opened-but-unused pages is not on this screen. What IS on it is the counter gap above: the plaque's own chip counts every read, so collected pages leave a jump behind whether or not they are ever used.</span>
+      <span>Which device a person signed in from is not recorded either — only a coarse browser family, which every phone of the same make shares. So "several people activated from one device" cannot be told from "several people use the same model of phone", and this page does not guess at it.</span>
+      <span>The list of people who tap together compares each tap with the ONE before it at that venue. Where three people arrive in a burst, the first and the third are not paired with each other — the two neighbouring pairs are listed instead, so the group is visible but that one combination is not.</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 16px; align-items: start">
+
+      <div style="display: flex; flex-direction: column; gap: 16px; min-width: 0">
+        <section class="card" aria-labelledby="mix-h">
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap">
+              <h2 id="mix-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Evidence mix by venue</h2>
+              <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">share of judged records · count = judged</span>
+            </div>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.7)">Every venue with taps this week, clean ones included. A high rate at one venue beside a low one at another is as likely to be a Wi-Fi problem as anything else — both are worth knowing.</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 12px">
+            <sc-for list="{{mix}}" as="m" hint-placeholder-count="6">
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <div style="display: grid; grid-template-columns: 124px 1fr 72px; gap: 10px; align-items: center">
+                  <span style="font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{m.name}}</span>
+                  <sc-if value="{{m.own}}" hint-placeholder-val="{{true}}">
+                    <div role="img" aria-label="{{m.aria}}" style="display: flex; height: 18px; border-radius: 4px; overflow: hidden; background: #EDF0EA">
+                      <sc-for list="{{m.segs}}" as="s" hint-placeholder-count="4">
+                        <span style="{{s.style}}"></span>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{m.partner}}" hint-placeholder-val="{{false}}">
+                    <span class="lbl" style="font-size: 10px">Partner venue · evidence not shown</span>
+                  </sc-if>
+                  <span class="mono" style="font-size: 12px; text-align: right; white-space: nowrap">{{m.n}}</span>
+                </div>
+                <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); padding-left: 134px">{{m.sub}}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div class="mono" style="display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: rgba(21,34,25,.7); border-top: 1px dashed #C9D2C8; padding-top: 12px">
+            <sc-for list="{{legend}}" as="lg" hint-placeholder-count="4">
+              <span style="display: inline-flex; align-items: center; gap: 6px"><span style="{{lg.sw}}"></span>{{lg.name}}</span>
+            </sc-for>
+          </div>
+        </section>
+        <section class="card" aria-labelledby="gap-h">
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <h2 id="gap-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Plaque counter gaps</h2>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.7)">A plaque's chip counts every read. A gap means reads happened that never became a check-in — a page opened and abandoned looks the same as a page collected for later, and this list does not tell them apart.</span>
+          </div>
+          <sc-for list="{{gaps}}" as="g" hint-placeholder-count="2">
+            <div style="display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px dashed #C9D2C8">
+              <div style="display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: baseline">
+                <span style="font-size: 14px; font-weight: 700">{{g.venue}} <span class="mono" style="font-weight: 400; font-size: 12px; color: rgba(21,34,25,.7)">Plaque {{g.uid}}</span></span>
+                <span style="display: flex; gap: 6px; flex-wrap: wrap"><sc-for list="{{g.chips}}" as="c" hint-placeholder-count="2"><span style="{{c.style}}">{{c.text}}</span></sc-for></span>
+              </div>
+              <div class="mono" style="display: flex; align-items: center; gap: 8px; font-size: 13px">
+                <span>{{g.from}}</span>
+                <span style="position: relative; flex: 1; height: 2px; background: #C9D2C8; margin: 0 4px">
+                  <span style="position: absolute; left: 50%; top: -11px; transform: translateX(-50%); white-space: nowrap; padding: 1px 8px; border-radius: 6px; border: 1px solid #D98E2B; background: #FFFDF4; font-size: 11px; font-weight: 700">{{g.missing}}</span>
+                </span>
+                <span>{{g.to}}</span>
+              </div>
+            </div>
+          </sc-for>
+          <sc-if value="{{more.plaques}}" hint-placeholder-val="{{false}}"><span class="mono" style="font-size: 12px; color: rgba(21,34,25,.85)">This list is shortened · {{capPlaques}}</span></sc-if>
+        </section>
+        <section class="card" aria-labelledby="gps-h">
+          <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap">
+            <h2 id="gps-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Verified by GPS alone</h2>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">no network match · per person</span>
+          </div>
+          <ul style="list-style: none; margin: 0; padding: 0">
+            <sc-for list="{{gpsAlone}}" as="g" hint-placeholder-count="7">
+              <li style="display: grid; grid-template-columns: 1fr 120px 28px; gap: 12px; align-items: center; min-height: 36px; padding: 4px 0; border-top: 1px dashed #C9D2C8">
+                <span style="font-size: 14px; font-weight: 700">{{g.name}}</span>
+                <span aria-hidden="true" style="height: 8px; background: #EDF0EA; border-radius: 4px; overflow: hidden"><span style="{{g.bar}}"></span></span>
+                <span class="mono" style="font-size: 13px; text-align: right">{{g.n}}</span>
+              </li>
+            </sc-for>
+          </ul>
+          <sc-if value="{{more.people}}" hint-placeholder-val="{{false}}"><span class="mono" style="font-size: 12px; color: rgba(21,34,25,.85)">Taken from the per-person list, which is shortened, so this list may be incomplete.</span></sc-if>
+        </section>
+        <section class="card" aria-labelledby="rule-h">
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <h2 id="rule-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Which rule decided</h2>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.7)">Every record names the rule that judged it. A rule firing is not a problem in itself; a rule firing far more than last week is worth a look.</span>
+          </div>
+          <sc-if value="{{more.rules}}" hint-placeholder-val="{{false}}"><span class="mono" style="font-size: 12px; color: rgba(21,34,25,.85)">This list is shortened · {{capRules}}</span></sc-if>
+          <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+            <sc-for list="{{rules}}" as="r" hint-placeholder-count="8">
+              <li style="display: flex; flex-direction: column; gap: 4px">
+                <span style="display: flex; justify-content: space-between; gap: 8px">
+                  <span class="mono" style="font-size: 12px">{{r.id}} <span style="color: rgba(21,34,25,.7)">{{r.layer}}</span></span>
+                  <span class="mono" style="font-size: 12px; white-space: nowrap">{{r.n}}</span>
+                </span>
+                <span aria-hidden="true" style="height: 10px; background: #EDF0EA; border-radius: 3px; overflow: hidden"><span style="{{r.bar}}"></span></span>
+              </li>
+            </sc-for>
+          </ul>
+        </section>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 16px; min-width: 0">
+        <section class="card" aria-labelledby="pair-h">
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <h2 id="pair-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Tapping together</h2>
+            <span class="mono" style="font-size: 12px; line-height: 1.5; color: rgba(21,34,25,.85)">{{togetherLine}}</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.7)">Could be a shared lift. Could be one phone for two people. Worth a look, not a conclusion.</span>
+          </div>
+          <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
+            <sc-for list="{{pairs}}" as="p" hint-placeholder-count="3">
+              <li style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 0; border-top: 1px dashed #C9D2C8">
+                <span style="flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+                  <span style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700">
+                    <span>{{p.a}}</span>
+                    <span aria-hidden="true" style="display: inline-flex; align-items: center; gap: 0">
+                      <span style="width: 6px; height: 6px; border-radius: 50%; background: #152219"></span>
+                      <span style="width: 22px; border-top: 1.5px solid #152219"></span>
+                      <span style="width: 6px; height: 6px; border-radius: 50%; background: #152219"></span>
+                    </span>
+                    <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">and</span>
+                    <span>{{p.b}}</span>
+                  </span>
+                  <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{p.venue}} · {{p.together}} · {{p.closest}}</span>
+                </span>
+                <span role="img" aria-label="{{p.aria}}" style="display: flex; gap: 4px">
+                  <sc-for list="{{p.days}}" as="d" hint-placeholder-count="7">
+                    <span style="{{d}}"></span>
+                  </sc-for>
+                </span>
+                <span class="mono" style="font-size: 12px; width: 76px; text-align: right">{{p.count}}</span>
+              </li>
+            </sc-for>
+          </ul>
+          <sc-if value="{{more.pairs}}" hint-placeholder-val="{{false}}"><span class="mono" style="font-size: 12px; color: rgba(21,34,25,.85)">This list is shortened · {{capPairs}}</span></sc-if>
+        </section>
+        <section class="card" aria-labelledby="ppl-h">
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <h2 id="ppl-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Per person</h2>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.7)">Only people with at least one of these counts above zero appear here. The totals above cover everybody who tapped.</span>
+          </div>
+          <sc-if value="{{more.people}}" hint-placeholder-val="{{false}}"><span class="mono" style="font-size: 12px; color: rgba(21,34,25,.85)">This list is shortened · {{capPeople}}</span></sc-if>
+          <ul style="list-style: none; margin: 0; padding: 0">
+            <sc-for list="{{people}}" as="p" hint-placeholder-count="8">
+              <li style="display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-top: 1px dashed #C9D2C8">
+                <span style="display: flex; justify-content: space-between; gap: 8px">
+                  <span style="font-size: 14px; font-weight: 700">{{p.name}}</span>
+                  <span class="mono" style="font-size: 12px">{{p.records}}</span>
+                </span>
+                <span style="display: flex; flex-wrap: wrap; gap: 6px"><sc-for list="{{p.chips}}" as="c" hint-placeholder-count="2"><span style="{{c.style}}">{{c.text}}</span></sc-for></span>
+              </li>
+            </sc-for>
+          </ul>
+        </section>
+        <section class="card" aria-labelledby="open-h">
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap">
+              <h2 id="open-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Left open</h2>
+              <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">not counted in hours</span>
+            </div>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.85)">A check-in with no later checkout, anywhere in the record. The Roll counts a slightly different thing — it pairs a week's records into shifts — so the two figures can differ without either being wrong.</span>
+            <span style="font-size: 12px; line-height: 1.45; color: rgba(21,34,25,.7)">Training taps are not in this list. A training tap is a check-in nothing ever closes, so counting it would add one false entry for every new starter.</span>
+          </div>
+          <sc-if value="{{more.open}}" hint-placeholder-val="{{false}}"><span class="mono" style="font-size: 12px; color: rgba(21,34,25,.85)">This list is shortened · {{capOpen}}</span></sc-if>
+          <ul style="list-style: none; margin: 0; padding: 0">
+            <sc-for list="{{open}}" as="o" hint-placeholder-count="3">
+              <li style="display: flex; flex-direction: column; gap: 6px; padding: 12px 0; border-top: 1px dashed #C9D2C8">
+                <span style="display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap">
+                  <span style="font-size: 14px; font-weight: 700">{{o.name}}</span>
+                  <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{o.venue}} · IN {{o.at}}</span>
+                </span>
+                <span style="display: flex; flex-wrap: wrap; gap: 6px"><span style="{{o.ageStyle}}">{{o.age}}</span><sc-for list="{{o.chips}}" as="c" hint-placeholder-count="2"><span style="{{c.style}}">{{c.text}}</span></sc-for></span>
+              </li>
+            </sc-for>
+          </ul>
+          <sc-if value="{{masked.show}}" hint-placeholder-val="{{true}}">
+            <div style="display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: 12px; border: 1px solid #C9D2C8; border-left: 4px solid #D98E2B; background: #FFFDF4; font-size: 13px; line-height: 1.45">
+              <span style="font-weight: 700; font-size: 14px">Check-ins with a training tap after them</span>
+              <span>A training tap sitting after a check-in used to hide it, so the next tap was recorded as another arrival instead of a departure. Those records are still here — nothing was lost — but a later checkout takes them off the list above without closing what they opened.</span>
+              <span class="mono" style="font-size: 12px">{{masked.line}}</span>
+              <span style="font-size: 12px">This is a hint about where to look rather than a diagnosis: a new starter who taps again after training produces the same shape.</span>
+            </div>
+          </sc-if>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    // One consistent week (Kebab Factory, holding member). Every figure names its base:
+    // judged = 178 (records with address/distance evidence, partner rows left out, K-39),
+    // answerable = 184 (records with a rule snapshot), records = 188.
+    // Integer percent only (n*100/of), as outOfLine prints it.
+    const pct = (n, of) => (of > 0 && n > 0) ? ' · ' + Math.floor(n * 100 / of) + '%' : '';
+    const outOf = (n, of, what) => n + ' of ' + of + ' ' + what + pct(n, of);
+    const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+    const step5 = (n, max) => max > 0 ? Math.round(n * 20 / max) * 5 : 0;  // the port's 21 width classes
+
+    const totals = {
+      records: plural(188, 'record', 'records'),
+      judged: '178 of these were judged on evidence the engine gathered; the rest carry none, which is what a typed record looks like. Training taps and manager-typed rows are counted here — a training tap is a real touch of a plaque, and a typed row carries no touch at all. Both are named below.',
+      basis: 'Two bases are in use below. 178 records were judged on evidence the engine gathered (an address match or a distance reading); 184 carry the rule snapshot the counter-gap, outside-the-venue and other-venue figures are read from. Each figure names the base it is out of.',
+      onNetwork: "1 of 2 also matched the venue's registered address range. That combination is what something left switched on inside the venue would produce.",
+      unanswerable: '4 records carry no policy snapshot, so the counter-gap, outside-the-venue and other-venue counts cannot be answered for them. They are not counted as clean.',
+      partner: "6 records were taken at a partner business's venue. They are counted in the record total, the counter-gap and other-venue figures, and left out of every evidence figure (judged, GPS alone, outside the venue): that evidence is the partner's, and it is not described here."
+    };
+    const tone = {
+      queued: 'border:1px solid #D98E2B;background:rgba(217,142,43,.1)',
+      rejected: 'border:1px solid #BE3D2A;background:rgba(190,61,42,.1)',
+      manual: 'border:1px solid #C9D2C8;background:#EDF0EA'
+    };
+    const chip = (text, t) => ({ text, style: 'display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border-radius:999px;font-family:IBM Plex Mono,monospace;font-size:12px;color:#152219;' + tone[t] });
+    const totalChips = [
+      chip(outOf(32, 178, 'verified by GPS alone'), 'queued'),
+      chip(outOf(2, 178, 'read outside the venue'), 'queued'),
+      chip(outOf(2, 184, 'after a counter gap'), 'rejected'),
+      chip(outOf(9, 184, 'at another venue'), 'manual'),
+      chip(plural(1, 'training tap', 'training taps'), 'manual'),
+      chip('4 typed by a manager', 'manual')
+    ];
+
+    const lost = [{ venue: 'KF Sliema', last: 'last Fri 16 Oct 07:41', uid: '04F2B85C1E3A90', chips: [chip(plural(2, 'refused tap', 'refused taps'), 'rejected')] }];
+
+    // Evidence split per venue, out of the venue's JUDGED records:
+    // both / network only / distance only / neither. A partner venue gets no bar (K-39).
+    const segTone = ['#1F5C41', 'rgba(31,92,65,.5)', '#D98E2B', '#C9D2C8'];
+    const segName = ['network + GPS', 'network only', 'GPS alone', 'neither'];
+    const legend = segName.map((name, i) => ({ name, sw: 'flex:none;width:12px;height:12px;border-radius:3px;background:' + segTone[i] + (i === 3 ? ';box-shadow:inset 0 0 0 1px rgba(21,34,25,.5)' : '') }));
+    const mix = [
+      ['KF Valletta', [52, 9, 3, 1], 67, 1], ['KF Hamrun', [40, 7, 2, 1], 51, 0], ['KF St Julians', [21, 10, 4, 2], 38, 0],
+      ['KF Paceville', [0, 0, 14, 2], 16, 1], ['KF Msida', [0, 0, 9, 1], 10, 0], ['KM Central Kitchen', null, 6, 0]
+    ].map(([name, v, records, outside]) => {
+      if (!v) return { name, partner: true, own: false, n: plural(records, 'record', 'records'), sub: plural(records, 'record', 'records'), aria: '', segs: [] };
+      const judged = v.reduce((a, b) => a + b, 0);
+      const segs = [];
+      v.forEach((x, i) => { if (x > 0) segs.push({ style: 'height:100%;flex:' + x + ' 1 0;min-width:2px;background:' + segTone[i] }); });
+      segs.forEach((sg, i) => { if (i < segs.length - 1) sg.style += ';border-right:1px solid #FFFDF4'; });
+      return { name, partner: false, own: true, n: String(judged), segs,
+        sub: judged + ' of ' + records + ' judged · ' + outOf(outside, judged, 'read outside the venue'),
+        aria: name + ', ' + judged + ' judged: ' + v.map((x, i) => segName[i] + ' ' + x).join(', ') };
+    });
+
+    // Pairs: 20 s, one venue, 2+ separate days (TogetherLine). Per-day dots Mon..Sun.
+    const dn = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const togetherLine = "Listed when two people's taps at one venue land within 20 seconds of each other, on 2 or more separate days.";
+    const pairs = [
+      ['Kevin Borg', 'Antoine Vella', 'KF Hamrun', [1, 1, 0, 1, 1, 1, 0], 9, 3],
+      ['Marco Bugeja', 'Ana Silva', 'KF Valletta', [1, 0, 1, 1, 0, 1, 0], 4, 6],
+      ['Carlos Mendez', 'Emma Caruana', 'KF Paceville', [0, 0, 1, 0, 1, 1, 1], 5, 11]
+    ].map(([a, b, venue, d, together, closest]) => {
+      const n = d.reduce((x, y) => x + y, 0);
+      return { a, b, venue, on: d, count: n + ' of 7 days',
+        together: plural(together, 'time together', 'times together'), closest: 'closest ' + closest + ' seconds apart',
+        aria: 'Together on ' + dn.filter((_, i) => d[i]).join(', ') };
+    });
+
+    // Counter gaps: N reads missing = to - from - 1.
+    const gaps = [
+      { venue: 'KF Hamrun', uid: '04D93F7B127E55', to: 678, missing: 36, gaps: 1, records: 30 },
+      { venue: 'KF St Julians', uid: '04A23C1A2B0C21', to: 1204, missing: 11, gaps: 1, records: 38 }
+    ].map(g => ({ venue: g.venue, uid: g.uid, missing: plural(g.missing, 'read missing', 'reads missing'),
+      from: '#' + String(g.to - g.missing - 1), to: '#' + String(g.to),
+      chips: [chip(plural(g.gaps, 'gap', 'gaps'), 'rejected'), chip(plural(g.records, 'record', 'records'), 'manual')] }));
+
+    // Per person: only people with one of the four counts above zero (complete: 8 of the 50-row cap).
+    const P = [
+      ['Antoine Vella', 10, 1, 0, 1, 0], ['Elena Petrova', 11, 4, 0, 1, 2], ['Grace Attard', 16, 9, 0, 0, 0], ['Carlos Mendez', 14, 7, 1, 0, 0],
+      ['Emma Caruana', 12, 6, 0, 0, 3], ['Nadia Farrugia', 10, 3, 0, 0, 0], ['Kevin Borg', 12, 2, 1, 0, 0], ['Julia Sciberras', 9, 0, 0, 0, 4]
+    ];
+    const people = P.map(([name, rec, dist, outside, gap, other]) => {
+      const c = [];
+      if (dist) c.push(chip(dist + ' verified by GPS alone', 'queued'));
+      if (outside) c.push(chip(outside + ' read outside the venue', 'queued'));
+      if (gap) c.push(chip(gap + ' after a counter gap', 'rejected'));
+      if (other) c.push(chip(other + ' at another venue', 'manual'));
+      return { name, records: plural(rec, 'record', 'records'), chips: c };
+    });
+    const gpsMax = 9;
+    const gpsAlone = P.filter(p => p[2] > 0).sort((x, y) => y[2] - x[2])
+      .map(([name, , n]) => ({ name, n, bar: 'display:block;height:100%;background:#D98E2B;width:' + step5(n, gpsMax) + '%' }));
+
+    // Check-ins with no checkout. Age = whole days from now (Tue 20 Oct). No per-row action.
+    const open = [
+      { name: 'Luca Zammit', venue: 'KF Hamrun', at: 'Mon 12 Oct 08:58', age: 'open 8d', chips: [chip('Still open', 'queued'), chip('Training tap follows', 'manual')] },
+      { name: 'Elena Petrova', venue: 'KF St Julians', at: 'Thu 15 Oct 18:02', age: 'open 4d', chips: [chip('Still open', 'queued')] },
+      { name: 'Julia Sciberras', venue: 'KF Valletta', at: 'Sun 18 Oct 09:00', age: 'open 2d', chips: [chip('Still open', 'queued'), chip('Entered by a manager', 'manual')] }
+    ].map(o => ({ ...o, ageStyle: 'display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border-radius:999px;font-family:IBM Plex Mono,monospace;font-size:12px;border:1px dashed #D98E2B;background:rgba(217,142,43,.1)' }));
+    const masked = { show: true, line: '1 still on the list above · 1 already off it' };
+
+    // Rule breakdown: count DESC from SQL, sids only from data; one neutral tone (no
+    // approve/flag colour guessed from a sid); the partner bucket is anonymous and ALWAYS last.
+    const R = [
+      ['base:ip-or-gps-ok', 'baseline', 136], ['base:gps-only-allow', 'baseline', 29], ['base:no-evidence-review', 'baseline', 6],
+      ['No rule recorded', '', 4], ['base:qr-requires-ip', 'baseline', 3], ['base:ctr-gap-review', 'baseline', 2], ['base:gps-conflict-review', 'baseline', 2]
+    ];
+    const ruleMax = R[0][2];
+    const rules = R.map(([id, layer, n]) => ({ id, layer, n: plural(n, 'record', 'records'),
+      bar: 'display:block;height:100%;background:#152219;width:' + Math.max(5, step5(n, ruleMax)) + '%' }))
+      .concat([{ id: "At a partner business's venue (rules not shown)", layer: '', n: plural(6, 'record', 'records'),
+        bar: 'display:block;height:100%;background:#C9D2C8;width:' + Math.max(5, step5(6, ruleMax)) + '%' }]);
+
+    // "This list is shortened" states (all lists stop at 50 rows); none is cut this week.
+    const capLine = kind => 'More ' + kind + ' match than one page lists, so this list stops at 50. The counts at the top of the page cover every record.';
+    const more = { people: false, venues: false, plaques: false, pairs: false, open: false, rules: false, lost: false };
+    const dot = on => 'width:12px;height:12px;border-radius:50%;box-sizing:border-box;' + (on ? 'background:#152219' : 'border:1.5px solid rgba(21,34,25,.5)');
+    const pairsV = pairs.map(p => ({ ...p, days: p.on.map(dot) }));
+    return { totals, totalChips, lost, mix, legend, togetherLine, pairs: pairsV, gaps, gpsAlone, people, open, masked, rules, more,
+      capPeople: capLine('people'), capPlaques: capLine('plaques'), capPairs: capLine('pairs'), capOpen: capLine('check-ins'), capRules: capLine('rules') };
+  }
+}
+</script>
+</body>
+</html>

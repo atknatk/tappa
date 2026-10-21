@@ -605,7 +605,9 @@ func TestPanelAnomaliesDB_CountsTheShapesTheCardASKSFOR(t *testing.T) {
 		{"the answerable base", "18 carry the rule snapshot"},
 		// The pair listing: the worker and the mate arrived within seconds on three
 		// days, which is over the threshold.
-		{"the pair's day count", "3 days"},
+		// M12-29: the days are drawn against the week (one dot per day), so the count names
+		// the week it is out of.
+		{"the pair's day count", "3 of 7 days"},
 		{"the pair's closest gap", "closest 2 seconds apart"},
 		{"the pair's occurrence count", "6 times together"},
 	} {
@@ -683,7 +685,9 @@ func TestPanelAnomaliesDB_ATrainingTapIsNotAnOpenCheckIn(t *testing.T) {
 	// POSITIVE CONTROL: the ONE genuinely open check-in IS listed. The fixture gives
 	// the mate an unclosed 09:00 entry on the last day; without this, "the training tap
 	// is absent" would be satisfied by an empty list.
-	if !strings.Contains(body, "Check-ins with no checkout") {
+	// M12-29: the section is headed "Left open" on its card (id odd-open), as the boards draw it.
+	openAt := strings.Index(body, `id="odd-open">Left open</h2>`)
+	if openAt < 0 {
 		t.Fatal("the open section is missing entirely")
 	}
 	if strings.Contains(body, "Every check-in this week has a checkout after it") {
@@ -693,8 +697,12 @@ func TestPanelAnomaliesDB_ATrainingTapIsNotAnOpenCheckIn(t *testing.T) {
 
 	// 🔴 THE TRAINING TAP AND THE REAL ENTRY ARE THE SAME PERSON ON THE SAME DAY, so
 	// counting rows is the only way to tell whether the practice row leaked in. The
-	// mate's name appears once per open docket.
-	openDockets := strings.Count(body, `<p class="report-who">`+f.mate+`</p>`)
+	// mate's name appears once per open row -- counted inside the open card only (from its
+	// heading to the end of its section), because the pair and per-person cards name the
+	// mate too.
+	openCard := body[openAt:]
+	openCard = openCard[:strings.Index(openCard, "</section>")]
+	openDockets := strings.Count(openCard, ">"+f.mate+"</span>")
 	if openDockets != 1 {
 		t.Errorf("the open list holds %d docket(s) for %s, want exactly 1. A training tap "+
 			"is a check-in nothing ever closes, so leaving it in produces one false "+

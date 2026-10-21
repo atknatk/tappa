@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"encoding/hex"
 	"errors"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
@@ -12,6 +14,8 @@ import (
 
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/qrcode"
+	"github.com/atknatk/tappa/internal/sun"
 	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
@@ -138,20 +142,27 @@ func (a *AdminAuth) locationsPlaques(r *http.Request) (tenant.PlaqueScreen, erro
 	return a.plaques.Screen(r.Context(), httpx.AdminOf(r).TenantID())
 }
 
-// fillPlaques puts the three lists and the cap notice on the view.
+// fillPlaques puts the plaque lists that belong to no venue on the page, the counts
+// and the cap notice on the view.
 //
-// 🔴 THREE LISTS, AND THE SPLIT IS A DECISION WITH A MEASUREMENT BEHIND IT — the
-// two readings are argued in pages.LocationsView. In short: ListTagsForTenant
-// orders `location_id NULLS FIRST, uid`, which puts stock first (useful) and then
-// sorts the mounted half BY LOCATION UUID (a value this page never prints). So the
-// SQL order is kept as the tiebreaker and the grouping is done here.
+// 🔴 A PLAQUE AT A VENUE THE PAGE LISTS IS SHOWN IN THAT VENUE'S DETAIL (M12-34), in
+// service or not -- venuePlaques reads it there. What stays here are the plaques no
+// venue on the page can show: the box, a plaque on a wall at a venue past the list's
+// cap, and a plaque out of service with no such venue. The SQL order (ListTagsForTenant:
+// `location_id NULLS FIRST, uid`) is still the tiebreaker everywhere.
 func fillPlaques(v *pages.LocationsView, screen tenant.PlaqueScreen, venues tenant.VenueScreen, zone *time.Location) {
 	names := venueNames(venues)
 	for _, p := range screen.Plaques {
+		if p.OnAWall() {
+			v.OnWalls++
+		}
+		if p.LocationID != nil && !p.InStock() {
+			if _, listed := names[*p.LocationID]; listed {
+				continue
+			}
+		}
 		row := plaqueRowView(p, names, zone)
 		switch {
-		case p.OnAWall():
-			v.Mounted = append(v.Mounted, row)
 		case p.InStock():
 			v.Stock = append(v.Stock, row)
 			// The same three predicates plaqueCardOf applies before it offers a mount
@@ -159,25 +170,64 @@ func fillPlaques(v *pages.LocationsView, screen tenant.PlaqueScreen, venues tena
 			if p.Encoded() && p.Changeable() {
 				v.MountableStock++
 			}
+		case p.OnAWall():
+			v.Elsewhere = append(v.Elsewhere, row)
 		default:
 			v.OutOfService = append(v.OutOfService, row)
 		}
 	}
-	// THE MOUNTED LIST IS SORTED BY THE NAME THE PAGE SHOWS, not by the id it does
-	// not. sort.SliceStable keeps the query's uid order for two plaques at the same
-	// venue, so the page is deterministic without a second sort key.
-	sort.SliceStable(v.Mounted, func(i, j int) bool {
-		return v.Mounted[i].Venue < v.Mounted[j].Venue
-	})
 	// OUT OF SERVICE READS NEWEST FIRST. "What came off the wall lately" is the
 	// question this list answers; a plaque with no retirement stamp (a `lost` one
 	// that was never retired) sorts after the stamped ones rather than before.
-	sort.SliceStable(v.OutOfService, func(i, j int) bool {
-		return v.OutOfService[i].RetiredAt > v.OutOfService[j].RetiredAt
-	})
+	sortNewestRetirementFirst(v.OutOfService)
 	v.PlaquesQueried = true
 	v.PlaquesCapped = screen.Capped
 	v.PlaqueLimit = strconv.Itoa(len(screen.Plaques))
+	v.PlaquesLoaded = len(screen.Plaques)
+}
+
+// sortNewestRetirementFirst orders plaques out of service by when they came off the
+// wall, newest first; RetiredAt is the rendered stamp, "" for none, which sorts last.
+func sortNewestRetirementFirst(rows []components.PlaqueRowView) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		return rows[i].RetiredAt > rows[j].RetiredAt
+	})
+}
+
+// venueOnWall counts each venue's plaques in service, for the venue cards.
+func venueOnWall(screen tenant.PlaqueScreen) map[uuid.UUID]int {
+	out := map[uuid.UUID]int{}
+	for _, p := range screen.Plaques {
+		if p.OnAWall() && p.LocationID != nil {
+			out[*p.LocationID]++
+		}
+	}
+	return out
+}
+
+// venuePlaques are one venue's plaques that are not in stock, for its detail: those in
+// service first, in the query's order, then those out of service, newest retirement
+// first. The first in service whose real code can be made is the one drawn.
+func (a *AdminAuth) venuePlaques(d *components.VenueDetailView, screen tenant.PlaqueScreen, venues tenant.VenueScreen, venueID uuid.UUID) {
+	names := venueNames(venues)
+	var out []components.PlaqueRowView
+	for _, p := range screen.Plaques {
+		if p.InStock() || p.LocationID == nil || *p.LocationID != venueID {
+			continue
+		}
+		row := plaqueRowView(p, names, screen.Zone)
+		if p.OnAWall() {
+			d.Plaques = append(d.Plaques, row)
+			if d.Drawing == nil {
+				d.Drawing = plaqueDrawingOf(a.log, a.plaqueTapBase, p)
+			}
+			continue
+		}
+		out = append(out, row)
+	}
+	sortNewestRetirementFirst(out)
+	d.OutOfService = len(out)
+	d.Plaques = append(d.Plaques, out...)
 }
 
 // venueNames maps a venue id onto the name the page prints.
@@ -366,10 +416,13 @@ func plaqueStamp(t *time.Time, zone *time.Location) string {
 // A REAL READ FAILURE IS AN ERROR, NOT A SENTENCE (§4.6). It is returned so the
 // caller renders a problem page: "we could not find that plaque" would be a claim
 // about the business built on a database that did not answer.
-func (a *AdminAuth) plaqueCard(w http.ResponseWriter, r *http.Request, screen tenant.PlaqueScreen, venues tenant.VenueScreen, zone *time.Location) (*components.PlaqueFormView, error) {
+//
+// The plaque it opened is returned beside the card: its venue is the one the page's
+// detail then shows, with the card inside it (M12-34).
+func (a *AdminAuth) plaqueCard(w http.ResponseWriter, r *http.Request, screen tenant.PlaqueScreen, venues tenant.VenueScreen, zone *time.Location) (*components.PlaqueFormView, tenant.Plaque, error) {
 	raw := strings.TrimSpace(r.URL.Query().Get("plaque"))
 	if raw == "" {
-		return nil, nil
+		return nil, tenant.Plaque{}, nil
 	}
 	// 🔴 PlaqueRef, NOT PlaqueUID: THIS IS A LOOKUP AND THE COLUMN IS CASE-SENSITIVE.
 	// The first version of this line upper-cased, and it was measured answering "that
@@ -382,14 +435,14 @@ func (a *AdminAuth) plaqueCard(w http.ResponseWriter, r *http.Request, screen te
 		// Not a plaque id: nothing was looked up, and the section's own sentence
 		// covers it — the "unreadable" / "unknown" distinction unresolvedCardProblem
 		// makes for venues.
-		return nil, nil
+		return nil, tenant.Plaque{}, nil
 	}
 	p, found, err := a.plaqueByUID(r, uid, screen)
 	switch {
 	case err != nil:
-		return nil, err
+		return nil, tenant.Plaque{}, err
 	case !found:
-		return nil, nil
+		return nil, tenant.Plaque{}, nil
 	}
 	f := plaqueCardOf(p, screen, venues, zone)
 	// 🔴 THE TRAIL IS READ ONLY FOR THE OPEN CARD, never for the list. It is one
@@ -399,7 +452,7 @@ func (a *AdminAuth) plaqueCard(w http.ResponseWriter, r *http.Request, screen te
 	trail, err := a.plaques.History(r.Context(), httpx.AdminOf(r).TenantID(), p.UID)
 	if err != nil {
 		// §4.6: OUR read failed, and "nothing has been done to this plaque" is a claim.
-		return nil, err
+		return nil, tenant.Plaque{}, err
 	}
 	f.Trail = plaqueTrailView(trail, zone)
 	// 🔴 THE REPLACEMENT IS CONFIRMED, AND THE CARD *IS* THE WARNING.
@@ -459,12 +512,12 @@ func (a *AdminAuth) plaqueCard(w http.ResponseWriter, r *http.Request, screen te
 			f.Action = ""
 			f.Successors = nil
 			f.Blocked = "We could not prepare that just now. Try again in a moment."
-			return &f, nil
+			return &f, p, nil
 		}
 		f.ConfirmField = confirmField
 		f.ConfirmToken = token
 	}
-	return &f, nil
+	return &f, p, nil
 }
 
 // plaqueByUID answers from the page's own list first and falls back to the
@@ -506,7 +559,7 @@ func plaqueCardOf(p tenant.Plaque, screen tenant.PlaqueScreen, venues tenant.Ven
 	switch {
 	case !p.Changeable():
 		// The frozen development residue (00013's NOT VALID constraint). The row's own
-		// docket already carries the warning; this is why there is no control.
+		// banner already carries the warning; this is why there is no control.
 		f.Blocked = "This plaque cannot be changed, so it cannot be mounted or replaced."
 	case p.InStock() && !p.Encoded():
 		// 🔴 M10 F0-6 / INCIDENT A-1. AssignTagToLocation refuses a row with no
@@ -722,4 +775,58 @@ func plaqueReturn(done, uid string) string {
 		return locationsHref
 	}
 	return locationsHref + "?done=" + w + "&id=" + uid
+}
+
+// PlaqueDrawingsFrom gives the panel the tap URL its plaque drawings encode — the
+// value PlaqueTapBase returned, the same one the encode relay was given. Without it
+// (or with a base no plaque could carry) a plaque card draws no QR code.
+func PlaqueDrawingsFrom(tapBase string) AdminAuthOption {
+	return func(a *AdminAuth) { a.plaqueTapBase = tapBase }
+}
+
+// plaqueQRLevel is the drawn code's error correction: M, the level operatorpages'
+// enrollment code uses. The printed plaque's level is the print run's decision (skill
+// tappa-brand, "Plaket baskısı"); a drawing at a different level still decodes to the
+// same URL, which is the only thing it claims.
+const plaqueQRLevel = qrcode.M
+
+// plaqueDrawingOf draws a plaque that is on a wall, with the QR code it carries
+// (M12-12, D4), or returns nil.
+//
+// 🔴 nil RATHER THAN A PATTERN, IN EVERY CASE THE REAL CODE CANNOT BE MADE. The URL
+// is sun.PlaqueQRURL's — "<tapBase>?tag=<UID>", no ctr, no cmac, no src marker (the
+// server derives the QR channel from the missing SUN pair) — and that helper refuses
+// any base BuildTapNDEF would refuse: a development http://localhost base draws no
+// code, because no plaque could have been encoded with it. A plaque not on a wall is
+// not drawn (the drawing shows a plaque where it hangs), and neither is a row in the
+// frozen non-canonical spelling: the code would name an upper-case uid the row does
+// not have.
+//
+// ⚠️ TWO OF THE nil ARMS ARE NOT EXPECTED and are logged as such: a canonical row whose
+// uid is not hex, and a URL the encoder will not take. Each writes a WARN that names no
+// uid and no URL (and, for the hex arm, not the decoder's error, which quotes the
+// offending byte) — the drawing is a display detail, so the card still opens.
+func plaqueDrawingOf(log *slog.Logger, tapBase string, p tenant.Plaque) *components.PlaqueDrawingView {
+	if !p.OnAWall() || !p.Canonical {
+		return nil
+	}
+	uid, err := hex.DecodeString(p.UID)
+	if err != nil {
+		log.Warn("panel: a canonical plaque uid is not hex; its drawing is not shown")
+		return nil
+	}
+	qrURL, err := sun.PlaqueQRURL(tapBase, uid)
+	if err != nil {
+		return nil
+	}
+	code, err := qrcode.Encode([]byte(qrURL), plaqueQRLevel)
+	if err != nil {
+		log.Warn("panel: the plaque QR code could not be encoded; its drawing is not shown", "err", err)
+		return nil
+	}
+	return &components.PlaqueDrawingView{
+		Last4:  strings.ToUpper(p.UID[len(p.UID)-4:]),
+		QRPath: code.SVGPath(qrcode.QuietZone),
+		QRSide: code.SVGSide(qrcode.QuietZone),
+	}
 }

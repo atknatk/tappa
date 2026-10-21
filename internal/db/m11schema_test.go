@@ -1013,21 +1013,26 @@ func TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath(t *testing.T) {
 //	InsertManualTransaction       the record's venue -> the manager's choice (K-14)
 //	CountLocationReferences       a venue's references -> a NULL never counts
 //	LockEmployeeForExternalRefChange  (new in API-1) no home venue -> the ref cannot be removed
+//	CountPanelEmployeesByStatus   (M12-17) the chips' venue filter -> counted in `everyone`, and
+//	                              in `matching` unless a venue is picked: where the list shows them
+//	ListRollEmployees             (M12-21) the Roll's home venue -> no other-venue mark; the
+//	                              person's counted shifts are Totals.OtherVenueUnknown
 var employeeLocationReaders = []string{
-	"ConsumeInviteAndActivate", "CountLocationReferences", "CreateEmployee", "GetEmployeeActivationContext",
+	"ConsumeInviteAndActivate", "CountLocationReferences", "CountPanelEmployeesByStatus", "CreateEmployee", "GetEmployeeActivationContext",
 	"GetEmployeeForTap", "GetPanelEmployeeForAction", "InsertManualTransaction", "ListPanelEmployees",
-	"LockEmployeeForExternalRefChange", "MoveEmployee",
+	"ListRollEmployees", "LockEmployeeForExternalRefChange", "MoveEmployee",
 }
 
 // employeeLocationNonReaders are the statements the wide net below catches -- they name employees
 // and a location_id or a wildcard -- that do NOT read employees.location_id, each with what its
 // location_id is. A statement is in exactly one of the two lists.
 var employeeLocationNonReaders = map[string]string{
-	"ListFlaggedForReview":  "t.location_id, the record's venue; employees is joined for full_name",
-	"ListOpenCheckIns":      "t.location_id, the record's venue; employees is joined for full_name",
-	"ListPanelTransactions": "t.location_id and the venue filter on transactions; employees is matched and joined for full_name",
-	"ListTapsTakenTogether": "transactions' location_id through its ordered/pairs CTEs; employees is joined for full_name",
-	"ListWorkedShiftEvents": "t.location_id, the record's venue; employees is joined for full_name",
+	"CountPanelTransactionsByVerdict": "t.location_id, the venue filter on transactions (ListPanelTransactions' own); employees is matched by full_name in the name CTE",
+	"ListFlaggedForReview":            "t.location_id, the record's venue; employees is joined for full_name",
+	"ListOpenCheckIns":                "t.location_id, the record's venue; employees is joined for full_name",
+	"ListPanelTransactions":           "t.location_id and the venue filter on transactions; employees is matched and joined for full_name",
+	"ListTapsTakenTogether":           "transactions' location_id through its ordered/pairs CTEs; employees is joined for full_name",
+	"ListWorkedShiftEvents":           "t.location_id, the record's venue; employees is joined for full_name",
 	// M11 API-1c: the manager's record at a holding peer's venue -- location_id is WRITTEN NULL (K-30:
 	// a site row names no local venue) and the venue is the peer's site_location_id; employees is
 	// read for the id and the department alone, so an employee with no home venue is filed the same.

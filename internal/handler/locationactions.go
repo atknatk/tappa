@@ -178,7 +178,9 @@ func (a *AdminAuth) saveVenue(w http.ResponseWriter, r *http.Request) {
 	}
 	a.log.Info("panel venue saved", "venue_id", saved.ID,
 		"proof_of_place", saved.HasProofOfPlace())
-	a.redirect(w, venueReturn(done, ""))
+	// The banner says "the venue below is as it now stands", so the venue below is the
+	// one just saved (M12-34): the page opens it by its id from the DATABASE's answer.
+	a.redirect(w, openVenueAt(venueReturn(done, ""), saved.ID))
 }
 
 // hiddenNameSentence is the panel's answer to tenant.ErrNameHiddenCharacter. Emoji, flags, Persian
@@ -244,7 +246,7 @@ func (a *AdminAuth) saveDepartment(w http.ResponseWriter, r *http.Request) {
 		done = "department-added"
 	}
 	a.log.Info("panel department saved", "department_id", saved.ID)
-	a.redirect(w, venueReturn(done, ""))
+	a.redirect(w, openVenueAt(venueReturn(done, ""), saved.LocationID))
 }
 
 // readVenueBody bounds the body and parses it.
@@ -300,6 +302,11 @@ func (a *AdminAuth) renderVenueFormAgain(w http.ResponseWriter, r *http.Request,
 	v := a.locationsShell(r, screen, plaques)
 	v.VenueForm = &form
 	bindFormTargets(&v)
+	if err := a.formPage(r, &v, screen, plaques); err != nil {
+		a.log.Error("panel: could not read the venue behind a rejected form", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		return
+	}
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminLocations(v))
 }
 
@@ -352,6 +359,11 @@ func (a *AdminAuth) renderDepartmentFormAgain(w http.ResponseWriter, r *http.Req
 	v := a.locationsShell(r, screen, plaques)
 	v.DepartmentForm = &form
 	bindFormTargets(&v)
+	if err := a.formPage(r, &v, screen, plaques); err != nil {
+		a.log.Error("panel: could not read the venue behind a rejected form", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		return
+	}
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminLocations(v))
 }
 
@@ -398,8 +410,17 @@ func (a *AdminAuth) locationsShell(r *http.Request, screen tenant.VenueScreen, p
 		VenueAction:       venueSaveHref,
 		DepartmentAction:  departmentSaveHref,
 	}
-	v.Venues, v.Departments = venueRowViews(screen)
+	v.Venues = venueRowViews(screen, venueOnWall(plaques))
+	for i := range v.Venues {
+		v.Venues[i].PlaquesCapped = plaques.Capped
+	}
 	fillPlaques(&v, plaques, screen, plaques.Zone)
+	v.Kicker = locationsKicker(len(screen.Venues), screen.VenuesCapped, v.OnWalls, plaques.Capped)
+	// THE FIRST VENUE IS OPEN UNTIL THE REQUEST SAYS OTHERWISE (selectVenue): the list
+	// is ordered by name, and a page with venues always shows one of them.
+	if len(screen.Venues) > 0 {
+		a.openVenue(&v, screen, plaques, screen.Venues[0])
+	}
 	return v
 }
 
@@ -546,6 +567,25 @@ func venueReturn(done, problem string) string {
 		q = "?problem=" + w
 	}
 	return locationsHref + q
+}
+
+// openVenueAt adds the venue the page should open after a save to a 303 target built
+// by venueReturn (M12-34), so "the venue below is as it now stands" is about the venue
+// below.
+//
+// 🔴 THE ID IS SERVER-DERIVED -- the row the write returned, or the id the handler
+// already parsed as a uuid -- and is printed by uuid.UUID.String, so nothing the client
+// typed reaches the Location header (TestVenueReturn_CannotCarryAnythingTheClientChose
+// holds venueReturn itself). A zero id adds nothing.
+func openVenueAt(target string, venueID uuid.UUID) string {
+	if venueID == uuid.Nil {
+		return target
+	}
+	sep := "?"
+	if strings.Contains(target, "?") {
+		sep = "&"
+	}
+	return target + sep + "at=" + venueID.String() + "#venue"
 }
 
 // --- removal (user decision, 2026-08-08: option (b), unreferenced rows only) --------
@@ -895,7 +935,7 @@ func (a *AdminAuth) saveVenueExternalRef(w http.ResponseWriter, r *http.Request)
 	case err == nil:
 		a.log.Info("panel venue external ref changed", "venue_id", venueID,
 			"has_external_ref", change.To != "")
-		a.redirect(w, venueReturn("venue-external-ref", ""))
+		a.redirect(w, openVenueAt(venueReturn("venue-external-ref", ""), venueID))
 	case errors.Is(err, tenant.ErrExternalRef):
 		a.log.Warn("panel venue external ref refused: not the shape the integration carries",
 			"venue_id", venueID)

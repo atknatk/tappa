@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Console — Taptime operator</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+/* operator shell (OP-1) — identical on every board of this width */
+.oplbl{margin:0;font:400 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.opbar{background:#152219;border-bottom:4px solid #D98E2B;color:#FFFDF4}
+.opbar-in{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:0 24px;box-sizing:border-box}
+.oplock{margin:0;font:700 14px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.28em;text-transform:uppercase;color:#FFFDF4;white-space:nowrap}
+.oplock span{color:#D98E2B}
+.opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
+.opout:hover{border-color:#D98E2B;color:#D98E2B}
+.opshell{flex:1;display:flex;align-items:stretch}
+.opside{flex:0 0 232px;width:232px;background:#FFFDF4;border-right:1px solid #C9D2C8;padding:28px 0;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}
+.opside .oplbl{padding:0 24px}
+.opside nav{display:flex;flex-direction:column}
+.opnav{display:flex;align-items:center;min-height:44px;padding:0 16px 0 21px;border-left:3px solid transparent;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif}
+.opnav:hover{background:rgba(21,34,25,.05);color:#152219}
+.opnav--on{border-left-color:#152219;background:rgba(21,34,25,.05);font-weight:700}
+.opcol{flex:1;min-width:0;display:flex;flex-direction:column}
+.opten{background:#F7EBD6;border-bottom:1px solid #D98E2B}
+.opten-in{max-width:960px;box-sizing:border-box;padding:24px 40px 0;display:flex;flex-direction:column;gap:2px}
+.optname{margin:0;font:700 34px/1.12 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219;overflow-wrap:anywhere}
+.optid{margin:2px 0 0;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;word-break:break-all}
+.opsub{display:flex;flex-wrap:wrap;margin:8px 0 0 -12px}
+.opsubt{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
+.opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
+.opmain{width:100%;max-width:960px;box-sizing:border-box;padding:32px 40px 64px}
+/* end operator shell */
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.fld{display:flex;flex-direction:column;gap:6px}
+.field{min-height:44px;width:100%;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;padding:0 12px;font:14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.field:focus{outline:2px solid #1F5C41;outline-offset:1px;border-color:#1F5C41}
+.btn1{min-height:48px;padding:0 20px;border:0;border-radius:12px;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer}
+.btn1:hover{background:#152219}
+.oplink{display:inline-flex;align-items:center;min-height:44px;font-family:'Space Grotesk',sans-serif;font-weight:700;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
+.note{display:flex;flex-direction:column;gap:4px;padding:14px 16px;border-left:4px solid;border-radius:0 10px 10px 0;font-size:14px;line-height:1.45}
+.note strong{font-size:15px;color:#152219;letter-spacing:-0.01em}
+.note p{margin:0;color:rgba(21,34,25,.85);text-wrap:pretty}
+.note--warn{border-left-color:#D98E2B;background:#F7EBD6}
+.note--alert{border-left-color:#BE3D2A;background:#FFFDF4;box-shadow:inset 0 0 0 1px rgba(190,61,42,.35)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:18px 24px;box-shadow:0 1px 2px rgba(21,34,25,.06);min-width:0}
+.docket::before,.docket::after{content:'';position:absolute;left:-1px;right:-1px;height:6px;background-image:radial-gradient(circle at 5px 0,#EDF0EA 3px,transparent 3.5px);background-size:10px 6px;background-repeat:repeat-x}
+.docket::before{top:-1px}
+.docket::after{bottom:-1px;transform:rotate(180deg)}
+.anno{display:inline-flex;align-self:flex-start;align-items:center;gap:8px;padding:4px 10px;border:1px dashed rgba(21,34,25,.5);font:700 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7);background:#EDF0EA}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <header class="opbar">
+    <div class="opbar-in">
+      <p class="oplock">TAPTIME <span>OPERATOR</span></p>
+      <form method="post" action="/operator/logout" style="margin: 0"><button type="button" class="opout">Sign out</button></form>
+    </div>
+  </header>
+  <div class="opshell">
+    <aside class="opside">
+      <p class="oplbl">Platform</p>
+      <nav aria-label="Operator sections">
+        <a href="OpHome.dc.html" class="opnav opnav--on" aria-current="page">Console</a>
+        <a href="OpTenants.dc.html" class="opnav">Tenants</a>
+        <a href="OpHoldings.dc.html" class="opnav">Holdings</a>
+        <a href="OpAudit.dc.html" class="opnav">Audit log</a>
+        <a href="OpLegal.dc.html" class="opnav">Legal texts</a>
+      </nav>
+    </aside>
+    <div class="opcol">
+  <main class="opmain" style="display: flex; flex-direction: column; gap: 28px">
+        <sc-if value="{{console}}" hint-placeholder-val="{{true}}">
+          <section class="card" aria-labelledby="home-h" style="padding: 22px 24px 24px; gap: 0; border-radius: 14px">
+            <p class="lbl" style="margin: 0">Operator console</p>
+            <h1 id="home-h" style="margin: 6px 0 0; font: 700 28px/1.1 'Space Grotesk', sans-serif; letter-spacing: -0.03em">You are signed in</h1>
+            <ul style="list-style: none; margin: 18px 0 0; padding: 0; border-top: 1px solid #C9D2C8">
+              <li style="display: grid; grid-template-columns: 128px minmax(0, 1fr); column-gap: 16px; align-items: baseline; padding: 4px 0; border-bottom: 1px dashed #C9D2C8"><a href="OpTenants.dc.html" class="oplink" style="font-size: 17px; justify-self: start">Tenants</a><span style="font-size: 14px; line-height: 1.45; color: rgba(21,34,25,.7); text-wrap: pretty">— find a business, and see what it has live</span></li>
+              <li style="display: grid; grid-template-columns: 128px minmax(0, 1fr); column-gap: 16px; align-items: baseline; padding: 4px 0; border-bottom: 1px dashed #C9D2C8"><a href="OpLegal.dc.html" class="oplink" style="font-size: 17px; justify-self: start">Legal texts</a><span style="font-size: 14px; line-height: 1.45; color: rgba(21,34,25,.7); text-wrap: pretty">— Taptime's privacy policy, terms, company details and cookie notice</span></li>
+              <li style="display: grid; grid-template-columns: 128px minmax(0, 1fr); column-gap: 16px; align-items: baseline; padding: 4px 0; border-bottom: 1px dashed #C9D2C8"><a href="OpHoldings.dc.html" class="oplink" style="font-size: 17px; justify-self: start">Holdings</a><span style="font-size: 14px; line-height: 1.45; color: rgba(21,34,25,.7); text-wrap: pretty">— group businesses that work in one timezone, and see who is in each</span></li>
+              <li style="display: grid; grid-template-columns: 128px minmax(0, 1fr); column-gap: 16px; align-items: baseline; padding: 4px 0; border-bottom: 1px dashed #C9D2C8"><a href="OpAudit.dc.html" class="oplink" style="font-size: 17px; justify-self: start">Audit log</a><span style="font-size: 14px; line-height: 1.45; color: rgba(21,34,25,.7); text-wrap: pretty">— every sign-in, read and publication on this surface</span></li>
+            </ul>
+            <p style="margin: 18px 0 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7); max-width: 620px; text-wrap: pretty">A session ends after 30 minutes without use, and after 8 hours in any case. Sign out when you are done.</p>
+          </section>
+        </sc-if>
+        <sc-if value="{{reference}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-direction: column; gap: 14px">
+            <span class="anno">Reference · operator chrome — not a screen</span>
+            <span class="lbl" style="margin-top: 8px">Bar · signed out (sign-in, code, enrollment, signed-out problems)</span>
+            <div class="opbar"><div class="opbar-in" style="min-height: 56px; padding: 0 20px"><p class="oplock">TAPTIME <span>OPERATOR</span></p></div></div>
+            <span class="lbl" style="margin-top: 8px">Bar · signed in (every other screen) — POST form, never a link</span>
+            <div class="opbar"><div class="opbar-in" style="min-height: 56px; padding: 0 20px"><p class="oplock">TAPTIME <span>OPERATOR</span></p><button type="button" class="opout">Sign out</button></div></div>
+            <span class="lbl" style="margin-top: 8px">Tenant banner · named — overview, plaques, billing, VAT number</span>
+            <section class="opten" aria-label="Tenant">
+              <div class="opten-in">
+                <p class="oplbl">Tenant</p>
+                <p class="optname"><bdi>Kebab Factory Ltd.</bdi></p>
+                <nav aria-label="This tenant" class="opsub"><a href="OpTenant.dc.html" class="opsubt opsubt--on" aria-current="page">Overview</a><a href="OpPlaques.dc.html" class="opsubt">Plaques</a><a href="OpBilling.dc.html" class="opsubt">Billing</a><a href="OpVat.dc.html" class="opsubt">VAT number</a></nav>
+              </div>
+            </section>
+            <span class="lbl" style="margin-top: 8px">Tenant banner · unnamed — the id, mono</span>
+            <section class="opten" aria-label="Tenant">
+              <div class="opten-in">
+                <p class="oplbl">Tenant</p>
+                <p class="optname">Unnamed tenant</p><p class="optid">6f1c2a9e-4b7d-4e21-9a3c-0d5e8b7f1a24</p>
+                <nav aria-label="This tenant" class="opsub"><a href="OpTenant.dc.html" class="opsubt opsubt--on" aria-current="page">Overview</a><a href="OpPlaques.dc.html" class="opsubt">Plaques</a><a href="OpBilling.dc.html" class="opsubt">Billing</a><a href="OpVat.dc.html" class="opsubt">VAT number</a></nav>
+              </div>
+            </section>
+            <p style="margin: 0; font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.7)">No tenant logo or accent anywhere on this surface; the name is the only tenant mark (ADR 0020 §9, ADR 0023).</p>
+          </div>
+        </sc-if>
+      </main>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"view": {"editor": "enum", "options": ["console", "chrome-reference"], "default": "console"}, "$preview": {"width": 1440, "height": 554}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const navOf = (cur) => {
+      const nav = {}, aria = {};
+      for (const k of ['console', 'tenants', 'holdings', 'audit', 'legal']) {
+        nav[k] = k === cur ? 'opnav--on' : '';
+        aria[k] = k === cur ? 'page' : 'false';
+      }
+      return { nav, aria };
+    };
+    const v = this.props.view ?? 'console';
+    // Home makes no read: four links and one sentence, nothing counted.
+    return { console: v === 'console', reference: v === 'chrome-reference', ...navOf('console'), noop: (e) => { if (e && e.preventDefault) e.preventDefault(); } };
+  }
+}
+</script>
+</body>
+</html>

@@ -5,7 +5,7 @@ package components
 // 🔴 WHY THESE TYPES LIVE IN components RATHER THAN IN pages, because the rest of
 // the product's view models are in pages and this looks like an exception. It is
 // the rule this package already follows: components.Tab is defined here too, next
-// to the TabBar that renders it. The reason is mechanical rather than stylistic —
+// to SideNav and BarNav, which render it. The reason is mechanical rather than stylistic —
 // pages imports components, so a component taking a pages type would close an
 // import cycle. A component owns the shape of its own input.
 //
@@ -65,6 +65,19 @@ type DocketView struct {
 	TagUID string
 	// Ctr is the chip's read counter as text, "" when there is none.
 	Ctr string
+	// Channel is how the record arrived -- nfc | qr | manual, the column's closed
+	// set (migration 0005), carried as the code's word. The ledger's two dockets do
+	// not print it: Manual below is their half of §5's "manual is reported
+	// separately". SpikeDocket names the channel itself (The Spike's
+	// "IN · 14:26:02 · NFC" line and its "Physical tap" tile, M12-28). It is a
+	// channel, not a place: it says nothing about a network or a coordinate (§4.7).
+	Channel string
+	// RuleSID is the rule that decided ("base:no-evidence-review"), "" when the row
+	// names none -- and "" on every record at a partner venue, because the ledger
+	// blanks it there with the rest of the K-39 evidence (ledger.Record.RuleSID).
+	// Only SpikeDocket prints it, on the record in focus, and SpikeWhy reads it for the
+	// queue's short reason; the ledger's two dockets do not.
+	RuleSID string
 	// Verdict is ok | flag | reject | ignored. It picks the stamp, and the stamp
 	// carries the WORD as well as the colour, so status is never told by colour
 	// alone.
@@ -172,6 +185,8 @@ type FilterBarView struct {
 	// Action is where the form submits — the section's own URL, so filtering is a
 	// plain GET and every filtered view is a bookmarkable address.
 	Action string
+	// ClearHref drops every filter and keeps the day; Clear is drawn only when Narrowed.
+	ClearHref string
 	// Date is the ISO day in the box ("2026-08-05").
 	Date string
 
@@ -212,6 +227,13 @@ type FilterBarView struct {
 	// it to say "nothing matches these filters" rather than "nothing happened
 	// that day" — different claims, and only one of them is true at a time.
 	Narrowed bool
+}
+
+// FormNarrowed is Narrowed for the fields the form itself holds -- a venue, a department, a
+// name, a channel. The verdict is a chip outside the form, so a chosen verdict alone does not
+// open the phone's filter disclosure.
+func (v FilterBarView) FormNarrowed() bool {
+	return v.LocationID != "" || v.DepartmentID != "" || v.EmployeeName != "" || v.Channel != ""
 }
 
 // OptionView is one <option>: the value that goes in the URL, the label a human

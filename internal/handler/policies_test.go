@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -34,6 +35,7 @@ import (
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/policy"
+	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -206,11 +208,25 @@ func policyScreenFixture() tenant.PolicyScreen {
 		Queried:         true,
 		ShippedBaseline: policy.BaselineVersion,
 		Zone:            time.UTC,
+		Radius:          "150 m",
 	}
 	for i, g := range policy.Guardrails(policy.DefaultParams()) {
 		row := tenant.Guardrail{
 			Order: i + 1, Sid: g.Sid, Effect: string(g.Effect), Reason: g.Reason,
 			Rule: "why " + g.Sid + " cannot be switched off",
+			When: "when " + g.Sid + " fires",
+		}
+		if g.Alert != nil {
+			row.Alert = "security alert"
+		}
+		// The domain's words, so the page test can name the two no-record labels; the
+		// derivation itself is pinned in internal/domain/tenant.
+		row.Qualifier = map[string]string{
+			"sys:tenant-mismatch": "other business", "sys:no-session": "activation page",
+		}[g.Sid]
+		row.Guards = tenant.GuardsTaps
+		if g.Sid == "sys:policy-edit-owner-only" || g.Sid == "sys:no-self-review" {
+			row.Guards = tenant.GuardsPanel
 		}
 		if g.Sid == "sys:person-debounce" {
 			row.Bounded = &tenant.BoundedParam{
@@ -613,7 +629,10 @@ func TestPoliciesSection_RendersOnlyInertMarkup(t *testing.T) {
 			// the write side renders. This is what an auditor's second escape needed: an
 			// element with NO action and NO href (a contenteditable div carrying onclick and
 			// role="switch"), which the destination check below has nothing to look at.
-			if bad := markupOutsideTheAllowList(section, policySectionAllowedTags,
+			//
+			// THE PANEL'S NOTICE FRAMES ARE TAKEN OUT FIRST, and only they: their exact
+			// rendered bytes (withoutPanelNoticeFrames), never the role attribute in general.
+			if bad := markupOutsideTheAllowList(withoutPanelNoticeFrames(t, section), policySectionAllowedTags,
 				policySectionAllowedAttrs); len(bad) > 0 {
 				t.Errorf("the policies section renders %v. Phase B added forms, so the list is "+
 					"wider than phase A's -- but nothing on it can make an element BEHAVE: an "+
@@ -763,41 +782,44 @@ func policyTemplBranches(t *testing.T) []templBranch {
 // realism of the page is measured elsewhere (the DB tests and the live page); what
 // these fixtures are for is REACH.
 var policyBranchWitness = map[string]string{
-	"v.VersionsCapped@1":       "Some version history is not on this page",
-	"v.AttachmentsCapped@1":    "Some scope bindings are not on this page",
-	"!v.VersionsCapped@1":      "Everything else on this page is complete",
-	"else@5":                   "Your version history is shortened too",
-	"v.Queried@1":              "How your rules are decided",
-	"v.GuardrailsOnly@1":       "Your rules are not being applied right now",
-	`g.Tunable != ""@1`:        "may be set between",
-	"len(v.Tenant) == 0@1":     "You have not written any policies of your own.",
-	"v.BaselineInForce@1":      "the intended starting point rather than a gap",
-	"else@1":                   "running on the Taptime guarantees alone",
-	"else@2":                   "zz-branch-tenant-rule",
-	"r.Managed@1":              "Managed by Taptime",
-	"else@3":                   "Written by you",
-	`r.Version != ""@1`:        "version 4241",
-	`r.Stamp != ""@1`:          "zz-branch-stamp",
-	`r.Outdated != ""@1`:       "zz-branch-shipped",
-	`r.Problem != ""@1`:        "This rule is not being applied",
-	`s.Reason != ""@1`:         "zz-branch-reason",
-	"len(s.Conditions) > 0@1":  "Only when",
-	"len(r.Attachments) > 0@1": "Bound to",
-	"len(r.History) > 0@1":     "History",
-	`h.Marker != ""@1`:         ">in use<",
-	`r.HistoryNote != ""@1`:    "newest of 9 versions",
-	"v.GuardrailsOnly@2":       "None of these grants is being applied today",
-	"len(a.Grants) > 0@1":      "Granted to",
-	"else@4":                   "so the engine would refuse it",
-	`a.Guardrail != ""@1`:      "zz-branch-authz-guardrail",
-	"len(v.Recording) > 0@1":   "The one that works the other way",
-	`a.Guardrail != ""@2`:      "zz-branch-recording-guardrail",
+	"v.VersionsCapped@1":        "Some version history is not on this page",
+	"v.AttachmentsCapped@1":     "Some scope bindings are not on this page",
+	"!v.VersionsCapped@1":       "Everything else on this page is complete",
+	"else@1":                    "Your version history is shortened too",
+	"v.Queried@1":               "How your rules are decided",
+	"v.GuardrailsOnly@1":        "Your rules are not being applied right now",
+	`g.Tunable != ""@1`:         "may be set between",
+	"len(v.Tenant) == 0@1":      "You have not written any policies of your own.",
+	"v.BaselineInForce@1":       "the intended starting point rather than a gap",
+	"else@3":                    "running on the Taptime guarantees alone",
+	"else@4":                    "zz-branch-tenant-rule",
+	"r.Managed@1":               "Managed by Taptime",
+	"else@5":                    "Written by you",
+	`r.Version != ""@1`:         "version 4241",
+	`r.Stamp != ""@1`:           "zz-branch-stamp",
+	`r.Outdated != ""@1`:        "zz-branch-shipped",
+	`r.Problem != ""@1`:         "This rule is not being applied",
+	`i > 0 && s.Reason != ""@1`: "zz-branch-second-reason",
+	`r.Lead != ""@1`:            "zz-branch-reason",
+	`g.Group != ""@1`:           "Guarantees on the panel itself",
+	"v.MayEdit@2":               "Each control opens a review page",
+	"len(s.Conditions) > 0@1":   "Only when",
+	"len(r.Attachments) > 0@1":  "Bound to",
+	"len(r.History) > 0@1":      "History",
+	`h.Marker != ""@1`:          ">in use<",
+	`r.HistoryNote != ""@1`:     "newest of 9 versions",
+	"v.GuardrailsOnly@2":        "None of these grants is being applied today",
+	"len(a.Grants) > 0@1":       "Granted to",
+	"else@6":                    "so the engine would refuse it",
+	`a.Guardrail != ""@1`:       "zz-branch-authz-guardrail",
+	"len(v.Recording) > 0@1":    "The one that works the other way",
+	`a.Guardrail != ""@2`:       "zz-branch-recording-guardrail",
 
 	// --- M6-09 phase B: the write side ------------------------------------------
 	"v.ScopeCapped@1":           "Some of your venues are not in the scope picker",
 	`v.Problem != ""@1`:         "has been written to your audit trail",
 	"v.MayEdit@1":               "recorded with your name against it",
-	"else@6":                    "does not currently grant you the",
+	"else@2":                    "does not currently grant you the",
 	"len(v.Settings) > 0@1":     "Settings that are not rules",
 	`h.Href != ""@1`:            "Read it in full",
 	`r.Switch.Label != ""@1`:    "Switch this rule off",
@@ -805,6 +827,10 @@ var policyBranchWitness = map[string]string{
 	"len(r.Bindable) > 0@1":     "Record the binding",
 	"len(v.Authorable) > 0@1":   "Show me what this would do",
 	"len(v.Supersedable) > 0@1": "A new version of",
+
+	// --- M12-37: the redesign's two derived blocks --------------------------------
+	"v.Summary != \"\"@1":        "baseline rules ·",
+	"v.DefaultOutcome != \"\"@1": "When nothing decides",
 }
 
 // TestPolicyFixtures_DriveEveryConditionalBranchOfTheTemplate is the derivation's
@@ -937,6 +963,11 @@ func policyGuaranteeForbiddenClasses() map[string]bool {
 	for name := range panelTouchTargets {
 		out[name] = true
 	}
+	// The redesign's press targets that no screen draws yet (M12-08) are forbidden
+	// here from the day they are defined, not from the day a screen first uses one.
+	for name := range panelPendingTouchTargets {
+		out[name] = true
+	}
 	return out
 }
 
@@ -1002,6 +1033,36 @@ func TestPolicyInertMarkupCheck_FlagsTheControlsThatBeatTheDenyList(t *testing.T
 				"moved one on 2026-08-12", name)
 		}
 	}
+	// THE NOTICE EXEMPTION ADMITS THE NOTICE AND NOTHING ELSE. A notice alone is clean; a
+	// stray role beside it, the notice's own tag carrying another role, and an attribute
+	// added inside its frame are each still findings.
+	var alertFrame string
+	for frame := range policyNoticeFrames(t) {
+		if strings.Contains(frame, `role="alert"`) {
+			alertFrame = frame
+		}
+	}
+	if alertFrame == "" {
+		t.Fatal("no PanelNotice frame carries role=\"alert\", so the cases below test nothing")
+	}
+	notice := alertFrame + `<div class="flex"><p class="lbl">Not done</p></div></div>`
+	if bad := markupOutsideTheAllowList(withoutPanelNoticeFrames(t, notice),
+		policySectionAllowedTags, policySectionAllowedAttrs); len(bad) > 0 {
+		t.Errorf("the section scan flags the panel's own notice frame: %v", bad)
+	}
+	for name, markup := range map[string]string{
+		"a stray role beside a notice":    notice + `<p role="status" class="x">ok</p>`,
+		"a notice tag carrying a switch":  strings.Replace(notice, `role="alert"`, `role="switch"`, 1),
+		"an attribute added in the frame": strings.Replace(notice, `aria-hidden="true"`, `aria-hidden="true" onclick="off()"`, 1),
+		"a role with no notice around it": `<div role="alert" class="x">Turn this guarantee off</div>`,
+	} {
+		if bad := markupOutsideTheAllowList(withoutPanelNoticeFrames(t, markup),
+			policySectionAllowedTags, policySectionAllowedAttrs); len(bad) == 0 {
+			t.Errorf("%s: the section scan reported nothing once the notice frames were taken "+
+				"out, so the exemption admits more than the notice", name)
+		}
+	}
+
 	// AND NEITHER LIST MAY FLAG THE MARKUP ITS OWN REGION REALLY RENDERS, or the
 	// allow-list is a change detector the next author widens until it sees nothing.
 	if bad := markupOutsideTheAllowList(
@@ -1535,6 +1596,111 @@ func markupOutsideTheAllowList(html string, tags, allowedAttrs map[string]bool) 
 	return bad
 }
 
+// policyNoticeFrames maps the opening frame of each components.PanelNotice tone -- its
+// outer tag, which carries role, and the mark beside the label, an aria-hidden svg -- to
+// the same outer tag with the role taken off and the mark left out.
+//
+// 🔴 THE ONE ROLE THIS SECTION MAY CARRY IS THE PANEL NOTICE'S OWN, AND IT IS ADMITTED BY
+// BYTES, NOT BY NAME (M12-49's tour). The Rules page was the last panel section on the
+// old components.Notice -- no "Not done"/"Heads up" label, square corners -- because this
+// net forbids `role`, and PanelNotice announces itself with role="alert" or
+// role="status" (README §5). Adding `role` to policySectionAllowedAttrs would readmit
+// the auditor's role="switch" div anywhere on the page. So the frames are rendered from
+// the component itself, per tone, and only an exact copy of one is replaced before the
+// scan: a role on any other element, a different role value on a notice's own tag, or a
+// notice frame with anything added to it is still a finding. What the notice holds --
+// heading and body -- is scanned like everything else.
+func policyNoticeFrames(t *testing.T) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for _, tone := range []components.Tone{components.ToneOK, components.ToneWarn, components.ToneAlert} {
+		var buf bytes.Buffer
+		if err := components.PanelNotice(tone, "").Render(context.Background(), &buf); err != nil {
+			t.Fatalf("rendering PanelNotice(%s) alone: %v", tone, err)
+		}
+		html := buf.String()
+		open, mark := strings.Index(html, ">"), strings.Index(html, "</span>")
+		if !strings.HasPrefix(html, `<div role="`) || open < 0 || mark < open {
+			t.Fatalf("PanelNotice(%s) no longer opens with a role-bearing tag followed by its "+
+				"mark, so this exemption would match nothing: %.200q", tone, html)
+		}
+		frame := html[:mark+len("</span>")]
+		inert := regexp.MustCompile(`^<div role="[a-z]+" `).ReplaceAllString(html[:open+1], "<div ")
+		if strings.Count(frame, "role=") != 1 || !strings.Contains(frame, "<svg") ||
+			strings.Contains(inert, "role") || strings.Contains(inert, "<svg") {
+			t.Fatalf("PanelNotice(%s)'s frame is not the shape this exemption was written for "+
+				"(one role, one mark): frame %q, inert %q", tone, frame, inert)
+		}
+		// 🔴 WHAT IS DROPPED IS STILL SCANNED, against a list narrower than the section's:
+		// the mark and its drawing, element by element. Without this an onclick on the mark
+		// (measured) left every test green, because the exemption removed it unread.
+		if bad := noticeMarkOutsideItsList(html[open+1 : mark+len("</span>")]); len(bad) > 0 {
+			t.Fatalf("PanelNotice(%s)'s mark carries %v, which no notice mark needs. The "+
+				"section scan does not read the mark (policyNoticeFrames), so it is held "+
+				"to its own list here.", tone, bad)
+		}
+		out[frame] = inert
+	}
+	return out
+}
+
+// policyNoticeMarkAttrs is, per element, everything a PanelNotice mark may carry: an
+// aria-hidden span around an svg drawn with paths and circles. Nothing on it can make an
+// element behave.
+var policyNoticeMarkAttrs = map[string]map[string]bool{
+	"span": {"class": true, "aria-hidden": true},
+	"svg": {"width": true, "height": true, "viewbox": true, "fill": true, "stroke": true,
+		"stroke-width": true, "stroke-linecap": true, "stroke-linejoin": true,
+		"focusable": true, "aria-hidden": true},
+	"path":   {"d": true},
+	"circle": {"cx": true, "cy": true, "r": true},
+}
+
+// noticeMarkOutsideItsList is markupOutsideTheAllowList with the list held per element
+// (policyNoticeMarkAttrs), for the part of a notice frame the section scan skips.
+func noticeMarkOutsideItsList(html string) []string {
+	var bad []string
+	for tag, attrs := range policyNoticeMarkAttrs {
+		for _, found := range markupOutsideTheAllowList(onlyElements(html, tag), map[string]bool{tag: true}, attrs) {
+			bad = append(bad, tag+": "+found)
+		}
+	}
+	// AN ELEMENT NOT ON THE LIST AT ALL is caught by scanning every opening tag against
+	// the element names alone.
+	names := map[string]bool{}
+	for tag := range policyNoticeMarkAttrs {
+		names[tag] = true
+	}
+	for _, m := range regexp.MustCompile(`<\s*([a-zA-Z][a-zA-Z0-9-]*)`).FindAllStringSubmatch(html, -1) {
+		if !names[strings.ToLower(m[1])] {
+			bad = append(bad, "<"+strings.ToLower(m[1])+">")
+		}
+	}
+	return bad
+}
+
+// onlyElements keeps the opening tags of one element name, so the scanner reads that
+// element's attributes alone.
+func onlyElements(html, tag string) string {
+	var b strings.Builder
+	for _, m := range regexp.MustCompile(`<\s*([a-zA-Z][a-zA-Z0-9-]*)[^>]*>`).FindAllStringSubmatch(html, -1) {
+		if strings.EqualFold(m[1], tag) {
+			b.WriteString(m[0])
+		}
+	}
+	return b.String()
+}
+
+// withoutPanelNoticeFrames is html with every exact PanelNotice frame made inert
+// (policyNoticeFrames).
+func withoutPanelNoticeFrames(t *testing.T, html string) string {
+	t.Helper()
+	for frame, inert := range policyNoticeFrames(t) {
+		html = strings.ReplaceAll(html, frame, inert)
+	}
+	return html
+}
+
 // policySectionSlice cuts a rendered panel page into this section and everything
 // outside it.
 //
@@ -1599,6 +1765,9 @@ func policyShellBaseline(t *testing.T) string {
 	t.Helper()
 	c := pages.PanelChrome{
 		FullName: policyTestAdminName, Role: policyTestAdminRole, Tab: pages.TabPolicies,
+		// The section's eyebrow (M12-37) is part of the shell's head, so the baseline the
+		// page is compared with carries the same one -- the same constant, not a copy.
+		Kicker: policiesKicker,
 	}
 	p, err := newFakeLedger().Pending(context.Background(), panelTestTenant)
 	if err != nil {
@@ -1768,6 +1937,11 @@ func policyScreenStates(t *testing.T) map[string]tenant.PolicyScreen {
 				Sid: "own:sentinel", Effect: "review", Actions: []string{"tap:record"},
 				Reason:     "zz-branch-reason",
 				Conditions: []tenant.RuleCondition{{Operator: "Bool", Key: "tap:ipMatch", Value: "false"}},
+			}, {
+				// A SECOND statement, so the arm that prints a later statement's own reason
+				// has a subject (the first one's is the card's sub-line).
+				Sid: "own:sentinel-two", Effect: "allow", Actions: []string{"tap:record"},
+				Reason: "zz-branch-second-reason",
 			}},
 		},
 		{
@@ -2009,8 +2183,13 @@ func TestPolicyProblemWords_EachOneRendersAHeadingAndASentence(t *testing.T) {
 		t.Fatalf("policyProblemWords holds %d word(s); the section uses more",
 			len(policyProblemWords))
 	}
+	// THE LABEL IS COUNTED AGAINST THE SAME PAGE WITH NO PROBLEM, because the page carries
+	// warn notices of its own ("What this page describes") whatever was posted.
+	notDone, headsUp := `>`+components.PanelNoticeLabel(components.ToneAlert)+`</p>`,
+		`>`+components.PanelNoticeLabel(components.ToneWarn)+`</p>`
+	calm := policyStatePage(t, policyPageState{screen: policyScreenFixture()})
 	for _, word := range policyProblemWords {
-		heading, sentence := policyProblem(word)
+		heading, sentence, _ := policyProblem(word)
 		if sentence == "" {
 			t.Errorf("the problem word %q has no sentence, so a refusal that redirects with "+
 				"it renders NO notice at all — the page says nothing happened while something "+
@@ -2028,11 +2207,25 @@ func TestPolicyProblemWords_EachOneRendersAHeadingAndASentence(t *testing.T) {
 		if !strings.Contains(page, htmlText(heading)) {
 			t.Errorf("the page does not print the heading for %q", word)
 		}
+		// 🔴 AND THE NOTICE'S LABEL AGREES WITH ITS HEADING. The panel notice opens an
+		// alert with "Not done"; over `lockout-stands` -- "That change was made, and it
+		// locked you out" -- that label is the contradiction the heading was split to
+		// remove. So that word is the one warning, and every other word is a refusal.
+		wantNotDone, wantHeadsUp := 1, 0
+		if word == "lockout-stands" {
+			wantNotDone, wantHeadsUp = 0, 1
+		}
+		if got := strings.Count(page, notDone) - strings.Count(calm, notDone); got != wantNotDone {
+			t.Errorf("the notice for %q adds %d “Not done” label(s), want %d", word, got, wantNotDone)
+		}
+		if got := strings.Count(page, headsUp) - strings.Count(calm, headsUp); got != wantHeadsUp {
+			t.Errorf("the notice for %q adds %d “Heads up” label(s), want %d", word, got, wantHeadsUp)
+		}
 	}
 	// AND A WORD OUTSIDE THE LIST RENDERS NOTHING — the closed-vocabulary half, or a
 	// caller could put text on somebody's page.
-	if h, s := policyProblem("anything-else"); h != "" || s != "" {
-		t.Errorf("a word outside the closed list produced %q / %q", h, s)
+	if h, s, tone := policyProblem("anything-else"); h != "" || s != "" || tone != "" {
+		t.Errorf("a word outside the closed list produced %q / %q / %q", h, s, tone)
 	}
 }
 
@@ -2192,6 +2385,194 @@ func TestEffectSentence_TranslatesEveryEffectTheEngineHas(t *testing.T) {
 	}
 }
 
+// TestEffectLabel_TranslatesEveryEffectTheEngineHas is the twin of the sentence test for
+// the short label the redesign prints (M12-37): the read-only pill on a statement and the
+// effect on a guarantee's plate. Every effect the engine has gets a word of its own, no
+// two share one (a pill that says the same for review and deny tells nothing), and an
+// unknown keyword falls through as itself rather than as a blank.
+func TestEffectLabel_TranslatesEveryEffectTheEngineHas(t *testing.T) {
+	seen := map[string]policy.Effect{}
+	for _, e := range []policy.Effect{
+		policy.EffectAllow, policy.EffectReview, policy.EffectDeny,
+		policy.EffectIgnore, policy.EffectRedirect, policy.EffectNote,
+	} {
+		got := effectLabel(string(e))
+		if got == string(e) || strings.TrimSpace(got) == "" {
+			t.Errorf("%s has no label; the pill would print the engine's keyword", e)
+		}
+		if other, dup := seen[got]; dup {
+			t.Errorf("%s and %s share the label %q", e, other, got)
+		}
+		seen[got] = e
+	}
+	if got := effectLabel("something-new"); got != "something-new" {
+		t.Errorf("an unknown effect rendered %q; it must fall through as itself", got)
+	}
+	// A GRANT IS NOT AN APPROVAL. The authorization statements allow panel actions, and
+	// "Approve" beside them would read as approving a record.
+	if got := statementLabel("allow", []string{"policy:edit", "report:export"}); got != "Grant" {
+		t.Errorf("an allow over panel actions is labelled %q, want Grant", got)
+	}
+	if got := statementLabel("allow", []string{"tap:record"}); got != effectLabel("allow") {
+		t.Errorf("an allow over tap:record is labelled %q, want %q", got, effectLabel("allow"))
+	}
+	if got := guardrailLabel("deny", "", "security alert"); got != "Reject · security alert" {
+		t.Errorf("a guarantee that raises an alert is labelled %q", got)
+	}
+	if got := guardrailLabel("redirect", "activation page", ""); got != "No record · activation page" {
+		t.Errorf("a redirect is labelled %q", got)
+	}
+	if got := guardrailLabel("deny", "", ""); got != "Reject" {
+		t.Errorf("a guarantee that raises no alert is labelled %q", got)
+	}
+	// THE LAST PLATE'S §4.6 SENTENCE BELONGS TO A REVIEW DEFAULT ONLY. If the engine's
+	// default for a tap were anything else, "sent to The Spike … nothing approves
+	// silently" would be a promise about a default that is not running.
+	for _, e := range []policy.Effect{
+		policy.EffectAllow, policy.EffectReview, policy.EffectDeny,
+		policy.EffectIgnore, policy.EffectRedirect, policy.EffectNote,
+	} {
+		note := defaultTapNote(string(e))
+		promises := strings.Contains(note, "The Spike") || strings.Contains(note, "approves silently")
+		if promises != (e == policy.EffectReview) {
+			t.Errorf("a %s default is described as %q", e, note)
+		}
+	}
+}
+
+// TestPoliciesSection_DrawsTheLadderTheEngineKeeps pins the redesign's ladder (M12-37)
+// to the engine's facts rather than to the board's sample: every guarantee on its own
+// rung, numbered from the engine's Order and in that order, with its condition and its
+// label (the alert included where the engine raises one); the last plate is the engine's
+// DEFAULT, outside the guarantee block; and nothing claims "first match wins" for the
+// whole page -- that is true of the guarantees alone.
+func TestPoliciesSection_DrawsTheLadderTheEngineKeeps(t *testing.T) {
+	screen := policyScreenFixture()
+	body := policyStatePage(t, policyPageState{screen: screen})
+	section, _ := policySectionSlice(t, body)
+	guarantees := policyGuaranteeBytes(t, screen, false)
+
+	last := -1
+	for _, g := range screen.Guardrails {
+		number := fmt.Sprintf(`<span class="rung-no">%02d</span>`, g.Order)
+		at := strings.Index(guarantees, number)
+		if at < 0 {
+			t.Fatalf("guarantee %d (%s) has no rung numbered %s", g.Order, g.Sid, number)
+		}
+		if at < last {
+			t.Errorf("guarantee %d (%s) is drawn before the one above it; the order is the engine's", g.Order, g.Sid)
+		}
+		last = at
+		plate := guarantees[at:]
+		if next := strings.Index(plate[len(number):], `class="rung-no"`); next >= 0 {
+			plate = plate[:len(number)+next]
+		}
+		for _, want := range []string{htmlText(g.When), htmlText(g.Sid), htmlText(guardrailLabel(g.Effect, g.Qualifier, g.Alert))} {
+			if !strings.Contains(plate, want) {
+				t.Errorf("guarantee %s's plate does not carry %q", g.Sid, want)
+			}
+		}
+	}
+	alerts := 0
+	for _, g := range screen.Guardrails {
+		if g.Alert != "" {
+			alerts++
+		}
+	}
+	if alerts == 0 {
+		t.Fatal("the fixture carries no alerting guarantee, so the alert half of the label is untested")
+	}
+	// THE TWO NO-RECORD GUARANTEES ARE TOLD APART BY WHERE THEY LEAVE THE PERSON.
+	for _, want := range []string{"No record · other business", "No record · activation page"} {
+		if !strings.Contains(guarantees, want) {
+			t.Errorf("the guarantee block does not label a redirect %q", want)
+		}
+	}
+	// THE PANEL'S GUARANTEES ARE A GROUP OF THEIR OWN, headed once, right before the first
+	// of them -- and after every tap guarantee.
+	const group = "Guarantees on the panel itself · they guard the rules, not taps"
+	if n := strings.Count(guarantees, group); n != 1 {
+		t.Fatalf("the panel group's heading appears %d times, want 1", n)
+	}
+	at := strings.Index(guarantees, group)
+	for _, g := range screen.Guardrails {
+		pos := strings.Index(guarantees, fmt.Sprintf(`<span class="rung-no">%02d</span>`, g.Order))
+		if (g.Guards == tenant.GuardsPanel) != (pos > at) {
+			t.Errorf("guarantee %s (guards %s) is on the wrong side of the panel group's heading", g.Sid, g.Guards)
+		}
+	}
+
+	if !strings.Contains(section, "When nothing decides") || !strings.Contains(section, htmlText(effectLabel("review"))) {
+		t.Error("the ladder does not end on the engine's default for a tap")
+	}
+	if strings.Contains(guarantees, "When nothing decides") {
+		t.Error("the default plate is drawn inside the guarantee block; it is not a guarantee")
+	}
+	for _, claim := range []string{"First match wins", "first match wins", "read top to bottom"} {
+		if strings.Contains(section, claim) {
+			t.Errorf("the section says %q; below the guarantees the rules are weighed, not read in order", claim)
+		}
+	}
+}
+
+// TestPolicyGuaranteePill_WrapsOnAPhone pins the recipe that keeps a guarantee's
+// effect inside its plate. The pill sits on the plate's own row below md, and the
+// longest label ("Ignore — recorded, counts nothing") in a nowrap pill was measured
+// overflowing the plate by 14 px at 375 px and scrolling the page at 360. The wrap is
+// the cure, and it is only allowed back to nowrap from md, where the plate is wide.
+func TestPolicyGuaranteePill_WrapsOnAPhone(t *testing.T) {
+	raw, err := os.ReadFile("../../web/static/css/input.css")
+	if err != nil {
+		t.Fatalf("reading input.css: %v", err)
+	}
+	m := regexp.MustCompile(`(?s)\.effect-pill--locked\s*\{(.*?)\}`).FindStringSubmatch(string(raw))
+	if m == nil {
+		t.Fatal("input.css declares no .effect-pill--locked rule")
+	}
+	got := strings.Fields(strings.NewReplacer("@apply", " ", ";", " ").Replace(m[1]))
+	for _, want := range []string{"whitespace-normal", "max-w-full", "md:whitespace-nowrap", "min-h-0"} {
+		if !slices.Contains(got, want) {
+			t.Errorf(".effect-pill--locked does not carry %s, so a long guarantee label "+
+				"cannot wrap inside its plate on a phone", want)
+		}
+	}
+	for _, c := range got {
+		if c == "whitespace-nowrap" {
+			t.Error(".effect-pill--locked is nowrap at every width; it must wrap below md")
+		}
+	}
+}
+
+// TestPoliciesSection_TheSwitchIsAButtonThatNamesItsOutcome (M12-37). The redesign draws
+// the on/off control as a switch; what it IS stays a submit button whose words say what
+// pressing it does, with no switch role and no pressed state, posting to the
+// confirmation step -- and there is no effect picker anywhere (the real model is
+// switch, copy, bind; D1).
+func TestPoliciesSection_TheSwitchIsAButtonThatNamesItsOutcome(t *testing.T) {
+	page := policyStatePage(t, policyPageStates(t)["editable"])
+	section, _ := policySectionSlice(t, page)
+	for _, want := range []string{
+		`<button class="rule-switch rule-switch--on" type="submit"><span class="rule-switch-knob"></span>Switch this rule off</button>`,
+		`<button class="rule-switch rule-switch--off" type="submit"><span class="rule-switch-knob"></span>Switch this rule back on</button>`,
+	} {
+		if !strings.Contains(section, want) {
+			t.Errorf("the editable page does not draw %s", want)
+		}
+	}
+	for _, forbidden := range []string{`role="switch"`, "aria-pressed", "aria-checked", `name="effect"`, "Review &amp; save"} {
+		if strings.Contains(section, forbidden) {
+			t.Errorf("the section renders %q", forbidden)
+		}
+	}
+	if n := strings.Count(section, `class="rule-switch `); n != strings.Count(section, `name="op" value="disable"`)+
+		strings.Count(section, `name="op" value="enable"`) {
+		t.Errorf("%d switches for a different number of on/off forms", n)
+	}
+	if n := strings.Count(section, `class="effect-pill`); n == 0 {
+		t.Error("no statement carries its read-only effect pill")
+	}
+}
+
 // TestEffectSentence_DoesNotAssumeTheActionIsATap.
 //
 // 🔴 IT WAS ADDED BECAUSE THE RENDERED PAGE WAS MEASURED SAYING SOMETHING FALSE.
@@ -2302,6 +2683,51 @@ func TestPoliciesSection_SaysNothingIsDecidingWhenTheEngineHasDroppedTheLayer(t 
 	if !strings.Contains(healthy, ">in use<") {
 		t.Error("a healthy rulebook marks no version as in use, so the marker assertion " +
 			"above could not have failed either")
+	}
+}
+
+// TestPoliciesSection_SaysInUseOnlyWhileTheEngineUsesTheVersion.
+//
+// 🔴 A SWITCHED-OFF RULE'S NEWEST VERSION IS STORED, NOT IN USE. The Rules page marked
+// every current history line "in use" in tappa-green unless the whole layer was dropped,
+// so a rule the owner had just switched off went on claiming the engine used it -- the
+// claim the change review had already stopped making
+// (TestPolicyChange_SaysInUseOnlyWhileTheEngineUsesTheVersion). Both pages now read one
+// truth (ruleDeciding). Every other rule's history is taken away, so the one strip
+// counted is the one rule's. MUTANT (measured): ruleDeciding returning !guardrailsOnly
+// (the old Rules page) -> "switched off" red here and on the review page; returning
+// r.State == StateActive -> "layer dropped" red.
+func TestPoliciesSection_SaysInUseOnlyWhileTheEngineUsesTheVersion(t *testing.T) {
+	inUse, stored := `>in use</span>`, `>newest stored</span>`
+	for name, tc := range map[string]struct {
+		edit     func(s *tenant.PolicyScreen)
+		deciding bool
+	}{
+		"deciding": {edit: func(*tenant.PolicyScreen) {}, deciding: true},
+		"switched off": {edit: func(s *tenant.PolicyScreen) {
+			own := &s.Tenant[len(s.Tenant)-1]
+			own.State, own.Statements = tenant.StateOff, nil
+		}},
+		"layer dropped": {edit: func(s *tenant.PolicyScreen) { s.GuardrailsOnly = true }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			screen, _, _ := policyOwnRuleScreen()
+			for i := range screen.Baseline {
+				screen.Baseline[i].History, screen.Baseline[i].HistoryTotal = nil, 0
+			}
+			for i := range screen.Tenant[:len(screen.Tenant)-1] {
+				screen.Tenant[i].History, screen.Tenant[i].HistoryTotal = nil, 0
+			}
+			tc.edit(&screen)
+			page := policyPage(t, &fakeRules{screen: screen})
+			want := map[bool]int{true: 1, false: 0}
+			if got := strings.Count(page, inUse); got != want[tc.deciding] {
+				t.Errorf("the history strip says “in use” %d time(s), want %d", got, want[tc.deciding])
+			}
+			if got := strings.Count(page, stored); got != want[!tc.deciding] {
+				t.Errorf("the history strip says “newest stored” %d time(s), want %d", got, want[!tc.deciding])
+			}
+		})
 	}
 }
 

@@ -3,11 +3,14 @@ package handler
 import (
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -180,7 +183,7 @@ func (a *AdminAuth) anomaliesSection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	v := pages.AnomaliesView{PanelChrome: a.chrome(r, pages.TabAnomalies)}
-	fillAnomaliesView(&v, screen)
+	fillAnomaliesView(&v, screen, time.Now())
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminAnomalies(v))
 }
 
@@ -188,7 +191,11 @@ func (a *AdminAuth) anomaliesSection(w http.ResponseWriter, r *http.Request) {
 //
 // EVERY TIME IS CONVERTED HERE AND ONLY HERE (§6: the database is UTC and the render
 // layer converts), against the zone the database supplied for this tenant.
-func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen) {
+//
+// now is the moment the page is drawn, INJECTED rather than read here (M12-29, the
+// manualentry.go precedent): it dates the open entries' ages, and a test that renders this
+// mapping -- the holdingless golden above all -- has to get the same bytes on every run.
+func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen, now time.Time) {
 	zone := s.Zone
 	if zone == nil {
 		zone = time.UTC
@@ -210,6 +217,12 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen) {
 	} else {
 		v.WeekLabel = days[0].Format("Mon 2 Jan") + " – " + last.Format("Mon 2 Jan 2006")
 	}
+
+	v.WeekShort = weekShort(days[0], last)
+	// THE EYEBROW SAYS WHAT KIND OF PAGE THIS IS (M12-29): the ISO week of its Monday and the
+	// promise §4.3 already keeps -- nothing on it posts, dismisses or decides.
+	_, isoWeek := days[0].ISOWeek()
+	v.Kicker = "Week " + strconv.Itoa(isoWeek) + " · " + v.WeekShort + " · nothing here decides anything"
 
 	v.ThisWeekHref = anomaliesHref
 	v.PrevHref = anomalyWeekHref(days[0].AddDate(0, 0, -1))
@@ -263,22 +276,29 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen) {
 		})
 	}
 
+	v.DistanceOnlyPeople = distanceOnlyPeople(s.People)
+
 	v.MoreVenues = s.MoreVenues
 	v.Venues = make([]pages.AnomalyVenueView, 0, len(s.Venues))
 	for _, l := range s.Venues {
-		v.Venues = append(v.Venues, pages.AnomalyVenueView{
+		row := pages.AnomalyVenueView{
 			Name:    venueName(l.Name),
 			Records: plural(l.Records, "record", "records"),
-			// THE VENUE ROWS PRINT THEIR ZEROES, unlike the people rows. A branch with
-			// none of these is the comparison the other branches are read against, so
-			// suppressing it would leave a reader unable to tell "clean" from "not
-			// listed".
-			DistanceOnly: outOfLine(l.DistanceOnly, l.Judged, "verified by GPS alone"),
+			Partner: l.Partner,
+		}
+		// 🔴 K-39: A PARTNER VENUE'S ROW GETS THE LABEL AND NOTHING EVIDENCE-SHAPED -- no bar,
+		// no split, no base, no outside-the-venue figure. Its evidence counts are zero by
+		// construction (the query counts this business's own venues only), and a zero bar would
+		// still say "measured, none" about a network and a coordinate that are the partner's.
+		if !l.Partner {
+			fillVenueMix(&row, l)
 			// OUT OF THIS VENUE'S SNAPSHOT-CARRYING RECORDS, not its judged ones —
-			// the same split the totals docket makes, for the same reason.
-			OutsideVenue: outOfLine(l.OutsideVenue, l.Answerable, "read outside the venue"),
-			Partner:      l.Partner,
-		})
+			// the same split the totals docket makes, for the same reason. THE ROW PRINTS
+			// ITS ZEROES: a branch with none is the comparison the others are read against.
+			row.OutsideVenue = outOfLine(l.OutsideVenue, l.Answerable, "read outside the venue")
+			v.MixUnsplit = v.MixUnsplit || l.Unsplit() > 0
+		}
+		v.Venues = append(v.Venues, row)
 	}
 
 	// M11 API-1c: this business's lost plaques a partner business's staff touched.
@@ -295,13 +315,20 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen) {
 	v.MorePlaques = s.MorePlaques
 	v.Plaques = make([]pages.AnomalyPlaqueView, 0, len(s.Plaques))
 	for _, p := range s.Plaques {
-		v.Plaques = append(v.Plaques, pages.AnomalyPlaqueView{
+		row := pages.AnomalyPlaqueView{
 			TagUID:       plaqueName(p.TagUID),
 			LocationName: venueName(p.LocationName),
 			Records:      plural(p.Records, "record", "records"),
 			CounterGaps:  plural(p.CounterGaps, "gap", "gaps"),
 			LargestGap:   largestGapLine(p.LargestGap),
-		})
+			Jump:         string(p.JumpState),
+		}
+		if p.JumpState == ledger.CounterJumpRead {
+			row.CounterFrom = "#" + strconv.Itoa(p.JumpFrom)
+			row.CounterTo = "#" + strconv.Itoa(p.JumpTo)
+			row.JumpWhen = jumpWhen(p, zone)
+		}
+		v.Plaques = append(v.Plaques, row)
 	}
 
 	v.MorePairs = s.MorePairs
@@ -319,6 +346,7 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen) {
 			Together: plural(p.Together, "time together", "times together"),
 			Closest:  closestLine(p.ClosestSeconds),
 		})
+		fillPairDays(&v.Pairs[len(v.Pairs)-1], p.TogetherOn, days)
 	}
 
 	v.MoreOpen = s.MoreOpen
@@ -328,6 +356,7 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen) {
 			Who:          personName(o.EmployeeName),
 			Venue:        venueName(o.LocationName),
 			At:           o.At.In(zone).Format("Mon 2 Jan 15:04"),
+			Age:          openAge(o.At, now),
 			ManagerTyped: o.ManagerTyped,
 			WasMaskable:  o.WasMaskable,
 		})
@@ -341,13 +370,158 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen) {
 
 	v.MorePolicies = s.MorePolicies
 	v.Policies = make([]pages.AnomalyPolicyView, 0, len(s.Policies))
-	for _, s := range s.Policies {
+	// THE LONGEST BAR IS THE BUSIEST NAMED RULE. The query orders by count, so that is the
+	// first row that is not the partner bucket; the bucket is left out of the scale so its
+	// length says nothing about which rules decided the records inside it (K-39).
+	busiest := 0
+	for _, r := range s.Policies {
+		if !r.Partner {
+			busiest = max(busiest, r.Records)
+		}
+	}
+	for _, r := range s.Policies {
 		v.Policies = append(v.Policies, pages.AnomalyPolicyView{
-			SID:     policyBucketName(s),
-			Layer:   s.Layer,
-			Records: plural(s.Records, "record", "records"),
+			SID:     policyBucketName(r),
+			Layer:   r.Layer,
+			Records: plural(r.Records, "record", "records"),
+			Pct:     barPct(r.Records, busiest),
+			Partner: r.Partner,
 		})
 	}
+}
+
+// weekShort is the week as the stepper prints it: "7 – 13 Sep", or "28 Sep – 4 Oct" when the
+// week crosses a month.
+func weekShort(first, last time.Time) string {
+	if first.Month() == last.Month() {
+		return first.Format("2") + " – " + last.Format("2 Jan")
+	}
+	return first.Format("2 Jan") + " – " + last.Format("2 Jan")
+}
+
+// fillVenueMix splits one venue's judged records four ways for the evidence bar (M12-22's
+// read, M12-29's drawing).
+//
+// THE PARTS ARE OUT OF JUDGED AND THEIR SUM IS JUDGED: whatever the four do not place
+// (ledger.AnomalyVenue.Unsplit) is a fifth part, "not split", rather than being spread over
+// the others. Widths are integer per cent in steps of five by the largest remainder
+// (components.SplitPct, §6: no float), so they always fill the bar exactly; every count is
+// printed beside it, so the rounding hides nothing. A venue with nothing judged draws an
+// empty track and says so -- an even split would be a distribution nobody measured.
+func fillVenueMix(row *pages.AnomalyVenueView, l ledger.AnomalyVenue) {
+	unsplit := max(l.Unsplit(), 0)
+	type part struct {
+		name, word string
+		n          int
+	}
+	parts := []part{
+		{"both", "both", l.Both},
+		{"network", "network only", l.NetworkOnly},
+		{"distance", "distance only", l.DistanceOnly},
+		{"neither", "neither", l.Neither},
+	}
+	if unsplit > 0 {
+		parts = append(parts, part{"unsplit", "not split", unsplit})
+	}
+	row.Judged = strconv.Itoa(l.Judged) + " judged"
+	if l.Judged <= 0 {
+		row.Split = "No record here was judged on evidence this week."
+		row.MixLabel = row.Name + ": no record judged on evidence"
+		return
+	}
+	counts := make([]int, len(parts))
+	words := make([]string, len(parts))
+	for i, p := range parts {
+		counts[i] = p.n
+		words[i] = strconv.Itoa(p.n) + " " + p.word
+	}
+	for i, pct := range components.SplitPct(counts) {
+		if pct > 0 {
+			row.Segments = append(row.Segments, pages.AnomalyMixSegment{Part: parts[i].name, Pct: pct})
+		}
+	}
+	if n := len(row.Segments); n > 0 {
+		row.Segments[n-1].Last = true
+	}
+	row.Split = strings.Join(words, " · ")
+	row.MixLabel = row.Name + ", " + row.Judged + ": " + strings.Join(words, ", ")
+}
+
+// distanceOnlyPeople is the per-person list narrowed to the people with a record verified by
+// GPS alone, most first, each with its bar as a share of the largest count.
+func distanceOnlyPeople(people []ledger.AnomalyPerson) []pages.AnomalyDistanceOnlyView {
+	var out []pages.AnomalyDistanceOnlyView
+	most := 0
+	for _, p := range people {
+		if p.DistanceOnly > 0 {
+			out = append(out, pages.AnomalyDistanceOnlyView{Name: personName(p.Name), N: p.DistanceOnly})
+			most = max(most, p.DistanceOnly)
+		}
+	}
+	// Stable, so equal counts keep the per-person list's own order.
+	sort.SliceStable(out, func(i, j int) bool { return out[i].N > out[j].N })
+	for i := range out {
+		out[i].Pct = barPct(out[i].N, most)
+	}
+	return out
+}
+
+// barPct is a bar's length as a whole per cent of the longest, held to one width step (5)
+// when there is anything at all: the count is printed beside it, and a bar that vanished at
+// 2 per cent would read as none.
+func barPct(n, longest int) int {
+	if n <= 0 {
+		return 0
+	}
+	return max(components.PctOf(n, longest), 5)
+}
+
+// fillPairDays maps a pair's days onto the week's dots. A nil TogetherOn was not read: the
+// row then prints the day count alone and draws no dots, rather than seven empty ones that
+// would say "on no day".
+func fillPairDays(row *pages.AnomalyPairView, on []bool, days []time.Time) {
+	if on == nil {
+		return
+	}
+	var named []string
+	n := 0
+	for i, d := range days {
+		together := i < len(on) && on[i]
+		row.Dots = append(row.Dots, pages.AnomalyDayDot{Day: d.Format("Mon"), On: together})
+		if together {
+			n++
+			named = append(named, d.Format("Mon"))
+		}
+	}
+	row.DaysOf = strconv.Itoa(n) + " of " + plural(len(days), "day", "days")
+	if len(named) == 0 {
+		row.DotsLabel = "Together on no day of this week"
+		return
+	}
+	row.DotsLabel = "Together on " + strings.Join(named, ", ")
+}
+
+// jumpWhen says when the counters around a gap were read, in the times the phones declared
+// (occurred_at -- ADR 0006 measures the server's clock for the debounce only), so it says
+// "between" and names whose clock it is. When the read just before the gap is not on this
+// business's record, it says so instead of pairing the counter with another read's time.
+func jumpWhen(p ledger.AnomalyPlaque, zone *time.Location) string {
+	at := p.JumpAt.In(zone).Format("Mon 2 Jan 15:04")
+	if p.JumpPreviousAt == nil {
+		return "read " + at + " · the earlier read is not on record"
+	}
+	return "between " + p.JumpPreviousAt.In(zone).Format("Mon 2 Jan 15:04") + " and " + at +
+		", by the phones' clocks"
+}
+
+// openAge is how long an entry has been open, in whole days. Under a day -- or a declared
+// time ahead of the server's -- reads as less than one, never as a negative age.
+func openAge(at, now time.Time) string {
+	d := int(now.Sub(at) / (24 * time.Hour))
+	if d < 1 {
+		return "open <1d"
+	}
+	return "open " + strconv.Itoa(d) + "d"
 }
 
 // outOfLine is the one sentence shape this screen repeats: a count, its denominator and

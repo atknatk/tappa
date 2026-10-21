@@ -1259,10 +1259,16 @@ func docketCell(t *testing.T, html, label string) string {
 }
 
 // docketName reads the docket's own heading, anchored on the section so the screen's
-// three other <h2>s cannot answer for it.
+// other headings cannot answer for it.
+//
+// THE HEADING IS AN <h3> SINCE M12-41: the docket sits inside the Identity card, whose
+// <h2> it belongs under. The anchor is unchanged -- the first docket section on the page
+// and the first h3 after it. An emptied name reads "", and a docket that lost its heading
+// lets the match run on to the VAT block's h3 ("The VAT register"); neither is the stored
+// name, so both stay red.
 func docketName(t *testing.T, html string) string {
 	t.Helper()
-	m := regexp.MustCompile(`(?s)<section class="docket">.*?<h2[^>]*>([^<]*)</h2>`).
+	m := regexp.MustCompile(`(?s)<section class="docket">.*?<h3[^>]*>([^<]*)</h3>`).
 		FindStringSubmatch(html)
 	if m == nil {
 		t.Fatalf("no heading inside the \"On file\" docket; the markup this helper keys "+
@@ -1512,6 +1518,132 @@ func TestAccountSave_EachMessageIsAttachedToItsOwnField(t *testing.T) {
 	for _, field := range []string{"name", "business_type", "timezone"} {
 		if msg := fieldError(t, html, field); msg != "" {
 			t.Errorf("a plain page load carries a %q message (%q)", field, msg)
+		}
+	}
+}
+
+// --- the redesign (M12-41) -------------------------------------------------------------
+
+// TestAccount_HasExactlyOneH1: for an owner and a manager under the five saved brands
+// (none, an accent, a logo, both, an accent the gate refuses today), the Account page
+// carries exactly one <h1> -- the shell's -- and it is the section's label.
+//
+// 🔴 IT WAS TWO UNTIL M12-41. The brand preview drew pages.TapHeading, whose greeting is
+// the employee tap screen's <h1>, so every Account page had a second top-level heading
+// inside its preview. The preview now draws pages.TapPreviewHeading, which has none
+// (TestTapPreviewHeading_IsTapHeadingWithoutItsHeading holds it to TapHeading's bytes).
+func TestAccount_HasExactlyOneH1(t *testing.T) {
+	label := pages.SectionLabel(pages.TabAccount)
+	for _, role := range []string{accountTestOwnerRole, accountTestManagerRole} {
+		for name, pb := range brandShapes(t) {
+			p := newBrandPanel(t, role, panelTestTenant)
+			p.brands.set(pb, nil)
+			page := htmlOf(t, p.browser(t).do(http.MethodGet, accountHref, nil))
+			hs := regexp.MustCompile(`(?s)<h1\b[^>]*>(.*?)</h1>`).FindAllStringSubmatch(page, -1)
+			if n := strings.Count(page, "<h1"); n != 1 || len(hs) != 1 {
+				t.Errorf("%s, %s: %d <h1> on the Account page, want exactly 1 (the shell's)", role, name, n)
+				continue
+			}
+			if got := strings.TrimSpace(hs[0][1]); got != htmlText(label) {
+				t.Errorf("%s, %s: the one <h1> reads %q, want the section's label %q", role, name, got, label)
+			}
+		}
+	}
+}
+
+// TestAccount_DevelopersIsAnOwnerOnlyLinkCard (D1: "Account shows Developers only as an
+// owner-only link card"): an owner's page carries one card that links to the Developers
+// section and holds nothing else a key or a webhook could travel in -- no form, no
+// input, one link; a manager's page names neither the card nor the section's address
+// (§4.5: the section refuses a manager, and the panel does not point anybody at a page
+// that refuses them).
+func TestAccount_DevelopersIsAnOwnerOnlyLinkCard(t *testing.T) {
+	const cardOpen = `aria-labelledby="account-developers-heading"`
+	owner := accountPage(t, newFakeAccount())
+	if n := strings.Count(owner, cardOpen); n != 1 {
+		t.Fatalf("an owner's page draws the Developers card %d times, want 1", n)
+	}
+	start := strings.LastIndex(owner[:strings.Index(owner, cardOpen)], "<section")
+	end := start + strings.Index(owner[start:], "</section>")
+	card := owner[start:end]
+	if !strings.Contains(card, `href="`+apiKeysHref+`"`) || !strings.Contains(card, htmlText("Open Developers")) {
+		t.Errorf("the Developers card does not link to %s with \"Open Developers\":\n%s", apiKeysHref, card)
+	}
+	if n := len(pressTargetsOf(card)); n != 1 {
+		t.Errorf("the Developers card carries %d press targets, want the one link", n)
+	}
+	for _, never := range []string{"<form", "<input", "tt_", "https://"} {
+		if strings.Contains(card, never) {
+			t.Errorf("the Developers card carries %q; it is a link and nothing else", never)
+		}
+	}
+
+	manager := htmlOf(t, accountBrowser(t, newFakeAccount(), &fakeTrail{}, accountTestManagerRole).
+		do(http.MethodGet, accountHref, nil))
+	for _, never := range []string{cardOpen, apiKeysHref, htmlText("Integration keys"), htmlText("Open Developers")} {
+		if strings.Contains(manager, never) {
+			t.Errorf("a manager's Account page carries %q; the Developers section is the owner's", never)
+		}
+	}
+}
+
+// accountContrastRatio is a contrast ratio as a reader would see it written: "5.70:1",
+// "4.5 : 1", "7:1".
+var accountContrastRatio = regexp.MustCompile(`\d(\.\d+)?\s*:\s*1\b`)
+
+// TestAccount_DrawsNothingTheScreenFileLeftOut is the screen file's "Not ported" list
+// (docs/design/panel-redesign/screens/account-auth.md §1.4) as text that must not appear,
+// for both roles, and its one corrected sentence as text that must: the logo's VIES gate
+// is the activation screens', not the tap screen's.
+func TestAccount_DrawsNothingTheScreenFileLeftOut(t *testing.T) {
+	for _, role := range []string{accountTestOwnerRole, accountTestManagerRole} {
+		p := newBrandPanel(t, role, panelTestTenant)
+		p.brands.set(wl8Brand(t, true, true), nil)
+		page := htmlOf(t, p.browser(t).do(http.MethodGet, accountHref, nil))
+		for _, never := range []string{
+			"white text", // the gate picks paper OR ink
+			": 1", ":1 ", // no contrast ratio readout
+			"Shown only when your VAT number is verified", // the uncorrected sentence
+			"Account managers", "Invite manager",          // no managers card (M7-07 blocked)
+			"Holding", "holding group", // no group card (ADR 0027 §2)
+			"Close this account", "Close account", // no account closing
+			"CET/CEST", // no zone abbreviation
+		} {
+			if strings.Contains(page, htmlText(never)) || strings.Contains(page, never) {
+				t.Errorf("%s: the Account page carries %q, which the screen file leaves out", role, never)
+			}
+		}
+		// No contrast ratio readout, in any spelling. The two literals above caught only
+		// ": 1" and ":1 " -- "Contrast 5.70:1" slipped past both. A clock in the page's text
+		// cannot trip it: minutes are two digits, so "10:15" has no word boundary after the 1.
+		if m := accountContrastRatio.FindString(stripTags(page)); m != "" {
+			t.Errorf("%s: the Account page reads out a contrast ratio %q, which the screen file leaves out", role, m)
+		}
+		// The zone stays a free input. This used to search for one exact select opening
+		// (`<select class="field-input" id="account-timezone"`) and went vacuous the day the
+		// input's class became "field-input field-input--mono": any select named timezone is
+		// the ban, and the owner's form must positively carry the input, or the ban measures
+		// a page that has no zone control at all.
+		if regexp.MustCompile(`<select[^>]*\bname="timezone"`).MatchString(page) {
+			t.Errorf("%s: the zone is a select; the screen file keeps it a free input", role)
+		}
+		if role == accountTestOwnerRole && !regexp.MustCompile(`<input[^>]*\bname="timezone"`).MatchString(page) {
+			t.Errorf("owner: the Account page carries no timezone input, so the select ban measured nothing")
+		}
+		if regexp.MustCompile(`<input[^>]*name="vat_number"`).MatchString(page) {
+			t.Errorf("%s: the VAT number is an input", role)
+		}
+		// The two headings the screen file renames, and the button.
+		if !strings.Contains(page, ">Identity</h2>") {
+			t.Errorf("%s: no \"Identity\" card", role)
+		}
+		if role == accountTestOwnerRole {
+			for _, want := range []string{"Save changes", "Accent colour",
+				"Your logo shows on the activation screens only once your VAT number is verified."} {
+				if !strings.Contains(page, htmlText(want)) {
+					t.Errorf("owner: the Account page does not carry %q", want)
+				}
+			}
 		}
 	}
 }

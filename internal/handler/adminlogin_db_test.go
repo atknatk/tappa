@@ -541,14 +541,18 @@ func TestPanelE2E_SignInAndOut(t *testing.T) {
 		if sec.GroupOnly {
 			continue // GRP-1: drawn for a holding member alone; this business is in no group (group_db_test.go)
 		}
-		// htmlText, not the raw label: "Locations & Wall Tags" reaches the page as
-		// "Locations &amp; Wall Tags", and the first version of this loop compared the
+		// htmlText, not the raw label: "Venues & plaques" reaches the page as
+		// "Venues &amp; plaques", and the first version of this loop compared the
 		// unescaped string and failed on exactly that section.
 		if !strings.Contains(panel, htmlText(sec.Label)) {
 			t.Fatalf("the panel does not offer the %q section", sec.Label)
 		}
 	}
-	if !strings.Contains(panel, "Nothing here yet") {
+	// M12-09: the panel's empty state opens with the section's own name rather than
+	// "Nothing here yet", so "it says it is empty" is that label directly followed by the
+	// empty state's heading -- the shell's kicker, the only other label, is followed by the h1.
+	emptyLabel := `<p class="lbl">` + htmlText(pages.SectionLabel(pages.TabTransactions)) + `</p><h2 `
+	if !strings.Contains(panel, emptyLabel) || strings.Contains(panel, "Nothing here yet") {
 		t.Fatalf("the default section does not say it is empty")
 	}
 	// 🔴 NO OPERATOR ELEMENT ON A CUSTOMER'S PANEL (M10 OP-10). Until OP-10 the panel

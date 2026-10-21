@@ -1645,6 +1645,30 @@ func TestLegalPages_SkeletonsAreNotIndexedAndSayWhatTheyAreWaitingFor(t *testing
 // byte-for-byte what they were before — because a page that changed its language
 // because a different document was published would be speaking for a document it is
 // not.
+//
+// ⚠️ ONE BYTE RANGE IS EXEMPT, AND IT IS NAMED RATHER THAN TOLERATED (M12-46). The
+// redesign's document navigation lists all four documents and marks each one that is
+// "Not in force yet" — a statement about THAT document, read from the same snapshot.
+// So on the other three pages exactly one thing may change: the privacy entry of that
+// navigation loses its mark. Everything else, the document's own words included, is
+// still compared byte for byte, and the mark has to have been there before and gone
+// after, or this fails.
+// legalNavMarkRE finds a document navigation entry and the "Not in force yet" mark
+// inside it. The footer's links carry no mark, so the first match is the navigation.
+func legalNavMarkRE(path string) *regexp.Regexp {
+	return regexp.MustCompile(`(?s)(<a href="` + regexp.QuoteMeta(path) + `"[^>]*>(?:[^<]|<span[^>]*>[^<]*</span>)*?)<span class="[^"]*">Not in force yet</span>`)
+}
+
+// withoutNavMark returns body with the navigation mark of path removed, and whether
+// there was one to remove.
+func withoutNavMark(body, path string) (string, bool) {
+	loc := legalNavMarkRE(path).FindStringSubmatchIndex(body)
+	if loc == nil {
+		return body, false
+	}
+	return body[:loc[3]] + body[loc[1]:], true
+}
+
 func TestLegalPages_PublishingOneDocumentChangesThatDocumentAndNoOther(t *testing.T) {
 	t.Parallel()
 	const draftNotice = "This text has not been published yet"
@@ -1659,7 +1683,15 @@ func TestLegalPages_PublishingOneDocumentChangesThatDocumentAndNoOther(t *testin
 		was := mustFetchMarketing(t, before, p.Path)
 		now := mustFetchMarketing(t, after, p.Path)
 		if p.Path != "/legal/privacy" {
-			if was != now {
+			expected, ok := withoutNavMark(was, "/legal/privacy")
+			if !ok {
+				t.Errorf("%s: before publication the navigation's privacy entry carries no "+
+					"\"Not in force yet\" mark, so this comparison is not exercising it", p.Path)
+			}
+			if _, still := withoutNavMark(now, "/legal/privacy"); still {
+				t.Errorf("%s still marks the published privacy policy as not in force", p.Path)
+			}
+			if expected != now {
 				t.Errorf("%s changed when a DIFFERENT document was published. Each legal page "+
 					"speaks for one document; publishing the privacy policy must not alter a "+
 					"word of the terms.", p.Path)
@@ -2421,4 +2453,43 @@ func splitAtRuleBodies(css, name string) []atRuleBlock {
 		i = open + 1
 	}
 	return out
+}
+
+// TestLegalPages_NavigationMarksTheCurrentDocumentAndWhatIsNotInForce is M12-46's
+// document navigation and header, over the served pages: each page marks itself and
+// only itself current, every document without a published text carries the "Not in
+// force yet" mark and a published one does not, and the header's "Start free" goes to
+// the wizard the handler mounts.
+func TestLegalPages_NavigationMarksTheCurrentDocumentAndWhatIsNotInForce(t *testing.T) {
+	t.Parallel()
+	texts := newFakeTexts()
+	texts.put("privacy", "Kebab Factory Ltd is the controller of this fictional example.")
+	r := marketingRouterWithTexts(t, texts)
+	current := regexp.MustCompile(`<a href="([^"]*)"[^>]*aria-current="page"`)
+	for _, p := range pages.LegalPages {
+		body := mustFetchMarketing(t, r, p.Path)
+		got := current.FindAllStringSubmatch(body, -1)
+		if len(got) != 1 || got[0][1] != p.Path {
+			t.Errorf("%s marks %v as the current document, want exactly %s", p.Path, got, p.Path)
+		}
+		for _, q := range pages.LegalPages {
+			_, marked := withoutNavMark(body, q.Path)
+			if want := q.Path != "/legal/privacy"; marked != want {
+				t.Errorf("%s: the navigation's %s entry says not in force = %v, want %v",
+					p.Path, q.Path, marked, want)
+			}
+		}
+		if !regexp.MustCompile(`<a href="` + regexp.QuoteMeta(signupPath) + `"[^>]*>\s*Start free\s*</a>`).MatchString(body) {
+			t.Errorf("%s offers no \"Start free\" to %s", p.Path, signupPath)
+		}
+	}
+	// The cookie notice prints the shared attributes once, from the rows themselves.
+	body := mustFetchMarketing(t, r, cookieNoticePath)
+	flags := pages.AllFlags(cookieNotice())
+	if flags == "" {
+		t.Fatal("the cookie rows no longer share one attribute set; this check would read nothing")
+	}
+	if !strings.Contains(screenText(t, body), "Every cookie is "+flags) {
+		t.Errorf("the cookie notice does not state the attributes every cookie shares (%q)", flags)
+	}
 }

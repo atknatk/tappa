@@ -114,7 +114,8 @@ type apiVenueDetail struct {
 	ToActive   bool  `json:"to_active"`
 
 	// LostProofOfPlace is venueDetail's derived field with venueDetail's meaning: after the act
-	// the venue has neither static IPs nor a coordinate.
+	// the venue has neither an address list that counts as evidence nor a coordinate
+	// (Venue.HasProofOfPlace).
 	LostProofOfPlace bool `json:"lost_proof_of_place"`
 }
 
@@ -135,8 +136,14 @@ func (r apiVenueRow) venue(zone string) APIVenue {
 	return APIVenue{ID: r.ID, ExternalRef: deref(r.ExternalRef), Name: r.Name, Active: r.Active, Timezone: zone, CreatedAt: r.CreatedAt}
 }
 
+// hasProofOfPlace asks Venue.HasProofOfPlace rather than restating it (M12-03): the
+// panel and this path write the same lost_proof_of_place key, and a second copy of
+// the rule had already drifted -- it counted any non-empty address list, while the
+// decision engine counts none that netx.TooWideForProofOfPlace refuses. The API
+// never writes static_ips, so a wide list here is a pre-guard row it renamed or
+// deactivated; the trail must still say the venue has no proof of place.
 func (r apiVenueRow) hasProofOfPlace() bool {
-	return len(r.StaticIps) > 0 || gpsOf(r.GpsLat, r.GpsLng) != nil
+	return Venue{StaticIPs: r.StaticIps, GPS: gpsOf(r.GpsLat, r.GpsLng)}.HasProofOfPlace()
 }
 
 // apiExternalRef checks a path's ref: the schema's pattern, exactly as sent.

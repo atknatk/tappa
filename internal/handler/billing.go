@@ -146,9 +146,10 @@ type panelBooks interface {
 // ⚠️ IT NAMES NO FIGURE, which is the whole point of the gate. The sentence describes
 // WHO may look, never WHAT they would have seen.
 var problemBillingOwnerOnly = pages.ProblemView{
-	Title:   "Billing is the owner's",
-	Message: "This section shows what this business is charged for Taptime, and it is visible to an owner of the business rather than to a manager. Nothing is wrong with your account.",
-	Hint:    "If you need these figures, ask an owner of the business.",
+	Title:     "Billing is the owner's",
+	Message:   "This section shows what this business is charged for Taptime, and it is visible to an owner of the business rather than to a manager. Nothing is wrong with your account.",
+	Hint:      "If you need these figures, ask an owner of the business.",
+	OwnerOnly: true,
 }
 
 // billingSection renders the whole section: the month picker, the draft or the frozen
@@ -181,6 +182,7 @@ func (a *AdminAuth) billingSection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	v := pages.BillingView{PanelChrome: a.chrome(r, pages.TabBilling)}
+	v.Kicker = "What each month costs"
 	fillBillingView(&v, d, history, capped, time.Now())
 	// THE ECHOED WORD IS FILTERED THROUGH THE CLOSED LIST BEFORE IT IS TURNED INTO A
 	// SENTENCE, so a query string carrying anything at all produces no notice rather
@@ -282,11 +284,10 @@ func fillBillingView(v *pages.BillingView, d billing.Draft, history []billing.Dr
 	// preview identically is the failure this task exists to prevent.
 	v.Frozen = d.Frozen
 	if d.Frozen {
+		// skill tappa-brand: the WORD carries the status and the template only tints
+		// the frame (tappa-green, the shipped approved modifier — the palette is closed).
 		v.Stamp = "FROZEN"
-		// skill tappa-brand: the WORD carries the status and the token only tints the
-		// frame. tappa-green is the settled tone and this reuses the shipped modifier
-		// rather than adding a hex or a class — the palette is closed.
-		v.StampClass = "stamp--approved"
+		v.AmountLabel = "Frozen"
 		v.StateLine = "These figures were frozen when this month was closed. Nothing recomputes " +
 			"them: a person deactivated or removed since, and a price that has changed since, " +
 			"cannot move this amount."
@@ -295,10 +296,11 @@ func fillBillingView(v *pages.BillingView, d billing.Draft, history []billing.Dr
 			"stored can reconstruct that list, so this figure is an invoice and never an " +
 			"itemised one."
 	} else {
+		// The template frames it in saffron, the brand's warning tone, which is exactly
+		// what a figure that can still move is.
 		v.Stamp = "DRAFT"
-		// saffron is the brand's warning tone, which is exactly what a figure that can
-		// still move is.
-		v.StampClass = "stamp--flagged"
+		v.AmountLabel = "Draft"
+		fillBillingRunning(v, d, now)
 		v.StateLine = draftStateLine(d)
 		v.Itemisation = "Freezing a month stores the NUMBER of people and not which people, so a " +
 			"frozen figure can never be itemised afterwards."
@@ -308,6 +310,8 @@ func fillBillingView(v *pages.BillingView, d billing.Draft, history []billing.Dr
 	v.EmployeeCount = strconv.Itoa(d.EmployeeCount)
 	v.UnitPrice = money(d.UnitPrice)
 	v.Amount = money(d.AmountDue)
+	v.Equation = v.AmountLabel + ": " + plural(d.EmployeeCount, "person", "people") + " at " +
+		v.UnitPrice + " each, " + v.Amount + "."
 	// THE DEFINITION, ON THE SCREEN, which is the card's first criterion. It is the
 	// applied definition and not the card's parenthesis: the card said "active on any
 	// day of the month" and the shipped rule adds a conjunct.
@@ -321,8 +325,53 @@ func fillBillingView(v *pages.BillingView, d billing.Draft, history []billing.Dr
 
 	fillBillingUnstamped(v, d)
 	fillBillingFounding(v, d, now)
+	fillBillingPlan(v, d)
 	fillBillingControl(v, d)
 	fillBillingHistory(v, history, capped)
+}
+
+// fillBillingRunning marks the one draft whose figure moves while the page is open:
+// the month the business is living in now, in its own zone. It says how far into the
+// month we are, and the amount is then a figure "so far" rather than a draft.
+//
+// AN UNFROZEN MONTH THAT HAS NOT ENDED IS NOT NECESSARILY THIS MONTH: the picker can
+// name a future one, which has not started. So the test is the calendar, not HasEnded
+// alone, and a future month keeps the plain "Draft" label and no day line.
+func fillBillingRunning(v *pages.BillingView, d billing.Draft, now time.Time) {
+	if d.HasEnded {
+		return
+	}
+	zone, err := time.LoadLocation(d.Zone)
+	if err != nil {
+		zone = time.UTC
+	}
+	if billing.MonthOf(now, zone) != d.Month {
+		return
+	}
+	// The month's length from the calendar (day 0 of the next month is this month's
+	// last), integer arithmetic only.
+	days := time.Date(d.Month.Year, d.Month.Month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	v.Running = true
+	v.AmountLabel = "So far"
+	v.RunningLine = "day " + strconv.Itoa(now.In(zone).Day()) + " of " + strconv.Itoa(days) +
+		" · the figure moves until the month ends"
+}
+
+// fillBillingPlan writes the plan card's founding lines from the first chargeable
+// month the database worked out.
+//
+// 🔴 NO COUNT OF FREE MONTHS IS WRITTEN HERE OR IN THE TEMPLATE. The offer's length
+// is tappa_first_chargeable_month's (migration 0016); the card names the month it
+// ends and the month that is charged first, so a change to the rule changes the card.
+// A 'standard' plan gets no free month (the function returns its signup month), so it
+// gets no free line either — "free until the end of the month before you signed up"
+// would be true and meaningless.
+func fillBillingPlan(v *pages.BillingView, d billing.Draft) {
+	if d.Plan != "founding" || d.FirstChargeableMonth.Zero() {
+		return
+	}
+	v.FirstCharged = monthLabel(d.FirstChargeableMonth)
+	v.FreeUntil = "Free until the end of " + monthLabel(d.FirstChargeableMonth.Add(-1)) + "."
 }
 
 // draftStateLine says what a DRAFT figure can still do, and it says two different
@@ -488,17 +537,21 @@ func fillBillingHistory(v *pages.BillingView, history []billing.Draft, capped bo
 	v.HistoryCapLabel = "This business has more frozen months than one page carries (limit " +
 		strconv.Itoa(billing.HistoryCap) + "). Nothing has been lost — an older month is still " +
 		"readable by asking for it in the month picker above."
-	v.HistoryEmpty = "No month has been frozen yet. A month that has ended can be frozen from " +
-		"the card above, and it then appears here."
+	v.HistoryEmptyHeading = "No month has been frozen yet"
+	v.HistoryEmpty = "A month that has ended can be frozen from the card above, and it then " +
+		"appears here."
 	v.History = make([]pages.BillingHistoryRow, 0, len(history))
 	for _, h := range history {
 		row := pages.BillingHistoryRow{
 			MonthValue: h.Month.String(),
 			MonthLabel: monthLabel(h.Month),
+			RangeLabel: rangeLabel(h),
 			Employees:  plural(h.EmployeeCount, "person", "people"),
 			UnitPrice:  money(h.UnitPrice) + " each",
 			Amount:     money(h.AmountDue),
-			ClosedAt:   h.ClosedAt.UTC().Format(time.RFC3339),
+			ClosedAt:   closedLabel(h),
+			Href:       billingMonthHref(h.Month),
+			CSVHref:    billingCSVMonthHref(h.Month),
 			Free:       h.Free,
 		}
 		if h.UnstampedEmployees > 0 {
@@ -511,6 +564,47 @@ func fillBillingHistory(v *pages.BillingView, history []billing.Draft, capped bo
 		}
 		v.History = append(v.History, row)
 	}
+}
+
+// rowZone is the zone a frozen row was counted in, which is the zone its dates are
+// read in. A name this binary cannot load reads in UTC and says so (labelIn), rather
+// than printing a local-looking date that is not.
+func rowZone(d billing.Draft) (*time.Location, bool) {
+	zone, err := time.LoadLocation(d.Zone)
+	if err != nil || d.Zone == "" {
+		return time.UTC, false
+	}
+	return zone, true
+}
+
+// rangeLabel is a month's first and last day as the row's own boundaries put them:
+// "1 – 31 Aug". The last day is the day before the EXCLUSIVE end, so a month is
+// printed from the instants it was counted over and never from a calendar guess.
+func rangeLabel(d billing.Draft) string {
+	if d.From.IsZero() || d.To.IsZero() {
+		return ""
+	}
+	zone, ok := rowZone(d)
+	from, last := d.From.In(zone), d.To.In(zone).AddDate(0, 0, -1)
+	out := strconv.Itoa(from.Day()) + " " + from.Format("Jan") + " – " +
+		strconv.Itoa(last.Day()) + " " + last.Format("Jan")
+	if from.Month() == last.Month() {
+		out = strconv.Itoa(from.Day()) + " – " + strconv.Itoa(last.Day()) + " " + last.Format("Jan")
+	}
+	return labelIn(out, ok)
+}
+
+// closedLabel is when a row was frozen, in the zone it was counted in.
+func closedLabel(d billing.Draft) string {
+	zone, ok := rowZone(d)
+	return labelIn(d.ClosedAt.In(zone).Format("2 Jan 2006 15:04"), ok)
+}
+
+func labelIn(s string, local bool) string {
+	if local {
+		return s
+	}
+	return s + " UTC"
 }
 
 // money renders an exact amount with a symbol.

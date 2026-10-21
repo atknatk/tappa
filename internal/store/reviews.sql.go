@@ -108,6 +108,57 @@ func (q *Queries) CountPendingFlagged(ctx context.Context, arg CountPendingFlagg
 	return pending, err
 }
 
+const countReviewsSince = `-- name: CountReviewsSince :one
+SELECT count(*)::int AS decided
+FROM transaction_reviews r
+WHERE r.tenant_id = $1
+  AND r.reviewed_at >= $2
+`
+
+type CountReviewsSinceParams struct {
+	TenantID uuid.UUID
+	Since    time.Time
+}
+
+// How many flagged records a manager of THIS business decided since @since (M12-25): The Spike's
+// "N decided today". The caller passes the tenant's LOCAL midnight (ledger.Reader.Queue derives
+// it from GetTenantClock in the same transaction), so "today" is the business's day and not UTC's
+// (CLAUDE.md §6).
+//
+// IT READS transaction_reviews ONLY. A decision is the manager's row (append-only, §4.3) and, on
+// the product's write path, its reviewed_at is the moment it was recorded -- the SERVER's now() at
+// INSERT, never a declared time: no statement in db/queries writes the column, so it is always
+// 00005's DEFAULT now(). (The schema does not forbid writing it; a row written outside the product
+// would carry whatever it was given.)
+// No transactions column is read, so no evidence reaches the figure and the K-39 inventory
+// (internal/db/evidencereaders_test.go) is not touched: a decision on a record taken at a holding
+// peer's venue is still this business's decision about its own record.
+//
+// NOT CAPPED, AND THE REASON IS STATED RATHER THAN ASSUMED. CountPendingFlagged caps because its
+// ORDER BY lets an index stop early; here no index leads with reviewed_at (00005 has
+// (tenant_id, transaction_id) and the UNIQUE (transaction_id)), so a LIMIT would not shorten the
+// walk when the day is quiet -- the steady state. The figure is a day of one manager's clicks, so
+// the count itself is small; what grows is the tenant's review history the filter walks past. An
+// index on (tenant_id, reviewed_at) would bound it and is a migration -- not this card's.
+//
+// TENANT SCOPE (§4.5, belt + braces): explicit predicate on top of RLS. @since is a bare parameter.
+//
+// MEASURED 2026-10-20 (EXPLAIN ANALYZE as tappa_app in the tenant's context, PREPAREd; seed
+// tenant 10000000-0000-4000-8000-000000000001 after `make seed` + the simulated day -- 0 reviews of
+// its own, the table 3 rows in all; after ANALYZE; 3 runs):
+//
+//	Aggregate <- Result (One-Time Filter: RLS) <- Seq Scan transaction_reviews
+//	             (Filter: reviewed_at >= $2 AND tenant_id = $1)   0 rows, 31.3 (cold) / 0.16 / 0.15 ms
+//
+// A seq scan of a three-row table is the planner's answer at that size and says nothing about a
+// business with a year of decisions. One observation with its conditions, not a property.
+func (q *Queries) CountReviewsSince(ctx context.Context, arg CountReviewsSinceParams) (int32, error) {
+	row := q.db.QueryRow(ctx, countReviewsSince, arg.TenantID, arg.Since)
+	var decided int32
+	err := row.Scan(&decided)
+	return decided, err
+}
+
 const getReviewedPunchSite = `-- name: GetReviewedPunchSite :one
 SELECT site_tenant_id
 FROM transactions

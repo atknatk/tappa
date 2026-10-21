@@ -73,6 +73,9 @@ var constantTimeInventory = map[string]int{
 	"internal/handler/deactivateconfirm.go": 2,
 	// The employee-action confirmation token.
 	"internal/handler/employeeactions.go": 1,
+	// The rule-change confirmation precheck (M12-38): the confirmation cookie against
+	// the posted token, before any rulebook read. Attacker-fed (the form field).
+	"internal/handler/policyactions.go": 1,
 	// The login state: CSRF, the signed cookie, and the tenant match.
 	"internal/handler/logincontext.go": 3,
 	// The signup state: CSRF and the signed cookie.

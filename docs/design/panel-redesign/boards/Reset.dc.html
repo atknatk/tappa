@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Reset password — Taptime</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.field{min-height:48px;width:100%;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:10px;background:#FFFDF4;padding:0 14px;font:14px 'IBM Plex Mono',monospace;color:#152219}
+.field:focus{outline:2px solid #1F5C41;outline-offset:1px;border-color:#1F5C41}
+.primary{min-height:52px;border:0;border-radius:12px;background:#1F5C41;color:#FFFDF4;font:700 16px 'Space Grotesk',sans-serif;cursor:pointer}
+</style>
+</helmet>
+<div style="min-height: 100vh; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA; display: flex; flex-direction: column">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="padding: 22px clamp(20px, 4vw, 56px); display: flex; align-items: center; justify-content: space-between; gap: 16px">
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <div style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em">taptime</div>
+      <div class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">punchless</div>
+    </div>
+    <a href="SignIn.dc.html" style="display: inline-flex; align-items: center; min-height: 44px; font-weight: 700; font-size: 14px">← Back to sign in</a>
+  </header>
+
+  <main style="flex: 1; width: 100%; max-width: 1040px; margin: 0 auto; padding: 32px clamp(20px, 4vw, 56px) 72px; box-sizing: border-box; display: flex; flex-wrap: wrap; gap: 40px; align-items: flex-start">
+    <nav aria-label="Password reset steps" style="flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+      <span class="lbl" style="margin-bottom: 10px">Reset your password · 3 steps</span>
+      <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; position: relative">
+        <sc-for list="{{steps}}" as="s" hint-placeholder-count="3">
+          <li style="display: flex; gap: 14px; align-items: stretch">
+            <div style="display: flex; flex-direction: column; align-items: center; width: 36px; flex: none">
+              <span class="mono" style="{{s.dot}}">{{s.no}}</span>
+              <sc-if value="{{s.line}}" hint-placeholder-val="{{true}}">
+                <span aria-hidden="true" style="flex: 1; width: 2px; min-height: 26px; background: #C9D2C8"></span>
+              </sc-if>
+            </div>
+            <div aria-current="{{s.current}}" style="flex: 1; min-height: 44px; margin-bottom: 14px; padding: 6px 0; border: 0; background: transparent; text-align: left; font: inherit; color: #152219; display: flex; flex-direction: column; gap: 2px">
+              <span style="{{s.titleStyle}}">{{s.title}}</span>
+              <span style="font-size: 13px; color: rgba(21,34,25,.7)">{{s.sub}}</span>
+            </div>
+          </li>
+        </sc-for>
+      </ol>
+    </nav>
+
+    <section style="flex: 999 1 460px; min-width: 0; max-width: 520px; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 36px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+      <sc-if value="{{s1}}" hint-placeholder-val="{{true}}">
+        <div style="display: flex; flex-direction: column; gap: 20px">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <h1 style="margin: 0; font-size: 32px; letter-spacing: -0.03em">Can't get in?</h1>
+            <p style="margin: 0; font-size: 15px; line-height: 1.5; color: rgba(21,34,25,.7)">Give us the email address you sign in with and we'll send a link that lets you set a new password.</p>
+          </div>
+          <sc-if value="{{noMail}}" hint-placeholder-val="{{false}}">
+            <div role="note" style="border: 1px solid #D98E2B; background: #F7EBD6; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+              <strong style="font-size: 14px">This Taptime cannot send email yet</strong>
+              <span style="font-size: 13px; line-height: 1.45">No recovery link will arrive, whatever address you enter — sending is not switched on for this server.</span>
+            </div>
+          </sc-if>
+          <form onSubmit="{{stop}}" style="display: flex; flex-direction: column; gap: 16px">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <label for="rs-email" class="lbl">Email</label>
+              <input id="rs-email" class="field" type="email" autocomplete="username" placeholder="you@yourcompany.com">
+            </div>
+            <button type="submit" class="primary">Send me a link</button>
+          </form>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{s2}}" hint-placeholder-val="{{false}}">
+        <sc-if value="{{canMail}}" hint-placeholder-val="{{true}}">
+          <div style="display: flex; flex-direction: column; gap: 16px">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#152219" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6l8.5 7 8.5-7"/></svg>
+            <h1 style="margin: 0; font-size: 32px; letter-spacing: -0.03em">Check your email</h1>
+            <p style="margin: 0; font-size: 15px; line-height: 1.5">If that address belongs to a Taptime administrator, a recovery link is on its way to it. The link works once and expires in an hour.</p>
+            <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7)">Nothing has changed yet: your current password still works until you use the link.</p>
+            <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7)">If a recovery email reached you, its link works for as long as it says — asking again sends no new link while that one still works.</p>
+          </div>
+        </sc-if>
+        <sc-if value="{{noMail}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-direction: column; gap: 16px">
+            <h1 style="margin: 0; font-size: 32px; letter-spacing: -0.03em">Nothing was sent</h1>
+            <div role="note" style="border: 1px solid #D98E2B; background: #F7EBD6; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+              <strong style="font-size: 14px">This Taptime cannot send email yet</strong>
+              <span style="font-size: 13px; line-height: 1.45">Sending is not switched on for this server, so no recovery link was created and none will arrive. Nothing about your account was changed.</span>
+            </div>
+          </div>
+        </sc-if>
+      </sc-if>
+
+      <sc-if value="{{s3}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; flex-direction: column; gap: 20px">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <h1 style="margin: 0; font-size: 32px; letter-spacing: -0.03em">Set a new password</h1>
+            <p style="margin: 0; font-size: 15px; line-height: 1.5; color: rgba(21,34,25,.7)">Choose something you will remember. At least 8 characters — a few words beats a short one.</p>
+          </div>
+          <sc-if value="{{newError}}" hint-placeholder-val="{{false}}">
+            <div role="alert" style="border: 2px solid #BE3D2A; background: #FFFDF4; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+              <strong style="font-size: 14px">That didn't work</strong>
+              <span style="font-size: 13px; line-height: 1.45">The two passwords are not the same.</span>
+            </div>
+          </sc-if>
+          <form onSubmit="{{stop}}" style="display: flex; flex-direction: column; gap: 16px">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <label for="rs-new" class="lbl">New password</label>
+              <input id="rs-new" class="field" type="password" autocomplete="new-password">
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <label for="rs-again" class="lbl">Type it again</label>
+              <input id="rs-again" class="field" type="password" autocomplete="new-password">
+            </div>
+            <button type="submit" class="primary">Set the password</button>
+          </form>
+          <p style="margin: 0; font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.7); border-top: 1px dashed #C9D2C8; padding-top: 14px">Setting a new password signs you out of Taptime everywhere, on every device — including this one. You will sign in again straight afterwards.</p>
+        </div>
+      </sc-if>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"step":{"editor":"enum","options":["1","2","3"],"default":"1"},"canDeliver":{"editor":"boolean","default":true},"newError":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":530}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const can = this.props.canDeliver ?? true;
+    const step = Number(this.props.step ?? '1');
+    const stop = (e) => { if (e && e.preventDefault) e.preventDefault(); };
+        const defs = [
+      ['01', 'Ask for a link', 'Your sign-in email'],
+      ['02', 'Check your email', 'The link works once, for an hour'],
+      ['03', 'Set a new password', 'Signs you out everywhere']
+    ];
+    const steps = defs.map(([no, title, sub], i) => {
+      const n = i + 1, on = n === step, done = n < step;
+      return { no, title, sub, line: n < 3, current: on ? 'step' : 'false', 
+        dot: 'width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;box-sizing:border-box;' + (on ? 'background:#152219;color:#FFFDF4' : done ? 'background:#1F5C41;color:#FFFDF4' : 'border:1px solid rgba(21,34,25,.5);color:#152219;background:#FFFDF4'),
+        titleStyle: 'font-size:16px;' + (on ? 'font-weight:700' : 'font-weight:500') };
+    });
+    return { steps, s1: step === 1, s2: step === 2, s3: step === 3, canMail: can, noMail: !can, stop, newError: !!this.props.newError };
+  }
+}
+</script>
+</body>
+</html>

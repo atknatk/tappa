@@ -1,5 +1,7 @@
 package components
 
+import "strings"
+
 // TransactionDocket renders one record as the kitchen docket (M6-03).
 //
 // 🔴 IT IS A DOCKET AND NOT A TABLE ROW. skill tappa-brand's "Yapma" list ends
@@ -34,42 +36,34 @@ templ TransactionDocket(d DocketView) {
 		<div class="flex items-start justify-between gap-3">
 			<div class="min-w-0">
 				<p class="docket-label">Where</p>
-				<p class="truncate font-display text-sm font-bold tracking-tight text-ink">
-					if d.Venue != "" {
-						{ d.Venue }
-					} else {
-						No location recorded
-					}
-				</p>
+				<p class="truncate font-display text-sm font-bold tracking-tight text-ink">{ docketVenue(d) }</p>
 				if d.Department != "" {
 					<p class="truncate text-xs text-ink/70">{ d.Department }</p>
 				}
 				<p class="mt-2 docket-label">Who</p>
-				<p class="truncate font-display text-sm font-bold tracking-tight text-ink">
-					if d.Who != "" {
-						{ d.Who }
-					} else {
-						Nobody recognised
-					}
-				</p>
+				<p class="truncate font-display text-sm font-bold tracking-tight text-ink">{ docketWho(d) }</p>
 			</div>
 			<div class="shrink-0 text-right">
-				@verdictStamp(d.Verdict)
+				@VerdictStamp(d.Verdict)
 				if d.Practice {
 					<p class="mt-2"><span class="stamp stamp--training">TRAINING</span></p>
 				}
 			</div>
 		</div>
-		<dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+		// ONE COMPONENT AT EVERY WIDTH, NOT TWO COPIES (M12-11). Below the desk
+		// breakpoint the docket is compact: the direction in a small ink box beside
+		// the time, and the evidence folded into the foot line. From desk the four-cell
+		// definition list below takes over and this row and the folded line are
+		// hidden. Only the four short values are printed twice; the header, the
+		// stamp, the plaque, the tallies and both notes exist once.
+		<p class="mt-2 flex items-baseline gap-2 desk:hidden">
+			<span class="border border-ink px-1.5 text-xs font-bold uppercase text-ink">{ docketDirection(d) }</span>
+			<span class="text-lg text-ink">{ d.At }</span>
+		</p>
+		<dl class="mt-3 hidden gap-x-4 gap-y-1 desk:grid desk:grid-cols-4">
 			<div>
 				<dt class="docket-label">Direction</dt>
-				<dd class="uppercase tracking-widest text-ink">
-					if d.Direction != "" {
-						{ d.Direction }
-					} else {
-						none
-					}
-				</dd>
+				<dd class="uppercase tracking-widest text-ink">{ docketDirection(d) }</dd>
 			</div>
 			<div>
 				<dt class="docket-label">Time</dt>
@@ -87,13 +81,7 @@ templ TransactionDocket(d DocketView) {
 			} else {
 				<div>
 					<dt class="docket-label">Trust</dt>
-					<dd class="text-ink">
-						if d.Trust != "" {
-							{ d.Trust }
-						} else {
-							none
-						}
-					</dd>
+					<dd class="text-ink">{ docketTrust(d) }</dd>
 				</div>
 				<div>
 					<dt class="docket-label">Evidence</dt>
@@ -101,16 +89,18 @@ templ TransactionDocket(d DocketView) {
 				</div>
 			}
 		</dl>
-		<p class="mt-2 text-xs text-ink/85">
-			if d.TagUID != "" {
-				TAG { d.TagUID }
-				if d.Ctr != "" {
-					· #{ d.Ctr }
+		<div class="mt-2 flex flex-wrap justify-between gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 text-xs text-ink/85">
+			// The folded evidence (below desk). On a partner row it is the K-39 phrase
+			// alone: no score, no sign and no label for either.
+			<span class="desk:hidden">
+				if d.PartnerVenue {
+					not shown at a partner venue
+				} else {
+					Trust { docketTrust(d) } · IP { d.IPSign } · GPS { d.GPSSign }
 				}
-			} else {
-				No plaque on this record
-			}
-		</p>
+			</span>
+			<span>{ docketPlaque(d) }</span>
+		</div>
 		if d.Manual || d.Queued || d.Review != "" {
 			<p class="mt-2 flex flex-wrap gap-2">
 				if d.Manual {
@@ -176,7 +166,110 @@ templ TransactionDocket(d DocketView) {
 	</article>
 }
 
-// verdictStamp renders the rubber stamp for a verdict.
+// RailDocket renders one record as the compact docket hung on The Pass's rail
+// (M12-11, README §5 "Rail docket"). It takes the same DocketView as
+// TransactionDocket, so the words cannot drift between the two: the venue, the
+// person, the direction and the time, the stamp, and a foot line with the score
+// and the two signs.
+//
+// WHAT IT LEAVES OUT IS THE FULL DOCKET'S JOB, not a second rule about the
+// record: the plaque and its counter, the department, the engine's note, and the
+// manager's note and decision stay on the full docket (the day's ledger). What it may
+// NOT leave out is anything that would make one record read as another, so:
+//   - a partner row (K-39) prints "not shown at a partner venue" in the foot and
+//     no score, no sign and no label for either -- the ledger has already blanked
+//     them, and the docket says why instead of printing "none" and "n/a";
+//   - a manual entry carries the same "Entered by a manager" tally as the full
+//     docket, and a practice tap the TRAINING stamp, so the two stay apart (§5:
+//     a manual entry is reported separately);
+//   - a record with no venue or no person says so in words.
+//
+// The rail's tilt is not here: the list item the screen wraps this in is
+// rotated by position from the stylesheet, never by a class built per item.
+// Width is the list item's too. The docket keeps its sharp corners (D2).
+templ RailDocket(d DocketView) {
+	<article class="docket -mt-1 flex flex-col gap-2 pt-4 desk:pt-[18px]">
+		<div class="flex flex-col items-start gap-2">
+			<p class="max-w-full truncate docket-label">{ docketVenue(d) }</p>
+			<p class="flex flex-wrap items-center gap-2 self-end">
+				@VerdictStamp(d.Verdict)
+				if d.Practice {
+					<span class="stamp stamp--training">TRAINING</span>
+				}
+			</p>
+		</div>
+		<p class="truncate font-display text-[17px] font-bold tracking-tight text-ink desk:text-lg">{ docketWho(d) }</p>
+		<p class="flex items-baseline gap-2.5">
+			<span class="border border-ink px-1.5 text-xs font-bold uppercase text-ink">{ docketDirection(d) }</span>
+			<span class="text-xl text-ink desk:text-[22px]">{ d.At }</span>
+		</p>
+		if d.Manual {
+			<p><span class="tally tally--manual">Entered by a manager</span></p>
+		}
+		if d.PartnerVenue {
+			<p class="border-t border-dashed border-line pt-2 text-[11px] text-ink/85">not shown at a partner venue</p>
+		} else {
+			<p class="flex flex-wrap justify-between gap-x-2 gap-y-0.5 border-t border-dashed border-line pt-2 text-[11px] text-ink/70">
+				<span>Trust { docketTrust(d) }</span>
+				<span>IP { d.IPSign } · GPS { d.GPSSign }</span>
+			</p>
+		}
+	</article>
+}
+
+// The words both dockets print for the values a record may lack. They live in
+// one place so the full docket and the rail docket cannot disagree about what an
+// absent value is called; every one of them is a word, never a blank, because
+// §4.6 writes a record even when almost nothing about it could be resolved.
+
+// docketVenue is the venue's name, marked when it is a partner business's venue
+// (ADR 0027): the name alone would read as one of this business's own.
+func docketVenue(d DocketView) string {
+	switch {
+	case d.Venue == "":
+		return "No location recorded"
+	case d.PartnerVenue:
+		return d.Venue + " · partner venue"
+	default:
+		return d.Venue
+	}
+}
+
+func docketWho(d DocketView) string {
+	if d.Who == "" {
+		return "Nobody recognised"
+	}
+	return d.Who
+}
+
+func docketDirection(d DocketView) string {
+	if d.Direction == "" {
+		return "none"
+	}
+	return d.Direction
+}
+
+func docketTrust(d DocketView) string {
+	if d.Trust == "" {
+		return "none"
+	}
+	return d.Trust
+}
+
+// docketPlaque is the plaque line: the uid and the counter exactly as the
+// handler formatted it -- unpadded, "#612" and not a six-digit field (D1).
+func docketPlaque(d DocketView) string {
+	switch {
+	case d.TagUID == "":
+		return "No plaque on this record"
+	case d.Ctr == "":
+		return "TAG " + d.TagUID
+	default:
+		return "TAG " + d.TagUID + " · #" + d.Ctr
+	}
+}
+
+// VerdictStamp renders the rubber stamp for a verdict.
 //
 // THE WORD IS ALWAYS THERE, which is the accessibility half of the brand rule:
 // status is never told by colour alone, so a stamp that lost its tint still says
@@ -184,7 +277,7 @@ templ TransactionDocket(d DocketView) {
 // frame with no word in it would say only "something happened" — and the four
 // words below are a CHECK-constrained closed set (migration 0005), so that branch
 // is unreachable from the database.
-templ verdictStamp(verdict string) {
+templ VerdictStamp(verdict string) {
 	switch verdict {
 		case "ok":
 			<span class="stamp stamp--approved">APPROVED</span>
@@ -195,4 +288,116 @@ templ verdictStamp(verdict string) {
 		case "ignored":
 			<span class="stamp stamp--ignored">IGNORED</span>
 	}
+}
+
+// SpikeDocket is the record a manager is deciding on The Spike (M12-28, README §5 "Docket",
+// screens/spike-odd.md S.2 rows 9-22). It is a docket -- the motif, perforated on both edges,
+// sharp corners (D2) -- and it is built from the same DocketView as the ledger's two dockets
+// through SpikeFocus, so the evidence cannot read differently here and on The Pass.
+//
+// Top to bottom: the venue and the plaque's last four characters, the person, the direction
+// with the date-ful time and the channel, and the engine's stamp; the evidence tiles; "Why it is
+// here" -- the engine's own sentence (never board prose), labelled when the deciding rule is the
+// business's own, and the rule and score in mono; then the children, which are the decision
+// form's note field.
+//
+// 🔴 A PARTNER-VENUE RECORD (K-39) gets one merged tile for the network and the location and no
+// rule-and-score line: the ledger has already blanked the score, the signs, the rule and the
+// evidence sentence (nameSiteRecords), and this only declines to draw labels for values that are
+// not there. PartnerVenueNote is the sentence it prints.
+//
+// The tile's mark is drawing that assistive technology does not read; the value word and the
+// sentence under it carry the meaning, so a tone is never told by colour alone.
+templ SpikeDocket(f SpikeFocusView) {
+	<article class="docket flex flex-col gap-[18px] px-[18px] pt-[22px] pb-6 md:gap-5 md:p-6 desk:gap-[22px] desk:px-[30px] desk:pt-7 desk:pb-[30px]">
+		<div class="flex items-start justify-between gap-2.5 md:gap-4">
+			<div class="flex min-w-0 flex-col gap-1.5">
+				<p class="lbl break-words">{ spikeLabel(f.Docket) }</p>
+				<p class="break-words font-display text-[28px] font-bold leading-none tracking-[-0.03em] text-ink md:text-[30px] desk:text-[34px]">{ docketWho(f.Docket) }</p>
+				<p class="text-sm text-ink desk:text-[15px]">{ spikeLine(f.Docket) }</p>
+			</div>
+			<p class="flex flex-none flex-col items-end gap-2 pt-1">
+				@VerdictStamp(f.Docket.Verdict)
+				if f.Docket.Practice {
+					<span class="stamp stamp--training">TRAINING</span>
+				}
+			</p>
+		</div>
+		if f.Docket.Manual {
+			<p><span class="tally tally--manual">Entered by a manager</span></p>
+		}
+		// TWO BY TWO, OR FOUR IN A ROW -- NEVER THREE AND ONE. The four tiles go on one row
+		// only where the record's column gives each of them 150 px, which is from a
+		// 1340 px window (the queue beside it takes 308 px); below that they stay two by
+		// two, as on the tablet. A partner-venue record has three tiles, and its merged
+		// one takes two columns, so it fills its row at either count.
+		<div class="grid grid-cols-2 gap-2 md:gap-2.5 min-[1340px]:grid-cols-4">
+			for _, t := range f.Tiles {
+				@evidenceTile(t)
+			}
+		</div>
+		<div class="flex flex-col gap-1.5 border-t border-dashed border-line pt-3.5 md:pt-4">
+			<p class="lbl">Why it is here</p>
+			if f.Docket.NoteIsTenants {
+				<p class="docket-label">Your own policy rule</p>
+			}
+			if f.Docket.Note != "" {
+				<p class="font-display text-sm leading-normal text-ink md:text-[15px]">{ f.Docket.Note }</p>
+			}
+			if !f.Docket.PartnerVenue {
+				<p class="text-xs text-ink/70">{ spikeRuleLine(f.Docket) }</p>
+			}
+		</div>
+		{ children... }
+	</article>
+}
+
+// evidenceTile is one tile of SpikeDocket. The frame's tone is chosen here, from literal class
+// names, so the stylesheet keeps every one of them.
+templ evidenceTile(t EvidenceTile) {
+	<div class={ "ev-tile min-w-0", templ.KV("ev-tile--ok", t.Tone == toneOK), templ.KV("ev-tile--bad", t.Tone == toneBad), templ.KV("ev-tile--none", t.Tone != toneOK && t.Tone != toneBad), templ.KV("col-span-2", t.Wide) }>
+		<p class="lbl">{ t.Label }</p>
+		<p class="ev-tile-value flex min-w-0 items-center gap-2 break-words">
+			<span class="ev-tile-mark" aria-hidden="true">{ evidenceMark(t.Tone) }</span>
+			<span class="min-w-0">{ t.Value }</span>
+		</p>
+		if t.Sub != "" {
+			<p class="ev-tile-sub font-display">{ t.Sub }</p>
+		}
+	</div>
+}
+
+func evidenceMark(tone string) string {
+	switch tone {
+	case toneOK:
+		return "✓"
+	case toneBad:
+		return "✗"
+	default:
+		return "–"
+	}
+}
+
+// SpikeQueueEntry is one record in The Spike's queue: a link that puts it in focus (selection is
+// a link, not a script -- README §3.3), marked as the current one when it is. Name and when on
+// the first line; venue, direction (desk only, as the boards draw it) and the short reason on
+// the second. The when is the handler's ("today 14:26", "yesterday 02:14", "Mon 09:02").
+templ SpikeQueueEntry(d DocketView, when, href string, current bool) {
+	<a
+		href={ templ.URL(href) }
+		class={ "queue-item md:h-full md:min-h-14 md:w-[220px] desk:h-auto desk:min-h-11 desk:w-full", templ.KV("queue-item--current", current) }
+		if current {
+			aria-current="true"
+		}
+	>
+		<span class="flex min-w-0 items-baseline justify-between gap-2">
+			<span class="min-w-0 break-words font-display text-sm font-bold desk:text-[15px]">{ docketWho(d) }</span>
+			<span class="flex-none whitespace-nowrap font-mono text-[11px] desk:text-xs">{ when }</span>
+		</span>
+		<span class="break-words font-mono text-[11px] text-ink/70 desk:text-xs">
+			{ docketVenue(d) }
+			<span class="hidden desk:inline">· { strings.ToUpper(docketDirection(d)) }</span>
+			· { SpikeWhy(d) }
+		</span>
+	</a>
 }

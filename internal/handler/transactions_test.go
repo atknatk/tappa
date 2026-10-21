@@ -32,6 +32,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/domain/checkin"
@@ -67,25 +68,35 @@ var coordinateField = regexp.MustCompile(`(?i)^(gps|lat|lng|long|longitude|latit
 // 🔴 IT IS A PROPERTY OVER THE SHIPPED STRUCTS, NOT A LIST OF FIELD NAMES. The
 // query, the domain record and the view model each have a field set; this walks
 // all three and fails on any field whose NAME says it holds a coordinate or an
-// address. A future edit that widens the SELECT to "just add gps_lat for a map"
-// turns this red at the first of the three walls, before any template exists to
-// render it.
+// address -- at the start of the name (coordinateField) or in any word of it
+// (bannedFieldName: TapLat, SiteGPS) -- and on any field whose TYPE is a fraction
+// (a Go float, or the pgtype.Numeric/Float4/Float8 sqlc generates for a numeric or
+// float column, pointer or not), or, on the view model, anything but a word or a
+// flag. A future edit that widens the SELECT to "just add gps_lat for a map" turns
+// this red at the first of the three walls, before any template exists to render it.
 //
 // 🔴 THE SIGNS ARE THE EXEMPTION AND THEY ARE NAMED, so the rule cannot be
 // satisfied by deleting the evidence entirely: IpMatch/GpsMatch are BOOLEANS and
 // are required to be present. That is the positive control -- it is what makes
 // this test fail if somebody "fixes" it by removing everything that matches.
 func TestTypes_NothingOnTheReadPathCanCarryACoordinate(t *testing.T) {
+	pgFractions := map[reflect.Type]bool{
+		reflect.TypeOf(pgtype.Numeric{}): true, reflect.TypeOf(pgtype.Float4{}): true, reflect.TypeOf(pgtype.Float8{}): true,
+	}
 	// booleans that ARE allowed: they carry the sign, never the value.
 	allowed := map[string]bool{"IpMatch": true, "GpsMatch": true, "IPMatch": true, "GPSMatch": true, "IPSign": true, "GPSSign": true}
 
+	// words marks the wall whose every field must be a WORD or a FLAG: the view model
+	// is formatted text all the way down, so a number on it is a value that was never
+	// turned into a word -- the shape a coordinate would arrive in under any name.
 	walls := []struct {
-		what string
-		typ  reflect.Type
+		what  string
+		typ   reflect.Type
+		words bool
 	}{
-		{"the sqlc row (db/queries/transactions.sql, ListPanelTransactions)", reflect.TypeOf(store.ListPanelTransactionsRow{})},
-		{"the domain record (internal/domain/ledger)", reflect.TypeOf(ledger.Record{})},
-		{"the view model (web/templates/components)", reflect.TypeOf(components.DocketView{})},
+		{"the sqlc row (db/queries/transactions.sql, ListPanelTransactions)", reflect.TypeOf(store.ListPanelTransactionsRow{}), false},
+		{"the domain record (internal/domain/ledger)", reflect.TypeOf(ledger.Record{}), false},
+		{"the view model (web/templates/components)", reflect.TypeOf(components.DocketView{}), true},
 	}
 	for _, wall := range walls {
 		fields := 0
@@ -93,14 +104,30 @@ func TestTypes_NothingOnTheReadPathCanCarryACoordinate(t *testing.T) {
 		for i := 0; i < wall.typ.NumField(); i++ {
 			f := wall.typ.Field(i)
 			fields++
+			// THE TYPE, NOT ONLY THE NAME: a coordinate is a float whatever it is called,
+			// and on the view model anything but a word or a flag is a value that skipped
+			// the formatting this wall exists to force.
+			// The sqlc row is where a coordinate column would arrive first, and sqlc
+			// hands numeric/real/double precision over as pgtype STRUCTS, which a
+			// kind check alone reads as harmless. No field of the three walls is one
+			// of them today.
+			ft := f.Type
+			if ft.Kind() == reflect.Ptr {
+				ft = ft.Elem()
+			}
+			k := ft.Kind()
+			switch {
+			case k == reflect.Float32 || k == reflect.Float64 || k == reflect.Complex64 || k == reflect.Complex128 || pgFractions[ft]:
+				t.Errorf("%s: %s is a %s -- §4.7: a fractional number on the read path "+
+					"is the shape a raw coordinate arrives in", wall.what, f.Name, f.Type)
+			case wall.words && f.Type.Kind() != reflect.String && f.Type.Kind() != reflect.Bool:
+				t.Errorf("%s: %s is a %s -- every field of the view model is a word or "+
+					"a flag", wall.what, f.Name, f.Type)
+			}
 			if allowed[f.Name] {
 				signs++
 				// A sign must be a BOOL or a word -- never a number, which is what a
 				// coordinate would arrive as if somebody reused the name.
-				k := f.Type.Kind()
-				if k == reflect.Ptr {
-					k = f.Type.Elem().Kind()
-				}
 				if k != reflect.Bool && k != reflect.String {
 					t.Errorf("%s: %s is meant to be a SIGN but is a %s -- a sign says "+
 						"whether the evidence matched, it never carries the value",
@@ -108,12 +135,19 @@ func TestTypes_NothingOnTheReadPathCanCarryACoordinate(t *testing.T) {
 				}
 				continue
 			}
-			if coordinateField.MatchString(f.Name) {
-				t.Errorf("%s carries a field named %q (%s).\n"+
+			// Both matchers: coordinateField reads the START of the name (GPS..., Lat...),
+			// bannedFieldName reads every word of it (TapLat, SiteGPS, SourceIP) and the
+			// secrets besides.
+			why := bannedFieldName(f.Name)
+			if why == "" && coordinateField.MatchString(f.Name) {
+				why = "the name starts like a coordinate or an address"
+			}
+			if why != "" {
+				t.Errorf("%s carries a field named %q (%s; %s).\n"+
 					"§4.7: a raw coordinate never reaches a screen, a log or an "+
 					"attribute. The panel shows the SIGNS (ip_match, gps_match), which "+
 					"is what §5 rows 6-7 decided on. If this field is genuinely a sign, "+
-					"name it so and make it a bool.", wall.what, f.Name, f.Type)
+					"name it so and make it a bool.", wall.what, f.Name, f.Type, why)
 			}
 		}
 		if fields == 0 {
@@ -458,40 +492,73 @@ func TestTransactionFilters_EveryOfferedOptionIsAccepted(t *testing.T) {
 	fake := ledgerWithRecords(1, true)
 	b := panelBrowserWith(t, fake)
 
-	cases := []struct {
-		param   string
-		options []components.OptionView
-		read    func(ledger.Filter) string
-	}{
-		{"verdict", panelVerdicts, func(f ledger.Filter) string { return f.Verdict }},
-		{"channel", panelChannels, func(f ledger.Filter) string { return f.Channel }},
-	}
+	// THE CHANNEL IS STILL A DROPDOWN: each option is driven through the handler and must
+	// render as an option.
 	total := 0
-	for _, c := range cases {
-		if len(c.options) == 0 {
-			t.Fatalf("%s offers no options at all; this test would pass over an empty set", c.param)
+	for _, o := range panelChannels {
+		total++
+		rec := b.do(http.MethodGet, transactionsHref+"?channel="+url.QueryEscape(o.Value), nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET with channel=%s: %d", o.Value, rec.Code)
 		}
-		for _, o := range c.options {
-			total++
-			rec := b.do(http.MethodGet, transactionsHref+"?"+c.param+"="+url.QueryEscape(o.Value), nil)
-			if rec.Code != http.StatusOK {
-				t.Fatalf("GET with %s=%s: %d", c.param, o.Value, rec.Code)
+		if got := fake.lastFilter(t).Channel; got != o.Value {
+			t.Errorf("the channel dropdown offers %q but the handler read %q -- the "+
+				"dropdown and the validator disagree, so a manager can pick a "+
+				"filter that does nothing", o.Value, got)
+		}
+		if body := htmlOf(t, rec); !strings.Contains(body, `value="`+o.Value+`"`) {
+			t.Errorf("the channel dropdown does not render an option with value %q", o.Value)
+		}
+	}
+
+	// THE VERDICT IS OFFERED AS CHIPS (M12-26/27): links, on The Pass and on a ledger day.
+	// What the product RENDERS is read off the page -- every chip link -- and each one is
+	// followed: the handler must read back exactly the verdict the chip offered, and the chips
+	// must offer every value the validator accepts and nothing else.
+	chipHref := regexp.MustCompile(`<a href="([^"]+)" class="chip-link[^"]*"`)
+	for _, page := range []string{transactionsHref, transactionsHref + "?date=2026-08-05&channel=qr"} {
+		body := htmlOf(t, b.do(http.MethodGet, page, nil))
+		offered := map[string]bool{}
+		for _, m := range chipHref.FindAllStringSubmatch(body, -1) {
+			u, err := url.Parse(strings.ReplaceAll(m[1], "&amp;", "&"))
+			if err != nil {
+				t.Fatalf("%s: chip href %q: %v", page, m[1], err)
 			}
-			if got := c.read(fake.lastFilter(t)); got != o.Value {
-				t.Errorf("the %s dropdown offers %q but the handler read %q -- the "+
-					"dropdown and the validator disagree, so a manager can pick a "+
-					"filter that does nothing", c.param, o.Value, got)
+			want := u.Query().Get("verdict")
+			offered[want] = true
+			if rec := b.do(http.MethodGet, u.String(), nil); rec.Code != http.StatusOK {
+				t.Fatalf("%s: following the %q chip answered %d", page, want, rec.Code)
 			}
-			if body := htmlOf(t, rec); !strings.Contains(body, `value="`+o.Value+`"`) {
-				t.Errorf("the %s dropdown does not render an option with value %q", c.param, o.Value)
+			got := fake.lastFilter(t)
+			if got.Verdict != want {
+				t.Errorf("%s: the chip offers verdict %q but the handler read %q", page, want, got.Verdict)
+			}
+			if page != transactionsHref && (got.Channel != "qr" || got.Date.String() != "2026-08-05") {
+				t.Errorf("%s: the %q chip dropped the day or the channel (%+v)", page, want, got)
+			}
+		}
+		if len(offered) != len(panelVerdicts)+1 || !offered[""] {
+			t.Errorf("%s offers the verdicts %v; want All and the validator's %d", page, offered, len(panelVerdicts))
+		}
+		for _, o := range panelVerdicts {
+			if !offered[o.Value] {
+				t.Errorf("%s offers no chip for %q, which the validator accepts", page, o.Value)
+			}
+		}
+		// The chosen verdict survives the filter form on the ledger: a hidden field.
+		if page != transactionsHref {
+			withVerdict := htmlOf(t, b.do(http.MethodGet, page+"&verdict=flag", nil))
+			if !strings.Contains(withVerdict, `<input type="hidden" name="verdict" value="flag">`) {
+				t.Error("the ledger's filter form drops the chosen verdict when it is applied")
 			}
 		}
 	}
+	total += len(panelVerdicts)
 	// The vocabularies are migration 0005's CHECK lists: four verdicts, three
 	// channels. A shrunken list would make this pass over less than it should.
 	if total != 7 {
 		t.Errorf("walked %d options; migration 0005 fixes four verdicts and three "+
-			"channels, so this should be 7. If the schema changed, the dropdown and "+
+			"channels, so this should be 7. If the schema changed, the chips, the dropdown and "+
 			"this number change together.", total)
 	}
 }
@@ -567,23 +634,31 @@ func TestTransactionPaging_CarriesTheFiltersAndTheCursor(t *testing.T) {
 // TestTransactionPaging_LastPageOffersNothingToPress. A "show more" that fetches
 // an empty list is a control that lies about there being more.
 func TestTransactionPaging_LastPageOffersNothingToPress(t *testing.T) {
-	fake := ledgerWithRecords(3, true)
-	fake.page.Next = nil
-	b := panelBrowserWith(t, fake)
+	// THE LEDGER'S CONTROL IS THE HTMX ONE; THE PASS'S IS A PLAIN LINK to the ledger's next page
+	// (M12-26: the rail cannot take the ledger's hour groups in place). Both are checked: absent
+	// on the last page, present when there is a cursor.
+	for _, c := range []struct{ path, control string }{
+		{ledgerDayHref, "hx-get"},
+		{transactionsHref, ">Show more<"},
+	} {
+		fake := ledgerWithRecords(3, true)
+		fake.page.Next = nil
+		b := panelBrowserWith(t, fake)
 
-	body := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
-	if strings.Contains(body, "hx-get") {
-		t.Error("the last page still renders a paging control. There is nothing behind " +
-			"it, so pressing it appends nothing and looks broken.")
-	}
-	// Positive control: with a cursor there IS one, so the check above is not
-	// passing because the control never renders.
-	fake2 := ledgerWithRecords(3, true)
-	fake2.page.Next = &ledger.Cursor{At: time.Now().UTC(), ID: uuid.New()}
-	b2 := panelBrowserWith(t, fake2)
-	if !strings.Contains(htmlOf(t, b2.do(http.MethodGet, transactionsHref, nil)), "hx-get") {
-		t.Error("a page WITH a next cursor renders no paging control either -- the test " +
-			"above is vacuous")
+		body := htmlOf(t, b.do(http.MethodGet, c.path, nil))
+		if strings.Contains(body, c.control) {
+			t.Errorf("%s: the last page still renders a paging control. There is nothing behind "+
+				"it, so pressing it appends nothing and looks broken.", c.path)
+		}
+		// Positive control: with a cursor there IS one, so the check above is not
+		// passing because the control never renders.
+		fake2 := ledgerWithRecords(3, true)
+		fake2.page.Next = &ledger.Cursor{At: time.Now().UTC(), ID: uuid.New()}
+		b2 := panelBrowserWith(t, fake2)
+		if !strings.Contains(htmlOf(t, b2.do(http.MethodGet, c.path, nil)), c.control) {
+			t.Errorf("%s: a page WITH a next cursor renders no paging control either -- the test "+
+				"above is vacuous", c.path)
+		}
 	}
 }
 
@@ -612,7 +687,7 @@ func TestTransactionDocket_IsADocketAndCarriesEveryFieldTheCardAsksFor(t *testin
 		EmployeeName: "Maria Borg",
 	}}
 	b := panelBrowserWith(t, fake)
-	body := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+	body := htmlOf(t, b.do(http.MethodGet, ledgerDayHref, nil))
 
 	for _, want := range []struct{ what, text string }{
 		{"the location", "KF St Julians"},
@@ -659,27 +734,34 @@ func TestTransactionDocket_DistinguishesManualAndPractice(t *testing.T) {
 		{ID: uuid.New(), OccurredAt: time.Now().UTC(), Verdict: "ok", Channel: "nfc", EmployeeName: "Ordinary Person"},
 	}
 	b := panelBrowserWith(t, fake)
-	body := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
 
-	if !strings.Contains(body, "TRAINING") {
-		t.Error("a practice record carries no TRAINING stamp")
-	}
-	if !strings.Contains(body, "Entered by a manager") {
-		t.Error("a manual record is not marked as entered by a manager")
-	}
-	// Neither mark may appear on the ordinary record: exactly one TRAINING and
-	// exactly one manual tally across three cards.
-	if n := strings.Count(body, "TRAINING"); n != 1 {
-		t.Errorf("TRAINING appears %d times across three records, want 1", n)
-	}
-	if n := strings.Count(body, "Entered by a manager</span>"); n != 1 {
-		t.Errorf("the manual tally appears %d times across three records, want 1", n)
-	}
-	for _, forbidden := range []string{"toward your hours", "toward hours", "does not count", "not counted"} {
-		if strings.Contains(strings.ToLower(body), strings.ToLower(forbidden)) {
-			t.Errorf("the panel says %q about a practice tap. Hours are M6-07 and do not "+
-				"exist yet; a screen must not describe arithmetic the product has not "+
-				"done.", forbidden)
+	// BOTH SURFACES (M12-26/27): The Pass draws the records as rail dockets, a ledger day as
+	// full dockets -- two components, so each is measured on its own page. Measured both ways:
+	// dropping the TRAINING stamp from the full docket alone, or the manual tally from the rail
+	// docket alone, turns this red.
+	for _, path := range []string{transactionsHref, ledgerDayHref} {
+		body := htmlOf(t, b.do(http.MethodGet, path, nil))
+
+		if !strings.Contains(body, "TRAINING") {
+			t.Errorf("%s: a practice record carries no TRAINING stamp", path)
+		}
+		if !strings.Contains(body, "Entered by a manager</span>") {
+			t.Errorf("%s: a manual record is not marked as entered by a manager", path)
+		}
+		// Neither mark may appear on the ordinary record: exactly one TRAINING and
+		// exactly one manual tally across three cards.
+		if n := strings.Count(body, "TRAINING"); n != 1 {
+			t.Errorf("%s: TRAINING appears %d times across three records, want 1", path, n)
+		}
+		if n := strings.Count(body, "Entered by a manager</span>"); n != 1 {
+			t.Errorf("%s: the manual tally appears %d times across three records, want 1", path, n)
+		}
+		for _, forbidden := range []string{"toward your hours", "toward hours", "does not count", "not counted"} {
+			if strings.Contains(strings.ToLower(body), strings.ToLower(forbidden)) {
+				t.Errorf("%s: the panel says %q about a practice tap. Hours are M6-07 and do not "+
+					"exist yet; a screen must not describe arithmetic the product has not "+
+					"done.", path, forbidden)
+			}
 		}
 	}
 }
@@ -788,6 +870,17 @@ func TestPanelScreens_FormControlsCarryATouchTargetClass(t *testing.T) {
 	// The sign-in form is the same brand surface and is held to the same rule.
 	anon := newBrowser(t, newAdminRouter(t, &fakeAdmins{}, &fakeTrail{}))
 	bodies["GET /admin/login"] = htmlOf(t, anon.do(http.MethodGet, "/admin/login", nil))
+	// 🔴 AND THE SCREENS THAT ARE NOT SECTIONS (M12-49). Until then this read only the
+	// section bodies and the sign-in page -- measured: dropping field-input from the venue
+	// editor's name (components/venue.templ) and from manual entry's time
+	// (pages/manualentry.templ) left the whole package green, because the venue editor is
+	// ?venue= and manual entry a sub-route. The touch net's own corpus of those screens is
+	// read here too, so the two nets cannot drift apart; the source scan
+	// (TestPanelTemplates_EveryPressTargetAndFormControlCarriesATouchTargetClass) covers
+	// what no fixture draws.
+	for where, body := range panelNonSectionScreens(t) {
+		bodies[where] = body
+	}
 
 	// input/select/textarea. type="hidden" is excluded: it renders nothing and is
 	// not a target -- that is the only exemption, and it is by TYPE rather than by
@@ -797,8 +890,8 @@ func TestPanelScreens_FormControlsCarryATouchTargetClass(t *testing.T) {
 
 	total := 0
 	for where, body := range bodies {
-		for _, m := range controlRE.FindAllStringSubmatch(body, -1) {
-			attrs := m[2]
+		for _, loc := range controlRE.FindAllStringSubmatchIndex(body, -1) {
+			attrs := body[loc[4]:loc[5]]
 			if hiddenRE.MatchString(attrs) {
 				continue
 			}
@@ -807,10 +900,10 @@ func TestPanelScreens_FormControlsCarryATouchTargetClass(t *testing.T) {
 			if c := attrValueRE("class").FindStringSubmatch(attrs); len(c) == 2 {
 				classes = c[1]
 			}
-			if !hasTouchTargetClass(classes) {
+			if !hasControlTouchTargetClass(classes) && !pressedThroughLabel(body, loc[0]) {
 				t.Errorf("%s: <%s class=%q> is a form control carrying none of %v.\n"+
 					"A control smaller than 44px is missed by a thumb, and a manager "+
-					"checks this at the pass on a phone.", where, m[1], classes, panelTouchTargets)
+					"checks this at the pass on a phone.", where, body[loc[2]:loc[3]], classes, panelTouchTargets)
 			}
 		}
 	}
@@ -965,7 +1058,7 @@ func TestFilterBar_RendersNoEmployeeRoster(t *testing.T) {
 		fake.opts.Departments = append(fake.opts.Departments, ledger.Option{ID: uuid.New(), Label: "Kitchen", Group: "Venue"})
 	}
 	b := panelBrowserWith(t, fake)
-	body := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+	body := htmlOf(t, b.do(http.MethodGet, ledgerDayHref, nil))
 
 	if !strings.Contains(body, `id="filter-employee"`) {
 		t.Fatal("there is no employee filter at all -- the card names six filters")
@@ -1210,7 +1303,7 @@ func TestTransactions_ADocketSaysWhoWroteTheNote(t *testing.T) {
 	}
 
 	// THEIRS: the label is printed and the sentence still is.
-	body := htmlOf(t, panelBrowserWith(t, base(true)).do(http.MethodGet, transactionsHref, nil))
+	body := htmlOf(t, panelBrowserWith(t, base(true)).do(http.MethodGet, ledgerDayHref, nil))
 	if !strings.Contains(body, claim) {
 		t.Fatalf("the note itself is not on the page; this test is measuring the wrong "+
 			"surface:\n%s", body)
@@ -1225,7 +1318,7 @@ func TestTransactions_ADocketSaysWhoWroteTheNote(t *testing.T) {
 	// OURS: the same sentence, our layer — no label. This is the control that stops
 	// the check above from passing on a label the template prints unconditionally,
 	// which would make the mark meaningless by making it universal.
-	ours := htmlOf(t, panelBrowserWith(t, base(false)).do(http.MethodGet, transactionsHref, nil))
+	ours := htmlOf(t, panelBrowserWith(t, base(false)).do(http.MethodGet, ledgerDayHref, nil))
 	if !strings.Contains(ours, claim) {
 		t.Fatalf("the control page does not carry the note at all:\n%s", ours)
 	}
@@ -1280,7 +1373,7 @@ func TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt(t *testing.T) {
 			Note:         hostileNote,
 		}},
 	}
-	docket := htmlOf(t, panelBrowserWith(t, f).do(http.MethodGet, transactionsHref, nil))
+	docket := htmlOf(t, panelBrowserWith(t, f).do(http.MethodGet, ledgerDayHref, nil))
 	if strings.Contains(docket, raw) {
 		t.Errorf("the docket rendered %q unescaped inside the policy note", raw)
 	}

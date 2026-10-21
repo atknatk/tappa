@@ -135,3 +135,83 @@ func TestMintNextTapForDevelopment_IsDisabledByDefault(t *testing.T) {
 		t.Fatal("WithDevelopmentMinting changed the original Verifier")
 	}
 }
+
+// TestPlaqueQRURL_IsTheTapURLWithoutTheSUNPair: the plaque's QR code carries
+// "<base>?tag=<UID>" — the UID in canonical upper case whatever the bytes' hex
+// spelling, nothing else in the query (no src=qr marker) — and Parse reads it as the
+// QR channel for that same UID.
+func TestPlaqueQRURL_IsTheTapURLWithoutTheSUNPair(t *testing.T) {
+	uid, _ := hex.DecodeString("04ac7e5500060f")
+	got, err := PlaqueQRURL("https://time.tappa.mt/t", uid)
+	if err != nil {
+		t.Fatalf("PlaqueQRURL: %v", err)
+	}
+	if want := "https://time.tappa.mt/t?tag=04AC7E5500060F"; got != want {
+		t.Fatalf("PlaqueQRURL = %s, want %s", got, want)
+	}
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q := u.Query(); len(q) != 1 || u.Path != "/t" || u.Scheme != "https" {
+		t.Fatalf("the QR URL is %s %s with query %v; want https, /t and the tag alone", u.Scheme, u.Path, q)
+	}
+	p, err := Parse(u.Query())
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if p.Channel != ChannelQR || p.HasSUN() || p.UID != "04AC7E5500060F" {
+		t.Fatalf("Parse read channel %s, UID %s; want qr for 04AC7E5500060F", p.Channel, p.UID)
+	}
+}
+
+// TestPlaqueQRURL_NamesTheNDEFTemplatesHost: for the same base, the QR URL is the
+// chip's template URL with the UID mirrored in and the SUN pair cut off — one host,
+// one route, one parameter name for both halves of the plaque.
+func TestPlaqueQRURL_NamesTheNDEFTemplatesHost(t *testing.T) {
+	uid, _ := hex.DecodeString("04DE5F1EACC040")
+	for _, base := range []string{"https://time.tappa.mt/t", "https://tap.example.com/t", "https://localhost:8443/t"} {
+		ndef, err := BuildTapNDEF(base)
+		if err != nil {
+			t.Fatalf("%s: BuildTapNDEF: %v", base, err)
+		}
+		cut := strings.Index(ndef.URL, "&"+paramCtr+"=")
+		if cut < 0 {
+			t.Fatalf("PREMISE: %s: the template carries no ctr", base)
+		}
+		want := strings.Replace(ndef.URL[:cut], strings.Repeat("0", uidHexLen), "04DE5F1EACC040", 1)
+		got, err := PlaqueQRURL(base, uid)
+		if err != nil {
+			t.Fatalf("%s: PlaqueQRURL: %v", base, err)
+		}
+		if got != want {
+			t.Errorf("%s: QR URL %s, the template with the UID mirrored is %s", base, got, want)
+		}
+	}
+}
+
+// TestPlaqueQRURL_RefusesWhatThePlaqueCannotCarry: a base BuildTapNDEF refuses is
+// refused here too (a plain-http QR would send a tap's session cookie in clear), and
+// a UID that is not 7 bytes is refused before anything is written.
+func TestPlaqueQRURL_RefusesWhatThePlaqueCannotCarry(t *testing.T) {
+	uid, _ := hex.DecodeString("04DE5F1EACC040")
+	for _, tc := range []struct {
+		name string
+		base string
+		uid  []byte
+	}{
+		{"plain http", "http://time.tappa.mt/t", uid},
+		{"no host", "https://", uid},
+		{"a query", "https://time.tappa.mt/t?src=qr", uid},
+		{"a fragment", "https://time.tappa.mt/t#x", uid},
+		{"a space", "https://time tappa.mt/t", uid},
+		{"too long for the chip", "https://" + strings.Repeat("a", 80) + ".mt/t", uid},
+		{"short uid", "https://time.tappa.mt/t", uid[:6]},
+		{"long uid", "https://time.tappa.mt/t", append(append([]byte(nil), uid...), 0x01)},
+		{"no uid", "https://time.tappa.mt/t", nil},
+	} {
+		if got, err := PlaqueQRURL(tc.base, tc.uid); err == nil || got != "" {
+			t.Errorf("%s: PlaqueQRURL = %q, %v; want a refusal and no URL", tc.name, got, err)
+		}
+	}
+}

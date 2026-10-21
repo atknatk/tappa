@@ -74,7 +74,7 @@ func AdminGroup(v GroupView) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = components.EmptyStateLabeled("No group", "This business is not in a group").Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = components.PanelEmpty(SectionLabel(TabGroup), "This business is not in a group", components.PanelEmptyCTA{}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -295,7 +295,7 @@ func groupPartners(v GroupView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "\">Week by week in Reports</a></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "\">Week by week on The Roll</a></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -366,7 +366,7 @@ func groupPartners(v GroupView) templ.Component {
 }
 
 // groupAtPartnerVenues is the other direction: this business's own staff at a partner's venue. They
-// are this business's own records, so they are a figure here and a list in Transactions.
+// are this business's own records, so they are a figure here and a list on The Pass.
 func groupAtPartnerVenues(v GroupView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -401,7 +401,7 @@ func groupAtPartnerVenues(v GroupView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "</p><p class=\"mt-1 text-sm text-ink/85\">of your records in these days name a partner business&#39;s venue. They are your own records: they are in Transactions, decided by your rules, and their hours are in your Reports.</p></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "</p><p class=\"mt-1 text-sm text-ink/85\">of your records in these days name a partner business&#39;s venue. They are your own records: they are on The Pass, decided by your rules, and their hours are on The Roll.</p></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -493,7 +493,9 @@ func TestWebhookPanel_TheDeliveryLogAndResend(t *testing.T) {
 	punch := f.tapForDelivery(t)
 	page := b.do(http.MethodGet, apiKeysHref, nil).Body.String()
 	if !strings.Contains(page, `id="webhook-deliveries"`) || !strings.Contains(page, "pch_"+punch.String()) ||
-		!strings.Contains(page, ">Queued<") || !strings.Contains(page, "Send again now") ||
+		// M12-42: the state is the delivery's pill; the desk table's "Queued" column header would
+		// satisfy a bare ">Queued<", so the word is matched inside its pill.
+		!regexp.MustCompile(`<span class="mono-pill[^"]*">Queued</span>`).MatchString(page) || !strings.Contains(page, "Send again now") ||
 		!strings.Contains(page, `action="`+webhookResendHref+`"`) {
 		t.Fatal("the section does not list the delivery with its punch, its state and the resend form")
 	}
@@ -526,7 +528,10 @@ func TestWebhookPanel_TheDeliveryLogAndResend(t *testing.T) {
 		t.Fatalf("%d resend slots, want 1", len(slots))
 	}
 	after := b.do(http.MethodGet, apiKeysHref+"?done=webhook-resent", nil).Body.String()
-	if !strings.Contains(after, "queued to be sent again") || !strings.Contains(after, "1 of 10") {
+	// M12-42: the bucket reads as what is LEFT (Limit less Spent, the screen file's "N of 10 left
+	// this hour"), so one resend shows as one slot fewer free.
+	if !strings.Contains(after, "queued to be sent again") ||
+		!strings.Contains(after, fmt.Sprintf("%d of %d left this hour", endpoints.BucketLimit-1, endpoints.BucketLimit)) {
 		t.Fatal("after the resend the page does not say so, or the bucket does not count it")
 	}
 	if rec := f.browserAs(t, f.manager, "manager", true).do(http.MethodGet, apiKeysHref, nil); rec.Code != http.StatusForbidden {

@@ -420,28 +420,212 @@
   .pw-toggle[hidden],
   .pw-toggle-icon[hidden] { display: none; }
 
-  /* --- empty state: a section that has nothing in it YET ---
-     Dashed rather than solid, because the docket's solid `line` border is what a
-     RECORD looks like and this is the absence of one. */
-  .empty-state {
-    @apply flex flex-col items-start gap-1 border border-dashed border-line
-           bg-paper px-4 py-8;
-  }
+  /* --- the panel shell (design "The Pass", user-approved 2026-10-20) ---
+     ONE aside that changes shape with the width, so the business's header, the
+     stripe and the section links exist once in the document: below md it is the
+     phone's top bar (porcelain, the header only); from md it is an 88px ink icon
+     rail; from desk a 248px ink sidebar with numbered labels. The phone's section
+     links are a second nav (.bar), shown only below md -- display none takes the
+     hidden one out of the accessibility tree, so a reader meets one nav at any width.
 
-  /* --- tab navigation: the panel's sections ---
-     min-h-11 is 44px, which is the touch-target floor rather than a look: the
-     panel is a desktop screen but a manager checks it on a phone at the pass. */
-  .tab-bar {
-    @apply flex flex-wrap items-stretch gap-x-1 border-b border-line;
+     CONTRAST ON INK, measured: paper on ink 16.2:1; paper at 70% on ink 8.5:1 (the
+     muted tone used for the tagline, the numbers and the signed-in label); paper at
+     80% on ink 10.7:1 (the phone bar's labels); ink on saffron 6.2:1 (the badge). */
+  .panel-frame {
+    @apply min-h-screen md:flex;
   }
+  .panel-side {
+    @apply flex flex-col bg-porcelain text-ink
+           md:sticky md:top-0 md:h-screen md:w-[88px] md:shrink-0 md:gap-4
+           md:overflow-y-auto md:bg-ink md:pb-4 md:text-paper
+           desk:w-[248px] desk:gap-6;
+  }
+  .side-head {
+    @apply flex flex-col;
+  }
+  .side-lockup {
+    @apply flex min-h-14 items-center gap-3 px-4 py-2
+           md:min-h-0 md:flex-col md:items-center md:gap-1 md:px-2 md:pt-5 md:pb-0
+           desk:flex-row desk:items-center desk:gap-3 desk:px-7 desk:pt-6;
+  }
+  .side-word {
+    @apply font-display text-xl font-bold leading-none tracking-tight md:hidden desk:inline desk:text-2xl;
+  }
+  .side-mark {
+    @apply hidden font-display text-[26px] font-bold leading-none tracking-tight md:inline desk:hidden;
+  }
+  .side-tag {
+    @apply font-mono text-[10px] uppercase tracking-widest text-ink/70
+           md:hidden md:text-paper/70 desk:inline;
+  }
+  .side-words {
+    @apply flex flex-col gap-0.5 md:hidden desk:flex;
+  }
+  /* The logo sits on paper at every width: logos are drawn for a light ground (the
+     Account editor's light-logo warning measures against paper), and the rail and
+     the sidebar are ink. The box keeps the 32px slot; on the 88px rail the image
+     may only shrink, never grow (ADR 0023 WL-8 note). */
+  .side-logo {
+    @apply inline-flex shrink-0 items-center rounded-md bg-paper p-1 md:max-w-[72px] desk:max-w-full;
+  }
+  /* On the sidebar a business's logo stands above its name: side by side, a wide logo
+     (up to 192px) would leave the name no room in a 248px column. */
+  .side-head--named .side-lockup {
+    @apply desk:flex-col desk:items-start desk:gap-2;
+  }
+  .side-logo > img {
+    @apply block h-auto max-w-full;
+  }
+  .side-named {
+    @apply min-w-0 md:sr-only desk:not-sr-only;
+  }
+  .side-name {
+    @apply font-display text-base font-bold leading-tight tracking-tight text-ink md:text-paper;
+  }
+  .side-coline {
+    @apply font-mono text-[10px] uppercase tracking-widest text-ink/70 md:text-paper/70;
+  }
+  .side-nav {
+    @apply hidden md:flex md:flex-1 md:flex-col md:items-center md:gap-1 md:px-2
+           desk:items-stretch desk:gap-0.5 desk:px-4;
+  }
+  .side-group {
+    @apply flex flex-col items-center gap-1 desk:items-stretch desk:gap-0.5;
+  }
+  .side-group--foot {
+    @apply mt-auto border-t border-paper/15 pt-3 desk:pt-4;
+  }
+  /* A section link. min-h-11 is the 44px floor at every width; the rail makes it a
+     72x60 square, the sidebar a full-width row. The current section is named by
+     aria-current as well; the paper fill only repeats it. */
   .tab-link {
-    @apply inline-flex min-h-11 items-center border-b-2 border-transparent px-3 py-2
-           font-display text-sm font-bold tracking-tight text-ink/70
-           hover:text-ink focus:outline-none focus:ring-2 focus:ring-ink
-           motion-safe:transition-colors;
+    @apply relative flex min-h-11 w-[72px] flex-col items-center justify-center gap-1
+           rounded-[14px] py-2 font-display text-[10px] font-medium text-paper
+           hover:bg-paper/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-paper
+           motion-safe:transition-colors
+           md:min-h-[60px]
+           desk:min-h-11 desk:w-full desk:flex-row desk:justify-start desk:gap-3
+           desk:rounded-[10px] desk:px-3 desk:py-0 desk:text-[15px] desk:font-normal;
   }
-  /* The current tab is named by aria-current as well; the colour only repeats it. */
-  .tab-link--current { @apply border-tappa-green text-ink; }
+  .tab-link--current { @apply bg-paper text-ink hover:bg-paper; }
+  .tab-icon { @apply h-[22px] w-[22px] shrink-0 desk:hidden; }
+  .nav-icon { @apply h-[22px] w-[22px] shrink-0; }
+  .tab-no { @apply hidden w-[18px] font-mono text-[11px] text-paper/70 desk:inline; }
+  .tab-link--current .tab-no { @apply text-ink/70; }
+  .tab-label { @apply hidden desk:inline desk:flex-1; }
+  .tab-short { @apply desk:hidden; }
+  .side-foot {
+    @apply hidden md:flex md:flex-col md:items-center md:gap-2 md:px-2 desk:items-stretch desk:px-7;
+  }
+  .side-who { @apply hidden desk:flex desk:flex-col desk:gap-0.5; }
+  .side-who-label { @apply font-mono text-[10px] uppercase tracking-widest text-paper/70; }
+  .side-who-name { @apply font-display text-sm font-bold tracking-tight text-paper; }
+  .side-who-role { @apply font-mono text-[11px] uppercase tracking-widest text-paper/70; }
+  .side-signout { @apply w-full px-1 text-xs desk:px-4 desk:text-sm; }
+
+  .panel-main {
+    @apply min-w-0 flex-1 px-4 pt-4 pb-28 md:px-8 md:pt-7 md:pb-12 desk:px-11;
+  }
+  /* The content well. ITS CAP IS 72rem (1152 px), RAISED FROM 64rem IN M12-01, and the cap is
+     the only thing that changed: the well is still full width up to it. Measured against the
+     shell: the content box is the viewport minus the side column (88 px rail from md, 248 px
+     sidebar from desk) minus .panel-main's padding (2 x 32 px, 2 x 44 px from desk) -- 864 px
+     at 1200, 1104 px at 1440 -- so the cap first binds at a 1488 px viewport, where 64rem bound
+     at 1360 and left 1440 with 80 px of empty gutter. 72rem is the widest the redesign's
+     boards lay their content out (about 1120 px) plus room; a cap only limits growth, so it
+     cannot make a page scroll sideways -- only content wider than the box can, which is why
+     every desk recipe is held to 864 px, the narrowest desk box. Prose keeps its own measure
+     where a section sets one; the well does not set a reading width. */
+  .panel-well {
+    @apply mx-auto flex w-full max-w-6xl flex-col gap-6;
+  }
+  /* The section's heading block (M12-01, pages.panelHead), drawn only when a section set a
+     kicker, a breadcrumb trail or actions; a bare title is the h1 alone. The title row wraps:
+     the actions sit at its right end, bottom-aligned with the title, and move under it when
+     the row is too narrow. Nothing here reads the tenant accent (ADR 0023 §2). */
+  .panel-head { @apply flex flex-col gap-2.5; }
+  .panel-head-row { @apply flex flex-wrap items-end justify-between gap-4; }
+  .panel-head-text { @apply flex min-w-0 flex-col gap-1.5; }
+  .panel-actions { @apply flex flex-wrap items-center gap-3; }
+  /* The trail: mono, ink at 70 % (5.70:1 on porcelain). An earlier crumb is a link and a
+     44 px target (panelTouchTargets); the current page is plain text. */
+  .panel-crumbs-list { @apply flex flex-wrap items-center gap-x-2 font-mono text-xs text-ink/70; }
+  .panel-crumbs-item { @apply flex items-center gap-x-2; }
+  .panel-crumb {
+    @apply inline-flex min-h-11 items-center underline underline-offset-4 hover:text-ink
+           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
+  }
+  /* A link inside running text (M12-49). inline-flex min-h-11 gave such a link its 44 px,
+     but it also made the link a 44 px tall inline block, so the paragraph's line box grew
+     around it and the sentence broke into gappy lines ("...read the" / gap / "integration
+     guide."). This keeps the link inline -- the line box is the text's own -- and reserves
+     the 44 px in a transparent box drawn by ::after, centred on the line: the anchor's
+     pseudo-element is part of the anchor, so a press on it follows the link. The ::after's
+     min-height is what TestPanelScreens_TouchTargetClassesReserve44px reads.
+     CAUTION: the ::after reaches about 11.5 px outside the line box -- never put a .hit-link
+     within 12 px of another control (measured: a button 4 px below lost its top ~7.5 px of
+     hit area to the link). */
+  .hit-link { @apply relative; }
+  .hit-link::after {
+    content: "";
+    @apply absolute inset-x-0 top-1/2 min-h-11 -translate-y-1/2;
+  }
+  /* The eyebrow recipe of the redesign (README §4 "Type sizes"): mono 11 px, upper case,
+     0.12em tracking, ink at 70 % (5.70:1 on porcelain, 6.05:1 on paper). M12-01's kicker is
+     its first user; M12-08's field labels reuse it. */
+  .lbl { @apply font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70; }
+
+  /* The phone's bottom tab bar: four sections and More. It is fixed, so .panel-main
+     carries bottom padding taller than the bar (and the home indicator's inset). */
+  .bar {
+    @apply fixed inset-x-0 bottom-0 z-20 flex bg-ink px-1 pt-1 md:hidden;
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+  .bar-link {
+    @apply relative flex min-h-[60px] flex-1 cursor-pointer list-none flex-col items-center
+           justify-center gap-1 font-display text-[11px] font-medium text-paper/80
+           hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-paper;
+  }
+  .bar-link::-webkit-details-marker { display: none; }
+  .bar-pill { @apply flex h-[30px] w-12 items-center justify-center rounded-[15px]; }
+  .bar-link--current { @apply text-paper; }
+  .bar-link--current .bar-pill { @apply bg-paper text-ink; }
+  .bar-link .tab-count { @apply absolute top-1 left-[calc(50%+6px)] ml-0; }
+  .bar-more { @apply flex flex-1; }
+  .bar-more > .bar-link { @apply w-full; }
+  /* The More sheet: a native disclosure, so it opens and closes with JavaScript off.
+     M12-47 (board M-More) changes no markup and keeps the shipped rows, as the board draws
+     them: the sheet lifts off the page on a soft ink shadow and the page above the bar is
+     dimmed. */
+  .bar-sheet {
+    @apply fixed inset-x-0 z-10 max-h-[75vh] overflow-y-auto rounded-t-2xl
+           border-t border-line bg-paper px-4 pt-4 pb-6 text-ink;
+    /* the bar's own height: 4px top padding, 60px links, and its bottom padding */
+    bottom: calc(64px + max(0.5rem, env(safe-area-inset-bottom)));
+    box-shadow: 0 -8px 24px theme('colors.ink / 10%');
+  }
+  /* THE DIMMED PAGE IS THE SUMMARY'S OWN BOX, NOT AN ELEMENT. A pseudo-element belongs to
+     the element that draws it, so a tap on the dimmed page is a tap on More's summary and
+     the browser closes the disclosure itself -- "tap outside to close" with no script, and
+     a tap can no longer land on a link it cannot see clearly. It stops at the bar's top
+     (the sheet's own bottom), so the four bar links and More stay lit and pressable; the
+     sheet (z-10) paints above it inside the bar's stacking context. Decoration only: the
+     content is empty, so nothing is read. */
+  .bar-more[open] > .bar-link::before {
+    content: "";
+    @apply fixed inset-x-0 top-0 cursor-default bg-ink/40;
+    bottom: calc(64px + max(0.5rem, env(safe-area-inset-bottom)));
+  }
+  .sheet-list { @apply flex flex-col; }
+  .sheet-link {
+    @apply flex min-h-12 items-center gap-3 border-b border-line px-1 font-display text-base
+           text-ink hover:text-tappa-green focus:outline-none focus-visible:ring-2 focus-visible:ring-ink;
+  }
+  .sheet-link--current { @apply font-bold; }
+  .sheet-foot { @apply mt-4 flex flex-col gap-3; }
+  /* The sheet's sign-out is a small button with the redesign's field radius (README §4);
+     the sidebar's copy of the same form keeps its own shape. */
+  .sheet-foot .btn { @apply rounded-[10px]; }
 
   /* --- filter bar: the panel's six filters (M6-03) ---
      It was M6-02's card item and was MOVED here rather than dropped: M6-02 had
@@ -478,8 +662,12 @@
     @apply min-h-11 w-full border border-line bg-paper px-2 py-1 font-mono text-sm text-ink
            focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green;
   }
+  /* THE ACTIONS WRAP (M12-01's measurement): on a 390 px phone the Billing and The Roll bars
+     carry five buttons in this row (show, previous, next, the current period, the CSV), and
+     a row that does not wrap pushed the page 77-102 px wider than the screen -- a sideways
+     scroll on every phone. Where the row fits, wrapping changes nothing. */
   .filter-actions {
-    @apply flex items-center gap-2;
+    @apply flex flex-wrap items-center gap-2;
   }
 
   /* --- tally: a small fact ABOUT a record, printed inside its docket ---
@@ -623,18 +811,18 @@
      mono because it is data. The tab's own label is what a screen reader reads
      first; the badge carries an aria-label of its own so "12" is announced as
      twelve records waiting rather than as a bare number. */
-  /* text-ink is stated EXPLICITLY rather than inherited. .tab-link paints its
-     label at ink/70 and marks the current tab at full ink, so a badge that
-     inherited would have two different contrasts against the same ground
-     depending on which section you happen to be looking at. Full ink on
-     saffron-lite is the same pairing the FLAGGED tally already ships, and it is
-     measured rather than assumed: ink on saffron-lite is 13.97:1 (AA wants
-     4.5:1). saffron-lite's relative luminance is 0.8405, which is LIGHTER than
-     green-lite's 0.8229 -- so this ground does not become the binding one and
-     TestBrand_ProseNamesTheGroundTheMeasurementDERIVES keeps naming green-lite. */
+  /* text-ink is stated EXPLICITLY rather than inherited. A .tab-link paints its
+     label in paper on the ink rail and in ink on the current section's paper fill,
+     so a badge that inherited would change colour with the section you are on.
+     Solid saffron with ink (design "The Pass", 2026-10-20) measures 6.2:1 (AA wants
+     4.5:1); it used to be saffron-lite, which on the ink rail would have been a
+     light chip with no edge. Same rule on the phone's bar, where .bar-link places
+     it over the icon. */
   .tab-count {
-    @apply ml-2 inline-block border border-saffron bg-saffron-lite px-1.5
-           font-mono text-[11px] leading-5 text-ink;
+    @apply ml-2 inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full
+           bg-saffron px-1.5 font-mono text-xs font-bold text-ink
+           md:absolute md:top-1 md:left-[42px] md:ml-0 md:h-[18px] md:min-w-[18px] md:text-[11px]
+           desk:static desk:ml-auto desk:h-[22px] desk:min-w-[22px] desk:text-xs;
   }
 
   /* --- the public page's drawings (M7-01 rebuild, 2026-09-07) ---
@@ -1012,6 +1200,505 @@
      navigation is not drawn (a phone, a tablet, a small laptop), so each of its links is a
      44 px touch target. The heading's id is the guide's own anchor (apiguide.ContentsID). */
   .guide-prose h2#contents + ul a { @apply inline-flex min-h-11 items-center; }
+
+  /* =====================================================================
+     THE PANEL REDESIGN'S SHARED CLASSES ("The Pass", M12-08).
+
+     The recipes are docs/design/panel-redesign/README.md §5, the opacity steps
+     and radii its §4 (D2: the docket and the stamp stay sharp; cards, fields,
+     buttons and chips may be rounded, chips and pills fully). Palette tokens
+     only, and only the steps §4 lists for new classes.
+
+     NOTHING BELOW IS RENDERED YET. Tailwind keeps a rule of this layer only when
+     its class name appears somewhere in the scanned sources, so each class enters
+     app.css with the first screen card that writes it -- this card adds the
+     recipes, not the pages. The exception is the tape bars: the bucket helper
+     (web/templates/components/buckets.templ) writes their ten names literally,
+     so those ten rules compile from today.
+
+     🔴 FOUR NAMES DIFFER FROM README §5 BECAUSE THE SCAN IS LEXICAL, NOT A USE
+     COUNT. Measured on the first build of this block: .chip, .field, .lock and
+     .switch compiled into app.css with no element carrying them (+2 479 bytes),
+     because the word stands as a whole token somewhere in the templates -- prose
+     comments for the first three (36, 81 and 12 files), the Go keyword in 62 --
+     and Tailwind keeps any layer rule whose class it finds as a token. So they
+     are .chip-link, .field-stack, .lock-glyph and .rule-switch; their modifiers
+     and parts follow. The rail's tilt rules key on the item and the element
+     (article) rather than on .docket for the same reason: a selector naming a
+     class already in use compiles with it (the .docket-bound tilt rules added
+     +390 bytes more; +2 869 bytes together). A new class here needs a name no
+     sentence would contain.
+
+     THE PRESS TARGETS (.chip-link, .queue-item, .roster-row, .venue-card,
+     .rule-switch, .field-input, .stat-card--spike, .btn--approve, .btn--reject)
+     each reserve at least 44 px. They were defined here before any screen drew
+     them and waited in panelPendingTouchTargets (internal/handler/dashboard_test.go),
+     whose test reads heights out of THIS file; every screen card has since moved
+     its own to panelTouchTargets, where the markup scan and the
+     compiled-stylesheet check hold them. The pending map is empty by design and
+     stays as the way in for a press target defined ahead of its screen.
+
+     NO CLASS HERE READS THE TENANT ACCENT and no name carries the accent's word
+     (TestCompiledCSS_BrandNamesOccurOnlyInTheGolden,
+     TestCompiledCSS_BrandVariablesOnlyInTheirSlots): the panel's actions stay the
+     palette's. Status is never colour alone -- every tone below is a frame or a
+     ground under a word the template writes. */
+
+  /* --- surfaces --- */
+  .panel-card {
+    @apply flex flex-col gap-4 rounded-[18px] border border-line bg-paper p-4
+           md:px-[22px] md:py-5 desk:px-6 desk:py-[22px];
+  }
+  .stat-card {
+    @apply flex flex-col gap-2.5 rounded-[18px] border border-line bg-paper p-4
+           md:px-5 md:py-[18px] desk:gap-[18px] desk:px-6 desk:py-[22px];
+  }
+  /* The Spike's card is a link to the queue, so it is a press target. */
+  .stat-card--spike {
+    @apply min-h-11 border-saffron bg-saffron-lite text-ink hover:border-ink
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-ink;
+  }
+  .stat-card--open { @apply border-dashed border-ink/50; }
+
+  /* --- form field (a new pair: .filter-input stays as other pages use it) ---
+     The error state follows aria-invalid, so the attribute a screen reader hears
+     and the frame a sighted manager sees cannot disagree; the 2 px frame keeps
+     the box by giving back 1 px of padding. */
+  .field-stack { @apply flex flex-col gap-1.5; }
+  .field-input {
+    @apply min-h-11 w-full rounded-[10px] border border-line bg-paper px-3 font-display
+           text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-2
+           focus:ring-tappa-green/40;
+  }
+  .field-input--mono { @apply font-mono; }
+  .field-input[aria-invalid="true"] { @apply border-2 border-tomato px-[11px]; }
+  .field-help { @apply text-[13px] leading-[1.45] text-ink/70; }
+
+  /* --- chips: links, not buttons; the current one is ink with paper text ---
+     The focus mark is an outline with an offset because a ring in ink would
+     vanish against the current chip's own ink fill. */
+  .chip-link {
+    @apply inline-flex min-h-11 flex-none items-center gap-1.5 whitespace-nowrap rounded-full
+           border border-ink/50 px-3.5 font-display text-[13px] font-medium text-ink
+           hover:border-ink focus:outline-none focus-visible:outline-2
+           focus-visible:outline-offset-2 focus-visible:outline-ink;
+  }
+  .chip-link--on { @apply border-ink bg-ink text-paper; }
+  .chip-count { @apply font-mono text-xs opacity-80; }
+  /* A phone scrolls the row sideways inside the shell's padding (the bleed);
+     from md it wraps. */
+  .chip-group {
+    @apply -mx-4 flex gap-2 overflow-x-auto px-4 md:mx-0 md:flex-wrap md:overflow-visible md:px-0;
+    scrollbar-width: none;
+  }
+
+  /* --- status pills: the database's words (INVITED / ACTIVE / DEACTIVATED) ---
+     Word ink, colour in the frame, as on the stamp. */
+  .pill {
+    @apply inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-0.5
+           text-xs font-medium text-ink;
+  }
+  .pill--active { @apply border-tappa-green bg-tappa-green/10; }
+  .pill--invited { @apply border-dashed border-saffron bg-saffron/10; }
+  .pill--deactivated { @apply border-line text-ink/70; }
+  /* A tally drawn as a pill: the same tones (the .tally--* modifiers above). */
+  .pill-tally { @apply rounded-full px-2 font-bold tracking-[0.08em]; }
+  /* A mono pill (Developers: a key's Live / Revoked, the webhook's On / Off, a
+     delivery's five states). The frame and the ground are the tone, written beside
+     it in the template; the word stays ink, or ink at 70 % on a plain frame
+     (6.05:1 on paper). */
+  .mono-pill {
+    @apply inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5
+           font-mono text-[11px] font-bold tracking-[0.08em] text-ink;
+  }
+
+  /* --- buttons: modifiers of .btn, which keeps the height and the focus ring ---
+     The accent never reaches them. The destructive pair is an ink word in a
+     tomato frame; a fill would put the word on tomato. */
+  .btn--ink {
+    @apply rounded-xl bg-ink text-paper hover:bg-tappa-green focus:ring-offset-2
+           focus:ring-offset-paper;
+  }
+  .btn--line { @apply rounded-xl border border-ink bg-transparent text-ink hover:bg-ink/5; }
+  .btn--danger { @apply rounded-xl border-2 border-tomato bg-paper text-ink hover:bg-tomato/10; }
+  .btn--approve {
+    @apply min-h-16 rounded-2xl bg-tappa-green text-lg text-paper hover:bg-ink
+           focus:ring-offset-2 focus:ring-offset-paper;
+  }
+  .btn--reject {
+    @apply min-h-16 rounded-2xl border-2 border-tomato bg-paper text-lg text-ink
+           hover:bg-tomato/10;
+  }
+
+  /* --- evidence tile (The Spike, Odd shapes) ---
+     The mark is aria-hidden in the template; the value and the sub-line carry
+     the meaning. Paper on tomato 5.30:1, paper on tappa-green 7.73:1. */
+  .ev-tile { @apply flex flex-col gap-1.5 rounded-xl border border-line px-3.5 py-3; }
+  .ev-tile--ok { @apply bg-tappa-green/5; }
+  .ev-tile--bad { @apply bg-tomato/5; }
+  .ev-tile--none { @apply bg-paper; }
+  .ev-tile-value { @apply font-display text-base font-bold text-ink; }
+  .ev-tile-sub { @apply text-xs text-ink/70; }
+  .ev-tile-mark {
+    @apply inline-flex size-[22px] flex-none items-center justify-center rounded-md
+           font-mono text-[13px];
+  }
+  .ev-tile--ok .ev-tile-mark { @apply bg-tappa-green text-paper; }
+  .ev-tile--bad .ev-tile-mark { @apply bg-tomato text-paper; }
+  .ev-tile--none .ev-tile-mark { @apply bg-line text-ink; }
+
+  /* --- evidence badge on a venue card: "IP ok", "IP too wide", "IP none" ---
+     The template adds the sr-only words; the marks are aria-hidden. */
+  .ev-badge {
+    @apply inline-flex items-center whitespace-nowrap rounded-md border px-[7px] py-0.5
+           font-mono text-[11px] font-bold text-ink;
+  }
+  .ev-badge--ok { @apply border-tappa-green bg-tappa-green/10; }
+  .ev-badge--wide { @apply border-dashed border-saffron bg-saffron/10; }
+  .ev-badge--none { @apply border-dashed border-ink/50 text-ink/70; }
+
+  /* --- selectable rows and cards: links carrying aria-current ---
+     A 2 px frame on the selected one gives back 1 px of padding, so selecting
+     does not move the content. */
+  .queue-item {
+    @apply flex min-h-11 w-full flex-col gap-1 rounded-xl border border-line px-3.5 py-3
+           text-left text-ink hover:border-ink focus:outline-none focus-visible:ring-2
+           focus-visible:ring-ink;
+  }
+  .queue-item--current { @apply border-2 border-ink bg-paper px-[13px] py-[11px]; }
+  /* The Spike's phone pager (M12-28): the previous / next record of the page, a 44 px
+     square link; an end is the same square as a disabled span, its frame and chevron
+     dimmed (the chevron is drawing; the label says what it is). */
+  .spike-step {
+    @apply inline-flex size-11 min-h-11 flex-none items-center justify-center rounded-xl
+           border border-ink/50 bg-paper text-ink hover:border-ink focus:outline-none
+           focus-visible:ring-2 focus-visible:ring-ink;
+  }
+  .spike-step--off { @apply border-line text-ink/70 hover:border-line; }
+  /* The Spike's two decision buttons (M12-28). On a phone the row is pinned above the
+     bottom navigation bar -- the bar's own height, as .bar-sheet computes it -- so the
+     decision stays in reach while the record scrolls; the form gives the page room for it.
+     It sits under the bar's stacking context, so the More sheet's dimmed page covers it.
+     From md it is an ordinary row under the record: two columns on the tablet, a wrapping
+     row on the desk. It is the same two buttons of the same form at every width. */
+  .spike-actions {
+    @apply fixed inset-x-0 z-10 flex gap-2.5 border-t border-line bg-porcelain px-4 py-2.5
+           md:static md:z-auto md:grid md:grid-cols-2 md:gap-3 md:border-t-0
+           md:bg-transparent md:p-0 desk:flex desk:flex-wrap;
+    bottom: calc(64px + max(0.5rem, env(safe-area-inset-bottom)));
+  }
+  .venue-card {
+    @apply flex min-h-11 w-full flex-col gap-2.5 rounded-[14px] border border-line bg-paper
+           px-4 py-3.5 text-ink hover:border-ink focus:outline-none focus-visible:ring-2
+           focus-visible:ring-ink;
+  }
+  .venue-card--on { @apply border-2 border-ink px-[15px] py-[13px]; }
+  /* A form section's number (M12-35, the venue and department forms): drawing, not a
+     word -- the template hides it from a screen reader; the section's heading names it. */
+  .secno {
+    @apply inline-flex size-[30px] flex-none items-center justify-center rounded-full
+           border-[1.5px] border-ink font-mono text-xs font-bold text-ink;
+  }
+  /* A person's row in People: 64 px on a phone, 60 px from md. The selected row
+     is marked by its aria-current, not by a second class. The gap between lines is
+     the smaller one: where the list is narrow (a desk with the card open) the row's
+     figures wrap onto a second line as one block, under the name. */
+  .roster-row {
+    @apply flex min-h-16 w-full flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t border-dashed
+           border-line px-5 py-2.5 text-ink first:border-t-0 hover:bg-tappa-green/5
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-inset
+           focus-visible:ring-ink md:min-h-[60px];
+  }
+  .roster-row[aria-current="true"] {
+    @apply bg-tappa-green/10;
+    box-shadow: inset 3px 0 0 theme('colors.ink');
+  }
+  /* The row's initials square and, on a phone, the chevron at its end. They are
+     classes rather than utility chains because a page carries fifty rows on a
+     no-store response (the report-row measurement): the chevron is two borders of a
+     turned square, so no row carries an svg for it. Both are drawing only -- the
+     template keeps them from a screen reader. */
+  .roster-initials {
+    @apply inline-flex size-10 flex-none items-center justify-center rounded-[10px] border
+           border-ink/50 bg-paper font-mono text-[13px] font-bold;
+  }
+  .roster-chevron {
+    @apply mr-1 size-2.5 flex-none rotate-45 border-r-2 border-t-2 border-ink/70 md:hidden;
+  }
+
+  /* --- The Roll's day cell ---
+     Modifiers combine; each cell carries sr-only words in the template, and the
+     manual cell its literal M as well as the dotted underline. */
+  .roll-cell {
+    @apply inline-block min-w-[58px] whitespace-nowrap rounded-lg px-1 py-[7px] text-center
+           font-mono text-[13px] text-ink
+           max-md:flex max-md:min-h-[30px] max-md:w-full max-md:min-w-0 max-md:flex-col
+           max-md:items-center max-md:justify-center max-md:px-0 max-md:py-0.5
+           max-md:text-[10px];
+  }
+  .roll-cell--worked { @apply bg-tappa-green/15; }
+  .roll-cell--other { @apply ring-1 ring-inset ring-ink; }
+  /* A typed cell carries its M beside the figure, so from the tablet it takes a little
+     more room on each side: at the base padding the M touched the open cell's frame. */
+  .roll-cell--manual { @apply underline decoration-dotted md:px-2; }
+  .roll-cell--open { @apply border border-dashed border-saffron bg-saffron/10 py-[6px]; }
+  .roll-cell--none { @apply text-ink/70; }
+  /* The manager-typed mark: a literal letter beside the hours, under them on a phone. */
+  .roll-mark { @apply ml-1 text-[10px] font-bold max-md:ml-0 max-md:text-[9px]; }
+
+  /* --- The Roll's grid: ONE table, reflowed on a phone (screen file 3.3) ---
+     From md it is a table that scrolls inside its card. Below md the same rows become
+     cards: the name and the total share the first line, the seven days the second, and
+     the header row is kept for a screen reader only. No second copy of any row exists,
+     so no figure is printed twice. These repeat for every person (up to a hundred rows
+     of nine cells), which is why they are classes rather than chains. */
+  .roll-table { @apply w-full border-collapse md:min-w-[690px] desk:min-w-[720px] max-md:block; }
+  .roll-body { @apply max-md:flex max-md:flex-col max-md:gap-2.5; }
+  .roll-row {
+    @apply border-t border-dashed border-line
+           max-md:grid max-md:grid-cols-7 max-md:gap-x-1 max-md:gap-y-2.5 max-md:rounded-2xl
+           max-md:border max-md:border-solid max-md:bg-paper max-md:p-3.5;
+  }
+  .roll-who {
+    @apply py-2.5 pl-5 pr-2 text-left align-top font-normal
+           max-md:col-span-5 max-md:row-start-1 max-md:p-0;
+  }
+  .roll-name { @apply block font-display text-[15px] font-bold text-ink; }
+  .roll-sub { @apply mt-0.5 block font-mono text-[11px] text-ink/70; }
+  .roll-day { @apply px-0.5 py-1.5 text-center align-top max-md:min-w-0 max-md:p-0; }
+  .roll-letter { @apply mb-0.5 block text-center font-mono text-[10px] text-ink/70 md:hidden; }
+  .roll-sum {
+    @apply whitespace-nowrap py-2.5 pl-2 pr-5 text-right align-top font-mono text-base font-bold
+           text-ink max-md:col-span-2 max-md:col-start-6 max-md:row-start-1 max-md:p-0
+           max-md:text-lg;
+  }
+  /* A qualifier under a person's name (late arrivals, typed arrivals, open check-ins):
+     the tally's tone beside it, the shape the boards draw -- a 10 px corner rather than
+     a full round, so a qualifier the name column wraps onto two lines stays a
+     rounded box instead of turning into an oval. Its own name: .tally* selectors are
+     reserved for tones. */
+  .roll-qual { @apply rounded-[10px] px-2 font-bold leading-snug tracking-[0.08em]; }
+  /* The person's shift count under their total: a count, so mono, and quieter. */
+  .roll-shifts { @apply mt-0.5 block text-[11px] font-normal text-ink/70; }
+
+  /* --- the tape's bar heights: ten buckets the bucket helper chooses ---
+     A share of the row's own height, so one set serves the phone's 28 px row and
+     the 34 px one. The steps follow the approved boards: the shortest bar is a
+     quarter of the row, so one person on shift is still a visible bar, and a
+     bucket of 0 writes no bar at all. */
+  .tape-bar--1 { height: 26%; }
+  .tape-bar--2 { height: 34%; }
+  .tape-bar--3 { height: 42%; }
+  .tape-bar--4 { height: 51%; }
+  .tape-bar--5 { height: 59%; }
+  .tape-bar--6 { height: 67%; }
+  .tape-bar--7 { height: 75%; }
+  .tape-bar--8 { height: 84%; }
+  .tape-bar--9 { height: 92%; }
+  .tape-bar--10 { height: 100%; }
+
+  /* --- the ledger's filter disclosure (M12-27, board M-Ledger) ---
+     ONE form at every width: on a phone it sits in a native <details>; from the tablet
+     width the summary is not drawn and the form always shows. A closed disclosure hides
+     its content in the browser's own slot, which only ::details-content reaches, so the
+     tablet/desk rule is gated on the browser knowing that pseudo-element: one that does
+     not keeps the summary as a working "Filters" control rather than hiding the form
+     with no way to open it. */
+  .filter-details > summary { list-style: none; }
+  .filter-details > summary::-webkit-details-marker { display: none; }
+  @media (min-width: 768px) {
+    @supports selector(::details-content) {
+      .filter-details > summary { display: none; }
+      .filter-details::details-content { content-visibility: visible; }
+    }
+  }
+
+  /* --- the rail's tilt: by position, never a per-item class built in Go ---
+     Seven angles in a cycle, hung from the clip (top centre). The docket keeps
+     its sharp corners (D2); only its angle changes. The rail docket is an
+     article (README §5); the clip beside it is not, so it does not turn. */
+  .rail-item article { transform-origin: top center; }
+  .rail-item:nth-child(7n+1) article { rotate: -1.2deg; }
+  .rail-item:nth-child(7n+2) article { rotate: 0.8deg; }
+  .rail-item:nth-child(7n+3) article { rotate: -0.4deg; }
+  .rail-item:nth-child(7n+4) article { rotate: 1.1deg; }
+  .rail-item:nth-child(7n+5) article { rotate: -0.9deg; }
+  .rail-item:nth-child(7n+6) article { rotate: 0.5deg; }
+  .rail-item:nth-child(7n+7) article { rotate: -1.4deg; }
+  /* The business picker (M12-44) hangs its dockets from the rail only from desk;
+     below it they stack full width with no rail and no clip, and a wide docket
+     turned about its top edge would only look crooked. */
+  @media (max-width: 1199.98px) {
+    .choose-rail .rail-item article { rotate: none; }
+  }
+
+  /* --- the Rules ladder: CLASS-ONLY on purpose ---
+     /admin/policies is held to a short list of tags and attributes (no svg, no
+     list elements, no aria, no id), so the rail, the rung connectors, the
+     riveted plates and the lock glyph are all drawn from pseudo-elements and
+     carry nothing a screen reader reads. The numbers in .rung-no are the
+     engine's Order, written by the template. Geometry: the rail's centre is
+     19 px from the left on a phone and 26 px from md, and each connector and
+     badge is centred on it. */
+  .ladder { @apply relative pl-12 md:pl-16; }
+  .ladder::before {
+    content: '';
+    @apply absolute bottom-1.5 left-4 top-1.5 w-1.5 rounded bg-ink md:left-[22px] md:w-2;
+  }
+  .rung { @apply relative; }
+  .rung::before {
+    content: '';
+    @apply absolute -left-[29px] top-[26px] h-[3px] w-[29px] bg-ink md:-left-[42px] md:w-[42px];
+  }
+  .rung-no {
+    @apply absolute -left-[42px] top-3.5 inline-flex size-[26px] items-center justify-center
+           rounded-full bg-ink font-mono text-xs font-bold text-paper
+           md:-left-16 md:top-[13px] md:h-7 md:w-[52px] md:rounded-md;
+  }
+  .plate { @apply relative rounded-xl border border-line bg-ink/5 px-[22px] py-3.5; }
+  .plate::before,
+  .plate::after {
+    content: '';
+    @apply absolute top-2 size-[5px] rounded-full bg-ink/50;
+  }
+  .plate::before { @apply left-2; }
+  .plate::after { @apply right-2; }
+  /* A padlock: a ring, a shackle (::before) and a body (::after). */
+  .lock-glyph {
+    @apply relative inline-block size-[34px] flex-none rounded-full border-[3px] border-ink
+           bg-porcelain;
+  }
+  .lock-glyph::before {
+    content: '';
+    @apply absolute left-1/2 top-1.5 h-[9px] w-2.5 -translate-x-1/2 rounded-t-full border-2
+           border-b-0 border-ink;
+  }
+  .lock-glyph::after {
+    content: '';
+    @apply absolute left-1/2 top-[13px] h-[9px] w-3.5 -translate-x-1/2 rounded-sm bg-ink;
+  }
+
+  /* --- the Rules page's frame (M12-37) ---
+     The two wrappers are TEST BOUNDARIES whose markup is pinned byte for byte
+     (`<div class="policy-section">` and `<div class="policy-guarantees">`), so
+     their layout lives here rather than in a class attribute. The section is a
+     column; the guarantees are the first row of the left column from desk, with
+     the intro beside them (the template places the intro). */
+  .policy-section { @apply flex flex-col gap-6; }
+  .policy-guarantees { @apply min-w-0 desk:col-start-1 desk:row-start-1; }
+  /* The guarantees' rail runs on through the 24 px between the two ladders and
+     the rules' rail starts flush, so the page draws one rail: the gap is the
+     grid's row gap (gap-6 below desk, gap-y-6 from desk). */
+  .ladder-runon::before { @apply -bottom-6 rounded-b-none; }
+  .ladder-runin::before { @apply top-0 rounded-t-none; }
+  /* A statement's effect, read-only: a label in a frame, never a control (the
+     redesign's per-rule effect picker is not built -- D1). Word ink, colour in
+     the frame, as on the stamp. */
+  .effect-pill {
+    @apply inline-flex min-h-10 items-center whitespace-nowrap rounded-[10px] border
+           border-ink/50 bg-paper px-3.5 font-display text-sm font-bold text-ink;
+  }
+  .effect-pill--allow { @apply border-tappa-green; }
+  .effect-pill--review { @apply border-saffron; }
+  .effect-pill--deny { @apply border-tomato; }
+  .effect-pill--quiet { @apply border-line; }
+  /* A guarantee's effect: an ink frame and a small padlock -- locked, not a state.
+     Drawn as the board's small chip, and it WRAPS below md: "Ignore — recorded,
+     counts nothing" in a nowrap pill overflowed its plate on a 375 px phone and
+     scrolled the page at 360 (measured). */
+  .effect-pill--locked {
+    @apply min-h-0 max-w-full gap-2 whitespace-normal rounded-full border-ink px-2.5 py-0.5
+           text-left text-[13px] md:whitespace-nowrap;
+  }
+  /* The small padlock: a shackle (::before) over a body (::after), 10 x 13 px. */
+  .lock-mini { @apply relative inline-block h-[13px] w-2.5 flex-none; }
+  .lock-mini::before {
+    content: '';
+    @apply absolute left-1/2 top-0 h-1.5 w-1.5 -translate-x-1/2 rounded-t-full border-[1.5px]
+           border-b-0 border-ink;
+  }
+  .lock-mini::after {
+    content: '';
+    @apply absolute bottom-0 left-0 h-[7px] w-2.5 rounded-[2px] bg-ink;
+  }
+
+  /* --- a rule change's before / after (M12-38) ---
+     What goes is struck through in tomato, what arrives sits on a tenth of
+     tappa-green; the word stays ink on both (ink on either tint over porcelain
+     or paper is above 12:1), and the template adds "removed" / "added" for a
+     screen reader, so the tint never carries the meaning alone. */
+  .diff-del {
+    @apply rounded-full bg-tomato/10 px-2 py-px text-ink line-through decoration-tomato
+           decoration-2;
+  }
+  .diff-ins { @apply rounded-full bg-tappa-green/10 px-2 py-px text-ink no-underline; }
+
+  /* --- the rule switch: a submit button whose words name the outcome ---
+     No switch role and no pressed state: the state is the state chip beside it,
+     and the button says what pressing it will do. */
+  .rule-switch {
+    @apply inline-flex min-h-11 items-center gap-2.5 rounded-[22px] border pl-1.5 pr-3.5
+           text-left font-display text-[13px] font-bold text-ink hover:border-ink
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-ink
+           focus-visible:ring-offset-2 focus-visible:ring-offset-paper;
+  }
+  .rule-switch--on { @apply border-tappa-green bg-tappa-green/15; }
+  .rule-switch--off { @apply border-ink/50 bg-porcelain; }
+  .rule-switch-knob { @apply size-[30px] flex-none rounded-full; }
+  .rule-switch--on .rule-switch-knob { @apply bg-tappa-green; }
+  .rule-switch--off .rule-switch-knob { @apply border border-ink/50 bg-paper; }
+
+  /* --- Odd shapes (M12-29): the aggregate cards, their chips and the side notes ---
+     The week's figures are aggregates, not records, so they sit on rounded cards (D2);
+     the totals stay a docket. Every chip carries its own words and takes its tone from
+     the existing tally modifiers (one declaration per tone); the open entry's age is the
+     one new tone, dashed because an open entry is waiting for a record that never came.
+     A side note is a word-first box: its heading names what it is, the 4 px edge only
+     repeats the tone. No name below is a word a sentence would contain (§3.2). */
+  .odd-card {
+    @apply flex min-w-0 flex-col gap-3.5 rounded-[18px] border border-line bg-paper p-5
+           desk:px-6 desk:py-[22px];
+  }
+  .odd-title {
+    @apply font-display text-[19px] font-bold leading-tight tracking-[-0.02em] text-ink md:text-xl;
+  }
+  .odd-chip {
+    @apply inline-flex min-h-6 items-center rounded-full border px-2.5 font-mono text-xs text-ink;
+  }
+  .odd-chip--open { @apply border-dashed border-saffron bg-saffron/10; }
+  .odd-callout {
+    @apply flex flex-col gap-2 rounded-[14px] border border-l-4 border-line bg-paper px-4 py-3.5
+           text-[13px] leading-normal text-ink md:px-5 md:py-4;
+  }
+  .odd-callout--alert { @apply border-l-tomato; }
+  .odd-callout--warn { @apply border-l-saffron; }
+
+  /* --- manual entry (M12-33, boards Manual / T-Manual / M-Manual) ---
+     Each direction card is the label of a visually hidden radio: the frame
+     doubles (a 1 px inset ring inside the ink border) when its radio is checked,
+     and a ring outside it shows keyboard focus -- no script, no layout shift. */
+  .manual-dircard {
+    @apply relative flex min-h-[60px] cursor-pointer flex-col justify-center gap-0.5 rounded-xl
+           border border-line px-3 py-2 text-ink md:min-h-16 md:px-3.5 md:py-2.5
+           has-[:checked]:border-ink has-[:checked]:bg-paper
+           has-[:checked]:shadow-[inset_0_0_0_1px_theme(colors.ink)]
+           has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-tappa-green
+           has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-paper;
+  }
+  /* The action row. On a phone the two controls of each step stay in reach while
+     the form is scrolled: the row sticks to the bottom of the viewport, just above
+     the fixed section bar (.bar: 4 px + a 60 px link + max(8 px, the home
+     indicator's inset) -- the offset below is that sum), and it bleeds to the
+     docket's edges over the docket's own paper. It sticks only inside its own
+     form, so it never floats over another step. From the tablet width it is an
+     ordinary row at the end of the form. It is a container, not a press target:
+     its button and link carry their own heights. */
+  .manual-actbar {
+    @apply sticky z-10 -mx-4 flex flex-wrap items-center gap-3 border-t border-line bg-paper
+           px-4 py-2.5 md:static md:mx-0 md:border-t-0 md:bg-transparent md:p-0;
+    bottom: calc(4rem + max(0.5rem, env(safe-area-inset-bottom)));
+  }
+
   /* The suspend form's reasons (M10 OP-15 C; ADR 0025 §5): each radio beside its label, two
      columns, the label the 44px touch target. The security hold's warning is the LAST child of
      the same grid, so the general-sibling rule below can show it when -- and only when -- the

@@ -14,6 +14,7 @@ package handler
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -35,13 +36,15 @@ import (
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/domain/tenant"
+	"github.com/atknatk/tappa/internal/qrcode"
+	"github.com/atknatk/tappa/internal/sun"
 	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
 // plaqueBrowser is a signed-in manager looking at a section backed by the two
 // fakes.
-func plaqueBrowser(t *testing.T, venues panelVenues, plaques panelPlaques) *browser {
+func plaqueBrowser(t *testing.T, venues panelVenues, plaques panelPlaques, opts ...AdminAuthOption) *browser {
 	t.Helper()
 	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
 		return adminauth.Resolved{
@@ -49,7 +52,7 @@ func plaqueBrowser(t *testing.T, venues panelVenues, plaques panelPlaques) *brow
 			Role: "owner", FullName: "KF Owner",
 		}, nil
 	}}
-	b := newBrowser(t, newAdminRouterWithPlaques(t, admins, venues, plaques))
+	b := newBrowser(t, newAdminRouterWithPlaques(t, admins, venues, plaques, opts...))
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	return b
 }
@@ -139,6 +142,13 @@ func TestPlaquesSection_ShowsTheFiveColumnsAndNeverAKey(t *testing.T) {
 	b := plaqueBrowser(t, venues, threePlaques(venues.firstVenueID()))
 
 	html := htmlOf(t, b.do(http.MethodGet, locationsHref, nil))
+	// 🔴 THE FULL UID HEADS ITS ROW. A bare Contains was satisfied by the open link's
+	// sr-only words ("Open plaque <uid>") alone, so it is bound to the row header.
+	for _, uid := range []string{uidOnWall, uidRetired} {
+		if !regexp.MustCompile(`<th scope="row"[^>]*><span[^>]*>` + uid + `</span>`).MatchString(html) {
+			t.Errorf("no row is headed by the full uid %s", uid)
+		}
+	}
 	for _, want := range []string{
 		uidOnWall,        // the uid
 		"In service",     // the status, in the manager's words
@@ -397,14 +407,21 @@ func TestPlaquesCard_AnUnrecordedEncodeIsNeverOfferedAWall(t *testing.T) {
 		}
 	})
 
-	t.Run("the list carries the banners, in the component's two tones", func(t *testing.T) {
+	// ⚠️ M12-34 DREW THE LIST AS ROWS, NOT DOCKETS, and the two banners became a row's
+	// words: the plaque on a wall carries a "Needs replacing" pill in the rejection tone
+	// beside its status (the card, opened from the row, still carries the full alert
+	// banner above), and the box's row says "This plaque cannot go on a wall" under its
+	// key line. What this asserted before -- the list SAYS both states, in the alert and
+	// the warning tone -- is what it asserts now, on the row's own markup.
+	t.Run("the list carries both states, each with its words", func(t *testing.T) {
 		plaques := &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC,
 			Plaques: []tenant.Plaque{half, rusty}}}
 		b := plaqueBrowser(t, twoVenues(), plaques)
 		html := htmlOf(t, b.do(http.MethodGet, locationsHref, nil))
 		for _, want := range []string{
-			"This plaque needs replacing", noticeAlertClass,
-			"This plaque cannot go on a wall", noticeWarnClass,
+			`<span class="tally pill-tally tally--rejected font-mono">Needs replacing</span>`,
+			`<span class="text-xs font-bold text-ink">This plaque cannot go on a wall</span>`,
+			"Encoding not recorded as finished",
 		} {
 			if !strings.Contains(html, want) {
 				t.Errorf("the plaque list does not contain %q", want)
@@ -472,21 +489,49 @@ var forbiddenTapClaims = []string{
 	"would be rejected", "rejects every tap", "every tap on it is rejected", "did not finish",
 }
 
-// The two components.Notice tones the banners use, as the component renders them.
+// The two components.PanelNotice tones the banners use, as the component renders them.
+//
+// ⚠️ M12-34 PORTED THE CARD TO THE PANEL'S OWN NOTICE, and these two were the shared
+// components.Notice frames until then (a left edge of four, saffron-lite or paper). The
+// shared notice draws the tap and activation screens and is not the panel's; the frames
+// below are panelNoticeClass's, so a banner drawn with the old component fails here.
 const (
-	noticeWarnClass  = "border-l-4 border-saffron bg-saffron-lite px-4 py-4"
-	noticeAlertClass = "border-l-4 border-tomato bg-paper px-4 py-4"
+	noticeWarnClass  = "flex items-start gap-3.5 rounded-[14px] border border-saffron bg-saffron-lite px-[18px] py-4 text-ink"
+	noticeAlertClass = "flex items-start gap-3.5 rounded-[14px] border-2 border-tomato bg-paper px-[18px] py-4 text-ink"
 )
 
-// cardOnly cuts the rendered section down to the open card: it is rendered before
-// the venue list, so everything before the Venues heading is the card.
+// cardOnly cuts the rendered section down to the open card: the plaque card's own
+// <section id="plaque">, up to the </section> that closes it.
+//
+// ⚠️ IT USED TO TAKE EVERYTHING BEFORE THE VENUES HEADING, because the card was drawn
+// above the venue list. M12-34 draws it inside its venue's detail (or with the box),
+// i.e. AFTER the list, so the cut is now the card's own element -- counting nested
+// sections, which the old card's banners were (the ported card's are not, and the count
+// costs nothing).
 func cardOnly(t *testing.T, html string) string {
 	t.Helper()
-	i := strings.Index(html, ">Venues</h2>")
-	if i < 0 {
-		t.Fatalf("no Venues heading; cannot isolate the card")
+	start := strings.Index(html, `<section id="plaque"`)
+	if start < 0 {
+		t.Fatalf("no plaque card on the page; cannot isolate it")
 	}
-	return html[:i]
+	depth := 0
+	for i := start; i < len(html); {
+		switch {
+		case strings.HasPrefix(html[i:], "<section"):
+			depth++
+			i += len("<section")
+		case strings.HasPrefix(html[i:], "</section>"):
+			depth--
+			i += len("</section>")
+			if depth == 0 {
+				return html[start:i]
+			}
+		default:
+			i++
+		}
+	}
+	t.Fatalf("the plaque card's section is never closed")
+	return ""
 }
 
 // TestPlaquesSection_OpensEveryRowItLISTS is A1, and it is the defect this section
@@ -686,6 +731,21 @@ func TestPlaquesCard_OpensOnlyWhenNoOtherCardDid(t *testing.T) {
 	// never ran — the defect ?venue=new&department=new already recorded.
 	if strings.Contains(html, "We could not find that plaque") {
 		t.Fatal("the section reported a plaque missing that it never looked for")
+	}
+	// ⚠️ M12-35 MADE THE TWO ASSERTIONS ABOVE WEAKER THAN THEY READ: an open venue form
+	// is now a page of its own and draws no plaque card at all, so a handler that BUILT
+	// the plaque card anyway would still render no mount form. What the card does that
+	// the page cannot hide is mint: a plaque on a wall with a spare in the box is offered
+	// a replacement, which signs a confirmation into a cookie. Asking for that card beside
+	// a venue must mint nothing.
+	rec := b.do(http.MethodGet,
+		locationsHref+"?venue="+venues.firstVenueID().String()+"&plaque="+uidOnWall, nil)
+	if mintedConfirmation(rec) {
+		t.Fatal("asking for a plaque beside a venue form built the plaque card (it minted a confirmation)")
+	}
+	// THE CONTROL: on its own, the same plaque's card does mint.
+	if !mintedConfirmation(b.do(http.MethodGet, locationsHref+"?plaque="+uidOnWall, nil)) {
+		t.Fatal("control: the plaque's own card minted nothing, so the assertion above proves nothing")
 	}
 }
 
@@ -1706,11 +1766,16 @@ func TestPlaqueViewModels_CannotCarryAKey(t *testing.T) {
 		"components.PlaqueRowView": {"UID", "Status", "Venue", "VenueUnknown", "Counter",
 			"LastSeen", "KeyState", "KeyAlert", "Replaces", "ReplacedBy", "RetiredAt", "Loaded",
 			"Frozen", "OpenHref"},
+		// M12-34: Drawing left the card for the Venues detail (VenueDetailView.Drawing,
+		// walked below through pages.LocationsView); the card draws no QR code.
 		"components.PlaqueFormView": {"Heading", "Action", "CloseHref", "Plaque", "Mode",
 			"Venues", "Successors", "Blocked", "ErrorMessage", "Submit",
 			"ConfirmField", "ConfirmToken", "UnmountHref", "Trail"},
 		"components.PlaqueEventView":   {"What", "When", "Who", "BySystem"},
 		"components.PlaqueReceiptView": {"Replaced", "Unmounted", "Name"},
+		// M12-12 (D4): the drawing carries its QR code as the helper's path STRING and
+		// a side — never the module matrix, a slice this walk would have to permit.
+		"components.PlaqueDrawingView": {"Last4", "QRPath", "QRSide"},
 	}
 	seen := map[string]bool{}
 	for _, root := range []struct {
@@ -1725,6 +1790,9 @@ func TestPlaqueViewModels_CannotCarryAKey(t *testing.T) {
 		// never compared against a list filed under its own name. Naming it here is the
 		// difference between a described type and a checked one.
 		{"components.PlaqueEventView", reflect.TypeOf(components.PlaqueEventView{})},
+		// A root of its own for the same reason: reached only as
+		// LocationsView.Detail.Drawing, its field list would otherwise never be compared.
+		{"components.PlaqueDrawingView", reflect.TypeOf(components.PlaqueDrawingView{})},
 		// 🔴 THE WHOLE SECTION VIEW, walked for SHAPE ONLY. A key would not have to
 		// arrive through a plaque type to be rendered by this section, and enumerating
 		// another milestone's fields here would make this test go red on their work
@@ -1853,5 +1921,172 @@ func TestPlaqueWords_AgreeBetweenHandlerAndTemplate(t *testing.T) {
 	if len(plaqueActWords) != 3 {
 		t.Fatalf("plaqueActWords holds %d word(s); the section ships three plaque acts "+
 			"(mount, replace, un-mount)", len(plaqueActWords))
+	}
+}
+
+// --- the plaque drawing (M12-12, D4) ---------------------------------------------
+
+// drawnQRPath is the d attribute of the drawing's ink path, or "" when the page draws
+// no QR code.
+var drawnQRPath = regexp.MustCompile(`<path class="fill-ink" d="([^"]*)"`)
+
+// TestPlaqueDrawing_TheMountedPlaqueCarriesItsRealQRCode: opening a plaque on a wall
+// opens its venue, whose detail draws the QR code that plaque carries — and the card,
+// inside that detail, draws none of its own (M12-34: exactly one code per page). The
+// drawn path IS internal/qrcode's
+// path for sun.PlaqueQRURL over the tap base cmd/tappa hands the encode relay, and
+// that URL opens the tap route, /t, on the configured host, with the uid and nothing
+// else (no ctr, no cmac, no src marker).
+func TestPlaqueDrawing_TheMountedPlaqueCarriesItsRealQRCode(t *testing.T) {
+	venues := twoVenues()
+	base := PlaqueTapBase(testBaseURL + "/")
+	b := plaqueBrowser(t, venues, threePlaques(venues.firstVenueID()), PlaqueDrawingsFrom(base))
+
+	raw, err := hex.DecodeString(uidOnWall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qrURL, err := sun.PlaqueQRURL(base, raw)
+	if err != nil {
+		t.Fatalf("PlaqueQRURL(%q): %v", base, err)
+	}
+	u, err := url.Parse(qrURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Path != "/t" {
+		t.Errorf("the QR URL opens %q; a plaque opens the tap route /t", u.Path)
+	}
+	if want, _ := url.Parse(testBaseURL); u.Scheme != "https" || u.Host != want.Host {
+		t.Errorf("the QR URL is on %s://%s; the configured base is %s", u.Scheme, u.Host, testBaseURL)
+	}
+	if q := u.Query(); len(q) != 1 || q.Get("tag") != uidOnWall {
+		t.Errorf("the QR URL's query is %q; it carries the uid and nothing else", u.RawQuery)
+	}
+	code, err := qrcode.Encode([]byte(qrURL), plaqueQRLevel)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	html := htmlOf(t, b.do(http.MethodGet, locationsHref+"?plaque="+uidOnWall, nil))
+	m := drawnQRPath.FindAllStringSubmatch(html, -1)
+	if len(m) != 1 {
+		t.Fatalf("the page drew %d QR path(s); a mounted plaque's page draws exactly one", len(m))
+	}
+	if strings.Contains(cardOnly(t, html), `class="fill-ink"`) {
+		t.Error("the plaque card draws a code of its own; the venue detail it sits in draws the one")
+	}
+	if m[0][1] != code.SVGPath(qrcode.QuietZone) {
+		t.Errorf("the drawn path is not internal/qrcode's path for %s", qrURL)
+	}
+	for _, want := range []string{"Hold your phone here", "Or scan — same thing", "PLAQUE 0601", "drawing, not to scale"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the drawing does not say %q", want)
+		}
+	}
+}
+
+// TestPlaqueDrawing_NoRealCodeMeansNoDrawing: wherever the real code cannot be made,
+// nothing is drawn in its place — a development http base (sun.PlaqueQRURL refuses
+// it, as BuildTapNDEF would), a panel given no base at all, and a venue with no plaque
+// on a wall. The card itself still opens.
+//
+// ⚠️ M12-34 MOVED THE DRAWING FROM THE CARD TO THE VENUE DETAIL, so "a plaque that is
+// not on a wall" changed its question. Opening a plaque in the box, a retired one or an
+// unknown uid used to mean an empty page of drawings; now the page still shows a venue,
+// and that venue's plaque in service IS drawn — a real code, the one on its wall. What
+// these three cases now hold is that the opened uid is never drawn and the one code on
+// the page is the venue's plaque's own, byte for byte; the two cases with no real base
+// still draw nothing at all, and a venue with no plaque on a wall draws nothing.
+func TestPlaqueDrawing_NoRealCodeMeansNoDrawing(t *testing.T) {
+	venues := twoVenues()
+	base := PlaqueTapBase(testBaseURL)
+	raw, err := hex.DecodeString(uidOnWall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wallURL, err := sun.PlaqueQRURL(base, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wallCode, err := qrcode.Encode([]byte(wallURL), plaqueQRLevel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nothingDrawn := []string{`class="fill-ink"`, `class="fill-paper"`, "<figure", "Hold your phone here", "PLAQUE "}
+
+	for _, tc := range []struct {
+		name string
+		uid  string
+		opts []AdminAuthOption
+	}{
+		{"an http base", uidOnWall, []AdminAuthOption{PlaqueDrawingsFrom(PlaqueTapBase("http://localhost:8080"))}},
+		{"no base", uidOnWall, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := plaqueBrowser(t, venues, threePlaques(venues.firstVenueID()), tc.opts...)
+			html := htmlOf(t, b.do(http.MethodGet, locationsHref+"?plaque="+tc.uid, nil))
+			if !plaqueCardOpenFor(html, tc.uid) {
+				t.Fatalf("the card for %s did not open", tc.uid)
+			}
+			for _, absent := range nothingDrawn {
+				if strings.Contains(html, absent) {
+					t.Errorf("the page renders %q; with no real code there is no drawing", absent)
+				}
+			}
+		})
+	}
+
+	for _, tc := range []struct {
+		name string
+		uid  string
+	}{
+		{"a plaque in the box", uidInStock},
+		{"a retired plaque", uidRetired},
+		// Another business's (or no business's) uid: the lookup finds nothing, so no
+		// card — the uid in the address is never a source of a code.
+		{"an unknown uid", "AABBCCDDEEFF01"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := plaqueBrowser(t, venues, threePlaques(venues.firstVenueID()), PlaqueDrawingsFrom(base))
+			html := htmlOf(t, b.do(http.MethodGet, locationsHref+"?plaque="+tc.uid, nil))
+			if opened := plaqueCardOpenFor(html, tc.uid); opened == (tc.uid == "AABBCCDDEEFF01") {
+				t.Fatalf("card for %s opened = %v; a known plaque's card opens, an unknown uid's does not", tc.uid, opened)
+			}
+			if strings.Contains(html, "PLAQUE "+tc.uid[len(tc.uid)-4:]) {
+				t.Errorf("the page draws %s, which is on no wall", tc.uid)
+			}
+			m := drawnQRPath.FindAllStringSubmatch(html, -1)
+			if len(m) != 1 || m[0][1] != wallCode.SVGPath(qrcode.QuietZone) {
+				t.Errorf("the page drew %d code(s); want exactly the venue's plaque in service, %s", len(m), uidOnWall)
+			}
+		})
+	}
+
+	t.Run("a venue with no plaque on a wall", func(t *testing.T) {
+		b := plaqueBrowser(t, venues, threePlaques(venues.firstVenueID()), PlaqueDrawingsFrom(base))
+		html := htmlOf(t, b.do(http.MethodGet, locationsHref+"?at="+venues.screen.Venues[1].ID.String(), nil))
+		if !strings.Contains(html, "No plaque is on a wall here yet.") {
+			t.Fatal("the bare venue's detail does not say it has no plaque on a wall")
+		}
+		for _, absent := range nothingDrawn {
+			if strings.Contains(html, absent) {
+				t.Errorf("the page renders %q for a venue with no plaque on a wall", absent)
+			}
+		}
+	})
+}
+
+// TestPlaqueDrawing_AFrozenRowIsNotDrawn: a row in the non-canonical spelling is on a
+// wall, but a code built from it would name an upper-case uid the row does not have.
+func TestPlaqueDrawing_AFrozenRowIsNotDrawn(t *testing.T) {
+	wall := uuid.New()
+	p := tenant.Plaque{UID: strings.ToLower(uidOnWall), Status: tenant.PlaqueActive, LocationID: &wall}
+	if d := plaqueDrawingOf(discardLogger(), PlaqueTapBase(testBaseURL), p); d != nil {
+		t.Errorf("a non-canonical row was drawn: %+v", *d)
+	}
+	p.UID, p.Canonical = uidOnWall, true
+	if d := plaqueDrawingOf(discardLogger(), PlaqueTapBase(testBaseURL), p); d == nil || d.Last4 != "0601" {
+		t.Errorf("the canonical twin was not drawn with its last four digits: %+v", d)
 	}
 }

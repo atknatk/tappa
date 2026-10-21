@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Start free — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.stamp{display:inline-block;padding:3px 8px;border:2px solid;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-8deg)}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
+.field{min-height:48px;width:100%;box-sizing:border-box;padding:0 12px;border:1px solid #C9D2C8;border-radius:10px;background:#FFFDF4;font:15px 'IBM Plex Mono',monospace;color:#152219}
+.field:focus{outline:2px solid #1F5C41;outline-offset:1px;border-color:#1F5C41}
+.hint{margin:0;font-size:12px;line-height:1.45;color:rgba(21,34,25,.7)}
+.btn{min-height:52px;padding:0 20px;border-radius:12px;font:700 16px 'Space Grotesk',sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;width:100%;box-sizing:border-box}
+.btn--primary{border:0;background:#1F5C41;color:#FFFDF4}
+.btn--primary:hover{background:#152219;color:#FFFDF4}
+.btn--quiet{border:1px solid rgba(21,34,25,.5);background:transparent;color:#152219}
+.btn--quiet:hover{color:#152219;border-color:#152219}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
+  <header style="height: 56px; padding: 0 8px 0 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #C9D2C8">
+    <a href="#" style="text-decoration: none; color: #152219; display: flex; flex-direction: column; gap: 1px">
+      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">PUNCHLESS</span>
+    </a>
+    <a href="M-SignIn.dc.html" style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
+  </header>
+
+  <div style="position: sticky; top: 0; z-index: 2; background: #EDF0EA; padding: 12px 16px 10px; border-bottom: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px">
+      <span class="mono" style="font-size: 13px; font-weight: 700">{{barLabel}}</span>
+      <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{barTitle}}</span>
+    </div>
+    <div role="progressbar" aria-label="Registration progress" aria-valuemin="0" aria-valuemax="3" aria-valuenow="{{barNow}}" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px">
+      <sc-for list="{{segs}}" as="g" hint-placeholder-count="3">
+        <span style="{{g}}"></span>
+      </sc-for>
+    </div>
+  </div>
+
+  <main style="padding: 20px 16px 28px; display: flex; flex-direction: column; gap: 22px">
+
+    <sc-if value="{{hasProblem}}" hint-placeholder-val="{{false}}">
+      <div role="alert" style="border: 2px solid #BE3D2A; background: rgba(190,61,42,.08); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 8px">
+        <h1 style="margin: 0; font-size: 21px; letter-spacing: -0.02em">{{problem.title}}</h1>
+        <p style="margin: 0; font-size: 15px; line-height: 1.5">{{problem.message}}</p>
+        <p class="hint" style="font-size: 14px">{{problem.hint}}</p>
+      </div>
+      <sc-if value="{{problem.retry}}" hint-placeholder-val="{{true}}">
+        <button type="button" class="btn btn--primary" onClick="{{restart}}">Start again</button>
+      </sc-if>
+    </sc-if>
+
+    <sc-if value="{{showStep0}}" hint-placeholder-val="{{true}}">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <h1 style="margin: 0; font-size: 28px; line-height: 1.1; letter-spacing: -0.03em">Tell us about the business</h1>
+        <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7)">Three short steps. Nothing is created until the last one, and you can go back at any point.</p>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <label for="m-name" class="lbl">Business name</label>
+        <input id="m-name" class="field" type="text" autocomplete="organization" value="{{name}}" onChange="{{setName}}">
+        <p class="hint">As it appears on your invoices.</p>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <label for="m-vat" class="lbl">VAT number</label>
+        <input id="m-vat" class="field" type="text" autocomplete="off" spellcheck="false" value="{{vat}}" onChange="{{setVat}}" style="text-transform: uppercase">
+        <p class="hint">With the country letters in front — MT12345678 for Malta. Taptime is for registered businesses, so this one is required.</p>
+      </div>
+      <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+        <legend class="lbl" style="padding: 0; margin-bottom: 10px">What kind of business</legend>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+          <sc-for list="{{kinds}}" as="k" hint-placeholder-count="8">
+            <button type="button" role="radio" aria-checked="{{k.on}}" onClick="{{k.pick}}" style="{{k.style}}">{{k.label}}</button>
+          </sc-for>
+        </div>
+      </fieldset>
+      <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+        <legend class="lbl" style="padding: 0; margin-bottom: 10px">How many places</legend>
+        <sc-for list="{{structures}}" as="o" hint-placeholder-count="2">
+          <button type="button" role="radio" aria-checked="{{o.on}}" onClick="{{o.pick}}" style="{{o.style}}">
+            <span style="font-size: 16px; font-weight: 700">{{o.title}}</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.7)">{{o.body}}</span>
+          </button>
+        </sc-for>
+        <p class="hint">Either choice can use departments: a group of people inside a venue, for when some of your staff work different hours from the rest of it. They are optional, and you add them from your dashboard when you need them.</p>
+      </fieldset>
+      <button type="button" class="btn btn--primary" onClick="{{next}}">Continue</button>
+    </sc-if>
+
+    <sc-if value="{{showStep1}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <h1 style="margin: 0; font-size: 28px; line-height: 1.1; letter-spacing: -0.03em">Where does your team tap?</h1>
+        <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7)">One line per door. You can rename them and add the rest from your dashboard.</p>
+      </div>
+      <sc-for list="{{placeRows}}" as="p" hint-placeholder-count="4">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="{{p.id}}" class="lbl">{{p.label}}</label>
+          <input id="{{p.id}}" class="field" type="text" placeholder="Front door" value="{{p.value}}" onChange="{{p.set}}">
+        </div>
+      </sc-for>
+      <sc-if value="{{multi}}" hint-placeholder-val="{{true}}">
+        <p class="hint">Fill a line and press Continue to save it. You can name up to 25 places here and add more later.</p>
+      </sc-if>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <button type="button" class="btn btn--primary" onClick="{{next}}">Continue</button>
+        <button type="button" class="btn btn--quiet" onClick="{{back}}">Back</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{showStep2}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <h1 style="margin: 0; font-size: 28px; line-height: 1.1; letter-spacing: -0.03em">Create your sign-in</h1>
+        <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7)">This is the account you will manage {{bizName}} with.</p>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <label for="m-full" class="lbl">Your name</label>
+        <input id="m-full" class="field" type="text" autocomplete="name" value="{{fullName}}" onChange="{{setFull}}" style="font-family: 'Space Grotesk', sans-serif">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <label for="m-email" class="lbl">Email</label>
+        <input id="m-email" class="field" type="email" autocomplete="username" placeholder="you@yourcompany.com">
+        <p class="hint">This is what you sign in with.</p>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <label for="m-pass" class="lbl">Password</label>
+        <input id="m-pass" class="field" type="password" autocomplete="new-password" minlength="8">
+        <p class="hint">At least 8 characters. A few words you will remember beats a short one you will not.</p>
+      </div>
+      <div style="border: 1px solid #C9D2C8; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; background: #FFFDF4">
+        <span class="lbl">You are creating</span>
+        <span style="font-size: 16px; font-weight: 700">{{bizName}}</span>
+        <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{placeSummary}}</span>
+        <button type="button" onClick="{{back}}" style="align-self: flex-start; min-height: 44px; padding: 0; border: 0; background: transparent; color: #1F5C41; font: 700 13px 'Space Grotesk', sans-serif; text-decoration: underline; cursor: pointer">Change these</button>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <button type="button" class="btn btn--primary" onClick="{{next}}">Create my account</button>
+        <button type="button" class="btn btn--quiet" onClick="{{back}}">Back</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{showDone}}" hint-placeholder-val="{{false}}">
+      <h1 style="margin: 0; font-size: 28px; line-height: 1.1; letter-spacing: -0.03em">{{bizName}} is set up</h1>
+      <div style="padding-bottom: 7px">
+        <article class="docket" style="padding: 18px; display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px">
+            <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+              <span class="lbl">Business</span>
+              <span style="font-size: 16px; font-weight: 700">{{bizName}}</span>
+              <span class="lbl" style="margin-top: 8px">VAT</span>
+              <span class="mono" style="font-size: 14px; text-transform: uppercase">{{vatShown}}</span>
+            </div>
+            <span class="stamp stamp--ok">Approved</span>
+          </div>
+          <span class="lbl">Places</span>
+          <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px">
+            <sc-for list="{{placeNames}}" as="n" hint-placeholder-count="3">
+              <li class="mono" style="font-size: 14px">{{n}}</li>
+            </sc-for>
+          </ul>
+        </article>
+      </div>
+      <p style="{{vatNoteStyle}}">{{vatNote}}</p>
+      <div style="border-top: 1px solid #C9D2C8; padding-top: 18px; display: flex; flex-direction: column; gap: 12px">
+        <span class="lbl">What happens next</span>
+        <ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 12px">
+          <li style="display: grid; grid-template-columns: 28px 1fr; gap: 10px; font-size: 14px; line-height: 1.5"><span class="mono" style="font-weight: 700">01</span><span><strong>Sign in.</strong> Use the email address and password you just chose.</span></li>
+          <li style="display: grid; grid-template-columns: 28px 1fr; gap: 10px; font-size: 14px; line-height: 1.5"><span class="mono" style="font-weight: 700">02</span><span><strong>Invite your team.</strong> Each person opens their own link once, on their own phone.</span></li>
+          <li style="display: grid; grid-template-columns: 28px 1fr; gap: 10px; font-size: 14px; line-height: 1.5"><span class="mono" style="font-weight: 700">03</span><span><strong>Your plaques.</strong> Taptime encodes each one and loads it into your dashboard; ask us for the ones you need. Until one is mounted there is nothing to tap at.</span></li>
+        </ol>
+      </div>
+      <a href="M-SignIn.dc.html" class="btn btn--primary">Sign in to your dashboard</a>
+    </sc-if>
+  </main>
+
+  <footer style="border-top: 1px solid #C9D2C8">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 18px 16px 0; display: flex; flex-direction: column; gap: 8px">
+      <span class="lbl">Taptime</span>
+      <p style="margin: 0; max-width: 560px; font-size: 14px; line-height: 1.55; color: rgba(21,34,25,.85)">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p>
+    </div>
+    <nav aria-label="Legal" style="padding: 6px 16px 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; font-size: 13px">
+      <a href="M-Legal.dc.html" style="min-height: 44px; display: inline-flex; align-items: center">Privacy</a>
+      <a href="M-Legal.dc.html" style="min-height: 44px; display: inline-flex; align-items: center">Terms</a>
+      <a href="M-Legal.dc.html" style="min-height: 44px; display: inline-flex; align-items: center">Company details</a>
+      <a href="M-Legal.dc.html" style="min-height: 44px; display: inline-flex; align-items: center">Cookies</a>
+    </nav>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"problem":{"editor":"enum","options":["none","expired","cookie","rate","server"],"default":"none"},"vat":{"editor":"enum","options":["verified","refused","unchecked"],"default":"verified"},"$preview":{"width":390,"height":1370}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { step: 0, kind: 'restaurant', structure: 'multi', name: 'Kebab Factory Ltd.', vat: 'MT[VAT NUMBER]', fullName: '[YOUR NAME]', places: ['KF Hamrun', 'KF Msida', 'KF Valletta', ''], dismissed: false };
+  }
+  renderVals() {
+    const st = this.state;
+    const PROBLEMS = {
+      expired: { title: 'We could not continue that registration', message: 'The form was not accepted. Nothing has been created and nothing has been charged.', hint: 'Start again from the beginning — it takes a couple of minutes. A half-finished registration is also dropped after half an hour.', retry: true },
+      cookie: { title: "Your browser didn't keep the form", message: 'Taptime needs a cookie to carry your answers from one step to the next, and this browser is not storing one.', hint: 'Allow cookies for this site, or turn off private browsing, then start again.', retry: true },
+      rate: { title: 'Too many attempts', message: 'We have stopped accepting registrations from this connection for a few minutes.', hint: 'Wait a little and try again. If you are setting up several businesses, they can be registered a few at a time.', retry: false },
+      server: { title: 'Something went wrong on our side', message: 'Your business was not created and nothing was saved.', hint: 'Try again in a minute.', retry: true }
+    };
+    const pk = this.props.problem ?? 'none';
+    const problem = !st.dismissed && PROBLEMS[pk] ? PROBLEMS[pk] : null;
+    const step = st.step;
+    const multi = st.structure === 'multi';
+    const bizName = st.name.trim() || 'New business';
+    const titles = ['Business', 'Places', 'Your sign-in'];
+
+    const segs = [0, 1, 2].map(i => 'height:6px;border-radius:3px;background:' + (i < step ? '#1F5C41' : i === step ? '#152219' : '#C9D2C8'));
+
+    const KINDS = [['restaurant', 'Restaurant'], ['cafe', 'Café'], ['bar', 'Bar'], ['kiosk', 'Kiosk'], ['retail', 'Retail'], ['hotel', 'Hotel'], ['production', 'Production'], ['other', 'Other']];
+    const kinds = KINDS.map(([v, label]) => {
+      const on = st.kind === v;
+      return { label, on: on ? 'true' : 'false', pick: () => this.setState({ kind: v }),
+        style: "min-height:48px;padding:0 12px;border-radius:10px;font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;color:#152219;" +
+          (on ? 'background:rgba(31,92,65,.12);border:2px solid #1F5C41' : 'background:#FFFDF4;border:1px solid #C9D2C8') };
+    });
+    const structures = [['single', 'One place', 'A single door where your team taps.'], ['multi', 'Several places', 'Branches, sites or floors. You name them on the next step.']].map(([v, title, body]) => {
+      const on = st.structure === v;
+      return { title, body, on: on ? 'true' : 'false', pick: () => this.setState({ structure: v }),
+        style: 'width:100%;text-align:left;display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:14px;font:inherit;color:#152219;cursor:pointer;min-height:80px;' +
+          (on ? 'background:rgba(31,92,65,.08);border:2px solid #1F5C41' : 'background:#FFFDF4;border:1px solid #C9D2C8') };
+    });
+
+    const lines = multi ? st.places : [st.places[0]];
+    const placeRows = lines.map((value, i) => ({ id: 'm-place-' + i, label: multi ? 'Place ' + (i + 1) : 'Place', value,
+      set: (e) => { const p = st.places.slice(); p[i] = e.target.value; if (multi && i === p.length - 1 && e.target.value && p.length < 25) p.push(''); this.setState({ places: p }); } }));
+    const placeNames = lines.filter(n => n && n.trim());
+
+    const VAT = {
+      verified: ['We checked this number against the EU VAT register and it came back valid.', 'background:rgba(31,92,65,.08);border:1px solid #1F5C41'],
+      refused: ['The EU VAT register did not recognise this number. Your account works either way, and we have recorded that the check did not pass — but the number is what your invoices will carry, so it is worth checking against your VAT certificate. The Account page of your dashboard shows what the register said, whenever you want to look.', 'background:#F7EBD6;border:1px solid #D98E2B'],
+      unchecked: ['We could not reach the EU VAT register just now, so this number has not been checked yet. Nothing is blocked and nothing is wrong with your account; the number is stored exactly as you typed it. The Account page of your dashboard always shows where this number stands.', 'background:#EDF0EA;border:1px dashed rgba(21,34,25,.5)']
+    };
+    const vk = VAT[this.props.vat ?? 'verified'] || VAT.verified;
+
+    const set = (k) => (e) => this.setState({ [k]: e.target.value });
+    return {
+      segs, kinds, structures, placeRows, placeNames, multi, bizName,
+      barLabel: step === 3 ? 'Registration' : problem ? 'Registration' : 'Step ' + (step + 1) + ' of 3',
+      barTitle: step === 3 ? 'set up' : problem ? 'stopped' : titles[step], barNow: String(Math.min(step, 3)),
+      placeSummary: placeNames.join(' · '),
+      name: st.name, vat: st.vat, fullName: st.fullName, vatShown: st.vat,
+      setName: set('name'), setVat: set('vat'), setFull: set('fullName'),
+      hasProblem: !!problem, problem: problem || { title: '', message: '', hint: '', retry: false },
+      showStep0: !problem && step === 0, showStep1: !problem && step === 1, showStep2: !problem && step === 2, showDone: !problem && step === 3,
+      vatNote: vk[0], vatNoteStyle: 'margin:0;font-size:13px;line-height:1.5;padding:12px 14px;border-radius:12px;' + vk[1],
+      next: () => this.setState({ step: Math.min(3, step + 1) }),
+      back: () => this.setState({ step: Math.max(0, step - 1) }),
+      restart: () => this.setState({ step: 0, dismissed: true })
+    };
+  }
+}
+</script>
+</body>
+</html>

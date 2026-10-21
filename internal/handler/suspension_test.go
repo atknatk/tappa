@@ -451,19 +451,23 @@ func TestSuspensionStrip_EverySectionShowsItInTheBusinesssTimezone(t *testing.T)
 	}
 }
 
-// stripSectionClass is the class attribute of the <section> that holds the strip's
-// heading: the last section opened before the heading's text.
+// stripSectionClass is the class attribute of the notice frame that holds the strip's
+// heading: the last role-carrying element opened before the heading's text. Since the
+// panel redesign the strip is components.PanelNotice, whose frame is a <div> with a
+// role (status for the warning tone) ahead of its class; components.Notice's <section>
+// is no longer drawn by the panel.
 func stripSectionClass(t *testing.T, page string) string {
 	t.Helper()
 	at := strings.Index(page, ">"+suspensionHeading+"<")
 	if at < 0 {
 		t.Fatalf("no strip heading in the page")
 	}
-	open := strings.LastIndex(page[:at], `<section class="`)
+	const frame = `<div role="status" class="`
+	open := strings.LastIndex(page[:at], frame)
 	if open < 0 {
-		t.Fatalf("the strip's heading is not inside a <section class=...>")
+		t.Fatalf("the strip's heading is not inside a %s...> notice frame", frame)
 	}
-	rest := page[open+len(`<section class="`):]
+	rest := page[open+len(frame):]
 	end := strings.IndexByte(rest, '"')
 	if end < 0 {
 		t.Fatalf("an unterminated class attribute")

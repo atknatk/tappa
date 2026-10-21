@@ -483,6 +483,11 @@ diliminde** (render katmanı; DB'de UTC), gerekçe cümlesiyle (yukarıda). Şer
 boyamaz; ayrıntısı skill `tappa-brand`. Orkestratör kararı (önerilen, K15-8): v1'de formlar
 **gizlenmez** — şerit ve 403 sayfası yeter; formu gizlemek her bölümün şablonunu askıya bağlardı ve
 kapının kendisinin yerine geçemezdi.
+*(M12 notu, 2026-10-21 — panel yeniden tasarımı "The Pass" `main` ile birleştirilirken: panel artık
+`components.Notice` çizmez; şerit panelin kendi bildirimi `components.PanelNotice(ToneWarn)`'dır
+("Heads up", saffron zemin, ink yazı — accent yine boyamaz). Gezinme içeriğin yanında bir ray olduğu
+için şerit sekme çubuğunun üstünde değil, içerik kuyusunun başında, tek `<h1>`'in önündedir. Sözler
+ve 403 sayfası değişmedi.)*
 
 ### 4. Dokunulmayanlar — §4.6 ve §5
 

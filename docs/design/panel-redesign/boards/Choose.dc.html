@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Which business? — Taptime</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.go{min-height:48px;width:100%;border:0;border-radius:12px;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.go:hover{background:#152219}
+</style>
+</helmet>
+<div style="min-height: 100vh; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA; display: flex; flex-direction: column">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="padding: 22px clamp(20px, 4vw, 56px); display: flex; align-items: center; justify-content: space-between; gap: 16px">
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <div style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em">taptime</div>
+      <div class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">punchless</div>
+    </div>
+  </header>
+
+  <main style="flex: 1; width: 100%; max-width: 1040px; margin: 0 auto; padding: 32px clamp(20px, 4vw, 56px) 72px; box-sizing: border-box; display: flex; flex-direction: column; gap: 36px">
+    <div style="display: flex; flex-direction: column; gap: 10px; max-width: 620px">
+      <span class="lbl">Password accepted · one more step</span>
+      <h1 style="margin: 0; font-size: 48px; line-height: 1; letter-spacing: -0.035em">Which business?</h1>
+      <p style="margin: 0; font-size: 16px; line-height: 1.5; color: rgba(21,34,25,.7)">You manage more than one. Pick the one you want to work in — you can sign out and switch at any time.</p>
+    </div>
+
+    <div style="position: relative; padding-top: 10px">
+      <div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 10px; height: 8px; border-radius: 4px; background: #152219"></div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; padding: 0 16px">
+        <sc-for list="{{businesses}}" as="b" hint-placeholder-count="3">
+          <form style="display: flex; flex-direction: column; align-items: center" onSubmit="{{b.go}}">
+            <div aria-hidden="true" style="width: 46px; height: 18px; background: rgba(21,34,25,.7); border-radius: 0 0 6px 6px; position: relative; z-index: 1"></div>
+            <div class="docket" style="width: 100%; margin-top: -4px; padding: 22px 20px 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; transform: rotate({{b.tilt}}deg); transform-origin: top center">
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <span class="lbl">Business</span>
+                <span style="font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15">{{b.name}}</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px; border-top: 1px dashed #C9D2C8; padding-top: 12px">
+                <span class="lbl">Your role</span>
+                <span class="mono" style="font-size: 14px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase">{{b.role}}</span>
+              </div>
+              <button type="submit" class="go" aria-label="Continue to {{b.name}}">Continue
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              </button>
+            </div>
+          </form>
+        </sc-for>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":630}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const stop = (e) => { if (e && e.preventDefault) e.preventDefault(); };
+    const businesses = [
+      { name: 'Kebab Factory', role: 'Owner', tilt: -0.8 },
+      { name: 'Kebab Manufacturing Co.', role: 'Manager', tilt: 0.6 },
+      { name: 'Rusty Bar', role: 'Manager', tilt: -0.4 }
+    ].map(b => ({ ...b, go: stop }));
+    return { businesses };
+  }
+}
+</script>
+</body>
+</html>

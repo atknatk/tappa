@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Set up your account — Taptime operator</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+/* operator shell (OP-1) — identical on every board of this width */
+.oplbl{margin:0;font:400 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.opbar{background:#152219;border-bottom:4px solid #D98E2B;color:#FFFDF4}
+.opbar-in{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:0 24px;box-sizing:border-box}
+.oplock{margin:0;font:700 14px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.28em;text-transform:uppercase;color:#FFFDF4;white-space:nowrap}
+.oplock span{color:#D98E2B}
+.opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
+.opout:hover{border-color:#D98E2B;color:#D98E2B}
+.opshell{flex:1;display:flex;align-items:stretch}
+.opside{flex:0 0 232px;width:232px;background:#FFFDF4;border-right:1px solid #C9D2C8;padding:28px 0;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}
+.opside .oplbl{padding:0 24px}
+.opside nav{display:flex;flex-direction:column}
+.opnav{display:flex;align-items:center;min-height:44px;padding:0 16px 0 21px;border-left:3px solid transparent;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif}
+.opnav:hover{background:rgba(21,34,25,.05);color:#152219}
+.opnav--on{border-left-color:#152219;background:rgba(21,34,25,.05);font-weight:700}
+.opcol{flex:1;min-width:0;display:flex;flex-direction:column}
+.opten{background:#F7EBD6;border-bottom:1px solid #D98E2B}
+.opten-in{max-width:960px;box-sizing:border-box;padding:24px 40px 0;display:flex;flex-direction:column;gap:2px}
+.optname{margin:0;font:700 34px/1.12 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219;overflow-wrap:anywhere}
+.optid{margin:2px 0 0;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;word-break:break-all}
+.opsub{display:flex;flex-wrap:wrap;margin:8px 0 0 -12px}
+.opsubt{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
+.opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
+.opmain{width:100%;max-width:960px;box-sizing:border-box;padding:32px 40px 64px}
+/* end operator shell */
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.fld{display:flex;flex-direction:column;gap:6px}
+.field{min-height:44px;width:100%;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;padding:0 12px;font:14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.field:focus{outline:2px solid #1F5C41;outline-offset:1px;border-color:#1F5C41}
+.btn1{min-height:48px;padding:0 20px;border:0;border-radius:12px;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer}
+.btn1:hover{background:#152219}
+.oplink{display:inline-flex;align-items:center;min-height:44px;font-family:'Space Grotesk',sans-serif;font-weight:700;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
+.note{display:flex;flex-direction:column;gap:4px;padding:14px 16px;border-left:4px solid;border-radius:0 10px 10px 0;font-size:14px;line-height:1.45}
+.note strong{font-size:15px;color:#152219;letter-spacing:-0.01em}
+.note p{margin:0;color:rgba(21,34,25,.85);text-wrap:pretty}
+.note--warn{border-left-color:#D98E2B;background:#F7EBD6}
+.note--alert{border-left-color:#BE3D2A;background:#FFFDF4;box-shadow:inset 0 0 0 1px rgba(190,61,42,.35)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:18px 24px;box-shadow:0 1px 2px rgba(21,34,25,.06);min-width:0}
+.docket::before,.docket::after{content:'';position:absolute;left:-1px;right:-1px;height:6px;background-image:radial-gradient(circle at 5px 0,#EDF0EA 3px,transparent 3.5px);background-size:10px 6px;background-repeat:repeat-x}
+.docket::before{top:-1px}
+.docket::after{bottom:-1px;transform:rotate(180deg)}
+.step{margin:0;font:700 17px/1.3 'Space Grotesk',sans-serif;letter-spacing:-0.01em;color:#152219;text-wrap:balance}
+.anno{display:inline-flex;align-self:flex-start;align-items:center;gap:8px;padding:4px 10px;border:1px dashed rgba(21,34,25,.5);font:700 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7);background:#EDF0EA}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <header class="opbar">
+    <div class="opbar-in">
+      <p class="oplock">TAPTIME <span>OPERATOR</span></p>
+    </div>
+  </header>
+  <main style="flex: 1; box-sizing: border-box; padding: 72px 24px 96px; display: flex; justify-content: center; align-items: flex-start">
+    <div style="width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 20px">
+      <section class="card" style="padding: 22px 24px; gap: 24px">
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <h1 style="margin: 0; font-size: 30px; line-height: 1.08; letter-spacing: -0.03em">Set up your operator account</h1>
+          <p style="margin: 0; font-size: 14px; line-height: 1.45; color: rgba(21,34,25,.7); text-wrap: pretty">This link works once, for 30 minutes from when it was made.</p>
+        </div>
+        <sc-if value="{{first}}" hint-placeholder-val="{{true}}">
+          <div style="display: flex; flex-direction: column; gap: 14px">
+            <p class="step">Step 1 · Add this key to your authenticator app</p>
+            <!-- QR of the sample otpauth URI, drawn with internal/qrcode (v8, 57 modules x 4 px = 228 px); then the grouped key; order svg, key, uri -->
+            <sc-if value="{{qr}}" hint-placeholder-val="{{true}}">
+              <div style="display: flex; flex-direction: row; gap: 24px; align-items: center">
+                <svg class="op-qr" role="img" aria-label="Scan with your authenticator app" viewBox="0 0 57 57" width="228" height="228" shape-rendering="crispEdges" style="flex: none; display: block; max-width: 100%; height: auto; outline: 1px solid #C9D2C8"><title>Scan with your authenticator app</title><rect width="57" height="57" fill="#FFFDF4"></rect><path d="M4 4h7v1h-7zM15 4h1v1h-1zM17 4h3v1h-3zM22 4h1v1h-1zM24 4h1v1h-1zM27 4h1v1h-1zM29 4h1v1h-1zM31 4h2v1h-2zM34 4h3v1h-3zM41 4h1v1h-1zM44 4h1v1h-1zM46 4h7v1h-7zM4 5h1v1h-1zM10 5h1v1h-1zM13 5h2v1h-2zM16 5h1v1h-1zM18 5h1v1h-1zM21 5h2v1h-2zM26 5h2v1h-2zM30 5h2v1h-2zM33 5h1v1h-1zM37 5h8v1h-8zM46 5h1v1h-1zM52 5h1v1h-1zM4 6h1v1h-1zM6 6h3v1h-3zM10 6h1v1h-1zM12 6h1v1h-1zM15 6h1v1h-1zM17 6h3v1h-3zM21 6h3v1h-3zM26 6h2v1h-2zM29 6h1v1h-1zM31 6h4v1h-4zM36 6h1v1h-1zM39 6h1v1h-1zM43 6h2v1h-2zM46 6h1v1h-1zM48 6h3v1h-3zM52 6h1v1h-1zM4 7h1v1h-1zM6 7h3v1h-3zM10 7h1v1h-1zM12 7h2v1h-2zM15 7h2v1h-2zM19 7h2v1h-2zM23 7h1v1h-1zM25 7h2v1h-2zM28 7h2v1h-2zM31 7h1v1h-1zM33 7h3v1h-3zM37 7h1v1h-1zM39 7h3v1h-3zM43 7h1v1h-1zM46 7h1v1h-1zM48 7h3v1h-3zM52 7h1v1h-1zM4 8h1v1h-1zM6 8h3v1h-3zM10 8h1v1h-1zM12 8h1v1h-1zM15 8h4v1h-4zM22 8h1v1h-1zM25 8h6v1h-6zM34 8h1v1h-1zM39 8h1v1h-1zM41 8h1v1h-1zM46 8h1v1h-1zM48 8h3v1h-3zM52 8h1v1h-1zM4 9h1v1h-1zM10 9h1v1h-1zM12 9h1v1h-1zM16 9h1v1h-1zM18 9h1v1h-1zM20 9h1v1h-1zM22 9h2v1h-2zM26 9h1v1h-1zM30 9h1v1h-1zM35 9h1v1h-1zM37 9h2v1h-2zM40 9h3v1h-3zM46 9h1v1h-1zM52 9h1v1h-1zM4 10h7v1h-7zM12 10h1v1h-1zM14 10h1v1h-1zM16 10h1v1h-1zM18 10h1v1h-1zM20 10h1v1h-1zM22 10h1v1h-1zM24 10h1v1h-1zM26 10h1v1h-1zM28 10h1v1h-1zM30 10h1v1h-1zM32 10h1v1h-1zM34 10h1v1h-1zM36 10h1v1h-1zM38 10h1v1h-1zM40 10h1v1h-1zM42 10h1v1h-1zM44 10h1v1h-1zM46 10h7v1h-7zM12 11h2v1h-2zM15 11h5v1h-5zM21 11h1v1h-1zM25 11h2v1h-2zM30 11h2v1h-2zM33 11h2v1h-2zM41 11h1v1h-1zM44 11h1v1h-1zM4 12h1v1h-1zM6 12h5v1h-5zM15 12h2v1h-2zM20 12h1v1h-1zM22 12h9v1h-9zM34 12h2v1h-2zM39 12h2v1h-2zM44 12h1v1h-1zM46 12h5v1h-5zM5 13h2v1h-2zM11 13h2v1h-2zM14 13h1v1h-1zM16 13h2v1h-2zM23 13h1v1h-1zM25 13h1v1h-1zM27 13h3v1h-3zM33 13h4v1h-4zM43 13h1v1h-1zM45 13h2v1h-2zM48 13h1v1h-1zM4 14h5v1h-5zM10 14h3v1h-3zM14 14h2v1h-2zM18 14h1v1h-1zM22 14h4v1h-4zM27 14h1v1h-1zM29 14h4v1h-4zM34 14h1v1h-1zM38 14h1v1h-1zM40 14h3v1h-3zM51 14h2v1h-2zM5 15h1v1h-1zM7 15h2v1h-2zM11 15h1v1h-1zM14 15h2v1h-2zM19 15h1v1h-1zM21 15h4v1h-4zM27 15h1v1h-1zM30 15h3v1h-3zM34 15h1v1h-1zM36 15h2v1h-2zM39 15h3v1h-3zM44 15h4v1h-4zM52 15h1v1h-1zM4 16h2v1h-2zM9 16h4v1h-4zM15 16h1v1h-1zM17 16h2v1h-2zM21 16h1v1h-1zM25 16h4v1h-4zM30 16h1v1h-1zM33 16h3v1h-3zM38 16h4v1h-4zM44 16h1v1h-1zM46 16h2v1h-2zM51 16h2v1h-2zM4 17h3v1h-3zM9 17h1v1h-1zM11 17h2v1h-2zM14 17h1v1h-1zM16 17h1v1h-1zM19 17h1v1h-1zM21 17h1v1h-1zM23 17h3v1h-3zM27 17h1v1h-1zM29 17h1v1h-1zM31 17h1v1h-1zM33 17h3v1h-3zM39 17h1v1h-1zM43 17h1v1h-1zM45 17h3v1h-3zM49 17h1v1h-1zM51 17h1v1h-1zM7 18h1v1h-1zM10 18h2v1h-2zM14 18h1v1h-1zM18 18h1v1h-1zM20 18h1v1h-1zM22 18h1v1h-1zM24 18h1v1h-1zM26 18h2v1h-2zM31 18h1v1h-1zM33 18h1v1h-1zM35 18h2v1h-2zM38 18h2v1h-2zM41 18h3v1h-3zM48 18h1v1h-1zM51 18h2v1h-2zM4 19h4v1h-4zM11 19h11v1h-11zM23 19h3v1h-3zM28 19h2v1h-2zM32 19h2v1h-2zM35 19h2v1h-2zM41 19h2v1h-2zM45 19h1v1h-1zM48 19h1v1h-1zM51 19h1v1h-1zM4 20h1v1h-1zM6 20h3v1h-3zM10 20h1v1h-1zM12 20h1v1h-1zM14 20h1v1h-1zM16 20h3v1h-3zM20 20h1v1h-1zM22 20h1v1h-1zM24 20h1v1h-1zM26 20h4v1h-4zM33 20h3v1h-3zM37 20h1v1h-1zM40 20h2v1h-2zM44 20h4v1h-4zM49 20h3v1h-3zM9 21h1v1h-1zM11 21h4v1h-4zM16 21h1v1h-1zM18 21h1v1h-1zM21 21h1v1h-1zM23 21h1v1h-1zM25 21h1v1h-1zM27 21h2v1h-2zM34 21h1v1h-1zM39 21h3v1h-3zM45 21h3v1h-3zM5 22h1v1h-1zM7 22h1v1h-1zM10 22h5v1h-5zM17 22h1v1h-1zM19 22h2v1h-2zM22 22h1v1h-1zM25 22h3v1h-3zM29 22h2v1h-2zM33 22h1v1h-1zM35 22h1v1h-1zM37 22h2v1h-2zM40 22h2v1h-2zM48 22h2v1h-2zM51 22h2v1h-2zM4 23h4v1h-4zM11 23h1v1h-1zM13 23h3v1h-3zM18 23h1v1h-1zM20 23h4v1h-4zM25 23h1v1h-1zM30 23h6v1h-6zM37 23h1v1h-1zM39 23h1v1h-1zM41 23h1v1h-1zM44 23h1v1h-1zM47 23h2v1h-2zM4 24h2v1h-2zM8 24h6v1h-6zM15 24h2v1h-2zM18 24h1v1h-1zM20 24h1v1h-1zM23 24h1v1h-1zM26 24h4v1h-4zM33 24h3v1h-3zM39 24h2v1h-2zM43 24h2v1h-2zM47 24h1v1h-1zM50 24h3v1h-3zM4 25h2v1h-2zM7 25h1v1h-1zM9 25h1v1h-1zM11 25h1v1h-1zM13 25h2v1h-2zM16 25h2v1h-2zM20 25h1v1h-1zM22 25h2v1h-2zM26 25h1v1h-1zM28 25h2v1h-2zM34 25h2v1h-2zM39 25h3v1h-3zM43 25h1v1h-1zM46 25h2v1h-2zM49 25h1v1h-1zM51 25h2v1h-2zM5 26h1v1h-1zM7 26h6v1h-6zM16 26h2v1h-2zM20 26h1v1h-1zM22 26h1v1h-1zM24 26h1v1h-1zM26 26h5v1h-5zM32 26h2v1h-2zM35 26h2v1h-2zM38 26h1v1h-1zM42 26h1v1h-1zM44 26h5v1h-5zM51 26h2v1h-2zM5 27h4v1h-4zM12 27h2v1h-2zM18 27h2v1h-2zM21 27h1v1h-1zM26 27h1v1h-1zM30 27h2v1h-2zM33 27h2v1h-2zM39 27h1v1h-1zM41 27h2v1h-2zM44 27h1v1h-1zM48 27h1v1h-1zM52 27h1v1h-1zM5 28h1v1h-1zM7 28h2v1h-2zM10 28h1v1h-1zM12 28h1v1h-1zM16 28h2v1h-2zM19 28h1v1h-1zM21 28h6v1h-6zM28 28h1v1h-1zM30 28h1v1h-1zM33 28h3v1h-3zM37 28h1v1h-1zM39 28h4v1h-4zM44 28h1v1h-1zM46 28h1v1h-1zM48 28h1v1h-1zM50 28h3v1h-3zM4 29h1v1h-1zM7 29h2v1h-2zM12 29h1v1h-1zM14 29h1v1h-1zM17 29h2v1h-2zM23 29h1v1h-1zM26 29h1v1h-1zM30 29h2v1h-2zM33 29h2v1h-2zM36 29h2v1h-2zM39 29h1v1h-1zM41 29h1v1h-1zM44 29h1v1h-1zM48 29h1v1h-1zM51 29h1v1h-1zM5 30h1v1h-1zM8 30h5v1h-5zM16 30h3v1h-3zM25 30h8v1h-8zM34 30h1v1h-1zM38 30h1v1h-1zM40 30h13v1h-13zM4 31h1v1h-1zM6 31h1v1h-1zM14 31h1v1h-1zM16 31h1v1h-1zM25 31h4v1h-4zM30 31h1v1h-1zM32 31h1v1h-1zM34 31h1v1h-1zM36 31h1v1h-1zM41 31h1v1h-1zM44 31h2v1h-2zM47 31h1v1h-1zM5 32h1v1h-1zM8 32h1v1h-1zM10 32h1v1h-1zM15 32h1v1h-1zM17 32h1v1h-1zM22 32h2v1h-2zM25 32h3v1h-3zM34 32h2v1h-2zM40 32h1v1h-1zM42 32h2v1h-2zM47 32h2v1h-2zM51 32h1v1h-1zM4 33h3v1h-3zM8 33h2v1h-2zM11 33h1v1h-1zM15 33h2v1h-2zM18 33h3v1h-3zM22 33h1v1h-1zM25 33h2v1h-2zM28 33h1v1h-1zM30 33h1v1h-1zM32 33h4v1h-4zM40 33h1v1h-1zM43 33h1v1h-1zM45 33h3v1h-3zM50 33h1v1h-1zM5 34h1v1h-1zM7 34h9v1h-9zM23 34h1v1h-1zM26 34h1v1h-1zM28 34h2v1h-2zM32 34h2v1h-2zM36 34h3v1h-3zM40 34h3v1h-3zM44 34h6v1h-6zM51 34h2v1h-2zM4 35h3v1h-3zM8 35h1v1h-1zM12 35h1v1h-1zM14 35h1v1h-1zM16 35h4v1h-4zM22 35h1v1h-1zM25 35h4v1h-4zM30 35h10v1h-10zM45 35h1v1h-1zM47 35h2v1h-2zM52 35h1v1h-1zM4 36h3v1h-3zM9 36h3v1h-3zM13 36h1v1h-1zM15 36h4v1h-4zM23 36h3v1h-3zM30 36h1v1h-1zM35 36h1v1h-1zM40 36h5v1h-5zM47 36h1v1h-1zM49 36h4v1h-4zM4 37h2v1h-2zM7 37h2v1h-2zM12 37h1v1h-1zM15 37h1v1h-1zM19 37h1v1h-1zM23 37h1v1h-1zM25 37h1v1h-1zM27 37h5v1h-5zM34 37h2v1h-2zM39 37h3v1h-3zM46 37h2v1h-2zM49 37h1v1h-1zM10 38h3v1h-3zM16 38h1v1h-1zM18 38h2v1h-2zM22 38h2v1h-2zM25 38h1v1h-1zM28 38h2v1h-2zM31 38h1v1h-1zM36 38h3v1h-3zM40 38h1v1h-1zM43 38h1v1h-1zM46 38h1v1h-1zM49 38h1v1h-1zM52 38h1v1h-1zM4 39h2v1h-2zM7 39h1v1h-1zM9 39h1v1h-1zM15 39h2v1h-2zM20 39h2v1h-2zM28 39h1v1h-1zM31 39h2v1h-2zM34 39h4v1h-4zM41 39h2v1h-2zM44 39h2v1h-2zM48 39h1v1h-1zM5 40h1v1h-1zM10 40h2v1h-2zM13 40h1v1h-1zM20 40h2v1h-2zM23 40h1v1h-1zM28 40h1v1h-1zM37 40h1v1h-1zM39 40h5v1h-5zM45 40h2v1h-2zM48 40h3v1h-3zM52 40h1v1h-1zM6 41h2v1h-2zM12 41h3v1h-3zM16 41h3v1h-3zM20 41h1v1h-1zM23 41h1v1h-1zM25 41h1v1h-1zM27 41h2v1h-2zM30 41h1v1h-1zM34 41h1v1h-1zM36 41h1v1h-1zM41 41h1v1h-1zM44 41h4v1h-4zM49 41h1v1h-1zM51 41h2v1h-2zM5 42h1v1h-1zM9 42h4v1h-4zM15 42h2v1h-2zM18 42h1v1h-1zM20 42h1v1h-1zM22 42h2v1h-2zM26 42h1v1h-1zM28 42h1v1h-1zM31 42h3v1h-3zM38 42h5v1h-5zM46 42h1v1h-1zM49 42h1v1h-1zM51 42h2v1h-2zM5 43h3v1h-3zM11 43h1v1h-1zM14 43h1v1h-1zM17 43h1v1h-1zM21 43h1v1h-1zM25 43h1v1h-1zM27 43h1v1h-1zM29 43h3v1h-3zM33 43h2v1h-2zM38 43h1v1h-1zM47 43h1v1h-1zM51 43h1v1h-1zM4 44h3v1h-3zM10 44h2v1h-2zM13 44h2v1h-2zM16 44h3v1h-3zM21 44h1v1h-1zM23 44h8v1h-8zM35 44h1v1h-1zM39 44h10v1h-10zM50 44h1v1h-1zM52 44h1v1h-1zM12 45h2v1h-2zM21 45h1v1h-1zM23 45h1v1h-1zM25 45h2v1h-2zM30 45h1v1h-1zM32 45h4v1h-4zM39 45h3v1h-3zM43 45h2v1h-2zM48 45h1v1h-1zM4 46h7v1h-7zM14 46h4v1h-4zM20 46h7v1h-7zM28 46h1v1h-1zM30 46h1v1h-1zM34 46h1v1h-1zM37 46h1v1h-1zM39 46h2v1h-2zM42 46h1v1h-1zM44 46h1v1h-1zM46 46h1v1h-1zM48 46h1v1h-1zM50 46h1v1h-1zM52 46h1v1h-1zM4 47h1v1h-1zM10 47h1v1h-1zM12 47h1v1h-1zM15 47h1v1h-1zM18 47h2v1h-2zM22 47h5v1h-5zM30 47h5v1h-5zM36 47h1v1h-1zM39 47h1v1h-1zM41 47h1v1h-1zM43 47h2v1h-2zM48 47h1v1h-1zM51 47h1v1h-1zM4 48h1v1h-1zM6 48h3v1h-3zM10 48h1v1h-1zM12 48h10v1h-10zM26 48h5v1h-5zM34 48h2v1h-2zM39 48h4v1h-4zM44 48h5v1h-5zM52 48h1v1h-1zM4 49h1v1h-1zM6 49h3v1h-3zM10 49h1v1h-1zM12 49h1v1h-1zM14 49h4v1h-4zM22 49h3v1h-3zM27 49h1v1h-1zM29 49h3v1h-3zM33 49h2v1h-2zM40 49h1v1h-1zM43 49h2v1h-2zM46 49h3v1h-3zM51 49h2v1h-2zM4 50h1v1h-1zM6 50h3v1h-3zM10 50h1v1h-1zM12 50h1v1h-1zM14 50h2v1h-2zM17 50h2v1h-2zM20 50h1v1h-1zM22 50h1v1h-1zM24 50h2v1h-2zM27 50h5v1h-5zM35 50h1v1h-1zM38 50h3v1h-3zM42 50h1v1h-1zM47 50h1v1h-1zM50 50h1v1h-1zM4 51h1v1h-1zM10 51h1v1h-1zM13 51h1v1h-1zM16 51h1v1h-1zM18 51h1v1h-1zM20 51h1v1h-1zM22 51h8v1h-8zM32 51h3v1h-3zM36 51h1v1h-1zM40 51h1v1h-1zM42 51h2v1h-2zM46 51h2v1h-2zM52 51h1v1h-1zM4 52h7v1h-7zM12 52h1v1h-1zM15 52h1v1h-1zM19 52h4v1h-4zM24 52h1v1h-1zM28 52h1v1h-1zM30 52h1v1h-1zM35 52h1v1h-1zM38 52h3v1h-3zM45 52h1v1h-1zM49 52h4v1h-4z" fill="#152219"></path></svg>
+                <div style="display: flex; flex-direction: column; gap: 8px; min-width: 0">
+                  <p style="margin: 0; font-size: 14px; line-height: 1.45; color: rgba(21,34,25,.7); text-wrap: pretty">Scan the code with your app, or type this key:</p>
+                  <p class="op-key mono" style="margin: 0; font-size: 17px; font-weight: 700; letter-spacing: .1em; line-height: 1.55; text-wrap: balance">ABCD EFGH IJKL MNOP QRST UVWX YZ23 4567</p>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{noqr}}" hint-placeholder-val="{{false}}">
+              <p class="op-key mono" style="margin: 0; font-size: 17px; font-weight: 700; letter-spacing: .1em; line-height: 1.55; text-wrap: balance">ABCD EFGH IJKL MNOP QRST UVWX YZ23 4567</p>
+            </sc-if>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <p style="margin: 0; font-size: 14px; line-height: 1.45; color: rgba(21,34,25,.7); text-wrap: pretty">If your app takes a setup link instead, use this one:</p>
+              <p class="op-uri mono" style="margin: 0; padding: 10px 12px; border: 1px solid #C9D2C8; border-radius: 8px; background: #EDF0EA; font-size: 12px; line-height: 1.55; word-break: break-all">otpauth://totp/Taptime%20operator:ops.taptime.mt?secret=ABCDEFGHIJKLMNOPQRSTUVWXYZ234567&amp;issuer=Taptime%20operator&amp;algorithm=SHA1&amp;digits=6&amp;period=30</p>
+            </div>
+          </div>
+        </sc-if>
+        <!-- every re-render: the warn notice, then the one error that sent the form back -->
+        <sc-if value="{{again}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-direction: column; gap: 12px">
+          <div role="status" class="note note--warn"><strong>Use the key you already added</strong><p>Type a code from the authenticator entry this page gave you. If you did not add it, open your link again for a new key.</p></div>
+          <sc-if value="{{mismatch}}" hint-placeholder-val="{{false}}">
+            <div role="alert" class="note note--alert"><strong>The two passwords differ</strong><p>Type the same new password in both fields.</p></div>
+          </sc-if>
+          <sc-if value="{{weak}}" hint-placeholder-val="{{false}}">
+            <div role="alert" class="note note--alert"><strong>Choose another password</strong><p>Use at least 14 characters and at most 72 bytes. A letter with an accent, or from another alphabet, takes two bytes or more.</p></div>
+          </sc-if>
+          <sc-if value="{{codeRejected}}" hint-placeholder-val="{{false}}">
+            <div role="alert" class="note note--alert"><strong>That code was not accepted</strong><p>Check that your phone's clock is right, then type the next code.</p></div>
+          </sc-if>
+          </div>
+        </sc-if>
+        <form style="margin: 0; display: flex; flex-direction: column; gap: 18px; border-top: 1px dashed #C9D2C8; padding-top: 22px" onSubmit="{{noop}}">
+          <p class="step">Step 2 · Choose a password and confirm the code</p>
+          <sc-if value="{{tokenvisible}}" hint-placeholder-val="{{false}}">
+            <div id="enroll-token-wrap" class="fld">
+              <label for="enroll-token" class="lbl">Link code</label>
+              <input id="enroll-token" name="token" class="field" type="password" autocomplete="off" required="" />
+              <p style="margin: 0; font-size: 12px; color: rgba(21,34,25,.7)">The part of your link after the # sign.</p>
+            </div>
+          </sc-if>
+          <div class="fld">
+            <label for="enroll-password" class="lbl">New password</label>
+            <input id="enroll-password" name="password" class="field" type="password" autocomplete="new-password" minlength="14" required="" />
+          </div>
+          <div class="fld">
+            <label for="enroll-password-again" class="lbl">New password again</label>
+            <input id="enroll-password-again" name="password_again" class="field" type="password" autocomplete="new-password" minlength="14" required="" />
+          </div>
+          <div class="fld">
+            <label for="enroll-code" class="lbl">Code from the app</label>
+            <input id="enroll-code" name="code" class="field" type="text" inputmode="numeric" autocomplete="one-time-code" required="" />
+          </div>
+          <button type="button" class="btn1">Finish setup</button>
+        </form>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"state": {"editor": "enum", "options": ["first-load", "first-load-no-script", "first-load-no-qr", "mismatch", "weak-password", "code-rejected"], "default": "first-load"}, "$preview": {"width": 1440, "height": 1132}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const s = this.props.state ?? 'first-load';
+    // The key, its QR and the URI are on the FIRST load only; every re-render is an error answer.
+    const first = s.indexOf('first-load') === 0;
+    return {
+      first, again: !first, qr: s !== 'first-load-no-qr', noqr: s === 'first-load-no-qr',
+      // enroll.js hides the Link code field once it holds the token; without script it stays.
+      tokenvisible: s === 'first-load-no-script',
+      mismatch: s === 'mismatch', weak: s === 'weak-password', codeRejected: s === 'code-rejected',
+      noop: (e) => { if (e && e.preventDefault) e.preventDefault(); }
+    };
+  }
+}
+</script>
+</body>
+</html>

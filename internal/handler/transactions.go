@@ -57,6 +57,9 @@ type panelLedger interface {
 	Screen(ctx context.Context, tenantID uuid.UUID, f ledger.Filter) (ledger.Screen, error)
 	Day(ctx context.Context, tenantID uuid.UUID, f ledger.Filter) (ledger.Page, error)
 	Roster(ctx context.Context, tenantID uuid.UUID, f ledger.RosterFilter) (ledger.RosterScreen, error)
+	// RecentTaps is M12-19's: one person's last seven records for the People card. It answers a
+	// tri-state rather than an error, because a failed strip must not cost the card.
+	RecentTaps(ctx context.Context, tenantID, employeeID uuid.UUID) ledger.RecentTaps
 	// Hours is M6-07's, and it is here for the same reason Roster is: same package,
 	// same concrete reader, and one interface is what stops a second identical
 	// argument appearing in the constructor.
@@ -121,6 +124,17 @@ func (a *AdminAuth) transactionsSection(w http.ResponseWriter, r *http.Request) 
 		PanelChrome: a.chrome(r, pages.TabTransactions),
 	}
 	fillTransactionsView(&v, screen.Page, f)
+	// ONE URL, TWO LAYOUTS (M12-26/27): /admin with no day is The Pass, a day is its ledger.
+	// The verdict chips and the day's tally are both layouts'; the widgets are The Pass's.
+	pass := isPass(r, f)
+	v.Chips = verdictChips(f, screen.Page.Day, pass, screen.Tally)
+	v.Summary = tallySummary(screen.Tally)
+	v.TallyFailed = screen.Tally.State == ledger.ReadFailed
+	if pass {
+		a.fillPass(r.Context(), &v, screen, id)
+	} else {
+		fillLedger(&v, screen.Page, f, time.Now())
+	}
 	v.Filters.Locations = optionViews(screen.Options.Locations)
 	v.Filters.Departments = optionViews(screen.Options.Departments)
 	// THE COUNTS ARE CARRIED ACROSS, NOT INTERPRETED HERE. Which sentence they mean
@@ -210,8 +224,12 @@ func fillTransactionsView(v *pages.TransactionsView, page ledger.Page, f ledger.
 	v.DayLabel = time.Date(day.Year, day.Month, day.Day, 0, 0, 0, 0, zone).Format("Monday 2 January 2006")
 	v.ZoneLabel = zone.String()
 
+	v.Hours = hourGroups(page, f.After, v.Dockets)
 	v.Filters = components.FilterBarView{
-		Action:       transactionsHref,
+		Action: transactionsHref,
+		// CLEAR KEEPS THE DAY. It drops every filter and stays on the day being read; /admin alone
+		// is The Pass now, a different page from "this day, unfiltered".
+		ClearHref:    transactionsHref + "?date=" + day.String(),
 		Date:         day.String(),
 		LocationID:   uuidParam(f.LocationID),
 		DepartmentID: uuidParam(f.DepartmentID),
@@ -247,10 +265,13 @@ func docketView(rec ledger.Record, zone *time.Location) components.DocketView {
 		IPSign:     sign(rec.IPMatch),
 		GPSSign:    sign(rec.GPSMatch),
 		TagUID:     rec.TagUID,
-		Verdict:    rec.Verdict,
-		Practice:   rec.Practice,
-		Manual:     rec.Manual,
-		Queued:     rec.Queued,
+		Channel:    rec.Channel,
+		// M12-28: blank on a partner-venue row, where the ledger dropped it (K-39).
+		RuleSID:  rec.RuleSID,
+		Verdict:  rec.Verdict,
+		Practice: rec.Practice,
+		Manual:   rec.Manual,
+		Queued:   rec.Queued,
 		// THE ENGINE'S VERDICT AND THE MANAGER'S DECISION TRAVEL SEPARATELY (M6-04).
 		// Verdict above still says what §5 decided at the tap; this says whether a
 		// human has since approved or rejected it, read through a JOIN on

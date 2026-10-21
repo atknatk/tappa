@@ -3,7 +3,8 @@ package pages
 import "github.com/atknatk/tappa/web/templates/components"
 
 // The POLICY CHANGE screens (M6-09 phase B): the confirmation step, and one stored
-// version read in full.
+// version read in full. Drawn to the redesign "The Pass" in M12-38 (boards PolicyChange,
+// T-PolicyChange, M-PolicyChange; docs/design/panel-redesign/screens/rules-billing.md §2).
 //
 // 🔴 THE CONFIRMATION SCREEN IS THE CARD'S "TAKES EFFECT IMMEDIATELY" WORRY
 // ANSWERED, AND IT IS HONEST ABOUT WHICH ANSWER IT IS. The M6-09 card originally
@@ -11,37 +12,95 @@ import "github.com/atknatk/tappa/web/templates/components"
 // M9-06), so "214 taps, 6 would change" cannot be shown in v1. What this shows is
 // the TEXT of the change and a plain sentence about the question it cannot answer.
 // A screen that implied it had checked the consequences would be worse than one
-// that says it has not.
+// that says it has not. So the before / after pair below compares the rule's own
+// words and state — never which taps would come out differently.
 //
 // 🔴 THE PAGES CARRY NO SCRIPT. Everything is text and forms, so the panel's widened
 // Content-Security-Policy stays pinned to exactly one url.
+//
+// THE COMMENTS IN THIS FILE NAME NO CLASS: Tailwind reads them as source (skill
+// tappa-brand, "templ + Tailwind").
 
 // PolicyChangeView is the confirmation step.
 type PolicyChangeView struct {
 	PanelChrome
 
-	// Heading and Summary are the change in words, chosen by the handler from the
-	// operation's own closed vocabulary. They are STRINGS rather than a shape the
-	// template picks apart, so the page cannot describe an operation differently from
-	// the way the server will perform it.
-	Heading string
-	Summary string
-	// Detail is the list of specifics: which rule, which scope, which venues.
-	Detail []PolicyChangeLine
-	// Warning is the consequence sentence for this particular change.
-	Warning string
+	// Shown is EVERYTHING the page says about the change, and nothing else. It is one
+	// value on purpose: the confirmation is bound to a digest of exactly this value
+	// (handler.policyChangeSubject), so a page that shows something the button would
+	// not do — a version number, a name, a place, a state — cannot be confirmed once
+	// what it shows has stopped being true.
+	Shown PolicyChangeShown
 
 	// Action is where "do it" posts — the write. ConfirmField and ConfirmToken are
-	// the MAC that binds this warning to this exact change.
+	// the MAC that binds this page to this exact change.
 	Action       string
 	ConfirmField string
 	ConfirmToken string
 	// Fields are the change's own values, echoed back as hidden inputs so the write
-	// receives exactly what the warning described. They are re-validated at the
+	// receives exactly what the page described. They are re-validated at the
 	// write; the MAC is what makes tampering with them useless.
 	Fields []PolicyChangeField
 	// BackHref returns to the section without doing anything.
 	BackHref string
+}
+
+// PolicyChangeShown is what the confirmation page shows. Every string is chosen by the
+// handler from the operation's closed vocabulary, the posted change (which the MAC
+// binds) and the rulebook read; the template picks nothing apart.
+type PolicyChangeShown struct {
+	// Heading is the page's title (the shell's one h1): the act, in words.
+	Heading string
+	Summary string
+	// RuleKind is the eyebrow over the rule ("Taptime baseline", "One of your own
+	// policies", "A new rule of your own"); RuleTitle its name; RuleLine its statement
+	// ids and what happens to its version number.
+	RuleKind  string
+	RuleTitle string
+	RuleLine  string
+	// Before and After are the rule as it is and as the change leaves it — only what
+	// the operation really changes (a switch, a name, the places, a binding).
+	Before PolicyChangeSide
+	After  PolicyChangeSide
+	// Notes are the plain sentences under the pair.
+	Notes []string
+	// Detail is the list of specifics.
+	Detail []PolicyChangeLine
+	// Warning is the consequence sentence for this particular change.
+	Warning string
+	// History is the rule's version strip; HistoryNote says when it is shortened,
+	// HistoryOrigin where its newest version was copied from, HistoryEmpty why there
+	// is none.
+	History       []PolicyVersionView
+	HistoryNote   string
+	HistoryOrigin string
+	HistoryEmpty  string
+	// InUseLabel heads the newest stored version read in full; empty draws none.
+	// InUseProblem is the parser's complaint when that version cannot be read.
+	InUseLabel      string
+	InUseStatements []PolicyStatementView
+	InUseProblem    string
+}
+
+// PolicyChangeSide is one card of the before / after pair.
+type PolicyChangeSide struct {
+	Label string
+	Lines []PolicyChangeDiffLine
+}
+
+// PolicyChangeDiffLine is one labelled row of a card.
+type PolicyChangeDiffLine struct {
+	Label string
+	Parts []PolicyChangeDiffPart
+}
+
+// PolicyChangeDiffPart is one value on a row. Mark is "del" (this goes), "ins" (this
+// arrives) or "" (it stays); Effect, when set, draws the value as a statement's
+// read-only effect pill — a label, never a control.
+type PolicyChangeDiffPart struct {
+	Text   string
+	Mark   string
+	Effect string
 }
 
 // PolicyChangeLine is one labelled fact about the change.
@@ -57,75 +116,278 @@ type PolicyChangeField struct {
 }
 
 // AdminPolicyChange renders the confirmation step.
+//
+// THE ORDER IS THE BOARD'S AND IT IS ALSO THE FOCUS ORDER: what changes, the warning, the
+// button and Cancel, then the rule's history. The history sits beside the change when the
+// content box is wide enough for both and under it otherwise; the DOM does not move.
 templ AdminPolicyChange(v PolicyChangeView) {
 	@PanelShell(v.PanelChrome) {
-		<div class="flex flex-col gap-4">
-			<section class="bg-paper border border-line px-4 py-4">
-				<h2 class="font-display text-xl font-bold tracking-tight text-ink">{ v.Heading }</h2>
-				<p class="mt-1 text-sm text-ink/85">{ v.Summary }</p>
-				<dl class="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
-					for _, d := range v.Detail {
-						<div>
-							<dt class="docket-label">{ d.Label }</dt>
-							<dd class="font-mono text-xs text-ink">{ d.Value }</dd>
+		<div class="flex flex-col gap-6">
+			<p class="max-w-3xl text-sm leading-normal text-ink/70 md:text-[15px]">{ v.Shown.Summary }</p>
+			<div class="flex flex-wrap items-start gap-6">
+				<div class="flex min-w-0 flex-[999_1_600px] flex-col gap-[22px]">
+					<section aria-labelledby="change-rule" class="flex min-w-0 flex-col gap-4 rounded-[18px] border border-line bg-paper px-4 py-5 md:gap-[18px] md:px-[26px] md:pb-[26px] md:pt-6">
+						<div class="flex min-w-0 flex-col gap-1.5">
+							<p class="lbl">{ v.Shown.RuleKind }</p>
+							<h2 id="change-rule" class="font-display text-xl font-bold leading-tight tracking-[-0.02em] text-ink [overflow-wrap:anywhere] md:text-[26px]">{ v.Shown.RuleTitle }</h2>
+							if v.Shown.RuleLine != "" {
+								<p class="font-mono text-xs text-ink/70 [overflow-wrap:anywhere] md:text-[13px]">{ v.Shown.RuleLine }</p>
+							}
 						</div>
+						<div class="grid grid-cols-1 gap-2.5 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:gap-3.5">
+							@policyChangeCard(v.Shown.Before, false)
+							<div class="hidden items-center justify-center text-ink/70 md:flex" aria-hidden="true">
+								<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+									<path d="M5 12h14M13 6l6 6-6 6"></path>
+								</svg>
+							</div>
+							@policyChangeCard(v.Shown.After, true)
+						</div>
+						for _, n := range v.Shown.Notes {
+							<p class="font-mono text-xs leading-normal text-ink/70">{ n }</p>
+						}
+						<dl class="grid grid-cols-1 gap-x-5 gap-y-3 border-t border-dashed border-line pt-4 sm:grid-cols-2">
+							for _, d := range v.Shown.Detail {
+								<div class="min-w-0">
+									<dt class="lbl">{ d.Label }</dt>
+									<dd class="mt-1 font-mono text-[13px] text-ink [overflow-wrap:anywhere]">{ d.Value }</dd>
+								</div>
+							}
+						</dl>
+					</section>
+					@components.PanelNotice(components.ToneWarn, "What this changes, and what nobody can tell you yet") {
+						<p>{ v.Shown.Warning }</p>
+						// 🔴 THIS SENTENCE PROMISED SOMETHING MIGRATION 00008 FORBIDS. It said "every
+						// one of them names the exact version of the rule that judged it" — but
+						// transactions_policy_decision_consistent REQUIRES policy_version_id to be NULL
+						// when a guardrail or the built-in default decided (both are code, not stored
+						// rows), and §5's rows 1-5 are guardrail decisions. Worse, this product tells a
+						// customer on the policies page itself that "every tap is currently being
+						// judged by the Tappa guarantees alone" when one stored document cannot be
+						// read — in exactly that state NONE of the new records names a version, and the
+						// page's loudest warning and this reassurance were speaking about the same rows
+						// in opposite directions. What 00008 does guarantee for every decided record is
+						// a matched_sid.
+						<p class="mt-2">
+							// 🔴 THIS SENTENCE HAS NOW BEEN WRONG THREE TIMES, EACH TIME ABOUT A DIFFERENT ARM
+							// OF MIGRATION 00008's CHECK, so it is written against all four of them and pinned
+							// by a test (handler.TestPolicyChange_DescribesEveryShapeOf00008).
+							//
+							//   (a) policy_layer IS NULL          -> NO rule is named at all. The shipped
+							//                                        MANUAL-ENTRY path writes exactly this:
+							//                                        db/queries/transactions.sql leaves the four
+							//                                        policy columns OUT of the column list. It
+							//                                        names the person who entered it instead.
+							//   (b) policy_layer = 'guardrail'    -> matched_sid, and NO version (guarantees
+							//                                        and the built-in default are code).
+							//   (c) baseline / tenant             -> matched_sid AND the exact stored version.
+							//
+							// Version 1 of this text promised a version for EVERY record (false for (a) and
+							// (b)); version 2 fixed the version half and still said every record names a RULE
+							// (false for (a)); this is version 3.
+							Records already written are not touched. Where a rule decided one, it names that
+							rule — and if the rule was a stored one, your own or a Taptime baseline, it names the
+							exact version too, which can never be edited or deleted. Where one of the Taptime
+							guarantees decided there is no stored version to name, and a record you typed in by
+							hand names the person who entered it rather than a rule. What changes here is how
+							the NEXT tap is judged.
+						</p>
+						<p class="mt-2">
+							This release cannot tell you how many of last week&#39;s taps would have come out
+							differently — replaying past taps against a changed rulebook is a separate
+							piece of work and it is not built yet. So treat this as a change you are making
+							with your eyes open rather than one that has been checked for you.
+						</p>
 					}
-				</dl>
-			</section>
-			@components.Notice(components.ToneWarn, "What this changes, and what nobody can tell you yet") {
-				<p>{ v.Warning }</p>
-				// 🔴 THIS SENTENCE PROMISED SOMETHING MIGRATION 00008 FORBIDS. It said "every
-				// one of them names the exact version of the rule that judged it" — but
-				// transactions_policy_decision_consistent REQUIRES policy_version_id to be NULL
-				// when a guardrail or the built-in default decided (both are code, not stored
-				// rows), and §5's rows 1-5 are guardrail decisions. Worse, this product tells a
-				// customer on the policies page itself that "every tap is currently being
-				// judged by the Tappa guarantees alone" when one stored document cannot be
-				// read — in exactly that state NONE of the new records names a version, and the
-				// page's loudest warning and this reassurance were speaking about the same rows
-				// in opposite directions. What 00008 does guarantee for every decided record is
-				// a matched_sid.
-				<p class="mt-1">
-					// 🔴 THIS SENTENCE HAS NOW BEEN WRONG THREE TIMES, EACH TIME ABOUT A DIFFERENT ARM
-					// OF MIGRATION 00008's CHECK, so it is written against all four of them and pinned
-					// by a test (handler.TestPolicyChange_DescribesEveryShapeOf00008).
-					//
-					//   (a) policy_layer IS NULL          -> NO rule is named at all. The shipped
-					//                                        MANUAL-ENTRY path writes exactly this:
-					//                                        db/queries/transactions.sql leaves the four
-					//                                        policy columns OUT of the column list. It
-					//                                        names the person who entered it instead.
-					//   (b) policy_layer = 'guardrail'    -> matched_sid, and NO version (guarantees
-					//                                        and the built-in default are code).
-					//   (c) baseline / tenant             -> matched_sid AND the exact stored version.
-					//
-					// Version 1 of this text promised a version for EVERY record (false for (a) and
-					// (b)); version 2 fixed the version half and still said every record names a RULE
-					// (false for (a)); this is version 3.
-					Records already written are not touched. Where a rule decided one, it names that
-					rule — and if the rule was a stored one, your own or a Taptime baseline, it names the
-					exact version too, which can never be edited or deleted. Where one of the Taptime
-					guarantees decided there is no stored version to name, and a record you typed in by
-					hand names the person who entered it rather than a rule. What changes here is how
-					the NEXT tap is judged.
-				</p>
-				<p class="mt-1">
-					This release cannot tell you how many of last week&#39;s taps would have come out
-					differently — replaying past taps against a changed rulebook is a separate
-					piece of work and it is not built yet. So treat this as a change you are making
-					with your eyes open rather than one that has been checked for you.
-				</p>
-			}
-			<form method="post" action={ templ.URL(v.Action) } class="flex flex-wrap items-center gap-3">
-				for _, f := range v.Fields {
-					<input type="hidden" name={ f.Name } value={ f.Value }/>
-				}
-				<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
-				<button class="btn btn--primary" type="submit">Make this change</button>
-				<a class="btn btn--quiet" href={ templ.URL(v.BackHref) }>Cancel</a>
-			</form>
+					// THE FORM CARRIES THE CHANGE'S OWN FIELDS AND THE CONFIRMATION, NOTHING ELSE: every
+					// hidden value is in the MAC's subject. "Make this change" comes first and Cancel
+					// second, which is the order focus takes.
+					<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-2.5 md:flex-row md:flex-wrap md:items-center md:gap-3">
+						for _, f := range v.Fields {
+							<input type="hidden" name={ f.Name } value={ f.Value }/>
+						}
+						<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
+						<button class="btn btn--ink min-h-[52px] rounded-[14px] px-6 text-base" type="submit">Make this change</button>
+						<a class="btn btn--line min-h-[52px] rounded-[14px] px-5 text-[15px]" href={ templ.URL(v.BackHref) }>Cancel</a>
+						<p class="font-mono text-xs leading-normal text-ink/70 md:flex-[1_1_260px]">This page has written nothing. The button applies exactly this one change, then returns you to Rules.</p>
+					</form>
+				</div>
+				@policyChangeHistory(v.Shown)
+			</div>
 		</div>
 	}
+}
+
+// policyChangeCard is one card of the before / after pair: the rule as it is on a
+// porcelain ground with a hairline, the rule as the change leaves it on paper inside a
+// heavier ink frame. What goes is struck through and what arrives is set on a light
+// green, and each says so in words for a screen reader — the frame and the tint only
+// repeat what the "Before" and "After" labels already say.
+templ policyChangeCard(s PolicyChangeSide, after bool) {
+	<div class={ policyChangeCardClass(after) }>
+		<p class={ policyChangeCardLabelClass(after) }>{ s.Label }</p>
+		<dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 font-mono text-xs md:text-[13px]">
+			for _, l := range s.Lines {
+				<dt class="pt-0.5 text-ink/70">{ l.Label }</dt>
+				<dd class="flex min-w-0 flex-wrap items-center gap-1.5 text-ink [overflow-wrap:anywhere]">
+					for _, p := range l.Parts {
+						if p.Effect != "" {
+							@policyChangeEffect(p)
+						} else if p.Mark == "del" {
+							<del class="diff-del"><span class="sr-only">removed: </span>{ p.Text }</del>
+						} else if p.Mark == "ins" {
+							<ins class="diff-ins"><span class="sr-only">added: </span>{ p.Text }</ins>
+						} else {
+							<span>{ p.Text }</span>
+						}
+					}
+				</dd>
+			}
+		</dl>
+	</div>
+}
+
+// policyChangeEffect is one effect pill on a card. It is marked only when the version the
+// change writes really answers differently from the one it replaces (a new version that
+// copies a different shipped rule); then the old pill is struck through in tomato and the
+// new one sits on a light green, each with its word for a screen reader. The strike is on
+// a span INSIDE the pill: drawn on the pill itself (a flex box) it is computed and never
+// painted (measured in Chrome). An unmarked pill
+// is what the version says, nothing more.
+templ policyChangeEffect(p PolicyChangeDiffPart) {
+	if p.Mark == "del" {
+		<del class="no-underline"><span class="sr-only">removed: </span><span class={ effectPillClass(p.Effect), "min-h-7 text-[13px]" }><span class="line-through decoration-tomato decoration-2">{ p.Text }</span></span></del>
+	} else if p.Mark == "ins" {
+		<ins class="no-underline"><span class="sr-only">added: </span><span class={ effectPillClass(p.Effect), "min-h-7 bg-tappa-green/10 text-[13px]" }>{ p.Text }</span></ins>
+	} else {
+		<span class={ effectPillClass(p.Effect), "min-h-7 text-[13px]" }>{ p.Text }</span>
+	}
+}
+
+func policyChangeCardClass(after bool) string {
+	if after {
+		return "flex min-w-0 flex-col gap-2.5 rounded-[14px] border-2 border-ink bg-paper p-3.5 md:p-4"
+	}
+	return "flex min-w-0 flex-col gap-2.5 rounded-[14px] border border-line bg-porcelain p-3.5 md:p-4"
+}
+
+func policyChangeCardLabelClass(after bool) string {
+	if after {
+		return "lbl text-ink"
+	}
+	return "lbl"
+}
+
+// policyChangeHistory is the rule's history beside the change: every version a link to
+// its own page, the newest marked in the engine's words, and the newest stored version
+// read in full on a docket (from the one read the page already made — no second call).
+templ policyChangeHistory(s PolicyChangeShown) {
+	<section aria-labelledby="change-history" class="flex min-w-0 flex-[1_1_380px] flex-col gap-3.5 rounded-[18px] border border-line bg-paper px-4 py-5 md:px-[22px] md:pb-5 md:pt-[22px]">
+		<div class="flex flex-col gap-1">
+			<h2 id="change-history" class="font-display text-lg font-bold tracking-[-0.02em] text-ink md:text-xl">History of this rule</h2>
+			<p class="text-[13px] leading-normal text-ink/70">Every version is kept and none can be edited or deleted. Each one has a page of its own.</p>
+		</div>
+		if len(s.History) > 0 {
+			<ol class="flex flex-col gap-2">
+				for _, h := range s.History {
+					<li>
+						<a class={ policyVersionRowClass(h.Marker != "") } href={ templ.URL(h.Href) }>
+							<span class="flex flex-wrap items-baseline justify-between gap-2">
+								<span class="font-mono text-sm font-bold">{ h.No }</span>
+								if h.Marker != "" {
+									<span class={ policyToneClass(h.MarkerTone) }>{ h.Marker }</span>
+								}
+							</span>
+							<span class="font-mono text-xs text-ink/70 [overflow-wrap:anywhere]">{ h.At } · { h.Author } · { h.Bytes }</span>
+							<span class="text-[13px] font-bold text-tappa-green">Read it in full <span aria-hidden="true">→</span></span>
+						</a>
+					</li>
+				}
+			</ol>
+		}
+		if s.HistoryNote != "" {
+			<p class="font-mono text-xs text-ink/70">{ s.HistoryNote }</p>
+		}
+		if s.HistoryOrigin != "" {
+			<p class="font-mono text-xs text-ink/70">{ s.HistoryOrigin }</p>
+		}
+		if s.HistoryEmpty != "" {
+			<p class="text-[13px] leading-normal text-ink/70">{ s.HistoryEmpty }</p>
+		}
+		if s.InUseLabel != "" {
+			// THE DOCKET SITS IN A PORCELAIN WELL so its perforation reads against a ground
+			// that is not its own paper.
+			<div class="rounded-xl bg-porcelain px-3.5 pb-[22px] pt-3.5">
+				<article class="docket flex flex-col gap-2.5 px-4 pb-[18px] pt-4" aria-labelledby="change-in-use">
+					<p id="change-in-use" class="font-display text-[15px] font-bold text-ink">{ s.InUseLabel }</p>
+					if s.InUseProblem != "" {
+						@policyUnreadableNote(s.InUseProblem)
+					}
+					for _, st := range s.InUseStatements {
+						@policyStatementBody(st)
+					}
+				</article>
+			</div>
+		}
+	</section>
+}
+
+// policyVersionRowClass draws a history row: the newest version in a heavy ink frame on
+// paper, the others in a hairline. The frame repeats the marker word printed in the row.
+func policyVersionRowClass(newest bool) string {
+	if newest {
+		return "flex min-h-11 flex-col gap-1 rounded-xl border-2 border-ink bg-paper px-3 py-2.5 text-ink hover:bg-ink/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink"
+	}
+	return "flex min-h-11 flex-col gap-1 rounded-xl border border-line px-3 py-2.5 text-ink hover:border-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-ink"
+}
+
+// policyUnreadableNote is a stored version this release cannot parse. It is a note in a
+// tomato frame and not a PanelNotice, whose alert opens with "Not done": nothing the
+// reader did has failed — an old document is in a form this release does not read.
+templ policyUnreadableNote(problem string) {
+	<div role="note" class="flex flex-col gap-1.5 rounded-[10px] border border-tomato bg-tomato/5 p-3 font-display text-ink">
+		<p class="text-sm font-bold">This version cannot be read by this release</p>
+		<p class="text-[13px] leading-normal">
+			Its stored document is in a form this release does not understand, so what
+			it says is not shown — showing part of a rule would describe rules that
+			are not your rules. It is still stored, and it can never be edited or
+			deleted.
+		</p>
+		<p class="font-mono text-[11px] [overflow-wrap:anywhere]">{ problem }</p>
+	</div>
+}
+
+// policyStatementBody is one statement of a stored version, read in full: its id and
+// effect, the effect in a sentence, the engine's reason and where it applies.
+templ policyStatementBody(s PolicyStatementView) {
+	<div class="flex flex-col gap-1.5 border-t border-dashed border-line pt-2.5">
+		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+			<span class="font-mono text-[13px] text-ink [overflow-wrap:anywhere]">{ s.Sid }</span>
+			<span class="font-mono text-[11px] uppercase tracking-widest text-ink/70">{ s.Effect }</span>
+		</div>
+		<p class="font-display text-sm text-ink">{ s.Outcome }</p>
+		if s.Reason != "" {
+			<p class="font-display text-[13px] leading-normal text-ink/85">{ s.Reason }</p>
+		}
+		<dl class="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
+			<div class="min-w-0">
+				<dt class="docket-label">Applies to</dt>
+				<dd class="font-mono text-xs text-ink [overflow-wrap:anywhere]">{ joinOr(s.Actions, "—") }</dd>
+			</div>
+			<div class="min-w-0">
+				<dt class="docket-label">Where</dt>
+				<dd class="font-mono text-xs text-ink [overflow-wrap:anywhere]">{ joinOr(s.Resources, "everywhere") }</dd>
+			</div>
+		</dl>
+		if len(s.Conditions) > 0 {
+			<dl>
+				<dt class="docket-label">Only when</dt>
+				for _, c := range s.Conditions {
+					<dd class="font-mono text-xs text-ink [overflow-wrap:anywhere]">{ c }</dd>
+				}
+			</dl>
+		}
+	</div>
 }
 
 // PolicyVersionPageView is one stored version read in full — the bounded route phase A
@@ -153,62 +415,28 @@ type PolicyVersionPageView struct {
 	BackHref   string
 }
 
-// AdminPolicyVersion renders one version's body.
+// AdminPolicyVersion renders one version's body: a docket, because a stored version is a
+// record written once and never edited (migration 00007), so its corners stay sharp.
 templ AdminPolicyVersion(v PolicyVersionPageView) {
 	@PanelShell(v.PanelChrome) {
-		<div class="flex flex-col gap-4">
-			<section class="docket">
-				<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-					<p class="font-display font-bold tracking-tight text-ink">{ v.PolicyName }</p>
-					<span class="tally tally--locked">{ v.Marker }</span>
+		<div class="flex max-w-2xl flex-col gap-5">
+			<article class="docket flex flex-col gap-2.5 px-4 pb-5 pt-4 md:px-[18px]" aria-labelledby="version-name">
+				<div class="flex flex-wrap items-baseline justify-between gap-2">
+					<p id="version-name" class="font-display text-[15px] font-bold text-ink [overflow-wrap:anywhere]">{ v.PolicyName }</p>
+					<span class="border border-ink px-1.5 py-px font-mono text-[11px] uppercase tracking-[0.1em] text-ink">{ v.Marker }</span>
 				</div>
-				<p class="mt-1 font-mono text-xs uppercase tracking-widest text-ink/70">
+				<p class="font-mono text-[11px] uppercase tracking-[0.1em] text-ink/70 [overflow-wrap:anywhere]">
 					{ v.Version } · { v.At } · { v.Author } · { v.Bytes }
 				</p>
-				<p class="mt-1 text-sm text-ink/85">{ v.State }</p>
+				<p class="font-display text-[13px] leading-normal text-ink">{ v.State }</p>
 				if v.Problem != "" {
-					@components.Notice(components.ToneAlert, "This version cannot be read by this release") {
-						<p>
-							Its stored document is in a form this release does not understand, so what
-							it says is not shown — showing part of a rule would describe rules that
-							are not your rules. It is still stored, and it can never be edited or
-							deleted.
-						</p>
-						<p class="mt-1 font-mono text-xs break-words">{ v.Problem }</p>
-					}
+					@policyUnreadableNote(v.Problem)
 				}
 				for _, s := range v.Statements {
-					<div class="mt-3 border-t border-line pt-2">
-						<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-							<span class="font-mono text-sm text-ink">{ s.Sid }</span>
-							<span class="font-mono text-xs uppercase tracking-widest text-ink/70">{ s.Effect }</span>
-						</div>
-						<p class="mt-1 text-sm text-ink">{ s.Outcome }</p>
-						if s.Reason != "" {
-							<p class="mt-1 text-sm text-ink/85">{ s.Reason }</p>
-						}
-						<dl class="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
-							<div>
-								<dt class="docket-label">Applies to</dt>
-								<dd class="font-mono text-xs text-ink">{ joinOr(s.Actions, "—") }</dd>
-							</div>
-							<div>
-								<dt class="docket-label">Where</dt>
-								<dd class="font-mono text-xs text-ink">{ joinOr(s.Resources, "everywhere") }</dd>
-							</div>
-						</dl>
-						if len(s.Conditions) > 0 {
-							<dl class="mt-1">
-								<dt class="docket-label">Only when</dt>
-								for _, c := range s.Conditions {
-									<dd class="font-mono text-xs text-ink">{ c }</dd>
-								}
-							</dl>
-						}
-					</div>
+					@policyStatementBody(s)
 				}
-			</section>
-			<p><a class="btn btn--quiet" href={ templ.URL(v.BackHref) }>Back to your rules</a></p>
+			</article>
+			<p><a class="btn btn--line rounded-xl px-3.5 text-sm" href={ templ.URL(v.BackHref) }>Back to your rules</a></p>
 		</div>
 	}
 }

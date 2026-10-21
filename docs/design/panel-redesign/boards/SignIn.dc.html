@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sign in — Taptime</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.stamp{display:inline-block;padding:3px 8px;border:2px solid;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-8deg)}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
+.field{min-height:48px;width:100%;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:10px;background:#FFFDF4;padding:0 14px;font:14px 'IBM Plex Mono',monospace;color:#152219}
+.field:focus{outline:2px solid #1F5C41;outline-offset:1px;border-color:#1F5C41}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+
+  <section aria-label="Taptime" style="flex: 1 1 520px; min-width: 0; background: #152219; color: #EDF0EA; padding: 40px clamp(24px, 4vw, 64px); box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; gap: 48px; position: relative; overflow: hidden">
+    <div style="position: absolute; left: 0; top: 0; right: 0; height: 4px; background: #1F5C41"></div>
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <div style="font-size: 26px; font-weight: 700; letter-spacing: -0.03em">taptime</div>
+      <div class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">punchless</div>
+    </div>
+
+    <div aria-hidden="true" style="position: relative; max-width: 520px; width: 100%; padding-top: 10px">
+      <div style="position: absolute; left: -64px; right: -24px; top: 10px; height: 8px; border-radius: 4px; background: #EDF0EA; opacity: .9"></div>
+      <div style="display: flex; gap: 18px; padding-left: 8px">
+        <sc-for list="{{tickets}}" as="t" hint-placeholder-count="3">
+          <div style="width: 150px; display: flex; flex-direction: column; align-items: center">
+            <div style="width: 40px; height: 16px; background: rgba(21,34,25,.5); border-radius: 0 0 6px 6px; position: relative; z-index: 1"></div>
+            <div class="docket" style="width: 100%; margin-top: -4px; padding: 16px 14px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; color: #152219; transform: rotate({{t.tilt}}deg); transform-origin: top center">
+              <span class="lbl">{{t.venue}}</span>
+              <span style="font-size: 15px; font-weight: 700">{{t.name}}</span>
+              <span class="mono" style="font-size: 18px; font-weight: 700">{{t.dir}} {{t.time}}</span>
+              <sc-if value="{{t.stamp}}" hint-placeholder-val="{{false}}">
+                <span style="align-self: flex-end"><span class="stamp stamp--ok">Approved</span></span>
+              </sc-if>
+              <sc-if value="{{t.blank}}" hint-placeholder-val="{{true}}">
+                <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); border-top: 1px dashed #C9D2C8; padding-top: 6px">TRUST {{t.trust}}</span>
+              </sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px; max-width: 460px">
+      <h2 style="margin: 0; font-size: clamp(32px, 3.4vw, 48px); line-height: 1.02; letter-spacing: -0.035em">Punchless time &amp; attendance.</h2>
+      <p style="margin: 0; font-size: 15px; line-height: 1.5; color: #C9D2C8">A plaque on the wall, the phone in their pocket. Every tap lands here as a docket — judged, stamped, kept.</p>
+    </div>
+  </section>
+
+  <main style="flex: 1 1 560px; min-width: 0; padding: 32px clamp(20px, 4vw, 64px) 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 14px">
+      <span style="font-size: 14px; color: rgba(21,34,25,.7)">Not using Taptime yet?</span>
+      <a href="Signup.dc.html" style="display: inline-flex; align-items: center; min-height: 44px; font-weight: 700; font-size: 14px">Start now — first 3 months free →</a>
+    </div>
+
+    <div style="flex: 1; display: flex; align-items: center; justify-content: center">
+      <div style="width: 100%; max-width: 440px; display: flex; flex-direction: column; gap: 20px">
+        <section style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 36px 36px 32px; display: flex; flex-direction: column; gap: 22px">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <h1 style="margin: 0; font-size: 34px; letter-spacing: -0.03em; line-height: 1.05">Welcome back</h1>
+            <p style="margin: 0; font-size: 15px; color: rgba(21,34,25,.7)">Sign in to your business panel.</p>
+          </div>
+
+          <sc-if value="{{recovered}}" hint-placeholder-val="{{false}}">
+            <div role="status" style="border: 1px solid #1F5C41; background: rgba(31,92,65,.08); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+              <strong style="font-size: 14px">Your new password is set</strong>
+              <span style="font-size: 13px; line-height: 1.45">Every Taptime session was signed out, on every device. Sign in with the new password.</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{failed}}" hint-placeholder-val="{{false}}">
+            <div role="alert" style="border: 1px solid #BE3D2A; background: rgba(190,61,42,.08); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+              <strong style="font-size: 14px">We could not sign you in</strong>
+              <span style="font-size: 13px; line-height: 1.45">Check the email address and the password, then try again.</span>
+            </div>
+          </sc-if>
+
+          <form style="display: flex; flex-direction: column; gap: 18px" onSubmit="{{noop}}">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <label for="si-email" class="lbl">Work email</label>
+              <input id="si-email" class="field" type="email" autocomplete="username" placeholder="you@yourcompany.com">
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <label for="si-pass" class="lbl">Password</label>
+              <div style="position: relative">
+                <input id="si-pass" class="field" type="{{pwtype}}" autocomplete="current-password" style="padding-right: 52px">
+                <button type="button" onClick="{{toggle}}" aria-label="{{toggleLabel}}" aria-pressed="{{shownAttr}}" style="position: absolute; right: 2px; top: 2px; width: 44px; height: 44px; border: 0; background: transparent; color: rgba(21,34,25,.7); cursor: pointer; display: inline-flex; align-items: center; justify-content: center">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+            </div>
+            <button type="submit" style="min-height: 52px; border: 0; border-radius: 12px; background: #1F5C41; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; cursor: pointer">Sign in</button>
+          </form>
+          <a href="Reset.dc.html" style="align-self: center; display: inline-flex; align-items: center; min-height: 44px; font-size: 14px; color: rgba(21,34,25,.7)">Forgot password?</a>
+        </section>
+        <p style="margin: 0; text-align: center; font-size: 13px; color: rgba(21,34,25,.7)">This is the manager panel. Employees do not sign in — they tap the plaque.</p>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"state":{"editor":"enum","options":["normal","failed","recovered"],"default":"normal"},"$preview":{"width":1440,"height":660}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { shown: false }; }
+  renderVals() {
+    const st = this.props.state ?? 'normal';
+    const shown = this.state.shown;
+    const tickets = [
+      { venue: 'KF Valletta', name: 'Maria Borg', dir: 'IN', time: '07:58', tilt: -2, stamp: true, blank: false, trust: 100 },
+      { venue: 'KF Hamrun', name: 'Kevin Borg', dir: 'IN', time: '08:02', tilt: 1.5, stamp: false, blank: true, trust: 70 },
+      { venue: 'KF Msida', name: 'Grace Attard', dir: 'OUT', time: '16:31', tilt: -0.8, stamp: false, blank: true, trust: 100 }
+    ];
+    return {
+      tickets, failed: st === 'failed', recovered: st === 'recovered',
+      pwtype: shown ? 'text' : 'password', toggleLabel: shown ? 'Hide password' : 'Show password', shownAttr: shown ? 'true' : 'false',
+      toggle: () => this.setState({ shown: !shown }),
+      noop: (e) => { if (e && e.preventDefault) e.preventDefault(); }
+    };
+  }
+}
+</script>
+</body>
+</html>

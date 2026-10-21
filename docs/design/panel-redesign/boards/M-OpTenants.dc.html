@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tenants — Taptime operator</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+/* operator shell (OP-1) — identical on every board of this width */
+.oplbl{margin:0;font:400 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.opbar{background:#152219;border-bottom:4px solid #D98E2B;color:#FFFDF4}
+.opbar-in{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:0 16px;box-sizing:border-box}
+.oplock{margin:0;font:700 14px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.28em;text-transform:uppercase;color:#FFFDF4;white-space:nowrap}
+.oplock span{color:#D98E2B}
+.opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
+.opout:hover{border-color:#D98E2B;color:#D98E2B}
+.opbot{position:sticky;bottom:0;margin-top:auto;z-index:5;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:#FFFDF4;border-top:1px solid #C9D2C8}
+.opbt{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(21,34,25,.7);font:500 11px 'Space Grotesk',sans-serif}
+.opbt:hover{color:#152219}
+.opbt--on{color:#152219;font-weight:700}
+.opbt--on::before{content:"";position:absolute;top:-1px;left:20%;right:20%;height:3px;background:#152219}
+.opten{background:#F7EBD6;border-bottom:1px solid #D98E2B}
+.opten-in{max-width:none;box-sizing:border-box;padding:16px 16px 0;display:flex;flex-direction:column;gap:2px}
+.optname{margin:0;font:700 26px/1.12 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219;overflow-wrap:anywhere}
+.optid{margin:2px 0 0;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;word-break:break-all}
+.opsub{display:flex;flex-wrap:wrap;margin:8px 0 0 -10px}
+.opsubt{display:flex;align-items:center;min-height:44px;padding:0 10px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 14px 'Space Grotesk',sans-serif;white-space:nowrap}
+.opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
+.opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
+.opmain{width:100%;max-width:none;box-sizing:border-box;padding:20px 16px 64px}
+/* end operator shell */
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:16px 20px;box-shadow:0 1px 2px rgba(21,34,25,.06);display:flex;flex-direction:column;gap:8px;min-width:0}
+.docket::before,.docket::after{content:'';position:absolute;left:-1px;right:-1px;height:6px;background-image:radial-gradient(circle at 5px 0,#EDF0EA 3px,transparent 3.5px);background-size:10px 6px;background-repeat:repeat-x}
+.docket::before{top:-1px}
+.docket::after{bottom:-1px;transform:rotate(180deg)}
+.h1{margin:0;font:700 28px/1.1 'Space Grotesk',sans-serif;letter-spacing:-0.03em}
+.txt{margin:0;font-size:14px;line-height:1.5}
+.hint{margin:0;font-size:12px;line-height:1.45;color:rgba(21,34,25,.7)}
+.oplink{display:inline-flex;align-items:center;min-height:44px;padding:0;border:0;background:none;color:#1F5C41;font:700 14px 'Space Grotesk',sans-serif;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.oplink:hover{color:#152219}
+.links{display:flex;flex-wrap:wrap;column-gap:24px;margin:0}
+.field{min-height:44px;padding:0 12px;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;font:14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;box-sizing:border-box;width:100%}
+.btnp{min-height:44px;padding:0 20px;border-radius:12px;border:0;background:#1F5C41;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer;white-space:nowrap}
+.btnq{min-height:44px;padding:0 18px;border-radius:12px;border:1px solid #C9D2C8;background:#FFFDF4;color:#152219;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer;white-space:nowrap}
+.btnq:hover{border-color:#BE3D2A;color:#BE3D2A}
+.oprow{border-top:1px dashed #C9D2C8;padding:12px 0;font-size:14px;line-height:1.45}
+.tally{display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:999px;font:700 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#152219;white-space:nowrap;box-sizing:border-box}
+.t-green{border:1px solid #1F5C41;background:rgba(31,92,65,.1)}
+.t-line{border:1px solid #C9D2C8;background:rgba(21,34,25,.05)}
+.t-saffron{border:1px dashed #D98E2B;background:rgba(217,142,43,.12)}
+.t-saffron-solid{border:1px solid #D98E2B;background:rgba(217,142,43,.12)}
+.t-tomato{border:1px solid #BE3D2A;background:rgba(190,61,42,.1)}
+.t-ink{border:1px solid rgba(21,34,25,.5);background:#FFFDF4}
+.t-odd{border:1px dashed rgba(21,34,25,.5);background:#FFFDF4}
+.note{display:flex;flex-direction:column;gap:6px;padding:14px 18px;border-left:4px solid;border-radius:0 10px 10px 0}
+.note--ok{border-color:#1F5C41;background:rgba(31,92,65,.1)}
+.note--warn{border-color:#D98E2B;background:#F7EBD6}
+.note--alert{border-color:#BE3D2A;background:#FFFDF4}
+.note strong{font-size:15px}
+.note p,.note li{margin:0;font-size:14px;line-height:1.5;color:rgba(21,34,25,.85)}
+.note ul{margin:4px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+dl{margin:0}dd{margin:0}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 100vh; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <header class="opbar">
+    <div class="opbar-in">
+      <p class="oplock">TAPTIME <span>OPERATOR</span></p>
+      <form method="post" action="/operator/logout" style="margin: 0"><button type="button" class="opout">Sign out</button></form>
+    </div>
+  </header>
+  <main class="opmain" style="display: flex; flex-direction: column; gap: 16px">
+    <section class="card" aria-labelledby="tenants-h">
+      <p class="lbl" style="margin: 0">Tenants</p>
+      <h1 id="tenants-h" class="h1">Find a tenant</h1>
+      <form method="post" action="/operator/tenants" role="search" style="margin: 0; display: flex; flex-direction: column; gap: 8px">
+        <label for="tenant-search" class="lbl">Search</label>
+        <input id="tenant-search" type="search" name="q" value="{{term}}" maxlength="254" autocomplete="off" spellcheck="false" class="field" aria-describedby="tenant-search-help">
+        <p id="tenant-search-help" class="hint">Part of a business name, a panel account's whole email address, or a tenant id. Leave it empty to list every tenant.</p>
+        <button type="submit" class="btnp" style="width: 100%">Search</button>
+      </form>
+      <sc-if value="{{searched}}" hint-placeholder-val="{{false}}">
+        <p class="txt" style="border-top: 1px dashed #C9D2C8; padding-top: 14px">Tenants matching <bdi class="mono" style="font-weight: 700; overflow-wrap: anywhere">{{term}}</bdi>.</p>
+      </sc-if>
+      <p class="links" style="margin-top: -8px; flex-direction: column; align-items: flex-start">
+        <sc-if value="{{searched}}" hint-placeholder-val="{{false}}"><a href="M-OpTenants.dc.html" class="oplink">Show every tenant</a></sc-if>
+        <a href="M-OpHome.dc.html" class="oplink">Back to the console</a>
+      </p>
+    </section>
+
+    <section class="docket" aria-labelledby="tenant-list">
+      <h2 id="tenant-list" class="lbl" style="margin: 0">Newest first · page <span class="mono">{{page}}</span></h2>
+      <sc-if value="{{empty}}" hint-placeholder-val="{{false}}">
+        <p class="txt" style="padding: 8px 0 4px">{{emptyLine}}</p>
+      </sc-if>
+      <sc-if value="{{hasRows}}" hint-placeholder-val="{{true}}">
+        <ol style="list-style: none; margin: 4px 0 0; padding: 0">
+          <sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+          <li class="oprow" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0 12px">
+            <a href="M-OpTenant.dc.html" class="oplink" style="display: flex; font-size: 15px">
+              <sc-if value="{{r.named}}" hint-placeholder-val="{{true}}"><bdi>{{r.name}}</bdi></sc-if>
+              <sc-if value="{{r.unnamed}}" hint-placeholder-val="{{false}}"><span style="font-style: italic">Unnamed tenant</span></sc-if>
+            </a>
+            <span style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-top: -4px"><span>Since <span class="mono">{{r.since}}</span></span><span aria-hidden="true" style="color: rgba(21,34,25,.4)">·</span><span class="mono">{{r.plan}}</span></span>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7); word-break: break-all">{{r.id}}</span>
+          </li>
+          </sc-for>
+        </ol>
+      </sc-if>
+    </section>
+
+    <sc-if value="{{pager}}" hint-placeholder-val="{{true}}">
+      <nav aria-label="Pages of the list" style="display: flex; flex-wrap: wrap; align-items: center; column-gap: 24px">
+        <sc-if value="{{hasPrev}}" hint-placeholder-val="{{false}}">
+          <form method="post" action="/operator/tenants" style="margin: 0"><input type="hidden" name="q" value="{{term}}"><input type="hidden" name="page" value="{{prevPage}}"><button type="submit" class="oplink">Previous page</button></form>
+        </sc-if>
+        <sc-if value="{{hasNext}}" hint-placeholder-val="{{true}}">
+          <form method="post" action="/operator/tenants" style="margin: 0"><input type="hidden" name="q" value="{{term}}"><input type="hidden" name="page" value="{{nextPage}}"><button type="submit" class="oplink">Next page</button></form>
+        </sc-if>
+      </nav>
+    </sc-if>
+  </main>
+  <nav aria-label="Operator sections" class="opbot">
+    <a href="M-OpHome.dc.html" class="opbt"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 20h10M8 9l3 2-3 2M13 13h3"/></svg><span>Console</span></a>
+    <a href="M-OpTenants.dc.html" class="opbt opbt--on" aria-current="page"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V9l6-4 6 4v12"/><path d="M15 21V13h6v8"/><path d="M7 13h4M7 17h4"/></svg><span>Tenants</span></a>
+    <a href="M-OpHoldings.dc.html" class="opbt"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><circle cx="12" cy="17" r="3"/><path d="M9.5 8.5l1.5 6M14.5 8.5l-1.5 6"/></svg><span>Holdings</span></a>
+    <a href="M-OpAudit.dc.html" class="opbt"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h7"/></svg><span>Audit</span></a>
+    <a href="M-OpLegal.dc.html" class="opbt"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M5 7h14M7 7l-3 7h6zM17 7l-3 7h6z"/></svg><span>Legal</span></a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"list": {"editor": "enum", "options": ["every", "every-page-2", "searched", "no-match", "none", "past-the-end"], "default": "every"}, "$preview": {"width": 390, "height": 1277}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const state = this.props.list ?? 'every';
+    // Page 1 of every tenant, newest first (50 per page in the product; a few drawn).
+    const every = [
+      ['Rusty Bar', '2026-10-18 21:40 UTC', 'standard', '3d0b7c52-91e4-4f6a-8b2d-5c7e1a9f0b36'],
+      ['', '2026-10-14 11:03 UTC', 'standard', '6f1c2a9e-4b7d-4e21-9a3c-0d5e8b7f1a24'],
+      ['Harbour Café', '2026-09-30 08:27 UTC', 'founding', '9a4e1f07-2c58-4b3d-a6e1-7f0d2b9c8e15'],
+      ['Blue Grotto Kiosk', '2026-08-12 16:55 UTC', 'founding', 'c27f5b19-8e3a-4d06-9f41-2b6c0e7a5d83'],
+      ['Kebab Manufacturing Co. Ltd.', '2026-07-24 10:02 UTC', 'founding', '1b8d3e6f-0a7c-4c92-b5e4-8d1f6a2c7e09'],
+      ['Kebab Factory Ltd.', '2026-07-24 09:12 UTC', 'founding', '5e2a9c74-6d1b-4f83-a0c7-3e9b5f1d2a68']
+    ];
+    const older = [
+      ['Mdina Glass Bistro', '2026-07-21 14:18 UTC', 'founding', '7c3f0e2a-5b94-4d1e-8a67-0f2d9b4c6e51'],
+      ['Gozo Ferry Snacks', '2026-07-19 07:44 UTC', 'founding', 'e04b8d6c-3a21-4f7e-9c58-6b1a0d2f8e37'],
+      ['Sliema Point Hotel', '2026-07-17 12:30 UTC', 'founding', '2f9e6a1d-7c04-4b38-b2e5-9a0c3d7f1b84']
+    ];
+    const S = {
+      every: ['', 1, every, false, true],
+      'every-page-2': ['', 2, older, true, true],
+      searched: ['kebab', 1, every.slice(4), false, false],
+      'no-match': ['harbour bakery', 1, [], false, false],
+      none: ['', 1, [], false, false],
+      'past-the-end': ['', 3, [], true, false]
+    };
+    const [term, page, list, hasPrev, hasNext] = S[state];
+    const rows = list.map(([name, since, plan, id]) => ({ name, since, plan, id, named: name !== '', unnamed: name === '' }));
+    const emptyLine = page > 1 ? 'This page is empty: the list ended on the page before.'
+      : term !== '' ? 'No tenant matches that search.' : 'There are no tenants yet.';
+    return {
+      term, page, rows, hasRows: rows.length > 0, empty: rows.length === 0, emptyLine,
+      searched: term !== '', hasPrev, hasNext, pager: hasPrev || hasNext,
+      prevPage: page - 1, nextPage: page + 1
+    };
+  }
+}
+</script>
+</body>
+</html>

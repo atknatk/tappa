@@ -93,6 +93,33 @@ var reportsHref = mustSectionHref(pages.TabReports)
 //
 // ⚠️ AND THE TABLE ABOVE WAS NOT THE WHOLE PAGE, which is recorded because believing
 // it was is what let a 560 KB page ship past a probe. See maxOpenRows.
+//
+// ⚠️ THE FIGURES ABOVE ARE THE DOCKET SHAPE BEFORE M12-36 AND ARE KEPT AS HISTORY. The Roll
+// (M12-36) is one table row per person, and a row now carries more: the title and home venue,
+// the shift count, a day name above every cell for the phone's reflow, the cell's look
+// modifiers and sr-only words in every cell (status is never colour alone). Re-measured
+// 2026-10-20 through the real router and this handler, over the fake reader (so the page is
+// the template's output and not a database's), five worked days per person, 25-character
+// names:
+//
+//	people   document     note
+//	     0    16 988 B    chrome, heading, receipt, legend-less empty state
+//	    10    34 166 B
+//	   100   171 508 B    ~1 526 B a row with plain worked days
+//	   100   255 008 B    ~2 361 B a row when every worked day carries all three marks
+//
+// The open list adds ~470 B an entry (100 entries: +47 259 B), so an ordinary full page is
+// about 220 KB. A heavy but typical full page -- every listed day marked, every qualifier on
+// every person, 66-rune names, 25-rune titles, 23-rune venues, both lists at their caps -- is
+// 408 762 B (TestReportsSection_AFullPageStaysUnderItsCeiling holds that fixture under
+// reportsPageByteCeiling, a structural net and not a bound).
+//
+// ⚠️ THAT IS NOT THE HEAVIEST LEGAL PAGE. Measured by the M12-36 re-audit: with every field at
+// its legal limit (names 120 runes, titles and venues 80, multi-byte runes such as ż) the same
+// page is ~484 426 B; with names full of `&` (each escaped as &amp;) ~628 234 B; and names
+// stored before the rune limit existed (staff.go) have no upper bound. What keeps the page
+// finite is the two listing caps, not any byte figure. Each row is about twice the docket
+// shape's, bought by the sr-only words and the phone's day names.
 const maxReportRows = 100
 
 // maxOpenRows is how many unclosed check-ins the screen LISTS. Totals.Open always
@@ -162,6 +189,9 @@ func fillReportsView(v *pages.ReportsView, s ledger.ReportScreen) {
 
 	v.Queried = s.Queried
 	v.ZoneLabel = zone.String()
+	v.TenantName = s.TenantName
+	v.HomesQueried = s.Homes.Queried
+	v.HomesFailed = s.Homes.Failed
 	v.Incomplete = s.Truncated
 	v.PracticeTaps = s.PracticeTaps
 	v.StartedEarlier = s.StartedEarlier
@@ -178,9 +208,23 @@ func fillReportsView(v *pages.ReportsView, s ledger.ReportScreen) {
 	} else {
 		v.WeekLabel = days[0].Format("Mon 2 Jan") + " – " + last.Format("Mon 2 Jan 2006")
 	}
+	// The stepper's short form of the same period: "12 – 18 Oct", or "28 Sep – 4 Oct"
+	// across a month's end.
+	if days[0].Month() == last.Month() {
+		v.WeekShort = days[0].Format("2") + " – " + last.Format("2 Jan")
+	} else {
+		v.WeekShort = days[0].Format("2 Jan") + " – " + last.Format("2 Jan")
+	}
+	// THE ISO WEEK OF THE PERIOD'S FIRST DAY, in the eyebrow. A period is Monday to Sunday,
+	// so every day of it has the same ISO week; the first is named because it is the one
+	// the period is keyed by.
+	_, v.WeekNumber = days[0].ISOWeek()
+	v.Kicker = "Hours per person · week " + strconv.Itoa(v.WeekNumber)
 	v.DayHeadings = make([]string, 0, len(days))
+	v.DayLetters = make([]string, 0, len(days))
 	for _, d := range days {
 		v.DayHeadings = append(v.DayHeadings, d.Format("Mon 2"))
+		v.DayLetters = append(v.DayLetters, d.Format("Mon"))
 	}
 
 	v.ThisWeekHref = reportsHref
@@ -191,14 +235,26 @@ func fillReportsView(v *pages.ReportsView, s ledger.ReportScreen) {
 	// never be one week apart — see pages.ReportsView.ExportHref for why that would be
 	// a silent failure rather than a visible one.
 	v.ExportHref = weekCSVHref(p.FirstDay.String())
+	// THE SAME WEEK ON ODD SHAPES, so the open check-ins the receipt counts are the ones the
+	// link lands on rather than whatever week that section opens to.
+	v.AnomaliesHref = anomaliesHref + "?" + url.Values{"week": {p.FirstDay.String()}}.Encode()
 
 	v.Totals = pages.ReportTotalsView{
 		Worked:   hoursMinutes(s.Totals.Worked),
 		Shifts:   s.Totals.Shifts,
 		Awaiting: nonZeroHours(s.Totals.Awaiting),
 		Refused:  nonZeroHours(s.Totals.Refused),
-		Open:     s.Totals.Open,
-		TooLong:  s.Totals.TooLong,
+
+		AwaitingFigure: hoursMinutes(s.Totals.Awaiting),
+		RefusedFigure:  hoursMinutes(s.Totals.Refused),
+
+		Open:    s.Totals.Open,
+		TooLong: s.Totals.TooLong,
+
+		OtherVenue:        s.Totals.OtherVenue,
+		OtherVenueUnknown: s.Totals.OtherVenueUnknown,
+		ManualArrivals:    s.Totals.ManualArrivals,
+		Approved:          s.Totals.Approved,
 	}
 	v.OpenTotal = len(s.Open)
 	// 🔴 ONE CALCULATION POINT, AND IT IS SHARED WITH THE EXPORT. This tally used to be
@@ -304,11 +360,19 @@ func partnerView(t ledger.PartnerTap, zone *time.Location) pages.ReportPartnerVi
 // reportRowView maps one person's week onto one docket.
 func reportRowView(p ledger.PersonHours) pages.ReportRowView {
 	row := pages.ReportRowView{
-		Name:     personName(p.Name),
-		Worked:   hoursMinutes(p.Worked),
-		Shifts:   p.Shifts,
-		Awaiting: nonZeroHours(p.Awaiting),
-		Refused:  nonZeroHours(p.Refused),
+		Name:      personName(p.Name),
+		Worked:    hoursMinutes(p.Worked),
+		Role:      p.Role,
+		HomeVenue: p.HomeVenue,
+		Shifts:    p.Shifts,
+		Awaiting:  nonZeroHours(p.Awaiting),
+		Refused:   nonZeroHours(p.Refused),
+	}
+	// THE MARKS ARE COPIED, NOT DERIVED: what each one counts is ledger.DayMarks' to say,
+	// and a second rule here would be a second answer to "was this day elsewhere".
+	row.Marks = make([]pages.ReportMarkView, 0, len(p.Marks))
+	for _, m := range p.Marks {
+		row.Marks = append(row.Marks, pages.ReportMarkView{Other: m.Other, Manual: m.Manual, Open: m.Open})
 	}
 	row.Daily = make([]string, 0, len(p.Daily))
 	for _, d := range p.Daily {

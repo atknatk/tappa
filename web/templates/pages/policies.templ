@@ -50,8 +50,11 @@ import "github.com/atknatk/tappa/web/templates/components"
 templ AdminPolicies(v PoliciesView) {
 	@PanelShell(v.PanelChrome) {
 		<div class="policy-section">
+			if v.Summary != "" {
+				<p class="font-mono text-xs uppercase tracking-widest text-ink/70">{ v.Summary }</p>
+			}
 			if v.VersionsCapped {
-				@components.Notice(components.ToneWarn, "Some version history is not on this page") {
+				@components.PanelNotice(components.ToneWarn, "Some version history is not on this page") {
 					<p>
 						Your policy history is longer than one page reads at once, so some
 						versions are not listed below — and a rule whose row fell outside the
@@ -62,7 +65,7 @@ templ AdminPolicies(v PoliciesView) {
 				}
 			}
 			if v.AttachmentsCapped {
-				@components.Notice(components.ToneWarn, "Some scope bindings are not on this page") {
+				@components.PanelNotice(components.ToneWarn, "Some scope bindings are not on this page") {
 					<p>
 						This business has more policy bindings than one page reads at once, so the
 						“Bound to” lists below are shortened.
@@ -82,7 +85,7 @@ templ AdminPolicies(v PoliciesView) {
 				}
 			}
 			if v.ScopeCapped {
-				@components.Notice(components.ToneWarn, "Some of your venues are not in the scope picker") {
+				@components.PanelNotice(components.ToneWarn, "Some of your venues are not in the scope picker") {
 					<p>
 						This business has more venues and departments than one page reads at once, so
 						the list of places a rule can be applied to is shortened. Rules already bound
@@ -97,29 +100,44 @@ templ AdminPolicies(v PoliciesView) {
 				// silent-failure shape §4.6 forbids one layer over, and it is worse here than on
 				// a read: the whole point of the confirmation step is that somebody read a
 				// sentence before pressing, so a press that did nothing has to be visible.
-				@components.Notice(components.ToneAlert, v.ProblemHeading) {
+				@components.PanelNotice(v.ProblemTone, v.ProblemHeading) {
 					<p>{ v.Problem }</p>
 				}
 			}
 			if v.Queried {
 				@policyDegraded(v)
-				@policyIntro(v)
-				// 🔴 THE WRAPPER IS NOT HERE ANY MORE — IT IS THE FIRST AND LAST BYTE OF THE
-				// COMPONENT ITSELF, AND THAT IS WHAT MAKES THE SCANNED REGION UNAMBIGUOUS. It sat
-				// out here for three rounds so that markup added to the component's first line
-				// could not escape the scan; the isolated render closed that on its own (the
-				// component's bytes are scanned whatever is in them), and leaving the wrapper out
-				// here opened a NEW hole: an auditor put a working off switch BESIDE the call,
-				// inside the wrapper, outside the component's bytes — under the last guardrail row
-				// and the "Cannot be switched off" chip, with every test green.
-				// With the wrapper inside, "the page contains the component's bytes exactly once"
-				// says there is nothing between <div class="policy-guarantees"> and its close but
-				// the component — because those tags are part of what is compared.
-				@PolicyGuarantees(v)
-				@policyBaseline(v)
-				@policyTenant(v)
-				@policyAuthoring(v)
-				@policyAuthorities(v)
+				// THE REDESIGN'S TWO COLUMNS (M12-37): the ladder on the left, the intro beside it
+				// from desk. The DOM order is the test's and does not move -- the intro is still the
+				// element right before the guarantees' wrapper -- so the intro is PLACED in the right
+				// column (its own class list) and the wrapper in the left one (input.css), and below
+				// desk the page is one column in this same order.
+				<div class="flex min-w-0 flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,1fr)_17.5rem] desk:items-start desk:gap-x-7 desk:gap-y-6">
+					@policyIntro(v)
+					// 🔴 THE WRAPPER IS NOT HERE ANY MORE — IT IS THE FIRST AND LAST BYTE OF THE
+					// COMPONENT ITSELF, AND THAT IS WHAT MAKES THE SCANNED REGION UNAMBIGUOUS. It sat
+					// out here for three rounds so that markup added to the component's first line
+					// could not escape the scan; the isolated render closed that on its own (the
+					// component's bytes are scanned whatever is in them), and leaving the wrapper out
+					// here opened a NEW hole: an auditor put a working off switch BESIDE the call,
+					// inside the wrapper, outside the component's bytes — under the last guardrail row
+					// and the "Cannot be switched off" chip, with every test green.
+					// With the wrapper inside, "the page contains the component's bytes exactly once"
+					// says there is nothing between <div class="policy-guarantees"> and its close but
+					// the component — because those tags are part of what is compared.
+					@PolicyGuarantees(v)
+					// THE SECOND LADDER IS UNNUMBERED ON PURPOSE. Below the guarantees nothing is read
+					// top to bottom: the baseline and your own rules are weighed together (the most
+					// specific decides, then the strictest), so a number here would print an order the
+					// engine does not keep. Its rail continues the guarantees' and ends on the
+					// engine's default.
+					<div class="ladder ladder-runin flex min-w-0 flex-col gap-4 desk:col-start-1">
+						@policyBaseline(v)
+						@policyTenant(v)
+						@policyDefault(v)
+					</div>
+					@policyAuthoring(v)
+					@policyAuthorities(v)
+				</div>
 			}
 		</div>
 	}
@@ -138,7 +156,7 @@ templ AdminPolicies(v PoliciesView) {
 // about one line and wrong about every other line on the page.
 templ policyDegraded(v PoliciesView) {
 	if v.GuardrailsOnly {
-		@components.Notice(components.ToneAlert, "Your rules are not being applied right now") {
+		@components.PanelNotice(components.ToneAlert, "Your rules are not being applied right now") {
 			// 🔴 BOTH SENTENCES BELOW WERE MEASURED AND ONE OF THEM USED TO BE TWO
 			// OVERSTATEMENTS. It said "every tap is … then sent to your review queue",
 			// which is false for a tap a guarantee MATCHES — those are refused or sent to
@@ -152,7 +170,7 @@ templ policyDegraded(v PoliciesView) {
 				a different rulebook, not a safer one. So every tap is currently being
 				judged by the Taptime guarantees alone: whatever one of them settles is
 				settled the same way it always is, and everything else is recorded and sent
-				to your review queue instead of being approved.
+				to The Spike instead of being approved.
 			</p>
 			<p class="mt-1">
 				The rules listed below are stored and valid, and they are
@@ -171,57 +189,109 @@ templ policyDegraded(v PoliciesView) {
 }
 
 // policyIntro says what the three layers are, in one place, before any of them.
+//
+// FROM DESK IT IS THE RIGHT-HAND COLUMN (M12-37): how the rules are decided, how a tap is
+// judged (the four kinds of evidence), the settings that are not rules and who may change
+// them. It stays ONE <section> and stays where it was in the DOM -- the test that holds
+// the guarantees reads "the bytes before the wrapper end with </section>" -- so its
+// column is a class on it, not a move.
+//
+// THE FOUR KINDS OF EVIDENCE ARE CLAUDE.md §5's ("Dört kanıt"), in the product's words:
+// the Wi-Fi name is not one of them, a list of addresses too wide to be one venue's
+// network counts for nothing, and the GPS ring is configuration, printed from the
+// domain screen rather than typed here.
 templ policyIntro(v PoliciesView) {
-	<section class="bg-paper border border-line px-4 py-4">
-		<h2 class="font-display text-lg font-bold tracking-tight text-ink">How your rules are decided</h2>
-		<p class="mt-1 text-sm text-ink/85">
-			Every tap is judged in three layers, in this order. <strong>Taptime guarantees</strong>
-			run first and stop everything else — they are part of the product and nobody
-			can switch them off, including us. If none of them applies, your
-			<strong>Taptime baseline</strong> and <strong>your own policies</strong> are weighed
-			together, and where two rules disagree the <strong>more specific one decides</strong>
-			— a rule about one venue beats a rule about all of them, whichever way it goes.
-			Only when two rules are equally specific does the stricter answer win. If nothing
-			at all matches, a tap is sent to your review queue rather than quietly approved.
-		</p>
-		<p class="mt-2 font-mono text-xs uppercase tracking-widest text-ink/70">
-			Baseline shipped with this release: { v.ShippedBaseline }
-		</p>
-		if v.MayEdit {
-			<p class="mt-2 text-xs text-ink/85">
-				You can switch a Taptime baseline rule off, and write your own version of one that
-				applies at the venues you choose. Every change is shown to you in words before it
-				is written, and every change is recorded with your name against it.
+	<section class="flex min-w-0 flex-col gap-5 rounded-[18px] border border-line bg-paper px-5 py-5 md:px-6 desk:col-start-2 desk:row-span-4 desk:row-start-1 desk:self-start">
+		<div class="flex flex-col gap-2">
+			<h2 class="font-display text-lg font-bold tracking-tight text-ink">How your rules are decided</h2>
+			<p class="text-sm text-ink/85">
+				Every tap is judged in three layers, in this order. <strong>Taptime guarantees</strong>
+				run first and stop everything else — they are part of the product and nobody
+				can switch them off, including us. If none of them applies, your
+				<strong>Taptime baseline</strong> and <strong>your own policies</strong> are weighed
+				together, and where two rules disagree the <strong>more specific one decides</strong>
+				— a rule about one venue beats a rule about all of them, whichever way it goes.
+				Only when two rules are equally specific does the stricter answer win. If nothing
+				at all matches, a tap is sent to The Spike rather than quietly approved.
 			</p>
-			// 🔴 BINDING IS NAMED SEPARATELY AND SAID TO DECIDE NOTHING. The first version of
-			// this paragraph put all three controls in one sentence ending "and choose where
-			// each applies" — but two of the three (bind, unbind) change no scope at all: the
-			// engine reads the "Where" line inside a statement, never these rows. A customer
-			// who bound a Tappa rule to one venue believing they had narrowed it would have a
-			// rule still running everywhere, which is the card's first trap arriving as a
-			// sentence instead of as a switch. The page said the true thing twice already (the
-			// "Bound to" footnote and the bind confirmation screen) and the opposite here.
-			<p class="mt-1 text-xs text-ink/85">
-				You can also record where a Taptime rule belongs. That is bookkeeping, not scope —
-				what decides where a rule applies is the “Where” line on each of its statements,
-				never the bindings.
+			<p class="font-mono text-xs uppercase tracking-widest text-ink/70">
+				Baseline shipped with this release: { v.ShippedBaseline }
 			</p>
-		} else {
-			// 🔴 THIS ARM IS THE ENGINE'S ANSWER, NOT A ROLE. It is shown to a manager AND to
-			// an owner whose rulebook has never been set up, because in both cases the engine
-			// refuses policy:edit — and telling an owner "only owners may change these" when
-			// they ARE the owner would send them looking for the wrong problem.
-			<p class="mt-2 text-xs text-ink/85">
-				You are seeing this page read-only: the rules engine does not currently grant you
-				the <span class="font-mono">policy:edit</span> authority, so no controls are shown.
-				The rules below tell you which of three things it is: your business&#39;s rules may
-				not have been set up yet (every one of them reads “Not set up yet”); one of them
-				may be stored in a form this release cannot read, which stops the whole rulebook
-				and is said at the top of this page; or they are fine and this authority is not
-				yours. Only an organisation owner is ever granted it.
+		</div>
+		<div class="flex flex-col gap-3 border-t border-dashed border-line pt-4">
+			<h2 class="font-display text-base font-bold tracking-tight text-ink">How a tap is judged</h2>
+			<p class="text-sm text-ink/85">
+				Every tap carries up to four kinds of evidence. The guarantees check the first two;
+				the baseline and your own rules weigh the last two.
 			</p>
-		}
+			<div class="grid grid-cols-[36px_minmax(0,1fr)] items-start gap-3">
+				<span class="inline-flex size-9 items-center justify-center rounded-[10px] bg-porcelain font-mono text-[13px] font-bold text-ink">1</span>
+				<p class="text-sm text-ink/85">
+					<strong class="text-ink">Physical tap.</strong> The plaque signs every NFC touch, with a
+					counter that only goes up: someone held a phone to this plaque just now. A QR scan
+					carries no such proof.
+				</p>
+				<span class="inline-flex size-9 items-center justify-center rounded-[10px] bg-porcelain font-mono text-[13px] font-bold text-ink">2</span>
+				<p class="text-sm text-ink/85">
+					<strong class="text-ink">Who.</strong> The phone&#39;s own session from activation says
+					which person it is. No app, no fingerprint, no face.
+				</p>
+				<span class="inline-flex size-9 items-center justify-center rounded-[10px] bg-porcelain font-mono text-[13px] font-bold text-ink">3</span>
+				<p class="text-sm text-ink/85">
+					<strong class="text-ink">Where.</strong> The venue&#39;s network: the phone&#39;s address
+					matches one the venue registered. A list too wide to be one venue&#39;s network counts
+					for nothing, and the Wi-Fi name is not evidence.
+				</p>
+				<span class="inline-flex size-9 items-center justify-center rounded-[10px] bg-porcelain font-mono text-[13px] font-bold text-ink">4</span>
+				<p class="text-sm text-ink/85">
+					<strong class="text-ink">Backup where.</strong> GPS within
+					<span class="font-mono">{ v.Radius }</span> of the venue — the radius Taptime sets,
+					read only at the moment of the tap.
+				</p>
+			</div>
+			<p class="rounded-xl bg-porcelain px-3.5 py-3 text-sm text-ink">
+				Location is read only at the moment of a tap. Taptime never tracks anyone in the
+				background.
+			</p>
+		</div>
 		@policySettings(v)
+		<div class="flex flex-col gap-2 border-t border-dashed border-line pt-4">
+			<p class="lbl">Who can change these</p>
+			if v.MayEdit {
+				<p class="text-sm text-ink/85">
+					You can switch a Taptime baseline rule off, and write your own version of one that
+					applies at the venues you choose. Every change is shown to you in words before it
+					is written, and every change is recorded with your name against it.
+				</p>
+				// 🔴 BINDING IS NAMED SEPARATELY AND SAID TO DECIDE NOTHING. The first version of
+				// this paragraph put all three controls in one sentence ending "and choose where
+				// each applies" — but two of the three (bind, unbind) change no scope at all: the
+				// engine reads the "Where" line inside a statement, never these rows. A customer
+				// who bound a Tappa rule to one venue believing they had narrowed it would have a
+				// rule still running everywhere, which is the card's first trap arriving as a
+				// sentence instead of as a switch. The page said the true thing twice already (the
+				// "Bound to" footnote and the bind confirmation screen) and the opposite here.
+				<p class="text-sm text-ink/85">
+					You can also record where a Taptime rule belongs. That is bookkeeping, not scope —
+					what decides where a rule applies is the “Where” line on each of its statements,
+					never the bindings.
+				</p>
+			} else {
+				// 🔴 THIS ARM IS THE ENGINE'S ANSWER, NOT A ROLE. It is shown to a manager AND to
+				// an owner whose rulebook has never been set up, because in both cases the engine
+				// refuses policy:edit — and telling an owner "only owners may change these" when
+				// they ARE the owner would send them looking for the wrong problem.
+				<p class="text-sm text-ink/85">
+					You are seeing this page read-only: the rules engine does not currently grant you
+					the <span class="font-mono">policy:edit</span> authority, so no controls are shown.
+					The rules below tell you which of three things it is: your business&#39;s rules may
+					not have been set up yet (every one of them reads “Not set up yet”); one of them
+					may be stored in a form this release cannot read, which stops the whole rulebook
+					and is said at the top of this page; or they are fine and this authority is not
+					yours. Only an organisation owner is ever granted it.
+				</p>
+			}
+		</div>
 	</section>
 }
 
@@ -248,10 +318,10 @@ templ policyIntro(v PoliciesView) {
 // cannot be.
 templ policySettings(v PoliciesView) {
 	if len(v.Settings) > 0 {
-		<div class="mt-3 border border-line bg-porcelain px-3 py-2">
-			<p class="docket-label">Settings that are not rules</p>
+		<div class="flex flex-col gap-1 border-t border-dashed border-line pt-4">
+			<p class="lbl">Settings that are not rules</p>
 			for _, s := range v.Settings {
-				<p class="mt-1 font-mono text-sm text-ink">
+				<p class="font-mono text-sm text-ink">
 					{ s.Label }: { s.Current }
 					// 🔴 "SET BY US" COMES BEFORE THE RANGE, AND THE ORDER IS THE CORRECTION. It
 					// read "may be set between 25 m and 1000 m" with "there is nothing to change
@@ -262,7 +332,7 @@ templ policySettings(v PoliciesView) {
 				</p>
 				<p class="text-xs text-ink/85">{ s.Uses }</p>
 			}
-			<p class="mt-2 text-xs text-ink/85">
+			<p class="mt-1 text-xs text-ink/85">
 				These are set for the whole service rather than per business, so there is nothing
 				to change here — and no box that would quietly ignore what you typed. Tell us the
 				value you need; the range above is what it may be.
@@ -311,36 +381,51 @@ templ policySettings(v PoliciesView) {
 // no form, no input, no button, no link, and no attribute but class, whose VALUE is
 // also checked because in this repository `class="btn min-h-11"` is what makes a
 // thing a button. The rest of the section is held by a different, wider net.
+//
+// THE LADDER (M12-37) IS DRAWN BY CLASSES ALONE. This block may render only section, div,
+// p, span and h2, with nothing but a class -- no svg, no list element, no aria -- so the
+// rail, the rung connectors, the riveted plates and the padlock are pseudo-elements in
+// input.css and carry nothing a screen reader reads. The number on each rung IS read: it
+// is the engine's own Order, zero-padded only as it is printed. No class here is a press
+// target (the region's value net refuses one): a plate is something to read.
 templ PolicyGuarantees(v PoliciesView) {
 	<div class="policy-guarantees">
-		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Taptime guarantees</h2>
-		<p class="text-sm text-ink/85">
-			These are checked in the order shown, and the first one that applies decides on
-			its own. They are part of the product rather than a setting: there is no control to
-			turn one off, on this page or anywhere else, because each of them is a promise
-			the product is sold on. Some of them can be TUNED inside a range — that is
-			marked below.
-		</p>
-		<div class="flex flex-col gap-3">
+		<div class="ladder ladder-runon flex flex-col gap-3.5">
+			<div class="relative flex flex-col gap-1.5">
+				<span class="lock-glyph absolute -left-[46px] -top-1 md:-left-[55px]"></span>
+				<h2 class="font-display text-lg font-bold tracking-tight text-ink">Taptime guarantees <span class="font-mono text-xs font-normal tracking-normal text-ink/70">· checked in this order · the first that applies decides on its own</span></h2>
+				<p class="text-sm text-ink/85">
+					They are part of the product rather than a setting: there is no control to
+					turn one off, on this page or anywhere else, because each of them is a promise
+					the product is sold on. Some of them can be TUNED inside a range — that is
+					marked below.
+				</p>
+			</div>
 			for _, g := range v.Guardrails {
-				<section class="border-l-4 border-ink bg-paper px-4 py-3">
-					<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-						<span class="font-mono text-sm font-bold text-ink">{ g.Order }</span>
-						<span class="font-mono text-sm text-ink">{ g.Sid }</span>
-						<span class="tally tally--locked">Cannot be switched off</span>
-					</div>
-					<p class="mt-1 text-sm text-ink">{ g.Outcome }</p>
-					<p class="mt-1 text-sm text-ink/85">{ g.Reason }</p>
-					<p class="mt-1 text-xs text-ink/85">{ g.Rule }</p>
-					if g.Tunable != "" {
-						<div class="mt-2 border border-line bg-porcelain px-3 py-2">
-							<p class="docket-label">{ g.Tunable }</p>
-							<p class="font-mono text-sm text-ink">
-								{ g.Current }
-								<span class="text-ink/70">· may be set between { g.Range }</span>
-							</p>
+				if g.Group != "" {
+					<p class="lbl mt-2">{ g.Group }</p>
+				}
+				<section class="rung">
+					<span class="rung-no">{ rungNumber(g.Order) }</span>
+					<div class="plate grid grid-cols-1 gap-x-4 gap-y-1 md:grid-cols-[minmax(0,1fr)_auto]">
+						<p class="font-display text-[15px] font-bold leading-snug text-ink">{ g.When }</p>
+						<p class="md:text-right"><span class="effect-pill effect-pill--locked"><span class="lock-mini"></span>{ g.Outcome }</span></p>
+						<div class="flex flex-wrap items-center gap-x-2 gap-y-1 md:col-span-2">
+							<span class="font-mono text-xs text-ink">{ g.Sid }</span>
+							<span class="tally tally--locked pill-tally">Cannot be switched off</span>
 						</div>
-					}
+						<p class="text-xs text-ink/85 md:col-span-2">{ g.Rule }</p>
+						<p class="text-xs text-ink/85 md:col-span-2">Engine’s reason: “{ g.Reason }”</p>
+						if g.Tunable != "" {
+							<div class="mt-1 rounded-[10px] border border-line bg-paper px-3 py-2 md:col-span-2">
+								<p class="docket-label">{ g.Tunable }</p>
+								<p class="font-mono text-sm text-ink">
+									{ g.Current }
+									<span class="text-ink/70">· may be set between { g.Range }</span>
+								</p>
+							</div>
+						}
+					</div>
 				</section>
 			}
 		</div>
@@ -348,15 +433,31 @@ templ PolicyGuarantees(v PoliciesView) {
 }
 
 // policyBaseline is the layer Tappa ships and maintains.
+//
+// ITS RULES ARE UNNUMBERED RUNGS (M12-37): below the guarantees the engine weighs the
+// baseline and the business's own rules together, so a number would print an order
+// that does not exist. The callout says so where a reader meets the list.
 templ policyBaseline(v PoliciesView) {
-	<h2 class="font-display text-lg font-bold tracking-tight text-ink">Taptime baseline</h2>
-	<p class="text-sm text-ink/85">
-		The defaults we ship. Unlike the guarantees above, these are yours: one can be
-		switched off or replaced with your own version once it has been set up for your
-		business, and doing so never touches a guarantee. A rule you switch off is not
-		deleted — its history stays, so a record decided under it can still explain itself
-		years later.
+	<div class="relative flex flex-col gap-1.5">
+		<span class="absolute -left-[37px] top-1.5 size-4 rounded-full border-[3px] border-ink bg-porcelain md:-left-[46px]"></span>
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Taptime baseline <span class="font-mono text-xs font-normal tracking-normal text-ink/70">· the defaults we ship · yours to switch off or copy</span></h2>
+		<p class="text-sm text-ink/85">
+			The defaults we ship. Unlike the guarantees above, these are yours: one can be
+			switched off or replaced with your own version once it has been set up for your
+			business, and doing so never touches a guarantee. A rule you switch off is not
+			deleted — its history stays, so a record decided under it can still explain itself
+			years later.
+		</p>
+	</div>
+	<p class="rounded-xl border border-line bg-paper px-4 py-3 text-sm text-ink/85">
+		<strong class="text-ink">Below the guarantees there is no order to read.</strong>
+		Your Taptime baseline and your own policies are weighed together: where two rules
+		disagree the <strong class="text-ink">more specific one decides</strong>, and only when
+		two rules are equally specific does the stricter answer win. A note never decides.
 	</p>
+	if v.MayEdit {
+		<p class="lbl">Each control opens a review page for that one change · nothing is written until you confirm there</p>
+	}
 	<div class="flex flex-col gap-4">
 		for _, r := range v.Baseline {
 			@policyRule(r)
@@ -366,10 +467,14 @@ templ policyBaseline(v PoliciesView) {
 
 // policyTenant is the customer's own layer.
 templ policyTenant(v PoliciesView) {
-	<h2 class="font-display text-lg font-bold tracking-tight text-ink">Your own policies</h2>
+	<div class="relative mt-2 flex flex-col gap-1.5">
+		<span class="absolute -left-[37px] top-1.5 size-4 rounded-full border-[3px] border-ink bg-porcelain md:-left-[46px]"></span>
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Your own policies <span class="font-mono text-xs font-normal tracking-normal text-ink/70">· written by you · Taptime never changes them</span></h2>
+	</div>
 	if len(v.Tenant) == 0 {
-		<div class="empty-state">
-			<p>You have not written any policies of your own.</p>
+		// THE PANEL'S OWN EMPTY STATE (PanelEmpty), the words unchanged: the first sentence
+		// became its heading and the second stays its body.
+		@components.PanelEmpty(SectionLabel(TabPolicies)+" · your own policies", "You have not written any policies of your own.", components.PanelEmptyCTA{}) {
 			// 🔴 THE SECOND SENTENCE USED TO SAY "running on the guarantees and the
 			// baseline above" UNCONDITIONALLY, AND ON A BUSINESS WITH NO BASELINE ROWS
 			// AT ALL THE PAGE THEN CONTRADICTED ITSELF — nine rules marked "Not set up
@@ -378,18 +483,18 @@ templ policyTenant(v PoliciesView) {
 			// rows. Reassurance that is false on the exact screen that shows why is
 			// worse than no reassurance.
 			if v.BaselineInForce {
-				<p class="mt-1 text-sm">
+				<p>
 					Your business is running on the guarantees and the baseline above, which is
 					the intended starting point rather than a gap.
 				</p>
 			} else {
-				<p class="mt-1 text-sm">
+				<p>
 					Your business is running on the Taptime guarantees alone — none of the
 					baseline rules above is deciding anything yet. Taps are still recorded;
-					anything the guarantees do not settle goes to your review queue.
+					anything the guarantees do not settle goes to The Spike.
 				</p>
 			}
-		</div>
+		}
 	} else {
 		<div class="flex flex-col gap-4">
 			for _, r := range v.Tenant {
@@ -399,125 +504,185 @@ templ policyTenant(v PoliciesView) {
 	}
 }
 
+// policyDefault is the ladder's last plate: what the ENGINE does with a tap nothing
+// decided.
+//
+// 🔴 IT IS THE ENGINE'S DEFAULT, NOT base:no-evidence-review. That one is an ordinary
+// rule a business can switch off; this is the answer when no guarantee settles a tap and
+// no rule matches it, and its label is read from the engine (the same answer the "works
+// the other way" row prints). It sits OUTSIDE the guarantee block -- it is not a
+// guardrail -- and has no control, because nothing could move it.
+//
+// 🔴 §4.6 IS CLAIMED FOR THIS CASE ONLY. "Nothing approves silently" is true of the
+// default; it is not a property of the whole ladder -- sys:no-session and
+// sys:tenant-mismatch write no record by design -- so the sentence is scoped to "when
+// nothing decides".
+templ policyDefault(v PoliciesView) {
+	if v.DefaultOutcome != "" {
+		<div class="rung">
+			<span class="rung-no">END</span>
+			<div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 rounded-[14px] border border-dashed border-saffron bg-saffron-lite px-4 py-3.5 md:px-[22px]">
+				<div class="flex min-w-0 flex-1 basis-60 flex-col gap-1">
+					<p class="font-display text-[15px] font-bold text-ink">When nothing decides</p>
+					<p class="text-sm text-ink">{ v.DefaultNote }</p>
+					<p class="font-mono text-xs text-ink">
+						default · the engine’s own answer · not a rule anyone can switch off
+					</p>
+				</div>
+				<p class="flex items-center gap-2.5 font-display text-sm font-bold text-ink">
+					<span class="lock-glyph"></span>
+					{ v.DefaultOutcome }
+				</p>
+			</div>
+		</div>
+	}
+}
+
 // policyRule is one rule: its state, what it says, where it applies, its history.
 //
-// It is a docket, because a policy version is a record in exactly the sense the
-// motif is for — it was written at a time, by somebody, and it can never be edited
-// or deleted afterwards (skill tappa-brand; migration 00007 enforces it twice).
+// ⚠️ IT WAS A DOCKET AND IS A CARD NOW (M12-37, D2). The docket motif -- sharp corners,
+// perforation -- is the signature of an attendance RECORD, and a rule card sits on the
+// redesign's ladder as a rounded card; what made it a docket (a version is written once,
+// by somebody, and never edited -- migration 00007 enforces it twice) is still on it, in
+// the "Managed by Taptime / Written by you · version · stamp" line and the history strip.
+//
+// THE ORDER IS THE BOARD'S: name and state, who wrote it, the outdated note, the switch
+// (the one control most visits are for), what it says, where it is recorded, its history.
 templ policyRule(r PolicyRuleView) {
-	<section class="docket">
-		<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-			<p class="font-display font-bold tracking-tight text-ink">{ r.Name }</p>
-			<span class={ policyToneClass(r.StateTone) }>{ r.StateLabel }</span>
-		</div>
-		<p class="mt-1 font-mono text-xs uppercase tracking-widest text-ink/70">
-			if r.Managed {
-				Managed by Taptime
-			} else {
-				Written by you
-			}
-			if r.Version != "" {
-				· { r.Version }
-			}
-			if r.Stamp != "" {
-				· { r.Stamp }
-			}
-		</p>
-		if r.Outdated != "" {
-			<p class="mt-1 text-xs text-ink/85">{ r.Outdated }</p>
-		}
-		if r.Problem != "" {
-			@components.Notice(components.ToneAlert, "This rule is not being applied") {
-				<p>
-					Its stored document cannot be read by this release, so the engine ignores
-					it and no tap is being judged by it. What the document says is not shown
-					below, because showing part of a rule would describe rules that are not
-					your rules.
-				</p>
-				<p class="mt-1 font-mono text-xs break-words">{ r.Problem }</p>
-			}
-		}
-		for _, s := range r.Statements {
-			<div class="mt-3 border-t border-line pt-2">
-				<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-					<span class="font-mono text-sm text-ink">{ s.Sid }</span>
-					<span class="font-mono text-xs uppercase tracking-widest text-ink/70">{ s.Effect }</span>
+	<section class="rung">
+		<div class="flex min-w-0 flex-col gap-3 rounded-[14px] border border-line bg-paper px-4 py-4 md:px-[22px] md:py-[18px]">
+			<div class="flex flex-wrap items-start justify-between gap-x-3.5 gap-y-2">
+				<div class="flex min-w-0 flex-1 basis-56 flex-col gap-1">
+					<p class="font-display text-base font-bold tracking-tight text-ink">{ r.Title }</p>
+					if r.Lead != "" {
+						<p class="text-sm text-ink/85">Engine’s reason: “{ r.Lead }”</p>
+					}
 				</div>
-				<p class="mt-1 text-sm text-ink">{ s.Outcome }</p>
-				if s.Reason != "" {
-					<p class="mt-1 text-sm text-ink/85">{ s.Reason }</p>
-				}
-				<dl class="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
-					<div>
-						<dt class="docket-label">Applies to</dt>
-						<dd class="font-mono text-xs text-ink">{ joinOr(s.Actions, "—") }</dd>
-					</div>
-					<div>
-						<dt class="docket-label">Where</dt>
-						<dd class="font-mono text-xs text-ink">{ joinOr(s.Resources, "everywhere") }</dd>
-					</div>
-				</dl>
-				if len(s.Conditions) > 0 {
-					<dl class="mt-1">
-						<dt class="docket-label">Only when</dt>
-						for _, c := range s.Conditions {
-							<dd class="font-mono text-xs text-ink">{ c }</dd>
-						}
-					</dl>
-				}
+				// The state, then one read-only pill per statement: the authorization document's
+				// two grants stay two pills. A pill is a label, never a control (D1).
+				<div class="flex flex-wrap items-center gap-2 md:flex-col md:items-end">
+					<span class={ policyToneClass(r.StateTone) }>{ r.StateLabel }</span>
+					for _, s := range r.Statements {
+						<span class={ effectPillClass(s.Effect) }>{ s.Label }</span>
+					}
+				</div>
 			</div>
-		}
-		if len(r.Attachments) > 0 {
-			<div class="mt-3 border-t border-line pt-2">
-				<p class="docket-label">Bound to</p>
-				<p class="font-mono text-xs text-ink">{ joinOr(r.Attachments, "—") }</p>
-				// 🔴 THE HONEST FOOTNOTE. A binding row and a statement's own scope are two
-				// different facts and only ONE of them decides: the engine reads the `Where`
-				// line above, never these rows (db/queries/policies.sql says so). Printing
-				// them without saying which one bites is how a customer comes to believe
-				// they have narrowed a rule that is still running everywhere.
-				<p class="mt-1 text-xs text-ink/85">
-					Recorded when the rule was set up. What actually decides where a rule
-					applies is the “Where” line on each statement above.
-				</p>
-			</div>
-		}
-		if len(r.History) > 0 {
-			<div class="mt-3 border-t border-line pt-2">
-				<p class="docket-label">History</p>
-				for _, h := range r.History {
-					<p class="font-mono text-xs text-ink">
-						{ h.No } · { h.At } · { h.Author } · { h.Bytes }
-						if h.Marker != "" {
-							<span class={ policyToneClass(h.MarkerTone) }>{ h.Marker }</span>
-						}
-						if h.Href != "" {
-							<a class="btn btn--quiet" href={ templ.URL(h.Href) }>Read it in full</a>
-						}
+			<p class="font-mono text-xs uppercase tracking-widest text-ink/70">
+				if r.Managed {
+					Managed by Taptime
+				} else {
+					Written by you
+				}
+				if r.Version != "" {
+					· { r.Version }
+				}
+				if r.Stamp != "" {
+					· { r.Stamp }
+				}
+			</p>
+			if r.Outdated != "" {
+				// T125 / ADR 0029: the legacy-baseline caveat stays on the rule it is about.
+				<div class="flex flex-col gap-1 rounded-xl border border-dashed border-saffron bg-saffron-lite px-3.5 py-3">
+					<p class="font-mono text-xs font-bold uppercase tracking-widest text-ink">Outdated · a newer baseline changes this rule</p>
+					<p class="text-sm text-ink">{ r.Outdated }</p>
+				</div>
+			}
+			if r.Problem != "" {
+				@components.PanelNotice(components.ToneAlert, "This rule is not being applied") {
+					<p>
+						Its stored document cannot be read by this release, so the engine ignores
+						it and no tap is being judged by it. What the document says is not shown
+						below, because showing part of a rule would describe rules that are not
+						your rules.
 					</p>
+					<p class="mt-1 font-mono text-xs break-words">{ r.Problem }</p>
 				}
-				if r.HistoryNote != "" {
-					<p class="mt-1 text-xs text-ink/85">{ r.HistoryNote }</p>
+			}
+			@policySwitch(r)
+			for i, s := range r.Statements {
+				<div class="flex flex-col gap-1.5 border-t border-dashed border-line pt-3">
+					<p class="font-mono text-xs text-ink">{ s.Sid } · { s.Label }</p>
+					<p class="text-sm text-ink">{ s.Outcome }</p>
+					// The first statement's reason is the card's sub-line; a later one's is its own.
+					if i > 0 && s.Reason != "" {
+						<p class="text-sm text-ink/85">Engine’s reason: “{ s.Reason }”</p>
+					}
+					<dl class="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
+						<div>
+							<dt class="docket-label">Applies to</dt>
+							<dd class="font-mono text-xs text-ink">{ joinOr(s.Actions, "—") }</dd>
+						</div>
+						<div>
+							<dt class="docket-label">Where</dt>
+							<dd class="font-mono text-xs text-ink">{ joinOr(s.Resources, "everywhere") }</dd>
+						</div>
+					</dl>
+					if len(s.Conditions) > 0 {
+						<dl>
+							<dt class="docket-label">Only when</dt>
+							for _, c := range s.Conditions {
+								<dd class="font-mono text-xs text-ink">{ c }</dd>
+							}
+						</dl>
+					}
+				</div>
+			}
+			// "Bound to" and its two controls are one quiet block: bookkeeping, not scope.
+			// It is empty -- and drawn as nothing -- for a rule with no binding and no control.
+			<div class="flex flex-col gap-2 border-t border-dashed border-line pt-3 empty:hidden">
+				if len(r.Attachments) > 0 {
+					<div>
+						<p class="docket-label">Bound to · bookkeeping, not scope</p>
+						<p class="font-mono text-xs text-ink">{ joinOr(r.Attachments, "—") }</p>
+						// 🔴 THE HONEST FOOTNOTE. A binding row and a statement's own scope are two
+						// different facts and only ONE of them decides: the engine reads the `Where`
+						// line above, never these rows (db/queries/policies.sql says so). Printing
+						// them without saying which one bites is how a customer comes to believe
+						// they have narrowed a rule that is still running everywhere.
+						<p class="mt-1 text-xs text-ink/85">
+							Recorded when the rule was set up. What actually decides where a rule
+							applies is the “Where” line on each statement above.
+						</p>
+					</div>
 				}
-				// 🔴 WHAT THIS STRIP DOES NOT SHOW, SAID RATHER THAN LEFT TO BE DISCOVERED.
-				// An older version's RULES are not printed here: the size is, so two versions
-				// can be told apart, but the body needs a bounded page of its own —
-				// internal/policy's DefaultLimits bounds versions per policy and bytes per
-				// document SEPARATELY, so a row cap leaves the bytes uncapped and carrying
-				// every body into this page is megabytes of request. Saying the view is
-				// partial is better than a reader assuming it is complete.
-				<p class="mt-1 text-xs text-ink/85">
-					An earlier version's rules are on a page of their own — this strip carries only
-					that it existed, who wrote it and how big it was, because a page of documents is
-					bounded by nothing a row count can express.
-				</p>
+				@policyBindings(r)
 			</div>
-		}
-		@policyRuleControls(r)
+			if len(r.History) > 0 {
+				<div class="flex flex-col gap-1 border-t border-dashed border-line pt-3">
+					<p class="docket-label">History</p>
+					for _, h := range r.History {
+						<p class="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-ink">
+							<span>{ h.No } · { h.At } · { h.Author } · { h.Bytes }</span>
+							if h.Marker != "" {
+								<span class={ policyToneClass(h.MarkerTone) }>{ h.Marker }</span>
+							}
+							if h.Href != "" {
+								<a class="btn btn--quiet rounded-[10px]" href={ templ.URL(h.Href) }>Read it in full</a>
+							}
+						</p>
+					}
+					if r.HistoryNote != "" {
+						<p class="text-xs text-ink/85">{ r.HistoryNote }</p>
+					}
+					// 🔴 WHAT THIS STRIP DOES NOT SHOW, SAID RATHER THAN LEFT TO BE DISCOVERED.
+					// An older version's RULES are not printed here: the size is, so two versions
+					// can be told apart, but the body needs a bounded page of its own —
+					// internal/policy's DefaultLimits bounds versions per policy and bytes per
+					// document SEPARATELY, so a row cap leaves the bytes uncapped and carrying
+					// every body into this page is megabytes of request. Saying the view is
+					// partial is better than a reader assuming it is complete.
+					<p class="text-xs text-ink/85">
+						An earlier version's rules are on a page of their own — this strip carries only
+						that it existed, who wrote it and how big it was, because a page of documents is
+						bounded by nothing a row count can express.
+					</p>
+				</div>
+			}
+		</div>
 	</section>
 }
 
-// policyRuleControls is one rule's write side (M6-09 phase B).
+// policySwitch is one rule's on/off control (M6-09 phase B; restyled M12-37).
 //
 // 🔴 EVERY BLOCK IS BEHIND AN EMPTY-OR-NOT TEST ON DATA THE HANDLER FILLED IN FROM
 // THE ENGINE'S ANSWER, not behind a role test written here. A template that decided
@@ -529,40 +694,51 @@ templ policyRule(r PolicyRuleView) {
 // a rulebook is reachable only from that screen, with a MAC bound to the exact
 // change. That is the card's "takes effect immediately" worry answered with the only
 // instrument v1 has — the simulator it originally asked for is M9-06.
-templ policyRuleControls(r PolicyRuleView) {
+//
+// 🔴 IT IS DRAWN AS A SWITCH AND IS A SUBMIT BUTTON WHOSE WORDS NAME THE OUTCOME. No
+// switch role and no pressed state (the section's allow-list refuses both, and a state
+// told by a knob's position is a state told by colour and place alone): the rule's
+// state is the chip beside its name, and the button says what pressing it will do.
+// With no label there is NO control -- absent, never disabled.
+templ policySwitch(r PolicyRuleView) {
 	if r.Switch.Label != "" {
-		<form method="post" action={ templ.URL(r.Action) } class="mt-3 border-t border-line pt-2">
+		<form method="post" action={ templ.URL(r.Action) } class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
 			<input type="hidden" name="op" value={ r.Switch.Op }/>
 			<input type="hidden" name="policy" value={ r.ID }/>
-			<button class="btn btn--quiet" type="submit">{ r.Switch.Label }</button>
-			<span class="ml-2 text-xs text-ink/85">{ r.Switch.Note }</span>
+			<button class={ ruleSwitchClass(r.Switch.Op) } type="submit"><span class="rule-switch-knob"></span>{ r.Switch.Label }</button>
+			<span class="min-w-0 flex-1 basis-56 text-xs text-ink/85">{ r.Switch.Note }</span>
 		</form>
 	}
+}
+
+// policyBindings is a rule's bind and unbind controls: quiet, because a binding is
+// bookkeeping (the engine reads the statements' "Where", never these rows).
+templ policyBindings(r PolicyRuleView) {
 	if len(r.Unbind) > 0 {
-		<div class="mt-2 flex flex-wrap gap-2">
+		<div class="flex flex-wrap gap-2">
 			for _, b := range r.Unbind {
 				<form method="post" action={ templ.URL(r.Action) }>
 					<input type="hidden" name="op" value="unbind"/>
 					<input type="hidden" name="policy" value={ r.ID }/>
 					<input type="hidden" name="resource" value={ b.Resource }/>
-					<button class="btn btn--quiet" type="submit">Stop recording it at { b.Label }</button>
+					<button class="btn btn--quiet rounded-[10px] text-left" type="submit">Stop recording it at { b.Label }</button>
 				</form>
 			}
 		</div>
 	}
 	if len(r.Bindable) > 0 {
-		<form method="post" action={ templ.URL(r.Action) } class="mt-2 flex flex-wrap items-end gap-2">
+		<form method="post" action={ templ.URL(r.Action) } class="flex flex-wrap items-end gap-2">
 			<input type="hidden" name="op" value="bind"/>
 			<input type="hidden" name="policy" value={ r.ID }/>
-			<label class="text-xs text-ink/85">
+			<label class="field-stack min-w-0 flex-1 basis-60 text-xs text-ink/85">
 				Also record it as applying at
-				<select name="resource" class="filter-input">
+				<select name="resource" class="field-input">
 					for _, o := range r.Bindable {
 						<option value={ o.Value }>{ o.Label }</option>
 					}
 				</select>
 			</label>
-			<button class="btn btn--quiet" type="submit">Record the binding</button>
+			<button class="btn btn--quiet rounded-[10px]" type="submit">Record the binding</button>
 		</form>
 	}
 }
@@ -584,9 +760,9 @@ templ policyRuleControls(r PolicyRuleView) {
 // will remember to keep out.
 templ policyAuthoring(v PoliciesView) {
 	if len(v.Authorable) > 0 {
-		<section class="bg-paper border border-line px-4 py-4">
+		<section class="panel-card min-w-0 desk:col-start-1">
 			<h2 class="font-display text-lg font-bold tracking-tight text-ink">Write your own version</h2>
-			<p class="mt-1 text-sm text-ink/85">
+			<p class="text-sm text-ink/85">
 				// 🔴 THIS PARAGRAPH AND THE INTRO HAVE TO AGREE, AND FOR A ROUND THEY DID NOT.
 				// The intro said "the most restrictive answer wins", which is only the tiebreak at
 				// EQUAL specificity; internal/policy/evaluate.go picks the most SPECIFIC first and
@@ -601,7 +777,11 @@ templ policyAuthoring(v PoliciesView) {
 				— so a copy scoped to one venue can make that venue MORE permissive than the
 				original, not only stricter.
 			</p>
-			<form method="post" action={ templ.URL(v.Action) } class="mt-3 flex flex-col gap-3">
+			<p class="font-mono text-xs text-ink/70">
+				The copy keeps the Taptime rule’s answer, condition and reason; its sid becomes
+				own:… and only where it applies is yours to choose.
+			</p>
+			<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-4">
 				<input type="hidden" name="op" value="author"/>
 				// 🔴 THE POLICY PICKER IS WHAT MAKES THIS FORM ABLE TO EDIT AT ALL. Without it
 				// every save took the CREATE branch, so pressing it twice left two rules with the
@@ -609,9 +789,9 @@ templ policyAuthoring(v PoliciesView) {
 				// no DELETE, so neither can ever be removed. It also left the section with no way
 				// to ask for the new VERSION the domain has been able to write since day one.
 				if len(v.Supersedable) > 0 {
-					<label class="flex flex-col gap-1 text-xs text-ink/85">
+					<label class="field-stack text-sm font-medium text-ink">
 						Is this a new rule, or a new version of one of yours?
-						<select name="policy" class="filter-input">
+						<select name="policy" class="field-input">
 							<option value="">A new rule of my own</option>
 							for _, o := range v.Supersedable {
 								<option value={ o.Value }>{ o.Label }</option>
@@ -619,20 +799,20 @@ templ policyAuthoring(v PoliciesView) {
 						</select>
 					</label>
 				}
-				<label class="flex flex-col gap-1 text-xs text-ink/85">
+				<label class="field-stack text-sm font-medium text-ink">
 					What do you want to call it?
-					<input type="text" name="name" maxlength="120" required class="filter-input"/>
+					<input type="text" name="name" maxlength="120" required class="field-input"/>
 				</label>
-				<label class="flex flex-col gap-1 text-xs text-ink/85">
+				<label class="field-stack text-sm font-medium text-ink">
 					Which Taptime rule is it a version of?
-					<select name="based_on" class="filter-input">
+					<select name="based_on" class="field-input">
 						for _, o := range v.Authorable {
 							<option value={ o.Value }>{ o.Label }</option>
 						}
 					</select>
 				</label>
-				<fieldset class="border border-line px-3 py-2">
-					<legend class="docket-label">Where does it apply?</legend>
+				<fieldset class="rounded-[14px] border border-line px-4 pt-1 pb-3">
+					<legend class="lbl px-1">Where does it apply?</legend>
 					// 🔴 IT SAYS "VENUES", AND THAT IS A LIMIT RATHER THAN A WORD CHOICE. The
 					// acceptance criterion asks for a rule to be scoped to a location OR a
 					// department; copyOfShipped only ever writes location resources, so a
@@ -670,7 +850,7 @@ templ policyAuthoring(v PoliciesView) {
 					}
 				</fieldset>
 				<div>
-					<button class="btn btn--primary" type="submit">Show me what this would do</button>
+					<button class="btn btn--primary rounded-xl" type="submit">Show me what this would do</button>
 				</div>
 			</form>
 		</section>
@@ -683,125 +863,130 @@ templ policyAuthoring(v PoliciesView) {
 // reason the section can be trusted: an action nothing grants is refused, not
 // allowed. ADR 0004 §3 splits the vocabulary in two, and the split shown here is
 // the ENGINE's own answer rather than a reading of the names.
+//
+// THE LAST BLOCK OF THE LEFT COLUMN (M12-37, as the board draws it): the grants read as
+// a grid of small cards, two across from md.
 templ policyAuthorities(v PoliciesView) {
-	<h2 class="font-display text-lg font-bold tracking-tight text-ink">Who may do what</h2>
-	<p class="text-sm text-ink/85">
-		When no policy grants one of these, the answer is <strong>no</strong>. That is
-		deliberate: a permission nobody wrote down is one nobody decided, and guessing
-		yes on a permission is how a manager quietly acquires an authority you never
-		gave them.
-	</p>
-	if v.GuardrailsOnly {
-		// 🔴 THE SAME FLAG AS THE PAGE HEADER, REPEATED HERE ON PURPOSE. A reader who
-		// scrolls to this section is looking at a list of grants; without this line it
-		// reads as the current permissions, and every one of them is a permission the
-		// engine is not applying today.
-		@components.Notice(components.ToneAlert, "None of these grants is being applied today") {
-			<p>
-				A baseline rule cannot be read, so the engine is running on the guarantees
-				alone (see the top of this page). The grants below are what your rulebook
-				SAYS; they are not what is deciding right now.
-			</p>
+	<div class="flex min-w-0 flex-col gap-3 desk:col-start-1">
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Who may do what</h2>
+		<p class="text-sm text-ink/85">
+			When no policy grants one of these, the answer is <strong>no</strong>. That is
+			deliberate: a permission nobody wrote down is one nobody decided, and guessing
+			yes on a permission is how a manager quietly acquires an authority you never
+			gave them.
+		</p>
+		if v.GuardrailsOnly {
+			// 🔴 THE SAME FLAG AS THE PAGE HEADER, REPEATED HERE ON PURPOSE. A reader who
+			// scrolls to this section is looking at a list of grants; without this line it
+			// reads as the current permissions, and every one of them is a permission the
+			// engine is not applying today.
+			@components.PanelNotice(components.ToneAlert, "None of these grants is being applied today") {
+				<p>
+					A baseline rule cannot be read, so the engine is running on the guarantees
+					alone (see the top of this page). The grants below are what your rulebook
+					SAYS; they are not what is deciding right now.
+				</p>
+			}
 		}
-	}
-	<div class="flex flex-col gap-3">
-		for _, a := range v.Authorities {
-			<section class="bg-paper border border-line px-4 py-3">
-				<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-					<span class="font-mono text-sm text-ink">{ a.Action }</span>
-					<span class="tally tally--rejected">{ a.DefaultLabel }</span>
-				</div>
-				if len(a.Grants) > 0 {
-					<dl class="mt-1">
-						<dt class="docket-label">Granted to</dt>
-						for _, g := range a.Grants {
-							<dd class="font-mono text-xs text-ink">{ g }</dd>
-						}
-					</dl>
-				} else {
-					// 🔴 "the engine would refuse it", NOT "nobody may do it". The second would
-					// be false: the panel consults the engine for `policy:edit` and for nothing
-					// else, so a manager can still export a report, enter a record by hand and
-					// review one. (This comment said "the panel asks the engine NOWHERE" and
-					// cited the notice at the end of this section as the measurement — both went
-					// stale when phase B put a gate in; the notice now says the opposite.) A
-					// per-card categorical claim is worse than no claim; the lock is asserted in
-					// exactly ONE place, and that place is tested in both directions.
-					<p class="mt-1 text-sm text-ink/85">
-						No policy of yours grants this, so the engine would refuse it.
-					</p>
+		<div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+			for _, a := range v.Authorities {
+				<section class="min-w-0 rounded-[14px] border border-line bg-paper px-4 py-3">
+					<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+						<span class="font-mono text-sm text-ink">{ a.Action }</span>
+						<span class="tally tally--rejected pill-tally">{ a.DefaultLabel }</span>
+					</div>
+					if len(a.Grants) > 0 {
+						<dl class="mt-1">
+							<dt class="docket-label">Granted to</dt>
+							for _, g := range a.Grants {
+								<dd class="font-mono text-xs text-ink">{ g }</dd>
+							}
+						</dl>
+					} else {
+						// 🔴 "the engine would refuse it", NOT "nobody may do it". The second would
+						// be false: the panel consults the engine for `policy:edit` and for nothing
+						// else, so a manager can still export a report, enter a record by hand and
+						// review one. (This comment said "the panel asks the engine NOWHERE" and
+						// cited the notice at the end of this section as the measurement — both went
+						// stale when phase B put a gate in; the notice now says the opposite.) A
+						// per-card categorical claim is worse than no claim; the lock is asserted in
+						// exactly ONE place, and that place is tested in both directions.
+						<p class="mt-1 text-sm text-ink/85">
+							No policy of yours grants this, so the engine would refuse it.
+						</p>
+					}
+					if a.Guardrail != "" {
+						<p class="mt-1 text-xs text-ink/85">
+							Also locked in code by { a.Guardrail } — no policy can widen this one.
+						</p>
+					}
+				</section>
+			}
+		</div>
+		if len(v.Recording) > 0 {
+			<div class="rounded-[14px] border border-line bg-paper px-4 py-3">
+				<p class="docket-label">The one that works the other way</p>
+				for _, a := range v.Recording {
+					<p class="mt-1 font-mono text-sm text-ink">{ a.Action } · { a.DefaultLabel }</p>
+					// 🔴 THE GUARDRAIL LINE BELONGS HERE TOO, AND ITS ABSENCE WAS A FACT
+					// COMPUTED AND THROWN AWAY. The domain derives an action-scoped guardrail
+					// for BOTH groups; only the fail-closed loop printed it, so
+					// `tap:record → sys:no-session` was worked out on every render and shown
+					// nowhere — which is exactly the "the screen knows and does not say"
+					// shape this section exists to avoid.
+					if a.Guardrail != "" {
+						<p class="text-xs text-ink/85">
+							Also locked in code by { a.Guardrail } — no policy can widen this one.
+						</p>
+					}
 				}
-				if a.Guardrail != "" {
-					<p class="mt-1 text-xs text-ink/85">
-						Also locked in code by { a.Guardrail } — no policy can widen this one.
-					</p>
-				}
-			</section>
+				<p class="mt-1 text-sm text-ink/85">
+					Recording an employee's tap is the exception, and it is the promise the
+					product is built on: if the evidence is not good enough, the tap is still
+					written down and sent to The Spike. A record is never dropped,
+					never silently approved, and never decided by nobody.
+				</p>
+			</div>
+		}
+		// 🔴 THE SENTENCE BELOW IS TIED TO A MEASUREMENT RATHER THAN TO GOOD INTENTIONS,
+		// AND THE MEASUREMENT HAS SINCE FLIPPED. This comment said "nothing in the panel
+		// asks the policy engine before acting" while the markup three lines down already
+		// said the opposite — phase B put a gate in internal/domain/tenant.RuleWriter and
+		// the page was updated, the comment was not.
+		//
+		// What keeps the two in step is TestPoliciesSection_SaysWhetherTheEngineIsConsulted,
+		// which parses internal/handler AND internal/domain/tenant rather than grepping
+		// them, holds every policy.Evaluate call to a reasoned allowlist, and requires the
+		// page's sentence to match whether any call is NOT on it — in BOTH directions. So
+		// the day the panel stops consulting the engine, or starts consulting it somewhere
+		// new, one of the two goes red instead of quietly becoming false.
+		@components.PanelNotice(components.ToneWarn, "What this page describes, and what it does not") {
+			<p>
+				These are the answers the rules engine gives, and the panel now ASKS it: changing anything on this page is refused unless the engine allows you
+				// 🔴 THIS SENTENCE HAS BEEN WRONG TWICE, IN OPPOSITE DIRECTIONS, AND BOTH WERE
+				// MEASURED. It first said EVERY refusal is written down (false: a rule that is not
+				// yours, or a name already in use, changes nothing and records nothing). The
+				// correction then said every OTHER refusal "changes nothing and names nobody" —
+				// also false, on the lockout path: switching off the rule that grants you
+				// policy:edit really disables it, the gate then refuses you, and the writer puts it
+				// back — leaving TWO trail rows (policy.disabled and policy.enabled), both naming
+				// the actor, measured against real Postgres.
+				the policy:edit authority, and that refusal is recorded in your audit trail. So is a
+				change that took your own authority away and had to be put back — that one leaves two
+				entries, because it really happened and was really undone. A change refused before
+				anything happened — a rule that is not yours, a name already in use — leaves nothing,
+				because nothing happened. What
+				is still NOT gated by it is the rest of the dashboard — exporting a report,
+				entering a record by hand and reviewing one are guarded by signing in and, for
+				removing a venue, by a role check written in code. So read the rows above as the
+				rulebook your taps are judged by, and as the lock on THIS page's buttons only.
+			</p>
+			<p class="mt-1">
+				The words above are the engine's own — this page asks it what it does when no
+				rule matches, rather than repeating an answer somebody typed here.
+			</p>
 		}
 	</div>
-	if len(v.Recording) > 0 {
-		<div class="bg-paper border border-line px-4 py-3">
-			<p class="docket-label">The one that works the other way</p>
-			for _, a := range v.Recording {
-				<p class="mt-1 font-mono text-sm text-ink">{ a.Action } · { a.DefaultLabel }</p>
-				// 🔴 THE GUARDRAIL LINE BELONGS HERE TOO, AND ITS ABSENCE WAS A FACT
-				// COMPUTED AND THROWN AWAY. The domain derives an action-scoped guardrail
-				// for BOTH groups; only the fail-closed loop printed it, so
-				// `tap:record → sys:no-session` was worked out on every render and shown
-				// nowhere — which is exactly the "the screen knows and does not say"
-				// shape this section exists to avoid.
-				if a.Guardrail != "" {
-					<p class="text-xs text-ink/85">
-						Also locked in code by { a.Guardrail } — no policy can widen this one.
-					</p>
-				}
-			}
-			<p class="mt-1 text-sm text-ink/85">
-				Recording an employee's tap is the exception, and it is the promise the
-				product is built on: if the evidence is not good enough, the tap is still
-				written down and sent to your review queue. A record is never dropped,
-				never silently approved, and never decided by nobody.
-			</p>
-		</div>
-	}
-	// 🔴 THE SENTENCE BELOW IS TIED TO A MEASUREMENT RATHER THAN TO GOOD INTENTIONS,
-	// AND THE MEASUREMENT HAS SINCE FLIPPED. This comment said "nothing in the panel
-	// asks the policy engine before acting" while the markup three lines down already
-	// said the opposite — phase B put a gate in internal/domain/tenant.RuleWriter and
-	// the page was updated, the comment was not.
-	//
-	// What keeps the two in step is TestPoliciesSection_SaysWhetherTheEngineIsConsulted,
-	// which parses internal/handler AND internal/domain/tenant rather than grepping
-	// them, holds every policy.Evaluate call to a reasoned allowlist, and requires the
-	// page's sentence to match whether any call is NOT on it — in BOTH directions. So
-	// the day the panel stops consulting the engine, or starts consulting it somewhere
-	// new, one of the two goes red instead of quietly becoming false.
-	@components.Notice(components.ToneWarn, "What this page describes, and what it does not") {
-		<p>
-			These are the answers the rules engine gives, and the panel now ASKS it: changing anything on this page is refused unless the engine allows you
-			// 🔴 THIS SENTENCE HAS BEEN WRONG TWICE, IN OPPOSITE DIRECTIONS, AND BOTH WERE
-			// MEASURED. It first said EVERY refusal is written down (false: a rule that is not
-			// yours, or a name already in use, changes nothing and records nothing). The
-			// correction then said every OTHER refusal "changes nothing and names nobody" —
-			// also false, on the lockout path: switching off the rule that grants you
-			// policy:edit really disables it, the gate then refuses you, and the writer puts it
-			// back — leaving TWO trail rows (policy.disabled and policy.enabled), both naming
-			// the actor, measured against real Postgres.
-			the policy:edit authority, and that refusal is recorded in your audit trail. So is a
-			change that took your own authority away and had to be put back — that one leaves two
-			entries, because it really happened and was really undone. A change refused before
-			anything happened — a rule that is not yours, a name already in use — leaves nothing,
-			because nothing happened. What
-			is still NOT gated by it is the rest of the dashboard — exporting a report,
-			entering a record by hand and reviewing one are guarded by signing in and, for
-			removing a venue, by a role check written in code. So read the rows above as the
-			rulebook your taps are judged by, and as the lock on THIS page's buttons only.
-		</p>
-		<p class="mt-1">
-			The words above are the engine's own — this page asks it what it does when no
-			rule matches, rather than repeating an answer somebody typed here.
-		</p>
-	}
 }
 
 // policyToneClass maps a tone to its chip classes.
@@ -825,16 +1010,57 @@ templ policyAuthorities(v PoliciesView) {
 func policyToneClass(tone string) string {
 	switch tone {
 	case PolicyToneRunning:
-		return "tally tally--active"
+		return "tally tally--active pill-tally"
 	case PolicyToneOff:
-		return "tally tally--deactivated"
+		return "tally tally--deactivated pill-tally"
 	case PolicyToneWaiting:
-		return "tally tally--queued"
+		return "tally tally--queued pill-tally"
 	case PolicyToneRefusing:
-		return "tally tally--rejected"
+		return "tally tally--rejected pill-tally"
 	default:
-		return "tally tally--locked"
+		return "tally tally--locked pill-tally"
 	}
+}
+
+// effectPillClass maps a statement's effect to its read-only pill (M12-37). Literal for
+// policyToneClass's reason: the Tailwind build reads templates, not Go. The colour is a
+// frame under a word that always says the effect, so it only reinforces it; an effect
+// this list does not know is drawn in the neutral frame rather than borrowing a status.
+func effectPillClass(effect string) string {
+	switch effect {
+	case "allow":
+		return "effect-pill effect-pill--allow"
+	case "review":
+		return "effect-pill effect-pill--review"
+	case "deny":
+		return "effect-pill effect-pill--deny"
+	case "note", "ignore":
+		return "effect-pill effect-pill--quiet"
+	default:
+		return "effect-pill"
+	}
+}
+
+// ruleSwitchClass draws the switch in the position its rule is in now: a rule the
+// button would switch OFF is on, and one it would switch back ON is off. The words on
+// the button say the outcome either way; the position only repeats the state chip.
+// An op this list does not know is drawn off -- never as a running rule.
+func ruleSwitchClass(op string) string {
+	switch op {
+	case "disable":
+		return "rule-switch rule-switch--on"
+	default:
+		return "rule-switch rule-switch--off"
+	}
+}
+
+// rungNumber prints the engine's Order with a leading zero ("06") -- render only: the
+// value is the engine's and is never computed here.
+func rungNumber(order string) string {
+	if len(order) == 1 {
+		return "0" + order
+	}
+	return order
 }
 
 // joinOr renders a list, or a fallback word when it is empty. A blank cell reads

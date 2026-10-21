@@ -31,7 +31,8 @@ import (
 // (holding_tap_site, server-side only). Printing them would tell the employer, tap by tap, whether
 // the phone stood on the peer's network -- ADR 0027 §13 item 5 names that as the residue the panel
 // does NOT show. nameSiteRecords blanks them -- and replaces the engine's note, which says the same
-// thing in words (PartnerVenueNote) -- on every record that names a site, and the docket says why
+// thing in words (PartnerVenueNote), and blanks the deciding rule's sid, which names it (M12-28)
+// -- on every record that names a site, and the docket says why
 // instead of printing "n/a" (which would claim nothing was assessed).
 
 // PartnerVenueUnknown is the name of a peer's venue the employer can no longer read: the
@@ -87,6 +88,9 @@ func nameSiteRecords(ctx context.Context, tx pgx.Tx, recs []Record) error {
 		}
 		recs[i].IPMatch, recs[i].GPSMatch, recs[i].Trust = nil, nil, nil
 		recs[i].Note = partnerNote(recs[i])
+		// AFTER partnerNote, which reads it: the sid names which evidence rule the peer's tap
+		// matched (ADR 0027 §13 item 5 (e)), so it leaves with the evidence (Record.RuleSID).
+		recs[i].RuleSID = ""
 	}
 	return nil
 }
@@ -133,7 +137,7 @@ func isEvidenceSid(sid string) bool {
 // "Different branch" is what the employer needs to know (ADR 0027 §13 item 5(e)); it says nothing
 // about the peer's network or coordinate.
 func partnerNote(r Record) string {
-	if r.Manual || r.Note == "" || !isEvidenceSid(r.matchedSid) {
+	if r.Manual || r.Note == "" || !isEvidenceSid(r.RuleSID) {
 		return r.Note
 	}
 	out := PartnerVenueNote

@@ -64,8 +64,17 @@ renk zaten kenarlıkta ve zeminde, metin `ink` — orada değişen bir şey yok.
 Her işlem kaydı bir **mutfak adisyonu fişi**dir. Bu, ürünün tanınma işareti —
 tablo satırına çevirme.
 
+⚠️ **Köşeler ve çipler — kullanıcı kararı, 2026-10-20 (panel yeniden tasarımı "The Pass", D2).**
+Keskin köşe kuralı **adisyon (docket) ve kaşe damgası** içindir ve aynen kalır — imza motif budur;
+fiş (receipt) ve mini docket da adisyondur. Bunların **dışındaki** yüzeyler tasarımdaki gibi
+yuvarlatılabilir: kart, sayfa/çekmece (sheet), form alanı, düğme `rounded-xl` … `rounded-2xl` (kartlarda
+`rounded-[18px]`), alan `rounded-[10px]`; **çip ve durum hapı `rounded-full`** olabilir. Yuvarlatma rengi
+ya da durumu taşımaz; durum yine kelimede ve çerçevede. Teslim paketi:
+`docs/design/panel-redesign/README.md` (yarıçap tablosu §4).
+
 Anatomi:
-- `bg-paper`, keskin köşe (`rounded-none`) veya en fazla `rounded-sm`
+- `bg-paper`, keskin köşe (`rounded-none`) veya en fazla `rounded-sm` — **yalnız docket ve damga**
+  (yukarıdaki 2026-10-20 notu)
 - Üst ve alt kenarda **perforasyon**: `line` renginde tekrarlayan yarım daireler
   (CSS `radial-gradient` ile; görsel dosya kullanma)
 - Tek `line` kenarlık, çok hafif gölge (`shadow-sm`) — yükseltilmiş kart değil
@@ -212,6 +221,15 @@ ailesinin tamamı taranıp 0 eşleşme —
 `internal/handler/qr_db_test.go → TestQRScreens_SayNothingAboutTheQRRoute`) ve
 bu **bilinçli**: plaketler henüz QR ile basılmadığı için ekranın var olmayan bir
 şeyi tarif etmesi yanlış olurdu (kullanıcı kararı, 2026-08-01).
+> **D4 (2026-10-20, panel yeniden tasarımı — M12-12, M12-34):** bu bölüm *çalışanın* ekranları
+> içindir. **Panelin** Venues & plaques sayfası artık plaketin **gerçek** QR'ını çizer
+> (`components.PlaqueDrawing`; `<base>/t?tag=<uid>`, `sun.PlaqueQRURL`, sunucuda
+> `internal/qrcode` ile satır içi SVG, `(*qrcode.Code).SVGPath`; sahte desen yok, `?src=qr` yok) ve
+> yukarıdaki plaket metnini (*"Hold your phone here"*, *"Or scan — same thing"*, `PLAQUE 91AC`)
+> taşır — yönetici duvara ne asılacağını görür. **Tap ve aktivasyon ailesi QR'dan hâlâ söz etmez**;
+> `TestQRScreens_SayNothingAboutTheQRRoute` bu aileyi tarar (panel onun kapsamında değildir) ve
+> bu karar aynen geçerlidir.
+>
 > **ADR 0026 (2026-10-04):** aşağıda anılan tur **kaldırıldı**; aktivasyon sihirbazı o
 > cümleyi taşımıyor ve QR'dan bahsetmiyor (tripwire sihirbazın dört adımını da
 > tarıyor). Yerine gelen daha sert kusur: **QR ile aktivasyon YOK** — aktivasyon
@@ -288,11 +306,76 @@ Slogan: **No app. No device. No fingerprints. Just tap.** · Kampanya: *Go punch
   Dokunma hedefi ≥ 44px. `prefers-reduced-motion` saygılı.
 - Karanlık tema **yok** (şimdilik) — plaket ortamı aydınlık, yarım iş yapma.
 
+## Panel yeniden tasarımı ("The Pass") — bileşenler ve dersler
+
+> Eklendi 2026-10-20 (M12-48). Normatif kaynak: `docs/design/panel-redesign/README.md` (§3 kısıtlar,
+> §5 katalog, **§5.1 gerçekleşen adlar ve kayıtlı sapmalar**). Kararlar D1–D4 orada. Bu dosya
+> Tailwind'in taramadığı bir dosyadır; aşağıdaki sınıf adları burada kural doğurmaz.
+
+**Bileşen sınıfları — gerçekleşen adlarıyla** (`web/static/css/input.css`, `@layer components`):
+
+| Aile | Sınıflar |
+|---|---|
+| Çip / segmentli | `.chip-link`, `.chip-link--on`, `.chip-count`, `.chip-group` |
+| Form alanı | `.field-stack`, `.field-input`, `.field-input--mono`, `.field-help` |
+| Kural merdiveni / anahtarı | `.ladder`, `.rung`, `.rung-no`, `.plate`, `.lock-glyph`, `.lock-mini` · `.rule-switch`, `--on`, `--off`, `.rule-switch-knob` |
+| Hap | `.pill` + `--active/--invited/--deactivated` (veritabanı kelimeleri) · `.pill-tally` (bir `.tally--*` tonunun yanında) · `.mono-pill` (anahtar, webhook, teslimat; ton şablonda yanına yazılır) |
+| Kartlar | `.panel-card`, `.stat-card` (`--spike`, `--open`), `.venue-card` (`--on`), `.queue-item` (`--current`), `.roster-row` |
+| Kanıt | `.ev-tile` (`--ok/--bad/--none`), `.ev-badge` (`--ok/--none/--wide`) |
+| The Roll | `.roll-*` — `.roll-table`, `.roll-row`, `.roll-cell` (`--worked/--other/--manual/--open/--none`), `.roll-mark`, `.roll-sum` … |
+| Odd shapes | `.odd-*` — `.odd-card`, `.odd-title`, `.odd-chip` (`--open`), `.odd-callout` (`--alert/--warn`) |
+| Manuel kayıt | `.manual-*` — `.manual-dircard`, `.manual-actbar` |
+| The Spike | `.spike-*` — `.spike-step` (`--off`), `.spike-actions` |
+| Kural değişikliği farkı | `.diff-del` / `.diff-ins` (M12-38 dalıyla gelir) |
+
+**Bileşenler (templ):** `components.PanelNotice(tone, heading)` (ok "Done" / warn "Heads up" / alert
+"Not done") · `components.PanelEmpty(where, heading, PanelEmptyCTA{Label, Href})` — başlığı **h2**,
+kabuğun h1'inin altında · `pages.PanelProblem(PanelProblemView)` · `components.RailDocket` ·
+`components.VerdictStamp` · `components.OneTimeSecret` (değer yanıtta **tam bir kez**) ·
+`components.PlaqueDrawing` (gerçek QR — yukarıdaki D4 notu) · kova yardımcıları
+`components.WidthPct` / `PctOf` / `SplitPct` / `TapeBar` (`components/buckets.templ`; sınıf adları
+orada literal yazılı). Kabuk yuvaları `PanelChrome.Kicker` / `.Title` / `.Crumbs`; eylemler
+`@pages.PanelActions(x) { @PanelShell(…) { … } }` sarmalayıcısıyla, alan değil. Sayfada **tek `<h1>`**.
+`components.EmptyState` / `EmptyStateLabeled` M12-48'de kaldırıldı — geri getirme.
+
+`components.Notice`, `components.Card`, `pages.Problem` ve `layout.*` **değişmez** (tap/aktivasyon
+golden'ı); panel yalnız kendi `Panel*` bileşenlerini kullanır.
+
+**Dersler — her biri en az bir kez kırmızı oldu:**
+
+- **İşaretlemede iki ondalıklı keyfi değer yazma** (ör. 1,45'lik satır aralığını köşeli parantezle):
+  koordinat taraması (`decimalDegreeShape`,
+  `TestAnomaliesPages_CarryNoDecimalDegreeInEITHEROfTheOtherTwOShapes`) onu ondalık derece okur.
+  Adlı bir adım (`leading-normal`, `leading-snug`) ya da bir bileşen sınıfı kullan.
+- **templ, bir öğenin içindeki metnin baştaki boşluğunu düşürür:** iki parça arasında boşluk
+  gerekiyorsa `{ " " + x }` (ya da ifadeden önce `{ " " }`) yaz.
+- **Tailwind'in taraması sözcükseldir:** adı sıradan bir kelime olan bir katman sınıfı düzyazıdan
+  derlenir (M12-08 ölçtü: `.chip`, `.field`, `.lock`, `.switch` hiçbir öğe taşımadan +2 479 B). Yeni
+  sınıfa hiçbir cümlenin içermeyeceği bir ad ver.
+- **`.tally*` seçicileri tonlara ayrılmıştır** (`TestTallyRules_NoToneRuleColoursTheWord`): bir ton
+  çerçeveyi ve zemini boyar, kelimeyi asla; tally üzerindeki yerleşim kendi sınıfına gider
+  (`.pill-tally`).
+- **Dokunma hedefi** yeni bir basılabilir sınıfsa `panelTouchTargets`'a girer; ekranından önce
+  tanımlanan sınıf `panelPendingTouchTargets`'ta bekler (bugün boş — tasarım gereği;
+  `TestPanelScreens_PendingTouchTargetClassesReserve44pxInTheSource`).
+- **Cümle içindeki bağlantı `.hit-link` taşır**, `inline-flex min-h-11` değil — o, satırı 44 px'e
+  büyütüp cümleyi boşluklu satırlara böler (`TestPanelTemplates_ALinkInRunningTextKeepsTheLineBox`).
+  ⚠️ `.hit-link::after` satır kutusunun ~11,5 px dışına taşar: başka bir kontrolün **12 px**
+  yakınına koyma (ölçüldü: 4 px altındaki bir düğme üst ~7,5 px'ini bağlantıya kaptırdı).
+- **Docket'in sınıf özniteliği tam `class="docket"`** kalır
+  (`TestTransactionDocket_IsADocketAndCarriesEveryFieldTheCardAsksFor`; sonuç ekranıyla ortak) — tam
+  docket'in dolgusu bu yüzden tasarımın tarifinden farklıdır (README §5.1).
+
 ## Yapma
 
-Emoji ikon seti (marka mesajları hariç) · yuvarlak hap butonlar · gradient ·
-glassmorphism · sallanan animasyon · stok illüstrasyon · birden çok vurgu rengi ·
-mono olmayan sayı · adisyon yerine düz tablo satırı.
+Emoji ikon seti (marka mesajları hariç) · yuvarlatılmış adisyon ya da kaşe damgası ·
+gradient · glassmorphism · sallanan animasyon · stok illüstrasyon · birden çok vurgu rengi ·
+mono olmayan sayı · **işlem kaydı** için adisyon yerine düz tablo satırı.
+
+*(2026-10-20, D2: bu listede "yuvarlak hap butonlar" yazıyordu; kullanıcı kuralı güncelledi — çipler ve
+durum hapları `rounded-full` olabilir, düğmeler ve kartlar yuvarlatılabilir; yasak artık yalnız
+docket ve damganın köşesidir. Kişi listesi (People) ve aggregate kartları kayıt değildir; işlem kayıtları
+yine adisyondur.)*
 
 ## Tenant slotları
 
@@ -410,19 +493,33 @@ handler'da `mayEditAccount`, domain'de ikinci kez, rol ve durum DB'den
 
 ### Panel kabuğu (ADR 0023 WL-8 notu)
 
-- *Markalı* = kapıdan **bugün** geçen accent **ya da** logo (karar 3). Markalıda Wordmark'ın
-  yerine: 4 px şerit (yalnız accent geçiyorsa; başlığın ilk öğesi, `aria-hidden`) · logo
-  (varsa) · işletme adı (Space Grotesk kalın; renk sınıfı yok, sayfanın ink'i — porcelain'de
-  14,32:1) · altında co-brand (5,70:1). **Yalnız accent'li** işletmede de ad ve co-brand
-  çizilir, yeşil `taptime` kalkar. Ad ve co-brand paragrafları tam sınıf listeleriyle pinli.
+- ⚠️ **2026-10-20 — "The Pass" kabuğu (kullanıcı onaylı tasarım).** Başlık artık panelin
+  **yan kolonunun** tepesindedir: < 768 px telefonun porselen üst çubuğu, 768–1199 px 88 px'lik
+  ink ikon rayı, ≥ 1200 px (`desk` ekranı, `tailwind.config.js`) 248 px'lik ink kenar çubuğu.
+  Başlık belgede **bir kez** durur; slotlar aynı: 4 px şerit (yalnız tema bağlıysa, başlığın ilk
+  öğesi, kolonun tepesi boyunca) ve 32 px logo kutusu — logo ink zeminde **paper bir karonun**
+  içindedir (logolar açık zemin için çizilir), rayda yalnız küçülebilir. Ad ve co-brand
+  `side-name` / `side-coline` sınıflarında: porselende ink (14,32:1) ve ink/70 (5,70:1), ink
+  üzerinde paper (16,2:1) ve paper/70 (8,5:1); rayda ad görsel olarak gizli ama okunur.
+  Markasız kilit `pages.PanelWordmark` (ink üzerinde paper "taptime"/"punchless", rayda "t.").
+  Logosuz markalı işletmede rayın işareti adın ilk harfidir ("t." yalnız markasızda).
+  Aşağıdaki maddeler (karar 3, 6, 9) aynen geçerlidir; "porcelain'de" diyen kontrast sayıları
+  yalnız telefon üst çubuğu içindir, ink üzerindeki sayılar bu maddededir.
+- *Markalı* = kapıdan **bugün** geçen accent **ya da** logo (karar 3). Markalıda
+  `PanelWordmark`'ın yerine: 4 px şerit (yalnız accent geçiyorsa; başlığın ilk öğesi,
+  `aria-hidden`) · logo (varsa) · işletme adı (`side-name`) · altında co-brand
+  (`side-coline`). **Yalnız accent'li** işletmede de ad ve co-brand çizilir. Ad ve co-brand
+  paragrafları tam sınıf listeleriyle pinli; renkleri ve oranları yukarıdaki maddede.
 - **Logo kutusu: 32 px yükseklik, en çok 192 px genişlik**, oran korunur, saklanandan büyük
   çizilmez — küçük logo büyütülüp bulanıklaşmaz; 512×128 → 128×32
   (`TestPanelLogoOf_KeepsTheProportionsInsideTheSlot`, 1–512 × 1–512 taraması; karar 6).
 - **`alt=""`** (karar 9): ada eşit bir `alt` ekran okuyucuda adı iki kez okutur ve kırık logoda
   adı kutunun içine basıp sayfayı iter — 114 karakterlik adla kutu 128×216, içerik +145 px
   (ölçüldü). Boş `alt` ile kırık logo kutunun dışına **0 px** basar (sınır 5).
-- Şerit 1024 genişlikte sütun boyunca 992×4 px; tenant rengi yalnız orada. Birincil düğme ve
-  sekme işareti yeşil kalır (K4).
+- Şerit yan kolonun tepesi boyunca 4 px: rayda 88 px, kenar çubuğunda 248 px, telefonda üst
+  çubuğun tam genişliği; tenant rengi yalnız orada. Birincil düğme yeşil, geçerli bölüm işareti
+  **paper bir hap** kalır — accent geçerli işareti hiçbir genişlikte boyamaz (K4; ADR 0023 WL-8
+  notu eki, 2026-10-20).
 
 ### Account → *"Your brand"*: önizleme ve editör (ADR 0023 WL-7 notu, ADR 0024 WL-7 notu)
 

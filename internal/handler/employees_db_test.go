@@ -198,9 +198,13 @@ func seedRosterTenant(t *testing.T, p *panelHarness, tenantID uuid.UUID, label s
 	return f
 }
 
-// rosterRowRE isolates the roster's cards, so an assertion about what is LISTED is
+// rosterRowRE isolates the roster's rows, so an assertion about what is LISTED is
 // not satisfied by the filter bar echoing what the visitor typed.
-var rosterRowRE = regexp.MustCompile(`(?s)<article class="docket">.*?</article>`)
+//
+// THE MARKER IS THE ROW'S OWN LINK since the panel redesign (M12-30): a person is one
+// <a class="roster-row"> in the list, no longer an <article> docket. The row holds no
+// other link, so the lazy match ends at the row's own close.
+var rosterRowRE = regexp.MustCompile(`(?s)<a class="roster-row".*?</a>`)
 
 func rosterRowsOn(body string) string {
 	return strings.Join(rosterRowRE.FindAllString(body, -1), "\n")
@@ -825,11 +829,10 @@ func TestPanelEmployeesDB_ACursorPastTheEndDoesNotClaimTheBusinessIsEmpty(t *tes
 	}
 }
 
-// rosterNameRE reads the person's name out of each card. It is anchored on the
-// "Who" label's own paragraph so it cannot pick up the venue or the department,
-// which use the same typography.
-var rosterNameRE = regexp.MustCompile(
-	`(?s)<p class="docket-label">Who</p><p class="[^"]*">(.*?)</p>`)
+// rosterNameRE reads the person's name out of each row. It is anchored on the row's
+// one <strong>, which holds the name and nothing else, so it cannot pick up the job
+// title, the venue or the department on the line under it.
+var rosterNameRE = regexp.MustCompile(`(?s)<strong[^>]*>(.*?)</strong>`)
 
 func rosterNamesOn(body string) []string {
 	var out []string
@@ -1138,10 +1141,19 @@ func TestPanelEmployeesDB_SaysWhenADeviceHasNeverBeenUsED(t *testing.T) {
 	if n := rosterRowCount(body); n != 1 {
 		t.Fatalf("expected exactly the one freshly activated person, got %d row(s)", n)
 	}
-	if !strings.Contains(rows, "1 signed in · not used yet") {
-		t.Errorf("a device that exists but has never been used does not say so.\n"+
-			"It must not read the same as %q, which is what a template joining a count "+
-			"to a nullable date would produce.\nrow:\n%s", "None signed in", rows)
+	// THE ROW SAYS A BROWSER EXISTS; THE CARD SAYS IT WAS NEVER USED. Since the panel
+	// redesign (M12-30) a row carries the count only and the person's card the whole
+	// sentence, so the fourth state is asserted where it is printed -- the card the
+	// row opens -- and the row is still held to "a device exists", never "none".
+	if !strings.Contains(rows, "1 signed in") || strings.Contains(rows, "None signed in") {
+		t.Errorf("the row of a person with one live, never-used browser does not say "+
+			"%q.\nrow:\n%s", "1 signed in", rows)
+	}
+	_, card := p.get(t, employeesHref+"?manage="+fresh.String())
+	if !strings.Contains(card, "1 signed in · since ") || !strings.Contains(card, " · not used yet") {
+		t.Errorf("a device that exists but has never been used does not say so on the "+
+			"person's card.\nIt must not read the same as %q, which is what a template "+
+			"joining a count to a nullable date would produce.\ncard:\n%s", "None signed in", card)
 	}
 }
 

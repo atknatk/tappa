@@ -211,11 +211,12 @@ func wantSectionPolicy(href string, logo bool) string {
 	return p
 }
 
-// wordmarkHTML is layout.Wordmark rendered: the chrome's opening when not branded.
+// wordmarkHTML is pages.PanelWordmark rendered: the chrome's opening when not branded.
+// (layout.Wordmark until the 2026-10-20 shell, which draws the panel's lockup on ink.)
 func wordmarkHTML(t *testing.T) string {
 	t.Helper()
 	var b strings.Builder
-	if err := layout.Wordmark().Render(context.Background(), &b); err != nil {
+	if err := pages.PanelWordmark().Render(context.Background(), &b); err != nil {
 		t.Fatalf("rendering the wordmark: %v", err)
 	}
 	return b.String()
@@ -224,7 +225,7 @@ func wordmarkHTML(t *testing.T) string {
 var (
 	stylesheetRE = regexp.MustCompile(`<link rel="stylesheet" href="([^"]*)">`)
 	imgTagRE     = regexp.MustCompile(`(?i)<img\b[^>]*>`)
-	brandHeadRE  = regexp.MustCompile(`(?s)<header class="flex flex-col gap-3">.*?</header>`)
+	brandHeadRE  = regexp.MustCompile(`(?s)<header class="side-head side-head--named">.*?</header>`)
 )
 
 // stylesheetsOf is every stylesheet the page links, in order, and whether they are all
@@ -299,7 +300,7 @@ func TestPanelBrand_UnbrandedSectionsAreTheWordmarkChrome(t *testing.T) {
 			// one region taken out (withoutBrandEditor counts it: once on the Account
 			// section, nowhere else). The full bodies are still compared below.
 			chrome := withoutBrandEditor(t, s.Href, got.body)
-			nav := strings.Index(chrome, `<nav class="tab-bar"`)
+			nav := strings.Index(chrome, `<nav class="side-nav"`)
 			if strings.Count(chrome, wordmark) != 1 || nav < 0 || strings.Index(chrome, wordmark) > nav {
 				t.Errorf("%s: the wordmark is not the chrome's opening (count %d)", where, strings.Count(chrome, wordmark))
 			}
@@ -368,10 +369,11 @@ func TestPanelBrand_UnbrandedSectionsAreTheWordmarkChrome(t *testing.T) {
 //     AND EMPTY (round 1's decision: the name is the visible text beside it; a
 //     missing alt and the name written back are both red); the policy is today's
 //     plus img-src 'self'; without one, no <img> and today's policy;
-//   - the name (escaped) in a paragraph whose class list is exactly the display
-//     one, with no colour class -- so it is the page's ink on porcelain, 14.32:1 --
-//     and the co-brand line in exactly the wordmark tagline's classes (ink/70,
-//     5.70:1); no wordmark;
+//   - the name (escaped) in a paragraph whose class list is exactly side-name -- ink
+//     on the phone's porcelain top bar (14.32:1), paper on the ink rail and sidebar
+//     (16.2:1) -- and the co-brand line in exactly side-coline (ink/70 5.70:1,
+//     paper/70 8.5:1); no wordmark (the 2026-10-20 shell moved both colour lists
+//     into those two input.css rules);
 //   - with the theme link and the header taken out and the wordmark put back, the
 //     no-brand business's bytes -- nothing else on the page changed, the primary
 //     buttons included (K4).
@@ -442,7 +444,7 @@ func TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection(t *testing.T) {
 			if n, want := strings.Count(got.body, "panel-stripe"), map[bool]int{true: 1, false: 0}[v.accent]; n != want {
 				t.Errorf("%s: %d elements carry the stripe's class, want %d", where, n, want)
 			}
-			if v.accent && !strings.Contains(got.body, `<header class="flex flex-col gap-3">`+stripe) {
+			if v.accent && !strings.Contains(got.body, `<header class="side-head side-head--named">`+stripe) {
 				t.Errorf("%s: the stripe is not the chrome's first element, empty and aria-hidden", where)
 			}
 			// The chrome with the Account editor's region taken out (M10 WL-7): that region
@@ -464,12 +466,21 @@ func TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection(t *testing.T) {
 					}
 				}
 			}
-			if !strings.Contains(got.body, `<p class="font-display text-lg font-bold tracking-tight">`+htmlEscaper.Replace(wl8Name)+"</p>") ||
-				!strings.Contains(got.body, `<p class="font-mono text-[10px] uppercase tracking-widest text-ink/70">taptime · punchless</p>`) {
+			if !strings.Contains(got.body, `<p class="side-name">`+htmlEscaper.Replace(wl8Name)+"</p>") ||
+				!strings.Contains(got.body, `<p class="side-coline">taptime · punchless</p>`) {
 				t.Errorf("%s: the header does not carry the name and the co-brand line in exactly their classes", where)
 			}
 			if strings.Contains(chrome, wordmark) {
 				t.Errorf("%s: the wordmark is still drawn beside the business's header", where)
+			}
+			// Without a logo the rail's mark is the business's initial, never Taptime's "t."
+			// (2026-10-20 audit); with one, there is no mark at all.
+			mark := `<span class="side-mark" aria-hidden="true">T</span>`
+			if got := strings.Contains(chrome, mark); got == v.logo {
+				t.Errorf("%s: the rail draws the business's initial = %v, want %v", where, got, !v.logo)
+			}
+			if strings.Contains(chrome, `aria-hidden="true">t.</span>`) {
+				t.Errorf("%s: a branded rail draws Taptime's mark", where)
 			}
 			header := brandHeadRE.FindAllString(chrome, -1)
 			if len(header) != 1 {
@@ -605,7 +616,15 @@ func TestPanelBrand_TheSignInFamilyStaysTaptime(t *testing.T) {
 	h.Mount(r)
 	b := newBrowser(t, r)
 
-	wordmark := wordmarkHTML(t)
+	// The problem page keeps layout's porcelain shell, so its opening is the tap
+	// screens' wordmark (tapbrand_test.go) -- the panel chrome's, too, until the
+	// 2026-10-20 shell. The picker moved to the sign-in family's layout.Auth (M12-44)
+	// and opens with that family's own Taptime lockup.
+	var lockup bytes.Buffer
+	if err := pages.AuthLockup().Render(context.Background(), &lockup); err != nil {
+		t.Fatalf("rendering the sign-in family's lockup: %v", err)
+	}
+	wordmarks := map[string]string{"picker": lockup.String(), "panel problem": tapWordmarkHTML}
 	login := b.do(http.MethodGet, "/admin/login", nil)
 	csrf := csrfFrom(t, htmlOf(t, login))
 	if rec := b.do(http.MethodPost, "/admin/login", url.Values{
@@ -619,8 +638,8 @@ func TestPanelBrand_TheSignInFamilyStaysTaptime(t *testing.T) {
 		http.StatusInternalServerError, problemPanelUnavailable)
 	for name, rec := range map[string]*httptest.ResponseRecorder{"picker": picker, "panel problem": problem} {
 		body := htmlOf(t, rec)
-		if !strings.Contains(body, wordmark) {
-			t.Errorf("%s: no wordmark", name)
+		if !strings.Contains(body, wordmarks[name]) {
+			t.Errorf("%s: no Taptime wordmark", name)
 		}
 		for _, never := range []string{"<img", "panel-stripe", "/brand/theme/", "/admin/brand/logo/", "taptime · punchless"} {
 			if strings.Contains(body, never) {
@@ -946,7 +965,7 @@ func brandEditorDrawsNoSecondHeader(t *testing.T, href, region string) {
 		t.Fatalf("%s: the brand editor has no preview block", href)
 	}
 	rest := region[:start] + region[end:]
-	for _, never := range []string{wordmarkHTML(t), ">taptime<", ">punchless<", "taptime · punchless", "<header", "<img"} {
+	for _, never := range []string{wordmarkHTML(t), tapWordmarkHTML, ">taptime<", ">punchless<", "taptime · punchless", "<header", "<img"} {
 		if n := strings.Count(rest, never); n != 0 {
 			t.Errorf("%s: outside its preview, the brand editor draws %q %d times", href, never, n)
 		}
@@ -962,6 +981,32 @@ func brandEditorDrawsNoSecondHeader(t *testing.T, href, region string) {
 //
 // MUTANT (measured): the banner's `if` back in the page body -> one separating space too many
 // (3395 -> 3396 bytes), red.
+//
+// RE-RENDERED ON 2026-10-20 FOR THE PANEL SHELL OF DESIGN "THE PASS" (user-approved): the chrome
+// around the page changed. Checked before replacing: with the chrome cut off, the "zero" page's
+// own markup is byte for byte c4f6f74's, and the "plaques" page's differs only in the section
+// label the notice links with ("Locations & Wall Tags" became "Venues & plaques", the same
+// decision). The banner's absence still adds nothing.
+//
+// RE-RENDERED FOR M12-09 (panel-only empty state): only the "plaques" golden, and only inside the
+// empty state's opening tags (its label is now the section's name, "The Pass", and its classes are
+// PanelEmpty's); the heading and sentence are the same bytes, the "zero" golden is unchanged.
+//
+// RE-RENDERED FOR M12-27 (the past-day ledger of the redesign; both views here are ledger views --
+// no day-less request reaches them). Checked before replacing: everything up to the content
+// well's opening tag and everything from its closing tags on is byte for byte the old golden in
+// both files; inside the well the date paragraph is gone (the day and the zone are the heading's
+// kicker now), the filter bar is the disclosure form without the verdict dropdown (the verdict
+// is the chips), the notice keeps its bytes (4 spaces of leading indentation instead of 8), and
+// the empty state -- heading, sentence, classes -- is unchanged. zero 11 360 -> 12 033 B,
+// plaques 12 331 -> 12 969 B (wc -c; these figures first went in as 11354 -> 12025 and
+// 12325 -> 12961 "bytes", which were rune counts -- "·" and "—" are more than one byte).
+// The banner's absence still adds nothing (the three variants below).
+//
+// RE-RENDERED FOR M12-49 (the plaque notice's link gets a 44 px hit area): only the "plaques"
+// golden, and only inside the notice link's class attribute -- "underline" became
+// "hit-link underline". Checked before replacing: the first 5827 and the last 7142 bytes are the
+// old golden's; the 9 bytes between are "hit-link ". 12969 -> 12978 bytes; "zero" unchanged.
 func TestKeyBudgetBanner_AbsentAddsNothing(t *testing.T) {
 	render := func(v pages.TransactionsView) string {
 		t.Helper()

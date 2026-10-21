@@ -462,7 +462,7 @@ func BrandHeader(b Brand) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = Wordmark().Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = wordmark().Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -623,7 +623,11 @@ func documentHead(title, script string, robots Robots, theme Theme, alternates [
 	})
 }
 
-// Wordmark is the brand lockup that opens every screen.
+// wordmark is the brand lockup that opens the tap family's screens (BrandHeader's
+// unbranded shape). It was exported while the panel chrome also drew it; since the
+// 2026-10-20 shell the panel draws its own lockup on ink (pages.PanelWordmark), so
+// nothing outside this package renders it and it is unexported
+// (TestLayoutShells_EveryOneIsActuallyRendered).
 //
 // 🔴 THE TAGLINE'S TONE WAS RAISED ON 2026-08-04, AND THE WCAG LOGOTYPE EXEMPTION
 // WAS CONSIDERED AND DECLINED. "punchless" sat at 40% ink, which measures 2.38:1
@@ -644,7 +648,7 @@ func documentHead(title, script string, robots Robots, theme Theme, alternates [
 // stays subordinate by SIZE (10px), case and tracking rather than by being
 // unreadable, and it now matches the docket label, so the product has one quiet
 // tone instead of three. Guarded by TestBrand_EveryInkToneClearsAA.
-func Wordmark() templ.Component {
+func wordmark() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -676,7 +680,7 @@ func Wordmark() templ.Component {
 // Panel is the THIRD named shell, and it exists for the one reason this package's
 // doc comment demands of a third: the two shells above are ONE NARROW COLUMN sized
 // for a phone held at a plaque, and a manager's dashboard is not that. Page's
-// `max-w-md` would put the whole tab bar into a 28rem column (pages.PanelSections is
+// `max-w-md` would put the whole navigation into a 28rem column (pages.PanelSections is
 // the count, and it grows -- M6-04 made it six).
 //
 // WHAT IT DOES NOT CHANGE: the document head (shared, see above), the porcelain
@@ -835,7 +839,7 @@ func PanelWithScript(title, src string, theme Theme) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<body class=\"min-h-screen bg-porcelain text-ink antialiased\"><main class=\"mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<body class=\"min-h-screen bg-porcelain text-ink antialiased\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -843,7 +847,7 @@ func PanelWithScript(title, src string, theme Theme) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</main></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1133,8 +1137,8 @@ func marketingDocument(title string, robots Robots, src string, alternates []Alt
 //
 // IT EXISTS FOR THE PANEL'S SIGN-IN SCREEN AND THE REASON IS A MEASUREMENT, not a
 // preference. The four shells above all hand their children a centred column —
-// Page and PageWithScript a phone-width max-w-md, Panel and PanelWithScript a
-// max-w-5xl content well, Marketing a body the landing page's own .lp wrapper
+// Page and PageWithScript a phone-width max-w-md, Panel and PanelWithScript the
+// panel frame (pages.PanelShell), Marketing a body the landing page's own .lp wrapper
 // re-columns. The sign-in screen the user drew is two panels that meet at a seam
 // and run the full height of the viewport: a dark brand half and a light form
 // half. There is no width at which a centred column renders that, so the choice
@@ -1148,13 +1152,13 @@ func marketingDocument(title string, robots Robots, src string, alternates []Alt
 // asked for.
 //
 // WHY A PARAMETER AND NOT A SIBLING SHELL, which is what layout.MarketingWithScript
-// is. Marketing has FOUR call sites (pages.Legal, which serves all four documents,
-// and three sign-up wizard screens) and none of them wanted a script, so a sibling
-// kept every one of them unable to grow one by accident. Auth has ONE call site,
-// pages.AdminLogin — counted, not remembered: a sibling here
-// would leave the scriptless shell with no caller at all — dead code whose only job
-// is to look like a guarantee. One shell with one argument is the same count of
-// screens that can load a script, written where a reader can see it.
+// is. When the script arrived Auth had ONE call site, pages.AdminLogin, and a
+// sibling would have left the scriptless shell with no caller at all. Since the
+// redesign (M12-44) the whole sign-in family renders here — pages.AdminLogin with
+// the reveal script, and pages.AdminChoose, AdminResetRequest, AdminResetSent and
+// AdminResetNew with "" — five call sites, counted. A "" is a visible argument at
+// each of them rather than an inheritance, and the paragraph below is why widening
+// one of them is still not a one-word edit.
 //
 // WHAT THE ARGUMENT IS NOT: the security boundary. A path written here loads only if
 // the response's Content-Security-Policy permits one, and that is decided per render
@@ -1226,7 +1230,7 @@ func Auth(title, script string) templ.Component {
 // OPERATOR" bar and, on a tenant screen, the banner naming the tenant -- is drawn by
 // operatorpages' screen, scriptedScreen and tenantScreen, and this shell gives it a
 // full-bleed body with no column and no wordmark of the customer product to fight.
-// Panel's max-w-5xl well and Page's phone column both bring a frame the operator
+// The panel frame and Page's phone column both bring a frame the operator
 // chrome would have to undo.
 //
 // WHAT IT DOES NOT CHANGE: the shared document head (no third-party URL, no referrer,

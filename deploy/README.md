@@ -232,11 +232,13 @@ Depolar: `tappa/tappa` (sunucu), `tappa/tappa-migrate` (migration), sandbox geli
 uç noktası Docker Hub'a bakar (endpoint `dockerhub`), proje onun önbelleğidir:
 `registry.everva.com.tr/dockerhub/library/<imaj>` Docker Hub'ın `library/<imaj>`'ını Harbor
 üzerinden verir. Derlemenin taban imajı buradan, **digest'iyle** gelir (*"Build both images"*:
-`GO_BUILD_IMAGE=registry.everva.com.tr/dockerhub/library/golang:1.26.9-bookworm@sha256:d9c68c2c…453c`,
-`--build-arg GO_IMAGE` olarak iki derlemeye). Digest içerik adresidir: proxy ya **tam bu** index'i
+`GO_BUILD_IMAGE=registry.everva.com.tr/dockerhub/library/golang:1.26.10-bookworm@sha256:5b1f78db…b505`,
+`--build-arg GO_IMAGE` olarak iki derlemeye; 2026-10-21'de GO-2026-6809 için 1.26.9'dan
+—`d9c68c2c…453c`— taşındı, index'in linux/amd64 çocuğu `sha256:88750ccdd0f2…f9d9`; aşağıdaki
+2026-10-19 ölçüleri 1.26.9 digest'iyle yapıldı). Digest içerik adresidir: proxy ya **tam bu** index'i
 verir ya da düşer, Docker Hub'da yeniden itilmiş bir etiket iki derlemeyi de değiştirmez.
 `Dockerfile`'ın varsayılanı **aynı digest**, Docker Hub'ın kendi adıyla
-(`golang:1.26.9-bookworm@sha256:…`): yerel ve sandbox derlemesi Harbor kimliği taşımaz, proxy projesi
+(`golang:1.26.10-bookworm@sha256:…`): yerel ve sandbox derlemesi Harbor kimliği taşımaz, proxy projesi
 private. `ci.yml` Dockerfile'ı hiç derlemez (araç zinciri `setup-go`, aynı sürüm), ona bir şey gerekmez.
 Bu proje OPS-2'nin ilk turunda açık kalan riski kapatır: deploy Docker Hub'a artık giriş yapmadığı için
 taban imaj runner'ın paylaşılan adresinden **anonim** çekiliyordu (`ci.yml`'in 2026-10-09'da
@@ -3971,7 +3973,7 @@ for R in atknatk/tappa atknatk/tappa-migrate; do T=$(curl -q -fsS "https://auth.
 **Taban imajın proxy'si çalışmazsa** (Harbor'ın `dockerhub` uç noktası Docker Hub'a ulaşamıyor, proxy
 projesi silinmiş): *"Build both images"* düşer, kümeye dokunulmaz. Geri dönüş **aynı digest'i**
 Docker Hub'dan kimliksiz çekmektir — `deploy.yml`'deki `GO_BUILD_IMAGE` satırını `Dockerfile`'ın
-varsayılanına (`golang:1.26.9-bookworm@sha256:d9c68c2c…453c`) çevirip `main`'e bir commit; içerik
+varsayılanına (`golang:1.26.10-bookworm@sha256:5b1f78db…b505`; 2026-10-21'den önce 1.26.9) çevirip `main`'e bir commit; içerik
 digest'le aynı kalır, bedeli OPS-2'nin ilk turundaki anonim bütçe riskidir (sınır 12 (e)). İki
 satırı birlikte değiştiren pin `cmd/tappa/deployregistry_test.go`'dadır
 (`TestPackaging_TheBuildPullsItsBaseImageThroughHarborByDigest`) — geri dönüş onu da günceller.
@@ -7497,7 +7499,8 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     cache).** OPS-2'nin ilk turunda giriş yalnız Harbor'a olduğu için `golang:1.26.9-bookworm` runner'ın
     paylaşılan adresinden **anonim** çekiliyordu (`ci.yml` aynı adreslerden `toomanyrequests`
     ölçmüştü, 2026-10-09). Şimdi *"Build both images"* onu Harbor'ın private proxy projesinden
-    (`registry.everva.com.tr/dockerhub/library/golang:1.26.9-bookworm@sha256:d9c68c2c…453c`), CI
+    (`registry.everva.com.tr/dockerhub/library/golang:1.26.10-bookworm@sha256:5b1f78db…b505` —
+    2026-10-21'den beri, GO-2026-6809; önce 1.26.9 `d9c68c2c…453c`), CI
     robotunun girişiyle ve **index digest'iyle** çeker; `Dockerfile`'ın varsayılanı aynı digest,
     Docker Hub'ın adıyla (operatör adımı 4). Önbellekteki bir digest'i Harbor Docker Hub'a gitmeden
     vermeli (proxy cache'in belgelenen davranışı; **ölçülmedi**). İlk OPS-2 deploy'u (2026-10-19)

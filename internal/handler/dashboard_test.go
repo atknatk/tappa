@@ -45,6 +45,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/google/uuid"
@@ -66,11 +67,25 @@ func panelBrowser(t *testing.T) *browser {
 // need every one of them and none should pay for a second render.
 func sectionBodies(t *testing.T) map[string]string {
 	t.Helper()
-	assertSectionTableIsUsable(t)
 	// GRP-1: as a GROUP MEMBER, so the bar draws every section's tab -- the Group tab is drawn for
 	// a member alone (TestGroup_ANonMemberSeesNoTabAndTheEmptyState is the other side).
+	return sectionBodiesAs(t, true)
+}
+
+// sectionBodiesAs is sectionBodies for a business that is a live holding member or is in no
+// group (GRP-1): the navigation tests run over both, because the Group tab is drawn for the first
+// alone and the second's chrome is the one before GRP-1.
+func sectionBodiesAs(t *testing.T, member bool) map[string]string {
+	t.Helper()
+	assertSectionTableIsUsable(t)
 	records := newFakeLedger()
-	fakeMember(records)
+	if member {
+		fakeMember(records)
+	}
+	// M12-28: The Spike with a FULL page -- records waiting and a next page -- so every net
+	// over these bodies reads the queue links, the pager, the decision form and "Show more",
+	// not only the empty state the default fake renders.
+	records.queue = fullSpikeQueue().queue
 	b := panelBrowserWith(t, records)
 	out := make(map[string]string, len(pages.PanelSections))
 	for _, s := range pages.PanelSections {
@@ -146,12 +161,31 @@ func TestPanelSections_EveryOneIsRoutedAndBehindTheGate(t *testing.T) {
 // It also asserts the navigation offers EVERY section, as a set both ways. That
 // is what stops a section from being routed but unreachable by clicking, which is
 // the same defect as a dead link and much harder to notice.
+//
+// GRP-1: both ways over membership. A live holding member is offered every section,
+// Group included; a business in no group is offered every section but Group, and on
+// the Group route itself (a stale bookmark answers with the empty state) no tab is
+// current, because the section it is looking at is not drawn.
 func TestPanelSections_EachRequestMarksExactlyItsOwnTabCurrent(t *testing.T) {
-	bodies := sectionBodies(t)
+	for _, member := range []bool{true, false} {
+		assertSideNavForMembership(t, member)
+	}
+}
+
+func assertSideNavForMembership(t *testing.T, member bool) {
+	t.Helper()
+	bodies := sectionBodiesAs(t, member)
 
 	want := map[string]bool{}
 	for _, s := range pages.PanelSections {
+		if s.GroupOnly && !member {
+			continue
+		}
 		want[s.Href] = true
+	}
+	if member && len(want) != len(pages.PanelSections) || !member && len(want) >= len(pages.PanelSections) {
+		t.Fatalf("anti-vacuity: member=%v expects %d of %d sections; GroupOnly must hide exactly what is not drawn",
+			member, len(want), len(pages.PanelSections))
 	}
 
 	for _, s := range pages.PanelSections {
@@ -164,22 +198,204 @@ func TestPanelSections_EachRequestMarksExactlyItsOwnTabCurrent(t *testing.T) {
 				current = append(current, l.href)
 			}
 		}
-		if len(current) != 1 {
-			t.Errorf("GET %s renders %d current tab(s) %v, want exactly 1",
-				s.Href, len(current), current)
-		} else if current[0] != s.Href {
-			t.Errorf("GET %s marks %s as the current tab", s.Href, current[0])
+		switch {
+		case !want[s.Href]:
+			if len(current) != 0 {
+				t.Errorf("member=%v GET %s marks %v current, but its own tab is not drawn",
+					member, s.Href, current)
+			}
+		case len(current) != 1:
+			t.Errorf("member=%v GET %s renders %d current tab(s) %v, want exactly 1",
+				member, s.Href, len(current), current)
+		case current[0] != s.Href:
+			t.Errorf("member=%v GET %s marks %s as the current tab", member, s.Href, current[0])
 		}
 		for href := range want {
 			if !got[href] {
-				t.Errorf("GET %s does not offer a link to %s -- the section is routed "+
-					"but cannot be reached by clicking", s.Href, href)
+				t.Errorf("member=%v GET %s does not offer a link to %s -- the section is routed "+
+					"but cannot be reached by clicking", member, s.Href, href)
 			}
 		}
 		for href := range got {
 			if !want[href] {
-				t.Errorf("GET %s offers a tab to %s, which is not a section", s.Href, href)
+				t.Errorf("member=%v GET %s offers a tab to %s, which is not a section it is shown",
+					member, s.Href, href)
 			}
+		}
+	}
+}
+
+// TestPanelSections_ThePhoneNavMarksExactlyOneCurrentAndOffersEverySection is the
+// same pair of properties for the phone's navigation (design "The Pass", 2026-10-20):
+// a bottom bar of four sections and a "More" <details> sheet with the rest. Over every
+// section's page: the phone nav carries exactly one aria-current, on that section's
+// own link (in the bar or in the sheet); More is drawn current exactly when the
+// section is in the sheet; bar and sheet together link every section once and nothing
+// else; the bar's order is Pass, Spike, Roll, People; and the sheet is a native
+// disclosure (<details>/<summary>), so it opens with no script on a page whose policy
+// has no script-src; and when the current section is in the (closed) sheet, the summary
+// names it in visually hidden text.
+//
+// GRP-1, both ways over membership: a live holding member's sheet lists Group (it has no
+// bar slot); a business in no group is offered every other section and no Group link
+// anywhere in the phone nav, and on the Group route itself (a stale bookmark) nothing in
+// the phone nav is current.
+func TestPanelSections_ThePhoneNavMarksExactlyOneCurrentAndOffersEverySection(t *testing.T) {
+	for _, member := range []bool{true, false} {
+		assertPhoneNavForMembership(t, member)
+	}
+}
+
+func assertPhoneNavForMembership(t *testing.T, member bool) {
+	t.Helper()
+	bodies := sectionBodiesAs(t, member)
+	navRE := regexp.MustCompile(`(?s)<nav class="bar" aria-label="Panel sections, phone">(.*?)</nav>`)
+	linkRE := regexp.MustCompile(`<a href="([^"]*)" class="(bar-link|sheet-link)[^"]*"([^>]*)>`)
+	wantBar := []string{transactionsHref, reviewHref, "/admin/reports", "/admin/employees"}
+	offered := map[string]bool{}
+	for _, sec := range pages.PanelSections {
+		if sec.GroupOnly && !member {
+			continue
+		}
+		offered[sec.Href] = true
+	}
+	if member != offered[groupHref] || len(offered) < 2 {
+		t.Fatalf("anti-vacuity: member=%v offers %d sections, Group=%v", member, len(offered), offered[groupHref])
+	}
+	for _, s := range pages.PanelSections {
+		body := bodies[s.Href]
+		navs := navRE.FindAllStringSubmatch(body, -1)
+		if len(navs) != 1 {
+			t.Fatalf("member=%v GET %s renders %d phone navs, want 1", member, s.Href, len(navs))
+		}
+		nav := navs[0][1]
+		wantCurrent := 1
+		if !offered[s.Href] {
+			wantCurrent = 0 // its own link is not drawn, so nothing in the nav is the page
+		}
+		if n := strings.Count(nav, "aria-current"); n != wantCurrent {
+			t.Errorf("member=%v GET %s: the phone nav carries %d aria-current, want exactly %d", member, s.Href, n, wantCurrent)
+		}
+		var bar []string
+		seen := map[string]int{}
+		inSheet := false
+		for _, m := range linkRE.FindAllStringSubmatch(nav, -1) {
+			seen[m[1]]++
+			if m[2] == "bar-link" {
+				bar = append(bar, m[1])
+			}
+			current := strings.Contains(m[3], `aria-current="page"`)
+			if current != (m[1] == s.Href) {
+				t.Errorf("GET %s: the phone link to %s is current=%v", s.Href, m[1], current)
+			}
+			if m[1] == s.Href && m[2] == "sheet-link" {
+				inSheet = true
+			}
+		}
+		if !slices.Equal(bar, wantBar) {
+			t.Errorf("GET %s: the bottom bar links %v, want %v", s.Href, bar, wantBar)
+		}
+		for _, sec := range pages.PanelSections {
+			want := 0
+			if offered[sec.Href] {
+				want = 1
+			}
+			if seen[sec.Href] != want {
+				t.Errorf("member=%v GET %s: the phone nav links %s %d times, want %d", member, s.Href, sec.Href, seen[sec.Href], want)
+			}
+		}
+		if len(seen) != len(offered) {
+			t.Errorf("member=%v GET %s: the phone nav links %d distinct targets for %d sections", member, s.Href, len(seen), len(offered))
+		}
+		if member {
+			// Group has no bar slot: it is a sheet link, never a bar link.
+			if !strings.Contains(nav, `<a href="`+groupHref+`" class="sheet-link`) {
+				t.Errorf("member=%v GET %s: the More sheet does not list Group", member, s.Href)
+			}
+		} else if strings.Contains(nav, groupHref) {
+			t.Errorf("member=%v GET %s: the phone nav of a business in no group names %s", member, s.Href, groupHref)
+		}
+		if !strings.Contains(nav, `<details class="bar-more">`) || strings.Count(nav, "<summary") != 1 {
+			t.Errorf("GET %s: More is not one native <details>/<summary> disclosure", s.Href)
+		}
+		moreCurrent := strings.Contains(nav, `<summary class="bar-link bar-link--current">`)
+		if moreCurrent != inSheet {
+			t.Errorf("GET %s: More drawn current=%v while the section is in the sheet=%v", s.Href, moreCurrent, inSheet)
+		}
+		// A CLOSED <details> hides the sheet's links, aria-current with them, so the
+		// summary must name the current section itself -- and only then.
+		spoken := `<span class="sr-only">, current: ` + htmlText(s.Label) + `</span></summary>`
+		if got := strings.Contains(nav, spoken); got != inSheet {
+			t.Errorf("GET %s: the summary names the current section to a screen reader = %v, want %v", s.Href, got, inSheet)
+		}
+		if !inSheet && strings.Contains(nav, ", current: ") {
+			t.Errorf("GET %s: the summary claims a current section the sheet does not hold", s.Href)
+		}
+	}
+}
+
+// TestPanelSections_TheGroupTabSitsAfterAccountInTheSidebarsSecondGroup pins where
+// GRP-1's tab is drawn in the 2026-10-20 shell, for both roles and both memberships:
+// in the sidebar's second (unnumbered) group, in the section table's order -- Billing,
+// Account, Group, Developers, each as the role may see it -- with its rail label and
+// its rail icon; and for a business in no group that group is exactly what it was
+// before GRP-1. The first group, the numbered operational run, never holds it.
+func TestPanelSections_TheGroupTabSitsAfterAccountInTheSidebarsSecondGroup(t *testing.T) {
+	footRE := regexp.MustCompile(`(?s)<div class="side-group side-group--foot">(.*?)</div>`)
+	mainRE := regexp.MustCompile(`(?s)<div class="side-group">(.*?)</div>`)
+	hrefRE := regexp.MustCompile(`<a href="([^"]*)" class="tab-link`)
+	groupLinkRE := regexp.MustCompile(`(?s)<a href="` + regexp.QuoteMeta(groupHref) + `" class="tab-link[^"]*"[^>]*>(.*?)</a>`)
+	cases := []struct {
+		role   string
+		member bool
+		want   []string
+	}{
+		{"owner", true, []string{billingHref, accountHref, groupHref, apiKeysHref}},
+		{"owner", false, []string{billingHref, accountHref, apiKeysHref}},
+		{"manager", true, []string{accountHref, groupHref}},
+		{"manager", false, []string{accountHref}},
+	}
+	for _, c := range cases {
+		records := newFakeLedger()
+		if c.member {
+			fakeMember(records)
+		}
+		body := htmlOf(t, groupBrowser(t, c.role, records).do(http.MethodGet, reportsHref, nil))
+		foot := footRE.FindStringSubmatch(body)
+		main := mainRE.FindStringSubmatch(body)
+		if foot == nil || main == nil {
+			t.Fatalf("%s member=%v: the sidebar has no two groups", c.role, c.member)
+		}
+		var got []string
+		for _, m := range hrefRE.FindAllStringSubmatch(foot[1], -1) {
+			got = append(got, m[1])
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%s member=%v: the sidebar's second group links %v, want %v", c.role, c.member, got, c.want)
+		}
+		if strings.Contains(main[1], groupHref) {
+			t.Errorf("%s member=%v: the numbered run holds the Group tab", c.role, c.member)
+		}
+		link := groupLinkRE.FindStringSubmatch(body)
+		if (link != nil) != c.member {
+			t.Errorf("%s member=%v: the sidebar draws the Group link = %v", c.role, c.member, link != nil)
+			continue
+		}
+		if link == nil {
+			continue
+		}
+		for _, want := range []string{
+			`<span class="tab-no" aria-hidden="true">··</span>`,
+			`<span class="tab-label">Group</span>`,
+			`<span class="tab-short">Group</span>`,
+			`<rect x="3" y="3" width="11" height="11" rx="1.5"></rect>`,
+		} {
+			if !strings.Contains(link[1], want) {
+				t.Errorf("%s: the Group tab lacks %q", c.role, want)
+			}
+		}
+		if !strings.Contains(link[1], `aria-hidden="true" focusable="false"`) {
+			t.Errorf("%s: the Group tab's icon is not hidden from assistive technology", c.role)
 		}
 	}
 }
@@ -312,7 +528,8 @@ func TestPanelSections_RenderTheirOwnContentAndNoOthers(t *testing.T) {
 // pressable purely by stylesheet -- a large ::after over a card -- is invisible to
 // it, and there is no test in this product that measures a rendered pixel.
 // panelNonSectionScreens renders the panel pages that pages.PanelSections cannot
-// reach: one behind a POST, one behind a sub-route with parameters.
+// reach: those behind a POST, a sub-route or a query, and the signed-out recovery and
+// business-picker pages.
 //
 // THEY ARE RENDERED THROUGH THE REAL ROUTER with a real session, not by calling the
 // templates, so what is measured is what a manager's browser receives.
@@ -320,11 +537,15 @@ func panelNonSectionScreens(t *testing.T) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 
-	// The policy CONFIRMATION step: a POST that renders rather than redirecting.
+	// The policy CONFIRMATION step: a POST that renders rather than redirecting. It names
+	// a STORED rule, so the page carries what an owner really presses -- the history's
+	// version links as well as the button and Cancel (M12-38); a random id renders no
+	// history and would leave those links outside this corpus.
 	scribe := newFakeScribe()
-	b := policyBrowserWith(t, newFakeRules(), scribe)
+	changeRules := newFakeRules()
+	b := policyBrowserWith(t, changeRules, scribe)
 	rec := b.do(http.MethodPost, policyChangeHref,
-		url.Values{"op": {opDisable}, "policy": {uuid.NewString()}})
+		url.Values{"op": {opDisable}, "policy": {changeRules.screen.Baseline[0].PolicyID.String()}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("the policy confirmation step answered %d, want 200; this corpus entry "+
 			"would otherwise be empty and prove nothing", rec.Code)
@@ -344,7 +565,58 @@ func panelNonSectionScreens(t *testing.T) map[string]string {
 	}
 	out["GET "+policyVersionHref] = htmlOf(t, rec)
 
-	// ANTI-VACUITY: both pages must actually carry press targets, or adding them to the
+	// MANUAL ENTRY'S TWO STEPS (M12-33): the form is a sub-route with a parameter and the
+	// confirmation a POST that renders, so neither is a section href. The confirmation
+	// carries the permanent write's button.
+	mb := panelBrowserWithRecorder(t, &fakeRecorder{})
+	rec = mb.do(http.MethodGet, manualFormHref(), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the manual entry form answered %d, want 200", rec.Code)
+	}
+	out["GET "+manualEntryHref] = htmlOf(t, rec)
+	rec = mb.do(http.MethodPost, manualEntryHref, url.Values{
+		"id": {entryID.String()}, "direction": {"out"}, "date": {"2026-08-05"}, "time": {"17:00"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the manual entry confirmation answered %d, want 200", rec.Code)
+	}
+	out["POST "+manualEntryHref] = htmlOf(t, rec)
+
+	// The Spike with records waiting and a next page, a record in the middle in focus (M12-28):
+	// the queue links, both pager links, the two decision buttons and "Show more". The section
+	// corpus above renders the review section with the default fake's empty queue.
+	full := fullSpikeQueue()
+	spike := panelBrowserWith(t, full)
+	rec = spike.do(http.MethodGet, reviewHref+"?focus="+full.queue.Records[1].ID.String(), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the full Spike answered %d, want 200", rec.Code)
+	}
+	out["GET "+reviewHref+" (a full page)"] = htmlOf(t, rec)
+
+	// THE PLAQUE CARD (M12-34): ?plaque= is a query on the Venues section, and the section
+	// corpus renders that section with no card open, so the card's controls were outside
+	// this net -- which is how its old quiet buttons outlived the redesign. Three states draw
+	// every control it has: the mount form, the replacement form with the way down, and the
+	// un-mount step.
+	venues := twoVenues()
+	wall := venues.firstVenueID()
+	onWall := tenant.Plaque{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true, EncodedAt: &fixtureStamp}
+	spare := tenant.Plaque{UID: uidSpare2, Status: tenant.PlaqueUnassigned, Canonical: true, EncodedAt: &fixtureStamp}
+	pb := plaqueBrowser(t, venues, &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC, Plaques: []tenant.Plaque{onWall, spare}}})
+	for _, q := range []string{"?plaque=" + uidSpare2, "?plaque=" + uidOnWall, "?plaque=" + uidOnWall + "&confirm=unmount"} {
+		rec = pb.do(http.MethodGet, locationsHref+q, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("the plaque card %s answered %d, want 200", q, rec.Code)
+		}
+		out["GET "+locationsHref+q] = htmlOf(t, rec)
+	}
+
+	// The screens and states M12-49 found outside this corpus (panelcorpus_test.go).
+	for where, body := range panelScreensOutsideTheSections(t) {
+		out[where] = body
+	}
+
+	// ANTI-VACUITY: every page must actually carry press targets, or adding it to the
 	// corpus changes nothing.
 	for where, body := range out {
 		if len(pressTargetsOf(body)) == 0 {
@@ -452,6 +724,131 @@ func TestPanelScreens_TouchTargetClassesReserve44px(t *testing.T) {
 				"reserves nothing.", class)
 		}
 	}
+}
+
+// TestPanelScreens_PendingTouchTargetClassesReserve44pxInTheSource holds the classes
+// of panelPendingTouchTargets to the same floor as the compiled check above, by
+// reading input.css: every rule whose selector names the class (comments dropped,
+// rules inside @media included) and declares a min-height -- as an @apply utility,
+// variants included, or as a plain declaration -- must reserve at least 44 px and
+// at least the height the map records, and at least one such rule must exist. It
+// also asserts that the class is in only one of the two maps and that no template
+// uses it yet: the first screen that does moves it to panelTouchTargets.
+//
+// The control reads three live entries of panelTouchTargets the same way and wants
+// the heights that map records, so a reader that finds nothing cannot pass.
+func TestPanelScreens_PendingTouchTargetClassesReserve44pxInTheSource(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "web", "static", "css", "input.css"))
+	if err != nil {
+		t.Fatalf("reading input.css: %v", err)
+	}
+	src := cssCommentRE.ReplaceAllString(string(raw), " ")
+
+	for _, class := range []string{"btn", "tap-button", "bar-link"} {
+		heights, err := sourceMinHeights(src, class)
+		if err != nil || len(heights) != 1 || heights[0] != float64(panelTouchTargets[class]) {
+			t.Fatalf("CONTROL: input.css gives .%s the min-heights %v (%v), want exactly [%d] "+
+				"as panelTouchTargets records; the reader is not reading the stylesheet",
+				class, heights, err, panelTouchTargets[class])
+		}
+	}
+
+	used := map[string][]string{}
+	for path, text := range brandSources(t) {
+		if !strings.HasSuffix(path, ".templ") {
+			continue
+		}
+		for _, list := range classListsIn(text) {
+			for _, c := range strings.Fields(list) {
+				if _, pending := panelPendingTouchTargets[c]; pending && !slices.Contains(used[c], path) {
+					used[c] = append(used[c], path)
+				}
+			}
+		}
+	}
+
+	for class, wantPx := range panelPendingTouchTargets {
+		if _, live := panelTouchTargets[class]; live {
+			t.Errorf(".%s is in both panelTouchTargets and panelPendingTouchTargets; a class "+
+				"is pending until a screen draws it and live after, never both", class)
+		}
+		if where := used[class]; len(where) > 0 {
+			sort.Strings(where)
+			t.Errorf(".%s is used by %s, so it is no longer pending: move it from "+
+				"panelPendingTouchTargets to panelTouchTargets, where the markup scan and "+
+				"the compiled-stylesheet check hold it", class, strings.Join(where, ", "))
+		}
+		heights, err := sourceMinHeights(src, class)
+		if err != nil {
+			t.Errorf(".%s: %v", class, err)
+			continue
+		}
+		if len(heights) == 0 {
+			t.Errorf("no rule in input.css gives .%s a min-height; a pending press target "+
+				"that reserves nothing would enter panelTouchTargets already broken", class)
+		}
+		for _, px := range heights {
+			if px < 44 {
+				t.Errorf(".%s reserves %.1fpx in input.css, want at least 44px", class, px)
+			}
+			if px < float64(wantPx) {
+				t.Errorf(".%s reserves %.1fpx in input.css but panelPendingTouchTargets "+
+					"records %dpx", class, px, wantPx)
+			}
+		}
+	}
+}
+
+// sourceMinHeights reads, from comment-free input.css, the min-height of every flat
+// rule whose selector names .class (the class itself, not a longer name it begins):
+// each min-h-* utility of an @apply, whatever its variants, and each plain min-height
+// declaration. A min-height it cannot express in pixels is an error, not a skip.
+func sourceMinHeights(src, class string) ([]float64, error) {
+	ruleRE := regexp.MustCompile(`([^{}]*)\{([^{}]*)\}`)
+	selRE := regexp.MustCompile(`\.` + regexp.QuoteMeta(class) + `(?:[^\w-]|$)`)
+	plainRE := regexp.MustCompile(`(?:^|[;\s])min-height\s*:\s*([^;]+)`)
+	utilRE := regexp.MustCompile(`^min-h-(?:(\d+(?:\.\d+)?)|\[([^\]]+)\])$`)
+	var out []float64
+	for _, rule := range ruleRE.FindAllStringSubmatch(src, -1) {
+		if !selRE.MatchString(rule[1]) {
+			continue
+		}
+		for _, m := range applyOnly.FindAllStringSubmatch(rule[2], -1) {
+			for _, tok := range strings.Fields(m[1]) {
+				if i := strings.LastIndex(tok, ":"); i >= 0 {
+					tok = tok[i+1:]
+				}
+				if !strings.HasPrefix(tok, "min-h-") {
+					continue
+				}
+				u := utilRE.FindStringSubmatch(tok)
+				if u == nil {
+					return nil, fmt.Errorf("%s is a min-height this test cannot read in pixels", tok)
+				}
+				if u[1] != "" {
+					n, err := strconv.ParseFloat(u[1], 64)
+					if err != nil {
+						return nil, fmt.Errorf("%s: %w", tok, err)
+					}
+					out = append(out, n*4) // the spacing scale: 1 = 0.25rem = 4px
+					continue
+				}
+				px, ok := remOrPxToPixels(u[2])
+				if !ok {
+					return nil, fmt.Errorf("%s is a min-height this test cannot read in pixels", tok)
+				}
+				out = append(out, px)
+			}
+		}
+		for _, m := range plainRE.FindAllStringSubmatch(rule[2], -1) {
+			px, ok := remOrPxToPixels(strings.TrimSpace(m[1]))
+			if !ok {
+				return nil, fmt.Errorf("min-height:%s is not in rem or px", m[1])
+			}
+			out = append(out, px)
+		}
+	}
+	return out, nil
 }
 
 // TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty.
@@ -856,26 +1253,182 @@ var panelTouchTargets = map[string]int{
 	// the class cannot lose its height silently. The markup gap is recorded rather
 	// than papered over (see TestPanelScreens_FormControlsCarryATouchTargetClass).
 	"filter-input": 44, // .filter-input -> min-h-11 = 2.75rem
-	// The raw utility, used inline by the sign-in form's two fields rather than
-	// through a semantic class. It is a real compiled rule (min-height:2.75rem), so
-	// the stylesheet half below holds it to the same floor.
+	// The raw utility, used inline by links (the sign-in page's lockup, "Forgot
+	// password?" and the sign-up offer among them) rather than through a semantic class. It is a real compiled rule (min-height:2.75rem), so
+	// the stylesheet half below holds it to the same floor. On a press target it counts only
+	// beside a display class (M12-49, hasTouchTargetClass): on an inline <a> it reserves nothing.
 	"min-h-11": 44,
+	// Its 48 px sibling, on the ledger's filter disclosure (<summary class="flex min-h-12 …">,
+	// components/filterbar.templ): the first <summary> outside the phone bar, read since
+	// pressTargetRE learned <summary> (M12-49). Like min-h-11 it counts on a press target
+	// only beside a display class (hasTouchTargetClass).
+	"min-h-12": 48,
 	// The sign-in field's password reveal button (2026-09-14). It is a real <button>,
 	// so BOTH halves of the pair reach it: the markup half accepts it because the
 	// class is in this map, and the stylesheet half then demands the height exists.
 	// It is the first entry whose element ships [hidden] — that changes nothing here,
 	// because a control revealed one keystroke later is pressed by the same thumb.
 	"pw-toggle": 44, // .pw-toggle -> min-h-11/min-w-11 = 2.75rem square
+	// The phone's navigation (design "The Pass", 2026-10-20): the bottom bar's four
+	// links and its More summary are 60px tall, the More sheet's rows 48px. Both are
+	// real <a> elements, so both halves of the pair reach them.
+	"bar-link":   60, // .bar-link   -> min-h-[60px]
+	"sheet-link": 48, // .sheet-link -> min-h-12 = 3rem
+	// A section's breadcrumb link (M12-01, pages.panelHead): every crumb before the current
+	// page is a real <a>, so both halves of the pair reach it.
+	"panel-crumb": 44, // .panel-crumb -> min-h-11 = 2.75rem
+	// The Venues list's cards (M12-34): each is a link that opens the venue beside the
+	// list, so both halves of the pair reach it.
+	"venue-card": 44, // .venue-card -> min-h-11 = 2.75rem
+	// The Rules screen (M12-37) draws the rule switch, a submit <button>, so both halves
+	// of the pair reach it.
+	"rule-switch": 44, // .rule-switch -> min-h-11 = 2.75rem
+	// The redesign's form field (M12-08), drawn by several screens (sign-in, sign-up,
+	// billing, rules, The Spike's note, the venue and department forms). It is an <input>,
+	// not an <a> or a <button>, so the form-control scan and the stylesheet half of the
+	// pair hold it.
+	"field-input": 44, // .field-input -> min-h-11 = 2.75rem
+	// People (M12-30) draws the status chips (links) and each person's row (one link,
+	// 64 px on a phone, 60 px from md); The Pass (M12-26) draws the verdict chips and the
+	// "On the spike" card, one link to the queue.
+	"chip-link":        44, // .chip-link        -> min-h-11 (a filter chip, a link)
+	"roster-row":       60, // .roster-row       -> min-h-16, md:min-h-[60px]
+	"stat-card--spike": 44, // .stat-card--spike -> min-h-11
+	// The Spike (M12-28), moved here from panelPendingTouchTargets by the screen that first
+	// draws them: the queue's focus links, the two decision buttons, and the phone pager's
+	// previous / next links (a disabled end is a span, not a press target).
+	"queue-item":   44, // .queue-item   -> min-h-11 (md:min-h-14 on the tablet's scroller)
+	"btn--approve": 64, // .btn--approve -> min-h-16 (56 px in the phone's pinned bar)
+	"btn--reject":  64, // .btn--reject  -> min-h-16 (56 px in the phone's pinned bar)
+	"spike-step":   44, // .spike-step   -> min-h-11, a 44 px square
+	// Manual entry's direction cards (M12-33): a <label> around a visually hidden radio, so the
+	// card is what a thumb presses. The form-control nets accept a control inside a label that
+	// carries one of these classes (pressedThroughLabel).
+	"manual-dircard": 60, // .manual-dircard -> min-h-[60px] (md:min-h-16)
+	// A link in running text (M12-49): it stays inline, so the sentence keeps its line box,
+	// and its ::after draws the 44 px box a thumb hits. It is a semantic class, so it counts
+	// with no display class beside it -- the one inline press target the rule accepts, because
+	// the height is not the link's own (TestPanelTemplates_ALinkInRunningTextKeepsTheLineBox).
+	"hit-link": 44, // .hit-link::after -> min-h-11, centred on the line
 }
 
+// panelPendingTouchTargets are the press-target classes the panel redesign defines
+// in input.css BEFORE any screen draws them (M12-08), each with the height it
+// reserves.
+//
+// THEY CANNOT BE IN panelTouchTargets YET, and that is measured, not supposed:
+// Tailwind compiles a layer class only when it finds the name in a scanned source,
+// so none of these is in app.css, and TestPanelScreens_TouchTargetClassesReserve44px
+// would report each one as "no rule gives it a min-height". So this list is held by
+// TestPanelScreens_PendingTouchTargetClassesReserve44pxInTheSource, which reads the
+// heights out of input.css itself. A class leaves this map for panelTouchTargets in
+// the commit of the first screen that writes it -- that test turns red while a
+// template uses a class still listed here, and the markup scan above turns red while
+// a press target carries one that is not in panelTouchTargets.
+//
+// EMPTY BY DESIGN (M12-48): every class M12-08 listed here has been moved by the screen
+// that first draws it. The map and its test stay as the way in for the next press target
+// defined ahead of its screen -- cheaper to keep than to rebuild, and with nothing listed
+// the test still runs its control on three live classes. Do not read an empty map as a
+// forgotten one.
+var panelPendingTouchTargets = map[string]int{}
+
+// hasTouchTargetClass is the rule for a PRESS TARGET (<a>, <button>, <summary>): one of
+// panelTouchTargets, and -- for a raw height utility -- a display class beside it.
+//
+// 🔴 A RAW min-h-11 ON AN INLINE <a> RESERVES NOTHING: min-height does not apply to an
+// inline box, so the link stays one line of text tall however the class reads. Measured
+// (M12-49): dropping inline-flex from "Forgot password?" left every net green while the
+// link shrank to its text. A semantic class (.btn, .chip-link ...) sets its own display in
+// input.css; a raw utility counts only with flex, inline-flex, block, inline-block, grid or
+// inline-grid on the same element, under any variant (`hidden md:inline-flex` is a target
+// exactly where it is shown).
 func hasTouchTargetClass(classes string) bool {
-	for _, c := range strings.Fields(classes) {
-		if _, ok := panelTouchTargets[c]; ok {
+	return touchTargetClass(classes, true)
+}
+
+// hasControlTouchTargetClass is the rule for a FORM CONTROL (<input>, <select>, <textarea>):
+// the same list, but a raw height utility needs no display class, because a form control is
+// an inline-block replaced element and min-height applies to it as it stands.
+func hasControlTouchTargetClass(classes string) bool {
+	return touchTargetClass(classes, false)
+}
+
+func touchTargetClass(classes string, needDisplay bool) bool {
+	fields := strings.Fields(classes)
+	for _, c := range fields {
+		if _, ok := panelTouchTargets[c]; !ok {
+			continue
+		}
+		if !needDisplay || !rawHeightUtilities[c] {
 			return true
+		}
+		for _, d := range fields {
+			if i := strings.LastIndex(d, ":"); i >= 0 {
+				d = d[i+1:]
+			}
+			if displayUtilities[d] {
+				return true
+			}
 		}
 	}
 	return false
 }
+
+// rawHeightUtilities are the entries of panelTouchTargets that are Tailwind utilities rather
+// than semantic classes, so they carry no display of their own.
+var rawHeightUtilities = map[string]bool{"min-h-11": true, "min-h-12": true}
+
+// displayUtilities are the display classes under which a min-height takes effect.
+var displayUtilities = map[string]bool{
+	"flex": true, "inline-flex": true, "block": true, "inline-block": true, "grid": true, "inline-grid": true,
+}
+
+// labelOpenRE is a <label>'s opening tag.
+var labelOpenRE = regexp.MustCompile(`(?is)<label\b([^>]*)>`)
+
+// pressedThroughLabel reports whether the form control whose tag starts at body[at] sits
+// inside a <label> that is itself a touch target AND is that label's own control. Such a
+// control (a visually hidden radio under a card, a 20 px checkbox in a 44 px row) is pressed
+// through the label, which toggles it: the label is what must reserve the height.
+//
+// 🔴 A LABEL TOGGLES ONE CONTROL, NOT EVERY CONTROL INSIDE IT (M12-49 audit): its for= names
+// it, or -- with no for= -- it is the first labelable control in it. Measured: a second,
+// unlabelled `<input class="w-8">` added inside the venue form's overnight label (whose for=
+// names the checkbox) passed both nets, though pressing the label never reaches it.
+func pressedThroughLabel(body string, at int) bool {
+	before := body[:at]
+	locs := labelOpenRE.FindAllStringSubmatchIndex(before, -1)
+	if len(locs) == 0 {
+		return false
+	}
+	last := locs[len(locs)-1]
+	if strings.Contains(strings.ToLower(before[last[1]:]), "</label>") {
+		return false
+	}
+	labelAttrs := before[last[2]:last[3]]
+	c := attrValueRE("class").FindStringSubmatch(labelAttrs)
+	if len(c) != 2 || !hasTouchTargetClass(c[1]) {
+		return false
+	}
+	if f := labelForRE.FindStringSubmatch(labelAttrs); len(f) == 2 {
+		ctl := labelableOpenRE.FindStringSubmatch(body[at:])
+		if ctl == nil {
+			return false
+		}
+		id := labelIDRE.FindStringSubmatch(ctl[2])
+		return len(id) == 2 && id[1] == f[1]
+	}
+	return !labelableOpenRE.MatchString(before[last[1]:])
+}
+
+// labelableOpenRE is the opening tag of a control a <label> can label; labelForRE and
+// labelIDRE read the for= and id= that pair them (not data-for, aria-describedby ...).
+var (
+	labelableOpenRE = regexp.MustCompile(`(?is)<(input|select|textarea)\b([^>]*)>`)
+	labelForRE      = regexp.MustCompile(`(?i)(?:^|\s)for\s*=\s*"([^"]*)"`)
+	labelIDRE       = regexp.MustCompile(`(?i)(?:^|\s)id\s*=\s*"([^"]*)"`)
+)
 
 type pressTarget struct {
 	tag     string
@@ -883,8 +1436,10 @@ type pressTarget struct {
 }
 
 // pressTargetRE matches the opening tag of anything a person can press. It reads
-// the whole `<a`/`<button` family rather than a list of the ones in use today.
-var pressTargetRE = regexp.MustCompile(`(?is)<(a|button)\b([^>]*)>`)
+// the whole `<a`/`<button`/`<summary` family rather than a list of the ones in use today.
+// <summary> joined in M12-49: the phone bar's More and the ledger's filter disclosure are
+// pressed like a link, and More losing .bar-link was caught only by the byte goldens.
+var pressTargetRE = regexp.MustCompile(`(?is)<(a|button|summary)\b([^>]*)>`)
 
 func pressTargetsOf(body string) []pressTarget {
 	var out []pressTarget
@@ -1036,16 +1591,17 @@ var (
 // the only way to make the rule weaker and that is an edit somebody has to defend.
 // Adding one is free and safe — it can only make the test stricter.
 var docketLabelGrounds = map[string]string{
-	"paper":     "the ground of .docket, .empty-state and components.Card",
-	"porcelain": "the page ground itself, behind both shells — form labels and the panel header sit directly on it",
+	"paper":     "the ground of .docket and components.Card",
+	"porcelain": "the page ground itself, behind both shells — form labels and the panel's phone top bar sit directly on it",
 	// Neither Notice tone carries a docket-label today. They are listed anyway
 	// because they are light SURFACES a label could legitimately land on, and
 	// including them costs nothing: the tone clears AA on all four.
 	"green-lite": "components.Notice(ToneOK) — listed so a label could be added there without a surprise",
 	// M6-04 gave saffron-lite two more callers: .tally--queued (a docket footnote)
-	// and .tab-count (the navigation's pending badge). It is still a light SURFACE a
+	// and .tab-count (the navigation's pending badge; solid saffron since the
+	// 2026-10-20 shell, so it no longer sits on this ground). It is still a light SURFACE a
 	// docket-label could land on, so it stays here rather than moving.
-	"saffron-lite": "components.Notice(ToneWarn), .tally--queued and .tab-count — light surfaces a label could land on",
+	"saffron-lite": "components.Notice(ToneWarn) and .tally--queued — light surfaces a label could land on",
 }
 
 // nonSurfaceGrounds are the palette colours used as a background that a
@@ -1076,7 +1632,7 @@ var nonSurfaceGrounds = map[string]string{
 	// which carries the lockup and the sign-out control in paper and saffron -- no
 	// docket-label sits on it either (the tenant banner under it is saffron-lite).
 	"ink":     "stamp--training's 10% tint, the sign-in screen's brand panel and the operator band; no docket-label sits on any of them",
-	"saffron": "stamp--flagged's 10% tint, inside .stamp only",
+	"saffron": "stamp--flagged's 10% tint and .tab-count, the navigation's pending badge (solid, ink text 6.2:1, since the 2026-10-20 shell); no docket-label sits on either",
 	// ⚠️ NO LONGER "inside .stamp only": M6-04 added .tally--rejected, which uses
 	// bg-tomato/10 in a docket footnote. The CLASSIFICATION is unchanged and still
 	// correct (no docket-label sits on either), but the reason had to be re-measured
@@ -1155,10 +1711,25 @@ func TestBrand_DocketLabelClearsAAOnEveryGroundItSitsOn(t *testing.T) {
 // would need to resolve which element ENCLOSES each label, and nothing here parses
 // HTML — the templates are read as text (result_test.go made the same choice and
 // says so). The conservative substitute is exact enough to be worth having, and
-// the arithmetic says why: on Tailwind's standard opacity scale the verdict is the
-// same on every light ground in the palette. ink/60 fails on all four (4.11-4.36)
-// and ink/70 passes on all four (5.58-6.05), so the ground choice never decides a
-// case.
+// the arithmetic says why: on Tailwind's standard opacity scale ink/60 fails on
+// every light ground in the palette (4.11-4.36) and ink/70 passes on every one.
+//
+// ⚠️ "EVERY LIGHT GROUND" IS MORE THAN THE FOUR OPAQUE TOKENS, AND THIS COMMENT USED TO
+// SAY IT WAS NOT. It printed ink/70's range as 5.58-6.05 with green-lite as the
+// darkest ground. The product also paints translucent TINTS that carry text — the
+// roll's worked cells and the switched-on rule switch sit on bg-tappa-green/15 over
+// porcelain, a ground darker than green-lite, where ink/70 is 5.09:1, not 5.58.
+// darkestGroundUnderInk therefore composites every text-bearing tint in use over
+// every opaque light ground in use and takes the darkest result. That pairing is
+// conservative in the same way as above (a tint over green-lite is a combination
+// nothing draws today): the bound it computes is tappa-green/15 over green-lite,
+// where ink/70 is 4.98:1. Still AA, with 10% margin rather than 24%.
+//
+// AND opacity-* FADES TEXT THE SAME WAY A TONE DOES, which this test used to ignore:
+// opacity-70 on .field-help (already text-ink/70) paints ink at 49% and stayed green
+// here. inkTonesUnderOpacity folds every opacity-N into the tone of the list it sits
+// in (its own text-ink tone x N%) and adds the result to the tones checked below; a
+// list that fades text it does not colour itself must be named in opacityInheritors.
 //
 // ⚠️ THE PRICE OF THAT SHORTCUT, MEASURED RATHER THAN HAND-WAVED: the ground choice
 // changes the AA verdict at exactly three opacities — /61, /62 and /63, where paper
@@ -1175,7 +1746,7 @@ func TestBrand_DocketLabelClearsAAOnEveryGroundItSitsOn(t *testing.T) {
 // cannot answer. The ink tones are where all seven real defects were.
 func TestBrand_EveryInkToneClearsAA(t *testing.T) {
 	palette := brandPalette(t)
-	ground, groundName := darkestLightGroundInUse(t, palette)
+	ground, groundName := darkestGroundUnderInk(t, palette)
 	ink := palette["ink"]
 
 	tones, occurrences := inkTonesInUse(t)
@@ -1195,6 +1766,11 @@ func TestBrand_EveryInkToneClearsAA(t *testing.T) {
 			"is a simplification, not a fault. Only a low count of OCCURRENCES is.)",
 			occurrences, len(tones))
 	}
+	for tone, where := range inkTonesUnderOpacity(t) {
+		tones[tone] = append(tones[tone], where...)
+	}
+	worst70 := contrastRatio(composite(ink, 0.70, ground), ground)
+	t.Logf("darkest ground under ink: %s; ink/70 there is %.2f:1; %d distinct tone(s)", groundName, worst70, len(tones))
 	for tone, where := range tones {
 		got := contrastRatio(composite(ink, float64(tone)/100, ground), ground)
 		if got < aaSmallText {
@@ -1202,10 +1778,11 @@ func TestBrand_EveryInkToneClearsAA(t *testing.T) {
 			t.Errorf("text-ink/%d on %s => %.2f:1, want at least %.2f:1.\n"+
 				"Used at: %s\n"+
 				"The smallest standard step that clears AA on every light ground in this "+
-				"palette is /70 (worst 5.58:1). /60 does NOT (worst 4.11:1) — it was "+
+				"palette is /70 (%.2f:1 on this ground). /60 does NOT — it was "+
 				"measured and rejected on 2026-08-04, when six tones like this one were "+
-				"already shipped and one of them rendered on every screen.",
-				tone, groundName, got, aaSmallText, strings.Join(where, ", "))
+				"already shipped and one of them rendered on every screen. A tone that "+
+				"comes from opacity-* is the list's own ink tone times the opacity.",
+				tone, groundName, got, aaSmallText, strings.Join(where, ", "), worst70)
 		}
 	}
 }
@@ -1500,6 +2077,183 @@ func darkestLightGroundInUse(t *testing.T, palette map[string][3]float64) ([3]fl
 			"every ratio computed from this would be meaningless")
 	}
 	return worst, worstName
+}
+
+// nonTextTints are the translucent backgrounds in use that carry no text, each with
+// the reason. darkestGroundUnderInk skips them; every other tint is a ground a tone
+// must clear AA on. The rule is the nonSurfaceGrounds one: the map must shrink, and an
+// entry the product no longer paints is an error, so a reason cannot outlive its tint.
+var nonTextTints = map[string]string{
+	"ink/40":         "the scrim behind the open More menu (.bar-more) and the plaque-wait phone's notch; neither holds text",
+	"ink/50":         "the plate's two rivets (.plate) and the sign-in drawing's phone notch (admin.templ); empty shapes",
+	"ink/70":         "the phone notch in the transactions and sign-in drawings; empty, aria-hidden",
+	"tappa-green/50": "the network-only part of the evidence bar and its legend swatch (anomalies.templ mixTone); empty, the word is beside it",
+}
+
+// tintRE is a translucent background: bg-<token>/<n>.
+var tintRE = regexp.MustCompile(`\bbg-([a-z][a-z-]*)/(\d{1,3})\b`)
+
+// darkestGroundUnderInk is darkestLightGroundInUse widened to the tints: every
+// text-bearing bg-<token>/<n> in use, composited over every opaque light ground in
+// use, and the opaque grounds themselves. It returns the one with the lowest
+// luminance, which is the ground that gives a dark tone the least contrast.
+func darkestGroundUnderInk(t *testing.T, palette map[string][3]float64) ([3]float64, string) {
+	t.Helper()
+	worst, worstName := darkestLightGroundInUse(t, palette)
+	inUse := backgroundTokensInUse(t, palette)
+	var bases []string
+	for name := range docketLabelGrounds {
+		if _, ok := palette[name]; ok && inUse[name] {
+			bases = append(bases, name)
+		}
+	}
+	sort.Strings(bases)
+	tints := map[string]bool{}
+	for path, text := range brandSources(t) {
+		var lists []string
+		if strings.HasSuffix(path, ".css") {
+			for _, m := range applyOnly.FindAllStringSubmatch(cssCommentRE.ReplaceAllString(text, " "), -1) {
+				lists = append(lists, m[1])
+			}
+		} else {
+			lists = classListsIn(text)
+		}
+		for _, list := range lists {
+			for _, m := range tintRE.FindAllStringSubmatch(list, -1) {
+				if _, ok := palette[m[1]]; ok {
+					tints[m[1]+"/"+m[2]] = true
+				}
+			}
+		}
+	}
+	for tint := range nonTextTints {
+		if !tints[tint] {
+			t.Errorf("nonTextTints names bg-%s, which nothing paints any more; remove the entry", tint)
+		}
+	}
+	if len(tints) <= len(nonTextTints) {
+		t.Fatalf("found %d tint(s) in use, no more than the %d listed as carrying no text; "+
+			"the product paints text on a dozen tints, so this scan is reading nothing",
+			len(tints), len(nonTextTints))
+	}
+	for tint := range tints {
+		if _, skip := nonTextTints[tint]; skip {
+			continue
+		}
+		token, n, _ := strings.Cut(tint, "/")
+		pct, err := strconv.Atoi(n)
+		if err != nil || pct <= 0 || pct > 100 {
+			t.Errorf("unreadable tint bg-%s", tint)
+			continue
+		}
+		for _, base := range bases {
+			c := composite(palette[token], float64(pct)/100, palette[base])
+			if relativeLuminance(c) < relativeLuminance(worst) {
+				worst, worstName = c, "bg-"+tint+" over "+base
+			}
+		}
+	}
+	return worst, worstName
+}
+
+// opacityInheritors are the class lists that fade text with opacity-* but give it no
+// ink colour of their own, so the tone they fade is the parent's and this text scan
+// cannot see it. Each names the parent and the ratio measured. An unlisted one is an
+// error; an entry that no longer matches anything is an error too.
+var opacityInheritors = map[string]string{
+	".chip-count": "inside .chip-link only: off, the text is solid text-ink (ink at 80% = 8.54:1 on paper, " +
+		"7.90:1 on porcelain); on, it is text-paper on bg-ink (paper at 80% on ink = 10.72:1)",
+}
+
+var (
+	// opacityRE is opacity-<anything>, bare or behind variants; bg-opacity-* and
+	// text-opacity-* are excluded by requiring a space, a colon or the start before it.
+	opacityRE = regexp.MustCompile(`(?:^|[\s:])opacity-(\S+)`)
+	// cssRuleRE is an innermost CSS rule: its selector and its body.
+	cssRuleRE = regexp.MustCompile(`([^{}]+)\{([^{}]*)\}`)
+)
+
+// inkTonesUnderOpacity is the ink tone every opacity-N in the product actually paints:
+// the list's own text-ink tone (its lowest, if it has several; solid text-ink is 100)
+// times N%, rounded down. opacity-0 hides the text and is skipped. It reads the same
+// class lists as inkTonesInUse, with CSS read rule by rule so a list that has no ink of
+// its own can be named by its selector in opacityInheritors.
+func inkTonesUnderOpacity(t *testing.T) map[int][]string {
+	t.Helper()
+	out := map[int][]string{}
+	seen := map[string]bool{}
+	visit := func(key, list string) {
+		ops := opacityRE.FindAllStringSubmatch(list, -1)
+		if len(ops) == 0 {
+			return
+		}
+		own := 0
+		for _, f := range strings.Fields(list) {
+			if i := strings.LastIndex(f, ":"); i >= 0 {
+				f = f[i+1:]
+			}
+			tone := 0
+			switch {
+			case f == "text-ink":
+				tone = 100
+			case strings.HasPrefix(f, "text-ink/"):
+				v, err := strconv.Atoi(strings.TrimPrefix(f, "text-ink/"))
+				if err != nil || v <= 0 || v > 100 {
+					t.Errorf("%s: unreadable ink tone %q", key, f)
+					continue
+				}
+				tone = v
+			default:
+				continue
+			}
+			if own == 0 || tone < own {
+				own = tone
+			}
+		}
+		for _, op := range ops {
+			n, err := strconv.Atoi(op[1])
+			if err != nil || n < 0 || n > 100 {
+				t.Errorf("%s: opacity-%s is not a standard step this test can fold into a tone", key, op[1])
+				continue
+			}
+			if n == 0 {
+				continue
+			}
+			if own == 0 {
+				if _, ok := opacityInheritors[key]; !ok {
+					t.Errorf("%s fades text with opacity-%d but paints no ink tone of its own, so the "+
+						"tone it fades is the parent's and this scan cannot see it. Give it its own "+
+						"text-ink tone, or name it in opacityInheritors with the parent and the "+
+						"ratio measured.", key, n)
+				}
+				seen[key] = true
+				continue
+			}
+			eff := own * n / 100
+			out[eff] = append(out[eff], fmt.Sprintf("%s (text-ink/%d x opacity-%d)", key, own, n))
+		}
+	}
+	for path, text := range brandSources(t) {
+		if strings.HasSuffix(path, ".css") {
+			code := cssCommentRE.ReplaceAllString(text, " ")
+			for _, rule := range cssRuleRE.FindAllStringSubmatch(code, -1) {
+				selector := strings.Join(strings.Fields(rule[1]), " ")
+				for _, m := range applyOnly.FindAllStringSubmatch(rule[2], -1) {
+					visit(selector, m[1])
+				}
+			}
+			continue
+		}
+		for _, list := range classListsIn(text) {
+			visit(filepath.Base(path)+": "+list, list)
+		}
+	}
+	for key := range opacityInheritors {
+		if !seen[key] {
+			t.Errorf("opacityInheritors names %q, which fades no text any more; remove the entry", key)
+		}
+	}
+	return out
 }
 
 // contrastRatio is WCAG 2.1's formula, on sRGB channels in 0..255.

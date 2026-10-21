@@ -17,7 +17,13 @@
 
 ### T72 — panel, tenant'a veremeyeceği bir ayarı vaat ediyor
 
-**Durum:** açık · **Bloklar:** hiçbir şeyi · **İlgili:** M3-policy, M6-dashboard, 19. oturum
+**Durum:** kapandı (M12-50) · **Bloklar:** hiçbir şeyi · **İlgili:** M3-policy, M6-dashboard, 19. oturum
+
+> **M12-50 ile kapandı (seçenek a).** `guardrailRules`'taki iki cümle artık değeri Taptime'ın
+> koyduğunu söylüyor: *"Taptime sets the window; no business can switch it off."* ve *"Taptime sets
+> the tolerance; no business can accept any time at all."* — ayarlar bölümünün *"set by Taptime,
+> within …"* metniyle çelişmiyor; ürün kodunda ve şablonlarda "yours to set" 0 kez geçiyor.
+> Seçenek (b) (tenant başına saklanan bounded param) açılmadı.
 
 **Ne oldu.** Landing'in yeniden tasarımında *"5. satırdaki pencere sizin ayarınız"* cümlesi
 **mount edilmemiş yetenek** olarak bulundu ve kaldırıldı. Ama iddianın **kökü landing değil
@@ -299,6 +305,71 @@ düzeltildi; ilki hâlâ açık.
 | **T139** | ✅ **KAPANDI (2026-10-19, dal `m11-api`) — CI işi 45 dk sınırına yaklaşmıştı.** **Ölçüm (CI günlükleri):** `cmd/tappa` `make check`'te 270 sn (`4cfa39c`) → 1115 sn (`f2cee61`), `make check-sandbox`'ta 129 → 642 sn; adım süreleri `make check` 22:15 → 25:14, `check-sandbox` 3:05 → 11:37, iş 27 → 39 dk. **Sebep:** T137'nin ~95 redline koşusu (her tablo satırı kendi ağacında; CI'ın `awk`'ı gawk ve tek-dosyalı ağaçta bir koşu ~0,9 sn CPU — gawk tam ağaçta mawk'tan 4 kat yavaş: 69 sn / 17 sn, 4 CPU'lu kapta ölçüldü) ve aynı testlerin `-tags sandbox` ile **ikinci kez** koşması. Tam ağaç redline'ı testler yalnız bir kez koşuyordu (`TheBodyWhitelistIsPinned`), paylaşılacak tekrar yoktu. **Yapılan:** (1) `t137Run` bir tabloyu **iki ağaçta** koşar (kırmızılar yan yana, her biri kendi dosyası, kendi dosyasını adlandıran R5b FAIL'i ister; yeşiller yan yana, exit 0 ve hiç R5b FAIL yok) ve testler paralel; (2) `TestRedline_R5bWaiverIsThe00058DownAlone`'un 22 varyantı paralel alt test; (3) awk karşılaştırması awk'ları aynı anda koşar; (4) `Makefile` `SANDBOX_SKIP` + `go test -skip`: redline, R7d tarayıcı, pre-push, heartbeat ve backup betik testleri ve `TestEveryNamedTestExists` sandbox koşusunda atlanır — `TestSandboxSkip_SkipsOnlyTestsTheTagCannotChange` her eşleşenin main'in koduna, etiketli bir test dosyasına ya da modülün bir paketine ulaşmadığını kaynaktan (go/ast, geçişli) kanıtlar. **Kanıt gücü (mutantlar, ölçüldü):** redline'da PUBLIC kuralı kapatılınca `PublicIsEveryRole`'un 11 kırmızısı, E-dizesi düz okununca `TheLexerReadsWhatPostgresReads`'in iki E'' vakası, iç-GRANT kuralı aşırı eşleşince `AGrantInsideAStatement`'in yeşil ağacı kırmızı; bozuk sahte bir `mawk` awk testini kırmızı yapar; `SANDBOX_SKIP=^Test`, `-skip`'in düşmesi, `|^TestLoad` ve `redlineRun`'ın main'in `parseLevel`'ını anması guard'ı kırmızı yapar. Bedel: yeşil vakalardan biri kırmızıya dönerse o tablonun bütün yeşilleri birlikte kırmızı olur (atıf kabalaşır, kaçırma yok). **Sonuç (4 CPU'lu kap, gawk+mawk+busybox, `CI=true`, sakin makine):** `cmd/tappa` etiketsiz 249 → 186 sn (CPU 332 → 259 sn; test yaprak toplamı 354 → 179 sn), `-tags sandbox` 215 → 49 sn (CPU 307 → 61 sn). Beklenen CI: `check-sandbox` ~3–4 dk, iş ~30 dk civarı; `ci.yml` 45 dk sınırı değişmedi. **Aynı turda:** `main` CI kırmızısı (39211982663) — `TestHoldingPeer_TheSetFormIsThePairFormsAnswer` istatistik kökenli (ADR 0027 T139 notu, `8d99220`); T126 (`3e7aa0e`). **Kalan:** CI'da `cmd/tappa` paket süresi ölçülmeli (yerel kap CI'ın 4,5 katlık yük çarpanını üretmiyor); `TestRedline_AnInterruptedScanLeavesNothing` / `TestPrePush_AnInterruptedScanLeavesNothing` kapta ~125'er sn sürüp ortama bağlı düşüyor (CI'da geçiyor) — CI süresi ayrıca okunmalı. | T137 sonrası CI (2026-10-19) | — |
 | **T140** | ✅ **KAPANDI (2026-10-19, dal `m11-deployguard`, hotfix) — fork PR'ı deploy'u tetikleyebiliyordu (güvenlik denetçisi, BLOKLAYAN; M8-02'den beri `main`'de).** **Bulgu:** `.github/workflows/deploy.yml` `on: workflow_run: {workflows: ["ci"], types: [completed], branches: [main]}` ve işin `if:`'i yalnız `conclusion == 'success'` (ya da `workflow_dispatch`). `branches: [main]` tetikleyen koşunun **`head_branch`** adına bakar: bir fork'un kendi `main` dalından açılan PR'ın `pull_request` koşusu (PR'ın kendi `ci.yml`'iyle, `name: ci`) yeşil biterse deploy `main`'in kopyasıyla tetiklenir, `head_sha`'yı — fork'un kodunu — checkout edip depo secret'larıyla (Docker Hub, `KUBE_CONFIG`, `TS_AUTHKEY`) build ederdi. Ayrıca `workflow_dispatch` herhangi bir dalı seçip o dalın HEAD'ini (`github.sha`) deploy edebiliyordu. **Geçici depo ayarı (ana oturum, kod düzeltmesinden önce):** Settings → Actions → *Fork pull request workflows* = **bütün dış katkıcılar için onay**; açık kalması önerilir. **Kapanış:** işin `if:`'i `(event_name == workflow_dispatch && ref == refs/heads/main) \|\| (event_name == workflow_run && conclusion == success && workflow_run.event == push && head_repository.full_name == github.repository && head_branch == main)`; ilk adım *"Gate — this run was triggered by a push to this repository's main"* aynı koşulları bash'te checkout'tan önce yeniden ölçer, `if:`'ten **sıkı** (GitHub ifadelerinde `==` büyük/küçük harfe duyarsız — `Main` dalı `if:`'i geçer; bash'in `=`'i duyarlı) (değerler `env:` üzerinden, hiçbiri basılmaz; tutmazsa exit 1 — atlanmış değil kırmızı koşu); *"Resolve the commit to deploy"* `head_sha`'yı artık `env:` üzerinden alır (dosyada hiçbir `run:` gövdesinde `${{ }}` kalmadı) ve tam 40 küçük harf hex olmayanı reddeder. **Testler** (`cmd/tappa/deploytrigger_test.go`): `TestPackaging_TheDeployRunsOnlyForAPushToThisRepositorysMain` (tetikleyiciler tam olarak `workflow_run` + çıplak `workflow_dispatch`, `workflow_run`'ın üç satırı, `jobs:` tam olarak `[deploy]`, `if:` birebir, kapı ilk adım ve checkout'tan önce, `if:`/`continue-on-error` yok, env'i birebir, hiçbir `run:` gövdesinde `${{`) ve `TestDeployTrigger_TheGateAcceptsOnlyAPushToMainOrAManualRunFromMain` (kapının gövdesi deploy.yml'den çıkarılıp 23 girdiyle koşulur: 2 kabul, 21 ret — fork PR'ı, `pull_request_target`, başarısız/iptal ci, başka dal, `main-x`, `Main`, `refs/heads/Main`, `refs/tags/main`, `$(…)` taşıyan dal adı dosya yaratmaz, değer basılmaz) ve `TestDeployTrigger_TheCommitToDeployIsExactlyFortyLowercaseHex` (*"Resolve the commit to deploy"*'ın gövdesi koşulur: 40-hex iki tetikleyiciden de kabul, `GITHUB_OUTPUT`'a `full=`/`short=`; 39/41 karakter, büyük harf, hex olmayan karakter, boş, satır sonu taşıyan değer ret ve `GITHUB_OUTPUT` boş kalır). **Mutantlar (19/19 kırmızı):** `if:`'in beş koşulu tek tek silinince, `on:`'a `pull_request_target:`, `!= 'cancelled'`, kapı checkout'tan sonraya, `continue-on-error: true`, `RUN_EVENT` yanlış ifadeye, `head_sha` yeniden `run:` gövdesine; kapı gövdesinde event/ref/repo kontrolü silinince ve `*)` kolu geçirince; düzeltme turunda: `head_branch` kontrolü harf duyarsızlaştırılınca, uzunluk satırı silinince, hex kolu silinince, `jobs:`'a ikinci iş eklenince. **Kalan sınırlar (ikisi de yalnız yazma yetkisiyle):** (1) **Elle koşturma** — `workflow_dispatch`'te GitHub seçilen **dalın kendi** `deploy.yml` kopyasını koşturur; `ref == refs/heads/main` kapısı yalnız bu düzeltmeyi içeren dallarda geçerli, bugün (2026-10-19) uzak dalların hiçbiri onu taşımıyor — eski/değiştirilmiş kopyalı bir dal seçilirse o dalın HEAD'i depo düzeyindeki secret'larla deploy edilir. Kalıcı kapanış (c)'deki `production` Environment (yalnız `main` dal kuralı; elle koşturmada `github.ref`'e bakar) — ana oturum ortamı kurdu; iş akışı OPS-2 ile ona **bağlandı** (`environment: production`, `m11-api`'de birleştirildi); ✅ **kapandı (2026-10-19):** depo düzeyindeki eski secret'lar ilk OPS-2 deploy'undan önce silindi (altı secret — T135 (4)); depo düzeyinde secret yok, yani `environment:` satırı taşımayan eski bir kopya secret'sız koşar, taşıyan dal kuralına takılır. (2) **`main` adlı etiket** [ölçülmedi] — `ci` etiket push'unda da koşar, `main` adlı bir etiket dört koşulu da tutabilir; dal koruması yokken yeni yetki değil (yazma = `main`'e push), Environment bunu kapatmaz (`workflow_run`'ın ref'i hep `main`). Kapanış: ana oturumun depo ayarı (2026-10-19) — `main` adlı etiketi yasaklayan **ruleset** (aktif, istisnasız; oluşturma/güncelleme/silme). Önerilen ikinci savunma (kodlanmadı): kapıda `main` fetch edildikten sonra **ata denetimi** `git merge-base --is-ancestor <sha> origin/main` — eşitlik değil, çünkü `main` deploy başlamadan ilerlemişse eşitlik meşru deploy'u reddeder (deploy/README.md (c′)). | Güvenlik denetçisi (2026-10-19) | — |
 | **GRP-1** | ✅ **YAPILDI (2026-10-19, dal `m11-group`, migration `00062`) — panelde "Group" sekmesi.** 🟢 Kullanıcı kararı (2026-10-19): holding üyeliği panelde ayrı bir sekmede, salt-okur; holding'in yönetimi operatörde kalır. **Ne:** sekme yalnız işletme bir holding'in **canlı** üyesiyken çizilir (owner ve manager); üye olmayan işletmenin her panel sayfası bayt bayt aynı, `/admin/group` ona panelin boş durumunu ("This business is not in a group") verir. Sayfa: grup adı + bu işletmenin başlangıcı; canlı üyeler (ad, şirket kodu, katılma tarihi; kendisi işaretli — ayrılan üye **yok**); son 30 günde eş işletme personelinin bu işletmenin plaketlerindeki kayıtları (Reports'un `site_punches` okuyucusu ve docket'i, en yenisi önce — sonuç, neden asla; Reports'a bağlantı); bu işletmenin kendi personelinin eş mekânlardaki kayıt sayısı; neyin paylaşılıp neyin asla paylaşılmadığını, ortak saat dilimini ve grubu Taptime'ın yönettiğini söyleyen kutu. **Veri yolu:** kapalı listeye `holding_group()` (SECURITY DEFINER, argümansız, çağıran `app.tenant_id`'den) ve `holding_peer`'in **üçüncü imzası** (kadro biçimi, `holding_peer(a uuid) RETURNS TABLE(holding_id, member_tenant_id, joined_at)`); matrise `holdings (id, name)` SELECT. **Kapalı liste genişlemesi (ADR 0027 §2) kullanıcı tarafından onaylandı (2026-10-20).** Düzeltme turu 1 (2026-10-20): Reports/Group sıra pinleri, `CountRecordsAtPartnerVenues` süzgeç vakaları, `holding_group` gövde md5 pini, metin (*"headcount"*, manuel kaydın eşe görünmesi, *"No group"* etiketi), Group sayfasında tek `holding_group` çağrısı. ADR 0027 *"GRP-1 uygulama notu"*. | kullanıcı kararı 2026-10-19 | ✅ 2026-10-19 |
+
+---
+
+## Panel redesign — drawn but not built (D1, 2026-10-20)
+
+> Kullanıcı kararı D1 (*"Kod gerçektir"*): "The Pass" panolarında çizilmiş ama üründe olmayan
+> özellikler port'tan **çıkarıldı**; kaybolmasınlar diye burada, birer satır. **Söz değildir** — her
+> biri ayrı bir ürün kararı ister. Ayrıntı: `docs/design/panel-redesign/screens/*.md` ("Not ported").
+> Planı: [M12](plan/m12-panel-redesign.md). Bu bölüm hiçbir görevi bloklamaz.
+
+- **Genel arama** (kişi, lokasyon, plaket) — panel başlığında ve telefonda; bugün yalnız ledger'ın ad süzgeci var.
+- **Vardiya planı / "rostered"** — "of N rostered", "not in yet", "rostered, still ahead" bantları, sayım paydaları.
+- **Vardiya günü sınırı** ("06:00 → 06:00") — bugün takvim günü; rapor ve CSV'yi de etkiler (ADR ister).
+- **Canlı yenileme** — The Pass rayının kendiliğinden güncellenmesi.
+- **Kişi seçicili "Manual entry"** — kişi seçmeden The Pass'ten / More'dan manuel kayıt başlatma.
+- **Manuel kayıtta "Change something"** — onay adımından değerlerle forma geri dönen POST.
+- **Tenant değiştirici** — oturum içinde işletme değiştirme, yan menüde sayılar.
+- **"Unlink phone"** — bir kişinin oturumlarını panelden iptal (rota, onay, audit).
+- **"Edit details"** — çalışan adı / rolünü panelden düzenleme (bugün yalnız API yazar).
+- **Yönetici listesi ve yönetici daveti** — Account'ta Managers kartı (M7-07 / Q02 bloklu).
+- **Holding / grup kartı** — Account'ta üyelik gösterimi (ADR 0027 §2 kapalı listesi değişir).
+- **Plaket sipariş akışı** ("Order plaques").
+- **"Mark lost"** — plaketi panelden kayıp işaretleme (güvenlik sınırı, ADR ister).
+- **Plaket konum adı** ("Front door") — `tags`'te sütun yok.
+- **Kural başına etki seçici** (Approve / Spike / Reject) ve **toplu "Review & save" çubuğu**.
+- **Kopyala düğmeleri** (davet bağlantısı, API anahtarı) — JS ve CSP ister.
+- **Maskeli `tt_whsec_` kuyruğu** — anahtar mühürlü saklanıyor, yeniden gösterilmiyor.
+- **Webhook gecikmesi** ("in 312 ms") — süre ölçülmüyor.
+- **The Spike'ta mesafe (metre), "konum paylaşılmadı / dışarıda" ayrımı, sayaç atlama büyüklüğü** — yeni sütunlar ister.
+- **Klavye kısayolları** (A / R).
+- **Odd shapes'te satır başına "Close it"**.
+- **Faturalama: ödeme kartı, fatura e-postası, PDF fatura / ekstre, kişi başına döküm.**
+- **Hesap kapatma.**
+- **Venue formunda satır satır adres okuma** ("How each line was read") ve hata sınıfına göre başlık.
+- **Account'ta hazır accent örnekleri (swatch) ve kaydedilen accent'in kontrast oranı okuması.**
+- **Developers'ta tek anahtar iptali için satır içi onay.**
+- **Panel 404 sayfası**; "Sign in again — you will come back here" (dönüş URL'si).
+
+---
+
+## Panel redesign — denetimlerin ertelediği küçük bulgular (M12-48, 2026-10-20)
+
+> M12 ekran kartlarının denetimlerinde bulunan, kartın kapsamı dışında kalan küçük kusurlar; her
+> biri bir satır, numarasız (paralel dallarda T-numarası çakışmasın diye). Hiçbiri bir görevi
+> bloklamaz. Düzeltilmedi — yalnız yazıldı.
+
+- **Billing:** `fillBillingFounding` standart planda da *"founding free months have ended"* yazıyor — plan kontrolü yok.
+- **Freeze özeti:** işletme adı "." ile bitiyorsa cümle *"Ltd.."* basıyor.
+- **Parola sıfırlama:** `problemResetRestart` ipucu *"Start again from the sign-in page."* diyor, CTA'sı `/admin/reset`'e gidiyor.
+- **Ağ kanıtı (4-in-6):** yalnız `::ffff:a.b.c.d` aralıklarından oluşan bir liste panelde kanıt sayılıyor, motorun `ipMatches`'i onu hiç eşlemiyor (saklanan aralık `Unmap` edilmiyor) — yazarken reddet ya da okurken aynala.
+- **`BuildTapNDEF`:** boş host (`https:///t`) ve userinfo kabul ediyor — ayrıştır, `Host` iste, `User` reddet.
+- **`CountReviewsSince`:** tenant'ın bütün karar geçmişini tarıyor — `(tenant_id, reviewed_at)` indeksi (migration).
+- **`PanelProblem`:** panonun *"NOT SIGNED IN"* hapı yok ve *"Try again"* yalnız GET.
+- **Marketing:** `marketing.go` ~447-455 `PublishedSlugs`'ı her istekte kuruyor — snapshot başına bir kez hesapla.
+- **Manuel kayıt:** not onay adımında görünüyor ama onay MAC'ine girmiyor — notun özetini MAC'e ekle.
+- **Kural uygulama:** okuma→yazma penceresi duruyor; `AuthorCommand`'a bir `ExpectedVersion` onu kapatır.
+- **Kararsız test:** `TestResetOutboxDB_TheFallbackWithdrawalsStayUnderTheFloor` (250–300 ms penceresi; yük altında 324, 436 ve 523 ms ölçüldü).
+- **Kararsız test:** `TestEgress_FailuresAreClassesAndCarryNoText` "nothing listening" vakası (`internal/egress/client_test.go:606-612`): port açılıp kapatıldıktan hemen sonra `newRecorder` yeni bir TLS dinleyicisi açıyor; işletim sistemi aynı geçici portu verirse vaka `ClassTLS` alıyor (CI 39515681171, 2026-10-21; yerelde 5/5 yeşil). Kapalı portu diğer dinleyiciler açıldıktan **sonra** seç, ya da hiç dinlenmeyen bir adres kullan.
+- **Plaket kartı başlığı:** kart mekân sayfasının içinde açılınca h2 başlığı sonraki h3'leri ("Departments", "Also on this venue") plaketin altına alıyor (`components/plaque.templ:43`) — `PlaqueFormView`'a başlık seviyesi ver: mekân içinde h3, kutu ve elsewhere yerleşiminde h2.
+- **Stoktaki plaket kartı:** "In stock" bölümünde kart, çerçeveli bölümün içinde ikinci bir çerçeveli kart olarak duruyor (`pages/locations.templ:313-317`) — çerçevesiz bir varyant ya da kartı bölümün üstüne al.
+- **Ölü alan:** `PlaqueFormView.ErrorMessage`'ı hiçbir handler doldurmuyor (`plaqueview.go:216-218`, `plaque.templ:49-53`) — alanı ve `TestPlaqueViewModels_CannotCarryAKey`'deki adını birlikte kaldır.
+- **Satır içi stil ağı (`inlinestyle_test.go`):** CSP bildirim sayımı yalnız `const` biçimini görüyor — `var embedCSP = "…'unsafe-inline'"` ve `Header().Set("Content-Security-Policy", "<literal>")` sayılmıyor (`cspDecl`'e `var` ekle, literal Set çağrılarını da say).
+- **Satır içi stil ağı:** `web/templates` altındaki elle yazılmış bir view `.go` dosyasında `templ.Raw("<style>…")` görülmüyor — `inlineStyle` regex'ini elle yazılmış `.go` dosyalarına da uygula (yorum satırlarını atla; `email.go` yorumunda "no <style>" geçiyor).
+- **Askı şeridi testi:** şeridin tek `<h1>`'den önce, `panel-well`'in ilk çocuğu olarak durması sabitlenmemiş — şerit başlığın arkasına taşınınca bütün paketler yeşil kalıyor (`internal/handler/suspension_test.go` ~430; `strings.Index(heading) < strings.Index("<h1")` + `panel-well`'den sonraki ilk etiket `<div role="status"`). main'de de yoktu.
+- **Askı şeridi testi:** `stripSectionClass` yalnız `<div role="status" class=` arıyor; alarm tonunda (`role="alert"`) çerçeve bulunamadığı için "tomato yok" dalı hiç çalışmıyor ve şeritten önce saffron renkli başka bir `PanelNotice` belirirse yanlış çerçeveyi okuyabilir (`suspension_test.go:466`) — `<div role="` ile ara, `class=`'ı ondan sonra oku.
 
 ---
 

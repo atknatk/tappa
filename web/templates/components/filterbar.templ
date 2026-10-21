@@ -28,46 +28,67 @@ package components
 // reject), and each control reserves 44px of height — a manager checks this at the
 // pass, on a phone, with one thumb.
 templ FilterBar(v FilterBarView) {
-	<form class="filter-bar" method="get" action={ templ.URL(v.Action) } role="search" aria-label="Filter transactions">
-		<div class="filter-field">
-			<label class="docket-label" for="filter-date">Day</label>
-			<input class="filter-input" id="filter-date" type="date" name="date" value={ v.Date }/>
-		</div>
-		@filterSelect("filter-location", "location", "Location", "All locations", v.LocationID, v.Locations)
-		@filterSelect("filter-department", "department", "Department", "All departments", v.DepartmentID, v.Departments)
-		<div class="filter-field">
-			<label class="docket-label" for="filter-employee">Employee</label>
-			// 🔴 A TEXT BOX RATHER THAN A LIST, and the trade is stated in
-			// FilterBarView.EmployeeName: a roster grows without bound and was
-			// measured at 96% of the page, so the name is matched on the server
-			// instead. The manager has to know the name; "who works here" is the
-			// Employees section's question (M6-05).
-			//
-			// Part of a name is enough, and it finds people who have LEFT -- that
-			// is §4.6 and it is why every shortlisting option was rejected.
-			<input
-				class="filter-input"
-				id="filter-employee"
-				type="text"
-				name="employee"
-				value={ v.EmployeeName }
-				placeholder="Part of a name"
-				autocomplete="off"
-				spellcheck="false"
-			/>
-		</div>
-		@filterSelect("filter-verdict", "verdict", "Verdict", "Any verdict", v.Verdict, v.Verdicts)
-		@filterSelect("filter-channel", "channel", "Channel", "Any channel", v.Channel, v.Channels)
-		<div class="filter-actions">
-			<button type="submit" class="btn btn--primary">Apply</button>
-			if v.Narrowed {
-				// Only offered when something is actually narrowed. A "Clear"
-				// beside an unfiltered list is a control that does nothing, which
-				// is the shape this whole component was deferred to avoid.
-				<a class="btn btn--quiet" href={ templ.URL(v.Action) }>Clear</a>
+	// ONE FORM AT EVERY WIDTH (M12-27, board M-Ledger): on a phone it sits in a native
+	// disclosure, open by default when one of its own fields narrows the list (a verdict chip
+	// alone does not open it); from the tablet width the
+	// disclosure's summary is not drawn and the form always shows (filter-details in input.css
+	// says how, and what an older browser does instead). No script either way.
+	//
+	// THE VERDICT IS NOT A DROPDOWN HERE ANY MORE: it is the chips under this form, links built
+	// from the same panelVerdicts slice the validator reads. A hidden field keeps the chosen one
+	// when the form is applied, so changing a venue does not silently drop it.
+	//
+	// THE DAY FIELD IS NOT DRAWN ON A PHONE, where the stepper above changes the day; its value
+	// still travels with the form (a field that is not displayed is still submitted), so Apply
+	// stays on the day being read. One date control, one id.
+	<details class="filter-details rounded-[14px] border border-line bg-paper md:rounded-none md:border-0 md:bg-transparent" open?={ v.FormNarrowed() }>
+		<summary class="flex min-h-12 cursor-pointer items-center justify-between gap-3 px-3.5 py-2 font-display text-sm font-bold text-ink">
+			<span class="flex-none">Filters</span>
+			<span class="min-w-0 text-right font-mono text-xs font-normal text-ink/70">location · department · employee · channel</span>
+		</summary>
+		<form class="flex flex-col gap-3 px-3.5 pb-3.5 pt-1 md:grid md:grid-cols-3 md:items-end md:gap-3 md:rounded-[18px] md:border md:border-line md:bg-paper md:p-4 desk:grid-cols-[repeat(auto-fit,minmax(150px,1fr))] desk:gap-3.5 desk:px-5 desk:py-[18px]" method="get" action={ templ.URL(v.Action) } role="search" aria-label="Filter transactions">
+			if v.Verdict != "" {
+				<input type="hidden" name="verdict" value={ v.Verdict }/>
 			}
-		</div>
-	</form>
+			<div class="hidden min-w-0 flex-col gap-1.5 md:flex">
+				<label class="lbl" for="filter-date">Day</label>
+				<input class="filter-input rounded-[10px] px-3" id="filter-date" type="date" name="date" value={ v.Date }/>
+			</div>
+			@filterSelect("filter-location", "location", "Location", "All locations", v.LocationID, v.Locations)
+			@filterSelect("filter-department", "department", "Department", "All departments", v.DepartmentID, v.Departments)
+			<div class="flex min-w-0 flex-col gap-1.5">
+				<label class="lbl" for="filter-employee">Employee</label>
+				// 🔴 A TEXT BOX RATHER THAN A LIST, and the trade is stated in
+				// FilterBarView.EmployeeName: a roster grows without bound and was
+				// measured at 96% of the page, so the name is matched on the server
+				// instead. The manager has to know the name; "who works here" is the
+				// Employees section's question (M6-05).
+				//
+				// Part of a name is enough, and it finds people who have LEFT -- that
+				// is §4.6 and it is why every shortlisting option was rejected.
+				<input
+					class="filter-input rounded-[10px] px-3 font-display"
+					id="filter-employee"
+					type="text"
+					name="employee"
+					value={ v.EmployeeName }
+					placeholder="Part of a name"
+					autocomplete="off"
+					spellcheck="false"
+				/>
+			</div>
+			@filterSelect("filter-channel", "channel", "Channel", "Any channel", v.Channel, v.Channels)
+			<div class="flex flex-col gap-2 md:flex-row md:items-center">
+				<button type="submit" class="btn btn--primary w-full rounded-xl md:min-h-11 md:flex-1 md:rounded-[10px] md:py-2 md:text-sm">Apply</button>
+				if v.Narrowed {
+					// Only offered when something is actually narrowed. A "Clear"
+					// beside an unfiltered list is a control that does nothing, which
+					// is the shape this whole component was deferred to avoid.
+					<a class="btn btn--quiet min-h-12 rounded-xl md:min-h-11 md:rounded-[10px]" href={ templ.URL(v.ClearHref) }>Clear</a>
+				}
+			</div>
+		</form>
+	</details>
 }
 
 // filterSelect is one dropdown.
@@ -76,9 +97,9 @@ templ FilterBar(v FilterBarView) {
 // chooses rather than the absence of a choice. Its value is the empty string,
 // which is what the handler reads as "do not narrow".
 templ filterSelect(id, name, label, anyLabel, selected string, options []OptionView) {
-	<div class="filter-field">
-		<label class="docket-label" for={ id }>{ label }</label>
-		<select class="filter-input" id={ id } name={ name }>
+	<div class="flex min-w-0 flex-col gap-1.5">
+		<label class="lbl" for={ id }>{ label }</label>
+		<select class="filter-input rounded-[10px] px-3 font-display" id={ id } name={ name }>
 			<option value="" selected?={ selected == "" }>{ anyLabel }</option>
 			for _, o := range options {
 				<option value={ o.Value } selected?={ o.Value == selected }>

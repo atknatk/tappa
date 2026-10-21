@@ -76,8 +76,9 @@ import (
 //     an outcome row that cannot
 //     be written is logged, not swallowed — TestInviteEmail_AnUnrecordedOutcomeIsLoggedNotSwallowed;
 //   - the panel mode takes the panel channel whatever the form says, and its card is
-//     byte for byte the card before EM-7B — TestInviteEmail_ThePanelModeNeverMails,
-//     TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B;
+//     pinned byte for byte (re-pinned only by the redesign, on purpose) —
+//     TestInviteEmail_ThePanelModeNeverMails,
+//     TestRosterActions_ThePanelModeCardIsPinned;
 //   - the construction matches the mode both ways —
 //     TestNewAdminAuth_TheInvitationModeMatchesTheConfiguration; a base URL the e-mail
 //     cannot carry, and a nil sender, are refused at boot —
@@ -391,6 +392,7 @@ func (a *AdminAuth) employeeInviteByEmail(w http.ResponseWriter, r *http.Request
 		RecipientHourLimit: mail.RecipientHourLimit,
 		RecipientDayLimit:  mail.RecipientDayLimit,
 		BackHref:           rosterReturn(f, person.ID, "", ""),
+		ListHref:           rosterReturn(f, uuid.Nil, "", ""),
 	}
 	// PER-REQUEST, ON THE STACK — panelLinkSink's rule: the sink holds the address it
 	// sent to, and a shared one would name one manager's recipient on another's screen.
@@ -515,6 +517,7 @@ func (a *AdminAuth) employeeInviteOnScreen(w http.ResponseWriter, r *http.Reques
 			Name:        person.Name,
 			Outcome:     outcome,
 			BackHref:    rosterReturn(f, person.ID, "", ""),
+			ListHref:    rosterReturn(f, uuid.Nil, "", ""),
 		}
 		a.renderPanel(w, r, http.StatusOK, view.PanelChrome, pages.AdminInviteEmailed(view))
 	}
@@ -556,9 +559,11 @@ func (a *AdminAuth) employeeInviteOnScreen(w http.ResponseWriter, r *http.Reques
 		PanelChrome:   a.chrome(r, pages.TabEmployees),
 		Name:          person.Name,
 		ActivationURL: sink.link,
+		Venue:         inviteVenue(person),
 		Expires:       expiryPhrase(inv.CreatedAt, inv.ExpiresAt),
 		Retired:       inv.RetiredSiblings,
 		BackHref:      rosterReturn(f, person.ID, "", ""),
+		ListHref:      rosterReturn(f, uuid.Nil, "", ""),
 	}
 	a.renderPanel(w, r, http.StatusOK, issued.PanelChrome, pages.AdminInviteIssued(issued))
 }

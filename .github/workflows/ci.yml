@@ -107,7 +107,11 @@ jobs:
           # 2026-10-09: 1.26.6 -> 1.26.9 — GO-2026-6617 (net/http, cagriliyor;
           # "Fixed in: net/http@go1.26.9") `make audit`i kirmiziya cevirdi. Kod
           # degisikligi yok; Dockerfile ve deploy.yml ayni surumu pinliyor.
-          go-version: "1.26.9"
+          # 2026-10-21: 1.26.9 -> 1.26.10 — GO-2026-6809 (crypto/x509, cagriliyor:
+          # VIES istemcisinin sertifika dogrulamasi; "Fixed in: crypto/x509@go1.26.10")
+          # `make audit`i kirmiziya cevirdi. Kod degisikligi yok; Dockerfile ve
+          # deploy.yml ayni surumu pinliyor.
+          go-version: "1.26.10"
           # Modul onbellegi go.sum'a gore (setup-go varsayilani; "modul onbellegi"
           # kart adim 1).
           cache: true

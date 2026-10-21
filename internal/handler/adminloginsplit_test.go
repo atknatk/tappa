@@ -296,16 +296,21 @@ func TestAdminLogin_ChromeLinksReachRoutesThatAreMounted(t *testing.T) {
 // TestAdminLogin_BrandPanelClaimsOnlyWhatTheProductDoes.
 //
 // 🔴 THE BRAND HALF IS MADE OF CLAIMS, which is landingview.go's rule arriving on a
-// second surface. The four lines live in pages.AdminLoginProof with the code that
+// second surface. The lines live in pages.AdminLoginProof with the code that
 // provides each one named beside it; this asserts they are all RENDERED (a list
 // nobody prints proves nothing) and that the three shapes the drawing offered and
 // this screen refused have not crept back in.
 func TestAdminLogin_BrandPanelClaimsOnlyWhatTheProductDoes(t *testing.T) {
 	_, body := loginPage(t)
 
-	if len(pages.AdminLoginProof) < 3 {
+	// THE REDESIGN (M12-43) SHORTENED THE CLAIMS TO THE DRAWING'S TWO SENTENCES under
+	// one heading; the floor follows the list, and the heading is held as well.
+	if len(pages.AdminLoginProof) < 2 {
 		t.Fatalf("pages.AdminLoginProof has %d line(s); this test would prove almost "+
 			"nothing", len(pages.AdminLoginProof))
+	}
+	if !strings.Contains(body, htmlText(pages.AdminLoginHeadline)) {
+		t.Errorf("the brand panel does not render its heading %q", pages.AdminLoginHeadline)
 	}
 	for _, line := range pages.AdminLoginProof {
 		if !strings.Contains(body, htmlText(line)) {
@@ -349,8 +354,16 @@ func TestAdminLogin_BrandPanelClaimsOnlyWhatTheProductDoes(t *testing.T) {
 	// refuses on the public surface; "plaques are on us" is a delivery promise for
 	// hardware nobody has encoded yet (M8-05 phase B3); "while you compare" is a
 	// statement about a rollout rather than about anything this repository builds.
+	//
+	// "practice" is the fourth: the creed once said the first tap was a practice run,
+	// and ADR 0026 removed that behaviour (the activation tap writes no record, and no
+	// new record is practice=true). M12-04 dropped the line; this keeps it dropped.
+	//
+	// "every tap lands" is the fifth: the redesign's drawing said it, and two taps
+	// write no record (a browser without a session, §5 row 3; the activation tap, ADR
+	// 0026). The screen says "every tap we record" (M12-43).
 	lower := strings.ToLower(body)
-	for _, phrase := range []string{"minutes away", "plaques are on us", "while you compare"} {
+	for _, phrase := range []string{"minutes away", "plaques are on us", "while you compare", "practice", "every tap lands"} {
 		if strings.Contains(lower, phrase) {
 			t.Errorf("the sign-in screen says %q. It is not a product fact: see "+
 				"pages.AdminLoginProof for which shapes were refused and why.", phrase)

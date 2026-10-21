@@ -49,58 +49,411 @@ import "github.com/atknatk/tappa/web/templates/components"
 // TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty, not by the shape
 // alone.
 templ AdminTransactions(v TransactionsView) {
-	@PanelShellWithScript(v.PanelChrome, "/static/vendor/htmx.min.js") {
-		// 🔴 MONO, BECAUSE THIS IS DATA RATHER THAN A HEADING. skill tappa-brand:
-		// "IBM Plex Mono - her sayı: saat, süre, tag UID, sayaç... Bir veri hücresi
-		// mono değilse yanlıştır." This line carries a DATE and a TIMEZONE, and it
-		// is the sentence that says which slice of the record the page is showing --
-		// the same class of fact as the times inside the dockets below it, which are
-		// mono. The section's actual heading is the <h1> in PanelShell, set in the
-		// display face; this is not a second one.
-		@templ.Join(keyBudgetBanner(v.KeyBudget), plaqueNotice(v))
-		<p class="font-mono text-sm text-ink/85">
-			{ v.DayLabel }
-			<span class="text-ink/70">· { v.ZoneLabel }</span>
-		</p>
-		@components.FilterBar(v.Filters)
+	@PanelActions(transactionsActions(v)) {
+		@PanelShellWithScript(v.PanelChrome, "/static/vendor/htmx.min.js") {
+			// The day and the zone are the heading's eyebrow now (the shell's Kicker slot, mono):
+			// "which day" is meaningless without the zone, and an overnight shift's 02:00
+			// check-out lands on the NEXT day's page.
+			@templ.Join(keyBudgetBanner(v.KeyBudget), plaqueNotice(v))
+			if v.Today {
+				@passBody(v)
+			} else {
+				@ledgerBody(v)
+			}
+		}
+	}
+}
+
+// transactionsActions is the heading's right-hand side: the ledger's day stepper, nothing on
+// The Pass (D1: no "Manual entry" button -- a manual entry starts from a person). A view with
+// no day has no stepper either.
+func transactionsActions(v TransactionsView) templ.Component {
+	if v.Today || v.DayShort == "" {
+		return nil
+	}
+	return dayStepper(v)
+}
+
+// dayStepper steps the ledger one calendar day at a time and returns to The Pass. Each arrow
+// is a link with a name; the arrow after today is not drawn (its place is kept, so the label
+// does not move). The links keep every filter and never a paging position.
+templ dayStepper(v TransactionsView) {
+	<nav aria-label="Day" class="flex flex-wrap items-center gap-2 md:gap-2.5">
+		<div class="inline-flex items-center rounded-xl border border-line bg-paper">
+			if v.PrevDayHref != "" {
+				<a href={ templ.URL(v.PrevDayHref) } aria-label="Previous day" class="inline-flex size-11 min-h-11 items-center justify-center rounded-xl text-ink hover:bg-ink/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink">
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"></path></svg>
+				</a>
+			}
+			<span class="px-1.5 font-mono text-[13px] text-ink">{ v.DayShort }</span>
+			if v.NextDayHref != "" {
+				<a href={ templ.URL(v.NextDayHref) } aria-label="Next day" class="inline-flex size-11 min-h-11 items-center justify-center rounded-xl text-ink hover:bg-ink/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink">
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"></path></svg>
+				</a>
+			} else {
+				<span aria-hidden="true" class="inline-block size-11"></span>
+			}
+		</div>
+		<a href={ templ.URL(v.PassHref) } class="btn btn--ink gap-2">
+			Today
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" focusable="false"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+		</a>
+	</nav>
+}
+
+// passBody is The Pass (M12-26; boards Main, T-Pass, M-Pass): "Right now", the rail of the
+// newest dockets, then the tape and the plaques.
+templ passBody(v TransactionsView) {
+	<section aria-label="Right now" class="grid grid-cols-2 gap-3 md:gap-3.5 desk:grid-cols-4 desk:gap-4">
+		@floorCard(v.Floor)
+		@spikeCard(v.Spike)
+		@leftOpenCard(v.LeftOpen)
+	</section>
+	<section aria-labelledby="rail-heading" class="flex flex-col gap-2.5 md:gap-3 desk:gap-3.5">
+		<div class="flex flex-col gap-2.5 desk:flex-row desk:flex-wrap desk:items-baseline desk:justify-between desk:gap-3">
+			<h2 id="rail-heading" class="font-display text-xl font-bold tracking-tight text-ink md:text-[22px]">
+				The rail <span class="font-mono text-xs font-normal tracking-normal text-ink/70 md:text-[13px]">· newest on the left</span>
+			</h2>
+			@verdictChips(v.Chips, "Filter the rail")
+		</div>
 		if len(v.Dockets) > 0 {
-			<div class="flex flex-col gap-4">
-				@dockets(v)
+			@rail(v)
+			<div class="flex flex-wrap items-center gap-x-[18px] gap-y-2.5">
+				// THE PASS'S "SHOW MORE" IS AN ORDINARY LINK to the day's next page as a whole
+				// document -- the ledger, which carries the rest of the day. The rail cannot take the
+				// ledger's hour groups in place, and the records must stay reachable (§4.6).
+				if v.MoreHref != "" {
+					<a class="btn btn--quiet rounded-xl" href={ templ.URL(v.MoreHref) }>Show more</a>
+				}
+				<a class="inline-flex min-h-11 items-center text-sm font-bold text-tappa-green underline underline-offset-4 hover:text-ink" href={ templ.URL(v.WholeDayHref) }>See the whole day →</a>
 			</div>
 		} else if v.Queried {
-			@components.EmptyState(emptyHeading(v)) {
-				if v.Filters.Narrowed {
-					<p>Nothing on this day matches those filters. Widen them, or clear them to see the whole day.</p>
-				} else {
-					// 🔴 THIS SENTENCE SAYS "NOTHING WAS RECORDED", NOT "NOBODY TAPPED",
-					// and the difference is §5 rather than style. It read "Nobody tapped
-					// a plaque on this day" and that is a claim the system cannot make:
-					// §5 row 3 sends somebody with no session to the activation page and
-					// writes NO RECORD AT ALL, so a plaque touched by every new starter
-					// in the building produces exactly this empty page. Stating their
-					// absence would be reporting on something never measured — the class
-					// M5-11 closed, and the heading above was already careful about it.
-					//
-					// 🔴 AND THE SECOND HALF IS WITHHELD FROM A BUSINESS WITH NO RECORDS
-					// AT ALL. "Pick another day above" is advice, and advice that cannot
-					// work is worse than silence: a customer on their first afternoon was
-					// being sent through a date picker whose every other day is empty for
-					// exactly the same reason. Measured on a tenant provisioned end to
-					// end (M7-03 phase B).
-					//
-					// 🔴 IT KEYS OFF THE RECORDS, NOT OFF THE PLAQUES, AND AN AUDIT IS
-					// WHY. The first version withdrew the advice when no plaque had been
-					// loaded — which is the ONE state in which a manager may well have
-					// typed last week in by hand, because a manual record needs no plaque
-					// (proved with a real INSERT into a zero-plaque tenant). The advice
-					// was being taken away from the only person whose records really were
-					// on another day. OffersAnotherDay asks the records themselves.
-					if v.OffersAnotherDay() {
-						<p>Nothing was recorded here on this day. Pick another day above.</p>
-					} else {
-						<p>Nothing was recorded here on this day.</p>
-					}
+			@transactionsEmpty(v)
+		}
+	</section>
+	<div class="flex flex-col gap-4 desk:flex-row desk:flex-wrap desk:items-start">
+		@tapeCard(v.Tape)
+		@plaquesCard(v.PassPlaques)
+	</div>
+}
+
+// rail hangs the page's dockets, newest on the left, from an ink bar: each item has its clip
+// and a rail docket. The angle comes from the item's position in the stylesheet, never from a
+// class chosen per item. The scroller bleeds into the shell's padding below the desk width.
+templ rail(v TransactionsView) {
+	<div class="-mx-4 overflow-x-auto px-4 pb-[18px] md:-mx-8 md:px-8 desk:mx-0 desk:px-0">
+		<div class="relative min-w-max pt-2.5">
+			<div aria-hidden="true" class="absolute inset-x-0 top-2.5 h-[7px] rounded bg-ink md:h-2"></div>
+			<ol class="relative flex gap-3 px-3.5 md:gap-3.5 desk:gap-4">
+				for _, d := range v.Dockets {
+					<li class="rail-item flex w-[190px] flex-none flex-col md:w-[200px] desk:w-[214px]">
+						<div aria-hidden="true" class="relative z-[1] h-[18px] w-10 self-center rounded-b-md bg-ink/70 md:w-11 desk:w-[46px]"></div>
+						@components.RailDocket(d)
+					</li>
 				}
+			</ol>
+		</div>
+	</div>
+}
+
+// floorCard is "On the floor now": the people whose latest check-in has no check-out after it,
+// as of the page's load (§4.2: derived from recorded taps, nothing tracked, nothing live), and
+// the same read per venue. The ticks are drawing (at most 20); the number beside them is the
+// figure.
+//
+// ON THE DESK THE CARD IS AS TALL AS ITS ROW, which the Spike card sets, and its lines
+// stack from the top: the figure and the venue rows still share a bottom edge on their
+// line, but the label is not pushed down by the height the card did not need.
+templ floorCard(f FloorView) {
+	if f.State != WidgetNotRead {
+		<div class="stat-card col-span-2 md:flex-row md:items-end md:gap-6 desk:flex-wrap desk:content-start desk:gap-7">
+			<div class="flex flex-none flex-col gap-1">
+				<p class="lbl">On the floor now</p>
+				<p class="font-mono text-[72px] font-normal leading-[0.9] tracking-[-0.04em] text-ink md:text-[80px] desk:text-[88px]">{ f.People }</p>
+				<p class="text-[13px] text-ink/70">
+					if f.State == WidgetFailed {
+						could not be read
+					} else {
+						checked in, no check-out yet
+					}
+				</p>
+			</div>
+			if len(f.Rows) > 0 {
+				<ul aria-label="On the floor, by venue" class="flex min-w-0 flex-1 flex-col gap-1.5 md:gap-[7px] desk:basis-[280px] desk:gap-2">
+					for _, r := range f.Rows {
+						<li class="grid grid-cols-[100px_1fr_28px] items-center gap-2 md:grid-cols-[104px_1fr_34px] md:gap-2.5 desk:grid-cols-[108px_1fr_28px]">
+							<span class="truncate text-[13px] font-medium text-ink">{ r.Name }</span>
+							<span aria-hidden="true" class="overflow-hidden whitespace-nowrap font-mono text-sm tracking-[2px] text-tappa-green md:text-[15px]">{ r.Ticks }</span>
+							<span class="text-right font-mono text-xs text-ink/70">{ r.People }</span>
+						</li>
+					}
+				</ul>
+			}
+		</div>
+	}
+}
+
+// spikeCard is the queue's size as a link to The Spike, the chrome's own badge figure. It
+// counts every day's flags, so its words never say "today".
+templ spikeCard(s SpikeView) {
+	if s.State != WidgetNotRead {
+		<a href={ templ.URL(s.Href) } class="stat-card stat-card--spike justify-between">
+			<span class="lbl text-ink">On the spike</span>
+			<span class="flex flex-col gap-2.5 md:flex-row md:items-end md:gap-3 desk:gap-3.5">
+				<span class="font-mono text-5xl font-normal leading-[0.9] tracking-[-0.04em] md:text-[56px] desk:text-[64px]">{ s.Count }</span>
+				<span class="text-[13px] leading-snug md:pb-0.5 md:text-sm">
+					if s.State == WidgetFailed {
+						the number waiting could not be read
+					} else {
+						taps the rules couldn't judge alone
+					}
+				</span>
+			</span>
+			<span class="mt-auto flex min-h-11 items-center gap-1.5 text-[13px] font-bold md:text-sm">
+				Work the spike
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" focusable="false"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+			</span>
+		</a>
+	}
+}
+
+// leftOpenCard is yesterday's check-ins that no check-out followed (Odd shapes' own definition):
+// "N+" when the read was capped. Closing one is a new manual record, never an edit (§4.3).
+templ leftOpenCard(l LeftOpenView) {
+	if l.State != WidgetNotRead {
+		<div class="stat-card stat-card--open justify-between">
+			<p class="lbl">Left open since yesterday</p>
+			<p class="flex flex-col gap-2.5 md:flex-row md:items-end md:gap-3 desk:gap-3.5">
+				<span class="font-mono text-5xl font-normal leading-[0.9] tracking-[-0.04em] text-ink md:text-[56px] desk:text-[64px]">{ l.Count }</span>
+				<span class="text-[13px] leading-snug text-ink md:pb-0.5 md:text-sm">
+					if l.State == WidgetFailed {
+						could not be read
+					} else {
+						check-ins with no check-out
+					}
+				</span>
+			</p>
+			<p class="text-[13px] text-ink/70">Not counted in hours until a manager closes them.</p>
+			<a href={ templ.URL(l.OddHref) } class="mt-auto inline-flex min-h-11 items-center text-[13px] font-bold text-tappa-green underline underline-offset-4 hover:text-ink md:text-sm">See them in Odd shapes</a>
+		</div>
+	}
+}
+
+// tapeCard is the hourly tape: people on shift per venue for each hour of today that has
+// begun, on a calendar-day axis (00 to 24 -- never a "shift day"). The bars are drawing; each
+// row's accessible name says every hour's count.
+templ tapeCard(t TapeView) {
+	if t.State != WidgetNotRead {
+		<section aria-labelledby="tape-heading" class="panel-card min-w-0 desk:flex-[999_1_560px]">
+			<div class="flex flex-wrap items-baseline justify-between gap-2">
+				<h2 id="tape-heading" class="font-display text-xl font-bold tracking-tight text-ink md:text-[22px]">The tape</h2>
+				<p class="font-mono text-[11px] text-ink/70 md:text-xs"><span class="hidden md:inline">people on shift, by hour · </span>00:00 → now</p>
+			</div>
+			switch  {
+				case t.State == WidgetFailed:
+					<p class="text-sm text-ink/70">The tape could not be read.</p>
+				case len(t.Rows) == 0:
+					<p class="text-sm text-ink/70">Nobody was on shift today so far.</p>
+				default:
+					<div class="md:overflow-x-auto">
+						<div class="flex flex-col gap-2 md:min-w-[640px] md:gap-2.5 desk:min-w-[680px]">
+							for _, r := range t.Rows {
+								<div role="img" aria-label={ r.Label } class="grid grid-cols-[76px_1fr] items-end gap-2 md:grid-cols-[88px_1fr] md:gap-2.5 desk:grid-cols-[96px_1fr] desk:gap-3">
+									<span class="truncate pb-0.5 text-xs font-medium text-ink md:text-[13px]">{ r.Name }</span>
+									<div class={ "grid h-7 items-end gap-0.5 border-b border-line md:h-[34px] md:gap-[3px]", tapeColumns(t.Columns) }>
+										for _, b := range r.Bars {
+											<div class={ components.TapeBar(b.Bucket), tapeTone(b) }></div>
+										}
+									</div>
+								</div>
+							}
+							<div aria-hidden="true" class="grid grid-cols-[76px_1fr] gap-2 md:grid-cols-[88px_1fr] md:gap-2.5 desk:grid-cols-[96px_1fr] desk:gap-3">
+								<span></span>
+								<div class={ "grid gap-0.5 font-mono text-[10px] text-ink/70 md:gap-[3px]", tapeColumns(t.Columns) }>
+									for _, h := range t.Axis {
+										<span>{ h }</span>
+									}
+								</div>
+							</div>
+						</div>
+					</div>
+					<p class="flex flex-wrap gap-x-[18px] gap-y-1 font-mono text-[11px] text-ink/70 md:text-xs">
+						<span class="inline-flex items-center gap-1.5"><span aria-hidden="true" class="inline-block size-2.5 bg-tappa-green"></span>done</span>
+						<span class="inline-flex items-center gap-1.5"><span aria-hidden="true" class="inline-block size-2.5 bg-ink"></span>this hour so far</span>
+					</p>
+					if t.Incomplete {
+						<p class="text-[13px] text-ink/70">The tape is incomplete: today has more records than one read takes, so every bar shows at least that many people, perhaps more.</p>
+					}
+			}
+		</section>
+	}
+}
+
+// tapeColumns is the grid for a day of 23, 24 or 25 hours (a clock change), written out so the
+// stylesheet carries all three.
+func tapeColumns(n int) string {
+	switch n {
+	case 23:
+		return "grid-cols-[repeat(23,minmax(0,1fr))]"
+	case 25:
+		return "grid-cols-[repeat(25,minmax(0,1fr))]"
+	default:
+		return "grid-cols-[repeat(24,minmax(0,1fr))]"
+	}
+}
+
+// tapeTone is a bar's fill: ink for the hour that holds the page's "now", green for an hour
+// that is over, none for an hour nobody was on shift.
+func tapeTone(b TapeBar) string {
+	switch {
+	case b.Bucket <= 0:
+		return ""
+	case b.Current:
+		return "bg-ink"
+	default:
+		return "bg-tappa-green"
+	}
+}
+
+// plaquesCard lists the plaques on a wall, the most recently seen first ("never" for one no tap
+// has reached), from the Venues section's own read and in its words: "In service", and "This
+// plaque needs replacing" for one whose encode was not recorded as finished.
+templ plaquesCard(p PassPlaquesView) {
+	if p.State != WidgetNotRead {
+		<section aria-labelledby="plaques-heading" class="panel-card min-w-0 gap-3 desk:flex-[1_1_300px]">
+			<div class="flex flex-wrap items-baseline justify-between gap-2">
+				<h2 id="plaques-heading" class="font-display text-xl font-bold tracking-tight text-ink md:text-[22px]">Plaques</h2>
+				<p class="font-mono text-[11px] text-ink/70 md:text-xs">in service · last seen</p>
+			</div>
+			switch  {
+				case p.State == WidgetFailed:
+					<p class="text-sm text-ink/70">Plaques could not be read.</p>
+				case len(p.Rows) == 0:
+					<p class="text-sm text-ink/70">No plaque is in service.</p>
+				default:
+					<ul class="flex flex-col md:grid md:grid-cols-2 md:items-start md:gap-x-6 desk:flex desk:items-stretch">
+						for _, r := range p.Rows {
+							<li class="grid grid-cols-[1fr_auto] gap-x-2.5 gap-y-0.5 border-b border-dashed border-line py-2.5">
+								<span class="min-w-0 truncate text-sm font-medium text-ink">{ r.Venue }</span>
+								<span class="text-right font-mono text-xs text-ink">{ r.Seen }</span>
+								<span class="font-mono text-[11px] text-ink/70">{ r.Plaque }</span>
+								<span class="text-right"><span class="tally tally--mounted pill-tally">In service</span></span>
+								if r.Replace {
+									<span class="col-span-2"><span class="tally tally--rejected pill-tally">This plaque needs replacing</span></span>
+								}
+							</li>
+						}
+					</ul>
+					if p.More {
+						<p class="text-[13px] text-ink/70">{ itoa(PassPlaqueRows) + " plaques, the most recently seen first." }</p>
+					}
+			}
+			if p.Href != "" {
+				<p class="text-[13px] text-ink/70">
+					<a href={ templ.URL(p.Href) } class="hit-link font-bold text-tappa-green underline underline-offset-4 hover:text-ink">{ p.Label }</a>
+					{ " " }shows every plaque this business has.
+				</p>
+			}
+		</section>
+	}
+}
+
+// ledgerBody is the past day (M12-27; boards Ledger, T-Ledger, M-Ledger): the filters, the day's
+// count line and the verdict chips, then the records grouped by hour, newest first.
+templ ledgerBody(v TransactionsView) {
+	@components.FilterBar(v.Filters)
+	if v.Summary != "" || v.TallyFailed || len(v.Chips) > 0 {
+		<div class="flex flex-col gap-2.5 desk:flex-row desk:flex-wrap desk:items-center desk:justify-between desk:gap-3">
+			if v.Summary != "" {
+				<p class="font-mono text-xs leading-normal text-ink/70 md:text-[13px]">{ v.Summary }</p>
+			} else if v.TallyFailed {
+				<p class="text-[13px] text-ink/70">The day's counts could not be read.</p>
+			}
+			@verdictChips(v.Chips, "Verdict")
+		</div>
+	}
+	if len(v.Hours) > 0 {
+		<div class="flex flex-col gap-6 md:gap-[26px]">
+			@ledgerHours(v)
+		</div>
+	} else if v.Queried {
+		@transactionsEmpty(v)
+	}
+}
+
+// verdictChips are the verdict filters as links; the current one carries aria-current. The
+// count beside each is the day's, and is left out when it was not measured.
+templ verdictChips(chips []VerdictChip, label string) {
+	if len(chips) > 0 {
+		<nav aria-label={ label } class="chip-group">
+			for _, c := range chips {
+				<a href={ templ.URL(c.Href) } class={ chipClass(c.Current) } { chipCurrent(c.Current)... }>
+					{ c.Label }
+					if c.Count != "" {
+						<span class="chip-count">{ c.Count }</span>
+					}
+				</a>
+			}
+		</nav>
+	}
+}
+
+func chipClass(current bool) string {
+	if current {
+		return "chip-link chip-link--on"
+	}
+	return "chip-link"
+}
+
+func chipCurrent(current bool) templ.Attributes {
+	if current {
+		return templ.Attributes{"aria-current": "true"}
+	}
+	return templ.Attributes{}
+}
+
+// transactionsEmpty is the empty list, gated on having asked (§4.6).
+//
+// 🔴 THE PASS HAS NO DAY PICKER ABOVE IT (M12-26), so it gives the date-picker advice as a link
+// instead: the day's ledger, where the stepper and the date field are. The advice is withheld on
+// the same records-based test (OffersAnotherDay).
+templ transactionsEmpty(v TransactionsView) {
+	@components.PanelEmpty(SectionLabel(TabTransactions), emptyHeading(v), components.PanelEmptyCTA{}) {
+		if v.Filters.Narrowed {
+			<p>Nothing on this day matches those filters. Widen them, or clear them to see the whole day.</p>
+		} else {
+			// 🔴 THIS SENTENCE SAYS "NOTHING WAS RECORDED", NOT "NOBODY TAPPED",
+			// and the difference is §5 rather than style. It read "Nobody tapped
+			// a plaque on this day" and that is a claim the system cannot make:
+			// §5 row 3 sends somebody with no session to the activation page and
+			// writes NO RECORD AT ALL, so a plaque touched by every new starter
+			// in the building produces exactly this empty page. Stating their
+			// absence would be reporting on something never measured — the class
+			// M5-11 closed, and the heading above was already careful about it.
+			//
+			// 🔴 AND THE SECOND HALF IS WITHHELD FROM A BUSINESS WITH NO RECORDS
+			// AT ALL. "Pick another day above" is advice, and advice that cannot
+			// work is worse than silence: a customer on their first afternoon was
+			// being sent through a date picker whose every other day is empty for
+			// exactly the same reason. Measured on a tenant provisioned end to
+			// end (M7-03 phase B).
+			//
+			// 🔴 IT KEYS OFF THE RECORDS, NOT OFF THE PLAQUES, AND AN AUDIT IS
+			// WHY. The first version withdrew the advice when no plaque had been
+			// loaded — which is the ONE state in which a manager may well have
+			// typed last week in by hand, because a manual record needs no plaque
+			// (proved with a real INSERT into a zero-plaque tenant). The advice
+			// was being taken away from the only person whose records really were
+			// on another day. OffersAnotherDay asks the records themselves.
+			if v.Today {
+				<p>Nothing was recorded here on this day.</p>
+				if v.OffersAnotherDay() && v.WholeDayHref != "" {
+					<p class="mt-1"><a href={ templ.URL(v.WholeDayHref) } class="inline-flex min-h-11 items-center font-bold text-tappa-green underline underline-offset-4 hover:text-ink">See the whole day →</a></p>
+				}
+			} else if v.OffersAnotherDay() {
+				<p>Nothing was recorded here on this day. Pick another day above.</p>
+			} else {
+				<p>Nothing was recorded here on this day.</p>
 			}
 		}
 	}
@@ -186,7 +539,7 @@ templ plaqueNotice(v TransactionsView) {
 templ plaqueNoticeLink(v TransactionsView) {
 	if v.PlaquesHref() != "" {
 		<p class="mt-2">
-			<a href={ templ.URL(v.PlaquesHref()) } class="underline">{ v.PlaquesLabel() }</a>
+			<a href={ templ.URL(v.PlaquesHref()) } class="hit-link underline">{ v.PlaquesLabel() }</a>
 			{ " " }shows every plaque this business has.
 		</p>
 	}
@@ -200,19 +553,36 @@ templ plaqueNoticeLink(v TransactionsView) {
 // harmless, and the ordinary link they would have followed instead
 // (v.MoreHref, rendered below) goes to the whole page.
 templ TransactionDockets(v TransactionsView) {
-	@dockets(v)
+	@ledgerHours(v)
 }
 
-// dockets is the shared body: the cards, then whatever continues the list.
-templ dockets(v TransactionsView) {
-	for _, d := range v.Dockets {
-		@components.TransactionDocket(d)
+// ledgerHours is the shared body: the hour groups, newest hour first, then whatever continues
+// the list. An hour is a section headed by its time; a group whose hour began on the page
+// before says "(continued)". From the desk width the hour sits in a column beside its dockets.
+templ ledgerHours(v TransactionsView) {
+	for _, g := range v.Hours {
+		<section aria-labelledby={ g.Anchor } class="flex flex-col gap-3 desk:grid desk:grid-cols-[96px_minmax(0,1fr)] desk:items-start desk:gap-4">
+			<div class="flex items-baseline gap-2 border-t-2 border-ink pt-1.5 desk:flex-col desk:gap-0.5">
+				<h2 id={ g.Anchor } class="font-mono text-lg font-normal leading-tight text-ink md:text-xl desk:text-[22px]">
+					{ g.Hour }
+					if g.Continued {
+						<span class="text-xs text-ink/70">(continued)</span>
+					}
+				</h2>
+				<p class="font-mono text-[11px] text-ink/70">{ g.Weekday }</p>
+			</div>
+			<div class="flex flex-col gap-4 md:grid md:grid-cols-2 md:gap-x-3.5 md:gap-y-5 desk:grid-cols-[repeat(auto-fill,minmax(300px,1fr))] desk:gap-x-4 desk:gap-y-[22px]">
+				for _, d := range g.Dockets {
+					@components.TransactionDocket(d)
+				}
+			</div>
+		</section>
 	}
 	if v.MoreHref != "" {
 		// 🔴 AN ANCHOR THAT HTMX INTERCEPTS, RATHER THAN A BUTTON.
 		//
 		// With the script: hx-get fetches the next fragment and hx-swap="outerHTML"
-		// on hx-target="this" replaces this very control with it — so the new cards
+		// on hx-target="this" replaces this very control with it — so the new hours
 		// land exactly where the control was, and the control that comes back with
 		// them continues the chain.
 		//
@@ -226,7 +596,7 @@ templ dockets(v TransactionsView) {
 		// avoiding all three is what lets the policy stay free of 'unsafe-inline'
 		// and 'unsafe-eval'.
 		<a
-			class="btn btn--quiet self-start"
+			class="btn btn--quiet self-start rounded-xl desk:ml-[112px]"
 			href={ templ.URL(v.MoreHref) }
 			hx-get={ v.MoreFragmentHref }
 			hx-target="this"

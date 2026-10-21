@@ -813,6 +813,37 @@ sayısı (judged, *GPS alone*, *outside the venue*, mekân satırının iki raka
 (eş satırları sorguya girmez; sayısı toplam kartından gelen tek, her zaman **sonda** duran *"partner venue"* kovası). Okuyucuların envanteri
 `TestEvidenceReaders_EveryOneIsClassified`'tadır. Kalan dolaylı açılma §13 madde 5.
 
+**Panel yeniden tasarımının okuyucuları (M12, 2026-10-20 — M12-48'de buraya yazıldı).** Hepsi
+mevcut tablolarda, RLS'li ve açık `tenant_id` filtreli; hiçbiri bir `holding_*` fonksiyonu
+eklemez ya da genişletmez, eş mekânın adı yalnız `holding_site_locations` yolundan
+(`siteVenuesFor`) gelir:
+- **Zemin** (*"on the floor now"*, M12-13) ve **mekân başına sayım** — `CountOnTheFloorByVenue`:
+  kanıt sütunu okumaz; eş satırı bir kişiyi sayıya ekler, eşin ağı hakkında hiçbir şey söylemez.
+- **Saatlik şerit** (M12-14) — `ListWorkedShiftEvents`'in ikinci çağıranı: yön zinciri ve mekân;
+  envanterdeki `residue` sınıfı değişmedi.
+- **Açık kalanlar** (M12-15) — `ListOpenCheckIns`'i yeniden kullanır, yeni okuma yok.
+- **Günün verdict sayıları** (M12-16) — `CountPanelTransactionsByVerdict`: listenin kendi
+  yüklemleri; eş satırının verdict'i sayılır — §13 madde 5 (a) artığı, envanterde `residue`.
+- **Durum sayıları** (M12-17) — `CountPanelEmployeesByStatus`: yalnız `employees`; kanıt yok
+  (K-14 envanterinde, `employeeLocationReaders`).
+- **Son dokunuş** (M12-18) — `ListLastTapsForEmployees` ve **son yedi dokunuş** (M12-19) —
+  `ListRecentTapsForEmployee`: an, yön, verdict kelimesi (ve kanal / karar kelimesi); kanıt sütunu
+  seçilmez; eş satırının verdict'i artık, envanterde `residue`.
+- **Kişi özeti** (M12-20) — `GetPanelPersonSummary`: iş unvanı, yaşam döngüsü damgaları, canlı
+  oturum sayısı ve tarihleri; `transactions` okunmaz, kanıt yok.
+- **The Roll'un kişileri** (M12-21) — `ListRollEmployees`: rol ve ev mekânı (K-14 envanterinde).
+- **Bugün karar verilenler** (M12-25) — `CountReviewsSince`: yalnız `transaction_reviews`;
+  `transactions` okunmaz.
+- **Odd shapes** — mekân başına kanıt dağılımı (M12-22, `ListAnomalyVenues`'in beş rakamı:
+  eş mekân kendi satırıdır ve dağılımı yoktur, `site_tenant_id IS NULL` filtresi sayılı), çiftlerin
+  gün noktaları (M12-23, `ListTapsTakenTogether` — eş mekân satırları o mekânın sırasına katılır
+  (M11 API-1c); kanıt sütunu okunmaz) ve sayaç
+  atlamaları (M12-24, `ListAnomalyPlaqueJumps` — `tag_uid IS NOT NULL`, saha satırının plaketi
+  işverenin anomalisi değildir).
+Kanıt ya da çalışanın ev mekânını okuyanlar `TestEvidenceReaders_EveryOneIsClassified` ve
+`TestEmployeeLocationReaders_Counted`'da sınıflıdır; `CountOnTheFloorByVenue`,
+`GetPanelPersonSummary` ve `CountReviewsSince` hiçbir kanıt sütunu okumadığı için ikisinde de yoktur.
+
 **Lokasyon silme:** KF'nin `CountLocationReferences`'ı KM'deki `site_location_id`'leri göremez →
 sayım izdüşümden de yapılır; FK `RESTRICT` son kemer (§4).
 
@@ -962,7 +993,14 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
    anlatmaz; artık öncelik sırasındadır. Kapatmak not
    değiştirmesini kanıt dışı kurallara da yaymak olurdu (ikinci denetimin ORTA-B'si tam onu geri
    aldı: kayıp plaket, sayaç boşluğu, farklı şube notu işverenin bilmesi gerekendir) — bu yüzden
-   adlandırılmış artık, kod değişmedi. İşveren kendi verisini dışa aktarabilir.
+   adlandırılmış artık, kod değişmedi. İşveren kendi verisini dışa aktarabilir. (f) **Kayıt kanalı**
+   (M12-48'de yazıldı): eş mekân satırında kanalı (plaket dokunuşu / QR / elle) gösteren yüzeyler —
+   günlük docket'in kanal alanı ve damgası (M12'den önce de vardı); The Spike'ın *"Physical tap"*
+   kutusu (*"QR scan"* ya da *"chip read"*) ve kaydın satırı (`spikeLine`, *"… · QR"*, M12-28);
+   kadro satırının son dokunuş notu *"by hand"* (M12-18). Hepsi The Pass'ın kanal filtresinin zaten
+   yaptığı açıklamadır (eş satırı `channel=qr` ile süzülebilir). Kanal kanıt değildir ama *QR* ve
+   `flag` birlikte `qr-requires-ip`'in eşleştiğini ima edebilir; yeni bir açılma değil, aynı bilginin
+   başka yerleri.
 6. **K-38:** çapraz QR guardrail'ı işverence ne gevşetilir ne `deny`'e sıkılaştırılır.
 7. **K-29:** üyeliğin **commit edilmiş** bitişinden sonra verilen onay/ret KF'ye düşmez (60 sn'lik
    çıkış penceresinde de — onay katıdır; `TestHoldingFeed_ApprovalInsideTheExitWindowIsNotProjected`);

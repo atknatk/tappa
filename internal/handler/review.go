@@ -169,11 +169,33 @@ func (a *AdminAuth) reviewSection(w http.ResponseWriter, r *http.Request) {
 		// hand-edited URL can turn the sentence on but cannot put anything in it.
 		Clipped: r.URL.Query().Get("clipped") == "1",
 	}
+	v.PanelChrome.Kicker = "Every day · newest first · shrinks as you work it"
+	// "N decided today" (M12-25) in its three states; the template prints "not counted" for a
+	// failed count and nothing for one never asked -- never a 0 nobody measured.
+	v.Decided = pages.DecidedToday{Queried: page.Decided.Queried, Failed: page.Decided.Failed, N: page.Decided.N}
 	zone := page.Zone
 	if zone == nil {
 		zone = time.UTC
 	}
 	v.ZoneLabel = zone.String()
+	// THE FOCUS LINKS KEEP THE PAGE'S KEYSET POSITION, so choosing a record on page three
+	// reloads page three rather than the first. The position is re-encoded from the parsed
+	// cursor, never echoed from the address: half a position or a malformed one is dropped
+	// exactly as reviewCursor drops it.
+	keep := url.Values{}
+	if after != nil {
+		keep.Set("after_at", after.At.UTC().Format(time.RFC3339Nano))
+		keep.Set("after_id", after.ID.String())
+	}
+	focusHref := func(id string) string {
+		q := url.Values{}
+		for k, vs := range keep {
+			q[k] = vs
+		}
+		q.Set("focus", id)
+		return reviewHref + "?" + q.Encode()
+	}
+	now := time.Now()
 	v.Items = make([]pages.ReviewItem, 0, len(page.Records))
 	for _, rec := range page.Records {
 		v.Items = append(v.Items, pages.ReviewItem{
@@ -181,8 +203,23 @@ func (a *AdminAuth) reviewSection(w http.ResponseWriter, r *http.Request) {
 			// THE DAY IS PART OF THE TIME HERE AND NOT IN THE TRANSACTIONS SECTION,
 			// because the queue spans days: a bare "23:14:02" on a worklist that
 			// reaches back weeks tells a manager nothing about which shift it was.
-			Docket: queueDocketView(rec, zone),
+			Docket:    queueDocketView(rec, zone),
+			When:      queueWhen(rec.OccurredAt, now, zone),
+			FocusHref: focusHref(rec.ID.String()),
 		})
+	}
+	if len(v.Items) > 0 {
+		i := focusIndex(v.Items, r.URL.Query().Get("focus"))
+		v.Items[i].Current = true
+		v.FocusID = v.Items[i].ID
+		v.Focus = components.SpikeFocus(v.Items[i].Docket)
+		v.Pager = pages.ReviewPager{Pos: i + 1, Of: len(v.Items)}
+		if i > 0 {
+			v.Pager.PrevHref = v.Items[i-1].FocusHref
+		}
+		if i+1 < len(v.Items) {
+			v.Pager.NextHref = v.Items[i+1].FocusHref
+		}
 	}
 	if page.Next != nil {
 		q := url.Values{}
@@ -242,6 +279,52 @@ func (a *AdminAuth) confirmedDecision(r *http.Request) string {
 		return ""
 	}
 	return want
+}
+
+// focusIndex picks the record in focus: the item whose id the address names, else the first.
+//
+// 🔴 THE ADDRESS ONLY CHOOSES AMONG RECORDS THIS PAGE ALREADY LOADED, through this tenant's own
+// queue read. An id that is not a uuid, another business's, already decided, or on another page
+// matches nothing here and falls back to the first record -- no error, no 404, no blank page
+// (§4.6), and nothing said about that id. The decision POST re-checks everything again.
+func focusIndex(items []pages.ReviewItem, raw string) int {
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return 0
+	}
+	want := id.String()
+	for i, it := range items {
+		if it.ID == want {
+			return i
+		}
+	}
+	return 0
+}
+
+// queueWhen is a queue item's time as a manager says it, in the tenant's zone against now:
+// "today 14:26", "yesterday 02:14", the weekday within the last week ("Mon 09:02"), and the
+// date beyond it or ahead of today ("5 Oct 09:02"), where a weekday would name two days.
+// now is a parameter so the words are deterministic under test.
+func queueWhen(at, now time.Time, zone *time.Location) string {
+	if zone == nil {
+		zone = time.UTC
+	}
+	l, n := at.In(zone), now.In(zone)
+	clock := l.Format("15:04")
+	// Whole calendar days between the two local dates -- counted on the dates, so a DST day of
+	// 23 or 25 hours is still one day.
+	days := int(time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, time.UTC).
+		Sub(time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, time.UTC)).Hours() / 24)
+	switch {
+	case days == 0:
+		return "today " + clock
+	case days == 1:
+		return "yesterday " + clock
+	case days > 1 && days < 7:
+		return l.Format("Mon") + " " + clock
+	default:
+		return l.Format("2 Jan") + " " + clock
+	}
 }
 
 // queueDocketView maps one queued record onto a card.

@@ -1732,6 +1732,33 @@ sorgu mutasyonları `make sqlc` + `internal/domain/tenant`, `internal/db`, `cmd/
   skill'in *"alt = tenant adı"* cümlesi yüzeye göre yazılmalı: tap ekranında ad, panel
   başlığında boş (karar 9). *(WL-12, 2026-10-06: yapıldı — skill *"Tenant slotları"*.)*
 
+### WL-8 notu eki (2026-10-20 — "The Pass" panel kabuğu; §2'nin panel satırı ve §4'ün kuralları değişmedi)
+
+- **Golden tabanı taşındı.** Markasız panel golden'ının panel girdileri
+  (`internal/handler/panelbrand_golden_test.go`, `unbrandedPanelShell`) artık `0bb5085`'in
+  kabuğundan basılır; `layout.*` girdileri df544c1'e bağlı kalır. Markasız kromun "marka yoksa
+  değişiklik yok" iddiası ayrıca yapısal olarak ölçülür (`<img>`, şerit, tema bağlantısı, co-brand
+  satırı yok; kilit bir kez).
+- **Başlık ink kenar çubuğunda.** Başlık (şerit · logo · ad · co-brand) belgede bir kez, panelin yan
+  kolonunun tepesindedir: < 768 px telefonun porselen üst çubuğu, 768–1199 px 88 px ink ray,
+  ≥ 1200 px 248 px ink kenar çubuğu. Ad ink üzerinde paper (16,2:1), co-brand paper/70 (8,5:1).
+  Logo ink zeminde paper bir karonun içindedir; 32 px kutu ve boş `alt` (karar 6, 9) aynen.
+  Logosuz markalı işletmede rayın işareti adın ilk harfidir, Taptime'ın "t."'si değil.
+- **Geçerli bölüm işareti paper bir haptır** (yeşil alt çizgi değil); accent onu hiçbir genişlikte
+  boyamaz — K4'ün noktası aynen geçerlidir.
+- **Şerit ≥ 768 px'te ink üzerindedir.** Çok koyu bir accent ink zeminde daha az görünür. Şerit
+  dekoratif ve `aria-hidden`'dır, bilgi taşımaz; §3'ün kapısı değişmedi ve hâlâ porselene karşı
+  ölçer (telefonda şerit porselen üst çubuğun üstündedir).
+- **Bölümün başlık yuvaları (M12-01; M12-48'de buraya yazıldı) markayı taşımaz.** `PanelChrome`
+  isteğe bağlı **Kicker** (mono üst satır), **Title** (bölüm etiketinin yerine geçer) ve **Crumbs**
+  (`[]Crumb{Label, Href}`) alır; başlığın sağındaki **eylemler** bir alan değil,
+  `@pages.PanelActions(x) { @PanelShell(…) { … } }` sarmalayıcısıdır (`templ.Component` alanı §4.7'nin
+  tür yürüyüşlerini kırıyordu). Kabuk yine **tek `<h1>`** basar (Title varsa o, yoksa bölüm etiketi).
+  Yuvalar yan kolonun değil içerik kuyusunun başındadır: accent onlara girmez
+  (`TestPanelHead_TheAccentDoesNotReachTheHeading`), yuvalar boşken kabuk M12-01 öncesiyle bayt
+  bayt aynıdır (`TestPanelHead_EmptySlotsAreTheShellAsItWas`). §2'nin panel satırı değişmedi:
+  tenant rengi yine yalnız şeritte.
+
 ## WL-7 notu (2026-10-03 — Account → "Your brand" editörü; §2'nin önizleme satırı ve §3'ün kapısı değişmedi)
 
 Kod: `internal/handler/brandactions.go` (editörün görünümü `brandEditorOf`, accent ve sıfırla

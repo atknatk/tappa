@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Roll — tablet</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.receipt{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-top:0;border-bottom:0}
+.receipt::before{content:"";position:absolute;left:-1px;right:-1px;top:-7px;height:7px;background:radial-gradient(circle at 7px 0,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.receipt::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.tnav{position:relative;width:72px;min-height:60px;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-decoration:none;color:#EDF0EA;font-family:'Space Grotesk',sans-serif;font-weight:500;font-size:10px}
+.tnav:hover{background:rgba(237,240,234,.08);color:#FFFDF4}
+.tnav--on,.tnav--on:hover{background:#FFFDF4;color:#152219}
+.tbadge{position:absolute;top:5px;left:42px;min-width:18px;height:18px;padding:0 4px;box-sizing:border-box;border-radius:9px;background:#D98E2B;color:#152219;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+th{font-weight:400}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
+</helmet>
+<div style="width: 834px; display: flex; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <aside style="flex: 0 0 88px; align-self: stretch; background: #152219; position: relative; padding: 20px 8px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 6px">
+    <div style="position: absolute; left: 0; right: 0; top: 0; height: 4px; background: #1F5C41"></div>
+    <div style="font-size: 26px; font-weight: 700; color: #FFFDF4; letter-spacing: -0.03em; padding: 4px 0 14px">K</div>
+    <nav aria-label="Panel sections" style="display: flex; flex-direction: column; gap: 4px">
+      <a href="T-Pass.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg>Pass</a>
+      <a href="T-Spike.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg>Spike<span class="tbadge" aria-label="4 waiting">4</span></a>
+      <a href="T-People.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg>People</a>
+      <a href="T-Venues.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Venues</a>
+      <a href="T-Roll.dc.html" class="tnav tnav--on" aria-current="page"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg>Roll</a>
+      <a href="T-Odd.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="17" r="2"/><circle cx="12" cy="10" r="2"/><circle cx="18" cy="15" r="2"/><path d="M15 3.5l5 5M20 3.5l-5 5"/></svg>Odd</a>
+      <a href="T-Rules.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Rules</a>
+    </nav>
+    <div style="margin-top: auto; display: flex; flex-direction: column; gap: 4px; border-top: 1px solid rgba(237,240,234,.14); padding-top: 10px">
+      <a href="T-Billing.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>Billing</a>
+      <a href="T-Account.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/></svg>Account</a>
+      <a href="T-Developers.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/></svg>Developers</a>
+    </div>
+    <button type="button" style="margin-top: 10px; width: 72px; min-height: 44px; padding: 0 4px; border-radius: 10px; border: 1px solid #C9D2C8; background: #FFFDF4; color: #152219; font: 700 12px 'Space Grotesk', sans-serif; cursor: pointer">Sign out</button>
+  </aside>
+
+  <main style="flex: 1; min-width: 0; padding: 24px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px">
+    <sc-if value="{{truncated}}" hint-placeholder-val="{{false}}">
+      <div role="alert" style="border-left: 4px solid #BE3D2A; background: rgba(190,61,42,.08); border-radius: 0 12px 12px 0; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+        <strong style="font-size: 14px">These totals are incomplete</strong>
+        <span style="font-size: 13px; line-height: 1.45">This week holds more records than one report reads at once, so the hours below are a floor and not a total. Nothing has been lost — every record is still on The Pass.</span>
+      </div>
+    </sc-if>
+    <header style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 14px">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span class="lbl">Hours per person · week 42</span>
+        <h1 style="margin: 0; font-size: 36px; line-height: 1; letter-spacing: -0.035em">The Roll</h1>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center">
+        <div role="group" aria-label="Week" style="display: flex; align-items: center; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 12px">
+          <a href="T-Roll.dc.html" aria-label="Previous week" style="width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; color: #152219"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+          <span class="mono" style="font-size: 13px; padding: 0 4px">12 – 18 Oct</span>
+          <a href="T-Roll.dc.html" aria-label="Next week" style="width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; color: #152219"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></a>
+        </div>
+        <a href="T-Roll.dc.html" style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; color: #152219; font-size: 14px; font-weight: 700; text-decoration: underline; text-underline-offset: 4px">This week</a>
+        <a href="#csv" download style="min-height: 44px; padding: 0 16px; border-radius: 12px; border: 1px solid #152219; color: #152219; font: 700 14px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; gap: 8px; text-decoration: none">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+          CSV
+        </a>
+      </div>
+    </header>
+    <p class="mono" style="margin: -10px 0 0; font-size: 12px; color: rgba(21,34,25,.7)">The CSV holds every person and every open check-in — the lists below are shortened, the file is not.</p>
+
+    <section aria-label="Week total" style="padding-top: 7px; padding-bottom: 7px">
+      <div class="receipt" style="padding: 18px 22px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 22px; align-items: start">
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 10px">
+            <span style="font-weight: 700; font-size: 17px">Kebab Factory</span>
+            <span class="lbl">Week 42 · Europe/Malta</span>
+          </div>
+          <div class="mono" style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; border-top: 1px dashed #C9D2C8; padding-top: 10px">
+            <sc-for list="{{lines}}" as="l" hint-placeholder-count="6">
+              <div style="display: flex; justify-content: space-between; gap: 8px"><span>{{l.k}}</span><span>{{l.v}}</span></div>
+            </sc-for>
+          </div>
+          <div class="mono" style="display: flex; justify-content: space-between; align-items: baseline; border-top: 1px dashed #C9D2C8; padding-top: 10px">
+            <span style="font-size: 13px; font-weight: 700">TOTAL</span>
+            <span style="font-size: 26px; font-weight: 700; letter-spacing: -0.02em">{{total}}</span>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <div style="border: 1px dashed #D98E2B; background: rgba(217,142,43,.1); border-radius: 10px; padding: 12px 14px; font-size: 13px; line-height: 1.45; display: flex; flex-direction: column; gap: 4px">
+            <strong>Not closed yet.</strong>
+            <span>{{openHead}}</span>
+            <span>The figure above is SHORT by whatever these add up to. Nothing here is counted as zero hours — it is simply not counted, and it stays visible until somebody deals with it.</span>
+            <a href="T-Odd.dc.html" style="display: inline-flex; align-items: center; min-height: 44px; font-weight: 700">Close open check-ins →</a>
+            <a href="#open" style="display: inline-flex; align-items: center; min-height: 44px; font-weight: 700">See the open list ↓</a>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; line-height: 1.45; color: rgba(21,34,25,.7)">
+            <sc-for list="{{smallPrint}}" as="s" hint-placeholder-count="4"><p style="margin: 0">{{s}}</p></sc-for>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <sc-if value="{{capped}}" hint-placeholder-val="{{false}}">
+      <div role="note" style="border-left: 4px solid #D98E2B; background: rgba(217,142,43,.12); border-radius: 0 12px 12px 0; padding: 10px 14px; font-size: 13px; line-height: 1.45"><strong>Not everybody is listed.</strong> Showing 100 of 134 people, by name. The totals cover everybody; only this list is shortened. Download the CSV for every row.</div>
+    </sc-if>
+    <section aria-label="Hours by person" style="position: relative; background: linear-gradient(90deg, #FFFDF4 30%, rgba(255,253,244,0)) 0 0 / 40px 100% no-repeat local, linear-gradient(270deg, #FFFDF4 30%, rgba(255,253,244,0)) 100% 0 / 40px 100% no-repeat local, radial-gradient(farthest-side at 0 50%, rgba(21,34,25,.18), rgba(21,34,25,0)) 0 0 / 14px 100% no-repeat scroll, radial-gradient(farthest-side at 100% 50%, rgba(21,34,25,.18), rgba(21,34,25,0)) 100% 0 / 14px 100% no-repeat scroll, #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 8px 0 4px; overflow-x: auto">
+      <table style="width: 100%; min-width: 640px; border-collapse: collapse">
+        <thead>
+          <tr>
+            <th scope="col" class="lbl" style="text-align: left; padding: 12px 6px 12px 14px">Person</th>
+            <sc-for list="{{days}}" as="d" hint-placeholder-count="7">
+              <th scope="col" class="lbl" style="text-align: center; padding: 12px 1px; letter-spacing: .04em; white-space: nowrap">{{d}}</th>
+            </sc-for>
+            <th scope="col" class="lbl" style="text-align: right; padding: 12px 14px 12px 6px">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
+            <tr style="border-top: 1px dashed #C9D2C8">
+              <th scope="row" style="text-align: left; padding: 9px 6px 9px 14px; vertical-align: top">
+                <span style="display: flex; flex-direction: column; gap: 3px">
+                  <span style="font-size: 15px; font-weight: 700">{{r.name}}</span>
+                  <span class="mono" style="font-size: 11px; font-weight: 400; color: rgba(21,34,25,.7)">{{r.sub}}</span>
+                  <sc-if value="{{r.hasTallies}}" hint-placeholder-val="{{false}}">
+                    <span style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px">
+                      <sc-for list="{{r.tallies}}" as="t" hint-placeholder-count="1"><span class="mono" style="{{t.style}}">{{t.t}}</span></sc-for>
+                    </span>
+                  </sc-if>
+                </span>
+              </th>
+              <sc-for list="{{r.cells}}" as="c" hint-placeholder-count="7">
+                <td style="padding: 6px 1px; text-align: center; vertical-align: top">
+                  <span class="mono" style="{{c.style}}">{{c.v}}<span class="sr">{{c.sr}}</span></span>
+                </td>
+              </sc-for>
+              <td class="mono" style="text-align: right; padding: 9px 14px 9px 6px; white-space: nowrap; vertical-align: top">
+                <span style="font-size: 15px; font-weight: 700">{{r.total}}</span>
+              </td>
+            </tr>
+          </sc-for>
+        </tbody>
+      </table>
+      <div class="mono" style="display: flex; flex-wrap: wrap; gap: 18px; padding: 12px 14px; font-size: 12px; color: rgba(21,34,25,.7); border-top: 1px solid #C9D2C8">
+        <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; background: rgba(31,92,65,.15); border-radius: 3px"></span>worked</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border: 1px solid #152219; border-radius: 3px; box-sizing: border-box"></span>other venue</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border: 1px dashed #D98E2B; background: rgba(217,142,43,.1); border-radius: 3px; box-sizing: border-box"></span>open check-in, not counted</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px"><span style="padding: 0 4px; border: 1px solid rgba(21,34,25,.7); border-radius: 3px; font-size: 10px">M</span>arrival entered by a manager</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px"><span style="color: rgba(21,34,25,.7)">—</span>nothing recorded</span>
+      </div>
+    </section>
+
+    <section aria-labelledby="pv-h" style="display: flex; flex-direction: column; gap: 10px">
+      <h2 id="pv-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Per venue</h2>
+      <ul style="list-style: none; margin: 0; padding: 0; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); overflow: hidden">
+        <sc-for list="{{venues}}" as="v" hint-placeholder-count="7">
+          <li style="display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 12px 18px; border-bottom: 1px dashed #C9D2C8; margin-bottom: -1px">
+            <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 700">{{v.name}}</span><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{v.shifts}}</span></span>
+            <span class="mono" style="font-size: 14px; font-weight: 700; white-space: nowrap">{{v.total}}</span>
+          </li>
+        </sc-for>
+      </ul>
+    </section>
+
+    <section id="open" aria-labelledby="open-h" style="display: flex; flex-direction: column; gap: 10px">
+      <h2 id="open-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Open — no checkout</h2>
+      <p style="margin: 0; font-size: 14px; line-height: 1.5">Taptime does not invent a checkout. These check-ins are in none of the totals above, and a manager enters the missing record.</p>
+      <p style="margin: 0; font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.7)">A row cannot say why it is open. Somebody still on shift and somebody who forgot to tap out look the same here; how long it has been open is all this list measures.</p>
+      <p class="mono" style="margin: 0; font-size: 13px">{{needsLine}}</p>
+      <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px">
+        <sc-for list="{{open}}" as="o" hint-placeholder-count="3">
+          <li class="docket" style="padding: 12px 18px 14px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px">
+            <span style="display: flex; flex-direction: column; gap: 2px">
+              <span style="font-size: 15px; font-weight: 700">{{o.who}}</span>
+              <span class="lbl">{{o.venue}}</span>
+            </span>
+            <span style="display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px">
+              <span class="mono" style="font-size: 13px">{{o.at}}</span>
+              <sc-if value="{{o.needs}}" hint-placeholder-val="{{true}}"><span class="mono" style="font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid #BE3D2A; background: rgba(190,61,42,.1)">Needs action</span></sc-if>
+              <sc-if value="{{o.still}}" hint-placeholder-val="{{false}}"><span class="mono" style="font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid #D98E2B; background: rgba(217,142,43,.12)">Still open</span></sc-if>
+              <sc-if value="{{o.manual}}" hint-placeholder-val="{{false}}"><span class="mono" style="font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid #C9D2C8">Entered by a manager</span></sc-if>
+            </span>
+          </li>
+        </sc-for>
+      </ul>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":834,"height":2260}}'>
+class Component extends DCLogic {
+  renderVals() {
+    // Sample week shaped like ledger.ReportScreen. Minutes are integers; hours print as the code's hoursMinutes ("8h 02m").
+    // Cell kinds: w worked · x worked at another venue · m worked, arrival entered by a manager · o open check-in, no hours · n nothing.
+    const hm = min => Math.floor(min / 60) + 'h ' + String(min % 60).padStart(2, '0') + 'm';
+    const OTHER = 'KF San Gwann';
+    const P = [
+      ['Maria Borg', 'Line Cook', 'KF Valletta', [[482, 'w'], [495, 'w'], [0, 'n'], [478, 'w'], [510, 'w'], [545, 'w'], [0, 'n']], ['1 late arrival · 0h 12m']],
+      ['Kevin Borg', 'Kitchen Porter', 'KF Hamrun', [[360, 'w'], [0, 'o'], [370, 'w'], [365, 'x'], [0, 'n'], [480, 'w'], [465, 'w']], ['1 check-in with no checkout']],
+      ['Elena Petrova', 'Bar Manager', 'KF St Julians', [[490, 'w'], [480, 'w'], [500, 'w'], [0, 'o'], [0, 'n'], [525, 'w'], [0, 'n']], ['2 late arrivals · 0h 25m', '1 check-in with no checkout']],
+      ['Grace Attard', 'Line Cook', 'KF Msida', [[0, 'n'], [450, 'w'], [450, 'w'], [465, 'w'], [450, 'w'], [0, 'n'], [360, 'm']], ['1 arrival entered by a manager']],
+      ['Antoine Vella', 'Line Cook', 'KF Hamrun', [[485, 'w'], [480, 'w'], [0, 'n'], [492, 'x'], [480, 'w'], [510, 'w'], [0, 'n']], ['2h 15m waiting']],
+      ['Julia Sciberras', 'Assistant Manager', 'KF Valletta', [[540, 'w'], [550, 'w'], [535, 'w'], [540, 'w'], [0, 'n'], [0, 'n'], [0, 'o']], ['0h 45m refused', '1 check-in with no checkout']],
+      ['Marco Bugeja', 'Line Cook', 'KF Marsaskala', [[0, 'n'], [390, 'w'], [405, 'w'], [390, 'w'], [420, 'w'], [450, 'w'], [0, 'n']], ['5 arrivals not measured — no shift set']],
+      ['Nadia Farrugia', '', 'KF Mellieha', [[300, 'w'], [315, 'w'], [300, 'w'], [0, 'n'], [360, 'w'], [390, 'w'], [0, 'n']], []]
+    ];
+    const tallyStyle = t => 'font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;color:#152219;line-height:1.45;' + (
+      /refused/.test(t) ? 'border:1px solid #BE3D2A;background:rgba(190,61,42,.1)'
+      : /late|waiting|no checkout/.test(t) ? 'border:1px solid #D98E2B;background:rgba(217,142,43,.12)'
+      : 'border:1px solid #C9D2C8');
+    const SR = { w: '', x: ' at another venue', m: ' arrival entered by a manager', o: 'open check-in, not counted', n: 'nothing recorded' };
+    let worked = 0, shifts = 0; const perVenue = {};
+    const rowsOf = cellStyle => P.map(([name, role, home, cells, tallies]) => {
+      const total = cells.reduce((a, [m]) => a + m, 0);
+      return {
+        name, sub: role ? role + ' · ' + home : home, total: hm(total),
+        tallies: tallies.map(t => ({ t, style: tallyStyle(t) })), hasTallies: tallies.length > 0,
+        cells: cells.map(([m, k]) => ({
+          v: k === 'o' ? 'open' : k === 'n' ? '—' : hm(m) + (k === 'm' ? ' M' : ''),
+          h: k === 'o' ? 'open' : k === 'n' ? '—' : hm(m), mk: k === 'm' ? 'M' : '', hasMk: k === 'm',
+          sr: SR[k], style: cellStyle(k)
+        }))
+      };
+    });
+    P.forEach(([, , home, cells]) => cells.forEach(([m, k]) => {
+      if (m > 0) { worked += m; shifts += 1; const at = k === 'x' ? OTHER : home; perVenue[at] = perVenue[at] || [0, 0]; perVenue[at][0] += m; perVenue[at][1] += 1; }
+    }));
+    const shiftWord = n => n === 1 ? '1 shift' : n + ' shifts';
+    const venues = Object.keys(perVenue).sort().map(k => ({ name: k, total: hm(perVenue[k][0]), shifts: shiftWord(perVenue[k][1]) + ' started here' }));
+    const OPEN = [
+      ['Kevin Borg', 'Tue 13 Oct 06:01', 'KF Hamrun', true, false],
+      ['Elena Petrova', 'Thu 15 Oct 18:04', 'KF St Julians', true, false],
+      ['Julia Sciberras', 'Sun 18 Oct 09:02', 'KF Valletta', true, true]
+    ];
+    const open = OPEN.map(([who, at, venue, needs, manual]) => ({ who, at, venue, needs, still: !needs, manual }));
+    const lines = [
+      { k: 'People with hours', v: String(P.length) },
+      { k: 'Worked shifts', v: String(shifts) },
+      { k: 'Open check-ins, not counted', v: String(open.length) },
+      { k: 'Waiting for a decision', v: '2h 15m' },
+      { k: 'A manager refused', v: '0h 45m' },
+      { k: 'Training taps, not counted', v: '1' }
+    ];
+    const smallPrint = [
+      'A shift counts on the day it STARTED, so an overnight shift belongs to the evening it began.',
+      '1 checkout belongs to a shift that began before this week; its hours are in the previous report.',
+      '1 check-in was closed so much later that it is treated as a missed checkout rather than a shift; it is in the open list below.',
+      '1 record in this week names no employee, so no hours could be attributed to anybody. It is still on The Pass.'
+    ];
+    const shared = {
+      lines, smallPrint, venues, open, total: hm(worked),
+      openHead: open.length + ' check-ins with no checkout',
+      needsLine: open.filter(o => o.needs).length + ' of these have been open too long to be somebody still on shift.',
+      // Documented states, off in this sample: a truncated read, and a person list cut at 100 rows.
+      truncated: false, capped: false
+    };
+    const days = ['Mon 12', 'Tue 13', 'Wed 14', 'Thu 15', 'Fri 16', 'Sat 17', 'Sun 18'];
+    const base = 'display:inline-block;min-width:54px;padding:7px 2px;white-space:nowrap;border-radius:8px;font-size:11px;box-sizing:border-box;color:#152219;';
+    const kinds = {
+      w: base + 'background:rgba(31,92,65,.15)',
+      x: base + 'background:rgba(31,92,65,.15);box-shadow:inset 0 0 0 1px #152219',
+      m: base + 'background:rgba(31,92,65,.15);text-decoration:underline dotted',
+      o: base + 'background:rgba(217,142,43,.1);border:1px dashed #D98E2B',
+      n: base + 'color:rgba(21,34,25,.7)'
+    };
+    return { days, rows: rowsOf(k => kinds[k]), ...shared };
+  }
+}
+</script>
+</body>
+</html>

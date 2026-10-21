@@ -307,8 +307,9 @@ var deliveryClaimCorpus = []string{
 	"They have been sent.",
 	"The package is at our depot.",
 	// --- round 5: a fifth audit. The round-4 anchor missed THE PRODUCT'S OWN SECOND
-	// NAME FOR A PLAQUE: the panel section is called "Locations & Wall Tags"
-	// (PanelSections), and that very phrase sits in the negative corpus below -- so
+	// NAME FOR A PLAQUE: the panel section was called "Locations & Wall Tags"
+	// (PanelSections; "Venues & plaques" since 2026-10-20), and that very phrase sat in
+	// the negative corpus below -- so
 	// the noun-object hole was still open in exactly the words the product uses.
 	// The other three are conjugations and punctuation the round-4 set could not see.
 	"We are printing and posting the wall tags this week.",
@@ -332,7 +333,7 @@ var deliveryAllowedCorpus = []string{
 	"Every plaque this business has is out of service - retired, or reported lost - " +
 		"so nobody can tap in or out. Ask us for a replacement and it will appear in " +
 		"stock, ready to mount.",
-	"Locations & Wall Tags shows every plaque this business has.",
+	"Venues & plaques shows every plaque this business has.",
 	"Taptime encodes each one and loads it into your dashboard; ask us for the ones " +
 		"you need. Until one is mounted there is nothing to tap at.",
 	"Nothing was recorded here on this day. Pick another day above.",
@@ -503,7 +504,8 @@ func TestPanelLanding_WithdrawsDatePickerAdviceOnlyWhereItCannotWork(t *testing.
 			fake.plaques = tc.plaques
 			fake.history = tc.history
 			b := panelBrowserWith(t, fake)
-			body := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+			// THE LEDGER DAY carries the sentence: its day picker is above the list.
+			body := htmlOf(t, b.do(http.MethodGet, ledgerDayHref, nil))
 
 			// POSITIVE CONTROL, every row: the empty state really is on the page, so a
 			// missing sentence cannot be mistaken for a withdrawn one.
@@ -511,7 +513,20 @@ func TestPanelLanding_WithdrawsDatePickerAdviceOnlyWhereItCannotWork(t *testing.
 				t.Fatalf("the empty state is missing entirely; this test measures nothing")
 			}
 			if got := strings.Contains(body, advice); got != tc.want {
-				t.Errorf("%q present = %v, want %v", advice, got, tc.want)
+				t.Errorf("ledger: %q present = %v, want %v", advice, got, tc.want)
+			}
+
+			// THE PASS (M12-26) has no picker above it: never "above"; the same advice is the
+			// link to the day's ledger, withheld on the same test.
+			pass := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+			if !strings.Contains(pass, "Nothing was recorded here on this day") {
+				t.Fatalf("The Pass's empty state is missing entirely; this test measures nothing")
+			}
+			if strings.Contains(pass, advice) {
+				t.Errorf("The Pass says %q but draws no day picker", advice)
+			}
+			if got := strings.Contains(pass, ">See the whole day →</a>"); got != tc.want {
+				t.Errorf("The Pass: the ledger link present = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -533,13 +548,24 @@ func TestPanelLanding_LinksOnlyToASectionThatExists(t *testing.T) {
 	fake := newFakeLedger()
 	fake.plaques = ledger.Plaques{Queried: true}
 	b := panelBrowserWith(t, fake)
-	body := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+	page := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+
+	// THE NOTICE ALONE IS READ, NOT THE PAGE. The shell's navigation links to the same section
+	// under the same label, and since M12-26 so does The Pass's plaque card, so a page-wide
+	// search stayed green with the notice's own link removed (measured). The notice is the
+	// warning-toned <section> components.Notice draws.
+	start := strings.Index(page, `<section class="border-l-4 border-saffron`)
+	if start < 0 {
+		t.Fatal("no plaque notice on the page; this test is reading the wrong state")
+	}
+	body := page[start:]
+	body = body[:strings.Index(body, "</section>")]
 
 	if !strings.Contains(body, `href="`+href+`"`) {
 		t.Errorf("the notice does not link to %s", href)
 	}
-	// THE LABEL IS COMPARED IN ITS ESCAPED FORM, because "Locations & Wall Tags"
-	// reaches the page as "Locations &amp; Wall Tags" and a raw comparison would be
+	// THE LABEL IS COMPARED IN ITS ESCAPED FORM, because "Venues & plaques"
+	// reaches the page as "Venues &amp; plaques" and a raw comparison would be
 	// a test that fails for a reason that is not a defect.
 	if !strings.Contains(body, html.EscapeString(label)) {
 		t.Errorf("the notice does not name the section the way the navigation does (%q)", label)

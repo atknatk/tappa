@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Billing — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.stamp{display:inline-block;padding:3px 8px;border:2px solid;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-8deg);white-space:nowrap}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
+.stamp--flag{border-color:#D98E2B;box-shadow:inset 0 0 0 1px #D98E2B;background:rgba(217,142,43,.1)}
+.tab{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif}
+.tab:hover{color:#FFFDF4}
+.tab-ic{width:48px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.tab--on{color:#FFFDF4}
+.tab--on .tab-ic{background:#FFFDF4;color:#152219}
+.tab-badge{position:absolute;top:4px;left:calc(50% + 8px);min-width:18px;height:18px;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+.iconbtn{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:#152219;border-radius:12px;cursor:pointer;text-decoration:none}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 16px; box-sizing: border-box">
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; color: #152219">Kebab Factory</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">taptime · punchless</span>
+    </div>
+  </header>
+
+  <main style="padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span class="lbl">What each month costs</span>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px">
+        <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">Billing</h1>
+        <span class="mono" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid #152219; font-size: 11px; font-weight: 700; letter-spacing: .08em">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+          OWNER ONLY
+        </span>
+      </div>
+    </div>
+
+    <div role="note" style="padding: 12px 14px; border-radius: 12px; background: #F7EBD6; border: 1px solid #D98E2B; display: flex; flex-direction: column; gap: 4px">
+      <strong style="font-size: 14px">The founding offer’s free months have ended</strong>
+      <span style="font-size: 13px; line-height: 1.45">This business’s free window ran to the end of the month before October 2026. From October 2026 onwards each month is charged at €1.50 per person. This notice is here so the free period cannot end quietly.</span>
+    </div>
+
+    <section aria-labelledby="cur-h" style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 16px; padding: 18px 16px; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px">
+        <span style="display: flex; flex-direction: column; gap: 2px">
+          <h2 id="cur-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">September 2026</h2>
+          <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">the last finished month</span>
+        </span>
+        <span class="stamp stamp--flag">Draft</span>
+      </div>
+      <div class="mono" style="display: flex; flex-direction: column; gap: 6px">
+        <div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 12px; color: rgba(21,34,25,.7)">people counted</span><span style="font-size: 22px">101</span></div>
+        <div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 12px; color: rgba(21,34,25,.7)">× price per person</span><span style="font-size: 16px">€1.50</span></div>
+        <div style="border-top: 2px solid #152219; margin-top: 4px; padding-top: 8px; display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 12px; font-weight: 700">= draft</span><span style="font-size: 28px; font-weight: 700; letter-spacing: -0.02em">€0.00</span></div>
+      </div>
+      <span style="font-size: 12px; line-height: 1.45">This month is inside the founding offer’s free window, so the amount is zero because of the offer and not because nobody was employed.</span>
+      <span style="font-size: 12px; line-height: 1.45">This month is over, so hiring or dismissing somebody now does NOT change it — the count is over the month's own dates, not over today's roster. It is still a draft rather than a bill, because it is worked out afresh every time this page is opened: correcting somebody's joining or leaving dates, or changing this business's timezone, would move it, and so would a change to the price. Freezing stores the figures and stops all of that.</span>
+      <span style="font-size: 12px; color: rgba(21,34,25,.7); line-height: 1.45">Counted: everybody whose employment overlapped this month — anybody who was on the books for even one day of it — provided their status agrees with their own joining and leaving dates.</span>
+      <span style="font-size: 12px; color: rgba(21,34,25,.7); line-height: 1.45">Freezing a month stores the NUMBER of people and not which people, so a frozen figure can never be itemised afterwards.</span>
+      <div class="mono" style="display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: rgba(21,34,25,.7); word-break: break-all"><span>Period starts (UTC) 2026-08-31T22:00:00Z</span><span>Period ends (UTC, exclusive) 2026-09-30T22:00:00Z</span></div>
+      <div style="border-top: 1px dashed #C9D2C8; padding-top: 12px">
+      <form method="post" action="/admin/billing/close" style="margin: 0; display: flex; flex-direction: column; gap: 8px">
+            <!-- product: this is the form's submit button; the hidden month field is required (card M12-02) -->
+            <input type="hidden" name="month" value="2026-09">
+            <a href="M-FreezeMonth.dc.html" style="min-height: 48px; border-radius: 12px; background: #152219; color: #FFFDF4; font-size: 15px; font-weight: 700; text-decoration: none; display: flex; align-items: center; justify-content: center">Freeze September 2026</a>
+            <span style="font-size: 12px; line-height: 1.45; color: rgba(21,34,25,.7)">Freezing fixes the figure. It can't be undone.</span>
+          </form>
+      </div>
+      <a href="#" class="mono" style="align-self: flex-start; font-size: 12px; font-weight: 700; min-height: 44px; display: inline-flex; align-items: center">Download CSV</a>
+    </section>
+
+    <section aria-labelledby="hist-h" style="display: flex; flex-direction: column; gap: 18px">
+      <h2 id="hist-h" class="lbl" style="margin: 0; font-weight: 400">Frozen months</h2>
+      <sc-for list="{{months}}" as="m" hint-placeholder-count="2">
+        <article class="docket" style="padding: 16px 16px 18px; display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px">
+            <span style="display: flex; flex-direction: column; gap: 2px">
+              <span style="font-size: 17px; font-weight: 700">{{m.name}}</span>
+              <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{m.people}} × {{m.price}} · {{m.amount}}</span>
+            </span>
+            <span class="{{m.stampCls}}">{{m.stamp}}</span>
+          </div>
+          <span style="font-size: 12px; line-height: 1.4; color: rgba(21,34,25,.7)">{{m.free}}</span>
+          <sc-if value="{{true}}" hint-placeholder-val="{{true}}">
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">frozen {{m.closedAt}}</span>
+          </sc-if>
+          <a href="#" class="mono" style="align-self: flex-start; font-size: 12px; font-weight: 700; min-height: 44px; display: inline-flex; align-items: center">Download CSV</a>
+        </article>
+      </sc-for>
+    </section>
+
+    <section aria-labelledby="pick-h" style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px">
+      <h2 id="pick-h" class="lbl" style="margin: 0; font-weight: 400">Another month</h2>
+      <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px">
+        <span class="mono" style="min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid #C9D2C8; display: flex; align-items: center; font-size: 14px">2026-06</span>
+        <a href="#" style="min-height: 44px; padding: 0 16px; border-radius: 12px; background: #152219; color: #FFFDF4; font-size: 14px; font-weight: 700; text-decoration: none; display: flex; align-items: center">Show</a>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+        <a href="#" style="min-height: 44px; border-radius: 12px; border: 1px solid rgba(21,34,25,.5); color: #152219; font-size: 13px; font-weight: 700; text-decoration: none; display: flex; align-items: center; justify-content: center">Previous month</a>
+        <a href="#" style="min-height: 44px; border-radius: 12px; border: 1px solid rgba(21,34,25,.5); color: #152219; font-size: 13px; font-weight: 700; text-decoration: none; display: flex; align-items: center; justify-content: center">Next month</a>
+      </div>
+      <a href="#" style="min-height: 44px; border-radius: 12px; border: 1px solid rgba(21,34,25,.5); color: #152219; font-size: 13px; font-weight: 700; text-decoration: none; display: flex; align-items: center; justify-content: center">Last finished month</a>
+    </section>
+
+    <div style="padding: 12px 14px; border-radius: 12px; background: #FFFDF4; border: 1px solid #C9D2C8; font-size: 13px; line-height: 1.45; display: flex; flex-direction: column; gap: 4px">
+      <span class="lbl">Plan</span>
+      <span><span class="mono">founding customer</span> · first charged month <span class="mono">October 2026</span> · <span class="mono">€1.50</span> per person</span>
+      <span style="font-size: 12px; color: rgba(21,34,25,.7)">The founding offer covers a business’s first three billing months.</span>
+    </div>
+  </main>
+
+  <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; background: #152219; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0 4px 8px">
+    <a href="M-Pass.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
+    <a href="M-Spike.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg></span>Spike<span class="tab-badge" aria-label="4 waiting">4</span></a>
+    <a href="M-Roll.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg></span>Roll</a>
+    <a href="M-People.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span>People</a>
+    <a href="M-More.dc.html" class="tab tab--on" aria-current="page"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":2010}}'>
+class Component extends DCLogic {
+  renderVals() {
+    // S1 (D1): the card above is the SELECTED month (?month=, default = the last finished month, here September 2026).
+    // This list holds FROZEN months only, newest first, with the code's own strings (plural people, money + ' each').
+    // €1.50 is the tenant's price_per_employee_month (migration 00016); the founding offer covers the first three billing months.
+    const freeFrozen = 'Inside the founding offer’s free window, so nothing was charged.';
+    const months = [
+      { name: 'August 2026', range: '1 – 31 Aug', stamp: 'Frozen', stampCls: 'stamp stamp--ok', people: '98 people', price: '€1.50 each', amount: '€0.00', free: freeFrozen, closedAt: '2026-09-02T07:14:09Z' },
+      { name: 'July 2026', range: '1 – 31 Jul', stamp: 'Frozen', stampCls: 'stamp stamp--ok', people: '93 people', price: '€1.50 each', amount: '€0.00', free: freeFrozen, closedAt: '2026-08-03T08:40:51Z' }
+    ];
+    return { months };
+  }
+}
+</script>
+</body>
+</html>

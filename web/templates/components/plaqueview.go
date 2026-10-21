@@ -1,5 +1,7 @@
 package components
 
+import "strconv"
+
 // The WALL PLAQUE view models (M6-06 phase B).
 //
 // 🔴 SECTION 4.7 IS ENFORCED HERE BY ABSENCE, AND THE ABSENCE IS COUNTED RATHER
@@ -77,7 +79,7 @@ package components
 // VERDICT -- the engine's judgement of a tap -- and a plaque's lifecycle is not a
 // judgement of anything. The status is a word in a labelled field.
 
-// PlaqueRowView is one plaque as the docket renders it.
+// PlaqueRowView is one plaque as the Venues rows and the plaque card render it.
 type PlaqueRowView struct {
 	// UID is the chip id printed on the plaque. It is PUBLIC: it is on the wall and
 	// in the tap URL's address bar.
@@ -118,7 +120,7 @@ type PlaqueRowView struct {
 	// header for exactly what backs it. It never contains, encodes or hints at a key.
 	KeyState string
 
-	// KeyAlert is which unrecorded-encode banner the docket carries (M10 F0-6):
+	// KeyAlert is which unrecorded-encode banner the plaque card carries (M10 F0-6):
 	//
 	//	"stock"  in the box, encoding not recorded as finished — it cannot go on a
 	//	         wall
@@ -176,7 +178,8 @@ type PlaqueFormView struct {
 	// CloseHref is this section without the card.
 	CloseHref string
 
-	// Plaque is the row itself, rendered as the docket's detail block.
+	// Plaque is the row itself, read out as the card's facts (its open link is the row's,
+	// not the card's: the card never links to itself).
 	Plaque PlaqueRowView
 
 	// Mode is which act this card offers: "mount", "onwall", "unmount" or "" for none.
@@ -235,7 +238,58 @@ type PlaqueFormView struct {
 	// card's history, which the plaque row itself cannot carry because `tags` has no
 	// actor column.
 	Trail []PlaqueEventView
+
+	// ⚠️ THERE IS NO DRAWING HERE ANY MORE (M12-34). The card carried the plaque's
+	// drawing until the Venues detail could; the detail now draws its venue's plaque
+	// (VenueDetailView.Drawing) and the card sits inside that detail, so a drawing here
+	// would put a second QR code on the page.
 }
+
+// PlaqueDrawingView is one plaque drawn the way it hangs on a wall: the tap zone,
+// and under it the QR code it carries (M12-12, D4). nil where the real code cannot be
+// made -- no plaque on a wall, or a tap URL no plaque could carry (sun.PlaqueQRURL
+// refuses a development http base); a made-up pattern is never drawn in its place.
+//
+// 🔴 THE QR CODE TRAVELS AS A STRING, NEVER AS ITS MATRIX. A [][]bool is a slice
+// the key-shape walk (TestPlaqueViewModels_CannotCarryAKey) would have to permit, and
+// permitting slices of scalars on this path widens what a key could ride in. QRPath
+// is internal/qrcode's (*Code).SVGPath output, written into the drawing verbatim —
+// the component computes no module — and QRSide is its viewBox side
+// ((*Code).SVGSide), both with the standard's quiet zone.
+type PlaqueDrawingView struct {
+	// Last4 is the last four hex digits of the plaque's uid, upper case: what the
+	// printed line under the QR code says ("PLAQUE 91AC"), so a manager can match a
+	// door to a row. A uid is not a secret (it is in every tap URL).
+	Last4  string
+	QRPath string
+	QRSide int
+}
+
+// Drawable says the view carries a code to draw. A zero view does not, and the
+// component then draws nothing rather than an empty square that reads as a code.
+func (v PlaqueDrawingView) Drawable() bool { return v.QRPath != "" && v.QRSide > 0 }
+
+// Label is the drawing's accessible name: the figure is one image to a screen
+// reader, so the words drawn on it are said here.
+func (v PlaqueDrawingView) Label() string {
+	return "Drawing of plaque " + v.Last4 + ", not to scale: hold your phone here, or scan the QR code — same thing"
+}
+
+// QRPixels is the QR code's drawn side in CSS pixels: three whole pixels per module,
+// so every module is the same width on a screen of device-pixel ratio 1 (the rule
+// operatorpages' enrollment code follows). The plaque URL is 29 bytes plus the host's
+// length; at level M that is version 3 (37 modules with the quiet zone, 111 pixels) up
+// to a 13-byte host such as taptime.mt, and version 4 (41 modules, 123 pixels) up to
+// 33 bytes — inside the 200-pixel plaque either way.
+func (v PlaqueDrawingView) QRPixels() string { return strconv.Itoa(3 * v.QRSide) }
+
+// QRViewBox is the SVG's coordinate system: one unit per module.
+func (v PlaqueDrawingView) QRViewBox() string {
+	return "0 0 " + v.qrSideText() + " " + v.qrSideText()
+}
+
+// qrSideText is the paper square's side, in modules, as an attribute value.
+func (v PlaqueDrawingView) qrSideText() string { return strconv.Itoa(v.QRSide) }
 
 // PlaqueEventView is one line of that trail, already formatted.
 type PlaqueEventView struct {

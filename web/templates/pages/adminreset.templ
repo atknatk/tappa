@@ -9,58 +9,179 @@ import (
 // below: palette tokens only, Space Grotesk for display, IBM Plex Mono for anything
 // that is data, touch targets at least 44px, no dark theme.
 //
-// THEY USE layout.Page FOR THE REASON THE SIGN-IN FORM DOES: one narrow column is
-// what a form with one or two fields wants, and every screen here is that. No script
-// on any of them, which is why layout.Page and not layout.PageWithScript — a recovery
-// that works with JavaScript disabled works on a locked-down work laptop too, and the
-// policy the handler sets omits script-src entirely for the same reason.
+// THEY RENDER layout.Auth WITH NO SCRIPT (design "The Pass", M12-44), the sign-in
+// family's shell: a top bar with the way back to sign-in, a static step list and a
+// card. A recovery that works with JavaScript disabled works on a locked-down work
+// laptop too, and the policy the handler sets omits script-src entirely for the
+// same reason.
 //
 // THE TONE IS THE BRAND'S: an error says what to do next and never blames. Somebody
 // reaching these pages is already locked out of their own panel; every sentence here
 // is written for that person rather than for a security document.
+//
+// 🔴 NO HREF ON THESE PAGES CARRIES THE LINK'S TOKEN. The only links are the plain
+// sign-in path in the top bar; the steps are a list, not links.
+
+// resetStep is one row of the recovery's static step list.
+type resetStep struct {
+	No, Title, Sub string
+}
+
+// resetSteps is the recovery in the order a person meets it. The subs are what the
+// pages already say: the link works once and expires in an hour (AdminResetSent),
+// and setting the password signs every session out (AdminResetNew).
+var resetSteps = []resetStep{
+	{"01", "Ask for a link", "Your sign-in email"},
+	{"02", "Check your email", "The link works once, for an hour"},
+	{"03", "Set a new password", "Signs you out everywhere"},
+}
+
+// resetFrame is the recovery screens' layout: top bar, then the step list beside
+// the card from desk (above it below desk).
+//
+// 🔴 steps IS FALSE WHERE NOTHING CAN BE SENT. On a deployment with no delivery
+// channel the list would promise an email and a link that will never exist, and
+// "Check your email" is exactly the sentence such a page must not carry anywhere
+// (TestAdminReset_WithoutAChannelNothingIsIssuedAndTheScreenSaysSo).
+templ resetFrame(current int, steps bool, signInHref string) {
+	@AuthHeader(signInHref)
+	if steps {
+		<main class="mx-auto flex w-full max-w-[1040px] flex-col gap-6 px-4 pb-10 pt-3 md:px-10 md:pb-14 md:pt-6 desk:grid desk:grid-cols-[260px_minmax(0,520px)] desk:items-start desk:gap-10 desk:px-14 desk:pb-[72px] desk:pt-8">
+			@resetStepNav(current)
+			@resetCard() {
+				{ children... }
+			}
+		</main>
+	} else {
+		<main class="mx-auto flex w-full max-w-[1040px] flex-col gap-6 px-4 pb-10 pt-3 md:px-10 md:pb-14 md:pt-6 desk:px-14 desk:pb-[72px] desk:pt-8">
+			<div class="w-full max-w-[520px]">
+				@resetCard() {
+					{ children... }
+				}
+			</div>
+		</main>
+	}
+}
+
+templ resetCard() {
+	<section class="flex min-w-0 flex-col gap-5 rounded-[18px] border border-line bg-paper px-[18px] py-[22px] md:p-8 desk:p-9">
+		{ children... }
+	</section>
+}
+
+// resetStepNav is the static step list: chips below desk (numbers on a phone,
+// numbers and titles on a tablet, the current title under them on a phone), a
+// vertical list with dots and a connector from desk. Never a link — a step is
+// reached by doing the one before it. The current step carries aria-current; a
+// finished one says so in words as well as in its green.
+templ resetStepNav(current int) {
+	<nav aria-label="Password reset steps" class="flex flex-col gap-2.5 desk:gap-1">
+		<p class="lbl desk:mb-2.5">
+			<span class="desk:hidden">Reset your password · step { itoa(current) } of 3</span>
+			<span class="hidden desk:inline">Reset your password · 3 steps</span>
+		</p>
+		<ol class="grid grid-cols-3 gap-2 desk:flex desk:flex-col desk:gap-0">
+			for i, st := range resetSteps {
+				<li
+					class="flex items-stretch desk:gap-3.5"
+					if i+1 == current {
+						aria-current="step"
+					}
+				>
+					<div class="hidden w-9 flex-none flex-col items-center desk:flex">
+						<span class={ resetDotClass(i+1, current) }>{ st.No }</span>
+						if i+1 < len(resetSteps) {
+							<span aria-hidden="true" class="min-h-[26px] w-0.5 flex-1 bg-line"></span>
+						}
+					</div>
+					<div class={ resetChipClass(i+1, current) }>
+						<span class="font-mono text-[11px] font-bold desk:hidden">{ st.No }</span>
+						<span class={ resetTitleClass(i+1, current) }>{ st.Title }</span>
+						<span class="hidden text-[13px] text-ink/70 desk:block">{ st.Sub }</span>
+						if i+1 < current {
+							<span class="sr-only">, done</span>
+						}
+					</div>
+				</li>
+			}
+		</ol>
+		<p class="font-display text-[15px] font-bold md:hidden">{ resetSteps[current-1].Title }</p>
+	</nav>
+}
+
+// The three step tones, chosen here so every class is written literally: the
+// current step is ink, a finished one tappa-green, a later one an outline.
+func resetChipClass(n, current int) string {
+	switch {
+	case n == current:
+		return "flex min-h-9 flex-1 flex-col items-start justify-center gap-0.5 rounded-xl border border-ink bg-ink px-2.5 py-1.5 text-paper md:min-h-[60px] md:py-2 desk:mb-3.5 desk:min-h-11 desk:rounded-none desk:border-0 desk:bg-transparent desk:px-0 desk:py-1.5 desk:text-ink"
+	case n < current:
+		return "flex min-h-9 flex-1 flex-col items-start justify-center gap-0.5 rounded-xl border border-tappa-green bg-tappa-green/10 px-2.5 py-1.5 text-ink md:min-h-[60px] md:py-2 desk:mb-3.5 desk:min-h-11 desk:rounded-none desk:border-0 desk:bg-transparent desk:px-0 desk:py-1.5"
+	default:
+		return "flex min-h-9 flex-1 flex-col items-start justify-center gap-0.5 rounded-xl border border-ink/50 bg-paper px-2.5 py-1.5 text-ink md:min-h-[60px] md:py-2 desk:mb-3.5 desk:min-h-11 desk:rounded-none desk:border-0 desk:bg-transparent desk:px-0 desk:py-1.5"
+	}
+}
+
+func resetDotClass(n, current int) string {
+	switch {
+	case n == current:
+		return "inline-flex size-9 items-center justify-center rounded-full bg-ink font-mono text-xs font-bold text-paper"
+	case n < current:
+		return "inline-flex size-9 items-center justify-center rounded-full bg-tappa-green font-mono text-xs font-bold text-paper"
+	default:
+		return "inline-flex size-9 items-center justify-center rounded-full border border-ink/50 bg-paper font-mono text-xs font-bold text-ink"
+	}
+}
+
+func resetTitleClass(n, current int) string {
+	if n == current {
+		return "hidden text-left text-[13px] font-bold leading-[1.2] md:block desk:text-base"
+	}
+	return "hidden text-left text-[13px] font-medium leading-[1.2] md:block desk:text-base"
+}
 
 // AdminResetRequest is the "I cannot get in" form.
 //
 // 🔴 THE PAGE PROMISES NOTHING IT CANNOT DELIVER. When this deployment has no way to
 // send a link, the notice says so BEFORE the address box — not after the submit, and
-// not in smaller type. The alternative is a form that accepts an address and quietly
-// does nothing, which is the silent-swallow §4.6 forbids and the M7-04 card names
-// outright ("gönderim başarısızlığı kullanıcıya dürüstçe bildiriliyor, sessiz
-// yutulmuyor").
+// not in smaller type — and the step list, which describes an email, is not drawn.
+// The alternative is a form that accepts an address and quietly does nothing, which
+// is the silent-swallow §4.6 forbids and the M7-04 card names outright ("gönderim
+// başarısızlığı kullanıcıya dürüstçe bildiriliyor, sessiz yutulmuyor").
 templ AdminResetRequest(v AdminResetRequestView) {
-	@layout.Page("Recover your password — Taptime") {
-		<h1 class="font-display text-2xl font-bold tracking-tight">Can't get in?</h1>
-		<p class="text-sm text-ink/70">
-			Give us the email address you sign in with and we'll send a link that lets you set a new password.
-		</p>
-		if !v.CanDeliver {
-			@components.Notice(components.ToneWarn, "This Taptime cannot send email yet") {
-				<p>
-					No recovery link will arrive, whatever address you enter — sending is not switched
-					on for this server. Ask another owner of your business to set a new password for
-					you from the panel.
+	@layout.Auth("Recover your password — Taptime", "") {
+		@resetFrame(1, v.CanDeliver, v.SignInHref) {
+			<div class="flex flex-col gap-2">
+				<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]">Can't get in?</h1>
+				<p class="text-[15px] leading-normal text-ink/70">
+					Give us the email address you sign in with and we'll send a link that lets you set a new password.
 				</p>
-			}
-		}
-		<form method="post" action="/admin/reset" class="flex flex-col gap-4">
-			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
-			<div class="flex flex-col gap-1">
-				<label for="reset-email" class="docket-label">Email</label>
-				<input
-					id="reset-email"
-					name="email"
-					type="email"
-					autocomplete="username"
-					required
-					autofocus
-					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
-				/>
 			</div>
-			<button type="submit" class="btn btn--primary w-full">Send me a link</button>
-		</form>
-		<p class="text-xs text-ink/70">
-			<a href={ templ.SafeURL(v.SignInHref) } class="inline-flex min-h-11 items-center underline">Back to sign in</a>
-		</p>
+			if !v.CanDeliver {
+				@components.Notice(components.ToneWarn, "This Taptime cannot send email yet") {
+					<p>
+						No recovery link will arrive, whatever address you enter — sending is not switched
+						on for this server.
+					</p>
+				}
+			}
+			<form method="post" action="/admin/reset" class="flex flex-col gap-4">
+				<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+				<div class="field-stack">
+					<label for="reset-email" class="lbl">Email</label>
+					<input
+						id="reset-email"
+						name="email"
+						type="email"
+						autocomplete="username"
+						required
+						autofocus
+						class="field-input field-input--mono min-h-12"
+					/>
+				</div>
+				<button type="submit" class="btn btn--primary min-h-[52px] w-full rounded-xl">Send me a link</button>
+			</form>
+		}
 	}
 }
 
@@ -72,35 +193,35 @@ templ AdminResetRequest(v AdminResetRequestView) {
 // page says nothing else about the address, shows nothing that was typed, and offers
 // no way to ask again from here, because a second attempt starts from the form.
 templ AdminResetSent(v AdminResetSentView) {
-	@layout.Page(v.title()) {
-		if v.CanDeliver {
-			<h1 class="font-display text-2xl font-bold tracking-tight">Check your email</h1>
-			<p class="text-sm text-ink/85">
-				If that address belongs to a Taptime administrator, a recovery link is on its way to it.
-				The link works once and expires in an hour.
-			</p>
-			<p class="text-sm text-ink/70">
-				Nothing has changed yet: your current password still works until you use the link.
-			</p>
-			<p class="text-sm text-ink/70">
-				If a recovery email reached you, its link works for as long as it says — asking again
-				sends no new link while that one still works.
-			</p>
-		} else {
-			<h1 class="font-display text-2xl font-bold tracking-tight">Nothing was sent</h1>
-			@components.Notice(components.ToneWarn, "This Taptime cannot send email yet") {
-				<p>
-					Sending is not switched on for this server, so no recovery link was created and
-					none will arrive. Nothing about your account was changed.
+	@layout.Auth(v.title(), "") {
+		@resetFrame(2, v.CanDeliver, v.SignInHref) {
+			if v.CanDeliver {
+				<svg class="h-12 w-12 text-ink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+					<rect x="3" y="5" width="18" height="14" rx="2"></rect>
+					<path d="M3.5 6l8.5 7 8.5-7"></path>
+				</svg>
+				<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]">Check your email</h1>
+				<p class="text-[15px] leading-normal text-ink/85">
+					If that address belongs to a Taptime administrator, a recovery link is on its way to it.
+					The link works once and expires in an hour.
 				</p>
+				<p class="text-sm leading-normal text-ink/70">
+					Nothing has changed yet: your current password still works until you use the link.
+				</p>
+				<p class="text-sm leading-normal text-ink/70">
+					If a recovery email reached you, its link works for as long as it says — asking again
+					sends no new link while that one still works.
+				</p>
+			} else {
+				<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]">Nothing was sent</h1>
+				@components.Notice(components.ToneWarn, "This Taptime cannot send email yet") {
+					<p>
+						Sending is not switched on for this server, so no recovery link was created and
+						none will arrive. Nothing about your account was changed.
+					</p>
+				}
 			}
-			<p class="text-sm text-ink/85">
-				Ask another owner of your business to set a new password for you from the panel.
-			</p>
 		}
-		<p class="text-xs text-ink/70">
-			<a href={ templ.SafeURL(v.SignInHref) } class="inline-flex min-h-11 items-center underline">Back to sign in</a>
-		</p>
 	}
 }
 
@@ -110,47 +231,51 @@ templ AdminResetSent(v AdminResetSentView) {
 // the view model has no field for one — see adminresetview.go for why the lookup that
 // would be needed is itself the thing this flow refuses to do.
 templ AdminResetNew(v AdminResetNewView) {
-	@layout.Page("Set a new password — Taptime") {
-		<h1 class="font-display text-2xl font-bold tracking-tight">Set a new password</h1>
-		<p class="text-sm text-ink/70">
-			Choose something you will remember. At least { itoa(v.MinPasswordChars) } characters — a few
-			words beats a short one.
-		</p>
-		if v.Error != "" {
-			@components.Notice(components.ToneAlert, "That didn't work") {
-				<p>{ v.Error }</p>
+	@layout.Auth("Set a new password — Taptime", "") {
+		@resetFrame(3, true, v.SignInHref) {
+			<div class="flex flex-col gap-2">
+				<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]">Set a new password</h1>
+				<p class="text-[15px] leading-normal text-ink/70">
+					Choose something you will remember. At least { itoa(v.MinPasswordChars) } characters — a few
+					words beats a short one.
+				</p>
+			</div>
+			if v.Error != "" {
+				@components.Notice(components.ToneAlert, "That didn't work") {
+					<p>{ v.Error }</p>
+				}
 			}
+			<form method="post" action="/admin/reset/new" class="flex flex-col gap-4">
+				<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+				<div class="field-stack">
+					<label for="reset-password" class="lbl">New password</label>
+					<input
+						id="reset-password"
+						name="password"
+						type="password"
+						autocomplete="new-password"
+						required
+						autofocus
+						class="field-input field-input--mono min-h-12"
+					/>
+				</div>
+				<div class="field-stack">
+					<label for="reset-password-confirm" class="lbl">Type it again</label>
+					<input
+						id="reset-password-confirm"
+						name="password_confirm"
+						type="password"
+						autocomplete="new-password"
+						required
+						class="field-input field-input--mono min-h-12"
+					/>
+				</div>
+				<button type="submit" class="btn btn--primary min-h-[52px] w-full rounded-xl">Set the password</button>
+			</form>
+			<p class="border-t border-dashed border-line pt-3.5 text-[13px] leading-normal text-ink/70">
+				Setting a new password signs you out of Taptime everywhere, on every device — including this
+				one. You will sign in again straight afterwards.
+			</p>
 		}
-		<form method="post" action="/admin/reset/new" class="flex flex-col gap-4">
-			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
-			<div class="flex flex-col gap-1">
-				<label for="reset-password" class="docket-label">New password</label>
-				<input
-					id="reset-password"
-					name="password"
-					type="password"
-					autocomplete="new-password"
-					required
-					autofocus
-					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
-				/>
-			</div>
-			<div class="flex flex-col gap-1">
-				<label for="reset-password-confirm" class="docket-label">Type it again</label>
-				<input
-					id="reset-password-confirm"
-					name="password_confirm"
-					type="password"
-					autocomplete="new-password"
-					required
-					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
-				/>
-			</div>
-			<button type="submit" class="btn btn--primary w-full">Set the password</button>
-		</form>
-		<p class="text-xs text-ink/70">
-			Setting a new password signs you out of Taptime everywhere, on every device — including this
-			one. You will sign in again straight afterwards.
-		</p>
 	}
 }

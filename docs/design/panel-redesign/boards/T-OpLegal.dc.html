@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Legal texts — Taptime operator</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>:root{--gx:24px;--maxw:none;--tn:34px;--bpt:22px;--mpt:24px;--mpb:48px;--gap:20px;--cp:22px 24px;--h1:28px;--dp:24px;--c1:176px;--btnself:flex-start;--m1:190px;--edcols:minmax(0,1fr)}
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+/* operator shell (OP-1) — identical on every board of this width */
+.oplbl{margin:0;font:400 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.opbar{background:#152219;border-bottom:4px solid #D98E2B;color:#FFFDF4}
+.opbar-in{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:0 24px;box-sizing:border-box}
+.oplock{margin:0;font:700 14px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.28em;text-transform:uppercase;color:#FFFDF4;white-space:nowrap}
+.oplock span{color:#D98E2B}
+.opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
+.opout:hover{border-color:#D98E2B;color:#D98E2B}
+.optabs{display:flex;flex-wrap:wrap;padding:0 12px;background:#FFFDF4;border-bottom:1px solid #C9D2C8}
+.optab{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.optab:hover{color:#152219;background:rgba(21,34,25,.05)}
+.optab--on{border-bottom-color:#152219;font-weight:700}
+.opten{background:#F7EBD6;border-bottom:1px solid #D98E2B}
+.opten-in{max-width:none;box-sizing:border-box;padding:20px 24px 0;display:flex;flex-direction:column;gap:2px}
+.optname{margin:0;font:700 30px/1.12 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219;overflow-wrap:anywhere}
+.optid{margin:2px 0 0;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;word-break:break-all}
+.opsub{display:flex;flex-wrap:wrap;margin:8px 0 0 -12px}
+.opsubt{display:flex;align-items:center;min-height:44px;padding:0 12px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+.opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
+.opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
+.opmain{width:100%;max-width:none;box-sizing:border-box;padding:24px 24px 48px}
+/* end operator shell */
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{margin:0;font:400 11px/1.4 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.col{max-width:var(--maxw);display:flex;flex-direction:column;gap:var(--gap)}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:var(--cp);display:flex;flex-direction:column;gap:12px;min-width:0}
+.card > .lbl + .h1{margin-top:-4px}
+.h1{margin:0;font:700 var(--h1)/1.1 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219}
+.h2{margin:0;font:700 19px/1.25 'Space Grotesk',sans-serif;letter-spacing:-.02em;color:#152219}
+.p{margin:0;font:400 15px/1.55 'Space Grotesk',sans-serif;color:#152219;max-width:68ch}
+.small{margin:0;font:400 13px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.7)}
+.links{margin:0;display:flex;flex-wrap:wrap;gap:0 24px}
+.oplink{display:inline-flex;align-items:center;min-height:44px;padding:0;border:0;background:none;font:700 15px 'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:4px;cursor:pointer}
+.oplink:hover{color:#152219}
+.fld{display:flex;flex-direction:column;gap:6px;min-width:0;margin:0}
+.field{min-height:44px;width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.field:focus{outline:2px solid #152219;outline-offset:1px}
+.inline{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
+.inline .field{flex:1 1 240px;width:auto;min-width:0;max-width:var(--fieldmax,100%)}
+.btn1{min-height:44px;padding:0 22px;border-radius:10px;border:0;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer;white-space:nowrap}
+.btn1:hover{background:#152219}
+.quiet{min-height:44px;padding:0 18px;border-radius:10px;border:1px solid #C9D2C8;background:#FFFDF4;color:#152219;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer;white-space:nowrap}
+.quiet:hover{border-color:#BE3D2A;color:#BE3D2A}
+.note{border-left:4px solid #C9D2C8;border-radius:0 12px 12px 0;padding:14px 18px;display:flex;flex-direction:column;gap:6px}
+.note--ok{border-left-color:#1F5C41;background:#E1EDE6}
+.note--warn{border-left-color:#D98E2B;background:#F7EBD6}
+.note .note-h{margin:0;font:700 16px/1.3 'Space Grotesk',sans-serif;color:#152219}
+.note p{margin:0;font:400 14px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.85)}
+.note ul{margin:4px 0 0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:4px;font:400 14px/1.45 'Space Grotesk',sans-serif;color:rgba(21,34,25,.85)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:18px var(--dp);box-shadow:0 1px 2px rgba(21,34,25,.06);font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;color:#152219;min-width:0}
+.docket::before,.docket::after{content:'';position:absolute;left:-1px;right:-1px;height:6px;background-image:radial-gradient(circle at 5px 0,#EDF0EA 3px,transparent 3.5px);background-size:10px 6px;background-repeat:repeat-x}
+.docket::before{top:-1px}
+.docket::after{bottom:-1px;transform:rotate(180deg)}
+.dh{padding-bottom:12px;border-bottom:2px dashed #C9D2C8}
+.dh .mono{font-weight:700;color:#152219}
+.dfoot{margin:0;padding-top:12px;border-top:2px dashed #C9D2C8;font:400 13px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.7)}
+.dempty{margin:0;padding:22px 0 8px;font:400 15px/1.5 'Space Grotesk',sans-serif;color:#152219}
+.list{list-style:none;margin:0;padding:0}
+.chip{display:inline-flex;align-items:center;min-height:24px;padding:2px 10px;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:999px;font:700 11px/1.3 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#152219;max-width:100%}
+.t-green{border-color:#1F5C41;background:#E1EDE6}
+.t-saffron{border-color:#D98E2B;background:#F7EBD6}
+.t-saffron-o{border-color:#D98E2B;background:#FFFDF4;border-style:dashed}
+.t-line{border-color:#C9D2C8;background:rgba(201,210,200,.18)}
+.t-ink{border-color:#152219;background:rgba(21,34,25,.1)}
+.fact{font:400 13px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.72);min-width:0;overflow-wrap:anywhere}
+.fact b{font:700 13px/1.5 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.idl{font:400 12px/1.45 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.7);word-break:break-all}
+.rowlink{position:relative;font:700 inherit;font-family:'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:3px}
+.rowlink::after{content:'';position:absolute;left:0;right:0;top:50%;height:44px;transform:translateY(-50%)}
+.rowlink:hover{color:#152219}
+.pager{display:flex;flex-wrap:wrap;gap:12px}
+.pager form{margin:0}
+.pgbtn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 22px;box-sizing:border-box;border:1px solid rgba(21,34,25,.3);border-radius:10px;background:#FFFDF4;color:#152219;font:700 15px 'Space Grotesk',sans-serif;text-decoration:none;cursor:pointer;white-space:nowrap}
+.pgbtn:hover{border-color:#152219;color:#152219}
+.ed{gap:0;padding:0;overflow:hidden}
+.edhead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 20px;padding:20px var(--edpx) 16px;border-bottom:1px solid #C9D2C8}
+.edpath{margin:0;font:700 18px/1.3 'IBM Plex Mono',ui-monospace,monospace;color:#152219;overflow-wrap:anywhere}
+.edstate{margin:0;display:inline-flex;align-items:flex-start;gap:8px;font:400 14px/1.4 'Space Grotesk',sans-serif;color:rgba(21,34,25,.75)}
+.edstate .mono{font-size:13px;color:#152219}
+.dot{flex:0 0 auto;margin-top:6px;width:8px;height:8px;border-radius:50%;border:1.5px solid rgba(21,34,25,.45);box-sizing:border-box}
+.dot--live{background:#1F5C41;border-color:#1F5C41}
+.edwarn{padding:16px var(--edpx) 0}
+.edform{margin:0;padding:18px var(--edpx) 22px;display:flex;flex-direction:column;gap:12px}
+.edframe{border:1px solid #C9D2C8;border-radius:10px;background:#FFFDF4;overflow:hidden}
+.edframe:focus-within{border-color:#152219;box-shadow:0 0 0 1px #152219}
+.edbar{display:flex;align-items:center;min-height:36px;padding:0 16px;background:rgba(21,34,25,.04);border-bottom:1px solid #C9D2C8}
+.edtext{display:block;width:100%;box-sizing:border-box;min-height:44px;margin:0;padding:18px var(--edtx);border:0;background:transparent;resize:vertical;font:400 14px/1.7 'IBM Plex Mono',ui-monospace,monospace;color:#152219;outline:none}
+.edfoot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 20px}
+.edfoot .small{flex:1 1 220px}
+.vrow{display:grid;grid-template-columns:var(--vcols);gap:4px 20px;align-items:center;min-height:44px;padding:10px 0;border-bottom:1px solid rgba(201,210,200,.8)}
+.vrow:last-child{border-bottom:0}
+.vat{font:700 13px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.vpath{font:400 13px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.vbytes{font:400 13px 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.72);text-align:right}
+.vby{font:400 14px 'Space Grotesk',sans-serif;color:#152219;overflow-wrap:anywhere}
+.vlive{display:flex;justify-content:flex-end}
+.vmeta{display:contents}
+:root{--edpx:24px;--edtx:20px;--vcols:164px 136px 92px minmax(0,1fr) 64px}
+</style>
+</helmet>
+<div style="width: 834px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <header class="opbar">
+    <div class="opbar-in">
+      <p class="oplock">TAPTIME <span>OPERATOR</span></p>
+      <form method="post" action="/operator/logout" style="margin: 0"><button type="button" class="opout">Sign out</button></form>
+    </div>
+  </header>
+  <nav aria-label="Operator sections" class="optabs">
+    <a href="T-OpHome.dc.html" class="optab">Console</a>
+    <a href="T-OpTenants.dc.html" class="optab">Tenants</a>
+    <a href="T-OpHoldings.dc.html" class="optab">Holdings</a>
+    <a href="T-OpAudit.dc.html" class="optab">Audit log</a>
+    <a href="T-OpLegal.dc.html" class="optab optab--on" aria-current="page">Legal texts</a>
+  </nav>
+  <main class="main opmain">
+<div class="col">
+
+<section class="card" aria-labelledby="legal-h">
+  <p class="lbl">Legal texts</p>
+  <h1 id="legal-h" class="h1">Taptime's legal texts</h1>
+  <p class="p">Publishing adds a new version; nothing is overwritten. To undo a change, publish the earlier text again.</p>
+  <p class="small" style="font-size: 14px">The public pages are on the customer site, under <span class="mono">/legal</span>.</p>
+  <p class="links"><a href="T-OpHome.dc.html" class="oplink">Back to the console</a></p>
+</section>
+
+<sc-for list="{{docs}}" as="d" hint-placeholder-count="4">
+  <section class="card ed" aria-labelledby="{{d.hid}}">
+    <div class="edhead">
+      <h2 id="{{d.hid}}" class="edpath">{{d.path}}</h2>
+      <sc-if value="{{d.published}}" hint-placeholder-val="{{true}}"><p class="edstate"><span class="dot dot--live" aria-hidden="true"></span><span>Live since <span class="mono">{{d.since}}</span></span></p></sc-if>
+      <sc-if value="{{d.unpublished}}" hint-placeholder-val="{{false}}"><p class="edstate"><span class="dot" aria-hidden="true"></span><span>Not published. The public page shows its placeholder.</span></p></sc-if>
+    </div>
+    <sc-if value="{{d.behind}}" hint-placeholder-val="{{false}}">
+      <div class="edwarn">
+        <div role="status" class="note note--warn">
+          <p class="note-h">The public page is behind</p>
+          <p>The newest version, published <span class="mono">{{d.liveAt}}</span>, has not reached the public page yet. This editor opened on the text the page shows, so publishing it replaces the newest version.</p>
+          <p>Reload this screen to try again. The page also catches up after the next publication or a restart.</p>
+        </div>
+      </div>
+    </sc-if>
+    <form method="post" action="#" class="edform">
+      <input type="hidden" name="slug" value="{{d.slug}}">
+      <div class="edframe">
+        <div class="edbar"><label for="{{d.bid}}" class="lbl">Text</label></div>
+        <textarea id="{{d.bid}}" name="body" rows="12" required class="edtext">{{d.body}}</textarea>
+      </div>
+      <div class="edfoot">
+        <p class="small">A blank line starts a new paragraph. At most 256 KiB.</p>
+        <button type="submit" class="btn1">Publish a new version</button>
+      </div>
+    </form>
+  </section>
+</sc-for>
+
+<section class="docket" aria-labelledby="legal-versions">
+  <h2 id="legal-versions" class="lbl dh">Versions, newest first</h2>
+  <sc-if value="{{noVersions}}" hint-placeholder-val="{{false}}"><p class="dempty">Nothing has been published yet.</p></sc-if>
+  <sc-if value="{{hasVersions}}" hint-placeholder-val="{{true}}">
+    <ol class="list">
+      <sc-for list="{{versions}}" as="v" hint-placeholder-count="6">
+        <li class="vrow">
+          <span class="vat">{{v.at}}</span>
+          <span class="vpath">{{v.path}}</span>
+          <span class="vmeta"><span class="vbytes">{{v.bytes}}</span><span class="vby"><bdi>{{v.by}}</bdi></span></span>
+          <span class="vlive"><sc-if value="{{v.live}}" hint-placeholder-val="{{false}}"><span class="chip t-green">Live</span></sc-if></span>
+        </li>
+      </sc-for>
+    </ol>
+    <sc-if value="{{capped}}" hint-placeholder-val="{{false}}"><p class="dfoot" style="margin-top: 4px">The newest 100 are listed. Older versions are not shown here.</p></sc-if>
+  </sc-if>
+</section>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"legalState": {"editor": "enum", "options": ["published", "public-page-behind", "version-cap-reached", "nothing-published"], "default": "published"}, "$preview": {"width": 834, "height": 3067}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const s = this.props.legalState ?? 'published';
+    const none = s === 'nothing-published';
+    // Sample bodies only: fake wording standing in for Taptime's real texts.
+    const B = {
+      privacy: "Privacy policy\n\nTaptime records the time you tap in and out at your employer's venue, and nothing else about your day. Your location is read once, at the moment of the tap, and never in the background.\n\nWe do not collect fingerprints, face scans or any other biometric data.\n\nYour employer decides how long your records are kept, within the limits of the law.",
+      terms: "Terms of service\n\nThese terms apply between Taptime and the business that signs up for the panel.\n\nThe business is responsible for the people it invites, for the venues it registers and for the plaques mounted at those venues.\n\nA month is billed per person counted in it.",
+      imprint: "Company details\n\nTaptime\n[registered address]\n[company registration number]\n[VAT number]",
+      cookies: ''
+    };
+    const D = (slug, since, behindAt) => ({
+      slug, path: '/legal/' + slug, hid: 'legal-' + slug, bid: 'legal-body-' + slug,
+      published: !none && !!since, unpublished: none || !since, since: since ? since + ' UTC' : '',
+      behind: !!behindAt, liveAt: behindAt ? behindAt + ' UTC' : '',
+      body: none ? '' : B[slug]
+    });
+    const behind = s === 'public-page-behind';
+    const docs = [
+      D('privacy', '2026-10-20 14:12'),
+      D('terms', '2026-09-30 16:05', behind ? '2026-10-20 15:02' : ''),
+      D('imprint', '2026-07-26 09:00'),
+      D('cookies', '')
+    ];
+    const V = (at, slug, bytes, by, live) => ({ at: at + ' UTC', path: '/legal/' + slug, bytes: bytes + ' bytes', by, live: !!live });
+    let versions = [
+      V('2026-10-20 14:12', 'privacy', '18432', 'Mara Vella', true),
+      V('2026-10-02 11:47', 'privacy', '18210', 'Mara Vella'),
+      V('2026-09-30 16:05', 'terms', '24876', 'Joseph Camilleri', true),
+      V('2026-08-14 10:20', 'terms', '24101', 'operator'),
+      V('2026-07-26 09:00', 'imprint', '1204', 'tenant admin (legacy)', true),
+      V('2026-07-26 08:58', 'privacy', '15022', 'tenant admin (legacy)')
+    ];
+    if (behind) {
+      versions[2].live = false;
+      versions = [V('2026-10-20 15:02', 'terms', '25190', 'Joseph Camilleri', true)].concat(versions);
+    }
+    if (none) versions = [];
+    return {
+      docs, versions, hasVersions: versions.length > 0, noVersions: versions.length === 0,
+      capped: s === 'version-cap-reached'
+    };
+  }
+}
+</script>
+</body>
+</html>

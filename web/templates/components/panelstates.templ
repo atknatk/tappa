@@ -1,0 +1,146 @@
+package components
+
+// The panel's own notice and empty state (M12-09; docs/design/panel-redesign/README.md §3
+// constraint 5, §5 rows "Empty state" and "Notice").
+//
+// WHY NEW COMPONENTS RATHER THAN NEW CLOTHES FOR THE OLD ONES. Notice and Card also draw
+// the employee's tap and activation screens and the operator's pages, and the unbranded
+// tap, result and activation renders are pinned byte for byte to a golden
+// (TestUnbrandedScreens_AreByteIdenticalToTheGolden). Restyling them in place would redraw
+// the screen CLAUDE.md §9 calls sacred to dress the manager's panel. The old EmptyState kept
+// its markup for the same reason (README §5) until no section called it; M12-48 removed it.
+// These two are called by panel sections alone.
+//
+// THE COMMENTS IN THIS FILE NAME NO CLASS: Tailwind reads them as source (skill
+// tappa-brand, "templ + Tailwind"; README §3 constraint 2).
+//
+// THE BOARDS' 1.45 LINE HEIGHT IS THE NEAREST NAMED STEP HERE (1.5), measured: written as an
+// arbitrary value it puts a number with two decimals into every page that draws one, and the
+// coordinate sweep (internal/handler, decimalDegreeShape) reads that as a decimal degree --
+// TestAnomaliesPages_CarryNoDecimalDegreeInEITHEROfTheOtherTwOShapes went red on the empty week.
+
+// PanelNotice is a status box on a panel screen. The state is a word before it is a
+// colour (README §3 constraint 12): every tone opens with its label -- "Done", "Heads up",
+// "Not done" -- ahead of the heading, so a reader who cannot tell the tones apart still
+// reads which one it is. The mark beside it repeats the tone and is kept from a screen
+// reader, which already has the word.
+//
+// An alert is announced at once (role alert); the other two are polite (role status).
+templ PanelNotice(tone Tone, heading string) {
+	<div role={ panelNoticeRole(tone) } class={ panelNoticeClass(tone) }>
+		<span class={ panelNoticeMarkClass(tone) } aria-hidden="true">
+			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+				switch tone {
+					case ToneOK:
+						<path d="M5 12.5l4.5 4.5L19 7.5"></path>
+					case ToneWarn:
+						<path d="M12 7v6"></path>
+						<circle cx="12" cy="17" r="0.6"></circle>
+					default:
+						<path d="M7 7l10 10M17 7L7 17"></path>
+				}
+			</svg>
+		</span>
+		<div class="flex min-w-0 flex-col gap-1">
+			<p class={ panelNoticeLabelClass(tone) }>{ PanelNoticeLabel(tone) }</p>
+			if heading != "" {
+				<p class="font-display text-base font-bold tracking-tight">{ heading }</p>
+			}
+			<div class="text-sm leading-normal">
+				{ children... }
+			</div>
+		</div>
+	</div>
+}
+
+// PanelNoticeLabel is the word a PanelNotice opens with. An unknown tone reads as the
+// alert, the same way its frame does: a tone nobody named is not quietly a success.
+func PanelNoticeLabel(t Tone) string {
+	switch t {
+	case ToneOK:
+		return "Done"
+	case ToneWarn:
+		return "Heads up"
+	default:
+		return "Not done"
+	}
+}
+
+func panelNoticeRole(t Tone) string {
+	switch t {
+	case ToneOK, ToneWarn:
+		return "status"
+	default:
+		return "alert"
+	}
+}
+
+// The three frames below are written out whole, per tone, so the scan finds every name.
+// Contrast of the word on its ground (WCAG luminance ratio, sRGB composite, computed
+// from the palette): the ok label is the green on a tenth of itself, 5.90:1 over the
+// porcelain page and 6.62:1 over paper; the other two labels and every heading and body
+// line are ink -- 12.3:1 on the green tint, 14.0:1 on the saffron ground, 16.2:1 on paper.
+// The marks: paper on green 7.73:1, ink on saffron 6.16:1, paper on tomato 5.30:1.
+func panelNoticeClass(t Tone) string {
+	switch t {
+	case ToneOK:
+		return "flex items-start gap-3.5 rounded-[14px] border border-tappa-green bg-tappa-green/10 px-[18px] py-4 text-ink"
+	case ToneWarn:
+		return "flex items-start gap-3.5 rounded-[14px] border border-saffron bg-saffron-lite px-[18px] py-4 text-ink"
+	default:
+		return "flex items-start gap-3.5 rounded-[14px] border-2 border-tomato bg-paper px-[18px] py-4 text-ink"
+	}
+}
+
+func panelNoticeMarkClass(t Tone) string {
+	switch t {
+	case ToneOK:
+		return "inline-flex size-8 flex-none items-center justify-center rounded-[9px] bg-tappa-green text-paper"
+	case ToneWarn:
+		return "inline-flex size-8 flex-none items-center justify-center rounded-[9px] bg-saffron text-ink"
+	default:
+		return "inline-flex size-8 flex-none items-center justify-center rounded-[9px] bg-tomato text-paper"
+	}
+}
+
+func panelNoticeLabelClass(t Tone) string {
+	switch t {
+	case ToneOK:
+		return "lbl text-tappa-green"
+	default:
+		return "lbl text-ink"
+	}
+}
+
+// PanelEmptyCTA is the one optional link a PanelEmpty may end with. The zero value draws
+// none; a link needs both halves.
+type PanelEmptyCTA struct {
+	Label string
+	Href  string
+}
+
+// PanelEmpty is what a panel section shows when it holds nothing.
+//
+// IT IS NOT A RECORD SLIP: a slip's solid edge means a record was printed, and this is the
+// absence of one, so its edge is dashed (the reasoning the retired EmptyState carried, kept).
+//
+// THE SMALL LABEL IS WHERE, NOT HOW LONG. The retired EmptyState opened with "Nothing here
+// yet", and "yet" promised an arrival several sections cannot promise (GRP-1's review found
+// it on the Group page). The label is now the section's own name -- with the sub-list after a
+// dot when one page carries several -- and the heading and the sentences say what was
+// asked and what came back, unchanged from each caller.
+//
+// §4.6: a caller draws this only after its read answered (Queried). This component cannot
+// see that flag, so the gate stays in every caller, around the call.
+templ PanelEmpty(where, heading string, cta PanelEmptyCTA) {
+	<section class="flex flex-col gap-2 rounded-[18px] border border-dashed border-ink/50 p-6">
+		<p class="lbl">{ where }</p>
+		<h2 class="font-display text-[19px] font-bold leading-tight tracking-tight text-ink">{ heading }</h2>
+		<div class="text-sm leading-normal text-ink/70">
+			{ children... }
+		</div>
+		if cta.Label != "" && cta.Href != "" {
+			<a class="btn btn--primary mt-1.5 self-start" href={ templ.URL(cta.Href) }>{ cta.Label }</a>
+		}
+	</section>
+}

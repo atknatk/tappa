@@ -17,7 +17,7 @@ import "github.com/atknatk/tappa/web/templates/components"
 templ AdminGroup(v GroupView) {
 	@PanelShell(v.PanelChrome) {
 		if v.Queried && !v.Member {
-			@components.EmptyStateLabeled("No group", "This business is not in a group") {
+			@components.PanelEmpty(SectionLabel(TabGroup), "This business is not in a group", components.PanelEmptyCTA{}) {
 				<p>
 					Taptime can link businesses that work together — the same owner, staff who
 					tap at each other&#39;s venues — into a group. Taptime sets a group up; ask
@@ -76,7 +76,7 @@ templ groupPartners(v GroupView) {
 		records and the hours are their employer&#39;s; this page shows the result, never the reason.
 	</p>
 	<div class="filter-actions">
-		<a class="btn btn--quiet" href={ templ.URL(v.ReportsHref) }>Week by week in Reports</a>
+		<a class="btn btn--quiet" href={ templ.URL(v.ReportsHref) }>Week by week on The Roll</a>
 	</div>
 	if v.PartnersMore {
 		@components.Notice(components.ToneWarn, "Not every record is listed") {
@@ -107,14 +107,14 @@ templ groupPartners(v GroupView) {
 }
 
 // groupAtPartnerVenues is the other direction: this business's own staff at a partner's venue. They
-// are this business's own records, so they are a figure here and a list in Transactions.
+// are this business's own records, so they are a figure here and a list on The Pass.
 templ groupAtPartnerVenues(v GroupView) {
 	<section class="docket">
 		<p class="docket-label">Your staff at partner venues</p>
 		<p class="font-mono text-3xl font-bold tracking-tight text-ink">{ v.AtPartnerVenues }</p>
 		<p class="mt-1 text-sm text-ink/85">
 			of your records in these days name a partner business&#39;s venue. They are your own
-			records: they are in Transactions, decided by your rules, and their hours are in your Reports.
+			records: they are on The Pass, decided by your rules, and their hours are on The Roll.
 		</p>
 	</section>
 }

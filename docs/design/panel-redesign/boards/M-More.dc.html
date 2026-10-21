@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>More — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.srow{min-height:48px;display:flex;align-items:center;gap:12px;padding:0 4px;border-bottom:1px solid #C9D2C8;text-decoration:none;color:#152219;font:400 16px 'Space Grotesk',sans-serif;box-sizing:border-box}
+.srow:hover{color:#1F5C41}
+.ghostblock{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:16px}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif;position:relative;cursor:pointer}
+.tab:hover{color:#FFFDF4}
+.pill{width:48px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.tab--on{color:#FFFDF4}
+.tab--on .pill{background:#FFFDF4;color:#152219}
+.badge{position:absolute;top:4px;left:calc(50% + 6px);min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+</style>
+</helmet>
+<div style="width: 390px; height: 820px; position: relative; overflow: hidden; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="height: 56px; padding: 0 8px 0 16px; display: flex; align-items: center; justify-content: space-between; box-sizing: border-box">
+    <div style="display: flex; flex-direction: column; gap: 1px">
+      <span style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; color: #152219">Kebab Factory</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">taptime · punchless</span>
+    </div>
+  </header>
+
+  <main aria-hidden="true" style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 14px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span class="lbl">The page stays underneath</span>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">The Pass</h1>
+    </div>
+    <div class="ghostblock" style="height: 120px"></div>
+    <div class="ghostblock" style="height: 160px"></div>
+  </main>
+
+  <div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 0; bottom: 68px; background: rgba(21,34,25,.4)"></div>
+  <div role="region" aria-label="More" style="position: absolute; left: 0; right: 0; bottom: 68px; max-height: 75%; overflow-y: auto; box-sizing: border-box; background: #FFFDF4; border-top: 1px solid #C9D2C8; border-radius: 16px 16px 0 0; padding: 16px 16px 24px; box-shadow: 0 -8px 24px rgba(21,34,25,.12)">
+    <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
+          <li><a href="M-Venues.dc.html" class="srow"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg><span>Venues &amp; plaques</span></a></li>
+          <li><a href="M-Odd.dc.html" class="srow"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="17" r="2"/><circle cx="12" cy="10" r="2"/><circle cx="18" cy="15" r="2"/><path d="M15 3.5l5 5M20 3.5l-5 5"/></svg><span>Odd shapes</span></a></li>
+          <li><a href="M-Rules.dc.html" class="srow"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg><span>Rules</span></a></li>
+          <li><a href="M-Billing.dc.html" class="srow"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg><span>Billing</span></a></li>
+          <li><a href="M-Account.dc.html" class="srow"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/></svg><span>Account</span></a></li>
+          <li><a href="M-Developers.dc.html" class="srow"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/></svg><span>Developers</span></a></li>
+    </ul>
+    <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 12px">
+      <p style="margin: 0; font-size: 14px; line-height: 20px; color: rgba(21,34,25,.7)">Signed in as <strong style="color: #152219">[manager name]</strong> · <span class="mono" style="text-transform: uppercase; letter-spacing: .14em">Owner</span></p>
+      <button type="button" style="width: 100%; min-height: 44px; border-radius: 10px; border: 1px solid #C9D2C8; background: #FFFDF4; color: #152219; font: 700 15px 'Space Grotesk', sans-serif; cursor: pointer">Sign out</button>
+    </div>
+  </div>
+
+  <nav aria-label="Panel sections, phone" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; padding: 0 4px 8px; background: #152219; display: flex">
+    <a href="M-Pass.dc.html" class="tab tab--on" aria-current="page"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
+    <a href="M-Spike.dc.html" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg></span>Spike<span class="badge" aria-label="4 waiting">4</span></a>
+    <a href="M-Roll.dc.html" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg></span>Roll</a>
+    <a href="M-People.dc.html" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span>People</a>
+    <span role="button" aria-expanded="true" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>More</span>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

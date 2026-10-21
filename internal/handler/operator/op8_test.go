@@ -806,7 +806,7 @@ func TestOperatorScreens_EveryOneWearsTheOperatorChrome(t *testing.T) {
 		if !regexp.MustCompile(`TAPTIME <span class="text-saffron">OPERATOR</span>`).MatchString(html) {
 			t.Errorf("%s: no TAPTIME OPERATOR lockup", name)
 		}
-		for _, panel := range []string{"tab-bar", "tab-link", "punchless", "text-tappa-green\">taptime"} {
+		for _, panel := range []string{"panel-side", "side-nav", "bar-link", "tab-link", "punchless", "text-tappa-green\">taptime"} {
 			if strings.Contains(html, panel) {
 				t.Errorf("%s: carries the restaurant panel's %q", name, panel)
 			}

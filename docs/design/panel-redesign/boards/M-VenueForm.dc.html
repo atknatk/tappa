@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Edit venue — Taptime panel (mobile)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.tab{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif}
+.tab:hover{color:#FFFDF4}
+.tab-ic{width:48px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.tab--on{color:#FFFDF4}
+.tab--on .tab-ic{background:#FFFDF4;color:#152219}
+.tab-badge{position:absolute;top:4px;left:calc(50% + 8px);min-width:18px;height:18px;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+.iconbtn{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:#152219;border-radius:12px;cursor:pointer;text-decoration:none}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.inp{min-height:48px;padding:0 12px;border:1px solid #C9D2C8;border-radius:10px;background:#FFFDF4;font:16px 'Space Grotesk',sans-serif;color:#152219;box-sizing:border-box;width:100%}
+.help{margin:0;font-size:13px;line-height:1.45;color:rgba(21,34,25,.7)}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.secno{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;width:24px;height:24px;border-radius:50%;border:1.5px solid #152219;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 16px; box-sizing: border-box">
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; color: #152219">{{bizName}}</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">taptime · punchless</span>
+    </div>
+  </header>
+
+  <main style="padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <nav aria-label="Breadcrumb" class="lbl"><a href="M-Venues.dc.html" style="color: rgba(21,34,25,.7)">Venues &amp; plaques</a> / edit</nav>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1.05; letter-spacing: -0.035em">Edit {{venue.name}}</h1>
+    </div>
+
+    <section class="card" aria-labelledby="m1">
+      <h2 id="m1" style="margin: 0; font-size: 17px; display: flex; align-items: center; gap: 8px"><span class="secno" aria-hidden="true">01</span>Name</h2>
+      <div class="field"><label for="m-venue-name" class="lbl">Name</label><input id="m-venue-name" class="inp" type="text" value="{{venue.name}}"></div>
+    </section>
+
+    <section class="card" aria-labelledby="m2">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <h2 id="m2" style="margin: 0; font-size: 17px; display: flex; align-items: center; gap: 8px"><span class="secno" aria-hidden="true">02</span>Where it is</h2>
+        <p class="help">For a plaque tap either check is enough; a QR scan needs the network.</p>
+      </div>
+      <div class="field">
+        <label for="m-venue-ranges" class="lbl">Address ranges — one per line</label>
+        <textarea id="m-venue-ranges" class="mono" rows="3" spellcheck="false" aria-invalid="true" aria-describedby="m-ranges-err" style="min-height: 88px; padding: 10px 12px; border: 2px solid #BE3D2A; border-radius: 10px; background: #FFFDF4; font-size: 15px; line-height: 1.6; color: #152219; box-sizing: border-box; width: 100%">{{venue.rangesText}}</textarea>
+        <div id="m-ranges-err" role="alert" style="border: 1px solid #BE3D2A; background: rgba(190,61,42,.07); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 4px">
+          <span style="font-size: 13px; line-height: 1.45">0.0.0.0/1 covers far more of the internet than one venue's network can, so it cannot tell this venue apart from anywhere else. Every tap would be recorded as proven by the network even when nobody is here. Give the ranges your venue actually uses.</span>
+        </div>
+        <p class="help">Leave it empty and plaque taps here are checked against GPS alone, and QR scans go to The Spike; with no coordinate either, every tap goes to The Spike.</p>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+        <div class="field"><label for="m-venue-lat" class="lbl">Latitude</label><input id="m-venue-lat" class="inp mono" type="text" inputmode="decimal" value="{{venue.lat}}"></div>
+        <div class="field"><label for="m-venue-lng" class="lbl">Longitude</label><input id="m-venue-lng" class="inp mono" type="text" inputmode="decimal" value="{{venue.lng}}"></div>
+      </div>
+      <div style="display: flex; gap: 12px; align-items: center">
+        <div role="img" aria-label="Schematic: the coordinate with its configured 150 metre radius" style="flex: none; width: 72px; height: 72px; position: relative; display: flex; align-items: center; justify-content: center">
+          <div aria-hidden="true" style="position: absolute; inset: 0; border-radius: 50%; border: 1.5px dashed #1F5C41; background: rgba(31,92,65,.06)"></div>
+          <div aria-hidden="true" style="width: 10px; height: 10px; border-radius: 50%; background: #152219"></div>
+        </div>
+        <p class="help">Within <strong style="color: #152219">150 m</strong> counts as here — the configured radius (default 150 m), set by Taptime, not per venue. Read only at the moment of the tap.</p>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="m3">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <h2 id="m3" style="margin: 0; font-size: 17px; display: flex; align-items: center; gap: 8px"><span class="secno" aria-hidden="true">03</span>Shift</h2>
+        <p class="help">{{shiftHelp}}</p>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+        <div class="field"><label for="m-shift-start" class="lbl">Start</label><input id="m-shift-start" class="inp mono" type="time" value="{{venue.start}}"></div>
+        <div class="field"><label for="m-shift-end" class="lbl">End</label><input id="m-shift-end" class="inp mono" type="time" value="{{venue.end}}"></div>
+      </div>
+      <label for="m-overnight" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 48px; padding: 0 14px; border: 1px solid #C9D2C8; border-radius: 10px; cursor: pointer">
+        <span style="font-size: 15px; font-weight: 500">Ends next day</span>
+        <input id="m-overnight" type="checkbox" checked="{{overnight}}" onChange="{{toggleOvernight}}" style="width: 22px; height: 22px; accent-color: #1F5C41; margin: 0">
+      </label>
+      <div aria-hidden="true" style="position: relative; height: 12px; border-radius: 6px; background: #EDF0EA; overflow: hidden">
+        <sc-for list="{{shiftBars}}" as="b" hint-placeholder-count="2"><div style="{{b}}"></div></sc-for>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="m4">
+      <h2 id="m4" style="margin: 0; font-size: 17px; display: flex; align-items: center; gap: 8px"><span class="secno" aria-hidden="true">04</span>Wi-Fi at activation</h2>
+      <div class="field">
+        <label for="m-venue-wifi" class="lbl">Wi-Fi network name · optional</label>
+        <input id="m-venue-wifi" class="inp mono" type="text" value="{{venue.wifi}}">
+        <p class="help">Shown to staff when they set up their phone. Not used to check anything.</p>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="m-dept">
+      <h2 id="m-dept" style="margin: 0; font-size: 17px">Departments</h2>
+      <p class="help">A department's shift replaces the venue's shift for the people in it.</p>
+      <p style="margin: 0; font-size: 13px; line-height: 1.45">This venue has no departments, which is perfectly normal — a bar or a small venue usually does not need them. Add one if some of your staff work different hours from the rest of the venue.</p>
+      <a href="M-VenueForm.dc.html" style="min-height: 48px; border-radius: 12px; border: 1px dashed rgba(21,34,25,.5); color: #152219; font: 700 14px 'Space Grotesk', sans-serif; display: flex; align-items: center; justify-content: center; text-decoration: none">Add a department</a>
+    </section>
+
+    <section class="card" aria-labelledby="m-pl">
+      <h2 id="m-pl" style="margin: 0; font-size: 17px">Plaques on these walls</h2>
+      <ul style="list-style: none; margin: 0; padding: 0">
+        <sc-for list="{{plaques}}" as="p" hint-placeholder-count="2">
+          <li style="display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 44px; border-bottom: 1px dashed #C9D2C8">
+            <span class="mono" style="font-size: 13px; font-weight: 700">{{p.uid}}</span>
+            <span class="mono" style="{{p.pill}}">{{p.status}}</span>
+          </li>
+        </sc-for>
+      </ul>
+      <a href="M-Venues.dc.html" style="font-size: 14px; font-weight: 700; display: inline-flex; align-items: center; min-height: 44px">Manage plaques on the venue card →</a>
+    </section>
+
+    <section aria-labelledby="m-rm" style="border: 1px solid #BE3D2A; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: rgba(190,61,42,.04)">
+      <h2 id="m-rm" style="margin: 0; font-size: 17px">Remove this venue</h2>
+      <p class="help" style="color: #152219">It cannot be removed while anything still belongs to it: <strong>3 plaques, 14 employees</strong>.</p>
+      <p class="help" style="color: #152219">Removing cannot be undone, so it is reserved for an owner.</p>
+    </section>
+  </main>
+
+  <div style="position: sticky; bottom: 68px; padding: 10px 16px; background: rgba(237,240,234,.96); border-top: 1px solid #C9D2C8; display: grid; grid-template-columns: 2fr 1fr; gap: 10px">
+    <button type="button" style="min-height: 52px; border-radius: 14px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; cursor: pointer">Save venue</button>
+    <a href="M-Venues.dc.html" style="min-height: 52px; border-radius: 14px; border: 1px solid rgba(21,34,25,.5); color: #152219; font: 700 15px 'Space Grotesk', sans-serif; display: flex; align-items: center; justify-content: center; text-decoration: none">Cancel</a>
+  </div>
+
+  <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; background: #152219; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0 4px 8px">
+    <a href="M-Pass.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
+    <a href="M-Spike.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg></span>Spike<span class="tab-badge" aria-label="4 waiting">4</span></a>
+    <a href="M-Roll.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg></span>Roll</a>
+    <a href="M-People.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span>People</a>
+    <a href="M-More.dc.html" class="tab tab--on" aria-current="page"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":2310}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { overnight: null }; }
+  renderVals() {
+    // A rejected POST, re-rendered from what was posted.
+    const V = { name: 'KF Valletta', ranges: [['203.0.113.13/32', 'ok'], ['0.0.0.0/1', 'no']], lat: '35.899000', lng: '14.514000', start: '10:00', end: '22:00', night: false, wifi: 'KF-Valletta-Staff' };
+    const overnight = this.state.overnight === null ? V.night : this.state.overnight;
+    // S3 (D1): no per-line read-back and no invented heading — the error box carries only the parser's sentence (locations.go:728-732).
+    // Integer minutes, as the port must (no float).
+    const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+    const s = toMin(V.start), e = toMin(V.end);
+    const bar = (a, b) => 'position:absolute;top:0;bottom:0;left:' + (a * 100 / 1440) + '%;width:' + ((b - a) * 100 / 1440) + '%;background:#1F5C41';
+    const shiftBars = overnight && e <= s ? [bar(s, 1440), bar(0, e)] : (e > s ? [bar(s, e)] : []);
+    const pill = st => 'font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:2px 8px;border-radius:999px;' + (st === 'In service' ? 'border:1px solid #1F5C41;background:rgba(31,92,65,.1)' : 'border:1px solid #C9D2C8;color:rgba(21,34,25,.7)');
+    const plaques = [['04A224DC5E1190', 'In service'], ['04B7193A6C2D07', 'In service'], ['04E41290AB3E12', 'Retired']].map(([uid, status]) => ({ uid, status, pill: pill(status) }));
+    const shiftHelp = 'Lateness is measured against the shift of the venue a person taps at, unless their department has its own. Empty means lateness is not measured here, which is not the same as a shift starting at midnight.';
+    return {
+      bizUpper: 'KEBAB FACTORY',
+      bizName: 'Kebab Factory',
+      venue: { ...V, rangesText: V.ranges.map(r => r[0]).join('\n') },
+      overnight, toggleOvernight: () => this.setState({ overnight: !overnight }), shiftBars,
+      shiftHelp: 'Lateness is measured against the shift of the venue a person taps at, unless their department has its own. Empty means it is not measured here.',
+      plaques
+    };
+  }
+}
+</script>
+</body>
+</html>

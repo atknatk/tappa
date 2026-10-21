@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>People — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.iconbtn{width:44px;height:44px;border:0;border-radius:12px;background:transparent;color:#152219;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.hscroll{overflow-x:auto;scrollbar-width:none}
+.plist li+li{border-top:1px dashed #C9D2C8}
+.prow{width:100%;min-height:64px;display:flex;align-items:center;gap:12px;padding:10px 12px;border:0;background:transparent;font:inherit;color:#152219;text-align:left;cursor:pointer;box-sizing:border-box}
+.prow:hover{background:rgba(31,92,65,.05)}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif;position:relative}
+.tab:hover{color:#FFFDF4}
+.pill{width:48px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.tab--on{color:#FFFDF4}
+.tab--on .pill{background:#FFFDF4;color:#152219}
+.badge{position:absolute;top:4px;left:calc(50% + 6px);min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="height: 56px; padding: 0 8px 0 16px; display: flex; align-items: center; justify-content: space-between; box-sizing: border-box">
+    <div style="display: flex; flex-direction: column; gap: 1px">
+      <span style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; color: #152219">Kebab Factory</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">taptime · punchless</span>
+    </div>
+  </header>
+
+  <main style="padding: 16px; display: flex; flex-direction: column; gap: 18px">
+    <div style="height: 56px; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px">
+      <span class="lbl">The people who tap · 112 on the books</span>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">People</h1>
+    </div>
+
+    <form role="search" aria-label="Filter employees" style="display: flex; flex-direction: column; gap: 10px; margin: 0">
+      <div style="display: flex; gap: 8px">
+        <label style="flex: 1; height: 48px; box-sizing: border-box; display: flex; align-items: center; padding: 0 14px; border-radius: 12px; background: #FFFDF4; border: 1px solid #C9D2C8">
+          <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Name</span>
+          <input type="text" placeholder="Part of a name" style="border: 0; outline: 0; background: transparent; font: 15px 'Space Grotesk', sans-serif; color: #152219; flex: 1; min-width: 0">
+        </label>
+        <button type="button" style="height: 48px; padding: 0 16px; border-radius: 12px; border: 1px solid #152219; background: transparent; color: #152219; font: 700 15px 'Space Grotesk', sans-serif; cursor: pointer">Apply</button>
+      </div>
+      <label>
+        <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Location</span>
+        <select style="width: 100%; height: 48px; padding: 0 12px; border-radius: 12px; border: 1px solid #C9D2C8; background: #FFFDF4; font: 15px 'Space Grotesk', sans-serif; color: #152219"><option>All locations</option><option>KF Valletta</option><option>KF Hamrun</option></select>
+      </label>
+      <div class="hscroll" role="group" aria-label="Status" style="margin: 0 -16px; padding: 0 16px; height: 48px; display: flex; gap: 6px; align-items: center">
+        <sc-for list="{{chips}}" as="c" hint-placeholder-count="4">
+          <button type="button" onClick="{{c.pick}}" aria-current="{{c.on}}" style="{{c.style}}">{{c.label}} <span class="mono" style="font-size: 12px; font-weight: 400; opacity: .8">{{c.n}}</span></button>
+        </sc-for>
+      </div>
+    </form>
+
+    <a href="M-StaffForm.dc.html" style="height: 52px; border-radius: 14px; background: #1F5C41; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      Add somebody
+    </a>
+
+    <ul class="plist" style="list-style: none; margin: 0; padding: 0; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 16px; overflow: hidden">
+      <sc-for list="{{people}}" as="p" hint-placeholder-count="10">
+        <li>
+          <button type="button" class="prow">
+            <span class="mono" aria-hidden="true" style="flex: none; width: 40px; height: 40px; border-radius: 10px; background: #EDF0EA; border: 1px solid #C9D2C8; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700">{{p.ini}}</span>
+            <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+              <span style="font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.name}}</span>
+              <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); line-height: 1.45">{{p.role}} · <span style="white-space: nowrap">{{p.last}}</span></span>
+            </span>
+            <span class="mono" style="{{p.pillStyle}}">{{p.status}}</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(21,34,25,.7)" stroke-width="2" aria-hidden="true" style="flex: none"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </li>
+      </sc-for>
+    </ul>
+    <div class="mono" style="display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: rgba(21,34,25,.7)">
+      <span>{{footer}}</span>
+      <a href="M-People.dc.html" style="font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 15px; min-height: 44px; display: inline-flex; align-items: center">Next page</a>
+    </div>
+    <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">Dates shown in Europe/Malta</span>
+  </main>
+
+  <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; padding: 0 4px 8px; background: #152219; display: flex">
+    <a href="M-Pass.dc.html" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
+    <a href="M-Spike.dc.html" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg></span>Spike<span class="badge" aria-label="4 waiting">4</span></a>
+    <a href="M-Roll.dc.html" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg></span>Roll</a>
+    <a href="M-People.dc.html" class="tab tab--on" aria-current="page"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span>People</a>
+    <a href="M-More.dc.html" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1270}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { status: 'all' }; }
+  renderVals() {
+    // Name order, as the roster query sorts; no venue grouping. Words are the database's own.
+    const people = [
+      ['Antoine Vella', 'Line Cook', 'active', '02:14 yesterday'],
+      ['Elena Petrova', 'Bar Manager', 'active', '14:26 today'],
+      ['Frank Debono', 'Line Cook', 'deactivated', '18:40 2 Oct'],
+      ['George Muscat', 'Line Cook', 'active', '10:04 today'],
+      ['Ivan Petrov', 'Bartender', 'invited', 'no taps yet'],
+      ['Julia Sciberras', 'Assistant Manager', 'active', '09:02 today'],
+      ['Kevin Borg', 'Kitchen Porter', 'active', '14:28 today'],
+      ['Marco Bugeja', 'Line Cook', 'invited', 'no taps yet'],
+      ['Maria Borg', 'Line Cook', 'active', '14:31 today'],
+      ['Nadia Farrugia', 'Kitchen Porter', 'active', '13:58 today']
+    ];
+    const pill = {
+      active: 'border:1px solid #1F5C41;background:rgba(31,92,65,.1);color:#152219',
+      invited: 'border:1px dashed #D98E2B;background:rgba(217,142,43,.12);color:#152219',
+      deactivated: 'border:1px solid #C9D2C8;color:rgba(21,34,25,.7)'
+    };
+    const st = this.state.status;
+    const list = people.filter(p => st === 'all' || p[2] === st).map(([name, role, status, last]) => ({
+      name, role, last, status: status.toUpperCase(), ini: name.split(' ').map(w => w[0]).join(''),
+      pillStyle: 'flex:none;font-size:10px;font-weight:700;letter-spacing:.06em;padding:3px 7px;border-radius:999px;' + pill[status] }));
+    const counts = { all: '112', invited: '5', active: '104', deactivated: '3' };
+    const chips = [['all', 'Everyone'], ['invited', 'Invited'], ['active', 'Active'], ['deactivated', 'Deactivated']].map(([id, label]) => {
+      const on = st === id;
+      return { label, n: counts[id], on: on ? 'true' : 'false', pick: () => this.setState({ status: id }),
+        style: 'flex:none;min-height:44px;padding:0 14px;border-radius:22px;font:500 13px Space Grotesk,sans-serif;cursor:pointer;' + (on ? 'background:#152219;color:#FFFDF4;border:1px solid #152219' : 'background:transparent;color:#152219;border:1px solid rgba(21,34,25,.5)') };
+    });
+    return { chips, people: list, footer: 'Showing ' + list.length + ' of ' + counts[st] };
+  }
+}
+</script>
+</body>
+</html>

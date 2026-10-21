@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Manual entry — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-6px;height:6px;background:radial-gradient(circle at 6px 6px,transparent 3.5px,#FFFDF4 4px) 0 0/12px 6px repeat-x}
+.stamp{display:inline-block;padding:3px 8px;border:2px solid;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-8deg)}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
+.tally{display:inline-block;padding:2px 5px;border:1px solid #152219;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#152219}
+.tab{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif}
+.tab:hover{color:#FFFDF4}
+.tab-ic{width:48px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.tab--on{color:#FFFDF4}
+.tab--on .tab-ic{background:#FFFDF4;color:#152219}
+.tab-badge{position:absolute;top:4px;left:calc(50% + 8px);min-width:18px;height:18px;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+.iconbtn{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:#152219;border-radius:12px;cursor:pointer;text-decoration:none}
+.field{min-height:48px;padding:0 12px;border:1px solid #C9D2C8;border-radius:10px;background:#FFFDF4;font:15px 'IBM Plex Mono',monospace;color:#152219;box-sizing:border-box;width:100%}
+.help{margin:0;font-size:13px;line-height:1.45;color:rgba(21,34,25,.7)}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 16px; box-sizing: border-box">
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; color: #152219">Kebab Factory</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">taptime · punchless</span>
+    </div>
+    <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{stepLabel}}</span>
+  </header>
+
+  <main style="padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span class="lbl">Adds a record · never edits one</span>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">Manual entry</h1>
+    </div>
+
+    <section aria-label="Enter a record by hand" class="docket" style="padding: 18px 16px 22px; display: flex; flex-direction: column; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="lbl">Attendance record</span>
+        <span style="font-size: 22px; font-weight: 700; letter-spacing: -0.02em">Ana Silva</span>
+        <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{subjectVenue}}</span>
+      </div>
+
+      <sc-if value="{{isForm}}" hint-placeholder-val="{{true}}">
+        <form style="display: flex; flex-direction: column; gap: 16px; margin: 0">
+          <fieldset style="border: 0; margin: 0; padding: 0">
+            <legend class="lbl" style="padding: 0; margin-bottom: 8px">What happened</legend>
+            <div role="radiogroup" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+              <sc-for list="{{dirs}}" as="d" hint-placeholder-count="2">
+                <button type="button" role="radio" aria-checked="{{d.on}}" onClick="{{d.pick}}" style="{{d.style}}">
+                  <span style="font-weight: 700; font-size: 15px">{{d.label}}</span>
+                  <span style="font-size: 12px; color: rgba(21,34,25,.7)">{{d.sentence}}</span>
+                </button>
+              </sc-for>
+            </div>
+          </fieldset>
+          <sc-if value="{{needsVenue}}" hint-placeholder-val="{{true}}">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <label for="mm-venue" class="lbl">Venue</label>
+              <select id="mm-venue" class="field" style="font-family: 'Space Grotesk', sans-serif"><option>Choose the venue</option><option selected>KF Msida</option><option>KF Valletta</option></select>
+              <p class="help">Ana Silva has no home venue, so the record is filed at the one you choose.</p>
+            </div>
+          </sc-if>
+          <div style="display: flex; flex-direction: column; gap: 6px"><label for="mm-date" class="lbl">Date</label><input id="mm-date" type="date" class="field" value="2026-10-20"></div>
+          <div style="display: flex; flex-direction: column; gap: 6px"><label for="mm-time" class="lbl">Time</label><input id="mm-time" type="time" class="field" value="09:00"></div>
+          <p class="mono" style="margin: -6px 0 0; font-size: 13px; color: rgba(21,34,25,.85)">Times are this business's own clock: <strong>Europe/Malta</strong></p>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <label for="mm-note" class="lbl">Why (optional)</label>
+            <textarea id="mm-note" rows="2" class="field" style="padding: 10px 12px">Phone was flat</textarea>
+            <p class="help">It is shown on the record itself, next to the mark that says a manager typed it. "Phone was flat" or "forgot to tap out" is enough.</p>
+          </div>
+        </form>
+      </sc-if>
+
+      <sc-if value="{{isConfirm}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; flex-direction: column; gap: 14px">
+          <div style="border: 1px dashed rgba(21,34,25,.5); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+            <span class="lbl">About to be recorded</span>
+            <span class="mono" style="font-size: 14px; font-weight: 700">{{summary}}</span>
+            <span class="mono" style="font-size: 13px">Tuesday 20 October 2026, 09:00 <span style="color: rgba(21,34,25,.7)">· Europe/Malta</span></span>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">2026-10-20T07:00:00Z UTC</span>
+            <sc-if value="{{needsVenue}}" hint-placeholder-val="{{true}}">
+              <span class="mono" style="font-size: 13px">At KF Msida</span>
+            </sc-if>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.85)">This is a past moment. The record will say it happened then, and it will also carry the time you wrote it.</span>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.85)">"Phone was flat"</span>
+          </div>
+          <div role="note" style="border: 1px solid #BE3D2A; background: rgba(190,61,42,.07); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 1.45">
+            <strong>This cannot be edited or removed afterwards</strong>
+            <span>Attendance records are permanent — nothing in Taptime can change one or take it back, because a record may be needed as evidence.</span>
+            <span>If this is wrong, adding another record later can shorten the shift but never lengthen it. Check the time before you press.</span>
+            <sc-if value="{{isIn}}" hint-placeholder-val="{{true}}">
+              <span>And if you are fixing a check-in you already entered, the old one stays in "needs action" for good: nothing you enter afterwards can close it. Rather than correcting one, get this one right.</span>
+            </sc-if>
+          </div>
+          <p class="help">Recording takes you to The Pass, on that day, with the new record in view.</p>
+        </div>
+      </sc-if>
+
+    </section>
+
+    <div style="display: flex; gap: 14px; align-items: center">
+      <sc-if value="{{isConfirm}}" hint-placeholder-val="{{false}}">
+        <div class="docket" style="flex: 0 0 150px; padding: 12px; display: flex; flex-direction: column; gap: 6px">
+          <span class="stamp stamp--ok" style="align-self: flex-end; font-size: 10px">Approved</span>
+          <span class="mono" style="font-size: 12px; font-weight: 700">{{dirShort}} 09:00</span>
+          <span><span class="tally">Entered by a manager</span></span>
+        </div>
+      </sc-if>
+      <p class="help" style="font-size: 13px">This adds a new record. Nothing existing is changed.</p>
+    </div>
+  </main>
+
+  <div style="position: sticky; bottom: 68px; padding: 10px 16px; background: #EDF0EA; border-top: 1px solid #C9D2C8; display: flex; gap: 10px">
+    <sc-if value="{{isForm}}" hint-placeholder-val="{{true}}">
+      <div style="flex: 1; display: flex; gap: 12px; align-items: center">
+        <button type="button" onClick="{{toConfirm}}" style="flex: 1; min-height: 56px; border-radius: 14px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; cursor: pointer">Review this record</button>
+        <a href="M-People.dc.html" style="font-weight: 700; font-size: 15px; min-height: 44px; padding: 0 6px; display: inline-flex; align-items: center">Cancel</a>
+      </div>
+    </sc-if>
+    <sc-if value="{{isConfirm}}" hint-placeholder-val="{{false}}">
+      <div style="flex: 1; display: flex; gap: 12px; align-items: center">
+        <a href="M-Pass.dc.html" style="flex: 1; min-height: 56px; border-radius: 14px; background: #1F5C41; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; display: flex; align-items: center; justify-content: center; text-decoration: none">Record it</a>
+        <a href="M-People.dc.html" style="font-weight: 700; font-size: 15px; min-height: 44px; padding: 0 6px; display: inline-flex; align-items: center">Cancel</a>
+      </div>
+    </sc-if>
+  </div>
+
+  <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; background: #152219; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0 4px 8px">
+    <a href="M-Pass.dc.html" class="tab tab--on" aria-current="page"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
+    <a href="M-Spike.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg></span>Spike<span class="tab-badge" aria-label="4 waiting">4</span></a>
+    <a href="M-Roll.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg></span>Roll</a>
+    <a href="M-People.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span>People</a>
+    <a href="M-More.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"step":{"editor":"enum","options":["form","confirm"],"default":"form"},"homeVenue":{"editor":"boolean","default":false},"$preview":{"width":390,"height":1060}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { step: null, dir: 'in' }; }
+  renderVals() {
+    const st = this.state.step ?? (this.props.step ?? 'form');
+    const dirs = [['in', 'Check-in', 'started work'], ['out', 'Checkout', 'stopped work']].map(([id, label, sentence]) => {
+      const on = this.state.dir === id;
+      return { label, sentence, on: on ? 'true' : 'false', pick: () => this.setState({ dir: id }),
+        style: 'min-height:60px;text-align:left;display:flex;flex-direction:column;gap:2px;justify-content:center;padding:8px 12px;border-radius:12px;cursor:pointer;font:inherit;color:#152219;' + (on ? 'background:#FFFDF4;border:2px solid #152219' : 'background:transparent;border:1px solid #C9D2C8') };
+    });
+    const isIn = this.state.dir === 'in';
+    const home = this.props.homeVenue ?? false;
+    return {
+      dirs, isIn, isForm: st === 'form', isConfirm: st === 'confirm',
+      needsVenue: !home,
+      subjectVenue: home ? 'KF Msida' : 'no home venue',
+      stepLabel: { form: 'STEP 1 OF 2', confirm: 'STEP 2 OF 2' }[st],
+      summary: isIn ? 'Check-in — Ana Silva started work' : 'Checkout — Ana Silva stopped work',
+      dirShort: isIn ? 'IN' : 'OUT',
+      toConfirm: () => this.setState({ step: 'confirm' })
+    };
+  }
+}
+</script>
+</body>
+</html>

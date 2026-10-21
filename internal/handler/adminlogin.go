@@ -264,6 +264,19 @@ type AdminAuth struct {
 	// the log at start-up.
 	encoder PlaqueEncoder
 
+	// plaqueTapBase is the tap URL a plaque carries ("https://<host>/t"), the SAME value
+	// cmd/tappa hands the encode relay, set by the PlaqueDrawingsFrom option. The plaque
+	// drawing's QR code is built from it (M12-12); "" — or a base no plaque could be
+	// encoded with — draws no QR code at all (plaqueDrawingOf).
+	plaqueTapBase string
+
+	// gpsRadiusM is the radius, in metres, within which a shared position counts as
+	// "here" -- TAPPA_GPS_RADIUS_M as the decision engine holds it, handed over by
+	// cmd/tappa through the GPSRadiusFrom option (M12-34). The Venues page prints it;
+	// 0 means the panel was given none, and the page then prints no figure rather than
+	// a number of its own.
+	gpsRadiusM float64
+
 	// notices sends the "your password was changed" notice after the Account section's
 	// change-my-own-password commits (M10 EM-9, passwordnotice.go). It is REQUIRED, for
 	// the M5-04 reason: a nil notifier would let a change go unannounced and unrecorded
@@ -512,6 +525,13 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 // button on the most public URL in the product. handler.Marketing reads this
 // constant, so the link and the route are the same string at compile time rather
 // than two strings a test has to notice have diverged.
+//
+// ⚠️ IT STAYS A STRING LITERAL, AND pages.AdminLoginPath IS ITS TWIN (M12-06). The
+// sign-up wizard's header has no view field to carry this path, so pages holds the
+// same string; TestSignupSurface_EverySignInLinkGoesToTheSignInPage fails if the two
+// differ. Writing this as `= pages.AdminLoginPath` was tried and broke
+// TestEmployeeRoutes_DerivationIsNotVacuous: that cookie-net scan resolves route
+// names from literal constants only, and must not be loosened for a convenience.
 const adminLoginPath = "/admin/login"
 
 // Mount registers the routes on r.
@@ -1786,8 +1806,49 @@ func (a *AdminAuth) renderWithPolicy(w http.ResponseWriter, r *http.Request, sta
 	}
 }
 
+// renderProblem answers a panel problem on the panel's own card (M12-10,
+// pages.PanelProblem); pages.Problem stays the tap and activation screens' page.
+//
+// THE CARD IS BUILT FROM WHAT THIS CALL ALREADY HAS, and from nothing else: the code
+// chip is status, the owner pill is the constant's OwnerOnly, the words are the
+// constant's. The one way on depends on whether the request carried a live panel
+// session -- the resolver's answer, not a claim the request makes. A request without
+// one (the sign-in family, a refusal in front of the resolver, a session that did not
+// resolve) is sent to the sign-in page and never to The Pass, which would only bounce
+// it there.
+//
+// It is still render: no shell, no logo, adminCSP's literal policy.
 func (a *AdminAuth) renderProblem(w http.ResponseWriter, r *http.Request, status int, v pages.ProblemView) {
-	a.render(w, r, status, pages.Problem(v))
+	a.render(w, r, status, pages.PanelProblem(panelProblemOf(status, v, httpx.AdminOf(r).Live())))
+}
+
+// panelHomeLabel is the name of the section transactionsHref opens ("The Pass"), read
+// from the section table for the reason transactionsHref is.
+var panelHomeLabel = func() string {
+	for _, s := range pages.PanelSections {
+		if s.Href == transactionsHref {
+			return s.Label
+		}
+	}
+	panic("handler: no panel section at " + transactionsHref)
+}()
+
+// panelProblemOf is renderProblem's view, a pure function so its three decisions are
+// tested without a router.
+func panelProblemOf(status int, v pages.ProblemView, signedIn bool) pages.PanelProblemView {
+	out := pages.PanelProblemView{
+		Status:    status,
+		OwnerOnly: v.OwnerOnly,
+		Title:     v.Title,
+		Message:   v.Message,
+		Hint:      v.Hint,
+		CTAHref:   adminLoginPath,
+		CTALabel:  "Go to sign in",
+	}
+	if signedIn {
+		out.CTAHref, out.CTALabel = transactionsHref, "Back to "+panelHomeLabel
+	}
+	return out
 }
 
 // redirect answers 303 See Other: the browser follows with GET, which turns a POST

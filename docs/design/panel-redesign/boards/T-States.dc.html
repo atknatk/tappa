@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Empty states and problems — tablet</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.tnav{position:relative;width:72px;min-height:60px;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-decoration:none;color:#EDF0EA;font-family:'Space Grotesk',sans-serif;font-weight:500;font-size:10px}
+.tnav:hover{background:rgba(237,240,234,.08);color:#FFFDF4}
+.tbadge{position:absolute;top:5px;left:42px;min-width:18px;height:18px;padding:0 4px;box-sizing:border-box;border-radius:9px;background:#D98E2B;color:#152219;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.empty{border:1px dashed rgba(21,34,25,.5);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:8px}
+.notice{border-radius:14px;padding:14px 16px;display:flex;gap:12px;align-items:flex-start}
+.nicon{width:30px;height:30px;flex:none;border-radius:9px;display:inline-flex;align-items:center;justify-content:center}
+.btn{min-height:44px;padding:0 16px;border-radius:12px;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer;display:inline-flex;align-items:center;text-decoration:none}
+</style>
+</helmet>
+<div style="width: 834px; min-height: 2220px; display: flex; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <aside style="flex: 0 0 88px; align-self: stretch; background: #152219; position: relative; padding: 20px 8px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 6px">
+    <div style="position: absolute; left: 0; right: 0; top: 0; height: 4px; background: #1F5C41"></div>
+    <div style="font-size: 26px; font-weight: 700; color: #FFFDF4; letter-spacing: -0.03em; padding: 4px 0 14px">K</div>
+    <nav aria-label="Panel sections" style="display: flex; flex-direction: column; gap: 4px">
+      <a href="T-Pass.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg>Pass</a>
+      <a href="T-Spike.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg>Spike<span class="tbadge" aria-label="4 waiting">4</span></a>
+      <a href="T-People.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg>People</a>
+      <a href="T-Venues.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Venues</a>
+      <a href="T-Roll.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg>Roll</a>
+      <a href="T-Odd.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="17" r="2"/><circle cx="12" cy="10" r="2"/><circle cx="18" cy="15" r="2"/><path d="M15 3.5l5 5M20 3.5l-5 5"/></svg>Odd</a>
+      <a href="T-Rules.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Rules</a>
+    </nav>
+    <div style="margin-top: auto; display: flex; flex-direction: column; gap: 4px; border-top: 1px solid rgba(237,240,234,.14); padding-top: 10px">
+      <a href="T-Billing.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>Billing</a>
+      <a href="T-Account.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/></svg>Account</a>
+      <a href="T-Developers.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/></svg>Developers</a>
+    </div>
+    <button type="button" style="margin-top: 10px; width: 72px; min-height: 44px; padding: 0 4px; border-radius: 10px; border: 1px solid #C9D2C8; background: #FFFDF4; color: #152219; font: 700 12px 'Space Grotesk', sans-serif; cursor: pointer">Sign out</button>
+  </aside>
+
+  <main style="flex: 1; min-width: 0; padding: 24px; box-sizing: border-box; display: flex; flex-direction: column; gap: 26px">
+    <header style="display: flex; flex-direction: column; gap: 6px">
+      <span class="lbl">Reference board · panel components</span>
+      <h1 style="margin: 0; font-size: 36px; line-height: 1; letter-spacing: -0.035em">Empty, notices, problems</h1>
+      <p style="margin: 6px 0 0; font-size: 15px; line-height: 1.5; color: rgba(21,34,25,.7); max-width: 760px">Panel-only pieces: an empty state, a notice and a problem page drawn for the panel. The staff tap and activation screens keep their own notice, card and problem page unchanged. An empty state is only shown after the panel has actually asked. A docket's solid border means something was printed; a dashed border means nothing has been.</p>
+    </header>
+
+    <section aria-labelledby="h-empty" style="display: flex; flex-direction: column; gap: 14px">
+      <h2 id="h-empty" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Empty states <span class="mono" style="font-size: 13px; font-weight: 400; color: rgba(21,34,25,.7)">· the section names itself; the sentence says what was asked</span></h2>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+        <sc-for list="{{empties}}" as="e" hint-placeholder-count="7">
+          <div class="empty">
+            <span class="lbl">{{e.where}}</span>
+            <h3 style="margin: 0; font-size: 19px; letter-spacing: -0.015em">{{e.h}}</h3>
+            <p style="margin: 0; font-size: 14px; line-height: 1.45; color: rgba(21,34,25,.7)">{{e.p}}</p>
+            <sc-if value="{{e.cta}}" hint-placeholder-val="{{false}}">
+              <a href="{{e.href}}" class="btn" style="align-self: flex-start; margin-top: 6px; background: #1F5C41; color: #FFFDF4">{{e.cta}}</a>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-notice" style="display: flex; flex-direction: column; gap: 14px">
+      <h2 id="h-notice" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Notices <span class="mono" style="font-size: 13px; font-weight: 400; color: rgba(21,34,25,.7)">· three tones, word first, colour second</span></h2>
+      <div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px">
+        <div role="status" class="notice" style="background: rgba(31,92,65,.1); border: 1px solid #1F5C41">
+          <span class="nicon" style="background: #1F5C41; color: #FFFDF4"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <span class="lbl" style="color: #1F5C41">Done</span>
+            <strong style="font-size: 16px">Colour saved</strong>
+            <span style="font-size: 14px; line-height: 1.45">The tap button is this colour from your staff's next tap.</span>
+          </div>
+        </div>
+        <div role="status" class="notice" style="background: #F7EBD6; border: 1px solid #D98E2B">
+          <span class="nicon" style="background: #D98E2B; color: #152219"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 7v6"/><circle cx="12" cy="17" r="0.6"/></svg></span>
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <span class="lbl" style="color: #152219">Heads up</span>
+            <strong style="font-size: 16px">API access is off for this business</strong>
+            <span style="font-size: 14px; line-height: 1.45">Taptime switches the integration API on for a business on request. Until then the webhook cannot be created, changed or tested. You can still switch it off.</span>
+          </div>
+        </div>
+        <div role="alert" class="notice" style="background: #FFFDF4; border: 2px solid #BE3D2A">
+          <span class="nicon" style="background: #BE3D2A; color: #FFFDF4"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></span>
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <span class="lbl" style="color: #152219">Not done</span>
+            <strong style="font-size: 16px">Not changed</strong>
+            <span style="font-size: 14px; line-height: 1.45">That could not be done just now. Nothing was changed; please try again.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-problem" style="display: flex; flex-direction: column; gap: 14px">
+      <h2 id="h-problem" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Problem pages <span class="mono" style="font-size: 13px; font-weight: 400; color: rgba(21,34,25,.7)">· what happened, then what to do next</span></h2>
+      <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7); max-width: 760px">The code is the status the panel already answers with. There is no "sign in again" page: an expired session goes straight to the sign-in page. A problem met before signing in offers the sign-in page, never The Pass.</p>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+        <sc-for list="{{problems}}" as="p" hint-placeholder-count="4">
+          <article style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 12px">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px">
+              <span class="mono" style="font-size: 12px; font-weight: 700; letter-spacing: .1em; padding: 3px 8px; border: 1px solid #152219; border-radius: 6px">{{p.code}}</span>
+              <sc-if value="{{p.lock}}" hint-placeholder-val="{{false}}">
+                <span class="mono" style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .1em; padding: 3px 8px; border-radius: 6px; background: #152219; color: #FFFDF4">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>OWNER ONLY
+                </span>
+              </sc-if>
+              <sc-if value="{{p.out}}" hint-placeholder-val="{{false}}">
+                <span class="mono" style="font-size: 11px; letter-spacing: .1em; padding: 3px 8px; border-radius: 6px; border: 1px dashed rgba(21,34,25,.5)">NOT SIGNED IN</span>
+              </sc-if>
+            </div>
+            <h3 style="margin: 0; font-size: 24px; letter-spacing: -0.02em; line-height: 1.15">{{p.title}}</h3>
+            <p style="margin: 0; font-size: 14px; line-height: 1.5">{{p.msg}}</p>
+            <p style="margin: 0; font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.7)">{{p.hint}}</p>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px">
+              <a href="{{p.href}}" class="btn" style="background: #152219; color: #FFFDF4">{{p.cta}}</a>
+              <sc-if value="{{p.alt}}" hint-placeholder-val="{{false}}">
+                <a href="T-Pass.dc.html" class="btn" style="border: 1px solid rgba(21,34,25,.5); color: #152219; background: transparent">{{p.alt}}</a>
+              </sc-if>
+            </div>
+          </article>
+        </sc-for>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":834,"height":2220}}'>
+class Component extends DCLogic {
+  renderVals() {
+    // Sentences are the product's own (review, transactions, employees, locations, reports, anomalies templates).
+    const empties = [
+      { where: 'The Spike', h: 'Nothing is waiting for review', p: 'Every flagged tap has been decided. New ones arrive here when the engine records a tap it could not judge on evidence alone.' },
+      { where: 'The Pass · past day', h: 'No taps recorded on this day', p: 'Nothing was recorded here on this day. Pick another day above.' },
+      { where: 'People', h: 'Nobody on the books yet', p: 'No people have been added to this business yet.' },
+      { where: 'Venues & plaques', h: 'No venues yet', p: 'No venues have been added to this business yet. A venue is a place people tap in at — add the first one to get started.', cta: 'Add a venue', href: 'T-VenueForm.dc.html' },
+      { where: 'Venues & plaques · plaques', h: 'No plaques are mounted', p: 'No plaques have been loaded for this business yet. Taptime encodes each plaque and loads it here; ask us for the ones you need and they will appear in stock, ready to mount.' },
+      { where: 'The Roll', h: 'No hours were recorded this week', p: 'Nothing in this week pairs into a worked shift. Pick another week above.' },
+      { where: 'Odd shapes', h: 'Every check-in this week has a checkout after it', p: 'Nothing in this week is waiting for a missing record.' }
+    ];
+    const problems = [
+      { code: '403', lock: true, title: 'Billing is the owner\u2019s', msg: 'This section shows what this business is charged for Taptime, and it is visible to an owner of the business rather than to a manager. Nothing is wrong with your account.', hint: 'If you need these figures, ask an owner of the business.', cta: 'Back to The Pass', href: 'T-Pass.dc.html' },
+      { code: '500', title: 'We could not read your records', msg: 'The panel could not reach the database, so this page is not showing anything. Nothing has been changed and no record has been lost.', hint: 'Try again in a minute.', cta: 'Try again', href: 'T-Venues.dc.html', alt: 'Back to The Pass' },
+      { code: '400', out: true, title: 'That sign-in step expired', msg: 'The choice of business is only valid for a few minutes.', hint: 'Start again from the sign-in page.', cta: 'Go to sign in', href: 'T-SignIn.dc.html' },
+      { code: '429', out: true, title: 'Too many attempts', msg: 'We have stopped accepting sign-ins from here for a few minutes.', hint: 'Wait a little and try again.', cta: 'Go to sign in', href: 'T-SignIn.dc.html' }
+    ];
+    return { empties, problems };
+  }
+}
+</script>
+</body>
+</html>

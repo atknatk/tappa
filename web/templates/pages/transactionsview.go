@@ -63,6 +63,165 @@ type TransactionsView struct {
 	// for a live OWNER alone; the zero value draws nothing, so the page is byte for byte what it was
 	// when there is no alert.
 	KeyBudget KeyBudgetBanner
+
+	// THE PASS AND THE LEDGER ARE ONE SECTION AT ONE URL (M12-26, M12-27; screen file
+	// pass-ledger.md §0.8): /admin with no day is The Pass -- today, with the widgets and the
+	// rail -- and /admin?date=… is that day's ledger. Today picks the layout; the zero value is
+	// the ledger, so a view nobody filled in draws no widget at all.
+	Today bool
+
+	// Chips are the verdict filters as links (All, then the four verdicts), with the day's
+	// count beside each when the tally was measured. Both layouts draw them.
+	Chips []VerdictChip
+	// Summary is the ledger's one-line count of the day ("10 records · 6 approved · …"), or ""
+	// when the tally was not measured. TallyFailed says it was asked and could not be read.
+	Summary     string
+	TallyFailed bool
+
+	// Hours is the ledger's list: the page's dockets grouped by the hour they happened in,
+	// newest hour first. The rail on The Pass reads Dockets instead.
+	Hours []HourGroup
+
+	// The ledger's day stepper: the day before, the day after (empty when that would be a day
+	// that has not begun -- there is nothing to show there yet) and The Pass. DayShort is the
+	// stepper's label ("Mon 19 Oct").
+	PrevDayHref string
+	NextDayHref string
+	PassHref    string
+	DayShort    string
+
+	// The Pass's widgets (M12-13, 14, 15) and its plaque list. Each carries its own state, so
+	// a widget that was not measured claims nothing and one that failed says so (§4.6).
+	Floor        FloorView
+	Spike        SpikeView
+	LeftOpen     LeftOpenView
+	Tape         TapeView
+	PassPlaques  PassPlaquesView
+	WholeDayHref string
+}
+
+// WidgetState is how far one of The Pass's figures got: the zero value is "not read", and
+// the screen then claims nothing; Failed is a read that was asked and did not answer, and the
+// screen says "could not be read" -- never 0.
+type WidgetState uint8
+
+const (
+	WidgetNotRead WidgetState = iota
+	WidgetFailed
+	WidgetRead
+)
+
+// VerdictChip is one verdict filter: a link, never a button (README §5 "Chip").
+type VerdictChip struct {
+	Label string
+	// Count is the day's number for this chip, "" when the tally was not measured.
+	Count   string
+	Href    string
+	Current bool
+}
+
+// HourGroup is one hour of the ledger's day.
+type HourGroup struct {
+	// Anchor is the group's heading id, unique on the page (the hour and its first record's
+	// time), for the section's aria-labelledby.
+	Anchor string
+	// Hour is "18:00"; Weekday is "Mon".
+	Hour    string
+	Weekday string
+	// Continued marks a group whose hour began on the page before: a "Show more" page that
+	// starts mid-hour repeats the header with "(continued)".
+	Continued bool
+	Dockets   []components.DocketView
+}
+
+// FloorView is "On the floor now": the number and the per-venue tally from the same read.
+type FloorView struct {
+	State  WidgetState
+	People string
+	Rows   []FloorRow
+}
+
+// FloorRow is one venue's share: its name, the ticks (at most 20 -- the number carries the
+// meaning) and the number.
+type FloorRow struct {
+	Name   string
+	Ticks  string
+	People string
+}
+
+// SpikeView is the "On the spike" card, read from the chrome's own badge (PanelChrome.Pending)
+// so the card and the navigation cannot disagree.
+type SpikeView struct {
+	State WidgetState
+	// Count is "0" only when the queue was measured empty, "N+" when the count was capped.
+	Count string
+	Href  string
+}
+
+// LeftOpenView is "Left open since yesterday".
+type LeftOpenView struct {
+	State WidgetState
+	// Count is "N", or "N+" when the read was capped.
+	Count string
+	// OddHref is yesterday's week on Odd shapes, where the open check-ins are listed.
+	OddHref string
+}
+
+// TapeView is today's hourly tape: people on shift per venue for every hour that has begun.
+type TapeView struct {
+	State WidgetState
+	// Incomplete says the read hit its cap: every bar is a lower bound and the screen says so.
+	Incomplete bool
+	// Columns is how many hours today has in the tenant's zone (23, 24 or 25 on a clock
+	// change), so the bars and the axis share one grid. Axis holds a label per column, "" for
+	// none.
+	Columns int
+	Axis    []string
+	Rows    []TapeRow
+}
+
+// TapeRow is one venue's row. Bars hold the hours that have begun, midnight first; the hours
+// after them are not drawn (no future bar -- there is no roster to project from, D1).
+type TapeRow struct {
+	Name string
+	// Label is the row's accessible text: every hour with somebody on shift and how many, so
+	// rounding the bar heights to ten steps loses nothing for a screen reader.
+	Label string
+	Bars  []TapeBar
+}
+
+// TapeBar is one hour's bar: Bucket 0 draws none, 1-10 picks a literal height class
+// (components.TapeBar); Current is the hour that holds the page's "now".
+type TapeBar struct {
+	Bucket  int
+	Current bool
+}
+
+// PassPlaquesView is The Pass's plaque card: the plaques on a wall, the most recently seen
+// first, at most PassPlaqueRows of them.
+type PassPlaquesView struct {
+	State WidgetState
+	Rows  []PassPlaqueRow
+	// More says the business has more plaques on a wall than the card lists.
+	More bool
+	// Href and Label are Venues & plaques, from the section table.
+	Href  string
+	Label string
+}
+
+// PassPlaqueRows is how many plaques the card lists.
+const PassPlaqueRows = 8
+
+// PassPlaqueRow is one mounted plaque.
+type PassPlaqueRow struct {
+	Venue string
+	// Plaque is "PLAQUE 91AC": the last four characters of the uid, as the plaque prints them.
+	Plaque string
+	// Seen is the last tap in the tenant's zone, or "never".
+	Seen string
+	// Replace is the key alert of the Venues section for a plaque on a wall whose encode was
+	// not recorded as finished: "This plaque needs replacing".
+	Replace bool
 }
 
 // HistoryReading is the ledger's "has this business any record" answer.

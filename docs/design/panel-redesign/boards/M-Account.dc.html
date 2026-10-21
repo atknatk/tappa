@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Account — Taptime panel</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.tab{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif}
+.tab:hover{color:#FFFDF4}
+.tab-ic{width:48px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.tab--on{color:#FFFDF4}
+.tab--on .tab-ic{background:#FFFDF4;color:#152219}
+.tab-badge{position:absolute;top:4px;left:calc(50% + 8px);min-width:18px;height:18px;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+.field{min-height:44px;padding:0 12px;border:1px solid #C9D2C8;border-radius:10px;background:#FFFDF4;font:14px 'Space Grotesk',sans-serif;color:#152219;box-sizing:border-box;width:100%}
+.btn1{min-height:44px;padding:0 18px;border-radius:12px;border:0;background:#1F5C41;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer}
+.btn2{min-height:44px;padding:0 14px;border-radius:10px;border:1px solid rgba(21,34,25,.5);background:transparent;color:#152219;font:700 13px 'Space Grotesk',sans-serif;cursor:pointer}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:16px;padding:18px 16px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.hint{margin:0;font-size:12px;line-height:1.45;color:rgba(21,34,25,.7)}
+.fld{display:flex;flex-direction:column;gap:6px}
+.docket{background:#FFFDF4;border:1px solid #C9D2C8;border-top:2px dashed #C9D2C8;border-radius:0;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <div style="height: 4px; background: {{accent}}"></div>
+  <header style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 16px; box-sizing: border-box">
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; color: #152219">Kebab Factory</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">taptime · punchless</span>
+    </div>
+  </header>
+
+  <main style="padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 18px">
+    <header style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span class="lbl">The business itself</span>
+        <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">Account</h1>
+      </div>
+    </header>
+
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start">
+
+      <section aria-labelledby="id-h" class="card">
+        <h2 id="id-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Identity</h2>
+        <sc-if value="{{owner}}" hint-placeholder-val="{{true}}">
+          <div class="fld">
+            <label for="biz" class="lbl">Business name</label>
+            <input id="biz" class="field" type="text" value="Kebab Factory Ltd.">
+            <p class="hint">This is what appears on your invoice, on the exports your accountant gets, and on every confirmation screen in the panel.</p>
+          </div>
+        </sc-if>
+        <sc-if value="{{manager}}" hint-placeholder-val="{{false}}">
+          <div class="fld">
+            <span class="lbl">Business name</span>
+            <p style="margin: 0; font-size: 15px; font-weight: 700">Kebab Factory Ltd.</p>
+          </div>
+        </sc-if>
+        <div class="fld">
+          <span class="lbl">VAT number</span>
+          <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center">
+            <p class="mono" style="margin: 0; font-size: 15px; font-weight: 700">MT[VAT NUMBER]</p>
+            <span class="mono" style="{{vatChipStyle}}">{{vatWord}}</span>
+          </div>
+          <p class="hint">{{vatLine}}</p>
+          <sc-if value="{{vatDated}}" hint-placeholder-val="{{true}}">
+            <p class="mono" style="margin: 0; font-size: 12px; color: rgba(21,34,25,.7)">{{vatWhen}} 2 October 2026, 09:14</p>
+          </sc-if>
+        </div>
+        <sc-if value="{{owner}}" hint-placeholder-val="{{true}}">
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px">
+            <div class="fld">
+              <label for="kind" class="lbl">Kind of business</label>
+              <select id="kind" class="field">
+                <option selected>Restaurant</option>
+                <option>Café</option>
+                <option>Bar</option>
+                <option>Kiosk</option>
+                <option>Retail</option>
+                <option>Hotel</option>
+                <option>Production</option>
+                <option>Other</option>
+              </select>
+            </div>
+            <div class="fld">
+              <label for="tz" class="lbl">Time zone</label>
+              <input id="tz" class="field mono" type="text" value="Europe/Malta" style="font-family: 'IBM Plex Mono', monospace">
+            </div>
+          </div>
+          <p class="hint">The kind picks the send-off your staff see after a good tap; the sentences themselves can't be written by hand. The time zone is an IANA name, such as Europe/Malta — the suggestions are only suggestions, any name the server can load is accepted.</p>
+          <div role="status" style="display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 14px; background: #F7EBD6; border: 1px solid #D98E2B">
+            <span class="lbl" style="color: #152219">Heads up</span>
+            <strong style="font-size: 14px">What the time zone moves</strong>
+            <p style="margin: 0; font-size: 13px; line-height: 1.5">Every date in the panel is worked out in this zone: which day a tap belongs to, when a shift starts, and so who was late. It also moves both ends of every billing month not yet frozen. A month frozen while this is wrong keeps that zone for ever.</p>
+          </div>
+        </sc-if>
+        <sc-if value="{{manager}}" hint-placeholder-val="{{false}}">
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px">
+            <div class="fld"><span class="lbl">Kind of business</span><p style="margin: 0; font-size: 15px">Restaurant</p></div>
+            <div class="fld"><span class="lbl">Time zone</span><p class="mono" style="margin: 0; font-size: 14px">Europe/Malta</p></div>
+          </div>
+          <p style="margin: 0; font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.85)">These details are changed by an owner of the business rather than by a manager. Nothing is wrong with your account, and everything above is the whole of what is on file.</p>
+        </sc-if>
+        <sc-if value="{{owner}}" hint-placeholder-val="{{true}}">
+          <button type="button" class="btn1" style="width: 100%; min-height: 48px">Save identity</button>
+        </sc-if>
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; border-top: 1px dashed #C9D2C8; padding-top: 14px; font-size: 13px">
+          <span><span class="lbl">Registered on</span> <span class="mono">2 October 2026</span></span>
+          <sc-if value="{{owner}}" hint-placeholder-val="{{true}}">
+            <a href="Billing.dc.html" style="font-weight: 700">What this business is charged → Billing</a>
+          </sc-if>
+        </div>
+      </section>
+
+      <section aria-labelledby="brand-h" class="card">
+        <h2 id="brand-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Your brand</h2>
+        <p class="hint" style="font-size: 13px">Your logo goes on the screens your staff see when they tap in and out, and at the top of this panel. Your colour goes on their tap button, and on the strip along the top of this panel.</p>
+        <sc-if value="{{saved}}" hint-placeholder-val="{{false}}">
+          <div role="status" style="display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 14px; background: rgba(31,92,65,.1); border: 1px solid #1F5C41">
+            <span class="lbl" style="color: #1F5C41">Done</span>
+            <strong style="font-size: 14px">Colour saved</strong>
+            <p style="margin: 0; font-size: 13px">The tap button is this colour from your staff's next tap.</p>
+          </div>
+        </sc-if>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <span class="lbl">What your staff see when they tap</span>
+          <div style="display: flex; flex-direction: column; gap: 14px; padding: 18px; border-radius: 12px; background: #EDF0EA">
+            <div style="display: flex; align-items: baseline; justify-content: space-between">
+              <span style="font-size: 17px; font-weight: 700; letter-spacing: -0.02em">taptime</span>
+              <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">punchless</span>
+            </div>
+            <div class="docket" style="padding: 10px 14px">
+              <span class="lbl">Tapping</span>
+              <span style="font-size: 22px; font-weight: 700; letter-spacing: -0.02em">Hello [manager name]</span>
+            </div>
+            <span style="{{tapStyle}}">Tap</span>
+          </div>
+          <p class="hint">A picture of the tap screen with what is saved now. Its button does nothing.</p>
+          <p style="margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px; background: rgba(31,92,65,.1); border: 1px solid #1F5C41; font-size: 13px">
+            <span class="mono" style="font-weight: 700">{{savedHex}}</span>
+            <span>Saved. The word on the button stays readable — <span class="mono" style="font-weight: 700">{{ratio}}</span> with {{onWord}} text.</span>
+          </p>
+        </div>
+
+        <sc-if value="{{owner}}" hint-placeholder-val="{{true}}">
+          <div style="display: flex; flex-direction: column; gap: 10px; border-top: 1px dashed #C9D2C8; padding-top: 16px">
+            <span class="lbl">Logo</span>
+            <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center">
+              <div class="mono" style="width: 96px; height: 96px; border: 2px dashed rgba(21,34,25,.5); border-radius: 14px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 11px; color: rgba(21,34,25,.7); padding: 8px; box-sizing: border-box">PNG or JPEG, up to 512 KB</div>
+              <div style="display: flex; flex-direction: column; gap: 8px; flex: 1 1 180px">
+                <div style="display: flex; flex-wrap: wrap; gap: 8px">
+                  <button type="button" class="btn2">Choose a file</button>
+                  <button type="button" class="btn1" style="min-height: 44px">Upload logo</button>
+                </div>
+                <p class="hint">A logo, not a photo of a person. We make our own smaller copy, and that copy is what your staff see.</p>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 10px; border-top: 1px dashed #C9D2C8; padding-top: 16px">
+            <label for="hex" class="lbl">Accent colour</label>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+              <span aria-label="Colour picker" role="img" style="{{pickerStyle}}"></span>
+              <input id="hex" type="text" value="{{typed}}" aria-label="Colour code, like 1F5C41" class="field mono" style="width: 140px; font-family: 'IBM Plex Mono', monospace">
+              <button type="button" class="btn1">Save colour</button>
+            </div>
+            <p class="hint">Pick a colour, or type its code in the box. The word on the button has to stay readable — on paper or ink text, whichever reads better — so a colour it cannot be read on is not saved.</p>
+            <sc-if value="{{refused}}" hint-placeholder-val="{{false}}">
+              <div role="alert" style="display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: 10px; background: rgba(217,142,43,.12); border: 1px dashed #D98E2B">
+                <p style="margin: 0; font-size: 14px; line-height: 1.45">Not saved: <span class="mono" style="font-weight: 700">#E0533A</span>. The word on the tap button cannot be read on that colour, so it was not saved. The same colour, darker, can: <span class="mono" style="font-weight: 700">#D63D22</span>.</p>
+                <div style="display: flex; align-items: center; gap: 8px">
+                  <span aria-hidden="true" style="width: 32px; height: 32px; border-radius: 8px; background: #D63D22; border: 1px solid #C9D2C8"></span>
+                  <button type="button" class="btn2" style="background: #FFFDF4">Use <span class="mono">#D63D22</span></button>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{hasAccent}}" hint-placeholder-val="{{false}}">
+              <button type="button" class="btn2" style="align-self: flex-start">Back to Taptime green</button>
+            </sc-if>
+          </div>
+        </sc-if>
+        <sc-if value="{{manager}}" hint-placeholder-val="{{false}}">
+          <p style="margin: 0; font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.85)">Only an owner of this business can change its logo and colour.</p>
+        </sc-if>
+      </section>
+
+      <section aria-labelledby="pw-h" class="card">
+        <h2 id="pw-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Your password</h2>
+        <p class="hint" style="font-size: 13px">This changes the password you sign in to Taptime with. Changing it keeps you signed in on this device and signs you out everywhere else.</p>
+        <div class="fld">
+          <label for="pw-cur" class="lbl">Current password</label>
+          <input id="pw-cur" class="field mono" type="password" autocomplete="current-password" style="font-family: 'IBM Plex Mono', monospace">
+          <p class="hint">Type the password you use now, so we know it is you making the change.</p>
+        </div>
+        <div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px">
+          <div class="fld">
+            <label for="pw-new" class="lbl">New password</label>
+            <input id="pw-new" class="field mono" type="password" autocomplete="new-password" style="font-family: 'IBM Plex Mono', monospace">
+          </div>
+          <div class="fld">
+            <label for="pw-again" class="lbl">New password again</label>
+            <input id="pw-again" class="field mono" type="password" autocomplete="new-password" style="font-family: 'IBM Plex Mono', monospace">
+          </div>
+        </div>
+        <p class="hint">At least 8 characters. A few words you will remember beats a short one you will not.</p>
+        <button type="button" class="btn1" style="align-self: flex-start">Change password</button>
+      </section>
+
+      <section aria-labelledby="msg-h" class="card">
+        <h2 id="msg-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">What your staff read</h2>
+        <p class="hint" style="font-size: 13px">These two lines are the send-off after a tap that counted. They follow the kind of business above rather than being written per business, so every restaurant on Taptime reads the same one — writing your own is not built yet. They are never shown on a tap that is waiting for a manager.</p>
+        <div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px">
+          <div class="docket">
+            <span class="lbl">After tapping in</span>
+            <span style="font-size: 17px; line-height: 1.35; letter-spacing: -0.01em">Have a great shift — keep those kebabs rolling! 🌯</span>
+          </div>
+          <div class="docket">
+            <span class="lbl">After tapping out</span>
+            <span style="font-size: 17px; line-height: 1.35; letter-spacing: -0.01em">Great work today. See you next shift! 👋</span>
+          </div>
+        </div>
+      </section>
+
+      <sc-if value="{{owner}}" hint-placeholder-val="{{true}}">
+        <section aria-labelledby="dev-h" class="card" style="flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px">
+          <div style="display: flex; flex-direction: column; gap: 4px; flex: 1 1 240px">
+            <h2 id="dev-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Integration keys and webhook</h2>
+            <p class="hint" style="font-size: 13px">Keys for your payroll or HR system and the address punches are sent to live on their own page. Only an owner sees it.</p>
+          </div>
+          <a href="Developers.dc.html" class="btn2" style="display: inline-flex; align-items: center; text-decoration: none">Open Developers →</a>
+        </section>
+      </sc-if>
+    </div>
+  </main>
+
+  <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; background: #152219; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0 4px 8px">
+    <a href="M-Pass.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
+    <a href="M-Spike.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg></span>Spike<span class="tab-badge" aria-label="4 waiting">4</span></a>
+    <a href="M-Roll.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg></span>Roll</a>
+    <a href="M-People.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span>People</a>
+    <a href="M-More.dc.html" class="tab tab--on" aria-current="page"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"vat":{"editor":"enum","options":["valid","invalid","no-answer","unchecked"],"default":"valid"},"savedAccent":{"editor":"enum","options":["#1F5C41","#D98E2B","#BE3D2A","#152219"],"default":"#1F5C41"},"colourTry":{"editor":"enum","options":["none","saved","refused"],"default":"none"},"$preview":{"width":390,"height":3390}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const owner = true;
+    const vat = this.props.vat ?? 'valid';
+    const saved = this.props.savedAccent ?? '#1F5C41';
+    const attempt = this.props.colourTry ?? 'none';
+    // brand.Check: the better of paper and ink text must reach 4.5 : 1 (ADR 0023 §3).
+    const gate = {
+      '#1F5C41': ['7.7 : 1', 'paper', '#FFFDF4', false],
+      '#152219': ['16.2 : 1', 'paper', '#FFFDF4', false],
+      '#BE3D2A': ['5.3 : 1', 'paper', '#FFFDF4', false],
+      '#D98E2B': ['6.2 : 1', 'ink', '#152219', true]
+    };
+    const [ratio, onWord, on, edge] = gate[saved];
+    const vats = {
+      valid: ['Confirmed', 'border:1px solid #1F5C41;background:rgba(31,92,65,.1)', 'The European Commission’s VAT register (VIES) confirmed this number when it last answered. The number itself cannot be changed from this page.', 'Last answer'],
+      invalid: ['Not found', 'border:1px solid #BE3D2A;background:rgba(190,61,42,.1)', 'VIES did not recognise this number when it last answered. That does not affect anything the product does — but tell us and we will correct it.', 'Last answer'],
+      'no-answer': ['No answer', 'border:1px solid #D98E2B;background:rgba(217,142,43,.1)', 'The VAT register was asked about this number and did not answer — an outage at their end, not a verdict about your business.', 'Asked'],
+      unchecked: ['Not checked', 'border:1px solid #C9D2C8;background:rgba(201,210,200,.1)', 'There is no answer from the VAT register on file for this number.', '']
+    };
+    const [vatWord, vatTone, vatLine, vatWhen] = vats[vat];
+    return {
+      owner, manager: !owner,
+      vatWord, vatLine, vatWhen, vatDated: vatWhen !== '',
+      vatChipStyle: 'display:inline-flex;align-items:center;min-height:28px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#152219;' + vatTone,
+      savedHex: saved, ratio, onWord,
+      tapStyle: 'display:flex;align-items:center;justify-content:center;min-height:64px;border-radius:16px;font-size:22px;font-weight:700;background:' + saved + ';color:' + on + ';' + (edge ? 'box-shadow:inset 0 0 0 2px #152219' : ''),
+      pickerStyle: 'width:56px;height:44px;border-radius:10px;border:1px solid #C9D2C8;box-sizing:border-box;background:' + saved,
+      typed: attempt === 'refused' ? 'E0533A' : '',
+      refused: attempt === 'refused', saved: attempt === 'saved',
+      // The boards draw the branded chrome (stripe + name), i.e. an accent IS saved.
+      hasAccent: true, accent: saved
+    };
+  }
+}
+</script>
+</body>
+</html>

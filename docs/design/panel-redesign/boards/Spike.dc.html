@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Spike — review queue</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.stamp{display:inline-block;padding:4px 10px;border:2px solid;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-3deg)}
+.stamp--flag{border-color:#D98E2B;box-shadow:inset 0 0 0 1px #D98E2B;background:rgba(217,142,43,.1)}
+.navlink{display:flex;align-items:center;gap:12px;min-height:44px;padding:0 12px;border-radius:10px;text-decoration:none;color:#EDF0EA;font-family:'Space Grotesk',sans-serif;font-size:15px}
+.navlink:hover{background:rgba(237,240,234,.08);color:#FFFDF4}
+.navlink--on{background:#FFFDF4;color:#152219}
+.navlink--on:hover{background:#FFFDF4;color:#152219}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+
+  <aside style="flex: 1 1 248px; max-width: 100%; background: #152219; color: #EDF0EA; padding: 24px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px; position: relative">
+    <div style="position: absolute; left: 0; top: 0; right: 0; height: 4px; background: #1F5C41"></div>
+    <div style="display: flex; flex-direction: column; gap: 4px; padding: 0 12px">
+      <p style="margin: 0; font-size: 16px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; color: #FFFDF4">Kebab Factory</p>
+      <p class="mono" style="margin: 0; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">taptime · punchless</p>
+    </div>
+    <nav aria-label="Panel sections" style="display: flex; flex-direction: column; gap: 2px">
+      <a href="Main.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">01</span>The Pass</a>
+      <a href="Spike.dc.html" class="navlink navlink--on" aria-current="page"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">02</span><span style="flex: 1">The Spike</span><span class="mono" style="min-width: 22px; height: 22px; border-radius: 11px; background: #D98E2B; color: #152219; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">{{left}}</span></a>
+      <a href="People.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">03</span>People</a>
+      <a href="Venues.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">04</span>Venues &amp; plaques</a>
+      <a href="Week.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">05</span>The Roll</a>
+      <a href="Odd.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">06</span>Odd shapes</a>
+      <a href="Rules.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">07</span>Rules</a>
+    </nav>
+    <div style="margin-top: auto; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid rgba(237,240,234,.14); padding-top: 16px">
+      <a href="Billing.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Billing</a>
+      <a href="Account.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Account</a>
+      <a href="Developers.dc.html" class="navlink"><span class="mono" style="font-size: 11px; opacity: .6; width: 18px">··</span>Developers</a>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 12px">
+      <p style="margin: 0; display: flex; flex-direction: column; gap: 2px">
+        <span class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">Signed in as</span>
+        <span style="font-size: 14px; font-weight: 700; letter-spacing: -0.01em; color: #FFFDF4">[manager name]</span>
+        <span class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">Owner</span>
+      </p>
+      <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid #C9D2C8; background: #FFFDF4; color: #152219; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Sign out</button>
+    </div>
+  </aside>
+
+  <main style="flex: 999 1 640px; min-width: 0; padding: 28px clamp(16px, 3vw, 44px) 56px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px">
+    <header style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span class="lbl">Every day · newest first · shrinks as you work it</span>
+        <h1 style="margin: 0; font-size: 44px; line-height: 1; letter-spacing: -0.035em">The Spike</h1>
+      </div>
+      <div class="mono" style="font-size: 13px; color: rgba(21,34,25,.85)">Waiting for review: {{left}} · {{done}} decided today <span style="color: rgba(21,34,25,.7)">· Europe/Malta</span></div>
+    </header>
+
+    <sc-if value="{{hasWas}}" hint-placeholder-val="{{false}}">
+      <div role="status" style="display: flex; flex-direction: column; gap: 4px; padding: 14px 18px; border-radius: 14px; border: 1px solid #C9D2C8; border-left: 4px solid #1F5C41; background: #FFFDF4">
+        <span style="font-weight: 700; font-size: 15px">Recorded as {{was}}</span>
+        <span style="font-size: 14px; line-height: 1.5">The tap record itself is unchanged — it still shows the flag the engine gave it. Your decision is recorded beside it and appears on The Pass.</span>
+      </div>
+    </sc-if>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start">
+
+      <section aria-label="Queue" style="flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 0">
+        <div style="display: flex; justify-content: center; padding-bottom: 6px" aria-hidden="true">
+          <div style="width: 4px; height: 36px; background: #152219; border-radius: 2px 2px 0 0"></div>
+        </div>
+        <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+          <sc-for list="{{queue}}" as="q" hint-placeholder-count="5">
+            <li>
+              <button type="button" onClick="{{q.pick}}" aria-current="{{q.current}}" style="{{q.style}}">
+                <span style="display: flex; justify-content: space-between; gap: 8px">
+                  <span style="font-weight: 700; font-size: 15px">{{q.name}}</span>
+                  <span class="mono" style="font-size: 12px">{{q.when}}</span>
+                </span>
+                <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{q.venue}} · {{q.dir}} · {{q.why}}</span>
+              </button>
+            </li>
+          </sc-for>
+        </ol>
+        <sc-if value="{{more}}" hint-placeholder-val="{{false}}">
+          <a href="#" style="align-self: flex-start; margin-top: 12px; min-height: 44px; display: inline-flex; align-items: center; padding: 0 16px; border-radius: 12px; border: 1px solid rgba(21,34,25,.5); background: #FFFDF4; color: #152219; text-decoration: none; font-weight: 700; font-size: 14px">Show more</a>
+        </sc-if>
+        <sc-if value="{{empty}}" hint-placeholder-val="{{false}}">
+          <div style="border: 1px dashed rgba(21,34,25,.5); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.85)">
+            <span style="font-weight: 700; font-size: 15px; color: #152219">Nothing is waiting for review</span>
+            <span>Every flagged tap has been decided. New ones arrive here when the engine records a tap it could not judge on evidence alone.</span>
+            <span>Decided records stay on The Pass, with the flag they were given and the decision beside it.</span>
+          </div>
+        </sc-if>
+      </section>
+
+      <section aria-label="The record being decided" style="flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 18px">
+        <sc-if value="{{has}}" hint-placeholder-val="{{true}}">
+          <div class="docket" style="padding: 28px 30px 30px; display: flex; flex-direction: column; gap: 22px; box-shadow: 0 1px 2px rgba(21,34,25,.06)">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px">
+              <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="overflow-wrap: anywhere">{{cur.venue}} · plaque {{cur.uid}}</span>
+                <span style="font-size: 34px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05">{{cur.name}}</span>
+                <span class="mono" style="font-size: 15px">{{cur.dir}} · {{cur.time}} · {{cur.channel}}</span>
+              </div>
+              <span class="stamp stamp--flag" style="flex: none">Flagged</span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px">
+              <sc-for list="{{cur.ev}}" as="e" hint-placeholder-count="4">
+                <div style="{{e.box}}">
+                  <span class="lbl">{{e.k}}</span>
+                  <span style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px">
+                    <span class="mono" aria-hidden="true" style="{{e.markStyle}}">{{e.mark}}</span>{{e.v}}
+                  </span>
+                  <span style="font-size: 12px; color: rgba(21,34,25,.7)">{{e.what}}</span>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed #C9D2C8; padding-top: 16px">
+              <span class="lbl">Why it is here</span>
+              <p style="margin: 0; font-size: 15px; line-height: 1.5">{{cur.note}}</p>
+              <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{cur.ruleLine}}</span>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <label for="note" class="lbl">Note for the record (optional)</label>
+              <input id="note" name="note" type="text" maxlength="500" autocomplete="off" placeholder="e.g. I saw them on the floor" style="min-height: 44px; padding: 0 12px; border: 1px solid #C9D2C8; border-radius: 10px; background: #FFFDF4; font: 14px 'Space Grotesk', sans-serif; color: #152219">
+            </div>
+          </div>
+
+          <div style="display: flex; flex-wrap: wrap; gap: 12px">
+            <button type="button" onClick="{{approve}}" style="flex: 1 1 200px; min-height: 64px; border-radius: 16px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 18px 'Space Grotesk', sans-serif; cursor: pointer; display: inline-flex; align-items: center; justify-content: center">Approve</button>
+            <button type="button" onClick="{{reject}}" style="flex: 1 1 200px; min-height: 64px; border-radius: 16px; border: 2px solid #BE3D2A; background: #FFFDF4; color: #152219; font: 700 18px 'Space Grotesk', sans-serif; cursor: pointer; display: inline-flex; align-items: center; justify-content: center">Reject</button>
+          </div>
+          <p class="mono" style="margin: 0; font-size: 12px; color: rgba(21,34,25,.7)">Your decision is a new line beside the record. The original tap is never edited.</p>
+        </sc-if>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":750}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { sel: 0, gone: [], was: '' };
+  }
+  renderVals() {
+    // Newest first: the queue reads ListFlaggedForReview, ORDER BY occurred_at DESC.
+    // why = closed sid -> phrase map; a partner-venue row says only "at a partner venue" (K-39).
+    // note = the engine's own policy sentence (Record.Note), never board prose.
+    // Tile values are the code's three-state sign words: yes / no / n/a.
+    // tone: 1 = yes, 0 = no, -1 = neutral (QR, not shown).
+    const items = [
+      { id: 1, name: 'Elena Petrova', venue: 'KF St Julians', uid: '04A23C1A2B0C21', dir: 'IN', time: '20 Oct 14:26:02', when: 'today 14:26', channel: 'NFC', why: 'no network, no location',
+        partner: false, rule: 'base:no-evidence-review', trust: '20', note: 'neither IP nor GPS could place this tap',
+        ev: [['Physical tap', 'yes', 'chip signature valid, counter moved', 1], ['Who', 'Elena Petrova', 'their own signed-in phone', 1], ['Network', 'no', "address not in the venue's range", 0], ['Location', 'no', "not placed inside the venue's radius", 0]] },
+      { id: 2, name: 'Nadia Farrugia', venue: 'KF Mellieha', uid: '04B7E19A3C22F0', dir: 'IN', time: '20 Oct 13:58:09', when: 'today 13:58', channel: 'QR', why: 'QR without network',
+        partner: false, rule: 'base:qr-requires-ip', trust: '50', note: 'QR tap without an IP match: GPS alone is not sufficient proof of place',
+        ev: [['Physical tap', 'QR scan', 'a QR scan carries no chip signature', -1], ['Who', 'Nadia Farrugia', 'their own signed-in phone', 1], ['Network', 'no', "address not in the venue's range", 0], ['Location', 'yes', "inside the venue's radius", 1]] },
+      { id: 3, name: 'Luke Camilleri', venue: 'KM Central Kitchen', uid: '04C04D2E5A71B3', dir: 'IN', time: '20 Oct 07:48:30', when: 'today 07:48', channel: 'NFC', why: 'at a partner venue',
+        partner: true, rule: '', trust: '', note: 'Decided by your rules at a partner venue — evidence is not shown.',
+        ev: [['Physical tap', 'yes', 'chip signature valid, counter moved', 1], ['Who', 'Luke Camilleri', 'their own signed-in phone', 1], ['Network · Location', 'not shown', 'not shown at a partner venue', -1]] },
+      { id: 4, name: 'Antoine Vella', venue: 'KF Hamrun', uid: '04D93F7B127E55', dir: 'OUT', time: '19 Oct 02:14:40', when: 'yesterday 02:14', channel: 'NFC', why: 'counter gap',
+        partner: false, rule: 'base:ctr-gap-review', trust: '70', note: 'the tag counter jumped: reads happened that the server never saw',
+        ev: [['Physical tap', 'yes', "counter gap since the plaque's last tap", 0], ['Who', 'Antoine Vella', 'their own signed-in phone', 1], ['Network', 'yes', "address in the venue's range", 1], ['Location', 'no', "not placed inside the venue's radius", 0]] },
+      { id: 5, name: 'Julia Sciberras', venue: 'KF Valletta', uid: '04E1A6C83D91AC', dir: 'IN', time: '18 Oct 09:02:11', when: 'Sun 09:02', channel: 'NFC', why: 'location outside the venue',
+        partner: false, rule: 'base:gps-conflict-review', trust: '70', note: "GPS was read and puts the device outside this location's radius",
+        ev: [['Physical tap', 'yes', 'chip signature valid, counter moved', 1], ['Who', 'Julia Sciberras', 'their own signed-in phone', 1], ['Network', 'yes', "address in the venue's range", 1], ['Location', 'no', "not placed inside the venue's radius", 0]] }
+    ];
+    const live = items.filter(i => this.state.gone.indexOf(i.id) < 0);
+    const idx = Math.min(this.state.sel, Math.max(0, live.length - 1));
+    const c = live[idx];
+    const marks = { '1': ['✓', 'background:#1F5C41;color:#FFFDF4'], '0': ['✗', 'background:#BE3D2A;color:#FFFDF4'], '-1': ['–', 'background:#C9D2C8;color:#152219'] };
+    const judge = (outcome) => () => { if (c) this.setState({ gone: this.state.gone.concat([c.id]), sel: idx, was: outcome }); };
+    const ruleLine = (r) => r.partner ? 'Trust · evidence: not shown at a partner venue' : 'rule ' + r.rule + ' · trust ' + r.trust;
+    const queue = live.map((q, i) => ({ ...q, pick: () => this.setState({ sel: i }), current: i === idx ? 'true' : 'false',
+      style: 'width:100%;text-align:left;display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-radius:12px;font:inherit;color:#152219;cursor:pointer;min-height:44px;' + (i === idx ? 'background:#FFFDF4;border:2px solid #152219' : 'background:transparent;border:1px solid #C9D2C8') }));
+    let cur = null;
+    if (c) {
+      cur = { ...c, ruleLine: ruleLine(c), ev: c.ev.map(([k, v, what, s]) => ({ k, v, what, mark: marks[String(s)][0],
+        markStyle: 'flex:none;width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;' + marks[String(s)][1],
+        box: 'display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:12px;border:1px solid #C9D2C8;background:' + (s === 1 ? 'rgba(31,92,65,.06)' : s === 0 ? 'rgba(190,61,42,.06)' : '#FFFDF4') })) };
+    }
+    return { queue, cur, has: !!c, empty: !c, more: false, left: live.length, done: 11 + this.state.gone.length,
+      was: this.state.was, hasWas: this.state.was !== '', approve: judge('approved'), reject: judge('rejected') };
+  }
+}
+</script>
+</body>
+</html>

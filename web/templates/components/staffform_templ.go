@@ -55,7 +55,7 @@ func RosterAdd(v RosterAddView) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if !v.Possible {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"docket\"><p class=\"docket-label\">Add somebody</p><h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">Add a venue first</h2>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"panel-card\" aria-label=\"Add somebody\"><p class=\"lbl\">Add somebody</p><h2 class=\"font-display text-xl font-bold tracking-tight text-ink\">Add a venue first</h2>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -95,12 +95,12 @@ func RosterAdd(v RosterAddView) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = Notice(ToneWarn, "Nobody was added").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = PanelNotice(ToneWarn, "Nobody was added").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<p class=\"mt-2 text-sm text-ink/85\">Everybody on this list works somewhere, so there has to be a venue before there can be a person. Add the place your staff tap in at, then come back here.</p><p class=\"mt-3\"><a class=\"btn btn--primary\" href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<p class=\"text-sm text-ink/85\">Everybody on this list works somewhere, so there has to be a venue before there can be a person. Add the place your staff tap in at, then come back here.</p><p><a class=\"btn btn--primary rounded-xl\" href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -119,7 +119,7 @@ func RosterAdd(v RosterAddView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div class=\"flex flex-wrap items-center gap-3\"><a class=\"btn btn--primary\" href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "  <div class=\"flex w-full flex-col gap-1.5 md:w-auto md:max-w-[360px] md:items-end\"><a class=\"btn btn--primary min-h-[52px] w-full gap-2 rounded-xl md:min-h-12 md:w-auto\" href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -128,7 +128,7 @@ func RosterAdd(v RosterAddView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\">Add somebody</a><p class=\"text-xs text-ink/70\">They are added as invited — you send them their activation link afterwards.</p></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M12 5v14M5 12h14\"></path></svg> Add somebody</a><p class=\"text-xs text-ink/70 md:text-right\">They are added as invited — you send them their activation link afterwards.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -137,20 +137,19 @@ func RosterAdd(v RosterAddView) templ.Component {
 	})
 }
 
-// StaffForm is the new-employee form.
+// StaffForm is the new-employee form, laid out as its own page on the roster's URL
+// (M12-31): the form on the left from a desk, what happens next beside it; one column
+// below that, the two selects side by side from a tablet; and on a phone the submit
+// bar stays in reach above the navigation.
 //
 // 🔴 TWO REQUIRED CONTROLS AND THREE OPTIONAL ONES, AND THE SCREEN SAYS WHICH. The
 // split comes from migration 00003 (full_name and location_id are NOT NULL; role,
 // email and department_id are not), so marking a label optional is a fact about the
-// database rather than a house style. Marking the wrong one would either refuse a
-// legitimate shift worker who has no email, or accept a person with no name.
+// database rather than a house style.
 //
-// ⚠️ THE WORD THIS COMMENT USES IS DESCRIBED RATHER THAN QUOTED, deliberately. An
-// audit found it quoting a bare "Optional" in the present tense while the shipped
-// labels read "Department (optional)", "Job title (optional)" and "Email (optional)" —
-// a sentence asserting today's product string, which lesson 380 says goes stale by
-// definition and which nothing keeps in step. The three labels below are the only
-// copy that matters.
+// ⚠️ THERE IS NO FORM-LEVEL NOTICE HERE, AND ITS ABSENCE IS A DELETION RATHER THAN AN
+// OVERSIGHT: every addFormAgain call site names a field, so the message always has a
+// control to sit beside; the venueless case is answered by RosterAddView.Refusal.
 func StaffForm(v StaffFormView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -172,7 +171,7 @@ func StaffForm(v StaffFormView) templ.Component {
 			templ_7745c5c3_Var6 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<section class=\"docket\" aria-label=\"Add somebody to this business\"><p class=\"docket-label\">Add somebody</p><h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">New person</h2><form method=\"post\" action=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<div class=\"flex flex-col gap-7 desk:flex-row desk:items-start\"><section class=\"panel-card min-w-0 desk:flex-[999_1_520px]\" aria-label=\"Add somebody to this business\"><form method=\"post\" action=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -181,7 +180,7 @@ func StaffForm(v StaffFormView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\" class=\"mt-4 flex flex-col gap-4\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\" class=\"flex flex-col gap-[18px]\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -189,14 +188,14 @@ func StaffForm(v StaffFormView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<div class=\"filter-field\"><label class=\"docket-label\" for=\"add-full-name\">Name</label> <input class=\"filter-input\" id=\"add-full-name\" type=\"text\" name=\"full_name\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<div class=\"field-stack\"><label class=\"lbl\" for=\"add-full-name\">Name</label> <input class=\"field-input\" id=\"add-full-name\" type=\"text\" name=\"full_name\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(v.FullName)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 98, Col: 23}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 93, Col: 24}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
@@ -209,7 +208,7 @@ func StaffForm(v StaffFormView) templ.Component {
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(ariaInvalid(v.ErrorField, "full_name"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 101, Col: 58}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 96, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
@@ -241,14 +240,14 @@ func StaffForm(v StaffFormView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</div><div class=\"filter-field\"><label class=\"docket-label\" for=\"add-location\">Venue</label><select class=\"filter-input\" id=\"add-location\" name=\"location_id\" required aria-invalid=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</div><div class=\"grid grid-cols-1 gap-4 md:grid-cols-2\"><div class=\"field-stack min-w-0\"><label class=\"lbl\" for=\"add-location\">Venue</label><select class=\"field-input\" id=\"add-location\" name=\"location_id\" required aria-invalid=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(ariaInvalid(v.ErrorField, "location_id"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 127, Col: 134}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 113, Col: 135}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
@@ -276,7 +275,7 @@ func StaffForm(v StaffFormView) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(o.Value)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 130, Col: 29}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 116, Col: 31}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
@@ -299,7 +298,7 @@ func StaffForm(v StaffFormView) templ.Component {
 			var templ_7745c5c3_Var13 string
 			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(o.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 130, Col: 79}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 116, Col: 81}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 			if templ_7745c5c3_Err != nil {
@@ -336,14 +335,14 @@ func StaffForm(v StaffFormView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</div><div class=\"filter-field\"><label class=\"docket-label\" for=\"add-department\">Department (optional)</label><select class=\"filter-input\" id=\"add-department\" name=\"department_id\" aria-invalid=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</div><div class=\"field-stack min-w-0\"><label class=\"lbl\" for=\"add-department\">Department (optional)</label><select class=\"field-input\" id=\"add-department\" name=\"department_id\" aria-invalid=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var15 string
 		templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(ariaInvalid(v.ErrorField, "department_id"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 141, Col: 131}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 130, Col: 132}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 		if templ_7745c5c3_Err != nil {
@@ -371,7 +370,7 @@ func StaffForm(v StaffFormView) templ.Component {
 			var templ_7745c5c3_Var16 string
 			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(o.Value)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 144, Col: 29}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 133, Col: 31}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 			if templ_7745c5c3_Err != nil {
@@ -394,7 +393,7 @@ func StaffForm(v StaffFormView) templ.Component {
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(o.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 144, Col: 81}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 133, Col: 83}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 			if templ_7745c5c3_Err != nil {
@@ -431,14 +430,14 @@ func StaffForm(v StaffFormView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "</div><div class=\"filter-field\"><label class=\"docket-label\" for=\"add-role\">Job title (optional)</label> <input class=\"filter-input\" id=\"add-role\" type=\"text\" name=\"role\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "</div></div><div class=\"field-stack\"><label class=\"lbl\" for=\"add-role\">Job title (optional)</label> <input class=\"field-input\" id=\"add-role\" type=\"text\" name=\"role\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var19 string
 		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(v.Role)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 159, Col: 19}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 149, Col: 20}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 		if templ_7745c5c3_Err != nil {
@@ -451,7 +450,7 @@ func StaffForm(v StaffFormView) templ.Component {
 		var templ_7745c5c3_Var20 string
 		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(ariaInvalid(v.ErrorField, "role"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 162, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 152, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 		if templ_7745c5c3_Err != nil {
@@ -483,27 +482,27 @@ func StaffForm(v StaffFormView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "</div><div class=\"filter-field\"><label class=\"docket-label\" for=\"add-email\">Email (optional)</label> <input class=\"filter-input font-mono\" id=\"add-email\" type=\"email\" name=\"email\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "</div><div class=\"field-stack\"><label class=\"lbl\" for=\"add-email\">Email (optional)</label> <input class=\"field-input field-input--mono\" id=\"add-email\" type=\"email\" name=\"email\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var22 string
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(v.Email)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 176, Col: 20}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 166, Col: 21}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "\" autocomplete=\"off\" spellcheck=\"false\" aria-invalid=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "\" placeholder=\"name@example.com\" autocomplete=\"off\" spellcheck=\"false\" aria-invalid=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var23 string
 		templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(ariaInvalid(v.ErrorField, "email"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 179, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 170, Col: 55}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 		if templ_7745c5c3_Err != nil {
@@ -540,14 +539,14 @@ func StaffForm(v StaffFormView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if v.BillingNote != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "    <p class=\"text-xs text-ink/85\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "   <p class=\"border-t border-dashed border-line pt-3.5 text-[13px] leading-normal text-ink\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var25 string
 			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(v.BillingNote)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 197, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 186, Col: 109}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 			if templ_7745c5c3_Err != nil {
@@ -558,7 +557,7 @@ func StaffForm(v StaffFormView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "<div class=\"filter-actions\"><button type=\"submit\" class=\"btn btn--primary\">Add them</button> <a class=\"btn btn--quiet\" href=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "<div class=\"sticky bottom-[calc(68px+env(safe-area-inset-bottom))] z-10 -mx-4 flex flex-wrap items-center gap-3 border-t border-line bg-paper px-4 py-3 md:static md:mx-0 md:border-0 md:p-0\"><button type=\"submit\" class=\"btn btn--primary min-h-[52px] rounded-xl px-6\">Add them</button> <a class=\"btn btn--quiet rounded-xl\" href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -567,7 +566,22 @@ func StaffForm(v StaffFormView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "\">Cancel</a></div></form></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "\">Cancel</a></div></form></section><aside class=\"panel-card min-w-0 desk:flex-[1_1_300px]\" aria-label=\"After you add them\"><h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">After you add them</h2><ol class=\"flex flex-col gap-3 text-sm leading-normal text-ink\"><li class=\"grid grid-cols-[28px_1fr] gap-2.5\"><span aria-hidden=\"true\" class=\"font-mono text-xs font-bold leading-5\">01</span> ")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		if v.InviteByEmail {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "<span>From their card, send their activation link. We email it to the address on file; with no address, the owner can show it on screen instead.</span>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		} else {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<span>From their card, show them their activation link. It is shown once, on screen, for you to hand over.</span>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "</li><li class=\"grid grid-cols-[28px_1fr] gap-2.5\"><span aria-hidden=\"true\" class=\"font-mono text-xs font-bold leading-5\">02</span> <span>They open it on their own phone and confirm it is them.</span></li><li class=\"grid grid-cols-[28px_1fr] gap-2.5\"><span aria-hidden=\"true\" class=\"font-mono text-xs font-bold leading-5\">03</span> <span>Their first tap on one of your plaques finishes the setup. That tap writes no attendance record.</span></li></ol><p class=\"text-[13px] leading-normal text-ink/70\">Until then they show as <strong class=\"font-bold text-ink\">INVITED</strong> in People.</p></aside></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
