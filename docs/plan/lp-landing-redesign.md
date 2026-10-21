@@ -283,12 +283,14 @@ Animasyon yok (O2). Demo diyaloğunun içeriği aynı, yalnız stili ve açılı
 **Kapsam.**
 - `landingHero`/`landingScene` (landing.templ:145, :196) yeniden. **Silinecek animasyonlar (blok
   sınırıyla):** `.lp` CSS'i iki bloktur — referans bloğu `input.css:1714-1992` ve demo diyaloğu bloğu
-  :1993-2062. Hero'nun `tapring`/`printout`'u (:1862-1868, `.lp .scene.play …`), onların `reduce`
+  :1993-2062. Hero'nun `tapring`/`printout`'u (:1862-1868, `.lp .scene.play …`), yalnız `tapring` için var olan
+  `.lp .tapPulse { … opacity: 0; … }` kuralı (:1861 — hero yeniden çizilirken ölü ya da görünmez kural
+  kalmasın), onların `reduce`
   bloğundaki iki kuralı (:1988 `animation: none`, :1989 `clip-path: none`) ve `class="scene play"`'in
   `play`'i (landing.templ:197) silinir; **docket'i varsayılan gizleyen `clip-path: inset(0 0 100% 0)`
   (`.lp .lp-docket`, :1866) da kaldırılır** — bugün docket'i yalnız `printout` ya da `reduce`
   bloğundaki `clip-path: none` açıyor; ikisi silinip bu bildirim kalırsa hero docket'i hiç görünmez; demo
-  diyaloğunun `demoIn`/`demoFade`'i (:2054-2062) **da** silinir — panolarda animasyon yok (öneri, O2),
+  diyaloğunun `demoIn`/`demoFade`'i (:2054-2062) **da** silinir — orkestratör kararı (panolara uyulur; O2),
   ve hareket kalmayınca azaltılmış hareket kuralına da gerek kalmaz. `html:has(.lp)`'nin
   `scroll-behavior` `reduce` kuralı animasyon değildir, kalır.
 - **`docket-print`'e dokunulmaz.** `@keyframes docket-print` (`input.css:972-977`, `@layer
@@ -302,7 +304,7 @@ Animasyon yok (O2). Demo diyaloğunun içeriği aynı, yalnız stili ve açılı
 - Kırılımlar: tablet 2 kolon (1.1fr/.9fr), telefon tek kolon (README; *gap report*).
 - Demo diyaloğu (landing.templ:481): yalnız sınıflar; içerik, etiketleme ve klavyeyle kapanma aynı.
 - **`TestLandingDemo_TheDialogIsLabelledAndCanBeClosedWithoutAMouse`'un animasyon iddiası tersine
-  çevrilir** (orkestratör kararı, panolara uy): bugün derlenmiş CSS'te
+  çevrilir** (orkestratör kararı (panolara uyulur)): bugün derlenmiş CSS'te
   `@media (prefers-reduced-motion:no-preference){.lp .demoDialog[open]{animation:` metnini şart koşuyor
   (`marketingdemo_test.go:165-168`); demo animasyonu kalkınca bu iddia "derlenmiş CSS'te
   `.demoDialog` için hiçbir `animation` yok" olur. Testin öteki iddiaları (etiket, klavyeyle kapanma,
@@ -735,7 +737,7 @@ kılavuz sayfası bir görseli paylaşır — README §9).
   değişmez (`TestUnbrandedScreens_AreByteIdenticalToTheGolden`).
 - `og:image` mutlak URL: köken `TAPPA_BASE_URL`'den (`config.go:276`), `NewMarketing`'e verilir
   (`cmd/tappa/main.go:863`). İmza değişikliği **bütün çağıranları** değiştirir (ölçüldü,
-  `grep -rn 'NewMarketing(' .`: tanım dışında **10 çağrı satırı** — `main.go:863` ve altı test
+  `grep -rn --include='*.go' 'NewMarketing(' .`: tanım dışında **10 çağrı satırı** — `main.go:863` ve altı test
   dosyasında 9 satır): `cmd/tappa/serving_test.go:52`, `cmd/tappa/approuter_test.go:221`,
   `internal/handler/marketing_test.go:91` (`marketingRouterFor`) ve `:544`,
   `internal/handler/signup_test.go:981, 983`, `internal/handler/apiguidepage_test.go:212, 251`,

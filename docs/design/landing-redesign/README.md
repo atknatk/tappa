@@ -91,7 +91,7 @@ already measured that (comment above `.lp`, `input.css:1745-1754`). Board pages 
 | # | Decision | Why |
 |---|---|---|
 | O1 | Product's "Taptime guarantees" heading and "The Taptime guarantees come first and cannot be switched off." are **reworded** (suggested: "Taptime's guardrails" / "Taptime's guardrails come first and cannot be switched off."). No regex exception. | `unmeasuredNumber` (`internal/handler/marketing_test.go:985-988`) refuses `\bguarantee(?:d\|s)?\b` on every `marketingURLs()` page; "guardrail" is the product's own word (`sys:*`, CLAUDE.md §5). |
-| O2 | The landing's animations **are removed**: the hero's `tapring` / `printout` (`.lp .scene.play …`, `input.css:1862-1868`, their `reduce` rules :1988-1989, the `play` class at landing.templ:197) and — recommended, the boards draw none — the demo dialog's `demoIn` / `demoFade` (`input.css:2054-2062`). | Follow the board; no animation left means no reduced-motion rule to get wrong. ⚠️ `TestLanding_ReducedMotionLeavesTheDocketVisible` is **not** affected: the `docket-print` it guards is used today only by the sign-up wizard (`signup.templ:583`; measured), not by the landing — its comment calling it "the landing page's ONE animation" (`input.css:948`) is stale. The test stays. Removing the hero animation also means removing the `clip-path: inset(0 0 100% 0)` that hides `.lp .lp-docket` by default (`input.css:1866`; only `printout` or the `reduce` rule :1989 reveals it) — LP-03. |
+| O2 | The landing's animations **are removed**: the hero's `tapring` / `printout` (`.lp .scene.play …`, `input.css:1862-1868`, and `.lp .tapPulse` :1861, which exists only for `tapring`, their `reduce` rules :1988-1989, the `play` class at landing.templ:197) and — orchestrator decision (follow the boards, which draw none) — the demo dialog's `demoIn` / `demoFade` (`input.css:2054-2062`). | Follow the board; no animation left means no reduced-motion rule to get wrong. ⚠️ `TestLanding_ReducedMotionLeavesTheDocketVisible` is **not** affected: the `docket-print` it guards is used today only by the sign-up wizard (`signup.templ:583`; measured), not by the landing — its comment calling it "the landing page's ONE animation" (`input.css:948`) is stale. The test stays. Removing the hero animation also means removing the `clip-path: inset(0 0 100% 0)` that hides `.lp .lp-docket` by default (`input.css:1866`; only `printout` or the `reduce` rule :1989 reveals it) — LP-03. |
 | O3 | **CSS stays `.lp`-scoped plain CSS in `input.css`** (outside `@layer`), as today. | §5. |
 | O4 | Every new page enters the **fact-pinning** regime and `marketingURLs()`. | §6. |
 | O5 | Signup, Legal and the API guide move onto the **new public header/footer** (States-Public draws them in it). | LP-11. |
@@ -323,11 +323,12 @@ refusals are measured against. **Recommended shape** (LP-12 decides it with the 
 records it in an ADR note): the styled page only for `GET`/`HEAD` on the customer host, only for
 paths **outside** the prefixes whose refusals must stay router-identical (`/brand/`, `/static/`,
 `/operator`, `/v1`, the tap and panel prefixes — inventory them, do not guess); everything else
-stays `http.NotFound`. Of the brand tests, **only the theme reference moves**:
-`brandThemeReference404` requests `/no/route/is/mounted/here`, which would get the page; it moves
-to an unrouted path **inside** `/brand/` (the theme route is `/brand/theme/{file}`,
-`internal/handler/brandtheme.go:15`), which keeps the property it protects (a probe of `/brand/…`
-sees one answer). The logo test compares against a fixed router-404 answer on `/t/logo/…` and
+stays `http.NotFound`. Of the brand tests, only the theme reference can move, and only **if the 404
+is bound at router level**: then `brandThemeReference404` and its siblings, which request
+`/no/route/is/mounted/here`, would get the page, so they move to an unrouted path **inside**
+`/brand/` (the theme route is `/brand/theme/{file}`, `internal/handler/brandtheme.go:15`), which
+keeps the property they protect (a probe of `/brand/…` sees one answer). If the 404 is bound in
+Marketing's `Mount`, they do not move (see below). The logo test compares against a fixed router-404 answer on `/t/logo/…` and
 `/admin/brand/logo/…` (`brandlogo_test.go:545-561`) — unchanged as long as the tap and panel
 prefixes are excluded. The theme reference sits in four places on the customer host
 (`brandtheme_test.go:89, 512, 550, 602`; :712 is the operator host), and those tests build a router
@@ -354,7 +355,7 @@ router level changes all four. Not measured yet: whether chi's `NotFound` can be
 - **`og:image` wants an absolute URL**, the surface does not know its origin today
   (`MarketingTranslated`'s comment, base.templ:458-461) → it comes from `TAPPA_BASE_URL`
   (`config.go:276`), handed to `NewMarketing` (cmd/tappa/main.go:863). The signature change reaches every caller —
-  10 call lines outside the definition (measured with `grep -rn 'NewMarketing(' .`): `main.go:863`,
+  10 call lines outside the definition (measured with `grep -rn --include='*.go' 'NewMarketing(' .`): `main.go:863`,
   `cmd/tappa/serving_test.go:52`, `cmd/tappa/approuter_test.go:221`,
   `internal/handler/marketing_test.go:91` (`marketingRouterFor`) and `:544`,
   `internal/handler/signup_test.go:981, 983`, `internal/handler/apiguidepage_test.go:212, 251`,
@@ -396,7 +397,7 @@ new page goes through §7, and the closure tests are the net — not this table.
 |---|---|---|
 | `TestLandingNav_EveryLinkPointsAtASectionOnThePage` (`marketing_facts_test.go:975-1029`) | nav entries stop being in-page anchors once `/pricing` exists; its second half asserts the legal pages carry **no** landing nav and **no** `sticky` (:1015-1028) | LP-06 (first half), LP-11 (second half) — rewritten, assertion intent kept: every nav link resolves; the current page is marked |
 | `TestLanding_ReducedMotionLeavesTheDocketVisible` (`marketing_test.go:2301`) | **nothing** — it guards the wizard's `docket-print` (`signup.templ:583`), not the hero (O2) | stays green in LP-03; LP-03 adds its own no-animation assertion for `.lp` |
-| `TestLandingDemo_TheScriptDegradesInsteadOfBreaking`, `TestLandingDemo_TheSecondHeroButtonSaysWatchDemoAndOpensTheDialog`, `TestLandingDemo_TheDialogIsLabelledAndCanBeClosedWithoutAMouse` | hero markup and `landing.js`; the last one also **inverts its animation assertion** — today it requires `@media (prefers-reduced-motion:no-preference){.lp .demoDialog[open]{animation:` in the compiled CSS (`marketingdemo_test.go:165-168`); with the demo animation removed (O2, orchestrator decision: follow the boards) it asserts the dialog has **no** animation, and its label / keyboard-close / 44 px assertions stay as they are. A rename moves every citation in the same commit. | LP-03 |
+| `TestLandingDemo_TheScriptDegradesInsteadOfBreaking`, `TestLandingDemo_TheSecondHeroButtonSaysWatchDemoAndOpensTheDialog`, `TestLandingDemo_TheDialogIsLabelledAndCanBeClosedWithoutAMouse` | hero markup and `landing.js`; the last one also **inverts its animation assertion** — today it requires `@media (prefers-reduced-motion:no-preference){.lp .demoDialog[open]{animation:` in the compiled CSS (`marketingdemo_test.go:165-168`); with the demo animation removed (O2, orchestrator decision (follow the boards)) it asserts the dialog has **no** animation, and its label / keyboard-close / 44 px assertions stay as they are. A rename moves every citation in the same commit. | LP-03 |
 | `TestLanding_UsesOnlyPaletteTokens` | widened to new templ files and pages | LP-06 … LP-10 |
 | `TestMarketing_EveryInternalLinkResolves` — **its link handling** | it fetches each `href` as written; `/#how` and `/security#proofs` reach chi as the path `/#how` and answer 404 (measured by the LP-00 reviewer). It must split the fragment, GET the path (200) **and** find the `id` on that page | LP-06 (LP-07 relies on it) |
 | `TestMarketing_EveryInternalLinkResolves`, `TestMarketing_PolicyNamesWhatThePageLoadsAndNothingElse`, `TestMarketing_AnswersHeadWithNoBodyAndTheSameHeaders`, `TestMarketing_ReachesNoThirdParty` | new URLs join `publicSurfaceURLs()` | LP-06 … LP-10, LP-13 |
