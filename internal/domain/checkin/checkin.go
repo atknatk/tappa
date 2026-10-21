@@ -290,6 +290,12 @@ type Service struct {
 	// exactly this value being range-checked in config and then never reaching the
 	// guardrail, so the shipped 60 s constant decided regardless of configuration.
 	debounce time.Duration
+	// businessDayFrom is the business-day switch (TAPPA_BUSINESS_DAY_FROM, ADR 0032 §A.8),
+	// copied from config at New, nil when unset. gatherWith hands it to tap.SwitchedDayCutoff
+	// with the SERVER's clock: off, the engine gets no cutoff (StaleOpenIn alone) and no row
+	// carries a business day. tenant.Directory carries the same value for the GET /t prediction;
+	// neither package imports the other.
+	businessDayFrom *time.Time
 	// advancer builds the querier the atomic advance runs on. Production is
 	// storeAdvancer; a test substitutes a counting double to pin that this path
 	// issues AdvanceTagCounter and nothing else (see counterAdvancer).
@@ -414,15 +420,23 @@ func New(data Database, trail AuditRecorder, cfg *config.Config, log *slog.Logge
 	if err := params.Validate(); err != nil {
 		return nil, fmt.Errorf("checkin: %w", err)
 	}
+	// The switch is COPIED: a caller holding the config cannot move a live service's switch by
+	// writing through the pointer later.
+	var businessDayFrom *time.Time
+	if cfg.BusinessDayFrom != nil {
+		v := *cfg.BusinessDayFrom
+		businessDayFrom = &v
+	}
 	return &Service{
-		data:       data,
-		trail:      trail,
-		advancer:   storeAdvancer,
-		holding:    dbHolding,
-		policies:   policySets{data: data, params: params, log: log, staleOnce: newOncePerTenant(staleNoticeTenants)},
-		gpsRadiusM: cfg.GPSRadiusMeters,
-		debounce:   params.DebounceWindow,
-		log:        log,
+		data:            data,
+		trail:           trail,
+		advancer:        storeAdvancer,
+		holding:         dbHolding,
+		policies:        policySets{data: data, params: params, log: log, staleOnce: newOncePerTenant(staleNoticeTenants)},
+		gpsRadiusM:      cfg.GPSRadiusMeters,
+		debounce:        params.DebounceWindow,
+		businessDayFrom: businessDayFrom,
+		log:             log,
 	}, nil
 }
 
@@ -844,7 +858,7 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 		if err != nil {
 			return err
 		}
-		facts, err = s.gatherWith(ctx, tx, req, tappedWall(tagRow.LocationID), site, occurredAt)
+		facts, err = s.gatherWith(ctx, tx, req, tappedWall(tagRow.LocationID), site, occurredAt, now)
 		if err != nil {
 			return err
 		}
@@ -883,6 +897,7 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 			LastForPerson:               facts.lastForPerson,
 			SecondsSinceLastRecordedTap: facts.secondsSinceLastRecordedTap,
 			LastOpenIn:                  facts.lastOpenIn,
+			DayCutoff:                   facts.dayCutoff,
 			Shift:                       facts.shift,
 			Debounce:                    s.debounce,
 			PolicySet:                   set,
@@ -1250,9 +1265,12 @@ type tapFacts struct {
 	timezone         string
 	// businessType is carried for the RENDER layer only (Result.BusinessType).
 	// It is deliberately not put into tap.Input.
-	businessType  string
-	departmentID  *uuid.UUID
-	shift         *tap.Shift
+	businessType string
+	departmentID *uuid.UUID
+	shift        *tap.Shift
+	// dayCutoff is the PERSON's resolved business-day cutoff in the employer's zone, or nil
+	// while the business-day switch is off (tap.SwitchedDayCutoff, ADR 0032 §A.8).
+	dayCutoff     *tap.DayCutoff
 	lastForPerson *tap.Transaction
 	lastOpenIn    *tap.Transaction
 	// secondsSinceLastRecordedTap is how long ago this person's most recent nfc/qr
@@ -1310,8 +1328,10 @@ func tappedWall(id *uuid.UUID) uuid.UUID {
 	return *id
 }
 
+// gather is gatherWith on the session tenant's own plaque, deciding the switch by this
+// service's clock.
 func (s *Service) gather(ctx context.Context, tx pgx.Tx, req Request, tappedLocationID uuid.UUID, at time.Time) (tapFacts, error) {
-	return s.gatherWith(ctx, tx, req, tappedLocationID, nil, at)
+	return s.gatherWith(ctx, tx, req, tappedLocationID, nil, at, s.clock())
 }
 
 // gatherWith is gather with a PEER's plaque (M11 API-1b, ADR 0027 §5): when site is set the
@@ -1327,7 +1347,11 @@ func (s *Service) gather(ctx context.Context, tx pgx.Tx, req Request, tappedLoca
 // one open AT that instant (GetLastOpenTransaction's @at), so it is passed rather than read
 // from a clock here: a zero value would bound the query below every row and turn every tap
 // into an `in`.
-func (s *Service) gatherWith(ctx context.Context, tx pgx.Tx, req Request, tappedLocationID uuid.UUID, site *db.HoldingSite, at time.Time) (tapFacts, error) {
+//
+// now is the SERVER's clock reading the decision is made at (Record's now). It, and never at,
+// decides whether the business-day switch is on (ADR 0032 §A.8, security lens F-2): at is the
+// client's to declare, and a backdated declaration must not take the old rule.
+func (s *Service) gatherWith(ctx context.Context, tx pgx.Tx, req Request, tappedLocationID uuid.UUID, site *db.HoldingSite, at, now time.Time) (tapFacts, error) {
 	var f tapFacts
 	f.site = site
 	err := func(ctx context.Context, tx pgx.Tx) error {
@@ -1353,6 +1377,22 @@ func (s *Service) gatherWith(ctx context.Context, tx pgx.Tx, req Request, tapped
 		f.departmentID = emp.DepartmentID
 		f.timezone = emp.TenantTimezone
 		f.businessType = emp.TenantBusinessType
+		// THE PERSON'S BUSINESS DAY (ADR 0032 §A.2), read BEFORE the plaque's branch is chosen
+		// below, because it is the same answer on every plaque: the hierarchy person >
+		// department > PROFILE branch > business is resolved in GetEmployeeForTap, in the
+		// SESSION tenant — on a peer's plaque that is the EMPLOYER's hierarchy and the
+		// employer's zone, never the site's (the direction chain is the person's and the
+		// employer's, ADR 0027 §7). site.Timezone is for the venue's SHIFT only. And never the
+		// TAPPED branch's cutoff either: a chain that moves between branches would otherwise
+		// meet a different boundary at every plaque.
+		//
+		// The column is NOT NULL through tenants.day_cutoff, so an invalid value is a broken
+		// invariant rather than a setting; it is read as "no business day" (the engine's nil),
+		// never as an invented 05:00.
+		if emp.EffectiveDayCutoff.Valid {
+			f.dayCutoff = tap.SwitchedDayCutoff(s.businessDayFrom, now,
+				time.Duration(emp.EffectiveDayCutoff.Microseconds)*time.Microsecond, emp.TenantTimezone)
+		}
 
 		// The TAPPED location — the venue whose IP, GPS and shift this tap is
 		// matched against (§5), never the employee's profile location.
@@ -1647,11 +1687,23 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 		MatchedSid:      strPtr(dec.MatchedSid),
 		PolicyLayer:     strPtr(string(dec.Layer)),
 		PolicyContext:   snapshot,
-		// The frozen business day (ADR 0032 §A.5, migration 00064) is NOT written yet:
-		// M15-04 sets it for a directed nfc/qr decision once the cutoff is gathered and
-		// the TAPPA_BUSINESS_DAY_FROM switch is on. Until then every row is NULL, which is
-		// what every row before 00064 carries and what the column's CHECK admits.
-		BusinessDayStart: nil,
+	}
+	// THE FROZEN BUSINESS DAY (ADR 0032 §A.5, migration 00064): written for a DIRECTED nfc/qr
+	// decision only, and forced NULL here — in code — for everything else, because the column's
+	// CHECK (business_day_start IS NULL OR type IS NOT NULL) is the SECOND safety: a slip that
+	// reached it would refuse the INSERT with 23514 and lose the record (§4.6).
+	//
+	//	undirected (reject, ignored)  no direction, so no business day to freeze. Decide does not
+	//	                              set one there today; this line does not rely on it.
+	//	manual                        a manager's row is not a tap (§A.6 reads it as S NULL —
+	//	                              class (d) as an out, the correction's (e) as a predecessor);
+	//	                              Record still accepts the channel (validate), so it is
+	//	                              refused here rather than assumed unreachable.
+	//
+	// The value is the engine's S(at), present only while the switch is on: with it off
+	// Decision.BusinessDayStart is nil and the row is NULL, like every row before 00064.
+	if dec.Type != nil && (req.Channel == tap.ChannelNFC || req.Channel == tap.ChannelQR) {
+		p.BusinessDayStart = dec.BusinessDayStart
 	}
 	// sun_valid is THREE-STATE and the third state is the point (migration 00005:
 	// "NULL = not evaluated for this channel"). An NFC or QR tap really was

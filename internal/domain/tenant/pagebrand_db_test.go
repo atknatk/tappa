@@ -53,7 +53,7 @@ func (f *brandFixture) wall(t *testing.T, tenantID uuid.UUID, venue string) (loc
 func TestTapPageDB_TheBrandComesWithTheGreetingAndTheVenue(t *testing.T) {
 	f := newBrandFixture(t)
 	ctx := context.Background()
-	dir, err := NewDirectory(f.data)
+	dir, err := NewDirectory(f.data, nil)
 	if err != nil {
 		t.Fatalf("NewDirectory: %v", err)
 	}
@@ -163,7 +163,7 @@ func (tx brandSleepingTx) QueryRow(ctx context.Context, sql string, args ...any)
 // deadline plus 1.5 s. A read that ran under a context of its own would sleep the 3 s.
 func TestResultBrandDB_TheReadEndsWhenItsContextDoes(t *testing.T) {
 	f := newBrandFixture(t)
-	dir, err := NewDirectory(brandSleepingDB{f.data})
+	dir, err := NewDirectory(brandSleepingDB{f.data}, nil)
 	if err != nil {
 		t.Fatalf("NewDirectory: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestTapPageDB_ABrandReadFailureKeepsTheGreetingAndTheVenue(t *testing.T) {
 	if err := f.brands.SaveAccent(context.Background(), BrandAccentCommand{TenantID: f.tenant, ActorID: f.owner, Accent: mustColour(t, "DA291C")}); err != nil {
 		t.Fatalf("save accent: %v", err)
 	}
-	dir, err := NewDirectory(brandAbortingDB{f.data})
+	dir, err := NewDirectory(brandAbortingDB{f.data}, nil)
 	if err != nil {
 		t.Fatalf("NewDirectory: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestTapPageDB_ABrandReadFailureKeepsTheGreetingAndTheVenue(t *testing.T) {
 		t.Fatalf("facts = %+v; want the greeting and the venue with the zero brand", facts)
 	}
 	// CONTROL: the same database without the failure gives the brand.
-	ok, _ := NewDirectory(f.data)
+	ok, _ := NewDirectory(f.data, nil)
 	if facts, err := ok.TapPage(context.Background(), f.tenant, emp, loc); err != nil || !facts.Brand.HasAccent {
 		t.Fatalf("control: %+v, %v", facts, err)
 	}
@@ -223,7 +223,7 @@ func TestTapPageDB_ABrandReadFailureKeepsTheGreetingAndTheVenue(t *testing.T) {
 func TestResultBrandDB_TheLogoAndTheNameAndNeverTheAccent(t *testing.T) {
 	f := newBrandFixture(t)
 	ctx := context.Background()
-	dir, err := NewDirectory(f.data)
+	dir, err := NewDirectory(f.data, nil)
 	if err != nil {
 		t.Fatalf("NewDirectory: %v", err)
 	}

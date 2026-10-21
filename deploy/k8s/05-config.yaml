@@ -190,6 +190,18 @@ data:
   # empty, because the signed tap context's own 15-minute TTL refuses first.
   TAPPA_FRESHNESS_SECONDS: "180"
 
+  # 🟡 TAPPA_BUSINESS_DAY_FROM — the business-day switch (ADR 0032 §A.8, M15-04). EMPTY ON
+  # PURPOSE: empty is unset, the switch is OFF and a tap's direction is judged by the 18-hour
+  # rule alone, exactly as before M15. The VALUE is a release decision (M15-08), written here on
+  # release day as an RFC 3339 instant (e.g. "2026-11-02T03:00:00Z"), after the businesses'
+  # cutoffs are set: from that instant, by the server's clock, an open check-in closes only within
+  # its business day. config.Load REFUSES TO START on a malformed value or one more than 30 days
+  # ahead (one replica: a typo is a restart into no server, which the refusal at least says out
+  # loud) — TestPackaging_TheBusinessDaySwitchInTheConfigMapIsOneTheServerStartsWith reads this
+  # line with the same parser. Removing the value later switches new taps back; the business days
+  # already frozen on rows stay.
+  TAPPA_BUSINESS_DAY_FROM: ""
+
   # (Tappa's own legal texts are published by the platform operator on its own host,
   # /operator/legal -- M10 OP-10, ADR 0020 §7. The customer panel's legal screen and
   # its env allow-list were removed with it; there is no key for it here.)

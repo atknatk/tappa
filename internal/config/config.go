@@ -227,6 +227,25 @@ type Config struct {
 	// band must stay BELOW 900.
 	Freshness time.Duration
 
+	// BusinessDayFrom is the business-day switch (TAPPA_BUSINESS_DAY_FROM, ADR 0032 §A.8): the
+	// instant from which a tap's direction is judged against the person's business day (UTC), or
+	// nil — unset, the switch is off and every tap takes the cutoff-less rule (StaleOpenIn alone).
+	// OPTIONAL: off is a legal steady state, and the value is a RELEASE decision (M15-08), not a
+	// default this package could choose.
+	//
+	// ON IS DECIDED BY THE SERVER'S CLOCK, not here: a value that is set is on once the server's
+	// now reaches it (tap.SwitchedDayCutoff), so a value in the near future turns the rule on by
+	// itself, at that instant, without a restart. That is how a release sets the cutoffs first and
+	// lets the engine use them only afterwards (§A.8).
+	//
+	// 🔴 A MALFORMED OR FAR-FUTURE VALUE IS A STARTUP FAILURE (security lens F-3,
+	// ParseBusinessDayFrom). The cluster runs ONE replica (deploy/k8s/20-app.yaml), so a typo is a
+	// restart into no server at all — every tap unrecorded until someone reads the error. That is
+	// still better than the silent alternative: "2062-11-02" for "2026-11-02" would boot and never
+	// switch on, and nothing would say so. A value in the past is always valid — the switch has
+	// simply been on since then.
+	BusinessDayFrom *time.Time
+
 	// RetentionYears is how long attendance records are kept, in whole years. It
 	// is REQUIRED and has no default because it is a LEGAL statement: the GDPR
 	// Art. 13 notice on the activation page renders this number, and a number
@@ -422,6 +441,9 @@ func Load() (*Config, error) {
 	} else {
 		c.Freshness = time.Duration(secs * float64(time.Second))
 	}
+	if c.BusinessDayFrom, err = ParseBusinessDayFrom(os.Getenv(EnvBusinessDayFrom), time.Now()); err != nil {
+		push(err)
+	}
 	for _, err := range sandboxSettings(c) {
 		push(err)
 	}
@@ -514,6 +536,63 @@ func validLogFormat(v string) error {
 		}
 	}
 	return fmt.Errorf("TAPPA_LOG_FORMAT: must be one of %s, got %q", strings.Join(logFormatValues, ", "), v)
+}
+
+// EnvBusinessDayFrom is the business-day switch's variable (ADR 0032 §A.8, Config.BusinessDayFrom).
+const EnvBusinessDayFrom = "TAPPA_BUSINESS_DAY_FROM"
+
+// BusinessDayFromMaxAhead is how far past the start-up instant TAPPA_BUSINESS_DAY_FROM may lie
+// (ADR 0032 §A.8, security lens F-3): a release writes the switch for the coming days, so a value
+// a month away is a slipped digit ("2062" for "2026") that would boot and never switch on.
+const BusinessDayFromMaxAhead = 30 * 24 * time.Hour
+
+// ParseBusinessDayFrom reads TAPPA_BUSINESS_DAY_FROM's value against the start-up instant now:
+// "" is the switch off (nil); otherwise an RFC 3339 instant (2026-11-02T03:00:00Z, or with an
+// offset) no later than now + BusinessDayFromMaxAhead, returned in UTC. A value in the past is
+// always valid. It is exported so the packaging test reads the shipped ConfigMap with the SAME
+// rule the process boots with (cmd/tappa), rather than a copy of it.
+//
+// NOTHING IS TRIMMED OR GUESSED: " 2026-11-02T03:00:00Z" and "2026-11-02" are refused, the
+// TAPPA_LOG_FORMAT rule (a typo is a refusal to boot, never a silent default).
+func ParseBusinessDayFrom(raw string, now time.Time) (*time.Time, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	v, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return nil, fmt.Errorf("%s: must be an RFC 3339 instant such as 2026-11-02T03:00:00Z, got %q",
+			EnvBusinessDayFrom, raw)
+	}
+	if limit := now.Add(BusinessDayFromMaxAhead); v.After(limit) {
+		return nil, fmt.Errorf("%s: %s is more than %d days after start-up (%s); a release writes "+
+			"the switch for the coming days, so this is read as a typo rather than a switch that never "+
+			"turns on (ADR 0032 §A.8)", EnvBusinessDayFrom, v.UTC().Format(time.RFC3339),
+			int(BusinessDayFromMaxAhead/(24*time.Hour)), now.UTC().Format(time.RFC3339))
+	}
+	v = v.UTC()
+	return &v, nil
+}
+
+// AnnounceBusinessDay writes the business-day switch's state once, at start-up (ADR 0032 §A.8:
+// "değer başlangıçta loglanır" — it is configuration, not a secret). BOTH STATES ARE A LINE, the
+// KEK rotation window's rule (cmd/tappa): "off" must be a fact an operator reads, not the absence
+// of a line, which a raised log level or the wrong pod also gives. `active` is the state AT
+// START-UP; a value in the future switches on later by itself, which the line says.
+func AnnounceBusinessDay(log *slog.Logger, from *time.Time, now time.Time) {
+	if from == nil {
+		log.Info("business day switch is OFF: "+EnvBusinessDayFrom+" is not set, so a tap's direction "+
+			"is judged by the 18-hour rule alone and no business day is written",
+			"variable", EnvBusinessDayFrom, "business_day_from", "", "active", false)
+		return
+	}
+	active := !now.Before(*from)
+	msg := "business day switch is ON: a tap's direction is judged against the person's business day"
+	if !active {
+		msg = "business day switch is SET and not yet on: from business_day_from, by the server's clock, " +
+			"a tap's direction is judged against the person's business day"
+	}
+	log.Info(msg, "variable", EnvBusinessDayFrom, "business_day_from", from.UTC().Format(time.RFC3339),
+		"active", active)
 }
 
 func validEnv(v string) error {

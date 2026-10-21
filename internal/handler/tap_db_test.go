@@ -44,6 +44,7 @@ import (
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/store"
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // harnessDebounce is the person-debounce window every DB test runs under. See
@@ -138,6 +139,8 @@ func newTapHarness(t *testing.T) *tapHarness {
 		GPSRadiusMeters: 150,
 		Debounce:        harnessDebounce,
 		Freshness:       harnessFreshness,
+		// The business-day switch ON, far in the past: production's mode (ADR 0032 §A.8).
+		BusinessDayFrom: fixtures.BusinessDaySwitchOn(),
 		// The dev simulator's explicit opt-in (ADR 0026): this harness mounts
 		// POST /dev/simulate-tap exactly as `make dev` with TAPPA_DEV_TOOLS=1 does.
 		// Screens show the strip only after EnableDevTools, which only
@@ -155,7 +158,7 @@ func newTapHarness(t *testing.T) *tapHarness {
 	if err != nil {
 		t.Fatalf("session.New: %v", err)
 	}
-	directory, err := tenant.NewDirectory(data)
+	directory, err := tenant.NewDirectory(data, cfg.BusinessDayFrom)
 	if err != nil {
 		t.Fatalf("tenant.NewDirectory: %v", err)
 	}
@@ -256,6 +259,10 @@ func (h *tapHarness) newTag(t *testing.T, kek []byte, tenantID, locationID uuid.
 				`INSERT INTO employees (id, tenant_id, location_id, full_name, status, invited_at)
 				 VALUES ($1, $2, $3, 'Maria Borg', 'active', now())`,
 				h.employeeID, tenantID, locationID); e != nil {
+				return e
+			}
+			// Her own business day, far from now (M15-04): the harness runs with the switch on.
+			if _, e := fixtures.GiveFarDayCutoff(ctx, tx, tenantID, h.employeeID, time.Now()); e != nil {
 				return e
 			}
 		}

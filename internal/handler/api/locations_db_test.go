@@ -28,6 +28,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/domain/tenant"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // putLoc PUTs body to /v1/locations/{ref} with key raw.
@@ -818,6 +819,7 @@ func (r *dbRig) tapService() *checkin.Service {
 		Env: config.EnvDev, BaseURL: "http://localhost:8080", DatabaseURL: os.Getenv("DATABASE_URL"),
 		SessionHMACKey: []byte("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"), InviteHMACKey: []byte("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"),
 		TagKEK: make([]byte, 32), RetentionYears: 2, GPSRadiusMeters: 150, Debounce: 60 * time.Second, Freshness: 180 * time.Second,
+		BusinessDayFrom: fixtures.BusinessDaySwitchOn(),
 	}
 	svc, err := checkin.New(r.d, r.trail, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {

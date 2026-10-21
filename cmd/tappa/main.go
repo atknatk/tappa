@@ -152,6 +152,9 @@ func run() error {
 	// somebody most needs to know which commit is running is the moment the boot
 	// FAILS — a process that cannot reach its database must still be identifiable.
 	logBuild(slog.Default(), buildinfo.Read())
+	// The business-day switch's state (ADR 0032 §A.8): configuration, not a secret, and a line
+	// in both states, so "off" is read rather than inferred from silence.
+	config.AnnounceBusinessDay(slog.Default(), cfg.BusinessDayFrom, time.Now())
 
 	// 🔴 A DELIVERY MODE THE CONFIGURATION ACCEPTS AND THIS BUILD DOES NOT IMPLEMENT
 	// STOPS THE BOOT HERE, before the database is dialled (M10 EM-3). Since M10 EM-7B
@@ -347,7 +350,9 @@ func run() error {
 	// consumer-side interface names only PreviewWithoutReplayProtection, so the
 	// page cannot spend a chip's counter even by accident. The atomic advance
 	// belongs to POST /api/checkin (M5-05).
-	directory, err := tenant.NewDirectory(data)
+	// It carries the business-day switch (ADR 0032 §A.8) for the GET /t prediction, the same
+	// value checkin.New reads from cfg: one switch, two consumers, no import between them.
+	directory, err := tenant.NewDirectory(data, cfg.BusinessDayFrom)
 	if err != nil {
 		return err
 	}

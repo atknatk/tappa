@@ -48,6 +48,7 @@ import (
 	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // recordedTap is one transactions row, read back so a test asserts on what was
@@ -217,10 +218,14 @@ func (h *tapHarness) newEmployee(t *testing.T, status string) uuid.UUID {
 	t.Helper()
 	id := uuid.New()
 	err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx,
+		if _, e := tx.Exec(ctx,
 			`INSERT INTO employees (id, tenant_id, location_id, full_name, status, invited_at, activated_at)
 			 VALUES ($1, $2, $3, 'Joseph Camilleri', $4, now(), now())`,
-			id, h.tenantID, h.locationID, status)
+			id, h.tenantID, h.locationID, status); e != nil {
+			return e
+		}
+		// His own business day, far from now (M15-04): the harness runs with the switch on.
+		_, e := fixtures.GiveFarDayCutoff(ctx, tx, h.tenantID, id, time.Now())
 		return e
 	})
 	if err != nil {

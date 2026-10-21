@@ -64,6 +64,7 @@ import (
 	"github.com/atknatk/tappa/internal/handler/api"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/invite"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // crossAPIHost is the integration API's host on the cross-surface router.
@@ -92,6 +93,7 @@ func newCrossSurfaces(t *testing.T, l *legalE2E) *crossSurfaces {
 		SessionHMACKey: randBytes(t, 32), InviteHMACKey: randBytes(t, 32), TagKEK: randBytes(t, 32),
 		APIKeyHMACKey:   randBytes(t, 32),
 		GPSRadiusMeters: 150, Debounce: 60 * time.Second, Freshness: 180 * time.Second, RetentionYears: 2,
+		BusinessDayFrom: fixtures.BusinessDaySwitchOn(),
 	}
 	data, err := db.New(ctx, cfg)
 	if err != nil {

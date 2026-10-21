@@ -434,6 +434,14 @@ saate bağlı DB testlerini saatten bağımsız yapar.
      `deploy/k8s/05-config.yaml`'daki değerin (varsa) ayrıştırıldığını ve sınırın içinde olduğunu pinleyen bir
      paketleme testi (güvenlik merceği F-3).
    **Geri alma:** anahtarı kaldırmak yeni dokunuşları kesimsiz kurala döndürür; donmuş S'ler kalır.
+   *(Uygulamada — M15-04 yapıcısının raporu:)* kapı `tap.SwitchedDayCutoff(from *time.Time, now time.Time,
+   cutoff time.Duration, timezone string) *tap.DayCutoff`; `checkin.New` değeri `cfg.BusinessDayFrom`'dan
+   kopyalar, `gatherWith` onu `Record`'un sunucu `now`'ıyla çağırır; `tenant.NewDirectory(data, businessDayFrom)`
+   ve **M15-12'nin çağrı noktası** `(*tenant.Directory).DayCutoff(now, cutoff, timezone)`. `config`:
+   `EnvBusinessDayFrom`, `ParseBusinessDayFrom(raw, now)`, `BusinessDayFromMaxAhead` (30 gün),
+   `AnnounceBusinessDay` (iki durumda da bir başlangıç satırı). `05-config.yaml`'a **boş** anahtar
+   (`TAPPA_BUSINESS_DAY_FROM: ""` — değer yok, anahtar kapalı): `TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest`
+   `config.go`'nun adlandırdığı her değişkenin kaba ulaşmasını ister; değeri M15-08 yazar.
 4. **Saate bağlı DB testleri** (motor merceği M-Y2). 00064'ün DEFAULT 05:00'ı, göreli saatle kurulmuş
    testleri günün belirli saatlerinde kırmızıya çevirir — ölçülenler:
    `TestSeedDB_APracticeRowNeverHidesAnOlderOpenCheckIn` (`internal/handler/practice_direction_db_test.go:113`;
@@ -449,6 +457,11 @@ saate bağlı DB testlerini saatten bağımsız yapar.
      `fixtures.TenantKF` birçok harness'ın tenant'ıdır — `internal/handler/seedflow_db_test.go:332`; tenant ya da
      şube kesimini değiştirmek paralel testleri ve bu kartın kendi kriterlerini bozar ve dev veritabanında
      kalıcı iz bırakır). Kesimi ya da kademeyi bilerek sınayan testler **kendi tenant'ını / şubesini** kurar.
+   *(Uygulamada — M15-04 yapıcısının raporu:)* yardımcı `fixtures.GiveFarDayCutoff` / `FarDayCutoff`
+   (`test/fixtures/daycutoff.go`) kesimi **yerel `now + 9 sa`**'e koyar: kartın *"ör. now + 12 sa"* örneği kendi
+   `[now − 12 sa, now + 6 sa]` özelliğini ihlal eder (sınır `now − 12 sa`'e de düşer; ölçüldü — 5760 noktanın 3466'sı).
+   Envanter mutasyonla çıkarıldı (sınır her dokunuşun anından 1 µs önce): dokuz test — liste
+   `TestFarDayCutoff_EveryDirectionChainTestHasACutoffAwayFromNow`'un içinde.
 
 **Kabul kriterleri.**
 - DB testi, **kendi kurduğu** bir tenant (işletme kesimi 05:00): Pzt açık giriş, Sal sabah `in`,

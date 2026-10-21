@@ -133,28 +133,23 @@ const ReportEventCap = 20000
 // shape this repository keeps paying for, with the drift invisible because each copy
 // is self-consistent.
 //
-// ⚠️ THE CONSTANT IS SHARED; THE QUANTITY IT IS COMPARED AGAINST IS NOT, AND AN EARLIER
-// VERSION OF THIS BLOCK CLAIMED OTHERWISE. It said the shared threshold makes the
-// engine and the report "agree about one record". They agree about the THRESHOLD and
-// measure different things with it:
+// THE CONSTANT IS SHARED AND, SINCE ADR 0032, SO IS THE QUANTITY (M15-03, M15-04). Until then
+// the engine measured in.Now - open.OccurredAt -- the SERVER's clock at the moment the closing
+// tap was judged -- while this report measures out.At - in.At, the two records' own occurred_at,
+// and a security audit built the ordinary case where they parted company: a checkout for a shift
+// three days ago, declared at its real instant, was stamped "stale open check-in" by the engine
+// (its clock was three days past the entry) and paid here as a clean eight-hour pair. The engine
+// now measures at - open.OccurredAt, where at is the tap's OWN instant (tap.tapInstant: the
+// declared occurred_at when the client sent one, the server's now otherwise -- the instant the
+// record carries), so for a pair the engine closed the two read the same number against the
+// same threshold.
 //
-//	internal/domain/tap  in.Now - open.OccurredAt   the SERVER's clock at the moment
-//	                                                the closing tap is judged
-//	here                 out.At - in.At             the two records' own occurred_at
-//
-// A security audit built the case where they part company, and it is an ordinary one:
-// a manager enters a checkout for a shift three days ago (M6-08, channel='manual').
-// The engine stamps the closing record with "stale open check-in (possible forgotten
-// checkout)" because ITS clock is three days past the entry -- while this report sees
-// a declared in/out pair eight hours apart and pays it as a clean shift, with no note
-// anywhere on the page.
-//
-// NEITHER IS WRONG FOR ITS OWN QUESTION. The engine is asked "has this entry been open
-// a long time?", which is about now; the report is asked "how long was this shift?",
-// which is about the record. Nothing here changes to make them one number -- measuring
-// the report against a server clock would make last month's hours depend on when the
-// report was opened. What changes is this comment, which is the only place the
-// difference was hidden.
+// WHAT STILL DIFFERS, STATED: with the business-day switch on (TAPPA_BUSINESS_DAY_FROM) the engine
+// also refuses to close an entry of an earlier business day (ADR 0032 §A.1) and freezes the
+// tap's business day on the row (business_day_start); this report does not read that column yet
+// -- the one checkout classification of §A.6 reaches it in M15-05. Measuring the report against
+// a server clock is still not an option: last month's hours must not depend on when the report
+// was opened.
 //
 // WHAT IT BUYS: a shift that starts at 18:00 on the last night of the period and ends
 // at 02:00 is a CLOSED interval rather than an open one. Without the tail, every
