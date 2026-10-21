@@ -201,10 +201,11 @@ func TestPackaging_TheDeployPushesToThePrivateRegistry(t *testing.T) {
 }
 
 // goImageVersion and goImageDigest are the build's base image: golang:<version>-bookworm by its
-// index digest on Docker Hub (measured 2026-10-19), the same bytes Harbor's proxy cache serves.
+// index digest on Docker Hub (measured 2026-10-19; moved to 1.26.10 on 2026-10-21 for
+// GO-2026-6809), the same bytes Harbor's proxy cache serves.
 const (
-	goImageVersion = "1.26.9"
-	goImageDigest  = "sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c"
+	goImageVersion = "1.26.10"
+	goImageDigest  = "sha256:5b1f78db1f54cc8cb46e652c51d3f854441c4310a449161b6fe9fb553edab505"
 	harborProxy    = harborRegistry + "/dockerhub"
 )
 

@@ -65,7 +65,11 @@
 # re-pushed on Docker Hub changes neither build. Measured 2026-10-19: the index digest of
 # golang:1.26.9-bookworm on Docker Hub. A bump moves three lines together (here, deploy.yml's
 # GO_BUILD_IMAGE, cmd/tappa/deployregistry_test.go's goImageDigest).
-ARG GO_IMAGE=golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c
+# 2026-10-21: 1.26.9 -> 1.26.10 for GO-2026-6809 (crypto/x509, distrust of compromised
+# intermediates; govulncheck reports it as called from the VIES client's certificate check;
+# fixed in 1.26.10). Index digest of golang:1.26.10-bookworm on Docker Hub, measured
+# 2026-10-21 (lists linux/amd64). CI and deploy.yml pin the same version.
+ARG GO_IMAGE=golang:1.26.10-bookworm@sha256:5b1f78db1f54cc8cb46e652c51d3f854441c4310a449161b6fe9fb553edab505
 
 # ---------------------------------------------------------------------- build --
 FROM ${GO_IMAGE} AS build
