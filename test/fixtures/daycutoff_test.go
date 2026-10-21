@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/atknatk/tappa/internal/domain/tap"
 )
 
@@ -153,6 +155,31 @@ func TestFarDayCutoff_EveryDirectionChainTestHasACutoffAwayFromNow(t *testing.T)
 					t.Errorf("%s %s does not call %q: its business day is no longer kept away from now", e.file, e.test, c)
 				}
 			}
+		}
+	}
+}
+
+// TestGiveFarDayCutoff_RefusesEverySeededEmployee: every seeded person (the Emp* handles of
+// ids.go, both tenants) is refused before anything is written; an employee a test creates is not.
+func TestGiveFarDayCutoff_RefusesEverySeededEmployee(t *testing.T) {
+	seeded := []uuid.UUID{
+		EmpKFMariaBorg, EmpKFJosephCamilleri, EmpKFAntoineVella, EmpKFRitaZammit, EmpKFDavidGrech,
+		EmpKFSofiaRossi, EmpKFAhmedHassan, EmpKFElenaPetrova, EmpKFMarcoBugeja, EmpKFNadiaFarrugia,
+		EmpKFLiamOBrien, EmpKFPriyaSharma, EmpKFCarlosMendez, EmpKFGraceAttard, EmpKFPaulSpiteri,
+		EmpKFAndreaMicallef, EmpKFRobertaFenech, EmpKFIvanPetrov, EmpKFEmmaCaruana, EmpKFJuliaSciberras,
+		EmpKFOmarAziz, EmpKFGeorgeMuscat, EmpKFKevinBorg, EmpKFRyanGauci, EmpKFStephaniePace,
+		EmpKMAntoniaGrima, EmpKMFrankDebono, EmpKMSaviourBonnici, EmpKMDraganNikolic, EmpKMCharleneVella,
+		EmpKMPeterFalzon, EmpKMRosariaSchembri, EmpKMYusufDemir, EmpKMDorisMicallef, EmpKMAnaSilva,
+		EmpKMJosephButtigieg,
+	}
+	for _, id := range seeded {
+		if err := refuseSeedEmployee(id); err == nil {
+			t.Errorf("the seeded employee %s was not refused", id)
+		}
+	}
+	for i := 0; i < 100; i++ {
+		if id := uuid.New(); refuseSeedEmployee(id) != nil {
+			t.Fatalf("a test's own employee %s was refused", id)
 		}
 	}
 }

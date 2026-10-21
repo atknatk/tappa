@@ -13,9 +13,10 @@ import (
 
 // TestLoad_BusinessDayFromIsOptionalAnInstantAndAtMostThirtyDaysAhead is ADR 0032 §A.8's
 // configuration contract for TAPPA_BUSINESS_DAY_FROM, through Load itself: unset is the switch
-// off (nil, and Load succeeds); an RFC 3339 instant is read in UTC; a value in the past is always
-// accepted; a malformed one and one more than 30 days after start-up refuse to start, naming the
-// variable (security lens F-3: one replica, so a typo is better as a refusal than as a switch that
+// off (nil, and Load succeeds); an RFC 3339 instant is read in UTC; a value in the past is
+// accepted down to the floor (00064's date, 2026-10-21) and refused below it (a "2025" typo would
+// switch the rule on before any cutoff is set); a malformed one and one more than 30 days after
+// start-up refuse to start, naming the variable (security lens F-3: one replica, so a typo is better as a refusal than as a switch that
 // silently never turns on).
 func TestLoad_BusinessDayFromIsOptionalAnInstantAndAtMostThirtyDaysAhead(t *testing.T) {
 	now := time.Now()
@@ -26,8 +27,11 @@ func TestLoad_BusinessDayFromIsOptionalAnInstantAndAtMostThirtyDaysAhead(t *test
 		want    *time.Time
 	}{
 		{name: "unset is off", val: ""},
-		{name: "far past is accepted", val: "2000-01-01T00:00:00Z", want: ptrTime(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))},
-		{name: "an offset is read as its instant", val: "2026-10-01T05:00:00+02:00", want: ptrTime(time.Date(2026, 10, 1, 3, 0, 0, 0, time.UTC))},
+		{name: "the floor itself is accepted", val: "2026-10-21T00:00:00Z", want: ptrTime(time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC))},
+		{name: "a second before the floor is refused", val: "2026-10-20T23:59:59Z", wantErr: "before 2026-10-21T00:00:00Z"},
+		{name: "the 2025 typo is refused", val: "2025-11-02T03:00:00Z", wantErr: "before 2026-10-21T00:00:00Z"},
+		{name: "year zero is refused", val: "0000-01-01T00:00:00Z", wantErr: "before 2026-10-21T00:00:00Z"},
+		{name: "an offset is read as its instant", val: "2026-10-22T05:00:00+02:00", want: ptrTime(time.Date(2026, 10, 22, 3, 0, 0, 0, time.UTC))},
 		{name: "29 days ahead is accepted", val: now.Add(29 * 24 * time.Hour).UTC().Format(time.RFC3339)},
 		{name: "31 days ahead is refused", val: now.Add(31 * 24 * time.Hour).UTC().Format(time.RFC3339), wantErr: "more than 30 days"},
 		{name: "the 2062 typo is refused", val: "2062-11-02T03:00:00Z", wantErr: "more than 30 days"},
@@ -68,13 +72,24 @@ func TestLoad_BusinessDayFromIsOptionalAnInstantAndAtMostThirtyDaysAhead(t *test
 	}
 }
 
-// TestParseBusinessDayFrom_TheBoundIsMeasuredFromTheStartUpInstant pins the bound's edge on a
-// fixed clock: exactly now + 30 days is accepted, one second more is refused.
+// TestParseBusinessDayFrom_TheBoundIsMeasuredFromTheStartUpInstant pins both edges on a fixed
+// clock: exactly now + 30 days and exactly the floor are accepted, one second past either is
+// refused.
 func TestParseBusinessDayFrom_TheBoundIsMeasuredFromTheStartUpInstant(t *testing.T) {
 	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
 	edge := now.Add(config.BusinessDayFromMaxAhead)
 	if config.BusinessDayFromMaxAhead != 30*24*time.Hour {
 		t.Fatalf("the bound is %v, ADR 0032 §A.8 says 30 days", config.BusinessDayFromMaxAhead)
+	}
+	if want := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC); !config.BusinessDayFromFloor().Equal(want) {
+		t.Fatalf("the floor is %v, ADR 0032 §A.8 says %v (migration 00064)", config.BusinessDayFromFloor(), want)
+	}
+	floor := config.BusinessDayFromFloor()
+	if v, err := config.ParseBusinessDayFrom(floor.Format(time.RFC3339), now); err != nil || v == nil || !v.Equal(floor) {
+		t.Fatalf("exactly the floor: %v, %v", v, err)
+	}
+	if _, err := config.ParseBusinessDayFrom(floor.Add(-time.Second).Format(time.RFC3339), now); err == nil {
+		t.Fatal("a second before the floor was accepted")
 	}
 	if v, err := config.ParseBusinessDayFrom(edge.Format(time.RFC3339), now); err != nil || v == nil || !v.Equal(edge) {
 		t.Fatalf("exactly 30 days ahead: %v, %v", v, err)

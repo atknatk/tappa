@@ -22,6 +22,7 @@ package fixtures
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,6 +34,12 @@ import (
 // test is written against. "Unset" and "the server's clock before the value" are separate, named
 // tests, never a harness default. A fresh pointer per call: a test that changes its copy changes
 // nobody else's.
+//
+// IT IS BELOW config.BusinessDayFromFloor ON PURPOSE, and that is not a contradiction: the floor
+// refuses a TYPO at start-up (ParseBusinessDayFrom), and this value never goes through it — the
+// harnesses hand it to checkin.New and tenant.NewDirectory directly. It must be this old because
+// tests run the service's clock on fixed weeks before the floor
+// (internal/domain/checkin/businessday_db_test.go: Mon 2026-10-19, Tue 2026-10-20).
 func BusinessDaySwitchOn() *time.Time {
 	v := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 	return &v
@@ -68,7 +75,17 @@ func FarDayCutoff(now time.Time, zone string) (time.Duration, error) {
 // app.tenant_id; db.WithTenant gives one). It reads the zone from the tenant row, as the tap
 // does, and refuses unless exactly one row changed: a silent miss would leave the test on the
 // business's 05:00 and red at five in the morning, which is the failure this exists to remove.
+//
+// A SEEDED EMPLOYEE IS REFUSED (refuseSeedEmployee) before anything is written: the seed's people
+// belong to every harness and to the developer's demo database, and a cutoff written on one of
+// them would move their business day for every other test and stay behind after the run. The
+// helper is for an employee the test itself created. It writes the PERSON tier and nothing else —
+// TestGiveFarDayCutoff_WritesThePersonTierOnly measures that the tenant's and the profile
+// branch's cutoffs do not move.
 func GiveFarDayCutoff(ctx context.Context, tx pgx.Tx, tenantID, employeeID uuid.UUID, now time.Time) (time.Duration, error) {
+	if err := refuseSeedEmployee(employeeID); err != nil {
+		return 0, err
+	}
 	var zone string
 	if err := tx.QueryRow(ctx, `SELECT timezone FROM tenants WHERE id = $1`, tenantID).Scan(&zone); err != nil {
 		return 0, fmt.Errorf("fixtures: the tenant's zone: %w", err)
@@ -86,4 +103,20 @@ func GiveFarDayCutoff(ctx context.Context, tx pgx.Tx, tenantID, employeeID uuid.
 		return 0, fmt.Errorf("fixtures: the employee's day cutoff changed %d rows, want 1 (wrong tenant context?)", tag.RowsAffected())
 	}
 	return cutoff, nil
+}
+
+// seedIDPrefixes are the id ranges seed.sql writes in (ids.go's header: every KF id begins with
+// 1..., every KM id with 2..., in the 4000-8000 variant). Matching the RANGE rather than a list of
+// the Emp* handles also covers a seeded employee this file has not mirrored yet.
+var seedIDPrefixes = [...]string{"10000000-0000-4000-8000-", "20000000-0000-4000-8000-"}
+
+// refuseSeedEmployee is GiveFarDayCutoff's first check: an id from the seed's ranges is refused.
+func refuseSeedEmployee(id uuid.UUID) error {
+	for _, p := range seedIDPrefixes {
+		if strings.HasPrefix(id.String(), p) {
+			return fmt.Errorf("fixtures: %s is a SEEDED employee; GiveFarDayCutoff writes only an employee the test "+
+				"created — a seeded person's cutoff would move every other test's business day and stay in the dev database", id)
+		}
+	}
+	return nil
 }

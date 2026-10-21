@@ -427,7 +427,9 @@ saate bağlı DB testlerini saatten bağımsız yapar.
    alanı olarak enjekte edilir** (CLAUDE.md §7; paket düzeyi durum yok); `internal/config` ayrıştırır:
    - biçim hatası başlangıçta reddedilir (`config.go:278-284`'ün `TAPPA_LOG_FORMAT` kuralı);
    - üst sınır: başlangıçta *"şimdiden en çok 30 gün sonrası"*, ötesi red (`2062` yazım hatası sessizce
-     *"hiç etkin olmaz"* olmasın); geçmişteki değer her zaman geçerli;
+     *"hiç etkin olmaz"* olmasın); geçmişteki değer her zaman geçerli — tabandan (2026-10-21, 00064) eski
+     olmamak kaydıyla; gerekçe: yazım hatası (tabandan eski değer başlangıçta reddedilir —
+     `config.BusinessDayFromFloor`, M15-04 DÜŞÜK turu);
    - değer başlangıçta loglanır (sır değil);
    - tek pod çalışan kümede (`deploy/k8s/20-app.yaml:53` `replicas: 1`) bir yazım hatası bir yeniden
      başlatmada hiçbir dokunuşun kaydedilmemesi demektir → `cmd/tappa`'nın `configMapValues` yardımcısıyla
@@ -743,6 +745,9 @@ kurmak · *"boş = 00:00"* okumak.
    **Bu cümle deploy notunda ve bu kartın kullanıcıya verilen raporunda aynen yer alır** (ürün merceği Q1):
    *"Faz A'da çalışanın tap ekranı değişmez ('Tap'); düzelen şey kaydın yönüdür ve sonuç ekranında 'Tapped
    in/out' olarak görünür. 'Clock in/out' düğmesi ve 'Not right?' bağlantısı Faz B ile gelir."*
+   **Sandbox (M15-04 DÜŞÜK turu):** sandbox ConfigMap'inde (`deploy/sandbox/05-config.yaml`) anahtar yok →
+   sandbox'ta da açılacak mı kararı (öneri: evet, aynı değerle; sandbox paketleme testi —
+   `TestSandboxManifests_TheConfigMapStartsOnlyTheSandboxBuild` — gerekiyorsa onu da güncelle).
 
 **Kabul kriterleri.**
 - Tam suit yeşil (`-race`) — M15-04'ün saatten bağımsızlık testleri dahil; `make audit` exit 0;
@@ -881,6 +886,8 @@ not (kuyruk `want`'ı saklar).
    etkin kesim `tap` paketindeki **tek kapı fonksiyonundan** (M15-04 adım 3b; ayrı bir kesim okuması ya da
    ayrı bir anahtar kontrolü yazılmaz — motor merceği ORTA-2, N4); anahtarın değeri `tenant.Directory`'ye yapı
    alanı olarak gelir, `checkin`'i içe aktarmaz; plaket/çalışan/kanal şartları handler'da `pv` ve `p` ile.
+   **Güvenlik merceği notu (M15-04 DÜŞÜK turu):** `(*tenant.Directory).DayCutoff(now, …)` çağrılırken `now`
+   **sunucu** saati olmalı; beyan edilen an verilirse F-2 yeniden açılır — bunu pinleyen bir test.
 2. `pages.TapView`, `tap.templ` (`tapForm`, `TapButtonFace`); `tap.templ:12-17` ve `:52-53`'ün yorumları
    (*"DIRECTION-NEUTRAL"*, *"its word 'Tap'"*) ADR 0032'ye atıfla yeniden yazılır.
 3. **`tap.js`:** `submit` işleyicisinin ilk işi — `markPending`'den ve konum dalından önce — basılan

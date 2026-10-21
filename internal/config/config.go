@@ -242,8 +242,9 @@ type Config struct {
 	// ParseBusinessDayFrom). The cluster runs ONE replica (deploy/k8s/20-app.yaml), so a typo is a
 	// restart into no server at all — every tap unrecorded until someone reads the error. That is
 	// still better than the silent alternative: "2062-11-02" for "2026-11-02" would boot and never
-	// switch on, and nothing would say so. A value in the past is always valid — the switch has
-	// simply been on since then.
+	// switch on, and nothing would say so. A value in the past is valid — the switch has simply been
+	// on since then — unless it is older than BusinessDayFromFloor (00064's date): "2025" for "2026"
+	// would switch the rule on before any business set its cutoff.
 	BusinessDayFrom *time.Time
 
 	// RetentionYears is how long attendance records are kept, in whole years. It
@@ -546,10 +547,21 @@ const EnvBusinessDayFrom = "TAPPA_BUSINESS_DAY_FROM"
 // a month away is a slipped digit ("2062" for "2026") that would boot and never switch on.
 const BusinessDayFromMaxAhead = 30 * 24 * time.Hour
 
+// BusinessDayFromFloor is the earliest TAPPA_BUSINESS_DAY_FROM accepted: the date of migration
+// 00064 (2026-10-21), before which no business day existed in code (ADR 0032 §A.8). A value in the
+// past is otherwise always valid — the switch has been on since then — but one older than this can
+// only be a typo ("2025" for "2026"), and accepting it would switch the rule on at once, before the
+// businesses set their cutoffs: the bakery's shift split from the first tap, every wrong `in`
+// immutable (§4.3). So it is refused at start-up, like the far future.
+//
+// A function, not a variable: a time.Time cannot be a constant, and a package variable could be
+// moved by any importer.
+func BusinessDayFromFloor() time.Time { return time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC) }
+
 // ParseBusinessDayFrom reads TAPPA_BUSINESS_DAY_FROM's value against the start-up instant now:
 // "" is the switch off (nil); otherwise an RFC 3339 instant (2026-11-02T03:00:00Z, or with an
-// offset) no later than now + BusinessDayFromMaxAhead, returned in UTC. A value in the past is
-// always valid. It is exported so the packaging test reads the shipped ConfigMap with the SAME
+// offset) no earlier than BusinessDayFromFloor and no later than now + BusinessDayFromMaxAhead,
+// returned in UTC. A value in the past is valid as long as it is not older than the floor. It is exported so the packaging test reads the shipped ConfigMap with the SAME
 // rule the process boots with (cmd/tappa), rather than a copy of it.
 //
 // NOTHING IS TRIMMED OR GUESSED: " 2026-11-02T03:00:00Z" and "2026-11-02" are refused, the
@@ -562,6 +574,12 @@ func ParseBusinessDayFrom(raw string, now time.Time) (*time.Time, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: must be an RFC 3339 instant such as 2026-11-02T03:00:00Z, got %q",
 			EnvBusinessDayFrom, raw)
+	}
+	if v.Before(BusinessDayFromFloor()) {
+		return nil, fmt.Errorf("%s: %s is before %s, the date the business day was introduced "+
+			"(migration 00064); an older value can only be a typo, and it would switch the rule on at once, "+
+			"before the businesses set their cutoffs (ADR 0032 §A.8)", EnvBusinessDayFrom,
+			v.UTC().Format(time.RFC3339), BusinessDayFromFloor().Format(time.RFC3339))
 	}
 	if limit := now.Add(BusinessDayFromMaxAhead); v.After(limit) {
 		return nil, fmt.Errorf("%s: %s is more than %d days after start-up (%s); a release writes "+

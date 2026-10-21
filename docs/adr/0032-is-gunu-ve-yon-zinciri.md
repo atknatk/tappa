@@ -424,6 +424,9 @@ topladığı yerde hem `GET /t` tahmininde aynı çağrı (motor merceği ORTA-2
   (`cmd/tappa`'nın `configMapValues` yardımcısıyla `05-config.yaml`'dan okur), (2) başlangıçta *"şimdiden
   en çok 30 gün sonrası"* üst sınırı (ötesi red — `2062` gibi bir yazım hatası sessizce *"hiç etkin olmaz"*
   olmasın; geçmişteki bir değer her zaman geçerlidir), (3) değer başlangıçta loglanır (sır değildir).
+  **Alt sınır (M15-04 güvenlik merceği, DÜŞÜK):** geçmiş değer her zaman geçerli — tabandan (2026-10-21, 00064)
+  eski olmamak kaydıyla; gerekçe: yazım hatası (`2025` yerine `2026` anahtarı işletmeler kesimi ayarlamadan
+  hemen açardı). Tabandan eski değer başlangıçta reddedilir (`config.BusinessDayFromFloor`).
 - **Geri alma:** anahtarı kaldırmak yeni dokunuşları kesimsiz kurala döndürür; yazılmış (donmuş) S'ler kalır
   ve sınıflandırma onları okumaya devam eder — bu tutarlıdır (S yalnız yazıldığı dokunuş için doğrudur).
 

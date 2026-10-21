@@ -1386,6 +1386,10 @@ func (s *Service) gatherWith(ctx context.Context, tx pgx.Tx, req Request, tapped
 		// TAPPED branch's cutoff either: a chain that moves between branches would otherwise
 		// meet a different boundary at every plaque.
 		//
+		// THE ZONE IS THE EMPLOYER'S (emp.TenantTimezone), and no test can tell it from the site's
+		// today: K-36 keeps a holding's members on one zone, so a mutation reading site.Timezone here
+		// stays green. The employer's zone is the rule (ADR 0032 §A.2), not an accident of K-36.
+		//
 		// The column is NOT NULL through tenants.day_cutoff, so an invalid value is a broken
 		// invariant rather than a setting; it is read as "no business day" (the engine's nil),
 		// never as an invented 05:00.
