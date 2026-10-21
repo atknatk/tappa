@@ -397,8 +397,9 @@ templ PolicyGuarantees(v PoliciesView) {
 				<p class="text-sm text-ink/85">
 					They are part of the product rather than a setting: there is no control to
 					turn one off, on this page or anywhere else, because each of them is a promise
-					the product is sold on. Some of them can be TUNED inside a range — that is
-					marked below.
+					the product is sold on. Some of them compare against a window Taptime sets
+					the same way for every business — marked below with the range it may take.
+					No business can change one.
 				</p>
 			</div>
 			for _, g := range v.Guardrails {
@@ -421,7 +422,7 @@ templ PolicyGuarantees(v PoliciesView) {
 								<p class="docket-label">{ g.Tunable }</p>
 								<p class="font-mono text-sm text-ink">
 									{ g.Current }
-									<span class="text-ink/70">· may be set between { g.Range }</span>
+									<span class="text-ink/70">· set by Taptime for every business, within { g.Range }</span>
 								</p>
 							</div>
 						}

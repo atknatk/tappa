@@ -201,8 +201,9 @@ type Guardrail struct {
 	Guards string
 	// Bounded is the tunable window this guardrail compares against, or nil for the
 	// ones that have none. "Cannot be switched off but MAY be tuned within a
-	// range" is ADR 0004 §11's pattern, and a screen that showed only the
-	// unswitchable half would make Tappa look less configurable than it is.
+	// range" is ADR 0004 §11's pattern -- but the tuning is Taptime's, once for the
+	// whole service (configuration, no per-tenant column), so the screen prints the
+	// value and its range as set by Taptime and never as the business's (backlog T72).
 	Bounded *BoundedParam
 }
 
@@ -852,7 +853,8 @@ var guardrailRules = map[string]string{
 	"sys:occurred-at-bound": "ADR 0004 §11 — the time a phone declares cannot be invented. " +
 		"Taptime sets the tolerance; no business can accept any time at all.",
 	"sys:person-debounce": "§5 row 5 — one person's repeat inside the window is recorded and not " +
-		"counted, so a double tap never becomes a double shift.",
+		"counted, so a double tap never becomes a double shift. Taptime sets the window for every " +
+		"business and measures it on its own server; no business can change it.",
 	"sys:cross-tenant-qr-site-ip": "ADR 0027 §7 — a QR scan at another business of your group counts only " +
 		"from that venue's own network; anything else waits for your approval. Neither you nor they can change it.",
 	"sys:policy-edit-owner-only": "ADR 0004 K2 — only the owner may change the rules. A manager who could " +

@@ -416,6 +416,35 @@ func TestBoundedParams_ShowTheWindowsTheEngineWasGiven(t *testing.T) {
 	}
 }
 
+// TestGuardrailRules_SayTaptimeSetsTheDebounceWindow (backlog T72). The debounce
+// window is one process-wide value: config reads TAPPA_DEBOUNCE_SECONDS, checkin holds
+// it in Params, cmd/tappa hands that one Params to NewRulebook, and the schema has no
+// per-tenant column for it. The sentence a manager reads under the guarantee must say
+// so, and no guarantee's sentence may hand the business a window it cannot set.
+func TestGuardrailRules_SayTaptimeSetsTheDebounceWindow(t *testing.T) {
+	t.Parallel()
+	seen := false
+	for _, g := range testRulebook(t).guardrails() {
+		for _, claim := range []string{"yours to set", "your setting", "you set", "you can set", "you may set"} {
+			if strings.Contains(strings.ToLower(g.Rule), claim) {
+				t.Errorf("%s says %q: no guarantee's window is the business's to set", g.Sid, claim)
+			}
+		}
+		if g.Sid != "sys:person-debounce" {
+			continue
+		}
+		seen = true
+		const want = "Taptime sets the window for every business and measures it on its own " +
+			"server; no business can change it."
+		if !strings.Contains(g.Rule, want) {
+			t.Errorf("the debounce guarantee says %q; it must say %q", g.Rule, want)
+		}
+	}
+	if !seen {
+		t.Fatal("sys:person-debounce is not among the guarantees, so this test reads nothing")
+	}
+}
+
 // TestActionScopedGuardrails_AreTheOnesTheEngineScopesByAction pins the
 // derivation AND today's answer.
 //
