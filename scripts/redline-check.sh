@@ -2464,12 +2464,14 @@ report FAIL N1 "Node artefakti — bu repo Node'suzdur" "$node_files"
 #   - Go/JS/Kotlin/CSS kaynakta string literal DISINDAKI her sey: yorumlar (`//`,
 #     `/* */`), tanimlayicilar (ComparisonRow.Tappa), import/modul yollari, struct alanlari.
 #   - .templ dosyasinin GO BOLGELERI ayni kuralla okunur: govdenin disi (package,
-#     import, bildirimler), `if/for/switch/case/else` satirlari, `{ ... }` ifadeleri ve
+#     import, bildirimler), `{` ile biten `if/for/switch/else` ve `:` ile biten
+#     `case/default` satirlari (templ in kendi sarti), `{ ... }` ifadeleri ve
 #     `@cagri(...)` argumanlari — yalniz string literal'leri taranir, `Tappa: "x"` ya da
 #     `{ row.Tappa }` gibi tanimlayicilar degil. templ yorumu YALNIZ satirin ilk
 #     bosluk-olmayan karakterinden baslayan `//` ya da `/* */`dir; metin dugumu icindeki
 #     `//` ve `/* */` metindir (templ onlari ekrana basar).
-#   - Android XML'de `<!-- -->` (uygulamaya derlenir, kimseye servis edilmez).
+#   - android/app/src/main altindaki XML'de `<!-- -->` (uygulamaya derlenir, kimseye
+#     servis edilmez); muafiyet yola baglidir, baska bir .xml'de yorum metindir.
 #   - harf duyarlidir: `tappa-green`, `tappa_app`, `TAPPA_*`, `github.com/atknatk/tappa`
 #     hicbir zaman eslesmez.
 #   - *_test.go, testdata/, *_templ.go, internal/store (uretilmis), web/static/vendor
@@ -2478,7 +2480,8 @@ report FAIL N1 "Node artefakti — bu repo Node'suzdur" "$node_files"
 # 🔴 SERVIS EDILEN YUZEYDE YORUM YOKTUR (denetim, 2026-10-21 — olculdu): templ v0.3.833
 # `<!-- -->`yu istemciye yazar (uretilen _templ.go'da WriteString icinde);
 # docs/api/*.md `GET /v1/guide.md` ile HAM bayt doner; openapi.yaml ve sandbox
-# openapi.json ham servis edilir. Bu yuzden .templ, .html, .md, .yaml, .yml ve .json'da
+# openapi.json ham servis edilir. Bu yuzden .templ, .html, .md, .yaml, .yml, .json ve
+# Android disindaki .xml'de
 # `<!-- -->` ve ` #` METINDIR. Ilk hali onlari muaf tutuyordu.
 #
 # ⚠️ SINIRLAR, ACIKCA: (1) yalniz buyuk-T `Tappa` — kullanici metninde kucuk harf
@@ -2551,6 +2554,18 @@ b1_lex() {
       if (st == "\"" || st == "\047") { if (hit(buf)) emit(at, buf); st = "code" }
       else if (st == "`" || st == "tq") buf = buf " "
     }
+    # gostmt: satir templ in KENDI sartiyla bir Go kontrol satiri mi. Ilk sozcuk yetmez:
+    # templ `for every business ...`, `default ...`, `case ...`, `else ...` ile baslayan
+    # satiri METIN olarak ekrana basar (olculdu, templ v0.3.833 generate). Blok acan satir
+    # (`if/for/switch`, `} else`, `} else if`) `{` ile, `case`/`default` `:` ile biter;
+    # sondaki bosluk ve `//` yorumu tolere edilir.
+    function gostmt(t,    u) {
+      u = t; sub(/[ \t]+\/\/.*$/, "", u); sub(/[ \t]+$/, "", u)
+      if (u ~ /^(if|for|switch)[ \t(]/ && u ~ /\{$/) return 1
+      if (u ~ /^(\}[ \t]*)?else([ \t]+if[ \t(].*)?[ \t]*\{$/) return 1
+      if (u ~ /^case[ \t].*:$/ || u ~ /^default[ \t]*:$/) return 1
+      return 0
+    }
     # lext: bir templ GOVDESININ satiri. Metin dugumu ve oznitelik degeri METINDIR
     # (`<!-- -->` dahil: templ onu istemciye yazar, olculdu); `{ ... }` ifadeleri ve
     # `@cagri(...)` Go dir -- orada yalniz string literal okunur, tanimlayicilar degil.
@@ -2561,7 +2576,7 @@ b1_lex() {
         t = line; sub(/^[ \t]+/, "", t)
         if (substr(t, 1, 2) == "//") return
         if (substr(t, 1, 2) == "/*") { tst = "tblock"; line = substr(t, 3) }
-        else if (t ~ /^(if|for|switch|case|default|else|} else)[ \t:{(]/) { lexc(line, "go"); return }
+        else if (gostmt(t)) { lexc(line, "go"); return }
       }
       n = length(line); i = 1
       while (i <= n) {
@@ -2619,8 +2634,9 @@ b1_lex() {
       lext($0)
       next
     }
-    # Android XML: `<!-- -->` yorumdur (servis edilmez, uygulamaya derlenir).
-    ext == "xml" {
+    # Android XML: `<!-- -->` yorumdur (servis edilmez, uygulamaya derlenir). Muafiyet YOLA
+    # bagli: B1 kapsamindaki baska bir .xml servis edilen ham bayttir (asagidaki kol).
+    ext == "xml" && FILENAME ~ /^android\/app\/src\/main\// {
       line = $0; out = ""; n = length(line); i = 1
       while (i <= n) {
         if (st == "html") { if (substr(line, i, 3) == "-->") { st = "code"; i += 3 } else i++; continue }

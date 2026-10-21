@@ -34,7 +34,18 @@ func TestRedline_B1_TheProductNameInWhatUsersRead(t *testing.T) {
 		"web/templates/pages/zz_call.templ":  tpl + "\t@zzCell(Row{Name: \"Tappa\"})\n}\n",
 		"web/templates/pages/zz_multi.templ": tpl + "\t@zzShell(\"x\",\n\t\t\"Tappa\") {\n\t\t<p>ok</p>\n\t}\n}\n",
 		// A call's children are text again.
-		"web/templates/pages/zz_kids.templ":  tpl + "\t@zzShell(\"x\") {\n\t\t<p>Tappa</p>\n\t}\n}\n",
+		"web/templates/pages/zz_kids.templ": tpl + "\t@zzShell(\"x\") {\n\t\t<p>Tappa</p>\n\t}\n}\n",
+		// A line that starts with a Go keyword is TEXT unless it is templ's own control
+		// line: templ prints these four (measured, templ v0.3.833 generate).
+		"web/templates/pages/zz_for.templ":     tpl + "\t<p>\n\t\tfor every business, Tappa decides\n\t</p>\n}\n",
+		"web/templates/pages/zz_default.templ": tpl + "\t<p>\n\t\tdefault · Tappa answers\n\t</p>\n}\n",
+		"web/templates/pages/zz_case.templ":    tpl + "\t<p>\n\t\tcase closed, Tappa wins\n\t</p>\n}\n",
+		"web/templates/pages/zz_else.templ":    tpl + "\t<p>\n\t\telse Tappa\n\t</p>\n}\n",
+		// A real control line is Go: its strings are read.
+		"web/templates/pages/zz_ctl.templ": tpl + "\tfor _, x := range zzList(\"Tappa\") {\n\t\t<p>{ x }</p>\n\t}\n" +
+			"\tswitch row.Kind {\n\tcase \"Tappa\":\n\t\t<p>a</p>\n\tdefault:\n\t\t<p>b</p>\n\t}\n}\n",
+		// Only Android XML is compiled into an app; any other .xml is served as it is.
+		"web/static/zz.xml":                  "<!-- Tappa -->\n<x/>\n",
 		"web/templates/pages/zz_view.go":     "package pages\n\nvar zz = \"One plaque, Tappa\"\n",
 		"internal/handler/zz_sentence.go":    "package handler\n\nfunc zz() string {\n\treturn \"Tappa could not save that\"\n}\n",
 		"internal/handler/zz_raw.go":         "package handler\n\nconst zz = `first line\nsecond line names Tappa`\n",
@@ -65,6 +76,13 @@ func TestRedline_B1_TheProductNameInWhatUsersRead(t *testing.T) {
 		"web/templates/pages/zz_call.templ:4:",
 		"web/templates/pages/zz_multi.templ:5:",
 		"web/templates/pages/zz_kids.templ:5:",
+		"web/templates/pages/zz_for.templ:5:",
+		"web/templates/pages/zz_default.templ:5:",
+		"web/templates/pages/zz_case.templ:5:",
+		"web/templates/pages/zz_else.templ:5:",
+		"web/templates/pages/zz_ctl.templ:4:",
+		"web/templates/pages/zz_ctl.templ:8:",
+		"web/static/zz.xml:1:",
 		"web/templates/pages/zz_view.go:3:",
 		"internal/handler/zz_sentence.go:4:",
 		"internal/handler/zz_raw.go:3:",
@@ -93,7 +111,10 @@ func TestRedline_B1_TheProductNameInWhatUsersRead(t *testing.T) {
 			"templ ZZ(row Row) {\n" +
 			"\t// Tappa, a templ comment\n\t/* Tappa,\n\t   a block one */\n" +
 			"\tif row.Tappa != \"\" {\n\t\t<span class=\"text-tappa-green\">{ row.Tappa }</span>\n\t}\n" +
-			"\t@zzCell(ComparisonRow{Tappa: \"x\"})\n\t<p>Taptime { zzLabel(Tappa) }</p>\n}\n\nfunc zz() string { return \"x\" } // Tappa\n",
+			"\t@zzCell(ComparisonRow{Tappa: \"x\"})\n\t<p>Taptime { zzLabel(Tappa) }</p>\n" +
+			"\tfor _, x := range Tappa {\n\t\t<p>{ x }</p>\n\t}\n\tswitch Tappa {\n\tcase Tappa:\n\t\t<p>a</p>\n" +
+			"\tdefault:\n\t\t<p>b</p>\n\t}\n\tif x {\n\t\t<p>c</p>\n\t} else if Tappa {\n\t\t<p>d</p>\n" +
+			"\t} else {\n\t\t<p>e</p>\n\t}\n}\n\nfunc zz() string { return \"x\" } // Tappa\n",
 		"internal/handler/zz_ok.go": "package handler\n\n// Tappa maintains the \"Tappa\" rule.\n/* the \"Tappa\"\n   plaque */\n" +
 			"type Row struct{ Tappa string }\n\nfunc zz(r Row) string {\n\t_ = r.Tappa\n" +
 			"\t_ = \"TAPPA_DEBOUNCE_SECONDS\" + \"tappa_app\" + \"TappaGreen\" + \"tappa\"\n" +
