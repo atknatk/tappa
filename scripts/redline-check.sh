@@ -2431,6 +2431,249 @@ report WARN R6 "Sessizce yutulan hata — kayit kaybina yol acabilir" \
 node_files=$(git ls-files 'package.json' 'package-lock.json' 'pnpm-lock.yaml' 'yarn.lock' 2>/dev/null || true)
 report FAIL N1 "Node artefakti — bu repo Node'suzdur" "$node_files"
 
+# --- B1: urun adi `Tappa` KULLANICININ OKUDUGU metinde (T73, CLAUDE.md §9) ----
+#
+# KOD NEDEN B1, R DEGIL: R1-R7 §4'un kirmizi cizgileridir ve tappa-security-auditor
+# ile ayni numaralari tasir; marka §4 degil §9'dur. N1 (Node, §1) ile ayni sinif:
+# kirmizi cizgi olmayan ama mekanik olarak tutulan bir proje kurali.
+#
+# NE ARANIR: buyuk T ile `Tappa`, kelime olarak (oncesinde ve sonrasinda harf, rakam,
+# `_` yok; oncesinde `.` yok). Kullanici-yuzu marka Taptime; ic kod adi tappa BILINCLI
+# olarak degismedi (0738d16). Iki kez ELLE dogrulandi (rebrand ve landing turlarinda);
+# bu kural o elle taramayi mekaniklestirir.
+#
+# KAPSAM — kullaniciya giden yuzeyler (B1_SRC):
+#   web/templates   .templ metni ve Go string literal'leri (view dosyalari: landingview.go …)
+#   web/static      .html, .js ve .css (gomulu, /static/ altinda servis edilir; fonts/README.md dahil)
+#   internal        Go string literal'leri — handler cumleleri, e-posta (internal/mail),
+#                   yasal metinler (internal/domain/legal), sandbox openapi.json ve
+#                   API'nin openapi.yaml'i (ikisi de servis edilir)
+#   docs/api        entegrasyon rehberi, iki dil (GET /v1/guide.md — sitede yayinlaniyor)
+#   android/app/src/main   Wording.kt, strings.xml ve tum kaynak
+#
+# 🔴 internal NEDEN BUTUNUYLE, handler ile sinirli DEGIL — OLCULDU (2026-10-21): kucuk
+# harf `tappa` 5.396 kez geciyor, buyuk `Tappa` ise yorumlar ve tanimlayicilar
+# disinda, cmd+internal+web'in uretilmemis ve test olmayan Go string literal'lerinin
+# TAMAMINDA tek bir yerde: internal/domain/tenant/rulewriter.go ErrNotYours'un cumlesi
+# (handler onu "not-yours" koduna cevirir, metni ekrana gitmez). Bir domain hatasinin
+# metninin ekrana gidip gitmedigi mekanik olarak bilinemez (signup/tenant hatalari
+# bazi yollarda cumle olarak donuyor); tek bulguyu Taptime'a cevirmek, gorunmeyeni
+# varsaymaktan ucuzdu. cmd/ KAPSAM DISI: CLI ciktisi Taptime'in kendi operatorune gider.
+#
+# MUAF (yapisal — muafiyet tablosu YOK, gerekmedi):
+#   - Go/JS/Kotlin/CSS kaynakta string literal DISINDAKI her sey: yorumlar (`//`,
+#     `/* */`), tanimlayicilar (ComparisonRow.Tappa), import/modul yollari, struct alanlari.
+#   - .templ dosyasinin GO BOLGELERI ayni kuralla okunur: govdenin disi (package,
+#     import, bildirimler), `{` ile biten `if/for/switch/else` ve `:` ile biten
+#     `case/default` satirlari (templ in sartina YAKIN bir bicim kurali; switch
+#     baglami izlenmez — SINIRLAR 5), `{ ... }` ifadeleri ve
+#     `@cagri(...)` argumanlari — yalniz string literal'leri taranir, `Tappa: "x"` ya da
+#     `{ row.Tappa }` gibi tanimlayicilar degil. templ yorumu YALNIZ satirin ilk
+#     bosluk-olmayan karakterinden baslayan `//` ya da `/* */`dir; metin dugumu icindeki
+#     `//` ve `/* */` metindir (templ onlari ekrana basar).
+#   - android/app/src/main altindaki XML'de `<!-- -->` (uygulamaya derlenir, kimseye
+#     servis edilmez); muafiyet yola baglidir, baska bir .xml'de yorum metindir.
+#   - harf duyarlidir: `tappa-green`, `tappa_app`, `TAPPA_*`, `github.com/atknatk/tappa`
+#     hicbir zaman eslesmez.
+#   - *_test.go, testdata/, *_templ.go, internal/store (uretilmis), web/static/vendor
+#     (ucuncu parti), docs/ altinda docs/api DISINDA her sey (ic belgeler).
+#
+# 🔴 SERVIS EDILEN YUZEYDE YORUM YOKTUR (denetim, 2026-10-21 — olculdu): templ v0.3.833
+# `<!-- -->`yu istemciye yazar (uretilen _templ.go'da WriteString icinde);
+# docs/api/*.md `GET /v1/guide.md` ile HAM bayt doner; openapi.yaml ve sandbox
+# openapi.json ham servis edilir. Bu yuzden .templ, .html, .md, .yaml, .yml, .json ve
+# Android disindaki .xml'de
+# `<!-- -->` ve ` #` METINDIR. Ilk hali onlari muaf tutuyordu.
+#
+# ⚠️ SINIRLAR, ACIKCA: (1) yalniz buyuk-T `Tappa` — kullanici metninde kucuk harf
+# `tappa` ya da `TAPPA` yakalanmaz, cunku o yazimlar CSS token'i, rol ve env olarak
+# her yerde mesru. (2) Sozcuksel bir tarayicidir, ayristirici degil: JS regex
+# literal'i icindeki bir tirnak, ham bir Kotlin `"""` disindaki ic ice sablonlar,
+# templ govdesinde satir ici `<script>`/`<style>` icindeki suslu parantez (bugun 0
+# satir ici betik) ya da sutun 0 disinda kapanan bir templ govdesi lexer'i
+# yaniltabilir — yalniz `Tappa` iceren dosyalar okunur, yani bedel o dosyalarla
+# sinirli. (3) Uretilmis dosyalar (_templ.go) taranmaz; kaynaklari (.templ) taranir.
+# (4) Bulgu satiri eslesmenin CEVRESINI basar (60 karakter once, 70 sonra), satirin
+# basini degil. (5) templ lexer'i switch derinligini izlemez: `switch` DISINDA
+# `case …:` ya da `default:` bicimli bir METIN satiri (templ onu ekrana basar,
+# olculdu) Go sayilir ve yalniz string literal'leri taranir. Bugun agacta ornegi yok
+# (380 case/default satirinin hepsi Go); izleme bilerek eklenmedi. (6) Ayni satirda
+# `{` dan SONRA gelen metin (`templ X() { metin`, `} else { metin`,
+# `@cagri(...) { metin`) taranmaz — `templ fmt` bu bicimi ayri satira boler ve
+# `make check` fmt + `git diff --exit-code` kostugu icin bu bicim CI dan gecemez.
+#
+# AYNI KALIP: rg dosyalari ON-SECER (scan_in: cikis kodu okunur, eksik yol = tarama
+# hatasi), lexer yalniz o dosyalari okur; awk hatasi SCAN_ERR'e yazilir — bos bir
+# secim "temiz" okunmasin diye (R1'in r1_select'i ile ayni gerekce).
+B1_SRC=(web/templates web/static internal docs/api android/app/src/main)
+B1_GLOBS=(
+  --glob '*.{go,templ,html,js,css,kt,xml,md,yaml,yml,json}'
+  # Sonraki glob oncekini ezer (rg), bu yuzden GEN_EXCLUDE'un iki uretilmis kumesi
+  # dahil-etme globundan SONRA yeniden yazilir.
+  --glob '!*_templ.go' --glob '!internal/store/*.go'
+  --glob '!*_test.go' --glob '!**/testdata/**' --glob '!web/static/vendor/**'
+)
+
+# b1_lex <dosya...> — her dosyada kullanicinin okudugu metni cikarir ve `Tappa`
+# tasiyan her parcayi `yol:satir: metin` olarak basar.
+# (Bu blok tek tirnak icinde; yorumlarda kesme isareti KULLANILMAZ, tek tirnak
+# karakteri \047 olarak yazilir.)
+b1_lex() {
+  awk '
+    function hit(s) { return s ~ /(^|[^A-Za-z0-9_.])Tappa([^A-Za-z0-9_]|$)/ }
+    # emit: yol:satir ve eslesmenin CEVRESI (oncesinden 60, sonrasindan 70 karakter) --
+    # uzun bir satirda bulgu kesilen kuyrukta kalmasin.
+    function emit(ln, s,    p, a, b) {
+      gsub(/[\t ]+/, " ", s)
+      p = match(s, /(^|[^A-Za-z0-9_.])Tappa([^A-Za-z0-9_]|$)/) ? RSTART : 1
+      a = p - 60; if (a < 1) a = 1
+      b = p + 70
+      print FILENAME ":" ln ": " (a > 1 ? "..." : "") substr(s, a, b - a) (length(s) >= b ? "..." : "")
+    }
+    # lexc: C-benzeri kaynagin BIR satiri (Go, JS, Kotlin, CSS; ve .templ dosyasinin Go
+    # bolgeleri). YALNIZ string literal icerigi okunur; durum (st, buf, at) satirlar
+    # arasinda tasinir.
+    function lexc(line, lang,    n, i, c, c2) {
+      n = length(line); i = 1
+      while (i <= n) {
+        c = substr(line, i, 1); c2 = substr(line, i, 2)
+        if (st == "code") {
+          if (c2 == "//" && lang != "css") break
+          if (c2 == "/*") { st = "block"; i += 2; continue }
+          if (lang == "kt" && substr(line, i, 3) == "\"\"\"") { st = "tq"; buf = ""; at = FNR; i += 3; continue }
+          if (c == "\"" || c == "\047" || (c == "`" && lang != "kt")) { st = c; buf = ""; at = FNR; i++; continue }
+          i++; continue
+        }
+        if (st == "block") { if (c2 == "*/") { st = "code"; i += 2 } else i++; continue }
+        if (st == "tq") {
+          if (substr(line, i, 3) == "\"\"\"") { if (hit(buf)) emit(at, buf); st = "code"; i += 3; continue }
+          buf = buf c; i++; continue
+        }
+        if (st == "`") {
+          if (c == "`") { if (hit(buf)) emit(at, buf); st = "code"; i++; continue }
+          buf = buf c; i++; continue
+        }
+        if (c == "\\") { buf = buf substr(line, i, 2); i += 2; continue }
+        if (c == st) { if (hit(buf)) emit(at, buf); st = "code"; i++; continue }
+        buf = buf c; i++
+      }
+      # Tek satirlik bir literal satir sonunda kapanmamissa (JS, bozuk kaynak) orada biter.
+      if (st == "\"" || st == "\047") { if (hit(buf)) emit(at, buf); st = "code" }
+      else if (st == "`" || st == "tq") buf = buf " "
+    }
+    # gostmt: satir bir Go kontrol satiri BICIMINDE mi (templ in sartina yakin, ama
+    # switch baglamina bakmaz — basliktaki SINIRLAR 5). Ilk sozcuk yetmez:
+    # templ `for every business ...`, `default ...`, `case ...`, `else ...` ile baslayan
+    # satiri METIN olarak ekrana basar (olculdu, templ v0.3.833 generate). Blok acan satir
+    # (`if/for/switch`, `} else`, `} else if`) `{` ile, `case`/`default` `:` ile biter;
+    # sondaki bosluk ve `//` yorumu tolere edilir.
+    function gostmt(t,    u) {
+      u = t; sub(/[ \t]+\/\/.*$/, "", u); sub(/[ \t]+$/, "", u)
+      if (u ~ /^(if|for|switch)[ \t(]/ && u ~ /\{$/) return 1
+      if (u ~ /^(\}[ \t]*)?else([ \t]+if[ \t(].*)?[ \t]*\{$/) return 1
+      if (u ~ /^case[ \t].*:$/ || u ~ /^default[ \t]*:$/) return 1
+      return 0
+    }
+    # lext: bir templ GOVDESININ satiri. Metin dugumu ve oznitelik degeri METINDIR
+    # (`<!-- -->` dahil: templ onu istemciye yazar, olculdu); `{ ... }` ifadeleri ve
+    # `@cagri(...)` Go dir -- orada yalniz string literal okunur, tanimlayicilar degil.
+    # Yorum yalniz satirin ILK bosluk-olmayan karakterinden baslayan `//` ya da `/* */`.
+    function lext(line,    n, i, j, c, out, t, rest) {
+      out = ""
+      if (tst == "text" && est == "") {
+        t = line; sub(/^[ \t]+/, "", t)
+        if (substr(t, 1, 2) == "//") return
+        if (substr(t, 1, 2) == "/*") { tst = "tblock"; line = substr(t, 3) }
+        else if (gostmt(t)) { lexc(line, "go"); return }
+      }
+      n = length(line); i = 1
+      while (i <= n) {
+        c = substr(line, i, 1)
+        if (tst == "tblock") { if (substr(line, i, 2) == "*/") { tst = "text"; i += 2 } else i++; continue }
+        if (tst == "expr") {
+          if (est != "") {
+            if (est != "`" && c == "\\") { buf = buf substr(line, i, 2); i += 2; continue }
+            if (c == est) { if (hit(buf)) emit(at, buf); est = ""; i++; continue }
+            buf = buf c; i++; continue
+          }
+          if (c == "\"" || c == "\047" || c == "`") { est = c; buf = ""; at = FNR; i++; continue }
+          if (substr(line, i, 2) == "//") break
+          if (c == "{" || c == "(") depth++
+          else if (c == "}" || c == ")") {
+            depth--
+            if (depth == 0) {
+              tst = "text"
+              # @cagri(...) { : cocuk blogu acar, ifade degil.
+              rest = substr(line, i + 1)
+              if (fromcall && rest ~ /^[ \t]*\{[ \t]*$/) { fromcall = 0; break }
+              fromcall = 0
+            }
+          }
+          i++; continue
+        }
+        if (c == "{") { tst = "expr"; depth = 1; i++; continue }
+        if (c == "@" && substr(line, i + 1, 1) ~ /[A-Za-z_]/ && (i == 1 || substr(line, i - 1, 1) ~ /[ \t>]/)) {
+          j = i + 1
+          while (j <= n && substr(line, j, 1) ~ /[A-Za-z0-9_.]/) j++
+          if (substr(line, j, 1) == "(") { tst = "expr"; depth = 1; fromcall = 1; i = j + 1; continue }
+          i = j; continue
+        }
+        out = out c; i++
+      }
+      if (est == "\"" || est == "\047") { if (hit(buf)) emit(at, buf); est = "" }
+      else if (est == "`") buf = buf " "
+      if (hit(out)) emit(FNR, out)
+    }
+    FNR == 1 {
+      st = "code"; buf = ""; at = 0; tst = "text"; est = ""; depth = 0; fromcall = 0; body = 0
+      ext = FILENAME; sub(/^.*\./, "", ext)
+    }
+    ext == "go" || ext == "js" || ext == "kt" || ext == "css" { lexc($0, ext); next }
+    # .templ: govdenin disi (package, import, Go bildirimleri) Go dur; `templ X(...) {`
+    # ile sutun 0 daki `}` arasi govdedir.
+    ext == "templ" {
+      if (!body) {
+        lexc($0, "go")
+        if (st == "code" && $0 ~ /^templ[ \t]/ && $0 ~ /\{[ \t]*$/) { body = 1; tst = "text"; est = ""; depth = 0 }
+        next
+      }
+      if (st != "code") { lexc($0, "go"); next }
+      if (tst == "text" && est == "" && $0 ~ /^\}[ \t]*$/) { body = 0; next }
+      lext($0)
+      next
+    }
+    # Android XML: `<!-- -->` yorumdur (servis edilmez, uygulamaya derlenir). Muafiyet YOLA
+    # bagli: B1 kapsamindaki baska bir .xml servis edilen ham bayttir (asagidaki kol).
+    ext == "xml" && FILENAME ~ /^android\/app\/src\/main\// {
+      line = $0; out = ""; n = length(line); i = 1
+      while (i <= n) {
+        if (st == "html") { if (substr(line, i, 3) == "-->") { st = "code"; i += 3 } else i++; continue }
+        if (substr(line, i, 4) == "<!--") { st = "html"; i += 4; continue }
+        out = out substr(line, i, 1); i++
+      }
+      if (hit(out)) emit(FNR, out)
+      next
+    }
+    # Servis edilen ham baytlar (.html, .md, .yaml, .yml, .json): yorum YOK, her sey metindir.
+    { if (hit($0)) emit(FNR, $0) }' "$@"
+}
+
+b1_hits=""
+b1_files=()
+while IFS= read -r f; do
+  [[ -n $f ]] && b1_files+=("$f")
+done <<<"$(scan_in B1_SRC -l "${B1_GLOBS[@]}" -e 'Tappa')"
+if [[ ${#b1_files[@]} -gt 0 ]]; then
+  # awk dosya almazsa stdin okur; bos liste bu yuzden hic cagrilmaz. Cikis kodu
+  # $(...) icinde kaybolurdu: `||` onu SCAN_ERR'e yazar.
+  b1_hits=$(b1_lex "${b1_files[@]}") || {
+    echo "${RED}ATLANDI${OFF}: B1 lexer hata verdi (awk) — TARAMA GUVENILIR DEGIL." >&2
+    echo 2 >>"$SCAN_ERR"
+  }
+fi
+report FAIL B1 "Urun adi 'Tappa' kullanicinin okudugu metinde — kullanici yuzu marka Taptime, tappa yalniz ic kod adi (CLAUDE.md §9)" \
+  "$b1_hits"
+
 # --- R7d: SIR DEGERI commit'lenebilir bir dosyada (M10 F0-5, Olay A-0) --------
 #
 # KOD NEDEN R7d, R8 DEGIL: R1-R7 bu dosyada agent `tappa-security-auditor`in R1-R7
