@@ -5,7 +5,7 @@
 > (üç mercek RED, KRİTİK yok). Kod yok. Canlı durum yalnız [state.md](state.md)'dedir;
 > bu dosyaya "yapıldı" yazılmaz.
 >
-> **Karar belgesi:** [ADR 0032](../adr/0032-is-gunu-ve-yon-zinciri.md) (durum *Önerildi*; 0031
+> **Karar belgesi:** [ADR 0032](../adr/0032-is-gunu-ve-yon-zinciri.md) (durum *Kabul edildi* (2026-10-21, M15-01); 0031
 > M14'ündür). Kartlar ADR'nin sözlüğünü kullanır; ADR kabul edilmeden (M15-01) kod kartı başlamaz.
 >
 > **Atıf kuralı:** kırmızı çizgiler hep **"CLAUDE.md §4.x"**; `file:line` atıfları HEAD `0e7c158`'e
@@ -252,7 +252,11 @@ bozucusu — **ve bu sorgunun çağıranı** (sqlc'nin `At time.Time` alanı sı
 `store.Transaction`'ı tam döndüren her sorgu — `GetLastTransactionForEmployee` dahil), ayar yazma
 sorguları (`tenants.sql`, `locations.sql`, `departments.sql`, `employees.sql`), `internal/store/*`
 (üretim), `internal/domain/checkin/checkin.go` (yalnız `gatherPerson`'ın `GetLastOpenTransaction`
-çağrısı: `At` = `Record`'un `occurredAt`'i, `gatherWith`'e bir parametre), DB testleri.
+çağrısı: `At` = `Record`'un `occurredAt`'i, `gatherWith`'e bir parametre), DB testleri. *(Uygulamada eklenenler —
+M15-02 yapıcısının raporu, commit `ca6894d`:)* `store.Location` / `store.Department` eşlemesinin tuttuğu
+sorgulardaki `day_cutoff` sütun listeleri ve **dört setter sorgusu** (`SetTenantDayCutoff`,
+`SetLocationDayCutoff`, `SetDepartmentDayCutoff`, `SetEmployeeDayCutoff`) — **M15-07 bu setter'ları kullanır**
+(yeni bir yazma sorgusu açmaz).
 
 **Adımlar.**
 1. Her `ALTER TABLE` dosyanın ilk ifadesi `SET LOCAL lock_timeout = '1s'` (`00037:52`, `00038:39`).
@@ -619,6 +623,9 @@ Faz C vakalarında sonradan gelen satırı `manual.Recorder` ya da `DEFAULT crea
   Kişi kartı etkin değeri ve **kaynağını** gösterir (*"05:00 — from Sliema"*, *"14:00 — from KM Meat
   Production"*, *"set for this person"*).
 
+**Yazma yolu:** dört ayar M15-02'nin setter sorgularıyla yazılır (`SetTenantDayCutoff`, `SetLocationDayCutoff`,
+`SetDepartmentDayCutoff`, `SetEmployeeDayCutoff`); bu kart yeni bir yazma sorgusu eklemez.
+
 **Çakışma, öneri, açık girişler** (ADR 0032 §A.7):
 1. Saf çakışma fonksiyonu (`internal/domain/tenant`): `(başlangıç − 1 sa, bitiş + 2 sa]` bandı (alt uç hariç,
    üst uç dahil; gece vardiyasında gece yarısını aşar). *"Kesimi kullanan vardiyalar"*: o kademeden devralan
@@ -865,8 +872,11 @@ not (kuyruk `want`'ı saklar).
    satır satır raporda; sonuçta yalnız başlık kelimesi değişir); aktivasyon golden'ları değişmez. M15-17'nin
    *"kartsız sonuç ekranları bayt-aynı"* kriteri bu kartın yeniden ürettiği golden'lara göredir.
 6. **Güncellenecek metinler** (ürün merceği D4): CLAUDE.md §9 tap paragrafı (başlık kelimesi dahil); skill `tappa-brand`
-   `SKILL.md:484` (*"kelimesi 'Tap' … tek yeni metin logonun alt'ıdır"*) ve *"Tap ekranı — kutsal alan"*;
-   ADR 0023 §6 madde 10'a (`0023:861`) tarihli not.
+   `SKILL.md:484` (*"kelimesi 'Tap' … tek yeni metin logonun alt'ıdır"*), *"Tap ekranı — kutsal alan"* ve
+   `SKILL.md:256`'nın ses örneği (*"Tapped in at 14:03."* → yeni başlıkla); ADR 0023 §6 madde 10'a (`0023:861`)
+   tarihli not; yeni başlıkla eskiyen kod yorumları `web/templates/pages/tap.templ:17` (*"Tapped in at
+   14:03"*), `web/templates/pages/view.go:278-279` (*"Tapped in" / "Tapped out"*) ve `:366` (*"Tapped in at
+   14:03"*).
 
 **Kabul kriterleri.**
 - Üç şekil render testiyle (tahmin `in`, `out`, yok); hiçbirinde statik gizli `want`.

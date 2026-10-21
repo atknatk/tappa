@@ -3,7 +3,8 @@
 - **Durum:** Kabul edildi (2026-10-21) — plan 6. sürümüyle (`f05c90e`; mercek turları ve kullanıcı kararları
   K1–K6), M15-01'de kullanıcı onayı. Açık sorular Q30–Q33 aynı gün cevaplandı (aşağıda *"Kabul notu"*).
 - **Karar veren:** kullanıcı, 2026-10-21 — fazlar A/B/C, iki CLAUDE.md §9 onayı (tap ekranında
-  tahmini yön + düzeltme bağlantısı; sonuç ekranında eksik yarı talep kartı) ve dört karar:
+  tahmini yön + düzeltme bağlantısı; sonuç ekranında eksik yarı talep kartı) + Q33 sonuç başlığı (2026-10-21)
+  ve şu kararlar:
   **K1** kademe işletme → şube → departman → kişi (şube = çalışanın **profil** şubesi); **K2** geçmiş
   gün kartı yalnız *"What time did you leave?"* sorar, tek okutmanın aslında çıkış olduğu vaka
   anomali ekranında kalır; **K3** saat alanı vardiya saatiyle önceden dolu, müdüre işaretli, vardiya ±
@@ -172,7 +173,10 @@ etmediyse `Now` — geç kalmanın bugün kullandığı fonksiyon. Bugünkü `St
 bozar**: `(o.occurred_at, o.id) > (t.occurred_at, t.id)` ve `ORDER BY occurred_at DESC, id DESC` —
 sınıflandırma ve ledger `(occurred_at, id)` sırasıyla okur (`transactions.sql:893`; `id`
 `gen_random_uuid()`, `00005:49`), sorgu bugün katı `>` ve `id`'siz; aynı ana iki satırda iki okuyucu
-ayrışırdı.
+ayrışırdı. *"Sonuç bugünküyle aynı"* iddiası **tam değildir** (M15-02 yapıcısının notu; **ölçüm M15-02
+denetiminde**, sonuç burada iddia edilmez): `manual.FutureGrace` (1 dk) içinde ileri tarihli bir manuel `out`,
+`@at` ona ulaşana kadar girişi kapatmaz, ve aynı `occurred_at`'teki bir `in`/`out` çifti artık `id` sırasıyla
+okunur.
 
 *Neden beyan edilen an?* M9-01'in çevrimdışı kuyruğu (todo; ama `occurred_at` form alanı
 `POST /api/checkin`'de **bugün canlı**) şu şekli üretir: Pzt 17:00 çıkışı kuyruğa girdi, Sal 09:00
@@ -732,8 +736,8 @@ yanlış tahmini dokunduğu anda düzeltir; eksik yarı taze bellekle ve müdür
   raporu bunu yayından önce yakalamak içindir (Q30).
 - Göreli saatle kurulmuş DB testleri kesim sınırını duvar saatine göre geçebilir (motor merceği M-Y2);
   test kesimini duvar saatinden uzağa koyan bir yardımcı ve iki sabit saatle ölçüm gerekir.
-- Tap ekranının golden'ları bilinçli olarak yeniden üretilir; sonuç ekranının kartsız golden'ları
-  bayt-aynı kalır.
+- Tap golden'ları ve (Q33 başlığıyla) sonuç golden'ları M15-12'de bilinçli yeniden üretilir; kartsız sonuç
+  ekranları sonra o golden'lara göre bayt-aynı kalır.
 - `transactions`'a iki sütun, `locations`/`departments`/`employees`/`tenants`'a birer kesim sütunu, iki
   yeni tablo, iki yeni POST yüzeyi (talep gönderimi, kişi kesimi) ve bir talep karar yolu.
 - `CountMaskedOpenCheckIns`'in anlamı değişir; anomali ekranındaki sayılar ilk yüklemede artar.
@@ -796,7 +800,7 @@ gönderim, müdür kararı (onay → manuel kayıt). ADR 0032.*
 2. **KM kesim çakışması** (§A.7, Q30).
 3. **`tap.js` ve form** (§B.3).
 4. **Override ile saat şişirme** (§A.6, §B.5) ve **talep onayıyla saat şişirme** (§C.4, G-Y1).
-5. **API akışı** (§B.6, Q31) — Faz B'nin sevk kapısı.
+5. **API akışı** (§B.6, Q31 evet) — `directionSource` Faz B ile birlikte (M15-13).
 6. **Eski davranışı pinleyen testler** — yeni 18 sa kuralı kesim **yokken de** geçerlidir:
    `decide_test.go:597-634`, `crosslocation_test.go:197-237`, `internal/handler/checkin_db_test.go:1808-1830`
    ters iddiayla yeniden yazılır. Sabit not metnini görünüm girdisi olarak kullanan testler
