@@ -1,8 +1,9 @@
 # ADR 0031 — Tek kimlik, çok işletme: panel yöneticisi için global kimlik + işletme başına üyelik
 
-- **Durum:** Önerilen — kullanıcı kararı bekliyor. Kod, migration ve commit **yok**; bu ADR ve
-  [docs/plan/m14-tek-kimlik.md](../plan/m14-tek-kimlik.md) yalnız plandır. Açık kararlar §13'te
-  numaralıdır; her birinin önerisi yazılıdır. Kabul edilince durum satırı tarihle güncellenir.
+- **Durum:** **Kabul edildi — 2026-10-21** (kullanıcı: *"Önerilerin hepsini kabul"* — §13'teki K-1 … K-14'ün
+  hepsinde (a)). **Uygulama başlamadı** — kullanıcı ayrıca *"başla"* diyene kadar kod, migration yok
+  ([docs/plan/m14-tek-kimlik.md](../plan/m14-tek-kimlik.md)). K-13'ün CLAUDE.md §4.5/§6 metin değişikliği
+  M14-01 ile, uygulama başlarken yapılır.
 - **Tarih:** 2026-10-21
 - **Karar veren:** kullanıcı (ürün sahibi) — 2026-10-21: *"Hesapları birleştir (tek kimlik)"*: bir
   kişi = tek giriş kimliği, birden çok işletmeye (tenant) üye olabilir; ör. Kebab Factory ile Kebab

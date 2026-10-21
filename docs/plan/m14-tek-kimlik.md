@@ -103,6 +103,9 @@ P7  M14-21
 
 ## Açık kararlar
 
+> ✅ **Cevaplandı — 2026-10-21:** kullanıcı *"Önerilerin hepsini kabul"* dedi → K-1 … K-14'ün hepsinde
+> **(a)**. Uygulama başlamadı; M14-01 kullanıcının *"başla"* demesini bekler.
+
 Her biri kullanıcıya **AskUserQuestion** ile sorulur; cevap tarihiyle `state.md`'ye ve ADR 0031'e
 yazılır. ADR 0031 §5 önerilerin seçildiğini varsayar.
 
