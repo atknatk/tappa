@@ -284,7 +284,10 @@ Animasyon yok (O2). Demo diyaloğunun içeriği aynı, yalnız stili ve açılı
 - `landingHero`/`landingScene` (landing.templ:145, :196) yeniden. **Silinecek animasyonlar (blok
   sınırıyla):** `.lp` CSS'i iki bloktur — referans bloğu `input.css:1714-1992` ve demo diyaloğu bloğu
   :1993-2062. Hero'nun `tapring`/`printout`'u (:1862-1868, `.lp .scene.play …`), onların `reduce`
-  kuralları (:1987-1988) ve `class="scene play"`'in `play`'i (landing.templ:197) silinir; demo
+  bloğundaki iki kuralı (:1988 `animation: none`, :1989 `clip-path: none`) ve `class="scene play"`'in
+  `play`'i (landing.templ:197) silinir; **docket'i varsayılan gizleyen `clip-path: inset(0 0 100% 0)`
+  (`.lp .lp-docket`, :1866) da kaldırılır** — bugün docket'i yalnız `printout` ya da `reduce`
+  bloğundaki `clip-path: none` açıyor; ikisi silinip bu bildirim kalırsa hero docket'i hiç görünmez; demo
   diyaloğunun `demoIn`/`demoFade`'i (:2054-2062) **da** silinir — panolarda animasyon yok (öneri, O2),
   ve hareket kalmayınca azaltılmış hareket kuralına da gerek kalmaz. `html:has(.lp)`'nin
   `scroll-behavior` `reduce` kuralı animasyon değildir, kalır.
@@ -292,12 +295,19 @@ Animasyon yok (O2). Demo diyaloğunun içeriği aynı, yalnız stili ve açılı
   components` içinde) bugün yalnız sihirbazın `signup.templ:583`'ü tarafından kullanılıyor (ölçüldü:
   landing'de yok). `TestLanding_ReducedMotionLeavesTheDocketVisible` onu korur ve bu kartta
   **değişmeden yeşil** kalır; yorumundaki "the landing page's ONE animation" ifadesi
-  (`input.css:947`) eskimiştir — düzeltilirse yalnız yorum, testin adı ve atfı (:965) aynı kalır.
+  (`input.css:948`) eskimiştir — düzeltilirse yalnız yorum, testin adı ve atfı (:965) aynı kalır.
 - `web/static/js/landing.js`: döndürme `pName`/`pLoc`/`pPlaque`'ı da doldurur; animasyon sınıfı
   eklemez; "KM Facility" → **"KM Plant"** (`landing.js:21`; `seed.sql:171`). Betik yoksa sayfa ilk
   kaydı statik gösterir (bozulmaz).
 - Kırılımlar: tablet 2 kolon (1.1fr/.9fr), telefon tek kolon (README; *gap report*).
-- Demo diyaloğu (landing.templ:481): yalnız sınıflar.
+- Demo diyaloğu (landing.templ:481): yalnız sınıflar; içerik, etiketleme ve klavyeyle kapanma aynı.
+- **`TestLandingDemo_TheDialogIsLabelledAndCanBeClosedWithoutAMouse`'un animasyon iddiası tersine
+  çevrilir** (orkestratör kararı, panolara uy): bugün derlenmiş CSS'te
+  `@media (prefers-reduced-motion:no-preference){.lp .demoDialog[open]{animation:` metnini şart koşuyor
+  (`marketingdemo_test.go:165-168`); demo animasyonu kalkınca bu iddia "derlenmiş CSS'te
+  `.demoDialog` için hiçbir `animation` yok" olur. Testin öteki iddiaları (etiket, klavyeyle kapanma,
+  `.demoClose` 44×44) **aynen** kalır. Testin adı animasyon söylemediği için değişmesi gerekmez;
+  değişirse "Çalışma modu"ndaki atıf kuralı (README §11, bu dosya, yorumlar aynı commit'te).
 
 **Dosyalar.** `web/templates/pages/landing.templ`, `web/static/js/landing.js`, `input.css`,
 `internal/handler/marketing_test.go`, `marketingdemo_test.go`.
@@ -311,9 +321,17 @@ Animasyon yok (O2). Demo diyaloğunun içeriği aynı, yalnız stili ve açılı
   `animation:` eklenmiş mutasyon kırmızı.
 - Bu kart bir testi silerse ya da adını değiştirirse "Çalışma modu"ndaki atıf kuralı uygulanır;
   `TestEveryNamedTestExists` yeşil, `danglingBudget` değişmeden.
+- `TestLandingDemo_TheDialogIsLabelledAndCanBeClosedWithoutAMouse` animasyon iddiası **tersine
+  çevrilmiş** olarak yeşil ("diyalogda animasyon yok"; etiket, klavye ve 44 px iddiaları değişmeden);
+  KONTROL: `.lp .demoDialog[open]`'a bir `animation` geri eklenmiş mutasyon kırmızı.
+- **Hero docket'i animasyonsuz görünür** (niyet: docket sınıfı ya da çizimi değişse de hero'nun
+  docket'i varsayılan hâlde görünür): yeni test (adını yapıcı koyar) derlenmiş CSS'te hero docket'inin
+  sınıfına uygulanan hiçbir kuralda gizleyen `clip-path` (`inset(… 100% …)`), `opacity: 0`,
+  `visibility: hidden` ya da `display: none` olmadığını okur; KONTROL: `.lp-docket`'e (ya da yeni
+  sınıfa) `clip-path: inset(0 0 100% 0)` geri eklenmiş mutasyon kırmızı. 390 ve 1440 ekran
+  görüntüsünde docket görünür.
 - `TestLandingDemo_TheScriptDegradesInsteadOfBreaking`, `TestLandingDemo_TheSecondHeroButtonSaysWatchDemoAndOpensTheDialog`,
-  `TestLandingDemo_TheDialogIsLabelledAndCanBeClosedWithoutAMouse`, `TestLandingLines_EveryLedeIsRenderedAndRestsOnAFact`,
-  `TestLanding_CarriesTheSlogan` yeşil.
+  `TestLandingLines_EveryLedeIsRenderedAndRestsOnAFact`, `TestLanding_CarriesTheSlogan` yeşil.
 - `landing.js`'in döndürdüğü örnek kayıtlarda seed'de olmayan lokasyon adı yok (bir test ya da
   denetçinin ölçümü: dört kaydın `loc`'u `seed.sql`'deki lokasyon adlarından).
 - Maket ve plaket SVG/HTML; `<img>` yok; `style=` yok.
@@ -321,8 +339,9 @@ Animasyon yok (O2). Demo diyaloğunun içeriği aynı, yalnız stili ve açılı
 
 **Testler.** `go test ./internal/handler -run 'Landing|LandingDemo|Marketing'`.
 
-**Tuzaklar.** `docket-print`'i hero'nunki sanıp silmek (sihirbazın docket'i) · animasyonu `reduce`
-bloğunda kapatarak "korumak" ·
+**Tuzaklar.** `docket-print`'i hero'nunki sanıp silmek (sihirbazın docket'i) · animasyonu silip
+docket'i gizleyen `clip-path`'i bırakmak (görünmez docket) · animasyonu `reduce` bloğunda kapatarak
+"korumak" ·
 maketteki saat/isimleri ürün metni sanmak (örnek veri) · betiğe `fetch`/konum okuması eklemek
 (`FactPositionReadOnlyOnPress` betikleri tarar).
 
@@ -655,25 +674,35 @@ bağlantısı taşıyan 404 sayfası.
 - Önerilen biçim (README §8): yalnız `GET`/`HEAD`, yalnız müşteri host'u, ret yanıtları router'la
   özdeş kalması gereken öneklerin (**envanterden**: `/brand/`, `/static/`, `/operator`, `/v1`, tap ve
   panel önekleri …) **dışında**; geri kalan her 404 `http.NotFound`.
-- **Taşınan yalnız tema referansıdır:** `brandThemeReference404` (`brandtheme_test.go:537-563`)
-  `/no/route/is/mounted/here`'i ister — bu yol sayfayı alacağı için `/brand/` içindeki
-  yönlendirilmemiş bir yola taşınır (tema rotası `/brand/theme/{file}`, `brandtheme.go:15`; koruduğu
-  özellik: `/brand/…` yoklayan tek yanıt görür). Logo testi (`brandlogo_test.go:545-561`) `/t/logo/…`
+- **Tema testleri ve 404'ün nereye bağlandığı.** `brandtheme_test.go` müşteri host'unda
+  `/no/route/is/mounted/here`'i **dört** yerde referans alır (:89, :512, :550, :602; :712 operatör
+  host'unda) ve router'ını `httpx.NewRouter(nil, nil, NewBrandTheme())` ile kurar — **Marketing'i
+  bağlamaz** (:64, :704). Bu yüzden:
+  - 404 **Marketing'in `Mount`'unda** bağlanırsa bu dört test **değişmez** — ama artık üretim
+    bileşimini anlatmazlar (üretimde Marketing bağlı). Kart o zaman tam bileşim üzerinde
+    (`cmd/tappa`'nın uygulama router'ı) yeni bir test ekler (adını yapıcı koyar): müşteri host'unda
+    bilinmeyen bir tema dosyası ile `/brand/` altındaki yönlendirilmemiş bir yol bayt-aynı yanıt alır.
+  - 404 **router seviyesinde** (`internal/httpx`) bağlanırsa dördü de değişir: referans yolları
+    `/brand/` içindeki yönlendirilmemiş bir yola taşınır (tema rotası `/brand/theme/{file}`,
+    `brandtheme.go:15`); :712 (operatör host'u) değişmez.
+  Hangisi seçilirse seçilsin korunacak özellik aynı: `/brand/…` yoklayan tek yanıt görür. Logo testi (`brandlogo_test.go:545-561`) `/t/logo/…`
   ve `/admin/brand/logo/…` için **sabit** bir router-404 yanıtıyla karşılaştırır; tap ve panel önekleri
   dışlandıkça **değişmez**.
 - Durum 404, `marketingCSP`, `noindex`, `Cache-Control` kararı gerekçeli (öneri: `no-store`).
 - ADR notu (ADR 0020 ya da 0023'ün yanına, tarihli): hangi 404 nerede, neden.
 
 **Dosyalar.** `internal/httpx/router.go` (ya da marketing'in bağladığı bir `NotFound`), `internal/handler/marketing.go`,
-yeni `notfound.templ`, `internal/handler/brandtheme_test.go` (yalnız referans yolu), yeni testler,
+yeni `notfound.templ`, `internal/handler/brandtheme_test.go` (yalnız router seviyesi seçilirse: dört referans yolu),
+`cmd/tappa` (Marketing seviyesi seçilirse: tam bileşim testi), yeni testler,
 `docs/adr/…`.
 
 **Kabul kriterleri.**
 - Müşteri host'unda `GET /bilinmeyen` → 404 + kabuk + tek cümle + `/` bağlantısı; `HEAD` gövdesiz.
 - Operatör host'unda bilinmeyen `/operator/…` → bugünkü düz 404 (bayt-aynı); API host'unda her
   bilinmeyen yol → bugünkü yanıt.
-- `TestBrandTheme_OnTheWireOnlyNetHTTPAddsHeaders` yeşil, referans yolu niyeti koruyarak `/brand/`
-  içine taşınmış; `TestLogoRoutes_ShapesTheRouteDoesNotMatchGetTheRoutersAnswer` **değiştirilmeden**
+- `TestBrandTheme_OnTheWireOnlyNetHTTPAddsHeaders` ve öteki tema testleri yeşil — router seviyesinde
+  referansları `/brand/` içine taşınmış, Marketing seviyesinde değişmemiş **ve** tam bileşim testi
+  eklenmiş; `TestLogoRoutes_ShapesTheRouteDoesNotMatchGetTheRoutersAnswer` **değiştirilmeden**
   yeşil; KONTROL: `/brand/` (ya da tap/panel) önekinde düz 404 yerine sayfa dönen mutasyon kırmızı.
 - `TestAccessLog_UnroutedRequestStillGetsARecord` yeşil (yol günlüğe girmez).
 - `tappa-security-auditor` bulgusuz (ya da bulgular düzeltilip yeniden denetlenmiş).
@@ -706,7 +735,8 @@ kılavuz sayfası bir görseli paylaşır — README §9).
   değişmez (`TestUnbrandedScreens_AreByteIdenticalToTheGolden`).
 - `og:image` mutlak URL: köken `TAPPA_BASE_URL`'den (`config.go:276`), `NewMarketing`'e verilir
   (`cmd/tappa/main.go:863`). İmza değişikliği **bütün çağıranları** değiştirir (ölçüldü,
-  `grep -rn 'NewMarketing(' .`): `cmd/tappa/serving_test.go:52`, `cmd/tappa/approuter_test.go:221`,
+  `grep -rn 'NewMarketing(' .`: tanım dışında **10 çağrı satırı** — `main.go:863` ve altı test
+  dosyasında 9 satır): `cmd/tappa/serving_test.go:52`, `cmd/tappa/approuter_test.go:221`,
   `internal/handler/marketing_test.go:91` (`marketingRouterFor`) ve `:544`,
   `internal/handler/signup_test.go:981, 983`, `internal/handler/apiguidepage_test.go:212, 251`,
   `internal/handler/operator/op10_db_test.go:319`.
