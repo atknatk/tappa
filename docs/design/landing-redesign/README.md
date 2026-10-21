@@ -19,6 +19,8 @@ page from this README and the M14 task cards without discovering surprises in th
     500 → 400, Legal cookie table curly quotes → ASCII).
   Sections 1–9 below were written for the first landing round; where Part II (§10–§19) changes them,
   Part II wins.
+- **Citations in Part II and in the two LP-6 inventories refer to HEAD `7521dfe`** (Part I's refer to
+  `945b6b9`); re-find moved lines by the symbol named beside them.
 - **LP-6 claim inventories:** [`lp6-inventory-a.md`](lp6-inventory-a.md) (landing additions, `/product`,
   `/pricing`, shared chrome, re-head) and [`lp6-inventory-b.md`](lp6-inventory-b.md) (`/security`,
   `/for/restaurants`, `/for/production`, port feasibility) — every NEW CLAIM row with its code fact.
@@ -623,7 +625,7 @@ draws two at 1440, one at 834).
 
 Part II extends the handoff for the user's second request: *"dahada landingi cogalt . daha baska pageler
 olsun"* ("make the landing bigger, add more pages"). The user chose **all** of the offered pages. Both
-builders' boards passed an independent audit (two rounds, plus a one-line S36 wording fix). The
+builders' boards passed an independent audit (two rounds, plus a one-line sec-S36 wording fix). The
 claim-level detail is in the two inventories copied next to this README —
 [`lp6-inventory-a.md`](lp6-inventory-a.md) and [`lp6-inventory-b.md`](lp6-inventory-b.md). This part
 gives the decisions, the routes, the screen map and the NEW CLAIM groups with their Facts. It links to the
@@ -754,9 +756,9 @@ Links to the new pages are furniture, not claims:
 
 | Section | Status | What is drawn | Claims |
 |---|---|---|---|
-| `#team` | NEW | two phones at real CSS sizes: the tap screen (unchanged) and the **result of a flagged tap** (`result.templ` flag branch; Grace Attard · KF Msida · 09:41 · Trust 20). Flagged rather than approved, because the approved result prints a business-type line that carries an emoji for both pilot trades (LP-2.4). | T2–T9 (+ honesty line T10) |
-| `#shift` | NEW | six dockets on an ink rail (desktop 1×6, tablet 2×3, phone a vertical list); step 04 FLAGGED; actor chips are furniture | S2–S9 |
-| `#integrations` | NEW | three cells (CSV · integration API · webhooks) + a note bar; the mono chips are **real identifiers** (`Download CSV`, `PUT /v1/employees/{ref}`, `PUT /v1/locations/{ref}`, `GET /v1/punches`, `X-Taptime-Signature: sha256=…`), pinned to the route constants and `internal/webhook/signing.go` | I2–I7 |
+| `#team` | NEW | two phones at real CSS sizes: the tap screen (unchanged) and the **result of a flagged tap** (`result.templ` flag branch; Grace Attard · KF Msida · 09:41 · Trust 20). Flagged rather than approved, because the approved result prints a business-type line that carries an emoji for both pilot trades (LP-2.4). | land-T2–land-T9 (+ honesty line land-T10) |
+| `#shift` | NEW | six dockets on an ink rail (desktop 1×6, tablet 2×3, phone a vertical list); step 04 FLAGGED; actor chips are furniture | land-S2–land-S9 |
+| `#integrations` | NEW | three cells (CSV · integration API · webhooks) + a note bar; the mono chips are **real identifiers** (`Download CSV`, `PUT /v1/employees/{ref}`, `PUT /v1/locations/{ref}`, `GET /v1/punches`, `X-Taptime-Signature: sha256=…`), pinned to the route constants and `internal/webhook/signing.go` | land-I2–land-I7 |
 | fits cards | CHANGED | one link per card | — |
 
 ## 14. `/product` — Product tour (inventory A §2)
@@ -772,8 +774,8 @@ Links to the new pages are furniture, not claims:
     People chips, no last tap, no QR pattern, statuses in database words, rule phrases from
     `internal/domain/tenant/rulebook.go`.
   - The tap stage reuses the `#team` phones.
-- **Claims:** P2, P3, P5–P14, P16–P19, P21–P29 (25 NEW). Reused verbatim: LandingSteps[2], the LP panel
-  lines, LandingComparison row 3, includes[4]. The H1 (P2) rests on the **PROPOSED**
+- **Claims:** prod-P2, prod-P3, prod-P5–prod-P14, prod-P16–prod-P19, prod-P21–prod-P29 (25 NEW). Reused verbatim: LandingSteps[2], the LP panel
+  lines, LandingComparison row 3, includes[4]. The H1 (prod-P2) rests on the **PROPOSED**
   `FactEveryDecidedTapIsRecorded` (M14-08 creates it), so M14-18 comes after M14-08.
 
 ## 15. `/pricing` (inventory A §3)
@@ -788,36 +790,36 @@ Links to the new pages are furniture, not claims:
   `TestLanding_ExampleTeamCostIsThePriceTimesTheHeadcount` (or a sibling) is extended to **every row**, with
   a control that changes the published price and watches every row move. The receipt's "€90.00" uses the
   same cents arithmetic in the Billing screen's money format; the receipt is sample anatomy, labelled.
-- **Claims:** R3–R5 and R8–R14 (10 NEW).
-  - R9 states only the first half of the Billing screen's CountLine. The port either carries the dropped
-    conjunct or pins the shortened sentence explicitly as a summary of CountLine (inventory A R9).
+- **Claims:** price-R3–price-R5 and price-R8–price-R14 (10 NEW).
+  - price-R9 states only the first half of the Billing screen's CountLine. The port either carries the dropped
+    conjunct or pins the shortened sentence explicitly as a summary of CountLine (inventory A price-R9).
   - **Not claimed, deliberately:** how payment is taken, invoices, VAT, any price for the API.
 
-## 16. `/security` (inventory B, S1–S36)
+## 16. `/security` (inventory B, sec-S1–sec-S36)
 
 - **Structure:** header (Security current) → hero (the security H2 "Four proofs on every single tap." becomes
-  the H1, plus a sample APPROVED docket that matches the landing) → the four proofs in depth (S3–S13, with
+  the H1, plus a sample APPROVED docket that matches the landing) → the four proofs in depth (sec-S3–sec-S13, with
   figures: link anatomy, counter rows, session boxes, the /7 width scale, the GPS radius) → the decision
-  ladder (S14–S21, S36) → flagged, never dropped (S22–S25) → immutability (S26–S28) → never collected
-  (S29–S31) → isolation (S32–S34) → **EU hosting (S35, gated)** → CTA → footer.
+  ladder (sec-S14–sec-S21, sec-S36) → flagged, never dropped (sec-S22–sec-S25) → immutability (sec-S26–sec-S28) → never collected
+  (sec-S29–sec-S31) → isolation (sec-S32–sec-S34) → **EU hosting (sec-S35, gated)** → CTA → footer.
 - **Verbatim reuse:** `LandingEvidence` ×4, `LandingSecurityLede`, `LandingPrivacyNote`, and `LegalPages[3].Lede`'s
   cookie sentence.
 - **Port note:** printed figures come from code, never literals: the debounce and the radius from config
   defaults, the trust constants from the engine, the /7 and /31 limits from `netx`, and the guardrail count
-  ("Five of the eleven", S36) from `len(policy.Guardrails(…))`.
+  ("Five of the eleven", sec-S36) from `len(policy.Guardrails(…))`.
 
-### 16.1 S35 — EU hosting: **PENDING USER DECISION**
+### 16.1 sec-S35 — EU hosting: **PENDING USER DECISION**
 
-S35 ("Where your records live." / "Hosted in the EU" / "The production server runs in Falkenstein,
+sec-S35 ("Where your records live." / "Hosted in the EU" / "The production server runs in Falkenstein,
 Germany, and database backups are encrypted before they are stored, in an EU-jurisdiction bucket.") rests
 on `deploy/README.md` (node fsn1 = Hetzner Falkenstein, measured; the R2 EU-jurisdiction bucket with rclone
 `crypt`). The published Privacy page still lists "where the data is hosted and processed" as a pending fact,
 and the backup half is only **"selected"** in `deploy/README.md`, not confirmed in operation. **Do not port
-S35 until the user approves it.** M14-20 ships `/security` without the S35 card. If the user approves, a
+sec-S35 until the user approves it.** M14-20 ships `/security` without the sec-S35 card. If the user approves, a
 follow-up adds the card with its Fact (`FactHostedInTheEU`, pinned to `deploy/README.md` the way
-`FactPlaquesIncludedAndReplacedFree` is pinned to the handoff). Nothing else on the page depends on S35.
+`FactPlaquesIncludedAndReplacedFree` is pinned to the handoff). Nothing else on the page depends on sec-S35.
 
-## 17. `/for/restaurants` and `/for/production` (inventory B, R1–R16 and P1–P11)
+## 17. `/for/restaurants` and `/for/production` (inventory B, rest-R1–rest-R16 and fab-P1–fab-P11)
 
 - **Both** pages are built on `LandingAudiences` (Kicker, Title, Points, Example, verbatim). Paragraph() is
   the hero lede.
@@ -839,31 +841,35 @@ follow-up adds the card with its Fact (`FactHostedInTheEU`, pinned to `deploy/RE
 
 ## 18. NEW CLAIM groups and their Facts
 
-There are about **120 NEW CLAIM rows**: landing 22 + `/product` 25 + `/pricing` 10 (inventory A) and
-`/security` 36 + restaurants 16 + production 11 (inventory B). Some rows hold several sentences that rest
+There are **120 NEW CLAIM rows** (57 + 63): landing 22 + `/product` 25 + `/pricing` 10 (inventory A) and
+`/security` 36 + restaurants 16 + production 11 (inventory B). Ids carry their page as a prefix, the same in
+both inventories: `land-` (landing: T, S, I), `prod-` (/product), `price-` (/pricing), `sec-` (/security),
+`rest-` (/for/restaurants), `fab-` (/for/production). The table below lists **every** id exactly once; a
+check script compared its union with the inventories' NEW CLAIM rows (120 = 120, none missing, none extra,
+none twice). Part I's §6.7 P0–P6 are the first round's panel-showcase ids and are not part of this set. Some rows hold several sentences that rest
 on one fact. The rule for every row is the same as M14-08: a value in `landingview.go` (or a per-page view
 file in `pages`), the Fact or Anchor it rests on, a **derivation from code** (not a literal), a **mutation
 control** that removes the code fact and watches the test go red, and a **rendered** check
 (`TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed` and `TestFactMechanisms_SayNoWhenTheFactIsAbsent`
 then cover each new Fact). Sample data, figure labels and honesty lines are furniture.
 
-| Group | Rows | Existing Facts / Anchors reused | New (proposed) Facts |
+| Group | Rows (every id once) | Existing Facts / Anchors / Sources reused | New (proposed) Facts |
 |---|---|---|---|
-| The employee's screen | T2–T9, P5–P7, P11 (prod.) | `FactTapPageNeedsNoApp`, `FactTapPageGreetsByName`, `FactTapButtonSizedForAWetHand`, `FactPositionReadOnlyOnPress` | `FactTapScreenHasOneButton`, `FactTapScreenNamesTheTappedVenue`, `FactCountedTapClosesWithoutAButton`, `FactFlaggedResultSaysItNeedsApproval`, `FactRepeatTapIsRecordedNotCounted`, `FactResultIsAStampedVerdict` |
-| Records are kept | S6, P2, S4, S22–S25, P8 (prod.), P14 | `FactFlaggedQueueDecidedByAManager`, `FactCopiedLinkIsRefused` | `FactEveryDecidedTapIsRecorded` (M14-08), `FactRejectedTapIsRecorded`, `FactIgnoredTapIsRecorded`, `FactAwaitingHoursHeldOut`, `FactReviewOnceAndNotOwn`, `FactReviewIsASeparateRow`, `FactOpenCheckInsAreNotCounted` |
-| Immutability and manual entry | P9, P10, S26–S28, P21 | `FactManualEntryNamesAManager` | `FactRecordsAreImmutable` (= `FactTransactionsImmutable`, **one** Fact, not two), `FactManualEntryIsAudited` |
-| Onboarding and people | S2–S5, P17–P19, S6 (sec.) | `FactPeopleAreInvitedFromTheDashboard`, `FactDeactivatedPersonIsRefused` | `FactActivationTapRecordsNoHours` (= `FactActivationCompletesOnFirstNFCTap`, one Fact), `FactRosterStatusWords`, `FactInviteLinkShownOnce`, `FactDeactivatedTapRaisesAlert` |
-| Review | S7–S8, P11–P13, S23 | `FactFlaggedQueueDecidedByAManager` | `FactSpikeShowsEvidenceAndReason`, `FactReviewTakesANote`, `FactNoSelfReview` |
-| Reports and payroll | S9, P14–P16, R4, R12, R15–R16, P3–P5 (prod.) | `FactHoursExportAsCSV`, `FactBillingExportAsCSV`, `FactReportPerPersonAndVenue`, `AnchorLatenessFollowsDepartment` | `FactLatenessAgainstOwnShift` (= `FactLatenessUsesTheTappedVenuesShift`, one Fact), `FactShiftCountsOnItsStartDayAndVenue`, `FactReportCountsOtherVenueShifts`, `FactRollCountsLateArrivals`, `FactPassReadsAnyDay` |
-| Venues, plaques, network | P22–P25, S9–S10, R6–R8, P10 (prod.) | `FactVenuesAndDepartmentsCarryOwnHours`, `FactPlaqueCanBeReplaced`, `AnchorVenueShiftAndAddress`, `AnchorPlaqueBelongsToVenue`, `AnchorDepartmentShift` | `FactTooWideAddressListIsNoEvidence` (= `FactTooWideListIsNotEvidence`, one Fact), `FactIPIsTheRequestSource`, `FactWifiNameIsNotEvidence` |
-| Rules and the decision | P26–P29, S1, S14–S21, S36 | `SourceGPSRadiusDefault`, `FactCodelessTapNeedsAddress` | `FactRulesAreOwnerEditableAndAudited`, `FactGuardrailsCannotBeSwitchedOff`, `FactOnlyOwnerEditsRules`, `FactUndecidedTapIsReviewed` (= `FactUndecidedTapIsFlagged`, one Fact), `FactDecisionIsServerSide`, `FactDecisionOrder`, `FactGuardrailRows` (derived from `policy.Guardrails`), `FactBaselineRows` (from `policy.Baseline`), `FactTrustScoreIsInformational`, `FactGPSOutsideRadiusIsReviewed`, `FactDebounceIsPerPerson`, `FactDebounceUsesServerClock` |
-| Crypto and sessions | S3–S5, S7 | `SourceSUNURLCarriesCounterAndSignature` | `FactChipLinkCarriesCounterAndCMAC`, `FactPlaqueKeysAreWrapped`, `FactSessionTokenStoredAsKeyedHash` |
-| Privacy and isolation | S29–S34 | `FactNoAuthenticatorAPI`, `FactPositionReadOnlyOnPress` | `FactTenantIsolationByRLS`, `FactOperatorAccessIsAudited`, `FactHoldingIsTheOnlyCrossing` |
-| Cross-venue cover | R1, R9–R11 | — | `FactCrossVenueTapJudgedLikeHome`, `FactCrossVenueNoteStaysOffTheEmployeesScreen` |
-| Absences (tripwires) | R13 | — | `FactNoAutomaticCheckout` (an absence Fact, like `FactNoBulkImport`) |
-| Integrations | I2–I7, R14 (pricing) | `FactAPIWritesPeopleAndLocations`, `FactAPIFeedsEveryPunch`, `FactAPIEnabledPerBusinessByTaptime` (from the FAQ-API fix, in `main`) | `FactWebhookIsOneSignedEndpoint` |
-| Billing | R3–R5, R9–R13 | `FactPricePerEmployee` | `FactMonthIsHeadcountTimesPrice`, `FactFreeMonthsChargeNothing`, `FactHeadcountIsEmploymentOverlap`, `FactEndedMonthIsCountedOverItsOwnDates`, `FactFreezeIsFinalAndOwnerOnly`, `FactBillingNamesFirstChargedMonth` |
-| EU hosting | S35 | — | `FactHostedInTheEU` — **gated, §16.1** |
+| The employee's screen | land-T2, land-T3, land-T4, land-T5, land-T6, land-T7, land-T8, land-T9, prod-P5, prod-P6, prod-P7, fab-P9, fab-P11 | `FactTapPageNeedsNoApp`, `FactTapPageGreetsByName`, `FactTapButtonSizedForAWetHand`, `FactPositionReadOnlyOnPress` | `FactTapScreenHasOneButton`, `FactTapScreenNamesTheTappedVenue`, `FactCountedTapClosesWithoutAButton`, `FactFlaggedResultSaysItNeedsApproval`, `FactRepeatTapIsRecordedNotCounted`, `FactResultIsAStampedVerdict` |
+| Onboarding and people | land-S2, land-S3, land-S4, land-S5, prod-P17, prod-P18, prod-P19, sec-S6, sec-S8 | `FactPeopleAreInvitedFromTheDashboard`, `FactDeactivatedPersonIsRefused`, `FactHoursExportAsCSV` (the payroll end of land-S2 and land-S3) | `FactActivationTapRecordsNoHours` (= `FactActivationCompletesOnFirstNFCTap`, one Fact), `FactRosterStatusWords`, `FactInviteLinkShownOnce`, `FactDeactivatedTapRaisesAlert` |
+| Records are kept | land-S6, land-S7, prod-P2, sec-S22, sec-S23, sec-S24, sec-S25, fab-P8 | `FactFlaggedQueueDecidedByAManager`, `SourceNoEvidenceReview`, `FactHoursExportAsCSV` (prod-P2) | `FactEveryDecidedTapIsRecorded` (M14-08), `FactIgnoredTapIsRecorded`, `FactAwaitingHoursHeldOut`, `FactReviewOnceAndNotOwn`, `FactReviewIsASeparateRow` |
+| Review | land-S8, prod-P3, prod-P11, prod-P12, prod-P13 | `FactFlaggedQueueDecidedByAManager`, `FactHoursExportAsCSV` (prod-P3) | `FactSpikeShowsEvidenceAndReason`, `FactReviewTakesANote`, `FactNoSelfReview` |
+| Immutability and manual entry | prod-P9, prod-P10, prod-P21, sec-S26, sec-S27, sec-S28 | `FactManualEntryNamesAManager` | `FactRecordsAreImmutable` (= `FactTransactionsImmutable`, one Fact), `FactManualEntryIsAudited` |
+| Reports, shifts and payroll | land-S9, prod-P8, prod-P14, prod-P16, rest-R2, rest-R3, rest-R4, rest-R5, rest-R12, rest-R14, rest-R15, rest-R16, fab-P3, fab-P4, fab-P5, fab-P6 | `FactHoursExportAsCSV`, `FactReportPerPersonAndVenue`, `AnchorDirectionFollowsLastOpenEntry`, `AnchorLatenessFollowsDepartment`, `AnchorDepartmentOnEveryRecord` | `FactPassReadsAnyDay`, `FactOpenCheckInsAreNotCounted` (= `FactOpenCheckInsNotCounted`, one Fact), `FactOpenCheckInIsListedForAManager`, `FactLatenessAgainstOwnShift` (= `FactLatenessUsesTheTappedVenuesShift`, one Fact), `FactShiftCountsOnItsStartDayAndVenue`, `FactReportCountsOtherVenueShifts`, `FactRollCountsLateArrivals`, `FactPassAndPeopleFilterByDepartment` |
+| Venues, departments, plaques, network | prod-P22, prod-P23, prod-P24, prod-P25, sec-S9, sec-S10, rest-R6, rest-R7, rest-R8, fab-P1, fab-P2, fab-P10 | `FactVenuesAndDepartmentsCarryOwnHours`, `FactPlaqueCanBeReplaced`, `AnchorVenueShiftAndAddress`, `AnchorPlaqueBelongsToVenue`, `AnchorDepartmentShift` | `FactTooWideAddressListIsNoEvidence` (= `FactTooWideListIsNotEvidence`, one Fact), `FactIPIsTheRequestSource`, `FactWifiNameIsNotEvidence` |
+| Rules and the decision | prod-P26, prod-P27, prod-P28, prod-P29, sec-S1, sec-S2, sec-S12, sec-S13, sec-S14, sec-S15, sec-S16, sec-S17, sec-S18, sec-S19, sec-S20, sec-S21, sec-S36, fab-P7 | `SourceGPSRadiusDefault`, `FactCodelessTapNeedsAddress`, the `LandingEvidence` Sources (sec-S2) | `FactRulesAreOwnerEditableAndAudited`, `FactGuardrailsCannotBeSwitchedOff`, `FactOnlyOwnerEditsRules`, `FactUndecidedTapIsReviewed` (= `FactUndecidedTapIsFlagged`, one Fact), `FactDecisionIsServerSide`, `FactDecisionOrder`, `FactGuardrailRows` (derived from `policy.Guardrails`), `FactBaselineRows` (from `policy.Baseline`), `FactTrustScoreIsInformational`, `FactGPSOutsideRadiusIsReviewed`, `FactDebounceIsPerPerson`, `FactDebounceUsesServerClock` |
+| Crypto and sessions | sec-S3, sec-S4, sec-S5, sec-S7 | `SourceSUNURLCarriesCounterAndSignature`, `FactCopiedLinkIsRefused` | `FactChipLinkCarriesCounterAndCMAC`, `FactRejectedTapIsRecorded`, `FactPlaqueKeysAreWrapped`, `FactSessionTokenStoredAsKeyedHash` |
+| Privacy and isolation | sec-S11, sec-S29, sec-S30, sec-S31, sec-S32, sec-S33, sec-S34 | `FactNoAuthenticatorAPI`, `FactPositionReadOnlyOnPress` | `FactTenantIsolationByRLS`, `FactOperatorAccessIsAudited`, `FactHoldingIsTheOnlyCrossing` |
+| Cross-venue cover | rest-R1, rest-R9, rest-R10, rest-R11 | — | `FactCrossVenueTapJudgedLikeHome`, `FactCrossVenueNoteStaysOffTheEmployeesScreen` |
+| Absences (tripwires) | rest-R13 | — | `FactNoAutomaticCheckout` (an absence Fact, like `FactNoBulkImport`) |
+| Integrations | land-I2, land-I3, land-I4, land-I5, land-I6, land-I7, price-R14 | `FactAPIWritesPeopleAndLocations`, `FactAPIFeedsEveryPunch`, `FactAPIEnabledPerBusinessByTaptime` (from the FAQ-API fix, in `main`), `FactHoursExportAsCSV`, `FactBillingExportAsCSV`, `FactReportPerPersonAndVenue` | `FactWebhookIsOneSignedEndpoint` (land-I7's identifiers are pinned to the route and header constants) |
+| Billing | price-R3, price-R4, price-R5, price-R8, price-R9, price-R10, price-R11, price-R12, price-R13 | `FactPricePerEmployee`, `FactBillingExportAsCSV` | `FactMonthIsHeadcountTimesPrice`, `FactFreeMonthsChargeNothing`, `FactHeadcountIsEmploymentOverlap`, `FactEndedMonthIsCountedOverItsOwnDates`, `FactFreezeIsFinalAndOwnerOnly`, `FactBillingNamesFirstChargedMonth` |
+| EU hosting | sec-S35 | — | `FactHostedInTheEU` — **gated, §16.1** |
 
 **Merge the duplicates.** The two inventories were written in parallel and sometimes name one fact twice;
 the "=" pairs above are one Fact each. The port declares one, and both pages' sentences rest on it. A

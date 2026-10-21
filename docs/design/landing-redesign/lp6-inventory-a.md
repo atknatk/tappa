@@ -1,9 +1,11 @@
 # LP-6 — inventory, builder A (landing additions, /product, /pricing, shared chrome)
 
 > **Copied into the repo 2026-10-21** from the approved builder inventory (independent audit, two rounds +
-> the S36 wording fix) as the claim-level source for [README.md](README.md) Part II and the M14-14…M14-24 cards.
+> the sec-S36 wording fix) as the claim-level source for [README.md](README.md) Part II and the M14-14…M14-24 cards.
 > `file:line` refers to HEAD `7521dfe` (re-find by symbol). `lpgen/…`, `qa/…` and `bo/project/` are the
 > generator and QA paths outside the repo; the boards themselves are in `docs/design/panel-redesign/boards/`.
+> Claim ids carry their page as a prefix (`land-` landing, `prod-` /product, `price-` /pricing, `sec-`
+> /security, `rest-` /for/restaurants, `fab-` /for/production), added on copy so ids are unambiguous.
 > Test names that do not exist yet are written as descriptions ("new test: …"), never as identifiers
 > (`TestEveryNamedTestExists`); the builder names them.
 
@@ -37,7 +39,7 @@ proposed Fact name is given.
     ("none signed in"), DEACTIVATED is the seed's Paul Spiteri ("1 signed in" — deactivation keeps sessions). Grace
     Attard is "invited" in the seed; she is drawn as an active sample consistently on every page.
 - Product Rules miniature: guardrail chips stack in a column (no mid-row wrap).
-- T7 reads "There is no button on it." (n12). `FactEveryDecidedTapIsRecorded` is marked PROPOSED (n1). R9's dropped
+- land-T7 reads "There is no button on it." (n12). `FactEveryDecidedTapIsRecorded` is marked PROPOSED (n1). price-R9's dropped
   conjunct is recorded (n6).
 - **LandingDemo / M-LandingDemo intentionally have no footer** (n9): they draw the dialog over the header + hero only
   (aria-hidden backdrop); the footer is not part of that state.
@@ -102,16 +104,16 @@ Port: inline SVG/CSS only, `role="img"` with an accessible name on each phone, n
 
 | # | Copy | Status | Fact (code) | Proposed Fact |
 |---|---|---|---|---|
-| T1 | Eyebrow "For your team" | furniture | — | — |
-| T2 | "One screen, one button." | NEW CLAIM | pages.Tap renders one docket + one form with one button (`web/templates/pages/tap.templ:63-67`, `:73-81`) | `FactTapScreenHasOneButton` |
-| T3 | "No menu, no settings, no history to scroll: a greeting, the venue that was tapped and one button." | NEW CLAIM | tap.templ:5-10 (design comment) + TapHeading `:87-96` + tapForm `:73-81`; no other element | `FactTapScreenHasOneButton` |
-| T4 | "No app to install" / "The plaque opens an ordinary web page in the phone's own browser." | NEW CLAIM | `FactTapPageNeedsNoApp` (landingview fix branch :250) | existing |
-| T5 | "Greeted by name" / "The page says hello by name and shows the venue that was tapped." | NEW CLAIM | `FactTapPageGreetsByName` (:270) + tap.templ:93-95 (locationName = TAPPED venue, checkin.go:567) | existing + `FactTapScreenNamesTheTappedVenue` |
-| T6 | "Made for wet hands" / "One large button, sized for a wet or gloved finger." | NEW CLAIM | `FactTapButtonSizedForAWetHand` (:267, `.tap-button` min-h-16) | existing |
-| T7 | "Done means done" / "A counted tap ends on its stamp and "All done — you can close this page." There is no button on it." | NEW CLAIM | result.templ:271 (ok branch) + closing() renders no button in any branch | `FactCountedTapClosesWithoutAButton` |
-| T8 | Caption "What opens when the phone touches the plaque." | NEW CLAIM | GET /t renders pages.Tap for a valid SUN + session (§5 rows 1–3) | `FactTapPageNeedsNoApp` |
-| T9 | Caption "When the evidence is short, the screen says so." | NEW CLAIM | result.templ:285-287 (flag branch) | `FactFlaggedResultSaysItNeedsApproval` |
-| T10 | Footnote "Drawn as the product renders them — sample name, venue and time." | NEW (honesty line) | — | — |
+| land-T1 | Eyebrow "For your team" | furniture | — | — |
+| land-T2 | "One screen, one button." | NEW CLAIM | pages.Tap renders one docket + one form with one button (`web/templates/pages/tap.templ:63-67`, `:73-81`) | `FactTapScreenHasOneButton` |
+| land-T3 | "No menu, no settings, no history to scroll: a greeting, the venue that was tapped and one button." | NEW CLAIM | tap.templ:5-10 (design comment) + TapHeading `:87-96` + tapForm `:73-81`; no other element | `FactTapScreenHasOneButton` |
+| land-T4 | "No app to install" / "The plaque opens an ordinary web page in the phone's own browser." | NEW CLAIM | `FactTapPageNeedsNoApp` (landingview fix branch :250) | existing |
+| land-T5 | "Greeted by name" / "The page says hello by name and shows the venue that was tapped." | NEW CLAIM | `FactTapPageGreetsByName` (:270) + tap.templ:93-95 (locationName = TAPPED venue, checkin.go:567) | existing + `FactTapScreenNamesTheTappedVenue` |
+| land-T6 | "Made for wet hands" / "One large button, sized for a wet or gloved finger." | NEW CLAIM | `FactTapButtonSizedForAWetHand` (:267, `.tap-button` min-h-16) | existing |
+| land-T7 | "Done means done" / "A counted tap ends on its stamp and "All done — you can close this page." There is no button on it." | NEW CLAIM | result.templ:271 (ok branch) + closing() renders no button in any branch | `FactCountedTapClosesWithoutAButton` |
+| land-T8 | Caption "What opens when the phone touches the plaque." | NEW CLAIM | GET /t renders pages.Tap for a valid SUN + session (§5 rows 1–3) | `FactTapPageNeedsNoApp` |
+| land-T9 | Caption "When the evidence is short, the screen says so." | NEW CLAIM | result.templ:285-287 (flag branch) | `FactFlaggedResultSaysItNeedsApproval` |
+| land-T10 | Footnote "Drawn as the product renders them — sample name, venue and time." | NEW (honesty line) | — | — |
 | — | Labels "Tap screen", "Result · flagged" | furniture | — | — |
 
 ### 1.2 A shift, start to finish (`#shift`) — NEW
@@ -122,15 +124,15 @@ Actor chips (Manager / Employee / Taptime) are furniture.
 
 | # | Copy | Status | Fact (code) | Proposed Fact |
 |---|---|---|---|---|
-| S1 | Eyebrow "A shift, start to finish" | furniture | — | — |
-| S2 | "From the invite link to the payroll file." | NEW CLAIM | invite (S4) … CSV (S9) | `FactPeopleAreInvitedFromTheDashboard` + `FactHoursExportAsCSV` |
-| S3 | "Who does what, from a new hire's first link to the hours your payroll reads." | NEW CLAIM | same | same |
-| S4 | 01 Invite — "Add the person in People, then hand over their invite link." | NEW CLAIM | `FactPeopleAreInvitedFromTheDashboard` (:275); "Add somebody" `components/staffform.templ:30`; link shown on screen `components/roster.templ:424` | existing |
-| S5 | 02 Activation tap — "They open the link on their own phone. Their first tap on one of your plaques finishes the setup — it records no hours." | NEW CLAIM | ADR 0026; `internal/handler/activate.go:918-923` (finishActivation: consume invite, issue session — no `transactions` row); CLAUDE.md §5 "Aktivasyon dokunuşu" | `FactActivationTapRecordsNoHours` |
-| S6 | 03 Clock in — "From then on, a tap opens the tap screen and one press records it." | NEW CLAIM | tapForm POST /api/checkin (tap.templ:73-81) → checkin writes `transactions` | `FactEveryDecidedTapIsRecorded` — PROPOSED (named in LP-inventory §7, not yet in landingview.go) |
-| S7 | 04 Flag — "If neither the venue's network nor GPS can place the tap, it is still recorded — flagged, never approved in silence." | NEW CLAIM | `base:no-evidence-review` EffectReview (baseline.go:298-301); engine default for taps = review | `FactFlaggedQueueDecidedByAManager` (+ `SourceNoEvidenceReview`) |
-| S8 | 05 Decision — "A manager approves or rejects it on The Spike. The decision stays beside the record." | NEW CLAIM | POST reviewHref (`FactFlaggedQueueDecidedByAManager` :356); review.templ:171 "Decided records stay on The Pass, with the flag they were given and the decision beside it." | existing |
-| S9 | 06 The Roll — "Hours add up per person on The Roll, and the week downloads as CSV for your payroll." | NEW CLAIM | `FactHoursExportAsCSV` (:348); reportscsv.go:139 "answers the whole week as a file" | existing |
+| land-S1 | Eyebrow "A shift, start to finish" | furniture | — | — |
+| land-S2 | "From the invite link to the payroll file." | NEW CLAIM | invite (land-S4) … CSV (land-S9) | `FactPeopleAreInvitedFromTheDashboard` + `FactHoursExportAsCSV` |
+| land-S3 | "Who does what, from a new hire's first link to the hours your payroll reads." | NEW CLAIM | same | same |
+| land-S4 | 01 Invite — "Add the person in People, then hand over their invite link." | NEW CLAIM | `FactPeopleAreInvitedFromTheDashboard` (:275); "Add somebody" `components/staffform.templ:30`; link shown on screen `components/roster.templ:424` | existing |
+| land-S5 | 02 Activation tap — "They open the link on their own phone. Their first tap on one of your plaques finishes the setup — it records no hours." | NEW CLAIM | ADR 0026; `internal/handler/activate.go:918-923` (finishActivation: consume invite, issue session — no `transactions` row); CLAUDE.md §5 "Aktivasyon dokunuşu" | `FactActivationTapRecordsNoHours` |
+| land-S6 | 03 Clock in — "From then on, a tap opens the tap screen and one press records it." | NEW CLAIM | tapForm POST /api/checkin (tap.templ:73-81) → checkin writes `transactions` | `FactEveryDecidedTapIsRecorded` — PROPOSED (named in LP-inventory §7, not yet in landingview.go) |
+| land-S7 | 04 Flag — "If neither the venue's network nor GPS can place the tap, it is still recorded — flagged, never approved in silence." | NEW CLAIM | `base:no-evidence-review` EffectReview (baseline.go:298-301); engine default for taps = review | `FactFlaggedQueueDecidedByAManager` (+ `SourceNoEvidenceReview`) |
+| land-S8 | 05 Decision — "A manager approves or rejects it on The Spike. The decision stays beside the record." | NEW CLAIM | POST reviewHref (`FactFlaggedQueueDecidedByAManager` :356); review.templ:171 "Decided records stay on The Pass, with the flag they were given and the decision beside it." | existing |
+| land-S9 | 06 The Roll — "Hours add up per person on The Roll, and the week downloads as CSV for your payroll." | NEW CLAIM | `FactHoursExportAsCSV` (:348); reportscsv.go:139 "answers the whole week as a file" | existing |
 
 ### 1.3 Integrations (`#integrations`) — NEW
 
@@ -140,13 +142,13 @@ signature header `X-Taptime-Signature: sha256=…` (`internal/webhook/signing.go
 
 | # | Copy | Status | Fact (code) | Proposed Fact |
 |---|---|---|---|---|
-| I1 | Eyebrow "Integrations" | furniture | — | — |
-| I2 | "Hand the hours to the payroll you already run." | NEW CLAIM | `FactHoursExportAsCSV`; FAQ Q5 "it doesn't try to replace your payroll" | existing |
-| I3 | "CSV export" / "Hours per person and per venue, and the monthly headcount you're billed on, download as CSV." | NEW CLAIM | `FactHoursExportAsCSV`, `FactBillingExportAsCSV` (:350), `FactReportPerPersonAndVenue` (:385) | existing |
-| I4 | "Integration API" / "Your HR system can write your people and locations, and read every punch from a feed." | NEW CLAIM | `FactAPIWritesPeopleAndLocations` (:312), `FactAPIFeedsEveryPunch` (:320) | existing |
-| I5 | "Webhooks" / "Each punch can also be sent to one endpoint of yours, signed so you can check it came from Taptime." | NEW CLAIM | `FactAPIFeedsEveryPunch` (webhook half); one endpoint per business `internal/webhook/endpoints/endpoints.go:110` (ErrExists); signature `signing.go:35` | `FactWebhookIsOneSignedEndpoint` |
-| I6 | "The integration API and webhooks are enabled by Taptime for your business." | NEW CLAIM | `FactAPIEnabledPerBusinessByTaptime` (:326); webhook gated on it `endpoints.go:109`, `:282` (ErrAPIClosed) | existing (extend to webhooks) |
-| I7 | Code chips `PUT /v1/employees/{ref}` · `PUT /v1/locations/{ref}` · `GET /v1/punches` · `X-Taptime-Signature: sha256=…` · `Download CSV` | NEW (identifiers) | route registrations named in the facts above | pin the strings to the route constants |
+| land-I1 | Eyebrow "Integrations" | furniture | — | — |
+| land-I2 | "Hand the hours to the payroll you already run." | NEW CLAIM | `FactHoursExportAsCSV`; FAQ Q5 "it doesn't try to replace your payroll" | existing |
+| land-I3 | "CSV export" / "Hours per person and per venue, and the monthly headcount you're billed on, download as CSV." | NEW CLAIM | `FactHoursExportAsCSV`, `FactBillingExportAsCSV` (:350), `FactReportPerPersonAndVenue` (:385) | existing |
+| land-I4 | "Integration API" / "Your HR system can write your people and locations, and read every punch from a feed." | NEW CLAIM | `FactAPIWritesPeopleAndLocations` (:312), `FactAPIFeedsEveryPunch` (:320) | existing |
+| land-I5 | "Webhooks" / "Each punch can also be sent to one endpoint of yours, signed so you can check it came from Taptime." | NEW CLAIM | `FactAPIFeedsEveryPunch` (webhook half); one endpoint per business `internal/webhook/endpoints/endpoints.go:110` (ErrExists); signature `signing.go:35` | `FactWebhookIsOneSignedEndpoint` |
+| land-I6 | "The integration API and webhooks are enabled by Taptime for your business." | NEW CLAIM | `FactAPIEnabledPerBusinessByTaptime` (:326); webhook gated on it `endpoints.go:109`, `:282` (ErrAPIClosed) | existing (extend to webhooks) |
+| land-I7 | Code chips `PUT /v1/employees/{ref}` · `PUT /v1/locations/{ref}` · `GET /v1/punches` · `X-Taptime-Signature: sha256=…` · `Download CSV` | NEW (identifiers) | route registrations named in the facts above | pin the strings to the route constants |
 
 ---
 
@@ -163,50 +165,50 @@ spike_body/roll_body). New: **People**, **Venues & plaques**, **Rules**, drawn f
 the code shows today (D1): no counts in the People chips (D3 not built), no last tap, no QR (D4 needs the real QR —
 no fake pattern on a marketing page), statuses in database words, rule phrases from the code. Sample data: one tenant
 (Kebab Factory); KF St Julians 203.0.113.15/32 and the other values from seed.sql; plaque uids 14-hex invented.
-Tap section stage: plaque ("KF MSIDA · 04A1-C33C", invented) + the two phones of §1.1 with their captions (T8, T9).
+Tap section stage: plaque ("KF MSIDA · 04A1-C33C", invented) + the two phones of §1.1 with their captions (land-T8, land-T9).
 
 | # | Copy | Status | Fact (code) | Proposed Fact |
 |---|---|---|---|---|
-| P1 | Eyebrow "Product tour"; index labels (screen names) | furniture | — | — |
-| P2 | H1 "From one tap to the week's hours." | NEW CLAIM | tap → `transactions` → reports week | `FactEveryDecidedTapIsRecorded` (PROPOSED) + `FactHoursExportAsCSV` |
-| P3 | "Your people touch a plaque with their own phone. Managers read the record, settle the doubtful ones and export the week. These are the screens in between." | NEW CLAIM | Pass / Spike (POST reviewHref) / reportsCSVHref | `FactFlaggedQueueDecidedByAManager` + `FactHoursExportAsCSV` |
-| P4 | "See pricing" | furniture | — | — |
+| prod-P1 | Eyebrow "Product tour"; index labels (screen names) | furniture | — | — |
+| prod-P2 | H1 "From one tap to the week's hours." | NEW CLAIM | tap → `transactions` → reports week | `FactEveryDecidedTapIsRecorded` (PROPOSED) + `FactHoursExportAsCSV` |
+| prod-P3 | "Your people touch a plaque with their own phone. Managers read the record, settle the doubtful ones and export the week. These are the screens in between." | NEW CLAIM | Pass / Spike (POST reviewHref) / reportsCSVHref | `FactFlaggedQueueDecidedByAManager` + `FactHoursExportAsCSV` |
+| prod-P4 | "See pricing" | furniture | — | — |
 | **01 The tap** | line = LandingSteps[2] body | EXISTS | — | — |
-| P5 | "The phone's position is read once, at the press — never in the background." | NEW CLAIM | `FactPositionReadOnlyOnPress` (:339); tap.js:10 | existing |
-| P6 | "A second tap by the same person moments later is recorded, not counted." | NEW CLAIM | `sys:person-debounce` EffectIgnore (guardrails.go:547); ignored verdict recorded (decide.go:44-50); result.templ:292 | `FactRepeatTapIsRecordedNotCounted` |
-| P7 | "The answer is a stamped docket: APPROVED, FLAGGED, REJECTED or IGNORED." | NEW CLAIM | result.templ stamp() :171-181 | `FactResultIsAStampedVerdict` |
+| prod-P5 | "The phone's position is read once, at the press — never in the background." | NEW CLAIM | `FactPositionReadOnlyOnPress` (:339); tap.js:10 | existing |
+| prod-P6 | "A second tap by the same person moments later is recorded, not counted." | NEW CLAIM | `sys:person-debounce` EffectIgnore (guardrails.go:547); ignored verdict recorded (decide.go:44-50); result.templ:292 | `FactRepeatTapIsRecordedNotCounted` |
+| prod-P7 | "The answer is a stamped docket: APPROVED, FLAGGED, REJECTED or IGNORED." | NEW CLAIM | result.templ stamp() :171-181 | `FactResultIsAStampedVerdict` |
 | **02 The Pass** | line "The day's taps as dockets, newest first, each stamped with its verdict." | LP NEW CLAIM (LP-inventory §7, reused) | — | — |
-| P8 | "Pick any earlier day to read it in full." | NEW CLAIM | `internal/handler/transactions.go:338` (`?date=` → ledger day) | `FactPassReadsAnyDay` |
-| P9 | "A record typed in by a manager carries "Entered by a manager"." | NEW CLAIM | `FactManualEntryNamesAManager` (:345); components/docket.templ:107 | existing |
-| P10 | "Nothing here can be edited or deleted: a correction is a new record." | NEW CLAIM | `db/migrations/00005_create_transactions_audit_reviews.sql:200-202` (transactions_no_mutation); manual entry inserts a new row | `FactRecordsAreImmutable` |
+| prod-P8 | "Pick any earlier day to read it in full." | NEW CLAIM | `internal/handler/transactions.go:338` (`?date=` → ledger day) | `FactPassReadsAnyDay` |
+| prod-P9 | "A record typed in by a manager carries "Entered by a manager"." | NEW CLAIM | `FactManualEntryNamesAManager` (:345); components/docket.templ:107 | existing |
+| prod-P10 | "Nothing here can be edited or deleted: a correction is a new record." | NEW CLAIM | `db/migrations/00005_create_transactions_audit_reviews.sql:200-202` (transactions_no_mutation); manual entry inserts a new row | `FactRecordsAreImmutable` |
 | **03 The Spike** | line "Taps the rules could not judge…" | LP NEW CLAIM (reused) | — | — |
-| P11 | "Each record shows its evidence and the rule's own sentence for why it is here." | NEW CLAIM | DocketView IP/GPS marks + `Record.Note` → `DocketView.Note` (spike-odd.md S.2 rows 16-20) | `FactSpikeShowsEvidenceAndReason` |
-| P12 | "A note can go on the record with the decision." | NEW CLAIM | review.templ:139 `name="note"` (optional, maxReviewNote review.go:131) | `FactReviewTakesANote` |
-| P13 | "Nobody can decide on their own record." | NEW CLAIM | `sys:no-self-review` EffectDeny (guardrails.go:610-620) | `FactNoSelfReview` |
+| prod-P11 | "Each record shows its evidence and the rule's own sentence for why it is here." | NEW CLAIM | DocketView IP/GPS marks + `Record.Note` → `DocketView.Note` (spike-odd.md S.2 rows 16-20) | `FactSpikeShowsEvidenceAndReason` |
+| prod-P12 | "A note can go on the record with the decision." | NEW CLAIM | review.templ:139 `name="note"` (optional, maxReviewNote review.go:131) | `FactReviewTakesANote` |
+| prod-P13 | "Nobody can decide on their own record." | NEW CLAIM | `sys:no-self-review` EffectDeny (guardrails.go:610-620) | `FactNoSelfReview` |
 | **04 The Roll** | line "Hours per person for the week, with the CSV for your payroll." | LP NEW CLAIM (reused) | — | — |
-| P14 | "A check-in with no check-out is listed, not counted, and the totals say they are incomplete." | NEW CLAIM | reports.templ:45 ("These totals are incomplete"), :157 ("Open check-ins, not counted") | `FactOpenCheckInsAreNotCounted` |
-| P15 | "Manual entries, marked apart from tapped ones" | EXISTS (LandingPricingIncludes[4]) | — | — |
-| P16 | "Lateness is measured against the person's own shift: their department's, else the venue they tapped." | NEW CLAIM | `internal/domain/checkin/checkin.go:1395` (department shift beats the tapped venue's); reports Late `reports.templ:302` | `FactLatenessAgainstOwnShift` |
+| prod-P14 | "A check-in with no check-out is listed, not counted, and the totals say they are incomplete." | NEW CLAIM | reports.templ:45 ("These totals are incomplete"), :157 ("Open check-ins, not counted") | `FactOpenCheckInsAreNotCounted` |
+| prod-P15 | "Manual entries, marked apart from tapped ones" | EXISTS (LandingPricingIncludes[4]) | — | — |
+| prod-P16 | "Lateness is measured against the person's own shift: their department's, else the venue they tapped." | NEW CLAIM | `internal/domain/checkin/checkin.go:1395` (department shift beats the tapped venue's); reports Late `reports.templ:302` | `FactLatenessAgainstOwnShift` |
 | **05 People** | | | | |
-| P17 | "Add somebody, hand over the invite, and switch them off the day they leave." | NEW CLAIM | `FactPeopleAreInvitedFromTheDashboard`, `FactDeactivatedPersonIsRefused` (:286) | existing |
-| P18 | "Each person shows one status: INVITED, ACTIVE or DEACTIVATED." | NEW CLAIM | components/roster.templ lifecycleTally (:398-407, words :517-524) | `FactRosterStatusWords` |
-| P19 | "The link is shown once, on the next screen. Taptime keeps no copy of it." | NEW CLAIM on a public page (product string verbatim) | components/roster.templ:424 | `FactInviteLinkShownOnce` |
-| P20 | "Switch off in the dashboard — the next tap is refused" | EXISTS (LandingComparison row 3) | — | — |
-| P21 | "A shift nobody tapped can be entered by hand from the person's card." | NEW CLAIM | components/roster.templ:335 "Enter a record by hand"; manual entry starts from a person (people.md X2) | `FactManualEntryNamesAManager` |
+| prod-P17 | "Add somebody, hand over the invite, and switch them off the day they leave." | NEW CLAIM | `FactPeopleAreInvitedFromTheDashboard`, `FactDeactivatedPersonIsRefused` (:286) | existing |
+| prod-P18 | "Each person shows one status: INVITED, ACTIVE or DEACTIVATED." | NEW CLAIM | components/roster.templ lifecycleTally (:398-407, words :517-524) | `FactRosterStatusWords` |
+| prod-P19 | "The link is shown once, on the next screen. Taptime keeps no copy of it." | NEW CLAIM on a public page (product string verbatim) | components/roster.templ:424 | `FactInviteLinkShownOnce` |
+| prod-P20 | "Switch off in the dashboard — the next tap is refused" | EXISTS (LandingComparison row 3) | — | — |
+| prod-P21 | "A shift nobody tapped can be entered by hand from the person's card." | NEW CLAIM | components/roster.templ:335 "Enter a record by hand"; manual entry starts from a person (people.md X2) | `FactManualEntryNamesAManager` |
 | Mini | chips All/Active/Invited/Deactivated (no counts), "Add somebody", "1 signed in"/"none signed in" (deviceLine, employees.go:706) | sample | — | — |
 | **06 Venues & plaques** | | | | |
-| P22 | "Each venue keeps its own plaques, network addresses, GPS point and shift hours." | NEW CLAIM | `FactVenuesAndDepartmentsCarryOwnHours` (:372, AnchorVenueShiftAndAddress); plaque rows per venue `internal/handler/plaques.go:148-195` | existing |
-| P23 | "A replaced or lost plaque decides nothing: its taps are refused." | NEW CLAIM | `FactPlaqueCanBeReplaced` (:292); `sys:tag-not-active` EffectDeny (guardrails.go:371) | existing |
-| P24 | "An address list too wide to be one venue's network is refused, and never counted as evidence." | NEW CLAIM | `internal/netx/prefix.go:300` TooWideForProofOfPlace, write side + read side (CLAUDE.md §5) | `FactTooWideAddressListIsNoEvidence` |
-| P25 | "Departments can keep shift hours of their own." | NEW CLAIM | `FactVenuesAndDepartmentsCarryOwnHours` (AnchorDepartmentShift) | existing |
+| prod-P22 | "Each venue keeps its own plaques, network addresses, GPS point and shift hours." | NEW CLAIM | `FactVenuesAndDepartmentsCarryOwnHours` (:372, AnchorVenueShiftAndAddress); plaque rows per venue `internal/handler/plaques.go:148-195` | existing |
+| prod-P23 | "A replaced or lost plaque decides nothing: its taps are refused." | NEW CLAIM | `FactPlaqueCanBeReplaced` (:292); `sys:tag-not-active` EffectDeny (guardrails.go:371) | existing |
+| prod-P24 | "An address list too wide to be one venue's network is refused, and never counted as evidence." | NEW CLAIM | `internal/netx/prefix.go:300` TooWideForProofOfPlace, write side + read side (CLAUDE.md §5) | `FactTooWideAddressListIsNoEvidence` |
+| prod-P25 | "Departments can keep shift hours of their own." | NEW CLAIM | `FactVenuesAndDepartmentsCarryOwnHours` (AnchorDepartmentShift) | existing |
 | Mini | "Venue network", "GPS point" (6 dp, gpsText locations.go:1150), "Shift … · Europe/Malta", "Plaques at this venue", IN SERVICE / RETIRED | sample | — | — |
 | **07 Rules** | | | | |
-| P26 | line "You can switch a Taptime baseline rule off, and write your own version of one that applies at the venues you choose. Every change is shown to you in words before it is written, and every change is recorded with your name against it." | NEW CLAIM on a public page (product string verbatim) | web/templates/pages/policies.templ:262-264 | `FactRulesAreOwnerEditableAndAudited` |
-| P27 | "The Taptime guarantees come first and cannot be switched off." | NEW CLAIM | policies.templ:397-401; `policy.Guardrails` (guardrails.go:302) first-match-terminal | `FactGuardrailsCannotBeSwitchedOff` |
-| P28 | "Only the owner can change a rule; managers read the page." | NEW CLAIM | `sys:policy-edit-owner-only` (guardrails.go:598); rules-billing.md X6 | `FactOnlyOwnerEditsRules` |
-| P29 | "When no rule decides a tap, it goes to The Spike — never approved by default." | NEW CLAIM | engine default for taps = review (`MatchedSid="default"`, rules-billing.md §1.2; CLAUDE.md §5) | `FactUndecidedTapIsReviewed` |
+| prod-P26 | line "You can switch a Taptime baseline rule off, and write your own version of one that applies at the venues you choose. Every change is shown to you in words before it is written, and every change is recorded with your name against it." | NEW CLAIM on a public page (product string verbatim) | web/templates/pages/policies.templ:262-264 | `FactRulesAreOwnerEditableAndAudited` |
+| prod-P27 | "The Taptime guarantees come first and cannot be switched off." | NEW CLAIM | policies.templ:397-401; `policy.Guardrails` (guardrails.go:302) first-match-terminal | `FactGuardrailsCannotBeSwitchedOff` |
+| prod-P28 | "Only the owner can change a rule; managers read the page." | NEW CLAIM | `sys:policy-edit-owner-only` (guardrails.go:598); rules-billing.md X6 | `FactOnlyOwnerEditsRules` |
+| prod-P29 | "When no rule decides a tap, it goes to The Spike — never approved by default." | NEW CLAIM | engine default for taps = review (`MatchedSid="default"`, rules-billing.md §1.2; CLAUDE.md §5) | `FactUndecidedTapIsReviewed` |
 | Mini | guardrail phrases verbatim from `internal/domain/tenant/rulebook.go:874-884`; effect labels "Reject", "Ignore — recorded, counts nothing", "Approve", "Send to The Spike" (`internal/handler/policies.go:707-718`); state "In force" (:645); button "Switch this rule off" (:498); baseline names = tapDoc names without the "Taptime baseline —" prefix; lock pill "Cannot be switched off" (policies.templ:415) | sample | — | — |
-| P30 | Footnote "Drawn for this page — sample names and times." | EXISTS (LP honesty line) | — | — |
+| prod-P30 | Footnote "Drawn for this page — sample names and times." | EXISTS (LP honesty line) | — | — |
 
 ---
 
@@ -227,20 +229,20 @@ no JS; a test extends `TestLanding_ExampleTeamCostIsThePriceTimesTheHeadcount` t
 
 | # | Copy | Status | Fact (code) | Proposed Fact |
 |---|---|---|---|---|
-| R1 | H1 / lede / price card / includes / founding line | EXISTS (landing values) | — | — |
-| R2 | Eyebrow "Examples"; table heads "Team size", "Per month"; rows "N people" | furniture + COMPUTED | marketing.go:671 | `FactPricePerEmployee` + example test |
-| R3 | "What a month costs at your size." | NEW CLAIM | per-person price | `FactPricePerEmployee` |
-| R4 | "People counted in the month, times the price per person." | NEW CLAIM | Billing equation `internal/handler/billing.go` v.Equation (count × unit = amount) | `FactMonthIsHeadcountTimesPrice` |
-| R5 | "Inside the founding offer's free months, the amount is zero." | NEW CLAIM | billing.go:322 FreeLine; migration 00016 `tappa_first_chargeable_month` | `FactFreeMonthsChargeNothing` |
-| R6 | Receipt drawing: "September 2026", FROZEN, People 60, Price €1.50, TOTAL €90.00, "frozen 2026-10-01T08:12:40Z", "Download CSV" | sample (anatomy = billing.templ billingReceipt) | — | — |
-| R7 | Caption "A frozen month on the Billing screen — sample figures." | NEW (honesty line) | — | — |
-| R8 | Eyebrow "Billing, answered"; H2 "How the month is counted." | furniture / NEW CLAIM (heading) | billing.go:318 | — |
-| R9 | Q "Who counts as a person?" — "Everybody whose employment overlapped the month — anybody who was on the books for even one day of it." | NEW CLAIM | billing.go:318-320 CountLine. **Dropped conjunct, deliberately:** the screen's sentence ends "provided their status agrees with their own joining and leaving dates"; the public page states the first half only. The port must either carry the conjunct or pin the shortened sentence as a summary of CountLine (the Unstamped floor notice covers the disagreeing rows). | `FactHeadcountIsEmploymentOverlap` |
-| R10 | Q "Does hiring or letting someone go change a past month?" — "No. A finished month is counted over its own dates, not over today's list of people. Until it is frozen, correcting somebody's joining or leaving dates can still move it." | NEW CLAIM | billing.go:411-421 draftStateLine | `FactEndedMonthIsCountedOverItsOwnDates` |
-| R11 | Q "What does freezing a month do?" — "It fixes that month's figures: nothing recomputes them afterwards, and it can't be undone. Only the owner can freeze a month, and only once the month is over." | NEW CLAIM | billing.go:291-293; billing.templ "Freezing fixes the figure. It can't be undone."; billingactions.go:162-164 mayManageBilling; draftStateLine "A month can only be frozen once it is over." | `FactFreezeIsFinalAndOwnerOnly` |
-| R12 | Q "Can we check the figure ourselves?" — "Yes. Every month downloads as CSV from the Billing screen, frozen or not." | NEW CLAIM | `FactBillingExportAsCSV`; billing.templ ExportHref (draft) + CSVHref (receipt) | existing |
-| R13 | Q "When does the founding offer start charging?" — "The Billing screen names the first month that is charged for, so the end of the free months is never a guess." | NEW CLAIM | billing.templ billingPlan "First month that is charged for" (FirstCharged) | `FactBillingNamesFirstChargedMonth` |
-| R14 | Q "How do we get the integration API?" — "Ask Taptime: the integration API and webhooks are switched on per business by Taptime, not from your dashboard." | NEW CLAIM | `FactAPIEnabledPerBusinessByTaptime`; endpoints.go:109 | existing |
+| price-R1 | H1 / lede / price card / includes / founding line | EXISTS (landing values) | — | — |
+| price-R2 | Eyebrow "Examples"; table heads "Team size", "Per month"; rows "N people" | furniture + COMPUTED | marketing.go:671 | `FactPricePerEmployee` + example test |
+| price-R3 | "What a month costs at your size." | NEW CLAIM | per-person price | `FactPricePerEmployee` |
+| price-R4 | "People counted in the month, times the price per person." | NEW CLAIM | Billing equation `internal/handler/billing.go` v.Equation (count × unit = amount) | `FactMonthIsHeadcountTimesPrice` |
+| price-R5 | "Inside the founding offer's free months, the amount is zero." | NEW CLAIM | billing.go:322 FreeLine; migration 00016 `tappa_first_chargeable_month` | `FactFreeMonthsChargeNothing` |
+| price-R6 | Receipt drawing: "September 2026", FROZEN, People 60, Price €1.50, TOTAL €90.00, "frozen 2026-10-01T08:12:40Z", "Download CSV" | sample (anatomy = billing.templ billingReceipt) | — | — |
+| price-R7 | Caption "A frozen month on the Billing screen — sample figures." | NEW (honesty line) | — | — |
+| price-R8 | Eyebrow "Billing, answered"; H2 "How the month is counted." | furniture / NEW CLAIM (heading) | billing.go:318 | — |
+| price-R9 | Q "Who counts as a person?" — "Everybody whose employment overlapped the month — anybody who was on the books for even one day of it." | NEW CLAIM | billing.go:318-320 CountLine. **Dropped conjunct, deliberately:** the screen's sentence ends "provided their status agrees with their own joining and leaving dates"; the public page states the first half only. The port must either carry the conjunct or pin the shortened sentence as a summary of CountLine (the Unstamped floor notice covers the disagreeing rows). | `FactHeadcountIsEmploymentOverlap` |
+| price-R10 | Q "Does hiring or letting someone go change a past month?" — "No. A finished month is counted over its own dates, not over today's list of people. Until it is frozen, correcting somebody's joining or leaving dates can still move it." | NEW CLAIM | billing.go:411-421 draftStateLine | `FactEndedMonthIsCountedOverItsOwnDates` |
+| price-R11 | Q "What does freezing a month do?" — "It fixes that month's figures: nothing recomputes them afterwards, and it can't be undone. Only the owner can freeze a month, and only once the month is over." | NEW CLAIM | billing.go:291-293; billing.templ "Freezing fixes the figure. It can't be undone."; billingactions.go:162-164 mayManageBilling; draftStateLine "A month can only be frozen once it is over." | `FactFreezeIsFinalAndOwnerOnly` |
+| price-R12 | Q "Can we check the figure ourselves?" — "Yes. Every month downloads as CSV from the Billing screen, frozen or not." | NEW CLAIM | `FactBillingExportAsCSV`; billing.templ ExportHref (draft) + CSVHref (receipt) | existing |
+| price-R13 | Q "When does the founding offer start charging?" — "The Billing screen names the first month that is charged for, so the end of the free months is never a guess." | NEW CLAIM | billing.templ billingPlan "First month that is charged for" (FirstCharged) | `FactBillingNamesFirstChargedMonth` |
+| price-R14 | Q "How do we get the integration API?" — "Ask Taptime: the integration API and webhooks are switched on per business by Taptime, not from your dashboard." | NEW CLAIM | `FactAPIEnabledPerBusinessByTaptime`; endpoints.go:109 | existing |
 
 Not claimed (deliberately): how payment is taken, invoices, VAT, any price for the API (none in code).
 
@@ -248,8 +250,8 @@ Not claimed (deliberately): how payment is taken, invoices, VAT, any price for t
 
 ## 4. Counts
 
-NEW CLAIM entries: landing 22 (T2–T9, S2–S9, I2–I7 incl. I7 identifiers), /product 25 (P2, P3, P5–P14, P16–P19,
-P21–P29), /pricing 10 (R3–R5, R9–R14 + R8 heading) → **57**. Plus honesty lines T10, R7 and furniture.
+NEW CLAIM entries: landing 22 (land-T2–land-T9, land-S2–land-S9, land-I2–land-I7 incl. land-I7 identifiers), /product 25 (prod-P2, prod-P3, prod-P5–prod-P14, prod-P16–prod-P19,
+prod-P21–prod-P29), /pricing 10 (price-R3–price-R5, price-R9–price-R14 + price-R8 heading) → **57**. Plus honesty lines land-T10, price-R7 and furniture.
 Reused verbatim: heroCta, LandingSteps[2] body, three LP panel lines, LandingComparison row 3, includes[4],
 priceHeading/priceLede/card, the CTA, the footer lines.
 

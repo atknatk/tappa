@@ -115,11 +115,11 @@ altında · palet token'ları + opaklık (README §5) · dokunma hedefi ≥ 44 p
 | M14-15 | P1 | Landing `#team` (iki telefon: tap + flag sonucu) | yapıcı (`tappa-brand`) + güvenlik (§9) | M14-04, M14-14 |
 | M14-16 | P1 | Landing `#shift` (altı docket, ray) | yapıcı (`tappa-brand`) | M14-08, M14-14 |
 | M14-17 | P1 | Landing `#integrations` (CSV · API · webhook) + yeni sayfalara bağlantılar | yapıcı (`tappa-brand`) | M14-10, M14-14 |
-| M14-18 | P2 | `/product` (ürün turu, yedi bölüm, üç yeni minyatür) | yapıcı (`tappa-brand`) + ayrı iddia denetimi | M14-08, M14-14, M14-15, M14-17 |
-| M14-19 | P2 | `/pricing` (sunucuda hesaplanan ekip tablosu, fatura SSS) | yapıcı (`tappa-brand`) + ayrı iddia denetimi | M14-09, M14-14 |
+| M14-18 | P2 | `/product` (ürün turu, yedi bölüm, üç yeni minyatür) | yapıcı (`tappa-brand`) + ayrı iddia denetimi + güvenlik (§9) | M14-08, M14-14, M14-15, M14-17 |
+| M14-19 | P2 | `/pricing` (sunucuda hesaplanan ekip tablosu, fatura SSS) | yapıcı (`tappa-brand`) + ayrı iddia denetimi | M14-09, M14-10 (`main` birleşmesi: `FactAPIEnabledPerBusinessByTaptime`), M14-14 |
 | M14-20 | P2 | `/security` (S35 **kullanıcı onayına kadar yok**) | yapıcı (`tappa-brand`) + ayrı iddia denetimi + **`tappa-security-auditor`** | M14-07, M14-14 |
 | M14-21 | P2 | `/for/restaurants` | yapıcı (`tappa-brand`) + ayrı iddia denetimi | M14-14, M14-20 (paylaşılan Fact'ler) |
-| M14-22 | P2 | `/for/production` | yapıcı (`tappa-brand`) + ayrı iddia denetimi | M14-14, M14-20 |
+| M14-22 | P2 | `/for/production` | yapıcı (`tappa-brand`) + ayrı iddia denetimi + güvenlik (§9) | M14-14, M14-20 |
 | M14-23 | P1 | Signup/Legal yeniden başlık: LP-6 kabuğu, gövde bayt-aynı + iki gövde kusuru | yapıcı (`tappa-brand`) | M14-14 |
 | M14-24 | P3 | Faz sonu uzantısı (M14-13 ile tek kapanış): beş sayfa, 26 pano ekran turu, kabuk testi, güvenlik | denetçi + güvenlik | hepsi |
 
@@ -589,7 +589,7 @@ docs) + Legal sütunu.
 - **Bağımlılık:** M14-04 (telefon çizimi), M14-14 · **Araç:** yapıcı (`tappa-brand`) + agent
   `tappa-security-auditor` (§9: tap ve sonuç ekranı **çizilir**, değiştirilmez)
 - **Commit:** `feat(landing): show the employee's two screens`
-- **Spec:** README §13, envanter A §1.1 (T1–T10)
+- **Spec:** README §13, envanter A §1.1 (land-T1–land-T10)
 
 İki telefon gerçek CSS ölçülerinde: tap ekranı ve **flag sonucu** (`result.templ` flag dalı, yön `in`,
 practice değil; damga, kapanış satırı ve "You can close this page." ürünün kendi metni; not =
@@ -600,7 +600,7 @@ practice değil; damga, kapanış satırı ve "You can close this page." ürün�
 **Dosyalar.** `web/templates/pages/landing.templ`, `web/templates/pages/landingview.go`,
 `web/static/css/input.css`, `internal/handler/marketing_facts_test.go`, üretilen `landing_templ.go`.
 
-**Kabul kriterleri.** T2–T9'un her biri ortak iddia kuralıyla (yeni Fact'ler: `FactTapScreenHasOneButton`,
+**Kabul kriterleri.** land-T2–land-T9'un her biri ortak iddia kuralıyla (yeni Fact'ler: `FactTapScreenHasOneButton`,
 `FactTapScreenNamesTheTappedVenue`, `FactCountedTapClosesWithoutAButton`, `FactFlaggedResultSaysItNeedsApproval`;
 mevcutlar: `FactTapPageNeedsNoApp`, `FactTapPageGreetsByName`, `FactTapButtonSizedForAWetHand`). Çizilen sonuç
 metinleri `result.templ`'in dizgeleriyle **aynı**: yeni test onları şablonun render'ından okur ve
@@ -611,7 +611,7 @@ boş; `TestUnbrandedScreens_AreByteIdenticalToTheGolden` bayt-aynı; sayfada emo
 
 - **Bağımlılık:** M14-08 (`FactEveryDecidedTapIsRecorded`), M14-14 · **Araç:** yapıcı (`tappa-brand`)
 - **Commit:** `feat(landing): walk one shift from the invite to the payroll file`
-- **Spec:** README §13, envanter A §1.2 (S1–S9)
+- **Spec:** README §13, envanter A §1.2 (land-S1–land-S9)
 
 Ink ray üzerinde altı docket (masaüstü 1×6, tablet 2×3, telefon numaralı dikey liste); 04 FLAGGED; aktör
 çipleri mobilya; eğimler `nth-child` sınıfları.
@@ -619,17 +619,17 @@ Ink ray üzerinde altı docket (masaüstü 1×6, tablet 2×3, telefon numaralı 
 **Dosyalar.** `web/templates/pages/landing.templ`, `web/templates/pages/landingview.go`,
 `web/static/css/input.css`, `internal/handler/marketing_facts_test.go`, üretilen `landing_templ.go`.
 
-**Kabul kriterleri.** S2–S9 ortak iddia kuralıyla (yeni: `FactActivationTapRecordsNoHours` — aktivasyon
+**Kabul kriterleri.** land-S2–land-S9 ortak iddia kuralıyla (yeni: `FactActivationTapRecordsNoHours` — aktivasyon
 dokunuşu `transactions` satırı yazmaz; türetme `internal/handler/activate.go`'nun tamamlama yolundan;
 mevcut: `FactPeopleAreInvitedFromTheDashboard`, `FactFlaggedQueueDecidedByAManager`, `FactHoursExportAsCSV`,
-`FactEveryDecidedTapIsRecorded`). S7 "never approved in silence" `base:no-evidence-review` + motorun
+`FactEveryDecidedTapIsRecorded`). land-S7 "never approved in silence" `base:no-evidence-review` + motorun
 varsayılanına dayanır; KONTROL: varsayılan etki `allow`'a çevrilince kırmızı.
 
 ## M14-17 — Landing `#integrations` + yeni sayfalara bağlantılar
 
 - **Bağımlılık:** M14-10 (`main` + FAQ-API Fact'leri), M14-14 · **Araç:** yapıcı (`tappa-brand`)
 - **Commit:** `feat(landing): show where the hours go after Taptime`
-- **Spec:** README §13, envanter A §1.3 (I1–I7)
+- **Spec:** README §13, envanter A §1.3 (land-I1–land-I7)
 
 Üç hücre (CSV · integration API · webhooks) + not çubuğu; mono çipler gerçek tanımlayıcılar. Landing'den
 yeni sayfalara mobilya bağlantıları ("How each proof works →", "Take the product tour →", sektör
@@ -639,10 +639,10 @@ hedef rota bağlıyken render edilir.
 **Dosyalar.** `web/templates/pages/landing.templ`, `web/templates/pages/landingview.go`,
 `web/static/css/input.css`, `internal/handler/marketing_facts_test.go`, üretilen `landing_templ.go`.
 
-**Kabul kriterleri.** I2–I6 ortak iddia kuralıyla (mevcut `FactAPIWritesPeopleAndLocations`,
+**Kabul kriterleri.** land-I2–land-I6 ortak iddia kuralıyla (mevcut `FactAPIWritesPeopleAndLocations`,
 `FactAPIFeedsEveryPunch`, `FactAPIEnabledPerBusinessByTaptime` — webhook'lara genişletilir —,
 `FactHoursExportAsCSV`, `FactBillingExportAsCSV`, `FactReportPerPersonAndVenue`; yeni
-`FactWebhookIsOneSignedEndpoint`). **I7 çipleri sabitlerden**: `/v1` yolları rota kayıtlarından,
+`FactWebhookIsOneSignedEndpoint`). **land-I7 çipleri sabitlerden**: `/v1` yolları rota kayıtlarından,
 `X-Taptime-Signature` `internal/webhook/signing.go`'nun başlık sabitinden, "Download CSV" ürün düğmesinin
 dizgesinden; KONTROL: bir rota yeniden adlandırılınca kırmızı. FAQ-API düzeltmesinin "no API" tarayıcı
 testi yeşil. `TestMarketing_EveryInternalLinkResolves` yeşil.
@@ -670,9 +670,11 @@ testi bu sayfalarda yeşil.
 ## M14-18 — `/product` (ürün turu)
 
 - **Bağımlılık:** M14-08, M14-14, M14-15 (telefonlar), M14-17 (Integrations değerleri) · **Araç:** yapıcı
-  (`tappa-brand`) + ayrı iddia denetçisi
+  (`tappa-brand`) + ayrı iddia denetçisi + agent `tappa-security-auditor` (§9: sayfa tap ve sonuç ekranlarını
+  yeniden çizer — M14-15'in telefonları burada yeni bir sahnede, plaketle birlikte; geçiş, çizimin canlı
+  bileşenleri çağırmadığını ve `tap.templ`/`result.templ` diff'inin boş olduğunu yeniden doğrular)
 - **Commit:** `feat(marketing): add the product tour`
-- **Spec:** README §14, envanter A §2 (P1–P30) · **Panolar:** `Product` ×3
+- **Spec:** README §14, envanter A §2 (prod-P1–prod-P30) · **Panolar:** `Product` ×3
 
 Hero (H1, lede, iki düğme, "On this page" dizini `#tap #pass #spike #roll #people #venues #rules`) → yedi
 bölüm → dürüstlük dipnotu → Integrations (aynı değerler) → CTA → altbilgi. The Pass/Spike/Roll
@@ -688,16 +690,16 @@ gösterdiğiyle: çiplerde sayı yok, QR deseni yok, durumlar veritabanı sözc�
 **Kabul kriterleri.**
 - Rota testi (GET/HEAD 200 ürün host'unda, başka host'ta 404); CSP testi (tam `marketingCSP`, `<script>`
   yok); `Cache-Control: public, max-age=300`.
-- P2, P3, P5–P14, P16–P19, P21–P29 ortak iddia kuralıyla (README §18 grupları). Minyatürlerdeki ürün
+- prod-P2, prod-P3, prod-P5–prod-P14, prod-P16–prod-P19, prod-P21–prod-P29 ortak iddia kuralıyla (README §18 grupları). Minyatürlerdeki ürün
   dizgeleri (kural cümleleri, etki etiketleri, durum sözcükleri, "Entered by a manager") kaynak sabitlerden
   okunur ve testte karşılaştırılır; KONTROL: bir guardrail cümlesi değişince kırmızı.
 - Ortak kontroller (README §11 listesi; her-genel-sayfa testi bu sayfada).
 
 ## M14-19 — `/pricing`
 
-- **Bağımlılık:** M14-09, M14-14 · **Araç:** yapıcı (`tappa-brand`) + ayrı iddia denetçisi
+- **Bağımlılık:** M14-09, **M14-10** (`main`'in — `0e7c158` — iş dalına alınması: price-R14 `FactAPIEnabledPerBusinessByTaptime`'a dayanır, o Fact yalnız `main`'den gelir), M14-14 · **Araç:** yapıcı (`tappa-brand`) + ayrı iddia denetçisi
 - **Commit:** `feat(marketing): add the pricing page with the team-size table`
-- **Spec:** README §15, envanter A §3 (R1–R14) · **Panolar:** `Pricing` ×3
+- **Spec:** README §15, envanter A §3 (price-R1–price-R14) · **Panolar:** `Pricing` ×3
 
 Hero (fiyat başlığı ve lede'si, landing'in fiyat kartı aynen) → Examples (ekip tablosu + donmuş ay fişi
 çizimi, "sample figures") → fatura SSS'si (iki sütun `<details>`) → CTA → altbilgi.
@@ -713,12 +715,12 @@ Hero (fiyat başlığı ve lede'si, landing'in fiyat kartı aynen) → Examples 
   şablonda fiyatın ikinci kopyası yok, JS yok. `TestLanding_ExampleTeamCostIsThePriceTimesTheHeadcount`
   (ya da kardeşi) **her satıra** genişler; KONTROL: yayımlanan fiyat değişince her satır değişir, sabit bir
   satır kırmızı olur.
-- R3–R5, R8–R14 ortak iddia kuralıyla. R9 için iki yoldan biri: ya CountLine'ın atlanan şartı da yazılır
-  ya da kısaltılmış cümle CountLine'ın özeti olarak açıkça sabitlenir (envanter A R9). Ödeme, fatura, KDV,
+- price-R3–price-R5, price-R8–price-R14 ortak iddia kuralıyla. price-R9 için iki yoldan biri: ya CountLine'ın atlanan şartı da yazılır
+  ya da kısaltılmış cümle CountLine'ın özeti olarak açıkça sabitlenir (envanter A price-R9). Ödeme, fatura, KDV,
   API fiyatı **iddia edilmez**.
 - Rota ve CSP testleri, ortak kontroller.
 
-## M14-20 — `/security` (S35 kapılı)
+## M14-20 — `/security` (sec-S35 kapılı)
 
 - **Bağımlılık:** M14-07, M14-14 · **Araç:** yapıcı (`tappa-brand`) + ayrı iddia denetçisi + **agent
   `tappa-security-auditor`** (sayfa §4.1, §4.2, §4.3, §4.5, §4.6, §4.7'yi kamuya anlatır; her cümle kodla
@@ -726,11 +728,11 @@ Hero (fiyat başlığı ve lede'si, landing'in fiyat kartı aynen) → Examples 
 - **Kırmızı çizgi:** §4 (anlatım doğruluğu), §7 (sayfa sır taşımaz: anahtar, gerçek IP/koordinat yok — örnek
   ağlar `203.0.113.0/24` belge aralığı)
 - **Commit:** `feat(marketing): add the security page`
-- **Spec:** README §16, envanter B S1–S36 · **Panolar:** `Security` ×3
+- **Spec:** README §16, envanter B sec-S1–sec-S36 · **Panolar:** `Security` ×3
 
 Dört kanıt derinlemesine (bağlantı anatomisi, sayaç satırları, oturum kutuları, /7 genişlik ölçeği, GPS
-yarıçapı), karar merdiveni (+ S36 dipnotu), "Flagged, never dropped", değişmezlik, toplanmayanlar, izolasyon.
-**S35 (EU hosting) KULLANICI KARARINA KADAR PORT EDİLMEZ** (README §16.1): kart, Fact'i ve metni bu kartta
+yarıçapı), karar merdiveni (+ sec-S36 dipnotu), "Flagged, never dropped", değişmezlik, toplanmayanlar, izolasyon.
+**sec-S35 (EU hosting) KULLANICI KARARINA KADAR PORT EDİLMEZ** (README §16.1): kart, Fact'i ve metni bu kartta
 yok; onay gelirse ayrı bir takip kartı ekler.
 
 **Dosyalar.** yeni `web/templates/pages/security.templ` (+ görünüm `.go`; SVG geometrisi Go'da),
@@ -739,12 +741,12 @@ yok; onay gelirse ayrı bir takip kartı ekler.
 `internal/handler/marketing_test.go`, üretilen `*_templ.go`.
 
 **Kabul kriterleri.**
-- S1–S34 ve S36 ortak iddia kuralıyla (README §18: kripto/oturum, kurallar ve karar, kayıtlar, değişmezlik,
+- sec-S1–sec-S34 ve sec-S36 ortak iddia kuralıyla (README §18: kripto/oturum, kurallar ve karar, kayıtlar, değişmezlik,
   gizlilik/izolasyon grupları). Basılan sayılar koddan: debounce ve yarıçap config varsayılanlarından, güven
   puanı motor sabitlerinden, /7 ve /31 `netx` sabitlerinden, "Five of the eleven" `len(policy.Guardrails(…))`'ten,
   merdiven satırları `policy.Guardrails`/`policy.Baseline`'dan. Her biri için **yeni test** (README §19
   tablosu; adlarını yapıcı koyar) + KONTROL (sabit değişince kırmızı).
-- Sayfada "Falkenstein", "Hetzner", "EU-jurisdiction", "Hosted in the EU" **yok** (yeni test; S35 onaylanınca
+- Sayfada "Falkenstein", "Hetzner", "EU-jurisdiction", "Hosted in the EU" **yok** (yeni test; sec-S35 onaylanınca
   kaldırılır).
 - `tappa-security-auditor` ONAY: hiçbir cümle kodun yapmadığını vaat etmez; sır, anahtar biçimi örneği ya da
   gerçek ağ yok.
@@ -755,7 +757,7 @@ yok; onay gelirse ayrı bir takip kartı ekler.
 - **Bağımlılık:** M14-14, M14-20 (paylaşılan Fact'ler: geniş liste, debounce) · **Araç:** yapıcı
   (`tappa-brand`) + ayrı iddia denetçisi
 - **Commit:** `feat(marketing): add the restaurants page`
-- **Spec:** README §17, envanter B R1–R16 · **Panolar:** `ForRestaurants` ×3
+- **Spec:** README §17, envanter B rest-R1–rest-R16 · **Panolar:** `ForRestaurants` ×3
 
 `LandingAudiences` (aynen) üstüne: dokuz mekân karosu, gece vardiyası zaman çizelgesi (Rusty Bar 18:00–02:00,
 17:58 → 02:04, "8h 06m · one shift"), mekân tablosu (gerçek `<table>` + `<caption>`), başka mekânda nöbet,
@@ -765,16 +767,18 @@ yok; onay gelirse ayrı bir takip kartı ekler.
 `web/templates/pages/landingview.go`, `internal/handler/marketing.go`, `web/static/css/input.css`,
 `internal/handler/panelsource_test.go`, `internal/handler/marketing_facts_test.go`, üretilen `*_templ.go`.
 
-**Kabul kriterleri.** R1–R16 ortak iddia kuralıyla (R13 `FactNoAutomaticCheckout` bir **yokluk** Fact'idir:
+**Kabul kriterleri.** rest-R1–rest-R16 ortak iddia kuralıyla (rest-R13 `FactNoAutomaticCheckout` bir **yokluk** Fact'idir:
 `out` yazan her yol bir dokunuş ya da manuel girişten geçer — `FactNoBulkImport` deseni). Gece çizelgesi
 SVG'si Go'da seed vardiyasından hesaplanır; yeni test (bar = Rusty Bar vardiyası, "8h 06m" = defterin süre
 biçimi); Roll lejant sözcükleri `reports.templ`'den. Rota ve CSP testleri, ortak kontroller.
 
 ## M14-22 — `/for/production`
 
-- **Bağımlılık:** M14-14, M14-20 · **Araç:** yapıcı (`tappa-brand`) + ayrı iddia denetçisi
+- **Bağımlılık:** M14-14, M14-20 · **Araç:** yapıcı (`tappa-brand`) + ayrı iddia denetçisi + agent
+  `tappa-security-auditor` (§9: **yeni bir telefon varyantı** — "Hello Anna Farrugia" / "KM Plant", 04:02 —
+  çizilir; geçiş tap ekranının değişmediğini ve kopyanın canlı bileşeni çağırmadığını doğrular)
 - **Commit:** `feat(marketing): add the production page`
-- **Spec:** README §17, envanter B P1–P11 · **Panolar:** `ForProduction` ×3
+- **Spec:** README §17, envanter B fab-P1–fab-P11 · **Panolar:** `ForProduction` ×3
 
 KM Plant kapısında tek plaket, beş departman vardiyası (seed adları), "Same minute, different yardsticks"
 başlığı, departman süzgeçli Pass, kapı kuyruğu (aynı kişinin tekrarı IGNORED, yön NONE), eldiven/un, 64 px
@@ -784,7 +788,7 @@ düğme, telefon çizimi ("Hello Anna Farrugia", "KM Plant").
 `web/templates/pages/landingview.go`, `internal/handler/marketing.go`, `web/static/css/input.css`,
 `internal/handler/marketing_facts_test.go`, üretilen `*_templ.go`.
 
-**Kabul kriterleri.** P1–P11 ortak iddia kuralıyla (`FactRollCountsLateArrivals`, `FactIgnoredTapIsRecorded`,
+**Kabul kriterleri.** fab-P1–fab-P11 ortak iddia kuralıyla (`FactRollCountsLateArrivals`, `FactIgnoredTapIsRecorded`,
 `FactPassAndPeopleFilterByDepartment` …). Vardiya barları seed departmanlarından; geç kalma başlığı
 `tap.MinutesLate` (04:02 / 04:00 → "0h 02m", raporların etiket biçimi); 60 sn config varsayılanından —
 her biri için yeni test + KONTROL. Rota ve CSP testleri, ortak kontroller.
@@ -797,12 +801,16 @@ her biri için yeni test + KONTROL. Rota ve CSP testleri, ortak kontroller.
 - **Commit:** M14-13'ünkü (+ yalnız düzeltme commit'leri)
 
 M14-13'ün maddelerine ek olarak:
+- kart başına yapılmış `tappa-security-auditor` geçişlerinin kaydı: **M14-04** (§9, hero telefonu ve
+  landing.js), **M14-08** (§4.6, vitrin iddiası), **M14-15** (§9, iki telefon), **M14-18** (§9, ürün
+  turundaki telefonlar), **M14-20** (§4/§7, `/security` anlatımı), **M14-22** (§9, üretim sayfasının telefon
+  varyantı) — her biri ONAY'lı; artı bütün M14 diff'i üzerinde son geçiş;
 - beş rota; her genel sayfanın CSP'si (yalnız `/` `script-src` taşır);
 - her-genel-sayfa-bağlantıları testi;
 - yeni yollar üzerinde ölçülmemiş sayı ve iç ad taramaları;
 - README §18'deki her Fact'in türetilmiş + iddia edilmiş + mutasyon kontrollü olması (denetçi
   rastgele beşini bozar);
-- S35'in hâlâ yok olması (ya da kullanıcı onayının tarihi ve kartı);
+- sec-S35'in hâlâ yok olması (ya da kullanıcı onayının tarihi ve kartı);
 - 26 panonun hepsinin 390 / 834 / 1440 ekran turu (telefonda Menu kapalı ve açık);
 - `TestEveryNamedTestExists`;
 - skill `tappa-brand`'e genel sayfa kabuğunun özeti;
