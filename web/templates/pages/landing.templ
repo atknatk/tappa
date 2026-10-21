@@ -89,37 +89,20 @@ const nbsp = "\u00a0 "
 templ Landing(v LandingView) {
 	@layout.MarketingWithScript("Taptime — Punchless time & attendance", layout.RobotsPublic, "/static/js/landing.js") {
 		<div class="lp">
-			@landingNav(v)
-			@landingHero(v)
-			@landingStrip()
-			@landingHow()
-			@landingLedger()
-			@landingSecurity()
-			@landingFits()
-			@landingPricing(v)
-			@landingFAQ()
-			@landingCTA(v)
-			@landingFooter()
-			@landingDemoDialog(v)
+			@PublicChrome(PublicChromeOpts{Current: "/", SignInHref: v.SignInHref, SignupHref: v.SignupHref}) {
+				@landingHero(v)
+				@landingStrip()
+				@landingHow()
+				@landingLedger()
+				@landingSecurity()
+				@landingFits()
+				@landingPricing(v)
+				@landingFAQ()
+				@landingCTA(v)
+				@landingDemoDialog(v)
+			}
 		</div>
 	}
-}
-
-// landingNav is the reference's frosted sticky bar: the green disc wordmark, the
-// in-page links (LandingNav) that hide below 720px, "Sign in" and "Start free".
-templ landingNav(v LandingView) {
-	<nav>
-		<div class="wrap navIn">
-			<a class="wordmark" href="#"><span class="dot" aria-hidden="true"></span>taptime</a>
-			<div class="navLinks">
-				for _, l := range LandingNav {
-					<a href={ templ.URL(l.Href) }>{ l.Label }</a>
-				}
-				<a href={ templ.URL(v.SignInHref) }>Sign in</a>
-				<a class="lp-btn lp-btn-green" href={ templ.URL(v.SignupHref) }>Start free</a>
-			</div>
-		</div>
-	</nav>
 }
 
 // landingHero is the reference's two-column opener: the slogan, the struck-through
@@ -429,28 +412,6 @@ templ landingCTA(v LandingView) {
 	</section>
 }
 
-// landingFooter is the reference's two lines, plus the line the reference did not
-// have: the four legal documents (open-questions Q23 requires them reachable from
-// the footer, and TestMarketing_MountsEveryLegalDocumentAndLinksToIt holds it) and,
-// since M11 DOCS-1, the integration guide (pages.APIGuidePath).
-// They come from LegalPages, the same table internal/handler mounts the routes
-// from — one list, so a document cannot gain a route without a link or a link
-// without a route.
-templ landingFooter() {
-	<footer>
-		<div class="wrap footIn">
-			<span>© 2026 Taptime · Malta 🇲🇹</span>
-			<span>tap in · tap out · that's it</span>
-		</div>
-		<nav class="wrap footLegal" aria-label="Legal and developers">
-			for _, p := range LegalPages {
-				<a href={ templ.URL(p.Path) }>{ p.NavLabel }</a>
-			}
-			<a href={ templ.URL(APIGuidePath) }>API docs</a>
-		</nav>
-	</footer>
-}
-
 // landingDemoDialog is what "Watch demo" opens (2026-09-14). It is NOT in the
 // user's reference — the reference's second button scrolled to "How it works" —
 // and it is drawn in the reference's own language: paper ground, the --line hairline,
@@ -543,10 +504,11 @@ templ landingDemoDialog(v LandingView) {
 
 // marketingChrome is the navigation and the footer the four LEGAL pages and the
 // four SIGN-UP WIZARD screens carry. The landing page does NOT render it any more
-// — it carries the reference's own bar and footer, above.
+// — it carries the shared public chrome (PublicChrome, publicchrome.templ, LP-02),
+// which these screens move onto in LP-11.
 //
-// 🔴 THAT SPLIT IS THE POINT OF THIS COMPONENT NOW. The replication above puts a
-// frosted sticky bar with a green disc and in-page links on /; none of that belongs
+// 🔴 THAT SPLIT IS THE POINT OF THIS COMPONENT NOW. The public chrome puts a
+// sticky bar with a green disc and in-page links on /; none of that belongs
 // on a form somebody is half way through, and none of it was asked for on a legal
 // document. Keeping this shell unchanged is what stops the landing page's chrome
 // leaking onto those eight screens.

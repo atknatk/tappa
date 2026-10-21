@@ -1051,9 +1051,12 @@ var rawHexRE = regexp.MustCompile(`#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{3}\b`)
 // reference's stylesheet keeps them, as tokens on .lp — input.css records why.)
 func TestLanding_UsesOnlyPaletteTokens(t *testing.T) {
 	t.Parallel()
-	src := repoFile(t, "web", "templates", "pages", "landing.templ")
-	if hit := rawHexRE.FindString(src); hit != "" {
-		t.Errorf("landing.templ carries the raw colour %q; the palette is tokens only (skill tappa-brand)", hit)
+	// The shared public chrome (LP-02) renders on this page and is held to the same rule.
+	for _, name := range []string{"landing.templ", "publicchrome.templ"} {
+		src := repoFile(t, "web", "templates", "pages", name)
+		if hit := rawHexRE.FindString(src); hit != "" {
+			t.Errorf("%s carries the raw colour %q; the palette is tokens only (skill tappa-brand)", name, hit)
+		}
 	}
 	body := mustFetchMarketing(t, marketingRouter(t), "/")
 	if hit := rawHexRE.FindString(body); hit != "" {

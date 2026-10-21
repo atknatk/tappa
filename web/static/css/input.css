@@ -1821,24 +1821,6 @@ html:has(.lp) { scroll-behavior: smooth; }
 
 .lp .wrap { max-width: 1140px; margin: 0 auto; padding: 0 24px; }
 
-/* ---------------- nav ---------------- */
-.lp nav { position: sticky; top: 0; z-index: 50; background: rgba(237,240,234,.88); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
-.lp .navIn { display: flex; align-items: center; justify-content: space-between; height: 66px; }
-.lp .wordmark { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 21px; letter-spacing: -.5px; text-decoration: none; }
-.lp .wordmark .dot { width: 30px; height: 30px; border-radius: 50%; background: var(--green); position: relative; flex-shrink: 0; }
-.lp .wordmark .dot::after { content: ''; position: absolute; inset: 6px; border-radius: 50%; border: 2px solid #fff; opacity: .9; }
-.lp .navLinks { display: flex; align-items: center; gap: 28px; font-size: 14.5px; font-weight: 500; }
-.lp .navLinks a { text-decoration: none; color: var(--ink-soft); }
-.lp .navLinks a:hover { color: var(--ink); }
-/* The reference's own cascade leaves the bar's Start free unreadable, and this is
-   the one place this replication departs from it (2026-09-14, measured). Its
-   `.navLinks a` beats `.btn-green` on specificity (0,1,1 over 0,1,0), so the pill's
-   label renders ink-soft on green at 1.35:1 -- the primary call to action, in the
-   bar that follows the reader down the page, with its word effectively invisible.
-   Restoring the pill's own colour puts it back at 7.88:1. Nothing else about the
-   bar moves. */
-.lp .navLinks a.lp-btn-green { color: #fff; }
-.lp .navLinks a.lp-btn-green:hover { color: #fff; }
 .lp .lp-btn { display: inline-block; font-family: var(--disp); font-weight: 700; font-size: 15px; text-decoration: none; border-radius: 12px; padding: 13px 24px; transition: transform .12s ease, box-shadow .12s ease; cursor: pointer; border: none; }
 .lp .lp-btn:active { transform: scale(.98); }
 .lp .lp-btn-green { background: var(--green); color: #fff; box-shadow: 0 4px 14px rgba(31,92,65,.28); }
@@ -1851,8 +1833,6 @@ html:has(.lp) { scroll-behavior: smooth; }
 .lp .lp-btn-withIcon svg { flex-shrink: 0; }
 .lp .lp-btn-ghost { background: transparent; color: var(--ink); border: 2px solid var(--ink); padding: 11px 22px; }
 .lp .lp-btn-ghost:hover { background: var(--ink); color: #fff; }
-.lp .navLinks .lp-btn { padding: 10px 18px; font-size: 14px; }
-@media (max-width: 720px) { .lp .navLinks a:not(.lp-btn) { display: none; } }
 
 /* ---------------- hero ---------------- */
 .lp .hero { padding: 84px 0 70px; overflow: hidden; }
@@ -1996,14 +1976,6 @@ html:has(.lp) { scroll-behavior: smooth; }
 .lp .footCta .ringBg { position: absolute; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.14); pointer-events: none; }
 .lp .footCta .ringBg--one { width: 420px; height: 420px; top: -190px; left: -140px; }
 .lp .footCta .ringBg--two { width: 280px; height: 280px; bottom: -120px; right: -80px; }
-.lp footer { padding: 44px 0 60px; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
-.lp .footIn { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; align-items: center; }
-/* The legal line is not the reference's either (open-questions Q23): the same
-   type scale as the two lines above it, and each link reserved to the 44px floor
-   every target in this product holds. */
-.lp .footLegal { display: flex; gap: 22px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
-.lp .footLegal a { display: inline-flex; align-items: center; min-height: 44px; text-decoration: underline; text-underline-offset: 3px; }
-.lp .footLegal a:hover { color: var(--ink); }
 
 @media (prefers-reduced-motion: reduce) {
   .lp .scene.play .tapPulse, .lp .scene.play .lp-docket { animation: none; }
@@ -2122,10 +2094,10 @@ html:has(.lp) { scroll-behavior: smooth; }
    prefers-reduced-motion: no-preference, like the demo dialog's above.
 
    ⚠️ FOR THE NEXT CARDS: the reference block's ELEMENT rules still reach anything
-   placed inside .lp -- `.lp nav` (sticky, blurred, bordered: it would hit the
-   menu's panel and the footer columns), `.lp footer`, `.lp section`, `.lp h1`,
-   `.lp h2`. They belong to the reference's nav, footer and sections and go with
-   them (LP-02 … LP-05).
+   placed inside .lp -- `.lp section`, `.lp h1`, `.lp h2`. They belong to the
+   reference's sections and go with them (LP-03 … LP-05). `.lp nav` and `.lp
+   footer` went with the reference's bar and footer in LP-02 (the public chrome
+   below draws both with classes).
    ========================================================================= */
 
 /* ---------------- grounds ---------------- */
@@ -2298,4 +2270,100 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 @media (prefers-reduced-motion: no-preference) {
   .lp details.qa .pl { transition: transform .2s; }
   .lp .fitcard { transition: border-color .15s; }
+}
+
+/* =========================================================================
+   THE PUBLIC CHROME (LP-02, 2026-10-21)
+
+   The header, the phone menu, the phone's Start free bar and the footer that
+   every public board draws, rendered by pages.PublicChrome
+   (web/templates/pages/publicchrome.templ). One DOM for every width: the phone
+   shows Sign in, Start free and the Menu; from 768px the page links and a hairline
+   join them and the Menu goes (details.menu's own rule above). The reference's
+   bar and footer, and their `.lp nav` / `.lp footer` element rules, are gone --
+   everything here is a class, so nothing reaches the menu's panel or the footer's
+   columns by element name.
+
+   The boards' inline values are these rules, digit for digit, at the product's
+   breakpoints (base = phone, 768 = tablet, 1200 = desktop). Two departures, each
+   for the floor every public target holds: the footer's column links are 44px (the
+   board drew 40), and the skip link the boards do not draw (README §4.8) is a
+   44px paper chip that appears on focus.
+
+   The footer takes no top margin: the band above it ends on its own bottom padding
+   (.band), which is the gap the boards draw between the last section and the rule.
+   ========================================================================= */
+
+/* ---------------- skip link ---------------- */
+.lp .lp-skip { position: absolute; left: 16px; top: 8px; z-index: 20; display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border: 1.5px solid var(--ink); border-radius: 8px; background: var(--paper); color: var(--ink); font-weight: 700; font-size: 14px; text-decoration: none; transform: translateY(-200%); }
+.lp .lp-skip:focus { transform: none; }
+
+/* ---------------- header ---------------- */
+/* Sticky, and positioned for the open menu's panel to hang from (top: 60px). */
+.lp .lp-head { position: sticky; top: 0; z-index: 5; background: rgb(var(--porcelain-ch) / .94); border-bottom: 1px solid var(--line); }
+.lp .lp-headIn { display: flex; align-items: center; justify-content: space-between; gap: 6px; height: 60px; padding: 0 12px 0 16px; }
+.lp .lp-mark { display: flex; align-items: center; gap: 9px; min-height: 44px; min-width: 0; color: var(--ink); text-decoration: none; }
+.lp .lp-markDot { flex: none; position: relative; display: inline-block; width: 26px; height: 26px; border-radius: 50%; background: var(--green); }
+.lp .lp-markDot::after { content: ''; position: absolute; inset: 5px; border-radius: 50%; border: 2px solid var(--paper); opacity: .92; }
+.lp .lp-markWords { display: flex; flex-direction: column; gap: 1px; }
+.lp .lp-markName { font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+.lp .lp-markTag { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; line-height: 1.4; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-headEnd { display: flex; align-items: center; gap: 4px; }
+.lp .lp-headNav { display: flex; align-items: center; gap: 4px; }
+/* The page links and the hairline are the tablet's and the desktop's; the phone
+   reaches the pages through the Menu. */
+.lp .lp-headNav .navlink,
+.lp .lp-headNav .lp-headSep { display: none; }
+.lp .lp-headSep { width: 1px; height: 22px; background: var(--line); }
+/* Sign in (States-Public: green, underlined; hover ink; pressed ink, thicker). */
+.lp .lp-signin { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; font-weight: 700; font-size: 14px; color: var(--green); text-decoration: underline; text-underline-offset: 4px; }
+.lp .lp-signin:hover { color: var(--ink); }
+.lp .lp-signin:active { color: var(--ink); text-decoration-thickness: 2px; }
+.lp .lp-signin:focus-visible,
+.lp .lp-mark:focus-visible { border-radius: 6px; }
+/* The phone's header button is the slimmer one the board draws. */
+.lp .lp-head .hbtn { padding: 0 12px; box-shadow: none; }
+@media (min-width: 768px) {
+  .lp .lp-headIn { height: auto; min-height: 68px; gap: 12px; padding: 0 40px; }
+  .lp .lp-mark { gap: 10px; }
+  .lp .lp-markDot { width: 28px; height: 28px; }
+  .lp .lp-markDot::after { inset: 6px; }
+  .lp .lp-markWords { flex-direction: row; align-items: center; gap: 10px; }
+  .lp .lp-markName { font-size: 24px; line-height: 1.2; }
+  .lp .lp-markTag { font-size: 11px; letter-spacing: .14em; padding-top: 4px; }
+  .lp .lp-headEnd,
+  .lp .lp-headNav { gap: 18px; }
+  .lp .lp-headNav .navlink { display: inline-flex; }
+  .lp .lp-headNav .lp-headSep { display: block; }
+  .lp .lp-signin { padding: 0 2px; }
+  .lp .lp-head .hbtn { padding: 0 18px; box-shadow: 0 4px 14px rgb(var(--green-ch) / .22); }
+}
+@media (min-width: 1200px) {
+  .lp .lp-headIn { max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); }
+  .lp .lp-headEnd,
+  .lp .lp-headNav { gap: 26px; }
+}
+
+/* ---------------- phone menu's panel ---------------- */
+.lp .lp-menuHead { display: block; padding: 10px 0 4px; }
+.lp .lp-menuList { display: flex; flex-direction: column; }
+.lp .mlink svg { flex: none; color: var(--green); }
+
+/* ---------------- footer ---------------- */
+.lp .lp-foot { border-top: 1px solid var(--line); }
+.lp .lp-footIn { display: flex; flex-direction: column; gap: 28px; padding: 40px 16px; }
+.lp .lp-footAbout { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.lp .lp-footMark { display: flex; align-items: center; gap: 10px; }
+.lp .lp-markDot.lp-markDot--sm { width: 22px; height: 22px; }
+.lp .lp-markDot.lp-markDot--sm::after { inset: 4px; }
+.lp .lp-footCopy { font-family: var(--mono); font-size: 12px; color: rgb(var(--ink-ch) / .8); }
+.lp .lp-footLine { font-family: var(--mono); font-size: 12px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-footNote { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-width: 460px; }
+.lp .lp-footNote p { font-size: 14px; line-height: 1.55; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-fcolHead { padding-bottom: 6px; }
+@media (min-width: 768px) {
+  .lp .lp-footIn { display: grid; grid-template-columns: minmax(0, 1fr) 230px 160px; gap: 32px; padding: 40px; }
+}
+@media (min-width: 1200px) {
+  .lp .lp-footIn { grid-template-columns: minmax(0, 1fr) 260px 200px; gap: 48px; max-width: 1180px; margin: 0 auto; padding: 40px clamp(16px, 3vw, 40px); }
 }

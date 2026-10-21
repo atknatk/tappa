@@ -407,6 +407,55 @@ var LandingNav = []NavLink{
 	{Label: "Pricing", Href: "#pricing"},
 }
 
+// --- the public chrome's link table (LP-02) ----------------------------------------
+//
+// THE ONE PLACE THE PUBLIC HEADER, THE PHONE MENU AND THE FOOTER TAKE THEIR LINKS
+// FROM (docs/plan/lp-landing-redesign.md, LP-02). Three lists, each already the
+// table its routes are mounted from or about to be:
+//
+//   - the header's three entries: LandingNav, above;
+//   - the Product column of the footer and of the phone menu: PublicProductLinks,
+//     below, in the boards' order;
+//   - the Legal column: LegalPages, the table internal/handler mounts the four
+//     documents from.
+//
+// 🔴 A LINK ARRIVES WITH ITS ROUTE, NEVER BEFORE (plan decision O8). The Product
+// column names all six entries the boards draw, but an entry whose Href is "" is a
+// page that is not mounted yet and the chrome renders NOTHING for it — no label, no
+// placeholder link. The card that mounts a page (LP-06 … LP-10) fills its Href in
+// the same commit, and TestMarketing_EveryInternalLinkResolves then follows it.
+// Filling an Href before the route exists is a red test, not a dead link.
+
+// PublicLink is one entry of the public chrome's Product column.
+type PublicLink struct {
+	Label string
+	// Href is the mounted route, or "" while the page does not exist.
+	Href string
+}
+
+// PublicProductLinks is the Product column of the footer and the phone menu, in the
+// boards' order. Today only the integration guide is mounted.
+var PublicProductLinks = []PublicLink{
+	{Label: "Product tour"},
+	{Label: "Security"},
+	{Label: "Pricing"},
+	{Label: "For restaurants & bars"},
+	{Label: "For production & facilities"},
+	{Label: "API docs", Href: APIGuidePath},
+}
+
+// MountedPublicLinks is the entries of ls whose route is mounted, in order — what the
+// chrome actually draws.
+func MountedPublicLinks(ls []PublicLink) []PublicLink {
+	out := make([]PublicLink, 0, len(ls))
+	for _, l := range ls {
+		if l.Href != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
 // --- lines --------------------------------------------------------------------------
 
 // Line is one sentence of copy paired with the product facts it rests on. It is

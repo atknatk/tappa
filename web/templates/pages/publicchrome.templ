@@ -1,0 +1,157 @@
+package pages
+
+// THE PUBLIC SITE'S SHARED CHROME (LP-02, 2026-10-21): the header, the phone menu,
+// the phone's Start free bar and the footer every public board draws
+// (docs/design/landing-redesign/boards, README §3, §6). One component, so the
+// landing page today and the five new pages, sign-up, the legal documents and the
+// integration guide later (LP-06 … LP-11) cannot drift apart.
+//
+// ONE DOM FOR EVERY WIDTH. The header is written once; the phone shows its sign-in
+// pair and the Menu, the tablet and the desktop show the page links beside the same
+// pair, and the stylesheet decides which (input.css, the LP-02 section). The menu
+// lists the Product column, not the header's entries, so no link is written twice
+// for two widths.
+//
+// THE LINKS COME FROM ONE TABLE (landingview.go): the header's three from
+// LandingNav, the Product column from PublicProductLinks (mounted entries only —
+// a page arrives with its route, plan decision O8), the Legal column from
+// LegalPages. Nothing here types a path but the home page's.
+//
+// IT RENDERS INSIDE THE CALLER'S .lp ROOT: every class it uses is a .lp rule, and
+// the reset at the top of that block would beat Tailwind's spacing utilities, so
+// none are written here. No style attribute, no colour value: the page is served with
+// style-src 'self'.
+//
+// THE MENU NEEDS NO SCRIPT: it is a native <details>; the summary reads Menu while
+// closed and Close while open.
+
+// PublicChromeOpts is what a public page tells the chrome about itself.
+type PublicChromeOpts struct {
+	// Current is the page's own path. A header, menu or footer entry pointing at it
+	// carries aria-current="page"; the landing page passes "/", which no entry names.
+	Current string
+	// SignInHref is the panel's sign-in page (internal/handler owns where it is).
+	SignInHref string
+	// SignupHref is the wizard, or "" while it is not mounted: then neither the
+	// header nor the phone bar draws a Start free.
+	SignupHref string
+	// NoPhoneBar leaves the phone's Start free bar out. Sign-up sets it (the boards
+	// draw the bar on every public phone page except Signup).
+	NoPhoneBar bool
+}
+
+// PublicChrome wraps a public page's content in the shared header and footer.
+templ PublicChrome(c PublicChromeOpts) {
+	<a class="lp-skip" href="#main">Skip to content</a>
+	@publicHeader(c)
+	<main id="main">
+		{ children... }
+	</main>
+	@publicFooter(c)
+	if c.SignupHref != "" && !c.NoPhoneBar {
+		<div class="mbar">
+			<a class="hbtn" href={ templ.URL(c.SignupHref) }>Start free</a>
+		</div>
+	}
+}
+
+// publicHeader is the bar at the top. Its first <nav> carries the page links, Sign
+// in and Start free — TestLandingNav_EveryLinkPointsAtASectionOnThePage reads that
+// element as the bar.
+templ publicHeader(c PublicChromeOpts) {
+	<header class="lp-head" aria-label="Site">
+		<div class="lp-headIn">
+			<a class="lp-mark" href="/">
+				<span class="lp-markDot" aria-hidden="true"></span>
+				<span class="lp-markWords"><span class="lp-markName">taptime</span><span class="lp-markTag">punchless</span></span>
+			</a>
+			<div class="lp-headEnd">
+				<nav class="lp-headNav" aria-label="Main">
+					for _, l := range LandingNav {
+						<a
+							class="navlink"
+							href={ templ.URL(l.Href) }
+							if l.Href == c.Current {
+								aria-current="page"
+							}
+						>{ l.Label }</a>
+					}
+					<span class="lp-headSep" aria-hidden="true"></span>
+					<a class="lp-signin" href={ templ.URL(c.SignInHref) }>Sign in</a>
+					if c.SignupHref != "" {
+						<a class="hbtn" href={ templ.URL(c.SignupHref) }>Start free</a>
+					}
+				</nav>
+				<details class="menu">
+					<summary><span class="mopen">Menu</span><span class="mclose">Close</span></summary>
+					<nav aria-label="Menu">
+						<span class="lp-lbl lp-menuHead">Pages</span>
+						<div class="lp-menuList">
+							for _, l := range MountedPublicLinks(PublicProductLinks) {
+								<a
+									class="mlink"
+									href={ templ.URL(l.Href) }
+									if l.Href == c.Current {
+										aria-current="page"
+									}
+								>
+									<span>{ l.Label }</span>
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"></path></svg>
+								</a>
+							}
+						</div>
+					</nav>
+				</details>
+			</div>
+		</div>
+	</header>
+}
+
+// publicFooter is the brand, the red-line sentence and the two link columns.
+//
+// 🔴 THE MIDDLE SENTENCE IS marketingChrome's, WORD FOR WORD, AND STAYS ON ONE LINE:
+// redline-check.sh's R1 is line-local and clears it only because the denial it
+// recognises sits on the same line (see the comment above marketingChrome, and ADR
+// 0012). The sentence after it is the position promise of CLAUDE.md §4.2.
+//
+// No emoji: the old landing footer's flag is not on the boards.
+templ publicFooter(c PublicChromeOpts) {
+	<footer class="lp-foot">
+		<div class="lp-footIn">
+			<div class="lp-footAbout">
+				<span class="lp-footMark"><span class="lp-markDot lp-markDot--sm" aria-hidden="true"></span><span class="lp-footCopy">© 2026 Taptime · Malta</span></span>
+				<span class="lp-footLine">tap in · tap out · that's it</span>
+				<div class="lp-footNote">
+					<span class="lp-lbl">Taptime</span>
+					<p>
+						Punchless time and attendance.
+						Taptime collects no biometric data of any kind: no fingerprints, no face, no voice.
+						A phone's position is read only at the moment somebody presses the button.
+					</p>
+				</div>
+			</div>
+			<nav class="fcol" aria-label="Product">
+				<span class="lp-lbl lp-fcolHead">Product</span>
+				for _, l := range MountedPublicLinks(PublicProductLinks) {
+					<a
+						href={ templ.URL(l.Href) }
+						if l.Href == c.Current {
+							aria-current="page"
+						}
+					>{ l.Label }</a>
+				}
+			</nav>
+			<nav class="fcol" aria-label="Legal">
+				<span class="lp-lbl lp-fcolHead">Legal</span>
+				for _, p := range LegalPages {
+					<a
+						href={ templ.URL(p.Path) }
+						if p.Path == c.Current {
+							aria-current="page"
+						}
+					>{ p.NavLabel }</a>
+				}
+			</nav>
+		</div>
+	</footer>
+}

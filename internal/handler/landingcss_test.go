@@ -46,7 +46,11 @@ func splitLandingCSS(css string) (before, block, problem string) {
 	if at < 0 {
 		return "", "", fmt.Sprintf("PREMISE: input.css has no %q header", landingCSSMarker)
 	}
-	start := strings.LastIndex(css[:at], "/*")
+	// The opener is spelled in two halves: cmd/tappa's TestEveryNamedTestExists strips
+	// block comments from test sources before it collects declarations, and a bare
+	// opener here paired with a closer in the control below and hid that control's
+	// declaration from it.
+	start := strings.LastIndex(css[:at], "/"+"*")
 	if start < 0 || !strings.Contains(css[start:], landingCSSComponentsMarker) {
 		return "", "", fmt.Sprintf("PREMISE: the .lp block carries no %q section", landingCSSComponentsMarker)
 	}
@@ -403,6 +407,9 @@ func TestLandingCSS_EveryPressableClassReservesTheTouchFloor(t *testing.T) {
 		".lp .flink":                 44,
 		".lp .fcol a":                44,
 		".lp details.qa > summary":   44,
+		".lp .lp-signin":             44,
+		".lp .lp-mark":               44,
+		".lp .lp-skip":               44,
 	} {
 		best := 0
 		for _, r := range landingCSSRulesFor(rules, sel) {
