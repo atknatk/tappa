@@ -390,8 +390,20 @@ templ landingStepIcon(icon StepIcon) {
 // ONE MARKUP AT EVERY WIDTH. M-Landing draws the phone's comparison as a list of
 // rows under two labelled chips rather than as three columns; that is the same
 // markup laid out by the stylesheet below 768px (the head row turns into the two
-// chips, each body row into a stack), so the words exist once and a screen reader
-// on a wide screen still meets real data cells under their column headers.
+// chips, each body row into a stack), so the words exist once.
+//
+// 🔴 THE ROLES ARE WRITTEN OUT BECAUSE THE PHONE'S LAYOUT WOULD OTHERWISE ERASE THEM.
+// Below 768px every element here takes a box or a row of chips instead of its
+// native display, and some browser and screen reader pairs then stop exposing the
+// rows and columns at all. Every element carries the role it has natively -- the whole,
+// its two row groups, its rows, two column headers, a row header per aspect and the
+// cells -- so a reader on a phone still hears "Biometric data" as the heading of
+// its row and each answer under its column. The empty corner is a plain cell, not
+// an empty header. TestLandingLedger_KeepsItsRolesWhenThePhoneRestacksIt.
+//
+// Each chip carries a drawn mark (the boards' ✗ and ✓), shown only on the phone,
+// where the chips stand apart from the cells they label; it is decoration with no
+// name, and the cells keep their own typed marks.
 templ landingLedger() {
 	<div class="band band--ink">
 		<section class="lp-sec">
@@ -400,20 +412,30 @@ templ landingLedger() {
 					<p class="lp-eyebrow lp-secEyebrow">Why switch</p>
 					<h2 class="lp-h2">Retire the fingerprint box.</h2>
 					<p class="lp-lede">You know the routine: enrollment queues for every new hire, a dead device blinding a whole site, sensors that refuse kitchen hands.</p>
-					<table class="lp-ledger">
-						<thead>
-							<tr>
-								<th></th>
-								<th scope="col" class="lp-ledgerNo">Fingerprint / card devices</th>
-								<th scope="col" class="lp-ledgerYes">Taptime</th>
+					<table class="lp-ledger" role="table">
+						<thead role="rowgroup">
+							<tr role="row">
+								<td role="cell" class="lp-ledgerCorner"></td>
+								<th scope="col" role="columnheader" class="lp-ledgerHead lp-ledgerNo">
+									<svg class="lp-ledgerMark" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true" focusable="false">
+										<path d="M6 6l12 12M18 6 6 18"></path>
+									</svg>
+									Fingerprint / card devices
+								</th>
+								<th scope="col" role="columnheader" class="lp-ledgerHead lp-ledgerYes">
+									<svg class="lp-ledgerMark" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+										<path d="M5 12.5l4.2 4.2L19 7"></path>
+									</svg>
+									Taptime
+								</th>
 							</tr>
 						</thead>
-						<tbody>
+						<tbody role="rowgroup">
 							for _, row := range LandingComparison {
-								<tr>
-									<td class="lp-ledgerAspect">{ row.Aspect }</td>
-									<td class="lp-ledgerNo"><span class="lp-ledgerCell"><span>✗</span><span>{ row.Terminal }</span></span></td>
-									<td class="lp-ledgerYes"><span class="lp-ledgerCell"><span>✓</span><span>{ row.Tappa }</span></span></td>
+								<tr role="row">
+									<th scope="row" role="rowheader" class="lp-ledgerAspect">{ row.Aspect }</th>
+									<td role="cell" class="lp-ledgerNo"><span class="lp-ledgerCell"><span>✗</span><span>{ row.Terminal }</span></span></td>
+									<td role="cell" class="lp-ledgerYes"><span class="lp-ledgerCell"><span>✓</span><span>{ row.Tappa }</span></span></td>
 								</tr>
 							}
 						</tbody>
@@ -501,7 +523,8 @@ templ landingFits() {
 //
 // The boards' "Pricing in detail" link under the card waits for /pricing (README
 // O8 -- LP-06 adds the page and the link together). The founding chip's words are
-// ink on the saffron tint, as the boards set them: saffron words measure 2.62:1.
+// ink on the saffron tint, as the boards set them: saffron words on that tint
+// measure 2.27:1.
 templ landingPricing(v LandingView) {
 	<div class="band band--paper">
 		<section id="pricing" class="lp-sec">

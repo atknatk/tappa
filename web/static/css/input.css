@@ -2454,16 +2454,16 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-ledger th,
 .lp .lp-ledger td { display: block; }
 .lp .lp-ledger { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+.lp .lp-ledger th { text-align: left; }
 .lp .lp-ledger thead tr { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-.lp .lp-ledger th { padding: 4px 10px; border: 1px solid rgb(var(--paper-ch) / .25); border-radius: 999px; font-family: var(--mono); font-size: 11px; font-weight: 400; letter-spacing: .1em; text-transform: uppercase; text-align: left; color: rgb(var(--paper-ch) / .75); }
-.lp .lp-ledger th:first-child { display: none; }
-.lp .lp-ledger th.lp-ledgerYes { border-color: rgb(var(--mint-ch) / .5); color: var(--mint); }
-/* M-Landing prints a mark before each chip's words. It is not drawn here: a mark
-   would be text the stylesheet generates, and words on the screen come from a
-   template (TestCompiledCSS_GeneratesNoText); each cell below carries its own. */
+.lp .lp-ledger .lp-ledgerCorner { display: none; }
+.lp .lp-ledger .lp-ledgerHead { padding: 4px 10px; border: 1px solid rgb(var(--paper-ch) / .25); border-radius: 999px; font-family: var(--mono); font-size: 11px; font-weight: 400; letter-spacing: .1em; text-transform: uppercase; color: rgb(var(--paper-ch) / .75); }
+.lp .lp-ledger .lp-ledgerHead.lp-ledgerYes { border-color: rgb(var(--mint-ch) / .5); color: var(--mint); }
+/* The chip's mark, drawn (M-Landing's ✗ and ✓): the phone is where a chip stands
+   apart from the cells it labels. No generated text -- TestCompiledCSS_GeneratesNoText. */
+.lp .lp-ledger .lp-ledgerMark { display: inline-block; margin-right: 6px; vertical-align: 0; }
 .lp .lp-ledger tbody tr { display: flex; flex-direction: column; gap: 8px; padding: 16px 0; border-top: 1px solid rgb(var(--paper-ch) / .12); }
-.lp .lp-ledger td { padding: 0; }
-.lp .lp-ledger td.lp-ledgerAspect { font-size: 15px; font-weight: 700; color: var(--paper); }
+.lp .lp-ledger .lp-ledgerAspect { font-size: 15px; font-weight: 700; color: var(--paper); }
 .lp .lp-ledger td.lp-ledgerNo,
 .lp .lp-ledger td.lp-ledgerYes { font-family: var(--mono); font-size: 13px; line-height: 1.5; }
 .lp .lp-ledger td.lp-ledgerNo { color: rgb(var(--paper-ch) / .62); }
@@ -2538,14 +2538,17 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
   .lp .lp-ledger thead tr,
   .lp .lp-ledger tbody tr { display: table-row; margin: 0; padding: 0; border-top: 0; }
   .lp .lp-ledger th,
-  .lp .lp-ledger th:first-child,
-  .lp .lp-ledger td { display: table-cell; }
-  .lp .lp-ledger th,
-  .lp .lp-ledger th.lp-ledgerYes { padding: 14px 16px; border: 0; border-bottom: 1px solid rgb(var(--paper-ch) / .18); border-radius: 0; font-size: 11px; font-weight: 700; letter-spacing: .16em; }
-  .lp .lp-ledger th { color: rgb(var(--paper-ch) / .6); }
-  .lp .lp-ledger th:first-child { width: 24%; }
-  .lp .lp-ledger td { padding: 15px 16px; border-bottom: 1px solid rgb(var(--paper-ch) / .1); vertical-align: top; }
-  .lp .lp-ledger td.lp-ledgerAspect { padding-left: 0; font-size: 14.5px; font-weight: 400; line-height: 1.5; color: rgb(var(--paper-ch) / .82); }
+  .lp .lp-ledger td,
+  .lp .lp-ledger .lp-ledgerCorner { display: table-cell; }
+  .lp .lp-ledger .lp-ledgerMark { display: none; }
+  .lp .lp-ledger .lp-ledgerCorner,
+  .lp .lp-ledger .lp-ledgerHead,
+  .lp .lp-ledger .lp-ledgerHead.lp-ledgerYes { padding: 14px 16px; border: 0; border-bottom: 1px solid rgb(var(--paper-ch) / .18); border-radius: 0; font-size: 11px; font-weight: 700; letter-spacing: .16em; }
+  .lp .lp-ledger .lp-ledgerHead { color: rgb(var(--paper-ch) / .6); }
+  .lp .lp-ledger .lp-ledgerCorner { width: 24%; }
+  .lp .lp-ledger tbody th,
+  .lp .lp-ledger tbody td { padding: 15px 16px; border-bottom: 1px solid rgb(var(--paper-ch) / .1); vertical-align: top; }
+  .lp .lp-ledger .lp-ledgerAspect { padding-left: 0; font-size: 14.5px; font-weight: 400; line-height: 1.5; color: rgb(var(--paper-ch) / .82); }
   .lp .lp-ledgerCell { grid-template-columns: 22px minmax(0, 1fr); }
 
   .lp .lp-proofs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -2571,7 +2574,7 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
   .lp .lp-stepTitle { margin-top: 4px; }
 
   .lp .lp-ledgerBox { padding: 56px 52px; }
-  .lp .lp-ledger th:first-child { width: 26%; }
+  .lp .lp-ledger .lp-ledgerCorner { width: 26%; }
 
   .lp .lp-proofs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 

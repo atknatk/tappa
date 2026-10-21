@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -586,7 +587,7 @@ func TestLandingSteps_EveryStepIsRenderedInOrder(t *testing.T) {
 
 	// Each card's icon is a line drawing, in the step's own place (LP-04: the
 	// reference's emoji became the boards' drawings, README §6).
-	for _, p := range stepIconProblems(mustFetchMarketing(t, marketingRouter(t), "/"), pages.LandingSteps) {
+	for _, p := range stepIconProblems(mustFetchMarketing(t, marketingRouter(t), "/"), pages.LandingSteps, landingStepIcons) {
 		t.Error(p)
 	}
 
@@ -617,30 +618,50 @@ func TestLandingSteps_EveryStepIsRenderedInOrder(t *testing.T) {
 // stepIconRE finds a step's icon tile and what it holds, up to the tile's end.
 var stepIconRE = regexp.MustCompile(`(?s)data-step-icon="([^"]*)">(.*?)</span>`)
 
-// stepIconProblems says what is wrong with the steps' icons on the rendered page: a
-// step whose icon is not one of the drawings the template knows, tiles missing or out
-// of the steps' order, a tile with no drawing in it, or an emoji anywhere in the
-// page's text -- the drawing replaced the emoji, and an emoji's shape and colour
-// would be the reader's font's, not the page's.
-func stepIconProblems(body string, steps []pages.Step) []string {
+// landingStepIcons is the drawing each step shows, in the steps' order, written HERE
+// and not read from pages.LandingSteps: the plaque on "Stick the plaque", the
+// envelope on "Invite your team", the phone at the tap on "Tap in, tap out". A test
+// that compared each tile with its own step's Icon would agree with any order the
+// view file chose (measured at review: two swapped Icons left the suite green).
+var landingStepIcons = []pages.StepIcon{pages.StepIconPlaque, pages.StepIconInvite, pages.StepIconTap}
+
+// stepIconStrokes is one stroke of each drawing that the other two do not have, so
+// a tile labelled "plaque" that draws the envelope is caught too.
+var stepIconStrokes = map[pages.StepIcon]string{
+	pages.StepIconPlaque: `d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"`,
+	pages.StepIconInvite: `d="M3.8 6.6 12 12.8l8.2-6.2"`,
+	pages.StepIconTap:    `d="M19.8 6.6a8 8 0 0 1 0 10.8"`,
+}
+
+// stepIconProblems says what is wrong with the steps' icons: a step whose Icon is not
+// the one want names for its place, tiles missing or out of that order, a tile whose
+// drawing is not the one its label names, or an emoji anywhere in the page's text --
+// the drawing replaced the emoji, and an emoji's shape and colour would be the
+// reader's font's, not the page's.
+func stepIconProblems(body string, steps []pages.Step, want []pages.StepIcon) []string {
 	var out []string
-	known := map[pages.StepIcon]bool{pages.StepIconPlaque: true, pages.StepIconInvite: true, pages.StepIconTap: true}
-	tiles := stepIconRE.FindAllStringSubmatch(body, -1)
-	if len(tiles) != len(steps) {
-		out = append(out, fmt.Sprintf("the page carries %d step icon tile(s) for %d step(s)", len(tiles), len(steps)))
+	if len(steps) != len(want) {
+		out = append(out, fmt.Sprintf("%d step(s) for %d expected drawing(s)", len(steps), len(want)))
 	}
 	for i, s := range steps {
-		if !known[s.Icon] {
-			out = append(out, fmt.Sprintf("step %d's icon %q is not a drawing the template knows", i+1, s.Icon))
+		if i < len(want) && s.Icon != want[i] {
+			out = append(out, fmt.Sprintf("step %d (%q) shows the %q drawing; it is the %q one", i+1, s.Title, s.Icon, want[i]))
 		}
-		if i >= len(tiles) {
-			continue
+	}
+	tiles := stepIconRE.FindAllStringSubmatch(body, -1)
+	if len(tiles) != len(want) {
+		out = append(out, fmt.Sprintf("the page carries %d step icon tile(s) for %d step(s)", len(tiles), len(want)))
+	}
+	for i, tile := range tiles {
+		if i < len(want) && pages.StepIcon(tile[1]) != want[i] {
+			out = append(out, fmt.Sprintf("tile %d is labelled %q; step %d is the %q drawing", i+1, tile[1], i+1, want[i]))
 		}
-		if pages.StepIcon(tiles[i][1]) != s.Icon {
-			out = append(out, fmt.Sprintf("tile %d holds the %q drawing; step %d is %q", i+1, tiles[i][1], i+1, s.Icon))
-		}
-		if !strings.Contains(tiles[i][2], "<svg") {
-			out = append(out, fmt.Sprintf("step %d's icon tile holds no drawing", i+1))
+		stroke, known := stepIconStrokes[pages.StepIcon(tile[1])]
+		switch {
+		case !known:
+			out = append(out, fmt.Sprintf("tile %d is labelled %q, a drawing this test does not know", i+1, tile[1]))
+		case !strings.Contains(tile[2], "<svg") || !strings.Contains(tile[2], stroke):
+			out = append(out, fmt.Sprintf("tile %d is labelled %q and does not draw it", i+1, tile[1]))
 		}
 	}
 	for _, r := range tagRE.ReplaceAllString(body, " ") {
@@ -656,26 +677,110 @@ func stepIconProblems(body string, steps []pages.Step) []string {
 // control: each way of undoing the drawings is reported, the page as built is not.
 func TestLandingSteps_IconCheckRefusesAMissingDrawingOrAnEmoji(t *testing.T) {
 	t.Parallel()
-	steps := []pages.Step{{Icon: pages.StepIconPlaque}, {Icon: pages.StepIconInvite}}
-	tile := func(icon, inner string) string {
-		return `<span class="lp-ico" data-step-icon="` + icon + `">` + inner + `</span>`
+	want := []pages.StepIcon{pages.StepIconPlaque, pages.StepIconInvite}
+	steps := []pages.Step{{Title: "A", Icon: pages.StepIconPlaque}, {Title: "B", Icon: pages.StepIconInvite}}
+	tile := func(icon pages.StepIcon, inner string) string {
+		return `<span class="lp-ico" data-step-icon="` + string(icon) + `">` + inner + `</span>`
 	}
-	good := tile("plaque", "<svg></svg>") + tile("invite", "<svg></svg>")
-	if got := stepIconProblems(good, steps); len(got) != 0 {
+	draw := func(icon pages.StepIcon) string { return "<svg><path " + stepIconStrokes[icon] + "></path></svg>" }
+	good := tile(pages.StepIconPlaque, draw(pages.StepIconPlaque)) + tile(pages.StepIconInvite, draw(pages.StepIconInvite))
+	if got := stepIconProblems(good, steps, want); len(got) != 0 {
 		t.Fatalf("CONTROL: the drawn steps are reported: %q", got)
 	}
 	for name, body := range map[string]string{
-		"an emoji in place of a drawing": tile("plaque", "\U0001F3F7\uFE0F") + tile("invite", "<svg></svg>"),
-		"a tile missing":                 tile("plaque", "<svg></svg>"),
-		"the tiles swapped":              tile("invite", "<svg></svg>") + tile("plaque", "<svg></svg>"),
+		"an emoji in place of a drawing": tile(pages.StepIconPlaque, "\U0001F3F7\uFE0F") + tile(pages.StepIconInvite, draw(pages.StepIconInvite)),
+		"a tile missing":                 tile(pages.StepIconPlaque, draw(pages.StepIconPlaque)),
+		"the tiles swapped":              tile(pages.StepIconInvite, draw(pages.StepIconInvite)) + tile(pages.StepIconPlaque, draw(pages.StepIconPlaque)),
+		"a label over another drawing":   tile(pages.StepIconPlaque, draw(pages.StepIconInvite)) + tile(pages.StepIconInvite, draw(pages.StepIconPlaque)),
 		"an emoji elsewhere in the text": good + "<p>\u2709\uFE0F</p>",
 	} {
-		if len(stepIconProblems(body, steps)) == 0 {
+		if len(stepIconProblems(body, steps, want)) == 0 {
 			t.Errorf("CONTROL %s: not reported", name)
 		}
 	}
-	if len(stepIconProblems(good, []pages.Step{{Icon: "emoji"}, {Icon: pages.StepIconInvite}})) == 0 {
+	swapped := []pages.Step{{Title: "A", Icon: pages.StepIconInvite}, {Title: "B", Icon: pages.StepIconPlaque}}
+	swappedPage := tile(pages.StepIconInvite, draw(pages.StepIconInvite)) + tile(pages.StepIconPlaque, draw(pages.StepIconPlaque))
+	if len(stepIconProblems(swappedPage, swapped, want)) == 0 {
+		t.Error("CONTROL two steps' icons swapped in the view (and so on the page): not reported")
+	}
+	if len(stepIconProblems(good, []pages.Step{{Icon: "emoji"}, {Icon: pages.StepIconInvite}}, want)) == 0 {
 		t.Error("CONTROL a step icon the template does not know: not reported")
+	}
+}
+
+// ledgerRoleRE finds an element of the comparison and its explicit role.
+var ledgerRoleRE = regexp.MustCompile(`<(table|thead|tbody|tr|th|td)\b([^>]*)>`)
+
+// roleAttrRE reads an element's explicit role from its attributes.
+var roleAttrRE = regexp.MustCompile(`\brole="([^"]*)"`)
+
+// ledgerRoleProblems says what is missing from the comparison's explicit roles, for
+// rows body rows: one table, two row groups, a row per head and body row, two column
+// headers, a row header per row, and a cell for the corner and each answer. Below
+// 768px the stylesheet takes every one of these elements off its native display, and
+// a browser may then stop exposing the grid unless each role is written out.
+func ledgerRoleProblems(body string, rows int) []string {
+	start := strings.Index(body, `<table class="lp-ledger"`)
+	if start < 0 {
+		return []string{"the page carries no comparison (<table class=\"lp-ledger\">)"}
+	}
+	end := strings.Index(body[start:], "</table>")
+	if end < 0 {
+		return []string{"the comparison is not closed"}
+	}
+	seg := body[start : start+end]
+	got := map[string]int{}
+	var out []string
+	for _, m := range ledgerRoleRE.FindAllStringSubmatch(seg, -1) {
+		role := roleAttrRE.FindStringSubmatch(m[2])
+		if role == nil {
+			out = append(out, fmt.Sprintf("a <%s> in the comparison carries no role", m[1]))
+			continue
+		}
+		got[m[1]+"="+role[1]]++
+	}
+	for k, n := range map[string]int{
+		"table=table": 1, "thead=rowgroup": 1, "tbody=rowgroup": 1, "tr=row": rows + 1,
+		"th=columnheader": 2, "th=rowheader": rows, "td=cell": 1 + 2*rows,
+	} {
+		if got[k] != n {
+			out = append(out, fmt.Sprintf("the comparison has %d %s, want %d", got[k], k, n))
+		}
+		delete(got, k)
+	}
+	for k, n := range got {
+		out = append(out, fmt.Sprintf("the comparison has %d unexpected %s", n, k))
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TestLandingLedger_KeepsItsRolesWhenThePhoneRestacksIt: the comparison's rows and
+// columns stay exposed when the phone's layout restacks it. CONTROL: a role removed,
+// a row header demoted to a cell, no roles at all, and the corner as an empty
+// header are each reported.
+func TestLandingLedger_KeepsItsRolesWhenThePhoneRestacksIt(t *testing.T) {
+	t.Parallel()
+	body := mustFetchMarketing(t, marketingRouter(t), "/")
+	for _, p := range ledgerRoleProblems(body, len(pages.LandingComparison)) {
+		t.Error(p)
+	}
+
+	good := `<table class="lp-ledger" role="table"><thead role="rowgroup"><tr role="row">` +
+		`<td role="cell"></td><th role="columnheader">a</th><th role="columnheader">b</th></tr></thead>` +
+		`<tbody role="rowgroup"><tr role="row"><th role="rowheader">x</th><td role="cell">1</td><td role="cell">2</td></tr></tbody></table>`
+	if got := ledgerRoleProblems(good, 1); len(got) != 0 {
+		t.Fatalf("CONTROL: a right comparison is reported: %q", got)
+	}
+	for name, b := range map[string]string{
+		"a role removed":                strings.Replace(good, ` role="rowgroup"`, "", 1),
+		"a row header demoted":          strings.Replace(good, `<th role="rowheader">`, `<td role="cell">`, 1),
+		"no roles at all":               regexp.MustCompile(` role="[^"]*"`).ReplaceAllString(good, ""),
+		"the corner as an empty header": strings.Replace(good, `<td role="cell"></td>`, `<th role="columnheader"></th>`, 1),
+	} {
+		if len(ledgerRoleProblems(b, 1)) == 0 {
+			t.Errorf("CONTROL %s: not reported", name)
+		}
 	}
 }
 
