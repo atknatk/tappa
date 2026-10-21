@@ -77,5 +77,8 @@ a browser keeps a face for a year without asking again, which is what stopped th
 fallback-face flash on every navigation. So bytes under an existing name must never
 change — keep the upstream version in the name (`-v22-`, `-v20-`) and put new bytes
 under a new one. `TestStaticImmutableRule_OnlyVersionedNames` refuses a `.woff2`
-here without `-vNN-`. Every other `/static` file is `no-cache` with a SHA-256 ETag:
-cached, revalidated per navigation, `304` while unchanged.
+here without `-vNN-`. Every other `/static` file is pinned the same way only under
+the URL the pages write for it, `/static/<name>?v=<first 16 hex of its SHA-256>`
+(`web.AssetURL`), so a deploy that changes `app.css` or a script changes the URL;
+requested bare or with any other query it is `no-cache` with a SHA-256 ETag —
+cached, revalidated, `304` while unchanged.

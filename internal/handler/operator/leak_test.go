@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -110,7 +111,8 @@ const neverLogItems = 12
 // four digits; the legal list's byte counts are of the arms' short texts and its times
 // are dates; the plaque screen's fixture uids are chosen with no such run -- OP-13: a uid
 // with a run of zeros in it matched G2's wrong-code member on A60's page), so a code found
-// was put there.
+// was put there. The digit runs the process makes on its own -- the clock's timestamps, random
+// UUIDs, the QR path's fill colour -- are masked for an all-digit needle (machineDigits).
 const minNeedle = 6
 
 // renderings are the SEARCHED forms, numbered; each turns a member into ONE needle. Each
@@ -206,12 +208,40 @@ type leakHit struct {
 	group, value, rendering string
 }
 
+// machineDigits are the digit runs a surface carries that the process makes on its own and no
+// value of an arm can be written into: an RFC 3339 timestamp (the JSON handler prints the
+// clock's nanoseconds -- nine digits, four six-digit windows a line), a canonical UUID (the
+// arms' random ids, printed by design) and the QR path's fill colour. An all-digit needle (a
+// TOTP code, or its hex form) is searched with them masked: otherwise a code that happened to
+// equal a window of the clock was a red run with no leak in it (measured: the time key held
+// 16:05:51.634325549). Only these exact shapes are masked; a code next to one, or in a "time"
+// attribute the product added, is outside the match and still found
+// (TestLeak_ANumericMemberIsNotFoundInTheClockOrAnID).
+var machineDigits = regexp.MustCompile(
+	`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})` +
+		`|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}` +
+		`|fill="#[0-9A-Fa-f]{6}"`)
+
+func allDigits(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return s != ""
+}
+
 // hits is every member found in text under any rendering.
 func (s *leakSet) hits(text string) []leakHit {
 	var out []leakHit
+	masked := machineDigits.ReplaceAllLiteralString(text, "<machine>")
 	for _, m := range s.members {
 		for _, r := range renderings {
-			if n := r.fn(m.value); len(n) >= minNeedle && strings.Contains(text, n) {
+			n, in := r.fn(m.value), text
+			if allDigits(n) {
+				in = masked
+			}
+			if len(n) >= minNeedle && strings.Contains(in, n) {
 				out = append(out, leakHit{group: m.group, value: m.value, rendering: r.name})
 			}
 		}
@@ -1506,4 +1536,64 @@ func containsValue(list []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// TestLeak_ANumericMemberIsNotFoundInTheClockOrAnID pins the scan's one carve-out, both ways.
+// A member whose needle is all digits -- a six-digit TOTP code, or its hex form -- is searched
+// with the process's own digit runs masked (machineDigits): the clock's timestamps (the JSON
+// handler prints nanoseconds, nine digits, so a code sat inside one now and then and the
+// contract went red on a leak that was not one), canonical UUIDs (the arms' random ids) and
+// the QR path's fill colour. The same code written by the product -- in a message, in an
+// attribute, in either handler's shape, right next to the masked digits -- is still found.
+func TestLeak_ANumericMemberIsNotFoundInTheClockOrAnID(t *testing.T) {
+	const code = "123456"
+	set := &leakSet{}
+	set.add(gCode, code)
+	at := time.Date(2026, 10, 21, 16, 5, 51, 123456789, time.UTC)
+	const id = "9b095f4f-4132-486d-bf9b-a12345678bcd"
+	stamp := func(l *slog.Logger) {
+		t.Helper()
+		if err := l.Handler().Handle(context.Background(), slog.NewRecord(at, slog.LevelInfo, "http.request", 0)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The clock: a record stamped 16:05:51.123456789, through the contract's own capture.
+	var b bytes.Buffer
+	stamp(debugCapture(&b))
+	if !strings.Contains(b.String(), `"time":"2026-10-21T16:05:51.123456789Z"`) {
+		t.Fatalf("PREMISE: the JSON handler did not print the record's nanoseconds:\n%s", b.String())
+	}
+	quiet := map[string]string{
+		"the clock":  b.String(),
+		"an id":      `holding_id=` + id + ` session_id="` + id + `"`,
+		"a QR fill":  `<path d="M0 0h1z" fill="#123456">`,
+		"the offset": `at=2026-10-21T16:05:51.123456+12:34`,
+	}
+	for name, text := range quiet {
+		if got := set.hits(text); len(got) != 0 {
+			t.Errorf("%s: the code is reported inside the process's own digits: %+v", name, got)
+		}
+	}
+
+	// The product's leaks, each in a capture that also holds the clock's digits.
+	leaks := map[string]func(l *slog.Logger){
+		"message":           func(l *slog.Logger) { l.Info("code " + code + " refused") },
+		"attribute":         func(l *slog.Logger) { l.Info("refused", "code", code) },
+		"bytes attribute":   func(l *slog.Logger) { l.Debug("refused", "b", []byte(code)) },
+		"digits around it":  func(l *slog.Logger) { l.Info("refused", "n", "9"+code+"9") },
+		"hex form":          func(l *slog.Logger) { l.Info("refused", "x", fmt.Sprintf("%x", code)) },
+		"after a timestamp": func(l *slog.Logger) { l.Info(at.Format(time.RFC3339Nano) + code) },
+		"after an id":       func(l *slog.Logger) { l.Info(id + code) },
+		"as a time attr":    func(l *slog.Logger) { l.Info("refused", "time", code) },
+	}
+	for name, leak := range leaks {
+		var lb bytes.Buffer
+		l := debugCapture(&lb)
+		stamp(l)
+		leak(l)
+		if len(set.hits(lb.String())) == 0 {
+			t.Errorf("%s: a code the product wrote is not found", name)
+		}
+	}
 }
