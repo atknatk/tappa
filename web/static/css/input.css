@@ -2290,8 +2290,10 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
    board drew 40), and the skip link the boards do not draw (README §4.8) is a
    44px paper chip that appears on focus.
 
-   The footer takes no top margin: the band above it ends on its own bottom padding
-   (.band), which is the gap the boards draw between the last section and the rule.
+   The footer takes no top margin: the gap above its rule belongs to the section
+   before it. Today that is still the reference's `.lp section` (92px top and bottom
+   at every width, where the boards draw 56 / 72 / 96px); when LP-04/LP-05 move the
+   sections onto .band, its bottom padding becomes that gap.
    ========================================================================= */
 
 /* ---------------- skip link ---------------- */

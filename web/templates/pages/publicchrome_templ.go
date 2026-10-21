@@ -137,7 +137,7 @@ func publicHeader(c PublicChromeOpts) templ.Component {
 			templ_7745c5c3_Var3 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<header class=\"lp-head\" aria-label=\"Site\"><div class=\"lp-headIn\"><a class=\"lp-mark\" href=\"/\"><span class=\"lp-markDot\" aria-hidden=\"true\"></span> <span class=\"lp-markWords\"><span class=\"lp-markName\">taptime</span><span class=\"lp-markTag\">punchless</span></span></a><div class=\"lp-headEnd\"><nav class=\"lp-headNav\" aria-label=\"Main\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<header class=\"lp-head\" aria-label=\"Site\"><div class=\"lp-headIn\"><a class=\"lp-mark\" href=\"/\"><span class=\"lp-markDot\" aria-hidden=\"true\"></span> <span class=\"lp-markWords\"><span class=\"lp-markName\">taptime</span><span class=\"lp-markTag\">punchless</span></span></a><div class=\"lp-headEnd\"><nav class=\"lp-headNav\" aria-label=\"Primary\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

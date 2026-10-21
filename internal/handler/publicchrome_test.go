@@ -87,7 +87,7 @@ func TestPublicChrome_TheMenuAndTheFooterListOnlyMountedRoutesFromTheTable(t *te
 		t.Errorf("the page renders %d phone menu(s), want one <details class=\"menu\">", n)
 	}
 	// Header and menu are named landmarks.
-	for _, label := range []string{"Main", "Menu", "Product", "Legal"} {
+	for _, label := range []string{"Primary", "Menu", "Product", "Legal"} {
 		if chromeSegment(body, label) == "" {
 			t.Errorf("no <nav aria-label=%q> on the page", label)
 		}
@@ -194,12 +194,12 @@ func TestPublicChrome_ThePhoneBarIsTheWizardsAndCanBeLeftOut(t *testing.T) {
 func TestPublicChrome_TheFooterStatesTheTwoRedLines(t *testing.T) {
 	t.Parallel()
 	const (
-		biometric = "Taptime collects no biometric data of any kind: no fingerprints, no face, no voice."
-		position  = "A phone's position is read only at the moment somebody presses the button."
+		noBodyData = "Taptime collects no biometric data of any kind: no fingerprints, no face, no voice."
+		promise    = "A phone's position is read only at the moment somebody presses the button."
 	)
 	landing := mustFetchMarketing(t, marketingRouter(t), "/")
 	footer := screenText(t, "<body>"+between(landing, "<footer", "</footer>")+"</body>")
-	for _, s := range []string{biometric, position} {
+	for _, s := range []string{noBodyData, promise} {
 		if !strings.Contains(footer, s) {
 			t.Errorf("the footer does not say %q", s)
 		}
@@ -207,7 +207,7 @@ func TestPublicChrome_TheFooterStatesTheTwoRedLines(t *testing.T) {
 	src := repoFile(t, "web", "templates", "pages", "publicchrome.templ")
 	oneLine := false
 	for _, line := range strings.Split(src, "\n") {
-		if strings.Contains(line, biometric) {
+		if strings.Contains(line, noBodyData) {
 			oneLine = true
 		}
 	}
