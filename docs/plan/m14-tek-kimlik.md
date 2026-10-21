@@ -294,6 +294,10 @@ sıcak tablodur. Rolü migration'da yaratmak R5b'yi kırar.
 - Mutasyon: kimlik eşitliği, `status='active'`, eski oturum iptali silinince; audit'e hedef eklenince
   → kırmızı.
 
+**ONAY sonrası yükümlülük (754f36f, not 1).** Katalog testinin EXECUTE izin listesi
+`identity_reconcile()`'ı **tek istisna** olarak adıyla taşır (`EXECUTE` yalnız `tappa_owner`); öbür her
+`identity_*` / `resolve_*` için `EXECUTE` yalnız `tappa_app`.
+
 ## M14-05 — Parola, sıfırlama, bağlama, çözme, doğrulama, olay fonksiyonları
 
 - **Bağımlılık:** M14-03
@@ -347,7 +351,7 @@ tenant-kapsamsız kuralları) + ADR 0031 §5.2'deki `identity_password_for_sessi
   identity.email`, `unlinked_at >= confirm_opened_at` (yalnız bu pencerede reddedilmiş), pencere açık;
   taze oturum + parola yeniden girişi; o tenant'ta kimliğin başka üyeliği varsa (`UNIQUE (tenant_id,
   identity_id)`) 0; özgün `linked_at` korunur → satır pencerenin geri kalanında listede kalır. Pencere
-  kapanınca 0 (üyelik ancak yeni bir davetle döner).
+  kapanınca 0 (üyelik ancak yeni bir davetle döner; kabul aynı satırı yeniden bağlar — M14-15).
 - Tetikleyicinin ikinci kolu (M14-03) ile birlikte: reddedilmiş satırın digest'ini `tappa_app` ya da
   `tappa_owner` sıfırlama tüketimiyle değiştiremez (S8).
 - `identity_verify_email` (R2, S16): tıklayan tarayıcıda token'ı isteyen **kimliğin** canlı bir oturumu
@@ -627,6 +631,14 @@ yanıtı, zamanlaması ve davet listesindeki durumu iki durumda aynı (R18) · h
 INSERT'i aynı e-posta kilidi + `ON CONFLICT DO NOTHING`; eşzamanlı davet kabulü + kayıt onayı → 500 yok
 (S13).
 
+**ONAY sonrası yükümlülük (754f36f, not 3).** 00006'nın kısmi `UNIQUE (tenant_id, email)`'i
+(`00006:96-97`) reddedilmiş bir satır e-postasını koruduğu için "davetle yeni satır" imkânsızdır: tenant'ta
+aynı adresle reddedilmiş satır varsa davet kabulü **o satırı** yeniden bağlar (owner daveti + kimlik
+oturumu + posta kutusu kanıtı). Adres işletmede zaten etkin bir üyeliğe aitse yanıt tek tip ("address
+already in this business"), sızıntısız. Test: reddedilmiş satır + yeni davet + kabul → aynı `id` yeniden
+bağlı; `identity_relink_refused`'ın "arada davetle doğmuş üyelik" dalı bu yüzden oluşamaz (savunma olarak
+kalır).
+
 ## M14-16 — Üyelik yönetimi
 
 - **Bağımlılık:** M14-15
@@ -638,6 +650,13 @@ INSERT'i aynı e-posta kilidi + `ON CONFLICT DO NOTHING`; eşzamanlı davet kabu
 **Kabul kriterleri.** Yüzey bayrakla kapılı. Owner o işletmedeki üyeliği `disabled` yapar → yalnız o tenant'ın oturumları
 düşer (iki tenant'lı test); son aktif owner düşürülemez/indirilemez (eşzamanlı iki indirme testi);
 devir iki adım, her adım audit'te; kimliği etkileyen hiçbir yol yok.
+
+**ONAY sonrası yükümlülük (754f36f, not 4).** Contract sonrası "çöz" (bağ korunur +
+`unlinked_at` + `status='disabled'`) son-owner değişmeziyle şöyle uzlaşır: contract öncesi çözmeyle **aynı
+uyarı, izin ver** (kişinin kendi kararı; ADR 0031 §5.2). Değişmez bir veritabanı tetikleyicisi olarak
+yazılırsa `tappa_identitydefiner`'ın bu yolunu durdurmaz (adlandırılmış istisna, testli); panelin
+"devre dışı bırak" yolu `unlinked_at` damgalı satırı yeniden **açamaz** (oturum yolları `unlinked_at IS
+NULL` süzer).
 
 ## M14-17 — Kayıt: e-posta doğrulaması ve var olan adres
 
@@ -793,6 +812,14 @@ tarihsel olarak işaretlenir; **eski binary (M14-19 sürümü) bu binary'nin şe
   satırlarda digest `NULL`; çözme yalnız `created_at < contract anı` satırlarda (CHECK ile tutarlı).
 - Down kimlik digest'ini satırlara geri kopyalar, eski tetikleyiciyi geri koyar ve davetle doğmuş NULL
   satırları doldurmadan `NOT NULL`'u geri getirmez (ADR 0031 §8).
+
+**ONAY sonrası yükümlülük (754f36f, not 2).** Contract sonrası çözme yalnız `status='disabled'`a
+**dayanmaz** (`tappa_app`'ın `UPDATE (status)`'u var, `00017:380-381`; M14-16'nın panel yolu yeniden
+açabilirdi): `identity_unlink_backfilled`'ın yeni gövdesi `identity_id`'yi korur, `unlinked_at`'i damgalar
+**ve** `status='disabled'` yapar; `identity_memberships`, `identity_switch_session`,
+`identity_open_session` ve `TouchAdminSession` `unlinked_at IS NULL` süzer. Test: çözülen satırı başka
+bir owner panelden `active` yapar → kişi yine geçemez/giremez. Bu yol son-owner değişmezinin bilinçli
+istisnasıdır (M14-16).
 
 ---
 
