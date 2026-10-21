@@ -42,7 +42,9 @@ jobs:
     # `go test -timeout=20m` is per package, so its worst case is cmd/tappa at 20:00 -- but the
     # two worst cases cannot both happen in one run without a hang, and a hang is what the dump
     # is for: 28:15 + ~8:00 for the sandbox step's ordinary run = ~36:15, under 45.
-    timeout-minutes: 45
+    # 45 -> 55 with `make test`'s -timeout 20m -> 30m (Makefile, 2026-10-21): 8:15 + 30:00 =
+    # 38:15 at worst for `make check`, + ~8:00 for the sandbox step = ~46:15, under 55.
+    timeout-minutes: 55
     env:
       # `make build` statik ikili icin CGO_ENABLED=0 ister ama CI `make build`
       # KOSMAZ. CI'nin kostugu `make check` -> `go test -race` kosar ve -race,

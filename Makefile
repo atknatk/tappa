@@ -272,8 +272,14 @@ require-db-env:
 # goroutine dump naming the test. It has an upper bound too: the dump only reaches the
 # log if go's alarm fires before the CI job's timeout-minutes, which ci.yml sizes from
 # this value. test-short and cover are not CI paths and keep go's default.
+# 20m -> 30m (2026-10-21): the slowest package is now cmd/tappa, not operator. On the
+# runner it measured 686 s and 1092 s on two green runs (39552149529, 39515681171) and
+# crossed 1200 s twice in a row on main at e3c91c6 (run 39554900143, both attempts) with
+# no test hung -- the dump shows the parallel tests waiting, TestEveryNamedTestExists
+# running. 1800 s is ~1.6x the slowest green run; the next bump should split the package.
+# check-sandbox keeps 20m: its cmd/tappa run is ~1 min (the script tests are skipped).
 test: require-db-env
-	go test -race -count=1 -timeout=20m ./...
+	go test -race -count=1 -timeout=30m ./...
 
 ## check-sandbox: sandbox derlemesi (-tags sandbox; ADR 0028 §11) — vet + staticcheck tum agac, test etikete bagli paketler
 # NEDEN TUM SUIT DEGIL: etiket yalniz SANDBOX_TEST_PKGS'teki paketlerin derlemesini degistirir —
