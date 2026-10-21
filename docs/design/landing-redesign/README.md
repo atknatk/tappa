@@ -30,7 +30,9 @@ Inline `style="…"` everywhere (never copied — §3), `{{binding}}` placeholde
 `<script type="text/x-dc">` with the sample data. Props: the three `Landing` boards take
 `ticket` = `maria | kevin | anna | luke` (landing.js's four records); the two `LandingDemo` boards
 take `state` = `soon` (what ships today) `| video`. Links on the boards are `href="#"` (board
-convention); the port uses the real targets named below. The boards were generated from one source
+convention); the port uses the real targets named below. `canvas.json` is kept in the repo's compact
+single-line form (as it always was); a pretty-printed copy is the same layout, but keep the compact one so
+its diff stays one line. The boards were generated from one source
 outside the repo; treat them as read-only references, and where a board and this README disagree,
 this README (which cites the code) wins.
 
@@ -128,13 +130,19 @@ CSP `style-src 'self'` (no inline style in templ), no `img-src` (inline SVG only
   show **one** record: the phone's greeting name (`pName`), the phone's venue (`pLoc`) and the plaque's
   venue · uid line (`pPlaque`). Same file, no new file, nothing else new (table in §6.2). This
   overrides LP-4's "no new JS" for these three writes only.
-- **R-2 — The FAQ's API wording ships separately**, on branch **`claude/fix-landing-faq-api`**
-  (commit `1054fea`, *fix(landing): name the integration API in the FAQ*; not yet in this branch or in
-  `main` at `945b6b9`). It rewrites FAQ Q4 and Q5 (§6.10), retires the `FactNoIntegrationAPI` tripwire
-  (it only scanned `/api…` literals, so it never saw `/v1`) and adds three API Facts plus a scanner test
-  that fails while a public page says "no API" and `/v1` is mounted. **M14 does not re-implement it.**
-  The FAQ card (M14-10) depends on that branch being merged first, or carries exactly its wording and
-  tests (the card says how).
+- **R-2 — The FAQ's API wording ships separately**, on branch **`claude/fix-landing-faq-api`** (not
+  yet in this branch or in `main` at `945b6b9`). The branch **starts** at `1054fea` (*fix(landing): name
+  the integration API in the FAQ*, on top of `ab85193`) and already has follow-ups (`88e5379`, *widen the
+  no-API scan and derive holding webhooks*); it may get more. It rewrites FAQ Q4 and Q5 (§6.10), retires
+  the `FactNoIntegrationAPI` tripwire (it only scanned `/api…` literals, so it never saw `/v1`) and adds
+  three API Facts plus a scanner test that fails while a public page says "no API" and `/v1` is mounted
+  (the Landing-prefixed `…ClaimsNoAbsentAPIWhileV1IsMounted` test — spelled without its prefix here
+  because `TestEveryNamedTestExists` refuses a test name that does not exist on this branch yet).
+  **M14 does not re-implement it.** The dependency is the **branch tip at merge time**, carried whole
+  (the range `ab85193..<tip>`), never one pinned commit. M14-10 (FAQ) depends on it, and it should merge
+  **before M14-08** too: the FAQ fix and the panel showcase both edit `landingview.go` (Facts) and
+  `internal/handler/marketing_facts_test.go` — merging it first turns a two-sided conflict into a rebase
+  of M14-08 alone.
 
 ---
 
@@ -175,8 +183,9 @@ CSP `style-src 'self'` (no inline style in templ), no `img-src` (inline SVG only
     landing on `.lp` classes, except inside `marketingChromeWith` (Tailwind already).
 12. **Tests during a card:** only the changed tests with `-run`, plus `gofmt`, build and
     `scripts/redline-check.sh`; the full `-race` suite and `make check` once, before the commit
-    (CLAUDE.md §10). `make gen` + `make css` after every `.templ` / `input.css` edit; generated files
-    are committed.
+    (CLAUDE.md §10). `make gen` + `make css` after every `.templ` / `input.css` edit. The committed
+    generated files are the `*_templ.go` files only; `web/static/css/app.css` is gitignored and built by
+    `make css` (CI and the image build it), so it is never committed.
 
 ---
 
@@ -210,7 +219,7 @@ and claimed) · `TestLandingFAQ_EveryAnswerRestsOnAProductFact` ·
 `TestLanding_OffersTheWizardItMounts` · `TestAnchorMechanisms_SayNoWhenTheCapabilityIsAbsent` ·
 `TestLandingAudiences_EveryClaimRestsOnAProductAnchor` · `TestLandingAudiences_EveryClaimIsActuallyRendered` ·
 `TestLandingAudiences_SayNothingAboutTheTwoBreakdownsThatDoNotExist` ·
-`TestLanding_ReducedMotionLeavesTheDocketVisible` ·
+`TestLanding_ReducedMotionLeavesTheDocketVisible` (today it scans only signup's `docket-print`; M14-04 extends it to the landing) ·
 `TestLegalPages_NavigationMarksTheCurrentDocumentAndWhatIsNotInForce` (legal pages wear marketingChrome)
 
 **`internal/handler/marketingdemo_test.go`** — the opener `<a id="demoOpen" href="#how">`, the
@@ -251,7 +260,10 @@ animation string, the empty state, the video/poster, the media policy, no dialog
 - `web/templates/pages/landingview_test.go` holds nothing on the landing (legal only).
 
 **Deliberate updates in the port** (each in the card that causes it, intent kept, nothing loosened):
-`Step.Icon` emoji → an icon key (M14-05) · the panel-showcase values get Facts and a
+`Step.Icon` emoji → an icon key, and `TestLandingSteps_EveryStepIsRenderedInOrder`'s icon assertion
+becomes a per-step icon-key check with a control (M14-05) · `tapring`/`printout` move inside
+`no-preference` and `TestLanding_ReducedMotionLeavesTheDocketVisible` is extended to the landing docket
+with a control (M14-04) · the panel-showcase values get Facts and a
 rendered-and-claimed test (M14-08) · the rotation gets three targets and a test that every id landing.js
 writes exists exactly once (M14-04; today **no** test pins the rotation's targets) · the brand golden
 changes if `.p-brand` is recoloured (M14-01) · marketingChrome gains the ring (M14-02).
@@ -265,7 +277,8 @@ The `.lp` block declares the palette as custom properties (`css:1763`): `--ink #
 `--saffron #D98E2B`, `--saffron-lite #F7EBD6`, `--tomato #BE3D2A`, `--line #C9D2C8`, and `--mint
 #8FD3AF` (allowed: plaque wave, ink-section accents). Those stay. Everything else is retired and
 expressed as a token plus opacity (`rgb(21 34 25 / .8)` etc. — plain CSS, the block is not Tailwind).
-Board values in brackets.
+Board values in brackets. **18 hex values and 5 off-palette `rgba()` values** (white and the two dark
+shadow inks are not palette colours).
 
 | Retire | Used at (today) | Replace with |
 |---|---|---|
@@ -284,6 +297,12 @@ Board values in brackets.
 | `#7A9484` | `.p-loc` | paper at .62 |
 | `#F2F5EF` | `.plaque` text | paper |
 | `#fff` | `::selection`, `.dot::after`, button text | paper |
+| `#E9EFE9` | `.lp .ledgerWrap` text (`css:~1901`, the ink comparison panel) | paper at .92 (or paper) |
+| `rgba(255,255,255,.7)` | `.footCta .lp-btn-onGreen` border (`css:~1972`) | paper at .70 |
+| `rgba(255,255,255,.14)` | `.footCta .ringBg` border (`css:~1975`) | paper at .15 |
+| `rgba(15,25,18,.35)` | plaque and demo dialog shadow (`css:~1851`, `~2027`) | ink at .35 |
+| `rgba(15,25,18,.62)` | `.demoDialog::backdrop` (`css:~2030`) | ink at .62 |
+| `rgba(20,30,22,.18)` | `.lp-docket` shadow (`css:~1866`) | ink at .20 (or .18) |
 
 Contrast rules from the panel carry over: text at least ink/.70 on paper (6.05:1); "STEP n" is ink/.70,
 **not saffron** (saffron text on paper is 2.62:1); ink/.50 is for borders only. On ink grounds, paper
@@ -315,7 +334,7 @@ Section order keeps the reference (LP-0): header → hero → strip → how → 
 | How it works · Security · Pricing | `LandingNav` (`view:383`) | EXISTS (`#how`, `#security`, `#pricing`); hidden below 720 px |
 | Sign in | `LandingView.SignInHref` (`landing.templ:118`) | CHANGED: visible at **every** width (LP-2.1). Hide only the three anchors. |
 | Start free | `LandingView.SignupHref` (`:119`) | EXISTS; the redesign's green rounded-12 button |
-| Sticky, porcelain .94, hairline | `css` (`.lp nav`) | EXISTS |
+| Sticky, porcelain .88 + blur, hairline | `css:1804` (`.lp nav`, `rgba(237,240,234,.88)`) | EXISTS (the board's porcelain/.94 is a mock-up value; keep the code's .88 or move to .94 as one decision, either is the porcelain token) |
 
 ### 6.2 Hero (`landingHero` `:145`, `landingScene` `:196`)
 
@@ -324,7 +343,7 @@ Section order keeps the reference (LP-0): header → hero → strip → how → 
 | Eyebrow "Time & attendance for shift teams" | `:149` | EXISTS |
 | H1 "Punchless. / Every shift starts with a tap." | `:150` | EXISTS (60 / 58 / 40 px) |
 | Lede | `LandingHeroLede` (`view:403`) | EXISTS |
-| Creed "No app. No device. No fingerprints. Just tap." | `:152` | CHANGED: Plex Mono **400**; struck words ink/.70 with a tomato strike; "Just tap." 700 ink; each phrase `nowrap`. Readable text stays exactly the slogan (`TestLanding_CarriesTheSlogan`). |
+| Creed "No app. No device. No fingerprints. Just tap." | `:152` | CHANGED: Plex Mono **400**; struck words ink/.70 with a tomato strike; "Just tap." 700 ink; each phrase `nowrap`. Readable text stays exactly the slogan (`TestLanding_CarriesTheSlogan`). The 400 weight is M14-01; the per-phrase `nowrap`, the 700 on "Just tap." and the ink/.70 strike colour are **M14-04**. |
 | "Start free — 3 months on us" | `:154`, `FreeMonths` | EXISTS |
 | "Watch demo" `<a id="demoOpen" href="#how">` + play icon | `:155`, `landingPlayIcon` `:177` | EXISTS (pinned by `marketingdemo_test.go`; keep the existing icon) |
 | Foot line | `LandingHeroFoot` (`view:410`) | EXISTS |
@@ -348,22 +367,33 @@ The two new uids are invented, like 91AC-7E55 (a drawing, not a record — the e
 `landing.templ:184–195` says so and is extended). The first record is the server-rendered one. The
 phone's accessible name must not go stale: keep its `role="img"` label generic ("The employee's own phone
 showing the tap screen") — do not put the rotating name in `aria-label`.
-**Animation:** the boards are static. Keep the tap pulse and the print-out loop (`tapring`/`printout`,
-declared only inside `prefers-reduced-motion: no-preference` —
-`TestLanding_ReducedMotionLeavesTheDocketVisible`); the print-out reveals the ticket **downward from the
-rail**, not over the plaque.
+**Animation — today (measured at `945b6b9`).** `tapring` and `printout` are declared at the **top level**
+of the `.lp` block (`.lp .scene.play .tapPulse { animation: tapring … }` `css:~1862`,
+`.lp .scene.play .lp-docket { animation: printout … }` `css:~1867`). `.lp .lp-docket` **starts clipped**
+(`clip-path: inset(0 0 100% 0)`, `css:~1866`), and only the `prefers-reduced-motion: reduce` block at
+`css:~1987–1990` undoes it (`animation: none; clip-path: none`). That is the hazard the signup docket was
+fixed for: drop or rename the reduce block and a reader who asked for less motion sees no ticket.
+`TestLanding_ReducedMotionLeavesTheDocketVisible` does **not** guard this — it scans only signup's
+`docket-print` rule.
+**Animation — the port (M14-04).** The boards are static. Keep the tap pulse and the print-out loop, but
+move **both** animations (and the clipped starting state) **inside** `@media (prefers-reduced-motion:
+no-preference)`; outside it the docket is fully visible by default and the reduce block is no longer
+needed. Extend `TestLanding_ReducedMotionLeavesTheDocketVisible` (or add a described test) to cover
+`printout`, `tapring` and the `.lp-docket` clip, with a control that puts today's top-level rule back and
+goes red. The print-out reveals the ticket **downward from the rail**, not over the plaque.
 
 ### 6.3 Pilot strip (`landingStrip` `:231`)
 
 "Piloting with teams in Malta · KEBAB FACTORY LTD. — 9 locations · KEBAB MANUFACTURING CO. — 5
-departments" — EXISTS. Ground paper/.55 (today `#F4F6F1`). Phone: centred and stacked.
+departments" — EXISTS. Ground paper/.55 (today `#F4F6F1`, retired in M14-01). Phone: centred and stacked
+(**M14-09** — the strip has no card of its own and rides with the fits/pricing restyle).
 
 ### 6.4 How it works (`#how`, `landingHow` `:242`)
 
 | Element | Source | Status |
 |---|---|---|
 | Eyebrow / H2 / lede | `:245–247`, `LandingSetupLede` (`view:419`) | EXISTS |
-| Three cards | `LandingSteps` (`view:484`; `Step.Icon` `view:474`) | CHANGED: the emoji (🏷️ ✉️ 📶) become line icons (§8.3: plaque, envelope, phone with waves) in a 44 px green-lite tile. Port: replace `Icon string` with an icon key and draw the SVG in templ (a `switch` on the key). No test pins the emoji. "STEP n" ink/.70. Tablet: the cards become rows. |
+| Three cards | `LandingSteps` (`view:484`; `Step.Icon` `view:474`) | CHANGED: the emoji (🏷️ ✉️ 📶) become line icons (§8.3: plaque, envelope, phone with waves) in a 44 px green-lite tile. Port: replace `Icon string` with an icon key and draw the SVG in templ (a `switch` on the key). **A test does pin the emoji:** `TestLandingSteps_EveryStepIsRenderedInOrder` (`internal/handler/marketing_claims_test.go:590`) requires `s.Icon` to appear in the rendered text. Change that assertion **in the same commit**, intent kept — each step renders **its own** icon (e.g. a per-key marker such as `data-icon="plaque"` on the step's SVG, asserted per step in order) — with a control (swap two keys, or drop one SVG, and watch it go red). "STEP n" ink/.70. Tablet: the cards become rows. |
 
 ### 6.5 Why switch — comparison (`landingLedger` `:279`)
 
@@ -526,7 +556,10 @@ had none.
 
 - **CSP:** unchanged (§3.1).
 - **JS:** `landing.js` gets three more `textContent` writes per tick (R-1) and a `plaque` field per
-  record; nothing else. The demo half of the file is untouched (its strings are pinned).
+  record; nothing else. Its header comment ("IT TOUCHES NOTHING BUT FOUR TEXT NODES", "carried over …
+  UNCHANGED") is rewritten in the same change: **seven** text nodes now, and the extra three are the
+  user's R-1 decision (2026-10-21), not the reference. The demo half of the file is untouched (its
+  strings are pinned).
 - **Fonts:** remove the mono 500/600 from the `.lp` block (§5).
 - **Colours:** retire the non-token values (§5).
 - **One stylesheet.** `app.css` serves the landing and the panel; the miniatures do **not** reuse panel
