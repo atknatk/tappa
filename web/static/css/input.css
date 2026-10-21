@@ -1778,6 +1778,17 @@
      plaque's wave takes the colour through the two classes below. Same value,
      one declaration. */
   --mint: #8FD3AF;
+  /* The public site's translucent tones (LP-01) are a token at an alpha, never a
+     new colour: rgb(var(--ink-ch) / .85) is ink at 85%. A channel triplet rather
+     than color-mix() because every browser that reads :has() above also reads
+     this. Each triplet is the hex token beside it, digit for digit -- the test on
+     the public site's stylesheet compares them. */
+  --ink-ch: 21 34 25;
+  --green-ch: 31 92 65;
+  --porcelain-ch: 237 240 234;
+  /* The focus ring's colour. Ink on porcelain and paper; a dark ground (.band--ink,
+     the green .ondark box, the old .footCta) sets it to paper. See the ring below. */
+  --ring: var(--ink);
   --disp: 'Space Grotesk', system-ui, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, monospace;
 
@@ -1796,7 +1807,17 @@ html:has(.lp) { scroll-behavior: smooth; }
 .lp a { color: inherit; }
 .lp img { max-width: 100%; }
 .lp ::selection { background: var(--green); color: #fff; }
-.lp :focus-visible { outline: 3px solid var(--saffron); outline-offset: 3px; border-radius: 4px; }
+/* THE ONE FOCUS RING OF THE PUBLIC SITE (LP-01, board States-Public). It replaces
+   the reference's 3px saffron ring, which measured 2.32:1 on porcelain and 2.62:1
+   on paper -- below the 3:1 a focus indicator needs. 2px solid with a 2px offset,
+   so the ring always sits on the SURFACE around the control, never on the control:
+     ink   #152219 on porcelain 14.32:1 · on paper 16.17:1
+     paper #FFFDF4 on green      7.73:1 · on ink   16.17:1
+   (ink on green would be 2.09:1, which is why a green ground switches --ring.)
+   The 4px corner is the reference's and is kept so an unclassed link's ring keeps
+   its shape; every component below with its own radius wins on source order. */
+.lp :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 4px; }
+.lp .footCta { --ring: var(--paper); }
 
 .lp .wrap { max-width: 1140px; margin: 0 auto; padding: 0 24px; }
 
@@ -2060,3 +2081,207 @@ html:has(.lp) { scroll-behavior: smooth; }
 }
 @keyframes demoIn { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
 @keyframes demoFade { from { opacity: 0; } to { opacity: 1; } }
+
+/* =========================================================================
+   THE PUBLIC SITE'S COMPONENTS (LP-01, 2026-10-21)
+
+   The classes every public board shares (docs/design/landing-redesign/README.md
+   §6, the boards' own <style> block, and the States-Public board for hover,
+   focus, pressed, disabled and current). Defined here once so the page cards
+   (LP-02 ... LP-11) write markup only. Nothing on the landing carries them yet.
+
+   SAME RULES AS THE BLOCK ABOVE: every selector starts with `.lp` (or
+   `html:has(.lp …)`), plain CSS outside @layer so nothing is tree-shaken, and
+   every colour is a token on .lp -- translucent tones are a token at an alpha
+   (rgb(var(--ink-ch) / a)), never a literal.
+
+   NAMES. A board name is kept where nothing else owns it; where something does,
+   the class is prefixed lp- so no leftover property of the owner leaks in (the
+   reason .lp-docket exists):
+     board .btn      -> .lp-button  (.btn is the product's; .lp-btn is the
+                                     reference's hero button, retired by LP-03)
+     board .docket   -> .lp-slip    (.docket is the product's, .lp-docket the hero's)
+     board .eyebrow  -> .lp-eyebrow (.lp .eyebrow is the reference hero's)
+     board .ico      -> .lp-ico     (.lp .step .ico is the reference's emoji slot)
+     board .lbl      -> .lp-lbl     (.lbl is the product's label)
+     board .stamp    -> the PRODUCT stamp (.stamp .stamp--approved …, as the
+                        panel does -- README O7); only the tilt of two verdicts and
+                        the small size are the public site's own.
+   Space Grotesk 500 on the boards (.navlink) is 400 here: the product ships 400
+   and 700 only (web/static/fonts/README.md).
+
+   BREAKPOINTS are the product's, mobile first: base = phone, 768px = tablet,
+   1200px = desktop (tailwind.config.js screens.desk).
+
+   TOUCH TARGETS: every class a visitor presses reserves 44px (min-height); the
+   menu's links and the full-size buttons 48px. The board's footer link is 40px
+   and is 44px here -- the product's floor wins over the drawing.
+
+   MOTION: the only movement is a state change (the FAQ's + turning to ×, a card's
+   border darkening), and it is asked for, not assumed -- the transitions live in
+   prefers-reduced-motion: no-preference, like the demo dialog's above.
+
+   ⚠️ FOR THE NEXT CARDS: the reference block's ELEMENT rules still reach anything
+   placed inside .lp -- `.lp nav` (sticky, blurred, bordered: it would hit the
+   menu's panel and the footer columns), `.lp footer`, `.lp section`, `.lp h1`,
+   `.lp h2`. They belong to the reference's nav, footer and sections and go with
+   them (LP-02 … LP-05).
+   ========================================================================= */
+
+/* ---------------- grounds ---------------- */
+.lp .band { padding-bottom: 56px; }
+@media (min-width: 768px) { .lp .band { padding-bottom: 72px; } }
+@media (min-width: 1200px) { .lp .band { padding-bottom: 96px; } }
+.lp .band--paper { background: var(--paper); }
+.lp .band--porcelain { background: var(--porcelain); }
+.lp .band--ink { background: var(--ink); color: var(--paper); --ring: var(--paper); }
+/* On paper a hairline in --line all but disappears (1.24:1), so the board darkens
+   the edge of whatever sits on a paper band to ink at 24%. */
+.lp .band--paper .card,
+.lp .band--paper .lp-slip,
+.lp .band--paper details.qa { border-color: rgb(var(--ink-ch) / .24); }
+.lp .band--paper .lp-slip { box-shadow: 0 2px 6px rgb(var(--ink-ch) / .08); }
+.lp .band--paper .lp-slip::after { background: radial-gradient(circle at 7px 7px, var(--porcelain) 4px, var(--paper) 4.5px) 0 0 / 14px 7px repeat-x; }
+
+/* The green "Go punchless." box. Its ring is paper: ink on green is 2.09:1. */
+.lp .ondark { position: relative; overflow: hidden; background: var(--green); color: var(--paper); border-radius: 24px; padding: 44px 22px; text-align: center; --ring: var(--paper); }
+@media (min-width: 768px) { .lp .ondark { padding: 56px 40px; } }
+@media (min-width: 1200px) { .lp .ondark { padding: 68px 48px; } }
+
+/* ---------------- type ---------------- */
+.lp .mono { font-family: var(--mono); }
+.lp .lp-lbl { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-eyebrow { font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--green); }
+.lp .band--ink .lp-eyebrow { color: var(--mint); }
+
+/* ---------------- buttons ---------------- */
+/* Pressed is :active: ink, a 2px inner edge in the ground's accent and 1px down.
+   Disabled exists only on a form submit, so only the green button draws it. */
+.lp .lp-button { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 48px; padding: 0 22px; border: 0; border-radius: 12px; font: 700 15px var(--disp); white-space: nowrap; text-decoration: none; cursor: pointer; }
+.lp .lp-button--green { background: var(--green); color: var(--paper); box-shadow: 0 4px 14px rgb(var(--green-ch) / .22); }
+.lp .lp-button--green:hover { background: var(--ink); color: var(--paper); }
+.lp .lp-button--green:active { background: var(--ink); color: var(--paper); box-shadow: inset 0 0 0 2px var(--green); transform: translateY(1px); }
+.lp .lp-button--green:disabled { background: rgb(var(--ink-ch) / .12); color: rgb(var(--ink-ch) / .6); box-shadow: none; transform: none; cursor: not-allowed; }
+.lp .lp-button--ghost { background: transparent; color: var(--ink); border: 2px solid var(--ink); }
+.lp .lp-button--ghost:hover { background: var(--ink); color: var(--paper); }
+.lp .lp-button--ghost:active { background: var(--ink); color: var(--paper); box-shadow: inset 0 0 0 2px var(--green); transform: translateY(1px); }
+/* Paper on the green box: the box's own button. */
+.lp .lp-button--paper { background: var(--paper); color: var(--green); }
+.lp .lp-button--paper:hover { background: var(--ink); color: var(--paper); }
+.lp .lp-button--paper:active { background: var(--ink); color: var(--paper); box-shadow: inset 0 0 0 2px var(--paper); transform: translateY(1px); }
+
+/* The header's "Start free": the green button's states at 44px. */
+.lp .hbtn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 18px; border: 0; border-radius: 12px; font: 700 14px var(--disp); white-space: nowrap; text-decoration: none; cursor: pointer; background: var(--green); color: var(--paper); box-shadow: 0 4px 14px rgb(var(--green-ch) / .22); }
+.lp .hbtn:hover { background: var(--ink); color: var(--paper); }
+.lp .hbtn:active { background: var(--ink); color: var(--paper); box-shadow: inset 0 0 0 2px var(--green); transform: translateY(1px); }
+
+/* ---------------- header links ---------------- */
+.lp .navlink { display: inline-flex; align-items: center; min-height: 44px; font-size: 14px; font-weight: 400; color: rgb(var(--ink-ch) / .85); text-decoration: none; }
+.lp .navlink:hover { color: var(--ink); }
+.lp .navlink:active { color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); }
+.lp .navlink[aria-current] { color: var(--ink); font-weight: 700; box-shadow: inset 0 -2px 0 var(--green); }
+
+/* ---------------- phone menu (native <details>, no script) ---------------- */
+.lp details.menu > summary { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 0 10px; border: 1.5px solid var(--ink); border-radius: 12px; background: transparent; color: var(--ink); font-weight: 700; font-size: 14px; list-style: none; cursor: pointer; }
+.lp details.menu > summary::-webkit-details-marker { display: none; }
+.lp details.menu > summary:hover { background: rgb(var(--ink-ch) / .08); }
+.lp details.menu > summary:active,
+.lp details.menu[open] > summary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.lp details.menu .mclose { display: none; }
+.lp details.menu[open] .mclose { display: inline; }
+.lp details.menu[open] .mopen { display: none; }
+/* The open panel hangs from the nearest positioned ancestor -- the header. */
+.lp details.menu:not([open]) > nav { display: none; }
+.lp details.menu > nav { position: absolute; left: 0; right: 0; top: 60px; z-index: 10; background: var(--paper); border-bottom: 1px solid var(--line); box-shadow: 0 18px 40px rgb(var(--ink-ch) / .16); padding: 8px 16px 16px; }
+.lp .mlink { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; font-size: 16px; font-weight: 700; color: var(--ink); text-decoration: none; border-top: 1px dashed var(--line); }
+.lp .mlink:first-child { border-top: 0; }
+.lp .mlink:hover { background: rgb(var(--ink-ch) / .05); }
+.lp .mlink:active { background: rgb(var(--ink-ch) / .08); }
+.lp .mlink:focus-visible { border-radius: 8px; }
+.lp .mlink[aria-current] { color: var(--green); box-shadow: inset 3px 0 0 var(--green); padding-left: 12px; }
+@media (min-width: 768px) { .lp details.menu { display: none; } }
+
+/* ---------------- sticky phone bar ---------------- */
+/* Every public phone page but Signup. Touch: no hover; its button keeps its own. */
+.lp .mbar { position: sticky; bottom: 0; z-index: 4; padding: 10px 16px 12px; background: rgb(var(--porcelain-ch) / .96); border-top: 1px solid var(--line); box-shadow: 0 -8px 24px rgb(var(--ink-ch) / .08); }
+.lp .mbar .hbtn { width: 100%; min-height: 48px; font-size: 15px; }
+@media (min-width: 768px) { .lp .mbar { display: none; } }
+
+/* ---------------- links ---------------- */
+/* "Next step" link, one per section end. */
+.lp .more { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; font-weight: 700; font-size: 15px; color: var(--green); text-decoration: underline; text-underline-offset: 4px; }
+.lp .more:hover { color: var(--ink); }
+.lp .more:active { color: var(--ink); text-decoration-thickness: 2px; }
+/* Legal links: mono, uppercase, underlined. */
+.lp .flink { display: inline-flex; align-items: center; min-height: 44px; font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); text-decoration: underline; text-underline-offset: 4px; }
+.lp .flink:hover { color: var(--ink); }
+.lp .flink:active { color: var(--ink); text-decoration-thickness: 2px; }
+/* Footer columns (Product, Legal). */
+.lp .fcol { display: flex; flex-direction: column; min-width: 0; }
+.lp .fcol a { display: flex; align-items: center; min-height: 44px; font-size: 14px; color: rgb(var(--ink-ch) / .85); text-decoration: none; text-underline-offset: 4px; }
+.lp .fcol a:hover { color: var(--ink); text-decoration: underline; }
+.lp .fcol a:active { color: var(--ink); text-decoration: underline; text-decoration-thickness: 2px; }
+.lp .navlink:focus-visible,
+.lp .more:focus-visible,
+.lp .flink:focus-visible,
+.lp .fcol a:focus-visible { border-radius: 6px; }
+
+/* ---------------- cards ---------------- */
+.lp .card { background: var(--paper); border: 1px solid var(--line); border-radius: 18px; }
+/* The whole card is one link: hover darkens the edge, pressed sinks to porcelain. */
+.lp .fitcard { color: var(--ink); text-decoration: none; }
+.lp .fitcard:hover { border-color: var(--ink); color: var(--ink); }
+.lp .fitcard:active { border-color: var(--ink); background: var(--porcelain); }
+.lp .lp-ico { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 12px; background: var(--green-lite); color: var(--green); }
+
+/* ---------------- FAQ item ---------------- */
+.lp details.qa { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; }
+.lp details.qa:hover { border-color: var(--ink); }
+.lp details.qa > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; padding: 16px; border-radius: 13px; font-weight: 700; font-size: 15px; line-height: 1.4; color: var(--ink); list-style: none; cursor: pointer; }
+.lp details.qa > summary::-webkit-details-marker { display: none; }
+.lp details.qa > p { padding: 0 16px 18px; font-size: 14.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
+@media (min-width: 768px) {
+  .lp details.qa > summary { padding: 18px 22px; font-size: 16px; }
+  .lp details.qa > p { padding: 0 22px 22px; font-size: 15px; }
+}
+.lp details.qa .pl { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); color: var(--green); }
+.lp details.qa[open] .pl { transform: rotate(45deg); }
+
+/* ---------------- dockets ---------------- */
+/* The board's docket: a paper slip torn at the bottom edge only. */
+.lp .lp-slip { position: relative; background: var(--paper); border: 1px solid var(--line); border-bottom: 0; }
+.lp .lp-slip::after { content: ''; position: absolute; left: -1px; right: -1px; bottom: -7px; height: 7px; background: radial-gradient(circle at 7px 7px, transparent 4px, var(--paper) 4.5px) 0 0 / 14px 7px repeat-x; }
+/* The tap screen mock's ticket: perforated at both edges, as the real one is. */
+.lp .tapdocket { position: relative; background: var(--paper); border: 1px solid var(--line); box-shadow: 0 1px 2px rgb(var(--ink-ch) / .08); padding: 12px 16px; font-family: var(--mono); font-size: 14px; }
+.lp .tapdocket::before,
+.lp .tapdocket::after { content: ''; position: absolute; left: 0; right: 0; height: 8px; background: radial-gradient(circle at 6px 4px, var(--porcelain) 3px, transparent 3.5px) 0 0 / 12px 8px repeat-x; }
+.lp .tapdocket::before { top: -4px; }
+.lp .tapdocket::after { bottom: -4px; }
+
+/* ---------------- stamps ---------------- */
+/* The product stamp (word ink, colour in the frame -- skill tappa-brand). The
+   boards tilt two verdicts differently from the panel: rejected -10°, ignored -4°
+   (approved -6° and flagged -3° are already the product's). No colour here. */
+.lp .stamp--rejected { transform: rotate(-10deg); }
+.lp .stamp--ignored { transform: rotate(-4deg); }
+.lp .lp-stamp-sm { font-size: 10px; padding: 2px 7px; letter-spacing: .12em; }
+
+/* ---------------- checks ---------------- */
+/* Never colour alone: each square carries a glyph in the markup. */
+.lp .chk { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; font-family: var(--mono); font-size: 11px; font-weight: 700; }
+.lp .chk--ok { background: var(--green); color: var(--paper); }
+.lp .chk--no { background: var(--tomato); color: var(--paper); }
+.lp .chk--na { border: 1px solid var(--line); color: rgb(var(--ink-ch) / .7); }
+/* A timeline's hairline. */
+.lp .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: rgb(var(--ink-ch) / .12); }
+
+/* ---------------- scrolling ---------------- */
+/* An anchor jump clears the sticky header; on a phone, the sticky bar too. */
+html:has(.lp) { scroll-padding-top: 72px; }
+html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
+@media (min-width: 768px) { html:has(.lp .mbar) { scroll-padding-bottom: 0; } }
+
+@media (prefers-reduced-motion: no-preference) {
+  .lp details.qa .pl { transition: transform .2s; }
+  .lp .fitcard { transition: border-color .15s; }
+}
