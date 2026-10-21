@@ -368,6 +368,8 @@ düzeltildi; ilki hâlâ açık.
 - **Ölü alan:** `PlaqueFormView.ErrorMessage`'ı hiçbir handler doldurmuyor (`plaqueview.go:216-218`, `plaque.templ:49-53`) — alanı ve `TestPlaqueViewModels_CannotCarryAKey`'deki adını birlikte kaldır.
 - **Satır içi stil ağı (`inlinestyle_test.go`):** CSP bildirim sayımı yalnız `const` biçimini görüyor — `var embedCSP = "…'unsafe-inline'"` ve `Header().Set("Content-Security-Policy", "<literal>")` sayılmıyor (`cspDecl`'e `var` ekle, literal Set çağrılarını da say).
 - **Satır içi stil ağı:** `web/templates` altındaki elle yazılmış bir view `.go` dosyasında `templ.Raw("<style>…")` görülmüyor — `inlineStyle` regex'ini elle yazılmış `.go` dosyalarına da uygula (yorum satırlarını atla; `email.go` yorumunda "no <style>" geçiyor).
+- **Askı şeridi testi:** şeridin tek `<h1>`'den önce, `panel-well`'in ilk çocuğu olarak durması sabitlenmemiş — şerit başlığın arkasına taşınınca bütün paketler yeşil kalıyor (`internal/handler/suspension_test.go` ~430; `strings.Index(heading) < strings.Index("<h1")` + `panel-well`'den sonraki ilk etiket `<div role="status"`). main'de de yoktu.
+- **Askı şeridi testi:** `stripSectionClass` yalnız `<div role="status" class=` arıyor; alarm tonunda (`role="alert"`) çerçeve bulunamadığı için "tomato yok" dalı hiç çalışmıyor ve şeritten önce saffron renkli başka bir `PanelNotice` belirirse yanlış çerçeveyi okuyabilir (`suspension_test.go:466`) — `<div role="` ile ara, `class=`'ı ondan sonra oku.
 
 ---
 
