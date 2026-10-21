@@ -27,7 +27,7 @@ func redlineRun(t *testing.T, files map[string]string) (string, int) {
 		}
 		r.write(s, string(b))
 	}
-	for _, d := range []string{"cmd", "internal", "db", "web/templates", "web/static/js", "test", "deploy", ".github"} {
+	for _, d := range []string{"cmd", "internal", "db", "web/templates", "web/static/js", "test", "deploy", ".github", "docs/api", "android/app/src/main"} {
 		r.write(d+"/keep.txt", "\n")
 	}
 	r.write("Makefile", "all:\n")

@@ -2431,6 +2431,145 @@ report WARN R6 "Sessizce yutulan hata — kayit kaybina yol acabilir" \
 node_files=$(git ls-files 'package.json' 'package-lock.json' 'pnpm-lock.yaml' 'yarn.lock' 2>/dev/null || true)
 report FAIL N1 "Node artefakti — bu repo Node'suzdur" "$node_files"
 
+# --- B1: urun adi `Tappa` KULLANICININ OKUDUGU metinde (T73, CLAUDE.md §9) ----
+#
+# KOD NEDEN B1, R DEGIL: R1-R7 §4'un kirmizi cizgileridir ve tappa-security-auditor
+# ile ayni numaralari tasir; marka §4 degil §9'dur. N1 (Node, §1) ile ayni sinif:
+# kirmizi cizgi olmayan ama mekanik olarak tutulan bir proje kurali.
+#
+# NE ARANIR: buyuk T ile `Tappa`, kelime olarak (oncesinde ve sonrasinda harf, rakam,
+# `_` yok; oncesinde `.` yok). Kullanici-yuzu marka Taptime; ic kod adi tappa BILINCLI
+# olarak degismedi (0738d16). Iki kez ELLE dogrulandi (rebrand ve landing turlarinda);
+# bu kural o elle taramayi mekaniklestirir.
+#
+# KAPSAM — kullaniciya giden yuzeyler (B1_SRC):
+#   web/templates   .templ metni ve Go string literal'leri (view dosyalari: landingview.go …)
+#   web/static      .html, .js ve .css (gomulu, /static/ altinda servis edilir; fonts/README.md dahil)
+#   internal        Go string literal'leri — handler cumleleri, e-posta (internal/mail),
+#                   yasal metinler (internal/domain/legal), sandbox openapi.json ve
+#                   API'nin openapi.yaml'i (ikisi de servis edilir)
+#   docs/api        entegrasyon rehberi, iki dil (GET /v1/guide.md — sitede yayinlaniyor)
+#   android/app/src/main   Wording.kt, strings.xml ve tum kaynak
+#
+# 🔴 internal NEDEN BUTUNUYLE, handler ile sinirli DEGIL — OLCULDU (2026-10-21): kucuk
+# harf `tappa` 5.396 kez geciyor, buyuk `Tappa` ise yorumlar ve tanimlayicilar
+# disinda, cmd+internal+web'in uretilmemis ve test olmayan Go string literal'lerinin
+# TAMAMINDA tek bir yerde: internal/domain/tenant/rulewriter.go ErrNotYours'un cumlesi
+# (handler onu "not-yours" koduna cevirir, metni ekrana gitmez). Bir domain hatasinin
+# metninin ekrana gidip gitmedigi mekanik olarak bilinemez (signup/tenant hatalari
+# bazi yollarda cumle olarak donuyor); tek bulguyu Taptime'a cevirmek, gorunmeyeni
+# varsaymaktan ucuzdu. cmd/ KAPSAM DISI: CLI ciktisi Taptime'in kendi operatorune gider.
+#
+# MUAF (yapisal — muafiyet tablosu YOK, gerekmedi):
+#   - yorumlar: Go/JS/Kotlin/CSS `//` ve `/* */`; .templ satir basi (ya da bosluk
+#     sonrasi) `//`, `/* */` ve `<!-- -->`; HTML/XML/Markdown `<!-- -->`; YAML ` #`.
+#     Rehberdeki kod orneklerinin yorumlari MUAF DEGIL — rehber butunuyle yayinlanir.
+#   - Go/JS/Kotlin/CSS'te string literal DISINDAKI her sey: tanimlayicilar
+#     (ComparisonRow.Tappa), import/modul yollari, struct alanlari.
+#   - .templ ve isaretleme dosyalarinda `.Tappa` (bir secici: { row.Tappa }).
+#   - harf duyarlidir: `tappa-green`, `tappa_app`, `TAPPA_*`, `github.com/atknatk/tappa`
+#     hicbir zaman eslesmez.
+#   - *_test.go, testdata/, *_templ.go, internal/store (uretilmis), web/static/vendor
+#     (ucuncu parti), docs/ altinda docs/api DISINDA her sey (ic belgeler).
+#
+# ⚠️ SINIRLAR, ACIKCA: (1) yalniz buyuk-T `Tappa` — kullanici metninde kucuk harf
+# `tappa` ya da `TAPPA` yakalanmaz, cunku o yazimlar CSS token'i, rol ve env olarak
+# her yerde mesru. (2) Sozcuksel bir tarayicidir, ayristirici degil: JS regex
+# literal'i icindeki bir tirnak, ham bir Kotlin `"""` disindaki ic ice sablonlar ya da
+# metin icinde bosluktan sonra gelen `//` lexer'i yaniltabilir — yalniz `Tappa`
+# iceren dosyalar okunur, yani bedel o dosyalarla sinirli. (3) Uretilmis dosyalar
+# (_templ.go) taranmaz; kaynaklari (.templ) taranir.
+#
+# AYNI KALIP: rg dosyalari ON-SECER (scan_in: cikis kodu okunur, eksik yol = tarama
+# hatasi), lexer yalniz o dosyalari okur; awk hatasi SCAN_ERR'e yazilir — bos bir
+# secim "temiz" okunmasin diye (R1'in r1_select'i ile ayni gerekce).
+B1_SRC=(web/templates web/static internal docs/api android/app/src/main)
+B1_GLOBS=(
+  --glob '*.{go,templ,html,js,css,kt,xml,md,yaml,yml,json}'
+  # Sonraki glob oncekini ezer (rg), bu yuzden GEN_EXCLUDE'un iki uretilmis kumesi
+  # dahil-etme globundan SONRA yeniden yazilir.
+  --glob '!*_templ.go' --glob '!internal/store/*.go'
+  --glob '!*_test.go' --glob '!**/testdata/**' --glob '!web/static/vendor/**'
+)
+
+# b1_lex <dosya...> — her dosyada kullanicinin okudugu metni cikarir ve `Tappa`
+# tasiyan her parcayi `yol:satir: metin` olarak basar.
+# (Bu blok tek tirnak icinde; yorumlarda kesme isareti KULLANILMAZ, tek tirnak
+# karakteri \047 olarak yazilir.)
+b1_lex() {
+  awk '
+    function hit(s) { return s ~ /(^|[^A-Za-z0-9_.])Tappa([^A-Za-z0-9_]|$)/ }
+    function emit(ln, s) { gsub(/[\t ]+/, " ", s); print FILENAME ":" ln ": " substr(s, 1, 200) }
+    FNR == 1 {
+      st = "code"; buf = ""; at = 0
+      ext = FILENAME; sub(/^.*\./, "", ext)
+      clike = (ext == "go" || ext == "js" || ext == "kt" || ext == "css")
+    }
+    # C-benzeri kaynak: YALNIZ string literal icerigi okunur.
+    clike {
+      line = $0; n = length(line); i = 1
+      while (i <= n) {
+        c = substr(line, i, 1); c2 = substr(line, i, 2)
+        if (st == "code") {
+          if (c2 == "//" && ext != "css") break
+          if (c2 == "/*") { st = "block"; i += 2; continue }
+          if (ext == "kt" && substr(line, i, 3) == "\"\"\"") { st = "tq"; buf = ""; at = FNR; i += 3; continue }
+          if (c == "\"" || c == "\047" || (c == "`" && ext != "kt")) { st = c; buf = ""; at = FNR; i++; continue }
+          i++; continue
+        }
+        if (st == "block") { if (c2 == "*/") { st = "code"; i += 2 } else i++; continue }
+        if (st == "tq") {
+          if (substr(line, i, 3) == "\"\"\"") { if (hit(buf)) emit(at, buf); st = "code"; i += 3; continue }
+          buf = buf c; i++; continue
+        }
+        if (st == "`") {
+          if (c == "`") { if (hit(buf)) emit(at, buf); st = "code"; i++; continue }
+          buf = buf c; i++; continue
+        }
+        if (c == "\\") { buf = buf substr(line, i, 2); i += 2; continue }
+        if (c == st) { if (hit(buf)) emit(at, buf); st = "code"; i++; continue }
+        buf = buf c; i++
+      }
+      # Tek satirlik bir literal satir sonunda kapanmamissa (JS, bozuk kaynak) orada biter.
+      if (st == "\"" || st == "\047") { if (hit(buf)) emit(at, buf); st = "code" }
+      else if (st == "`" || st == "tq") buf = buf " "
+      next
+    }
+    # Isaretleme (.templ .html .xml .md .yaml .json): yorumlar disindaki HER SEY metindir.
+    {
+      line = $0; out = ""; n = length(line); i = 1
+      while (i <= n) {
+        c = substr(line, i, 1)
+        if (st == "html") { if (substr(line, i, 3) == "-->") { st = "code"; i += 3 } else i++; continue }
+        if (st == "block") { if (substr(line, i, 2) == "*/") { st = "code"; i += 2 } else i++; continue }
+        if (substr(line, i, 4) == "<!--") { st = "html"; i += 4; continue }
+        if (ext == "templ") {
+          if (substr(line, i, 2) == "/*") { st = "block"; i += 2; continue }
+          if (substr(line, i, 2) == "//" && (i == 1 || substr(line, i - 1, 1) ~ /[ \t]/)) break
+        }
+        if ((ext == "yaml" || ext == "yml") && c == "#" && (i == 1 || substr(line, i - 1, 1) ~ /[ \t]/)) break
+        out = out c; i++
+      }
+      if (hit(out)) emit(FNR, out)
+    }' "$@"
+}
+
+b1_hits=""
+b1_files=()
+while IFS= read -r f; do
+  [[ -n $f ]] && b1_files+=("$f")
+done <<<"$(scan_in B1_SRC -l "${B1_GLOBS[@]}" -e 'Tappa')"
+if [[ ${#b1_files[@]} -gt 0 ]]; then
+  # awk dosya almazsa stdin okur; bos liste bu yuzden hic cagrilmaz. Cikis kodu
+  # $(...) icinde kaybolurdu: `||` onu SCAN_ERR'e yazar.
+  b1_hits=$(b1_lex "${b1_files[@]}") || {
+    echo "${RED}ATLANDI${OFF}: B1 lexer hata verdi (awk) — TARAMA GUVENILIR DEGIL." >&2
+    echo 2 >>"$SCAN_ERR"
+  }
+fi
+report FAIL B1 "Urun adi 'Tappa' kullanicinin okudugu metinde — kullanici yuzu marka Taptime, tappa yalniz ic kod adi (CLAUDE.md §9)" \
+  "$b1_hits"
+
 # --- R7d: SIR DEGERI commit'lenebilir bir dosyada (M10 F0-5, Olay A-0) --------
 #
 # KOD NEDEN R7d, R8 DEGIL: R1-R7 bu dosyada agent `tappa-security-auditor`in R1-R7
