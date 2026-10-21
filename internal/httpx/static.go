@@ -84,8 +84,10 @@ func (s *staticFiles) cacheRule(name, rawQuery string, forceQuery bool) string {
 // The ETag is the quoted hex SHA-256 of the file's bytes, computed once when the
 // router is built. A pre-set ETag is what http.ServeContent (under http.FileServer)
 // evaluates If-None-Match against, so a matching conditional GET or HEAD answers 304
-// with no body -- and on an error response ServeContent deletes the ETag and
-// Cache-Control again, so a 416 is never pinned. Last-Modified is not sent: the
+// with no body. On a refusal neither header survives: ServeContent deletes both on the
+// errors it sends through serveError (a 416), and assetStatus below deletes them on every
+// other non-2xx, non-304 status -- the 412 of a failed If-Match among them, which
+// ServeContent writes directly and would otherwise send pinned. Last-Modified is not sent: the
 // embedded files have no meaningful time, and the ETag is the stronger validator.
 type staticFiles struct {
 	next   http.Handler
@@ -134,6 +136,13 @@ type assetStatus struct {
 }
 
 func (a *assetStatus) WriteHeader(code int) {
+	// An informational status (103 Early Hints) is not the response: the final status
+	// follows it, and that one decides the headers. 101 is final -- the connection
+	// changes protocol -- and is treated like any other non-2xx.
+	if code >= 100 && code <= 199 && code != http.StatusSwitchingProtocols {
+		a.ResponseWriter.WriteHeader(code)
+		return
+	}
 	if !a.wroteHeader {
 		a.wroteHeader = true
 		if (code < 200 || code > 299) && code != http.StatusNotModified {
