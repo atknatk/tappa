@@ -4,6 +4,8 @@
 > "yapıldı" yazılmaz.
 >
 > **Teslim paketi (okumadan başlama):** [docs/design/landing-redesign/README.md](../design/landing-redesign/README.md)
+> — **Bölüm II (§10–§19): LP-6** (beş yeni genel sayfa + üç yeni landing bölümü; iddia envanterleri
+> [lp6-inventory-a.md](../design/landing-redesign/lp6-inventory-a.md), [lp6-inventory-b.md](../design/landing-redesign/lp6-inventory-b.md))
 > — kararlar LP-0…LP-5 ve sonraki iki kullanıcı kararı (R-1 landing.js dönüşü, R-2 FAQ API metni ayrı
 > dalda), kısıtlar (CSP, satır içi stil yok, tek `<nav>` önce, tek `<h1>`), sabitleyen testlerin tam
 > listesi (§4), `.lp` token haritası (§5), bölüm bölüm ekran haritası ve **NEW CLAIM** tablosu (§6),
@@ -34,12 +36,15 @@
   `landing.js`, yeni JS dosyası yok, üçüncü taraf istek yok, fontlar kendi sunucumuzda.
 - **R-1 — landing.js dönüşü plaket satırını da kapsar** (fix turu kararı). Mevcut 3,8 sn aralığında
   **üç ek metin yazımı**: `pName`, `pLoc`, `pPlaque`. Aynı dosya; başka yeni JS yok.
-- **R-2 — FAQ API metni ayrı sevk edilir:** dal **`claude/fix-landing-faq-api`** (bu dalda ve `main`'de
-  henüz yok). Dal `1054fea` ile **başlar** (`ab85193`'ün üstünde), şimdiden ardılı var (`88e5379`) ve
+- **R-2 — FAQ API metni ayrı sevk edildi ve `main`'e BİRLEŞTİ (2026-10-21):** PR atknatk/tappa#6, merge
+  `0e7c158`. M14-10 artık birleşmemiş bir dala değil, yalnız **`main`'in iş dalına birleştirilmesine**
+  bağlıdır (bu not yazılırken `claude/admiring-brown-jw8hf1` `0e7c158`'i içermiyordu). Tarihçe: dal
+  **`claude/fix-landing-faq-api`** `1054fea` ile **başladı** (`ab85193`'ün üstünde), şimdiden ardılı var (`88e5379`) ve
   yenileri gelebilir — bağımlılık **birleşme anındaki dal ucudur**, tek bir commit değil; `ab85193..<uç>`
   aralığı bütün olarak taşınır. Q4/Q5'i yeniden yazar, `FactNoIntegrationAPI` tuzağını emekliye ayırır,
   üç API Fact'i ve "`/v1` bağlıyken 'no API' diyen sayfa" tarayıcı testini ekler. M14 onu yeniden yazmaz;
-  **M14-10 ona bağlıdır** ve **M14-08'den önce birleşmesi önerilir**: ikisi de `landingview.go` (Fact'ler)
+  **M14-10 ona bağlıdır** ve `main` iş dalına **M14-08'den önce** alınmalıdır (LP-6'nın Fact ekleyen
+  kartları M14-15…M14-22 için de aynısı): ikisi de `landingview.go` (Fact'ler)
   ve `internal/handler/marketing_facts_test.go`'ya dokunur — önce birleşirse çatışma iki taraflı değil,
   yalnız M14-08'in yeniden temellenmesi olur.
 
@@ -102,10 +107,21 @@ altında · palet token'ları + opaklık (README §5) · dokunma hedefi ≥ 44 p
 | M14-07 | L1 | Security: docket kartları + ızgara boyu gizlilik notu + kalkan ikonu | yapıcı (`tappa-brand`) | M14-01 |
 | M14-08 | L2 | YENİ "The panel" vitrini: üç minyatür + NEW CLAIM değerleri, Fact'leri, testleri | yapıcı (`tappa-brand`) + ayrı iddia denetimi + güvenlik (§4.6) | M14-01, M14-07; önerilen: FAQ-API dalı önce birleşmiş |
 | M14-09 | L1 | Pilot şeridi (telefonda yığılma) + fits + pricing görünümü: yuvarlak çip, kurucu teklif satırı, ✓ → ikon | yapıcı (`tappa-brand`) | M14-01 |
-| M14-10 | L1 | FAQ iki sütun (+ R-2 bağımlılığı) | yapıcı (`tappa-brand`) | M14-01, **FAQ-API dalının ucu birleşmiş** |
+| M14-10 | L1 | FAQ iki sütun (+ R-2 bağımlılığı) | yapıcı (`tappa-brand`) | M14-01, **`main` (`0e7c158` dahil) iş dalına birleşmiş** |
 | M14-11 | L1 | CTA + altbilgi: bayrak emojisi yok, halka işareti, Legal kartı bağlantı stili | yapıcı (`tappa-brand`) | M14-02 |
 | M14-12 | L1 | Demo diyaloğu yeniden stili (`soon` / `video`) | yapıcı (`tappa-brand`) | M14-01 |
-| M14-13 | L3 | Faz sonu: tam `make check` + `make audit`, güvenlik denetimi, golden kontrolü, 390/834/1440 ekran turu | denetçi + güvenlik | hepsi |
+| M14-13 | L3 | Faz sonu: tam `make check` + `make audit`, güvenlik denetimi, golden kontrolü, 390/834/1440 ekran turu (M14-24 ile **tek** kapanış olarak koşar) | denetçi + güvenlik | hepsi |
+| M14-14 | P0 | **LP-6** paylaşılan genel kabuk: başlık sayfa bağlantıları, telefonda `<details>` Menu, altbilgi Product/Legal sütunları — `marketingChromeWith` + landing; `PublicPages` listesi; `TestLandingNav_…` bilinçli yeniden yazımı | yapıcı (`tappa-brand`) | M14-02, M14-03 |
+| M14-15 | P1 | Landing `#team` (iki telefon: tap + flag sonucu) | yapıcı (`tappa-brand`) + güvenlik (§9) | M14-04, M14-14 |
+| M14-16 | P1 | Landing `#shift` (altı docket, ray) | yapıcı (`tappa-brand`) | M14-08, M14-14 |
+| M14-17 | P1 | Landing `#integrations` (CSV · API · webhook) + yeni sayfalara bağlantılar | yapıcı (`tappa-brand`) | M14-10, M14-14 |
+| M14-18 | P2 | `/product` (ürün turu, yedi bölüm, üç yeni minyatür) | yapıcı (`tappa-brand`) + ayrı iddia denetimi | M14-08, M14-14, M14-15, M14-17 |
+| M14-19 | P2 | `/pricing` (sunucuda hesaplanan ekip tablosu, fatura SSS) | yapıcı (`tappa-brand`) + ayrı iddia denetimi | M14-09, M14-14 |
+| M14-20 | P2 | `/security` (S35 **kullanıcı onayına kadar yok**) | yapıcı (`tappa-brand`) + ayrı iddia denetimi + **`tappa-security-auditor`** | M14-07, M14-14 |
+| M14-21 | P2 | `/for/restaurants` | yapıcı (`tappa-brand`) + ayrı iddia denetimi | M14-14, M14-20 (paylaşılan Fact'ler) |
+| M14-22 | P2 | `/for/production` | yapıcı (`tappa-brand`) + ayrı iddia denetimi | M14-14, M14-20 |
+| M14-23 | P1 | Signup/Legal yeniden başlık: LP-6 kabuğu, gövde bayt-aynı + iki gövde kusuru | yapıcı (`tappa-brand`) | M14-14 |
+| M14-24 | P3 | Faz sonu uzantısı (M14-13 ile tek kapanış): beş sayfa, 26 pano ekran turu, kabuk testi, güvenlik | denetçi + güvenlik | hepsi |
 
 L1 kartları birbirinden bağımsızdır; her biri kendi bağımlılıkları bitince tek başına sevk edilebilir
 (dal üzerinde, CI yeşil). Her kart üç genişliği **birlikte**, tek DOM ile taşır.
@@ -221,8 +237,8 @@ de gizliyor. Yalnız üç çapa gizlenir; Sign in ve Start free her genişlikte 
   `role="img"` + genel ad ("The employee's own phone showing the tap screen"). Selamlama `<p>`/`<span>`;
   `pages.TapHeading` kullanılmaz.
 - Plaket: venue · uid satırı `id="pPlaque"`; telefonda `id="pName"`, `id="pLoc"`. Üçü koşulsuz.
-- `landing.js`: her kayda `plaque` alanı (README §6.2 tablosu: KF ST JULIANS · 91AC-7E55, KM FACILITY ·
-  2F04-1B9A, RUSTY BAR · 6D31-C8E2); aynı 3,8 sn aralığında üç ek `textContent` yazımı. Başka değişiklik
+- `landing.js`: her kayda `plaque` alanı (README §6.2 tablosu: KF ST JULIANS · 91AC-7E55, **KM PLANT ·
+  2F04-1B9A** (LP-6: mekân "KM Facility" → "KM Plant"), RUSTY BAR · 6D31-C8E2); aynı 3,8 sn aralığında üç ek `textContent` yazımı. Başka değişiklik
   yok; demo yarısına dokunulmaz. Dosyanın baş yorumu ("IT TOUCHES NOTHING BUT FOUR TEXT NODES", "carried
   over … UNCHANGED") yeniden yazılır: artık **yedi** metin düğümü; fazladan üçü referanstan değil,
   kullanıcının R-1 kararından (2026-10-21).
@@ -392,13 +408,12 @@ yeşil; metin ve sayılar değişmez.
 
 ## M14-10 — FAQ iki sütun (R-2'ye bağlı)
 
-- **Bağımlılık:** M14-01 + **`claude/fix-landing-faq-api` dalının birleşme anındaki ucu** bu dala ya da
-  `main`'e birleşmiş olmalı. Dal `1054fea` ile başlar (`ab85193`'ün üstünde) ve `88e5379` gibi ardılları
-  vardır; tek bir commit'e sabitlenmez. Birleşmemişse kart ya bekler ya da `ab85193..<uç>` aralığının
-  **tamamını** (merge ya da sırasıyla cherry-pick) **aynen** taşır — Q4/Q5 metni,
-  `FactNoIntegrationAPI`'nin emekliye ayrılması, üç API Fact'i, "no API" tarayıcı testi ve kontrolleri.
-  Kart o metni yeniden yazmaz, kısaltmaz. M14-08 aynı dosyalara dokunur — dalın M14-08'den önce
-  birleşmesi önerilir.
+- **Bağımlılık:** M14-01 + **`main`'in iş dalına birleştirilmesi.** FAQ-API düzeltmesi
+  (`claude/fix-landing-faq-api`, `1054fea` … `88e5379` …) `main`'e **birleşti** — PR atknatk/tappa#6,
+  merge `0e7c158` (2026-10-21). Kart `main`'i iş dalına alır (`git merge origin/main`; çatışma olursa
+  düzeltmenin metni ve testleri **aynen** kalır — Q4/Q5, `FactNoIntegrationAPI`'nin emekliye ayrılması,
+  üç API Fact'i, "no API" tarayıcı testi ve kontrolleri). Kart o metni yeniden yazmaz, kısaltmaz. M14-08
+  aynı dosyalara dokunur — `main` M14-08'den önce alınmalı.
 - **Araç:** yapıcı (`tappa-brand`) · **Kırmızı çizgi:** —
 - **Commit:** `style(landing): lay the FAQ out in two columns`
 - **Spec:** [README §6.10](../design/landing-redesign/README.md)
@@ -409,8 +424,8 @@ CSS, `[open]`). Ürün bütün maddeleri kapalı render eder (pano 1. maddeyi a�
 **Kabul kriterleri.** `TestLandingFAQ_EveryQuestionIsRenderedWithItsAnswer`,
 `TestLandingFAQ_EveryAnswerRestsOnAProductFact` yeşil; Q4/Q5 R-2'nin metniyle kelimesi kelimesine aynı;
 yeni JS yok.
-- `git merge-base --is-ancestor <FAQ dalının birleşme anındaki ucu> HEAD` 0 döner (ucun SHA'sı kartın
-  commit mesajına yazılır).
+- `git merge-base --is-ancestor 0e7c158 HEAD` 0 döner (FAQ-API düzeltmesinin `main`'deki merge commit'i
+  iş dalında).
 - R-2'nin tarayıcı testi — Landing önekli `…ClaimsNoAbsentAPIWhileV1IsMounted`; önekiyle yazılmadı, çünkü
   `TestEveryNamedTestExists` bu dalda henüz olmayan bir test adını reddeder — ve kontrolleri (eski
   "no API" cevabı geri konunca kırmızı) bu dalda yeşil; dalın öteki testleri de.
@@ -464,7 +479,9 @@ korunarak güncellenir.
 
 ## M14-13 — Faz sonu: denetim, golden, ekran turu
 
-- **Bağımlılık:** hepsi · **Araç:** ayrı denetçi + agent `tappa-security-auditor`
+- **Bağımlılık:** hepsi (M14-01…12 **ve** M14-14…23) · **Araç:** ayrı denetçi + agent `tappa-security-auditor`
+- **Not (LP-6):** M14-13 ile M14-24 ayrı iki tur değil, **tek** kapanıştır — tam `make check` ve
+  `make audit` bütün M14 için bir kez koşar.
 - **Kırmızı çizgi:** §9 (çalışan ekranları), §4.6 (vitrinin iddiası), §7 (log/gizlilik — landing sır taşımaz)
 - **Commit:** `docs(brand): record the landing's tokens and the marketing lockup` (+ yalnız düzeltme commit'leri)
 
@@ -479,4 +496,317 @@ landing token'ları ve pazarlama kilidinin özeti (tarihli not); README §5/§8 
 güncellenir.
 
 **Kabul kriterleri.** Bulgu → düzeltme → yeni denetçi. Bittiğinde `state.md`; `main`'e birleştirme
+**kullanıcının deploy kararıdır**.
+
+---
+
+# Bölüm II — LP-6: yeni genel sayfalar ve landing bölümleri (kullanıcı, 2026-10-21)
+
+> **Spec:** [README Bölüm II, §10–§19](../design/landing-redesign/README.md) · iddia satırları:
+> [lp6-inventory-a.md](../design/landing-redesign/lp6-inventory-a.md) (landing ekleri, `/product`, `/pricing`,
+> kabuk, yeniden başlık) ve [lp6-inventory-b.md](../design/landing-redesign/lp6-inventory-b.md) (`/security`,
+> `/for/restaurants`, `/for/production`, port fizibilitesi). Panolar: `Product`, `Pricing`, `Security`,
+> `ForRestaurants`, `ForProduction` × masaüstü/`T-`/`M-`, güncellenen `Landing` ×3, `LandingDemo` ×2,
+> `Signup` ×3, `Legal` ×3 (telefon panolarında `menu` = closed | open).
+
+**Karar (LP-6).** Kullanıcı *"dahada landingi cogalt . daha baska pageler olsun"* dedi ve önerilen sayfaların
+**hepsini** seçti. Kurallar LP-1…LP-5 ile aynı (D1, mevcut iddialar kelimesi kelimesine, her yeni cümle
+NEW CLAIM + Fact, palet, D2, Plex Mono 400/700, emoji yok, `img-src` yok, satır içi stil yok, landing.js
+dışında yeni JS yok). Yeni okuma, yeni migration yok; yeni olan beş **genel rota**dır.
+
+**Her LP-6 iddia kartının ortak kuralı (M14-08 deseni).** Kartın envanter satırlarındaki her NEW CLAIM:
+1. `landingview.go`'da (ya da sayfanın `pages` içindeki görünüm dosyasında) bir değer — şablonda serbest
+   metin değil;
+2. dayandığı Fact/Anchor/Source (envanterde mevcut ya da önerilen ad; README §18'deki "=" çiftleri **tek**
+   Fact'tir);
+3. **koddan türetme** (sabit değil: rota kaydı, politika tablosu, config varsayılanı, sorgu metni, şablon);
+4. **mutasyon kontrolü** — kod olgusu kaldırılınca/çevrilince test kırmızı; denetçi en az iki tanesini
+   kendisi uygular;
+5. render kontrolü (değer sayfada).
+`TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed` ve `TestFactMechanisms_SayNoWhenTheFactIsAbsent`
+her yeni Fact'i kapsar (genel sayfalar da "claimed" taramasına girer). Örnek veri, figür etiketleri ve
+dürüstlük satırları mobilyadır. `FactAPI*` Fact'leri ancak `main` (`0e7c158`) iş dalına alındıktan sonra
+vardır. Her yeni sayfa için ayrıca: rota testi, CSP testi, satır içi stil yok, ölçülmemiş sayı yok
+(`TestLanding_MakesNoUnmeasuredNumericClaim`'in tarayıcısı yeni yollara da), iç ad yok, tek `<h1>`,
+`nonPanelTemplates` sınıflandırması, 390/834/1440 ekran görüntüsü (telefonda Menu kapalı ve açık).
+
+## P0 — Kabuk
+
+## M14-14 — Paylaşılan genel kabuk (başlık, telefon Menu'su, altbilgi)
+
+- **Bağımlılık:** M14-02, M14-03 · **Araç:** yapıcı (`tappa-brand`) · **Kırmızı çizgi:** —
+- **Commit:** `feat(marketing): share one public header, menu and footer across the public pages`
+- **Spec:** [README §10 LP-6.3, §11, §12](../design/landing-redesign/README.md), envanter A §0
+
+**Amaç.** Her genel sayfada (landing, beş yeni sayfa, signup, legal, API rehberi) aynı kabuk: başlıkta
+Product · Security · Pricing **sayfa** bağlantıları (geçerli sayfada `aria-current="page"`), Sign in, Start
+free; telefonda yerel `<details>` "Menu"/"Close" ("Pages" + altı bağlantı, 48 px satırlar, yapışkan
+başlığın altında üst üste biner); altbilgide marka bloğu + marketingChrome'un iddia paragrafı (aynen) +
+Product sütunu (Product tour, Security, Pricing, For restaurants & bars, For production & facilities, API
+docs) + Legal sütunu.
+
+**Kapsam.**
+- Beş rota sabiti handler'da (`signupPath`/`APIGuidePath` deseni) ve **tek** bir `PublicPages` listesi
+  (yol, etiket, kısa etiket) — başlık, Menu ve altbilgi ondan beslenir. Bu kart rotaları **bağlamaz**
+  (sayfa kartları bağlar). Bağlantılar kart sırasıyla görünür kılınır: henüz bağlanmamış bir sayfanın
+  bağlantısı render edilmez, böylece `TestMarketing_EveryInternalLinkResolves` her ara commit'te yeşil
+  kalır.
+- `marketingChromeWith` (Tailwind) ve `landingNav`/`landingFooter` (`.lp`) aynı bağlantıları aynı sırada
+  basar; `layout.*` değişmez. API rehberinin baytları **bilerek** değişir; `landing.templ:580–585`
+  yorumu yeni ölçümle yeniden yazılır (README §7, §12).
+- `LandingNav` paylaşılan genel nav olur; ilk `<nav>` tek kalır, `<details>` ondan sonra ya da içinde.
+- Genel sayfaların stil kapsamı kararı (`.lp` paylaşımı ya da ortak kapsam) bu kartta verilir ve README
+  §11'e yazılır.
+
+**Dosyalar.** `web/templates/pages/landing.templ`, `web/templates/pages/landingview.go` (`PublicPages`,
+`LandingNav`), `internal/handler/marketing.go` (rota sabitleri), `web/static/css/input.css`,
+`internal/handler/marketing_facts_test.go`, `internal/handler/marketing_test.go`,
+`internal/handler/apiguidepage_test.go`, `internal/handler/signup_test.go`, üretilen `*_templ.go`.
+
+**Kabul kriterleri.**
+- `TestLandingNav_EveryLinkPointsAtASectionOnThePage` **bilinçli yeniden yazılır**, niyeti korunarak:
+  ilk `<nav>`'daki her çubuk bağlantısı **bağlı bir genel sayfaya** gider (çapalar değil), geçerli sayfa
+  işaretlidir, signup ve sign-in bağlantıları çubuktadır; KONTROL: bağlanmamış bir yola bağlantı kırmızı.
+  Ad değişirse yeni adı yapıcı koyar, eski ad belgelerden aynı commit'te temizlenir
+  (`TestEveryNamedTestExists`).
+- **Yeni test** (adını yapıcı koyar) — her-genel-sayfa-bağlantıları: landing, signup adımları, dört legal
+  sayfası, rehberin iki dili ve (bağlandıkça) beş yeni sayfa aynı başlık bağlantılarını (`aria-current`
+  en çok birinde ve doğru olanda), altı bağlantılı Menu'yu ve altbilginin Product + Legal sütunlarını
+  taşır; KONTROL: bir sayfadan bir bağlantı düşürülünce kırmızı.
+- Menu JS'siz (`<details>`/`<summary>`); `TestLandingDemo_TheScriptDegradesInsteadOfBreaking` ve betik
+  kümesi aynı; dokunma hedefleri ≥ 44 px.
+- `TestAPIGuidePages_AreLinkedFromTheFootersAndThePanel`, `TestAPIGuidePages_AreTheGuideInTheMarketingChrome`,
+  `TestAPIGuidePages_FitAPhone`, `TestSignupSurface_EverySignInLinkGoesToTheSignInPage`,
+  `TestSignup_MountsExactlyTheRoutesTheLandingPageOffers`, `TestMarketing_MountsEveryLegalDocumentAndLinksToIt`,
+  `TestLegalPages_NavigationMarksTheCurrentDocumentAndWhatIsNotInForce`, `TestTemplates_CarryNoInlineStyle`,
+  `TestLanding_UsesOnlyPaletteTokens` yeşil; `TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8` ve
+  `TestUnbrandedScreens_AreByteIdenticalToTheGolden` bayt-aynı.
+
+## P1 — Landing'in yeni bölümleri
+
+## M14-15 — Landing `#team` ("For your team")
+
+- **Bağımlılık:** M14-04 (telefon çizimi), M14-14 · **Araç:** yapıcı (`tappa-brand`) + agent
+  `tappa-security-auditor` (§9: tap ve sonuç ekranı **çizilir**, değiştirilmez)
+- **Commit:** `feat(landing): show the employee's two screens`
+- **Spec:** README §13, envanter A §1.1 (T1–T10)
+
+İki telefon gerçek CSS ölçülerinde: tap ekranı ve **flag sonucu** (`result.templ` flag dalı, yön `in`,
+practice değil; damga, kapanış satırı ve "You can close this page." ürünün kendi metni; not =
+`base:no-evidence-review` cümlesi). Örnek: Grace Attard · KF Msida · 09:41 · Trust 20. Her telefon `role="img"`
++ ad, içinde başlık yok; 390'da alt alta (~0,62 ölçek). Landing'e özel kopyalar (canlı bileşenler
+çağrılmaz).
+
+**Dosyalar.** `web/templates/pages/landing.templ`, `web/templates/pages/landingview.go`,
+`web/static/css/input.css`, `internal/handler/marketing_facts_test.go`, üretilen `landing_templ.go`.
+
+**Kabul kriterleri.** T2–T9'un her biri ortak iddia kuralıyla (yeni Fact'ler: `FactTapScreenHasOneButton`,
+`FactTapScreenNamesTheTappedVenue`, `FactCountedTapClosesWithoutAButton`, `FactFlaggedResultSaysItNeedsApproval`;
+mevcutlar: `FactTapPageNeedsNoApp`, `FactTapPageGreetsByName`, `FactTapButtonSizedForAWetHand`). Çizilen sonuç
+metinleri `result.templ`'in dizgeleriyle **aynı**: yeni test onları şablonun render'ından okur ve
+karşılaştırır; KONTROL: şablondaki kapanış cümlesi değişince kırmızı. `tap.templ`/`result.templ` diff'i
+boş; `TestUnbrandedScreens_AreByteIdenticalToTheGolden` bayt-aynı; sayfada emoji yok (M14-05 testi).
+
+## M14-16 — Landing `#shift` ("A shift, start to finish")
+
+- **Bağımlılık:** M14-08 (`FactEveryDecidedTapIsRecorded`), M14-14 · **Araç:** yapıcı (`tappa-brand`)
+- **Commit:** `feat(landing): walk one shift from the invite to the payroll file`
+- **Spec:** README §13, envanter A §1.2 (S1–S9)
+
+Ink ray üzerinde altı docket (masaüstü 1×6, tablet 2×3, telefon numaralı dikey liste); 04 FLAGGED; aktör
+çipleri mobilya; eğimler `nth-child` sınıfları.
+
+**Dosyalar.** `web/templates/pages/landing.templ`, `web/templates/pages/landingview.go`,
+`web/static/css/input.css`, `internal/handler/marketing_facts_test.go`, üretilen `landing_templ.go`.
+
+**Kabul kriterleri.** S2–S9 ortak iddia kuralıyla (yeni: `FactActivationTapRecordsNoHours` — aktivasyon
+dokunuşu `transactions` satırı yazmaz; türetme `internal/handler/activate.go`'nun tamamlama yolundan;
+mevcut: `FactPeopleAreInvitedFromTheDashboard`, `FactFlaggedQueueDecidedByAManager`, `FactHoursExportAsCSV`,
+`FactEveryDecidedTapIsRecorded`). S7 "never approved in silence" `base:no-evidence-review` + motorun
+varsayılanına dayanır; KONTROL: varsayılan etki `allow`'a çevrilince kırmızı.
+
+## M14-17 — Landing `#integrations` + yeni sayfalara bağlantılar
+
+- **Bağımlılık:** M14-10 (`main` + FAQ-API Fact'leri), M14-14 · **Araç:** yapıcı (`tappa-brand`)
+- **Commit:** `feat(landing): show where the hours go after Taptime`
+- **Spec:** README §13, envanter A §1.3 (I1–I7)
+
+Üç hücre (CSV · integration API · webhooks) + not çubuğu; mono çipler gerçek tanımlayıcılar. Landing'den
+yeni sayfalara mobilya bağlantıları ("How each proof works →", "Take the product tour →", sektör
+bağlantıları — `LandingAudiences`'a `Href`, "Pricing in detail →", "Read the API docs →"); her bağlantı yalnız
+hedef rota bağlıyken render edilir.
+
+**Dosyalar.** `web/templates/pages/landing.templ`, `web/templates/pages/landingview.go`,
+`web/static/css/input.css`, `internal/handler/marketing_facts_test.go`, üretilen `landing_templ.go`.
+
+**Kabul kriterleri.** I2–I6 ortak iddia kuralıyla (mevcut `FactAPIWritesPeopleAndLocations`,
+`FactAPIFeedsEveryPunch`, `FactAPIEnabledPerBusinessByTaptime` — webhook'lara genişletilir —,
+`FactHoursExportAsCSV`, `FactBillingExportAsCSV`, `FactReportPerPersonAndVenue`; yeni
+`FactWebhookIsOneSignedEndpoint`). **I7 çipleri sabitlerden**: `/v1` yolları rota kayıtlarından,
+`X-Taptime-Signature` `internal/webhook/signing.go`'nun başlık sabitinden, "Download CSV" ürün düğmesinin
+dizgesinden; KONTROL: bir rota yeniden adlandırılınca kırmızı. FAQ-API düzeltmesinin "no API" tarayıcı
+testi yeşil. `TestMarketing_EveryInternalLinkResolves` yeşil.
+
+## M14-23 — Signup/Legal yeniden başlık
+
+- **Bağımlılık:** M14-14 · **Araç:** yapıcı (`tappa-brand`)
+- **Commit:** `style(marketing): put the shared public chrome on signup and legal`
+- **Spec:** README §12, envanter A §0 "Re-headed" · **Panolar:** `Signup`, `Legal` ×3
+
+Signup ve legal, M14-14'ün kabuğunu (geçerli sayfa yok) taşır. Gövde **bayt-aynı** kalır. İki önceden var
+olan gövde kusuru panolarda düzeltildi, kodda doğrulanır: signup iş türü çipleri Plex Mono 400 (500
+değil); cookie tablosu düz ASCII tırnak (`marketing.go`'nun kendi değerleri gibi).
+
+**Dosyalar.** `web/templates/pages/signup.templ`, `web/templates/pages/legal.templ` (yalnız kabuk çağrısı
+gerekiyorsa), `web/static/css/input.css`, üretilen `*_templ.go`.
+
+**Kabul kriterleri.** Kabuk kesilince signup ve legal gövdeleri önceki render ile bayt-aynı (ölçüm commit
+mesajında); signup testleri (`TestSignup_TheWholeWizardReachesAnApprovedStamp`,
+`TestSignupSurface_EverySignInLinkGoesToTheSignInPage` dahil) ve legal testleri yeşil; her-genel-sayfa
+testi bu sayfalarda yeşil.
+
+## P2 — Sayfalar
+
+## M14-18 — `/product` (ürün turu)
+
+- **Bağımlılık:** M14-08, M14-14, M14-15 (telefonlar), M14-17 (Integrations değerleri) · **Araç:** yapıcı
+  (`tappa-brand`) + ayrı iddia denetçisi
+- **Commit:** `feat(marketing): add the product tour`
+- **Spec:** README §14, envanter A §2 (P1–P30) · **Panolar:** `Product` ×3
+
+Hero (H1, lede, iki düğme, "On this page" dizini `#tap #pass #spike #roll #people #venues #rules`) → yedi
+bölüm → dürüstlük dipnotu → Integrations (aynı değerler) → CTA → altbilgi. The Pass/Spike/Roll
+minyatürleri landing'den **aynen**. People, Venues & plaques ve Rules yeni çizilir, ama yalnız kodun bugün
+gösterdiğiyle: çiplerde sayı yok, QR deseni yok, durumlar veritabanı sözcükleriyle, kural cümleleri
+`rulebook.go`'dan, etki etiketleri `internal/handler/policies.go`'dan.
+
+**Dosyalar.** yeni `web/templates/pages/product.templ` (+ gerekirse görünüm `.go`),
+`web/templates/pages/landingview.go`, `internal/handler/marketing.go` (rota), `web/static/css/input.css`,
+`internal/handler/panelsource_test.go` (`nonPanelTemplates`), `internal/handler/marketing_facts_test.go`,
+`internal/handler/marketing_test.go`, üretilen `*_templ.go`.
+
+**Kabul kriterleri.**
+- Rota testi (GET/HEAD 200 ürün host'unda, başka host'ta 404); CSP testi (tam `marketingCSP`, `<script>`
+  yok); `Cache-Control: public, max-age=300`.
+- P2, P3, P5–P14, P16–P19, P21–P29 ortak iddia kuralıyla (README §18 grupları). Minyatürlerdeki ürün
+  dizgeleri (kural cümleleri, etki etiketleri, durum sözcükleri, "Entered by a manager") kaynak sabitlerden
+  okunur ve testte karşılaştırılır; KONTROL: bir guardrail cümlesi değişince kırmızı.
+- Ortak kontroller (README §11 listesi; her-genel-sayfa testi bu sayfada).
+
+## M14-19 — `/pricing`
+
+- **Bağımlılık:** M14-09, M14-14 · **Araç:** yapıcı (`tappa-brand`) + ayrı iddia denetçisi
+- **Commit:** `feat(marketing): add the pricing page with the team-size table`
+- **Spec:** README §15, envanter A §3 (R1–R14) · **Panolar:** `Pricing` ×3
+
+Hero (fiyat başlığı ve lede'si, landing'in fiyat kartı aynen) → Examples (ekip tablosu + donmuş ay fişi
+çizimi, "sample figures") → fatura SSS'si (iki sütun `<details>`) → CTA → altbilgi.
+
+**Dosyalar.** yeni `web/templates/pages/pricing.templ`, `web/templates/pages/landingview.go`
+(`TeamExample`), `internal/handler/marketing.go` (rota + tablo doldurma), `web/static/css/input.css`,
+`internal/handler/panelsource_test.go`, `internal/handler/marketing_test.go`,
+`internal/handler/marketing_facts_test.go`, üretilen `*_templ.go`.
+
+**Kabul kriterleri.**
+- **Ekip tablosu sunucuda hesaplanır:** görünüm `[]TeamExample{Headcount, Monthly}` taşır, her satır
+  `exampleTeamMonthly(publishedPricePerEmployeeMonth, n)` ile (10 / 25 / 60 / 150; 60 = `exampleHeadcount`);
+  şablonda fiyatın ikinci kopyası yok, JS yok. `TestLanding_ExampleTeamCostIsThePriceTimesTheHeadcount`
+  (ya da kardeşi) **her satıra** genişler; KONTROL: yayımlanan fiyat değişince her satır değişir, sabit bir
+  satır kırmızı olur.
+- R3–R5, R8–R14 ortak iddia kuralıyla. R9 için iki yoldan biri: ya CountLine'ın atlanan şartı da yazılır
+  ya da kısaltılmış cümle CountLine'ın özeti olarak açıkça sabitlenir (envanter A R9). Ödeme, fatura, KDV,
+  API fiyatı **iddia edilmez**.
+- Rota ve CSP testleri, ortak kontroller.
+
+## M14-20 — `/security` (S35 kapılı)
+
+- **Bağımlılık:** M14-07, M14-14 · **Araç:** yapıcı (`tappa-brand`) + ayrı iddia denetçisi + **agent
+  `tappa-security-auditor`** (sayfa §4.1, §4.2, §4.3, §4.5, §4.6, §4.7'yi kamuya anlatır; her cümle kodla
+  doğrulanır)
+- **Kırmızı çizgi:** §4 (anlatım doğruluğu), §7 (sayfa sır taşımaz: anahtar, gerçek IP/koordinat yok — örnek
+  ağlar `203.0.113.0/24` belge aralığı)
+- **Commit:** `feat(marketing): add the security page`
+- **Spec:** README §16, envanter B S1–S36 · **Panolar:** `Security` ×3
+
+Dört kanıt derinlemesine (bağlantı anatomisi, sayaç satırları, oturum kutuları, /7 genişlik ölçeği, GPS
+yarıçapı), karar merdiveni (+ S36 dipnotu), "Flagged, never dropped", değişmezlik, toplanmayanlar, izolasyon.
+**S35 (EU hosting) KULLANICI KARARINA KADAR PORT EDİLMEZ** (README §16.1): kart, Fact'i ve metni bu kartta
+yok; onay gelirse ayrı bir takip kartı ekler.
+
+**Dosyalar.** yeni `web/templates/pages/security.templ` (+ görünüm `.go`; SVG geometrisi Go'da),
+`web/templates/pages/landingview.go`, `internal/handler/marketing.go`, `web/static/css/input.css`,
+`internal/handler/panelsource_test.go`, `internal/handler/marketing_facts_test.go`,
+`internal/handler/marketing_test.go`, üretilen `*_templ.go`.
+
+**Kabul kriterleri.**
+- S1–S34 ve S36 ortak iddia kuralıyla (README §18: kripto/oturum, kurallar ve karar, kayıtlar, değişmezlik,
+  gizlilik/izolasyon grupları). Basılan sayılar koddan: debounce ve yarıçap config varsayılanlarından, güven
+  puanı motor sabitlerinden, /7 ve /31 `netx` sabitlerinden, "Five of the eleven" `len(policy.Guardrails(…))`'ten,
+  merdiven satırları `policy.Guardrails`/`policy.Baseline`'dan. Her biri için **yeni test** (README §19
+  tablosu; adlarını yapıcı koyar) + KONTROL (sabit değişince kırmızı).
+- Sayfada "Falkenstein", "Hetzner", "EU-jurisdiction", "Hosted in the EU" **yok** (yeni test; S35 onaylanınca
+  kaldırılır).
+- `tappa-security-auditor` ONAY: hiçbir cümle kodun yapmadığını vaat etmez; sır, anahtar biçimi örneği ya da
+  gerçek ağ yok.
+- Rota ve CSP testleri, ortak kontroller.
+
+## M14-21 — `/for/restaurants`
+
+- **Bağımlılık:** M14-14, M14-20 (paylaşılan Fact'ler: geniş liste, debounce) · **Araç:** yapıcı
+  (`tappa-brand`) + ayrı iddia denetçisi
+- **Commit:** `feat(marketing): add the restaurants page`
+- **Spec:** README §17, envanter B R1–R16 · **Panolar:** `ForRestaurants` ×3
+
+`LandingAudiences` (aynen) üstüne: dokuz mekân karosu, gece vardiyası zaman çizelgesi (Rusty Bar 18:00–02:00,
+17:58 → 02:04, "8h 06m · one shift"), mekân tablosu (gerçek `<table>` + `<caption>`), başka mekânda nöbet,
+"never invents a check-out", Roll. Başlıkta geçerli öğe yok.
+
+**Dosyalar.** yeni `web/templates/pages/industry.templ` (ya da `restaurants.templ`; M14-22 ile paylaşılır),
+`web/templates/pages/landingview.go`, `internal/handler/marketing.go`, `web/static/css/input.css`,
+`internal/handler/panelsource_test.go`, `internal/handler/marketing_facts_test.go`, üretilen `*_templ.go`.
+
+**Kabul kriterleri.** R1–R16 ortak iddia kuralıyla (R13 `FactNoAutomaticCheckout` bir **yokluk** Fact'idir:
+`out` yazan her yol bir dokunuş ya da manuel girişten geçer — `FactNoBulkImport` deseni). Gece çizelgesi
+SVG'si Go'da seed vardiyasından hesaplanır; yeni test (bar = Rusty Bar vardiyası, "8h 06m" = defterin süre
+biçimi); Roll lejant sözcükleri `reports.templ`'den. Rota ve CSP testleri, ortak kontroller.
+
+## M14-22 — `/for/production`
+
+- **Bağımlılık:** M14-14, M14-20 · **Araç:** yapıcı (`tappa-brand`) + ayrı iddia denetçisi
+- **Commit:** `feat(marketing): add the production page`
+- **Spec:** README §17, envanter B P1–P11 · **Panolar:** `ForProduction` ×3
+
+KM Plant kapısında tek plaket, beş departman vardiyası (seed adları), "Same minute, different yardsticks"
+başlığı, departman süzgeçli Pass, kapı kuyruğu (aynı kişinin tekrarı IGNORED, yön NONE), eldiven/un, 64 px
+düğme, telefon çizimi ("Hello Anna Farrugia", "KM Plant").
+
+**Dosyalar.** M14-21'in sayfa dosyası (paylaşılan şablon) ya da yeni `production.templ`,
+`web/templates/pages/landingview.go`, `internal/handler/marketing.go`, `web/static/css/input.css`,
+`internal/handler/marketing_facts_test.go`, üretilen `*_templ.go`.
+
+**Kabul kriterleri.** P1–P11 ortak iddia kuralıyla (`FactRollCountsLateArrivals`, `FactIgnoredTapIsRecorded`,
+`FactPassAndPeopleFilterByDepartment` …). Vardiya barları seed departmanlarından; geç kalma başlığı
+`tap.MinutesLate` (04:02 / 04:00 → "0h 02m", raporların etiket biçimi); 60 sn config varsayılanından —
+her biri için yeni test + KONTROL. Rota ve CSP testleri, ortak kontroller.
+
+## P3 — Kapanış
+
+## M14-24 — Faz sonu uzantısı (M14-13 ile tek kapanış)
+
+- **Bağımlılık:** hepsi · **Araç:** ayrı denetçi + agent `tappa-security-auditor`
+- **Commit:** M14-13'ünkü (+ yalnız düzeltme commit'leri)
+
+M14-13'ün maddelerine ek olarak:
+- beş rota; her genel sayfanın CSP'si (yalnız `/` `script-src` taşır);
+- her-genel-sayfa-bağlantıları testi;
+- yeni yollar üzerinde ölçülmemiş sayı ve iç ad taramaları;
+- README §18'deki her Fact'in türetilmiş + iddia edilmiş + mutasyon kontrollü olması (denetçi
+  rastgele beşini bozar);
+- S35'in hâlâ yok olması (ya da kullanıcı onayının tarihi ve kartı);
+- 26 panonun hepsinin 390 / 834 / 1440 ekran turu (telefonda Menu kapalı ve açık);
+- `TestEveryNamedTestExists`;
+- skill `tappa-brand`'e genel sayfa kabuğunun özeti;
+- README Bölüm II gerçekleşen sınıf ve rota adlarıyla güncellenir.
+
+**Kabul kriterleri.** Bulgu → düzeltme → yeni denetçi. Bittiğinde `state.md`. `main`'e birleştirme
 **kullanıcının deploy kararıdır**.

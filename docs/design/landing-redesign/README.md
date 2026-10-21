@@ -5,16 +5,25 @@ boards (2026-10-21) to templ + the landing's scoped CSS. A developer agent shoul
 page from this README and the M14 task cards without discovering surprises in the code.
 
 - **Boards:** `docs/design/panel-redesign/boards/` — every canvas board lives there, and
-  `canvas.json` lays them out (the landing row is the note "Landing — public face", `t7`, at y 32260):
-  - `Landing.dc.html` (desktop, 1440, fluid, h 6710);
-  - `T-Landing.dc.html` (tablet, 834, h 7660);
-  - `M-Landing.dc.html` (phone, 390, h 9800 — sized for the longest record);
-  - `LandingDemo.dc.html` (1440×900) and `M-LandingDemo.dc.html` (390×844) — the demo dialog.
-  The six marketing boards `Signup`, `T-Signup`, `M-Signup`, `Legal`, `T-Legal`, `M-Legal` were
-  **re-headed** in the same round: their header now carries the green ring mark (§7). Nothing else on
-  them changed and their heights are the same.
+  `canvas.json` lays them out (the public row is the note "Public site — landing & pages (desktop /
+  tablet / mobile)", `t7`, at y 32260). **26 public boards** (LP-6 round, 2026-10-21):
+  - `Landing.dc.html` (desktop, 1440, fluid, h 9177) · `T-Landing.dc.html` (834, h 10629) ·
+    `M-Landing.dc.html` (390, h 14247);
+  - `LandingDemo.dc.html` (1440×900) and `M-LandingDemo.dc.html` (390×844) — the demo dialog (header +
+    hero only, no footer, by design);
+  - `Product`, `Pricing`, `Security`, `ForRestaurants`, `ForProduction` × desktop / `T-` / `M-` — the LP-6
+    pages (Part II);
+  - `Signup`, `Legal` × desktop / `T-` / `M-` — re-headed twice: first with the ring lockup (§7), then
+    with the LP-6 shared header and footer (Part II §12). Their body between header and footer is
+    byte-identical to the approved boards (two pre-existing body defects fixed: Signup chips Plex Mono
+    500 → 400, Legal cookie table curly quotes → ASCII).
+  Sections 1–9 below were written for the first landing round; where Part II (§10–§19) changes them,
+  Part II wins.
+- **LP-6 claim inventories:** [`lp6-inventory-a.md`](lp6-inventory-a.md) (landing additions, `/product`,
+  `/pricing`, shared chrome, re-head) and [`lp6-inventory-b.md`](lp6-inventory-b.md) (`/security`,
+  `/for/restaurants`, `/for/production`, port feasibility) — every NEW CLAIM row with its code fact.
 - **Task cards:** [`docs/plan/m14-landing-redesign.md`](../../plan/m14-landing-redesign.md)
-  (M14-01 … M14-13, ordered, each independently shippable on the branch).
+  (M14-01 … M14-24, ordered, each independently shippable on the branch; M14-14 … M14-24 are LP-6).
 - **Shared with the panel port** (by reference, not repeated here):
   [`docs/design/panel-redesign/README.md`](../panel-redesign/README.md) §1 (how to read a board —
   bindings, sample data, inline styles that must never be copied) and §4 (palette).
@@ -130,19 +139,21 @@ CSP `style-src 'self'` (no inline style in templ), no `img-src` (inline SVG only
   show **one** record: the phone's greeting name (`pName`), the phone's venue (`pLoc`) and the plaque's
   venue · uid line (`pPlaque`). Same file, no new file, nothing else new (table in §6.2). This
   overrides LP-4's "no new JS" for these three writes only.
-- **R-2 — The FAQ's API wording ships separately**, on branch **`claude/fix-landing-faq-api`** (not
-  yet in this branch or in `main` at `945b6b9`). The branch **starts** at `1054fea` (*fix(landing): name
+- **R-2 — The FAQ's API wording ships separately.** **Update 2026-10-21: MERGED to `main`** —
+  PR atknatk/tappa#6, merge commit `0e7c158`. M14-10 no longer depends on an unmerged branch; it needs
+  `main` merged into the work branch (`claude/admiring-brown-jw8hf1` did not contain `0e7c158` when this
+  note was written). The history below is kept for the record. Branch **`claude/fix-landing-faq-api`**;
+  it **started** at `1054fea` (*fix(landing): name
   the integration API in the FAQ*, on top of `ab85193`) and already has follow-ups (`88e5379`, *widen the
   no-API scan and derive holding webhooks*); it may get more. It rewrites FAQ Q4 and Q5 (§6.10), retires
   the `FactNoIntegrationAPI` tripwire (it only scanned `/api…` literals, so it never saw `/v1`) and adds
   three API Facts plus a scanner test that fails while a public page says "no API" and `/v1` is mounted
   (the Landing-prefixed `…ClaimsNoAbsentAPIWhileV1IsMounted` test — spelled without its prefix here
   because `TestEveryNamedTestExists` refuses a test name that does not exist on this branch yet).
-  **M14 does not re-implement it.** The dependency is the **branch tip at merge time**, carried whole
-  (the range `ab85193..<tip>`), never one pinned commit. M14-10 (FAQ) depends on it, and it should merge
-  **before M14-08** too: the FAQ fix and the panel showcase both edit `landingview.go` (Facts) and
+  **M14 does not re-implement it.** M14-10 (FAQ) needs it in the work branch (merge `main`, which carries
+  `0e7c158`), and it should be in **before M14-08** too: the FAQ fix and the panel showcase both edit `landingview.go` (Facts) and
   `internal/handler/marketing_facts_test.go` — merging it first turns a two-sided conflict into a rebase
-  of M14-08 alone.
+  of M14-08 alone. The same holds for the LP-6 cards that add Facts (M14-15 … M14-22).
 
 ---
 
@@ -360,7 +371,7 @@ venues except the KM person:
 |---|---|---|---|---|
 | Maria Vella | CLOCK IN | 09:58 | KF St Julians | KF ST JULIANS · 91AC-7E55 |
 | Kevin Grech | CLOCK IN | 09:52 | KF St Julians | KF ST JULIANS · 91AC-7E55 |
-| Anna Farrugia | CLOCK IN | 04:02 | KM Facility | KM FACILITY · 2F04-1B9A |
+| Anna Farrugia | CLOCK IN | 04:02 | KM Plant (LP-6: was "KM Facility") | KM PLANT · 2F04-1B9A |
 | Luke Borg | CLOCK OUT | 02:04 | Rusty Bar (a KF venue in `seed.sql`) | RUSTY BAR · 6D31-C8E2 |
 
 The two new uids are invented, like 91AC-7E55 (a drawing, not a record — the existing comment at
@@ -601,5 +612,285 @@ draws two at 1440, one at 834).
 - Board inline styles, Google-Fonts `<helmet>` and the `text/x-dc` script are mock-up machinery (panel
   README §1).
 - The board draws FAQ item 1 open and the dialog's focus ring — states, not defaults.
-- The FAQ Q4/Q5 wording on the boards is R-2's; on this branch the code still carries the old answers
-  until the FAQ-API fix is merged (M14-10).
+- The FAQ Q4/Q5 wording on the boards is R-2's; the code carries it once `main` (with `0e7c158`) is
+  merged into the work branch (M14-10).
+- `canvas.json` is kept in the repo's compact single-line JSON (as it always was); that is intended, not a
+  formatting slip.
+
+---
+
+# Part II — LP-6: more public pages and more landing (user, 2026-10-21)
+
+Part II extends the handoff for the user's second request: *"dahada landingi cogalt . daha baska pageler
+olsun"* ("make the landing bigger, add more pages"). The user chose **all** of the offered pages. Both
+builders' boards passed an independent audit (two rounds, plus a one-line S36 wording fix). The
+claim-level detail is in the two inventories copied next to this README —
+[`lp6-inventory-a.md`](lp6-inventory-a.md) and [`lp6-inventory-b.md`](lp6-inventory-b.md). This part
+gives the decisions, the routes, the screen map and the NEW CLAIM groups with their Facts. It links to the
+inventory rows rather than repeating all of them.
+
+## 10. LP-6 decisions — binding
+
+- **LP-6.1 — Five new public pages**, each at three widths:
+  - **`/product`** — a product tour: the employee's tap (tap screen and result screen as `tap.templ` /
+    `result.templ` draw them), then the manager panel screen by screen (The Pass, The Spike, The Roll,
+    People, Venues & plaques, Rules — real names, real behaviour, D1);
+  - **`/security`** — the four proofs in depth, what is never collected, records never lost, immutability,
+    tenant isolation in plain words, EU hosting (**gated**, §16.1), GDPR;
+  - **`/pricing`** — price per person, the founding offer, a team-size table **computed server-side**,
+    what is included, a billing FAQ grounded in the billing code, the "API enabled by Taptime" note;
+  - **`/for/restaurants`** and **`/for/production`** — industry pages built on the existing
+    `LandingAudiences` facts. The pilot strip may appear. No testimonials, quotes, logos or invented metrics.
+- **LP-6.2 — Three new landing sections:** "For your team" (`#team`), "A shift, start to finish"
+  (`#shift`), "Integrations" (`#integrations`), plus links from the landing to the new pages.
+- **LP-6.3 — Shared navigation on every public page** (landing, the five pages, signup, legal, API guide):
+  - **header (desktop/tablet):** ring lockup · **Product · Security · Pricing** (page links, not anchors) ·
+    Sign in · Start free; the current page's link carries `aria-current="page"` (ink, 700, green 2 px
+    underline);
+  - **phone header:** lockup · Sign in · Start free · a native **`<details>` "Menu"** (no JS). The summary
+    reads "Menu" when closed and "Close" when open (two spans swapped by `details[open]` CSS). The open
+    panel has the label "Pages" and six links (Product tour, Security, Pricing, For restaurants & bars, For
+    production & facilities, API docs) in 48 px rows. It sits absolutely under the sticky header, so it
+    overlays the page without reflow;
+  - **footer:** a brand block ("© 2026 Taptime · Malta", "tap in · tap out · that's it", and the
+    **marketingChrome claim paragraph, kept verbatim**: the "Taptime" label + "Punchless time and
+    attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A
+    phone's position is read only at the moment somebody presses the button."). Then a **Product** column
+    (Product tour, Security, Pricing, For restaurants & bars, For production & facilities, API docs) and a
+    **Legal** column (Privacy, Terms, Company details, Cookies). "API docs" moves from the legal row into
+    Product.
+  - The industry pages mark nothing as current, because the header has no industry item.
+- **Same rules as LP-1…LP-5:** D1; existing claims verbatim; every new sentence is a NEW CLAIM with a Fact;
+  palette; D2; Plex Mono 400/700; no emoji; no `img-src`; no inline style; **no new JS beyond landing.js**.
+- **Sample data is unified** across all 26 boards:
+  - one tenant per drawing;
+  - venues, hours and networks from `test/fixtures/seed.sql`;
+  - the week-42 Roll rows are identical on every page;
+  - Maria Vella is never at two venues at once;
+  - **the KM venue is "KM Plant" everywhere** (coordinator decision, from the seed). The landing
+    rotation's Anna Farrugia record changes "KM Facility" → **"KM Plant"** and its plaque line to **"KM
+    PLANT · 2F04-1B9A"** (§6.2 table updated; part of M14-04's `landing.js` edit);
+  - department names follow the seed ("KM Pastry & Bakery", "KM Meat Production", …).
+- **Drawn phones** use an **ink** wordmark when there is no logo (`base.templ:174-176`). At 390 px the
+  two-phone figures are stacked, each at about 0.62 scale.
+
+## 11. Routes and serving
+
+| Path | Template (new) | Current nav item | Board |
+|---|---|---|---|
+| `/product` | product page | Product | `Product` ×3 |
+| `/pricing` | pricing page | Pricing | `Pricing` ×3 |
+| `/security` | security page | Security | `Security` ×3 |
+| `/for/restaurants` | industry page | — | `ForRestaurants` ×3 |
+| `/for/production` | industry page | — | `ForProduction` ×3 |
+
+- **Served by `internal/handler/marketing.go`**, mounted in `Marketing.Mount` beside `/legal/*` and
+  rendered with `m.render` → **`marketingCSP`** (`default-src 'none'; style-src 'self'; font-src 'self'; …`).
+  That means **no `script-src`** (these pages carry no script at all; only `/` has `landing.js`), **no
+  `img-src`** (inline SVG only) and **`Cache-Control: public, max-age=300`** (`marketingCacheControl`),
+  exactly like `/legal`. Same bytes for every visitor, no session, no panel headers. They are served on the
+  product host only, like the API guide.
+- Each page is a `pages` templ component in a **new `.templ` file**, wrapped in `layout.Marketing(…,
+  layout.RobotsPublic)` — **not** `MarketingWithScript`. Each new file goes into `nonPanelTemplates` with
+  the reason "marketing" (§3.10). The paths are **route constants** in the handler, the way `signupPath`
+  and `APIGuidePath` are, never typed into templates. A shared `PublicPages` list (path, label, short
+  label) feeds the header, the phone Menu and the footer, so the three can never disagree.
+- The pages reuse the landing's look. Either share the `.lp` block — wrap each page in `<div class="lp">`,
+  which is simplest because every miniature, docket and phone already lives there — or move the shared
+  rules into a public-site scope used by all six. Pick one in M14-14 and record it. Do not reuse panel
+  component classes (§8.2).
+- **Pinning tests (new; the builder names them, until then they are described):**
+  - a route test: each path answers 200 on GET and HEAD on the product host, 404 elsewhere, and is listed
+    in the shared nav source;
+  - a CSP test: each page carries exactly `marketingCSP` — no `script-src`, no `img-src`, no media — and
+    loads no `<script>`;
+  - `TestTemplates_CarryNoInlineStyle` (already covers every template), plus `TestLanding_UsesOnlyPaletteTokens`'s
+    hex and ` style=` checks run over every new page;
+  - an every-public-page-links test: every public page (landing, five pages, signup steps, legal ×4, API
+    guide ×2) carries the same header links (with `aria-current` on at most one, the right one), the Menu
+    with its six links, and the footer's Product and Legal columns. Control: drop one link from one page and
+    the test goes red;
+  - `TestMarketing_EveryInternalLinkResolves`, `TestMarketing_ReachesNoThirdParty`,
+    `TestMarketing_TheSameBytesForEveryVisitor`, `TestMarketing_IsCacheableAndCarriesNoPanelHeaders`,
+    `TestMarketing_AnswersHeadWithNoBodyAndTheSameHeaders` and `TestLanding_MakesNoUnmeasuredNumericClaim`
+    extended to the new paths (whichever iterate a path list get the five added);
+  - `TestLandingDemo_NoOtherScreenOnThePublicSurfaceCarriesTheDialog` covers the new pages too.
+
+## 12. Shared public chrome — screen map
+
+| Element | Status | Port note |
+|---|---|---|
+| Header lockup (ring 28 + taptime 24 + PUNCHLESS 11; phone ring 26, stacked) | CHANGED (§7) | unchanged by LP-6 |
+| Header links Product · Security · Pricing | **CHANGED** — pages, not `#how/#security/#pricing` anchors | `LandingNav` becomes the shared public nav. **`TestLandingNav_EveryLinkPointsAtASectionOnThePage` is rewritten deliberately**: it reads the first `<nav>` and today requires in-page anchors. The new intent is that every bar link points at a **mounted public page**, the current page is marked, and the bar still carries signup and sign-in. Its control: a link to an unmounted path goes red. Keep ONE first `<nav>` (§3.7). |
+| Sign in · Start free | EXISTS (visible at every width, M14-03) | — |
+| Phone `<details class="menu">` "Menu"/"Close", panel "Pages" + 6 links | **NEW** | no JS. The `<details>` sits **after** the first `<nav>` in the DOM, or inside it. The 48 px rows are touch targets. The summary is a real `<summary>` with a visible label. The board prop `menu = closed \| open` only toggles the drawing. |
+| Footer brand block + claim paragraph | CHANGED | the claim paragraph is marketingChrome's, verbatim |
+| Footer Product column (6 links) | **NEW** | "API docs" moves here; `TestAPIGuidePages_AreLinkedFromTheFootersAndThePanel` must still find it on the landing and in marketingChrome |
+| Footer Legal column (4 links) | CHANGED (from a row) | `TestMarketing_MountsEveryLegalDocumentAndLinksToIt`, `TestLegalPages_NavigationMarksTheCurrentDocumentAndWhatIsNotInForce` |
+
+**`marketingChromeWith` gains the LP-6 header and footer**, so signup, legal and the API guide render the
+same chrome as the landing. This is a **deliberate change of the guide's bytes** (the M12-46 note at
+`landing.templ:580–585` is rewritten with the new measurement, as in §7). Tests that read that chrome stay
+green, with any byte-level assertion updated in the same commit and its intent kept:
+`TestAPIGuidePages_AreTheGuideInTheMarketingChrome`, `TestAPIGuidePages_FitAPhone`,
+`TestSignupSurface_EverySignInLinkGoesToTheSignInPage`, `TestSignup_MountsExactlyTheRoutesTheLandingPageOffers`.
+`layout.*` does not change (`TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8` stays byte-identical).
+The landing keeps its own `.lp` markup for the same chrome. The two must render the same links in the same
+order, and the every-public-page-links test is what holds them together.
+
+## 13. Landing — new order and sections (inventory A §1)
+
+header → hero → strip → how → why switch → **For your team (NEW, `#team`)** → security → the panel → **A
+shift, start to finish (NEW, `#shift`)** → fits → **Integrations (NEW, `#integrations`)** → pricing → FAQ
+→ CTA → footer.
+
+Links to the new pages are furniture, not claims:
+- "How each proof works →" (end of Security → `/security`);
+- "Take the product tour →" (beside the panel footnote → `/product`);
+- "For restaurants & bars →" / "For production & facilities →" (one per fits card → `/for/…`;
+  `LandingAudiences` gains `Href`);
+- "Pricing in detail →" (under the price card → `/pricing`);
+- "Read the API docs →" (integrations → `APIGuidePath`).
+
+| Section | Status | What is drawn | Claims |
+|---|---|---|---|
+| `#team` | NEW | two phones at real CSS sizes: the tap screen (unchanged) and the **result of a flagged tap** (`result.templ` flag branch; Grace Attard · KF Msida · 09:41 · Trust 20). Flagged rather than approved, because the approved result prints a business-type line that carries an emoji for both pilot trades (LP-2.4). | T2–T9 (+ honesty line T10) |
+| `#shift` | NEW | six dockets on an ink rail (desktop 1×6, tablet 2×3, phone a vertical list); step 04 FLAGGED; actor chips are furniture | S2–S9 |
+| `#integrations` | NEW | three cells (CSV · integration API · webhooks) + a note bar; the mono chips are **real identifiers** (`Download CSV`, `PUT /v1/employees/{ref}`, `PUT /v1/locations/{ref}`, `GET /v1/punches`, `X-Taptime-Signature: sha256=…`), pinned to the route constants and `internal/webhook/signing.go` | I2–I7 |
+| fits cards | CHANGED | one link per card | — |
+
+## 14. `/product` — Product tour (inventory A §2)
+
+- **Structure:** header (Product current) → hero (eyebrow, H1, lede, "Start free — 3 months on us" +
+  "See pricing"; an "On this page" index with anchors `#tap #pass #spike #roll #people #venues #rules`) →
+  seven tour sections → honesty footnote → Integrations (the same values as `#integrations`) → CTA → footer.
+- **Each tour section:** a numbered node, a kicker (furniture), an H2 that is the real screen name, one
+  line, three or four check bullets and a miniature. On desktop the sides alternate.
+- **Miniatures:**
+  - The Pass, The Spike and The Roll are **reused unchanged** from the landing's showcase (§6.7).
+  - People, Venues & plaques and Rules are **NEW**, limited to what the code shows today: no counts in the
+    People chips, no last tap, no QR pattern, statuses in database words, rule phrases from
+    `internal/domain/tenant/rulebook.go`.
+  - The tap stage reuses the `#team` phones.
+- **Claims:** P2, P3, P5–P14, P16–P19, P21–P29 (25 NEW). Reused verbatim: LandingSteps[2], the LP panel
+  lines, LandingComparison row 3, includes[4]. The H1 (P2) rests on the **PROPOSED**
+  `FactEveryDecidedTapIsRecorded` (M14-08 creates it), so M14-18 comes after M14-08.
+
+## 15. `/pricing` (inventory A §3)
+
+- **Structure:** header (Pricing current) → hero (`LandingPricingHeading`, `LandingPricingLede`, the
+  landing's price card unchanged) → Examples (a team-size table + a frozen-month receipt drawing) →
+  Billing FAQ (two-column `<details>`) → CTA → footer.
+- **The team-size table is computed server-side.** The view carries `[]TeamExample{Headcount, Monthly}`,
+  filled by **`exampleTeamMonthly(publishedPricePerEmployeeMonth, n)`** (`internal/handler/marketing.go:671`,
+  integer cents) for a fixed headcount list (10 / 25 / 60 / 150 → €15 / €37.50 / €90 / €225 at today's
+  €1.50). The 60 row is `exampleHeadcount`. There is no second copy of the price and no JS.
+  `TestLanding_ExampleTeamCostIsThePriceTimesTheHeadcount` (or a sibling) is extended to **every row**, with
+  a control that changes the published price and watches every row move. The receipt's "€90.00" uses the
+  same cents arithmetic in the Billing screen's money format; the receipt is sample anatomy, labelled.
+- **Claims:** R3–R5 and R8–R14 (10 NEW).
+  - R9 states only the first half of the Billing screen's CountLine. The port either carries the dropped
+    conjunct or pins the shortened sentence explicitly as a summary of CountLine (inventory A R9).
+  - **Not claimed, deliberately:** how payment is taken, invoices, VAT, any price for the API.
+
+## 16. `/security` (inventory B, S1–S36)
+
+- **Structure:** header (Security current) → hero (the security H2 "Four proofs on every single tap." becomes
+  the H1, plus a sample APPROVED docket that matches the landing) → the four proofs in depth (S3–S13, with
+  figures: link anatomy, counter rows, session boxes, the /7 width scale, the GPS radius) → the decision
+  ladder (S14–S21, S36) → flagged, never dropped (S22–S25) → immutability (S26–S28) → never collected
+  (S29–S31) → isolation (S32–S34) → **EU hosting (S35, gated)** → CTA → footer.
+- **Verbatim reuse:** `LandingEvidence` ×4, `LandingSecurityLede`, `LandingPrivacyNote`, and `LegalPages[3].Lede`'s
+  cookie sentence.
+- **Port note:** printed figures come from code, never literals: the debounce and the radius from config
+  defaults, the trust constants from the engine, the /7 and /31 limits from `netx`, and the guardrail count
+  ("Five of the eleven", S36) from `len(policy.Guardrails(…))`.
+
+### 16.1 S35 — EU hosting: **PENDING USER DECISION**
+
+S35 ("Where your records live." / "Hosted in the EU" / "The production server runs in Falkenstein,
+Germany, and database backups are encrypted before they are stored, in an EU-jurisdiction bucket.") rests
+on `deploy/README.md` (node fsn1 = Hetzner Falkenstein, measured; the R2 EU-jurisdiction bucket with rclone
+`crypt`). The published Privacy page still lists "where the data is hosted and processed" as a pending fact,
+and the backup half is only **"selected"** in `deploy/README.md`, not confirmed in operation. **Do not port
+S35 until the user approves it.** M14-20 ships `/security` without the S35 card. If the user approves, a
+follow-up adds the card with its Fact (`FactHostedInTheEU`, pinned to `deploy/README.md` the way
+`FactPlaquesIncludedAndReplacedFree` is pinned to the handoff). Nothing else on the page depends on S35.
+
+## 17. `/for/restaurants` and `/for/production` (inventory B, R1–R16 and P1–P11)
+
+- **Both** pages are built on `LandingAudiences` (Kicker, Title, Points, Example, verbatim). Paragraph() is
+  the hero lede.
+- **Restaurants:**
+  - nine venue tiles from the seed;
+  - the overnight shift: Rusty Bar 18:00–02:00, IN 17:58 → OUT 02:04 = "8h 06m · one shift";
+  - lateness against the tapped venue's hours;
+  - a real `<table>` of venues with a `<caption>` ("Sample setup · from our demo data");
+  - cover at another venue, as a note that stays off the employee's screen;
+  - "never invents a check-out";
+  - the Roll with the product's legend words.
+- **Production:**
+  - one plaque at the KM Plant gate and five department shifts from the seed;
+  - lateness against the department shift, with the "Same minute, different yardsticks" caption;
+  - department on every record, with the Pass/People filter;
+  - a gate queue with per-person debounce (the repeat tap shows IGNORED, direction NONE);
+  - gloves and flour, and one 64 px button.
+- The industry pages mark no header item as current.
+
+## 18. NEW CLAIM groups and their Facts
+
+There are about **120 NEW CLAIM rows**: landing 22 + `/product` 25 + `/pricing` 10 (inventory A) and
+`/security` 36 + restaurants 16 + production 11 (inventory B). Some rows hold several sentences that rest
+on one fact. The rule for every row is the same as M14-08: a value in `landingview.go` (or a per-page view
+file in `pages`), the Fact or Anchor it rests on, a **derivation from code** (not a literal), a **mutation
+control** that removes the code fact and watches the test go red, and a **rendered** check
+(`TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed` and `TestFactMechanisms_SayNoWhenTheFactIsAbsent`
+then cover each new Fact). Sample data, figure labels and honesty lines are furniture.
+
+| Group | Rows | Existing Facts / Anchors reused | New (proposed) Facts |
+|---|---|---|---|
+| The employee's screen | T2–T9, P5–P7, P11 (prod.) | `FactTapPageNeedsNoApp`, `FactTapPageGreetsByName`, `FactTapButtonSizedForAWetHand`, `FactPositionReadOnlyOnPress` | `FactTapScreenHasOneButton`, `FactTapScreenNamesTheTappedVenue`, `FactCountedTapClosesWithoutAButton`, `FactFlaggedResultSaysItNeedsApproval`, `FactRepeatTapIsRecordedNotCounted`, `FactResultIsAStampedVerdict` |
+| Records are kept | S6, P2, S4, S22–S25, P8 (prod.), P14 | `FactFlaggedQueueDecidedByAManager`, `FactCopiedLinkIsRefused` | `FactEveryDecidedTapIsRecorded` (M14-08), `FactRejectedTapIsRecorded`, `FactIgnoredTapIsRecorded`, `FactAwaitingHoursHeldOut`, `FactReviewOnceAndNotOwn`, `FactReviewIsASeparateRow`, `FactOpenCheckInsAreNotCounted` |
+| Immutability and manual entry | P9, P10, S26–S28, P21 | `FactManualEntryNamesAManager` | `FactRecordsAreImmutable` (= `FactTransactionsImmutable`, **one** Fact, not two), `FactManualEntryIsAudited` |
+| Onboarding and people | S2–S5, P17–P19, S6 (sec.) | `FactPeopleAreInvitedFromTheDashboard`, `FactDeactivatedPersonIsRefused` | `FactActivationTapRecordsNoHours` (= `FactActivationCompletesOnFirstNFCTap`, one Fact), `FactRosterStatusWords`, `FactInviteLinkShownOnce`, `FactDeactivatedTapRaisesAlert` |
+| Review | S7–S8, P11–P13, S23 | `FactFlaggedQueueDecidedByAManager` | `FactSpikeShowsEvidenceAndReason`, `FactReviewTakesANote`, `FactNoSelfReview` |
+| Reports and payroll | S9, P14–P16, R4, R12, R15–R16, P3–P5 (prod.) | `FactHoursExportAsCSV`, `FactBillingExportAsCSV`, `FactReportPerPersonAndVenue`, `AnchorLatenessFollowsDepartment` | `FactLatenessAgainstOwnShift` (= `FactLatenessUsesTheTappedVenuesShift`, one Fact), `FactShiftCountsOnItsStartDayAndVenue`, `FactReportCountsOtherVenueShifts`, `FactRollCountsLateArrivals`, `FactPassReadsAnyDay` |
+| Venues, plaques, network | P22–P25, S9–S10, R6–R8, P10 (prod.) | `FactVenuesAndDepartmentsCarryOwnHours`, `FactPlaqueCanBeReplaced`, `AnchorVenueShiftAndAddress`, `AnchorPlaqueBelongsToVenue`, `AnchorDepartmentShift` | `FactTooWideAddressListIsNoEvidence` (= `FactTooWideListIsNotEvidence`, one Fact), `FactIPIsTheRequestSource`, `FactWifiNameIsNotEvidence` |
+| Rules and the decision | P26–P29, S1, S14–S21, S36 | `SourceGPSRadiusDefault`, `FactCodelessTapNeedsAddress` | `FactRulesAreOwnerEditableAndAudited`, `FactGuardrailsCannotBeSwitchedOff`, `FactOnlyOwnerEditsRules`, `FactUndecidedTapIsReviewed` (= `FactUndecidedTapIsFlagged`, one Fact), `FactDecisionIsServerSide`, `FactDecisionOrder`, `FactGuardrailRows` (derived from `policy.Guardrails`), `FactBaselineRows` (from `policy.Baseline`), `FactTrustScoreIsInformational`, `FactGPSOutsideRadiusIsReviewed`, `FactDebounceIsPerPerson`, `FactDebounceUsesServerClock` |
+| Crypto and sessions | S3–S5, S7 | `SourceSUNURLCarriesCounterAndSignature` | `FactChipLinkCarriesCounterAndCMAC`, `FactPlaqueKeysAreWrapped`, `FactSessionTokenStoredAsKeyedHash` |
+| Privacy and isolation | S29–S34 | `FactNoAuthenticatorAPI`, `FactPositionReadOnlyOnPress` | `FactTenantIsolationByRLS`, `FactOperatorAccessIsAudited`, `FactHoldingIsTheOnlyCrossing` |
+| Cross-venue cover | R1, R9–R11 | — | `FactCrossVenueTapJudgedLikeHome`, `FactCrossVenueNoteStaysOffTheEmployeesScreen` |
+| Absences (tripwires) | R13 | — | `FactNoAutomaticCheckout` (an absence Fact, like `FactNoBulkImport`) |
+| Integrations | I2–I7, R14 (pricing) | `FactAPIWritesPeopleAndLocations`, `FactAPIFeedsEveryPunch`, `FactAPIEnabledPerBusinessByTaptime` (from the FAQ-API fix, in `main`) | `FactWebhookIsOneSignedEndpoint` |
+| Billing | R3–R5, R9–R13 | `FactPricePerEmployee` | `FactMonthIsHeadcountTimesPrice`, `FactFreeMonthsChargeNothing`, `FactHeadcountIsEmploymentOverlap`, `FactEndedMonthIsCountedOverItsOwnDates`, `FactFreezeIsFinalAndOwnerOnly`, `FactBillingNamesFirstChargedMonth` |
+| EU hosting | S35 | — | `FactHostedInTheEU` — **gated, §16.1** |
+
+**Merge the duplicates.** The two inventories were written in parallel and sometimes name one fact twice;
+the "=" pairs above are one Fact each. The port declares one, and both pages' sentences rest on it. A
+proposed name is a suggestion; the builder may rename it.
+
+**Facts from the FAQ-API fix** (`FactAPI*`) exist only after `main` (with `0e7c158`) is merged into the work
+branch. Every card that uses them depends on that merge.
+
+## 19. Port feasibility (inventory B table + inventory A)
+
+No figure needs JavaScript: there is no animation, toggle or measurement on the new pages, and the phone
+Menu is `<details>`. Data-driven geometry becomes either **inline SVG with presentation attributes computed
+in Go** (the `operatorpages/qr.go` pattern) or **fixed class buckets written literally in templ**:
+
+| Figure | Port | New pinning test (described; the builder names it) |
+|---|---|---|
+| Overnight timeline (restaurants) | inline SVG; x/width from the seed venue shift and the two sample times | the bar is Rusty Bar's shift from the venue fixture, and "8h 06m" is the ledger's duration format of OUT−IN |
+| Department shift bars + 04:02 marker (production) | inline SVG (one `<rect>` per department) or literal bucket classes for start × length | the bars match the seed departments; the late caption is `tap.MinutesLate` (04:02 vs 04:00) in the reports label format |
+| /7 width scale (security) | inline SVG; the limit's x from netx's constants | the page prints netx's IPv4/IPv6 limits and no other prefix |
+| GPS figure (security) | inline SVG (unchanged); "radius: 150 m by default" from `TAPPA_GPS_RADIUS_M`'s default | the radius is the config default |
+| Roll miniatures (landing, product, restaurants) | the product's `.roll-cell--worked/--other/--open/--none` looks, re-scoped for the public CSS | the legend words equal `reports.templ`'s rollLegend |
+| Trust card (20 / +50 / +30) | values from the engine's trust constants | the trust figures match the engine |
+| "60 seconds", "150 m" | printed from config defaults, with the "default" caveat | the printed defaults come from config |
+| Guardrail rows + "Five of the eleven" | count from `len(policy.Guardrails(…))` | the `FactGuardrailRows` test |
+| Team-size table (pricing) | `exampleTeamMonthly` per row, server-side | the extended example-cost test, every row |
+| Two-phone figures (`#team`, product 01) | fixed `.lp` classes per breakpoint, stacked at 390 | — (CSS) |
+| Docket tilts, rail clips, the Menu's open/closed label | `nth-child` classes; `details[open]` CSS | — |
+
+The verbatim inventory text for each row is in [`lp6-inventory-b.md`](lp6-inventory-b.md) ("Port feasibility")
+and [`lp6-inventory-a.md`](lp6-inventory-a.md) (§3 computed values, §5 rules checked).

@@ -30,8 +30,6 @@ a{color:#1F5C41}a:hover{color:#152219}
 .btn--green:hover{background:#152219;color:#FFFDF4}
 .btn--ghost{border:2px solid #152219;color:#152219;background:transparent}
 .btn--ghost:hover{background:#152219;color:#FFFDF4}
-.navlink{min-height:44px;display:inline-flex;align-items:center;font-size:14px;font-weight:500;color:rgba(21,34,25,.85);text-decoration:none}
-.navlink:hover{color:#152219}
 .ico{flex:none;width:44px;height:44px;border-radius:12px;background:#E1EDE6;color:#1F5C41;display:inline-flex;align-items:center;justify-content:center}
 .card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:18px;box-sizing:border-box}
 details.qa{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px}
@@ -41,24 +39,38 @@ details.qa .pl{flex:none;width:28px;height:28px;border-radius:50%;border:1px sol
 details.qa[open] .pl{transform:rotate(45deg)}
 .flink{min-height:44px;display:inline-flex;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7);text-decoration:underline;text-underline-offset:4px}
 .flink:hover{color:#152219}
+.navlink{min-height:44px;display:inline-flex;align-items:center;font-size:14px;font-weight:500;color:rgba(21,34,25,.85);text-decoration:none}
+.navlink:hover{color:#152219}
+.navlink[aria-current]{color:#152219;font-weight:700;box-shadow:inset 0 -2px 0 #1F5C41}
+.fcol a{min-height:40px;display:flex;align-items:center;font-size:14px;color:rgba(21,34,25,.85);text-decoration:none}
+.fcol a:hover{color:#152219;text-decoration:underline;text-underline-offset:4px}
+details.menu>summary{list-style:none;cursor:pointer;min-height:44px;min-width:44px;padding:0 10px;box-sizing:border-box;border:1.5px solid #152219;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#152219;background:transparent}
+details.menu>summary::-webkit-details-marker{display:none}
+details.menu:not([open])>nav{display:none}
+details.menu[open]>summary{background:#152219;color:#FFFDF4;border-color:#152219}
+details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}details.menu[open] .mopen{display:none}
+.mlink{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:16px;font-weight:700;color:#152219;text-decoration:none;border-top:1px dashed #C9D2C8}
+.mlink:first-child{border-top:0}
+.hbtn{min-height:44px;padding:0 18px;border-radius:12px;font:700 14px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box;white-space:nowrap;background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
+.hbtn:hover{background:#152219;color:#FFFDF4}
+.more{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-weight:700;font-size:15px;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
 </style>
 </helmet>
 <div style="width: 100%; min-width: 1024px; height: 900px; position: relative; overflow: hidden; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
   <div aria-hidden="true" style="display: flex; flex-direction: column">
   <header style="position: sticky; top: 0; z-index: 5; background: rgba(237,240,234,.94); border-bottom: 1px solid #C9D2C8">
     <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box; min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 12px">
-      <a href="#" style="text-decoration: none; color: #152219; display: flex; align-items: center; gap: 10px; min-height: 44px">
+      <a href="Landing.dc.html" style="text-decoration: none; color: #152219; display: flex; align-items: center; gap: 10px; min-height: 44px">
         <span aria-hidden="true" style="flex: none; width: 28px; height: 28px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 6px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
         <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em">taptime</span>
         <span class="mono" style="font-size: 11px; letter-spacing: .14em; color: rgba(21,34,25,.7); padding-top: 4px">PUNCHLESS</span>
       </a>
-      <nav aria-label="Page" style="display: flex; align-items: center; gap: 26px">
-        <sc-for list="{{nav}}" as="n" hint-placeholder-count="3">
-          <a href="{{n.href}}" class="navlink">{{n.label}}</a>
-        </sc-for>
-        <a href="{{v.signin}}" style="min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
-        <a href="{{v.signup}}" class="btn btn--green" style="min-height: 44px; padding: 0 18px; font-size: 14px">Start free</a>
-      </nav>
+      <div style="display: flex; align-items: center; gap: 26px">
+        <nav aria-label="Pages" style="display: flex; align-items: center; gap: 26px"><a href="Product.dc.html" class="navlink">Product</a><a href="Security.dc.html" class="navlink">Security</a><a href="Pricing.dc.html" class="navlink">Pricing</a></nav>
+        <span aria-hidden="true" style="width: 1px; height: 22px; background: #C9D2C8"></span>
+        <a href="SignIn.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
+        <a href="Signup.dc.html" class="hbtn">Start free</a>
+      </div>
     </div>
   </header>
   <section aria-label="Taptime" style="padding: 80px 0 84px">
@@ -127,7 +139,7 @@ details.qa[open] .pl{transform:rotate(45deg)}
               </div>
               <div style="padding: 32px 16px; display: flex; flex-direction: column; gap: 24px; font-family: 'Space Grotesk', sans-serif; color: #152219">
                 <div style="display: flex; align-items: baseline; justify-content: space-between">
-                  <span style="font-size: 18px; font-weight: 700; letter-spacing: -0.025em; color: #1F5C41">taptime</span>
+                  <span style="font-size: 18px; font-weight: 700; letter-spacing: -0.025em; color: #152219">taptime</span>
                   <span class="mono" style="font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: rgba(21,34,25,.7)">punchless</span>
                 </div>
                 <section class="tapdocket">
@@ -188,20 +200,33 @@ class Component extends DCLogic {
     // LandingView, as internal/handler builds it today (pages.LandingView):
     //   SignupHref → the wizard, SignInHref → the panel sign-in, PricePerEmployeeMonth "1.50" (migration 00016),
     //   FreeMonths 3 (tappa_first_chargeable_month), ExampleHeadcount 60, ExampleMonthly "90" (exampleTeamMonthly, computed).
-    const v = { signup: 'Signup.dc.html', signin: 'SignIn.dc.html', price: '1.50', free: 3, headcount: 60, monthly: '90' };
+    // exampleTeamMonthly mirrors internal/handler/marketing.go exampleTeamMonthly: headcount × price in integer
+    // CENTS (no float), "90" or "37.50", no currency sign. EVERY monthly figure on every board comes from it —
+    // the landing's example AND the /pricing team-size table — so the price is typed exactly once (here, v.price).
+    const exampleTeamMonthly = (price, headcount) => {
+      const [e, c] = price.split('.');
+      const total = (Number(e) * 100 + Number(c)) * headcount;
+      return total % 100 === 0 ? String(total / 100) : Math.floor(total / 100) + '.' + String(total % 100).padStart(2, '0');
+    };
+    // billing.Money as the Billing screen prints it (money(): "€" + two decimals) — same cents arithmetic.
+    const moneyOf = (price, headcount) => {
+      const [e, c] = price.split('.');
+      const total = (Number(e) * 100 + Number(c)) * headcount;
+      return '€' + Math.floor(total / 100) + '.' + String(total % 100).padStart(2, '0');
+    };
+    const v = { signup: 'Signup.dc.html', signin: 'SignIn.dc.html', price: '1.50', free: 3, headcount: 60 };
+    v.monthly = exampleTeamMonthly(v.price, v.headcount);
     // The hero rotates through landing.js's four invented records. User decision (fix round): landing.js also swaps the
     // phone's greeting name + venue and the plaque's venue/uid line, so ticket, phone and plaque always show ONE record.
     const TICKETS = {
       maria: { n: 'Maria Vella', t: 'CLOCK IN', time: '09:58', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55' },
       kevin: { n: 'Kevin Grech', t: 'CLOCK IN', time: '09:52', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55' },
-      anna: { n: 'Anna Farrugia', t: 'CLOCK IN', time: '04:02', loc: 'KM Facility', plaque: 'KM FACILITY · 2F04-1B9A' },
+      anna: { n: 'Anna Farrugia', t: 'CLOCK IN', time: '04:02', loc: 'KM Plant', plaque: 'KM PLANT · 2F04-1B9A' },
       luke: { n: 'Luke Borg', t: 'CLOCK OUT', time: '02:04', loc: 'Rusty Bar', plaque: 'RUSTY BAR · 6D31-C8E2' }
     };
     const ticket = TICKETS[this.props.ticket] || TICKETS.maria;
     const free = String(v.free);
     const B = 'font-weight:700;color:#152219', N = '';
-    // pages.LandingNav
-    const nav = [{ label: 'How it works', href: '#how' }, { label: 'Security', href: '#security' }, { label: 'Pricing', href: '#pricing' }];
     // pages.LandingSteps — Icon (emoji) is replaced by a line icon key; the text is verbatim.
     const steps = [
       { ord: 'STEP 1', title: 'Stick the plaque', plaque: true, invite: false, tap: false, body: [
@@ -236,10 +261,10 @@ class Component extends DCLogic {
     const fits = [
       { k: 'Multi-location', title: 'Restaurant & retail chains',
         p: 'One plaque per site, each with its own network address on file. Late-night bars welcome: overnight shifts pair check-outs to the last open check-in, not the calendar date.',
-        ex: '9 sites · 1 dashboard · hours per location' },
+        ex: '9 sites · 1 dashboard · hours per location', link: 'For restaurants & bars', href: 'ForRestaurants.dc.html' },
       { k: 'Single site, many teams', title: 'Production & facilities',
         p: 'One plaque at the gate; departments resolve automatically from each employee\'s profile — bakers against their 04:00 shift, meat production against 05:00. No extra hardware per floor.',
-        ex: '5 departments · per-department shifts · records filtered by department' }
+        ex: '5 departments · per-department shifts · records filtered by department', link: 'For production & facilities', href: 'ForProduction.dc.html' }
     ];
     // pages.LandingPricingIncludes
     const includes = ['Locations & departments, each on its own hours', 'Branded wall plaques included & replaced free', 'Dashboard, flags & manager review queue', 'Hours & headcount reports, CSV export for your payroll flow', 'Manual entries, marked apart from tapped ones'];
@@ -251,15 +276,12 @@ class Component extends DCLogic {
       ['How do we migrate from our current device?', "Add your people from the dashboard and hand out invite links — one profile at a time; there is no file import today. If your HR system already holds the list, the integration API can write your people and locations once Taptime enables it for you. The old box is yours to unplug whenever you're ready — Taptime doesn't talk to it."],
       ['Where does the data go?', "Into your dashboard: hours per person and per site, and the monthly headcount you're billed on — both as CSV exports for your payroll. Once Taptime enables the integration API for you, your HR or payroll system can also read every punch from a feed or receive it by webhook. Taptime is the source of truth for in/out times — it doesn't try to replace your payroll."]
     ].map(([q, a], i) => ({ q, a, open: i === 0 }));
-    // pages.LegalPages (NavLabel) + APIGuidePath
-    const legal = [['Privacy', 'Legal.dc.html'], ['Terms', 'Legal.dc.html'], ['Company details', 'Legal.dc.html'], ['Cookies', 'Legal.dc.html'], ['API docs', '#api-docs']].map(([label, href]) => ({ label, href }));
-
     // ---- "The panel" showcase: INVENTED SAMPLE DATA, drawn for this page (no record is real). ----
     // No figure may trip TestLanding_MakesNoUnmeasuredNumericClaim: no "100", "99" or "%" anywhere (so no trust 100).
     const STAMP = { APPROVED: 'stamp stamp--ok', FLAGGED: 'stamp stamp--flag', REJECTED: 'stamp stamp--rej' };
     const pass = [
       ['KF ST JULIANS', 'Maria Vella', 'IN', '09:58', 'APPROVED', 'TRUST 70', 'IP yes · GPS n/a', -1.5],
-      ['KF ST JULIANS', 'Kevin Grech', 'IN', '09:52', 'APPROVED', 'TRUST 50', 'IP n/a · GPS yes', 1],
+      ['KF ST JULIANS', 'Kevin Grech', 'IN', '09:52', 'APPROVED', 'TRUST 50', 'IP no · GPS yes', 1],
       ['KF MSIDA', 'Grace Attard', 'IN', '09:41', 'FLAGGED', 'TRUST 20', 'IP no · GPS n/a', -0.5],
       ['RUSTY BAR', 'Luke Borg', 'OUT', '02:04', 'APPROVED', 'TRUST 70', 'IP yes · GPS n/a', 1.5]
     ].map(([venue, name, dir, time, stamp, trust, ev, tilt]) => ({ venue, name, dir, time, stamp, stampCls: STAMP[stamp], trust, ev, tilt }));
@@ -271,17 +293,20 @@ class Component extends DCLogic {
     ].map(([name, when, line, on]) => ({ name, when, line, style: 'display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:10px;background:#FFFDF4;' + (on ? 'border:2px solid #152219' : 'border:1px solid #C9D2C8') }));
     const hm = m => Math.floor(m / 60) + 'h ' + String(m % 60).padStart(2, '0') + 'm';
     const roll = [
-      ['Maria Vella', 'Line Cook · KF St Julians', [482, 495, 0, 478, 510, 545, 0]],
+      ['Maria Vella', 'Line Cook · KF St Julians', [482, 495, 0, 478, 510, 545, 0], [3]],
       ['Kevin Grech', 'Kitchen Porter · KF St Julians', [360, -1, 370, 365, 0, 480, 465]],
       ['Grace Attard', 'Line Cook · KF Msida', [480, 485, 478, 490, 482, 0, 0]],
-      ['Luke Borg', 'Bar · Rusty Bar', [0, 0, 465, 470, 480, 495, 510]]
-    ].map(([name, sub, days], ri) => {
+      ['Luke Borg', 'Bar · Rusty Bar', [486, 0, 465, 470, 480, 495, 510]]
+    ].map(([name, sub, days, other], ri) => {
       const total = days.reduce((a, m) => a + Math.max(m, 0), 0);
       const shifts = days.filter(m => m > 0).length;
       return { name, sub, total: hm(total), shifts: shifts + ' shifts', sep: ri ? 'border-top:1px dashed #C9D2C8' : '',
-        cells: days.map(m => ({ v: m < 0 ? 'open' : m === 0 ? '—' : hm(m),
-          style: 'padding:9px 2px;text-align:center;white-space:nowrap;' + (m < 0 ? 'color:#152219;background:#F7EBD6' : m === 0 ? 'color:rgba(21,34,25,.7)' : 'color:#152219') })),
-        dots: days.map(m => ({ style: 'width:14px;height:14px;border-radius:4px;box-sizing:border-box;' + (m < 0 ? 'border:2px solid #D98E2B;background:#F7EBD6' : m === 0 ? 'border:1px solid #C9D2C8' : 'background:#1F5C41') })) };
+        // the product's .roll-cell looks (reports.templ rollCellClass): worked green/15, other venue inset ink ring,
+        // open dashed saffron + saffron/10, none ink/70 dash.
+        cells: days.map((m, di) => ({ v: m < 0 ? 'open' : m === 0 ? '—' : hm(m),
+          style: 'padding:6px 2px;text-align:center;white-space:nowrap;' + (m === 0 ? 'color:rgba(21,34,25,.7)' : 'color:#152219'),
+          box: 'display:inline-block;padding:2px 3px;border-radius:4px;' + (m < 0 ? 'border:1px dashed #D98E2B;background:rgba(217,142,43,.1)' : m === 0 ? '' : 'background:rgba(31,92,65,.15)' + ((other || []).includes(di) ? ';box-shadow:inset 0 0 0 1px #152219' : '')) })),
+        dots: days.map((m, di) => ({ style: 'width:14px;height:14px;border-radius:4px;box-sizing:border-box;' + (m < 0 ? 'border:1px dashed #D98E2B;background:rgba(217,142,43,.1)' : m === 0 ? 'border:1px solid #C9D2C8' : 'background:rgba(31,92,65,.15)' + ((other || []).includes(di) ? ';box-shadow:inset 0 0 0 1px #152219' : '')) })) };
     });
     const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
     const railIcons = [1, 2, 3, 4, 5, 6, 7];
@@ -291,8 +316,148 @@ class Component extends DCLogic {
       { title: 'The Roll', line: 'Hours per person for the week, with the CSV for your payroll.' }
     ];
 
+    // ======================= LP-6 (builder A): new landing sections + /product + /pricing =======================
+    // Every sentence below that is not marked EXISTING is a NEW CLAIM listed in handoff/LP6-inventory-A.md with
+    // the code fact that makes it true. ASCII apostrophes, no emoji.
+    const NEW = {};
+    // ---- landing: the employee experience ----
+    NEW.team = {
+      h2: 'One screen, one button.',
+      sub: 'No menu, no settings, no history to scroll: a greeting, the venue that was tapped and one button.',
+      points: [
+        { browser: true, t: 'No app to install', b: 'The plaque opens an ordinary web page in the phone\'s own browser.' },
+        { hello: true, t: 'Greeted by name', b: 'The page says hello by name and shows the venue that was tapped.' },
+        { drop: true, t: 'Made for wet hands', b: 'One large button, sized for a wet or gloved finger.' },
+        { done: true, t: 'Done means done', b: 'A counted tap ends on its stamp and "All done — you can close this page." There is no button on it.' }
+      ],
+      capTap: 'What opens when the phone touches the plaque.',
+      capFlag: 'When the evidence is short, the screen says so.',
+      foot: 'Drawn as the product renders them — sample name, venue and time.'
+    };
+    // The phones' sample record (invented; KF tenant, matches the panel showcase's FLAGGED docket).
+    // The result strings are the product's own: result.templ (flag branch) + base:no-evidence-review's note.
+    NEW.sample = { n: 'Grace Attard', loc: 'KF Msida', time: '09:41', trust: '20', note: 'neither IP nor GPS could place this tap' };
+    // ---- landing: a shift, start to finish ----
+    NEW.shift = {
+      h2: 'From the invite link to the payroll file.',
+      sub: 'Who does what, from a new hire\'s first link to the hours your payroll reads.',
+      steps: [
+        { n: '01', who: 'Manager', t: 'Invite', b: 'Add the person in People, then hand over their invite link.' },
+        { n: '02', who: 'Employee', t: 'Activation tap', b: 'They open the link on their own phone. Their first tap on one of your plaques finishes the setup — it records no hours.' },
+        { n: '03', who: 'Employee', t: 'Clock in', b: 'From then on, a tap opens the tap screen and one press records it.' },
+        { n: '04', who: 'Taptime', t: 'Flag', b: 'If neither the venue\'s network nor GPS can place the tap, it is still recorded — flagged, never approved in silence.' },
+        { n: '05', who: 'Manager', t: 'Decision', b: 'A manager approves or rejects it on The Spike. The decision stays beside the record.' },
+        { n: '06', who: 'Manager', t: 'The Roll', b: 'Hours add up per person on The Roll, and the week downloads as CSV for your payroll.' }
+      ].map((s, i) => ({ ...s, tilt: [-1, 0.8, -0.6, 1.2, -1.2, 0.6][i], flag: s.t === 'Flag', line: i === 5 ? 'background: transparent' : 'background: rgba(21,34,25,.2)' }))
+    };
+    NEW.shift.rows6 = [NEW.shift.steps];
+    NEW.shift.rows3 = [NEW.shift.steps.slice(0, 3), NEW.shift.steps.slice(3)];
+    // ---- landing (+ /product): integrations strip ----
+    NEW.integ = {
+      h2: 'Hand the hours to the payroll you already run.',
+      items: [
+        { csv: true, t: 'CSV export', b: 'Hours per person and per venue, and the monthly headcount you\'re billed on, download as CSV.', code: ['Download CSV'] },
+        { api: true, t: 'Integration API', b: 'Your HR system can write your people and locations, and read every punch from a feed.', code: ['PUT /v1/employees/{ref}', 'PUT /v1/locations/{ref}', 'GET /v1/punches'] },
+        { hook: true, t: 'Webhooks', b: 'Each punch can also be sent to one endpoint of yours, signed so you can check it came from Taptime.', code: ['X-Taptime-Signature: sha256=…'] }
+      ],
+      note: 'The integration API and webhooks are enabled by Taptime for your business.'
+    };
+    NEW.integ.items = NEW.integ.items.map((it, i) => ({ ...it, sepL: i ? 'border-left: 1px dashed #C9D2C8' : '', sepT: i ? 'border-top: 1px dashed #C9D2C8' : '' }));
+    // ---- /product ----
+    NEW.prod = {
+      h1: 'From one tap to the week\'s hours.',
+      lede: 'Your people touch a plaque with their own phone. Managers read the record, settle the doubtful ones and export the week. These are the screens in between.',
+      index: ['The tap', 'The Pass', 'The Spike', 'The Roll', 'People', 'Venues & plaques', 'Rules'].map((t, i) => ({ n: String(i + 1).padStart(2, '0'), t })),
+      tour: [
+        { k: 'For your team', t: 'The tap', line: '', bullets: [
+          'The phone\'s position is read once, at the press — never in the background.',
+          'A second tap by the same person moments later is recorded, not counted.',
+          'The answer is a stamped docket: APPROVED, FLAGGED, REJECTED or IGNORED.'] },
+        { k: 'For managers', t: 'The Pass', line: 'The day\'s taps as dockets, newest first, each stamped with its verdict.', bullets: [
+          'Pick any earlier day to read it in full.',
+          'A record typed in by a manager carries "Entered by a manager".',
+          'Nothing here can be edited or deleted: a correction is a new record.'] },
+        { k: 'For managers', t: 'The Spike', line: 'Taps the rules could not judge on evidence alone wait here for a manager to approve or reject.', bullets: [
+          'Each record shows its evidence and the rule\'s own sentence for why it is here.',
+          'A note can go on the record with the decision.',
+          'Nobody can decide on their own record.'] },
+        { k: 'For managers', t: 'The Roll', line: 'Hours per person for the week, with the CSV for your payroll.', bullets: [
+          'A check-in with no check-out is listed, not counted, and the totals say they are incomplete.',
+          'Manual entries, marked apart from tapped ones',
+          'Lateness is measured against the person\'s own shift: their department\'s, else the venue they tapped.'] },
+        { k: 'For managers', t: 'People', line: 'Add somebody, hand over the invite, and switch them off the day they leave.', bullets: [
+          'Each person shows one status: INVITED, ACTIVE or DEACTIVATED.',
+          'The link is shown once, on the next screen. Taptime keeps no copy of it.',
+          'Switch off in the dashboard — the next tap is refused',
+          'A shift nobody tapped can be entered by hand from the person\'s card.'] },
+        { k: 'For managers', t: 'Venues & plaques', line: 'Each venue keeps its own plaques, network addresses, GPS point and shift hours.', bullets: [
+          'A replaced or lost plaque decides nothing: its taps are refused.',
+          'An address list too wide to be one venue\'s network is refused, and never counted as evidence.',
+          'Departments can keep shift hours of their own.'] },
+        { k: 'For the owner', t: 'Rules', line: 'You can switch a Taptime baseline rule off, and write your own version of one that applies at the venues you choose. Every change is shown to you in words before it is written, and every change is recorded with your name against it.', bullets: [
+          'The Taptime guarantees come first and cannot be switched off.',
+          'Only the owner can change a rule; managers read the page.',
+          'When no rule decides a tap, it goes to The Spike — never approved by default.'] }
+      ].map((s, i) => ({ ...s, n: String(i + 1).padStart(2, '0'), hasLine: s.line !== '' }))
+    };
+    // Sample data for the new miniatures (invented, one tenant: Kebab Factory).
+    NEW.people = [
+      // consistent with the Spike queue: everyone with a tap there is ACTIVE; the INVITED person has no session,
+      // the DEACTIVATED one (the seed's Paul Spiteri) keeps a live session (deactivation does not sign phones out).
+      ['MV', 'Maria Vella', 'KF St Julians', 'ACTIVE', '1 signed in'],
+      ['GA', 'Grace Attard', 'KF Msida', 'ACTIVE', '1 signed in'],
+      ['DZ', 'Daniel Zammit', 'KF Valletta', 'ACTIVE', '1 signed in'],
+      ['AH', 'Ahmed Hassan', 'KF Valletta', 'INVITED', 'none signed in'],
+      ['PS', 'Paul Spiteri', 'KF St Julians', 'DEACTIVATED', '1 signed in']
+    ].map(([ini, name, venue, status, dev], i) => ({ ini, name, venue, status, dev, sep: i ? 'border-top: 1px dashed #C9D2C8' : '',
+      pill: 'flex: none; padding: 2px 8px; border-radius: 999px; font-size: 9.5px; font-weight: 700; letter-spacing: .08em; color: #152219; ' +
+        (status === 'ACTIVE' ? 'border: 1px solid #1F5C41; background: #E1EDE6' : status === 'INVITED' ? 'border: 1px dashed #D98E2B; background: #F7EBD6' : 'border: 1px solid #C9D2C8; background: transparent') }));
+    NEW.venues = [
+      // test/fixtures/seed.sql: every KF venue has one /32 on file and a GPS point.
+      ['KF St Julians', '10:00 – 22:00', true, true, true],
+      ['KF Msida', '10:00 – 22:00', true, true, false],
+      ['KF Valletta', '10:00 – 22:00', true, true, false],
+      ['Rusty Bar', '18:00 – 02:00', true, true, false]
+    ].map(([name, hours, ip, gps, on]) => ({ name, hours, ip: ip ? 'IP ✓' : 'IP –', gps: gps ? 'GPS ✓' : 'GPS –',
+      card: 'display: flex; flex-direction: column; gap: 6px; padding: 9px 11px; border-radius: 10px; background: #FFFDF4; ' + (on ? 'border: 2px solid #152219' : 'border: 1px solid #C9D2C8'),
+      ipChip: 'padding: 1px 6px; border-radius: 6px; font-size: 9.5px; font-weight: 700; ' + (ip ? 'border: 1px solid #1F5C41; background: #E1EDE6' : 'border: 1px dashed #C9D2C8'),
+      gpsChip: 'padding: 1px 6px; border-radius: 6px; font-size: 9.5px; font-weight: 700; ' + (gps ? 'border: 1px solid #1F5C41; background: #E1EDE6' : 'border: 1px dashed #C9D2C8') }));
+    NEW.plaques = [['0491AC7E55A3C1', 'IN SERVICE', true], ['04E41290AB3E12', 'RETIRED', false]]
+      .map(([uid, st, live], i) => ({ uid, st, sep: i ? 'border-top: 1px dashed #C9D2C8' : '',
+        pill: 'padding: 1px 7px; border-radius: 999px; font-size: 9px; font-weight: 700; letter-spacing: .08em; white-space: nowrap; ' + (live ? 'border: 1px solid #1F5C41; background: #E1EDE6' : 'border: 1px solid #C9D2C8') }));
+    // Rules miniature: the guardrails' own phrases (internal/domain/tenant/rulebook.go guardrailWhen) and effect
+    // labels (internal/handler/policies.go effectLabel); the baseline names (policy.Baseline tapDoc names).
+    NEW.guards = [['03', 'The NFC signature is wrong, or the plaque\'s counter did not move', 'Reject'],
+      ['05', 'The person has been deactivated', 'Reject'],
+      ['08', 'The same person taps again inside the repeat window', 'Ignore — recorded, counts nothing']]
+      .map(([n, t, e]) => ({ n, t, e }));
+    NEW.baseRows = [['IP proof of place', 'Approve'], ['GPS-only allowance', 'Approve'], ['no evidence needs review', 'Send to The Spike']]
+      .map(([t, e], i) => ({ t, e, sep: i ? 'border-top: 1px dashed #C9D2C8' : '' }));
+    // ---- /pricing ----
+    const SIZES = [10, 25, 60, 150];
+    NEW.price = {
+      examplesH2: 'What a month costs at your size.',
+      examplesSub: 'People counted in the month, times the price per person.',
+      // COMPUTED: the port computes these server-side with exampleTeamMonthly (marketing.go) — never typed.
+      rows: SIZES.map((n, i) => ({ size: n + ' people', amount: '€' + exampleTeamMonthly(v.price, n), sep: i ? 'border-top: 1px dashed #C9D2C8' : '', ex: n === v.headcount })),
+      freeNote: 'Inside the founding offer\'s free months, the amount is zero.',
+      receipt: { month: 'September 2026', people: String(v.headcount), unit: '€' + v.price, total: moneyOf(v.price, v.headcount) },
+      receiptCap: 'A frozen month on the Billing screen — sample figures.',
+      faqH2: 'How the month is counted.',
+      faq: [
+        ['Who counts as a person?', 'Everybody whose employment overlapped the month — anybody who was on the books for even one day of it.'],
+        ['Does hiring or letting someone go change a past month?', 'No. A finished month is counted over its own dates, not over today\'s list of people. Until it is frozen, correcting somebody\'s joining or leaving dates can still move it.'],
+        ['What does freezing a month do?', 'It fixes that month\'s figures: nothing recomputes them afterwards, and it can\'t be undone. Only the owner can freeze a month, and only once the month is over.'],
+        ['Can we check the figure ourselves?', 'Yes. Every month downloads as CSV from the Billing screen, frozen or not.'],
+        ['When does the founding offer start charging?', 'The Billing screen names the first month that is charged for, so the end of the free months is never a guess.'],
+        ['How do we get the integration API?', 'Ask Taptime: the integration API and webhooks are switched on per business by Taptime, not from your dashboard.']
+      ].map(([q, a], i) => ({ q, a, open: i === 0 }))
+    };
+
     return {
-      v, ticket, nav, steps, rows, ledgerNote, proofs, fits, includes, faq, legal,
+      v, ticket, steps, rows, ledgerNote, proofs, fits, includes, faq,
+      menuOpen: this.props.menu === 'open',
+      ...NEW,
       pass, passM, spike, roll, days, railIcons, panel: panelCards,
       heroLede: 'Stick one smart plaque on the wall. Your team taps their own phone on it and they\'re clocked in — verified, timestamped, on the right site.',
       heroFoot: 'Set up a location · works with the phone already in every pocket',

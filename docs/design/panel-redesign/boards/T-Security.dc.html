@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Security — tablet</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.eyebrow{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#1F5C41;margin:0}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.tapdocket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;box-shadow:0 1px 2px rgba(21,34,25,.08);padding:12px 16px;font-family:'IBM Plex Mono',monospace;font-size:14px}
+.tapdocket::before,.tapdocket::after{content:"";position:absolute;left:0;right:0;height:8px;background:radial-gradient(circle at 6px 4px,#EDF0EA 3px,transparent 3.5px) 0 0/12px 8px repeat-x}
+.tapdocket::before{top:-4px}.tapdocket::after{bottom:-4px}
+.stamp{display:inline-block;padding:3px 8px;border:2px solid;border-radius:0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-6deg);white-space:nowrap}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
+.stamp--flag{border-color:#D98E2B;box-shadow:inset 0 0 0 1px #D98E2B;background:rgba(217,142,43,.1);transform:rotate(-3deg)}
+.stamp--rej{border-color:#BE3D2A;box-shadow:inset 0 0 0 1px #BE3D2A;background:rgba(190,61,42,.1);transform:rotate(-10deg)}
+.btn{min-height:48px;padding:0 22px;border-radius:12px;font:700 15px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:9px;text-decoration:none;box-sizing:border-box;white-space:nowrap}
+.btn--green{background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
+.btn--green:hover{background:#152219;color:#FFFDF4}
+.btn--ghost{border:2px solid #152219;color:#152219;background:transparent}
+.btn--ghost:hover{background:#152219;color:#FFFDF4}
+.ico{flex:none;width:44px;height:44px;border-radius:12px;background:#E1EDE6;color:#1F5C41;display:inline-flex;align-items:center;justify-content:center}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:18px;box-sizing:border-box}
+details.qa{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px}
+details.qa summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:44px;font-weight:700;color:#152219}
+details.qa summary::-webkit-details-marker{display:none}
+details.qa .pl{flex:none;width:28px;height:28px;border-radius:50%;border:1px solid #C9D2C8;display:inline-flex;align-items:center;justify-content:center;color:#1F5C41;transition:transform .2s}
+details.qa[open] .pl{transform:rotate(45deg)}
+.flink{min-height:44px;display:inline-flex;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7);text-decoration:underline;text-underline-offset:4px}
+.flink:hover{color:#152219}
+.navlink{min-height:44px;display:inline-flex;align-items:center;font-size:14px;font-weight:500;color:rgba(21,34,25,.85);text-decoration:none}
+.navlink:hover{color:#152219}
+.navlink[aria-current]{color:#152219;font-weight:700;box-shadow:inset 0 -2px 0 #1F5C41}
+.fcol a{min-height:40px;display:flex;align-items:center;font-size:14px;color:rgba(21,34,25,.85);text-decoration:none}
+.fcol a:hover{color:#152219;text-decoration:underline;text-underline-offset:4px}
+details.menu>summary{list-style:none;cursor:pointer;min-height:44px;min-width:44px;padding:0 10px;box-sizing:border-box;border:1.5px solid #152219;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#152219;background:transparent}
+details.menu>summary::-webkit-details-marker{display:none}
+details.menu:not([open])>nav{display:none}
+details.menu[open]>summary{background:#152219;color:#FFFDF4;border-color:#152219}
+details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}details.menu[open] .mopen{display:none}
+.mlink{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:16px;font-weight:700;color:#152219;text-decoration:none;border-top:1px dashed #C9D2C8}
+.mlink:first-child{border-top:0}
+.hbtn{min-height:44px;padding:0 18px;border-radius:12px;font:700 14px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box;white-space:nowrap;background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
+.hbtn:hover{background:#152219;color:#FFFDF4}
+.more{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-weight:700;font-size:15px;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
+
+.stamp--ign{border-color:#C9D2C8;box-shadow:inset 0 0 0 1px #C9D2C8;background:rgba(201,210,200,.1);transform:rotate(-4deg)}
+.stamp--sm{font-size:9.5px;padding:2px 6px;letter-spacing:.12em}
+.chk{display:inline-flex;align-items:center;justify-content:center;flex:none;width:18px;height:18px;border-radius:5px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700}
+.chk--ok{background:#1F5C41;color:#FFFDF4}.chk--no{background:#BE3D2A;color:#FFFDF4}.chk--na{border:1px solid #C9D2C8;color:rgba(21,34,25,.7)}
+.tick{position:absolute;top:0;bottom:0;width:1px;background:rgba(21,34,25,.12)}
+</style>
+</helmet>
+<div style="width: 834px; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
+  <header style="position: sticky; top: 0; z-index: 5; background: rgba(237,240,234,.94); border-bottom: 1px solid #C9D2C8">
+    <div style="padding: 0 40px; box-sizing: border-box; min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 12px">
+      <a href="Landing.dc.html" style="text-decoration: none; color: #152219; display: flex; align-items: center; gap: 10px; min-height: 44px">
+        <span aria-hidden="true" style="flex: none; width: 28px; height: 28px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 6px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
+        <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em">taptime</span>
+        <span class="mono" style="font-size: 11px; letter-spacing: .14em; color: rgba(21,34,25,.7); padding-top: 4px">PUNCHLESS</span>
+      </a>
+      <div style="display: flex; align-items: center; gap: 18px">
+        <nav aria-label="Pages" style="display: flex; align-items: center; gap: 18px"><a href="Product.dc.html" class="navlink">Product</a><a href="Security.dc.html" class="navlink" aria-current="page">Security</a><a href="Pricing.dc.html" class="navlink">Pricing</a></nav>
+        <span aria-hidden="true" style="width: 1px; height: 22px; background: #C9D2C8"></span>
+        <a href="SignIn.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
+        <a href="Signup.dc.html" class="hbtn">Start free</a>
+      </div>
+    </div>
+  </header>
+  <section aria-label="Security &amp; privacy" style="padding: 56px 0 64px">
+    <div style="padding: 0 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 48px">
+      <div style="min-width: 0; display: flex; flex-direction: column">
+        <p class="eyebrow" style="margin-bottom: 18px">Security &amp; privacy</p>
+        <h1 style="margin: 0 0 22px; font-size: 50px; line-height: 1.04; letter-spacing: -0.035em; font-weight: 700">Four proofs on every single tap.</h1>
+        <p style="margin: 0 0 16px; font-size: 19px; line-height: 1.55; color: rgba(21,34,25,.85); max-width: 520px">A tap isn't trusted — it's verified. Each clock-in is scored against four independent signals before it lands in your records.</p>
+        <p style="margin: 0 0 0px; font-size: 15px; line-height: 1.6; color: rgba(21,34,25,.75); font-family: 'IBM Plex Mono', monospace; font-size: 13px">The checks run in the server, not on the phone.</p>
+        <div style="display: flex; gap: 12px; margin-top: 14px; flex-wrap: wrap">
+          <a class="btn btn--green" href="Signup.dc.html">Start free — 3 months on us</a>
+          <a class="btn btn--ghost" href="#ladder">How a tap is decided</a>
+        </div>
+      </div>
+      <div role="img" aria-label="One tap checked four ways — plaque signature, phone session, venue network, and GPS as the backup — then written as a stamped record" class="card" style="padding: 22px 22px 24px; display: flex; flex-direction: column; gap: 14px; min-width: 0; box-shadow: 0 20px 50px rgba(21,34,25,.10)"><span class="lbl">One tap · four checks · sample record</span>
+          <div style="display: flex; flex-direction: column"><div style="display: flex; align-items: center; gap: 12px">
+              <span class="ico" style="width: 40px; height: 40px; border-radius: 11px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"/><path d="M10.4 12.4a2.2 2.2 0 0 1 3.2 0"/><circle cx="12" cy="14.6" r=".5" fill="currentColor"/><path d="M9 18.2h6"/></svg></span>
+              <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                <span class="lbl" style="font-size: 9.5px">Proof 1</span>
+                <span style="font-size: 15px; font-weight: 700">Plaque signature</span>
+              </span>
+              <span class="mono" style="flex: none; font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 999px; background: #E1EDE6; color: #1F5C41">SUN valid ✓</span>
+            </div><span aria-hidden="true" style="display: block; width: 2px; height: 12px; margin-left: 19px; background: #1F5C41"></span><div style="display: flex; align-items: center; gap: 12px">
+              <span class="ico" style="width: 40px; height: 40px; border-radius: 11px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2.4"/><path d="M10.5 18.5h3"/></svg></span>
+              <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                <span class="lbl" style="font-size: 9.5px">Proof 2</span>
+                <span style="font-size: 15px; font-weight: 700">Phone session</span>
+              </span>
+              <span class="mono" style="flex: none; font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 999px; background: #E1EDE6; color: #1F5C41">Known person ✓</span>
+            </div><span aria-hidden="true" style="display: block; width: 2px; height: 12px; margin-left: 19px; background: #1F5C41"></span><div style="display: flex; align-items: center; gap: 12px">
+              <span class="ico" style="width: 40px; height: 40px; border-radius: 11px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.8 9.2a13.5 13.5 0 0 1 18.4 0"/><path d="M5.9 12.6a9 9 0 0 1 12.2 0"/><path d="M9 16a4.4 4.4 0 0 1 6 0"/><circle cx="12" cy="19.2" r=".9" fill="currentColor"/></svg></span>
+              <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                <span class="lbl" style="font-size: 9.5px">Proof 3</span>
+                <span style="font-size: 15px; font-weight: 700">Venue network</span>
+              </span>
+              <span class="mono" style="flex: none; font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 999px; background: #E1EDE6; color: #1F5C41">IP match ✓</span>
+            </div><span aria-hidden="true" style="display: block; width: 2px; height: 12px; margin-left: 19px; background: #C9D2C8"></span><div style="display: flex; align-items: center; gap: 12px">
+              <span class="ico" style="width: 40px; height: 40px; border-radius: 11px; background: transparent; border: 1.5px dashed #1F5C41"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-6.1-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 14.9 12 21 12 21z"/><circle cx="12" cy="9.8" r="2.3"/></svg></span>
+              <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                <span class="lbl" style="font-size: 9.5px">Proof 4</span>
+                <span style="font-size: 15px; font-weight: 700">GPS position</span>
+              </span>
+              <span class="mono" style="flex: none; font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 999px; border: 1px solid #C9D2C8; color: rgba(21,34,25,.7)">Backup · not needed</span>
+            </div></div>
+          <div style="display: flex; justify-content: center; color: #1F5C41" aria-hidden="true"><span aria-hidden="true" style="flex: none; color: #1F5C41; display: inline-flex; transform: rotate(90deg);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></div>
+          <div style="padding-bottom: 7px"><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(0deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">KF ST JULIANS · PLAQUE 91AC-7E55</span>
+                <span style="flex: none"><span class="stamp stamp--ok stamp--sm" style="flex: none">Approved</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Maria Vella</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">IN</span><span style="font-size: 17px">09:58</span></span>
+              <span class="mono" style="font-size: 10.5px; color: rgba(21,34,25,.72); border-top: 1px dashed #C9D2C8; padding-top: 7px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px"><span>TRUST 70</span><span>IP yes · GPS n/a</span></span>
+            </div></div></div>
+    </div>
+  </section>
+  <section id="proofs" style="padding: 72px 0 0">
+    <div style="padding: 0 40px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">The four proofs</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">What each signal proves, and how.</h2>
+      <p style="margin: 0 0 40px; max-width: 600px; font-size: 17px; line-height: 1.6; color: rgba(21,34,25,.85)">Moment, person, place — and a backup for place, for when the network can't answer.</p><div style="display: flex; flex-direction: column; gap: 48px"><div style=""><div style="display: flex; flex-direction: column; gap: 24px">
+            <div style="display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 28px; align-items: start"><div style="padding-bottom: 7px"><div class="docket" style="padding: 22px 20px 22px; display: flex; flex-direction: column; gap: 10px">
+            <span class="mono" style="font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #1F5C41">Proof of moment</span>
+            <h3 style="margin: 0; font-size: 18px; letter-spacing: -0.015em">One-time signature</h3>
+            <p class="mono" style="margin: 0; font-size: 12.5px; line-height: 1.65; color: rgba(21,34,25,.8)">The plaque's NTAG 424 DNA chip signs every tap with a fresh counter + AES cryptogram. Copied or replayed links are rejected — you must physically be at the plaque, right now.</p>
+          </div></div><div style="display: flex; flex-direction: column; gap: 14px; min-width: 0">
+              <span class="lbl" style="color: #1F5C41; font-weight: 700">Under the hood</span>
+              <h3 style="margin: 0; font-size: 19px; line-height: 1.25; letter-spacing: -0.02em">A link that works once</h3>
+              <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">On every read the chip writes a fresh link: the plaque's id, a counter that only goes up, and a 16-character signature (CMAC) made with the plaque's AES-128 key.</p><p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">The server checks the signature, then moves the plaque's counter forward in one database statement that refuses to go backwards. A second use of the same link finds the counter already past it and is rejected — and the rejected tap is still recorded.</p><p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">Plaque keys are stored encrypted under a separate key and are never written to a log.</p>
+            </div></div>
+            <div role="img" aria-label="Anatomy of a tap link and how the counter accepts one read and rejects a replay" class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0"><span class="lbl">The link a tap opens · sample values</span>
+          <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">/t?tag=…&amp;ctr=…&amp;cmac=…</span>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+              <span style="display: flex; justify-content: space-between; align-items: center; gap: 10px; min-width: 0; padding: 7px 10px; background: rgba(21,34,25,.05); border-left: 3px solid #1F5C41">
+                <span class="mono" style="font-size: 12px; white-space: nowrap">tag=<b>04A1C33C2B7E10</b></span>
+                <span class="lbl" style="font-size: 9.5px; text-align: right">The plaque</span>
+              </span>
+              <span style="display: flex; justify-content: space-between; align-items: center; gap: 10px; min-width: 0; padding: 7px 10px; background: rgba(21,34,25,.05); border-left: 3px solid #1F5C41">
+                <span class="mono" style="font-size: 12px; white-space: nowrap">ctr=<b>000642</b></span>
+                <span class="lbl" style="font-size: 9.5px; text-align: right">Counter, goes up</span>
+              </span>
+              <span style="display: flex; justify-content: space-between; align-items: center; gap: 10px; min-width: 0; padding: 7px 10px; background: rgba(21,34,25,.05); border-left: 3px solid #1F5C41">
+                <span class="mono" style="font-size: 12px; white-space: nowrap">cmac=<b>16 hex</b></span>
+                <span class="lbl" style="font-size: 9.5px; text-align: right">Signature, new each read</span>
+              </span>
+            </div>
+          <span class="lbl" style="margin-top: 6px">The counter, as the server sees it</span>
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <div style="display: grid; grid-template-columns: 18px 64px 1fr; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 10px; background: transparent">
+              <span class="chk chk--na" aria-hidden="true">–</span><span class="mono" style="font-size: 13px; font-weight: 700">000641</span><span style="font-size: 13.5px; line-height: 1.4">Last accepted read</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 18px 64px 1fr; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 10px; background: #E1EDE6">
+              <span class="chk chk--ok" aria-hidden="true">✓</span><span class="mono" style="font-size: 13px; font-weight: 700">000642</span><span style="font-size: 13.5px; line-height: 1.4">Accepted — the counter moves to 000642</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 18px 64px 1fr; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 10px; background: rgba(190,61,42,.07)">
+              <span class="chk chk--no" aria-hidden="true">✗</span><span class="mono" style="font-size: 13px; font-weight: 700">000642</span><span style="font-size: 13.5px; line-height: 1.4">The same link again — rejected</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 18px 64px 1fr; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 10px; background: rgba(190,61,42,.07)">
+              <span class="chk chk--no" aria-hidden="true">✗</span><span class="mono" style="font-size: 13px; font-weight: 700">000640</span><span style="font-size: 13.5px; line-height: 1.4">An older link — rejected</span>
+            </div>
+          </div></div>
+          </div></div><div style="border-top: 1px dashed #C9D2C8; padding-top: 48px;"><div style="display: flex; flex-direction: column; gap: 24px">
+            <div style="display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 28px; align-items: start"><div style="padding-bottom: 7px"><div class="docket" style="padding: 22px 20px 22px; display: flex; flex-direction: column; gap: 10px">
+            <span class="mono" style="font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #1F5C41">Proof of person</span>
+            <h3 style="margin: 0; font-size: 18px; letter-spacing: -0.015em">Phone session</h3>
+            <p class="mono" style="margin: 0; font-size: 12.5px; line-height: 1.65; color: rgba(21,34,25,.8)">Identity lives in a secure session on each employee's own phone, behind their own screen lock. No shared PINs, no swappable cards — the phone has to be there.</p>
+          </div></div><div style="display: flex; flex-direction: column; gap: 14px; min-width: 0">
+              <span class="lbl" style="color: #1F5C41; font-weight: 700">Under the hood</span>
+              <h3 style="margin: 0; font-size: 19px; line-height: 1.25; letter-spacing: -0.02em">One phone, one person</h3>
+              <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">A phone gets its session once: the employee opens their invite link, agrees, and makes a first real NFC tap at one of your plaques. That tap writes no record; the next one clocks in.</p><p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">The phone keeps a random 256-bit token. The database keeps only a keyed hash of it, so the stored value cannot be used to sign in.</p><p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">When you switch someone off, their next tap is rejected and the attempt is logged as a security event.</p>
+            </div></div>
+            <div role="img" aria-label="Activation in three steps ending in a session on the phone; the phone keeps a random token and the database keeps only a keyed hash" class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0"><span class="lbl">Activation · once per phone</span>
+          <div style="display: flex; flex-direction: row; gap: 8px; align-items: stretch">
+              <div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid #C9D2C8; border-radius: 12px; background: #EDF0EA">
+              <span class="mono" style="font-size: 11px; font-weight: 700; color: #1F5C41">01</span>
+              <span style="font-size: 14px; font-weight: 700; line-height: 1.3">Opens the invite link</span>
+            </div>
+              <div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid #C9D2C8; border-radius: 12px; background: #EDF0EA">
+              <span class="mono" style="font-size: 11px; font-weight: 700; color: #1F5C41">02</span>
+              <span style="font-size: 14px; font-weight: 700; line-height: 1.3">Agrees on this phone</span>
+            </div>
+              <div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid #C9D2C8; border-radius: 12px; background: #EDF0EA">
+              <span class="mono" style="font-size: 11px; font-weight: 700; color: #1F5C41">03</span>
+              <span style="font-size: 14px; font-weight: 700; line-height: 1.3">First NFC tap at your plaque</span>
+            </div>
+            </div>
+          <div style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: #E1EDE6">
+            <span style="color: #1F5C41"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.2"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/></svg></span><span style="font-size: 14px; font-weight: 700">Session on this phone — no record written</span>
+          </div>
+          <span class="lbl" style="margin-top: 4px">What each side keeps</span>
+          <div style="display: flex; flex-direction: row; gap: 8px">
+              <div style="flex: 1 1 0; min-width: 0; display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 12px; border: 1px solid #C9D2C8">
+              <span style="color: #1F5C41; padding-top: 1px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2.4"/><path d="M10.5 18.5h3"/></svg></span>
+              <span style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span class="lbl" style="font-size: 9.5px">On the phone</span><span class="mono" style="font-size: 12px; line-height: 1.45">A random 256-bit token</span></span>
+            </div>
+              <div style="flex: 1 1 0; min-width: 0; display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 12px; border: 1px solid #C9D2C8">
+              <span style="color: #1F5C41; padding-top: 1px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5.8" rx="7" ry="2.8"/><path d="M5 5.8v12.4c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V5.8"/><path d="M5 12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8"/></svg></span>
+              <span style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span class="lbl" style="font-size: 9.5px">In the database</span><span class="mono" style="font-size: 12px; line-height: 1.45">A keyed hash of it, never the token</span></span>
+            </div>
+            </div></div>
+          </div></div><div style="border-top: 1px dashed #C9D2C8; padding-top: 48px;"><div style="display: flex; flex-direction: column; gap: 24px">
+            <div style="display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 28px; align-items: start"><div style="padding-bottom: 7px"><div class="docket" style="padding: 22px 20px 22px; display: flex; flex-direction: column; gap: 10px">
+            <span class="mono" style="font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #1F5C41">Proof of place</span>
+            <h3 style="margin: 0; font-size: 18px; letter-spacing: -0.015em">Site IP match</h3>
+            <p class="mono" style="margin: 0; font-size: 12.5px; line-height: 1.65; color: rgba(21,34,25,.8)">Requests from your site's WiFi carry its static IP — hard evidence the person is inside the building.</p>
+          </div></div><div style="display: flex; flex-direction: column; gap: 14px; min-width: 0">
+              <span class="lbl" style="color: #1F5C41; font-weight: 700">Under the hood</span>
+              <h3 style="margin: 0; font-size: 19px; line-height: 1.25; letter-spacing: -0.02em">The network has to describe one place</h3>
+              <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">The address that counts is the one the request arrives from, checked against the ranges saved for the plaque's venue. The Wi-Fi name is not evidence.</p><p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">A list of ranges only counts if it is narrow enough to describe one place: at most a /7 of IPv4 addresses, or a /31 of IPv6. A wider list is refused when you save it and is not counted when a tap is judged.</p>
+            </div></div>
+            <div role="img" aria-label="A scale of address-range widths from a single address to every address; lists up to a /7 can count as evidence, wider lists are refused" class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0"><span class="lbl">How wide a venue's network list may be · IPv4</span>
+          <div style="position: relative; padding-top: 30px">
+            <span class="mono" style="position: absolute; top: 0; left: 78.12%; transform: translateX(-50%); font-size: 11px; font-weight: 700; white-space: nowrap; color: #152219">limit /7</span>
+            <span aria-hidden="true" style="position: absolute; top: 18px; bottom: -4px; left: 78.12%; width: 2px; margin-left: -1px; background: #152219"></span>
+            <div style="display: flex; height: 22px; border-radius: 6px; overflow: hidden; border: 1px solid #C9D2C8; position: relative">
+              <span style="width: 78.12%; background: #E1EDE6"></span>
+              <span style="flex: 1; background: rgba(190,61,42,.14)"></span>
+              <span class="tick" style="left: 25.0%"></span><span class="tick" style="left: 50.0%"></span><span class="tick" style="left: 75.0%"></span>
+            </div>
+            <div style="position: relative; height: 18px; margin-top: 6px"><span class="mono" style="position: absolute; top: 0; left: 0.0%; transform: translateX(-0%); font-size: 10.5px; color: rgba(21,34,25,.75)">/32</span><span class="mono" style="position: absolute; top: 0; left: 25.0%; transform: translateX(-50%); font-size: 10.5px; color: rgba(21,34,25,.75)">/24</span><span class="mono" style="position: absolute; top: 0; left: 50.0%; transform: translateX(-50%); font-size: 10.5px; color: rgba(21,34,25,.75)">/16</span><span class="mono" style="position: absolute; top: 0; left: 75.0%; transform: translateX(-50%); font-size: 10.5px; color: rgba(21,34,25,.75)">/8</span><span class="mono" style="position: absolute; top: 0; left: 100.0%; transform: translateX(-100%); font-size: 10.5px; color: rgba(21,34,25,.75)">/0</span></div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px">
+            <div style="display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; line-height: 1.45"><span class="chk chk--ok" aria-hidden="true">✓</span><span><b>Narrow enough</b> — one address up to a /7: can count as proof of place.</span></div>
+            <div style="display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; line-height: 1.45"><span class="chk chk--no" aria-hidden="true">✗</span><span><b>Too wide</b> — refused when saved, not counted when a tap is judged.</span></div>
+          </div>
+          <span class="mono" style="font-size: 11.5px; color: rgba(21,34,25,.72); border-top: 1px dashed #C9D2C8; padding-top: 10px">IPv6 follows the same rule, with the limit at /31.</span></div>
+          </div></div><div style="border-top: 1px dashed #C9D2C8; padding-top: 48px;"><div style="display: flex; flex-direction: column; gap: 24px">
+            <div style="display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 28px; align-items: start"><div style="padding-bottom: 7px"><div class="docket" style="padding: 22px 20px 22px; display: flex; flex-direction: column; gap: 10px">
+            <span class="mono" style="font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #1F5C41">Backup proof of place</span>
+            <h3 style="margin: 0; font-size: 18px; letter-spacing: -0.015em">GPS fallback</h3>
+            <p class="mono" style="margin: 0; font-size: 12.5px; line-height: 1.65; color: rgba(21,34,25,.8)">WiFi down or phone on mobile data? GPS confirms presence within 150&nbsp;m. Anything unverified is stored, flagged, and queued for manager review — never silently approved.</p>
+          </div></div><div style="display: flex; flex-direction: column; gap: 14px; min-width: 0">
+              <span class="lbl" style="color: #1F5C41; font-weight: 700">Under the hood</span>
+              <h3 style="margin: 0; font-size: 19px; line-height: 1.25; letter-spacing: -0.02em">One position, only at the tap</h3>
+              <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">The tap page asks the phone for its position once, when the button is pressed. Nothing reads it in the background, before or after.</p><p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">The radius is a deployment setting, 150 m by default. A position inside it counts as proof of place; a position outside it sends the tap to a manager, even if the network matched.</p><p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">A QR check-in has no signature, so a position alone is never enough for it: it needs the venue's network.</p>
+            </div></div>
+            <div role="img" aria-label="A venue with its GPS radius; a phone inside the radius counts as proof of place, a phone outside is sent to a manager" class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0"><span class="lbl">The backup check · one position, read at the tap</span>
+          <svg viewBox="0 0 300 214" width="100%" style="max-width: 400px; align-self: center; font-family: 'IBM Plex Mono', monospace" aria-hidden="true">
+            <circle cx="140" cy="104" r="82" fill="#E1EDE6" stroke="#1F5C41" stroke-width="1.6" stroke-dasharray="5 5"/>
+            <path d="M140 104 L222 104" stroke="#1F5C41" stroke-width="1.4"/>
+            <text x="190" y="96" text-anchor="middle" font-size="11" fill="#152219" font-weight="700">radius</text>
+            <g transform="translate(128 72)"><path d="M12 30s-10-9.3-10-17.2a10 10 0 0 1 20 0C22 20.7 12 30 12 30z" fill="#152219"/><circle cx="12" cy="12.6" r="3.6" fill="#FFFDF4"/></g>
+            <text x="140" y="122" text-anchor="middle" font-size="10" fill="#152219" fill-opacity=".75">venue</text>
+            <g transform="translate(92 100)"><rect x="0" y="0" width="16" height="26" rx="3.5" fill="#FFFDF4" stroke="#152219" stroke-width="1.6"/><circle cx="8" cy="-9" r="7" fill="#1F5C41"/><path d="M4.6 -9.2l2.3 2.3 4.4-4.6" stroke="#FFFDF4" stroke-width="1.6" fill="none" stroke-linecap="round"/></g>
+            <text x="100" y="141" text-anchor="middle" font-size="10" fill="#152219" font-weight="700">inside</text>
+            <g transform="translate(258 30)"><rect x="0" y="0" width="16" height="26" rx="3.5" fill="#FFFDF4" stroke="#152219" stroke-width="1.6"/><circle cx="8" cy="-9" r="7" fill="#D98E2B"/><path d="M8 -13v4.5M8 -5.6v.2" stroke="#152219" stroke-width="1.8" stroke-linecap="round"/></g>
+            <text x="266" y="72" text-anchor="middle" font-size="10" fill="#152219" font-weight="700">outside</text>
+            <text x="140" y="208" text-anchor="middle" font-size="10.5" fill="#152219" fill-opacity=".75">radius: 150 m by default</text>
+          </svg>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px">
+            <div style="display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; line-height: 1.45"><span class="chk chk--ok" aria-hidden="true">✓</span><span><b>Inside</b> — counts as proof of place.</span></div>
+            <div style="display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; line-height: 1.45"><span class="chk" style="background: #D98E2B; color: #152219" aria-hidden="true">!</span><span><b>Outside</b> — sent to a manager, even with a network match.</span></div>
+          </div></div>
+          </div></div></div>
+    </div>
+  </section>
+  <section id="ladder" style="padding: 72px 0 0">
+    <div style="padding: 0 40px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">The decision</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">Built-in rules first, your rules next, a person last.</h2>
+      <p style="margin: 0 0 40px; max-width: 600px; font-size: 17px; line-height: 1.6; color: rgba(21,34,25,.85)">Nothing is approved by default. When no rule decides a tap, it is flagged for a manager.</p><div style="display: flex; flex-direction: column; gap: 24px"><div style="display: flex; flex-direction: column"><div class="card" style="padding: 20px 24px; display: flex; flex-direction: column; gap: 6px">
+              <div style="display: flex; align-items: center; gap: 12px; padding-bottom: 6px">
+                <span class="mono" style="flex: none; width: 34px; height: 34px; border-radius: 50%; background: #152219; color: #FFFDF4; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700">1</span>
+                <span style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+                  <span style="font-size: 18px; font-weight: 700; letter-spacing: -0.015em">Guardrails</span>
+                  <span class="lbl" style="font-size: 10px; line-height: 1.45">Built in · no business can switch them off · first match wins</span>
+                </span>
+              </div>
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px dashed #C9D2C8">
+                <span style="font-size: 14.5px; line-height: 1.4">Plaque not in service</span>
+                <span style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end"><span class="stamp stamp--rej stamp--sm" style="flex: none">Rejected</span></span>
+              </div><div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px dashed #C9D2C8">
+                <span style="font-size: 14.5px; line-height: 1.4">Signature fails, or the counter did not move</span>
+                <span style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end"><span class="stamp stamp--rej stamp--sm" style="flex: none">Rejected</span></span>
+              </div><div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px dashed #C9D2C8">
+                <span style="font-size: 14.5px; line-height: 1.4">No session on this phone</span>
+                <span style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end"><span class="mono" style="font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid #C9D2C8; color: rgba(21,34,25,.8); white-space: nowrap">activation page · nothing recorded</span></span>
+              </div><div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px dashed #C9D2C8">
+                <span style="font-size: 14.5px; line-height: 1.4">Account switched off</span>
+                <span style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end"><span class="stamp stamp--rej stamp--sm" style="flex: none">Rejected</span><span class="mono" style="font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid #C9D2C8; color: rgba(21,34,25,.8); white-space: nowrap">security event</span></span>
+              </div><div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px dashed #C9D2C8">
+                <span style="font-size: 14.5px; line-height: 1.4">Same person again within 60 seconds</span>
+                <span style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end"><span class="stamp stamp--ign stamp--sm" style="flex: none">Ignored</span></span>
+              </div>
+            </div><span aria-hidden="true" style="display: block; width: 2px; height: 14px; margin-left: 41px; background: #152219"></span><div class="card" style="padding: 20px 24px; display: flex; flex-direction: column; gap: 6px">
+              <div style="display: flex; align-items: center; gap: 12px; padding-bottom: 6px">
+                <span class="mono" style="flex: none; width: 34px; height: 34px; border-radius: 50%; background: #152219; color: #FFFDF4; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700">2</span>
+                <span style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+                  <span style="font-size: 18px; font-weight: 700; letter-spacing: -0.015em">Your rules</span>
+                  <span class="lbl" style="font-size: 10px; line-height: 1.45">The baseline · you can change these · most specific wins, then the strictest</span>
+                </span>
+              </div>
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px dashed #C9D2C8">
+                <span style="font-size: 14.5px; line-height: 1.4">Venue network matched, or GPS inside the radius</span>
+                <span style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end"><span class="stamp stamp--ok stamp--sm" style="flex: none">Approved</span></span>
+              </div><div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px dashed #C9D2C8">
+                <span style="font-size: 14.5px; line-height: 1.4">GPS read, but outside the radius</span>
+                <span style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end"><span class="stamp stamp--flag stamp--sm" style="flex: none">Flagged</span></span>
+              </div><div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px dashed #C9D2C8">
+                <span style="font-size: 14.5px; line-height: 1.4">QR code without the venue network</span>
+                <span style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end"><span class="stamp stamp--flag stamp--sm" style="flex: none">Flagged</span></span>
+              </div><div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px dashed #C9D2C8">
+                <span style="font-size: 14.5px; line-height: 1.4">Neither network nor GPS</span>
+                <span style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end"><span class="stamp stamp--flag stamp--sm" style="flex: none">Flagged</span></span>
+              </div>
+            </div><span aria-hidden="true" style="display: block; width: 2px; height: 14px; margin-left: 41px; background: #152219"></span><div class="card" style="padding: 20px 24px; display: flex; flex-direction: column; gap: 6px">
+              <div style="display: flex; align-items: center; gap: 12px; padding-bottom: 6px">
+                <span style="flex: none; width: 34px; height: 34px; border-radius: 50%; border: 2px solid #152219; color: #152219; display: inline-flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.2"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/></svg></span>
+                <span style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+                  <span style="font-size: 18px; font-weight: 700; letter-spacing: -0.015em">Nothing decided</span>
+                  <span class="lbl" style="font-size: 10px; line-height: 1.45">Locked · the engine's own last rung</span>
+                </span>
+              </div>
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px dashed #C9D2C8">
+                <span style="font-size: 14.5px; line-height: 1.4">No rule above decided the tap</span>
+                <span style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end"><span class="stamp stamp--flag stamp--sm" style="flex: none">Flagged</span><span class="mono" style="font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid #C9D2C8; color: rgba(21,34,25,.8); white-space: nowrap">queued for a manager</span></span>
+              </div>
+            </div></div><div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start"><div style="padding-bottom: 7px"><div class="docket" style="padding: 18px 18px 18px; display: flex; flex-direction: column; gap: 10px">
+              <span class="lbl" style="color: #1F5C41; font-weight: 700">Trust score</span>
+              <div class="mono" style="display: flex; flex-direction: column; gap: 6px; font-size: 13px">
+                <span style="display: flex; justify-content: space-between"><span>Every tap</span><b>20</b></span>
+                <span style="display: flex; justify-content: space-between"><span>Venue network</span><b>+ 50</b></span>
+                <span style="display: flex; justify-content: space-between; border-bottom: 1px dashed #C9D2C8; padding-bottom: 6px"><span>GPS inside the radius</span><b>+ 30</b></span>
+              </div>
+              <p style="margin: 0 0 0px; font-size: 14px; line-height: 1.6; color: rgba(21,34,25,.82)">Every record carries this score. It is shown on the record and decides nothing: the rules do.</p>
+            </div></div><div class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 10px">
+              <span style="color: #1F5C41"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19.5c.6-3.1 2.8-5 5.5-5s4.9 1.9 5.5 5"/><circle cx="16.8" cy="9.5" r="2.6"/><path d="M16 14.6c2.4 0 4 1.6 4.5 4.4"/></svg></span>
+              <h3 style="margin: 0; font-size: 17px; line-height: 1.25; letter-spacing: -0.02em">Debounce is per person</h3>
+              <p style="margin: 0 0 0px; font-size: 14px; line-height: 1.6; color: rgba(21,34,25,.82)">A queue of people can tap the same plaque one after another, and every tap is recorded. Only the same person tapping again within 60 seconds is ignored.</p>
+              <p style="margin: 0 0 0px; font-size: 14px; line-height: 1.6; color: rgba(21,34,25,.82)">The 60 seconds are timed on the server's clock, so a phone's clock cannot shorten them.</p>
+            </div></div></div><p class="mono" style="margin: 18px 0 0; font-size: 11.5px; line-height: 1.6; color: rgba(21,34,25,.7)">Five of the eleven guardrails are shown. The others refuse a tap page that is too old and a declared time that is implausible, keep a plaque of a business outside your group out of your records, hold a QR scan at a partner business to that venue's own network, keep rule changes to the owner and stop anyone reviewing their own record. The 60-second window and the 150 m radius are deployment settings; the figures shown are the defaults.</p>
+    </div>
+  </section>
+  <section id="never-lost" style="padding: 72px 0 0">
+    <div style="padding: 0 40px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">When the evidence is thin</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">Flagged, never dropped.</h2>
+      <p style="margin: 0 0 40px; max-width: 600px; font-size: 17px; line-height: 1.6; color: rgba(21,34,25,.85)">Anything unverified is stored, flagged, and queued for manager review — never silently approved.</p><div role="img" aria-label="A tap without evidence becomes a flagged record, waits on The Spike for a manager, and its hours are counted or refused once decided" class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0"><div style="display: grid; grid-template-columns: 1fr 16px 1fr; gap: 12px 10px; align-items: center"><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0">
+              <span class="lbl" style="font-size: 9.5px">1 · The tap</span>
+              <span style="font-size: 14.5px; font-weight: 700; line-height: 1.35">Real NFC tap, no venue network, no GPS</span>
+              <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.72)">KF MSIDA · 09:41</span>
+            </div><span aria-hidden="true" style="flex: none; color: #1F5C41; display: inline-flex; "><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><div style="min-width: 0; padding-bottom: 7px"><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(0deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">2 · KF MSIDA</span>
+                <span style="flex: none"><span class="stamp stamp--flag stamp--sm" style="flex: none">Flagged</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Grace Attard</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">IN</span><span style="font-size: 15px">09:41</span></span>
+              <span class="mono" style="font-size: 10.5px; color: rgba(21,34,25,.72); border-top: 1px dashed #C9D2C8; padding-top: 7px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px"><span>TRUST 20</span><span>IP no · GPS n/a</span></span>
+            </div></div><span></span><span></span><span></span><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+              <span class="lbl" style="font-size: 9.5px">3 · The Spike</span>
+              <span style="font-size: 14.5px; font-weight: 700">Waiting for review</span>
+              <span style="display: flex; gap: 6px">
+                <span style="flex: 1; min-height: 32px; border-radius: 10px; background: #1F5C41; color: #FFFDF4; font-weight: 700; font-size: 12.5px; display: inline-flex; align-items: center; justify-content: center">Approve</span>
+                <span style="flex: 1; min-height: 32px; border-radius: 10px; border: 2px solid #BE3D2A; box-sizing: border-box; font-weight: 700; font-size: 12.5px; display: inline-flex; align-items: center; justify-content: center">Reject</span>
+              </span>
+            </div><span aria-hidden="true" style="flex: none; color: #1F5C41; display: inline-flex; "><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0">
+              <span class="lbl" style="font-size: 9.5px">4 · The Roll</span>
+              <span style="display: flex; gap: 8px; align-items: center; font-size: 13.5px"><span class="chk chk--ok" aria-hidden="true">✓</span>Approved — hours counted</span>
+              <span style="display: flex; gap: 8px; align-items: center; font-size: 13.5px"><span class="chk chk--no" aria-hidden="true">✗</span>Rejected — hours refused</span>
+              <span style="display: flex; gap: 8px; align-items: center; font-size: 13.5px"><span class="chk chk--na" aria-hidden="true">–</span>Until then — waiting, not counted</span>
+            </div></div></div><div style="margin-top: 28px; max-width: 760px"><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; font-size: 15.5px; line-height: 1.55; color: rgba(21,34,25,.85)"><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>A manager decides each flagged record once, and nobody can decide on their own record.</span></li><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>Until then its hours are held out of the total, and the Roll says how many are waiting.</span></li><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>The decision is stored beside the record; the record itself never changes.</span></li></ul></div>
+    </div>
+  </section>
+  <section id="immutable" style="padding: 72px 0 0">
+    <div style="padding: 0 40px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">Corrections</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">Records are never edited. Corrections are new records.</h2><div aria-hidden="true" style="height: 24px"></div><div style="display: flex; flex-direction: column; gap: 32px"><div style="display: flex; flex-direction: column; gap: 14px; min-width: 0">
+            <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">The database refuses to change or delete a stored record — for the application, and for the database owner's own account too.</p>
+            <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">When a shift needs fixing, a manager adds an entry by hand. It is marked &quot;Entered by a manager&quot;, stays apart from tapped records in reports, and the action is written to an audit log.</p>
+            <span class="mono" style="font-size: 12px; color: #1F5C41; background: #E1EDE6; border-radius: 10px; padding: 7px 12px; align-self: flex-start">Manual entries, marked apart from tapped ones</span>
+          </div><div role="img" aria-label="The original check-in stays unchanged; the correction is a new record marked as entered by a manager, with an audit log line" class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0"><span class="lbl">A forgotten check-out, corrected · sample</span>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding-bottom: 7px"><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(0deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">KF ST JULIANS · TUE</span>
+                <span style="flex: none"><span class="stamp stamp--ok stamp--sm" style="flex: none">Approved</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Kevin Grech</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">IN</span><span style="font-size: 15px">10:02</span></span>
+              <span class="mono" style="font-size: 10.5px; color: rgba(21,34,25,.72); border-top: 1px dashed #C9D2C8; padding-top: 7px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px"><span>Original record</span><span>unchanged</span></span>
+            </div><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(0deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">KF ST JULIANS · TUE</span>
+                <span style="flex: none"><span class="stamp stamp--ok stamp--sm" style="flex: none">Approved</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Kevin Grech</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">OUT</span><span style="font-size: 15px">18:00</span></span>
+              <span class="mono" style="font-size: 10.5px; line-height: 1.5; color: rgba(21,34,25,.8); background: rgba(21,34,25,.04); border-left: 2px solid #C9D2C8; padding: 5px 8px">Entered by a manager</span>
+            </div></div>
+          <div class="mono" style="font-size: 11.5px; line-height: 1.5; padding: 10px 12px; border-radius: 10px; background: #152219; color: #FFFDF4; display: flex; flex-wrap: wrap; gap: 4px 14px">
+              <span style="color: #8FD3AF">AUDIT LOG</span><span>manual entry</span><span>by a manager</span><span>WED 09:12</span>
+            </div></div></div>
+    </div>
+  </section>
+  <section id="privacy" style="padding: 72px 0 0">
+    <div style="padding: 0 40px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">Privacy</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">No fingerprints. No tracking. No ad cookies.</h2><div aria-hidden="true" style="height: 24px"></div><div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px"><div class="card" style="padding: 20px 18px; display: flex; flex-direction: column; gap: 10px">
+              <span class="ico" style="background: rgba(190,61,42,.08); color: #152219"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 11a4.5 4.5 0 0 1 9 0v2.2"/><path d="M9.8 18.6a10 10 0 0 0 .6-4.6V11a1.6 1.6 0 0 1 3.2 0v1.5"/><path d="M5 15.2c.5-1 .5-2.3.5-4.2a6.5 6.5 0 0 1 10.7-5"/><path d="M3.5 3.5l17 17"/></svg></span>
+              <h3 style="margin: 0; font-size: 18px; line-height: 1.25; letter-spacing: -0.02em">No biometrics</h3>
+              <span class="mono" style="font-size: 12px; font-weight: 700">None collected, ever</span><p style="margin: 0 0 0px; font-size: 14.5px; line-height: 1.6; color: rgba(21,34,25,.82)">Nothing in the product reads a finger or a face. The phone's own screen lock stays the phone's.</p>
+            </div><div class="card" style="padding: 20px 18px; display: flex; flex-direction: column; gap: 10px">
+              <span class="ico" style="background: rgba(190,61,42,.08); color: #152219"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.3 5.3A6.5 6.5 0 0 1 18.5 9.8c0 1.8-.8 3.8-1.9 5.6M14.2 17.9C13 19.6 12 21 12 21s-6.5-6.1-6.5-11.2c0-.9.2-1.8.5-2.6"/><path d="M3.5 3.5l17 17"/></svg></span>
+              <h3 style="margin: 0; font-size: 18px; line-height: 1.25; letter-spacing: -0.02em">No background location</h3>
+              <p style="margin: 0 0 0px; font-size: 14.5px; line-height: 1.6; color: rgba(21,34,25,.82)">GPS is read only at the moment of the tap. There is no geofence and no tracking between taps.</p>
+            </div><div class="card" style="padding: 20px 18px; display: flex; flex-direction: column; gap: 10px">
+              <span class="ico" style="background: rgba(190,61,42,.08); color: #152219"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.4 13.3A8.5 8.5 0 1 1 10.7 3.6a3 3 0 0 0 3.9 3.9 3 3 0 0 0 3.9 3.9c.6.6 1.3.8 1.9 1.9z"/><circle cx="9" cy="10" r=".6" fill="currentColor"/><circle cx="14.5" cy="15.5" r=".6" fill="currentColor"/><circle cx="9" cy="15.5" r=".6" fill="currentColor"/><path d="M3 3l18 18"/></svg></span>
+              <h3 style="margin: 0; font-size: 18px; line-height: 1.25; letter-spacing: -0.02em">No ad or analytics cookies</h3>
+              <p style="margin: 0 0 0px; font-size: 14.5px; line-height: 1.6; color: rgba(21,34,25,.82)">Taptime sets no advertising or analytics cookie and embeds nothing from another site.</p>
+            </div></div><div style="margin-top: 22px; display: flex; align-items: flex-start; gap: 14px; background: #E1EDE6; border: 1px solid #1F5C41; border-radius: 16px; padding: 18px 22px; font-size: 15px; line-height: 1.55; color: rgba(21,34,25,.85)">
+        <span style="flex: none; color: #1F5C41; padding-top: 1px"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5.2c0 4.4-3 8-7 9.8-4-1.8-7-5.4-7-9.8V6z"/><path d="M9 12.2l2.1 2.1L15.2 10"/></svg></span>
+        <p style="margin: 0"><b style="color: #152219">Privacy by design:</b> Taptime stores no fingerprints, no face scans, and never tracks location — GPS is read only at the moment of the tap. Built for GDPR from day one.</p>
+      </div>
+    </div>
+  </section>
+  <section id="isolation" style="padding: 72px 0 0">
+    <div style="padding: 0 40px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">Isolation</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">Every business is walled off in the database itself.</h2><div aria-hidden="true" style="height: 24px"></div><div style="display: flex; flex-direction: column; gap: 32px"><div style="display: flex; flex-direction: column; gap: 14px; min-width: 0">
+            <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">Every record carries the id of the business it belongs to, and the database filters every query by it. The application connects with a role that cannot switch that filter off, and its queries filter by business a second time.</p>
+            <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">When Taptime's own staff look into an account, they use a separate sign-in, and every look is written to an operator audit log.</p>
+            <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">The one sanctioned crossing is a group Taptime sets up for companies that belong together: their staff can clock in at each other's venues, and the record lands with the person's own employer.</p>
+          </div><div role="img" aria-label="Two businesses in one database separated by row-level security; neither side's queries return the other's rows" class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0"><span class="lbl">One database · two businesses · sample rows</span>
+          <div style="display: flex; flex-direction: row; gap: 10px; align-items: stretch"><div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid #C9D2C8; border-radius: 12px; background: #FFFDF4">
+              <span style="font-size: 13.5px; font-weight: 700">Your business</span><span class="mono" style="font-size: 11px; padding: 6px 8px; border-radius: 6px; background: #EDF0EA; display: flex; justify-content: space-between; gap: 6px"><span>IN 09:58</span><span style="color: rgba(21,34,25,.7)">yours</span></span><span class="mono" style="font-size: 11px; padding: 6px 8px; border-radius: 6px; background: #EDF0EA; display: flex; justify-content: space-between; gap: 6px"><span>IN 09:52</span><span style="color: rgba(21,34,25,.7)">yours</span></span><span class="mono" style="font-size: 11px; padding: 6px 8px; border-radius: 6px; background: #EDF0EA; display: flex; justify-content: space-between; gap: 6px"><span>OUT 02:04</span><span style="color: rgba(21,34,25,.7)">yours</span></span>
+            </div><div style="flex: none; box-sizing: border-box; width: 34px; flex-direction: column; padding: 10px 0; display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: 10px; background: #152219; color: #FFFDF4">
+              <span style="color: #8FD3AF; display: inline-flex"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.2"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/></svg></span>
+              <span class="mono" style="font-size: 10px; letter-spacing: .12em; writing-mode: vertical-rl; transform: rotate(180deg);">ROW-LEVEL SECURITY</span>
+            </div><div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid #C9D2C8; border-radius: 12px; background: #FFFDF4">
+              <span style="font-size: 13.5px; font-weight: 700">Another business</span><span class="mono" style="font-size: 11px; padding: 6px 8px; border-radius: 6px; background: #EDF0EA; display: flex; justify-content: space-between; gap: 6px"><span>IN 04:02</span><span style="color: rgba(21,34,25,.7)">theirs</span></span><span class="mono" style="font-size: 11px; padding: 6px 8px; border-radius: 6px; background: #EDF0EA; display: flex; justify-content: space-between; gap: 6px"><span>IN 04:55</span><span style="color: rgba(21,34,25,.7)">theirs</span></span><span class="mono" style="font-size: 11px; padding: 6px 8px; border-radius: 6px; background: #EDF0EA; display: flex; justify-content: space-between; gap: 6px"><span>OUT 12:31</span><span style="color: rgba(21,34,25,.7)">theirs</span></span>
+            </div></div>
+          <span class="mono" style="font-size: 11.5px; line-height: 1.5; color: rgba(21,34,25,.72); border-top: 1px dashed #C9D2C8; padding-top: 10px">Each row carries its business. A query from one side returns none of the other's.</span></div></div>
+    </div>
+  </section>
+  <section id="hosting" style="padding: 72px 0 0">
+    <div style="padding: 0 40px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">Hosting &amp; GDPR</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">Where your records live.</h2><div aria-hidden="true" style="height: 24px"></div><div class="card" style="padding: 28px 28px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 24px; align-items: start">
+        <span class="ico" style="width: 56px; height: 56px; border-radius: 16px"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.4 3.6 5.2 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.2-3.6-8.5S9.6 5.9 12 3.5z"/></svg></span>
+        <div style="display: flex; flex-direction: column; gap: 12px; min-width: 0">
+          <h3 style="margin: 0; font-size: 22px; line-height: 1.25; letter-spacing: -0.02em">Hosted in the EU</h3>
+          <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">The production server runs in Falkenstein, Germany, and database backups are encrypted before they are stored, in an EU-jurisdiction bucket.</p>
+          <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82); font-weight: 700; color: #152219">Built for GDPR from day one.</p>
+          <nav aria-label="Legal" style="display: flex; flex-wrap: wrap; border-top: 1px dashed #C9D2C8; padding-top: 4px"><a href="Legal.dc.html" class="flink" style="margin-right: 18px">Privacy</a><a href="Legal.dc.html" class="flink" style="margin-right: 18px">Terms</a><a href="Legal.dc.html" class="flink" style="margin-right: 18px">Company details</a><a href="Legal.dc.html" class="flink" style="margin-right: 18px">Cookies</a></nav>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section id="pilot" style="padding: 72px 0 0">
+    <div style="padding: 0 40px; box-sizing: border-box">
+      <div style="background: #1F5C41; border-radius: 24px; padding: 56px 40px; text-align: center; color: #FFFDF4; position: relative; overflow: hidden">
+        <span aria-hidden="true" style="position: absolute; width: 420px; height: 420px; top: -190px; left: -140px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
+        <span aria-hidden="true" style="position: absolute; width: 280px; height: 280px; bottom: -120px; right: -80px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
+        <h2 style="position: relative; margin: 0 0 14px; font-size: 44px; line-height: 1.05; letter-spacing: -0.035em; color: #FFFDF4">Go punchless.</h2>
+        <p style="position: relative; margin: 0 0 30px; font-size: 16.5px; line-height: 1.55; color: rgba(255,253,244,.82)">{{ctaLine}}</p>
+        <a class="btn" href="{{v.signup}}" style="position: relative; background: #FFFDF4; color: #1F5C41">{{ctaBtn}}</a>
+      </div>
+    </div>
+  </section>
+  <footer style="margin-top: 72px; border-top: 1px solid #C9D2C8">
+    <div style="padding: 0 40px; box-sizing: border-box; padding-top: 40px; padding-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 230px 160px; gap: 32px">
+        <div style="display: flex; flex-direction: column; gap: 12px; min-width: 0">
+          <span style="display: flex; align-items: center; gap: 10px">
+            <span aria-hidden="true" style="flex: none; width: 22px; height: 22px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 4px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.8)">© 2026 Taptime · Malta</span>
+          </span>
+          <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">tap in · tap out · that's it</span>
+          <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-width: 460px">
+            <span class="lbl">Taptime</span>
+            <p style="margin: 0; font-size: 14px; line-height: 1.55; color: rgba(21,34,25,.85)">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p>
+          </div>
+        </div>
+        <nav aria-label="Product" class="fcol" style="display: flex; flex-direction: column; min-width: 0">
+          <span class="lbl" style="padding-bottom: 6px">Product</span><a href="Product.dc.html">Product tour</a><a href="Security.dc.html">Security</a><a href="Pricing.dc.html">Pricing</a><a href="ForRestaurants.dc.html">For restaurants & bars</a><a href="ForProduction.dc.html">For production & facilities</a><a href="#api-docs">API docs</a>
+        </nav>
+        <nav aria-label="Legal" class="fcol" style="display: flex; flex-direction: column; min-width: 0">
+          <span class="lbl" style="padding-bottom: 6px">Legal</span><a href="Legal.dc.html">Privacy</a><a href="Legal.dc.html">Terms</a><a href="Legal.dc.html">Company details</a><a href="Legal.dc.html">Cookies</a>
+        </nav>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview": {"width": 834, "height": 9542}}'>
+class Component extends DCLogic {
+  renderVals() {
+    // LandingView values the shared furniture prints (internal/handler builds them): FreeMonths 3.
+    const v = { signup: 'Signup.dc.html', signin: 'SignIn.dc.html', free: 3 };
+    const free = String(v.free);
+    // The production page draws the employee's tap screen (pages.Tap, unchanged) for an INVENTED record at the
+    // seed's single KM venue, KM Plant (test/fixtures/seed.sql).
+    const ticket = { n: 'Anna Farrugia', t: 'CLOCK IN', time: '04:02', loc: 'KM Plant', plaque: 'KM PLANT · 2F04-1B9A' };
+    return {
+      v, ticket,
+      menuOpen: (this.props.menu || 'closed') === 'open',
+      ctaLine: 'Start yourself today — first ' + free + ' months free.',
+      ctaBtn: 'Start free — ' + free + ' months'
+    };
+  }
+}</script>
+</body>
+</html>

@@ -27,16 +27,37 @@ a{color:#1F5C41}a:hover{color:#152219}
 .btn--primary:hover{background:#152219;color:#FFFDF4}
 .btn--quiet{border:1px solid rgba(21,34,25,.5);background:transparent;color:#152219}
 .btn--quiet:hover{color:#152219;border-color:#152219}
+.navlink{min-height:44px;display:inline-flex;align-items:center;font-size:14px;font-weight:500;color:rgba(21,34,25,.85);text-decoration:none}
+.navlink:hover{color:#152219}
+.navlink[aria-current]{color:#152219;font-weight:700;box-shadow:inset 0 -2px 0 #1F5C41}
+.fcol a{min-height:40px;display:flex;align-items:center;font-size:14px;color:rgba(21,34,25,.85);text-decoration:none}
+.fcol a:hover{color:#152219;text-decoration:underline;text-underline-offset:4px}
+details.menu>summary{list-style:none;cursor:pointer;min-height:44px;min-width:44px;padding:0 10px;box-sizing:border-box;border:1.5px solid #152219;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#152219;background:transparent}
+details.menu>summary::-webkit-details-marker{display:none}
+details.menu:not([open])>nav{display:none}
+details.menu[open]>summary{background:#152219;color:#FFFDF4;border-color:#152219}
+details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}details.menu[open] .mopen{display:none}
+.mlink{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:16px;font-weight:700;color:#152219;text-decoration:none;border-top:1px dashed #C9D2C8}
+.mlink:first-child{border-top:0}
+.hbtn{min-height:44px;padding:0 18px;border-radius:12px;font:700 14px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box;white-space:nowrap;background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
+.hbtn:hover{background:#152219;color:#FFFDF4}
 </style>
 </helmet>
 <div style="width: 834px; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
-  <header style="border-bottom: 1px solid #C9D2C8; padding: 0 28px; min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 12px">
-    <a href="#" style="text-decoration: none; color: #152219; display: flex; align-items: center; gap: 10px; min-height: 44px">
+  <header style="position: sticky; top: 0; z-index: 5; background: rgba(237,240,234,.94); border-bottom: 1px solid #C9D2C8">
+    <div style="padding: 0 40px; box-sizing: border-box; min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 12px">
+      <a href="Landing.dc.html" style="text-decoration: none; color: #152219; display: flex; align-items: center; gap: 10px; min-height: 44px">
         <span aria-hidden="true" style="flex: none; width: 28px; height: 28px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 6px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
         <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em">taptime</span>
         <span class="mono" style="font-size: 11px; letter-spacing: .14em; color: rgba(21,34,25,.7); padding-top: 4px">PUNCHLESS</span>
       </a>
-    <a href="T-SignIn.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
+      <div style="display: flex; align-items: center; gap: 18px">
+        <nav aria-label="Pages" style="display: flex; align-items: center; gap: 18px"><a href="Product.dc.html" class="navlink">Product</a><a href="Security.dc.html" class="navlink">Security</a><a href="Pricing.dc.html" class="navlink">Pricing</a></nav>
+        <span aria-hidden="true" style="width: 1px; height: 22px; background: #C9D2C8"></span>
+        <a href="SignIn.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
+        <a href="Signup.dc.html" class="hbtn">Start free</a>
+      </div>
+    </div>
   </header>
 
   <main style="padding: 28px 28px 48px; display: flex; flex-direction: column; gap: 24px">
@@ -217,21 +238,30 @@ a{color:#1F5C41}a:hover{color:#152219}
     </section>
   </main>
 
-  <footer style="border-top: 1px solid #C9D2C8">
-    <div style="max-width: 1180px; margin: 0 auto; padding: 20px 28px 0; display: flex; flex-direction: column; gap: 8px">
-      <span class="lbl">Taptime</span>
-      <p style="margin: 0; max-width: 560px; font-size: 14px; line-height: 1.55; color: rgba(21,34,25,.85)">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p>
+  <footer style="margin-top: 72px; border-top: 1px solid #C9D2C8">
+    <div style="padding: 0 40px; box-sizing: border-box; padding-top: 40px; padding-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 230px 160px; gap: 32px">
+        <div style="display: flex; flex-direction: column; gap: 12px; min-width: 0">
+          <span style="display: flex; align-items: center; gap: 10px">
+            <span aria-hidden="true" style="flex: none; width: 22px; height: 22px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 4px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.8)">© 2026 Taptime · Malta</span>
+          </span>
+          <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">tap in · tap out · that's it</span>
+          <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-width: 460px">
+            <span class="lbl">Taptime</span>
+            <p style="margin: 0; font-size: 14px; line-height: 1.55; color: rgba(21,34,25,.85)">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p>
+          </div>
+        </div>
+        <nav aria-label="Product" class="fcol" style="display: flex; flex-direction: column; min-width: 0">
+          <span class="lbl" style="padding-bottom: 6px">Product</span><a href="Product.dc.html">Product tour</a><a href="Security.dc.html">Security</a><a href="Pricing.dc.html">Pricing</a><a href="ForRestaurants.dc.html">For restaurants & bars</a><a href="ForProduction.dc.html">For production & facilities</a><a href="#api-docs">API docs</a>
+        </nav>
+        <nav aria-label="Legal" class="fcol" style="display: flex; flex-direction: column; min-width: 0">
+          <span class="lbl" style="padding-bottom: 6px">Legal</span><a href="Legal.dc.html">Privacy</a><a href="Legal.dc.html">Terms</a><a href="Legal.dc.html">Company details</a><a href="Legal.dc.html">Cookies</a>
+        </nav>
     </div>
-    <nav aria-label="Legal" style="padding: 8px 28px; display: flex; flex-wrap: wrap; gap: 4px 22px; font-size: 13px">
-      <a href="T-Legal.dc.html" style="min-height: 44px; display: inline-flex; align-items: center">Privacy</a>
-      <a href="T-Legal.dc.html" style="min-height: 44px; display: inline-flex; align-items: center">Terms</a>
-      <a href="T-Legal.dc.html" style="min-height: 44px; display: inline-flex; align-items: center">Company details</a>
-      <a href="T-Legal.dc.html" style="min-height: 44px; display: inline-flex; align-items: center">Cookies</a>
-    </nav>
   </footer>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"problem":{"editor":"enum","options":["none","expired","cookie","rate","server"],"default":"none"},"vat":{"editor":"enum","options":["verified","refused","unchecked"],"default":"verified"},"$preview":{"width":834,"height":1060}}'>
+<script type="text/x-dc" data-dc-script data-props='{"problem": {"editor": "enum", "options": ["none", "expired", "cookie", "rate", "server"], "default": "none"}, "vat": {"editor": "enum", "options": ["verified", "refused", "unchecked"], "default": "verified"}, "$preview": {"width": 834, "height": 1304}}'>
 class Component extends DCLogic {
   constructor(props) {
     super(props);
@@ -264,7 +294,7 @@ class Component extends DCLogic {
     const kinds = KINDS.map(([v, label]) => {
       const on = st.kind === v;
       return { label, on: on ? 'true' : 'false', pick: () => this.setState({ kind: v }),
-        style: "min-height:44px;padding:0 14px;border-radius:10px;font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;color:#152219;" +
+        style: "min-height:44px;padding:0 14px;border-radius:10px;font:400 12px 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;color:#152219;" +
           (on ? 'background:rgba(31,92,65,.12);border:2px solid #1F5C41' : 'background:#FFFDF4;border:1px solid #C9D2C8') };
     });
     const structures = [['single', 'One place', 'A single door where your team taps.'], ['multi', 'Several places', 'Branches, sites or floors. You name them on the next step.']].map(([v, title, body]) => {
@@ -300,6 +330,8 @@ class Component extends DCLogic {
     };
   }
 }
+
+;{ const __rv = Component.prototype.renderVals; Component.prototype.renderVals = function () { return Object.assign({}, __rv.call(this), { menuOpen: this.props.menu === 'open' }); }; }
 </script>
 </body>
 </html>

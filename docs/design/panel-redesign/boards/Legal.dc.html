@@ -18,19 +18,35 @@ a{color:#1F5C41}a:hover{color:#152219}
 .ctable{width:100%;border-collapse:collapse;font-size:13px}
 .ctable th,.ctable td{text-align:left;vertical-align:top;padding:12px 14px;border-bottom:1px dashed #C9D2C8}
 .ctable tr:last-child th,.ctable tr:last-child td{border-bottom:0}
+.navlink{min-height:44px;display:inline-flex;align-items:center;font-size:14px;font-weight:500;color:rgba(21,34,25,.85);text-decoration:none}
+.navlink:hover{color:#152219}
+.navlink[aria-current]{color:#152219;font-weight:700;box-shadow:inset 0 -2px 0 #1F5C41}
+.fcol a{min-height:40px;display:flex;align-items:center;font-size:14px;color:rgba(21,34,25,.85);text-decoration:none}
+.fcol a:hover{color:#152219;text-decoration:underline;text-underline-offset:4px}
+details.menu>summary{list-style:none;cursor:pointer;min-height:44px;min-width:44px;padding:0 10px;box-sizing:border-box;border:1.5px solid #152219;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#152219;background:transparent}
+details.menu>summary::-webkit-details-marker{display:none}
+details.menu:not([open])>nav{display:none}
+details.menu[open]>summary{background:#152219;color:#FFFDF4;border-color:#152219}
+details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}details.menu[open] .mopen{display:none}
+.mlink{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:16px;font-weight:700;color:#152219;text-decoration:none;border-top:1px dashed #C9D2C8}
+.mlink:first-child{border-top:0}
+.hbtn{min-height:44px;padding:0 18px;border-radius:12px;font:700 14px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box;white-space:nowrap;background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
+.hbtn:hover{background:#152219;color:#FFFDF4}
 </style>
 </helmet>
 <div style="min-height: 100vh; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
-  <header style="border-bottom: 1px solid #C9D2C8">
-    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); min-height: 68px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
-      <a href="#" style="text-decoration: none; color: #152219; display: flex; align-items: center; gap: 10px; min-height: 44px">
+  <header style="position: sticky; top: 0; z-index: 5; background: rgba(237,240,234,.94); border-bottom: 1px solid #C9D2C8">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box; min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 12px">
+      <a href="Landing.dc.html" style="text-decoration: none; color: #152219; display: flex; align-items: center; gap: 10px; min-height: 44px">
         <span aria-hidden="true" style="flex: none; width: 28px; height: 28px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 6px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
         <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em">taptime</span>
         <span class="mono" style="font-size: 11px; letter-spacing: .14em; color: rgba(21,34,25,.7); padding-top: 4px">PUNCHLESS</span>
       </a>
-      <div style="display: flex; align-items: center; gap: 10px">
-        <a href="SignIn.dc.html" style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
-        <a href="Signup.dc.html" style="min-height: 44px; padding: 0 18px; border-radius: 12px; background: #1F5C41; color: #FFFDF4; text-decoration: none; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Start free</a>
+      <div style="display: flex; align-items: center; gap: 26px">
+        <nav aria-label="Pages" style="display: flex; align-items: center; gap: 26px"><a href="Product.dc.html" class="navlink">Product</a><a href="Security.dc.html" class="navlink">Security</a><a href="Pricing.dc.html" class="navlink">Pricing</a></nav>
+        <span aria-hidden="true" style="width: 1px; height: 22px; background: #C9D2C8"></span>
+        <a href="SignIn.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
+        <a href="Signup.dc.html" class="hbtn">Start free</a>
       </div>
     </div>
   </header>
@@ -104,20 +120,30 @@ a{color:#1F5C41}a:hover{color:#152219}
     </article>
   </main>
 
-  <footer style="border-top: 1px solid #C9D2C8">
-    <div style="max-width: 1180px; margin: 0 auto; padding: 36px clamp(16px, 3vw, 40px) 40px; display: flex; flex-direction: column; gap: 10px">
-      <span class="lbl">Taptime</span>
-      <p style="margin: 0; max-width: 560px; font-size: 14px; line-height: 1.55; color: rgba(21,34,25,.85)">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p>
-      <nav aria-label="Legal" style="display: flex; flex-wrap: wrap; gap: 0 24px">
-        <sc-for list="{{docs}}" as="d" hint-placeholder-count="4">
-        <a href="#" onClick="{{d.pick}}" class="mono" style="min-height: 44px; display: inline-flex; align-items: center; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: rgba(21,34,25,.7); text-decoration: underline; text-underline-offset: 4px">{{d.nav}}</a>
-        </sc-for>
-      </nav>
+  <footer style="margin-top: 96px; border-top: 1px solid #C9D2C8">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box; padding-top: 40px; padding-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 260px 200px; gap: 48px">
+        <div style="display: flex; flex-direction: column; gap: 12px; min-width: 0">
+          <span style="display: flex; align-items: center; gap: 10px">
+            <span aria-hidden="true" style="flex: none; width: 22px; height: 22px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 4px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.8)">© 2026 Taptime · Malta</span>
+          </span>
+          <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">tap in · tap out · that's it</span>
+          <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-width: 460px">
+            <span class="lbl">Taptime</span>
+            <p style="margin: 0; font-size: 14px; line-height: 1.55; color: rgba(21,34,25,.85)">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p>
+          </div>
+        </div>
+        <nav aria-label="Product" class="fcol" style="display: flex; flex-direction: column; min-width: 0">
+          <span class="lbl" style="padding-bottom: 6px">Product</span><a href="Product.dc.html">Product tour</a><a href="Security.dc.html">Security</a><a href="Pricing.dc.html">Pricing</a><a href="ForRestaurants.dc.html">For restaurants & bars</a><a href="ForProduction.dc.html">For production & facilities</a><a href="#api-docs">API docs</a>
+        </nav>
+        <nav aria-label="Legal" class="fcol" style="display: flex; flex-direction: column; min-width: 0">
+          <span class="lbl" style="padding-bottom: 6px">Legal</span><a href="Legal.dc.html">Privacy</a><a href="Legal.dc.html">Terms</a><a href="Legal.dc.html">Company details</a><a href="Legal.dc.html">Cookies</a>
+        </nav>
     </div>
   </footer>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2210}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview": {"width": 1440, "height": 2419}}'>
 class Component extends DCLogic {
   constructor(props) { super(props); this.state = { sel: 'cookies' }; }
   renderVals() {
@@ -137,13 +163,13 @@ class Component extends DCLogic {
     ];
     const cookies = [
       ['tappa_session', 'Remembers which employee this phone belongs to, so a tap at a plaque knows who tapped. Set once, when the personal invitation link is opened.', '365 days', '/'],
-      ['tappa_activation', 'Carries the invitation while the phone is being set up, so the code stays out of the address bar, out of browser history and out of any link that leaves this site. Once the privacy notice is accepted it also marks this browser as the one that accepted it, so only this browser’s first tap on a plaque can finish setup. Cleared as soon as the invitation is used.', 'until the invitation expires (at most 30 days)', '/'],
+      ['tappa_activation', 'Carries the invitation while the phone is being set up, so the code stays out of the address bar, out of browser history and out of any link that leaves this site. Once the privacy notice is accepted it also marks this browser as the one that accepted it, so only this browser\'s first tap on a plaque can finish setup. Cleared as soon as the invitation is used.', 'until the invitation expires (at most 30 days)', '/'],
       ['tappa_activated', 'Set for a few minutes right after a phone finishes setup, so the setup page that is still open in another tab can tell that it was THIS setup that finished. It holds no password and no code.', '15 minutes', '/'],
-      ['tappa_admin_session', 'Keeps a manager signed in to the dashboard. A separate cookie from the employee one, sent only to the dashboard, so neither can be used in the other’s place.', '12 hours', '/admin'],
+      ['tappa_admin_session', 'Keeps a manager signed in to the dashboard. A separate cookie from the employee one, sent only to the dashboard, so neither can be used in the other\'s place.', '12 hours', '/admin'],
       ['tappa_admin_login', 'Protects the dashboard sign-in form against being submitted from another site. Exists only while somebody is on the sign-in page.', '15 minutes', '/admin'],
       ['tappa_admin_choice', 'Set only when one person manages more than one organisation: it carries the choice being offered, signed by this server, between the password step and the pick-a-business step.', '5 minutes', '/admin'],
       ['tappa_admin_confirm', 'Set for a moment when a manager is asked to confirm something that cannot be undone, so the confirmation belongs to that manager, that session and that one action.', '10 minutes', '/admin'],
-      ['tappa_admin_reset', 'Protects the ‘I cannot get in’ form against being submitted from another site. Exists only while somebody is on that page.', '15 minutes', '/admin'],
+      ['tappa_admin_reset', 'Protects the \'I cannot get in\' form against being submitted from another site. Exists only while somebody is on that page.', '15 minutes', '/admin'],
       ['tappa_admin_reset_link', 'Carries a recovery link while a new password is being chosen, so the link stays out of the address bar and out of browser history. Cleared as soon as the link is used or refused.', '1 hour', '/admin/reset/new'],
       ['tappa_signup', 'Protects the registration form against being submitted from another site. Exists only while somebody is filling the form in.', '30 minutes', '/signup'],
       ['tappa_signup_state', 'Carries the answers already given — the business name, the VAT number and the places — from one step of the registration form to the next, signed by this server. It never holds a password. Cleared as soon as the business is created.', '30 minutes', '/signup']
@@ -160,6 +186,8 @@ class Component extends DCLogic {
     return { docs, cur, cookies };
   }
 }
+
+;{ const __rv = Component.prototype.renderVals; Component.prototype.renderVals = function () { return Object.assign({}, __rv.call(this), { menuOpen: this.props.menu === 'open' }); }; }
 </script>
 </body>
 </html>
