@@ -75,6 +75,7 @@ var nonPanelTemplates = map[string]string{
 	"pages/publicchrome.templ":     "marketing (the public site's shared header, menu and footer, LP-02)",
 	"pages/pricing.templ":          "marketing (the public pricing page, LP-06)",
 	"pages/security.templ":         "marketing (the public security page, LP-07)",
+	"pages/product.templ":          "marketing (the public product tour, LP-08)",
 	"pages/legal.templ":            "marketing (the legal pages)",
 	"pages/apiguide.templ":         "marketing (the public API guide)",
 	"pages/signup.templ":           "the public sign-up flow, before there is a panel",

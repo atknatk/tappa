@@ -126,6 +126,7 @@ var priceLockedForLifeRE = regexp.MustCompile(`(?m)^## 11\..*\n(?:(?:[^#\n].*)?\
 var pageFactDerivations = []func(*testing.T) map[pages.Fact]func() string{
 	pricingFactDerivations,
 	securityFactDerivations,
+	productFactDerivations,
 }
 
 // plaquesIncludedRE is handoff §11's pricing term: "plaketler dahil ve ücretsiz
@@ -1207,9 +1208,11 @@ func TestPublicNav_CheckRefusesADeadEntryOrAWrongMark(t *testing.T) {
 	if unmarked == pricing || len(navBarProblems(unmarked, pages.PricingPath)) == 0 {
 		t.Error("CONTROL: the pricing page with its header entry unmarked passed")
 	}
-	marked := strings.Replace(landing, `href="/#how"`, `href="/#how" aria-current="page"`, 1)
+	// Since LP-08 no header entry is a landing section; the landing marks none, so an
+	// entry marked there -- the product tour's -- points at another page.
+	marked := strings.Replace(landing, `class="navlink" href="`+pages.ProductPath+`"`, `class="navlink" href="`+pages.ProductPath+`" aria-current="page"`, 1)
 	if marked == landing || len(navBarProblems(marked, "/")) == 0 {
-		t.Error("CONTROL: the landing with a section entry marked as the current page passed")
+		t.Error("CONTROL: the landing with another page's entry marked as the current page passed")
 	}
 }
 
@@ -1273,6 +1276,7 @@ var sitePageTemplates = map[string]string{
 	"/":                "landing.templ",
 	pages.PricingPath:  "pricing.templ",
 	pages.SecurityPath: "security.templ",
+	pages.ProductPath:  "product.templ",
 }
 
 // landingFAQAnswerBeforeM11 is "Where does the data go?" as the page answered it until

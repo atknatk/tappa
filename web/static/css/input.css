@@ -3074,3 +3074,232 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
   .lp .lp-secPairDockets .lp-secDocketTop { flex-direction: row; gap: 8px; }
   .lp .lp-secH2Solo { margin-bottom: 52px; }
 }
+
+/* =========================================================================
+   THE PRODUCT TOUR (LP-08, 2026-10-22)
+
+   /product, from the Product / T-Product / M-Product boards
+   (web/templates/pages/product.templ). The opening, the bands, the section
+   frame, the panel's three drawings and their frame (.lp-mini*), the slips,
+   the stamps, the icon tile, the "next step" link and the sign-off are the
+   landing's, the pricing page's and the security page's; what is here is the
+   tour's own furniture: the index, a section's number and bullets, the plaque
+   and the two phones, the tap screen's four points, the People, Venues and
+   Rules drawings, the shift's six dockets and the integrations card.
+
+   ONE DOM AT EVERY WIDTH. The phone stacks a section's words over its drawing;
+   from the desktop the two share a row, the words in a 380px column, and every
+   other row puts the drawing first. The phone draws the plaque and the two
+   phones in one column; from the tablet the plaque, the waves and the first
+   phone share a row.
+
+   THE DRAWINGS ARE PICTURES (role img): nothing in them is pressed, so they
+   reserve no 44px floor. The index's links are pressed, and reserve it.
+
+   CONTRAST, MEASURED (the WCAG ratio, alpha composited over its ground):
+     ink at 85% on paper / porcelain       10.4:1 / 9.29:1  the sections' lines
+     ink at 70% on paper                    6.05:1          labels, notes, the
+                                                            index's numbers
+     ink at 70% on porcelain                5.70:1          the drawings' sub-lines
+     paper on ink                          16.17:1          the section numbers,
+                                                            the chosen chip
+     ink on green-lite / saffron-lite      13.6:1 / 13.97:1 the status pills
+   ========================================================================= */
+
+/* ---------------- the opening ---------------- */
+.lp .lp-prodHero { display: flex; flex-direction: column; gap: 32px; }
+.lp .lp-prodHeroCopy { display: flex; flex-direction: column; min-width: 0; }
+/* The index: a row of chips on the phone and the tablet, as T-Product and M-Product
+   draw it (the nav's own name says what it is, so its label is drawn only on the
+   slip); from the desktop a slip beside the copy. The boards' chip is 36px; the
+   product's floor is 44. */
+.lp .lp-prodIndex { padding: 0; border: 0; background: none; }
+.lp .lp-prodIndex::after { display: none; }
+.lp .lp-prodIndex > .lp-lbl { display: none; }
+.lp .lp-prodIndexList { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; }
+.lp .lp-prodIndexLink { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); font-size: 13.5px; font-weight: 700; color: var(--ink); text-decoration: none; }
+.lp .lp-prodIndexLink:hover { border-color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
+.lp .lp-prodIndexLink:active { border-color: var(--ink); text-decoration: underline; text-decoration-thickness: 2px; }
+.lp .lp-prodIndexLink:focus-visible { border-radius: 999px; }
+.lp .lp-prodIndexNo { font-family: var(--mono); font-size: 10.5px; font-weight: 400; color: rgb(var(--ink-ch) / .7); }
+
+/* ---------------- a section's words ---------------- */
+.lp .lp-prodText { display: flex; flex-direction: column; min-width: 0; }
+.lp .lp-prodKick { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.lp .lp-prodNo { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 12px; font-weight: 700; }
+.lp .lp-prodH2 { margin-bottom: 14px; font-size: 28px; line-height: 1.08; }
+.lp .lp-prodLine { max-width: 600px; margin-bottom: 22px; font-size: 16px; line-height: 1.6; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-prodBullets { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.lp .lp-prodBullets li { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: start; gap: 8px; font-size: 14.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .88); }
+.lp .lp-prodTick { padding-top: 1px; color: var(--green); }
+.lp .lp-prodTick svg { display: block; }
+.lp .lp-prodH3 { font-size: 22px; line-height: 1.2; letter-spacing: -0.025em; }
+.lp .lp-prodNote { margin-top: 18px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .7); }
+
+/* A section beside its drawing. */
+.lp .lp-prodRow { display: flex; flex-direction: column; gap: 28px; }
+.lp .lp-prodDraw { min-width: 0; }
+
+/* ---------------- the tap ---------------- */
+.lp .lp-prodStack { display: flex; flex-direction: column; gap: 32px; }
+.lp .lp-prodTapText { display: flex; flex-direction: column; gap: 22px; }
+.lp .lp-prodTapText .lp-prodLine { margin-bottom: 0; }
+
+/* The plaque, the waves and the two phones, on a card. */
+.lp .lp-prodScene { display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 24px 12px 20px; border: 1px solid var(--line); border-radius: 24px; background: rgb(var(--paper-ch) / .6); }
+.lp .lp-prodSceneRow { display: flex; flex-direction: column; align-items: center; gap: 28px; }
+.lp .lp-prodPlaque { width: 176px; }
+.lp .lp-prodWaves { display: flex; align-items: center; justify-content: center; color: var(--green); }
+.lp .lp-prodWaves svg { width: 40px; height: 70px; rotate: 90deg; }
+.lp .lp-prodFig { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.lp .lp-prodCap { display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: 250px; text-align: center; font-size: 13.5px; line-height: 1.45; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-prodPhone { width: 250px; padding: 8px; border-radius: 30px; background: var(--ink); box-shadow: 0 30px 60px rgb(var(--ink-ch) / .28); }
+.lp .lp-prodScreen { display: flex; flex-direction: column; gap: 16px; min-height: 380px; padding: 12px 14px 22px; border-radius: 23px; background: var(--porcelain); color: var(--ink); }
+.lp .lp-prodStatus { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; font: 700 13px var(--disp); }
+.lp .lp-prodWordmark { display: flex; align-items: baseline; justify-content: space-between; }
+.lp .lp-prodTapDocket { display: flex; flex-direction: column; gap: 6px; }
+.lp .lp-prodTapLbl { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-prodHello { font-family: var(--disp); font-size: 24px; line-height: 1.15; font-weight: 700; letter-spacing: -0.025em; }
+.lp .lp-prodTapVenue { font-family: var(--disp); font-size: 14px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-prodTapButton { display: flex; align-items: center; justify-content: center; min-height: 64px; border-radius: 2px; background: var(--green); color: var(--paper); font-size: 20px; letter-spacing: -0.025em; }
+.lp .lp-prodResultTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.lp .lp-prodTapped { display: flex; flex-direction: column; font-family: var(--disp); font-size: 22px; line-height: 1.2; font-weight: 700; letter-spacing: -0.025em; }
+.lp .lp-prodTappedWord { white-space: nowrap; }
+.lp .lp-prodTapped .mono { font-size: 15px; font-weight: 400; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-prodResultTop .stamp { flex: none; }
+.lp .lp-prodTrust { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.lp .lp-prodResultNote { font-family: var(--disp); font-size: 12.5px; line-height: 1.45; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-prodClosing { display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; line-height: 1.45; color: rgb(var(--ink-ch) / .7); }
+
+/* The tap screen's four points. */
+.lp .lp-prodTeam { display: flex; flex-direction: column; gap: 20px; }
+.lp .lp-prodTeamHead { display: flex; flex-direction: column; gap: 8px; max-width: 640px; }
+.lp .lp-prodTeamLede { font-size: 15.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-prodPoints { list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.lp .lp-prodPoint { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: start; gap: 14px; }
+.lp .lp-prodPointText { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 14.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-prodPointTitle { font-size: 16px; font-weight: 700; color: var(--ink); }
+.lp .lp-prodTeam .lp-prodNote { margin-top: 0; }
+
+/* ---------------- People ---------------- */
+.lp .lp-prodChips { display: flex; flex-wrap: wrap; gap: 6px; }
+.lp .lp-prodChip { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); font-size: 11px; font-weight: 700; }
+.lp .lp-prodChip--on { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.lp .lp-prodList { list-style: none; padding: 2px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+.lp .lp-prodPerson { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px dashed var(--line); }
+.lp .lp-prodPerson:first-child { border-top: 0; }
+.lp .lp-prodInitials { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--green-lite); color: var(--green); font-family: var(--mono); font-size: 11px; font-weight: 700; }
+.lp .lp-prodWho { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.lp .lp-prodName { overflow: hidden; font-size: 13px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
+.lp .lp-prodSub { font-family: var(--mono); font-size: 10px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-prodPill { flex: none; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; color: var(--ink); }
+.lp .lp-prodPill--active { border-color: var(--green); background: var(--green-lite); }
+.lp .lp-prodPill--invited { border-style: dashed; border-color: var(--saffron); background: var(--saffron-lite); }
+.lp .lp-prodSigned { display: none; font-family: var(--mono); font-size: 10px; color: rgb(var(--ink-ch) / .7); white-space: nowrap; }
+
+/* ---------------- Venues & plaques ---------------- */
+.lp .lp-prodVenues { display: flex; flex-direction: column; gap: 10px; }
+.lp .lp-prodVenueList { list-style: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.lp .lp-prodVenue { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.lp .lp-prodVenue--on { padding: 8px 10px; border: 2px solid var(--ink); }
+.lp .lp-prodVenueTop { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lp .lp-prodBadges { display: flex; flex-wrap: wrap; gap: 4px; }
+.lp .lp-prodBadge { padding: 1px 6px; border: 1px dashed var(--line); border-radius: 6px; font-family: var(--mono); font-size: 9.5px; font-weight: 700; }
+.lp .lp-prodBadge--ok { border-style: solid; border-color: var(--green); background: var(--green-lite); }
+.lp .lp-prodVenueOpen { display: flex; flex-direction: column; gap: 8px; }
+.lp .lp-prodVenueCard { display: flex; flex-direction: column; gap: 6px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.lp .lp-prodKV { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 10px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.lp .lp-prodKV .mono { font-size: 11.5px; overflow-wrap: anywhere; }
+
+/* ---------------- Rules ---------------- */
+.lp .lp-prodRules { display: flex; flex-direction: column; gap: 12px; }
+.lp .lp-prodRuleBlock { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.lp .lp-prodGuard { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: start; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.lp .lp-prodGuardNo { font-family: var(--mono); font-size: 11px; font-weight: 700; padding-top: 1px; }
+.lp .lp-prodGuardText { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.lp .lp-prodRuleWords { font-size: 12.5px; font-weight: 700; line-height: 1.35; }
+.lp .lp-prodRuleTags { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.lp .lp-prodLock { padding: 1px 7px; border: 1px solid var(--ink); border-radius: 999px; font-family: var(--mono); font-size: 9.5px; font-weight: 700; }
+.lp .lp-prodEffect { font-family: var(--mono); font-size: 10px; font-weight: 700; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-prodEffect--on { padding: 1px 7px; border: 1px solid var(--green); border-radius: 999px; background: var(--green-lite); color: var(--ink); }
+.lp .lp-prodBase { display: flex; flex-direction: column; gap: 5px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.lp .lp-prodSwitch { align-self: flex-start; min-height: 30px; padding: 0 12px; border: 1.5px solid var(--ink); font-size: 12px; }
+
+/* ---------------- a shift, start to finish ---------------- */
+.lp .lp-prodSteps { list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+.lp .lp-prodStepItem { min-width: 0; }
+.lp .lp-prodStep { display: flex; flex-direction: column; gap: 8px; margin-bottom: 7px; padding: 16px 16px 18px; transform-origin: top center; }
+.lp .lp-prodStepItem:nth-child(1) .lp-prodStep { transform: rotate(-1deg); }
+.lp .lp-prodStepItem:nth-child(2) .lp-prodStep { transform: rotate(.8deg); }
+.lp .lp-prodStepItem:nth-child(3) .lp-prodStep { transform: rotate(-.6deg); }
+.lp .lp-prodStepItem:nth-child(4) .lp-prodStep { transform: rotate(1.2deg); }
+.lp .lp-prodStepItem:nth-child(5) .lp-prodStep { transform: rotate(-1.2deg); }
+.lp .lp-prodStepItem:nth-child(6) .lp-prodStep { transform: rotate(.6deg); }
+.lp .lp-prodStepTop { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lp .lp-prodStepNo { font-family: var(--mono); font-size: 12px; font-weight: 700; }
+.lp .lp-prodStepTitle { font-size: 17px; line-height: 1.2; letter-spacing: -0.015em; }
+.lp .lp-prodStepStamp { align-self: flex-start; }
+.lp .lp-prodStep p { font-size: 14px; line-height: 1.5; color: rgb(var(--ink-ch) / .82); }
+
+/* ---------------- integrations ---------------- */
+.lp .lp-prodInteg { display: flex; flex-direction: column; gap: 22px; padding: 22px 18px; }
+.lp .lp-prodIntegItems { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; }
+.lp .lp-prodIntegItem { display: flex; align-items: flex-start; gap: 14px; min-width: 0; }
+.lp .lp-prodIntegItem + .lp-prodIntegItem { padding-top: 22px; border-top: 1px dashed var(--line); }
+.lp .lp-prodIntegText { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.lp .lp-prodIntegTitle { font-size: 19px; }
+.lp .lp-prodIntegText p { font-size: 14.5px; line-height: 1.55; color: rgb(var(--ink-ch) / .82); }
+.lp .lp-prodCode { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.lp .lp-prodCode .mono { padding: 2px 6px; border-radius: 6px; background: rgb(var(--ink-ch) / .05); font-size: 12px; overflow-wrap: anywhere; }
+.lp .lp-prodIntegFoot { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding-top: 18px; border-top: 1px dashed var(--line); }
+.lp .lp-prodIntegFoot p { font-size: 14px; line-height: 1.55; color: rgb(var(--ink-ch) / .82); }
+
+@media (min-width: 768px) {
+  .lp .lp-prodH2 { font-size: 36px; }
+  .lp .lp-prodLine { font-size: 17px; }
+  .lp .lp-prodBullets li { font-size: 15px; }
+  .lp .lp-prodH3 { font-size: 26px; }
+
+  .lp .lp-prodScene { flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: flex-start; padding: 32px 24px 28px; }
+  .lp .lp-prodSceneRow { flex-direction: row; align-items: center; }
+  .lp .lp-prodPlaque { width: 214px; }
+  .lp .lp-prodWaves svg { width: 60px; height: 110px; rotate: none; }
+  .lp .lp-prodPhone { width: 240px; padding: 10px; border-radius: 40px; }
+  .lp .lp-prodScreen { border-radius: 31px; }
+  .lp .lp-prodPoints { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 28px; }
+
+  .lp .lp-prodPerson { grid-template-columns: 30px minmax(0, 1fr) auto 84px; }
+  .lp .lp-prodSigned { display: block; text-align: right; }
+  .lp .lp-prodVenues { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  .lp .lp-prodVenueList { grid-template-columns: minmax(0, 1fr); }
+  .lp .lp-prodRules { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+
+  .lp .lp-prodSteps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .lp .lp-prodInteg { padding: 28px; }
+  .lp .lp-prodIntegFoot { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; }
+}
+@media (min-width: 1200px) {
+  .lp .lp-prodHero { display: grid; grid-template-columns: minmax(0, 1fr) 320px; align-items: center; gap: 72px; }
+  .lp .lp-prodIndex { display: flex; flex-direction: column; gap: 6px; margin-bottom: 7px; padding: 20px 22px 18px; border: 1px solid var(--line); border-bottom: 0; background: var(--paper); box-shadow: 0 14px 30px rgb(var(--ink-ch) / .08); }
+  .lp .lp-prodIndex::after { display: block; }
+  .lp .lp-prodIndex > .lp-lbl { display: block; }
+  .lp .lp-prodIndexList { display: block; }
+  .lp .lp-prodIndexList li { border-top: 1px dashed var(--line); }
+  .lp .lp-prodIndexLink { display: flex; gap: 14px; padding: 0; border: 0; border-radius: 0; background: none; font-size: 15px; }
+  .lp .lp-prodIndexLink:focus-visible { border-radius: 4px; }
+  .lp .lp-prodIndexNo { font-size: 11px; }
+  .lp .lp-prodH2 { font-size: 40px; }
+  .lp .lp-prodRow { display: grid; grid-template-columns: 380px minmax(0, 1fr); align-items: center; gap: 56px; }
+  .lp .lp-prodRow--flip { grid-template-columns: minmax(0, 1fr) 380px; }
+  .lp .lp-prodRow--flip .lp-prodDraw { order: -1; }
+  .lp .lp-prodTapText { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 56px; }
+  .lp .lp-prodTapText > .lp-prodBullets { padding-top: 48px; }
+  .lp .lp-prodScene { flex-wrap: nowrap; padding: 36px 32px 32px; }
+  .lp .lp-prodPlaque { width: 226px; }
+  .lp .lp-prodWaves svg { width: 70px; }
+  .lp .lp-prodPhone { width: 250px; }
+  .lp .lp-prodPoints { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .lp .lp-prodSteps { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; }
+  .lp .lp-prodIntegItems { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+  .lp .lp-prodIntegItem + .lp-prodIntegItem { padding-top: 0; padding-left: 28px; border-top: 0; border-left: 1px dashed var(--line); }
+}

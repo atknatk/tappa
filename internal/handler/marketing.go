@@ -185,6 +185,11 @@ type Marketing struct {
 	// dependency (TestMarketing_HandlerHoldsNoStatefulDependency walks it).
 	security     pages.SecurityFigures
 	securityCopy pages.SecurityText
+	// product and productCopy are the product tour's numbers and its sentences built
+	// from them (LP-08), computed ONCE, here, by productFigures and pages.ProductCopy: a
+	// value rather than a dependency, like the security page's.
+	product     pages.ProductFigures
+	productCopy pages.ProductText
 	// guideEN and guideTR are the integration guide's two pages (M11 DOCS-1, ADR 0030):
 	// docs/api's embedded Markdown, converted ONCE, in the constructor, by
 	// internal/apiguide. A request serves the converted bytes and converts nothing, so
@@ -251,6 +256,7 @@ func NewMarketing(texts legalReader, log *slog.Logger, apiHost string) *Marketin
 		pricing = pages.PricingFigures{}
 	}
 	security := securityFigures()
+	product := productFigures(security)
 	return &Marketing{
 		signupHref:     signupPath,
 		texts:          texts,
@@ -262,6 +268,8 @@ func NewMarketing(texts legalReader, log *slog.Logger, apiHost string) *Marketin
 		pricing:        pricing,
 		security:       security,
 		securityCopy:   pages.SecurityCopy(security),
+		product:        product,
+		productCopy:    pages.ProductCopy(product),
 		guideEN:        guideEN,
 		guideTR:        guideTR,
 		openAPIHref:    openAPI,
@@ -400,6 +408,8 @@ func (m *Marketing) Mount(r chi.Router) {
 	// reason the guide's routes below give (the employee-route derivation resolves a
 	// name); TestPublicPages_TheTableIsTheMountedRoutes holds the table and these
 	// registrations equal in both directions.
+	r.Get(productPath, m.Product)
+	r.Head(productPath, m.Product)
 	r.Get(securityPath, m.Security)
 	r.Head(securityPath, m.Security)
 	r.Get(pricingPath, m.Pricing)
@@ -499,6 +509,29 @@ func (m *Marketing) Security(w http.ResponseWriter, r *http.Request) {
 		Figures:    m.security,
 		Copy:       m.securityCopy,
 	}))
+}
+
+// productPath is pages.ProductPath, spelled out so the route scan can read it; the
+// public-page table test holds the two equal.
+const productPath = "/product"
+
+// Product serves GET /product (LP-08): the tour's figures and sentences, computed once in
+// NewMarketing.
+func (m *Marketing) Product(w http.ResponseWriter, r *http.Request) {
+	m.render(w, r, pages.Product(pages.ProductView{
+		SignupHref: m.signupHref,
+		SignInHref: adminLoginPath,
+		FreeMonths: foundingFreeMonths,
+		Figures:    m.product,
+		Copy:       m.productCopy,
+	}))
+}
+
+// productFigures is the product tour's numbers: the debounce window and the webhook
+// header, the same values the security page prints (securityFigures holds each to its
+// source), so the two pages cannot disagree.
+func productFigures(s pages.SecurityFigures) pages.ProductFigures {
+	return pages.ProductFigures{DebounceSeconds: s.DebounceSeconds, WebhookHeader: s.WebhookHeader}
 }
 
 // The security page's figures that no exported value of the product carries. EACH IS A

@@ -1,0 +1,542 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/layout"
+
+// THE PRODUCT TOUR (LP-08), drawn from the Product, T-Product and M-Product boards: the
+// opening with "On this page", the seven tour sections -- the tap, The Pass, The Spike,
+// The Roll, People, Venues and plaques, Rules --, a shift from the invitation to the
+// payroll file, and the integrations, in the shared public chrome.
+//
+// THE WORDS ARE NOT WRITTEN HERE. Every sentence that says something about the product
+// is a value in productview.go (ProductCopy, or the landing's own values where this page
+// repeats them) with the facts it rests on. What stays literal is furniture: the
+// eyebrows, the headings that name a section, and the drawings' own labels -- each the
+// label the panel prints, held to it by internal/handler's tests.
+//
+// NO SCRIPT, NO IMAGE, NO STYLE ATTRIBUTE: the page is served with the marketing policy
+// as it is. Each drawing is a picture (role img) whose name says it is a sample; nothing
+// in one is pressed.
+//
+// ONE DOM FOR EVERY WIDTH; input.css's LP-08 rules place it.
+
+// Product is the page at /product.
+templ Product(v ProductView) {
+	@layout.Marketing(PublicPageTitle(ProductPath), layout.RobotsPublic) {
+		<div class="lp">
+			@PublicChrome(PublicChromeOpts{Current: ProductPath, SignInHref: v.SignInHref, SignupHref: v.SignupHref}) {
+				@productHead(v)
+				@productTap(v.Copy)
+				@productPass(v.Copy)
+				@productSpike(v.Copy)
+				@productRoll(v.Copy)
+				@productPeople(v.Copy)
+				@productVenues(v.Copy)
+				@productRules(v.Copy)
+				@productShift(v.Copy)
+				@productIntegrations(v.Copy)
+				@signOff(v.FreeMonths, v.SignupHref)
+			}
+		</div>
+	}
+}
+
+// productHead is the opening: its one h1, the lede, the two ways on, and the index of
+// the seven sections, each a link to its section's id.
+templ productHead(v ProductView) {
+	<div class="band band--porcelain">
+		<section class="lp-pageHead" aria-label="Product tour">
+			<div class="lp-wrap lp-prodHero">
+				<div class="lp-prodHeroCopy">
+					<p class="lp-eyebrow lp-pageEyebrow">Product tour</p>
+					<h1 class="lp-h1">{ v.Copy.Heading.Text }</h1>
+					<p class="lp-pageLede">{ v.Copy.Lede.Text }</p>
+					<div class="lp-secBtns">
+						if v.SignupHref != "" {
+							<a class="lp-button lp-button--green" href={ templ.URL(v.SignupHref) }>Start free</a>
+						}
+						<a class="lp-button lp-button--ghost" href={ templ.URL(PricingPath) }>See pricing</a>
+					</div>
+				</div>
+				<nav class="lp-slip lp-prodIndex" aria-label="On this page">
+					<span class="lp-lbl">On this page</span>
+					<ol class="lp-prodIndexList">
+						for _, e := range ProductIndex {
+							<li><a class="lp-prodIndexLink" href={ templ.URL("#" + e.ID) }><span class="lp-prodIndexNo">{ e.No }</span>{ e.Title }</a></li>
+						}
+					</ol>
+				</nav>
+			</div>
+		</section>
+	</div>
+}
+
+// productKick is a tour section's number and who it is for, over its heading.
+templ productKick(no, kick string) {
+	<div class="lp-prodKick">
+		<span class="lp-prodNo">{ no }</span>
+		<span class="lp-eyebrow">{ kick }</span>
+	</div>
+}
+
+// productText is a tour section's words: its number and kicker, its heading, the lines
+// under it and the bullets, each with the boards' check mark.
+templ productText(id, no, kick, title string, s ProductSection) {
+	<div class="lp-prodText">
+		@productKick(no, kick)
+		<h2 id={ id + "-title" } class="lp-h2 lp-prodH2">{ title }</h2>
+		for _, l := range s.Lines {
+			<p class="lp-prodLine">{ l.Text }</p>
+		}
+		@productBullets(s.Bullets)
+	</div>
+}
+
+// productBullets is a section's bullet list.
+templ productBullets(bs []Line) {
+	<ul class="lp-prodBullets">
+		for _, b := range bs {
+			<li>
+				<span class="lp-prodTick">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l4.2 4.2L19 7"></path></svg>
+				</span>
+				<span>{ b.Text }</span>
+			</li>
+		}
+	</ul>
+}
+
+// productTap is the tour's first section: the landing's third step, three bullets, the
+// plaque and the two phones a tap opens, and the tap screen's four points.
+templ productTap(c ProductText) {
+	<div class="band band--paper">
+		<section id={ ProductTapID } class="lp-sec" aria-labelledby={ ProductTapID + "-title" }>
+			<div class="lp-wrap lp-prodStack">
+				<div class="lp-prodTapText">
+					<div class="lp-prodText">
+						@productKick(ProductIndex[0].No, "For your team")
+						<h2 id={ ProductTapID + "-title" } class="lp-h2 lp-prodH2">{ ProductIndex[0].Title }</h2>
+						<p class="lp-prodLine">
+							for _, run := range LandingSteps[2].Body {
+								if run.Strong {
+									<b>{ run.Text }</b>
+								} else {
+									{ run.Text }
+								}
+							}
+						</p>
+					</div>
+					@productBullets(c.Tap.Bullets)
+				</div>
+				@productPhones(c)
+				<div class="lp-prodTeam">
+					<div class="lp-prodTeamHead">
+						<h3 class="lp-prodH3">{ c.TeamHeading.Text }</h3>
+						<p class="lp-prodTeamLede">{ c.TeamLede.Text }</p>
+					</div>
+					<ul class="lp-prodPoints">
+						for i, p := range c.TeamPoints {
+							<li class="lp-prodPoint">
+								@productPointIcon(i)
+								<span class="lp-prodPointText">
+									<span class="lp-prodPointTitle">{ p.Title.Text }</span>
+									<span>{ p.Body.Text }</span>
+								</span>
+							</li>
+						}
+					</ul>
+					<p class="lp-prodNote">{ ProductSampleNote }</p>
+				</div>
+			</div>
+		</section>
+	</div>
+}
+
+// productPointIcon is the line drawing of the tap screen's point i: the browser, the
+// greeting, the drop and the closed docket.
+templ productPointIcon(i int) {
+	<span class="lp-ico">
+		<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+			switch i {
+				case 0:
+					<rect x="3" y="4" width="18" height="16" rx="2.5"></rect>
+					<path d="M3 8.5h18"></path>
+				case 1:
+					<circle cx="12" cy="8" r="3.6"></circle>
+					<path d="M5 20c.8-3.6 3.6-5.6 7-5.6s6.2 2 7 5.6"></path>
+				case 2:
+					<path d="M12 3.2c3.4 4.2 5.6 7.4 5.6 10.4a5.6 5.6 0 0 1-11.2 0c0-3 2.2-6.2 5.6-10.4z"></path>
+				default:
+					<rect x="4" y="3" width="16" height="18" rx="2"></rect>
+					<path d="M8.2 12.2l2.6 2.6 5-5.2"></path>
+			}
+		</svg>
+	</span>
+}
+
+// productPhones is the drawing of one tap: the plaque on the wall, the phone's tap
+// screen, and the result of the same tap when the evidence was short. The record is
+// ProductTapSample, The Pass's flagged docket.
+templ productPhones(c ProductText) {
+	<div class="lp-prodScene">
+		<div class="lp-prodSceneRow">
+			<div class="plaque lp-prodPlaque" aria-hidden="true">
+				<div class="p-brand p-word">TAPTIME</div>
+				<div class="p-ring">
+					<span class="p-halo"></span>
+					<svg class="p-wave" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" focusable="false">
+						<path d="M6 8.5a8 8 0 0 1 12 0M8.5 11a4.5 4.5 0 0 1 7 0"></path>
+						<circle class="p-dot" cx="12" cy="14.5" r="1.6" stroke="none"></circle>
+					</svg>
+				</div>
+				<div class="p-txt">Tap here to<br/>clock in / out</div>
+				<div class="p-loc">{ ProductTapPlaque }</div>
+			</div>
+			<div class="lp-prodWaves" aria-hidden="true">
+				<svg viewBox="0 0 50 110" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" preserveAspectRatio="none" focusable="false">
+					<path d="M14 38a24 24 0 0 1 0 34" opacity=".9"></path>
+					<path d="M22 28a36 36 0 0 1 0 54" opacity=".55"></path>
+					<path d="M30 18a48 48 0 0 1 0 74" opacity=".3"></path>
+				</svg>
+			</div>
+			<figure class="lp-prodFig">
+				<div class="lp-prodPhone" role="img" aria-label={ "Sample screen: the tap screen — Hello " + ProductTapSample.Who + ", " + ProductTapSample.Venue + ", one Tap button" }>
+					<div class="lp-prodScreen">
+						@productStatusBar()
+						@productWordmark()
+						<div class="tapdocket lp-prodTapDocket">
+							<p class="lp-prodTapLbl">Tapping</p>
+							<p class="lp-prodHello">Hello { ProductTapSample.Who }</p>
+							<p class="lp-prodTapVenue">{ ProductTapSample.Venue }</p>
+						</div>
+						<div class="lp-prodTapButton">Tap</div>
+					</div>
+				</div>
+				<figcaption class="lp-prodCap">
+					<span class="lp-lbl">Tap screen</span>
+					<span>{ c.TapCapTap.Text }</span>
+				</figcaption>
+			</figure>
+		</div>
+		<figure class="lp-prodFig">
+			<div class="lp-prodPhone" role="img" aria-label={ "Sample screen: the result of a flagged tap — Tapped in " + ProductTapSample.At + ", FLAGGED" }>
+				<div class="lp-prodScreen">
+					@productStatusBar()
+					@productWordmark()
+					<div class="tapdocket lp-prodTapDocket">
+						<div class="lp-prodResultTop">
+							<div>
+								<p class="lp-prodTapLbl">{ ProductTapSample.Venue }</p>
+								<p class="lp-prodTapped"><span class="lp-prodTappedWord">Tapped in</span><span class="mono">{ ProductTapSample.At }</span></p>
+							</div>
+							<span class="stamp stamp--flagged lp-stamp-sm">FLAGGED</span>
+						</div>
+						<div class="lp-prodTrust"><span class="lp-prodTapLbl">Trust</span><span class="mono">{ ProductTapSample.Trust }</span></div>
+						<p class="lp-prodResultNote">{ ProductTapNote }</p>
+					</div>
+					<div class="lp-prodClosing">
+						for _, s := range ProductTapClosing {
+							<p>{ s }</p>
+						}
+					</div>
+				</div>
+			</div>
+			<figcaption class="lp-prodCap">
+				<span class="lp-lbl">Result · flagged</span>
+				<span>{ c.TapCapFlag.Text }</span>
+			</figcaption>
+		</figure>
+	</div>
+}
+
+// productStatusBar is a drawn phone's top edge: the time and two signs.
+templ productStatusBar() {
+	<div class="lp-prodStatus" aria-hidden="true">
+		<span>{ ProductTapSample.At }</span>
+		<svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor" focusable="false"><rect x="0" y="8" width="3" height="4" rx="1"></rect><rect x="5" y="5" width="3" height="7" rx="1"></rect><rect x="10" y="2.5" width="3" height="9.5" rx="1"></rect><rect x="15" y="0" width="3" height="12" rx="1"></rect></svg>
+	</div>
+}
+
+// productWordmark is the unbranded tap screen's wordmark, as the landing's phone draws it.
+templ productWordmark() {
+	<div class="lp-prodWordmark">
+		<span class="heroWordmarkName">taptime</span>
+		<span class="heroWordmarkTag">punchless</span>
+	</div>
+}
+
+// productRow is a tour section beside its drawing; flip puts the drawing first from the
+// desktop up, as the boards alternate.
+templ productRow(id string, flip bool, drawing templ.Component) {
+	<section id={ id } class="lp-sec" aria-labelledby={ id + "-title" }>
+		<div class="lp-wrap">
+			<div class={ "lp-prodRow", templ.KV("lp-prodRow--flip", flip) }>
+				{ children... }
+				<div class="lp-prodDraw">
+					@drawing
+				</div>
+			</div>
+		</div>
+	</section>
+}
+
+// productPass is The Pass, beside the landing's drawing of it.
+templ productPass(c ProductText) {
+	<div class="band band--porcelain">
+		@productRow(ProductPassID, false, landingMiniPass()) {
+			@productText(ProductPassID, ProductIndex[1].No, "For managers", ProductIndex[1].Title, c.Pass)
+		}
+	</div>
+}
+
+// productSpike is The Spike, beside the landing's drawing of it.
+templ productSpike(c ProductText) {
+	<div class="band band--paper">
+		@productRow(ProductSpikeID, true, landingMiniSpike()) {
+			@productText(ProductSpikeID, ProductIndex[2].No, "For managers", ProductIndex[2].Title, c.Spike)
+		}
+	</div>
+}
+
+// productRoll is The Roll, beside the landing's drawing of it.
+templ productRoll(c ProductText) {
+	<div class="band band--porcelain">
+		@productRow(ProductRollID, false, landingMiniRoll()) {
+			@productText(ProductRollID, ProductIndex[3].No, "For managers", ProductIndex[3].Title, c.Roll)
+		}
+	</div>
+}
+
+// productPeople is People, beside a drawing of the list.
+templ productPeople(c ProductText) {
+	<div class="band band--paper">
+		@productRow(ProductPeopleID, true, productMiniPeople()) {
+			@productText(ProductPeopleID, ProductIndex[4].No, "For managers", ProductIndex[4].Title, c.People)
+		}
+	</div>
+}
+
+// productMiniPeople draws People: the status filter and one row per sample person, with
+// the status's word and the signed-in phones.
+templ productMiniPeople() {
+	@landingMiniFrame(ProductIndex[4].Title, 2) {
+		@landingMiniHead("Kebab Factory", ProductIndex[4].Title) {
+			<span class="lp-miniCsv">{ ProductPeopleAdd }</span>
+		}
+		<div class="lp-prodChips">
+			for i, ch := range ProductPeopleChips {
+				<span class={ "lp-prodChip", templ.KV("lp-prodChip--on", i == 0) }>{ ch }</span>
+			}
+		</div>
+		<ol class="lp-prodList">
+			for _, p := range ProductPeople {
+				<li class="lp-prodPerson">
+					<span class="lp-prodInitials">{ p.Initials }</span>
+					<span class="lp-prodWho"><span class="lp-prodName">{ p.Name }</span><span class="lp-prodSub">{ p.Venue }</span></span>
+					<span class={ productPillClass(p.Status) }>{ ProductStatusWord(p.Status) }</span>
+					<span class="lp-prodSigned">{ p.Signed }</span>
+				</li>
+			}
+		</ol>
+	}
+}
+
+// productPillClass is a status's pill, from literal class names: the tone of the status
+// it names, the word always beside it.
+func productPillClass(status string) string {
+	switch status {
+	case "active":
+		return "lp-prodPill lp-prodPill--active"
+	case "invited":
+		return "lp-prodPill lp-prodPill--invited"
+	}
+	return "lp-prodPill lp-prodPill--plain"
+}
+
+// productVenues is Venues and plaques, beside a drawing of the screen.
+templ productVenues(c ProductText) {
+	<div class="band band--porcelain">
+		@productRow(ProductVenuesID, false, productMiniVenues()) {
+			@productText(ProductVenuesID, ProductIndex[5].No, "For managers", ProductIndex[5].Title, c.Venues)
+		}
+	</div>
+}
+
+// productMiniVenues draws Venues and plaques: the venue cards with their two evidence
+// signs, and the first venue opened with its network, its shift and its plaques.
+templ productMiniVenues() {
+	@landingMiniFrame(ProductIndex[5].Title, 3) {
+		@landingMiniHead("Kebab Factory", ProductIndex[5].Title)
+		<div class="lp-prodVenues">
+			<ol class="lp-prodVenueList">
+				for i, x := range ProductVenues {
+					<li class={ "lp-prodVenue", templ.KV("lp-prodVenue--on", i == 0) }>
+						<span class="lp-prodVenueTop"><span class="lp-prodName">{ x.Name }</span><span class="lp-prodSub">{ x.Shift }</span></span>
+						<span class="lp-prodBadges">
+							@productBadge("IP", x.IP)
+							@productBadge("GPS", x.GPS)
+						</span>
+					</li>
+				}
+			</ol>
+			<div class="lp-prodVenueOpen">
+				<div class="lp-prodVenueCard">
+					<span class="lp-miniLbl">Venue</span>
+					<span class="lp-prodName">{ ProductVenues[0].Name }</span>
+					<span class="lp-prodKV"><span class="lp-miniLbl">Venue network</span><span class="mono">{ ProductVenueNetwork }</span></span>
+					<span class="lp-prodKV"><span class="lp-miniLbl">Shift</span><span class="mono">{ ProductVenues[0].Shift }</span></span>
+				</div>
+				<div class="lp-prodVenueCard">
+					<span class="lp-prodName">Plaques at this venue</span>
+					for _, q := range ProductPlaques {
+						<span class="lp-prodKV"><span class="mono">{ q.UID }</span><span class="lp-prodPill lp-prodPill--plain">{ q.Status }</span></span>
+					}
+				</div>
+			</div>
+		</div>
+	}
+}
+
+// productBadge is a venue card's evidence sign: the word and a tick, or the word and a
+// dash, as the panel's card draws it.
+templ productBadge(word string, set bool) {
+	if set {
+		<span class="lp-prodBadge lp-prodBadge--ok">{ word + " ✓" }</span>
+	} else {
+		<span class="lp-prodBadge">{ word + " –" }</span>
+	}
+}
+
+// productRules is Rules, beside a drawing of the screen.
+templ productRules(c ProductText) {
+	<div class="band band--paper">
+		@productRow(ProductRulesID, true, productMiniRules()) {
+			@productText(ProductRulesID, ProductIndex[6].No, "For the owner", ProductIndex[6].Title, c.Rules)
+		}
+		<div class="lp-wrap">
+			<p class="lp-prodNote">{ ProductSampleNote }</p>
+		</div>
+	</div>
+}
+
+// productMiniRules draws Rules: three guardrails with their numbers and locks, and three
+// baseline rules in force with the switch the owner sees.
+templ productMiniRules() {
+	@landingMiniFrame(ProductIndex[6].Title, 5) {
+		@landingMiniHead("Checked in this order", ProductIndex[6].Title)
+		<div class="lp-prodRules">
+			<div class="lp-prodRuleBlock">
+				<span class="lp-miniLbl">Taptime's guardrails</span>
+				for _, g := range ProductGuardRows {
+					<div class="lp-prodGuard">
+						<span class="lp-prodGuardNo">{ g.No }</span>
+						<span class="lp-prodGuardText">
+							<span class="lp-prodRuleWords">{ g.Words }</span>
+							<span class="lp-prodRuleTags"><span class="lp-prodLock">Cannot be switched off</span><span class="lp-prodEffect">{ g.Effect }</span></span>
+						</span>
+					</div>
+				}
+			</div>
+			<div class="lp-prodRuleBlock">
+				<span class="lp-miniLbl">Taptime baseline</span>
+				for _, r := range ProductBaselineRows {
+					<div class="lp-prodBase">
+						<span class="lp-prodRuleWords">{ r.Words }</span>
+						<span class="lp-prodRuleTags"><span class="lp-prodEffect">{ r.Effect }</span><span class="lp-prodEffect lp-prodEffect--on">In force</span></span>
+					</div>
+				}
+				<span class="lp-fakeBtn lp-prodSwitch">Switch this rule off</span>
+			</div>
+		</div>
+	}
+}
+
+// productShift is a shift from the invitation to the payroll file: six dockets in the
+// order they happen, the flagged one stamped.
+templ productShift(c ProductText) {
+	<div class="band band--porcelain">
+		<section id="shift" class="lp-sec" aria-labelledby="shift-title">
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">A shift, start to finish</p>
+				<h2 id="shift-title" class="lp-h2">{ c.ShiftHeading.Text }</h2>
+				<p class="lp-lede">{ c.ShiftLede.Text }</p>
+				<ol class="lp-prodSteps">
+					for _, s := range c.ShiftSteps {
+						<li class="lp-prodStepItem">
+							<div class="lp-slip lp-prodStep">
+								<div class="lp-prodStepTop">
+									<span class="lp-prodStepNo">{ s.No }</span>
+									<span class="lp-lbl">{ s.Who }</span>
+								</div>
+								<h3 class="lp-prodStepTitle">{ s.Title }</h3>
+								if s.Flagged {
+									<span class="stamp stamp--flagged lp-stamp-sm lp-prodStepStamp">FLAGGED</span>
+								}
+								<p>{ s.Text.Text }</p>
+							</div>
+						</li>
+					}
+				</ol>
+			</div>
+		</section>
+	</div>
+}
+
+// productIntegrations is the three ways the hours leave Taptime, each with the product's
+// own names for it, and the way to the integration guide.
+templ productIntegrations(c ProductText) {
+	<div class="band band--paper">
+		<section id="integrations" class="lp-sec" aria-labelledby="integrations-title">
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">Integrations</p>
+				<h2 id="integrations-title" class="lp-h2 lp-secH2Solo">{ c.IntegHeading.Text }</h2>
+				<div class="card lp-prodInteg">
+					<div class="lp-prodIntegItems">
+						for i, it := range c.Integrations {
+							<div class="lp-prodIntegItem">
+								@productIntegIcon(i)
+								<div class="lp-prodIntegText">
+									<h3 class="lp-prodH3 lp-prodIntegTitle">{ it.Title }</h3>
+									<p>{ it.Text.Text }</p>
+									<span class="lp-prodCode">
+										for _, code := range it.Code {
+											<span class="mono">{ code }</span>
+										}
+									</span>
+								</div>
+							</div>
+						}
+					</div>
+					<div class="lp-prodIntegFoot">
+						<p>{ c.IntegNote.Text }</p>
+						<a class="more" href={ templ.URL(APIGuidePath) }>
+							Read the API docs
+							@moreArrow()
+						</a>
+					</div>
+				</div>
+			</div>
+		</section>
+	</div>
+}
+
+// productIntegIcon is integration i's line drawing: the file, the brackets, the hook.
+templ productIntegIcon(i int) {
+	<span class="lp-ico">
+		<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+			switch i {
+				case 0:
+					<path d="M7 3h7l4 4v14H7z"></path>
+					<path d="M14 3v4h4"></path>
+					<path d="M9.5 12.5h6M9.5 16h6"></path>
+				case 1:
+					<path d="M8.5 7.5 4 12l4.5 4.5M15.5 7.5 20 12l-4.5 4.5"></path>
+					<path d="M13.2 5.5l-2.4 13"></path>
+				default:
+					<circle cx="6.5" cy="17.5" r="2.5"></circle>
+					<circle cx="17.5" cy="17.5" r="2.5"></circle>
+					<circle cx="12" cy="6.5" r="2.5"></circle>
+					<path d="M10.8 8.7 7.7 15.3M13.2 8.7l3.1 6.6M9 17.5h6"></path>
+			}
+		</svg>
+	</span>
+}

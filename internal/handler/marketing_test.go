@@ -247,8 +247,16 @@ func TestMarketing_HandlerHoldsNoStatefulDependency(t *testing.T) {
 		// either the day it holds anything but strings, numbers and slices of them.
 		"pages.SecurityFigures": true,
 		"pages.SecurityText":    true,
+		// 🔴 pages.ProductFigures AND pages.ProductText, ADDED BY LP-08, AND THIS IS THEIR
+		// ARGUMENT: the product tour prints the debounce window and the webhook header (the
+		// security page's own figures, so the two pages cannot disagree) and sentences built
+		// from them, computed once in NewMarketing and kept as the result. Values, not
+		// dependencies: plainData below refuses either the day it holds anything but
+		// strings, numbers, booleans and slices of them.
+		"pages.ProductFigures": true,
+		"pages.ProductText":    true,
 	}
-	for _, v := range []any{pages.SecurityFigures{}, pages.SecurityText{}} {
+	for _, v := range []any{pages.SecurityFigures{}, pages.SecurityText{}, pages.ProductFigures{}, pages.ProductText{}} {
 		if g := reflect.TypeOf(v); !plainData(g) {
 			t.Errorf("%v holds something other than strings, numbers and slices of them", g)
 		}

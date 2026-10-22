@@ -679,8 +679,9 @@ var liveWordRE = regexp.MustCompile(`(?i)\blive\b`)
 // TestLandingPanel_DrawsThreeSamplePicturesAndNoControl: the section sits where the boards
 // put it (after the proofs, before the two fits), draws each screen as one picture whose
 // name says it is a sample, prints the label under them, stamps each docket with the
-// product's stamp class and word, and carries no link, button or form -- "Take the product
-// tour" arrives with /product (README O8).
+// product's stamp class and word, and carries no button or form and exactly one link:
+// "Take the product tour", which arrived with /product (README O8, LP-08). The drawings
+// themselves hold no control.
 func TestLandingPanel_DrawsThreeSamplePicturesAndNoControl(t *testing.T) {
 	t.Parallel()
 	body := mustFetchMarketing(t, marketingRouter(t), "/")
@@ -708,9 +709,17 @@ func TestLandingPanel_DrawsThreeSamplePicturesAndNoControl(t *testing.T) {
 	if hit := liveWordRE.FindString(text); hit != "" {
 		t.Errorf("the panel section says %q; its drawings are samples and the panel shows what was recorded", hit)
 	}
-	for _, control := range []string{"<a ", "<button", "<form", "<input", "href=", "tabindex"} {
+	// The one link is the tour's, after the three pictures; nothing else is pressed.
+	tour := `<a class="more lp-moreAfter" href="` + pages.ProductPath + `">`
+	if strings.Count(section, "<a ") != 1 || strings.Count(section, "href=") != 1 || !strings.Contains(section, tour) {
+		t.Errorf("the panel section carries %d link(s); its one link is the product tour's", strings.Count(section, "<a "))
+	}
+	if strings.Index(section, tour) < strings.LastIndex(section, `role="img"`) {
+		t.Error("the product tour's link sits among the drawings; it follows them")
+	}
+	for _, control := range []string{"<button", "<form", "<input", "tabindex"} {
 		if strings.Contains(section, control) {
-			t.Errorf("the panel section carries %q; its drawings are pictures and its link arrives with /product", control)
+			t.Errorf("the panel section carries %q; its drawings are pictures", control)
 		}
 	}
 	ok, flag := 0, 1 // the record in focus is flagged

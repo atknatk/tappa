@@ -495,10 +495,9 @@ templ landingSecurity() {
 //
 // THE SENTENCES ARE LINES (landingview.go) and carry their pins; the drawings carry
 // SAMPLE DATA from the same file, held to the product by internal/handler's panel tests
-// (the engine decides each sample record the way its docket is stamped). The boards end
-// this section with "Take the product tour", a link to /product: it is not here, because
-// that page has no route yet and a link arrives with its route (README O8 -- LP-08 adds
-// both).
+// (the engine decides each sample record the way its docket is stamped). The section ends
+// with "Take the product tour", the link to /product, which arrived with that route
+// (README O8, LP-08).
 //
 // ONE DOM AT EVERY WIDTH; input.css's LP-05 rules place it. Every class here is a .lp
 // rule, no value sits in a style attribute, and nothing in a drawing can be pressed.
@@ -524,6 +523,10 @@ templ landingPanel() {
 					</div>
 				</div>
 				<p class="lp-panelNote">{ LandingPanelSampleNote }</p>
+				<a class="more lp-moreAfter" href={ templ.URL(ProductPath) }>
+					Take the product tour
+					@moreArrow()
+				</a>
 			</div>
 		</section>
 	</div>

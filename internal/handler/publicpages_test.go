@@ -50,6 +50,7 @@ func publicPagesCopy() map[string]publicCopy {
 		"/":                {lines: landing, questions: pages.LandingFAQ},
 		pages.PricingPath:  {lines: pricingLines(), questions: pages.PricingFAQ},
 		pages.SecurityPath: {lines: securityLines()},
+		pages.ProductPath:  {lines: productLines()},
 	}
 }
 
@@ -215,6 +216,12 @@ func TestPublicPages_TheTableIsTheMountedRoutes(t *testing.T) {
 	if securityPath != pages.SecurityPath {
 		t.Errorf("Mount registers %q and the page's path is %q", securityPath, pages.SecurityPath)
 	}
+	if productPath != pages.ProductPath {
+		t.Errorf("Mount registers %q and the page's path is %q", productPath, pages.ProductPath)
+	}
+	if pages.PublicPageTitle(pages.ProductPath) == "Taptime" {
+		t.Error("the product tour has no row title")
+	}
 	if pages.PublicPageTitle(pages.SecurityPath) == "Taptime" {
 		t.Error("the security page has no row title")
 	}
@@ -233,7 +240,7 @@ func TestPublicPages_TheTableIsTheMountedRoutes(t *testing.T) {
 		t.Error("CONTROL: a table without /pricing passed while /pricing is mounted")
 	}
 	// CONTROL: a row nobody mounted.
-	ahead := append(slices.Clone(pages.PublicPages), pages.PublicPage{Path: "/product", Title: "Product — Taptime"})
+	ahead := append(slices.Clone(pages.PublicPages), pages.PublicPage{Path: "/for/restaurants", Title: "For restaurants & bars — Taptime"})
 	if len(publicTableProblems(mounted, ahead)) == 0 {
 		t.Error("CONTROL: a row with no route passed")
 	}
