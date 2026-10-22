@@ -485,12 +485,12 @@ type PublicLink struct {
 
 // PublicProductLinks is the Product column of the footer and the phone menu, in the
 // boards' order. Mounted so far: the product tour (LP-08), the pricing page (LP-06), the
-// security page (LP-07) and the integration guide.
+// security page (LP-07), the restaurants page (LP-09) and the integration guide.
 var PublicProductLinks = []PublicLink{
 	{Label: "Product tour", Href: ProductPath},
 	{Label: "Security", Href: SecurityPath},
 	{Label: "Pricing", Href: PricingPath},
-	{Label: "For restaurants & bars"},
+	{Label: "For restaurants & bars", Href: ForRestaurantsPath},
 	{Label: "For production & facilities"},
 	{Label: "API docs", Href: APIGuidePath},
 }
@@ -520,6 +520,7 @@ var PublicPages = []PublicPage{
 	{Path: ProductPath, Title: "Product tour — Taptime"},
 	{Path: SecurityPath, Title: "Security — Taptime"},
 	{Path: PricingPath, Title: "Pricing — Taptime"},
+	{Path: ForRestaurantsPath, Title: "For restaurants & bars — Taptime"},
 }
 
 // PublicPageTitle is the title of the PublicPages row at path, so a page's tab title is
@@ -1184,6 +1185,12 @@ type Audience struct {
 	Points []Claim
 	// Example is the green chip under the paragraph.
 	Example Claim
+	// Href is the page the whole card links to, and Link the words at its foot -- the
+	// label PublicProductLinks gives that page. Href is "" while the page is not mounted,
+	// and the card is then no link and draws no foot (plan decision O8: a link arrives
+	// with its route; LP-09 mounted the restaurants page, LP-10 mounts the other).
+	Href string
+	Link string
 }
 
 // Paragraph is the card's sentences joined by one space, in the declared order —
@@ -1232,6 +1239,8 @@ var LandingAudiences = []Audience{
 			Text:    "9 sites · 1 dashboard · hours per location",
 			Anchors: []Anchor{AnchorPerVenueReport},
 		},
+		Href: ForRestaurantsPath,
+		Link: "For restaurants & bars",
 	},
 	{
 		Kicker: "Single site, many teams",
@@ -1252,6 +1261,7 @@ var LandingAudiences = []Audience{
 			Text:    "5 departments · per-department shifts · records filtered by department",
 			Anchors: []Anchor{AnchorDepartmentShift, AnchorDepartmentOnEveryRecord},
 		},
+		Link: "For production & facilities",
 	},
 }
 

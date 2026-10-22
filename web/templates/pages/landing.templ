@@ -690,9 +690,10 @@ templ landingMiniRoll() {
 // paragraph is Audience.Paragraph: the card's sentences joined by one space.
 //
 // THE BOARDS DRAW EACH CARD AS ONE LINK, to /for/restaurants and /for/production,
-// with a "For restaurants & bars" line at its foot. Neither page has a route yet, so
-// here the cards are plain cards with no link and no such line (README O8 -- LP-09
-// and LP-10 make each card the link to its page in the same change as the route).
+// with the page's name at its foot. A card whose page is mounted (Audience.Href) is
+// that link -- the whole card one <a>, nothing else in it pressed, the focus ring
+// around the card -- and a card whose page is not is a plain card with no foot
+// (README O8: LP-09 linked the restaurants card with its route; LP-10 links the other).
 templ landingFits() {
 	<div class="band band--porcelain">
 		<section class="lp-sec">
@@ -702,17 +703,32 @@ templ landingFits() {
 				<p class="lp-lede">Whether your people are spread across a city or across one production floor, Taptime maps to how you actually operate.</p>
 				<div class="lp-fits">
 					for _, a := range LandingAudiences {
-						<div class="card lp-fit">
-							<span class="lp-fitKick">{ a.Kicker }</span>
-							<h3 class="lp-fitTitle">{ a.Title }</h3>
-							<p class="lp-fitBody">{ a.Paragraph() }</p>
-							<span class="lp-fitEx">{ a.Example.Text }</span>
-						</div>
+						if a.Href != "" {
+							<a class="card fitcard lp-fit" href={ templ.URL(a.Href) }>
+								@landingFitBody(a)
+								<span class="lp-fitLink">
+									{ a.Link }
+									@moreArrow()
+								</span>
+							</a>
+						} else {
+							<div class="card lp-fit">
+								@landingFitBody(a)
+							</div>
+						}
 					}
 				</div>
 			</div>
 		</section>
 	</div>
+}
+
+// landingFitBody is a fit card's words: the kicker, the title, the paragraph and the chip.
+templ landingFitBody(a Audience) {
+	<span class="lp-fitKick">{ a.Kicker }</span>
+	<h3 class="lp-fitTitle">{ a.Title }</h3>
+	<p class="lp-fitBody">{ a.Paragraph() }</p>
+	<span class="lp-fitEx">{ a.Example.Text }</span>
 }
 
 // landingPricing is the price section: the one-piece price card and, under it, the way

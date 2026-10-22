@@ -127,6 +127,7 @@ var pageFactDerivations = []func(*testing.T) map[pages.Fact]func() string{
 	pricingFactDerivations,
 	securityFactDerivations,
 	productFactDerivations,
+	restaurantsFactDerivations,
 }
 
 // plaquesIncludedRE is handoff §11's pricing term: "plaketler dahil ve ücretsiz
@@ -1336,6 +1337,9 @@ var sitePageTemplates = map[string]string{
 	pages.PricingPath:  "pricing.templ",
 	pages.SecurityPath: "security.templ",
 	pages.ProductPath:  "product.templ",
+
+	// The For pages (LP-09 …), one row each.
+	pages.ForRestaurantsPath: "forrestaurants.templ",
 }
 
 // landingFAQAnswerBeforeM11 is "Where does the data go?" as the page answered it until
