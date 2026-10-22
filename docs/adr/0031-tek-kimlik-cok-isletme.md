@@ -14,7 +14,7 @@
   **2026-10-22:** M14-01 §6.1 metnini CLAUDE.md'ye uyguladı; **K-15 cevaplandı — (a)**, e-posta
   değiştirme M14'ün dışında, kendi kartı ve kararıyla gelir (§13; open-questions Q34, backlog T149).
   **2026-10-22:** M14-01'in güvenlik denetiminden sonra §6.1'in (3) metni kullanıcı onayıyla
-  daraltıldı (bakım yazarları `identity_reconcile()` ve backfill adıyla; `tappa_app`'ın yazamadığı ve
+  daraltıldı (bakım yazarları `identity_reconcile()`, backfill ve M14-19'un migration'ı adıyla; `tappa_app`'ın yazamadığı ve
   okuyamadığı bağ sütunları; operatör yasağına `resolve_identity_*`; onay cümlesine `tappa_app` /
   `tappa_resolver` yetkileri) — CLAUDE.md §4.5 (3) ile bayt bayt aynı.
 - **Tarih:** 2026-10-21
@@ -585,10 +585,12 @@ yazıcısı"*; (2) maddesinin sonundaki parantezden sonra şu madde eklenir:
 > adlandırılmış üç istisna `identity_open_session` (Go tipiyle bağlı, 00011 YÜKÜMLÜLÜK 5'in
 > karşılığı), geçici `identity_create_for_signup` (kendi transaction'ında yazılmış tek satır; M14-17'den
 > sonra kalkar) ve `identity_record_failed_login`'dir (yalnız `admin_identity_events`, kimlik kovasıyla
-> sınırlı). Bu kuralın dışında kalan iki bakım yazarının uygulama yolu yoktur: `identity_reconcile()`
+> sınırlı). Bu kuralın dışında kalan üç bakım yazarının uygulama yolu yoktur: `identity_reconcile()`
 > (`EXECUTE` yalnız `tappa_owner`'da; M14-06b'nin migration'ı ve M14-19'dan önce runbook çağırır,
-> contract B'de düşer) ve M14-06'nın backfill migration'ı (`tappa_owner`, ADR 0031 §5.8); bunların ve
-> adlandırılmış üç istisnanın dışında sırsız bir kimlik yazarı yoktur. Kimlik yazmayan ama sırra da
+> contract B'de düşer), M14-06'nın backfill migration'ı (`tappa_owner`, ADR 0031 §5.8) ve M14-19'un
+> migration'ı (`tappa_owner`; yalnız bayrak kapalıyken açılmış onay pencerelerinin `confirm_open_until`'i,
+> ADR 0031 §5.8, §8 adım 5); bunların ve adlandırılmış üç istisnanın dışında kimlik tablolarına sırsız
+> yazan yoktur. Kimlik yazmayan ama sırra da
 > anahtarlı olmayan yazarlar adıyla şunlardır:
 > `identity_open_signup_claim` (yalnız taslak satırı, oranla sınırlı) ve iki sabit periyotlu süpürme. BYPASSRLS gövdelerinde tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi
 > taşır. Bir tenant'a yazan her fonksiyon o tenant'ın `audit_log`'una yazar; satır karşı tenant'ı,

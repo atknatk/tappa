@@ -211,10 +211,12 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    adlandırılmış üç istisna `identity_open_session` (Go tipiyle bağlı, 00011 YÜKÜMLÜLÜK 5'in
    karşılığı), geçici `identity_create_for_signup` (kendi transaction'ında yazılmış tek satır; M14-17'den
    sonra kalkar) ve `identity_record_failed_login`'dir (yalnız `admin_identity_events`, kimlik kovasıyla
-   sınırlı). Bu kuralın dışında kalan iki bakım yazarının uygulama yolu yoktur: `identity_reconcile()`
+   sınırlı). Bu kuralın dışında kalan üç bakım yazarının uygulama yolu yoktur: `identity_reconcile()`
    (`EXECUTE` yalnız `tappa_owner`'da; M14-06b'nin migration'ı ve M14-19'dan önce runbook çağırır,
-   contract B'de düşer) ve M14-06'nın backfill migration'ı (`tappa_owner`, ADR 0031 §5.8); bunların ve
-   adlandırılmış üç istisnanın dışında sırsız bir kimlik yazarı yoktur. Kimlik yazmayan ama sırra da
+   contract B'de düşer), M14-06'nın backfill migration'ı (`tappa_owner`, ADR 0031 §5.8) ve M14-19'un
+   migration'ı (`tappa_owner`; yalnız bayrak kapalıyken açılmış onay pencerelerinin `confirm_open_until`'i,
+   ADR 0031 §5.8, §8 adım 5); bunların ve adlandırılmış üç istisnanın dışında kimlik tablolarına sırsız
+   yazan yoktur. Kimlik yazmayan ama sırra da
    anahtarlı olmayan yazarlar adıyla şunlardır:
    `identity_open_signup_claim` (yalnız taslak satırı, oranla sınırlı) ve iki sabit periyotlu süpürme. BYPASSRLS gövdelerinde tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi
    taşır. Bir tenant'a yazan her fonksiyon o tenant'ın `audit_log`'una yazar; satır karşı tenant'ı,
