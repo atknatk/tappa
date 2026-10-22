@@ -94,6 +94,7 @@ type Department struct {
 	ShiftEnd   pgtype.Time
 	Overnight  bool
 	CreatedAt  time.Time
+	DayCutoff  pgtype.Time
 }
 
 type Employee struct {
@@ -114,6 +115,7 @@ type Employee struct {
 	FirstName     *string
 	LastName      *string
 	UpdatedAt     time.Time
+	DayCutoff     pgtype.Time
 }
 
 type EmployeeInvite struct {
@@ -181,6 +183,7 @@ type Location struct {
 	WifiSsid    *string
 	ExternalRef *string
 	Active      bool
+	DayCutoff   pgtype.Time
 }
 
 type OperatorAuditLog struct {
@@ -370,6 +373,7 @@ type Tenant struct {
 	ApiCode               *string
 	SuspendedAt           *time.Time
 	SuspensionReason      *string
+	DayCutoff             pgtype.Time
 }
 
 type TenantBranding struct {
@@ -386,36 +390,37 @@ type TenantBranding struct {
 }
 
 type Transaction struct {
-	ID              uuid.UUID
-	TenantID        uuid.UUID
-	EmployeeID      *uuid.UUID
-	LocationID      *uuid.UUID
-	DepartmentID    *uuid.UUID
-	TagUid          *string
-	Ctr             *int32
-	Type            *string
-	OccurredAt      time.Time
-	SourceIp        *netip.Addr
-	IpMatch         *bool
-	GpsLat          pgtype.Numeric
-	GpsLng          pgtype.Numeric
-	GpsMatch        *bool
-	SunValid        *bool
-	Trust           *int16
-	Verdict         string
-	Note            *string
-	Channel         string
-	EnteredBy       *uuid.UUID
-	Practice        bool
-	Queued          bool
-	CreatedAt       time.Time
-	PolicyVersionID *uuid.UUID
-	MatchedSid      *string
-	PolicyLayer     *string
-	PolicyContext   []byte
-	SiteTenantID    *uuid.UUID
-	SiteLocationID  *uuid.UUID
-	SiteTagUid      *string
+	ID               uuid.UUID
+	TenantID         uuid.UUID
+	EmployeeID       *uuid.UUID
+	LocationID       *uuid.UUID
+	DepartmentID     *uuid.UUID
+	TagUid           *string
+	Ctr              *int32
+	Type             *string
+	OccurredAt       time.Time
+	SourceIp         *netip.Addr
+	IpMatch          *bool
+	GpsLat           pgtype.Numeric
+	GpsLng           pgtype.Numeric
+	GpsMatch         *bool
+	SunValid         *bool
+	Trust            *int16
+	Verdict          string
+	Note             *string
+	Channel          string
+	EnteredBy        *uuid.UUID
+	Practice         bool
+	Queued           bool
+	CreatedAt        time.Time
+	PolicyVersionID  *uuid.UUID
+	MatchedSid       *string
+	PolicyLayer      *string
+	PolicyContext    []byte
+	SiteTenantID     *uuid.UUID
+	SiteLocationID   *uuid.UUID
+	SiteTagUid       *string
+	BusinessDayStart *time.Time
 }
 
 type TransactionReview struct {

@@ -480,6 +480,11 @@ type PanelChrome struct {
 	// §3, "Panel kabuğu"). The zero value draws nothing, and the chrome is then
 	// byte-for-byte what it was before OP-15.
 	Suspension PanelSuspension
+
+	// BusinessDayCheck is the owner's notice on every section while the business day check
+	// finds a shift the business day cuts (M15-08 step 3a). The zero value draws nothing; a
+	// manager's chrome never carries it.
+	BusinessDayCheck PanelBusinessDayCheck
 }
 
 // Crumb is one step of a section's breadcrumb trail.

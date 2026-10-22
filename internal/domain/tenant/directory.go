@@ -13,8 +13,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/store"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -31,15 +33,37 @@ type Database interface {
 // Directory answers "who is this and where are they" inside one tenant.
 type Directory struct {
 	data Database
+	// businessDayFrom is the business-day switch (TAPPA_BUSINESS_DAY_FROM, ADR 0032 §A.8), nil
+	// when it is unset. It is the SAME value checkin.Service carries — cmd/tappa hands both the
+	// one config field — so the GET /t prediction (M15-12) and the record cannot run by two
+	// rules. Injected as a field (CLAUDE.md §7): this package does not import checkin and checkin
+	// does not import this one; both ask tap.SwitchedDayCutoff.
+	businessDayFrom *time.Time
 }
 
 // NewDirectory wires a Directory. A nil database is refused rather than
-// deferred to a nil dereference on the first tap.
-func NewDirectory(data Database) (*Directory, error) {
+// deferred to a nil dereference on the first tap. businessDayFrom is the
+// business-day switch's value (config.Config.BusinessDayFrom), nil when unset;
+// it is copied, so the caller's later writes do not reach it.
+func NewDirectory(data Database, businessDayFrom *time.Time) (*Directory, error) {
 	if data == nil {
 		return nil, errors.New("tenant: nil database")
 	}
-	return &Directory{data: data}, nil
+	d := &Directory{data: data}
+	if businessDayFrom != nil {
+		v := *businessDayFrom
+		d.businessDayFrom = &v
+	}
+	return d, nil
+}
+
+// DayCutoff is the business-day cutoff the tap screen's prediction must use (ADR 0032 §A.8,
+// §B.2): tap.SwitchedDayCutoff over this directory's switch — nil while the switch is off, so a
+// prediction is made by the same rule the orchestrator then decides by. now is the SERVER's
+// clock (never a declared instant — security lens F-2); cutoff and timezone are the person's
+// resolved effective_day_cutoff and the tenant's zone. Its caller is M15-12's GET /t.
+func (d *Directory) DayCutoff(now time.Time, cutoff time.Duration, timezone string) *tap.DayCutoff {
+	return tap.SwitchedDayCutoff(d.businessDayFrom, now, cutoff, timezone)
 }
 
 // ErrForeignLocation reports that the location id does not belong to the tenant

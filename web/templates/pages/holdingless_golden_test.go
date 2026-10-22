@@ -32,6 +32,12 @@ package pages
 // </main>): the venue name's title, the bar's three segments, its text alternative, "10 judged",
 // the split line, and the GPS-alone list in place of its empty sentence. The reports golden is
 // unchanged (byte for byte).
+// M15-05 replaced the anomalies golden: its one change is the "Left open" card's definition
+// sentence (ADR 0032 §A.6 -- the list and The Roll now share one classification, so "the two
+// figures can differ" became "its count and this list agree"); measured: common prefix and suffix
+// around exactly that sentence, every other byte the previous golden's. Its review round appended
+// one clause to the same sentence (the two figures' stated exceptions: the list's cap and a week
+// too busy for The Roll), measured the same way: the only difference is that insertion.
 
 import (
 	"bytes"

@@ -225,6 +225,10 @@ type VenueFormView struct {
 	// venue: binding needs a row to bind. It is rendered OUTSIDE the save form, like
 	// Removal, because it posts to its own owner-only route.
 	ExternalRef *VenueRefFormView
+	// BusinessDay is the venue's business-day block (M15-07), nil on a NEW venue and on a
+	// panel without the service. It posts to its own route (daycutoff.go), outside the
+	// save form.
+	BusinessDay *DayCutoffView
 }
 
 // VenueFormSide is what the venue form shows beside its fields (M12-35): what a tap at
@@ -350,6 +354,9 @@ type DepartmentFormView struct {
 
 	// Removal is the delete control, or nil on an ADD.
 	Removal *RemovalView
+	// BusinessDay is the department's business-day block (M15-07), nil on a NEW
+	// department and on a panel without the service.
+	BusinessDay *DayCutoffView
 }
 
 // departmentCountText renders a count for the venue card. It exists because templ

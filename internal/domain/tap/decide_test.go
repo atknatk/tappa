@@ -532,7 +532,7 @@ func TestDecide_DirectionOutWhenOpenCheckIn(t *testing.T) {
 	if got.Type == nil || *got.Type != TypeOut {
 		t.Fatalf("open check-in must yield OUT; Type = %v", got.Type)
 	}
-	if strings.Contains(got.Note, staleOpenInNote) {
+	if strings.Contains(got.Note, LeftOpenNote) {
 		t.Errorf("a 3h-old open check-in is not stale; Note = %q", got.Note)
 	}
 }
@@ -554,7 +554,7 @@ func TestDecide_DirectionRustyBarOvernight(t *testing.T) {
 	if got.Type == nil || *got.Type != TypeOut {
 		t.Fatalf("02:10 tap must close the previous evening's 18:05 check-in (out), across midnight; Type = %v", got.Type)
 	}
-	if strings.Contains(got.Note, staleOpenInNote) {
+	if strings.Contains(got.Note, LeftOpenNote) {
 		t.Errorf("an ~8h overnight shift is not a forgotten checkout; Note = %q", got.Note)
 	}
 }
@@ -594,37 +594,69 @@ func TestDecide_DirectionMultipleInOutPairsToggle(t *testing.T) {
 	}
 }
 
-// TestDecide_DirectionStaleOpenInProducesOutWithNote: an open check-in far older than
-// StaleOpenIn (forgotten checkout) still resolves to OUT — never silently in
-// (§5) — but is annotated so the report shows the anomaly.
-func TestDecide_DirectionStaleOpenInProducesOutWithNote(t *testing.T) {
+// TestDecide_DirectionStaleOpenInStartsANewCheckIn: an open check-in far older than
+// StaleOpenIn (a forgotten checkout) is NOT closed — this tap is a new `in`, the old
+// entry stays open as a "checkout missing" anomaly, and both notes say so (ADR 0032
+// §A.1, §B.4). With NO business day (Input.DayCutoff nil): the 18 h rule alone.
+//
+// REWRITTEN WITH THE REVERSE CLAIM (M15-03). Until ADR 0032 this test pinned "stale
+// -> OUT, never silently IN" with the stale note — the very shape that inverted a
+// person's chain for good after one forgotten checkout (ADR 0032 "Ölçülen kusur").
+func TestDecide_DirectionStaleOpenInStartsANewCheckIn(t *testing.T) {
 	t.Parallel()
 	in := onSiteInput()
 	in.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: in.Now.Add(-72 * time.Hour), Direction: TypeIn} // 3 days
 	got := Decide(in)
-	if got.Type == nil || *got.Type != TypeOut {
-		t.Fatalf("stale open check-in must still yield OUT, never silently IN; Type = %v", got.Type)
+	if got.Type == nil || *got.Type != TypeIn {
+		t.Fatalf("a stale open check-in must not be closed; want IN, Type = %v", got.Type)
 	}
-	if !strings.Contains(got.Note, staleOpenInNote) {
-		t.Errorf("stale open check-in must be noted for the anomaly report; Note = %q", got.Note)
+	if got.LeftOpen == nil || got.LeftOpen.ID != in.LastOpenIn.ID || got.LeftOpen.Reason != LeftOpenStale {
+		t.Errorf("LeftOpen = %+v, want the open check-in, reason %q", got.LeftOpen, LeftOpenStale)
+	}
+	if !strings.HasSuffix(got.Note, "; "+LeftOpenNote) || !strings.HasSuffix(got.EmployeeNote, "; "+LeftOpenEmployeeNote) {
+		t.Errorf("the left-open check-in must be noted for the record and the screen; Note = %q, EmployeeNote = %q",
+			got.Note, got.EmployeeNote)
+	}
+	if strings.Contains(got.Note, staleOpenInNote) {
+		t.Errorf("the historic stale note is no longer written; Note = %q", got.Note)
+	}
+	if got.BusinessDayStart != nil {
+		t.Errorf("no cutoff, no business day; BusinessDayStart = %v", got.BusinessDayStart)
 	}
 }
 
-// TestDecide_DirectionStaleThresholdBoundary pins the boundary: just under the
-// threshold is not stale, just over it is.
+// TestDecide_DirectionStaleThresholdBoundary pins the 18 h boundary with no business
+// day: under and exactly at StaleOpenIn the tap closes the open check-in (out, no
+// note); a minute over it is a new `in` and the old entry is left open.
+//
+// REWRITTEN WITH THE REVERSE CLAIM (M15-03): the over-threshold row used to be an
+// `out` carrying the stale note.
 func TestDecide_DirectionStaleThresholdBoundary(t *testing.T) {
 	t.Parallel()
-
-	under := onSiteInput()
-	under.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: under.Now.Add(-(StaleOpenIn - time.Minute)), Direction: TypeIn}
-	if got := Decide(under); strings.Contains(got.Note, staleOpenInNote) {
-		t.Errorf("just under threshold must NOT be stale; Note = %q", got.Note)
+	tests := []struct {
+		name string
+		age  time.Duration
+		want Type
+		left bool
+	}{
+		{"just_under_closes", StaleOpenIn - time.Minute, TypeOut, false},
+		{"exactly_at_closes", StaleOpenIn, TypeOut, false},
+		{"just_over_is_a_new_in", StaleOpenIn + time.Minute, TypeIn, true},
 	}
-
-	over := onSiteInput()
-	over.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: over.Now.Add(-(StaleOpenIn + time.Minute)), Direction: TypeIn}
-	if got := Decide(over); !strings.Contains(got.Note, staleOpenInNote) {
-		t.Errorf("just over threshold must be stale; Note = %q", got.Note)
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			in := onSiteInput()
+			in.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: in.Now.Add(-tc.age), Direction: TypeIn}
+			got := Decide(in)
+			if got.Type == nil || *got.Type != tc.want {
+				t.Fatalf("Type = %v, want %q", got.Type, tc.want)
+			}
+			if (got.LeftOpen != nil) != tc.left || strings.Contains(got.Note, LeftOpenNote) != tc.left {
+				t.Errorf("LeftOpen = %+v, Note = %q; want left open = %v", got.LeftOpen, got.Note, tc.left)
+			}
+		})
 	}
 }
 

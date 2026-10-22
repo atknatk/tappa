@@ -190,6 +190,10 @@ templ VenueForm(v VenueFormView, side VenueFormSide) {
 				// binding is an owner's act (M11 API-1).
 				@venueRefForm(*v.ExternalRef)
 			}
+			if v.BusinessDay != nil {
+				// OUTSIDE the save form too: its first press reviews the change (M15-07).
+				@DayCutoffCard(*v.BusinessDay)
+			}
 			if v.Removal != nil {
 				// OUTSIDE the save form: a nested form is invalid HTML and the browser
 				// would drop one of them.
@@ -488,9 +492,14 @@ templ DepartmentForm(v DepartmentFormView) {
 				</div>
 			</form>
 		</div>
-		if v.Removal != nil {
+		if v.Removal != nil || v.BusinessDay != nil {
 			<div class="flex min-w-0 flex-col gap-4">
-				@Removal(*v.Removal)
+				if v.BusinessDay != nil {
+					@DayCutoffCard(*v.BusinessDay)
+				}
+				if v.Removal != nil {
+					@Removal(*v.Removal)
+				}
 			</div>
 		}
 	</div>

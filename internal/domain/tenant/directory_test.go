@@ -14,6 +14,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -42,7 +43,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	t.Cleanup(data.Close)
 
-	dir, err := NewDirectory(data)
+	dir, err := NewDirectory(data, nil)
 	if err != nil {
 		t.Fatalf("NewDirectory: %v", err)
 	}
@@ -231,7 +232,38 @@ func TestTapPage_RequiresTenantAndEmployee(t *testing.T) {
 }
 
 func TestNewDirectory_RefusesANilDatabase(t *testing.T) {
-	if _, err := NewDirectory(nil); err == nil {
+	if _, err := NewDirectory(nil, nil); err == nil {
 		t.Fatal("a nil database was accepted: the failure would surface as a nil dereference on the first tap")
+	}
+}
+
+// TestDirectory_CarriesTheBusinessDaySwitchItWasGiven pins the switch's injection into the
+// directory (ADR 0032 §A.8): DayCutoff is tap.SwitchedDayCutoff over the value NewDirectory took —
+// off with none, off before it by the server's clock, on from it — and the value is a copy, so a
+// caller that later changes its own variable does not move a live switch.
+func TestDirectory_CarriesTheBusinessDaySwitchItWasGiven(t *testing.T) {
+	type nopDB struct{ Database }
+	from := time.Date(2026, 11, 2, 3, 0, 0, 0, time.UTC)
+
+	off, err := NewDirectory(nopDB{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := off.DayCutoff(from.Add(1000*time.Hour), 5*time.Hour, "Europe/Malta"); got != nil {
+		t.Fatalf("no switch: %+v, want nil", *got)
+	}
+
+	given := from
+	on, err := NewDirectory(nopDB{}, &given)
+	if err != nil {
+		t.Fatal(err)
+	}
+	given = from.Add(100 * 24 * time.Hour) // the caller's later write must not reach the directory
+	if got := on.DayCutoff(from.Add(-time.Second), 5*time.Hour, "Europe/Malta"); got != nil {
+		t.Fatalf("a second before the switch: %+v, want nil", *got)
+	}
+	got := on.DayCutoff(from, 5*time.Hour, "Europe/Malta")
+	if got == nil || got.Cutoff != 5*time.Hour || got.Timezone != "Europe/Malta" {
+		t.Fatalf("at the switch: %+v, want {5h Europe/Malta}", got)
 	}
 }

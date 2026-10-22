@@ -39,6 +39,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/domain/checkin"
@@ -46,6 +47,7 @@ import (
 	"github.com/atknatk/tappa/internal/egress"
 	"github.com/atknatk/tappa/internal/webhook/delivery"
 	"github.com/atknatk/tappa/internal/webhook/endpoints"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // regexpSignature is the documented X-Taptime-Signature (components.parameters.Signature).
@@ -215,7 +217,19 @@ func runExampleStory(t *testing.T) exampleStory {
 	for _, id := range []uuid.UUID{kf.emp, km.emp} {
 		w.exec(`UPDATE employees SET status = 'active', activated_at = COALESCE(activated_at, now()) WHERE id = $1`, id)
 	}
-	taps, err := checkin.New(r.d, r.trail, &config.Config{GPSRadiusMeters: 150, Debounce: 60 * time.Second, Freshness: 180 * time.Second},
+	// Their own business days, far from now (M15-04): the tap path below runs with the switch on,
+	// and the businesses' 05:00 would make Joe's out an `in` when the story runs across it. The
+	// person tier, in each employer's own context; nothing of it reaches an example's body.
+	for _, b := range []punchBiz{kf, km} {
+		if err := r.d.WithTenant(ctx, b.id, func(ctx context.Context, tx pgx.Tx) error {
+			_, e := fixtures.GiveFarDayCutoff(ctx, tx, b.id, b.emp, time.Now())
+			return e
+		}); err != nil {
+			t.Fatalf("the employee's day cutoff: %v", err)
+		}
+	}
+	taps, err := checkin.New(r.d, r.trail, &config.Config{GPSRadiusMeters: 150, Debounce: 60 * time.Second, Freshness: 180 * time.Second,
+		BusinessDayFrom: fixtures.BusinessDaySwitchOn()},
 		slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)

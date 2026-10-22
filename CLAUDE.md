@@ -287,8 +287,18 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
   kapatıyordu) · eşzamanlılık. Sonuncusu için karar + kayıt **kişi başına advisory
   kilit** altında tek transaction'da koşar. **QR'da bu tek frendir** — sayaç yok.
 - **Güven puanı:** `20 (taban) + 50 (IP eşleşti) + 30 (GPS eşleşti)`.
-- **Yön (in/out):** kişinin **son açık girişine** göre toggle — takvim gününe göre
-  DEĞİL. Rusty Bar 18:00–02:00 vardiyasında 02:00 çıkışı doğru eşleşmeli.
+- **Yön (in/out):** kişinin **son açık girişi** (dokunuşun anında açık olan), bu dokunuşun
+  **iş günü başlangıcından önce değilse** ve `StaleOpenIn`'den (18 sa) yeniyse bu dokunuş onu
+  kapatır (`out`); değilse bu dokunuş `in`'dir ve eski giriş *"çıkış eksik"* anomalisi olarak
+  kalır (notla) — hata tek iş gününe hapsolur. **İş günü takvim günü DEĞİLDİR:** gün dönümü
+  saatinde (yerel duvar saati, varsayılan 05:00; kademe işletme → şube (çalışanın **profil**
+  şubesi) → departman → kişi, en özel kazanır) başlar; tenant saat diliminde ve dokunuşun
+  **beyan edilen** anında hesaplanır (ADR 0032). Rusty Bar 18:00–02:00 vardiyasında 05:00
+  dönümüyle 02:00 çıkışı akşamın girişini kapatır; dönümü kesen bir gece vardiyası (fabrika
+  22:00–06:00) departman override'ı ister — ayar ekranı uyarır. Yön **hesaptır**, politika
+  değildir. İş günü kuralı yalnız yayın anahtarı `TAPPA_BUSINESS_DAY_FROM` etkinken
+  (sunucunun saati ≥ değer) uygulanır; anahtar yokken yalnız 18 sa kuralı geçerlidir
+  (ADR 0032 §A.8).
 - **Geç kalma** çalışanın KENDİ vardiyasına göre: departman vardiyası varsa o,
   yoksa **tap edilen** lokasyonun vardiyası (profildeki lokasyon değil — zincirde
   şube değişimi normaldir). Farklı şubede tap nota işlenir, raporda ayrı görünür.

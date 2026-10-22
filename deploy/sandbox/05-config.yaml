@@ -35,3 +35,10 @@ data:
   TAPPA_GPS_RADIUS_M: "150"
   TAPPA_DEBOUNCE_SECONDS: "60"
   TAPPA_FRESHNESS_SECONDS: "180"
+  # TAPPA_BUSINESS_DAY_FROM — the business-day switch (ADR 0032 §A.8; production's
+  # deploy/k8s/05-config.yaml says what it does). EMPTY = OFF, as in production until release day.
+  # The key is here so the sandbox CAN be switched on (M15-08 decision): on release day the same
+  # RFC 3339 value production gets is written here too, so an integrator's sandbox pairs taps the
+  # way the live service does. config.Load refuses a malformed value or one more than 30 days
+  # ahead, here as there (TestSandboxManifests_TheConfigMapStartsOnlyTheSandboxBuild).
+  TAPPA_BUSINESS_DAY_FROM: ""

@@ -133,28 +133,25 @@ const ReportEventCap = 20000
 // shape this repository keeps paying for, with the drift invisible because each copy
 // is self-consistent.
 //
-// ⚠️ THE CONSTANT IS SHARED; THE QUANTITY IT IS COMPARED AGAINST IS NOT, AND AN EARLIER
-// VERSION OF THIS BLOCK CLAIMED OTHERWISE. It said the shared threshold makes the
-// engine and the report "agree about one record". They agree about the THRESHOLD and
-// measure different things with it:
+// THE CONSTANT IS SHARED AND, SINCE ADR 0032, SO IS THE QUANTITY (M15-03, M15-04). Until then
+// the engine measured in.Now - open.OccurredAt -- the SERVER's clock at the moment the closing
+// tap was judged -- while this report measures out.At - in.At, the two records' own occurred_at,
+// and a security audit built the ordinary case where they parted company: a checkout for a shift
+// three days ago, declared at its real instant, was stamped "stale open check-in" by the engine
+// (its clock was three days past the entry) and paid here as a clean eight-hour pair. The engine
+// now measures at - open.OccurredAt, where at is the tap's OWN instant (tap.tapInstant: the
+// declared occurred_at when the client sent one, the server's now otherwise -- the instant the
+// record carries), so for a pair the engine closed the two read the same number against the
+// same threshold.
 //
-//	internal/domain/tap  in.Now - open.OccurredAt   the SERVER's clock at the moment
-//	                                                the closing tap is judged
-//	here                 out.At - in.At             the two records' own occurred_at
-//
-// A security audit built the case where they part company, and it is an ordinary one:
-// a manager enters a checkout for a shift three days ago (M6-08, channel='manual').
-// The engine stamps the closing record with "stale open check-in (possible forgotten
-// checkout)" because ITS clock is three days past the entry -- while this report sees
-// a declared in/out pair eight hours apart and pays it as a clean shift, with no note
-// anywhere on the page.
-//
-// NEITHER IS WRONG FOR ITS OWN QUESTION. The engine is asked "has this entry been open
-// a long time?", which is about now; the report is asked "how long was this shift?",
-// which is about the record. Nothing here changes to make them one number -- measuring
-// the report against a server clock would make last month's hours depend on when the
-// report was opened. What changes is this comment, which is the only place the
-// difference was hidden.
+// AND THE BUSINESS DAY IS READ TOO (M15-05): with the business-day switch on
+// (TAPPA_BUSINESS_DAY_FROM) the engine also refuses to close an entry of an earlier business day
+// (ADR 0032 §A.1) and freezes the tap's business day on the row (business_day_start). This report
+// classifies every checkout by ADR 0032 §A.6's one rule (checkout.go, tap.ClassifyCheckout), which
+// reads that frozen day, so a checkout of a later business day pairs with nothing here either. A
+// row without one (every row before M15, every manual row) is judged by the 18 hours alone, which
+// is exactly what this report did before. Measuring the report against a server clock is still
+// not an option: last month's hours must not depend on when the report was opened.
 //
 // WHAT IT BUYS: a shift that starts at 18:00 on the last night of the period and ends
 // at 02:00 is a CLOSED interval rather than an open one. Without the tail, every
@@ -203,10 +200,10 @@ const (
 
 // ⚠️ THERE IS NO "TOO LONG" STATE HERE, AND ITS ABSENCE IS DELIBERATE. An interval
 // longer than closingTail is not an interval with a bad verdict, it is not an
-// interval at all -- the engine calls the closing tap a probable forgotten checkout,
-// so what the report has is an UNCLOSED check-in. It becomes an OpenEntry and is
-// counted by Totals.TooLong; giving it a fourth HoursState would put a duration
-// beside it that nobody worked.
+// interval at all -- a checkout that far from its check-in is a probable forgotten
+// checkout (ADR 0032 §A.6 class (a)), so what the report has is an UNCLOSED check-in.
+// It becomes an OpenEntry and is counted by Totals.TooLong; giving it a fourth
+// HoursState would put a duration beside it that nobody worked.
 
 // PersonHours is one employee's week.
 type PersonHours struct {
@@ -398,6 +395,13 @@ type Report struct {
 	// StartedEarlier counts checkouts whose check-in falls before the period. Their
 	// hours belong to the previous report and are not counted here; the number exists
 	// so a manager comparing two weeks can see the seam rather than wonder about it.
+	//
+	// ⚠️ IT ALSO HOLDS, FOR NOW, THE CHECKOUTS THAT CLOSE NOTHING (M15-05). ADR 0032 §A.6
+	// gives each checkout one counter: a checkout with no `in` before it in the read --
+	// (d) on a row without a business day, (e) a correction's surplus, (c) an orphan --
+	// and the checkout half of (b), a checkout of a later business day than the `in`
+	// it follows, all land here, so no checkout is uncounted. (b) and (c) move to their
+	// own counter with the "check-in missing" list (M15-06); (d) and (e) stay.
 	StartedEarlier int
 	// Unattributable counts direction-carrying records with no employee on them.
 	// Migration 0005 permits that shape (§4.6: a record is written even with no
@@ -632,6 +636,12 @@ type reportEvent struct {
 	Manual       bool
 	LocationID   uuid.UUID
 	LocationName string
+	// CreatedAt and DayStart are what the checkout classification reads besides At
+	// (ADR 0032 §A.6; checkout.go): when the database wrote the row -- W -- and its frozen
+	// business day, nil on rows written before M15 and on manual rows -- S. Neither is
+	// printed.
+	CreatedAt time.Time
+	DayStart  *time.Time
 	// Home is the person's home venue (M12-21), nil when they have none or it was not
 	// read. It decides DayMarks.Other and nothing else -- resolveShift never sees it (§5/Q17:
 	// lateness follows the TAPPED venue), which is why it is attached after the row mapping.
@@ -669,6 +679,8 @@ func events(rows []store.ListWorkedShiftEventsRow, zoneName string, sites siteVe
 			Review:       deref(row.ReviewOutcome),
 			Manual:       row.Channel == "manual",
 			LocationName: deref(row.LocationName),
+			CreatedAt:    row.CreatedAt,
+			DayStart:     row.BusinessDayStart,
 			Shift:        resolveShift(row, zoneName, sites),
 		}
 		switch {
@@ -859,6 +871,20 @@ func worse(a, b HoursState) HoursState {
 // previous report, which is what "attribute an interval to the day it STARTED" means
 // at the boundary.
 //
+// 🔴 EVERY CHECKOUT IS CLASSIFIED BY ADR 0032 §A.6's ONE RULE (M15-05; checkout.go), and the
+// class picks the branch -- one class, one counter:
+//
+//	closes          the interval in..out (its hours, by verdict)
+//	(a) too_long    Totals.TooLong, and the `in` is an OpenEntry
+//	(b) other_day   the `in` is an OpenEntry and the slot EMPTIES; the checkout half is
+//	                StartedEarlier until M15-06 gives it its own counter
+//	(c), (d), (e)   StartedEarlier ((c) moves with (b) in M15-06)
+//
+// A ROW WITHOUT A BUSINESS DAY (every row before M15, every manual row) can only be closes,
+// (a) or (d), which are exactly the three branches this function had before -- so a week of
+// such rows reports what it reported before, bit for bit
+// (TestAccumulate_AWeekWithoutABusinessDayIsWhatItWasBeforeTheClassification).
+//
 // `now` is passed in rather than read, so the split between "on shift" and "forgot to
 // tap out" is deterministic under test -- the same purity argument internal/domain/tap
 // makes for Input.Now.
@@ -940,35 +966,56 @@ func accumulate(evs []reportEvent, p Period, zone *time.Location, now time.Time)
 	}
 
 	var open *reportEvent
-	var openOwner uuid.UUID
+	var owner uuid.UUID
+	var chain checkoutChain
 	flush := func() {
 		if open != nil {
 			openEntry(*open)
 			open = nil
 		}
 	}
+	// stranded counts a checkout that ends no interval -- see StartedEarlier for which.
+	stranded := func(e reportEvent) {
+		if !e.At.Before(p.From) && e.At.Before(p.To) {
+			out.StartedEarlier++
+		}
+	}
 
 	for i := range evs {
 		e := evs[i]
-		if open != nil && openOwner != e.EmployeeID {
+		if i == 0 || owner != e.EmployeeID {
 			flush()
+			chain = checkoutChain{}
 		}
-		openOwner = e.EmployeeID
+		owner = e.EmployeeID
 		if e.Direction == "in" {
 			// A second `in` on top of an open one: the first was never closed.
 			flush()
 			arrival(e)
 			open = &evs[i]
+			chain.checkin(e.At, e.CreatedAt)
 			continue
 		}
-		// A checkout.
-		if open == nil {
-			if !e.At.Before(p.From) && e.At.Before(p.To) {
-				out.StartedEarlier++
-			}
+		// A checkout: its class, by ADR 0032 §A.6's one rule.
+		class := chain.checkout(e.At, e.CreatedAt, e.DayStart)
+		if !consumesTheIn(class) || open == nil {
+			// (c), (d), (e): no `in` before it to end. (open == nil cannot meet a consuming
+			// class -- P is an `in` exactly when the slot holds it -- and is counted, not
+			// dropped, should it ever.)
+			stranded(e)
 			continue
 		}
 		in := *open
+		if class == tap.CheckoutOtherDay {
+			// (b): a checkout of a LATER business day than the `in` before it. The `in` stays
+			// open -- a "checkout missing" entry -- and the slot empties, so a second checkout
+			// after this one has no `in` before it ((c) or (e)), as in SQL (ADR 0032 §A.6
+			// "Açık slot").
+			open = nil
+			openEntry(in)
+			stranded(e)
+			continue
+		}
 		open = nil
 		if in.At.Before(p.From) || !in.At.Before(p.To) {
 			// The interval belongs to another period; its closing tap merely ends the
@@ -977,11 +1024,13 @@ func accumulate(evs []reportEvent, p Period, zone *time.Location, now time.Time)
 		}
 		worked := e.At.Sub(in.At)
 		ph := person(in)
-		if worked > closingTail {
-			// 🔴 NOT A SHIFT. The engine annotates a closing tap this far from its
-			// check-in as a probable forgotten checkout, and paying it would charge
-			// payroll for the hours nobody worked between them. The opening tap is
-			// reported as open instead, which is the state a manager has to correct.
+		if class == tap.CheckoutTooLong {
+			// 🔴 NOT A SHIFT -- class (a). A checkout this far from its check-in is a probable
+			// forgotten checkout, and paying it would charge payroll for the hours nobody worked
+			// between them. Since ADR 0032 the engine writes no such `out` (a tap that far from
+			// the open check-in is an `in`, and the check-in stays open), so this branch is fed
+			// by historical rows and by a manager's typed checkout. The opening tap is reported
+			// as open instead, which is the state a manager has to correct.
 			out.Totals.TooLong++
 			openEntry(in)
 			continue

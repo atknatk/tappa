@@ -14,6 +14,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const anyRecordWrittenSinceThisTransactionBegan = `-- name: AnyRecordWrittenSinceThisTransactionBegan :one
+SELECT EXISTS (
+    SELECT 1
+    FROM transactions
+    WHERE tenant_id = $1
+      AND employee_id = $2::uuid
+      AND type IS NOT NULL
+      AND created_at > now()
+) AS written_since
+`
+
+type AnyRecordWrittenSinceThisTransactionBeganParams struct {
+	TenantID   uuid.UUID
+	EmployeeID uuid.UUID
+}
+
+// DID A DIRECTED RECORD OF THIS PERSON'S COMMIT AFTER THIS TRANSACTION BEGAN? (M15-05; ADR 0032
+// §A.6 "Eşzamanlı yazım"). internal/domain/manual asks it right after taking the person's tap
+// lock (LockEmployeeForTap), and starts its transaction again when the answer is yes.
+//
+// 🔴 WHY THE LOCK ALONE DOES NOT CLOSE THE WINDOW. created_at is DEFAULT now() -- the
+// TRANSACTION's start, not the INSERT's. A manager's correction whose transaction BEGAN before the
+// person's checkout tap but reached the lock after the tap had committed is serial with the tap
+// yet carries the EARLIER created_at: the tap's out then reads as preceded by a checkout written
+// BEFORE it, and the classification calls it an orphan (c) instead of the correction's surplus
+// (e) -- measured by the M15-05 review: `closes,orphan`. A row written since this transaction's
+// now() is exactly that case; a new transaction's now() is after the tap's commit.
+//
+// `type IS NOT NULL`: only a directed record takes part in the classification, so a refusal or an
+// ignored tap written meanwhile is no reason to start again. Explicit tenant_id beside RLS (§4.5).
+func (q *Queries) AnyRecordWrittenSinceThisTransactionBegan(ctx context.Context, arg AnyRecordWrittenSinceThisTransactionBeganParams) (bool, error) {
+	row := q.db.QueryRow(ctx, anyRecordWrittenSinceThisTransactionBegan, arg.TenantID, arg.EmployeeID)
+	var written_since bool
+	err := row.Scan(&written_since)
+	return written_since, err
+}
+
 const countOnTheFloorByVenue = `-- name: CountOnTheFloorByVenue :many
 SELECT t.location_id, t.site_location_id, l.name AS location_name, count(*) AS people
 FROM transactions t
@@ -297,27 +334,30 @@ SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
-       site_tenant_id, site_location_id, site_tag_uid
+       site_tenant_id, site_location_id, site_tag_uid, business_day_start
 FROM transactions t
 WHERE t.tenant_id = $1
   AND t.employee_id = $2
   AND t.type = 'in'
   AND NOT t.practice
+  AND t.occurred_at <= $3
   AND NOT EXISTS (
       SELECT 1
       FROM transactions o
       WHERE o.tenant_id = t.tenant_id
         AND o.employee_id = t.employee_id
         AND o.type = 'out'
-        AND o.occurred_at > t.occurred_at
+        AND (o.occurred_at, o.id) > (t.occurred_at, t.id)
+        AND o.occurred_at <= $3
   )
-ORDER BY t.occurred_at DESC
+ORDER BY t.occurred_at DESC, t.id DESC
 LIMIT 1
 `
 
 type GetLastOpenTransactionParams struct {
 	TenantID   uuid.UUID
 	EmployeeID *uuid.UUID
+	At         time.Time
 }
 
 // transactions.sql -- tenant-scoped reads and the single append-only write for
@@ -383,8 +423,55 @@ type GetLastOpenTransactionParams struct {
 // already costs 10246 buffers today. So this is not a new worst case, it is the
 // one every ordinary employee's check-in already pays. Making it cheap is an
 // INDEX question (a migration, deliberately out of M5-11's scope).
+//
+// @at AND THE id TIE-BREAK (M15-02, ADR 0032 §A.4). The question is "the check-in
+// open AT the tap's instant", and the instant is the one the tap is decided at --
+// the declared occurred_at if the client sent one, the server's now otherwise
+// (checkin.Record's occurredAt; the caller passes it, never a zero value: a zero
+// @at finds nothing, and every tap would become an `in`). Two bounds, and BOTH
+// are needed:
+//   - the outer row: an entry declared AFTER @at was not open at @at. Without it a
+//     queued Monday 17:00 checkout (M9-01's offline queue) arriving after Tuesday's
+//     09:00 entry would see Tuesday's entry as "the last open one" and close the
+//     wrong day.
+//   - inside NOT EXISTS: an out declared after @at had not happened at @at, so it
+//     cannot have closed the entry. Bounding only the outer row would let a later
+//     row hide an entry that was open at @at -- the same queued checkout, seen from
+//     the other side.
+//
+// For a live tap @at is now -- Record's now, read BEFORE the person's advisory lock
+// is taken -- and the rows beyond it are chiefly a manager's manual record: one
+// placed up to manual.FutureGrace (one minute) ahead, or one written while this tap
+// waited for the lock (the manual path does not take the person's lock today; M15-05
+// changes that). Such a row does not count until its instant arrives -- the rule,
+// applied. The same person's concurrent second tap can also land beyond @at; it is
+// inside the 60 s debounce, so it is `ignored` and carries no direction.
+//
+// The order is (occurred_at, id) everywhere: in the row comparison, so of an `in`
+// and an `out` at the SAME instant the one with the larger id is the later one
+// (strict `>` on occurred_at alone made a same-instant out close nothing, and the
+// ORDER BY without id picked either of two same-instant entries), and in the ORDER
+// BY. It is the order the checkout classification (tappa_checkout_class's callers)
+// and the ledger read (ListWorkedShiftEvents: per person, occurred_at then id), so
+// the three READERS agree about which of two same-instant rows already in the table
+// came first. id is gen_random_uuid() (00005): the tie-break is arbitrary but total
+// and stable, which is all an order needs.
+//
+// ⚠️ THE WRITER IS NOT ONE OF THEM, for its own row. A tap that declares EXACTLY the
+// microsecond of the open entry is decided as that entry's `out` (the entry is open
+// at @at), but the new row's id is random, so in (occurred_at, id) order the later
+// readers put it BEFORE the entry about half the time (measured in the M15-02
+// security review: 14 of 40) -- then the out is not that entry's closing out and
+// the entry stays open in the list. It takes a hand-written POST that hits the
+// entry's microsecond, and it gains no hours: the pair counts zero time either way.
+//
+// business_day_start is in the list because this query returns the whole store
+// Transaction (a row type without it would be a second model); nothing here
+// filters on it. Whether this entry is still in the tap's business day is the
+// engine's question (M15-03), and ADR 0032 §A.6 says why this query does not need
+// the classification while the cutoff stays fixed.
 func (q *Queries) GetLastOpenTransaction(ctx context.Context, arg GetLastOpenTransactionParams) (Transaction, error) {
-	row := q.db.QueryRow(ctx, getLastOpenTransaction, arg.TenantID, arg.EmployeeID)
+	row := q.db.QueryRow(ctx, getLastOpenTransaction, arg.TenantID, arg.EmployeeID, arg.At)
 	var i Transaction
 	err := row.Scan(
 		&i.ID,
@@ -417,6 +504,7 @@ func (q *Queries) GetLastOpenTransaction(ctx context.Context, arg GetLastOpenTra
 		&i.SiteTenantID,
 		&i.SiteLocationID,
 		&i.SiteTagUid,
+		&i.BusinessDayStart,
 	)
 	return i, err
 }
@@ -426,7 +514,7 @@ SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
-       site_tenant_id, site_location_id, site_tag_uid
+       site_tenant_id, site_location_id, site_tag_uid, business_day_start
 FROM transactions
 WHERE tenant_id = $1
   AND employee_id = $2
@@ -477,6 +565,7 @@ func (q *Queries) GetLastTransactionForEmployee(ctx context.Context, arg GetLast
 		&i.SiteTenantID,
 		&i.SiteLocationID,
 		&i.SiteTagUid,
+		&i.BusinessDayStart,
 	)
 	return i, err
 }
@@ -801,50 +890,51 @@ INSERT INTO transactions (
     occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match, sun_valid,
     trust, verdict, note, channel, entered_by, practice, queued,
     policy_version_id, matched_sid, policy_layer, policy_context,
-    site_tenant_id, site_location_id, site_tag_uid
+    site_tenant_id, site_location_id, site_tag_uid, business_day_start
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7,
     $8, $9, $10, $11, $12, $13,
     $14, $15, $16, $17, $18, $19, $20, $21,
     $22, $23, $24, $25,
-    $26, $27, $28
+    $26, $27, $28, $29
 )
 RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
           type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
           sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
           created_at, policy_version_id, matched_sid, policy_layer, policy_context,
-          site_tenant_id, site_location_id, site_tag_uid
+          site_tenant_id, site_location_id, site_tag_uid, business_day_start
 `
 
 type InsertTransactionParams struct {
-	TenantID        uuid.UUID
-	EmployeeID      *uuid.UUID
-	LocationID      *uuid.UUID
-	DepartmentID    *uuid.UUID
-	TagUid          *string
-	Ctr             *int32
-	Type            *string
-	OccurredAt      time.Time
-	SourceIp        *netip.Addr
-	IpMatch         *bool
-	GpsLat          pgtype.Numeric
-	GpsLng          pgtype.Numeric
-	GpsMatch        *bool
-	SunValid        *bool
-	Trust           *int16
-	Verdict         string
-	Note            *string
-	Channel         string
-	EnteredBy       *uuid.UUID
-	Practice        bool
-	Queued          bool
-	PolicyVersionID *uuid.UUID
-	MatchedSid      *string
-	PolicyLayer     *string
-	PolicyContext   []byte
-	SiteTenantID    *uuid.UUID
-	SiteLocationID  *uuid.UUID
-	SiteTagUid      *string
+	TenantID         uuid.UUID
+	EmployeeID       *uuid.UUID
+	LocationID       *uuid.UUID
+	DepartmentID     *uuid.UUID
+	TagUid           *string
+	Ctr              *int32
+	Type             *string
+	OccurredAt       time.Time
+	SourceIp         *netip.Addr
+	IpMatch          *bool
+	GpsLat           pgtype.Numeric
+	GpsLng           pgtype.Numeric
+	GpsMatch         *bool
+	SunValid         *bool
+	Trust            *int16
+	Verdict          string
+	Note             *string
+	Channel          string
+	EnteredBy        *uuid.UUID
+	Practice         bool
+	Queued           bool
+	PolicyVersionID  *uuid.UUID
+	MatchedSid       *string
+	PolicyLayer      *string
+	PolicyContext    []byte
+	SiteTenantID     *uuid.UUID
+	SiteLocationID   *uuid.UUID
+	SiteTagUid       *string
+	BusinessDayStart *time.Time
 }
 
 // THE TAP write path -- and it stopped being THE ONLY one on 2026-08-10.
@@ -886,6 +976,16 @@ type InsertTransactionParams struct {
 // every other tap. What may stand there is not the caller's word: the composite keys
 // tie the venue and the plaque to the site tenant, the CHECKs hold the shape by channel,
 // and holding_site_gate refuses a site that is not a peer of the employer.
+//
+// business_day_start (M15-02, migration 00064, ADR 0032 §A.5): the UTC start of the
+// business day a DIRECTED nfc/qr decision was made in, frozen on the row because the
+// cutoff that produced it may change later. NULL for an undirected decision (reject,
+// ignored), for the manual channel and for every row before M15; the caller forces
+// the NULL in code (insertParams, M15-04 -- until then it passes NULL for every
+// tap), and transactions_business_day_needs_a_direction is the second safety. A tap
+// on a PEER's plaque is the employer's row (above) and carries the employer's
+// business day like any other; InsertManualSiteTransaction, the manual site sibling,
+// has no such parameter.
 func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error) {
 	row := q.db.QueryRow(ctx, insertTransaction,
 		arg.TenantID,
@@ -916,6 +1016,7 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 		arg.SiteTenantID,
 		arg.SiteLocationID,
 		arg.SiteTagUid,
+		arg.BusinessDayStart,
 	)
 	var i Transaction
 	err := row.Scan(
@@ -949,6 +1050,7 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 		&i.SiteTenantID,
 		&i.SiteLocationID,
 		&i.SiteTagUid,
+		&i.BusinessDayStart,
 	)
 	return i, err
 }
@@ -1372,6 +1474,7 @@ func (q *Queries) ListRecentTapsForEmployee(ctx context.Context, arg ListRecentT
 const listWorkedShiftEvents = `-- name: ListWorkedShiftEvents :many
 SELECT t.employee_id, t.occurred_at, t.type, t.verdict, t.channel, t.location_id,
        t.site_location_id,
+       t.created_at, t.business_day_start,
        rv.outcome AS review_outcome,
        e.full_name AS employee_name,
        l.name AS location_name,
@@ -1411,6 +1514,8 @@ type ListWorkedShiftEventsRow struct {
 	Channel              string
 	LocationID           *uuid.UUID
 	SiteLocationID       *uuid.UUID
+	CreatedAt            time.Time
+	BusinessDayStart     *time.Time
 	ReviewOutcome        *string
 	EmployeeName         *string
 	LocationName         *string
@@ -1569,6 +1674,18 @@ type ListWorkedShiftEventsRow struct {
 // day (22 rows in the table): Bitmap Index Scan on transactions_tenant_occurred_idx -> Bitmap Heap
 // Scan (Rows Removed by Filter 3) -> the four left joins -> Sort -> Limit; 19 rows, shared hit=19,
 // 1.06 ms -- one observation on a tiny table, for the reason the block above gives.
+//
+// 🔴 M15-05: created_at AND business_day_start ARE READ BY THE CHECKOUT CLASSIFICATION (ADR 0032
+// §A.6), in both callers. business_day_start is the out's frozen business day (S; NULL before M15
+// and on manual rows), created_at is the database's own write instant -- the classification's W
+// ("the record before this checkout was written AFTER it": a manager's correction). Both are
+// columns of the record itself, no evidence (K-39), and neither is printed: the arithmetic reads
+// them and drops them. created_at is the SERVER's (DEFAULT now(); no statement writes it --
+// internal/domain/ledger's source test pins that), which is why W reads it and never occurred_at,
+// the client's claim. EXPLAIN (ANALYZE, BUFFERS), 2026-10-21, the M15 development database, seed
+// tenant 10000000-...-0001, the week from Monday 2026-10-19 plus the tail (262 rows returned),
+// three runs each: the same plan before and after the two columns, shared hit 162 both, the row
+// width estimate 149 -> 165 bytes.
 func (q *Queries) ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShiftEventsParams) ([]ListWorkedShiftEventsRow, error) {
 	rows, err := q.db.Query(ctx, listWorkedShiftEvents,
 		arg.TenantID,
@@ -1591,6 +1708,8 @@ func (q *Queries) ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShift
 			&i.Channel,
 			&i.LocationID,
 			&i.SiteLocationID,
+			&i.CreatedAt,
+			&i.BusinessDayStart,
 			&i.ReviewOutcome,
 			&i.EmployeeName,
 			&i.LocationName,

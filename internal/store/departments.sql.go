@@ -56,7 +56,8 @@ SELECT $1, l.id, $2,
 FROM locations l
 WHERE l.tenant_id = $1
   AND l.id = $6
-RETURNING id, tenant_id, location_id, name, shift_start, shift_end, overnight, created_at
+RETURNING id, tenant_id, location_id, name, shift_start, shift_end, overnight, created_at,
+          day_cutoff
 `
 
 type CreateDepartmentParams struct {
@@ -85,6 +86,10 @@ type CreateDepartmentParams struct {
 //
 // NULL SHIFTS PASS THROUGH AS NULL. See CreateLocation: a zero is not an absence,
 // and departments_shift_pair refuses a half-filled pair but cannot refuse 00:00.
+//
+// day_cutoff (00064) is in RETURNING here and in UpdateDepartment only so that both
+// keep mapping onto store.Department (the whole row); neither statement writes it --
+// a new department inherits, and SetDepartmentDayCutoff is the one writer.
 func (q *Queries) CreateDepartment(ctx context.Context, arg CreateDepartmentParams) (Department, error) {
 	row := q.db.QueryRow(ctx, createDepartment,
 		arg.TenantID,
@@ -104,6 +109,7 @@ func (q *Queries) CreateDepartment(ctx context.Context, arg CreateDepartmentPara
 		&i.ShiftEnd,
 		&i.Overnight,
 		&i.CreatedAt,
+		&i.DayCutoff,
 	)
 	return i, err
 }
@@ -389,6 +395,41 @@ func (q *Queries) ListPanelDepartments(ctx context.Context, arg ListPanelDepartm
 	return items, nil
 }
 
+const setDepartmentDayCutoff = `-- name: SetDepartmentDayCutoff :one
+UPDATE departments
+SET day_cutoff = $1
+WHERE tenant_id = $2
+  AND id = $3
+RETURNING id, day_cutoff
+`
+
+type SetDepartmentDayCutoffParams struct {
+	DayCutoff pgtype.Time
+	TenantID  uuid.UUID
+	ID        uuid.UUID
+}
+
+type SetDepartmentDayCutoffRow struct {
+	ID        uuid.UUID
+	DayCutoff pgtype.Time
+}
+
+// The business-day cutoff of a DEPARTMENT: it applies to its employees whatever their
+// profile branch, and beats the branch level
+// (M15-02, migration 00064, ADR 0032 §A.2). NULL = inherit the next level up;
+// sqlc.narg so "clear the override" is a value the caller can send.
+// WRITES THE SETTING ONLY. Who may change it, the shift-conflict warning, the
+// confirmation and the audit_log row are the panel's (M15-07, ADR 0032 §A.7); this
+// statement is the one write those all go through. It carries its own section 4.5
+// predicate (tenant_id) and is not left to RLS. RETURNING is what was stored, so
+// the screen re-renders from the database, not from the form.
+func (q *Queries) SetDepartmentDayCutoff(ctx context.Context, arg SetDepartmentDayCutoffParams) (SetDepartmentDayCutoffRow, error) {
+	row := q.db.QueryRow(ctx, setDepartmentDayCutoff, arg.DayCutoff, arg.TenantID, arg.ID)
+	var i SetDepartmentDayCutoffRow
+	err := row.Scan(&i.ID, &i.DayCutoff)
+	return i, err
+}
+
 const updateDepartment = `-- name: UpdateDepartment :one
 UPDATE departments
 SET name        = $1,
@@ -397,7 +438,8 @@ SET name        = $1,
     overnight   = $4
 WHERE tenant_id = $5
   AND id = $6
-RETURNING id, tenant_id, location_id, name, shift_start, shift_end, overnight, created_at
+RETURNING id, tenant_id, location_id, name, shift_start, shift_end, overnight, created_at,
+          day_cutoff
 `
 
 type UpdateDepartmentParams struct {
@@ -444,6 +486,7 @@ func (q *Queries) UpdateDepartment(ctx context.Context, arg UpdateDepartmentPara
 		&i.ShiftEnd,
 		&i.Overnight,
 		&i.CreatedAt,
+		&i.DayCutoff,
 	)
 	return i, err
 }

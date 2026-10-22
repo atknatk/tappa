@@ -80,10 +80,14 @@ const (
 	VerdictIgnored Verdict = "ignored" // per-person debounce swallow (§5 line 5)
 )
 
-// Type is a tap's direction, in or out. It is resolved by toggling against the
-// person's LAST OPEN check-in — NOT by calendar day (§5, M4-04): an 18:00 shift's
-// 02:00 exit must pair with that evening's entry. On a Decision it is a *Type
-// because reject/ignored/redirect carry NO direction (see Decision.Type).
+// Type is a tap's direction, in or out. It is resolved against the person's LAST
+// OPEN check-in (the one open at the tap's instant), and since ADR 0032 §A.1 only
+// within that check-in's BUSINESS DAY and StaleOpenIn: a check-in older than either
+// is left open ("checkout missing") and the tap is an `in`. A business day is NOT a
+// calendar day (§5): it starts at the person's day cutoff (a local wall clock,
+// default 05:00), so an 18:00 shift's 02:00 exit still pairs with that evening's
+// entry. On a Decision it is a *Type because reject/ignored/redirect carry NO
+// direction (see Decision.Type).
 type Type string
 
 const (
@@ -271,6 +275,89 @@ type Shift struct {
 	Timezone string
 }
 
+// DayCutoff is the person's RESOLVED business-day cutoff (ADR 0032 §A.2, §A.3): the
+// wall-clock time of day a business day starts at, and the zone that wall clock is
+// read in. The hierarchy (person > department > profile branch > business) is
+// resolved in SQL (GetEmployeeForTap's effective_day_cutoff); this package knows no
+// hierarchy, only the value it produced.
+type DayCutoff struct {
+	// Cutoff is the time of day as the offset from local midnight (5h == 05:00),
+	// the shape pgx yields for a `time` column (microseconds since midnight) — the
+	// same encoding as Shift.Start. It is a WALL clock: the instant is built with
+	// time.Date(…, loc), never by adding this to a midnight (see BusinessDayStart).
+	// Outside [0, 24h) it is unresolvable: the database refuses '24:00' and
+	// seconds (migration 00064's CHECK), and this package does not guess either.
+	Cutoff time.Duration
+	// Timezone is the IANA zone name (tenants.timezone — the only zone the code
+	// has, ADR 0032 §A.2). Empty or unloadable is unresolvable, never UTC.
+	Timezone string
+}
+
+// LeftOpenReason says why a tap did not close the person's open check-in (ADR 0032
+// §A.1): its business day ended, or it is older than StaleOpenIn.
+type LeftOpenReason string
+
+const (
+	// LeftOpenPreviousBusinessDay: the open check-in happened before this tap's
+	// business day started (open.OccurredAt < S(at)).
+	LeftOpenPreviousBusinessDay LeftOpenReason = "previous_business_day"
+	// LeftOpenStale: the open check-in is more than StaleOpenIn older than the tap.
+	LeftOpenStale LeftOpenReason = "stale"
+)
+
+// LeftOpen names the check-in a tap LEFT OPEN rather than closed (ADR 0032 §A.1):
+// that entry stays a "checkout missing" anomaly and this tap is an `in`.
+type LeftOpen struct {
+	// ID is the open check-in's record (Input.LastOpenIn.ID).
+	ID uuid.UUID
+	// Reason is why it was not closed. When both reasons hold, it is
+	// LeftOpenPreviousBusinessDay — the same precedence the checkout classification
+	// gives (a ∧ b → b, ADR 0032 §A.6), so the engine and the classification name
+	// one cause for one entry.
+	Reason LeftOpenReason
+}
+
+// CheckoutClass is the class of one `out` record — ADR 0032 §A.6's six disjoint
+// classes, the values migration 00064's tappa_checkout_class returns verbatim. The
+// zero value "" is "no class" (a checkout without an instant — the SQL NULL).
+type CheckoutClass string
+
+const (
+	// CheckoutCloses: the event before the out is an `in` of the out's business
+	// day (or the out has none recorded) and no more than StaleOpenIn earlier.
+	CheckoutCloses CheckoutClass = "closes"
+	// CheckoutTooLong is (a): an `in` before it within the business day (or no
+	// business day recorded), but more than StaleOpenIn earlier. The out consumes
+	// the in; neither is a worked interval.
+	CheckoutTooLong CheckoutClass = "too_long"
+	// CheckoutOtherDay is (b): an `in` before it, from before the out's business
+	// day. When (a) holds too, the class is (b).
+	CheckoutOtherDay CheckoutClass = "other_day"
+	// CheckoutOrphan is (c): no `in` before it, a business day recorded, and not (e).
+	CheckoutOrphan CheckoutClass = "orphan"
+	// CheckoutExtra is (e): the event before it is an `out` WRITTEN LATER than this
+	// one (a correction), and the out's business day has an `in` before it.
+	CheckoutExtra CheckoutClass = "extra"
+	// CheckoutUnanchored is (d): no `in` before it and no business day recorded
+	// (manual rows and rows written before M15).
+	CheckoutUnanchored CheckoutClass = "unanchored"
+)
+
+// Prev is the event immediately BEFORE an `out` in the person's chain — directed,
+// not practice, in (occurred_at, id) order — reduced to what ClassifyCheckout reads
+// (ADR 0032 §A.6's P and W). The caller finds it; nil is "no such event".
+type Prev struct {
+	// Direction is P's in/out. Anything that is not TypeIn is "P is not an in";
+	// only TypeOut is "P is an out" (a missing direction leans to (c), like the
+	// SQL's NULL boolean).
+	Direction Type
+	// At is P's occurred_at (read only when P is an `in`).
+	At time.Time
+	// WrittenLater is W: P.created_at > out.created_at — P was inserted AFTER the
+	// out it precedes, the shape a manager's correction leaves. Equal is false.
+	WrittenLater bool
+}
+
 // ---------------------------------------------------------------------------
 // Input / Decision — Decide's contract.
 // ---------------------------------------------------------------------------
@@ -438,10 +525,18 @@ type Input struct {
 	//
 	// nil means "no recorded tap", which never debounces (§4.6's safe zero value).
 	SecondsSinceLastRecordedTap *float64
-	// LastOpenIn is the person's last OPEN check-in (an "in" with no matching "out"),
-	// or nil. Drives direction: open in present -> this tap is out, else in (§5,
-	// M4-04). A practice record is never passed here (Transaction.Practice).
+	// LastOpenIn is the person's last OPEN check-in at the tap's instant (an "in"
+	// with no matching "out" — GetLastOpenTransaction's @at bound), or nil. Drives
+	// direction (ADR 0032 §A.1): an open in of this tap's business day and no more
+	// than StaleOpenIn old -> this tap is out; otherwise in. A practice record is
+	// never passed here (Transaction.Practice).
 	LastOpenIn *Transaction
+
+	// DayCutoff is the person's resolved business-day cutoff and zone (ADR 0032
+	// §A.3), or nil. nil — or a cutoff/zone that cannot be resolved — means NO
+	// business day: direction applies StaleOpenIn alone and Decision.BusinessDayStart
+	// stays nil. The engine never invents 05:00; the default lives in the schema.
+	DayCutoff *DayCutoff
 
 	// Shift is the employee's resolved shift for lateness (department > location,
 	// §5/M4-05), or nil when none is defined. Lateness never changes the verdict.
@@ -494,7 +589,8 @@ type Decision struct {
 	// GPSMatch reports whether GPS was within GPSRadiusM of LocationGPS.
 	GPSMatch bool
 	// Note is a human-facing annotation for the docket/report (e.g. "verified via
-	// GPS" when IP is absent, or a cross-location / stale-open-in note, §5/M4-04/05).
+	// GPS" when IP is absent, or a cross-location / left-open note, §5/M4-04/05,
+	// ADR 0032 §A.1).
 	// It never contains a secret or a raw GPS coordinate (§4.7).
 	Note string
 	// EmployeeNote is Note as the employee's result screen shows it: the deciding
@@ -502,7 +598,9 @@ type Decision struct {
 	// engine's note effects add (ADR 0029). User decision 2026-10-19: the
 	// cross-location sentence is for the record and the report, not for the person
 	// at the plaque -- their screen stays what it was before the note existed. The
-	// record keeps Note whole.
+	// record keeps Note whole. The direction's annotation is in the SCREEN's words
+	// (LeftOpenEmployeeNote, where Note has LeftOpenNote — ADR 0032 §B.4), so with
+	// one the two strings differ even at home.
 	EmployeeNote string
 	// CrossLocation is true when the tap happened at a location OTHER than the
 	// employee's home location (Employee.Location != Tag.Location) — normal chain
@@ -523,6 +621,15 @@ type Decision struct {
 	// hours, so no float touches a time figure (§6); a pointer so "not computed" is
 	// unambiguously distinct from "0 minutes late".
 	MinutesLate *int
+	// BusinessDayStart is S(at): the UTC instant the business day this tap falls in
+	// started (ADR 0032 §A.3, §A.5), or nil. Set ONLY on a directed decision (ok,
+	// flag) with a resolvable Input.DayCutoff; the caller freezes it on the row
+	// (transactions.business_day_start) because a cutoff can change later and the
+	// past must not be re-paired by today's setting.
+	BusinessDayStart *time.Time
+	// LeftOpen is the open check-in this tap did NOT close (its business day ended
+	// or it is older than StaleOpenIn), or nil. Only on a directed `in`.
+	LeftOpen *LeftOpen
 	// Practice marks a training tap (TRAINING stamp; never counts toward hours).
 	// Since ADR 0026 Decide never sets it: the activating NFC tap replaced the
 	// M4-06 practice tap. It remains so the record writer keeps one shape and

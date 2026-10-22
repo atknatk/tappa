@@ -264,6 +264,40 @@ func (q *Queries) GetTenantSuspended(ctx context.Context, tenantID uuid.UUID) (b
 	return suspended, err
 }
 
+const setTenantDayCutoff = `-- name: SetTenantDayCutoff :one
+UPDATE tenants
+SET day_cutoff = $1
+WHERE id = $2
+RETURNING id, day_cutoff
+`
+
+type SetTenantDayCutoffParams struct {
+	DayCutoff pgtype.Time
+	TenantID  uuid.UUID
+}
+
+type SetTenantDayCutoffRow struct {
+	ID        uuid.UUID
+	DayCutoff pgtype.Time
+}
+
+// The business level of the business-day cutoff (M15-02, migration 00064, ADR 0032
+// §A.2): the wall-clock time at which every business day of this tenant starts unless
+// a branch, department or person overrides it. NOT NULL -- the business level never
+// inherits; it is the end of GetEmployeeForTap's coalesce. tappa_app's UPDATE on
+// tenants is a column list (00024) and 00064 adds day_cutoff to it, nothing else.
+// WRITES THE SETTING ONLY. Who may change it, the shift-conflict warning, the
+// confirmation and the audit_log row are the panel's (M15-07, ADR 0032 §A.7); this
+// statement is the one write those all go through. It carries its own section 4.5
+// predicate (tenant_id) and is not left to RLS. RETURNING is what was stored, so
+// the screen re-renders from the database, not from the form.
+func (q *Queries) SetTenantDayCutoff(ctx context.Context, arg SetTenantDayCutoffParams) (SetTenantDayCutoffRow, error) {
+	row := q.db.QueryRow(ctx, setTenantDayCutoff, arg.DayCutoff, arg.TenantID)
+	var i SetTenantDayCutoffRow
+	err := row.Scan(&i.ID, &i.DayCutoff)
+	return i, err
+}
+
 const updateTenantAccount = `-- name: UpdateTenantAccount :one
 UPDATE tenants
 SET name          = $1,

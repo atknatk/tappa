@@ -409,7 +409,7 @@ func TestAnomalyWalls_RefuseWhatTheyExistToRefuse(t *testing.T) {
 		"Records", "Judged", "Unanswerable", "DistanceOnly", "OutsideVenue",
 		"OutsideVenueOnNetwork", "CounterGaps", "OtherVenue", "Training", "ManagerTyped",
 		"TagUID", "LocationName", "LargestGap", "Together", "Days", "ClosestSeconds",
-		"StillOpen", "ClosedLater", "SID", "Layer", "WasMaskable", "MorePlaques",
+		"StillOpen", "ClosedByItsCheckout", "SID", "Layer", "WasMaskable", "MorePlaques",
 		"TogetherMinDays", "TenantName", "Queried", "Period", "Zone", "EmployeeID",
 	} {
 		if why := anomalyBannedName(name); why != "" {

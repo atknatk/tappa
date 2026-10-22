@@ -24,6 +24,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/encode"
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert (ADR 0028 §11: "kontrol her çözümlemede ve
@@ -121,7 +122,8 @@ func TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc, err := checkin.New(sandboxPool, trail, &config.Config{Env: config.EnvSandbox, GPSRadiusMeters: 150, Debounce: time.Minute, Freshness: 3 * time.Minute}, nil)
+	svc, err := checkin.New(sandboxPool, trail, &config.Config{Env: config.EnvSandbox, GPSRadiusMeters: 150, Debounce: time.Minute, Freshness: 3 * time.Minute,
+		BusinessDayFrom: fixtures.BusinessDaySwitchOn()}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

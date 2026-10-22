@@ -76,6 +76,7 @@ func newRigOn(t *testing.T, poolMax int) *rig {
 	cfg := &config.Config{
 		Env: config.EnvSandbox, DatabaseURL: appDSN, BaseURL: "https://sandbox.test", TagKEK: kek,
 		GPSRadiusMeters: 150, Debounce: 60 * time.Second, Freshness: 180 * time.Second, RetentionYears: 2,
+		BusinessDayFrom: fixtures.BusinessDaySwitchOn(),
 	}
 	d, err := db.New(ctx, cfg)
 	if err != nil {

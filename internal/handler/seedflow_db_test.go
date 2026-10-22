@@ -242,6 +242,8 @@ func newSeedFlow(t *testing.T) *seedFlow {
 		GPSRadiusMeters: 150,
 		Debounce:        seedDebounce,
 		Freshness:       seedFreshness,
+		// The business-day switch ON, far in the past: production's mode (ADR 0032 §A.8).
+		BusinessDayFrom: fixtures.BusinessDaySwitchOn(),
 	}
 
 	data, err := db.New(context.Background(), cfg)
@@ -291,7 +293,7 @@ func newSeedFlow(t *testing.T) *seedFlow {
 	if err != nil {
 		t.Fatalf("invite.New: %v", err)
 	}
-	directory, err := tenant.NewDirectory(data)
+	directory, err := tenant.NewDirectory(data, cfg.BusinessDayFrom)
 	if err != nil {
 		t.Fatalf("tenant.NewDirectory: %v", err)
 	}
@@ -486,10 +488,17 @@ func (f *seedFlow) insertEmployee(t *testing.T, name string, venueID uuid.UUID, 
 		if status == "deactivated" {
 			deactivatedAt = time.Now().Add(-7 * 24 * time.Hour)
 		}
-		_, e := tx.Exec(ctx,
+		if _, e := tx.Exec(ctx,
 			`INSERT INTO employees (id, tenant_id, location_id, full_name, status, invited_at, activated_at, deactivated_at)
 			 VALUES ($1, $2, $3, $4, $5, now() - interval '60 days', $6, $7)`,
-			id, f.tenantID, venueID, stamped, status, activatedAt, deactivatedAt)
+			id, f.tenantID, venueID, stamped, status, activatedAt, deactivatedAt); e != nil {
+			return e
+		}
+		// THE PERSON'S OWN BUSINESS DAY, FAR FROM NOW (M15-04): the harness runs with the
+		// business-day switch on, and the seed tenant's 05:00 would turn every check-in this
+		// test closes into an `in` between 05:00 and the end of the test's span. The person
+		// tier, never the shared tenant's or branch's (fixtures.GiveFarDayCutoff).
+		_, e := fixtures.GiveFarDayCutoff(ctx, tx, f.tenantID, id, time.Now())
 		return e
 	})
 	if err != nil {
@@ -500,6 +509,26 @@ func (f *seedFlow) insertEmployee(t *testing.T, name string, venueID uuid.UUID, 
 		t.Fatalf("cookiejar: %v", err)
 	}
 	return &phone{name: name, id: id, client: &http.Client{Jar: jar, Timeout: 20 * time.Second}}
+}
+
+// setDayCutoff writes the person's own business-day cutoff (employees.day_cutoff, the person
+// tier — ADR 0032 §A.2) to an explicit wall clock, for a test whose records sit at fixed wall
+// clocks rather than relative to now (the Rusty Bar night): there, FarDayCutoff's value moves with
+// the hour the suite runs at and could fall inside the night, while the business's 05:00 is the
+// value the night is written against. Never the tenant's or a branch's.
+func (f *seedFlow) setDayCutoff(t *testing.T, p *phone, wall string) {
+	t.Helper()
+	err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		tag, e := tx.Exec(ctx, `UPDATE employees SET day_cutoff = $3::time WHERE tenant_id = $1 AND id = $2`,
+			f.tenantID, p.id, wall)
+		if e == nil && tag.RowsAffected() != 1 {
+			e = fmt.Errorf("%d rows", tag.RowsAffected())
+		}
+		return e
+	})
+	if err != nil {
+		t.Fatalf("set %s's day cutoff: %v", p.name, err)
+	}
 }
 
 // assertTellableApart checks that this run's person is stamped in the DATABASE
@@ -756,20 +785,29 @@ func (f *seedFlow) assertEnteredBy(t *testing.T, txID, want uuid.UUID) {
 	}
 }
 
-// openCheckIns counts an employee's check-ins with no later check-out — the shape
-// the "forgotten checkout" anomaly is made of.
+// openCheckIns counts an employee's check-ins that nothing closes — the shape the
+// "forgotten checkout" anomaly is made of — by ListOpenCheckIns' own definition (ADR 0032
+// §A.6, M15-05): an `in` is open unless its NEXT directed, non-practice record, in
+// (occurred_at, id) order, is a checkout tappa_checkout_class calls 'closes'. Until M15-05
+// this helper carried the old "no `out` after it" form, which one later checkout satisfied
+// for every older entry at once.
 func (f *seedFlow) openCheckIns(t *testing.T, employeeID uuid.UUID) int {
 	t.Helper()
 	var n int
 	err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT count(*) FROM transactions t
+			  LEFT JOIN LATERAL (
+			      SELECT o.type, o.occurred_at, o.business_day_start FROM transactions o
+			       WHERE o.tenant_id = t.tenant_id AND o.employee_id = t.employee_id
+			         AND o.type IS NOT NULL AND NOT o.practice
+			         AND (o.occurred_at, o.id) > (t.occurred_at, t.id)
+			       ORDER BY o.occurred_at, o.id LIMIT 1) nx ON true
 			 WHERE t.tenant_id = $1 AND t.employee_id = $2 AND t.type = 'in'
 			   AND NOT t.practice
-			   AND NOT EXISTS (
-			       SELECT 1 FROM transactions o
-			        WHERE o.tenant_id = t.tenant_id AND o.employee_id = t.employee_id
-			          AND o.type = 'out' AND o.occurred_at > t.occurred_at)`,
+			   AND (nx.type IS DISTINCT FROM 'out'
+			        OR public.tappa_checkout_class(t.occurred_at, false, false, false, nx.occurred_at, nx.business_day_start)
+			           IS DISTINCT FROM 'closes')`,
 			f.tenantID, employeeID).Scan(&n)
 	})
 	if err != nil {

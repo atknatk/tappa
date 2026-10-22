@@ -249,6 +249,20 @@ const (
 	// says there is no parameter an amount could be posted into, so there is no second
 	// field for a warning to be served about and spent on.
 	confirmActionCloseBillingPeriod = "billing.close"
+	// 🔴 CHANGING WHERE A BUSINESS DAY STARTS (M15-07, ADR 0032 §A.7). It is gated for the
+	// policy edit's reason -- the WINDOW, not the row: the setting itself can be changed
+	// back, but every tap judged while a cutoff cut somebody's shift is an immutable row
+	// whose direction was decided by it (§4.3). The review page is where the shifts it
+	// would cut, a suggestion and the open check-ins it would split are said before the
+	// write. Its subject is COMPOUND -- level, subject id and value (businessDaySubject) --
+	// so a warning served for one value cannot be spent on another, nor on another level.
+	confirmActionDayCutoff = "day_cutoff.set"
+	// 🔴 A MOVE THAT CHANGES THE PERSON'S BUSINESS DAY (M15-07, ADR 0032 §A.7 "Taşınma").
+	// A move is otherwise ungated; when the new branch or department gives the person
+	// another cutoff it changes how their next taps pair, silently, so the move's warning
+	// page says "Business day starts X → Y after the move" first. Its subject is the
+	// statement -- person, venue and department together (moveConfirmSubject).
+	confirmActionMoveAcrossCutoff = "employee.move_cutoff"
 )
 
 // adminConfirmTTL is how long a rendered warning stays spendable.

@@ -44,3 +44,21 @@ func TestPartnerNote_KeepsTheEnginesAnnotations(t *testing.T) {
 		}
 	}
 }
+
+// TestPartnerNote_KeepsTheLeftOpenAnnotation: since ADR 0032 the direction's annotation on a
+// new record is tap.LeftOpenNote (an `in` that left the previous check-in open), and a partner
+// venue's record keeps it after PartnerVenueNote exactly as it keeps the historic stale note.
+// MUTANT: partnerKeptAnnotations without tap.LeftOpenNote -> both rows lose the sentence.
+func TestPartnerNote_KeepsTheLeftOpenAnnotation(t *testing.T) {
+	cases := []struct{ sid, note, want string }{
+		{"base:ip-or-gps-ok", "network proof of place: the source IP matches the location; " + tap.LeftOpenNote,
+			PartnerVenueNote + "; " + tap.LeftOpenNote},
+		{"base:gps-only-allow", "verified via GPS only — no network proof of place; " + crossNote + "; " + tap.LeftOpenNote,
+			PartnerVenueNote + "; " + crossNote + "; " + tap.LeftOpenNote},
+	}
+	for _, c := range cases {
+		if got := partnerNote(Record{Note: c.note, RuleSID: c.sid}); got != c.want {
+			t.Errorf("%s %q: got %q, want %q", c.sid, c.note, got, c.want)
+		}
+	}
+}

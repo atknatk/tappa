@@ -41,6 +41,7 @@ import (
 	"github.com/atknatk/tappa/internal/geo"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/policy"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 type holdingWorld struct {
@@ -74,6 +75,7 @@ func newHoldingWorld(t *testing.T) *holdingWorld {
 		Env: config.EnvDev, BaseURL: "http://localhost:8080", DatabaseURL: appDSN,
 		SessionHMACKey: []byte("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"), InviteHMACKey: []byte("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"),
 		TagKEK: make([]byte, 32), RetentionYears: 2, GPSRadiusMeters: 150, Debounce: 60 * time.Second, Freshness: 180 * time.Second,
+		BusinessDayFrom: fixtures.BusinessDaySwitchOn(),
 	}
 	data, err := db.New(ctx, cfg)
 	if err != nil {
@@ -196,7 +198,23 @@ func (w *holdingWorld) employee(tenant uuid.UUID, status string) uuid.UUID {
 	id := uuid.New()
 	w.exec(`INSERT INTO employees (id, tenant_id, external_ref, full_name, status, invited_at) VALUES ($1, $2, $3, 'Holding Staff', $4, now())`,
 		id, tenant, "ext-"+id.String()[:8], status)
+	w.farDayCutoff(tenant, id, time.Now())
 	return id
+}
+
+// farDayCutoff gives the employee their own business-day cutoff whose boundary is far from now
+// (fixtures.GiveFarDayCutoff, M15-04): the world's service runs with the switch on, and its
+// tenants' 05:00 would make a direction test red at five in the morning. now is the instant the
+// test's taps happen at — a test that moves the service's clock passes that clock. As tappa_app
+// in the employer's context, the tap's own reading path.
+func (w *holdingWorld) farDayCutoff(tenant, employee uuid.UUID, now time.Time) {
+	w.t.Helper()
+	if err := w.data.WithTenant(w.ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := fixtures.GiveFarDayCutoff(ctx, tx, tenant, employee, now)
+		return e
+	}); err != nil {
+		w.t.Fatalf("the employee's day cutoff: %v", err)
+	}
 }
 
 func (w *holdingWorld) logo(tenant uuid.UUID) string {
