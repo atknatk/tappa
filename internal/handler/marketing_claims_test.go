@@ -339,7 +339,7 @@ var sourceConstRE = regexp.MustCompile(`(?m)^\s*(\w+)\s+Source\s*=\s*"([^"]+)"`)
 // adding a constant no test file mentioned.
 func declaredSources(t *testing.T) map[pages.Source]string {
 	t.Helper()
-	src := repoFile(t, "web", "templates", "pages", "landingview.go")
+	src := pagesViewSource(t)
 	out := map[pages.Source]string{}
 	for _, m := range sourceConstRE.FindAllStringSubmatch(src, -1) {
 		out[pages.Source(m[2])] = m[1]

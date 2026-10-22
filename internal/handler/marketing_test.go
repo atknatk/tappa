@@ -114,14 +114,31 @@ func structuralConfigs(t *testing.T) []structuralConfig {
 	}
 }
 
-// marketingURLs is every URL this feature serves, derived from the same table the
-// footer and Mount both read.
+// marketingURLs is every URL this feature serves, derived from the same tables the
+// chrome and Mount both read: the landing, the public site's own pages
+// (pages.PublicPages, LP-06) and the four legal documents.
 func marketingURLs() []string {
 	out := []string{"/"}
+	out = append(out, publicPagePaths()...)
 	for _, p := range pages.LegalPages {
 		out = append(out, p.Path)
 	}
 	return out
+}
+
+// publicPagePaths is the path of every row of pages.PublicPages, in order.
+func publicPagePaths() []string {
+	var out []string
+	for _, p := range pages.PublicPages {
+		out = append(out, p.Path)
+	}
+	return out
+}
+
+// siteURLs is the landing and the public site's own pages: the pages drawn in the
+// public chrome (the legal documents and the guide move onto it in LP-11).
+func siteURLs() []string {
+	return append([]string{"/"}, publicPagePaths()...)
 }
 
 // publicSurfaceURLs is marketingURLs plus the integration guide's two pages (M11
@@ -211,9 +228,20 @@ func TestMarketing_HandlerHoldsNoStatefulDependency(t *testing.T) {
 		// interface, func, map or channel inside it, so a Guide that grew a capability would
 		// go red here even though its name stayed on this list.
 		"apiguide.Guide": true,
+		// 🔴 pages.PricingFigures, ADDED BY LP-06, AND THIS IS ITS ARGUMENT: the pricing
+		// page prints what four team sizes cost and a drawn frozen month, each the published
+		// price times a headcount in integer cents. Computing them per request would be
+		// harmless arithmetic, but the landing's example is computed once in NewMarketing
+		// and the two pages must print the same figures from the same place -- so the
+		// result is kept, as exampleMonthly's is. A value, not a dependency: plainData
+		// below refuses it the day it holds anything but strings and numbers.
+		"pages.PricingFigures": true,
 	}
 	if g := reflect.TypeOf(apiguide.Guide{}); !plainData(g) {
 		t.Errorf("apiguide.Guide holds something other than strings, numbers and slices of them: %v", g)
+	}
+	if g := reflect.TypeOf(pages.PricingFigures{}); !plainData(g) {
+		t.Errorf("pages.PricingFigures holds something other than strings, numbers and slices of them: %v", g)
 	}
 	if typ.NumField() == 0 {
 		t.Fatal("handler.Marketing has no fields at all; this test would pass over anything")
@@ -756,37 +784,28 @@ func TestExternalReferenceScanner_CatchesWhatItExistsToCatch(t *testing.T) {
 // is its own surface, with its own tests). It is admitted only as openAPIHrefFor(host)'s
 // exact output, like adminLoginPath, and only on the guide's two pages: any other
 // absolute href, on any page, is red.
+//
+// 🔴 A LINK WITH A FRAGMENT IS TWO CLAIMS, AND BOTH ARE FOLLOWED (LP-06). From LP-06 the
+// header's sections are written "/#how" so they work from every public page, and
+// LP-07's "/security#proofs" is the same shape. Handed to the router as written, the
+// fragment stays in the path -- httptest.NewRequest("GET", "/#how", nil) asks chi for
+// the path "/#how", which answers 404 -- so the fragment is split off: the PATH must
+// answer 200, and a non-empty fragment must be the id of an element on THAT page
+// (internalLinkProblem). A section renamed without its links going with it is red here
+// rather than a link that lands at the top of the page. In-page links ("#main") are not
+// followed; the skip link's target is the chrome's own.
 func TestMarketing_EveryInternalLinkResolves(t *testing.T) {
 	t.Parallel()
-	guidePages := map[string]bool{pages.APIGuidePath: true, pages.APIGuideTRPath: true}
 	for _, c := range structuralConfigs(t) {
 		seen, openAPI := 0, 0
 		for _, url := range publicSurfaceURLs() {
 			body := mustFetchMarketing(t, c.r, url)
-			for _, m := range hrefRE.FindAllStringSubmatch(body, -1) {
-				href := m[1]
-				switch {
-				case href == "" || strings.HasPrefix(href, "#"):
-					continue
-				case c.openAPI != "" && href == c.openAPI && guidePages[url]:
-					// The API host's document; this router does not serve it.
-					openAPI++
-					continue
-				case !strings.HasPrefix(href, "/") || strings.HasPrefix(href, "//"):
-					t.Errorf("%s: %s links to %q, which is neither an in-page anchor nor a path on "+
-						"this site", c.name, url, href)
-					continue
-				case href == adminLoginPath:
-					// Served by AdminAuth; see the assertion below.
-					seen++
-					continue
-				}
-				seen++
-				if code := fetchMarketing(t, c.r, href, nil).Code; code != http.StatusOK {
-					t.Errorf("%s: %s links to %s, which answers %d. A dead link on the most public "+
-						"URL in the product is a promise the router does not keep.", c.name, url, href, code)
-				}
+			problems, followed, offSite := pageLinkProblems(t, c, url, body)
+			for _, p := range problems {
+				t.Errorf("%s: %s", c.name, p)
 			}
+			seen += followed
+			openAPI += offSite
 		}
 		// ANTI-VACUITY: a page whose links stopped rendering would pass everything above.
 		if seen < len(pages.LegalPages)+1 {
@@ -806,6 +825,102 @@ func TestMarketing_EveryInternalLinkResolves(t *testing.T) {
 	if !strings.Contains(src, "r.Get(adminLoginPath,") {
 		t.Errorf("adminlogin.go no longer registers a GET on adminLoginPath, so the landing " +
 			"page's \"Sign in\" link points at a route nothing serves.")
+	}
+}
+
+// pageLinkProblems follows every link in body, the page served at url under c, and
+// says which do not resolve. followed counts the links it checked (the anti-vacuity
+// floor's input) and offSite the OpenAPI downloads it admitted on the guide's pages.
+func pageLinkProblems(t *testing.T, c structuralConfig, url, body string) (problems []string, followed, offSite int) {
+	t.Helper()
+	guidePages := map[string]bool{pages.APIGuidePath: true, pages.APIGuideTRPath: true}
+	for _, m := range hrefRE.FindAllStringSubmatch(body, -1) {
+		href := m[1]
+		switch {
+		case href == "" || strings.HasPrefix(href, "#"):
+			continue
+		case c.openAPI != "" && href == c.openAPI && guidePages[url]:
+			// The API host's document; this router does not serve it.
+			offSite++
+			continue
+		case !strings.HasPrefix(href, "/") || strings.HasPrefix(href, "//"):
+			problems = append(problems, fmt.Sprintf("%s links to %q, which is neither an in-page anchor "+
+				"nor a path on this site", url, href))
+			continue
+		case href == adminLoginPath:
+			// Served by AdminAuth; see the registration assertion in the caller.
+			followed++
+			continue
+		}
+		followed++
+		if why := internalLinkProblem(t, c.r, href); why != "" {
+			problems = append(problems, fmt.Sprintf("%s links to %s: %s. A dead link on the most public "+
+				"URL in the product is a promise the router does not keep.", url, href, why))
+		}
+	}
+	return problems, followed, offSite
+}
+
+// internalLinkProblem says why href -- a path on this site, perhaps with a fragment --
+// does not resolve on r, or "" when it does: the path answers GET with 200 and, when a
+// fragment is named, the page at that path renders an element carrying that id.
+func internalLinkProblem(t *testing.T, r http.Handler, href string) string {
+	t.Helper()
+	path, fragment, _ := strings.Cut(href, "#")
+	rec := fetchMarketing(t, r, path, nil)
+	if rec.Code != http.StatusOK {
+		return fmt.Sprintf("%s answers %d", path, rec.Code)
+	}
+	if fragment == "" {
+		return ""
+	}
+	for _, m := range idAttrRE.FindAllStringSubmatch(rec.Body.String(), -1) {
+		if m[1] == fragment {
+			return ""
+		}
+	}
+	return fmt.Sprintf("%s answers 200 and renders no element with id=%q, so the link lands at the top "+
+		"of the page instead of the section it names", path, fragment)
+}
+
+// TestMarketing_LinkCheckFollowsTheFragmentToItsSection is the control for the
+// fragment handling above (LP-06): a link to a section the landing does not have is
+// red, a link to a page that is not mounted is red even when the fragment exists on the
+// landing, and the header's own "/#how" is green -- each on its own and as a link
+// planted on the real landing page.
+func TestMarketing_LinkCheckFollowsTheFragmentToItsSection(t *testing.T) {
+	t.Parallel()
+	c := structuralConfigs(t)[0]
+	for _, tc := range []struct {
+		href string
+		ok   bool
+	}{
+		{"/#yok", false},
+		{"/yok#how", false},
+		{"/#how", true},
+		{"/#", true},
+		{pages.PricingPath + "#billing", true},
+		{pages.PricingPath + "#how", false},
+	} {
+		why := internalLinkProblem(t, c.r, tc.href)
+		if (why == "") != tc.ok {
+			t.Errorf("CONTROL %s: resolves=%v (%q), want %v", tc.href, why == "", why, tc.ok)
+		}
+	}
+	landing := mustFetchMarketing(t, c.r, "/")
+	base, _, _ := pageLinkProblems(t, c, "/", landing)
+	if len(base) != 0 {
+		t.Fatalf("PREMISE: the landing's own links do not resolve: %v", base)
+	}
+	for href, red := range map[string]bool{"/#yok": true, "/yok#how": true, "/#how": false} {
+		planted := strings.Replace(landing, "</main>", `<a href="`+href+`">x</a></main>`, 1)
+		if planted == landing {
+			t.Fatal("PREMISE: the landing renders no </main> to plant a link before")
+		}
+		got, _, _ := pageLinkProblems(t, c, "/", planted)
+		if (len(got) > 0) != red {
+			t.Errorf("CONTROL: a link to %s planted on the landing: problems %q, want red=%v", href, got, red)
+		}
 	}
 }
 
@@ -869,10 +984,13 @@ func TestLanding_PriceMatchesTheSchemaItIsCharged(t *testing.T) {
 			"on their first invoice.", publishedPricePerEmployeeMonth, m[1])
 	}
 
-	body := mustFetchMarketing(t, marketingRouter(t), "/")
-	if !strings.Contains(body, publishedPricePerEmployeeMonth) {
-		t.Errorf("the landing page does not print the price at all; the pricing section is " +
-			"required by the M7-01 card and by handoff §11")
+	// Both pages that print the price card print it (LP-06: / and /pricing).
+	r := marketingRouter(t)
+	for _, url := range []string{"/", pages.PricingPath} {
+		if !strings.Contains(screenText(t, mustFetchMarketing(t, r, url)), "€"+publishedPricePerEmployeeMonth) {
+			t.Errorf("%s does not print the price at all; the price card is required by the M7-01 "+
+				"card and by handoff §11", url)
+		}
 	}
 }
 
@@ -917,13 +1035,65 @@ func TestLanding_ExampleTeamCostIsThePriceTimesTheHeadcount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the schema's price %q cannot be multiplied: %v", m[1], err)
 	}
-	text := screenText(t, mustFetchMarketing(t, marketingRouter(t), "/"))
+	r := marketingRouter(t)
 	sentence := "A " + strconv.Itoa(exampleHeadcount) + "-person chain runs on €" + want + "/month."
-	if !strings.Contains(text, sentence) {
-		t.Errorf("the price card does not say %q; the worked example has come apart from the price", sentence)
+	for _, url := range []string{"/", pages.PricingPath} {
+		text := screenText(t, mustFetchMarketing(t, r, url))
+		if !strings.Contains(text, sentence) {
+			t.Errorf("%s: the price card does not say %q; the worked example has come apart from the price", url, sentence)
+		}
+		if strings.Contains(strings.ToLower(text), "about €") {
+			t.Errorf("%s: the price card hedges the example with \"about\"; it is exact arithmetic on the published price", url)
+		}
 	}
-	if strings.Contains(strings.ToLower(text), "about €") {
-		t.Error("the price card hedges the example with \"about\"; it is exact arithmetic on the published price")
+
+	// THE PRICING PAGE'S TABLE AND DRAWN MONTH (LP-06) are the same arithmetic on the
+	// schema's price: each size's row, and the drawn month's price and total in the
+	// Billing screen's two-decimal format.
+	text := screenText(t, mustFetchMarketing(t, r, pages.PricingPath))
+	if len(pricingExampleSizes) < 2 {
+		t.Fatalf("PREMISE: the pricing page prices %d team size(s)", len(pricingExampleSizes))
+	}
+	for _, n := range pricingExampleSizes {
+		monthly, err := exampleTeamMonthly(m[1], n)
+		if err != nil {
+			t.Fatalf("the schema's price %q cannot be multiplied by %d: %v", m[1], n, err)
+		}
+		row := strconv.Itoa(n) + " people €" + monthly
+		if !strings.Contains(text, row) {
+			t.Errorf("the pricing table does not say %q; a row has come apart from the price", row)
+		}
+	}
+	cents := func(headcount int) string {
+		c, err := monthlyCents(m[1], headcount)
+		if err != nil {
+			t.Fatalf("the schema's price %q: %v", m[1], err)
+		}
+		return fmt.Sprintf("€%d.%02d", c/100, c%100)
+	}
+	for _, want := range []string{
+		"People " + strconv.Itoa(exampleHeadcount),
+		"Price " + cents(1),
+		"TOTAL " + cents(exampleHeadcount),
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the drawn frozen month does not say %q; its figures have come apart from the price", want)
+		}
+	}
+	// A figure that cannot be computed draws no table and no month.
+	var pb strings.Builder
+	if err := pages.Pricing(pages.PricingView{SignupHref: signupPath, SignInHref: adminLoginPath,
+		PricePerEmployeeMonth: publishedPricePerEmployeeMonth, FreeMonths: foundingFreeMonths,
+		ExampleHeadcount: exampleHeadcount}).Render(t.Context(), &pb); err != nil {
+		t.Fatalf("rendering the pricing page without figures: %v", err)
+	}
+	for _, absent := range []string{`class="lp-sizesTable"`, "FROZEN", "-person chain runs on"} {
+		if strings.Contains(pb.String(), absent) {
+			t.Errorf("a pricing page with no computed figures still renders %q", absent)
+		}
+	}
+	if _, err := pricingFigures("1.5", pricingExampleSizes, exampleHeadcount); err == nil {
+		t.Error("pricingFigures accepts a price that is not <euros>.<cents>")
 	}
 	// AND THE EMPTY BRANCH RENDERS NO EXAMPLE rather than a wrong one.
 	var sb strings.Builder
@@ -961,6 +1131,14 @@ func TestLanding_FreeMonthsMatchTheFunctionThatGrantsThem(t *testing.T) {
 	if granted != foundingFreeMonths {
 		t.Errorf("the landing page offers %d free months; migration 00016 grants %d",
 			foundingFreeMonths, granted)
+	}
+	// And both pages that carry the founding chip print that number (LP-06).
+	r := marketingRouter(t)
+	for _, url := range []string{"/", pages.PricingPath} {
+		chip := "first " + strconv.Itoa(foundingFreeMonths) + " months free"
+		if !strings.Contains(screenText(t, mustFetchMarketing(t, r, url)), chip) {
+			t.Errorf("%s does not say %q", url, chip)
+		}
 	}
 }
 
@@ -1021,11 +1199,16 @@ var superiorityClaim = regexp.MustCompile(
 // compares mechanisms, and it says so on the page rather than only in a comment.
 func TestLanding_ComparesMechanismsAndDeclaresNoWinner(t *testing.T) {
 	t.Parallel()
-	text := screenText(t, mustFetchMarketing(t, marketingRouter(t), "/"))
-	if hit := superiorityClaim.FindString(text); hit != "" {
-		t.Errorf("the landing page claims %q. That is a measurement nobody made. State what "+
-			"Tappa does and let the reader compare.", hit)
+	r := marketingRouter(t)
+	// Every page of the public site is held to it, not only the one with the table
+	// (LP-06; README §4.6).
+	for _, url := range siteURLs() {
+		if hit := superiorityClaim.FindString(screenText(t, mustFetchMarketing(t, r, url))); hit != "" {
+			t.Errorf("%s claims %q. That is a measurement nobody made. State what "+
+				"Taptime does and let the reader compare.", url, hit)
+		}
 	}
+	text := screenText(t, mustFetchMarketing(t, r, "/"))
 	const disclaimer = "It is not a benchmark"
 	if !strings.Contains(text, disclaimer) {
 		t.Errorf("the comparison table no longer carries its footnote (%q). Without it the "+
@@ -1432,7 +1615,7 @@ var anchorConstRE = regexp.MustCompile(`(?m)^\s*(\w+)\s+Anchor\s*=\s*"([^"]+)"`)
 // audit walked through by adding a constant no test file mentioned.
 func declaredAnchors(t *testing.T) map[pages.Anchor]string {
 	t.Helper()
-	src := repoFile(t, "web", "templates", "pages", "landingview.go")
+	src := pagesViewSource(t)
 	out := map[pages.Anchor]string{}
 	for _, m := range anchorConstRE.FindAllStringSubmatch(src, -1) {
 		out[pages.Anchor(m[2])] = m[1]

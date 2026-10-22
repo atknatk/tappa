@@ -485,9 +485,11 @@ func TestLandingDemo_NoOtherScreenOnThePublicSurfaceCarriesTheDialog(t *testing.
 	d.post(signupAccountPath, accountForm(d.token(account)))
 	screens[signupDonePath] = d.get(signupDonePath).Body.String()
 
-	if len(screens) != 8 {
-		t.Fatalf("collected %d screens, want 8 (four legal documents and four wizard "+
-			"steps); this test is looking at the wrong set", len(screens))
+	// Every public URL but the landing (the public site's pages and the four legal
+	// documents), and the four wizard steps.
+	if want := len(marketingURLs()) - 1 + 4; len(screens) != want || len(screens) < 8 {
+		t.Fatalf("collected %d screens, want %d (the public pages beyond the landing, the four "+
+			"legal documents and four wizard steps); this test is looking at the wrong set", len(screens), want)
 	}
 	for path, body := range screens {
 		// ANTI-VACUITY: an empty body or a redirect would pass every check below.

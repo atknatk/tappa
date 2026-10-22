@@ -380,6 +380,13 @@ const (
 	// the offer, not a stock room; what the product provides is the mount and
 	// replace flows (FactPlaqueCanBeReplaced), and the plaque itself is hardware.
 	FactPlaquesIncludedAndReplacedFree Fact = "handoff:§11 plaques included and replaced free"
+	// The founding offer's price is fixed for life. A PRICING TERM, pinned like the
+	// plaques line to the document that publishes the offer: docs/handoff.md §11,
+	// "ömür boyu fiyat sabit". ITS LIMIT, STATED: nothing in the product stores a
+	// promise about a future price; what it does hold is that the application cannot
+	// change a tenant's price at all (migration 00016 grants it no UPDATE on the
+	// column), and the sentence is the offer, as the price is.
+	FactPriceLockedForLife Fact = "handoff:§11 founding price fixed for life"
 	// The report totals per person and per venue. Delegates to
 	// AnchorPerVenueReport.
 	FactReportPerPersonAndVenue Fact = "fact:report-per-person-and-venue"
@@ -403,24 +410,29 @@ const (
 
 // --- nav --------------------------------------------------------------------------
 
-// NavLink is one in-page link in the landing page's own navigation bar.
+// NavLink is one entry of the public header's page links.
 type NavLink struct {
 	Label string
-	// Href is an in-page anchor — "#how" — and nothing else. The page's sections
-	// carry these ids, and TestLandingNav_EveryLinkPointsAtASectionOnThePage follows
-	// each one against the rendered page, so a section renamed without this list
-	// going with it is a red test rather than a link that scrolls nowhere.
+	// Href is either a section of the landing page -- "/#how", the path written out so
+	// the link works from every public page and not only from / -- or the route of a
+	// mounted public page ("/pricing"). TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage
+	// holds both shapes: a "/#…" entry must name an id the landing renders, a route must
+	// be a row of PublicPages, and the page an entry points at marks it as the current one.
 	Href string
 }
 
-// LandingNav is the sticky bar's three in-page links. The two OTHER things in the
-// bar — "Sign in" and "Start free" — are not here because they are not in-page:
-// they come from LandingView.SignInHref and LandingView.SignupHref for the reason
-// those fields record, and the header renders them from the view.
+// LandingNav is the header's three page links (every public page draws them). The two
+// OTHER things in the bar — "Sign in" and "Start free" — are not here because they
+// are not pages of this site: they come from the views' SignInHref and SignupHref for
+// the reason those fields record, and the header renders them from the view.
+//
+// AN ENTRY BECOMES ITS PAGE WHEN THE PAGE IS MOUNTED (plan decision O8): "Pricing"
+// pointed at the landing's #pricing section until LP-06 mounted /pricing, and the
+// other two keep their landing sections until their pages exist (LP-07, LP-08).
 var LandingNav = []NavLink{
-	{Label: "How it works", Href: "#how"},
-	{Label: "Security", Href: "#security"},
-	{Label: "Pricing", Href: "#pricing"},
+	{Label: "How it works", Href: "/#how"},
+	{Label: "Security", Href: "/#security"},
+	{Label: "Pricing", Href: PricingPath},
 }
 
 // --- the public chrome's link table (LP-02) ----------------------------------------
@@ -450,14 +462,50 @@ type PublicLink struct {
 }
 
 // PublicProductLinks is the Product column of the footer and the phone menu, in the
-// boards' order. Today only the integration guide is mounted.
+// boards' order. Mounted so far: the pricing page (LP-06) and the integration guide.
 var PublicProductLinks = []PublicLink{
 	{Label: "Product tour"},
 	{Label: "Security"},
-	{Label: "Pricing"},
+	{Label: "Pricing", Href: PricingPath},
 	{Label: "For restaurants & bars"},
 	{Label: "For production & facilities"},
 	{Label: "API docs", Href: APIGuidePath},
+}
+
+// --- the public pages beyond the landing (LP-06) ----------------------------------
+//
+// THE ONE LIST OF THE PUBLIC SITE'S OWN PAGES (README §7 step 4), in the shape
+// LegalPages already has. internal/handler mounts each page under a named path
+// constant equal to its row here, and its tests read this table to know the public
+// surface: every page in it is fetched by the scanners that hold the surface (the
+// policy, HEAD, no third party, every link resolving, no unmeasured claim, no
+// superiority claim, palette tokens only), and a test walks the mounted routes and
+// fails when a page is mounted without a row here or listed here without a route.
+//
+// A page card (LP-07 … LP-10) adds its row, its route and its view file in one commit.
+
+// PublicPage is one public page beyond the landing.
+type PublicPage struct {
+	// Path is the URL, and the identity of the row.
+	Path string
+	// Title is the browser tab's title.
+	Title string
+}
+
+// PublicPages is every public page beyond the landing, in the boards' order.
+var PublicPages = []PublicPage{
+	{Path: PricingPath, Title: "Pricing — Taptime"},
+}
+
+// PublicPageTitle is the title of the PublicPages row at path, so a page's tab title is
+// its row's and not a second string. A path with no row answers the brand alone.
+func PublicPageTitle(path string) string {
+	for _, p := range PublicPages {
+		if p.Path == path {
+			return p.Title
+		}
+	}
+	return "Taptime"
 }
 
 // MountedPublicLinks is the entries of ls whose route is mounted, in order — what the
@@ -539,6 +587,14 @@ var LandingPricingHeading = Line{
 var LandingPricingLede = Line{
 	Text:  "No hardware bill, no installation fee, no maintenance contract. Plaques included.",
 	Facts: []Fact{FactPricePerEmployee, FactPlaquesIncludedAndReplacedFree},
+}
+
+// LandingPriceLockedForLife is the founding chip's second half on the price card,
+// after "FOUNDING OFFER: first N months free", whose number is the view's FreeMonths
+// (pinned to the function that grants them). The card renders on / and on /pricing.
+var LandingPriceLockedForLife = Line{
+	Text:  "pricing locked for life",
+	Facts: []Fact{FactPriceLockedForLife},
 }
 
 // --- the steps -------------------------------------------------------------------

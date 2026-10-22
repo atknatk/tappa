@@ -73,6 +73,7 @@ var nonPanelTemplates = map[string]string{
 	"pages/result.templ":           "the employee's result screen (CLAUDE.md §9: changed only on request)",
 	"pages/landing.templ":          "marketing",
 	"pages/publicchrome.templ":     "marketing (the public site's shared header, menu and footer, LP-02)",
+	"pages/pricing.templ":          "marketing (the public pricing page, LP-06)",
 	"pages/legal.templ":            "marketing (the legal pages)",
 	"pages/apiguide.templ":         "marketing (the public API guide)",
 	"pages/signup.templ":           "the public sign-up flow, before there is a panel",

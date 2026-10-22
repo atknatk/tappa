@@ -23,7 +23,8 @@ import templruntime "github.com/a-h/templ/runtime"
 // THE LINKS COME FROM ONE TABLE (landingview.go): the header's three from
 // LandingNav, the Product column from PublicProductLinks (mounted entries only —
 // a page arrives with its route, plan decision O8), the Legal column from
-// LegalPages. Nothing here types a path but the home page's.
+// LegalPages. Nothing here types a path but the home page's. An entry pointing at
+// the page being drawn (Current) is marked as the current page wherever it appears.
 //
 // IT RENDERS INSIDE THE CALLER'S .lp ROOT: every class it uses is a .lp rule, and
 // the reset at the top of that block would beat Tailwind's spacing utilities, so
@@ -114,7 +115,7 @@ func PublicChrome(c PublicChromeOpts) templ.Component {
 }
 
 // publicHeader is the bar at the top. Its first <nav> carries the page links, Sign
-// in and Start free — TestLandingNav_EveryLinkPointsAtASectionOnThePage reads that
+// in and Start free — TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage reads that
 // element as the bar.
 func publicHeader(c PublicChromeOpts) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -168,7 +169,7 @@ func publicHeader(c PublicChromeOpts) templ.Component {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(l.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 77, Col: 16}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 78, Col: 16}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -238,7 +239,7 @@ func publicHeader(c PublicChromeOpts) templ.Component {
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(l.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 98, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 99, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {
@@ -317,7 +318,7 @@ func publicFooter(c PublicChromeOpts) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(l.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 141, Col: 15}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 142, Col: 15}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
@@ -359,7 +360,7 @@ func publicFooter(c PublicChromeOpts) templ.Component {
 			var templ_7745c5c3_Var14 string
 			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(p.NavLabel)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 152, Col: 18}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 153, Col: 18}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 			if templ_7745c5c3_Err != nil {

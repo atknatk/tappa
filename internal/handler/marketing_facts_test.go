@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"io/fs"
 	"maps"
 	"os"
@@ -114,6 +115,17 @@ const continuousPositionCall = "watch" + "Position"
 // gpsRadiusDefaultRE reads the default the deployment configures for the GPS
 // radius: internal/config's floatEnvRange("TAPPA_GPS_RADIUS_M", <default>, …).
 var gpsRadiusDefaultRE = regexp.MustCompile(`floatEnvRange\(\s*"TAPPA_GPS_RADIUS_M"\s*,\s*(\d+)`)
+
+// priceLockedForLifeRE is handoff §11's founding-offer term: "ömür boyu fiyat sabit"
+// (the price fixed for life), on the founding offer's own line and inside §11 -- no
+// line it walks over may open another section.
+var priceLockedForLifeRE = regexp.MustCompile(`(?m)^## 11\..*\n(?:(?:[^#\n].*)?\n)*?.*[Ff]ounding offer.*ömür boyu fiyat sabit`)
+
+// pageFactDerivations is one derivation table per public page beyond the landing, in
+// the order the pages were added. A page card appends its own.
+var pageFactDerivations = []func(*testing.T) map[pages.Fact]func() string{
+	pricingFactDerivations,
+}
 
 // plaquesIncludedRE is handoff §11's pricing term: "plaketler dahil ve ücretsiz
 // değişim" (plaques included and replaced free).
@@ -625,6 +637,23 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 			}
 			return ""
 		},
+		pages.FactPriceLockedForLife: func() string {
+			if !priceLockedForLifeRE.MatchString(handoff) {
+				return "docs/handoff.md §11 no longer publishes the founding offer's \"ömür boyu fiyat sabit\"; " +
+					"the price card's \"pricing locked for life\" is that pricing term"
+			}
+			return ""
+		},
+	}
+	// The public pages' own facts (LP-06 …): each page's test file derives the facts its
+	// view file declares, and they join this one map, so the closure test sees them all.
+	for _, page := range pageFactDerivations {
+		for fact, derive := range page(t) {
+			if _, dup := out[fact]; dup {
+				t.Fatalf("fact %q is derived twice", fact)
+			}
+			out[fact] = derive
+		}
 	}
 
 	// The registrations the delegating facts add to their delegated half.
@@ -686,18 +715,50 @@ var factConstRE = regexp.MustCompile(`(?m)^\s*(\w+)\s+Fact\s*=\s*"([^"]+)"`)
 
 // declaredFacts reads the Fact constants OUT OF pages' OWN SOURCE, for the reason
 // written on declaredAnchors: it is the only way to see a constant nothing uses.
+// Every view file is read (pagesViewSource), so a fact a new public page declares in
+// its own file is closed like a landing one (LP-06; README §7 step 1).
 func declaredFacts(t *testing.T) map[pages.Fact]string {
 	t.Helper()
-	src := repoFile(t, "web", "templates", "pages", "landingview.go")
+	src := pagesViewSource(t)
 	out := map[pages.Fact]string{}
 	for _, m := range factConstRE.FindAllStringSubmatch(src, -1) {
 		out[pages.Fact(m[2])] = m[1]
 	}
 	if len(out) < 10 {
-		t.Fatalf("read %d Fact constant(s) out of landingview.go; there are more, so this scan "+
-			"is not seeing the const block", len(out))
+		t.Fatalf("read %d Fact constant(s) out of the pages package; there are more, so this scan "+
+			"is not seeing the const blocks", len(out))
 	}
 	return out
+}
+
+// pagesViewSource is every hand-written Go file of the pages package, concatenated:
+// the files the three vocabularies' constants can be declared in. The generated
+// *_templ.go files and the tests are left out. LP-06 widened the readers from
+// landingview.go alone, so a public page's view file (pricingview.go, …) is read too.
+func pagesViewSource(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join("..", "..", "web", "templates", "pages")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading %s: %v", dir, err)
+	}
+	var b strings.Builder
+	read := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") ||
+			strings.HasSuffix(name, "_templ.go") {
+			continue
+		}
+		b.WriteString(repoFile(t, "web", "templates", "pages", name))
+		b.WriteString("\n")
+		read++
+	}
+	if read < 2 || !strings.Contains(b.String(), "var LandingFAQ = ") || !strings.Contains(b.String(), "var PricingFAQ = ") {
+		t.Fatalf("read %d file(s) of the pages package and not landingview.go and pricingview.go; "+
+			"this scan is reading the wrong tree", read)
+	}
+	return b.String()
 }
 
 // landingLines is every stand-alone sentence the page renders from a pages.Line,
@@ -711,6 +772,8 @@ func landingLines() map[string]pages.Line {
 		"LandingPrivacyNote":    pages.LandingPrivacyNote,
 		"LandingPricingHeading": pages.LandingPricingHeading,
 		"LandingPricingLede":    pages.LandingPricingLede,
+		// The founding chip's second half (LP-06): a pricing term, pinned like the price.
+		"LandingPriceLockedForLife": pages.LandingPriceLockedForLife,
 		// The panel section (LP-05): its heading is a Line too, because it is a claim.
 		"LandingPanelHeading":    pages.LandingPanelHeading,
 		"LandingPanelLede":       pages.LandingPanelLede,
@@ -720,29 +783,51 @@ func landingLines() map[string]pages.Line {
 	}
 }
 
-// claimedFacts is every Fact some rendered value names, with the sentence that
-// names it (for the error message).
-func claimedFacts() map[pages.Fact]string {
+// claimedFacts is every Fact some rendered value names, on any public page, with the
+// sentence that names it (for the error message).
+func claimedFacts() map[pages.Fact]string { return claimedFactsExcept("") }
+
+// claimedFactsExcept is claimedFacts without the copy of the page at skip ("" skips
+// nothing). It exists for the control that shows the closure counts every page's
+// sentences: leave one page out and the facts only it claims fall unclaimed.
+func claimedFactsExcept(skip string) map[pages.Fact]string {
 	out := map[pages.Fact]string{}
 	note := func(text string, facts []pages.Fact) {
 		for _, f := range facts {
 			out[f] = text
 		}
 	}
-	for _, s := range pages.LandingSteps {
-		note(s.Title, s.Facts)
+	// The landing's own blocks, which are not Lines or Questions.
+	if skip != "/" {
+		for _, s := range pages.LandingSteps {
+			note(s.Title, s.Facts)
+		}
+		for _, r := range pages.LandingComparison {
+			note(r.Tappa, r.Facts)
+		}
 	}
-	for _, r := range pages.LandingComparison {
-		note(r.Tappa, r.Facts)
+	// Every public page's Lines and Questions (README §7 step 2), the landing's included.
+	for url, c := range publicPagesCopy() {
+		if url == skip {
+			continue
+		}
+		for _, l := range c.lines {
+			note(l.Text, l.Facts)
+		}
+		for _, q := range c.questions {
+			note(q.Q, q.Facts)
+		}
 	}
-	for _, q := range pages.LandingFAQ {
-		note(q.Q, q.Facts)
-	}
-	for _, l := range pages.LandingPricingIncludes {
-		note(l.Text, l.Facts)
-	}
-	for _, l := range landingLines() {
-		note(l.Text, l.Facts)
+	return out
+}
+
+// unclaimedFacts is every declared fact no sentence in claimed rests on.
+func unclaimedFacts(declared map[pages.Fact]string, claimed map[pages.Fact]string) []pages.Fact {
+	var out []pages.Fact
+	for fact := range declared {
+		if _, ok := claimed[fact]; !ok {
+			out = append(out, fact)
+		}
 	}
 	return out
 }
@@ -764,10 +849,11 @@ func TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed(t *testing.T) {
 			t.Errorf("pages declares the fact %s = %q and nothing in factDerivations derives it. "+
 				"A fact with no derivation is a comment: a sentence could name it and be pinned by nothing.", name, fact)
 		}
-		if _, ok := claimed[fact]; !ok {
-			t.Errorf("pages declares the fact %s = %q and NO sentence rests on it. Either a sentence "+
-				"was deleted and its pin left behind, or the pin was written for a sentence never added.", name, fact)
-		}
+	}
+	for _, fact := range unclaimedFacts(declared, claimed) {
+		t.Errorf("pages declares the fact %s = %q and NO sentence on any public page rests on it. "+
+			"Either a sentence was deleted and its pin left behind, or the pin was written for a "+
+			"sentence never added.", declared[fact], fact)
 	}
 	for fact := range derivations {
 		if _, ok := declared[fact]; !ok {
@@ -978,66 +1064,144 @@ func TestLandingEvidence_EveryProofLabelIsRendered(t *testing.T) {
 
 var idAttrRE = regexp.MustCompile(`\sid="([^"]+)"`)
 
-// TestLandingNav_EveryLinkPointsAtASectionOnThePage follows each in-page link in
-// the sticky bar against the rendered page, and holds the bar to the two hrefs
-// that are not in-page: the sign-in constant and the wizard.
+// TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage holds the public header's page
+// links (LP-06; it was the landing bar's in-page-link test until /pricing existed, and
+// its intent is kept): every entry is either a section of the landing -- "/#how", an id
+// the landing renders -- or a mounted public page, a row of pages.PublicPages; every
+// page the header is drawn on carries all three entries, Sign in and Start free in its
+// first <nav>; and the entry pointing at the page being read is marked
+// aria-current="page" while no other entry is (on the landing, none is).
 //
 // ⚠️ IT USED TO PANIC. The bar's segment was cut at "<main", which the user's
 // design does not have, and body[:-1] took the whole package down with it. The
 // segment is the first <nav> now, and a page without one is a fatal, not a panic.
-func TestLandingNav_EveryLinkPointsAtASectionOnThePage(t *testing.T) {
+func TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage(t *testing.T) {
 	t.Parallel()
-	body := mustFetchMarketing(t, marketingRouter(t), "/")
-	ids := map[string]bool{}
-	for _, m := range idAttrRE.FindAllStringSubmatch(body, -1) {
-		ids[m[1]] = true
-	}
+	r := marketingRouter(t)
+	landing := mustFetchMarketing(t, r, "/")
 	if len(pages.LandingNav) != 3 {
 		t.Fatalf("LandingNav carries %d link(s); the bar has three", len(pages.LandingNav))
 	}
-	navStart := strings.Index(body, "<nav")
-	navEnd := strings.Index(body, "</nav>")
-	if navStart < 0 || navEnd < navStart {
-		t.Fatalf("the landing page renders no <nav>…</nav>; the sticky bar is gone")
-	}
-	bar := body[navStart:navEnd]
-	barText := strings.Join(strings.Fields(tagRE.ReplaceAllString(bar, " ")), " ")
 	for _, l := range pages.LandingNav {
-		target, ok := strings.CutPrefix(l.Href, "#")
-		if !ok || target == "" {
-			t.Errorf("nav link %q points at %q, which is not an in-page anchor", l.Label, l.Href)
-			continue
-		}
-		if !ids[target] {
-			t.Errorf("nav link %q points at #%s and no element on the page carries that id; "+
-				"the link would scroll nowhere", l.Label, target)
-		}
-		if !strings.Contains(bar, `href="`+l.Href+`"`) {
-			t.Errorf("nav link %q (%s) is declared and NOT rendered in the bar", l.Label, l.Href)
-		}
-		if !strings.Contains(barText, l.Label) {
-			t.Errorf("nav label %q is not in the bar", l.Label)
+		if why := navEntryProblem(l.Href, landing, pages.PublicPages); why != "" {
+			t.Errorf("nav link %q: %s", l.Label, why)
 		}
 	}
-	// The bar's two ways in come from the view, never from a literal.
-	if !strings.Contains(bar, `href="`+signupPath+`"`) {
-		t.Errorf("the bar carries no link to %s", signupPath)
+	for _, url := range siteURLs() {
+		for _, why := range navBarProblems(mustFetchMarketing(t, r, url), url) {
+			t.Errorf("%s: %s", url, why)
+		}
 	}
-	if !strings.Contains(bar, `href="`+adminLoginPath+`"`) {
-		t.Errorf("the bar carries no link to %s", adminLoginPath)
-	}
-	// AND THE PLAIN CHROME STAYS PLAIN: the wizard and the legal pages render no
-	// bar, no in-page link and no sticky header.
+	// AND THE PLAIN CHROME STAYS PLAIN until LP-11 moves it onto the public chrome: the
+	// legal pages render no header link and no sticky header.
 	for _, p := range pages.LegalPages {
-		legal := mustFetchMarketing(t, marketingRouter(t), p.Path)
+		legal := mustFetchMarketing(t, r, p.Path)
 		for _, l := range pages.LandingNav {
 			if strings.Contains(legal, `href="`+l.Href+`"`) {
-				t.Errorf("%s renders the landing page's %q link; the bar is the landing page's only", p.Path, l.Label)
+				t.Errorf("%s renders the public header's %q link; the legal pages keep their own chrome until LP-11", p.Path, l.Label)
 			}
 		}
 		if strings.Contains(legal, "sticky") {
-			t.Errorf("%s renders a sticky header; only the landing page asked for one", p.Path)
+			t.Errorf("%s renders a sticky header; only the public chrome has one", p.Path)
 		}
+	}
+}
+
+// navEntryProblem says why a header entry's href does not resolve, or "": a "/#id"
+// entry must name an element the landing renders; anything else must be the path of
+// a row of public (a mounted public page -- the table test holds rows and routes equal).
+func navEntryProblem(href, landing string, public []pages.PublicPage) string {
+	if path, id, ok := strings.Cut(href, "#"); ok {
+		if path != "/" || id == "" {
+			return fmt.Sprintf("%q names a section somewhere other than the landing; a header entry is a landing section or a page", href)
+		}
+		for _, m := range idAttrRE.FindAllStringSubmatch(landing, -1) {
+			if m[1] == id {
+				return ""
+			}
+		}
+		return fmt.Sprintf("%q names #%s and no element on the landing carries that id; the link would land nowhere", href, id)
+	}
+	for _, p := range public {
+		if p.Path == href {
+			return ""
+		}
+	}
+	return fmt.Sprintf("%q is neither a landing section nor a row of pages.PublicPages", href)
+}
+
+// navBarProblems says how body's header bar -- its first <nav> -- departs from the
+// table, when the page drawn is current: every entry, with its label; Sign in and Start
+// free from the views' constants; aria-current="page" on exactly the entries whose href
+// is current.
+func navBarProblems(body, current string) []string {
+	navStart := strings.Index(body, "<nav")
+	navEnd := strings.Index(body, "</nav>")
+	if navStart < 0 || navEnd < navStart {
+		return []string{"the page renders no <nav>…</nav>; the header bar is gone"}
+	}
+	bar := body[navStart:navEnd]
+	barText := strings.Join(strings.Fields(tagRE.ReplaceAllString(bar, " ")), " ")
+	var out []string
+	for _, l := range pages.LandingNav {
+		m := regexp.MustCompile(`<a[^>]*href="` + regexp.QuoteMeta(l.Href) + `"[^>]*>`).FindString(bar)
+		if m == "" {
+			out = append(out, fmt.Sprintf("nav link %q (%s) is declared and NOT rendered in the bar", l.Label, l.Href))
+			continue
+		}
+		if !strings.Contains(barText, l.Label) {
+			out = append(out, fmt.Sprintf("nav label %q is not in the bar", l.Label))
+		}
+		marked := strings.Contains(m, `aria-current="page"`)
+		if l.Href == current && !marked {
+			out = append(out, fmt.Sprintf("the bar's %q entry points at this page and is not marked aria-current=\"page\"", l.Label))
+		}
+		if l.Href != current && marked {
+			out = append(out, fmt.Sprintf("the bar marks %q (%s) as the current page", l.Label, l.Href))
+		}
+	}
+	if n := strings.Count(bar, "aria-current"); n > 1 {
+		out = append(out, fmt.Sprintf("the bar marks %d entries as current", n))
+	}
+	// The bar's two ways in come from the view, never from a literal.
+	if !strings.Contains(bar, `href="`+signupPath+`"`) {
+		out = append(out, "the bar carries no link to "+signupPath)
+	}
+	if !strings.Contains(bar, `href="`+adminLoginPath+`"`) {
+		out = append(out, "the bar carries no link to "+adminLoginPath)
+	}
+	return out
+}
+
+// TestPublicNav_CheckRefusesADeadEntryOrAWrongMark is the control for the two checks
+// above: a section the landing does not have, a page that is not a row of the table, a
+// current page left unmarked and another page marked are each red.
+func TestPublicNav_CheckRefusesADeadEntryOrAWrongMark(t *testing.T) {
+	t.Parallel()
+	r := marketingRouter(t)
+	landing := mustFetchMarketing(t, r, "/")
+	pricing := mustFetchMarketing(t, r, pages.PricingPath)
+	for href, ok := range map[string]bool{
+		"/#how": true, pages.PricingPath: true,
+		"/#yok": false, "/yok": false, "#how": false, pages.PricingPath + "#billing": false,
+	} {
+		if got := navEntryProblem(href, landing, pages.PublicPages) == ""; got != ok {
+			t.Errorf("CONTROL navEntryProblem(%q) holds=%v, want %v", href, got, ok)
+		}
+	}
+	if navEntryProblem(pages.PricingPath, landing, nil) == "" {
+		t.Error("CONTROL: a page with no row of the table passed as a header entry")
+	}
+	if p := navBarProblems(pricing, pages.PricingPath); len(p) != 0 {
+		t.Fatalf("PREMISE: the pricing page's bar fails the check: %v", p)
+	}
+	unmarked := strings.Replace(pricing, ` aria-current="page"`, "", 1)
+	if unmarked == pricing || len(navBarProblems(unmarked, pages.PricingPath)) == 0 {
+		t.Error("CONTROL: the pricing page with its header entry unmarked passed")
+	}
+	marked := strings.Replace(landing, `href="/#how"`, `href="/#how" aria-current="page"`, 1)
+	if marked == landing || len(navBarProblems(marked, "/")) == 0 {
+		t.Error("CONTROL: the landing with a section entry marked as the current page passed")
 	}
 }
 
@@ -1064,21 +1228,42 @@ var rawHexRE = regexp.MustCompile(`#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{3}\b`)
 // reference's stylesheet keeps them, as tokens on .lp — input.css records why.)
 func TestLanding_UsesOnlyPaletteTokens(t *testing.T) {
 	t.Parallel()
-	// The shared public chrome (LP-02) renders on this page and is held to the same rule.
-	for _, name := range []string{"landing.templ", "publicchrome.templ"} {
+	// The shared public chrome (LP-02) renders on every page and is held to the same
+	// rule, and so is every public page's own template (LP-06 …): sitePageTemplates
+	// names one per page, and a page with none is red rather than unscanned.
+	files := []string{"publicchrome.templ"}
+	for _, url := range siteURLs() {
+		name, ok := sitePageTemplates[url]
+		if !ok {
+			t.Errorf("%s has no template named in sitePageTemplates, so its source is not scanned", url)
+			continue
+		}
+		files = append(files, name)
+	}
+	for _, name := range files {
 		src := repoFile(t, "web", "templates", "pages", name)
 		if hit := rawHexRE.FindString(src); hit != "" {
 			t.Errorf("%s carries the raw colour %q; the palette is tokens only (skill tappa-brand)", name, hit)
 		}
 	}
-	body := mustFetchMarketing(t, marketingRouter(t), "/")
-	if hit := rawHexRE.FindString(body); hit != "" {
-		t.Errorf("the rendered landing page carries the raw colour %q", hit)
+	r := marketingRouter(t)
+	for _, url := range siteURLs() {
+		body := mustFetchMarketing(t, r, url)
+		if hit := rawHexRE.FindString(body); hit != "" {
+			t.Errorf("the rendered %s carries the raw colour %q", url, hit)
+		}
+		// The page contains no inline style attribute at all — every tone is a class.
+		if strings.Contains(body, " style=") {
+			t.Errorf("%s carries an inline style attribute; tones are tokens in classes", url)
+		}
 	}
-	// The page contains no inline style attribute at all — every tone is a class.
-	if strings.Contains(body, " style=") {
-		t.Error("the landing page carries an inline style attribute; tones are tokens in classes")
-	}
+}
+
+// sitePageTemplates is the template each page of the public site is drawn by. A page
+// card adds its row with its route.
+var sitePageTemplates = map[string]string{
+	"/":               "landing.templ",
+	pages.PricingPath: "pricing.templ",
 }
 
 // landingFAQAnswerBeforeM11 is "Where does the data go?" as the page answered it until

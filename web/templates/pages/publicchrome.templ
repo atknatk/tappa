@@ -15,7 +15,8 @@ package pages
 // THE LINKS COME FROM ONE TABLE (landingview.go): the header's three from
 // LandingNav, the Product column from PublicProductLinks (mounted entries only —
 // a page arrives with its route, plan decision O8), the Legal column from
-// LegalPages. Nothing here types a path but the home page's.
+// LegalPages. Nothing here types a path but the home page's. An entry pointing at
+// the page being drawn (Current) is marked as the current page wherever it appears.
 //
 // IT RENDERS INSIDE THE CALLER'S .lp ROOT: every class it uses is a .lp rule, and
 // the reset at the top of that block would beat Tailwind's spacing utilities, so
@@ -56,7 +57,7 @@ templ PublicChrome(c PublicChromeOpts) {
 }
 
 // publicHeader is the bar at the top. Its first <nav> carries the page links, Sign
-// in and Start free — TestLandingNav_EveryLinkPointsAtASectionOnThePage reads that
+// in and Start free — TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage reads that
 // element as the bar.
 templ publicHeader(c PublicChromeOpts) {
 	<header class="lp-head" aria-label="Site">

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
@@ -12,8 +13,8 @@ import (
 // and the footer every public page draws (pages.PublicChrome). What is held here is
 // the link table's contract — one table, mounted routes only, in the boards' order —
 // and the footer's red-line sentence. That every link resolves is
-// TestMarketing_EveryInternalLinkResolves's; that the bar keeps its in-page links is
-// TestLandingNav_EveryLinkPointsAtASectionOnThePage's.
+// TestMarketing_EveryInternalLinkResolves's; that the header's entries resolve and mark
+// the current page is TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage's.
 
 // chromeSegment is the markup of the <nav> whose aria-label is label, up to its
 // closing tag, or "" when the page renders no such nav.
@@ -108,9 +109,14 @@ func TestPublicChrome_LinkScanRefusesATableThePageDoesNotMatch(t *testing.T) {
 	}
 	clone := func() []pages.PublicLink { return append([]pages.PublicLink(nil), pages.PublicProductLinks...) }
 
-	// The table says a page is mounted that the chrome does not draw.
+	// The table says a page is mounted that the chrome does not draw: the first entry
+	// whose page is not mounted yet, given a route.
 	ahead := clone()
-	ahead[2].Href = "/pricing"
+	unmounted := slices.IndexFunc(ahead, func(l pages.PublicLink) bool { return l.Href == "" })
+	if unmounted < 0 {
+		t.Fatal("PREMISE: every Product entry is mounted; this control needs one that is not (retire it in LP-11)")
+	}
+	ahead[unmounted].Href = "/not-mounted"
 	if len(publicChromeLinkViolations(body, ahead, pages.LegalPages)) == 0 {
 		t.Error("a table entry the menu and footer do not draw passed the scan")
 	}

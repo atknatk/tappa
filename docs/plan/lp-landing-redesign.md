@@ -247,7 +247,7 @@ kendi `landingNav`/`landingFooter`'ı (landing.templ:110, :439) ve öteki sayfal
 (nav testi gerekiyorsa), `marketing_test.go`.
 
 **Kabul kriterleri.**
-- `TestLandingNav_EveryLinkPointsAtASectionOnThePage` **değişmeden** yeşil: ilk `<nav>…</nav>` header
+- Nav testi (bugün `TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage`; LP-02'de "sayfa içi bağlantı" adını taşıyordu, LP-06'da yeniden adlandırıldı) **değişmeden** yeşil: ilk `<nav>…</nav>` header
   çubuğudur ve üç sayfa içi bağlantıyı, `signupPath`'i ve `adminLoginPath`'i taşır (Sign in ve Start
   free ilk `<nav>`'ın **içinde** kalmalı ya da test bu kartta niyeti korunarak güncellenir); legal
   sayfaları hâlâ landing nav'ı ve `sticky` taşımaz (kabuk henüz yalnız landing'de).
@@ -445,7 +445,7 @@ altyapıyı kurmak.
 - **Bağlantılar (O8):** header'ın "Pricing" girdisi `#pricing` → `/pricing` (`aria-current` bu
   sayfada); "How it works" ve "Security" girdileri her sayfada çözülsün diye `/#how`, `/#security`
   olur; menü + footer'a Pricing; landing fiyat kartına "Pricing in detail →".
-- `TestLandingNav_EveryLinkPointsAtASectionOnThePage`'in **ilk yarısı** niyeti korunarak yeniden
+- Nav testinin (eski adıyla "sayfa içi bağlantı" testi; LP-06'dan beri `TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage`) **ilk yarısı** niyeti korunarak yeniden
   yazılır: her nav girdisi ya landing'de var olan bir `id`'ye giden `/#…` ya da 200 dönen bağlı bir
   rota; geçerli sayfanın girdisi `aria-current="page"` taşır, öteki sayfaların taşımaz (adı
   değişirse yeni adı yapıcı koyar). İkinci yarı (legal sayfaları sade) LP-11'e kadar aynen kalır.
@@ -457,7 +457,7 @@ altyapıyı kurmak.
   sayfanın render'ında `id="<fragman>"` bulunmalı. KONTROL mutasyonları (testin yanında, adını
   yapıcı koyar): landing'de olmayan bir `id`'ye giden `/#yok` bağlantısı **kırmızı**; bağlı olmayan
   `/yok#how` **kırmızı**; doğru `/#how` yeşil. Anti-vakuite eşiği ("followed N link(s)") gevşemez.
-- Bu kart `TestLandingNav_EveryLinkPointsAtASectionOnThePage`'i yeniden adlandırırsa (adı artık
+- Bu kart nav testini yeniden adlandırırsa (adı artık
   "sayfa içi" demeyecekse) eski adın her atfı aynı commit'te güncellenir: `landingview.go:394`,
   `marketing_facts_test.go:968`, tasarım README'si §11, bu dosya (LP-02, LP-06, LP-11) — "Çalışma
   modu"ndaki kural; `TestEveryNamedTestExists` yeşil, `danglingBudget` değişmeden.
@@ -627,7 +627,7 @@ dört legal sayfası, `/docs/api` ve `/docs/api/tr`. Gövdeler değişmez.
 - Bu sayfaların gövdeleri Tailwind; README §5'in uyarısı: `.lp *` sıfırlaması Tailwind boşluklarını
   ezer (kaynak sırasından çıkarım, tarayıcıda ölçülmedi) → gövde `.lp` köküne **alınmaz**; kabuk kendi
   kökleriyle (header, footer) çalışır — önce ölç, sonra seç.
-- `TestLandingNav_EveryLinkPointsAtASectionOnThePage`'in **ikinci yarısı** (legal sayfaları landing
+- `TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage`'in **ikinci yarısı** (legal sayfaları landing
   nav'ı ve `sticky` taşımaz, marketing_facts_test.go:1015-1028) niyeti korunarak **tersine çevrilir**:
   bütün public sayfalar aynı nav'ı taşır, legal sayfasında hiçbir nav girdisi `aria-current` değil
   (geçerli belge kendi gezinmesinde işaretli — `TestLegalPages_NavigationMarksTheCurrentDocumentAndWhatIsNotInForce`).

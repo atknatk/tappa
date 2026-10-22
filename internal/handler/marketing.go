@@ -17,6 +17,7 @@ import (
 	apidocs "github.com/atknatk/tappa/docs/api"
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/apiguide"
+	"github.com/atknatk/tappa/internal/domain/billing"
 	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/web"
@@ -169,6 +170,12 @@ type Marketing struct {
 	// be read, in which case the page renders no example (see
 	// pages.LandingView.ExampleMonthly). Computed once, here, by exampleTeamMonthly.
 	exampleMonthly string
+	// pricing is the pricing page's figures (LP-06): what each example team size costs a
+	// month and the drawn frozen month, computed ONCE, here, by pricingFigures from the
+	// published price in integer cents -- strings and ints only, a value rather than a
+	// dependency (TestMarketing_HandlerHoldsNoStatefulDependency walks it). Empty Sizes
+	// when the price could not be read: the page then draws no figure at all.
+	pricing pages.PricingFigures
 	// guideEN and guideTR are the integration guide's two pages (M11 DOCS-1, ADR 0030):
 	// docs/api's embedded Markdown, converted ONCE, in the constructor, by
 	// internal/apiguide. A request serves the converted bytes and converts nothing, so
@@ -227,6 +234,13 @@ func NewMarketing(texts legalReader, log *slog.Logger, apiHost string) *Marketin
 		log.Error("landing: the worked example cannot be computed; rendering none", "err", err)
 		example = ""
 	}
+	pricing, err := pricingFigures(publishedPricePerEmployeeMonth, pricingExampleSizes, exampleHeadcount)
+	if err != nil {
+		// The same programming error as above, and the same answer: the pricing page draws
+		// no figure rather than a wrong one.
+		log.Error("pricing: the example figures cannot be computed; rendering none", "err", err)
+		pricing = pages.PricingFigures{}
+	}
 	return &Marketing{
 		signupHref:     signupPath,
 		texts:          texts,
@@ -235,6 +249,7 @@ func NewMarketing(texts legalReader, log *slog.Logger, apiHost string) *Marketin
 		demoPosterSrc:  poster,
 		landingPolicy:  landingCSPFor(video, poster),
 		exampleMonthly: example,
+		pricing:        pricing,
 		guideEN:        guideEN,
 		guideTR:        guideTR,
 		openAPIHref:    openAPI,
@@ -368,6 +383,13 @@ func staticAssetURL(fsys fs.FS, name string) string {
 func (m *Marketing) Mount(r chi.Router) {
 	r.Get("/", m.Landing)
 	r.Head("/", m.Landing)
+	// THE PUBLIC SITE'S OWN PAGES (LP-06 …), each under a named path equal to its row of
+	// pages.PublicPages. Registered by name, not by ranging over that table, for the
+	// reason the guide's routes below give (the employee-route derivation resolves a
+	// name); TestPublicPages_TheTableIsTheMountedRoutes holds the table and these
+	// registrations equal in both directions.
+	r.Get(pricingPath, m.Pricing)
+	r.Head(pricingPath, m.Pricing)
 	for _, p := range pages.LegalPages {
 		page := p
 		serve := func(w http.ResponseWriter, r *http.Request) {
@@ -428,6 +450,24 @@ func (m *Marketing) Landing(w http.ResponseWriter, r *http.Request) {
 		ExampleMonthly:        m.exampleMonthly,
 		DemoVideoSrc:          m.demoVideoSrc,
 		DemoPosterSrc:         m.demoPosterSrc,
+	}))
+}
+
+// pricingPath is pages.PricingPath, spelled out so the route scan can read it; the
+// public-page table test holds the two equal.
+const pricingPath = "/pricing"
+
+// Pricing serves GET /pricing (LP-06): the price card's four figures as the landing has
+// them, and the page's own figures computed once in NewMarketing.
+func (m *Marketing) Pricing(w http.ResponseWriter, r *http.Request) {
+	m.render(w, r, pages.Pricing(pages.PricingView{
+		SignupHref:            m.signupHref,
+		SignInHref:            adminLoginPath,
+		PricePerEmployeeMonth: publishedPricePerEmployeeMonth,
+		FreeMonths:            foundingFreeMonths,
+		ExampleHeadcount:      exampleHeadcount,
+		ExampleMonthly:        m.exampleMonthly,
+		Figures:               m.pricing,
 	}))
 }
 
@@ -669,26 +709,70 @@ const exampleHeadcount = 60
 // already requires — and anything else is an error, which NewMarketing turns into
 // "render no example" rather than a wrong number.
 func exampleTeamMonthly(price string, headcount int) (string, error) {
-	euros, cents, ok := strings.Cut(price, ".")
-	if !ok || len(cents) != 2 {
-		return "", fmt.Errorf("example cost: price %q is not <euros>.<cents>", price)
+	total, err := monthlyCents(price, headcount)
+	if err != nil {
+		return "", err
 	}
-	e, err := strconv.Atoi(euros)
-	if err != nil || e < 0 {
-		return "", fmt.Errorf("example cost: price %q: bad euros", price)
-	}
-	c, err := strconv.Atoi(cents)
-	if err != nil || c < 0 {
-		return "", fmt.Errorf("example cost: price %q: bad cents", price)
-	}
-	if headcount <= 0 {
-		return "", fmt.Errorf("example cost: headcount %d is not positive", headcount)
-	}
-	total := (e*100 + c) * headcount
 	if total%100 == 0 {
 		return strconv.Itoa(total / 100), nil
 	}
 	return fmt.Sprintf("%d.%02d", total/100, total%100), nil
+}
+
+// monthlyCents is headcount × price in cents: the one multiplication behind every
+// figure the public pages print. The price is "<euros>.<two digits>" and nothing else.
+func monthlyCents(price string, headcount int) (int, error) {
+	euros, cents, ok := strings.Cut(price, ".")
+	if !ok || len(cents) != 2 {
+		return 0, fmt.Errorf("example cost: price %q is not <euros>.<cents>", price)
+	}
+	e, err := strconv.Atoi(euros)
+	if err != nil || e < 0 {
+		return 0, fmt.Errorf("example cost: price %q: bad euros", price)
+	}
+	c, err := strconv.Atoi(cents)
+	if err != nil || c < 0 {
+		return 0, fmt.Errorf("example cost: price %q: bad cents", price)
+	}
+	if headcount <= 0 {
+		return 0, fmt.Errorf("example cost: headcount %d is not positive", headcount)
+	}
+	return (e*100 + c) * headcount, nil
+}
+
+// pricingExampleSizes are the team sizes the pricing page's table prices (the Pricing
+// board's four). They are examples, not claims: what the page states about each is the
+// arithmetic, and the sixty is the landing's worked example, so the two pages agree.
+var pricingExampleSizes = []int{10, 25, exampleHeadcount, 150}
+
+// pricingFigures computes the pricing page's figures from the published price: each
+// size's monthly cost in the landing example's format ("37.50", no sign), and the drawn
+// frozen month for headcount people in the Billing screen's own money format ("€90.00",
+// billing.Money through money()), so the drawing prints a total the way the screen it
+// depicts prints one. Integer cents throughout (CLAUDE.md §6).
+func pricingFigures(price string, sizes []int, headcount int) (pages.PricingFigures, error) {
+	var out pages.PricingFigures
+	for _, n := range sizes {
+		monthly, err := exampleTeamMonthly(price, n)
+		if err != nil {
+			return pages.PricingFigures{}, err
+		}
+		out.Sizes = append(out.Sizes, pages.PricingSize{People: n, Monthly: monthly})
+	}
+	unit, err := monthlyCents(price, 1)
+	if err != nil {
+		return pages.PricingFigures{}, err
+	}
+	total, err := monthlyCents(price, headcount)
+	if err != nil {
+		return pages.PricingFigures{}, err
+	}
+	out.Receipt = pages.PricingReceipt{
+		People: strconv.Itoa(headcount),
+		Price:  money(billing.NewMoney(int64(unit), billing.DefaultCurrency)),
+		Total:  money(billing.NewMoney(int64(total), billing.DefaultCurrency)),
+	}
+	return out, nil
 }
 
 // foundingFreeMonths is the founding offer's free period.

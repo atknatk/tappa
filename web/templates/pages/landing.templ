@@ -707,7 +707,8 @@ templ landingFits() {
 	</div>
 }
 
-// landingPricing is the one-piece price card.
+// landingPricing is the price section: the one-piece price card and, under it, the way
+// to the page that explains it.
 //
 // THE PRICE, THE FREE PERIOD AND THE WORKED EXAMPLE ARE THE VIEW'S FIELDS, NOT
 // LITERALS: the price is checked against migration 00016's DEFAULT, the free months
@@ -716,10 +717,8 @@ templ landingFits() {
 // only when it was computed. The reference's "less than one fingerprint terminal's
 // yearly maintenance" is not here: it is a comparison nobody ran.
 //
-// The boards' "Pricing in detail" link under the card waits for /pricing (README
-// O8 -- LP-06 adds the page and the link together). The founding chip's words are
-// ink on the saffron tint, as the boards set them: saffron words on that tint
-// measure 2.27:1.
+// "Pricing in detail" arrived with /pricing (README O8, LP-06): the link and its
+// route are one commit.
 templ landingPricing(v LandingView) {
 	<div class="band band--paper">
 		<section id="pricing" class="lp-sec">
@@ -727,33 +726,60 @@ templ landingPricing(v LandingView) {
 				<p class="lp-eyebrow lp-secEyebrow">Pricing</p>
 				<h2 class="lp-h2">{ LandingPricingHeading.Text }</h2>
 				<p class="lp-lede">{ LandingPricingLede.Text }</p>
-				<div class="lp-price">
-					<div class="lp-priceMain">
-						<div class="lp-priceNum">
-							<span class="lp-priceBig">{ "€" + v.PricePerEmployeeMonth }</span>
-							<span class="lp-pricePer">/ employee / month</span>
-						</div>
-						if v.ExampleMonthly != "" {
-							<p class="lp-priceNote">A { strconv.Itoa(v.ExampleHeadcount) }-person chain runs on { "€" + v.ExampleMonthly }/month.</p>
-						}
-						<span class="lp-priceOffer">FOUNDING OFFER: first { strconv.Itoa(v.FreeMonths) } months free · pricing locked for life</span>
-					</div>
-					<ul class="lp-priceList">
-						for _, l := range LandingPricingIncludes {
-							<li>
-								<span class="lp-priceTick">
-									<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-										<path d="M5 12.5l4.2 4.2L19 7"></path>
-									</svg>
-								</span>
-								<span>{ l.Text }</span>
-							</li>
-						}
-					</ul>
-				</div>
+				@priceCard(priceCardOpts{Price: v.PricePerEmployeeMonth, FreeMonths: v.FreeMonths, ExampleHeadcount: v.ExampleHeadcount, ExampleMonthly: v.ExampleMonthly})
+				<a class="more lp-moreAfter" href={ templ.URL(PricingPath) }>
+					Pricing in detail
+					@moreArrow()
+				</a>
 			</div>
 		</section>
 	</div>
+}
+
+// priceCardOpts is what the price card needs: the four figures internal/handler
+// computes. The landing and the pricing page hand in the same four.
+type priceCardOpts struct {
+	Price            string
+	FreeMonths       int
+	ExampleHeadcount int
+	ExampleMonthly   string
+}
+
+// priceCard is the one-piece price card, on / and on /pricing: the price, the worked
+// example (only when it was computed), the founding chip and the five lines the price
+// includes. The founding chip's words are ink on the saffron tint, as the boards set
+// them: saffron words on that tint measure 2.27:1.
+templ priceCard(c priceCardOpts) {
+	<div class="lp-price">
+		<div class="lp-priceMain">
+			<div class="lp-priceNum">
+				<span class="lp-priceBig">{ "€" + c.Price }</span>
+				<span class="lp-pricePer">/ employee / month</span>
+			</div>
+			if c.ExampleMonthly != "" {
+				<p class="lp-priceNote">A { strconv.Itoa(c.ExampleHeadcount) }-person chain runs on { "€" + c.ExampleMonthly }/month.</p>
+			}
+			<span class="lp-priceOffer">FOUNDING OFFER: first { strconv.Itoa(c.FreeMonths) } months free · { LandingPriceLockedForLife.Text }</span>
+		</div>
+		<ul class="lp-priceList">
+			for _, l := range LandingPricingIncludes {
+				<li>
+					<span class="lp-priceTick">
+						<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+							<path d="M5 12.5l4.2 4.2L19 7"></path>
+						</svg>
+					</span>
+					<span>{ l.Text }</span>
+				</li>
+			}
+		</ul>
+	</div>
+}
+
+// moreArrow is the arrow after a "next step" link's words. It carries no name: the
+// words already say where the link goes.
+templ moreArrow() {
+	<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
 }
 
 // landingFAQ is the disclosure widgets, one per LandingFAQ entry: the browser's own
@@ -770,23 +796,29 @@ templ landingFAQ() {
 					<p class="lp-eyebrow lp-secEyebrow">Questions, answered</p>
 					<h2 class="lp-h2 lp-faqTitle">The ones every ops manager asks.</h2>
 				</div>
-				<div class="lp-faqList">
-					for i, q := range LandingFAQ {
-						<details class="qa" open?={ i == 0 }>
-							<summary>
-								<span>{ q.Q }</span>
-								<span class="pl">
-									<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" focusable="false">
-										<path d="M12 5v14M5 12h14"></path>
-									</svg>
-								</span>
-							</summary>
-							<p>{ q.A }</p>
-						</details>
-					}
-				</div>
+				@qaList(LandingFAQ)
 			</div>
 		</section>
+	</div>
+}
+
+// qaList is a public page's questions, one disclosure widget each, the first one open:
+// the landing's FAQ and the pricing page's billing questions.
+templ qaList(qs []Question) {
+	<div class="lp-faqList">
+		for i, q := range qs {
+			<details class="qa" open?={ i == 0 }>
+				<summary>
+					<span>{ q.Q }</span>
+					<span class="pl">
+						<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" focusable="false">
+							<path d="M12 5v14M5 12h14"></path>
+						</svg>
+					</span>
+				</summary>
+				<p>{ q.A }</p>
+			</details>
+		}
 	</div>
 }
 
@@ -806,14 +838,21 @@ templ landingFAQ() {
 // It sits on no band: the page's porcelain is its ground, and its own bottom space
 // is the gap the boards draw above the footer's rule.
 templ landingCTA(v LandingView) {
+	@signOff(v.FreeMonths, v.SignupHref)
+}
+
+// signOff is the green sign-off itself, shared by every public page that ends on it
+// (the landing and the pricing page so far): the free months and the wizard are the
+// caller's view fields.
+templ signOff(freeMonths int, signupHref string) {
 	<section id="pilot" class="lp-sec lp-pilot">
 		<div class="lp-wrap">
 			<div class="ondark">
 				<span class="lp-pilotRing lp-pilotRing--one" aria-hidden="true"></span>
 				<span class="lp-pilotRing lp-pilotRing--two" aria-hidden="true"></span>
 				<h2 class="lp-pilotTitle">Go punchless.</h2>
-				<p class="lp-pilotLine">Start yourself today — first { strconv.Itoa(v.FreeMonths) } months free.</p>
-				<a class="lp-button lp-button--paper lp-pilotBtn" href={ templ.URL(v.SignupHref) }>Start free — { strconv.Itoa(v.FreeMonths) } months</a>
+				<p class="lp-pilotLine">Start yourself today — first { strconv.Itoa(freeMonths) } months free.</p>
+				<a class="lp-button lp-button--paper lp-pilotBtn" href={ templ.URL(signupHref) }>Start free — { strconv.Itoa(freeMonths) } months</a>
 			</div>
 		</div>
 	</section>
