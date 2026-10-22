@@ -202,8 +202,8 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    **(3) Panel yöneticisinin kimliği** (ADR 0031) — bir kişi tek kimlikle birden çok işletmeye üye
    olur. Kişi verisi tenant kapsamsız beş tabloda durur (`admin_identities`, `admin_identity_resets`,
    `admin_identity_verifications`, `admin_signup_claims`, `admin_identity_events`); `tappa_app`'ın
-   bunlarda hiçbir yetkisi yoktur ve `admin_users.identity_id` / `linked_via` / `unlinked_at`'i
-   yazamaz (`linked_via`'yı okuyamaz da). Erişim yalnız ADR 0031 §5.2'deki **kapalı** `identity_*`
+   bunlarda hiçbir yetkisi yoktur; `admin_users.identity_id` / `linked_via` / `linked_at` /
+   `unlinked_at`'i yazamaz, `linked_via` / `linked_at` / `unlinked_at`'i okuyamaz. Erişim yalnız ADR 0031 §5.2'deki **kapalı** `identity_*`
    listesiyle (sahibi `tappa_identitydefiner`: NOLOGIN, BYPASSRLS, NOSUPERUSER, üyesiz, varsayılan
    yetkisi yok, yalnız sütun düzeyi GRANT) ve salt okuma `resolve_identity_*` / `resolve_admin_invite_*`
    / `resolve_signup_claim_*` çözümleyicileriyle (`tappa_resolver`, ADR 0002 md.7) olur. Kimliği yazan
@@ -211,15 +211,21 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    adlandırılmış üç istisna `identity_open_session` (Go tipiyle bağlı, 00011 YÜKÜMLÜLÜK 5'in
    karşılığı), geçici `identity_create_for_signup` (kendi transaction'ında yazılmış tek satır; M14-17'den
    sonra kalkar) ve `identity_record_failed_login`'dir (yalnız `admin_identity_events`, kimlik kovasıyla
-   sınırlı). Kimlik yazmayan ama sırra da anahtarlı olmayan yazarlar adıyla şunlardır:
+   sınırlı). Bu kuralın dışında kalan iki bakım yazarının uygulama yolu yoktur: `identity_reconcile()`
+   (`EXECUTE` yalnız `tappa_owner`'da; M14-06b'nin migration'ı ve M14-19'dan önce runbook çağırır,
+   contract B'de düşer) ve M14-06'nın backfill migration'ı (`tappa_owner`, ADR 0031 §5.8); bunların ve
+   adlandırılmış üç istisnanın dışında sırsız bir kimlik yazarı yoktur. Kimlik yazmayan ama sırra da
+   anahtarlı olmayan yazarlar adıyla şunlardır:
    `identity_open_signup_claim` (yalnız taslak satırı, oranla sınırlı) ve iki sabit periyotlu süpürme. BYPASSRLS gövdelerinde tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi
    taşır. Bir tenant'a yazan her fonksiyon o tenant'ın `audit_log`'una yazar; satır karşı tenant'ı,
    kişinin üyelik sayısını ve `identity_id`'yi anmaz; bir istek her an tek tenant bağlamında koşar.
    `tappa_app`'ın `admin_users.identity_id`'yi okuması (geçiş oran kovası) adlandırılmış bir kalıntıdır ve
    ADR 0031 §5.1'deki tarama testleriyle sınırlıdır. `tappa_operator` ve `tappa_opdefiner` hiçbir
-   `identity_*` fonksiyonunu çalıştıramaz ve kimlik tablolarında yetki taşımaz. **Listeye fonksiyon
-   eklemek, dönüş sütunlarını ya da definer'ın sütun matrisini genişletmek kullanıcı onayı + ADR 0031
-   değişikliği ister** (testler: ADR 0031 §5.2'deki imza katalog testi ve sütun matrisi testi).
+   `identity_*` / `resolve_identity_*` fonksiyonunu çalıştıramaz ve kimlik tablolarında yetki taşımaz.
+   **Listeye fonksiyon eklemek, dönüş sütunlarını, definer'ın sütun matrisini ya da `tappa_app`'ın veya
+   `tappa_resolver`'ın kimlik sütunlarındaki ve tablolarındaki yetkilerini genişletmek kullanıcı onayı +
+   ADR 0031 değişikliği ister** (testler: ADR 0031 §5.2'deki imza katalog testi ve sütun matrisi testi;
+   yetkiler: ADR 0031 §5.1, §5.2).
 6. **Kayıt asla kaybolmaz.** Kanıt yetersizse REJECT edip atma: kaydı yaz,
    `verdict='flag'` ver, müdür onay kuyruğuna düşür. Sessiz onay da yok.
    Holding dokunuşunun site satırı ve olay yazan her satır checkin'de savepoint içinde yazılır ve
