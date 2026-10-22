@@ -6293,6 +6293,14 @@ type Querier interface {
 	// never "signed in and not suspended". `tenants` is only READ here: UPDATE ... FROM
 	// locks the target's rows, not the joined table's, so a suspension being written does
 	// not hold this statement up (measured: TestVerifyDB_DoesNotWaitForTheSuspensionsRowLock).
+	//
+	// TWO MORE COLUMNS RIDE ON IT (ADR 0031 §5.3, M14-04), neither costing a read: tenants.name -- the
+	// shell names the business it is in (K-5) -- and admin_users.identity_id, the key of the switch's
+	// rate bucket (§5.4: a switch is a new session, so a bucket keyed by the session would reset on every
+	// switch). identity_id is ADR 0031 §6's NAMED RESIDUE: a cross-tenant correlation key in the
+	// application's memory. THIS IS THE ONE sqlc STATEMENT ALLOWED TO SELECT IT (internal/db's
+	// query-text scan pins that, and that no statement selects linked_via or `*` on admin_users); it is
+	// never rendered, logged or written to an audit row.
 	TouchAdminSession(ctx context.Context, arg TouchAdminSessionParams) (TouchAdminSessionRow, error)
 	// Refreshes last_used_at on use (the card's "kullanimda yenilenir"). The
 	// revoked_at IS NULL guard makes the refresh fail CLOSED: a session revoked

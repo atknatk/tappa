@@ -691,7 +691,7 @@ WHERE s.id = $1
   AND a.status = 'active'
   AND t.id = s.tenant_id
 RETURNING s.id, s.last_used_at, a.id AS admin_user_id, a.role, a.full_name,
-          t.suspended_at, t.suspension_reason
+          t.suspended_at, t.suspension_reason, t.name AS tenant_name, a.identity_id
 `
 
 type TouchAdminSessionParams struct {
@@ -707,6 +707,8 @@ type TouchAdminSessionRow struct {
 	FullName         string
 	SuspendedAt      *time.Time
 	SuspensionReason *string
+	TenantName       string
+	IdentityID       *uuid.UUID
 }
 
 // THE per-request authority for the panel, and the reason the session resolver
@@ -739,6 +741,14 @@ type TouchAdminSessionRow struct {
 // never "signed in and not suspended". `tenants` is only READ here: UPDATE ... FROM
 // locks the target's rows, not the joined table's, so a suspension being written does
 // not hold this statement up (measured: TestVerifyDB_DoesNotWaitForTheSuspensionsRowLock).
+//
+// TWO MORE COLUMNS RIDE ON IT (ADR 0031 §5.3, M14-04), neither costing a read: tenants.name -- the
+// shell names the business it is in (K-5) -- and admin_users.identity_id, the key of the switch's
+// rate bucket (§5.4: a switch is a new session, so a bucket keyed by the session would reset on every
+// switch). identity_id is ADR 0031 §6's NAMED RESIDUE: a cross-tenant correlation key in the
+// application's memory. THIS IS THE ONE sqlc STATEMENT ALLOWED TO SELECT IT (internal/db's
+// query-text scan pins that, and that no statement selects linked_via or `*` on admin_users); it is
+// never rendered, logged or written to an audit row.
 func (q *Queries) TouchAdminSession(ctx context.Context, arg TouchAdminSessionParams) (TouchAdminSessionRow, error) {
 	row := q.db.QueryRow(ctx, touchAdminSession, arg.ID, arg.TenantID)
 	var i TouchAdminSessionRow
@@ -750,6 +760,8 @@ func (q *Queries) TouchAdminSession(ctx context.Context, arg TouchAdminSessionPa
 		&i.FullName,
 		&i.SuspendedAt,
 		&i.SuspensionReason,
+		&i.TenantName,
+		&i.IdentityID,
 	)
 	return i, err
 }
