@@ -23,7 +23,10 @@ package checkin
 //
 // So the card's "the correction shape is (e) in every order" holds where the tap's out exists;
 // where the manager is first the tap is an `in` (it saw the correction) and there is no surplus
-// out to classify. In BOTH orders no checkout is (c), which is the property the lock buys.
+// out to classify. In both orders no checkout is (c). The THIRD order -- the correction's
+// transaction BEGAN before the tap but reached the lock after the tap committed -- is serial yet
+// would carry the earlier created_at; the lock cannot close it and Record's retry does
+// (internal/domain/manual's TestManualRecord_RetriesACorrectionThatBeganBeforeATap).
 //
 // THE HOLDING PEER'S VENUE TOO: a correction filed at a peer's venue (recordAtPartner) beside the
 // person's tap on that peer's plaque, both orders: both complete (no 40P01) -- the manual path's

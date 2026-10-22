@@ -110,14 +110,16 @@ func (w *cpWorld) employee(name string) uuid.UUID {
 }
 
 // cpRow is one record of a fixture chain. A zero id is a fresh one; a nil wrote is "written at
-// its own instant"; typed is a manager's row (channel manual, entered_by the owner).
+// its own instant"; typed is a manager's row (channel manual, entered_by the owner); practice is a
+// historical training row (practice = true, an `in` -- ADR 0008; nothing writes one any more).
 type cpRow struct {
-	id    uuid.UUID
-	dir   string
-	at    time.Time
-	day   *time.Time
-	wrote *time.Time
-	typed bool
+	id       uuid.UUID
+	dir      string
+	at       time.Time
+	day      *time.Time
+	wrote    *time.Time
+	typed    bool
+	practice bool
 }
 
 // chain writes a person's rows, each in a transaction of its own as the owner in the tenant's
@@ -145,9 +147,9 @@ func (w *cpWorld) chain(person uuid.UUID, rows []cpRow) {
 			w.t.Fatal(err)
 		}
 		if _, err := tx.Exec(w.ctx, `INSERT INTO transactions (id, tenant_id, employee_id, location_id, occurred_at, created_at,
-		                                                       verdict, channel, type, business_day_start, entered_by)
-		                             VALUES ($1, $2, $3, $4, $5, $6, 'ok', $7, $8, $9, $10)`,
-			id, w.tenant, person, w.venue, r.at, wrote, channel, r.dir, r.day, enteredBy); err != nil {
+		                                                       verdict, channel, type, business_day_start, entered_by, practice)
+		                             VALUES ($1, $2, $3, $4, $5, $6, 'ok', $7, $8, $9, $10, $11)`,
+			id, w.tenant, person, w.venue, r.at, wrote, channel, r.dir, r.day, enteredBy, r.practice); err != nil {
 			_ = tx.Rollback(w.ctx)
 			w.t.Fatalf("write %+v: %v", r, err)
 		}
@@ -271,6 +273,7 @@ func (w *cpWorld) cpCases() []cpCase {
 	us := time.Microsecond
 	tapped := func(dir string, at time.Time) cpRow { return cpRow{dir: dir, at: at, day: w.s(at)} }
 	two, twoB := sortedIDs(2), sortedIDs(2)
+	nextA, nextB := sortedIDs(2), sortedIDs(2)
 	three, threeB := sortedIDs(3), sortedIDs(3)
 	late := tp(tue(21, 0))
 	return []cpCase{
@@ -306,6 +309,17 @@ func (w *cpWorld) cpCases() []cpCase {
 		{"Monday in, Tuesday in, Tuesday out", []cpRow{tapped("in", mon(9, 0)), tapped("in", tue(9, 0)), tapped("out", tue(17, 0))}, []string{"closes"}},
 		{"two ins and one out of one day, S NULL: the first in stays open", []cpRow{{dir: "in", at: mon(9, 0)}, {dir: "in", at: mon(10, 0)}, {dir: "out", at: mon(17, 0)}}, []string{"closes"}},
 		{"closes: the Rusty Bar night", []cpRow{tapped("in", mon(18, 5)), tapped("out", tue(2, 10))}, []string{"closes"}},
+		// A historical training row between an in and its out is skipped by every reader (ADR 0008):
+		// the out closes the in, and the in is not listed open.
+		{"closes: a training row between the in and its out", []cpRow{tapped("in", mon(9, 0)),
+			{dir: "in", at: mon(10, 0), practice: true}, tapped("out", mon(17, 0))}, []string{"closes"}},
+		// Two NEXT records at one instant: the id decides which is first. Written in the same order
+		// (the in, then the out) in both, so a reader that orders by occurred_at alone meets them in
+		// one physical order and gets one of the two wrong.
+		{"one instant, two next records: the out's id is the smaller -- it closes the 09:00 in", []cpRow{tapped("in", mon(9, 0)),
+			{id: nextA[1], dir: "in", at: mon(17, 0), day: sMon}, {id: nextA[0], dir: "out", at: mon(17, 0), day: sMon}}, []string{"closes"}},
+		{"one instant, two next records: the in's id is the smaller -- the 09:00 in stays open", []cpRow{tapped("in", mon(9, 0)),
+			{id: nextB[0], dir: "in", at: mon(17, 0), day: sMon}, {id: nextB[1], dir: "out", at: mon(17, 0), day: sMon}}, []string{"closes"}},
 	}
 }
 
@@ -438,6 +452,9 @@ func TestOpenCheckIns_TheListIsTheReportsOpenSet(t *testing.T) {
 	}{
 		{"Monday in, Tuesday in, Tuesday out", 1},
 		{"two ins and one out of one day, S NULL: the first in stays open", 1},
+		{"closes: a training row between the in and its out", 0},
+		{"one instant, two next records: the out's id is the smaller -- it closes the 09:00 in", 1},
+		{"one instant, two next records: the in's id is the smaller -- the 09:00 in stays open", 1},
 		{"(b) then (c): the open slot empties", 1},
 		{"(b) other_day: a AND b -> b (the Sunday 10:00 in, 20 h)", 0}, // the in is the previous week's
 		{"(e) the correction: 09 in, 20 out, typed 17 out written later", 0},
@@ -564,5 +581,29 @@ func TestCheckoutParity_ACorrectionTypedThroughTheRecorderIsTheSurplus(t *testin
 	}
 	if l := w.openListed(w.week.From, w.week.To); len(l) != 0 {
 		t.Errorf("listed open: %v, want nothing", l)
+	}
+}
+
+// TestCountMaskedOpenCheckIns_SplitsByTheOneClassification measures both of the tally's numbers
+// (M15-05 review, ORTA-2): two check-ins of the week with a training row after them -- one that
+// nothing closes, one closed by its own checkout (the training row comes after that pair) -- and a
+// control with no training row, which the tally does not count. {StillOpen 1, ClosedByItsCheckout 1}.
+func TestCountMaskedOpenCheckIns_SplitsByTheOneClassification(t *testing.T) {
+	w := cpNewWorld(t)
+	mon := func(hh, mm int) time.Time { return w.day(0, hh, mm) }
+	tapped := func(dir string, at time.Time) cpRow { return cpRow{dir: dir, at: at, day: w.s(at)} }
+	w.chain(w.employee("Masked open"), []cpRow{tapped("in", mon(9, 0)), {dir: "in", at: mon(10, 0), practice: true}})
+	w.chain(w.employee("Masked closed"), []cpRow{tapped("in", mon(9, 0)), tapped("out", mon(17, 0)), {dir: "in", at: mon(18, 0), practice: true}})
+	w.chain(w.employee("Unmasked"), []cpRow{tapped("in", mon(9, 0))})
+	var got store.CountMaskedOpenCheckInsRow
+	if err := w.data.WithTenant(w.ctx, w.tenant, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		got, err = store.New(tx).CountMaskedOpenCheckIns(ctx, store.CountMaskedOpenCheckInsParams{TenantID: w.tenant, FromAt: w.week.From, ToAt: w.week.To})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got.StillOpen != 1 || got.ClosedByItsCheckout != 1 {
+		t.Errorf("CountMaskedOpenCheckIns = %+v, want {StillOpen:1 ClosedByItsCheckout:1}", got)
 	}
 }

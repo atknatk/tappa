@@ -43,6 +43,21 @@ type Querier interface {
 	// prev's outputs (old_uid/old_ctr) removes any bare `uid` and satisfies both
 	// sqlc and Postgres.
 	AdvanceTagCounter(ctx context.Context, arg AdvanceTagCounterParams) (AdvanceTagCounterRow, error)
+	// DID A DIRECTED RECORD OF THIS PERSON'S COMMIT AFTER THIS TRANSACTION BEGAN? (M15-05; ADR 0032
+	// §A.6 "Eşzamanlı yazım"). internal/domain/manual asks it right after taking the person's tap
+	// lock (LockEmployeeForTap), and starts its transaction again when the answer is yes.
+	//
+	// 🔴 WHY THE LOCK ALONE DOES NOT CLOSE THE WINDOW. created_at is DEFAULT now() -- the
+	// TRANSACTION's start, not the INSERT's. A manager's correction whose transaction BEGAN before the
+	// person's checkout tap but reached the lock after the tap had committed is serial with the tap
+	// yet carries the EARLIER created_at: the tap's out then reads as preceded by a checkout written
+	// BEFORE it, and the classification calls it an orphan (c) instead of the correction's surplus
+	// (e) -- measured by the M15-05 review: `closes,orphan`. A row written since this transaction's
+	// now() is exactly that case; a new transaction's now() is after the tap's commit.
+	//
+	// `type IS NOT NULL`: only a directed record takes part in the classification, so a refusal or an
+	// ignored tap written meanwhile is no reason to start again. Explicit tenant_id beside RLS (§4.5).
+	AnyRecordWrittenSinceThisTransactionBegan(ctx context.Context, arg AnyRecordWrittenSinceThisTransactionBeganParams) (bool, error)
 	// Append a new version of a policy's document. THE ONLY WAY TO "EDIT" A RULE.
 	//
 	// 🔴 THERE IS NO UPDATE STATEMENT IN THIS FILE AND THERE CANNOT BE ONE (§4.3):
@@ -782,7 +797,9 @@ type Querier interface {
 	//     after   the same semi join + one Limit 1 probe of the same index per check-in;
 	//             0.89 / 0.77 / 0.62 ms, shared hit 254
 	// One observation on a small table, not a property: the lookup costs one index probe per
-	// check-in of the window, as the anti-join did.
+	// check-in of the window, as the anti-join did. An OLD week of a LARGE tenant is the exception the
+	// M15-05 review measured (internal/handler/anomalies.go states it): neither the lookup nor
+	// was_maskable is bounded by the week.
 	CountMaskedOpenCheckIns(ctx context.Context, arg CountMaskedOpenCheckInsParams) (CountMaskedOpenCheckInsRow, error)
 	// The Pass's "on the floor now" (M12-13, D3): how many PEOPLE are checked in right now, per venue.
 	// One row per venue; the big number is the sum of the rows, so the figure and its breakdown come

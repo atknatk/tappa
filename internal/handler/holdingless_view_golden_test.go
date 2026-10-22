@@ -29,7 +29,9 @@ package handler
 // M15-05 replaced the anomalies golden: its one change is the "Left open" card's definition
 // sentence (ADR 0032 §A.6 -- the list and The Roll now share one classification, so "the two
 // figures can differ" became "its count and this list agree"); measured: common prefix and suffix
-// around exactly that sentence, every other byte the previous golden's.
+// around exactly that sentence, every other byte the previous golden's. Its review round appended
+// one clause to the same sentence (the two figures' stated exceptions: the list's cap and a week
+// too busy for The Roll), measured the same way: the only difference is that insertion.
 
 import (
 	"bytes"

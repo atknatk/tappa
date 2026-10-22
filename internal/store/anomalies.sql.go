@@ -310,7 +310,9 @@ type CountMaskedOpenCheckInsRow struct {
 //	          0.89 / 0.77 / 0.62 ms, shared hit 254
 //
 // One observation on a small table, not a property: the lookup costs one index probe per
-// check-in of the window, as the anti-join did.
+// check-in of the window, as the anti-join did. An OLD week of a LARGE tenant is the exception the
+// M15-05 review measured (internal/handler/anomalies.go states it): neither the lookup nor
+// was_maskable is bounded by the week.
 func (q *Queries) CountMaskedOpenCheckIns(ctx context.Context, arg CountMaskedOpenCheckInsParams) (CountMaskedOpenCheckInsRow, error) {
 	row := q.db.QueryRow(ctx, countMaskedOpenCheckIns, arg.TenantID, arg.FromAt, arg.ToAt)
 	var i CountMaskedOpenCheckInsRow

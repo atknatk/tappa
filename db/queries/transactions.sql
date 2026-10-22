@@ -178,6 +178,30 @@ LIMIT 1;
 -- "no difference". Use distinct sessions for the flood and one shot for the victim.
 SELECT pg_advisory_xact_lock(hashtextextended((sqlc.arg(tenant_id)::uuid)::text || ':' || (sqlc.arg(employee_id)::uuid)::text, 0));
 
+-- name: AnyRecordWrittenSinceThisTransactionBegan :one
+-- DID A DIRECTED RECORD OF THIS PERSON'S COMMIT AFTER THIS TRANSACTION BEGAN? (M15-05; ADR 0032
+-- §A.6 "Eşzamanlı yazım"). internal/domain/manual asks it right after taking the person's tap
+-- lock (LockEmployeeForTap), and starts its transaction again when the answer is yes.
+--
+-- 🔴 WHY THE LOCK ALONE DOES NOT CLOSE THE WINDOW. created_at is DEFAULT now() -- the
+-- TRANSACTION's start, not the INSERT's. A manager's correction whose transaction BEGAN before the
+-- person's checkout tap but reached the lock after the tap had committed is serial with the tap
+-- yet carries the EARLIER created_at: the tap's out then reads as preceded by a checkout written
+-- BEFORE it, and the classification calls it an orphan (c) instead of the correction's surplus
+-- (e) -- measured by the M15-05 review: `closes,orphan`. A row written since this transaction's
+-- now() is exactly that case; a new transaction's now() is after the tap's commit.
+--
+-- `type IS NOT NULL`: only a directed record takes part in the classification, so a refusal or an
+-- ignored tap written meanwhile is no reason to start again. Explicit tenant_id beside RLS (§4.5).
+SELECT EXISTS (
+    SELECT 1
+    FROM transactions
+    WHERE tenant_id = @tenant_id
+      AND employee_id = sqlc.arg(employee_id)::uuid
+      AND type IS NOT NULL
+      AND created_at > now()
+) AS written_since;
+
 -- name: SecondsSinceLastRecordedTap :one
 -- THE SERVER-CLOCK LEG OF THE DEBOUNCE (ADR 0006): when did this person's most
 -- recent TAP get WRITTEN? Not "claim to have happened" -- written.

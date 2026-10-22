@@ -14,6 +14,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const anyRecordWrittenSinceThisTransactionBegan = `-- name: AnyRecordWrittenSinceThisTransactionBegan :one
+SELECT EXISTS (
+    SELECT 1
+    FROM transactions
+    WHERE tenant_id = $1
+      AND employee_id = $2::uuid
+      AND type IS NOT NULL
+      AND created_at > now()
+) AS written_since
+`
+
+type AnyRecordWrittenSinceThisTransactionBeganParams struct {
+	TenantID   uuid.UUID
+	EmployeeID uuid.UUID
+}
+
+// DID A DIRECTED RECORD OF THIS PERSON'S COMMIT AFTER THIS TRANSACTION BEGAN? (M15-05; ADR 0032
+// §A.6 "Eşzamanlı yazım"). internal/domain/manual asks it right after taking the person's tap
+// lock (LockEmployeeForTap), and starts its transaction again when the answer is yes.
+//
+// 🔴 WHY THE LOCK ALONE DOES NOT CLOSE THE WINDOW. created_at is DEFAULT now() -- the
+// TRANSACTION's start, not the INSERT's. A manager's correction whose transaction BEGAN before the
+// person's checkout tap but reached the lock after the tap had committed is serial with the tap
+// yet carries the EARLIER created_at: the tap's out then reads as preceded by a checkout written
+// BEFORE it, and the classification calls it an orphan (c) instead of the correction's surplus
+// (e) -- measured by the M15-05 review: `closes,orphan`. A row written since this transaction's
+// now() is exactly that case; a new transaction's now() is after the tap's commit.
+//
+// `type IS NOT NULL`: only a directed record takes part in the classification, so a refusal or an
+// ignored tap written meanwhile is no reason to start again. Explicit tenant_id beside RLS (§4.5).
+func (q *Queries) AnyRecordWrittenSinceThisTransactionBegan(ctx context.Context, arg AnyRecordWrittenSinceThisTransactionBeganParams) (bool, error) {
+	row := q.db.QueryRow(ctx, anyRecordWrittenSinceThisTransactionBegan, arg.TenantID, arg.EmployeeID)
+	var written_since bool
+	err := row.Scan(&written_since)
+	return written_since, err
+}
+
 const countOnTheFloorByVenue = `-- name: CountOnTheFloorByVenue :many
 SELECT t.location_id, t.site_location_id, l.name AS location_name, count(*) AS people
 FROM transactions t

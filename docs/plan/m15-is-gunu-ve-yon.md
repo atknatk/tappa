@@ -571,9 +571,14 @@ aynı sınıflandırmayı kullanır.
   holding eş mekân satırında kilitlenme yok (iki sırada da tamamlanır).
   *(Uygulamada — M15-05 yapıcısının raporu:)* *"her sırada (e)"* yalnız dokunuşun önce yazıldığı sırada
   ölçülebilir: manuel kayıt önce yazılınca dokunuş düzeltmeyi görür ve `in` yazar, sınıflandırılacak fazla
-  çıkış oluşmaz. Ölçülen özellik *"iki sırada da hiçbir çıkış (c) değil"*dir
-  (`TestManualRecord_TakesThePersonsTapLockSoACorrectionIsNeverAnOrphan`, iç içelik üçüncü bir bağlantının
-  çalışan satırını `FOR UPDATE` tutmasıyla zorlanır); kilit kaldırılınca manuel-önce sırası (c) verir.
+  çıkış oluşmaz. Ölçülen özellik *"üç sırada da hiçbir çıkış (c) değil"*dir. İki sıra
+  `TestManualRecord_TakesThePersonsTapLockSoACorrectionIsNeverAnOrphan`'da (iç içelik üçüncü bir bağlantının
+  çalışan satırını `FOR UPDATE` tutmasıyla zorlanır; kilit kaldırılınca manuel-önce sırası (c) verir). Üçüncü
+  sıra — manuel işlem BEGIN etti, dokunuş kilidi aldı ve commit etti, sonra manuel kilide ulaştı — kilitle
+  kapanmaz, çünkü `created_at` işlemin başlangıcıdır (denetim turunda ölçüldü: `closes,orphan`); `manual.Recorder`
+  kilit altında `AnyRecordWrittenSinceThisTransactionBegan` sorar ve evetse işlemi baştan başlatır (en çok
+  üç kez, sonra yine yazar — §4.6): `TestManualRecord_RetriesACorrectionThatBeganBeforeATap` → (e),
+  `TestManualRecord_WritesTheCorrectionAfterItsLastRetry`.
 - **`created_at` testi:** bir sorguya `created_at` sütunu ekleyen mutasyon kırmızı.
 
 **Tuzaklar.** (e) testlerinde düzeltmeyi **`manual.Recorder` ile ya da `DEFAULT created_at` ile** yazmamak —

@@ -793,7 +793,9 @@ LIMIT @row_limit;
 --     after   the same semi join + one Limit 1 probe of the same index per check-in;
 --             0.89 / 0.77 / 0.62 ms, shared hit 254
 -- One observation on a small table, not a property: the lookup costs one index probe per
--- check-in of the window, as the anti-join did.
+-- check-in of the window, as the anti-join did. An OLD week of a LARGE tenant is the exception the
+-- M15-05 review measured (internal/handler/anomalies.go states it): neither the lookup nor
+-- was_maskable is bounded by the week.
 SELECT
     count(*) FILTER (WHERE s.open)                                 AS still_open,
     count(*) FILTER (WHERE NOT s.open)                             AS closed_by_its_checkout

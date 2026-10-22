@@ -82,10 +82,6 @@ var anomaliesHref = mustSectionHref(pages.TabAnomalies)
 //	ListAnomalyPlaques          5.8 - 7.9 ms   the same scan, grouped
 //	ListOpenCheckIns            1.5 - 3.5 ms   index anti-join, stops at the cap
 //	CountMaskedOpenCheckIns     3.3 - 5.6 ms   two anti-joins over the week's check-ins
-//
-// (M15-05 replaced the two statements' anti-joins with a next-record lookup -- one LATERAL
-// index probe per check-in -- for ADR 0032 §A.6's one classification; their headers in
-// db/queries/anomalies.sql carry that change's before/after measurement.)
 //	ListAnomalyPolicySids       1.9 - 5.8 ms   the same scan, grouped
 //	ListTapsTakenTogether      11.0 - 24.7 ms  one sort + a lag() window
 //
@@ -94,6 +90,20 @@ var anomaliesHref = mustSectionHref(pages.TabAnomalies)
 // which is a quarter of what this machine saw. What the table is evidence for is the
 // SHAPE — eight statements, each bounded by the week rather than by history, none of
 // them growing with the tenant's history — and not for any millisecond in it.
+//
+// ⚠️ SINCE M15-05 THAT SHAPE HAS ONE STATED EXCEPTION. ListOpenCheckIns and
+// CountMaskedOpenCheckIns replaced their anti-joins with a next-record lookup (one LATERAL
+// index probe per check-in of the week -- ADR 0032 §A.6's one classification; their headers in
+// db/queries/anomalies.sql carry the before/after on the seed tenant). Neither that lookup nor
+// was_maskable is bounded by the week: each looks AFTER the check-in, to the end of the
+// person's history. The M15-05 review measured the cost on a synthetic tenant of 100 people with
+// 5 000 rows each (2026-10-22, its own measurement, not repeated here): for a week 1 240 days
+// back, ListOpenCheckIns took 43 - 67 ms where the pre-M15-05 statement took 6 - 9 ms, and the
+// review put the time in was_maskable's subplan (`p.practice AND p.occurred_at > t.occurred_at`),
+// not in the LATERAL. So an OLD week of a LARGE tenant costs history-proportional time in that statement. Not
+// fixed here (no migration in this card); the candidate is a partial index for the subplan --
+// `ON transactions (tenant_id, employee_id, occurred_at) WHERE practice`, tiny because practice
+// rows stopped being written (ADR 0026) -- measured before it is added.
 //
 // ⚠️ AND THE WINDOW'S OWN ROW COUNT IS NOT A CONSTANT EITHER, WHICH IS WHY IT IS A
 // QUERY HERE AND NOT A NUMBER. On the day these were taken the same window read 1 063
