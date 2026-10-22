@@ -102,6 +102,10 @@ type fakeDirectory struct {
 	// got records the arguments, so the tenant the venue is read under can be
 	// asserted rather than assumed.
 	gotTenant, gotEmployee, gotLocation uuid.UUID
+	// gotPredict is the plaque-and-channel half of the prediction's gate the handler
+	// passed to the last page read (M15-12), and peerPredict the one it passed to the
+	// last peer read.
+	gotPredict, peerPredict bool
 
 	// The confirmation screen's brand read (M10 WL-9): what it answers, and who asked.
 	resultBrand    tenant.PageBrand
@@ -123,15 +127,28 @@ type fakeDirectory struct {
 // bounds: well past every bound under test, so reaching it is a measured failure.
 const resultStallCap = 8 * time.Second
 
-func (f *fakeDirectory) TapPage(_ context.Context, tenantID, employeeID, locationID uuid.UUID) (tenant.TapPageFacts, error) {
-	f.gotTenant, f.gotEmployee, f.gotLocation = tenantID, employeeID, locationID
-	return f.facts, f.err
+// TapPage answers f.facts / f.err. Like the real directory it reads no prediction unless the
+// handler asked for one: f.facts.Prediction is dropped when predict is false, so a fake cannot
+// make the plaque-and-channel half of the gate look satisfied (M15-12).
+func (f *fakeDirectory) TapPage(_ context.Context, tenantID, employeeID, locationID uuid.UUID, predict bool) (tenant.TapPageFacts, error) {
+	f.gotTenant, f.gotEmployee, f.gotLocation, f.gotPredict = tenantID, employeeID, locationID, predict
+	out := f.facts
+	if !predict {
+		out.Prediction = nil
+	}
+	return out, f.err
 }
 
-// PeerTapPage answers f.peerSite / f.peerFacts / f.peerErr (M11 API-1b), recording the plaque.
-func (f *fakeDirectory) PeerTapPage(_ context.Context, tenantID, employeeID uuid.UUID, uid string) (tenant.TapPageFacts, uuid.UUID, error) {
+// PeerTapPage answers f.peerSite / f.peerFacts / f.peerErr (M11 API-1b), recording the plaque,
+// with TapPage's rule for the prediction.
+func (f *fakeDirectory) PeerTapPage(_ context.Context, tenantID, employeeID uuid.UUID, uid string, predict bool) (tenant.TapPageFacts, uuid.UUID, error) {
 	f.peerAsked = append(f.peerAsked, uid)
-	return f.peerFacts, f.peerSite, f.peerErr
+	f.peerPredict = predict
+	out := f.peerFacts
+	if !predict {
+		out.Prediction = nil
+	}
+	return out, f.peerSite, f.peerErr
 }
 
 func (f *fakeDirectory) ResultBrand(ctx context.Context, tenantID uuid.UUID) (tenant.PageBrand, error) {

@@ -15,14 +15,22 @@ import "github.com/atknatk/tappa/web/templates/layout"
 //
 // THE WHOLE DESIGN IS A LIST OF THINGS THAT ARE NOT HERE (CLAUDE.md §9, skill
 // tappa-brand). No menu, no tabs, no settings, no history, no shift summary, no
-// second action, nothing to scroll to. A greeting, a venue, a button.
+// second action, nothing to scroll to. A greeting, a venue, a button -- and, under a
+// predicted direction only, the one named exception: the same tap in the other
+// direction (CLAUDE.md §9's list, ADR 0032).
 //
-// THE BUTTON IS DIRECTION-NEUTRAL and that is not laziness. Whether this tap is
-// an in or an out is a computation over the employee's last OPEN entry (§5:
-// toggle on the last open entry, never on the calendar day) — it belongs to the
-// decision engine at POST time, and a page that predicted it would sometimes
-// disagree with the confirmation screen a second later. The confirmation screen
-// (M5-06) is where "Tapped in at 14:03" gets said, once it is true.
+// THE BUTTON SAYS THE PREDICTED DIRECTION, OR NONE (M15-12; ADR 0032 §B.1-§B.3; the
+// user's §9 decision of 2026-10-21). Whether this tap is an in or an out is a
+// computation over the employee's last OPEN entry inside their business day (§5) and
+// it is decided at POST time, under the person's lock. The page asks the engine's own
+// function for its prediction (tap.PredictDirection) and the one primary button says
+// it -- "Clock in" or "Clock out" -- with a small "Not right? …" button under it for
+// the other direction. Both send the direction they say (want), so a page that went
+// stale records what was pressed, not a direction the person never saw; the
+// confirmation screen (M5-06) then says "Clocked in at 14:03". Where the gate refuses
+// (ADR 0032 §B.2: the switch off, a CMAC that did not verify, a plaque not in service,
+// a person not active, no business day, a failed read) the button is the
+// direction-neutral "Tap" it always was, with no name, no value and nothing under it.
 //
 // .tap-button gives the target min-h-16 = 64px, which is the card's number and
 // well past the 44px accessibility floor; it also honours prefers-reduced-motion
@@ -58,7 +66,10 @@ import "github.com/atknatk/tappa/web/templates/layout"
 // header (logo and co-brand line, or the wordmark) and the accent's stylesheet,
 // which the button reads through its own class (user decisions D-C, K-2a, K-2b;
 // ADR 0023 §2, §7). Nothing below the header changes with it: one greeting, one
-// venue, one button, its word "Tap".
+// venue, one primary button. Its word was "Tap" until M15-12; it is now the
+// prediction's (ADR 0032 §B.1), and the "Not right? …" button under it is ink on
+// porcelain and never the accent's -- the accent's slot is the primary button's fill
+// and nothing else (ADR 0023 §2 is unchanged).
 //
 // THE GREETING AND THE BUTTON'S FACE ARE COMPONENTS OF THEIR OWN (TapHeading,
 // TapButtonFace) so the Account editor's preview (M10 WL-7) can draw the same two
@@ -99,7 +110,7 @@ func Tap(v TapView, b layout.Brand) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templ.Join(TapHeading(v.EmployeeName, v.LocationName), tapForm(v.TapContext)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ.Join(TapHeading(v.EmployeeName, v.LocationName), tapForm(v.TapContext, v.Direction)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -120,7 +131,18 @@ func Tap(v TapView, b layout.Brand) templ.Component {
 // there: templ writes none between an element and a component call, and the golden
 // holds the bytes from before the split. It changes nothing on screen -- the form
 // lays its children out as a column, which drops the white space between them.
-func tapForm(signedContext string) templ.Component {
+//
+// THERE IS NO HIDDEN want FIELD IN THIS HTML (ADR 0032 §B.3). Each button carries its
+// own name and value: a browser without JavaScript sends the pressed one's. With
+// JavaScript, tap.js writes the pressed button's value into ONE hidden field it adds
+// before it disables the buttons -- a disabled submitter sends nothing, and
+// form.submit() never sends a submitter -- so a static field here would only ever be
+// a second, unpressed value.
+//
+// ONE FORM, TWO SUBMIT BUTTONS, NO LINK. The correction is a button of this form, not
+// a second form (it would carry no signed context and no coordinates) and not an
+// anchor (a GET cannot record a tap, and a link to POST is not a thing HTML has).
+func tapForm(signedContext string, d TapDirection) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -148,7 +170,7 @@ func tapForm(signedContext string) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(signedContext)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/tap.templ`, Line: 76, Col: 55}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/tap.templ`, Line: 98, Col: 55}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -161,17 +183,85 @@ func tapForm(signedContext string) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(" ")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/tap.templ`, Line: 79, Col: 62}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/tap.templ`, Line: 101, Col: 62}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = TapButtonFace(TapButtonSubmits).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = TapButtonFace(TapButtonSubmits, d).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
+		if d.Other().Want() != "" {
+			templ_7745c5c3_Err = tapCorrection(d.Other()).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</form>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// tapCorrection is the small "Not right? Clock out" (or in) under the primary button
+// (ADR 0032 §B.1; product lens D2). It submits the same form with the other direction.
+// Ink on porcelain, underlined, at least 44 px tall, and 24 px below the primary
+// button: the form's 16 px gap plus this button's own 8 px top margin (D2 asks for at
+// least 24). It takes no accent: its classes read no brand variable, so a business's
+// theme cannot reach it. The word comes in one expression because templ drops the
+// space a text node would otherwise end with.
+func tapCorrection(other TapDirection) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var6 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var6 == nil {
+			templ_7745c5c3_Var6 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<button type=\"submit\" name=\"want\" value=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var7 string
+		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(other.Want())
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/tap.templ`, Line: 117, Col: 55}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" class=\"mt-2 inline-flex min-h-11 items-center self-center px-3 text-base text-ink underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2\" data-tap-correction>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var8 string
+		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs("Not right? " + other.Words())
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/tap.templ`, Line: 117, Col: 298}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</button>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -198,48 +288,48 @@ func TapHeading(employeeName, locationName string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var6 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var6 == nil {
-			templ_7745c5c3_Var6 = templ.NopComponent
+		templ_7745c5c3_Var9 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var9 == nil {
+			templ_7745c5c3_Var9 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<section class=\"docket\"><p class=\"docket-label\">Tapping</p><h1 class=\"font-display text-3xl font-bold tracking-tight text-ink\">Hello ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<section class=\"docket\"><p class=\"docket-label\">Tapping</p><h1 class=\"font-display text-3xl font-bold tracking-tight text-ink\">Hello ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var7 string
-		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(employeeName)
+		var templ_7745c5c3_Var10 string
+		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(employeeName)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/tap.templ`, Line: 91, Col: 23}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/tap.templ`, Line: 127, Col: 23}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</h1>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</h1>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if locationName != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<p class=\"mt-1 text-ink/70\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<p class=\"mt-1 text-ink/70\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var8 string
-			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(locationName)
+			var templ_7745c5c3_Var11 string
+			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(locationName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/tap.templ`, Line: 94, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/tap.templ`, Line: 130, Col: 45}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -253,7 +343,7 @@ func TapHeading(employeeName, locationName string) templ.Component {
 type TapButtonUse int
 
 const (
-	// TapButtonSubmits is the tap screen's one button: the form's submit, which
+	// TapButtonSubmits is the tap screen's primary button: the form's submit, which
 	// web/static/js/tap.js finds by its data attribute.
 	TapButtonSubmits TapButtonUse = iota
 	// TapButtonPreview is the same face drawn by the Account editor's preview (M10
@@ -263,9 +353,18 @@ const (
 )
 
 // TapButtonFace is the tap button's face -- its class, which carries the 64 px target
-// and the tenant accent's fill (ADR 0023 §2-§4), and its one word. A value outside
+// and the tenant accent's fill (ADR 0023 §2-§4), and its words: the direction's
+// ("Clock in" / "Clock out", ADR 0032 §B.1) or "Tap" for none. A value of use outside
 // the two above draws the preview's face: one that cannot submit.
-func TapButtonFace(use TapButtonUse) templ.Component {
+//
+// THE SUBMITTING FACE WITH NO DIRECTION IS THE PRE-M15 BUTTON BYTE FOR BYTE: no name,
+// no value -- a POST without want, which the engine decides alone. With a direction it
+// carries name="want" and the direction's value, so a press without JavaScript says
+// what the button said.
+//
+// The preview's face (the Account editor, M10 WL-7) takes the words of the direction
+// it is given and never a name or a value; the editor draws "Clock in".
+func TapButtonFace(use TapButtonUse, d TapDirection) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -281,18 +380,64 @@ func TapButtonFace(use TapButtonUse) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var9 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var9 == nil {
-			templ_7745c5c3_Var9 = templ.NopComponent
+		templ_7745c5c3_Var12 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var12 == nil {
+			templ_7745c5c3_Var12 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		if use == TapButtonSubmits {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<button type=\"submit\" class=\"tap-button\" data-tap-button>Tap</button>")
+			if d.Want() != "" {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<button type=\"submit\" name=\"want\" value=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var13 string
+				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(d.Want())
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/tap.templ`, Line: 165, Col: 53}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "\" class=\"tap-button\" data-tap-button>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var14 string
+				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(d.Words())
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/tap.templ`, Line: 165, Col: 102}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</button>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			} else {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<button type=\"submit\" class=\"tap-button\" data-tap-button>Tap</button>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+		} else {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<button type=\"button\" class=\"tap-button\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<button type=\"button\" class=\"tap-button\">Tap</button>")
+			var templ_7745c5c3_Var15 string
+			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(d.Words())
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/tap.templ`, Line: 170, Col: 54}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "</button>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

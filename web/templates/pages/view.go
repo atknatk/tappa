@@ -133,17 +133,22 @@ type ConfirmView struct {
 // TapView is the tap screen — the one an employee sees several times a day, and
 // the one CLAUDE.md §9 calls sacred: one screen, one button, zero learning.
 //
-// THREE FIELDS, AND THAT IS THE SPEC. There is no menu, no history, no shift
+// FOUR FIELDS, AND THAT IS THE SPEC. There is no menu, no history, no shift
 // summary, no "you are currently clocked in" and no settings, because a view
 // model with a field cannot help rendering it. Adding one here is the first step
 // of adding a feature to this screen, and the rule is to ask first.
 //
-// NOTE WHAT IS ABSENT: no direction. The button does not say "Tap in" or "Tap
-// out" because direction is a COMPUTATION over the employee's last open entry
-// (§5), it belongs to the decision engine at POST time, and a page that guessed
-// it would sometimes contradict the confirmation screen that follows.
+// THE FOURTH IS THE PREDICTED DIRECTION (M15-12), and it was asked: the user's §9
+// decision of 2026-10-21 (ADR 0032 §B.1) lets the one primary button say "Clock in"
+// or "Clock out" and puts a small "Not right? …" button under it. It is a closed
+// type whose ZERO VALUE is no prediction — the direction-neutral "Tap" of every
+// screen before M15 — so a view built without it is that screen, byte for byte.
+// The direction is still a COMPUTATION over the employee's last open entry (§5) and
+// it is still decided at POST time; the page says the engine's prediction (ADR 0032
+// §B.2) and both buttons send the direction they say (§B.3), so a stale page records
+// what the person pressed rather than contradicting it.
 //
-// THE BUSINESS'S BRAND IS NOT A FIELD EITHER (M10 WL-9): pages.Tap takes it as a
+// THE BUSINESS'S BRAND IS NOT A FIELD (M10 WL-9): pages.Tap takes it as a
 // second parameter, a layout.Brand, which reaches the shell's two slots only (the
 // header and the button's fill -- user decisions D-C, K-2a, K-2b). The count is
 // enforced by internal/handler's TestTapView_FieldCountIsTheSpec, the signature by
@@ -162,6 +167,61 @@ type TapView struct {
 	// contract it carries, and what M5-05 must do with it, is documented at the
 	// type that mints it.
 	TapContext string
+	// Direction is what the button says: TapUndirected ("Tap", no want, no second
+	// button) unless the handler's gate let a prediction through (ADR 0032 §B.2).
+	Direction TapDirection
+}
+
+// TapDirection is the tap screen's predicted direction: a closed set of three, and the
+// zero value is NO prediction, so the safe screen is the one nobody has to choose.
+type TapDirection int
+
+const (
+	// TapUndirected is the direction-neutral "Tap": no name, no value, no second button.
+	TapUndirected TapDirection = iota
+	// TapClockIn is a predicted check-in: "Clock in", and "Not right? Clock out" under it.
+	TapClockIn
+	// TapClockOut is a predicted check-out: "Clock out", and "Not right? Clock in" under it.
+	TapClockOut
+)
+
+// Want is the value the button for d sends as the form's want field ("in" | "out"), or ""
+// for TapUndirected and any value outside the set -- no direction is asked for then, and
+// the engine chooses (ADR 0032 §B.3).
+func (d TapDirection) Want() string {
+	switch d {
+	case TapClockIn:
+		return "in"
+	case TapClockOut:
+		return "out"
+	default:
+		return ""
+	}
+}
+
+// Words is the button's text for d: "Clock in" / "Clock out" (Q33, 2026-10-21), or "Tap".
+func (d TapDirection) Words() string {
+	switch d {
+	case TapClockIn:
+		return "Clock in"
+	case TapClockOut:
+		return "Clock out"
+	default:
+		return "Tap"
+	}
+}
+
+// Other is the direction the "Not right? …" button offers: the opposite of d, and
+// TapUndirected for a d with no direction -- there is nothing to correct then.
+func (d TapDirection) Other() TapDirection {
+	switch d {
+	case TapClockIn:
+		return TapClockOut
+	case TapClockOut:
+		return TapClockIn
+	default:
+		return TapUndirected
+	}
 }
 
 // ProblemView is every "this did not work" screen.
@@ -275,8 +335,8 @@ type ResultView struct {
 	// status is never told by colour alone (accessibility, skill tappa-brand).
 	Verdict string
 	// Direction is "in" or "out", or "" for a verdict that carries none (a
-	// reject, an ignored duplicate). It is the difference between "Tapped in" and
-	// "Tapped out", which is the one sentence somebody actually reads.
+	// reject, an ignored duplicate). It is the difference between "Clocked in" and
+	// "Clocked out", which is the one sentence somebody actually reads.
 	Direction string
 	// At is the tap time as a WALL CLOCK in the tenant's zone, already formatted
 	// by the handler (§6: everything below the render layer is UTC).
@@ -363,7 +423,10 @@ type ResultView struct {
 // same switch the screen renders, not from a copy.
 
 // Headline is the one sentence the screen exists to say. Short, warm, factual —
-// "Tapped in at 14:03", never "Your check-in operation has been processed".
+// "Clocked in at 14:03", never "Your check-in operation has been processed". The
+// direction's words are the tap button's (Q33, 2026-10-21: "Clock in" on the button,
+// "Clocked in" here; until M15-12 they were "Tapped in" / "Tapped out"). The words
+// without a direction ("Tapped", "Already tapped") still name the touch, not a clock.
 //
 // 🔴 IT IS THE BIGGEST TEXT ON THE PAGE, SO IT IS ALSO THE EASIEST PLACE TO DENY
 // A RECORD. For `reject` it used to read "Not recorded", four lines above a
@@ -382,18 +445,18 @@ type ResultView struct {
 // promise being withdrawn in the largest type on the screen.
 //
 // SO THE SWITCH IS ON THE VERDICT FIRST, and a direction is only spoken for the
-// two verdicts that HAVE one. It used to fall through to "Tapped in" for any
-// verdict this file did not recognise, which read as a counted tap under a
-// RECORDED stamp; an unknown verdict now gets the neutral word, which claims
+// two verdicts that HAVE one. It used to fall through to "Tapped in" (the words
+// "Clocked in" replaced in M15-12) for any verdict this file did not recognise,
+// which read as a counted tap under a RECORDED stamp; an unknown verdict now gets the neutral word, which claims
 // neither that the hours counted nor that the record is missing.
 func (v ResultView) Headline() string {
 	switch v.Verdict {
 	case "ok", "flag":
 		switch v.Direction {
 		case "in":
-			return "Tapped in"
+			return "Clocked in"
 		case "out":
-			return "Tapped out"
+			return "Clocked out"
 		default:
 			return "Tapped"
 		}

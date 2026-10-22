@@ -419,7 +419,7 @@ func TestCheckin_AFailedWriteSaysSoAndDoesNotClaimSuccess(t *testing.T) {
 		t.Fatalf("status = %d, want 500", w.Code)
 	}
 	body := w.Body.String()
-	for _, forbidden := range []string{"All done", "APPROVED", "Tapped in"} {
+	for _, forbidden := range []string{"All done", "APPROVED", "Clocked in"} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("a failed write rendered %q — the screen claimed a record that does not exist", forbidden)
 		}
@@ -455,7 +455,7 @@ func TestCheckin_SiteMembershipEndedIs409TapAgain(t *testing.T) {
 			t.Errorf("the 409 lacks %q:\n%s", want, body)
 		}
 	}
-	for _, forbidden := range []string{"All done", "APPROVED", "Tapped in"} {
+	for _, forbidden := range []string{"All done", "APPROVED", "Clocked in"} {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("the 409 rendered %q -- a record that does not exist", forbidden)
 		}

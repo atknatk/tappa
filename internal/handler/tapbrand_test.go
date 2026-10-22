@@ -31,6 +31,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/brand"
 	"github.com/atknatk/tappa/internal/domain/checkin"
+	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/web/templates/layout"
@@ -111,70 +112,112 @@ func withoutBrandSlots(body []byte) string {
 }
 
 // TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse is D-C, K-2a and K-2b on the tap
-// screen, for the four shapes a business's brand can have. For each: the header is
-// exactly the decided markup; the theme stylesheet is linked (right after app.css)
-// exactly when there is an accent; the page outside those two slots is byte for byte
-// the unbranded page's; the one new text is the logo's alt (the co-brand line carries
-// the two words the wordmark already had); the screen still has one button, its word
-// "Tap", submitting the form; and the policy names img-src exactly when the logo is
-// drawn.
+// screen, for the four shapes a business's brand can have, under each of the button's three
+// shapes (M15-12: no prediction, "Clock in", "Clock out"). For each: the header is exactly
+// the decided markup; the theme stylesheet is linked (right after app.css) exactly when there
+// is an accent; the page outside those two slots is byte for byte the unbranded page's of the
+// same shape; the one new text is the logo's alt (the co-brand line carries the two words the
+// wordmark already had); the screen still has one primary button -- one tap-button class, its
+// words "Tap", "Clock in" or "Clock out", submitting the form -- and the "Not right? …" button
+// under a direction takes NO accent: no tap-button class and no brand-reading class, so the
+// theme's one slot (ADR 0023 §2) cannot reach it; and the policy names img-src exactly when
+// the logo is drawn.
 func TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse(t *testing.T) {
-	plain := tapAnswer(t, &fakeDirectory{facts: okFacts()})
-	if plain.status != http.StatusOK {
-		t.Fatalf("unbranded GET /t = %d", plain.status)
-	}
-	const unbrandedText = "Tap — Taptime taptime punchless Tapping Hello Maria Borg St Julians {{TAP-CONTEXT}} Tap"
-	const logoText = "Tap — Taptime " + brandTestName + " taptime · punchless Tapping Hello Maria Borg St Julians {{TAP-CONTEXT}} Tap"
+	const greeting = "Tapping Hello Maria Borg St Julians {{TAP-CONTEXT}} "
 	logoHeader := logoHeaderHTML(brandLogoSHA, brandLogoW, brandLogoH, brandTestName)
-	cases := []struct {
-		name         string
-		logo, accent bool
-		header       string
-		theme        bool
-		text, policy string
+	for _, shape := range []struct {
+		name       string
+		prediction *tap.Type
+		words      string // screenText reads attribute values too: each button's want precedes its words
+		primary    string
+		correction string
 	}{
-		{"no brand", false, false, tapWordmarkHTML, false, unbrandedText, tapPolicy},
-		{"an accent and no logo (K-2a)", false, true, inkMarkHTML, true, unbrandedText, tapPolicy},
-		{"a logo and no accent (K-2b)", true, false, logoHeader, false, logoText, tapPolicyLogo},
-		{"a logo and an accent (D-C, K-2b)", true, true, logoHeader, true, logoText, tapPolicyLogo},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			a := tapAnswer(t, &fakeDirectory{facts: brandedFacts(t, c.logo, c.accent)})
-			body := string(a.body)
-			if a.status != http.StatusOK {
-				t.Fatalf("status %d", a.status)
+		{"no prediction", nil, "Tap", `<button type="submit" class="tap-button" data-tap-button>Tap</button>`, ""},
+		{"predicted in", ptrTo(tap.TypeIn), "in Clock in out Not right? Clock out", clockInButton, correctToOut},
+		{"predicted out", ptrTo(tap.TypeOut), "out Clock out in Not right? Clock in", clockOutButton, correctToIn},
+	} {
+		facts := func(logo, accent bool) tenant.TapPageFacts {
+			f := brandedFacts(t, logo, accent)
+			if shape.prediction != nil {
+				s := predictionAt
+				f.Prediction = &tap.Prediction{Direction: *shape.prediction, BusinessDayStart: &s}
 			}
-			if got := headerRE.FindAllString(body, -1); len(got) != 1 || got[0] != c.header {
-				t.Errorf("header:\n got %q\nwant %q", got, c.header)
-			}
-			if n := strings.Count(body, "/brand/theme/"); n != map[bool]int{true: 1}[c.theme] {
-				t.Errorf("theme references = %d, want %v", n, c.theme)
-			}
-			if c.theme && !strings.Contains(body, appCSSLink+themeLink) {
-				t.Errorf("the theme stylesheet is not the link right after app.css (it overrides the :root defaults by order)")
-			}
-			if n := strings.Count(body, "<img"); n != map[bool]int{true: 1}[c.logo] {
-				t.Errorf("<img count = %d, want logo=%v", n, c.logo)
-			}
-			if got, want := withoutBrandSlots(a.body), withoutBrandSlots(plain.body); got != want {
-				t.Errorf("outside the two slots the page differs from the unbranded one:\n got %s\nwant %s", got, want)
-			}
-			if got := screenText(t, body); got != c.text {
-				t.Errorf("screen text:\n got %q\nwant %q", got, c.text)
-			}
-			if n := strings.Count(body, "<button"); n != 1 {
-				t.Errorf("%d buttons, want 1 (§9)", n)
-			}
-			if !strings.Contains(body, `<button type="submit" class="tap-button" data-tap-button>Tap</button>`) {
-				t.Errorf("the one button is not the tap form's submit with the word Tap")
-			}
-			if got := a.header.Get("Content-Security-Policy"); got != c.policy {
-				t.Errorf("policy = %q, want %q", got, c.policy)
-			}
-		})
+			return f
+		}
+		plain := tapAnswer(t, &fakeDirectory{facts: facts(false, false)})
+		if plain.status != http.StatusOK {
+			t.Fatalf("%s: unbranded GET /t = %d", shape.name, plain.status)
+		}
+		unbrandedText := "Tap — Taptime taptime punchless " + greeting + shape.words
+		logoText := "Tap — Taptime " + brandTestName + " taptime · punchless " + greeting + shape.words
+		cases := []struct {
+			name         string
+			logo, accent bool
+			header       string
+			theme        bool
+			text, policy string
+		}{
+			{"no brand", false, false, tapWordmarkHTML, false, unbrandedText, tapPolicy},
+			{"an accent and no logo (K-2a)", false, true, inkMarkHTML, true, unbrandedText, tapPolicy},
+			{"a logo and no accent (K-2b)", true, false, logoHeader, false, logoText, tapPolicyLogo},
+			{"a logo and an accent (D-C, K-2b)", true, true, logoHeader, true, logoText, tapPolicyLogo},
+		}
+		for _, c := range cases {
+			t.Run(shape.name+", "+c.name, func(t *testing.T) {
+				a := tapAnswer(t, &fakeDirectory{facts: facts(c.logo, c.accent)})
+				body := string(a.body)
+				if a.status != http.StatusOK {
+					t.Fatalf("status %d", a.status)
+				}
+				if got := headerRE.FindAllString(body, -1); len(got) != 1 || got[0] != c.header {
+					t.Errorf("header:\n got %q\nwant %q", got, c.header)
+				}
+				if n := strings.Count(body, "/brand/theme/"); n != map[bool]int{true: 1}[c.theme] {
+					t.Errorf("theme references = %d, want %v", n, c.theme)
+				}
+				if c.theme && !strings.Contains(body, appCSSLink+themeLink) {
+					t.Errorf("the theme stylesheet is not the link right after app.css (it overrides the :root defaults by order)")
+				}
+				if n := strings.Count(body, "<img"); n != map[bool]int{true: 1}[c.logo] {
+					t.Errorf("<img count = %d, want logo=%v", n, c.logo)
+				}
+				if got, want := withoutBrandSlots(a.body), withoutBrandSlots(plain.body); got != want {
+					t.Errorf("outside the two slots the page differs from the unbranded one:\n got %s\nwant %s", got, want)
+				}
+				if got := screenText(t, body); got != c.text {
+					t.Errorf("screen text:\n got %q\nwant %q", got, c.text)
+				}
+				if n := strings.Count(body, `class="tap-button"`); n != 1 {
+					t.Errorf("%d tap-button classes, want 1: one primary button (§9)", n)
+				}
+				if n := strings.Count(body, "<button"); n != map[bool]int{true: 2, false: 1}[shape.correction != ""] {
+					t.Errorf("%d buttons, want the primary one and, under a direction, the correction (§9, ADR 0032 §B.1)", n)
+				}
+				if !strings.Contains(body, shape.primary) {
+					t.Errorf("the primary button is not %q", shape.primary)
+				}
+				if shape.correction != "" {
+					if !strings.Contains(body, shape.correction) {
+						t.Errorf("the correction is not %q", shape.correction)
+					}
+					cls := regexp.MustCompile(`class="([^"]*)" data-tap-correction`).FindStringSubmatch(body)
+					if cls == nil {
+						t.Fatal("anti-vacuity: no correction button found")
+					}
+					if strings.Contains(cls[1], "brand") || strings.Contains(cls[1], "tap-button") || strings.Contains(cls[1], "accent") {
+						t.Errorf("the correction's classes %q can read the accent (ADR 0023 §2: the accent fills the primary button only)", cls[1])
+					}
+				}
+				if got := a.header.Get("Content-Security-Policy"); got != c.policy {
+					t.Errorf("policy = %q, want %q", got, c.policy)
+				}
+			})
+		}
 	}
 }
+
+// ptrTo is &v for a value that has no address of its own.
+func ptrTo[T any](v T) *T { return &v }
 
 // TestTapPage_TheLogoCarriesItsStoredBox: the <img>'s width and height are the stored
 // box for each shape a stored logo can have, so the browser reserves its place before
@@ -387,10 +430,18 @@ func TestResultScreen_ABrandReadFailureCostsOnlyTheLogo(t *testing.T) {
 // --- the views and the split ---------------------------------------------------------
 
 // TestTapView_FieldCountIsTheSpec is TestResultView_FieldCountIsTheSpec's twin: the
-// brand reached the tap screen as a second parameter, not as a fourth field.
+// brand reached the tap screen as a second parameter, not as a field. The fourth field
+// is the predicted direction (M15-12), the user's §9 decision of 2026-10-21 (ADR 0032
+// §B.1) -- asked, as the message below says.
 func TestTapView_FieldCountIsTheSpec(t *testing.T) {
-	if got := reflect.TypeOf(pages.TapView{}).NumField(); got != 3 {
-		t.Fatalf("TapView has %d fields, want 3 (§9: ask before adding one)", got)
+	if got := reflect.TypeOf(pages.TapView{}).NumField(); got != 4 {
+		t.Fatalf("TapView has %d fields, want 4 (§9: ask before adding one)", got)
+	}
+	if f, ok := reflect.TypeOf(pages.TapView{}).FieldByName("Direction"); !ok || f.Type != reflect.TypeOf(pages.TapUndirected) {
+		t.Fatal("TapView's fourth field is not Direction, a pages.TapDirection")
+	}
+	if pages.TapDirection(0) != pages.TapUndirected {
+		t.Fatal("TapDirection's zero value is not TapUndirected: a view built without a prediction must be the direction-neutral screen")
 	}
 }
 
@@ -437,14 +488,16 @@ func TestTapButtonFace_ThePreviewFaceCannotSubmit(t *testing.T) {
 	if docket := renderString(t, pages.TapHeading("Maria Borg", "St Julians")); !strings.Contains(page, docket) {
 		t.Errorf("TapHeading's docket %q is not the tap page's", docket)
 	}
-	submit := renderString(t, pages.TapButtonFace(pages.TapButtonSubmits))
+	submit := renderString(t, pages.TapButtonFace(pages.TapButtonSubmits, pages.TapUndirected))
 	if submit != `<button type="submit" class="tap-button" data-tap-button>Tap</button>` || !strings.Contains(page, submit) {
 		t.Errorf("the submitting face %q is not the tap page's button", submit)
 	}
 	for _, use := range []pages.TapButtonUse{pages.TapButtonPreview, pages.TapButtonUse(7)} {
-		face := renderString(t, pages.TapButtonFace(use))
-		if face != `<button type="button" class="tap-button">Tap</button>` {
-			t.Errorf("use %d: face %q, want a type=button with the same class and word, nothing else", use, face)
+		for d, words := range map[pages.TapDirection]string{pages.TapUndirected: "Tap", pages.TapClockIn: "Clock in", pages.TapClockOut: "Clock out"} {
+			face := renderString(t, pages.TapButtonFace(use, d))
+			if face != `<button type="button" class="tap-button">`+words+`</button>` {
+				t.Errorf("use %d, direction %d: face %q, want a type=button with the same class and the words %q, nothing else -- no name, no value", use, d, face, words)
+			}
 		}
 	}
 }

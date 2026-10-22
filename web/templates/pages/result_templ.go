@@ -285,7 +285,7 @@ func Result(v ResultView, logo layout.Logo) templ.Component {
 // "…this one was not counted", and "Not counted" over "…recorded but not counted".
 //
 // THE HEADLINE DOES NOT HELP ON `flag`: its headline is the SAME as an `ok`'s
-// ("Tapped in"). Until 2026-08-01 that left the closing sentence as the only
+// ("Clocked in" since M15-12). Until 2026-08-01 that left the closing sentence as the only
 // carrier of §4.6 on that screen clearing AA, because the saffron stamp was
 // 2.62:1. The stamp now clears it too (14.81:1), so flag has two carriers rather
 // than one — but the closing sentence is still the only one that says what

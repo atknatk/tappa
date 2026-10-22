@@ -88,7 +88,7 @@ func (f *fixture) seed(t *testing.T, tenantID, locationID, employeeID uuid.UUID,
 func TestTapPage_ReturnsTheGreetingAndTheTappedVenue(t *testing.T) {
 	f := newFixture(t)
 
-	facts, err := f.dir.TapPage(context.Background(), f.tenantID, f.employeeID, f.locationID)
+	facts, err := f.dir.TapPage(context.Background(), f.tenantID, f.employeeID, f.locationID, false)
 	if err != nil {
 		t.Fatalf("TapPage: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestTapPage_TheVenueIsTheTappedOneNotTheProfileOne(t *testing.T) {
 		t.Fatalf("second branch: %v", err)
 	}
 
-	facts, err := f.dir.TapPage(context.Background(), f.tenantID, f.employeeID, otherBranch)
+	facts, err := f.dir.TapPage(context.Background(), f.tenantID, f.employeeID, otherBranch, false)
 	if err != nil {
 		t.Fatalf("TapPage: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestTapPage_ForeignLocationKeepsTheNameAndDropsTheVenue(t *testing.T) {
 	otherTenant, otherLocation, otherEmployee := uuid.New(), uuid.New(), uuid.New()
 	f.seed(t, otherTenant, otherLocation, otherEmployee, "Someone Else", "Msida")
 
-	facts, err := f.dir.TapPage(context.Background(), f.tenantID, f.employeeID, otherLocation)
+	facts, err := f.dir.TapPage(context.Background(), f.tenantID, f.employeeID, otherLocation, false)
 
 	if !errors.Is(err, ErrForeignLocation) {
 		t.Fatalf("err = %v, want ErrForeignLocation", err)
@@ -157,7 +157,7 @@ func TestTapPage_ForeignLocationKeepsTheNameAndDropsTheVenue(t *testing.T) {
 	// POSITIVE CONTROL: the very same location id DOES resolve inside its own
 	// tenant. Without this, "no row" would also be true of a typo'd id and the
 	// test would prove nothing about isolation.
-	own, err := f.dir.TapPage(context.Background(), otherTenant, otherEmployee, otherLocation)
+	own, err := f.dir.TapPage(context.Background(), otherTenant, otherEmployee, otherLocation, false)
 	if err != nil {
 		t.Fatalf("the same location failed inside its OWN tenant (%v): the miss above proves nothing", err)
 	}
@@ -172,7 +172,7 @@ func TestTapPage_ForeignLocationKeepsTheNameAndDropsTheVenue(t *testing.T) {
 func TestTapPage_NilLocationIsForeignNotAnError(t *testing.T) {
 	f := newFixture(t)
 
-	facts, err := f.dir.TapPage(context.Background(), f.tenantID, f.employeeID, uuid.Nil)
+	facts, err := f.dir.TapPage(context.Background(), f.tenantID, f.employeeID, uuid.Nil, false)
 
 	if !errors.Is(err, ErrForeignLocation) {
 		t.Fatalf("err = %v, want ErrForeignLocation", err)
@@ -188,7 +188,7 @@ func TestTapPage_NilLocationIsForeignNotAnError(t *testing.T) {
 func TestTapPage_UnknownEmployeeIsARealError(t *testing.T) {
 	f := newFixture(t)
 
-	facts, err := f.dir.TapPage(context.Background(), f.tenantID, uuid.New(), f.locationID)
+	facts, err := f.dir.TapPage(context.Background(), f.tenantID, uuid.New(), f.locationID, false)
 
 	if err == nil {
 		t.Fatal("an unknown employee resolved successfully")
@@ -209,12 +209,12 @@ func TestTapPage_CrossTenantEmployeeDoesNotResolve(t *testing.T) {
 	otherTenant, otherLocation, otherEmployee := uuid.New(), uuid.New(), uuid.New()
 	f.seed(t, otherTenant, otherLocation, otherEmployee, "Someone Else", "Msida")
 
-	if _, err := f.dir.TapPage(context.Background(), f.tenantID, otherEmployee, f.locationID); err == nil {
+	if _, err := f.dir.TapPage(context.Background(), f.tenantID, otherEmployee, f.locationID, false); err == nil {
 		t.Fatal("another tenant's employee resolved inside this tenant (§4.5)")
 	}
 
 	// POSITIVE CONTROL: that employee resolves in their own tenant.
-	if _, err := f.dir.TapPage(context.Background(), otherTenant, otherEmployee, otherLocation); err != nil {
+	if _, err := f.dir.TapPage(context.Background(), otherTenant, otherEmployee, otherLocation, false); err != nil {
 		t.Fatalf("the same employee failed in their OWN tenant (%v): the refusal above proves nothing", err)
 	}
 }
@@ -223,10 +223,10 @@ func TestTapPage_RequiresTenantAndEmployee(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	if _, err := f.dir.TapPage(ctx, uuid.Nil, f.employeeID, f.locationID); err == nil {
+	if _, err := f.dir.TapPage(ctx, uuid.Nil, f.employeeID, f.locationID, false); err == nil {
 		t.Fatal("a nil tenant was accepted: the read would run with no tenant context at all")
 	}
-	if _, err := f.dir.TapPage(ctx, f.tenantID, uuid.Nil, f.locationID); err == nil {
+	if _, err := f.dir.TapPage(ctx, f.tenantID, uuid.Nil, f.locationID, false); err == nil {
 		t.Fatal("a nil employee was accepted")
 	}
 }

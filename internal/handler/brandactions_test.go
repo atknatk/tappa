@@ -540,7 +540,7 @@ func brandShapes(t *testing.T) map[string]tenant.PanelBrand {
 // inert element and holds, in order and EACH EXACTLY ONCE, the tap screen's three
 // components as the brand calls for them -- layout.BrandHeader of TapBrand(the
 // panel-route logo, the saved theme), the greeting with the signed-in name,
-// TapButtonFace(TapButtonPreview) -- and nothing else; it contains no "<form" and no
+// TapButtonFace(TapButtonPreview, TapClockIn) -- "Clock in", no "Not right?" (M15-12) -- and nothing else; it contains no "<form" and no
 // "/api/checkin"; its one button is type="button" and is inside no <form> of the page;
 // no element on the page carries a form= attribute; the rest of the editor draws no
 // header (withoutBrandEditor); and every form of the editor posts to one of the three
@@ -576,7 +576,7 @@ func TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit(t *testing.T) 
 			parts := []string{
 				renderString(t, layout.BrandHeader(layout.TapBrand(logo, theme))),
 				renderString(t, pages.TapPreviewHeading("Maria Borg")),
-				renderString(t, pages.TapButtonFace(pages.TapButtonPreview)),
+				renderString(t, pages.TapButtonFace(pages.TapButtonPreview, pages.TapClockIn)),
 			}
 			at := 0
 			for _, part := range parts {

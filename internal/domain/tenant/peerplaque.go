@@ -41,7 +41,12 @@ import (
 // route's PEER form, which asks holding_logo for this plaque's business (PageBrand.PeerTag).
 // A brand that cannot be read never costs the page: the facts come back with a zero Brand and
 // ErrBrandUnread wrapping the cause, peer still true.
-func (d *Directory) PeerTapPage(ctx context.Context, tenantID, employeeID uuid.UUID, uid string) (TapPageFacts, uuid.UUID, error) {
+//
+// THE PREDICTION IS THE EMPLOYER'S CHAIN (ADR 0032 §B.2, ADR 0027 §7): read on the SESSION's
+// context like everything about the person -- the employer's cutoff, zone and open check-in --
+// and only for a peer's plaque on a wall, when predict is set (TapPage's rule). A failed
+// prediction read costs nothing else: Prediction nil, PredictionErr the cause.
+func (d *Directory) PeerTapPage(ctx context.Context, tenantID, employeeID uuid.UUID, uid string, predict bool) (TapPageFacts, uuid.UUID, error) {
 	if tenantID == uuid.Nil || employeeID == uuid.Nil || uid == "" {
 		return TapPageFacts{}, uuid.Nil, errors.New("tenant: peer tap page: tenant, employee and plaque are required")
 	}
@@ -50,18 +55,29 @@ func (d *Directory) PeerTapPage(ctx context.Context, tenantID, employeeID uuid.U
 		site     db.HoldingSite
 		peer     bool
 		brandErr error
+		predErr  error
 	)
 	err := d.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		emp, err := store.New(tx).GetEmployeeActivationContext(ctx, store.GetEmployeeActivationContextParams{
+		q := store.New(tx)
+		emp, err := q.GetEmployeeActivationContext(ctx, store.GetEmployeeActivationContextParams{
 			TenantID: tenantID, EmployeeID: employeeID,
 		})
 		if err != nil {
 			return fmt.Errorf("load employee: %w", err)
 		}
 		out.EmployeeName = emp.FullName
-		site, peer, err = db.HoldingOn(tx).TapSite(ctx, uid)
-		return err
+		if site, peer, err = db.HoldingOn(tx).TapSite(ctx, uid); err != nil || !peer || site.LocationID == nil || !predict {
+			return err
+		}
+		if out.Prediction, predErr = d.predictTap(ctx, q, tenantID, employeeID); predErr != nil {
+			return errPredictionRollback
+		}
+		return nil
 	})
+	if errors.Is(err, errPredictionRollback) {
+		out.Prediction, out.PredictionErr = nil, fmt.Errorf("tenant: peer tap page: %w", predErr)
+		err = nil
+	}
 	if err != nil {
 		return TapPageFacts{}, uuid.Nil, fmt.Errorf("tenant: peer tap page: %w", err)
 	}
@@ -74,7 +90,8 @@ func (d *Directory) PeerTapPage(ctx context.Context, tenantID, employeeID uuid.U
 	out.LocationName = site.LocationName
 	out.Brand, brandErr = peerBrandOf(site, uid)
 	if brandErr != nil {
-		out.Brand = PageBrand{}
+		// TapPageFacts' rule: a page without its brand has no prediction either.
+		out.Brand, out.Prediction = PageBrand{}, nil
 		return out, site.SiteTenantID, fmt.Errorf("%w: %w", ErrBrandUnread, brandErr)
 	}
 	return out, site.SiteTenantID, nil

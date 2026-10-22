@@ -464,6 +464,11 @@ perforeli fiş kartı, APPROVED/FLAGGED/REJECTED hafif eğik kaşe damgası.
 Çalışan tap ekranı kutsaldır: **tek ekran, tek buton, sıfır öğrenme**. Onay ekranında
 buton YOK — "All done — you can close this page." Bir sonraki işlem zaten yeni fiziksel
 dokunuş gerektirir. Bu ekrana özellik eklemek istiyorsan önce sor.
+Sayılı istisnalar (kullanıcı §9 kararı, 2026-10-21 — ADR 0032): tek birincil düğme tahmini
+yönü söyler (*"Clock in"* / *"Clock out"*; tahmin kapısı kapalıyken eskisi gibi *"Tap"*) ve
+altında küçük bir *"Not right? …"* düğmesi vardır (aynı formun ikinci gönderimi, accent'siz);
+onay ekranının başlığı *"Clocked in"* / *"Clocked out"*'tur. Başka her değişiklik yine önce
+sorulur.
 
 **Tenant markası (M10 white-label — ADR 0023/0024, skill `tappa-brand` → "Tenant slotları").** İşletme sayılı slotları boyar: bir logo (tap ve sonuç ekranında 24 px yuva + altında "taptime · punchless", panelde 32 px; aktivasyon ailesinde — sihirbazın dört adımı, "Activation complete", "already set up" — tap ekranının başlığı, ama **yalnız VIES-doğrulanmış** işletmede) ve tek bir accent. Accent'in ürün yüzeyinde boyadığı CSS slotları iki tanedir: tap düğmesinin zemini (tap ekranı ve aktivasyon sihirbazının 1–3. adımlarının birincil düğmesi) ve panelin 4 px şeridi (editörün renk seçicisi kendi rengini gösterir — ADR 0023 §2); accent WCAG kapısından geçer; accent varken sihirbazın öteki yeşil işaretleri (ilerleme çubuğu, 01/02/03, işaretli onay kutusu) ink olur. Kaşe damgaları, durum→renk eşlemesi, docket, sonuç ekranının renkleri, aktivasyonun problem ve onay ekranları ve bekleme ekranının plaket çizimi değişmez; sonuç ekranında accent yoktur. Bu, "paletin dışına çıkma" ve tap ekranı kuralına kullanıcının §9 kararlarıyla (D-C; K-2a, K-2b; aktivasyon ailesi 2026-10-09 — ADR 0023 WL-13 notu) verilmiş sayılı istisnadır — tap/sonuç/aktivasyon ekranlarındaki başka her değişiklik yine önce sorulur. Marka taklidi kabul edilmiş bir risktir (ADR 0005, risk 9).
 
