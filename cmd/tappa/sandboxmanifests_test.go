@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atknatk/tappa/internal/config"
 )
@@ -190,12 +191,22 @@ func TestSandboxManifests_AreTheSandboxsOwn(t *testing.T) {
 // TestSandboxManifests_TheConfigMapStartsOnlyTheSandboxBuild: the ConfigMap, with the placeholder
 // replaced and a distinct dummy for each Secret key, is a configuration the sandbox build loads --
 // hardened, both e-mail flows off, the API on api.<domain> -- and the untagged build refuses. Read
-// in whichever build runs it.
+// in whichever build runs it. It carries the business-day switch (M15-08: the sandbox can be
+// switched on like production), with a value the server's own parser accepts -- empty, the
+// switch off, until release day.
 func TestSandboxManifests_TheConfigMapStartsOnlyTheSandboxBuild(t *testing.T) {
 	docs := sandboxDocs(t)
 	cm := configMapValues(t, sandboxDoc1(t, docs, "ConfigMap", "tappa-config").body)
 	if cm["TAPPA_ENV"] != config.EnvSandbox || cm["TAPPA_RESET_DELIVERY"] != config.ResetDeliveryNone || cm["TAPPA_INVITE_DELIVERY"] != config.InviteDeliveryPanel {
 		t.Fatalf("the ConfigMap: env %q reset %q invite %q", cm["TAPPA_ENV"], cm["TAPPA_RESET_DELIVERY"], cm["TAPPA_INVITE_DELIVERY"])
+	}
+	raw, ok := cm[config.EnvBusinessDayFrom]
+	if !ok {
+		t.Fatalf("the sandbox ConfigMap has no %s key: the sandbox could not be switched on with production", config.EnvBusinessDayFrom)
+	}
+	from, err := config.ParseBusinessDayFrom(raw, time.Now())
+	if err != nil {
+		t.Fatalf("the sandbox's %s would stop the sandbox server from starting: %v", config.EnvBusinessDayFrom, err)
 	}
 	for k := range cm {
 		if strings.HasPrefix(k, "TAPPA_SMTP_") || strings.HasPrefix(k, "TAPPA_MAIL_") {
@@ -230,5 +241,8 @@ func TestSandboxManifests_TheConfigMapStartsOnlyTheSandboxBuild(t *testing.T) {
 	}
 	if !c.IsHardened() || c.APIHost != "api.sandbox.example" || c.OperatorHost != "ops.sandbox.example" {
 		t.Errorf("the sandbox loaded as hardened=%v api=%q ops=%q", c.IsHardened(), c.APIHost, c.OperatorHost)
+	}
+	if (from == nil) != (c.BusinessDayFrom == nil) || (from != nil && !from.Equal(*c.BusinessDayFrom)) {
+		t.Errorf("the sandbox loaded the switch as %v, its ConfigMap says %v", c.BusinessDayFrom, from)
 	}
 }
