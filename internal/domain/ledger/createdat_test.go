@@ -12,6 +12,22 @@ package ledger
 // "?" -- are read as SQL, so prose in a Go comment is never a statement and a statement split
 // across `+` is still one. A spelling the scan cannot judge is red, not skipped. Each spelling is
 // a probe below, and the real sources must pass the same function.
+//
+// THE LAST TURN (the security lens's second pass): a comment is removed only OUTSIDE a '...' literal
+// ("SELECT '--'; INSERT ..." was green -- the cleaner ate the statement as a comment); every .sql
+// file of the repository is read, not only db/; and an INDIRECT table name -- the name in a string
+// literal of its own beside an INSERT/COPY and a created_at (Go: one file; SQL: one dollar-quoted
+// body with an EXECUTE) -- cannot be judged and is red, as is any pgx.Identifier not spelled in
+// literals.
+//
+// 🔴 THIS IS A NET, NOT A LOCK. A scan of source text can be walked around (a table name assembled
+// in another file, read from configuration, built byte by byte); what it catches is the ordinary
+// spelling and the review's seven plus five. The lasting closure is on the database's side -- a
+// column privilege (REVOKE INSERT (created_at) ON transactions FROM tappa_app, with INSERT granted
+// column by column) or a BEFORE INSERT trigger that overwrites created_at with now() -- and both
+// were weighed and set aside on purpose (ADR 0032 §A.6): test fixtures write created_at into the
+// past (the age and debounce tests, e.g. internal/domain/checkin/holding_db_test.go), and a column
+// grant needs maintenance on every new transactions column.
 
 import (
 	"go/ast"
@@ -26,8 +42,15 @@ import (
 )
 
 var (
-	// sqlComment is a `--` comment to the end of its line or a /* */ block.
-	sqlComment = regexp.MustCompile(`(?s)--[^\n]*|/\*.*?\*/`)
+	// dollarQuote is a dollar-quote delimiter ($$, $body$): the text between two is a function body,
+	// SQL like the rest, so it is read -- and it is the unit the indirect-name rule judges.
+	dollarQuote = regexp.MustCompile(`\$[A-Za-z_]*\$`)
+	// tableNameLiteral is a literal that is the table's name and nothing else (an indirect name).
+	tableNameLiteral = regexp.MustCompile(`(?i)^\s*(?:"?public"?\s*\.\s*)?"?transactions"?\s*$`)
+	writesWord       = regexp.MustCompile(`(?i)\b(?:insert|copy)\b`)
+	executeWord      = regexp.MustCompile(`(?i)\bexecute\b`)
+	triggerExecute   = regexp.MustCompile(`(?i)\bexecute\s+(?:function|procedure)\b`)
+	transactionsWord = regexp.MustCompile(`(?i)\btransactions\b`)
 	// txTable is the table's name, bare or quoted, with or without its schema.
 	txTable = `(?:"?public"?\s*\.\s*)?"?transactions"?`
 	// insertInto finds an INSERT INTO the table; what follows is read by hand (alias, column list).
@@ -44,11 +67,68 @@ var (
 	createdAtRE = regexp.MustCompile(`(?i)\bcreated_at\b`)
 )
 
+// stripSQLComments removes `--` and /* */ comments OUTSIDE single-quoted literals and quoted
+// identifiers -- a '--' inside a literal is text, not a comment (the second pass's real defect).
+// Dollar quotes are left as they are: a function body is SQL and its comments are comments.
+func stripSQLComments(sql string) string {
+	var b strings.Builder
+	for i := 0; i < len(sql); {
+		c := sql[i]
+		switch {
+		case c == '\'' || c == '"':
+			j := i + 1
+			for j < len(sql) {
+				if sql[j] == c {
+					if j+1 < len(sql) && sql[j+1] == c { // '' or "" escapes the quote
+						j += 2
+						continue
+					}
+					break
+				}
+				j++
+			}
+			end := min(j+1, len(sql))
+			b.WriteString(sql[i:end])
+			i = end
+		case c == '-' && i+1 < len(sql) && sql[i+1] == '-':
+			for i < len(sql) && sql[i] != '\n' {
+				i++
+			}
+			b.WriteByte(' ')
+		case c == '/' && i+1 < len(sql) && sql[i+1] == '*':
+			j := strings.Index(sql[i+2:], "*/")
+			if j < 0 {
+				i = len(sql)
+			} else {
+				i += j + 4
+			}
+			b.WriteByte(' ')
+		default:
+			b.WriteByte(c)
+			i++
+		}
+	}
+	return b.String()
+}
+
 // sqlWriterProblems judges one piece of SQL: each INSERT INTO transactions must name its columns,
-// none of them created_at, and no other kind of writer may appear.
+// none of them created_at, and no other kind of writer may appear; and a dollar-quoted body that
+// EXECUTEs dynamic SQL naming transactions beside an INSERT/COPY and created_at cannot be judged.
 func sqlWriterProblems(sql string) []string {
-	sql = sqlComment.ReplaceAllString(sql, " ")
+	sql = stripSQLComments(sql)
 	var out []string
+	// The pieces between dollar quotes alternate outside/inside; only an INSIDE piece -- a function or
+	// DO body -- can run dynamic SQL (outside, EXECUTE is a trigger's EXECUTE FUNCTION).
+	for i, body := range dollarQuote.Split(sql, -1) {
+		if i%2 == 0 {
+			continue
+		}
+		body = triggerExecute.ReplaceAllString(body, " ")
+		if executeWord.MatchString(body) && transactionsWord.MatchString(body) && writesWord.MatchString(body) && createdAtRE.MatchString(body) {
+			out = append(out, "dynamic SQL names transactions beside an INSERT/COPY and created_at -- it cannot be judged: "+
+				strings.Join(strings.Fields(body[:min(len(body), 120)]), " "))
+		}
+	}
 	for _, loc := range insertInto.FindAllStringIndex(sql, -1) {
 		rest := sql[loc[1]:]
 		if rest != "" && isWordByte(rest[0]) {
@@ -88,6 +168,8 @@ func goWriterProblems(name string, src []byte) ([]string, error) {
 		return nil, err
 	}
 	var out []string
+	// The indirect-name rule's three facts, over the whole file.
+	var namesTable, writes, namesCreatedAt bool
 	// fold returns the text of a string concatenation, "?" for a non-literal operand; ok is false
 	// when no operand is a string literal (an arithmetic +).
 	var fold func(e ast.Expr) (string, bool)
@@ -110,25 +192,51 @@ func goWriterProblems(name string, src []byte) ([]string, error) {
 		return "?", false
 	}
 	ast.Inspect(f, func(n ast.Node) bool {
+		if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			if s, err := strconv.Unquote(lit.Value); err == nil {
+				namesTable = namesTable || tableNameLiteral.MatchString(s)
+				writes = writes || writesWord.MatchString(s)
+				namesCreatedAt = namesCreatedAt || createdAtRE.MatchString(s)
+			}
+		}
+		return true
+	})
+	if namesTable && writes && namesCreatedAt {
+		out = append(out, "the table's name is a string literal of its own in a file that also spells an INSERT/COPY and "+
+			"created_at -- an indirect name (Sprintf, concatenation) cannot be judged")
+	}
+	isIdentifier := func(e ast.Expr) bool {
+		switch t := e.(type) {
+		case *ast.SelectorExpr:
+			return t.Sel.Name == "Identifier"
+		case *ast.Ident:
+			return t.Name == "Identifier"
+		}
+		return false
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
 		switch v := n.(type) {
+		case *ast.CallExpr:
+			if isIdentifier(v.Fun) {
+				out = append(out, "a conversion to pgx.Identifier: the table it names is not spelled out -- it cannot be judged")
+			}
 		case *ast.BinaryExpr, *ast.BasicLit:
 			if s, ok := fold(n.(ast.Expr)); ok {
 				out = append(out, sqlWriterProblems(s)...)
 				return false // its operands are inside s already
 			}
 		case *ast.CompositeLit:
-			isIdentifier := false
-			switch t := v.Type.(type) {
-			case *ast.SelectorExpr:
-				isIdentifier = t.Sel.Name == "Identifier"
-			case *ast.Ident:
-				isIdentifier = t.Name == "Identifier"
+			if !isIdentifier(v.Type) {
+				return true
 			}
 			for _, el := range v.Elts {
-				if lit, ok := el.(*ast.BasicLit); ok && isIdentifier {
-					if s, err := strconv.Unquote(lit.Value); err == nil && s == "transactions" {
-						out = append(out, "a pgx.Identifier names transactions (a COPY writes every column it is given, created_at included)")
-					}
+				lit, ok := el.(*ast.BasicLit)
+				if !ok {
+					out = append(out, "a pgx.Identifier with an element that is not a literal -- it cannot be judged")
+					continue
+				}
+				if s, err := strconv.Unquote(lit.Value); err == nil && s == "transactions" {
+					out = append(out, "a pgx.Identifier names transactions (a COPY writes every column it is given, created_at included)")
 				}
 			}
 		}
@@ -171,6 +279,17 @@ func TestTransactions_NoStatementWritesCreatedAt(t *testing.T) {
 		{"Go: CopyFrom's identifier", true, "package p\nimport \"github.com/jackc/pgx/v5\"\nvar id = pgx.Identifier{\"transactions\"}\n", true},
 		{"Go: prose in a comment", true, "package p\n// the INSERT into transactions, and every trigger behind it\nconst q = 1\n", false},
 		{"Go: the writers' own shape", true, "package p\nconst q = `INSERT INTO transactions (\n    tenant_id, occurred_at\n) VALUES ($1, $2)`\n", false},
+		// The second pass's five.
+		{"a '--' inside a literal is not a comment", false, "SELECT '--'; INSERT INTO transactions (tenant_id, created_at) VALUES ($1, $2)", true},
+		{"a '/*' inside a literal is not a comment", false, "SELECT '/*'; INSERT INTO transactions (tenant_id, created_at) VALUES ($1, $2); SELECT '*/'", true},
+		{"dynamic SQL with quote_ident", false, "DO $$ DECLARE v text; BEGIN v := 'INSERT INTO ' || quote_ident('transactions') || ' (tenant_id, created_at) VALUES (1, now())'; EXECUTE v; END $$;", true},
+		{"dynamic SQL with format and a variable", false, "DO $$ DECLARE v text := 'transactions'; BEGIN EXECUTE format('INSERT INTO %I (tenant_id, created_at) VALUES (1, now())', v); END $$;", true},
+		{"a function body that names transactions and only reads it", false, "CREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN (SELECT count(*) FROM transactions); END $$;", false},
+		{"Go: Sprintf with the name as an argument", true, "package p\nimport \"fmt\"\nvar q = fmt.Sprintf(\"INSERT INTO %s (tenant_id, created_at) VALUES ($1, $2)\", \"transactions\")\n", true},
+		{"Go: a concatenation with the name in a constant", true, "package p\nconst table = \"transactions\"\nfunc f() string { return \"INSERT INTO \" + table + \" (tenant_id, created_at) VALUES ($1, $2)\" }\n", true},
+		{"Go: a conversion to pgx.Identifier", true, "package p\nimport \"github.com/jackc/pgx/v5\"\nfunc f(tbl string) pgx.Identifier { return pgx.Identifier([]string{tbl}) }\n", true},
+		{"Go: a pgx.Identifier of a variable", true, "package p\nimport \"github.com/jackc/pgx/v5\"\nfunc f(tbl string) pgx.Identifier { return pgx.Identifier{tbl} }\n", true},
+		{"Go: the table's name as a tab name, nothing written", true, "package p\nconst TabTransactions = \"transactions\"\n", false},
 	}
 	for _, p := range probes {
 		var got []string
@@ -188,26 +307,7 @@ func TestTransactions_NoStatementWritesCreatedAt(t *testing.T) {
 	}
 
 	root := filepath.Join("..", "..", "..")
-	queries := 0
-	for _, dir := range []string{filepath.Join(root, "db", "queries"), filepath.Join(root, "db", "migrations")} {
-		files, err := filepath.Glob(filepath.Join(dir, "*.sql"))
-		if err != nil || len(files) == 0 {
-			t.Fatalf("PREMISE: no SQL under %s (%v)", dir, err)
-		}
-		for _, f := range files {
-			raw, err := os.ReadFile(f)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, p := range sqlWriterProblems(string(raw)) {
-				t.Errorf("%s: %s", f, p)
-			}
-			if strings.HasSuffix(dir, "queries") {
-				queries += len(insertInto.FindAllString(sqlComment.ReplaceAllString(string(raw), " "), -1))
-			}
-		}
-	}
-	goFiles := 0
+	queries, sqlFiles, goFiles := 0, 0, 0
 	if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -216,6 +316,21 @@ func TestTransactions_NoStatementWritesCreatedAt(t *testing.T) {
 			switch d.Name() {
 			case ".git", ".tools", "node_modules", "vendor":
 				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(path, ".sql") {
+			// EVERY .sql file of the repository (db/, scripts/, test/fixtures/ ...), not only db/.
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			sqlFiles++
+			for _, p := range sqlWriterProblems(string(raw)) {
+				t.Errorf("%s: %s", path, p)
+			}
+			if strings.Contains(filepath.ToSlash(path), "db/queries/") {
+				queries += len(insertInto.FindAllString(stripSQLComments(string(raw)), -1))
 			}
 			return nil
 		}
@@ -239,7 +354,8 @@ func TestTransactions_NoStatementWritesCreatedAt(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if queries < 3 || goFiles < 100 {
-		t.Errorf("PREMISE: %d INSERT INTO transactions in db/queries (want the three writers at least), %d Go files parsed", queries, goFiles)
+	if queries < 3 || goFiles < 100 || sqlFiles < 60 {
+		t.Errorf("PREMISE: %d INSERT INTO transactions in db/queries (want the three writers at least), %d Go files parsed, %d .sql files read",
+			queries, goFiles, sqlFiles)
 	}
 }

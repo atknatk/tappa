@@ -586,14 +586,17 @@ func TestCheckoutParity_ACorrectionTypedThroughTheRecorderIsTheSurplus(t *testin
 
 // TestCountMaskedOpenCheckIns_SplitsByTheOneClassification measures both of the tally's numbers
 // (M15-05 review, ORTA-2): two check-ins of the week with a training row after them -- one that
-// nothing closes, one closed by its own checkout (the training row comes after that pair) -- and a
+// nothing closes, one closed by its own checkout (the training row sits between that pair) -- and a
 // control with no training row, which the tally does not count. {StillOpen 1, ClosedByItsCheckout 1}.
 func TestCountMaskedOpenCheckIns_SplitsByTheOneClassification(t *testing.T) {
 	w := cpNewWorld(t)
 	mon := func(hh, mm int) time.Time { return w.day(0, hh, mm) }
 	tapped := func(dir string, at time.Time) cpRow { return cpRow{dir: dir, at: at, day: w.s(at)} }
 	w.chain(w.employee("Masked open"), []cpRow{tapped("in", mon(9, 0)), {dir: "in", at: mon(10, 0), practice: true}})
-	w.chain(w.employee("Masked closed"), []cpRow{tapped("in", mon(9, 0)), tapped("out", mon(17, 0)), {dir: "in", at: mon(18, 0), practice: true}})
+	// The training row sits BETWEEN the in and its out: the statement's own next-record lookup must
+	// skip it, or the in reads open (the final turn's finding: without `NOT n.practice` in THIS
+	// statement's LATERAL the tally answered {2 0}).
+	w.chain(w.employee("Masked closed"), []cpRow{tapped("in", mon(9, 0)), {dir: "in", at: mon(12, 0), practice: true}, tapped("out", mon(17, 0))})
 	w.chain(w.employee("Unmasked"), []cpRow{tapped("in", mon(9, 0))})
 	var got store.CountMaskedOpenCheckInsRow
 	if err := w.data.WithTenant(w.ctx, w.tenant, func(ctx context.Context, tx pgx.Tx) error {

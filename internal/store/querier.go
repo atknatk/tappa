@@ -764,8 +764,12 @@ type Querier interface {
 	//                          that closes it (class 'closes'): an ordinary pair -- a training
 	//                          tap after it did not hide it.
 	//
-	// The open/closed test is ListOpenCheckIns' own, written once below, in a LATERAL, so the two
-	// counts cannot disagree with each other or with the list.
+	// The open/closed test is ListOpenCheckIns' own, written out AGAIN here (sqlc shares no SQL between
+	// two statements): the same next-record LATERAL, the same class test. Inside this statement it is
+	// written once, so the two counts cannot disagree with each other; that it agrees with the list's
+	// copy is a test's claim, not the text's -- TestOpenCheckIns_TheListIsTheReportsOpenSet pins the
+	// list, TestCountMaskedOpenCheckIns_SplitsByTheOneClassification this copy (a training row between
+	// an in and its out included).
 	//
 	// ⚠️ IT IS A HINT, NOT A DIAGNOSIS. "A practice row of this person's exists after this
 	// check-in" is the shape the defect produced; it is also the shape an ordinary new starter
