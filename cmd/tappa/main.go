@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -65,6 +66,7 @@ import (
 	"github.com/atknatk/tappa/internal/webhook"
 	"github.com/atknatk/tappa/internal/webhook/delivery"
 	"github.com/atknatk/tappa/internal/webhook/endpoints"
+	"github.com/atknatk/tappa/web"
 )
 
 // httpShutdownGrace is how long the server drains in-flight requests after a signal.
@@ -937,8 +939,17 @@ func run() error {
 		return err
 	}
 
+	// THE ASSET TABLE THE PAGES VERSION THEIR URLS WITH (internal/httpx/static.go). Hashed
+	// here from the same embedded tree the router serves, so the ?v= a page writes is the
+	// one the file server pins.
+	assets, err := web.HashAssets(web.Static())
+	if err != nil {
+		return err
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
+		BaseContext:       assetContext(assets),
 		Handler:           appRouter(cfg, slog.Default(), activation, tap, panelAuth, logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
@@ -976,6 +987,25 @@ func run() error {
 		// outbox drains beside them; the deferred closes above run after both.
 		slog.Info("shutting down")
 		return shutdown(srv, httpShutdownGrace, drainers{resetFlow, work}, handler.ResetDrainGrace)
+	}
+}
+
+// assetContext is the server's BaseContext: every request's context carries the asset
+// table, which is what makes layout's documentHead write /static/css/app.css?v=<hash>
+// (web.AssetURL) and the file server pin it for a year.
+//
+// 🔴 IT IS INSTALLED HERE, ON THE SERVER, AND NOT AS A MIDDLEWARE IN httpx.NewRouter,
+// and the reason is the tests. NewRouter is what most handler tests mount, and app.css
+// is a build product (gitignored; CI builds it, a laptop may not): a table installed
+// there would put a hash into every page those tests read only where the stylesheet
+// was built, and change it with every CSS edit -- the byte goldens under
+// internal/handler/testdata included. Installed on the server, the tests read the
+// bare URL and production reads the versioned one;
+// TestServer_PagesNameVersionedAssetsThatArePinned drives this function over the
+// composed router, and TestServer_SetsTheAssetBaseContext holds run() to it.
+func assetContext(assets *web.Assets) func(net.Listener) context.Context {
+	return func(net.Listener) context.Context {
+		return web.WithAssets(context.Background(), assets)
 	}
 }
 

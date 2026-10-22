@@ -16,6 +16,7 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/web"
+	"github.com/atknatk/tappa/web/templates/layout"
 )
 
 // The cache rules of /static (2026-10-21, internal/httpx/static.go). Production
@@ -179,6 +180,199 @@ func TestStatic_CacheHeadersAndConditionalRequests(t *testing.T) {
 	}
 }
 
+// assetVersion is the ?v= a page writes for name, recomputed here from the embedded
+// bytes (the first 16 hex of the SHA-256) rather than read from web.Assets.
+func assetVersion(t *testing.T, name string) string {
+	t.Helper()
+	etag, _ := strongETag(t, name)
+	return strings.Trim(etag, `"`)[:16]
+}
+
+// TestStatic_VersionedURLsArePinnedOnlyWhenTheVersionMatches is the rule a page's
+// versioned URL relies on (static.go): `?v=<this binary's version>` is pinned for a
+// year, and every other query -- another deploy's version, an empty one, the full
+// digest, an extra parameter -- is served this binary's bytes under revalidation,
+// because pinning them under a URL that names other bytes would lock a browser to the
+// wrong stylesheet for a year.
+func TestStatic_VersionedURLsArePinnedOnlyWhenTheVersionMatches(t *testing.T) {
+	const opHost = "ops.example.test"
+	srv := httptest.NewServer(httpx.NewRouter(&config.Config{OperatorHost: opHost}, nil))
+	t.Cleanup(srv.Close)
+
+	names := []string{"css/app.css", "js/tap.js", "js/landing.js", "js/operator/enroll.js", "vendor/htmx.min.js", staticFont}
+	tests := []struct {
+		name  string
+		query func(v, sum string) string // the raw query, with "?" when one is sent
+		cache string
+	}{
+		{"matching version", func(v, _ string) string { return "?v=" + v }, wantImmutable},
+		{"another deploy's version", func(string, string) string { return "?v=0123456789abcdef" }, wantRevalidate},
+		{"the version in upper case", func(v, _ string) string { return "?v=" + strings.ToUpper(v) }, wantRevalidate},
+		{"empty version", func(string, string) string { return "?v=" }, wantRevalidate},
+		{"a bare question mark", func(string, string) string { return "?" }, wantRevalidate},
+		{"the full digest", func(_, sum string) string { return "?v=" + sum }, wantRevalidate},
+		{"a prefix of the version", func(v, _ string) string { return "?v=" + v[:8] }, wantRevalidate},
+		{"the version plus a parameter", func(v, _ string) string { return "?v=" + v + "&x=1" }, wantRevalidate},
+		{"the version twice", func(v, _ string) string { return "?v=" + v + "&v=" + v }, wantRevalidate},
+		{"another parameter name", func(v, _ string) string { return "?ver=" + v }, wantRevalidate},
+	}
+
+	for _, host := range []string{"", opHost} {
+		for _, name := range names {
+			if _, err := fs.Stat(web.Static(), name); errors.Is(err, fs.ErrNotExist) && name == "css/app.css" {
+				t.Run(host+"/"+name, func(t *testing.T) {
+					t.Skip("web/static/css/app.css is not built (make css) -- THIS IS NOT A PASS")
+				})
+				continue
+			}
+			etag, bytes := strongETag(t, name)
+			v := assetVersion(t, name)
+			for _, tc := range tests {
+				t.Run(host+"/"+name+"/"+tc.name, func(t *testing.T) {
+					url := "/static/" + name + tc.query(v, strings.Trim(etag, `"`))
+					for _, method := range []string{http.MethodGet, http.MethodHead} {
+						r := staticDo(t, srv, method, url, host, nil)
+						if r.code != http.StatusOK {
+							t.Fatalf("%s %s = %d, want 200", method, url, r.code)
+						}
+						if got := r.header.Get("Cache-Control"); got != tc.cache {
+							t.Errorf("%s %s: Cache-Control = %q, want %q", method, url, got, tc.cache)
+						}
+						if got := r.header.Get("ETag"); got != etag {
+							t.Errorf("%s %s: ETag = %q, want %q", method, url, got, etag)
+						}
+						if method == http.MethodGet && string(r.body) != string(bytes) {
+							t.Errorf("GET %s served %d bytes that are not the embedded file (%d)", url, len(r.body), len(bytes))
+						}
+
+						// The 304 flow is the same under either rule, and keeps the rule.
+						c := staticDo(t, srv, method, url, host, map[string]string{"If-None-Match": etag})
+						if c.code != http.StatusNotModified || len(c.body) != 0 {
+							t.Errorf("%s %s with If-None-Match = %d (%d bytes), want 304 with no body", method, url, c.code, len(c.body))
+						}
+						if got := c.header.Get("Cache-Control"); got != tc.cache {
+							t.Errorf("%s %s 304: Cache-Control = %q, want %q", method, url, got, tc.cache)
+						}
+						stale := staticDo(t, srv, method, url, host, map[string]string{"If-None-Match": `"0000"`})
+						if stale.code != http.StatusOK {
+							t.Errorf("%s %s with a stale If-None-Match = %d, want 200", method, url, stale.code)
+						}
+					}
+				})
+			}
+
+			// A refusal under the matching version is not the file, so it carries neither
+			// asset header -- above all not the year's pin. The 412 is the case
+			// http.ServeContent does not clean up itself (static.go, assetStatus).
+			t.Run(host+"/"+name+"/refusals under the matching version", func(t *testing.T) {
+				url := "/static/" + name + "?v=" + v
+				refusals := []struct {
+					name string
+					hdr  map[string]string
+					code int
+				}{
+					{"range not satisfiable", map[string]string{"Range": "bytes=999999999-"}, http.StatusRequestedRangeNotSatisfiable},
+					{"if-match other bytes", map[string]string{"If-Match": `"y"`}, http.StatusPreconditionFailed},
+				}
+				for _, rf := range refusals {
+					r := staticDo(t, srv, http.MethodGet, url, host, rf.hdr)
+					if r.code != rf.code {
+						t.Errorf("GET %s, %s = %d, want %d", url, rf.name, r.code, rf.code)
+					}
+					if cc, et := r.header.Get("Cache-Control"), r.header.Get("ETag"); cc != "" || et != "" {
+						t.Errorf("GET %s, %s = %d with Cache-Control %q, ETag %q; a refusal must not be cached as the asset", url, rf.name, r.code, cc, et)
+					}
+				}
+				// CONTROL: the same preconditions satisfied answer the file, pinned -- so the
+				// refusals above are the status rule, not headers missing everywhere.
+				ok := staticDo(t, srv, http.MethodGet, url, host, map[string]string{"If-Match": etag})
+				if ok.code != http.StatusOK || ok.header.Get("Cache-Control") != wantImmutable || ok.header.Get("ETag") != etag {
+					t.Errorf("GET %s with If-Match: %s = %d, Cache-Control %q, ETag %q; want 200, %q, %q",
+						url, etag, ok.code, ok.header.Get("Cache-Control"), ok.header.Get("ETag"), wantImmutable, etag)
+				}
+				part := staticDo(t, srv, http.MethodGet, url, host, map[string]string{"Range": "bytes=0-0"})
+				if part.code != http.StatusPartialContent || part.header.Get("Cache-Control") != wantImmutable {
+					t.Errorf("GET %s with Range: bytes=0-0 = %d, Cache-Control %q; want 206 and %q",
+						url, part.code, part.header.Get("Cache-Control"), wantImmutable)
+				}
+			})
+		}
+	}
+
+	// A version on a name the tree does not hold is a plain 404 with neither header.
+	r := staticDo(t, srv, http.MethodGet, "/static/js/missing.js?v=0123456789abcdef", "", nil)
+	if r.code != http.StatusNotFound || r.header.Get("ETag") != "" || r.header.Get("Cache-Control") == wantImmutable {
+		t.Errorf("GET a missing versioned file = %d, ETag %q, Cache-Control %q; want 404 with no asset headers",
+			r.code, r.header.Get("ETag"), r.header.Get("Cache-Control"))
+	}
+	// And a directory with a version is still refused, unpinned.
+	r = staticDo(t, srv, http.MethodGet, "/static/js/?v=0123456789abcdef", "", nil)
+	if r.code == http.StatusOK || r.header.Get("Cache-Control") != "" || r.header.Get("ETag") != "" {
+		t.Errorf("GET a directory with a version = %d, Cache-Control %q, ETag %q; want a refusal with no asset headers",
+			r.code, r.header.Get("Cache-Control"), r.header.Get("ETag"))
+	}
+}
+
+// TestStatic_TheURLAPageWritesIsTheURLTheServerPins renders a real shell
+// (layout.PageWithScript, the tap screen's) with the table the server installs and
+// without it, and fetches what it names. With the table every /static URL in the head
+// is versioned and pinned; without it the head is the bare URLs -- what every page test
+// and byte golden reads.
+func TestStatic_TheURLAPageWritesIsTheURLTheServerPins(t *testing.T) {
+	assets, err := web.HashAssets(web.Static())
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := func(versioned bool) string {
+		t.Helper()
+		ctx := t.Context()
+		if versioned {
+			ctx = web.WithAssets(ctx, assets)
+		}
+		var b strings.Builder
+		if err := layout.PageWithScript("A page", "/static/js/tap.js", layout.Brand{}).Render(ctx, &b); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	srv := httptest.NewServer(httpx.NewRouter(&config.Config{}, nil))
+	t.Cleanup(srv.Close)
+	headURL := regexp.MustCompile(`<(?:link rel="stylesheet" href|script src)="(/static/[^"]+)"`)
+
+	want := map[string]bool{"js/tap.js": true}
+	if _, err := fs.Stat(web.Static(), "css/app.css"); err == nil {
+		want["css/app.css"] = true
+	} else {
+		t.Log("web/static/css/app.css is not built (make css): the stylesheet's half is NOT asserted")
+	}
+
+	got := map[string]bool{}
+	for _, m := range headURL.FindAllStringSubmatch(page(true), -1) {
+		name, query, _ := strings.Cut(strings.TrimPrefix(m[1], "/static/"), "?")
+		if !want[name] {
+			continue
+		}
+		got[name] = true
+		if query != "v="+assetVersion(t, name) {
+			t.Errorf("the shell names %s; want ?v=%s", m[1], assetVersion(t, name))
+		}
+		if r := staticDo(t, srv, http.MethodGet, m[1], "", nil); r.code != http.StatusOK || r.header.Get("Cache-Control") != wantImmutable {
+			t.Errorf("GET %s (the URL the shell writes) = %d, Cache-Control %q; want 200 and %q", m[1], r.code, r.header.Get("Cache-Control"), wantImmutable)
+		}
+	}
+	for name := range want {
+		if !got[name] {
+			t.Errorf("the shell rendered with the table names no /static/%s", name)
+		}
+	}
+
+	bare := page(false)
+	if strings.Contains(bare, "?v=") || !strings.Contains(bare, `<link rel="stylesheet" href="/static/css/app.css">`) ||
+		!strings.Contains(bare, `<script src="/static/js/tap.js" defer>`) {
+		t.Error("the shell rendered without the table does not name the bare URLs; the page tests and byte goldens would move with every CSS edit")
+	}
+}
+
 // versionedName is what makes a year of `immutable` safe: the upstream version in the
 // file name (-v22-, -v20-; web/static/fonts/README.md), so new bytes arrive under a
 // new URL.
@@ -188,7 +382,9 @@ var versionedName = regexp.MustCompile(`-v\d+-`)
 // reads the rule off the responses: each one carries an ETag and a Cache-Control, and
 // each one served immutable has a versioned name. An unversioned font added under
 // fonts/ would be pinned in browsers for a year under a URL whose bytes can change --
-// rename it with its version (or narrow immutableAsset) instead.
+// rename it with its version (or narrow immutableName) instead. A ?v= URL is pinned for
+// ANY file, so the walk also asks for each file under its version -- and under a wrong
+// one, which must not be pinned.
 func TestStaticImmutableRule_OnlyVersionedNames(t *testing.T) {
 	// CONTROL: the pattern says what this test claims it says.
 	if !versionedName.MatchString("space-grotesk-v22-latin-wght.woff2") || versionedName.MatchString("space-grotesk-latin-wght.woff2") {
@@ -222,6 +418,20 @@ func TestStaticImmutableRule_OnlyVersionedNames(t *testing.T) {
 		case wantRevalidate:
 		default:
 			t.Errorf("/static/%s: Cache-Control = %q, want %q or %q", name, cc, wantImmutable, wantRevalidate)
+		}
+
+		// Under its version every file is pinned -- the URL names the bytes -- and under
+		// a version that is not its own, none is.
+		v := assetVersion(t, name)
+		if cc := staticDo(t, srv, http.MethodHead, "/static/"+name+"?v="+v, "", nil).header.Get("Cache-Control"); cc != wantImmutable {
+			t.Errorf("/static/%s?v=%s: Cache-Control = %q, want %q", name, v, cc, wantImmutable)
+		}
+		wrong := "0000000000000000"
+		if v == wrong {
+			wrong = "ffffffffffffffff"
+		}
+		if cc := staticDo(t, srv, http.MethodHead, "/static/"+name+"?v="+wrong, "", nil).header.Get("Cache-Control"); cc != wantRevalidate {
+			t.Errorf("/static/%s?v=%s (not its version): Cache-Control = %q, want %q", name, wrong, cc, wantRevalidate)
 		}
 		return nil
 	})
