@@ -25,6 +25,33 @@ type AdminIdentity struct {
 	LastLoginAt      *time.Time
 }
 
+type AdminIdentityEvent struct {
+	ID         uuid.UUID
+	IdentityID uuid.UUID
+	Event      string
+	CreatedAt  time.Time
+	Detail     []byte
+}
+
+type AdminIdentityReset struct {
+	ID          uuid.UUID
+	IdentityID  uuid.UUID
+	TokenHash   string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
+	UsedAt      *time.Time
+	CancelledAt *time.Time
+}
+
+type AdminIdentityVerification struct {
+	ID         uuid.UUID
+	IdentityID uuid.UUID
+	TokenHash  string
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	UsedAt     *time.Time
+}
+
 type AdminSession struct {
 	ID              uuid.UUID
 	TenantID        uuid.UUID

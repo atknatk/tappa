@@ -1898,6 +1898,16 @@ Sonra `main`'e birleştir; deploy `00069` ve `00070`'i uygular.
   paneli değil). Yarıda kesilirse geride `INVALID` bir indeks kalır; dosya yeniden koşulunca önce onu
   düşürür, sonra yeniden kurar (goose `NO TRANSACTION` dosyasını yalnız sonunda kaydeder).
 
+- **`00072`** (M14-05) üç tenant-kapsamsız tabloyu (`admin_identity_resets`, `_verifications`,
+  `_events`), kimlik fonksiyonlarını ve `resolve_admin_by_email`'in yeni tanımını getirir. Sıcak tabloda
+  kilit yok (yalnız sütun GRANT'ı — GRANT tablo kilidi almaz); yeni tabloların `admin_identities`'e
+  yabancı anahtarı orada `SHARE ROW EXCLUSIVE` alır. `resolve_admin_by_email` `DROP` + `CREATE` ile tek
+  transaction'da değişir: o an giriş yapan istek fonksiyonun kilidini bekler, eski binary'nin sorgusu
+  (dört sütun, adıyla) yeni tanımda çalışır. Ön koşul: `pgcrypto` (`crypt`, `gen_salt`,
+  `gen_random_bytes` — `scripts/db-init/01-roles.sql`'in uzantısı) `public`'te; yoksa dosya hiçbir şey
+  değiştirmeden reddeder. Down, üç tablodan birinde satır ya da reddedilmiş (`unlinked_at`) bir üyelik
+  varken **reddeder** — canlıda koşulmaz; geri dönüş önceki binary'dir.
+
 **Eski binary yeni şemada çalışır** (ADR 0031 §8 expand): kayıt `identity_id NULL` ile satır yazar,
 oturum `authenticated_at`'i varsayılandan alır; `tappa_app`'ın `admin_users` okuması sütun listesine
 indi ama bugünkü hiçbir sorgu o listenin dışını okumaz

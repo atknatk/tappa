@@ -386,10 +386,12 @@ func TestResolveAdmin_SecurityDefinerProperties(t *testing.T) {
 		wantResult string
 	}{
 		{
-			name:       "resolve_admin_by_email",
-			signature:  "resolve_admin_by_email(citext)",
-			wantArgs:   "p_email citext",
-			wantResult: "TABLE(id uuid, tenant_id uuid, password_hash text, status text)",
+			name:      "resolve_admin_by_email",
+			signature: "resolve_admin_by_email(citext)",
+			wantArgs:  "p_email citext",
+			// 00072 (M14-05, ADR 0031 §5.2 T2): identity_id joined the surface -- md.7 (iii)'s
+			// widening, written with its reason in the ADR; the old binary selects by name.
+			wantResult: "TABLE(id uuid, tenant_id uuid, password_hash text, status text, identity_id uuid)",
 		},
 		{
 			name:       "resolve_admin_session_by_token_hash",

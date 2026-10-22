@@ -108,7 +108,35 @@ var m11Tables = map[string]map[string]m11TableACL{
 	// "tappa_app, tappa_operator, tappa_opdefiner yetkisiz"); tappa_identitydefiner and
 	// tappa_resolver get their column grants with the functions that need them (M14-04, M14-05),
 	// which write their rows here.
-	"admin_identities": {},
+	"admin_identities": {
+		// 00072 (M14-05, ADR 0031 §5.2): what the M14-05 bodies read and write of an identity --
+		// never email (K-15), never last_used_tenant / last_login_at (M14-04's). M14-04 (00071)
+		// adds its own columns; the union is the ADR's matrix.
+		"tappa_identitydefiner": {
+			Select: "id,email,password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope",
+			Update: "password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope",
+		},
+	},
+	// 00072 (M14-05, ADR 0031 §5.1): the identity's reset links, verification links and event log --
+	// TENANT-SCOPE-LESS (m11ScopelessTables). tappa_app holds nothing (ADR 0031 §6). The resolver
+	// reads what its two token resolvers return and filter on; the definer consumes resets (no INSERT:
+	// the issuer is M14-14's), issues and consumes verifications, writes events and sweeps them (the
+	// one DELETE, 90 days -- R17).
+	"admin_identity_resets": {
+		"tappa_resolver":        {Select: "id,identity_id,token_hash,expires_at,used_at,cancelled_at"},
+		"tappa_identitydefiner": {Select: "id,identity_id,token_hash,expires_at,used_at,cancelled_at", Update: "used_at,cancelled_at"},
+	},
+	"admin_identity_verifications": {
+		"tappa_resolver": {Select: "id,identity_id,token_hash,expires_at,used_at"},
+		"tappa_identitydefiner": {
+			Select: "id,identity_id,token_hash,expires_at,used_at",
+			Insert: "identity_id,token_hash,expires_at",
+			Update: "used_at",
+		},
+	},
+	"admin_identity_events": {
+		"tappa_identitydefiner": {Select: "created_at", Insert: "identity_id,event,detail", Delete: true},
+	},
 	// 00037 (K-17's queue): the worker reads it, a request is queued by naming the employee
 	// (the queue's order, the lease and the tries start at their defaults), the lease and the
 	// try count move, and a sent request leaves (DELETE). No column for a code exists at all.
@@ -229,7 +257,9 @@ const feedEventInsertColumns = "tenant_id,seq,punch_id,punch_tenant_id,roles,pun
 // writes them (a policy would be a door for somebody); the BYPASSRLS definers reach them through
 // their column grants alone. Each carries its redline R5 waiver
 // (TestHoldingSchema_AppRoleHasNoVerbOnHoldingTables reads the waivers).
-var m11ScopelessTables = map[string]bool{"holdings": true, "holding_members": true, "admin_identities": true}
+var m11ScopelessTables = map[string]bool{"holdings": true, "holding_members": true, "admin_identities": true,
+	// 00072 (M14-05).
+	"admin_identity_resets": true, "admin_identity_verifications": true, "admin_identity_events": true}
 
 // m11Column is one column added at or after 00037 to a table that existed before, with each
 // role's verbs on it ("S", "I", "U" in that order; "" for nothing).
@@ -306,15 +336,19 @@ var m11Columns = []m11Column{
 	// READS identity_id (the switch's rate bucket, ADR 0031 §6's named residue) and nothing else;
 	// linked_via, linked_at and unlinked_at it neither reads (R16) nor writes. The writers are the
 	// identity definer's functions (M14-04 onwards), which grant themselves the columns.
-	{"admin_users", "identity_id", map[string]string{"tappa_app": "S"}},
-	{"admin_users", "linked_via", map[string]string{}},
-	{"admin_users", "linked_at", map[string]string{}},
-	{"admin_users", "unlinked_at", map[string]string{}},
+	// 00072 (M14-05, ADR 0031 §5.2 / T6): the identity definer reads and writes the link (its
+	// functions link, unlink and relink); the resolver reads identity_id and unlinked_at
+	// (resolve_admin_by_email's new column and its filter).
+	{"admin_users", "identity_id", map[string]string{"tappa_app": "S", "tappa_resolver": "S", "tappa_identitydefiner": "SU"}},
+	{"admin_users", "linked_via", map[string]string{"tappa_identitydefiner": "SU"}},
+	{"admin_users", "linked_at", map[string]string{"tappa_identitydefiner": "SU"}},
+	{"admin_users", "unlinked_at", map[string]string{"tappa_resolver": "S", "tappa_identitydefiner": "SU"}},
 	// 00069 (M14-03, R15): the instant of the session's password proof. admin_sessions hands
 	// tappa_app SELECT and INSERT table-wide (00006) -- today's CreateAdminSession names three
 	// columns and takes the DEFAULT now() -- and UPDATE only on last_used_at and revoked_at (00011):
 	// never on this one.
-	{"admin_sessions", "authenticated_at", map[string]string{"tappa_app": "SI"}},
+	// 00072 (M14-05): the identity definer reads it for the freshness checks (R3), never writes it.
+	{"admin_sessions", "authenticated_at", map[string]string{"tappa_app": "SI", "tappa_identitydefiner": "S"}},
 }
 
 // m11FunctionACL is one function's owner, SECURITY DEFINER flag and EXACT EXECUTE grantees
@@ -386,6 +420,22 @@ var m11Functions = map[string]m11FunctionACL{
 	// definer (its test is current_user, which a definer body would read as its owner), EXECUTE in
 	// its owner alone, its body asserting TG_RELID (adminidentity_test.go binds it elsewhere).
 	"admin_users_guard_identity_credentials()": {owner: "tappa_owner", execute: "tappa_owner"},
+	// 00072 (M14-05, ADR 0031 §5.2): eleven identity_* writers owned by tappa_identitydefiner and two
+	// md.7 token resolvers owned by tappa_resolver -- SECURITY DEFINER, EXECUTE tappa_app alone (and
+	// the owner). identitypassword_test.go pins their signatures, search_path and bodies further.
+	"resolve_identity_reset_by_token_hash(text)":        {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"resolve_identity_verification_by_token_hash(text)": {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"identity_password_for_session(text)":               {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_set_password(text,text)":                  {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_consume_row_reset(text,text)":             {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_consume_reset(text,text)":                 {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_link_legacy(text,text)":                   {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_unlink_backfilled(text,uuid)":             {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_relink_refused(text,uuid)":                {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_request_verification(text,text)":          {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_verify_email(text,text)":                  {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_record_failed_login(uuid,text)":           {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_sweep_events()":                           {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every

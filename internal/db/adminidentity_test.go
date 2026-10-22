@@ -136,8 +136,8 @@ func aiSavepoint(t *testing.T, ctx context.Context, tx pgx.Tx, body func(sp pgx.
 // TestAdminIdentities00069_TheTableIsTheADRsAndScopeLess pins ADR 0031 §5.1's table: exactly its
 // columns (no status, nothing called tenant_id), ENABLE and FORCE with no policy, no sequence, the
 // citext UNIQUE (a case variant is the same address), the bcrypt CHECK, the confirmation window's
-// shape, and no role -- PUBLIC, tappa_app, the operator's two, the resolver, the other definers,
-// the identity definer itself -- reaching it at 00069. The restore residue (01-roles.sql's default
+// shape, and no role -- PUBLIC, tappa_app, the operator's two, the other definers -- reaching it
+// (the identity definer and the resolver get theirs from the later M14 files). The restore residue (01-roles.sql's default
 // hands tappa_app SELECT/INSERT on a table a pg_dump re-creates) reads and writes nothing.
 func TestAdminIdentities00069_TheTableIsTheADRsAndScopeLess(t *testing.T) {
 	ctx, tx := opTx(t)
@@ -170,8 +170,11 @@ func TestAdminIdentities00069_TheTableIsTheADRsAndScopeLess(t *testing.T) {
 		t.Errorf("admin_identities owns %d sequences; a sequence carries the default `rU` a table REVOKE does not reach", n)
 	}
 
-	for _, role := range []string{"public", "tappa_app", "tappa_operator", "tappa_opdefiner", "tappa_resolver",
-		"tappa_holdingdefiner", "tappa_feedwriter", "tappa_identitydefiner"} {
+	// The identity definer and the resolver are absent: their column grants come with the functions
+	// that need them (M14-04's 00071, M14-05's 00072 -- identitypassword_test.go pins 00072's), so
+	// at HEAD they reach it by design. Every other role reaches nothing, at 00069 and after.
+	for _, role := range []string{"public", "tappa_app", "tappa_operator", "tappa_opdefiner",
+		"tappa_holdingdefiner", "tappa_feedwriter"} {
 		var reach bool
 		if err := tx.QueryRow(ctx, `
 			SELECT has_any_column_privilege($1, 'public.admin_identities', 'SELECT')
@@ -250,7 +253,7 @@ func TestAdminIdentities00069_TheTableIsTheADRsAndScopeLess(t *testing.T) {
 // linked_via / linked_at / unlinked_at (R16), cannot INSERT or UPDATE any link column, cannot UPDATE
 // email (K-14's mirror) or admin_sessions.authenticated_at (R15) -- each measured in the catalogue
 // and by the statement itself, on the application's OWN row in its own context, so the 42501 is the
-// privilege's and not RLS's. The operator's two roles and the resolver reach none of the new columns.
+// privilege's and not RLS's. The operator's two roles reach none of the new columns.
 func TestAdminUsers00069_TheApplicationCannotWriteTheLink(t *testing.T) {
 	ctx, tx := opTx(t)
 
@@ -261,9 +264,8 @@ func TestAdminUsers00069_TheApplicationCannotWriteTheLink(t *testing.T) {
 		{"tappa_app", "admin_sessions", "UPDATE", "last_used_at,revoked_at"},
 		{"tappa_operator", "admin_users", "SELECT", ""},
 		{"tappa_opdefiner", "admin_users", "SELECT", "tenant_id,email,status"},
-		{"tappa_resolver", "admin_users", "SELECT", "id,tenant_id,email,password_hash,status,created_at"},
-		{"tappa_identitydefiner", "admin_users", "SELECT", ""},
-		{"tappa_identitydefiner", "admin_sessions", "SELECT", ""},
+		// tappa_resolver's and tappa_identitydefiner's columns on admin_users / admin_sessions are
+		// the later cards' (00072's T6 grant and the definer's matrix -- identitypassword_test.go).
 	} {
 		if got := opColumns(t, ctx, tx, c.role, c.table, c.priv); got != c.want {
 			t.Errorf("%s %s on %s = %q, want %q", c.role, c.priv, c.table, got, c.want)
@@ -272,7 +274,7 @@ func TestAdminUsers00069_TheApplicationCannotWriteTheLink(t *testing.T) {
 	if opInt(t, ctx, tx, `SELECT has_table_privilege('tappa_app', 'public.admin_users', 'SELECT')::int`) != 0 {
 		t.Error("tappa_app holds table-level SELECT on admin_users: it covers linked_via and every future column (S9)")
 	}
-	for _, role := range []string{"tappa_operator", "tappa_opdefiner", "tappa_resolver", "tappa_holdingdefiner", "tappa_feedwriter"} {
+	for _, role := range []string{"tappa_operator", "tappa_opdefiner", "tappa_holdingdefiner", "tappa_feedwriter"} {
 		for _, col := range []string{"identity_id", "linked_via", "linked_at", "unlinked_at"} {
 			if opInt(t, ctx, tx, `SELECT (has_column_privilege($1, 'public.admin_users', $2, 'SELECT')
 			                           OR has_column_privilege($1, 'public.admin_users', $2, 'INSERT')
@@ -821,6 +823,32 @@ func aiCatalogue(t *testing.T, ctx context.Context, q opQuerier) string {
 	return b.String()
 }
 
+// aiLaterMigration is one migration file numbered above 00070, its two sections.
+type aiLaterMigration struct{ name, up, down string }
+
+// aiLaterMigrations returns every migration above 00070, oldest first: 00069's Down / Up walk runs
+// their Downs before its own and their Ups after (a later file's table keys admin_identities; its
+// grants on the link columns go with 00069's Down and come back only with its own Up).
+func aiLaterMigrations(t *testing.T) []aiLaterMigration {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join("..", "..", "db", "migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []aiLaterMigration
+	for _, e := range entries {
+		head, _, ok := strings.Cut(e.Name(), "_")
+		n, err := strconv.Atoi(head)
+		if !ok || err != nil || n <= 70 || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		up, down := opMigrationSections(t, e.Name())
+		out = append(out, aiLaterMigration{e.Name(), up, down})
+	}
+	slices.SortFunc(out, func(a, b aiLaterMigration) int { return strings.Compare(a.name, b.name) })
+	return out
+}
+
 // aiIdentityRolesBlock returns the IDENTITY ROLE block of scripts/db-init/01-roles.sql exactly as the
 // runbook's sed cuts it (markers included).
 func aiIdentityRolesBlock(t *testing.T) string {
@@ -857,7 +885,11 @@ func TestAdminIdentities00069_DownRefusesAnIdentityAndOtherwiseWalksBackAndUp(t 
 	ctx, tx := opTx(t)
 	up, down := opMigrationSections(t, ai00069File)
 	up70, _ := opMigrationSections(t, ai00070File)
+	later := aiLaterMigrations(t)
 	tables := append(downTables(down), "tenants")
+	for _, f := range later {
+		tables = append(tables, downTables(f.down)...)
+	}
 	slices.Sort(tables)
 	tables = slices.Compact(tables)
 	if !slices.Contains(tables, "admin_users") || !slices.Contains(tables, "admin_sessions") || !slices.Contains(tables, "admin_identities") {
@@ -894,8 +926,18 @@ func TestAdminIdentities00069_DownRefusesAnIdentityAndOtherwiseWalksBackAndUp(t 
 			// An identity another package committed would make the Down refuse; it is set aside inside
 			// the savepoint and the rollback restores it.
 			aiExec(t, ctx, sp, `UPDATE admin_users SET identity_id = NULL, unlinked_at = NULL WHERE identity_id IS NOT NULL OR unlinked_at IS NOT NULL`)
+			for _, tbl := range []string{"admin_identity_events", "admin_identity_verifications", "admin_identity_resets"} {
+				if opInt(t, ctx, sp, `SELECT count(*) FROM pg_class WHERE oid = to_regclass($1)`, "public."+tbl) == 1 {
+					aiExec(t, ctx, sp, `DELETE FROM public.`+pgx.Identifier{tbl}.Sanitize())
+				}
+			}
 			aiExec(t, ctx, sp, `DELETE FROM admin_identities`)
 
+			// The later M14 files first, newest first (each Down refuses while its own tables hold
+			// rows -- set aside above).
+			for i := len(later) - 1; i >= 0; i-- {
+				opRunSection(t, ctx, sp, later[i].down, later[i].name+" Down")
+			}
 			opRunSection(t, ctx, sp, down, "00069 Down")
 			at64 := aiCatalogue(t, ctx, sp)
 			for _, gone := range []string{"identity_id", "linked_via", "linked_at", "unlinked_at", "authenticated_at", "admin_identities", "admin_users_guard_identity_credentials"} {
@@ -978,6 +1020,9 @@ func TestAdminIdentities00069_DownRefusesAnIdentityAndOtherwiseWalksBackAndUp(t 
 
 			opRunSection(t, ctx, sp, up, "00069 Up again")
 			opRunSection(t, ctx, sp, strings.ReplaceAll(up70, " CONCURRENTLY", ""), "00070 Up again (in the transaction)")
+			for _, f := range later {
+				opRunSection(t, ctx, sp, f.up, f.name+" Up again")
+			}
 			if again := aiCatalogue(t, ctx, sp); again != head {
 				t.Errorf("after the Up again:\n%s\nwant HEAD's\n%s", again, head)
 			}
