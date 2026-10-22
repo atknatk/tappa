@@ -358,7 +358,7 @@ var storeSurface = map[string]string{
 	"ListFlaggedForReview":             "(context.Context, ListFlaggedForReviewParams{TenantID uuid.UUID; CursorAt *time.Time; CursorID *uuid.UUID; PageSize int32}) ([]ListFlaggedForReviewRow{ID uuid.UUID; OccurredAt time.Time; Type *string; Trust *int16; Verdict string; Channel string; Practice bool; Queued bool; TagUid *string; Ctr *int32; IpMatch *bool; GpsMatch *bool; Note *string; PolicyLayer *string; LocationName *string; DepartmentName *string; EmployeeName *string; SiteLocationID *uuid.UUID; SiteTagUid *string; MatchedSid *string}, error)",
 	"ListLivePasswordResetsForAdmin":   "(context.Context, ListLivePasswordResetsForAdminParams{TenantID uuid.UUID; AdminUserID uuid.UUID}) ([]ListLivePasswordResetsForAdminRow{ID uuid.UUID; TenantID uuid.UUID; AdminUserID uuid.UUID; CreatedAt time.Time; ExpiresAt time.Time}, error)",
 	"ListLocationsForTenant":           "(context.Context, uuid.UUID) ([]Location{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; WifiSsid *string; ExternalRef *string; Active bool; DayCutoff pgtype.Time}, error)",
-	"ListOpenCheckIns":                 "(context.Context, ListOpenCheckInsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListOpenCheckInsRow{EmployeeName *string; LocationName *string; SiteLocationID *uuid.UUID; OccurredAt time.Time; ManagerTyped bool; WasMaskable bool}, error)",
+	"ListOpenCheckIns":                 "(context.Context, ListOpenCheckInsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListOpenCheckInsRow{EmployeeID *uuid.UUID; EmployeeName *string; LocationName *string; SiteLocationID *uuid.UUID; OccurredAt time.Time; ManagerTyped bool; WasMaskable bool}, error)",
 	"ListPanelDepartments":             "(context.Context, ListPanelDepartmentsParams{TenantID uuid.UUID; RowLimit int32}) ([]ListPanelDepartmentsRow{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; LocationName string}, error)",
 	"ListPanelEmployees":               "(context.Context, ListPanelEmployeesParams{TenantID uuid.UUID; Status *string; LocationID *uuid.UUID; DepartmentID *uuid.UUID; FullName *string; CursorName *string; CursorID *uuid.UUID; PageSize int32}) ([]ListPanelEmployeesRow{ID uuid.UUID; FullName string; Status string; InvitedAt *time.Time; ActivatedAt *time.Time; DeactivatedAt *time.Time; LocationID *uuid.UUID; Role *string; LocationName *string; DepartmentName *string; LiveSessions int64; SessionLastUsedAt *time.Time}, error)",
 	"ListPanelLocations":               "(context.Context, ListPanelLocationsParams{TenantID uuid.UUID; RowLimit int32}) ([]ListPanelLocationsRow{ID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; CreatedAt time.Time; ExternalRef *string; DepartmentCount int64}, error)",
@@ -430,6 +430,15 @@ var storeSurface = map[string]string{
 	"SetEmployeeDayCutoff":   "(context.Context, SetEmployeeDayCutoffParams{DayCutoff pgtype.Time; TenantID uuid.UUID; ID uuid.UUID}) (SetEmployeeDayCutoffRow{ID uuid.UUID; DayCutoff pgtype.Time}, error)",
 	"SetLocationDayCutoff":   "(context.Context, SetLocationDayCutoffParams{DayCutoff pgtype.Time; TenantID uuid.UUID; ID uuid.UUID}) (SetLocationDayCutoffRow{ID uuid.UUID; DayCutoff pgtype.Time}, error)",
 	"SetTenantDayCutoff":     "(context.Context, SetTenantDayCutoffParams{DayCutoff pgtype.Time; TenantID uuid.UUID}) (SetTenantDayCutoffRow{ID uuid.UUID; DayCutoff pgtype.Time}, error)",
+	// M15-07 (db/queries/daycutoff.sql): the business-day settings screen's five reads -- the
+	// business's name, zone and cutoff; each venue's and department's name, cutoff and shift;
+	// the people a level reaches (ids, placement, own cutoff -- no name, no e-mail); and the
+	// venues each tapped at lately (two ids). No key, no hash, no evidence; no model is tags'.
+	"GetDayCutoffBusiness":       "(context.Context, uuid.UUID) (GetDayCutoffBusinessRow{Name string; Timezone string; DayCutoff pgtype.Time}, error)",
+	"ListDayCutoffDepartments":   "(context.Context, ListDayCutoffDepartmentsParams{TenantID uuid.UUID; RowLimit int32}) ([]ListDayCutoffDepartmentsRow{ID uuid.UUID; LocationID uuid.UUID; Name string; DayCutoff pgtype.Time; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool}, error)",
+	"ListDayCutoffPeople":        "(context.Context, ListDayCutoffPeopleParams{TenantID uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; EmployeeID *uuid.UUID; RowLimit int32}) ([]ListDayCutoffPeopleRow{ID uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; DayCutoff pgtype.Time}, error)",
+	"ListDayCutoffTouchedVenues": "(context.Context, ListDayCutoffTouchedVenuesParams{TenantID uuid.UUID; EmployeeIds []uuid.UUID; Since time.Time}) ([]ListDayCutoffTouchedVenuesRow{EmployeeID *uuid.UUID; LocationID *uuid.UUID}, error)",
+	"ListDayCutoffVenues":        "(context.Context, ListDayCutoffVenuesParams{TenantID uuid.UUID; RowLimit int32}) ([]ListDayCutoffVenuesRow{ID uuid.UUID; Name string; DayCutoff pgtype.Time; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool}, error)",
 	// M11 API-1 (migrations 00037-00039): the external-ref writes of the panel (K-18). Each
 	// returns an id and the ref -- no key, no model type.
 	"LockEmployeeForExternalRefChange": "(context.Context, LockEmployeeForExternalRefChangeParams{TenantID uuid.UUID; ID uuid.UUID}) (LockEmployeeForExternalRefChangeRow{ID uuid.UUID; ExternalRef *string; LocationID *uuid.UUID}, error)",
@@ -998,10 +1007,13 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// internal/db/holding.go).
 	// 25 -> 26 on 2026-10-15 (M11 API-9): db/queries/webhooks.sql, the owner's webhook endpoint and
 	// the ping bucket; none calls a definer.
-	if files != 26 {
-		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-SIX were there when this was "+
-			"pinned (2026-10-15; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
-			"apiidempotency.sql, invitequeue.sql, punchfeed.sql, directory.sql and webhooks.sql)", files)
+	// 26 -> 27 on 2026-10-22 (M15-07): db/queries/daycutoff.sql, the business-day settings
+	// screen's five reads over tenants, locations, departments, employees and transactions; none
+	// calls a definer.
+	if files != 27 {
+		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-SEVEN were there when this was "+
+			"pinned (2026-10-22; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
+			"apiidempotency.sql, invitequeue.sql, punchfeed.sql, directory.sql, webhooks.sql and daycutoff.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -1099,14 +1111,18 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 227 -> 228 on 2026-10-22 (M15-05 review round): transactions.sql's
 	// AnyRecordWrittenSinceThisTransactionBegan, internal/domain/manual's race check under the
 	// person's tap lock over the caller's own rows; it calls no definer.
-	if named != 228 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND TWENTY-EIGHT were "+
+	// 228 -> 233 on 2026-10-22 (M15-07): daycutoff.sql's five reads behind the business-day
+	// settings screen (GetDayCutoffBusiness, ListDayCutoffVenues, ListDayCutoffDepartments,
+	// ListDayCutoffPeople, ListDayCutoffTouchedVenues), each over the caller's own rows; none
+	// calls a definer.
+	if named != 233 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND THIRTY-THREE were "+
 			"there when this was pinned (2026-10-22: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's five settings reads). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
@@ -1295,9 +1311,11 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// webhook endpoint (eight methods, in storeSurface). Two carry bytes, both the SEALED signing key
 	// of webhook_endpoints (InsertWebhookEndpoint's parameter, GetWebhookEndpointForSigning's row);
 	// neither reads tags.
-	if len(out) != 27 {
-		t.Fatalf("parsed %d file(s) under %s; TWENTY-SEVEN were generated when this floor was last set "+
-			"(2026-10-15). If sqlc genuinely emits a different number now, change this number "+
+	// 27 -> 28 (2026-10-22, M15-07): db/queries/daycutoff.sql adds daycutoff.sql.go -- the
+	// business-day settings screen's five reads, in storeSurface; none carries bytes, none reads tags.
+	if len(out) != 28 {
+		t.Fatalf("parsed %d file(s) under %s; TWENTY-EIGHT were generated when this floor was last set "+
+			"(2026-10-22). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}
 	return out, fset

@@ -1,5 +1,7 @@
 package pages
 
+import "github.com/atknatk/tappa/web/templates/components"
+
 // The ACCOUNT screen (M7-05) — the business's own facts, the three it may change,
 // what the tax register said about its VAT number, and the sentence its staff read
 // after a good tap.
@@ -141,6 +143,9 @@ type AccountView struct {
 	// Brand is the "Your brand" editor (M10 WL-7): the logo and the accent, a preview
 	// of the tap screen with what is saved, and -- for an owner -- the three forms.
 	Brand BrandEditor
+	// BusinessDay is the business level of the business day (M15-07): the value, the
+	// switch's status and, for an owner, the form. nil on a panel without the service.
+	BusinessDay *components.DayCutoffView
 
 	// --- notices and links --------------------------------------------------------
 

@@ -2166,6 +2166,24 @@ type Querier interface {
 	// and those are the ones that must not move. The join is one row under the tenants
 	// policy (which scopes on id), so it adds no scope surface.
 	GetBillingPeriod(ctx context.Context, arg GetBillingPeriodParams) (GetBillingPeriodRow, error)
+	// daycutoff.sql -- the PANEL's reads behind the business-day settings screen (M15-07,
+	// ADR 0032 §A.7): which people take their cutoff from a level, which shifts they work,
+	// and which venues they tapped at lately. READS ONLY. The four writes are M15-02's
+	// setters (SetTenantDayCutoff, SetLocationDayCutoff, SetDepartmentDayCutoff,
+	// SetEmployeeDayCutoff); this file adds none.
+	//
+	// THE HIERARCHY IS RESOLVED IN GO HERE, NOT IN SQL, AND THAT IS NOT A SECOND COPY OF
+	// GetEmployeeForTap's coalesce. The tap asks "what is THIS person's cutoff" and gets one
+	// value. This screen asks "who inherits from THIS level, and what would each of them get
+	// if the level changed" -- the same coalesce evaluated with one input replaced, which a
+	// single resolved column cannot answer. internal/domain/tenant's DB test holds the two
+	// equal for every person it builds (the person card's value against effective_day_cutoff).
+	//
+	// Every statement carries its own @tenant_id predicate (CLAUDE.md §4.5, belt) under RLS
+	// (braces), and every join repeats the employee's or the row's tenant_id.
+	// The business level: its stored cutoff (NOT NULL -- the end of every coalesce), the
+	// zone every wall clock of this screen is read in, and the name the screen gives it.
+	GetDayCutoffBusiness(ctx context.Context, tenantID uuid.UUID) (GetDayCutoffBusinessRow, error)
 	// departments.sql -- tenant-scoped department reads. Every query carries an
 	// explicit tenant_id filter (CLAUDE.md section 4.5, belt + braces on RLS) and
 	// runs inside db.(*DB).WithTenant.
@@ -3748,6 +3766,28 @@ type Querier interface {
 	// backwards. The tenant name is joined for the reason GetBillingPeriod states: the
 	// figures are frozen, the addressee is current.
 	ListBillingPeriods(ctx context.Context, arg ListBillingPeriodsParams) ([]ListBillingPeriodsRow, error)
+	// Every department with its venue, its stored cutoff (NULL = inherit) and its own shift.
+	ListDayCutoffDepartments(ctx context.Context, arg ListDayCutoffDepartmentsParams) ([]ListDayCutoffDepartmentsRow, error)
+	// The people a level's cutoff can reach: everybody who is not deactivated (a person who
+	// has left taps nothing), with their profile branch (employees.location_id -- NULLABLE,
+	// 00037: an API-managed person has none and the branch level is skipped), their
+	// department and their own override. Which of them actually INHERIT from a level is
+	// decided in Go from these four facts; the three optional filters only narrow the read
+	// to the level asked about (a branch, a department, one person) and are not the rule.
+	ListDayCutoffPeople(ctx context.Context, arg ListDayCutoffPeopleParams) ([]ListDayCutoffPeopleRow, error)
+	// The venues each of these people TAPPED at since @since (ADR 0032 §A.7 (2), the named
+	// window tenant.CutoffTouchedWindow): a cutoff comes from the profile branch, but the
+	// work may be done elsewhere -- a Sliema-profile worker on Rusty Bar's 18:00-02:00 night
+	// is cut by a 01:00 Sliema cutoff every night. Read from the person's own transactions
+	// rows, tap channels only (a manager's typed record is not a tap). A holding partner's
+	// venue (location_id NULL, site_location_id set -- K-30) is another business's row and
+	// is not read: RLS hides it and this statement does not try.
+	ListDayCutoffTouchedVenues(ctx context.Context, arg ListDayCutoffTouchedVenuesParams) ([]ListDayCutoffTouchedVenuesRow, error)
+	// Every venue with its stored cutoff (NULL = inherit) and its own shift. The list is
+	// bounded by the buildings a business runs (the locations section's ceiling argument,
+	// venuePageLimit); row_limit is the caller's ceiling and reaching it is reported, never
+	// silently cut.
+	ListDayCutoffVenues(ctx context.Context, arg ListDayCutoffVenuesParams) ([]ListDayCutoffVenuesRow, error)
 	// The tenant's departments, for the panel's DEPARTMENT filter (M6-03).
 	//
 	// It exists beside GetDepartmentShift rather than widening it, which is the split
@@ -3947,6 +3987,11 @@ type Querier interface {
 	// shortened page keeps the entries that have been waiting longest.
 	// M11 API-1c: site_location_id names the venue of an open check-in taken at a PEER's venue (its
 	// location_id is NULL -- K-30); internal/domain/ledger names it from holding_site_locations.
+	//
+	// M15-07: employee_id is returned for the business-day settings screen, which counts the
+	// check-ins open RIGHT NOW that a new cutoff would split, among the people who inherit it
+	// (ADR 0032 §A.7). It reads this list rather than a copy of its definition, so "open" on
+	// that screen is this list's "open"; the column names a person by opaque id, never a name.
 	//
 	// EXPLAIN (ANALYZE, BUFFERS): M15-05's before/after measurement is in CountMaskedOpenCheckIns'
 	// header -- the two statements share the next-record lookup and were measured together.

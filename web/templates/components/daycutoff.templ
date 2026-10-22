@@ -1,0 +1,73 @@
+package components
+
+// The BUSINESS DAY block (M15-07, ADR 0032 §A.7, §A.8) -- one body, drawn as a card of its own
+// (Account, the venue and department forms: the heading is an h2 under the shell's h1) or as
+// a block inside the person card (an h3 under the card's h2).
+//
+// 🔴 THE FORM'S BUTTON SAYS "Review", NOT "Save", AND THAT IS THE DESIGN. Its POST writes
+// nothing: it answers with the review page -- the shifts the new value would cut, a
+// suggestion, the check-ins open now that it would split -- and only that page's confirmed
+// press writes (deactivateconfirm.go's pattern). A button reading "Save" would promise what
+// the first press does not do.
+//
+// 🔴 THE STATUS LINE IS ALWAYS DRAWN (ADR 0032 §A.8): a cutoff saved before the switch is on
+// changes nothing yet, and the screen says so instead of showing it as in effect.
+//
+// THE COMMENTS IN THIS FILE NAME NO CLASS: Tailwind reads them as source (skill tappa-brand).
+
+// DayCutoffCard is the block as a card of its own.
+templ DayCutoffCard(v DayCutoffView) {
+	<section id={ v.Anchor } aria-labelledby={ v.Anchor + "-h" } class="panel-card min-w-0">
+		<h2 id={ v.Anchor + "-h" } class="font-display text-lg font-bold tracking-tight text-ink">Business day</h2>
+		@dayCutoffBody(v)
+	</section>
+}
+
+// DayCutoffBlock is the block inside another card, under its dashed rule.
+templ DayCutoffBlock(v DayCutoffView) {
+	<section id={ v.Anchor } aria-labelledby={ v.Anchor + "-h" } class="flex min-w-0 flex-col gap-2.5 border-t border-dashed border-line pt-4">
+		<h3 id={ v.Anchor + "-h" } class="font-display text-base font-bold tracking-tight text-ink">Business day</h3>
+		@dayCutoffBody(v)
+	</section>
+}
+
+templ dayCutoffBody(v DayCutoffView) {
+	if v.Outcome != nil {
+		@PanelNotice(v.Outcome.Tone, v.Outcome.Heading) {
+			<p>{ v.Outcome.Text }</p>
+		}
+	}
+	<p class="font-mono text-[15px] text-ink">{ v.ValueLine }</p>
+	<p class="text-[13px] leading-normal text-ink/70">{ v.Status }</p>
+	if len(v.Warnings) > 0 {
+		@PanelNotice(ToneWarn, "This cuts a shift") {
+			for _, w := range v.Warnings {
+				<p>{ w }</p>
+			}
+			if v.Suggestion != "" {
+				<p class="mt-1 font-bold">{ v.Suggestion }</p>
+			}
+		}
+	}
+	if v.CanChange {
+		<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-2.5">
+			@hiddenFields(v.Hidden)
+			<div class="field-stack">
+				<label class="lbl" for={ v.InputID }>Business day starts at</label>
+				<input
+					class="field-input field-input--mono max-w-[200px]"
+					id={ v.InputID }
+					type="time"
+					step="60"
+					name="cutoff"
+					value={ v.Input }
+					aria-describedby={ v.InputID + "-help" }
+				/>
+				<p id={ v.InputID + "-help" } class="field-help">{ v.Hint }</p>
+			</div>
+			<button type="submit" class="btn btn--line self-start">Review the change</button>
+		</form>
+	} else if v.WhyNot != "" {
+		<p class="field-help">{ v.WhyNot }</p>
+	}
+}

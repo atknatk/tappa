@@ -1044,9 +1044,13 @@ func TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath(t *testing.T) {
 //	                              in `matching` unless a venue is picked: where the list shows them
 //	ListRollEmployees             (M12-21) the Roll's home venue -> no other-venue mark; the
 //	                              person's counted shifts are Totals.OtherVenueUnknown
+//	ListDayCutoffPeople           (M15-07) the branch level of the business-day settings -> the
+//	                              person inherits no branch (GetEmployeeForTap's skipped level),
+//	                              a branch filter does not match them, their shift is the
+//	                              department's or none
 var employeeLocationReaders = []string{
 	"ConsumeInviteAndActivate", "CountLocationReferences", "CountPanelEmployeesByStatus", "CreateEmployee", "GetEmployeeActivationContext",
-	"GetEmployeeForTap", "GetPanelEmployeeForAction", "InsertManualTransaction", "ListPanelEmployees",
+	"GetEmployeeForTap", "GetPanelEmployeeForAction", "InsertManualTransaction", "ListDayCutoffPeople", "ListPanelEmployees",
 	"ListRollEmployees", "LockEmployeeForExternalRefChange", "MoveEmployee",
 }
 

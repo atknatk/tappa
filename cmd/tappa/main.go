@@ -755,6 +755,14 @@ func run() error {
 	// not a second read of the configuration (M12-34).
 	panelOptions := []handler.AdminAuthOption{handler.PlaqueDrawingsFrom(plaqueTapBase),
 		handler.GPSRadiusFrom(checkins.GPSRadiusM())}
+	// The business-day settings (M15-07): the panel's four cards and their review. It reads
+	// the switch through the SAME directory the tap's prediction reads, so the status line
+	// and the engine answer "is the rule on" by one gate.
+	dayCutoffs, err := tenant.NewDayCutoffs(data, trail, directory, slog.Default())
+	if err != nil {
+		return err
+	}
+	panelOptions = append(panelOptions, handler.BusinessDays(dayCutoffs))
 	switch cfg.InviteDelivery {
 	case config.InviteDeliveryPanel:
 		// No e-mail transport: the integration API's invitation requests wait in the queue (an

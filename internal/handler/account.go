@@ -241,6 +241,7 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 	// of this section goes through here -- the plain load and the refused details, password
 	// and brand saves -- so the heading cannot differ between them.
 	v.Kicker = "Your business, as Taptime knows it"
+	v.BusinessDay = a.accountBusinessDay(r, id)
 	if !v.CanEdit {
 		v.WhyNotEdit = "These details are changed by an owner of the business rather " +
 			"than by a manager. Nothing is wrong with your account, and everything above " +

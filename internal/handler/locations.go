@@ -729,6 +729,8 @@ func (a *AdminAuth) venueForms(w http.ResponseWriter, r *http.Request, screen te
 			Value:     ven.ExternalRef,
 			CanChange: mayChangeExternalRef(id),
 		}
+		// M15-07: the branch level of the business day, with what the current value cuts.
+		f.BusinessDay = a.placeBusinessDay(r, tenant.CutoffBranch, ven.ID)
 		return &f, nil, nil
 	}
 
@@ -764,6 +766,8 @@ func (a *AdminAuth) venueForms(w http.ResponseWriter, r *http.Request, screen te
 		if err := a.attachDepartmentRemoval(w, r, &f, dep); err != nil {
 			return nil, nil, err
 		}
+		// M15-07: the department level of the business day, with what the current value cuts.
+		f.BusinessDay = a.placeBusinessDay(r, tenant.CutoffDepartment, dep.ID)
 		return nil, &f, nil
 	}
 	return nil, nil, nil

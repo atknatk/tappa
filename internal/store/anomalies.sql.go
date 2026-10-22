@@ -915,6 +915,7 @@ func (q *Queries) ListAnomalyVenues(ctx context.Context, arg ListAnomalyVenuesPa
 
 const listOpenCheckIns = `-- name: ListOpenCheckIns :many
 SELECT
+    t.employee_id                                                  AS employee_id,
     e.full_name                                                    AS employee_name,
     l.name                                                         AS location_name,
     t.site_location_id                                             AS site_location_id,
@@ -966,6 +967,7 @@ type ListOpenCheckInsParams struct {
 }
 
 type ListOpenCheckInsRow struct {
+	EmployeeID     *uuid.UUID
 	EmployeeName   *string
 	LocationName   *string
 	SiteLocationID *uuid.UUID
@@ -1029,6 +1031,11 @@ type ListOpenCheckInsRow struct {
 // M11 API-1c: site_location_id names the venue of an open check-in taken at a PEER's venue (its
 // location_id is NULL -- K-30); internal/domain/ledger names it from holding_site_locations.
 //
+// M15-07: employee_id is returned for the business-day settings screen, which counts the
+// check-ins open RIGHT NOW that a new cutoff would split, among the people who inherit it
+// (ADR 0032 §A.7). It reads this list rather than a copy of its definition, so "open" on
+// that screen is this list's "open"; the column names a person by opaque id, never a name.
+//
 // EXPLAIN (ANALYZE, BUFFERS): M15-05's before/after measurement is in CountMaskedOpenCheckIns'
 // header -- the two statements share the next-record lookup and were measured together.
 func (q *Queries) ListOpenCheckIns(ctx context.Context, arg ListOpenCheckInsParams) ([]ListOpenCheckInsRow, error) {
@@ -1046,6 +1053,7 @@ func (q *Queries) ListOpenCheckIns(ctx context.Context, arg ListOpenCheckInsPara
 	for rows.Next() {
 		var i ListOpenCheckInsRow
 		if err := rows.Scan(
+			&i.EmployeeID,
 			&i.EmployeeName,
 			&i.LocationName,
 			&i.SiteLocationID,

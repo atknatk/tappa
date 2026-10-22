@@ -58,6 +58,11 @@ templ AdminAccount(v AccountView) {
 		}
 		<div class="grid grid-cols-1 items-start gap-5 desk:grid-cols-2">
 			@accountIdentity(v)
+			if v.BusinessDay != nil {
+				// M15-07: the business level of the business day, its own card and its own
+				// route (the first press only reviews the change).
+				@components.DayCutoffCard(*v.BusinessDay)
+			}
 			@accountBrand(v.Brand, v.PanelChrome)
 			@accountPasswordForm(v)
 			@accountMessages(v)
