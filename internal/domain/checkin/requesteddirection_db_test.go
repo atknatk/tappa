@@ -101,9 +101,9 @@ func (w *holdingWorld) listedWithoutCheckIn(tenant, employee uuid.UUID) map[time
 // row is `out`, 'employee', still `ok` on the network evidence; with no request it is `in`,
 // 'auto'; a request equal to D is the engine's choice too ('auto' means recorded = D, not "no
 // request arrived").
+//
+// Each case builds its own world inside its subtest, so every helper's Fatalf is the subtest's.
 func TestRecordDB_AChosenDirectionIsRecordedWithWhoChoseIt(t *testing.T) {
-	w := newHoldingWorld(t)
-	w.exec(`UPDATE tenants SET day_cutoff = '05:00' WHERE id = $1`, w.kf)
 	at := maltaWall(t, tuesday, 9, 0)
 	cases := []struct {
 		name    string
@@ -117,10 +117,12 @@ func TestRecordDB_AChosenDirectionIsRecordedWithWhoChoseIt(t *testing.T) {
 		{"no want", nil, tap.TypeIn, tap.DirectionAuto, false, ""},
 		{"want in, the engine's own", wantDir(tap.TypeIn), tap.TypeIn, tap.DirectionAuto, false, ""},
 	}
-	for i, tc := range cases {
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			w := newHoldingWorld(t)
+			w.exec(`UPDATE tenants SET day_cutoff = '05:00' WHERE id = $1`, w.kf)
 			emp := w.employeeOnTheHierarchy(w.kf, nil)
-			req := w.nfc(w.kf, emp, w.kfTag, w.kf, uint32(101+i), w.kfOnNet)
+			req := w.nfc(w.kf, emp, w.kfTag, w.kf, 101, w.kfOnNet)
 			req.RequestedDirection = tc.want
 			res := recordAt(t, w.svc, w.ctx, at, req)
 			if res.Decision.Verdict != tap.VerdictOK || direction(res) != string(tc.dir) || res.Decision.DirectionSource != tc.source {

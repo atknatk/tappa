@@ -523,7 +523,7 @@ type Request struct {
 
 	// RequestedDirection is the direction the person pressed on the tap screen (ADR
 	// 0032 §B.3: the form's want, read by the HTTP boundary — every shape it cannot
-	// read is nil there, never a refusal), or nil for no request. CLIENT INPUT, and a
+	// read is nil there, not a refusal, in a body that parses), or nil for no request. CLIENT INPUT, and a
 	// preference rather than evidence: it is handed to the engine INSIDE the person's
 	// locked section (ADR 0006), where the engine computes its own direction D from the
 	// facts read under that lock and records the request only where it differs

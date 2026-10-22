@@ -590,7 +590,7 @@ func TestParseWant_EveryShapeHasAReadingAndNoneIsARefusal(t *testing.T) {
 
 // TestCheckin_WantReachesTheDomainFromTheBodyOnly: the boundary hands the parsed want to the
 // domain as Request.RequestedDirection -- and only the BODY's. A want in the URL is not a press,
-// and an unusable one is nil, never a refusal (200 with the fake service).
+// and an unusable one is nil, not a refusal (200 with the fake service; the body parses).
 func TestCheckin_WantReachesTheDomainFromTheBodyOnly(t *testing.T) {
 	cases := []struct {
 		name  string

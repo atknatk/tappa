@@ -51,8 +51,11 @@ import (
 //	             the tap screen send one, in or out), read by parseWant. CLIENT
 //	             INPUT and only a PREFERENCE: the engine computes its own direction
 //	             under the person's lock and records this one only where it
-//	             differs, and only while there is a business day (§B.5). No shape
-//	             of it is a 400 — a conflicting or unknown value is "no request".
+//	             differs, and only while there is a business day (§B.5). In a form
+//	             body that parses, no value of want is a 400 — a conflicting or
+//	             unknown value is "no request". A body ParseForm refuses (over
+//	             checkinMaxBody, or a broken percent-encoding) is the 400 below,
+//	             whatever it carries, before any counter is spent.
 //
 // WHAT IS NOT IN THE FORM, deliberately: no tag, no counter, no channel, no
 // verdict, no practice flag, no employee. Every one of those would be a client
@@ -207,9 +210,10 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// THE PERSON'S CHOICE, NEVER A REFUSAL (ADR 0032 §B.3). Unlike occurred_at above,
-	// whose malformed value is a 400, want has a safe reading for every shape: the
-	// engine's own direction. So a conflicting or unknown value is dropped and said in
+	// THE PERSON'S CHOICE, NOT A REFUSAL (ADR 0032 §B.3). Unlike occurred_at above,
+	// whose malformed value is a 400, want has a safe reading for every value a parsed
+	// body can carry: the engine's own direction. (A body ParseForm refused never got
+	// here: that 400 is the body's, not want's.) So a conflicting or unknown value is dropped and said in
 	// the log -- without the value, which is the client's text and not ours to repeat.
 	// It is read from the BODY only (r.PostForm): a want in the URL is not a press.
 	want, unusable := parseWant(r.PostForm[wantField])
@@ -481,8 +485,12 @@ func parseFix(latRaw, lngRaw string) *geo.Point {
 // A value is trimmed before it is judged and compared exactly ("OUT" is unknown): the two
 // buttons send the lower-case words, so anything else did not come from them.
 //
-// 🔴 IT NEVER REFUSES. Every shape has a safe reading -- the engine's own direction --
-// so none is a 400 (§4.6: the tap is decided and recorded whatever this field says). Two
+// 🔴 IT DOES NOT REFUSE. In a form body that parses, no value of want is a 400: every one
+// has a safe reading -- the engine's own direction -- so the tap is decided and recorded
+// whatever this field says (§4.6). What this function never sees is a body ParseForm
+// refused -- over checkinMaxBody, or a broken percent-encoding: Checkin answers that 400
+// before the tap context is read, so no counter is spent and no row is written, as for
+// any other unusable body (TestCheckinDB_AnUnparsableBodyIsA400BeforeWantIsRead). Two
 // values arise from a page whose script added a hidden field beside a pressed button;
 // the screen's script writes one field and reuses it (M15-12), and this is the server
 // side of the same rule. It is pure: no log, no clock.

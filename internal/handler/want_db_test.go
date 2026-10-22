@@ -2,8 +2,9 @@ package handler
 
 // want_db_test.go -- M15-11 through the REAL router, the REAL orchestrator and real Postgres (ADR
 // 0032 §B.3, §B.5): the form's want, as a browser without JavaScript sends it, in every shape --
-// none of them is a 400 and each is exactly one row -- the switch's two closed modes, and two
-// presses at once by one person.
+// in a body that parses none of them is a 400 and each is exactly one row; a body ParseForm
+// refuses is a 400 with no row and no counter spent -- the switch's two closed modes, two
+// presses at once by one person, and a stale page pressed across the business day's start.
 //
 // Every case is a fresh employee of the harness's tenant (h.newEmployee), so the per-person
 // debounce of one case cannot reach another, and every employee has a business day far from now
@@ -13,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +29,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/domain/checkin"
+	"github.com/atknatk/tappa/internal/store"
 )
 
 // wantWarning is the one line Checkin writes for a want it cannot read.
@@ -117,7 +120,7 @@ func TestCheckinDB_EveryWantShapeIsOneRecordAndNoneIsA400(t *testing.T) {
 			req := httptestPost(t, "/api/checkin"+tc.query, form, cookie)
 			w := serve(h, req)
 			if w.Code != http.StatusOK {
-				t.Fatalf("status %d, want 200: no shape of want is refused", w.Code)
+				t.Fatalf("status %d, want 200: in a body that parses, no value of want is refused", w.Code)
 			}
 			if n := h.countFor(t, emp); n != 1 {
 				t.Fatalf("%d rows, want exactly one", n)
@@ -366,5 +369,120 @@ func TestDevTapDB_ASimulatedTapCarriesTheChosenDirection(t *testing.T) {
 	rec := h.lastRecord(t, h.employeeID)
 	if src := h.sourceOf(t, rec.ID); deref(rec.Type) != "out" || src == nil || *src != "employee" {
 		t.Fatalf("recorded %s/%v, want out/employee", deref(rec.Type), src)
+	}
+}
+
+// TestCheckinDB_AnUnparsableBodyIsA400BeforeWantIsRead pins where "no value of want is a 400"
+// stops (the M15-11 lenses' DÜŞÜK-1): it holds in a form body that PARSES. A body ParseForm
+// refuses -- over checkinMaxBody (900 × want=out), or a broken percent-encoding (want=%zz) -- is
+// the ordinary unusable-body 400, answered before the tap context is read: no row and the
+// plaque's counter not spent. CONTROL: a large repeat under the limit (500 × want=out) parses,
+// is one request, and is recorded as the press -- out, 'employee' over the engine's in.
+func TestCheckinDB_AnUnparsableBodyIsA400BeforeWantIsRead(t *testing.T) {
+	h := newTapHarness(t)
+	repeat := func(n int) string { return strings.Repeat("&want=out", n) }
+	cases := []struct {
+		name   string
+		tail   string
+		status int
+	}{
+		{"a body over checkinMaxBody", repeat(900), http.StatusBadRequest},
+		{"a broken percent-encoding", "&want=%zz", http.StatusBadRequest},
+		{"CONTROL: 500 × want=out under the limit", repeat(500), http.StatusOK},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			emp := h.newEmployee(t, "active")
+			cookie := h.cookieForEmployee(t, emp)
+			ctr := uint32(h.startCtr) + 1 + uint32(i)
+			signed, err := h.tap.contexts.mint(h.nfcContext(ctr), h.sessionIDOf(t, cookie))
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw := "ctx=" + url.QueryEscape(signed) + tc.tail
+			if over := len(raw) > checkinMaxBody; over != (tc.name == cases[0].name) {
+				t.Fatalf("PREMISE: the body is %d bytes against checkinMaxBody %d", len(raw), checkinMaxBody)
+			}
+			before := h.lastCtr(t, h.tagUID)
+			req := httptest.NewRequest(http.MethodPost, "/api/checkin", strings.NewReader(raw))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.RemoteAddr = "203.0.113.5:41234"
+			req.AddCookie(cookie)
+			w := serve(h, req)
+			if w.Code != tc.status {
+				t.Fatalf("status %d, want %d", w.Code, tc.status)
+			}
+			if tc.status != http.StatusOK {
+				if n := h.countFor(t, emp); n != 0 {
+					t.Errorf("%d rows written for a body ParseForm refused, want none", n)
+				}
+				if got := h.lastCtr(t, h.tagUID); got != before {
+					t.Errorf("last_ctr %d -> %d: a refused body spent the counter", before, got)
+				}
+				return
+			}
+			if n := h.countFor(t, emp); n != 1 {
+				t.Fatalf("%d rows, want one", n)
+			}
+			rec := h.lastRecord(t, emp)
+			if src := h.sourceOf(t, rec.ID); deref(rec.Type) != "out" || src == nil || *src != "employee" {
+				t.Fatalf("recorded %s/%v, want out/employee: a repeat is one request", deref(rec.Type), src)
+			}
+			if got := h.lastCtr(t, h.tagUID); got != int32(ctr) {
+				t.Errorf("last_ctr %d, want %d", got, ctr)
+			}
+		})
+	}
+}
+
+// TestCheckinDB_AStalePagePressedAfterTheCutoffIsTheChoiceAndListedAsCheckInMissing is the card's
+// stale-page criterion through the real router (the general lens's DÜŞÜK-2, its own experiment):
+// the person checked in two hours ago, the page was minted 90 s ago -- when that check-in was
+// still of this business day and the screen would have said "Clock out" -- and the person's
+// business day began a minute or so ago. The press, want=out, arrives after the boundary: D is now
+// `in` (the check-in is of the previous business day), so the row is the person's `out`,
+// 'employee', `ok` on the venue's network (QR -- an NFC counter gap would flag it), and M15-06's
+// "check-in missing" list names it as after an earlier day (b). The cutoff is the test's own
+// employee's person tier; the shared seed tenant is not touched.
+func TestCheckinDB_AStalePagePressedAfterTheCutoffIsTheChoiceAndListedAsCheckInMissing(t *testing.T) {
+	h := newTapHarness(t)
+	emp := h.newEmployee(t, "active")
+	if err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE employees e SET day_cutoff = to_char((now() AT TIME ZONE t.timezone) - interval '1 minute', 'HH24:MI')::time
+		                            FROM tenants t WHERE t.id = e.tenant_id AND e.tenant_id = $1 AND e.id = $2`, h.tenantID, emp)
+		if err == nil && tag.RowsAffected() != 1 {
+			err = fmt.Errorf("%d rows", tag.RowsAffected())
+		}
+		return err
+	}); err != nil {
+		t.Fatalf("the employee's cutoff a minute ago: %v", err)
+	}
+	h.seedTapAgedBy(t, emp, 2*time.Hour, "in", false)
+	cookie := h.cookieForEmployee(t, emp)
+
+	w := h.postAgedTap(t, h.qrContext(), cookie, 90*time.Second, url.Values{"want": {"out"}})
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200", w.Code)
+	}
+	rec := h.lastRecord(t, emp)
+	src := h.sourceOf(t, rec.ID)
+	if rec.Verdict != "ok" || deref(rec.Type) != "out" || src == nil || *src != "employee" {
+		t.Fatalf("recorded %s/%s/%v via %s, want ok/out/employee", rec.Verdict, deref(rec.Type), src, deref(rec.MatchedSid))
+	}
+	var listed, earlier bool
+	if err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := store.New(tx).ListCheckoutsWithoutCheckIn(ctx, store.ListCheckoutsWithoutCheckInParams{
+			TenantID: h.tenantID, FromAt: time.Now().Add(-24 * time.Hour), ToAt: time.Now().Add(time.Hour), RowLimit: 500})
+		for _, r := range rows {
+			if r.EmployeeID != nil && *r.EmployeeID == emp && r.OccurredAt.Equal(rec.OccurredAt) {
+				listed, earlier = true, r.AfterEarlierDay
+			}
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !listed || !earlier {
+		t.Errorf("on the check-in-missing list %v, after an earlier day %v; want both: the chosen out is (b)", listed, earlier)
 	}
 }
