@@ -198,6 +198,7 @@ func (a *AdminAuth) anomaliesSection(w http.ResponseWriter, r *http.Request) {
 
 	v := pages.AnomaliesView{PanelChrome: a.chrome(r, pages.TabAnomalies)}
 	fillAnomaliesView(&v, screen, time.Now())
+	v.Release = a.businessDayRelease(time.Now(), screen.Zone)
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminAnomalies(v))
 }
 

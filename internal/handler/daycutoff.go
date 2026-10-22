@@ -89,6 +89,8 @@ type panelBusinessDays interface {
 	Move(ctx context.Context, c tenant.MoveCutoffCommand) (tenant.MoveCutoff, error)
 	Version(ctx context.Context, tenantID uuid.UUID, level tenant.CutoffLevel, subject uuid.UUID) (string, error)
 	Switch(now time.Time) tenant.BusinessDaySwitch
+	// Check is the business day check (M15-08): every level at its value on file.
+	Check(ctx context.Context, tenantID uuid.UUID, now time.Time) (tenant.BusinessDayCheck, error)
 }
 
 // BusinessDays gives the panel the business-day service. cmd/tappa always passes it; a panel

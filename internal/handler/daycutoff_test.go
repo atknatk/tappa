@@ -39,8 +39,11 @@ type fakeBusinessDays struct {
 	move      tenant.MoveCutoff
 	moveErr   error
 	sw        tenant.BusinessDaySwitch
+	check     tenant.BusinessDayCheck
+	checkErr  error
 
 	reviews []tenant.CutoffReviewCommand
+	checks  []uuid.UUID
 	sets    []tenant.SetCutoffCommand
 	moves   []tenant.MoveCutoffCommand
 }
@@ -81,6 +84,19 @@ func (f *fakeBusinessDays) Move(_ context.Context, c tenant.MoveCutoffCommand) (
 }
 
 func (f *fakeBusinessDays) Switch(time.Time) tenant.BusinessDaySwitch { return f.sw }
+
+func (f *fakeBusinessDays) Check(_ context.Context, tenantID uuid.UUID, _ time.Time) (tenant.BusinessDayCheck, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.checks = append(f.checks, tenantID)
+	return f.check, f.checkErr
+}
+
+func (f *fakeBusinessDays) checkCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.checks)
+}
 
 func (f *fakeBusinessDays) Version(_ context.Context, _ uuid.UUID, _ tenant.CutoffLevel, _ uuid.UUID) (string, error) {
 	f.mu.Lock()

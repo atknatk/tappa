@@ -63,6 +63,10 @@ templ AdminAccount(v AccountView) {
 				// route (the first press only reviews the change).
 				@components.DayCutoffCard(*v.BusinessDay)
 			}
+			if v.DayCheck != nil {
+				// M15-08: the owner's read-only check of every level, beside the business card.
+				@accountBusinessDayCheck(*v.DayCheck)
+			}
 			@accountBrand(v.Brand, v.PanelChrome)
 			@accountPasswordForm(v)
 			@accountMessages(v)

@@ -38,6 +38,7 @@ import "github.com/atknatk/tappa/web/templates/components"
 templ AdminReports(v ReportsView) {
 	@PanelActions(reportActions(v)) {
 		@PanelShell(v.PanelChrome) {
+			@businessDayRelease(v.Release)
 			if v.Incomplete {
 				// 🔴 THE ONE SENTENCE THIS SECTION MUST NEVER SOFTEN. A truncated read makes
 				// every figure below a floor rather than a total, and a floor printed like a

@@ -835,6 +835,50 @@ func (w cutoffWorld) ownShifts(level CutoffLevel, subject uuid.UUID, o *override
 	return out
 }
 
+// heirsOf is the people who take their cutoff from (level, subject), and their ids.
+func (w cutoffWorld) heirsOf(level CutoffLevel, subject uuid.UUID) ([]cutoffPerson, []uuid.UUID) {
+	var heirs []cutoffPerson
+	var ids []uuid.UUID
+	for _, p := range w.people {
+		if w.inherits(p, level, subject) {
+			heirs = append(heirs, p)
+			ids = append(ids, p.id)
+		}
+	}
+	return heirs, ids
+}
+
+// cuts is a review's heart, shared by Review (one level, one proposed value) and Check (every
+// level, the value on file -- o nil): the shifts checked for the people who take their cutoff
+// from (level, subject) -- each heir's resolved shift and the venues they tapped at (tapped) --
+// plus the level's own shift for a place nobody is placed in yet (ownShifts), the ones the
+// value under o cuts, and each heir's cutoff before and after o.
+func (w cutoffWorld) cuts(level CutoffLevel, subject uuid.UUID, o *override, heirs []cutoffPerson,
+	tapped map[uuid.UUID][]uuid.UUID) (shifts shiftSet, conflicts conflictSet, before, next map[uuid.UUID]time.Duration) {
+	for _, own := range w.ownShifts(level, subject, o) {
+		sh := own.Shift
+		shifts.add(&sh)
+		conflicts.check(own.Cutoff, &sh)
+	}
+	next = map[uuid.UUID]time.Duration{}
+	before = map[uuid.UUID]time.Duration{}
+	for _, p := range heirs {
+		now, _ := w.effective(p, o)
+		was, _ := w.effective(p, nil)
+		next[p.id], before[p.id] = now, was
+		sh := w.resolvedShift(p)
+		shifts.add(sh)
+		conflicts.check(now, sh)
+		for _, v := range tapped[p.id] {
+			if l, ok := w.venues[v]; ok {
+				shifts.add(l.shift)
+				conflicts.check(now, l.shift)
+			}
+		}
+	}
+	return shifts, conflicts, before, next
+}
+
 func (c CutoffReviewCommand) validate() error {
 	switch {
 	case c.TenantID == uuid.Nil:
@@ -884,42 +928,13 @@ func (s *DayCutoffs) Review(ctx context.Context, c CutoffReviewCommand) (CutoffR
 			return err
 		}
 
-		var heirs []cutoffPerson
-		var ids []uuid.UUID
-		for _, p := range w.people {
-			if w.inherits(p, c.Level, c.SubjectID) {
-				heirs = append(heirs, p)
-				ids = append(ids, p.id)
-			}
-		}
+		heirs, ids := w.heirsOf(c.Level, c.SubjectID)
 		out.People = len(heirs)
 		tapped, err := touched(ctx, q, c.TenantID, ids, c.Now)
 		if err != nil {
 			return err
 		}
-		var shifts shiftSet
-		var conflicts conflictSet
-		for _, own := range w.ownShifts(c.Level, c.SubjectID, o) {
-			sh := own.Shift
-			shifts.add(&sh)
-			conflicts.check(own.Cutoff, &sh)
-		}
-		next := map[uuid.UUID]time.Duration{}
-		before := map[uuid.UUID]time.Duration{}
-		for _, p := range heirs {
-			now, _ := w.effective(p, o)
-			was, _ := w.effective(p, nil)
-			next[p.id], before[p.id] = now, was
-			sh := w.resolvedShift(p)
-			shifts.add(sh)
-			conflicts.check(now, sh)
-			for _, v := range tapped[p.id] {
-				if l, ok := w.venues[v]; ok {
-					shifts.add(l.shift)
-					conflicts.check(now, l.shift)
-				}
-			}
-		}
+		shifts, conflicts, before, next := w.cuts(c.Level, c.SubjectID, o, heirs, tapped)
 		out.Conflicts = conflicts.sorted()
 		out.Shifts = len(shifts.list)
 		if v, ok := SuggestCutoff(shifts.list); ok {

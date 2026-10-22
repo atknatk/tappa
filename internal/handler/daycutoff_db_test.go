@@ -305,3 +305,51 @@ func TestBusinessDayDB_AConfirmationIsSpentByTheWriteAndStaleAfterAnyChange(t *t
 		t.Fatalf("the stale confirmation wrote over the other change: cutoff %q", got)
 	}
 }
+
+// TestBusinessDayDB_TheOwnersCheckAndItsNoticeFollowTheConflict is M15-08 steps 3 and 3a over
+// HTTP against the real service: a business whose 05:00 cuts a department's 04:00-12:00 shows
+// the owner the "Business day check" card naming the cut and the notice on every section; the
+// owner then moves the business to the suggestion through the ordinary two presses, and both
+// are gone. A manager of a business with the same cut sees neither.
+func TestBusinessDayDB_TheOwnersCheckAndItsNoticeFollowTheConflict(t *testing.T) {
+	setUp := func(f *dayDBFixture) {
+		venue := uuid.New()
+		f.exec(t, f.tenant, `INSERT INTO locations (id, tenant_id, name) VALUES ($1, $2, 'Plant')`, venue, f.tenant)
+		f.exec(t, f.tenant, `INSERT INTO departments (id, tenant_id, location_id, name, shift_start, shift_end)
+		                     VALUES ($1, $2, $3, 'Pastry & Bakery', '04:00', '12:00')`, uuid.New(), f.tenant, venue)
+	}
+	notice := "Your business day setting cuts 1 shift — review it"
+	f := newDayDBFixture(t, adminRoleOwner)
+	setUp(f)
+	b := f.browser(t)
+	account := htmlOf(t, b.do(http.MethodGet, accountHref, nil))
+	for _, want := range []string{">Business day check<", "The settings on file cut 1 shift.", "The business — 05:00",
+		"05:00 falls inside Pastry &amp; Bakery&#39;s shift (04:00–12:00)", notice} {
+		if !strings.Contains(account, want) {
+			t.Errorf("the owner's Account does not carry %q", want)
+		}
+	}
+	if page := htmlOf(t, b.do(http.MethodGet, anomaliesHref, nil)); !strings.Contains(page, notice) {
+		t.Errorf("the owner's anomaly section does not carry the notice")
+	}
+	rec := b.do(http.MethodPost, businessDayHref, url.Values{"level": {"business"}, "cutoff": {"23:00"}})
+	if rec := b.do(http.MethodPost, businessDayApplyHref, formOf(t, htmlOf(t, rec), businessDayApplyHref)); !strings.Contains(rec.Header().Get("Location"), "day=saved") {
+		t.Fatalf("the owner's apply answered %q", rec.Header().Get("Location"))
+	}
+	account = htmlOf(t, b.do(http.MethodGet, accountHref, nil))
+	if strings.Contains(account, "Your business day setting cuts") || !strings.Contains(account, "The settings on file cut no shift.") {
+		t.Errorf("after 23:00 the owner's Account still carries the notice, or the card does not say nothing is cut")
+	}
+	if page := htmlOf(t, b.do(http.MethodGet, anomaliesHref, nil)); strings.Contains(page, "Your business day setting cuts") {
+		t.Errorf("after 23:00 the anomaly section still carries the notice")
+	}
+
+	m := newDayDBFixture(t, "manager")
+	setUp(m)
+	mb := m.browser(t)
+	for _, href := range []string{accountHref, anomaliesHref} {
+		if page := htmlOf(t, mb.do(http.MethodGet, href, nil)); strings.Contains(page, "Business day check") || strings.Contains(page, "Your business day setting cuts") {
+			t.Errorf("a manager's %s carries the owner's check or its notice", href)
+		}
+	}
+}

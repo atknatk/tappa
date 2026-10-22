@@ -146,6 +146,10 @@ type AccountView struct {
 	// BusinessDay is the business level of the business day (M15-07): the value, the
 	// switch's status and, for an owner, the form. nil on a panel without the service.
 	BusinessDay *components.DayCutoffView
+	// DayCheck is the owner's "Business day check" (M15-08): every level's value on file
+	// against the shifts of the people it reaches. nil for a manager and on a panel without
+	// the service.
+	DayCheck *BusinessDayCheckView
 
 	// --- notices and links --------------------------------------------------------
 

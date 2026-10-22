@@ -205,6 +205,9 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 	// The ones printed in UTC either carry an explicit UTC stamp or are TAPPA's own
 	// dates, not the customer's.
 	zone := a.accountZone(s.Timezone)
+	// The business day check is read ONCE for this page: the shell's notice and the owner's
+	// card below are the same answer (businessdaycheck.go).
+	r = a.withBusinessDayCheck(r)
 	v := pages.AccountView{
 		PanelChrome:     a.chrome(r, pages.TabAccount),
 		VATNumber:       s.VATNumber,
@@ -242,6 +245,7 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 	// and brand saves -- so the heading cannot differ between them.
 	v.Kicker = "Your business, as Taptime knows it"
 	v.BusinessDay = a.accountBusinessDay(r, id)
+	v.DayCheck = a.accountBusinessDayCheck(r)
 	if !v.CanEdit {
 		v.WhyNotEdit = "These details are changed by an owner of the business rather " +
 			"than by a manager. Nothing is wrong with your account, and everything above " +

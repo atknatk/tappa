@@ -1,0 +1,65 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// The business day's release surfaces (M15-08, ADR 0032 §A.8). businessdayview.go says what
+// each field holds; internal/handler/businessdaycheck.go writes every word.
+//
+// THE COMMENTS IN THIS FILE NAME NO CLASS: Tailwind reads them as source (skill tappa-brand).
+
+// accountBusinessDayCheck is the owner's "Business day check" card on Account: read-only, a
+// level per cutting value with M15-07's sentences and a link to the form that changes it.
+templ accountBusinessDayCheck(v BusinessDayCheckView) {
+	<section id={ v.Anchor } aria-labelledby={ v.Anchor + "-h" } class="panel-card min-w-0">
+		<h2 id={ v.Anchor + "-h" } class="font-display text-lg font-bold tracking-tight text-ink">Business day check</h2>
+		if v.Failed != "" {
+			<p class="text-sm leading-normal text-ink">{ v.Failed }</p>
+		} else {
+			<p class="text-sm leading-normal text-ink">{ v.Intro }</p>
+			<p class="text-[13px] leading-normal text-ink/70">{ v.Status }</p>
+			<p class="text-sm font-bold leading-normal text-ink">{ v.Summary }</p>
+			for _, l := range v.Lines {
+				<div class="flex min-w-0 flex-col gap-2 border-t border-dashed border-line pt-3">
+					<p class="font-mono text-[15px] text-ink">{ l.Label }</p>
+					<p class="text-[13px] leading-normal text-ink/70">{ l.Facts }</p>
+					@components.PanelNotice(components.ToneWarn, "This cuts a shift") {
+						for _, w := range l.Warnings {
+							<p>{ w }</p>
+						}
+						if l.Suggestion != "" {
+							<p class="mt-1 font-bold">{ l.Suggestion }</p>
+						}
+					}
+					<a class="btn btn--line self-start" href={ templ.URL(l.Href) }>{ l.LinkText }</a>
+				</div>
+			}
+			if v.Clear != "" {
+				<p class="text-[13px] leading-normal text-ink/70">{ v.Clear }</p>
+			}
+		}
+	</section>
+}
+
+// panelBusinessDayCheckNotice is the shell's notice while the check finds a cut shift: the
+// panel's own warning notice, opening the content well beside the suspension strip.
+templ panelBusinessDayCheckNotice(n PanelBusinessDayCheck) {
+	@components.PanelNotice(components.ToneWarn, n.Heading) {
+		<p>{ n.Sentence }</p>
+		<p><a class="inline-flex min-h-11 items-center font-display font-bold tracking-tight text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(n.Href) }>{ n.LinkText }</a></p>
+	}
+}
+
+// businessDayRelease is the release announcement on the anomaly and report screens: one
+// notice, its sentences each a paragraph of its own.
+templ businessDayRelease(n BusinessDayRelease) {
+	if n.Shown() {
+		@components.PanelNotice(components.ToneWarn, n.Heading) {
+			if n.List != "" {
+				<p>{ n.List }</p>
+			}
+			if n.Day != "" {
+				<p class="mt-1">{ n.Day }</p>
+			}
+		}
+	}
+}
