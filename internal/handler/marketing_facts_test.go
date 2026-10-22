@@ -500,6 +500,7 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 	goSrc := nonTestGoSource(t, "internal", "cmd")
 	scripts := shippedScripts(t)
 	apiSrc := loadAPIFactSources(t)
+	panelSrc := loadPanelFactSources(t)
 
 	registered := func(src, method, href string) bool {
 		return regexp.MustCompile(`r\.` + method + `\(\s*` + regexp.QuoteMeta(href) + `\s*,`).MatchString(src)
@@ -540,6 +541,10 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 		pages.FactAPIWritesPeopleAndLocations:    func() string { return apiWritesViolation(apiSrc) },
 		pages.FactAPIFeedsEveryPunch:             func() string { return apiFeedViolation(apiSrc) },
 		pages.FactAPIEnabledPerBusinessByTaptime: func() string { return apiGateViolation(apiSrc) },
+		// The panel section's three (LP-05; landingpanel_test.go).
+		pages.FactPassShowsTheDaysDocketsNewestFirst: func() string { return passRailViolation(panelSrc) },
+		pages.FactReviewIsApproveOrReject:            func() string { return reviewOutcomeViolation(panelSrc) },
+		pages.FactRollIsTheWeekPerPerson:             both(func() string { return rollWeekViolation(panelSrc) }, rollWeekStartsOnMonday),
 		pages.FactNoAuthenticatorAPI: func() string {
 			for path, src := range goSrc {
 				if hit := authenticatorAPIHit(src); hit != "" {
@@ -704,6 +709,12 @@ func landingLines() map[string]pages.Line {
 		"LandingPrivacyNote":    pages.LandingPrivacyNote,
 		"LandingPricingHeading": pages.LandingPricingHeading,
 		"LandingPricingLede":    pages.LandingPricingLede,
+		// The panel section (LP-05): its heading is a Line too, because it is a claim.
+		"LandingPanelHeading":    pages.LandingPanelHeading,
+		"LandingPanelLede":       pages.LandingPanelLede,
+		"LandingPanelPass.Line":  pages.LandingPanelPass.Line,
+		"LandingPanelSpike.Line": pages.LandingPanelSpike.Line,
+		"LandingPanelRoll.Line":  pages.LandingPanelRoll.Line,
 	}
 }
 
@@ -865,8 +876,8 @@ func TestLandingLines_EveryLedeIsRenderedAndRestsOnAFact(t *testing.T) {
 	t.Parallel()
 	text := renderedLandingText(t)
 	lines := landingLines()
-	if len(lines) < 7 {
-		t.Fatalf("landingLines names %d line(s); the page renders seven, so this test is not reading them all", len(lines))
+	if len(lines) < 12 {
+		t.Fatalf("landingLines names %d line(s); the page renders twelve, so this test is not reading them all", len(lines))
 	}
 	for name, l := range lines {
 		if len(l.Facts) == 0 {
@@ -1184,6 +1195,67 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 	redefined.Migrations = map[string]string{"00046_x.sql": "CREATE OR REPLACE FUNCTION public.holding_feed() RETURNS trigger"}
 	if why := apiFeedViolation(redefined); why != "" {
 		t.Errorf("apiFeedViolation refuses holding_feed()'s definition BEFORE 00049, which 00049 replaces: %s", why)
+	}
+
+	// The panel section's three facts (LP-05): each holds over the real sources and says no
+	// when one piece of what it reads is taken away. A mutation is applied inside the one
+	// component or query it is about, so it cannot land on a twin elsewhere in the file.
+	panel := loadPanelFactSources(t)
+	within := func(src, whole, old, new string) string {
+		return strings.Replace(src, whole, strings.ReplaceAll(whole, old, new), 1)
+	}
+	for _, tc := range []struct {
+		name   string
+		derive func(panelFactSources) string
+		mutate func(*panelFactSources)
+	}{
+		{"the panel's records are oldest first", passRailViolation, func(s *panelFactSources) {
+			s.Queries = within(s.Queries, queryBlock(s.Queries, "ListPanelTransactions"), "ORDER BY t.occurred_at DESC", "ORDER BY t.occurred_at ASC")
+		}},
+		{"the panel's query is not read", passRailViolation, func(s *panelFactSources) {
+			s.Ledger = strings.ReplaceAll(s.Ledger, ".ListPanelTransactions(", ".ListOtherTransactions(")
+		}},
+		{"The Pass hangs no rail", passRailViolation, func(s *panelFactSources) {
+			s.Transactions = within(s.Transactions, templBody(s.Transactions, "passBody"), "@rail(v)", "")
+		}},
+		{"the rail hangs another docket", passRailViolation, func(s *panelFactSources) {
+			s.Transactions = within(s.Transactions, templBody(s.Transactions, "rail"), "@components.RailDocket(d)", "@components.TransactionDocket(d)")
+		}},
+		{"the rail docket prints no stamp", passRailViolation, func(s *panelFactSources) {
+			s.Docket = within(s.Docket, templBody(s.Docket, "RailDocket"), "@VerdictStamp(d.Verdict)", "")
+		}},
+		{"the stamp says another word", passRailViolation, func(s *panelFactSources) {
+			s.Docket = within(s.Docket, templBody(s.Docket, "VerdictStamp"), `stamp--flagged">FLAGGED<`, `stamp--flagged">HELD<`)
+		}},
+		{"a third outcome", reviewOutcomeViolation, func(s *panelFactSources) {
+			s.Mig05 = strings.Replace(s.Mig05, "IN ('approved', 'rejected')", "IN ('approved', 'rejected', 'deferred')", 1)
+		}},
+		{"the form cannot reject", reviewOutcomeViolation, func(s *panelFactSources) {
+			s.Review = strings.ReplaceAll(s.Review, `name="outcome" value="rejected"`, `name="outcome" value="deferred"`)
+		}},
+		{"a report is a fortnight", rollWeekViolation, func(s *panelFactSources) {
+			s.Report = strings.Replace(s.Report, "const ReportDays = 7", "const ReportDays = 14", 1)
+		}},
+		{"The Roll is per venue", rollWeekViolation, func(s *panelFactSources) {
+			s.Reports = within(s.Reports, templBody(s.Reports, "reportPeople"), "range v.People", "range v.Venues")
+		}},
+		{"The Roll has no day cells", rollWeekViolation, func(s *panelFactSources) {
+			s.Reports = within(s.Reports, templBody(s.Reports, "reportPeople"), "range v.DayHeadings", "range v.Totals")
+		}},
+	} {
+		if why := tc.derive(panel); why != "" {
+			t.Errorf("panel control %q: the derivation does not hold over the real sources: %s", tc.name, why)
+			continue
+		}
+		m := panel
+		tc.mutate(&m)
+		if m == panel {
+			t.Errorf("panel control %q: the mutation changed nothing in the sources", tc.name)
+			continue
+		}
+		if tc.derive(m) == "" {
+			t.Errorf("panel control %q: the derivation still holds over a source without it", tc.name)
+		}
 	}
 
 	// The no-"no API" scanner sees the sentence the FAQ carried until 2026-10-21, and

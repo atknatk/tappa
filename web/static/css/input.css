@@ -1788,6 +1788,9 @@
   --porcelain-ch: 237 240 234;
   --paper-ch: 255 253 244;
   --mint-ch: 143 211 175;
+  /* LP-05: the panel drawings' evidence tiles and The Roll's open day. */
+  --saffron-ch: 217 142 43;
+  --tomato-ch: 190 61 42;
   /* The focus ring's colour. Ink on porcelain and paper; a dark ground (.band--ink,
      the green .ondark box) sets it to paper. See the ring below. */
   --ring: var(--ink);
@@ -2589,4 +2592,168 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 
   .lp .lp-pilot { padding-bottom: 96px; }
   .lp .lp-pilotTitle { font-size: 50px; }
+}
+
+/* =========================================================================
+   THE PANEL (LP-05, 2026-10-22)
+
+   "The panel" on the Landing / T-Landing / M-Landing boards, rendered by
+   landingPanel (web/templates/pages/landing.templ): three drawings of the
+   manager's screens -- The Pass, The Spike, The Roll -- each beside its line.
+   One DOM at every width. On the phone and the tablet a drawing sits over its
+   line; from the desktop the two share a row, the line in a 300px column, and
+   the middle row puts its line first.
+
+   THE DRAWINGS ARE PICTURES (role="img"): nothing in them is pressed, so no rule
+   here reserves the 44px floor -- the "Approve" and "Reject" in The Spike are
+   drawn spans, not controls. Every value is sample data and the page says so.
+
+   WHAT EACH WIDTH SHOWS, AS THE BOARDS DRAW IT. The Pass hangs four dockets, two
+   on the phone (the later two are not drawn there). The Spike's docket comes
+   before its queue on the phone and beside it from the tablet. The Roll is a
+   sheet of seven day columns from the tablet; on the phone each person is a card
+   whose seven days are small squares, with the shift count beside them and the
+   role and home venue under the name -- the same cells, their words drawn only
+   where there is room for them.
+
+   TILTS ARE BY POSITION (nth-child), as the panel's own rail tilts its dockets;
+   no tilt is chosen per record and none is written in the page.
+
+   CONTRAST, MEASURED (the WCAG ratio, alpha composited over its ground):
+     ink at 80% on paper                     8.54:1  the lines beside the drawings
+     ink at 70% on paper                     6.05:1  the note, the dockets' labels and foot
+     ink at 70% on porcelain                 5.70:1  the drawings' eyebrows
+     ink at 70% on tomato at 6% over paper   5.81:1  a tile's label on its tint
+     paper on green                          7.73:1  the drawn Approve, a ✓ mark
+     paper on tomato                         5.30:1  a ✗ mark
+   ========================================================================= */
+
+/* ---------------- section ---------------- */
+.lp .lp-panels { display: flex; flex-direction: column; gap: 28px; }
+.lp .lp-panelRow { display: flex; flex-direction: column; gap: 14px; }
+.lp .lp-panelCap { display: flex; flex-direction: column; gap: 4px; padding: 0 4px; }
+.lp .lp-panelCapTitle { font-size: 19px; line-height: 1.3; letter-spacing: -0.02em; }
+.lp .lp-panelCapLine { font-size: 15px; line-height: 1.55; color: rgb(var(--ink-ch) / .8); }
+.lp .lp-panelNote { margin-top: 18px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .7); }
+
+/* ---------------- the drawing's frame ---------------- */
+.lp .lp-mini { display: flex; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--porcelain); box-shadow: 0 18px 40px rgb(var(--ink-ch) / .1); }
+.lp .lp-miniRail { position: relative; flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; width: 46px; padding: 18px 9px; background: var(--ink); }
+.lp .lp-miniRailTop { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--green); }
+.lp .lp-miniDot { width: 18px; height: 18px; margin-bottom: 8px; border-radius: 50%; background: var(--green); box-shadow: inset 0 0 0 4px var(--ink), inset 0 0 0 6px var(--paper); }
+.lp .lp-miniPill { display: block; width: 22px; height: 8px; border-radius: 4px; background: rgb(var(--porcelain-ch) / .22); }
+.lp .lp-miniPill--on { width: 28px; background: var(--paper); }
+.lp .lp-miniBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 18px 20px 20px; }
+.lp .lp-miniHead { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.lp .lp-miniTitles { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.lp .lp-miniKick,
+.lp .lp-miniLbl { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; line-height: 1.4; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-miniTitle { font-size: 24px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; }
+.lp .lp-miniCsv { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 1px solid var(--ink); border-radius: 10px; font-size: 12px; font-weight: 700; }
+.lp .lp-miniCsv svg { display: block; }
+/* The drawings' stamps keep the product's word and frame; only where they sit is
+   the drawing's. */
+.lp .lp-panelStamp { flex: none; align-self: flex-end; }
+
+/* ---------------- The Pass ---------------- */
+.lp .lp-pass { position: relative; padding-top: 6px; }
+.lp .lp-passBar { position: absolute; left: 0; right: 0; top: 6px; height: 7px; border-radius: 4px; background: var(--ink); }
+.lp .lp-passList { display: flex; justify-content: center; gap: 10px; padding: 0 8px 12px; list-style: none; }
+.lp .lp-passItem { flex: 1 1 0; min-width: 0; max-width: 150px; display: flex; flex-direction: column; align-items: center; }
+.lp .lp-passItem:nth-child(n+3) { display: none; }
+.lp .lp-passClip { position: relative; z-index: 1; width: 34px; height: 13px; border-radius: 0 0 5px 5px; background: rgb(var(--ink-ch) / .7); }
+.lp .lp-passDocket { width: 100%; margin-top: -3px; display: flex; flex-direction: column; gap: 7px; padding: 13px 12px 12px; transform-origin: top center; }
+.lp .lp-passItem:nth-child(1) .lp-passDocket { transform: rotate(-1.5deg); }
+.lp .lp-passItem:nth-child(2) .lp-passDocket { transform: rotate(1deg); }
+.lp .lp-passItem:nth-child(3) .lp-passDocket { transform: rotate(-0.5deg); }
+.lp .lp-passItem:nth-child(4) .lp-passDocket { transform: rotate(1.5deg); }
+.lp .lp-passDocket .lp-miniLbl { font-size: 9.5px; letter-spacing: .08em; }
+.lp .lp-passWho { overflow: hidden; font-size: 14px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; text-overflow: ellipsis; }
+.lp .lp-passTime { display: flex; align-items: baseline; gap: 8px; font-family: var(--mono); font-size: 17px; }
+.lp .lp-dir { padding: 1px 5px; border: 1px solid var(--ink); font-size: 10px; font-weight: 700; }
+.lp .lp-passFoot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 6px; padding-top: 6px; border-top: 1px dashed var(--line); font-family: var(--mono); font-size: 9.5px; white-space: nowrap; color: rgb(var(--ink-ch) / .7); }
+
+/* ---------------- The Spike ---------------- */
+.lp .lp-spike { display: flex; flex-direction: column; gap: 14px; }
+.lp .lp-queue { display: flex; flex-direction: column; gap: 7px; list-style: none; }
+.lp .lp-queueItem { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.lp .lp-queueItem--on { padding: 9px 11px; border: 2px solid var(--ink); }
+.lp .lp-queueTop { display: flex; justify-content: space-between; gap: 8px; }
+.lp .lp-queueWho { font-size: 13px; font-weight: 700; }
+.lp .lp-queueWhen { flex: none; font-family: var(--mono); font-size: 11px; }
+.lp .lp-queueWhy { font-family: var(--mono); font-size: 10.5px; line-height: 1.4; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-focus { order: -1; display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+.lp .lp-focusHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.lp .lp-focusId { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.lp .lp-focusId .lp-miniLbl { font-size: 9.5px; }
+.lp .lp-focusWho { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+.lp .lp-focusLine { font-family: var(--mono); font-size: 11px; }
+.lp .lp-focusHead .lp-panelStamp { align-self: flex-start; }
+.lp .lp-tiles { display: flex; gap: 6px; }
+.lp .lp-tile { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 10px; }
+.lp .lp-tile--ok { background: rgb(var(--green-ch) / .06); }
+.lp .lp-tile--no { background: rgb(var(--tomato-ch) / .06); }
+.lp .lp-tile .lp-miniLbl { font-size: 9px; letter-spacing: .06em; line-height: 1.3; }
+.lp .lp-tileVal { display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 700; }
+.lp .lp-tileVal .chk { width: 16px; height: 16px; border-radius: 4px; font-size: 10px; }
+.lp .lp-focusBtns { display: flex; gap: 8px; }
+.lp .lp-fakeBtn { flex: 1; display: inline-flex; align-items: center; justify-content: center; min-height: 34px; border-radius: 10px; font-size: 13px; font-weight: 700; }
+.lp .lp-fakeBtn--approve { background: var(--green); color: var(--paper); }
+.lp .lp-fakeBtn--reject { border: 2px solid var(--tomato); color: var(--ink); }
+
+/* ---------------- The Roll ---------------- */
+.lp .lp-roll { padding: 4px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+.lp .lp-rollHead { display: none; }
+.lp .lp-rollRow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "who who sum" "days shifts shifts"; align-items: center; gap: 7px 6px; padding: 11px 0; border-top: 1px dashed var(--line); }
+.lp .lp-rollHead + .lp-rollRow { border-top: 0; }
+.lp .lp-rollWho { grid-area: who; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lp .lp-rollName { overflow: hidden; font-size: 14px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
+.lp .lp-rollSub { font-family: var(--mono); font-size: 10px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-rollSum { grid-area: sum; justify-self: end; font-family: var(--mono); font-size: 14px; font-weight: 700; white-space: nowrap; }
+.lp .lp-rollShifts { grid-area: shifts; font-family: var(--mono); font-size: 10px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-rollDays { grid-area: days; display: flex; gap: 5px; }
+/* On the phone a day is a 14px square and its words are not drawn. */
+.lp .lp-rollCell { width: 14px; height: 14px; overflow: hidden; border-radius: 4px; font-family: var(--mono); font-size: 0; }
+.lp .lp-rollCell--worked,
+.lp .lp-rollCell--away { background: rgb(var(--green-ch) / .15); }
+.lp .lp-rollCell--away { box-shadow: inset 0 0 0 1px var(--ink); }
+.lp .lp-rollCell--open { border: 1px dashed var(--saffron); background: rgb(var(--saffron-ch) / .1); }
+.lp .lp-rollCell--none { border: 1px solid var(--line); }
+
+@media (min-width: 768px) {
+  .lp .lp-panels { gap: 32px; }
+
+  .lp .lp-passList { justify-content: flex-start; gap: 14px; }
+  .lp .lp-passItem { max-width: 168px; }
+  .lp .lp-passItem:nth-child(n+3) { display: flex; }
+
+  .lp .lp-spike { flex-direction: row; align-items: flex-start; }
+  .lp .lp-queue,
+  .lp .lp-focus { flex: 1 1 0; min-width: 0; }
+  .lp .lp-focus { order: 0; }
+
+  .lp .lp-roll { padding: 2px 0; }
+  .lp .lp-rollHead,
+  .lp .lp-rollRow { display: grid; grid-template-columns: 22% repeat(7, minmax(0, 1fr)) 15%; grid-template-areas: none; align-items: center; gap: 0; padding: 0 12px; }
+  .lp .lp-rollHead { padding-top: 9px; padding-bottom: 9px; font-family: var(--mono); font-size: 9px; letter-spacing: .04em; text-align: center; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); }
+  .lp .lp-rollHeadWho { text-align: left; }
+  .lp .lp-rollHeadSum { text-align: right; }
+  .lp .lp-rollRow { border-top: 1px dashed var(--line); }
+  .lp .lp-rollHead + .lp-rollRow { border-top: 1px dashed var(--line); }
+  .lp .lp-rollWho,
+  .lp .lp-rollSum { grid-area: auto; padding: 8px 4px 8px 0; }
+  .lp .lp-rollName { font-size: 12.5px; font-weight: 400; }
+  .lp .lp-rollSub,
+  .lp .lp-rollShifts { display: none; }
+  .lp .lp-rollSum { padding: 8px 0 8px 4px; font-size: 9.5px; }
+  .lp .lp-rollDays { display: contents; }
+  .lp .lp-rollCell { justify-self: center; width: auto; height: auto; padding: 2px 3px; border: 0; font-size: 9.5px; white-space: nowrap; }
+  .lp .lp-rollCell--open { border: 1px dashed var(--saffron); }
+  .lp .lp-rollCell--none { color: rgb(var(--ink-ch) / .7); }
+}
+@media (min-width: 1200px) {
+  .lp .lp-panels { gap: 44px; }
+  .lp .lp-panelRow { display: grid; grid-template-columns: minmax(0, 1fr) 300px; align-items: center; gap: 40px; }
+  .lp .lp-panelRow--flip { grid-template-columns: 300px minmax(0, 1fr); }
+  .lp .lp-panelRow--flip .lp-panelCap { order: -1; }
 }

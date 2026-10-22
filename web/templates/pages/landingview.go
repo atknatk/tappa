@@ -383,6 +383,22 @@ const (
 	// The report totals per person and per venue. Delegates to
 	// AnchorPerVenueReport.
 	FactReportPerPersonAndVenue Fact = "fact:report-per-person-and-venue"
+	// The Pass hangs the day's records as dockets, newest first, each with its verdict's
+	// stamp (LP-05, "The panel"). Derived from three places together: the panel's record
+	// query (db/queries/transactions.sql ListPanelTransactions) ends ORDER BY
+	// t.occurred_at DESC, The Pass (pages/transactions.templ passBody) hangs its rail of
+	// components.RailDocket over those records, and RailDocket prints
+	// components.VerdictStamp, whose four words are the verdict's.
+	FactPassShowsTheDaysDocketsNewestFirst Fact = "templ:Pass rail of stamped dockets+query newest first"
+	// A manager's decision on a flagged record is one of two: approved or rejected.
+	// Derived from migration 0005's transaction_reviews.outcome CHECK (a closed set of
+	// exactly those two) and The Spike's decision form (pages/review.templ), whose two
+	// submit buttons send outcome=approved and outcome=rejected.
+	FactReviewIsApproveOrReject Fact = "schema:transaction_reviews.outcome+review form"
+	// The Roll is a week of hours per person: ledger.ReportDays is seven, ledger.WeekOf
+	// starts the period on a Monday, and The Roll (pages/reports.templ reportPeople)
+	// prints one row per person with one cell per day. Derived from the sources.
+	FactRollIsTheWeekPerPerson Fact = "ledger:ReportDays 7+reportPeople one row per person"
 )
 
 // --- nav --------------------------------------------------------------------------
@@ -749,6 +765,256 @@ var LandingEvidence = []Evidence{
 			"approved.",
 		Sources: []Source{SourceGPSOnlyAllow, SourceGPSRadiusDefault, SourceNoEvidenceReview},
 	},
+}
+
+// --- the panel (LP-05) -----------------------------------------------------------------
+//
+// "The panel": the three screens a manager works from, each drawn small beside one line
+// about it. The sentences are Lines and carry their pins like every other sentence on the
+// page. The drawings are SAMPLE DATA and say so on the page (LandingPanelSampleNote, and
+// each drawing's accessible name begins "Sample screen:").
+//
+// 🔴 THE SAMPLE IS INVENTED, AND IT IS STILL HELD TO THE PRODUCT. Nobody's record is
+// shown and nothing is read from the database: the names and times are made up for this
+// page. What is NOT made up is what the screens would say about such a record, because a
+// drawing of the panel that stamped a record the engine would not stamp, or printed a
+// score §5 cannot produce, is a claim in a picture. internal/handler runs every sample
+// record through tap.Decide and the panel's own words (the docket's signs, The Spike's
+// reasons and tiles, The Roll's hours format) and fails when the drawing and the product
+// disagree; the venues are the seed's (test/fixtures/seed.sql), as the hero's are.
+//
+// Every label in the drawings is one the panel prints: "newest on the left" (The Pass's
+// rail), "Waiting for review: N", "Physical tap", "Network", "Location", "Approve",
+// "Reject" (The Spike), "Hours per person · week N", "Person", "Total", "CSV" and
+// "N shifts" (The Roll). Nothing in them is a control: they are pictures (role="img"),
+// and the drawn buttons are spans.
+
+// PanelScreen is one of the three screens: its name and the line beside its drawing.
+type PanelScreen struct {
+	Title string
+	Line  Line
+}
+
+// LandingPanelHeading is the section's heading. A record is written for every clock-in,
+// with or without evidence (§4.6 — base:no-evidence-review queues it rather than dropping
+// it), and The Pass lists the day's records.
+var LandingPanelHeading = Line{
+	Text:  "Every clock-in lands on The Pass.",
+	Facts: []Fact{FactPassShowsTheDaysDocketsNewestFirst, FactFlaggedQueueDecidedByAManager},
+}
+
+// LandingPanelLede is the line under it, naming the three screens.
+var LandingPanelLede = Line{
+	Text: "Managers work from the dashboard: the day's taps on The Pass, the ones the rules " +
+		"could not judge on The Spike, and the week's hours on The Roll.",
+	Facts: []Fact{FactPassShowsTheDaysDocketsNewestFirst, FactFlaggedQueueDecidedByAManager,
+		FactRollIsTheWeekPerPerson},
+}
+
+// The three screens, in the page's order.
+var (
+	LandingPanelPass = PanelScreen{
+		Title: "The Pass",
+		Line: Line{
+			Text:  "The day's taps as dockets, newest first, each stamped with its verdict.",
+			Facts: []Fact{FactPassShowsTheDaysDocketsNewestFirst},
+		},
+	}
+	LandingPanelSpike = PanelScreen{
+		Title: "The Spike",
+		Line: Line{
+			Text: "Taps the rules could not judge on evidence alone wait here for a manager to " +
+				"approve or reject.",
+			Facts: []Fact{FactFlaggedQueueDecidedByAManager, FactReviewIsApproveOrReject},
+		},
+	}
+	LandingPanelRoll = PanelScreen{
+		Title: "The Roll",
+		Line: Line{
+			Text:  "Hours per person for the week, with the CSV for your payroll.",
+			Facts: []Fact{FactRollIsTheWeekPerPerson, FactHoursExportAsCSV},
+		},
+	}
+)
+
+// LandingPanelSampleNote is printed under the three drawings. It is not a claim about the
+// product; it is the label that tells a visitor the drawings are not anybody's records.
+const LandingPanelSampleNote = "Drawn for this page — sample names and times."
+
+// PanelDocket is one invented record as the panel's dockets show it.
+type PanelDocket struct {
+	// Venue is one of the seed's venues.
+	Venue string
+	Who   string
+	// Direction is "IN" or "OUT", At the local time as The Pass's rail prints it.
+	Direction string
+	At        string
+	// Channel is "nfc" or "qr", as the record's channel column holds it.
+	Channel string
+	// IP and GPS are the docket's two evidence signs: "yes" or "no".
+	IP  string
+	GPS string
+	// Verdict is the engine's: "ok" or "flag" (a sample on the panel is never rejected:
+	// The Pass is drawn on a good morning).
+	Verdict string
+	Trust   string
+}
+
+// LandingPanelPassDockets is The Pass's rail, newest on the left. The phone draws the
+// first two.
+var LandingPanelPassDockets = []PanelDocket{
+	{Venue: "KF St Julians", Who: "Maria Vella", Direction: "IN", At: "09:58", Channel: "nfc",
+		IP: "yes", GPS: "no", Verdict: "ok", Trust: "70"},
+	{Venue: "KF St Julians", Who: "Kevin Grech", Direction: "IN", At: "09:52", Channel: "nfc",
+		IP: "no", GPS: "yes", Verdict: "ok", Trust: "50"},
+	{Venue: "KF Msida", Who: "Grace Attard", Direction: "IN", At: "09:41", Channel: "nfc",
+		IP: "no", GPS: "no", Verdict: "flag", Trust: "20"},
+	{Venue: "Rusty Bar", Who: "Luke Borg", Direction: "OUT", At: "02:04", Channel: "nfc",
+		IP: "yes", GPS: "no", Verdict: "ok", Trust: "70"},
+}
+
+// PanelQueueItem is one record in The Spike's queue: the record, when (as the queue
+// prints it), the rule that sent it there and the queue's short reason for that rule.
+type PanelQueueItem struct {
+	Docket PanelDocket
+	When   string
+	Rule   string
+	Why    string
+}
+
+// LandingPanelSpikeQueue is The Spike's queue; the first is the record in focus, and it
+// is the same record as The Pass's flagged docket.
+var LandingPanelSpikeQueue = []PanelQueueItem{
+	{Docket: LandingPanelPassDockets[2], When: "today 09:41", Rule: "base:no-evidence-review",
+		Why: "no network, no location"},
+	{Docket: PanelDocket{Venue: "KF Valletta", Who: "Daniel Zammit", Direction: "IN", At: "08:57",
+		Channel: "qr", IP: "no", GPS: "yes", Verdict: "flag", Trust: "50"},
+		When: "today 08:57", Rule: "base:qr-requires-ip", Why: "QR without network"},
+	{Docket: PanelDocket{Venue: "KF Hamrun", Who: "Sara Camilleri", Direction: "OUT", At: "07:03",
+		Channel: "nfc", IP: "yes", GPS: "no", Verdict: "flag", Trust: "70"},
+		When: "today 07:03", Rule: "base:gps-conflict-review", Why: "location outside the venue"},
+}
+
+// PanelFocus is the record in focus on The Spike, with the lines its docket prints.
+type PanelFocus struct {
+	// Label is the venue and the plaque by its uid's last four characters.
+	Label string
+	// Line is direction, the date-ful time and the channel.
+	Line  string
+	Tiles []PanelTile
+}
+
+// PanelTile is one evidence tile: the panel's label and its value word. OK picks the
+// mark (✓ on green or ✗ on tomato); the word says the same thing, so the tone is never
+// told by colour alone.
+type PanelTile struct {
+	Label string
+	Value string
+	OK    bool
+}
+
+// LandingPanelSpikeFocus is the first queue item's docket as The Spike draws it.
+var LandingPanelSpikeFocus = PanelFocus{
+	Label: "KF Msida · plaque 7E10",
+	Line:  "IN · 20 Oct 09:41:12 · NFC",
+	Tiles: []PanelTile{
+		{Label: "Physical tap", Value: "yes", OK: true},
+		{Label: "Network", Value: "no"},
+		{Label: "Location", Value: "no"},
+	},
+}
+
+// LandingPanelPassDay is The Pass's eyebrow: the day the rail hangs.
+const LandingPanelPassDay = "Tue 20 Oct"
+
+// LandingPanelRollWeek is The Roll's ISO week, and LandingPanelRollDays its seven day
+// headings, as The Roll prints them ("Mon 2"). Week 42 of 2026 is Mon 12 – Sun 18 Oct.
+const LandingPanelRollWeek = 42
+
+var LandingPanelRollDays = []string{"Mon 12", "Tue 13", "Wed 14", "Thu 15", "Fri 16", "Sat 17", "Sun 18"}
+
+// PanelRollDay is one day of one person on The Roll.
+type PanelRollDay int
+
+// The two days that carry no worked minutes. Any positive value is minutes worked.
+const (
+	// RollNone is a day with no hours counted.
+	RollNone PanelRollDay = 0
+	// RollOpen is a check-in nobody closed: listed, not counted.
+	RollOpen PanelRollDay = -1
+)
+
+// PanelRollRow is one person's week on The Roll.
+type PanelRollRow struct {
+	Who       string
+	Role      string
+	HomeVenue string
+	Days      [7]PanelRollDay
+	// Away marks the days worked at a venue other than the person's home venue.
+	Away [7]bool
+}
+
+// LandingPanelRollRows is The Roll's sample week.
+var LandingPanelRollRows = []PanelRollRow{
+	{Who: "Maria Vella", Role: "Line Cook", HomeVenue: "KF St Julians",
+		Days: [7]PanelRollDay{482, 495, RollNone, 478, 510, 545, RollNone},
+		Away: [7]bool{3: true}},
+	{Who: "Kevin Grech", Role: "Kitchen Porter", HomeVenue: "KF St Julians",
+		Days: [7]PanelRollDay{360, RollOpen, 370, 365, RollNone, 480, 465}},
+	{Who: "Grace Attard", Role: "Line Cook", HomeVenue: "KF Msida",
+		Days: [7]PanelRollDay{480, 485, 478, 490, 482, RollNone, RollNone}},
+	{Who: "Luke Borg", Role: "Bartender", HomeVenue: "Rusty Bar",
+		Days: [7]PanelRollDay{486, RollNone, 465, 470, 480, 495, 510}},
+}
+
+// RollHours is minutes as The Roll prints hours: "8h 02m".
+func RollHours(minutes int) string {
+	m := minutes % 60
+	pad := ""
+	if m < 10 {
+		pad = "0"
+	}
+	return itoa(minutes/60) + "h " + pad + itoa(m) + "m"
+}
+
+// Cell is the text a day's cell prints: the hours, "open", or a dash for none.
+func (d PanelRollDay) Cell() string {
+	switch {
+	case d == RollOpen:
+		return "open"
+	case d <= RollNone:
+		return "—"
+	default:
+		return RollHours(int(d))
+	}
+}
+
+// Sub is the line under the name, as The Roll prints it: role · home venue.
+func (r PanelRollRow) Sub() string { return r.Role + " · " + r.HomeVenue }
+
+// Total is the week's counted hours; an open check-in is not in it.
+func (r PanelRollRow) Total() string {
+	sum := 0
+	for _, d := range r.Days {
+		if d > RollNone {
+			sum += int(d)
+		}
+	}
+	return RollHours(sum)
+}
+
+// Shifts is the number of worked shifts, as The Roll prints it.
+func (r PanelRollRow) Shifts() string {
+	n := 0
+	for _, d := range r.Days {
+		if d > RollNone {
+			n++
+		}
+	}
+	if n == 1 {
+		return "1 shift"
+	}
+	return itoa(n) + " shifts"
 }
 
 // --- the two shapes -------------------------------------------------------------------

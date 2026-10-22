@@ -97,6 +97,7 @@ templ Landing(v LandingView) {
 				@landingHow()
 				@landingLedger()
 				@landingSecurity()
+				@landingPanel()
 				@landingFits()
 				@landingPricing(v)
 				@landingFAQ()
@@ -481,6 +482,200 @@ templ landingSecurity() {
 			</div>
 		</section>
 	</div>
+}
+
+// landingPanel is "The panel" (LP-05): the three screens a manager works from, each
+// drawn small beside its line -- The Pass, The Spike, The Roll -- and the label that
+// says the drawings are made up.
+//
+// THE SENTENCES ARE LINES (landingview.go) and carry their pins; the drawings carry
+// SAMPLE DATA from the same file, held to the product by internal/handler's panel tests
+// (the engine decides each sample record the way its docket is stamped). The boards end
+// this section with "Take the product tour", a link to /product: it is not here, because
+// that page has no route yet and a link arrives with its route (README O8 -- LP-08 adds
+// both).
+//
+// ONE DOM AT EVERY WIDTH; input.css's LP-05 rules place it. Every class here is a .lp
+// rule, no value sits in a style attribute, and nothing in a drawing can be pressed.
+templ landingPanel() {
+	<div class="band band--paper">
+		<section id="panel" class="lp-sec">
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">The panel</p>
+				<h2 class="lp-h2">{ LandingPanelHeading.Text }</h2>
+				<p class="lp-lede">{ LandingPanelLede.Text }</p>
+				<div class="lp-panels">
+					<div class="lp-panelRow">
+						@landingMiniPass()
+						@landingPanelCaption(LandingPanelPass)
+					</div>
+					<div class="lp-panelRow lp-panelRow--flip">
+						@landingMiniSpike()
+						@landingPanelCaption(LandingPanelSpike)
+					</div>
+					<div class="lp-panelRow">
+						@landingMiniRoll()
+						@landingPanelCaption(LandingPanelRoll)
+					</div>
+				</div>
+				<p class="lp-panelNote">{ LandingPanelSampleNote }</p>
+			</div>
+		</section>
+	</div>
+}
+
+// landingPanelCaption is a screen's name and its line, beside (or under) its drawing.
+templ landingPanelCaption(s PanelScreen) {
+	<div class="lp-panelCap">
+		<h3 class="lp-panelCapTitle">{ s.Title }</h3>
+		<p class="lp-panelCapLine">{ s.Line.Text }</p>
+	</div>
+}
+
+// landingMiniFrame is a drawing's frame: the panel's navigation drawn as a dark strip of
+// seven pills with the current screen's lit, and the screen beside it. Its accessible
+// name says it is a sample, and as an image what is drawn inside it is not read out one by one.
+templ landingMiniFrame(name string, current int) {
+	<div class="lp-mini" role="img" aria-label={ "Sample screen: " + name }>
+		<div class="lp-miniRail" aria-hidden="true">
+			<span class="lp-miniRailTop"></span>
+			<span class="lp-miniDot"></span>
+			for i := range 7 {
+				<span class={ "lp-miniPill", templ.KV("lp-miniPill--on", i == current) }></span>
+			}
+		</div>
+		<div class="lp-miniBody">
+			{ children... }
+		</div>
+	</div>
+}
+
+// landingMiniHead is a drawn screen's eyebrow and name; children go to its right.
+templ landingMiniHead(kick, title string) {
+	<div class="lp-miniHead">
+		<div class="lp-miniTitles">
+			<span class="lp-miniKick">{ kick }</span>
+			<span class="lp-miniTitle">{ title }</span>
+		</div>
+		{ children... }
+	</div>
+}
+
+// landingMiniStamp is the product's stamp in the drawing's small size. The two verdicts a
+// sample carries are the only ones drawn; any other draws nothing, and the panel test
+// refuses a sample that would.
+templ landingMiniStamp(verdict string) {
+	switch verdict {
+		case "ok":
+			<span class="stamp stamp--approved lp-stamp-sm lp-panelStamp">APPROVED</span>
+		case "flag":
+			<span class="stamp stamp--flagged lp-stamp-sm lp-panelStamp">FLAGGED</span>
+	}
+}
+
+// landingMiniPass draws The Pass: the day's rail of dockets, newest on the left.
+templ landingMiniPass() {
+	@landingMiniFrame(LandingPanelPass.Title, 0) {
+		@landingMiniHead(LandingPanelPassDay+" · newest on the left", LandingPanelPass.Title)
+		<div class="lp-pass">
+			<span class="lp-passBar"></span>
+			<ol class="lp-passList">
+				for _, d := range LandingPanelPassDockets {
+					<li class="lp-passItem">
+						<span class="lp-passClip"></span>
+						<div class="lp-slip lp-passDocket">
+							<span class="lp-miniLbl">{ d.Venue }</span>
+							@landingMiniStamp(d.Verdict)
+							<span class="lp-passWho">{ d.Who }</span>
+							<span class="lp-passTime"><span class="lp-dir">{ d.Direction }</span><span>{ d.At }</span></span>
+							<span class="lp-passFoot"><span>Trust { d.Trust }</span><span>IP { d.IP } · GPS { d.GPS }</span></span>
+						</div>
+					</li>
+				}
+			</ol>
+		</div>
+	}
+}
+
+// landingMiniSpike draws The Spike: the queue, and the first record in focus with its
+// evidence tiles and the two decisions.
+templ landingMiniSpike() {
+	@landingMiniFrame(LandingPanelSpike.Title, 1) {
+		@landingMiniHead("Waiting for review: "+itoa(len(LandingPanelSpikeQueue)), LandingPanelSpike.Title)
+		<div class="lp-spike">
+			<ol class="lp-queue">
+				for i, q := range LandingPanelSpikeQueue {
+					<li class={ "lp-queueItem", templ.KV("lp-queueItem--on", i == 0) }>
+						<span class="lp-queueTop"><span class="lp-queueWho">{ q.Docket.Who }</span><span class="lp-queueWhen">{ q.When }</span></span>
+						<span class="lp-queueWhy">{ q.Docket.Venue + " · " + q.Docket.Direction + " · " + q.Why }</span>
+					</li>
+				}
+			</ol>
+			<div class="lp-slip lp-focus">
+				<div class="lp-focusHead">
+					<div class="lp-focusId">
+						<span class="lp-miniLbl">{ LandingPanelSpikeFocus.Label }</span>
+						<span class="lp-focusWho">{ LandingPanelSpikeQueue[0].Docket.Who }</span>
+						<span class="lp-focusLine">{ LandingPanelSpikeFocus.Line }</span>
+					</div>
+					@landingMiniStamp(LandingPanelSpikeQueue[0].Docket.Verdict)
+				</div>
+				<div class="lp-tiles">
+					for _, tile := range LandingPanelSpikeFocus.Tiles {
+						<div class={ "lp-tile", templ.KV("lp-tile--ok", tile.OK), templ.KV("lp-tile--no", !tile.OK) }>
+							<span class="lp-miniLbl">{ tile.Label }</span>
+							<span class="lp-tileVal">
+								if tile.OK {
+									<span class="chk chk--ok">✓</span>
+								} else {
+									<span class="chk chk--no">✗</span>
+								}
+								{ tile.Value }
+							</span>
+						</div>
+					}
+				</div>
+				<div class="lp-focusBtns">
+					<span class="lp-fakeBtn lp-fakeBtn--approve">Approve</span>
+					<span class="lp-fakeBtn lp-fakeBtn--reject">Reject</span>
+				</div>
+			</div>
+		</div>
+	}
+}
+
+// landingMiniRoll draws The Roll: one row per person, seven days and the week's total, and
+// the CSV the panel offers beside it.
+templ landingMiniRoll() {
+	@landingMiniFrame(LandingPanelRoll.Title, 4) {
+		@landingMiniHead("Hours per person · week "+itoa(LandingPanelRollWeek), LandingPanelRoll.Title) {
+			<span class="lp-miniCsv">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg>
+				CSV
+			</span>
+		}
+		<div class="lp-roll">
+			<div class="lp-rollHead">
+				<span class="lp-rollHeadWho">Person</span>
+				for _, day := range LandingPanelRollDays {
+					<span>{ day }</span>
+				}
+				<span class="lp-rollHeadSum">Total</span>
+			</div>
+			for _, r := range LandingPanelRollRows {
+				<div class="lp-rollRow">
+					<span class="lp-rollWho"><span class="lp-rollName">{ r.Who }</span><span class="lp-rollSub">{ r.Sub() }</span></span>
+					<span class="lp-rollDays">
+						for i, d := range r.Days {
+							<span class={ "lp-rollCell", templ.KV("lp-rollCell--worked", d > RollNone && !r.Away[i]), templ.KV("lp-rollCell--away", d > RollNone && r.Away[i]), templ.KV("lp-rollCell--open", d == RollOpen), templ.KV("lp-rollCell--none", d == RollNone) }>{ d.Cell() }</span>
+						}
+					</span>
+					<span class="lp-rollShifts">{ r.Shifts() }</span>
+					<span class="lp-rollSum">{ r.Total() }</span>
+				</div>
+			}
+		</div>
+	}
 }
 
 // landingFits is the two shapes of business, rendered from LandingAudiences. The
