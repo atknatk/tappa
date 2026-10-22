@@ -159,6 +159,9 @@ var opAtVersionSkips = map[int]string{
 		"refuses while an identity exists",
 	70: "UNIQUE (tenant_id, identity_id) on admin_users (M14-03) -- no operator object; a NO TRANSACTION file whose " +
 		"Up and Down are CONCURRENTLY (they cannot run inside a test's transaction)",
+	73: "the admin identity backfill (M14-06) -- no operator object; data only: its Up links rows and births " +
+		"identities, its Down unlinks the backfill's rows and deletes their identities, and refuses while one of " +
+		"them has lived",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file
