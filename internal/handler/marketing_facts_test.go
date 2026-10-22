@@ -163,6 +163,12 @@ type apiFactSources struct {
 	// ReportsCSV is internal/handler/reportscsv.go: where a manager's typed entry goes
 	// instead of the feed (the hours CSV's manager_entered_arrivals column).
 	ReportsCSV string
+	// TxQueries is db/queries/transactions.sql and Report internal/domain/ledger/report.go:
+	// the worked-hours read and the ledger that totals it, which is what the CSV prints.
+	// A manager's typed entry stays in the CSV only while neither filters the manual
+	// channel out of the hours.
+	TxQueries string
+	Report    string
 	// Migrations is every migration by file name, to see that nothing after 00049
 	// redefines punch_feed(): a later CREATE OR REPLACE would make 00049 stale.
 	Migrations map[string]string
@@ -202,6 +208,8 @@ func loadAPIFactSources(t *testing.T) apiFactSources {
 		Mig39:      migs["00039_open_the_api_from_the_operator.sql"],
 		Mig49:      migs["00049_write_the_punch_feed.sql"],
 		ReportsCSV: strip(repoFile(t, "internal", "handler", "reportscsv.go")),
+		TxQueries:  repoFile(t, "db", "queries", "transactions.sql"),
+		Report:     strip(repoFile(t, "internal", "domain", "ledger", "report.go")),
 		Migrations: migs,
 	}
 }
@@ -302,7 +310,17 @@ func apiWritesViolation(s apiFactSources) string {
 var (
 	feedTapGateRE    = regexp.MustCompile(`IF NEW\.verdict <> 'ok' OR NEW\.channel NOT IN \('nfc', 'qr'\) OR NEW\.practice IS NOT FALSE OR NEW\.type IS NULL THEN\s+RETURN NULL;`)
 	feedReviewGateRE = regexp.MustCompile(`IF NEW\.outcome <> 'approved' THEN\s+RETURN NULL;`)
-	feedFlagGateRE   = regexp.MustCompile(`IF v_verdict <> 'flag' OR v_channel NOT IN \('nfc', 'qr'\) OR v_practice IS NOT FALSE OR v_type IS NULL THEN\s+RETURN NULL;`)
+	// holding_feed's two gates (00049): the employer's event is an ok NFC or QR tap, or an
+	// approved flagged one -- the holding twins of the two above (LP-08 re-review: a
+	// 'manual' added to either was green).
+	holdingTapGateRE  = regexp.MustCompile(`v_event := NEW\.verdict = 'ok' AND NEW\.channel IN \('nfc', 'qr'\) AND NEW\.practice IS FALSE AND NEW\.type IS NOT NULL;`)
+	holdingFlagGateRE = regexp.MustCompile(`v_event := NEW\.outcome = 'approved' AND v_verdict = 'flag' AND v_channel IN \('nfc', 'qr'\) AND v_practice IS FALSE\s+AND v_type IS NOT NULL;`)
+	// reportChannelRE is every place the ledger's code reads a record's channel, and
+	// reportManualFieldRE the one it may: marking a row as typed (it never drops it).
+	reportChannelRE     = regexp.MustCompile(`\.Channel\b`)
+	reportManualFieldRE = regexp.MustCompile(`Manual:\s+row\.Channel == "manual",`)
+	reportManualSkipRE  = regexp.MustCompile(`(?s)if\s[^{]*\bManual\b[^{]*\{\s*(?:continue|return)\b`)
+	feedFlagGateRE      = regexp.MustCompile(`IF v_verdict <> 'flag' OR v_channel NOT IN \('nfc', 'qr'\) OR v_practice IS NOT FALSE OR v_type IS NULL THEN\s+RETURN NULL;`)
 )
 
 // apiFeedViolation is FactAPIFeedsEveryCountedTap's: the feed route, the trigger that
@@ -325,6 +343,25 @@ func apiFeedViolation(s apiFactSources) string {
 	if !feedTapGateRE.MatchString(body) || !feedReviewGateRE.MatchString(body) || !feedFlagGateRE.MatchString(body) {
 		return "00049's punch_feed() no longer admits exactly an ok NFC or QR tap and an approved flagged one, " +
 			"so \"every counted tap, and no entry typed by a manager\" is no longer what the feed carries"
+	}
+	if hold := holdingFeedBodyRE.FindString(gooseUp(s.Mig49)); !holdingTapGateRE.MatchString(hold) || !holdingFlagGateRE.MatchString(hold) {
+		return "00049's holding_feed() no longer admits exactly an ok NFC or QR tap and an approved flagged one, " +
+			"so a holding punch's employer feed is no longer \"every counted tap, and no entry typed by a manager\""
+	}
+	// The hours the CSV prints include a manager's typed entry: the worked-hours read
+	// does not filter by channel, and the ledger reads the channel only to mark a row.
+	worked := queryBlock(s.TxQueries, "ListWorkedShiftEvents")
+	at := strings.LastIndex(worked, "\nWHERE ")
+	if worked == "" || at < 0 {
+		return "db/queries/transactions.sql no longer has ListWorkedShiftEvents with a WHERE"
+	}
+	where, _, _ := strings.Cut(worked[at:], ";")
+	if strings.Contains(where, "channel") {
+		return "the worked-hours read filters by channel, so a manager's typed entry may not be in the CSV's hours"
+	}
+	if n := len(reportChannelRE.FindAllString(s.Report, -1)); n != 1 || !reportManualFieldRE.MatchString(s.Report) || reportManualSkipRE.MatchString(s.Report) {
+		return fmt.Sprintf("the ledger reads a record's channel %d time(s) or skips a typed row; it may only mark one "+
+			"(Manual), so a manager's entry may not be in the CSV's hours", n)
 	}
 	if !strings.Contains(s.ReportsCSV, "manager_entered_arrivals") {
 		return "the hours CSV no longer carries the manager's entries, so \"entries typed by a manager stay in the CSV\" is false"
@@ -1366,6 +1403,8 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		mig49    field = func(s *apiFactSources) *string { return &s.Mig49 }
 		// reportsCSV is a field of the struct like the others.
 		reportsCSV field = func(s *apiFactSources) *string { return &s.ReportsCSV }
+		txQueries  field = func(s *apiFactSources) *string { return &s.TxQueries }
+		report     field = func(s *apiFactSources) *string { return &s.Report }
 	)
 	for _, tc := range []struct {
 		name     string
@@ -1389,6 +1428,11 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{"the feed admits a manual record", apiFeedViolation, mig49, "OR NEW.channel NOT IN ('nfc', 'qr')", "OR NEW.channel NOT IN ('nfc', 'qr', 'manual')"},
 		{"the feed admits a rejected record", apiFeedViolation, mig49, "IF NEW.outcome <> 'approved' THEN", "IF NEW.outcome = 'never' THEN"},
 		{"the CSV drops the manager's entries", apiFeedViolation, reportsCSV, "manager_entered_arrivals", "arrivals"},
+		{"the holding feed admits a manual record", apiFeedViolation, mig49, "v_event := NEW.verdict = 'ok' AND NEW.channel IN ('nfc', 'qr')", "v_event := NEW.verdict = 'ok' AND NEW.channel IN ('nfc', 'qr', 'manual')"},
+		{"the holding feed admits a manual approval", apiFeedViolation, mig49, "AND v_verdict = 'flag' AND v_channel IN ('nfc', 'qr')", "AND v_verdict = 'flag' AND v_channel IN ('nfc', 'qr', 'manual')"},
+		{"the worked-hours read drops typed rows", apiFeedViolation, txQueries, "  AND NOT t.practice\n  AND t.occurred_at >= @from_at", "  AND NOT t.practice\n  AND t.channel <> 'manual'\n  AND t.occurred_at >= @from_at"},
+		{"the ledger skips a typed row", apiFeedViolation, report, "if e.Manual {", "if e.Manual {\n\t\t\tcontinue\n\t\t}\n\t\tif e.Manual {"},
+		{"the ledger reads the channel again", apiFeedViolation, report, `Manual:       row.Channel == "manual",`, `Manual:       row.Channel == "manual" || row.Channel == "x",`},
 		{"a closed API is not refused", apiGateViolation, auth, "case k.APIEnabledAt == nil:", "case false:"},
 		{"the refusal is not a 403", apiGateViolation, auth, `&AuthError{http.StatusForbidden, "the integration`, `&AuthError{http.StatusUnauthorized, "the integration`},
 		{"a 403 is not api_disabled", apiGateViolation, apiPkg, "writeProblem(w, problemAPIDisabled)", "writeProblem(w, problemUnauthorized)"},
