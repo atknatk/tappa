@@ -32,6 +32,10 @@
 --   and a stamp is never rewritten (00022's write-once trigger would refuse that).
 --   The same fixed identifiers are mirrored, typed, in test/fixtures/ids.go so
 --   Go tests reference named handles instead of magic strings.
+--   A THIRD ONE, one column again (M15-08, 2026-10-22): KM's business day, tenants.day_cutoff
+--   23:00, is backfilled into a row seeded before migration 00064 -- only while the value is
+--   still the migration's default and nobody has changed it on the panel; the guard is
+--   written out at that statement.
 --   ONE MORE THING TO KNOW, and it belongs to scripts/seed.sh rather than to this
 --   file: the key-wrapping half rewrites all twelve tags.aes_key_ref values on
 --   EVERY run, because sun.Wrap draws a fresh GCM nonce each time. The bytes
@@ -101,15 +105,42 @@ BEGIN;
 -- Direct INSERT ... VALUES: target column types are known, so uuid/text literals
 -- coerce without explicit casts. vat_number is UNIQUE; the values are fake but
 -- format-plausible (MT + 8 digits). Format/VIES validation is the app layer's job.
-INSERT INTO tenants (id, name, vat_number, business_type, structure, plan, timezone, created_at)
+--
+-- day_cutoff (00064, ADR 0032 §A.2) is where each business's BUSINESS DAY starts, a Malta
+-- wall clock like the shifts (Q30, 2026-10-21; M15-08):
+--   * KF 05:00 -- the migration's default, written out: 05:00 is outside every KF band,
+--     Rusty Bar's 18:00-02:00 night included (its band ends at 04:00).
+--   * KM 23:00 -- NOT the default: 05:00 falls inside KM Meat Production's 05:00-13:00 and
+--     KM Pastry & Bakery's 04:00-12:00, so a 03:58 bakery clock-in would count for the
+--     previous day and its 12:05 clock-out would be recorded as a clock-in. 23:00 is outside
+--     every KM band (the latest, KM General's and the plant's, ends at 19:00; the earliest,
+--     the bakery's, opens at 03:00).
+-- internal/domain/tenant's seedday tests hold these two values and the KM day they give.
+INSERT INTO tenants (id, name, vat_number, business_type, structure, plan, timezone, day_cutoff, created_at)
 VALUES
     ('10000000-0000-4000-8000-000000000001', 'Kebab Factory Ltd.',
-     'MT20250001', 'restaurant', 'multi', 'founding', 'Europe/Malta',
+     'MT20250001', 'restaurant', 'multi', 'founding', 'Europe/Malta', TIME '05:00',
      now() - interval '90 days'),
     ('20000000-0000-4000-8000-000000000001', 'Kebab Manufacturing Co. Ltd.',
-     'MT20250002', 'production', 'single', 'founding', 'Europe/Malta',
+     'MT20250002', 'production', 'single', 'founding', 'Europe/Malta', TIME '23:00',
      now() - interval '90 days')
 ON CONFLICT (id) DO NOTHING;
+
+-- A THIRD ONE-COLUMN EXCEPTION (M15-08): a database seeded before 00064 carries KM at the
+-- migration's 05:00 default, which DO NOTHING above never revisits. This backfills KM's
+-- 23:00 into such a row -- and ONLY into one nobody has set: the value must still be the
+-- default AND the trail must hold no business-day change of KM's (tenant.DayCutoffs.Set
+-- writes tenant.day_cutoff_updated in the write's own transaction), so an owner who chose
+-- 05:00 on the panel keeps it. A second run matches nothing (the value is 23:00). KF needs
+-- no backfill: its value IS the default.
+UPDATE tenants
+SET day_cutoff = TIME '23:00'
+WHERE id = '20000000-0000-4000-8000-000000000001'
+  AND day_cutoff = TIME '05:00'
+  AND NOT EXISTS (
+      SELECT 1 FROM audit_log a
+      WHERE a.tenant_id = '20000000-0000-4000-8000-000000000001'
+        AND a.action = 'tenant.day_cutoff_updated');
 
 -- ------------------------------------------------------------------- locations
 -- KF: 9 locations, each its own static /32 from 203.0.113.0/24 (proof-of-place).
