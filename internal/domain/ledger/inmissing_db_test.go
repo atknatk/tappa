@@ -1,7 +1,7 @@
 package ledger
 
-// inmissing_db_test.go -- M15-06 against real Postgres (CLAUDE.md §8): a checkout whose business
-// day has no check-in before it -- ADR 0032 §A.6's (b) and (c) -- is counted once by the reports
+// inmissing_db_test.go -- M15-06 against real Postgres (CLAUDE.md §8): a checkout with no open
+// check-in for it to close -- ADR 0032 §A.6's (b) and (c) -- is counted once by the reports
 // section (Totals.OutWithoutIn, or StartedEarlier at the period's seam) and listed by Odd shapes'
 // "check-in missing" list (ListCheckoutsWithoutCheckIn); a correction's surplus (e), a row with no
 // business day (d) and a too-long pair (a) are on neither.
@@ -15,6 +15,7 @@ package ledger
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/atknatk/tappa/internal/audit"
 	manualentry "github.com/atknatk/tappa/internal/domain/manual"
@@ -128,6 +130,26 @@ func TestCheckoutsWithoutCheckIn_EachShapeIsCountedOnceAndListedOnlyWhenACheckIn
 			w.chain(p, []cpRow{{dir: "in", at: in, day: w.s(in), serverWrite: true}, {dir: "out", at: out, day: w.s(out), serverWrite: true}})
 			w.typeOut(p, w.day(0, 17, 0))
 		}, func(w *cpWorld) want { return want{worked: 8 * time.Hour, startedEarlier: 1} }},
+		{"(e) with the check-in exactly at the business day's start (I's bound is inclusive)", func(w *cpWorld, p uuid.UUID) {
+			// Review DÜŞÜK-3 m7: Monday 05:00 in -- exactly S under the 05:00 cutoff --, 20:00 out,
+			// the manager's 17:00 typed later. 20:00's P is that 17:00 checkout (W) and its business
+			// day holds the 05:00 check-in (I: occurred_at >= S, inclusive) -> (e), not listed.
+			in, out := w.day(0, 5, 0), w.day(0, 20, 0)
+			if !w.s(in).Equal(in) {
+				w.t.Fatalf("PREMISE: Monday 05:00 is not its business day's start (%v)", w.s(in))
+			}
+			w.chain(p, []cpRow{{dir: "in", at: in, day: w.s(in), serverWrite: true}, {dir: "out", at: out, day: w.s(out), serverWrite: true}})
+			w.typeOut(p, w.day(0, 17, 0))
+		}, func(w *cpWorld) want { return want{worked: 12 * time.Hour, startedEarlier: 1} }},
+		{"the window's bounds: an out at the week's first instant is listed, one at its end is not", func(w *cpWorld, p uuid.UUID) {
+			// Review DÜŞÜK-3 m2, m9: From is inclusive and To exclusive, on the list as on the
+			// report. Monday 00:00 out alone (its business day Sunday 05:00, the week before: the
+			// report's seam) and next Monday 00:00 out (next week's).
+			first, end := w.week.From, w.week.To
+			w.chain(p, []cpRow{{dir: "out", at: first, day: w.s(first), serverWrite: true}, {dir: "out", at: end, day: w.s(end), serverWrite: true}})
+		}, func(w *cpWorld) want {
+			return want{startedEarlier: 1, listed: []time.Time{w.week.From.UTC()}, afterEarlierDay: []bool{false}}
+		}},
 		{"(a) the historical stale shape, S NULL", func(w *cpWorld, p uuid.UUID) {
 			w.chain(p, []cpRow{{dir: "in", at: w.day(0, 9, 0), serverWrite: true}, {dir: "out", at: w.day(1, 9, 5), serverWrite: true}})
 		}, func(w *cpWorld) want { return want{tooLong: 1, opens: 1} }},
@@ -253,7 +275,7 @@ func TestCheckoutsWithoutCheckIn_TheListIsTheClassificationsBAndC(t *testing.T) 
 	}
 }
 
-// TestRLS_CheckoutsWithoutCheckIn_AnotherTenantsAreNotListed: B has a checkout with no check-in.
+// TestRLS_CheckoutsWithoutCheckIn_AnotherTenantsAreNotListed: B has a checkout with no open check-in to close.
 // Asked in A's context FOR B (the explicit filter admits B's row), the list is empty -- RLS's
 // doing, not the WHERE's. Positive control: B's context lists it. And the belt: in B's context
 // asking for A, the explicit tenant filter alone leaves B's row out.
@@ -281,5 +303,39 @@ func TestRLS_CheckoutsWithoutCheckIn_AnotherTenantsAreNotListed(t *testing.T) {
 	}
 	if n := list(b.tenant, a.tenant); n != 0 {
 		t.Errorf("explicit filter: B's context asking for A lists %d of B's checkouts", n)
+	}
+}
+
+// TestCheckoutsWithoutCheckIn_ACheckoutNamingNoEmployeeCannotBeWritten (review DÜŞÜK-3 m4): the
+// list's `o.employee_id IS NOT NULL` cannot be shown to matter by a row, because no such row can
+// exist -- measured: a checkout naming no employee is refused under every verdict by two validated
+// CHECKs of migrations 00005 and 00014 (transactions_decided_has_employee: an `ok` or `flag` row
+// names an employee; transactions_refusal_has_no_direction: a `reject` or `ignored` row has no
+// direction). So the predicate is a belt over the schema, and what is pinned here is the schema
+// half: if either CHECK is ever loosened this goes red, and the predicate becomes the one thing
+// keeping a chainless checkout off the list. Positive control: a named orphan beside them is listed.
+func TestCheckoutsWithoutCheckIn_ACheckoutNamingNoEmployeeCannotBeWritten(t *testing.T) {
+	w := cpNewWorld(t)
+	at := w.day(1, 10, 0)
+	for _, verdict := range []string{"ok", "flag", "reject", "ignored"} {
+		tx, err := w.owner.Begin(w.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(w.ctx, `SELECT set_config('app.tenant_id', $1, true)`, w.tenant.String()); err != nil {
+			t.Fatal(err)
+		}
+		_, err = tx.Exec(w.ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, occurred_at, verdict, channel, type, business_day_start)
+		                         VALUES ($1, NULL, $2, $3, $4, 'nfc', 'out', $5)`, w.tenant, w.venue, at, verdict, w.s(at))
+		_ = tx.Rollback(w.ctx)
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+			t.Errorf("verdict %s: a checkout naming no employee was not refused by a CHECK (err %v)", verdict, err)
+		}
+	}
+	named := w.employee("Named")
+	w.chain(named, []cpRow{{dir: "out", at: at, day: w.s(at), serverWrite: true}})
+	if got := w.inMissingListed(w.week.From, w.week.To); len(got) != 1 || !strings.HasPrefix(got[0].name, "Named ") {
+		t.Errorf("listed %+v, want the named employee's checkout alone", got)
 	}
 }

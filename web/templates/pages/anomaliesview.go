@@ -83,8 +83,8 @@ type AnomaliesView struct {
 	Plaques    []AnomalyPlaqueView
 	Pairs      []AnomalyPairView
 	Open       []AnomalyOpenView
-	// InMissing is the "check-in missing" list (M15-06): the week's checkouts whose business
-	// day has no check-in before them. MoreInMissing is set when it hit the cap.
+	// InMissing is the "check-in missing" list (M15-06): the week's checkouts with no open
+	// check-in for them to close. MoreInMissing is set when it hit the cap.
 	InMissing     []AnomalyInMissingView
 	MoreInMissing bool
 
@@ -315,7 +315,7 @@ type AnomalyOpenView struct {
 	WasMaskable bool
 }
 
-// AnomalyInMissingView is a checkout whose business day has no check-in before it.
+// AnomalyInMissingView is a checkout with no open check-in for it to close (ledger.AnomalyInMissing).
 type AnomalyInMissingView struct {
 	Who   string
 	Venue string

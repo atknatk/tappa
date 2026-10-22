@@ -272,9 +272,9 @@ type PersonHours struct {
 	// Open counts this person's unclosed check-ins inside the period. The hours are
 	// not estimated and never enter any of the totals above (Q18).
 	Open int
-	// OutWithoutIn counts this person's checkouts inside the period that close nothing because
-	// their business day has no check-in before them -- ADR 0032 §A.6's classes (b) and (c), the
-	// "check-in missing" half of Totals.OutWithoutIn (M15-06). Like Open, it carries no hours.
+	// OutWithoutIn counts this person's checkouts inside the period with no open check-in for
+	// them to close -- ADR 0032 §A.6's classes (b) and (c), this person's share of
+	// Totals.OutWithoutIn (M15-06). Like Open, it carries no hours.
 	OutWithoutIn int
 }
 
@@ -296,8 +296,10 @@ type DayMarks struct {
 	// a day with hours too, which is a different cell from a day with none.
 	Open bool
 	// InMissing: one of this person's checkouts this day is counted in PersonHours.OutWithoutIn --
-	// a checkout whose business day has no check-in before it (M15-06). The day is the
-	// checkout's own local day: there is no check-in to attribute it to.
+	// a checkout with no open check-in for it to close (M15-06). The day is the checkout's OWN
+	// local day, the instant a manager reads on the record (orchestrator's decision, 2026-10-22):
+	// there is no check-in to attribute it to, and its business day may have begun the evening
+	// before (a 23:00 cutoff) -- the mark stays on the day of the stamp.
 	InMissing bool
 }
 
@@ -346,10 +348,12 @@ type Totals struct {
 	Shifts   int
 	Open     int
 	TooLong  int
-	// OutWithoutIn counts the period's checkouts that close nothing because their business day
-	// has no check-in before them: ADR 0032 §A.6's (b) -- the `in` before it is of an earlier
-	// business day, and is itself an OpenEntry -- and (c) -- nothing, or a checkout written
-	// before it, is before it (M15-06). It is the report's half of the Odd shapes "check-in
+	// OutWithoutIn counts the period's checkouts with no open check-in for them to close:
+	// ADR 0032 §A.6's (b) -- the record before it is a check-in of an earlier business day,
+	// itself an OpenEntry -- and (c) -- the record before it is a checkout that is not a
+	// correction's surplus, or there is none (M15-06). In (c) the business day MAY hold a
+	// check-in: the break (09:00 in, 12:00 out, 17:00 out) is (c) because 12:00 already closed
+	// 09:00, not because the day has no check-in. It is the report's half of the Odd shapes "check-in
 	// missing" list (ListCheckoutsWithoutCheckIn). No hours are guessed for it, and its shift is
 	// not in Worked: the total is short by it, as it is by an OpenEntry.
 	//
@@ -1012,8 +1016,8 @@ func accumulate(evs []reportEvent, p Period, zone *time.Location, now time.Time)
 			out.StartedEarlier++
 		}
 	}
-	// inMissing counts a checkout of class (b) or (c): its business day has no check-in
-	// before it. ONE COUNTER PER CHECKOUT -- Totals.OutWithoutIn, or StartedEarlier at the seam
+	// inMissing counts a checkout of class (b) or (c): there is no open check-in for it to
+	// close. ONE COUNTER PER CHECKOUT -- Totals.OutWithoutIn, or StartedEarlier at the seam
 	// -- never both.
 	inMissing := func(e reportEvent) {
 		if e.At.Before(p.From) || !e.At.Before(p.To) {

@@ -3773,8 +3773,9 @@ type Querier interface {
 	// backwards. The tenant name is joined for the reason GetBillingPeriod states: the
 	// figures are frozen, the addressee is current.
 	ListBillingPeriods(ctx context.Context, arg ListBillingPeriodsParams) ([]ListBillingPeriodsRow, error)
-	// Checkouts in the window whose business day has no check-in before them: the "check-in
-	// missing" list (M15-06; ADR 0032 §A.6, classes (b) other_day and (c) orphan).
+	// Checkouts in the window with no open check-in for them to close -- the person's previous
+	// record is a checkout (not a correction's surplus), a check-in of an earlier business day, or
+	// nothing: the "check-in missing" list (M15-06; ADR 0032 §A.6, classes (b) other_day and (c) orphan).
 	//
 	// 🔴 THE CLASS IS tappa_checkout_class's (migration 00064), THE ONE SQL FORM OF THE
 	// CLASSIFICATION, fed the way ADR 0032 §A.6 defines its three inputs -- the same subqueries the

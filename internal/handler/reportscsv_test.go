@@ -735,7 +735,7 @@ func TestReportCSV_NamesEveryQuantityTheHoursExclude(t *testing.T) {
 		{"Check-ins with no checkout", "2"},
 		{"Closed too late to be a shift", "1"},
 		// M15-06: the checkout-side twin -- a shift whose start is missing is short pay.
-		{"Checkouts with no check-in", "3"},
+		{"Checkouts with no open check-in", "3"},
 		{"Training taps", "4"},
 		{"Checkouts that began earlier", "2"},
 		{"Records naming no employee", "1"},
@@ -1677,5 +1677,60 @@ func TestReportsScreen_HasNoCursorSoRowsPastTheCapAreEXPORTOnly(t *testing.T) {
 	// "export-only".
 	if strings.Contains(body, "Employee "+pad2(people-1)) {
 		t.Error("the last person IS on the screen, so nothing about this fixture is export-only")
+	}
+}
+
+// TestReportCSV_CarriesTheCheckoutsWithNoOpenCheckInPerPersonAndInTheTotals pins the VALUES the
+// file writes for M15-06's figure (review DÜŞÜK-3 u3, u4): the per-person column under its own
+// heading, and the row in the Totals block -- not only the row in the exclusions block before it.
+func TestReportCSV_CarriesTheCheckoutsWithNoOpenCheckInPerPersonAndInTheTotals(t *testing.T) {
+	records := newFakeLedger()
+	records.hours = reportWith(func(r *ledger.Report) {
+		r.Totals = ledger.Totals{Worked: time.Hour, Shifts: 1, OutWithoutIn: 4}
+		r.People = []ledger.PersonHours{
+			{EmployeeID: uuid.New(), Name: "Maria Borg", Worked: time.Hour, Shifts: 1, Daily: make([]time.Duration, ledger.ReportDays), OutWithoutIn: 3},
+			{EmployeeID: uuid.New(), Name: "Antoine Vella", Daily: make([]time.Duration, ledger.ReportDays), OutWithoutIn: 1},
+		}
+	})
+	b, _ := exportBrowser(t, records)
+	rows, _ := exportCSV(t, b, "")
+
+	totals := -1
+	for i, row := range rows {
+		if len(row) == 1 && row[0] == "Totals" {
+			totals = i
+		}
+	}
+	if totals < 0 {
+		t.Fatal("no Totals block")
+	}
+	if row := rowStartingWith(rows[totals:], "Checkouts with no open check-in"); row == nil || row[1] != "4" {
+		t.Errorf("the Totals block's row is %v, want value 4", row)
+	}
+
+	head := rowStartingWith(rows, "employee_id")
+	col := -1
+	for i, h := range head {
+		if h == "checkouts_without_check_in" {
+			col = i
+		}
+	}
+	if col < 0 {
+		t.Fatalf("no checkouts_without_check_in column in %v", head)
+	}
+	want := map[string]string{"Maria Borg": "3", "Antoine Vella": "1"}
+	seen := 0
+	for _, row := range rows {
+		if len(row) > col && row[0] != "employee_id" {
+			if v, ok := want[row[1]]; ok {
+				seen++
+				if row[col] != v {
+					t.Errorf("%s: checkouts_without_check_in = %q, want %q", row[1], row[col], v)
+				}
+			}
+		}
+	}
+	if seen != 2 {
+		t.Errorf("found %d person rows, want 2", seen)
 	}
 }

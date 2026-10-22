@@ -602,7 +602,7 @@ templ anomalyOpen(v AnomaliesView) {
 }
 
 // anomalyInMissing is the checkout-side twin of anomalyOpen (M15-06): the week's checkouts
-// whose business day has no check-in before them (ADR 0032 §A.6, (b) and (c)). It is JOINED to
+// with no open check-in for them to close (ADR 0032 §A.6, (b) and (c)). It is JOINED to
 // anomalyOpen rather than called as a sibling, so a week with none renders the page it rendered
 // before this list existed, byte for byte -- the same reason reportPartners is joined.
 //
@@ -619,9 +619,8 @@ templ anomalyInMissing(v AnomaliesView) {
 					<p class="font-mono text-xs text-ink/70">not counted in hours</p>
 				</div>
 				<p class="text-[13px] leading-normal text-ink/80">
-					A checkout with no check-in before it on its business day: the person&#39;s
-					previous record is a checkout, a check-in of an earlier business day, or
-					nothing. No hours are counted for the shift it ends until a manager enters the
+					A checkout with no open check-in for it to close: the person&#39;s previous
+					record is a checkout, a check-in of an earlier business day, or nothing. No hours are counted for the shift it ends until a manager enters the
 					missing check-in. The Roll counts the same checkouts, except one whose business
 					day began in the week before — The Roll counts that one with the shifts that
 					began before the week.

@@ -29,6 +29,17 @@ func maltaDay(t *testing.T, at time.Time) *time.Time {
 	return &s
 }
 
+// cutoffDay is the business day of a Malta instant under another cutoff (00:00, 23:00 -- the
+// kademe values the seed and the review use).
+func cutoffDay(t *testing.T, at time.Time, cutoff time.Duration) *time.Time {
+	t.Helper()
+	s, ok := tap.BusinessDayStart(at, tap.DayCutoff{Cutoff: cutoff, Timezone: "Europe/Malta"})
+	if !ok {
+		t.Fatal("Europe/Malta did not resolve")
+	}
+	return &s
+}
+
 // written stamps the database's write instant on an event (W's input).
 func written(at time.Time) evOpt { return func(e *reportEvent) { e.CreatedAt = at } }
 
@@ -105,6 +116,23 @@ func TestAccumulate_EveryCheckoutClassPicksOneBranch(t *testing.T) {
 				"StartedEarlier, not OutWithoutIn",
 			evs:            []reportEvent{tapped("out", mon(3, 0))},
 			startedEarlier: 1,
+		},
+		{
+			// The seam's bound (review DÜŞÜK-3 g1): under a 00:00 cutoff Monday's business day starts
+			// exactly at the period's first instant -- inside the period, so OutWithoutIn.
+			name: "(c) its business day starting exactly at the period (a 00:00 cutoff): Monday 10:00 out alone",
+			evs: []reportEvent{ev(maria, "Maria Borg", "out", mon(10, 0), written(mon(10, 0)),
+				dayOf(cutoffDay(t, mon(10, 0), 0)))},
+			outWithoutIn: 1, inMissingOn: []int{monday},
+		},
+		{
+			// The mark's day (review DÜŞÜK-3 g3, the orchestrator's decision): a 23:00 cutoff puts
+			// Tuesday 00:30 in the business day that began Monday 23:00; the mark is on TUESDAY, the
+			// checkout's own local day -- the stamp a manager reads.
+			name: "(c) across midnight under a 23:00 cutoff: Tuesday 00:30 out alone, its business day Monday 23:00 -- marked Tuesday",
+			evs: []reportEvent{ev(maria, "Maria Borg", "out", tue(0, 30), written(tue(0, 30)),
+				dayOf(cutoffDay(t, tue(0, 30), 23*time.Hour)))},
+			outWithoutIn: 1, inMissingOn: []int{tuesday},
 		},
 		{
 			name: "(a) the Phase B shape: 05:30 in, next day 04:30 out (23 h, one business day)",
@@ -203,14 +231,26 @@ func TestAccumulate_EveryCheckoutClassPicksOneBranch(t *testing.T) {
 //	= the period's checkouts.
 //
 // The class of each checkout is the walker's (checkout.go) -- the subject here is accumulate's
-// accounting, not the classification, which the parity test owns. It needs no event at or after
-// the period's end (a pair whose checkout lies in the closing tail is a pair of the period with
-// no checkout in it): callers keep their events before p.To. A pair is counted by its state too:
-// the counted ones are Totals.Shifts, and the others are held out (Awaiting or Refused non-zero).
+// accounting, not the classification, which the parity test owns.
+//
+// 🔴 THE PAIRS ARE THE REPORT'S OWN FIGURES, NOT THIS WALK'S (review DÜŞÜK-5). A Report counts
+// the counted pairs (Totals.Shifts) and carries the held-out ones as HOURS (Awaiting, Refused),
+// so each state is bound to the report by its own figure: Shifts must be the number of counted
+// pairs, and Worked, Awaiting and Refused each the sum of their pairs' durations. A pair the report
+// drops, counts twice or files under the wrong state moves one of those four, so the walk's own
+// pair count cannot stand in for the report's -- which is what the first version let it do (an
+// accumulate that never counted an Awaiting pair passed it whenever a Refused one was present).
+// Hours bind a pair only when it HAS some: a zero-length pair is a PREMISE failure, and callers
+// keep a person's instants distinct.
+//
+// It needs no event at or after the period's end (a pair whose checkout lies in the closing tail
+// is a pair of the period with no checkout in it): callers keep their events before p.To; the
+// tail has its own test (TestAccumulate_ACheckoutInTheClosingTailIsNextWeeks).
 func checkoutsCountedOnce(t *testing.T, evs []reportEvent, p Period, rep Report) {
 	t.Helper()
 	inPeriod := func(at time.Time) bool { return !at.Before(p.From) && at.Before(p.To) }
-	var outs, pairs, counted, otherPeriod int
+	var outs, otherPeriod, counted, awaiting, refused int
+	var worked, held, refusedHours time.Duration
 	var chain checkoutChain
 	var prev *reportEvent
 	for i := range evs {
@@ -243,21 +283,36 @@ func checkoutsCountedOnce(t *testing.T, evs []reportEvent, p Period, rep Report)
 			otherPeriod++
 			continue
 		}
-		if class == tap.CheckoutCloses {
-			pairs++
-			if worse(endpointState(before.Verdict, before.Review), endpointState(e.Verdict, e.Review)) == HoursCounted {
-				counted++
-			}
+		if class != tap.CheckoutCloses {
+			continue
+		}
+		d := e.At.Sub(before.At)
+		if d <= 0 {
+			t.Fatalf("PREMISE: a zero-length pair at %v -- its hours cannot bind it to the report", e.At)
+		}
+		switch worse(endpointState(before.Verdict, before.Review), endpointState(e.Verdict, e.Review)) {
+		case HoursCounted:
+			counted++
+			worked += d
+		case HoursAwaiting:
+			awaiting++
+			held += d
+		case HoursRefused:
+			refused++
+			refusedHours += d
 		}
 	}
+	if rep.Totals.Shifts != counted || rep.Totals.Worked != worked || rep.Totals.Awaiting != held || rep.Totals.Refused != refusedHours {
+		t.Errorf("the report's pairs: Shifts %d Worked %v Awaiting %v Refused %v; the period's closing pairs: "+
+			"%d counted (%v), %d awaiting (%v), %d refused (%v) -- a pair dropped, doubled or misfiled",
+			rep.Totals.Shifts, rep.Totals.Worked, rep.Totals.Awaiting, rep.Totals.Refused,
+			counted, worked, awaiting, held, refused, refusedHours)
+	}
+	pairs := rep.Totals.Shifts + awaiting + refused
 	if got := pairs + rep.Totals.TooLong + rep.Totals.OutWithoutIn + rep.StartedEarlier + otherPeriod; got != outs {
 		t.Errorf("checkouts counted %d times (pairs %d + TooLong %d + OutWithoutIn %d + StartedEarlier %d + another period's %d), "+
 			"the period holds %d: a checkout counted twice or not at all",
 			got, pairs, rep.Totals.TooLong, rep.Totals.OutWithoutIn, rep.StartedEarlier, otherPeriod, outs)
-	}
-	if rep.Totals.Shifts != counted || (pairs > counted) != (rep.Totals.Awaiting+rep.Totals.Refused > 0) {
-		t.Errorf("pairs %d (counted %d): Shifts %d, Awaiting %v, Refused %v -- a pair is in exactly one state",
-			pairs, counted, rep.Totals.Shifts, rep.Totals.Awaiting, rep.Totals.Refused)
 	}
 }
 
@@ -287,7 +342,12 @@ func TestAccumulate_EveryCheckoutOfThePeriodIsCountedOnce(t *testing.T) {
 				instants = append(instants, start.Add(time.Duration(rng.Int63n(int64(span/time.Minute)))*time.Minute))
 			}
 			sort.Slice(instants, func(i, j int) bool { return instants[i].Before(instants[j]) })
-			for _, when := range instants {
+			for k, when := range instants {
+				if k > 0 && when.Equal(instants[k-1]) {
+					// Distinct instants per person: a pair binds to the report by its hours, so it
+					// must have some (checkoutsCountedOnce).
+					continue
+				}
 				dir := "in"
 				if rng.Intn(2) == 0 {
 					dir = "out"
@@ -344,6 +404,48 @@ func TestAccumulate_EveryCheckoutOfThePeriodIsCountedOnce(t *testing.T) {
 	}
 	if otherPeriod == 0 || seam == 0 {
 		t.Errorf("PREMISE: another period's check-in seen %d times, the (b)/(c) seam %d times -- both must occur", otherPeriod, seam)
+	}
+}
+
+// TestAccumulate_ACheckoutInTheClosingTailIsNextWeeks (review DÜŞÜK-3 g2): the read runs past the
+// period (closingTail), so a checkout of next Monday is on hand -- and it is NEXT week's, whatever
+// its class. A (b) (Sunday 20:00 in, next Monday 07:00 out of next Monday's business day) and a (c)
+// (next Monday 03:00 out alone, its business day Sunday 05:00 -- INSIDE this period) are counted
+// by neither this week's OutWithoutIn nor its StartedEarlier; next week counts them once each.
+func TestAccumulate_ACheckoutInTheClosingTailIsNextWeeks(t *testing.T) {
+	t.Parallel()
+	zone := malta(t)
+	p := week(t, zone)
+	next := WeekOf(Date{Year: 2026, Month: time.August, Day: 10}, zone)
+	if !next.From.Equal(p.To) {
+		t.Fatalf("PREMISE: next week starts %v, this one ends %v", next.From, p.To)
+	}
+	now := at(t, zone, 2026, time.August, 20, 12, 0)
+	tapped := func(who uuid.UUID, dir string, when time.Time) reportEvent {
+		return ev(who, "Staff "+who.String()[:4], dir, when, written(when), dayOf(maltaDay(t, when)))
+	}
+	b := []reportEvent{tapped(maria, "in", at(t, zone, 2026, time.August, 9, 20, 0)), tapped(maria, "out", at(t, zone, 2026, time.August, 10, 7, 0))}
+	c := []reportEvent{tapped(antoine, "out", at(t, zone, 2026, time.August, 10, 3, 0))}
+	if !c[0].DayStart.Equal(at(t, zone, 2026, time.August, 9, 5, 0)) || c[0].DayStart.Before(p.From) {
+		t.Fatalf("PREMISE: the (c)'s business day %v is not this period's Sunday", c[0].DayStart)
+	}
+	evs := append(append([]reportEvent(nil), b...), c...)
+	this := accumulate(evs, p, zone, now)
+	if this.Totals.OutWithoutIn != 0 || this.StartedEarlier != 0 || this.Totals.Open != 1 {
+		t.Errorf("this week: OutWithoutIn %d StartedEarlier %d Open %d, want 0 0 1 (Sunday 20:00 open; both checkouts are next week's)",
+			this.Totals.OutWithoutIn, this.StartedEarlier, this.Totals.Open)
+	}
+	// Next week reads from its own first instant, as Hours does.
+	var read []reportEvent
+	for _, e := range evs {
+		if !e.At.Before(next.From) {
+			read = append(read, e)
+		}
+	}
+	nw := accumulate(read, next, zone, now)
+	if nw.Totals.OutWithoutIn != 1 || nw.StartedEarlier != 1 {
+		t.Errorf("next week: OutWithoutIn %d StartedEarlier %d, want 1 (the 07:00 of its own business day) and 1 (the 03:00, its seam)",
+			nw.Totals.OutWithoutIn, nw.StartedEarlier)
 	}
 }
 

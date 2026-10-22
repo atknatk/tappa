@@ -406,7 +406,7 @@ func reportRowView(p ledger.PersonHours) pages.ReportRowView {
 	}
 	if p.OutWithoutIn > 0 {
 		// M15-06: the checkout-side twin of Open -- ADR 0032 §A.6's (b) and (c).
-		row.InMissing = plural(p.OutWithoutIn, "checkout", "checkouts") + " with no check-in"
+		row.InMissing = plural(p.OutWithoutIn, "checkout", "checkouts") + " with no open check-in"
 	}
 	return row
 }

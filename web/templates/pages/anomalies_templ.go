@@ -1898,7 +1898,7 @@ func anomalyOpen(v AnomaliesView) templ.Component {
 }
 
 // anomalyInMissing is the checkout-side twin of anomalyOpen (M15-06): the week's checkouts
-// whose business day has no check-in before them (ADR 0032 §A.6, (b) and (c)). It is JOINED to
+// with no open check-in for them to close (ADR 0032 §A.6, (b) and (c)). It is JOINED to
 // anomalyOpen rather than called as a sibling, so a week with none renders the page it rendered
 // before this list existed, byte for byte -- the same reason reportPartners is joined.
 //
@@ -1928,7 +1928,7 @@ func anomalyInMissing(v AnomaliesView) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if len(v.InMissing) > 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 154, "<section class=\"odd-card order-6 md:order-none\" aria-labelledby=\"odd-in-missing\"><div class=\"flex flex-col gap-1.5\"><div class=\"flex flex-wrap items-baseline justify-between gap-2\"><h2 class=\"odd-title\" id=\"odd-in-missing\">Check-in missing</h2><p class=\"font-mono text-xs text-ink/70\">not counted in hours</p></div><p class=\"text-[13px] leading-normal text-ink/80\">A checkout with no check-in before it on its business day: the person&#39;s previous record is a checkout, a check-in of an earlier business day, or nothing. No hours are counted for the shift it ends until a manager enters the missing check-in. The Roll counts the same checkouts, except one whose business day began in the week before — The Roll counts that one with the shifts that began before the week.</p><p class=\"text-xs leading-normal text-ink/70\">A checkout left over by a correction — one replaced by an earlier checkout a manager entered afterwards — is not in this list.</p></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 154, "<section class=\"odd-card order-6 md:order-none\" aria-labelledby=\"odd-in-missing\"><div class=\"flex flex-col gap-1.5\"><div class=\"flex flex-wrap items-baseline justify-between gap-2\"><h2 class=\"odd-title\" id=\"odd-in-missing\">Check-in missing</h2><p class=\"font-mono text-xs text-ink/70\">not counted in hours</p></div><p class=\"text-[13px] leading-normal text-ink/80\">A checkout with no open check-in for it to close: the person&#39;s previous record is a checkout, a check-in of an earlier business day, or nothing. No hours are counted for the shift it ends until a manager enters the missing check-in. The Roll counts the same checkouts, except one whose business day began in the week before — The Roll counts that one with the shifts that began before the week.</p><p class=\"text-xs leading-normal text-ink/70\">A checkout left over by a correction — one replaced by an earlier checkout a manager entered afterwards — is not in this list.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1940,7 +1940,7 @@ func anomalyInMissing(v AnomaliesView) templ.Component {
 				var templ_7745c5c3_Var88 string
 				templ_7745c5c3_Var88, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(v.ListCap))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 637, Col: 167}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 636, Col: 167}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var88))
 				if templ_7745c5c3_Err != nil {
@@ -1963,7 +1963,7 @@ func anomalyInMissing(v AnomaliesView) templ.Component {
 				var templ_7745c5c3_Var89 string
 				templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.JoinStringErrs(o.Who)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 642, Col: 51}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 641, Col: 51}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var89))
 				if templ_7745c5c3_Err != nil {
@@ -1976,7 +1976,7 @@ func anomalyInMissing(v AnomaliesView) templ.Component {
 				var templ_7745c5c3_Var90 string
 				templ_7745c5c3_Var90, templ_7745c5c3_Err = templ.JoinStringErrs(o.Venue)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 643, Col: 60}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 642, Col: 60}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var90))
 				if templ_7745c5c3_Err != nil {
@@ -1989,7 +1989,7 @@ func anomalyInMissing(v AnomaliesView) templ.Component {
 				var templ_7745c5c3_Var91 string
 				templ_7745c5c3_Var91, templ_7745c5c3_Err = templ.JoinStringErrs(o.At)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 643, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 642, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var91))
 				if templ_7745c5c3_Err != nil {
@@ -2072,7 +2072,7 @@ func anomalyPolicies(v AnomaliesView) templ.Component {
 				var templ_7745c5c3_Var93 string
 				templ_7745c5c3_Var93, templ_7745c5c3_Err = templ.JoinStringErrs(s.SID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 683, Col: 38}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 682, Col: 38}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var93))
 				if templ_7745c5c3_Err != nil {
@@ -2090,7 +2090,7 @@ func anomalyPolicies(v AnomaliesView) templ.Component {
 					var templ_7745c5c3_Var94 string
 					templ_7745c5c3_Var94, templ_7745c5c3_Err = templ.JoinStringErrs(s.Layer)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 685, Col: 43}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 684, Col: 43}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var94))
 					if templ_7745c5c3_Err != nil {
@@ -2159,7 +2159,7 @@ func anomalyPolicies(v AnomaliesView) templ.Component {
 				var templ_7745c5c3_Var99 string
 				templ_7745c5c3_Var99, templ_7745c5c3_Err = templ.JoinStringErrs(s.Records)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 695, Col: 123}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 694, Col: 123}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var99))
 				if templ_7745c5c3_Err != nil {
@@ -2238,7 +2238,7 @@ func anomalyLostPlaques(v AnomaliesView) templ.Component {
 				var templ_7745c5c3_Var101 string
 				templ_7745c5c3_Var101, templ_7745c5c3_Err = templ.JoinStringErrs(l.LocationName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 733, Col: 54}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 732, Col: 54}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var101))
 				if templ_7745c5c3_Err != nil {
@@ -2251,7 +2251,7 @@ func anomalyLostPlaques(v AnomaliesView) templ.Component {
 				var templ_7745c5c3_Var102 string
 				templ_7745c5c3_Var102, templ_7745c5c3_Err = templ.JoinStringErrs(l.TagUID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 734, Col: 77}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 733, Col: 77}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var102))
 				if templ_7745c5c3_Err != nil {
@@ -2264,7 +2264,7 @@ func anomalyLostPlaques(v AnomaliesView) templ.Component {
 				var templ_7745c5c3_Var103 string
 				templ_7745c5c3_Var103, templ_7745c5c3_Err = templ.JoinStringErrs(l.Last)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 734, Col: 91}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 733, Col: 91}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var103))
 				if templ_7745c5c3_Err != nil {
@@ -2277,7 +2277,7 @@ func anomalyLostPlaques(v AnomaliesView) templ.Component {
 				var templ_7745c5c3_Var104 string
 				templ_7745c5c3_Var104, templ_7745c5c3_Err = templ.JoinStringErrs(l.Refusals)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 735, Col: 57}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 734, Col: 57}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var104))
 				if templ_7745c5c3_Err != nil {

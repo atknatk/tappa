@@ -3,7 +3,7 @@ package ledger
 // anomaly.go -- the READ side of the ANOMALIES section (M6-11).
 //
 // 🔴 IT WRITES NOTHING, AND THAT IS THE PROPERTY THIS FILE IS FOR. Every one of the
-// eight store calls below is a SELECT over `transactions`, which §4.3 makes
+// store calls below is a SELECT over `transactions`, which §4.3 makes
 // immutable; there is no correction here, no acknowledgement, no "mark as reviewed"
 // and no counter that a page view increments. Two independent proofs rather than a
 // sentence: TestAnomalies_IssuesOnlySelects (internal/domain/ledger) parses THIS file,
@@ -61,12 +61,14 @@ package ledger
 // TENANT SCOPE (§4.5, belt + braces) is the package's, unchanged: every read runs
 // inside db.(*DB).WithTenant so RLS applies, AND passes the same tenant id as an
 // explicit predicate. The id is the caller's, taken from the signed panel session.
-// What asserts the second half over these eight queries is this package's existing
+// What asserts the second half over these queries is this package's existing
 // TestPanelQueries_CarryAnExplicitTenantPredicate (query_test.go), which DERIVES its
 // subject list from the store calls this package makes -- so a query added here is
 // covered because it is CALLED, with no list to forget to update. Verified:
 // `go test ./internal/domain/ledger -run TestPanelQueries_CarryAnExplicitTenantPredicate -v`
-// lists all eight by name.
+// lists every one of them by name. (No count is written here: it was "eight" for a long time
+// after it stopped being true -- M15-06's review counted thirteen calls -- and a number in a
+// comment is a second representation of the code below it.)
 
 import (
 	"context"
@@ -366,8 +368,8 @@ type AnomalyOpen struct {
 	WasMaskable bool
 }
 
-// AnomalyInMissing is a checkout whose business day has no check-in before it -- ADR 0032
-// §A.6's (b) and (c), the "check-in missing" list (M15-06; ListCheckoutsWithoutCheckIn). Like an
+// AnomalyInMissing is a checkout with no open check-in for it to close -- ADR 0032 §A.6's (b) and
+// (c), the "check-in missing" list (M15-06; ListCheckoutsWithoutCheckIn). Like an
 // open check-in it is a record a manager completes, and nothing here completes it.
 type AnomalyInMissing struct {
 	EmployeeName string
@@ -428,8 +430,8 @@ type Anomalies struct {
 	Plaques []AnomalyPlaque
 	Pairs   []AnomalyPair
 	Open    []AnomalyOpen
-	// InMissing is the "check-in missing" list (M15-06), beside Open: the week's checkouts whose
-	// business day has no check-in before them.
+	// InMissing is the "check-in missing" list (M15-06), beside Open: the week's checkouts with no
+	// open check-in for them to close.
 	InMissing []AnomalyInMissing
 	Masked    MaskedOpenTally
 	Policies  []AnomalyPolicyRule
@@ -472,11 +474,11 @@ type AnomalyScreen struct {
 // struct here would be the "second representation" shape this repository keeps paying
 // for, with the drift invisible because each copy is self-consistent.
 //
-// ONE TRANSACTION, EIGHT QUERIES -- the shape Hours and Screen use. The clock has to
+// ONE TRANSACTION, EVERY QUERY IN IT -- the shape Hours and Screen use. The clock has to
 // be read before the week's boundaries can be computed, and running the rest in the
-// same transaction means the eight answers cannot disagree about which records existed.
+// same transaction means their answers cannot disagree about which records existed.
 //
-// ⚠️ WHAT EIGHT QUERIES IN ONE TRANSACTION COST is measured rather than assumed; the
+// ⚠️ WHAT THOSE QUERIES IN ONE TRANSACTION COST is measured rather than assumed; the
 // figures, their tenant and their row counts are in internal/handler/anomalies.go.
 func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilter) (AnomalyScreen, error) {
 	var out AnomalyScreen
@@ -696,8 +698,8 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 			})
 		}
 
-		// M15-06: the "check-in missing" list -- the checkouts of the week whose business day has
-		// no check-in before them (ADR 0032 §A.6, (b) and (c); never (d) or (e)). The open list's
+		// M15-06: the "check-in missing" list -- the checkouts of the week with no open check-in
+		// for them to close (ADR 0032 §A.6, (b) and (c); never (d) or (e)). The open list's
 		// shape: the window, the cap read one past, oldest first.
 		inMissing, err := q.ListCheckoutsWithoutCheckIn(ctx, store.ListCheckoutsWithoutCheckInParams{
 			TenantID: tenantID,

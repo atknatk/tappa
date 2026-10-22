@@ -812,8 +812,8 @@ func reportCSVExclusions(d *reportDoc, s ledger.ReportScreen) {
 		"Check-ins closed so much later that the engine calls them probable missed checkouts. Reported as open rather than paid as very long shifts.")
 	// M15-06: the checkout-side twin of "Check-ins with no checkout" (ADR 0032 §A.6's (b) and
 	// (c)). A payroll process reads rows: a shift whose start is missing is short pay it must see.
-	d.row("Checkouts with no check-in", strconv.Itoa(s.Totals.OutWithoutIn), "",
-		"Checkouts with no check-in before them on their business day. Their shift is worth NO hours here — not zero hours — and a manager enters the missing check-in. Listed on Odd shapes.")
+	d.row("Checkouts with no open check-in", strconv.Itoa(s.Totals.OutWithoutIn), "",
+		"Checkouts with no open check-in for them to close: the person's previous record is a checkout, a check-in of an earlier business day, or nothing (a checkout left over by a correction is not one). Their shift is worth NO hours here — not zero hours — and a manager enters the missing check-in. Listed on Odd shapes.")
 	d.row("Training taps", strconv.Itoa(s.PracticeTaps), "",
 		"Practice taps from the activation tour. In no figure in this file, and never in worked hours.")
 	d.row("Checkouts that began earlier", strconv.Itoa(s.StartedEarlier), "",
@@ -841,7 +841,7 @@ func reportCSVTotals(d *reportDoc, s ledger.ReportScreen) {
 	d.row("Hours awaiting a decision", hoursMinutes(s.Totals.Awaiting), strconv.Itoa(wholeMinutes(s.Totals.Awaiting)))
 	d.row("Hours a manager refused", hoursMinutes(s.Totals.Refused), strconv.Itoa(wholeMinutes(s.Totals.Refused)))
 	d.row("Check-ins with no checkout", strconv.Itoa(s.Totals.Open), "")
-	d.row("Checkouts with no check-in", strconv.Itoa(s.Totals.OutWithoutIn), "")
+	d.row("Checkouts with no open check-in", strconv.Itoa(s.Totals.OutWithoutIn), "")
 }
 
 // reportCSVPeople is one row per person, with the week split over its local days.

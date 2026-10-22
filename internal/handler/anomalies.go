@@ -67,8 +67,9 @@ import (
 // altogether this panics at startup rather than silently building links to nowhere.
 var anomaliesHref = mustSectionHref(pages.TabAnomalies)
 
-// WHAT ONE VIEW OF THIS SECTION COSTS. The read is EIGHT queries in one transaction
-// over one week of one tenant.
+// WHAT ONE VIEW OF THIS SECTION COSTS. The read is one transaction of queries over one week
+// of one tenant (ledger.Reader.Anomalies; the table below is the eight it held on the day it
+// was measured -- later ones carry their own reading in db/queries/anomalies.sql).
 //
 // ⚠️ THE TIMINGS BELOW ARE ONE MACHINE'S OBSERVATION AND ARE NOT A PROPERTY OF THESE
 // QUERIES. Measured 2026-08-12 with EXPLAIN (ANALYZE, BUFFERS) against the development
@@ -88,7 +89,7 @@ var anomaliesHref = mustSectionHref(pages.TabAnomalies)
 // 🔴 HOW MUCH THOSE READINGS ARE WORTH, STATED RATHER THAN LEFT TO BE DISCOVERED: an
 // independent reviewer measured the LAST of them on a comparable table at 5.7 - 6.3 ms,
 // which is a quarter of what this machine saw. What the table is evidence for is the
-// SHAPE — eight statements, each bounded by the week rather than by history, none of
+// SHAPE — statements each bounded by the week rather than by history, none of
 // them growing with the tenant's history — and not for any millisecond in it.
 //
 // ⚠️ SINCE M15-05 THAT SHAPE HAS ONE STATED EXCEPTION. ListOpenCheckIns and
