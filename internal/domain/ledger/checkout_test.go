@@ -236,12 +236,18 @@ func TestAccumulate_EveryCheckoutClassPicksOneBranch(t *testing.T) {
 // 🔴 THE PAIRS ARE THE REPORT'S OWN FIGURES, NOT THIS WALK'S (review DÜŞÜK-5). A Report counts
 // the counted pairs (Totals.Shifts) and carries the held-out ones as HOURS (Awaiting, Refused),
 // so each state is bound to the report by its own figure: Shifts must be the number of counted
-// pairs, and Worked, Awaiting and Refused each the sum of their pairs' durations. A pair the report
-// drops, counts twice or files under the wrong state moves one of those four, so the walk's own
-// pair count cannot stand in for the report's -- which is what the first version let it do (an
-// accumulate that never counted an Awaiting pair passed it whenever a Refused one was present).
-// Hours bind a pair only when it HAS some: a zero-length pair is a PREMISE failure, and callers
-// keep a person's instants distinct.
+// pairs (whatever their length) and Worked their hours, Awaiting and Refused each the sum of their
+// pairs' durations. A pair the report drops, counts twice or files under the wrong state moves one
+// of those, so the walk's own pair count cannot stand in for the report's -- which is what the
+// first version let it do (an accumulate that never counted an Awaiting pair passed it whenever a
+// Refused one was present).
+//
+// ⚠️ A ZERO-LENGTH PAIR STAYS IN THE SWEEP (the M15-06 review's last round). Hours bind a held-out
+// pair only when it has some, so a zero-length Awaiting or Refused pair -- an in and an out at one
+// instant -- is counted by the walk alone (heldZero) and added to the total; a zero-length COUNTED
+// pair is still bound, by Shifts. The previous round made that shape a PREMISE failure and kept a
+// person's instants distinct, which pushed every zero-length pair out of the sweep: an accumulate
+// that dropped one carrying a business day went green (measured).
 //
 // It needs no event at or after the period's end (a pair whose checkout lies in the closing tail
 // is a pair of the period with no checkout in it): callers keep their events before p.To; the
@@ -249,7 +255,7 @@ func TestAccumulate_EveryCheckoutClassPicksOneBranch(t *testing.T) {
 func checkoutsCountedOnce(t *testing.T, evs []reportEvent, p Period, rep Report) {
 	t.Helper()
 	inPeriod := func(at time.Time) bool { return !at.Before(p.From) && at.Before(p.To) }
-	var outs, otherPeriod, counted, awaiting, refused int
+	var outs, otherPeriod, counted, awaiting, refused, heldZero int
 	var worked, held, refusedHours time.Duration
 	var chain checkoutChain
 	var prev *reportEvent
@@ -287,17 +293,18 @@ func checkoutsCountedOnce(t *testing.T, evs []reportEvent, p Period, rep Report)
 			continue
 		}
 		d := e.At.Sub(before.At)
-		if d <= 0 {
-			t.Fatalf("PREMISE: a zero-length pair at %v -- its hours cannot bind it to the report", e.At)
-		}
-		switch worse(endpointState(before.Verdict, before.Review), endpointState(e.Verdict, e.Review)) {
-		case HoursCounted:
+		state := worse(endpointState(before.Verdict, before.Review), endpointState(e.Verdict, e.Review))
+		switch {
+		case state == HoursCounted:
 			counted++
 			worked += d
-		case HoursAwaiting:
+		case d == 0:
+			// Held out and zero-length: no figure of the report can show it, so the walk counts it.
+			heldZero++
+		case state == HoursAwaiting:
 			awaiting++
 			held += d
-		case HoursRefused:
+		case state == HoursRefused:
 			refused++
 			refusedHours += d
 		}
@@ -308,7 +315,7 @@ func checkoutsCountedOnce(t *testing.T, evs []reportEvent, p Period, rep Report)
 			rep.Totals.Shifts, rep.Totals.Worked, rep.Totals.Awaiting, rep.Totals.Refused,
 			counted, worked, awaiting, held, refused, refusedHours)
 	}
-	pairs := rep.Totals.Shifts + awaiting + refused
+	pairs := rep.Totals.Shifts + awaiting + refused + heldZero
 	if got := pairs + rep.Totals.TooLong + rep.Totals.OutWithoutIn + rep.StartedEarlier + otherPeriod; got != outs {
 		t.Errorf("checkouts counted %d times (pairs %d + TooLong %d + OutWithoutIn %d + StartedEarlier %d + another period's %d), "+
 			"the period holds %d: a checkout counted twice or not at all",
@@ -332,7 +339,7 @@ func TestAccumulate_EveryCheckoutOfThePeriodIsCountedOnce(t *testing.T) {
 	start := p.From.Add(-48 * time.Hour)
 	span := p.To.Sub(start)
 	seen := map[tap.CheckoutClass]int{}
-	var otherPeriod, seam int
+	var otherPeriod, seam, zeroPairs int
 	for round := 0; round < 3000; round++ {
 		var evs []reportEvent
 		for _, who := range people[:1+rng.Intn(len(people))] {
@@ -342,12 +349,7 @@ func TestAccumulate_EveryCheckoutOfThePeriodIsCountedOnce(t *testing.T) {
 				instants = append(instants, start.Add(time.Duration(rng.Int63n(int64(span/time.Minute)))*time.Minute))
 			}
 			sort.Slice(instants, func(i, j int) bool { return instants[i].Before(instants[j]) })
-			for k, when := range instants {
-				if k > 0 && when.Equal(instants[k-1]) {
-					// Distinct instants per person: a pair binds to the report by its hours, so it
-					// must have some (checkoutsCountedOnce).
-					continue
-				}
+			for _, when := range instants {
 				dir := "in"
 				if rng.Intn(2) == 0 {
 					dir = "out"
@@ -394,6 +396,9 @@ func TestAccumulate_EveryCheckoutOfThePeriodIsCountedOnce(t *testing.T) {
 			if (c == tap.CheckoutOrphan || c == tap.CheckoutOtherDay) && e.DayStart.Before(p.From) {
 				seam++
 			}
+			if c == tap.CheckoutCloses && prevIn != nil && prevIn.Equal(e.At) && e.DayStart != nil {
+				zeroPairs++
+			}
 			prevIn = nil
 		}
 	}
@@ -402,8 +407,9 @@ func TestAccumulate_EveryCheckoutOfThePeriodIsCountedOnce(t *testing.T) {
 			t.Errorf("PREMISE: the sweep never reached %q (%v)", c, seen)
 		}
 	}
-	if otherPeriod == 0 || seam == 0 {
-		t.Errorf("PREMISE: another period's check-in seen %d times, the (b)/(c) seam %d times -- both must occur", otherPeriod, seam)
+	if otherPeriod == 0 || seam == 0 || zeroPairs == 0 {
+		t.Errorf("PREMISE: another period's check-in seen %d times, the (b)/(c) seam %d times, a zero-length pair "+
+			"with a business day %d times -- all three must occur", otherPeriod, seam, zeroPairs)
 	}
 }
 
