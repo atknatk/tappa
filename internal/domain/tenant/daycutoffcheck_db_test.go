@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/store"
@@ -19,10 +20,11 @@ import (
 // whose person tapped at Rusty Bar yesterday) is reported level by level; another business --
 // with a shift its own 05:00 cuts -- is not in the first's check, and the first's not in its.
 //
-// And RLS under the check's statements (CLAUDE.md §6: an isolation test carries NO filter that
-// would answer for RLS): in the first business's context, each read the check runs is asked for
-// the OTHER business's id -- the explicit predicate then matches the other's rows, so the zero
-// rows are RLS's.
+// And RLS under the check's five statements (CLAUDE.md §6: an isolation test carries NO filter
+// that would answer for RLS): in the first business's context, each read the check runs -- the
+// business, the venues, the departments, the people and the venues they tapped at -- is asked for
+// the OTHER business's id; the explicit predicate then matches the other's rows, so the zero rows
+// are RLS's. In the other's own context the same five reads return its rows.
 func TestDayCutoffDB_TheCheckReadsEveryLevelOfItsOwnBusinessAlone(t *testing.T) {
 	f := newCutoffFixture(t, nil)
 	other := newCutoffFixture(t, nil)
@@ -38,7 +40,8 @@ func TestDayCutoffDB_TheCheckReadsEveryLevelOfItsOwnBusinessAlone(t *testing.T) 
 
 	ov := other.venue("Elsewhere", "09:00", "17:00", false)
 	od := other.department(ov, "Night Bakery", "04:30", "12:30")
-	other.person("Someone Else", &ov, &od)
+	someone := other.person("Someone Else", &ov, &od)
+	other.tap(someone, ov, time.Now().Add(-2*time.Hour), "in")
 
 	got, err := f.cutoffs.Check(context.Background(), f.tenant, time.Now())
 	if err != nil {
@@ -87,8 +90,14 @@ func TestDayCutoffDB_TheCheckReadsEveryLevelOfItsOwnBusinessAlone(t *testing.T) 
 		if err != nil {
 			return err
 		}
-		if len(vs)+len(ds)+len(ps) != 0 {
-			t.Errorf("in this business's context the other's venues %d, departments %d, people %d were read", len(vs), len(ds), len(ps))
+		ts, err := q.ListDayCutoffTouchedVenues(ctx, store.ListDayCutoffTouchedVenuesParams{
+			TenantID: other.tenant, EmployeeIds: []uuid.UUID{someone}, Since: time.Now().Add(-CutoffTouchedWindow)})
+		if err != nil {
+			return err
+		}
+		if len(vs)+len(ds)+len(ps)+len(ts) != 0 {
+			t.Errorf("in this business's context the other's venues %d, departments %d, people %d, touched venues %d were read",
+				len(vs), len(ds), len(ps), len(ts))
 		}
 		return nil
 	}); err != nil {
@@ -97,11 +106,32 @@ func TestDayCutoffDB_TheCheckReadsEveryLevelOfItsOwnBusinessAlone(t *testing.T) 
 	// The other business's rows ARE there for the same statements in its own context, so the
 	// zeroes above are not an empty fixture.
 	if err := other.data.WithTenant(context.Background(), other.tenant, func(ctx context.Context, tx pgx.Tx) error {
-		ds, err := store.New(tx).ListDayCutoffDepartments(ctx, store.ListDayCutoffDepartmentsParams{TenantID: other.tenant, RowLimit: 100})
-		if err == nil && len(ds) != 1 {
-			t.Errorf("the other business reads %d departments of its own, want 1", len(ds))
+		q := store.New(tx)
+		if _, err := q.GetDayCutoffBusiness(ctx, other.tenant); err != nil {
+			return err
 		}
-		return err
+		vs, err := q.ListDayCutoffVenues(ctx, store.ListDayCutoffVenuesParams{TenantID: other.tenant, RowLimit: 100})
+		if err != nil {
+			return err
+		}
+		ds, err := q.ListDayCutoffDepartments(ctx, store.ListDayCutoffDepartmentsParams{TenantID: other.tenant, RowLimit: 100})
+		if err != nil {
+			return err
+		}
+		ps, err := q.ListDayCutoffPeople(ctx, store.ListDayCutoffPeopleParams{TenantID: other.tenant, RowLimit: 100})
+		if err != nil {
+			return err
+		}
+		ts, err := q.ListDayCutoffTouchedVenues(ctx, store.ListDayCutoffTouchedVenuesParams{
+			TenantID: other.tenant, EmployeeIds: []uuid.UUID{someone}, Since: time.Now().Add(-CutoffTouchedWindow)})
+		if err != nil {
+			return err
+		}
+		if len(vs) != 1 || len(ds) != 1 || len(ps) != 1 || len(ts) != 1 {
+			t.Errorf("the other business reads venues %d, departments %d, people %d, touched venues %d of its own, want 1 each",
+				len(vs), len(ds), len(ps), len(ts))
+		}
+		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}

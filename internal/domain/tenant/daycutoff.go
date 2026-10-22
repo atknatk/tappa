@@ -166,6 +166,17 @@ func CutoffConflicts(cutoff time.Duration, shifts []CutoffShift) []CutoffShift {
 	return out
 }
 
+// inAnyBand is len(CutoffConflicts(cutoff, shifts)) > 0 without building the list:
+// SuggestCutoff asks it for each of the day's 1440 minutes.
+func inAnyBand(cutoff time.Duration, shifts []CutoffShift) bool {
+	for _, s := range shifts {
+		if CutoffInBand(cutoff, s) {
+			return true
+		}
+	}
+	return false
+}
+
 // SuggestCutoff is the middle of the widest stretch of the day that no band covers,
 // rounded to CutoffSuggestionStep -- and, when that rounding lands inside a band, the
 // nearest step that does not (ADR 0032 §A.7, product lens Ü-O7). A stretch with no step in
@@ -184,7 +195,7 @@ func SuggestCutoff(shifts []CutoffShift) (time.Duration, bool) {
 	busy := -1
 	for m := range free {
 		c := time.Duration(m) * time.Minute
-		free[m] = len(CutoffConflicts(c, shifts)) == 0
+		free[m] = !inAnyBand(c, shifts)
 		if !free[m] && busy < 0 {
 			busy = m
 		}
@@ -776,7 +787,7 @@ func (w cutoffWorld) subject(level CutoffLevel, id uuid.UUID) (string, *time.Dur
 // 05-13, its one member's profile Shop, business 23:00: the member's cutoff is 23:00, and the
 // estimate said "06:00 falls inside Bakery's shift". A member who does not inherit the level
 // (their own value, a department's) is not affected by it at all.
-func (w cutoffWorld) ownShifts(level CutoffLevel, subject uuid.UUID, o *override) []CutoffConflict {
+func (w cutoffWorld) ownShifts(level CutoffLevel, subject uuid.UUID, o *override, m membership) []CutoffConflict {
 	business := w.business
 	if v := o.at(CutoffBusiness, uuid.Nil, &business); v != nil {
 		business = *v
@@ -797,15 +808,7 @@ func (w cutoffWorld) ownShifts(level CutoffLevel, subject uuid.UUID, o *override
 		}
 		return venueCutoff(d.venue)
 	}
-	venueMembers, deptMembers := map[uuid.UUID]bool{}, map[uuid.UUID]bool{}
-	for _, p := range w.people {
-		if p.branch != nil {
-			venueMembers[*p.branch] = true
-		}
-		if p.department != nil {
-			deptMembers[*p.department] = true
-		}
-	}
+	venueMembers, deptMembers := m.venues, m.departments
 	var out []CutoffConflict
 	switch level {
 	case CutoffBranch:
@@ -854,8 +857,8 @@ func (w cutoffWorld) heirsOf(level CutoffLevel, subject uuid.UUID) ([]cutoffPers
 // plus the level's own shift for a place nobody is placed in yet (ownShifts), the ones the
 // value under o cuts, and each heir's cutoff before and after o.
 func (w cutoffWorld) cuts(level CutoffLevel, subject uuid.UUID, o *override, heirs []cutoffPerson,
-	tapped map[uuid.UUID][]uuid.UUID) (shifts shiftSet, conflicts conflictSet, before, next map[uuid.UUID]time.Duration) {
-	for _, own := range w.ownShifts(level, subject, o) {
+	tapped map[uuid.UUID][]uuid.UUID, m membership) (shifts shiftSet, conflicts conflictSet, before, next map[uuid.UUID]time.Duration) {
+	for _, own := range w.ownShifts(level, subject, o, m) {
 		sh := own.Shift
 		shifts.add(&sh)
 		conflicts.check(own.Cutoff, &sh)
@@ -877,6 +880,27 @@ func (w cutoffWorld) cuts(level CutoffLevel, subject uuid.UUID, o *override, hei
 		}
 	}
 	return shifts, conflicts, before, next
+}
+
+// membership is where people are placed: the venues that are someone's profile branch and the
+// departments that have someone in them. It is built ONCE per snapshot (membershipOf) and
+// handed to ownShifts, which asks it for every level -- rebuilt per level, as it first was, it
+// made the business day check quadratic in the people (M15-08 security lens, DÜŞÜK).
+type membership struct {
+	venues, departments map[uuid.UUID]bool
+}
+
+func (w cutoffWorld) membershipOf() membership {
+	m := membership{venues: map[uuid.UUID]bool{}, departments: map[uuid.UUID]bool{}}
+	for _, p := range w.people {
+		if p.branch != nil {
+			m.venues[*p.branch] = true
+		}
+		if p.department != nil {
+			m.departments[*p.department] = true
+		}
+	}
+	return m
 }
 
 func (c CutoffReviewCommand) validate() error {
@@ -934,7 +958,7 @@ func (s *DayCutoffs) Review(ctx context.Context, c CutoffReviewCommand) (CutoffR
 		if err != nil {
 			return err
 		}
-		shifts, conflicts, before, next := w.cuts(c.Level, c.SubjectID, o, heirs, tapped)
+		shifts, conflicts, before, next := w.cuts(c.Level, c.SubjectID, o, heirs, tapped, w.membershipOf())
 		out.Conflicts = conflicts.sorted()
 		out.Shifts = len(shifts.list)
 		if v, ok := SuggestCutoff(shifts.list); ok {

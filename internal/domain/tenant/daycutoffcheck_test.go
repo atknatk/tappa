@@ -5,6 +5,10 @@ package tenant
 // daycutoffcheck_db_test.go.
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"math/rand/v2"
 	"testing"
 	"time"
 
@@ -57,7 +61,10 @@ func TestBusinessDayCheck_EveryLevelIsCheckedAtItsValueOnFile(t *testing.T) {
 			{id: ownPerson, branch: &plant, own: dur(10, 0)},
 		},
 	}
-	got := w.check(tenantID, map[uuid.UUID][]uuid.UUID{gziraPerson: {rusty}})
+	got, err := w.check(context.Background(), tenantID, map[uuid.UUID][]uuid.UUID{gziraPerson: {rusty}})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	type line struct {
 		level  CutoffLevel
@@ -117,7 +124,7 @@ func TestBusinessDayCheck_EveryLevelIsCheckedAtItsValueOnFile(t *testing.T) {
 		early: w.departments[early], late: w.departments[late],
 		kitchen: {id: kitchen, venue: plant, name: "Kitchen", cutoff: dur(23, 0), shift: w.departments[kitchen].shift}}
 	clear.people = []cutoffPerson{w.people[0], w.people[1], w.people[2]}
-	if c := clear.check(tenantID, nil); c.Cuts() || c.CutShifts != 0 {
+	if c, err := clear.check(context.Background(), tenantID, nil); err != nil || c.Cuts() || c.CutShifts != 0 {
 		for _, l := range c.Levels {
 			t.Logf("%s %s cuts %v", l.Level, ClockText(&l.Value), owners(l.Conflicts))
 		}
@@ -135,4 +142,130 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestBusinessDayCheck_TheOnePassIsTheReviewPerLevel holds the one-pass check (levelOf,
+// membership built once, the unplaced departments grouped once) equal to the per-level review
+// it replaced -- heirsOf scanning everybody for each level, ownShifts' membership rebuilt -- over
+// random businesses: for every level the same people count, the same shifts checked and the same
+// conflicts.
+func TestBusinessDayCheck_TheOnePassIsTheReviewPerLevel(t *testing.T) {
+	rng := rand.New(rand.NewPCG(15, 8))
+	pick := func(n int) int { return rng.IntN(n) }
+	maybe := func() *time.Duration {
+		if pick(3) == 0 {
+			return dur(pick(24), 15*pick(4))
+		}
+		return nil
+	}
+	for round := 0; round < 300; round++ {
+		tenantID := uuid.New()
+		w := cutoffWorld{name: "Random", zone: "Europe/Malta", business: hm(pick(24), 0),
+			venues: map[uuid.UUID]cutoffPlace{}, departments: map[uuid.UUID]cutoffPlace{}}
+		var vids, dids []uuid.UUID
+		for i := 0; i < 1+pick(4); i++ {
+			id := uuid.New()
+			vids = append(vids, id)
+			var sh *CutoffShift
+			if pick(4) > 0 {
+				sh = &CutoffShift{Owner: fmt.Sprintf("V%d", i), Start: hm(pick(24), 0), End: hm(pick(24), 0), Overnight: pick(2) == 0}
+			}
+			w.venues[id] = cutoffPlace{id: id, venue: id, name: fmt.Sprintf("V%d", i), cutoff: maybe(), shift: sh}
+		}
+		for i := 0; i < pick(5); i++ {
+			id := uuid.New()
+			dids = append(dids, id)
+			sh := &CutoffShift{Owner: fmt.Sprintf("D%d", i), Start: hm(pick(24), 0), End: hm(pick(24), 0)}
+			w.departments[id] = cutoffPlace{id: id, venue: vids[pick(len(vids))], name: fmt.Sprintf("D%d", i), cutoff: maybe(), shift: sh}
+		}
+		tapped := map[uuid.UUID][]uuid.UUID{}
+		for i := 0; i < pick(12); i++ {
+			p := cutoffPerson{id: uuid.New(), own: maybe()}
+			if pick(5) > 0 {
+				p.branch = &vids[pick(len(vids))]
+			}
+			if len(dids) > 0 && pick(2) == 0 {
+				p.department = &dids[pick(len(dids))]
+			}
+			w.people = append(w.people, p)
+			if pick(2) == 0 {
+				tapped[p.id] = []uuid.UUID{vids[pick(len(vids))]}
+			}
+		}
+		got, err := w.check(context.Background(), tenantID, tapped)
+		if err != nil {
+			t.Fatal(err)
+		}
+		members := map[uuid.UUID]bool{}
+		for _, p := range w.people {
+			if p.department != nil {
+				members[*p.department] = true
+			}
+		}
+		for _, l := range got.Levels {
+			heirs, _ := w.heirsOf(l.Level, l.SubjectID)
+			shifts, conflicts, _, _ := w.cuts(l.Level, l.SubjectID, nil, heirs, tapped, w.membershipOf())
+			if l.Level == CutoffBranch {
+				for _, d := range w.departments {
+					if d.venue == l.SubjectID && d.cutoff == nil && d.shift != nil && !members[d.id] {
+						shifts.add(d.shift)
+						conflicts.check(l.Value, d.shift)
+					}
+				}
+			}
+			want := conflicts.sorted()
+			if l.People != len(heirs) || l.Shifts != len(shifts.list) || len(l.Conflicts) != len(want) {
+				t.Fatalf("round %d, %s %s: people %d shifts %d conflicts %d; the per-level review says %d, %d, %d",
+					round, l.Level, l.SubjectID, l.People, l.Shifts, len(l.Conflicts), len(heirs), len(shifts.list), len(want))
+			}
+			for i := range want {
+				if l.Conflicts[i] != want[i] {
+					t.Fatalf("round %d, %s: conflict %d is %+v, the per-level review says %+v", round, l.Level, i, l.Conflicts[i], want[i])
+				}
+			}
+		}
+	}
+}
+
+// TestBusinessDayCheck_ACancelledRequestStopsTheCheck: the check looks at the request's context.
+func TestBusinessDayCheck_ACancelledRequestStopsTheCheck(t *testing.T) {
+	w, tapped := syntheticCheckWorld(2*checkCtxEvery, 2*checkCtxEvery, 4)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := w.check(ctx, uuid.New(), tapped); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a cancelled check answered %v, want context.Canceled", err)
+	}
+}
+
+// TestBusinessDayCheck_APlacedDepartmentIsCheckedAtItsMembersCutoffNotItsVenues: a department
+// with no value of its own under a venue that has one (Gzira, 01:00) is checked at the venue's
+// value ONLY while nobody is in it. Here its one member's profile branch is another venue
+// (Plant, no value), so the member takes the business's 05:00 and the department's 00:30-08:00
+// is that level's cut -- never Gzira's, whose 01:00 reaches nobody in it (ADR 0032 §A.2: a
+// department's venue need not be its members' profile branch).
+func TestBusinessDayCheck_APlacedDepartmentIsCheckedAtItsMembersCutoffNotItsVenues(t *testing.T) {
+	tenantID, plant, gzira, nights, member := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	w := cutoffWorld{name: "Placed Ltd", zone: "Europe/Malta", business: hm(5, 0),
+		venues: map[uuid.UUID]cutoffPlace{
+			plant: {id: plant, venue: plant, name: "Plant"},
+			gzira: {id: gzira, venue: gzira, name: "Gzira", cutoff: dur(1, 0)},
+		},
+		departments: map[uuid.UUID]cutoffPlace{
+			nights: {id: nights, venue: gzira, name: "Gzira Nights", shift: &CutoffShift{Owner: "Gzira Nights", Start: 30 * time.Minute, End: hm(8, 0)}},
+		},
+		people: []cutoffPerson{{id: member, branch: &plant, department: &nights}},
+	}
+	got, err := w.check(context.Background(), tenantID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Levels) != 2 || got.Levels[1].Level != CutoffBranch || got.Levels[1].SubjectID != gzira {
+		t.Fatalf("levels = %+v, want the business and Gzira", got.Levels)
+	}
+	if b := got.Levels[0]; b.People != 1 || len(b.Conflicts) != 1 || b.Conflicts[0].Shift.Owner != "Gzira Nights" || b.Conflicts[0].Cutoff != hm(5, 0) {
+		t.Errorf("the business level = %+v, want its member's Gzira Nights cut at 05:00", b)
+	}
+	if g := got.Levels[1]; g.People != 0 || len(g.Conflicts) != 0 || g.Shifts != 0 {
+		t.Errorf("Gzira's level = %+v: it reaches nobody in Gzira Nights, so it checks and cuts nothing", g)
+	}
 }
