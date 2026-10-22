@@ -232,6 +232,8 @@ REVOKE ALL ON admin_identity_events FROM tappa_app;
 -- 4. Column grants (ADR 0031 §5.2's matrix -- only what THIS file's functions need; M14-04 adds
 --    its own; identitypassword_test.go pins this file's set)
 -- ---------------------------------------------------------------------------
+-- Some of these columns are granted by 00071 (M14-04) too; GRANT is idempotent, and the Down below
+-- revokes only what this file alone adds (its comment lists the shared ones).
 -- tappa_identitydefiner. admin_identities: what the bodies read and write -- never email (K-15), never
 -- last_used_tenant / last_login_at (M14-04's). admin_users: no INSERT here, UPDATE without email.
 -- status is the post-contract unlink's disable form (T1). FOR UPDATE needs an UPDATE grant on the
@@ -1136,20 +1138,26 @@ ALTER FUNCTION resolve_admin_by_email(citext) OWNER TO tappa_resolver;
 REVOKE ALL ON FUNCTION resolve_admin_by_email(citext) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION resolve_admin_by_email(citext) TO tappa_app;
 
--- Exactly the Up's column grants (a column privilege is not counted: a later file granting the same
--- column would lose it too -- the Downs run newest first, so that file's Down has already run).
-REVOKE SELECT (identity_id, unlinked_at) ON admin_users FROM tappa_resolver;
-REVOKE SELECT (id, tenant_id, email, status, identity_id, linked_via, linked_at, unlinked_at),
+-- ONLY WHAT 00072 ALONE GRANTS. A column privilege is not counted: M14-04's 00071 grants some of the
+-- same columns to the same roles, and revoking them here would take them from 00071 too -- a
+-- database walked down to 71 would hold a broken identity_open_session / switch. The shared ones
+-- stay (00071's Down revokes them):
+--   tappa_identitydefiner  admin_identities SELECT (id)
+--                          admin_users      SELECT (id, tenant_id, status, identity_id, unlinked_at)
+--                          admin_sessions   SELECT (id, tenant_id, admin_user_id, token_hash, revoked_at,
+--                                           authenticated_at), UPDATE (revoked_at)
+--                          audit_log        INSERT (tenant_id, actor_id, action, target, detail)
+--   tappa_resolver         admin_users      SELECT (identity_id, unlinked_at)
+-- On a database without 00071 they are left behind by this Down -- a NOLOGIN role with no member and
+-- no function that reads them; 00069's Down/Up walk revokes them in its test for that case. The
+-- grants on the three tables go with the tables.
+REVOKE SELECT (email, linked_via, linked_at),
        UPDATE (password_hash, identity_id, linked_via, linked_at, unlinked_at, status)
     ON admin_users FROM tappa_identitydefiner;
-REVOKE SELECT (id, tenant_id, admin_user_id, token_hash, revoked_at, authenticated_at),
-       UPDATE (revoked_at)
-    ON admin_sessions FROM tappa_identitydefiner;
 REVOKE SELECT (id, tenant_id, admin_user_id, token_hash, expires_at, used_at, cancelled_at),
        UPDATE (used_at, cancelled_at)
     ON password_resets FROM tappa_identitydefiner;
-REVOKE INSERT (tenant_id, actor_id, action, target, detail) ON audit_log FROM tappa_identitydefiner;
-REVOKE SELECT (id, email, password_hash, email_verified_at, confirm_opened_at, confirm_open_until, confirm_scope),
+REVOKE SELECT (email, password_hash, email_verified_at, confirm_opened_at, confirm_open_until, confirm_scope),
        UPDATE (password_hash, email_verified_at, confirm_opened_at, confirm_open_until, confirm_scope)
     ON admin_identities FROM tappa_identitydefiner;
 

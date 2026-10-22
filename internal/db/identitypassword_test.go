@@ -1465,9 +1465,9 @@ func ipCatalogue(t *testing.T, ctx context.Context, q pgx.Tx) string {
 
 // TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndUp: with an event row
 // (or a refused membership) the Down is 55000 naming 00072 and changes nothing; without, it gives
-// 00070's catalogue back -- resolve_admin_by_email with 00017's four columns and grants, no identity
-// function, no table, the resolver's and the definer's grants gone -- taking no strong lock outside
-// the tables it names; the Up gives HEAD's catalogue back byte for byte.
+// resolve_admin_by_email back with 00017's four columns and grants, drops every identity function
+// and table, takes away every grant 00072 ALONE gives and keeps the ones 00071 gives too, taking no
+// strong lock outside the tables it names; the Up gives HEAD's catalogue back byte for byte.
 func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndUp(t *testing.T) {
 	ctx, tx := opTx(t)
 	up, down := opMigrationSections(t, ip00072File)
@@ -1511,9 +1511,21 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 		aiExec(t, ctx, sp, `UPDATE admin_users SET unlinked_at = NULL WHERE unlinked_at IS NOT NULL`)
 		opRunSection(t, ctx, sp, down, "00072 Down")
 		at70 := ipCatalogue(t, ctx, sp)
-		for _, gone := range []string{"identity_password_for_session", "identity_sweep_events", "resolve_identity_", "admin_identity_", "tappa_identitydefiner ", "tappa_resolver admin_users.unlinked_at", "tappa_resolver admin_users.identity_id"} {
+		for _, gone := range []string{"identity_password_for_session", "identity_sweep_events", "resolve_identity_", "admin_identity_",
+			"tappa_identitydefiner admin_users.email", "tappa_identitydefiner admin_users.linked_via", "tappa_identitydefiner admin_users.password_hash",
+			"tappa_identitydefiner admin_users.identity_id SU", "tappa_identitydefiner admin_users.status SU", "tappa_identitydefiner password_resets.",
+			"tappa_identitydefiner admin_identities.email", "tappa_identitydefiner admin_identities.password_hash", "tappa_identitydefiner admin_identities.confirm_"} {
 			if strings.Contains(at70, gone) {
-				t.Errorf("after 00072's Down the catalogue still holds %q", gone)
+				t.Errorf("after 00072's Down the catalogue still holds %q (a grant 00072 alone gives)", gone)
+			}
+		}
+		// The grants 00071 (M14-04) gives too stay: revoking them would break a database walked down
+		// to 71 (column privileges are not counted).
+		for _, kept := range []string{"tappa_identitydefiner admin_sessions.revoked_at SU\n", "tappa_identitydefiner admin_sessions.authenticated_at S\n",
+			"tappa_identitydefiner audit_log.detail I\n", "tappa_identitydefiner admin_users.identity_id S\n", "tappa_identitydefiner admin_users.unlinked_at S\n",
+			"tappa_identitydefiner admin_identities.id S\n", "tappa_resolver admin_users.identity_id S\n", "tappa_resolver admin_users.unlinked_at S\n"} {
+			if !strings.Contains(at70, kept) {
+				t.Errorf("after 00072's Down the catalogue lost %q, which 00071 grants too", strings.TrimSpace(kept))
 			}
 		}
 		if !strings.Contains(at70, "resolve_admin_by_email(citext) TABLE(id uuid, tenant_id uuid, password_hash text, status text) tappa_resolver ") ||
