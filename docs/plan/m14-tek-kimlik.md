@@ -2,8 +2,8 @@
 
 > **Durum:** plan — **başlanmadı; kullanıcının *"başla"* demesini bekliyor.** Kararlar 2026-10-21'de
 > verildi (K-1 … K-14 hepsi (a)); aynı gün iki denetimden (33 bulgu) sonra kullanıcı **K-13'ü (b)'ye
-> çevirdi** (üçüncü açık §4.5 istisnası). Tek açık soru K-15 (e-posta değiştirme kapsamı) ve M14-01'de
-> sorulur. Canlı durum yalnız [state.md](state.md)'dedir; bu dosyaya "yapıldı" yazılmaz.
+> çevirdi** (üçüncü açık §4.5 istisnası). K-15 (e-posta değiştirme kapsamı) 2026-10-22'de cevaplandı:
+> **(a)** — M14'ün dışında. Canlı durum yalnız [state.md](state.md)'dedir; bu dosyaya "yapıldı" yazılmaz.
 >
 > **Mimari karar:** [ADR 0031](../adr/0031-tek-kimlik-cok-isletme.md) (kabul edildi 2026-10-21).
 > Okumadan başlama: §5 (tasarım), §6 (üçüncü istisna ve CLAUDE.md metni), §8 (geçiş), §13 (kararlar ve
@@ -167,7 +167,8 @@ yer kararın yanında yazılıdır (ADR 0031 §13 tam tablo).
     CLAUDE.md metni: ADR 0031 §6.1 (M14-01 uygular).
 14. **K-14 — `admin_users.email` ayna, `full_name` üyelikte.** (a) seçildi. ⚠️ *Sıkılaştı (bulgu 21):*
     `tappa_app`'ın `UPDATE (email)`'i expand'de kapanır.
-15. **K-15 — E-posta değiştirme (yeni, bulgu 12) — AÇIK, M14-01'de sorulur.** (a) M14'ün dışında;
+15. **K-15 — E-posta değiştirme (yeni, bulgu 12).** **(a) seçildi (kullanıcı, 2026-10-22, M14-01;
+    [open-questions.md](open-questions.md) Q34, backlog T149).** (a) M14'ün dışında;
     kendi kartı ve kararıyla gelir (mevcut parola + yeni adres doğrulaması + eski adrese bildirim +
     çakışmada aynı "gelen kutunu kontrol et" + aynanın bütün işletmelerde definer ile güncellenmesi).
     (b) M14'e ek kart. — **Öneri: (a).** ADR 0031 (a)'yı varsayar.

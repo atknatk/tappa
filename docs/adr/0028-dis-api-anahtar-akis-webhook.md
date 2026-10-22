@@ -3785,3 +3785,11 @@ satır bırakır (internal/operatorauth'un commit eden testlerinin bedeli). (3) 
    önce yazma bırakılır, sonra askı kalkar). `FOR SHARE` mutantında `TheReadHoldsNoLockOnTheTenant`
    30 sn yerine 0,41 sn'de, `AWriteInFlightAtTheSuspensionIsLetThrough` 2,13 sn'de kırmızı; yeşil davranış
    aynı.
+
+## M14 notu (2026-10-22) — devre dışı üyeliğin anahtarı ([ADR 0031](0031-tek-kimlik-cok-isletme.md) §5.13)
+
+M14 bu ADR'yi değiştirmez: `api_keys.created_by` üyeliğin (`admin_users`) bileşik FK'si kalır
+(`00051:88-89`); aktör id'leri üyelik id'sidir, webhook'ların aktörü yoktur. M14'te devre dışı bırakma
+üyelik başınadır (K-6) ve devre dışı bir üyeliğin oluşturduğu anahtarlar bugünkü gibi çalışır — bu ADR
+o durumu ele almıyor; karar backlog'da (**T150**). Panel oturumunun mutlak ömrü de backlog'dadır
+(**T151**, ADR 0031 §10).

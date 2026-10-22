@@ -11,6 +11,8 @@
   yeni bir kullanıcı sorusu doğurmaz (§13). **Uygulama başlamadı** — kullanıcı *"başla"* diyene kadar kod,
   migration, CLAUDE.md değişikliği yok; CLAUDE.md metnini M14-01 bu ADR'nin §6.1'inden birebir
   uygular. Plan: [docs/plan/m14-tek-kimlik.md](../plan/m14-tek-kimlik.md).
+  **2026-10-22:** M14-01 §6.1 metnini CLAUDE.md'ye uyguladı; **K-15 cevaplandı — (a)**, e-posta
+  değiştirme M14'ün dışında, kendi kartı ve kararıyla gelir (§13; open-questions Q34, backlog T149).
 - **Tarih:** 2026-10-21
 - **Karar veren:** kullanıcı (ürün sahibi) — 2026-10-21: *"Hesapları birleştir (tek kimlik)"*: bir
   kişi = tek giriş kimliği, birden çok işletmeye (tenant) üye olabilir; ör. Kebab Factory ile Kebab
@@ -802,4 +804,4 @@ metne geri döner; yeni kullanıcı sorusu yoktur. Aşağıda her karar, seçile
 | K-12 | Operatör değişmez | (a) | **Genişledi** (bulgu 25): gelecekteki `op_disable_tenant_admins` yalnız üyelik durumuna dokunur |
 | K-13 | §4.5 sınıflandırması | **(b) — üçüncü açık istisna** | **Değişti (2026-10-21, denetimden sonra).** Gerekçe: güvenlik denetimi, yazan ve tenant sınırını geçen fonksiyonları "md.7 çözümleyicisi" saymanın md.7'nin "salt okuma, bağlam üreten" tanımını genişlettiğini ve sınırı görünmez kıldığını gösterdi; kullanıcı istisnanın **adıyla** yazılmasını seçti. md.7'de yalnız salt okuma çözümleyiciler kalır; yazanlar §6.1'deki kapalı listedir |
 | K-14 | `admin_users.email` ayna, `full_name` üyelikte | (a) | **Sıkılaştı** (bulgu 21): `tappa_app`'ın `UPDATE (email)`'i expand'de kapanır |
-| K-15 | **Yeni (bulgu 12):** e-posta değiştirme | M14'ün **dışında** (öneri) | Var olan kimliğin adresini değiştirmek mevcut parola + yeni adresin doğrulanması + eski adrese bildirim + çakışmada aynı "gelen kutunu kontrol et" + aynanın bütün işletmelerde definer ile güncellenmesini ister; kendi kartı ve kararıyla gelir. Kullanıcıya M14-01'de sorulur |
+| K-15 | **Yeni (bulgu 12):** e-posta değiştirme | **(a) — M14'ün dışında** (kullanıcı, 2026-10-22) | Var olan kimliğin adresini değiştirmek mevcut parola + yeni adresin doğrulanması + eski adrese bildirim + çakışmada aynı "gelen kutunu kontrol et" + aynanın bütün işletmelerde definer ile güncellenmesini ister; kendi kartı ve kararıyla gelir. Kullanıcıya M14-01'de soruldu, (a)'yı seçti (2026-10-22) |
