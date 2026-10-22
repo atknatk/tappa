@@ -485,13 +485,13 @@ type PublicLink struct {
 
 // PublicProductLinks is the Product column of the footer and the phone menu, in the
 // boards' order. Mounted so far: the product tour (LP-08), the pricing page (LP-06), the
-// security page (LP-07) and the integration guide.
+// security page (LP-07), the integration guide and the production page (LP-10).
 var PublicProductLinks = []PublicLink{
 	{Label: "Product tour", Href: ProductPath},
 	{Label: "Security", Href: SecurityPath},
 	{Label: "Pricing", Href: PricingPath},
 	{Label: "For restaurants & bars"},
-	{Label: "For production & facilities"},
+	{Label: "For production & facilities", Href: ForProductionPath},
 	{Label: "API docs", Href: APIGuidePath},
 }
 
@@ -520,6 +520,7 @@ var PublicPages = []PublicPage{
 	{Path: ProductPath, Title: "Product tour — Taptime"},
 	{Path: SecurityPath, Title: "Security — Taptime"},
 	{Path: PricingPath, Title: "Pricing — Taptime"},
+	{Path: ForProductionPath, Title: "For production & facilities — Taptime"},
 }
 
 // PublicPageTitle is the title of the PublicPages row at path, so a page's tab title is
@@ -1184,6 +1185,11 @@ type Audience struct {
 	Points []Claim
 	// Example is the green chip under the paragraph.
 	Example Claim
+	// Href is the route of the shape's own page, or "" while it has none: a card with a
+	// page is one link to it, with Link at its foot (the boards' fits cards). A LINK
+	// ARRIVES WITH ITS ROUTE (README O8): the card stays a plain card until then.
+	Href string
+	Link string
 }
 
 // Paragraph is the card's sentences joined by one space, in the declared order —
@@ -1252,6 +1258,8 @@ var LandingAudiences = []Audience{
 			Text:    "5 departments · per-department shifts · records filtered by department",
 			Anchors: []Anchor{AnchorDepartmentShift, AnchorDepartmentOnEveryRecord},
 		},
+		Href: ForProductionPath,
+		Link: "For production & facilities",
 	},
 }
 

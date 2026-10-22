@@ -3307,3 +3307,195 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
   .lp .lp-prodIntegItems { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
   .lp .lp-prodIntegItem + .lp-prodIntegItem { padding-top: 0; padding-left: 28px; border-top: 0; border-left: 1px dashed var(--line); }
 }
+
+/* =========================================================================
+   THE PRODUCTION PAGE (LP-10, 2026-10-22)
+
+   /for/production, from the ForProduction / T-ForProduction / M-ForProduction
+   boards (web/templates/pages/forproduction.templ). The opening, the bands,
+   the section frame, the trust strip, the panel's drawing frame (.lp-mini*),
+   the sample docket (.lp-secDocket), the bullets (.lp-prodBullets), the tap
+   screen's pieces (.lp-prod*), the icon tile and the sign-off are the landing's
+   and the other pages'; what is here is the page's own furniture: the gate and
+   its departments, the shifts timeline, the department's Pass, the queue, the
+   floor's cards and the phone cut at the counter -- and the landing fits
+   card's foot line, now that the card is a link.
+
+   THE TIMELINE IS A CLOSED SET OF POSITIONS. It runs 03:00 to 18:00 (900
+   minutes); a time the page draws is placed by one class below
+   (forProductionAt / forProductionUntil in the template), never by a value in
+   a style attribute. A time with no class has no place, and internal/handler's
+   test refuses a drawing that would need one.
+
+   ONE DOM AT EVERY WIDTH. On the phone a shift's name sits over its track and
+   the timeline's labels have no left column; from the tablet the name is a
+   210px column beside the track. The phone draws the tap screen before the
+   floor's cards, as M-ForProduction does; from the desktop the cards and the
+   phone share a row.
+
+   THE DRAWINGS ARE PICTURES (role img): nothing in them is pressed, so they
+   reserve no 44px floor. The fits card's link is pressed; it is the whole card.
+
+   CONTRAST, MEASURED (the WCAG ratio, alpha composited over its ground):
+     green on green-lite                    6.39:1  the chips, the shift hours
+     ink at 82% on paper / porcelain       10.3:1 / 9.1:1  the sections' lines
+     ink at 70% on paper                    6.05:1  the notes, the filter label
+     paper on ink                          16.17:1  the plaque's gate
+     paper at 60% on ink                    6.0:1   the plaque's small words
+     ink on green-lite                     13.6:1   the plaque's two signs
+   ========================================================================= */
+
+/* ---------------- the landing's fits card, as a link ---------------- */
+/* The ring follows the card's own corner. */
+.lp .fitcard:focus-visible { border-radius: 18px; }
+.lp .lp-fitLink { display: inline-flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 6px; font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--green); }
+
+/* ---------------- the opening ---------------- */
+.lp .lp-fpHero { display: flex; flex-direction: column; gap: 36px; }
+.lp .lp-fpHeroCopy { display: flex; flex-direction: column; min-width: 0; }
+.lp .lp-fpLede { margin-bottom: 16px; }
+.lp .lp-fpLedeFoot { max-width: 560px; font-size: 15.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .8); }
+
+/* The gate: the plaque, a green spine, and one box per department. */
+.lp .lp-fpGate { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 16px; box-shadow: 0 20px 50px rgb(var(--ink-ch) / .1); }
+.lp .lp-fpGateRow { display: flex; align-items: center; }
+.lp .lp-fpPlaque { flex: none; display: flex; flex-direction: column; align-items: center; gap: 10px; width: 108px; padding: 16px 10px; border-radius: 16px; background: var(--ink); color: var(--paper); text-align: center; box-shadow: 0 18px 40px rgb(var(--ink-ch) / .28); }
+.lp .lp-fpPlaqueWord { font-family: var(--mono); font-size: 9px; letter-spacing: .26em; color: rgb(var(--paper-ch) / .6); }
+.lp .lp-fpPlaqueRing { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 2px dashed rgb(var(--mint-ch) / .75); border-radius: 50%; color: var(--mint); }
+.lp .lp-fpPlaqueRing svg { display: block; }
+.lp .lp-fpPlaqueGate { font-size: 12px; font-weight: 700; line-height: 1.3; }
+.lp .lp-fpPlaqueSite { padding-top: 8px; border-top: 1px dashed rgb(var(--paper-ch) / .2); font-family: var(--mono); font-size: 9px; text-transform: uppercase; color: rgb(var(--paper-ch) / .6); }
+.lp .lp-fpPlaqueSigns { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.lp .lp-fpPlaque .lp-prodBadge { color: var(--ink); }
+.lp .lp-fpDepts { list-style: none; flex: 1; display: flex; flex-direction: column; gap: 7px; min-width: 0; margin-left: 10px; border-left: 2px solid var(--green); }
+.lp .lp-fpDept { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; margin-left: 14px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.lp .lp-fpDept::before { content: ''; position: absolute; left: -15px; top: 50%; width: 14px; height: 2px; margin-top: -1px; background: var(--green); }
+.lp .lp-fpDeptName { min-width: 0; font-size: 12px; font-weight: 700; }
+.lp .lp-fpDeptStart { flex: none; font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--green); }
+.lp .lp-fpChip { align-self: flex-start; padding: 6px 12px; border-radius: 10px; background: var(--green-lite); font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: var(--green); }
+
+/* ---------------- the shifts timeline ---------------- */
+.lp .lp-fpTimeline { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 20px 16px; }
+.lp .lp-fpMarkRow { position: relative; height: 22px; }
+.lp .lp-fpMarkTag { position: absolute; top: 0; padding: 1px 6px; border: 1px solid var(--ink); background: var(--paper); font-family: var(--mono); font-size: 11px; font-weight: 700; white-space: nowrap; transform: translateX(-50%); }
+.lp .lp-fpRows { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.lp .lp-fpRow { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.lp .lp-fpRowName { min-width: 0; font-size: 13.5px; font-weight: 700; }
+.lp .lp-fpRow--site { padding-top: 10px; border-top: 1px dashed var(--line); }
+.lp .lp-fpRow--site .lp-fpRowName { font-size: 13px; font-weight: 400; color: rgb(var(--ink-ch) / .75); }
+.lp .lp-fpTrack { position: relative; display: block; height: 26px; border: 1px solid var(--line); border-radius: 7px; background: var(--porcelain); }
+.lp .lp-fpTick--1 { left: 20%; }
+.lp .lp-fpTick--2 { left: 40%; }
+.lp .lp-fpTick--3 { left: 60%; }
+.lp .lp-fpTick--4 { left: 80%; }
+.lp .lp-fpBar { position: absolute; top: 4px; bottom: 4px; border: 1px solid var(--green); border-radius: 5px; background: rgb(var(--green-ch) / .1); }
+.lp .lp-fpBar--on { background: rgb(var(--green-ch) / .22); }
+.lp .lp-fpBarHours { position: absolute; top: 5px; padding-left: 6px; font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--green); white-space: nowrap; }
+.lp .lp-fpMark { position: absolute; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: var(--ink); }
+.lp .lp-fpAxis { position: relative; height: 16px; }
+.lp .lp-fpAxisHour { position: absolute; top: 0; font-family: var(--mono); font-size: 10.5px; color: rgb(var(--ink-ch) / .75); transform: translateX(-50%); }
+.lp .lp-fpAxisHour:first-child { transform: none; }
+.lp .lp-fpAxisHour:last-child { transform: translateX(-100%); }
+/* The closed set of places: a start (left) and an end (right) on 03:00-18:00. */
+.lp .lp-fpAt0300 { left: 0; }
+.lp .lp-fpAt0400 { left: 6.6667%; }
+.lp .lp-fpAt0402 { left: 6.8889%; }
+.lp .lp-fpAt0500 { left: 13.3333%; }
+.lp .lp-fpAt0600 { left: 20%; }
+.lp .lp-fpAt0800 { left: 33.3333%; }
+.lp .lp-fpAt0900 { left: 40%; }
+.lp .lp-fpAt1200 { left: 60%; }
+.lp .lp-fpAt1500 { left: 80%; }
+.lp .lp-fpAt1800 { left: 100%; }
+.lp .lp-fpTo1200 { right: 40%; }
+.lp .lp-fpTo1300 { right: 33.3333%; }
+.lp .lp-fpTo1400 { right: 26.6667%; }
+.lp .lp-fpTo1600 { right: 13.3333%; }
+.lp .lp-fpTo1700 { right: 6.6667%; }
+.lp .lp-fpPair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 6px; }
+.lp .lp-fpCaption { padding-top: 10px; border-top: 1px dashed var(--line); font-family: var(--mono); font-size: 11.5px; line-height: 1.55; color: rgb(var(--ink-ch) / .8); }
+.lp .lp-fpTimeline + .lp-prodBullets,
+.lp .lp-fpQueue + .lp-prodBullets { max-width: 760px; margin-top: 24px; }
+
+/* A sample record at the site: the panel's docket, its top stacked so the site and
+   the department keep their line beside a narrow column. */
+.lp .lp-fpDocket .lp-secDocketTop { flex-direction: column; gap: 6px; }
+.lp .lp-fpDocket .lp-secDocketTime { font-size: 15px; }
+.lp .lp-fpDocketNote { padding-top: 7px; border-top: 1px dashed var(--line); font-family: var(--mono); font-size: 10.5px; color: rgb(var(--ink-ch) / .72); }
+
+/* ---------------- departments ---------------- */
+.lp .lp-fpSplit { display: flex; flex-direction: column; gap: 24px; }
+.lp .lp-fpSplitText { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.lp .lp-fpLine { font-size: 15.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
+.lp .lp-fpSplitText .lp-fpChip { padding: 7px 12px; font-size: 12px; }
+.lp .lp-fpNote { margin-top: 0; font-size: 13px; line-height: 1.6; }
+.lp .lp-fpFilters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lp .lp-fpFilter { display: inline-flex; gap: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; font-family: var(--mono); font-size: 11px; color: rgb(var(--ink-ch) / .75); }
+.lp .lp-fpFilter--on { border: 1.5px solid var(--ink); background: var(--paper); color: var(--ink); }
+.lp .lp-fpFilterLbl { color: rgb(var(--ink-ch) / .7); }
+/* The Pass's bar, a clip per docket, and the dockets hanging from it. */
+.lp .lp-fpRail { list-style: none; position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 6px 6px 0; }
+.lp .lp-fpRail::before { content: ''; position: absolute; left: 0; right: 0; top: 6px; height: 7px; border-radius: 4px; background: var(--ink); }
+.lp .lp-fpRailItem { position: relative; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.lp .lp-fpRailItem::before { content: ''; position: relative; z-index: 1; width: 34px; height: 13px; border-radius: 0 0 5px 5px; background: rgb(var(--ink-ch) / .7); }
+.lp .lp-fpRailItem .lp-fpDocket { width: 100%; margin-top: -3px; transform-origin: top center; }
+.lp .lp-fpRailItem:nth-child(1) .lp-fpDocket { transform: rotate(-1deg); }
+.lp .lp-fpRailItem:nth-child(2) .lp-fpDocket { transform: rotate(1deg); }
+.lp .lp-fpRailItem:nth-child(3) .lp-fpDocket { transform: rotate(-.5deg); }
+
+/* ---------------- the queue ---------------- */
+.lp .lp-fpQueue { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 20px 16px; }
+.lp .lp-fpQueueList { list-style: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.lp .lp-fpQueueItem { min-width: 0; }
+.lp .lp-fpQueueItem .lp-fpDocket { transform-origin: top center; }
+.lp .lp-fpQueueItem:nth-child(odd) .lp-fpDocket { transform: rotate(-1deg); }
+.lp .lp-fpQueueItem:nth-child(even) .lp-fpDocket { transform: rotate(1deg); }
+
+/* ---------------- the floor ---------------- */
+.lp .lp-fpFloor { display: flex; flex-direction: column; gap: 16px; }
+.lp .lp-fpCards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.lp .lp-fpCard { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 20px; }
+.lp .lp-fpCardTitle { font-size: 17px; line-height: 1.25; letter-spacing: -0.02em; }
+.lp .lp-fpCardBody { font-size: 14.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
+/* The person's own phone, cut at the counter's edge. */
+.lp .lp-fpPhoneWrap { order: -1; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.lp .lp-fpPhone { width: 214px; padding: 10px 10px 0; border-radius: 40px 40px 0 0; background: var(--ink); box-shadow: 0 -6px 30px rgb(var(--ink-ch) / .16); }
+.lp .lp-fpScreen { position: relative; display: flex; flex-direction: column; gap: 12px; padding: 12px 12px 16px; border-radius: 31px 31px 0 0; background: var(--porcelain); color: var(--ink); }
+.lp .lp-fpNotch { position: absolute; top: 9px; left: 50%; width: 76px; height: 20px; margin-left: -38px; border-radius: 10px; background: var(--ink); }
+.lp .lp-fpScreen .lp-prodHello { font-size: 18px; }
+.lp .lp-fpScreen .lp-prodTapButton { min-height: 52px; font-size: 18px; }
+.lp .lp-fpLedge { display: block; width: 214px; height: 4px; border-radius: 0 0 2px 2px; background: var(--ink); }
+.lp .lp-fpCounter { display: block; width: 214px; margin-top: 6px; border-top: 1.5px dashed rgb(var(--ink-ch) / .35); }
+
+@media (min-width: 768px) {
+  .lp .lp-fpHero { gap: 48px; }
+  .lp .lp-fpGate { padding: 22px; }
+  .lp .lp-fpPlaque { width: 132px; padding: 20px 14px; }
+  .lp .lp-fpPlaqueRing { width: 56px; height: 56px; }
+  .lp .lp-fpDepts { margin-left: 16px; }
+  .lp .lp-fpDept { margin-left: 22px; padding: 9px 12px; }
+  .lp .lp-fpDept::before { left: -23px; width: 22px; }
+  .lp .lp-fpDeptName { font-size: 13.5px; }
+  .lp .lp-fpDeptStart { font-size: 11.5px; }
+
+  .lp .lp-fpTimeline { padding: 20px; }
+  .lp .lp-fpMarkRow,
+  .lp .lp-fpAxis { margin-left: 224px; }
+  .lp .lp-fpRow { display: grid; grid-template-columns: 210px minmax(0, 1fr); align-items: center; gap: 14px; }
+  .lp .lp-fpPair { gap: 14px; }
+
+  .lp .lp-fpSplit { gap: 32px; }
+  .lp .lp-fpRail { grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 6px 6px 12px; }
+
+  .lp .lp-fpQueue { padding: 20px; }
+  .lp .lp-fpQueueList { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+
+  .lp .lp-fpCards { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .lp .lp-fpCard--wide { grid-column: 1 / -1; }
+}
+@media (min-width: 1200px) {
+  .lp .lp-fpHero { display: grid; grid-template-columns: minmax(0, 1fr) 540px; align-items: center; gap: 56px; }
+  .lp .lp-fpSplit { display: grid; grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); align-items: center; gap: 56px; }
+  .lp .lp-fpFloor { display: grid; grid-template-columns: minmax(0, 1fr) 300px; align-items: center; gap: 40px; }
+  .lp .lp-fpPhoneWrap { order: 0; }
+}

@@ -414,6 +414,8 @@ func (m *Marketing) Mount(r chi.Router) {
 	r.Head(securityPath, m.Security)
 	r.Get(pricingPath, m.Pricing)
 	r.Head(pricingPath, m.Pricing)
+	r.Get(forProductionPath, m.ForProduction)
+	r.Head(forProductionPath, m.ForProduction)
 	for _, p := range pages.LegalPages {
 		page := p
 		serve := func(w http.ResponseWriter, r *http.Request) {
@@ -525,6 +527,32 @@ func (m *Marketing) Product(w http.ResponseWriter, r *http.Request) {
 		Figures:    m.product,
 		Copy:       m.productCopy,
 	}))
+}
+
+// forProductionPath is pages.ForProductionPath, spelled out so the route scan can read it;
+// the public-page table test holds the two equal.
+const forProductionPath = "/for/production"
+
+// ForProduction serves GET /for/production (LP-10). Its one figure is the repeat window
+// the security page already holds (m.security, computed once in NewMarketing), and its
+// sentences are built from it here: a handful of strings, no state, no read -- so the
+// page keeps no field of its own on Marketing.
+func (m *Marketing) ForProduction(w http.ResponseWriter, r *http.Request) {
+	f := forProductionFigures(m.security)
+	m.render(w, r, pages.ForProduction(pages.ForProductionView{
+		SignupHref: m.signupHref,
+		SignInHref: adminLoginPath,
+		FreeMonths: foundingFreeMonths,
+		Figures:    f,
+		Copy:       pages.ForProductionCopy(f),
+	}))
+}
+
+// forProductionFigures is the production page's numbers: the repeat window, the security
+// page's own figure (securityFigures holds it to policy.DefaultParams and to the config
+// default), so the pages cannot disagree.
+func forProductionFigures(s pages.SecurityFigures) pages.ForProductionFigures {
+	return pages.ForProductionFigures{DebounceSeconds: s.DebounceSeconds}
 }
 
 // productFigures is the product tour's numbers: the debounce window and the webhook

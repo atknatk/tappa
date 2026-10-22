@@ -127,6 +127,7 @@ var pageFactDerivations = []func(*testing.T) map[pages.Fact]func() string{
 	pricingFactDerivations,
 	securityFactDerivations,
 	productFactDerivations,
+	forProductionFactDerivations,
 }
 
 // plaquesIncludedRE is handoff §11's pricing term: "plaketler dahil ve ücretsiz
@@ -1332,10 +1333,11 @@ func TestLanding_UsesOnlyPaletteTokens(t *testing.T) {
 // sitePageTemplates is the template each page of the public site is drawn by. A page
 // card adds its row with its route.
 var sitePageTemplates = map[string]string{
-	"/":                "landing.templ",
-	pages.PricingPath:  "pricing.templ",
-	pages.SecurityPath: "security.templ",
-	pages.ProductPath:  "product.templ",
+	"/":                     "landing.templ",
+	pages.PricingPath:       "pricing.templ",
+	pages.SecurityPath:      "security.templ",
+	pages.ProductPath:       "product.templ",
+	pages.ForProductionPath: "forproduction.templ",
 }
 
 // landingFAQAnswerBeforeM11 is "Where does the data go?" as the page answered it until

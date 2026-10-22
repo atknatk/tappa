@@ -1,0 +1,349 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/layout"
+
+// THE PRODUCTION PAGE (LP-10), drawn from the ForProduction, T-ForProduction and
+// M-ForProduction boards: the opening with the gate and its departments, the trust
+// strip, the department shifts on one timeline, the department on every record, a queue
+// at the gate, the floor, and the sign-off, in the shared public chrome.
+//
+// THE WORDS ARE NOT WRITTEN HERE. Every sentence that says something about the product
+// is a value in forproductionview.go (ForProductionCopy) with the facts it rests on. What
+// stays literal is furniture: the eyebrows, the drawings' labels, and the panel's own
+// names for what a drawing shows -- each held to the panel by internal/handler's tests.
+//
+// NO SCRIPT, NO IMAGE, NO STYLE ATTRIBUTE: the page is served with the marketing policy
+// as it is. Each drawing is a picture (role img); nothing in one is pressed. A position
+// on the timeline is one of a closed set of classes (forProductionAt), never a
+// computed value.
+//
+// ONE DOM FOR EVERY WIDTH; input.css's LP-10 rules place it.
+
+// ForProduction is the page at /for/production.
+templ ForProduction(v ForProductionView) {
+	@layout.Marketing(PublicPageTitle(ForProductionPath), layout.RobotsPublic) {
+		<div class="lp">
+			@PublicChrome(PublicChromeOpts{Current: ForProductionPath, SignInHref: v.SignInHref, SignupHref: v.SignupHref}) {
+				@forProductionHead(v)
+				@landingStrip()
+				@forProductionShifts(v.Copy)
+				@forProductionDepartments(v.Copy)
+				@forProductionQueue(v.Copy)
+				@forProductionFloor(v.Copy)
+				@signOff(v.FreeMonths, v.SignupHref)
+			}
+		</div>
+	}
+}
+
+// forProductionHead is the opening: its one h1, the lede, the two ways on, and the gate
+// with the site's departments and their start times.
+templ forProductionHead(v ForProductionView) {
+	<div class="band band--porcelain">
+		<section class="lp-pageHead lp-fpHead" aria-label={ LandingAudiences[1].Kicker }>
+			<div class="lp-wrap lp-fpHero">
+				<div class="lp-fpHeroCopy">
+					<p class="lp-eyebrow lp-pageEyebrow">{ LandingAudiences[1].Kicker }</p>
+					<h1 class="lp-h1">{ LandingAudiences[1].Title }</h1>
+					<p class="lp-pageLede lp-fpLede">{ v.Copy.Lede.Text }</p>
+					<p class="lp-fpLedeFoot">{ v.Copy.LedeFoot.Text }</p>
+					<div class="lp-secBtns">
+						if v.SignupHref != "" {
+							<a class="lp-button lp-button--green" href={ templ.URL(v.SignupHref) }>Start free</a>
+						}
+						<a class="lp-button lp-button--ghost" href={ templ.URL(SecurityPath) }>How a tap is verified</a>
+					</div>
+				</div>
+				@forProductionGate(v.Copy)
+			</div>
+		</section>
+	</div>
+}
+
+// forProductionGate draws the gate's plaque and the site's departments, each with its
+// shift's start, from the demo data.
+templ forProductionGate(c ForProductionText) {
+	<div class="card lp-fpGate" role="img" aria-label={ "One plaque at the gate of " + ForProductionSite + " serving " + countWord(len(ForProductionDepartments)) + " departments, each with its own shift start" }>
+		<span class="lp-lbl">{ "One plaque · " + countWord(len(ForProductionDepartments)) + " departments · from our demo data" }</span>
+		<div class="lp-fpGateRow">
+			<div class="lp-fpPlaque">
+				<span class="lp-fpPlaqueWord">TAPTIME</span>
+				<span class="lp-fpPlaqueRing">
+					<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2.8 9.2a13.5 13.5 0 0 1 18.4 0"></path><path d="M5.9 12.6a9 9 0 0 1 12.2 0"></path><path d="M9 16a4.4 4.4 0 0 1 6 0"></path><circle cx="12" cy="19.2" r=".9" fill="currentColor"></circle></svg>
+				</span>
+				<span class="lp-fpPlaqueGate">The gate</span>
+				<span class="lp-fpPlaqueSite">{ ForProductionSite }</span>
+				<span class="lp-fpPlaqueSigns">
+					@productBadge("IP", true)
+					@productBadge("GPS", true)
+				</span>
+			</div>
+			<ol class="lp-fpDepts">
+				for _, d := range ForProductionDepartments {
+					<li class="lp-fpDept">
+						<span class="lp-fpDeptName">{ d.Name }</span>
+						<span class="lp-fpDeptStart">{ d.Start }</span>
+					</li>
+				}
+			</ol>
+		</div>
+		<span class="lp-fpChip">{ c.SiteNote.Text }</span>
+	</div>
+}
+
+// forProductionShifts is the department shifts on one timeline, with the site's own hours
+// for a person with no department, and two check-ins judged against two of them.
+templ forProductionShifts(c ForProductionText) {
+	<div class="band band--paper">
+		<section id={ ForProductionShiftsID } class="lp-sec" aria-labelledby={ ForProductionShiftsID + "-title" }>
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">Department shifts</p>
+				<h2 id={ ForProductionShiftsID + "-title" } class="lp-h2">{ c.ShiftsHeading.Text }</h2>
+				<p class="lp-lede">{ c.ShiftsLede.Text }</p>
+				<div class="card lp-fpTimeline" role="img" aria-label={ "The department shifts at " + ForProductionSite + " on one timeline, and the site's hours for a person with no department; a " + ForProductionYardstick[0].At + " check-in is late for the bakery's shift, while " + ForProductionYardstick[1].At + " is on time for meat production" }>
+					<span class="lp-lbl">{ "Department shifts at " + ForProductionSite + " · from our demo data" }</span>
+					<div class="lp-fpMarkRow">
+						<span class={ "lp-fpMarkTag", forProductionAt(ForProductionYardstick[0].At) }>{ ForProductionYardstick[0].At }</span>
+					</div>
+					<ol class="lp-fpRows">
+						for _, d := range ForProductionDepartments {
+							@forProductionRow(d.Name, d, false)
+						}
+						@forProductionRow("No department · site hours", ForProductionSiteHours, true)
+					</ol>
+					<div class="lp-fpAxis">
+						for _, h := range forProductionAxis {
+							<span class={ "lp-fpAxisHour", forProductionAt(h) }>{ h }</span>
+						}
+					</div>
+					<div class="lp-fpPair">
+						for _, d := range ForProductionYardstick {
+							@forProductionDocket(d)
+						}
+					</div>
+					<p class="lp-fpCaption">{ c.Yardstick.Text }</p>
+				</div>
+				@productBullets(c.ShiftsBullets)
+			</div>
+		</section>
+	</div>
+}
+
+// forProductionAxis is the timeline's hours, three apart, from its first to its last.
+var forProductionAxis = []string{"03:00", "06:00", "09:00", "12:00", "15:00", "18:00"}
+
+// forProductionRow is one shift on the timeline: its name, the hairlines, the shift's bar
+// and hours, and the check-in's mark.
+templ forProductionRow(name string, s ForProductionShift, site bool) {
+	<li class={ "lp-fpRow", templ.KV("lp-fpRow--site", site) }>
+		<span class="lp-fpRowName">{ name }</span>
+		<span class="lp-fpTrack">
+			<span class="tick lp-fpTick lp-fpTick--1"></span>
+			<span class="tick lp-fpTick lp-fpTick--2"></span>
+			<span class="tick lp-fpTick lp-fpTick--3"></span>
+			<span class="tick lp-fpTick lp-fpTick--4"></span>
+			<span class={ "lp-fpBar", forProductionAt(s.Start), forProductionUntil(s.End), templ.KV("lp-fpBar--on", s.Name == ForProductionYardstick[0].Department) }></span>
+			<span class={ "lp-fpBarHours", forProductionAt(s.Start) }>{ s.Start + "–" + s.End }</span>
+			<span class={ "lp-fpMark", forProductionAt(ForProductionYardstick[0].At) }></span>
+		</span>
+	</li>
+}
+
+// forProductionAt is the class that places a time on the timeline, from a closed set: the
+// timeline runs 03:00 to 18:00, and only the times the page draws have a place. A time
+// with none gets "", and internal/handler's test refuses a drawing that would need one.
+func forProductionAt(hhmm string) string {
+	switch hhmm {
+	case "03:00":
+		return "lp-fpAt0300"
+	case "04:00":
+		return "lp-fpAt0400"
+	case "04:02":
+		return "lp-fpAt0402"
+	case "05:00":
+		return "lp-fpAt0500"
+	case "06:00":
+		return "lp-fpAt0600"
+	case "08:00":
+		return "lp-fpAt0800"
+	case "09:00":
+		return "lp-fpAt0900"
+	case "12:00":
+		return "lp-fpAt1200"
+	case "15:00":
+		return "lp-fpAt1500"
+	case "18:00":
+		return "lp-fpAt1800"
+	}
+	return ""
+}
+
+// forProductionUntil is the class that ends a shift's bar on the timeline, from the same
+// kind of closed set.
+func forProductionUntil(hhmm string) string {
+	switch hhmm {
+	case "12:00":
+		return "lp-fpTo1200"
+	case "13:00":
+		return "lp-fpTo1300"
+	case "14:00":
+		return "lp-fpTo1400"
+	case "16:00":
+		return "lp-fpTo1600"
+	case "17:00":
+		return "lp-fpTo1700"
+	}
+	return ""
+}
+
+// forProductionDocket is one sample record as the panel's docket draws it: the site and
+// the department, the stamp, the person, the direction and the time, and a note.
+templ forProductionDocket(d ForProductionDocket) {
+	<div class="lp-slip lp-secDocket lp-fpDocket">
+		<div class="lp-secDocketTop">
+			<span class="lp-lbl lp-secDocketVenue">{ ForProductionSite + " · " + d.Department }</span>
+			@securityStamp(d.Verdict)
+		</div>
+		<span class="lp-secDocketWho">{ d.Who }</span>
+		<span class="lp-secDocketTime"><span class="lp-dir">{ d.Direction }</span><span>{ d.At }</span></span>
+		if d.Note != "" {
+			<span class="lp-fpDocketNote">{ d.Note }</span>
+		}
+	</div>
+}
+
+// forProductionDepartments is the department on every record, beside a drawing of The
+// Pass filtered to one department.
+templ forProductionDepartments(c ForProductionText) {
+	<div class="band band--porcelain">
+		<section id={ ForProductionDepartmentsID } class="lp-sec" aria-labelledby={ ForProductionDepartmentsID + "-title" }>
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">Departments</p>
+				<h2 id={ ForProductionDepartmentsID + "-title" } class="lp-h2 lp-secH2Solo">{ c.DepartmentsHeading.Text }</h2>
+				<div class="lp-fpSplit">
+					<div class="lp-fpSplitText">
+						<p class="lp-fpLine">{ c.DepartmentsLine.Text }</p>
+						<span class="lp-fpChip">{ c.DepartmentsChip.Text }</span>
+						<p class="lp-prodNote lp-fpNote">{ ForProductionSampleNote }</p>
+					</div>
+					@forProductionPass()
+				</div>
+			</div>
+		</section>
+	</div>
+}
+
+// forProductionPass draws The Pass filtered to one department: the filter, and the
+// department's dockets, newest on the left.
+templ forProductionPass() {
+	@landingMiniFrame(LandingPanelPass.Title, 0) {
+		@landingMiniHead("Today · filtered by department", LandingPanelPass.Title)
+		<div class="lp-fpFilters">
+			<span class="lp-fpFilter lp-fpFilter--on"><span class="lp-fpFilterLbl">{ ForProductionPassFilterLabel }</span><b>{ ForProductionPassDockets[0].Department }</b></span>
+			<span class="lp-fpFilter">Today</span>
+		</div>
+		<ol class="lp-fpRail">
+			for _, d := range ForProductionPassDockets {
+				<li class="lp-fpRailItem">
+					@forProductionDocket(d)
+				</li>
+			}
+		</ol>
+	}
+}
+
+// forProductionQueue is the shift change at the gate: three people one after another,
+// and the first of them again inside the repeat window.
+templ forProductionQueue(c ForProductionText) {
+	<div class="band band--paper">
+		<section id={ ForProductionQueueID } class="lp-sec" aria-labelledby={ ForProductionQueueID + "-title" }>
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">Shift change</p>
+				<h2 id={ ForProductionQueueID + "-title" } class="lp-h2">{ c.QueueHeading.Text }</h2>
+				<p class="lp-lede">{ c.QueueLede.Text }</p>
+				<div class="card lp-fpQueue" role="img" aria-label="Sample: three different people tap the gate's plaque seconds apart and each is approved; the first of them, tapping again inside the window, is ignored">
+					<span class="lp-lbl">Shift change at the gate · sample</span>
+					<ol class="lp-fpQueueList">
+						for _, d := range ForProductionQueue {
+							<li class="lp-fpQueueItem">
+								@forProductionDocket(d)
+							</li>
+						}
+					</ol>
+				</div>
+				@productBullets(c.QueueBullets)
+			</div>
+		</section>
+	</div>
+}
+
+// forProductionFloor is the floor: the three cards and the person's own phone on the
+// tap screen.
+templ forProductionFloor(c ForProductionText) {
+	<div class="band band--porcelain">
+		<section id={ ForProductionFloorID } class="lp-sec" aria-labelledby={ ForProductionFloorID + "-title" }>
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">On the floor</p>
+				<h2 id={ ForProductionFloorID + "-title" } class="lp-h2 lp-secH2Solo">{ c.FloorHeading.Text }</h2>
+				<div class="lp-fpFloor">
+					<div class="lp-fpCards">
+						for i, k := range c.FloorCards {
+							<div class={ "card lp-fpCard", templ.KV("lp-fpCard--wide", i == len(c.FloorCards)-1) }>
+								@forProductionIcon(i)
+								<h3 class="lp-fpCardTitle">{ k.Title.Text }</h3>
+								<p class="lp-fpCardBody">{ k.Body.Text }</p>
+							</div>
+						}
+					</div>
+					@forProductionPhone()
+				</div>
+			</div>
+		</section>
+	</div>
+}
+
+// forProductionIcon is card i's line drawing: the building, the hand, the code.
+templ forProductionIcon(i int) {
+	<span class="lp-ico">
+		<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+			switch i {
+				case 0:
+					<path d="M3 21V9l9-5 9 5v12"></path>
+					<path d="M8 21v-7h8v7"></path>
+					<path d="M12 14v7"></path>
+				case 1:
+					<path d="M7 21v-4.5L4.6 13a1.7 1.7 0 0 1 2.7-2L9 13V5.2a1.5 1.5 0 0 1 3 0V11V4.2a1.5 1.5 0 0 1 3 0V11V5.6a1.5 1.5 0 0 1 3 0V15c0 3-1.6 6-4.5 6z"></path>
+				default:
+					<rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1"></rect>
+					<rect x="14" y="3.5" width="6.5" height="6.5" rx="1"></rect>
+					<rect x="3.5" y="14" width="6.5" height="6.5" rx="1"></rect>
+					<path d="M14 14h2.5v2.5H14zM18 18h2.5v2.5H18zM14 18.5v2M18.5 14h2"></path>
+			}
+		</svg>
+	</span>
+}
+
+// forProductionPhone is the person's own phone on the tap screen, cut at the counter's
+// edge as the boards draw it: the greeting, the site and the one button.
+templ forProductionPhone() {
+	<div class="lp-fpPhoneWrap">
+		<div class="lp-fpPhone" role="img" aria-label={ "Sample screen: the person's own phone on the tap screen — Hello " + ForProductionTapSample.Who + ", " + ForProductionSite + ", one Tap button" }>
+			<div class="lp-fpScreen">
+				<div class="lp-fpNotch" aria-hidden="true"></div>
+				<div class="lp-prodStatus" aria-hidden="true">
+					<span>{ ForProductionTapSample.At }</span>
+					<svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor" focusable="false"><rect x="0" y="8" width="3" height="4" rx="1"></rect><rect x="5" y="5" width="3" height="7" rx="1"></rect><rect x="10" y="2.5" width="3" height="9.5" rx="1"></rect><rect x="15" y="0" width="3" height="12" rx="1"></rect></svg>
+				</div>
+				@productWordmark()
+				<div class="tapdocket lp-prodTapDocket">
+					<p class="lp-prodTapLbl">Tapping</p>
+					<p class="lp-prodHello">Hello { ForProductionTapSample.Who }</p>
+					<p class="lp-prodTapVenue">{ ForProductionSite }</p>
+				</div>
+				<div class="lp-prodTapButton">Tap</div>
+			</div>
+		</div>
+		<span class="lp-fpLedge" aria-hidden="true"></span>
+		<span class="lp-fpCounter" aria-hidden="true"></span>
+	</div>
+}
