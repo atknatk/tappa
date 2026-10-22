@@ -3,6 +3,8 @@ package handler
 import (
 	"fmt"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -43,9 +45,12 @@ type panelFactSources struct {
 	Transactions string // web/templates/pages/transactions.templ
 	Docket       string // web/templates/components/docket.templ
 	Mig05        string // db/migrations/00005_create_transactions_audit_reviews.sql
-	Review       string // web/templates/pages/review.templ
-	Report       string // internal/domain/ledger/report.go
-	Reports      string // web/templates/pages/reports.templ
+	// Later is every migration after 00005, by file name: one of them could change the
+	// outcome constraint 00005 declares.
+	Later   map[string]string
+	Review  string // web/templates/pages/review.templ
+	Report  string // internal/domain/ledger/report.go
+	Reports string // web/templates/pages/reports.templ
 }
 
 func loadPanelFactSources(t *testing.T) panelFactSources {
@@ -56,10 +61,36 @@ func loadPanelFactSources(t *testing.T) panelFactSources {
 		Transactions: repoFile(t, "web", "templates", "pages", "transactions.templ"),
 		Docket:       repoFile(t, "web", "templates", "components", "docket.templ"),
 		Mig05:        repoFile(t, "db", "migrations", "00005_create_transactions_audit_reviews.sql"),
+		Later:        migrationsAfter(t, "00005_create_transactions_audit_reviews.sql"),
 		Review:       repoFile(t, "web", "templates", "pages", "review.templ"),
 		Report:       repoFile(t, "internal", "domain", "ledger", "report.go"),
 		Reports:      repoFile(t, "web", "templates", "pages", "reports.templ"),
 	}
+}
+
+// migrationsAfter reads every migration whose file name sorts after name.
+func migrationsAfter(t *testing.T, name string) map[string]string {
+	t.Helper()
+	dir := filepath.Join("..", "..", "db", "migrations")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") || e.Name() <= name {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[e.Name()] = string(b)
+	}
+	if len(out) < 50 {
+		t.Fatalf("PREMISE: read %d migration(s) after %s; the directory holds more", len(out), name)
+	}
+	return out
 }
 
 // templBody is the source of one templ component, from its declaration to the next
@@ -125,19 +156,44 @@ func passRailViolation(s panelFactSources) string {
 	return ""
 }
 
-var reviewOutcomeCheckRE = regexp.MustCompile(`outcome\s+text\s+NOT NULL\s+CHECK\s*\(\s*outcome\s+IN\s*\(\s*'approved'\s*,\s*'rejected'\s*\)\s*\)`)
+var (
+	reviewOutcomeCheckRE = regexp.MustCompile(`outcome\s+text\s+NOT NULL\s+CHECK\s*\(\s*outcome\s+IN\s*\(\s*'approved'\s*,\s*'rejected'\s*\)\s*\)`)
+	// alterReviewsRE is an ALTER TABLE of transaction_reviews, one statement at a time.
+	alterReviewsRE = regexp.MustCompile(`(?is)^\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:public\.)?transaction_reviews\b`)
+	// touchesOutcomeRE is what such a statement would carry to change the closed set.
+	touchesOutcomeRE = regexp.MustCompile(`(?i)\bCHECK\b|\bCONSTRAINT\b|\boutcome\b`)
+	sqlLineCommentRE = regexp.MustCompile(`--[^\n]*`)
+	outcomeButtonRE  = regexp.MustCompile(`name="outcome"\s+value="([^"]*)"`)
+)
 
 // reviewOutcomeViolation is FactReviewIsApproveOrReject: a decision is one of exactly two
-// outcomes, and The Spike's form offers both.
+// outcomes -- migration 0005 declares the closed set and no later migration's Up alters
+// transaction_reviews' constraints or its outcome column -- and The Spike's form offers
+// exactly those two, no third.
 func reviewOutcomeViolation(s panelFactSources) string {
 	at := strings.Index(s.Mig05, "CREATE TABLE transaction_reviews")
 	if at < 0 || !reviewOutcomeCheckRE.MatchString(s.Mig05[at:]) {
 		return "migration 0005's transaction_reviews.outcome is no longer the closed set approved|rejected"
 	}
-	for _, o := range []string{"approved", "rejected"} {
-		if !strings.Contains(s.Review, `name="outcome" value="`+o+`"`) {
-			return "pages/review.templ's decision form no longer sends outcome=" + o
+	names := make([]string, 0, len(s.Later))
+	for name := range s.Later {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		for _, stmt := range strings.Split(sqlLineCommentRE.ReplaceAllString(gooseUp(s.Later[name]), ""), ";") {
+			if alterReviewsRE.MatchString(stmt) && touchesOutcomeRE.MatchString(stmt) {
+				return "migration " + name + " alters transaction_reviews' constraints or outcome, so 0005's closed set may no longer hold"
+			}
 		}
+	}
+	var sent []string
+	for _, m := range outcomeButtonRE.FindAllStringSubmatch(s.Review, -1) {
+		sent = append(sent, m[1])
+	}
+	slices.Sort(sent)
+	if !slices.Equal(sent, []string{"approved", "rejected"}) {
+		return fmt.Sprintf("pages/review.templ's decision form sends outcome %q, not exactly approved and rejected", sent)
 	}
 	return ""
 }
@@ -151,9 +207,15 @@ func rollWeekViolation(s panelFactSources) string {
 	if !reportDaysRE.MatchString(s.Report) {
 		return "internal/domain/ledger's ReportDays is no longer 7, so a report is not a week"
 	}
+	// The day cells must be INSIDE the per-person loop: the header row ranges over the day
+	// headings too, so finding the words anywhere in the component would prove nothing.
 	body := templBody(s.Reports, "reportPeople")
-	if !strings.Contains(body, "range v.People") || !strings.Contains(body, "range v.DayHeadings") {
-		return "pages/reports.templ's reportPeople no longer prints a row per person with a cell per day"
+	at := strings.Index(body, "range v.People")
+	if at < 0 {
+		return "pages/reports.templ's reportPeople no longer prints a row per person"
+	}
+	if !strings.Contains(body[at:], "range v.DayHeadings") {
+		return "pages/reports.templ's reportPeople no longer prints a cell per day in each person's row"
 	}
 	return ""
 }
@@ -202,9 +264,12 @@ func panelEngineInput(d pages.PanelDocket, far bool) tap.Input {
 	case far:
 		in.GPS = &geo.Point{Lat: 35.9100, Lng: 14.5300} // about 2 km away
 	}
-	// An OUT is drawn as the close of the person's open check-in (Luke Borg's 02:04 ends
-	// Rusty Bar's overnight shift), so the input carries one: the engine then answers
-	// "out" by §5's toggle against the last open entry, not by the clock.
+	// THE DIRECTION IS AN INPUT HERE, NOT A FINDING. The drawing shows no earlier record
+	// of anybody who checks out (Luke Borg's IN was the evening before, off the rail), so
+	// an OUT is given its open check-in from the drawing's own word. What the check below
+	// then proves is narrow: the engine answers "out" by §5's toggle against an open
+	// entry (not by the clock), and a word other than IN or OUT is refused. It does not
+	// prove that a drawn OUT had an IN before it.
 	if d.Direction == "OUT" {
 		in.LastOpenIn = &tap.Transaction{ID: uuid.New(), OccurredAt: now.Add(-8 * time.Hour), Direction: tap.TypeIn}
 	}
@@ -384,6 +449,113 @@ func rollSampleProblems(rows []pages.PanelRollRow, week int, days []string, venu
 	return out
 }
 
+// seedPersonRE reads one employee row of test/fixtures/seed.sql: the name, then the role,
+// the e-mail (or NULL) and the status.
+var seedPersonRE = regexp.MustCompile(`(?m)^\s*'((?:[^']|'')+)',\s+'[^']*',\s+(?:'[^']*'(?:::citext)?|NULL),\s+'(?:active|invited|deactivated)'\)`)
+
+// seedPeople is every employee name the seed carries.
+func seedPeople(t *testing.T) []string {
+	t.Helper()
+	var out []string
+	for _, m := range seedPersonRE.FindAllStringSubmatch(repoFile(t, "test", "fixtures", "seed.sql"), -1) {
+		out = append(out, strings.ReplaceAll(m[1], "''", "'"))
+	}
+	// The seed is 25 KF people plus the KM crew (skill tappa-seed). Fewer means the
+	// pattern stopped reading the file, and every sample name would look invented.
+	if len(out) < 25 || !slices.Contains(out, "Grace Attard") {
+		t.Fatalf("PREMISE: read %d employee(s) from seed.sql; the pattern lost the file", len(out))
+	}
+	return out
+}
+
+// samplePeopleProblems is every sample person who is one of the seed's people. The seed's
+// people have a status and a role of their own (Grace Attard is invited and has never
+// tapped), and a drawing that showed one of them with hours or a flagged tap would
+// contradict the demo data the page names; the sample's people are invented instead.
+func samplePeopleProblems(names, seed []string) []string {
+	var out []string
+	for _, n := range names {
+		if slices.Contains(seed, n) {
+			out = append(out, fmt.Sprintf("the sample draws %q, who is a person in the seed; sample people are invented", n))
+		}
+	}
+	return out
+}
+
+// panelSamplePeople is every person the three drawings name.
+func panelSamplePeople() []string {
+	var out []string
+	for _, d := range pages.LandingPanelPassDockets {
+		out = append(out, d.Who)
+	}
+	for _, q := range pages.LandingPanelSpikeQueue {
+		out = append(out, q.Docket.Who)
+	}
+	for _, r := range pages.LandingPanelRollRows {
+		out = append(out, r.Who)
+	}
+	return out
+}
+
+// stampWord is the word the product's stamp prints for a verdict (components.VerdictStamp).
+func stampWord(verdict string) string {
+	switch verdict {
+	case "ok":
+		return "APPROVED"
+	case "flag":
+		return "FLAGGED"
+	case "reject":
+		return "REJECTED"
+	case "ignored":
+		return "IGNORED"
+	}
+	return "?" + verdict
+}
+
+// panelDrawingWant is what each drawn record must read as on the page, as screenText
+// flattens it, one string per docket, queue item, record in focus and Roll row, in the
+// page's order. Each is written out from the sample data, field by field, so a template
+// that put a value in another value's place (IP where GPS goes) reads differently.
+func panelDrawingWant() []string {
+	var out []string
+	for _, d := range pages.LandingPanelPassDockets {
+		out = append(out, strings.Join([]string{d.Venue, stampWord(d.Verdict), d.Who, d.Direction, d.At,
+			"Trust " + d.Trust, "IP " + d.IP + " · GPS " + d.GPS}, " "))
+	}
+	for _, q := range pages.LandingPanelSpikeQueue {
+		out = append(out, strings.Join([]string{q.Docket.Who, q.When, q.Docket.Venue + " · " + q.Docket.Direction + " · " + q.Why}, " "))
+	}
+	f, first := pages.LandingPanelSpikeFocus, pages.LandingPanelSpikeQueue[0].Docket
+	focus := []string{f.Label, first.Who, f.Line, stampWord(first.Verdict)}
+	for _, tile := range f.Tiles {
+		mark := "✗"
+		if tile.OK {
+			mark = "✓"
+		}
+		focus = append(focus, tile.Label, mark, tile.Value)
+	}
+	out = append(out, strings.Join(append(focus, "Approve", "Reject"), " "))
+	for _, r := range pages.LandingPanelRollRows {
+		row := []string{r.Who, r.Sub()}
+		for _, d := range r.Days {
+			row = append(row, d.Cell())
+		}
+		out = append(out, strings.Join(append(row, r.Shifts(), r.Total()), " "))
+	}
+	return out
+}
+
+// drawingMissing is every wanted string text does not carry whole.
+func drawingMissing(text string, want []string) []string {
+	var out []string
+	for _, w := range want {
+		if !strings.Contains(text, asRendered(w)) {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
 // TestLandingPanel_TheSampleIsWhatTheProductWouldDraw: every sample record on the three
 // drawings is stamped, scored and signed the way the engine decides its evidence and the
 // docket prints it; The Spike's reasons and tiles are The Spike's own; The Roll's hours
@@ -398,9 +570,15 @@ func TestLandingPanel_TheSampleIsWhatTheProductWouldDraw(t *testing.T) {
 	for _, p := range rollSampleProblems(pages.LandingPanelRollRows, pages.LandingPanelRollWeek, pages.LandingPanelRollDays, venues) {
 		t.Error(p)
 	}
-	// The Pass's day is a real date of the week after The Roll's, said the panel's way.
+	for _, p := range samplePeopleProblems(panelSamplePeople(), seedPeople(t)) {
+		t.Error(p)
+	}
+	// The Pass's day is a real date of 2026, said the panel's way, in the ISO week after
+	// The Roll's.
 	if d, err := time.Parse("Mon 2 Jan 2006", pages.LandingPanelPassDay+" 2026"); err != nil || d.Format("Mon 2 Jan") != pages.LandingPanelPassDay {
 		t.Errorf("The Pass's day %q is not a date of 2026 as the panel prints one (%v)", pages.LandingPanelPassDay, err)
+	} else if _, w := d.ISOWeek(); w != pages.LandingPanelRollWeek+1 {
+		t.Errorf("The Pass's day %q is in ISO week %d; The Roll shows week %d, the week before", pages.LandingPanelPassDay, w, pages.LandingPanelRollWeek)
 	}
 }
 
@@ -438,6 +616,7 @@ func TestLandingPanel_SampleCheckRefusesADrawingTheProductWouldNotDraw(t *testin
 		{"a tap's sign printed n/a", clonePass(0, func(d *pages.PanelDocket) { d.GPS = "n/a" }), queue, focus},
 		{"a venue the seed does not have", clonePass(0, func(d *pages.PanelDocket) { d.Venue = "KM Facility" }), queue, focus},
 		{"a rejected record on the rail", clonePass(0, func(d *pages.PanelDocket) { d.Verdict = "reject" }), queue, focus},
+		{"a direction that is neither IN nor OUT", clonePass(0, func(d *pages.PanelDocket) { d.Direction = "BREAK" }), queue, focus},
 		{"the rail out of order", []pages.PanelDocket{pass[1], pass[0], pass[2], pass[3]}, queue, focus},
 		{"a queue reason The Spike does not print", pass, cloneQueue(1, func(q *pages.PanelQueueItem) { q.Why = "suspicious location" }), focus},
 		{"a rule that did not decide the record", pass, cloneQueue(0, func(q *pages.PanelQueueItem) { q.Rule = "base:qr-requires-ip"; q.Why = "QR without network" }), focus},
@@ -469,6 +648,7 @@ func TestLandingPanel_SampleCheckRefusesADrawingTheProductWouldNotDraw(t *testin
 		"six days":                    rollSampleProblems(rows, week, days[:6], venues),
 		"an open day drawn as away":   rollSampleProblems(away, week, days, venues),
 		"a home venue not the seed's": rollSampleProblems(foreign, week, days, venues),
+		"a seed person in the sample": samplePeopleProblems([]string{"Maria Vella", "Grace Attard"}, seedPeople(t)),
 	} {
 		if len(got) == 0 {
 			t.Errorf("CONTROL %s: the check reports nothing", name)
@@ -535,12 +715,24 @@ func TestLandingPanel_DrawsThreeSamplePicturesAndNoControl(t *testing.T) {
 	if n := strings.Count(section, `<span class="stamp stamp--flagged lp-stamp-sm lp-panelStamp">FLAGGED</span>`); n != flag {
 		t.Errorf("the section draws %d FLAGGED stamp(s) in the product's class; the sample has %d", n, flag)
 	}
-	// The rail in its order, and the queue's count in The Spike's own words.
-	var whos []string
-	for _, d := range pages.LandingPanelPassDockets {
-		whos = append(whos, d.Who)
+	// What each drawn record reads as, whole and in the page's order: the docket's venue,
+	// stamp, person, direction and time, score and the two signs in their own places; The
+	// Spike's queue lines, the record in focus with its tiles' marks and words; each Roll
+	// row's cells, shift count and total. The data is held to the engine above; this holds
+	// the picture to the data.
+	want := panelDrawingWant()
+	renderedInOrder(t, text, "the panel's drawings", want)
+	// CONTROL: the auditor's mutation -- the first docket's IP and GPS signs in each
+	// other's places -- is a drawing this check refuses.
+	first := pages.LandingPanelPassDockets[0]
+	foot := "IP " + first.IP + " · GPS " + first.GPS
+	swapped := strings.Replace(text, foot, "IP "+first.GPS+" · GPS "+first.IP, 1)
+	if first.IP == first.GPS || swapped == text {
+		t.Fatalf("PREMISE: the first docket's signs (%q) cannot be swapped into a different drawing", foot)
 	}
-	renderedInOrder(t, text, "The Pass's rail", whos)
+	if got := drawingMissing(swapped, want); len(got) == 0 {
+		t.Error("CONTROL: a drawing with the first docket's IP and GPS swapped reads as the sample")
+	}
 	if want := fmt.Sprintf("Waiting for review: %d", len(pages.LandingPanelSpikeQueue)); !strings.Contains(text, want) {
 		t.Errorf("The Spike's drawing does not say %q", want)
 	}

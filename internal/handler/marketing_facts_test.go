@@ -2,8 +2,10 @@ package handler
 
 import (
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -1233,6 +1235,16 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{"the form cannot reject", reviewOutcomeViolation, func(s *panelFactSources) {
 			s.Review = strings.ReplaceAll(s.Review, `name="outcome" value="rejected"`, `name="outcome" value="deferred"`)
 		}},
+		{"the form offers a third outcome", reviewOutcomeViolation, func(s *panelFactSources) {
+			s.Review = strings.Replace(s.Review, `name="outcome" value="rejected"`,
+				`name="outcome" value="rejected">Reject</button><button type="submit" name="outcome" value="deferred"`, 1)
+		}},
+		{"a later migration changes the outcome check", reviewOutcomeViolation, func(s *panelFactSources) {
+			later := maps.Clone(s.Later)
+			later["00099_x.sql"] = "-- +goose Up\nALTER TABLE transaction_reviews DROP CONSTRAINT transaction_reviews_outcome_check;\n" +
+				"-- +goose Down\nSELECT 1;\n"
+			s.Later = later
+		}},
 		{"a report is a fortnight", rollWeekViolation, func(s *panelFactSources) {
 			s.Report = strings.Replace(s.Report, "const ReportDays = 7", "const ReportDays = 14", 1)
 		}},
@@ -1242,6 +1254,11 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{"The Roll has no day cells", rollWeekViolation, func(s *panelFactSources) {
 			s.Reports = within(s.Reports, templBody(s.Reports, "reportPeople"), "range v.DayHeadings", "range v.Totals")
 		}},
+		{"only the header ranges over the days", rollWeekViolation, func(s *panelFactSources) {
+			body := templBody(s.Reports, "reportPeople")
+			row := body[strings.Index(body, "range v.People"):]
+			s.Reports = within(s.Reports, row, "range v.DayHeadings", "range v.DayLetters")
+		}},
 	} {
 		if why := tc.derive(panel); why != "" {
 			t.Errorf("panel control %q: the derivation does not hold over the real sources: %s", tc.name, why)
@@ -1249,7 +1266,7 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		}
 		m := panel
 		tc.mutate(&m)
-		if m == panel {
+		if reflect.DeepEqual(m, panel) {
 			t.Errorf("panel control %q: the mutation changed nothing in the sources", tc.name)
 			continue
 		}

@@ -781,7 +781,9 @@ var LandingEvidence = []Evidence{
 // score §5 cannot produce, is a claim in a picture. internal/handler runs every sample
 // record through tap.Decide and the panel's own words (the docket's signs, The Spike's
 // reasons and tiles, The Roll's hours format) and fails when the drawing and the product
-// disagree; the venues are the seed's (test/fixtures/seed.sql), as the hero's are.
+// disagree; the venues are the seed's (test/fixtures/seed.sql), as the hero's are, and no
+// sample person is one of the seed's people (whose status and role the drawing would then
+// contradict).
 //
 // Every label in the drawings is one the panel prints: "newest on the left" (The Pass's
 // rail), "Waiting for review: N", "Physical tap", "Network", "Location", "Approve",
@@ -846,7 +848,9 @@ type PanelDocket struct {
 	// Venue is one of the seed's venues.
 	Venue string
 	Who   string
-	// Direction is "IN" or "OUT", At the local time as The Pass's rail prints it.
+	// Direction is "IN" or "OUT". At is the local time shortened to HH:MM, as the boards
+	// draw it: the real rail prints seconds too (15:04:05), which a phone-width docket
+	// has no room for.
 	Direction string
 	At        string
 	// Channel is "nfc" or "qr", as the record's channel column holds it.
@@ -867,7 +871,7 @@ var LandingPanelPassDockets = []PanelDocket{
 		IP: "yes", GPS: "no", Verdict: "ok", Trust: "70"},
 	{Venue: "KF St Julians", Who: "Kevin Grech", Direction: "IN", At: "09:52", Channel: "nfc",
 		IP: "no", GPS: "yes", Verdict: "ok", Trust: "50"},
-	{Venue: "KF Msida", Who: "Grace Attard", Direction: "IN", At: "09:41", Channel: "nfc",
+	{Venue: "KF Msida", Who: "Claire Mifsud", Direction: "IN", At: "09:41", Channel: "nfc",
 		IP: "no", GPS: "no", Verdict: "flag", Trust: "20"},
 	{Venue: "Rusty Bar", Who: "Luke Borg", Direction: "OUT", At: "02:04", Channel: "nfc",
 		IP: "yes", GPS: "no", Verdict: "ok", Trust: "70"},
@@ -961,7 +965,7 @@ var LandingPanelRollRows = []PanelRollRow{
 		Away: [7]bool{3: true}},
 	{Who: "Kevin Grech", Role: "Kitchen Porter", HomeVenue: "KF St Julians",
 		Days: [7]PanelRollDay{360, RollOpen, 370, 365, RollNone, 480, 465}},
-	{Who: "Grace Attard", Role: "Line Cook", HomeVenue: "KF Msida",
+	{Who: "Claire Mifsud", Role: "Line Cook", HomeVenue: "KF Msida",
 		Days: [7]PanelRollDay{480, 485, 478, 490, 482, RollNone, RollNone}},
 	{Who: "Luke Borg", Role: "Bartender", HomeVenue: "Rusty Bar",
 		Days: [7]PanelRollDay{486, RollNone, 465, 470, 480, 495, 510}},
