@@ -296,7 +296,9 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
   **beyan edilen** anında hesaplanır (ADR 0032). Rusty Bar 18:00–02:00 vardiyasında 05:00
   dönümüyle 02:00 çıkışı akşamın girişini kapatır; dönümü kesen bir gece vardiyası (fabrika
   22:00–06:00) departman override'ı ister — ayar ekranı uyarır. Yön **hesaptır**, politika
-  değildir.
+  değildir. İş günü kuralı yalnız yayın anahtarı `TAPPA_BUSINESS_DAY_FROM` etkinken
+  (sunucunun saati ≥ değer) uygulanır; anahtar yokken yalnız 18 sa kuralı geçerlidir
+  (ADR 0032 §A.8).
 - **Geç kalma** çalışanın KENDİ vardiyasına göre: departman vardiyası varsa o,
   yoksa **tap edilen** lokasyonun vardiyası (profildeki lokasyon değil — zincirde
   şube değişimi normaldir). Farklı şubede tap nota işlenir, raporda ayrı görünür.
