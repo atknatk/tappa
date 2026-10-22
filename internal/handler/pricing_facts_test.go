@@ -251,10 +251,11 @@ func freezeFinalViolation(s billingFactSources) string {
 }
 
 // stampAssignRE finds an assignment to an employment date: the column (perhaps
-// qualified), an "=" that is not part of "<=", ">=", "<>" or "!=", and the rest of the
-// line. A comparison written "activated_at = …" would be read as a write too, which is
-// the safe direction: nothing in the product compares the stamps that way today.
-var stampAssignRE = regexp.MustCompile(`(?m)\b(?:\w+\.)?((?:de)?activated_at)\s*=\s*([^\n]*)$`)
+// qualified, NEW.deactivated_at in a trigger), an SQL "=" or a PL/pgSQL ":=" that is
+// not part of "<=", ">=", "<>" or "!=", and the rest of the line. A comparison written
+// "activated_at = …" would be read as a write too, which is the safe direction: nothing
+// in the product compares the stamps that way today.
+var stampAssignRE = regexp.MustCompile(`(?m)\b(?:\w+\.)?((?:de)?activated_at)\s*:?=\s*([^\n]*)$`)
 
 // stampInsertRE finds an INSERT into employees with its column list.
 var stampInsertRE = regexp.MustCompile(`(?is)INSERT\s+INTO\s+(?:public\.)?employees\s*\(([^)]*)\)`)
@@ -300,7 +301,41 @@ var (
 	freePeriodRE  = regexp.MustCompile(`\(b\.month < b\.first_chargeable\) AS free_period`)
 	planDefaultRE = regexp.MustCompile(`(?m)^\s*plan\s+text NOT NULL DEFAULT 'founding'`)
 	planChangeRE  = regexp.MustCompile(`(?i)ALTER\s+COLUMN\s+plan\b|ALTER\s+TABLE\s+(?:public\.)?tenants\s+(?:ADD|DROP)\s+COLUMN\s+plan\b`)
+	// A statement that writes tenants.plan, and a grant that would let one.
+	planUpdateRE = regexp.MustCompile(`(?is)\bUPDATE\s+(?:public\.)?tenants\b(?:\s+(?:AS\s+)?\w+)?\s+SET\b([^;]*)`)
+	planSetRE    = regexp.MustCompile(`(?i)(?:^|[\s,.])plan\s*=`)
+	planInsertRE = regexp.MustCompile(`(?is)\bINSERT\s+INTO\s+(?:public\.)?tenants\s*\(([^)]*)\)`)
+	planGrantRE  = regexp.MustCompile(`(?is)\bGRANT\s+([^;]*?)\bON\s+(?:TABLE\s+)?(?:public\.)?tenants\b`)
+	writePrivRE  = regexp.MustCompile(`(?i)\b(INSERT|UPDATE|ALL(?:\s+PRIVILEGES)?)\b(\s*\(([^)]*)\))?`)
+	planColumnRE = regexp.MustCompile(`(?i)\bplan\b`)
 )
+
+// planWriteProblem names a statement in sql (comments removed) that writes
+// tenants.plan or grants a write that could: an UPDATE of tenants whose SET names plan,
+// an INSERT into tenants whose column list names it, or a GRANT of INSERT, UPDATE or
+// ALL on tenants that names plan or names no columns at all (migration 00016 narrowed
+// both of the application's writes to column lists without plan; a table-wide grant
+// after it gives plan back). A GRANT of SELECT is a read and is not one.
+func planWriteProblem(sql string) string {
+	for _, m := range planUpdateRE.FindAllStringSubmatch(sql, -1) {
+		if planSetRE.MatchString(m[1]) {
+			return "an UPDATE of tenants sets plan"
+		}
+	}
+	for _, m := range planInsertRE.FindAllStringSubmatch(sql, -1) {
+		if planColumnRE.MatchString(m[1]) {
+			return "an INSERT into tenants names plan"
+		}
+	}
+	for _, g := range planGrantRE.FindAllStringSubmatch(sql, -1) {
+		for _, p := range writePrivRE.FindAllStringSubmatch(g[1], -1) {
+			if p[2] == "" || planColumnRE.MatchString(p[3]) {
+				return "a GRANT of " + strings.ToUpper(p[1]) + " on tenants reaches plan"
+			}
+		}
+	}
+	return ""
+}
 
 // freeMonthsViolation is FactSignupMonthAndTheNextAreFree's derivation: the first
 // charged month is the signup month's start plus the founding interval (so the signup
@@ -331,8 +366,20 @@ func freeMonthsViolation(s billingFactSources) string {
 		return "migration 00001 no longer puts a new business on the founding plan, so the free months are not every new business's"
 	}
 	for file, src := range s.Later {
-		if planChangeRE.MatchString(gooseUp(src)) {
+		up := sqlLineCommentRE.ReplaceAllString(gooseUp(src), "")
+		if planChangeRE.MatchString(up) {
 			return file + " changes tenants.plan after 00001; re-read who is on the founding plan"
+		}
+		if why := planWriteProblem(up); why != "" {
+			return file + ": " + why + " after 00016, so a business's plan -- and its free months -- can be written"
+		}
+	}
+	for path, src := range s.SQL {
+		if !strings.HasPrefix(path, filepath.Join("db", "queries")) {
+			continue
+		}
+		if why := planWriteProblem(sqlLineCommentRE.ReplaceAllString(src, "")); why != "" {
+			return path + ": " + why + ", so a business's plan -- and its free months -- can be written"
 		}
 	}
 	return ""
@@ -541,6 +588,26 @@ func TestPricingFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			s.Mig01 = strings.Replace(s.Mig01, "DEFAULT 'founding'", "DEFAULT 'standard'", 1)
 		}},
 		{"a later migration changes the plan default", freeMonthsViolation, later("ALTER TABLE tenants ALTER COLUMN plan SET DEFAULT 'standard';")},
+		{"a later migration moves businesses off the offer", freeMonthsViolation, later("UPDATE public.tenants AS t SET name = t.name, plan = 'standard' WHERE true;")},
+		{"a later migration inserts a business on a plan", freeMonthsViolation, later("INSERT INTO tenants (id, name, plan) VALUES (gen_random_uuid(), 'x', 'standard');")},
+		{"a later migration lets the application write the plan", freeMonthsViolation, later("GRANT UPDATE (name, plan) ON tenants TO tappa_app;")},
+		{"a later migration gives the application every column back", freeMonthsViolation, later("GRANT INSERT, UPDATE ON tenants TO tappa_app;")},
+		{"a query sets the plan", freeMonthsViolation, func(s *billingFactSources) {
+			p := filepath.Join("db", "queries", "tenants.sql")
+			s.SQL = maps.Clone(s.SQL)
+			s.SQL[p] = strings.Replace(s.SQL[p], "SET name          = @name,", "SET name          = @name,\n    plan          = 'standard',", 1)
+		}},
+		{"a query inserts a business on a plan", freeMonthsViolation, func(s *billingFactSources) {
+			p := filepath.Join("db", "queries", "tenants.sql")
+			s.SQL = maps.Clone(s.SQL)
+			s.SQL[p] = strings.Replace(s.SQL[p], "INSERT INTO tenants (", "INSERT INTO tenants (plan, ", 1)
+		}},
+		{"a trigger backdates a deactivation", stampViolation, func(s *billingFactSources) {
+			s.SQL = maps.Clone(s.SQL)
+			s.SQL[filepath.Join("db", "migrations", "00099_x.sql")] = "-- +goose Up\nCREATE FUNCTION f() RETURNS trigger AS $$ BEGIN\n" +
+				"  NEW.deactivated_at := NEW.deactivated_at - interval '40 days';\n  RETURN NEW;\nEND $$ LANGUAGE plpgsql;\n" +
+				"-- +goose Down\nSELECT 1;\n"
+		}},
 		{"the export reads another month", csvAnyMonthViolation, func(s *billingFactSources) {
 			s.CSV = within(s.CSV, goFuncBody(s.CSV, "func (a *AdminAuth) billingExport("), "a.billingMonth(", "a.frozenMonth(")
 		}},

@@ -1196,7 +1196,10 @@ func TestFreeMonths_NoUserFacingSourceCountsThemTheOldWay(t *testing.T) {
 		}
 		return out
 	}
-	for _, dir := range []string{"web/templates", "internal", "cmd", "docs/api"} {
+	// web/static/js is read too: landing.js writes its words with textContent. The
+	// vendored scripts under web/static/vendor are other people's code and carry no copy
+	// of ours (the same line tailwind.config.js draws).
+	for _, dir := range []string{"web/templates", "internal", "cmd", "docs/api", "web/static/js"} {
 		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return err
@@ -1211,7 +1214,7 @@ func TestFreeMonths_NoUserFacingSourceCountsThemTheOldWay(t *testing.T) {
 				text = templCommentRE.ReplaceAllString(mustRead(t, path), "")
 			case strings.HasSuffix(name, ".go"):
 				text = goStringLiterals(t, path, mustRead(t, path))
-			case strings.HasSuffix(name, ".md") || strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") ||
+			case strings.HasSuffix(name, ".js") || strings.HasSuffix(name, ".md") || strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") ||
 				strings.HasSuffix(name, ".txt") || strings.HasSuffix(name, ".html"):
 				text = mustRead(t, path)
 			default:
@@ -1238,6 +1241,7 @@ func TestFreeMonths_NoUserFacingSourceCountsThemTheOldWay(t *testing.T) {
 		"Your first three months are free.":                                                            true,
 		"Your signup month and the two after it are free.":                                             false,
 		"## Trial\nThe first three months free.":                                                       true,
+		"el.textContent = 'Start free — 3 months on us';":                                              true,
 		templCommentRE.ReplaceAllString("// it used to say first 3 months free\n<a>Start now</a>", ""): false,
 	} {
 		if got := len(scan("planted", planted)) > 0; got != red {
