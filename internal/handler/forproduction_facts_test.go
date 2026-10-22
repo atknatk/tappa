@@ -126,14 +126,21 @@ func departmentFromPersonViolation(s forProductionFactSources) string {
 		return why
 	}
 	// The one assignment each, so nothing between the person and the record rewrites it.
-	if strings.Count(s.Checkin, "f.departmentID =") != 1 || !strings.Contains(s.Checkin, "f.departmentID = emp.DepartmentID") {
+	if len(personDeptAssignRE.FindAllString(s.Checkin, -1)) != 1 || !strings.Contains(s.Checkin, "f.departmentID = emp.DepartmentID") {
 		return "the check-in no longer takes the department off the employee, and only there"
 	}
-	if strings.Count(s.Checkin, "p.DepartmentID =") != 1 || !strings.Contains(s.Checkin, "p.DepartmentID = f.departmentID") {
+	if len(recordDeptAssignRE.FindAllString(s.Checkin, -1)) != 1 || !strings.Contains(s.Checkin, "p.DepartmentID = f.departmentID") {
 		return "the check-in no longer writes the employee's department onto the record, and only that"
 	}
 	return ""
 }
+
+// personDeptAssignRE and recordDeptAssignRE are an ASSIGNMENT to the gathered and the
+// written department (=, not == or !=), so reading the field does not count.
+var (
+	personDeptAssignRE = regexp.MustCompile(`f\.departmentID\s*=[^=]`)
+	recordDeptAssignRE = regexp.MustCompile(`p\.DepartmentID\s*=[^=]`)
+)
 
 // departmentFilterViolation is FactPassAndPeopleFilterByDepartment: each list reads the
 // filter, hands it to its query, the query applies it, and the screen draws its select.
@@ -346,6 +353,13 @@ func TestForProductionFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{pages.FactPlaqueKnowsNoDepartment, "a plaque is no longer a venue's", anchor(pages.AnchorPlaqueBelongsToVenue)},
 		{pages.FactPlaqueKnowsNoDepartment, "a later migration gives plaques a department", later("ALTER TABLE tags ADD COLUMN department_id uuid;")},
 		{pages.FactPlaqueKnowsNoDepartment, "migration 00004 gives plaques a department", replace(func(s *forProductionFactSources) *string { return &s.Mig04 }, "location_id", "department_id uuid,\n    location_id")},
+	}
+	// A READ of the fields is not an assignment: the derivation holds over it.
+	reads := real
+	reads.Checkin = strings.Replace(reads.Checkin, "f.departmentID = emp.DepartmentID", "f.departmentID = emp.DepartmentID\n\t\tif f.departmentID == nil {\n\t\t}", 1)
+	reads.Checkin = strings.Replace(reads.Checkin, "p.DepartmentID = f.departmentID", "p.DepartmentID = f.departmentID\n\tif p.DepartmentID != nil {\n\t}", 1)
+	if why := departmentFromPersonViolation(reads); why != "" {
+		t.Errorf("CONTROL: reading the department fields made the derivation fail: %s", why)
 	}
 	controlled := map[pages.Fact]bool{}
 	for fact, derive := range forProductionDerivationFuncs {
@@ -1081,10 +1095,12 @@ func TestForProductionPage_SaysNoneOfTheWithdrawnSentences(t *testing.T) {
 			t.Errorf("CONTROL: %q planted in the page passed", phrase)
 		}
 	}
-	// On this page no glove at all (the product tour's "wet or gloved finger" is its own
-	// sentence, on its own page).
-	if gloveRE.MatchString(text) {
-		t.Errorf("/for/production says %q; nobody has pressed the tap button in gloves", gloveRE.FindString(text))
+	// No glove at all, on any public page: nobody has pressed the tap button in gloves
+	// (LP-10 review; the product tour said "wet or gloved finger" too until then).
+	for _, url := range marketingURLs() {
+		if hit := gloveRE.FindString(screenText(t, mustFetchMarketing(t, r, url))); hit != "" {
+			t.Errorf("%s says %q; nobody has pressed the tap button in gloves", url, hit)
+		}
 	}
 	if !gloveRE.MatchString(text + " sized for a wet or gloved finger") {
 		t.Error("CONTROL: \"gloved\" planted in the page passed")

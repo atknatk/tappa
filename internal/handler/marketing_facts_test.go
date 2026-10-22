@@ -594,7 +594,7 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 			}
 			if !strings.Contains(body, "min-h-16") {
 				return "input.css's .tap-button rule no longer carries the 64px floor (min-h-16), " +
-					"so the button is no longer built for a gloved or wet finger"
+					"so the button is no longer built for a wet or floury finger"
 			}
 			return ""
 		},

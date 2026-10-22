@@ -283,7 +283,7 @@ func ProductCopy(f ProductFigures) ProductText {
 			},
 			{
 				Title: l("Made for wet hands", FactTapButtonSizedForAWetHand),
-				Body:  l("One large button, sized for a wet or gloved finger.", FactTapButtonSizedForAWetHand, FactTapScreenIsOneButton),
+				Body:  l("One large button, sized for a wet or floury finger.", FactTapButtonSizedForAWetHand, FactTapScreenIsOneButton),
 			},
 			{
 				Title: l("Done means done", FactResultScreenEndsWithoutAButton),

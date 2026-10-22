@@ -109,7 +109,11 @@ const (
 	// Every tap the engine decides is written -- ok, flag, reject and ignored alike; only
 	// a redirect (no session, an activation) writes nothing. Derived from
 	// internal/domain/checkin (the one return between Decide and the write is the
-	// redirect's) and tap.Decide (a repeat is ignored and is no redirect).
+	// redirect's) and tap.Decide (a repeat is ignored and is no redirect). The source scan
+	// cannot see inside the INSERT; that half is held against a real database by
+	// internal/handler's TestCheckinDB_Row5_SamePersonWithinTheWindowIsIgnoredAndRECORDED
+	// (the ignored repeat adds a row) and internal/domain/checkin's
+	// TestHoldingTap_PersonDebounceSpansBothTenantsPlaques (the ignored row is read back).
 	FactEveryDecidedTapIsWritten Fact = "checkin:Decide then write, unless a redirect"
 	// A plaque belongs to a venue and to no department: tags carries a location and no
 	// department column, so every department of a site shares its plaques. Derived from
