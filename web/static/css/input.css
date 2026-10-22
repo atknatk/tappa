@@ -3330,19 +3330,24 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
    ONE DOM AT EVERY WIDTH. On the phone a shift's name sits over its track and
    the timeline's labels have no left column; from the tablet the name is a
    210px column beside the track. The phone draws the tap screen before the
-   floor's cards, as M-ForProduction does; from the desktop the cards and the
-   phone share a row.
+   floor's cards, as M-ForProduction does; from the tablet the cards and the
+   phone share a row (T-ForProduction), the cards two abreast from the desktop.
 
-   THE DRAWINGS ARE PICTURES (role img): nothing in them is pressed, so they
-   reserve no 44px floor. The fits card's link is pressed; it is the whole card.
+   THE PLAQUE, THE PASS, THE QUEUE AND THE PHONE ARE PICTURES (role img); the
+   gate's departments and the timeline are text a screen reader reads. Nothing
+   in either is pressed, so they reserve no 44px floor. The fits card's link is
+   pressed; it is the whole card.
 
    CONTRAST, MEASURED (the WCAG ratio, alpha composited over its ground):
-     green on green-lite                    6.39:1  the chips, the shift hours
-     ink at 82% on paper / porcelain       10.3:1 / 9.1:1  the sections' lines
-     ink at 70% on paper                    6.05:1  the notes, the filter label
+     green on green-lite                    6.55:1  the chips
+     green on green 10% over porcelain      5.89:1  a shift's hours on its bar
+     green on green 22% over porcelain      4.87:1  the bakery's hours on its
+                                                    highlighted bar (the lowest)
+     ink at 82% on paper / porcelain        9.21:1 / 8.43:1  the sections' lines
+     ink at 70% on paper                    6.03:1  the notes, the filter label
      paper on ink                          16.17:1  the plaque's gate
-     paper at 60% on ink                    6.0:1   the plaque's small words
-     ink on green-lite                     13.6:1   the plaque's two signs
+     paper at 60% on ink                    6.57:1  the plaque's small words
+     ink on green-lite                     13.70:1  the plaque's two signs
    ========================================================================= */
 
 /* ---------------- the landing's fits card, as a link ---------------- */
@@ -3412,7 +3417,8 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-fpTo1400 { right: 26.6667%; }
 .lp .lp-fpTo1600 { right: 13.3333%; }
 .lp .lp-fpTo1700 { right: 6.6667%; }
-.lp .lp-fpPair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 6px; }
+.lp .lp-fpSampleNote { margin-top: 6px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-fpPair { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .lp .lp-fpCaption { padding-top: 10px; border-top: 1px dashed var(--line); font-family: var(--mono); font-size: 11.5px; line-height: 1.55; color: rgb(var(--ink-ch) / .8); }
 .lp .lp-fpTimeline + .lp-prodBullets,
 .lp .lp-fpQueue + .lp-prodBullets { max-width: 760px; margin-top: 24px; }
@@ -3434,7 +3440,7 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-fpFilter--on { border: 1.5px solid var(--ink); background: var(--paper); color: var(--ink); }
 .lp .lp-fpFilterLbl { color: rgb(var(--ink-ch) / .7); }
 /* The Pass's bar, a clip per docket, and the dockets hanging from it. */
-.lp .lp-fpRail { list-style: none; position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 6px 6px 0; }
+.lp .lp-fpRail { list-style: none; position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 6px 6px 0; }
 .lp .lp-fpRail::before { content: ''; position: absolute; left: 0; right: 0; top: 6px; height: 7px; border-radius: 4px; background: var(--ink); }
 .lp .lp-fpRailItem { position: relative; display: flex; flex-direction: column; align-items: center; min-width: 0; }
 .lp .lp-fpRailItem::before { content: ''; position: relative; z-index: 1; width: 34px; height: 13px; border-radius: 0 0 5px 5px; background: rgb(var(--ink-ch) / .7); }
@@ -3464,6 +3470,7 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-fpNotch { position: absolute; top: 9px; left: 50%; width: 76px; height: 20px; margin-left: -38px; border-radius: 10px; background: var(--ink); }
 .lp .lp-fpScreen .lp-prodHello { font-size: 18px; }
 .lp .lp-fpScreen .lp-prodTapButton { min-height: 52px; font-size: 18px; }
+.lp .lp-fpPhoneNote { margin-top: 10px; text-align: center; }
 .lp .lp-fpLedge { display: block; width: 214px; height: 4px; border-radius: 0 0 2px 2px; background: var(--ink); }
 .lp .lp-fpCounter { display: block; width: 214px; margin-top: 6px; border-top: 1.5px dashed rgb(var(--ink-ch) / .35); }
 
@@ -3482,20 +3489,24 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
   .lp .lp-fpMarkRow,
   .lp .lp-fpAxis { margin-left: 224px; }
   .lp .lp-fpRow { display: grid; grid-template-columns: 210px minmax(0, 1fr); align-items: center; gap: 14px; }
-  .lp .lp-fpPair { gap: 14px; }
+  .lp .lp-fpPair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .lp .lp-fpPair .lp-fpDocket .lp-secDocketTop { flex-direction: row; gap: 8px; }
 
   .lp .lp-fpSplit { gap: 32px; }
-  .lp .lp-fpRail { grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 6px 6px 12px; }
+  .lp .lp-fpRail { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 6px 6px 12px; }
 
   .lp .lp-fpQueue { padding: 20px; }
   .lp .lp-fpQueueList { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 
-  .lp .lp-fpCards { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .lp .lp-fpCard--wide { grid-column: 1 / -1; }
+  /* T-ForProduction: the cards in one column, the phone beside them. */
+  .lp .lp-fpFloor { display: grid; grid-template-columns: minmax(0, 1fr) 260px; align-items: center; gap: 32px; }
+  .lp .lp-fpPhoneWrap { order: 0; }
 }
 @media (min-width: 1200px) {
   .lp .lp-fpHero { display: grid; grid-template-columns: minmax(0, 1fr) 540px; align-items: center; gap: 56px; }
   .lp .lp-fpSplit { display: grid; grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); align-items: center; gap: 56px; }
-  .lp .lp-fpFloor { display: grid; grid-template-columns: minmax(0, 1fr) 300px; align-items: center; gap: 40px; }
-  .lp .lp-fpPhoneWrap { order: 0; }
+  .lp .lp-fpFloor { grid-template-columns: minmax(0, 1fr) 300px; gap: 40px; }
+  .lp .lp-fpCards { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .lp .lp-fpCard--wide { grid-column: 1 / -1; }
+  .lp .lp-fpDocket .lp-secDocketTop { flex-direction: row; gap: 8px; }
 }

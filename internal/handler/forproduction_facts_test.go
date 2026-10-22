@@ -34,8 +34,9 @@ import (
 //     the engine and the config default.
 //   - THE DEMO DATA (README K1): the site, its hours and every department with its hours
 //     are test/fixtures/seed.sql's, row for row, in both directions.
-//   - THE DRAWINGS: sample people, invented, each record decided by tap.Decide the way it
-//     is stamped, the yardstick's lateness by tap.MinutesLate and The Roll's own words, the
+//   - THE DRAWINGS: sample people, invented and labelled as samples where they stand, each
+//     record decided by tap.Decide the way it is stamped, the yardstick's lateness by the
+//     ledger's own test case and The Roll's own words, the
 //     queue's repeat by the person's own window, and the timeline's places by the minutes
 //     they stand for.
 //   - THE LINKS: the landing's fits card is one link to the page, and the menu and the
@@ -59,6 +60,7 @@ type forProductionFactSources struct {
 	ReportsGo  string // internal/handler/reports.go
 	Reports    string // web/templates/pages/reports.templ
 	Mig04      string // db/migrations/00004_create_tags.sql
+	LedgerTest string // internal/domain/ledger/report_test.go (the yardstick's cases)
 
 	// Migs is every migration by file name: a fact read off one migration also reads
 	// every later one's Up.
@@ -107,6 +109,7 @@ func loadForProductionFactSources(t *testing.T) forProductionFactSources {
 		ReportsGo:      strip(repoFile(t, "internal", "handler", "reports.go")),
 		Reports:        repoFile(t, "web", "templates", "pages", "reports.templ"),
 		Mig04:          repoFile(t, "db", "migrations", "00004_create_tags.sql"),
+		LedgerTest:     repoFile(t, "internal", "domain", "ledger", "report_test.go"),
 		Migs:           allMigrations(t),
 		Anchors:        answers,
 		RepeatVerdict:  string(repeat.Verdict),
@@ -122,11 +125,12 @@ func departmentFromPersonViolation(s forProductionFactSources) string {
 	if why := s.Anchors[pages.AnchorDepartmentOnEveryRecord]; why != "" {
 		return why
 	}
-	if !strings.Contains(s.Checkin, "f.departmentID = emp.DepartmentID") {
-		return "the check-in no longer reads the department off the employee"
+	// The one assignment each, so nothing between the person and the record rewrites it.
+	if strings.Count(s.Checkin, "f.departmentID =") != 1 || !strings.Contains(s.Checkin, "f.departmentID = emp.DepartmentID") {
+		return "the check-in no longer takes the department off the employee, and only there"
 	}
-	if !strings.Contains(s.Checkin, "p.DepartmentID = f.departmentID") {
-		return "the check-in no longer writes the employee's department onto the record"
+	if strings.Count(s.Checkin, "p.DepartmentID =") != 1 || !strings.Contains(s.Checkin, "p.DepartmentID = f.departmentID") {
+		return "the check-in no longer writes the employee's department onto the record, and only that"
 	}
 	return ""
 }
@@ -172,7 +176,48 @@ func lateWordsViolation(s forProductionFactSources) string {
 	if !strings.Contains(s.Reports, "{ p.Late }") {
 		return "The Roll no longer prints them"
 	}
+	cases := ledgerLateCases(s.LedgerTest)
+	if !slices.ContainsFunc(cases, func(c ledgerLateCase) bool { return c.Shifts == 1 }) {
+		return "the ledger's test of the smallest lateness is gone, so nothing runs the report over the page's arrivals"
+	}
 	return ""
+}
+
+// ledgerLateCase is one case of the ledger's test of the smallest lateness
+// (TestAccumulate_AFewMinutesPastTheStartIsOneLateArrival): a shift, an arrival, and what
+// the report counts for it.
+type ledgerLateCase struct {
+	Start, End, Arrive string
+	Shifts, Minutes    int
+}
+
+var ledgerLateCaseRE = regexp.MustCompile(`\{shift: "(\d\d:\d\d)-(\d\d:\d\d)", arrive: "(\d\d:\d\d)", lateShifts: (\d+), lateMinutes: (\d+)\}`)
+
+// ledgerLateCases reads that test's cases out of its source, inside its own body only.
+func ledgerLateCases(src string) []ledgerLateCase {
+	body := goFuncBody(src, "func TestAccumulate_AFewMinutesPastTheStartIsOneLateArrival(")
+	var out []ledgerLateCase
+	for _, m := range ledgerLateCaseRE.FindAllStringSubmatch(body, -1) {
+		n, _ := strconv.Atoi(m[4])
+		mins, _ := strconv.Atoi(m[5])
+		out = append(out, ledgerLateCase{Start: m[1], End: m[2], Arrive: m[3], Shifts: n, Minutes: mins})
+	}
+	return out
+}
+
+// rollLateWords is what The Roll prints for an arrival at at against s, as the ledger's
+// tested case for it counts it: its words if it is late, "" if it is not, and false when
+// the ledger has no case for it.
+func rollLateWords(cases []ledgerLateCase, at string, s pages.ForProductionShift) (string, bool) {
+	for _, c := range cases {
+		if c.Start == s.Start && c.End == s.End && c.Arrive == at {
+			if c.Shifts == 0 {
+				return "", true
+			}
+			return plural(c.Shifts, "late arrival", "late arrivals") + " · " + hoursMinutes(time.Duration(c.Minutes)*time.Minute), true
+		}
+	}
+	return "", false
 }
 
 // decideToWriteRE cuts the check-in from the decision to the write.
@@ -189,6 +234,13 @@ func writtenViolation(s forProductionFactSources) string {
 	}
 	if !redirectOnlyRE.MatchString(m[1]) || strings.Count(m[1], "return") != 1 {
 		return "something other than a redirect now leaves the check-in between the decision and the write"
+	}
+	// And the write itself writes whatever it is handed: before its INSERT the one way out
+	// is a parameter error, never a verdict.
+	write := goFuncBody(s.Checkin, "func (s *Service) write(")
+	pre, _, ok := strings.Cut(write, "row, err := s.insert(ctx, tx, params)")
+	if !ok || strings.Count(pre, "return") != 1 || !strings.Contains(pre, "if err != nil {\n\t\treturn uuid.Nil, err\n\t}") || strings.Contains(write, "Verdict") {
+		return "the write now decides on its own whether to write"
 	}
 	if s.RepeatVerdict != string(tap.VerdictIgnored) || s.RepeatRedirect {
 		return fmt.Sprintf("a repeat inside the window is decided %q (redirect %v), not an ignored tap that is written",
@@ -277,6 +329,8 @@ func TestForProductionFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{pages.FactDepartmentComesFromThePerson, "the record loses its department", anchor(pages.AnchorDepartmentOnEveryRecord)},
 		{pages.FactDepartmentComesFromThePerson, "the check-in stops reading the person's department", replace(checkin, "f.departmentID = emp.DepartmentID", "f.departmentID = nil")},
 		{pages.FactDepartmentComesFromThePerson, "the record's department comes from the plaque", replace(checkin, "p.DepartmentID = f.departmentID", "p.DepartmentID = tagRow.DepartmentID")},
+		{pages.FactDepartmentComesFromThePerson, "the record's department is cleared after it is set (M1b)", replace(checkin, "p.DepartmentID = f.departmentID", "p.DepartmentID = f.departmentID\n\tp.DepartmentID = nil")},
+		{pages.FactDepartmentComesFromThePerson, "the gathered department is cleared after it is read (M1c)", replace(checkin, "f.departmentID = emp.DepartmentID", "f.departmentID = emp.DepartmentID\n\t\tf.departmentID = nil")},
 		{pages.FactPassAndPeopleFilterByDepartment, "The Pass stops reading the filter", replace(func(s *forProductionFactSources) *string { return &s.TxHandler }, `f.DepartmentID = optionalUUID(q.Get("department"))`, `f.DepartmentID = nil`)},
 		{pages.FactPassAndPeopleFilterByDepartment, "People's query ignores the department", func(s *forProductionFactSources) {
 			block := queryBlock(s.EmpQueries, "ListPanelEmployees")
@@ -287,6 +341,8 @@ func TestForProductionFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{pages.FactRollCountsLateArrivalsAndMinutes, "The Roll stops adding up the minutes", replace(func(s *forProductionFactSources) *string { return &s.ReportsGo }, `+ " · " + hoursMinutes(p.LateBy)`, ``)},
 		{pages.FactEveryDecidedTapIsWritten, "an ignored tap returns before the write", replace(checkin, "if dec.Redirect != tap.RedirectNone {", "if dec.Verdict == tap.VerdictIgnored {\n\t\t\treturn nil\n\t\t}\n\t\tif dec.Redirect != tap.RedirectNone {")},
 		{pages.FactEveryDecidedTapIsWritten, "the engine redirects a repeat", func(s *forProductionFactSources) { s.RepeatRedirect = true }},
+		{pages.FactEveryDecidedTapIsWritten, "the write skips an ignored tap (M3b)", replace(checkin, "row, err := s.insert(ctx, tx, params)", "if dec.Verdict == tap.VerdictIgnored {\n\t\treturn uuid.Nil, nil\n\t}\n\trow, err := s.insert(ctx, tx, params)")},
+		{pages.FactRollCountsLateArrivalsAndMinutes, "the ledger's smallest-lateness case is gone", replace(func(s *forProductionFactSources) *string { return &s.LedgerTest }, `{shift: "04:00-12:00", arrive: "04:02", lateShifts: 1, lateMinutes: 2},`, ``)},
 		{pages.FactPlaqueKnowsNoDepartment, "a plaque is no longer a venue's", anchor(pages.AnchorPlaqueBelongsToVenue)},
 		{pages.FactPlaqueKnowsNoDepartment, "a later migration gives plaques a department", later("ALTER TABLE tags ADD COLUMN department_id uuid;")},
 		{pages.FactPlaqueKnowsNoDepartment, "migration 00004 gives plaques a department", replace(func(s *forProductionFactSources) *string { return &s.Mig04 }, "location_id", "department_id uuid,\n    location_id")},
@@ -418,7 +474,7 @@ func seedSiteDepartments(t *testing.T, site string) map[string]seedDepartment {
 			out[m[4]] = seedDepartment{Start: m[5], End: m[6], Overnight: m[7] == "true"}
 		}
 	}
-	if len(rows) < 5 || len(out) == 0 {
+	if len(rows) == 0 || len(out) == 0 {
 		t.Fatalf("PREMISE: read %d department row(s), %d at %s; the pattern lost the file", len(rows), len(out), site)
 	}
 	return out
@@ -529,16 +585,6 @@ func countWordFor(n int) string {
 
 // --- the drawings ------------------------------------------------------------------------
 
-// forProductionMalta is the seed's zone: the shifts are Malta wall-clock times.
-func forProductionMalta(t *testing.T) *time.Location {
-	t.Helper()
-	loc, err := time.LoadLocation("Europe/Malta")
-	if err != nil {
-		t.Fatalf("PREMISE: loading Europe/Malta: %v", err)
-	}
-	return loc
-}
-
 // forProductionClock is a drawn "HH:MM" or "HH:MM:SS" as a duration since midnight.
 func forProductionClock(at string) (time.Duration, bool) {
 	parts := strings.Split(at, ":")
@@ -604,26 +650,18 @@ func forProductionDocketProblems(ds []pages.ForProductionDocket, seed map[string
 	return out
 }
 
-// forProductionLateWords is what The Roll prints for an arrival at at against shift: its
-// words if it is late, "" if it is not.
+// forProductionLateWords is what The Roll prints for an arrival at at against shift, as the
+// ledger's own test of the smallest lateness counts it (accumulate, not a second
+// computation here): its words if it is late, "" if it is not. A drawn arrival the ledger
+// has no case for is a test failure, not a guess.
 func forProductionLateWords(t *testing.T, at string, s pages.ForProductionShift) string {
 	t.Helper()
-	malta := forProductionMalta(t)
-	clock, ok1 := forProductionClock(at)
-	start, ok2 := forProductionClock(s.Start)
-	end, ok3 := forProductionClock(s.End)
-	if !ok1 || !ok2 || !ok3 {
-		t.Fatalf("PREMISE: %q, %q or %q is not a clock time", at, s.Start, s.End)
+	words, ok := rollLateWords(ledgerLateCases(repoFile(t, "internal", "domain", "ledger", "report_test.go")), at, s)
+	if !ok {
+		t.Fatalf("the ledger's TestAccumulate_AFewMinutesPastTheStartIsOneLateArrival has no case for %s against %s–%s; "+
+			"the page may not draw an arrival the report was not run over", at, s.Start, s.End)
 	}
-	when := time.Date(2026, 10, 20, 0, 0, 0, 0, malta).Add(clock)
-	late := tap.MinutesLate(when, tap.Shift{Start: start, End: end, Timezone: "Europe/Malta"})
-	if late == nil {
-		t.Fatal("PREMISE: tap.MinutesLate measured nothing")
-	}
-	if *late <= 0 {
-		return ""
-	}
-	return plural(1, "late arrival", "late arrivals") + " · " + hoursMinutes(time.Duration(*late)*time.Minute)
+	return words
 }
 
 // forProductionPlaceRE reads one of the timeline's places from the stylesheet: the class's
@@ -672,12 +710,49 @@ func forProductionPlaceProblems(body, css string) []string {
 	if used == 0 {
 		out = append(out, "the page draws no timeline")
 	}
+	// Each place is the time the drawing writes beside it: a bar starts and ends where its
+	// own hours say, the mark sits at its tag's time, an axis label at its hour.
+	place := func(hhmm string) string { return strings.Replace(hhmm, ":", "", 1) }
+	rowRE := regexp.MustCompile(`(?s)<li class="lp-fpRow[^"]*">(.*?)</li>`)
+	barRE := regexp.MustCompile(`class="lp-fpBar ([^"]*)"`)
+	hoursRE := regexp.MustCompile(`class="lp-fpBarHours (lp-fpAt\d{4})">(\d\d:\d\d)–(\d\d:\d\d)<`)
+	markRE := regexp.MustCompile(`class="lp-fpMark (lp-fpAt\d{4})"`)
+	tag := regexp.MustCompile(`class="lp-fpMarkTag (lp-fpAt\d{4})">(\d\d:\d\d)<`).FindStringSubmatch(body)
+	if tag == nil || tag[1] != "lp-fpAt"+place(tag[2]) {
+		out = append(out, fmt.Sprintf("the mark's tag %v is not placed at its own time", tag))
+	}
+	rows := rowRE.FindAllStringSubmatch(body, -1)
+	if len(rows) == 0 {
+		out = append(out, "the timeline has no rows")
+	}
+	for _, r := range rows {
+		h := hoursRE.FindStringSubmatch(r[1])
+		bar := barRE.FindStringSubmatch(r[1])
+		if h == nil || bar == nil {
+			out = append(out, "a timeline row has no bar or no hours")
+			continue
+		}
+		classes := strings.Fields(bar[1])
+		if h[1] != "lp-fpAt"+place(h[2]) || !slices.Contains(classes, "lp-fpAt"+place(h[2])) || !slices.Contains(classes, "lp-fpTo"+place(h[3])) {
+			out = append(out, fmt.Sprintf("the bar %q is not drawn from %s to %s, the hours it prints", bar[1], h[2], h[3]))
+		}
+		for _, m := range markRE.FindAllStringSubmatch(r[1], -1) {
+			if tag != nil && m[1] != tag[1] {
+				out = append(out, fmt.Sprintf("a row's mark sits at %s and the tag says %s", m[1], tag[2]))
+			}
+		}
+	}
+	for _, m := range regexp.MustCompile(`class="lp-fpAxisHour (lp-fpAt\d{4})">(\d\d:\d\d)<`).FindAllStringSubmatch(body, -1) {
+		if m[1] != "lp-fpAt"+place(m[2]) {
+			out = append(out, fmt.Sprintf("the axis label %s sits at %s", m[2], m[1]))
+		}
+	}
 	return out
 }
 
 // TestForProductionPage_TheDrawingsAreWhatTheProductWouldDraw: every sample on the page is
-// held to the product -- each record to the engine, the yardstick to tap.MinutesLate and
-// The Roll's words, the queue's repeat to the person's window, the Pass to its own filter
+// held to the product -- each record to the engine, the yardstick to the ledger's own
+// lateness case and The Roll's words, the queue's repeat to the person's window, the Pass to its own filter
 // and order, the phone to the tap screen, the timeline's places to the minutes they stand
 // for -- the people are invented, and the page draws each sample whole and in order.
 // CONTROL: one mutation per drawing is red.
@@ -807,6 +882,19 @@ func TestForProductionPage_TheDrawingsAreWhatTheProductWouldDraw(t *testing.T) {
 	if len(forProductionPlaceProblems(body, strings.Replace(css, ".lp .lp-fpAt0402 { left: 6.8889%; }", ".lp .lp-fpAt0402 { left: 7.5%; }", 1))) == 0 {
 		t.Error("CONTROL: the 04:02 mark placed at 7.5% passed")
 	}
+	meat := regexp.MustCompile(`class="lp-fpBar lp-fpAt0500`).FindStringIndex(body)
+	if meat == nil {
+		t.Fatal("PREMISE: no bar starts at 05:00")
+	}
+	if len(forProductionPlaceProblems(body[:meat[0]]+`class="lp-fpBar lp-fpAt0600`+body[meat[1]:], css)) == 0 {
+		t.Error("CONTROL: meat production's bar drawn from 06:00 under its printed 05:00 passed")
+	}
+	if len(forProductionPlaceProblems(strings.Replace(body, `class="lp-fpAxisHour lp-fpAt0900">`, `class="lp-fpAxisHour lp-fpAt0800">`, 1), css)) == 0 {
+		t.Error("CONTROL: the 09:00 axis label at 08:00 passed")
+	}
+	if len(forProductionPlaceProblems(body, strings.Replace(css, ".lp .lp-fpTo1300 { right: 33.3333%; }", ".lp .lp-fpTo1300 { right: 30%; }", 1))) == 0 {
+		t.Error("CONTROL: the 13:00 end placed at 70% passed")
+	}
 	if len(forProductionPlaceProblems(strings.Replace(body, `class="lp-fpBar lp-fpAt0400`, `class="lp-fpBar lp-fpAtNone`, 1), css)) == 0 {
 		t.Error("CONTROL: a bar drawn with no place passed")
 	}
@@ -832,7 +920,7 @@ func fitsLinkProblems(body string) []string {
 		return []string{"the landing has no fits section"}
 	}
 	for _, a := range pages.LandingAudiences {
-		title := `<h3 class="lp-fitTitle">` + templEscape(a.Title) + `</h3>`
+		title := `>` + templEscape(a.Title) + `</h3>`
 		at := strings.Index(section, title)
 		if at < 0 {
 			out = append(out, a.Title+"'s card is not drawn")
@@ -846,19 +934,40 @@ func fitsLinkProblems(body string) []string {
 			}
 			continue
 		}
-		m := regexp.MustCompile(`(?s)<a class="card fitcard lp-fit" href="` + regexp.QuoteMeta(a.Href) + `">(.*?)</a>`).FindStringSubmatch(section)
-		if m == nil || linked < plain || !strings.Contains(m[1], title) {
+		m := regexp.MustCompile(`(?s)<a class="card fitcard lp-fit" href="` + regexp.QuoteMeta(a.Href) + `"([^>]*)>(.*?)</a>`).FindStringSubmatch(section)
+		if m == nil || linked < plain || !strings.Contains(m[2], title) {
 			out = append(out, a.Title+"'s card is not one link to "+a.Href)
 			continue
 		}
-		inner := fitsText(m[1])
+		// Its name is the heading and the page's name, its description the paragraph: not
+		// the card's whole text.
+		named := map[string]string{}
+		for _, part := range []string{"labelledby", "describedby"} {
+			if r := regexp.MustCompile(`aria-` + part + `="([^"]*)"`).FindStringSubmatch(m[1]); r != nil {
+				for _, id := range strings.Fields(r[1]) {
+					el := regexp.MustCompile(`(?s)id="` + regexp.QuoteMeta(id) + `"[^>]*>(.*?)</(?:h3|p|span)>`).FindStringSubmatch(m[2])
+					if el == nil {
+						out = append(out, fmt.Sprintf("%s's link names #%s, which is not inside it", a.Title, id))
+						continue
+					}
+					named[part] += " " + fitsText(el[1])
+				}
+			}
+		}
+		if asRendered(named["labelledby"]) != asRendered(a.Title+" "+a.Link) {
+			out = append(out, fmt.Sprintf("%s's link is named %q; it is the heading and the page's name", a.Title, named["labelledby"]))
+		}
+		if asRendered(named["describedby"]) != asRendered(a.Paragraph()) {
+			out = append(out, fmt.Sprintf("%s's link is described by %q; it is the paragraph", a.Title, named["describedby"]))
+		}
+		inner := fitsText(m[2])
 		for _, w := range []string{a.Kicker, a.Title, a.Paragraph(), a.Example.Text, a.Link} {
 			if w == "" || !strings.Contains(inner, asRendered(w)) {
 				out = append(out, fmt.Sprintf("%s's link does not hold %q", a.Title, w))
 			}
 		}
 		for _, c := range []string{"<a ", "<button", "<input", "<select", "<textarea", "<details", "<summary", "tabindex", "href="} {
-			if strings.Contains(m[1], c) {
+			if strings.Contains(m[2], c) {
 				out = append(out, fmt.Sprintf("%s's link holds %q; the card is one control", a.Title, c))
 			}
 		}
@@ -909,15 +1018,18 @@ func TestForProductionPage_TheLandingCardAndTheChromeLinkToIt(t *testing.T) {
 	}
 
 	// CONTROLS.
-	link := `<a class="card fitcard lp-fit" href="` + pages.ForProductionPath + `">`
-	if !strings.Contains(landing, link) {
+	link := regexp.MustCompile(`<a class="card fitcard lp-fit" href="` + regexp.QuoteMeta(pages.ForProductionPath) + `"[^>]*>`).FindString(landing)
+	if link == "" {
 		t.Fatal("PREMISE: the landing has no production card link")
 	}
 	if len(fitsLinkProblems(strings.Replace(landing, link, link+`<a href="/x">x</a>`, 1))) == 0 {
 		t.Error("CONTROL: a link nested in the card passed")
 	}
-	if len(fitsLinkProblems(strings.Replace(landing, link, `<a class="card fitcard lp-fit" href="/pricing">`, 1))) == 0 {
+	if len(fitsLinkProblems(strings.Replace(landing, link, strings.Replace(link, pages.ForProductionPath, "/pricing", 1), 1))) == 0 {
 		t.Error("CONTROL: the card pointed at /pricing passed")
+	}
+	if len(fitsLinkProblems(regexp.MustCompile(` aria-labelledby="[^"]*"`).ReplaceAllString(landing, ""))) == 0 {
+		t.Error("CONTROL: the card named by its whole text passed")
 	}
 	footer := chromeSegment(page, "Product")
 	if len(marked(strings.Replace(page, footer, strings.ReplaceAll(footer, ` aria-current="page"`, ""), 1))) == 0 {
@@ -935,6 +1047,7 @@ var forProductionRefusedPhrasings = map[string]string{
 	"sample setup":          "the departments and their hours are the demo data, not a sample (K1)",
 	"Same minute":           "the two check-ins the yardstick compares are 53 minutes apart",
 	"at least 64 pixels":    "the page says what the button is built for, as the landing and the tour do",
+	"Gloves, flour":         "nobody has pressed the tap button in gloves (LP-10 review)",
 	"per plaque":            "the repeat window is the person's, never the plaque's (CLAUDE.md §5)",
 	"per tag":               "the repeat window is the person's, never the plaque's (CLAUDE.md §5)",
 	"site's own hours":      "a person with no department is measured against the site they tapped at",
@@ -967,5 +1080,129 @@ func TestForProductionPage_SaysNoneOfTheWithdrawnSentences(t *testing.T) {
 		if len(refused(text+" "+phrase)) == 0 {
 			t.Errorf("CONTROL: %q planted in the page passed", phrase)
 		}
+	}
+	// On this page no glove at all (the product tour's "wet or gloved finger" is its own
+	// sentence, on its own page).
+	if gloveRE.MatchString(text) {
+		t.Errorf("/for/production says %q; nobody has pressed the tap button in gloves", gloveRE.FindString(text))
+	}
+	if !gloveRE.MatchString(text + " sized for a wet or gloved finger") {
+		t.Error("CONTROL: \"gloved\" planted in the page passed")
+	}
+}
+
+// gloveRE is a glove in any form.
+var gloveRE = regexp.MustCompile(`(?i)\bglove`)
+
+// forProductionSampleRegions are the drawings of invented people, each from its first
+// mark to where it ends, and what visibly says they are samples there.
+var forProductionSampleRegions = []struct{ name, from, to string }{
+	{"the yardstick", `class="card lp-fpTimeline"`, `class="lp-prodBullets"`},
+	{"The Pass", `class="lp-fpSplit"`, `</section>`},
+	{"the queue", `class="card lp-fpQueue"`, `class="lp-prodBullets"`},
+	{"the floor's phone", `class="lp-fpPhoneWrap"`, `</section>`},
+}
+
+// forProductionSampleProblems is every drawing of an invented person whose visible text
+// (attributes left out: an aria-label is not seen) does not say it is a sample.
+func forProductionSampleProblems(body string) []string {
+	var out []string
+	var people []string
+	for _, list := range [][]pages.ForProductionDocket{pages.ForProductionYardstick, pages.ForProductionPassDockets, pages.ForProductionQueue} {
+		for _, d := range list {
+			people = append(people, d.Who)
+		}
+	}
+	for _, r := range forProductionSampleRegions {
+		at := strings.Index(body, r.from)
+		if at < 0 {
+			out = append(out, r.name+" is not drawn")
+			continue
+		}
+		region := body[at:]
+		if end := strings.Index(region, r.to); end >= 0 {
+			region = region[:end]
+		}
+		seen := fitsText(region)
+		if !slices.ContainsFunc(people, func(p string) bool { return strings.Contains(seen, p) }) {
+			out = append(out, "PREMISE: "+r.name+" draws none of the sample people")
+		}
+		if !strings.Contains(seen, pages.ForProductionSampleNote) && !strings.Contains(seen, "· sample") {
+			out = append(out, r.name+" draws invented people and does not say, where they stand, that they are samples")
+		}
+	}
+	return out
+}
+
+// TestForProductionPage_EveryDrawingOfInventedPeopleSaysItIsASample: the yardstick sits
+// under "from our demo data" and the phone greets an invented person, so each drawing of
+// one carries a visible sample note (README §7 step 5). CONTROL: the yardstick's and the
+// phone's notes taken away are each red.
+func TestForProductionPage_EveryDrawingOfInventedPeopleSaysItIsASample(t *testing.T) {
+	t.Parallel()
+	body := mustFetchMarketing(t, marketingRouter(t), pages.ForProductionPath)
+	for _, p := range forProductionSampleProblems(body) {
+		t.Error(p)
+	}
+	for _, note := range []string{`<p class="lp-fpSampleNote">`, `<p class="lp-prodNote lp-fpPhoneNote">`} {
+		at := strings.Index(body, note)
+		if at < 0 {
+			t.Fatalf("PREMISE: %s is not on the page", note)
+		}
+		cut := body[:at] + strings.Replace(body[at:], pages.ForProductionSampleNote, "", 1)
+		if len(forProductionSampleProblems(cut)) == 0 {
+			t.Errorf("CONTROL: the drawing without %s passed", note)
+		}
+	}
+}
+
+// forProductionReadableProblems is every way the demo-data table and the yardstick's
+// words would be hidden from a screen reader: inside an element whose role is img, the
+// browser reads the element's label and none of its text.
+func forProductionReadableProblems(body string) []string {
+	var out []string
+	for _, r := range []struct{ name, from, to string }{
+		{"the gate", `class="card lp-fpGate"`, `class="lp-strip"`},
+		{"the shifts timeline", `class="card lp-fpTimeline"`, `class="lp-prodBullets"`},
+	} {
+		at := strings.Index(body, r.from)
+		end := strings.Index(body[max(at, 0):], r.to)
+		if at < 0 || end < 0 {
+			out = append(out, r.name+" is not drawn")
+			continue
+		}
+		region := body[at : at+end]
+		roles := regexp.MustCompile(`<[a-z]+ class="([^"]*)"[^>]*role="img"`).FindAllStringSubmatch(region, -1)
+		switch {
+		case r.name == "the gate" && (len(roles) != 1 || roles[0][1] != "lp-fpPlaque"):
+			out = append(out, fmt.Sprintf("the gate's pictures are %v; only the plaque is one, the departments are a list", roles))
+		case r.name != "the gate" && len(roles) != 0:
+			out = append(out, fmt.Sprintf("the shifts timeline holds the pictures %v; its rows and caption are text", roles))
+		}
+		if r.name == "the gate" && !regexp.MustCompile(`(?s)role="img".*?</div>\s*<ol class="lp-fpDepts"`).MatchString(region) {
+			out = append(out, "the gate's department list is not after the plaque's picture closes")
+		}
+		if strings.Contains(region, `class="card lp-fp`) && regexp.MustCompile(`^class="card lp-fp[A-Za-z]+"[^>]*role=`).MatchString(region) {
+			out = append(out, r.name+"'s card is itself a picture")
+		}
+	}
+	return out
+}
+
+// TestForProductionPage_TheDemoDataIsReadAloud: the gate's departments and their starts, the
+// timeline's rows and the yardstick's caption are text a screen reader reaches (K1's table
+// is the page's content, not a picture of it). CONTROL: the timeline card made a picture,
+// and the gate's list moved inside the plaque's picture, are each red.
+func TestForProductionPage_TheDemoDataIsReadAloud(t *testing.T) {
+	t.Parallel()
+	body := mustFetchMarketing(t, marketingRouter(t), pages.ForProductionPath)
+	for _, p := range forProductionReadableProblems(body) {
+		t.Error(p)
+	}
+	if len(forProductionReadableProblems(strings.Replace(body, `class="card lp-fpTimeline"`, `class="card lp-fpTimeline" role="img" aria-label="x"`, 1))) == 0 {
+		t.Error("CONTROL: the timeline as a picture passed")
+	}
+	if len(forProductionReadableProblems(strings.Replace(body, `<div class="lp-fpGateRow">`, `<div class="lp-fpGateRow" role="img" aria-label="x">`, 1))) == 0 {
+		t.Error("CONTROL: the gate's row as a picture passed")
 	}
 }

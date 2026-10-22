@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -536,6 +537,48 @@ func TestAccumulate_LatenessUsesTheEmployeesOwnShift(t *testing.T) {
 				t.Errorf("worked = %v, want 7h40m whatever the lateness", m.Worked)
 			}
 		})
+	}
+}
+
+// TestAccumulate_AFewMinutesPastTheStartIsOneLateArrival is the smallest lateness the
+// report counts, and the line between late and on time: two minutes past a department's
+// 04:00 start is one late arrival of two minutes, five minutes before a 05:00 start and
+// the start itself are not late. The cases are the public production page's (LP-10): it
+// draws these arrivals against these shifts and prints The Roll's words for what this
+// table wants, which internal/handler reads from here -- so a change in what the report
+// counts as late turns this red before the page can say something the report does not.
+func TestAccumulate_AFewMinutesPastTheStartIsOneLateArrival(t *testing.T) {
+	t.Parallel()
+	zone := malta(t)
+	p := week(t, zone)
+	after := at(t, zone, 2026, time.August, 12, 9, 0)
+	clock := func(s string) time.Duration {
+		hh, mm, ok := strings.Cut(s, ":")
+		h, err1 := strconv.Atoi(hh)
+		m, err2 := strconv.Atoi(mm)
+		if !ok || err1 != nil || err2 != nil {
+			t.Fatalf("%q is not a clock time", s)
+		}
+		return time.Duration(h)*time.Hour + time.Duration(m)*time.Minute
+	}
+	cases := []struct {
+		shift, arrive string
+		lateShifts    int
+		lateMinutes   int
+	}{
+		{shift: "04:00-12:00", arrive: "04:02", lateShifts: 1, lateMinutes: 2},
+		{shift: "05:00-13:00", arrive: "04:55", lateShifts: 0, lateMinutes: 0},
+		{shift: "04:00-12:00", arrive: "04:00", lateShifts: 0, lateMinutes: 0},
+	}
+	for _, c := range cases {
+		start, end, _ := strings.Cut(c.shift, "-")
+		sh := &tap.Shift{Start: clock(start), End: clock(end), Timezone: "Europe/Malta"}
+		a := clock(c.arrive)
+		in := at(t, zone, 2026, time.August, 3, int(a/time.Hour), int(a%time.Hour/time.Minute))
+		m := find(t, accumulate([]reportEvent{ev(maria, "Maria Borg", "in", in, shift(sh))}, p, zone, after), maria)
+		if m.LateShifts != c.lateShifts || m.LateBy != time.Duration(c.lateMinutes)*time.Minute {
+			t.Errorf("%s against %s: late = %d by %v, want %d by %dm", c.arrive, c.shift, m.LateShifts, m.LateBy, c.lateShifts, c.lateMinutes)
+		}
 	}
 }
 

@@ -47,8 +47,22 @@ import "strconv"
 //     198.51.100.0/29, which the page does NOT print: the unmeasured-claim scanner reads
 //     "100" in it as a figure, so the card says "IP ✓ · GPS ✓" the way the product
 //     tour's venue cards do, and the test holds both signs to the seed.
-//   - The board says nothing about a check-in nobody closed; the page adds The Roll's
-//     own sentence for it (the card asks for the forgotten check-out).
+//   - "Gloves, flour, and no app to install." says "Wet hands, flour, …", and the button
+//     is "sized for a wet or floury finger": nobody has pressed it in gloves (LP-10
+//     review).
+//   - The board says nothing about a check-in nobody closed; the Shifts section adds two
+//     bullets the boards do not draw -- The Roll's own sentence for an open check-in and
+//     the manual entry that closes it (the card asks for the forgotten check-out).
+//   - The yardstick and the floor's phone carry the sample note where they stand: the
+//     dockets and the greeting are invented people under a "from our demo data" label.
+//
+// WHERE THE PORT DEPARTS FROM THE BOARDS' LAYOUT, on purpose:
+//
+//   - A docket's stamp sits under the site and department below 1200px (beside them on
+//     the yardstick's two dockets from 768px); the boards put it beside them at every
+//     width, which does not fit a 160px column without the label breaking mid-word.
+//   - The gate and the timeline are not pictures (role img): the departments, their
+//     hours and the caption are text a screen reader reads. Only the plaque is a picture.
 
 // ForProductionPath is the page's URL.
 const ForProductionPath = "/for/production"
@@ -297,7 +311,7 @@ func ForProductionCopy(f ForProductionFigures) ForProductionText {
 				FactEveryDecidedTapIsWritten, FactRecordedTapEndsOnAStampedDocket),
 		},
 
-		FloorHeading: l("Gloves, flour, and no app to install.", FactTapButtonSizedForAWetHand, FactTapPageNeedsNoApp),
+		FloorHeading: l("Wet hands, flour, and no app to install.", FactTapButtonSizedForAWetHand, FactTapPageNeedsNoApp),
 		FloorCards: []ForProductionCard{
 			{
 				Title: l("No extra hardware per floor.", FactPlaqueKnowsNoDepartment),
@@ -306,7 +320,7 @@ func ForProductionCopy(f ForProductionFigures) ForProductionText {
 			},
 			{
 				Title: l("Built for wet or floury hands.", FactTapButtonSizedForAWetHand),
-				Body: l("The tap screen has one large button, sized for a wet or gloved finger.",
+				Body: l("The tap screen has one large button, sized for a wet or floury finger.",
 					FactTapButtonSizedForAWetHand, FactTapScreenIsOneButton),
 			},
 			{

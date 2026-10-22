@@ -701,18 +701,18 @@ templ landingFits() {
 				<h2 class="lp-h2">Chains and facilities, one system.</h2>
 				<p class="lp-lede">Whether your people are spread across a city or across one production floor, Taptime maps to how you actually operate.</p>
 				<div class="lp-fits">
-					for _, a := range LandingAudiences {
+					for i, a := range LandingAudiences {
 						if a.Href != "" {
-							<a class="card fitcard lp-fit" href={ templ.URL(a.Href) }>
-								@landingFitBody(a)
-								<span class="lp-fitLink">
+							<a class="card fitcard lp-fit" href={ templ.URL(a.Href) } aria-labelledby={ landingFitID(i, "title") + " " + landingFitID(i, "link") } aria-describedby={ landingFitID(i, "body") }>
+								@landingFitBody(a, i)
+								<span class="lp-fitLink" id={ landingFitID(i, "link") }>
 									{ a.Link }
 									@moreArrow()
 								</span>
 							</a>
 						} else {
 							<div class="card lp-fit">
-								@landingFitBody(a)
+								@landingFitBody(a, i)
 							</div>
 						}
 					}
@@ -723,12 +723,19 @@ templ landingFits() {
 }
 
 // landingFitBody is a fits card's words: the kicker, the heading, the paragraph and the
-// example chip. A card that is a link holds nothing else that can be pressed.
-templ landingFitBody(a Audience) {
+// example chip. A card that is a link holds nothing else that can be pressed; its name is
+// the heading and the page's name (aria-labelledby) and the paragraph describes it, so the
+// link is not announced as its whole text.
+templ landingFitBody(a Audience, i int) {
 	<span class="lp-fitKick">{ a.Kicker }</span>
-	<h3 class="lp-fitTitle">{ a.Title }</h3>
-	<p class="lp-fitBody">{ a.Paragraph() }</p>
+	<h3 class="lp-fitTitle" id={ landingFitID(i, "title") }>{ a.Title }</h3>
+	<p class="lp-fitBody" id={ landingFitID(i, "body") }>{ a.Paragraph() }</p>
 	<span class="lp-fitEx">{ a.Example.Text }</span>
+}
+
+// landingFitID is the id of part of fits card i.
+func landingFitID(i int, part string) string {
+	return "fit-" + itoa(i) + "-" + part
 }
 
 // landingPricing is the price section: the one-piece price card and, under it, the way
