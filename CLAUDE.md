@@ -305,8 +305,9 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
   `direction_source='employee'` ⇔ kaydedilen yön ≠ D (D'ye eşit istek `auto`); verdict,
   güven puanı ve politika bağlamı değişmez, geç kalma kaydedilen yöne göre ölçülür,
   `reject`/`ignored` isteği düşürür; kayıt notu *"direction chosen by employee"*,
-  çalışanın ekranı *"you chose to clock in / out"*. İstek yalnız yayın anahtarı etkinken
-  uygulanır (§B.5). Rapor bir çıkışı yalnız kendi iş gününün ve 18 saatin içindeki
+  çalışanın ekranı *"you chose to clock in / out"*. İstek yalnız iş günü varken
+  uygulanır — yayın anahtarı etkin **ve** kesim çözülebilir; yoksa düşer, kayıt D'dir
+  (§B.5). Rapor bir çıkışı yalnız kendi iş gününün ve 18 saatin içindeki
   girişle eşler; iş günü anı olmayan satırlar (manuel ve M15 öncesi) yalnız 18 sa
   kuralıyla eşlenir.
 - **Geç kalma** çalışanın KENDİ vardiyasına göre: departman vardiyası varsa o,
