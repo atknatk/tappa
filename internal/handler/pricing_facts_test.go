@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -39,6 +41,9 @@ type billingFactSources struct {
 	// Later is every migration after 00016, by file name: one of them could redefine a
 	// function 00016 declares, or give back the writes it takes away.
 	Later map[string]string
+	// SQL is every file under db/queries and db/migrations, by path: where a write of
+	// an employment date could be.
+	SQL map[string]string
 }
 
 func loadBillingFactSources(t *testing.T) billingFactSources {
@@ -63,7 +68,29 @@ func loadBillingFactSources(t *testing.T) billingFactSources {
 	if len(later) < 40 {
 		t.Fatalf("PREMISE: read %d migration(s) after %s; the directory holds more", len(later), mig16)
 	}
+	sql := map[string]string{}
+	for _, sub := range []string{"queries", "migrations"} {
+		d := filepath.Join("..", "..", "db", sub)
+		files, err := os.ReadDir(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range files {
+			if f.IsDir() || !strings.HasSuffix(f.Name(), ".sql") {
+				continue
+			}
+			b, err := os.ReadFile(filepath.Join(d, f.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			sql[filepath.Join("db", sub, f.Name())] = string(b)
+		}
+	}
+	if len(sql) < 70 {
+		t.Fatalf("PREMISE: read %d SQL file(s) under db/; there are more", len(sql))
+	}
 	return billingFactSources{
+		SQL:      sql,
 		Mig16:    repoFile(t, "db", "migrations", mig16),
 		Queries:  repoFile(t, "db", "queries", "billing.sql"),
 		Book:     repoFile(t, "internal", "domain", "billing", "billing.go"),
@@ -221,6 +248,53 @@ func freezeFinalViolation(s billingFactSources) string {
 	return ""
 }
 
+// stampAssignRE finds an assignment to an employment date: the column (perhaps
+// qualified), an "=" that is not part of "<=", ">=", "<>" or "!=", and the rest of the
+// line. A comparison written "activated_at = …" would be read as a write too, which is
+// the safe direction: nothing in the product compares the stamps that way today.
+var stampAssignRE = regexp.MustCompile(`(?m)\b(?:\w+\.)?((?:de)?activated_at)\s*=\s*([^\n]*)$`)
+
+// stampInsertRE finds an INSERT into employees with its column list.
+var stampInsertRE = regexp.MustCompile(`(?is)INSERT\s+INTO\s+(?:public\.)?employees\s*\(([^)]*)\)`)
+
+// stampViolation is FactEmploymentDatesAreStampedWhenTheyHappen's derivation: every
+// assignment to activated_at or deactivated_at in db/queries and db/migrations
+// (comments removed) is COALESCE(<that column>, now()) -- now(), written once -- and no
+// INSERT into employees names either column, so a new row starts with neither.
+func stampViolation(s billingFactSources) string {
+	seen := map[string]int{}
+	for path, src := range s.SQL {
+		code := sqlLineCommentRE.ReplaceAllString(src, "")
+		if strings.HasPrefix(path, filepath.Join("db", "migrations")) {
+			code = gooseUp(code)
+		}
+		for _, m := range stampAssignRE.FindAllStringSubmatch(code, -1) {
+			col, expr := m[1], strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(m[2]), ","))
+			want := regexp.MustCompile(`^COALESCE\(\s*(?:\w+\.)?` + col + `\s*,\s*now\(\)\s*\)$`)
+			if !want.MatchString(expr) {
+				return fmt.Sprintf("%s writes %s = %s; an employment date is stamped now(), once "+
+					"(COALESCE(%s, now())), or a past month's count can move", path, col, expr, col)
+			}
+			seen[col]++
+		}
+		for _, m := range stampInsertRE.FindAllStringSubmatch(code, -1) {
+			if regexp.MustCompile(`\b(?:de)?activated_at\b`).MatchString(m[1]) {
+				return path + " inserts an employee with an employment date; a new row starts with none and is stamped when it happens"
+			}
+		}
+	}
+	// ANTI-VACUITY: the two writes the product has.
+	if seen["activated_at"] == 0 || seen["deactivated_at"] == 0 {
+		return fmt.Sprintf("found %d write(s) of activated_at and %d of deactivated_at; the product "+
+			"stamps both, so this scan is not reading the statements", seen["activated_at"], seen["deactivated_at"])
+	}
+	return ""
+}
+
+// closeEndedRE is CloseBillingPeriod's ended-month guard, the whole line: "now()" and
+// nothing after it, so a guard moved into the future ("+ interval …") is not it.
+var closeEndedRE = regexp.MustCompile(`(?m)^\s*AND b\.to_at <= now\(\)\s*$`)
+
 // ownerOnceOverViolation is FactBillingFreezeIsOwnersOnceTheMonthIsOver's derivation.
 func ownerOnceOverViolation(s billingFactSources) string {
 	if !strings.Contains(goFuncBody(s.Actions, "func mayManageBilling("), "id.Admin.Role == adminRoleOwner") {
@@ -236,7 +310,7 @@ func ownerOnceOverViolation(s billingFactSources) string {
 			return "dashboard.go no longer registers " + reg + ", so freezing goes by another route"
 		}
 	}
-	if !strings.Contains(queryBlock(s.Queries, "CloseBillingPeriod"), "AND b.to_at <= now()") {
+	if !closeEndedRE.MatchString(sqlLineCommentRE.ReplaceAllString(queryBlock(s.Queries, "CloseBillingPeriod"), "")) {
 		return "CloseBillingPeriod no longer refuses a month that has not ended"
 	}
 	return ""
@@ -302,6 +376,7 @@ func pricingFactDerivations(t *testing.T) map[pages.Fact]func() string {
 		pages.FactBillingFreezeIsFinal:                    func() string { return freezeFinalViolation(s) },
 		pages.FactBillingFreezeIsOwnersOnceTheMonthIsOver: func() string { return ownerOnceOverViolation(s) },
 		pages.FactBillingCSVForAnyMonth:                   func() string { return csvAnyMonthViolation(s) },
+		pages.FactEmploymentDatesAreStampedWhenTheyHappen: func() string { return stampViolation(s) },
 		pages.FactBillingNamesTheFirstChargedMonth:        func() string { return firstChargedViolation(s) },
 		pages.FactBillingShowsFrozenMonthsAsReceipts:      func() string { return receiptViolation(s) },
 	}
@@ -374,6 +449,34 @@ func TestPricingFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		}},
 		{"a running month can be frozen", ownerOnceOverViolation, func(s *billingFactSources) {
 			s.Queries = within(s.Queries, queryBlock(s.Queries, "CloseBillingPeriod"), "AND b.to_at <= now()", "")
+		}},
+		{"a running month can be frozen a month ahead", ownerOnceOverViolation, func(s *billingFactSources) {
+			s.Queries = within(s.Queries, queryBlock(s.Queries, "CloseBillingPeriod"), "AND b.to_at <= now()", "AND b.to_at <= now() + interval '31 days'")
+		}},
+		{"a deactivation is backdated", stampViolation, func(s *billingFactSources) {
+			p := filepath.Join("db", "queries", "employees.sql")
+			s.SQL = maps.Clone(s.SQL)
+			s.SQL[p] = strings.Replace(s.SQL[p], "COALESCE(deactivated_at, now())", "COALESCE(deactivated_at, now() - interval '40 days')", 1)
+		}},
+		{"an activation date is taken from the caller", stampViolation, func(s *billingFactSources) {
+			p := filepath.Join("db", "queries", "invites.sql")
+			s.SQL = maps.Clone(s.SQL)
+			s.SQL[p] = strings.Replace(s.SQL[p], "activated_at = COALESCE(e.activated_at, now())", "activated_at = @activated_at", 1)
+		}},
+		{"a deactivation overwrites an earlier date", stampViolation, func(s *billingFactSources) {
+			p := filepath.Join("db", "queries", "employees.sql")
+			s.SQL = maps.Clone(s.SQL)
+			s.SQL[p] = strings.Replace(s.SQL[p], "COALESCE(deactivated_at, now())", "now()", 1)
+		}},
+		{"a new employee arrives already activated", stampViolation, func(s *billingFactSources) {
+			p := filepath.Join("db", "queries", "employees.sql")
+			s.SQL = maps.Clone(s.SQL)
+			s.SQL[p] = strings.Replace(s.SQL[p], "tenant_id, location_id, department_id, full_name, role, email\n)",
+				"tenant_id, location_id, department_id, full_name, role, email, activated_at\n)", 1)
+		}},
+		{"a later migration backdates people", stampViolation, func(s *billingFactSources) {
+			s.SQL = maps.Clone(s.SQL)
+			s.SQL[filepath.Join("db", "migrations", "00099_x.sql")] = "-- +goose Up\nUPDATE employees SET activated_at = created_at;\n-- +goose Down\nSELECT 1;\n"
 		}},
 		{"the export reads another month", csvAnyMonthViolation, func(s *billingFactSources) {
 			s.CSV = within(s.CSV, goFuncBody(s.CSV, "func (a *AdminAuth) billingExport("), "a.billingMonth(", "a.frozenMonth(")
@@ -466,9 +569,15 @@ func TestPricingFAQ_SaysWhatTheBillingCodeDoes(t *testing.T) {
 			t.Errorf("/pricing says %q, which the billing code does not keep (README §10)", banned)
 		}
 	}
+	// The answers that replaced the board's (U4, U6 and the "only the owner") are required
+	// word for word: a different sentence resting on the same pins would pass every other
+	// check here.
 	for _, must := range []string{
 		"Somebody invited who never finished activation is not counted.",
+		"Until it is frozen, its figures are worked out afresh each time they are read.",
 		"Only an owner can freeze a month, and only once the month is over.",
+		"Every month downloads as CSV from the Billing screen, frozen or not.",
+		"The Billing screen names the first month that is charged for",
 	} {
 		if !strings.Contains(text, must) {
 			t.Errorf("/pricing no longer says %q", must)

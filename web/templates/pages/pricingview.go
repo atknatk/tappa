@@ -35,7 +35,8 @@ type PricingView struct {
 	ExampleMonthly        string
 	// Figures are the examples and the drawn month, computed by internal/handler from the
 	// published price in integer cents. Empty Sizes means the price could not be read,
-	// and the page then draws no table and no month rather than a wrong figure.
+	// and the page then draws no examples section at all rather than a wrong figure or a
+	// heading over nothing.
 	Figures PricingFigures
 }
 
@@ -47,7 +48,7 @@ type PricingFigures struct {
 }
 
 // PricingSize is one row of "What a month costs at your size": a headcount and what it
-// costs a month at the published price, formatted without a currency sign ("37.50").
+// costs a month at the published price, two decimals and no currency sign ("15.00").
 type PricingSize struct {
 	People  int
 	Monthly string
@@ -90,6 +91,13 @@ const (
 	// mayManageBilling (the owner role) guarding the two close routes, and from
 	// CloseBillingPeriod inserting nothing for a month whose end is still ahead.
 	FactBillingFreezeIsOwnersOnceTheMonthIsOver Fact = "handler:mayManageBilling owner+sql:CloseBillingPeriod to_at <= now()"
+	// A person's employment dates are the moments they happened: the two statements
+	// that write activated_at and deactivated_at stamp now() and only when the column is
+	// still empty (COALESCE(…, now())), and no other statement or migration writes either
+	// column. That is what makes "hiring or letting someone go does not change a past
+	// month" true: a stamp written today falls in this month, never in a finished one.
+	// Derived from every write of the two columns under db/queries and db/migrations.
+	FactEmploymentDatesAreStampedWhenTheyHappen Fact = "sql:activated_at/deactivated_at written only as COALESCE(…, now())"
 	// The Billing screen downloads any month as CSV, frozen or not: the export reads the
 	// month through the same Book.Period the screen does. Derived from the route, the
 	// attachment, and the export's read.
@@ -154,7 +162,7 @@ var PricingFAQ = []Question{
 		Q: "Does hiring or letting someone go change a past month?",
 		A: "No. A finished month is counted over its own dates, not over today's list of people. " +
 			"Until it is frozen, its figures are worked out afresh each time they are read.",
-		Facts: []Fact{FactBillingCountsWhoWasActive, FactBillingFreezeIsFinal},
+		Facts: []Fact{FactBillingCountsWhoWasActive, FactEmploymentDatesAreStampedWhenTheyHappen, FactBillingFreezeIsFinal},
 	},
 	{
 		Q: "What does freezing a month do?",

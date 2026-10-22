@@ -746,18 +746,22 @@ func monthlyCents(price string, headcount int) (int, error) {
 var pricingExampleSizes = []int{10, 25, exampleHeadcount, 150}
 
 // pricingFigures computes the pricing page's figures from the published price: each
-// size's monthly cost in the landing example's format ("37.50", no sign), and the drawn
-// frozen month for headcount people in the Billing screen's own money format ("€90.00",
-// billing.Money through money()), so the drawing prints a total the way the screen it
-// depicts prints one. Integer cents throughout (CLAUDE.md §6).
+// size's monthly cost and the drawn frozen month for headcount people, all in the
+// Billing screen's own money format -- two decimals, "15.00" in the table (the template
+// writes the sign) and "€90.00" on the drawing, through billing.Money and money() -- so
+// the table and the drawing beside it print amounts one way, the way the screen they
+// depict prints them. (The Pricing boards mixed "€15" and "€37.50" inside one column;
+// the landing's sentence keeps its own "€90/month".) Integer cents throughout
+// (CLAUDE.md §6).
 func pricingFigures(price string, sizes []int, headcount int) (pages.PricingFigures, error) {
 	var out pages.PricingFigures
+	euros := func(cents int) string { return money(billing.NewMoney(int64(cents), billing.DefaultCurrency)) }
 	for _, n := range sizes {
-		monthly, err := exampleTeamMonthly(price, n)
+		c, err := monthlyCents(price, n)
 		if err != nil {
 			return pages.PricingFigures{}, err
 		}
-		out.Sizes = append(out.Sizes, pages.PricingSize{People: n, Monthly: monthly})
+		out.Sizes = append(out.Sizes, pages.PricingSize{People: n, Monthly: strings.TrimPrefix(euros(c), "€")})
 	}
 	unit, err := monthlyCents(price, 1)
 	if err != nil {
@@ -769,8 +773,8 @@ func pricingFigures(price string, sizes []int, headcount int) (pages.PricingFigu
 	}
 	out.Receipt = pages.PricingReceipt{
 		People: strconv.Itoa(headcount),
-		Price:  money(billing.NewMoney(int64(unit), billing.DefaultCurrency)),
-		Total:  money(billing.NewMoney(int64(total), billing.DefaultCurrency)),
+		Price:  euros(unit),
+		Total:  euros(total),
 	}
 	return out, nil
 }

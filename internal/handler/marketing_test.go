@@ -1048,21 +1048,11 @@ func TestLanding_ExampleTeamCostIsThePriceTimesTheHeadcount(t *testing.T) {
 	}
 
 	// THE PRICING PAGE'S TABLE AND DRAWN MONTH (LP-06) are the same arithmetic on the
-	// schema's price: each size's row, and the drawn month's price and total in the
-	// Billing screen's two-decimal format.
+	// schema's price, in the Billing screen's two-decimal format: each size's row, and the
+	// drawn month's price and total.
 	text := screenText(t, mustFetchMarketing(t, r, pages.PricingPath))
 	if len(pricingExampleSizes) < 2 {
 		t.Fatalf("PREMISE: the pricing page prices %d team size(s)", len(pricingExampleSizes))
-	}
-	for _, n := range pricingExampleSizes {
-		monthly, err := exampleTeamMonthly(m[1], n)
-		if err != nil {
-			t.Fatalf("the schema's price %q cannot be multiplied by %d: %v", m[1], n, err)
-		}
-		row := strconv.Itoa(n) + " people €" + monthly
-		if !strings.Contains(text, row) {
-			t.Errorf("the pricing table does not say %q; a row has come apart from the price", row)
-		}
 	}
 	cents := func(headcount int) string {
 		c, err := monthlyCents(m[1], headcount)
@@ -1070,6 +1060,12 @@ func TestLanding_ExampleTeamCostIsThePriceTimesTheHeadcount(t *testing.T) {
 			t.Fatalf("the schema's price %q: %v", m[1], err)
 		}
 		return fmt.Sprintf("€%d.%02d", c/100, c%100)
+	}
+	for _, n := range pricingExampleSizes {
+		row := strconv.Itoa(n) + " people " + cents(n)
+		if !strings.Contains(text, row) {
+			t.Errorf("the pricing table does not say %q; a row has come apart from the price", row)
+		}
 	}
 	for _, want := range []string{
 		"People " + strconv.Itoa(exampleHeadcount),
@@ -1080,14 +1076,16 @@ func TestLanding_ExampleTeamCostIsThePriceTimesTheHeadcount(t *testing.T) {
 			t.Errorf("the drawn frozen month does not say %q; its figures have come apart from the price", want)
 		}
 	}
-	// A figure that cannot be computed draws no table and no month.
+	// A figure that cannot be computed draws no examples section at all: no table, no
+	// drawn month, and no heading or sentence over nothing.
 	var pb strings.Builder
 	if err := pages.Pricing(pages.PricingView{SignupHref: signupPath, SignInHref: adminLoginPath,
 		PricePerEmployeeMonth: publishedPricePerEmployeeMonth, FreeMonths: foundingFreeMonths,
 		ExampleHeadcount: exampleHeadcount}).Render(t.Context(), &pb); err != nil {
 		t.Fatalf("rendering the pricing page without figures: %v", err)
 	}
-	for _, absent := range []string{`class="lp-sizesTable"`, "FROZEN", "-person chain runs on"} {
+	for _, absent := range []string{`id="examples"`, "What a month costs at your size.", pages.PricingExamplesLede.Text,
+		`class="lp-sizesTable"`, "FROZEN", "-person chain runs on"} {
 		if strings.Contains(pb.String(), absent) {
 			t.Errorf("a pricing page with no computed figures still renders %q", absent)
 		}

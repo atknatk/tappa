@@ -50,20 +50,21 @@ templ pricingHead(v PricingView) {
 }
 
 // pricingExamples is what a month costs at four team sizes, beside a drawn frozen month.
-// When the price could not be read there are no figures, and the section keeps its
-// heading and its sentence and draws neither.
+// When the price could not be read there are no figures, and the section is not drawn at
+// all: a heading and a sentence over nothing would promise a table that is not there. No
+// link on the site names this section.
 templ pricingExamples(v PricingView) {
-	<div class="band band--paper">
-		<section id="examples" class="lp-sec">
-			<div class="lp-wrap">
-				<p class="lp-eyebrow lp-secEyebrow">Examples</p>
-				<h2 class="lp-h2">What a month costs at your size.</h2>
-				<p class="lp-lede">{ PricingExamplesLede.Text }</p>
-				if len(v.Figures.Sizes) > 0 {
+	if len(v.Figures.Sizes) > 0 {
+		<div class="band band--paper">
+			<section id="examples" class="lp-sec" aria-labelledby="examples-title">
+				<div class="lp-wrap">
+					<p class="lp-eyebrow lp-secEyebrow">Examples</p>
+					<h2 id="examples-title" class="lp-h2">What a month costs at your size.</h2>
+					<p class="lp-lede">{ PricingExamplesLede.Text }</p>
 					<div class="lp-examples">
 						<div class="lp-examplesMain">
 							<div class="card lp-sizes">
-								<table class="lp-sizesTable">
+								<table class="lp-sizesTable" aria-labelledby="examples-title">
 									<thead>
 										<tr class="lp-lbl">
 											<th scope="col">Team size</th>
@@ -84,10 +85,10 @@ templ pricingExamples(v PricingView) {
 						</div>
 						@pricingReceipt(v.Figures.Receipt)
 					</div>
-				}
-			</div>
-		</section>
-	</div>
+				</div>
+			</section>
+		</div>
+	}
 }
 
 // pricingReceipt is the drawn frozen month: the Billing screen's receipt with the
