@@ -693,6 +693,11 @@ Faz C vakalarında sonradan gelen satırı `manual.Recorder` ya da `DEFAULT crea
    now."*
 5. Kayıt ikinci POST'ta (onay alanıyla) — panelin onay deseni (ör. `deactivateconfirm.go`); her değişiklik
    `audit_log`'a (eski/yeni değer, kapsam id'si).
+   **Uygulama notu (M15-07 denetim turları):** onay `level:subject:sürüm:yeni` konusuna bağlıdır; sürüm =
+   dosyadaki değer + kademenin değişiklik sayısı (`CountDayCutoffChanges`). Yazım (`DayCutoffs.Set`) incelenen
+   sürümü **kendi işleminde**, setter'ın `UPDATE`'i satırı kilitledikten sonra yeniden okur; tutmazsa
+   `confirm-stale` ve hiçbir şey yazılmaz — aynı sürüme karşı iki onaydan tam biri yazar ve audit'in `from`'u kilit
+   altında doğrulanmış değerdir (ilk turun *"kilitsiz from"* sınırı kapandı).
 
 **Kabul kriterleri.**
 - Yetkiler bugünkü gibi; kişi eylemi `ProtectWriting` arkasında (askıda 403 — ADR 0025).

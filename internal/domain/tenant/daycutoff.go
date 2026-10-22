@@ -91,6 +91,9 @@ var (
 	ErrDayCutoffRequired = errors.New("tenant: the business level needs a cutoff")
 	// ErrSameDayCutoff: the level already holds that value; nothing was written.
 	ErrSameDayCutoff = errors.New("tenant: that is already the cutoff on file")
+	// ErrDayCutoffStale: the level was changed after the change was reviewed (its version
+	// moved); nothing was written.
+	ErrDayCutoffStale = errors.New("tenant: the cutoff changed after it was reviewed")
 	// ErrDayCutoffUnknownLevel: not one of the four levels.
 	ErrDayCutoffUnknownLevel = errors.New("tenant: no such business day level")
 	// ErrDayCutoffTooLarge: the business is past the screen's design ceiling, so a review
@@ -287,6 +290,11 @@ type DayCutoffs struct {
 	// cannot call the rule active while the engine runs without it.
 	dir *Directory
 	log *slog.Logger
+	// beforeWrite, when set, runs inside Set's transaction after the first version check and
+	// right before the UPDATE that locks the row -- a test's meeting point, so two
+	// confirmations of one version reach the lock together (Staff.beforeBudget's pattern).
+	// nil in production.
+	beforeWrite func(ctx context.Context)
 }
 
 // NewDayCutoffs wires it. Every dependency is required: without the trail a change would
@@ -424,13 +432,16 @@ type CutoffReviewCommand struct {
 	Now       time.Time
 }
 
-// SetCutoffCommand writes Value at (Level, SubjectID).
+// SetCutoffCommand writes Value at (Level, SubjectID). ExpectedVersion is the Version the
+// change was reviewed against (CutoffReview.Version); Set re-checks it in its own
+// transaction and writes nothing when it no longer holds (ErrDayCutoffStale).
 type SetCutoffCommand struct {
-	TenantID  uuid.UUID
-	ActorID   uuid.UUID
-	Level     CutoffLevel
-	SubjectID uuid.UUID
-	Value     *time.Duration
+	TenantID        uuid.UUID
+	ActorID         uuid.UUID
+	Level           CutoffLevel
+	SubjectID       uuid.UUID
+	Value           *time.Duration
+	ExpectedVersion string
 }
 
 // CutoffChange is what was written: the value before and after (nil = inherit).
@@ -1170,6 +1181,10 @@ func (c SetCutoffCommand) validate() error {
 		return ErrDayCutoffRequired
 	case c.Level != CutoffBusiness && c.SubjectID == uuid.Nil:
 		return errors.New("tenant: a subject id is required")
+	case c.ExpectedVersion == "":
+		// A write with no reviewed version would be the one path the check below cannot
+		// guard; it is refused rather than allowed through unchecked.
+		return errors.New("tenant: the reviewed version is required")
 	}
 	if _, ok := ParseCutoffLevel(string(c.Level)); !ok {
 		return ErrDayCutoffUnknownLevel
@@ -1181,10 +1196,15 @@ func (c SetCutoffCommand) validate() error {
 // THE SAME TRANSACTION, so a change nobody can attribute rolls back (staff.go's rule). The
 // value already on file is ErrSameDayCutoff and writes nothing -- no row, no trail.
 //
-// ⚠️ COUNTED LIMIT: the "from" of the trail row is read in this transaction before the
-// UPDATE, without a row lock, so two people changing the SAME level in the same instant
-// can both record the same "from". The stored value is still the last write, and each
-// row's "to" is what it wrote.
+// 🔴 THE REVIEWED VERSION IS CHECKED TWICE, THE SECOND TIME UNDER THE ROW LOCK (M15-07
+// review, orchestrator's decision). First against the version read at the start of this
+// transaction; then the setter's UPDATE takes the subject row's lock -- a second writer of
+// the same level waits there for the first to commit -- and the change count is read AGAIN,
+// in a new statement that sees the first writer's committed trail row. A moved count is
+// ErrDayCutoffStale and the transaction rolls back: of two confirmations served against one
+// version, exactly one writes. The trail row's "from" is therefore the value the reviewed
+// version names, verified unchanged under the lock (this closes the earlier "from read
+// without a lock" limit).
 func (s *DayCutoffs) Set(ctx context.Context, c SetCutoffCommand) (CutoffChange, error) {
 	if err := c.validate(); err != nil {
 		return CutoffChange{}, err
@@ -1203,8 +1223,20 @@ func (s *DayCutoffs) Set(ctx context.Context, c SetCutoffCommand) (CutoffChange,
 		if err != nil {
 			return err
 		}
+		// The EARLY answer: a version that moved before this transaction began is refused
+		// without taking the lock. It is not the guarantee -- the check under the lock below
+		// refuses every case this one does (removing this one is an equivalent mutant,
+		// measured) -- it only keeps a plain stale press from reaching the UPDATE.
+		if v, err := version(ctx, q, c.TenantID, c.Level, c.SubjectID, stored); err != nil {
+			return err
+		} else if v != c.ExpectedVersion {
+			return ErrDayCutoffStale
+		}
 		if sameCutoff(stored, c.Value) {
 			return ErrSameDayCutoff
+		}
+		if s.beforeWrite != nil {
+			s.beforeWrite(ctx)
 		}
 		var action string
 		switch c.Level {
@@ -1225,6 +1257,12 @@ func (s *DayCutoffs) Set(ctx context.Context, c SetCutoffCommand) (CutoffChange,
 			// The subject was found a moment ago in this transaction, so no row here is a
 			// failure, not a refusal.
 			return fmt.Errorf("set the %s cutoff: %w", c.Level, err)
+		}
+		// The row is locked now; read the count again (see the doc comment).
+		if v, err := version(ctx, q, c.TenantID, c.Level, c.SubjectID, stored); err != nil {
+			return err
+		} else if v != c.ExpectedVersion {
+			return ErrDayCutoffStale
 		}
 		if _, err := s.trail.RecordTx(ctx, tx, audit.Event{
 			TenantID: c.TenantID,

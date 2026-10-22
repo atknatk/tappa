@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -126,8 +127,13 @@ func (f *cutoffFixture) tap(person, venue uuid.UUID, at time.Time, dir string) {
 	        VALUES ($1, $2, $3, $4, $5, $5, 'ok', 'nfc', $6, false)`, uuid.New(), f.tenant, person, venue, at, dir)
 }
 
+// set writes as the panel does: against the version on file right now.
 func (f *cutoffFixture) set(level CutoffLevel, subject uuid.UUID, value *time.Duration) (CutoffChange, error) {
-	return f.cutoffs.Set(context.Background(), SetCutoffCommand{TenantID: f.tenant, ActorID: f.actor, Level: level, SubjectID: subject, Value: value})
+	v, err := f.cutoffs.Version(context.Background(), f.tenant, level, subject)
+	if err != nil {
+		return CutoffChange{}, err
+	}
+	return f.cutoffs.Set(context.Background(), SetCutoffCommand{TenantID: f.tenant, ActorID: f.actor, Level: level, SubjectID: subject, Value: value, ExpectedVersion: v})
 }
 
 func (f *cutoffFixture) review(level CutoffLevel, subject uuid.UUID, value *time.Duration, now time.Time) CutoffReview {
@@ -591,6 +597,20 @@ func TestDayCutoffDB_OnlyTheEntryTheEngineCouldCloseIsCounted(t *testing.T) {
 		t.Errorf("an entry older than StaleOpenIn: split %d, want 0", r.OpenSplit)
 	}
 
+	// (b) again, the shape the engine's read alone decides: Dee's 6 h old entry is listed open
+	// (its next record is another `in`), but that later `in` was closed by an `out` 2 h ago,
+	// so GetLastOpenTransaction has nothing for her -- the engine would close nothing, and
+	// nothing is split. Without that read the listed entry would be counted.
+	d := f.venue("D", "", "", false)
+	dee := f.person("Dee", &d, nil)
+	f.tap(dee, d, now.Add(-6*time.Hour), "in")
+	f.tap(dee, d, now.Add(-4*time.Hour), "in")
+	f.tap(dee, d, now.Add(-2*time.Hour), "out")
+	setBranch(d, now.Add(-12*time.Hour))
+	if r := f.review(CutoffBranch, d, wallIn(t, now.Add(-time.Hour)), now); r.OpenSplit != 0 {
+		t.Errorf("in-in-out: split %d, want 0 -- the engine has no open entry to close", r.OpenSplit)
+	}
+
 	trail, err := audit.New(f.data)
 	if err != nil {
 		t.Fatal(err)
@@ -655,6 +675,22 @@ func TestDayCutoffDB_ADepartmentsShiftIsCheckedAtItsMembersOwnCutoff(t *testing.
 	if r := g.review(CutoffBusiness, uuid.Nil, dur(5, 0), now); len(r.Conflicts) != 0 {
 		t.Errorf("the business level at 05:00: %+v -- Mill's only member takes Store's 23:00", r.Conflicts)
 	}
+	// The same rule for a VENUE's own shift, at the branch and at the business level: Bar
+	// (04:00-12:00, no value of its own, business 05:00) has members, every one with their
+	// own 23:00, so neither level reaches anybody and neither cuts Bar's shift -- the
+	// estimate is for a venue with nobody placed in it.
+	h := newCutoffFixture(t, nil)
+	bar := h.venue("Bar", "04:00", "12:00", false)
+	for _, name := range []string{"Ann", "Bob"} {
+		p := h.person(name, &bar, nil)
+		h.exec(`UPDATE employees SET day_cutoff = '23:00' WHERE tenant_id = $1 AND id = $2`, h.tenant, p)
+	}
+	if r := h.review(CutoffBranch, bar, nil, now); len(r.Conflicts) != 0 || r.People != 0 {
+		t.Errorf("Bar's branch level with only self-set members: %+v (people %d)", r.Conflicts, r.People)
+	}
+	if r := h.review(CutoffBusiness, uuid.Nil, dur(5, 0), now); len(r.Conflicts) != 0 {
+		t.Errorf("the business level with Bar's members all self-set: %+v", r.Conflicts)
+	}
 	// With nobody in it, the department's own venue IS the estimate (the first-shift case).
 	empty := f.department(plant, "Empty", "05:00", "13:00")
 	r, err := f.cutoffs.Review(context.Background(), CutoffReviewCommand{TenantID: f.tenant, Level: CutoffDepartment, SubjectID: empty, Unchanged: true, Now: now})
@@ -663,5 +699,64 @@ func TestDayCutoffDB_ADepartmentsShiftIsCheckedAtItsMembersOwnCutoff(t *testing.
 	}
 	if len(r.Conflicts) != 1 || r.Conflicts[0].Cutoff != hm(6, 0) {
 		t.Fatalf("an empty department at Plant: %+v, want 06:00 inside its 05-13", r.Conflicts)
+	}
+}
+
+// TestDayCutoffDB_TwoConfirmationsOfOneVersionWriteOnce is the M15-07 review's race: two
+// changes reviewed against the SAME version (06:00 and 07:00 for one branch) meet at the
+// row lock -- the beforeWrite hook holds each until both have passed the first check -- and
+// exactly one writes; the other is ErrDayCutoffStale and leaves nothing. The trail holds one
+// row whose "from" is the reviewed value. A version that no longer holds is refused before
+// any write, and a write with no version at all is refused outright.
+func TestDayCutoffDB_TwoConfirmationsOfOneVersionWriteOnce(t *testing.T) {
+	f := newCutoffFixture(t, nil)
+	sliema := f.venue("Sliema", "", "", false)
+	reviewed, err := f.cutoffs.Version(context.Background(), f.tenant, CutoffBranch, sliema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var arrived sync.WaitGroup
+	arrived.Add(2)
+	f.cutoffs.beforeWrite = func(context.Context) {
+		arrived.Done()
+		arrived.Wait()
+	}
+	errs := make([]error, 2)
+	var done sync.WaitGroup
+	for i, v := range []*time.Duration{dur(6, 0), dur(7, 0)} {
+		done.Add(1)
+		go func(i int, v *time.Duration) {
+			defer done.Done()
+			_, errs[i] = f.cutoffs.Set(context.Background(), SetCutoffCommand{TenantID: f.tenant, ActorID: f.actor,
+				Level: CutoffBranch, SubjectID: sliema, Value: v, ExpectedVersion: reviewed})
+		}(i, v)
+	}
+	done.Wait()
+	f.cutoffs.beforeWrite = nil
+	wrote, stale := 0, 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			wrote++
+		case errors.Is(err, ErrDayCutoffStale):
+			stale++
+		default:
+			t.Fatalf("unexpected: %v", err)
+		}
+	}
+	rows := f.trail(ActionLocationDayCutoffUpdated, sliema)
+	if wrote != 1 || stale != 1 || len(rows) != 1 || !strings.Contains(rows[0], `"from": ""`) {
+		t.Fatalf("wrote %d, stale %d, trail %v -- want one write from inherit and one confirm-stale", wrote, stale, rows)
+	}
+	if _, err := f.cutoffs.Set(context.Background(), SetCutoffCommand{TenantID: f.tenant, ActorID: f.actor,
+		Level: CutoffBranch, SubjectID: sliema, Value: dur(8, 0), ExpectedVersion: reviewed}); !errors.Is(err, ErrDayCutoffStale) {
+		t.Fatalf("the old version after a write: %v, want ErrDayCutoffStale", err)
+	}
+	if _, err := f.cutoffs.Set(context.Background(), SetCutoffCommand{TenantID: f.tenant, ActorID: f.actor,
+		Level: CutoffBranch, SubjectID: sliema, Value: dur(8, 0)}); err == nil {
+		t.Fatal("a write with no reviewed version went through")
+	}
+	if n := len(f.trail(ActionLocationDayCutoffUpdated, sliema)); n != 1 {
+		t.Fatalf("a refused write added a trail row (%d)", n)
 	}
 }

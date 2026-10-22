@@ -353,7 +353,15 @@ func (a *AdminAuth) businessDayApply(w http.ResponseWriter, r *http.Request) {
 	a.short.clear(w, adminConfirmCookieName)
 	change, err := a.businessDays.Set(r.Context(), tenant.SetCutoffCommand{
 		TenantID: id.TenantID(), ActorID: id.Admin.AdminUserID, Level: f.level, SubjectID: f.subject, Value: f.value,
+		// Re-checked inside the write's own transaction, under the row lock: the check above
+		// is the early answer, this one is the guarantee.
+		ExpectedVersion: version,
 	})
+	if errors.Is(err, tenant.ErrDayCutoffStale) {
+		a.log.Warn("panel business day refused: the cutoff changed after it was reviewed", "level", string(f.level))
+		a.redirect(w, businessDayReturn(f, "confirm-stale"))
+		return
+	}
 	if errors.Is(err, tenant.ErrSameDayCutoff) {
 		a.redirect(w, businessDayReturn(f, "same"))
 		return

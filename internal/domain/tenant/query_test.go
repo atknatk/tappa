@@ -92,13 +92,12 @@ func TestStaffQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 		}
 		findings, checked := scopeFindings(body, scoped)
 		// M15-07 made this package call GetLastOpenTransaction (the business-day review asks
-		// which open check-in the engine could close). Its one finding is the correlated
-		// NOT EXISTS this file has already cleared by name in txnScopeExemptions -- the SAME
-		// statement and the same reason, not a new name -- so that clearance is applied here
-		// too instead of being argued twice. Only a name already on that allowlist is passed.
-		if reason, cleared := txnScopeExemptions[name]; cleared && file == txnQueryFile {
-			t.Logf("%s (%s): %d finding(s) cleared by txnScopeExemptions: %s", name, file, len(findings), reason)
-			findings = nil
+		// which open check-in the engine could close). txnScopeExemptions clears ONE finding
+		// of it by name -- the correlated sub-query's -- and exemptCorrelated removes exactly
+		// that one and nothing else, so the outer statement's own predicate is still checked
+		// here (M15-07 review: clearing every finding hid a deleted outer predicate).
+		if _, cleared := txnScopeExemptions[name]; cleared && file == txnQueryFile {
+			findings = exemptCorrelated(t, name, findings)
 		}
 		for _, f := range findings {
 			t.Errorf("%s (%s) %s", name, file, f)
@@ -163,6 +162,34 @@ var txnScopeExemptions = map[string]string{
 	// predicate on a different table; loosening it to follow aliases would weaken the
 	// case its negative control exists to refuse. Fail-closed, in the safe direction.
 	"GetLastOpenTransaction": "correlated NOT EXISTS scoped to the outer alias, which is itself bound to @tenant_id",
+}
+
+// correlatedFinding is the one finding txnScopeExemptions clears: the correlated sub-query
+// (alias o) bound to the OUTER alias rather than to the parameter.
+const correlatedFinding = "has a WHERE clause that does not bind o.tenant_id to @tenant_id"
+
+// exemptCorrelated removes the exempted query's correlated-sub-query finding and returns
+// the rest. It requires EXACTLY ONE such finding: none means the exemption is stale, two
+// means a second sub-query appeared that nobody has argued. Deleting the sub-query's own
+// `o.tenant_id = t.tenant_id` still yields that one finding (the matcher reads the WHERE,
+// not the correlation) and stays cleared -- by design: the exemption's reason is that the
+// outer statement is bound, which this function no longer hides.
+func exemptCorrelated(t *testing.T, name string, findings []string) []string {
+	t.Helper()
+	var rest []string
+	cleared := 0
+	for _, f := range findings {
+		if strings.HasPrefix(f, correlatedFinding) {
+			cleared++
+			continue
+		}
+		rest = append(rest, f)
+	}
+	if cleared != 1 {
+		t.Errorf("%s: txnScopeExemptions clears exactly one correlated sub-query finding; the "+
+			"matcher produced %d", name, cleared)
+	}
+	return rest
 }
 
 // txnScopeUnseen are the statements this matcher STRUCTURALLY CANNOT CHECK, each with
@@ -337,15 +364,6 @@ func TestTagsQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 			continue
 		}
 		findings, checked := scopeFindings(body, scoped)
-		// M15-07 made this package call GetLastOpenTransaction (the business-day review asks
-		// which open check-in the engine could close). Its one finding is the correlated
-		// NOT EXISTS this file has already cleared by name in txnScopeExemptions -- the SAME
-		// statement and the same reason, not a new name -- so that clearance is applied here
-		// too instead of being argued twice. Only a name already on that allowlist is passed.
-		if reason, cleared := txnScopeExemptions[name]; cleared && file == txnQueryFile {
-			t.Logf("%s (%s): %d finding(s) cleared by txnScopeExemptions: %s", name, file, len(findings), reason)
-			findings = nil
-		}
 		for _, f := range findings {
 			t.Errorf("%s (%s) %s", name, file, f)
 		}
@@ -518,6 +536,12 @@ func TestTransactionsQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 			if len(findings) == 0 {
 				t.Errorf("%s is exempted (%q) but the matcher no longer flags it. Remove the "+
 					"entry: an exemption nobody needs is a hole nobody is watching.", n, why)
+			}
+			// 🔴 THE EXEMPTION CLEARS ONE FINDING, NOT THE QUERY (M15-07 review): every other
+			// finding -- the outer statement's own predicate above all -- is still reported.
+			for _, f := range exemptCorrelated(t, n, findings) {
+				flagged++
+				t.Errorf("%s (%s) %s", n, txnQueryFile, f)
 			}
 			continue
 		}
