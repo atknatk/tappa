@@ -125,6 +125,7 @@ var priceLockedForLifeRE = regexp.MustCompile(`(?m)^## 11\..*\n(?:(?:[^#\n].*)?\
 // the order the pages were added. A page card appends its own.
 var pageFactDerivations = []func(*testing.T) map[pages.Fact]func() string{
 	pricingFactDerivations,
+	securityFactDerivations,
 }
 
 // plaquesIncludedRE is handoff §11's pricing term: "plaketler dahil ve ücretsiz
@@ -470,6 +471,10 @@ var factSourceDelegations = map[pages.Fact][]pages.Source{
 	pages.FactFlaggedQueueDecidedByAManager: {pages.SourceNoEvidenceReview},
 	pages.FactCopiedLinkIsRefused:           {pages.SourceCounterAdvanceIsGuarded, pages.SourceSUNInvalid},
 	pages.FactCodelessTapNeedsAddress:       {pages.SourceQRRequiresIP},
+	// The security page's two (LP-07): where the checks run is where the signature is
+	// verified and the counter advanced, and the radius's default is the Source's.
+	pages.FactChecksRunOnTheServer: {pages.SourceSignatureIsVerified, pages.SourceCounterAdvanceIsGuarded},
+	pages.FactGPSRadiusIsADefault:  {pages.SourceGPSRadiusDefault},
 }
 
 // factAnchorDelegations is the same for the Facts that are schema or domain facts
@@ -1265,8 +1270,9 @@ func TestLanding_UsesOnlyPaletteTokens(t *testing.T) {
 // sitePageTemplates is the template each page of the public site is drawn by. A page
 // card adds its row with its route.
 var sitePageTemplates = map[string]string{
-	"/":               "landing.templ",
-	pages.PricingPath: "pricing.templ",
+	"/":                "landing.templ",
+	pages.PricingPath:  "pricing.templ",
+	pages.SecurityPath: "security.templ",
 }
 
 // landingFAQAnswerBeforeM11 is "Where does the data go?" as the page answered it until

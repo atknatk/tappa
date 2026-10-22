@@ -239,6 +239,19 @@ func TestMarketing_HandlerHoldsNoStatefulDependency(t *testing.T) {
 		// result is kept, as exampleMonthly's is. A value, not a dependency: plainData
 		// below refuses it the day it holds anything but strings and numbers.
 		"pages.PricingFigures": true,
+		// 🔴 pages.SecurityFigures AND pages.SecurityText, ADDED BY LP-07, AND THIS IS THEIR
+		// ARGUMENT: the security page prints numbers read from the product (the guardrail
+		// count from the list itself, the window from policy.DefaultParams) and sentences
+		// built from them. Both are computed once in NewMarketing and kept as the result,
+		// as the pricing figures are. Values, not dependencies: plainData below refuses
+		// either the day it holds anything but strings, numbers and slices of them.
+		"pages.SecurityFigures": true,
+		"pages.SecurityText":    true,
+	}
+	for _, v := range []any{pages.SecurityFigures{}, pages.SecurityText{}} {
+		if g := reflect.TypeOf(v); !plainData(g) {
+			t.Errorf("%v holds something other than strings, numbers and slices of them", g)
+		}
 	}
 	if g := reflect.TypeOf(apiguide.Guide{}); !plainData(g) {
 		t.Errorf("apiguide.Guide holds something other than strings, numbers and slices of them: %v", g)

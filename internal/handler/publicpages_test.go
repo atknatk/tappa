@@ -47,8 +47,9 @@ func publicPagesCopy() map[string]publicCopy {
 		landing[fmt.Sprintf("LandingPricingIncludes[%d]", i)] = l
 	}
 	return map[string]publicCopy{
-		"/":               {lines: landing, questions: pages.LandingFAQ},
-		pages.PricingPath: {lines: pricingLines(), questions: pages.PricingFAQ},
+		"/":                {lines: landing, questions: pages.LandingFAQ},
+		pages.PricingPath:  {lines: pricingLines(), questions: pages.PricingFAQ},
+		pages.SecurityPath: {lines: securityLines()},
 	}
 }
 
@@ -210,6 +211,12 @@ func TestPublicPages_TheTableIsTheMountedRoutes(t *testing.T) {
 	}
 	if pricingPath != pages.PricingPath {
 		t.Errorf("Mount registers %q and the page's path is %q", pricingPath, pages.PricingPath)
+	}
+	if securityPath != pages.SecurityPath {
+		t.Errorf("Mount registers %q and the page's path is %q", securityPath, pages.SecurityPath)
+	}
+	if pages.PublicPageTitle(pages.SecurityPath) == "Taptime" {
+		t.Error("the security page has no row title")
 	}
 	if pages.PublicPageTitle(pages.PricingPath) == "Taptime" {
 		t.Error("the pricing page has no row title")

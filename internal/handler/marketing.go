@@ -19,7 +19,10 @@ import (
 	"github.com/atknatk/tappa/internal/apiguide"
 	"github.com/atknatk/tappa/internal/domain/billing"
 	"github.com/atknatk/tappa/internal/domain/legal"
+	"github.com/atknatk/tappa/internal/domain/tap"
+	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/session"
+	"github.com/atknatk/tappa/internal/webhook"
 	"github.com/atknatk/tappa/web"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
@@ -176,6 +179,12 @@ type Marketing struct {
 	// dependency (TestMarketing_HandlerHoldsNoStatefulDependency walks it). Empty Sizes
 	// when the price could not be read: the page then draws no figure at all.
 	pricing pages.PricingFigures
+	// security and securityCopy are the security page's numbers and its sentences
+	// built from them (LP-07), computed ONCE, here, by securityFigures and
+	// pages.SecurityCopy: ints, strings and slices of them, a value rather than a
+	// dependency (TestMarketing_HandlerHoldsNoStatefulDependency walks it).
+	security     pages.SecurityFigures
+	securityCopy pages.SecurityText
 	// guideEN and guideTR are the integration guide's two pages (M11 DOCS-1, ADR 0030):
 	// docs/api's embedded Markdown, converted ONCE, in the constructor, by
 	// internal/apiguide. A request serves the converted bytes and converts nothing, so
@@ -241,6 +250,7 @@ func NewMarketing(texts legalReader, log *slog.Logger, apiHost string) *Marketin
 		log.Error("pricing: the example figures cannot be computed; rendering none", "err", err)
 		pricing = pages.PricingFigures{}
 	}
+	security := securityFigures()
 	return &Marketing{
 		signupHref:     signupPath,
 		texts:          texts,
@@ -250,6 +260,8 @@ func NewMarketing(texts legalReader, log *slog.Logger, apiHost string) *Marketin
 		landingPolicy:  landingCSPFor(video, poster),
 		exampleMonthly: example,
 		pricing:        pricing,
+		security:       security,
+		securityCopy:   pages.SecurityCopy(security),
 		guideEN:        guideEN,
 		guideTR:        guideTR,
 		openAPIHref:    openAPI,
@@ -388,6 +400,8 @@ func (m *Marketing) Mount(r chi.Router) {
 	// reason the guide's routes below give (the employee-route derivation resolves a
 	// name); TestPublicPages_TheTableIsTheMountedRoutes holds the table and these
 	// registrations equal in both directions.
+	r.Get(securityPath, m.Security)
+	r.Head(securityPath, m.Security)
 	r.Get(pricingPath, m.Pricing)
 	r.Head(pricingPath, m.Pricing)
 	for _, p := range pages.LegalPages {
@@ -469,6 +483,66 @@ func (m *Marketing) Pricing(w http.ResponseWriter, r *http.Request) {
 		ExampleMonthly:        m.exampleMonthly,
 		Figures:               m.pricing,
 	}))
+}
+
+// securityPath is pages.SecurityPath, spelled out so the route scan can read it; the
+// public-page table test holds the two equal.
+const securityPath = "/security"
+
+// Security serves GET /security (LP-07): the page's figures and sentences, computed
+// once in NewMarketing.
+func (m *Marketing) Security(w http.ResponseWriter, r *http.Request) {
+	m.render(w, r, pages.Security(pages.SecurityView{
+		SignupHref: m.signupHref,
+		SignInHref: adminLoginPath,
+		FreeMonths: foundingFreeMonths,
+		Figures:    m.security,
+		Copy:       m.securityCopy,
+	}))
+}
+
+// The security page's figures that no exported value of the product carries. EACH IS A
+// MIRROR OF THE CODE NAMED BESIDE IT, the way foundingFreeMonths mirrors migration
+// 00016, and internal/handler's security tests read that code and hold the two equal --
+// so a change there turns the page's test red instead of leaving the page wrong.
+const (
+	// internal/sun's cmacHexLen: the signature in the plaque's link, in hex characters.
+	securitySignatureHexChars = 16
+	// internal/sun's tagKeyLen (16 bytes), in bits: a plaque's own AES key.
+	securityPlaqueKeyBits = 128
+	// internal/session's tokenBytes (32), in bits.
+	securityTokenBits = 256
+	// internal/netx's maxProofHostBitsV4 (25) and maxProofHostBitsV6 (97), as the prefix
+	// length of a block that size: 32-25 and 128-97.
+	securityIPv4Prefix = 7
+	securityIPv6Prefix = 31
+	// internal/config's TAPPA_GPS_RADIUS_M default.
+	securityGPSRadiusM = 150
+	// tap.trustScore's two additions: an address match and a position match.
+	securityTrustIP  = 50
+	securityTrustGPS = 30
+)
+
+// securityFigures is the security page's numbers: the mirrors above, and the ones the
+// product exports read from it directly -- the guardrail count from the list itself, the
+// default window from policy.DefaultParams (which internal/config's default matches),
+// the trust score's base from tap.TrustBase, and the webhook header's name.
+func securityFigures() pages.SecurityFigures {
+	params := policy.DefaultParams()
+	return pages.SecurityFigures{
+		SignatureHexChars: securitySignatureHexChars,
+		PlaqueKeyBits:     securityPlaqueKeyBits,
+		TokenBits:         securityTokenBits,
+		IPv4Prefix:        securityIPv4Prefix,
+		IPv6Prefix:        securityIPv6Prefix,
+		GPSRadiusM:        securityGPSRadiusM,
+		DebounceSeconds:   int(params.DebounceWindow / time.Second),
+		Guardrails:        len(policy.Guardrails(params)),
+		TrustBase:         tap.TrustBase,
+		TrustIP:           securityTrustIP,
+		TrustGPS:          securityTrustGPS,
+		WebhookHeader:     webhook.SignatureHeader,
+	}
 }
 
 // legal serves one document under /legal.

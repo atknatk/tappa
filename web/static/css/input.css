@@ -2847,3 +2847,217 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 
   .lp .lp-examples { grid-template-columns: minmax(0, 1fr) 300px; gap: 64px; }
 }
+
+/* =========================================================================
+   THE SECURITY PAGE (LP-07, 2026-10-22)
+
+   /security, from the Security / T-Security / M-Security boards
+   (web/templates/pages/security.templ). The opening, the bands, the section
+   frame, the proof cards (.lp-proof), the privacy note (.lp-privacy), the
+   panel's small stamp and fake buttons, the check squares (.chk) and the
+   sign-off are the landing's and the pricing page's; what is here is the
+   page's own furniture: the sample check, the four proofs' three cells, the
+   drawings, the decision ladder, the flow of a flagged record, the paired
+   text-and-drawing sections and the hosting card.
+
+   ONE DOM AT EVERY WIDTH. The phone stacks every cell. From the tablet the
+   proof's card and its text sit side by side with the drawing under them,
+   the privacy cards make a row, and text sits beside its drawing. From the
+   desktop the proof is three cells, the opening and the ladder take a side
+   column, and the flagged record's four steps run in a row.
+
+   THE DRAWINGS ARE PICTURES (role img): nothing in them is pressed, so they
+   reserve no 44px floor. SVG colours are classes naming palette tokens
+   (.lp-fill*, .lp-stroke*), never a value in the markup.
+
+   CONTRAST, MEASURED (the WCAG ratio, alpha composited over its ground):
+     green on green-lite (the sample's chips)      6.48:1
+     ink at 70% on paper (labels, notes)           6.05:1
+     ink at 75% on porcelain (the ladder's note)   7.39:1
+     ink on saffron (the outside mark)             6.66:1
+   ========================================================================= */
+
+/* ---------------- the opening ---------------- */
+.lp .lp-secHero { display: flex; flex-direction: column; gap: 32px; }
+.lp .lp-secHeroCopy { display: flex; flex-direction: column; min-width: 0; }
+.lp .lp-secHeroLede { margin-bottom: 16px; }
+.lp .lp-secServer { font-family: var(--mono); font-size: 13px; line-height: 1.6; color: rgb(var(--ink-ch) / .75); }
+.lp .lp-secBtns { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+
+/* The sample tap, checked four ways. */
+.lp .lp-secCheck { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 20px 18px 24px; box-shadow: 0 20px 50px rgb(var(--ink-ch) / .1); }
+.lp .lp-secChecks { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+.lp .lp-secCheckRow { position: relative; display: flex; align-items: center; gap: 12px; }
+.lp .lp-secCheckRow + .lp-secCheckRow::before { content: ''; position: absolute; left: 19px; top: -12px; width: 2px; height: 12px; background: var(--green); }
+.lp .lp-secCheckRow:last-child::before { background: var(--line); }
+.lp .lp-secCheckIco { width: 40px; height: 40px; border-radius: 11px; }
+.lp .lp-secCheckIco--spare { background: transparent; border: 1.5px dashed var(--green); }
+.lp .lp-secCheckName { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 15px; font-weight: 700; line-height: 1.3; }
+.lp .lp-secCheckName .lp-lbl { font-size: 9.5px; font-weight: 400; }
+.lp .lp-secChip { flex: none; padding: 4px 9px; border-radius: 999px; background: var(--green-lite); color: var(--green); font-family: var(--mono); font-size: 11px; font-weight: 700; }
+.lp .lp-secChip--spare { background: transparent; border: 1px solid var(--line); color: rgb(var(--ink-ch) / .7); }
+.lp .lp-secDown { display: flex; justify-content: center; color: var(--green); }
+.lp .lp-secDown svg { transform: rotate(90deg); }
+
+/* A sample record, as the panel's docket draws it. The 7px under it is the tear's. */
+.lp .lp-secDocket { display: flex; flex-direction: column; gap: 7px; min-width: 0; margin-bottom: 7px; padding: 13px 14px; box-shadow: 0 8px 20px rgb(var(--ink-ch) / .08); }
+.lp .lp-secDocketTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.lp .lp-secDocketVenue { min-width: 0; padding-top: 3px; font-size: 9.5px; letter-spacing: .08em; }
+.lp .lp-secStamp { flex: none; }
+.lp .lp-secDocketWho { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.lp .lp-secDocketTime { display: flex; align-items: baseline; gap: 8px; font-family: var(--mono); font-size: 17px; }
+.lp .lp-secDocketFoot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; padding-top: 7px; border-top: 1px dashed var(--line); font-family: var(--mono); font-size: 10.5px; color: rgb(var(--ink-ch) / .72); }
+
+/* ---------------- the four proofs ---------------- */
+.lp .lp-secProofs { display: flex; flex-direction: column; gap: 40px; }
+.lp .lp-secProof { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 24px; }
+.lp .lp-secProof + .lp-secProof { padding-top: 40px; border-top: 1px dashed var(--line); }
+.lp .lp-secProofCard { margin-bottom: 7px; }
+.lp .lp-secHood { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.lp .lp-secHoodKick { color: var(--green); font-weight: 700; }
+.lp .lp-secHoodTitle { font-size: 19px; line-height: 1.25; letter-spacing: -0.02em; }
+.lp .lp-secHood p { font-size: 15.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
+
+/* The drawings' frame. */
+.lp .lp-secDraw { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 20px 18px; }
+.lp .lp-secDrawNote { font-size: 11.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-secCenter { text-align: center; }
+.lp .lp-secLegend { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.lp .lp-secLegend li { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 10px; font-size: 13.5px; line-height: 1.45; }
+.lp .lp-secLegend .chk { margin-top: 1px; }
+/* The square that marks a tap sent to a manager: saffron, its glyph in ink. */
+.lp .lp-chk--flag { background: var(--saffron); color: var(--ink); }
+
+/* The link a tap opens, and the counter. */
+.lp .lp-secUrl { font-size: 12px; color: rgb(var(--ink-ch) / .7); overflow-wrap: anywhere; }
+.lp .lp-secParams { display: flex; flex-direction: column; gap: 6px; }
+.lp .lp-secParam { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; padding: 7px 10px; border-left: 3px solid var(--green); background: rgb(var(--ink-ch) / .05); }
+.lp .lp-secParam .mono { font-size: 12px; white-space: nowrap; }
+.lp .lp-secParam .lp-lbl { font-size: 9.5px; text-align: right; }
+.lp .lp-secCtr { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.lp .lp-secCtrRow { display: grid; grid-template-columns: 18px 64px minmax(0, 1fr); align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; font-size: 13.5px; line-height: 1.4; }
+.lp .lp-secCtrRow .mono { font-size: 13px; font-weight: 700; }
+.lp .lp-secCtrRow--ok { background: var(--green-lite); }
+.lp .lp-secCtrRow--no { background: rgb(var(--tomato-ch) / .07); }
+
+/* Activation, and what each side keeps. */
+.lp .lp-secSteps { list-style: none; display: flex; gap: 8px; }
+.lp .lp-secStep { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--porcelain); font-size: 14px; font-weight: 700; line-height: 1.3; }
+.lp .lp-secStep .mono { font-size: 11px; color: var(--green); }
+.lp .lp-secSession { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--green-lite); font-size: 14px; font-weight: 700; }
+.lp .lp-secSession svg,
+.lp .lp-secKeep svg { flex: none; color: var(--green); }
+.lp .lp-secKeeps { display: flex; flex-direction: column; gap: 8px; }
+.lp .lp-secKeep { flex: 1 1 0; min-width: 0; display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.lp .lp-secKeepText { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.lp .lp-secKeepText .lp-lbl { font-size: 9.5px; }
+.lp .lp-secKeepText .mono { font-size: 12px; line-height: 1.45; }
+
+/* The scale and the radius: SVG, coloured by token. */
+.lp .lp-secScale { display: block; width: 100%; height: auto; overflow: visible; }
+.lp .lp-secScaleMark { font-family: var(--mono); font-size: 11px; font-weight: 700; }
+.lp .lp-secScaleTick { font-family: var(--mono); font-size: 10px; }
+.lp .lp-secRadius { display: block; width: 100%; max-width: 320px; height: auto; margin: 0 auto; }
+.lp .lp-secSvgBold { font-family: var(--disp); font-size: 11px; font-weight: 700; }
+.lp .lp-secSvgSoft { font-family: var(--disp); font-size: 10px; fill-opacity: .75; }
+.lp .lp-fillInk { fill: var(--ink); }
+.lp .lp-fillPaper { fill: var(--paper); }
+.lp .lp-fillGreen { fill: var(--green); }
+.lp .lp-fillGreenLite { fill: var(--green-lite); }
+.lp .lp-fillSaffron { fill: var(--saffron); }
+.lp .lp-fillTomato { fill: rgb(var(--tomato-ch) / .35); }
+.lp .lp-strokeInk { stroke: var(--ink); }
+.lp .lp-strokeGreen { stroke: var(--green); }
+.lp .lp-strokePaper { stroke: var(--paper); }
+
+/* ---------------- the decision ladder ---------------- */
+.lp .lp-ladder { display: flex; flex-direction: column; gap: 20px; }
+.lp .lp-ladderSteps { display: flex; flex-direction: column; min-width: 0; }
+.lp .lp-rung { padding: 18px 18px 8px; }
+.lp .lp-rungLink { display: block; width: 2px; height: 18px; margin-left: 32px; background: var(--line); }
+.lp .lp-rungHead { display: flex; align-items: flex-start; gap: 12px; padding-bottom: 12px; }
+.lp .lp-rungNo { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--ink); color: var(--paper); font-size: 13px; font-weight: 700; }
+.lp .lp-rungNo--lock { border: 1px solid var(--line); background: var(--porcelain); color: var(--ink); }
+.lp .lp-rungTitles { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.lp .lp-rungTitle { font-size: 18px; font-weight: 700; line-height: 1.3; letter-spacing: -0.015em; }
+.lp .lp-rules { list-style: none; }
+.lp .lp-rule { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px 0; border-top: 1px dashed var(--line); font-size: 14.5px; line-height: 1.45; }
+.lp .lp-ruleEnd { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lp .lp-ruleNote { font-size: 11px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-ladderSide { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.lp .lp-secTrust { display: flex; flex-direction: column; gap: 12px; margin-bottom: 7px; padding: 20px; }
+.lp .lp-secTrustRows div { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px dashed var(--line); font-size: 13px; }
+.lp .lp-secTrustRows dd { font-weight: 700; }
+.lp .lp-secTrust p { font-size: 14px; line-height: 1.55; color: rgb(var(--ink-ch) / .82); }
+.lp .lp-secDebounce { display: flex; flex-direction: column; gap: 12px; padding: 20px; }
+.lp .lp-secCardTitle { font-size: 18px; line-height: 1.3; letter-spacing: -0.015em; }
+.lp .lp-secDebounce p,
+.lp .lp-secCard p { font-size: 14.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
+.lp .lp-secLadderNote { max-width: 860px; margin-top: 28px; font-size: 12px; line-height: 1.65; color: rgb(var(--ink-ch) / .75); }
+
+/* ---------------- flagged, never dropped ---------------- */
+.lp .lp-secFlow { display: flex; flex-direction: column; gap: 10px; padding: 18px; }
+.lp .lp-secFlowStep { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 14px; background: var(--porcelain); }
+.lp .lp-secFlowTitle { font-size: 14.5px; font-weight: 700; line-height: 1.35; }
+.lp .lp-secFlowMeta { font-size: 11px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-secFlowArrow { display: flex; justify-content: center; color: var(--green); }
+.lp .lp-secFlowArrow svg { transform: rotate(90deg); }
+.lp .lp-secFlowLine { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 1.4; }
+.lp .lp-secFakeBtns { display: flex; gap: 8px; }
+.lp .lp-secTicks { list-style: none; display: flex; flex-direction: column; gap: 12px; max-width: 760px; margin-top: 24px; }
+.lp .lp-secTicks li { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; line-height: 1.55; }
+
+/* ---------------- text beside a drawing ---------------- */
+.lp .lp-secPair { display: flex; flex-direction: column; gap: 28px; }
+.lp .lp-secText { display: flex; flex-direction: column; gap: 14px; max-width: 600px; }
+.lp .lp-secText p { font-size: 16px; line-height: 1.6; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-secTextNote { font-size: 12px; font-weight: 700; color: var(--green); }
+.lp .lp-secPairDockets { display: flex; flex-direction: column; gap: 12px; }
+.lp .lp-secAudit { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 10px; font-size: 11px; color: rgb(var(--ink-ch) / .75); }
+.lp .lp-secAudit span:first-child { font-weight: 700; color: var(--ink); }
+.lp .lp-secWall { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.lp .lp-secSide { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--porcelain); }
+.lp .lp-secSideName { font-size: 14px; font-weight: 700; }
+.lp .lp-secRow { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: rgb(var(--ink-ch) / .8); }
+.lp .lp-secRls { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px; border-radius: 10px; background: var(--ink); color: var(--paper); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-align: center; }
+.lp .lp-secRls svg { flex: none; }
+
+/* ---------------- privacy ---------------- */
+.lp .lp-secCards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.lp .lp-secCard { display: flex; flex-direction: column; gap: 12px; padding: 22px 20px; }
+.lp .lp-secCardKick { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--green); }
+
+/* ---------------- hosting ---------------- */
+.lp .lp-secHost { display: flex; flex-direction: column; gap: 18px; max-width: 760px; padding: 24px 20px; }
+.lp .lp-secHostIco { width: 56px; height: 56px; border-radius: 14px; }
+.lp .lp-secHostText { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.lp .lp-secHostText p { font-size: 15.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
+.lp .lp-secHostLinks { display: flex; flex-wrap: wrap; gap: 0 18px; }
+
+@media (min-width: 768px) {
+  .lp .lp-secCheck { padding: 22px 22px 24px; }
+  .lp .lp-secDraw { padding: 20px; }
+  .lp .lp-secProof { grid-template-columns: 260px minmax(0, 1fr); gap: 28px; }
+  .lp .lp-secProof > .lp-secDraw { grid-column: 1 / -1; }
+  .lp .lp-secKeeps { flex-direction: row; }
+  .lp .lp-rule { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; }
+  .lp .lp-ruleEnd { justify-content: flex-end; }
+  .lp .lp-ladderSide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 16px; }
+  .lp .lp-secCards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .lp .lp-secPair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 36px; }
+  .lp .lp-secWall { grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1fr); }
+  .lp .lp-secRls { flex-direction: column; }
+  .lp .lp-secHost { flex-direction: row; align-items: flex-start; padding: 28px; }
+}
+@media (min-width: 1200px) {
+  .lp .lp-secHero { display: grid; grid-template-columns: minmax(0, 1fr) 500px; align-items: center; gap: 56px; }
+  .lp .lp-secProofs { gap: 48px; }
+  .lp .lp-secProof { grid-template-columns: 280px minmax(0, 1fr) minmax(0, 1.05fr); gap: 36px; }
+  .lp .lp-secProof + .lp-secProof { padding-top: 48px; }
+  .lp .lp-secProof > .lp-secDraw { grid-column: auto; }
+  .lp .lp-ladder { display: grid; grid-template-columns: minmax(0, 1fr) 330px; align-items: start; gap: 36px; }
+  .lp .lp-ladderSide { display: flex; flex-direction: column; gap: 20px; }
+  .lp .lp-secFlow { display: grid; grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) 16px minmax(0, 1fr) 16px minmax(0, 1.1fr); align-items: center; padding: 24px; }
+  .lp .lp-secFlowArrow svg { transform: none; }
+  .lp .lp-secPair { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 56px; }
+}

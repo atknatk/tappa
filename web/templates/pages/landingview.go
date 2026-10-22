@@ -443,11 +443,12 @@ type NavLink struct {
 // the reason those fields record, and the header renders them from the view.
 //
 // AN ENTRY BECOMES ITS PAGE WHEN THE PAGE IS MOUNTED (plan decision O8): "Pricing"
-// pointed at the landing's #pricing section until LP-06 mounted /pricing, and the
-// other two keep their landing sections until their pages exist (LP-07, LP-08).
+// pointed at the landing's #pricing section until LP-06 mounted /pricing, "Security"
+// at #security until LP-07 mounted /security, and the first keeps its landing section
+// until its page exists (LP-08).
 var LandingNav = []NavLink{
 	{Label: "How it works", Href: "/#how"},
-	{Label: "Security", Href: "/#security"},
+	{Label: "Security", Href: SecurityPath},
 	{Label: "Pricing", Href: PricingPath},
 }
 
@@ -478,10 +479,11 @@ type PublicLink struct {
 }
 
 // PublicProductLinks is the Product column of the footer and the phone menu, in the
-// boards' order. Mounted so far: the pricing page (LP-06) and the integration guide.
+// boards' order. Mounted so far: the pricing page (LP-06), the security page (LP-07)
+// and the integration guide.
 var PublicProductLinks = []PublicLink{
 	{Label: "Product tour"},
-	{Label: "Security"},
+	{Label: "Security", Href: SecurityPath},
 	{Label: "Pricing", Href: PricingPath},
 	{Label: "For restaurants & bars"},
 	{Label: "For production & facilities"},
@@ -510,6 +512,7 @@ type PublicPage struct {
 
 // PublicPages is every public page beyond the landing, in the boards' order.
 var PublicPages = []PublicPage{
+	{Path: SecurityPath, Title: "Security — Taptime"},
 	{Path: PricingPath, Title: "Pricing — Taptime"},
 }
 

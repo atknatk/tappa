@@ -450,11 +450,11 @@ templ landingLedger() {
 }
 
 // landingSecurity is the four proofs (LandingEvidence), each a paper slip torn at the
-// bottom edge, and the green privacy box with its shield.
+// bottom edge, the green privacy box with its shield, and "How each proof works", the
+// link to the security page's four proofs.
 //
-// THE BOARDS END THIS SECTION WITH "How each proof works", A LINK TO /security. It
-// is not here: that page has no route yet, and a link arrives with its route
-// (README O8 -- LP-07 adds both).
+// The link arrived with /security (README O8, LP-07): the link and its route are one
+// commit, and the link check follows it to the page and to the section's id.
 templ landingSecurity() {
 	<div class="band band--porcelain">
 		<section id="security" class="lp-sec">
@@ -480,6 +480,10 @@ templ landingSecurity() {
 					</span>
 					<p><b>Privacy by design:</b> { LandingPrivacyNote.Text }</p>
 				</div>
+				<a class="more lp-moreAfter" href={ templ.URL(SecurityPath + "#" + SecurityProofsID) }>
+					How each proof works
+					@moreArrow()
+				</a>
 			</div>
 		</section>
 	</div>
