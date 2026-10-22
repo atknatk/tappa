@@ -41,6 +41,23 @@ import (
 //   - The ladder's footnote now also names the baseline rules the cards do not show, so
 //     "Your rules" does not read as the whole baseline.
 //
+// THE SECURITY REVIEW'S EDITS (LP-07, 2026-10-22, second round), each a sentence that
+// said more than the product keeps:
+//
+//   - "nobody can decide on their own record" is gone, and so is the guardrail note's
+//     "stop anyone reviewing their own record": see FactReviewIsOnceAndFinal.
+//   - "The database refuses to change … for the database owner's own account too" now
+//     says the owner's guard is a trigger, which a deliberate change can switch off.
+//   - "When Taptime's own staff look into an account … every read" is about the support
+//     console: staff with the database owner's account read outside it (deploy runbook).
+//   - "narrow enough to describe one place" is gone: the limit is a /7's worth of
+//     addresses, wide enough for a whole provider's block, so the page says what it
+//     refuses and asks for the venue's own connection inside it.
+//   - The opening says "Four checks behind every tap." (a QR check-in carries no
+//     signature, and a position is optional), and the flagged record's lede says "by
+//     default": an owner can write a rule that allows without evidence.
+//   - The counter: "already at or past it" (the strict comparison refuses an equal one).
+//
 // THE NUMBERS ARE NOT TYPED HERE. SecurityFigures carries every one (the signature's
 // length, the key and token sizes, the address limits, the radius, the window, the
 // trust weights and the guardrail count), filled by internal/handler, and SecurityCopy
@@ -176,10 +193,19 @@ const (
 	// decides, and The Roll prints them as waiting (or refused). Derived from the
 	// ledger and The Roll's template.
 	FactFlaggedHoursWaitOutsideTheTotal Fact = "ledger:HoursAwaiting outside Worked"
-	// A flagged record is decided once, never by its own subject, and the decision is
-	// a row of its own: transaction_reviews' UNIQUE (transaction_id), its trigger and
-	// its append-only guard. Derived from migration 00005.
-	FactReviewIsOnceAndNotOwn Fact = "schema:transaction_reviews unique+self-review trigger"
+	// A flagged record is decided once and the decision cannot be changed afterwards:
+	// it is a row of its own in transaction_reviews, UNIQUE (transaction_id), with
+	// UPDATE and DELETE revoked from the application and a trigger refusing both.
+	// Derived from migration 00005 and every migration after it.
+	//
+	// 🔴 IT SAYS NOTHING ABOUT WHO DECIDES (LP-07 security review, 2026-10-22). The
+	// first version also said "nobody can decide on their own record", and that is not
+	// what the product does: a reviewer is an admin_users id and a record's subject an
+	// employees id, so the self-review trigger compares two id spaces that never meet,
+	// review.ErrSelfReview is "unreachable today" by its own comment, and
+	// sys:no-self-review never runs because the review path calls no policy engine. A
+	// manager who is also an employee can decide their own flag.
+	FactReviewIsOnceAndFinal Fact = "schema:transaction_reviews unique+no_mutation"
 	// transactions cannot be changed or deleted, by the application (UPDATE and DELETE
 	// revoked) or by the owner (a trigger). Derived from migration 00005 and every
 	// migration after it.
@@ -215,6 +241,22 @@ const (
 	// names the country and the union only (user decision K2).
 	FactHostedInTheEU Fact = "deploy:the production node is in Germany"
 )
+
+// SecurityHeroDocket is the opening's sample record: the landing panel's first
+// (LandingPanelPassDockets, which internal/handler runs through the engine) -- a real
+// NFC tap on the venue's network, the position asked for and none given, approved on
+// the network at its score. The position chip says "Asked · none given": the tap page
+// asks for a position on every press, and here the phone gave none, which is why the
+// docket reads "GPS no" and the score is the network's.
+//
+// WHY NOT A SAMPLE WITH A POSITION INSIDE THE RADIUS: with the network matched too it
+// scores the full hundred, and the public site's unmeasured-number scanner refuses that
+// figure on any page (TestLanding_MakesNoUnmeasuredNumericClaim). The scanner is not
+// widened for a drawing.
+var SecurityHeroDocket = LandingPanelPassDockets[0]
+
+// SecurityGPSChip is the hero's fourth chip, for SecurityHeroDocket's "GPS no".
+const SecurityGPSChip = "Asked · none given"
 
 // SecurityRule is one rung of a ladder card: what happens, which engine statements
 // decide it (Sids), and what it ends in. Verdict is the verdict's code ("ok", "flag",
@@ -285,9 +327,11 @@ type SecurityText struct {
 	DebounceQueue  Line
 	DebounceClock  Line
 	// OtherGuards and OtherBaseline are the engine's statements the cards do not show,
-	// named in LadderNote; NotedBaseline is the one baseline statement that writes a
-	// note and decides nothing.
+	// named in LadderNote; UnnamedGuards are the guardrails the page deliberately does
+	// not describe, each with its reason; NotedBaseline is the one baseline statement
+	// that writes a note and decides nothing.
 	OtherGuards   []SecurityNamed
+	UnnamedGuards []SecurityNamed
 	OtherBaseline []SecurityNamed
 	NotedBaseline SecurityNamed
 	LadderNote    Line
@@ -348,8 +392,11 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 		{Sid: "sys:tenant-mismatch", Phrase: "keep a plaque of a business outside your group out of your records"},
 		{Sid: "sys:cross-tenant-qr-site-ip", Phrase: "hold a QR scan at a partner business to that venue's own network"},
 		{Sid: "sys:policy-edit-owner-only", Phrase: "keep rule changes to an owner"},
-		{Sid: "sys:no-self-review", Phrase: "stop anyone reviewing their own record"},
 	}
+	// sys:no-self-review is the one guardrail the page does not describe: the review
+	// path never asks the engine, so describing it would describe nothing that happens
+	// (see FactReviewIsOnceAndFinal).
+	unnamed := []SecurityNamed{{Sid: "sys:no-self-review", Phrase: "not described: the review path does not run it"}}
 	otherBase := []SecurityNamed{
 		{Sid: "base:queued-window", Phrase: "a tap whose declared time is well in the past"},
 		{Sid: "base:ctr-gap-review", Phrase: "a tap after reads of the plaque the server never saw"},
@@ -386,7 +433,7 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 		},
 		LinkOnce: Line{
 			Text: "The server checks the signature, then moves the plaque's counter forward in one database statement " +
-				"that refuses to go backwards. A second use of the same link finds the counter already past it and is rejected.",
+				"that refuses to go backwards. A second use of the same link finds the counter already at or past it and is rejected.",
 			Facts: []Fact{FactChecksRunOnTheServer, FactCopiedLinkIsRefused},
 		},
 		LinkKeys: Line{
@@ -445,13 +492,14 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 			Facts: []Fact{FactAddressIsTheRequestsOwn, FactPlaqueIdentifiesThePlace},
 		},
 		PlaceWidth: Line{
-			Text: "A list of ranges only counts if it is narrow enough to describe one place: at most as many addresses " +
-				"as a /" + n(f.IPv4Prefix) + " holds in IPv4, or a /" + n(f.IPv6Prefix) + " in IPv6. A wider list is " +
-				"refused when you save it and is not counted when a tap is judged.",
+			Text: "A list of ranges stops counting once it is too wide to stand for a single network: more addresses " +
+				"than a /" + n(f.IPv4Prefix) + " holds in IPv4, or a /" + n(f.IPv6Prefix) + " in IPv6. A wider list is " +
+				"refused when you save it and is not counted when a tap is judged. Inside that limit, keep the list to " +
+				"your venue's own connection.",
 			Facts: []Fact{FactWideAddressListIsNoEvidence},
 		},
 		PlaceNarrow: Line{
-			Text:  "Narrow enough — up to a /" + n(f.IPv4Prefix) + "'s worth of addresses: can count as proof of place.",
+			Text:  "Within the limit — up to a /" + n(f.IPv4Prefix) + "'s worth of addresses: can count as proof of place.",
 			Facts: []Fact{FactWideAddressListIsNoEvidence},
 		},
 		PlaceWide: Line{
@@ -528,10 +576,11 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 			Facts: []Fact{FactDebounceIsPerPersonOnTheServerClock},
 		},
 		OtherGuards:   others,
+		UnnamedGuards: unnamed,
 		OtherBaseline: otherBase,
 		NotedBaseline: noted,
 		LadderNote: Line{
-			Text: countWordCap(len(guards)) + " of the " + countWord(f.Guardrails) + " guardrails are shown. The others " +
+			Text: countWordCap(len(guards)) + " of the " + countWord(f.Guardrails) + " guardrails are shown. The others include rules that " +
 				joinPhrases(others) + ". Your rules also flag " + joinPhrasesOr(otherBase) + ", and " + noted.Phrase + ". The " + n(f.DebounceSeconds) + "-second window and the " +
 				radius + " radius are deployment settings; the figures shown are the defaults.",
 			Facts: []Fact{FactGuardrailsAreTheList, FactBaselineCanBeChanged, FactDebounceIsPerPersonOnTheServerClock,
@@ -543,7 +592,7 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 			Facts: []Fact{FactFlaggedQueueDecidedByAManager, FactUndecidedTapIsFlagged},
 		},
 		NeverLostLede: Line{
-			Text:  "Anything unverified is stored, flagged, and queued for manager review — never silently approved.",
+			Text:  "Anything unverified is stored, flagged and queued for manager review; by default nothing is approved without evidence.",
 			Facts: []Fact{FactFlaggedQueueDecidedByAManager, FactUndecidedTapIsFlagged},
 		},
 		RollCounted: Line{
@@ -559,8 +608,8 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 			Facts: []Fact{FactFlaggedHoursWaitOutsideTheTotal},
 		},
 		NeverLostOnce: Line{
-			Text:  "A manager decides each flagged record once, and nobody can decide on their own record.",
-			Facts: []Fact{FactReviewIsOnceAndNotOwn, FactFlaggedQueueDecidedByAManager},
+			Text:  "A manager decides each flagged record once, and the decision cannot be changed afterwards.",
+			Facts: []Fact{FactReviewIsOnceAndFinal, FactFlaggedQueueDecidedByAManager},
 		},
 		NeverLostHeld: Line{
 			Text:  "Until then its hours are held out of the total, and The Roll shows them as waiting.",
@@ -568,7 +617,7 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 		},
 		NeverLostBeside: Line{
 			Text:  "The decision is stored beside the record; the record itself never changes.",
-			Facts: []Fact{FactReviewIsOnceAndNotOwn, FactRecordsAreImmutable},
+			Facts: []Fact{FactReviewIsOnceAndFinal, FactRecordsAreImmutable},
 		},
 
 		ImmutableHeading: Line{
@@ -576,8 +625,9 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 			Facts: []Fact{FactRecordsAreImmutable, FactManualEntryNamesAManager},
 		},
 		ImmutableRefused: Line{
-			Text: "The database refuses to change or delete a stored record — for the application, and for the " +
-				"database owner's own account too.",
+			Text: "The application has no permission to change or delete a stored record, and a guard in the database " +
+				"refuses the database owner's account too; switching that guard off would take a deliberate change " +
+				"to the database itself.",
 			Facts: []Fact{FactRecordsAreImmutable},
 		},
 		ImmutableManual: Line{
@@ -619,13 +669,15 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 			Facts: []Fact{FactBusinessesAreIsolatedByRLS},
 		},
 		IsolationOperator: Line{
-			Text: "When Taptime's own staff look into an account, they use a separate sign-in, and every read is " +
-				"written to an operator audit log first.",
+			Text: "Taptime's support console has its own sign-in, separate from yours, and every read it makes into " +
+				"an account is written to an operator audit log first.",
 			Facts: []Fact{FactOperatorReadsAreAudited},
 		},
 		IsolationGroup: Line{
 			Text: "The one crossing between businesses is a group Taptime sets up for companies that belong together: " +
-				"their staff can clock in at each other's venues, and the record lands with the person's own employer.",
+				"their staff can clock in at each other's venues, and the record lands with the person's own employer. " +
+				"The venue they clocked in at sees the name, the time, the direction and the outcome, never the " +
+				"location evidence.",
 			Facts: []Fact{FactHoldingIsTheOneCrossing},
 		},
 		IsolationWebhook: Line{

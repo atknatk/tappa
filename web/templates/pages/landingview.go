@@ -886,9 +886,13 @@ var LandingEvidence = []Evidence{
 		Label: "GPS fallback",
 		// "150\u00a0m" is the reference's own no-break space, so the number and its
 		// unit cannot be split across a line.
+		// "never silently approved" became "by default, never approved without evidence"
+		// (LP-07 security review, 2026-10-22): the default sends an unverified tap to a
+		// manager, and an owner can still write a rule that allows one -- the sentence
+		// said more than the engine keeps.
 		Body: "WiFi down or phone on mobile data? GPS confirms presence within 150\u00a0m. Anything " +
-			"unverified is stored, flagged, and queued for manager review — never silently " +
-			"approved.",
+			"unverified is stored, flagged, and queued for manager review — by default, never " +
+			"approved without evidence.",
 		Sources: []Source{SourceGPSOnlyAllow, SourceGPSRadiusDefault, SourceNoEvidenceReview},
 	},
 }

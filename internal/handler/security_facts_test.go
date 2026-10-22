@@ -507,6 +507,9 @@ func guardListViolation(s securityFactSources) string {
 	for _, o := range s.Copy.OtherGuards {
 		named[o.Sid]++
 	}
+	for _, o := range s.Copy.UnnamedGuards {
+		named[o.Sid]++
+	}
 	for _, g := range s.Guards {
 		if named[g.Sid] != 1 {
 			return "the page names the guardrail " + g.Sid + " " + strconv.Itoa(named[g.Sid]) + " time(s); every one is " +
@@ -603,34 +606,30 @@ func heldViolation(s securityFactSources) string {
 	return ""
 }
 
-// reviewOnceViolation: a flagged record is decided once, never by its own subject, and
-// the decision is its own append-only row.
-func reviewOnceViolation(s securityFactSources) string {
+// reviewFinalViolation: a flagged record is decided once and the decision cannot be
+// changed afterwards -- one row per record, never updated or deleted. It reads the
+// constraint and the guards, not any sentence about who may decide: the page no longer
+// says anything about that (see pages.FactReviewIsOnceAndFinal).
+func reviewFinalViolation(s securityFactSources) string {
 	const mig = "00005_create_transactions_audit_reviews.sql"
 	up := gooseUp(s.Migs[mig])
-	for _, want := range []string{
-		"CONSTRAINT transaction_reviews_txn_key UNIQUE (transaction_id)",
-		"IF NEW.reviewer_id = v_employee_id THEN",
-		"CREATE TRIGGER transaction_reviews_validate",
-		"REVOKE UPDATE, DELETE ON transaction_reviews FROM tappa_app;",
-	} {
-		if !strings.Contains(up, want) {
-			return "migration 00005 no longer carries " + want
-		}
+	if !strings.Contains(sqlTableBlock(up, "transaction_reviews"), "CONSTRAINT transaction_reviews_txn_key UNIQUE (transaction_id)") {
+		return "a flagged record can be decided more than once: transaction_reviews lost UNIQUE (transaction_id)"
 	}
-	if !regexp.MustCompile(`CREATE TRIGGER transaction_reviews_no_mutation\s+BEFORE UPDATE OR DELETE ON transaction_reviews`).MatchString(up) {
+	if !strings.Contains(up, "REVOKE UPDATE, DELETE ON transaction_reviews FROM tappa_app;") {
+		return "the application can change or delete a decision"
+	}
+	if !regexp.MustCompile(`CREATE TRIGGER transaction_reviews_no_mutation\s+BEFORE UPDATE OR DELETE ON transaction_reviews\s+FOR EACH ROW EXECUTE FUNCTION tappa_forbid_mutation\(\)`).MatchString(up) {
 		return "a decision can be changed: transaction_reviews lost its mutation guard"
 	}
-	if !strings.Contains(s.Review, "ErrSelfReview") {
-		return "internal/domain/review no longer refuses a reviewer's own record"
-	}
 	for _, re := range []string{
-		`(?i)(?:CREATE\s+OR\s+REPLACE|DROP)\s+FUNCTION\s+(?:IF\s+EXISTS\s+)?(?:public\.)?tappa_check_transaction_review\b`,
-		`(?i)DROP\s+TRIGGER\s+(?:IF\s+EXISTS\s+)?transaction_reviews_(?:validate|no_mutation)\b`,
+		`(?i)DROP\s+TRIGGER\s+(?:IF\s+EXISTS\s+)?transaction_reviews_no_mutation\b`,
+		`(?i)ALTER\s+TABLE\s+(?:public\.)?transaction_reviews\s+DISABLE\s+TRIGGER`,
 		`(?i)DROP\s+CONSTRAINT\s+(?:IF\s+EXISTS\s+)?transaction_reviews_txn_key\b`,
+		`(?is)GRANT\s[^;]*\b(?:UPDATE|DELETE|ALL)\b[^;]*\bON\s+(?:TABLE\s+)?(?:public\.)?transaction_reviews\b[^;]*\bTO\s+tappa_app\b`,
 	} {
 		if m := laterUpMatches(s.Migs, mig, regexp.MustCompile(re)); m != "" {
-			return m + " changes how a decision is guarded; re-read it"
+			return m + " lets a decision be made twice or changed"
 		}
 	}
 	return ""
@@ -826,6 +825,21 @@ func holdingViolation(s securityFactSources) string {
 	if !strings.Contains(gooseUp(s.Migs["00043_record_a_tap_on_a_peers_plaque.sql"]), "ADD COLUMN site_tenant_id") {
 		return "a holding tap no longer names the site on the employer's record"
 	}
+	// What the venue sees: its projection carries the name, the time, the direction and
+	// the outcome, and no column of location evidence.
+	const mig46 = "00046_project_a_holding_tap_to_its_site.sql"
+	site := sqlTableBlock(gooseUp(s.Migs[mig46]), "site_punches")
+	for _, col := range []string{"employee_name", "occurred_at", "type ", "outcome "} {
+		if !regexp.MustCompile(`(?m)^\s*` + col).MatchString(site) {
+			return "the venue's projection (site_punches) no longer carries " + strings.TrimSpace(col)
+		}
+	}
+	if m := regexp.MustCompile(`(?im)^\s*(\w*(?:ip|gps|lat|lng|distance|trust|note|reason)\w*)\s+(?:uuid|text|inet|cidr|numeric|double|real|integer|smallint|boolean|jsonb|point)`).FindStringSubmatch(site); m != nil {
+		return "the venue's projection (site_punches) carries " + m[1] + ", location evidence"
+	}
+	if m := laterUpMatches(s.Migs, mig46, regexp.MustCompile(`(?i)ALTER\s+TABLE\s+(?:public\.)?site_punches\s+ADD`)); m != "" {
+		return m + " adds to what the venue sees; re-read it"
+	}
 	return ""
 }
 
@@ -885,7 +899,7 @@ func securityFactDerivations(t *testing.T) map[pages.Fact]func() string {
 		pages.FactTrustScoreDecidesNothing:            on(trustViolation),
 		pages.FactDebounceIsPerPersonOnTheServerClock: on(debounceViolation),
 		pages.FactFlaggedHoursWaitOutsideTheTotal:     on(heldViolation),
-		pages.FactReviewIsOnceAndNotOwn:               on(reviewOnceViolation),
+		pages.FactReviewIsOnceAndFinal:                on(reviewFinalViolation),
 		pages.FactRecordsAreImmutable:                 on(immutableViolation),
 		pages.FactManualEntryIsAudited:                on(manualAuditViolation),
 		pages.FactNoAdOrAnalyticsCookies:              on(cookiesViolation),
@@ -1051,12 +1065,13 @@ func TestSecurityFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{"The Roll hides waiting hours", heldViolation, func(s *securityFactSources) {
 			s.RollTempl = strings.ReplaceAll(s.RollTempl, "{ p.Awaiting } waiting", "")
 		}},
-		{"a record decided twice", reviewOnceViolation, func(s *securityFactSources) {
+		{"a record decided twice", reviewFinalViolation, func(s *securityFactSources) {
 			const m = "00005_create_transactions_audit_reviews.sql"
 			migs(s, m, strings.Replace(s.Migs[m], "CONSTRAINT transaction_reviews_txn_key UNIQUE (transaction_id)", "CONSTRAINT x CHECK (true)", 1))
 		}},
-		{"a later migration lets a reviewer decide their own", reviewOnceViolation,
-			later("CREATE OR REPLACE FUNCTION public.tappa_check_transaction_review() RETURNS trigger AS $$ BEGIN RETURN NEW; END $$ LANGUAGE plpgsql;")},
+		{"a decision can be rewritten", reviewFinalViolation, later("GRANT UPDATE ON transaction_reviews TO tappa_app;")},
+		{"the decision's guard is dropped", reviewFinalViolation, later("DROP TRIGGER transaction_reviews_no_mutation ON transaction_reviews;")},
+		{"the decision's guard is switched off", reviewFinalViolation, later("ALTER TABLE transaction_reviews DISABLE TRIGGER ALL;")},
 		{"the application may update records", immutableViolation, later("GRANT UPDATE ON transactions TO tappa_app;")},
 		{"the owner's guard is dropped", immutableViolation, later("DROP TRIGGER IF EXISTS transactions_no_mutation ON transactions;")},
 		{"the owner's guard is switched off", immutableViolation, later("ALTER TABLE transactions DISABLE TRIGGER transactions_no_mutation;")},
@@ -1101,6 +1116,11 @@ func TestSecurityFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			}
 			return g
 		})},
+		{"the venue sees the position", holdingViolation, func(s *securityFactSources) {
+			const m = "00046_project_a_holding_tap_to_its_site.sql"
+			migs(s, m, strings.Replace(s.Migs[m], "    ctr_gap            integer,", "    ctr_gap            integer,\n    gps_distance_m     numeric,", 1))
+		}},
+		{"a later migration shows the venue more", holdingViolation, later("ALTER TABLE site_punches ADD COLUMN source_ip inet;")},
 		{"a business writes its own group", holdingViolation, func(s *securityFactSources) {
 			const m = "00041_create_holdings.sql"
 			migs(s, m, strings.Replace(s.Migs[m], "REVOKE ALL ON holdings FROM tappa_app;", "GRANT ALL ON holdings TO tappa_app;", 1))
@@ -1231,7 +1251,7 @@ func ladderProblems(c pages.SecurityText, gs []policy.Guardrail, docs []policy.B
 	others := map[string]policy.Effect{
 		"sys:tap-freshness": policy.EffectDeny, "sys:occurred-at-bound": policy.EffectDeny,
 		"sys:tenant-mismatch": policy.EffectRedirect, "sys:cross-tenant-qr-site-ip": policy.EffectReview,
-		"sys:policy-edit-owner-only": policy.EffectDeny, "sys:no-self-review": policy.EffectDeny,
+		"sys:policy-edit-owner-only": policy.EffectDeny,
 	}
 	for _, o := range c.OtherGuards {
 		g := guardBySid(gs, o.Sid)
@@ -1253,6 +1273,17 @@ func ladderProblems(c pages.SecurityText, gs []policy.Guardrail, docs []policy.B
 	}
 	for _, o := range c.OtherGuards {
 		named[o.Sid]++
+	}
+	// A guardrail the page deliberately does not describe is named here with its reason,
+	// so a new one is still red until somebody decides what the page says about it.
+	for _, o := range c.UnnamedGuards {
+		named[o.Sid]++
+		if guardBySid(gs, o.Sid) == nil {
+			out = append(out, "the page leaves out "+o.Sid+", which is not a guardrail")
+		}
+		if strings.Contains(c.LadderNote.Text, o.Phrase) {
+			out = append(out, "the note describes "+o.Sid+", which the page says it leaves out")
+		}
 	}
 	for _, g := range gs {
 		if named[g.Sid] != 1 {
@@ -1497,9 +1528,16 @@ func TestSecurityPage_SaysTheDecisionRulesAsTheFAQDoes(t *testing.T) {
 	}
 	// The hero's sample is a network match with no position (its chips say so), and the
 	// flow's is a tap with neither (its first step says so).
-	hero, flow := pages.LandingPanelPassDockets[0], pages.LandingPanelPassDockets[2]
-	if hero.IP != "yes" || hero.GPS != "no" || hero.Verdict != "ok" {
-		t.Errorf("the hero's sample record is %+v; its chips say an address match and no position", hero)
+	hero, flow := pages.SecurityHeroDocket, pages.LandingPanelPassDockets[2]
+	if hero.Channel != "nfc" || hero.IP != "yes" || hero.GPS != "no" || pages.SecurityGPSChip != "Asked · none given" {
+		t.Errorf("the hero's sample record is %+v with the chip %q; its chips say a signed tap, an address match "+
+			"and no position given", hero, pages.SecurityGPSChip)
+	}
+	for _, p := range panelDocketProblems(hero, "") {
+		t.Errorf("the hero's sample record: %s", p)
+	}
+	for _, p := range samplePeopleProblems([]string{hero.Who}, seedPeople(t)) {
+		t.Errorf("the hero's sample record: %s", p)
 	}
 	if flow.Channel != "nfc" || flow.IP != "no" || flow.GPS != "no" || flow.Verdict != "flag" {
 		t.Errorf("the flow's sample record is %+v; its first step says a real NFC tap with neither", flow)
@@ -1515,6 +1553,67 @@ func TestSecurityPage_SaysTheDecisionRulesAsTheFAQDoes(t *testing.T) {
 	for _, e := range pages.LandingEvidence {
 		if !strings.Contains(text, asRendered(e.Body)) {
 			t.Errorf("/security does not carry the proof card %q", e.Label)
+		}
+	}
+}
+
+// securityRefusedPhrasings are the sentences the security review (LP-07, 2026-10-22) took
+// off the page because the product does not keep them, each with its reason. None may
+// come back, on this page or any other page of the public site.
+var securityRefusedPhrasings = map[string]string{
+	"own record":                       "nothing stops a manager who is also an employee deciding their own flag",
+	"describe one place":               "a /7's worth of addresses is a provider's block, not one place",
+	"database owner's own account too": "the owner's guard is a trigger a deliberate change can switch off",
+	"When Taptime's own staff":         "staff with the database owner's account read outside the support console",
+	"counter already past it":          "the strict comparison refuses an equal counter too",
+	"Backup · not needed":              "the tap page asks for a position on every press",
+	"never silently approved":          "an owner can write a rule that allows without evidence",
+}
+
+// TestSecurityPage_SaysNoneOfTheRefusedPhrasings: the review's refused sentences are on
+// no public page, and /security opens with "Four checks behind every tap." rather than
+// the landing's "Four proofs on every single tap." (a QR check-in carries no
+// signature). CONTROL: each refused phrase planted in the page's text is red.
+func TestSecurityPage_SaysNoneOfTheRefusedPhrasings(t *testing.T) {
+	t.Parallel()
+	r := marketingRouter(t)
+	refused := func(text string) []string {
+		var out []string
+		for phrase, why := range securityRefusedPhrasings {
+			if strings.Contains(text, phrase) {
+				out = append(out, strconv.Quote(phrase)+": "+why)
+			}
+		}
+		sort.Strings(out)
+		return out
+	}
+	for _, url := range marketingURLs() {
+		for _, p := range refused(screenText(t, mustFetchMarketing(t, r, url))) {
+			t.Errorf("%s says %s", url, p)
+		}
+	}
+	text := renderedPublicText(t, pages.SecurityPath)
+	if !strings.Contains(text, "Four checks behind every tap.") || strings.Contains(text, "Four proofs on every single tap.") {
+		t.Error("/security does not open with \"Four checks behind every tap.\"")
+	}
+	for _, must := range []string{
+		"and the decision cannot be changed afterwards",
+		"switching that guard off would take a deliberate change to the database itself",
+		"Taptime's support console has its own sign-in, separate from yours",
+		"too wide to stand for a single network",
+		"keep the list to your venue's own connection",
+		"by default nothing is approved without evidence",
+		"never the location evidence",
+		"already at or past it",
+		"Asked · none given",
+	} {
+		if !strings.Contains(text, must) {
+			t.Errorf("/security no longer says %q", must)
+		}
+	}
+	for phrase := range securityRefusedPhrasings {
+		if len(refused(text+" "+phrase)) == 0 {
+			t.Errorf("CONTROL: %q planted in the page passed", phrase)
 		}
 	}
 }

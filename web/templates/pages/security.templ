@@ -52,7 +52,7 @@ templ securityHead(v SecurityView) {
 			<div class="lp-wrap lp-secHero">
 				<div class="lp-secHeroCopy">
 					<p class="lp-eyebrow lp-pageEyebrow">Security &amp; privacy</p>
-					<h1 class="lp-h1">Four proofs on every single tap.</h1>
+					<h1 class="lp-h1">Four checks behind every tap.</h1>
 					<p class="lp-pageLede lp-secHeroLede">{ LandingSecurityLede.Text }</p>
 					<p class="lp-secServer">{ v.Copy.Server.Text }</p>
 					<div class="lp-secBtns">
@@ -68,9 +68,9 @@ templ securityHead(v SecurityView) {
 	</div>
 }
 
-// securityHeroCard is one sample tap checked four ways and written as a stamped record.
-// The record is the landing panel's first sample (LandingPanelPassDockets): a matched
-// network and no position, which the engine approves at the network's trust.
+// securityHeroCard is one sample tap checked four ways and written as a stamped record:
+// SecurityHeroDocket, a matched network and no position given (securityview.go records
+// why), which internal/handler runs through the engine.
 templ securityHeroCard() {
 	<div class="card lp-secCheck" role="img" aria-label="Sample record: one tap checked four ways — plaque signature, phone session, venue network, and GPS as the backup — then written as a stamped record">
 		<span class="lp-lbl">One tap · four checks · sample record</span>
@@ -97,17 +97,17 @@ templ securityHeroCard() {
 				<span class="lp-secChip">IP match ✓</span>
 			</li>
 			<li class="lp-secCheckRow">
-				<span class="lp-ico lp-secCheckIco lp-secCheckIco--spare">
+				<span class="lp-ico lp-secCheckIco">
 					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 21s-6.5-6.1-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 14.9 12 21 12 21z"></path><circle cx="12" cy="9.8" r="2.3"></circle></svg>
 				</span>
 				<span class="lp-secCheckName"><span class="lp-lbl">Proof 4</span><span>GPS position</span></span>
-				<span class="lp-secChip lp-secChip--spare">Backup · not needed</span>
+				<span class="lp-secChip lp-secChip--quiet">{ SecurityGPSChip }</span>
 			</li>
 		</ol>
 		<span class="lp-secDown">
 			@moreArrow()
 		</span>
-		@securityDocket(LandingPanelPassDockets[0], "")
+		@securityDocket(SecurityHeroDocket, "")
 	</div>
 }
 
@@ -179,7 +179,7 @@ templ securityProofs(v SecurityView) {
 					@securityProofRow(LandingEvidence[2]) {
 						<div class="lp-secHood">
 							<span class="lp-lbl lp-secHoodKick">Under the hood</span>
-							<h3 class="lp-secHoodTitle">The network has to describe one place</h3>
+							<h3 class="lp-secHoodTitle">A network list too wide to mean anything is ignored</h3>
 							<p>{ v.Copy.PlaceAddress.Text }</p>
 							<p>{ v.Copy.PlaceWidth.Text }</p>
 						</div>
@@ -472,13 +472,19 @@ templ securityCorrections(c SecurityText) {
 						<span class="lp-lbl">A forgotten check-out, corrected · sample</span>
 						<div class="lp-secPairDockets">
 							<div class="lp-slip lp-secDocket">
-								<div class="lp-secDocketTop"><span class="lp-lbl lp-secDocketVenue">KF St Julians · Tue</span>@securityStamp("ok")</div>
+								<div class="lp-secDocketTop">
+									<span class="lp-lbl lp-secDocketVenue">KF St Julians · Tue</span>
+									@securityStamp("ok")
+								</div>
 								<span class="lp-secDocketWho">Kevin Grech</span>
 								<span class="lp-secDocketTime"><span class="lp-dir">IN</span><span>10:02</span></span>
 								<span class="lp-secDocketFoot"><span>Original record</span><span>unchanged</span></span>
 							</div>
 							<div class="lp-slip lp-secDocket">
-								<div class="lp-secDocketTop"><span class="lp-lbl lp-secDocketVenue">KF St Julians · Tue</span>@securityStamp("ok")</div>
+								<div class="lp-secDocketTop">
+									<span class="lp-lbl lp-secDocketVenue">KF St Julians · Tue</span>
+									@securityStamp("ok")
+								</div>
 								<span class="lp-secDocketWho">Kevin Grech</span>
 								<span class="lp-secDocketTime"><span class="lp-dir">OUT</span><span>18:00</span></span>
 								<span class="lp-secDocketFoot"><span>Entered by a manager</span></span>

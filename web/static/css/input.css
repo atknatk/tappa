@@ -2891,11 +2891,11 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-secCheckRow + .lp-secCheckRow::before { content: ''; position: absolute; left: 19px; top: -12px; width: 2px; height: 12px; background: var(--green); }
 .lp .lp-secCheckRow:last-child::before { background: var(--line); }
 .lp .lp-secCheckIco { width: 40px; height: 40px; border-radius: 11px; }
-.lp .lp-secCheckIco--spare { background: transparent; border: 1.5px dashed var(--green); }
 .lp .lp-secCheckName { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 15px; font-weight: 700; line-height: 1.3; }
 .lp .lp-secCheckName .lp-lbl { font-size: 9.5px; font-weight: 400; }
 .lp .lp-secChip { flex: none; padding: 4px 9px; border-radius: 999px; background: var(--green-lite); color: var(--green); font-family: var(--mono); font-size: 11px; font-weight: 700; }
-.lp .lp-secChip--spare { background: transparent; border: 1px solid var(--line); color: rgb(var(--ink-ch) / .7); }
+/* The chip of a check that did not carry the sample: quiet, not green. */
+.lp .lp-secChip--quiet { background: transparent; border: 1px solid var(--line); color: rgb(var(--ink-ch) / .7); }
 .lp .lp-secDown { display: flex; justify-content: center; color: var(--green); }
 .lp .lp-secDown svg { transform: rotate(90deg); }
 
