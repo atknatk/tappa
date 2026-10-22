@@ -66,6 +66,8 @@ type securityFactSources struct {
 	Signing    string // internal/webhook/signing.go
 	Delivery   string // internal/webhook/delivery/delivery.go
 	Dashboard  string // internal/handler/dashboard.go
+	HoldingDB  string // internal/db/holding.go
+	APISurface string // internal/handler/api/surface.go
 
 	RollTempl   string // web/templates/pages/reports.templ
 	DocketTempl string // web/templates/components/docket.templ
@@ -141,6 +143,8 @@ func loadSecurityFactSources(t *testing.T) securityFactSources {
 		Signing:     strip(repoFile(t, "internal", "webhook", "signing.go")),
 		Delivery:    strip(repoFile(t, "internal", "webhook", "delivery", "delivery.go")),
 		Dashboard:   strip(repoFile(t, "internal", "handler", "dashboard.go")),
+		HoldingDB:   strip(repoFile(t, "internal", "db", "holding.go")),
+		APISurface:  strip(repoFile(t, "internal", "handler", "api", "surface.go")),
 		RollTempl:   repoFile(t, "web", "templates", "pages", "reports.templ"),
 		DocketTempl: repoFile(t, "web", "templates", "components", "docket.templ"),
 		Deploy:      repoFile(t, "deploy", "README.md"),
@@ -859,6 +863,50 @@ func webhookViolation(s securityFactSources) string {
 	return ""
 }
 
+// newPhoneViolation: a second phone's activation revokes every live session of the
+// employee, and does it before the new session is issued.
+func newPhoneViolation(s securityFactSources) string {
+	body := goFuncBody(s.Activate, "func (a *Activation) finishActivation(")
+	revoke := strings.Index(body, "a.sessions.RevokeAllForEmployee(r.Context(), act.TenantID, act.EmployeeID)")
+	issue := strings.Index(body, "a.sessions.Issue(")
+	if revoke < 0 || !strings.Contains(body, "if act.SecondDeviceReplaced {") {
+		return "a second phone's activation no longer signs the first out (RevokeAllForEmployee)"
+	}
+	if issue < 0 || revoke > issue {
+		return "the old sessions are revoked after the new one is issued, which revokes the new one too"
+	}
+	return ""
+}
+
+// directorySignatureRE is holding_directory's declaration and its result columns.
+var directorySignatureRE = regexp.MustCompile(`CREATE FUNCTION public\.holding_directory\(p_updated_since timestamptz, p_cursor uuid\)\s+RETURNS TABLE\(employee_id uuid, employer_tenant_id uuid, api_code text, external_ref text, employee_code text,\s+first_name text, last_name text, full_name text, active boolean, updated_at timestamptz\)`)
+
+// groupDirectoryViolation: with the API on, a holding member lists its peers' staff --
+// names, codes, external references, active -- and nothing more (no e-mail).
+func groupDirectoryViolation(s securityFactSources) string {
+	var src string
+	for name, m := range s.Migs {
+		if strings.HasPrefix(name, "00055_") {
+			src = gooseUp(m)
+		}
+	}
+	if !directorySignatureRE.MatchString(src) {
+		return "migration 00055's holding_directory no longer answers names, codes, external references and active"
+	}
+	if !strings.Contains(src, "has_column_privilege('tappa_holdingdefiner', 'public.employees', 'email', 'SELECT')") ||
+		!strings.Contains(src, "public.holding_peer(c.id, s.id, 'strict')") {
+		return "holding_directory is no longer kept to peers and away from the e-mail address"
+	}
+	if !strings.Contains(s.HoldingDB, "FROM public.holding_directory(") {
+		return "internal/db no longer reads holding_directory"
+	}
+	if !regexp.MustCompile(`r\.Get\(directoryPath, s\.listDirectory\)`).MatchString(s.APISurface) ||
+		!strings.Contains(s.APISurface, "r.Use(s.authenticate") {
+		return "the API no longer serves the directory to an authenticated caller"
+	}
+	return ""
+}
+
 // hostedRE is the deployment record's two statements: the one node is in fsn1, and fsn1
 // is Falkenstein, Germany ("Almanya").
 var (
@@ -907,6 +955,8 @@ func securityFactDerivations(t *testing.T) map[pages.Fact]func() string {
 		pages.FactOperatorReadsAreAudited:             on(operatorViolation),
 		pages.FactHoldingIsTheOneCrossing:             on(holdingViolation),
 		pages.FactWebhooksAreSigned:                   on(webhookViolation),
+		pages.FactNewPhoneSignsOutTheOld:              on(newPhoneViolation),
+		pages.FactGroupListsPeersStaff:                on(groupDirectoryViolation),
 		pages.FactHostedInTheEU:                       on(hostedViolation),
 	}
 }
@@ -1125,6 +1175,29 @@ func TestSecurityFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			const m = "00041_create_holdings.sql"
 			migs(s, m, strings.Replace(s.Migs[m], "REVOKE ALL ON holdings FROM tappa_app;", "GRANT ALL ON holdings TO tappa_app;", 1))
 		}},
+		{"a second phone leaves the first signed in", newPhoneViolation, func(s *securityFactSources) {
+			s.Activate = strings.Replace(s.Activate, "a.sessions.RevokeAllForEmployee(r.Context(), act.TenantID, act.EmployeeID)", "0, error(nil)", 1)
+		}},
+		{"the old phone is signed out after the new one is issued", newPhoneViolation, func(s *securityFactSources) {
+			const revoke = "a.sessions.RevokeAllForEmployee(r.Context(), act.TenantID, act.EmployeeID)"
+			body := goFuncBody(s.Activate, "func (a *Activation) finishActivation(")
+			moved := strings.Replace(body, revoke, "0, error(nil)", 1)
+			end := strings.LastIndex(moved, "}")
+			moved = moved[:end] + "\t_, _ = " + revoke + "\n" + moved[end:]
+			s.Activate = strings.Replace(s.Activate, body, moved, 1)
+		}},
+		{"the directory shows an e-mail", groupDirectoryViolation, func(s *securityFactSources) {
+			m := maps.Clone(s.Migs)
+			for name, src := range m {
+				if strings.HasPrefix(name, "00055_") {
+					m[name] = strings.Replace(src, "full_name text, active boolean, updated_at timestamptz)", "full_name text, email text, active boolean, updated_at timestamptz)", 1)
+				}
+			}
+			s.Migs = m
+		}},
+		{"the API serves no directory", groupDirectoryViolation, func(s *securityFactSources) {
+			s.APISurface = strings.Replace(s.APISurface, "r.Get(directoryPath, s.listDirectory)", "", 1)
+		}},
 		{"an unsigned delivery", webhookViolation, func(s *securityFactSources) {
 			s.Delivery = strings.Replace(s.Delivery, "webhook.SignatureHeader: {key.Sign(body)}", "", 1)
 		}},
@@ -1195,13 +1268,13 @@ func securityLines() map[string]pages.Line {
 
 var lineType = reflect.TypeOf(pages.Line{})
 
-// collectLines adds every non-empty pages.Line inside v to out, by its path.
+// collectLines adds every pages.Line inside v to out, by its path. A Line with no words
+// is not skipped: it goes in as it is, and the rendering check then says it is empty --
+// a sentence the page declares and does not say.
 func collectLines(v reflect.Value, path string, out map[string]pages.Line) {
 	switch {
 	case v.Type() == lineType:
-		if l := v.Interface().(pages.Line); l.Text != "" {
-			out[path] = l
-		}
+		out[path] = v.Interface().(pages.Line)
 	case v.Kind() == reflect.Struct:
 		for i := 0; i < v.NumField(); i++ {
 			collectLines(v.Field(i), path+"."+v.Type().Field(i).Name, out)
@@ -1211,6 +1284,27 @@ func collectLines(v reflect.Value, path string, out map[string]pages.Line) {
 			collectLines(v.Index(i), path+"["+strconv.Itoa(i)+"]", out)
 		}
 	}
+}
+
+// emptyLines is every collected Line with no words.
+func emptyLines(lines map[string]pages.Line) []string {
+	var out []string
+	for name, l := range lines {
+		if strings.TrimSpace(l.Text) == "" {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// notesText is a rung's notes as one string.
+func notesText(r pages.SecurityRule) string {
+	var ws []string
+	for _, n := range r.Notes {
+		ws = append(ws, n.Text)
+	}
+	return strings.Join(ws, " ")
 }
 
 // unreachableLines names every place in t a pages.Line could hide from collectLines:
@@ -1246,16 +1340,23 @@ func TestSecurityLines_EveryLineIsCollected(t *testing.T) {
 	if len(lines) < 70 {
 		t.Fatalf("securityLines collects %d line(s); the page carries more", len(lines))
 	}
-	for _, want := range []string{"SecurityText.Guardrails[0].Text", "SecurityText.Guardrails[2].Note",
-		"SecurityText.Default.Note", "SecurityText.FingerTitle", "SecurityText.ChipGPS"} {
+	for _, want := range []string{"SecurityText.Guardrails[0].Text", "SecurityText.Guardrails[2].Notes[0]",
+		"SecurityText.Default.Notes[0]", "SecurityText.FingerTitle", "SecurityText.ChipGPS"} {
 		if _, ok := lines[want]; !ok {
 			t.Errorf("securityLines does not reach %s", want)
 		}
 	}
-	for name, l := range lines {
-		if strings.TrimSpace(l.Text) == "" {
-			t.Errorf("%s is empty", name)
-		}
+	for _, name := range emptyLines(lines) {
+		t.Errorf("%s is a Line with no words", name)
+	}
+	// CONTROL: an empty Line in a rung is collected and reported, not skipped.
+	planted := pages.SecurityCopy(securityFigures())
+	planted.Guardrails = slices.Clone(planted.Guardrails)
+	planted.Guardrails[0].Notes = []pages.Line{{}}
+	got := map[string]pages.Line{}
+	collectLines(reflect.ValueOf(planted), "SecurityText", got)
+	if e := emptyLines(got); len(e) != 1 || e[0] != "SecurityText.Guardrails[0].Notes[0]" {
+		t.Errorf("CONTROL: an empty note planted in a rung was reported as %v", e)
 	}
 	type hidden struct {
 		A *pages.Line
@@ -1285,10 +1386,10 @@ func ladderProblems(c pages.SecurityText, gs []policy.Guardrail, docs []policy.B
 				out = append(out, "the rung "+strconv.Quote(r.Text.Text)+" ends in "+strconv.Quote(r.Verdict)+" and "+sid+
 					" is "+string(g.Effect))
 			}
-			if g.Effect == policy.EffectRedirect && !strings.Contains(r.Note.Text, "nothing recorded") {
+			if g.Effect == policy.EffectRedirect && !strings.Contains(notesText(r), "nothing recorded") {
 				out = append(out, "the rung "+strconv.Quote(r.Text.Text)+" redirects and does not say nothing is recorded")
 			}
-			if g.Alert != nil && g.Alert(policy.Context{}) != "" && !strings.Contains(r.Note.Text, "security event") {
+			if g.Alert != nil && g.Alert(policy.Context{}) != "" && !strings.Contains(notesText(r), "security event") {
 				out = append(out, "the rung "+strconv.Quote(r.Text.Text)+" raises an alert and does not say so")
 			}
 		}
@@ -1652,6 +1753,7 @@ func TestSecurityPage_SaysNoneOfTheRefusedPhrasings(t *testing.T) {
 		"keep the list to your venue's own connection",
 		"by default nothing is approved without evidence",
 		"never the location evidence",
+		"can also list the others' staff: their names, codes and external references, and whether each is active",
 		"already at or past it",
 		"Asked · none given",
 	} {

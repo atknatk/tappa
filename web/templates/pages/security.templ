@@ -388,8 +388,8 @@ templ securityRules(rs []SecurityRule) {
 				<span class="lp-ruleText">{ r.Text.Text }</span>
 				<span class="lp-ruleEnd">
 					@securityStamp(r.Verdict)
-					if r.Note.Text != "" {
-						<span class="mono lp-ruleNote">{ r.Note.Text }</span>
+					for _, n := range r.Notes {
+						<span class="mono lp-ruleNote">{ n.Text }</span>
 					}
 				</span>
 			</li>

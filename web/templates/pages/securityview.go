@@ -233,6 +233,15 @@ const (
 	// is recorded at the employer with the site named. Derived from
 	// sys:tenant-mismatch, migration 00041's grants and 00043's site columns.
 	FactHoldingIsTheOneCrossing Fact = "policy:sys:tenant-mismatch unless SameHolding"
+	// A second phone's activation signs the first out: finishActivation revokes every
+	// live session of the employee before it issues the new one. Derived from
+	// internal/handler/activate.go (the call, and its place before the issue).
+	FactNewPhoneSignsOutTheOld Fact = "handler:finishActivation RevokeAllForEmployee before Issue"
+	// Inside a holding, with the API on, a company can list its peers' staff: names,
+	// codes, external references and whether each is active (never an e-mail address).
+	// Derived from migration 00055's holding_directory, internal/db's caller and the
+	// API's /directory route.
+	FactGroupListsPeersStaff Fact = "sql:holding_directory+GET /v1/directory"
 	// Webhook deliveries are signed: WebhookHeader carries "sha256=" and an HMAC-SHA256
 	// of the body under the endpoint's key. Derived from internal/webhook.
 	FactWebhooksAreSigned Fact = "webhook:SignatureHeader HMAC-SHA256"
@@ -263,9 +272,10 @@ type SecurityRule struct {
 	Sids    []string
 	Text    Line
 	Verdict string
-	// Note is the rung's small text beside its stamp; a Line with no Text when there is
-	// none.
-	Note Line
+	// Notes is the rung's small text beside its stamp: none or one. A slice rather than
+	// a Line that may be empty, so every Line on the page has words (internal/handler's
+	// walk refuses an empty one).
+	Notes []Line
 }
 
 // SecurityNamed is a statement of the engine the page names in a sentence rather than
@@ -428,11 +438,11 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 		{Sids: []string{"sys:sun-invalid"}, Verdict: securityReject,
 			Text: l("Signature fails, or the counter did not move", FactGuardrailsAreTheList, FactCopiedLinkIsRefused)},
 		{Sids: []string{"sys:no-session"},
-			Text: l("No session on this phone", FactGuardrailsAreTheList, FactActivationEndsOnARealTap),
-			Note: l("activation page · nothing recorded", FactGuardrailsAreTheList, FactActivationEndsOnARealTap)},
+			Text:  l("No session on this phone", FactGuardrailsAreTheList, FactActivationEndsOnARealTap),
+			Notes: []Line{l("activation page · nothing recorded", FactGuardrailsAreTheList, FactActivationEndsOnARealTap)}},
 		{Sids: []string{"sys:employee-deactivated"}, Verdict: securityReject,
-			Text: l("Account switched off", FactGuardrailsAreTheList, FactDeactivatedPersonIsRefused),
-			Note: l("security event", FactDeactivatedTapIsASecurityEvent)},
+			Text:  l("Account switched off", FactGuardrailsAreTheList, FactDeactivatedPersonIsRefused),
+			Notes: []Line{l("security event", FactDeactivatedTapIsASecurityEvent)}},
 		{Sids: []string{"sys:person-debounce"}, Verdict: securityIgnored,
 			Text: l("Same person again within "+debounce, FactGuardrailsAreTheList, FactDebounceIsPerPersonOnTheServerClock)},
 	}
@@ -457,7 +467,7 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 		ChipGPS:     l("Asked · none given", FactPositionReadOnlyOnPress),
 
 		LinkTitle:       l("A link that works once", FactCopiedLinkIsRefused),
-		PersonTitle:     l("One phone, one person", FactSessionTokenIsStoredHashed, FactActivationEndsOnARealTap),
+		PersonTitle:     l("One phone, one person", FactNewPhoneSignsOutTheOld, FactSessionTokenIsStoredHashed),
 		PlaceTitle:      l("A network list too wide to mean anything is ignored", FactWideAddressListIsNoEvidence),
 		BackupTitle:     l("One position, only at the tap", FactPositionReadOnlyOnPress),
 		ActivationLabel: l("Activation · once per phone", FactActivationEndsOnARealTap),
@@ -605,8 +615,8 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 		Guardrails: guards,
 		Baseline:   baseline,
 		Default: SecurityRule{Verdict: securityFlag,
-			Text: l("No rule above decided the tap", FactUndecidedTapIsFlagged),
-			Note: l("queued for a manager", FactFlaggedQueueDecidedByAManager)},
+			Text:  l("No rule above decided the tap", FactUndecidedTapIsFlagged),
+			Notes: []Line{l("queued for a manager", FactFlaggedQueueDecidedByAManager)}},
 		DefaultLabel: Line{
 			Text:  "Built in · the engine's own last rung",
 			Facts: []Fact{FactUndecidedTapIsFlagged, FactRulesRunInOrder},
@@ -726,8 +736,9 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 			Text: "The one crossing between businesses is a group Taptime sets up for companies that belong together: " +
 				"their staff can clock in at each other's venues, and the record lands with the person's own employer. " +
 				"The venue they clocked in at sees the name, the time, the direction and the outcome, never the " +
-				"location evidence.",
-			Facts: []Fact{FactHoldingIsTheOneCrossing},
+				"location evidence. With the API switched on, each company in the group can also list the others' " +
+				"staff: their names, codes and external references, and whether each is active.",
+			Facts: []Fact{FactHoldingIsTheOneCrossing, FactGroupListsPeersStaff, FactAPIEnabledPerBusinessByTaptime},
 		},
 		IsolationWebhook: Line{
 			Text: "When your records are sent to your own systems by webhook, every delivery is signed: its " +
