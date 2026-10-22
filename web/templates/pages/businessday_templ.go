@@ -378,7 +378,11 @@ func panelBusinessDayCheckNotice(n PanelBusinessDayCheck) templ.Component {
 }
 
 // businessDayRelease is the release announcement on the anomaly and report screens: one
-// notice, its sentences each a paragraph of its own.
+// notice, its sentences each a paragraph of its own. It renders NOTHING outside its window,
+// and both screens call it JOINED to the component after it (templ.Join) rather than as a
+// sibling: templ writes a space between two sibling nodes -- a comment line in the markup
+// counts as one (measured) -- and outside the window each page must be the bytes it was
+// (TestHoldinglessPanels_AreByteIdenticalToTheGolden).
 func businessDayRelease(n BusinessDayRelease) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -421,7 +425,7 @@ func businessDayRelease(n BusinessDayRelease) templ.Component {
 					var templ_7745c5c3_Var24 string
 					templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(n.List)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/businessday.templ`, Line: 58, Col: 15}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/businessday.templ`, Line: 62, Col: 15}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 					if templ_7745c5c3_Err != nil {
@@ -444,7 +448,7 @@ func businessDayRelease(n BusinessDayRelease) templ.Component {
 					var templ_7745c5c3_Var25 string
 					templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(n.Day)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/businessday.templ`, Line: 61, Col: 27}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/businessday.templ`, Line: 65, Col: 27}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 					if templ_7745c5c3_Err != nil {

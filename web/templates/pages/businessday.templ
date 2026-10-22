@@ -50,7 +50,11 @@ templ panelBusinessDayCheckNotice(n PanelBusinessDayCheck) {
 }
 
 // businessDayRelease is the release announcement on the anomaly and report screens: one
-// notice, its sentences each a paragraph of its own.
+// notice, its sentences each a paragraph of its own. It renders NOTHING outside its window,
+// and both screens call it JOINED to the component after it (templ.Join) rather than as a
+// sibling: templ writes a space between two sibling nodes -- a comment line in the markup
+// counts as one (measured) -- and outside the window each page must be the bytes it was
+// (TestHoldinglessPanels_AreByteIdenticalToTheGolden).
 templ businessDayRelease(n BusinessDayRelease) {
 	if n.Shown() {
 		@components.PanelNotice(components.ToneWarn, n.Heading) {

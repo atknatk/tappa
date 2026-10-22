@@ -38,7 +38,6 @@ import "github.com/atknatk/tappa/web/templates/components"
 templ AdminReports(v ReportsView) {
 	@PanelActions(reportActions(v)) {
 		@PanelShell(v.PanelChrome) {
-			@businessDayRelease(v.Release)
 			if v.Incomplete {
 				// 🔴 THE ONE SENTENCE THIS SECTION MUST NEVER SOFTEN. A truncated read makes
 				// every figure below a floor rather than a total, and a floor printed like a
@@ -51,7 +50,7 @@ templ AdminReports(v ReportsView) {
 					</p>
 				}
 			}
-			@reportWeekForm(v)
+			@templ.Join(businessDayRelease(v.Release), reportWeekForm(v))
 			if v.Queried {
 				// THE RECEIPT FIRST IN THE DOCUMENT, at every width: a phone reads the week's
 				// figure before the people it is made of. From the desk up the receipt is

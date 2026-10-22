@@ -53,6 +53,7 @@ var panelTemplates = map[string]bool{
 	"pages/apikeys.templ":            true,
 	"pages/billing.templ":            true,
 	"pages/daycutoff.templ":          true,
+	"pages/businessday.templ":        true,
 	"pages/employees.templ":          true,
 	"pages/group.templ":              true,
 	"pages/locations.templ":          true,

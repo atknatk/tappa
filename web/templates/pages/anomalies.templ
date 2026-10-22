@@ -49,8 +49,7 @@ import "github.com/atknatk/tappa/web/templates/components"
 templ AdminAnomalies(v AnomaliesView) {
 	@PanelActions(anomalyWeekStepper(v)) {
 		@PanelShell(v.PanelChrome) {
-			@businessDayRelease(v.Release)
-			@anomalyWeekBar(v)
+			@templ.Join(businessDayRelease(v.Release), anomalyWeekBar(v))
 			if v.Queried {
 				@templ.Join(anomalyTotals(v), anomalyLostPlaques(v))
 				@anomalyMissingSources()
