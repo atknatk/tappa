@@ -578,6 +578,23 @@ func (r *Recorder) Record(ctx context.Context, e Entry) (Recorded, error) {
 	var out Recorded
 	err := r.data.WithTenant(ctx, e.TenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
+		// 🔴 THE PERSON'S TAP LOCK IS THE FIRST STATEMENT (M15-05; ADR 0032 §A.6 "Eşzamanlı
+		// yazım"). The checkout classification tells a manager's correction from a forgotten
+		// return by WHEN each row was written (created_at, the transaction's start): a correction
+		// written while the person's checkout tap was being decided could otherwise commit with
+		// the EARLIER created_at and read as an orphan checkout (c) rather than a correction's
+		// surplus (e) -- the engine, not seeing the uncommitted correction, would have closed the
+		// check-in itself. With the tap path's own lock taken first (LockEmployeeForTap,
+		// checkin.go), the two are serial for this person: the tap either sees the correction or
+		// is written before it. The order of locks is the tap path's -- this person's key, then
+		// whatever the INSERT's triggers take (the holding feed's counters, ADR 0027 §8, K-31) --
+		// so no new lock order exists; pg_advisory_xact_lock is re-entrant in one transaction (a
+		// claim approval that takes it first, M15-16, takes it again here at no cost).
+		if err := q.LockEmployeeForTap(ctx, store.LockEmployeeForTapParams{
+			TenantID: e.TenantID, EmployeeID: e.EmployeeID,
+		}); err != nil {
+			return fmt.Errorf("lock employee: %w", err)
+		}
 		// WHO AND WHERE, READ FIRST IN THE SAME TRANSACTION, so a 0-row INSERT below can
 		// be told apart: no such person (ErrUnknownEmployee) or no venue to file a
 		// venue-less person at (ErrVenue). The statement remains the authority on

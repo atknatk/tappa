@@ -82,6 +82,10 @@ var anomaliesHref = mustSectionHref(pages.TabAnomalies)
 //	ListAnomalyPlaques          5.8 - 7.9 ms   the same scan, grouped
 //	ListOpenCheckIns            1.5 - 3.5 ms   index anti-join, stops at the cap
 //	CountMaskedOpenCheckIns     3.3 - 5.6 ms   two anti-joins over the week's check-ins
+//
+// (M15-05 replaced the two statements' anti-joins with a next-record lookup -- one LATERAL
+// index probe per check-in -- for ADR 0032 §A.6's one classification; their headers in
+// db/queries/anomalies.sql carry that change's before/after measurement.)
 //	ListAnomalyPolicySids       1.9 - 5.8 ms   the same scan, grouped
 //	ListTapsTakenTogether      11.0 - 24.7 ms  one sort + a lag() window
 //
@@ -363,9 +367,9 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen, now time.
 	}
 
 	v.Masked = pages.MaskedOpenView{
-		Total:       s.Masked.StillOpen + s.Masked.ClosedLater,
-		StillOpen:   plural(s.Masked.StillOpen, "still on the list above", "still on the list above"),
-		ClosedLater: plural(s.Masked.ClosedLater, "already off it", "already off it"),
+		Total:               s.Masked.StillOpen + s.Masked.ClosedByItsCheckout,
+		StillOpen:           plural(s.Masked.StillOpen, "still on the list above", "still on the list above"),
+		ClosedByItsCheckout: plural(s.Masked.ClosedByItsCheckout, "closed by its own checkout", "closed by their own checkout"),
 	}
 
 	v.MorePolicies = s.MorePolicies

@@ -926,8 +926,21 @@ WHERE t.tenant_id = @tenant_id
 -- day (22 rows in the table): Bitmap Index Scan on transactions_tenant_occurred_idx -> Bitmap Heap
 -- Scan (Rows Removed by Filter 3) -> the four left joins -> Sort -> Limit; 19 rows, shared hit=19,
 -- 1.06 ms -- one observation on a tiny table, for the reason the block above gives.
+--
+-- 🔴 M15-05: created_at AND business_day_start ARE READ BY THE CHECKOUT CLASSIFICATION (ADR 0032
+-- §A.6), in both callers. business_day_start is the out's frozen business day (S; NULL before M15
+-- and on manual rows), created_at is the database's own write instant -- the classification's W
+-- ("the record before this checkout was written AFTER it": a manager's correction). Both are
+-- columns of the record itself, no evidence (K-39), and neither is printed: the arithmetic reads
+-- them and drops them. created_at is the SERVER's (DEFAULT now(); no statement writes it --
+-- internal/domain/ledger's source test pins that), which is why W reads it and never occurred_at,
+-- the client's claim. EXPLAIN (ANALYZE, BUFFERS), 2026-10-21, the M15 development database, seed
+-- tenant 10000000-...-0001, the week from Monday 2026-10-19 plus the tail (262 rows returned),
+-- three runs each: the same plan before and after the two columns, shared hit 162 both, the row
+-- width estimate 149 -> 165 bytes.
 SELECT t.employee_id, t.occurred_at, t.type, t.verdict, t.channel, t.location_id,
        t.site_location_id,
+       t.created_at, t.business_day_start,
        rv.outcome AS review_outcome,
        e.full_name AS employee_name,
        l.name AS location_name,

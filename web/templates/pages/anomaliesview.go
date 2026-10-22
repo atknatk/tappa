@@ -80,7 +80,8 @@ type AnomaliesView struct {
 	Open       []AnomalyOpenView
 
 	// Masked is the retrospective ADR 0008 tally: check-ins a practice row could have
-	// hidden, split by whether the list above can still show them.
+	// hidden, split by whether anything closes them (since M15-05 every one that nothing
+	// closes is on the list above).
 	Masked MaskedOpenView
 
 	Policies []AnomalyPolicyView
@@ -309,9 +310,9 @@ type AnomalyOpenView struct {
 type MaskedOpenView struct {
 	// Total is the two counts added up, so the template can ask whether to render the
 	// block at all without re-adding them.
-	Total       int
-	StillOpen   string
-	ClosedLater string
+	Total               int
+	StillOpen           string
+	ClosedByItsCheckout string
 }
 
 // AnomalyPolicyView is how many records one rule decided.

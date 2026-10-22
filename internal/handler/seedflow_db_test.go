@@ -785,20 +785,29 @@ func (f *seedFlow) assertEnteredBy(t *testing.T, txID, want uuid.UUID) {
 	}
 }
 
-// openCheckIns counts an employee's check-ins with no later check-out — the shape
-// the "forgotten checkout" anomaly is made of.
+// openCheckIns counts an employee's check-ins that nothing closes — the shape the
+// "forgotten checkout" anomaly is made of — by ListOpenCheckIns' own definition (ADR 0032
+// §A.6, M15-05): an `in` is open unless its NEXT directed, non-practice record, in
+// (occurred_at, id) order, is a checkout tappa_checkout_class calls 'closes'. Until M15-05
+// this helper carried the old "no `out` after it" form, which one later checkout satisfied
+// for every older entry at once.
 func (f *seedFlow) openCheckIns(t *testing.T, employeeID uuid.UUID) int {
 	t.Helper()
 	var n int
 	err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT count(*) FROM transactions t
+			  LEFT JOIN LATERAL (
+			      SELECT o.type, o.occurred_at, o.business_day_start FROM transactions o
+			       WHERE o.tenant_id = t.tenant_id AND o.employee_id = t.employee_id
+			         AND o.type IS NOT NULL AND NOT o.practice
+			         AND (o.occurred_at, o.id) > (t.occurred_at, t.id)
+			       ORDER BY o.occurred_at, o.id LIMIT 1) nx ON true
 			 WHERE t.tenant_id = $1 AND t.employee_id = $2 AND t.type = 'in'
 			   AND NOT t.practice
-			   AND NOT EXISTS (
-			       SELECT 1 FROM transactions o
-			        WHERE o.tenant_id = t.tenant_id AND o.employee_id = t.employee_id
-			          AND o.type = 'out' AND o.occurred_at > t.occurred_at)`,
+			   AND (nx.type IS DISTINCT FROM 'out'
+			        OR public.tappa_checkout_class(t.occurred_at, false, false, false, nx.occurred_at, nx.business_day_start)
+			           IS DISTINCT FROM 'closes')`,
 			f.tenantID, employeeID).Scan(&n)
 	})
 	if err != nil {

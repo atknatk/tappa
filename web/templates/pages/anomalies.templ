@@ -527,15 +527,16 @@ templ anomalyOpen(v AnomaliesView) {
 				<h2 class="odd-title" id="odd-open">Left open</h2>
 				<p class="font-mono text-xs text-ink/70">not counted in hours</p>
 			</div>
-			// 🔴 THE DEFINITION IS ON THE PAGE BECAUSE IT IS NOT THE REPORTS SECTION'S. Here a
-			// check-in is open when no checkout follows it, full stop. The reports section
-			// PAIRS a week's records and additionally treats a very late checkout as a missed
-			// one, so the two counts can legitimately differ — and a reader who finds two
-			// numbers with one name is a reader who stops trusting both.
+			// 🔴 THE DEFINITION IS ON THE PAGE, AND SINCE M15-05 IT IS THE REPORTS SECTION'S TOO
+			// (ADR 0032 §A.6): a check-in is open unless its OWN next record is a checkout that
+			// closes it — same business day, no more than 18 hours on. Until then this list
+			// asked "does any checkout follow it" and the reports section paired records, and
+			// the page had to say the two numbers could differ; a reader who finds two numbers
+			// with one name is a reader who stops trusting both. Now they are one set.
 			<p class="text-[13px] leading-normal text-ink/80">
-				A check-in with no later checkout, anywhere in the record. The Roll
-				counts a slightly different thing — it pairs a week's records into shifts — so
-				the two figures can differ without either being wrong.
+				A check-in no checkout closed: the person's next record is another check-in, a
+				checkout on a later business day or more than 18 hours on, or nothing yet. The
+				Roll leaves the same check-ins open, so its count and this list agree.
 			</p>
 			<p class="text-xs leading-normal text-ink/70">
 				Training taps are not in this list. A training tap is a check-in nothing ever
@@ -572,21 +573,22 @@ templ anomalyOpen(v AnomaliesView) {
 			}
 		}
 		if v.Masked.Total > 0 {
-			// 🔴 THE HALF THE LIST ABOVE CANNOT SHOW (ADR 0008, M5-11's hand-over note). A
-			// single checkout satisfies "nothing closed it" for EVERY older unclosed
-			// check-in at once, so an entry a training tap once hid leaves the list silently
-			// on the person's next checkout — counted as closed, by a checkout that really
-			// belonged to a different check-in. Finding those needs this second question.
+			// THE ADR 0008 RETROSPECTIVE (M5-11's hand-over note). Until M15-05 this block was
+			// the half the list above could not show: a single checkout satisfied "nothing
+			// closed it" for EVERY older unclosed check-in at once. The list now keeps an entry
+			// unless its OWN next record closes it (ADR 0032 §A.6), so a masked entry stays on
+			// it; the block says how many of the shape are open and how many were closed by
+			// their own checkout.
 			<div class="odd-callout odd-callout--warn" role="note">
 				<p class="text-sm font-bold">Check-ins with a training tap after them</p>
 				<p>
 					A training tap sitting after a check-in used to hide it, so the next tap was
 					recorded as another arrival instead of a departure. Those records are still
-					here — nothing was lost — but a later checkout takes them off the list above
-					without closing what they opened.
+					here — nothing was lost — and a check-in is only taken off the list above by
+					its own checkout, so the ones nothing closed are all on it.
 				</p>
 				<p class="font-mono text-xs">
-					{ v.Masked.StillOpen } · { v.Masked.ClosedLater }
+					{ v.Masked.StillOpen } · { v.Masked.ClosedByItsCheckout }
 				</p>
 				<p class="text-xs">
 					This is a hint about where to look rather than a diagnosis: a new starter who

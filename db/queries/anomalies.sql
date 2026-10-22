@@ -642,20 +642,46 @@ ORDER BY
 LIMIT @row_limit;
 
 -- name: ListOpenCheckIns :many
--- Check-ins in the window that no later checkout closes.
+-- Check-ins in the window that no checkout closes.
 --
--- 🔴 THE DEFINITION IS STATED IN ONE LINE BECAUSE IT IS NOT THE REPORTS SECTION'S.
--- Here: a non-practice `in` with NO `out` after it, full stop. internal/domain/ledger's
--- worked-hours arithmetic asks a different question -- it PAIRS the week's records and
--- additionally treats a checkout more than tap.StaleOpenIn later as a missed checkout
--- rather than a shift -- so the two numbers can legitimately differ. Neither is wrong;
--- they answer different questions, and the screen says which one this is.
+-- 🔴 "OPEN" IS ADR 0032 §A.6's DEFINITION, THE ONE THE REPORTS SECTION USES TOO (M15-05).
+-- A non-practice `in` is open exactly when the person's NEXT directed, non-practice
+-- record after it -- in (occurred_at, id) order -- does not CLOSE it: there is none, it
+-- is another `in`, or it is an `out` whose class is not 'closes'. The class is
+-- tappa_checkout_class (migration 00064), the one SQL form of the classification;
+-- internal/domain/ledger reads the same rows through tap.ClassifyCheckout, its Go form,
+-- and the two are bound by a parity test (internal/domain/ledger's checkout parity
+-- test). So this list and the report's "Open" entries are the same set for the same
+-- window -- the "legitimate difference" this comment used to defend is gone.
+--
+-- WHAT THE OLD LINE GOT WRONG, MEASURED BEFORE IT WAS REPLACED: it said "no `out` after
+-- it, full stop". A single `out` then closed EVERY older unclosed check-in at once --
+-- Monday's `in`, Tuesday's `in`, Tuesday's `out` took Monday off the list although
+-- nothing closed it (ADR 0032 §A.6) -- and an `out` 30 hours later, or one of another
+-- business day, closed it too, where the report counted the entry open (tap.StaleOpenIn).
+--
+-- ⚠️ THE NEXT RECORD IS LOOKED FOR AMONG IN AND OUT ALIKE, NOT AMONG CHECKOUTS. A later
+-- `in` is what leaves this one open (the report's "a second `in` on top of an open one"),
+-- so a lookup over `out` rows alone would skip it and let the checkout after it close
+-- the wrong entry -- the old defect again, one step removed.
+--
+-- ⚠️ THE ID BREAKS THE TIE, ON BOTH SIDES OF THE COMPARISON. Two records at one
+-- occurred_at are ordered by id -- the order ListWorkedShiftEvents, GetLastOpenTransaction
+-- and the classification read (ADR 0032 §A.4) -- so an `in` and an `out` sharing an
+-- instant pair the same way in every reader.
+--
+-- THE CLASS OF THAT NEXT `out` IS COMPUTED WITH P = THIS `in` -- by construction it is the
+-- record before it -- so tappa_checkout_class takes this row's occurred_at as prev_in_at
+-- and reads only the two closing bounds (the out's business day, 18 hours). It does not
+-- read prev_is_out, day_has_in or prev_written_later when P is an `in`; they are passed
+-- as false, the value the function would read them as anyway.
 --
 -- ⚠️ `NOT t.practice` IS THE M5-07 AUDIT'S RULE AND IT IS LOAD-BEARING HERE. A
 -- practice row is a type='in' that is never followed by an 'out' (ADR 0008), so
 -- without this predicate the list would produce exactly one false positive per new
 -- starter -- and "the report does not comment, it shows data" would be broken by the
--- report's own arithmetic.
+-- report's own arithmetic. The next-record lookup skips practice rows for the same
+-- reason the report's read drops them.
 --
 -- 🔴 `was_maskable` IS THE DEVIR NOTE FROM M5-11 MADE VISIBLE. Before ADR 0008 a
 -- practice row could sort on top of a real open check-in and make the next tap resolve
@@ -663,15 +689,16 @@ LIMIT @row_limit;
 -- and they cannot be told apart from an ordinary forgotten checkout by their own
 -- columns -- but "does a practice row of this person's sit AFTER this check-in" can be
 -- asked, and that is what this flag answers. It is a HINT rather than a diagnosis, and
--- the screen says so.
---
--- ⚠️ AND IT IS DELIBERATELY NOT A FILTER. The counterpart query below counts the ones
--- this list can no longer show at all.
+-- the screen says so. Since M15-05 such an entry STAYS on this list: the `in` the mask
+-- produced is its next record, and an `in` closes nothing.
 --
 -- ORDERED OLDEST FIRST, which is the order a manager works a backlog in, so a
 -- shortened page keeps the entries that have been waiting longest.
 -- M11 API-1c: site_location_id names the venue of an open check-in taken at a PEER's venue (its
 -- location_id is NULL -- K-30); internal/domain/ledger names it from holding_site_locations.
+--
+-- EXPLAIN (ANALYZE, BUFFERS): M15-05's before/after measurement is in CountMaskedOpenCheckIns'
+-- header -- the two statements share the next-record lookup and were measured together.
 SELECT
     e.full_name                                                    AS employee_name,
     l.name                                                         AS location_name,
@@ -687,6 +714,17 @@ SELECT
           AND p.occurred_at > t.occurred_at
     )                                                              AS was_maskable
 FROM transactions t
+LEFT JOIN LATERAL (
+    SELECT n.type, n.occurred_at, n.business_day_start
+    FROM transactions n
+    WHERE n.tenant_id = @tenant_id
+      AND n.employee_id = t.employee_id
+      AND n.type IS NOT NULL
+      AND NOT n.practice
+      AND (n.occurred_at, n.id) > (t.occurred_at, t.id)
+    ORDER BY n.occurred_at, n.id
+    LIMIT 1
+) nx ON true
 LEFT JOIN employees e
        ON e.id = t.employee_id
       AND e.tenant_id = t.tenant_id
@@ -698,82 +736,84 @@ WHERE t.tenant_id = @tenant_id
   AND t.occurred_at < @to_at
   AND t.type = 'in'
   AND NOT t.practice
-  AND NOT EXISTS (
-      SELECT 1
-      FROM transactions o
-      WHERE o.tenant_id = @tenant_id
-        AND o.employee_id = t.employee_id
-        AND o.type = 'out'
-        AND o.occurred_at > t.occurred_at
-  )
+  AND (nx.type IS DISTINCT FROM 'out'
+       OR public.tappa_checkout_class(t.occurred_at, false, false, false, nx.occurred_at, nx.business_day_start)
+          IS DISTINCT FROM 'closes')
 ORDER BY t.occurred_at, t.id
 LIMIT @row_limit;
 
 -- name: CountMaskedOpenCheckIns :one
--- The check-ins a practice row could have masked, split by whether the open list can
--- still see them.
+-- The check-ins a practice row could have masked, split by whether they are still open.
 --
--- 🔴 THIS IS THE QUERY THE M6-11 CARD SAYS THE OPEN LIST CANNOT REPLACE, AND THE
--- REASON IS ONE LINE OF SET LOGIC. "Open" is `NOT EXISTS (an out after it)`, and a
--- SINGLE `out` satisfies that for EVERY older unclosed check-in at once. So a
--- check-in that a pre-ADR-0008 practice row masked leaves the open list silently, on
--- the person's next checkout -- it counts as closed, while the `out` that closed it
--- was really some other check-in's.
+-- 🔴 IT WAS THE HALF THE OPEN LIST COULD NOT SHOW, AND SINCE M15-05 THE LIST SHOWS IT. Until
+-- then "open" was `NOT EXISTS (an out after it)`, which a SINGLE later `out` satisfied for
+-- every older unclosed check-in at once -- so a check-in a pre-ADR-0008 practice row had
+-- masked left the list silently on the person's next checkout, and this second count was the
+-- only place it was still visible. ListOpenCheckIns now reads ADR 0032 §A.6's definition: an
+-- entry stays open unless its OWN next record closes it, and the record a mask produced is an
+-- `in`, which closes nothing. So the masked entries are ON the list (with the "training tap
+-- follows" hint), and the two numbers here are now:
 --
--- ⚠️ NO ROW COUNT IS QUOTED HERE ANY MORE. The M6-11 card carried "47 still visible,
--- 43 no longer visible" from 2026-08-02; re-run on 2026-08-12 the same shape answered
--- with figures an order of magnitude apart, because `chainFixture` adds rows on every
--- `make test` and nothing can delete them. The SHAPE is the durable fact and the
--- number is not, so the number is a query:
+--   still_open             a practice row follows it and nothing closes it -- the ones the
+--                          list shows (uncapped, which the list is not).
+--   closed_by_its_checkout a practice row follows it, and its own next record is a checkout
+--                          that closes it (class 'closes'): an ordinary pair -- a training
+--                          tap after it did not hide it.
 --
---      SELECT count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM transactions o
---               WHERE o.tenant_id=t.tenant_id AND o.employee_id=t.employee_id
---                 AND o.type='out' AND o.occurred_at > t.occurred_at)) AS still_open,
---             count(*) - count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM transactions o
---               WHERE o.tenant_id=t.tenant_id AND o.employee_id=t.employee_id
---                 AND o.type='out' AND o.occurred_at > t.occurred_at)) AS closed_later
---        FROM transactions t
---       WHERE t.type='in' AND NOT t.practice
---         AND EXISTS (SELECT 1 FROM transactions p WHERE p.tenant_id=t.tenant_id
---                       AND p.employee_id=t.employee_id AND p.practice
---                       AND p.occurred_at > t.occurred_at);
+-- The open/closed test is ListOpenCheckIns' own, written once below, in a LATERAL, so the two
+-- counts cannot disagree with each other or with the list.
 --
--- ⚠️ THIS IS NOT A SECTION 4.6 BREACH AND THE DISTINCTION IS WORTH THE SENTENCE. No
--- row is lost -- `transactions` holds every one of them and the transactions section
--- lists them. What is lost is the SIGNAL, and recovering it needs this second
--- question rather than a wider version of the first.
+-- ⚠️ IT IS A HINT, NOT A DIAGNOSIS. "A practice row of this person's exists after this
+-- check-in" is the shape the defect produced; it is also the shape an ordinary new starter
+-- produces if they ever tap again after training. The screen calls it what it is.
 --
--- ⚠️ IT IS A HINT, NOT A DIAGNOSIS. "A practice row of this person's exists after
--- this check-in" is the shape the defect produced; it is also the shape an ordinary
--- new starter produces if they ever tap again after training. The screen calls it
--- what it is.
+-- ⚠️ AND THE DEVELOPMENT DATABASE WILL ALWAYS HOLD SOME. `chainFixture` leaves rows of this
+-- shape on every `make test` run and section 4.3 plus `REVOKE DELETE` mean nothing can clear
+-- them. There is no dev-only special case anywhere in this path -- the number says what it
+-- counts and the reader decides.
 --
--- ⚠️ AND THE DEVELOPMENT DATABASE WILL ALWAYS HOLD SOME. `chainFixture` leaves two
--- rows of this shape on every `make test` run and section 4.3 plus `REVOKE DELETE`
--- mean nothing can clear them. There is no dev-only special case anywhere in this
--- path -- the number says what it counts and the reader decides.
+-- ⚠️ THIS IS NOT A SECTION 4.6 BREACH: no row is lost -- `transactions` holds every one of them
+-- and the transactions section lists them.
+--
+-- EXPLAIN (ANALYZE, BUFFERS), M15-05, 2026-10-21, the M15 development database after ANALYZE,
+-- seed tenant 10000000-...-0001 (418 rows in the tenant, 262 of them directed and not practice),
+-- the week from Monday 2026-10-19 00:00 Malta, three runs of each statement, before -> after the
+-- next-record lookup:
+--   ListOpenCheckIns (row_limit 51)
+--     before  Index Scan Backward on transactions_tenant_occurred_idx (109 check-ins) -> Nested
+--             Loop Anti Join probing transactions_tenant_employee_occurred_idx for a later `out`;
+--             1.72 / 1.17 / 1.37 ms, shared hit 758 / 749 / 749
+--     after   the same outer scan -> Nested Loop Left Join over a Limit 1 -> Incremental Sort ->
+--             Index Scan Backward on transactions_tenant_employee_occurred_idx (109 probes) ->
+--             the class as a join filter (57 removed, 52 kept, 51 returned);
+--             2.61 / 1.61 / 1.68 ms, shared hit 975 / 939 / 939
+--   CountMaskedOpenCheckIns
+--     before  Hash Semi Join (9 check-ins with a training tap after them) + two anti-join probes;
+--             0.85 / 1.23 / 1.03 ms, shared hit 269
+--     after   the same semi join + one Limit 1 probe of the same index per check-in;
+--             0.89 / 0.77 / 0.62 ms, shared hit 254
+-- One observation on a small table, not a property: the lookup costs one index probe per
+-- check-in of the window, as the anti-join did.
 SELECT
-    count(*) FILTER (
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM transactions o
-            WHERE o.tenant_id = @tenant_id
-              AND o.employee_id = t.employee_id
-              AND o.type = 'out'
-              AND o.occurred_at > t.occurred_at
-        )
-    )                                                              AS still_open,
-    count(*) FILTER (
-        WHERE EXISTS (
-            SELECT 1
-            FROM transactions o
-            WHERE o.tenant_id = @tenant_id
-              AND o.employee_id = t.employee_id
-              AND o.type = 'out'
-              AND o.occurred_at > t.occurred_at
-        )
-    )                                                              AS closed_later
+    count(*) FILTER (WHERE s.open)                                 AS still_open,
+    count(*) FILTER (WHERE NOT s.open)                             AS closed_by_its_checkout
 FROM transactions t
+LEFT JOIN LATERAL (
+    SELECT n.type, n.occurred_at, n.business_day_start
+    FROM transactions n
+    WHERE n.tenant_id = @tenant_id
+      AND n.employee_id = t.employee_id
+      AND n.type IS NOT NULL
+      AND NOT n.practice
+      AND (n.occurred_at, n.id) > (t.occurred_at, t.id)
+    ORDER BY n.occurred_at, n.id
+    LIMIT 1
+) nx ON true
+CROSS JOIN LATERAL (
+    SELECT (nx.type IS DISTINCT FROM 'out'
+            OR public.tappa_checkout_class(t.occurred_at, false, false, false, nx.occurred_at, nx.business_day_start)
+               IS DISTINCT FROM 'closes') AS open
+) s
 WHERE t.tenant_id = @tenant_id
   AND t.occurred_at >= @from_at
   AND t.occurred_at < @to_at

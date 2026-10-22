@@ -569,6 +569,11 @@ aynı sınıflandırmayı kullanır.
 - Faz A özellik testi: hiçbir motor `out`'u (b)/(c) sınıfına düşmez (yukarıda adım 3).
 - **Kilit:** manuel yazım ile motor çıkışı aynı kişi için eşzamanlı (`-race`) → düzeltme şekli her sırada (e);
   holding eş mekân satırında kilitlenme yok (iki sırada da tamamlanır).
+  *(Uygulamada — M15-05 yapıcısının raporu:)* *"her sırada (e)"* yalnız dokunuşun önce yazıldığı sırada
+  ölçülebilir: manuel kayıt önce yazılınca dokunuş düzeltmeyi görür ve `in` yazar, sınıflandırılacak fazla
+  çıkış oluşmaz. Ölçülen özellik *"iki sırada da hiçbir çıkış (c) değil"*dir
+  (`TestManualRecord_TakesThePersonsTapLockSoACorrectionIsNeverAnOrphan`, iç içelik üçüncü bir bağlantının
+  çalışan satırını `FOR UPDATE` tutmasıyla zorlanır); kilit kaldırılınca manuel-önce sırası (c) verir.
 - **`created_at` testi:** bir sorguya `created_at` sütunu ekleyen mutasyon kırmızı.
 
 **Tuzaklar.** (e) testlerinde düzeltmeyi **`manual.Recorder` ile ya da `DEFAULT created_at` ile** yazmamak —

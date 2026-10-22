@@ -712,8 +712,8 @@ func TestPanelAnomaliesDB_ATrainingTapIsNotAnOpenCheckIn(t *testing.T) {
 	// AND THE ADR 0008 RETROSPECTIVE TALLY FINDS THE REAL ENTRY, because a practice row
 	// of that person's sits after it.
 	if !strings.Contains(body, "Check-ins with a training tap after them") {
-		t.Error("the retrospective tally is missing; the open list alone cannot find a " +
-			"check-in a later checkout has already taken off it")
+		t.Error("the retrospective tally is missing; it is where a check-in with a training " +
+			"tap after it is counted, open or closed by its own checkout")
 	}
 	if !strings.Contains(body, "1 still on the list above") {
 		t.Error("the retrospective tally does not report the one entry with a training tap " +

@@ -26,6 +26,10 @@ package handler
 // M12-48 replaced the anomalies-view golden: its only change is two title attributes, the
 // truncated venue name's (title="St Julians") and the GPS-alone person's (title="Maria Borg");
 // everything else, the chrome included, is the same bytes. The reports-view golden is unchanged.
+// M15-05 replaced the anomalies golden: its one change is the "Left open" card's definition
+// sentence (ADR 0032 §A.6 -- the list and The Roll now share one classification, so "the two
+// figures can differ" became "its count and this list agree"); measured: common prefix and suffix
+// around exactly that sentence, every other byte the previous golden's.
 
 import (
 	"bytes"
