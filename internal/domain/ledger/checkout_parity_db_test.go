@@ -333,6 +333,9 @@ func TestCheckoutParity_GoAndSQLClassifyEveryCellAlike(t *testing.T) {
 			if strings.Join(sqlNames, ",") != strings.Join(tc.want, ",") {
 				t.Errorf("SQL classes %v, want %v", sqlNames, tc.want)
 			}
+			if strings.Join(goNames, ",") != strings.Join(tc.want, ",") {
+				t.Errorf("Go classes %v, want %v", goNames, tc.want)
+			}
 			if len(sqlSide) != len(goSide) {
 				t.Fatalf("SQL classified %d checkouts, Go %d", len(sqlSide), len(goSide))
 			}
