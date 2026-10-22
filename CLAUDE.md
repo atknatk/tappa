@@ -309,6 +309,13 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
 - **Unutulan çıkış:** sistem çıkış kaydı **üretmez**. Açık kayıt anomali olarak
   listelenir, müdür manuel girer. Açık kayıtlar saat toplamına **girmez** ve
   raporda toplamın eksik olduğu açıkça söylenir.
+- **Unutulan giriş:** sistem giriş üretmez. Kapatacağı açık bir girişi olmayan çıkış
+  (önceki kaydı bir çıkış, daha önceki bir iş gününün girişi ya da hiçbir şey; ADR 0032
+  §A.6 (b), (c); yalnız `business_day_start` dolu satırlar) saate girmez,
+  `Totals.OutWithoutIn`'de sayılır, Odd shapes *Check-in missing* listesine düşer ve
+  raporda toplamın eksik olduğu söylenir. İş günü dönem başından önce başladıysa rapor onu
+  `StartedEarlier` dikişinde sayar, liste yine gösterir. Düzeltmenin fazla çıkışı (e) ve
+  S'siz satır (d) yetim değildir.
 - **QR kanalı** (`channel='qr'`): SUN yok → **IP zorunlu**, GPS tek başına yetmez
   → `flag`. QR fotoğraflanır ve süresiz geçerlidir; fiziksel dokunuş kanıtı yok.
   Baseline politikası `base:qr-requires-ip`, tenant değiştirebilir.
