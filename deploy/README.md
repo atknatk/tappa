@@ -3989,8 +3989,22 @@ Harbor'a taşınır.
 
 ADR 0031'in (tek kimlik, çok işletme) backfill'i (§5.8) ve contract ön koşulu (*"tek aktif owner'ı
 bağlanmamış tenant = 0"*, K-3, plan M14-20a) **hangi sayılardan başladığını** bilmek için canlı
-veritabanında bir kez koşturuldu. Aynı sorgu M14-06'dan (backfill) önce ve M14-19 / M14-20a ön
-kontrollerinde yeniden koşturulup bu tabloyla karşılaştırılabilir.
+veritabanında bir kez koşturuldu.
+
+**Neye yeniden kullanılır, neye kullanılmaz.** Bu sorgu yalnız **M14-06'dan (backfill) önce** yeniden
+koşturulup bu tabloyla karşılaştırılır. `05f`, `05h` ve `08*` backfill'i **taklit eder** (`pick` /
+`linked` CTE'leri: en eski aktif, yoksa en eski); `identity_id`, `unlinked_at`, M14-18'in bağlarını ya
+da uzlaştırmayı (M14-06b) **hiç okumaz** — kişi o işletmeye bağlandıktan sonra da `05f` yine 1 basar.
+M14-19 ve M14-20a ön kontrolleri gerçek bağı **ayrı bir sorguyla** ölçer (bağlı = `identity_id IS NOT
+NULL AND unlinked_at IS NULL`; reddedilmiş — `unlinked_at` damgalı — satırların tenant'ları ayrı
+sayılır, ADR 0031 §5.12, plan M14-20a). `05f` yalnız backfill öncesi bir simülasyondur.
+
+**Contract ön koşulunun başlangıç değeri `05f` = 1'dir.** Kartın lafzı (*"tek aktif owner'ı bir
+çok-satırlı grupta olan tenant"*) `05e` = 2'yi verir; o kullanılmadı, çünkü backfill çok satırlı
+grubun bir satırını zaten bağlar — o grubun tenant'larından biri bağlı başlar.
+
+**Kim koşturur.** Kullanıcı / orkestratör koşturur; 2026-10-22 ölçümü kullanıcı yetkisiyle,
+salt-okur yapıldı (*"ajan `kubectl` koşmaz"* kuralına bu kart için kullanıcı izni).
 
 **Yalnız sayı.** Sorgunun döndürdüğü her satır sabit bir etiket ve bir sayıdır: e-posta, ad, `id`,
 tenant adı, token ya da digest veritabanından çıkmaz; ne ekrana, ne bu belgeye, ne log'a yazılır
@@ -4016,6 +4030,12 @@ NOT NULL` (citext) → aynı kişinin aynı tenant'ta iki satırı **yapısal ol
 ayrıca sayar. `admin_users_password_hash_is_bcrypt` canlıda `NOT VALID` (00018'in kararı) — `08j`
 eski satırların kalıba uyup uymadığını sayar, çünkü `admin_identities.password_hash` aynı CHECK'i
 taşıyacak ve backfill seçilen satırın digest'ini kopyalayacak.
+
+**Gruplama anahtarı backfill'inkiyle bire bir değil.** Sorgu `NULLIF(btrim(lower(email)), '')` ile
+gruplar; backfill citext eşitliği ve `email IS NOT NULL` ile gruplar. İkisi yalnız boş dize ve
+baş-son boşluklu adreslerde ayrışır: **`01c` / `01d` ≠ 0 ise `08a` / `05f` backfill'le uyuşmaz.**
+2026-10-22'de ikisi de 0'dı, yani aşağıdaki sayılar backfill'in göreceğiyle aynıdır. (Kaydedilen
+sayılar bu SQL'in çıktısı olduğu için SQL değiştirilmedi.)
 
 `m14-02-measure.sql` (metnin tamamı):
 
