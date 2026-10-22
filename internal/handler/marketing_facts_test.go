@@ -637,10 +637,11 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 			}
 			return ""
 		},
+		pages.FactSignupMonthAndTheNextAreFree: func() string { return freeMonthsViolation(loadBillingFactSources(t)) },
 		pages.FactPriceLockedForLife: func() string {
 			if !priceLockedForLifeRE.MatchString(handoff) {
-				return "docs/handoff.md §11 no longer publishes the founding offer's \"ömür boyu fiyat sabit\"; " +
-					"the price card's \"pricing locked for life\" is that pricing term"
+				return "docs/handoff.md §11 no longer publishes \"ömür boyu fiyat sabit\" on the founding " +
+					"offer's line; the price card's \"Founding customers: price locked for life.\" is that pricing term"
 			}
 			return ""
 		},
@@ -774,6 +775,8 @@ func landingLines() map[string]pages.Line {
 		"LandingPricingLede":    pages.LandingPricingLede,
 		// The founding chip's second half (LP-06): a pricing term, pinned like the price.
 		"LandingPriceLockedForLife": pages.LandingPriceLockedForLife,
+		// The free months in the code's terms (K6): the chip and the sign-off say it.
+		"LandingFreeMonthsLine": pages.LandingFreeMonthsLine(foundingFreeMonths),
 		// The panel section (LP-05): its heading is a Line too, because it is a claim.
 		"LandingPanelHeading":    pages.LandingPanelHeading,
 		"LandingPanelLede":       pages.LandingPanelLede,

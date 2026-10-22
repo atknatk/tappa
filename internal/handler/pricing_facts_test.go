@@ -30,6 +30,7 @@ import (
 // billingFactSources is everything the pricing page's derivations read, so the negative
 // control can hand them a copy with one piece taken out.
 type billingFactSources struct {
+	Mig01    string // db/migrations/00001_create_tenants.sql
 	Mig16    string // db/migrations/00016_add_billing_price_and_periods.sql
 	Queries  string // db/queries/billing.sql
 	Book     string // internal/domain/billing/billing.go
@@ -91,6 +92,7 @@ func loadBillingFactSources(t *testing.T) billingFactSources {
 	}
 	return billingFactSources{
 		SQL:      sql,
+		Mig01:    repoFile(t, "db", "migrations", "00001_create_tenants.sql"),
 		Mig16:    repoFile(t, "db", "migrations", mig16),
 		Queries:  repoFile(t, "db", "queries", "billing.sql"),
 		Book:     repoFile(t, "internal", "domain", "billing", "billing.go"),
@@ -291,6 +293,51 @@ func stampViolation(s billingFactSources) string {
 	return ""
 }
 
+// The shapes the free-months derivation reads.
+var (
+	firstChargeableRE = regexp.MustCompile(`SELECT \(date_trunc\('month', p_created_at AT TIME ZONE p_timezone\)\s*` +
+		`\+ CASE WHEN p_plan = 'founding' THEN interval '(\d+) months'\s*ELSE interval '0' END\)::date;`)
+	freePeriodRE  = regexp.MustCompile(`\(b\.month < b\.first_chargeable\) AS free_period`)
+	planDefaultRE = regexp.MustCompile(`(?m)^\s*plan\s+text NOT NULL DEFAULT 'founding'`)
+	planChangeRE  = regexp.MustCompile(`(?i)ALTER\s+COLUMN\s+plan\b|ALTER\s+TABLE\s+(?:public\.)?tenants\s+(?:ADD|DROP)\s+COLUMN\s+plan\b`)
+)
+
+// freeMonthsViolation is FactSignupMonthAndTheNextAreFree's derivation: the first
+// charged month is the signup month's start plus the founding interval (so the signup
+// month is the first free one), the interval is the pages' FreeMonths, both billing
+// statements call it and call a month free exactly when it comes before it, no later
+// migration redefines it, and a new business is on the founding plan by default.
+func freeMonthsViolation(s billingFactSources) string {
+	fn := sqlFunctionBody(s.Mig16, "tappa_first_chargeable_month")
+	m := firstChargeableRE.FindStringSubmatch(fn)
+	if m == nil {
+		return "tappa_first_chargeable_month no longer adds the founding interval to the signup month's " +
+			"own start, so the signup month is not the first free month"
+	}
+	if m[1] != strconv.Itoa(foundingFreeMonths) {
+		return "tappa_first_chargeable_month grants " + m[1] + " month(s) and the pages say " +
+			strconv.Itoa(foundingFreeMonths)
+	}
+	if file := redefinedLater(s.Later, "tappa_first_chargeable_month"); file != "" {
+		return file + " redefines tappa_first_chargeable_month after 00016; re-read the rule there"
+	}
+	for _, q := range []string{"PreviewBillingPeriod", "CloseBillingPeriod"} {
+		block := queryBlock(s.Queries, q)
+		if !strings.Contains(block, "tappa_first_chargeable_month(s.plan, s.created_at, s.timezone)") || !freePeriodRE.MatchString(block) {
+			return q + " no longer calls a month free exactly when it comes before the first charged month"
+		}
+	}
+	if !planDefaultRE.MatchString(s.Mig01) {
+		return "migration 00001 no longer puts a new business on the founding plan, so the free months are not every new business's"
+	}
+	for file, src := range s.Later {
+		if planChangeRE.MatchString(gooseUp(src)) {
+			return file + " changes tenants.plan after 00001; re-read who is on the founding plan"
+		}
+	}
+	return ""
+}
+
 // closeEndedRE is CloseBillingPeriod's ended-month guard, the whole line: "now()" and
 // nothing after it, so a guard moved into the future ("+ interval …") is not it.
 var closeEndedRE = regexp.MustCompile(`(?m)^\s*AND b\.to_at <= now\(\)\s*$`)
@@ -478,6 +525,22 @@ func TestPricingFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			s.SQL = maps.Clone(s.SQL)
 			s.SQL[filepath.Join("db", "migrations", "00099_x.sql")] = "-- +goose Up\nUPDATE employees SET activated_at = created_at;\n-- +goose Down\nSELECT 1;\n"
 		}},
+		{"four free months", freeMonthsViolation, func(s *billingFactSources) {
+			s.Mig16 = within(s.Mig16, sqlFunctionBody(s.Mig16, "tappa_first_chargeable_month"), "interval '3 months'", "interval '4 months'")
+		}},
+		{"the signup month is not counted", freeMonthsViolation, func(s *billingFactSources) {
+			s.Mig16 = within(s.Mig16, sqlFunctionBody(s.Mig16, "tappa_first_chargeable_month"),
+				"date_trunc('month', p_created_at AT TIME ZONE p_timezone)",
+				"date_trunc('month', p_created_at AT TIME ZONE p_timezone) + interval '1 month'")
+		}},
+		{"the first charged month is free too", freeMonthsViolation, func(s *billingFactSources) {
+			s.Queries = within(s.Queries, queryBlock(s.Queries, "CloseBillingPeriod"), "(b.month < b.first_chargeable)", "(b.month <= b.first_chargeable)")
+		}},
+		{"a later migration redefines the window", freeMonthsViolation, later("CREATE OR REPLACE FUNCTION public.tappa_first_chargeable_month(text, timestamptz, text) RETURNS date")},
+		{"a new business is on the standard plan", freeMonthsViolation, func(s *billingFactSources) {
+			s.Mig01 = strings.Replace(s.Mig01, "DEFAULT 'founding'", "DEFAULT 'standard'", 1)
+		}},
+		{"a later migration changes the plan default", freeMonthsViolation, later("ALTER TABLE tenants ALTER COLUMN plan SET DEFAULT 'standard';")},
 		{"the export reads another month", csvAnyMonthViolation, func(s *billingFactSources) {
 			s.CSV = within(s.CSV, goFuncBody(s.CSV, "func (a *AdminAuth) billingExport("), "a.billingMonth(", "a.frozenMonth(")
 		}},
@@ -534,6 +597,7 @@ func pricingLines() map[string]pages.Line {
 		"LandingPricingHeading":     pages.LandingPricingHeading,
 		"LandingPricingLede":        pages.LandingPricingLede,
 		"LandingPriceLockedForLife": pages.LandingPriceLockedForLife,
+		"LandingFreeMonthsLine":     pages.LandingFreeMonthsLine(foundingFreeMonths),
 		"PricingExamplesLede":       pages.PricingExamplesLede,
 		"PricingFreeNote":           pages.PricingFreeNote,
 		"PricingReceiptCaption":     pages.PricingReceiptCaption,

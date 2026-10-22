@@ -1110,9 +1110,12 @@ func TestLanding_ExampleTeamCostIsThePriceTimesTheHeadcount(t *testing.T) {
 // TestLanding_FreeMonthsMatchTheFunctionThatGrantsThem.
 //
 // The founding offer is the one commercial promise on this page that the PRODUCT
-// keeps rather than a human: tappa_first_chargeable_month adds three months for
-// plan='founding', db/queries/billing.sql calls it and the panel's billing screen
-// shows the result. The page may say "three months free" precisely because of that.
+// keeps rather than a human: tappa_first_chargeable_month adds three months to the
+// SIGNUP month's start for plan='founding', db/queries/billing.sql calls it and the
+// panel's billing screen shows the result. Because the signup month is the first of
+// the three, the pages say "Your signup month and the two after it are free." (user
+// decision K6, 2026-10-22) and never "first 3 months free", which left a mid-month
+// signup to guess whether its first, partial month was one of them.
 func TestLanding_FreeMonthsMatchTheFunctionThatGrantsThem(t *testing.T) {
 	t.Parallel()
 	mig := repoFile(t, "db", "migrations", "00016_add_billing_price_and_periods.sql")
@@ -1130,14 +1133,69 @@ func TestLanding_FreeMonthsMatchTheFunctionThatGrantsThem(t *testing.T) {
 		t.Errorf("the landing page offers %d free months; migration 00016 grants %d",
 			foundingFreeMonths, granted)
 	}
-	// And both pages that carry the founding chip print that number (LP-06).
+	// And both pages that carry the founding chip say it in the code's terms (LP-06,
+	// K6), and say the price lock of founding customers only (K5).
 	r := marketingRouter(t)
-	for _, url := range []string{"/", pages.PricingPath} {
-		chip := "first " + strconv.Itoa(foundingFreeMonths) + " months free"
-		if !strings.Contains(screenText(t, mustFetchMarketing(t, r, url)), chip) {
-			t.Errorf("%s does not say %q", url, chip)
+	sentence := pages.LandingFreeMonthsLine(foundingFreeMonths).Text
+	if sentence == "" {
+		t.Fatal("PREMISE: the founding offer's free months render no sentence")
+	}
+	for _, url := range siteURLs() {
+		text := screenText(t, mustFetchMarketing(t, r, url))
+		if (url == "/" || url == pages.PricingPath) && !strings.Contains(text, sentence) {
+			t.Errorf("%s does not say %q", url, sentence)
+		}
+		for _, why := range freeMonthsCopyProblems(text) {
+			t.Errorf("%s: %s", url, why)
 		}
 	}
+	// The sentence counts the signup month as the first free one, for any count.
+	for n, want := range map[int]string{
+		0: "",
+		1: "Your signup month is free.",
+		2: "Your signup month and the one after it are free.",
+		3: "Your signup month and the two after it are free.",
+		4: "Your signup month and the three after it are free.",
+	} {
+		if got := pages.LandingFreeMonthsLine(n).Text; got != want {
+			t.Errorf("LandingFreeMonthsLine(%d) = %q, want %q", n, got, want)
+		}
+	}
+	// CONTROL: the two phrasings the pages used to carry are refused.
+	for _, old := range []string{
+		"FOUNDING OFFER: first 3 months free · pricing locked for life",
+		"Start yourself today — first 3 months free.",
+		"Start free — 3 months on us",
+	} {
+		if len(freeMonthsCopyProblems(old)) == 0 {
+			t.Errorf("CONTROL: %q passed the free-months copy check", old)
+		}
+	}
+	if p := freeMonthsCopyProblems(pages.FoundingChip(foundingFreeMonths)); len(p) != 0 {
+		t.Errorf("CONTROL: today's chip fails the copy check: %v", p)
+	}
+}
+
+// oldFreeMonthsRE is a count of free months that does not say where it starts ("first
+// 3 months free", "3 months on us", "Start free — 3 months") -- the phrasing K6 retired.
+var oldFreeMonthsRE = regexp.MustCompile(`(?i)\b(?:first\s+)?(?:\d+|two|three|four)\s+months?\s+(?:free|on us)\b|` +
+	`\bfirst\s+(?:\d+|two|three|four)\s+months?\b|start free\s*[—–-]\s*\d+\s+months?`)
+
+// freeMonthsCopyProblems says how text departs from K5 and K6: no free-month count that
+// does not start at the signup month, and no "locked for life" that is not the founding
+// customers' own.
+func freeMonthsCopyProblems(text string) []string {
+	var out []string
+	if hit := oldFreeMonthsRE.FindString(text); hit != "" {
+		out = append(out, fmt.Sprintf("says %q; the free months are the signup month and the ones after it (K6)", hit))
+	}
+	lower := strings.ToLower(text)
+	if all, founding := strings.Count(lower, "locked for life"),
+		strings.Count(lower, strings.ToLower(pages.LandingPriceLockedForLife.Text)); all != founding {
+		out = append(out, fmt.Sprintf("says \"locked for life\" %d time(s), %d of them as the founding customers' "+
+			"(K5: the lock is the founding offer's only)", all, founding))
+	}
+	return out
 }
 
 // --- the claims ---------------------------------------------------------------

@@ -1,6 +1,7 @@
 package pages
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/atknatk/tappa/web/templates/layout"
@@ -78,9 +79,10 @@ type LandingView struct {
 	// PricePerEmployeeMonth is the published price, formatted, without a currency
 	// symbol — "1.50". The symbol is in the template because it is typography.
 	PricePerEmployeeMonth string
-	// FreeMonths is the founding offer's free period. The PRODUCT enforces this:
-	// migration 00016's tappa_first_chargeable_month adds `interval '3 months'`
-	// for plan='founding', and the panel's billing screen reads it.
+	// FreeMonths is the founding offer's free period, the signup month included. The
+	// PRODUCT enforces this: migration 00016's tappa_first_chargeable_month adds
+	// `interval '3 months'` to the signup month's start for plan='founding', and the
+	// panel's billing screen reads it. The page says it with LandingFreeMonthsLine.
 	FreeMonths int
 	// ExampleHeadcount and ExampleMonthly are the price card's worked example —
 	// "A 60-person chain runs on €90/month" — and the second is COMPUTED from the
@@ -380,13 +382,27 @@ const (
 	// the offer, not a stock room; what the product provides is the mount and
 	// replace flows (FactPlaqueCanBeReplaced), and the plaque itself is hardware.
 	FactPlaquesIncludedAndReplacedFree Fact = "handoff:§11 plaques included and replaced free"
-	// The founding offer's price is fixed for life. A PRICING TERM, pinned like the
-	// plaques line to the document that publishes the offer: docs/handoff.md §11,
-	// "ömür boyu fiyat sabit". ITS LIMIT, STATED: nothing in the product stores a
-	// promise about a future price; what it does hold is that the application cannot
-	// change a tenant's price at all (migration 00016 grants it no UPDATE on the
+	// The founding offer's price is fixed for life -- for FOUNDING CUSTOMERS, which is
+	// how the page says it (user decision K5, 2026-10-22). A PRICING TERM, pinned like
+	// the plaques line to the document that publishes the offer: docs/handoff.md §11's
+	// founding-offer line, "Founding offer: ilk 3 ay ücretsiz + ömür boyu fiyat sabit".
+	// The handoff ties the lock to the founding offer and to nothing wider, and the
+	// derivation reads it on that line only. ITS LIMIT, STATED: nothing in the product
+	// stores a promise about a future price; what it does hold is that the application
+	// cannot change a tenant's price at all (migration 00016 grants it no UPDATE on the
 	// column), and the sentence is the offer, as the price is.
 	FactPriceLockedForLife Fact = "handoff:§11 founding price fixed for life"
+	// A new business's signup month and the months after it, up to the founding offer's
+	// count, cost nothing (user decision K6, 2026-10-22: the page says what the code
+	// does). Derived from migration 00016's tappa_first_chargeable_month -- the first
+	// charged month is the SIGNUP month's start plus the founding interval, so the
+	// signup month is the first free one -- from both billing statements marking a month
+	// free exactly when it is before that, from the count equalling the page's
+	// FreeMonths, and from migration 00001's tenants.plan defaulting to 'founding', so a
+	// business that signs up today is on the offer. The handoff's "ilk 3 ay ücretsiz"
+	// ("the first 3 months free") left open whether the signup month is one of them; the
+	// code counts it, and the page now says so.
+	FactSignupMonthAndTheNextAreFree Fact = "sql:tappa_first_chargeable_month(signup month + founding interval)"
 	// The report totals per person and per venue. Delegates to
 	// AnchorPerVenueReport.
 	FactReportPerPersonAndVenue Fact = "fact:report-per-person-and-venue"
@@ -589,12 +605,50 @@ var LandingPricingLede = Line{
 	Facts: []Fact{FactPricePerEmployee, FactPlaquesIncludedAndReplacedFree},
 }
 
-// LandingPriceLockedForLife is the founding chip's second half on the price card,
-// after "FOUNDING OFFER: first N months free", whose number is the view's FreeMonths
-// (pinned to the function that grants them). The card renders on / and on /pricing.
+// LandingPriceLockedForLife is the price card's chip's second sentence, after the free
+// months. It names founding customers because the handoff ties the lock to the founding
+// offer (K5); no sentence on the public site says "locked for life" of anybody else.
+// The card renders on / and on /pricing.
 var LandingPriceLockedForLife = Line{
-	Text:  "pricing locked for life",
+	Text:  "Founding customers: price locked for life.",
 	Facts: []Fact{FactPriceLockedForLife},
+}
+
+// LandingFreeMonthsLine is the free period in words, for the founding offer's n months
+// (the view's FreeMonths, pinned to the function that grants them): "Your signup month
+// and the two after it are free." The signup month is the first of the n because the
+// code counts it (K6). It is a function of n so the count is never typed; n below one
+// is no offer and the line is empty, which the template renders as nothing.
+func LandingFreeMonthsLine(n int) Line {
+	facts := []Fact{FactSignupMonthAndTheNextAreFree}
+	switch {
+	case n < 1:
+		return Line{}
+	case n == 1:
+		return Line{Text: "Your signup month is free.", Facts: facts}
+	}
+	return Line{Text: "Your signup month and the " + countWord(n-1) + " after it are free.", Facts: facts}
+}
+
+// countWord spells a small count the way a sentence does ("two"), and a larger one in
+// digits.
+func countWord(n int) string {
+	words := []string{"zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+		"nine", "ten", "eleven", "twelve"}
+	if n >= 0 && n < len(words) {
+		return words[n]
+	}
+	return strconv.Itoa(n)
+}
+
+// FoundingChip is the price card's chip: the free months, then the founding customers'
+// price lock. One string so the two sentences keep their space between them.
+func FoundingChip(freeMonths int) string {
+	free := LandingFreeMonthsLine(freeMonths).Text
+	if free == "" {
+		return LandingPriceLockedForLife.Text
+	}
+	return free + " " + LandingPriceLockedForLife.Text
 }
 
 // --- the steps -------------------------------------------------------------------

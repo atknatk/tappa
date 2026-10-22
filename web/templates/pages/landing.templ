@@ -2,6 +2,7 @@ package pages
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/atknatk/tappa/web/templates/layout"
 )
@@ -134,7 +135,7 @@ templ landingHero(v LandingView) {
 				<p class="heroSub">{ LandingHeroLede.Text }</p>
 				<p class="heroCreed"><s>No app.</s>{ nbsp }<s>No device.</s>{ nbsp }<s>No fingerprints.</s>{ nbsp }<b>Just tap.</b></p>
 				<div class="heroBtns">
-					<a class="lp-button lp-button--green" href={ templ.URL(v.SignupHref) }>Start free — { strconv.Itoa(v.FreeMonths) } months on us</a>
+					<a class="lp-button lp-button--green" href={ templ.URL(v.SignupHref) }>Start free</a>
 					<a class="lp-button lp-button--ghost" id="demoOpen" href="#how">
 						@landingPlayIcon()
 						Watch demo
@@ -759,7 +760,7 @@ templ priceCard(c priceCardOpts) {
 			if c.ExampleMonthly != "" {
 				<p class="lp-priceNote">A { strconv.Itoa(c.ExampleHeadcount) }-person chain runs on { "€" + c.ExampleMonthly }/month.</p>
 			}
-			<span class="lp-priceOffer">FOUNDING OFFER: first { strconv.Itoa(c.FreeMonths) } months free · { LandingPriceLockedForLife.Text }</span>
+			<span class="lp-priceOffer">{ FoundingChip(c.FreeMonths) }</span>
 		</div>
 		<ul class="lp-priceList">
 			for _, l := range LandingPricingIncludes {
@@ -851,8 +852,8 @@ templ signOff(freeMonths int, signupHref string) {
 				<span class="lp-pilotRing lp-pilotRing--one" aria-hidden="true"></span>
 				<span class="lp-pilotRing lp-pilotRing--two" aria-hidden="true"></span>
 				<h2 class="lp-pilotTitle">Go punchless.</h2>
-				<p class="lp-pilotLine">Start yourself today — first { strconv.Itoa(freeMonths) } months free.</p>
-				<a class="lp-button lp-button--paper lp-pilotBtn" href={ templ.URL(signupHref) }>Start free — { strconv.Itoa(freeMonths) } months</a>
+				<p class="lp-pilotLine">{ strings.TrimSpace("Start yourself today. " + LandingFreeMonthsLine(freeMonths).Text) }</p>
+				<a class="lp-button lp-button--paper lp-pilotBtn" href={ templ.URL(signupHref) }>Start free</a>
 			</div>
 		</div>
 	</section>
@@ -939,7 +940,7 @@ templ landingDemoDialog(v LandingView) {
 					</p>
 					if v.SignupHref != "" {
 						<a class="lp-button lp-button--green demoSoonCta" href={ templ.URL(v.SignupHref) }>
-							Start free — { strconv.Itoa(v.FreeMonths) } months on us
+							Start free
 						</a>
 					}
 				</div>
