@@ -444,7 +444,24 @@ func TestLandingCSS_EveryPressableClassReservesTheTouchFloor(t *testing.T) {
 			t.Errorf("%s reserves min-height %dpx; a pressable class here reserves %dpx", sel, best, floor)
 		}
 	}
+	// AND THE WIDTH, for a link whose word can be shorter than the floor (LP-07: the
+	// security page's "Terms" measured 43 x 44).
+	for sel, floor := range map[string]int{".lp .flink": 44} {
+		best := 0
+		for _, r := range landingCSSRulesFor(rules, sel) {
+			if m := cssMinWidthRE.FindStringSubmatch(r.decls); m != nil {
+				if n, err := strconv.Atoi(m[1]); err == nil && n > best {
+					best = n
+				}
+			}
+		}
+		if best < floor {
+			t.Errorf("%s reserves min-width %dpx; a link whose word can be short reserves %dpx", sel, best, floor)
+		}
+	}
 }
+
+var cssMinWidthRE = regexp.MustCompile(`(?:^|;)\s*min-width\s*:\s*(\d+)px`)
 
 // lpSpacingRE finds a padding/margin declaration in a .lp rule (the order check only;
 // whether the value is right is boxOf's question).

@@ -2047,7 +2047,7 @@ html:has(.lp) { scroll-behavior: smooth; }
 .lp .more:hover { color: var(--ink); }
 .lp .more:active { color: var(--ink); text-decoration-thickness: 2px; }
 /* Legal links: mono, uppercase, underlined. */
-.lp .flink { display: inline-flex; align-items: center; min-height: 44px; font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); text-decoration: underline; text-underline-offset: 4px; }
+.lp .flink { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); text-decoration: underline; text-underline-offset: 4px; }
 .lp .flink:hover { color: var(--ink); }
 .lp .flink:active { color: var(--ink); text-decoration-thickness: 2px; }
 /* Footer columns (Product, Legal). */
@@ -2954,7 +2954,9 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-secKeepText .mono { font-size: 12px; line-height: 1.45; }
 
 /* The scale and the radius: SVG, coloured by token. */
-.lp .lp-secScale { display: block; width: 100%; height: auto; overflow: visible; }
+/* At most its viewBox wide, so the labels inside it stay at their 10-11px instead of
+   growing with a full-width card (the drawing spans the row on the tablet). */
+.lp .lp-secScale { display: block; width: 100%; max-width: 348px; height: auto; overflow: visible; }
 .lp .lp-secScaleMark { font-family: var(--mono); font-size: 11px; font-weight: 700; }
 .lp .lp-secScaleTick { font-family: var(--mono); font-size: 10px; }
 .lp .lp-secRadius { display: block; width: 100%; max-width: 320px; height: auto; margin: 0 auto; }
@@ -2983,7 +2985,7 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-rules { list-style: none; }
 .lp .lp-rule { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px 0; border-top: 1px dashed var(--line); font-size: 14.5px; line-height: 1.45; }
 .lp .lp-ruleEnd { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.lp .lp-ruleNote { font-size: 11px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-ruleNote { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; color: rgb(var(--ink-ch) / .7); }
 .lp .lp-ladderSide { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .lp .lp-secTrust { display: flex; flex-direction: column; gap: 12px; margin-bottom: 7px; padding: 20px; }
 .lp .lp-secTrustRows div { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px dashed var(--line); font-size: 13px; }
@@ -3007,6 +3009,9 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-secTicks { list-style: none; display: flex; flex-direction: column; gap: 12px; max-width: 760px; margin-top: 24px; }
 .lp .lp-secTicks li { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; line-height: 1.55; }
 
+/* A section with no lede: the board's space between the heading and what follows. */
+.lp .lp-secH2Solo { margin-bottom: 36px; }
+
 /* ---------------- text beside a drawing ---------------- */
 .lp .lp-secPair { display: flex; flex-direction: column; gap: 28px; }
 .lp .lp-secText { display: flex; flex-direction: column; gap: 14px; max-width: 600px; }
@@ -3028,7 +3033,7 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-secCardKick { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--green); }
 
 /* ---------------- hosting ---------------- */
-.lp .lp-secHost { display: flex; flex-direction: column; gap: 18px; max-width: 760px; padding: 24px 20px; }
+.lp .lp-secHost { display: flex; flex-direction: column; gap: 18px; padding: 24px 20px; }
 .lp .lp-secHostIco { width: 56px; height: 56px; border-radius: 14px; }
 .lp .lp-secHostText { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .lp .lp-secHostText p { font-size: 15.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
@@ -3040,6 +3045,12 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
   .lp .lp-secProof { grid-template-columns: 260px minmax(0, 1fr); gap: 28px; }
   .lp .lp-secProof > .lp-secDraw { grid-column: 1 / -1; }
   .lp .lp-secKeeps { flex-direction: row; }
+  .lp .lp-secLegend { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 16px; }
+  .lp .lp-secPairDockets { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  /* Two dockets side by side are narrow on the tablet: the venue takes its own line and
+     the tilted stamp sits under it, rather than its corner meeting the venue's words. */
+  .lp .lp-secPairDockets .lp-secDocketTop { flex-direction: column; gap: 6px; }
+  .lp .lp-secH2Solo { margin-bottom: 44px; }
   .lp .lp-rule { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; }
   .lp .lp-ruleEnd { justify-content: flex-end; }
   .lp .lp-ladderSide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 16px; }
@@ -3060,4 +3071,6 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
   .lp .lp-secFlow { display: grid; grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) 16px minmax(0, 1fr) 16px minmax(0, 1.1fr); align-items: center; padding: 24px; }
   .lp .lp-secFlowArrow svg { transform: none; }
   .lp .lp-secPair { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 56px; }
+  .lp .lp-secPairDockets .lp-secDocketTop { flex-direction: row; gap: 8px; }
+  .lp .lp-secH2Solo { margin-bottom: 52px; }
 }

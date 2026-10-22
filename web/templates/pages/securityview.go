@@ -255,18 +255,17 @@ const (
 // widened for a drawing.
 var SecurityHeroDocket = LandingPanelPassDockets[0]
 
-// SecurityGPSChip is the hero's fourth chip, for SecurityHeroDocket's "GPS no".
-const SecurityGPSChip = "Asked · none given"
-
 // SecurityRule is one rung of a ladder card: what happens, which engine statements
 // decide it (Sids), and what it ends in. Verdict is the verdict's code ("ok", "flag",
 // "reject", "ignored") or "" when there is none, and Note is the small mono text
 // beside it ("" for none).
 type SecurityRule struct {
 	Sids    []string
-	Text    string
+	Text    Line
 	Verdict string
-	Note    string
+	// Note is the rung's small text beside its stamp; a Line with no Text when there is
+	// none.
+	Note Line
 }
 
 // SecurityNamed is a statement of the engine the page names in a sentence rather than
@@ -280,8 +279,26 @@ type SecurityNamed struct {
 // SecurityCopy. Every Line field is collected by internal/handler's tests by
 // reflection, so a Line added here is checked for its pins and for being rendered.
 type SecurityText struct {
-	// The opening.
-	Server Line
+	// The opening, and the four chips of its sample check (ChipGPS matches
+	// SecurityHeroDocket's "GPS no").
+	Server      Line
+	ChipSUN     Line
+	ChipSession Line
+	ChipIP      Line
+	ChipGPS     Line
+
+	// The four proofs' headings under the hood, the activation drawing's label and the
+	// small headings of the ladder and privacy cards: each says something about the
+	// product, so each is a Line.
+	LinkTitle       Line
+	PersonTitle     Line
+	PlaceTitle      Line
+	BackupTitle     Line
+	ActivationLabel Line
+	DebounceTitle   Line
+	FingerTitle     Line
+	LocationTitle   Line
+	CookiesTitle    Line
 
 	// The four proofs.
 	ProofsLede Line
@@ -402,24 +419,54 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 		{Sid: "base:ctr-gap-review", Phrase: "a tap after reads of the plaque the server never saw"},
 	}
 	noted := SecurityNamed{Sid: "base:cross-location-note", Phrase: "note a tap at another of your venues without judging it"}
+	// l is a Line: the rungs' words carry their pins like every other sentence, and the
+	// ladder test holds each rung's stamp to the statement that decides it.
+	l := func(text string, facts ...Fact) Line { return Line{Text: text, Facts: facts} }
 	guards := []SecurityRule{
-		{Sids: []string{"sys:tag-not-active"}, Text: "Plaque not in service", Verdict: securityReject},
-		{Sids: []string{"sys:sun-invalid"}, Text: "Signature fails, or the counter did not move", Verdict: securityReject},
-		{Sids: []string{"sys:no-session"}, Text: "No session on this phone", Note: "activation page · nothing recorded"},
-		{Sids: []string{"sys:employee-deactivated"}, Text: "Account switched off", Verdict: securityReject, Note: "security event"},
-		{Sids: []string{"sys:person-debounce"}, Text: "Same person again within " + debounce, Verdict: securityIgnored},
+		{Sids: []string{"sys:tag-not-active"}, Verdict: securityReject,
+			Text: l("Plaque not in service", FactGuardrailsAreTheList, FactPlaqueCanBeReplaced)},
+		{Sids: []string{"sys:sun-invalid"}, Verdict: securityReject,
+			Text: l("Signature fails, or the counter did not move", FactGuardrailsAreTheList, FactCopiedLinkIsRefused)},
+		{Sids: []string{"sys:no-session"},
+			Text: l("No session on this phone", FactGuardrailsAreTheList, FactActivationEndsOnARealTap),
+			Note: l("activation page · nothing recorded", FactGuardrailsAreTheList, FactActivationEndsOnARealTap)},
+		{Sids: []string{"sys:employee-deactivated"}, Verdict: securityReject,
+			Text: l("Account switched off", FactGuardrailsAreTheList, FactDeactivatedPersonIsRefused),
+			Note: l("security event", FactDeactivatedTapIsASecurityEvent)},
+		{Sids: []string{"sys:person-debounce"}, Verdict: securityIgnored,
+			Text: l("Same person again within "+debounce, FactGuardrailsAreTheList, FactDebounceIsPerPersonOnTheServerClock)},
 	}
 	baseline := []SecurityRule{
-		{Sids: []string{"base:ip-or-gps-ok", "base:gps-only-allow"}, Text: "Venue network matched, or GPS inside the radius", Verdict: securityOK},
-		{Sids: []string{"base:gps-conflict-review"}, Text: "GPS read, but outside the radius", Verdict: securityFlag},
-		{Sids: []string{"base:qr-requires-ip"}, Text: "QR code without the venue network", Verdict: securityFlag},
-		{Sids: []string{"base:no-evidence-review"}, Text: "Neither network nor GPS", Verdict: securityFlag},
+		{Sids: []string{"base:ip-or-gps-ok", "base:gps-only-allow"}, Verdict: securityOK,
+			Text: l("Venue network matched, or GPS inside the radius", FactBaselineCanBeChanged, FactGPSAloneApprovesATap)},
+		{Sids: []string{"base:gps-conflict-review"}, Verdict: securityFlag,
+			Text: l("GPS read, but outside the radius", FactBaselineCanBeChanged, FactFarPositionIsReviewed)},
+		{Sids: []string{"base:qr-requires-ip"}, Verdict: securityFlag,
+			Text: l("QR code without the venue network", FactBaselineCanBeChanged, FactCodelessTapNeedsAddress)},
+		{Sids: []string{"base:no-evidence-review"}, Verdict: securityFlag,
+			Text: l("Neither network nor GPS", FactBaselineCanBeChanged, FactFlaggedQueueDecidedByAManager)},
 	}
 	return SecurityText{
 		Server: Line{
 			Text:  "The checks run in the server, not on the phone.",
 			Facts: []Fact{FactChecksRunOnTheServer, FactRulesRunInOrder},
 		},
+		ChipSUN:     l("SUN valid ✓", FactSignatureLengthAndKey, FactCopiedLinkIsRefused),
+		ChipSession: l("Known person ✓", FactSessionTokenIsStoredHashed),
+		ChipIP:      l("IP match ✓", FactAddressIsTheRequestsOwn),
+		ChipGPS:     l("Asked · none given", FactPositionReadOnlyOnPress),
+
+		LinkTitle:       l("A link that works once", FactCopiedLinkIsRefused),
+		PersonTitle:     l("One phone, one person", FactSessionTokenIsStoredHashed, FactActivationEndsOnARealTap),
+		PlaceTitle:      l("A network list too wide to mean anything is ignored", FactWideAddressListIsNoEvidence),
+		BackupTitle:     l("One position, only at the tap", FactPositionReadOnlyOnPress),
+		ActivationLabel: l("Activation · once per phone", FactActivationEndsOnARealTap),
+		DebounceTitle:   l("Debounce is per person", FactDebounceIsPerPersonOnTheServerClock),
+		// 🔴 THE DENIAL IS ON THE SAME LINE AS THE WORD (scripts/redline-check.sh R1).
+		FingerTitle:   l("No fingerprints, no face scans", FactNoAuthenticatorAPI),
+		LocationTitle: l("No background location", FactPositionReadOnlyOnPress),
+		CookiesTitle:  l("No ad or analytics cookies", FactNoAdOrAnalyticsCookies),
+
 		ProofsLede: Line{
 			Text: "Moment, person, place — and a backup for place, for when the network can't answer.",
 			Facts: []Fact{FactCopiedLinkIsRefused, FactSessionTokenIsStoredHashed, FactAddressIsTheRequestsOwn,
@@ -557,7 +604,9 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 		},
 		Guardrails: guards,
 		Baseline:   baseline,
-		Default:    SecurityRule{Text: "No rule above decided the tap", Verdict: securityFlag, Note: "queued for a manager"},
+		Default: SecurityRule{Verdict: securityFlag,
+			Text: l("No rule above decided the tap", FactUndecidedTapIsFlagged),
+			Note: l("queued for a manager", FactFlaggedQueueDecidedByAManager)},
 		DefaultLabel: Line{
 			Text:  "Built in · the engine's own last rung",
 			Facts: []Fact{FactUndecidedTapIsFlagged, FactRulesRunInOrder},

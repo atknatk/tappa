@@ -575,13 +575,18 @@ var LandingSetupLede = Line{
 	Facts: []Fact{FactTapPageNeedsNoApp, FactPlaqueIsPassive},
 }
 
-// LandingSecurityLede sits under "Four proofs on every single tap." — the four
-// signals are the four cards below it, and "before it lands in your records" is
-// §4.6: a tap that cannot be verified is still written, marked, and queued.
+// LandingSecurityLede sits under "Four checks behind every tap." -- the four checks
+// are the four cards below it, and "before it lands in your records" is §4.6: a tap
+// that cannot be verified is still written, marked, and queued.
+//
+// "UP TO FOUR" AND "CHECKS" ARE THE ORCHESTRATOR'S CORRECTION (LP-07, 2026-10-22). It
+// said "scored against four independent signals", which a QR check-in contradicts: it
+// carries no signature, and a phone may give no position. The heading said "Four
+// proofs on every single tap." for the same reason, and both pages now say "checks".
 var LandingSecurityLede = Line{
-	Text: "A tap isn't trusted — it's verified. Each clock-in is scored against four " +
-		"independent signals before it lands in your records.",
-	Facts: []Fact{FactFlaggedQueueDecidedByAManager},
+	Text: "A tap isn't trusted — it's verified. Each clock-in is checked against up to four " +
+		"signals before it lands in your records.",
+	Facts: []Fact{FactFlaggedQueueDecidedByAManager, FactRulesRunInOrder},
 }
 
 // LandingPrivacyNote is the green box under the four cards: §4.1 and §4.2 (the

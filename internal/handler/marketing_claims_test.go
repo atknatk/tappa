@@ -785,7 +785,7 @@ func TestLandingLedger_KeepsItsRolesWhenThePhoneRestacksIt(t *testing.T) {
 }
 
 // TestLandingEvidence_EveryPieceIsRendered pins CLAUDE.md §5's four pieces of
-// evidence as the four cards under "Four proofs on every single tap."
+// evidence as the four cards under "Four checks behind every tap."
 //
 // EACH ENTRY IS THREE STRINGS AND ALL THREE ARE CHECKED, IN ORDER. The Body is
 // where each card's LIMIT is written — that a code seen twice is refused, that a
@@ -797,10 +797,12 @@ func TestLandingEvidence_EveryPieceIsRendered(t *testing.T) {
 
 	if n := len(pages.LandingEvidence); n != 4 {
 		t.Fatalf("LandingEvidence carries %d card(s); CLAUDE.md §5's four pieces of evidence "+
-			"are four, and the page prints \"Four proofs\" over them", n)
+			"are four, and the page prints \"Four checks\" over them", n)
 	}
-	if !strings.Contains(text, "Four proofs") {
-		t.Error("the security section no longer prints \"Four proofs\", so the count " +
+	// "Four checks", not "Four proofs" (LP-07, 2026-10-22): a QR check-in carries no
+	// signature and a phone may give no position, so not every tap carries four proofs.
+	if !strings.Contains(text, "Four checks") {
+		t.Error("the security section no longer prints \"Four checks\", so the count " +
 			"asserted above is no longer the count the visitor is given")
 	}
 

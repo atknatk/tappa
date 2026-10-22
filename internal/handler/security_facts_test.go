@@ -1177,47 +1177,92 @@ func sameSecuritySources(a, b securityFactSources) bool {
 
 // --- the page's copy -----------------------------------------------------------------
 
-// securityLines is every stand-alone sentence the security page renders from a
-// pages.Line: every Line field of its SecurityText (read by reflection, so a field added
-// there is checked without a list to keep), the landing's values it repeats, and the
-// sign-off's free months.
+// securityLines is every sentence the security page renders from a pages.Line: every
+// Line its SecurityText carries, at any depth (a field, a rung's words and note, a Line
+// in a slice), read by reflection so a Line added there is checked without a list to
+// keep; the landing's values it repeats; and the sign-off's free months. A Line with no
+// Text is a rung with no note and renders nothing.
 func securityLines() map[string]pages.Line {
-	c := pages.SecurityCopy(securityFigures())
 	out := map[string]pages.Line{
 		"LandingSecurityLede":       pages.LandingSecurityLede,
 		"LandingPrivacyNote":        pages.LandingPrivacyNote,
 		"LandingPricingIncludes[4]": pages.LandingPricingIncludes[4],
 		"LandingFreeMonthsLine":     pages.LandingFreeMonthsLine(foundingFreeMonths),
 	}
-	v := reflect.ValueOf(c)
-	lineType := reflect.TypeOf(pages.Line{})
-	for i := 0; i < v.NumField(); i++ {
-		if v.Field(i).Type() == lineType {
-			out["SecurityText."+v.Type().Field(i).Name] = v.Field(i).Interface().(pages.Line)
-		}
-	}
+	collectLines(reflect.ValueOf(pages.SecurityCopy(securityFigures())), "SecurityText", out)
 	return out
 }
 
-// TestSecurityLines_EveryLineFieldIsCollected: the reflection above reads every Line of
-// the page, and a Line left empty is not a sentence. CONTROL: the count is the struct's.
-func TestSecurityLines_EveryLineFieldIsCollected(t *testing.T) {
-	t.Parallel()
-	typ := reflect.TypeOf(pages.SecurityText{})
-	want := 0
-	for i := 0; i < typ.NumField(); i++ {
-		if typ.Field(i).Type == reflect.TypeOf(pages.Line{}) {
-			want++
+var lineType = reflect.TypeOf(pages.Line{})
+
+// collectLines adds every non-empty pages.Line inside v to out, by its path.
+func collectLines(v reflect.Value, path string, out map[string]pages.Line) {
+	switch {
+	case v.Type() == lineType:
+		if l := v.Interface().(pages.Line); l.Text != "" {
+			out[path] = l
+		}
+	case v.Kind() == reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			collectLines(v.Field(i), path+"."+v.Type().Field(i).Name, out)
+		}
+	case v.Kind() == reflect.Slice || v.Kind() == reflect.Array:
+		for i := 0; i < v.Len(); i++ {
+			collectLines(v.Index(i), path+"["+strconv.Itoa(i)+"]", out)
 		}
 	}
+}
+
+// unreachableLines names every place in t a pages.Line could hide from collectLines:
+// behind a pointer, a map, an interface, a func or a channel.
+func unreachableLines(t reflect.Type, path string) []string {
+	if t == lineType {
+		return nil
+	}
+	switch t.Kind() {
+	case reflect.Struct:
+		var out []string
+		for i := 0; i < t.NumField(); i++ {
+			out = append(out, unreachableLines(t.Field(i).Type, path+"."+t.Field(i).Name)...)
+		}
+		return out
+	case reflect.Slice, reflect.Array:
+		return unreachableLines(t.Elem(), path+"[]")
+	case reflect.Pointer, reflect.Map, reflect.Interface, reflect.Func, reflect.Chan:
+		return []string{path + " is a " + t.String() + ", which collectLines does not walk"}
+	}
+	return nil
+}
+
+// TestSecurityLines_EveryLineIsCollected: the walk above reaches every Line of the page
+// -- the fields, the rungs' words and notes -- and no field's type could hide one from
+// it. CONTROLS: a struct with a *Line and a map of Lines is refused twice.
+func TestSecurityLines_EveryLineIsCollected(t *testing.T) {
+	t.Parallel()
+	for _, p := range unreachableLines(reflect.TypeOf(pages.SecurityText{}), "SecurityText") {
+		t.Error(p)
+	}
 	lines := securityLines()
-	if want < 40 || len(lines) != want+4 {
-		t.Fatalf("securityLines collects %d line(s) for %d Line field(s) and four landing values", len(lines), want)
+	if len(lines) < 70 {
+		t.Fatalf("securityLines collects %d line(s); the page carries more", len(lines))
+	}
+	for _, want := range []string{"SecurityText.Guardrails[0].Text", "SecurityText.Guardrails[2].Note",
+		"SecurityText.Default.Note", "SecurityText.FingerTitle", "SecurityText.ChipGPS"} {
+		if _, ok := lines[want]; !ok {
+			t.Errorf("securityLines does not reach %s", want)
+		}
 	}
 	for name, l := range lines {
 		if strings.TrimSpace(l.Text) == "" {
 			t.Errorf("%s is empty", name)
 		}
+	}
+	type hidden struct {
+		A *pages.Line
+		B map[string]pages.Line
+	}
+	if len(unreachableLines(reflect.TypeOf(hidden{}), "hidden")) != 2 {
+		t.Error("CONTROL: a *Line and a map of Lines passed the reachability check")
 	}
 }
 
@@ -1233,18 +1278,18 @@ func ladderProblems(c pages.SecurityText, gs []policy.Guardrail, docs []policy.B
 		for _, sid := range r.Sids {
 			g := guardBySid(gs, sid)
 			if g == nil {
-				out = append(out, "the rung "+strconv.Quote(r.Text)+" names "+sid+", which is not a guardrail")
+				out = append(out, "the rung "+strconv.Quote(r.Text.Text)+" names "+sid+", which is not a guardrail")
 				continue
 			}
 			if guardEffectWord[g.Effect] != r.Verdict {
-				out = append(out, "the rung "+strconv.Quote(r.Text)+" ends in "+strconv.Quote(r.Verdict)+" and "+sid+
+				out = append(out, "the rung "+strconv.Quote(r.Text.Text)+" ends in "+strconv.Quote(r.Verdict)+" and "+sid+
 					" is "+string(g.Effect))
 			}
-			if g.Effect == policy.EffectRedirect && !strings.Contains(r.Note, "nothing recorded") {
-				out = append(out, "the rung "+strconv.Quote(r.Text)+" redirects and does not say nothing is recorded")
+			if g.Effect == policy.EffectRedirect && !strings.Contains(r.Note.Text, "nothing recorded") {
+				out = append(out, "the rung "+strconv.Quote(r.Text.Text)+" redirects and does not say nothing is recorded")
 			}
-			if g.Alert != nil && g.Alert(policy.Context{}) != "" && !strings.Contains(r.Note, "security event") {
-				out = append(out, "the rung "+strconv.Quote(r.Text)+" raises an alert and does not say so")
+			if g.Alert != nil && g.Alert(policy.Context{}) != "" && !strings.Contains(r.Note.Text, "security event") {
+				out = append(out, "the rung "+strconv.Quote(r.Text.Text)+" raises an alert and does not say so")
 			}
 		}
 	}
@@ -1298,11 +1343,11 @@ func ladderProblems(c pages.SecurityText, gs []policy.Guardrail, docs []policy.B
 			baseNamed[sid]++
 			st, ok := sts[sid]
 			if !ok {
-				out = append(out, "the rung "+strconv.Quote(r.Text)+" names "+sid+", which is not in the baseline")
+				out = append(out, "the rung "+strconv.Quote(r.Text.Text)+" names "+sid+", which is not in the baseline")
 				continue
 			}
 			if guardEffectWord[st.Effect] != r.Verdict {
-				out = append(out, "the rung "+strconv.Quote(r.Text)+" ends in "+strconv.Quote(r.Verdict)+" and "+sid+
+				out = append(out, "the rung "+strconv.Quote(r.Text.Text)+" ends in "+strconv.Quote(r.Verdict)+" and "+sid+
 					" is "+string(st.Effect))
 			}
 		}
@@ -1529,9 +1574,10 @@ func TestSecurityPage_SaysTheDecisionRulesAsTheFAQDoes(t *testing.T) {
 	// The hero's sample is a network match with no position (its chips say so), and the
 	// flow's is a tap with neither (its first step says so).
 	hero, flow := pages.SecurityHeroDocket, pages.LandingPanelPassDockets[2]
-	if hero.Channel != "nfc" || hero.IP != "yes" || hero.GPS != "no" || pages.SecurityGPSChip != "Asked · none given" {
+	chips := pages.SecurityCopy(securityFigures())
+	if hero.Channel != "nfc" || hero.IP != "yes" || hero.GPS != "no" || chips.ChipGPS.Text != "Asked · none given" {
 		t.Errorf("the hero's sample record is %+v with the chip %q; its chips say a signed tap, an address match "+
-			"and no position given", hero, pages.SecurityGPSChip)
+			"and no position given", hero, chips.ChipGPS.Text)
 	}
 	for _, p := range panelDocketProblems(hero, "") {
 		t.Errorf("the hero's sample record: %s", p)
@@ -1568,6 +1614,8 @@ var securityRefusedPhrasings = map[string]string{
 	"counter already past it":          "the strict comparison refuses an equal counter too",
 	"Backup · not needed":              "the tap page asks for a position on every press",
 	"never silently approved":          "an owner can write a rule that allows without evidence",
+	"Four proofs on every single tap":  "a QR check-in carries no signature and a phone may give no position",
+	"four independent signals":         "a QR check-in carries no signature and a phone may give no position",
 }
 
 // TestSecurityPage_SaysNoneOfTheRefusedPhrasings: the review's refused sentences are on
