@@ -542,3 +542,98 @@ func TestCheckin_BodyIsBounded(t *testing.T) {
 		t.Fatal("an oversized body reached the domain")
 	}
 }
+
+// TestParseWant_EveryShapeHasAReadingAndNoneIsARefusal is the want field's interpretation (ADR
+// 0032 §B.3): the values are collected, empty ones dropped; none left is no request; all equal
+// and in/out is that direction; a conflict or an unknown value is no request AND unusable (the
+// handler logs it). There is no error return to refuse with.
+func TestParseWant_EveryShapeHasAReadingAndNoneIsARefusal(t *testing.T) {
+	tests := []struct {
+		name     string
+		values   []string
+		want     string // "" = no request
+		unusable bool
+	}{
+		{"no field", nil, "", false},
+		{"an empty list", []string{}, "", false},
+		{"one empty value", []string{""}, "", false},
+		{"whitespace only", []string{"  "}, "", false},
+		{"in", []string{"in"}, "in", false},
+		{"out", []string{"out"}, "out", false},
+		{"out twice", []string{"out", "out"}, "out", false},
+		{"in twice", []string{"in", "in"}, "in", false},
+		{"empty beside out", []string{"", "out"}, "out", false},
+		{"in beside empty", []string{"in", ""}, "in", false},
+		{"padded out", []string{" out "}, "out", false},
+		{"in and out", []string{"in", "out"}, "", true},
+		{"out and in", []string{"out", "in"}, "", true},
+		{"out, out, in", []string{"out", "out", "in"}, "", true},
+		{"an unknown word", []string{"sideways"}, "", true},
+		{"capitals", []string{"OUT"}, "", true},
+		{"a known and an unknown", []string{"out", "sideways"}, "", true},
+		{"an unknown and a known", []string{"sideways", "out"}, "", true},
+		{"a manual direction word", []string{"manual"}, "", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, unusable := parseWant(tc.values)
+			s := ""
+			if got != nil {
+				s = string(*got)
+			}
+			if s != tc.want || unusable != tc.unusable {
+				t.Fatalf("parseWant(%q) = %q, unusable %v; want %q, %v", tc.values, s, unusable, tc.want, tc.unusable)
+			}
+		})
+	}
+}
+
+// TestCheckin_WantReachesTheDomainFromTheBodyOnly: the boundary hands the parsed want to the
+// domain as Request.RequestedDirection -- and only the BODY's. A want in the URL is not a press,
+// and an unusable one is nil, never a refusal (200 with the fake service).
+func TestCheckin_WantReachesTheDomainFromTheBodyOnly(t *testing.T) {
+	cases := []struct {
+		name  string
+		path  string
+		form  []string
+		want  string
+		calls int
+	}{
+		{"body out", "/api/checkin", []string{"out"}, "out", 1},
+		{"body in", "/api/checkin", []string{"in"}, "in", 1},
+		{"no want", "/api/checkin", nil, "", 1},
+		{"URL only", "/api/checkin?want=out", nil, "", 1},
+		{"body in, URL out", "/api/checkin?want=out", []string{"in"}, "in", 1},
+		{"conflict", "/api/checkin", []string{"in", "out"}, "", 1},
+		{"unknown", "/api/checkin", []string{"sideways"}, "", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &fakeCheckins{}
+			h, tp := newCheckinHandler(t, svc, fixedSessions())
+			res := fixedResolved()
+			form := url.Values{"ctx": {mintedContext(t, tp, res.ID, tapContext{
+				UID: "04AC7E55000601", Ctr: 7, Channel: "nfc", CMACVerified: true, TagTenantID: res.TenantID, LocationID: uuid.New(),
+			})}}
+			if tc.form != nil {
+				form["want"] = tc.form
+			}
+			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.RemoteAddr = "203.0.113.5:41234"
+			req.AddCookie(sessionCookie())
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			if w.Code != http.StatusOK || len(svc.calls) != tc.calls {
+				t.Fatalf("status %d, %d call(s): want 200 and one decision", w.Code, len(svc.calls))
+			}
+			got := ""
+			if d := svc.last(t).RequestedDirection; d != nil {
+				got = string(*d)
+			}
+			if got != tc.want {
+				t.Fatalf("RequestedDirection %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

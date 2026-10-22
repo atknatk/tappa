@@ -33,7 +33,7 @@ var DirectionSources = []DirectionSource{DirectionAuto, DirectionEmployee}
 //	an unknown value      one the CHECK refuses; not guessed at
 //
 // On a DIRECTED nfc or qr row a NULL means "before M15, the engine's choice" -- every such row
-// written before the column existed, or before M15-11's binary writes it -- and reads as
+// written before the column existed, or by a binary older than M15-11's -- and reads as
 // DirectionAuto. The column is never back-filled (CLAUDE.md §4.3), so this reading is made here,
 // at the reader, every time.
 //

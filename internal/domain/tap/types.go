@@ -569,8 +569,9 @@ type Input struct {
 	// There is no S when the switch is off (SwitchedDayCutoff -> nil DayCutoff) or when
 	// the cutoff or its zone cannot be resolved. The engine reads PredictDirection's
 	// BusinessDayStart for this; it does not check the switch itself, whose one gate
-	// stays SwitchedDayCutoff. The caller (M15-11) also passes nil while the switch is
-	// off.
+	// stays SwitchedDayCutoff. The caller (internal/domain/checkin's Record, M15-11)
+	// also passes nil while the switch is off: it hands the request over only when
+	// gather produced a cutoff, which is that gate's output.
 	RequestedDirection *Type
 
 	// DayCutoff is the person's resolved business-day cutoff and zone (ADR 0032
@@ -681,7 +682,8 @@ type Decision struct {
 	// and DirectionAuto otherwise (no request, or a request equal to D). The invariant
 	// is "recorded != D", never "a request arrived". "" exactly when Type is nil
 	// (reject, ignored, redirect). The caller writes it as transactions.direction_source
-	// (M15-11); the engine writes nothing.
+	// on a directed nfc/qr record (internal/domain/checkin's directionSourceColumn,
+	// M15-11); the engine writes nothing.
 	DirectionSource DirectionSource
 	// MissingIn is the checkout-without-check-in anchor (ADR 0032 §C.1, Faz C's
 	// check-in claim): the class this record has when read back (ClassifyCheckout) when

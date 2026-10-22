@@ -21,6 +21,13 @@ alındığında kartı önce detaylandırılır, sonra başlanır.
 - Kuyruktan gelen kayıt "queued" olarak işaretlenir ve raporda görünür.
 - Service worker + manifest gerekir; **Node yok** — el yazımı `sw.js`.
 - Kuyruk telefonun deposunda tutulur; oturum token'ı kuyruğa yazılmaz.
+- **(2026-10-22, M15-11 notu)** Kuyruk, basılan düğmenin `want` alanını (`in`/`out`,
+  ADR 0032 §B.3) gövdeyle birlikte **saklar** ve aynen yeniden gönderir; yeniden
+  gönderimde alan **bir kez** bulunur (iki değer çelişirse sunucu yok sayar ve motor
+  karar verir). Sunucu `want`'ı kişi kilidi altında, beyan edilen `occurred_at`
+  anındaki zincire ve iş gününe göre değerlendirir (ADR 0032 §A.4, ADR 0006); yayın
+  anahtarı ise sunucu saatiyle okunur (§A.8, F-2) — anahtar kapalıyken `want` yok
+  sayılır (§B.5).
 
 ---
 

@@ -532,7 +532,9 @@ func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *
 		dsSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 			// A source another package committed would be evidence this test may not drop -- it is
 			// set aside inside the savepoint (the append-only trigger off, NULLed, back on), and the
-			// rollback restores it. Until M15-11 no writer sets one.
+			// rollback restores it. Since M15-11 the tap path sets one on every directed nfc/qr
+			// row, so on a database other packages' tests have written to this branch is the
+			// ordinary one.
 			if opInt(t, ctx, sp, `SELECT count(*) FROM transactions WHERE direction_source IS NOT NULL`) > 0 {
 				for _, s := range []string{
 					`ALTER TABLE transactions DISABLE TRIGGER transactions_no_mutation`,

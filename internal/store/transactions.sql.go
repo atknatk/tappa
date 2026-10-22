@@ -999,7 +999,7 @@ type InsertTransactionParams struct {
 // -- 'auto' (the engine's D was recorded) or 'employee' (the person asked for the
 // other one and it was recorded). NULL for an undirected decision, for the manual
 // channel (the direction is the manager's; there is no 'manager' value) and for every
-// row before M15-11's insertParams writes it -- until then every caller passes NULL.
+// row written before M15-11, whose insertParams writes it on every directed nfc/qr tap.
 // On a directed nfc/qr row NULL reads as "before M15, the engine's choice"; the one
 // place that says so is tap.RecordedDirectionSource. Two NOT VALID CHECKs (00065,
 // validated by 00066) are the second safety. Neither manual statement has the
