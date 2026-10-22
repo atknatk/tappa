@@ -54,7 +54,9 @@ var markSessionPresent = uuid.UUID{0: 0x01}
 // policy decision and never a client claim:
 //   - Type (direction, M4-04, ADR 0032 §A.1): closes the person's last open
 //     check-in only within its business day and StaleOpenIn, else a new `in`;
-//     BusinessDayStart and LeftOpen come with it.
+//     BusinessDayStart and LeftOpen come with it. The person's request (§B.3,
+//     Input.RequestedDirection) replaces it where it differs — DirectionSource says
+//     who chose, MissingIn names a chosen checkout that closes nothing.
 //   - MinutesLate (M4-05): lateness against the resolved shift; report only.
 //   - Trust (M4-06): 20 + 50(IP) + 30(GPS); INDEPENDENT of the verdict.
 //   - Practice: ALWAYS false since ADR 0026 — the activating NFC tap replaced the
@@ -252,15 +254,24 @@ func Decide(in Input) Decision {
 	// pointer so "no direction" is unambiguous, types.go Decision.Type). Direction
 	// is resolved against the person's last OPEN check-in within this tap's
 	// BUSINESS DAY and StaleOpenIn (ADR 0032 §A.1) — never the calendar day.
+	//
+	// The person's request (ADR 0032 §B.3) is applied HERE and only here — after the
+	// verdict was decided and the trust score set, inside the directed branch — so it
+	// cannot reach the verdict, the trust score or the policy context, and an
+	// undirected decision drops it.
 	if dec.Verdict == VerdictOK || dec.Verdict == VerdictFlag {
 		r := resolveDirection(in)
 		dec.Type = &r.dir
+		dec.DirectionSource = r.source
 		dec.BusinessDayStart = r.dayStart
 		dec.LeftOpen = r.leftOpen
+		dec.MissingIn = r.missingIn
 		// Two languages for one fact (ADR 0032 §B.4): the record's note is for the
 		// manager and the report, the screen's for the person at the plaque.
-		dec.Note = appendNote(dec.Note, r.note)
-		dec.EmployeeNote = appendNote(dec.EmployeeNote, r.employeeNote)
+		for _, n := range r.notes {
+			dec.Note = appendNote(dec.Note, n.record)
+			dec.EmployeeNote = appendNote(dec.EmployeeNote, n.employee)
+		}
 		// NO PRACTICE TAP ANY MORE (ADR 0026). The first tap after activation used
 		// to be a TRAINING record that never counted toward hours (M4-06); the
 		// activation itself now happens on a physical NFC tap, which IS the
@@ -276,7 +287,9 @@ func Decide(in Input) Decision {
 	// employee's resolved shift (Input.Shift). It NEVER touches dec.Verdict — a
 	// late tap stays ok (§5). Computed AFTER direction because only a check-IN can
 	// be "late" (a checkout is not), and only ok/flag records carry a direction at
-	// all (reject/ignored/redirect keep Type nil -> MinutesLate stays nil).
+	// all (reject/ignored/redirect keep Type nil -> MinutesLate stays nil). It reads
+	// the RECORDED direction (ADR 0032 §B.4): a chosen `in` is a check-in and can be
+	// late, a chosen `out` over the engine's `in` is not.
 	dec.MinutesLate = lateness(in, dec.Type)
 
 	return dec
@@ -514,18 +527,40 @@ const LeftOpenNote = "previous check-in left open (no checkout recorded)"
 // annotation, so it is lower-case and has no full stop of its own.
 const LeftOpenEmployeeNote = "your previous clock-in has no clock-out"
 
-// direction is resolveDirection's answer: the direction, the business day it was
-// judged in, the check-in it left open, and that fact's two notes.
+// DirectionChosenNote is the RECORD's annotation (manager, report) on a record whose
+// direction the person chose against the engine's (ADR 0032 §B.4, DirectionEmployee).
+// Like LeftOpenNote it is evidence-free, appended after the deciding rule's sentence
+// and the left-open note, and exported for the partner-venue reader
+// (internal/domain/ledger's partnerKeptAnnotations).
+const DirectionChosenNote = "direction chosen by employee"
+
+// ChoseClockInEmployeeNote and ChoseClockOutEmployeeNote are the same fact in the words
+// the person at the plaque reads (Decision.EmployeeNote; ADR 0032 §B.4, Q33: human
+// language, the "clock in / clock out" vocabulary of the buttons). They follow the
+// rule's sentence after "; " like every annotation, so they are lower-case and have no
+// full stop of their own (LeftOpenEmployeeNote's convention).
+const (
+	ChoseClockInEmployeeNote  = "you chose to clock in"
+	ChoseClockOutEmployeeNote = "you chose to clock out"
+)
+
+// note is one annotation in its two languages (ADR 0032 §B.4).
+type note struct{ record, employee string }
+
+// direction is resolveDirection's answer: the recorded direction and who chose it, the
+// business day it was judged in, the check-in it left open, the checkout-without-
+// check-in anchor, and the annotations, in the order they are appended.
 type direction struct {
-	dir          Type
-	dayStart     *time.Time
-	leftOpen     *LeftOpen
-	note         string
-	employeeNote string
+	dir       Type
+	source    DirectionSource
+	dayStart  *time.Time
+	leftOpen  *LeftOpen
+	missingIn CheckoutClass
+	notes     []note
 }
 
-// resolveDirection decides whether this tap is a check-IN or check-OUT — ADR 0032
-// §A.1's table, in its order:
+// PredictDirection is the engine's direction D for a tap at `at` — ADR 0032 §A.1's
+// table, in its order:
 //
 //	no open check-in (or a practice one)          -> in
 //	open.OccurredAt > at (an out-of-order claim)  -> in
@@ -537,8 +572,10 @@ type direction struct {
 // the order changes only LeftOpen.Reason — previous business day when both hold, the
 // classification's a ∧ b → b.)
 //
-// `at` IS THE TAP'S INSTANT, tapInstant(in) — the declared occurred_at when the
-// client stated one, the server's Now otherwise (ADR 0032 §A.4). Until ADR 0032 the
+// `at` IS THE TAP'S INSTANT — Decide passes tapInstant(in): the declared occurred_at
+// when the client stated one, the server's Now otherwise (ADR 0032 §A.4); GET /t passes
+// the server's now (M15-12). `open` is the person's last open check-in at `at`
+// (Input.LastOpenIn), `cutoff` the switched cutoff (SwitchedDayCutoff). Until ADR 0032 the
 // 18 h comparison read in.Now, so an offline-queued Monday 17:00 checkout arriving
 // on Tuesday was measured from Tuesday. GetLastOpenTransaction is bounded by the
 // same instant (@at), so `open` is the check-in open AT the tap.
@@ -546,7 +583,7 @@ type direction struct {
 // THE BUSINESS DAY IS NOT A CALENDAR DAY. S(at) is the latest cutoff wall clock at
 // or before `at` (BusinessDayStart), so with a 05:00 cutoff the Rusty Bar 02:10 exit
 // is in the business day that started at 05:00 the previous morning and closes the
-// 18:05 entry. No cutoff (Input.DayCutoff nil, or unresolvable) leaves StaleOpenIn
+// 18:05 entry. No cutoff (nil, or unresolvable) leaves StaleOpenIn
 // alone — the engine never invents 05:00. All arithmetic is on UTC instants (§6);
 // the wall clock enters only through time.Date(…, loc) inside BusinessDayStart.
 //
@@ -575,29 +612,88 @@ type direction struct {
 //
 // EVERY `out` THIS RETURNS IS A CHECKOUT ClassifyCheckout CALLS "closes" when it is
 // read back with the open check-in as its predecessor and this business day as its
-// own — the engine never writes a (b) or an (a) (ADR 0032 §A.6); a test pins it.
-func resolveDirection(in Input) direction {
-	at := tapInstant(in)
-	r := direction{dir: TypeIn}
-	if in.DayCutoff != nil {
-		if s, ok := BusinessDayStart(at, *in.DayCutoff); ok {
-			r.dayStart = &s
+// own — the engine never writes a (b) or an (a) (ADR 0032 §A.6); a test pins it. Only
+// the person's choice can (resolveDirection, MissingIn).
+//
+// ONE FUNCTION FOR THE SCREEN AND THE RECORD (ADR 0032 §B.2). GET /t calls it to say
+// the direction on the button, and resolveDirection calls it to decide the record, so
+// the two cannot be decided by two rules; a property test sweeps them together and a
+// source test pins the call. It is pure, like Decide.
+func PredictDirection(at time.Time, open *Transaction, cutoff *DayCutoff) Prediction {
+	p := Prediction{Direction: TypeIn}
+	if cutoff != nil {
+		if s, ok := BusinessDayStart(at, *cutoff); ok {
+			p.BusinessDayStart = &s
 		}
 	}
-	open := in.LastOpenIn
 	if open == nil || open.Practice || open.OccurredAt.After(at) {
-		return r
+		return p
 	}
 	switch {
-	case r.dayStart != nil && open.OccurredAt.Before(*r.dayStart):
-		r.leftOpen = &LeftOpen{ID: open.ID, Reason: LeftOpenPreviousBusinessDay}
+	case p.BusinessDayStart != nil && open.OccurredAt.Before(*p.BusinessDayStart):
+		p.LeftOpen = &LeftOpen{ID: open.ID, Reason: LeftOpenPreviousBusinessDay}
 	case at.Sub(open.OccurredAt) > StaleOpenIn:
-		r.leftOpen = &LeftOpen{ID: open.ID, Reason: LeftOpenStale}
+		p.LeftOpen = &LeftOpen{ID: open.ID, Reason: LeftOpenStale}
 	default:
-		r.dir = TypeOut
-		return r
+		p.Direction = TypeOut
 	}
-	r.note, r.employeeNote = LeftOpenNote, LeftOpenEmployeeNote
+	return p
+}
+
+// resolveDirection is the RECORDED direction (ADR 0032 §B.3): the engine's D
+// (PredictDirection at the tap's instant), or the person's request where it differs.
+//
+//	no request, or a request equal to D   -> D, DirectionAuto
+//	a request (in|out) other than D        -> the request, DirectionEmployee
+//
+// "employee" means "recorded != D" and nothing weaker: a request that agrees with the
+// engine is the engine's choice too, and an unknown value is no request.
+//
+// WHAT A CHOICE LEAVES BEHIND, each one an anchor for Faz C (§C.1):
+//
+//	D = out, chosen in   the open check-in the tap would have closed stays open —
+//	                     LeftOpen{open, LeftOpenEmployeeChoice} and the left-open note
+//	                     (the split shift: 11:00 in, 18:00 "Not right? Clock in")
+//	D = in,  chosen out  nothing is left open by an `in` (LeftOpen nil); the out is read
+//	                     back by ClassifyCheckout, and when it closes nothing — (b) or
+//	                     (c) — it is the checkout-without-check-in anchor (MissingIn)
+//
+// THE CHOSEN OUT'S PREDECESSOR. It is read from the same facts D was: an open check-in
+// D left open is the event right before the tap (GetLastOpenTransaction returns an `in`
+// with no `out` after it, so nothing directed lies between); with none, the event
+// before is an `out` or nothing, and either is "not an in". W — that predecessor
+// written LATER than this record — is false for the record being written now, so
+// (e) cannot arise here and I is not needed.
+func resolveDirection(in Input) direction {
+	at := tapInstant(in)
+	p := PredictDirection(at, in.LastOpenIn, in.DayCutoff)
+	r := direction{dir: p.Direction, source: DirectionAuto, dayStart: p.BusinessDayStart, leftOpen: p.LeftOpen}
+	if req := in.RequestedDirection; req != nil && (*req == TypeIn || *req == TypeOut) && *req != p.Direction {
+		r.dir, r.source = *req, DirectionEmployee
+		if r.dir == TypeIn {
+			// D was out, so PredictDirection saw a closable open check-in.
+			r.leftOpen = &LeftOpen{ID: in.LastOpenIn.ID, Reason: LeftOpenEmployeeChoice}
+		} else {
+			var prev *Prev
+			if p.LeftOpen != nil {
+				prev = &Prev{Direction: TypeIn, At: in.LastOpenIn.OccurredAt}
+			}
+			r.leftOpen = nil
+			if c := ClassifyCheckout(prev, false, at, p.BusinessDayStart); c == CheckoutOtherDay || c == CheckoutOrphan {
+				r.missingIn = c
+			}
+		}
+	}
+	if r.leftOpen != nil {
+		r.notes = append(r.notes, note{LeftOpenNote, LeftOpenEmployeeNote})
+	}
+	if r.source == DirectionEmployee {
+		chose := ChoseClockOutEmployeeNote
+		if r.dir == TypeIn {
+			chose = ChoseClockInEmployeeNote
+		}
+		r.notes = append(r.notes, note{DirectionChosenNote, chose})
+	}
 	return r
 }
 

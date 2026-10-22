@@ -299,6 +299,16 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
   değildir. İş günü kuralı yalnız yayın anahtarı `TAPPA_BUSINESS_DAY_FROM` etkinken
   (sunucunun saati ≥ değer) uygulanır; anahtar yokken yalnız 18 sa kuralı geçerlidir
   (ADR 0032 §A.8).
+  Çalışan tap ekranında tahmini yönü değiştirebilir (ADR 0032 §B.3): iki düğme de açık
+  bir yön gönderir, motor kilit altında kendi yönü D'yi hesaplar (`tap.PredictDirection`
+  — `GET /t`'nin tahmini aynı fonksiyondur) ve kayıt istenen yöndür.
+  `direction_source='employee'` ⇔ kaydedilen yön ≠ D (D'ye eşit istek `auto`); verdict,
+  güven puanı ve politika bağlamı değişmez, geç kalma kaydedilen yöne göre ölçülür,
+  `reject`/`ignored` isteği düşürür; kayıt notu *"direction chosen by employee"*,
+  çalışanın ekranı *"you chose to clock in / out"*. İstek yalnız yayın anahtarı etkinken
+  uygulanır (§B.5). Rapor bir çıkışı yalnız kendi iş gününün ve 18 saatin içindeki
+  girişle eşler; iş günü anı olmayan satırlar (manuel ve M15 öncesi) yalnız 18 sa
+  kuralıyla eşlenir.
 - **Geç kalma** çalışanın KENDİ vardiyasına göre: departman vardiyası varsa o,
   yoksa **tap edilen** lokasyonun vardiyası (profildeki lokasyon değil — zincirde
   şube değişimi normaldir). Farklı şubede tap nota işlenir, raporda ayrı görünür.
