@@ -1709,6 +1709,12 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 	if dec.Type != nil && (req.Channel == tap.ChannelNFC || req.Channel == tap.ChannelQR) {
 		p.BusinessDayStart = dec.BusinessDayStart
 	}
+	// WHO CHOSE THE DIRECTION (ADR 0032 §B.4, migration 00065) is NOT written yet: the engine
+	// does not choose between a requested direction and its own until M15-10, and M15-11 writes
+	// the column here (directed nfc/qr only; NULL for undirected and manual, like the business
+	// day above). Until then every row is NULL, which on a directed nfc/qr row reads as "the
+	// engine's choice" (tap.RecordedDirectionSource) -- true of every tap this binary writes.
+	p.DirectionSource = nil
 	// sun_valid is THREE-STATE and the third state is the point (migration 00005:
 	// "NULL = not evaluated for this channel"). An NFC or QR tap really was
 	// judged — false on a QR arrival is the M5-08 criterion and a fact, not an

@@ -48,3 +48,39 @@ func TestInsertParams_FreezesTheBusinessDayOnlyOnADirectedTap(t *testing.T) {
 		})
 	}
 }
+
+// TestInsertParams_WritesNoDirectionSourceBeforeTheEngineChooses is M15-09's writer decision
+// (ADR 0032 §B.4): until M15-10 gives the decision a source and M15-11 maps it, the tap path
+// writes direction_source NULL on EVERY row -- directed or not, nfc, qr or manual, ok or flag --
+// so the column carries no claim the engine did not make, and 00065's Down stays free until the
+// first real choice is recorded. On a directed nfc/qr row the NULL reads as the engine's choice
+// (tap.RecordedDirectionSource), which is what every tap this binary decides is.
+func TestInsertParams_WritesNoDirectionSourceBeforeTheEngineChooses(t *testing.T) {
+	at := time.Date(2026, 10, 22, 9, 0, 0, 0, time.UTC)
+	in, out := tap.TypeIn, tap.TypeOut
+	tests := []struct {
+		name    string
+		channel tap.Channel
+		verdict tap.Verdict
+		dir     *tap.Type
+	}{
+		{"a directed nfc ok", tap.ChannelNFC, tap.VerdictOK, &in},
+		{"a directed nfc flag", tap.ChannelNFC, tap.VerdictFlag, &out},
+		{"a directed qr flag", tap.ChannelQR, tap.VerdictFlag, &in},
+		{"an undirected nfc reject", tap.ChannelNFC, tap.VerdictReject, nil},
+		{"an undirected qr ignored", tap.ChannelQR, tap.VerdictIgnored, nil},
+		{"a directed manual record", tap.ChannelManual, tap.VerdictOK, &out},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dec := tap.Decision{Verdict: tc.verdict, Type: tc.dir, Trust: 20}
+			p, err := (&Service{}).insertParams(Request{Channel: tc.channel}, db.ResolvedTag{UID: "04AABBCCDDEEFF"}, tapFacts{}, dec, at)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.DirectionSource != nil {
+				t.Fatalf("direction_source = %q, want NULL until M15-11", *p.DirectionSource)
+			}
+		})
+	}
+}

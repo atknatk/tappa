@@ -104,16 +104,17 @@
 -- the entry stays open in the list. It takes a hand-written POST that hits the
 -- entry's microsecond, and it gains no hours: the pair counts zero time either way.
 --
--- business_day_start is in the list because this query returns the whole store
--- Transaction (a row type without it would be a second model); nothing here
--- filters on it. Whether this entry is still in the tap's business day is the
+-- business_day_start and direction_source (00065, M15-09) are in the list because
+-- this query returns the whole store Transaction (a row type without them would be a
+-- second model); nothing here filters on either. Whether this entry is still in the tap's business day is the
 -- engine's question (M15-03), and ADR 0032 §A.6 says why this query does not need
 -- the classification while the cutoff stays fixed.
 SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
-       site_tenant_id, site_location_id, site_tag_uid, business_day_start
+       site_tenant_id, site_location_id, site_tag_uid, business_day_start,
+       direction_source
 FROM transactions t
 WHERE t.tenant_id = @tenant_id
   AND t.employee_id = @employee_id
@@ -275,7 +276,8 @@ SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
-       site_tenant_id, site_location_id, site_tag_uid, business_day_start
+       site_tenant_id, site_location_id, site_tag_uid, business_day_start,
+       direction_source
 FROM transactions
 WHERE tenant_id = @tenant_id
   AND employee_id = @employee_id
@@ -332,24 +334,37 @@ LIMIT 1;
 -- on a PEER's plaque is the employer's row (above) and carries the employer's
 -- business day like any other; InsertManualSiteTransaction, the manual site sibling,
 -- has no such parameter.
+--
+-- direction_source (M15-09, migration 00065, ADR 0032 §B.4): who chose the direction
+-- -- 'auto' (the engine's D was recorded) or 'employee' (the person asked for the
+-- other one and it was recorded). NULL for an undirected decision, for the manual
+-- channel (the direction is the manager's; there is no 'manager' value) and for every
+-- row before M15-11's insertParams writes it -- until then every caller passes NULL.
+-- On a directed nfc/qr row NULL reads as "before M15, the engine's choice"; the one
+-- place that says so is tap.RecordedDirectionSource. Two NOT VALID CHECKs (00065,
+-- validated by 00066) are the second safety. Neither manual statement has the
+-- parameter, and the column has no default, so their rows are NULL.
 INSERT INTO transactions (
     tenant_id, employee_id, location_id, department_id, tag_uid, ctr, type,
     occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match, sun_valid,
     trust, verdict, note, channel, entered_by, practice, queued,
     policy_version_id, matched_sid, policy_layer, policy_context,
-    site_tenant_id, site_location_id, site_tag_uid, business_day_start
+    site_tenant_id, site_location_id, site_tag_uid, business_day_start,
+    direction_source
 ) VALUES (
     @tenant_id, @employee_id, @location_id, @department_id, @tag_uid, @ctr, @type,
     @occurred_at, @source_ip, @ip_match, @gps_lat, @gps_lng, @gps_match,
     @sun_valid, @trust, @verdict, @note, @channel, @entered_by, @practice, @queued,
     @policy_version_id, @matched_sid, @policy_layer, @policy_context,
-    @site_tenant_id, @site_location_id, @site_tag_uid, @business_day_start
+    @site_tenant_id, @site_location_id, @site_tag_uid, @business_day_start,
+    @direction_source
 )
 RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
           type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
           sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
           created_at, policy_version_id, matched_sid, policy_layer, policy_context,
-          site_tenant_id, site_location_id, site_tag_uid, business_day_start;
+          site_tenant_id, site_location_id, site_tag_uid, business_day_start,
+          direction_source;
 
 -- name: InsertManualTransaction :one
 -- THE MANAGER'S OWN RECORD (M6-08). Somebody with no phone worked a shift, or an

@@ -421,6 +421,7 @@ type Transaction struct {
 	SiteLocationID   *uuid.UUID
 	SiteTagUid       *string
 	BusinessDayStart *time.Time
+	DirectionSource  *string
 }
 
 type TransactionReview struct {

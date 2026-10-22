@@ -2621,9 +2621,9 @@ type Querier interface {
 	// the entry stays open in the list. It takes a hand-written POST that hits the
 	// entry's microsecond, and it gains no hours: the pair counts zero time either way.
 	//
-	// business_day_start is in the list because this query returns the whole store
-	// Transaction (a row type without it would be a second model); nothing here
-	// filters on it. Whether this entry is still in the tap's business day is the
+	// business_day_start and direction_source (00065, M15-09) are in the list because
+	// this query returns the whole store Transaction (a row type without them would be a
+	// second model); nothing here filters on either. Whether this entry is still in the tap's business day is the
 	// engine's question (M15-03), and ADR 0032 §A.6 says why this query does not need
 	// the classification while the cutoff stays fixed.
 	GetLastOpenTransaction(ctx context.Context, arg GetLastOpenTransactionParams) (Transaction, error)
@@ -3437,6 +3437,16 @@ type Querier interface {
 	// on a PEER's plaque is the employer's row (above) and carries the employer's
 	// business day like any other; InsertManualSiteTransaction, the manual site sibling,
 	// has no such parameter.
+	//
+	// direction_source (M15-09, migration 00065, ADR 0032 §B.4): who chose the direction
+	// -- 'auto' (the engine's D was recorded) or 'employee' (the person asked for the
+	// other one and it was recorded). NULL for an undirected decision, for the manual
+	// channel (the direction is the manager's; there is no 'manager' value) and for every
+	// row before M15-11's insertParams writes it -- until then every caller passes NULL.
+	// On a directed nfc/qr row NULL reads as "before M15, the engine's choice"; the one
+	// place that says so is tap.RecordedDirectionSource. Two NOT VALID CHECKs (00065,
+	// validated by 00066) are the second safety. Neither manual statement has the
+	// parameter, and the column has no default, so their rows are NULL.
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error)
 	// THE decision. One row, append-only, and it is the ONLY write this flow makes to
 	// the record besides audit_log.

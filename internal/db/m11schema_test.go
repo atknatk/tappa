@@ -294,6 +294,11 @@ var m11Columns = []m11Column{
 	// SELECT and INSERT (00005), nothing else: written once by the tap's INSERT, never updated (§4.3).
 	// Neither feed writer reads it -- the punch event and the site projection carry no business day.
 	{"transactions", "business_day_start", map[string]string{"tappa_app": "SI"}},
+	// 00065 (M15-09, ADR 0032 §B.4): who chose a tap's direction. transactions' table-level SELECT
+	// and INSERT (00005), nothing else: written once by the tap's INSERT, never updated (§4.3).
+	// Neither feed writer reads it YET -- tappa_feedwriter's reach on transactions is 00049's column
+	// list, which 00065 does not widen; M15-13 (00068) is the card that names it for the punch event.
+	{"transactions", "direction_source", map[string]string{"tappa_app": "SI"}},
 }
 
 // m11FunctionACL is one function's owner, SECURITY DEFINER flag and EXACT EXECUTE grantees

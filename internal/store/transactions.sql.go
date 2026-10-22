@@ -334,7 +334,8 @@ SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
-       site_tenant_id, site_location_id, site_tag_uid, business_day_start
+       site_tenant_id, site_location_id, site_tag_uid, business_day_start,
+       direction_source
 FROM transactions t
 WHERE t.tenant_id = $1
   AND t.employee_id = $2
@@ -465,9 +466,9 @@ type GetLastOpenTransactionParams struct {
 // the entry stays open in the list. It takes a hand-written POST that hits the
 // entry's microsecond, and it gains no hours: the pair counts zero time either way.
 //
-// business_day_start is in the list because this query returns the whole store
-// Transaction (a row type without it would be a second model); nothing here
-// filters on it. Whether this entry is still in the tap's business day is the
+// business_day_start and direction_source (00065, M15-09) are in the list because
+// this query returns the whole store Transaction (a row type without them would be a
+// second model); nothing here filters on either. Whether this entry is still in the tap's business day is the
 // engine's question (M15-03), and ADR 0032 §A.6 says why this query does not need
 // the classification while the cutoff stays fixed.
 func (q *Queries) GetLastOpenTransaction(ctx context.Context, arg GetLastOpenTransactionParams) (Transaction, error) {
@@ -505,6 +506,7 @@ func (q *Queries) GetLastOpenTransaction(ctx context.Context, arg GetLastOpenTra
 		&i.SiteLocationID,
 		&i.SiteTagUid,
 		&i.BusinessDayStart,
+		&i.DirectionSource,
 	)
 	return i, err
 }
@@ -514,7 +516,8 @@ SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
-       site_tenant_id, site_location_id, site_tag_uid, business_day_start
+       site_tenant_id, site_location_id, site_tag_uid, business_day_start,
+       direction_source
 FROM transactions
 WHERE tenant_id = $1
   AND employee_id = $2
@@ -566,6 +569,7 @@ func (q *Queries) GetLastTransactionForEmployee(ctx context.Context, arg GetLast
 		&i.SiteLocationID,
 		&i.SiteTagUid,
 		&i.BusinessDayStart,
+		&i.DirectionSource,
 	)
 	return i, err
 }
@@ -890,19 +894,22 @@ INSERT INTO transactions (
     occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match, sun_valid,
     trust, verdict, note, channel, entered_by, practice, queued,
     policy_version_id, matched_sid, policy_layer, policy_context,
-    site_tenant_id, site_location_id, site_tag_uid, business_day_start
+    site_tenant_id, site_location_id, site_tag_uid, business_day_start,
+    direction_source
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7,
     $8, $9, $10, $11, $12, $13,
     $14, $15, $16, $17, $18, $19, $20, $21,
     $22, $23, $24, $25,
-    $26, $27, $28, $29
+    $26, $27, $28, $29,
+    $30
 )
 RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
           type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
           sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
           created_at, policy_version_id, matched_sid, policy_layer, policy_context,
-          site_tenant_id, site_location_id, site_tag_uid, business_day_start
+          site_tenant_id, site_location_id, site_tag_uid, business_day_start,
+          direction_source
 `
 
 type InsertTransactionParams struct {
@@ -935,6 +942,7 @@ type InsertTransactionParams struct {
 	SiteLocationID   *uuid.UUID
 	SiteTagUid       *string
 	BusinessDayStart *time.Time
+	DirectionSource  *string
 }
 
 // THE TAP write path -- and it stopped being THE ONLY one on 2026-08-10.
@@ -986,6 +994,16 @@ type InsertTransactionParams struct {
 // on a PEER's plaque is the employer's row (above) and carries the employer's
 // business day like any other; InsertManualSiteTransaction, the manual site sibling,
 // has no such parameter.
+//
+// direction_source (M15-09, migration 00065, ADR 0032 §B.4): who chose the direction
+// -- 'auto' (the engine's D was recorded) or 'employee' (the person asked for the
+// other one and it was recorded). NULL for an undirected decision, for the manual
+// channel (the direction is the manager's; there is no 'manager' value) and for every
+// row before M15-11's insertParams writes it -- until then every caller passes NULL.
+// On a directed nfc/qr row NULL reads as "before M15, the engine's choice"; the one
+// place that says so is tap.RecordedDirectionSource. Two NOT VALID CHECKs (00065,
+// validated by 00066) are the second safety. Neither manual statement has the
+// parameter, and the column has no default, so their rows are NULL.
 func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error) {
 	row := q.db.QueryRow(ctx, insertTransaction,
 		arg.TenantID,
@@ -1017,6 +1035,7 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 		arg.SiteLocationID,
 		arg.SiteTagUid,
 		arg.BusinessDayStart,
+		arg.DirectionSource,
 	)
 	var i Transaction
 	err := row.Scan(
@@ -1051,6 +1070,7 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 		&i.SiteLocationID,
 		&i.SiteTagUid,
 		&i.BusinessDayStart,
+		&i.DirectionSource,
 	)
 	return i, err
 }
