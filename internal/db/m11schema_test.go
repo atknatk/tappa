@@ -92,7 +92,7 @@ var preM11Sequences = []string{"goose_db_version_id_seq"}
 
 // m11Roles are the roles every matrix row is read for. A role absent from a row holds NOTHING
 // on that object.
-var m11Roles = []string{"tappa_app", "tappa_operator", "tappa_opdefiner", "tappa_resolver", "tappa_holdingdefiner", "tappa_feedwriter"}
+var m11Roles = []string{"tappa_app", "tappa_operator", "tappa_opdefiner", "tappa_resolver", "tappa_holdingdefiner", "tappa_feedwriter", "tappa_identitydefiner"}
 
 // m11TableACL is one role's whole reach on one table: the columns per verb (attnum order, ""
 // for none) and the table-level verbs.
@@ -103,6 +103,12 @@ type m11TableACL struct {
 
 // m11Tables is every table born at or after migration 00037, role by role.
 var m11Tables = map[string]map[string]m11TableACL{
+	// 00069 (M14-03, ADR 0031 §5.1): the panel administrator's identity -- TENANT-SCOPE-LESS
+	// (m11ScopelessTables). NOBODY holds anything at 00069: tappa_app never will (ADR 0031 §6:
+	// "tappa_app, tappa_operator, tappa_opdefiner yetkisiz"); tappa_identitydefiner and
+	// tappa_resolver get their column grants with the functions that need them (M14-04, M14-05),
+	// which write their rows here.
+	"admin_identities": {},
 	// 00037 (K-17's queue): the worker reads it, a request is queued by naming the employee
 	// (the queue's order, the lease and the tries start at their defaults), the lease and the
 	// try count move, and a sent request leaves (DELETE). No column for a code exists at all.
@@ -223,7 +229,7 @@ const feedEventInsertColumns = "tenant_id,seq,punch_id,punch_tenant_id,roles,pun
 // writes them (a policy would be a door for somebody); the BYPASSRLS definers reach them through
 // their column grants alone. Each carries its redline R5 waiver
 // (TestHoldingSchema_AppRoleHasNoVerbOnHoldingTables reads the waivers).
-var m11ScopelessTables = map[string]bool{"holdings": true, "holding_members": true}
+var m11ScopelessTables = map[string]bool{"holdings": true, "holding_members": true, "admin_identities": true}
 
 // m11Column is one column added at or after 00037 to a table that existed before, with each
 // role's verbs on it ("S", "I", "U" in that order; "" for nothing).
@@ -294,6 +300,21 @@ var m11Columns = []m11Column{
 	// SELECT and INSERT (00005), nothing else: written once by the tap's INSERT, never updated (§4.3).
 	// Neither feed writer reads it -- the punch event and the site projection carry no business day.
 	{"transactions", "business_day_start", map[string]string{"tappa_app": "SI"}},
+	// 00069 (M14-03, ADR 0031 §5.1): the membership's link to an identity. admin_users hands
+	// tappa_app SELECT column by column from 00069 on (the table-level SELECT of 00006 is gone --
+	// S9) and INSERT / UPDATE column by column since 00017, none of which names a new column: it
+	// READS identity_id (the switch's rate bucket, ADR 0031 §6's named residue) and nothing else;
+	// linked_via, linked_at and unlinked_at it neither reads (R16) nor writes. The writers are the
+	// identity definer's functions (M14-04 onwards), which grant themselves the columns.
+	{"admin_users", "identity_id", map[string]string{"tappa_app": "S"}},
+	{"admin_users", "linked_via", map[string]string{}},
+	{"admin_users", "linked_at", map[string]string{}},
+	{"admin_users", "unlinked_at", map[string]string{}},
+	// 00069 (M14-03, R15): the instant of the session's password proof. admin_sessions hands
+	// tappa_app SELECT and INSERT table-wide (00006) -- today's CreateAdminSession names three
+	// columns and takes the DEFAULT now() -- and UPDATE only on last_used_at and revoked_at (00011):
+	// never on this one.
+	{"admin_sessions", "authenticated_at", map[string]string{"tappa_app": "SI"}},
 }
 
 // m11FunctionACL is one function's owner, SECURITY DEFINER flag and EXACT EXECUTE grantees
@@ -361,6 +382,10 @@ var m11Functions = map[string]m11FunctionACL{
 	// reads no table (its callers find P, I and W), so its owner is the migration role and its reach
 	// is nothing but its arguments. EXECUTE to tappa_app alone, whose queries call it (M15-05).
 	"tappa_checkout_class(timestamp with time zone,boolean,boolean,boolean,timestamp with time zone,timestamp with time zone)": {owner: "tappa_owner", execute: "tappa_app,tappa_owner"},
+	// 00069 (M14-03, ADR 0031 §5.1): the linked-row trigger function -- SECURITY INVOKER, NEVER
+	// definer (its test is current_user, which a definer body would read as its owner), EXECUTE in
+	// its owner alone, its body asserting TG_RELID (adminidentity_test.go binds it elsewhere).
+	"admin_users_guard_identity_credentials()": {owner: "tappa_owner", execute: "tappa_owner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every

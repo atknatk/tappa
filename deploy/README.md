@@ -1812,6 +1812,105 @@ kuralının aynısı); trafik akarken bu tablolarda elle `SELECT … FOR UPDATE`
 
 ---
 
+## Identity role (M14-03) — tek seferlik kurulum
+
+**Ne:** migration `00069` (panel yöneticisinin kimliği — ADR 0031 §5.1) bir **küme** rolüne dayanır:
+`tappa_identitydefiner` — kapalı `identity_*` listesinin (ADR 0031 §5.2; fonksiyonlar M14-04'ten
+itibaren gelir) sahibi; NOLOGIN, **BYPASSRLS**, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOREPLICATION,
+**üyesi yok, hiçbir rolün üyesi değil, varsayılan yetkisi yok**; yetkisi yalnız migration'ların tek tek
+verdiği sütun grant'larıdır (`00069` ona hiçbir şey vermez). `admin_users`'ın bağlı satır tetikleyicisi
+(`00069`) bu rolün **adını** okur: bağlı ya da reddedilmiş bir satırın parolasını yalnız bu rol olarak
+koşan bir gövde değiştirir. Migration rolü **yaratmaz** (rol küme nesnesidir — *"Holding role (M11
+API-1a)"* bölümünün gerekçesi; migration'da `CREATE ROLE` R5b'yi kırar). Tanımı
+`scripts/db-init/01-roles.sql`'in `>>> IDENTITY ROLE (M14-03) >>>` … `<<< IDENTITY ROLE (M14-03) <<<`
+bloğudur: taze kurulum, CI, `make db-reset` ve **B YOLU geri yüklemesinin sıfırdan kurulan pod'u** onu
+kendiliğinden alır; **halihazırda çalışan** bir veritabanı almaz. Blok **idempotenttir**; üyeliği
+temizlemez — `00069`'un ön koşulu iki yönü, varsayılan yetkiyi ve rolün önceden sahip olduğu her tablo
+yetkisini sınar ve reddeder. Bloğu ve ön koşulu `internal/db` →
+`TestAdminIdentities00069_DownRefusesAnIdentityAndOtherwiseWalksBackAndUp` koşar.
+
+**🔴 Sıra:** önce bu bölüm (rol + `USAGE` GRANT'ı), **sonra** `main`'e birleştirme. Rol yoksa `00069`'un
+ilk ifadesi bu bölümü adıyla gösterip **düşer** (`SQLSTATE 55000`, *"Nothing was changed."*) —
+migrate Job'ı `Failed`, rollout yapılmaz, eski pod servis vermeye devam eder.
+
+### Geliştirme veritabanı
+
+```bash
+sed -n '/^-- >>> IDENTITY ROLE (M14-03) >>>/,/^-- <<< IDENTITY ROLE (M14-03) <<</p' \
+    scripts/db-init/01-roles.sql \
+  | docker exec -i tappa-db \
+      sh -c 'psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+make migrate
+```
+
+### Canlı küme (kullanıcı / orkestratör — ajan `kubectl` koşmaz)
+
+0) Kesimi doğrula (boş girdiyle psql -1 exit 0 verir): bir CREATE ROLE ve kapanış işareti.
+
+```bash
+sed -n '/^-- >>> IDENTITY ROLE (M14-03) >>>/,/^-- <<< IDENTITY ROLE (M14-03) <<</p' \
+    scripts/db-init/01-roles.sql | grep -cE '^ *CREATE ROLE|^-- <<< IDENTITY ROLE'
+```
+
+beklenen: 2 (başka bir sayı -> DUR)
+
+1) Uygula: tek transaction (-1), ilk hatada dur.
+
+```bash
+sed -n '/^-- >>> IDENTITY ROLE (M14-03) >>>/,/^-- <<< IDENTITY ROLE (M14-03) <<</p' \
+    scripts/db-init/01-roles.sql \
+  | kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+      sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+```
+
+beklenen: DO · ALTER ROLE · GRANT
+
+2) Doğrula
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT r.rolname, r.rolcanlogin, r.rolsuper, r.rolbypassrls,
+       (SELECT count(*) FROM pg_auth_members m WHERE m.roleid = r.oid) AS members,
+       (SELECT count(*) FROM pg_auth_members m WHERE m.member = r.oid) AS member_of,
+       has_schema_privilege(r.rolname, 'public', 'USAGE') AS usage,
+       (SELECT count(*) FROM pg_db_role_setting s WHERE s.setrole = r.oid) AS role_settings,
+       (SELECT count(*) FROM pg_default_acl d WHERE d.defaclrole = r.oid
+                                                OR d.defaclacl::text ~ '(^|[{,])tappa_identitydefiner=') AS default_acl
+  FROM pg_roles r
+ WHERE r.rolname = 'tappa_identitydefiner';
+SQL
+```
+
+beklenen: tappa_identitydefiner|f|f|t|0|0|t|0|0
+
+Sonra `main`'e birleştir; deploy `00069` ve `00070`'i uygular.
+
+- **`00069`** `admin_sessions` ve `admin_users`'ta `ACCESS EXCLUSIVE` alır (sütun ekleme, CHECK, yabancı
+  anahtar, tetikleyici) ve `tenants`'ta `SHARE ROW EXCLUSIVE` (yeni tablonun `tenants`'a yabancı
+  anahtarı — bir tenant güncellemesini bekletir, dokunuşun okumasını değil). Her ifadeden önce kendi
+  `SET LOCAL lock_timeout = '1s'`'i var: uzun bir okuyucunun (02:30 dökümü, açık bir panel işlemi)
+  arkasında 55P03 ile düşer — migrate Job'ı `Failed`, rollout yapılmaz, sakin bir anda yeniden koşulur.
+  Kilit altındaki iş `admin_users`'ın bir taramasıdır (CHECK ve yabancı anahtar; `identity_id` hepsi
+  `NULL`) — birkaç bin satır. **Deploy saati:** 02:30 yedeğinin penceresinden uzak.
+- **`00070`** `UNIQUE (tenant_id, identity_id)` indeksini `CONCURRENTLY` kurar (`NO TRANSACTION`):
+  hiçbir istek onu beklemez; kendisi kendinden eski işlemleri bekler (uzun bir okuyucu onu uzatır,
+  paneli değil). Yarıda kesilirse geride `INVALID` bir indeks kalır; dosya yeniden koşulunca önce onu
+  düşürür, sonra yeniden kurar (goose `NO TRANSACTION` dosyasını yalnız sonunda kaydeder).
+
+**Eski binary yeni şemada çalışır** (ADR 0031 §8 expand): kayıt `identity_id NULL` ile satır yazar,
+oturum `authenticated_at`'i varsayılandan alır; `tappa_app`'ın `admin_users` okuması sütun listesine
+indi ama bugünkü hiçbir sorgu o listenin dışını okumaz
+(`TestAdminUsers00069_EveryGeneratedStatementOnTheAdminTablesStillPlansAsTheApp`). **Adlandırılmış
+bedel:** bağlı bir satıra (M14-06'nın backfill'inden sonra) eski pod'un parola değişimi ya da sıfırlama
+tüketimi tetikleyiciyle reddedilir (23001 → 500) — rollout penceresinde birkaç dakika (ADR 0031 §5.1).
+
+**Geri alma:** expand'den geri dönüş **önceki binary'dir** (şemayla çalışır), Down değil. `00069`'un
+Down'ı `admin_identities`'te tek bir kimlik ya da bağlı / reddedilmiş tek bir satır varken **reddeder**
+(kimliğin tek kopyası ve bağlar düşerdi) — canlıda koşulmaz. Rol Down'la gitmez (küme nesnesi).
+
+---
+
 ## Webhook (M11 API-9) — `TAPPA_WEBHOOK_KEK` ve düğüm/ingress adres listesi
 
 API-9'dan beri `TAPPA_ENV=dev` **dışında** iki değer **zorunludur**; biri yoksa `config.Load` açılışı

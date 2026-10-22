@@ -12,14 +12,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AdminIdentity struct {
+	ID               uuid.UUID
+	Email            string
+	PasswordHash     string
+	EmailVerifiedAt  *time.Time
+	ConfirmOpenedAt  *time.Time
+	ConfirmOpenUntil *time.Time
+	ConfirmScope     *string
+	LastUsedTenant   *uuid.UUID
+	CreatedAt        time.Time
+	LastLoginAt      *time.Time
+}
+
 type AdminSession struct {
-	ID          uuid.UUID
-	TenantID    uuid.UUID
-	AdminUserID uuid.UUID
-	TokenHash   string
-	CreatedAt   time.Time
-	LastUsedAt  *time.Time
-	RevokedAt   *time.Time
+	ID              uuid.UUID
+	TenantID        uuid.UUID
+	AdminUserID     uuid.UUID
+	TokenHash       string
+	CreatedAt       time.Time
+	LastUsedAt      *time.Time
+	RevokedAt       *time.Time
+	AuthenticatedAt *time.Time
 }
 
 type AdminUser struct {
@@ -32,6 +46,10 @@ type AdminUser struct {
 	Status       string
 	CreatedAt    time.Time
 	LastLoginAt  *time.Time
+	IdentityID   *uuid.UUID
+	LinkedVia    *string
+	LinkedAt     *time.Time
+	UnlinkedAt   *time.Time
 }
 
 type ApiIdempotency struct {
