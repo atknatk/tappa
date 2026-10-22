@@ -78,8 +78,8 @@ type AdminLoginView struct {
 	// than rendering a dead one — the third state ResetHref already documents.
 	SignupHref string
 
-	// FreeMonths is the founding offer's free period, printed on the brand panel's
-	// badge and in the sign-up line beside it.
+	// FreeMonths is the founding offer's free period, printed in the sign-up link as
+	// SignupOffer words it -- the signup month and the ones after it (K6, 2026-10-22).
 	//
 	// 🔴 IT IS PASSED IN RATHER THAN WRITTEN AS "3" IN THE MARKUP. The product
 	// ENFORCES this number — migration 00016's tappa_first_chargeable_month adds

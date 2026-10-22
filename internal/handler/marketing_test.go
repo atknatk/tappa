@@ -5,7 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/scanner"
+	"go/token"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -1174,6 +1177,106 @@ func TestLanding_FreeMonthsMatchTheFunctionThatGrantsThem(t *testing.T) {
 	if p := freeMonthsCopyProblems(pages.FoundingChip(foundingFreeMonths)); len(p) != 0 {
 		t.Errorf("CONTROL: today's chip fails the copy check: %v", p)
 	}
+}
+
+// TestFreeMonths_NoUserFacingSourceCountsThemTheOldWay widens the K6 copy check from
+// the rendered public pages to every source a person reads text from: every template
+// (comments left out), the e-mail templates among them, every string literal in the
+// Go that builds screens and mails, and the integration guide and its OpenAPI document
+// (docs/api). No "first N months free", "N months on us" or "Start free — N months"
+// survives anywhere a user could read it. CONTROL: a planted literal of each kind is red.
+func TestFreeMonths_NoUserFacingSourceCountsThemTheOldWay(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join("..", "..")
+	read := 0
+	scan := func(rel, text string) []string {
+		var out []string
+		if hit := oldFreeMonthsRE.FindString(text); hit != "" {
+			out = append(out, fmt.Sprintf("%s says %q; the free months are the signup month and the ones after it (K6)", rel, hit))
+		}
+		return out
+	}
+	for _, dir := range []string{"web/templates", "internal", "cmd", "docs/api"} {
+		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			rel, _ := filepath.Rel(root, path)
+			name := d.Name()
+			var text string
+			switch {
+			case strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, "_templ.go"):
+				return nil
+			case strings.HasSuffix(name, ".templ"):
+				text = templCommentRE.ReplaceAllString(mustRead(t, path), "")
+			case strings.HasSuffix(name, ".go"):
+				text = goStringLiterals(t, path, mustRead(t, path))
+			case strings.HasSuffix(name, ".md") || strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") ||
+				strings.HasSuffix(name, ".txt") || strings.HasSuffix(name, ".html"):
+				text = mustRead(t, path)
+			default:
+				return nil
+			}
+			read++
+			for _, why := range scan(rel, text) {
+				t.Error(why)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s: %v", dir, err)
+		}
+	}
+	if read < 200 {
+		t.Fatalf("PREMISE: read %d source file(s); this scan is not reading the tree", read)
+	}
+	// CONTROL: the old link, in each shape the scan reads -- and a comment is not text.
+	for planted, red := range map[string]bool{
+		templCommentRE.ReplaceAllString("<a>Start now — first 3 months free →</a>\n", ""):                                                    true,
+		goStringLiterals(t, "planted.go", "package x\n// \"first 3 months free\" said a comment\nvar x = \"Start free — 3 months on us\"\n"): true,
+		goStringLiterals(t, "planted.go", "package x\n// \"first 3 months free\" said a comment\nvar x = 1\n"):                               false,
+		"Your first three months are free.":                                                            true,
+		"Your signup month and the two after it are free.":                                             false,
+		"## Trial\nThe first three months free.":                                                       true,
+		templCommentRE.ReplaceAllString("// it used to say first 3 months free\n<a>Start now</a>", ""): false,
+	} {
+		if got := len(scan("planted", planted)) > 0; got != red {
+			t.Errorf("CONTROL: the scan on %q is red=%v, want %v", planted, got, red)
+		}
+	}
+}
+
+// templCommentRE is a templ line comment.
+var templCommentRE = regexp.MustCompile(`(?m)^\s*//.*$`)
+
+// goStringLiterals is every string literal in a Go source, read by the Go scanner so a
+// quotation inside a comment is not one.
+func goStringLiterals(t *testing.T, name, src string) string {
+	t.Helper()
+	var sc scanner.Scanner
+	fset := token.NewFileSet()
+	sc.Init(fset.AddFile(name, -1, len(src)), []byte(src), nil, 0)
+	var out []string
+	for {
+		_, tok, lit := sc.Scan()
+		if tok == token.EOF {
+			break
+		}
+		if tok == token.STRING {
+			out = append(out, lit)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// mustRead reads one file or stops the test.
+func mustRead(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	return string(b)
 }
 
 // oldFreeMonthsRE is a count of free months that does not say where it starts ("first

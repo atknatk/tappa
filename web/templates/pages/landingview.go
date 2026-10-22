@@ -641,6 +641,19 @@ func countWord(n int) string {
 	return strconv.Itoa(n)
 }
 
+// SignupOffer is the sign-in screen's link to the wizard: "Start now — your signup
+// month and the two after it are free" (K6, 2026-10-22). It carries the same sentence
+// as the public pages, LandingFreeMonthsLine, so the screen that used to say "first 3
+// months free" says what tappa_first_chargeable_month does; with no free months it is
+// "Start now" alone.
+func SignupOffer(freeMonths int) string {
+	free := strings.TrimSuffix(LandingFreeMonthsLine(freeMonths).Text, ".")
+	if free == "" {
+		return "Start now"
+	}
+	return "Start now — " + strings.ToLower(free[:1]) + free[1:]
+}
+
 // FoundingChip is the price card's chip: the free months, then the founding customers'
 // price lock. One string so the two sentences keep their space between them.
 func FoundingChip(freeMonths int) string {

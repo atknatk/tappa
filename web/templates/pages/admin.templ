@@ -63,7 +63,7 @@ templ AdminLogin(v AdminLoginView) {
 							href={ templ.SafeURL(v.SignupHref) }
 							class="inline-flex min-h-11 items-center font-display text-sm font-bold tracking-tight text-tappa-green underline underline-offset-4 hover:text-ink"
 						>
-							Start now — first { itoa(v.FreeMonths) } months free →
+							{ SignupOffer(v.FreeMonths) } →
 						</a>
 					</div>
 				}
@@ -236,7 +236,7 @@ templ adminLoginBrandPanel(v AdminLoginView) {
 					href={ templ.SafeURL(v.SignupHref) }
 					class="hidden min-h-11 items-center rounded-xl border border-porcelain/25 px-4 font-display text-sm font-bold tracking-tight text-paper hover:border-paper md:inline-flex desk:hidden"
 				>
-					Start now — first { itoa(v.FreeMonths) } months free
+					{ SignupOffer(v.FreeMonths) }
 				</a>
 			}
 		</div>
