@@ -562,10 +562,15 @@ type Input struct {
 	// direction is arithmetic, not policy). Undirected decisions (reject, ignored, the
 	// redirect) drop it.
 	//
-	// Whether a request may reach here at all is the caller's gate, not the engine's:
-	// the orchestrator passes nil while the business-day switch is off (ADR 0032 §B.5,
-	// F-1; M15-11), because the protection against a chosen `out` closing yesterday's
-	// entry is the business day.
+	// It is honoured ONLY WITH A BUSINESS DAY (ADR 0032 §B.5, F-1): when S(at) cannot
+	// be formed, the request is dropped and D is recorded as auto. The protection
+	// against a chosen `out` is the business day: with S such an out is (b) or (c),
+	// listed as "check-in missing"; without S it would be (d), which nothing lists.
+	// There is no S when the switch is off (SwitchedDayCutoff -> nil DayCutoff) or when
+	// the cutoff or its zone cannot be resolved. The engine reads PredictDirection's
+	// BusinessDayStart for this; it does not check the switch itself, whose one gate
+	// stays SwitchedDayCutoff. The caller (M15-11) also passes nil while the switch is
+	// off.
 	RequestedDirection *Type
 
 	// DayCutoff is the person's resolved business-day cutoff and zone (ADR 0032
@@ -682,8 +687,9 @@ type Decision struct {
 	// check-in claim): the class this record has when read back (ClassifyCheckout) when
 	// it is a chosen `out` that closes nothing — CheckoutOtherDay (b) or CheckoutOrphan
 	// (c) — and "" otherwise. An engine `out` always closes and is never one; a chosen
-	// out that is (a) too long or (d) unanchored (no business day) is not one either,
-	// matching the "check-in missing" list (M15-06). The anchor is this record itself,
+	// out that is (a) too long is not one either, matching the "check-in missing" list
+	// (M15-06). A chosen (d) cannot occur: without a business day the request is dropped
+	// (Input.RequestedDirection). The anchor is this record itself,
 	// whose id the caller learns when it writes it.
 	MissingIn CheckoutClass
 	// Practice marks a training tap (TRAINING stamp; never counts toward hours).

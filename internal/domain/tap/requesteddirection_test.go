@@ -52,6 +52,9 @@ func TestDecide_RequestedDirectionFourCells(t *testing.T) {
 	}{
 		{"ok", onSiteInput, VerdictOK},
 		{"flag", baseInput, VerdictFlag}, // no IP, no GPS: §5 row 7
+		// QR (K5: the QR page predicts too, M15-12): no SUN, no IP -> flag, and the
+		// request is honoured like on NFC.
+		{"flag_qr", func() Input { in := baseInput(); in.Channel = ChannelQR; in.SUN = SUNResult{}; return in }, VerdictFlag},
 	}
 	for _, v := range verdicts {
 		for _, d := range []Type{TypeIn, TypeOut} {
@@ -245,7 +248,9 @@ func TestDecide_RequestedDirectionSplitShift(t *testing.T) {
 // TestDecide_RequestedDirectionChosenOutAnchorsAMissingCheckIn: a chosen `out` over the
 // engine's `in` is the check-in claim's anchor exactly when the reader classifies it as
 // closing nothing — (b) other business day or (c) orphan — and not when it is (a) too
-// long or (d) unanchored. Each case gives the predecessor and I the way the reader sees
+// long. (d) unanchored cannot be chosen: it needs a missing business day, and then the
+// request is dropped (TestDecide_RequestedDirectionIgnoredWithoutABusinessDay). Each
+// case gives the predecessor and I the way the reader sees
 // the chain, so the engine's MissingIn is checked against ClassifyCheckout's own answer.
 // A chosen `out` leaves nothing "left open": LeftOpen is nil and the left-open note is
 // not on a checkout.
@@ -274,11 +279,8 @@ func TestDecide_RequestedDirectionChosenOutAnchorsAMissingCheckIn(t *testing.T) 
 		// 22.5 h inside one business day (00:00 cutoff) -> (a): no anchor.
 		{"stale_same_day_is_too_long", maltaCutoff(0), mt(t, 28, 1, 0), mt(t, 28, 23, 30),
 			&Prev{Direction: TypeIn, At: mt(t, 28, 1, 0)}, true, CheckoutTooLong, false},
-		// No business day: 20 h -> (a); nothing open -> (d). Neither is an anchor.
-		{"stale_without_a_day_is_too_long", nil, mt(t, 27, 13, 0), mt(t, 28, 9, 0),
-			&Prev{Direction: TypeIn, At: mt(t, 27, 13, 0)}, false, CheckoutTooLong, false},
-		{"no_day_is_unanchored", nil, time.Time{}, mt(t, 27, 17, 0),
-			&Prev{Direction: TypeOut, At: mt(t, 27, 12, 0)}, true, CheckoutUnanchored, false},
+		// The two cases without a business day (20 h -> (a), nothing open -> (d)) are not
+		// here: with no S the request is dropped (TestDecide_RequestedDirectionIgnoredWithoutABusinessDay).
 	}
 	for _, tc := range tests {
 		tc := tc
@@ -321,6 +323,70 @@ func TestDecide_RequestedDirectionChosenOutAnchorsAMissingCheckIn(t *testing.T) 
 				t.Errorf("MinutesLate = %d on a checkout", *got.MinutesLate)
 			}
 		})
+	}
+}
+
+// TestDecide_RequestedDirectionIgnoredWithoutABusinessDay is ADR 0032 §B.5 (F-1) on the
+// engine: with no business day the request is dropped and the engine's D is recorded
+// as auto, with no anchor and no chosen-direction note. The decision equals the
+// no-request one exactly. No business day has two causes, and both are here: the
+// switch is off (SwitchedDayCutoff gives a nil cutoff), or a cutoff is given but S
+// cannot be formed (an unknown zone, an empty zone, a cutoff outside the day). Without
+// this rule a chosen `out` would be (d): written as the employee's, listed nowhere.
+func TestDecide_RequestedDirectionIgnoredWithoutABusinessDay(t *testing.T) {
+	t.Parallel()
+	noDay := []struct {
+		name   string
+		cutoff *DayCutoff
+	}{
+		{"switch_off", nil},
+		{"unknown_zone", &DayCutoff{Cutoff: 5 * time.Hour, Timezone: "Nowhere/Atlantis"}},
+		{"empty_zone", &DayCutoff{Cutoff: 5 * time.Hour}},
+		{"cutoff_outside_the_day", &DayCutoff{Cutoff: 24 * time.Hour, Timezone: "Europe/Malta"}},
+	}
+	shapes := []struct {
+		name string
+		open time.Time // zero = none
+		now  time.Time
+		d    Type
+	}{
+		// Nothing open: D = in; a chosen out would be (d), unanchored.
+		{"no_day_is_unanchored", time.Time{}, mt(t, 27, 17, 0), TypeIn},
+		// 20 h open: D = in (stale); a chosen out would be (a).
+		{"stale_without_a_day_is_too_long", mt(t, 27, 13, 0), mt(t, 28, 9, 0), TypeIn},
+		// 3 h open: D = out; a chosen in would leave it open.
+		{"closable_entry", mt(t, 27, 14, 0), mt(t, 27, 17, 0), TypeOut},
+	}
+	for _, nd := range noDay {
+		for _, sh := range shapes {
+			for _, req := range []Type{TypeIn, TypeOut} {
+				nd, sh, req := nd, sh, req
+				t.Run(nd.name+"_"+sh.name+"_want_"+string(req), func(t *testing.T) {
+					t.Parallel()
+					in := onSiteInput()
+					in.Now = sh.now
+					in.DayCutoff = nd.cutoff
+					if !sh.open.IsZero() {
+						in.LastOpenIn = openIn(sh.open)
+					}
+					if p := PredictDirection(in.Now, in.LastOpenIn, in.DayCutoff); p.Direction != sh.d || p.BusinessDayStart != nil {
+						t.Fatalf("precondition: D %q, S %v; want %q and no business day", p.Direction, p.BusinessDayStart, sh.d)
+					}
+					base := Decide(in)
+					in.RequestedDirection = dirPtr(req)
+					got := Decide(in)
+					if got.Type == nil || *got.Type != sh.d || got.DirectionSource != DirectionAuto {
+						t.Fatalf("got %v %q, want the engine's %q auto", got.Type, got.DirectionSource, sh.d)
+					}
+					if got.MissingIn != "" || (got.LeftOpen != nil && got.LeftOpen.Reason == LeftOpenEmployeeChoice) {
+						t.Errorf("an anchor without a business day: missing %q, left %+v", got.MissingIn, got.LeftOpen)
+					}
+					if !reflect.DeepEqual(got, base) {
+						t.Errorf("the request changed the decision:\n got %+v\nwant %+v", got, base)
+					}
+				})
+			}
+		}
 	}
 }
 
@@ -449,7 +515,8 @@ func TestDecide_PredictDirectionIsTheEnginesDirection(t *testing.T) {
 				}
 			}
 			for _, k := range []string{"auto_in", "auto_out", "employee_in", "employee_out",
-				"missing_" + string(CheckoutOtherDay), "missing_" + string(CheckoutOrphan), "missing_none"} {
+				"missing_" + string(CheckoutOtherDay), "missing_" + string(CheckoutOrphan), "missing_none",
+				"dropped_without_a_day"} {
 				if seen[k] == 0 {
 					t.Errorf("the sweep never produced %s", k)
 				}
@@ -464,6 +531,7 @@ func checkPredictionAgainstDecide(t *testing.T, in Input, seen map[string]int) {
 	at := tapInstant(in)
 	p := PredictDirection(at, in.LastOpenIn, in.DayCutoff)
 	got := Decide(in)
+	noRequest := got
 	if got.Type == nil || *got.Type != p.Direction || got.DirectionSource != DirectionAuto ||
 		!reflect.DeepEqual(got.BusinessDayStart, p.BusinessDayStart) || !reflect.DeepEqual(got.LeftOpen, p.LeftOpen) {
 		t.Fatalf("at %s, cutoff %+v, open %+v: Decide %v %q day %v left %+v, PredictDirection %+v",
@@ -473,6 +541,15 @@ func checkPredictionAgainstDecide(t *testing.T, in Input, seen map[string]int) {
 	for _, req := range []Type{TypeIn, TypeOut} {
 		in.RequestedDirection = dirPtr(req)
 		got := Decide(in)
+		if p.BusinessDayStart == nil {
+			// No business day (the cutoff is nil here): the request is dropped.
+			if !reflect.DeepEqual(got, noRequest) {
+				t.Fatalf("at %s, no business day: a request for %q gave %v %q, want the engine's %q auto",
+					at, req, got.Type, got.DirectionSource, p.Direction)
+			}
+			seen["dropped_without_a_day"]++
+			continue
+		}
 		if got.Type == nil || *got.Type != req {
 			t.Fatalf("at %s: a request for %q recorded %v", at, req, got.Type)
 		}

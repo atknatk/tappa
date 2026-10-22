@@ -644,6 +644,7 @@ func PredictDirection(at time.Time, open *Transaction, cutoff *DayCutoff) Predic
 // (PredictDirection at the tap's instant), or the person's request where it differs.
 //
 //	no request, or a request equal to D   -> D, DirectionAuto
+//	no business day (S nil)                -> D, DirectionAuto (the request is dropped)
 //	a request (in|out) other than D        -> the request, DirectionEmployee
 //
 // "employee" means "recorded != D" and nothing weaker: a request that agrees with the
@@ -664,11 +665,22 @@ func PredictDirection(at time.Time, open *Transaction, cutoff *DayCutoff) Predic
 // before is an `out` or nothing, and either is "not an in". W — that predecessor
 // written LATER than this record — is false for the record being written now, so
 // (e) cannot arise here and I is not needed.
+//
+// NO BUSINESS DAY, NO REQUEST (ADR 0032 §B.5, F-1). The request is honoured only when
+// S(at) exists. The protection against a chosen `out` is the business day: with S it
+// is (b) or (c), counted and listed as "check-in missing" and anchored here
+// (MissingIn); without S the same out is (d), which nothing lists, so the choice would
+// vanish. S is missing when the business-day switch is off (SwitchedDayCutoff gives no
+// cutoff) or when the cutoff cannot be resolved (zone empty or unknown). This is not a
+// second gate on the switch: it reads PredictDirection's output, which already carries
+// the one gate's answer, and it also covers the unresolvable zone, which the switch
+// cannot see. Such a request is dropped; D is recorded as auto.
 func resolveDirection(in Input) direction {
 	at := tapInstant(in)
 	p := PredictDirection(at, in.LastOpenIn, in.DayCutoff)
 	r := direction{dir: p.Direction, source: DirectionAuto, dayStart: p.BusinessDayStart, leftOpen: p.LeftOpen}
-	if req := in.RequestedDirection; req != nil && (*req == TypeIn || *req == TypeOut) && *req != p.Direction {
+	if req := in.RequestedDirection; req != nil && (*req == TypeIn || *req == TypeOut) && *req != p.Direction &&
+		p.BusinessDayStart != nil {
 		r.dir, r.source = *req, DirectionEmployee
 		if r.dir == TypeIn {
 			// D was out, so PredictDirection saw a closable open check-in.

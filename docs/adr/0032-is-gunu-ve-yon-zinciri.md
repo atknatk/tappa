@@ -544,6 +544,15 @@ bırakılan giriş notunda: kayıt *"previous check-in left open (no checkout re
 *"Your previous clock-in has no clock-out."* (metinleri yapıcı ve denetçi kesinleştirir; Q33 ile
 birlikte).
 
+*Metin notu (2026-10-22, M15-10).* Bu not kararı değiştirmez, yalnız yukarıdaki örnek metinleri
+kesinleştirir. Çalışanın ekranındaki metinler `you chose to clock in` / `you chose to clock out` ve
+`your previous clock-in has no clock-out`'tur; kaydın metinleri yukarıdakilerle aynıdır
+(`direction chosen by employee`, `previous check-in left open (no checkout recorded)`). Gerekçe: notlar
+kuralın cümlesine `; ` ile eklenir (`appendNote`), bu yüzden küçük harfle başlar ve kendi noktası olmaz.
+Faz A'nın `LeftOpenEmployeeNote`'u da bu kurala uyar. Sabitler `internal/domain/tap/decide.go`'dadır
+(`ChoseClockInEmployeeNote`, `ChoseClockOutEmployeeNote`, `LeftOpenEmployeeNote`, `DirectionChosenNote`,
+`LeftOpenNote`); sınamaları `TestDecide_RequestedDirectionNotesInTwoLanguages`.
+
 **B.5 Saat şişirme yolu ve sıra.** Çalışanın seçtiği bir `out`'un önceki iş gününün açık girişini
 kapatması §A.6'nın sınıflandırmasıyla **Faz A'da** kapanır; yetim çıkışın sayacı ve listesi de Faz
 A'dadır. Yolu açan şey arayüz değil `POST`'un `want` alanıdır; sıra: sınıflandırma → yetim çıkış →
