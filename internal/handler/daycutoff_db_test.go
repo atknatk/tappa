@@ -148,8 +148,9 @@ func TestBusinessDayDB_TheReviewWritesNothingAndTheConfirmedPressWritesOneRow(t 
 	if n := f.trailRows(t, f.tenant, tenant.ActionLocationDayCutoffUpdated); n != 1 {
 		t.Fatalf("%d trail row(s), want 1", n)
 	}
+	// The confirmation was bound to the version it was served against; the write moved it.
 	b.cookies[adminConfirmCookieName] = cookie
-	if rec := b.do(http.MethodPost, businessDayApplyHref, form); !strings.Contains(rec.Header().Get("Location"), "day=same") {
+	if rec := b.do(http.MethodPost, businessDayApplyHref, form); !strings.Contains(rec.Header().Get("Location"), "day=confirm-stale") {
 		t.Fatalf("a replay answered %q", rec.Header().Get("Location"))
 	}
 	if n := f.trailRows(t, f.tenant, tenant.ActionLocationDayCutoffUpdated); n != 1 {
@@ -227,7 +228,7 @@ func TestBusinessDayDB_AShiftTheBusinessDayCutsIsWarnedOnItsForm(t *testing.T) {
 	b := f.browser(t)
 	rec := b.do(http.MethodPost, departmentSaveHref, url.Values{"id": {dept.String()}, "name": {"Pastry & Bakery"},
 		"shift_start": {"04:00"}, "shift_end": {"12:00"}})
-	want := "/admin/locations?day=cuts&department=" + dept.String() + "#business-day"
+	want := "/admin/locations?day=cuts&department=" + dept.String() + "&done=department-saved#business-day"
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != want {
 		t.Fatalf("the save answered %d -> %q, want %q", rec.Code, rec.Header().Get("Location"), want)
 	}
@@ -236,6 +237,7 @@ func TestBusinessDayDB_AShiftTheBusinessDayCutsIsWarnedOnItsForm(t *testing.T) {
 	// A browser never sends the fragment.
 	page := htmlOf(t, b.do(http.MethodGet, strings.Split(want, "#")[0], nil))
 	for _, s := range []string{
+		"Department as it now stands",
 		"Saved — but the business day cuts this shift",
 		"05:00 falls inside Pastry &amp; Bakery&#39;s shift (04:00–12:00)",
 		"Suggested: 20:30 — outside every shift.",
@@ -250,5 +252,56 @@ func TestBusinessDayDB_AShiftTheBusinessDayCutsIsWarnedOnItsForm(t *testing.T) {
 		"shift_start": {"09:00"}, "shift_end": {"17:00"}})
 	if loc := rec.Header().Get("Location"); strings.Contains(loc, "day=cuts") || !strings.Contains(loc, "done=department-saved") {
 		t.Fatalf("a shift the business day does not cut answered %q", loc)
+	}
+}
+
+// TestBusinessDayDB_AConfirmationIsSpentByTheWriteAndStaleAfterAnyChange is review DÜŞÜK-1:
+// a confirmation is bound to the value on file AND its change count, so (1) a confirmation
+// for inherit -> 06:00, replayed after 06:00 -> inherit put the old value back (A -> B -> A),
+// writes nothing, and (2) a confirmation served before somebody else changed the value is
+// "confirm-stale" and leaves their value in place. Each refusal adds no trail row.
+func TestBusinessDayDB_AConfirmationIsSpentByTheWriteAndStaleAfterAnyChange(t *testing.T) {
+	f := newDayDBFixture(t, adminRoleOwner)
+	venue := uuid.New()
+	f.exec(t, f.tenant, `INSERT INTO locations (id, tenant_id, name) VALUES ($1, $2, 'Sliema')`, venue, f.tenant)
+	b := f.browser(t)
+	review := func(cutoff string) (url.Values, string) {
+		rec := b.do(http.MethodPost, businessDayHref, url.Values{"level": {"branch"}, "id": {venue.String()}, "cutoff": {cutoff}})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("review %q answered %d", cutoff, rec.Code)
+		}
+		return formOf(t, htmlOf(t, rec), businessDayApplyHref), b.cookies[adminConfirmCookieName]
+	}
+	apply := func(form url.Values, cookie string) string {
+		b.cookies[adminConfirmCookieName] = cookie
+		return b.do(http.MethodPost, businessDayApplyHref, form).Header().Get("Location")
+	}
+	toSix, toSixCookie := review("06:00")
+	if loc := apply(toSix, toSixCookie); !strings.Contains(loc, "day=saved") {
+		t.Fatalf("A -> B answered %q", loc)
+	}
+	back, backCookie := review("")
+	if loc := apply(back, backCookie); !strings.Contains(loc, "day=saved") {
+		t.Fatalf("B -> A answered %q", loc)
+	}
+	if loc := apply(toSix, toSixCookie); !strings.Contains(loc, "day=confirm-stale") {
+		t.Fatalf("the A -> B confirmation replayed after B -> A answered %q", loc)
+	}
+	if got := f.venueCutoff(t, f.tenant, venue); got != "" || f.trailRows(t, f.tenant, tenant.ActionLocationDayCutoffUpdated) != 2 {
+		t.Fatalf("the replay wrote: cutoff %q", got)
+	}
+
+	// (2) somebody else changes the value between this review and its press.
+	pending, pendingCookie := review("07:00")
+	other := f.browser(t)
+	rec := other.do(http.MethodPost, businessDayHref, url.Values{"level": {"branch"}, "id": {venue.String()}, "cutoff": {"08:00"}})
+	if loc := other.do(http.MethodPost, businessDayApplyHref, formOf(t, htmlOf(t, rec), businessDayApplyHref)).Header().Get("Location"); !strings.Contains(loc, "day=saved") {
+		t.Fatalf("the other change answered %q", loc)
+	}
+	if loc := apply(pending, pendingCookie); !strings.Contains(loc, "day=confirm-stale") {
+		t.Fatalf("a confirmation served before another change answered %q", loc)
+	}
+	if got := f.venueCutoff(t, f.tenant, venue); got != "08:00" || f.trailRows(t, f.tenant, tenant.ActionLocationDayCutoffUpdated) != 3 {
+		t.Fatalf("the stale confirmation wrote over the other change: cutoff %q", got)
 	}
 }

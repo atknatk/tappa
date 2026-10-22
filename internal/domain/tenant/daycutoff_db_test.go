@@ -197,9 +197,14 @@ func TestDayCutoffDB_ABranchCutoffReachesItsProfilePeopleAsFromTheBranch(t *test
 	anna := f.person("Anna Zammit", &gzira, nil)
 	api := f.person("Api Person", nil, nil)
 	f.exec(`UPDATE employees SET day_cutoff = '07:00' WHERE tenant_id = $1 AND id = $2`, f.tenant, joe)
+	// Kim is Sliema's too, in a department with its own value: the department is more
+	// specific than the branch, so the branch does not reach her either.
+	kitchen := f.department(sliema, "Kitchen", "10:00", "22:00")
+	f.exec(`UPDATE departments SET day_cutoff = '04:00' WHERE tenant_id = $1 AND id = $2`, f.tenant, kitchen)
+	f.person("Kim Abela", &sliema, &kitchen)
 
-	// Who the branch level reaches: Maria; not Joe (his own value is more specific), not Anna
-	// (another branch), not the person with no profile branch.
+	// Who the branch level reaches: Maria; not Joe (his own value is more specific), not Kim
+	// (her department's is), not Anna (another branch), not the person with no profile branch.
 	if r := f.review(CutoffBranch, sliema, dur(6, 0), time.Now()); r.People != 1 {
 		t.Fatalf("the Sliema level reaches %d people, want Maria alone", r.People)
 	}
@@ -339,7 +344,7 @@ func TestDayCutoffDB_ADepartmentsOwnShiftIsWarnedBeforeAnybodyIsPlaced(t *testin
 // person with their own cutoff are not. The cutoffs are placed around the entry's own
 // instant so the case holds whatever the clock says when the suite runs.
 func TestDayCutoffDB_CountsTheOpenCheckInsTheChangeWouldSplit(t *testing.T) {
-	f := newCutoffFixture(t, nil)
+	f := newCutoffFixture(t, fixtures.BusinessDaySwitchOn())
 	loc, err := time.LoadLocation("Europe/Malta")
 	if err != nil {
 		t.Fatal(err)
@@ -529,5 +534,134 @@ func TestDayCutoffDB_TheSeedShiftsAreTheOnesThePureTestNames(t *testing.T) {
 		if km[s.Owner] != s {
 			t.Errorf("seed %s is %+v, the pure test says %+v", s.Owner, km[s.Owner], s)
 		}
+	}
+}
+
+// wallIn is t's wall clock in Malta, the fixture tenant's zone, as a cutoff.
+func wallIn(t *testing.T, at time.Time) *time.Duration {
+	t.Helper()
+	loc, err := time.LoadLocation("Europe/Malta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := at.In(loc)
+	return dur(l.Hour(), l.Minute())
+}
+
+// TestDayCutoffDB_OnlyTheEntryTheEngineCouldCloseIsCounted is review ORTA-1's three rules,
+// each on its own branch so one cannot stand in for another (cutoffs placed around the
+// entries' own instants, so the case holds whatever the clock says):
+//
+//	(a) Ada's entry 10 h old whose OLD business day ended 5 h ago -- the old rule already
+//	    leaves it open; the formula alone would count it.
+//	(b) Ben's two open entries, 6 h and 2 h old: the engine can close only the later one
+//	    (GetLastOpenTransaction), so one is counted, not two.
+//	    (window) Cy's entry 20 h old: past StaleOpenIn the engine closes nothing; the formula
+//	    alone would count it.
+//	(c) with the switch off nothing is counted at all and the review says it did not count.
+func TestDayCutoffDB_OnlyTheEntryTheEngineCouldCloseIsCounted(t *testing.T) {
+	f := newCutoffFixture(t, fixtures.BusinessDaySwitchOn())
+	now := time.Now().Truncate(time.Minute)
+	setBranch := func(venue uuid.UUID, at time.Time) {
+		f.exec(`UPDATE locations SET day_cutoff = $3::time WHERE tenant_id = $1 AND id = $2`, f.tenant, venue, ClockText(wallIn(t, at)))
+	}
+
+	a := f.venue("A", "", "", false)
+	ada := f.person("Ada", &a, nil)
+	f.tap(ada, a, now.Add(-10*time.Hour), "in")
+	setBranch(a, now.Add(-5*time.Hour)) // B_old = now - 5 h
+	if r := f.review(CutoffBranch, a, wallIn(t, now.Add(-8*time.Hour)), now); !r.OpenCounted || r.OpenSplit != 0 {
+		t.Errorf("(a) an entry the old rule already leaves open: counted %v, split %d, want 0", r.OpenCounted, r.OpenSplit)
+	}
+
+	b := f.venue("B", "", "", false)
+	ben := f.person("Ben", &b, nil)
+	f.tap(ben, b, now.Add(-6*time.Hour), "in")
+	f.tap(ben, b, now.Add(-2*time.Hour), "in")
+	setBranch(b, now.Add(-12*time.Hour)) // B_old = now + 12 h for both
+	if r := f.review(CutoffBranch, b, wallIn(t, now.Add(-time.Hour)), now); r.OpenSplit != 1 {
+		t.Errorf("(b) two open entries of one person: split %d, want 1 -- the engine closes only the latest", r.OpenSplit)
+	}
+
+	c := f.venue("C", "", "", false)
+	cy := f.person("Cy", &c, nil)
+	f.tap(cy, c, now.Add(-20*time.Hour), "in")
+	setBranch(c, now.Add(-21*time.Hour)) // B_old = now + 3 h
+	if r := f.review(CutoffBranch, c, wallIn(t, now.Add(-17*time.Hour)), now); r.OpenSplit != 0 {
+		t.Errorf("an entry older than StaleOpenIn: split %d, want 0", r.OpenSplit)
+	}
+
+	trail, err := audit.New(f.data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err := NewDirectory(f.data, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	off, err := NewDayCutoffs(f.data, trail, dir, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := off.Review(context.Background(), CutoffReviewCommand{TenantID: f.tenant, Level: CutoffBranch, SubjectID: b, Value: wallIn(t, now.Add(-time.Hour)), Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.OpenCounted || r.OpenSplit != 0 {
+		t.Errorf("(c) the switch off: counted %v, split %d -- nothing is split while no cutoff applies", r.OpenCounted, r.OpenSplit)
+	}
+	if r, err := f.cutoffs.Review(context.Background(), CutoffReviewCommand{TenantID: f.tenant, Level: CutoffBranch, SubjectID: b, Unchanged: true, Now: now}); err != nil || r.OpenCounted {
+		t.Errorf("an Unchanged review counted the open check-ins (%v)", err)
+	}
+}
+
+// TestDayCutoffDB_ADepartmentsShiftIsCheckedAtItsMembersOwnCutoff is review ORTA-2's
+// measurement: Bakery sits at Plant (06:00), its shift is 05:00-13:00, its one member's
+// profile branch is Shop (no value) and the business is 23:00. The member's cutoff is 23:00
+// (GetEmployeeForTap), outside the band, so neither the department's review nor the
+// business's says "06:00 falls inside Bakery's shift" -- the estimate from the department's
+// own venue is for a department with nobody in it.
+func TestDayCutoffDB_ADepartmentsShiftIsCheckedAtItsMembersOwnCutoff(t *testing.T) {
+	f := newCutoffFixture(t, nil)
+	f.exec(`UPDATE tenants SET day_cutoff = '23:00' WHERE id = $1`, f.tenant)
+	plant := f.venue("Plant", "", "", false)
+	shop := f.venue("Shop", "", "", false)
+	f.exec(`UPDATE locations SET day_cutoff = '06:00' WHERE tenant_id = $1 AND id = $2`, f.tenant, plant)
+	bakery := f.department(plant, "Bakery", "05:00", "13:00")
+	baker := f.person("Baker", &shop, &bakery)
+	if got := f.tapCutoff(baker); got != hm(23, 0) {
+		t.Fatalf("the member's own cutoff is %s, the case needs 23:00", ClockText(&got))
+	}
+	now := time.Now()
+	for _, level := range []CutoffLevel{CutoffDepartment, CutoffBusiness} {
+		r, err := f.cutoffs.Review(context.Background(), CutoffReviewCommand{TenantID: f.tenant, Level: level, SubjectID: bakery, Unchanged: true, Now: now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(r.Conflicts) != 0 {
+			t.Errorf("%s review: %+v -- the member's cutoff (23:00) does not cut Bakery's 05-13", level, r.Conflicts)
+		}
+	}
+	// The business level's own estimate has the same flaw for a department whose venue has
+	// no value: Mill at Yard (no value) runs 05:00-13:00 and the business is 05:00, but its
+	// one member's profile branch Store is 23:00 -- the member does not take the business's
+	// value at all, so the business level cuts nobody's shift.
+	g := newCutoffFixture(t, nil)
+	yard := g.venue("Yard", "", "", false)
+	store := g.venue("Store", "", "", false)
+	g.exec(`UPDATE locations SET day_cutoff = '23:00' WHERE tenant_id = $1 AND id = $2`, g.tenant, store)
+	mill := g.department(yard, "Mill", "05:00", "13:00")
+	g.person("Miller", &store, &mill)
+	if r := g.review(CutoffBusiness, uuid.Nil, dur(5, 0), now); len(r.Conflicts) != 0 {
+		t.Errorf("the business level at 05:00: %+v -- Mill's only member takes Store's 23:00", r.Conflicts)
+	}
+	// With nobody in it, the department's own venue IS the estimate (the first-shift case).
+	empty := f.department(plant, "Empty", "05:00", "13:00")
+	r, err := f.cutoffs.Review(context.Background(), CutoffReviewCommand{TenantID: f.tenant, Level: CutoffDepartment, SubjectID: empty, Unchanged: true, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Conflicts) != 1 || r.Conflicts[0].Cutoff != hm(6, 0) {
+		t.Fatalf("an empty department at Plant: %+v, want 06:00 inside its 05-13", r.Conflicts)
 	}
 }

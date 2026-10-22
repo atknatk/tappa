@@ -689,6 +689,13 @@ type Querier interface {
 	// (counter_gaps -- K-1i hands the employer the gap --, other_venue, training, manager_typed,
 	// unanswerable) count every row. The inventory is TestEvidenceReaders_EveryOneIsClassified.
 	CountAnomalySignals(ctx context.Context, arg CountAnomalySignalsParams) (CountAnomalySignalsRow, error)
+	// How many times this level's cutoff has been changed: the trail rows of its one action for
+	// this subject (tenant.DayCutoffs.Set writes exactly one per change, in the write's own
+	// transaction). It is the VERSION a review's confirmation is bound to beside the value on
+	// file, so a confirmation served before any later change -- even one that put the same
+	// value back (A -> B -> A) -- no longer verifies (M15-07 review, DÜŞÜK-1). Read-only; the
+	// (tenant_id, target) index (00021) serves it.
+	CountDayCutoffChanges(ctx context.Context, arg CountDayCutoffChangesParams) (int64, error)
 	// What still points at this department. Two keys rather than the venue's four:
 	// employees_department_fk and transactions_department_fk, both ON DELETE RESTRICT.
 	// 🔴 @id IS CAST EXPLICITLY, AND THE CAST IS LOAD-BEARING RATHER THAN DECORATIVE.

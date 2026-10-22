@@ -82,6 +82,12 @@ func (f *fakeBusinessDays) Move(_ context.Context, c tenant.MoveCutoffCommand) (
 
 func (f *fakeBusinessDays) Switch(time.Time) tenant.BusinessDaySwitch { return f.sw }
 
+func (f *fakeBusinessDays) Version(_ context.Context, _ uuid.UUID, _ tenant.CutoffLevel, _ uuid.UUID) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.review.Version, f.reviewErr
+}
+
 func (f *fakeBusinessDays) counts() (reviews, sets, moves int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -156,6 +162,7 @@ func TestBusinessDay_TheFirstPressWritesNothingAndTheConfirmedOneWritesOnce(t *t
 	days := &fakeBusinessDays{review: tenant.CutoffReview{
 		SubjectID: venue, SubjectName: "KM Plant", Zone: "Europe/Malta", Business: 5 * time.Hour,
 		People: 4, Shifts: 2, Conflicts: []tenant.CutoffConflict{pastryConflict}, Suggested: cutoffAt(23, 0), OpenSplit: 3,
+		OpenCounted: true, Version: "inherit@0",
 	}}
 	b := dayBrowser(t, adminRoleOwner, days, &fakeStaff{}, &fakeTrail{})
 	rec := b.do(http.MethodPost, businessDayHref, url.Values{
@@ -282,6 +289,8 @@ func TestBusinessDay_EveryRefusalIsAWord(t *testing.T) {
 	}{
 		{"not a time", url.Values{"level": {"branch"}, "id": {venue.String()}, "cutoff": {"25:00"}}, nil, tenant.CutoffReview{}, "day=bad-time"},
 		{"seconds", url.Values{"level": {"branch"}, "id": {venue.String()}, "cutoff": {"05:00:30"}}, nil, tenant.CutoffReview{}, "day=bad-time"},
+		{"a fraction of a second", url.Values{"level": {"branch"}, "id": {venue.String()}, "cutoff": {"05:00:00.5"}}, nil, tenant.CutoffReview{}, "day=bad-time"},
+		{"a single-digit hour", url.Values{"level": {"branch"}, "id": {venue.String()}, "cutoff": {"5:00"}}, nil, tenant.CutoffReview{}, "day=bad-time"},
 		{"the value on file", url.Values{"level": {"branch"}, "id": {venue.String()}, "cutoff": {"06:00"}}, nil, tenant.CutoffReview{Stored: cutoffAt(6, 0)}, "day=same"},
 		{"empty business", url.Values{"level": {"business"}, "cutoff": {""}}, tenant.ErrDayCutoffRequired, tenant.CutoffReview{}, "day=required"},
 		{"foreign venue", url.Values{"level": {"branch"}, "id": {venue.String()}, "cutoff": {"06:00"}}, tenant.ErrUnknownVenue, tenant.CutoffReview{}, "problem=unknown-venue"},
@@ -300,6 +309,13 @@ func TestBusinessDay_EveryRefusalIsAWord(t *testing.T) {
 				t.Fatalf("a refusal wrote")
 			}
 		})
+	}
+	// The shift fields share parseClock and keep its reading (DÜŞÜK-3 changes only the cutoff).
+	if _, ok := parseClock("05:00:00.5"); !ok {
+		t.Fatal("parseClock no longer reads what the shift fields have always accepted")
+	}
+	if v, ok := parseCutoffValue("05:00:00"); !ok || v == nil || *v != 5*time.Hour {
+		t.Fatalf("05:00:00 (a time input with seconds) is refused: %v %v", v, ok)
 	}
 	// An empty branch value is "inherit", not 00:00.
 	days := &fakeBusinessDays{review: tenant.CutoffReview{Stored: cutoffAt(6, 0), Zone: "Europe/Malta"}}
@@ -382,6 +398,13 @@ func TestBusinessDayCards_SayTheValueItsSourceAndTheStatus(t *testing.T) {
 // TestConflictSentence_TheCardsExample is ADR 0032 §A.7's sentence, word for word, and the
 // other two lines of the warning.
 func TestConflictSentence_TheCardsExample(t *testing.T) {
+	// A band of 24 h or more (a 21-hour shift, 06:00-03:00) with the cutoff exactly at its
+	// lower end: the example clock-in is BEFORE the cutoff (04:58), never on it -- the
+	// cutoff's own minute already belongs to the new day (review DÜŞÜK-5).
+	long := conflictSentence(tenant.CutoffConflict{Shift: tenant.CutoffShift{Owner: "Plant", Start: 6 * time.Hour, End: 3 * time.Hour, Overnight: true}, Cutoff: 5 * time.Hour})
+	if !strings.Contains(long, "a 04:58 clock-in") || !strings.Contains(long, "the 03:05 clock-out") {
+		t.Fatalf("a band of a whole day: %q", long)
+	}
 	want := "05:00 falls inside KM Pastry & Bakery's shift (04:00–12:00): a 03:58 clock-in would count for the " +
 		"previous day and the 12:05 clock-out would be recorded as a clock-in."
 	if got := conflictSentence(pastryConflict); got != want {
@@ -475,6 +498,32 @@ func TestBusinessDay_ASuspendedBusinessIsRefusedAtBothPresses(t *testing.T) {
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("%s for a suspended business answered %d, want 403", route, rec.Code)
+		}
+	}
+}
+
+// TestBusinessDay_TheOpenCheckInLineOnlyWhenCounted: the review says nothing about open
+// check-ins when the domain did not count them (the switch off -- orchestrator's decision,
+// review ORTA-1 (c)), even if a number is present; "No check-in ... would be split" is said
+// only when they were counted and none is split.
+func TestBusinessDay_TheOpenCheckInLineOnlyWhenCounted(t *testing.T) {
+	venue := uuid.New()
+	for _, c := range []struct {
+		counted bool
+		split   int
+		want    string
+	}{{false, 3, ""}, {true, 0, "No check-in that is open right now would be split."}, {true, 2, "would also split 2 check-ins"}} {
+		days := &fakeBusinessDays{review: tenant.CutoffReview{SubjectID: venue, Zone: "Europe/Malta", OpenCounted: c.counted, OpenSplit: c.split}}
+		body := htmlOf(t, dayBrowser(t, adminRoleOwner, days, &fakeStaff{}, &fakeTrail{}).do(http.MethodPost, businessDayHref,
+			url.Values{"level": {"branch"}, "id": {venue.String()}, "cutoff": {"06:00"}}))
+		if c.want == "" {
+			if strings.Contains(body, "check-in that is open") || strings.Contains(body, "would also split") {
+				t.Errorf("counted=false: the review talks about open check-ins")
+			}
+			continue
+		}
+		if !strings.Contains(body, c.want) {
+			t.Errorf("counted=%v split=%d: no %q", c.counted, c.split, c.want)
 		}
 	}
 }

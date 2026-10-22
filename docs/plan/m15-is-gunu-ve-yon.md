@@ -672,7 +672,13 @@ Faz C vakalarında sonradan gelen satırı `manual.Recorder` ya da `DEFAULT crea
    sayısı — `B_eski = Next_eski(S_eski(in.At))`, `B_yeni = Next_yeni(S_yeni(in.At))`; bölünür ⇔ `B_yeni <
    B_eski ∧ B_yeni ≤ in.At + StaleOpenIn` (`≤`, çünkü kapatma da `≤`'dir — motor merceği N2; DÜŞÜK-1: 5. sürümün *"eski kesimde o aralıkta sınır
    yoksa"* formülü 05:00 → 14:00'te 12:00 girişini *"bölünmez"* sayıyordu; yeni sınır 14:00'tür ve 17:00
-   dokunuşu `in` olur).
+   dokunuşu `in` olur). **İki şart daha ve bir kural (M15-07 denetimi, ORTA-1; orkestratör kararı 2026-10-22):**
+   (i) `B_eski > now` — eski kuralla iş günü zaten bitmiş giriş eski kural tarafından şimdiden açık bırakılmıştır,
+   değişiklik onu bölmez; (ii) kişi başına yalnız motorun kapatabileceği giriş — `GetLastOpenTransaction`'ın
+   cevabı (son `in`, ardında `out` yok) ve yalnız `ListOpenCheckIns`'te de açıksa; aynı kişinin daha eski açık
+   girişi sayılmaz. Pencere son `StaleOpenIn`'dir. **Anahtar etkin değilken sayı gösterilmez** (cümle hiç
+   çıkmaz: o an hiçbir kesim uygulanmadığı için hiçbir şey bölünmez); ayar kartlarının değişmeyen okuması
+   (`Unchanged`) açık girişleri hiç okumaz.
 3a. **Durum satırı** (ürün merceği P1): Account, şube, departman ve kişi ekranlarında kesimin yanında —
    anahtar etkin değilken *"Not active yet — the business day starts applying when Taptime switches it on"*,
    etkinken *"Active since <tarih>"* (tarih anahtarın değeri, tenant saat diliminde). Owner'ın kaydettiği

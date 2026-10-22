@@ -91,6 +91,15 @@ func TestStaffQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 			continue
 		}
 		findings, checked := scopeFindings(body, scoped)
+		// M15-07 made this package call GetLastOpenTransaction (the business-day review asks
+		// which open check-in the engine could close). Its one finding is the correlated
+		// NOT EXISTS this file has already cleared by name in txnScopeExemptions -- the SAME
+		// statement and the same reason, not a new name -- so that clearance is applied here
+		// too instead of being argued twice. Only a name already on that allowlist is passed.
+		if reason, cleared := txnScopeExemptions[name]; cleared && file == txnQueryFile {
+			t.Logf("%s (%s): %d finding(s) cleared by txnScopeExemptions: %s", name, file, len(findings), reason)
+			findings = nil
+		}
 		for _, f := range findings {
 			t.Errorf("%s (%s) %s", name, file, f)
 		}
@@ -328,6 +337,15 @@ func TestTagsQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 			continue
 		}
 		findings, checked := scopeFindings(body, scoped)
+		// M15-07 made this package call GetLastOpenTransaction (the business-day review asks
+		// which open check-in the engine could close). Its one finding is the correlated
+		// NOT EXISTS this file has already cleared by name in txnScopeExemptions -- the SAME
+		// statement and the same reason, not a new name -- so that clearance is applied here
+		// too instead of being argued twice. Only a name already on that allowlist is passed.
+		if reason, cleared := txnScopeExemptions[name]; cleared && file == txnQueryFile {
+			t.Logf("%s (%s): %d finding(s) cleared by txnScopeExemptions: %s", name, file, len(findings), reason)
+			findings = nil
+		}
 		for _, f := range findings {
 			t.Errorf("%s (%s) %s", name, file, f)
 		}

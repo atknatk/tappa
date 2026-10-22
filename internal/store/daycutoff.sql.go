@@ -13,6 +13,33 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countDayCutoffChanges = `-- name: CountDayCutoffChanges :one
+SELECT count(*)::bigint AS changes
+FROM audit_log a
+WHERE a.tenant_id = $1
+  AND a.target = $2
+  AND a.action = $3
+`
+
+type CountDayCutoffChangesParams struct {
+	TenantID uuid.UUID
+	Target   *string
+	Action   string
+}
+
+// How many times this level's cutoff has been changed: the trail rows of its one action for
+// this subject (tenant.DayCutoffs.Set writes exactly one per change, in the write's own
+// transaction). It is the VERSION a review's confirmation is bound to beside the value on
+// file, so a confirmation served before any later change -- even one that put the same
+// value back (A -> B -> A) -- no longer verifies (M15-07 review, DÜŞÜK-1). Read-only; the
+// (tenant_id, target) index (00021) serves it.
+func (q *Queries) CountDayCutoffChanges(ctx context.Context, arg CountDayCutoffChangesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countDayCutoffChanges, arg.TenantID, arg.Target, arg.Action)
+	var changes int64
+	err := row.Scan(&changes)
+	return changes, err
+}
+
 const getDayCutoffBusiness = `-- name: GetDayCutoffBusiness :one
 
 SELECT t.name, t.timezone, t.day_cutoff

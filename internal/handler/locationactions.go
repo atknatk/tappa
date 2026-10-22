@@ -181,7 +181,7 @@ func (a *AdminAuth) saveVenue(w http.ResponseWriter, r *http.Request) {
 	// M15-07: a shift the business day cuts lands on the venue's form, where its business
 	// day block says what is cut and suggests a time (ADR 0032 §A.7).
 	if a.savedShiftCut(r, tenant.CutoffBranch, saved.ID, saved.Name, saved.Shift) {
-		a.redirect(w, businessDayReturn(businessDayForm{level: tenant.CutoffBranch, subject: saved.ID}, "cuts"))
+		a.redirect(w, savedButCut(tenant.CutoffBranch, saved.ID, done))
 		return
 	}
 	// The banner says "the venue below is as it now stands", so the venue below is the
@@ -253,7 +253,7 @@ func (a *AdminAuth) saveDepartment(w http.ResponseWriter, r *http.Request) {
 	}
 	a.log.Info("panel department saved", "department_id", saved.ID)
 	if a.savedShiftCut(r, tenant.CutoffDepartment, saved.ID, saved.Name, saved.Shift) {
-		a.redirect(w, businessDayReturn(businessDayForm{level: tenant.CutoffDepartment, subject: saved.ID}, "cuts"))
+		a.redirect(w, savedButCut(tenant.CutoffDepartment, saved.ID, done))
 		return
 	}
 	a.redirect(w, openVenueAt(venueReturn(done, ""), saved.LocationID))

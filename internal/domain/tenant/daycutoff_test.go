@@ -121,6 +121,23 @@ func TestSuggestCutoff_LandsOutsideEveryBand(t *testing.T) {
 			t.Fatalf("suggested %s although the two bands meet end to end", ClockText(&got))
 		}
 	})
+	t.Run("a shift off the hour: 04:10-12:25 leaves (14:25, 03:10], middle 20:48, rounded 20:45", func(t *testing.T) {
+		got, ok := SuggestCutoff([]CutoffShift{{Owner: "x", Start: hm(4, 10), End: hm(12, 25)}})
+		if !ok || got != hm(20, 45) {
+			t.Fatalf("got %s %v, want 20:45", ClockText(&got), ok)
+		}
+	})
+	t.Run("a widest gap with no quarter hour does not hide a shorter one with some", func(t *testing.T) {
+		shifts := []CutoffShift{
+			{Owner: "a", Start: hm(1, 59), End: hm(14, 59)}, // band (00:59, 16:59]
+			{Owner: "b", Start: hm(18, 1), End: hm(22, 46)}, // band (17:01, 00:46]
+		}
+		// Free: (00:46, 00:59] -- 13 minutes, the widest, no quarter hour in it -- and
+		// (16:59, 17:01] -- 2 minutes, holding 17:00.
+		if got, ok := SuggestCutoff(shifts); !ok || got != hm(17, 0) {
+			t.Fatalf("got %s %v, want 17:00 from the shorter gap", ClockText(&got), ok)
+		}
+	})
 	t.Run("no shift: no suggestion", func(t *testing.T) {
 		if _, ok := SuggestCutoff(nil); ok {
 			t.Fatal("suggested a cutoff with no shift to keep clear of")
@@ -159,15 +176,32 @@ func TestSplitsOpenCheckIn_TheCardsCases(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := SplitsOpenCheckIn(tc.in, cut(tc.from), cut(tc.to)); got != tc.want {
+			// now is a minute after the entry: its old business day has not ended.
+			if got := SplitsOpenCheckIn(tc.in, tc.in.Add(time.Minute), cut(tc.from), cut(tc.to)); got != tc.want {
 				t.Fatalf("SplitsOpenCheckIn = %v, want %v", got, tc.want)
 			}
 		})
 	}
 	t.Run("an unresolvable zone splits nothing", func(t *testing.T) {
 		bad := tap.DayCutoff{Cutoff: hm(14, 0), Timezone: "Not/AZone"}
-		if SplitsOpenCheckIn(mon(12, 0), cut(hm(5, 0)), bad) {
+		if SplitsOpenCheckIn(mon(12, 0), mon(12, 1), cut(hm(5, 0)), bad) {
 			t.Fatal("an unresolvable cutoff split an entry")
+		}
+	})
+	// ORTA-1 (a): Rusty Bar's 18:00 check-in left open, looked at at 10:00 the next day with
+	// 05:00 -> 03:00. Its old business day ended at 05:00 -- the old rule already leaves it
+	// open -- so the change splits nothing; one minute before 05:00 it still would.
+	t.Run("an entry whose old business day has already ended splits nothing", func(t *testing.T) {
+		in := mon(18, 0)
+		tue := func(h, m int) time.Time { return time.Date(2026, 11, 3, h, m, 0, 0, loc) }
+		if SplitsOpenCheckIn(in, tue(10, 0), cut(hm(5, 0)), cut(hm(3, 0))) {
+			t.Fatal("an entry the old rule already left open is counted")
+		}
+		if !SplitsOpenCheckIn(in, tue(4, 59), cut(hm(5, 0)), cut(hm(3, 0))) {
+			t.Fatal("at 04:59 the old day has not ended and 03:00 has cut it")
+		}
+		if SplitsOpenCheckIn(in, tue(5, 0), cut(hm(5, 0)), cut(hm(3, 0))) {
+			t.Fatal("at 05:00 exactly the old day has ended (B_old ≤ now)")
 		}
 	})
 }

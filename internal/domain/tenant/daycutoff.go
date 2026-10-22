@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -164,9 +165,10 @@ func CutoffConflicts(cutoff time.Duration, shifts []CutoffShift) []CutoffShift {
 
 // SuggestCutoff is the middle of the widest stretch of the day that no band covers,
 // rounded to CutoffSuggestionStep -- and, when that rounding lands inside a band, the
-// nearest step that does not (ADR 0032 §A.7, product lens Ü-O7). ok is false when every
-// step of the day falls in some band (or there is no shift to keep clear of): the screen
-// then says there is no cutoff outside every shift.
+// nearest step that does not (ADR 0032 §A.7, product lens Ü-O7). A stretch with no step in
+// it at all is passed over for the next widest, so a narrow widest gap does not hide a step
+// that a shorter one holds. ok is false when no free stretch holds a step (or there is no
+// shift to keep clear of): the screen then says there is no cutoff outside every shift.
 //
 // The day is walked minute by minute because a cutoff is stored in whole minutes (00064):
 // "outside every band" is then exact for every value a cutoff can take.
@@ -176,67 +178,82 @@ func SuggestCutoff(shifts []CutoffShift) (time.Duration, bool) {
 	}
 	const minutes = int(wallDay / time.Minute)
 	free := make([]bool, minutes)
-	someFree := false
+	busy := -1
 	for m := range free {
 		c := time.Duration(m) * time.Minute
 		free[m] = len(CutoffConflicts(c, shifts)) == 0
-		someFree = someFree || free[m]
-	}
-	if !someFree {
-		return 0, false
-	}
-	// The widest free run on the circle: walk twice round so a run across midnight is
-	// whole. A band always covers something, so no run is the full day.
-	bestStart, bestLen, runStart, runLen := 0, 0, 0, 0
-	for i := 0; i < 2*minutes; i++ {
-		if free[i%minutes] {
-			if runLen == 0 {
-				runStart = i
-			}
-			runLen++
-			if runLen > bestLen && runLen <= minutes {
-				bestStart, bestLen = runStart, runLen
-			}
-		} else {
-			runLen = 0
+		if !free[m] && busy < 0 {
+			busy = m
 		}
 	}
-	step := int(CutoffSuggestionStep / time.Minute)
-	mid := bestStart + (bestLen-1)/2
-	// The step nearest the middle that lies in the run.
-	best, bestDist := -1, 0
-	for k := bestStart; k < bestStart+bestLen; k++ {
-		if k%step != 0 {
+	if busy < 0 {
+		// Unreachable with a shift (a band always covers something); said rather than assumed.
+		return 0, false
+	}
+	// The free runs on the circle, walked from a covered minute so none is cut at midnight.
+	type run struct{ start, length int }
+	var runs []run
+	cur := run{length: 0}
+	for i := busy + 1; i <= busy+minutes; i++ {
+		if free[i%minutes] {
+			if cur.length == 0 {
+				cur.start = i
+			}
+			cur.length++
 			continue
 		}
-		dist := k - mid
-		if dist < 0 {
-			dist = -dist
-		}
-		if best < 0 || dist < bestDist {
-			best, bestDist = k, dist
+		if cur.length > 0 {
+			runs = append(runs, cur)
+			cur = run{}
 		}
 	}
-	if best < 0 {
-		return 0, false
+	sort.SliceStable(runs, func(a, b int) bool { return runs[a].length > runs[b].length })
+	step := int(CutoffSuggestionStep / time.Minute)
+	for _, r := range runs {
+		mid := r.start + (r.length-1)/2
+		// The step nearest the middle that lies in the run.
+		best, bestDist := -1, 0
+		for k := r.start; k < r.start+r.length; k++ {
+			if k%step != 0 {
+				continue
+			}
+			dist := k - mid
+			if dist < 0 {
+				dist = -dist
+			}
+			if best < 0 || dist < bestDist {
+				best, bestDist = k, dist
+			}
+		}
+		if best >= 0 {
+			return time.Duration(best%minutes) * time.Minute, true
+		}
 	}
-	return time.Duration(best%minutes) * time.Minute, true
+	return 0, false
 }
 
-// SplitsOpenCheckIn reports whether a check-in made at `in` and open now would be split by
-// moving its person's cutoff from oldCutoff to newCutoff (ADR 0032 §A.7): B_old = Next_old(S_old(in)),
-// B_new = Next_new(S_new(in)); it splits ⇔ B_new < B_old ∧ B_new ≤ in + StaleOpenIn. The
-// second bound is ≤ because closing is ≤ too: a checkout exactly StaleOpenIn after the
-// check-in closes it today, and if B_new is exactly then, the new rule puts that tap in the
-// next day (engine lens N2). A cutoff that cannot be resolved splits nothing -- the engine
-// does not invent a boundary, and neither does this count.
-func SplitsOpenCheckIn(in time.Time, oldCutoff, newCutoff tap.DayCutoff) bool {
+// SplitsOpenCheckIn reports whether a check-in made at `in`, still open at `now`, would be
+// split by moving its person's cutoff from oldCutoff to newCutoff (ADR 0032 §A.7): B_old =
+// Next_old(S_old(in)), B_new = Next_new(S_new(in)); it splits ⇔ B_old > now ∧ B_new < B_old
+// ∧ B_new ≤ in + StaleOpenIn.
+//
+//   - B_old > now: an entry whose business day has ALREADY ended under the old cutoff is left
+//     open by the old rule now; changing the cutoff changes nothing for it (review ORTA-1 (a):
+//     Rusty Bar's forgotten 18:00 check-in, looked at the next morning).
+//   - The last bound is ≤ because closing is ≤ too: a checkout exactly StaleOpenIn after the
+//     check-in closes it today, and if B_new is exactly then, the new rule puts that tap in
+//     the next day (engine lens N2).
+//
+// Which entries are asked about at all -- only the one the engine could close, and only
+// within StaleOpenIn of now -- is the caller's (splitCount). A cutoff that cannot be
+// resolved splits nothing: the engine does not invent a boundary, and neither does this.
+func SplitsOpenCheckIn(in, now time.Time, oldCutoff, newCutoff tap.DayCutoff) bool {
 	sOld, ok := tap.BusinessDayStart(in, oldCutoff)
 	if !ok {
 		return false
 	}
 	bOld, ok := tap.NextBusinessDayStart(sOld, oldCutoff)
-	if !ok {
+	if !ok || !bOld.After(now) {
 		return false
 	}
 	sNew, ok := tap.BusinessDayStart(in, newCutoff)
@@ -355,6 +372,15 @@ type CutoffReview struct {
 	Suggested *time.Duration
 	// Shifts is how many distinct shifts were checked.
 	Shifts int
+	// OpenCounted says the open check-ins were counted. They are counted only for a CHANGE
+	// (not Unchanged) and only while the switch is on: with it off no cutoff applies, so a
+	// change splits nothing now (orchestrator's decision, review ORTA-1 (c)) -- the screen
+	// then says nothing about open check-ins rather than "would also split 1" under "Not
+	// active yet".
+	OpenCounted bool
+	// Version is the value on file and how many times it was changed (CountDayCutoffChanges):
+	// what a confirmation is bound to beside the new value (review DÜŞÜK-1).
+	Version string
 	// OpenSplit is how many check-ins open right now the change would split; OpenCapped
 	// says the count stopped at the ceiling.
 	OpenSplit  int
@@ -726,11 +752,19 @@ func (w cutoffWorld) subject(level CutoffLevel, id uuid.UUID) (string, *time.Dur
 	return "", nil, ErrDayCutoffUnknownLevel
 }
 
-// ownShifts are the level's own shifts, checked even when nobody inherits yet -- the card's
+// ownShifts are the level's own shifts for a place NOBODY IS PLACED IN yet -- the card's
 // "first shift entered" case: a new department with a 04:00 start and the business's 05:00
-// is warned on its own form before anybody is placed in it. Each comes with the cutoff it
-// would use from the level: a venue's people (no override of their own) take
-// coalesce(venue, business), a department's coalesce(department, its venue, business).
+// is warned on its own form before anybody is in it. With nobody there, the cutoff its first
+// people would take is estimated from the place's chain: coalesce(venue, business) for a
+// venue, coalesce(department, the department's venue, business) for a department.
+//
+// 🔴 ONLY FOR A PLACE WITH NO MEMBERS (review ORTA-2). Once people are placed, the place's
+// shift reaches the review as THEIR resolved shift, checked against THEIR effective cutoff
+// (Review's heirs loop). The estimate is wrong for a member: a department's venue need not
+// be the member's profile branch (ADR 0032 §A.2) -- measured: Bakery at Plant (06:00), shift
+// 05-13, its one member's profile Shop, business 23:00: the member's cutoff is 23:00, and the
+// estimate said "06:00 falls inside Bakery's shift". A member who does not inherit the level
+// (their own value, a department's) is not affected by it at all.
 func (w cutoffWorld) ownShifts(level CutoffLevel, subject uuid.UUID, o *override) []CutoffConflict {
 	business := w.business
 	if v := o.at(CutoffBusiness, uuid.Nil, &business); v != nil {
@@ -752,24 +786,35 @@ func (w cutoffWorld) ownShifts(level CutoffLevel, subject uuid.UUID, o *override
 		}
 		return venueCutoff(d.venue)
 	}
+	venueMembers, deptMembers := map[uuid.UUID]bool{}, map[uuid.UUID]bool{}
+	for _, p := range w.people {
+		if p.branch != nil {
+			venueMembers[*p.branch] = true
+		}
+		if p.department != nil {
+			deptMembers[*p.department] = true
+		}
+	}
 	var out []CutoffConflict
 	switch level {
 	case CutoffBranch:
-		if l, ok := w.venues[subject]; ok && l.shift != nil {
+		if l, ok := w.venues[subject]; ok && l.shift != nil && !venueMembers[l.id] {
 			out = append(out, CutoffConflict{Shift: *l.shift, Cutoff: venueCutoff(l.id)})
 		}
 	case CutoffDepartment:
-		if d, ok := w.departments[subject]; ok && d.shift != nil {
+		if d, ok := w.departments[subject]; ok && d.shift != nil && !deptMembers[d.id] {
 			out = append(out, CutoffConflict{Shift: *d.shift, Cutoff: deptCutoff(d)})
 		}
 	case CutoffBusiness:
+		// The business level reaches an empty place only through its chain: a venue with no
+		// value of its own, a department with none whose venue has none either.
 		for _, l := range w.venues {
-			if l.cutoff == nil && l.shift != nil {
+			if l.cutoff == nil && l.shift != nil && !venueMembers[l.id] {
 				out = append(out, CutoffConflict{Shift: *l.shift, Cutoff: business})
 			}
 		}
 		for _, d := range w.departments {
-			if d.cutoff == nil && d.shift != nil {
+			if d.cutoff == nil && d.shift != nil && !deptMembers[d.id] {
 				if l, ok := w.venues[d.venue]; !ok || l.cutoff == nil {
 					out = append(out, CutoffConflict{Shift: *d.shift, Cutoff: business})
 				}
@@ -824,6 +869,9 @@ func (s *DayCutoffs) Review(ctx context.Context, c CutoffReviewCommand) (CutoffR
 		o := &override{level: c.Level, subject: c.SubjectID, value: c.Value}
 		out = CutoffReview{Level: c.Level, SubjectID: c.SubjectID, SubjectName: name, Zone: w.zone,
 			Business: w.business, Stored: stored, Proposed: c.Value}
+		if out.Version, err = version(ctx, q, c.TenantID, c.Level, c.SubjectID, stored); err != nil {
+			return err
+		}
 
 		var heirs []cutoffPerson
 		var ids []uuid.UUID
@@ -866,6 +914,14 @@ func (s *DayCutoffs) Review(ctx context.Context, c CutoffReviewCommand) (CutoffR
 		if v, ok := SuggestCutoff(shifts.list); ok {
 			out.Suggested = &v
 		}
+		// An Unchanged review (the settings cards, the save of a venue or a department) changes
+		// nothing, so it splits nothing: ListOpenCheckIns and the per-person reads are not run
+		// on a page view (review DÜŞÜK-2). The read count of that path is load + the touched
+		// venues + the version -- six statements, none over transactions but the touched one.
+		if c.Unchanged || !s.Switch(c.Now).Active {
+			return nil
+		}
+		out.OpenCounted = true
 		out.OpenSplit, out.OpenCapped, err = splitCount(ctx, q, c.TenantID, w.zone, before, next, c.Now)
 		return err
 	})
@@ -876,9 +932,17 @@ func (s *DayCutoffs) Review(ctx context.Context, c CutoffReviewCommand) (CutoffR
 }
 
 // splitCount counts the open check-ins of the people in `after` that moving from before to
-// after would split. "Open" is ListOpenCheckIns' -- ADR 0032 §A.6's one definition, the
-// anomaly list's and the report's (M15-05) -- over the last StaleOpenIn: an older entry is
-// already left open by the 18-hour rule and no cutoff changes what happens to it.
+// after would split (SplitsOpenCheckIn). Which entries are asked about:
+//
+//   - "Open" is ListOpenCheckIns' -- ADR 0032 §A.6's one definition, the anomaly list's and
+//     the report's (M15-05) -- over the last StaleOpenIn: an older entry is already left
+//     open by the 18-hour rule and no cutoff changes what happens to it.
+//   - ONLY THE ENTRY THE ENGINE COULD CLOSE (review ORTA-1 (b)): the person's next tap is
+//     paired with GetLastOpenTransaction's answer -- their latest `in` with no `out` after
+//     it -- and with nothing else, so a person's older open entries are not split by any
+//     cutoff and are not counted. Per person the latest listed entry is asked, and only when
+//     it IS that answer (one read per such person; the people are the level's heirs whose
+//     cutoff the change moves and who have an entry listed).
 func splitCount(ctx context.Context, q *store.Queries, tenantID uuid.UUID, zone string, before, after map[uuid.UUID]time.Duration, now time.Time) (int, bool, error) {
 	if len(after) == 0 {
 		return 0, false, nil
@@ -898,24 +962,96 @@ func splitCount(ctx context.Context, q *store.Queries, tenantID uuid.UUID, zone 
 	if capped {
 		rows = rows[:openCheckInLimit]
 	}
-	n := 0
+	// The rows are oldest first ((occurred_at, id)), so the last one kept per person is
+	// their latest open entry.
+	latest := map[uuid.UUID]time.Time{}
+	var order []uuid.UUID
 	for _, r := range rows {
 		if r.EmployeeID == nil {
 			continue
 		}
 		next, ok := after[*r.EmployeeID]
-		if !ok {
+		if !ok || before[*r.EmployeeID] == next {
 			continue
 		}
-		was := before[*r.EmployeeID]
-		if was == next {
+		if _, seen := latest[*r.EmployeeID]; !seen {
+			order = append(order, *r.EmployeeID)
+		}
+		latest[*r.EmployeeID] = r.OccurredAt
+	}
+	n := 0
+	for _, id := range order {
+		person := id
+		open, err := q.GetLastOpenTransaction(ctx, store.GetLastOpenTransactionParams{TenantID: tenantID, EmployeeID: &person, At: now})
+		if errors.Is(err, pgx.ErrNoRows) {
 			continue
 		}
-		if SplitsOpenCheckIn(r.OccurredAt, tap.DayCutoff{Cutoff: was, Timezone: zone}, tap.DayCutoff{Cutoff: next, Timezone: zone}) {
+		if err != nil {
+			return 0, false, fmt.Errorf("read the open check-in the engine would close: %w", err)
+		}
+		if !open.OccurredAt.Equal(latest[id]) {
+			continue
+		}
+		if SplitsOpenCheckIn(open.OccurredAt, now, tap.DayCutoff{Cutoff: before[id], Timezone: zone}, tap.DayCutoff{Cutoff: after[id], Timezone: zone}) {
 			n++
 		}
 	}
 	return n, capped, nil
+}
+
+// actionOf is a level's one trail action.
+func actionOf(level CutoffLevel) string {
+	switch level {
+	case CutoffBusiness:
+		return ActionTenantDayCutoffUpdated
+	case CutoffBranch:
+		return ActionLocationDayCutoffUpdated
+	case CutoffDepartment:
+		return ActionDepartmentDayCutoffUpdated
+	}
+	return ActionEmployeeDayCutoffUpdated
+}
+
+// version is the value on file and its change count, as one opaque string ("05:00@3",
+// "inherit@0"). It holds no "|" (the confirmation payload's separator).
+func version(ctx context.Context, q *store.Queries, tenantID uuid.UUID, level CutoffLevel, subject uuid.UUID, stored *time.Duration) (string, error) {
+	target := subject.String()
+	n, err := q.CountDayCutoffChanges(ctx, store.CountDayCutoffChangesParams{TenantID: tenantID, Target: &target, Action: actionOf(level)})
+	if err != nil {
+		return "", fmt.Errorf("count the cutoff's changes: %w", err)
+	}
+	v := ClockText(stored)
+	if v == "" {
+		v = "inherit"
+	}
+	return v + "@" + strconv.FormatInt(n, 10), nil
+}
+
+// Version is what a confirmation for (level, subject) must have been served against: the
+// value on file now and how many times it was changed. The apply step asks it right before
+// the write, so a confirmation served before any later change no longer verifies.
+func (s *DayCutoffs) Version(ctx context.Context, tenantID uuid.UUID, level CutoffLevel, subject uuid.UUID) (string, error) {
+	if _, ok := ParseCutoffLevel(string(level)); !ok {
+		return "", ErrDayCutoffUnknownLevel
+	}
+	if level == CutoffBusiness {
+		subject = tenantID
+	}
+	var out string
+	err := s.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		q := store.New(tx)
+		w, err := load(ctx, q, tenantID, peopleFilter(level, subject))
+		if err != nil {
+			return err
+		}
+		_, stored, err := w.subject(level, subject)
+		if err != nil {
+			return err
+		}
+		out, err = version(ctx, q, tenantID, level, subject, stored)
+		return err
+	})
+	return out, err
 }
 
 // Person is the person card's line: the cutoff the tap would use for them and its source.

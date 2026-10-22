@@ -389,7 +389,12 @@ yeni güne düşer ve `in` olur). Paylar adlandırılmış sabitlerdir (pilotta 
   `≤`'dir: tam 18. saatteki bir çıkış bugün kapatır, `B_yeni` tam o anda ise yeni kurala göre o dokunuş yeni
   güne düşer (motor merceği N2). *(5. sürümün formülü, *"eski kesimde o aralıkta sınır yoksa"*, 05:00 → 14:00
   değişikliğinde 12:00 girişini *"bölünmez"* sayıyordu; oysa yeni sınır 14:00'tür ve 17:00 dokunuşu `in`
-  olur — motor merceği.)*
+  olur — motor merceği.)* **İki şart daha ve bir kural (M15-07 denetimi, ORTA-1; orkestratör kararı
+  2026-10-22):** `B_eski > now` (eski kuralla iş günü bitmiş giriş zaten açık kalıyordur; değişiklik onu
+  bölmez) ve kişi başına yalnız motorun kapatabileceği giriş — `GetLastOpenTransaction`'ın cevabı, aynı zamanda
+  §A.6'ya göre açık (aynı kişinin daha eski açık girişi hiçbir kesimle kapanmaz, sayılmaz); pencere son
+  `StaleOpenIn`. Tam yüklem: bölünür ⇔ `B_eski > now ∧ B_yeni < B_eski ∧ B_yeni ≤ in.At + StaleOpenIn`.
+  **Anahtar (§A.8) etkin değilken sayı gösterilmez** — o an hiçbir kesim uygulanmaz, hiçbir şey bölünmez.
 - Her değişiklik `audit_log`'a.
 
 **Ölçülen sonuç:** seed'deki KM departmanları 05:00 ile çakışıyor — *KM Pastry & Bakery* 04:00–12:00,

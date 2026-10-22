@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -70,7 +71,8 @@ var businessDayWords = []string{
 	"saved", "same", "bad-time", "required", "confirm-required", "confirm-stale", "unavailable", "too-large",
 	// "cuts" is a venue's or department's SAVE whose shift the business day cuts: the save
 	// went through and lands on the form, where the block below says what is cut (§A.7:
-	// the first shift entered is warned about in that form).
+	// the first shift entered is warned about in that form). The section's own "saved"
+	// word travels with it (savedButCut), so the ordinary banner is not replaced.
 	"cuts",
 }
 
@@ -85,6 +87,7 @@ type panelBusinessDays interface {
 	Set(ctx context.Context, c tenant.SetCutoffCommand) (tenant.CutoffChange, error)
 	Person(ctx context.Context, tenantID, employeeID uuid.UUID) (tenant.PersonCutoff, error)
 	Move(ctx context.Context, c tenant.MoveCutoffCommand) (tenant.MoveCutoff, error)
+	Version(ctx context.Context, tenantID uuid.UUID, level tenant.CutoffLevel, subject uuid.UUID) (string, error)
 	Switch(now time.Time) tenant.BusinessDaySwitch
 }
 
@@ -162,11 +165,19 @@ func (a *AdminAuth) readBusinessDayForm(w http.ResponseWriter, r *http.Request) 
 }
 
 // parseCutoffValue reads the posted time: "" is inherit (nil — never 00:00), a value is
-// "15:04" or "15:04:05" with zero seconds (what <input type="time"> sends), in whole minutes.
+// "15:04" or "15:04:00" (what <input type="time"> sends), in whole minutes.
+//
+// THE SHAPE IS CHECKED BEFORE parseClock, and only here (review DÜŞÜK-3): time.Parse accepts
+// a fractional second after "05" even with no fraction in the layout, so parseClock reads
+// "05:00:00.5" as 05:00. The shift fields share parseClock and keep its behaviour; a cutoff
+// is whole minutes (00064), and a value that is not is refused rather than rounded.
 func parseCutoffValue(raw string) (*time.Duration, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, true
+	}
+	if !cutoffShape.MatchString(raw) {
+		return nil, false
 	}
 	d, ok := parseClock(raw)
 	if !ok || !tenant.ValidDayCutoff(d) {
@@ -174,6 +185,9 @@ func parseCutoffValue(raw string) (*time.Duration, bool) {
 	}
 	return &d, true
 }
+
+// cutoffShape is a whole-minute wall clock as a time input posts it.
+var cutoffShape = regexp.MustCompile(`^[0-2][0-9]:[0-5][0-9](:00)?$`)
 
 // businessDayUnreadable is where a form with no readable subject goes: its level's section.
 func businessDayUnreadable(level tenant.CutoffLevel) string {
@@ -222,15 +236,33 @@ func businessDayReturn(f businessDayForm, word string) string {
 	return base + "?" + q.Encode() + "#" + businessDayAnchor
 }
 
-// businessDaySubject is what the confirmation is bound to: the level, the subject and the
-// value together, so a warning served for one value cannot be spent on another (the
-// compound subject of record.manual and policy.edit). None of the three can carry "|".
-func businessDaySubject(f businessDayForm) string {
+// savedButCut is where a venue's or department's save goes when the business day cuts the
+// shift it stored: its form, with the section's own done word (the ordinary "saved" banner,
+// review DÜŞÜK-7) AND the block's "cuts" notice, so neither replaces the other.
+func savedButCut(level tenant.CutoffLevel, subject uuid.UUID, done string) string {
+	target := businessDayReturn(businessDayForm{level: level, subject: subject}, "cuts")
+	path, frag, _ := strings.Cut(target, "#")
+	if w := oneOfWords(done, venueDoneWords...); w != "" {
+		path += "&done=" + w
+	}
+	return path + "#" + frag
+}
+
+// businessDaySubject is what the confirmation is bound to: the level, the subject, the
+// VERSION the review was served against and the new value together (the compound subject
+// of record.manual and policy.edit), so a warning served for one value cannot be spent on
+// another. The version (tenant.CutoffReview.Version: the value on file and its change
+// count) is the orchestrator's DÜŞÜK-1 decision: a confirmation is spent once in effect --
+// the write moves the count -- and one served before somebody else changed the value is
+// "confirm-stale", not a write over a change the page never showed. A bare "from" value
+// would not do: A -> B -> A puts the old value back and the old token would verify again.
+// None of the parts can carry "|".
+func businessDaySubject(f businessDayForm, version string) string {
 	v := tenant.ClockText(f.value)
 	if v == "" {
 		v = "inherit"
 	}
-	return string(f.level) + ":" + f.subject.String() + ":" + v
+	return string(f.level) + ":" + f.subject.String() + ":" + version + ":" + v
 }
 
 // businessDayReview is the first press: it reads what the change would do and answers with
@@ -269,7 +301,7 @@ func (a *AdminAuth) businessDayReview(w http.ResponseWriter, r *http.Request) {
 		a.redirect(w, businessDayReturn(f, "same"))
 		return
 	}
-	token, err := a.setConfirmation(w, r, confirmActionDayCutoff, businessDaySubject(f))
+	token, err := a.setConfirmation(w, r, confirmActionDayCutoff, businessDaySubject(f, rv.Version))
 	if err != nil {
 		a.log.Error("panel: could not mint the business day confirmation", "err", err)
 		a.redirect(w, businessDayReturn(f, "unavailable"))
@@ -299,20 +331,26 @@ func (a *AdminAuth) businessDayApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.value = value
-	// 🔴 THE CONFIRMATION BEFORE ANYTHING IS WRITTEN; a refusal writes nothing.
-	if why := a.confirmationRefusalFor(r, confirmActionDayCutoff, businessDaySubject(f)); why != "" {
+	if a.businessDays == nil {
+		a.renderProblem(w, r, http.StatusServiceUnavailable, problemBusinessDayUnavailable)
+		return
+	}
+	// The version on file NOW, which the confirmation must have been served against.
+	version, err := a.businessDays.Version(r.Context(), id.TenantID(), f.level, f.subject)
+	if a.businessDayRefusal(w, r, f, err) {
+		return
+	}
+	// 🔴 THE CONFIRMATION BEFORE ANYTHING IS WRITTEN; a refusal writes nothing. A value
+	// changed since the review (by anybody, or by this same token already) is
+	// "confirm-stale": the subject no longer matches.
+	if why := a.confirmationRefusalFor(r, confirmActionDayCutoff, businessDaySubject(f, version)); why != "" {
 		a.log.Warn("panel business day refused: the review step was not completed",
 			"level", string(f.level), "reason", why)
 		a.redirect(w, businessDayReturn(f, why))
 		return
 	}
-	// Cleared on the way in (employeeDeactivate's reason); a replay of the same value meets
-	// ErrSameDayCutoff and writes no second row.
+	// Cleared on the way in (employeeDeactivate's reason).
 	a.short.clear(w, adminConfirmCookieName)
-	if a.businessDays == nil {
-		a.renderProblem(w, r, http.StatusServiceUnavailable, problemBusinessDayUnavailable)
-		return
-	}
 	change, err := a.businessDays.Set(r.Context(), tenant.SetCutoffCommand{
 		TenantID: id.TenantID(), ActorID: id.Admin.AdminUserID, Level: f.level, SubjectID: f.subject, Value: f.value,
 	})
@@ -427,17 +465,26 @@ func conflictSentence(c tenant.CutoffConflict) string {
 	if s.Overnight || span <= 0 {
 		span += 24 * time.Hour
 	}
-	off := wrapDay(c.Cutoff - lo) // in (0, band]
+	// off is the cutoff's place in the band, measured from its open lower end; in [0, 24 h).
+	// It is 0 only for a band of 24 h or more (a shift of 21 h or more), whose lower end is
+	// then inside the band too.
+	off := wrapDay(c.Cutoff - lo)
+	// The clock-in: two minutes before the shift, or two minutes before the cutoff when that
+	// is earlier -- ALWAYS before the cutoff, so it belongs to the previous business day. It
+	// may lie before the band's lower end (off < 2 min); it is never clamped up to it, which
+	// put the example clock-in ON the cutoff -- the new day's first minute (review DÜŞÜK-5).
 	in := tenant.CutoffBandBefore - 2*time.Minute
 	if off-2*time.Minute < in {
 		in = off - 2*time.Minute
 	}
-	if in < 0 {
-		in = 0
-	}
+	// The clock-out: five minutes after the shift, or the cutoff itself when that is later --
+	// at or after the cutoff and before the next one (24 h on), so it is the new day's.
 	out := tenant.CutoffBandBefore + span + 5*time.Minute
 	if off > out {
 		out = off
+	}
+	if out >= off+24*time.Hour {
+		out = off + 24*time.Hour - time.Minute
 	}
 	return fmt.Sprintf("%s falls inside %s shift (%s–%s): a %s clock-in would count for the previous day "+
 		"and the %s clock-out would be recorded as a clock-in.",
@@ -711,11 +758,15 @@ func (a *AdminAuth) businessDayReviewView(r *http.Request, f businessDayForm, rv
 			{Label: "Shifts checked", Value: strconv.Itoa(rv.Shifts)},
 			{Label: "Timezone", Value: rv.Zone},
 		},
-		Splits:   splitsSentence(rv.OpenSplit, rv.OpenCapped),
+		// Only when they were counted: with the switch off a change splits nothing now, and
+		// the page says nothing about open check-ins (ORTA-1 (c)).
 		Status:   businessDayStatus(a.businessDays.Switch(now), rv.Zone),
 		Action:   businessDayApplyHref,
 		Submit:   "Save the business day",
 		BackHref: back,
+	}
+	if rv.OpenCounted {
+		v.Splits = splitsSentence(rv.OpenSplit, rv.OpenCapped)
 	}
 	v.Warnings, v.Suggestion = conflictWords(rv.Conflicts, rv.Suggested)
 	fields := businessDayFields(f, tenant.ClockText(f.value))
