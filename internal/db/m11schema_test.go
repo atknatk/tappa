@@ -1060,6 +1060,7 @@ var employeeLocationReaders = []string{
 var employeeLocationNonReaders = map[string]string{
 	"CountPanelTransactionsByVerdict": "t.location_id, the venue filter on transactions (ListPanelTransactions' own); employees is matched by full_name in the name CTE",
 	"ListFlaggedForReview":            "t.location_id, the record's venue; employees is joined for full_name",
+	"ListCheckoutsWithoutCheckIn":     "o.location_id, the checkout's venue; employees is joined for full_name (M15-06)",
 	"ListOpenCheckIns":                "t.location_id, the record's venue; employees is joined for full_name",
 	"ListPanelTransactions":           "t.location_id and the venue filter on transactions; employees is matched and joined for full_name",
 	"ListTapsTakenTogether":           "transactions' location_id through its ordered/pairs CTEs; employees is joined for full_name",

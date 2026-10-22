@@ -810,6 +810,10 @@ func reportCSVExclusions(d *reportDoc, s ledger.ReportScreen) {
 		"Open check-ins older than the engine's own forgotten-checkout threshold. A row cannot say WHY it is open — somebody still on shift and somebody who forgot look the same — so this measures how long only.")
 	d.row("Closed too late to be a shift", strconv.Itoa(s.Totals.TooLong), "",
 		"Check-ins closed so much later that the engine calls them probable missed checkouts. Reported as open rather than paid as very long shifts.")
+	// M15-06: the checkout-side twin of "Check-ins with no checkout" (ADR 0032 §A.6's (b) and
+	// (c)). A payroll process reads rows: a shift whose start is missing is short pay it must see.
+	d.row("Checkouts with no check-in", strconv.Itoa(s.Totals.OutWithoutIn), "",
+		"Checkouts with no check-in before them on their business day. Their shift is worth NO hours here — not zero hours — and a manager enters the missing check-in. Listed on Odd shapes.")
 	d.row("Training taps", strconv.Itoa(s.PracticeTaps), "",
 		"Practice taps from the activation tour. In no figure in this file, and never in worked hours.")
 	d.row("Checkouts that began earlier", strconv.Itoa(s.StartedEarlier), "",
@@ -837,6 +841,7 @@ func reportCSVTotals(d *reportDoc, s ledger.ReportScreen) {
 	d.row("Hours awaiting a decision", hoursMinutes(s.Totals.Awaiting), strconv.Itoa(wholeMinutes(s.Totals.Awaiting)))
 	d.row("Hours a manager refused", hoursMinutes(s.Totals.Refused), strconv.Itoa(wholeMinutes(s.Totals.Refused)))
 	d.row("Check-ins with no checkout", strconv.Itoa(s.Totals.Open), "")
+	d.row("Checkouts with no check-in", strconv.Itoa(s.Totals.OutWithoutIn), "")
 }
 
 // reportCSVPeople is one row per person, with the week split over its local days.
@@ -865,7 +870,7 @@ func reportCSVPeople(d *reportDoc, s ledger.ReportScreen, zone *time.Location) {
 	head = append(head,
 		"awaiting", "awaiting_minutes", "refused", "refused_minutes",
 		"late_arrivals", "late_by", "late_by_minutes",
-		"arrivals_not_measured", "manager_entered_arrivals", "open_check_ins")
+		"arrivals_not_measured", "manager_entered_arrivals", "open_check_ins", "checkouts_without_check_in")
 	d.row(head...)
 
 	for _, p := range s.People {
@@ -890,7 +895,7 @@ func reportCSVPeople(d *reportDoc, s ledger.ReportScreen, zone *time.Location) {
 			hoursMinutes(p.Awaiting), strconv.Itoa(wholeMinutes(p.Awaiting)),
 			hoursMinutes(p.Refused), strconv.Itoa(wholeMinutes(p.Refused)),
 			strconv.Itoa(p.LateShifts), hoursMinutes(p.LateBy), strconv.Itoa(wholeMinutes(p.LateBy)),
-			strconv.Itoa(p.Unmeasured), strconv.Itoa(p.ManualArrivals), strconv.Itoa(p.Open))
+			strconv.Itoa(p.Unmeasured), strconv.Itoa(p.ManualArrivals), strconv.Itoa(p.Open), strconv.Itoa(p.OutWithoutIn))
 		d.row(row...)
 	}
 }

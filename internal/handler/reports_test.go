@@ -116,6 +116,8 @@ func TestReportsSection_PrintsEveryFigureItHoldsBackFromTheTotal(t *testing.T) {
 			Refused:  time.Hour,
 			Open:     2,
 			TooLong:  1,
+			// M15-06: the checkouts whose business day has no check-in before them.
+			OutWithoutIn: 3,
 		}
 		r.PracticeTaps = 4
 		r.StartedEarlier = 2
@@ -139,6 +141,8 @@ func TestReportsSection_PrintsEveryFigureItHoldsBackFromTheTotal(t *testing.T) {
 		"2 checkouts belong to shifts that began before this week",
 		"1 record in this week names no employee",
 		"treated as a missed checkout rather than a shift",
+		"3 checkouts have no check-in before them on their business day",
+		"Checkouts with no check-in",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the page never says %q", want)
@@ -945,5 +949,32 @@ func TestReportsSection_AFullPageStaysUnderItsCeiling(t *testing.T) {
 		t.Errorf("a full Roll page is %d B, over the %d B ceiling. The page is no-store and re-sent on "+
 			"every view, and before its two listing caps it measured 559 968 B; a page this size "+
 			"means a list is growing past its cap or a row has grown a repeated chain.", len(body), reportsPageByteCeiling)
+	}
+}
+
+// TestReportsSection_NamesACheckoutWithNoCheckInOnThePersonsRow is the per-person half of M15-06:
+// a person with checkouts whose business day has no check-in before them carries the words under
+// their name, and the day's cell says it to a screen reader. A person with none carries neither.
+func TestReportsSection_NamesACheckoutWithNoCheckInOnThePersonsRow(t *testing.T) {
+	records := newFakeLedger()
+	records.hours = reportWith(func(r *ledger.Report) {
+		r.Totals = ledger.Totals{OutWithoutIn: 2, Shifts: 1, Worked: time.Hour}
+		marks := make([]ledger.DayMarks, ledger.ReportDays)
+		marks[1].InMissing = true
+		r.People = []ledger.PersonHours{
+			{Name: "Maria Borg", Daily: make([]time.Duration, ledger.ReportDays), Marks: marks, OutWithoutIn: 2},
+			{Name: "Antoine Vella", Worked: time.Hour, Shifts: 1,
+				Daily: make([]time.Duration, ledger.ReportDays), Marks: make([]ledger.DayMarks, ledger.ReportDays)},
+		}
+	})
+	body := reportBrowser(t, records).do(http.MethodGet, reportsHref, nil).Body.String()
+	if n := strings.Count(body, "2 checkouts with no check-in"); n != 1 {
+		t.Errorf("the person's tally is printed %d times, want once", n)
+	}
+	if n := strings.Count(body, ", a checkout with no check-in"); n != 1 {
+		t.Errorf("the day's cell words are printed %d times, want once (Tuesday)", n)
+	}
+	if !strings.Contains(body, "2 checkouts have no check-in before them on their business day") {
+		t.Error("the receipt's sentence is missing")
 	}
 }

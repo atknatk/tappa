@@ -354,6 +354,7 @@ var storeSurface = map[string]string{
 	"ListAnomalyPolicySids":            "(context.Context, ListAnomalyPolicySidsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListAnomalyPolicySidsRow{MatchedSid *string; PolicyLayer *string; Records int64}, error)",
 	"ListAnomalyVenues":                "(context.Context, ListAnomalyVenuesParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListAnomalyVenuesRow{LocationID uuid.UUID; LocationName *string; Records int64; Judged int64; Answerable int64; DistanceOnly int64; OutsideVenue int64; BothMatched int64; NetworkOnly int64; NeitherMatched int64}, error)",
 	"ListBillingPeriods":               "(context.Context, ListBillingPeriodsParams{TenantID uuid.UUID; RowLimit int32}) ([]ListBillingPeriodsRow{ID uuid.UUID; TenantID uuid.UUID; TenantName string; PeriodMonth pgtype.Date; PeriodFrom time.Time; PeriodTo time.Time; Timezone string; Plan string; FreePeriod bool; EmployeeCount int32; UnstampedEmployees int32; UnitPrice pgtype.Numeric; Currency string; AmountDue pgtype.Numeric; ClosedBy uuid.UUID; ClosedAt time.Time}, error)",
+	"ListCheckoutsWithoutCheckIn":      "(context.Context, ListCheckoutsWithoutCheckInParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListCheckoutsWithoutCheckInRow{EmployeeID *uuid.UUID; EmployeeName *string; LocationName *string; SiteLocationID *uuid.UUID; OccurredAt time.Time; AfterEarlierDay bool}, error)",
 	"ListDepartmentsForTenant":         "(context.Context, uuid.UUID) ([]ListDepartmentsForTenantRow{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; Name string; LocationName string}, error)",
 	"ListFlaggedForReview":             "(context.Context, ListFlaggedForReviewParams{TenantID uuid.UUID; CursorAt *time.Time; CursorID *uuid.UUID; PageSize int32}) ([]ListFlaggedForReviewRow{ID uuid.UUID; OccurredAt time.Time; Type *string; Trust *int16; Verdict string; Channel string; Practice bool; Queued bool; TagUid *string; Ctr *int32; IpMatch *bool; GpsMatch *bool; Note *string; PolicyLayer *string; LocationName *string; DepartmentName *string; EmployeeName *string; SiteLocationID *uuid.UUID; SiteTagUid *string; MatchedSid *string}, error)",
 	"ListLivePasswordResetsForAdmin":   "(context.Context, ListLivePasswordResetsForAdminParams{TenantID uuid.UUID; AdminUserID uuid.UUID}) ([]ListLivePasswordResetsForAdminRow{ID uuid.UUID; TenantID uuid.UUID; AdminUserID uuid.UUID; CreatedAt time.Time; ExpiresAt time.Time}, error)",
@@ -1120,14 +1121,17 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// calls a definer.
 	// 233 -> 234 on 2026-10-22 (M15-07 review round): daycutoff.sql's CountDayCutoffChanges,
 	// a count of the caller's own audit_log rows; it calls no definer.
-	if named != 234 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND THIRTY-FOUR were "+
+	// 234 -> 235 on 2026-10-22 (M15-06): anomalies.sql's ListCheckoutsWithoutCheckIn, the "check-in
+	// missing" list over the caller's own rows; tappa_checkout_class is SECURITY INVOKER, so it
+	// calls no definer.
+	if named != 235 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND THIRTY-FIVE were "+
 			"there when this was pinned (2026-10-22: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

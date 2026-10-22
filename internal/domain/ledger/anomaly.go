@@ -366,6 +366,19 @@ type AnomalyOpen struct {
 	WasMaskable bool
 }
 
+// AnomalyInMissing is a checkout whose business day has no check-in before it -- ADR 0032
+// §A.6's (b) and (c), the "check-in missing" list (M15-06; ListCheckoutsWithoutCheckIn). Like an
+// open check-in it is a record a manager completes, and nothing here completes it.
+type AnomalyInMissing struct {
+	EmployeeName string
+	LocationName string
+	At           time.Time
+	// AfterEarlierDay is (b): the record before it is a check-in of an EARLIER business day, which
+	// is itself on the open list. False is (c): nothing, or a checkout tapped before it, is before
+	// it.
+	AfterEarlierDay bool
+}
+
 // MaskedOpenTally is the retrospective half of the ADR 0008 devir note: the week's check-ins a
 // practice row of the same person sits after.
 //
@@ -409,14 +422,17 @@ type Anomalies struct {
 	Period  Period
 	Zone    *time.Location
 
-	Totals   AnomalyTotals
-	People   []AnomalyPerson
-	Venues   []AnomalyVenue
-	Plaques  []AnomalyPlaque
-	Pairs    []AnomalyPair
-	Open     []AnomalyOpen
-	Masked   MaskedOpenTally
-	Policies []AnomalyPolicyRule
+	Totals  AnomalyTotals
+	People  []AnomalyPerson
+	Venues  []AnomalyVenue
+	Plaques []AnomalyPlaque
+	Pairs   []AnomalyPair
+	Open    []AnomalyOpen
+	// InMissing is the "check-in missing" list (M15-06), beside Open: the week's checkouts whose
+	// business day has no check-in before them.
+	InMissing []AnomalyInMissing
+	Masked    MaskedOpenTally
+	Policies  []AnomalyPolicyRule
 	// LostPlaques are this business's lost plaques a holding peer's staff touched this week (M11
 	// API-1c). Empty for a business in no holding.
 	LostPlaques []AnomalyLostPlaque
@@ -429,6 +445,8 @@ type Anomalies struct {
 	MorePlaques bool
 	MorePairs   bool
 	MoreOpen    bool
+	// MoreInMissing is its twin for the "check-in missing" list.
+	MoreInMissing bool
 	// MorePolicies is its twin for the rule breakdown.
 	MorePolicies bool
 	MoreLost     bool
@@ -678,8 +696,31 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 			})
 		}
 
-		// M11 API-1c: name the peers' venues the three listings above reached (ADR 0027 §9) --
-		// one holding_site_locations read, and none when no row names a peer's venue.
+		// M15-06: the "check-in missing" list -- the checkouts of the week whose business day has
+		// no check-in before them (ADR 0032 §A.6, (b) and (c); never (d) or (e)). The open list's
+		// shape: the window, the cap read one past, oldest first.
+		inMissing, err := q.ListCheckoutsWithoutCheckIn(ctx, store.ListCheckoutsWithoutCheckInParams{
+			TenantID: tenantID,
+			FromAt:   period.From,
+			ToAt:     period.To,
+			RowLimit: anomalyReadLimit(),
+		})
+		if err != nil {
+			return fmt.Errorf("list checkouts without a check-in: %w", err)
+		}
+		inMissing, body.MoreInMissing = trimAnomalyRows(inMissing)
+		body.InMissing = make([]AnomalyInMissing, 0, len(inMissing))
+		for _, o := range inMissing {
+			body.InMissing = append(body.InMissing, AnomalyInMissing{
+				EmployeeName:    deref(o.EmployeeName),
+				LocationName:    deref(o.LocationName),
+				At:              o.OccurredAt,
+				AfterEarlierDay: o.AfterEarlierDay,
+			})
+		}
+
+		// M11 API-1c: name the peers' venues the listings above reached (ADR 0027 §9) -- one
+		// holding_site_locations read, and none when no row names a peer's venue.
 		need := false
 		for _, v := range body.Venues {
 			need = need || v.Partner
@@ -688,6 +729,9 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 			need = need || id != nil
 		}
 		for _, o := range open {
+			need = need || o.SiteLocationID != nil
+		}
+		for _, o := range inMissing {
 			need = need || o.SiteLocationID != nil
 		}
 		venuesOfPeers, err := siteVenuesFor(ctx, tx, need)
@@ -707,6 +751,11 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 		for i, o := range open {
 			if o.SiteLocationID != nil {
 				body.Open[i].LocationName = venuesOfPeers.name(*o.SiteLocationID)
+			}
+		}
+		for i, o := range inMissing {
+			if o.SiteLocationID != nil {
+				body.InMissing[i].LocationName = venuesOfPeers.name(*o.SiteLocationID)
 			}
 		}
 

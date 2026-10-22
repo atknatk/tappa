@@ -111,6 +111,18 @@ import (
 // StartedEarlier renders as "this shift began before the period", which is a false
 // sentence about that row.
 //
+// 🔴 THE SURPLUS CHECKOUT HAS A NAME SINCE ADR 0032: (e), the EXTRA checkout (§A.6). When the
+// engine's rows carry a business day (M15), the "out too LATE" row above leaves the 20:00
+// checkout with a checkout before it that was WRITTEN LATER (this package's row: created_at is
+// the moment the manager typed it) and a check-in of its business day before it -- I and W, so
+// (e). It stays Report.StartedEarlier, exactly as above, and it is NOT a missing check-in: it is
+// neither Totals.OutWithoutIn nor on Odd shapes' "Check-in missing" list (M15-06). Were it (c),
+// every such correction would leave a permanent "check-in missing" behind it. Measured with the
+// engine's rows carrying a business day and the corrections typed here (no business day): the
+// four rows and the uncloseable chain below give the same figures
+// (internal/domain/ledger's correction_test.go, the business-day variants). The behaviour did not
+// change; only its name did.
+//
 // ⚠️ THERE IS A WORKING REMEDY AND IT IS UGLY: a compensating PAIR. After a wrongly
 // early checkout at 12:00, entering in 12:01 + out 17:00 restores 7h59m (measured).
 // It restores the money and writes a statement about the world that is not true.

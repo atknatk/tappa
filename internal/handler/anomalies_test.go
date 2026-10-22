@@ -397,10 +397,12 @@ func TestAnomaliesPages_CarryNoDecimalDegreeInEITHEROfTheOtherTwOShapes(t *testi
 			a.Plaques = append(a.Plaques, ledger.AnomalyPlaque{TagUID: "04A1B2C3D4E5F" + n, LocationName: "Venue " + n, Records: 212, CounterGaps: 4, LargestGap: 7})
 			a.Pairs = append(a.Pairs, ledger.AnomalyPair{First: "Employee " + n, Second: "Other " + n, Venue: "Venue " + n, Together: 12, Days: 6, ClosestSeconds: 3})
 			a.Open = append(a.Open, ledger.AnomalyOpen{EmployeeName: "Employee " + n, LocationName: "Venue " + n, At: weekOfUTC().From, ManagerTyped: true, WasMaskable: true})
+			a.InMissing = append(a.InMissing, ledger.AnomalyInMissing{EmployeeName: "Employee " + n, LocationName: "Venue " + n, At: weekOfUTC().From, AfterEarlierDay: i%2 == 0})
 			a.Policies = append(a.Policies, ledger.AnomalyPolicyRule{SID: "base:rule-" + n, Layer: "baseline", Records: 212})
 		}
 		a.MorePeople, a.MoreVenues, a.MorePlaques = true, true, true
 		a.MorePairs, a.MoreOpen, a.MorePolicies = true, true, true
+		a.MoreInMissing = true
 	})
 
 	for _, c := range []struct {
@@ -707,5 +709,43 @@ func TestAnomaliesNames_ATruncatedNameKeepsItsFullText(t *testing.T) {
 	// CONTROL: both cards drew their name, so the loop above read something.
 	if !got[venue] || !got[person] {
 		t.Fatalf("the page has no truncated venue (%v) or person (%v) name to check", got[venue], got[person])
+	}
+}
+
+// TestAnomaliesSection_ListsACheckoutWithNoCheckInBesideTheOpenList is the "check-in missing"
+// list on the page (M15-06): each row says who, where and when (OUT and the checkout's instant),
+// a (b) row says it follows a check-in of an earlier day and a (c) row does not, the list says a
+// correction's surplus is not in it, and a shortened list says so without pointing at counts that
+// do not cover it. A week with none renders no such section at all (the holdingless golden pins
+// that page byte for byte).
+func TestAnomaliesSection_ListsACheckoutWithNoCheckInBesideTheOpenList(t *testing.T) {
+	records := newFakeLedger()
+	records.anomalies = anomaliesWith(func(a *ledger.Anomalies) {
+		a.InMissing = []ledger.AnomalyInMissing{
+			{EmployeeName: "Maria Borg", LocationName: "KF St Julians", At: weekOfUTC().From.Add(31 * time.Hour), AfterEarlierDay: true},
+			{EmployeeName: "Antoine Vella", LocationName: "Rusty Bar", At: weekOfUTC().From.Add(41 * time.Hour)},
+		}
+		a.MoreInMissing = true
+	})
+	body := anomalyBrowser(t, records).do(http.MethodGet, anomaliesHref, nil).Body.String()
+	for _, want := range []string{
+		`id="odd-in-missing"`, "Check-in missing",
+		"Maria Borg", "KF St Julians · OUT Tue 4 Aug 07:00",
+		"Antoine Vella", "Rusty Bar · OUT Tue 4 Aug 17:00",
+		"is not in this list",
+		"More checkouts match than one page lists, so this list stops at",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page never says %q", want)
+		}
+	}
+	if n := strings.Count(body, "After a check-in of an earlier day"); n != 1 {
+		t.Errorf("the (b) chip is drawn %d times, want once -- on Maria's row only", n)
+	}
+
+	none := newFakeLedger()
+	none.anomalies = anomaliesWith(nil)
+	if b := anomalyBrowser(t, none).do(http.MethodGet, anomaliesHref, nil).Body.String(); strings.Contains(b, "odd-in-missing") {
+		t.Error("a week with no checkout missing its check-in renders the section anyway")
 	}
 }

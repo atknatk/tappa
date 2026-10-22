@@ -83,6 +83,10 @@ type AnomaliesView struct {
 	Plaques    []AnomalyPlaqueView
 	Pairs      []AnomalyPairView
 	Open       []AnomalyOpenView
+	// InMissing is the "check-in missing" list (M15-06): the week's checkouts whose business
+	// day has no check-in before them. MoreInMissing is set when it hit the cap.
+	InMissing     []AnomalyInMissingView
+	MoreInMissing bool
 
 	// Masked is the retrospective ADR 0008 tally: check-ins a practice row could have
 	// hidden, split by whether anything closes them (since M15-05 every one that nothing
@@ -309,6 +313,16 @@ type AnomalyOpenView struct {
 	// is a hint about where to look and the screen says exactly that — an ordinary new
 	// starter produces the same shape.
 	WasMaskable bool
+}
+
+// AnomalyInMissingView is a checkout whose business day has no check-in before it.
+type AnomalyInMissingView struct {
+	Who   string
+	Venue string
+	At    string
+	// AfterEarlierDay is ADR 0032 §A.6's (b): the record before it is a check-in of an earlier
+	// business day, which is on the open list too. False is (c).
+	AfterEarlierDay bool
 }
 
 // MaskedOpenView is the ADR 0008 retrospective tally.

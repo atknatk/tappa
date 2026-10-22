@@ -112,14 +112,18 @@ func (w *cpWorld) employee(name string) uuid.UUID {
 // cpRow is one record of a fixture chain. A zero id is a fresh one; a nil wrote is "written at
 // its own instant"; typed is a manager's row (channel manual, entered_by the owner); practice is a
 // historical training row (practice = true, an `in` -- ADR 0008; nothing writes one any more).
+// serverWrite leaves created_at to its DEFAULT now() -- the write instant the database gives a
+// real row, later than every row written before it (M15-06's trap: a row that comes later is
+// never written with a created_at in the past); wrote is then ignored.
 type cpRow struct {
-	id       uuid.UUID
-	dir      string
-	at       time.Time
-	day      *time.Time
-	wrote    *time.Time
-	typed    bool
-	practice bool
+	id          uuid.UUID
+	dir         string
+	at          time.Time
+	day         *time.Time
+	wrote       *time.Time
+	typed       bool
+	practice    bool
+	serverWrite bool
 }
 
 // chain writes a person's rows, each in a transaction of its own as the owner in the tenant's
@@ -146,10 +150,18 @@ func (w *cpWorld) chain(person uuid.UUID, rows []cpRow) {
 		if _, err := tx.Exec(w.ctx, `SELECT set_config('app.tenant_id', $1, true)`, w.tenant.String()); err != nil {
 			w.t.Fatal(err)
 		}
-		if _, err := tx.Exec(w.ctx, `INSERT INTO transactions (id, tenant_id, employee_id, location_id, occurred_at, created_at,
-		                                                       verdict, channel, type, business_day_start, entered_by, practice)
-		                             VALUES ($1, $2, $3, $4, $5, $6, 'ok', $7, $8, $9, $10, $11)`,
-			id, w.tenant, person, w.venue, r.at, wrote, channel, r.dir, r.day, enteredBy, r.practice); err != nil {
+		if r.serverWrite {
+			_, err = tx.Exec(w.ctx, `INSERT INTO transactions (id, tenant_id, employee_id, location_id, occurred_at,
+			                                                   verdict, channel, type, business_day_start, entered_by, practice)
+			                         VALUES ($1, $2, $3, $4, $5, 'ok', $6, $7, $8, $9, $10)`,
+				id, w.tenant, person, w.venue, r.at, channel, r.dir, r.day, enteredBy, r.practice)
+		} else {
+			_, err = tx.Exec(w.ctx, `INSERT INTO transactions (id, tenant_id, employee_id, location_id, occurred_at, created_at,
+			                                                   verdict, channel, type, business_day_start, entered_by, practice)
+			                         VALUES ($1, $2, $3, $4, $5, $6, 'ok', $7, $8, $9, $10, $11)`,
+				id, w.tenant, person, w.venue, r.at, wrote, channel, r.dir, r.day, enteredBy, r.practice)
+		}
+		if err != nil {
 			_ = tx.Rollback(w.ctx)
 			w.t.Fatalf("write %+v: %v", r, err)
 		}

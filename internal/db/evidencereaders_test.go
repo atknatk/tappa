@@ -76,6 +76,17 @@ var evidenceReaders = map[string]evidenceReaderClass{
 		"the sandbox simulation's answer (M11 API-11): internal/sandbox's tapBodyOf blanks trust and the rule of a row at a partner venue; the verdict is the residue"},
 }
 
+// evidenceNonReaders are statements filed as reading NO evidence or decision column although they
+// read transactions and sit beside the readers above on a screen -- the decision is recorded
+// rather than left to the scan's silence (M15-06; the engine lens's M-DÜŞÜK 6). Each must exist
+// and must NOT be a candidate: adding an evidence column (a verdict, an address, a distance) to one
+// is red here until it is filed above with its K-39 class instead.
+var evidenceNonReaders = map[string]string{
+	"ListCheckoutsWithoutCheckIn": "Odd shapes' check-in missing list (M15-06): who, the venue's name, when, and the checkout's class " +
+		"from type, occurred_at, created_at and business_day_start -- a row at a peer's venue names the venue and nothing the peer's " +
+		"evidence showed",
+}
+
 // evidenceColumnRE names the columns a K-39 leak would be computed from.
 // The evidence itself (source_ip, gps_lat, gps_lng -- and gps_distance_m should a column of that
 // name ever exist; today the distance lives in policy_context), the decision built on it, the chip
@@ -165,6 +176,18 @@ func TestEvidenceReaders_EveryOneIsClassified(t *testing.T) {
 	}
 	for _, f := range check(src.String()) {
 		t.Error(f)
+	}
+	all := evidenceCandidates(src.String())
+	for name := range evidenceNonReaders {
+		if !regexp.MustCompile(`(?m)^-- name: ` + name + `\b`).MatchString(src.String()) {
+			t.Errorf("%s: filed in evidenceNonReaders but no statement of db/queries has that name", name)
+		}
+		if _, ok := all[name]; ok {
+			t.Errorf("%s: filed as reading no evidence column, but it reads one -- file it in evidenceReaders with its K-39 class", name)
+		}
+		if _, ok := evidenceReaders[name]; ok {
+			t.Errorf("%s: in both evidenceReaders and evidenceNonReaders", name)
+		}
 	}
 	if len(evidenceReaders) < 15 {
 		t.Fatalf("anti-vacuity: %d readers", len(evidenceReaders))

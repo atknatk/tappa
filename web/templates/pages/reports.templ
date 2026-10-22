@@ -155,6 +155,8 @@ templ reportReceipt(v ReportsView) {
 					@receiptLine("Arrivals typed by a manager", itoa(v.Totals.ManualArrivals))
 					@receiptLine("Approved on The Spike", itoa(v.Totals.Approved))
 					@receiptLine("Open check-ins, not counted", itoa(v.Totals.Open))
+					// M15-06: the checkout-side twin of the line above (ADR 0032 §A.6's (b) and (c)).
+					@receiptLine("Checkouts with no check-in", itoa(v.Totals.OutWithoutIn))
 					@receiptLine("Waiting for a decision", v.Totals.AwaitingFigure)
 					@receiptLine("A manager refused", v.Totals.RefusedFigure)
 				</dl>
@@ -208,6 +210,9 @@ templ reportReceipt(v ReportsView) {
 					}
 					if v.Totals.TooLong > 0 {
 						<p>{ tooLongLine(v.Totals.TooLong) }</p>
+					}
+					if v.Totals.OutWithoutIn > 0 {
+						<p>{ outWithoutInLine(v.Totals.OutWithoutIn) }</p>
 					}
 					if v.Unattributable > 0 {
 						<p>{ unattributableLine(v.Unattributable) }</p>
@@ -299,7 +304,7 @@ templ reportPeople(v ReportsView) {
 // late arrivals, arrivals with no yardstick, hours held out of the total, typed arrivals,
 // check-ins nobody closed.
 templ reportTallies(p ReportRowView) {
-	if p.Late != "" || p.Unmeasured != "" || p.Awaiting != "" || p.Refused != "" || p.Manual != "" || p.Open != "" {
+	if p.Late != "" || p.Unmeasured != "" || p.Awaiting != "" || p.Refused != "" || p.Manual != "" || p.Open != "" || p.InMissing != "" {
 		<span class="mt-1.5 flex flex-wrap gap-1">
 			if p.Late != "" {
 				<span class="tally tally--queued roll-qual">{ p.Late }</span>
@@ -318,6 +323,9 @@ templ reportTallies(p ReportRowView) {
 			}
 			if p.Open != "" {
 				<span class="tally tally--queued roll-qual">{ p.Open }</span>
+			}
+			if p.InMissing != "" {
+				<span class="tally tally--queued roll-qual">{ p.InMissing }</span>
 			}
 		</span>
 	}
@@ -525,6 +533,11 @@ func rollCellWords(worked bool, m ReportMarkView) string {
 	if m.Manual {
 		w += ", check-in typed by a manager"
 	}
+	if m.InMissing {
+		// Words only: the person's row says it on the page (the tally under the name), and a
+		// cell look of its own would be a new legend entry for a mark the tally already carries.
+		w += ", a checkout with no check-in"
+	}
 	return w
 }
 
@@ -627,6 +640,15 @@ func tooLongLine(n int) string {
 		return "1 check-in was closed so much later that it is treated as a missed checkout rather than a shift; it is in the open list below."
 	}
 	return itoa(n) + " check-ins were closed so much later that they are treated as missed checkouts rather than shifts; they are in the open list below."
+}
+
+// outWithoutInLine explains the checkouts whose business day has no check-in before them
+// (ledger.Totals.OutWithoutIn, M15-06): nothing is guessed for them, and Odd shapes lists them.
+func outWithoutInLine(n int) string {
+	if n == 1 {
+		return "1 checkout has no check-in before it on its business day, so no hours are counted for that shift; it is listed on Odd shapes under \"Check-in missing\"."
+	}
+	return itoa(n) + " checkouts have no check-in before them on their business day, so no hours are counted for those shifts; they are listed on Odd shapes under \"Check-in missing\"."
 }
 
 // unattributableLine covers the record §4.6 requires to exist and no chain can hold:

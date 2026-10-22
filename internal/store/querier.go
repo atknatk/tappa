@@ -3773,6 +3773,56 @@ type Querier interface {
 	// backwards. The tenant name is joined for the reason GetBillingPeriod states: the
 	// figures are frozen, the addressee is current.
 	ListBillingPeriods(ctx context.Context, arg ListBillingPeriodsParams) ([]ListBillingPeriodsRow, error)
+	// Checkouts in the window whose business day has no check-in before them: the "check-in
+	// missing" list (M15-06; ADR 0032 §A.6, classes (b) other_day and (c) orphan).
+	//
+	// 🔴 THE CLASS IS tappa_checkout_class's (migration 00064), THE ONE SQL FORM OF THE
+	// CLASSIFICATION, fed the way ADR 0032 §A.6 defines its three inputs -- the same subqueries the
+	// Go/SQL parity test feeds it (internal/domain/ledger's checkout parity test):
+	//
+	//   P  the person's directed, non-practice record just BEFORE the checkout, in (occurred_at, id)
+	//      order -- an `in` or an `out` (the LATERAL `pv`);
+	//   I  an `in` before it in that order with occurred_at >= its business day (the EXISTS);
+	//   W  P was written after it: pv.created_at > o.created_at. created_at is the DATABASE's write
+	//      instant (DEFAULT now(), which no statement writes -- TestTransactions_NoStatementWritesCreatedAt),
+	//      never occurred_at, the client's claim: a manager's correction typed into the past is
+	//      written later, a break's checkout tapped before is written earlier.
+	//
+	// 🔴 WHAT IS NOT ON THIS LIST, AND WHY EACH IS LEFT OUT:
+	//   (e) extra       P is a checkout written LATER and the day has a check-in (I and W): a
+	//                   correction's surplus (ADR 0011's "out too late"). Listing it would leave a
+	//                   permanent "check-in missing" behind every such correction.
+	//   (d) unanchored  a row with NO business day (business_day_start IS NULL: every row before
+	//                   M15, every manual row). It cannot be judged against a day it does not carry;
+	//                   the predicate below says so explicitly as well as through the class.
+	//   (a), closes     P is a check-in this checkout consumes; (a)'s check-in is on the open list.
+	// The report counts the same two classes (Totals.OutWithoutIn), except at its period seam -- a
+	// business day that began before the week is the report's StartedEarlier; this list asks the
+	// row question and lists it (ADR 0032 §A.6: "Anomali listeleri dönem değil satır sorusu sorar").
+	//
+	// after_earlier_day is (b): the record before it is a check-in of an EARLIER business day -- that
+	// check-in is on the open list, and the two rows are one forgotten tap or two. Otherwise (c):
+	// nothing, or a checkout tapped before it, is before it.
+	//
+	// A record naming no employee is not here: it has no chain (the report's Unattributable).
+	// `NOT o.practice` and `NOT pv.practice` as in ListOpenCheckIns. site_location_id names the venue
+	// of a checkout taken at a holding PEER's venue (location_id NULL -- K-30), named by the ledger
+	// from holding_site_locations as the open list's is. Nothing read here is evidence (no address, no
+	// distance, no verdict): who, where, when, and which of the two classes.
+	//
+	// ORDERED OLDEST FIRST, the window on the CHECKOUT's occurred_at, LIMIT @row_limit -- the open
+	// list's shape.
+	//
+	// EXPLAIN (ANALYZE, BUFFERS), M15-06, 2026-10-22, the M15 development database, seed tenant
+	// 10000000-0000-4000-8000-000000000001 (918 rows; the week from Monday 2026-10-19 00:00 Malta
+	// holds 193 checkouts, 116 of them with a business day), row_limit 51, three runs: Bitmap Heap
+	// Scan on transactions_tenant_occurred_idx (116 kept, 802 removed by the out / business-day
+	// predicates) -> per checkout one Limit 1 probe of transactions_tenant_employee_occurred_idx for P
+	// and one for I -> the class as a join filter (116 removed, 0 returned); 4.46 / 3.25 / 3.01 ms,
+	// shared hit 1 891 / 1 669 / 1 669. The zero is M15-05's Phase A property seen on live rows: every
+	// engine checkout is 'closes' or 'extra'. One observation on a small table, not a property: the
+	// cost is two index probes per checkout of the week that carries a business day.
+	ListCheckoutsWithoutCheckIn(ctx context.Context, arg ListCheckoutsWithoutCheckInParams) ([]ListCheckoutsWithoutCheckInRow, error)
 	// Every department with its venue, its stored cutoff (NULL = inherit) and its own shift.
 	ListDayCutoffDepartments(ctx context.Context, arg ListDayCutoffDepartmentsParams) ([]ListDayCutoffDepartmentsRow, error)
 	// The people a level's cutoff can reach: everybody who is not deactivated (a person who

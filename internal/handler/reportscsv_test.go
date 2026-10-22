@@ -715,7 +715,7 @@ func TestReportCSV_NamesEveryQuantityTheHoursExclude(t *testing.T) {
 		r.Totals = ledger.Totals{
 			Worked: 40 * time.Hour, Shifts: 5,
 			Awaiting: 3*time.Hour + 30*time.Minute, Refused: time.Hour,
-			Open: 2, TooLong: 1,
+			Open: 2, TooLong: 1, OutWithoutIn: 3,
 		}
 		r.PracticeTaps = 4
 		r.StartedEarlier = 2
@@ -734,6 +734,8 @@ func TestReportCSV_NamesEveryQuantityTheHoursExclude(t *testing.T) {
 		{"Hours a manager refused", "1h 00m"},
 		{"Check-ins with no checkout", "2"},
 		{"Closed too late to be a shift", "1"},
+		// M15-06: the checkout-side twin -- a shift whose start is missing is short pay.
+		{"Checkouts with no check-in", "3"},
 		{"Training taps", "4"},
 		{"Checkouts that began earlier", "2"},
 		{"Records naming no employee", "1"},
@@ -960,7 +962,7 @@ func TestForbiddenColumn_RefusesTheFiveByNameAndAcceptsTheColumnsThisFileHas(t *
 		"employee_id", "employee", "worked", "worked_minutes", "shifts", "awaiting",
 		"awaiting_minutes", "refused", "refused_minutes", "late_arrivals", "late_by",
 		"late_by_minutes", "arrivals_not_measured", "manager_entered_arrivals",
-		"open_check_ins", "venue", "opened_local", "opened_utc", "needs_action",
+		"open_check_ins", "checkouts_without_check_in", "venue", "opened_local", "opened_utc", "needs_action",
 		"manager_entered", "measure", "value", "minutes", "note", "what",
 		"2026-08-03 (Mon) minutes",
 	} {

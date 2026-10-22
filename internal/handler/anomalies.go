@@ -105,6 +105,12 @@ var anomaliesHref = mustSectionHref(pages.TabAnomalies)
 // `ON transactions (tenant_id, employee_id, occurred_at) WHERE practice`, tiny because practice
 // rows stopped being written (ADR 0026) -- measured before it is added.
 //
+// M15-06 ADDS ListCheckoutsWithoutCheckIn (the "check-in missing" list) and it keeps the week's
+// shape: its two lookups look BACK from each checkout of the week that carries a business day --
+// the record just before it (a Limit 1 backward probe that stops at the first directed,
+// non-practice row) and an `in` since its business day began (bounded by that day). Its header in
+// db/queries/anomalies.sql carries one reading on the seed tenant (3.0 - 4.5 ms, 2026-10-22).
+//
 // ⚠️ AND THE WINDOW'S OWN ROW COUNT IS NOT A CONSTANT EITHER, WHICH IS WHY IT IS A
 // QUERY HERE AND NOT A NUMBER. On the day these were taken the same window read 1 063
 // directed non-practice rows in the morning and 1 365 hours later, because every
@@ -374,6 +380,17 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen, now time.
 			Age:          openAge(o.At, now),
 			ManagerTyped: o.ManagerTyped,
 			WasMaskable:  o.WasMaskable,
+		})
+	}
+
+	v.MoreInMissing = s.MoreInMissing
+	v.InMissing = make([]pages.AnomalyInMissingView, 0, len(s.InMissing))
+	for _, o := range s.InMissing {
+		v.InMissing = append(v.InMissing, pages.AnomalyInMissingView{
+			Who:             personName(o.EmployeeName),
+			Venue:           venueName(o.LocationName),
+			At:              o.At.In(zone).Format("Mon 2 Jan 15:04"),
+			AfterEarlierDay: o.AfterEarlierDay,
 		})
 	}
 

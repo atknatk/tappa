@@ -35,10 +35,11 @@ func written(at time.Time) evOpt { return func(e *reportEvent) { e.CreatedAt = a
 // dayOf freezes a business day on an event (S).
 func dayOf(s *time.Time) evOpt { return func(e *reportEvent) { e.DayStart = s } }
 
-// TestAccumulate_EveryCheckoutClassPicksOneBranch is the card's ledger criteria (M15-05 step 3),
-// one per class, in the August 2026 week the rest of this package's report cases use: Monday is
-// 3 August. Every event is written at its own instant (created_at = occurred_at) unless the case
-// is about W.
+// TestAccumulate_EveryCheckoutClassPicksOneBranch is the card's ledger criteria (M15-05 step 3,
+// M15-06 step 1), one per class, in the August 2026 week the rest of this package's report cases
+// use: Monday is 3 August. Every event is written at its own instant (created_at = occurred_at)
+// unless the case is about W. Every case also runs checkoutsCountedOnce: each checkout of the
+// period is in exactly one place (M15-06, the engine lens's M-DÜŞÜK 10).
 func TestAccumulate_EveryCheckoutClassPicksOneBranch(t *testing.T) {
 	t.Parallel()
 	zone := malta(t)
@@ -54,12 +55,16 @@ func TestAccumulate_EveryCheckoutClassPicksOneBranch(t *testing.T) {
 	typed := func(dir string, when, wrote time.Time) reportEvent {
 		return ev(maria, "Maria Borg", dir, when, manual(), written(wrote))
 	}
+	const monday, tuesday = 0, 1
 	tests := []struct {
 		name                            string
 		evs                             []reportEvent
 		worked                          time.Duration
 		open                            []time.Time
 		tooLong, startedEarlier, shifts int
+		outWithoutIn                    int
+		// inMissingOn are the local days (0 = Monday) the person's InMissing mark is set on.
+		inMissingOn []int
 	}{
 		{
 			name:   "closes: an in and an out of one business day",
@@ -72,18 +77,34 @@ func TestAccumulate_EveryCheckoutClassPicksOneBranch(t *testing.T) {
 			worked: 8*time.Hour + 5*time.Minute, shifts: 1,
 		},
 		{
-			name: "(b) the third eye's case: Monday 15:00 in, Tuesday 07:00 out (S Tuesday 05:00) -- " +
-				"Monday is open and nothing is paid; the checkout half is StartedEarlier for now",
-			evs:            []reportEvent{tapped("in", mon(15, 0)), tapped("out", tue(7, 0))},
-			open:           []time.Time{mon(15, 0)},
-			startedEarlier: 1,
+			name: "(b) the card's case: Monday 15:00 in, Tuesday 07:00 out (S Tuesday 05:00) -- " +
+				"Monday is checkout-missing, Tuesday 07:00 is check-in-missing, nothing is paid",
+			evs:          []reportEvent{tapped("in", mon(15, 0)), tapped("out", tue(7, 0))},
+			open:         []time.Time{mon(15, 0)},
+			outWithoutIn: 1, inMissingOn: []int{tuesday},
+		},
+		{
+			name: "(a AND b) -> (b): Monday 07:00 in, Tuesday 07:00 out (24 h, S Tuesday 05:00) -- not TooLong",
+			evs:  []reportEvent{tapped("in", mon(7, 0)), tapped("out", tue(7, 0))},
+			open: []time.Time{mon(7, 0)}, outWithoutIn: 1, inMissingOn: []int{tuesday},
 		},
 		{
 			name: "(b) then (c): the open slot empties, so Tuesday 08:00 has no in before it",
 			evs: []reportEvent{tapped("in", mon(15, 0)), tapped("out", tue(7, 0)),
 				tapped("out", tue(8, 0))},
-			open:           []time.Time{mon(15, 0)},
-			startedEarlier: 2,
+			open:         []time.Time{mon(15, 0)},
+			outWithoutIn: 2, inMissingOn: []int{tuesday},
+		},
+		{
+			name:         "(c) its business day inside the period: a tapped checkout alone, Tuesday 10:00",
+			evs:          []reportEvent{tapped("out", tue(10, 0))},
+			outWithoutIn: 1, inMissingOn: []int{tuesday},
+		},
+		{
+			name: "(c) its business day BEFORE the period: Monday 03:00 out alone (S Sunday 05:00) -- the seam, " +
+				"StartedEarlier, not OutWithoutIn",
+			evs:            []reportEvent{tapped("out", mon(3, 0))},
+			startedEarlier: 1,
 		},
 		{
 			name: "(a) the Phase B shape: 05:30 in, next day 04:30 out (23 h, one business day)",
@@ -98,16 +119,32 @@ func TestAccumulate_EveryCheckoutClassPicksOneBranch(t *testing.T) {
 		},
 		{
 			name: "(e) the manager's correction: engine 09:00 in, engine 20:00 out, typed 17:00 out written at 21:00 -- " +
-				"8 h, and 20:00 is the surplus (StartedEarlier 1, ADR 0011's result)",
+				"8 h, and 20:00 is the surplus (StartedEarlier 1, ADR 0011's result), not a missing check-in",
 			evs: []reportEvent{tapped("in", mon(9, 0)), typed("out", mon(17, 0), mon(21, 0)),
 				tapped("out", mon(20, 0))},
 			worked: 8 * time.Hour, shifts: 1, startedEarlier: 1,
 		},
 		{
-			name: "(c) the break: 09:00 in, 12:00 out, 17:00 out written in order -- 3 h; 17:00 closes nothing",
+			name: "(c) the break (the 5th version's HIGH): 09:00 in, 12:00 out, 17:00 out written after it -- " +
+				"3 h; 17:00 is a missing check-in, not the surplus",
 			evs: []reportEvent{tapped("in", mon(9, 0)), tapped("out", mon(12, 0)),
 				tapped("out", mon(17, 0))},
-			worked: 3 * time.Hour, shifts: 1, startedEarlier: 1,
+			worked: 3 * time.Hour, shifts: 1, outWithoutIn: 1, inMissingOn: []int{monday},
+		},
+		{
+			name: "the break moved by a backdated claim: + an out written 17:01 claiming 16:59:59 -- " +
+				"17:00 becomes (e), 16:59:59 is (c): still one missing check-in",
+			evs: []reportEvent{tapped("in", mon(9, 0)), tapped("out", mon(12, 0)),
+				tapped("out", mon(16, 59).Add(59*time.Second), written(mon(17, 1))),
+				tapped("out", mon(17, 0))},
+			worked: 3 * time.Hour, shifts: 1, outWithoutIn: 1, startedEarlier: 1, inMissingOn: []int{monday},
+		},
+		{
+			name: "Phase C's own flow: Monday 15:00 in, Tuesday 07:00 out (b), Monday's checkout approved later " +
+				"(typed 23:00, written Tuesday 09:00) -- Monday is paid 8 h and Tuesday 07:00 is still (c): no in on its day",
+			evs: []reportEvent{tapped("in", mon(15, 0)), typed("out", mon(23, 0), tue(9, 0)),
+				tapped("out", tue(7, 0))},
+			worked: 8 * time.Hour, shifts: 1, outWithoutIn: 1, inMissingOn: []int{tuesday},
 		},
 		{
 			name: "Monday in, Tuesday in, Tuesday out: Monday stays open, Tuesday is paid",
@@ -132,12 +169,181 @@ func TestAccumulate_EveryCheckoutClassPicksOneBranch(t *testing.T) {
 			}
 			if rep.Totals.Worked != tc.worked || rep.Totals.Shifts != tc.shifts ||
 				rep.Totals.TooLong != tc.tooLong || rep.StartedEarlier != tc.startedEarlier ||
+				rep.Totals.OutWithoutIn != tc.outWithoutIn ||
 				!reflect.DeepEqual(open, tc.open) || rep.Totals.Open != len(tc.open) {
-				t.Errorf("Worked %v Shifts %d TooLong %d StartedEarlier %d Open %v (%d); "+
-					"want %v %d %d %d %v", rep.Totals.Worked, rep.Totals.Shifts, rep.Totals.TooLong,
-					rep.StartedEarlier, open, rep.Totals.Open, tc.worked, tc.shifts, tc.tooLong, tc.startedEarlier, tc.open)
+				t.Errorf("Worked %v Shifts %d TooLong %d StartedEarlier %d OutWithoutIn %d Open %v (%d); "+
+					"want %v %d %d %d %d %v", rep.Totals.Worked, rep.Totals.Shifts, rep.Totals.TooLong,
+					rep.StartedEarlier, rep.Totals.OutWithoutIn, open, rep.Totals.Open,
+					tc.worked, tc.shifts, tc.tooLong, tc.startedEarlier, tc.outWithoutIn, tc.open)
 			}
+			var perPerson int
+			var marked []int
+			for _, ph := range rep.People {
+				perPerson += ph.OutWithoutIn
+				for d, m := range ph.Marks {
+					if m.InMissing {
+						marked = append(marked, d)
+					}
+				}
+			}
+			if perPerson != tc.outWithoutIn || !reflect.DeepEqual(marked, tc.inMissingOn) {
+				t.Errorf("per person OutWithoutIn %d marked on days %v, want %d on %v", perPerson, marked, tc.outWithoutIn, tc.inMissingOn)
+			}
+			checkoutsCountedOnce(t, tc.evs, p, rep)
 		})
+	}
+}
+
+// checkoutsCountedOnce is the card's "no double counting" invariant (M15-06; the engine lens's
+// M-DÜŞÜK 10): every checkout of the period is in exactly ONE place --
+//
+//	a closing pair (Worked, Awaiting or Refused: once, whatever its state)
+//	+ Totals.TooLong + Totals.OutWithoutIn + StartedEarlier
+//	+ the "another period's check-in" branch (accumulate's `continue`)
+//	= the period's checkouts.
+//
+// The class of each checkout is the walker's (checkout.go) -- the subject here is accumulate's
+// accounting, not the classification, which the parity test owns. It needs no event at or after
+// the period's end (a pair whose checkout lies in the closing tail is a pair of the period with
+// no checkout in it): callers keep their events before p.To. A pair is counted by its state too:
+// the counted ones are Totals.Shifts, and the others are held out (Awaiting or Refused non-zero).
+func checkoutsCountedOnce(t *testing.T, evs []reportEvent, p Period, rep Report) {
+	t.Helper()
+	inPeriod := func(at time.Time) bool { return !at.Before(p.From) && at.Before(p.To) }
+	var outs, pairs, counted, otherPeriod int
+	var chain checkoutChain
+	var prev *reportEvent
+	for i := range evs {
+		e := evs[i]
+		if !e.At.Before(p.To) {
+			t.Fatalf("PREMISE: an event at or after the period's end (%v); this invariant counts no closing tail", e.At)
+		}
+		if i == 0 || evs[i-1].EmployeeID != e.EmployeeID {
+			chain, prev = checkoutChain{}, nil
+		}
+		if e.Direction == "in" {
+			chain.checkin(e.At, e.CreatedAt)
+			prev = &evs[i]
+			continue
+		}
+		class := chain.checkout(e.At, e.CreatedAt, e.DayStart)
+		before := prev
+		prev = &evs[i]
+		if !inPeriod(e.At) {
+			continue
+		}
+		outs++
+		if class != tap.CheckoutCloses && class != tap.CheckoutTooLong {
+			continue
+		}
+		if before == nil || before.Direction != "in" {
+			t.Fatalf("PREMISE: a %q checkout at %v with no check-in before it", class, e.At)
+		}
+		if !inPeriod(before.At) {
+			otherPeriod++
+			continue
+		}
+		if class == tap.CheckoutCloses {
+			pairs++
+			if worse(endpointState(before.Verdict, before.Review), endpointState(e.Verdict, e.Review)) == HoursCounted {
+				counted++
+			}
+		}
+	}
+	if got := pairs + rep.Totals.TooLong + rep.Totals.OutWithoutIn + rep.StartedEarlier + otherPeriod; got != outs {
+		t.Errorf("checkouts counted %d times (pairs %d + TooLong %d + OutWithoutIn %d + StartedEarlier %d + another period's %d), "+
+			"the period holds %d: a checkout counted twice or not at all",
+			got, pairs, rep.Totals.TooLong, rep.Totals.OutWithoutIn, rep.StartedEarlier, otherPeriod, outs)
+	}
+	if rep.Totals.Shifts != counted || (pairs > counted) != (rep.Totals.Awaiting+rep.Totals.Refused > 0) {
+		t.Errorf("pairs %d (counted %d): Shifts %d, Awaiting %v, Refused %v -- a pair is in exactly one state",
+			pairs, counted, rep.Totals.Shifts, rep.Totals.Awaiting, rep.Totals.Refused)
+	}
+}
+
+// TestAccumulate_EveryCheckoutOfThePeriodIsCountedOnce is checkoutsCountedOnce over random weeks:
+// several people, random directions, verdicts and reviews, business days frozen or absent, write
+// instants in and out of order (so (e) and (c) both occur), and events from two days BEFORE the
+// period (so the "another period's check-in" branch and the seam occur). Non-vacuity: every class
+// and both seams are seen.
+func TestAccumulate_EveryCheckoutOfThePeriodIsCountedOnce(t *testing.T) {
+	t.Parallel()
+	zone := malta(t)
+	p := week(t, zone)
+	rng := rand.New(rand.NewSource(1506))
+	people := []uuid.UUID{maria, antoine, uuid.MustParse("33333333-3333-4333-8333-333333333333")}
+	verdicts := []string{"ok", "ok", "ok", "flag", "reject"}
+	reviews := []string{"", "", "approved", "rejected"}
+	start := p.From.Add(-48 * time.Hour)
+	span := p.To.Sub(start)
+	seen := map[tap.CheckoutClass]int{}
+	var otherPeriod, seam int
+	for round := 0; round < 3000; round++ {
+		var evs []reportEvent
+		for _, who := range people[:1+rng.Intn(len(people))] {
+			n := rng.Intn(20)
+			var instants []time.Time
+			for i := 0; i < n; i++ {
+				instants = append(instants, start.Add(time.Duration(rng.Int63n(int64(span/time.Minute)))*time.Minute))
+			}
+			sort.Slice(instants, func(i, j int) bool { return instants[i].Before(instants[j]) })
+			for _, when := range instants {
+				dir := "in"
+				if rng.Intn(2) == 0 {
+					dir = "out"
+				}
+				// Written at its instant, or up to six hours later (a typed or queued row).
+				wrote := when.Add(time.Duration(rng.Int63n(int64(6*time.Hour))) * time.Duration(rng.Intn(2)))
+				e := ev(who, "Staff "+who.String()[:4], dir, when,
+					verdict(verdicts[rng.Intn(len(verdicts))], reviews[rng.Intn(len(reviews))]), written(wrote))
+				if rng.Intn(4) != 0 {
+					e.DayStart = maltaDay(t, when)
+				} else {
+					e.Manual = true
+				}
+				evs = append(evs, e)
+			}
+		}
+		rep := accumulate(evs, p, zone, p.To.Add(72*time.Hour))
+		checkoutsCountedOnce(t, evs, p, rep)
+		if t.Failed() {
+			t.Fatalf("round %d: events %+v", round, evs)
+		}
+		// Non-vacuity, read with the same walker.
+		var chain checkoutChain
+		var prevIn *time.Time
+		for i, e := range evs {
+			if i == 0 || evs[i-1].EmployeeID != e.EmployeeID {
+				chain, prevIn = checkoutChain{}, nil
+			}
+			if e.Direction == "in" {
+				chain.checkin(e.At, e.CreatedAt)
+				v := e.At
+				prevIn = &v
+				continue
+			}
+			c := chain.checkout(e.At, e.CreatedAt, e.DayStart)
+			if e.At.Before(p.From) {
+				prevIn = nil
+				continue
+			}
+			seen[c]++
+			if (c == tap.CheckoutCloses || c == tap.CheckoutTooLong) && prevIn != nil && prevIn.Before(p.From) {
+				otherPeriod++
+			}
+			if (c == tap.CheckoutOrphan || c == tap.CheckoutOtherDay) && e.DayStart.Before(p.From) {
+				seam++
+			}
+			prevIn = nil
+		}
+	}
+	for _, c := range []tap.CheckoutClass{tap.CheckoutCloses, tap.CheckoutTooLong, tap.CheckoutOtherDay, tap.CheckoutOrphan, tap.CheckoutExtra, tap.CheckoutUnanchored} {
+		if seen[c] == 0 {
+			t.Errorf("PREMISE: the sweep never reached %q (%v)", c, seen)
+		}
+	}
+	if otherPeriod == 0 || seam == 0 {
+		t.Errorf("PREMISE: another period's check-in seen %d times, the (b)/(c) seam %d times -- both must occur", otherPeriod, seam)
 	}
 }
 
