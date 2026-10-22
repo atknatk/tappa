@@ -159,6 +159,34 @@ func TestDirectionSource00065And00066_OpenWithASecondsLockTimeout(t *testing.T) 
 	}
 }
 
+// TestDirectionSource00064And00065_TheDownLocksBeforeItLooks pins the line no walk can see: each
+// refusing Down's statement after its lock_timeout is the LOCK TABLE that takes transactions ACCESS
+// EXCLUSIVE, and it comes before the DO block's EXISTS. Without it a tap's uncommitted INSERT is
+// invisible to the EXISTS, waits for the ALTER's lock, commits behind the check -- and the DROP
+// COLUMN then drops the evidence it wrote (§4.3). The Down tests take the table first themselves
+// (lockForDowns), so with the line deleted they stayed green (measured); this is a pin on the text.
+// 00064 carries the same arrangement over the five tables its Down alters, in the Up's order.
+func TestDirectionSource00064And00065_TheDownLocksBeforeItLooks(t *testing.T) {
+	for _, c := range []struct{ file, lock string }{
+		{bd00064File, "LOCK TABLE employees, departments, locations, tenants, transactions IN ACCESS EXCLUSIVE MODE;"},
+		{ds00065File, "LOCK TABLE transactions IN ACCESS EXCLUSIVE MODE;"},
+	} {
+		_, down := opMigrationSections(t, c.file)
+		var statements []string
+		for _, line := range strings.Split(down, "\n")[1:] {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "--") {
+				continue
+			}
+			statements = append(statements, line)
+		}
+		if len(statements) < 3 || statements[0] != "SET LOCAL lock_timeout = '1s';" || statements[1] != c.lock || statements[2] != "DO $$" {
+			head := statements[:min(3, len(statements))]
+			t.Errorf("%s's Down opens with %q, want the lock_timeout, then %q, then the DO block that looks", c.file, head, c.lock)
+		}
+	}
+}
+
 // dsAlterOf returns 00065's ALTER TABLE transactions statement and 00064's business-day CHECK
 // (its ADD CONSTRAINT clause), from the files goose runs.
 func dsAlterOf(t *testing.T) (alter, check64 string) {
@@ -430,7 +458,7 @@ func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *
 	}
 	notValid := strings.ReplaceAll(strings.ReplaceAll(wantHead, "validated=true", "validated=false"), ")))", "))) NOT VALID")
 
-	t.Run("a row with a direction source: 00066 gives back NOT VALID and 00065 refuses", func(t *testing.T) {
+	t.Run("a row with either direction source: 00066 gives back NOT VALID and 00065 refuses", func(t *testing.T) {
 		dsSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 			opRunSection(t, ctx, sp, down66, "00066 Down")
 			at65 := dsRead(t, ctx, sp)
@@ -471,16 +499,31 @@ func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *
 					t.Errorf("a NEW %q (verdict %s) under the NOT VALID CHECKs answered %v, want 23514 on %s", bad.source, bad.verdict, err, bad.constraint)
 				}
 			}
-			if _, err := sp.Exec(ctx, insert, tenant, person, venue, ptrStr("out"), "ok", "employee"); err != nil {
-				t.Fatalf("fixture: a row whose person chose the direction: %v", err)
-			}
-			err := tryIn(sp, down65)
-			var pg *pgconn.PgError
-			if !errors.As(err, &pg) || pg.Code != "55000" || !strings.Contains(pg.Message, "migration 00065 Down") {
-				t.Fatalf("00065's Down over a recorded direction source answered %v, want 55000 naming 00065", err)
-			}
-			if after := dsRead(t, ctx, sp); after != at65 {
-				t.Errorf("the refused Down changed the catalogue:\n %+v\nwant 00065's\n %+v", after, at65)
+			// EVERY value refuses, each alone in a savepoint of its own: a condition narrowed to one
+			// value (= 'employee') would let the Down drop the other.
+			for _, source := range tap.DirectionSources {
+				func() {
+					one, err := sp.Begin(ctx)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer func() {
+						if err := one.Rollback(ctx); err != nil {
+							t.Fatal(err)
+						}
+					}()
+					if _, err := one.Exec(ctx, insert, tenant, person, venue, ptrStr("out"), "ok", string(source)); err != nil {
+						t.Fatalf("fixture: a row with direction_source %q: %v", source, err)
+					}
+					err = tryIn(one, down65)
+					var pg *pgconn.PgError
+					if !errors.As(err, &pg) || pg.Code != "55000" || !strings.Contains(pg.Message, "migration 00065 Down") {
+						t.Errorf("00065's Down over a row with direction_source %q answered %v, want 55000 naming 00065", source, err)
+					}
+					if after := dsRead(t, ctx, one); after != at65 {
+						t.Errorf("the Down over %q changed the catalogue:\n %+v\nwant 00065's\n %+v", source, after, at65)
+					}
+				}()
 			}
 		})
 	})
