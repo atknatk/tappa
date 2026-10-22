@@ -312,14 +312,19 @@ const (
 	// an HR system "can write your people and locations"; it does not call that an
 	// import, because it is one profile per request, not a file.
 	FactAPIWritesPeopleAndLocations Fact = "route:PUT /v1/locations/{ref}+PUT /v1/employees/{ref}"
-	// Every punch reaches the integration from a feed or a webhook: GET /v1/punches is
+	// Every COUNTED TAP reaches the integration from a feed or a webhook (LP-08 review,
+	// 2026-10-22: it said "every punch", and a record typed by a manager is not in the
+	// feed -- 00049's punch_feed admits an ok NFC or QR tap and an approved flagged one,
+	// nothing on the manual channel; the integration guide says "Manual records do not
+	// enter the feed"). The sentences that rest on this say "counted tap" and say where
+	// a manager's entry goes instead (the hours CSV). GET /v1/punches is
 	// mounted (API-7), the punch feed's trigger (00049's punch_feed) queues a
 	// webhook_deliveries row for the business's endpoint, and so does the holding
 	// trigger (00049's holding_feed) for the employer of a holding punch — K-31: that
 	// punch's events are not punch_feed's, so "every" needs both — and cmd/tappa runs
 	// the sender (internal/webhook/delivery, API-10) whose body is the same
 	// punchwire.Punch the feed answers. Derived from all five.
-	FactAPIFeedsEveryPunch Fact = "route:GET /v1/punches+webhook:delivery"
+	FactAPIFeedsEveryCountedTap Fact = "route:GET /v1/punches+webhook:delivery (counted taps, no manual row)"
 	// The API is opened per business BY TAPPA, not by the business: a key of a tenant
 	// whose api_enabled_at is NULL is refused 403 api_disabled (apikey.ErrAPIClosed,
 	// the chain's refuse), migration 00038 refuses to run if tappa_app could write that
@@ -1375,10 +1380,11 @@ var LandingFAQ = []Question{
 		A: "Into your dashboard: hours per person and per site, and the monthly headcount " +
 			"you're billed on — both as CSV exports for your payroll. Once Taptime enables " +
 			"the integration API for you, your HR or payroll system can also read every " +
-			"punch from a feed or receive it by webhook. Taptime is the source of truth for " +
+			"counted tap from a feed or receive it by webhook; entries typed by a manager " +
+			"stay in the CSV. Taptime is the source of truth for " +
 			"in/out times — it doesn't try to replace your payroll.",
 		Facts: []Fact{FactReportPerPersonAndVenue, FactHoursExportAsCSV, FactBillingExportAsCSV,
-			FactAPIFeedsEveryPunch, FactAPIEnabledPerBusinessByTaptime},
+			FactAPIFeedsEveryCountedTap, FactAPIEnabledPerBusinessByTaptime},
 	},
 }
 

@@ -57,8 +57,8 @@ templ productHead(v ProductView) {
 						<a class="lp-button lp-button--ghost" href={ templ.URL(PricingPath) }>See pricing</a>
 					</div>
 				</div>
-				<nav class="lp-slip lp-prodIndex" aria-label="On this page">
-					<span class="lp-lbl">On this page</span>
+				<nav class="lp-slip lp-prodIndex" aria-labelledby="index-title">
+					<span id="index-title" class="lp-lbl">On this page</span>
 					<ol class="lp-prodIndexList">
 						for _, e := range ProductIndex {
 							<li><a class="lp-prodIndexLink" href={ templ.URL("#" + e.ID) }><span class="lp-prodIndexNo">{ e.No }</span>{ e.Title }</a></li>

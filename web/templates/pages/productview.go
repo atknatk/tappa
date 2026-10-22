@@ -23,6 +23,10 @@ import "strconv"
 //     exception, so the bullet says "guardrails" -- the engine's own word for sys:* --
 //     and the Rules drawing's label says "Taptime's guardrails" where the panel prints
 //     its own heading.
+//     THE TWO WORDS DIFFER ON PURPOSE: the panel's Rules screen heads the same list
+//     "Taptime guarantees" (pages/policies.templ), and the public site may not print that
+//     word. Aligning the panel's term is a backlog item for the orchestrator, not this
+//     page's; until then the public page says "guardrails" and the panel "guarantees".
 //   - "Nobody can decide on their own record." (U10) is gone. The self-review guard
 //     never meets a real review today: a reviewer is an admin_users id and a record's
 //     subject an employees id (LP-07's security review, backlog T148). The Spike says
@@ -313,7 +317,8 @@ func ProductCopy(f ProductFigures) ProductText {
 				l("A check-in with no check-out is listed, not counted, and the week's figure says it is short.",
 					FactOpenCheckInIsListedNotCounted),
 				l("Manual entries are marked apart from tapped ones.", FactManualEntryNamesAManager),
-				l("Lateness is measured against the person's own shift: their department's, else the venue they tapped.",
+				l("Lateness is measured against the person's own shift: their department's if it has one, else the "+
+					"shift of the venue the record is at (for a tap, the venue tapped).",
 					FactLatenessFollowsOwnShift),
 			},
 		},
@@ -360,7 +365,7 @@ func ProductCopy(f ProductFigures) ProductText {
 			{No: "01", Who: "Manager", Title: "Invite",
 				Text: l("Add the person in People, then invite them.", FactPeopleAreInvitedFromTheDashboard)},
 			{No: "02", Who: "Employee", Title: "Activation tap",
-				Text: l("They open the link on their own phone. Their first tap on one of your plaques finishes the "+
+				Text: l("They open the link on their own phone and confirm. Their first tap on one of your plaques finishes the "+
 					"setup — it records no hours.", FactActivationEndsOnARealTap)},
 			{No: "03", Who: "Employee", Title: "Clock in",
 				Text: l("From then on, a tap opens the tap screen and one press records it.",
@@ -376,7 +381,7 @@ func ProductCopy(f ProductFigures) ProductText {
 					FactRollIsTheWeekPerPerson, FactHoursExportAsCSV)},
 		},
 
-		IntegHeading: l("Hand the hours to the payroll you already run.", FactHoursExportAsCSV, FactAPIFeedsEveryPunch),
+		IntegHeading: l("Hand the hours to the payroll you already run.", FactHoursExportAsCSV, FactAPIFeedsEveryCountedTap),
 		Integrations: []ProductIntegration{
 			{
 				Title: "CSV export",
@@ -386,14 +391,15 @@ func ProductCopy(f ProductFigures) ProductText {
 			},
 			{
 				Title: "Integration API",
-				Text: l("Your HR system can write your people and locations, and read every punch from a feed.",
-					FactAPIWritesPeopleAndLocations, FactAPIFeedsEveryPunch),
+				Text: l("Your HR system can write your people and locations, and read every counted tap from a feed; "+
+					"entries typed by a manager stay in the CSV.",
+					FactAPIWritesPeopleAndLocations, FactAPIFeedsEveryCountedTap),
 				Code: ProductAPIRoutes,
 			},
 			{
 				Title: "Webhooks",
-				Text: l("Each punch can also be sent to one endpoint of yours, signed so you can check it came from Taptime.",
-					FactAPIFeedsEveryPunch, FactWebhooksAreSigned, FactWebhookIsOneEndpointBehindTheAPI),
+				Text: l("Each counted tap can also be sent to one endpoint of yours, signed so you can check it came from Taptime.",
+					FactAPIFeedsEveryCountedTap, FactWebhooksAreSigned, FactWebhookIsOneEndpointBehindTheAPI),
 				Code: []string{f.WebhookHeader + ": sha256=…"},
 			},
 		},

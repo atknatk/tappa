@@ -741,9 +741,9 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 			Facts: []Fact{FactHoldingIsTheOneCrossing, FactGroupListsPeersStaff, FactAPIEnabledPerBusinessByTaptime},
 		},
 		IsolationWebhook: Line{
-			Text: "When your records are sent to your own systems by webhook, every delivery is signed: its " +
+			Text: "When counted taps are sent to your own systems by webhook, every delivery is signed: its " +
 				f.WebhookHeader + " header is an HMAC-SHA256 of the body under your endpoint's own key.",
-			Facts: []Fact{FactWebhooksAreSigned, FactAPIFeedsEveryPunch},
+			Facts: []Fact{FactWebhooksAreSigned, FactAPIFeedsEveryCountedTap},
 		},
 		IsolationDrawing: Line{
 			Text:  "Each row carries its business. A query from one side returns none of the other's.",

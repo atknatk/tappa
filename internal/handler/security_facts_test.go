@@ -1717,6 +1717,11 @@ var securityRefusedPhrasings = map[string]string{
 	"never silently approved":          "an owner can write a rule that allows without evidence",
 	"Four proofs on every single tap":  "a QR check-in carries no signature and a phone may give no position",
 	"four independent signals":         "a QR check-in carries no signature and a phone may give no position",
+	// LP-08 review: the feed and the webhook carry counted taps; a manager's typed entry
+	// is not in them (00049's punch_feed, the integration guide's "Manual records do not
+	// enter the feed").
+	"every punch": "a record typed by a manager does not enter the feed or the webhook",
+	"Each punch":  "a record typed by a manager does not enter the feed or the webhook",
 }
 
 // TestSecurityPage_SaysNoneOfTheRefusedPhrasings: the review's refused sentences are on

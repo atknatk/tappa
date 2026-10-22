@@ -258,7 +258,7 @@ func productHead(v ProductView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "\">See pricing</a></div></div><nav class=\"lp-slip lp-prodIndex\" aria-label=\"On this page\"><span class=\"lp-lbl\">On this page</span><ol class=\"lp-prodIndexList\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "\">See pricing</a></div></div><nav class=\"lp-slip lp-prodIndex\" aria-labelledby=\"index-title\"><span id=\"index-title\" class=\"lp-lbl\">On this page</span><ol class=\"lp-prodIndexList\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

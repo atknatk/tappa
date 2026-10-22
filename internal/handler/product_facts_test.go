@@ -76,6 +76,84 @@ type productFactSources struct {
 	Guards []policy.Guardrail
 	// Anchors is what each Anchor derivation the facts lean on answers today ("" holds).
 	Anchors map[pages.Anchor]string
+	// Migs is every migration by file name: a fact read off one migration also reads
+	// every later one's Up, which could change what that migration declared.
+	Migs map[string]string
+	// TapRender is the tap screen as it is served, and ResultRenders the result screen
+	// for each verdict: a control a sub-template adds is in the render, not in the
+	// four templates a source scan names.
+	TapRender     string
+	ResultRenders map[string]string
+}
+
+// renderTapAndResults renders the tap screen and the result screen for every verdict.
+func renderTapAndResults(t *testing.T) (string, map[string]string) {
+	t.Helper()
+	var b bytes.Buffer
+	if err := pages.Tap(pages.TapView{EmployeeName: "Sample Person", LocationName: "Sample Venue", TapContext: "ctx"}, layout.Brand{}).Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	tapHTML := b.String()
+	results := map[string]string{}
+	for _, v := range []string{"ok", "flag", "reject", "ignored"} {
+		b.Reset()
+		view := pages.ResultView{Verdict: v, Venue: "Sample Venue", At: "09:41:00", Trust: tap.TrustBase}
+		if v == "ok" || v == "flag" {
+			view.Direction = "in"
+		}
+		if err := pages.Result(view, layout.Logo{}).Render(context.Background(), &b); err != nil {
+			t.Fatal(err)
+		}
+		results[v] = b.String()
+	}
+	return tapHTML, results
+}
+
+// allMigrations is every migration, by file name.
+func allMigrations(t *testing.T) map[string]string {
+	t.Helper()
+	out := migrationsAfter(t, "00000")
+	if _, ok := out["00002_create_locations_departments.sql"]; !ok {
+		t.Fatal("PREMISE: the migrations read do not include 00002")
+	}
+	return out
+}
+
+// laterAlterProblem names the first migration after `after` whose Up (comments removed)
+// has an ALTER TABLE of table that touches what the fact reads (touches), or drops the
+// table, or names one of the constraints in names anywhere. The LP-05/LP-06 shape
+// (reviewOutcomeViolation, planWriteProblem): a closed set or a constraint declared by
+// one migration holds only while no later one changes it.
+//
+// ITS LIMITS, STATED: a quoted table name, a change inside a DO $$ … $$ block or through
+// dynamic SQL passes unseen; a person still reads a migration that touches the table.
+func laterAlterProblem(migs map[string]string, after, table string, touches *regexp.Regexp, names ...string) string {
+	alter := regexp.MustCompile(`(?is)^\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:public\.)?` + regexp.QuoteMeta(table) + `\b`)
+	drop := regexp.MustCompile(`(?is)^\s*DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?` + regexp.QuoteMeta(table) + `\b`)
+	keys := make([]string, 0, len(migs))
+	for name := range migs {
+		if name > after {
+			keys = append(keys, name)
+		}
+	}
+	slices.Sort(keys)
+	for _, name := range keys {
+		up := sqlLineCommentRE.ReplaceAllString(gooseUp(migs[name]), "")
+		for _, stmt := range strings.Split(up, ";") {
+			if drop.MatchString(stmt) {
+				return "migration " + name + " drops " + table
+			}
+			if alter.MatchString(stmt) && touches.MatchString(stmt) {
+				return "migration " + name + " alters " + table + " where this fact reads it"
+			}
+			for _, n := range names {
+				if strings.Contains(stmt, n) {
+					return "migration " + name + " names " + n
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func loadProductFactSources(t *testing.T) productFactSources {
@@ -91,6 +169,7 @@ func loadProductFactSources(t *testing.T) productFactSources {
 		}
 		answers[a] = derive()
 	}
+	tapHTML, results := renderTapAndResults(t)
 	return productFactSources{
 		Result:        repoFile(t, "web", "templates", "pages", "result.templ"),
 		TapHandler:    strip(repoFile(t, "internal", "handler", "checkin.go")),
@@ -122,6 +201,9 @@ func loadProductFactSources(t *testing.T) productFactSources {
 		Mig48:         repoFile(t, "db", "migrations", "00048_create_the_punch_feed_tables.sql"),
 		Endpoints:     strip(repoFile(t, "internal", "webhook", "endpoints", "endpoints.go")),
 		Guards:        policy.Guardrails(policy.DefaultParams()),
+		Migs:          allMigrations(t),
+		TapRender:     tapHTML,
+		ResultRenders: results,
 		Anchors:       answers,
 	}
 }
@@ -172,8 +254,23 @@ func resultNoButtonViolation(s productFactSources) string {
 			return "pages/result.templ's " + name + " now carries " + strconv.Quote(c)
 		}
 	}
+	// The served screen, every verdict: a control a sub-template adds is here.
+	if len(s.ResultRenders) != 4 {
+		return fmt.Sprintf("the result screen was rendered for %d verdict(s), not the four", len(s.ResultRenders))
+	}
+	for _, v := range slices.Sorted(maps.Keys(s.ResultRenders)) {
+		if c := renderedControl(s.ResultRenders[v]); c != "" {
+			return "the result screen for " + v + " renders " + strconv.Quote(c)
+		}
+	}
 	return ""
 }
+
+// renderedControlRE is a control in served HTML.
+var renderedControlRE = regexp.MustCompile(`(?i)<(a|button|form|input|select|textarea|nav|summary)\b[^>]*>`)
+
+// renderedControl is the first control in html, or "".
+func renderedControl(html string) string { return renderedControlRE.FindString(html) }
 
 // tapOneButtonViolation is FactTapScreenIsOneButton: the tap screen is its greeting and one
 // form, the form holds one button face, and nothing on it is a link or a menu.
@@ -192,6 +289,25 @@ func tapOneButtonViolation(s productFactSources) string {
 	}
 	if n := strings.Count(templBody(s.Tap, "TapButtonFace"), `<button type="submit"`); n != 1 {
 		return fmt.Sprintf("the tap button face submits from %d button(s)", n)
+	}
+	// The served screen: one form, one button, and every other control a hidden field.
+	var forms, buttons int
+	for _, c := range renderedControlRE.FindAllStringSubmatch(s.TapRender, -1) {
+		switch strings.ToLower(c[1]) {
+		case "form":
+			forms++
+		case "button":
+			buttons++
+		case "input":
+			if !strings.Contains(c[0], `type="hidden"`) {
+				return "the tap screen renders a visible field: " + c[0]
+			}
+		default:
+			return "the tap screen renders " + strconv.Quote(c[0])
+		}
+	}
+	if forms != 1 || buttons != 1 {
+		return fmt.Sprintf("the tap screen renders %d form(s) and %d button(s), not one of each", forms, buttons)
 	}
 	return ""
 }
@@ -240,8 +356,19 @@ func reviewNoteViolation(s productFactSources) string {
 	if !hasColumn(sqlTableBlock(s.Mig05, "transaction_reviews"), "note", "text") {
 		return "transaction_reviews no longer keeps a note"
 	}
+	if why := laterAlterProblem(s.Migs, "00005_create_transactions_audit_reviews.sql", "transaction_reviews", noteColumnRE); why != "" {
+		return why
+	}
 	return ""
 }
+
+var (
+	noteColumnRE   = regexp.MustCompile(`(?i)\bnote\b`)
+	statusColumnRE = regexp.MustCompile(`(?i)\bstatus\b|employees_status_check`)
+	gpsColumnRE    = regexp.MustCompile(`(?i)\bgps_(?:lat|lng)\b|locations_gps_pair`)
+	endpointKeyRE  = regexp.MustCompile(`(?i)\bUNIQUE\b|\bPRIMARY\s+KEY\b|\btenant_id\b`)
+	pillCaseRE     = regexp.MustCompile(`(?m)^\s*case\s+"`)
+)
 
 // openCheckInViolation is FactOpenCheckInIsListedNotCounted.
 func openCheckInViolation(s productFactSources) string {
@@ -279,8 +406,14 @@ func statusViolation(s productFactSources) string {
 			return "People no longer prints " + pages.ProductStatusWord(st)
 		}
 	}
+	if n := len(pillCaseRE.FindAllString(withoutTemplComments(pill), -1)); n != 3 {
+		return fmt.Sprintf("People's status pill has %d case(s); the page names three statuses", n)
+	}
 	if !strings.Contains(s.Mig03, "CHECK (status IN ('invited', 'active', 'deactivated'))") {
 		return "the employees table's status is no longer the three"
+	}
+	if why := laterAlterProblem(s.Migs, "00003_create_employees_sessions.sql", "employees", statusColumnRE, "employees_status_check"); why != "" {
+		return why
 	}
 	return ""
 }
@@ -325,6 +458,9 @@ func venueViolation(s productFactSources) string {
 	if !hasColumn(locations, "gps_lat", "numeric") || !hasColumn(locations, "gps_lng", "numeric") {
 		return "a venue no longer keeps a GPS point"
 	}
+	if why := laterAlterProblem(s.Migs, "00002_create_locations_departments.sql", "locations", gpsColumnRE); why != "" {
+		return why
+	}
 	for _, label := range []string{">Venue network<", ">GPS point<", ">Shift<", ">Plaques at this venue<"} {
 		if !strings.Contains(s.VenueDetail, label) {
 			return "Venues & plaques no longer prints " + label
@@ -364,8 +500,17 @@ func registered(src, method, href string) bool {
 // ownerOnlyViolation is FactOnlyAnOwnerChangesARule.
 func ownerOnlyViolation(s productFactSources) string {
 	g := guardBySid(s.Guards, "sys:policy-edit-owner-only")
-	if g == nil || g.Effect != policy.EffectDeny {
+	if g == nil || g.Effect != policy.EffectDeny || g.Match == nil {
 		return "sys:policy-edit-owner-only is no longer a guardrail that denies"
+	}
+	edit := func(role string) policy.Context {
+		return policy.Context{Action: policy.ActionPolicyEdit, Keys: map[policy.ContextKey]any{policy.CtxActorRole: role}}
+	}
+	if !g.Match(edit("manager")) {
+		return "sys:policy-edit-owner-only no longer refuses a manager's rule change"
+	}
+	if g.Match(edit("owner")) {
+		return "sys:policy-edit-owner-only refuses the owner too, so \"only an owner\" is not what it does"
 	}
 	if !strings.Contains(s.PoliciesGo, "v.MayEdit = a.scribe.May(") {
 		return "the Rules screen no longer asks the engine before it draws a control"
@@ -382,6 +527,9 @@ var requireOpenRE = regexp.MustCompile(`if !open \{\s*return ErrAPIClosed\s*\}`)
 func webhookEndpointViolation(s productFactSources) string {
 	if !strings.Contains(s.Mig48, "CONSTRAINT webhook_endpoints_one_per_tenant UNIQUE (tenant_id)") {
 		return "a business may now keep more than one webhook endpoint"
+	}
+	if why := laterAlterProblem(s.Migs, "00048_create_the_punch_feed_tables.sql", "webhook_endpoints", endpointKeyRE, "webhook_endpoints_one_per_tenant"); why != "" {
+		return why
 	}
 	create := goFuncBody(s.Endpoints, "func (s *Service) Create(")
 	if !strings.Contains(create, "requireOpen(ctx, q, c.TenantID)") || !requireOpenRE.MatchString(s.Endpoints) {
@@ -442,6 +590,13 @@ func TestProductFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			*p = strings.Replace(*p, old, new, 1)
 		}
 	}
+	later := func(sql string) func(*productFactSources) {
+		return func(s *productFactSources) {
+			m := maps.Clone(s.Migs)
+			m["00064_lp08_probe.sql"] = "-- +goose Up\n" + sql + "\n-- +goose Down\nSELECT 1;\n"
+			s.Migs = m
+		}
+	}
 	result := func(s *productFactSources) *string { return &s.Result }
 	tapT := func(s *productFactSources) *string { return &s.Tap }
 	tests := []struct {
@@ -454,14 +609,21 @@ func TestProductFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{pages.FactRecordedTapEndsOnAStampedDocket, "the handler renders something else", replace(func(s *productFactSources) *string { return &s.TapHandler }, "pages.Result(resultView(res)", "pages.Other(resultView(res)")},
 		{pages.FactResultScreenEndsWithoutAButton, "a counted tap's closing changes", replace(result, `<p class="mt-4 text-ink/70">All done — you can close this page.</p>`, `<p class="mt-4 text-ink/70">Done.</p>`)},
 		{pages.FactResultScreenEndsWithoutAButton, "the result screen gains a button", replace(result, `<p class="mt-4 text-ink/70">All done`, `<button>Again</button><p class="mt-4 text-ink/70">All done`)},
+		{pages.FactResultScreenEndsWithoutAButton, "a sub-template renders a link on the flagged result", func(s *productFactSources) {
+			r := maps.Clone(s.ResultRenders)
+			r["flag"] = strings.Replace(r["flag"], "</section>", `</section><a href="/again">Tap again</a>`, 1)
+			s.ResultRenders = r
+		}},
 		{pages.FactTapScreenIsOneButton, "the tap form draws a second face", replace(tapT, "@TapButtonFace(TapButtonSubmits)", "@TapButtonFace(TapButtonSubmits)\n\t\t@TapButtonFace(TapButtonSubmits)")},
 		{pages.FactTapScreenIsOneButton, "the greeting gains a link", replace(tapT, `<p class="docket-label">Tapping</p>`, `<p class="docket-label">Tapping</p><a href="/menu">Menu</a>`)},
+		{pages.FactTapScreenIsOneButton, "the served tap screen carries a second button", replace(func(s *productFactSources) *string { return &s.TapRender }, "</form>", `</form><button type="button">History</button>`)},
 		{pages.FactRecordsReadForAnyEarlierDay, "the day stepper loses Previous day", replace(func(s *productFactSources) *string { return &s.Transactions }, `aria-label="Previous day"`, `aria-label="Back"`)},
 		{pages.FactRecordsReadForAnyEarlierDay, "the day is not read", replace(func(s *productFactSources) *string { return &s.TxHandler }, `ledger.ParseDate(q.Get("date"))`, `ledger.ParseDate("")`)},
 		{pages.FactSpikeShowsEvidenceAndTheRulesSentence, "The Spike loses its reason", replace(func(s *productFactSources) *string { return &s.Docket }, "Why it is here", "Details")},
 		{pages.FactSpikeShowsEvidenceAndTheRulesSentence, "Decide stops copying the reason", replace(func(s *productFactSources) *string { return &s.Decide }, "Note: pd.Reason,", "Note: \"\",")},
 		{pages.FactReviewCarriesANote, "the note field goes", replace(func(s *productFactSources) *string { return &s.Review }, `name="note"`, `name="comment"`)},
 		{pages.FactReviewCarriesANote, "the note column goes", replace(func(s *productFactSources) *string { return &s.Mig05 }, "    note           text,", "    remark         text,")},
+		{pages.FactReviewCarriesANote, "a later migration drops the note", later("ALTER TABLE transaction_reviews DROP COLUMN note;")},
 		{pages.FactOpenCheckInIsListedNotCounted, "The Roll counts open check-ins", replace(func(s *productFactSources) *string { return &s.Reports }, "Open check-ins, not counted", "Open check-ins")},
 		{pages.FactLatenessFollowsOwnShift, "the department no longer wins", anchor(pages.AnchorLatenessFollowsDepartment)},
 		{pages.FactLatenessFollowsOwnShift, "the venue is the home venue", func(s *productFactSources) {
@@ -469,19 +631,34 @@ func TestProductFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			s.TxQueries = strings.Replace(s.TxQueries, block, strings.Replace(block, "AND l.id = t.location_id", "AND l.id = e.location_id", 1), 1)
 		}},
 		{pages.FactPeopleShowOneStatus, "People loses DEACTIVATED", replace(func(s *productFactSources) *string { return &s.Roster }, `pill--deactivated flex-none">DEACTIVATED<`, `pill--deactivated flex-none">GONE<`)},
+		{pages.FactPeopleShowOneStatus, "a fourth status, SUSPENDED, joins the pill", replace(func(s *productFactSources) *string { return &s.Roster },
+			`			<span class="pill pill--deactivated flex-none">DEACTIVATED</span>`,
+			"			<span class=\"pill pill--deactivated flex-none\">DEACTIVATED</span>\n\t\tcase \"suspended\":\n\t\t\t<span class=\"pill pill--deactivated flex-none\">SUSPENDED</span>")},
+		{pages.FactPeopleShowOneStatus, "a later migration widens the status CHECK", later("ALTER TABLE employees DROP CONSTRAINT employees_status_check;\n" +
+			"ALTER TABLE employees ADD CONSTRAINT employees_status_check CHECK (status IN ('invited', 'active', 'deactivated', 'suspended'));")},
 		{pages.FactInviteLinkShownOnceOrMailed, "the link is no longer shown once", replace(func(s *productFactSources) *string { return &s.Employees }, "Activation link — shown once", "Activation link")},
 		{pages.FactInviteLinkShownOnceOrMailed, "the e-mail mode goes", replace(func(s *productFactSources) *string { return &s.Config }, `InviteDeliveryEmail = "email"`, `InviteDeliveryEmail = "panel2"`)},
 		{pages.FactInviteLinkShownOnceOrMailed, "the code is stored plain", replace(func(s *productFactSources) *string { return &s.InviteManager }, "code.hash(m.hmacKey)", "code.plain()")},
 		{pages.FactManualEntryStartsFromThePerson, "the card no longer links to the entry", replace(func(s *productFactSources) *string { return &s.Roster }, ">Enter a record by hand</a>", ">Record</a>")},
 		{pages.FactVenueHoldsItsEvidenceAndHours, "a venue loses its shift", anchor(pages.AnchorVenueShiftAndAddress)},
 		{pages.FactVenueHoldsItsEvidenceAndHours, "a venue loses its GPS point", replace(func(s *productFactSources) *string { return &s.Mig02 }, "gps_lat     numeric", "gps_x       numeric")},
+		{pages.FactVenueHoldsItsEvidenceAndHours, "a later migration drops the GPS point", later("ALTER TABLE public.locations DROP COLUMN gps_lat, DROP COLUMN gps_lng;")},
 		{pages.FactRuleChangeIsConfirmedThenRecorded, "the write stops checking the confirmation", replace(func(s *productFactSources) *string { return &s.PolicyActions }, "a.confirmationRefusalFor(", "a.ignore(")},
 		{pages.FactRuleChangeIsConfirmedThenRecorded, "the review mints no confirmation", replace(func(s *productFactSources) *string { return &s.PolicyActions }, "a.setConfirmation(", "a.skip(")},
 		{pages.FactOnlyAnOwnerChangesARule, "the owner gate goes", func(s *productFactSources) {
 			s.Guards = slices.DeleteFunc(slices.Clone(s.Guards), func(g policy.Guardrail) bool { return g.Sid == "sys:policy-edit-owner-only" })
 		}},
+		{pages.FactOnlyAnOwnerChangesARule, "the guardrail stops refusing a manager", func(s *productFactSources) {
+			s.Guards = slices.Clone(s.Guards)
+			for i := range s.Guards {
+				if s.Guards[i].Sid == "sys:policy-edit-owner-only" {
+					s.Guards[i].Match = func(policy.Context) bool { return false }
+				}
+			}
+		}},
 		{pages.FactOnlyAnOwnerChangesARule, "the screen draws controls for anybody", replace(func(s *productFactSources) *string { return &s.PoliciesGo }, "v.MayEdit = a.scribe.May(", "v.MayEdit = true || a.scribe.May(")},
 		{pages.FactWebhookIsOneEndpointBehindTheAPI, "a second endpoint is allowed", replace(func(s *productFactSources) *string { return &s.Mig48 }, "webhook_endpoints_one_per_tenant UNIQUE (tenant_id)", "webhook_endpoints_one_per_tenant UNIQUE (id)")},
+		{pages.FactWebhookIsOneEndpointBehindTheAPI, "a later migration drops the one-per-business key", later("ALTER TABLE webhook_endpoints DROP CONSTRAINT webhook_endpoints_one_per_tenant;")},
 		{pages.FactWebhookIsOneEndpointBehindTheAPI, "the endpoint skips the API gate", replace(func(s *productFactSources) *string { return &s.Endpoints }, "requireOpen(ctx, q, c.TenantID)", "nil")},
 	}
 	controlled := map[pages.Fact]bool{}
@@ -1073,5 +1250,83 @@ func TestProductPage_TheLandingLinksToTheTour(t *testing.T) {
 	}
 	if check(strings.Replace(body, `<a class="more lp-moreAfter" href="`+pages.ProductPath+`">`, `<a class="more lp-moreAfter" href="/pricing">`, 1)) == "" {
 		t.Error("CONTROL: the tour link pointed at /pricing passed")
+	}
+}
+
+// everyPunchRE is the wording the LP-08 review refused: the feed and the webhook carry
+// counted taps, never a manager's typed entry.
+var everyPunchRE = regexp.MustCompile(`(?i)\b(?:every|each|all)\s+punch(?:es)?\b`)
+
+// feedSentenceProblems is every sentence resting on FactAPIFeedsEveryCountedTap that
+// talks about the feed or the webhook without saying "counted tap", or says "every
+// punch"; and every page whose sentence names the feed without saying where a manager's
+// entries go instead.
+func feedSentenceProblems(copies map[string]publicCopy) []string {
+	var out []string
+	check := func(url, text string, facts []pages.Fact) (feed bool) {
+		if !slices.Contains(facts, pages.FactAPIFeedsEveryCountedTap) {
+			return false
+		}
+		if everyPunchRE.MatchString(text) {
+			out = append(out, fmt.Sprintf("%s says %q: a manager's typed entry is not in the feed", url, everyPunchRE.FindString(text)))
+		}
+		lower := strings.ToLower(text)
+		if (strings.Contains(lower, "feed") || strings.Contains(lower, "webhook")) && !strings.Contains(lower, "counted tap") {
+			out = append(out, fmt.Sprintf("%s's %q does not say the feed carries counted taps", url, text))
+		}
+		return strings.Contains(lower, "from a feed")
+	}
+	for _, url := range slices.Sorted(maps.Keys(copies)) {
+		c := copies[url]
+		named, told := false, false
+		for _, l := range c.lines {
+			named = check(url, l.Text, l.Facts) || named
+			told = told || strings.Contains(l.Text, "typed by a manager stay in the CSV")
+		}
+		for _, q := range c.questions {
+			named = check(url, q.A, q.Facts) || named
+			told = told || strings.Contains(q.A, "typed by a manager stay in the CSV")
+		}
+		if named && !told {
+			out = append(out, url+" names the feed and does not say a manager's entries stay in the CSV")
+		}
+	}
+	return out
+}
+
+// TestAPIFeedSentences_SayCountedTapsAndWhereAManagersEntryGoes: on every public page, a
+// sentence about the feed or the webhook says "counted tap" (00049's punch_feed admits an
+// ok NFC or QR tap and an approved flagged one, nothing on the manual channel), none says
+// "every punch", and a page that names the feed says a manager's entries stay in the CSV.
+// CONTROL: the landing FAQ's old sentence put back is red twice.
+func TestAPIFeedSentences_SayCountedTapsAndWhereAManagersEntryGoes(t *testing.T) {
+	t.Parallel()
+	copies := publicPagesCopy()
+	for _, p := range feedSentenceProblems(copies) {
+		t.Error(p)
+	}
+	for _, url := range []string{"/", pages.SecurityPath, pages.ProductPath} {
+		found := false
+		for _, l := range copies[url].lines {
+			found = found || slices.Contains(l.Facts, pages.FactAPIFeedsEveryCountedTap)
+		}
+		for _, q := range copies[url].questions {
+			found = found || slices.Contains(q.Facts, pages.FactAPIFeedsEveryCountedTap)
+		}
+		if !found {
+			t.Errorf("PREMISE: %s carries no sentence on the feed fact; this test reads nothing there", url)
+		}
+	}
+	old := maps.Clone(copies)
+	landing := old["/"]
+	qs := slices.Clone(landing.questions)
+	for i := range qs {
+		qs[i].A = strings.Replace(qs[i].A, "every counted tap from a feed or receive it by webhook; entries typed by a manager stay in the CSV",
+			"every punch from a feed or receive it by webhook", 1)
+	}
+	landing.questions = qs
+	old["/"] = landing
+	if got := feedSentenceProblems(old); len(got) < 2 {
+		t.Errorf("CONTROL: the landing's old \"every punch\" sentence put back gave %d problem(s), want two: %v", len(got), got)
 	}
 }

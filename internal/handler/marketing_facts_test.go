@@ -160,6 +160,9 @@ type apiFactSources struct {
 	Mig38    string // api_enabled_at, and the guard that tappa_app cannot write it
 	Mig39    string // op_enable_tenant_api
 	Mig49    string // punch_feed(), which queues the webhook delivery
+	// ReportsCSV is internal/handler/reportscsv.go: where a manager's typed entry goes
+	// instead of the feed (the hours CSV's manager_entered_arrivals column).
+	ReportsCSV string
 	// Migrations is every migration by file name, to see that nothing after 00049
 	// redefines punch_feed(): a later CREATE OR REPLACE would make 00049 stale.
 	Migrations map[string]string
@@ -198,6 +201,7 @@ func loadAPIFactSources(t *testing.T) apiFactSources {
 		Mig38:      migs["00038_add_api_access_to_tenants.sql"],
 		Mig39:      migs["00039_open_the_api_from_the_operator.sql"],
 		Mig49:      migs["00049_write_the_punch_feed.sql"],
+		ReportsCSV: strip(repoFile(t, "internal", "handler", "reportscsv.go")),
 		Migrations: migs,
 	}
 }
@@ -291,8 +295,19 @@ func apiWritesViolation(s apiFactSources) string {
 	return ""
 }
 
-// apiFeedViolation is FactAPIFeedsEveryPunch's: the feed route, the trigger that
-// queues a webhook for each punch, the sender that is running, and its body.
+// The punch feed's two gates (00049's punch_feed): a record enters as an ok tap on the NFC
+// or QR channel, or as a flagged one when it is approved. Nothing on the manual channel
+// passes either, which is what the pages say ("every counted tap … entries typed by a
+// manager stay in the CSV").
+var (
+	feedTapGateRE    = regexp.MustCompile(`IF NEW\.verdict <> 'ok' OR NEW\.channel NOT IN \('nfc', 'qr'\) OR NEW\.practice IS NOT FALSE OR NEW\.type IS NULL THEN\s+RETURN NULL;`)
+	feedReviewGateRE = regexp.MustCompile(`IF NEW\.outcome <> 'approved' THEN\s+RETURN NULL;`)
+	feedFlagGateRE   = regexp.MustCompile(`IF v_verdict <> 'flag' OR v_channel NOT IN \('nfc', 'qr'\) OR v_practice IS NOT FALSE OR v_type IS NULL THEN\s+RETURN NULL;`)
+)
+
+// apiFeedViolation is FactAPIFeedsEveryCountedTap's: the feed route, the trigger that
+// queues a webhook for each counted tap (and for nothing a manager typed), the sender
+// that is running, its body, and the hours CSV that carries a manager's entries.
 func apiFeedViolation(s apiFactSources) string {
 	if why := v1MountViolation(s); why != "" {
 		return why
@@ -307,13 +322,20 @@ func apiFeedViolation(s apiFactSources) string {
 	if !strings.Contains(body, "INSERT INTO public.webhook_deliveries") {
 		return "00049's punch_feed() no longer queues a webhook delivery for a punch"
 	}
+	if !feedTapGateRE.MatchString(body) || !feedReviewGateRE.MatchString(body) || !feedFlagGateRE.MatchString(body) {
+		return "00049's punch_feed() no longer admits exactly an ok NFC or QR tap and an approved flagged one, " +
+			"so \"every counted tap, and no entry typed by a manager\" is no longer what the feed carries"
+	}
+	if !strings.Contains(s.ReportsCSV, "manager_entered_arrivals") {
+		return "the hours CSV no longer carries the manager's entries, so \"entries typed by a manager stay in the CSV\" is false"
+	}
 	holding := holdingFeedBodyRE.FindString(gooseUp(s.Mig49))
 	if holding == "" {
 		return "migration 00049's Up no longer defines holding_feed()"
 	}
 	if !employerWebhookRE.MatchString(holding) {
 		return "00049's holding_feed() no longer queues the employer's webhook delivery, so a holding " +
-			"punch (K-31) never reaches the employer's HR system and \"every punch\" is false"
+			"punch (K-31) never reaches the employer's HR system and \"every counted tap\" is false"
 	}
 	for name, src := range s.Migrations {
 		if name != "00049_write_the_punch_feed.sql" && punchFeedRedefinedRE.MatchString(src) {
@@ -559,7 +581,7 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 			return bulkImportViolation(goSrc)
 		},
 		pages.FactAPIWritesPeopleAndLocations:    func() string { return apiWritesViolation(apiSrc) },
-		pages.FactAPIFeedsEveryPunch:             func() string { return apiFeedViolation(apiSrc) },
+		pages.FactAPIFeedsEveryCountedTap:        func() string { return apiFeedViolation(apiSrc) },
 		pages.FactAPIEnabledPerBusinessByTaptime: func() string { return apiGateViolation(apiSrc) },
 		// The panel section's three (LP-05; landingpanel_test.go).
 		pages.FactPassShowsTheDaysDocketsNewestFirst: func() string { return passRailViolation(panelSrc) },
@@ -793,7 +815,7 @@ func landingLines() map[string]pages.Line {
 }
 
 // claimedFacts is every Fact some rendered value names, on any public page, with the
-// sentence that names it (for the error message).
+// page and the sentence that name it (for the error message: `/product says "…"`).
 func claimedFacts() map[pages.Fact]string { return claimedFactsExcept("") }
 
 // claimedFactsExcept is claimedFacts without the copy of the page at skip ("" skips
@@ -801,18 +823,18 @@ func claimedFacts() map[pages.Fact]string { return claimedFactsExcept("") }
 // sentences: leave one page out and the facts only it claims fall unclaimed.
 func claimedFactsExcept(skip string) map[pages.Fact]string {
 	out := map[pages.Fact]string{}
-	note := func(text string, facts []pages.Fact) {
+	note := func(url, text string, facts []pages.Fact) {
 		for _, f := range facts {
-			out[f] = text
+			out[f] = url + " says " + strconv.Quote(text)
 		}
 	}
 	// The landing's own blocks, which are not Lines or Questions.
 	if skip != "/" {
 		for _, s := range pages.LandingSteps {
-			note(s.Title, s.Facts)
+			note("/", s.Title, s.Facts)
 		}
 		for _, r := range pages.LandingComparison {
-			note(r.Tappa, r.Facts)
+			note("/", r.Tappa, r.Facts)
 		}
 	}
 	// Every public page's Lines and Questions (README §7 step 2), the landing's included.
@@ -821,10 +843,10 @@ func claimedFactsExcept(skip string) map[pages.Fact]string {
 			continue
 		}
 		for _, l := range c.lines {
-			note(l.Text, l.Facts)
+			note(url, l.Text, l.Facts)
 		}
 		for _, q := range c.questions {
-			note(q.Q, q.Facts)
+			note(url, q.Q, q.Facts)
 		}
 	}
 	return out
@@ -871,7 +893,7 @@ func TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed(t *testing.T) {
 	}
 	for fact, derive := range derivations {
 		if why := derive(); why != "" {
-			t.Errorf("the landing page says (%q) and the product no longer supports it: %s\n(fact %q)\n"+
+			t.Errorf("%s, and the product no longer supports it: %s\n(fact %q)\n"+
 				"Fix the product or delete the sentence — a marketing page may not describe a "+
 				"capability that is not there.", claimed[fact], why, fact)
 		}
@@ -1342,6 +1364,8 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		mig38    field = func(s *apiFactSources) *string { return &s.Mig38 }
 		mig39    field = func(s *apiFactSources) *string { return &s.Mig39 }
 		mig49    field = func(s *apiFactSources) *string { return &s.Mig49 }
+		// reportsCSV is a field of the struct like the others.
+		reportsCSV field = func(s *apiFactSources) *string { return &s.ReportsCSV }
 	)
 	for _, tc := range []struct {
 		name     string
@@ -1362,6 +1386,9 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			"INSERT INTO public.nothing (tenant_id, endpoint_id, punch_event_seq) VALUES (v_employer"},
 		{"no webhook sender", apiFeedViolation, cmd, "work.Add(deliveries)", "_ = deliveries"},
 		{"the webhook body is not the punch", apiFeedViolation, delivery, "\tpunchwire.Punch\n", "\tX int\n"},
+		{"the feed admits a manual record", apiFeedViolation, mig49, "OR NEW.channel NOT IN ('nfc', 'qr')", "OR NEW.channel NOT IN ('nfc', 'qr', 'manual')"},
+		{"the feed admits a rejected record", apiFeedViolation, mig49, "IF NEW.outcome <> 'approved' THEN", "IF NEW.outcome = 'never' THEN"},
+		{"the CSV drops the manager's entries", apiFeedViolation, reportsCSV, "manager_entered_arrivals", "arrivals"},
 		{"a closed API is not refused", apiGateViolation, auth, "case k.APIEnabledAt == nil:", "case false:"},
 		{"the refusal is not a 403", apiGateViolation, auth, `&AuthError{http.StatusForbidden, "the integration`, `&AuthError{http.StatusUnauthorized, "the integration`},
 		{"a 403 is not api_disabled", apiGateViolation, apiPkg, "writeProblem(w, problemAPIDisabled)", "writeProblem(w, problemUnauthorized)"},
@@ -1501,7 +1528,7 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 	}
 	// And with today's API sentence swapped for another way of denying it.
 	const apiSentence = "Once Taptime enables the integration API for you, your HR or payroll system " +
-		"can also read every punch from a feed or receive it by webhook."
+		"can also read every counted tap from a feed or receive it by webhook; entries typed by a manager stay in the CSV."
 	swapped := false
 	for _, q := range pages.LandingFAQ {
 		if strings.Contains(q.A, apiSentence) {

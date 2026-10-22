@@ -3186,16 +3186,19 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-prodChip { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); font-size: 11px; font-weight: 700; }
 .lp .lp-prodChip--on { border-color: var(--ink); background: var(--ink); color: var(--paper); }
 .lp .lp-prodList { list-style: none; padding: 2px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
-.lp .lp-prodPerson { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px dashed var(--line); }
+/* On the phone the signed-in phones go under the venue, as M-Product draws them; the
+   grid places them there, so the row's words keep one order at every width. */
+.lp .lp-prodPerson { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; grid-template-areas: "ini who pill" ". signed ."; align-items: center; gap: 2px 10px; padding: 9px 0; border-top: 1px dashed var(--line); }
 .lp .lp-prodPerson:first-child { border-top: 0; }
-.lp .lp-prodInitials { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--green-lite); color: var(--green); font-family: var(--mono); font-size: 11px; font-weight: 700; }
-.lp .lp-prodWho { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.lp .lp-prodInitials { grid-area: ini; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1.5px solid var(--ink); border-radius: 8px; font-family: var(--mono); font-size: 10px; font-weight: 700; }
+.lp .lp-prodWho { grid-area: who; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.lp .lp-prodPerson .lp-prodPill { grid-area: pill; }
 .lp .lp-prodName { overflow: hidden; font-size: 13px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
 .lp .lp-prodSub { font-family: var(--mono); font-size: 10px; color: rgb(var(--ink-ch) / .7); }
 .lp .lp-prodPill { flex: none; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; color: var(--ink); }
 .lp .lp-prodPill--active { border-color: var(--green); background: var(--green-lite); }
 .lp .lp-prodPill--invited { border-style: dashed; border-color: var(--saffron); background: var(--saffron-lite); }
-.lp .lp-prodSigned { display: none; font-family: var(--mono); font-size: 10px; color: rgb(var(--ink-ch) / .7); white-space: nowrap; }
+.lp .lp-prodSigned { grid-area: signed; font-family: var(--mono); font-size: 9.5px; color: rgb(var(--ink-ch) / .7); white-space: nowrap; }
 
 /* ---------------- Venues & plaques ---------------- */
 .lp .lp-prodVenues { display: flex; flex-direction: column; gap: 10px; }
@@ -3268,8 +3271,9 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
   .lp .lp-prodScreen { border-radius: 31px; }
   .lp .lp-prodPoints { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 28px; }
 
-  .lp .lp-prodPerson { grid-template-columns: 30px minmax(0, 1fr) auto 84px; }
-  .lp .lp-prodSigned { display: block; text-align: right; }
+  .lp .lp-prodPerson { grid-template-columns: 32px minmax(0, 1fr) auto 84px; grid-template-areas: "ini who pill signed"; gap: 10px; }
+  .lp .lp-prodInitials { width: 32px; height: 32px; font-size: 10.5px; }
+  .lp .lp-prodSigned { font-size: 10px; text-align: right; }
   .lp .lp-prodVenues { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
   .lp .lp-prodVenueList { grid-template-columns: minmax(0, 1fr); }
   .lp .lp-prodRules { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
