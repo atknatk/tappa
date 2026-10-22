@@ -170,6 +170,12 @@ var (
 // outcomes -- migration 0005 declares the closed set and no later migration's Up alters
 // transaction_reviews' constraints or its outcome column -- and The Spike's form offers
 // exactly those two, no third.
+//
+// ITS LIMITS, STATED: the migration scan reads ALTER TABLE statements by the table's bare
+// or public.-qualified name, so a quoted name ("transaction_reviews"), a change made
+// inside a DO $$ … $$ block or through dynamic SQL, would pass unseen; and the form scan
+// reads name before value, so a button written value="…" name="outcome" is not counted.
+// None exists today; a person still reads a migration that touches the table.
 func reviewOutcomeViolation(s panelFactSources) string {
 	at := strings.Index(s.Mig05, "CREATE TABLE transaction_reviews")
 	if at < 0 || !reviewOutcomeCheckRE.MatchString(s.Mig05[at:]) {
@@ -451,19 +457,25 @@ func rollSampleProblems(rows []pages.PanelRollRow, week int, days []string, venu
 
 // seedPersonRE reads one employee row of test/fixtures/seed.sql: the name, then the role,
 // the e-mail (or NULL) and the status.
-var seedPersonRE = regexp.MustCompile(`(?m)^\s*'((?:[^']|'')+)',\s+'[^']*',\s+(?:'[^']*'(?:::citext)?|NULL),\s+'(?:active|invited|deactivated)'\)`)
+var seedPersonRE = regexp.MustCompile(`(?m)^\s*'((?:[^']|'')+)',\s*'[^']*',\s*(?:'[^']*'(?:::citext)?|NULL),\s*'(?:active|invited|deactivated)'\)`)
+
+// seedStatusRowRE is any line of the seed that ends an employee row with a status -- the
+// count seedPersonRE must match, whatever spacing a row is written with.
+var seedStatusRowRE = regexp.MustCompile(`(?m)'(?:active|invited|deactivated)'\)`)
 
 // seedPeople is every employee name the seed carries.
 func seedPeople(t *testing.T) []string {
 	t.Helper()
 	var out []string
-	for _, m := range seedPersonRE.FindAllStringSubmatch(repoFile(t, "test", "fixtures", "seed.sql"), -1) {
+	seed := repoFile(t, "test", "fixtures", "seed.sql")
+	for _, m := range seedPersonRE.FindAllStringSubmatch(seed, -1) {
 		out = append(out, strings.ReplaceAll(m[1], "''", "'"))
 	}
-	// The seed is 25 KF people plus the KM crew (skill tappa-seed). Fewer means the
-	// pattern stopped reading the file, and every sample name would look invented.
-	if len(out) < 25 || !slices.Contains(out, "Grace Attard") {
-		t.Fatalf("PREMISE: read %d employee(s) from seed.sql; the pattern lost the file", len(out))
+	// EVERY row that carries a status must be read (36 today: 25 KF people and the KM
+	// crew). A row the pattern skips -- the KM rows are written with no space after some
+	// commas -- would let its person's name pass as invented.
+	if rows := len(seedStatusRowRE.FindAllString(seed, -1)); len(out) != rows || rows < 25 || !slices.Contains(out, "Grace Attard") {
+		t.Fatalf("PREMISE: read %d employee(s) from seed.sql, which has %d row(s) carrying a status; the pattern misses rows", len(out), rows)
 	}
 	return out
 }
