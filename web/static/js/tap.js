@@ -52,6 +52,22 @@
   var form = document.querySelector('[data-tap-form]');
   if (!form) return;
 
+  // A PAGE THE BROWSER RESTORED FROM ITS BACK-FORWARD CACHE RELOADS ITSELF (user
+  // decision 2026-10-23, M15-14). Back from the confirmation screen, the browser
+  // can hand this page back exactly as it was left -- measured in Chrome 156
+  // despite Cache-Control: no-store: `submitting` still true, both buttons
+  // disabled, "Tapping…" on the primary one and a prediction that is no longer
+  // true -- so a second press posted nothing. A reload fetches the page again:
+  // a fresh prediction, a fresh signed context and buttons that work, with the
+  // same words on the screen. It cannot loop: a reloaded page is a new
+  // navigation, never a restore, so its pageshow is not persisted. It asks for
+  // no position (§4.2: that happens at a press, in the submit handler below).
+  window.addEventListener('pageshow', function (event) {
+    if (event.persisted === true) {
+      window.location.reload();
+    }
+  });
+
   var button = form.querySelector('[data-tap-button]');
   var lat = form.querySelector('[data-tap-lat]');
   var lng = form.querySelector('[data-tap-lng]');

@@ -362,3 +362,44 @@ func TestTapScript_WritesThePressedDirectionFirst(t *testing.T) {
 		t.Errorf("%d position calls, want exactly 1 (§4.2)", n)
 	}
 }
+
+// TestTapScript_APageRestoredFromTheCacheReloadsItself is the user's decision of 2026-10-23
+// (M15-14), TestTapScript_DoublePressCannotEscapeAsANativeSubmit's pattern: back from the
+// confirmation screen, a page the browser restored from its back-forward cache came back with
+// `submitting` set and both buttons disabled, so a second press posted nothing (measured in
+// Chrome 156). The script listens for pageshow and reloads ONLY when the event says the page
+// was restored (persisted === true) -- a reload is a new navigation, so its own pageshow is not
+// persisted and there is no loop. The listener asks for no position (§4.2) and leaves the
+// submit handler's order alone. A SOURCE net: the restore itself is measured in a browser
+// (M15-14), not here.
+func TestTapScript_APageRestoredFromTheCacheReloadsItself(t *testing.T) {
+	raw, err := fs.ReadFile(web.Static(), "js/tap.js")
+	if err != nil {
+		t.Fatalf("read the served script: %v", err)
+	}
+	code := stripJSComments(string(raw))
+	at := strings.Index(code, "window.addEventListener('pageshow', function (event) {")
+	if at < 0 {
+		t.Fatal("no pageshow listener: a page restored from the back-forward cache keeps its disabled buttons")
+	}
+	block := code[at:]
+	end := strings.Index(block, "\n  });")
+	if end < 0 {
+		t.Fatal("could not delimit the pageshow listener")
+	}
+	block = block[:end]
+	guard := strings.Index(block, "if (event.persisted === true) {")
+	reload := strings.Index(block, "window.location.reload();")
+	if guard < 0 || reload < 0 || reload < guard {
+		t.Fatalf("the reload is not inside the persisted branch (a reload on every pageshow loops):\n%s", block)
+	}
+	if n := strings.Count(code, "location.reload("); n != 1 {
+		t.Errorf("%d reload calls, want exactly 1 -- the restored-page branch", n)
+	}
+	if strings.Contains(block, "geolocation") || strings.Contains(block, "submit") {
+		t.Errorf("the pageshow listener reaches for a position or a submit:\n%s", block)
+	}
+	if n := strings.Count(code, "pageshow"); n != 1 {
+		t.Errorf("%d pageshow mentions in the code, want 1", n)
+	}
+}

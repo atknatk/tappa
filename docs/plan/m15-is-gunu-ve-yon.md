@@ -1008,10 +1008,21 @@ ekran görüntüsü turu.
 **Gerçek tarayıcıda elle doğrulama:** ağ panelinde `POST /api/checkin` gövdesi — JS açık + konum izni var
 (ana düğme, bağlantı), JS açık + konum API'si yok/reddedildi, JS kapalı, **bfcache'ten geri dönüp ikinci
 basış**.
+*Tarihli not (2026-10-23, kullanıcı kararı "Sayfayı yenile").* Bu vakanın ölçütü artık şudur: **geri gelen
+sayfa kendini yeniler; ikinci basış tam bir `want`.** Ölçülen kusur (Chrome 156, `Cache-Control: no-store`'a
+rağmen gerçek bfcache): sayfa `submitting=true`, iki düğme devre dışı ve bayat tahminle dönüyor, ikinci basış
+hiçbir POST üretmiyordu (M15 öncesinde de vardı). `tap.js` `pageshow` + `event.persisted === true` iken
+`location.reload()` yapar (yeniden yüklenen sayfa yeni bir gezinmedir, `persisted=false` — döngü yok; konum
+istenmez); kaynak testi `TestTapScript_APageRestoredFromTheCacheReloadsItself`. Gerçek tarayıcıda ölçüldü
+(2026-10-23): QR'da geri → `BackForwardCacheRestore` → yeni gezinme, taze tahmin (*"Clock out"*), etkin
+düğmeler; ikinci basış tek `want=out`, tek POST, tek satır (`flag`, `base:qr-requires-ip`). NFC'de
+(dev simülatörü, gerçek SUN URL'si) yeniden yüklenen sayfa harcanmış sayaçlı URL'yi tahminle gösterir
+(`sun.Preview` sayaç taşımaz — ADR 0032 §B.2'nin kabul edilmiş riski); ikinci basış tek `want=out`, tek
+satır: `reject`, `sys:sun-invalid` (§5 satır 2), ekranda *"Not counted"* / REJECTED; `last_ctr` değişmez.
 
 **Kabul kriterleri.** Tam suit yeşil; `make audit` exit 0; `TestEveryNamedTestExists` yeşil; güvenlik
 merceği ONAY (M15-06 dahil); beş elle vakada gövdede **tam bir** `want` ve basılan değer, her vakada tam bir
-satır; M15-13 bitti (Q31 *evet*); **anahtar canlıda ayarlı ve geçmişte** (`state.md`'de
+satır (bfcache vakasında: geri gelen sayfa kendini yeniler, ikinci basış tam bir `want` — 2026-10-23 notu); M15-13 bitti (Q31 *evet*); **anahtar canlıda ayarlı ve geçmişte** (`state.md`'de
 değeri ve ayarlandığı an).
 
 ---
