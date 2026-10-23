@@ -1066,6 +1066,12 @@ func fitCardProblems(landing string) []string {
 		if !strings.Contains(card, ">"+templEscape(a.Title)+"</h3>") {
 			out = append(out, fmt.Sprintf("the %q card's link does not hold the card", a.Title))
 		}
+		// The kicker and the chip are the card's too (LP-10's old card check held them).
+		for _, w := range []string{a.Kicker, a.Example.Text} {
+			if w == "" || !strings.Contains(card, ">"+templEscape(w)+"</span>") {
+				out = append(out, fmt.Sprintf("the %q card's link does not hold %q", a.Title, w))
+			}
+		}
 	}
 	if got := strings.Count(section, "<a "); got != links {
 		out = append(out, fmt.Sprintf("the fits section carries %d link(s) for %d mounted page(s)", got, links))
@@ -1120,6 +1126,15 @@ func TestRestaurantsPage_TheLandingFitCardIsOneLinkToThePage(t *testing.T) {
 	elsewhere := strings.Replace(landing, `<a class="card fitcard lp-fit" href="`+pages.ForRestaurantsPath+`"`, `<a class="card fitcard lp-fit" href="/pricing"`, 1)
 	if len(fitCardProblems(elsewhere)) == 0 {
 		t.Error("CONTROL: the card pointed at /pricing passed")
+	}
+	kicker := `<span class="lp-fitKick">` + templEscape(pages.LandingAudiences[0].Kicker) + `</span>`
+	open := `<a class="card fitcard lp-fit" href="` + pages.ForRestaurantsPath + `"`
+	if !strings.Contains(landing, kicker) || !strings.Contains(landing, open) {
+		t.Fatal("PREMISE: the restaurants card's kicker or link is not on the landing")
+	}
+	outside := strings.Replace(strings.Replace(landing, kicker, "", 1), open, kicker+open, 1)
+	if len(fitCardProblems(outside)) == 0 {
+		t.Error("CONTROL: the kicker moved outside the card's link passed")
 	}
 	whole := strings.Replace(landing, ` aria-labelledby="fit-restaurants-title fit-restaurants-link"`, ` aria-labelledby="fit-restaurants-title fit-restaurants-body"`, 1)
 	if whole == landing || len(fitCardProblems(whole)) == 0 {
