@@ -715,7 +715,7 @@ across them are refused from the end on.
   field has `directionSource: null`. The field was added to version 1: a client that does not read
   it reads every other field as before ([3](#common)).
 - **Do not pair a punch with `directionSource: employee` with the punch before it.** When such an
-  `out` is recorded, it has nothing to close: either the employee has no clock-in of that business
+  `out` is recorded, it has nothing to close: either the employee has no open clock-in of that business
   day, and Taptime lists the `out` for the manager as "Check-in missing", or the clock-in before it
   is more than 18 hours old and stays open. Either way Taptime counts no time for it. A record
   written later can change that — most often a manual clock-in a manager enters before the `out`,

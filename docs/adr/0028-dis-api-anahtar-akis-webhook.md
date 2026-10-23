@@ -573,7 +573,7 @@ kural listesi testle değil **kayıttan** türetilir ve API-10'un ret listesi he
   Alan Q31'in (a)'sının cevabıdır: ADR 0032 §A.6'nın *"çıkış yalnız kendi iş gününün girişini kapatır"*
   koruması dış eşleyicide yoktur, alan ona bunu söyleyen tek işarettir. Rehberin 3. baskısı (§6.3, §11
   madde 30) ve OpenAPI'nin `directionSource` açıklaması bunu artık açıkça yazar: `employee` olan bir
-  `out` **yazıldığında** kapatacağı bir giriş bulmaz ve Taptime ona süre saymaz — ya o iş gününde giriş
+  `out` **yazıldığında** kapatacağı bir giriş bulmaz ve Taptime ona süre saymaz — ya o iş gününde açık giriş
   yoktur (sınıf (b) ya da (c); yalnız bunlar *"Check-in missing"*e düşer), ya da önceki giriş aynı iş
   gününün 18 saatten eski girişidir (sınıf (a), `too_long`; giriş açık listede kalır, çıkış
   *"Check-in missing"*e düşmez — `TestDecide_RequestedDirectionChosenOutAnchorsAMissingCheckIn`'in

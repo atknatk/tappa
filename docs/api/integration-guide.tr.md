@@ -726,7 +726,7 @@ anından itibaren reddedilir.
   `directionSource: null`'dır. Alan sürüm 1'e eklendi: onu okumayan bir istemci öbür her alanı
   eskisi gibi okur ([3](#common)).
 - **`directionSource: employee` taşıyan bir punch'ı kendinden önceki punch'la eşlemeyin.** Böyle
-  bir `out` kaydedildiğinde kapatacağı bir şey yoktur: ya çalışanın o iş gününde bir girişi yoktur ve
+  bir `out` kaydedildiğinde kapatacağı bir şey yoktur: ya çalışanın o iş gününde açık bir girişi yoktur ve
   Taptime `out`'u müdüre "Check-in missing" (giriş eksik) olarak listeler, ya da ondan önceki giriş
   18 saatten eskidir ve açık kalır. İki durumda da Taptime ona süre saymaz. Sonradan yazılan bir kayıt
   bunu değiştirebilir — çoğunlukla bir müdürün `out`'tan önceye girdiği manuel bir giriş; ondan sonra
