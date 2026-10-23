@@ -36,14 +36,17 @@ func medianOf(d []time.Duration) time.Duration {
 }
 
 // decoyGate bounds |decoy / open| in TestIdentityDecoy_TakesWhatTheOpenTakes, medians, both ways.
-// Measured on the reference stack (17.10 in Docker, fsync on, 40 interleaved pairs, five runs plain
-// and under -race): noise 1.06-1.16x (the decoy a little SLOWER -- it waits for the open's median and
-// a timer overshoots); the signal -- the wait removed, the round trip alone -- 2.42x (two runs).
+// Measured on the reference stack (17.10 in Docker, fsync on, 40 interleaved pairs after eight warm-up
+// pairs): noise 1.00-1.19x over 17 runs, plain, under -race and under -race beside three other -race
+// packages. The first CI run (a loaded runner, -race) measured 1.57x before the decoy subtracted its
+// own timer overshoot (identity.go, decoyLag) -- the decoy was then the SLOWER arm; the overshoot
+// compensation is the fix, not a wider gate. Signal -- the wait removed, the round trip alone --
+// 2.42-2.53x.
 const decoyGate = 1.5
 
 // The anchors decoyGate and fiveCaseGate are pinned between (the gate test below).
 const (
-	decoyWorstNoise     = 1.16
+	decoyWorstNoise     = 1.19
 	decoyWeakestSignal  = 2.42
 	fiveCaseWorstNoise  = 1.09
 	fiveCaseCaughtShape = 2.58
@@ -71,6 +74,9 @@ func TestIdentityDecoy_TakesWhatTheOpenTakes(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		if _, _, err := m.openIdentitySession(ctx, v, uuid.Nil); err != nil {
 			t.Fatalf("warm-up open: %v", err)
+		}
+		if err := m.decoy(ctx); err != nil {
+			t.Fatalf("warm-up decoy: %v", err)
 		}
 	}
 	var opens, decoys []time.Duration

@@ -395,36 +395,56 @@ func (m *Manager) payOneComparison(password, digest string) {
 // something real (every table it can write is tenant-scoped). So the round trip carries the shape and
 // the wait carries the remainder; TestIdentityDecoy_TakesWhatTheOpenTakes measures the two against
 // each other on a real database.
+//
+// THE WAIT IS AIMED SHORT BY ITS OWN MEASURED OVERSHOOT (decoyLag). A timer wakes late, and by how
+// much is the machine's state: ~0.1 ms on an idle workstation, ~0.9 ms on a loaded CI runner under
+// -race, where the decoy then took 1.57x the open it stands in for (CI, 2026-10-23). The median of the
+// last overshoots is subtracted from the next wait, so the decoy tracks the open on both.
 func (m *Manager) decoy(ctx context.Context) error {
 	start := time.Now()
 	if err := m.data.IdentitySessionDecoy(ctx); err != nil {
 		return err
 	}
-	typical := openCostDefault
+	typical, lag := openCostDefault, time.Duration(0)
 	if m.openCost != nil {
 		typical = m.openCost.typical()
 	}
-	rest := typical - time.Since(start)
+	if m.decoyLag != nil {
+		// At most half the target: the compensation trims a wait, it never replaces one.
+		lag = min(m.decoyLag.typical(), typical/2)
+	}
+	rest := typical - lag - time.Since(start)
 	if rest <= 0 {
+		// No wait, so no overshoot: a zero is recorded, so a lag learned in a stall decays instead
+		// of switching the wait off for good.
+		if m.decoyLag != nil {
+			m.decoyLag.record(0)
+		}
 		return nil
 	}
+	waitStart := time.Now()
 	timer := time.NewTimer(rest)
 	defer timer.Stop()
 	select {
 	case <-timer.C:
+		if m.decoyLag != nil {
+			m.decoyLag.record(max(time.Since(waitStart)-rest, 0))
+		}
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 }
 
-// costMeter keeps the last openCostSamples durations of identity_open_session and answers their
-// median. Before the first observation it answers openCostDefault; it never answers more than
-// openCostCeiling, so a stalled database cannot make every failed sign-in wait long.
+// costMeter keeps the last openCostSamples durations it is shown and answers their median. Before
+// the first observation it answers its fallback (openCostDefault for the open, zero for the decoy's
+// timer overshoot); it never answers more than openCostCeiling, so a stalled database cannot make
+// every failed sign-in wait long.
 type costMeter struct {
-	mu      sync.Mutex
-	samples []time.Duration
-	next    int
+	mu       sync.Mutex
+	samples  []time.Duration
+	next     int
+	fallback time.Duration
 }
 
 const (
@@ -434,12 +454,17 @@ const (
 	openCostCeiling = 250 * time.Millisecond
 )
 
-func newCostMeter() *costMeter { return &costMeter{} }
+func newCostMeter(fallback time.Duration) *costMeter { return &costMeter{fallback: fallback} }
 
 func (c *costMeter) observe(d time.Duration) {
 	if d <= 0 {
 		return
 	}
+	c.record(d)
+}
+
+// record keeps d as it is, zero included (the overshoot meter's zeros are observations).
+func (c *costMeter) record(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.samples) < openCostSamples {
@@ -454,7 +479,7 @@ func (c *costMeter) typical() time.Duration {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.samples) == 0 {
-		return openCostDefault
+		return c.fallback
 	}
 	s := append([]time.Duration(nil), c.samples...)
 	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })

@@ -216,6 +216,8 @@ type Manager struct {
 	// openCost is the measured duration of identity_open_session, which the decoy pads itself to
 	// (identity.go, S15). It is per Manager, never package state.
 	openCost *costMeter
+	// decoyLag is the decoy's measured timer overshoot, subtracted from its next wait (identity.go).
+	decoyLag *costMeter
 }
 
 // New builds a Manager. It refuses a wrong-sized HMAC key rather than degrading:
@@ -236,7 +238,7 @@ func New(data Database, cfg *config.Config) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{data: data, hmacKey: key, dummy: dummyDigest, proofKey: proofKey, openCost: newCostMeter()}, nil
+	return &Manager{data: data, hmacKey: key, dummy: dummyDigest, proofKey: proofKey, openCost: newCostMeter(openCostDefault), decoyLag: newCostMeter(0)}, nil
 }
 
 // compare is the one comparison every login path makes (see compareFn).
