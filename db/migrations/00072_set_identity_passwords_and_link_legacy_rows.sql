@@ -1,6 +1,6 @@
 -- 00072 -- M14-05: the identity's password, its resets, its links to legacy rows, its refusals, its
 -- e-mail verification and its event log (expand). Three tenant-scope-less tables
--- (admin_identity_resets, admin_identity_verifications, admin_identity_events), thirteen functions
+-- (admin_identity_resets, admin_identity_verifications, admin_identity_events), fifteen functions
 -- of ADR 0031 §5.2's closed list, and resolve_admin_by_email redefined (DROP + CREATE: its return
 -- type gains identity_id and it no longer returns a refused row).
 --
@@ -17,9 +17,12 @@
 -- admin_users.identity_id, NOT NULL), a reset token hash (admin_identity_resets / password_resets)
 -- or a verification token hash. No body resolves an identity from an e-mail address; the two e-mail
 -- comparisons below (identity_link_legacy, identity_relink_refused) are a defence layer between
--- rows the secrets already found, never a lookup key. The one function keyed by something else is
--- the named exception identity_record_failed_login: it writes ONE row of admin_identity_events and
--- nothing else (the application bounds it with the per-identity bucket -- §5.6).
+-- rows the secrets already found, never a lookup key. Two functions here are keyed by the identity
+-- id the login / the reset request resolved (resolve_identity_by_email), not by a secret, and neither
+-- writes the identity: the named exception identity_record_failed_login (ONE admin_identity_events
+-- row, bounded by the per-identity bucket -- §5.6) and identity_open_reset (ONE reset link and ONE
+-- reset_requested event, at most one live link per identity -- §5.9, the user's 2026-10-22 decision).
+-- identity_withdraw_reset is keyed by the link's own hash.
 --
 -- THE BELT (ADR 0031 §5.2, §6; ADR 0021 §3.2's rule for the operator's definers). These bodies run as a BYPASSRLS role,
 -- so the tenant isolation RLS gives tappa_app is not there. The rule this file keeps, and that
@@ -113,7 +116,7 @@ BEGIN
                                      'identity_unlink_backfilled', 'identity_relink_refused',
                                      'identity_request_verification', 'resolve_identity_verification_by_token_hash',
                                      'identity_verify_email', 'identity_record_failed_login',
-                                     'identity_sweep_events')) THEN
+                                     'identity_sweep_events', 'identity_open_reset', 'identity_withdraw_reset')) THEN
         RAISE EXCEPTION 'migration 00072 (M14-05) creates the identity reset, verification and event tables and their functions, and one of them is already there. Migrate in order. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
@@ -142,11 +145,12 @@ $$;
 -- +goose StatementEnd
 
 -- ---------------------------------------------------------------------------
--- 1. admin_identity_resets (ADR 0031 §5.1): one link per identity, M14-14 issues them
+-- 1. admin_identity_resets (ADR 0031 §5.1): at most one live link per identity
 -- ---------------------------------------------------------------------------
 -- The shape of password_resets after 00019: token_hash is the 64-hex SHA-256 of the token (the token
 -- itself is never stored), the TTL ceiling is 24 hours, used_at and cancelled_at are never confused.
--- No function here INSERTs a row (the issuer is M14-14's); consumption is identity_consume_reset.
+-- identity_open_reset issues them (one live link per identity -- EM-7C), identity_withdraw_reset
+-- retires an undelivered one, identity_consume_reset spends them.
 CREATE TABLE admin_identity_resets (
     id           uuid        NOT NULL DEFAULT gen_random_uuid(),
     identity_id  uuid        NOT NULL,
@@ -198,7 +202,7 @@ REVOKE ALL ON admin_identity_verifications FROM tappa_app;
 -- Identity-level facts. identity_id NOT NULL: an unknown address writes nothing (an anonymous
 -- append-only table would grow without bound -- adminratelimit.go's M5-02 lesson). event is a
 -- closed set (the ADR's "failed login, reset request, verification, link refusal, unlink");
--- reset_requested has no writer yet (M14-14). detail has closed keys -- `tenant` (a uuid) and
+-- reset_requested is identity_open_reset's. detail has closed keys -- `tenant` (a uuid) and
 -- `scope` (a window scope) -- so an e-mail address or an IP cannot be written into it. Retention:
 -- 90 days, deleted only by identity_sweep_events (00058's pattern).
 CREATE TABLE admin_identity_events (
@@ -242,6 +246,7 @@ GRANT SELECT (id, email, password_hash, email_verified_at, confirm_opened_at, co
       UPDATE (password_hash, email_verified_at, confirm_opened_at, confirm_open_until, confirm_scope)
     ON admin_identities TO tappa_identitydefiner;
 GRANT SELECT (id, identity_id, token_hash, expires_at, used_at, cancelled_at),
+      INSERT (identity_id, token_hash, expires_at),
       UPDATE (used_at, cancelled_at)
     ON admin_identity_resets TO tappa_identitydefiner;
 GRANT SELECT (id, identity_id, token_hash, expires_at, used_at),
@@ -984,6 +989,87 @@ AS $$
 $$;
 -- +goose StatementEnd
 
+-- identity_open_reset -- KEYED BY THE IDENTITY ID, NOT BY A SECRET (ADR 0031 §5.2, §5.9; the user's
+-- decision of 2026-10-22): the reset request has no secret by nature -- the caller found the identity
+-- from the typed address through resolve_identity_by_email. Harmless by construction: it writes ONE
+-- admin_identity_resets row and ONE reset_requested event (detail empty -- no address, no IP), and
+-- never the identity, a membership or a tenant's audit. ONE LIVE LINK PER IDENTITY (M10 EM-7C,
+-- internal/adminauth/resetrequest.go): under a per-identity advisory lock, a link that could be spent
+-- right now -- not used, not cancelled, not expired,
+-- the consumption's own conditions -- is returned with issued = false and NOTHING is written or
+-- retired; only when there is none is a new one issued. Nobody can kill the owner's pending link by
+-- asking again, and the account receives at most one recovery mail per link lifetime. An unknown
+-- identity -> 0 rows.
+-- +goose StatementBegin
+CREATE FUNCTION public.identity_open_reset(p_identity_id uuid, p_token_hash text, p_expires_at timestamptz)
+    RETURNS TABLE (reset_id uuid, expires_at timestamptz, issued boolean)
+    LANGUAGE plpgsql
+    VOLATILE
+    SECURITY DEFINER
+    SET search_path = pg_catalog, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+    v_id      uuid;
+    v_expires timestamptz;
+BEGIN
+    -- The per-identity lock: a namespaced transaction advisory lock (passwordresets.sql's
+    -- LockAdminForResetIssue pattern; the 'admin-identity-reset:' prefix keeps it apart from the tap
+    -- debounce's key space and from 'admin-identity-email:'). N concurrent requests for one identity
+    -- queue here; each reads the link the one before it committed.
+    PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('admin-identity-reset:' || p_identity_id::text, 0));
+    PERFORM 1 FROM public.admin_identities i WHERE i.id = p_identity_id;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+
+    SELECT r.id, r.expires_at INTO v_id, v_expires
+      FROM public.admin_identity_resets r
+     WHERE r.identity_id = p_identity_id
+       AND r.used_at IS NULL
+       AND r.cancelled_at IS NULL
+       AND now() < r.expires_at
+     ORDER BY r.expires_at DESC
+     LIMIT 1;
+    IF FOUND THEN
+        RETURN QUERY SELECT v_id, v_expires, false;
+        RETURN;
+    END IF;
+
+    INSERT INTO public.admin_identity_resets AS r (identity_id, token_hash, expires_at)
+    VALUES (p_identity_id, p_token_hash, p_expires_at)
+    RETURNING r.id, r.expires_at INTO v_id, v_expires;
+    INSERT INTO public.admin_identity_events (identity_id, event) VALUES (p_identity_id, 'reset_requested');
+    RETURN QUERY SELECT v_id, v_expires, true;
+END;
+$$;
+-- +goose StatementEnd
+
+-- identity_withdraw_reset: retire ONE link that was issued and could not be handed to its recipient
+-- (EM-7C's Withdraw, resetrequest.go): without it one live link per identity would turn a failed send
+-- into a link lifetime of nothing. Only cancelled_at moves, only from NULL, only for a link not spent;
+-- a link already gone is false, not an error. Keyed by the link's own hash (the caller minted it);
+-- writes nothing else -- today's Withdraw records nothing either.
+-- +goose StatementBegin
+CREATE FUNCTION public.identity_withdraw_reset(p_token_hash text)
+    RETURNS boolean
+    LANGUAGE sql
+    VOLATILE
+    SECURITY DEFINER
+    SET search_path = pg_catalog, pg_temp
+AS $$
+    WITH withdrawn AS (
+        UPDATE public.admin_identity_resets r
+           SET cancelled_at = now()
+         WHERE r.token_hash = p_token_hash
+           AND r.used_at IS NULL
+           AND r.cancelled_at IS NULL
+        RETURNING 1
+    )
+    SELECT EXISTS (SELECT 1 FROM withdrawn);
+$$;
+-- +goose StatementEnd
+
 -- Owners, PUBLIC out, EXECUTE to tappa_app alone (ADR 0031 §5.2).
 ALTER FUNCTION public.resolve_identity_reset_by_token_hash(text) OWNER TO tappa_resolver;
 ALTER FUNCTION public.resolve_identity_verification_by_token_hash(text) OWNER TO tappa_resolver;
@@ -998,6 +1084,8 @@ ALTER FUNCTION public.identity_request_verification(text, text) OWNER TO tappa_i
 ALTER FUNCTION public.identity_verify_email(text, text) OWNER TO tappa_identitydefiner;
 ALTER FUNCTION public.identity_record_failed_login(uuid, text) OWNER TO tappa_identitydefiner;
 ALTER FUNCTION public.identity_sweep_events() OWNER TO tappa_identitydefiner;
+ALTER FUNCTION public.identity_open_reset(uuid, text, timestamptz) OWNER TO tappa_identitydefiner;
+ALTER FUNCTION public.identity_withdraw_reset(text) OWNER TO tappa_identitydefiner;
 
 REVOKE ALL ON FUNCTION public.resolve_identity_reset_by_token_hash(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.resolve_identity_verification_by_token_hash(text) FROM PUBLIC;
@@ -1012,6 +1100,8 @@ REVOKE ALL ON FUNCTION public.identity_request_verification(text, text) FROM PUB
 REVOKE ALL ON FUNCTION public.identity_verify_email(text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.identity_record_failed_login(uuid, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.identity_sweep_events() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.identity_open_reset(uuid, text, timestamptz) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.identity_withdraw_reset(text) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION public.resolve_identity_reset_by_token_hash(text) TO tappa_app;
 GRANT EXECUTE ON FUNCTION public.resolve_identity_verification_by_token_hash(text) TO tappa_app;
@@ -1026,6 +1116,8 @@ GRANT EXECUTE ON FUNCTION public.identity_request_verification(text, text) TO ta
 GRANT EXECUTE ON FUNCTION public.identity_verify_email(text, text) TO tappa_app;
 GRANT EXECUTE ON FUNCTION public.identity_record_failed_login(uuid, text) TO tappa_app;
 GRANT EXECUTE ON FUNCTION public.identity_sweep_events() TO tappa_app;
+GRANT EXECUTE ON FUNCTION public.identity_open_reset(uuid, text, timestamptz) TO tappa_app;
+GRANT EXECUTE ON FUNCTION public.identity_withdraw_reset(text) TO tappa_app;
 
 -- ---------------------------------------------------------------------------
 -- 8. POSTCONDITION
@@ -1052,7 +1144,7 @@ BEGIN
             END IF;
         END LOOP;
     END LOOP;
-    -- The fourteen functions: SECURITY DEFINER, the pinned search_path, EXECUTE granted to tappa_app
+    -- The sixteen functions: SECURITY DEFINER, the pinned search_path, EXECUTE granted to tappa_app
     -- and to nobody else but the owner.
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
                 WHERE p.pronamespace = 'public'::pg_catalog.regnamespace
@@ -1061,7 +1153,8 @@ BEGIN
                                     'identity_set_password', 'identity_consume_row_reset', 'identity_consume_reset',
                                     'identity_link_legacy', 'identity_unlink_backfilled', 'identity_relink_refused',
                                     'identity_request_verification', 'identity_verify_email',
-                                    'identity_record_failed_login', 'identity_sweep_events')
+                                    'identity_record_failed_login', 'identity_sweep_events',
+                                    'identity_open_reset', 'identity_withdraw_reset')
                   AND (NOT p.prosecdef
                        OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, pg_temp']
                        OR NOT pg_catalog.has_function_privilege('tappa_app', p.oid, 'EXECUTE')
@@ -1099,6 +1192,8 @@ END
 $$;
 -- +goose StatementEnd
 
+DROP FUNCTION public.identity_withdraw_reset(text);
+DROP FUNCTION public.identity_open_reset(uuid, text, timestamptz);
 DROP FUNCTION public.identity_sweep_events();
 DROP FUNCTION public.identity_record_failed_login(uuid, text);
 DROP FUNCTION public.identity_verify_email(text, text);

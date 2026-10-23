@@ -119,12 +119,16 @@ var m11Tables = map[string]map[string]m11TableACL{
 	},
 	// 00072 (M14-05, ADR 0031 §5.1): the identity's reset links, verification links and event log --
 	// TENANT-SCOPE-LESS (m11ScopelessTables). tappa_app holds nothing (ADR 0031 §6). The resolver
-	// reads what its two token resolvers return and filter on; the definer consumes resets (no INSERT:
-	// the issuer is M14-14's), issues and consumes verifications, writes events and sweeps them (the
-	// one DELETE, 90 days -- R17).
+	// reads what its two token resolvers return and filter on; the definer issues, withdraws and
+	// consumes resets (identity_open_reset / _withdraw_reset / identity_consume_reset), issues and
+	// consumes verifications, writes events and sweeps them (the one DELETE, 90 days -- R17).
 	"admin_identity_resets": {
-		"tappa_resolver":        {Select: "id,identity_id,token_hash,expires_at,used_at,cancelled_at"},
-		"tappa_identitydefiner": {Select: "id,identity_id,token_hash,expires_at,used_at,cancelled_at", Update: "used_at,cancelled_at"},
+		"tappa_resolver": {Select: "id,identity_id,token_hash,expires_at,used_at,cancelled_at"},
+		"tappa_identitydefiner": {
+			Select: "id,identity_id,token_hash,expires_at,used_at,cancelled_at",
+			Insert: "identity_id,token_hash,expires_at",
+			Update: "used_at,cancelled_at",
+		},
 	},
 	"admin_identity_verifications": {
 		"tappa_resolver": {Select: "id,identity_id,token_hash,expires_at,used_at"},
@@ -423,19 +427,21 @@ var m11Functions = map[string]m11FunctionACL{
 	// 00072 (M14-05, ADR 0031 §5.2): eleven identity_* writers owned by tappa_identitydefiner and two
 	// md.7 token resolvers owned by tappa_resolver -- SECURITY DEFINER, EXECUTE tappa_app alone (and
 	// the owner). identitypassword_test.go pins their signatures, search_path and bodies further.
-	"resolve_identity_reset_by_token_hash(text)":        {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
-	"resolve_identity_verification_by_token_hash(text)": {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
-	"identity_password_for_session(text)":               {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_set_password(text,text)":                  {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_consume_row_reset(text,text)":             {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_consume_reset(text,text)":                 {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_link_legacy(text,text)":                   {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_unlink_backfilled(text,uuid)":             {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_relink_refused(text,uuid)":                {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_request_verification(text,text)":          {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_verify_email(text,text)":                  {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_record_failed_login(uuid,text)":           {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_sweep_events()":                           {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"resolve_identity_reset_by_token_hash(text)":              {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"resolve_identity_verification_by_token_hash(text)":       {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"identity_password_for_session(text)":                     {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_set_password(text,text)":                        {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_consume_row_reset(text,text)":                   {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_consume_reset(text,text)":                       {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_link_legacy(text,text)":                         {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_unlink_backfilled(text,uuid)":                   {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_relink_refused(text,uuid)":                      {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_request_verification(text,text)":                {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_verify_email(text,text)":                        {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_record_failed_login(uuid,text)":                 {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_sweep_events()":                                 {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_open_reset(uuid,text,timestamp with time zone)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_withdraw_reset(text)":                           {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every

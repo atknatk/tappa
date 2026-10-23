@@ -2,13 +2,17 @@ package db
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -223,6 +227,8 @@ var ipFunctions = []struct{ name, args, result, owner, volatile string }{
 	{"identity_verify_email", "p_verification_hash text, p_session_hash text", "TABLE(first_verification boolean)", "tappa_identitydefiner", "v"},
 	{"identity_record_failed_login", "p_identity_id uuid, p_event text", "TABLE(recorded boolean)", "tappa_identitydefiner", "v"},
 	{"identity_sweep_events", "", "TABLE(deleted bigint)", "tappa_identitydefiner", "v"},
+	{"identity_open_reset", "p_identity_id uuid, p_token_hash text, p_expires_at timestamp with time zone", "TABLE(reset_id uuid, expires_at timestamp with time zone, issued boolean)", "tappa_identitydefiner", "v"},
+	{"identity_withdraw_reset", "p_token_hash text", "boolean", "tappa_identitydefiner", "v"},
 }
 
 // ipMatrix is this card's part of ADR 0031 §5.2's verb x column matrix (and T6's resolver grants):
@@ -233,7 +239,7 @@ var ipMatrix = []struct{ role, table, priv, want string }{
 	{"tappa_identitydefiner", "admin_identities", "INSERT", ""},
 	{"tappa_identitydefiner", "admin_identities", "UPDATE", "password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope"},
 	{"tappa_identitydefiner", "admin_identity_resets", "SELECT", "id,identity_id,token_hash,expires_at,used_at,cancelled_at"},
-	{"tappa_identitydefiner", "admin_identity_resets", "INSERT", ""},
+	{"tappa_identitydefiner", "admin_identity_resets", "INSERT", "identity_id,token_hash,expires_at"},
 	{"tappa_identitydefiner", "admin_identity_resets", "UPDATE", "used_at,cancelled_at"},
 	{"tappa_identitydefiner", "admin_identity_verifications", "SELECT", "id,identity_id,token_hash,expires_at,used_at"},
 	{"tappa_identitydefiner", "admin_identity_verifications", "INSERT", "identity_id,token_hash,expires_at"},
@@ -464,8 +470,8 @@ func TestIdentity00072_EveryTenantStatementCarriesItsTenant(t *testing.T) {
 		}
 		checked++
 	}
-	if checked != 11 {
-		t.Fatalf("anti-vacuity: scanned %d bodies, want 11", checked)
+	if checked != 13 {
+		t.Fatalf("anti-vacuity: scanned %d bodies, want 13", checked)
 	}
 	for _, c := range []struct{ what, body string }{
 		{"a write with no tenant", "UPDATE public.admin_users a SET password_hash = p_new_hash WHERE a.id = m.id;"},
@@ -1426,6 +1432,311 @@ func TestIdentityEvents_TheFailedLoginWritesOneRowAndTheSweepNinetyDays(t *testi
 	}
 	if n := opInt(t, ctx, tx, `SELECT count(*) FROM admin_identity_events WHERE identity_id = $1`, p.id); n != 3 {
 		t.Errorf("%d rows after the sweep, want 3 (the 89-day row and the two of today)", n)
+	}
+}
+
+// ------------------------------------------------------- issuing a reset --
+
+// ipResetState reads a person's identity reset links and reset_requested events, and a digest of
+// everything identity_open_reset / identity_withdraw_reset must NOT write: the identity row, the
+// person's membership rows, the audit log and the sessions.
+func ipResetState(t *testing.T, ctx context.Context, q pgx.Tx, p ipPerson) (links, live, events int64, untouched string) {
+	t.Helper()
+	links = opInt(t, ctx, q, `SELECT count(*) FROM admin_identity_resets WHERE identity_id = $1`, p.id)
+	live = opInt(t, ctx, q, `SELECT count(*) FROM admin_identity_resets WHERE identity_id = $1 AND used_at IS NULL AND cancelled_at IS NULL AND now() < expires_at`, p.id)
+	events = opInt(t, ctx, q, `SELECT count(*) FROM admin_identity_events WHERE identity_id = $1 AND event = 'reset_requested' AND detail = '{}'`, p.id)
+	if n := opInt(t, ctx, q, `SELECT count(*) FROM admin_identity_events WHERE identity_id = $1 AND (event <> 'reset_requested' OR detail <> '{}')`, p.id); n != 0 {
+		t.Errorf("%d identity events other than an empty reset_requested", n)
+	}
+	if err := q.QueryRow(ctx, `SELECT md5((SELECT i::text FROM admin_identities i WHERE i.id = $1)) || '/' ||
+	                                  md5(coalesce((SELECT string_agg(a::text, ',' ORDER BY a.id) FROM admin_users a WHERE a.email = $2), '')) || '/' ||
+	                                  (SELECT count(*) FROM audit_log)::text || '/' || (SELECT count(*) FROM admin_sessions)::text`, p.id, p.email).Scan(&untouched); err != nil {
+		t.Fatal(err)
+	}
+	return
+}
+
+// TestIdentityOpenReset_OneLiveLinkPerIdentity is ADR 0031 §5.9 with EM-7C's rule
+// (internal/adminauth/resetrequest.go): the first request issues a link and one empty
+// reset_requested event; a second request while that link is live returns THE SAME link with
+// issued = false and writes nothing (one row, one event, its hash never stored); once the link is
+// expired, used or cancelled the next request issues a new one; an unknown identity gets 0 rows. No
+// call writes the identity, a membership, the audit log or a session.
+func TestIdentityOpenReset_OneLiveLinkPerIdentity(t *testing.T) {
+	ctx, tx := opTx(t)
+	p := ipNewPerson(t, ctx, tx)
+	tenant := aiTenant(t, ctx, tx)
+	row := ipMember(t, ctx, tx, tenant, p.email, p.digest)
+	ipLink(t, ctx, tx, row, p.id, "backfill", "1 day")
+	ipSession(t, ctx, tx, tenant, row, ipFresh)
+	_, _, _, before := ipResetState(t, ctx, tx, p)
+
+	open := func(q pgx.Tx, hash string) (uuid.UUID, bool, int) {
+		t.Helper()
+		rows, err := ipApp(t, ctx, q, `SELECT reset_id, issued, expires_at = now() + interval '1 hour' FROM identity_open_reset($1, $2, now() + interval '1 hour')`, p.id, hash)
+		if err != nil {
+			t.Fatalf("identity_open_reset: %v", err)
+		}
+		if len(rows) != 1 {
+			return uuid.Nil, false, len(rows)
+		}
+		return uuid.UUID(rows[0][0].([16]byte)), rows[0][1].(bool), 1
+	}
+	first, issued, n := open(tx, opRandHex(t))
+	if n != 1 || !issued {
+		t.Fatalf("the first request: %d rows, issued=%v; want one issued link", n, issued)
+	}
+	second := opRandHex(t)
+	again, issued, n := open(tx, second)
+	if n != 1 || issued || again != first {
+		t.Errorf("a request while the link is live: %d rows, issued=%v, id %s; want the same link %s, issued=false", n, issued, again, first)
+	}
+	if opInt(t, ctx, tx, `SELECT count(*) FROM admin_identity_resets WHERE token_hash = $1`, second) != 0 {
+		t.Error("the second request's hash was stored")
+	}
+	links, live, events, after := ipResetState(t, ctx, tx, p)
+	if links != 1 || live != 1 || events != 1 {
+		t.Errorf("after two requests: %d links, %d live, %d events; want 1, 1, 1", links, live, events)
+	}
+	if after != before {
+		t.Errorf("identity_open_reset wrote the identity, a membership, the audit log or a session: %s -> %s", before, after)
+	}
+
+	for _, c := range []struct{ what, set string }{
+		{"expired", `expires_at = now() - interval '1 second', created_at = now() - interval '2 hours'`},
+		{"used", `used_at = now()`},
+		{"cancelled", `cancelled_at = now()`},
+	} {
+		t.Run(c.what, func(t *testing.T) {
+			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+				aiExec(t, ctx, sp, `UPDATE admin_identity_resets SET `+c.set+` WHERE id = $1`, first)
+				id, issued, n := open(sp, opRandHex(t))
+				if n != 1 || !issued || id == first {
+					t.Errorf("a request after the link was %s: %d rows, issued=%v, id %s; want a new issued link", c.what, n, issued, id)
+				}
+				links, live, events, after := ipResetState(t, ctx, sp, p)
+				if links != 2 || live != 1 || events != 2 || after != before {
+					t.Errorf("after a %s link: %d links, %d live, %d events, untouched=%v; want 2, 1, 2, true", c.what, links, live, events, after == before)
+				}
+			})
+		})
+	}
+
+	rows, err := ipApp(t, ctx, tx, `SELECT * FROM identity_open_reset($1, $2, now() + interval '1 hour')`, uuid.New(), opRandHex(t))
+	if err != nil || len(rows) != 0 {
+		t.Errorf("an unknown identity: %v, %v; want 0 rows", rows, err)
+	}
+	if _, _, events, after := ipResetState(t, ctx, tx, p); events != 1 || after != before {
+		t.Error("the unknown identity's request wrote something")
+	}
+}
+
+// TestIdentityOpenReset_ConcurrentRequestsIssueOneLink is the plan's concurrency criterion (M14-05,
+// EM-7C): N goroutines, each on its own tappa_app connection, ask for a link for ONE identity at the
+// same moment -> exactly one is issued, the other N-1 get that same link with issued = false, and the
+// identity holds one link and one reset_requested event. Run with -race. The fixture is COMMITTED
+// (the requests are separate transactions, as passwordresets_test.go's single-use proof does it) and
+// removed again by the owner in t.Cleanup: the event, the link, the identity -- nothing else is
+// written by the function, so nothing else is left.
+func TestIdentityOpenReset_ConcurrentRequestsIssueOneLink(t *testing.T) {
+	d := appDB(t)
+	ctx := context.Background()
+	owner, err := pgx.Connect(ctx, opOwnerDSN(t))
+	if err != nil {
+		t.Fatalf("connect as the owner: %v", err)
+	}
+	t.Cleanup(func() { _ = owner.Close(context.Background()) })
+	var identity uuid.UUID
+	if err := owner.QueryRow(ctx, `INSERT INTO admin_identities (email, password_hash) VALUES ($1, $2) RETURNING id`, ipEmail(), opFakeDigest("c")).Scan(&identity); err != nil {
+		t.Fatalf("commit the identity: %v", err)
+	}
+	t.Cleanup(func() {
+		for _, sql := range []string{
+			`DELETE FROM admin_identity_events WHERE identity_id = $1`,
+			`DELETE FROM admin_identity_resets WHERE identity_id = $1`,
+			`DELETE FROM admin_identities WHERE id = $1`,
+		} {
+			if _, err := owner.Exec(context.Background(), sql, identity); err != nil {
+				t.Errorf("cleanup %s: %v", sql, err)
+			}
+		}
+	})
+
+	const n = 8
+	var (
+		wg     sync.WaitGroup
+		mu     sync.Mutex
+		issued int
+		ids    = map[uuid.UUID]int{}
+		errs   []error
+	)
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			hash := make([]byte, 32)
+			if _, err := rand.Read(hash); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+				return
+			}
+			<-start
+			var id uuid.UUID
+			var ok bool
+			err := d.pool.QueryRow(ctx, `SELECT reset_id, issued FROM identity_open_reset($1, $2, now() + interval '1 hour')`,
+				identity, hex.EncodeToString(hash)).Scan(&id, &ok)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errs = append(errs, err)
+				return
+			}
+			ids[id]++
+			if ok {
+				issued++
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	if len(errs) != 0 {
+		t.Fatalf("%d requests failed: %v", len(errs), errs)
+	}
+	if issued != 1 || len(ids) != 1 {
+		t.Errorf("%d of %d concurrent requests issued a link, %d distinct links answered; want exactly 1 and 1", issued, n, len(ids))
+	}
+	var links, events int
+	if err := owner.QueryRow(ctx, `SELECT (SELECT count(*) FROM admin_identity_resets WHERE identity_id = $1),
+	                                      (SELECT count(*) FROM admin_identity_events WHERE identity_id = $1 AND event = 'reset_requested')`, identity).Scan(&links, &events); err != nil {
+		t.Fatal(err)
+	}
+	if links != 1 || events != 1 {
+		t.Errorf("after %d concurrent requests the identity holds %d links and %d events, want 1 and 1", n, links, events)
+	}
+
+	// THE INTERLEAVING, MADE DETERMINISTIC. The goroutines above rarely overlap in practice (the
+	// body is short), so the lock's work is shown with two transactions held open on purpose: A
+	// withdraws the link and asks again -- a new link, uncommitted, the lock held -- and B asks while A
+	// is open (A's earlier link is retired by the owner first). B must WAIT (it is seen waiting on an advisory lock) and, once A commits, answer A's link
+	// with issued = false. Without the lock B would see no live link and issue a second one at once.
+	txA, err := d.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = txA.Rollback(context.Background()) }()
+	if _, err := owner.Exec(ctx, `UPDATE admin_identity_resets SET cancelled_at = now() WHERE identity_id = $1 AND cancelled_at IS NULL`, identity); err != nil {
+		t.Fatal(err)
+	}
+	var aID uuid.UUID
+	var aIssued bool
+	if err := txA.QueryRow(ctx, `SELECT reset_id, issued FROM identity_open_reset($1, $2, now() + interval '1 hour')`, identity, opRandHex(t)).Scan(&aID, &aIssued); err != nil || !aIssued {
+		t.Fatalf("A's request: %v issued=%v", err, aIssued)
+	}
+	type answer struct {
+		id     uuid.UUID
+		issued bool
+		err    error
+	}
+	done := make(chan answer, 1)
+	go func() {
+		var a answer
+		a.err = d.pool.QueryRow(ctx, `SELECT reset_id, issued FROM identity_open_reset($1, $2, now() + interval '1 hour')`, identity, opRandHex(t)).Scan(&a.id, &a.issued)
+		done <- a
+	}()
+	waiting := false
+	for i := 0; i < 100 && !waiting; i++ {
+		select {
+		case a := <-done:
+			t.Fatalf("B answered while A held its request open (id %s, issued=%v, err %v): no per-identity lock", a.id, a.issued, a.err)
+		case <-time.After(50 * time.Millisecond):
+		}
+		if err := owner.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND objsubid = 1
+		                                 AND ((classid::bigint << 32) | objid::bigint) = hashtextextended('admin-identity-reset:' || $1::text, 0))`, identity).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !waiting {
+		t.Fatal("B is neither answered nor seen waiting on the identity's advisory lock after 5 s")
+	}
+	if err := txA.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	b := <-done
+	if b.err != nil || b.issued || b.id != aID {
+		t.Errorf("B after A committed: id %s issued=%v err %v; want A's link %s with issued=false", b.id, b.issued, b.err, aID)
+	}
+}
+
+// TestIdentityWithdrawReset_RetiresOneUnspentLinkOnce is EM-7C's Withdraw for the identity link: a
+// live link withdrawn by its hash -> true and cancelled_at set, and the next request issues a new
+// link; the same hash again, a wrong hash and a used link -> false (the used one keeps cancelled_at
+// NULL); nothing else is written.
+func TestIdentityWithdrawReset_RetiresOneUnspentLinkOnce(t *testing.T) {
+	ctx, tx := opTx(t)
+	p := ipNewPerson(t, ctx, tx)
+	hash, used := opRandHex(t), opRandHex(t)
+	if n := ipRows(t, ctx, tx, `SELECT * FROM identity_open_reset($1, $2, now() + interval '1 hour')`, p.id, hash); n != 1 {
+		t.Fatal("PREMISE: no link issued")
+	}
+	aiExec(t, ctx, tx, `INSERT INTO admin_identity_resets (identity_id, token_hash, expires_at, used_at) VALUES ($1, $2, now() + interval '1 hour', now())`, p.id, used)
+	_, _, events, before := ipResetState(t, ctx, tx, p)
+	withdraw := func(h string) bool {
+		t.Helper()
+		rows, err := ipApp(t, ctx, tx, `SELECT identity_withdraw_reset($1)`, h)
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("identity_withdraw_reset: %v, %v", rows, err)
+		}
+		return rows[0][0].(bool)
+	}
+	if !withdraw(hash) {
+		t.Fatal("withdrawing the live link answered false")
+	}
+	if opInt(t, ctx, tx, `SELECT count(*) FROM admin_identity_resets WHERE token_hash = $1 AND cancelled_at = now() AND used_at IS NULL`, hash) != 1 {
+		t.Error("the withdrawn link is not cancelled")
+	}
+	for _, c := range []struct{ what, hash string }{{"the same hash again", hash}, {"a wrong hash", opRandHex(t)}, {"a used link", used}} {
+		if withdraw(c.hash) {
+			t.Errorf("withdrawing %s answered true", c.what)
+		}
+	}
+	if opInt(t, ctx, tx, `SELECT count(*) FROM admin_identity_resets WHERE token_hash = $1 AND cancelled_at IS NULL`, used) != 1 {
+		t.Error("the used link was cancelled")
+	}
+	if _, _, e, after := ipResetState(t, ctx, tx, p); e != events || after != before {
+		t.Error("identity_withdraw_reset wrote something else")
+	}
+	rows, err := ipApp(t, ctx, tx, `SELECT issued FROM identity_open_reset($1, $2, now() + interval '1 hour')`, p.id, opRandHex(t))
+	if err != nil || len(rows) != 1 || rows[0][0] != true {
+		t.Errorf("a request after the withdrawal: %v, %v; want a new issued link", rows, err)
+	}
+}
+
+// TestIdentityUnlink_TakesThePersonsLockAndTheRowsLock is M14-04's audit obligation (DÜŞÜK): the
+// unlink takes the identity's row lock (the person's lock every identity writer takes first), then
+// the membership row FOR UPDATE, then writes the row and revokes that tenant's sessions -- one body,
+// one transaction (TestIdentityUnlink_RefusesForGoodWithASentinel measures the revocation itself).
+func TestIdentityUnlink_TakesThePersonsLockAndTheRowsLock(t *testing.T) {
+	ctx, tx := opTx(t)
+	var body string
+	if err := tx.QueryRow(ctx, `SELECT prosrc FROM pg_proc WHERE oid = 'public.identity_unlink_backfilled(text, uuid)'::regprocedure`).Scan(&body); err != nil {
+		t.Fatal(err)
+	}
+	body = ipLineComment.ReplaceAllString(body, "")
+	steps := []*regexp.Regexp{
+		regexp.MustCompile(`(?s)FROM public\.admin_identities i\s+WHERE i\.id = v_identity.*?FOR UPDATE;`),
+		regexp.MustCompile(`(?s)FROM public\.admin_users a\s+WHERE a\.tenant_id = p_tenant.*?FOR UPDATE;`),
+		regexp.MustCompile(`UPDATE public\.admin_users a\s+SET identity_id = NULL`),
+		regexp.MustCompile(`UPDATE public\.admin_sessions s SET revoked_at = now\(\)\s+WHERE s\.tenant_id = p_tenant AND s\.admin_user_id = v_target`),
+	}
+	at := -1
+	for i, re := range steps {
+		loc := re.FindStringIndex(body)
+		if loc == nil || loc[0] <= at {
+			t.Fatalf("identity_unlink_backfilled: step %d (%s) is missing or out of order", i+1, re)
+		}
+		at = loc[0]
 	}
 }
 

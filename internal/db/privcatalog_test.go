@@ -173,7 +173,7 @@ SELECT line FROM (
 // SELECT on admin_users from the table to ten columns (linked_via, linked_at, unlinked_at outside)
 // and took email out of its UPDATE list, read again at 00070; 00072 -- M14-05, ADR 0031 §5.2 --
 // added the three tenant-scope-less tables admin_identity_resets / _verifications / _events (ENABLE +
-// FORCE, no policy, nothing to tappa_app), the thirteen identity functions (eleven owned by
+// FORCE, no policy, nothing to tappa_app), the fifteen identity functions (thirteen owned by
 // tappa_identitydefiner, two token resolvers by tappa_resolver; EXECUTE tappa_app and the owner),
 // tappa_identitydefiner's column grants on the tables those bodies read and write (no e-mail write
 // anywhere -- K-15; DELETE on the event log alone, the 90-day sweep) and identity_id, unlinked_at to
@@ -206,6 +206,7 @@ column admin_identities tappa_identitydefiner SELECT id,email,password_hash,emai
 column admin_identities tappa_identitydefiner UPDATE password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope
 column admin_identity_events tappa_identitydefiner INSERT identity_id,event,detail
 column admin_identity_events tappa_identitydefiner SELECT created_at
+column admin_identity_resets tappa_identitydefiner INSERT identity_id,token_hash,expires_at
 column admin_identity_resets tappa_identitydefiner SELECT id,identity_id,token_hash,expires_at,used_at,cancelled_at
 column admin_identity_resets tappa_identitydefiner UPDATE used_at,cancelled_at
 column admin_identity_resets tappa_resolver SELECT id,identity_id,token_hash,expires_at,used_at,cancelled_at
@@ -342,6 +343,7 @@ function holding_timezone_lock() owner=tappa_holdingdefiner definer=true execute
 function identity_consume_reset(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_consume_row_reset(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_link_legacy(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function identity_open_reset(uuid,text,timestamp with time zone) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_password_for_session(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_record_failed_login(uuid,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_relink_refused(text,uuid) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
@@ -350,6 +352,7 @@ function identity_set_password(text,text) owner=tappa_identitydefiner definer=tr
 function identity_sweep_events() owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_unlink_backfilled(text,uuid) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_verify_email(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function identity_withdraw_reset(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function op_add_holding_member(text,uuid,uuid) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_begin_read(text,text,jsonb) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_close_session(text) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
