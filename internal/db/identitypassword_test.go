@@ -2089,10 +2089,21 @@ func ipCatalogue(t *testing.T, ctx context.Context, q pgx.Tx) string {
 // resolve_admin_by_email back with 00017's four columns and grants, drops every identity function
 // and table, takes away every grant 00072 ALONE gives and keeps the ones 00071 gives too, taking no
 // strong lock outside the tables it names; the Up gives HEAD's catalogue back byte for byte.
+//
+// M14-06b: the test pins the catalogue AT 00072 -- the files above it (00073's backfill, 00074's
+// reconciliation, whose Down takes back 00074's two grants) are walked down first, newest first, in
+// the rolled-back transaction, the tables their Downs touch locked with 00072's.
 func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndUp(t *testing.T) {
 	ctx, tx := opTx(t)
 	up, down := opMigrationSections(t, ip00072File)
 	tables := downTables(down)
+	var above []aiLaterMigration
+	for _, f := range aiLaterMigrations(t) {
+		if f.name > ip00072File {
+			above = append(above, f)
+			tables = append(tables, downTables(f.down)...)
+		}
+	}
 	slices.Sort(tables)
 	tables = slices.Compact(tables)
 	for _, want := range []string{"admin_identities", "admin_identity_events", "admin_identity_resets", "admin_identity_verifications", "admin_users"} {
@@ -2101,6 +2112,9 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 		}
 	}
 	lockForDowns(t, ctx, tx, tables)
+	for i := len(above) - 1; i >= 0; i-- {
+		opRunSection(t, ctx, tx, above[i].down, above[i].name+" Down")
+	}
 	head := ipCatalogue(t, ctx, tx)
 
 	for _, c := range []struct{ what, setup string }{

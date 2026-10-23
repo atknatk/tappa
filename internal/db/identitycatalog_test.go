@@ -89,9 +89,15 @@ var identitySignaturesM1405 = []identitySignature{
 	{"identity_withdraw_reset", "p_token_hash text", "boolean", "tappa_identitydefiner"},
 }
 
+// identitySignaturesM1406b is M14-06b's part (migration 00074): the maintenance function, EXECUTE in
+// tappa_owner alone (identityExecuteExceptions).
+var identitySignaturesM1406b = []identitySignature{
+	{"identity_reconcile", "", "integer", "tappa_identitydefiner"},
+}
+
 // identitySignatures is the union of every card's part: the whole closed list as far as it is built.
 // The functions tappa_identitydefiner owns are EXACTLY its tappa_identitydefiner rows.
-var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405)
+var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405, identitySignaturesM1406b)
 
 // identitySignatureNames lists the table's names (resolve_admin_by_email is a row though neither
 // identity_* nor the definer's -- M14-05's redefinition).
@@ -105,7 +111,7 @@ func identitySignatureNames() []string {
 
 // identityExecuteExceptions names the functions whose EXECUTE is NOT tappa_app's (ADR 0031 §5.2,
 // ONAY note 1): identity_reconcile() -- M14-06b's maintenance function, EXECUTE in tappa_owner
-// alone. Its signature row arrives with M14-06b; the exception waits for it by name.
+// alone. Its signature row arrived with M14-06b (identitySignaturesM1406b, 00074).
 var identityExecuteExceptions = map[string]string{
 	"identity_reconcile": "tappa_owner",
 }
@@ -229,13 +235,9 @@ func TestIdentityCatalog_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 		t.Fatalf("anti-vacuity: tappa_identitydefiner owns %d functions, the table has %d", n, owned)
 	}
 
-	reconcile := append(slices.Clone(identitySignatures), identitySignature{"identity_reconcile", "", "integer", "tappa_identitydefiner"})
-	makeReconcile := []string{
-		`CREATE FUNCTION public.identity_reconcile() RETURNS integer LANGUAGE sql VOLATILE SECURITY DEFINER
-		     SET search_path = pg_catalog, pg_temp AS 'SELECT 0'`,
-		`ALTER FUNCTION public.identity_reconcile() OWNER TO tappa_identitydefiner`,
-		`REVOKE ALL ON FUNCTION public.identity_reconcile() FROM PUBLIC`,
-	}
+	// M14-06b: identity_reconcile() is real (00074) and green above with EXECUTE in tappa_owner alone;
+	// its controls act on it, and withoutReconcile is the table before its row arrived.
+	withoutReconcile := slices.DeleteFunc(slices.Clone(identitySignatures), func(s identitySignature) bool { return s.name == "identity_reconcile" })
 	controls := []struct {
 		name  string
 		sql   []string
@@ -275,12 +277,12 @@ func TestIdentityCatalog_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 			`ALTER FUNCTION public.identity_open_session(uuid, uuid, text, text) SECURITY INVOKER`}, identitySignatures, "(v)"},
 		{"a search path reaching public", []string{
 			`ALTER FUNCTION public.identity_revoke_sessions(text, boolean) SET search_path = pg_catalog, public`}, identitySignatures, "(v)"},
-		{"identity_reconcile, EXECUTE in tappa_owner alone (the named exception)", append(slices.Clone(makeReconcile),
-			`GRANT EXECUTE ON FUNCTION public.identity_reconcile() TO tappa_owner`), reconcile, ""},
-		{"identity_reconcile, EXECUTE to tappa_app", append(slices.Clone(makeReconcile),
-			`GRANT EXECUTE ON FUNCTION public.identity_reconcile() TO tappa_owner, tappa_app`), reconcile, "(vi)"},
-		{"identity_reconcile without its row in the table", append(slices.Clone(makeReconcile),
-			`GRANT EXECUTE ON FUNCTION public.identity_reconcile() TO tappa_owner`), identitySignatures, "(i)"},
+		{"identity_reconcile, EXECUTE in tappa_owner alone (the named exception)", nil, identitySignatures, ""},
+		{"identity_reconcile, EXECUTE to tappa_app", []string{
+			`GRANT EXECUTE ON FUNCTION public.identity_reconcile() TO tappa_app`}, identitySignatures, "(vi)"},
+		{"identity_reconcile, EXECUTE taken from tappa_owner", []string{
+			`REVOKE EXECUTE ON FUNCTION public.identity_reconcile() FROM tappa_owner`}, identitySignatures, "(vi)"},
+		{"identity_reconcile without its row in the table", nil, withoutReconcile, "(i)"},
 	}
 	for _, c := range controls {
 		t.Run("control/"+c.name, func(t *testing.T) {
@@ -430,8 +432,18 @@ var identityDefinerTableVerbs = map[string]string{
 	"admin_identity_events:DELETE": "identity_sweep_events -- the event log's 90-day sweep (ADR 0031 §5.1, R17)",
 }
 
+// identityDefinerMatrixM1406b is what identity_reconcile() (00074) reads and writes. 00074 grants only
+// the two cells nobody granted before -- admin_users SELECT (password_hash), the chosen row's digest,
+// and admin_identities INSERT (email, password_hash), the identity's birth; the rest is 00071/00072's.
+var identityDefinerMatrixM1406b = map[string]string{
+	"admin_users:SELECT":      "id,tenant_id,email,password_hash,status,created_at,identity_id,unlinked_at",
+	"admin_users:UPDATE":      "identity_id,linked_via,linked_at",
+	"admin_identities:SELECT": "id,email",
+	"admin_identities:INSERT": "email,password_hash",
+}
+
 // identityDefinerMatrixParts are the cards' matrices; identityDefinerMatrix is their union.
-var identityDefinerMatrixParts = []map[string]string{identityDefinerMatrixM1404, identityDefinerMatrixM1405}
+var identityDefinerMatrixParts = []map[string]string{identityDefinerMatrixM1404, identityDefinerMatrixM1405, identityDefinerMatrixM1406b}
 
 // identityDefinerMatrix unions the parts, cell by cell, as sorted column sets.
 func identityDefinerMatrix() map[string]string {
@@ -594,6 +606,7 @@ type identityStep struct {
 	owner string // run as the owner first (a world change between calls)
 	sql   string
 	args  []any
+	as    string // the calling role; "" = tappa_app (identity_reconcile: tappa_owner, its one caller)
 }
 
 // identityExerciseM1405 builds M14-05's world (an identity of its own: rows linked in C and D, an
@@ -651,8 +664,9 @@ func identityExerciseM1405(t *testing.T, ctx context.Context, sp pgx.Tx) []ident
 }
 
 // identityExercise runs every function of the list through every branch that reads a column, as
-// tappa_app, on a world it builds in sp (as the owner). It returns the first error. With the full
-// grants it succeeds; with any one column of the matrix revoked some call is refused (42501).
+// tappa_app (identity_reconcile as tappa_owner, its one caller), on a world it builds in sp (as the
+// owner). It returns the first error. With the full grants it succeeds; with any one column of the
+// matrix revoked some call is refused (42501).
 func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx) error {
 	t.Helper()
 	a, b := idTenant(t, ctx, sp, "exercise A"), idTenant(t, ctx, sp, "exercise B")
@@ -677,11 +691,21 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx) error {
 		{name: "revoke", sql: revokeIdentitySessionsSQL, args: []any{h4, false}},
 	}
 	steps = append(steps, identityExerciseM1405(t, ctx, sp)...)
+	// M14-06b: the reconciliation, last (it links every candidate group the savepoint sees), as its one
+	// caller; a fresh group of two rows is its candidate, so every statement of the body runs.
+	recMail := aiEmail()
+	aiAdmin(t, ctx, sp, idTenant(t, ctx, sp, "exercise reconcile 1"), recMail)
+	aiAdmin(t, ctx, sp, idTenant(t, ctx, sp, "exercise reconcile 2"), strings.ToUpper(recMail))
+	steps = append(steps, identityStep{name: "M14-06b reconcile", sql: `SELECT n FROM public.identity_reconcile() AS n WHERE n > 0`, as: "tappa_owner"})
 	for _, s := range steps {
 		if s.owner != "" {
 			aiExec(t, ctx, sp, s.owner)
 		}
-		err := opAs(t, ctx, sp, "tappa_app", func(app pgx.Tx) error {
+		as := s.as
+		if as == "" {
+			as = "tappa_app"
+		}
+		err := opAs(t, ctx, sp, as, func(app pgx.Tx) error {
 			rows, err := app.Query(ctx, s.sql, s.args...)
 			if err != nil {
 				return err
@@ -710,8 +734,13 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx) error {
 // then each column of the definer's matrix and each identity column of the resolver is revoked, alone,
 // in a savepoint, and the exercise must be refused with 42501 -- a grant no statement needs would
 // stay green and is flagged. ADR 0031 §5.2: the matrix grants "gerektiği kadar", no more.
+//
+// M14-06b: READ COMMITTED (bfTx), not opTx's REPEATABLE READ -- the exercise now ends with
+// identity_reconcile(), which locks every committed candidate row of the shared database FOR UPDATE,
+// and under REPEATABLE READ a row another package updated after this transaction's snapshot answers
+// 40001 (adminbackfill_test.go's reason, the same statement shape).
 func TestIdentityDefiner_EveryGrantIsUsed(t *testing.T) {
-	ctx, tx := opTx(t)
+	ctx, tx := bfTx(t)
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 		if err := identityExercise(t, ctx, sp); err != nil {
 			t.Fatalf("positive control: the exercise failed on the full grants: %v", err)

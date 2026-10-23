@@ -117,10 +117,13 @@ var m11Tables = map[string]map[string]m11TableACL{
 	// address, the digest, the verification and the confirmation window; never an e-mail write
 	// (K-15). identitycatalog_test.go holds the union inside the ADR's matrix and shows every column
 	// used.
+	// 00074 (M14-06b, ADR 0031 §5.2, §5.8): INSERT (email, password_hash) -- identity_reconcile()
+	// births the identity of an e-mail group that has none, with the chosen row's digest.
 	"admin_identities": {
 		"tappa_resolver": {Select: "id,email,password_hash,email_verified_at"},
 		"tappa_identitydefiner": {
 			Select: "id,email,password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope,last_used_tenant",
+			Insert: "email,password_hash",
 			Update: "password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope,last_used_tenant,last_login_at",
 		},
 	},
@@ -463,6 +466,10 @@ var m11Functions = map[string]m11FunctionACL{
 	"identity_sweep_events()":                                 {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 	"identity_open_reset(uuid,text,timestamp with time zone)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 	"identity_withdraw_reset(text)":                           {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	// 00074 (M14-06b, ADR 0031 §5.2, ONAY note 1): the maintenance function -- the closed list's one
+	// EXECUTE that is not tappa_app's: tappa_owner alone (the migration calls it, the runbook calls it
+	// again before M14-19, contract B drops it).
+	"identity_reconcile()": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_identitydefiner,tappa_owner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every

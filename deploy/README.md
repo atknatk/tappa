@@ -1989,6 +1989,90 @@ kimliklerden biri backfill'den sonra **yaşamışsa** (başka yolla bağlanmış
 doğrulanmış adres, onay penceresi, giriş, son kullanılan işletme ya da başka bir tablodan ona işaret eden
 satır) hiçbir şeyi değiştirmeden **reddeder** — geri dönüş önceki binary'dir (ADR 0031 §8).
 
+### Uzlaştırma (M14-06b) — `00074`
+
+`identity_reconcile()` bir **bakım fonksiyonudur** (ADR 0031 §5.2, §5.8; CLAUDE.md §4.5 (3)): backfill'den
+**sonra** doğan `admin_users` satırlarına (expand rollout penceresinde eski pod'un kayıtları, expand ile
+M14-17 arasındaki her kayıt) backfill'in **aynı** kuralıyla kimlik verir — kimliği henüz olmayan her dolu
+e-posta grubunun **en eski aktif** satırı (yoksa en eskisi) bağlanır (`linked_via='reconcile'`,
+`linked_at=now()`), kimlik o satırın digest'iyle doğar, öbür satırlar bağlanmamış kalır. Adresinde zaten
+bir kimlik olan grup ve bağlı ya da reddedilmiş (`unlinked_at`) satır taşıyan grup **dokunulmadan** kalır:
+sonradan doğan bir satır, adresin önceki bir satırının doğurduğu kimliğe asla katılmaz (M14-06 güvenlik
+notu); reddedilmiş satır hiçbir koşuda bağlanmaz. İdempotenttir: ikinci koşu 0 satır bağlar. Sahibi
+`tappa_identitydefiner`; `EXECUTE` **yalnız `tappa_owner`'da** — `tappa_app` (ve operatör rolleri) onu
+çağıramaz, uygulama yolu yoktur. Dönüş değeri: o çağrıda bağlanan satır sayısı.
+
+- **Deploy 2 (ADR 0031 §8, adım 3):** `00074`'ün migrate Job'ı fonksiyonu yaratır ve **bir kez çağırır**;
+  ayrı bir adım yok. Dosya başta koşan rolün superuser ya da BYPASSRLS olduğunu doğrular, sonda
+  (kapanış iddiası): bu transaction'dan önce doğmuş satırlar arasında kuralın alması gereken **hiçbir
+  grup** kimliksiz kalmamış (definer BYPASSRLS'ini yitirmişse fonksiyon 0 satır görür — dosya o zaman
+  "başarılı" kaydedilmez, reddeder; boş veritabanı koşulsuz geçer), `reconcile` ile bağlı her satırın
+  digest'i kimliğinkine eşit, hiçbir kimlik iki `reconcile` satırıyla bağlı değil, fonksiyonun katalog
+  biçimi (definer, `search_path`, `EXECUTE` yalnız `tappa_owner`) doğru.
+- **Canlı uygulamayla eşzamanlılık (T8):** her grup için önce adresin ad alanlı danışma kilidi
+  (`hashtextextended('admin-identity-email:' || lower(email), 0)` — her kimlik INSERT'inin aldığı anahtar),
+  sonra grubun aday satırları `id` sırasıyla `FOR UPDATE`, seçim kilitten **sonra** yeniden okunur; kimlik
+  INSERT'i `ON CONFLICT (email) DO NOTHING` — aynı adresin eşzamanlı bir kaydı ya da ikinci bir uzlaştırma
+  **500 vermez**, grup atlanır. Tablo kilidi yok; `SET LOCAL lock_timeout = '1s'` altında bir satırı tutan
+  yazarın arkasında 55P03 ile düşer — hiçbir şey yazılmaz, Job `Failed`, sakin bir anda yeniden koşulur.
+- **Digest:** seçilen satırın digest'i bcrypt biçiminde değilse çağrı **hiçbir şey yazmadan** reddeder;
+  mesaj satırı ve adresi anmaz (CLAUDE.md §7). Çözüm backfill'deki gibi: o hesabın parolasını sıfırla,
+  yeniden koş. (`00018`'den sonra doğan satırda imkânsız — CHECK yeni satırı denetler.)
+- **Binary'yi expand'in altına geri almak yalnız uzlaştırmayla birlikte** (ADR 0031 §5.8): eski binary
+  geri dönüp yeniden ileri alınırsa, aradaki kayıtlar için aşağıdaki yeniden çağrı koşulur.
+
+**M14-19'dan hemen önce: yeniden çağrı** (kullanıcı koşar; `tappa_owner`; sır yok — parola pod'un kendi
+env'inden):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+BEGIN;
+SET LOCAL lock_timeout = '1s';
+SELECT public.identity_reconcile();
+COMMIT;
+SQL
+```
+
+beklenen: `BEGIN` · `SET` · bir sayı (bu çağrının bağladığı satır — Deploy 2'den beri doğmuş kimliksiz grup
+sayısı; sıfır da olabilir) · `COMMIT`. 55P03 → sakin bir anda yeniden. Başka bir hata → DUR, bayrak açılmaz.
+
+**M14-19'un iki ön-kontrol sayımı** (bu kartın runbook adımı; yeniden çağrıdan **sonra**; salt okuma, yalnız
+sayı, `READ ONLY` transaction ve `ROLLBACK`):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+-- 1. Kimliği olmayan dolu e-posta (reddedilmiş satırlar hariç): adreste kimlik yok.
+SELECT count(DISTINCT a.email) AS identityless_filled_email
+  FROM admin_users a
+ WHERE a.email IS NOT NULL AND btrim(a.email::text) <> ''
+   AND a.unlinked_at IS NULL
+   AND NOT EXISTS (SELECT 1 FROM admin_identities i WHERE i.email = a.email);
+-- 2. Bağlı satırda digest uyuşmazlığı (dual-write değişmezi, ADR 0031 §5.1).
+SELECT count(*) AS linked_digest_mismatch
+  FROM admin_users a
+  JOIN admin_identities i ON i.id = a.identity_id
+ WHERE a.password_hash IS DISTINCT FROM i.password_hash;
+ROLLBACK;
+SQL
+```
+
+beklenen: `BEGIN` · `0` · `0` · `ROLLBACK`. Sayılardan biri 0 değilse **bayrak açılmaz** (M14-19 durur): birincisi için yeniden çağrı bir kez
+daha koşulur (araya bir kayıt girmiş olabilir); hâlâ 0 değilse grup ya legacy digest taşıyor (çağrı zaten
+reddederdi) ya da bağlı/reddedilmiş bir satırı olup adresi kimliksiz — inceleme, kart dışı. İkincisi her
+zaman bir hatadır. (`count(identity_id IS NOT NULL AND unlinked_at IS NOT NULL) = 0` — S19 — M14-19'un
+kendi üçüncü sayımıdır.)
+
+**Down:** `00073`'ünkünün aynası, `linked_via='reconcile'` için: o satırları çözer ve yalnız onların
+kimliklerini siler (bir `reconcile` bağı daima aynı çağrının doğurduğu kimliğedir); kimliklerden biri
+**yaşamışsa** (başka bir bağ, ret damgası, doğrulanmış adres, onay penceresi, giriş, son kullanılan işletme,
+ona işaret eden başka bir tablo satırı) hiçbir şeyi değiştirmeden **reddeder**. Sonra fonksiyonu düşürür ve
+yalnız `00074`'ün verdiği iki yetkiyi geri alır (`admin_users` `SELECT (password_hash)`, `admin_identities`
+`INSERT (email, password_hash)`). Canlıda koşulmaz — geri dönüş önceki binary'dir (ADR 0031 §8).
+Contract B (M14-20b) fonksiyonu düşürür.
+
 ---
 
 ## Webhook (M11 API-9) — `TAPPA_WEBHOOK_KEK` ve düğüm/ingress adres listesi
