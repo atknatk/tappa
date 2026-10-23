@@ -515,7 +515,15 @@ func TestIssue_RefusesIncompleteIdentities(t *testing.T) {
 	m := testManager(t, d)
 	ctx := context.Background()
 	tenantID := newTenantRow(t, d, "Incomplete Ltd")
-	adminID := newAdminRow(t, d, tenantID, randEmail(t), "the-right-password", "active", "owner", "Owner")
+	email := randEmail(t)
+	adminID := newAdminRow(t, d, tenantID, email, "the-right-password", "active", "owner", "Owner")
+	// Each case below carries a proof that WOULD hold for its pair (M14-07), so what refuses it is
+	// the pair itself -- the nil check, or the tenant-scoped read under RLS -- not a missing proof.
+	rows, err := d.GetAdminByEmail(ctx, email)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("GetAdminByEmail: %v", err)
+	}
+	digest := rows[0].PasswordHash.RevealForPasswordComparison()
 
 	tests := []struct {
 		name string
@@ -528,10 +536,16 @@ func TestIssue_RefusesIncompleteIdentities(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			tc.v.Proof = m.proofOf(tc.v.AdminUserID, tc.v.TenantID, digest)
 			if _, err := m.Issue(ctx, tc.v); err == nil {
 				t.Fatalf("Issue accepted %s", tc.name)
 			}
 		})
+	}
+	// Control: the same construction for the real pair is accepted, so the refusals above are the
+	// pairs' and not the hand-made proof's.
+	if _, err := m.Issue(ctx, Verified{AdminUserID: adminID, TenantID: tenantID, Proof: m.proofOf(adminID, tenantID, digest)}); err != nil {
+		t.Fatalf("control: Issue for the real pair with its proof: %v", err)
 	}
 }
 

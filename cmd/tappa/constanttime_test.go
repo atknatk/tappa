@@ -78,6 +78,12 @@ var constantTimeInventory = map[string]int{
 	"internal/handler/policyactions.go": 1,
 	// The login state: CSRF, the signed cookie, and the tenant match.
 	"internal/handler/logincontext.go": 3,
+	// The panel session's password proof (M14-07, ADR 0031 §5.2): Issue checks the
+	// Verified's Proof -- a MAC of the digest the password verified against, carried
+	// through the picker's cookie -- against the MAC of the row's CURRENT digest.
+	// Attacker-fed in shape (the cookie travels through the browser; its own signature
+	// is checked first), so it decides an authentication outcome.
+	"internal/adminauth/proof.go": 1,
 	// The signup state: CSRF and the signed cookie.
 	"internal/handler/signupstate.go": 2,
 	// The tap context's signed cookie.

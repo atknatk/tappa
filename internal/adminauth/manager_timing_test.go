@@ -38,6 +38,7 @@ import (
 // trip is noise an order of magnitude below the signal and a second source of
 // variance in a test whose whole content is a variance comparison.
 type fakeResolver struct {
+	noIdentityData
 	rows []db.ResolvedAdmin
 	err  error
 }

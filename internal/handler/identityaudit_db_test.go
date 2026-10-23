@@ -33,6 +33,9 @@ func (noTenantDB) WithTenant(context.Context, uuid.UUID, db.TxFunc) error {
 // sign-in, A's sign-out, B's sign-in, B's sign-out -- is compared, column by column (tenant_id,
 // actor_id, action, target, detail as text), with the row adminLoginSucceededEvent /
 // adminLoggedOutEvent writes for the same tenant, admin and session. Equal, and nothing else written.
+// identityAuditTablesLock is internal/db's operator-tables test lock (operatorschema_test.go).
+const identityAuditTablesLock = "tappa/test/operator-tables"
+
 func TestIdentityAudit_TheDefinersRowsAreTheOrdinaryOnes(t *testing.T) {
 	pool := ownerPoolForTest(t)
 	ctx := context.Background()
@@ -51,6 +54,10 @@ func TestIdentityAudit_TheDefinersRowsAreTheOrdinaryOnes(t *testing.T) {
 			t.Fatalf("%s: %v", sql, err)
 		}
 	}
+	// The identity below is never committed, but while this transaction holds it a schema test's
+	// Down would wait on (or deadlock with) its locks: take turns with internal/db's exclusive opTx
+	// the way internal/handler/api's rig does -- transaction-scoped, shared.
+	exec(`SELECT pg_advisory_xact_lock_shared(hashtext($1))`, identityAuditTablesLock)
 	a, b := uuid.New(), uuid.New()
 	for _, id := range []uuid.UUID{a, b} {
 		exec(`INSERT INTO tenants (id, name, vat_number, business_type, structure) VALUES ($1, $2, $3, 'restaurant', 'single')`,

@@ -46,6 +46,13 @@ func bfTx(t *testing.T) (context.Context, pgx.Tx) {
 			t.Logf("close owner connection: %v", err)
 		}
 	})
+	// The operator-tables test lock, EXCLUSIVE like opTx's (M14-07's audit): the backfill reads and
+	// locks every committed admin_users row of the shared database, and another package's committed
+	// identity world (internal/adminauth's, which holds the lock SHARED) made its postcondition and
+	// its Down see identities that are not its own -- measured as FAILs when the two ran in parallel.
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext($1))`, operatorTablesTestLock); err != nil {
+		t.Fatalf("operator-tables test lock: %v", err)
+	}
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		t.Fatalf("BEGIN: %v", err)
@@ -329,6 +336,13 @@ func TestAdminBackfill00073_ItIsIdempotent(t *testing.T) {
 		fmt.Fprintf(&b, "identities=%d born_here=%d", bfIdentities(t, ctx, q, shared, single),
 			opInt(t, ctx, q, `SELECT count(*) FROM admin_identities WHERE created_at = now()`))
 		return b.String()
+	}
+	// No other session may commit an admin_users row between the two runs: the backfill reads every
+	// committed row (READ COMMITTED), so a row another package's test commits in between would
+	// legitimately birth an identity in the second run and read as "not idempotent" (measured beside
+	// internal/adminauth's tests, M14-07's audit). SHARE blocks writers until this transaction ends.
+	if _, err := tx.Exec(ctx, `LOCK TABLE admin_users IN SHARE MODE`); err != nil {
+		t.Fatalf("lock admin_users: %v", err)
 	}
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 		opRunSection(t, ctx, sp, up, "00073 Up")

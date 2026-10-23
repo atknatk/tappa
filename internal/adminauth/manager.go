@@ -19,7 +19,7 @@ import (
 // Database is the narrow slice of *db.DB this package needs, declared HERE at the
 // consumer (section 7).
 //
-// The three methods are deliberately different in kind:
+// The methods are deliberately different in kind:
 //
 //   - WithTenant runs every tenant-scoped read and write. Each query it wraps
 //     carries an explicit tenant_id predicate on top of RLS (section 4.5).
@@ -28,10 +28,22 @@ import (
 //     panel request carries a cookie, and neither carries a tenant — the tenant is
 //     the RESULT. They reach their rows through SECURITY DEFINER functions owned by
 //     tappa_resolver, whose blast radius is a fixed column list on one table each.
+//   - The five identity methods are the sign-in's slice of ADR 0031 §5.2's closed list
+//     (CLAUDE.md §4.5's third exception, M14-07): the identity resolver (md.7, read-only),
+//     identity_open_session (named exception 1 -- reached only through verifiedIdentity, see
+//     identity.go), identity_link_legacy (two live sessions), identity_record_failed_login (named
+//     exception 3) and the decoy the sign-in sends instead of an open. All run on the raw pool:
+//     like the resolvers they PRODUCE a tenant rather than run inside one.
 type Database interface {
 	WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error
 	GetAdminByEmail(ctx context.Context, email string) ([]db.ResolvedAdmin, error)
 	GetAdminSessionByTokenHash(ctx context.Context, tokenHash string) (db.ResolvedAdminSession, error)
+
+	ResolveIdentityByEmail(ctx context.Context, email string) (db.ResolvedIdentity, error)
+	OpenIdentitySession(ctx context.Context, identityID, tenant uuid.UUID, sessionHash string, verified db.PasswordHash) (db.IdentitySession, error)
+	IdentitySessionDecoy(ctx context.Context) error
+	LinkLegacySession(ctx context.Context, identitySessionHash, legacySessionHash string) (db.LinkedMembership, error)
+	RecordFailedIdentityLogin(ctx context.Context, identityID uuid.UUID, event string) (bool, error)
 }
 
 // MaxCandidates bounds how many resolved identities ONE login request will
@@ -194,6 +206,16 @@ type Manager struct {
 	// package's own test helper substitutes a cheaper one, the same way `now func()`
 	// is injected elsewhere in this repo.
 	dummy string
+	// proofKey is the key of Proof (proof.go), derived from the session HMAC key like hmacKey.
+	proofKey []byte
+	// compareFn is the ONE bcrypt comparison every login path runs through (nil = Compare). It
+	// exists so a test can COUNT the comparisons of each sign-in exit exactly (ADR 0031 §5.6: every
+	// sign-in pays 1 + MaxCandidates), the way `dummy` exists so a test can make them cheap.
+	// Production never sets it.
+	compareFn func(digest, password string) bool
+	// openCost is the measured duration of identity_open_session, which the decoy pads itself to
+	// (identity.go, S15). It is per Manager, never package state.
+	openCost *costMeter
 }
 
 // New builds a Manager. It refuses a wrong-sized HMAC key rather than degrading:
@@ -210,7 +232,19 @@ func New(data Database, cfg *config.Config) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{data: data, hmacKey: key, dummy: dummyDigest}, nil
+	proofKey, err := deriveProofKey(cfg.SessionHMACKey)
+	if err != nil {
+		return nil, err
+	}
+	return &Manager{data: data, hmacKey: key, dummy: dummyDigest, proofKey: proofKey, openCost: newCostMeter(openCostDefault)}, nil
+}
+
+// compare is the one comparison every login path makes (see compareFn).
+func (m *Manager) compare(digest, password string) bool {
+	if m.compareFn != nil {
+		return m.compareFn(digest, password)
+	}
+	return Compare(digest, password)
 }
 
 // Attempt is ONE candidate identity this request actually compared a password
@@ -242,6 +276,10 @@ type Authentication struct {
 	// carried so the caller can log that a cap truncated the list — the one signal
 	// that would otherwise make the lockout named at MaxCandidates invisible.
 	Resolved int
+	// proofs[i] is Attempts[i]'s Proof (proof.go): the MAC of the digest that row's password was
+	// compared with. Unexported, so only this package's two sign-ins fill it; an Authentication
+	// built anywhere else yields Verified values without a proof, which Issue refuses.
+	proofs []Proof
 }
 
 // Truncated reports that the resolver returned more candidates than were
@@ -293,6 +331,11 @@ func (a Authentication) Truncated() bool { return a.Resolved > len(a.Attempts) }
 type Verified struct {
 	AdminUserID uuid.UUID
 	TenantID    uuid.UUID
+	// Proof binds this identity to the digest its password verified against (proof.go, M14-07):
+	// Issue writes a session only while the row still carries that digest. Verified() fills it;
+	// the handler's picker carries it through its signed cookie unchanged. A Verified without one
+	// is refused by Issue -- fail closed, never "issue without the check".
+	Proof Proof
 }
 
 // Offered is the set the PICKER may show: Verified, truncated to PickerCap.
@@ -330,9 +373,13 @@ func (a Authentication) Offered() []Verified {
 // else can build one" — an audit refuted exactly that wording.
 func (a Authentication) Verified() []Verified {
 	out := make([]Verified, 0, len(a.Attempts))
-	for _, at := range a.Attempts {
+	for i, at := range a.Attempts {
 		if at.PasswordMatched && at.Active {
-			out = append(out, Verified{AdminUserID: at.AdminUserID, TenantID: at.TenantID})
+			v := Verified{AdminUserID: at.AdminUserID, TenantID: at.TenantID}
+			if i < len(a.proofs) {
+				v.Proof = a.proofs[i]
+			}
+			out = append(out, v)
 		}
 	}
 	return out
@@ -450,6 +497,7 @@ func (m *Manager) Authenticate(ctx context.Context, email, password string) (Aut
 	}
 
 	auth.Attempts = make([]Attempt, 0, len(candidates))
+	auth.proofs = make([]Proof, 0, len(candidates))
 	for _, c := range candidates {
 		// EVERY candidate is compared, INCLUDING DISABLED ONES, and the status test
 		// happens afterwards. Skipping the comparison for a disabled row would make
@@ -457,16 +505,20 @@ func (m *Manager) Authenticate(ctx context.Context, email, password string) (Aut
 		// third of OBLIGATION 1's three outcomes, leaking through the clock instead
 		// of through the body.
 		//
-		// RevealForPasswordComparison is called HERE and nowhere else in the repo:
-		// db.PasswordHash redacts every other path, so a grep for this name lists
-		// every place a stored digest is in the clear, and this is the one.
-		matched := Compare(c.PasswordHash.RevealForPasswordComparison(), password)
+		// db.PasswordHash redacts every printing path, so a grep for
+		// RevealForPasswordComparison lists every place a stored digest is in the
+		// clear. In this package that is a comparison, the padding's reference and
+		// the Proof that binds a verified row to the digest it verified against
+		// (proof.go) -- the digest itself goes nowhere else.
+		digest := c.PasswordHash.RevealForPasswordComparison()
+		matched := m.compare(digest, password)
 		auth.Attempts = append(auth.Attempts, Attempt{
 			AdminUserID:     c.ID,
 			TenantID:        c.TenantID,
 			PasswordMatched: matched,
 			Active:          c.Status == "active",
 		})
+		auth.proofs = append(auth.proofs, m.proofOf(c.ID, c.TenantID, digest))
 	}
 
 	// EVERY LOGIN PAYS FOR EXACTLY MaxCandidates COMPARISONS — see pad. The padding
@@ -580,7 +632,7 @@ func (m *Manager) pad(password, digest string, done int) {
 		// The result is discarded: for a real candidate this repeats a comparison
 		// already recorded in Attempts, and for the dummy there is no account behind
 		// it. What is wanted is the WORK, not the answer.
-		_ = Compare(digest, password)
+		_ = m.compare(digest, password)
 	}
 }
 
@@ -706,9 +758,20 @@ type Issued struct {
 // rather than from the parameter — so a session cannot be stamped with a tenant
 // the admin does not belong to even if this function were called with a mismatched
 // pair.
+//
+// 🔴 AND THE SESSION IS WRITTEN ONLY WHILE THE ROW STILL CARRIES THE DIGEST THE PASSWORD VERIFIED
+// AGAINST (ADR 0031 §5.2, M14-07). v.Proof binds v to that digest (proof.go); inside the session's
+// transaction the row's CURRENT digest is read, the proof is checked against it in constant time,
+// and that digest becomes CreateAdminSession's @verified_digest -- whose predicate and FOR NO KEY UPDATE OF a
+// refuse a row whose credential changed between the read and the write (a membership refused from
+// an identity, a password change, a reset). A Verified without a proof is refused: the zero value is
+// the harmful direction here, so it fails closed.
 func (m *Manager) Issue(ctx context.Context, v Verified) (Issued, error) {
 	if v.AdminUserID == uuid.Nil || v.TenantID == uuid.Nil {
 		return Issued{}, errors.New("adminauth: issue: admin and tenant are required")
+	}
+	if v.Proof.IsZero() {
+		return Issued{}, errors.New("adminauth: issue: the identity carries no password proof")
 	}
 	t, err := newToken()
 	if err != nil {
@@ -722,11 +785,20 @@ func (m *Manager) Issue(ctx context.Context, v Verified) (Issued, error) {
 	var row store.CreateAdminSessionRow
 	err = m.data.WithTenant(ctx, v.TenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
-		var e error
+		cur, e := q.GetAdminPasswordHashByID(ctx, store.GetAdminPasswordHashByIDParams{
+			ID: v.AdminUserID, TenantID: v.TenantID,
+		})
+		if e != nil {
+			return e
+		}
+		if !m.proofHolds(v.Proof, v.AdminUserID, v.TenantID, cur.PasswordHash) {
+			return ErrProofStale
+		}
 		row, e = q.CreateAdminSession(ctx, store.CreateAdminSessionParams{
-			TokenHash:   h,
-			AdminUserID: v.AdminUserID,
-			TenantID:    v.TenantID,
+			TokenHash:      h,
+			AdminUserID:    v.AdminUserID,
+			TenantID:       v.TenantID,
+			VerifiedDigest: cur.PasswordHash,
 		})
 		if e != nil {
 			return e

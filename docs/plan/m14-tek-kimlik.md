@@ -450,14 +450,14 @@ dolu e-posta = 0, reddedilmişler hariç; bağlı satırda digest uyuşmazlığ�
   `FirstOverLimit` satırı); log'da e-posta yok.
 - **Eski kolun oturum yazımı doğrulanan digest'e koşulludur ve satırı kilitler** (ADR 0031 §5.2,
   `identity_unlink_backfilled` satırı): `CreateAdminSession`'ın `INSERT … SELECT`'i `a.password_hash =
-  <doğrulanan digest>` yüklemini **ve** `FOR SHARE OF a` kilidini taşır (`tappa_app` `password_hash`'i
+  <doğrulanan digest>` yüklemini **ve** `FOR NO KEY UPDATE OF a` kilidini taşır (2026-10-23, M14-07 denetimi: önce `FOR SHARE OF a` yazılmıştı; aynı transaction'daki `MarkAdminLoggedIn` UPDATE'i paylaşımlı kilidi yükseltmeye çalıştığından aynı yöneticinin iki eşzamanlı `Issue`'su 40P01 ile kilitleniyordu — 86/120 ölçüldü; `FOR NO KEY UPDATE` ile 0/120, çözmenin `FOR UPDATE`'iyle yine çakışır) (`tappa_app` `password_hash`'i
   okur); kilit çözmeyle çakışır, READ COMMITTED yüklemi yeni sürümde yeniden değerlendirir → 0 satır.
   Çözme nöbetçi digest'i aynı transaction'da yazar; aradaki bir parola değişikliği de girişi reddeder.
   Satır kilidi bir UPDATE yetkisi ister: `tappa_app`'ın `UPDATE (status)`'ı (`00017:380-381`) yeter;
   M14-07 FORCE RLS altındaki UPDATE politikasını ölçer. Test fikirleri: (1) `Verify` ile
   `CreateAdminSession` arasında çözme commit edilir → 0 satır, oturum yok; (2) eşzamanlı: çözme
   transaction'ı açıkken oturum yazımı başlar → çözme commit eder → 0 satır, canlı oturum yok. Mutasyonlar:
-  yüklem silinince (1), `FOR SHARE` silinince (2) kırmızı.
+  yüklem silinince (1), satır kilidi silinince (2) kırmızı; `FOR SHARE`'e dönülünce eşzamanlı iki `Issue` 40P01 ile kırmızı.
 
 ## M14-08 — Oturum işlemleri, bayrak, dual-write
 
@@ -515,6 +515,12 @@ başlar**.
 - Başarısızlık gövdesi senkronizör token dışında bayt-aynı; bayrak `off` yolunda
   `TestAdminLogin_OneVerifiedBusinessSkipsThePicker`, `TestAdminChoose_RefusesATenantOutsideTheSignedSet`
   değişmeden yeşil.
+- (M14-07 denetimi, 2026-10-23) Kimlik yolunda handler **ikinci bir `admin.login.succeeded` satırı
+  yazmaz**: `identity_open_session` satırı kendisi yazar (`adminauth.PersonSignIn.Session`'ın notu); test
+  kimlikli girişte o işletmede tam bir satır olduğunu doğrular.
+- (M14-07 denetimi, 2026-10-23) `Issue`'nun eski-proof reddi (`ErrProofStale`), `pgx.ErrNoRows` ve
+  40P01, `completeLogin`'de (`adminlogin.go:1239`) 500 değil **"tekrar giriş yapın"** problemine çevrilir
+  (parola giriş ile oturum yazımı arasında değişmiş, satır çözülmüş ya da devre dışı kalmış olabilir).
 
 ## M14-10a — Panel formlarının tenant bağı
 
@@ -844,7 +850,7 @@ açabilirdi): `identity_unlink_backfilled`'ın yeni gövdesi `identity_id`'yi ko
 `identity_open_session` ve yeniden tanımlanan `resolve_admin_by_email` `unlinked_at IS NULL` süzer;
 `TouchAdminSession` süzmez (`tappa_app` `unlinked_at`'i okuyamaz, R16). Güvence: çözme o tenant'ın
 oturumlarını aynı transaction'da iptal eder, oturum **veren** her yol süzer, contract sonrasında
-`status='disabled'` (ADR 0031 §5.2). Oturum veren yollar çözümleme anında süzer; eski kolun `CreateAdminSession`'ı (`db/queries/admins.sql:117-123`) satırı yalnız `status = 'active'` ile yeniden okur ve `unlinked_at`'e bakamaz (R16). Yükümlülük (M14-07, eski kol): `CreateAdminSession`'ın `INSERT … SELECT`'i `a.password_hash = <doğrulanan digest>` yüklemini **ve** `FOR SHARE OF a` kilidini taşır; kilit çözmeyle çakışır, READ COMMITTED yüklemi yeni sürümde yeniden değerlendirir → 0 satır (çözme nöbetçi digest'i aynı transaction'da yazar; kilitsiz biçim, çözme transaction'ı açıkken başlayan bir yazımda canlı oturum bırakıyordu — PostgreSQL 17.10'da ölçüldü). Satır kilidi bir UPDATE yetkisi ister: `tappa_app`'ın `UPDATE (status)`'ı (`00017:380-381`) yeter; M14-07 FORCE RLS altındaki UPDATE politikasını ölçer. Contract B'den sonra eski kol yoktur. Test: çözülen satırı başka
+`status='disabled'` (ADR 0031 §5.2). Oturum veren yollar çözümleme anında süzer; eski kolun `CreateAdminSession`'ı (`db/queries/admins.sql:117-123`) satırı yalnız `status = 'active'` ile yeniden okur ve `unlinked_at`'e bakamaz (R16). Yükümlülük (M14-07, eski kol): `CreateAdminSession`'ın `INSERT … SELECT`'i `a.password_hash = <doğrulanan digest>` yüklemini **ve** `FOR NO KEY UPDATE OF a` kilidini taşır (2026-10-23, M14-07 denetimi: önce `FOR SHARE OF a` yazılmıştı; aynı transaction'daki `MarkAdminLoggedIn` UPDATE'i paylaşımlı kilidi yükseltmeye çalıştığından aynı yöneticinin iki eşzamanlı `Issue`'su 40P01 ile kilitleniyordu — 86/120 ölçüldü; `FOR NO KEY UPDATE` ile 0/120, çözmenin `FOR UPDATE`'iyle yine çakışır); kilit çözmeyle çakışır, READ COMMITTED yüklemi yeni sürümde yeniden değerlendirir → 0 satır (çözme nöbetçi digest'i aynı transaction'da yazar; kilitsiz biçim, çözme transaction'ı açıkken başlayan bir yazımda canlı oturum bırakıyordu — PostgreSQL 17.10'da ölçüldü). Satır kilidi bir UPDATE yetkisi ister: `tappa_app`'ın `UPDATE (status)`'ı (`00017:380-381`) yeter; M14-07 FORCE RLS altındaki UPDATE politikasını ölçer. Contract B'den sonra eski kol yoktur. Test: çözülen satırı başka
 bir owner panelden `active` yapar → kişi yine geçemez/giremez. Bu yol son-owner değişmezinin bilinçli
 istisnasıdır (M14-16).
 

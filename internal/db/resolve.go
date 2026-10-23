@@ -191,6 +191,12 @@ type ResolvedAdmin struct {
 	TenantID     uuid.UUID
 	PasswordHash PasswordHash
 	Status       string
+	// IdentityID is the identity the row is linked to, nil for an unlinked row (00072's
+	// resolve_admin_by_email, ADR 0031 §5.2's md.7 (iii) widening, T2): the identity sign-in's
+	// legacy arm compares UNLINKED rows only, so the identity's own rows -- which carry its digest
+	// -- do not fill the MaxCandidates window. A cross-tenant correlation key, not a secret: it
+	// stays inside internal/adminauth and reaches no response, log or audit row.
+	IdentityID *uuid.UUID
 }
 
 // ResolvedPasswordReset is the fixed column set returned by
@@ -298,7 +304,7 @@ FROM resolve_invite_by_code_hash($1)`
 // and it keeps a future overload or a change in driver type inference from quietly
 // selecting a different one. The case-insensitive comparison happens INSIDE the
 // function, where the citext operator is schema-qualified (00011).
-const getAdminByEmailSQL = `SELECT id, tenant_id, password_hash, status
+const getAdminByEmailSQL = `SELECT id, tenant_id, password_hash, status, identity_id
 FROM resolve_admin_by_email($1::citext)`
 
 const getAdminSessionByTokenHashSQL = `SELECT id, tenant_id, admin_user_id, revoked_at
@@ -480,7 +486,7 @@ func (d *DB) GetAdminByEmail(ctx context.Context, email string) ([]ResolvedAdmin
 			a      ResolvedAdmin
 			digest string
 		)
-		if err := rows.Scan(&a.ID, &a.TenantID, &digest, &a.Status); err != nil {
+		if err := rows.Scan(&a.ID, &a.TenantID, &digest, &a.Status, &a.IdentityID); err != nil {
 			return nil, fmt.Errorf("db: resolve admin by email: scan: %w", err)
 		}
 		a.PasswordHash = NewPasswordHash(digest)

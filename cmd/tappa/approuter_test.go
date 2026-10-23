@@ -80,6 +80,21 @@ func (silentDB) GetAPIKeyByHash(context.Context, string) (db.ResolvedAPIKey, err
 	return db.ResolvedAPIKey{}, errSilent
 }
 
+// The identity sign-in's five (adminauth.Database, M14-07).
+func (silentDB) ResolveIdentityByEmail(context.Context, string) (db.ResolvedIdentity, error) {
+	return db.ResolvedIdentity{}, errSilent
+}
+func (silentDB) OpenIdentitySession(context.Context, uuid.UUID, uuid.UUID, string, db.PasswordHash) (db.IdentitySession, error) {
+	return db.IdentitySession{}, errSilent
+}
+func (silentDB) IdentitySessionDecoy(context.Context) error { return errSilent }
+func (silentDB) LinkLegacySession(context.Context, string, string) (db.LinkedMembership, error) {
+	return db.LinkedMembership{}, errSilent
+}
+func (silentDB) RecordFailedIdentityLogin(context.Context, uuid.UUID, string) (bool, error) {
+	return false, errSilent
+}
+
 // appFeatures is every feature appRouter takes, built as run() builds it, plus the
 // feature names the walk attributes routes to.
 type appFeatures struct {

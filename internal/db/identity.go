@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -80,6 +81,23 @@ FROM identity_switch_session($1, $2, $3)`
 
 const revokeIdentitySessionsSQL = `SELECT revoked
 FROM identity_revoke_sessions($1, $2)`
+
+// The sign-in's three (M14-07, ADR 0031 §5.6): the link two fresh sessions prove (00072), the failed
+// identity login's event row (00072, named exception 3), and the decoy the sign-in sends instead of
+// identity_open_session whenever it does not open one.
+const linkLegacySessionSQL = `SELECT admin_user_id, tenant_id
+FROM identity_link_legacy($1, $2)`
+
+const recordFailedIdentityLoginSQL = `SELECT recorded
+FROM identity_record_failed_login($1, $2)`
+
+// identitySessionDecoySQL takes a transaction id and returns it, writing no row. Its commit writes a
+// commit record but is NOT flushed: a transaction that wrote no other WAL commits asynchronously
+// whatever synchronous_commit says, where identity_open_session's commit (four writes before it) is
+// flushed. So this is the open's round trip and not its work or its flush; internal/adminauth's wait
+// carries the difference (decoy, ADR 0031 §5.6's M14-07 note). It reads nothing and names no
+// identity, tenant or session.
+const identitySessionDecoySQL = `SELECT pg_catalog.pg_current_xact_id()::text`
 
 // ResolveIdentityByEmail resolves an address to its identity, at most one (admin_identities.email is
 // globally UNIQUE). pgx.ErrNoRows when no identity carries the address. It writes nothing.
@@ -160,4 +178,62 @@ func (d *DB) RevokeIdentitySessions(ctx context.Context, sessionHash string, kee
 		return 0, fmt.Errorf("db: revoke identity sessions: %w", err)
 	}
 	return int(n), nil
+}
+
+// LinkedMembership is the row identity_link_legacy linked: the legacy membership and its business.
+type LinkedMembership struct {
+	AdminUserID uuid.UUID
+	TenantID    uuid.UUID
+}
+
+// LinkLegacySession links the membership behind legacySessionHash to the identity behind
+// identitySessionHash -- ADR 0031 §5.7's proof of two credentials: two live sessions, both opened in
+// the last five minutes (R3), the first on a linked membership, the second on an unlinked, unrefused
+// one of the same address. The legacy session is revoked and the legacy business gets its
+// admin.membership.linked row (00072). pgx.ErrNoRows is the one refusal (stale, revoked, refused,
+// another address, a membership of the identity already in that business); the function then leaves
+// the legacy session live, and the caller revokes it.
+func (d *DB) LinkLegacySession(ctx context.Context, identitySessionHash, legacySessionHash string) (LinkedMembership, error) {
+	var m LinkedMembership
+	if err := d.pool.QueryRow(ctx, linkLegacySessionSQL, identitySessionHash, legacySessionHash).Scan(&m.AdminUserID, &m.TenantID); err != nil {
+		return LinkedMembership{}, fmt.Errorf("db: link legacy session: %w", err)
+	}
+	return m, nil
+}
+
+// Identity event names identity_record_failed_login accepts (00072's closed set).
+const (
+	IdentityEventLoginFailed  = "login_failed"
+	IdentityEventLoginLimited = "login_limited"
+)
+
+// RecordFailedIdentityLogin writes ONE admin_identity_events row for a sign-in that failed against
+// an identity -- ADR 0031 §5.2's named exception 3: keyed by the identity id the sign-in resolved,
+// not by a secret, and harmless because it writes that one row (no address, no IP, no tenant) and
+// touches nothing else. event is IdentityEventLoginFailed, or IdentityEventLoginLimited for the
+// per-identity budget's single over-limit row. It reports whether a row was written: an id no
+// identity carries writes nothing and is not an error (the sign-in's padding call relies on that).
+func (d *DB) RecordFailedIdentityLogin(ctx context.Context, identityID uuid.UUID, event string) (bool, error) {
+	var recorded bool
+	err := d.pool.QueryRow(ctx, recordFailedIdentityLoginSQL, identityID, event).Scan(&recorded)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("db: record failed identity login: %w", err)
+	}
+	return recorded, nil
+}
+
+// IdentitySessionDecoy is the round trip a sign-in makes INSTEAD of OpenIdentitySession whenever it
+// does not open an identity session (ADR 0031 §5.6, R14, S15): one autocommitted statement on the
+// same pool that takes a transaction id and writes no row (its commit record is not flushed -- see
+// identitySessionDecoySQL). It carries no argument, so it can open nothing and tell the database
+// nothing.
+func (d *DB) IdentitySessionDecoy(ctx context.Context) error {
+	var xid string
+	if err := d.pool.QueryRow(ctx, identitySessionDecoySQL).Scan(&xid); err != nil {
+		return fmt.Errorf("db: identity session decoy: %w", err)
+	}
+	return nil
 }

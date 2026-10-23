@@ -153,7 +153,12 @@ const (
 	// payload written under a DIFFERENT layout is rejected rather than misread.
 	// That holds PROVIDED whoever changes the layout also bumps this — discipline,
 	// not enforcement, exactly as tapcontext.go says of its own version byte.
-	adminChoiceVersion = "1"
+	//
+	// "2" SINCE M14-07: each identity carries its adminauth.Proof (admin:tenant:proof), the MAC
+	// of the digest its password verified against, which Issue now requires (ADR 0031 §5.2). A
+	// "1" blob minted by the previous binary during a rollout is refused as malformed -- the
+	// person signs in again -- rather than reaching Issue without a proof and failing there.
+	adminChoiceVersion = "2"
 
 	// adminChoiceMACLabel is prefixed to the MAC input. Domain separation: this
 	// deployment now derives FOUR things from HMAC-SHA256 (session token hashes,
@@ -456,12 +461,18 @@ func (c adminChoices) clock() time.Time {
 // payload renders the authenticated fields.
 //
 // The separators are '|', ',' and ':', none of which can occur in any field: the
-// version is one digit, the timestamp is decimal, and the identities are UUIDs
-// (hex and '-'). So splitting back is unambiguous with no escaping.
+// version is one digit, the timestamp is decimal, the identities are UUIDs (hex and
+// '-') and each proof is lowercase hex or empty (adminauth.Proof.Encode). So
+// splitting back is unambiguous with no escaping.
+//
+// THE PROOF RIDES THE SIGNED PAYLOAD UNCHANGED: this package can carry it and cannot
+// compute it (the key is adminauth's), and Issue checks it against the row's digest
+// at the moment it writes the session -- so a picker blob stops opening a business
+// whose password changed, or whose membership was refused, after it was minted.
 func (c adminChoices) payload(issuedAt time.Time, verified []adminauth.Verified) string {
 	parts := make([]string, 0, len(verified))
 	for _, v := range verified {
-		parts = append(parts, v.AdminUserID.String()+":"+v.TenantID.String())
+		parts = append(parts, v.AdminUserID.String()+":"+v.TenantID.String()+":"+v.Proof.Encode())
 	}
 	return strings.Join([]string{
 		adminChoiceVersion,
@@ -586,8 +597,13 @@ func (c adminChoices) parse(v, bind string) ([]adminauth.Verified, error) {
 	}
 	out := make([]adminauth.Verified, 0, len(entries))
 	for _, e := range entries {
-		adminID, tenantID, ok := strings.Cut(e, ":")
-		if !ok {
+		fields := strings.Split(e, ":")
+		if len(fields) != 3 {
+			return nil, errChoiceMalformed
+		}
+		adminID, tenantID := fields[0], fields[1]
+		proof, err := adminauth.ParseProof(fields[2])
+		if err != nil {
 			return nil, errChoiceMalformed
 		}
 		a, err := uuid.Parse(adminID)
@@ -601,7 +617,7 @@ func (c adminChoices) parse(v, bind string) ([]adminauth.Verified, error) {
 		if a == uuid.Nil || t == uuid.Nil {
 			return nil, errChoiceMalformed
 		}
-		out = append(out, adminauth.Verified{AdminUserID: a, TenantID: t})
+		out = append(out, adminauth.Verified{AdminUserID: a, TenantID: t, Proof: proof})
 	}
 	return out, nil
 }

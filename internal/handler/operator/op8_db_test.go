@@ -717,7 +717,10 @@ func TestE2E_CrossCookie_NeitherSideAcceptsTheOthersValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	tenantID, locationID, employeeID, adminID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	digest, err := bcrypt.GenerateFromPassword(randBytes(t, 16), bcrypt.MinCost)
+	// A known password, so the panel session is issued the only way Issue accepts one: from a
+	// sign-in whose password verified (M14-07's Proof).
+	ownerPass := uuid.NewString()
+	digest, err := bcrypt.GenerateFromPassword([]byte(ownerPass), bcrypt.MinCost)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -740,7 +743,11 @@ func TestE2E_CrossCookie_NeitherSideAcceptsTheOthersValue(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("customer fixture: %v", err)
 	}
-	panelIssued, err := admins.Issue(g.ctx, adminauth.Verified{AdminUserID: adminID, TenantID: tenantID})
+	auth, err := admins.Authenticate(g.ctx, "op8-cross-"+adminID.String()+"@example.test", ownerPass)
+	if err != nil || len(auth.Verified()) != 1 {
+		t.Fatalf("authenticate the panel admin: %v (%d verified)", err, len(auth.Verified()))
+	}
+	panelIssued, err := admins.Issue(g.ctx, auth.Verified()[0])
 	if err != nil {
 		t.Fatalf("issue a panel session: %v", err)
 	}
