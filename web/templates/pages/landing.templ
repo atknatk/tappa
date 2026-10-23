@@ -1,6 +1,7 @@
 package pages
 
 import (
+	"path"
 	"strconv"
 	"strings"
 
@@ -704,9 +705,9 @@ templ landingFits() {
 				<div class="lp-fits">
 					for _, a := range LandingAudiences {
 						if a.Href != "" {
-							<a class="card fitcard lp-fit" href={ templ.URL(a.Href) }>
+							<a class="card fitcard lp-fit" href={ templ.URL(a.Href) } aria-labelledby={ landingFitID(a, "title") + " " + landingFitID(a, "link") } aria-describedby={ landingFitID(a, "body") }>
 								@landingFitBody(a)
-								<span class="lp-fitLink">
+								<span class="lp-fitLink" id={ landingFitID(a, "link") }>
 									{ a.Link }
 									@moreArrow()
 								</span>
@@ -724,11 +725,25 @@ templ landingFits() {
 }
 
 // landingFitBody is a fit card's words: the kicker, the title, the paragraph and the chip.
+// A card that is a link is NAMED by its title and its foot (aria-labelledby) and DESCRIBED
+// by its paragraph (aria-describedby), so the link is not announced as its whole text;
+// the ids are the card's own, from its page's path.
 templ landingFitBody(a Audience) {
 	<span class="lp-fitKick">{ a.Kicker }</span>
-	<h3 class="lp-fitTitle">{ a.Title }</h3>
-	<p class="lp-fitBody">{ a.Paragraph() }</p>
+	if a.Href != "" {
+		<h3 class="lp-fitTitle" id={ landingFitID(a, "title") }>{ a.Title }</h3>
+		<p class="lp-fitBody" id={ landingFitID(a, "body") }>{ a.Paragraph() }</p>
+	} else {
+		<h3 class="lp-fitTitle">{ a.Title }</h3>
+		<p class="lp-fitBody">{ a.Paragraph() }</p>
+	}
 	<span class="lp-fitEx">{ a.Example.Text }</span>
+}
+
+// landingFitID is the id of one part of a linked fit card: "fit-restaurants-title" for
+// the card that links to /for/restaurants.
+func landingFitID(a Audience, part string) string {
+	return "fit-" + path.Base(a.Href) + "-" + part
 }
 
 // landingPricing is the price section: the one-piece price card and, under it, the way

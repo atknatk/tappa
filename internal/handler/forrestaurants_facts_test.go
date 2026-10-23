@@ -2,7 +2,10 @@ package handler
 
 import (
 	"fmt"
+	"io/fs"
 	"maps"
+	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -46,6 +49,20 @@ type restaurantsFactSources struct {
 	Checkin  string // internal/domain/checkin/checkin.go, comments removed
 	Reports  string // web/templates/pages/reports.templ
 	Baseline []policy.BaselineDoc
+	// LedgerTest is internal/domain/ledger/report_test.go: the page's week, booked by the
+	// ledger itself (TestAccumulate_TheRestaurantsPagesWeek). A source scan of report.go
+	// is blind to a later line that overwrites what it read; the ledger's own case is not.
+	LedgerTest string
+	// CheckinDBTest is this package's forrestaurants_db_test.go: the cover claim run
+	// through the real tap path against Postgres.
+	CheckinDBTest string
+	Activate      string // internal/handler/activate.go, comments removed
+	SunParams     string // internal/sun/params.go, comments removed
+	// GoFiles is every hand-written, non-test Go file under internal/ and cmd/ (comments
+	// removed), by path: what could issue a session.
+	GoFiles map[string]string
+	// StaleHours is the page's mirror of tap.StaleOpenIn.
+	StaleHours int
 	// Decide is the engine the probes ask; a control swaps in one that behaves otherwise.
 	Decide func(tap.Input) tap.Decision
 	// Anchors is what each Anchor derivation the facts lean on answers today ("" holds).
@@ -71,7 +88,49 @@ func loadRestaurantsFactSources(t *testing.T) restaurantsFactSources {
 		Baseline: policy.Baseline(),
 		Decide:   tap.Decide,
 		Anchors:  answers,
+
+		LedgerTest:    repoFile(t, "internal", "domain", "ledger", "report_test.go"),
+		CheckinDBTest: repoFile(t, "internal", "handler", "forrestaurants_db_test.go"),
+		Activate:      strip(repoFile(t, "internal", "handler", "activate.go")),
+		SunParams:     strip(repoFile(t, "internal", "sun", "params.go")),
+		GoFiles:       productGoFiles(t),
+		StaleHours:    pages.RestaurantsStaleHours,
 	}
+}
+
+// productGoFiles is every hand-written, non-test Go file under internal/ and cmd/, comments
+// removed, by its path from the repository root. Generated sqlc code (internal/store) is
+// left out: it declares the queries, it calls nothing.
+func productGoFiles(t *testing.T) map[string]string {
+	t.Helper()
+	root := filepath.Join("..", "..")
+	out := map[string]string{}
+	for _, top := range []string{"internal", "cmd"} {
+		err := filepath.WalkDir(filepath.Join(root, top), func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			name := d.Name()
+			if d.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") ||
+				strings.Contains(filepath.ToSlash(path), "internal/store/") {
+				return nil
+			}
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			rel, _ := filepath.Rel(root, path)
+			out[filepath.ToSlash(rel)] = goLineCommentRE.ReplaceAllString(string(b), "")
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s: %v", top, err)
+		}
+	}
+	if len(out) < 100 || out["internal/handler/activate.go"] == "" || out["internal/session/manager.go"] == "" {
+		t.Fatalf("PREMISE: read %d Go file(s) and not activate.go and the session manager; the walk is reading the wrong tree", len(out))
+	}
+	return out
 }
 
 // overnightProbe is a tap at Rusty Bar at 02:04 on the Tuesday, the person's check-in open
@@ -133,7 +192,56 @@ var (
 	otherVenueRE = regexp.MustCompile(`case in\.LocationID != \*in\.Home:\s*out\.Totals\.OtherVenue\+\+\s*if d >= 0 && d < len\(ph\.Marks\) \{\s*ph\.Marks\[d\]\.Other = true`)
 )
 
-// shiftDayViolation is FactShiftCountsOnItsStartDayAndVenue.
+// ledgerPageConstRE reads one of the page's times out of the ledger's test file.
+var ledgerPageConstRE = regexp.MustCompile(`(?m)^\s*restaurantsPage(\w+)\s*=\s*"(\d\d:\d\d)"`)
+
+// ledgerWeekProblem says how internal/domain/ledger's TestAccumulate_TheRestaurantsPagesWeek
+// departs from the page: a time the page draws that the case does not book, or a case that
+// no longer asserts what the fact says (want, fragments of the function's body).
+func ledgerWeekProblem(src string, want ...string) string {
+	mins := func(hhmm string) int {
+		at, err := time.Parse("15:04", hhmm)
+		if err != nil {
+			return -1
+		}
+		return at.Hour()*60 + at.Minute()
+	}
+	body := goFuncBody(src, "func TestAccumulate_TheRestaurantsPagesWeek(")
+	if body == "" {
+		return "internal/domain/ledger no longer has TestAccumulate_TheRestaurantsPagesWeek, the page's week"
+	}
+	times := map[string]string{}
+	for _, m := range ledgerPageConstRE.FindAllStringSubmatch(src, -1) {
+		times[m[1]] = m[2]
+	}
+	steps := pages.RestaurantsForgotSteps
+	cover := mins(times["CoverOut"]) - mins(times["CoverIn"])
+	for name, page := range map[string]string{
+		"OvernightIn":  pages.RestaurantsOvernightIn.At,
+		"OvernightOut": pages.RestaurantsOvernightOut.At,
+		"CoverIn":      pages.RestaurantsCoverDocket.At,
+	} {
+		if times[name] != page {
+			return fmt.Sprintf("the ledger's case books %s at %q and the page draws %q", name, times[name], page)
+		}
+	}
+	if len(steps) != 3 || !strings.Contains(steps[0].Detail, "IN "+times["ForgotIn"]) || !strings.Contains(steps[2].Detail, "OUT "+times["ForgotOut"]) {
+		return fmt.Sprintf("the forgotten check-out the page draws is not the ledger's %s / %s", times["ForgotIn"], times["ForgotOut"])
+	}
+	if cover != int(pages.LandingPanelRollRows[0].Days[3]) {
+		return fmt.Sprintf("the ledger's cover is %d minutes and The Roll's Thursday draws %d", cover, pages.LandingPanelRollRows[0].Days[3])
+	}
+	for _, w := range want {
+		if !strings.Contains(body, w) {
+			return "the ledger's case no longer asserts " + strconv.Quote(w)
+		}
+	}
+	return ""
+}
+
+// shiftDayViolation is FactShiftCountsOnItsStartDayAndVenue: the ledger books the page's
+// overnight shift on Monday, all of it, at Rusty Bar (the case), and accumulate still reads
+// the check-in for both (the source).
 func shiftDayViolation(s restaurantsFactSources) string {
 	body := accumulateBody(s.Report)
 	switch {
@@ -144,7 +252,8 @@ func shiftDayViolation(s restaurantsFactSources) string {
 	case !shiftVenueRE.MatchString(body):
 		return "accumulate no longer books a shift at the venue of its check-in"
 	}
-	return ""
+	return ledgerWeekProblem(s.LedgerTest, "l.Daily[0] != span || l.Daily[1] != 0",
+		"rep.Venues[0].LocationID != rusty || rep.Venues[0].Worked != span")
 }
 
 var (
@@ -165,6 +274,13 @@ func tappedVenueViolation(s restaurantsFactSources) string {
 		return "checkin no longer judges a tap on the tapped venue's ranges, point and shift"
 	case !departmentShiftRE.MatchString(s.Checkin):
 		return "checkin no longer puts a department's shift before the venue's"
+	}
+	body := goFuncBody(s.CheckinDBTest, "func TestCheckinDB_ATapAtAnotherVenueIsJudgedOnThatVenuesEvidence(")
+	for _, w := range []string{`"198.51.100.7:41234"`, `"203.0.113.5:41234"`, "*here.Trust != 100", `home.Verdict != "flag"`,
+		"*here.LocationID != h.locationID"} {
+		if !strings.Contains(body, w) {
+			return "TestCheckinDB_ATapAtAnotherVenueIsJudgedOnThatVenuesEvidence no longer asserts " + strconv.Quote(w)
+		}
 	}
 	return ""
 }
@@ -213,7 +329,75 @@ func rollOtherViolation(s restaurantsFactSources) string {
 			return "The Roll no longer says " + strconv.Quote(words)
 		}
 	}
+	return ledgerWeekProblem(s.LedgerTest, "!a.Marks[3].Other || away.Totals.OtherVenue != 1",
+		"a.Daily[3] != worked || a.Worked != h.Worked || h.Marks[3].Other")
+}
+
+// setupViolation is FactSetupTakesARealTap: the only way to a session is activation, and
+// activation ends only on a tap that carries the plaque's signature (NFC).
+func setupViolation(s restaurantsFactSources) string {
+	if !strings.Contains(goFuncBody(s.SunParams, "func (p Params) HasSUN("), "return p.Channel == ChannelNFC") {
+		return "sun.Params.HasSUN no longer means an NFC read"
+	}
+	body := goFuncBody(s.Activate, "func (a *Activation) CompleteByTap(")
+	guard := strings.Index(body, "if !p.HasSUN() {")
+	finish := strings.Index(body, "a.finishActivation(")
+	if guard < 0 || finish < 0 || guard > finish {
+		return "Activation.CompleteByTap no longer refuses a tap without the plaque's signature before it finishes"
+	}
+	if block := body[guard:]; !regexp.MustCompile(`^if !p\.HasSUN\(\) \{[^}]*problemActivationNeedsTouch\)\s*return\s*\}`).MatchString(block) {
+		return "the refusal of a tap without the plaque's signature no longer ends the activation there"
+	}
+	issueRE := regexp.MustCompile(`\.sessions\.Issue\(|session\.IssueParams\{|\.CreateSession\(`)
+	for _, path := range slices.Sorted(maps.Keys(s.GoFiles)) {
+		src := s.GoFiles[path]
+		for _, at := range issueRE.FindAllStringIndex(src, -1) {
+			switch path {
+			case "internal/session/manager.go":
+				continue // the issue itself
+			case "internal/handler/activate.go":
+				if fin := goFuncBody(src, "func (a *Activation) finishActivation("); fin != "" && strings.Contains(fin, src[at[0]:at[1]]) {
+					continue
+				}
+			}
+			return path + " issues a session outside activation (" + src[at[0]:at[1]] + ")"
+		}
+		if n := strings.Count(src, "a.finishActivation("); n > 0 && (path != "internal/handler/activate.go" || n != 1) {
+			return path + " calls finishActivation outside CompleteByTap"
+		}
+	}
+	if !strings.Contains(s.GoFiles["internal/session/manager.go"], ".CreateSession(") {
+		return "internal/session no longer creates the session; this scan reads the wrong place"
+	}
 	return ""
+}
+
+// staleProbe is a tap at KF Hamrun the morning after a check-in nobody closed: 24 hours
+// and 28 minutes later.
+func staleProbe() tap.Input {
+	in := panelEngineInput(pages.PanelDocket{Venue: "KF Hamrun", Who: "Sample Person", Direction: "OUT", At: "10:30",
+		Channel: "nfc", IP: "yes", GPS: "no", Verdict: "ok", Trust: "70"}, false)
+	in.Now = time.Date(2026, 10, 13, 10, 30, 0, 0, time.UTC)
+	in.Employee.ActivatedAt = in.Now.Add(-30 * 24 * time.Hour)
+	in.LastOpenIn = &tap.Transaction{ID: uuid.New(), OccurredAt: time.Date(2026, 10, 12, 10, 2, 0, 0, time.UTC), Direction: tap.TypeIn}
+	return in
+}
+
+// forgotViolation is FactForgottenCheckOutIsNotPaid: the engine closes a check-in older
+// than its stale threshold with a check-out and the note, the page's figure is that
+// threshold, and the ledger does not pay the interval, lists the check-in as open and pays
+// it once a manager's check-out closes it (the case).
+func forgotViolation(s restaurantsFactSources) string {
+	if time.Duration(s.StaleHours)*time.Hour != tap.StaleOpenIn {
+		return fmt.Sprintf("the page says %d hours and the engine's threshold is %v", s.StaleHours, tap.StaleOpenIn)
+	}
+	d := s.Decide(staleProbe())
+	if d.Type == nil || *d.Type != tap.TypeOut || !strings.Contains(d.Note, tap.StaleOpenInNote) {
+		return fmt.Sprintf("a tap a day after a check-in nobody closed is %v with the note %q, not a check-out noted as a forgotten one", d.Type, d.Note)
+	}
+	return ledgerWeekProblem(s.LedgerTest, "gap <= tap.StaleOpenIn",
+		"f.Worked != 0 || left.Totals.TooLong != 1 || len(left.Open) != 1", "manual())",
+		"c.Daily[0] != want || len(closed.Open) != 0")
 }
 
 var restaurantsDerivationFuncs = map[pages.Fact]func(restaurantsFactSources) string{
@@ -222,6 +406,8 @@ var restaurantsDerivationFuncs = map[pages.Fact]func(restaurantsFactSources) str
 	pages.FactTapIsJudgedAtTheTappedVenue:         tappedVenueViolation,
 	pages.FactCrossLocationTapIsNotedNotPenalised: crossLocationViolation,
 	pages.FactRollMarksWorkAtAnotherVenue:         rollOtherViolation,
+	pages.FactSetupTakesARealTap:                  setupViolation,
+	pages.FactForgottenCheckOutIsNotPaid:          forgotViolation,
 }
 
 // restaurantsFactDerivations is the restaurants page's derivation table (pageFactDerivations).
@@ -256,6 +442,7 @@ func TestRestaurantsFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		}
 	}
 	report := func(s *restaurantsFactSources) *string { return &s.Report }
+	ledger := func(s *restaurantsFactSources) *string { return &s.LedgerTest }
 	checkin := func(s *restaurantsFactSources) *string { return &s.Checkin }
 	tests := []struct {
 		fact pages.Fact
@@ -302,6 +489,30 @@ func TestRestaurantsFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{pages.FactRollMarksWorkAtAnotherVenue, "the day is not marked", replace(report, "ph.Marks[d].Other = true", "_ = d")},
 		{pages.FactRollMarksWorkAtAnotherVenue, "the legend loses its words", replace(func(s *restaurantsFactSources) *string { return &s.Reports },
 			">at a venue other than their home venue</span>", ">elsewhere</span>")},
+		{pages.FactRollMarksWorkAtAnotherVenue, "the ledger's case stops asserting the mark", replace(ledger,
+			"!a.Marks[3].Other || away.Totals.OtherVenue != 1", "away.Totals.OtherVenue != 1")},
+		{pages.FactShiftCountsOnItsStartDayAndVenue, "the ledger's case books another night", replace(ledger,
+			`restaurantsPageOvernightIn  = "17:58"`, `restaurantsPageOvernightIn  = "18:30"`)},
+		{pages.FactShiftCountsOnItsStartDayAndVenue, "the ledger's case is gone", replace(ledger,
+			"func TestAccumulate_TheRestaurantsPagesWeek(", "func renamedCase(")},
+		{pages.FactTapIsJudgedAtTheTappedVenue, "the DB test stops checking the home network's tap", replace(func(s *restaurantsFactSources) *string { return &s.CheckinDBTest },
+			`home.Verdict != "flag"`, `home.Verdict == ""`)},
+		{pages.FactSetupTakesARealTap, "a QR read counts as the plaque's signature", replace(func(s *restaurantsFactSources) *string { return &s.SunParams },
+			"return p.Channel == ChannelNFC", "return p.Channel != \"\"")},
+		{pages.FactSetupTakesARealTap, "activation stops refusing a tap without the signature", replace(func(s *restaurantsFactSources) *string { return &s.Activate },
+			"if !p.HasSUN() {", "if false {")},
+		{pages.FactSetupTakesARealTap, "another file issues a session", func(s *restaurantsFactSources) {
+			m := maps.Clone(s.GoFiles)
+			m["internal/handler/qr.go"] += "\nfunc qrSetup() { _, _ = a.sessions.Issue(ctx, session.IssueParams{}) }\n"
+			s.GoFiles = m
+		}},
+		{pages.FactForgottenCheckOutIsNotPaid, "the page's hours drift from the engine's", func(s *restaurantsFactSources) { s.StaleHours = 12 }},
+		{pages.FactForgottenCheckOutIsNotPaid, "the engine writes no note on a forgotten check-out", engine(func(_ tap.Input, d tap.Decision) tap.Decision {
+			d.Note = strings.ReplaceAll(d.Note, tap.StaleOpenInNote, "")
+			return d
+		})},
+		{pages.FactForgottenCheckOutIsNotPaid, "the ledger's case stops asserting the unpaid interval", replace(ledger,
+			"f.Worked != 0 || left.Totals.TooLong != 1 || len(left.Open) != 1", "f.Worked != 0")},
 	}
 	for fact, derive := range restaurantsDerivationFuncs {
 		if why := derive(real); why != "" {
@@ -621,6 +832,16 @@ func TestRestaurantsPage_TheSamplesAreWhatTheProductWouldDraw(t *testing.T) {
 			t.Errorf("/for/restaurants does not draw the step %q", s.Title)
 		}
 	}
+	// The steps are words: an ordered list a screen reader walks, not a picture.
+	page := mustFetchMarketing(t, marketingRouter(t), pages.ForRestaurantsPath)
+	list := regexp.MustCompile(`(?s)<ol class="lp-forSteps[^"]*"[^>]*>.*?</ol>`).FindString(page)
+	if strings.Count(list, `<li class="card lp-forStep">`) != len(steps) || strings.Contains(list, `role="img"`) {
+		t.Errorf("the forgotten check-out's steps are not an ordered list of %d items", len(steps))
+	}
+	// The overnight drawing's name says how the two dockets are stamped.
+	if !strings.Contains(text, "paired into one shift of "+pages.RollHours(minutes)+"; both approved") {
+		t.Error("the overnight drawing's name does not say both taps were approved")
+	}
 	for _, w := range panelDrawingWant() {
 		if strings.HasPrefix(w, pages.LandingPanelRollRows[0].Who) && !strings.Contains(text, w) {
 			t.Errorf("/for/restaurants does not draw The Roll's row %q", w)
@@ -649,6 +870,51 @@ func TestRestaurantsPage_TheSamplesAreWhatTheProductWouldDraw(t *testing.T) {
 	if len(samplePeopleProblems([]string{"Grace Attard"}, seedPeople(t))) == 0 {
 		t.Error("CONTROL: a seed person drawn as a sample passed")
 	}
+
+	// Every drawing that names a sample person says, in a label the eye reads, that it
+	// is a sample.
+	body := mustFetchMarketing(t, marketingRouter(t), pages.ForRestaurantsPath)
+	who := []string{in.Who, cover.Who}
+	for _, p := range sampleLabelProblems(body, who) {
+		t.Error(p)
+	}
+	for _, lbl := range []string{"An overnight shift at Rusty Bar · sample", "The Roll · sample"} {
+		if len(sampleLabelProblems(strings.Replace(body, lbl, strings.TrimSuffix(lbl, " · sample"), 1), who)) == 0 {
+			t.Errorf("CONTROL: %q without its \"sample\" passed", lbl)
+		}
+	}
+}
+
+// sampleDrawingStartRE opens one drawing of the page that can name a sample person.
+var sampleDrawingStartRE = regexp.MustCompile(`<div class="card lp-forCard"|<div class="lp-forRoll">|</section>`)
+
+// sampleLabelProblems names every drawing of body that draws one of who and carries no
+// visible label (.lp-lbl) saying it is a sample.
+func sampleLabelProblems(body string, who []string) []string {
+	var out []string
+	starts := sampleDrawingStartRE.FindAllStringIndex(body, -1)
+	drawn := 0
+	for i, st := range starts {
+		if body[st[0]:st[1]] == "</section>" {
+			continue
+		}
+		end := len(body)
+		if i+1 < len(starts) {
+			end = starts[i+1][0]
+		}
+		block := body[st[0]:end]
+		if !slices.ContainsFunc(who, func(w string) bool { return strings.Contains(block, ">"+w+"<") }) {
+			continue
+		}
+		drawn++
+		if !regexp.MustCompile(`<span class="lp-lbl">[^<]*· sample</span>`).MatchString(block) {
+			out = append(out, fmt.Sprintf("a drawing of a sample person carries no visible sample label: %.80q", block))
+		}
+	}
+	if drawn < 3 {
+		out = append(out, fmt.Sprintf("PREMISE: found %d drawing(s) of a sample person; the page draws three", drawn))
+	}
+	return out
 }
 
 // restaurantsTimelineProblems is every position of the overnight drawing the stylesheet
@@ -678,7 +944,20 @@ func restaurantsTimelineProblems(t *testing.T, css string) []string {
 		".lp .lp-forTlMidnight": {"left: " + pct("00:00", 4)},
 		".lp .lp-forTlNextDay":  {"left: " + pct("00:00", 4)},
 	}
+	// The five inner hour marks sit on the axis's own labels between its two ends. A
+	// whole percentage is written without decimals ("50%").
+	for i, h := range axis[1 : len(axis)-1] {
+		v := strings.TrimSuffix(strings.TrimRight(strings.TrimSuffix(pct(h, 4), "%"), "0"), ".") + "%"
+		want[".lp .lp-forTick"+strconv.Itoa(i+1)] = []string{"left: " + v}
+	}
 	var probs []string
+	// The axis labels are equally spaced, which is what lets the stylesheet spread them
+	// with space-between and no position each.
+	for i := 1; i < len(axis); i++ {
+		if step := (clockMinutes(t, axis[i]) + 24*60 - clockMinutes(t, axis[i-1])) % (24 * 60); step*(len(axis)-1) != span {
+			probs = append(probs, fmt.Sprintf("the axis steps %d minutes from %s to %s; its marks are not evenly spaced", step, axis[i-1], axis[i]))
+		}
+	}
 	for _, sel := range slices.Sorted(maps.Keys(want)) {
 		body := cssRuleBody(css, sel)
 		for _, decl := range want[sel] {
@@ -691,8 +970,9 @@ func restaurantsTimelineProblems(t *testing.T, css string) []string {
 }
 
 // TestRestaurantsPage_TheTimelineIsDrawnAtTheSampleTimes: the overnight drawing's fixed
-// classes put the two taps, the shift and midnight where the sample's times fall on its
-// axis, and the shift is Rusty Bar's in the seed. CONTROL: a tap moved in the stylesheet is
+// classes put the two taps, the shift, midnight and the five inner hour marks where their
+// times fall on its axis, the axis is evenly spaced and printed as declared, and the shift
+// is Rusty Bar's in the seed. CONTROL: a tap and an hour mark moved in the stylesheet are
 // red.
 func TestRestaurantsPage_TheTimelineIsDrawnAtTheSampleTimes(t *testing.T) {
 	t.Parallel()
@@ -703,6 +983,15 @@ func TestRestaurantsPage_TheTimelineIsDrawnAtTheSampleTimes(t *testing.T) {
 	moved := strings.Replace(css, ".lp .lp-forTlOut { left: 83.89%; }", ".lp .lp-forTlOut { left: 83.33%; }", 1)
 	if moved == css || len(restaurantsTimelineProblems(t, moved)) == 0 {
 		t.Error("CONTROL: the check-out drawn at 02:00 passed")
+	}
+	tick := strings.Replace(css, ".lp .lp-forTick3 { left: 50%; }", ".lp .lp-forTick3 { left: 58%; }", 1)
+	if tick == css || len(restaurantsTimelineProblems(t, tick)) == 0 {
+		t.Error("CONTROL: the 22:00 mark drawn at 58% passed")
+	}
+	// The axis the page prints is the axis the positions are computed on.
+	text := renderedPublicText(t, pages.ForRestaurantsPath)
+	if !strings.Contains(text, strings.Join(pages.RestaurantsTimelineAxis, " ")) {
+		t.Errorf("/for/restaurants does not print the axis %v", pages.RestaurantsTimelineAxis)
 	}
 }
 
@@ -726,13 +1015,14 @@ func fitCardProblems(landing string) []string {
 			continue
 		}
 		links++
-		open := `<a class="card fitcard lp-fit" href="` + a.Href + `">`
-		at := strings.Index(section, open)
-		if at < 0 {
-			out = append(out, fmt.Sprintf("the %q card is not one link to %s", a.Title, a.Href))
+		openRE := regexp.MustCompile(`<a class="card fitcard lp-fit" href="` + regexp.QuoteMeta(a.Href) +
+			`" aria-labelledby="([^"]*)" aria-describedby="([^"]*)">`)
+		m := openRE.FindStringSubmatchIndex(section)
+		if m == nil {
+			out = append(out, fmt.Sprintf("the %q card is not one link to %s, named and described by its own parts", a.Title, a.Href))
 			continue
 		}
-		card := section[at+len(open):]
+		card := section[m[1]:]
 		card = card[:strings.Index(card, "</a>")]
 		for _, control := range []string{"<a ", "<button", "<input", "<select", "<textarea", "<form", "tabindex", "<details"} {
 			if strings.Contains(card, control) {
@@ -745,8 +1035,28 @@ func fitCardProblems(landing string) []string {
 				label = l.Label
 			}
 		}
-		if label == "" || a.Link != label || !strings.Contains(card, `<span class="lp-fitLink">`+templEscape(label)) {
-			out = append(out, fmt.Sprintf("the %q card's foot is not the Product column's %q", a.Title, label))
+		// The link's name is what its labelledby ids hold, inside the card; its description
+		// the paragraph. Not the card's whole text (the LP-09 review measured ~279 characters).
+		textOf := func(ids string) string {
+			var parts []string
+			for _, id := range strings.Fields(ids) {
+				el := regexp.MustCompile(`(?s)<(\w+)[^>]*\bid="` + regexp.QuoteMeta(id) + `"[^>]*>(.*?)</(?:\w+)>`).FindStringSubmatch(card)
+				if el == nil {
+					return "(no element " + id + " inside the card)"
+				}
+				parts = append(parts, strings.Join(strings.Fields(tagRE.ReplaceAllString(el[2], " ")), " "))
+			}
+			return strings.Join(parts, " ")
+		}
+		name, desc := textOf(section[m[2]:m[3]]), textOf(section[m[4]:m[5]])
+		if label == "" || a.Link != label || name != templEscape(a.Title)+" "+templEscape(label) {
+			out = append(out, fmt.Sprintf("the %q card's link is named %q; want its title and the Product column's %q", a.Title, name, label))
+		}
+		if desc != a.Paragraph() {
+			out = append(out, fmt.Sprintf("the %q card's link is described by %q; want its paragraph", a.Title, desc))
+		}
+		if !strings.HasPrefix(section[m[2]:m[3]], "fit-"+filepath.Base(a.Href)+"-") {
+			out = append(out, fmt.Sprintf("the %q card's ids are not its page's own (%q)", a.Title, section[m[2]:m[3]]))
 		}
 		if !strings.Contains(card, ">"+templEscape(a.Title)+"</h3>") {
 			out = append(out, fmt.Sprintf("the %q card's link does not hold the card", a.Title))
@@ -761,10 +1071,13 @@ func fitCardProblems(landing string) []string {
 // TestRestaurantsPage_TheLandingFitCardIsOneLinkToThePage: the landing's "Multi-location"
 // card is the whole-card link to /for/restaurants (README O8: it arrived with the route),
 // with nothing else pressed inside it and its foot the Product column's label; a card whose
-// page is not mounted is no link. The link IS the card -- the element carrying the card's
+// page is not mounted is no link. The link is NAMED by the card's title and foot and
+// DESCRIBED by its paragraph (aria-labelledby / aria-describedby, ids inside the card,
+// "fit-<page>-…"), not announced as its whole text. The link IS the card -- the element carrying the card's
 // edge and corner -- so the one focus ring of the public site (.lp :focus-visible) is drawn
 // around the card, and nothing on .fitcard takes it away. CONTROL: a link nested in the
-// card, the card pointed elsewhere and the ring switched off are red.
+// card, the card pointed elsewhere, the link named by its paragraph and the ring switched
+// off are red.
 func TestRestaurantsPage_TheLandingFitCardIsOneLinkToThePage(t *testing.T) {
 	t.Parallel()
 	if pages.LandingAudiences[0].Href != pages.ForRestaurantsPath {
@@ -790,13 +1103,17 @@ func TestRestaurantsPage_TheLandingFitCardIsOneLinkToThePage(t *testing.T) {
 		t.Error(why)
 	}
 
-	nested := strings.Replace(landing, `<span class="lp-fitLink">`, `<a href="/pricing">x</a><span class="lp-fitLink">`, 1)
+	nested := strings.Replace(landing, `<span class="lp-fitLink" id="fit-restaurants-link">`, `<a href="/pricing">x</a><span class="lp-fitLink" id="fit-restaurants-link">`, 1)
 	if len(fitCardProblems(nested)) == 0 {
 		t.Error("CONTROL: a link nested in the card passed")
 	}
-	elsewhere := strings.Replace(landing, `<a class="card fitcard lp-fit" href="`+pages.ForRestaurantsPath+`">`, `<a class="card fitcard lp-fit" href="/pricing">`, 1)
+	elsewhere := strings.Replace(landing, `<a class="card fitcard lp-fit" href="`+pages.ForRestaurantsPath+`"`, `<a class="card fitcard lp-fit" href="/pricing"`, 1)
 	if len(fitCardProblems(elsewhere)) == 0 {
 		t.Error("CONTROL: the card pointed at /pricing passed")
+	}
+	whole := strings.Replace(landing, ` aria-labelledby="fit-restaurants-title fit-restaurants-link"`, ` aria-labelledby="fit-restaurants-title fit-restaurants-body"`, 1)
+	if whole == landing || len(fitCardProblems(whole)) == 0 {
+		t.Error("CONTROL: the link named by its paragraph passed")
 	}
 	if ring(css+"\n.lp .fitcard:focus-visible { outline: none; }\n") == "" {
 		t.Error("CONTROL: the ring switched off on the card passed")

@@ -19,9 +19,13 @@ package pages
 // holds the table equal to it; the seed does not move to fit the page.
 //
 // THE PEOPLE AND THE TIMES ARE SAMPLES, and they are the landing panel's own: Luke Borg's
-// 02:04 check-out at Rusty Bar is The Pass's docket and his Monday on The Roll is the
-// same 8h 06m; Maria Vella's Thursday at KF Msida is the day The Roll marks as worked at
-// another venue. internal/handler runs each docket through tap.Decide.
+// 02:04 check-out at Rusty Bar is The Pass's docket (whose rail hangs on a Tuesday, 20
+// Oct), and the shift it closes here is as long as his Monday on The Roll (week 42,
+// Mon 12 Oct): 8h 06m. The page prints days of the week, not dates, so the two drawings
+// share the times and not a date. Maria Vella's Thursday at KF Msida is the day The Roll
+// marks as worked at another venue. internal/handler runs each docket through tap.Decide,
+// and internal/domain/ledger's TestAccumulate_TheRestaurantsPagesWeek books the same
+// times the way the page says they are booked.
 //
 // WHERE THE BOARD SAID MORE THAN THE PRODUCT DOES, the value here says less, and the edit
 // is recorded once:
@@ -30,9 +34,10 @@ package pages
 //     are said the code's way in the sign-off (K6), and the board's wording is refused on
 //     every public page.
 //   - "Taptime never invents a check-out." (the heading over the forgotten check-out) is
-//     "A forgotten check-out is left for a manager to close.": no absence is derived
-//     here, and the person's own next tap does close an entry older than the engine's
-//     stale threshold (tap.StaleOpenIn) -- as a check-out the report then reads as open.
+//     "An open check-in is not paid until a manager closes it.": no absence is derived
+//     here, and the person's own next tap DOES close an entry older than the engine's
+//     stale threshold (tap.StaleOpenIn) -- as a check-out with a note, which the report
+//     does not pay and lists as open. The bullet says exactly that.
 //   - "A venue's network only counts if the range is narrow enough to describe one
 //     place" is said in the security page's words ("stand for a single network"): the
 //     security review refused "describe one place" on every page.
@@ -45,10 +50,24 @@ package pages
 //     the hours like any other.
 //   - The venues section carries a third bullet the board does not draw: the QR fallback
 //     and what it needs (§5: a QR check-in has no signature, so the venue's network is
-//     required and a position alone ends flagged) -- the chain's answer for a phone
-//     without NFC, in the landing FAQ's terms.
-//   - The venue table draws one layout at every width (a three-column table): the phone
-//     board's two-line rows would need a second DOM or a table that stops being one.
+//     required and a position alone ends flagged). It is for a phone whose NFC is off or
+//     fails on the day: a phone is set up only by a real tap on a plaque (ADR 0026), so
+//     a phone that cannot tap at all never gets a session, and the bullet says so.
+//   - "A tap at another venue is judged on that venue's evidence and that venue's hours,
+//     exactly as a tap at home would be" says "by default": a business can write a rule
+//     on employee:crossLocation. "Hours" says what the product does with them: the
+//     report measures lateness against the tapped venue's shift (the record's own
+//     location), unless the person's department has one.
+//   - The venue table draws one layout at every width (a three-column table with its
+//     header row): the phone board's two-line rows without a header would need a second
+//     DOM or a table that stops being one.
+//   - The hours drawing is the landing's own Roll (LandingPanelRollRows: four people,
+//     Claire Mifsud included, and no "1 open check-in" line under Kevin Grech): the board
+//     redraws a three-person Roll, and changing the shared drawing would change the
+//     landing. Its legend is the panel's, under it, and a visible "The Roll · sample"
+//     label sits over it.
+//   - The forgotten check-out's three steps are an ordered list of cards, not a picture:
+//     they are words.
 
 // ForRestaurantsPath is the page's URL.
 const ForRestaurantsPath = "/for/restaurants"
@@ -74,9 +93,11 @@ const (
 	// A worked shift's hours are booked on the day its check-in falls on and at the venue
 	// of its check-in. Derived from internal/domain/ledger's accumulate.
 	FactShiftCountsOnItsStartDayAndVenue Fact = "ledger:shift booked on its check-in's day and venue"
-	// A tap is judged on the TAPPED venue's address ranges, GPS point and shift (a
-	// department's shift beating the venue's), never the person's home venue's. Derived
-	// from internal/domain/checkin's gather.
+	// A tap is judged on the TAPPED venue's address ranges and GPS point, never the
+	// person's home venue's (the gather hands the engine that venue's shift too, though
+	// lateness is the report's: FactLatenessFollowsOwnShift). Derived from
+	// internal/domain/checkin's gather and pinned by internal/handler's
+	// TestCheckinDB_ATapAtAnotherVenueIsJudgedOnThatVenuesEvidence.
 	FactTapIsJudgedAtTheTappedVenue Fact = "checkin:tapped venue's ranges, point and shift"
 	// A tap at a venue other than the person's home venue is decided as it would be at
 	// home -- the same verdict, the same trust --, the record's note says it was at
@@ -88,6 +109,19 @@ const (
 	// venue, counts its hours like any other, and says so in its legend and receipt.
 	// Derived from internal/domain/ledger (DayMarks.Other) and pages/reports.templ.
 	FactRollMarksWorkAtAnotherVenue Fact = "ledger:DayMarks.Other+templ:roll legend and receipt"
+	// A session comes only from activation, and activation ends only on a real NFC tap:
+	// a QR scan (no SUN) is refused there, finishActivation is its one caller of the
+	// session issue, and nothing else in the product creates a session. So a phone that
+	// cannot tap a plaque is never set up, and QR is a fallback for a phone already set
+	// up. Derived from internal/handler/activate.go, internal/sun and every Go file that
+	// could issue a session.
+	FactSetupTakesARealTap Fact = "handler:session only via CompleteByTap(HasSUN) → finishActivation"
+	// A check-in left open past the engine's stale threshold is closed by the person's
+	// next tap as a check-out WITH a note, the report does not pay that interval and
+	// lists the check-in as open, and a check-out a manager types closes it for pay.
+	// Derived by asking tap.Decide, and from internal/domain/ledger's
+	// TestAccumulate_TheRestaurantsPagesWeek.
+	FactForgottenCheckOutIsNotPaid Fact = "tap:stale open → out+note; ledger:too long → open, manual out pays"
 )
 
 // The page's sections' ids, in the page's order.
@@ -187,6 +221,12 @@ const (
 // (base:cross-location-note); internal/handler holds it to the engine's note.
 const RestaurantsCoverNote = "tapped at a location other than the employee's home location (recorded as cross-location)"
 
+// RestaurantsStaleHours is how long a check-in may stay open before the next tap that
+// closes it is noted as a probable forgotten check-out, and the report stops paying the
+// interval: tap.StaleOpenIn, in hours. A MIRROR OF THAT CONSTANT (pages does not import
+// the engine), held equal to it by internal/handler's tests.
+const RestaurantsStaleHours = 18
+
 // RestaurantsForgotStep is one card of the forgotten check-out's drawing.
 type RestaurantsForgotStep struct {
 	No     string
@@ -285,16 +325,20 @@ func restaurantsCopy() RestaurantsText {
 				FactPlaqueIdentifiesThePlace, FactTapIsJudgedAtTheTappedVenue),
 			l("A venue's address list counts only when it is narrow enough to stand for a single network; "+
 				"a list that is too wide is refused when you save it.", FactWideAddressListIsNoEvidence),
-			l("A phone without NFC opens the same page from a QR code; by default a QR check-in needs the venue's "+
-				"network, and on a position alone it is flagged for a manager.",
-				FactTapPageNeedsNoApp, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager),
+			l("If a phone's NFC is off or fails on the day, the same page opens from the venue's QR code; by default "+
+				"a QR check-in needs the venue's network, and on a position alone it is flagged for a manager. "+
+				"Setting a phone up still takes one real tap on a plaque.",
+				FactTapPageNeedsNoApp, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager,
+				FactActivationEndsOnARealTap, FactSetupTakesARealTap),
 		},
 		VenuesChip: LandingPricingIncludes[0],
 
 		CoverHeading: l("Staff can cover any venue in the chain.",
 			FactTapIsJudgedAtTheTappedVenue, FactCrossLocationTapIsNotedNotPenalised),
-		CoverLede: l("A tap at another venue is judged on that venue's evidence and that venue's shift, "+
-			"exactly as a tap at home would be.", FactTapIsJudgedAtTheTappedVenue, FactCrossLocationTapIsNotedNotPenalised),
+		CoverLede: l("By default, a tap at another venue is judged on that venue's network and position, exactly as a "+
+			"tap at home would be, and its lateness is measured against that venue's shift unless the person's "+
+			"department has one.",
+			FactTapIsJudgedAtTheTappedVenue, FactCrossLocationTapIsNotedNotPenalised, FactLatenessFollowsOwnShift),
 		CoverBullets: []Line{
 			l("By default the record carries a note that the tap was at another location; the employee's "+
 				"screen does not show it.", FactCrossLocationTapIsNotedNotPenalised),
@@ -302,11 +346,12 @@ func restaurantsCopy() RestaurantsText {
 				FactRollMarksWorkAtAnotherVenue),
 		},
 
-		ForgotHeading: l("A forgotten check-out is left for a manager to close.",
-			FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager),
+		ForgotHeading: l("An open check-in is not paid until a manager closes it.",
+			FactForgottenCheckOutIsNotPaid, FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager),
 		ForgotBullets: []Line{
-			l("A check-in nobody closed is listed for a manager, and its hours are not counted; a manager "+
-				"enters the check-out by hand.", FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager),
+			l("A check-in left open is not paid: a tap more than "+itoa(RestaurantsStaleHours)+" hours after it "+
+				"closes it with a note, The Roll lists it as open, and a manager enters the real check-out by hand.",
+				FactForgottenCheckOutIsNotPaid, FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager),
 			l("The Roll says how many check-ins are open, and its week's figure says it is short by them.",
 				FactOpenCheckInIsListedNotCounted),
 		},
@@ -345,11 +390,16 @@ func RestaurantsChainLabel() string {
 		" venues, each with its own plaque and hours, and one dashboard over them"
 }
 
-// RestaurantsTimelineLabel is the overnight drawing's accessible name.
+// RestaurantsTimelineLabel is the overnight drawing's accessible name: the two taps, the
+// shift they make, and the two dockets' stamp.
 func RestaurantsTimelineLabel() string {
 	in, out := RestaurantsOvernightIn, RestaurantsOvernightOut
-	return "Sample: at " + in.Venue + ", a check-in at " + in.At + " on Monday and a check-out at " + out.At +
+	label := "Sample: at " + in.Venue + ", a check-in at " + in.At + " on Monday and a check-out at " + out.At +
 		" on Tuesday are paired into one shift of " + RollHours(RestaurantsOvernightMinutes)
+	if in.Verdict == "ok" && out.Verdict == "ok" {
+		label += "; both approved"
+	}
+	return label
 }
 
 // RestaurantsCoverLabel is the cover drawing's accessible name.
@@ -359,5 +409,5 @@ func RestaurantsCoverLabel() string {
 		" on " + RestaurantsCoverDay + " and the approved record carries the cross-location note"
 }
 
-// RestaurantsForgotLabel is the forgotten check-out drawing's accessible name.
-const RestaurantsForgotLabel = "Sample: a check-in nobody closed is listed for a manager, who closes it by hand"
+// RestaurantsForgotLabel is the name of the forgotten check-out's list of steps.
+const RestaurantsForgotLabel = "A forgotten check-out, step by step · sample"

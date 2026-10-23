@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -575,6 +576,113 @@ func TestAccumulate_VenueBreakdownFollowsTheCheckIn(t *testing.T) {
 	}
 	if rep.Venues[0].Worked != 6*time.Hour {
 		t.Fatalf("venue worked = %v, want 6h", rep.Venues[0].Worked)
+	}
+}
+
+// The restaurants page's samples (/for/restaurants, LP-09): the times it draws, as the
+// wall clock prints them. internal/handler reads these lines out of this file and holds
+// each to the page's own value, so the page cannot draw a week this test does not book.
+const (
+	restaurantsPageOvernightIn  = "17:58" // Monday, Rusty Bar
+	restaurantsPageOvernightOut = "02:04" // Tuesday, Rusty Bar
+	restaurantsPageCoverIn      = "10:04" // Thursday, KF Msida; home KF St Julians
+	restaurantsPageCoverOut     = "18:02" // Thursday, KF Msida
+	restaurantsPageForgotIn     = "10:02" // Monday, KF Hamrun; nobody tapped out
+	restaurantsPageForgotOut    = "22:05" // Monday, typed by a manager
+)
+
+// TestAccumulate_TheRestaurantsPagesWeek books /for/restaurants' week the way the page
+// says it is booked (LP-09):
+//
+//   - the overnight shift lands on the day it STARTED and at the venue it started at,
+//     all of it, and nothing on the next day;
+//   - a shift started at a venue other than the person's home venue marks its day as
+//     another venue's and counts its hours like any other day's (the same shift at home
+//     counts the same and marks nothing);
+//   - a check-in closed by a tap more than tap.StaleOpenIn later is not paid and is
+//     listed as open, and the check-out a manager types closes it for pay.
+//
+// The times are the page's (the consts above); internal/handler pins this function.
+func TestAccumulate_TheRestaurantsPagesWeek(t *testing.T) {
+	t.Parallel()
+	zone := malta(t)
+	p := week(t, zone)
+	after := at(t, zone, 2026, time.August, 12, 9, 0)
+	// day is Monday 3 August plus d days, at the wall clock hhmm.
+	day := func(d int, hhmm string) time.Time {
+		t.Helper()
+		hh, mm, ok := strings.Cut(hhmm, ":")
+		h, err1 := strconv.Atoi(hh)
+		m, err2 := strconv.Atoi(mm)
+		if !ok || err1 != nil || err2 != nil {
+			t.Fatalf("%q is not a clock time", hhmm)
+		}
+		return at(t, zone, 2026, time.August, 3+d, h, m)
+	}
+	var (
+		rusty   = uuid.MustParse("cccccccc-0000-4000-8000-000000000108")
+		msida   = uuid.MustParse("cccccccc-0000-4000-8000-000000000103")
+		julians = uuid.MustParse("cccccccc-0000-4000-8000-000000000106")
+		hamrun  = uuid.MustParse("cccccccc-0000-4000-8000-000000000101")
+	)
+	home := func(id uuid.UUID) evOpt { return func(e *reportEvent) { e.Home = &id } }
+
+	// The overnight shift: Monday 17:58 to Tuesday 02:04 at Rusty Bar.
+	luke := []reportEvent{
+		ev(antoine, "Luke Borg", "in", day(0, restaurantsPageOvernightIn), atVenue(rusty, "Rusty Bar"), shift(nightShift()), home(rusty)),
+		ev(antoine, "Luke Borg", "out", day(1, restaurantsPageOvernightOut), atVenue(rusty, "Rusty Bar"), shift(nightShift()), home(rusty)),
+	}
+	span := day(1, restaurantsPageOvernightOut).Sub(day(0, restaurantsPageOvernightIn))
+	rep := accumulate(luke, p, zone, after)
+	l := find(t, rep, antoine)
+	if l.Daily[0] != span || l.Daily[1] != 0 || l.Worked != span {
+		t.Errorf("the overnight shift: Monday %v, Tuesday %v, week %v; want all %v on Monday", l.Daily[0], l.Daily[1], l.Worked, span)
+	}
+	if len(rep.Venues) != 1 || rep.Venues[0].LocationID != rusty || rep.Venues[0].Worked != span {
+		t.Errorf("the overnight shift's venues = %+v, want %v at Rusty Bar", rep.Venues, span)
+	}
+	if l.Marks[0].Other {
+		t.Error("the overnight shift at the person's own venue is marked as another venue's")
+	}
+
+	// The cover: Thursday at KF Msida for somebody whose home is KF St Julians, and the
+	// same shift at home.
+	cover := func(at uuid.UUID, name string) Report {
+		return accumulate([]reportEvent{
+			ev(maria, "Maria Vella", "in", day(3, restaurantsPageCoverIn), atVenue(at, name), home(julians)),
+			ev(maria, "Maria Vella", "out", day(3, restaurantsPageCoverOut), atVenue(at, name), home(julians)),
+		}, p, zone, after)
+	}
+	away, athome := cover(msida, "KF Msida"), cover(julians, "KF St Julians")
+	a, h := find(t, away, maria), find(t, athome, maria)
+	worked := day(3, restaurantsPageCoverOut).Sub(day(3, restaurantsPageCoverIn))
+	if !a.Marks[3].Other || away.Totals.OtherVenue != 1 {
+		t.Errorf("the Thursday at KF Msida: marked %v, counted %d at another venue; want marked and one", a.Marks[3].Other, away.Totals.OtherVenue)
+	}
+	if a.Daily[3] != worked || a.Worked != h.Worked || h.Marks[3].Other {
+		t.Errorf("the cover counts %v (home: %v, marked at home %v); want %v, the same as at home, unmarked at home",
+			a.Daily[3], h.Worked, h.Marks[3].Other, worked)
+	}
+
+	// The forgotten check-out: Monday 10:02 at KF Hamrun, closed by the next morning's
+	// tap more than tap.StaleOpenIn later -- and then the same with the check-out a
+	// manager typed for 22:05.
+	in := ev(maria, "Maria Vella", "in", day(0, restaurantsPageForgotIn), atVenue(hamrun, "KF Hamrun"), home(hamrun))
+	next := ev(maria, "Maria Vella", "out", day(1, restaurantsPageForgotIn).Add(30*time.Minute), atVenue(hamrun, "KF Hamrun"), home(hamrun))
+	if gap := next.At.Sub(in.At); gap <= tap.StaleOpenIn {
+		t.Fatalf("PREMISE: the next tap is %v after the check-in, not more than %v", gap, tap.StaleOpenIn)
+	}
+	left := accumulate([]reportEvent{in, next}, p, zone, after)
+	f := find(t, left, maria)
+	if f.Worked != 0 || left.Totals.TooLong != 1 || len(left.Open) != 1 || !left.Open[0].At.Equal(in.At) {
+		t.Errorf("the check-in left open: paid %v, too long %d, open %+v; want nothing paid and the 10:02 check-in listed as open",
+			f.Worked, left.Totals.TooLong, left.Open)
+	}
+	typed := ev(maria, "Maria Vella", "out", day(0, restaurantsPageForgotOut), atVenue(hamrun, "KF Hamrun"), home(hamrun), manual())
+	closed := accumulate([]reportEvent{in, typed, next}, p, zone, after)
+	c := find(t, closed, maria)
+	if want := day(0, restaurantsPageForgotOut).Sub(in.At); c.Daily[0] != want || len(closed.Open) != 0 {
+		t.Errorf("closed by hand: Monday %v, open %+v; want %v and nothing open", c.Daily[0], closed.Open, want)
 	}
 }
 

@@ -3359,6 +3359,8 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 
 /* The chain card: the venues as tiles, the lines into one dashboard. */
 .lp .lp-forChain { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 16px; box-shadow: 0 20px 50px rgb(var(--ink-ch) / .1); }
+/* The drawing inside the card is the picture; the chip under it is words. */
+.lp .lp-forChainDraw { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .lp .lp-forTiles { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .lp .lp-forTile { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
 .lp .lp-forTile--night { border-color: var(--ink); }
@@ -3403,6 +3405,9 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-forTlOut { left: 83.89%; }
 .lp .lp-forTlTag { position: absolute; bottom: -24px; padding: 1px 6px; border: 1px solid var(--ink); background: var(--paper); font-family: var(--mono); font-size: 11px; font-weight: 700; white-space: nowrap; transform: translateX(-50%); }
 .lp .lp-forTlAxis { display: flex; justify-content: space-between; margin-top: 30px; font-family: var(--mono); font-size: 10px; color: rgb(var(--ink-ch) / .75); }
+/* The phone prints every other hour, as M-ForRestaurants does (16:00, 20:00, 00:00, 04:00):
+   still evenly spaced, so space-between still places them. */
+.lp .lp-forTlAxis span:nth-child(even) { display: none; }
 .lp .lp-forTlDays { position: relative; height: 16px; margin-top: 4px; font-family: var(--mono); font-size: 11px; font-weight: 700; }
 .lp .lp-forTlNextDay { position: absolute; left: 66.6667%; padding-left: 6px; }
 .lp .lp-forPair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
@@ -3431,12 +3436,14 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-forStepArrow svg { display: block; }
 
 /* ---------------- a forgotten check-out ---------------- */
-.lp .lp-forSteps { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
-.lp .lp-forStep { flex: 1 1 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 16px; }
+/* An ordered list of cards; the arrow between two sits in the gap, inside the later
+   card's item, so every card keeps one width. */
+.lp .lp-forSteps { list-style: none; display: flex; flex-direction: column; align-items: stretch; gap: 34px; }
+.lp .lp-forStep { position: relative; flex: 1 1 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 16px; }
 .lp .lp-forStepNo { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--green); }
 .lp .lp-forStepTitle { font-size: 15px; font-weight: 700; line-height: 1.3; }
 .lp .lp-forStepDetail { font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .75); }
-.lp .lp-forStepArrow { align-self: center; display: inline-flex; color: var(--green); }
+.lp .lp-forStepArrow { position: absolute; left: 50%; top: -26px; display: inline-flex; color: var(--green); transform: translateX(-50%); }
 .lp .lp-forStepArrow svg { rotate: 90deg; }
 .lp .lp-forUnder { max-width: 760px; margin-top: 24px; }
 
@@ -3468,6 +3475,7 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
   .lp .lp-forCard { padding: 20px; }
   .lp .lp-forTlShiftName { font-size: 10.5px; }
   .lp .lp-forTlAxis { font-size: 11px; }
+  .lp .lp-forTlAxis span:nth-child(even) { display: inline; }
   .lp .lp-forPair { gap: 14px; }
   .lp .lp-forPair .lp-secDocketTop { flex-direction: row; gap: 8px; }
   .lp .lp-forTable caption { padding: 12px 14px; }
@@ -3475,7 +3483,8 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
   .lp .lp-forTable tbody th { padding: 10px 14px; font-size: 14px; }
   .lp .lp-forTable td { padding: 10px 14px; font-size: 12.5px; }
   .lp .lp-forNight { display: inline; }
-  .lp .lp-forSteps { flex-direction: row; }
+  .lp .lp-forSteps { flex-direction: row; gap: 36px; }
+  .lp .lp-forStepArrow { left: -27px; top: 50%; transform: translateY(-50%); }
   .lp .lp-forStepArrow svg { rotate: none; }
   .lp .lp-forCases { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
   .lp .lp-forCase { padding: 20px; }

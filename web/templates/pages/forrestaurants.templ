@@ -73,30 +73,32 @@ templ restaurantsHead(v ForRestaurantsView) {
 // restaurantsChain is the chain card: every venue of the seed's chain with its hours, the
 // overnight one marked with a moon, and the one dashboard they feed.
 templ restaurantsChain() {
-	<div class="card lp-forChain" role="img" aria-label={ RestaurantsChainLabel() }>
-		<span class="lp-lbl">{ "A chain of " + RestaurantsChainCount() + " venues · " + RestaurantsDemoLabel }</span>
-		<ul class="lp-forTiles">
-			for _, x := range RestaurantsVenues {
-				<li class={ "lp-forTile", templ.KV("lp-forTile--night", x.Overnight) }>
-					<span class="lp-forTileIcons">
-						@restaurantsPlaqueIcon()
-						if x.Overnight {
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-								<path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"></path>
-							</svg>
-						}
-					</span>
-					<span class="lp-forTileName">{ x.Name }</span>
-					<span class="lp-forTileHours">{ x.Hours() }</span>
-				</li>
-			}
-		</ul>
-		<svg class="lp-forFeed" viewBox="0 0 300 26" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-			<path class="lp-strokeGreen" d="M50 0 L150 24 M150 0 L150 24 M250 0 L150 24" stroke-width="1.6" fill="none" vector-effect="non-scaling-stroke"></path>
-		</svg>
-		<div class="lp-forDash">
-			<span class="lp-forDashDot" aria-hidden="true"><span class="lp-forDashRing"></span></span>
-			<span class="lp-forDashWords"><span class="lp-forDashName">One dashboard</span><span class="lp-forDashSub">hours per person and per venue</span></span>
+	<div class="card lp-forChain">
+		<div class="lp-forChainDraw" role="img" aria-label={ RestaurantsChainLabel() }>
+			<span class="lp-lbl">{ "A chain of " + RestaurantsChainCount() + " venues · " + RestaurantsDemoLabel }</span>
+			<ul class="lp-forTiles">
+				for _, x := range RestaurantsVenues {
+					<li class={ "lp-forTile", templ.KV("lp-forTile--night", x.Overnight) }>
+						<span class="lp-forTileIcons">
+							@restaurantsPlaqueIcon()
+							if x.Overnight {
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+									<path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"></path>
+								</svg>
+							}
+						</span>
+						<span class="lp-forTileName">{ x.Name }</span>
+						<span class="lp-forTileHours">{ x.Hours() }</span>
+					</li>
+				}
+			</ul>
+			<svg class="lp-forFeed" viewBox="0 0 300 26" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+				<path class="lp-strokeGreen" d="M50 0 L150 24 M150 0 L150 24 M250 0 L150 24" stroke-width="1.6" fill="none" vector-effect="non-scaling-stroke"></path>
+			</svg>
+			<div class="lp-forDash">
+				<span class="lp-forDashDot" aria-hidden="true"><span class="lp-forDashRing"></span></span>
+				<span class="lp-forDashWords"><span class="lp-forDashName">One dashboard</span><span class="lp-forDashSub">hours per person and per venue</span></span>
+			</div>
 		</div>
 		<span class="lp-fitEx lp-forEx">{ LandingAudiences[0].Example.Text }</span>
 	</div>
@@ -294,27 +296,28 @@ templ restaurantsCover() {
 	</div>
 }
 
-// restaurantsForgot is the forgotten check-out: the three steps it takes, drawn as cards,
-// and two bullets.
+// restaurantsForgot is the forgotten check-out: the three steps it takes, as an ordered
+// list of cards (words, not a picture -- an arrow between two cards is drawing only), and
+// two bullets.
 templ restaurantsForgot() {
 	<div class="band band--porcelain">
 		<section id={ RestaurantsForgotID } class="lp-sec" aria-labelledby={ RestaurantsForgotID + "-title" }>
 			<div class="lp-wrap">
 				@restaurantsTitle(RestaurantsForgotID, "When someone forgets", RestaurantsCopy.ForgotHeading)
-				<div class="lp-forSteps lp-forAfterTitle" role="img" aria-label={ RestaurantsForgotLabel }>
+				<ol class="lp-forSteps lp-forAfterTitle" aria-label={ RestaurantsForgotLabel }>
 					for i, s := range RestaurantsForgotSteps {
-						if i > 0 {
-							<span class="lp-forStepArrow">
-								@moreArrow()
-							</span>
-						}
-						<div class="card lp-forStep">
+						<li class="card lp-forStep">
+							if i > 0 {
+								<span class="lp-forStepArrow">
+									@moreArrow()
+								</span>
+							}
 							<span class="lp-forStepNo">{ s.No }</span>
 							<span class="lp-forStepTitle">{ s.Title }</span>
 							<span class="lp-forStepDetail">{ s.Detail }</span>
-						</div>
+						</li>
 					}
-				</div>
+				</ol>
 				<div class="lp-forUnder">
 					@productBullets(RestaurantsCopy.ForgotBullets)
 				</div>
@@ -395,6 +398,7 @@ templ restaurantsHours() {
 						<p class="lp-forSample">{ LandingPanelSampleNote }</p>
 					</div>
 					<div class="lp-forRoll">
+						<span class="lp-lbl">{ LandingPanelRoll.Title + " · sample" }</span>
 						@landingMiniRoll()
 						<ul class="lp-forLegend">
 							for i, w := range RestaurantsRollLegend {
