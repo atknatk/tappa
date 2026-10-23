@@ -187,6 +187,14 @@ type AccountView struct {
 	// It names the K3 sign-out (other devices signed out, this one kept) and, like
 	// Saved, comes from a closed vocabulary the query string can only select from.
 	PasswordSaved string
+
+	// --- sign out everywhere (M14-11) ----------------------------------------------
+
+	// SignOutEverywhereHref is where the "Sign out everywhere" button posts, "" while
+	// TAPPA_ADMIN_IDENTITY is off -- and then the card is not drawn at all, so the page is
+	// byte for byte today's (ADR 0031 §8). Drawn for every live admin: it is personal, like
+	// the password.
+	SignOutEverywhereHref string
 }
 
 // AccountForm is the three editable fields.

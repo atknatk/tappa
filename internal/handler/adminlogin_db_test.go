@@ -135,6 +135,8 @@ type panelHarnessOptions struct {
 	// recovery flow and the domain packages keep the real one) — so a test can make
 	// one action's row fail (M10 EM-7B round 3).
 	wrapTrail func(auditRecorder) auditRecorder
+	// adminIdentity is TAPPA_ADMIN_IDENTITY (ADR 0031 §8): on mounts the identity surfaces (M14-11).
+	adminIdentity bool
 }
 
 func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
@@ -173,6 +175,7 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 		// while the two were conflated.
 		InviteHMACKey: []byte("fedcba9876543210fedcba9876543210"),
 		DatabaseURL:   dsn,
+		AdminIdentity: o.adminIdentity,
 	}
 
 	admins, err := adminauth.New(data, cfg)

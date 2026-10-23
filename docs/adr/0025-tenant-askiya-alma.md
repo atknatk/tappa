@@ -1354,5 +1354,11 @@ farkıyla taşındı; taban kaymasının değiştirdiği sayılar ve yerler ADR 
   durur (`internal/handler/adminlogin.go:806`) — yöneticinin kendi parolası rotasının yanında
   (`accountPasswordHref`, §3 listesi). Rotalar bu kartlarla doğar; liste her birinde bu nota göre
   genişler ve sayısı B fazı ekinin *"bugün on bir rota"*sından o kartlarda güncellenir.
+  - **M14-11 (2026-10-23):** `POST /admin/account/sign-out-everywhere` kardeş grupta, kendi parolası
+    rotasının hemen altında, `mountGated(SurfaceAccountIdentity)` ile — bayrak `off` iken hiç bağlanmaz
+    (panelin hiç sahip olmadığı bir yol), `on` iken istisnadır. Liste **bayrak `off` iken on bir, `on`
+    iken on iki rotadır**; `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException` yürüyüşü iki
+    bayrak durumunda da koşar, `cmd/tappa`'nın `TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses`'ı
+    yapılandırılmış yürüyüşte bayrağı açar.
 - **Operatör değişmez** (K-12, ADR 0031 §5.12): ileride gelecek `op_disable_tenant_admins` (§7) yalnız
   üyelik `status`'una dokunabilir, kimliğe asla.

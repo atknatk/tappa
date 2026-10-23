@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/web/templates/pages"
@@ -263,6 +264,11 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 	// else; this page reads no key and no webhook.
 	if mayManageAPIKeys(id) {
 		v.DevelopersHref = apiKeysHref
+	}
+	// "Sign out everywhere" (M14-11) is an identity section of this page (ADR 0031 §8): closed
+	// while the flag is off, and then the page is today's. Any live admin -- it is personal.
+	if a.identityGate.Open(adminauth.SurfaceAccountIdentity) {
+		v.SignOutEverywhereHref = accountSignOutEverywhereHref
 	}
 	fillAccountVAT(&v, s.VAT, zone)
 	// The "Your brand" editor (M10 WL-7), from the chrome built above -- the one brand
