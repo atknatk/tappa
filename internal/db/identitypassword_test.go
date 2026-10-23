@@ -1802,10 +1802,10 @@ func TestIdentityOpenReset_ConcurrentRequestsIssueOneLink(t *testing.T) {
 // identity's links, events and the identity (tenants, rows, sessions and audit rows stay, as other
 // committed DB tests leave theirs -- audit_log is append-only).
 type ipRaceWorld struct {
-	identity     uuid.UUID
-	t, x, y      uuid.UUID
-	rowX, rowY   uuid.UUID
-	sA, sY, link string
+	identity         uuid.UUID
+	t, x, y          uuid.UUID
+	rowT, rowX, rowY uuid.UUID
+	sA, sY, link     string
 }
 
 func ipNewRaceWorld(t *testing.T, ctx context.Context, owner *pgx.Conn) ipRaceWorld {
@@ -1837,6 +1837,7 @@ func ipNewRaceWorld(t *testing.T, ctx context.Context, owner *pgx.Conn) ipRaceWo
 		}
 	})
 	rowT := uuid.New()
+	w.rowT = rowT
 	exec(`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'R', $3, $4, 'owner'), ($5, $6, 'R', $3, $4, 'owner'), ($7, $8, 'R', $3, $4, 'owner')`,
 		rowT, w.t, email, digest, w.rowX, w.x, w.rowY, w.y)
 	exec(`UPDATE admin_users SET identity_id = $2, linked_via = 'backfill', linked_at = now() - interval '30 days' WHERE id = $1`, rowT, w.identity)
@@ -2026,6 +2027,217 @@ func TestIdentityUnlink_ASessionBornUnderTheRowsShareLockIsRevoked(t *testing.T)
 	}
 }
 
+// ipLockTier is a locked table's place in 00072's one lock order: the identity, then membership
+// rows, then token and session rows.
+var ipLockTier = map[string]int{"admin_identities": 0, "admin_users": 1,
+	"admin_sessions": 2, "password_resets": 2, "admin_identity_resets": 2, "admin_identity_verifications": 2}
+
+// ipLockFindings reads one body and returns where it breaks the lock order: something locked or
+// written before the identity's row lock, or a locking read of a lower tier after a higher one. A
+// FOR UPDATE on admin_users keyed `identity_id = v_identity` re-locks rows the identity-scope lock
+// already holds and acquires nothing new.
+func ipLockFindings(body string) []string {
+	body = ipLineComment.ReplaceAllString(body, "")
+	var out []string
+	refRe := regexp.MustCompile(`(?i)public\.([a-z_]+)\s+(?:as\s+)?([a-z_][a-z0-9_]*)`)
+	ofRe := regexp.MustCompile(`(?i)\bfor\s+update(?:\s+of\s+([a-z_][a-z0-9_, ]*))?`)
+	writeRe := regexp.MustCompile(`(?i)\b(?:update|insert\s+into|delete\s+from)\s+public\.`)
+	identityLocked, tier := false, 0
+	for _, chunk := range regexp.MustCompile(`;`).Split(body, -1) {
+		flat := strings.Join(strings.Fields(chunk), " ")
+		m := ofRe.FindStringSubmatch(chunk)
+		if !identityLocked {
+			if m != nil && strings.Contains(strings.ToLower(chunk), "public.admin_identities") {
+				identityLocked = true
+				continue
+			}
+			if m != nil || writeRe.MatchString(chunk) {
+				out = append(out, "locked or written before the identity's row lock: "+flat)
+			}
+			continue
+		}
+		if m == nil {
+			continue
+		}
+		aliases := map[string]string{}
+		for _, r := range refRe.FindAllStringSubmatch(chunk, -1) {
+			aliases[strings.ToLower(r[2])] = strings.ToLower(r[1])
+		}
+		var tables []string
+		if m[1] != "" {
+			for _, a := range strings.Split(m[1], ",") {
+				tables = append(tables, aliases[strings.ToLower(strings.TrimSpace(a))])
+			}
+		} else {
+			for _, t := range aliases {
+				tables = append(tables, t)
+			}
+		}
+		for _, table := range tables {
+			if table == "admin_identities" {
+				continue
+			}
+			if table == "admin_users" && regexp.MustCompile(`(?i)\ba\.identity_id\s*=\s*v_identity\b`).MatchString(chunk) && tier <= 1 {
+				tier = 1
+				continue
+			}
+			if table == "admin_users" && regexp.MustCompile(`(?i)\ba\.identity_id\s*=\s*v_identity\b`).MatchString(chunk) {
+				continue // a row the identity-scope lock already holds
+			}
+			want, ok := ipLockTier[table]
+			if !ok {
+				out = append(out, "a lock on a table outside the order ("+table+"): "+flat)
+				continue
+			}
+			if want < tier {
+				out = append(out, "a "+table+" lock after a higher tier: "+flat)
+			}
+			if want > tier {
+				tier = want
+			}
+		}
+	}
+	if !identityLocked {
+		out = append(out, "no identity row lock")
+	}
+	return out
+}
+
+// TestIdentity00072_EveryWriterLocksIdentityMembershipsThenTokens is third-eye's DÜŞÜK-1 and the
+// security re-audit's DÜŞÜK, read from the bodies: every identity writer of 00072 that locks takes
+// the identity's row lock first, then membership rows, then token and session rows; and each one
+// re-checks, AFTER that lock, the secret it was called with -- its session (`s.id = <session> AND
+// s.tenant_id = <tenant> ... FOR UPDATE OF s`) or its link (`r.id = v_reset ... FOR UPDATE`). The
+// control: 00072's old token-first consumption is a finding.
+func TestIdentity00072_EveryWriterLocksIdentityMembershipsThenTokens(t *testing.T) {
+	ctx, tx := opTx(t)
+	recheck := map[string][]string{
+		"identity_set_password":      {`(?s)PERFORM 1\s+FROM public\.admin_sessions s.*?WHERE s\.id = v_session AND s\.tenant_id = v_tenant.*?FOR UPDATE OF s;`},
+		"identity_link_legacy":       {`(?s)PERFORM 1\s+FROM public\.admin_sessions s.*?WHERE s\.id = v_id_session AND s\.tenant_id = v_id_tenant.*?FOR UPDATE OF s;`, `(?s)PERFORM 1 FROM public\.admin_sessions s\s+WHERE s\.id = v_legacy_session AND s\.tenant_id = v_legacy_tenant.*?FOR UPDATE;`},
+		"identity_unlink_backfilled": {`(?s)PERFORM 1\s+FROM public\.admin_sessions s.*?WHERE s\.id = v_session AND s\.tenant_id = v_tenant.*?FOR UPDATE OF s;`},
+		"identity_relink_refused":    {`(?s)PERFORM 1\s+FROM public\.admin_sessions s.*?WHERE s\.id = v_session AND s\.tenant_id = v_tenant.*?FOR UPDATE OF s;`},
+		"identity_verify_email":      {`(?s)PERFORM 1\s+FROM public\.admin_sessions s.*?WHERE s\.id = v_session AND s\.tenant_id = v_tenant.*?FOR UPDATE OF s;`, `(?s)PERFORM 1 FROM public\.admin_identity_verifications v\s+WHERE v\.id = v_verification AND v\.used_at IS NULL.*?FOR UPDATE;`},
+		"identity_consume_row_reset": {`(?s)PERFORM 1\s+FROM public\.password_resets r.*?WHERE r\.id = v_reset AND r\.tenant_id = v_tenant\s+AND r\.used_at IS NULL\s+AND r\.cancelled_at IS NULL.*?FOR UPDATE OF r;`},
+		"identity_consume_reset":     {`(?s)PERFORM 1 FROM public\.admin_identity_resets r\s+WHERE r\.id = v_reset AND r\.identity_id = v_identity\s+AND r\.used_at IS NULL AND r\.cancelled_at IS NULL.*?FOR UPDATE;`},
+	}
+	identityLock := regexp.MustCompile(`(?s)FROM public\.admin_identities i WHERE i\.id = v_identity FOR UPDATE;|FROM public\.admin_identities i\s+WHERE i\.id = v_identity.*?FOR UPDATE;`)
+	for fn, res := range recheck {
+		var body string
+		if err := tx.QueryRow(ctx, `SELECT prosrc FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = $1`, fn).Scan(&body); err != nil {
+			t.Fatalf("%s: %v", fn, err)
+		}
+		for _, f := range ipLockFindings(body) {
+			t.Errorf("%s: %s", fn, f)
+		}
+		clean := ipLineComment.ReplaceAllString(body, "")
+		lock := identityLock.FindStringIndex(clean)
+		if lock == nil {
+			t.Errorf("%s: no identity row lock", fn)
+			continue
+		}
+		for _, re := range res {
+			loc := regexp.MustCompile(re).FindStringIndex(clean)
+			if loc == nil || loc[0] < lock[1] {
+				t.Errorf("%s: the re-check %s is missing or not after the identity lock", fn, re)
+			}
+		}
+	}
+	if len(ipLockFindings(`SELECT r.id INTO v_reset FROM public.password_resets r WHERE r.token_hash = p_h FOR UPDATE OF r;
+		PERFORM 1 FROM public.admin_identities i WHERE i.id = v_identity FOR UPDATE;`)) == 0 {
+		t.Error("control: the token-first consumption (cdcc2e6's shape) is not a finding")
+	}
+	if len(ipLockFindings(`PERFORM 1 FROM public.admin_identities i WHERE i.id = v_identity FOR UPDATE;
+		PERFORM 1 FROM public.admin_sessions s WHERE s.id = v_session FOR UPDATE OF s;
+		SELECT a.id INTO v_target FROM public.admin_users a WHERE a.tenant_id = p_tenant AND a.identity_id IS NULL FOR UPDATE;`)) == 0 {
+		t.Error("control: a membership lock after a session lock is not a finding")
+	}
+}
+
+// TestIdentityConsumeRowReset_DoesNotDeadlockAgainstAnUnlink is third-eye's reproduced 40P01, on
+// committed fixtures with two connections: A takes the identity's row lock (an unlink's first step)
+// and holds it; B's identity_consume_row_reset of a link of that identity is seen waiting; A then
+// cancels that link (the unlink's T5 step) and commits. With the identity-first order B waited
+// before touching the link, so A's cancel does not wait for B: no 40P01 on either side, and B, after
+// A, finds the link cancelled -> 0 rows. In 00072's old token-first order B held the link while
+// waiting for the identity, A's cancel waited for B: a deadlock.
+func TestIdentityConsumeRowReset_DoesNotDeadlockAgainstAnUnlink(t *testing.T) {
+	d := appDB(t)
+	ctx := context.Background()
+	owner, err := pgx.Connect(ctx, opOwnerDSN(t))
+	if err != nil {
+		t.Fatalf("connect as the owner: %v", err)
+	}
+	t.Cleanup(func() { _ = owner.Close(context.Background()) })
+	w := ipNewRaceWorld(t, ctx, owner)
+	link := opRandHex(t)
+	if _, err := owner.Exec(ctx, `INSERT INTO password_resets (tenant_id, admin_user_id, token_hash, expires_at) VALUES ($1, $2, $3, now() + interval '1 hour')`, w.x, w.rowX, link); err != nil {
+		t.Fatal(err)
+	}
+	a, err := pgx.Connect(ctx, opOwnerDSN(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close(context.Background()) })
+	txA, err := a.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = txA.Rollback(context.Background()) }()
+	if _, err := txA.Exec(ctx, `SELECT 1 FROM admin_identities WHERE id = $1 FOR UPDATE`, w.identity); err != nil {
+		t.Fatal(err)
+	}
+	marker := "deadlock-" + uuid.NewString()
+	type answer struct {
+		rows int
+		err  error
+	}
+	done := make(chan answer, 1)
+	go func() {
+		var ans answer
+		r, err := d.pool.Query(ctx, `SELECT * FROM identity_consume_row_reset($1, $2) /* `+marker+` */`, link, opFakeDigest("f"))
+		if err == nil {
+			for r.Next() {
+				ans.rows++
+			}
+			r.Close()
+			err = r.Err()
+		}
+		ans.err = err
+		done <- ans
+	}()
+	waiting := false
+	for i := 0; i < 100 && !waiting; i++ {
+		select {
+		case ans := <-done:
+			t.Fatalf("B answered (%d rows, %v) while A held the identity", ans.rows, ans.err)
+		case <-time.After(50 * time.Millisecond):
+		}
+		if err := owner.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%' || $1 || '%')`, marker).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !waiting {
+		t.Fatal("B is neither answered nor seen waiting on a lock after 5 s")
+	}
+	cancelCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	_, errA := txA.Exec(cancelCtx, `UPDATE password_resets SET cancelled_at = now() WHERE token_hash = $1 AND tenant_id = $2`, link, w.x)
+	if errA == nil {
+		errA = txA.Commit(ctx)
+	}
+	ans := <-done
+	for who, err := range map[string]error{"A (the unlink's shape)": errA, "B (identity_consume_row_reset)": ans.err} {
+		if code, _ := opCode(err); code == "40P01" {
+			t.Errorf("%s died in a deadlock: %v", who, err)
+		} else if err != nil {
+			t.Errorf("%s: %v", who, err)
+		}
+	}
+	if ans.err == nil && ans.rows != 0 {
+		t.Errorf("B after A cancelled its link: %d rows, want 0", ans.rows)
+	}
+}
+
 // TestIdentityWithdrawReset_RetiresOneUnspentLinkOnce is EM-7C's Withdraw for the identity link: a
 // live link withdrawn by its hash -> true and cancelled_at set, and the next request issues a new
 // link; the same hash again, a wrong hash and a used link -> false (the used one keeps cancelled_at
@@ -2071,8 +2283,9 @@ func TestIdentityWithdrawReset_RetiresOneUnspentLinkOnce(t *testing.T) {
 }
 
 // TestIdentityUnlink_TakesThePersonsLockAndTheRowsLock is M14-04's audit obligation (DÜŞÜK): the
-// unlink takes the identity's row lock (the person's lock every identity writer takes first), then
-// re-reads its session FOR UPDATE OF s, then the membership row FOR UPDATE, then writes the row and revokes that tenant's sessions -- one body,
+// unlink takes the identity's row lock, then the identity's membership rows, then re-reads its
+// session FOR UPDATE OF s, then the target membership FOR UPDATE, then writes the row and revokes
+// that tenant's sessions -- one body,
 // one transaction, the row written BEFORE the revocation (M14-01's audit -- the order a share-locked
 // login needs; TestIdentityUnlink_RefusesForGoodWithASentinel measures the revocation itself).
 func TestIdentityUnlink_TakesThePersonsLockAndTheRowsLock(t *testing.T) {
@@ -2084,6 +2297,7 @@ func TestIdentityUnlink_TakesThePersonsLockAndTheRowsLock(t *testing.T) {
 	body = ipLineComment.ReplaceAllString(body, "")
 	steps := []*regexp.Regexp{
 		regexp.MustCompile(`(?s)FROM public\.admin_identities i\s+WHERE i\.id = v_identity.*?FOR UPDATE;`),
+		regexp.MustCompile(`FROM public\.admin_users a WHERE a\.identity_id = v_identity /\* identity-scope \*/ FOR UPDATE;`),
 		regexp.MustCompile(`(?s)PERFORM 1\s+FROM public\.admin_sessions s.*?WHERE s\.id = v_session AND s\.tenant_id = v_tenant.*?FOR UPDATE OF s;`),
 		regexp.MustCompile(`(?s)FROM public\.admin_users a\s+WHERE a\.tenant_id = p_tenant.*?FOR UPDATE;`),
 		regexp.MustCompile(`UPDATE public\.admin_users a\s+SET identity_id = NULL`),
@@ -2154,14 +2368,22 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 
 	for _, c := range []struct{ what, setup string }{
 		{"an identity event", `INSERT INTO admin_identity_events (identity_id, event) SELECT id, 'login_failed' FROM admin_identities LIMIT 1`},
-		{"a refused membership", `UPDATE admin_users SET unlinked_at = now() WHERE id = (SELECT id FROM admin_users LIMIT 1)`},
+		{"a refused membership", ""},
 	} {
 		t.Run(c.what, func(t *testing.T) {
 			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 				if opInt(t, ctx, sp, `SELECT count(*) FROM admin_identities`) == 0 {
 					ipNewPerson(t, ctx, sp)
 				}
-				aiExec(t, ctx, sp, c.setup)
+				if c.setup != "" {
+					aiExec(t, ctx, sp, c.setup)
+				} else {
+					// Its own membership row, refused: the sub-test does not lean on rows another test left.
+					row := aiAdmin(t, ctx, sp, aiTenant(t, ctx, sp), aiEmail())
+					if n, err := aiRows(ctx, sp, `UPDATE admin_users SET unlinked_at = now() WHERE id = $1`, row); err != nil || n != 1 {
+						t.Fatalf("PREMISE: refusing the fixture row touched %d rows (%v)", n, err)
+					}
+				}
 				err := holdingNestedRun(t, ctx, sp, down)
 				var pg *pgconn.PgError
 				if !errors.As(err, &pg) || pg.Code != sqlstatePrerequisiteState || !strings.Contains(pg.Message, "migration 00072 Down") {

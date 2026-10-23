@@ -40,8 +40,12 @@
 -- authenticated_at <= statement_timestamp()`. A NULL (a session older than 00069) is never fresh; a future-dated value
 -- (or 'infinity') is never fresh either, whatever wrote it.
 --
--- LOCK ORDER AND THE RE-CHECK (M14-05's security audit, measured on 17.10). Every writer takes the
--- identity's row lock FIRST and only then the rows it writes. A session-keyed writer reads its
+-- LOCK ORDER AND THE RE-CHECK (M14-05's security audit, measured on 17.10). One order everywhere:
+-- the identity's row lock FIRST; then membership rows (every row linked to the identity, and the one
+-- other row a link or a relink names); only then token rows (password_resets, admin_identity_resets,
+-- verifications) and session rows. A token is READ before the identity lock only to learn which
+-- identity to lock, and locked and re-checked after it -- the old token-first order deadlocked a
+-- consumption against an unlink (40P01, third-eye's measurement). A session-keyed writer reads its
 -- session lock-free, takes the identity lock, then re-reads the session FOR UPDATE OF s with the
 -- same predicates (the bounded freshness included) and answers 0 rows if it no longer holds: a reset
 -- that committed while the call waited (it revokes every session) is not undone by the session it
@@ -429,6 +433,9 @@ BEGIN
     END IF;
 
     PERFORM 1 FROM public.admin_identities i WHERE i.id = v_identity FOR UPDATE;
+    -- Lock order (identity -> membership rows -> token / session rows): every membership of the
+    -- identity, before any token or session row.
+    PERFORM 1 FROM public.admin_users a WHERE a.identity_id = v_identity /* identity-scope */ FOR UPDATE;
     -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
     -- reset or a revocation that committed while this call waited).
     PERFORM 1
@@ -508,8 +515,12 @@ BEGIN
         RETURN;
     END IF;
 
-    -- The identity first (the order every identity writer keeps), then the link, re-checked.
+    -- The identity first (the order every identity writer keeps), its memberships, then the link,
+    -- re-checked.
     PERFORM 1 FROM public.admin_identities i WHERE i.id = v_identity FOR UPDATE;
+    -- Lock order (identity -> membership rows -> token / session rows): every membership of the
+    -- identity, before any token or session row.
+    PERFORM 1 FROM public.admin_users a WHERE a.identity_id = v_identity /* identity-scope */ FOR UPDATE;
     PERFORM 1
       FROM public.password_resets r
       JOIN public.admin_users a ON a.id = r.admin_user_id AND a.tenant_id = r.tenant_id
@@ -593,8 +604,11 @@ BEGIN
         RETURN;
     END IF;
 
-    -- The identity first, then the link, re-checked.
+    -- The identity first, its memberships, then the link, re-checked.
     PERFORM 1 FROM public.admin_identities i WHERE i.id = v_identity FOR UPDATE;
+    -- Lock order (identity -> membership rows -> token / session rows): every membership of the
+    -- identity, before any token or session row.
+    PERFORM 1 FROM public.admin_users a WHERE a.identity_id = v_identity /* identity-scope */ FOR UPDATE;
     PERFORM 1 FROM public.admin_identity_resets r
      WHERE r.id = v_reset AND r.identity_id = v_identity
        AND r.used_at IS NULL AND r.cancelled_at IS NULL AND statement_timestamp() < r.expires_at
@@ -666,6 +680,8 @@ DECLARE
     v_legacy_email   public.citext;
     v_id_session     uuid;
     v_id_tenant      uuid;
+    v_legacy_live    boolean := false;
+    v_legacy_found   boolean;
 BEGIN
     SELECT s.id, s.tenant_id, a.identity_id INTO v_id_session, v_id_tenant, v_identity
       FROM public.admin_sessions s
@@ -683,8 +699,27 @@ BEGIN
 
     SELECT i.email, i.password_hash INTO v_identity_email, v_digest
       FROM public.admin_identities i WHERE i.id = v_identity FOR UPDATE;
-    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
-    -- reset or a revocation that committed while this call waited).
+    -- Lock order (identity -> membership rows -> token / session rows): every membership of the
+    -- identity, before any token or session row.
+    PERFORM 1 FROM public.admin_users a WHERE a.identity_id = v_identity /* identity-scope */ FOR UPDATE;
+
+    SELECT s.id, s.tenant_id, a.id, a.email INTO v_legacy_session, v_legacy_tenant, v_legacy_admin, v_legacy_email
+      FROM public.admin_sessions s
+      JOIN public.admin_users a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+     WHERE s.token_hash = p_legacy_session_hash /* secret-scope */
+       AND s.token_hash <> p_identity_session_hash
+       AND s.revoked_at IS NULL
+       AND s.authenticated_at > statement_timestamp() - interval '5 minutes'
+       AND s.authenticated_at <= statement_timestamp()
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id IS NULL
+       FOR UPDATE OF a;
+    v_legacy_found := FOUND;
+
+    -- Then the sessions: the identity's re-checked under the identity lock (READ COMMITTED: the
+    -- lock-free read above may predate a reset or a revocation that committed while this call
+    -- waited), the legacy one locked and re-checked.
     PERFORM 1
       FROM public.admin_sessions s
       JOIN public.admin_users a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
@@ -699,20 +734,16 @@ BEGIN
     IF NOT FOUND THEN
         RETURN;
     END IF;
-
-    SELECT s.id, s.tenant_id, a.id, a.email INTO v_legacy_session, v_legacy_tenant, v_legacy_admin, v_legacy_email
-      FROM public.admin_sessions s
-      JOIN public.admin_users a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
-     WHERE s.token_hash = p_legacy_session_hash /* secret-scope */
-       AND s.token_hash <> p_identity_session_hash
-       AND s.revoked_at IS NULL
-       AND s.authenticated_at > statement_timestamp() - interval '5 minutes'
-       AND s.authenticated_at <= statement_timestamp()
-       AND a.status = 'active'
-       AND a.unlinked_at IS NULL
-       AND a.identity_id IS NULL
-       FOR UPDATE OF s, a;
-    IF NOT FOUND
+    IF v_legacy_found THEN
+        PERFORM 1 FROM public.admin_sessions s
+         WHERE s.id = v_legacy_session AND s.tenant_id = v_legacy_tenant
+           AND s.revoked_at IS NULL
+           AND s.authenticated_at > statement_timestamp() - interval '5 minutes'
+           AND s.authenticated_at <= statement_timestamp()
+           FOR UPDATE;
+        v_legacy_live := FOUND;
+    END IF;
+    IF NOT v_legacy_live
        OR v_legacy_email IS NULL
        OR NOT (v_legacy_email OPERATOR(public.=) v_identity_email)
        OR EXISTS (SELECT 1 FROM public.admin_users o
@@ -789,6 +820,9 @@ BEGIN
     IF NOT FOUND THEN
         RETURN;
     END IF;
+    -- Lock order (identity -> membership rows -> token / session rows): every membership of the
+    -- identity, before any token or session row.
+    PERFORM 1 FROM public.admin_users a WHERE a.identity_id = v_identity /* identity-scope */ FOR UPDATE;
     -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
     -- reset or a revocation that committed while this call waited).
     PERFORM 1
@@ -881,6 +915,7 @@ DECLARE
     v_target   uuid;
     v_session  uuid;
     v_tenant   uuid;
+    v_found    boolean;
 BEGIN
     SELECT s.id, s.tenant_id, a.identity_id INTO v_session, v_tenant, v_identity
       FROM public.admin_sessions s
@@ -904,6 +939,17 @@ BEGIN
     IF NOT FOUND THEN
         RETURN;
     END IF;
+    -- Lock order (identity -> membership rows -> token / session rows): every membership of the
+    -- identity, before any token or session row.
+    PERFORM 1 FROM public.admin_users a WHERE a.identity_id = v_identity /* identity-scope */ FOR UPDATE;
+    SELECT a.id INTO v_target
+      FROM public.admin_users a
+     WHERE a.tenant_id = p_tenant
+       AND a.email OPERATOR(public.=) v_email
+       AND a.identity_id IS NULL
+       AND a.unlinked_at >= v_opened
+       FOR UPDATE;
+    v_found := FOUND;
     -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
     -- reset or a revocation that committed while this call waited).
     PERFORM 1
@@ -921,14 +967,7 @@ BEGIN
         RETURN;
     END IF;
 
-    SELECT a.id INTO v_target
-      FROM public.admin_users a
-     WHERE a.tenant_id = p_tenant
-       AND a.email OPERATOR(public.=) v_email
-       AND a.identity_id IS NULL
-       AND a.unlinked_at >= v_opened
-       FOR UPDATE;
-    IF NOT FOUND
+    IF NOT v_found
        OR EXISTS (SELECT 1 FROM public.admin_users o
                    WHERE o.tenant_id = p_tenant AND o.identity_id = v_identity) THEN
         RETURN;

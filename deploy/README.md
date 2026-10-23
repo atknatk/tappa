@@ -1908,6 +1908,23 @@ Sonra `main`'e birleştir; deploy `00069` ve `00070`'i uygular.
   değiştirmeden reddeder. Down, üç tablodan birinde satır ya da reddedilmiş (`unlinked_at`) bir üyelik
   varken **reddeder** — canlıda koşulmaz; geri dönüş önceki binary'dir.
 
+  **Expand deploy'undan ÖNCE, üretimde, salt okuma ön kontrolü** (kullanıcı koşar; 00072 `pgcrypto`'ya
+  dayanan ilk migration'dır — `00027` ondan bilerek kaçındı). Önce bu bölümün "Identity role (M14-03)"
+  adımıyla `tappa_identitydefiner` yaratılmış olmalı. `tappa_owner` ile, `BEGIN READ ONLY` içinde:
+
+  ```sql
+  BEGIN READ ONLY;
+  SELECT extnamespace::regnamespace FROM pg_extension WHERE extname = 'pgcrypto';
+  SELECT has_function_privilege('tappa_identitydefiner', 'public.crypt(text,text)', 'EXECUTE'),
+         has_function_privilege('tappa_identitydefiner', 'public.gen_salt(text,integer)', 'EXECUTE'),
+         has_function_privilege('tappa_identitydefiner', 'public.gen_random_bytes(integer)', 'EXECUTE');
+  ROLLBACK;
+  ```
+
+  beklenen: `public` ve `t|t|t`. Satır yoksa ya da `f` varsa deploy yapılmaz (migration zaten hiçbir şey
+  değiştirmeden reddeder; Job `Failed` olur): uzantı `01-roles.sql`'deki gibi `public`'te kurulur ya da
+  yetki düzeltilir, sonra yeniden denenir.
+
 **Eski binary yeni şemada çalışır** (ADR 0031 §8 expand): kayıt `identity_id NULL` ile satır yazar,
 oturum `authenticated_at`'i varsayılandan alır; `tappa_app`'ın `admin_users` okuması sütun listesine
 indi ama bugünkü hiçbir sorgu o listenin dışını okumaz
