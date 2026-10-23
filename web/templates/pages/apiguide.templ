@@ -12,11 +12,16 @@ import "github.com/atknatk/tappa/web/templates/layout"
 // to http(s), this site or this page; the body is the one block on this page written without
 // escaping, and only that package can produce it (apiguide.Guide's body is unexported).
 //
-// LAYOUT. On a phone, a tablet and a small laptop the page is one centred column of at most
-// 48 rem, and the guide's own contents list, right after the title, is the
-// table of contents (its links are 44 px touch targets: the scoped rules in input.css). From the
-// extra-large breakpoint up a sticky side navigation lists the sections and subsections in the
-// left margin, and the text column stays centred. Tables and code blocks scroll inside their own
+// LAYOUT. The page sits in the public chrome's box (PublicBodyFrame), the one the legal
+// documents use, so its left edge is the wordmark's at every width (LP-14). On a phone, a
+// tablet and a small laptop it is one column of at most 48 rem from that edge, and the guide's
+// own contents list, right after the title, is the table of contents (its links are 44 px touch
+// targets: the scoped rules in input.css). From the extra-large breakpoint up a sticky side
+// navigation of at most 14 rem lists the sections and subsections first, at that edge, and the
+// text column follows it -- the legal page's shape, a document list and then the document.
+// Until LP-14 the column was centred in the window and the navigation hung in the margin to
+// its left, so neither started where the wordmark does (a 1440 px window: the navigation at
+// 80 px, the title at 336, the wordmark at 170). Tables and code blocks scroll inside their own
 // box (input.css), so the page itself never scrolls sideways.
 //
 // THE SIDE NAVIGATION STICKS BELOW THE HEADER. The public header sticks too (69 px tall from the
@@ -34,8 +39,8 @@ import "github.com/atknatk/tappa/web/templates/layout"
 templ APIGuide(v APIGuideView) {
 	@layout.MarketingTranslated(v.pageTitle(), layout.RobotsPublic, v.alternates(), v.Share) {
 		@PublicChrome(PublicChromeOpts{Current: v.path(), SignInHref: v.SignInHref, SignupHref: v.SignupHref, OwnRoots: true, InstantScroll: true}) {
-			<article class="px-4 py-10 sm:py-14" lang={ v.lang() }>
-				<div class="mx-auto w-full max-w-3xl xl:grid xl:max-w-none xl:grid-cols-[minmax(0,1fr)_minmax(0,48rem)_minmax(0,1fr)] xl:gap-8">
+			<article class={ PublicBodyFrame + " py-10 sm:py-14" } lang={ v.lang() }>
+				<div class="w-full max-w-3xl xl:grid xl:max-w-none xl:grid-cols-[minmax(0,14rem)_minmax(0,48rem)] xl:gap-8">
 					@apiGuideSideNav(v)
 					<div class="min-w-0">
 						<p class="docket-label">{ v.say("Integration API", "Entegrasyon API'si") }</p>
@@ -78,7 +83,7 @@ templ apiGuideLinks(v APIGuideView) {
 // apiGuideSideNav lists the guide's sections beside it on a wide screen. It is not drawn on a
 // narrower one: there the guide's own contents list is at the top of the page.
 templ apiGuideSideNav(v APIGuideView) {
-	<nav class="hidden xl:block xl:w-full xl:max-w-56 xl:justify-self-end" aria-label={ v.say("On this page", "Bu sayfada") }>
+	<nav class="hidden xl:block xl:w-full xl:max-w-56" aria-label={ v.say("On this page", "Bu sayfada") }>
 		<div class="sticky top-[93px] max-h-[calc(100vh-117px)] overflow-y-auto pr-2">
 			<p class="docket-label">{ v.say("On this page", "Bu sayfada") }</p>
 			<ul class="mt-3 flex flex-col text-sm">

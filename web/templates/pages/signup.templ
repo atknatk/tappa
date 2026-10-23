@@ -59,16 +59,18 @@ templ signupPage(title string, p signupProgress, share layout.Share) {
 	}
 }
 
+// signupSectionClass is the public chrome's box (PublicBodyFrame) and the screen's
+// vertical space.
 func signupSectionClass(progress bool) string {
 	if progress {
-		return "px-4 pb-10 md:px-7 md:pb-12 md:pt-7 desk:px-4 desk:pb-16 desk:pt-10"
+		return PublicBodyFrame + " pb-10 md:pb-12 md:pt-7 desk:pb-16 desk:pt-10"
 	}
-	return "px-4 pb-10 pt-6 md:px-7 md:pb-12 md:pt-7 desk:px-4 desk:pb-16 desk:pt-10"
+	return PublicBodyFrame + " pb-10 pt-6 md:pb-12 md:pt-7 desk:pb-16 desk:pt-10"
 }
 
 func signupGridClass(progress bool) string {
 	if progress {
-		return "mx-auto flex w-full max-w-6xl flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,360px)_minmax(0,680px)] desk:items-start desk:gap-10"
+		return "flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,360px)_minmax(0,680px)] desk:items-start desk:gap-10"
 	}
 	return "mx-auto flex w-full max-w-[680px] flex-col gap-6"
 }

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -527,5 +528,162 @@ func TestPublicChrome_TheHeaderAndThePhoneBarStick(t *testing.T) {
 	still := strings.Replace(css, ".lp.lp-topStill{background:transparent;position:relative;", ".lp.lp-topStill{background:transparent;position:sticky;", 1)
 	if still == css || len(stickProblems(still)) == 0 {
 		t.Error("CONTROL: a sign-up header root that sticks passed")
+	}
+}
+
+// chromeBox is one breakpoint of the chrome's box: the left padding and the max width
+// ("" when the box has none), as CSS values with their spaces removed.
+type chromeBox struct{ left, maxWidth string }
+
+// chromeBreakpoints are the media contexts the chrome's box changes in (input.css, THE
+// PUBLIC CHROME): the phone, the tablet and the desk widths.
+var chromeBreakpoints = []string{"", "@media (min-width: 768px)", "@media (min-width: 1200px)"}
+
+// paddingLeft is the left component of a padding shorthand (1 to 4 values, top-level
+// spaces only, so a clamp() is one value).
+func paddingLeft(v string) string {
+	var parts []string
+	depth, from := 0, 0
+	for i, c := range v {
+		switch c {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case ' ':
+			if depth == 0 {
+				if s := strings.TrimSpace(v[from:i]); s != "" {
+					parts = append(parts, s)
+				}
+				from = i + 1
+			}
+		}
+	}
+	if s := strings.TrimSpace(v[from:]); s != "" {
+		parts = append(parts, s)
+	}
+	switch len(parts) {
+	case 1:
+		return parts[0]
+	case 2, 3:
+		return parts[1]
+	case 4:
+		return parts[3]
+	}
+	return ""
+}
+
+// chromeBoxes is the box sel draws at each of chromeBreakpoints in css, each breakpoint
+// inheriting what the narrower one set.
+func chromeBoxes(css, sel string) []chromeBox {
+	var out []chromeBox
+	cur := chromeBox{}
+	for _, media := range chromeBreakpoints {
+		d := cssDecls(css, media, sel)
+		if p, ok := d["padding"]; ok {
+			cur.left = strings.ReplaceAll(paddingLeft(p), " ", "")
+		}
+		if m, ok := d["max-width"]; ok {
+			cur.maxWidth = m
+		}
+		out = append(out, cur)
+	}
+	return out
+}
+
+// frameBoxes is the box a utility class list draws at each of chromeBreakpoints: px-N is
+// N quarter rems (Tailwind's spacing scale, 4 px each), px-[x] and max-w-[x] are x.
+func frameBoxes(classes string) []chromeBox {
+	prefix := map[string]int{"": 0, "md:": 1, "desk:": 2}
+	set := make([]chromeBox, len(chromeBreakpoints))
+	has := make([][2]bool, len(chromeBreakpoints))
+	for _, c := range strings.Fields(classes) {
+		bp, rest := "", c
+		for _, p := range []string{"md:", "desk:"} {
+			if strings.HasPrefix(c, p) {
+				bp, rest = p, strings.TrimPrefix(c, p)
+			}
+		}
+		i := prefix[bp]
+		switch {
+		case strings.HasPrefix(rest, "px-["):
+			set[i].left, has[i][0] = strings.TrimSuffix(strings.TrimPrefix(rest, "px-["), "]"), true
+		case strings.HasPrefix(rest, "px-"):
+			if n, err := strconv.Atoi(strings.TrimPrefix(rest, "px-")); err == nil {
+				set[i].left, has[i][0] = fmt.Sprintf("%dpx", n*4), true
+			}
+		case strings.HasPrefix(rest, "max-w-["):
+			set[i].maxWidth, has[i][1] = strings.TrimSuffix(strings.TrimPrefix(rest, "max-w-["), "]"), true
+		}
+	}
+	var out []chromeBox
+	cur := chromeBox{}
+	for i := range chromeBreakpoints {
+		if has[i][0] {
+			cur.left = set[i].left
+		}
+		if has[i][1] {
+			cur.maxWidth = set[i].maxWidth
+		}
+		out = append(out, cur)
+	}
+	return out
+}
+
+// bodyFrameProblems says how frame departs from the box the header's row and the
+// footer's columns draw in css, breakpoint by breakpoint, or that it is not centred.
+func bodyFrameProblems(css, frame string) []string {
+	var out []string
+	if !slices.Contains(strings.Fields(frame), "mx-auto") {
+		out = append(out, fmt.Sprintf("%q is not centred (mx-auto); the chrome's box is", frame))
+	}
+	got := frameBoxes(frame)
+	for _, sel := range []string{".lp .lp-headIn", ".lp .lp-footIn"} {
+		want := chromeBoxes(css, sel)
+		for i, media := range chromeBreakpoints {
+			if want[i].left == "" {
+				out = append(out, fmt.Sprintf("PREMISE: %s sets no padding by %q", sel, media))
+				continue
+			}
+			if got[i] != want[i] {
+				out = append(out, fmt.Sprintf("at %q the body frame is left %s, max %q; %s is left %s, max %q",
+					media, got[i].left, got[i].maxWidth, sel, want[i].left, want[i].maxWidth))
+			}
+		}
+	}
+	return out
+}
+
+// TestPublicBodyFrame_IsTheChromeBox (LP-14): the pages whose body is written in utility
+// classes (sign-up, the legal documents, the integration guide) put it in
+// pages.PublicBodyFrame, and that frame is the header's and the footer's own box at every
+// width -- the same left padding at the phone, tablet and desk widths and the same
+// 1180 px at the desk -- so the body's left edge is the wordmark's. Read from the source
+// rules and the class list, not from a browser; the edges were measured in Chrome (LP-14
+// report). CONTROL: the frame as it was before (28 px on a tablet, 72rem), and a header
+// moved to 28 px, are refused.
+func TestPublicBodyFrame_IsTheChromeBox(t *testing.T) {
+	t.Parallel()
+	css := repoFile(t, "web", "static", "css", "input.css")
+	for _, p := range bodyFrameProblems(css, pages.PublicBodyFrame) {
+		t.Error(p)
+	}
+	r := marketingRouter(t)
+	for _, u := range append([]string{signupPath}, chromeOnlyURLs()...) {
+		main := between(mustFetchMarketing(t, r, u), `<main id="main">`, "</main>")
+		if !strings.Contains(main, `class="`+pages.PublicBodyFrame+` `) {
+			t.Errorf("GET %s: the body is not in pages.PublicBodyFrame", u)
+		}
+	}
+	if len(bodyFrameProblems(css, "mx-auto w-full px-4 md:px-7 desk:px-4")) == 0 {
+		t.Error("CONTROL: the frame before LP-14 passed")
+	}
+	moved := strings.Replace(css, ".lp .lp-headIn { height: auto; min-height: 68px; gap: 12px; padding: 0 40px; }",
+		".lp .lp-headIn { height: auto; min-height: 68px; gap: 12px; padding: 0 28px; }", 1)
+	if moved == css {
+		t.Fatal("PREMISE: the control cannot find the header's tablet rule")
+	}
+	if len(bodyFrameProblems(moved, pages.PublicBodyFrame)) == 0 {
+		t.Error("CONTROL: a header moved to 28 px on a tablet passed")
 	}
 }

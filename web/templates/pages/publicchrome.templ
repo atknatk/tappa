@@ -88,6 +88,20 @@ templ PublicChrome(c PublicChromeOpts) {
 	}
 }
 
+// PublicBodyFrame is the box a body written in the product's utility classes sits in —
+// sign-up, the legal documents and the integration guide, the pages that ask for
+// OwnRoots — so the body's left edge is the wordmark's (LP-14). It is the header's and
+// the footer's own box (input.css, THE PUBLIC CHROME) spelled in utilities, because
+// those bodies stay outside every .lp root: 16 px a side on the phone, 40 px from the
+// tablet, and from the desk width at most 1180 px wide, centred, with
+// clamp(16px, 3vw, 40px) a side. Before it the legal and sign-up bodies were at most
+// 1152 px, centred, with 16 or 28 px a side, and their left edge sat 22 to 26 px left of
+// the wordmark's on a desk (1200 and 1440 px windows) and 12 px left of it on a tablet
+// (measured in Chrome).
+// TestPublicBodyFrame_IsTheChromeBox holds the two descriptions equal; the vertical
+// space stays each page's own.
+const PublicBodyFrame = "mx-auto w-full px-4 md:px-10 desk:max-w-[1180px] desk:px-[clamp(16px,3vw,40px)]"
+
 // publicChromeInRoot is the chrome inside the caller's own .lp root.
 templ publicChromeInRoot(c PublicChromeOpts) {
 	<a class="lp-skip" href="#main">Skip to content</a>
