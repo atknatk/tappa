@@ -42,9 +42,9 @@ info:
     UID. Instants are RFC 3339 in UTC with at most microsecond precision.
 
     Compatibility within version 1: a field may be added to an answer or a webhook body -- ignore a
-    field you do not know (the punch schemas are open: additionalProperties true). Removing a field,
-    renaming one or changing what a value means is a new version. Request bodies stay closed: a field
-    the endpoint does not take is 422 `unknown_field`.
+    field you do not know (every answer and webhook schema is open: additionalProperties true).
+    Removing a field, renaming one or changing what a value means is a new version. Request bodies
+    stay closed: a field the endpoint does not take is 422 `unknown_field`.
   x-limits:
     requestsPerAddressPerMinute: 1200
     requestsPerKeyPerMinute: 600
@@ -937,7 +937,7 @@ components:
           description: Optional. When present it must be the reference in the path.
     Location:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [id, externalRef, name, timezone, active, createdAt]
       properties:
         id:
@@ -987,7 +987,7 @@ components:
           description: Optional. When present it must be the reference in the path.
     Employee:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [id, externalRef, employeeCode, firstName, lastName, fullName, active, activated, activatedAt, hasEmail, activationEmail, createdAt, updatedAt]
       properties:
         id:
@@ -1019,7 +1019,7 @@ components:
           description: Whether an e-mail address is on file. The address itself is never answered.
         activationEmail:
           type: object
-          additionalProperties: false
+          additionalProperties: true
           required: [status, at]
           properties:
             status:
@@ -1182,7 +1182,7 @@ components:
           description: The plaque touched (also for a QR punch).
     Ping:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [event, id, sentAt]
       properties:
         event:
@@ -1212,7 +1212,7 @@ components:
           description: The feed held more than this page when it was read; read on.
     EmployeePage:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [data, nextCursor]
       properties:
         data:
@@ -1224,7 +1224,7 @@ components:
           description: Set when the page is full (it holds `limit` employees); null on a shorter page, the last.
     DirectoryEntry:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [id, company, externalRef, employeeCode, firstName, lastName, fullName, active, updatedAt]
       properties:
         id:
@@ -1255,7 +1255,7 @@ components:
           description: When a directory field of the employee last changed (UTC).
     DirectoryPage:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [data, nextCursor, hasMore, asOf]
       properties:
         data:
@@ -1274,7 +1274,7 @@ components:
           description: The walk's clock (UTC), the same on each of its pages. After the last page, the next walk's `updatedSince`.
     Error:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [code, message, details]
       properties:
         code:
@@ -1287,7 +1287,7 @@ components:
           $ref: "#/components/schemas/ErrorDetails"
     ErrorDetails:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       description: Machine-readable specifics; may be empty. Every key is optional; none repeats a value the request sent.
       properties:
         field:

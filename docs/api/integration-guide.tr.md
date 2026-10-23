@@ -1170,4 +1170,4 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 |---|---|---|
 | 1 | 2026-10-16 | API sürüm 1 için ilk baskı. |
 | 2 | 2026-10-18 | §1.4 sandbox'ı anlatır: `tt_test_` anahtarlar, kendi operatörü, e-posta yok ve dokunuş simülasyonu (alan adı henüz seçilmedi). |
-| 3 | 2026-10-22 | §6.3: bir punch `directionSource`'u (`auto` \| `employee` \| `null`) taşır — `direction`'ını kimin seçtiği. Örnekler ve imzanın bilinen cevabı onu taşır. §3: sürüm 1 içinde yanıtlara ve webhook gövdelerine alan eklenebilir — tanımadığınızı yok sayın. 1. ve 2. baskının yanıt şemaları kapalıydı (`additionalProperties: false`); bu baskı punch'ınkileri açar (`Punch`, `PunchDelivery`, `PunchEmployee`, `PunchLocation`, `PunchPage`). |
+| 3 | 2026-10-22 | §6.3: bir punch `directionSource`'u (`auto` \| `employee` \| `null`) taşır — `direction`'ını kimin seçtiği. Örnekler ve imzanın bilinen cevabı onu taşır. §3: sürüm 1 içinde yanıtlara ve webhook gövdelerine alan eklenebilir — tanımadığınızı yok sayın. 1. ve 2. baskının yanıt şemaları kapalıydı (`additionalProperties: false`); bu baskı bütün yanıt ve webhook şemalarını açar; istek gövdeleri kapalı kalır. |

@@ -143,7 +143,8 @@ var (
 // A client that validated answers against editions 1-2's document, whose punch schemas were closed
 // (additionalProperties: false), would refuse any added field: since edition 3 the punch schemas are
 // open and the rule is written (the guide's §3, ADR 0028 §8's K note of 2026-10-23 -- within v1 an
-// answer may gain fields, ignore the ones you do not know). The schemas below are held open.
+// answer may gain fields, ignore the ones you do not know). The document's schemas are held to the
+// rule by TestOpenAPI_EveryAnswerSchemaIsOpenEveryRequestClosed.
 func TestPunches_AV1ClientReadsAPunchWithoutKnowingDirectionSource(t *testing.T) {
 	w := newPunchWorld(t)
 	row := own(w.kf, "nfc", "out")
@@ -212,14 +213,8 @@ func TestPunches_AV1ClientReadsAPunchWithoutKnowingDirectionSource(t *testing.T)
 			t.Errorf("%s does not document directionSource", schema)
 		}
 	}
-	// The rule on the document (2026-10-23): the punch's answer schemas are open, the request bodies
-	// stay closed (422 unknown_field).
-	for schema, open := range map[string]bool{"Punch": true, "PunchDelivery": true, "PunchEmployee": true, "PunchLocation": true,
-		"PunchPage": true, "LocationPut": false, "EmployeePut": false} {
-		if ap, _ := yat(doc, "components", "schemas", schema, "additionalProperties"); ap != open {
-			t.Errorf("%s's additionalProperties is %v, want %v", schema, ap, open)
-		}
-	}
+	// The rule on the document -- every answer schema open, every request closed -- is
+	// TestOpenAPI_EveryAnswerSchemaIsOpenEveryRequestClosed's, for every schema.
 	punchSchema, _ := yat(doc, "components", "schemas", "Punch")
 	checker := schemaChecker{doc: doc}
 	if errs := checker.check(punchSchema, item, "the answer"); len(errs) > 0 {

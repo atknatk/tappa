@@ -1158,4 +1158,4 @@ explained.
 |---|---|---|
 | 1 | 2026-10-16 | The first edition, for API version 1. |
 | 2 | 2026-10-18 | §1.4 describes the sandbox: `tt_test_` keys, its own operator, no e-mail, and the tap simulation (its domain is not chosen yet). |
-| 3 | 2026-10-22 | §6.3: a punch carries `directionSource` (`auto` \| `employee` \| `null`) — who chose its `direction`. The examples and the signature's known answer carry it. §3: within version 1 answers and webhook bodies can gain fields — ignore one you do not know. The answer schemas of editions 1 and 2 were closed (`additionalProperties: false`); this edition opens the punch's (`Punch`, `PunchDelivery`, `PunchEmployee`, `PunchLocation`, `PunchPage`). |
+| 3 | 2026-10-22 | §6.3: a punch carries `directionSource` (`auto` \| `employee` \| `null`) — who chose its `direction`. The examples and the signature's known answer carry it. §3: within version 1 answers and webhook bodies can gain fields — ignore one you do not know. The answer schemas of editions 1 and 2 were closed (`additionalProperties: false`); this edition opens every answer and webhook schema; request bodies stay closed. |
