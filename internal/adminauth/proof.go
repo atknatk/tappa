@@ -29,7 +29,7 @@ import (
 //
 // WHAT Issue DOES WITH IT: it reads the row's CURRENT digest inside the session's transaction,
 // checks the proof against it in constant time, and hands that digest to CreateAdminSession. The
-// proof covers the time from the comparison to that read; the statement's predicate and FOR SHARE
+// proof covers the time from the comparison to that read; the statement's predicate and FOR NO KEY UPDATE
 // cover the time from that read to the write.
 //
 // IT IS A VALUE TYPE (an array, no pointer), so two Verified values compare equal exactly when

@@ -116,20 +116,29 @@
 -- returned.
 --
 -- THE SESSION IS WRITTEN ONLY WHILE THE ROW STILL CARRIES THE DIGEST THE PASSWORD WAS
--- VERIFIED AGAINST, UNDER THE ROW'S SHARE LOCK (ADR 0031 §5.2, identity_unlink_backfilled's
+-- VERIFIED AGAINST, UNDER A LOCK ON THE ROW (ADR 0031 §5.2, identity_unlink_backfilled's
 -- row; M14-07). tappa_app cannot read admin_users.unlinked_at (R16), so this statement cannot
 -- see that a membership was refused between the password comparison and this write -- but
 -- the refusal writes a SENTINEL digest in the same transaction, and a password change or a
 -- reset writes a new one, so `a.password_hash = @verified_digest` says "nothing rewrote this
 -- row's credential since it verified". @verified_digest is the digest internal/adminauth
--- compared the typed password with (never a value from a request). FOR SHARE OF a is what
+-- compared the typed password with (never a value from a request). FOR NO KEY UPDATE OF a is what
 -- makes the predicate hold against a CONCURRENT refusal: without it a write that started
 -- while the refusal's transaction was open read the old row version and left a live session
 -- on the refused row (measured on 17.10, M14-05's audit); with it the write waits for the
 -- refusal, READ COMMITTED re-evaluates the predicate on the committed version, and the answer
 -- is 0 rows. The lock needs an UPDATE privilege on admin_users -- tappa_app's UPDATE (status)
 -- (00017) -- and FORCE RLS applies the UPDATE policy's USING to the locked row as well
--- (internal/db's adminsessiondigest_test.go measures both). The old binary's statement
+-- (internal/db's adminsessiondigest_test.go measures both).
+--
+-- NO KEY UPDATE, NOT SHARE (2026-10-23, M14-07's audit, measured 86/120 deadlocks): Issue runs
+-- MarkAdminLoggedIn -- an UPDATE of this same row -- in the same transaction, so a SHARE lock
+-- had to be upgraded, and two concurrent sign-ins of one admin (a double click) each held SHARE
+-- and waited for the other's: 40P01, a 500. FOR NO KEY UPDATE is the lock that UPDATE takes
+-- anyway, so there is no upgrade (0/120); it still conflicts with the refusal's FOR UPDATE, and
+-- it does not block the foreign-key checks (KEY SHARE) of other sessions being written.
+--
+-- The old binary's statement
 -- (without the two) keeps working on the same schema: this is a change of the new binary's
 -- query text alone.
 INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash)
@@ -139,7 +148,7 @@ WHERE a.id = @admin_user_id
   AND a.tenant_id = @tenant_id
   AND a.status = 'active'
   AND a.password_hash = @verified_digest::text
-FOR SHARE OF a
+FOR NO KEY UPDATE OF a
 RETURNING id, tenant_id, admin_user_id, created_at, last_used_at, revoked_at;
 
 -- name: TouchAdminSession :one

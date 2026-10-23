@@ -527,3 +527,43 @@ func TestAuthenticatePerson_ARefusedLinkLeavesNoProofSession(t *testing.T) {
 		t.Fatalf("the refused link's proof session is still live")
 	}
 }
+
+// TestIssue_ConcurrentSignInsOfOneAdminDoNotDeadlock: Issue's CreateAdminSession locks the admin row
+// and MarkAdminLoggedIn then UPDATEs it in the same transaction. With FOR SHARE that was a lock
+// upgrade, and two concurrent sign-ins of one admin (a double click) deadlocked -- 40P01, a 500 on
+// today's login path (M14-07's audit: 86/120). With FOR NO KEY UPDATE every one of N concurrent
+// Issues of the same Verified succeeds. MUTATION: back to FOR SHARE -> red.
+func TestIssue_ConcurrentSignInsOfOneAdminDoNotDeadlock(t *testing.T) {
+	d := testDB(t)
+	m := testManager(t, d)
+	ctx := context.Background()
+	tenantID := newTenantRow(t, d, "M14-07 Double Click Ltd")
+	email := randEmail(t)
+	admin := newAdminRow(t, d, tenantID, email, "the-right-password", "active", "owner", "Owner")
+	auth, err := m.Authenticate(ctx, email, "the-right-password")
+	if err != nil || len(auth.Verified()) != 1 {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	v := auth.Verified()[0]
+	const n = 8
+	for round := 0; round < 5; round++ {
+		errs := make(chan error, n)
+		start := make(chan struct{})
+		for i := 0; i < n; i++ {
+			go func() {
+				<-start
+				_, err := m.Issue(ctx, v)
+				errs <- err
+			}()
+		}
+		close(start)
+		for i := 0; i < n; i++ {
+			if err := <-errs; err != nil {
+				t.Fatalf("round %d: a concurrent Issue of the same admin failed: %v", round, err)
+			}
+		}
+	}
+	if got := countSessions(t, d, tenantID, admin); got != 5*n {
+		t.Fatalf("%d sessions, want %d", got, 5*n)
+	}
+}

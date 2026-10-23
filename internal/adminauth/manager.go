@@ -764,7 +764,7 @@ type Issued struct {
 // 🔴 AND THE SESSION IS WRITTEN ONLY WHILE THE ROW STILL CARRIES THE DIGEST THE PASSWORD VERIFIED
 // AGAINST (ADR 0031 §5.2, M14-07). v.Proof binds v to that digest (proof.go); inside the session's
 // transaction the row's CURRENT digest is read, the proof is checked against it in constant time,
-// and that digest becomes CreateAdminSession's @verified_digest -- whose predicate and FOR SHARE OF a
+// and that digest becomes CreateAdminSession's @verified_digest -- whose predicate and FOR NO KEY UPDATE OF a
 // refuse a row whose credential changed between the read and the write (a membership refused from
 // an identity, a password change, a reset). A Verified without a proof is refused: the zero value is
 // the harmful direction here, so it fails closed.

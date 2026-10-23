@@ -17,15 +17,16 @@ import (
 // adminsessiondigest_test.go -- CreateAdminSession's two M14-07 additions (ADR 0031 §5.2,
 // identity_unlink_backfilled's row; db/queries/admins.sql): the session is written only while the
 // row still carries the digest the password verified against (`a.password_hash = @verified_digest`),
-// under the row's share lock (`FOR SHARE OF a`). tappa_app cannot read unlinked_at (R16); the
+// under a lock on the row (`FOR NO KEY UPDATE OF a` -- not FOR SHARE, which deadlocked against
+// Issue's own MarkAdminLoggedIn, see (4)). tappa_app cannot read unlinked_at (R16); the
 // refusal's sentinel digest is what this statement can see.
 //
 //	(1) the refusal commits between the comparison and the write -> 0 rows, no session
 //	    (mutation: drop the predicate -> red)
 //	(2) the refusal's transaction is OPEN when the write starts and commits while it waits
-//	    -> 0 rows, no live session (mutation: drop FOR SHARE -> red: the write reads the old row
+//	    -> 0 rows, no live session (mutation: drop the row lock -> red: the write reads the old row
 //	    version, waits only in its foreign-key check, and inserts after the refusal committed)
-//	(3) the share lock is tappa_app's to take under FORCE RLS: UPDATE (status) is its only UPDATE on
+//	(3) the row lock is tappa_app's to take under FORCE RLS: UPDATE (status) is its only UPDATE on
 //	    admin_users and is enough, and the policy that guards an UPDATE (the tenant isolation policy,
 //	    FOR ALL) hides another business's row from the lock as from the read.
 //
@@ -106,7 +107,7 @@ func TestCreateAdminSession_RefusesARowWhoseDigestChangedSinceItVerified(t *test
 }
 
 // TestCreateAdminSession_WaitsForAnOpenUnlinkAndThenRefuses is test (2), the interleaving the
-// share lock exists for: the refusal's transaction is open (X locked, its sessions revoked,
+// row lock exists for: the refusal's transaction is open (X locked, its sessions revoked,
 // uncommitted) when the session write starts with the digest that verified; the write is SEEN
 // waiting on a lock before the refusal commits (pg_stat_activity, by application_name -- the
 // interleaving is real, not lucky); after the commit it answers 0 rows and X has no live session.
@@ -185,12 +186,12 @@ func TestCreateAdminSession_WaitsForAnOpenUnlinkAndThenRefuses(t *testing.T) {
 	}
 }
 
-// TestCreateAdminSession_TheShareLockIsTappaAppsUnderForceRLS is (3), measured rather than assumed:
+// TestCreateAdminSession_TheRowLockIsTappaAppsUnderForceRLS is (3), measured rather than assumed:
 // admin_users is FORCE RLS; tappa_app holds no table-level UPDATE and holds UPDATE (status) (00017),
 // which is what a row lock needs; the policy that applies to an UPDATE -- and so to the lock -- is
 // the tenant isolation policy (FOR ALL); and in tappa_app's own tenant the statement's locking read
 // returns the row while from another business's context it returns nothing.
-func TestCreateAdminSession_TheShareLockIsTappaAppsUnderForceRLS(t *testing.T) {
+func TestCreateAdminSession_TheRowLockIsTappaAppsUnderForceRLS(t *testing.T) {
 	ctx, tx := opTx(t)
 	var force, tableUpdate, statusUpdate bool
 	if err := tx.QueryRow(ctx, `SELECT c.relforcerowsecurity,
@@ -222,12 +223,12 @@ func TestCreateAdminSession_TheShareLockIsTappaAppsUnderForceRLS(t *testing.T) {
 
 	a, b := aiTenant(t, ctx, tx), aiTenant(t, ctx, tx)
 	row := aiAdmin(t, ctx, tx, a, aiEmail())
-	lock := `SELECT a.id FROM admin_users a WHERE a.id = $1 AND a.password_hash = $2 FOR SHARE OF a`
+	lock := `SELECT a.id FROM admin_users a WHERE a.id = $1 AND a.password_hash = $2 FOR NO KEY UPDATE OF a`
 	var got []uuid.UUID
 	if err := aiApp(t, ctx, tx, a, func(sp pgx.Tx) error {
 		return sp.QueryRow(ctx, lock, row, opFakeDigest("a")).Scan(new(uuid.UUID))
 	}); err != nil {
-		t.Fatalf("tappa_app's share lock on its own business's row: %v", err)
+		t.Fatalf("tappa_app's row lock on its own business's row: %v", err)
 	}
 	if err := aiApp(t, ctx, tx, b, func(sp pgx.Tx) error {
 		r, err := sp.Query(ctx, lock, row, opFakeDigest("a"))
@@ -237,7 +238,7 @@ func TestCreateAdminSession_TheShareLockIsTappaAppsUnderForceRLS(t *testing.T) {
 		got, err = pgx.CollectRows(r, pgx.RowTo[uuid.UUID])
 		return err
 	}); err != nil {
-		t.Fatalf("the share lock from another business's context: %v", err)
+		t.Fatalf("the row lock from another business's context: %v", err)
 	}
 	if len(got) != 0 {
 		t.Fatalf("from another business's context the lock reached %v", got)
