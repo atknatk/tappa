@@ -304,7 +304,7 @@ templ restaurantsForgot() {
 		<section id={ RestaurantsForgotID } class="lp-sec" aria-labelledby={ RestaurantsForgotID + "-title" }>
 			<div class="lp-wrap">
 				@restaurantsTitle(RestaurantsForgotID, "When someone forgets", RestaurantsCopy.ForgotHeading)
-				<ol class="lp-forSteps lp-forAfterTitle" aria-label={ RestaurantsForgotLabel }>
+				<ol class="lp-forSteps lp-forAfterTitle" role="list" aria-label={ RestaurantsForgotLabel }>
 					for i, s := range RestaurantsForgotSteps {
 						<li class="card lp-forStep">
 							if i > 0 {
@@ -333,7 +333,7 @@ templ restaurantsDayToDay() {
 		<section id={ RestaurantsDayID } class="lp-sec" aria-labelledby={ RestaurantsDayID + "-title" }>
 			<div class="lp-wrap">
 				@restaurantsTitle(RestaurantsDayID, "Day to day", RestaurantsCopy.CasesHeading)
-				<ul class="lp-forCases lp-forAfterTitle">
+				<ul class="lp-forCases lp-forAfterTitle" role="list">
 					for i, c := range RestaurantsCopy.Cases {
 						<li class="card lp-forCase">
 							<span class="lp-ico">
@@ -400,7 +400,7 @@ templ restaurantsHours() {
 					<div class="lp-forRoll">
 						<span class="lp-lbl">{ LandingPanelRoll.Title + " · sample" }</span>
 						@landingMiniRoll()
-						<ul class="lp-forLegend">
+						<ul class="lp-forLegend" role="list">
 							for i, w := range RestaurantsRollLegend {
 								<li>
 									if i == len(RestaurantsRollLegend)-1 {

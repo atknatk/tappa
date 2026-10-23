@@ -34,10 +34,12 @@ package pages
 //     are said the code's way in the sign-off (K6), and the board's wording is refused on
 //     every public page.
 //   - "Taptime never invents a check-out." (the heading over the forgotten check-out) is
-//     "An open check-in is not paid until a manager closes it.": no absence is derived
-//     here, and the person's own next tap DOES close an entry older than the engine's
-//     stale threshold (tap.StaleOpenIn) -- as a check-out with a note, which the report
-//     does not pay and lists as open. The bullet says exactly that.
+//     "A check-in left open for more than 18 hours is not counted until a manager closes
+//     it." (the hours from RestaurantsStaleHours): no absence is derived here, the
+//     person's own next tap DOES close an entry older than the engine's stale threshold
+//     (tap.StaleOpenIn) -- as a check-out with a note, which the report does not count
+//     and lists as open -- and a sooner tap closes it as an ordinary check-out whose hours
+//     count. The bullet says both, in the product's word ("count", not "pay").
 //   - "A venue's network only counts if the range is narrow enough to describe one
 //     place" is said in the security page's words ("stand for a single network"): the
 //     security review refused "describe one place" on every page.
@@ -346,12 +348,15 @@ func restaurantsCopy() RestaurantsText {
 				FactRollMarksWorkAtAnotherVenue),
 		},
 
-		ForgotHeading: l("An open check-in is not paid until a manager closes it.",
+		ForgotHeading: l("A check-in left open for more than "+itoa(RestaurantsStaleHours)+" hours is not counted "+
+			"until a manager closes it.",
 			FactForgottenCheckOutIsNotPaid, FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager),
 		ForgotBullets: []Line{
-			l("A check-in left open is not paid: a tap more than "+itoa(RestaurantsStaleHours)+" hours after it "+
-				"closes it with a note, The Roll lists it as open, and a manager enters the real check-out by hand.",
-				FactForgottenCheckOutIsNotPaid, FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager),
+			l("A tap more than "+itoa(RestaurantsStaleHours)+" hours after a check-in closes it with a note; The Roll "+
+				"lists the check-in as open and does not count it, and a manager enters the real check-out by hand. "+
+				"A tap sooner than that closes it as an ordinary check-out, and its hours count.",
+				FactForgottenCheckOutIsNotPaid, FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager,
+				FactDirectionFollowsLastOpenCheckIn),
 			l("The Roll says how many check-ins are open, and its week's figure says it is short by them.",
 				FactOpenCheckInIsListedNotCounted),
 		},

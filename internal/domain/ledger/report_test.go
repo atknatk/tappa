@@ -595,12 +595,14 @@ const (
 // says it is booked (LP-09):
 //
 //   - the overnight shift lands on the day it STARTED and at the venue it started at,
-//     all of it, and nothing on the next day;
+//     all of it, and nothing on the next day -- also when its closing tap is at another
+//     venue;
 //   - a shift started at a venue other than the person's home venue marks its day as
 //     another venue's and counts its hours like any other day's (the same shift at home
 //     counts the same and marks nothing);
-//   - a check-in closed by a tap more than tap.StaleOpenIn later is not paid and is
-//     listed as open, and the check-out a manager types closes it for pay.
+//   - a check-in closed by a tap more than tap.StaleOpenIn later is not counted and is
+//     listed as open, a sooner tap closes it as an ordinary check-out that counts, and
+//     the check-out a manager types closes it so it counts.
 //
 // The times are the page's (the consts above); internal/handler pins this function.
 func TestAccumulate_TheRestaurantsPagesWeek(t *testing.T) {
@@ -644,6 +646,16 @@ func TestAccumulate_TheRestaurantsPagesWeek(t *testing.T) {
 	if l.Marks[0].Other {
 		t.Error("the overnight shift at the person's own venue is marked as another venue's")
 	}
+	// The same night ended at another venue (the closing tap at KF Paceville): the hours
+	// still land at the venue where the shift STARTED.
+	paceville := uuid.MustParse("cccccccc-0000-4000-8000-000000000107")
+	moved := accumulate([]reportEvent{
+		ev(antoine, "Luke Borg", "in", day(0, restaurantsPageOvernightIn), atVenue(rusty, "Rusty Bar"), shift(nightShift()), home(rusty)),
+		ev(antoine, "Luke Borg", "out", day(1, restaurantsPageOvernightOut), atVenue(paceville, "KF Paceville"), shift(nightShift()), home(rusty)),
+	}, p, zone, after)
+	if len(moved.Venues) != 1 || moved.Venues[0].LocationID != rusty || moved.Venues[0].Worked != span {
+		t.Errorf("a night started at Rusty Bar and ended at KF Paceville books %+v, want %v at Rusty Bar", moved.Venues, span)
+	}
 
 	// The cover: Thursday at KF Msida for somebody whose home is KF St Julians, and the
 	// same shift at home.
@@ -677,6 +689,13 @@ func TestAccumulate_TheRestaurantsPagesWeek(t *testing.T) {
 	if f.Worked != 0 || left.Totals.TooLong != 1 || len(left.Open) != 1 || !left.Open[0].At.Equal(in.At) {
 		t.Errorf("the check-in left open: paid %v, too long %d, open %+v; want nothing paid and the 10:02 check-in listed as open",
 			f.Worked, left.Totals.TooLong, left.Open)
+	}
+	// A tap sooner than the threshold closes it as an ordinary check-out, and its hours count.
+	sooner := ev(maria, "Maria Vella", "out", day(0, restaurantsPageForgotOut), atVenue(hamrun, "KF Hamrun"), home(hamrun))
+	early := accumulate([]reportEvent{in, sooner}, p, zone, after)
+	if want := sooner.At.Sub(in.At); find(t, early, maria).Daily[0] != want || len(early.Open) != 0 || early.Totals.TooLong != 0 {
+		t.Errorf("a tap %v after the check-in: Monday %v, open %+v; want %v counted and nothing open",
+			sooner.At.Sub(in.At), find(t, early, maria).Daily[0], early.Open, want)
 	}
 	typed := ev(maria, "Maria Vella", "out", day(0, restaurantsPageForgotOut), atVenue(hamrun, "KF Hamrun"), home(hamrun), manual())
 	closed := accumulate([]reportEvent{in, typed, next}, p, zone, after)

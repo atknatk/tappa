@@ -253,7 +253,8 @@ func shiftDayViolation(s restaurantsFactSources) string {
 		return "accumulate no longer books a shift at the venue of its check-in"
 	}
 	return ledgerWeekProblem(s.LedgerTest, "l.Daily[0] != span || l.Daily[1] != 0",
-		"rep.Venues[0].LocationID != rusty || rep.Venues[0].Worked != span")
+		"rep.Venues[0].LocationID != rusty || rep.Venues[0].Worked != span",
+		"moved.Venues[0].LocationID != rusty || moved.Venues[0].Worked != span")
 }
 
 var (
@@ -397,6 +398,7 @@ func forgotViolation(s restaurantsFactSources) string {
 	}
 	return ledgerWeekProblem(s.LedgerTest, "gap <= tap.StaleOpenIn",
 		"f.Worked != 0 || left.Totals.TooLong != 1 || len(left.Open) != 1", "manual())",
+		"find(t, early, maria).Daily[0] != want || len(early.Open) != 0",
 		"c.Daily[0] != want || len(closed.Open) != 0")
 }
 
@@ -1169,6 +1171,7 @@ var restaurantsRefusedPhrasings = map[string]string{
 	"never invents a check-out":                   "no absence is derived, and a late next tap closes an entry the report then reads as open",
 	"without being treated as a problem":          "The Roll marks the day and counts its hours; it judges nothing",
 	"hours of the venue where the person tapped:": "a department's own shift comes first (§5)",
+	"is not paid": "a sooner tap closes an open check-in as an ordinary check-out whose hours count, and the product counts hours, it pays nothing",
 }
 
 // TestRestaurantsPage_SaysNoneOfTheWithdrawnSentences: none of the board's withdrawn
