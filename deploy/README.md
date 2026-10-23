@@ -1937,6 +1937,58 @@ tüketimi tetikleyiciyle reddedilir (23001 → 500) — rollout penceresinde bir
 Down'ı `admin_identities`'te tek bir kimlik ya da bağlı / reddedilmiş tek bir satır varken **reddeder**
 (kimliğin tek kopyası ve bağlar düşerdi) — canlıda koşulmaz. Rol Down'la gitmez (küme nesnesi).
 
+### Backfill (M14-06) — `00073`
+
+Expand deploy'unun migrate Job'ında, rollout'tan **önce**, eski binary canlıyken koşar (ADR 0031 §5.8,
+§8). Her dolu e-posta grubuna bir kimlik doğar ve grubun **tek** satırı ona bağlanır
+(`linked_via='backfill'`, `linked_at=now()`): **en eski aktif** satır, aktif satır yoksa en eskisi
+(eşitlikte `tenant_id`, sonra `id`). Kimlik o satırın digest'iyle doğar; grubun öbür satırları
+bağlanmamış kalır; e-postasız (ya da boş) satıra kimlik yok. Migration `tappa_owner` ile koşar; ayrı bir
+adım yok.
+
+- **Rol iddiası:** koşan rol superuser ya da BYPASSRLS değilse dosya hiçbir şey yazmadan **hata** verir
+  (FORCE RLS altında 0 satır görüp "başarılı" kaydedilirdi). Canlıda `tappa_owner` `rolsuper = t`,
+  `rolbypassrls = t` (M14-02 ölçümü).
+- **Kapanış iddiası:** e-postalı satır varken bağlı satır 0 ise hata; boş veritabanı (CI, yeni
+  geliştirme veritabanı — migration seed'den önce koşar) koşulsuz geçer. Ayrıca: bağlı her satırın
+  digest'i kimliğinkine eşit, hiçbir kimlik iki backfill satırıyla bağlı değil.
+- **Kilit:** tablo kilidi yok; aday satırlar `id` sırasıyla `FOR UPDATE` kilitlenir, ifadenin kendi
+  `SET LOCAL lock_timeout = '1s'`'i altında. Bir satırı tutan bir yazarın arkasında 55P03 ile düşer —
+  hiçbir şey yazılmaz, Job `Failed`, rollout yapılmaz, sakin bir anda yeniden koşulur. Kilitten sonra
+  doğan satır (eski pod'un kaydı) M14-06b'nin (uzlaştırma) işidir. İfade sürerken aday satırlarda
+  girişin `last_login_at` UPDATE'i ve yeni oturum INSERT'inin yabancı anahtar denetimi (`FOR KEY SHARE`)
+  bekler; panel istekleri (`TouchAdminSession` `admin_users`'ı yalnız okur) beklemez — canlıda ~8 ms.
+- **Süre (M14-02 sayısıyla):** canlıda 4 `admin_users` satırı, 3 e-posta grubu (2 tekli, 1 çiftli) →
+  **3 kimlik, 3 bağlı satır, 1 aktif owner satırı bağlanmamış** (çiftli grubun yeni olanı — contract ön
+  koşulunun başlangıç değeri `05f` = 1). Ölçüm (bu dosyanın veritabanı, PostgreSQL 17, satırlar
+  yazıldıktan sonra `ANALYZE` yok — en kötü istatistik), backfill ifadesi = aday satırların kilitli
+  kaldığı süre: **4 satır 8 ms**, 3 000 satır (1 500 çift grup) 0,48 sn, 20 000 satır 3,9 sn —
+  doğrusal, yazmalar baskın. Tek transaction, bölme yok: canlının boyutunda bölmenin kazancı yok ve
+  kapanış iddiasını yazdığı satırlardan ayırırdı.
+- **Digest:** `admin_users`'taki bcrypt CHECK'i `NOT VALID`'dir (`00018`), `admin_identities`'teki
+  değil. Seçilen bir satırın digest'i bcrypt biçiminde değilse dosya **yalnız sayıyla** reddeder (INSERT'in
+  kendi hatası başarısız satırı — e-postayı — Job log'una basardı, CLAUDE.md §7). Canlıda 0 (`08i`).
+  Çözüm: o hesabın parolasını eski binary ile sıfırla, yeniden koş.
+- **Eski binary:** bağlı satırlardaki parola değişimi / sıfırlama tüketimi rollout penceresinde
+  tetikleyiciyle 500 alır (yukarıdaki adlandırılmış bedel); backfill satırların parolasına ve
+  e-postasına dokunmaz, tetikleyici onu durdurmaz.
+
+Sonrası (salt-okur, yalnız sayı; `tappa_owner`):
+
+```sql
+SELECT (SELECT count(*) FROM admin_identities)                               AS identities,
+       (SELECT count(*) FROM admin_users WHERE linked_via = 'backfill')      AS backfill_links,
+       (SELECT count(*) FROM admin_users
+         WHERE email IS NOT NULL AND btrim(email::text) <> '' AND identity_id IS NULL) AS unlinked_with_email;
+```
+
+beklenen (2026-10-22 sayılarıyla): `3|3|1`.
+
+**Down:** yalnız `linked_via='backfill'` satırlarını çözer ve yalnız onların kimliklerini siler. O
+kimliklerden biri backfill'den sonra **yaşamışsa** (başka yolla bağlanmış bir satır, ret damgası,
+doğrulanmış adres, onay penceresi, giriş, son kullanılan işletme ya da başka bir tablodan ona işaret eden
+satır) hiçbir şeyi değiştirmeden **reddeder** — geri dönüş önceki binary'dir (ADR 0031 §8).
+
 ---
 
 ## Webhook (M11 API-9) — `TAPPA_WEBHOOK_KEK` ve düğüm/ingress adres listesi
@@ -4159,10 +4211,11 @@ eski satırların kalıba uyup uymadığını sayar, çünkü `admin_identities.
 taşıyacak ve backfill seçilen satırın digest'ini kopyalayacak.
 
 **Gruplama anahtarı backfill'inkiyle bire bir değil.** Sorgu `NULLIF(btrim(lower(email)), '')` ile
-gruplar; backfill citext eşitliği ve `email IS NOT NULL` ile gruplar. İkisi yalnız boş dize ve
-baş-son boşluklu adreslerde ayrışır: **`01c` / `01d` ≠ 0 ise `08a` / `05f` backfill'le uyuşmaz.**
-2026-10-22'de ikisi de 0'dı, yani aşağıdaki sayılar backfill'in göreceğiyle aynıdır. (Kaydedilen
-sayılar bu SQL'in çıktısı olduğu için SQL değiştirilmedi.)
+gruplar; backfill (`00073`) citext eşitliğiyle ve yalnız dolu e-postayla (`email IS NOT NULL AND
+btrim(email) <> ''`) gruplar — boş ya da yalnız boşluktan oluşan adresi ikisi de dışarıda bırakır. İkisi
+artık yalnız baş-son boşluklu adreslerde ayrışır (sorgu kırpar, backfill kırpmaz): **`01d` ≠ 0 ise
+`08a` / `05f` backfill'le uyuşmaz.** 2026-10-22'de 0'dı, yani aşağıdaki sayılar backfill'in
+göreceğiyle aynıdır. (Kaydedilen sayılar bu SQL'in çıktısı olduğu için SQL değiştirilmedi.)
 
 `m14-02-measure.sql` (metnin tamamı):
 

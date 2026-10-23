@@ -162,6 +162,9 @@ var opAtVersionSkips = map[int]string{
 	72: "the identity reset, verification and event tables, resolve_admin_by_email's redefinition and the identity_* " +
 		"writers (M14-05) -- no operator object; its Down takes ACCESS EXCLUSIVE on admin_users and the three tables, " +
 		"and refuses while one of them holds a row or a membership is refused",
+	73: "the admin identity backfill (M14-06) -- no operator object; data only: its Up links rows and births " +
+		"identities, its Down unlinks the backfill's rows and deletes their identities, and refuses while one of " +
+		"them has lived",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file
