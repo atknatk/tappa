@@ -441,6 +441,12 @@ dolu e-posta = 0, reddedilmişler hariç; bağlı satırda digest uyuşmazlığ�
   adıyla yazılır (`manager.go:251-292`'nin iki-bacak dürüstlüğü).
 - Başarısız kimlik girişi `identity_record_failed_login` ile, kimlik başına kova (aşınca tek
   `FirstOverLimit` satırı); log'da e-posta yok.
+- **Eski kolun oturum yazımı doğrulanan digest'e koşulludur** (ADR 0031 §5.2, `identity_unlink_backfilled`
+  satırı): `CreateAdminSession`'ın `INSERT … SELECT`'i `a.password_hash = <doğrulanan digest>` yüklemini
+  taşır (`tappa_app` `password_hash`'i okur). Çözme nöbetçi digest'i aynı transaction'da yazdığından,
+  doğrulama ile oturum yazımı arasında commit olan bir çözme 0 satır verir; aradaki bir parola değişikliği
+  de girişi reddeder. Test fikri: `Verify` ile `CreateAdminSession` arasında çözme commit edilir → 0 satır,
+  oturum yok. Mutasyon: yüklem silinince kırmızı.
 
 ## M14-08 — Oturum işlemleri, bayrak, dual-write
 
@@ -827,7 +833,7 @@ açabilirdi): `identity_unlink_backfilled`'ın yeni gövdesi `identity_id`'yi ko
 `identity_open_session` ve yeniden tanımlanan `resolve_admin_by_email` `unlinked_at IS NULL` süzer;
 `TouchAdminSession` süzmez (`tappa_app` `unlinked_at`'i okuyamaz, R16). Güvence: çözme o tenant'ın
 oturumlarını aynı transaction'da iptal eder, oturum **veren** her yol süzer, contract sonrasında
-`status='disabled'` (ADR 0031 §5.2). Oturum veren yollar çözümleme anında süzer; eski kolun `CreateAdminSession`'ı (`db/queries/admins.sql:117-123`) satırı yalnız `status = 'active'` ile yeniden okur, `unlinked_at`'e bakamaz (R16) — çözümleme ile oturum yazımı arasında bcrypt süresi kadar bir yarış penceresi kalır (tenant sınırı aşılmaz: oturum satırın kendi tenant'ındadır). Yükümlülük (M14-05/M14-18): çözme hedef satırı `FOR UPDATE` kilitler; pencere adlandırılmış bir kalıntıdır. Test: çözülen satırı başka
+`status='disabled'` (ADR 0031 §5.2). Oturum veren yollar çözümleme anında süzer; eski kolun `CreateAdminSession`'ı (`db/queries/admins.sql:117-123`) satırı yalnız `status = 'active'` ile yeniden okur ve `unlinked_at`'e bakamaz (R16). Yükümlülük (M14-07, eski kol): oturum yazımı doğrulanan digest'e koşulludur (`password_hash = doğrulanan digest`); çözme nöbetçi digest'i aynı transaction'da yazdığından pencere kapanır; contract B'den sonra eski kol yoktur. Test: çözülen satırı başka
 bir owner panelden `active` yapar → kişi yine geçemez/giremez. Bu yol son-owner değişmezinin bilinçli
 istisnasıdır (M14-16).
 
