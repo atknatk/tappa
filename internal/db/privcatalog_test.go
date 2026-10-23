@@ -171,14 +171,18 @@ SELECT line FROM (
 // functions that need them), admin_identities (ENABLE + FORCE, no policy, no grant to anyone), the
 // INVOKER trigger function admin_users_guard_identity_credentials (execute=-), narrowed tappa_app's
 // SELECT on admin_users from the table to ten columns (linked_via, linked_at, unlinked_at outside)
-// and took email out of its UPDATE list, read again at 00070; 00072 -- M14-05, ADR 0031 §5.2 --
-// added the three tenant-scope-less tables admin_identity_resets / _verifications / _events (ENABLE +
-// FORCE, no policy, nothing to tappa_app), the fifteen identity functions (thirteen owned by
-// tappa_identitydefiner, two token resolvers by tappa_resolver; EXECUTE tappa_app and the owner),
-// tappa_identitydefiner's column grants on the tables those bodies read and write (no e-mail write
-// anywhere -- K-15; DELETE on the event log alone, the 90-day sweep) and identity_id, unlinked_at to
-// tappa_resolver's admin_users line (T6; resolve_admin_by_email's filter and new column), read again
-// at 00072) and READ line by line before
+// and took email out of its UPDATE list, read again at 00070; 00071 -- M14-04, ADR 0031 §5.2 -- added
+// the identity resolver and the four session functions (EXECUTE to tappa_app and the owner),
+// tappa_identitydefiner's first column grants (admin_identities, admin_users, admin_sessions, tenants,
+// audit_log -- identitycatalog_test.go holds them inside the ADR's matrix), tappa_resolver's SELECT on
+// four admin_identities columns and on admin_users' identity_id and unlinked_at, and narrowed
+// tappa_app's INSERT on admin_sessions from the table to (id, tenant_id, admin_user_id, token_hash),
+// read again at 00071; 00072 -- M14-05, ADR 0031 §5.2 -- added the three tenant-scope-less tables
+// admin_identity_resets / _verifications / _events (ENABLE + FORCE, no policy, nothing to tappa_app),
+// the fifteen identity functions (thirteen owned by tappa_identitydefiner, two token resolvers by
+// tappa_resolver; EXECUTE tappa_app and the owner) and widened tappa_identitydefiner's column grants
+// to what those bodies read and write (no e-mail write anywhere -- K-15; DELETE on the event log
+// alone, the 90-day sweep), read again at 00072) and READ line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
 //   - nine pre-M11 trigger functions (tappa_forbid_*, tappa_check_transaction_review,
@@ -202,8 +206,9 @@ SELECT line FROM (
 // A line is added here only together with the migration that makes it true, and with the reason
 // in that migration (or, for an M11 object, in m11schema_test.go's matrix).
 const privCatalogAllowed = `
-column admin_identities tappa_identitydefiner SELECT id,email,password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope
-column admin_identities tappa_identitydefiner UPDATE password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope
+column admin_identities tappa_identitydefiner SELECT id,email,password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope,last_used_tenant
+column admin_identities tappa_identitydefiner UPDATE password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope,last_used_tenant,last_login_at
+column admin_identities tappa_resolver SELECT id,email,password_hash,email_verified_at
 column admin_identity_events tappa_identitydefiner INSERT identity_id,event,detail
 column admin_identity_events tappa_identitydefiner SELECT created_at
 column admin_identity_resets tappa_identitydefiner INSERT identity_id,token_hash,expires_at
@@ -214,15 +219,17 @@ column admin_identity_verifications tappa_identitydefiner INSERT identity_id,tok
 column admin_identity_verifications tappa_identitydefiner SELECT id,identity_id,token_hash,expires_at,used_at
 column admin_identity_verifications tappa_identitydefiner UPDATE used_at
 column admin_identity_verifications tappa_resolver SELECT id,identity_id,token_hash,expires_at,used_at
+column admin_sessions tappa_app INSERT id,tenant_id,admin_user_id,token_hash
 column admin_sessions tappa_app UPDATE last_used_at,revoked_at
+column admin_sessions tappa_identitydefiner INSERT tenant_id,admin_user_id,token_hash,authenticated_at
 column admin_sessions tappa_identitydefiner SELECT id,tenant_id,admin_user_id,token_hash,revoked_at,authenticated_at
 column admin_sessions tappa_identitydefiner UPDATE revoked_at
 column admin_sessions tappa_resolver SELECT id,tenant_id,admin_user_id,token_hash,revoked_at
 column admin_users tappa_app INSERT id,tenant_id,full_name,email,password_hash,role,status
 column admin_users tappa_app SELECT id,tenant_id,full_name,email,password_hash,role,status,created_at,last_login_at,identity_id
 column admin_users tappa_app UPDATE full_name,password_hash,role,status,last_login_at
-column admin_users tappa_identitydefiner SELECT id,tenant_id,email,status,identity_id,linked_via,linked_at,unlinked_at
-column admin_users tappa_identitydefiner UPDATE password_hash,status,identity_id,linked_via,linked_at,unlinked_at
+column admin_users tappa_identitydefiner SELECT id,tenant_id,email,role,status,created_at,identity_id,linked_via,linked_at,unlinked_at
+column admin_users tappa_identitydefiner UPDATE password_hash,status,last_login_at,identity_id,linked_via,linked_at,unlinked_at
 column admin_users tappa_opdefiner SELECT tenant_id,email,status
 column admin_users tappa_resolver SELECT id,tenant_id,email,password_hash,status,created_at,identity_id,unlinked_at
 column api_idempotency tappa_app INSERT tenant_id,key_id,idem_key,request_hash
@@ -300,6 +307,7 @@ column tenants tappa_app INSERT id,name,vat_number,business_type,structure,timez
 column tenants tappa_app UPDATE name,business_type,timezone,day_cutoff
 column tenants tappa_feedwriter SELECT id,api_enabled_at,api_code
 column tenants tappa_holdingdefiner SELECT id,name,timezone,vat_verified,api_enabled_at,api_code
+column tenants tappa_identitydefiner SELECT id,name,suspended_at
 column tenants tappa_opdefiner SELECT id,name,vat_number,business_type,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,api_enabled_at,api_code,suspended_at,suspension_reason
 column tenants tappa_opdefiner UPDATE vat_verified,vat_checked_at,api_enabled_at,api_code,suspended_at,suspension_reason
 column tenants tappa_resolver SELECT id,api_enabled_at
@@ -343,13 +351,17 @@ function holding_timezone_lock() owner=tappa_holdingdefiner definer=true execute
 function identity_consume_reset(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_consume_row_reset(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_link_legacy(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function identity_memberships(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_open_reset(uuid,text,timestamp with time zone) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function identity_open_session(uuid,uuid,text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_password_for_session(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_record_failed_login(uuid,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_relink_refused(text,uuid) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_request_verification(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function identity_revoke_sessions(text,boolean) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_set_password(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_sweep_events() owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function identity_switch_session(text,uuid,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_unlink_backfilled(text,uuid) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_verify_email(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_withdraw_reset(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
@@ -380,6 +392,7 @@ function punch_feed() owner=tappa_feedwriter definer=true execute=tappa_feedwrit
 function resolve_admin_by_email(citext) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_admin_session_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_api_key_by_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
+function resolve_identity_by_email(citext) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_identity_reset_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_identity_verification_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_invite_by_code_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
@@ -453,7 +466,7 @@ schema public tappa_resolver USAGE
 sequence goose_db_version_id_seq owner=tappa_owner
 superuser tappa_owner
 table admin_identity_events tappa_identitydefiner DELETE
-table admin_sessions tappa_app SELECT,INSERT
+table admin_sessions tappa_app SELECT
 table api_idempotency tappa_app DELETE
 table audit_log tappa_app SELECT
 table billing_periods tappa_app SELECT,INSERT

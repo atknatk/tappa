@@ -108,13 +108,20 @@ var m11Tables = map[string]map[string]m11TableACL{
 	// "tappa_app, tappa_operator, tappa_opdefiner yetkisiz"); tappa_identitydefiner and
 	// tappa_resolver get their column grants with the functions that need them (M14-04, M14-05),
 	// which write their rows here.
+	//
+	// 00071 (M14-04, ADR 0031 §5.2): the first column grants, each with the function that reads or
+	// writes it -- tappa_resolver what resolve_identity_by_email returns and filters on;
+	// tappa_identitydefiner the person's lock, the landing hint, the login stamp and (2026-10-23, the
+	// user's decision) the digest identity_open_session re-checks under the lock.
+	// 00072 (M14-05, ADR 0031 §5.2): what the M14-05 bodies read and write of an identity -- the
+	// address, the digest, the verification and the confirmation window; never an e-mail write
+	// (K-15). identitycatalog_test.go holds the union inside the ADR's matrix and shows every column
+	// used.
 	"admin_identities": {
-		// 00072 (M14-05, ADR 0031 §5.2): what the M14-05 bodies read and write of an identity --
-		// never email (K-15), never last_used_tenant / last_login_at (M14-04's). M14-04 (00071)
-		// adds its own columns; the union is the ADR's matrix.
+		"tappa_resolver": {Select: "id,email,password_hash,email_verified_at"},
 		"tappa_identitydefiner": {
-			Select: "id,email,password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope",
-			Update: "password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope",
+			Select: "id,email,password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope,last_used_tenant",
+			Update: "password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope,last_used_tenant,last_login_at",
 		},
 	},
 	// 00072 (M14-05, ADR 0031 §5.1): the identity's reset links, verification links and event log --
@@ -308,7 +315,8 @@ var m11Columns = []m11Column{
 	// SELECT (00001) and writes neither -- a customer that could would lift its own suspension
 	// (00063's precondition refuses a table-level UPDATE or INSERT reaching it); the one writer is
 	// the operator's definer, op_suspend_tenant / op_reinstate_tenant.
-	{"tenants", "suspended_at", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU"}},
+	// 00071 (M14-04): identity_memberships marks a suspended business in the switcher (K-10).
+	{"tenants", "suspended_at", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU", "tappa_identitydefiner": "S"}},
 	{"tenants", "suspension_reason", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU"}},
 	// 00043 (M11 API-1b, ADR 0027 §4): the site of a tap on a peer's plaque. transactions hands
 	// tappa_app table-level SELECT and INSERT (00005) and nothing else, which the new columns
@@ -340,19 +348,23 @@ var m11Columns = []m11Column{
 	// READS identity_id (the switch's rate bucket, ADR 0031 §6's named residue) and nothing else;
 	// linked_via, linked_at and unlinked_at it neither reads (R16) nor writes. The writers are the
 	// identity definer's functions (M14-04 onwards), which grant themselves the columns.
-	// 00072 (M14-05, ADR 0031 §5.2 / T6): the identity definer reads and writes the link (its
-	// functions link, unlink and relink); the resolver reads identity_id and unlinked_at
-	// (resolve_admin_by_email's new column and its filter).
+	// 00071 (M14-04, ADR 0031 §5.2, T6) and 00072 (M14-05): tappa_resolver reads identity_id and
+	// unlinked_at (resolve_identity_by_email's has_active_membership; resolve_admin_by_email's new
+	// column and filter); tappa_identitydefiner reads them (the session functions find the person and
+	// refuse a refused row) and, from 00072, writes the link (link, unlink, relink).
 	{"admin_users", "identity_id", map[string]string{"tappa_app": "S", "tappa_resolver": "S", "tappa_identitydefiner": "SU"}},
 	{"admin_users", "linked_via", map[string]string{"tappa_identitydefiner": "SU"}},
 	{"admin_users", "linked_at", map[string]string{"tappa_identitydefiner": "SU"}},
 	{"admin_users", "unlinked_at", map[string]string{"tappa_resolver": "S", "tappa_identitydefiner": "SU"}},
 	// 00069 (M14-03, R15): the instant of the session's password proof. admin_sessions hands
-	// tappa_app SELECT and INSERT table-wide (00006) -- today's CreateAdminSession names three
-	// columns and takes the DEFAULT now() -- and UPDATE only on last_used_at and revoked_at (00011):
-	// never on this one.
-	// 00072 (M14-05): the identity definer reads it for the freshness checks (R3), never writes it.
-	{"admin_sessions", "authenticated_at", map[string]string{"tappa_app": "SI", "tappa_identitydefiner": "S"}},
+	// tappa_app SELECT table-wide (00006) and UPDATE only on last_used_at and revoked_at (00011):
+	// never on this one. 00071 (M14-04, the orchestrator's decision on M14-03's audit) narrows
+	// tappa_app's INSERT from the table to (id, tenant_id, admin_user_id, token_hash): the
+	// application can no longer CHOOSE a session's proof -- today's CreateAdminSession names three
+	// columns and takes the DEFAULT now(). tappa_identitydefiner reads it (the switch copies it
+	// from the old session's row; 00072's freshness checks) and writes it at birth (the login's
+	// now(), the switch's copy).
+	{"admin_sessions", "authenticated_at", map[string]string{"tappa_app": "S", "tappa_identitydefiner": "SI"}},
 }
 
 // m11FunctionACL is one function's owner, SECURITY DEFINER flag and EXACT EXECUTE grantees
@@ -424,6 +436,15 @@ var m11Functions = map[string]m11FunctionACL{
 	// definer (its test is current_user, which a definer body would read as its owner), EXECUTE in
 	// its owner alone, its body asserting TG_RELID (adminidentity_test.go binds it elsewhere).
 	"admin_users_guard_identity_credentials()": {owner: "tappa_owner", execute: "tappa_owner"},
+	// 00071 (M14-04, ADR 0031 §5.2): the identity resolver (md.7's shape, tappa_resolver's) and the
+	// first four of the closed identity_* list -- EXECUTE to tappa_app alone
+	// (identitycatalog_test.go pins the signatures; identity_reconcile, M14-06b, is the one whose
+	// EXECUTE is tappa_owner's).
+	"resolve_identity_by_email(citext)":          {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"identity_open_session(uuid,uuid,text,text)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_memberships(text)":                 {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_switch_session(text,uuid,text)":    {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_revoke_sessions(text,boolean)":     {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 	// 00072 (M14-05, ADR 0031 §5.2): eleven identity_* writers owned by tappa_identitydefiner and two
 	// md.7 token resolvers owned by tappa_resolver -- SECURITY DEFINER, EXECUTE tappa_app alone (and
 	// the owner). identitypassword_test.go pins their signatures, search_path and bodies further.

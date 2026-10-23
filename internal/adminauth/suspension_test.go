@@ -21,8 +21,8 @@ import (
 // half-done or inverted. The end-to-end pin is internal/handler's
 // TestPanelSuspensionDB_TheNextPostOfTheSameSessionIsRefused.
 
-// touchScript is one TouchAdminSession answer: the seven columns in RETURNING order,
-// or an error.
+// touchScript is one TouchAdminSession answer: the nine columns in RETURNING order (00071 -- M14-04,
+// ADR 0031 §5.3 -- added the business's name and the membership's identity_id), or an error.
 type touchScript struct {
 	at     *time.Time
 	reason *string
@@ -70,8 +70,8 @@ func (r scriptedRow) Scan(dest ...any) error {
 	if r.db.script.err != nil {
 		return r.db.script.err
 	}
-	if len(dest) != 7 {
-		return errors.New("scriptedRow: TouchAdminSession no longer returns seven columns")
+	if len(dest) != 9 {
+		return errors.New("scriptedRow: TouchAdminSession no longer returns nine columns")
 	}
 	now := time.Now()
 	*dest[0].(*uuid.UUID) = r.db.session
@@ -81,6 +81,8 @@ func (r scriptedRow) Scan(dest ...any) error {
 	*dest[4].(*string) = "Owner"
 	*dest[5].(**time.Time) = r.db.script.at
 	*dest[6].(**string) = r.db.script.reason
+	*dest[7].(*string) = "Scripted Business"
+	*dest[8].(**uuid.UUID) = nil
 	return nil
 }
 

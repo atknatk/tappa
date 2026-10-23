@@ -1263,16 +1263,7 @@ func (a *AdminAuth) completeLogin(w http.ResponseWriter, r *http.Request, ip str
 		return
 	}
 	a.resetLogin(w)
-	a.record(r.Context(), audit.Event{
-		TenantID: v.TenantID,
-		ActorID:  &v.AdminUserID,
-		Action:   ActionAdminLoginSucceeded,
-		Target:   v.AdminUserID.String(),
-		Detail: adminLoginDetail{
-			Outcome:   "ok",
-			SessionID: issued.Session.ID.String(),
-		},
-	})
+	a.record(r.Context(), adminLoginSucceededEvent(v.TenantID, v.AdminUserID, issued.Session.ID))
 	a.log.Info("panel sign-in", "admin_user_id", v.AdminUserID, "ip", ip)
 	a.redirect(w, "/admin")
 }
@@ -1525,14 +1516,38 @@ func (a *AdminAuth) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.cookies.Clear(w)
-	a.record(r.Context(), audit.Event{
-		TenantID: id.Admin.TenantID,
-		ActorID:  ptr(id.Admin.AdminUserID),
-		Action:   ActionAdminLoggedOut,
-		Target:   id.Admin.AdminUserID.String(),
-		Detail:   adminLoginDetail{Outcome: "ok", SessionID: id.Admin.SessionID.String()},
-	})
+	a.record(r.Context(), adminLoggedOutEvent(id.Admin.TenantID, id.Admin.AdminUserID, id.Admin.SessionID))
 	a.redirect(w, adminLoginPath)
+}
+
+// adminLoginSucceededEvent and adminLoggedOutEvent are the ORDINARY sign-in and sign-out rows: the
+// two events every tenant's log already carries for its own administrators.
+//
+// 🔴 THE DATABASE WRITES THE SAME TWO ROWS (ADR 0031 §5.4, migration 00071): identity_open_session
+// writes the sign-in row, identity_switch_session a sign-out in the business left and a sign-in in
+// the business entered, identity_revoke_sessions a sign-out per session. They must be byte-identical
+// to these -- action, actor, target, detail -- so a business's owner cannot tell from its own log that
+// a person arrived from, or left for, another business (bulgu 17). identityaudit_db_test.go writes
+// these events and the definers' rows side by side and compares them; a field added here, or there,
+// is red.
+func adminLoginSucceededEvent(tenant, admin, session uuid.UUID) audit.Event {
+	return audit.Event{
+		TenantID: tenant,
+		ActorID:  ptr(admin),
+		Action:   ActionAdminLoginSucceeded,
+		Target:   admin.String(),
+		Detail:   adminLoginDetail{Outcome: "ok", SessionID: session.String()},
+	}
+}
+
+func adminLoggedOutEvent(tenant, admin, session uuid.UUID) audit.Event {
+	return audit.Event{
+		TenantID: tenant,
+		ActorID:  ptr(admin),
+		Action:   ActionAdminLoggedOut,
+		Target:   admin.String(),
+		Detail:   adminLoginDetail{Outcome: "ok", SessionID: session.String()},
+	}
 }
 
 // adminLoginDetail is the audit payload for this flow.

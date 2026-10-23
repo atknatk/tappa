@@ -141,6 +141,9 @@ func aiSavepoint(t *testing.T, ctx context.Context, tx pgx.Tx, body func(sp pgx.
 // hands tappa_app SELECT/INSERT on a table a pg_dump re-creates) reads and writes nothing.
 func TestAdminIdentities00069_TheTableIsTheADRsAndScopeLess(t *testing.T) {
 	ctx, tx := opTx(t)
+	// M14-04: this test pins the catalogue AT 00069/00070 -- 00071's grants and functions are taken
+	// back first, inside the rolled-back transaction (identityAt00070).
+	identityAt00070(t, ctx, tx)
 
 	var cols string
 	if err := tx.QueryRow(ctx, `
@@ -256,6 +259,9 @@ func TestAdminIdentities00069_TheTableIsTheADRsAndScopeLess(t *testing.T) {
 // privilege's and not RLS's. The operator's two roles reach none of the new columns.
 func TestAdminUsers00069_TheApplicationCannotWriteTheLink(t *testing.T) {
 	ctx, tx := opTx(t)
+	// M14-04: this test pins the catalogue AT 00069/00070 -- 00071's grants and functions are taken
+	// back first, inside the rolled-back transaction (identityAt00070).
+	identityAt00070(t, ctx, tx)
 
 	for _, c := range []struct{ role, table, priv, want string }{
 		{"tappa_app", "admin_users", "SELECT", aiAppSelect},
@@ -871,7 +877,9 @@ func aiIdentityRolesBlock(t *testing.T) string {
 // the Down names -- and tenants, whose key the Up's CREATE TABLE references -- locked first
 // (lockForDowns):
 //
-//   - with an identity, the Down is 55000 naming 00069 and changes nothing;
+//   - with an identity, the Down is 55000 naming 00069 and changes nothing; 00070's Down, which goose
+//     runs first on the way down, refuses the same way (an identity, a linked or a refused row) and
+//     keeps the index -- and drops it when there is none;
 //   - without one, the Down gives 00064's catalogue back (tappa_app's table-level SELECT and
 //     UPDATE (email) again, no link column, no authenticated_at, no table, no function), taking no
 //     strong lock outside its tables; a session born then keeps authenticated_at NULL through the
@@ -883,6 +891,9 @@ func aiIdentityRolesBlock(t *testing.T) string {
 //     refuses a member, a membership and a default privilege; and the runbook names the section.
 func TestAdminIdentities00069_DownRefusesAnIdentityAndOtherwiseWalksBackAndUp(t *testing.T) {
 	ctx, tx := opTx(t)
+	// M14-04: this test pins the catalogue AT 00069/00070 -- 00071's grants and functions are taken
+	// back first, inside the rolled-back transaction (identityAt00070).
+	identityAt00070(t, ctx, tx)
 	up, down := opMigrationSections(t, ai00069File)
 	up70, _ := opMigrationSections(t, ai00070File)
 	later := aiLaterMigrations(t)
@@ -917,6 +928,51 @@ func TestAdminIdentities00069_DownRefusesAnIdentityAndOtherwiseWalksBackAndUp(t 
 			}
 			if after := aiCatalogue(t, ctx, sp); after != head {
 				t.Errorf("the refused Down changed the catalogue:\n%s\nwant HEAD's\n%s", after, head)
+			}
+		})
+	})
+
+	// 00070's Down runs first on the way down (goose down-to 68), so it carries 00069's guard: with an
+	// identity it refuses and the index stays; without one it drops the index. Run here with
+	// CONCURRENTLY taken out -- the statement cannot run inside the test's transaction; the guard is
+	// what is measured.
+	down70 := func(t *testing.T) string {
+		t.Helper()
+		_, d := opMigrationSections(t, ai00070File)
+		if !strings.Contains(d, "DROP INDEX CONCURRENTLY") || !strings.Contains(d, "migration 00070 Down") {
+			t.Fatalf("PREMISE: 00070's Down is not the guard and the concurrent drop:\n%s", d)
+		}
+		return strings.ReplaceAll(d, " CONCURRENTLY", "")
+	}
+	indexThere := func(q opQuerier) bool {
+		t.Helper()
+		return opInt(t, ctx, q, `SELECT count(*) FROM pg_class WHERE oid = to_regclass('public.admin_users_tenant_identity_key')`) == 1
+	}
+	t.Run("00070: an identity, the index Down refuses and the index stays", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			aiIdentity(t, ctx, sp, aiEmail())
+			runErr := holdingNestedRun(t, ctx, sp, down70(t))
+			var pg *pgconn.PgError
+			if !errors.As(runErr, &pg) || pg.Code != sqlstatePrerequisiteState || !strings.Contains(pg.Message, "migration 00070 Down") {
+				t.Fatalf("00070's Down over an identity answered %v, want 55000 naming 00070", runErr)
+			}
+			if !indexThere(sp) {
+				t.Error("00070's refused Down dropped the index")
+			}
+		})
+	})
+	t.Run("00070: a refused row is refused too; with none at all the index goes", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			aiExec(t, ctx, sp, `UPDATE admin_users SET identity_id = NULL, unlinked_at = NULL WHERE identity_id IS NOT NULL OR unlinked_at IS NOT NULL`)
+			aiExec(t, ctx, sp, `DELETE FROM admin_identities`)
+			tenant := aiTenant(t, ctx, sp)
+			refused := aiAdmin(t, ctx, sp, tenant, aiEmail())
+			aiExec(t, ctx, sp, `UPDATE admin_users SET unlinked_at = now() WHERE id = $1`, refused)
+			opWant(t, holdingNestedRun(t, ctx, sp, down70(t)), sqlstatePrerequisiteState, "00070's Down over a refused row")
+			aiExec(t, ctx, sp, `UPDATE admin_users SET unlinked_at = NULL WHERE id = $1`, refused)
+			opRunSection(t, ctx, sp, down70(t), "00070 Down")
+			if indexThere(sp) {
+				t.Error("00070's Down with no identity left the index")
 			}
 		})
 	})

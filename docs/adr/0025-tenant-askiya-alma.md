@@ -1341,3 +1341,18 @@ farkıyla taşındı; taban kaymasının değiştirdiği sayılar ve yerler ADR 
   Aynı turda test, panelin reddinin bıraktığı satırı da pinler: askı adımında işletmenin `audit_log`'unda
   **tam bir** `tenant.write_refused` (aktör sahip, hedef `/admin/locations/venue`, `detail` tam olarak
   `{"reason": "non_payment"}`), kaldırmadan sonra yeni ret satırı yok.
+
+## M14 notu (2026-10-22) — istisna listesi ve geçiş ([ADR 0031](0031-tek-kimlik-cok-isletme.md) §5.4, §5.12)
+
+*Bu not yalnız ekler; yukarıdaki metin ve ekler değişmedi.*
+
+- **Askıdaki işletmeye geçiş serbesttir** (K-10): giriş ve okuma askıda açıktır (§4 *"Parola sıfırlama
+  … ve giriş/seçim/çıkış"*); geçişten sonra panel o işletmede salt okunurdur.
+- **Kapalı istisna listesi M14 ile birden fazla rota büyür** (ADR 0031 §5.4, bulgu 16): `/admin/switch`
+  (M14-10), "Sign out everywhere" (M14-11), "Link a business" ve e-posta doğrulama talebi (M14-18). Hepsi
+  `mountWriting`'in askı halkası olmayan kardeş grubunda, `protectWritingThroughSuspension` zincirinde
+  durur (`internal/handler/adminlogin.go:806`) — yöneticinin kendi parolası rotasının yanında
+  (`accountPasswordHref`, §3 listesi). Rotalar bu kartlarla doğar; liste her birinde bu nota göre
+  genişler ve sayısı B fazı ekinin *"bugün on bir rota"*sından o kartlarda güncellenir.
+- **Operatör değişmez** (K-12, ADR 0031 §5.12): ileride gelecek `op_disable_tenant_admins` (§7) yalnız
+  üyelik `status`'una dokunabilir, kimliğe asla.
