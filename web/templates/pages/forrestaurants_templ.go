@@ -1118,9 +1118,9 @@ func restaurantsVenues() templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var56 string
-		templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs("Sample setup · " + RestaurantsDemoLabel)
+		templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs("Venues, hours and networks · " + RestaurantsDemoLabel)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/forrestaurants.templ`, Line: 234, Col: 74}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/forrestaurants.templ`, Line: 234, Col: 88}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 		if templ_7745c5c3_Err != nil {

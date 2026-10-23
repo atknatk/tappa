@@ -903,12 +903,16 @@ var LandingEvidence = []Evidence{
 		Proof: "Backup proof of place",
 		Label: "GPS fallback",
 		// "150\u00a0m" is the reference's own no-break space, so the number and its
-		// unit cannot be split across a line.
+		// unit cannot be split across a line. "(the default radius)" (LP-15 fact review): the
+		// radius is a deployment setting (SourceGPSRadiusDefault). /security renders this
+		// body too, beside its own figure-driven "150 m by default", and its figures control
+		// refuses that phrase when the figures change -- so this one is worded apart from it
+		// and is pinned to internal/config's default by SourceGPSRadiusDefault instead.
 		// "never silently approved" became "by default, never approved without evidence"
 		// (LP-07 security review, 2026-10-22): the default sends an unverified tap to a
 		// manager, and an owner can still write a rule that allows one -- the sentence
 		// said more than the engine keeps.
-		Body: "WiFi down or phone on mobile data? GPS confirms presence within 150\u00a0m. Anything " +
+		Body: "WiFi down or phone on mobile data? GPS confirms presence within 150\u00a0m (the default radius). Anything " +
 			"unverified is stored, flagged, and queued for manager review — by default, never " +
 			"approved without evidence.",
 		Sources: []Source{SourceGPSOnlyAllow, SourceGPSRadiusDefault, SourceNoEvidenceReview},
@@ -1363,10 +1367,12 @@ var LandingFAQ = []Question{
 		// with the QR code, but a phone is set up only by a real NFC tap (ADR 0026), so a
 		// phone with no NFC never gets as far as a check-in. The QR code is the fallback
 		// for a set-up phone whose NFC is off or fails, and the answer now says both.
+		// "By default" (LP-15 fact review), as /for/production and /security say it:
+		// base:qr-requires-ip is a baseline rule an owner may change.
 		Q: "What if a phone's NFC fails?",
 		A: "If a phone's NFC is off or fails on the day, the same page opens from the venue's QR " +
 			"code with the camera. A QR tap carries no cryptographic signature — no proof of a " +
-			"physical touch — so it needs your venue's network address to match before it's " +
+			"physical touch — so by default it needs your venue's network address to match before it's " +
 			"approved. A position on its own is not enough: without the address it's stored, " +
 			"flagged and queued for review. Setting a phone up still takes one real tap on a plaque.",
 		Facts: []Fact{FactTapPageNeedsNoApp, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager,
@@ -1379,13 +1385,15 @@ var LandingFAQ = []Question{
 		// opening of it loses (the counter guard). A check-in WITHOUT the code is the
 		// codeless channel: it needs the venue's address, and from anywhere else it is
 		// FLAGGED — recorded, queued, not approved. "Not without a manager seeing it"
-		// is therefore the honest answer, and "No" would have been too strong.
+		// is therefore the honest answer, and "No" would have been too strong. The
+		// address rule says "by default" (LP-15 fact review): base:qr-requires-ip is a
+		// baseline rule an owner may change.
 		A: "Not without a manager seeing it. The plaque's chip signs each tap with a " +
 			"one-time cryptogram, so the link only exists if a phone touched the plaque at " +
 			"that moment. A copied link, a screenshot, or yesterday's URL is rejected by " +
-			"the server. A check-in without the code needs your venue's network address to " +
-			"be approved; from anywhere else it's stored, flagged and queued for a manager " +
-			"rather than approved.",
+			"the server. By default, a check-in without the code needs your venue's network " +
+			"address to be approved; from anywhere else it's stored, flagged and queued for a " +
+			"manager rather than approved.",
 		Facts: []Fact{FactCopiedLinkIsRefused, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager},
 	},
 	{

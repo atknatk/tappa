@@ -265,7 +265,9 @@ templ productWordmark() {
 }
 
 // productRow is a tour section beside its drawing; flip puts the drawing first from the
-// desktop up, as the boards alternate.
+// desktop up, as the boards alternate. Every drawing it holds is a sample, so the sample
+// note stands under each one (LP-15 fact review: a note only under the first and the last
+// drawing left 02-06 unlabelled where a reader meets them).
 templ productRow(id string, flip bool, drawing templ.Component) {
 	<section id={ id } class="lp-sec" aria-labelledby={ id + "-title" }>
 		<div class="lp-wrap">
@@ -273,6 +275,7 @@ templ productRow(id string, flip bool, drawing templ.Component) {
 				{ children... }
 				<div class="lp-prodDraw">
 					@drawing
+					<p class="lp-prodNote">{ ProductSampleNote }</p>
 				</div>
 			</div>
 		</div>
@@ -412,9 +415,6 @@ templ productRules(c ProductText) {
 		@productRow(ProductRulesID, true, productMiniRules()) {
 			@productText(ProductRulesID, ProductIndex[6].No, "For the owner", ProductIndex[6].Title, c.Rules)
 		}
-		<div class="lp-wrap">
-			<p class="lp-prodNote">{ ProductSampleNote }</p>
-		</div>
 	</div>
 }
 

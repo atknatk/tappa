@@ -1194,7 +1194,8 @@ var restaurantsRefusedPhrasings = map[string]string{
 	"never invents a check-out":                   "no absence is derived, and a late next tap closes an entry the report then reads as open",
 	"without being treated as a problem":          "The Roll marks the day and counts its hours; it judges nothing",
 	"hours of the venue where the person tapped:": "a department's own shift comes first (§5)",
-	"is not paid": "a sooner tap closes an open check-in as an ordinary check-out whose hours count, and the product counts hours, it pays nothing",
+	"Sample setup": "the venues and their hours are the demo data, not a sample (K1)",
+	"is not paid":  "a sooner tap closes an open check-in as an ordinary check-out whose hours count, and the product counts hours, it pays nothing",
 }
 
 // TestRestaurantsPage_SaysNoneOfTheWithdrawnSentences: none of the board's withdrawn

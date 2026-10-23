@@ -187,9 +187,18 @@ templ landingPlayIcon() {
 // img-src, so a file would not load. Their colours are classes (input.css, --mint and
 // the green), so no hex value is written in this file.
 //
-// THE FOUR VALUES ON THE TICKET ARE INVENTED AND SAID TO BE: they are the records
-// web/static/js/landing.js rotates through, and the ticket is a drawing, not a
-// record. No plaque id printed here is real.
+// THE FIVE VALUES ON THE TICKET ARE INVENTED AND SAID TO BE: they are the records
+// web/static/js/landing.js rotates through, the ticket says "Sample record" and the
+// scene's name begins "Sample scene:" (LP-15 fact review), and the ticket is a drawing,
+// not a record. No plaque id printed here is real.
+//
+// THE "PLACE" ROW IS THE RECORD'S OWN, in the words a docket prints ("IP yes · GPS
+// no"): each record is a sample the site draws elsewhere (The Pass, /for/production's
+// yardstick), and it may not show evidence those drawings do not (it once said "IP +
+// GPS ✓" for all four, while The Pass shows Maria Vella with no position and Kevin Grech
+// with no network). TestLandingHero_EveryRecordIsASampleTheSiteDrawsAndTheEngineApproves.
+// Its label was "On site" and is "Place": at 390 px the longer value beside "On site"
+// overran the ticket's 150 px row by 3 px (measured in Chrome, LP-15).
 //
 // 🔴 THE TICKET IS THE SAME HEIGHT FOR EVERY RECORD. Its words do not wrap and its
 // head does not reflow (below 1200px the stamp has a line of its own), so a record
@@ -201,7 +210,7 @@ templ landingPlayIcon() {
 // a mouse is over it, and for good when keyboard focus enters it -- landing.js's
 // PAUSE_MACHINE says exactly how.
 templ landingScene() {
-	<div class="scene" role="group" aria-label="A phone taps the Taptime wall plaque and a verified ticket prints">
+	<div class="scene" role="group" aria-label="Sample scene: a phone taps the Taptime wall plaque and a verified ticket prints">
 		<div class="plaque" aria-hidden="true">
 			// Two classes on one element: the first carries the rule the brand
 			// golden pins byte for byte (internal/brand), the second the phone's
@@ -276,8 +285,9 @@ templ landingScene() {
 					<div><span>Time</span><b id="dTime">09:58</b></div>
 					<div><span>Location</span><b id="dLoc">KF St Julians</b></div>
 					<div><span>Signature</span><b>SUN valid ✓</b></div>
-					<div><span>On site</span><b>IP + GPS ✓</b></div>
+					<div><span>Place</span><b id="dOn">IP yes · GPS no</b></div>
 				</div>
+				<span class="heroSlipNote">Sample record</span>
 			</div>
 		</div>
 		// WCAG 2.2.2: the records change on their own, so the reader can stop them.

@@ -49,7 +49,10 @@ import (
 //   - "nobody can decide on their own record" is gone, and so is the guardrail note's
 //     "stop anyone reviewing their own record": see FactReviewIsOnceAndFinal.
 //   - "The database refuses to change … for the database owner's own account too" now
-//     says the owner's guard is a trigger, which a deliberate change can switch off.
+//     says the owner's guard is a trigger, which a deliberate change can switch off. A
+//     database superuser gets past it without touching the schema (an ordinary trigger
+//     does not fire under session_replication_role = replica), and since LP-15's
+//     security review the sentence says so.
 //   - "When Taptime's own staff look into an account … every read" is about the support
 //     console: staff with the database owner's account read outside it (deploy runbook).
 //   - "narrow enough to describe one place" is gone: the limit is a /7's worth of
@@ -230,10 +233,14 @@ const (
 	// tenant again. Derived from the core tables' migrations, internal/db and
 	// db/queries.
 	FactBusinessesAreIsolatedByRLS Fact = "schema:tenant_id+FORCE RLS+role gate+queries"
-	// Taptime's staff sign in separately (internal/operatorauth's own cookie), and a
-	// read into a business starts with a row in the append-only operator_audit_log.
-	// Derived from the two cookie names and the latest op_begin_read.
-	FactOperatorReadsAreAudited Fact = "operatorauth+op_begin_read audit first"
+	// Taptime's staff sign in separately (internal/operatorauth's own cookie), a read
+	// into a business starts with a row in the append-only operator_audit_log, and every
+	// op_* function that writes outside the operator's own tables writes that log's row
+	// in its own body, so the change and its row commit or roll back together. (The
+	// change comes first inside the function: "first" is said of reads only.) Derived
+	// from the two cookie names, the latest op_begin_read and the latest definition of
+	// every op_* function.
+	FactOperatorReadsAreAudited Fact = "operatorauth+op_begin_read audit first+op_* writes audited"
 	// The one crossing between businesses is a holding Taptime sets up: outside one,
 	// a tap on another business's plaque redirects and writes nothing; inside one, it
 	// is recorded at the employer with the site named. Derived from
@@ -692,7 +699,7 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 		ImmutableRefused: Line{
 			Text: "The application has no permission to change or delete a stored record, and a guard in the database " +
 				"refuses the database owner's account too; switching that guard off would take a deliberate change " +
-				"to the database itself.",
+				"to the database itself, or a database superuser.",
 			Facts: []Fact{FactRecordsAreImmutable},
 		},
 		ImmutableManual: Line{
@@ -734,8 +741,9 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 			Facts: []Fact{FactBusinessesAreIsolatedByRLS},
 		},
 		IsolationOperator: Line{
-			Text: "Taptime's support console has its own sign-in, separate from yours, and every read it makes into " +
-				"an account is written to an operator audit log first.",
+			Text: "Taptime's support console has its own sign-in, separate from yours. Every read it makes into " +
+				"an account is written to an operator audit log first, and every change it makes to an account is " +
+				"written there together with the change: neither is stored without the other.",
 			Facts: []Fact{FactOperatorReadsAreAudited},
 		},
 		IsolationGroup: Line{

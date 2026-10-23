@@ -742,7 +742,9 @@ func TestProductFigures_AreTheProductsAndThePagePrintsThem(t *testing.T) {
 		t.Errorf("the page's webhook header is %q and deliveries are signed in %q", f.WebhookHeader, webhook.SignatureHeader)
 	}
 	text := renderedPublicText(t, pages.ProductPath)
-	for _, want := range []string{"within " + strconv.Itoa(f.DebounceSeconds) + " seconds", f.WebhookHeader + ": sha256=…"} {
+	// "(the default window)": the window is a deployment setting (LP-15 fact review), as
+	// /for/production says it.
+	for _, want := range []string{"within " + strconv.Itoa(f.DebounceSeconds) + " seconds (the default window)", f.WebhookHeader + ": sha256=…"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("/product does not print %q", want)
 		}
@@ -1328,5 +1330,46 @@ func TestAPIFeedSentences_SayCountedTapsAndWhereAManagersEntryGoes(t *testing.T)
 	old["/"] = landing
 	if got := feedSentenceProblems(old); len(got) < 2 {
 		t.Errorf("CONTROL: the landing's old \"every punch\" sentence put back gave %d problem(s), want two: %v", len(got), got)
+	}
+}
+
+// productSampleProblems names every tour section with a drawing whose own markup does
+// not carry the sample note.
+func productSampleProblems(body string) []string {
+	var out []string
+	for _, id := range []string{pages.ProductTapID, pages.ProductPassID, pages.ProductSpikeID, pages.ProductRollID,
+		pages.ProductPeopleID, pages.ProductVenuesID, pages.ProductRulesID} {
+		at := strings.Index(body, `<section id="`+id+`"`)
+		if at < 0 {
+			out = append(out, "PREMISE: the section #"+id+" is not drawn")
+			continue
+		}
+		section := body[at:]
+		if end := strings.Index(section, "</section>"); end >= 0 {
+			section = section[:end]
+		}
+		if !strings.Contains(section, pages.ProductSampleNote) {
+			out = append(out, "#"+id+" draws invented people and does not say, where its drawing stands, that it is a sample")
+		}
+	}
+	return out
+}
+
+// TestProductPage_EveryDrawingSaysItIsASample: each tour section with a drawing carries
+// the sample note in its own markup -- not only the first and the last, as before the
+// LP-15 fact review. CONTROL: the note taken out of The Spike's section is red.
+func TestProductPage_EveryDrawingSaysItIsASample(t *testing.T) {
+	t.Parallel()
+	body := mustFetchMarketing(t, marketingRouter(t), pages.ProductPath)
+	for _, p := range productSampleProblems(body) {
+		t.Error(p)
+	}
+	at := strings.Index(body, `<section id="`+pages.ProductSpikeID+`"`)
+	if at < 0 {
+		t.Fatal("PREMISE: The Spike's section is not drawn")
+	}
+	cut := body[:at] + strings.Replace(body[at:], pages.ProductSampleNote, "", 1)
+	if len(productSampleProblems(cut)) == 0 {
+		t.Error("CONTROL: The Spike's drawing without its note passed")
 	}
 }

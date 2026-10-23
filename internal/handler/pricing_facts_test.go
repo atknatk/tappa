@@ -464,16 +464,24 @@ func receiptViolation(s billingFactSources) string {
 func pricingFactDerivations(t *testing.T) map[pages.Fact]func() string {
 	t.Helper()
 	s := loadBillingFactSources(t)
-	return map[pages.Fact]func() string{
-		pages.FactBillingCountsWhoWasActive:               func() string { return billableViolation(s) },
-		pages.FactBillingAmountDue:                        func() string { return amountDueViolation(s) },
-		pages.FactBillingFreezeIsFinal:                    func() string { return freezeFinalViolation(s) },
-		pages.FactBillingFreezeIsOwnersOnceTheMonthIsOver: func() string { return ownerOnceOverViolation(s) },
-		pages.FactBillingCSVForAnyMonth:                   func() string { return csvAnyMonthViolation(s) },
-		pages.FactEmploymentDatesAreStampedWhenTheyHappen: func() string { return stampViolation(s) },
-		pages.FactBillingNamesTheFirstChargedMonth:        func() string { return firstChargedViolation(s) },
-		pages.FactBillingShowsFrozenMonthsAsReceipts:      func() string { return receiptViolation(s) },
+	out := make(map[pages.Fact]func() string, len(pricingDerivationFuncs))
+	for fact, derive := range pricingDerivationFuncs {
+		out[fact] = func() string { return derive(s) }
 	}
+	return out
+}
+
+// pricingDerivationFuncs is each pricing fact's derivation over the sources, a table of
+// named functions so the negative control can tell which fact each case drives.
+var pricingDerivationFuncs = map[pages.Fact]func(billingFactSources) string{
+	pages.FactBillingCountsWhoWasActive:               billableViolation,
+	pages.FactBillingAmountDue:                        amountDueViolation,
+	pages.FactBillingFreezeIsFinal:                    freezeFinalViolation,
+	pages.FactBillingFreezeIsOwnersOnceTheMonthIsOver: ownerOnceOverViolation,
+	pages.FactBillingCSVForAnyMonth:                   csvAnyMonthViolation,
+	pages.FactEmploymentDatesAreStampedWhenTheyHappen: stampViolation,
+	pages.FactBillingNamesTheFirstChargedMonth:        firstChargedViolation,
+	pages.FactBillingShowsFrozenMonthsAsReceipts:      receiptViolation,
 }
 
 // TestPricingFacts_SayNoWhenTheFactIsAbsent is the negative control for every
@@ -496,6 +504,7 @@ func TestPricingFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			s.Later = l
 		}
 	}
+	controlled := map[uintptr]bool{}
 	for _, tc := range []struct {
 		name   string
 		derive func(billingFactSources) string
@@ -639,6 +648,14 @@ func TestPricingFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		}
 		if tc.derive(m) == "" {
 			t.Errorf("control %q: the derivation still holds over a source without it", tc.name)
+		}
+		controlled[reflect.ValueOf(tc.derive).Pointer()] = true
+	}
+	// EVERY FACT HAS A CONTROL: a derivation no case drives is a derivation nobody has
+	// seen say no.
+	for fact, derive := range pricingDerivationFuncs {
+		if !controlled[reflect.ValueOf(derive).Pointer()] {
+			t.Errorf("%s has no negative control", fact)
 		}
 	}
 

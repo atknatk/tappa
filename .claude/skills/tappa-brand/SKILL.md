@@ -428,7 +428,10 @@ Public'e özgü olan yalnız iki eğim (`.lp .stamp--rejected` −10°, `--ignor
 1. Örnek kişi **uydurmadır ve seed'de olmayan** biridir (seed kişisinin durumu/rolü çizimle
    çelişirdi); mekânlar ve KM departmanları seed'inkidir (K1, "from our demo data").
 2. Örnek **görünür biçimde "sample" der**: `LandingPanelSampleNote`, `ForProductionSampleNote`,
-   erişilebilir ad "Sample screen: …", "The Roll · sample".
+   erişilebilir ad "Sample screen: …", "The Roll · sample", hero fişinde "Sample record" ve sahnenin
+   adı "Sample scene: …"; not çizimin **durduğu yerde** olur (/product'ta her çizimin altında).
+   Hero kaydı sitenin başka bir çiziminin aynı kişisidir ve o çizimin kanıtını docket'in
+   kelimeleriyle gösterir ("IP yes · GPS no").
 3. Örnek **motordan geçer**: her örnek kayıt `tap.Decide`'dan geçirilir, damga/puan/not ürünün
    üreteceğiyle aynı olmalı (`TestLandingPanel_TheSampleIsWhatTheProductWouldDraw`). Çizim kontrol
    değildir (`role="img"`, düğmeler `span`).

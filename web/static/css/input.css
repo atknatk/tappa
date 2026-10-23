@@ -2371,6 +2371,10 @@ html:has(.lp.lp-instant) { scroll-behavior: auto; }
 .lp .heroSlipRows { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px dashed var(--line); white-space: nowrap; font-family: var(--mono); font-size: 11px; color: rgb(var(--ink-ch) / .75); }
 .lp .heroSlipRows div { display: flex; justify-content: space-between; gap: 8px; }
 .lp .heroSlipRows b { color: var(--ink); }
+/* "Sample record" (LP-15 fact review): the records are invented, and the ticket says so
+   where it is read. The same words on every record, so the ticket's height does not
+   move; ink at 70% on paper is 6.05:1. */
+.lp .heroSlipNote { white-space: nowrap; font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); }
 
 /* The scene's pause button (WCAG 2.2.2; not on the boards). It sits under the phone,
    in the row the printer opens, so it adds no height. Mono and quiet, like the

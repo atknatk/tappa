@@ -49,6 +49,10 @@ import "github.com/atknatk/tappa/web/templates/layout"
 //     adds the department: a department's own shift comes first (§5).
 //   - "The record carries a note that the tap was away from home" says "by default":
 //     the note is a baseline rule (base:cross-location-note) a business can switch off.
+//   - "Sample setup · from our demo data" (the venues table's caption, and the chain
+//     card's accessible name) says what the table is and "from our demo data", as
+//     /for/production's caption does (LP-15 fact review): the venues and their hours
+//     are the seed's (K1), not a sample.
 //   - "The Roll counts those shifts as at another venue, so cover is visible without
 //     being treated as a problem" says what the Roll does: it marks the day and counts
 //     the hours like any other.
@@ -397,7 +401,7 @@ func RestaurantsChainCount() string { return countWord(len(RestaurantsVenues)) }
 
 // RestaurantsChainLabel is the chain card's accessible name.
 func RestaurantsChainLabel() string {
-	return "Sample setup from our demo data: " + RestaurantsChainCount() +
+	return "From our demo data: " + RestaurantsChainCount() +
 		" venues, each with its own plaque and hours, and one dashboard over them"
 }
 

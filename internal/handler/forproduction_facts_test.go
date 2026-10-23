@@ -988,16 +988,17 @@ func TestForProductionPage_TheLandingCardAndTheChromeLinkToIt(t *testing.T) {
 // wordings the card's traps name, each with its reason (forproductionview.go). None may
 // come back, on this page or any other public page.
 var forProductionRefusedPhrasings = map[string]string{
-	"KM Facility":           "the seed's site is KM Plant (README U11)",
-	"sample setup":          "the departments and their hours are the demo data, not a sample (K1)",
-	"Same minute":           "the two check-ins the yardstick compares are 53 minutes apart",
-	"at least 64 pixels":    "the page says what the button is built for, as the landing and the tour do",
-	"Gloves, flour":         "nobody has pressed the tap button in gloves (LP-10 review)",
-	"per plaque":            "the repeat window is the person's, never the plaque's (CLAUDE.md §5)",
-	"per tag":               "the repeat window is the person's, never the plaque's (CLAUDE.md §5)",
-	"site's own hours":      "a person with no department is measured against the site they tapped at",
-	"per-department report": "The Roll has no department breakdown (TestLandingAudiences_SayNothingAboutTheTwoBreakdownsThatDoNotExist)",
-	"hours per department":  "The Roll has no department breakdown",
+	"KM Facility":                   "the seed's site is KM Plant (README U11)",
+	"sample setup":                  "the departments and their hours are the demo data, not a sample (K1)",
+	"Same minute":                   "the two check-ins the yardstick compares are 53 minutes apart",
+	"at least 64 pixels":            "the page says what the button is built for, as the landing and the tour do",
+	"Gloves, flour":                 "nobody has pressed the tap button in gloves (LP-10 review)",
+	"per plaque":                    "the repeat window is the person's, never the plaque's (CLAUDE.md §5)",
+	"per tag":                       "the repeat window is the person's, never the plaque's (CLAUDE.md §5)",
+	"site's own hours":              "a person with no department shift is measured against the site they tapped at",
+	"someone with no department is": "a department without a shift of its own falls back to the tapped site too (ledger.resolveShift)",
+	"per-department report":         "The Roll has no department breakdown (TestLandingAudiences_SayNothingAboutTheTwoBreakdownsThatDoNotExist)",
+	"hours per department":          "The Roll has no department breakdown",
 }
 
 // TestForProductionPage_SaysNoneOfTheWithdrawnSentences: no public page says one of the

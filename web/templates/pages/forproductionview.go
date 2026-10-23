@@ -36,7 +36,9 @@ import (
 //     departments and their hours are the seed's (K1), not a sample.
 //   - "someone with no department is measured against the site's own hours" says "the
 //     hours of the site they tapped at": the yardstick is the tapped venue's shift,
-//     not a home site (FactLatenessFollowsOwnShift).
+//     not a home site (FactLatenessFollowsOwnShift). And "no department" says "no
+//     department shift" (LP-15 fact review): a department without a shift of its own
+//     falls back to the tapped site's hours too (ledger.resolveShift).
 //   - "Same minute, different yardsticks" says "Different yardsticks at one gate": the
 //     two check-ins it compares are 53 minutes apart.
 //   - "The tap screen has one button, at least 64 pixels tall." says what the button
@@ -295,7 +297,7 @@ func ForProductionCopy(f ForProductionFigures) ForProductionText {
 			FactVenuesAndDepartmentsCarryOwnHours, FactPassAndPeopleFilterByDepartment),
 
 		ShiftsHeading: l("One gate, "+countWord(n)+" start times.", FactVenuesAndDepartmentsCarryOwnHours),
-		ShiftsLede: l("Lateness is measured against the person's department shift; someone with no department is "+
+		ShiftsLede: l("Lateness is measured against the person's department shift; someone with no department shift is "+
 			"measured against the hours of the site they tapped at.", FactLatenessFollowsOwnShift),
 		Yardstick: l("Different yardsticks at one gate: against the bakery's "+bakery.Start+", "+firstName(anna.Who)+"'s "+
 			anna.At+" is "+ForProductionLateRoll+" on The Roll; against meat production's "+meat.Start+", "+

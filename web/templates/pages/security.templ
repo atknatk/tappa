@@ -434,6 +434,9 @@ templ securityNeverLost(c SecurityText) {
 						<span class="lp-secFlowLine"><span class="chk chk--na" aria-hidden="true">–</span><span>{ c.RollWaiting.Text }</span></span>
 					</div>
 				</div>
+				// The flow draws an invented person (The Pass's flagged sample), so it says so
+				// where a reader sees it (LP-15 fact review); the label is the landing panel's.
+				<p class="lp-prodNote">{ LandingPanelSampleNote }</p>
 				<ul class="lp-secTicks">
 					@securityTick(c.NeverLostOnce.Text)
 					@securityTick(c.NeverLostHeld.Text)

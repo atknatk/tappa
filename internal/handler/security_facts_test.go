@@ -773,8 +773,9 @@ func isolationViolation(s securityFactSources) string {
 	return ""
 }
 
-// operatorViolation: Taptime's staff sign in with their own cookie, and a read into a
-// business starts with an append-only audit row before the read's ticket.
+// operatorViolation: Taptime's staff sign in with their own cookie, a read into a
+// business starts with an append-only audit row before the read's ticket, and every
+// op_* function that changes an account writes an audit row in its own body.
 func operatorViolation(s securityFactSources) string {
 	if operatorauth.SessionCookieName == adminauth.CookieName || operatorauth.SessionCookieName == session.CookieName {
 		return "the operator's sign-in shares a cookie with a business's"
@@ -804,7 +805,64 @@ func operatorViolation(s securityFactSources) string {
 		!regexp.MustCompile(`BEFORE UPDATE OR DELETE ON operator_audit_log`).MatchString(mig26) {
 		return "operator_audit_log is no longer append-only and out of the application's reach"
 	}
+	// THE CHANGES (LP-15 security review): the page says every change the console makes
+	// to an account is written to the log together with the change. The operator's role
+	// can only EXECUTE op_* functions (ADR 0021), so it is each function's latest
+	// definition that has to write the row in its own body -- one function, one
+	// transaction, so the change and its row commit or roll back together. Writing only
+	// the operator's own tables (operator_*, platform_*) is the console's bookkeeping,
+	// not a change to an account.
+	defs := latestOpFunctions(s.Migs)
+	writers := map[string]bool{}
+	for _, name := range slices.Sorted(maps.Keys(defs)) {
+		def := defs[name]
+		changes := false
+		for _, m := range opWriteTarget.FindAllStringSubmatch(def.body, -1) {
+			if !strings.HasPrefix(m[1], "operator_") && !strings.HasPrefix(m[1], "platform_") {
+				changes = true
+			}
+		}
+		if !changes {
+			continue
+		}
+		writers[name] = true
+		if !strings.Contains(def.body, "INSERT INTO public.operator_audit_log") {
+			return def.mig + "'s " + name + " changes an account and writes no operator audit row"
+		}
+	}
+	// CONTROL against a blind scan: the account changes the console is known to make are
+	// all seen as changes.
+	for _, name := range []string{"op_suspend_tenant", "op_reinstate_tenant", "op_enable_tenant_api",
+		"op_disable_tenant_api", "op_add_holding_member", "op_remove_holding_member"} {
+		if !writers[name] {
+			return "the scan no longer sees " + name + " change an account"
+		}
+	}
 	return ""
+}
+
+// opWriteTarget is a statement in a function body that writes a table, with the table.
+var opWriteTarget = regexp.MustCompile(`(?i)\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:ONLY\s+)?(?:public\.)?([a-z_]+)`)
+
+// opFunction is the latest definition of one op_* function and the migration it is in.
+type opFunction struct{ mig, body string }
+
+// latestOpFunctions is every op_* function's latest definition across migs (by file
+// name order), cut at the end of its body.
+func latestOpFunctions(migs map[string]string) map[string]opFunction {
+	re := regexp.MustCompile(`CREATE (?:OR REPLACE )?FUNCTION public\.(op_[a-z_]+)\(`)
+	out := map[string]opFunction{}
+	for _, name := range slices.Sorted(maps.Keys(migs)) {
+		up := gooseUp(migs[name])
+		for _, m := range re.FindAllStringSubmatchIndex(up, -1) {
+			body := up[m[0]:]
+			if end := strings.Index(body, "$$;"); end >= 0 {
+				body = body[:end]
+			}
+			out[up[m[2]:m[3]]] = opFunction{mig: name, body: body}
+		}
+	}
+	return out
 }
 
 // holdingViolation: outside a holding, a tap on another business's plaque redirects and
@@ -926,39 +984,47 @@ func hostedViolation(s securityFactSources) string {
 	return ""
 }
 
+// securityDerivationFuncs is each security fact's derivation over the sources. It is a
+// table of named functions so the negative control can tell which fact each of its
+// cases drives (TestSecurityFacts_SayNoWhenTheFactIsAbsent's every-fact check).
+var securityDerivationFuncs = map[pages.Fact]func(securityFactSources) string{
+	pages.FactSignatureLengthAndKey:               signatureViolation,
+	pages.FactPlaqueKeysAreWrapped:                wrappedViolation,
+	pages.FactActivationEndsOnARealTap:            activationViolation,
+	pages.FactSessionTokenIsStoredHashed:          tokenViolation,
+	pages.FactDeactivatedTapIsASecurityEvent:      deactivatedEventViolation,
+	pages.FactAddressIsTheRequestsOwn:             addressViolation,
+	pages.FactWideAddressListIsNoEvidence:         wideViolation,
+	pages.FactFarPositionIsReviewed:               farViolation,
+	pages.FactRulesRunInOrder:                     orderViolation,
+	pages.FactUndecidedTapIsFlagged:               undecidedViolation,
+	pages.FactGuardrailsAreTheList:                guardListViolation,
+	pages.FactBaselineCanBeChanged:                baselineChangeViolation,
+	pages.FactTrustScoreDecidesNothing:            trustViolation,
+	pages.FactDebounceIsPerPersonOnTheServerClock: debounceViolation,
+	pages.FactFlaggedHoursWaitOutsideTheTotal:     heldViolation,
+	pages.FactReviewIsOnceAndFinal:                reviewFinalViolation,
+	pages.FactRecordsAreImmutable:                 immutableViolation,
+	pages.FactManualEntryIsAudited:                manualAuditViolation,
+	pages.FactNoAdOrAnalyticsCookies:              cookiesViolation,
+	pages.FactBusinessesAreIsolatedByRLS:          isolationViolation,
+	pages.FactOperatorReadsAreAudited:             operatorViolation,
+	pages.FactHoldingIsTheOneCrossing:             holdingViolation,
+	pages.FactWebhooksAreSigned:                   webhookViolation,
+	pages.FactNewPhoneSignsOutTheOld:              newPhoneViolation,
+	pages.FactGroupListsPeersStaff:                groupDirectoryViolation,
+	pages.FactHostedInTheEU:                       hostedViolation,
+}
+
 // securityFactDerivations is the security page's derivation table (pageFactDerivations).
 func securityFactDerivations(t *testing.T) map[pages.Fact]func() string {
 	t.Helper()
 	s := loadSecurityFactSources(t)
-	on := func(f func(securityFactSources) string) func() string { return func() string { return f(s) } }
-	return map[pages.Fact]func() string{
-		pages.FactSignatureLengthAndKey:               on(signatureViolation),
-		pages.FactPlaqueKeysAreWrapped:                on(wrappedViolation),
-		pages.FactActivationEndsOnARealTap:            on(activationViolation),
-		pages.FactSessionTokenIsStoredHashed:          on(tokenViolation),
-		pages.FactDeactivatedTapIsASecurityEvent:      on(deactivatedEventViolation),
-		pages.FactAddressIsTheRequestsOwn:             on(addressViolation),
-		pages.FactWideAddressListIsNoEvidence:         on(wideViolation),
-		pages.FactFarPositionIsReviewed:               on(farViolation),
-		pages.FactRulesRunInOrder:                     on(orderViolation),
-		pages.FactUndecidedTapIsFlagged:               on(undecidedViolation),
-		pages.FactGuardrailsAreTheList:                on(guardListViolation),
-		pages.FactBaselineCanBeChanged:                on(baselineChangeViolation),
-		pages.FactTrustScoreDecidesNothing:            on(trustViolation),
-		pages.FactDebounceIsPerPersonOnTheServerClock: on(debounceViolation),
-		pages.FactFlaggedHoursWaitOutsideTheTotal:     on(heldViolation),
-		pages.FactReviewIsOnceAndFinal:                on(reviewFinalViolation),
-		pages.FactRecordsAreImmutable:                 on(immutableViolation),
-		pages.FactManualEntryIsAudited:                on(manualAuditViolation),
-		pages.FactNoAdOrAnalyticsCookies:              on(cookiesViolation),
-		pages.FactBusinessesAreIsolatedByRLS:          on(isolationViolation),
-		pages.FactOperatorReadsAreAudited:             on(operatorViolation),
-		pages.FactHoldingIsTheOneCrossing:             on(holdingViolation),
-		pages.FactWebhooksAreSigned:                   on(webhookViolation),
-		pages.FactNewPhoneSignsOutTheOld:              on(newPhoneViolation),
-		pages.FactGroupListsPeersStaff:                on(groupDirectoryViolation),
-		pages.FactHostedInTheEU:                       on(hostedViolation),
+	out := make(map[pages.Fact]func() string, len(securityDerivationFuncs))
+	for fact, derive := range securityDerivationFuncs {
+		out[fact] = func() string { return derive(s) }
 	}
+	return out
 }
 
 // TestSecurityFacts_SayNoWhenTheFactIsAbsent is the negative control for every derivation
@@ -999,6 +1065,7 @@ func TestSecurityFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			s.Baseline = out
 		}
 	}
+	controlled := map[uintptr]bool{}
 	for _, tc := range []struct {
 		name   string
 		derive func(securityFactSources) string
@@ -1158,6 +1225,17 @@ func TestSecurityFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			const m = "00026_create_platform_operator.sql"
 			migs(s, m, strings.ReplaceAll(s.Migs[m], "BEFORE UPDATE OR DELETE ON operator_audit_log", "BEFORE TRUNCATE ON operator_audit_log"))
 		}},
+		{"a later migration suspends a business unlogged", operatorViolation, later(
+			"CREATE OR REPLACE FUNCTION public.op_suspend_tenant(p_session text, p_tenant uuid) RETURNS void AS $$\nBEGIN\n" +
+				"UPDATE public.tenants SET suspended_at = now() WHERE id = p_tenant;\nEND\n$$;")},
+		{"a new console function changes an account unlogged", operatorViolation, later(
+			"CREATE FUNCTION public.op_rename_tenant(p_session text, p_name text) RETURNS void AS $$\nBEGIN\n" +
+				"UPDATE public.tenants SET name = p_name;\nEND\n$$;")},
+		{"the scan stops seeing a known change", operatorViolation, func(s *securityFactSources) {
+			const m = "00039_open_the_api_from_the_operator.sql"
+			src := strings.ReplaceAll(s.Migs[m], "UPDATE public.tenants", "PERFORM 1 FROM public.tenants")
+			migs(s, m, strings.ReplaceAll(src, "INSERT INTO public.audit_log", "PERFORM 1 FROM public.audit_log"))
+		}},
 		{"no crossing is refused", holdingViolation, guards(func(g []policy.Guardrail) []policy.Guardrail {
 			for i := range g {
 				if g[i].Sid == "sys:tenant-mismatch" {
@@ -1218,6 +1296,14 @@ func TestSecurityFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		}
 		if tc.derive(m) == "" {
 			t.Errorf("control %q: the derivation still holds over a source without it", tc.name)
+		}
+		controlled[reflect.ValueOf(tc.derive).Pointer()] = true
+	}
+	// EVERY FACT HAS A CONTROL: a derivation no case drives is a derivation nobody has
+	// seen say no.
+	for _, fact := range slices.Sorted(maps.Keys(securityDerivationFuncs)) {
+		if !controlled[reflect.ValueOf(securityDerivationFuncs[fact]).Pointer()] {
+			t.Errorf("%s has no negative control", fact)
 		}
 	}
 }
@@ -1757,7 +1843,7 @@ func TestSecurityPage_SaysNoneOfTheRefusedPhrasings(t *testing.T) {
 	}
 	for _, must := range []string{
 		"and the decision cannot be changed afterwards",
-		"switching that guard off would take a deliberate change to the database itself",
+		"switching that guard off would take a deliberate change to the database itself, or a database superuser",
 		"Taptime's support console has its own sign-in, separate from yours",
 		"too wide to stand for a single network",
 		"keep the list to your venue's own connection",
@@ -1775,5 +1861,44 @@ func TestSecurityPage_SaysNoneOfTheRefusedPhrasings(t *testing.T) {
 		if len(refused(text+" "+phrase)) == 0 {
 			t.Errorf("CONTROL: %q planted in the page passed", phrase)
 		}
+	}
+}
+
+// securityFlowSampleProblem says why the "When the evidence is thin" flow, which draws
+// The Pass's invented flagged record, does not say it is a sample where a reader sees it.
+func securityFlowSampleProblem(body string) string {
+	at := strings.Index(body, `<section id="never-lost"`)
+	if at < 0 {
+		return "PREMISE: the flagged-record section is not drawn"
+	}
+	section := body[at:]
+	if end := strings.Index(section, "</section>"); end >= 0 {
+		section = section[:end]
+	}
+	if !strings.Contains(section, pages.LandingPanelPassDockets[2].Who) {
+		return "PREMISE: the section no longer draws The Pass's flagged sample"
+	}
+	if !strings.Contains(fitsText(section), pages.LandingPanelSampleNote) {
+		return "the flow draws an invented person and does not say, where it stands, that it is a sample"
+	}
+	return ""
+}
+
+// TestSecurityPage_TheThinEvidenceFlowSaysItIsASample: the flow's role="img" name said
+// "Sample", which a sighted reader never sees; the visible note says it on the page
+// (LP-15 fact review). CONTROL: the note taken out is red.
+func TestSecurityPage_TheThinEvidenceFlowSaysItIsASample(t *testing.T) {
+	t.Parallel()
+	body := mustFetchMarketing(t, marketingRouter(t), pages.SecurityPath)
+	if p := securityFlowSampleProblem(body); p != "" {
+		t.Error(p)
+	}
+	at := strings.Index(body, `<section id="never-lost"`)
+	if at < 0 {
+		t.Fatal("PREMISE: the flagged-record section is not drawn")
+	}
+	cut := body[:at] + strings.Replace(body[at:], pages.LandingPanelSampleNote, "", 1)
+	if securityFlowSampleProblem(cut) == "" {
+		t.Error("CONTROL: the flow without its note passed")
 	}
 }

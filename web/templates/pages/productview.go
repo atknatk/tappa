@@ -269,7 +269,7 @@ func ProductCopy(f ProductFigures) ProductText {
 			Bullets: []Line{
 				l("The phone's position is read once, at the press — never in the background.",
 					FactPositionReadOnlyOnPress),
-				l("If the same person taps again within "+debounce+", that tap is ignored.",
+				l("If the same person taps again within "+debounce+" (the default window), that tap is ignored.",
 					FactDebounceIsPerPersonOnTheServerClock),
 				l("A recorded tap ends on a stamped docket: APPROVED, FLAGGED, REJECTED or IGNORED.",
 					FactRecordedTapEndsOnAStampedDocket),
