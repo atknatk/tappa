@@ -17,16 +17,18 @@ import (
 
 // tablesLockDirs are the test packages that take the operator-tables lock, relative to
 // this directory: internal/db EXCLUSIVE (opTx) and SHARED (TestOperatorDB_RunsAsTappaOperator
-// and opLiveFixture, OP-10), the others SHARED.
-var tablesLockDirs = []string{".", "../../internal/db", "../../internal/handler/operator", "../../internal/operatorauth"}
+// and opLiveFixture, OP-10), the others SHARED (internal/adminauth since M14-07).
+var tablesLockDirs = []string{".", "../../internal/db", "../../internal/handler/operator", "../../internal/operatorauth", "../../internal/adminauth"}
 
 // tablesLockStatements are the functions that send the lock statement themselves, per
 // directory -- the closed list the scan must find (its control against going blind).
 var tablesLockStatements = map[string][]string{
 	".":                               {"sharedTablesLock"},
-	"../../internal/db":               {"TestOperatorDB_RunsAsTappaOperator", "opLiveFixture", "opTx"},
+	"../../internal/db":               {"TestOperatorDB_RunsAsTappaOperator", "bfTx", "opLiveFixture", "opTx"},
 	"../../internal/handler/operator": {"newE2E"},
 	"../../internal/operatorauth":     {"sharedTablesLock"},
+	// M14-07: the identity worlds commit identities (ownerConn takes it shared).
+	"../../internal/adminauth": {"sharedTablesLock"},
 }
 
 // lockSite is one place a function asks for the lock: the statement itself (via ""),

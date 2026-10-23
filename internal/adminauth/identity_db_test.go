@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,7 +28,24 @@ import (
 // takes the identity back out (links, refusals, events, the identity); tenants, rows, sessions and
 // audit rows stay, as every committed DB test here leaves them (audit_log is append-only).
 
-// ownerConn is a dedicated owner connection (DATABASE_MIGRATE_URL; test-only, redline R5).
+// operatorTablesTestLock is the advisory lock internal/db's schema tests take EXCLUSIVE (opTx) around
+// work that must see no committed identity -- 00069/00072/00073's Downs refuse while one exists. The
+// identity worlds here COMMIT identities, events and sessions, so they hold it SHARED for the whole
+// test (internal/operatorauth's and internal/handler/operator's precedent); measured without it: 66
+// FAILs in internal/db when the two packages ran in parallel (M14-07's audit).
+const operatorTablesTestLock = "tappa/test/operator-tables"
+
+// sharedTablesLock takes the lock shared on conn, held until conn closes (the test's end).
+func sharedTablesLock(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock_shared(hashtext($1))`, operatorTablesTestLock); err != nil {
+		t.Fatalf("operator-tables test lock: %v", err)
+	}
+}
+
+// ownerConn is a dedicated owner connection (DATABASE_MIGRATE_URL; test-only, redline R5), holding
+// the operator-tables lock shared until the test ends. One per test: the lock is taken once per test
+// tree (cmd/opadmin's TestTablesLock_IsTakenOncePerTestTree).
 func ownerConn(t *testing.T) *pgx.Conn {
 	t.Helper()
 	dsn := os.Getenv("DATABASE_MIGRATE_URL")
@@ -43,7 +61,20 @@ func ownerConn(t *testing.T) *pgx.Conn {
 			t.Errorf("close the owner connection: %v", err)
 		}
 	})
+	sharedTablesLock(t, context.Background(), c)
 	return c
+}
+
+// TestIdentityWorlds_TakeTheLockInternalDBTakes: the spelling is internal/db's, read from its source,
+// or the two packages stop taking turns.
+func TestIdentityWorlds_TakeTheLockInternalDBTakes(t *testing.T) {
+	src, err := os.ReadFile("../db/operatorschema_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), `const operatorTablesTestLock = "`+operatorTablesTestLock+`"`) {
+		t.Fatalf("internal/db no longer names the %q lock", operatorTablesTestLock)
+	}
 }
 
 // idWorld is one person: an address, a password and the identity's digest (bcrypt.MinCost, the
@@ -286,8 +317,13 @@ func TestAuthenticatePerson_EightLinkedRowsDoNotHideTheNinth(t *testing.T) {
 	d := testDB(t)
 	m := testManager(t, d)
 	w := newIDWorld(t, ownerConn(t), true)
+	// One backfill link per identity, as 00073 makes them; the rest as sign-ins link them.
 	for i := 0; i < MaxCandidates; i++ {
-		w.linked(w.tenant("M14-07 Eight Co"), "active", "backfill", time.Duration(100-i)*time.Hour)
+		via := "password"
+		if i == 0 {
+			via = "backfill"
+		}
+		w.linked(w.tenant("M14-07 Eight Co"), "active", via, time.Duration(100-i)*time.Hour)
 	}
 	tn := w.tenant("M14-07 Ninth Co")
 	ninth := w.row(tn, fixtureDigest(t, w.pw), "active", time.Hour)
@@ -311,7 +347,7 @@ func TestAuthenticatePerson_ARefusedRowIsNoCandidate(t *testing.T) {
 	ta, tr := w.tenant("M14-07 Kept Co"), w.tenant("M14-07 Refused Co")
 	w.linked(ta, "active", "backfill", 48*time.Hour)
 	refused := w.row(tr, fixtureDigest(t, w.pw), "active", 24*time.Hour)
-	w.exec(`UPDATE admin_users SET linked_via = 'backfill', linked_at = now() - interval '3 days', unlinked_at = now() - interval '1 day' WHERE id = $1`, refused)
+	w.exec(`UPDATE admin_users SET linked_via = 'reconcile', linked_at = now() - interval '3 days', unlinked_at = now() - interval '1 day' WHERE id = $1`, refused)
 
 	in, err := m.AuthenticatePerson(context.Background(), w.email, w.pw, uuid.Nil, generousBudget())
 	if err != nil || in.Session == nil {
@@ -507,7 +543,7 @@ func TestAuthenticatePerson_ARefusedLinkLeavesNoProofSession(t *testing.T) {
 	other := uuid.New()
 	w.exec(`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'M14-07 Other', $3, $4, 'manager')`,
 		other, tl, "other-"+uuid.NewString()+"@identity.example", w.digest)
-	w.exec(`UPDATE admin_users SET identity_id = $2, linked_via = 'backfill', linked_at = now() - interval '3 days' WHERE id = $1`, other, w.ident)
+	w.exec(`UPDATE admin_users SET identity_id = $2, linked_via = 'password', linked_at = now() - interval '3 days' WHERE id = $1`, other, w.ident)
 	legacy := w.row(tl, fixtureDigest(t, w.pw), "active", time.Hour)
 
 	in, err := m.AuthenticatePerson(context.Background(), w.email, w.pw, uuid.Nil, generousBudget())
