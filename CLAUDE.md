@@ -71,6 +71,8 @@ internal/domain/tenant/  tenant/lokasyon/departman/çalışan iş kuralları; d�
 internal/sun/         NTAG 424 DNA SDM doğrulama: AES-CMAC + ctr. Kriptografi
                       SADECE burada. Skill: `tappa-sun`
 internal/session/     oturum token üretimi/doğrulama (hash saklanır, token değil)
+internal/adminauth/   panel yöneticisinin kimliği ve oturumu (ADR 0031); kimlik tablolarına
+                      yalnız `identity_*` / `resolve_identity_*` ile gider
 internal/operatorauth/ platform operatörü kimliği (ADR 0020): parola, TOTP, oturum,
                       çerez, limiter. Tenant kapsamsız; DB'ye yalnız op_* ile gider.
 internal/store/       sqlc ÜRETİMİ — elle dokunma
@@ -170,7 +172,7 @@ ediyorsa **dur ve sor**, sessizce uygulama.
 5. **Tenant izolasyonu her katmanda.** Her tabloda `tenant_id`, her tabloda RLS
    politikası, uygulama `tappa_app` rolüyle bağlanır (NOBYPASSRLS, tablo sahibi
    değil). Sorgularda ayrıca açık `tenant_id` filtresi — kuşak+kemer.
-   **Bilinçli istisnalar iki tanedir** — tenant sınırını aşmanın yalnız bu iki yolu var:
+   **Bilinçli istisnalar üç tanedir** — tenant sınırını aşmanın yalnız bu üç yolu var:
    **(1) `op_*`** (ADR 0021) — platform operatörünün SECURITY DEFINER fonksiyonları;
    `tappa_operator` yalnız onları çağırır, tenant verisine her erişim
    `operator_audit_log`'da iz bırakır; operatör kimliği ayrıdır ve tenant kapsamsızdır
@@ -182,7 +184,7 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    yönde de** karşı tarafın izdüşümüne ve akışına düşer: çıkandan kalana, kalandan çıkana), eş bir
    tenant holding dışı bir tenant'ın anahtarını (plaket uid'i, lokasyon id'si) veremez. Saha
    görünürlüğü `site_punches` izdüşümüdür (append-only); onu yalnız `holding_feed` tetikleyicisi
-   yazar, sahanın okumaları sıradan RLS'li sorgulardır. Bu iki istisnanın dışında kalan dış akış
+   yazar, sahanın okumaları sıradan RLS'li sorgulardır. Bu üç istisnanın dışında kalan dış akış
    yazıcısı `tappa_feedwriter`'dır (NOLOGIN, **NOBYPASSRLS**, üyesiz; ADR 0028 §4): kendi-tenant
    olay tetikleyicisinin sahibidir, tenant sınırını aşmaz; holding punch'ının iki olayını holding
    tetikleyicisi yazar (K-31). Bir işlem tek bir sayaç kümesine olay yazar — sayaç kilit sırası
@@ -197,6 +199,37 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    definer'a `holdings (id, name)` kullanıcı onaylı, 2026-10-20) ya da bir kipin süzgecini veya zaman kuralını
    gevşetmek kullanıcı onayı + ADR 0027 değişikliği ister** (ADR 0027 §2; testler: ADR 0027
    §2'deki imza katalog testi ve sütun matrisi testi).
+   **(3) Panel yöneticisinin kimliği** (ADR 0031) — bir kişi tek kimlikle birden çok işletmeye üye
+   olur. Kişi verisi tenant kapsamsız beş tabloda durur (`admin_identities`, `admin_identity_resets`,
+   `admin_identity_verifications`, `admin_signup_claims`, `admin_identity_events`); `tappa_app`'ın
+   bunlarda hiçbir yetkisi yoktur; `admin_users.identity_id` / `linked_via` / `linked_at` /
+   `unlinked_at`'i yazamaz, `linked_via` / `linked_at` / `unlinked_at`'i okuyamaz. Erişim yalnız ADR 0031 §5.2'deki **kapalı** `identity_*`
+   listesiyle (sahibi `tappa_identitydefiner`: NOLOGIN, BYPASSRLS, NOSUPERUSER, üyesiz, varsayılan
+   yetkisi yok, yalnız sütun düzeyi GRANT) ve salt okuma `resolve_identity_*` / `resolve_admin_invite_*`
+   / `resolve_signup_claim_*` çözümleyicileriyle (`tappa_resolver`, ADR 0002 md.7) olur. Kimliği yazan
+   her fonksiyon kimliği bir **sırdan** bulur (canlı oturum, sıfırlama/davet/kayıt/doğrulama token'ı);
+   adlandırılmış üç istisna `identity_open_session` (Go tipiyle bağlı, 00011 YÜKÜMLÜLÜK 5'in
+   karşılığı), geçici `identity_create_for_signup` (kendi transaction'ında yazılmış tek satır; M14-17'den
+   sonra kalkar) ve `identity_record_failed_login`'dir (yalnız `admin_identity_events`, kimlik kovasıyla
+   sınırlı). Bu kuralın dışında kalan üç bakım yazarının uygulama yolu yoktur: `identity_reconcile()`
+   (`EXECUTE` yalnız `tappa_owner`'da; M14-06b'nin migration'ı ve M14-19'dan önce runbook çağırır,
+   contract B'de düşer), M14-06'nın backfill migration'ı (`tappa_owner`, ADR 0031 §5.8) ve M14-19'un
+   migration'ı (`tappa_owner`; yalnız bayrak kapalıyken açılmış onay pencerelerinin `confirm_open_until`'i,
+   ADR 0031 §5.8, §8 adım 5); bunların ve adlandırılmış üç istisnanın dışında kimliği ya da
+   `admin_users`'ın bağ sütunlarını (`identity_id`, `linked_via`, `linked_at`, `unlinked_at`) sırsız yazan
+   yoktur. Kimlik yazmayan ama sırra da
+   anahtarlı olmayan yazarlar adıyla şunlardır:
+   `identity_open_signup_claim` (yalnız taslak satırı, oranla sınırlı), `identity_open_reset` (yalnız bir
+   sıfırlama linki + bir `reset_requested` olayı; kimlik başına tek canlı link, EM-7C) ve iki sabit periyotlu süpürme. BYPASSRLS gövdelerinde tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi
+   taşır. Bir tenant'a yazan her fonksiyon o tenant'ın `audit_log`'una yazar; satır karşı tenant'ı,
+   kişinin üyelik sayısını ve `identity_id`'yi anmaz; bir istek her an tek tenant bağlamında koşar.
+   `tappa_app`'ın `admin_users.identity_id`'yi okuması (geçiş oran kovası) adlandırılmış bir kalıntıdır ve
+   ADR 0031 §5.1'deki tarama testleriyle sınırlıdır. `tappa_operator` ve `tappa_opdefiner` hiçbir
+   `identity_*` / `resolve_identity_*` fonksiyonunu çalıştıramaz ve kimlik tablolarında yetki taşımaz.
+   **Listeye fonksiyon eklemek, dönüş sütunlarını, definer'ın sütun matrisini ya da `tappa_app`'ın veya
+   `tappa_resolver`'ın kimlik sütunlarındaki ve tablolarındaki yetkilerini genişletmek kullanıcı onayı +
+   ADR 0031 değişikliği ister** (testler: ADR 0031 §5.2'deki imza katalog testi ve sütun matrisi testi;
+   yetkiler: ADR 0031 §5.1, §5.2).
 6. **Kayıt asla kaybolmaz.** Kanıt yetersizse REJECT edip atma: kaydı yaz,
    `verdict='flag'` ver, müdür onay kuyruğuna düşür. Sessiz onay da yok.
    Holding dokunuşunun site satırı ve olay yazan her satır checkin'de savepoint içinde yazılır ve
@@ -332,8 +365,11 @@ başlayan bir test durumu olmalı.
 - Her yeni tablo şunlarla doğar: `tenant_id uuid NOT NULL`, `ENABLE ROW LEVEL SECURITY`,
   `FORCE ROW LEVEL SECURITY`, `tenant_id` üzerinde politika, `tenant_id` üzerinde indeks.
   Beşinden biri eksikse migration eksiktir (GRANT dahil; bkz. docs/plan/m1-veri-katmani.md).
-- **Tenant kapsamsız tablo** (yalnız platform operatörü — ADR 0020/0021 — ve holding
-  üyeliği: `holdings`, `holding_members`, yazarı yalnız `op_*` — ADR 0027): R5
+- **Tenant kapsamsız tablo** (yalnız platform operatörü — ADR 0020/0021 —, holding
+  üyeliği: `holdings`, `holding_members`, yazarı yalnız `op_*` — ADR 0027 — ve panel
+  yöneticisinin kimliği: `admin_identities`, `admin_identity_resets`,
+  `admin_identity_verifications`, `admin_signup_claims`, `admin_identity_events`, yazarı
+  yalnız `identity_*` — ADR 0031): R5
   muafiyetiyle **görünür** (`scripts/redline-check.sh`), `tappa_app`'tan **açık**
   `REVOKE ALL` (dev/prod varsayılan yetkileri yeni tabloya yetki verir — ölçüldü),
   `ENABLE` **ve** `FORCE ROW LEVEL SECURITY` birlikte (`scripts/pg-restore-verify.sh`
