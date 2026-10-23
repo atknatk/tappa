@@ -366,6 +366,117 @@ golden'ı); panel yalnız kendi `Panel*` bileşenlerini kullanır.
   (`TestTransactionDocket_IsADocketAndCarriesEveryFieldTheCardAsksFor`; sonuç ekranıyla ortak) — tam
   docket'in dolgusu bu yüzden tasarımın tarifinden farklıdır (README §5.1).
 
+## Public site — kabuk ve `.lp` bileşenleri
+
+> Eklendi 2026-10-23 (LP-15, faz sonu). Normatif kaynak: `docs/design/landing-redesign/README.md`
+> (§4 kısıtlar, §5 CSS stratejisi, **§6 pano adı → ürün adı**, §7 olgu pinleme, §8 404, §9 OG) ve
+> `web/static/css/input.css`'in `.lp` bloğu (başlık yorumları LP-01 · LP-02 · LP-06 kararlarını taşır).
+> Sayfalar: `/`, `/product`, `/security`, `/pricing`, `/for/restaurants`, `/for/production`,
+> `/signup`, dört legal, `/docs/api`, `/docs/api/tr` + public 404.
+
+**Kabuk — `pages.PublicChrome(PublicChromeOpts{…})`** (`web/templates/pages/publicchrome.templ`).
+Tek DOM, her genişlik: header (`.lp-head` › `.lp-headIn` › `.lp-mark` + `.lp-headNav` içinde
+`.navlink` ×3, `.lp-signin`, `.hbtn`), telefon menüsü (`details.menu`, `.mopen`/`.mclose`, `.mlink`;
+betik yok, 768 px'ten itibaren gizli), telefonun alt çubuğu (`.mbar` › `.hbtn`), footer (`.lp-foot`,
+`.fcol` Product + Legal), skip link (`.lp-skip` → `#main`). Bağlantılar **tek tablodan**:
+`LandingNav`, `MountedPublicLinks(PublicProductLinks)`, `LegalPages` — yol elle yazılmaz;
+`Current` eşleşen girdi `aria-current="page"` alır. Seçenekler:
+- `OwnRoots` — gövdesi ürünün Tailwind yardımcılarıyla yazılmış sayfalar (signup, legal, API rehberi).
+  Kabuk kendi `.lp` köklerini kurar (`.lp.lp-top` yapışan, `.lp.lp-topStill` yapışmayan,
+  `.lp.lp-dock` alt çubuk), `<main>` her kökün **dışında** kalır. Gövde `PublicBodyFrame` (header'ın
+  kutusu) ve `PublicBodyRing` (tek odak halkası) taşır.
+- `InstantScroll` — yalnız API rehberi: `html:has(.lp.lp-instant)` yumuşak kaydırmayı kapatır
+  (~50 000 px sayfada içindekiler bağlantısı saniyelerce kayıyordu).
+- `StaticHeader` + `NoPhoneBar` + `SignInPrompt` — yalnız signup.
+
+**`.lp` kapsamı ve sıfırlama kuralı.** Her public kural `.lp` altında, `@layer` dışında düz CSS'tir
+(ağaç budaması yok; `TestLandingCSS_EverySelectorIsScopedUnderLp`). `.lp * { margin:0; padding:0 }`
+Tailwind boşluk yardımcılarıyla aynı özgüllükte ve dosyada sonra gelir → **`.lp` kökü içinde her
+`p-*`/`m-*` yardımcısı kaybeder** (ölçüldü: cookie sayfası 390'da 685 px, rehber 5 169 px kaybetti).
+Kural: `.lp` sınıflarıyla çizilen gövde `.lp` kökünde; yardımcılarla çizilen gövde asla `.lp`
+içinde değil (`OwnRoots`; `TestPublicChrome_UtilityBodiesStayOutsideTheLPRoot`). Ürünün sahip
+olduğu adlar `lp-` önekli: `.lp-button` (`.btn` değil), `.lp-slip` (`.docket` değil), `.lp-lbl`,
+`.lp-eyebrow`, `.lp-ico`. Her renk `.lp` üstünde token (`rgb(var(--ink-ch) / a)`), ham hex ve
+`style=` yok (`marketingCSP`: `style-src 'self'`).
+
+**Tek odak halkası:** `.lp :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px }`.
+`--ring` = ink (porselen 14,32:1, paper 16,17:1); koyu zeminde (`.band--ink`, yeşil `.ondark`)
+paper (yeşilde 7,73:1, ink'te 16,17:1). Eski 3 px saffron halka 2,32:1 ölçtüğü için gitti.
+Yardımcı gövdelerde aynı halka `PublicBodyRing` ile (`TestPublicPages_UtilityBodiesDrawTheOneRing`).
+Her çizilmiş durumun (`:hover`, `:active`, `[aria-current]`) kuralı var; disabled hücresi
+ulaşılamaz (signup'ın gönder düğmesi ürünün `.btn`'i ve sayfa betiksiz), bu yüzden `.lp` bloğu
+disabled kuralı yazmaz (`TestLandingCSS_EveryDrawnStateHasItsRule`).
+
+**Dokunma tabanı:** basılan her sınıf `min-height: 44px`; menü bağlantıları ve tam boy düğmeler
+48 px. Pano 40 px çizdiği yerde (footer bağlantısı) ürünün tabanı kazanır
+(`TestLandingCSS_EveryPressableClassReservesTheTouchFloor`).
+
+**Animasyon yok** (README O2): `@keyframes`/`animation` public blokta yasak
+(`TestLandingCSS_ThePublicSiteDeclaresNoAnimation`). Kalan tek hareket durum geçişidir
+(`details.qa .pl` dönüşü, `.fitcard` kenarı) ve `prefers-reduced-motion: no-preference` içindedir.
+**İstisna:** hero'nun fişi `landing.js` ile kendiliğinden kelime değiştirir — bu yüzden
+`.heroPause` düğmesi var (WCAG 2.2.2; panoda yok, orkestratör kararı). Demo diyaloğu tarayıcının
+`showModal()`'ı ile açılır, hareketsiz.
+
+**Kaşe dili:** public site kendi kaşesini çizmez — ürünün `.stamp .stamp--approved/--flagged/
+--rejected/--ignored`'ı (README O7; kelime her zaman ink, `TestCompiledCSS_StampWordIsInk`).
+Public'e özgü olan yalnız iki eğim (`.lp .stamp--rejected` −10°, `--ignored` −4°) ve küçük boy
+`.lp-stamp-sm`. Fiş: `.lp-slip` (alt kenarı perforeli), tap ekranı çizimindeki bilet `.tapdocket`.
+
+**Örnek veri kuralları** (`landingview.go` "the panel", `forrestaurantsview.go`,
+`forproductionview.go`):
+1. Örnek kişi **uydurmadır ve seed'de olmayan** biridir (seed kişisinin durumu/rolü çizimle
+   çelişirdi); mekânlar ve KM departmanları seed'inkidir (K1, "from our demo data").
+2. Örnek **görünür biçimde "sample" der**: `LandingPanelSampleNote`, `ForProductionSampleNote`,
+   erişilebilir ad "Sample screen: …", "The Roll · sample", hero fişinde "Sample record" ve sahnenin
+   adı "Sample scene: …"; not çizimin **durduğu yerde** olur (/product'ta her çizimin altında).
+   Hero kaydı sitenin başka bir çiziminin aynı kişisidir ve o çizimin kanıtını docket'in
+   kelimeleriyle gösterir ("IP yes · GPS no").
+3. Örnek **motordan geçer**: her örnek kayıt `tap.Decide`'dan geçirilir, damga/puan/not ürünün
+   üreteceğiyle aynı olmalı (`TestLandingPanel_TheSampleIsWhatTheProductWouldDraw`). Çizim kontrol
+   değildir (`role="img"`, düğmeler `span`).
+
+**"Her cümle pinli" düzeneği:** sayfa metni şablonda yazılmaz, view dosyasında veridir —
+`Line{Text, Facts}`, `Question`, sayfaya özgü yapılar. Üç sözlük: `Fact` (ürün olgusu),
+`Source` (motor olgusu), `Anchor` (şema/alan olgusu). Her bildirilen olgu üründen **türetilir**
+(kod, şema, migration, CSS, config ya da kararın yazılı olduğu belge — asla sayfanın kendi cümlesi)
+**ve** en az bir render edilen cümle tarafından talep edilir. Yeni sayfa: `pages.PublicPages`
+satırı + `Mount`'ta rota, `publicPagesCopy` girdisi, türetme tablosu `pageFactDerivations`'a
+eklenir (`internal/handler/marketing_facts_test.go`); değer **kendi URL'sinde** render edilmeli
+(`TestPublicPages_EveryValueIsRenderedOnItsOwnPageAndRestsOnAFact`,
+`TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed`). Pin cümleyi doğru yapmaz — kayma
+cırcırıdır; her cümle yine üründen okunur.
+
+**Yasaklı ifadeler** (her biri bir testte; bir public sayfada geri gelirse kırmızı):
+- Üstünlük: `superiorityClaim` — "safer/better/faster/cheaper … than", "the best", "industry-leading",
+  "unbeatable". Mekanizma karşılaştırılır, kazanan ilan edilmez.
+- Ölçülmemiş sayı: "under 10 minutes", "30 seconds", "under two seconds", "one click", "about €" …;
+  ürün olmayan yetenek: "live headcount", "live dashboard", "import your staff", "csv import",
+  "unlimited locations", "daily reports" …; hiçbir sayfada (baytlar dahil) "guarantee".
+- Sayfa kartlarının geri çektiği cümleler: `securityRefusedPhrasings` ("Four proofs on every single
+  tap", "never silently approved", "no NFC" …), `productRefusedPhrasings`,
+  `restaurantsRefusedPhrasings`, `forProductionRefusedPhrasings` ("per plaque"/"per tag" — debounce
+  kişi bazlıdır) — her birinin gerekçesi haritada yazılı.
+- İç kod adı yok — sayfa yalnız kullanıcıya görünen markayı ("Taptime") taşır
+  (`TestLanding_ShowsNoUserFacingInternalName`); `/v1` mount'luyken "no API" cümlesi yok
+  (`TestLanding_ClaimsNoAbsentAPIWhileV1IsMounted`).
+
+**Public 404** (ADR 0034, `internal/handler/notfound.go`): kabuk + tek cümle ("There is no page at
+this address.") + "Back to the home page", status 404, `noindex`, `no-store`, her yol ve
+ziyaretçi için aynı bayt (yol yazılmaz). Yalnız `GET`/`HEAD` ve `plainNotFoundRoots` dışındaki
+yollarda; `/admin`, `/t`, `/activate`, `/api`, `/brand`, `/static`, `/operator`, `/v1`, probe'lar ve
+`/dev` altında net/http'nin düz 404'ü kalır (marka ret özdeşliği, operatör yüzeyinin görünmezliği).
+
+**OG kartları** (K3, 2026-10-23 güncel; README §9): `web/static/og/` altında dokuz PNG,
+1200×630 (`landing`, `product`, `pricing`, `security`, `restaurants`, `production`, `signup`,
+`legal`, `api`). Pano elemanı + `shareCardBoardEdits` düzeltmeleri, yerelde headless Chrome ile
+self-hosted fontlarla çizilir ve commit edilir; test her PNG'nin sha256'sını düzeltilmiş kaynağın
+sha256'sıyla birlikte pinler (`TestShareImages_AreDrawnFromThePinnedSources`) — ikisi birlikte
+yenilenir. Görselde fiyat yok, kişiler uydurma. `og:image` mutlak URL'si `TAPPA_BASE_URL`'den;
+üçüncü taraf muafiyeti yalnız o origin'in `/static/og/` yolları
+(`TestShareImageExemption_IsNarrow`). Head etiketleri yalnız `marketingDocument` üzerinden — tap/
+aktivasyon head'leri golden'la bayt-aynı.
+
 ## Yapma
 
 Emoji ikon seti (marka mesajları hariç) · yuvarlatılmış adisyon ya da kaşe damgası ·

@@ -316,7 +316,7 @@ func newLegalE2E(t *testing.T) *legalE2E {
 		t.Fatal(err)
 	}
 	g.auth, l.surface = auth, s
-	g.h = httpx.NewRouter(&config.Config{OperatorHost: opHost, BaseURL: opBase}, log, s, handler.NewMarketing(l.texts, log, ""))
+	g.h = httpx.NewRouter(&config.Config{OperatorHost: opHost, BaseURL: opBase}, log, s, handler.NewMarketing(l.texts, log, "", opBase))
 	return l
 }
 

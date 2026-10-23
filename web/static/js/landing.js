@@ -1,35 +1,106 @@
-// The landing page's one script: the ticket in the hero rotates through four
+// The landing page's one script. Its first half rotates the hero through four
 // made-up records so the scene reads as a stream of taps rather than a still.
 //
-// 🔴 IT IS THE USER'S OWN SCRIPT, CARRIED OVER FROM
-// docs/design/landing-reference-2026-09-12.html UNCHANGED apart from being a
-// file instead of an inline <script>. Inline would have needed
-// script-src 'unsafe-inline' in the marketing policy; a file needs
-// script-src 'self', which is what internal/handler/marketing.go's landingCSP
-// grants and nothing more.
+// THE ROTATION IS THE REFERENCE'S (docs/design/landing-reference-2026-09-12.html),
+// moved from an inline <script> into this file: inline would have needed
+// script-src 'unsafe-inline' in the marketing policy; a file needs script-src
+// 'self', which is what internal/handler/marketing.go's landingCSP grants and
+// nothing more. LP-03 (2026-10-21) widened it to the plaque and the phone the boards
+// draw, so the ticket, the phone and the plaque always show ONE record.
 //
-// IT TOUCHES NOTHING BUT FOUR TEXT NODES. No fetch, no storage, no cookie, no
+// 🔴 IT MOVES NOTHING (README O2). It swaps words; it adds no class and starts no
+// motion. The page is drawn still and stays still.
+//
+// WHAT IT TOUCHES: the nine text nodes of the record, and the scene's pause button
+// -- its words and its [hidden] attribute. No fetch, no storage, no cookie, no
 // location read (§4.2 — that belongs to tap.js and to the moment of a tap).
-// Everything it writes is invented and is labelled as such on the page.
+// Everything it writes is invented and is labelled as such on the page. Every
+// venue is one of the seed's (test/fixtures/seed.sql), and the page's own markup
+// is the FIRST record below, so a browser that runs no script shows that record
+// whole -- both held by the LandingHero tests in internal/handler. Each record is a
+// sample the site draws elsewhere (The Pass, /for/production), and its `on` is that
+// docket's evidence in the docket's words: no record shows evidence its other drawing
+// does not, and the engine approves each one (LP-15 fact review).
 //
-// A reader who has asked for less motion gets the first record and no timer.
+// A reader who has asked for less motion gets the first record and no timer, and
+// so does a page that lost one of the nine nodes: a rotation that could fill only
+// some of them would show two records at once.
+//
+// 🔴 WHAT CHANGES ON ITS OWN MUST BE STOPPABLE (WCAG 2.2.2), AND THE STOPPING IS A
+// STATE MACHINE WRITTEN AS DATA. Two facts: `paused` (the reader's choice) and
+// `hovered` (a mouse over the scene). PAUSE_MACHINE says what each event does to
+// them, next() applies it and nothing else changes them; the rotation runs while
+// both are false. The table is JSON so internal/handler can read it from this file
+// and check every change it makes (TestLandingHero_ThePauseMachineIsTheTable) -- there
+// is no Node here to run this file.
+//   press         the button: flips `paused`, and only `paused`. One press on
+//                 "Pause" stops, one press on "Play" resumes, by mouse, touch,
+//                 Enter or Space alike.
+//   pointerenter  a MOUSE over the scene: a quiet, temporary stop. It does not
+//   pointerleave  change the button's word and a press does not clear it. Touch is
+//                 not hover: a tap's compatibility mouseenter would otherwise stop
+//                 the scene before the press reached the button.
+//   keyfocus      KEYBOARD focus entering the scene (:focus-visible, not a click's
+//                 focus): APG's auto-rotating carousel -- it stops, for good, and
+//                 the button says "Play". Focus leaving does not restart it; only
+//                 the button does.
+// The button's word comes from `paused` alone: it always names what pressing does.
+// The button ships [hidden]: with no script there is no dead control, and with no
+// button there is no rotation. Under reduced motion it stays hidden: nothing changes
+// on its own, so there is nothing to pause, and a "Play" would offer the motion the
+// reader declined.
 (function () {
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var people = [
-    { n: 'Maria Vella', t: 'CLOCK IN', time: '09:58', loc: 'KF St Julians' },
-    { n: 'Kevin Grech', t: 'CLOCK IN', time: '09:52', loc: 'KF St Julians' },
-    { n: 'Anna Farrugia', t: 'CLOCK IN', time: '04:02', loc: 'KM Facility' },
-    { n: 'Luke Borg', t: 'CLOCK OUT', time: '02:04', loc: 'Rusty Bar' }
+    { n: 'Maria Vella', t: 'CLOCK IN', time: '09:58', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55', on: 'IP yes · GPS no' },
+    { n: 'Kevin Grech', t: 'CLOCK IN', time: '09:52', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55', on: 'IP no · GPS yes' },
+    { n: 'Anna Farrugia', t: 'CLOCK IN', time: '04:02', loc: 'KM Plant', plaque: 'KM PLANT · 2F04-1B9A', on: 'IP yes · GPS no' },
+    { n: 'Luke Borg', t: 'CLOCK OUT', time: '02:04', loc: 'Rusty Bar', plaque: 'RUSTY BAR · 6D31-C8E2', on: 'IP yes · GPS no' }
   ];
+  // id -> the record's field it shows.
+  var slots = {
+    dName: 'n', dType: 't', dTime: 'time', dLoc: 'loc', dOn: 'on',
+    pName: 'n', pLoc: 'loc', pTime: 'time', pPlaque: 'plaque'
+  };
+  var PAUSE_MACHINE = {"press": {"paused": "flip"}, "pointerenter": {"hovered": true}, "pointerleave": {"hovered": false}, "keyfocus": {"paused": true}};
+  function next(state, event) {
+    var out = { paused: state.paused, hovered: state.hovered };
+    var change = PAUSE_MACHINE[event];
+    for (var k in change) out[k] = change[k] === 'flip' ? !out[k] : change[k];
+    return out;
+  }
+  function label(state) { return state.paused ? 'Play' : 'Pause'; }
+  function rotating(state) { return !state.paused && !state.hovered; }
+
+  var nodes = {};
+  for (var id in slots) {
+    nodes[id] = document.getElementById(id);
+    if (!nodes[id]) return;
+  }
+  var pause = document.getElementById('heroPause');
+  var scene = pause && pause.closest('.scene');
+  if (reduced || !scene) return;
+
+  var state = { paused: false, hovered: false };
+  function on(event) {
+    state = next(state, event);
+    pause.textContent = label(state);
+  }
+  function keyboardFocus(el) {
+    try { return el.matches(':focus-visible'); } catch (err) { return false; }
+  }
+  pause.addEventListener('click', function () { on('press'); });
+  scene.addEventListener('pointerenter', function (e) { if (e.pointerType === 'mouse') on('pointerenter'); });
+  scene.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse') on('pointerleave'); });
+  scene.addEventListener('focusin', function (e) { if (keyboardFocus(e.target)) on('keyfocus'); });
+  pause.removeAttribute('hidden');
+
   var i = 0;
-  if (reduced) return;
   setInterval(function () {
+    if (!rotating(state)) return;
     i = (i + 1) % people.length;
     var p = people[i];
-    document.getElementById('dName').textContent = p.n;
-    document.getElementById('dType').textContent = p.t;
-    document.getElementById('dTime').textContent = p.time;
-    document.getElementById('dLoc').textContent = p.loc;
+    for (var id in slots) nodes[id].textContent = p[slots[id]];
   }, 3800);
 })();
 

@@ -98,9 +98,9 @@ func TestMarketingCredit_NotOnTheTapScreenOrAnyOtherShell(t *testing.T) {
 		}
 	}
 	for name, html := range map[string]string{
-		"layout.Marketing":           render(layout.Marketing("T", layout.RobotsPublic), body),
-		"layout.MarketingWithScript": render(layout.MarketingWithScript("T", layout.RobotsPublic, "/static/js/landing.js"), body),
-		"layout.MarketingTranslated": render(layout.MarketingTranslated("T", layout.RobotsPublic, nil), body),
+		"layout.Marketing":           render(layout.Marketing("T", layout.RobotsPublic, layout.Share{}), body),
+		"layout.MarketingWithScript": render(layout.MarketingWithScript("T", layout.RobotsPublic, "/static/js/landing.js", layout.Share{}), body),
+		"layout.MarketingTranslated": render(layout.MarketingTranslated("T", layout.RobotsPublic, nil, layout.Share{}), body),
 	} {
 		if !strings.Contains(html, `<link rel="author" href="`+layout.CreditURL+`">`) {
 			t.Errorf("POSITIVE CONTROL: %s does not carry the credit, so the scan above is not reading the head", name)

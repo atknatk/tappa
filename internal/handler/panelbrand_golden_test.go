@@ -109,8 +109,8 @@ func unbrandedChromeRenders() []unbrandedRender {
 		// Every other shell that renders layout.documentHead.
 		unbrandedRender{"layout.Page", layout.Page("A page — Taptime"), body},
 		unbrandedRender{"layout.PageWithScript", layout.PageWithScript("A page — Taptime", "/static/js/tap.js", layout.Brand{}), body},
-		unbrandedRender{"layout.Marketing, public", layout.Marketing("Taptime", layout.RobotsPublic), body},
-		unbrandedRender{"layout.MarketingWithScript, private", layout.MarketingWithScript("Taptime", layout.RobotsPrivate, "/static/js/landing.js"), body},
+		unbrandedRender{"layout.Marketing, public", layout.Marketing("Taptime", layout.RobotsPublic, layout.Share{}), body},
+		unbrandedRender{"layout.MarketingWithScript, private", layout.MarketingWithScript("Taptime", layout.RobotsPrivate, "/static/js/landing.js", layout.Share{}), body},
 		unbrandedRender{"layout.Auth, no script", layout.Auth("Sign in — Taptime", ""), body},
 		unbrandedRender{"layout.Auth, a script", layout.Auth("Sign in — Taptime", "/static/js/login.js"), body},
 		unbrandedRender{"layout.Operator", layout.Operator("Taptime operator"), body},

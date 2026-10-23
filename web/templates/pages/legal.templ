@@ -38,19 +38,31 @@ import (
 // the constants that write the cookies (internal/handler's cookieNotice). Only the
 // legal framing around it is waiting.
 
-// THE REDESIGN (M12-46, design "The Pass"): still a PUBLIC page in the marketing
-// chrome, never a panel screen. The chrome is the wide one with "Start free"; beside
-// the document (below it on a tablet and a phone) a navigation lists the four
-// documents, marks the one being read, and says which are not in force yet. That
-// mark is read from what is published and from nothing about the visitor, so every
-// visitor gets the same bytes and the public caching still holds.
+// THE REDESIGN (M12-46, design "The Pass"): still a PUBLIC page, never a panel
+// screen. Beside the document (below it on a tablet and a phone) a navigation lists
+// the four documents, marks the one being read, and says which are not in force yet.
+// That mark is read from what is published and from nothing about the visitor, so
+// every visitor gets the same bytes and the public caching still holds.
+//
+// THE CHROME IS THE PUBLIC SITE'S (LP-11): PublicChrome, in its own roots so the
+// document's utility classes keep their spacing, with Start free and the phone bar.
+// Its footer marks the document being read in its Legal column, as the navigation
+// beside the text does; no header entry is marked, none of them being this page.
+//
+// THE BODY SITS IN THE CHROME'S BOX (PublicBodyFrame, LP-14), as the Legal board draws it,
+// so the navigation starts where the wordmark does. That box is 1100 px inside its padding
+// on a wide desk, 52 px less than the 1152 the body had before, so from the desk width the
+// navigation's column is at most 260 px, the board's own split (a 260 px list growing to
+// 300 only once the text has its 820): the text is 800 px wide at 1440 (812 before; a
+// 300 px list would leave it 760), and the cookie notice, whose table fills its column,
+// grows 63 px there instead of 273 (measured in Chrome).
 
 // Legal renders one document.
 templ Legal(v LegalPageView) {
-	@layout.Marketing(v.Page.Title+" — Taptime", v.Robots()) {
-		@marketingChromeWith(marketingChromeOpts{SignInHref: v.SignInHref, SignupHref: v.SignupHref, Wide: true}) {
-			<div class="px-4 pb-12 pt-5 md:px-7 md:pb-14 md:pt-7 desk:px-4 desk:pb-16 desk:pt-10">
-				<div class="mx-auto flex w-full max-w-6xl flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,300px)_minmax(0,820px)] desk:items-start desk:gap-10">
+	@layout.Marketing(v.Page.Title+" — Taptime", v.Robots(), v.Share) {
+		@PublicChrome(PublicChromeOpts{Current: v.Page.Path, SignInHref: v.SignInHref, SignupHref: v.SignupHref, OwnRoots: true}) {
+			<div class={ PublicBodyFrame + " " + PublicBodyRing + " pb-12 pt-5 md:pb-14 md:pt-7 desk:pb-16 desk:pt-10" }>
+				<div class="flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,260px)_minmax(0,820px)] desk:items-start desk:gap-10">
 					@legalNav(v)
 					<article class="flex min-w-0 flex-col gap-7">
 						<div class="flex flex-col gap-2.5">
@@ -109,7 +121,7 @@ func legalNavLinkClass(current bool) string {
 	if current {
 		return "flex h-full min-h-14 flex-col gap-1.5 rounded-[14px] border-2 border-ink bg-paper px-3 py-2.5 desk:px-4 desk:py-3.5"
 	}
-	return "flex h-full min-h-14 flex-col gap-1.5 rounded-[14px] border border-line px-3 py-2.5 hover:border-ink desk:px-4 desk:py-3.5"
+	return "flex h-full min-h-14 flex-col gap-1.5 rounded-[14px] border border-line px-3 py-2.5 hover:border-ink active:border-ink active:bg-paper desk:px-4 desk:py-3.5"
 }
 
 // legalBody is the PUBLISHED text (M7-06).

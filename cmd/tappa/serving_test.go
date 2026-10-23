@@ -49,7 +49,7 @@ func TestPackaging_AssetsAndTemplatesComeFromTheBinary(t *testing.T) {
 		t.Fatalf("the working directory still reaches the repository (%v); this test would prove nothing", err)
 	}
 
-	marketing := handler.NewMarketing(nil, slog.New(slog.DiscardHandler), "")
+	marketing := handler.NewMarketing(nil, slog.New(slog.DiscardHandler), "", "")
 	srv := httptest.NewServer(httpx.NewRouter(&config.Config{}, nil, marketing))
 	t.Cleanup(srv.Close)
 
