@@ -3,7 +3,6 @@ package pages
 import (
 	"path"
 	"strconv"
-	"strings"
 
 	"github.com/atknatk/tappa/web/templates/layout"
 )
@@ -91,7 +90,7 @@ const nbsp = "\u00a0 "
 
 // Landing is the page at /.
 templ Landing(v LandingView) {
-	@layout.MarketingWithScript("Taptime — Punchless time & attendance", layout.RobotsPublic, "/static/js/landing.js") {
+	@layout.MarketingWithScript("Taptime — Punchless time & attendance", layout.RobotsPublic, "/static/js/landing.js", v.Share) {
 		<div class="lp">
 			@PublicChrome(PublicChromeOpts{Current: "/", SignInHref: v.SignInHref, SignupHref: v.SignupHref}) {
 				@landingHero(v)
@@ -890,7 +889,7 @@ templ signOff(freeMonths int, signupHref string) {
 				<span class="lp-pilotRing lp-pilotRing--one" aria-hidden="true"></span>
 				<span class="lp-pilotRing lp-pilotRing--two" aria-hidden="true"></span>
 				<h2 class="lp-pilotTitle">Go punchless.</h2>
-				<p class="lp-pilotLine">{ strings.TrimSpace("Start yourself today. " + LandingFreeMonthsLine(freeMonths).Text) }</p>
+				<p class="lp-pilotLine">{ SignOffLine(freeMonths) }</p>
 				<a class="lp-button lp-button--paper lp-pilotBtn" href={ templ.URL(signupHref) }>Start free</a>
 			</div>
 		</div>

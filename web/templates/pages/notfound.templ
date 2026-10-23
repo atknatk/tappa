@@ -33,7 +33,7 @@ const NotFoundHomeLabel = "Back to the home page"
 
 // NotFound is the page the public site answers an unknown address with.
 templ NotFound(v NotFoundView) {
-	@layout.Marketing(NotFoundTitle, layout.RobotsPrivate) {
+	@layout.Marketing(NotFoundTitle, layout.RobotsPrivate, layout.Share{}) {
 		<div class="lp">
 			@PublicChrome(PublicChromeOpts{SignInHref: v.SignInHref, SignupHref: v.SignupHref}) {
 				<div class="band band--porcelain">

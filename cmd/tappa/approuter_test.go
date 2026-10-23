@@ -218,7 +218,7 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	f := appFeatures{
 		activation: activation, tap: tap, panel: panel, logos: logos,
-		marketing: handler.NewMarketing(texts, log, cfg.APIHost), signupFlow: signupFlow, resetFlow: resetFlow,
+		marketing: handler.NewMarketing(texts, log, cfg.APIHost, cfg.BaseURL), signupFlow: signupFlow, resetFlow: resetFlow,
 		ready: ready, theme: handler.NewBrandTheme(), operator: operator.Off(),
 	}
 	if !on {

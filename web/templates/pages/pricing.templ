@@ -23,7 +23,7 @@ import (
 
 // Pricing is the page at /pricing.
 templ Pricing(v PricingView) {
-	@layout.Marketing(PublicPageTitle(PricingPath), layout.RobotsPublic) {
+	@layout.Marketing(PublicPageTitle(PricingPath), layout.RobotsPublic, v.Share) {
 		<div class="lp">
 			@PublicChrome(PublicChromeOpts{Current: PricingPath, SignInHref: v.SignInHref, SignupHref: v.SignupHref}) {
 				@pricingHead(v)

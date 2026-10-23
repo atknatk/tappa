@@ -23,6 +23,10 @@ const (
 
 // APIGuideView is one language's guide page.
 type APIGuideView struct {
+	// Share is the page's link preview (LP-13): its description and the full URL of
+	// its share image, built by internal/handler. The zero value writes neither.
+	Share layout.Share
+
 	// Guide is the converted Markdown (internal/apiguide.Render), converted once per process.
 	Guide apiguide.Guide
 	// Turkish selects the Turkish page: its lang attribute, its few words of chrome, and the link

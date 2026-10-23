@@ -1,5 +1,7 @@
 package pages
 
+import "github.com/atknatk/tappa/web/templates/layout"
+
 // THE PRICING PAGE (LP-06, 2026-10-22): /pricing, drawn from the Pricing / T-Pricing /
 // M-Pricing boards (docs/design/landing-redesign/boards). It is the first of the five
 // public pages beyond the landing, and the shape it uses is the one the other four
@@ -24,6 +26,10 @@ const PricingPath = "/pricing"
 
 // PricingView is the pricing page.
 type PricingView struct {
+	// Share is the page's link preview (LP-13): its description and the full URL of
+	// its share image, built by internal/handler. The zero value writes neither.
+	Share layout.Share
+
 	// SignupHref and SignInHref are the chrome's two ways in, as on LandingView.
 	SignupHref string
 	SignInHref string

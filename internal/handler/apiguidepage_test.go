@@ -326,7 +326,7 @@ func TestAPIGuidePages_JumpInsteadOfGliding(t *testing.T) {
 func TestAPIGuidePages_OfferOpenAPIOnlyWithAnAPIHost(t *testing.T) {
 	t.Parallel()
 	log := slog.New(slog.DiscardHandler)
-	with := httpx.NewRouter(nil, nil, NewMarketing(nil, log, "api.example.test"))
+	with := httpx.NewRouter(nil, nil, NewMarketing(nil, log, "api.example.test", ""))
 	without := marketingRouter(t)
 	for _, path := range []string{pages.APIGuidePath, pages.APIGuideTRPath} {
 		if body := mustFetchMarketing(t, with, path); !strings.Contains(body, `<a href="https://api.example.test/v1/openapi.yaml"`) {
@@ -365,7 +365,7 @@ func TestAPIGuidePages_AreLinkedFromTheFootersAndThePanel(t *testing.T) {
 func TestAPIGuidePages_ServedOnTheProductHostOnly(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{OperatorHost: "ops.example.test", APIHost: "api.example.test"}
-	h := httpx.NewRouter(cfg, nil, NewMarketing(nil, slog.New(slog.DiscardHandler), cfg.APIHost))
+	h := httpx.NewRouter(cfg, nil, NewMarketing(nil, slog.New(slog.DiscardHandler), cfg.APIHost, cfg.BaseURL))
 	for _, c := range []struct {
 		host string
 		want int

@@ -32,7 +32,7 @@ import "github.com/atknatk/tappa/web/templates/layout"
 // LANGUAGE. The document is English (the chrome is); the article carries the page's language,
 // and the head names both translations (layout.MarketingTranslated).
 templ APIGuide(v APIGuideView) {
-	@layout.MarketingTranslated(v.pageTitle(), layout.RobotsPublic, v.alternates()) {
+	@layout.MarketingTranslated(v.pageTitle(), layout.RobotsPublic, v.alternates(), v.Share) {
 		@PublicChrome(PublicChromeOpts{Current: v.path(), SignInHref: v.SignInHref, SignupHref: v.SignupHref, OwnRoots: true, InstantScroll: true}) {
 			<article class="px-4 py-10 sm:py-14" lang={ v.lang() }>
 				<div class="mx-auto w-full max-w-3xl xl:grid xl:max-w-none xl:grid-cols-[minmax(0,1fr)_minmax(0,48rem)_minmax(0,1fr)] xl:gap-8">

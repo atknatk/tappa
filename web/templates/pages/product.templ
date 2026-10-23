@@ -21,7 +21,7 @@ import "github.com/atknatk/tappa/web/templates/layout"
 
 // Product is the page at /product.
 templ Product(v ProductView) {
-	@layout.Marketing(PublicPageTitle(ProductPath), layout.RobotsPublic) {
+	@layout.Marketing(PublicPageTitle(ProductPath), layout.RobotsPublic, v.Share) {
 		<div class="lp">
 			@PublicChrome(PublicChromeOpts{Current: ProductPath, SignInHref: v.SignInHref, SignupHref: v.SignupHref}) {
 				@productHead(v)

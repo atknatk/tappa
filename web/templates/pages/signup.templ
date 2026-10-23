@@ -41,8 +41,8 @@ import (
 // signupPage is the frame every wizard screen shares: the public chrome (with the
 // "Already with Taptime?" prompt), the progress when the screen has one, and the card
 // the screen's own content goes in.
-templ signupPage(title string, p signupProgress) {
-	@layout.Marketing(title, layout.RobotsPrivate) {
+templ signupPage(title string, p signupProgress, share layout.Share) {
+	@layout.Marketing(title, layout.RobotsPrivate, share) {
 		@PublicChrome(PublicChromeOpts{SignInHref: AdminLoginPath, SignInPrompt: true, NoPhoneBar: true, OwnRoots: true, StaticHeader: true}) {
 			<section class={ signupSectionClass(p.shown()) }>
 				<div class={ signupGridClass(p.shown()) }>
@@ -81,8 +81,8 @@ func signupGridClass(progress bool) string {
 // ("Step 2 of 3") and a number typed into prose are two sources of truth, and the
 // second one drifts the moment a step is added. On a phone the counter is the
 // progress bar's own label, so the card's copy is drawn from the tablet width up.
-templ signupShell(title string, p signupProgress, heading, blurb string) {
-	@signupPage(title, p) {
+templ signupShell(title string, p signupProgress, heading, blurb string, share layout.Share) {
+	@signupPage(title, p, share) {
 		<div class="flex flex-col gap-2">
 			<p class="lbl hidden md:block">{ p.barLabel() }</p>
 			<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[30px] desk:text-[34px]">
@@ -240,7 +240,7 @@ templ signupAlert(heading string) {
 // whether there is one place or several.
 templ SignupBusiness(v SignupBusinessView) {
 	@signupShell("Start free — Taptime", signupProgress{Step: 1, Name: v.Name}, "Tell us about the business",
-		"Three short steps. Nothing is created until the last one, and you can go back at any point.") {
+		"Three short steps. Nothing is created until the last one, and you can go back at any point.", v.Share) {
 		if v.SignInHref != "" {
 			@signupAlert("This business is already with Taptime") {
 				<p>
@@ -398,7 +398,7 @@ templ structureCard(current, value, title, body string) {
 // wrong proof-of-place is what turns a good tap into a FLAGGED one.
 templ SignupPlaces(v SignupPlacesView) {
 	@signupShell("Your places — Taptime", signupProgress{Step: 2, Name: v.BusinessName}, "Where does your team tap?",
-		"One line per door. You can rename them and add the rest from your dashboard.") {
+		"One line per door. You can rename them and add the rest from your dashboard.", layout.Share{}) {
 		<form method="post" action="/signup/places" class="flex flex-col gap-6">
 			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
 			<div class="grid gap-3.5 md:grid-cols-2 md:gap-x-5 desk:grid-cols-1">
@@ -464,7 +464,7 @@ templ signupActions(submit, backHref string) {
 // have. TestSignupSurface_PromisesNoManagerInvite holds it out.
 templ SignupAccount(v SignupAccountView) {
 	@signupShell("Your account — Taptime", signupProgress{Step: 3, Name: v.BusinessName}, "Create your sign-in",
-		"This is the account you will manage "+v.BusinessName+" with.") {
+		"This is the account you will manage "+v.BusinessName+" with.", layout.Share{}) {
 		<form method="post" action="/signup/account" class="flex flex-col gap-6">
 			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
 			// THE HONEYPOT. It is hidden from people three ways at once — off-screen,
@@ -583,7 +583,7 @@ templ SignupAccount(v SignupAccountView) {
 // THE DOCKET MOTIF IS THE PRODUCT'S SIGNATURE and this is the first record the
 // customer ever sees. Every card in the panel will look like this one.
 templ SignupDone(v SignupDoneView) {
-	@signupShell("You're set up — Taptime", signupProgress{Done: true, Name: v.BusinessName}, v.BusinessName+" is set up", "") {
+	@signupShell("You're set up — Taptime", signupProgress{Done: true, Name: v.BusinessName}, v.BusinessName+" is set up", "", layout.Share{}) {
 		<div class="docket-print pb-2">
 			<article class="docket flex flex-col gap-3 px-[18px] py-[18px] md:px-[22px] md:py-5">
 				<div class="flex items-start justify-between gap-3">
@@ -695,7 +695,7 @@ func signupVATNoteClass(v SignupDoneView) string {
 // IT DRAWS NO PROGRESS: a problem screen does not know how far the visitor got (the
 // state that would say so is what failed), so it claims nothing about the steps.
 templ SignupProblem(v SignupProblemView) {
-	@signupPage("Taptime", signupProgress{}) {
+	@signupPage("Taptime", signupProgress{}, layout.Share{}) {
 		<div role="alert" class="flex flex-col gap-2 rounded-[14px] border-2 border-tomato bg-tomato/5 px-4 py-4 md:px-5 md:py-[18px]">
 			<h1 class="font-display text-[21px] font-bold tracking-tight text-ink md:text-[22px]">{ v.Title }</h1>
 			<p class="text-[15px] leading-normal text-ink">{ v.Message }</p>

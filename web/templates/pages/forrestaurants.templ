@@ -29,7 +29,7 @@ import (
 
 // ForRestaurants is the page at /for/restaurants.
 templ ForRestaurants(v ForRestaurantsView) {
-	@layout.Marketing(PublicPageTitle(ForRestaurantsPath), layout.RobotsPublic) {
+	@layout.Marketing(PublicPageTitle(ForRestaurantsPath), layout.RobotsPublic, v.Share) {
 		<div class="lp">
 			@PublicChrome(PublicChromeOpts{Current: ForRestaurantsPath, SignInHref: v.SignInHref, SignupHref: v.SignupHref}) {
 				@restaurantsHead(v)

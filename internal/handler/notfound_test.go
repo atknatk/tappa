@@ -281,7 +281,7 @@ func TestPublicNotFound_ALeavingVisitorIsLoggedWithoutThePath(t *testing.T) {
 	const canary = "lp12canary"
 	for _, err := range []error{context.Canceled, io.ErrClosedPipe} {
 		var buf bytes.Buffer
-		m := NewMarketing(nil, slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})), "")
+		m := NewMarketing(nil, slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})), "", "")
 		m.notFound(failingWriter{ResponseWriter: httptest.NewRecorder(), err: err},
 			httptest.NewRequest(http.MethodGet, "/"+canary+"?q="+canary, nil))
 		out := buf.String()

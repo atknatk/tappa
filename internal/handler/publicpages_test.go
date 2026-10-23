@@ -147,7 +147,7 @@ func TestPublicPages_TheClosureCountsEveryPagesSentences(t *testing.T) {
 func mountedMarketingRoutes(t *testing.T, method string) []string {
 	t.Helper()
 	r := chi.NewRouter()
-	NewMarketing(nil, slog.New(slog.NewTextHandler(io.Discard, nil)), "").Mount(r)
+	NewMarketing(nil, slog.New(slog.NewTextHandler(io.Discard, nil)), "", "").Mount(r)
 	var out []string
 	err := chi.Walk(r, func(m, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
 		if m == method {

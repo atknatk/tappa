@@ -21,7 +21,7 @@ import "github.com/atknatk/tappa/web/templates/layout"
 
 // ForProduction is the page at /for/production.
 templ ForProduction(v ForProductionView) {
-	@layout.Marketing(PublicPageTitle(ForProductionPath), layout.RobotsPublic) {
+	@layout.Marketing(PublicPageTitle(ForProductionPath), layout.RobotsPublic, v.Share) {
 		<div class="lp">
 			@PublicChrome(PublicChromeOpts{Current: ForProductionPath, SignInHref: v.SignInHref, SignupHref: v.SignupHref}) {
 				@forProductionHead(v)

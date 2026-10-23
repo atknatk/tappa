@@ -1,5 +1,7 @@
 package pages
 
+import "github.com/atknatk/tappa/web/templates/layout"
+
 // THE RESTAURANTS PAGE (LP-09, 2026-10-22): /for/restaurants, drawn from the
 // ForRestaurants / T-ForRestaurants / M-ForRestaurants boards
 // (docs/design/landing-redesign/boards). It joins the public site the way the pricing,
@@ -76,6 +78,10 @@ const ForRestaurantsPath = "/for/restaurants"
 
 // ForRestaurantsView is the restaurants page.
 type ForRestaurantsView struct {
+	// Share is the page's link preview (LP-13): its description and the full URL of
+	// its share image, built by internal/handler. The zero value writes neither.
+	Share layout.Share
+
 	// SignupHref and SignInHref are the chrome's two ways in, as on LandingView.
 	SignupHref string
 	SignInHref string

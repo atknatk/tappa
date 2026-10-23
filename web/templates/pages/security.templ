@@ -27,7 +27,7 @@ import (
 
 // Security is the page at /security.
 templ Security(v SecurityView) {
-	@layout.Marketing(PublicPageTitle(SecurityPath), layout.RobotsPublic) {
+	@layout.Marketing(PublicPageTitle(SecurityPath), layout.RobotsPublic, v.Share) {
 		<div class="lp">
 			@PublicChrome(PublicChromeOpts{Current: SecurityPath, SignInHref: v.SignInHref, SignupHref: v.SignupHref}) {
 				@securityHead(v)

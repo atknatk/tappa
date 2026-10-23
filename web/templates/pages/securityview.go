@@ -3,6 +3,8 @@ package pages
 import (
 	"strconv"
 	"strings"
+
+	"github.com/atknatk/tappa/web/templates/layout"
 )
 
 // THE SECURITY PAGE (LP-07, 2026-10-22): /security, drawn from the Security /
@@ -78,6 +80,10 @@ const SecurityProofsID = "proofs"
 
 // SecurityView is the security page.
 type SecurityView struct {
+	// Share is the page's link preview (LP-13): its description and the full URL of
+	// its share image, built by internal/handler. The zero value writes neither.
+	Share layout.Share
+
 	// SignupHref and SignInHref are the chrome's two ways in, as on LandingView.
 	SignupHref string
 	SignInHref string

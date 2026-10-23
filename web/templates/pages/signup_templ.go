@@ -49,7 +49,7 @@ import (
 // signupPage is the frame every wizard screen shares: the public chrome (with the
 // "Already with Taptime?" prompt), the progress when the screen has one, and the card
 // the screen's own content goes in.
-func signupPage(title string, p signupProgress) templ.Component {
+func signupPage(title string, p signupProgress, share layout.Share) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -172,7 +172,7 @@ func signupPage(title string, p signupProgress) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.Marketing(title, layout.RobotsPrivate).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.Marketing(title, layout.RobotsPrivate, share).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -202,7 +202,7 @@ func signupGridClass(progress bool) string {
 // ("Step 2 of 3") and a number typed into prose are two sources of truth, and the
 // second one drifts the moment a step is added. On a phone the counter is the
 // progress bar's own label, so the card's copy is drawn from the tablet width up.
-func signupShell(title string, p signupProgress, heading, blurb string) templ.Component {
+func signupShell(title string, p signupProgress, heading, blurb string, share layout.Share) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -294,7 +294,7 @@ func signupShell(title string, p signupProgress, heading, blurb string) templ.Co
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = signupPage(title, p).Render(templ.WithChildren(ctx, templ_7745c5c3_Var9), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = signupPage(title, p, share).Render(templ.WithChildren(ctx, templ_7745c5c3_Var9), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1012,7 +1012,7 @@ func SignupBusiness(v SignupBusinessView) templ.Component {
 			return nil
 		})
 		templ_7745c5c3_Err = signupShell("Start free — Taptime", signupProgress{Step: 1, Name: v.Name}, "Tell us about the business",
-			"Three short steps. Nothing is created until the last one, and you can go back at any point.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var36), templ_7745c5c3_Buffer)
+			"Three short steps. Nothing is created until the last one, and you can go back at any point.", v.Share).Render(templ.WithChildren(ctx, templ_7745c5c3_Var36), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1313,7 +1313,7 @@ func SignupPlaces(v SignupPlacesView) templ.Component {
 			return nil
 		})
 		templ_7745c5c3_Err = signupShell("Your places — Taptime", signupProgress{Step: 2, Name: v.BusinessName}, "Where does your team tap?",
-			"One line per door. You can rename them and add the rest from your dashboard.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var51), templ_7745c5c3_Buffer)
+			"One line per door. You can rename them and add the rest from your dashboard.", layout.Share{}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var51), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1620,7 +1620,7 @@ func SignupAccount(v SignupAccountView) templ.Component {
 			return nil
 		})
 		templ_7745c5c3_Err = signupShell("Your account — Taptime", signupProgress{Step: 3, Name: v.BusinessName}, "Create your sign-in",
-			"This is the account you will manage "+v.BusinessName+" with.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var63), templ_7745c5c3_Buffer)
+			"This is the account you will manage "+v.BusinessName+" with.", layout.Share{}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var63), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1881,7 +1881,7 @@ func SignupDone(v SignupDoneView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = signupShell("You're set up — Taptime", signupProgress{Done: true, Name: v.BusinessName}, v.BusinessName+" is set up", "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var74), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = signupShell("You're set up — Taptime", signupProgress{Done: true, Name: v.BusinessName}, v.BusinessName+" is set up", "", layout.Share{}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var74), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2008,7 +2008,7 @@ func SignupProblem(v SignupProblemView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = signupPage("Taptime", signupProgress{}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var88), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = signupPage("Taptime", signupProgress{}, layout.Share{}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var88), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

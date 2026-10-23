@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/webhook"
 	"github.com/atknatk/tappa/web"
+	"github.com/atknatk/tappa/web/templates/layout"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -203,6 +205,12 @@ type Marketing struct {
 	// https://<TAPPA_API_HOST>/v1/openapi.yaml, or "" on a deployment with no API host,
 	// where no link is drawn (openAPIHrefFor says why).
 	openAPIHref string
+	// share is the full URL of each page's share image (LP-13), resolved ONCE, here, by
+	// shareImagesFor -- the demo video's shape: an image the embedded tree does not
+	// carry, or a deployment with no usable origin, is "" and its page draws no image.
+	// Strings only, a value rather than a dependency
+	// (TestMarketing_HandlerHoldsNoStatefulDependency walks it).
+	share pages.ShareImages
 }
 
 // legalReader is the slice of internal/domain/legal.Store the PUBLIC surface needs.
@@ -227,7 +235,12 @@ type legalReader interface {
 //
 // apiHost is TAPPA_API_HOST (config.APIHost), "" when this deployment has none; the
 // integration guide's pages link the OpenAPI document on it (openAPIHrefFor).
-func NewMarketing(texts legalReader, log *slog.Logger, apiHost string) *Marketing {
+//
+// baseURL is TAPPA_BASE_URL (config.BaseURL): the origin the share images are named on
+// (LP-13, shareImagesFor). It is configuration and never the request's Host, so the
+// pages stay the same bytes for every visitor and a forged Host header cannot point a
+// cached page's preview anywhere else. "" names no image.
+func NewMarketing(texts legalReader, log *slog.Logger, apiHost, baseURL string) *Marketing {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -273,6 +286,7 @@ func NewMarketing(texts legalReader, log *slog.Logger, apiHost string) *Marketin
 		guideEN:        guideEN,
 		guideTR:        guideTR,
 		openAPIHref:    openAPI,
+		share:          shareImagesFor(static, baseURL),
 	}
 }
 
@@ -351,6 +365,54 @@ func staticAssetURL(fsys fs.FS, name string) string {
 		return ""
 	}
 	return "/static/" + name
+}
+
+// shareImagesFor resolves every share image (pages.ShareImageFiles) to the full URL a
+// crawler reads in og:image: the configured origin and the file's /static path.
+//
+// 🔴 IT IS THE BARE URL, WITHOUT web.AssetURL's ?v=. A crawler fetches the image once,
+// when a link is pasted, so the year-long pin that query buys (internal/httpx/static.go)
+// saves nothing on a navigation; the bare name is answered no-cache with its ETag, which
+// is that file's rule. And the page's bytes would otherwise depend on whether the serving
+// process put its asset table in the context -- the tests render without one -- while
+// this value is computed once, here, with no request in sight. The cost, stated: a
+// platform that caches previews by URL keeps an old image until its own cache expires
+// after a PNG changes under the same name.
+func shareImagesFor(fsys fs.FS, baseURL string) pages.ShareImages {
+	origin := shareOrigin(baseURL)
+	at := func(name string) string { return shareImageURL(fsys, origin, name) }
+	f := pages.ShareImageFiles
+	return pages.ShareImages{
+		Landing:     at(f.Landing),
+		Product:     at(f.Product),
+		Pricing:     at(f.Pricing),
+		Security:    at(f.Security),
+		Restaurants: at(f.Restaurants),
+		Production:  at(f.Production),
+		Signup:      at(f.Signup),
+		Legal:       at(f.Legal),
+		API:         at(f.API),
+	}
+}
+
+// shareImageURL is origin followed by name's /static path, or "" when either is
+// missing: an og:image that answers 404 is a broken preview, and no image is not.
+func shareImageURL(fsys fs.FS, origin, name string) string {
+	p := staticAssetURL(fsys, name)
+	if origin == "" || p == "" {
+		return ""
+	}
+	return origin + p
+}
+
+// shareOrigin is the scheme and host of the configured base URL, or "" when it is not
+// an http or https URL with a host -- the one shape a crawler can fetch.
+func shareOrigin(baseURL string) string {
+	u, err := url.Parse(baseURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
 }
 
 // Mount registers the routes on r.
@@ -465,6 +527,7 @@ func (m *Marketing) apiGuide(w http.ResponseWriter, r *http.Request, turkish boo
 		return
 	}
 	m.render(w, r, pages.APIGuide(pages.APIGuideView{
+		Share:       layout.Share{Description: pages.APIGuideDescription(turkish), Image: m.share.API},
 		Guide:       g,
 		Turkish:     turkish,
 		OpenAPIHref: m.openAPIHref,
@@ -476,6 +539,7 @@ func (m *Marketing) apiGuide(w http.ResponseWriter, r *http.Request, turkish boo
 // Landing serves GET /.
 func (m *Marketing) Landing(w http.ResponseWriter, r *http.Request) {
 	m.renderWith(w, r, m.landingPolicy, pages.Landing(pages.LandingView{
+		Share:                 layout.Share{Description: pages.LandingHeroLede.Text, Image: m.share.Landing},
 		SignupHref:            m.signupHref,
 		SignInHref:            adminLoginPath,
 		PricePerEmployeeMonth: publishedPricePerEmployeeMonth,
@@ -495,6 +559,7 @@ const pricingPath = "/pricing"
 // them, and the page's own figures computed once in NewMarketing.
 func (m *Marketing) Pricing(w http.ResponseWriter, r *http.Request) {
 	m.render(w, r, pages.Pricing(pages.PricingView{
+		Share:                 layout.Share{Description: pages.LandingPricingLede.Text, Image: m.share.Pricing},
 		SignupHref:            m.signupHref,
 		SignInHref:            adminLoginPath,
 		PricePerEmployeeMonth: publishedPricePerEmployeeMonth,
@@ -513,6 +578,7 @@ const securityPath = "/security"
 // once in NewMarketing.
 func (m *Marketing) Security(w http.ResponseWriter, r *http.Request) {
 	m.render(w, r, pages.Security(pages.SecurityView{
+		Share:      layout.Share{Description: pages.LandingSecurityLede.Text, Image: m.share.Security},
 		SignupHref: m.signupHref,
 		SignInHref: adminLoginPath,
 		FreeMonths: foundingFreeMonths,
@@ -529,6 +595,7 @@ const productPath = "/product"
 // NewMarketing.
 func (m *Marketing) Product(w http.ResponseWriter, r *http.Request) {
 	m.render(w, r, pages.Product(pages.ProductView{
+		Share:      layout.Share{Description: pages.ProductDescription(m.productCopy), Image: m.share.Product},
 		SignupHref: m.signupHref,
 		SignInHref: adminLoginPath,
 		FreeMonths: foundingFreeMonths,
@@ -546,6 +613,7 @@ const forRestaurantsPath = "/for/restaurants"
 // what the handler hands in is the chrome's two ways in and the founding offer's months.
 func (m *Marketing) ForRestaurants(w http.ResponseWriter, r *http.Request) {
 	m.render(w, r, pages.ForRestaurants(pages.ForRestaurantsView{
+		Share:      layout.Share{Description: pages.LandingAudiences[0].Points[1].Text, Image: m.share.Restaurants},
 		SignupHref: m.signupHref,
 		SignInHref: adminLoginPath,
 		FreeMonths: foundingFreeMonths,
@@ -563,6 +631,7 @@ const forProductionPath = "/for/production"
 func (m *Marketing) ForProduction(w http.ResponseWriter, r *http.Request) {
 	f := forProductionFigures(m.security)
 	m.render(w, r, pages.ForProduction(pages.ForProductionView{
+		Share:      layout.Share{Description: pages.LandingAudiences[1].Points[0].Text, Image: m.share.Production},
 		SignupHref: m.signupHref,
 		SignInHref: adminLoginPath,
 		FreeMonths: foundingFreeMonths,
@@ -637,7 +706,12 @@ func securityFigures() pages.SecurityFigures {
 // the pages were skeletons. A document with no text renders the skeleton, which is
 // the state the whole of pages.legal.templ was designed around.
 func (m *Marketing) legal(w http.ResponseWriter, r *http.Request, p pages.LegalPage) {
-	v := pages.LegalPageView{Page: p, SignInHref: adminLoginPath, SignupHref: m.signupHref}
+	v := pages.LegalPageView{
+		Page:       p,
+		Share:      layout.Share{Description: p.Lede, Image: m.share.Legal},
+		SignInHref: adminLoginPath,
+		SignupHref: m.signupHref,
+	}
 	if p.Path == cookieNoticePath {
 		v.Cookies = cookieNotice()
 	}

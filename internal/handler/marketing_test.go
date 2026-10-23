@@ -91,7 +91,7 @@ func marketingRouterFor(t *testing.T, texts legalReader, apiHost string) http.Ha
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}
-	return httpx.NewRouter(nil, nil, NewMarketing(texts, log, apiHost), wizard)
+	return httpx.NewRouter(nil, nil, NewMarketing(texts, log, apiHost, testBaseURL), wizard)
 }
 
 // testAPIHost is the API host the structural scans run with besides none.
@@ -103,18 +103,65 @@ const testAPIHost = "api.example.test"
 // href on the surface, the OpenAPI download on the API host. openAPI is that href, the
 // constructor's own openAPIHrefFor(host) and never a string written here, so the
 // exemption cannot widen to a host the constructor does not draw.
+//
+// shareImages is the other absolute URL the surface draws (LP-13): each page's og:image,
+// on the configured origin. Both routers are built with testBaseURL, so both carry them.
+// UNLIKE openAPI IT IS NOT THE CONSTRUCTOR'S OUTPUT: it is testBaseURL (an origin
+// already) and each file pages.ShareImageFiles names, so a constructor that drew the
+// image on any other host -- however it computed it -- is not exempted and goes red.
 type structuralConfig struct {
-	name    string
-	r       http.Handler
-	openAPI string
+	name        string
+	r           http.Handler
+	openAPI     string
+	shareImages []string
 }
 
 func structuralConfigs(t *testing.T) []structuralConfig {
 	t.Helper()
+	share := shareImageURLs(expectedShareImages(testBaseURL))
 	return []structuralConfig{
-		{"no API host", marketingRouter(t), ""},
-		{"API host " + testAPIHost, marketingRouterFor(t, nil, testAPIHost), openAPIHrefFor(testAPIHost)},
+		{"no API host", marketingRouter(t), "", share},
+		{"API host " + testAPIHost, marketingRouterFor(t, nil, testAPIHost), openAPIHrefFor(testAPIHost), share},
 	}
+}
+
+// expectedShareImages is each share image's URL on origin, written from the file names
+// alone -- what the constructor must draw, not what it does.
+func expectedShareImages(origin string) pages.ShareImages {
+	out := pages.ShareImageFiles
+	v := reflect.ValueOf(&out).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		v.Field(i).SetString(origin + "/static/" + v.Field(i).String())
+	}
+	return out
+}
+
+// shareImageURLs is every non-empty URL of imgs, each once.
+func shareImageURLs(imgs pages.ShareImages) []string {
+	v := reflect.ValueOf(imgs)
+	seen := map[string]bool{}
+	var out []string
+	for i := 0; i < v.NumField(); i++ {
+		if u := v.Field(i).String(); u != "" && !seen[u] {
+			seen[u] = true
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// withoutShareImages blanks the og:image lines that name exactly one of urls -- the whole
+// meta element as the head writes it, so the same URL in any other attribute or element
+// (a link, a script, a twitter:image, a second og:image on another host) is left for the
+// scanner -- and reports how many it blanked.
+func withoutShareImages(body string, urls []string) (string, int) {
+	n := 0
+	for _, u := range urls {
+		tag := `<meta property="og:image" content="` + u + `">`
+		n += strings.Count(body, tag)
+		body = strings.ReplaceAll(body, tag, `<meta property="og:image" content="">`)
+	}
+	return body, n
 }
 
 // marketingURLs is every URL this feature serves, derived from the same tables the
@@ -262,8 +309,15 @@ func TestMarketing_HandlerHoldsNoStatefulDependency(t *testing.T) {
 		// strings, numbers, booleans and slices of them.
 		"pages.ProductFigures": true,
 		"pages.ProductText":    true,
+		// 🔴 pages.ShareImages, ADDED BY LP-13, AND THIS IS ITS ARGUMENT: every public page
+		// names its share image by a full URL (a crawler has no page address to resolve a
+		// path against), and whether the embedded tree carries each file is fixed when the
+		// binary is built -- so the URLs are resolved once in NewMarketing, as the demo
+		// video's are, and the type keeps the result. Nine strings, a value rather than a
+		// dependency: plainData below refuses it the day it holds anything else.
+		"pages.ShareImages": true,
 	}
-	for _, v := range []any{pages.SecurityFigures{}, pages.SecurityText{}, pages.ProductFigures{}, pages.ProductText{}} {
+	for _, v := range []any{pages.SecurityFigures{}, pages.SecurityText{}, pages.ProductFigures{}, pages.ProductText{}, pages.ShareImages{}} {
 		if g := reflect.TypeOf(v); !plainData(g) {
 			t.Errorf("%v holds something other than strings, numbers and slices of them", g)
 		}
@@ -600,7 +654,7 @@ func TestMarketing_AVisitorLeavingIsNotAnError(t *testing.T) {
 		{"a genuine failure this server caused", errors.New("template blew up"), slog.LevelError},
 	} {
 		var buf bytes.Buffer
-		m := NewMarketing(nil, slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})), "")
+		m := NewMarketing(nil, slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})), "", "")
 		rec := httptest.NewRecorder()
 		m.render(failingWriter{ResponseWriter: rec, err: tc.err},
 			httptest.NewRequest(http.MethodGet, "/", nil), pages.Landing(pages.LandingView{}))
@@ -646,12 +700,29 @@ var externalReference = regexp.MustCompile(
 // loads. It is admitted only as the exact anchor href openAPIHrefFor(host) returns
 // (the adminLoginPath pattern below), and its count is pinned: it is drawn on the
 // guide's two pages, nowhere else.
+//
+// ⚠️ AND THE SECOND, SHAPED THE SAME WAY (LP-13): each page's og:image is a full URL,
+// because a crawler reading a pasted link has no page address to resolve a path
+// against. It names this product's own configured origin (TAPPA_BASE_URL) and a file
+// under /static/og, and the visitor's browser never loads it -- a preview is drawn by
+// whatever the link is pasted into. It is admitted only as the whole og:image element
+// with exactly the URL shareImagesFor resolves (withoutShareImages), and its count is
+// pinned: once on every page of the surface and once on the wizard's first screen.
+// TestShareImageExemption_IsNarrow is its control.
 func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 	t.Parallel()
 	for _, c := range structuralConfigs(t) {
 		exempted := 0
+		if len(c.shareImages) != 9 {
+			t.Fatalf("%s: the constructor resolved %d share image(s), want 9 -- the share exemption "+
+				"below would be measuring nothing", c.name, len(c.shareImages))
+		}
 		for _, url := range publicSurfaceURLs() {
 			body := mustFetchMarketing(t, c.r, url)
+			body, shared := withoutShareImages(body, c.shareImages)
+			if shared != 1 {
+				t.Errorf("%s: GET %s carries %d share image(s) on the configured origin, want 1", c.name, url, shared)
+			}
 			if c.openAPI != "" {
 				exempt := `href="` + c.openAPI + `"`
 				exempted += strings.Count(body, exempt)
@@ -667,10 +738,17 @@ func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 		}
 		// The sign-up wizard is served beside these pages and draws the same chrome
 		// (LP-11); its screens are rendered by the wizard's own driver.
+		sharedScreens := 0
 		for name, body := range signupSurfaceScreens(t) {
+			body, shared := withoutShareImages(body, c.shareImages)
+			sharedScreens += shared
 			if hit := externalReference.FindString(body); hit != "" {
 				t.Errorf("%s: the sign-up %s screen reaches outside this origin: %q", c.name, name, hit)
 			}
+		}
+		// The wizard's share card is on its first screen only (Signup.Business).
+		if sharedScreens != 1 {
+			t.Errorf("%s: the sign-up screens carry %d share image(s), want 1 (the first step's)", c.name, sharedScreens)
 		}
 		// Anti-vacuity for the production half: the exemption is used, on the guide's two
 		// pages (the download link, at least once each), so the API-host router is really

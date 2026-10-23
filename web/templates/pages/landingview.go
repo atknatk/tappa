@@ -66,6 +66,10 @@ import (
 // TestLanding_PriceMatchesTheSchemaItIsCharged re-reads migration 00016 to
 // compare.
 type LandingView struct {
+	// Share is the page's link preview (LP-13): its description and the full URL of
+	// its share image, built by internal/handler. The zero value writes neither.
+	Share layout.Share
+
 	// SignupHref is where "Start free" points, or "" while self-service sign-up
 	// is not mounted. M7-02 sets it; nothing else about this page changes.
 	//
@@ -1532,6 +1536,9 @@ type CookieRow struct {
 // LegalPageView is one legal document as rendered.
 type LegalPageView struct {
 	Page LegalPage
+	// Share is the page's link preview (LP-13): its description and the full URL of
+	// its share image, built by internal/handler. The zero value writes neither.
+	Share layout.Share
 	// SignInHref is the panel's sign-in page, for the shared chrome. Same reason
 	// LandingView carries it: internal/handler owns where the panel is mounted.
 	SignInHref string

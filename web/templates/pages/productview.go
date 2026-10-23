@@ -1,6 +1,10 @@
 package pages
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/atknatk/tappa/web/templates/layout"
+)
 
 // THE PRODUCT TOUR (LP-08, 2026-10-22): /product, drawn from the Product / T-Product /
 // M-Product boards (docs/design/landing-redesign/boards). It joins the public site the
@@ -62,6 +66,10 @@ const ProductPath = "/product"
 
 // ProductView is the product tour.
 type ProductView struct {
+	// Share is the page's link preview (LP-13): its description and the full URL of
+	// its share image, built by internal/handler. The zero value writes neither.
+	Share layout.Share
+
 	// SignupHref and SignInHref are the chrome's two ways in, as on LandingView.
 	SignupHref string
 	SignInHref string
