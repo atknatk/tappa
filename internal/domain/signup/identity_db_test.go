@@ -249,3 +249,108 @@ func TestSignupProvision_ConcurrentRegistrationsOfOneNewAddress(t *testing.T) {
 		t.Fatalf("%d identities and %d linked rows after %d concurrent registrations of one new address, want 1 and 1", identities, linked, n)
 	}
 }
+
+// TestSignupProvision_TheAddressLockWaitsForAnotherRegistration pins the address's advisory lock
+// and its key's spelling (00074: hashtextextended('admin-identity-email:' || lower(email), 0)). A
+// session holds that lock and, while a registration of the address waits on it, commits ANOTHER
+// business's row carrying the address -- the shape of a concurrent registration that got there
+// first. Released, the waiting registration must see that row and birth no identity (its own row
+// unlinked). ON CONFLICT (email) cannot stand in for the lock here: there is no identity to conflict
+// with, only a membership row the registration's "no other row" read would miss without the wait.
+//
+// MUTATION (measured): the lock dropped from the body (or its key spelled otherwise -- the address
+// not lower-cased) -> the registration never waits and births an identity, red.
+func TestSignupProvision_TheAddressLockWaitsForAnotherRegistration(t *testing.T) {
+	p, _, owner := newProvisionerFixtureWithOwner(t)
+	ctx := context.Background()
+	d := draftFor(t, StructureSingle, "Front door")
+	d.Account.Email = "Lock-" + uuid.NewString() + "@Signup.Example"
+
+	holder, err := owner.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	release := func(commit bool) {
+		if released {
+			return
+		}
+		released = true
+		var err error
+		if commit {
+			err = holder.Commit(context.Background())
+		} else {
+			err = holder.Rollback(context.Background())
+		}
+		if err != nil {
+			t.Errorf("release the address lock: %v", err)
+		}
+	}
+	defer release(false)
+	var key int64
+	if err := holder.QueryRow(ctx, `SELECT hashtextextended('admin-identity-email:' || lower($1), 0)`, d.Account.Email).Scan(&key); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := holder.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, key); err != nil {
+		t.Fatal(err)
+	}
+
+	type outcome struct {
+		res Result
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		res, err := p.Provision(ctx, d)
+		done <- outcome{res, err}
+	}()
+
+	probe, err := pgx.Connect(ctx, os.Getenv("DATABASE_MIGRATE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := probe.Close(context.Background()); err != nil {
+			t.Errorf("close the probe: %v", err)
+		}
+	}()
+	deadline := time.Now().Add(3 * time.Minute)
+	for waiting := 0; waiting == 0; {
+		select {
+		case o := <-done:
+			t.Fatalf("the registration finished (%v) without waiting for the address's lock", o.err)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the registration never waited on the address's lock")
+		}
+		if err := probe.QueryRow(ctx, `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
+		                                AND objsubid = 1 AND objid::bigint = ($1::bigint & 4294967295)`, key).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	other := uuid.New()
+	if _, err := holder.Exec(ctx, `INSERT INTO tenants (id, name, vat_number, business_type, structure)
+	                               VALUES ($1, 'First there', $2, 'other', 'single')`, other, "VAT-M1408L-"+other.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := holder.Exec(ctx, `INSERT INTO admin_users (tenant_id, full_name, email, password_hash, role)
+	                               VALUES ($1, 'First there', $2, $3, 'owner')`, other, strings.ToLower(d.Account.Email), "$2a$04$"+strings.Repeat("f", 53)); err != nil {
+		t.Fatal(err)
+	}
+	release(true)
+
+	o := <-done
+	if o.err != nil {
+		t.Fatalf("the waiting registration: %v", o.err)
+	}
+	if l := readSignupLink(t, owner, o.res.AdminUserID); l.identity != nil {
+		t.Fatalf("the registration that waited linked its row to %s; the address was another business's first", *l.identity)
+	}
+	var n int
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM admin_identities WHERE email = $1`, d.Account.Email).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("%d identities for the address (%v), want 0", n, err)
+	}
+}
