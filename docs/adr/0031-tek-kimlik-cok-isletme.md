@@ -305,7 +305,9 @@ katalog testiyle birebir pinlenir. `tappa_identitydefiner`'ın **fiil × sütun 
 M14-04'ün testinde): beş kimlik tablosunda gerektiği kadar — `admin_identity_resets`: SELECT (`id`,
 `identity_id`, `token_hash`, `expires_at`, `used_at`, `cancelled_at`), INSERT (`identity_id`, `token_hash`,
 `expires_at`) — `identity_open_reset`, UPDATE (`used_at`, `cancelled_at`) — tüketim ve
-`identity_withdraw_reset`; `admin_identity_events`: INSERT (`identity_id`, `event`, `detail`) · `admin_users`: SELECT (`id`, `tenant_id`,
+`identity_withdraw_reset`; `admin_identity_events`: INSERT (`identity_id`, `event`, `detail`), SELECT (`created_at`) ve DELETE
+(yalnız `identity_sweep_events`); `admin_signup_claims`'in hücrelerini — `identity_sweep_signup_claims`'in
+SELECT/DELETE'i dahil (süresi dolmuş ya da kullanılmış satırlar, §5.1) — M14-17 ekler · `admin_users`: SELECT (`id`, `tenant_id`,
 `email`, `password_hash`, `role`, `status`, `identity_id`, `linked_via`, `linked_at`, `unlinked_at`,
 `created_at`), INSERT (`tenant_id`, `full_name`, `email`, `password_hash`, `role`, `identity_id`,
 `linked_via`, `linked_at`), UPDATE (`password_hash`, `identity_id`, `linked_via`, `linked_at`,
