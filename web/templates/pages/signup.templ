@@ -59,34 +59,50 @@ templ signupPage(title string, p signupProgress, share layout.Share) {
 	}
 }
 
-// signupFieldRing is a field's focus mark on the public site (LP-14, board
-// States-Public: "the focus ring replaces the old 1 px green outline"): the public site's
-// one ring, 2 px of ink 2 px out, 16.17:1 on the paper card and 14.32:1 on the phone's
-// porcelain (measured in Chrome). The panel's field draws a 2 px halo of green at 40 %
-// instead, the colour Chrome reports for it, which composites to 1.97:1 on paper -- under
-// the 3:1 a focus mark needs -- so here the halo goes
-// and the ring takes its place. The panel's own fields (.field-input, shared) are not
-// changed. The board's inked edge on hover is NOT drawn: a utility outweighs the panel's
-// tomato edge on an invalid field (same weight, later in app.css), and an error must not
-// lose its edge under the pointer.
-const signupFieldRing = "focus:ring-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+// signupFieldRing is a field's states on the public site (LP-14, board States-Public: "the
+// focus ring replaces the old 1 px green outline"). The ring itself is PublicBodyRing's,
+// on the body; here the panel's 2 px halo of green at 40 % goes (the colour Chrome reports
+// for it composites to 1.97:1 on paper, under the 3:1 a focus mark needs) and the edge
+// inks on hover and on focus, as drawn -- but never on an invalid field, whose tomato edge
+// the panel's rule draws and a plain utility would outweigh (same weight, later in
+// app.css). The panel's own fields (.field-input, shared) are not changed.
+const signupFieldRing = "focus:ring-0 hover:[&:not([aria-invalid=true])]:border-ink " +
+	"focus:[&:not([aria-invalid=true])]:border-ink"
+
+// signupSubmitStates is a primary button's pressed state, as the board draws the public
+// site's green button: ink, a 2 px green inner edge and 1 px down. Its ring is
+// PublicBodyRing's, so the product's offset-less ring goes. .btn is shared with the tap
+// screen and the panel, so the states are written here, on sign-up's buttons only. It has
+// no disabled state: with no script on the page a submit is never disabled (the board's
+// cell is unreachable). TestSignupSource_EveryFieldAndButtonCarriesItsStates holds each
+// field and primary button of this file to its constant.
+const signupSubmitStates = "focus:ring-0 active:bg-ink active:shadow-[inset_0_0_0_2px_theme(colors.tappa-green)] " +
+	"active:translate-y-px"
 
 // signupChipClass is a business-type chip: resting on paper, an inked edge on hover and a
 // green-lite fill while pressed (LP-14, board States-Public), the green edge and tint once
-// checked. One literal across lines, so the source keeps a hand-written width.
+// checked, and the public ring 2 px out when its radio has the keyboard (the radio itself
+// is visually hidden). One literal across lines, so the source keeps a hand-written width.
 const signupChipClass = "flex min-h-11 w-full items-center justify-center rounded-[10px] border border-line " +
 	"bg-paper px-3.5 font-mono text-xs uppercase tracking-[0.1em] text-ink hover:border-ink active:border-ink " +
 	"active:bg-green-lite peer-checked:border-tappa-green peer-checked:bg-tappa-green/10 " +
-	"peer-checked:shadow-[inset_0_0_0_1px_theme(colors.tappa-green)] peer-focus-visible:ring-2 " +
-	"peer-focus-visible:ring-ink md:w-auto"
+	"peer-checked:shadow-[inset_0_0_0_1px_theme(colors.tappa-green)] peer-focus-visible:outline " +
+	"peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink md:w-auto"
+
+// signupPlaceCardClass is a place-count card: the chip's states on a card.
+const signupPlaceCardClass = "flex h-full min-h-24 flex-col gap-1.5 rounded-[14px] border border-line bg-paper p-4 " +
+	"hover:border-ink active:border-ink active:bg-green-lite peer-checked:border-tappa-green " +
+	"peer-checked:bg-tappa-green/10 peer-checked:shadow-[inset_0_0_0_1px_theme(colors.tappa-green)] " +
+	"peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 " +
+	"peer-focus-visible:outline-ink"
 
 // signupSectionClass is the public chrome's box (PublicBodyFrame) and the screen's
 // vertical space.
 func signupSectionClass(progress bool) string {
 	if progress {
-		return PublicBodyFrame + " pb-10 md:pb-12 md:pt-7 desk:pb-16 desk:pt-10"
+		return PublicBodyFrame + " " + PublicBodyRing + " pb-10 md:pb-12 md:pt-7 desk:pb-16 desk:pt-10"
 	}
-	return PublicBodyFrame + " pb-10 pt-6 md:pb-12 md:pt-7 desk:pb-16 desk:pt-10"
+	return PublicBodyFrame + " " + PublicBodyRing + " pb-10 pt-6 md:pb-12 md:pt-7 desk:pb-16 desk:pt-10"
 }
 
 func signupGridClass(progress bool) string {
@@ -376,7 +392,7 @@ templ SignupBusiness(v SignupBusinessView) {
 				@fieldError(v.Errors, "structure")
 			</fieldset>
 			<div>
-				<button type="submit" class="btn btn--primary w-full rounded-xl px-6 md:w-auto">Continue</button>
+				<button type="submit" class={ "btn btn--primary w-full rounded-xl px-6 md:w-auto " + signupSubmitStates }>Continue</button>
 			</div>
 		</form>
 	}
@@ -404,7 +420,7 @@ templ structureCard(current, value, title, body string) {
 			checked?={ current == value }
 			class="peer sr-only accent-tappa-green"
 		/>
-		<span class="flex h-full min-h-24 flex-col gap-1.5 rounded-[14px] border border-line bg-paper p-4 hover:border-ink active:border-ink active:bg-green-lite peer-checked:border-tappa-green peer-checked:bg-tappa-green/10 peer-checked:shadow-[inset_0_0_0_1px_theme(colors.tappa-green)] peer-focus-visible:ring-2 peer-focus-visible:ring-ink">
+		<span class={ signupPlaceCardClass }>
 			<span class="font-display text-base font-bold tracking-tight text-ink">{ title }</span>
 			<span class="text-[13px] leading-normal text-ink/70">{ body }</span>
 		</span>
@@ -474,8 +490,8 @@ templ SignupPlaces(v SignupPlacesView) {
 // browser's back behaves too). On a phone both are full width, stacked.
 templ signupActions(submit, backHref string) {
 	<div class="flex flex-col gap-2.5 md:flex-row md:flex-wrap md:items-center md:gap-3">
-		<button type="submit" class="btn btn--primary rounded-xl px-6">{ submit }</button>
-		<a href={ templ.URL(backHref) } class="btn btn--line min-h-12 px-6">Back</a>
+		<button type="submit" class={ "btn btn--primary rounded-xl px-6 " + signupSubmitStates }>{ submit }</button>
+		<a href={ templ.URL(backHref) } class="btn btn--line min-h-12 px-6 focus:ring-0">Back</a>
 	</div>
 }
 
@@ -693,7 +709,7 @@ templ SignupDone(v SignupDoneView) {
 		</section>
 		if !v.SignInBlocked {
 			<div>
-				<a href={ templ.URL(v.SignInHref) } class="btn btn--primary w-full rounded-xl px-6 md:w-auto">
+				<a href={ templ.URL(v.SignInHref) } class={ "btn btn--primary w-full rounded-xl px-6 md:w-auto " + signupSubmitStates }>
 					Sign in to your dashboard
 				</a>
 			</div>
@@ -728,7 +744,7 @@ templ SignupProblem(v SignupProblemView) {
 		</div>
 		if v.Retry != "" {
 			<div>
-				<a href={ templ.URL(v.Retry) } class="btn btn--primary w-full rounded-xl px-6 md:w-auto">
+				<a href={ templ.URL(v.Retry) } class={ "btn btn--primary w-full rounded-xl px-6 md:w-auto " + signupSubmitStates }>
 					Start again
 				</a>
 			</div>

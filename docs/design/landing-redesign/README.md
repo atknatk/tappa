@@ -237,7 +237,9 @@ offset on porcelain/paper, **paper** inside `.band--ink` and on green. It replac
 saffron ring (`input.css:1799`), which measures 2.32:1 on porcelain (*gap report*; the board
 prints 2.32:1 porcelain / 2.62:1 paper and 14.32 / 16.17 / 7.73 / 16.17 for the new pairs).
 Pressed = `:active`; disabled exists only on form submits (Signup); visited links keep the
-default colour.
+default colour. *(LP-14: the disabled cell is unreachable — sign-up's submit is the
+product's `.btn` and the page runs no script, so it is never disabled; no rule draws it,
+and `TestLandingCSS_EveryDrawnStateHasItsRule` refuses one in the `.lp` block.)*
 
 ---
 

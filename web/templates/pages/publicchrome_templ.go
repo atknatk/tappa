@@ -170,6 +170,15 @@ func PublicChrome(c PublicChromeOpts) templ.Component {
 // space stays each page's own.
 const PublicBodyFrame = "mx-auto w-full px-4 md:px-10 desk:max-w-[1180px] desk:px-[clamp(16px,3vw,40px)]"
 
+// PublicBodyRing gives every control inside such a body the public site's one focus ring
+// — 2 px of ink, 2 px out, as `.lp :focus-visible` draws it inside the .lp roots — on the
+// element that holds the body, so it reaches what no template of ours writes: the
+// integration guide's converted links, its scrollable code blocks and tables, and the
+// legal switcher (LP-14, board States-Public). Without it those controls drew the
+// browser's own ring. Ink on paper 16.17:1, on porcelain 14.32:1.
+// TestPublicPages_UtilityBodiesDrawTheOneRing holds every such body to it.
+const PublicBodyRing = "[&_:focus-visible]:outline [&_:focus-visible]:outline-2 [&_:focus-visible]:outline-offset-2 [&_:focus-visible]:outline-ink"
+
 // publicChromeInRoot is the chrome inside the caller's own .lp root.
 func publicChromeInRoot(c PublicChromeOpts) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -425,7 +434,7 @@ func publicHeader(c PublicChromeOpts) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(l.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 182, Col: 16}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 191, Col: 16}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
@@ -515,7 +524,7 @@ func publicHeader(c PublicChromeOpts) templ.Component {
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(l.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 210, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 219, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 			if templ_7745c5c3_Err != nil {
@@ -606,7 +615,7 @@ func publicFooter(c PublicChromeOpts) templ.Component {
 			var templ_7745c5c3_Var20 string
 			templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(l.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 265, Col: 15}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 274, Col: 15}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 			if templ_7745c5c3_Err != nil {
@@ -648,7 +657,7 @@ func publicFooter(c PublicChromeOpts) templ.Component {
 			var templ_7745c5c3_Var22 string
 			templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(p.NavLabel)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 276, Col: 18}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 285, Col: 18}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 			if templ_7745c5c3_Err != nil {

@@ -110,7 +110,7 @@ func Legal(v LegalPageView) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				var templ_7745c5c3_Var4 = []any{PublicBodyFrame + " pb-12 pt-5 md:pb-14 md:pt-7 desk:pb-16 desk:pt-10"}
+				var templ_7745c5c3_Var4 = []any{PublicBodyFrame + " " + PublicBodyRing + " pb-12 pt-5 md:pb-14 md:pt-7 desk:pb-16 desk:pt-10"}
 				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var4...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err

@@ -1991,12 +1991,14 @@ html:has(.lp) { scroll-behavior: smooth; }
 
 /* ---------------- buttons ---------------- */
 /* Pressed is :active: ink, a 2px inner edge in the ground's accent and 1px down.
-   Disabled exists only on a form submit, so only the green button draws it. */
+   NO DISABLED STATE (LP-14): the board draws one only on a form submit, the one form on
+   the public site is sign-up's, its submit is the product's .btn (not this class), and
+   with no script on that page it is never disabled -- the cell is unreachable, so no
+   rule draws it here (a .lp-button is always a link). */
 .lp .lp-button { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 48px; padding: 0 22px; border: 0; border-radius: 12px; font: 700 15px var(--disp); white-space: nowrap; text-decoration: none; cursor: pointer; }
 .lp .lp-button--green { background: var(--green); color: var(--paper); box-shadow: 0 4px 14px rgb(var(--green-ch) / .22); }
 .lp .lp-button--green:hover { background: var(--ink); color: var(--paper); }
 .lp .lp-button--green:active { background: var(--ink); color: var(--paper); box-shadow: inset 0 0 0 2px var(--green); transform: translateY(1px); }
-.lp .lp-button--green:disabled { background: rgb(var(--ink-ch) / .12); color: rgb(var(--ink-ch) / .6); box-shadow: none; transform: none; cursor: not-allowed; }
 .lp .lp-button--ghost { background: transparent; color: var(--ink); border: 2px solid var(--ink); }
 .lp .lp-button--ghost:hover { background: var(--ink); color: var(--paper); }
 .lp .lp-button--ghost:active { background: var(--ink); color: var(--paper); box-shadow: inset 0 0 0 2px var(--green); transform: translateY(1px); }

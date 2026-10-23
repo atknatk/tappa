@@ -89,7 +89,7 @@ func APIGuide(v APIGuideView) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				var templ_7745c5c3_Var4 = []any{PublicBodyFrame + " py-10 sm:py-14"}
+				var templ_7745c5c3_Var4 = []any{PublicBodyFrame + " " + PublicBodyRing + " py-10 sm:py-14"}
 				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var4...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -114,7 +114,7 @@ func APIGuide(v APIGuideView) templ.Component {
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.lang())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 42, Col: 73}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 42, Col: 96}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 				if templ_7745c5c3_Err != nil {

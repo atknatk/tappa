@@ -39,7 +39,7 @@ import "github.com/atknatk/tappa/web/templates/layout"
 templ APIGuide(v APIGuideView) {
 	@layout.MarketingTranslated(v.pageTitle(), layout.RobotsPublic, v.alternates(), v.Share) {
 		@PublicChrome(PublicChromeOpts{Current: v.path(), SignInHref: v.SignInHref, SignupHref: v.SignupHref, OwnRoots: true, InstantScroll: true}) {
-			<article class={ PublicBodyFrame + " py-10 sm:py-14" } lang={ v.lang() }>
+			<article class={ PublicBodyFrame + " " + PublicBodyRing + " py-10 sm:py-14" } lang={ v.lang() }>
 				<div class="w-full max-w-3xl xl:grid xl:max-w-none xl:grid-cols-[minmax(0,14rem)_minmax(0,48rem)] xl:gap-8">
 					@apiGuideSideNav(v)
 					<div class="min-w-0">

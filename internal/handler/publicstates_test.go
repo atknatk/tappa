@@ -2,6 +2,9 @@ package handler
 
 import (
 	"fmt"
+	"html"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -49,17 +52,23 @@ var drawnRing = drawnCell{"focus-visible", "", drawnRingRule, []string{"outline:
 
 // drawnMatrix is the board, in its order. The first thirteen rows are the LP-14 card's;
 // the rest are the board's further public rows whose rules live in the .lp block (the
-// legal switcher and sign-up's choices and fields are utility classes, held by
-// TestPublicPages_UtilityControlsCarryTheirDrawnStates; sign-up's submit is the product's
-// shared .btn, which this phase does not restyle).
+// legal switcher is utility classes, held by
+// TestPublicPages_UtilityControlsCarryTheirDrawnStates; sign-up's choices, fields and
+// submit are constants of signup.templ, held by
+// TestSignupSource_EveryFieldAndButtonCarriesItsStates; the ring of every control in those
+// bodies is PublicBodyRing, held by TestPublicPages_UtilityBodiesDrawTheOneRing).
+//
+// THE PRIMARY BUTTON'S DISABLED CELL IS UNREACHABLE. The board draws it on a form submit
+// only; the public site's one form is sign-up's, whose submit is the product's .btn, and
+// with no script on that page it is never disabled. So no rule draws a disabled state,
+// and the .lp block may declare none (drawnStateProblems).
 var drawnMatrix = []drawnRow{
 	{"Primary button", []drawnCell{
 		{"default", "", ".lp .lp-button--green", []string{"background: var(--green)", drawnPaperWord, "box-shadow: 0 4px 14px rgb(var(--green-ch) / .22)"}},
 		{"hover", "", ".lp .lp-button--green:hover", []string{drawnInkGround, drawnPaperWord}},
 		drawnRing,
 		{"pressed", "", ".lp .lp-button--green:active", []string{drawnInkGround, drawnPaperWord, drawnGreenEdge, drawnDown}},
-		{"disabled", "", ".lp .lp-button--green:disabled", []string{"background: rgb(var(--ink-ch) / .12)", "color: rgb(var(--ink-ch) / .6)", "cursor: not-allowed"}},
-	}, []string{".lp .lp-button--green[aria-current]"}},
+	}, []string{".lp .lp-button--green:disabled", ".lp .lp-button--green[aria-current]"}},
 	{"Ghost button", []drawnCell{
 		{"default", "", ".lp .lp-button--ghost", []string{"border: 2px solid var(--ink)", "color: var(--ink)"}},
 		{"hover", "", ".lp .lp-button--ghost:hover", []string{drawnInkGround, drawnPaperWord}},
@@ -192,7 +201,7 @@ func drawnNormDecl(d string) string {
 
 // drawnStateProblems says how css (the .lp block, comments removed) departs from the
 // matrix: a filled cell without its rule or a declaration of it, a rule for an n/a cell,
-// a visited-link rule, or a disabled rule anywhere but the form submit's green button.
+// a visited-link rule, or any disabled rule (the board's one disabled cell is unreachable).
 func drawnStateProblems(css string, matrix []drawnRow) []string {
 	rules := cssRules(css)
 	declsOf := func(media, sel string) (map[string]bool, bool) {
@@ -237,8 +246,8 @@ func drawnStateProblems(css string, matrix []drawnRow) []string {
 			if strings.Contains(s, ":visited") {
 				out = append(out, fmt.Sprintf("%q colours a visited link; the board keeps the default (README §6)", s))
 			}
-			if strings.Contains(s, ":disabled") && s != ".lp .lp-button--green:disabled" {
-				out = append(out, fmt.Sprintf("%q draws a disabled state; only a form submit (the green button) has one", s))
+			if strings.Contains(s, ":disabled") {
+				out = append(out, fmt.Sprintf("%q draws a disabled state; the board draws one only on a form submit, and the public site's one submit is never disabled", s))
 			}
 		}
 	}
@@ -306,12 +315,10 @@ func TestLandingCSS_DrawnStateScanRefusesAMissingOrAnExtraState(t *testing.T) {
 	}
 }
 
-// TestPublicPages_UtilityControlsCarryTheirDrawnStates (LP-14): the board's rows whose
-// control is drawn in utility classes outside the .lp roots — the legal document switcher,
-// sign-up's two kinds of choice and its fields — carry the drawn hover and pressed states
-// (the choices) and the public ring (the fields), and no
-// public page writes a visited variant. CONTROL: the switcher's class list without its
-// pressed state is refused.
+// TestPublicPages_UtilityControlsCarryTheirDrawnStates (LP-14): the legal document
+// switcher, drawn in utility classes outside the .lp roots, carries the drawn hover,
+// pressed and current states, and no public page writes a visited variant. CONTROL: the
+// switcher's class list without its pressed state is refused.
 func TestPublicPages_UtilityControlsCarryTheirDrawnStates(t *testing.T) {
 	t.Parallel()
 	r := marketingRouter(t)
@@ -344,17 +351,6 @@ func TestPublicPages_UtilityControlsCarryTheirDrawnStates(t *testing.T) {
 	for _, p := range problems(legalBody, legalOpen, legalStates) {
 		t.Error(p)
 	}
-	signupBody := mustFetchMarketing(t, r, signupPath)
-	for _, p := range problems(signupBody, want{signupPath, ""}, []string{
-		// the business-type chip and the place-count card: hover inks the edge, pressed
-		// fills it green-lite; checked stays the green edge and tint they already had
-		"border-line bg-paper px-3.5 font-mono text-xs uppercase tracking-[0.1em] text-ink hover:border-ink active:border-ink active:bg-green-lite",
-		"border-line bg-paper p-4 hover:border-ink active:border-ink active:bg-green-lite",
-		// a field: the public site's ring in place of the panel's green halo (1.97:1 on paper)
-		"field-input field-input--mono focus:ring-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
-	}) {
-		t.Error(p)
-	}
 	for _, u := range append(publicChromeURLs(), "/no-such-page") {
 		if body := fetchMarketing(t, r, u, nil).Body.String(); strings.Contains(body, "visited:") {
 			t.Errorf("GET %s writes a visited variant; the board keeps a visited link's colour", u)
@@ -363,5 +359,147 @@ func TestPublicPages_UtilityControlsCarryTheirDrawnStates(t *testing.T) {
 	cut := strings.Replace(legalBody, "hover:border-ink active:border-ink active:bg-paper", "hover:border-ink", -1)
 	if cut == legalBody || len(problems(cut, legalOpen, legalStates)) == 0 {
 		t.Error("CONTROL: a switcher without its pressed state passed")
+	}
+}
+
+// utilityBodyClass is the class list of the first element inside <main> — the element a
+// page with its own roots (sign-up, the legal documents, the guide) draws its body in —
+// and of the element right inside that one, unescaped.
+func utilityBodyClass(body string) (outer, inner string) {
+	main := between(body, `<main id="main">`, "</main>")
+	ms := htmlClassRE.FindAllStringSubmatch(main, 2)
+	if len(ms) < 2 {
+		return "", ""
+	}
+	return html.UnescapeString(ms[0][1]), html.UnescapeString(ms[1][1])
+}
+
+// TestPublicPages_UtilityBodiesDrawTheOneRing (LP-14): every page whose body is written
+// in utility classes puts pages.PublicBodyRing on the element that holds the body, so
+// every control inside it — the legal switcher, sign-up's fields, choices and buttons, the
+// guide's converted links, code blocks and tables — draws the public site's one ring
+// (2 px ink, 2 px out) instead of the browser's; and the ring is the .lp block's ring in
+// utilities. CONTROL: a body without it, and a ring of another width, are refused.
+func TestPublicPages_UtilityBodiesDrawTheOneRing(t *testing.T) {
+	t.Parallel()
+	ringProblems := func(ring string) []string {
+		var out []string
+		for _, want := range []string{"[&_:focus-visible]:outline", "[&_:focus-visible]:outline-2",
+			"[&_:focus-visible]:outline-offset-2", "[&_:focus-visible]:outline-ink"} {
+			if !slices.Contains(strings.Fields(ring), want) {
+				out = append(out, fmt.Sprintf("the body ring %q lacks %q", ring, want))
+			}
+		}
+		return out
+	}
+	for _, p := range ringProblems(pages.PublicBodyRing) {
+		t.Error(p)
+	}
+	got, found := map[string]bool{}, false
+	for _, r := range cssRules(landingCSSBlock(t)) {
+		if r.media == "" && drawnHasSelector(r.selectors, drawnRingRule) {
+			found = true
+			for _, d := range strings.Split(r.decls, ";") {
+				got[drawnNormDecl(d)] = true
+			}
+		}
+	}
+	if !found || !got["outline: 2px solid var(--ring)"] || !got["outline-offset: 2px"] {
+		t.Errorf("PREMISE: %q is not the 2 px ring 2 px out that PublicBodyRing spells", drawnRingRule)
+	}
+	r := marketingRouter(t)
+	bodyProblem := func(u, body string) string {
+		outer, _ := utilityBodyClass(body)
+		if !strings.Contains(outer, pages.PublicBodyRing) {
+			return fmt.Sprintf("GET %s: the body (%q) does not carry pages.PublicBodyRing", u, outer)
+		}
+		return ""
+	}
+	var legal string
+	for _, u := range append([]string{signupPath}, chromeOnlyURLs()...) {
+		body := mustFetchMarketing(t, r, u)
+		if u == pages.LegalPages[0].Path {
+			legal = body
+		}
+		if p := bodyProblem(u, body); p != "" {
+			t.Error(p)
+		}
+	}
+	if bodyProblem("cut", strings.Replace(legal, html.EscapeString(pages.PublicBodyRing), "", 1)) == "" {
+		t.Error("CONTROL: a body without the ring passed")
+	}
+	if len(ringProblems(strings.Replace(pages.PublicBodyRing, "outline-2", "outline-4", 1))) == 0 {
+		t.Error("CONTROL: a 4 px ring passed")
+	}
+}
+
+// signupSourceProblems says which field or primary button of signup.templ's source does
+// not carry its states constant, and which constant lacks a drawn state. Read from the
+// source because three of the wizard's screens are reached only by posting the one before.
+func signupSourceProblems(src string) []string {
+	var out []string
+	for i, line := range strings.Split(src, "\n") {
+		if strings.Contains(line, `"field-input`) && !strings.Contains(line, "+ signupFieldRing") {
+			out = append(out, fmt.Sprintf("signup.templ:%d: a field without signupFieldRing", i+1))
+		}
+		if strings.Contains(line, "btn btn--primary") && !strings.Contains(line, "+ signupSubmitStates") {
+			out = append(out, fmt.Sprintf("signup.templ:%d: a primary button without signupSubmitStates", i+1))
+		}
+	}
+	consts := map[string][]string{
+		"signupFieldRing":    {"focus:ring-0", "hover:[&:not([aria-invalid=true])]:border-ink", "focus:[&:not([aria-invalid=true])]:border-ink"},
+		"signupSubmitStates": {"focus:ring-0", "active:bg-ink", "active:shadow-[inset_0_0_0_2px_theme(colors.tappa-green)]", "active:translate-y-px"},
+		"signupChipClass": {"hover:border-ink", "active:border-ink", "active:bg-green-lite", "peer-focus-visible:outline",
+			"peer-focus-visible:outline-2", "peer-focus-visible:outline-offset-2", "peer-focus-visible:outline-ink"},
+		"signupPlaceCardClass": {"hover:border-ink", "active:border-ink", "active:bg-green-lite", "peer-focus-visible:outline",
+			"peer-focus-visible:outline-2", "peer-focus-visible:outline-offset-2", "peer-focus-visible:outline-ink"},
+	}
+	for name, wants := range consts {
+		at := strings.Index(src, "const "+name+" = ")
+		if at < 0 {
+			out = append(out, "signup.templ declares no "+name)
+			continue
+		}
+		decl := src[at:]
+		decl = decl[:strings.Index(decl, "\n\n")]
+		value := strings.Join(regexp.MustCompile(`"([^"]*)"`).FindAllString(decl, -1), "")
+		value = strings.ReplaceAll(value, `"`, "")
+		for _, w := range wants {
+			if !slices.Contains(strings.Fields(value), w) {
+				out = append(out, fmt.Sprintf("%s lacks %q", name, w))
+			}
+		}
+	}
+	return out
+}
+
+// TestSignupSource_EveryFieldAndButtonCarriesItsStates (LP-14): every field of the
+// wizard's four screens carries signupFieldRing, every primary button signupSubmitStates
+// (pressed as the board draws the green button; no disabled state, the cell being
+// unreachable), and the chip and place-card constants their hover, pressed and ring.
+// CONTROL: the password field without its constant, and a submit constant without its
+// pressed fill, are refused.
+func TestSignupSource_EveryFieldAndButtonCarriesItsStates(t *testing.T) {
+	t.Parallel()
+	src := repoFile(t, "web", "templates", "pages", "signup.templ")
+	for _, p := range signupSourceProblems(src) {
+		t.Error(p)
+	}
+	password := `autocomplete="new-password"`
+	at := strings.Index(src, password)
+	if at < 0 {
+		t.Fatal("PREMISE: no password field in signup.templ")
+	}
+	field := `class={ "field-input field-input--mono " + signupFieldRing }`
+	next := strings.Index(src[at:], field)
+	if next < 0 {
+		t.Fatal("PREMISE: the password field's class is not where the control expects it")
+	}
+	cut := src[:at+next] + `class="field-input field-input--mono"` + src[at+next+len(field):]
+	if len(signupSourceProblems(cut)) == 0 {
+		t.Error("CONTROL: the password field without signupFieldRing passed")
+	}
+	if len(signupSourceProblems(strings.Replace(src, "active:bg-ink ", "", 1))) == 0 {
+		t.Error("CONTROL: a submit without its pressed fill passed")
 	}
 }

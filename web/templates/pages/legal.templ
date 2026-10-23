@@ -60,7 +60,7 @@ import (
 templ Legal(v LegalPageView) {
 	@layout.Marketing(v.Page.Title+" — Taptime", v.Robots(), v.Share) {
 		@PublicChrome(PublicChromeOpts{Current: v.Page.Path, SignInHref: v.SignInHref, SignupHref: v.SignupHref, OwnRoots: true}) {
-			<div class={ PublicBodyFrame + " pb-12 pt-5 md:pb-14 md:pt-7 desk:pb-16 desk:pt-10" }>
+			<div class={ PublicBodyFrame + " " + PublicBodyRing + " pb-12 pt-5 md:pb-14 md:pt-7 desk:pb-16 desk:pt-10" }>
 				<div class="flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,260px)_minmax(0,820px)] desk:items-start desk:gap-10">
 					@legalNav(v)
 					<article class="flex min-w-0 flex-col gap-7">

@@ -654,14 +654,36 @@ func bodyFrameProblems(css, frame string) []string {
 	return out
 }
 
+// sideSpaceRE matches a utility that moves a box's side edge: horizontal padding or margin,
+// at any breakpoint, positive or negative.
+var sideSpaceRE = regexp.MustCompile(`^(?:[a-z]+:)*-?(?:p|m)[xlrse]-`)
+
+// bodyEdgeProblems says why body's text does not start at the frame's edge: the element
+// holding the body is not in pages.PublicBodyFrame, or the element right inside it moves
+// its own side edge (mx-auto, which centres a narrower column, is the one exception).
+func bodyEdgeProblems(u, body string) []string {
+	outer, inner := utilityBodyClass(body)
+	if !strings.HasPrefix(outer, pages.PublicBodyFrame+" ") {
+		return []string{fmt.Sprintf("GET %s: the body (%q) is not in pages.PublicBodyFrame", u, outer)}
+	}
+	var out []string
+	for _, c := range strings.Fields(inner) {
+		if c != "mx-auto" && sideSpaceRE.MatchString(c) {
+			out = append(out, fmt.Sprintf("GET %s: the body's first box carries %q, which moves its edge off the frame's", u, c))
+		}
+	}
+	return out
+}
+
 // TestPublicBodyFrame_IsTheChromeBox (LP-14): the pages whose body is written in utility
 // classes (sign-up, the legal documents, the integration guide) put it in
 // pages.PublicBodyFrame, and that frame is the header's and the footer's own box at every
 // width -- the same left padding at the phone, tablet and desk widths and the same
 // 1180 px at the desk -- so the body's left edge is the wordmark's. Read from the source
 // rules and the class list, not from a browser; the edges were measured in Chrome (LP-14
-// report). CONTROL: the frame as it was before (28 px on a tablet, 72rem), and a header
-// moved to 28 px, are refused.
+// report). The box right inside the frame may not move its own side edge either.
+// CONTROL: the frame as it was before (28 px on a tablet, 72rem), a header moved to 28 px,
+// and the legal grid given a left padding of its own, are refused.
 func TestPublicBodyFrame_IsTheChromeBox(t *testing.T) {
 	t.Parallel()
 	css := repoFile(t, "web", "static", "css", "input.css")
@@ -669,11 +691,22 @@ func TestPublicBodyFrame_IsTheChromeBox(t *testing.T) {
 		t.Error(p)
 	}
 	r := marketingRouter(t)
+	var legal string
 	for _, u := range append([]string{signupPath}, chromeOnlyURLs()...) {
-		main := between(mustFetchMarketing(t, r, u), `<main id="main">`, "</main>")
-		if !strings.Contains(main, `class="`+pages.PublicBodyFrame+` `) {
-			t.Errorf("GET %s: the body is not in pages.PublicBodyFrame", u)
+		body := mustFetchMarketing(t, r, u)
+		if u == pages.LegalPages[0].Path {
+			legal = body
 		}
+		for _, p := range bodyEdgeProblems(u, body) {
+			t.Error(p)
+		}
+	}
+	// The legal body's inner grid given a left padding of its own: the frame would still
+	// be right, the text would not start at the wordmark.
+	if inner := `<div class="flex flex-col gap-6 desk:grid`; !strings.Contains(legal, inner) {
+		t.Fatal("PREMISE: the control cannot find the legal body's inner grid")
+	} else if len(bodyEdgeProblems("cut", strings.Replace(legal, inner, `<div class="flex flex-col gap-6 desk:pl-6 desk:grid`, 1))) == 0 {
+		t.Error("CONTROL: an inner grid with its own left padding passed")
 	}
 	if len(bodyFrameProblems(css, "mx-auto w-full px-4 md:px-7 desk:px-4")) == 0 {
 		t.Error("CONTROL: the frame before LP-14 passed")

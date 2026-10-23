@@ -23,6 +23,7 @@ package handler
 import (
 	"bytes"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -61,7 +62,7 @@ func TestAPIGuidePages_AreTheGuideInTheMarketingChrome(t *testing.T) {
 			`<meta name="robots" content="index, follow">`,
 			"<title>" + htmlText(g.Title) + "</title>",
 			"<h1 class=\"mt-2 font-display text-3xl font-bold tracking-tight\">" + htmlText(g.Title) + "</h1>",
-			`<article class="` + pages.PublicBodyFrame + ` py-10 sm:py-14" lang="` + c.lang + `">`,
+			`<article class="` + pages.PublicBodyFrame + ` ` + html.EscapeString(pages.PublicBodyRing) + ` py-10 sm:py-14" lang="` + c.lang + `">`,
 			`<div class="guide-prose mt-8">`,
 			`<h2 id="webhooks"><a href="#webhooks">`,
 		} {

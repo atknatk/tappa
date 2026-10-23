@@ -102,6 +102,15 @@ templ PublicChrome(c PublicChromeOpts) {
 // space stays each page's own.
 const PublicBodyFrame = "mx-auto w-full px-4 md:px-10 desk:max-w-[1180px] desk:px-[clamp(16px,3vw,40px)]"
 
+// PublicBodyRing gives every control inside such a body the public site's one focus ring
+// — 2 px of ink, 2 px out, as `.lp :focus-visible` draws it inside the .lp roots — on the
+// element that holds the body, so it reaches what no template of ours writes: the
+// integration guide's converted links, its scrollable code blocks and tables, and the
+// legal switcher (LP-14, board States-Public). Without it those controls drew the
+// browser's own ring. Ink on paper 16.17:1, on porcelain 14.32:1.
+// TestPublicPages_UtilityBodiesDrawTheOneRing holds every such body to it.
+const PublicBodyRing = "[&_:focus-visible]:outline [&_:focus-visible]:outline-2 [&_:focus-visible]:outline-offset-2 [&_:focus-visible]:outline-ink"
+
 // publicChromeInRoot is the chrome inside the caller's own .lp root.
 templ publicChromeInRoot(c PublicChromeOpts) {
 	<a class="lp-skip" href="#main">Skip to content</a>
