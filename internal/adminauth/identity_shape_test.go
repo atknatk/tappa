@@ -8,6 +8,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -372,5 +373,78 @@ func TestVerifiedIdentity_HasOneProducerAndOneConsumer(t *testing.T) {
 	}
 	if !consumerTakesIt {
 		t.Error("openIdentitySession no longer takes a verifiedIdentity")
+	}
+}
+
+// openIdentitySessionCallers names, by package directory and enclosing function, every non-test call
+// of a method called OpenIdentitySession in internal/... and cmd/... -- the database's caller of
+// identity_open_session (ADR 0031 §5.2 named exception 1) and its one consumer. A new entry is a new
+// way to open an identity session without the verified-identity type; it is added here by name, with
+// its reason, or it is a red test.
+var openIdentitySessionCallers = map[string]bool{
+	"internal/adminauth.openIdentitySession": true,
+}
+
+// TestOpenIdentitySession_HasNoCallerOutsideTheVerifiedType widens the single-consumer check to the
+// whole tree (the security audit's fifth low finding): any package that calls (*db.DB).
+// OpenIdentitySession -- or anything else by that name -- directly is found and must be listed in
+// openIdentitySessionCallers. The scan proves it reads the tree: it must find the listed caller.
+func TestOpenIdentitySession_HasNoCallerOutsideTheVerifiedType(t *testing.T) {
+	found := map[string]bool{}
+	files := 0
+	repo, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range []string{filepath.Join(repo, "internal"), filepath.Join(repo, "cmd")} {
+		err := filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if e.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			fset := token.NewFileSet()
+			f, err := parser.ParseFile(fset, path, nil, 0)
+			if err != nil {
+				return err
+			}
+			files++
+			rel, err := filepath.Rel(repo, filepath.Dir(path))
+			if err != nil {
+				return err
+			}
+			for _, decl := range f.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok || fn.Body == nil {
+					continue
+				}
+				ast.Inspect(fn.Body, func(n ast.Node) bool {
+					if c, ok := n.(*ast.CallExpr); ok {
+						if sel, ok := c.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "OpenIdentitySession" {
+							found[filepath.ToSlash(rel)+"."+fn.Name.Name] = true
+						}
+					}
+					return true
+				})
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if files < 100 {
+		t.Fatalf("the scan read %d files; it is not reading the tree", files)
+	}
+	for caller := range found {
+		if !openIdentitySessionCallers[caller] {
+			t.Errorf("%s calls OpenIdentitySession directly; identity_open_session is reached only through adminauth's verifiedIdentity (ADR 0031 §5.2 named exception 1) -- name it in openIdentitySessionCallers with its reason, or route it through adminauth", caller)
+		}
+	}
+	for caller := range openIdentitySessionCallers {
+		if !found[caller] {
+			t.Errorf("%s is listed but the scan did not find it: the list describes a tree that no longer exists, or the scan went blind", caller)
+		}
 	}
 }

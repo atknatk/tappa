@@ -604,9 +604,10 @@ func TestIssue_ConcurrentSignInsOfOneAdminDoNotDeadlock(t *testing.T) {
 	}
 }
 
-// TestAuthenticatePerson_ConcurrentFailuresKeepTheBudgetExact (security audit DÜŞÜK-1): forty
-// concurrent wrong-password sign-ins of one identity write exactly the budget's login_failed rows and
-// exactly ONE login_limited row -- the budget is charged and read in one step (TryCharge).
+// TestAuthenticatePerson_ConcurrentFailuresKeepTheBudgetExact (the M14-07 security audit's first low
+// finding): forty concurrent wrong-password sign-ins of one identity write exactly the budget's
+// login_failed rows and exactly ONE login_limited row -- the budget is charged and read in one step
+// (TryCharge).
 func TestAuthenticatePerson_ConcurrentFailuresKeepTheBudgetExact(t *testing.T) {
 	d := testDB(t)
 	m := testManager(t, d)
