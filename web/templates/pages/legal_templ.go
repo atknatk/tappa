@@ -355,7 +355,7 @@ func legalNavLinkClass(current bool) string {
 	if current {
 		return "flex h-full min-h-14 flex-col gap-1.5 rounded-[14px] border-2 border-ink bg-paper px-3 py-2.5 desk:px-4 desk:py-3.5"
 	}
-	return "flex h-full min-h-14 flex-col gap-1.5 rounded-[14px] border border-line px-3 py-2.5 hover:border-ink desk:px-4 desk:py-3.5"
+	return "flex h-full min-h-14 flex-col gap-1.5 rounded-[14px] border border-line px-3 py-2.5 hover:border-ink active:border-ink active:bg-paper desk:px-4 desk:py-3.5"
 }
 
 // legalBody is the PUBLISHED text (M7-06).

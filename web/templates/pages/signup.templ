@@ -59,6 +59,27 @@ templ signupPage(title string, p signupProgress, share layout.Share) {
 	}
 }
 
+// signupFieldRing is a field's focus mark on the public site (LP-14, board
+// States-Public: "the focus ring replaces the old 1 px green outline"): the public site's
+// one ring, 2 px of ink 2 px out, 16.17:1 on the paper card and 14.32:1 on the phone's
+// porcelain (measured in Chrome). The panel's field draws a 2 px halo of green at 40 %
+// instead, the colour Chrome reports for it, which composites to 1.97:1 on paper -- under
+// the 3:1 a focus mark needs -- so here the halo goes
+// and the ring takes its place. The panel's own fields (.field-input, shared) are not
+// changed. The board's inked edge on hover is NOT drawn: a utility outweighs the panel's
+// tomato edge on an invalid field (same weight, later in app.css), and an error must not
+// lose its edge under the pointer.
+const signupFieldRing = "focus:ring-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+
+// signupChipClass is a business-type chip: resting on paper, an inked edge on hover and a
+// green-lite fill while pressed (LP-14, board States-Public), the green edge and tint once
+// checked. One literal across lines, so the source keeps a hand-written width.
+const signupChipClass = "flex min-h-11 w-full items-center justify-center rounded-[10px] border border-line " +
+	"bg-paper px-3.5 font-mono text-xs uppercase tracking-[0.1em] text-ink hover:border-ink active:border-ink " +
+	"active:bg-green-lite peer-checked:border-tappa-green peer-checked:bg-tappa-green/10 " +
+	"peer-checked:shadow-[inset_0_0_0_1px_theme(colors.tappa-green)] peer-focus-visible:ring-2 " +
+	"peer-focus-visible:ring-ink md:w-auto"
+
 // signupSectionClass is the public chrome's box (PublicBodyFrame) and the screen's
 // vertical space.
 func signupSectionClass(progress bool) string {
@@ -267,7 +288,7 @@ templ SignupBusiness(v SignupBusinessView) {
 						required
 						autofocus
 						value={ v.Name }
-						class="field-input field-input--mono"
+						class={ "field-input field-input--mono " + signupFieldRing }
 						if fieldInvalid(v.Errors, "name") {
 							aria-invalid="true"
 							aria-describedby={ fieldErrorID("name") }
@@ -287,7 +308,7 @@ templ SignupBusiness(v SignupBusinessView) {
 						spellcheck="false"
 						required
 						value={ v.VATNumber }
-						class="field-input field-input--mono uppercase"
+						class={ "field-input field-input--mono uppercase " + signupFieldRing }
 						if fieldInvalid(v.Errors, "vat_number") {
 							aria-invalid="true"
 							aria-describedby={ fieldErrorID("vat_number") }
@@ -312,7 +333,7 @@ templ SignupBusiness(v SignupBusinessView) {
 								checked?={ v.BusinessType == t.Value }
 								class="peer sr-only accent-tappa-green"
 							/>
-							<span class="flex min-h-11 w-full items-center justify-center rounded-[10px] border border-line bg-paper px-3.5 font-mono text-xs uppercase tracking-[0.1em] text-ink peer-checked:border-tappa-green peer-checked:bg-tappa-green/10 peer-checked:shadow-[inset_0_0_0_1px_theme(colors.tappa-green)] peer-focus-visible:ring-2 peer-focus-visible:ring-ink md:w-auto">
+							<span class={ signupChipClass }>
 								{ t.Label }
 							</span>
 						</label>
@@ -383,7 +404,7 @@ templ structureCard(current, value, title, body string) {
 			checked?={ current == value }
 			class="peer sr-only accent-tappa-green"
 		/>
-		<span class="flex h-full min-h-24 flex-col gap-1.5 rounded-[14px] border border-line bg-paper p-4 peer-checked:border-tappa-green peer-checked:bg-tappa-green/10 peer-checked:shadow-[inset_0_0_0_1px_theme(colors.tappa-green)] peer-focus-visible:ring-2 peer-focus-visible:ring-ink">
+		<span class="flex h-full min-h-24 flex-col gap-1.5 rounded-[14px] border border-line bg-paper p-4 hover:border-ink active:border-ink active:bg-green-lite peer-checked:border-tappa-green peer-checked:bg-tappa-green/10 peer-checked:shadow-[inset_0_0_0_1px_theme(colors.tappa-green)] peer-focus-visible:ring-2 peer-focus-visible:ring-ink">
 			<span class="font-display text-base font-bold tracking-tight text-ink">{ title }</span>
 			<span class="text-[13px] leading-normal text-ink/70">{ body }</span>
 		</span>
@@ -420,7 +441,7 @@ templ SignupPlaces(v SignupPlacesView) {
 							required?={ i == 0 }
 							value={ name }
 							placeholder="Front door"
-							class="field-input field-input--mono"
+							class={ "field-input field-input--mono " + signupFieldRing }
 							if fieldInvalid(v.Errors, "venue_"+strconv.Itoa(i)) {
 								aria-invalid="true"
 								aria-describedby={ fieldErrorID("venue_" + strconv.Itoa(i)) }
@@ -499,7 +520,7 @@ templ SignupAccount(v SignupAccountView) {
 							required
 							autofocus
 							value={ v.FullName }
-							class="field-input"
+							class={ "field-input " + signupFieldRing }
 							if fieldInvalid(v.Errors, "full_name") {
 								aria-invalid="true"
 								aria-describedby={ fieldErrorID("full_name") }
@@ -516,7 +537,7 @@ templ SignupAccount(v SignupAccountView) {
 							autocomplete="username"
 							required
 							value={ v.Email }
-							class="field-input field-input--mono"
+							class={ "field-input field-input--mono " + signupFieldRing }
 							if fieldInvalid(v.Errors, "email") {
 								aria-invalid="true"
 								aria-describedby={ fieldErrorID("email") }
@@ -537,7 +558,7 @@ templ SignupAccount(v SignupAccountView) {
 							autocomplete="new-password"
 							required
 							minlength="8"
-							class="field-input field-input--mono"
+							class={ "field-input field-input--mono " + signupFieldRing }
 							if fieldInvalid(v.Errors, "password") {
 								aria-invalid="true"
 								aria-describedby={ fieldErrorID("password") }

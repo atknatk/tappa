@@ -1887,6 +1887,7 @@ html:has(.lp) { scroll-behavior: smooth; }
 .lp .demoTitle { padding-top: 10px; font-size: 18px; letter-spacing: -0.02em; line-height: 1.25; margin: 0; max-width: none; }
 .lp .demoClose { width: 44px; height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: center; border: 2px solid var(--ink); border-radius: 12px; background: transparent; color: var(--ink); cursor: pointer; }
 .lp .demoClose:hover { background: var(--ink); color: var(--paper); }
+.lp .demoClose:active { background: var(--ink); color: var(--paper); transform: translateY(1px); }
 .lp .demoClose svg { width: 18px; height: 18px; }
 
 .lp .demoBody { padding: 18px; }
@@ -2071,6 +2072,9 @@ html:has(.lp) { scroll-behavior: smooth; }
 /* ---------------- FAQ item ---------------- */
 .lp details.qa { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; }
 .lp details.qa:hover { border-color: var(--ink); }
+/* Pressed is the hover's edge. A press on the summary is a press on the item: :active
+   matches every ancestor of the pressed element, and a finger has no hover. */
+.lp details.qa:active { border-color: var(--ink); }
 .lp details.qa > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; padding: 16px; border-radius: 13px; font-weight: 700; font-size: 15px; line-height: 1.4; color: var(--ink); list-style: none; cursor: pointer; }
 .lp details.qa > summary::-webkit-details-marker { display: none; }
 .lp details.qa > p { padding: 0 16px 18px; font-size: 14.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
@@ -2179,8 +2183,17 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-signin:active { color: var(--ink); text-decoration-thickness: 2px; }
 .lp .lp-signin:focus-visible,
 .lp .lp-mark:focus-visible { border-radius: 6px; }
+/* The home link (States-Public, LP-14): hover turns the word green, pressed green and
+   underlined; the dot and the tag line keep their colours. Green on porcelain 6.85:1. */
+.lp .lp-mark:hover .lp-markName { color: var(--green); }
+.lp .lp-mark:active .lp-markName { color: var(--green); text-decoration: underline; text-underline-offset: 4px; }
 /* The phone's header button is the slimmer one the board draws. */
 .lp .lp-head .hbtn { padding: 0 12px; box-shadow: none; }
+/* ...WHICH WOULD ALSO TAKE AWAY ITS PRESSED EDGE: this rule and the tablet's below have
+   .hbtn:active's weight and come after it, so the header's button pressed with its
+   resting shadow (measured in Chrome, LP-14) where every other green button draws the
+   2px green inner edge. One more class puts the edge back at every width. */
+.lp .lp-head .hbtn:active { box-shadow: inset 0 0 0 2px var(--green); }
 @media (min-width: 768px) {
   .lp .lp-headIn { height: auto; min-height: 68px; gap: 12px; padding: 0 40px; }
   .lp .lp-mark { gap: 10px; }
@@ -3140,8 +3153,10 @@ html:has(.lp.lp-instant) { scroll-behavior: auto; }
 .lp .lp-prodIndex > .lp-lbl { display: none; }
 .lp .lp-prodIndexList { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; }
 .lp .lp-prodIndexLink { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); font-size: 13.5px; font-weight: 700; color: var(--ink); text-decoration: none; }
-.lp .lp-prodIndexLink:hover { border-color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
-.lp .lp-prodIndexLink:active { border-color: var(--ink); text-decoration: underline; text-decoration-thickness: 2px; }
+/* States as States-Public draws the chip (LP-14): hover inks the edge, pressed fills it
+   green-lite. The slip's entry from 1200px has its own two below. */
+.lp .lp-prodIndexLink:hover { border-color: var(--ink); }
+.lp .lp-prodIndexLink:active { border-color: var(--ink); background: var(--green-lite); }
 .lp .lp-prodIndexLink:focus-visible { border-radius: 999px; }
 .lp .lp-prodIndexNo { font-family: var(--mono); font-size: 10.5px; font-weight: 400; color: rgb(var(--ink-ch) / .7); }
 
@@ -3312,7 +3327,11 @@ html:has(.lp.lp-instant) { scroll-behavior: auto; }
   .lp .lp-prodIndexList { display: block; }
   .lp .lp-prodIndexList li { border-top: 1px dashed var(--line); }
   .lp .lp-prodIndexLink { display: flex; gap: 14px; padding: 0; border: 0; border-radius: 0; background: none; font-size: 15px; }
-  .lp .lp-prodIndexLink:focus-visible { border-radius: 4px; }
+  .lp .lp-prodIndexLink:focus-visible { border-radius: 6px; }
+  /* The slip's entry (States-Public, LP-14): hover turns it green, pressed green and
+     underlined -- and no fill, which is the chip's. Green on paper 7.73:1. */
+  .lp .lp-prodIndexLink:hover { color: var(--green); }
+  .lp .lp-prodIndexLink:active { color: var(--green); background: none; text-decoration: underline; text-underline-offset: 4px; }
   .lp .lp-prodIndexNo { font-size: 11px; }
   .lp .lp-prodH2 { font-size: 40px; }
   .lp .lp-prodRow { display: grid; grid-template-columns: 380px minmax(0, 1fr); align-items: center; gap: 56px; }
