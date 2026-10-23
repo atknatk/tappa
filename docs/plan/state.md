@@ -1700,7 +1700,7 @@ yazılır.
 | M14-01 | done | `539c251` … `cb9c5ea` (8 commit, birleşme `96d0c79`); üçüncü göz + güvenlik ONAY. K-15 = (a). Kullanıcı kararları (2026-10-22/23): §4.5 (3) metni ADR §6.1 ile birlikte daraltıldı (bakım yazarları adıyla, bağ sütunları, operatör yasağı `resolve_identity_*`); kapalı listeye `identity_open_reset` (EM-7C) + `identity_withdraw_reset` (denetim boşluğu); eski kolun oturum yazımı doğrulanan digest + `FOR SHARE OF a` (M14-07 yükümlülüğü, PG 17.10'da ölçüldü) |
 | M14-02 | done | `62c20c6` + `986c3f0` (birleşme `e8aa61c`); üçüncü göz ONAY (2. tur) |
 | M14-03 | done | `ce9fac0` + `7b3f309` (birleşme `6f14f45`); 00069 + 00070; üçüncü göz + güvenlik ONAY (00070 Down koruması ikinci turda); `scripts/pg-restore-verify.sh` değişmedi — kontrolleri katalogdan türetiliyor |
-| M14-04 | wip | dal `m14-resolve`, 00071 (`bc9d761`); denetim bulguları düzeltiliyor |
+| M14-04 | done | 00071, `bc9d761` … `552d19fc` (5 tur); üçüncü göz + güvenlik ONAY. Kullanıcı kararı 2026-10-23: `identity_open_session` `p_verified_digest`'i kimlik kilidi altında denetler. Tenant kuşağı (`internal/db/identitybelt_test.go`) fail-closed + kimlik anahtarı kuralı; `admin_sessions` INSERT'i sütun listesine indi |
 | M14-05 | wip | dal `m14-password`, 00072 (`9b6354b` + `53190c6`); kullanıcı kararıyla `identity_open_reset` + `identity_withdraw_reset` ekleniyor |
 | M14-06 | wip | dal `m14-backfill`, 00073 (`1f3d439` + `bafdfc8`); iki denetim ONAY, DÜŞÜK turu yeniden denetimde |
 | M14-06b … M14-21 | todo | |
