@@ -212,6 +212,16 @@ func TestAdminBackfill00073_OldestActiveAccountBirthsTheIdentity(t *testing.T) {
 	aiExec(t, ctx, tx, `UPDATE admin_users SET unlinked_at = now() WHERE id = $1`, refused)
 	refusedSibling := bfAdmin(t, ctx, tx, aiTenant(t, ctx, tx), refusedMail, "active", 300, d("b"))
 
+	// A group holding a row linked to an identity under ANOTHER address. No path in this tree makes
+	// one yet (M14-18's "Link a business" may), so it is built as the owner: the row is unlinked when
+	// it is linked, so the trigger does not fire, and it carries the identity's digest, so the
+	// closing assertion's invariant holds.
+	linkedMail := bfEmail("linked")
+	elsewhereIdentity := aiIdentity(t, ctx, tx, bfEmail("elsewhere"))
+	linkedRow := bfAdmin(t, ctx, tx, aiTenant(t, ctx, tx), linkedMail, "active", 400, d("a"))
+	aiExec(t, ctx, tx, `UPDATE admin_users SET identity_id = $2, linked_via = 'account', linked_at = now() WHERE id = $1`, linkedRow, elsewhereIdentity)
+	linkedSibling := bfAdmin(t, ctx, tx, aiTenant(t, ctx, tx), linkedMail, "active", 300, d("b"))
+
 	var seedOwners []uuid.UUID
 	rows, err := tx.Query(ctx, `SELECT id FROM admin_users
 	                             WHERE id IN ('10000000-0000-4000-8000-000000000401', '20000000-0000-4000-8000-000000000401')
@@ -257,6 +267,7 @@ func TestAdminBackfill00073_OldestActiveAccountBirthsTheIdentity(t *testing.T) {
 			{"a row with no e-mail", noMail}, {"a row with an empty e-mail", emptyMail}, {"a row with a blank e-mail", blankMail},
 			{"a row whose address already has an identity", ownUnlinked},
 			{"a refused row", refused}, {"the sibling of a refused row", refusedSibling},
+			{"the sibling of a row linked under another address", linkedSibling},
 		} {
 			if !bfUnlinked(t, ctx, sp, c.id) {
 				t.Errorf("%s is linked: %s", c.what, bfRow(t, ctx, sp, c.id))
@@ -267,6 +278,12 @@ func TestAdminBackfill00073_OldestActiveAccountBirthsTheIdentity(t *testing.T) {
 		}
 		if n := bfIdentities(t, ctx, sp, refusedMail); n != 0 {
 			t.Errorf("a group holding a refused row got %d identities, want 0", n)
+		}
+		if n := bfIdentities(t, ctx, sp, linkedMail); n != 0 {
+			t.Errorf("a group holding a linked row got %d identities, want 0", n)
+		}
+		if got := opInt(t, ctx, sp, `SELECT count(*) FROM admin_users WHERE id = $1 AND identity_id = $2 AND linked_via = 'account'`, linkedRow, elsewhereIdentity); got != 1 {
+			t.Error("the backfill moved a row linked by another way")
 		}
 		if n := opInt(t, ctx, sp, `SELECT count(*) FROM admin_identities WHERE id = $1 AND password_hash = $2`, ownIdentity, d("a")); n != 1 {
 			t.Error("the backfill changed an identity it did not make")
@@ -459,8 +476,9 @@ func TestAdminBackfill00073_ADigestTheIdentityRefusesStopsItByCount(t *testing.T
 //     (no credential changes);
 //   - the Up again links the same rows to identities with the same addresses and digests;
 //   - the Down refuses, changing nothing, when an identity the backfill made has lived: another
-//     row linked to it (password), a verified address, a refused row of its address, a row of
-//     another table pointing at it; and when a foreign key onto admin_identities would cascade.
+//     row linked to it (password), a verified address, a login, an opened confirmation window, a
+//     last-used business, a refused row of its address, a row of another table pointing at it; and
+//     when a foreign key onto admin_identities would cascade.
 func TestAdminBackfill00073_DownUndoesOnlyItsOwnAndUpAgain(t *testing.T) {
 	ctx, tx := bfTx(t)
 	up, _, down := bfSections(t)
@@ -534,6 +552,19 @@ func TestAdminBackfill00073_DownUndoesOnlyItsOwnAndUpAgain(t *testing.T) {
 		{"a row of another table pointing at the identity", "a row of another table points", func(sp pgx.Tx) {
 			aiExec(t, ctx, sp, `CREATE TABLE zz_m14_06_points (identity_id uuid NOT NULL REFERENCES admin_identities (id) ON DELETE RESTRICT)`)
 			aiExec(t, ctx, sp, `INSERT INTO zz_m14_06_points VALUES ($1)`, identityOf(sp, single))
+		}},
+		{"a login", "has lived", func(sp pgx.Tx) {
+			aiExec(t, ctx, sp, `UPDATE admin_identities SET last_login_at = now() WHERE id = $1`, identityOf(sp, single))
+		}},
+		{"an opened confirmation window", "has lived", func(sp pgx.Tx) {
+			// All three columns: 00069's confirm_window_whole CHECK.
+			aiExec(t, ctx, sp, `UPDATE admin_identities SET confirm_opened_at = now(), confirm_open_until = now() + interval '7 days',
+			                                                 confirm_scope = 'first_verify'
+			                     WHERE id = $1`, identityOf(sp, single))
+		}},
+		{"a last-used business", "has lived", func(sp pgx.Tx) {
+			aiExec(t, ctx, sp, `UPDATE admin_identities SET last_used_tenant = (SELECT tenant_id FROM admin_users WHERE id = $2)
+			                     WHERE id = $1`, identityOf(sp, single), single)
 		}},
 		{"a foreign key that cascades", "cascades or nulls a delete", func(sp pgx.Tx) {
 			aiExec(t, ctx, sp, `CREATE TABLE zz_m14_06_cascades (identity_id uuid REFERENCES admin_identities (id) ON DELETE CASCADE)`)

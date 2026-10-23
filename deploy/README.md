@@ -1927,7 +1927,9 @@ adım yok.
 - **Kilit:** tablo kilidi yok; aday satırlar `id` sırasıyla `FOR UPDATE` kilitlenir, ifadenin kendi
   `SET LOCAL lock_timeout = '1s'`'i altında. Bir satırı tutan bir yazarın arkasında 55P03 ile düşer —
   hiçbir şey yazılmaz, Job `Failed`, rollout yapılmaz, sakin bir anda yeniden koşulur. Kilitten sonra
-  doğan satır (eski pod'un kaydı) M14-06b'nin (uzlaştırma) işidir.
+  doğan satır (eski pod'un kaydı) M14-06b'nin (uzlaştırma) işidir. İfade sürerken aday satırlarda
+  girişin `last_login_at` UPDATE'i ve yeni oturum INSERT'inin yabancı anahtar denetimi (`FOR KEY SHARE`)
+  bekler; panel istekleri (`TouchAdminSession` `admin_users`'ı yalnız okur) beklemez — canlıda ~8 ms.
 - **Süre (M14-02 sayısıyla):** canlıda 4 `admin_users` satırı, 3 e-posta grubu (2 tekli, 1 çiftli) →
   **3 kimlik, 3 bağlı satır, 1 aktif owner satırı bağlanmamış** (çiftli grubun yeni olanı — contract ön
   koşulunun başlangıç değeri `05f` = 1). Ölçüm (bu dosyanın veritabanı, PostgreSQL 17, satırlar

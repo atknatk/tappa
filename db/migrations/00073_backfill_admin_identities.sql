@@ -77,7 +77,9 @@
 -- revisiting.
 --
 -- THE DOWN unlinks the rows linked_via = 'backfill' and deletes the identities they were linked to --
--- this file's identities and nothing else (bulgu 22). It REFUSES, changing nothing, when one of
+-- this file's identities and nothing else (bulgu 22). It locks those rows and then those identities
+-- FOR UPDATE before it reads them, so nothing committed between its checks and its DELETE is lost.
+-- It REFUSES, changing nothing, when one of
 -- those identities has lived beyond the backfill: another row linked to it by another way
 -- (password, account, invite, signup, claim, reconcile), a refused row carrying its address or its
 -- backfill mark, a verified address, an opened confirmation window, a login, a last-used business,
@@ -162,7 +164,7 @@ BEGIN
     -- data-modifying CTE runs to completion whether or not the UPDATE reads it, and the UPDATE's
     -- foreign key is checked at the end of the statement, after it.
     WITH pick AS (
-        SELECT a.id AS row_id, pg_catalog.gen_random_uuid() AS identity_id, a.email, a.password_hash
+        SELECT a.id AS row_id, a.tenant_id, pg_catalog.gen_random_uuid() AS identity_id, a.email, a.password_hash
           FROM pg_catalog.unnest(chosen) AS c(id)
           JOIN public.admin_users a ON a.id = c.id
     ), born AS (
@@ -175,7 +177,8 @@ BEGIN
            linked_via  = 'backfill',
            linked_at   = pg_catalog.now()
       FROM pick p
-     WHERE a.id = p.row_id;
+     WHERE a.id = p.row_id
+       AND a.tenant_id = p.tenant_id;  -- the key already names one row; §4.5's belt
 END
 $$;
 -- +goose StatementEnd
@@ -244,6 +247,12 @@ BEGIN
              WHERE a.linked_via = 'backfill' AND a.identity_id IS NOT NULL
              ORDER BY a.id
                FOR UPDATE) l;
+
+    -- Their identities, locked too, in id order, BEFORE the checks below read them: a verification,
+    -- a login or a window committed between an unlocked check and the DELETE would be lost with the
+    -- identity. A writer that holds one of them makes this wait (lock_timeout above) and then see its
+    -- commit.
+    PERFORM 1 FROM public.admin_identities WHERE id = ANY (theirs) ORDER BY id FOR UPDATE;
 
     IF EXISTS (SELECT 1 FROM public.admin_users a
                 WHERE a.identity_id = ANY (theirs) AND a.linked_via IS DISTINCT FROM 'backfill')
