@@ -35,19 +35,26 @@ func medianOf(d []time.Duration) time.Duration {
 	return s[len(s)/2]
 }
 
-// decoyGate bounds |decoy / open| in TestIdentityDecoy_TakesWhatTheOpenTakes, medians, both ways.
-// Measured on the reference stack (17.10 in Docker, fsync on, 40 interleaved pairs after eight warm-up
-// pairs): noise 1.00-1.19x over 17 runs, plain, under -race and under -race beside three other -race
-// packages. The first CI run (a loaded runner, -race) measured 1.57x before the decoy subtracted its
-// own timer overshoot (identity.go, decoyLag) -- the decoy was then the SLOWER arm; the overshoot
-// compensation is the fix, not a wider gate. Signal -- the wait removed, the round trip alone --
-// 2.42-2.53x.
-const decoyGate = 1.5
+// decoyGate bounds the ratio of the decoy's and the open's medians in
+// TestIdentityDecoy_TakesWhatTheOpenTakes, both ways. Measured on the reference stack (17.10 in
+// Docker, fsync on, 40 interleaved pairs after eight warm-up pairs), with the decoy's deadline wait
+// (identity.go, waitUntil):
+//
+//	noise    plain 1.00-1.34x (6 runs) · -race 1.02-1.10x (6) · -race beside three other -race
+//	         packages 1.02-1.50x (6; the 1.50x run: the open's median rose from ~5 to ~48 ms within
+//	         the run and the meter's 32-sample median followed late)
+//	signal   the wait removed, the round trip alone: -race 2.59-2.72x (3), loaded 2.46-7.83x (4)
+//
+// History, so the gate is not widened by the next reader: a plain sleep (no deadline) measured 1.57x
+// and 1.60x on CI's loaded runner -- the timer woke ~0.9 ms late and the decoy was the SLOWER arm;
+// subtracting a learned overshoot (c40a8fbc) did not absorb it either. The deadline wait is the fix.
+// 2.0x sits above the worst measured noise (1.50x) and below the weakest signal (2.46x).
+const decoyGate = 2.0
 
 // The anchors decoyGate and fiveCaseGate are pinned between (the gate test below).
 const (
-	decoyWorstNoise     = 1.19
-	decoyWeakestSignal  = 2.42
+	decoyWorstNoise     = 1.50
+	decoyWeakestSignal  = 2.46
 	fiveCaseWorstNoise  = 1.09
 	fiveCaseCaughtShape = 2.58
 )

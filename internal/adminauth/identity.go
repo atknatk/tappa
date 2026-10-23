@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -388,58 +389,58 @@ func (m *Manager) payOneComparison(password, digest string) {
 }
 
 // decoy is the open step of a sign-in that opens no identity session (R14, S15): ONE round trip
-// whose commit writes a WAL record and no row (db.IdentitySessionDecoy), then a wait for the rest of
-// what identity_open_session has been measured to take. Measured on 17.10 (local, fsync on): the
-// open ~2.2 ms median, a bare transaction-id round trip ~0.85 ms -- the open's plpgsql work and its
-// four writes are the difference, and no statement tappa_app may run reproduces them without writing
-// something real (every table it can write is tenant-scoped). So the round trip carries the shape and
-// the wait carries the remainder; TestIdentityDecoy_TakesWhatTheOpenTakes measures the two against
-// each other on a real database.
+// (db.IdentitySessionDecoy: a transaction id and its commit, no row), then a wait until what
+// identity_open_session has been measured to take (openCost: the median of this process's recent real
+// opens, at most openCostCeiling). See ADR 0031 §5.6's M14-07 note for why it is a wait and not equal
+// database work: no statement tappa_app may run reproduces the open's writes without writing something
+// real (every table it can write is tenant-scoped), and the five FAILURE cases do not need it -- they
+// are flat because every one of them makes this same call; the wait only makes a failure's open step
+// as long as a success's, and success is visible from the response anyway.
 //
-// THE WAIT IS AIMED SHORT BY ITS OWN MEASURED OVERSHOOT (decoyLag). A timer wakes late, and by how
-// much is the machine's state: ~0.1 ms on an idle workstation, ~0.9 ms on a loaded CI runner under
-// -race, where the decoy then took 1.57x the open it stands in for (CI, 2026-10-23). The median of the
-// last overshoots is subtracted from the next wait, so the decoy tracks the open on both.
+// THE WAIT HITS A DEADLINE, it does not sleep "about" the rest. A timer wakes late by the machine's
+// state (~0.1 ms on an idle workstation, ~0.9 ms on a loaded CI runner under -race, where a plain
+// sleep made the decoy 1.57x and 1.60x the open). So it sleeps until 1 ms before the deadline and
+// yields (runtime.Gosched) through the last millisecond: the lateness of the sleep is absorbed by the
+// spin, and the spin costs at most one millisecond of a scheduler slot per failed sign-in.
 func (m *Manager) decoy(ctx context.Context) error {
 	start := time.Now()
 	if err := m.data.IdentitySessionDecoy(ctx); err != nil {
 		return err
 	}
-	typical, lag := openCostDefault, time.Duration(0)
+	typical := openCostDefault
 	if m.openCost != nil {
 		typical = m.openCost.typical()
 	}
-	if m.decoyLag != nil {
-		// At most half the target: the compensation trims a wait, it never replaces one.
-		lag = min(m.decoyLag.typical(), typical/2)
-	}
-	rest := typical - lag - time.Since(start)
-	if rest <= 0 {
-		// No wait, so no overshoot: a zero is recorded, so a lag learned in a stall decays instead
-		// of switching the wait off for good.
-		if m.decoyLag != nil {
-			m.decoyLag.record(0)
-		}
-		return nil
-	}
-	waitStart := time.Now()
-	timer := time.NewTimer(rest)
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-		if m.decoyLag != nil {
-			m.decoyLag.record(max(time.Since(waitStart)-rest, 0))
-		}
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return waitUntil(ctx, start.Add(typical))
 }
 
-// costMeter keeps the last openCostSamples durations it is shown and answers their median. Before
-// the first observation it answers its fallback (openCostDefault for the open, zero for the decoy's
-// timer overshoot); it never answers more than openCostCeiling, so a stalled database cannot make
-// every failed sign-in wait long.
+// decoySpin is how much of a wait waitUntil yields through instead of sleeping.
+const decoySpin = time.Millisecond
+
+// waitUntil returns at deadline (or when ctx ends): a timer for all but the last decoySpin, then
+// runtime.Gosched until the clock passes it.
+func waitUntil(ctx context.Context, deadline time.Time) error {
+	if rest := time.Until(deadline) - decoySpin; rest > 0 {
+		timer := time.NewTimer(rest)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		}
+	}
+	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		runtime.Gosched()
+	}
+	return nil
+}
+
+// costMeter keeps the last openCostSamples durations of identity_open_session and answers their
+// median. Before the first observation it answers its fallback (openCostDefault); it never answers
+// more than openCostCeiling, so a stalled database cannot make every failed sign-in wait long.
 type costMeter struct {
 	mu       sync.Mutex
 	samples  []time.Duration
@@ -460,11 +461,6 @@ func (c *costMeter) observe(d time.Duration) {
 	if d <= 0 {
 		return
 	}
-	c.record(d)
-}
-
-// record keeps d as it is, zero included (the overshoot meter's zeros are observations).
-func (c *costMeter) record(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.samples) < openCostSamples {
