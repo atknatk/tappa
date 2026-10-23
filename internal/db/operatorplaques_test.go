@@ -154,6 +154,11 @@ var opAtVersionSkips = map[int]string{
 	64: "the business-day cutoffs, transactions.business_day_start and tappa_checkout_class (M15-02) -- no operator " +
 		"object; its Down takes ACCESS EXCLUSIVE on employees, departments, locations, tenants and transactions, and " +
 		"refuses while a row carries a business day",
+	69: "admin_identities, the membership link columns, admin_sessions.authenticated_at and the linked-row trigger " +
+		"(M14-03) -- no operator object; its Down takes ACCESS EXCLUSIVE on admin_sessions and admin_users, and " +
+		"refuses while an identity exists",
+	70: "UNIQUE (tenant_id, identity_id) on admin_users (M14-03) -- no operator object; a NO TRANSACTION file whose " +
+		"Up and Down are CONCURRENTLY (they cannot run inside a test's transaction)",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

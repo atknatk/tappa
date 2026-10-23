@@ -71,7 +71,7 @@ const privCatalogRolesSQL = `SELECT 'public'::text AS r UNION ALL
 // and the migrations create but the owner (a superuser -- see above). The snapshot reads whatever
 // roles exist, so an unexpected role is already red there (each role inherits PUBLIC's USAGE and
 // CONNECT, so it has lines); TestPrivCatalog_EveryRoleIsRead names it outright.
-var privCatalogRoles = []string{"public", "tappa_app", "tappa_feedwriter", "tappa_holdingdefiner", "tappa_opdefiner", "tappa_operator", "tappa_resolver"}
+var privCatalogRoles = []string{"public", "tappa_app", "tappa_feedwriter", "tappa_holdingdefiner", "tappa_identitydefiner", "tappa_opdefiner", "tappa_operator", "tappa_resolver"}
 
 // privCatalogQuery builds the snapshot, one line per fact, in byte order.
 const privCatalogQuery = `
@@ -166,7 +166,12 @@ SELECT line FROM (
 // live one; 00061 changed nine function lines, read again at 00061; 00063 -- M10 OP-15 -- added
 // op_suspend_tenant and op_reinstate_tenant and the two suspension columns to tappa_opdefiner's
 // two tenants lines, read again at 00063; 00064 -- M15-02 -- added day_cutoff to tappa_app's tenants
-// UPDATE line and tappa_checkout_class, read again at 00064) and READ line by line before
+// UPDATE line and tappa_checkout_class, read again at 00064; 00069 -- M14-03, ADR 0031 §5.1 -- added
+// tappa_identitydefiner (CONNECT/TEMPORARY and USAGE, nothing else: its column grants come with the
+// functions that need them), admin_identities (ENABLE + FORCE, no policy, no grant to anyone), the
+// INVOKER trigger function admin_users_guard_identity_credentials (execute=-), narrowed tappa_app's
+// SELECT on admin_users from the table to ten columns (linked_via, linked_at, unlinked_at outside)
+// and took email out of its UPDATE list, read again at 00070) and READ line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
 //   - nine pre-M11 trigger functions (tappa_forbid_*, tappa_check_transaction_review,
@@ -193,7 +198,8 @@ const privCatalogAllowed = `
 column admin_sessions tappa_app UPDATE last_used_at,revoked_at
 column admin_sessions tappa_resolver SELECT id,tenant_id,admin_user_id,token_hash,revoked_at
 column admin_users tappa_app INSERT id,tenant_id,full_name,email,password_hash,role,status
-column admin_users tappa_app UPDATE full_name,email,password_hash,role,status,last_login_at
+column admin_users tappa_app SELECT id,tenant_id,full_name,email,password_hash,role,status,created_at,last_login_at,identity_id
+column admin_users tappa_app UPDATE full_name,password_hash,role,status,last_login_at
 column admin_users tappa_opdefiner SELECT tenant_id,email,status
 column admin_users tappa_resolver SELECT id,tenant_id,email,password_hash,status,created_at
 column api_idempotency tappa_app INSERT tenant_id,key_id,idem_key,request_hash
@@ -286,12 +292,14 @@ database public CONNECT,TEMPORARY
 database tappa_app CONNECT,TEMPORARY
 database tappa_feedwriter CONNECT,TEMPORARY
 database tappa_holdingdefiner CONNECT,TEMPORARY
+database tappa_identitydefiner CONNECT,TEMPORARY
 database tappa_opdefiner CONNECT,TEMPORARY
 database tappa_operator CONNECT,TEMPORARY
 database tappa_resolver CONNECT,TEMPORARY
 extension citext schema=public
 extension pgcrypto schema=public
 extension plpgsql schema=pg_catalog
+function admin_users_guard_identity_credentials() owner=tappa_owner definer=false execute=-
 function api_keys_revocation_is_one_way() owner=tappa_owner definer=false execute=-
 function feed_open_counter() owner=tappa_feedwriter definer=true execute=tappa_feedwriter
 function holding_advance_tag_counter(character,integer) owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
@@ -355,6 +363,7 @@ function tappa_forbid_unencoded_activation() owner=tappa_owner definer=false exe
 function tappa_local_month_start(date,text) owner=tappa_owner definer=false execute=tappa_app,tappa_opdefiner
 function webhook_delivery_settle() owner=tappa_owner definer=false execute=-
 namespace public owner=pg_database_owner
+rel admin_identities r owner=tappa_owner rls=enable,force
 rel admin_sessions r owner=tappa_owner rls=enable,force
 rel admin_users r owner=tappa_owner rls=enable,force
 rel api_idempotency r owner=tappa_owner rls=enable,force
@@ -393,13 +402,13 @@ schema public public USAGE
 schema public tappa_app USAGE
 schema public tappa_feedwriter USAGE
 schema public tappa_holdingdefiner USAGE
+schema public tappa_identitydefiner USAGE
 schema public tappa_opdefiner USAGE
 schema public tappa_operator USAGE
 schema public tappa_resolver USAGE
 sequence goose_db_version_id_seq owner=tappa_owner
 superuser tappa_owner
 table admin_sessions tappa_app SELECT,INSERT
-table admin_users tappa_app SELECT
 table api_idempotency tappa_app DELETE
 table audit_log tappa_app SELECT
 table billing_periods tappa_app SELECT,INSERT
@@ -552,7 +561,7 @@ func TestPrivCatalog_TheDiffSeesEachKind(t *testing.T) {
 		{"FORCE taken away", `ALTER TABLE public.platform_sessions NO FORCE ROW LEVEL SECURITY`,
 			"rel platform_sessions r owner=tappa_owner rls=enable,no-force"},
 		{"EXECUTE to PUBLIC", `GRANT EXECUTE ON FUNCTION public.resolve_tag_by_uid(character) TO PUBLIC`,
-			"function resolve_tag_by_uid(character) owner=tappa_resolver definer=true execute=public,tappa_app,tappa_feedwriter,tappa_holdingdefiner,tappa_opdefiner,tappa_operator,tappa_resolver"},
+			"function resolve_tag_by_uid(character) owner=tappa_resolver definer=true execute=public,tappa_app,tappa_feedwriter,tappa_holdingdefiner,tappa_identitydefiner,tappa_opdefiner,tappa_operator,tappa_resolver"},
 		{"a column grant", `GRANT SELECT (token_hash) ON public.api_keys TO tappa_operator`,
 			"column api_keys tappa_operator SELECT token_hash"},
 		{"a new table", `CREATE TABLE public.zz_privcatalog_probe (id int)`,

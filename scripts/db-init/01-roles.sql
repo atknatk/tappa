@@ -187,6 +187,43 @@ ALTER ROLE tappa_feedwriter NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATER
 GRANT USAGE ON SCHEMA public TO tappa_feedwriter;
 -- <<< FEED ROLE (M11 API-2) <<< ----------------------------------------------------
 
+-- >>> IDENTITY ROLE (M14-03) >>> ---------------------------------------------------
+-- Panel yoneticisinin kimlik fonksiyonlarinin sahibi (ADR 0031 §5.2, CLAUDE.md §4.5'in
+-- ucuncu istisnasi). HOLDING ROLE blogunun kalibi, ayni gerekceyle IKI yerde AYNI
+-- BAYTLARLA kosar ve IDEMPOTENT'tir:
+--   (a) bos bir PGDATA'da, bu dosyanin geri kalaniyla birlikte (initdb, CI, db-reset,
+--       ve geri yukleme provasinin SIFIRDAN kurulan pod'u -- pg_dump rol tasimaz);
+--   (b) HALIHAZIRDA CALISAN bir kumede, deploy/README.md -> "Identity role (M14-03)"
+--       runbook'unun `sed` ile bu iki isaretin arasini kesip psql'e vermesiyle --
+--       migration 00069'DAN ONCE (00069 rolu yaratmaz, yoksa reddeder).
+--
+--   tappa_identitydefiner : kapali `identity_*` listesinin (ADR 0031 §5.2) SAHIBI.
+--                           NOLOGIN, BYPASSRLS, NOSUPERUSER -- tappa_opdefiner ve
+--                           tappa_holdingdefiner'in sekli, ama AYRI bir rol: patlama
+--                           yaricaplari birlesmez. Hicbir DEFAULT PRIVILEGE almaz, UYESI
+--                           YOKTUR ve hicbir rolun uyesi DEGILDIR: yetkisi migration'larin
+--                           tek tek verdigi SUTUN grant'larindan ibarettir (M14-04/M14-05).
+--                           admin_users tetikleyicisi (00069) bu rolun ADINI okur: bagli
+--                           satirin parolasini yalniz bu rol olarak kosan bir govde yazar.
+--
+-- 🔴 ALTER ROLE SATIRI BILEREK KOSULSUZ (OPERATOR ROLES blogunun gerekcesi): yanlis
+-- niteliklerle (LOGIN, SUPERUSER, NOBYPASSRLS ...) var olan bir rol her kosuda bu satira
+-- indirgenir.
+-- ⚠️ Uyelik burada TEMIZLENMEZ; migration 00069'un on kosulu iki yonu de sinar ve biri
+-- varsa REDDEDER (rolun bir UYESI BYPASSRLS'e bir SET ROLE uzaktadir; rolun KENDI
+-- uyeligi fonksiyonlarina o rolun yetkisini miras birakirdi).
+-- Bu dosya redline R5b'nin kapsami disindadir (BYPASSRLS mesru; scripts/redline-check.sh).
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'tappa_identitydefiner') THEN
+        CREATE ROLE tappa_identitydefiner NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
+    END IF;
+END
+$$;
+ALTER ROLE tappa_identitydefiner NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+GRANT USAGE ON SCHEMA public TO tappa_identitydefiner;
+-- <<< IDENTITY ROLE (M14-03) <<< ---------------------------------------------------
+
 -- Migration'larin bundan sonra yaratacagi her tabloda tappa_app'e taban yetki.
 --
 -- 🔴 UPDATE VE DELETE BILEREK YOK, VE BU M8-02 FAZ E'DE OLCULMUS BIR GUVENLIK
