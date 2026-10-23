@@ -41,6 +41,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -280,9 +281,20 @@ func (c *crossSurfaces) panelSignIn(t *testing.T) []*http.Cookie {
 }
 
 // panelSaveVenue is a gated panel write -- saving a new location -- on the owner's session.
+// It posts to the action the location form was DRAWN with, as a browser does: since M14-10a
+// that action carries the page's tenant binding (ADR 0031 §5.5), read here from the page.
 func (c *crossSurfaces) panelSaveVenue(t *testing.T, session []*http.Cookie, name string) *httptest.ResponseRecorder {
 	t.Helper()
-	r := httptest.NewRequest(http.MethodPost, "http://"+custHost+"/admin/locations/venue",
+	page := httptest.NewRequest(http.MethodGet, "http://"+custHost+"/admin/locations?venue=new", nil)
+	for _, k := range session {
+		page.AddCookie(k)
+	}
+	drawn := c.serve(page)
+	m := regexp.MustCompile(`action="(/admin/locations/venue\?tb=[A-Za-z0-9_-]{43})"`).FindStringSubmatch(drawn.Body.String())
+	if drawn.Code != http.StatusOK || m == nil {
+		t.Fatalf("the location form = %d, or it carries no bound action", drawn.Code)
+	}
+	r := httptest.NewRequest(http.MethodPost, "http://"+custHost+m[1],
 		strings.NewReader(url.Values{"name": {name}}.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r.Header.Set("Origin", opBase)
