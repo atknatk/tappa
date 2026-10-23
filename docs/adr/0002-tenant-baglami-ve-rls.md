@@ -549,3 +549,21 @@ Kararın kendisi değişmez; M11'in etkisi ([ADR 0027](0027-holding-ve-capraz-te
 - **md.7'nin `sys:tenant-mismatch` maddesi:** guardrail artık yalnız iki tenant aynı holding'de eş
   **değilse** akışı keser (`TagTenantID ≠ SessionTenantID ∧ ¬SameHolding`); eşse dokunuş işverende
   kaydedilir (ADR 0027 §7, CLAUDE.md §5).
+
+## M14 notu (2026-10-22) — md.7 ([ADR 0031](0031-tek-kimlik-cok-isletme.md) §6.1, K-13 = (b))
+
+Kararın kendisi değişmez; M14'ün etkisi:
+
+- **md.7'nin sayımı beş yeni salt-okuma çözümleyicisini adıyla sayar** (sahibi `tappa_resolver`, ≤ 1
+  satır, UNIQUE'ten, hiçbiri yazmaz — ADR 0031 §5.2): `resolve_identity_by_email`,
+  `resolve_identity_reset_by_token_hash`, `resolve_admin_invite_by_token_hash`,
+  `resolve_signup_claim_by_token_hash`, `resolve_identity_verification_by_token_hash`. Kural aynen:
+  sayı garanti değildir, garanti beş kısıttır.
+- **Giriş çözümleyicisi (ii)'nin ≤ 1'ine döner:** `resolve_identity_by_email`'in anahtarı
+  `admin_identities.email`'in global UNIQUE'idir (K-1); M6-01 bloğunun `GetAdminByEmail` için (ii)'yi
+  geçersiz kılan istisnası kimlik yolunda kalkar (ADR 0031 §5.2, §10). Eski kol
+  (`resolve_admin_by_email`, M14-05'te `identity_id` ile yeniden tanım — md.7 (iii) genişlemesi,
+  gerekçesi ADR 0031 §5.2) contract'a dek sürer.
+- **Yazan `identity_*` fonksiyonları md.7 değildir**, CLAUDE.md §4.5'in **(3)** numaralı bilinçli
+  istisnasıdır (ADR 0031 §6, §6.1; sahibi `tappa_identitydefiner`). md.7'de yalnız salt okuma
+  çözümleyiciler kalır (ADR 0031 §13, K-13).

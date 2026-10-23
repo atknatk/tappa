@@ -159,6 +159,9 @@ var opAtVersionSkips = map[int]string{
 		"refuses while an identity exists",
 	70: "UNIQUE (tenant_id, identity_id) on admin_users (M14-03) -- no operator object; a NO TRANSACTION file whose " +
 		"Up and Down are CONCURRENTLY (they cannot run inside a test's transaction)",
+	72: "the identity reset, verification and event tables, resolve_admin_by_email's redefinition and the identity_* " +
+		"writers (M14-05) -- no operator object; its Down takes ACCESS EXCLUSIVE on admin_users and the three tables, " +
+		"and refuses while one of them holds a row or a membership is refused",
 	73: "the admin identity backfill (M14-06) -- no operator object; data only: its Up links rows and births " +
 		"identities, its Down unlinks the backfill's rows and deletes their identities, and refuses while one of " +
 		"them has lived",
@@ -338,6 +341,17 @@ func downTables(down string) []string {
 	var out []string
 	for _, m := range re.FindAllStringSubmatch(b.String(), -1) {
 		out = append(out, strings.ToLower(m[1]))
+	}
+	// A LOCK TABLE names a LIST (00072's Down locks five tables in one statement): every name of it,
+	// not only the first the pattern above reads.
+	list := regexp.MustCompile(`(?is)\bLOCK\s+TABLE\s+(?:ONLY\s+)?(.*?)\s+IN\s+[A-Z ]+MODE`)
+	for _, m := range list.FindAllStringSubmatch(b.String(), -1) {
+		for _, name := range strings.Split(m[1], ",") {
+			name = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(name)), "public.")
+			if name != "" {
+				out = append(out, name)
+			}
+		}
 	}
 	return out
 }

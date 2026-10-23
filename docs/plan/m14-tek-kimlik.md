@@ -2,8 +2,8 @@
 
 > **Durum:** plan — **başlanmadı; kullanıcının *"başla"* demesini bekliyor.** Kararlar 2026-10-21'de
 > verildi (K-1 … K-14 hepsi (a)); aynı gün iki denetimden (33 bulgu) sonra kullanıcı **K-13'ü (b)'ye
-> çevirdi** (üçüncü açık §4.5 istisnası). Tek açık soru K-15 (e-posta değiştirme kapsamı) ve M14-01'de
-> sorulur. Canlı durum yalnız [state.md](state.md)'dedir; bu dosyaya "yapıldı" yazılmaz.
+> çevirdi** (üçüncü açık §4.5 istisnası). K-15 (e-posta değiştirme kapsamı) 2026-10-22'de cevaplandı:
+> **(a)** — M14'ün dışında. Canlı durum yalnız [state.md](state.md)'dedir; bu dosyaya "yapıldı" yazılmaz.
 >
 > **Mimari karar:** [ADR 0031](../adr/0031-tek-kimlik-cok-isletme.md) (kabul edildi 2026-10-21).
 > Okumadan başlama: §5 (tasarım), §6 (üçüncü istisna ve CLAUDE.md metni), §8 (geçiş), §13 (kararlar ve
@@ -167,7 +167,8 @@ yer kararın yanında yazılıdır (ADR 0031 §13 tam tablo).
     CLAUDE.md metni: ADR 0031 §6.1 (M14-01 uygular).
 14. **K-14 — `admin_users.email` ayna, `full_name` üyelikte.** (a) seçildi. ⚠️ *Sıkılaştı (bulgu 21):*
     `tappa_app`'ın `UPDATE (email)`'i expand'de kapanır.
-15. **K-15 — E-posta değiştirme (yeni, bulgu 12) — AÇIK, M14-01'de sorulur.** (a) M14'ün dışında;
+15. **K-15 — E-posta değiştirme (yeni, bulgu 12).** **(a) seçildi (kullanıcı, 2026-10-22, M14-01;
+    [open-questions.md](open-questions.md) Q34, backlog T149).** (a) M14'ün dışında;
     kendi kartı ve kararıyla gelir (mevcut parola + yeni adres doğrulaması + eski adrese bildirim +
     çakışmada aynı "gelen kutunu kontrol et" + aynanın bütün işletmelerde definer ile güncellenmesi).
     (b) M14'e ek kart. — **Öneri: (a).** ADR 0031 (a)'yı varsayar.
@@ -293,6 +294,11 @@ sıcak tablodur. Rolü migration'da yaratmak R5b'yi kırar.
 - BYPASSRLS gövdelerinde tenant tablosuna dokunan her ifadede açık `tenant_id` yüklemi (metin taraması).
 - Mutasyon: kimlik eşitliği, `status='active'`, eski oturum iptali silinince; audit'e hedef eklenince
   → kırmızı.
+- **Kullanıcı kararı (2026-10-23, *"Kapat, M14-04'te"*):** `identity_open_session` dördüncü argüman
+  `p_verified_digest` alır; kişinin kilidi altında kimliğin digest'i ona eşit değilse 0 satır (oturum ve
+  audit yok). Testler: bayat digest → 0 satır; açılış kilitte beklerken commit edilen sıfırlama → 0 satır;
+  mutasyon: digest karşılaştırması silinince kırmızı. `tappa_identitydefiner`'a `admin_identities` SELECT
+  (`password_hash`) (ADR 0031 §5.2 matrisi).
 
 **ONAY sonrası yükümlülük (754f36f, not 1).** Katalog testinin EXECUTE izin listesi
 `identity_reconcile()`'ı **tek istisna** olarak adıyla taşır (`EXECUTE` yalnız `tappa_owner`); öbür her
@@ -312,7 +318,8 @@ tenant-kapsamsız kuralları) + ADR 0031 §5.2'deki `identity_password_for_sessi
 `identity_consume_reset`, `identity_link_legacy`, `identity_unlink_backfilled`,
 `identity_relink_refused`, `identity_request_verification`,
 `resolve_identity_verification_by_token_hash`, `identity_verify_email`, `identity_record_failed_login`,
-`identity_sweep_events`; `resolve_admin_by_email` `unlinked_at IS NULL` süzgeciyle ve dönüşüne
+`identity_sweep_events`, `identity_open_reset`, `identity_withdraw_reset` (2026-10-22, kullanıcı onayı —
+ADR 0031 §5.2); `resolve_admin_by_email` `unlinked_at IS NULL` süzgeciyle ve dönüşüne
 `identity_id` eklenerek yeniden tanımlanır (S8, T2 — orkestratör kararı (a); dönüş tipi değiştiği için
 `DROP` + `CREATE`; md.7 (iii) genişlemesi ADR 0031 §5.2'de gerekçeli; eski binary sütunları adıyla seçer,
 `internal/db/resolve.go:301-302`). `tappa_resolver`'a `admin_users (identity_id, unlinked_at)` SELECT
@@ -359,6 +366,10 @@ tenant-kapsamsız kuralları) + ADR 0031 §5.2'deki `identity_password_for_sessi
 - `identity_record_failed_login` (R9, R17): yalnız `admin_identity_events`, `identity_id NOT NULL`,
   `detail`'de e-posta ve IP yok; bilinmeyen e-postada çağrılmaz. `identity_sweep_events` 90 günü geçen
   satırların tek silme yolu (`00058` deseni).
+- `identity_open_reset` (EM-7C, ADR 0031 §5.2, §5.9): kimlik başına danışma kilidi; canlı link varken
+  hiçbir şey yazılmaz ve o link `issued = false` ile döner; yoksa tek link + tek `reset_requested` olayı
+  (`detail` boş), `issued = true`; kimliğe ve `audit_log`'a yazmaz; N eşzamanlı talep → tek link.
+  `identity_withdraw_reset`: yalnız kullanılmamış ve iptal edilmemiş linkin `cancelled_at`'i; başka yazma yok.
 - Değişmez testi: bağlı her satırda `password_hash = kimliğin digest'i` her fonksiyondan sonra
   (çözülen satır hariç — artık bağlı değil).
 - İmza ve matris testleri M14-04'ünkine eklenir.
@@ -433,8 +444,20 @@ dolu e-posta = 0, reddedilmişler hariç; bağlı satırda digest uyuşmazlığ�
   kurbanın kimliğine bağlanmaz ve oturum açmaz.
 - `identity_open_session`'ın tek çağrı yolu doğrulanmış-kimlik tipidir; ikinci bir üretici varsa
   adıyla yazılır (`manager.go:251-292`'nin iki-bacak dürüstlüğü).
+- `identity_open_session`'a doğrulanan digest'in kendisi verilir (`db.OpenIdentitySession`'ın `verified`
+  argümanı = çözümleyicinin döndürdüğü `PasswordHash`, değiştirilmeden — 2026-10-23 kullanıcı kararı).
 - Başarısız kimlik girişi `identity_record_failed_login` ile, kimlik başına kova (aşınca tek
   `FirstOverLimit` satırı); log'da e-posta yok.
+- **Eski kolun oturum yazımı doğrulanan digest'e koşulludur ve satırı kilitler** (ADR 0031 §5.2,
+  `identity_unlink_backfilled` satırı): `CreateAdminSession`'ın `INSERT … SELECT`'i `a.password_hash =
+  <doğrulanan digest>` yüklemini **ve** `FOR SHARE OF a` kilidini taşır (`tappa_app` `password_hash`'i
+  okur); kilit çözmeyle çakışır, READ COMMITTED yüklemi yeni sürümde yeniden değerlendirir → 0 satır.
+  Çözme nöbetçi digest'i aynı transaction'da yazar; aradaki bir parola değişikliği de girişi reddeder.
+  Satır kilidi bir UPDATE yetkisi ister: `tappa_app`'ın `UPDATE (status)`'ı (`00017:380-381`) yeter;
+  M14-07 FORCE RLS altındaki UPDATE politikasını ölçer. Test fikirleri: (1) `Verify` ile
+  `CreateAdminSession` arasında çözme commit edilir → 0 satır, oturum yok; (2) eşzamanlı: çözme
+  transaction'ı açıkken oturum yazımı başlar → çözme commit eder → 0 satır, canlı oturum yok. Mutasyonlar:
+  yüklem silinince (1), `FOR SHARE` silinince (2) kırmızı.
 
 ## M14-08 — Oturum işlemleri, bayrak, dual-write
 
@@ -601,7 +624,8 @@ anlatır; üç genişlik; bayrak `off` iken sayfa 404.
 - **Commit:** `feat(auth): reset a person's password once for every business`
 
 **Kabul kriterleri.** Kimlik başına talep bayrakla kapılı (`off` iken bugünkü satır-başı talep).
-Adres → kimlik → en çok bir canlı link (bugün en çok 8); kayıtlı/kayıtsız adres yanıt ve zamanlamada
+Adres → kimlik → en çok bir canlı link (bugün en çok 8) — `identity_open_reset` ile basılır, teslim
+edilemeyen link `identity_withdraw_reset` ile geri çekilir (EM-7C, ADR 0031 §5.9); kayıtlı/kayıtsız adres yanıt ve zamanlamada
 ayırt edilemez (EM-5 asenkron deseni); link GET'te tüketilmez, tüketim POST (bugünkü `readLink` deseni,
 `adminreset.go:1415-1425`); tüketim kimliği + bağlı satırları yazar, bütün oturumları iptal eder, oturum
 vermez, eski satırları bağlamaz ve **her** tüketimde onay penceresini açar (R2; liste M14-18); bağlanmamış satırlar contract'a dek satır başı link alır; şablon "kimlik başına
@@ -655,7 +679,7 @@ devir iki adım, her adım audit'te; kimliği etkileyen hiçbir yol yok.
 `unlinked_at` + `status='disabled'`) son-owner değişmeziyle şöyle uzlaşır: contract öncesi çözmeyle **aynı
 uyarı, izin ver** (kişinin kendi kararı; ADR 0031 §5.2). Değişmez bir veritabanı tetikleyicisi olarak
 yazılırsa `tappa_identitydefiner`'ın bu yolunu durdurmaz (adlandırılmış istisna, testli); panelin
-"devre dışı bırak" yolu `unlinked_at` damgalı satırı yeniden **açamaz** (oturum yolları `unlinked_at IS
+"devre dışı bırak" yolu `unlinked_at` damgalı satırı yeniden **açamaz** (oturum **veren** yollar `unlinked_at IS
 NULL` süzer).
 
 ## M14-17 — Kayıt: e-posta doğrulaması ve var olan adres
@@ -817,7 +841,10 @@ tarihsel olarak işaretlenir; **eski binary (M14-19 sürümü) bu binary'nin şe
 **dayanmaz** (`tappa_app`'ın `UPDATE (status)`'u var, `00017:380-381`; M14-16'nın panel yolu yeniden
 açabilirdi): `identity_unlink_backfilled`'ın yeni gövdesi `identity_id`'yi korur, `unlinked_at`'i damgalar
 **ve** `status='disabled'` yapar; `identity_memberships`, `identity_switch_session`,
-`identity_open_session` ve `TouchAdminSession` `unlinked_at IS NULL` süzer. Test: çözülen satırı başka
+`identity_open_session` ve yeniden tanımlanan `resolve_admin_by_email` `unlinked_at IS NULL` süzer;
+`TouchAdminSession` süzmez (`tappa_app` `unlinked_at`'i okuyamaz, R16). Güvence: çözme o tenant'ın
+oturumlarını aynı transaction'da iptal eder, oturum **veren** her yol süzer, contract sonrasında
+`status='disabled'` (ADR 0031 §5.2). Oturum veren yollar çözümleme anında süzer; eski kolun `CreateAdminSession`'ı (`db/queries/admins.sql:117-123`) satırı yalnız `status = 'active'` ile yeniden okur ve `unlinked_at`'e bakamaz (R16). Yükümlülük (M14-07, eski kol): `CreateAdminSession`'ın `INSERT … SELECT`'i `a.password_hash = <doğrulanan digest>` yüklemini **ve** `FOR SHARE OF a` kilidini taşır; kilit çözmeyle çakışır, READ COMMITTED yüklemi yeni sürümde yeniden değerlendirir → 0 satır (çözme nöbetçi digest'i aynı transaction'da yazar; kilitsiz biçim, çözme transaction'ı açıkken başlayan bir yazımda canlı oturum bırakıyordu — PostgreSQL 17.10'da ölçüldü). Satır kilidi bir UPDATE yetkisi ister: `tappa_app`'ın `UPDATE (status)`'ı (`00017:380-381`) yeter; M14-07 FORCE RLS altındaki UPDATE politikasını ölçer. Contract B'den sonra eski kol yoktur. Test: çözülen satırı başka
 bir owner panelden `active` yapar → kişi yine geçemez/giremez. Bu yol son-owner değişmezinin bilinçli
 istisnasıdır (M14-16).
 
