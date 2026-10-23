@@ -515,6 +515,12 @@ başlar**.
 - Başarısızlık gövdesi senkronizör token dışında bayt-aynı; bayrak `off` yolunda
   `TestAdminLogin_OneVerifiedBusinessSkipsThePicker`, `TestAdminChoose_RefusesATenantOutsideTheSignedSet`
   değişmeden yeşil.
+- (M14-07 denetimi, 2026-10-23) Kimlik yolunda handler **ikinci bir `admin.login.succeeded` satırı
+  yazmaz**: `identity_open_session` satırı kendisi yazar (`adminauth.PersonSignIn.Session`'ın notu); test
+  kimlikli girişte o işletmede tam bir satır olduğunu doğrular.
+- (M14-07 denetimi, 2026-10-23) `Issue`'nun eski-proof reddi (`ErrProofStale`), `pgx.ErrNoRows` ve
+  40P01, `completeLogin`'de (`adminlogin.go:1239`) 500 değil **"tekrar giriş yapın"** problemine çevrilir
+  (parola giriş ile oturum yazımı arasında değişmiş, satır çözülmüş ya da devre dışı kalmış olabilir).
 
 ## M14-10a — Panel formlarının tenant bağı
 

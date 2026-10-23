@@ -52,10 +52,11 @@ const (
 	proofRedacted = "adminauth.Proof(redacted)"
 )
 
-// errProofStale is Issue's refusal when the row's digest is no longer the one the proof binds:
+// ErrProofStale is Issue's refusal when the row's digest is no longer the one the proof binds:
 // the password changed, the row was reset, or the membership was refused from an identity since
-// the password verified. It wraps nothing and names nothing.
-var errProofStale = errors.New("adminauth: the row's password is no longer the one that verified")
+// the password verified. It wraps nothing and names nothing. Exported so the login handler can
+// answer it with "sign in again" rather than a 500 (M14-09).
+var ErrProofStale = errors.New("adminauth: the row's password is no longer the one that verified")
 
 // errProofMalformed is ParseProof's refusal.
 var errProofMalformed = errors.New("adminauth: proof has the wrong shape")

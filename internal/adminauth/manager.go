@@ -792,7 +792,7 @@ func (m *Manager) Issue(ctx context.Context, v Verified) (Issued, error) {
 			return e
 		}
 		if !m.proofHolds(v.Proof, v.AdminUserID, v.TenantID, cur.PasswordHash) {
-			return errProofStale
+			return ErrProofStale
 		}
 		row, e = q.CreateAdminSession(ctx, store.CreateAdminSessionParams{
 			TokenHash:      h,

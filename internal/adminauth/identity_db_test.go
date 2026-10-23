@@ -451,7 +451,7 @@ func TestIssue_OpensOnlyTheRowAndTheDigestTheProofNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := countSessions(t, d, tenantID, admin)
-	if _, err := m.Issue(ctx, v); !errors.Is(err, errProofStale) {
+	if _, err := m.Issue(ctx, v); !errors.Is(err, ErrProofStale) {
 		t.Fatalf("Issue after the password changed: %v, want the stale-proof refusal", err)
 	}
 	if after := countSessions(t, d, tenantID, admin); after != before {

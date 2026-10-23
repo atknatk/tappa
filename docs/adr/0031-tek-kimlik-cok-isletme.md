@@ -447,6 +447,25 @@ işletmeleri hakkında bilgi taşıyan her alan kimlik yolunda **kalkar** (R21):
 `Compared` sayıları (`:1555-1562`) ve ret satırındaki `AttemptedTenant` (`:1203`, `:1547-1549`).
 `adminAccountLimit` (`adminratelimit.go:740-781`) kimlik yolunda `identity_id`'ye anahtarlanır.
 
+**M14-07 uygulama notu (2026-10-23; denetimlerin kabul ettiği kart dışı kararlar):**
+- **Sahte çağrı (decoy)** bir commit kaydı turu + bekleme olarak uygulandı: `SELECT pg_current_xact_id()`
+  (satır yazmaz; başka WAL yazmadığı için commit'i diske **flush edilmez**), ardından sürecin son gerçek
+  `identity_open_session` açılışlarının medyanına (en çok 250 ms) kadar beklenir; bekleme bir son tarihe
+  kadar uyur, son milisaniyeyi `runtime.Gosched` ile geçirir (yüklü CI'da düz uyku 1.57x/1.60x geç kaldı).
+  Yukarıdaki "aynı biçimde bir yazma + geri alma" birebir uygulanmadı, çünkü `tappa_app`'ın yazabildiği
+  her tablo tenant kapsamlıdır: açılışın işini gerçek bir şey yazmadan yeniden üretecek ifade yoktur.
+  Migration'lı bir decoy fonksiyonu **reddedildi**: kapalı listeyi güvenlik yükü taşımayan bir özellik
+  için genişletirdi. Beş başarısızlık durumu **eşit işten** düzdür (her biri aynı iki çözümleyiciyi, 1 + 8
+  karşılaştırmayı, aynı decoy'u ve aynı olay çağrısını öder); bekleme yalnız başarısızlığın açılış adımını
+  başarılınınki kadar uzatır, başarı ise yanıttan zaten görünür. Bekleme durumlar arasında bir şey
+  sızdırmaz: her başarısızlık aynı hedefe bekler.
+- **`CreateAdminSession`** yüklemi ve satır kilidi (`FOR NO KEY UPDATE OF a`, §5.2) bugünkü girişte de
+  bayraktan bağımsız geçerlidir: çözme bayrağın açık olduğu bir pod'dan, giriş kapalı olandan gelebilir.
+  `Issue`'ya doğrulanan digest bir **Proof** ile ulaşır (doğrulanan digest'in, oturum anahtarından
+  türetilmiş anahtarla MAC'i; seçici çerezi onu imzalı taşır, `Issue` satırın güncel digest'iyle sabit
+  zamanlı karşılaştırır). Seçici blob'unun sürümü "2" oldu; rollout sırasında eski bir blob "yeniden
+  giriş" ister.
+
 ### 5.7 Birleştirme
 
 **Kural: iki satır yalnız kişi her ikisinin kimlik bilgisini kanıtlarsa birleşir** (K-2). "Aynı
