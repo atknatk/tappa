@@ -1,5 +1,7 @@
 package pages
 
+import "github.com/atknatk/tappa/web/templates/layout"
+
 // THE PUBLIC SITE'S SHARED CHROME (LP-02, 2026-10-21): the header, the phone menu,
 // the phone's Start free bar and the footer every public board draws
 // (docs/design/landing-redesign/boards, README §3, §6). One component, so the
@@ -247,6 +249,16 @@ templ publicHeader(c PublicChromeOpts) {
 // (TestSignupSurface_UsesNoUnanchoredCapabilityWord), and a word added to this footer
 // arrives on every one of its screens.
 //
+// THE "Built by" LINE (main 807045b4, user request 2026-10-23) credits the platform
+// operator's company, layout.CreditURL — the line the retired landing footer and
+// marketingChrome carried, moved here when main was merged into the public site. It is
+// a plain followable link: no nofollow, sponsored or ugc, because it is the operator's
+// own company and an honest editorial link; rel="noopener" only. It is the only absolute
+// href this footer has, and the public-surface scans admit it by that constant and
+// nothing else (withoutCreditHref, pageLinkProblems). It wears .flink, the public
+// site's mono legal link, so its drawn states are that row of the States-Public matrix.
+// Not a word here says "report", "export" or "notification" (sign-up renders this).
+//
 // No emoji: the old landing footer's flag is not on the boards.
 templ publicFooter(c PublicChromeOpts) {
 	<footer class="lp-foot">
@@ -262,6 +274,7 @@ templ publicFooter(c PublicChromeOpts) {
 						A phone's position is read only at the moment somebody presses the button.
 					</p>
 				</div>
+				<p class="lp-footLine">Built by <a href={ templ.URL(layout.CreditURL) } rel="noopener" class="flink">{ layout.CreditName }</a></p>
 			</div>
 			<nav class="fcol" aria-label="Product">
 				<span class="lp-lbl lp-fcolHead">Product</span>

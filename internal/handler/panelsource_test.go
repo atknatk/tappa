@@ -32,6 +32,7 @@ import (
 // being listed.
 var panelTemplates = map[string]bool{
 	"components/buckets.templ":       true,
+	"components/daycutoff.templ":     true,
 	"components/docket.templ":        true,
 	"components/filterbar.templ":     true,
 	"components/notice.templ":        true,
@@ -51,6 +52,8 @@ var panelTemplates = map[string]bool{
 	"pages/anomalies.templ":          true,
 	"pages/apikeys.templ":            true,
 	"pages/billing.templ":            true,
+	"pages/daycutoff.templ":          true,
+	"pages/businessday.templ":        true,
 	"pages/employees.templ":          true,
 	"pages/group.templ":              true,
 	"pages/locations.templ":          true,

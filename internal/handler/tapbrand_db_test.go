@@ -245,7 +245,7 @@ func TestTapDB_ARecordedTapIsConfirmedInFullWhileThePoolIsHeld(t *testing.T) {
 	if err != nil {
 		t.Fatalf("session.New: %v", err)
 	}
-	dir, err := tenant.NewDirectory(one)
+	dir, err := tenant.NewDirectory(one, cfg.BusinessDayFrom)
 	if err != nil {
 		t.Fatalf("tenant.NewDirectory: %v", err)
 	}

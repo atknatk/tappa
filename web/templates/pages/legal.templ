@@ -2,6 +2,7 @@ package pages
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/atknatk/tappa/web/templates/layout"
 )
@@ -125,13 +126,25 @@ func legalNavLinkClass(current bool) string {
 
 // legalBody is the PUBLISHED text (M7-06).
 //
-// 🔴 EVERY PARAGRAPH GOES THROUGH `{ }`, WHICH IS html.EscapeString. Nothing here
+// 🔴 EVERY SPAN'S TEXT GOES THROUGH `{ }`, WHICH IS html.EscapeString. Nothing here
 // reaches templ.Raw, and that is not a preference: this repo has zero call sites of
 // it and none of the twelve tests that scan .templ files would notice a first one
 // appearing (internal/handler/policies_test.go documents that blind spot about
 // itself). So the ONE screen where a person pastes free text into a page a stranger
-// loads is the one screen that must not be the exception. The paragraph split
-// happens in Go, in internal/domain/legal.Paragraphs, and arrives here as strings.
+// loads is the one screen that must not be the exception. The paragraph split and the
+// link recognition happen in Go, in internal/domain/legal.Paragraphs, and arrive here
+// as spans; a span's href has already passed legal.SafeHref (http, https, mailto,
+// tel — ADR 0033) and goes through templ.URL as well.
+//
+// AN EXTERNAL LINK OPENS IN THE SAME TAB, with rel="noopener noreferrer": noopener
+// because the target is a site the operator typed, not one we vouch for, and
+// noreferrer because which legal page a visitor was reading is nobody else's
+// business. No target="_blank": a reader of a legal text uses Back, and a new tab is
+// a decision for the reader, not for the page. mailto: and tel: open an application
+// rather than a page, so they need neither.
+//
+// The link is .hit-link (skill tappa-brand: a link in running text keeps the line
+// box) in ink, underlined, green on hover — the in-sentence link of apikeys.templ.
 //
 // THE DATE IS SHOWN BECAUSE A LEGAL DOCUMENT WITH NO DATE CANNOT BE CITED. It is
 // mono, which is this brand's rule for anything that is data rather than prose.
@@ -139,7 +152,17 @@ templ legalBody(v LegalPageView) {
 	<section class="flex flex-col gap-6">
 		<div class="flex max-w-[680px] flex-col gap-4 text-base leading-relaxed text-ink/85">
 			for _, p := range v.Body {
-				<p>{ p }</p>
+				<p>
+					for _, s := range p {
+						if s.Href == "" {
+							{ s.Text }
+						} else if legalExternal(s.Href) {
+							<a href={ templ.URL(s.Href) } rel="noopener noreferrer" class="hit-link break-words font-bold text-ink underline underline-offset-4 hover:text-tappa-green">{ s.Text }</a>
+						} else {
+							<a href={ templ.URL(s.Href) } class="hit-link break-words font-bold text-ink underline underline-offset-4 hover:text-tappa-green">{ s.Text }</a>
+						}
+					}
+				</p>
 			}
 		</div>
 		if v.PublishedAt != "" {
@@ -148,6 +171,13 @@ templ legalBody(v LegalPageView) {
 			</p>
 		}
 	</section>
+}
+
+// legalExternal reports whether a legal text's href is a web page (http or https),
+// which is what earns rel="noopener noreferrer".
+func legalExternal(href string) bool {
+	h := strings.ToLower(href)
+	return strings.HasPrefix(h, "http://") || strings.HasPrefix(h, "https://")
 }
 
 // legalDraftNotice is the visible "this is not in force yet" block.

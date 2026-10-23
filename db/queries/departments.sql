@@ -111,6 +111,10 @@ WHERE d.tenant_id = @tenant_id
 --
 -- NULL SHIFTS PASS THROUGH AS NULL. See CreateLocation: a zero is not an absence,
 -- and departments_shift_pair refuses a half-filled pair but cannot refuse 00:00.
+--
+-- day_cutoff (00064) is in RETURNING here and in UpdateDepartment only so that both
+-- keep mapping onto store.Department (the whole row); neither statement writes it --
+-- a new department inherits, and SetDepartmentDayCutoff is the one writer.
 INSERT INTO departments (
     tenant_id, location_id, name, shift_start, shift_end, overnight
 )
@@ -119,7 +123,8 @@ SELECT @tenant_id, l.id, @name,
 FROM locations l
 WHERE l.tenant_id = @tenant_id
   AND l.id = @location_id
-RETURNING id, tenant_id, location_id, name, shift_start, shift_end, overnight, created_at;
+RETURNING id, tenant_id, location_id, name, shift_start, shift_end, overnight, created_at,
+          day_cutoff;
 
 -- name: UpdateDepartment :one
 -- Rewrites a department's name and shift.
@@ -145,7 +150,8 @@ SET name        = @name,
     overnight   = @overnight
 WHERE tenant_id = @tenant_id
   AND id = @id
-RETURNING id, tenant_id, location_id, name, shift_start, shift_end, overnight, created_at;
+RETURNING id, tenant_id, location_id, name, shift_start, shift_end, overnight, created_at,
+          day_cutoff;
 
 -- name: CountDepartmentReferences :one
 -- What still points at this department. Two keys rather than the venue's four:
@@ -170,3 +176,19 @@ DELETE FROM departments
 WHERE tenant_id = @tenant_id
   AND id = @id
 RETURNING id, location_id, name, shift_start, shift_end, overnight, created_at;
+
+-- name: SetDepartmentDayCutoff :one
+-- The business-day cutoff of a DEPARTMENT: it applies to its employees whatever their
+-- profile branch, and beats the branch level
+-- (M15-02, migration 00064, ADR 0032 §A.2). NULL = inherit the next level up;
+-- sqlc.narg so "clear the override" is a value the caller can send.
+-- WRITES THE SETTING ONLY. Who may change it, the shift-conflict warning, the
+-- confirmation and the audit_log row are the panel's (M15-07, ADR 0032 §A.7); this
+-- statement is the one write those all go through. It carries its own section 4.5
+-- predicate (tenant_id) and is not left to RLS. RETURNING is what was stored, so
+-- the screen re-renders from the database, not from the form.
+UPDATE departments
+SET day_cutoff = sqlc.narg('day_cutoff')
+WHERE tenant_id = @tenant_id
+  AND id = @id
+RETURNING id, day_cutoff;

@@ -221,6 +221,12 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// clock every shift and every lateness verdict is resolved against, and it moves
 		// both ends of every billing month that has not been frozen yet.
 		r.Post(accountHref, a.accountSave)
+		// 🔴 THE BUSINESS DAY'S TWO PRESSES (M15-07): the review mints a confirmation and
+		// sets its twin cookie -- state -- and the apply rewrites a cutoff that decides how
+		// every later tap of the people it reaches is paired. The business level is
+		// owner-only inside the handler; a suspension stops both (ADR 0025 §3).
+		r.Post(businessDayHref, a.businessDayReview)
+		r.Post(businessDayApplyHref, a.businessDayApply)
 		// (Changing one's own password is in the sibling group at the end of this
 		// function: a suspension does not stop it — ADR 0025 §3.)
 		// 🔴 THE INTEGRATION KEYS' WRITES (M11 API-3). Here for the ordinary reason -- the

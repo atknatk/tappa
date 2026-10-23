@@ -128,12 +128,14 @@ const (
 	// up. Derived from internal/handler/activate.go, internal/sun and every Go file that
 	// could issue a session.
 	FactSetupTakesARealTap Fact = "handler:session only via CompleteByTap(HasSUN) → finishActivation"
-	// A check-in left open past the engine's stale threshold is closed by the person's
-	// next tap as a check-out WITH a note, the report does not pay that interval and
-	// lists the check-in as open, and a check-out a manager types closes it for pay.
-	// Derived by asking tap.Decide, and from internal/domain/ledger's
+	// A check-in left open past the engine's stale threshold is NOT closed by the person's
+	// next tap: since ADR 0032 (M15, merged into this branch 2026-10-23) that tap is a new
+	// check-in WITH a note and the old entry stays open; the report does not pay it, lists
+	// it as open, and a check-out a manager types closes it for pay. (Until M15 the tap
+	// closed it as a check-out with a note; the page said so and was corrected with the
+	// merge.) Derived by asking tap.Decide, and from internal/domain/ledger's
 	// TestAccumulate_TheRestaurantsPagesWeek.
-	FactForgottenCheckOutIsNotPaid Fact = "tap:stale open → out+note; ledger:too long → open, manual out pays"
+	FactForgottenCheckOutIsNotPaid Fact = "tap:stale open → new in+note, left open; ledger: open, manual out pays"
 )
 
 // The page's sections' ids, in the page's order.
@@ -362,11 +364,10 @@ func restaurantsCopy() RestaurantsText {
 			"until a manager closes it.",
 			FactForgottenCheckOutIsNotPaid, FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager),
 		ForgotBullets: []Line{
-			l("A tap more than "+itoa(RestaurantsStaleHours)+" hours after a check-in closes it with a note; The Roll "+
-				"lists the check-in as open and does not count it, and a manager enters the real check-out by hand. "+
-				"A tap sooner than that closes it as an ordinary check-out, and its hours count.",
-				FactForgottenCheckOutIsNotPaid, FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager,
-				FactDirectionFollowsLastOpenCheckIn),
+			l("A tap more than "+itoa(RestaurantsStaleHours)+" hours after a check-in does not close it: the tap "+
+				"starts a new check-in with a note, The Roll lists the old one as open and does not count it, and a "+
+				"manager enters the real check-out by hand.",
+				FactForgottenCheckOutIsNotPaid, FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager),
 			l("The Roll says how many check-ins are open, and its week's figure says it is short by them.",
 				FactOpenCheckInIsListedNotCounted),
 		},

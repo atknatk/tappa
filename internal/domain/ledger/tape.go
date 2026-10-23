@@ -17,9 +17,11 @@ package ledger
 //
 // WHAT "ON SHIFT IN AN HOUR" MEANS HERE, exactly. Per person, in order (one forward pass, the
 // report's): an `in` opens an entry, a later `in` replaces it (the earlier one is left open -- its
-// hours are not guessed, the report's reading), an `out` no more than tap.StaleOpenIn after the
-// open `in` closes it into an interval [in, out) at the `in`'s venue; one further away is not a
-// shift (the report's tooLong) and closes nothing. An entry still open at now is [in, now) when it
+// hours are not guessed, the report's reading), and an `out` is classified by ADR 0032 §A.6's one
+// rule (checkout.go -- the report's walker, M15-05): when it CLOSES the open `in` the two are an
+// interval [in, out) at the `in`'s venue; a checkout too far from it (a) or of a later business
+// day (b) is not a shift and ends the entry with no interval, as a checkout with no `in` before it
+// ((c), (d), (e)) adds none. An entry still open at now is [in, now) when it
 // is no older than tap.StaleOpenIn -- the floor's rule (CountOnTheFloorByVenue) -- and ignored when
 // it is older. A person counts in an hour at a venue when one of their intervals there overlaps
 // the hour; each person once per hour per venue. Flagged entries count, as on the floor: the tape
@@ -88,6 +90,9 @@ type tapeEvent struct {
 	at    time.Time
 	in    bool
 	venue tapeVenueRef
+	// createdAt and dayStart are the checkout classification's W and S (checkout.go).
+	createdAt time.Time
+	dayStart  *time.Time
 }
 
 // tapeVenueRef is where an interval is counted.
@@ -140,7 +145,7 @@ func tapeEvents(rows []store.ListWorkedShiftEventsRow, sites siteVenues, cut boo
 		if r.EmployeeID == nil || r.Type == nil {
 			continue // no person, no chain: nobody to count (the report counts these apart)
 		}
-		e := tapeEvent{who: *r.EmployeeID, at: r.OccurredAt, in: *r.Type == "in"}
+		e := tapeEvent{who: *r.EmployeeID, at: r.OccurredAt, in: *r.Type == "in", createdAt: r.CreatedAt, dayStart: r.BusinessDayStart}
 		switch {
 		case r.LocationID != nil:
 			e.venue = tapeVenueRef{id: *r.LocationID, name: deref(r.LocationName)}
@@ -174,26 +179,36 @@ func tapeOf(evs []tapeEvent, midnight, now time.Time) ([]time.Time, []TapeVenue)
 	}
 	var intervals []interval
 	var open *tapeEvent
-	closeAt := func(to time.Time) {
+	// stillOpenAt is an entry nothing closed, drawn up to now -- the floor's rule
+	// (CountOnTheFloorByVenue): no older than tap.StaleOpenIn.
+	stillOpenAt := func(to time.Time) {
 		if open != nil && to.Sub(open.at) <= tap.StaleOpenIn && open.at.Before(to) {
 			intervals = append(intervals, interval{open.who, open.venue, open.at, to})
 		}
 		open = nil
 	}
+	var chain checkoutChain
 	for i := range evs {
 		e := &evs[i]
-		if open != nil && open.who != e.who {
-			closeAt(now) // the previous person's entry is still open at now
+		if i == 0 || evs[i-1].who != e.who {
+			stillOpenAt(now) // the previous person's entry is still open at now
+			chain = checkoutChain{}
 		}
 		if e.in {
 			open = e // a second `in` leaves the first open: not guessed
+			chain.checkin(e.at, e.createdAt)
 			continue
 		}
-		if open != nil && open.who == e.who {
-			closeAt(e.at)
+		class := chain.checkout(e.at, e.createdAt, e.dayStart)
+		if open == nil || !consumesTheIn(class) {
+			continue // (c), (d), (e): no `in` before it, nothing to end
 		}
+		if class == tap.CheckoutCloses && open.at.Before(e.at) {
+			intervals = append(intervals, interval{open.who, open.venue, open.at, e.at})
+		}
+		open = nil // closes, (a) and (b) all end the entry; only closes draws it
 	}
-	closeAt(now)
+	stillOpenAt(now)
 
 	counted := map[tapeVenueRef][]map[uuid.UUID]bool{}
 	for _, iv := range intervals {

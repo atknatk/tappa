@@ -171,6 +171,8 @@ func TestFeedDirection_NightShiftInThenOutAcrossMidnight(t *testing.T) {
 	w := newHoldingWorld(t)
 	day := time.Now().UTC().Truncate(24 * time.Hour)
 	checkIn, checkOut := day.Add(-6*time.Hour), day.Add(2*time.Hour) // 18:00, then 02:00 the next day
+	// The business day is judged on the SERVICE's clock below, so the far cutoff is far from it.
+	w.farDayCutoff(w.kf, w.kfEmp, checkOut)
 	var inID uuid.UUID
 	if err := w.data.WithTenant(w.ctx, w.kf, func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, created_at, verdict, channel, type, sun_valid, ctr)

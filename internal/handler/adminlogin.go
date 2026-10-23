@@ -218,6 +218,10 @@ type AdminAuth struct {
 	// IntegrationWebhook option. Nil (a dev deployment without TAPPA_WEBHOOK_KEK) draws the API
 	// keys section's webhook part with a sentence and refuses its writes (webhooks.go).
 	webhook panelWebhook
+	// businessDays is the business-day settings service (M15-07, daycutoff.go), given by the
+	// BusinessDays option. Nil draws no business-day block, moves people without the cutoff
+	// warning and answers the two business-day routes with 503.
+	businessDays panelBusinessDays
 
 	// brands reads the business's brand for the chrome of every panel section (M10
 	// WL-8, panelbrand.go): one more read per panel request. It is a field of its own,

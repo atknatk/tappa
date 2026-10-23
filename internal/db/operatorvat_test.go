@@ -663,7 +663,7 @@ func TestOperator00034_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 //     naming id; CONTROLS: the verdict's UPDATE and K6's INSERT go through (in savepoints that
 //     are rolled back);
 //   - tappa_operator holds nothing on either table, and its direct SELECT and UPDATE are 42501;
-//   - tappa_app's UPDATE on tenants is 00024's three columns, none of the VAT ones, and calling
+//   - tappa_app's UPDATE on tenants is 00024's three columns (and 00064's day_cutoff), none of the VAT ones, and calling
 //     either function is 42501.
 func TestOperator00034_TheDefinerWritesTheVerdictAndNotTheNumber(t *testing.T) {
 	ctx, tx := opTx(t)
@@ -681,7 +681,8 @@ func TestOperator00034_TheDefinerWritesTheVerdictAndNotTheNumber(t *testing.T) {
 		{"tappa_operator", "tenants", "UPDATE", ""},
 		{"tappa_operator", "audit_log", "SELECT", ""},
 		{"tappa_operator", "audit_log", "INSERT", ""},
-		{"tappa_app", "tenants", "UPDATE", "name,business_type,timezone"},
+		// 00024's three columns, and 00064's business-day cutoff (M15-02) -- none of the VAT ones.
+		{"tappa_app", "tenants", "UPDATE", "name,business_type,timezone,day_cutoff"},
 	} {
 		if got := opColumns(t, ctx, tx, c.role, c.table, c.priv); got != c.want {
 			t.Errorf("%s %s on %s = (%s), want (%s)", c.role, c.priv, c.table, got, c.want)

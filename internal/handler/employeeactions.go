@@ -675,6 +675,11 @@ func (a *AdminAuth) employeeMove(w http.ResponseWriter, r *http.Request) {
 		}
 		departmentID = &parsed
 	}
+	// M15-07: a move that gives the person another business day says so first (ADR 0032
+	// §A.7 "Taşınma"); one that does not goes straight through, as it always did.
+	if a.moveNeedsCutoffReview(w, r, f, employeeID, locationID, departmentID) {
+		return
+	}
 
 	_, err = a.staff.Move(r.Context(), tenant.MoveCommand{
 		TenantID:     id.TenantID(),

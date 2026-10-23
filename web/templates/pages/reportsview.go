@@ -21,6 +21,11 @@ package pages
 type ReportsView struct {
 	PanelChrome
 
+	// Release is the business day's release announcement (M15-08 step 4): the open
+	// check-in list's sentence from the release, the business day's while the switch is
+	// on, for the first weeks. The zero value draws nothing.
+	Release BusinessDayRelease
+
 	// Queried is set ONLY after the database has answered, and it gates the empty
 	// state.
 	//

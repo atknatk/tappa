@@ -732,6 +732,15 @@ func TestAccumulate_TheRestaurantsPagesWeek(t *testing.T) {
 		t.Errorf("the check-in left open: paid %v, too long %d, open %+v; want nothing paid and the 10:02 check-in listed as open",
 			f.Worked, left.Totals.TooLong, left.Open)
 	}
+	// Since ADR 0032 (M15) the engine writes that next tap as a check-IN and leaves the
+	// 10:02 one open (tap.LeftOpen); read back, the 10:02 check-in is listed as open and
+	// nothing is paid -- the page's sentence, as the engine now writes the records.
+	again := ev(maria, "Maria Vella", "in", next.At, atVenue(hamrun, "KF Hamrun"), home(hamrun))
+	reopened := accumulate([]reportEvent{in, again}, p, zone, after)
+	if r := find(t, reopened, maria); r.Worked != 0 || !openAt(reopened.Open, in.At) {
+		t.Errorf("the check-in a new check-in left open: paid %v, open %+v; want nothing paid and the 10:02 check-in listed as open",
+			r.Worked, reopened.Open)
+	}
 	// A tap sooner than the threshold closes it as an ordinary check-out, and its hours count.
 	sooner := ev(maria, "Maria Vella", "out", day(0, restaurantsPageForgotOut), atVenue(hamrun, "KF Hamrun"), home(hamrun))
 	early := accumulate([]reportEvent{in, sooner}, p, zone, after)
@@ -745,6 +754,16 @@ func TestAccumulate_TheRestaurantsPagesWeek(t *testing.T) {
 	if want := day(0, restaurantsPageForgotOut).Sub(in.At); c.Daily[0] != want || len(closed.Open) != 0 {
 		t.Errorf("closed by hand: Monday %v, open %+v; want %v and nothing open", c.Daily[0], closed.Open, want)
 	}
+}
+
+// openAt says whether open lists an entry that began at at.
+func openAt(open []OpenEntry, at time.Time) bool {
+	for _, o := range open {
+		if o.At.Equal(at) {
+			return true
+		}
+	}
+	return false
 }
 
 // TestAccumulate_MarksManagerEnteredArrivals is the M6-07 card's "manual kayıtlar

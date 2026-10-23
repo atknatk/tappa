@@ -475,6 +475,9 @@ templ panelChrome(c PanelChrome) {
 				if c.Suspension.Shown() {
 					@panelSuspensionStrip(c.Suspension)
 				}
+				if c.BusinessDayCheck.Shown() {
+					@panelBusinessDayCheckNotice(c.BusinessDayCheck)
+				}
 				if a := panelActionsOf(ctx); c.hasHead(a) {
 					@panelHead(c, a)
 				} else if h, ok := c.Heading(); ok {

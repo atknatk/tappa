@@ -151,6 +151,9 @@ var opAtVersionSkips = map[int]string{
 		"EXCLUSIVE on employees",
 	60: "holding_peer's set form and the two multi-row holding_* bodies that read it (T124) -- no operator object",
 	62: "holding_peer's roster form, holding_group and the definer's SELECT on holdings (GRP-1) -- no operator object",
+	64: "the business-day cutoffs, transactions.business_day_start and tappa_checkout_class (M15-02) -- no operator " +
+		"object; its Down takes ACCESS EXCLUSIVE on employees, departments, locations, tenants and transactions, and " +
+		"refuses while a row carries a business day",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

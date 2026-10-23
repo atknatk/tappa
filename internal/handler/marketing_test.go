@@ -24,10 +24,12 @@ import (
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/apiguide"
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/store"
 	"github.com/atknatk/tappa/web/templates/components"
+	"github.com/atknatk/tappa/web/templates/layout"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -162,6 +164,15 @@ func withoutShareImages(body string, urls []string) (string, int) {
 		body = strings.ReplaceAll(body, tag, `<meta property="og:image" content="">`)
 	}
 	return body, n
+}
+
+// withoutCreditHref blanks the operator company's credit (layout.CreditURL, 2026-10-23)
+// where it is written as exactly that href -- the head's <link rel="author"> and the
+// footer's "Built by" anchor -- and reports how many it blanked. Any other attribute, a
+// path below the site, or another host stays in front of the scanner.
+func withoutCreditHref(body string) (string, int) {
+	credit := `href="` + layout.CreditURL + `"`
+	return strings.ReplaceAll(body, credit, `href=""`), strings.Count(body, credit)
 }
 
 // marketingURLs is every URL this feature serves, derived from the same tables the
@@ -678,7 +689,10 @@ func TestMarketing_AVisitorLeavingIsNotAnError(t *testing.T) {
 // externalReference matches a reference to somewhere that is not this origin: an
 // absolute URL in any attribute or stylesheet function, and a protocol-relative
 // one. mailto: and tel: are NOT matched -- they open a mail client rather than
-// making a request -- but the surface carries neither today.
+// making a request. Since ADR 0033 a PUBLISHED legal text can carry them, and http(s)
+// anchors too: those are links the operator typed and a reader follows, never a
+// resource the page loads, and the public suite's fake texts carry none, so this scan
+// still sees only what the product itself renders.
 var externalReference = regexp.MustCompile(
 	`(?i)(?:href|src|srcset|action|data|poster|content)\s*=\s*["']\s*(?:[a-z][a-z0-9+.-]*:)?//|` +
 		`url\(\s*["']?\s*(?:[a-z][a-z0-9+.-]*:)?//|` +
@@ -709,6 +723,15 @@ var externalReference = regexp.MustCompile(
 // with exactly the URL shareImagesFor resolves (withoutShareImages), and its count is
 // pinned: once on every page of the surface and once on the wizard's first screen.
 // TestShareImageExemption_IsNarrow is its control.
+//
+// ⚠️ AND THE OPERATOR COMPANY'S CREDIT (2026-10-23, user request): layout.CreditURL,
+// once as the footer's "Built by" anchor and once as the head's <link rel="author">.
+// Neither is a request -- an anchor is followed by a reader and a browser fetches no
+// rel="author" link -- so the cookie notice's "no third party is contacted" holds. It is
+// admitted only as that constant's exact href and its count is pinned: exactly two on
+// every page of the public surface, the public 404 and every sign-up screen
+// (withoutCreditHref). TestCreditExemption_IsNarrow is its control. The two exemptions
+// do not overlap: one admits a whole og:image element, the other one exact href.
 func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 	t.Parallel()
 	for _, c := range structuralConfigs(t) {
@@ -722,6 +745,11 @@ func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 			body, shared := withoutShareImages(body, c.shareImages)
 			if shared != 1 {
 				t.Errorf("%s: GET %s carries %d share image(s) on the configured origin, want 1", c.name, url, shared)
+			}
+			body, credits := withoutCreditHref(body)
+			if credits != 2 {
+				t.Errorf("%s: GET %s carries the credit href %d time(s), want 2 (the head's "+
+					"rel=\"author\" and the footer's \"Built by\")", c.name, url, credits)
 			}
 			if c.openAPI != "" {
 				exempt := `href="` + c.openAPI + `"`
@@ -742,6 +770,10 @@ func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 		for name, body := range signupSurfaceScreens(t) {
 			body, shared := withoutShareImages(body, c.shareImages)
 			sharedScreens += shared
+			body, credits := withoutCreditHref(body)
+			if credits != 2 {
+				t.Errorf("%s: the sign-up %s screen carries the credit href %d time(s), want 2", c.name, name, credits)
+			}
 			if hit := externalReference.FindString(body); hit != "" {
 				t.Errorf("%s: the sign-up %s screen reaches outside this origin: %q", c.name, name, hit)
 			}
@@ -854,6 +886,36 @@ func TestExternalReferenceScanner_CatchesWhatItExistsToCatch(t *testing.T) {
 	}
 }
 
+// TestCreditExemption_IsNarrow is the control for the credit exemption
+// (withoutCreditHref): it admits the head's and the footer's exact href to
+// layout.CreditURL and nothing else -- a path below that site, another host, the same
+// URL as a src or as a stylesheet's url() all stay in front of the scanner.
+func TestCreditExemption_IsNarrow(t *testing.T) {
+	t.Parallel()
+	for _, ok := range []string{
+		`<link rel="author" href="` + layout.CreditURL + `">`,
+		`<a href="` + layout.CreditURL + `" rel="noopener">` + layout.CreditName + `</a>`,
+	} {
+		if body, n := withoutCreditHref(ok); n != 1 || externalReference.FindString(body) != "" {
+			t.Errorf("the exact credit href was not admitted in %q (%d, %q)", ok, n, body)
+		}
+	}
+	for _, planted := range []string{
+		`<a href="` + layout.CreditURL + `/x">x</a>`,
+		`<a href="` + layout.CreditURL + `.evil.example">x</a>`,
+		`<a href="https://evil.example">` + layout.CreditName + `</a>`,
+		`<script src="` + layout.CreditURL + `"></script>`,
+		`<img src="` + layout.CreditURL + `">`,
+		`<meta name="author" content="` + layout.CreditURL + `">`,
+		`@import url("` + layout.CreditURL + `");`,
+	} {
+		body, _ := withoutCreditHref(planted)
+		if externalReference.FindString(body) == "" {
+			t.Errorf("CONTROL: %q passed the scanner after the exemption", planted)
+		}
+	}
+}
+
 // --- every link goes somewhere ----------------------------------------------
 
 // The anchor scanner is employees_test.go's hrefRE, reused rather than repeated:
@@ -947,13 +1009,21 @@ func TestMarketing_EveryInternalLinkResolves(t *testing.T) {
 // pageLinkProblems follows every link in body, the page served at url under c, and
 // says which do not resolve. followed counts the links it checked (the anti-vacuity
 // floor's input) and offSite the OpenAPI downloads it admitted on the guide's pages.
+// The footer's credit link (layout.CreditURL) is admitted by constant and must appear
+// exactly once.
 func pageLinkProblems(t *testing.T, c structuralConfig, url, body string) (problems []string, followed, offSite int) {
 	t.Helper()
 	guidePages := map[string]bool{pages.APIGuidePath: true, pages.APIGuideTRPath: true}
+	credits := 0
 	for _, m := range hrefRE.FindAllStringSubmatch(body, -1) {
 		href := m[1]
 		switch {
 		case href == "" || strings.HasPrefix(href, "#"):
+			continue
+		case href == layout.CreditURL:
+			// The operator company's credit in the footer (2026-10-23); an external
+			// site this router does not serve, admitted by constant and counted below.
+			credits++
 			continue
 		case c.openAPI != "" && href == c.openAPI && guidePages[url]:
 			// The API host's document; this router does not serve it.
@@ -973,6 +1043,9 @@ func pageLinkProblems(t *testing.T, c structuralConfig, url, body string) (probl
 			problems = append(problems, fmt.Sprintf("%s links to %s: %s. A dead link on the most public "+
 				"URL in the product is a promise the router does not keep.", url, href, why))
 		}
+	}
+	if credits != 1 {
+		problems = append(problems, fmt.Sprintf("%s links the operator's company %d time(s), want once (the footer)", url, credits))
 	}
 	return problems, followed, offSite
 }
@@ -2043,7 +2116,7 @@ func TestLegalPages_SkeletonsAreNotIndexedAndSayWhatTheyAreWaitingFor(t *testing
 	// They now live in legal_documents, so publication is "a text was published" and
 	// the fact lives on the VIEW rather than on the route table.
 	waiting := pages.LegalPageView{Page: pages.LegalPage{Path: "/legal/x", Title: "X", Needs: []string{"a fact somebody has to supply"}}}
-	finished := pages.LegalPageView{Page: pages.LegalPage{Path: "/legal/x", Title: "X"}, Body: []string{"The finished text."}}
+	finished := pages.LegalPageView{Page: pages.LegalPage{Path: "/legal/x", Title: "X"}, Body: legal.Paragraphs("The finished text.")}
 	if waiting.Published() {
 		t.Error("a document with no published text reports itself as published. Publication " +
 			"is defined as \"somebody published a text\" precisely so that it cannot be " +

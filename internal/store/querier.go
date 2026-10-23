@@ -43,6 +43,21 @@ type Querier interface {
 	// prev's outputs (old_uid/old_ctr) removes any bare `uid` and satisfies both
 	// sqlc and Postgres.
 	AdvanceTagCounter(ctx context.Context, arg AdvanceTagCounterParams) (AdvanceTagCounterRow, error)
+	// DID A DIRECTED RECORD OF THIS PERSON'S COMMIT AFTER THIS TRANSACTION BEGAN? (M15-05; ADR 0032
+	// §A.6 "Eşzamanlı yazım"). internal/domain/manual asks it right after taking the person's tap
+	// lock (LockEmployeeForTap), and starts its transaction again when the answer is yes.
+	//
+	// 🔴 WHY THE LOCK ALONE DOES NOT CLOSE THE WINDOW. created_at is DEFAULT now() -- the
+	// TRANSACTION's start, not the INSERT's. A manager's correction whose transaction BEGAN before the
+	// person's checkout tap but reached the lock after the tap had committed is serial with the tap
+	// yet carries the EARLIER created_at: the tap's out then reads as preceded by a checkout written
+	// BEFORE it, and the classification calls it an orphan (c) instead of the correction's surplus
+	// (e) -- measured by the M15-05 review: `closes,orphan`. A row written since this transaction's
+	// now() is exactly that case; a new transaction's now() is after the tap's commit.
+	//
+	// `type IS NOT NULL`: only a directed record takes part in the classification, so a refusal or an
+	// ignored tap written meanwhile is no reason to start again. Explicit tenant_id beside RLS (§4.5).
+	AnyRecordWrittenSinceThisTransactionBegan(ctx context.Context, arg AnyRecordWrittenSinceThisTransactionBeganParams) (bool, error)
 	// Append a new version of a policy's document. THE ONLY WAY TO "EDIT" A RULE.
 	//
 	// 🔴 THERE IS NO UPDATE STATEMENT IN THIS FILE AND THERE CANNOT BE ONE (§4.3):
@@ -674,6 +689,13 @@ type Querier interface {
 	// (counter_gaps -- K-1i hands the employer the gap --, other_venue, training, manager_typed,
 	// unanswerable) count every row. The inventory is TestEvidenceReaders_EveryOneIsClassified.
 	CountAnomalySignals(ctx context.Context, arg CountAnomalySignalsParams) (CountAnomalySignalsRow, error)
+	// How many times this level's cutoff has been changed: the trail rows of its one action for
+	// this subject (tenant.DayCutoffs.Set writes exactly one per change, in the write's own
+	// transaction). It is the VERSION a review's confirmation is bound to beside the value on
+	// file, so a confirmation served before any later change -- even one that put the same
+	// value back (A -> B -> A) -- no longer verifies (M15-07 review, DÜŞÜK-1). Read-only; the
+	// (tenant_id, target) index (00021) serves it.
+	CountDayCutoffChanges(ctx context.Context, arg CountDayCutoffChangesParams) (int64, error)
 	// What still points at this department. Two keys rather than the venue's four:
 	// employees_department_fk and transactions_department_fk, both ON DELETE RESTRICT.
 	// 🔴 @id IS CAST EXPLICITLY, AND THE CAST IS LOAD-BEARING RATHER THAN DECORATIVE.
@@ -732,48 +754,63 @@ type Querier interface {
 	// the six ON DELETE RESTRICT foreign keys, which is what makes the race between this
 	// read and the DELETE harmless (internal/domain/tenant/venue.go, DeleteVenue).
 	CountLocationReferences(ctx context.Context, arg CountLocationReferencesParams) (CountLocationReferencesRow, error)
-	// The check-ins a practice row could have masked, split by whether the open list can
-	// still see them.
+	// The check-ins a practice row could have masked, split by whether they are still open.
 	//
-	// 🔴 THIS IS THE QUERY THE M6-11 CARD SAYS THE OPEN LIST CANNOT REPLACE, AND THE
-	// REASON IS ONE LINE OF SET LOGIC. "Open" is `NOT EXISTS (an out after it)`, and a
-	// SINGLE `out` satisfies that for EVERY older unclosed check-in at once. So a
-	// check-in that a pre-ADR-0008 practice row masked leaves the open list silently, on
-	// the person's next checkout -- it counts as closed, while the `out` that closed it
-	// was really some other check-in's.
+	// 🔴 IT WAS THE HALF THE OPEN LIST COULD NOT SHOW, AND SINCE M15-05 THE LIST SHOWS IT. Until
+	// then "open" was `NOT EXISTS (an out after it)`, which a SINGLE later `out` satisfied for
+	// every older unclosed check-in at once -- so a check-in a pre-ADR-0008 practice row had
+	// masked left the list silently on the person's next checkout, and this second count was the
+	// only place it was still visible. ListOpenCheckIns now reads ADR 0032 §A.6's definition: an
+	// entry stays open unless its OWN next record closes it, and the record a mask produced is an
+	// `in`, which closes nothing. So the masked entries are ON the list (with the "training tap
+	// follows" hint), and the two numbers here are now:
 	//
-	// ⚠️ NO ROW COUNT IS QUOTED HERE ANY MORE. The M6-11 card carried "47 still visible,
-	// 43 no longer visible" from 2026-08-02; re-run on 2026-08-12 the same shape answered
-	// with figures an order of magnitude apart, because `chainFixture` adds rows on every
-	// `make test` and nothing can delete them. The SHAPE is the durable fact and the
-	// number is not, so the number is a query:
+	//   still_open             a practice row follows it and nothing closes it -- the ones the
+	//                          list shows (uncapped, which the list is not).
+	//   closed_by_its_checkout a practice row follows it, and its own next record is a checkout
+	//                          that closes it (class 'closes'): an ordinary pair -- a training
+	//                          tap after it did not hide it.
 	//
-	//      SELECT count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM transactions o
-	//               WHERE o.tenant_id=t.tenant_id AND o.employee_id=t.employee_id
-	//                 AND o.type='out' AND o.occurred_at > t.occurred_at)) AS still_open,
-	//             count(*) - count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM transactions o
-	//               WHERE o.tenant_id=t.tenant_id AND o.employee_id=t.employee_id
-	//                 AND o.type='out' AND o.occurred_at > t.occurred_at)) AS closed_later
-	//        FROM transactions t
-	//       WHERE t.type='in' AND NOT t.practice
-	//         AND EXISTS (SELECT 1 FROM transactions p WHERE p.tenant_id=t.tenant_id
-	//                       AND p.employee_id=t.employee_id AND p.practice
-	//                       AND p.occurred_at > t.occurred_at);
+	// The open/closed test is ListOpenCheckIns' own, written out AGAIN here (sqlc shares no SQL between
+	// two statements): the same next-record LATERAL, the same class test. Inside this statement it is
+	// written once, so the two counts cannot disagree with each other; that it agrees with the list's
+	// copy is a test's claim, not the text's -- TestOpenCheckIns_TheListIsTheReportsOpenSet pins the
+	// list, TestCountMaskedOpenCheckIns_SplitsByTheOneClassification this copy (a training row between
+	// an in and its out included).
 	//
-	// ⚠️ THIS IS NOT A SECTION 4.6 BREACH AND THE DISTINCTION IS WORTH THE SENTENCE. No
-	// row is lost -- `transactions` holds every one of them and the transactions section
-	// lists them. What is lost is the SIGNAL, and recovering it needs this second
-	// question rather than a wider version of the first.
+	// ⚠️ IT IS A HINT, NOT A DIAGNOSIS. "A practice row of this person's exists after this
+	// check-in" is the shape the defect produced; it is also the shape an ordinary new starter
+	// produces if they ever tap again after training. The screen calls it what it is.
 	//
-	// ⚠️ IT IS A HINT, NOT A DIAGNOSIS. "A practice row of this person's exists after
-	// this check-in" is the shape the defect produced; it is also the shape an ordinary
-	// new starter produces if they ever tap again after training. The screen calls it
-	// what it is.
+	// ⚠️ AND THE DEVELOPMENT DATABASE WILL ALWAYS HOLD SOME. `chainFixture` leaves rows of this
+	// shape on every `make test` run and section 4.3 plus `REVOKE DELETE` mean nothing can clear
+	// them. There is no dev-only special case anywhere in this path -- the number says what it
+	// counts and the reader decides.
 	//
-	// ⚠️ AND THE DEVELOPMENT DATABASE WILL ALWAYS HOLD SOME. `chainFixture` leaves two
-	// rows of this shape on every `make test` run and section 4.3 plus `REVOKE DELETE`
-	// mean nothing can clear them. There is no dev-only special case anywhere in this
-	// path -- the number says what it counts and the reader decides.
+	// ⚠️ THIS IS NOT A SECTION 4.6 BREACH: no row is lost -- `transactions` holds every one of them
+	// and the transactions section lists them.
+	//
+	// EXPLAIN (ANALYZE, BUFFERS), M15-05, 2026-10-21, the M15 development database after ANALYZE,
+	// seed tenant 10000000-...-0001 (418 rows in the tenant, 262 of them directed and not practice),
+	// the week from Monday 2026-10-19 00:00 Malta, three runs of each statement, before -> after the
+	// next-record lookup:
+	//   ListOpenCheckIns (row_limit 51)
+	//     before  Index Scan Backward on transactions_tenant_occurred_idx (109 check-ins) -> Nested
+	//             Loop Anti Join probing transactions_tenant_employee_occurred_idx for a later `out`;
+	//             1.72 / 1.17 / 1.37 ms, shared hit 758 / 749 / 749
+	//     after   the same outer scan -> Nested Loop Left Join over a Limit 1 -> Incremental Sort ->
+	//             Index Scan Backward on transactions_tenant_employee_occurred_idx (109 probes) ->
+	//             the class as a join filter (57 removed, 52 kept, 51 returned);
+	//             2.61 / 1.61 / 1.68 ms, shared hit 975 / 939 / 939
+	//   CountMaskedOpenCheckIns
+	//     before  Hash Semi Join (9 check-ins with a training tap after them) + two anti-join probes;
+	//             0.85 / 1.23 / 1.03 ms, shared hit 269
+	//     after   the same semi join + one Limit 1 probe of the same index per check-in;
+	//             0.89 / 0.77 / 0.62 ms, shared hit 254
+	// One observation on a small table, not a property: the lookup costs one index probe per
+	// check-in of the window, as the anti-join did. An OLD week of a LARGE tenant is the exception the
+	// M15-05 review measured (internal/handler/anomalies.go states it): neither the lookup nor
+	// was_maskable is bounded by the week.
 	CountMaskedOpenCheckIns(ctx context.Context, arg CountMaskedOpenCheckInsParams) (CountMaskedOpenCheckInsRow, error)
 	// The Pass's "on the floor now" (M12-13, D3): how many PEOPLE are checked in right now, per venue.
 	// One row per venue; the big number is the sum of the rows, so the figure and its breakdown come
@@ -1266,6 +1303,10 @@ type Querier interface {
 	//
 	// NULL SHIFTS PASS THROUGH AS NULL. See CreateLocation: a zero is not an absence,
 	// and departments_shift_pair refuses a half-filled pair but cannot refuse 00:00.
+	//
+	// day_cutoff (00064) is in RETURNING here and in UpdateDepartment only so that both
+	// keep mapping onto store.Department (the whole row); neither statement writes it --
+	// a new department inherits, and SetDepartmentDayCutoff is the one writer.
 	CreateDepartment(ctx context.Context, arg CreateDepartmentParams) (Department, error)
 	// Puts somebody on the roster (M6-13). It is the ONLY way a row enters `employees`
 	// from inside the product.
@@ -2132,6 +2173,24 @@ type Querier interface {
 	// and those are the ones that must not move. The join is one row under the tenants
 	// policy (which scopes on id), so it adds no scope surface.
 	GetBillingPeriod(ctx context.Context, arg GetBillingPeriodParams) (GetBillingPeriodRow, error)
+	// daycutoff.sql -- the PANEL's reads behind the business-day settings screen (M15-07,
+	// ADR 0032 §A.7): which people take their cutoff from a level, which shifts they work,
+	// and which venues they tapped at lately. READS ONLY. The four writes are M15-02's
+	// setters (SetTenantDayCutoff, SetLocationDayCutoff, SetDepartmentDayCutoff,
+	// SetEmployeeDayCutoff); this file adds none.
+	//
+	// THE HIERARCHY IS RESOLVED IN GO HERE, NOT IN SQL, AND THAT IS NOT A SECOND COPY OF
+	// GetEmployeeForTap's coalesce. The tap asks "what is THIS person's cutoff" and gets one
+	// value. This screen asks "who inherits from THIS level, and what would each of them get
+	// if the level changed" -- the same coalesce evaluated with one input replaced, which a
+	// single resolved column cannot answer. internal/domain/tenant's DB test holds the two
+	// equal for every person it builds (the person card's value against effective_day_cutoff).
+	//
+	// Every statement carries its own @tenant_id predicate (CLAUDE.md §4.5, belt) under RLS
+	// (braces), and every join repeats the employee's or the row's tenant_id.
+	// The business level: its stored cutoff (NOT NULL -- the end of every coalesce), the
+	// zone every wall clock of this screen is read in, and the name the screen gives it.
+	GetDayCutoffBusiness(ctx context.Context, tenantID uuid.UUID) (GetDayCutoffBusinessRow, error)
 	// departments.sql -- tenant-scoped department reads. Every query carries an
 	// explicit tenant_id filter (CLAUDE.md section 4.5, belt + braces on RLS) and
 	// runs inside db.(*DB).WithTenant.
@@ -2399,6 +2458,27 @@ type Querier interface {
 	// claim is about the four columns above, not about the whole result set: the two
 	// presentation columns exist precisely because the screen that follows the
 	// decision has to say something, and neither of them is a name.
+	//
+	// effective_day_cutoff (M15-02, ADR 0032 §A.2, K1) -> the WALL-CLOCK time this
+	// person's business day starts at: the most specific of the four levels wins,
+	// coalesce(person, department, PROFILE branch, business). The hierarchy is
+	// resolved HERE, in one read, so tap.Decide receives one resolved value and knows
+	// nothing of levels (§A.3). Three things the shape is for:
+	//   * the branch is the employee's PROFILE branch (e.location_id), never the
+	//     tapped one: the direction chain is the person's, and a chain worker who
+	//     clocks in at Sliema and out at St Julians must not have one shift cut by two
+	//     boundaries. It is the same column as location_id above, joined, not the
+	//     tapped location this tap's evidence is matched against.
+	//   * e.location_id is NULLABLE (00037:88, an API-managed employee -- K-14): the
+	//     LEFT JOIN then finds no branch and the level is skipped --
+	//     coalesce(person, department, business).
+	//   * the department is read on its OWN, not through its branch: a department
+	//     belongs to a branch (departments.location_id) that may differ from the
+	//     person's profile branch, and the department is the more specific level.
+	// Both joins carry the employee's tenant_id as well as RLS (§4.5), so a
+	// department or branch id of another tenant contributes nothing. tenants.day_cutoff
+	// is NOT NULL, so the coalesce always has a value. The cutoff is only an input:
+	// whether it APPLIES (the TAPPA_BUSINESS_DAY_FROM switch, §A.8) is decided in Go.
 	GetEmployeeForTap(ctx context.Context, arg GetEmployeeForTapParams) (GetEmployeeForTapRow, error)
 	// The person's lifecycle state, read BEFORE the minting transaction retires anything: only an
 	// 'invited' person is sent an invitation by the queue (K-15: an activated person gets none; a
@@ -2500,6 +2580,52 @@ type Querier interface {
 	// already costs 10246 buffers today. So this is not a new worst case, it is the
 	// one every ordinary employee's check-in already pays. Making it cheap is an
 	// INDEX question (a migration, deliberately out of M5-11's scope).
+	//
+	// @at AND THE id TIE-BREAK (M15-02, ADR 0032 §A.4). The question is "the check-in
+	// open AT the tap's instant", and the instant is the one the tap is decided at --
+	// the declared occurred_at if the client sent one, the server's now otherwise
+	// (checkin.Record's occurredAt; the caller passes it, never a zero value: a zero
+	// @at finds nothing, and every tap would become an `in`). Two bounds, and BOTH
+	// are needed:
+	//   * the outer row: an entry declared AFTER @at was not open at @at. Without it a
+	//     queued Monday 17:00 checkout (M9-01's offline queue) arriving after Tuesday's
+	//     09:00 entry would see Tuesday's entry as "the last open one" and close the
+	//     wrong day.
+	//   * inside NOT EXISTS: an out declared after @at had not happened at @at, so it
+	//     cannot have closed the entry. Bounding only the outer row would let a later
+	//     row hide an entry that was open at @at -- the same queued checkout, seen from
+	//     the other side.
+	// For a live tap @at is now -- Record's now, read BEFORE the person's advisory lock
+	// is taken -- and the rows beyond it are chiefly a manager's manual record: one
+	// placed up to manual.FutureGrace (one minute) ahead, or one written while this tap
+	// waited for the lock (the manual path does not take the person's lock today; M15-05
+	// changes that). Such a row does not count until its instant arrives -- the rule,
+	// applied. The same person's concurrent second tap can also land beyond @at; it is
+	// inside the 60 s debounce, so it is `ignored` and carries no direction.
+	//
+	// The order is (occurred_at, id) everywhere: in the row comparison, so of an `in`
+	// and an `out` at the SAME instant the one with the larger id is the later one
+	// (strict `>` on occurred_at alone made a same-instant out close nothing, and the
+	// ORDER BY without id picked either of two same-instant entries), and in the ORDER
+	// BY. It is the order the checkout classification (tappa_checkout_class's callers)
+	// and the ledger read (ListWorkedShiftEvents: per person, occurred_at then id), so
+	// the three READERS agree about which of two same-instant rows already in the table
+	// came first. id is gen_random_uuid() (00005): the tie-break is arbitrary but total
+	// and stable, which is all an order needs.
+	//
+	// ⚠️ THE WRITER IS NOT ONE OF THEM, for its own row. A tap that declares EXACTLY the
+	// microsecond of the open entry is decided as that entry's `out` (the entry is open
+	// at @at), but the new row's id is random, so in (occurred_at, id) order the later
+	// readers put it BEFORE the entry about half the time (measured in the M15-02
+	// security review: 14 of 40) -- then the out is not that entry's closing out and
+	// the entry stays open in the list. It takes a hand-written POST that hits the
+	// entry's microsecond, and it gains no hours: the pair counts zero time either way.
+	//
+	// business_day_start is in the list because this query returns the whole store
+	// Transaction (a row type without it would be a second model); nothing here
+	// filters on it. Whether this entry is still in the tap's business day is the
+	// engine's question (M15-03), and ADR 0032 §A.6 says why this query does not need
+	// the classification while the cutoff stays fixed.
 	GetLastOpenTransaction(ctx context.Context, arg GetLastOpenTransactionParams) (Transaction, error)
 	// Debounce basis (CLAUDE.md section 5, row 5): the person's single most recent
 	// tap. Debounce is PER-PERSON, not per-tag, so a queue of different people can
@@ -2555,6 +2681,10 @@ type Querier interface {
 	// integrator's identity and active is a label (K-20: the decision engine never sees
 	// it). Measured on 00037: without them sqlc emitted GetLocationByIPRow and
 	// ListLocationsForTenantRow again.
+	//
+	// AND FOR day_cutoff (migration 00064, M15-02): named for the mapping. Neither query
+	// is the place the cutoff is read -- GetEmployeeForTap resolves it, through the
+	// employee's PROFILE branch, never the tapped or matched one (ADR 0032 §A.2).
 	// Proof-of-place, IP side (CLAUDE.md section 5, row 6): the location whose
 	// static_ips contains the request source IP. static_ips is cidr[]; the source is
 	// matched with @src::inet <<= ANY(static_ips), which is TRUE when the address
@@ -3297,6 +3427,16 @@ type Querier interface {
 	// every other tap. What may stand there is not the caller's word: the composite keys
 	// tie the venue and the plaque to the site tenant, the CHECKs hold the shape by channel,
 	// and holding_site_gate refuses a site that is not a peer of the employer.
+	//
+	// business_day_start (M15-02, migration 00064, ADR 0032 §A.5): the UTC start of the
+	// business day a DIRECTED nfc/qr decision was made in, frozen on the row because the
+	// cutoff that produced it may change later. NULL for an undirected decision (reject,
+	// ignored), for the manual channel and for every row before M15; the caller forces
+	// the NULL in code (insertParams, M15-04 -- until then it passes NULL for every
+	// tap), and transactions_business_day_needs_a_direction is the second safety. A tap
+	// on a PEER's plaque is the employer's row (above) and carries the employer's
+	// business day like any other; InsertManualSiteTransaction, the manual site sibling,
+	// has no such parameter.
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error)
 	// THE decision. One row, append-only, and it is the ONLY write this flow makes to
 	// the record besides audit_log.
@@ -3633,6 +3773,28 @@ type Querier interface {
 	// backwards. The tenant name is joined for the reason GetBillingPeriod states: the
 	// figures are frozen, the addressee is current.
 	ListBillingPeriods(ctx context.Context, arg ListBillingPeriodsParams) ([]ListBillingPeriodsRow, error)
+	// Every department with its venue, its stored cutoff (NULL = inherit) and its own shift.
+	ListDayCutoffDepartments(ctx context.Context, arg ListDayCutoffDepartmentsParams) ([]ListDayCutoffDepartmentsRow, error)
+	// The people a level's cutoff can reach: everybody who is not deactivated (a person who
+	// has left taps nothing), with their profile branch (employees.location_id -- NULLABLE,
+	// 00037: an API-managed person has none and the branch level is skipped), their
+	// department and their own override. Which of them actually INHERIT from a level is
+	// decided in Go from these four facts; the three optional filters only narrow the read
+	// to the level asked about (a branch, a department, one person) and are not the rule.
+	ListDayCutoffPeople(ctx context.Context, arg ListDayCutoffPeopleParams) ([]ListDayCutoffPeopleRow, error)
+	// The venues each of these people TAPPED at since @since (ADR 0032 §A.7 (2), the named
+	// window tenant.CutoffTouchedWindow): a cutoff comes from the profile branch, but the
+	// work may be done elsewhere -- a Sliema-profile worker on Rusty Bar's 18:00-02:00 night
+	// is cut by a 01:00 Sliema cutoff every night. Read from the person's own transactions
+	// rows, tap channels only (a manager's typed record is not a tap). A holding partner's
+	// venue (location_id NULL, site_location_id set -- K-30) is another business's row and
+	// is not read: RLS hides it and this statement does not try.
+	ListDayCutoffTouchedVenues(ctx context.Context, arg ListDayCutoffTouchedVenuesParams) ([]ListDayCutoffTouchedVenuesRow, error)
+	// Every venue with its stored cutoff (NULL = inherit) and its own shift. The list is
+	// bounded by the buildings a business runs (the locations section's ceiling argument,
+	// venuePageLimit); row_limit is the caller's ceiling and reaching it is reported, never
+	// silently cut.
+	ListDayCutoffVenues(ctx context.Context, arg ListDayCutoffVenuesParams) ([]ListDayCutoffVenuesRow, error)
 	// The tenant's departments, for the panel's DEPARTMENT filter (M6-03).
 	//
 	// It exists beside GetDepartmentShift rather than widening it, which is the split
@@ -3778,20 +3940,46 @@ type Querier interface {
 	// computes the haversine distance from the tap's GPS to each location and checks
 	// the < 150 m radius. Returns every location in the tenant so that check can run.
 	ListLocationsForTenant(ctx context.Context, tenantID uuid.UUID) ([]Location, error)
-	// Check-ins in the window that no later checkout closes.
+	// Check-ins in the window that no checkout closes.
 	//
-	// 🔴 THE DEFINITION IS STATED IN ONE LINE BECAUSE IT IS NOT THE REPORTS SECTION'S.
-	// Here: a non-practice `in` with NO `out` after it, full stop. internal/domain/ledger's
-	// worked-hours arithmetic asks a different question -- it PAIRS the week's records and
-	// additionally treats a checkout more than tap.StaleOpenIn later as a missed checkout
-	// rather than a shift -- so the two numbers can legitimately differ. Neither is wrong;
-	// they answer different questions, and the screen says which one this is.
+	// 🔴 "OPEN" IS ADR 0032 §A.6's DEFINITION, THE ONE THE REPORTS SECTION USES TOO (M15-05).
+	// A non-practice `in` is open exactly when the person's NEXT directed, non-practice
+	// record after it -- in (occurred_at, id) order -- does not CLOSE it: there is none, it
+	// is another `in`, or it is an `out` whose class is not 'closes'. The class is
+	// tappa_checkout_class (migration 00064), the one SQL form of the classification;
+	// internal/domain/ledger reads the same rows through tap.ClassifyCheckout, its Go form,
+	// and the two are bound by a parity test (internal/domain/ledger's checkout parity
+	// test). So this list and the report's "Open" entries are the same set for the same
+	// window -- the "legitimate difference" this comment used to defend is gone.
+	//
+	// WHAT THE OLD LINE GOT WRONG, MEASURED BEFORE IT WAS REPLACED: it said "no `out` after
+	// it, full stop". A single `out` then closed EVERY older unclosed check-in at once --
+	// Monday's `in`, Tuesday's `in`, Tuesday's `out` took Monday off the list although
+	// nothing closed it (ADR 0032 §A.6) -- and an `out` 30 hours later, or one of another
+	// business day, closed it too, where the report counted the entry open (tap.StaleOpenIn).
+	//
+	// ⚠️ THE NEXT RECORD IS LOOKED FOR AMONG IN AND OUT ALIKE, NOT AMONG CHECKOUTS. A later
+	// `in` is what leaves this one open (the report's "a second `in` on top of an open one"),
+	// so a lookup over `out` rows alone would skip it and let the checkout after it close
+	// the wrong entry -- the old defect again, one step removed.
+	//
+	// ⚠️ THE ID BREAKS THE TIE, ON BOTH SIDES OF THE COMPARISON. Two records at one
+	// occurred_at are ordered by id -- the order ListWorkedShiftEvents, GetLastOpenTransaction
+	// and the classification read (ADR 0032 §A.4) -- so an `in` and an `out` sharing an
+	// instant pair the same way in every reader.
+	//
+	// THE CLASS OF THAT NEXT `out` IS COMPUTED WITH P = THIS `in` -- by construction it is the
+	// record before it -- so tappa_checkout_class takes this row's occurred_at as prev_in_at
+	// and reads only the two closing bounds (the out's business day, 18 hours). It does not
+	// read prev_is_out, day_has_in or prev_written_later when P is an `in`; they are passed
+	// as false, the value the function would read them as anyway.
 	//
 	// ⚠️ `NOT t.practice` IS THE M5-07 AUDIT'S RULE AND IT IS LOAD-BEARING HERE. A
 	// practice row is a type='in' that is never followed by an 'out' (ADR 0008), so
 	// without this predicate the list would produce exactly one false positive per new
 	// starter -- and "the report does not comment, it shows data" would be broken by the
-	// report's own arithmetic.
+	// report's own arithmetic. The next-record lookup skips practice rows for the same
+	// reason the report's read drops them.
 	//
 	// 🔴 `was_maskable` IS THE DEVIR NOTE FROM M5-11 MADE VISIBLE. Before ADR 0008 a
 	// practice row could sort on top of a real open check-in and make the next tap resolve
@@ -3799,15 +3987,21 @@ type Querier interface {
 	// and they cannot be told apart from an ordinary forgotten checkout by their own
 	// columns -- but "does a practice row of this person's sit AFTER this check-in" can be
 	// asked, and that is what this flag answers. It is a HINT rather than a diagnosis, and
-	// the screen says so.
-	//
-	// ⚠️ AND IT IS DELIBERATELY NOT A FILTER. The counterpart query below counts the ones
-	// this list can no longer show at all.
+	// the screen says so. Since M15-05 such an entry STAYS on this list: the `in` the mask
+	// produced is its next record, and an `in` closes nothing.
 	//
 	// ORDERED OLDEST FIRST, which is the order a manager works a backlog in, so a
 	// shortened page keeps the entries that have been waiting longest.
 	// M11 API-1c: site_location_id names the venue of an open check-in taken at a PEER's venue (its
 	// location_id is NULL -- K-30); internal/domain/ledger names it from holding_site_locations.
+	//
+	// M15-07: employee_id is returned for the business-day settings screen, which counts the
+	// check-ins open RIGHT NOW that a new cutoff would split, among the people who inherit it
+	// (ADR 0032 §A.7). It reads this list rather than a copy of its definition, so "open" on
+	// that screen is this list's "open"; the column names a person by opaque id, never a name.
+	//
+	// EXPLAIN (ANALYZE, BUFFERS): M15-05's before/after measurement is in CountMaskedOpenCheckIns'
+	// header -- the two statements share the next-record lookup and were measured together.
 	ListOpenCheckIns(ctx context.Context, arg ListOpenCheckInsParams) ([]ListOpenCheckInsRow, error)
 	// ---------------------------------------------------------------------------
 	// THE DEPARTMENTS HALF OF THE LOCATIONS SECTION (M6-06 phase A).
@@ -5045,6 +5239,18 @@ type Querier interface {
 	// day (22 rows in the table): Bitmap Index Scan on transactions_tenant_occurred_idx -> Bitmap Heap
 	// Scan (Rows Removed by Filter 3) -> the four left joins -> Sort -> Limit; 19 rows, shared hit=19,
 	// 1.06 ms -- one observation on a tiny table, for the reason the block above gives.
+	//
+	// 🔴 M15-05: created_at AND business_day_start ARE READ BY THE CHECKOUT CLASSIFICATION (ADR 0032
+	// §A.6), in both callers. business_day_start is the out's frozen business day (S; NULL before M15
+	// and on manual rows), created_at is the database's own write instant -- the classification's W
+	// ("the record before this checkout was written AFTER it": a manager's correction). Both are
+	// columns of the record itself, no evidence (K-39), and neither is printed: the arithmetic reads
+	// them and drops them. created_at is the SERVER's (DEFAULT now(); no statement writes it --
+	// internal/domain/ledger's source test pins that), which is why W reads it and never occurred_at,
+	// the client's claim. EXPLAIN (ANALYZE, BUFFERS), 2026-10-21, the M15 development database, seed
+	// tenant 10000000-...-0001, the week from Monday 2026-10-19 plus the tail (262 rows returned),
+	// three runs each: the same plan before and after the two columns, shared hit 162 both, the row
+	// width estimate 149 -> 165 bytes.
 	ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShiftEventsParams) ([]ListWorkedShiftEventsRow, error)
 	// SERIALISE ONE API KEY'S DEACTIVATIONS (M11 API-6, ADR 0028 §12, K-25). The budget is a
 	// READ-THEN-DECIDE over this table (CountAPIDeactivations), and without a lock N concurrent
@@ -5886,6 +6092,26 @@ type Querier interface {
 	// never debounces (the safe zero value, section 4.6) — the same answer the
 	// unbounded query produced by returning an age too large to win the min.
 	SecondsSinceLastRecordedTap(ctx context.Context, arg SecondsSinceLastRecordedTapParams) (float64, error)
+	// The business-day cutoff of a DEPARTMENT: it applies to its employees whatever their
+	// profile branch, and beats the branch level
+	// (M15-02, migration 00064, ADR 0032 §A.2). NULL = inherit the next level up;
+	// sqlc.narg so "clear the override" is a value the caller can send.
+	// WRITES THE SETTING ONLY. Who may change it, the shift-conflict warning, the
+	// confirmation and the audit_log row are the panel's (M15-07, ADR 0032 §A.7); this
+	// statement is the one write those all go through. It carries its own section 4.5
+	// predicate (tenant_id) and is not left to RLS. RETURNING is what was stored, so
+	// the screen re-renders from the database, not from the form.
+	SetDepartmentDayCutoff(ctx context.Context, arg SetDepartmentDayCutoffParams) (SetDepartmentDayCutoffRow, error)
+	// The business-day cutoff of ONE PERSON: the most specific level. It is not a directory
+	// column, so it does not move employees.updated_at (00037's trigger)
+	// (M15-02, migration 00064, ADR 0032 §A.2). NULL = inherit the next level up;
+	// sqlc.narg so "clear the override" is a value the caller can send.
+	// WRITES THE SETTING ONLY. Who may change it, the shift-conflict warning, the
+	// confirmation and the audit_log row are the panel's (M15-07, ADR 0032 §A.7); this
+	// statement is the one write those all go through. It carries its own section 4.5
+	// predicate (tenant_id) and is not left to RLS. RETURNING is what was stored, so
+	// the screen re-renders from the database, not from the form.
+	SetEmployeeDayCutoff(ctx context.Context, arg SetEmployeeDayCutoffParams) (SetEmployeeDayCutoffRow, error)
 	// Writes the address on file, or clears it (NULL) (M10 EM-6).
 	//
 	// 🔴 IT NAMES email AND NOTHING ELSE. A changed address cannot activate, deactivate
@@ -5924,6 +6150,16 @@ type Querier interface {
 	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. A foreign id
 	// matches nothing.
 	SetEmployeeExternalRef(ctx context.Context, arg SetEmployeeExternalRefParams) (SetEmployeeExternalRefRow, error)
+	// The business-day cutoff of a BRANCH: it applies to the employees whose PROFILE branch
+	// this is (employees.location_id) -- never to whoever taps one of its plaques
+	// (M15-02, migration 00064, ADR 0032 §A.2). NULL = inherit the next level up;
+	// sqlc.narg so "clear the override" is a value the caller can send.
+	// WRITES THE SETTING ONLY. Who may change it, the shift-conflict warning, the
+	// confirmation and the audit_log row are the panel's (M15-07, ADR 0032 §A.7); this
+	// statement is the one write those all go through. It carries its own section 4.5
+	// predicate (tenant_id) and is not left to RLS. RETURNING is what was stored, so
+	// the screen re-renders from the database, not from the form.
+	SetLocationDayCutoff(ctx context.Context, arg SetLocationDayCutoffParams) (SetLocationDayCutoffRow, error)
 	// Binds ONE venue to the integrator's identity, or unbinds it (NULL) (M11 API-1, K-18:
 	// venues are never matched by name -- the owner fills this field, and PUT
 	// /v1/locations/{ref} then updates THIS row instead of opening a second one).
@@ -5970,6 +6206,17 @@ type Querier interface {
 	// back, or pass Color.Hex(), where the exact value matters (an audit row's "after").
 	// Returns the number of rows changed: 1, or 0 when step 1 was skipped.
 	SetTenantAccent(ctx context.Context, arg SetTenantAccentParams) (int64, error)
+	// The business level of the business-day cutoff (M15-02, migration 00064, ADR 0032
+	// §A.2): the wall-clock time at which every business day of this tenant starts unless
+	// a branch, department or person overrides it. NOT NULL -- the business level never
+	// inherits; it is the end of GetEmployeeForTap's coalesce. tappa_app's UPDATE on
+	// tenants is a column list (00024) and 00064 adds day_cutoff to it, nothing else.
+	// WRITES THE SETTING ONLY. Who may change it, the shift-conflict warning, the
+	// confirmation and the audit_log row are the panel's (M15-07, ADR 0032 §A.7); this
+	// statement is the one write those all go through. It carries its own section 4.5
+	// predicate (tenant_id) and is not left to RLS. RETURNING is what was stored, so
+	// the screen re-renders from the database, not from the form.
+	SetTenantDayCutoff(ctx context.Context, arg SetTenantDayCutoffParams) (SetTenantDayCutoffRow, error)
 	// Saves a logo: internal/brand.Logo's Data, SHA256, MIME, Width and Height. All five
 	// together -- the table refuses a partial logo, a digest that is not the sha256 of
 	// the bytes, a type outside image/png and image/jpeg, a size outside 1..512 and more

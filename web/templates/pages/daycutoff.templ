@@ -1,0 +1,57 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// AdminBusinessDayReview is the business day change's review (M15-07, ADR 0032 §A.7): the
+// first press lands here and writes nothing; the confirmed press below writes once.
+//
+// 🔴 THE WARNING DOES NOT BLOCK. A cutoff that cuts a shift can still be saved -- the owner
+// may know the shift is changing, or have no better time -- so the page names what would be
+// cut, offers the suggestion as its own form, and leaves the decision with the press.
+//
+// THE COMMENTS IN THIS FILE NAME NO CLASS: Tailwind reads them as source (skill tappa-brand).
+templ AdminBusinessDayReview(v BusinessDayReviewView) {
+	@PanelShell(v.PanelChrome) {
+		<div class="flex max-w-3xl flex-col gap-5">
+			<p class="text-sm leading-normal text-ink md:text-[15px]">{ v.Summary }</p>
+			<section class="panel-card min-w-0" aria-labelledby="day-review-facts">
+				<h2 id="day-review-facts" class="font-display text-lg font-bold tracking-tight text-ink">The change</h2>
+				<dl class="grid grid-cols-[auto_1fr] gap-x-[18px] gap-y-[9px] border-t border-dashed border-line pt-3 text-[13px]">
+					for _, l := range v.Lines {
+						<dt class="text-ink/70">{ l.Label }</dt>
+						<dd class="min-w-0 text-right font-mono text-ink [overflow-wrap:anywhere]">{ l.Value }</dd>
+					}
+				</dl>
+				<p class="text-[13px] leading-normal text-ink/70">{ v.Status }</p>
+			</section>
+			if len(v.Warnings) > 0 {
+				@components.PanelNotice(components.ToneWarn, "This cuts a shift") {
+					for _, w := range v.Warnings {
+						<p>{ w }</p>
+					}
+					if v.Suggestion != "" {
+						<p class="mt-1 font-bold">{ v.Suggestion }</p>
+					}
+				}
+			}
+			if v.Splits != "" {
+				<p class="text-sm leading-normal text-ink">{ v.Splits }</p>
+			}
+			<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-2.5 md:flex-row md:flex-wrap md:gap-3">
+				for _, f := range v.Hidden {
+					<input type="hidden" name={ f.Name } value={ f.Value }/>
+				}
+				<button class="btn btn--primary rounded-xl" type="submit">{ v.Submit }</button>
+				<a class="btn btn--line" href={ templ.URL(v.BackHref) }>Cancel</a>
+			</form>
+			if v.Suggest != nil {
+				<form method="post" action={ templ.URL(v.Suggest.Action) } class="flex flex-col gap-2.5">
+					for _, f := range v.Suggest.Hidden {
+						<input type="hidden" name={ f.Name } value={ f.Value }/>
+					}
+					<button class="btn btn--line self-start" type="submit">{ v.Suggest.Label }</button>
+				</form>
+			}
+		</div>
+	}
+}

@@ -385,20 +385,25 @@ func staleProbe() tap.Input {
 	return in
 }
 
-// forgotViolation is FactForgottenCheckOutIsNotPaid: the engine closes a check-in older
-// than its stale threshold with a check-out and the note, the page's figure is that
-// threshold, and the ledger does not pay the interval, lists the check-in as open and pays
-// it once a manager's check-out closes it (the case).
+// forgotViolation is FactForgottenCheckOutIsNotPaid: the engine does not close a check-in
+// older than its stale threshold -- the tap is a check-in with the left-open note and names
+// the old entry as left open (ADR 0032, M15) -- the page's figure is that threshold, and the
+// ledger does not pay the old entry, lists it as open and pays it once a manager's
+// check-out closes it (the case).
 func forgotViolation(s restaurantsFactSources) string {
 	if time.Duration(s.StaleHours)*time.Hour != tap.StaleOpenIn {
 		return fmt.Sprintf("the page says %d hours and the engine's threshold is %v", s.StaleHours, tap.StaleOpenIn)
 	}
-	d := s.Decide(staleProbe())
-	if d.Type == nil || *d.Type != tap.TypeOut || !strings.Contains(d.Note, tap.StaleOpenInNote) {
-		return fmt.Sprintf("a tap a day after a check-in nobody closed is %v with the note %q, not a check-out noted as a forgotten one", d.Type, d.Note)
+	probe := staleProbe()
+	d := s.Decide(probe)
+	if d.Type == nil || *d.Type != tap.TypeIn || !strings.Contains(d.Note, tap.LeftOpenNote) ||
+		d.LeftOpen == nil || d.LeftOpen.ID != probe.LastOpenIn.ID {
+		return fmt.Sprintf("a tap a day after a check-in nobody closed is %v with the note %q and left open %+v, "+
+			"not a new check-in that leaves the old one open with a note", d.Type, d.Note, d.LeftOpen)
 	}
 	return ledgerWeekProblem(s.LedgerTest, "gap <= tap.StaleOpenIn",
 		"f.Worked != 0 || left.Totals.TooLong != 1 || len(left.Open) != 1", "manual())",
+		"r.Worked != 0 || !openAt(reopened.Open, in.At)",
 		"find(t, early, maria).Daily[0] != want || len(early.Open) != 0",
 		"c.Daily[0] != want || len(closed.Open) != 0")
 }
@@ -511,9 +516,18 @@ func TestRestaurantsFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		}},
 		{pages.FactForgottenCheckOutIsNotPaid, "the page's hours drift from the engine's", func(s *restaurantsFactSources) { s.StaleHours = 12 }},
 		{pages.FactForgottenCheckOutIsNotPaid, "the engine writes no note on a forgotten check-out", engine(func(_ tap.Input, d tap.Decision) tap.Decision {
-			d.Note = strings.ReplaceAll(d.Note, tap.StaleOpenInNote, "")
+			d.Note = strings.ReplaceAll(d.Note, tap.LeftOpenNote, "")
 			return d
 		})},
+		{pages.FactForgottenCheckOutIsNotPaid, "the engine closes a stale check-in again", engine(func(_ tap.Input, d tap.Decision) tap.Decision {
+			if d.LeftOpen != nil {
+				ty := tap.TypeOut
+				d.Type, d.LeftOpen = &ty, nil
+			}
+			return d
+		})},
+		{pages.FactForgottenCheckOutIsNotPaid, "the ledger's case stops asserting the new check-in leaves the old one open", replace(ledger,
+			"r.Worked != 0 || !openAt(reopened.Open, in.At)", "r.Worked != 0")},
 		{pages.FactForgottenCheckOutIsNotPaid, "the ledger's case stops asserting the unpaid interval", replace(ledger,
 			"f.Worked != 0 || left.Totals.TooLong != 1 || len(left.Open) != 1", "f.Worked != 0")},
 	}

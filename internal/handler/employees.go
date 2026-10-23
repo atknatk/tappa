@@ -574,6 +574,8 @@ func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledg
 		ExternalRefAction:    employeeExternalRefHref,
 		Initials:             components.Initials(person.Name),
 	}
+	// M15-07: the person's business day -- the value the tap uses, its source, the form.
+	v.BusinessDay = a.personBusinessDay(r, person.ID, hidden)
 	fillPersonSummary(v, summary, screen.Zone, now)
 	fillRecentTaps(v, recent, screen.Zone)
 	// M10 EM-7B. The e-mail mode's card: the button mails the link when there is an

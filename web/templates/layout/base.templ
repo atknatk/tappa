@@ -129,7 +129,7 @@ templ PageWithScript(title, src string, b Brand) {
 templ shell(title, script string, b Brand) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, script, RobotsPrivate, b.theme, nil, Share{})
+		@documentHead(title, script, RobotsPrivate, b.theme, nil, Share{}, false)
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			<main class="mx-auto flex w-full max-w-md flex-col gap-6 px-4 py-8">
 				@BrandHeader(b)
@@ -211,6 +211,12 @@ templ BrandHeader(b Brand) {
 // can write is og:image, on the configured origin -- a file a crawler fetches when the
 // link is pasted somewhere, never something the visitor's browser loads.
 //
+// credit writes the operator company's author tags (CreditName, CreditURL — user
+// request 2026-10-23): a <meta name="author"> and a <link rel="author">. Only
+// marketingDocument passes true, so the public surface carries them and the tap,
+// activation, panel, sign-in and operator shells never do. Neither tag is a request:
+// a browser fetches no rel="author" link, so the page still contacts no third party.
+//
 // THE STYLESHEET AND THE SCRIPT ARE WRITTEN THROUGH web.AssetURL (2026-10-21), which
 // appends ?v=<content hash> when the serving process put its asset table in the
 // request context, and internal/httpx pins exactly that URL for a year
@@ -219,13 +225,17 @@ templ BrandHeader(b Brand) {
 // renders a page -- the URL stays bare, so the byte goldens do not change when app.css
 // does. A query is not part of the path a CSP source expression matches, so the
 // policies that name these files ('self', or the operator's one script path) still do.
-templ documentHead(title, script string, robots Robots, theme Theme, alternates []Alternate, share Share) {
+templ documentHead(title, script string, robots Robots, theme Theme, alternates []Alternate, share Share, credit bool) {
 	<head>
 		<meta charset="utf-8"/>
 		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 		<meta name="robots" content={ string(robots) }/>
 		<meta name="referrer" content="no-referrer"/>
 		<title>{ title }</title>
+		if credit {
+			<meta name="author" content={ CreditName }/>
+			<link rel="author" href={ CreditURL }/>
+		}
 		if share.Description != "" {
 			<meta name="description" content={ share.Description }/>
 			<meta property="og:type" content="website"/>
@@ -380,7 +390,7 @@ templ Panel(title string, theme Theme) {
 templ PanelWithScript(title, src string, theme Theme) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, src, RobotsPrivate, theme, nil, Share{})
+		@documentHead(title, src, RobotsPrivate, theme, nil, Share{}, false)
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			// NO <main> HERE SINCE THE 2026-10-20 SHELL: the panel's navigation sits
 			// beside the content rather than above it, so pages.PanelShell draws the
@@ -438,9 +448,10 @@ const (
 //     Cache-Control: no-store.
 //
 // WHAT IT DOES NOT CHANGE: the porcelain ground, the ink text, the absence of a
-// dark theme, and the shared document head — including no-referrer, which is inert
-// on a page with no external link and is kept because the day one is added is not
-// the day anybody re-reads this file.
+// dark theme, and the shared document head — including no-referrer, which since
+// 2026-10-23 is no longer inert here: the footer links the operator's company
+// (CreditURL) and a published legal text may link out (ADR 0033), and neither
+// destination learns which page the visitor came from.
 //
 // THE CHROME IS NOT HERE. The navigation and the footer's legal links live in
 // pages (PublicChrome), because their hrefs come from pages.LegalPages and this
@@ -505,7 +516,7 @@ templ MarketingTranslated(title string, robots Robots, alternates []Alternate, s
 templ marketingDocument(title string, robots Robots, src string, alternates []Alternate, share Share) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, src, robots, Theme{}, alternates, share)
+		@documentHead(title, src, robots, Theme{}, alternates, share, true)
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			{ children... }
 		</body>
@@ -559,7 +570,7 @@ templ marketingDocument(title string, robots Robots, src string, alternates []Al
 templ Auth(title, script string) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, script, RobotsPrivate, Theme{}, nil, Share{})
+		@documentHead(title, script, RobotsPrivate, Theme{}, nil, Share{}, false)
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			{ children... }
 		</body>
@@ -604,7 +615,7 @@ templ Operator(title string) {
 templ OperatorWithScript(title, src string) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, src, RobotsPrivate, Theme{}, nil, Share{})
+		@documentHead(title, src, RobotsPrivate, Theme{}, nil, Share{}, false)
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			{ children... }
 		</body>

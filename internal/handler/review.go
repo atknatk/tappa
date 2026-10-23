@@ -647,6 +647,10 @@ func (a *AdminAuth) chromeInGroup(r *http.Request, tab pages.PanelTab, inGroup b
 	if s, ok := id.Suspension(); ok {
 		c.Suspension = a.suspensionStrip(r.Context(), id.TenantID(), s)
 	}
+	// THE BUSINESS DAY CHECK'S NOTICE (M15-08 step 3a) is built here for the same reason: every
+	// section of the owner's panel carries it while a setting cuts a shift. A manager's chrome
+	// reads nothing for it (businessdaycheck.go).
+	c.BusinessDayCheck = businessDayCheckNotice(a.businessDayCheckOf(r))
 	p, err := a.queue.Pending(r.Context(), id.TenantID())
 	if err != nil {
 		a.log.Error("panel: could not count the review queue", "err", err)

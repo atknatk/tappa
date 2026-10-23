@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/atknatk/tappa/internal/store"
 )
@@ -279,6 +280,20 @@ var m11Columns = []m11Column{
 	{"transactions", "site_tenant_id", map[string]string{"tappa_app": "SI", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S"}},
 	{"transactions", "site_location_id", map[string]string{"tappa_app": "SI", "tappa_holdingdefiner": "S"}},
 	{"transactions", "site_tag_uid", map[string]string{"tappa_app": "SI", "tappa_holdingdefiner": "S"}},
+	// 00064 (M15-02, ADR 0032 §A.2): the business-day cutoff at its four levels. employees,
+	// locations and departments hand tappa_app SELECT/INSERT/UPDATE table-wide (00003, 00002), which
+	// the new column falls under -- the panel sets the override (M15-07). tenants hands it SELECT
+	// table-wide and UPDATE column by column (00024): 00064 names day_cutoff there and nothing else,
+	// and no INSERT -- a new tenant takes the 05:00 default. No other role reads a cutoff: the tap
+	// path resolves it in GetEmployeeForTap, as tappa_app.
+	{"employees", "day_cutoff", map[string]string{"tappa_app": "SIU"}},
+	{"locations", "day_cutoff", map[string]string{"tappa_app": "SIU"}},
+	{"departments", "day_cutoff", map[string]string{"tappa_app": "SIU"}},
+	{"tenants", "day_cutoff", map[string]string{"tappa_app": "SU"}},
+	// 00064 (M15-02, ADR 0032 §A.5): the frozen business day of a tap. transactions' table-level
+	// SELECT and INSERT (00005), nothing else: written once by the tap's INSERT, never updated (§4.3).
+	// Neither feed writer reads it -- the punch event and the site projection carry no business day.
+	{"transactions", "business_day_start", map[string]string{"tappa_app": "SI"}},
 }
 
 // m11FunctionACL is one function's owner, SECURITY DEFINER flag and EXACT EXECUTE grantees
@@ -342,6 +357,10 @@ var m11Functions = map[string]m11FunctionACL{
 	// tappa_app alone -- and the one-way revocation's trigger function, EXECUTE in its owner alone.
 	"resolve_api_key_by_hash(text)":    {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
 	"api_keys_revocation_is_one_way()": {owner: "tappa_owner", execute: "tappa_owner"},
+	// 00064 (M15-02, ADR 0032 §A.6): the checkout classification -- IMMUTABLE, SECURITY INVOKER, it
+	// reads no table (its callers find P, I and W), so its owner is the migration role and its reach
+	// is nothing but its arguments. EXECUTE to tappa_app alone, whose queries call it (M15-05).
+	"tappa_checkout_class(timestamp with time zone,boolean,boolean,boolean,timestamp with time zone,timestamp with time zone)": {owner: "tappa_owner", execute: "tappa_app,tappa_owner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every
@@ -871,8 +890,8 @@ func TestEmployeeHomeVenue_OptionalOnlyWithAnExternalRef(t *testing.T) {
 // migration 00037's trigger. It moves on INSERT and on every UPDATE path that changes a column
 // the integration directory shows -- DeactivateEmployee, a FIRST ConsumeInviteAndActivate,
 // SetEmployeeExternalRef, a rename (full_name, first_name, last_name), a new employee_code --
-// and on NO other: MoveEmployee, SetEmployeeEmail, a SECOND ConsumeInviteAndActivate (the
-// status stays 'active'), a role change. A writer that names updated_at itself is overruled,
+// and on NO other: MoveEmployee, SetEmployeeEmail, SetEmployeeDayCutoff (M15-02), a SECOND
+// ConsumeInviteAndActivate (the status stays 'active'), a role change. A writer that names updated_at itself is overruled,
 // on INSERT and on UPDATE.
 func TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath(t *testing.T) {
 	d := appDB(t)
@@ -977,6 +996,12 @@ func TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath(t *testing.T) {
 				FirstName: &first, LastName: &last, FullName: "Mary Borg", EmployeeCode: &code, TenantID: tenantID, ID: employee})
 			return err
 		}), false},
+		// M15-02 (00064): the person's business-day cutoff is a setting, not a directory column.
+		{"SetEmployeeDayCutoff", q(func(ctx context.Context, s *store.Queries) error {
+			_, err := s.SetEmployeeDayCutoff(ctx, store.SetEmployeeDayCutoffParams{
+				DayCutoff: pgtype.Time{Microseconds: int64(14 * time.Hour / time.Microsecond), Valid: true}, TenantID: tenantID, ID: employee})
+			return err
+		}), false},
 		{"DeactivateEmployee", q(func(ctx context.Context, s *store.Queries) error {
 			_, err := s.DeactivateEmployee(ctx, store.DeactivateEmployeeParams{TenantID: tenantID, ID: employee})
 			return err
@@ -1004,7 +1029,9 @@ func TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath(t *testing.T) {
 // one by one (the API-1 report lists each with what a NULL means for it):
 //
 //	GetEmployeeActivationContext  the activation's Wi-Fi venue -> none (internal/invite)
-//	GetEmployeeForTap             the home venue of the cross-location fact -> not cross-location
+//	GetEmployeeForTap             the home venue of the cross-location fact -> not cross-location;
+//	                              (M15-02) the branch level of the business-day cutoff -> skipped,
+//	                              coalesce(person, department, business)
 //	ListPanelEmployees            roster venue name and the venue filter -> "No home venue"
 //	GetPanelEmployeeForAction     the action card's placement -> "No home venue"; Move gives one
 //	MoveEmployee                  writes a venue (never NULL) and returns it
@@ -1017,9 +1044,13 @@ func TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath(t *testing.T) {
 //	                              in `matching` unless a venue is picked: where the list shows them
 //	ListRollEmployees             (M12-21) the Roll's home venue -> no other-venue mark; the
 //	                              person's counted shifts are Totals.OtherVenueUnknown
+//	ListDayCutoffPeople           (M15-07) the branch level of the business-day settings -> the
+//	                              person inherits no branch (GetEmployeeForTap's skipped level),
+//	                              a branch filter does not match them, their shift is the
+//	                              department's or none
 var employeeLocationReaders = []string{
 	"ConsumeInviteAndActivate", "CountLocationReferences", "CountPanelEmployeesByStatus", "CreateEmployee", "GetEmployeeActivationContext",
-	"GetEmployeeForTap", "GetPanelEmployeeForAction", "InsertManualTransaction", "ListPanelEmployees",
+	"GetEmployeeForTap", "GetPanelEmployeeForAction", "InsertManualTransaction", "ListDayCutoffPeople", "ListPanelEmployees",
 	"ListRollEmployees", "LockEmployeeForExternalRefChange", "MoveEmployee",
 }
 

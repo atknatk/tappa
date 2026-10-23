@@ -168,7 +168,7 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	activation, err := handler.NewActivation(invites, sessions, verifier, trail, brandReader, cfg, log)
 	must(err)
-	directory, err := tenant.NewDirectory(data)
+	directory, err := tenant.NewDirectory(data, cfg.BusinessDayFrom)
 	must(err)
 	checkins, err := checkin.New(data, trail, cfg, log)
 	must(err)

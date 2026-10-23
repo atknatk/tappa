@@ -366,17 +366,21 @@ type AnomalyOpen struct {
 	WasMaskable bool
 }
 
-// MaskedOpenTally is the retrospective half of the ADR 0008 devir note.
+// MaskedOpenTally is the retrospective half of the ADR 0008 devir note: the week's check-ins a
+// practice row of the same person sits after.
 //
-// 🔴 THE SECOND NUMBER IS THE ONE THE OPEN LIST CANNOT PRODUCE. "Open" is `NOT EXISTS
-// (an out after it)`, and one `out` satisfies that for every older unclosed check-in at
-// once -- so a masked entry leaves the list silently on the person's next checkout. It
-// counts as closed while the `out` that closed it belonged to a different check-in.
+// 🔴 UNTIL M15-05 ITS SECOND NUMBER WAS THE ONE THE OPEN LIST COULD NOT PRODUCE: "open" was
+// `NOT EXISTS (an out after it)`, which one `out` satisfied for every older unclosed check-in at
+// once, so a masked entry left the list silently on the person's next checkout. The list now
+// reads ADR 0032 §A.6's definition -- an entry is open unless its OWN next record closes it --
+// and the record a mask produced is an `in`, which closes nothing; so a masked entry stays on
+// the list, and the two numbers split by that same test (CountMaskedOpenCheckIns).
 type MaskedOpenTally struct {
-	// StillOpen is the ones the open list above can still show.
+	// StillOpen is the ones nothing closes: all of them are on the open list above.
 	StillOpen int
-	// ClosedLater is the ones a later checkout has already taken off it.
-	ClosedLater int
+	// ClosedByItsCheckout is the ones whose own next record is a checkout that closes them --
+	// an ordinary pair, which the training tap after it did not hide.
+	ClosedByItsCheckout int
 }
 
 // AnomalyPolicyRule is how many records one rule decided.
@@ -737,8 +741,8 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 			return fmt.Errorf("count masked open check-ins: %w", err)
 		}
 		body.Masked = MaskedOpenTally{
-			StillOpen:   int(masked.StillOpen),
-			ClosedLater: int(masked.ClosedLater),
+			StillOpen:           int(masked.StillOpen),
+			ClosedByItsCheckout: int(masked.ClosedByItsCheckout),
 		}
 
 		rules, err := q.ListAnomalyPolicySids(ctx, store.ListAnomalyPolicySidsParams{
@@ -913,8 +917,9 @@ func mergeSitePlaques(own []AnomalyPlaque, site []store.ListSitePlaqueGapsRow, m
 // LeftOpen is The Pass's "left open since yesterday" (M12-15, D3): how many of YESTERDAY's
 // check-ins no checkout has closed.
 //
-// IT IS THE ODD SHAPES DEFINITION, NOT A NEW ONE: ListOpenCheckIns (a non-practice `in` with no
-// `out` after it, full stop), over yesterday's calendar day in the tenant's zone. No new SQL --
+// IT IS THE ODD SHAPES DEFINITION, NOT A NEW ONE: ListOpenCheckIns (a non-practice `in` whose own
+// next record does not close it -- ADR 0032 §A.6's one classification, the reports section's too,
+// since M15-05), over yesterday's calendar day in the tenant's zone. No new SQL --
 // the card's choice -- so the Pass's number and the Odd shapes list cannot disagree about what an
 // open check-in is, and Day is what the Pass links that list with (its `week` parameter).
 //
@@ -926,7 +931,8 @@ func mergeSitePlaques(own []AnomalyPlaque, site []store.ListSitePlaqueGapsRow, m
 // one simulated day: Index Scan Backward on transactions_tenant_occurred_idx (the day) -> Nested
 // Loop Anti Join probing transactions_tenant_employee_occurred_idx for a later `out` -> the name
 // joins -> Incremental Sort -> Limit 51; 0 rows (the day's one entry was closed), 0.49 ms. One
-// observation on a 22-row table.
+// observation on a 22-row table, of the statement before M15-05 replaced the anti join with the
+// next-record lookup (its header carries that measurement).
 type LeftOpen struct {
 	State Reading
 	// N is the number of yesterday's check-ins still open, exact unless Capped.

@@ -110,7 +110,12 @@ func TestPublicNotFound_IsTheChromeAndOneSentence(t *testing.T) {
 			if followed < len(pages.LegalPages)+1 {
 				t.Errorf("%s: GET %s: followed %d link(s); the footer alone carries more", c.name, path, followed)
 			}
-			if hit := externalReference.FindString(body); hit != "" {
+			scanned, credits := withoutCreditHref(body)
+			if credits != 2 {
+				t.Errorf("%s: GET %s carries the credit href %d time(s), want 2 (the head's "+
+					"rel=\"author\" and the footer's \"Built by\")", c.name, path, credits)
+			}
+			if hit := externalReference.FindString(scanned); hit != "" {
 				t.Errorf("%s: GET %s reaches outside this origin: %q", c.name, path, hit)
 			}
 			lower := strings.ToLower(body)

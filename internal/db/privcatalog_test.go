@@ -165,7 +165,8 @@ SELECT line FROM (
 // 2026-10-19; `TAPPA_PRIVCATALOG_DUMP=1 go test -run TestPrivCatalog_ ./internal/db -v` prints the
 // live one; 00061 changed nine function lines, read again at 00061; 00063 -- M10 OP-15 -- added
 // op_suspend_tenant and op_reinstate_tenant and the two suspension columns to tappa_opdefiner's
-// two tenants lines, read again at 00063) and READ line by line before
+// two tenants lines, read again at 00063; 00064 -- M15-02 -- added day_cutoff to tappa_app's tenants
+// UPDATE line and tappa_checkout_class, read again at 00064) and READ line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
 //   - nine pre-M11 trigger functions (tappa_forbid_*, tappa_check_transaction_review,
@@ -264,7 +265,7 @@ column tenant_branding tappa_app INSERT tenant_id,updated_by
 column tenant_branding tappa_app UPDATE accent,logo,logo_sha256,logo_mime,logo_width,logo_height,updated_at,updated_by
 column tenant_branding tappa_holdingdefiner SELECT tenant_id,accent,logo,logo_sha256,logo_mime,logo_width,logo_height
 column tenants tappa_app INSERT id,name,vat_number,business_type,structure,timezone,vat_verified,vat_checked_at
-column tenants tappa_app UPDATE name,business_type,timezone
+column tenants tappa_app UPDATE name,business_type,timezone,day_cutoff
 column tenants tappa_feedwriter SELECT id,api_enabled_at,api_code
 column tenants tappa_holdingdefiner SELECT id,name,timezone,vat_verified,api_enabled_at,api_code
 column tenants tappa_opdefiner SELECT id,name,vat_number,business_type,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,api_enabled_at,api_code,suspended_at,suspension_reason
@@ -339,6 +340,7 @@ function resolve_tag_by_uid(character) owner=tappa_resolver definer=true execute
 function tappa_audit_at_is_the_wall_clock() owner=tappa_owner definer=false execute=-
 function tappa_billing_amount_due(boolean,numeric,integer) owner=tappa_owner definer=false execute=tappa_app,tappa_opdefiner
 function tappa_check_transaction_review() owner=tappa_owner definer=false execute=-
+function tappa_checkout_class(timestamp with time zone,boolean,boolean,boolean,timestamp with time zone,timestamp with time zone) owner=tappa_owner definer=false execute=tappa_app
 function tappa_employee_is_billable(text,timestamp with time zone,timestamp with time zone,timestamp with time zone,timestamp with time zone) owner=tappa_owner definer=false execute=tappa_app,tappa_opdefiner
 function tappa_employee_lifecycle_status(timestamp with time zone,timestamp with time zone) owner=tappa_owner definer=false execute=tappa_app,tappa_opdefiner
 function tappa_employees_touch_updated_at() owner=tappa_owner definer=false execute=-

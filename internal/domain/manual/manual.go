@@ -423,7 +423,24 @@ type Recorder struct {
 	// debounce, applied to the one other place a client declares a time), and a test
 	// that could not move that clock would have to sleep.
 	now func() time.Time
+	// beforeLock is injectable for tests only; production leaves it nil. It runs inside each
+	// attempt's transaction, after BEGIN and before the person's tap lock -- the one place a
+	// test can hold a correction whose transaction has begun while the person's tap commits
+	// (the window retriesAfterATap closes), deterministically rather than by timing.
+	beforeLock func(attempt int)
 }
+
+// retriesAfterATap is how many times Record starts its transaction again because one of the
+// person's directed records committed after that transaction BEGAN (M15-05; see Record). Each
+// new transaction's now() is after that commit, so one retry answers the race; the bound only
+// stops a person tapping without pause from holding a manager's write off for ever. Past it the
+// record is written anyway (§4.6: a record is never lost): its hours are right -- the pairing
+// reads occurred_at -- and only the checkout classification's W may then lean to (c), the
+// over-reporting side. TestManualRecord_WritesTheCorrectionAfterItsLastRetry pins that.
+const retriesAfterATap = 3
+
+// errBeganBeforeATap is the internal signal to start Record's transaction again.
+var errBeganBeforeATap = errors.New("manual: the transaction began before a record that committed while it waited")
 
 // NewRecorder wires it. A nil database or a nil trail is REFUSED rather than
 // tolerated: a recorder that cannot write the trail would append attendance records
@@ -576,68 +593,15 @@ func (r *Recorder) Record(ctx context.Context, e Entry) (Recorded, error) {
 	backdated := r.Backdated(e.At)
 
 	var out Recorded
-	err := r.data.WithTenant(ctx, e.TenantID, func(ctx context.Context, tx pgx.Tx) error {
-		q := store.New(tx)
-		// WHO AND WHERE, READ FIRST IN THE SAME TRANSACTION, so a 0-row INSERT below can
-		// be told apart: no such person (ErrUnknownEmployee) or no venue to file a
-		// venue-less person at (ErrVenue). The statement remains the authority on
-		// scope; this read only names the refusal.
-		who, err := q.GetPanelEmployeeForAction(ctx, store.GetPanelEmployeeForActionParams{
-			TenantID: e.TenantID, ID: e.EmployeeID,
+	var err error
+	for attempt := 0; ; attempt++ {
+		err = r.data.WithTenant(ctx, e.TenantID, func(ctx context.Context, tx pgx.Tx) error {
+			return r.write(ctx, tx, e, backdated, attempt, &out)
 		})
-		if err != nil {
-			return err
+		if !errors.Is(err, errBeganBeforeATap) {
+			break
 		}
-		if e.SiteLocationID != uuid.Nil {
-			return r.recordAtPartner(ctx, tx, e, backdated, &out)
-		}
-		if who.LocationID == nil && e.LocationID == uuid.Nil {
-			return ErrVenue
-		}
-		params := store.InsertManualTransactionParams{
-			TenantID:   e.TenantID,
-			EmployeeID: e.EmployeeID,
-			EnteredBy:  e.EnteredBy,
-			Type:       string(e.Direction),
-			// UTC IS RESTATED HERE EVEN THOUGH THE COLUMN IS timestamptz AND WOULD
-			// STORE THE SAME INSTANT EITHER WAY. What it protects is the RETURNING
-			// value: a time.Time carrying a location travels back into a template, and
-			// section 6 puts exactly one conversion in the render layer.
-			OccurredAt: e.At.UTC(),
-			Trust:      tap.TrustBase,
-		}
-		if e.Note != "" {
-			n := e.Note
-			params.Note = &n
-		}
-		if who.LocationID == nil {
-			venue := e.LocationID
-			params.LocationID = &venue
-		}
-		row, err := q.InsertManualTransaction(ctx, params)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) && who.LocationID == nil {
-				// The person exists (read above), so no row means the chosen venue did
-				// not resolve inside this business.
-				return ErrVenue
-			}
-			return err
-		}
-		out = Recorded{
-			ID:         row.ID,
-			At:         row.OccurredAt,
-			CreatedAt:  row.CreatedAt,
-			Direction:  Direction(deref(row.Type)),
-			Verdict:    row.Verdict,
-			Channel:    row.Channel,
-			Backdated:  backdated,
-			EmployeeID: e.EmployeeID,
-		}
-		if row.Trust != nil {
-			out.Trust = *row.Trust
-		}
-		return r.trailOf(ctx, tx, e, backdated, false, &out)
-	})
+	}
 	switch {
 	case err == nil:
 	case errors.Is(err, ErrVenue):
@@ -658,6 +622,119 @@ func (r *Recorder) Record(ctx context.Context, e Entry) (Recorded, error) {
 		"record_id", out.ID, "employee_id", e.EmployeeID, "entered_by", e.EnteredBy,
 		"direction", string(e.Direction), "backdated", backdated, "partner_venue", e.SiteLocationID != uuid.Nil)
 	return out, nil
+}
+
+// write is one attempt of Record's transaction: the person's tap lock, the race check, then the
+// read, the INSERT and the trail row.
+func (r *Recorder) write(ctx context.Context, tx pgx.Tx, e Entry, backdated bool, attempt int, out *Recorded) error {
+	q := store.New(tx)
+	if r.beforeLock != nil {
+		r.beforeLock(attempt)
+	}
+	// 🔴 THE PERSON'S TAP LOCK IS THE FIRST STATEMENT (M15-05; ADR 0032 §A.6 "Eşzamanlı yazım").
+	// The checkout classification tells a manager's correction from a forgotten return by WHEN
+	// each row was written (created_at): a correction written while the person's checkout tap is
+	// being decided could otherwise commit with the EARLIER created_at and read as an orphan
+	// checkout (c) rather than a correction's surplus (e). With the tap path's own lock taken
+	// first (LockEmployeeForTap, checkin.go) the two are serial for this person. The order of
+	// locks is the tap path's -- this person's key, then whatever the INSERT's triggers take (the
+	// holding feed's counters, ADR 0027 §8, K-31) -- so no new lock order exists;
+	// pg_advisory_xact_lock is re-entrant in one transaction (a claim approval that takes it
+	// first, M15-16, takes it again here at no cost).
+	if err := q.LockEmployeeForTap(ctx, store.LockEmployeeForTapParams{
+		TenantID: e.TenantID, EmployeeID: e.EmployeeID,
+	}); err != nil {
+		return fmt.Errorf("lock employee: %w", err)
+	}
+	// 🔴 AND SERIAL IS NOT ENOUGH: THREE ORDERS, NOT TWO. created_at is the transaction's START
+	// (now()), and the lock is not the transaction's first instant. So:
+	//
+	//	the tap first            its out is written first, this correction after it: (e).
+	//	the correction first     the tap waits on the lock, then sees the check-in closed and
+	//	                         records an `in`: no surplus out exists.
+	//	the correction BEGAN     its transaction started, then the tap took the lock, wrote its
+	//	first, the tap LOCKED    out and committed, then this one reached the lock -- serial, yet
+	//	first                    this row's created_at is EARLIER than the tap's: the tap's out
+	//	                         would read (c). Measured (M15-05 review): `closes,orphan`.
+	//
+	// The third is detected here, under the lock -- a directed record of this person's committed
+	// after this transaction began (AnyRecordWrittenSinceThisTransactionBegan) -- and answered by
+	// starting again: the new transaction's now() is after that commit, so the correction is
+	// written later than the tap, as it truly was. Bounded (retriesAfterATap); past the bound the
+	// record is written anyway.
+	if attempt < retriesAfterATap {
+		later, err := q.AnyRecordWrittenSinceThisTransactionBegan(ctx, store.AnyRecordWrittenSinceThisTransactionBeganParams{
+			TenantID: e.TenantID, EmployeeID: e.EmployeeID,
+		})
+		if err != nil {
+			return fmt.Errorf("check for a record written meanwhile: %w", err)
+		}
+		if later {
+			return errBeganBeforeATap
+		}
+	} else {
+		r.log.Warn("manual record written after its last retry; its checkout classification may lean to an orphan",
+			"employee_id", e.EmployeeID, "entered_by", e.EnteredBy, "retries", retriesAfterATap)
+	}
+	// WHO AND WHERE, READ FIRST IN THE SAME TRANSACTION, so a 0-row INSERT below can
+	// be told apart: no such person (ErrUnknownEmployee) or no venue to file a
+	// venue-less person at (ErrVenue). The statement remains the authority on
+	// scope; this read only names the refusal.
+	who, err := q.GetPanelEmployeeForAction(ctx, store.GetPanelEmployeeForActionParams{
+		TenantID: e.TenantID, ID: e.EmployeeID,
+	})
+	if err != nil {
+		return err
+	}
+	if e.SiteLocationID != uuid.Nil {
+		return r.recordAtPartner(ctx, tx, e, backdated, out)
+	}
+	if who.LocationID == nil && e.LocationID == uuid.Nil {
+		return ErrVenue
+	}
+	params := store.InsertManualTransactionParams{
+		TenantID:   e.TenantID,
+		EmployeeID: e.EmployeeID,
+		EnteredBy:  e.EnteredBy,
+		Type:       string(e.Direction),
+		// UTC IS RESTATED HERE EVEN THOUGH THE COLUMN IS timestamptz AND WOULD
+		// STORE THE SAME INSTANT EITHER WAY. What it protects is the RETURNING
+		// value: a time.Time carrying a location travels back into a template, and
+		// section 6 puts exactly one conversion in the render layer.
+		OccurredAt: e.At.UTC(),
+		Trust:      tap.TrustBase,
+	}
+	if e.Note != "" {
+		n := e.Note
+		params.Note = &n
+	}
+	if who.LocationID == nil {
+		venue := e.LocationID
+		params.LocationID = &venue
+	}
+	row, err := q.InsertManualTransaction(ctx, params)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) && who.LocationID == nil {
+			// The person exists (read above), so no row means the chosen venue did
+			// not resolve inside this business.
+			return ErrVenue
+		}
+		return err
+	}
+	*out = Recorded{
+		ID:         row.ID,
+		At:         row.OccurredAt,
+		CreatedAt:  row.CreatedAt,
+		Direction:  Direction(deref(row.Type)),
+		Verdict:    row.Verdict,
+		Channel:    row.Channel,
+		Backdated:  backdated,
+		EmployeeID: e.EmployeeID,
+	}
+	if row.Trust != nil {
+		out.Trust = *row.Trust
+	}
+	return r.trailOf(ctx, tx, e, backdated, false, out)
 }
 
 // recordAtPartner is Record's write for a holding PEER's venue (M11 API-1c, ADR 0027 §9): the

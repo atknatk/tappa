@@ -253,6 +253,10 @@ type RosterActionsView struct {
 	ExternalRef          string
 	CanChangeExternalRef bool
 	ExternalRefAction    string
+	// BusinessDay is the person's business-day block (M15-07): the value the tap uses and
+	// where it comes from, and the small form. nil for a deactivated person and on a panel
+	// without the service -- the card then renders exactly as before.
+	BusinessDay *DayCutoffView
 }
 
 // RosterFilterView is the employees section's filter bar: what can be picked, and

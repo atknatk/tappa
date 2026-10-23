@@ -288,6 +288,10 @@ func TestSeedDB_ADayAtKFStJulians(t *testing.T) {
 	elena := f.hire(t, "Elena Petrova", stJulians.ID, "active")
 	marco := f.hire(t, "Marco Bugeja", stJulians.ID, "active")
 	ivan := f.hire(t, "Ivan Petrov", rustyBar.ID, "active")
+	// Ivan's night sits at FIXED wall clocks (rustyBarNight: 18:05, then 02:10), so his business
+	// day is the explicit 05:00 of the Rusty Bar rule (ADR 0032 §A.2) rather than hire's far
+	// cutoff, which moves with the hour the suite runs at and could fall inside the night.
+	f.setDayCutoff(t, ivan, "05:00")
 
 	// Grace has never been activated: no session, no activated_at. She is the
 	// card's chain — invitation -> wizard -> activating tap -> in -> out.

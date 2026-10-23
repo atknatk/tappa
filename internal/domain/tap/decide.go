@@ -52,7 +52,9 @@ var markSessionPresent = uuid.UUID{0: 0x01}
 // BEYOND THE VERDICT. On top of the M4-03 verdict mapping, Decide fills the
 // arithmetic/report fields the later tasks own, each a PURE computation, never a
 // policy decision and never a client claim:
-//   - Type (direction, M4-04): a toggle against the person's last open check-in.
+//   - Type (direction, M4-04, ADR 0032 §A.1): closes the person's last open
+//     check-in only within its business day and StaleOpenIn, else a new `in`;
+//     BusinessDayStart and LeftOpen come with it.
 //   - MinutesLate (M4-05): lateness against the resolved shift; report only.
 //   - Trust (M4-06): 20 + 50(IP) + 30(GPS); INDEPENDENT of the verdict.
 //   - Practice: ALWAYS false since ADR 0026 — the activating NFC tap replaced the
@@ -248,12 +250,17 @@ func Decide(in Input) Decision {
 	// part of the worked-hours chain once approved, so it needs a direction too.
 	// reject, ignored and the no-session redirect carry NONE — Type stays nil (a
 	// pointer so "no direction" is unambiguous, types.go Decision.Type). Direction
-	// is a pure TOGGLE against the person's last OPEN check-in, never calendar day.
+	// is resolved against the person's last OPEN check-in within this tap's
+	// BUSINESS DAY and StaleOpenIn (ADR 0032 §A.1) — never the calendar day.
 	if dec.Verdict == VerdictOK || dec.Verdict == VerdictFlag {
-		dir, note := resolveDirection(in)
-		dec.Type = &dir
-		dec.Note = appendNote(dec.Note, note)
-		dec.EmployeeNote = appendNote(dec.EmployeeNote, note)
+		r := resolveDirection(in)
+		dec.Type = &r.dir
+		dec.BusinessDayStart = r.dayStart
+		dec.LeftOpen = r.leftOpen
+		// Two languages for one fact (ADR 0032 §B.4): the record's note is for the
+		// manager and the report, the screen's for the person at the plaque.
+		dec.Note = appendNote(dec.Note, r.note)
+		dec.EmployeeNote = appendNote(dec.EmployeeNote, r.employeeNote)
 		// NO PRACTICE TAP ANY MORE (ADR 0026). The first tap after activation used
 		// to be a TRAINING record that never counted toward hours (M4-06); the
 		// activation itself now happens on a physical NFC tap, which IS the
@@ -455,55 +462,93 @@ func localTimeOfDay(t time.Time) time.Duration {
 		time.Duration(t.Nanosecond())
 }
 
-// StaleOpenIn is how long a check-in may stay OPEN before this engine treats a
-// closing tap as a probable FORGOTTEN CHECKOUT (§5, M4-04). Beyond it the tap is
-// still resolved to out — never silently in — but annotated (staleOpenInNote) so
-// the manager's anomaly report surfaces it for a manual correction (§5: "the
-// system produces NO checkout; the open record is listed as an anomaly").
+// StaleOpenIn is the longest a check-in may stay OPEN and still be closed by a tap
+// (§5, ADR 0032 §A.1): a tap more than this after the open check-in does NOT close
+// it — it is an `in`, and the old entry stays open as a "checkout missing" anomaly
+// the manager corrects by hand (§5: "the system produces NO checkout"). Exactly
+// StaleOpenIn still closes ("> 18 h is stale").
 //
-// 🔴 IT IS EXPORTED FOR M6-07 AND THAT IS WHAT KEEPS ONE THRESHOLD RATHER THAN TWO.
-// The reports section has to answer the same question from the other side — "is this
-// unclosed check-in still somebody's shift, or is it an anomaly a manager must
-// correct?" — and it also needs a horizon for how far past a reporting period to
-// look for the closing tap. Both are this quantity. A private copy in
-// internal/domain/ledger would be a second representation of a number whose whole
-// job is to make the engine and the report agree about one record.
+// 🔴 UNTIL ADR 0032 IT WAS ONLY A NOTE, AND THAT IS THE DEFECT M15 FIXES. A tap past
+// it was still resolved to `out` and merely annotated, so ONE forgotten checkout
+// inverted the person's chain for good: Tuesday's 09:05 arrival closed Monday's
+// entry, Tuesday's 17:40 departure became an `in`, Wednesday's arrival closed that
+// — and the report paid the nights (measured, ADR 0032 "Ölçülen kusur"). The rule
+// now holds with or without a business day: Input.DayCutoff nil still applies it.
+//
+// 🔴 IT IS EXPORTED AND THAT IS WHAT KEEPS ONE THRESHOLD RATHER THAN TWO. The reports
+// section (M6-07, internal/domain/ledger) answers the same question from the other
+// side and ClassifyCheckout below draws the (a) line with it; migration 00064's
+// tappa_checkout_class spells it as a literal, which M15-05's parity test binds to
+// this constant.
 //
 // WHY 18h, and why a FIXED duration rather than the resolved Shift length:
 //   - No plausible single continuous work session reaches 18h. A double shift with
 //     overtime and breaks stays under it, and the Rusty Bar overnight shift
 //     (18:00->02:00, ~8h) sits comfortably inside — so a legitimate long night is
-//     NEVER mis-flagged, while a check-in left open across a day is.
-//   - Deriving the threshold from Input.Shift would need the timezone/DST wall-clock
-//     resolution that belongs to M4-05 (types.go Shift doc); this M4-04 guard must
-//     also work when Input.Shift is nil. A fixed span keeps direction resolution
-//     pure arithmetic on UTC instants (§6) and out of M4-05's scope.
+//     never split, while a check-in left open across a day is.
+//   - It must also work when Input.Shift and Input.DayCutoff are nil (every caller
+//     before M15-04). A fixed span is pure arithmetic on UTC instants (§6).
 const StaleOpenIn = 18 * time.Hour
 
-// staleOpenInNote is the docket/report annotation for a closing tap whose open
-// check-in is older than StaleOpenIn. It names an anomaly, carries no
-// secret and no raw coordinate (§4.7), and is appended to — never replaces — the
-// deciding policy's reason.
+// staleOpenInNote is the annotation the engine wrote, BEFORE ADR 0032, on an `out`
+// that closed a check-in older than StaleOpenIn. Nothing writes it any more; it stays
+// because historic records carry it (immutable, §4.3) and their readers must still
+// recognise it.
 const staleOpenInNote = "stale open check-in (possible forgotten checkout)"
 
 // StaleOpenInNote is staleOpenInNote for a reader that has to tell the direction's annotation
 // apart from the deciding rule's sentence in a stored note (appendNote joins them with "; "):
 // internal/domain/ledger keeps it on a record at a partner venue whose rule sentence it replaces
-// (M11 API-1c, K-39).
+// (M11 API-1c, K-39). Historic records only since ADR 0032 — see LeftOpenNote.
 const StaleOpenInNote = staleOpenInNote
 
-// resolveDirection decides whether this tap is a check-IN or check-OUT by TOGGLING
-// against the person's last OPEN check-in (Input.LastOpenIn) — the §5/M4-04 rule.
-// It returns the direction and an optional note to append.
+// LeftOpenNote is the RECORD's annotation (manager, report) on an `in` that left the
+// person's previous check-in open (ADR 0032 §A.1, §B.4). It names an anomaly, carries
+// no secret and no coordinate (§4.7), and is appended to — never replaces — the
+// deciding rule's sentence. Exported for the same reader as StaleOpenInNote.
+const LeftOpenNote = "previous check-in left open (no checkout recorded)"
+
+// LeftOpenEmployeeNote is the same fact in the words the person at the plaque reads
+// (Decision.EmployeeNote, ADR 0029's split; ADR 0032 §B.4, Q33's "clock in / clock
+// out" vocabulary). It follows the rule's sentence after "; " like every
+// annotation, so it is lower-case and has no full stop of its own.
+const LeftOpenEmployeeNote = "your previous clock-in has no clock-out"
+
+// direction is resolveDirection's answer: the direction, the business day it was
+// judged in, the check-in it left open, and that fact's two notes.
+type direction struct {
+	dir          Type
+	dayStart     *time.Time
+	leftOpen     *LeftOpen
+	note         string
+	employeeNote string
+}
+
+// resolveDirection decides whether this tap is a check-IN or check-OUT — ADR 0032
+// §A.1's table, in its order:
 //
-// Open check-in present -> this tap CLOSES it -> out. None -> in. That is the whole
-// rule; there is deliberately NO "today's records" window. A calendar-day filter is
-// the classic overnight-shift bug: it would refuse to pair the Rusty Bar 02:10 exit
-// with the previous evening's 18:05 entry because they fall on different dates. The
-// caller's GetLastOpenTransaction query is likewise date-unfiltered (occurred_at
-// DESC, M5/M1-08); Decide must NOT assume a window either. All timing here is pure
-// UTC arithmetic on Input.Now and Transaction.OccurredAt (both UTC, §6) — no local
-// time, no time.Now(); conversion to wall-clock is M4-05's render concern only.
+//	no open check-in (or a practice one)          -> in
+//	open.OccurredAt > at (an out-of-order claim)  -> in
+//	open.OccurredAt < S(at)                       -> in, previous check-in left open
+//	at − open.OccurredAt > StaleOpenIn            -> in, previous check-in left open
+//	otherwise                                     -> out (closes it)
+//
+// (The ADR lists the 18 h row before the S row; both give `in` and the same note, so
+// the order changes only LeftOpen.Reason — previous business day when both hold, the
+// classification's a ∧ b → b.)
+//
+// `at` IS THE TAP'S INSTANT, tapInstant(in) — the declared occurred_at when the
+// client stated one, the server's Now otherwise (ADR 0032 §A.4). Until ADR 0032 the
+// 18 h comparison read in.Now, so an offline-queued Monday 17:00 checkout arriving
+// on Tuesday was measured from Tuesday. GetLastOpenTransaction is bounded by the
+// same instant (@at), so `open` is the check-in open AT the tap.
+//
+// THE BUSINESS DAY IS NOT A CALENDAR DAY. S(at) is the latest cutoff wall clock at
+// or before `at` (BusinessDayStart), so with a 05:00 cutoff the Rusty Bar 02:10 exit
+// is in the business day that started at 05:00 the previous morning and closes the
+// 18:05 entry. No cutoff (Input.DayCutoff nil, or unresolvable) leaves StaleOpenIn
+// alone — the engine never invents 05:00. All arithmetic is on UTC instants (§6);
+// the wall clock enters only through time.Date(…, loc) inside BusinessDayStart.
 //
 // PRACTICE records never hold the chain open (§5, M4-04). Primary enforcement is the
 // caller's query, which excludes practice so a practice record is never passed as
@@ -525,27 +570,216 @@ const StaleOpenInNote = staleOpenInNote
 // the production query can no longer return such a row, this branch is unreachable
 // through checkin and only a hand-built Input reaches it — which is exactly what
 // TestDecide_DirectionPracticeOpenInDoesNotCloseChain does, and all it can prove.
+// Since ADR 0026 no NEW record is practice, so the only practice rows this can meet
+// are historic ones; they were always `in` (ADR 0008).
 //
-// This is only about a PRIOR practice record's effect on the chain. Since ADR 0026
-// no NEW record is practice, so the only practice rows this can meet are historic
-// ones (written before the activation tap replaced the training tap); they were
-// always `in` (ADR 0008) and must still never reappear as a LastOpenIn.
-func resolveDirection(in Input) (dir Type, note string) {
+// EVERY `out` THIS RETURNS IS A CHECKOUT ClassifyCheckout CALLS "closes" when it is
+// read back with the open check-in as its predecessor and this business day as its
+// own — the engine never writes a (b) or an (a) (ADR 0032 §A.6); a test pins it.
+func resolveDirection(in Input) direction {
+	at := tapInstant(in)
+	r := direction{dir: TypeIn}
+	if in.DayCutoff != nil {
+		if s, ok := BusinessDayStart(at, *in.DayCutoff); ok {
+			r.dayStart = &s
+		}
+	}
 	open := in.LastOpenIn
-	if open == nil || open.Practice {
-		return TypeIn, ""
+	if open == nil || open.Practice || open.OccurredAt.After(at) {
+		return r
 	}
-	// An open check-in exists -> close it. Toggle, not calendar day.
-	dir = TypeOut
-	if in.Now.Sub(open.OccurredAt) > StaleOpenIn {
-		note = staleOpenInNote
+	switch {
+	case r.dayStart != nil && open.OccurredAt.Before(*r.dayStart):
+		r.leftOpen = &LeftOpen{ID: open.ID, Reason: LeftOpenPreviousBusinessDay}
+	case at.Sub(open.OccurredAt) > StaleOpenIn:
+		r.leftOpen = &LeftOpen{ID: open.ID, Reason: LeftOpenStale}
+	default:
+		r.dir = TypeOut
+		return r
 	}
-	return dir, note
+	r.note, r.employeeNote = LeftOpenNote, LeftOpenEmployeeNote
+	return r
+}
+
+// BusinessDayStart is S(at): the instant the business day containing `at` started
+// (ADR 0032 §A.3), in UTC. ok is false when the cutoff is outside [0, 24h) or the
+// zone is empty or cannot be loaded — the caller then has no business day, never a
+// guessed one (an empty zone would load as UTC; Malta is not UTC).
+//
+// THE ONE REPRESENTATION. The checkout classification, the claim window (§C.3), the
+// settings warning (§A.7) and the GET /t prediction (§B.2) all need this boundary;
+// each computing its own would be one copy per reader, and over DST copies drift.
+//
+// HOW (ADR 0032 §A.3). For `at`'s local date d, three candidates — the cutoff's wall
+// clock on d − 1, d and d + 1 — and S is the LATEST candidate not after `at`. The
+// shape is forced by measurement rather than taste:
+//
+//   - ONE candidate ("d's, or d − 1's if that is after at") fails where a zone skips
+//     MIDNIGHT. America/Santiago and America/Havana spring forward at 00:00, Go
+//     normalises the missing 00:00 BACKWARD to 23:00 of the previous date, and the
+//     day's cutoff then lies on the wrong side of `at`: with a 00:00 cutoff and
+//     at = 2025-09-06 23:00 −04, S came out 09-06 00:00 and Next 09-06 23:00 — `at`
+//     not inside its own day; 3366 S(S) ≠ S and 90 at ≥ Next over 2025–2027
+//     (measured, M15 engine lens; the instant is pinned in
+//     TestDecide_BusinessDayPinsTheMeasuredInstants). d + 1's candidate is the one
+//     that IS 23:00 there.
+//   - Each candidate's DATE IS NORMALISED FIRST (wallClockOn): d − 1 may be day 0 of
+//     a month, and comparing wall clocks against an unnormalised date fails the
+//     repeated-hour search — measured by the M15 engine lens on its algorithm:
+//     Malta, 02:00 cutoff, S(S) ≠ S 114 times. Here the comparison is against a wall
+//     clock built by time.Date (which normalises it too); a mutation comparing with
+//     the raw date fails the property test.
+//   - A wall clock that happens TWICE (autumn) is resolved explicitly to the EARLIER
+//     instant (wallClockOn); Go's time.Date picks the later one, and the boundary
+//     instant belongs to the new day, so the earlier one is where that day starts.
+//   - A wall clock that does NOT happen (spring, e.g. 02:30 in Malta) is the instant
+//     time.Date normalises it to; tests pin the result.
+func BusinessDayStart(at time.Time, c DayCutoff) (time.Time, bool) {
+	loc, ok := cutoffZone(c)
+	if !ok {
+		return time.Time{}, false
+	}
+	return businessDayStartIn(at, c.Cutoff, loc)
+}
+
+// NextBusinessDayStart is Next(S): the instant the business day starting at `start`
+// ends — S(start + 26 h) (ADR 0032 §A.3), NOT start's local date plus one day. A
+// business day is 22–26 h long across every zone the property test sweeps; 26 h past
+// a start is therefore always inside the following day and never past its end. Its
+// ok is BusinessDayStart's.
+func NextBusinessDayStart(start time.Time, c DayCutoff) (time.Time, bool) {
+	loc, ok := cutoffZone(c)
+	if !ok {
+		return time.Time{}, false
+	}
+	return nextBusinessDayStartIn(start, c.Cutoff, loc)
+}
+
+// nextBusinessDayStartIn is NextBusinessDayStart on a loaded zone.
+func nextBusinessDayStartIn(start time.Time, cutoff time.Duration, loc *time.Location) (time.Time, bool) {
+	return businessDayStartIn(start.Add(26*time.Hour), cutoff, loc)
+}
+
+// cutoffZone validates c and loads its zone. LoadLocation runs per call, as it does
+// for lateness: no package-level cache (CLAUDE.md §7), and tzdata is embedded.
+func cutoffZone(c DayCutoff) (*time.Location, bool) {
+	if c.Cutoff < 0 || c.Cutoff >= 24*time.Hour || c.Timezone == "" {
+		return nil, false
+	}
+	loc, err := time.LoadLocation(c.Timezone)
+	if err != nil {
+		return nil, false
+	}
+	return loc, true
+}
+
+// businessDayStartIn is BusinessDayStart on a loaded zone (the property test drives
+// it directly so the sweep does not load a zone per point).
+func businessDayStartIn(at time.Time, cutoff time.Duration, loc *time.Location) (time.Time, bool) {
+	y, m, d := at.In(loc).Date()
+	var s time.Time
+	found := false
+	for k := -1; k <= 1; k++ {
+		if c := wallClockOn(y, m, d+k, cutoff, loc); !c.After(at) && (!found || c.After(s)) {
+			s, found = c, true
+		}
+	}
+	return s.UTC(), found
+}
+
+// wallClockOn is the instant of the wall clock `cutoff` on the local date (y, m, d)
+// in loc — the date normalised first, a repeated wall clock resolved to its EARLIER
+// instant.
+//
+// THE EARLIER INSTANT, EXPLICITLY. time.Date returns one instant for a wall clock
+// that happens twice and the Go documentation does not promise which (measured: the
+// later). The two instants straddle the start of t's zone period: the earlier one
+// lies in the PREVIOUS period, at wall − (that period's offset). So when t's period
+// began less than 12 h before t (a DST step is at most 2 h — Antarctica/Troll — and
+// transitions are months apart), that instant is computed and taken if its own wall
+// clock really is the target. A wall clock in a spring GAP has no instant at all; no
+// candidate passes the check and t — time.Date's normalisation — stands.
+func wallClockOn(y int, m time.Month, d int, cutoff time.Duration, loc *time.Location) time.Time {
+	y, m, d = time.Date(y, m, d, 12, 0, 0, 0, loc).Date()
+	hh := int(cutoff / time.Hour)
+	mm := int(cutoff % time.Hour / time.Minute)
+	ss := int(cutoff % time.Minute / time.Second)
+	ns := int(cutoff % time.Second)
+	t := time.Date(y, m, d, hh, mm, ss, ns, loc)
+	if start, _ := t.ZoneBounds(); !start.IsZero() && t.Sub(start) < 12*time.Hour {
+		_, before := start.Add(-time.Nanosecond).Zone()
+		wall := time.Date(y, m, d, hh, mm, ss, ns, time.UTC) // the wall clock read as UTC
+		if u := wall.Add(-time.Duration(before) * time.Second); u.Before(start) && sameWall(u.In(loc), wall) {
+			return u
+		}
+	}
+	return t
+}
+
+// sameWall reports whether local's wall clock (date and time of day) is wall's,
+// read as UTC.
+func sameWall(local, wall time.Time) bool {
+	ly, lm, ld := local.Date()
+	wy, wm, wd := wall.Date()
+	return ly == wy && lm == wm && ld == wd && localTimeOfDay(local) == localTimeOfDay(wall)
+}
+
+// ClassifyCheckout is ADR 0032 §A.6's classification of one `out`: which of the six
+// disjoint classes it is in, given the event before it (prev — P and W), whether
+// its business day has an `in` before it (dayHasIn — I), its instant and its frozen
+// business day (outDayStart, nil on rows without one: manual, and before M15).
+// "Closes" is one of its classes, not a second predicate.
+//
+// IT IS THE GO HALF OF ONE RULE WHOSE SQL HALF IS tappa_checkout_class (migration
+// 00064), and it mirrors that function decision for decision, so the two give one
+// answer (M15-05's parity test binds them):
+//
+//	no instant                                         -> "" (the SQL's NULL)
+//	prev is not an in
+//	    no business day                                -> unanchored (d)
+//	    prev is an out ∧ dayHasIn ∧ prev.WrittenLater  -> extra      (e)
+//	    otherwise                                      -> orphan     (c)
+//	prev is an in
+//	    business day set ∧ prev.At < its start         -> other_day  (b)   (a ∧ b → b)
+//	    outAt − prev.At > StaleOpenIn                  -> too_long   (a)
+//	    otherwise                                      -> closes
+//
+// Both closing bounds are INCLUSIVE: an `in` exactly at the business day's start is
+// the new day's (the boundary instant belongs to the new day, §A.2), and an out
+// exactly StaleOpenIn after its `in` closes it. A Prev whose direction is neither in
+// nor out counts as "not an out" — (c) or (d), the reporting side, like the SQL's
+// NULL boolean.
+//
+// The engine does not call it — its question is "should this tap close", answered
+// by resolveDirection — but every `out` the engine writes classifies as closes.
+func ClassifyCheckout(prev *Prev, dayHasIn bool, outAt time.Time, outDayStart *time.Time) CheckoutClass {
+	if outAt.IsZero() {
+		return ""
+	}
+	if prev == nil || prev.Direction != TypeIn {
+		switch {
+		case outDayStart == nil:
+			return CheckoutUnanchored
+		case prev != nil && prev.Direction == TypeOut && dayHasIn && prev.WrittenLater:
+			return CheckoutExtra
+		default:
+			return CheckoutOrphan
+		}
+	}
+	switch {
+	case outDayStart != nil && prev.At.Before(*outDayStart):
+		return CheckoutOtherDay
+	case outAt.Sub(prev.At) > StaleOpenIn:
+		return CheckoutTooLong
+	default:
+		return CheckoutCloses
+	}
 }
 
 // appendNote joins a policy-derived note and a direction-derived one with "; ",
 // keeping either alone when the other is empty. It preserves the deciding rule's
-// human "why" (Decision.Note) while adding M4-04's stale-open-in annotation.
+// human "why" (Decision.Note) while adding the direction's annotation (ADR 0032's
+// left-open note).
 func appendNote(existing, add string) string {
 	switch {
 	case add == "":

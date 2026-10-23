@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/web/templates/layout"
 )
 
@@ -1562,18 +1563,19 @@ type LegalPageView struct {
 	// other three it is nil and the template renders none.
 	Cookies []CookieRow
 
-	// Body is the PUBLISHED text, already split into paragraphs by
-	// internal/domain/legal.Paragraphs (M7-06). Empty means this document has no
-	// text yet and the skeleton renders instead.
+	// Body is the PUBLISHED text, already split into paragraphs of spans by
+	// internal/domain/legal.Paragraphs (M7-06; links since ADR 0033). Empty means this
+	// document has no text yet and the skeleton renders instead.
 	//
-	// 🔴 IT IS []string AND NOT HTML, AND THAT IS THE WHOLE SAFETY ARGUMENT. Every
-	// element goes through templ's `{ }` interpolation, i.e. html.EscapeString, so a
-	// legal text containing <script> renders as the characters somebody typed. The
-	// alternative — building <p> tags in Go and passing them to templ.Raw — is
-	// measured as a blind spot in this repository: templ.Raw has zero call sites and
-	// not one of the twelve tests that scan .templ files would see a first one
-	// appear.
-	Body []string
+	// 🔴 IT IS DATA AND NOT HTML, AND THAT IS THE WHOLE SAFETY ARGUMENT. Every span's
+	// text goes through templ's `{ }` interpolation, i.e. html.EscapeString, so a legal
+	// text containing <script> renders as the characters somebody typed; a span's Href
+	// is one legal.SafeHref accepted (http, https, mailto, tel) and goes into an
+	// attribute through templ.URL. The alternative — building <p> and <a> tags in Go
+	// and passing them to templ.Raw — is measured as a blind spot in this repository:
+	// templ.Raw has zero call sites and not one of the twelve tests that scan .templ
+	// files would see a first one appear.
+	Body []legal.Paragraph
 	// PublishedAt is when the current version was published, already formatted, or
 	// "" when there is none. It is shown because a legal document with no date is a
 	// legal document nobody can cite.

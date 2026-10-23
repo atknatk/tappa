@@ -151,7 +151,9 @@ func partnerNote(r Record) string {
 
 // partnerKeptAnnotations are the sentences the engine appends after a rule's own, in the order it
 // appends them: the shipped note statements' reasons (policy.EffectNote; a tenant copy carries the
-// same words), then the direction's annotation.
+// same words), then the direction's annotation -- the historic stale note (records before ADR 0032)
+// or the left-open note that replaced it (ADR 0032 §A.1, §B.4). A record carries at most one of the
+// two; both are evidence-free.
 var partnerKeptAnnotations = func() []string {
 	var out []string
 	for _, d := range policy.Baseline() {
@@ -161,7 +163,7 @@ var partnerKeptAnnotations = func() []string {
 			}
 		}
 	}
-	return append(out, tap.StaleOpenInNote)
+	return append(out, tap.StaleOpenInNote, tap.LeftOpenNote)
 }()
 
 // PartnerVenueNote stands in for an EVIDENCE rule's sentence on a record taken at a partner venue

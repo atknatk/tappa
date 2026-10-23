@@ -50,7 +50,7 @@ templ AdminReports(v ReportsView) {
 					</p>
 				}
 			}
-			@reportWeekForm(v)
+			@templ.Join(businessDayRelease(v.Release), reportWeekForm(v))
 			if v.Queried {
 				// THE RECEIPT FIRST IN THE DOCUMENT, at every width: a phone reads the week's
 				// figure before the people it is made of. From the desk up the receipt is

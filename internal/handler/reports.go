@@ -172,6 +172,7 @@ func (a *AdminAuth) reportsSection(w http.ResponseWriter, r *http.Request) {
 
 	v := pages.ReportsView{PanelChrome: a.chrome(r, pages.TabReports)}
 	fillReportsView(&v, screen)
+	v.Release = a.businessDayRelease(time.Now(), screen.Zone)
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminReports(v))
 }
 

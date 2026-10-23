@@ -40,6 +40,7 @@ import (
 	"github.com/atknatk/tappa/internal/invite"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // linkChannel captures the activation URL, which is how a real delivery
@@ -73,10 +74,14 @@ func newHarness(t *testing.T, employeeStatus string) *harness {
 			th.locationID, th.tenantID); e != nil {
 			return e
 		}
-		_, e := tx.Exec(ctx,
+		if _, e := tx.Exec(ctx,
 			`INSERT INTO employees (id, tenant_id, location_id, full_name, status, invited_at)
 			 VALUES ($1, $2, $3, 'Maria Borg', $4, now())`,
-			h.employeeID, th.tenantID, th.locationID, employeeStatus)
+			h.employeeID, th.tenantID, th.locationID, employeeStatus); e != nil {
+			return e
+		}
+		// Her own business day, far from now (M15-04): the harness runs with the switch on.
+		_, e := fixtures.GiveFarDayCutoff(ctx, tx, th.tenantID, h.employeeID, time.Now())
 		return e
 	})
 	if err != nil {

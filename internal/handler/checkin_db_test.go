@@ -48,6 +48,7 @@ import (
 	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // recordedTap is one transactions row, read back so a test asserts on what was
@@ -217,10 +218,14 @@ func (h *tapHarness) newEmployee(t *testing.T, status string) uuid.UUID {
 	t.Helper()
 	id := uuid.New()
 	err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx,
+		if _, e := tx.Exec(ctx,
 			`INSERT INTO employees (id, tenant_id, location_id, full_name, status, invited_at, activated_at)
 			 VALUES ($1, $2, $3, 'Joseph Camilleri', $4, now(), now())`,
-			id, h.tenantID, h.locationID, status)
+			id, h.tenantID, h.locationID, status); e != nil {
+			return e
+		}
+		// His own business day, far from now (M15-04): the harness runs with the switch on.
+		_, e := fixtures.GiveFarDayCutoff(ctx, tx, h.tenantID, id, time.Now())
 		return e
 	})
 	if err != nil {
@@ -1807,27 +1812,39 @@ func TestCheckinDB_ScreenTextIsWhatProductionRenders(t *testing.T) {
 		}
 	})
 
-	t.Run("ok out closing a stale check-in: the two-part note", func(t *testing.T) {
+	t.Run("ok in leaving a stale check-in open: the two-part note", func(t *testing.T) {
 		// THE FIFTH NOTE CONSTANT, driven from production. tap.Decide's appendNote
 		// joins the deciding rule's reason to the direction annotation with "; ", and
-		// until this case existed noteStaleOpenIn was a hand-typed copy of
-		// internal/domain/tap's staleOpenInNote bound to nothing: rewording the
-		// engine's string left every test green while the screen table went on
-		// pinning a sentence production no longer emitted.
+		// until this case existed the direction note was a hand-typed copy of
+		// internal/domain/tap's constant bound to nothing: rewording the engine's
+		// string left every test green while the screen table went on pinning a
+		// sentence production no longer emitted.
+		//
+		// REWRITTEN WITH THE REVERSE CLAIM (M15-03, ADR 0032 §A.1, §B.4). A 19-hour-old
+		// open check-in used to be CLOSED by this tap ("Tapped out" + the stale note);
+		// past StaleOpenIn it is now left open and this tap is an `in`. The rule holds
+		// with no business day, which is what production passes until M15-04 wires the
+		// cutoff, so the case does not depend on the time of day it runs at. The two
+		// languages of ADR 0032 §B.4 are both asserted: the RECORD's note is
+		// tap.LeftOpenNote (manager, report), the SCREEN shows the employee's sentence
+		// — typed here by hand on purpose, so a rewording of either fails this case.
 		h := newTapHarness(t)
 		h.openCheckInAgedBy(t, 19*time.Hour)
 		w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+1), h.sessionCookieFor(t), nil)
 		rec := h.lastRecord(t, h.employeeID)
-		if rec.Verdict != "ok" || rec.Type == nil || *rec.Type != "out" {
-			t.Fatalf("verdict/type = %q/%v, want ok/out: this case is not testing the stale-open-in note",
+		if rec.Verdict != "ok" || rec.Type == nil || *rec.Type != "in" {
+			t.Fatalf("verdict/type = %q/%v, want ok/in: this case is not testing the left-open note",
 				rec.Verdict, rec.Type)
 		}
+		if want := noteIPMatched + "; " + noteLeftOpenRecord; rec.Note == nil || *rec.Note != want {
+			t.Fatalf("record note = %v, want %q", rec.Note, want)
+		}
 		got := clockRE.ReplaceAllString(screenText(t, w.Body.String()), "<clock>")
-		want := shell + " St Julians Tapped out <clock> APPROVED Trust 70 " +
-			noteIPMatched + "; " + noteStaleOpenIn +
-			" Great work today. See you next shift! 👋 All done — you can close this page."
+		want := shell + " St Julians Tapped in <clock> APPROVED Trust 70 " +
+			noteIPMatched + "; " + noteLeftOpenScreen +
+			" Have a great shift — keep those kebabs rolling! 🌯 All done — you can close this page."
 		if got != want {
-			t.Fatalf("production stale-check-out screen:\n got: %s\nwant: %s", got, want)
+			t.Fatalf("production left-open screen:\n got: %s\nwant: %s", got, want)
 		}
 	})
 
@@ -1852,8 +1869,16 @@ func TestCheckinDB_ScreenTextIsWhatProductionRenders(t *testing.T) {
 	})
 }
 
+// The left-open annotation in its two languages (ADR 0032 §B.4), typed by hand: the
+// record's (tap.LeftOpenNote) and the screen's (tap.LeftOpenEmployeeNote).
+const (
+	noteLeftOpenRecord = "previous check-in left open (no checkout recorded)"
+	noteLeftOpenScreen = "your previous clock-in has no clock-out"
+)
+
 // openCheckInAgedBy commits an OPEN check-in that occurred `age` ago, so the next
-// real tap resolves to a check-OUT against it.
+// real tap is judged against it (a check-OUT within StaleOpenIn, an `in` that leaves
+// it open beyond).
 //
 // It INSERTs directly rather than tapping, and that is the only way to reach the
 // shape: tap.StaleOpenIn is 18 hours (internal/domain/tap), and a test cannot

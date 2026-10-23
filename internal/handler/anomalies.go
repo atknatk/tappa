@@ -91,6 +91,20 @@ var anomaliesHref = mustSectionHref(pages.TabAnomalies)
 // SHAPE — eight statements, each bounded by the week rather than by history, none of
 // them growing with the tenant's history — and not for any millisecond in it.
 //
+// ⚠️ SINCE M15-05 THAT SHAPE HAS ONE STATED EXCEPTION. ListOpenCheckIns and
+// CountMaskedOpenCheckIns replaced their anti-joins with a next-record lookup (one LATERAL
+// index probe per check-in of the week -- ADR 0032 §A.6's one classification; their headers in
+// db/queries/anomalies.sql carry the before/after on the seed tenant). Neither that lookup nor
+// was_maskable is bounded by the week: each looks AFTER the check-in, to the end of the
+// person's history. The M15-05 review measured the cost on a synthetic tenant of 100 people with
+// 5 000 rows each (2026-10-22, its own measurement, not repeated here): for a week 1 240 days
+// back, ListOpenCheckIns took 43 - 67 ms where the pre-M15-05 statement took 6 - 9 ms, and the
+// review put the time in was_maskable's subplan (`p.practice AND p.occurred_at > t.occurred_at`),
+// not in the LATERAL. So an OLD week of a LARGE tenant costs history-proportional time in that statement. Not
+// fixed here (no migration in this card); the candidate is a partial index for the subplan --
+// `ON transactions (tenant_id, employee_id, occurred_at) WHERE practice`, tiny because practice
+// rows stopped being written (ADR 0026) -- measured before it is added.
+//
 // ⚠️ AND THE WINDOW'S OWN ROW COUNT IS NOT A CONSTANT EITHER, WHICH IS WHY IT IS A
 // QUERY HERE AND NOT A NUMBER. On the day these were taken the same window read 1 063
 // directed non-practice rows in the morning and 1 365 hours later, because every
@@ -184,6 +198,7 @@ func (a *AdminAuth) anomaliesSection(w http.ResponseWriter, r *http.Request) {
 
 	v := pages.AnomaliesView{PanelChrome: a.chrome(r, pages.TabAnomalies)}
 	fillAnomaliesView(&v, screen, time.Now())
+	v.Release = a.businessDayRelease(time.Now(), screen.Zone)
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminAnomalies(v))
 }
 
@@ -363,9 +378,9 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen, now time.
 	}
 
 	v.Masked = pages.MaskedOpenView{
-		Total:       s.Masked.StillOpen + s.Masked.ClosedLater,
-		StillOpen:   plural(s.Masked.StillOpen, "still on the list above", "still on the list above"),
-		ClosedLater: plural(s.Masked.ClosedLater, "already off it", "already off it"),
+		Total:               s.Masked.StillOpen + s.Masked.ClosedByItsCheckout,
+		StillOpen:           plural(s.Masked.StillOpen, "still on the list above", "still on the list above"),
+		ClosedByItsCheckout: plural(s.Masked.ClosedByItsCheckout, "closed by its own checkout", "closed by their own checkout"),
 	}
 
 	v.MorePolicies = s.MorePolicies

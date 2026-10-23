@@ -188,3 +188,19 @@ RETURNING id, name, vat_number, business_type, timezone,
 SELECT (suspended_at IS NOT NULL)::boolean AS suspended
 FROM tenants
 WHERE id = @tenant_id;
+
+-- name: SetTenantDayCutoff :one
+-- The business level of the business-day cutoff (M15-02, migration 00064, ADR 0032
+-- §A.2): the wall-clock time at which every business day of this tenant starts unless
+-- a branch, department or person overrides it. NOT NULL -- the business level never
+-- inherits; it is the end of GetEmployeeForTap's coalesce. tappa_app's UPDATE on
+-- tenants is a column list (00024) and 00064 adds day_cutoff to it, nothing else.
+-- WRITES THE SETTING ONLY. Who may change it, the shift-conflict warning, the
+-- confirmation and the audit_log row are the panel's (M15-07, ADR 0032 §A.7); this
+-- statement is the one write those all go through. It carries its own section 4.5
+-- predicate (tenant_id) and is not left to RLS. RETURNING is what was stored, so
+-- the screen re-renders from the database, not from the form.
+UPDATE tenants
+SET day_cutoff = @day_cutoff
+WHERE id = @tenant_id
+RETURNING id, day_cutoff;

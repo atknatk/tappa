@@ -15,11 +15,12 @@ import (
 
 // TestParagraphs_SplitsOnBlankLinesAndNothingElse.
 //
-// 🔴 THIS FUNCTION IS THE REASON templ.Raw IS NOT REACHED. It returns STRINGS, which
-// the template loops over inside `{ }`, so every character of a legal text stays
-// inside templ's escaping. Anything that made it return markup would move the
-// product's one free-prose-into-a-public-page path into the escape hatch this
-// repository has measured as a blind spot.
+// 🔴 THIS FUNCTION IS THE REASON templ.Raw IS NOT REACHED. It returns DATA (paragraphs
+// of spans), which the template loops over inside `{ }`, so every character of a legal
+// text stays inside templ's escaping. Anything that made it return markup would move
+// the product's one free-prose-into-a-public-page path into the escape hatch this
+// repository has measured as a blind spot. These cases compare the visible text; the
+// link spans have their own table below.
 func TestParagraphs_SplitsOnBlankLinesAndNothingElse(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -83,8 +84,8 @@ func TestParagraphs_SplitsOnBlankLinesAndNothingElse(t *testing.T) {
 				t.Fatalf("Paragraphs(%q) = %q (%d), want %q (%d)", tc.in, got, len(got), tc.want, len(tc.want))
 			}
 			for i := range got {
-				if got[i] != tc.want[i] {
-					t.Errorf("paragraph %d = %q, want %q", i, got[i], tc.want[i])
+				if got[i].Text() != tc.want[i] {
+					t.Errorf("paragraph %d = %q, want %q", i, got[i].Text(), tc.want[i])
 				}
 			}
 		})
@@ -107,8 +108,9 @@ func TestParagraphs_NeverEmitsMarkupOfItsOwn(t *testing.T) {
 		strings.Repeat("word ", 500),
 	}
 	for _, in := range inputs {
-		for _, p := range legal.Paragraphs(in) {
-			for _, bad := range []string{"<p>", "</p>", "<br", "&lt;", "&amp;", "&gt;"} {
+		for _, para := range legal.Paragraphs(in) {
+			p := para.Text()
+			for _, bad := range []string{"<p>", "</p>", "<br", "&lt;", "&amp;", "&gt;", "<a"} {
 				if strings.Contains(p, bad) {
 					t.Errorf("Paragraphs(%.20q...) produced %q, which contains %q. This function "+
 						"must return the operator's own characters and nothing else; producing "+
@@ -120,7 +122,7 @@ func TestParagraphs_NeverEmitsMarkupOfItsOwn(t *testing.T) {
 	// POSITIVE CONTROL with an INDEPENDENT input: markup that WAS in the input must
 	// come out, or the loop above is passing because nothing is being produced at all.
 	got := legal.Paragraphs("before <p>kept</p> after")
-	if len(got) != 1 || !strings.Contains(got[0], "<p>kept</p>") {
+	if len(got) != 1 || !strings.Contains(got[0].Text(), "<p>kept</p>") {
 		t.Errorf("Paragraphs dropped markup that was in the input: %q. The scan above only "+
 			"means something if this function is actually returning the text.", got)
 	}

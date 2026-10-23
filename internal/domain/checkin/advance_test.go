@@ -50,6 +50,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/store"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // countingAdvancer records every AdvanceTagCounter it is asked for.
@@ -480,6 +481,8 @@ func testConfig() *config.Config {
 		// the test is still red). It stays 120 only so a reader does not mistake the
 		// harness value for the shipped one.
 		Freshness: 120 * time.Second,
+		// The business-day switch ON, far in the past: production's mode (ADR 0032 §A.8).
+		BusinessDayFrom: fixtures.BusinessDaySwitchOn(),
 	}
 }
 

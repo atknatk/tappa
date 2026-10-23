@@ -131,7 +131,7 @@ func TestDecide_CrossLocationGetsTheHomeOutcomePlusANote(t *testing.T) {
 				}
 				// No direction note here (no open check-in), so the home note is the
 				// rule's sentence alone and the note follows it.
-				if strings.Contains(home.Note, staleOpenInNote) {
+				if strings.Contains(home.Note, LeftOpenNote) {
 					t.Fatalf("precondition: home note %q carries a direction note", home.Note)
 				}
 				if wantNote := appendNote(home.Note, reason); other.Note != wantNote {
@@ -197,6 +197,10 @@ func sameID(a, b *uuid.UUID) bool {
 // TestDecide_CrossLocationNoteSitsBetweenTheRuleAndTheDirection pins the note's
 // place in the record's note: "<rule>; <cross-location>; <direction>". The order is
 // what ledger.partnerNote relies on to keep the direction's annotation (a suffix).
+//
+// REWRITTEN WITH THE NEW DIRECTION NOTE (M15-03, ADR 0032 §A.1): a 72 h-old open
+// check-in is no longer closed with the stale note — the tap is an `in` that leaves it
+// open, and the direction's annotation is LeftOpenNote. The order is unchanged.
 func TestDecide_CrossLocationNoteSitsBetweenTheRuleAndTheDirection(t *testing.T) {
 	t.Parallel()
 	in := onSiteInput()
@@ -204,17 +208,26 @@ func TestDecide_CrossLocationNoteSitsBetweenTheRuleAndTheDirection(t *testing.T)
 	in.Employee.Location = &home
 	in.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: in.Now.Add(-72 * time.Hour), Direction: TypeIn}
 	got := Decide(in)
-	want := "network proof of place: the source IP matches the location; " + crossLocationReason(t) + "; " + staleOpenInNote
+	want := "network proof of place: the source IP matches the location; " + crossLocationReason(t) + "; " + LeftOpenNote
 	if got.Note != want || got.MatchedSid != policy.SidIPOrGPSOK {
 		t.Fatalf("Note = %q via %q, want %q via %s", got.Note, got.MatchedSid, want, policy.SidIPOrGPSOK)
+	}
+	if got.Type == nil || *got.Type != TypeIn {
+		t.Fatalf("Type = %v, want in (the stale check-in is left open)", got.Type)
 	}
 }
 
 // TestDecide_TheEmployeesNoteHasNoNoteEffect: the same tap -- at another location,
-// closing a stale open check-in -- gives the employee's screen the rule's sentence and
-// the direction's annotation and NOT the cross-location note (user decision
-// 2026-10-19), while the record's note keeps all three. At home the two notes are the
-// same string, so the screen there is what it was before notes existed.
+// leaving a stale open check-in open -- gives the employee's screen the rule's
+// sentence and the direction's annotation in the SCREEN's words, and NOT the
+// cross-location note (user decision 2026-10-19), while the record's note keeps all
+// three in the record's words.
+//
+// REWRITTEN WITH THE REVERSE CLAIM (M15-03, ADR 0032 §B.4). This test used to say that
+// at home "the two notes are the same string". With a direction annotation they no
+// longer are: the record says LeftOpenNote (manager, report), the screen
+// LeftOpenEmployeeNote (the person at the plaque). What still holds at home is that
+// the screen carries no note effect's sentence.
 func TestDecide_TheEmployeesNoteHasNoNoteEffect(t *testing.T) {
 	t.Parallel()
 	rule := "network proof of place: the source IP matches the location"
@@ -223,15 +236,22 @@ func TestDecide_TheEmployeesNoteHasNoNoteEffect(t *testing.T) {
 	away.Employee.Location = &elsewhere
 	away.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: away.Now.Add(-72 * time.Hour), Direction: TypeIn}
 	got := Decide(away)
-	if want := rule + "; " + staleOpenInNote; got.EmployeeNote != want {
+	if want := rule + "; " + LeftOpenEmployeeNote; got.EmployeeNote != want {
 		t.Errorf("EmployeeNote = %q, want %q", got.EmployeeNote, want)
 	}
-	if want := rule + "; " + crossLocationReason(t) + "; " + staleOpenInNote; got.Note != want {
+	if want := rule + "; " + crossLocationReason(t) + "; " + LeftOpenNote; got.Note != want {
 		t.Errorf("Note = %q, want %q", got.Note, want)
 	}
 	home := onSiteInput()
 	home.LastOpenIn = away.LastOpenIn
-	if h := Decide(home); h.EmployeeNote != h.Note || h.Note != rule+"; "+staleOpenInNote {
-		t.Errorf("at home: Note %q, EmployeeNote %q; want both %q", h.Note, h.EmployeeNote, rule+"; "+staleOpenInNote)
+	h := Decide(home)
+	if h.Note != rule+"; "+LeftOpenNote || h.EmployeeNote != rule+"; "+LeftOpenEmployeeNote {
+		t.Errorf("at home: Note %q, EmployeeNote %q; want %q and %q", h.Note, h.EmployeeNote,
+			rule+"; "+LeftOpenNote, rule+"; "+LeftOpenEmployeeNote)
+	}
+	// Without a direction annotation the two are still one string at home.
+	plain := onSiteInput()
+	if p := Decide(plain); p.Note != p.EmployeeNote || p.Note != rule {
+		t.Errorf("at home, no open check-in: Note %q, EmployeeNote %q; want both %q", p.Note, p.EmployeeNote, rule)
 	}
 }

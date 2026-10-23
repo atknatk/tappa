@@ -321,6 +321,10 @@ templ RosterActions(v RosterActionsView) {
 					<a class="btn btn--quiet rounded-xl" href={ templ.URL(v.CloseHref) }>Close</a>
 				</div>
 			</form>
+			if v.BusinessDay != nil {
+				// M15-07: where this person's business day starts and where that comes from.
+				@DayCutoffBlock(*v.BusinessDay)
+			}
 			<section class="flex flex-col gap-2.5 border-t border-dashed border-line pt-4" aria-label="A missed tap?">
 				// 🔴 A LINK TO A GET, NOT A CONTROL THAT WRITES (M6-08). Entering a record
 				// is a two-step flow with its own confirmation, so what belongs on this
