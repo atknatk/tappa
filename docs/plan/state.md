@@ -1701,7 +1701,7 @@ yazılır.
 | M14-02 | done | `62c20c6` + `986c3f0` (birleşme `e8aa61c`); üçüncü göz ONAY (2. tur) |
 | M14-03 | done | `ce9fac0` + `7b3f309` (birleşme `6f14f45`); 00069 + 00070; üçüncü göz + güvenlik ONAY (00070 Down koruması ikinci turda); `scripts/pg-restore-verify.sh` değişmedi — kontrolleri katalogdan türetiliyor |
 | M14-04 | done | 00071, `bc9d761` … `552d19fc` (5 tur); üçüncü göz + güvenlik ONAY. Kullanıcı kararı 2026-10-23: `identity_open_session` `p_verified_digest`'i kimlik kilidi altında denetler. Tenant kuşağı (`internal/db/identitybelt_test.go`) fail-closed + kimlik anahtarı kuralı; `admin_sessions` INSERT'i sütun listesine indi |
-| M14-05 | wip | dal `m14-password`, 00072 (`9b6354b` + `53190c6`); kullanıcı kararıyla `identity_open_reset` + `identity_withdraw_reset` ekleniyor |
+| M14-05 | done | 00072, `9b6354b` … `b0be872f` (union `66df02be` + `ea13085c`); üçüncü göz + güvenlik ONAY. Kullanıcı kararları: `identity_open_reset` (EM-7C) + `identity_withdraw_reset`. Güvenlik turlarında kapananlar: oturum kimlik kilidinden sonra yeniden denetlenir (YÜKSEK, ölçüldü), tek kilit sırası kimlik → üyelikler → token/oturum, saat kilitlerden sonra `clock_timestamp()`, NULL'da kapalı koşullar. **Deploy 1 ön kontrolü:** canlıda pgcrypto (`deploy/README.md`) |
 | M14-06 | wip | dal `m14-backfill`, 00073 (`1f3d439` + `bafdfc8`); iki denetim ONAY, DÜŞÜK turu yeniden denetimde |
 | M14-06b … M14-21 | todo | |
 
