@@ -349,7 +349,13 @@ func (m *Manager) openLegacyProofSession(ctx context.Context, admin, tenant uuid
 // revokeProofs revokes proof sessions that no link consumed. Every one is attempted; the failures
 // are joined and returned (an already revoked session is no failure -- RevokeAdminSession keeps the
 // first stamp).
+//
+// IT IGNORES THE REQUEST'S CANCELLATION (context.WithoutCancel, the M14-07 security audit's fourth low finding): it runs on
+// the paths that unwind, and the commonest reason to unwind is the client going away -- with the
+// request's context the revocation would fail with it and leave a live proof session behind. The
+// values (deadline aside) are kept; the work is bounded by the proofs, at most MaxCandidates.
 func (m *Manager) revokeProofs(ctx context.Context, proofs []proofSession) error {
+	ctx = context.WithoutCancel(ctx)
 	var errs []error
 	for _, p := range proofs {
 		if err := m.Revoke(ctx, p.tenant, p.id); err != nil {
@@ -393,7 +399,8 @@ func (m *Manager) payOneComparison(password, digest string) {
 }
 
 // decoy is the open step of a sign-in that opens no identity session (R14, S15): ONE round trip
-// (db.IdentitySessionDecoy: a transaction id and its commit, no row), then a wait until what
+// (db.IdentitySessionDecoy: a transaction id and its commit, no row -- and, having written no other
+// WAL, a commit that is NOT flushed, where the open's is), then a wait until what
 // identity_open_session has been measured to take (openCost: the median of this process's recent real
 // opens, at most openCostCeiling). See ADR 0031 §5.6's M14-07 note for why it is a wait and not equal
 // database work: no statement tappa_app may run reproduces the open's writes without writing something

@@ -633,3 +633,37 @@ func TestAuthenticatePerson_ConcurrentFailuresKeepTheBudgetExact(t *testing.T) {
 		t.Fatalf("%d login_failed and %d login_limited rows after %d concurrent failures; want %d and 1", failed, limited, n, limit)
 	}
 }
+
+// TestRevokeProofs_SurvivesTheClientGoingAway: proof sessions are revoked on the paths that unwind,
+// and the commonest reason to unwind is a cancelled request; the revocation must still land.
+// MUTATION: drop context.WithoutCancel -> the revocation fails with the request and the session lives.
+func TestRevokeProofs_SurvivesTheClientGoingAway(t *testing.T) {
+	d := testDB(t)
+	m := testManager(t, d)
+	ctx := context.Background()
+	tenantID := newTenantRow(t, d, "M14-07 Gone Ltd")
+	email := randEmail(t)
+	admin := newAdminRow(t, d, tenantID, email, "the-right-password", "active", "owner", "Owner")
+	rows, err := d.GetAdminByEmail(ctx, email)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("GetAdminByEmail: %v", err)
+	}
+	p, err := m.openLegacyProofSession(ctx, admin, tenantID, rows[0].PasswordHash)
+	if err != nil {
+		t.Fatalf("open a proof session: %v", err)
+	}
+	gone, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := m.revokeProofs(gone, []proofSession{p}); err != nil {
+		t.Fatalf("revokeProofs with the request cancelled: %v", err)
+	}
+	var live int
+	if err := d.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM admin_sessions WHERE id = $1 AND revoked_at IS NULL`, p.id).Scan(&live)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if live != 0 {
+		t.Fatal("the proof session is still live after the client went away")
+	}
+}

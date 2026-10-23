@@ -91,10 +91,12 @@ FROM identity_link_legacy($1, $2)`
 const recordFailedIdentityLoginSQL = `SELECT recorded
 FROM identity_record_failed_login($1, $2)`
 
-// identitySessionDecoySQL takes a transaction id and returns it, writing no row: the one autocommitted
-// statement's commit then writes (and, with synchronous_commit, flushes) a WAL commit record, as
-// identity_open_session's commit does. It reads nothing and names no identity, tenant or session --
-// it is the round trip, not the work, and internal/adminauth pads the rest of the work's duration.
+// identitySessionDecoySQL takes a transaction id and returns it, writing no row. Its commit writes a
+// commit record but is NOT flushed: a transaction that wrote no other WAL commits asynchronously
+// whatever synchronous_commit says, where identity_open_session's commit (four writes before it) is
+// flushed. So this is the open's round trip and not its work or its flush; internal/adminauth's wait
+// carries the difference (decoy, ADR 0031 §5.6's M14-07 note). It reads nothing and names no
+// identity, tenant or session.
 const identitySessionDecoySQL = `SELECT pg_catalog.pg_current_xact_id()::text`
 
 // ResolveIdentityByEmail resolves an address to its identity, at most one (admin_identities.email is
@@ -225,8 +227,9 @@ func (d *DB) RecordFailedIdentityLogin(ctx context.Context, identityID uuid.UUID
 
 // IdentitySessionDecoy is the round trip a sign-in makes INSTEAD of OpenIdentitySession whenever it
 // does not open an identity session (ADR 0031 §5.6, R14, S15): one autocommitted statement on the
-// same pool whose commit writes a WAL record and no row. It carries no argument, so it can open
-// nothing and tell the database nothing.
+// same pool that takes a transaction id and writes no row (its commit record is not flushed -- see
+// identitySessionDecoySQL). It carries no argument, so it can open nothing and tell the database
+// nothing.
 func (d *DB) IdentitySessionDecoy(ctx context.Context) error {
 	var xid string
 	if err := d.pool.QueryRow(ctx, identitySessionDecoySQL).Scan(&xid); err != nil {
