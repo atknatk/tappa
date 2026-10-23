@@ -7,6 +7,10 @@
 -- TAPPA_ADMIN_IDENTITY says -- write paths do not wait for the flag (ADR 0031 §8). M14-17 stops
 -- calling it; M14-19 takes tappa_app's EXECUTE away; contract B (M14-20b) drops it.
 --
+-- AND (section 2b, M14-08's audit) identity_consume_row_reset is redefined with its signature
+-- unchanged, so that a linked row's recovery leaves its business the handler's own
+-- admin.recovery.completed detail, key for key -- the row's shape must not say "linked".
+--
 -- NORMATIVE SOURCE: docs/adr/0031-tek-kimlik-cok-isletme.md §5.2 (the function's row: the
 -- structural predicates, the namespaced e-mail lock + ON CONFLICT DO NOTHING -- S13, the SAVEPOINT
 -- trap; the definer's verb x column matrix), §5.10 ("the difference between an existing and a new
@@ -74,6 +78,7 @@ SET LOCAL lock_timeout = '1s';
 DO $$
 BEGIN
     IF pg_catalog.to_regprocedure('public.identity_set_password(text,text)') IS NULL
+       OR pg_catalog.to_regprocedure('public.identity_consume_row_reset(text,text)') IS NULL
        OR pg_catalog.to_regclass('public.admin_identities') IS NULL THEN
         RAISE EXCEPTION 'migration 00074 (M14-08) needs 00069-00073 (admin_identities and the identity functions). Migrate in order. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
@@ -209,6 +214,138 @@ REVOKE ALL ON FUNCTION public.identity_create_for_signup(uuid, uuid) FROM PUBLIC
 GRANT EXECUTE ON FUNCTION public.identity_create_for_signup(uuid, uuid) TO tappa_app;
 
 -- ---------------------------------------------------------------------------
+-- 2b. identity_consume_row_reset, redefined (M14-08 audit: the trail of a linked row's recovery)
+-- ---------------------------------------------------------------------------
+-- From M14-08 on, a per-row link of a LINKED row is spent by this function and the handler writes no
+-- row of its own (adminauth.ConsumedReset.Recorded). 00072's body wrote {"outcome":"ok",
+-- "revoked_sessions":n} -- no reset_id, no retired_count, and revoked_sessions even when 0, where the
+-- handler's row (adminResetDetail, omitempty) has reset_id, retired_count when > 0 and
+-- revoked_sessions when > 0. The SHAPE of the row would then tell the business's owner that the
+-- account is linked -- on a surface the flag does not close. The body below writes, in the link's
+-- own business, exactly the handler's keys and encodings (retired_count is the cancel UPDATE's
+-- ROW_COUNT, the legacy statement's `retired` set: the row's other unused, uncancelled, unexpired
+-- links); internal/handler's identityresetaudit_db_test.go compares the two rows byte for byte.
+-- SAME SIGNATURE (CREATE OR REPLACE: owner and ACL survive, and are restated anyway, ADR 0031 §5.2
+-- T5); the Down puts 00072's body back. Everything else is 00072's body, unchanged.
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION public.identity_consume_row_reset(p_reset_hash text, p_new_hash text)
+    RETURNS TABLE (admin_user_id uuid, tenant_id uuid, reset_id uuid, revoked_sessions integer)
+    LANGUAGE plpgsql
+    VOLATILE
+    SECURITY DEFINER
+    SET search_path = pg_catalog, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+    v_reset    uuid;
+    v_tenant   uuid;
+    v_admin    uuid;
+    v_identity uuid;
+    v_now      timestamptz;
+    v_expires  timestamptz;
+    v_found    boolean;
+    v_n        integer;
+    v_retired  integer;
+    v_detail   jsonb;
+    v_own      integer := 0;
+    m          record;
+BEGIN
+    v_now := pg_catalog.clock_timestamp();
+    -- Read without a lock, only to learn which identity to lock.
+    SELECT r.id, r.tenant_id, r.admin_user_id, a.identity_id INTO v_reset, v_tenant, v_admin, v_identity
+      FROM public.password_resets AS r
+      JOIN public.admin_users AS a ON a.id = r.admin_user_id AND a.tenant_id = r.tenant_id
+     WHERE r.token_hash = p_reset_hash
+       AND r.used_at IS NULL
+       AND r.cancelled_at IS NULL
+       AND r.expires_at > v_now
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id IS NOT NULL;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+
+    -- The identity first, its memberships, then the link, re-checked.
+    PERFORM 1 FROM public.admin_identities AS i WHERE i.id = v_identity FOR UPDATE;
+    PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
+    SELECT r.expires_at INTO v_expires
+      FROM public.password_resets AS r
+      JOIN public.admin_users AS a ON a.id = r.admin_user_id AND a.tenant_id = r.tenant_id
+     WHERE r.id = v_reset
+       AND r.tenant_id = v_tenant
+       AND r.used_at IS NULL
+       AND r.cancelled_at IS NULL
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id = v_identity
+       FOR UPDATE OF r;
+    -- The expiry after the link's own lock, with the clock read again (NULL fails closed).
+    v_found := FOUND;
+    v_now := pg_catalog.clock_timestamp();
+    IF (v_found AND v_expires > v_now) IS NOT TRUE THEN
+        RETURN;
+    END IF;
+    UPDATE public.password_resets AS r SET used_at = now()
+     WHERE r.id = v_reset AND r.tenant_id = v_tenant AND r.used_at IS NULL;
+
+    UPDATE public.admin_identities AS i
+       SET password_hash      = p_new_hash,
+           email_verified_at  = coalesce(i.email_verified_at, now()),
+           confirm_opened_at  = now(),
+           confirm_open_until = now() + interval '7 days',
+           confirm_scope      = 'reset'
+     WHERE i.id = v_identity;
+    UPDATE public.admin_identity_resets AS r SET cancelled_at = now()
+     WHERE r.identity_id = v_identity AND r.used_at IS NULL AND r.cancelled_at IS NULL AND r.expires_at > v_now;
+
+    FOR m IN
+        SELECT a.id, a.tenant_id FROM public.admin_users AS a
+         WHERE a.identity_id = v_identity
+           AND a.unlinked_at IS NULL
+         ORDER BY a.tenant_id
+    LOOP
+        UPDATE public.admin_users AS a SET password_hash = p_new_hash
+         WHERE a.id = m.id AND a.tenant_id = m.tenant_id AND a.identity_id = v_identity;
+        UPDATE public.password_resets AS r SET cancelled_at = now()
+         WHERE r.tenant_id = m.tenant_id AND r.admin_user_id = m.id
+           AND r.used_at IS NULL AND r.cancelled_at IS NULL AND r.expires_at > v_now;
+        GET DIAGNOSTICS v_retired = ROW_COUNT;
+        UPDATE public.admin_sessions AS s SET revoked_at = now()
+         WHERE s.tenant_id = m.tenant_id AND s.admin_user_id = m.id AND s.revoked_at IS NULL;
+        GET DIAGNOSTICS v_n = ROW_COUNT;
+        IF m.tenant_id = v_tenant THEN
+            v_own := v_own + v_n;
+        END IF;
+        -- internal/handler's admin.recovery.completed detail, key for key (adminResetDetail, its
+        -- omitempty tags): the link's own business gets reset_id and, when not zero, the siblings this
+        -- consumption cancelled (retired_count) -- the legacy statement's `retired` count; every
+        -- business gets revoked_sessions only when not zero.
+        v_detail := pg_catalog.jsonb_build_object('outcome', 'ok');
+        IF m.tenant_id = v_tenant THEN
+            v_detail := v_detail || pg_catalog.jsonb_build_object('reset_id', v_reset::text);
+            IF v_retired > 0 THEN
+                v_detail := v_detail || pg_catalog.jsonb_build_object('retired_count', v_retired);
+            END IF;
+        END IF;
+        IF v_n > 0 THEN
+            v_detail := v_detail || pg_catalog.jsonb_build_object('revoked_sessions', v_n);
+        END IF;
+        INSERT INTO public.audit_log (tenant_id, actor_id, action, target, detail)
+        VALUES (m.tenant_id, m.id, 'admin.recovery.completed', m.id::text, v_detail);
+    END LOOP;
+
+    RETURN QUERY SELECT v_admin, v_tenant, v_reset, v_own;
+END;
+$$;
+-- +goose StatementEnd
+ALTER FUNCTION public.identity_consume_row_reset(text, text) OWNER TO tappa_identitydefiner;
+ALTER FUNCTION public.identity_consume_row_reset(text, text) SECURITY DEFINER;
+ALTER FUNCTION public.identity_consume_row_reset(text, text) SET search_path = pg_catalog, pg_temp;
+REVOKE ALL ON FUNCTION public.identity_consume_row_reset(text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.identity_consume_row_reset(text, text) TO tappa_app;
+
+-- ---------------------------------------------------------------------------
 -- 3. POSTCONDITION
 -- ---------------------------------------------------------------------------
 -- +goose StatementBegin
@@ -225,6 +362,14 @@ BEGIN
        OR pg_catalog.has_function_privilege('tappa_opdefiner', f, 'EXECUTE')
        OR NOT pg_catalog.has_function_privilege('tappa_app', f, 'EXECUTE') THEN
         RAISE EXCEPTION 'migration 00074 postcondition: identity_create_for_signup is not the ADR''s shape';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
+                    WHERE p.oid = 'public.identity_consume_row_reset(text,text)'::pg_catalog.regprocedure
+                      AND p.prosecdef AND p.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
+                      AND p.proowner = 'tappa_identitydefiner'::pg_catalog.regrole
+                      AND NOT pg_catalog.has_function_privilege('public', p.oid, 'EXECUTE')
+                      AND pg_catalog.has_function_privilege('tappa_app', p.oid, 'EXECUTE')) THEN
+        RAISE EXCEPTION 'migration 00074 postcondition: the redefined identity_consume_row_reset is not the ADR''s shape';
     END IF;
     IF pg_catalog.has_column_privilege('tappa_identitydefiner', 'public.admin_identities', 'email', 'UPDATE')
        OR pg_catalog.has_column_privilege('tappa_identitydefiner', 'public.admin_users', 'email', 'UPDATE')
@@ -245,3 +390,106 @@ SET LOCAL lock_timeout = '1s';
 REVOKE SELECT (password_hash, xmin) ON admin_users FROM tappa_identitydefiner;
 SET LOCAL lock_timeout = '1s';
 REVOKE SELECT (created_at) ON tenants FROM tappa_identitydefiner;
+
+-- 00072's identity_consume_row_reset, byte for byte, its grants restated.
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION public.identity_consume_row_reset(p_reset_hash text, p_new_hash text)
+    RETURNS TABLE (admin_user_id uuid, tenant_id uuid, reset_id uuid, revoked_sessions integer)
+    LANGUAGE plpgsql
+    VOLATILE
+    SECURITY DEFINER
+    SET search_path = pg_catalog, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+    v_reset    uuid;
+    v_tenant   uuid;
+    v_admin    uuid;
+    v_identity uuid;
+    v_now      timestamptz;
+    v_expires  timestamptz;
+    v_found    boolean;
+    v_n        integer;
+    v_own      integer := 0;
+    m          record;
+BEGIN
+    v_now := pg_catalog.clock_timestamp();
+    -- Read without a lock, only to learn which identity to lock.
+    SELECT r.id, r.tenant_id, r.admin_user_id, a.identity_id INTO v_reset, v_tenant, v_admin, v_identity
+      FROM public.password_resets AS r
+      JOIN public.admin_users AS a ON a.id = r.admin_user_id AND a.tenant_id = r.tenant_id
+     WHERE r.token_hash = p_reset_hash
+       AND r.used_at IS NULL
+       AND r.cancelled_at IS NULL
+       AND r.expires_at > v_now
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id IS NOT NULL;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+
+    -- The identity first, its memberships, then the link, re-checked.
+    PERFORM 1 FROM public.admin_identities AS i WHERE i.id = v_identity FOR UPDATE;
+    PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
+    SELECT r.expires_at INTO v_expires
+      FROM public.password_resets AS r
+      JOIN public.admin_users AS a ON a.id = r.admin_user_id AND a.tenant_id = r.tenant_id
+     WHERE r.id = v_reset
+       AND r.tenant_id = v_tenant
+       AND r.used_at IS NULL
+       AND r.cancelled_at IS NULL
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id = v_identity
+       FOR UPDATE OF r;
+    -- The expiry after the link's own lock, with the clock read again (NULL fails closed).
+    v_found := FOUND;
+    v_now := pg_catalog.clock_timestamp();
+    IF (v_found AND v_expires > v_now) IS NOT TRUE THEN
+        RETURN;
+    END IF;
+    UPDATE public.password_resets AS r SET used_at = now()
+     WHERE r.id = v_reset AND r.tenant_id = v_tenant AND r.used_at IS NULL;
+
+    UPDATE public.admin_identities AS i
+       SET password_hash      = p_new_hash,
+           email_verified_at  = coalesce(i.email_verified_at, now()),
+           confirm_opened_at  = now(),
+           confirm_open_until = now() + interval '7 days',
+           confirm_scope      = 'reset'
+     WHERE i.id = v_identity;
+    UPDATE public.admin_identity_resets AS r SET cancelled_at = now()
+     WHERE r.identity_id = v_identity AND r.used_at IS NULL AND r.cancelled_at IS NULL AND r.expires_at > v_now;
+
+    FOR m IN
+        SELECT a.id, a.tenant_id FROM public.admin_users AS a
+         WHERE a.identity_id = v_identity
+           AND a.unlinked_at IS NULL
+         ORDER BY a.tenant_id
+    LOOP
+        UPDATE public.admin_users AS a SET password_hash = p_new_hash
+         WHERE a.id = m.id AND a.tenant_id = m.tenant_id AND a.identity_id = v_identity;
+        UPDATE public.password_resets AS r SET cancelled_at = now()
+         WHERE r.tenant_id = m.tenant_id AND r.admin_user_id = m.id
+           AND r.used_at IS NULL AND r.cancelled_at IS NULL AND r.expires_at > v_now;
+        UPDATE public.admin_sessions AS s SET revoked_at = now()
+         WHERE s.tenant_id = m.tenant_id AND s.admin_user_id = m.id AND s.revoked_at IS NULL;
+        GET DIAGNOSTICS v_n = ROW_COUNT;
+        IF m.tenant_id = v_tenant THEN
+            v_own := v_own + v_n;
+        END IF;
+        INSERT INTO public.audit_log (tenant_id, actor_id, action, target, detail)
+        VALUES (m.tenant_id, m.id, 'admin.recovery.completed', m.id::text,
+                pg_catalog.jsonb_build_object('outcome', 'ok', 'revoked_sessions', v_n));
+    END LOOP;
+
+    RETURN QUERY SELECT v_admin, v_tenant, v_reset, v_own;
+END;
+$$;
+-- +goose StatementEnd
+ALTER FUNCTION public.identity_consume_row_reset(text, text) OWNER TO tappa_identitydefiner;
+ALTER FUNCTION public.identity_consume_row_reset(text, text) SECURITY DEFINER;
+ALTER FUNCTION public.identity_consume_row_reset(text, text) SET search_path = pg_catalog, pg_temp;
+REVOKE ALL ON FUNCTION public.identity_consume_row_reset(text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.identity_consume_row_reset(text, text) TO tappa_app;
