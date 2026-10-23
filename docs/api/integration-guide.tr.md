@@ -174,6 +174,10 @@ bkz. [bölüm 3.3](#idempotency) ve [bölüm 3.4](#rate-limits).
 <a id="common"></a>
 ## 3. Ortak sözleşme
 
+**Sürüm 1 içinde yanıtlara ve webhook gövdelerine alan eklenebilir: tanımadığınız alanı yok sayın.**
+Bir alanı silmek, adını değiştirmek ya da bir değerin anlamını değiştirmek yeni bir sürümdür. İstek
+gövdeleri bunun tersidir: bir ucun almadığı alan reddedilir ([3.6](#bodies)).
+
 <a id="errors"></a>
 ### 3.1 Hatalar
 
@@ -710,14 +714,15 @@ anından itibaren reddedilir.
 - `location` her zaman bir nesnedir. `id`, `externalRef` ve `name`'i bir lokasyona monte edilmemiş
   bir plaket için `null`'dır (`company` yine plaketin şirketini söyler); iki şirketin grup üyeliği
   bittikten sonra onaylanmış, ortağın lokasyonundaki bir punch için dördü de `null`'dır.
-- `direction` Taptime'ın kendisinindir: takvim gününe göre değil, çalışanın işverendeki son açık
-  girişine göre değişir (18:00 vardiyasının 02:00 çıkışı bir `out`'tur). Sisteminizin onu
-  hesaplaması gerekmez.
+- `direction` işverende kaydedilen yöndür. Taptime onu takvim gününe göre değil, çalışanın
+  işverendeki son açık girişine göre çıkarır (18:00 vardiyasının 02:00 çıkışı bir `out`'tur); çalışan
+  öbürünü seçtiyse (`directionSource: employee`) kaydedilen o seçimdir. Sisteminizin onu hesaplaması
+  gerekmez.
 - Dokunuş sayfası çalışana Taptime'ın tahmin ettiği yönü gösterir ve öbürünü seçmesine izin verir
   ("Not right?"). Böyle bir punch seçilen `direction`'ı ve `directionSource: employee`'yi taşır;
   öbür her punch `directionSource: auto`'yu. Akış alanı taşımadan önce kaydedilmiş bir punch'ta
   `directionSource: null`'dır. Alan sürüm 1'e eklendi: onu okumayan bir istemci öbür her alanı
-  eskisi gibi okur.
+  eskisi gibi okur ([3](#common)).
 - API ile oluşturulan bir çalışanın Taptime'da ev lokasyonu yoktur; bu yüzden Taptime'ın kendi
   raporları onun punch'larını "başka bir lokasyonda" diye işaretlemez.
 
@@ -1155,7 +1160,7 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 27. Şirketler arası bir punch **öbür şirketin kimliklerini** taşır: çalışanın `id`, `externalRef`, `employeeCode` ve `company`'si, lokasyonun `id`, `externalRef`, `name` ve `company`'si ve `tagId`. Bir punch'ın alanları **punch anındaki** değerlerdir (sonradan yapılan bir yeniden adlandırma onu değiştirmez). ([6.2](#feed-scopes))
 28. Başka bir şirketin kayıp ya da emekli bir plaketine dokunuş reddedilir; punch olmaz. ([6.1](#feed-what))
 29. Rehber (`GET /v1/directory`) **sayfalıdır** (`cursor`, en çok 1000). ([8.2](#directory-walk))
-30. Bir KF lokasyonunda başlayıp **bir KM plaketinde** biten bir KM vardiyasında KF (`scope=location`) yalnız **girişi** alır; çıkış bir KM lokasyonu punch'ıdır ve KM'nin iki kapsamında gelir. Her punch Taptime'ın **işverende** hesapladığı `direction`'ı taşır (`in`/`out`); entegrasyonun onu hesaplaması gerekmez. Lokasyonun şirketinin Taptime paneli bir grup çalışanının dokunuşlarını listeler ama sürelerini hesaplamaz ("süre işverende"). ([6.5](#feed-working-time))
+30. Bir KF lokasyonunda başlayıp **bir KM plaketinde** biten bir KM vardiyasında KF (`scope=location`) yalnız **girişi** alır; çıkış bir KM lokasyonu punch'ıdır ve KM'nin iki kapsamında gelir. Her punch **işverende** kaydedilen `direction`'ı taşır (`in`/`out`); entegrasyonun onu hesaplaması gerekmez. Lokasyonun şirketinin Taptime paneli bir grup çalışanının dokunuşlarını listeler ama sürelerini hesaplamaz ("süre işverende"). ([6.5](#feed-working-time))
 31. **`scope=location` ile çalışma süresi hesaplayan entegrasyon dikkat:** bir ortak şirketin çalışanının sizin lokasyonlarınızdaki punch'ları işverenin aradaki olaylarını (öbür şirketin plaketlerindeki dokunuşları) içermez; giriş ve çıkışı yalnız bu kapsamdan eşlemek süreyi **fazla** sayabilir. **Bu `direction` ile de geçerlidir:** her punch'ın yönü doğrudur, ama eksik olan **aradaki olaylardır** — sizin lokasyonunuzdaki bir `in`'in eşi orada hiç görünmeyebilir ya da başka bir lokasyonun `out`'u olabilir. Bir grup çalışanının süresi için işveren şirketin verisi (onun `employer` kapsamı) esastır. ([6.5](#feed-working-time))
 
 <a id="changes"></a>
@@ -1165,4 +1170,4 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 |---|---|---|
 | 1 | 2026-10-16 | API sürüm 1 için ilk baskı. |
 | 2 | 2026-10-18 | §1.4 sandbox'ı anlatır: `tt_test_` anahtarlar, kendi operatörü, e-posta yok ve dokunuş simülasyonu (alan adı henüz seçilmedi). |
-| 3 | 2026-10-22 | §6.3: bir punch `directionSource`'u (`auto` \| `employee` \| `null`) taşır — `direction`'ını kimin seçtiği. Örnekler ve imzanın bilinen cevabı onu taşır. |
+| 3 | 2026-10-22 | §6.3: bir punch `directionSource`'u (`auto` \| `employee` \| `null`) taşır — `direction`'ını kimin seçtiği. Örnekler ve imzanın bilinen cevabı onu taşır. §3: sürüm 1 içinde yanıtlara ve webhook gövdelerine alan eklenebilir — tanımadığınızı yok sayın. 1. ve 2. baskının yanıt şemaları kapalıydı (`additionalProperties: false`); bu baskı punch'ınkileri açar (`Punch`, `PunchDelivery`, `PunchEmployee`, `PunchLocation`, `PunchPage`). |

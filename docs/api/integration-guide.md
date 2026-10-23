@@ -174,6 +174,10 @@ budget and its own deactivation budget, and its own Idempotency-Keys — see
 <a id="common"></a>
 ## 3. The common contract
 
+**Within version 1, answers and webhook bodies can gain fields: ignore a field you do not know.**
+Removing a field, renaming one or changing what a value means is a new version. Request bodies are
+the other way round: a field an endpoint does not take is refused ([3.6](#bodies)).
+
 <a id="errors"></a>
 ### 3.1 Errors
 
@@ -699,14 +703,15 @@ across them are refused from the end on.
 - `location` is always an object. Its `id`, `externalRef` and `name` are `null` for a plaque not
   mounted at a location (`company` still names the plaque's company); all four are `null` for a
   punch at a partner's location that was approved after the two companies' group membership ended.
-- `direction` is Taptime's own: it toggles on the employee's last open entry at the employer, not
-  on the calendar day (a 02:00 exit of an 18:00 shift is an `out`). Your system does not have to
-  work it out.
+- `direction` is the direction recorded at the employer. Taptime works it out from the employee's
+  last open entry at the employer, not from the calendar day (a 02:00 exit of an 18:00 shift is an
+  `out`), unless the employee chose the other one (`directionSource: employee`). Your system does not
+  have to work it out.
 - The tap page shows the employee the direction Taptime predicts and lets them choose the other
   one ("Not right?"). Such a punch carries the chosen `direction` and `directionSource: employee`;
   every other punch `directionSource: auto`. A punch recorded before the feed carried the field has
   `directionSource: null`. The field was added to version 1: a client that does not read it reads
-  every other field as before.
+  every other field as before ([3](#common)).
 - An employee created through the API has no home location in Taptime, so Taptime's own reports do
   not mark their punches as "at another location".
 
@@ -1143,7 +1148,7 @@ explained.
 27. A punch across companies carries **the other company's identifiers**: the employee's `id`, `externalRef`, `employeeCode` and `company`, the location's `id`, `externalRef`, `name` and `company`, and `tagId`. A punch's fields are the values **at the punch** (a later rename does not change it). ([6.2](#feed-scopes))
 28. A touch of another company's lost or retired plaque is refused; it is not a punch. ([6.1](#feed-what))
 29. The directory (`GET /v1/directory`) is **paged** (`cursor`, at most 1000). ([8.2](#directory-walk))
-30. In a KM shift that starts at a KF location and ends **at a KM plaque**, KF (`scope=location`) receives only the **in**; the out is a punch at a KM location and comes in both of KM's scopes. Every punch carries the `direction` Taptime computed **at the employer** (`in`/`out`); the integration does not have to work it out. The Taptime panel of the location's company lists a group employee's touches but does not compute their time ("time is the employer's"). ([6.5](#feed-working-time))
+30. In a KM shift that starts at a KF location and ends **at a KM plaque**, KF (`scope=location`) receives only the **in**; the out is a punch at a KM location and comes in both of KM's scopes. Every punch carries the `direction` recorded **at the employer** (`in`/`out`); the integration does not have to work it out. The Taptime panel of the location's company lists a group employee's touches but does not compute their time ("time is the employer's"). ([6.5](#feed-working-time))
 31. **An integration that computes working time with `scope=location`, beware:** a partner company's employee's punches at your locations do not include the employer's events in between (touches at the other company's plaques); pairing in and out from this scope alone can count the time **too long**. **This holds with `direction` too:** each punch's direction is right, but what is missing are the **events in between** — the pair of an `in` at your location may never appear there, or may be an `out` at another location. For a group employee's time, the employer company's data (its `employer` scope) is the record. ([6.5](#feed-working-time))
 
 <a id="changes"></a>
@@ -1153,4 +1158,4 @@ explained.
 |---|---|---|
 | 1 | 2026-10-16 | The first edition, for API version 1. |
 | 2 | 2026-10-18 | §1.4 describes the sandbox: `tt_test_` keys, its own operator, no e-mail, and the tap simulation (its domain is not chosen yet). |
-| 3 | 2026-10-22 | §6.3: a punch carries `directionSource` (`auto` \| `employee` \| `null`) — who chose its `direction`. The examples and the signature's known answer carry it. |
+| 3 | 2026-10-22 | §6.3: a punch carries `directionSource` (`auto` \| `employee` \| `null`) — who chose its `direction`. The examples and the signature's known answer carry it. §3: within version 1 answers and webhook bodies can gain fields — ignore one you do not know. The answer schemas of editions 1 and 2 were closed (`additionalProperties: false`); this edition opens the punch's (`Punch`, `PunchDelivery`, `PunchEmployee`, `PunchLocation`, `PunchPage`). |

@@ -394,6 +394,13 @@ func (w *world) holding(members ...wbiz) {
 // columns carry the world's canary.
 func (w *world) tap(employer wbiz, site *wbiz, verdict string) uuid.UUID {
 	w.t.Helper()
+	return w.tapChosen(employer, site, verdict, nil)
+}
+
+// tapChosen is tap with transactions.direction_source set (M15-09): nil is NULL, every row before
+// M15-11.
+func (w *world) tapChosen(employer wbiz, site *wbiz, verdict string, source *string) uuid.UUID {
+	w.t.Helper()
 	var id uuid.UUID
 	err := w.app.WithTenant(w.ctx, employer.id, func(ctx context.Context, tx pgx.Tx) error {
 		var location, siteTenant, siteLocation *uuid.UUID
@@ -410,12 +417,12 @@ func (w *world) tap(employer wbiz, site *wbiz, verdict string) uuid.UUID {
 		return tx.QueryRow(ctx, `
 			INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel, type, practice,
 			                          site_tenant_id, site_location_id, site_tag_uid, ctr, sun_valid,
-			                          note, source_ip, gps_lat, gps_lng, trust, policy_layer, matched_sid, policy_context)
+			                          note, source_ip, gps_lat, gps_lng, trust, policy_layer, matched_sid, policy_context, direction_source)
 			VALUES ($1, $2, $3, $4, date_trunc('milliseconds', clock_timestamp()) - interval '1 minute', $5, 'nfc', 'in', false,
-			        $6, $7, $8, $9, $10, $11, '198.51.100.213'::inet, 35.987654, 14.123456, 77, 'guardrail', $12, $13::jsonb)
+			        $6, $7, $8, $9, $10, $11, '198.51.100.213'::inet, 35.987654, 14.123456, 77, 'guardrail', $12, $13::jsonb, $14)
 			RETURNING id`,
 			employer.id, employer.emp, location, tag, verdict, siteTenant, siteLocation, siteTag, ctr, sun,
-			w.canary+"-note", "sys:"+strings.ToLower(w.canary), `{"canary":"`+w.canary+`-context"}`).Scan(&id)
+			w.canary+"-note", "sys:"+strings.ToLower(w.canary), `{"canary":"`+w.canary+`-context"}`, source).Scan(&id)
 	})
 	if err != nil {
 		w.t.Fatalf("tap: %v", err)
@@ -1205,6 +1212,41 @@ func TestWebhookPayload_CarriesNothingButTheFeedItem(t *testing.T) {
 				t.Errorf("%s keys %v, want %v", sub.name, ks, sub.want)
 			}
 		}
+	}
+}
+
+// TestWebhookPayload_CarriesTheRecordsDirectionSource (M15-13; ADR 0032 §B.6): a body's
+// directionSource is the event's, not a constant -- an employee's choice arrives as "employee" in
+// the employer's body AND in the site's body of a holding punch, and a row with no stored source (the
+// engine's choice) as "auto".
+func TestWebhookPayload_CarriesTheRecordsDirectionSource(t *testing.T) {
+	w := newWorld(t)
+	kf, km := w.biz("PK", false), w.biz("PM", false)
+	w.holding(kf, km)
+	employee := "employee"
+	chosen := w.tapChosen(kf, nil, "ok", &employee)
+	engine := w.tapChosen(kf, nil, "ok", nil)
+	across := w.tapChosen(km, &kf, "ok", &employee)
+	job := w.job(w.client(5*time.Second, nil), nil, nil)
+	for _, b := range []wbiz{kf, km} {
+		if err := job.RunFor(context.Background(), b.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := map[string]string{"pch_" + chosen.String(): "employee", "pch_" + engine.String(): "auto", "pch_" + across.String(): "employee"}
+	seen := map[string]int{}
+	for _, h := range w.rcv.all() {
+		m := decode(t, h.body)
+		id, _ := m["id"].(string)
+		got, _ := m["directionSource"].(string)
+		seen[id]++
+		if got != want[id] {
+			t.Errorf("the body of %s carries directionSource %v, want %q", id, m["directionSource"], want[id])
+		}
+	}
+	// KF hears its two taps and the site's row of KM's; KM the employer's row of it.
+	if len(seen) != 3 || seen["pch_"+across.String()] != 2 || seen["pch_"+chosen.String()] != 1 || seen["pch_"+engine.String()] != 1 {
+		t.Errorf("bodies per punch %v, want each own tap once and the holding punch twice", seen)
 	}
 }
 

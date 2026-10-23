@@ -40,6 +40,11 @@ info:
 
     Identifiers: `emp_`, `loc_`, `pch_` and `dlv_` followed by a UUID; `tag_` followed by the plaque's
     UID. Instants are RFC 3339 in UTC with at most microsecond precision.
+
+    Compatibility within version 1: a field may be added to an answer or a webhook body -- ignore a
+    field you do not know (the punch schemas are open: additionalProperties true). Removing a field,
+    renaming one or changing what a value means is a new version. Request bodies stay closed: a field
+    the endpoint does not take is 422 `unknown_field`.
   x-limits:
     requestsPerAddressPerMinute: 1200
     requestsPerKeyPerMinute: 600
@@ -1033,7 +1038,7 @@ components:
           format: date-time
     PunchEmployee:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [id, externalRef, employeeCode, company]
       description: The employee as they were at the punch.
       properties:
@@ -1050,7 +1055,7 @@ components:
           description: The employee's business's company code.
     PunchLocation:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [id, externalRef, name, company]
       description: |
         The location as it was at the punch. id, externalRef and name are null for a plaque that
@@ -1070,8 +1075,9 @@ components:
           description: The location's business's company code.
     Punch:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [id, version, status, punchTime, recordedAt, channel, direction, employee, location, tagId]
+      description: A punch. Open -- version 1 may add fields; ignore a field you do not know.
       properties:
         id:
           type: string
@@ -1100,7 +1106,7 @@ components:
         direction:
           type: string
           enum: [in, out]
-          description: In or out, as Taptime computed it for the employee's own business.
+          description: In or out, the direction recorded at the employee's own business -- Taptime's, or the one the employee chose (directionSource).
         directionSource:
           type: ["string", "null"]
           enum: [auto, employee, null]
@@ -1119,9 +1125,9 @@ components:
           description: The plaque touched (also for a QR punch).
     PunchDelivery:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [event, deliveryId, id, version, status, punchTime, recordedAt, channel, direction, employee, location, tagId]
-      description: A webhook delivery's body -- the Punch with event and deliveryId.
+      description: A webhook delivery's body -- the Punch with event and deliveryId. Open -- version 1 may add fields; ignore a field you do not know.
       properties:
         event:
           type: string
@@ -1157,7 +1163,7 @@ components:
         direction:
           type: string
           enum: [in, out]
-          description: In or out, as Taptime computed it for the employee's own business.
+          description: In or out, the direction recorded at the employee's own business -- Taptime's, or the one the employee chose (directionSource).
         directionSource:
           type: ["string", "null"]
           enum: [auto, employee, null]
@@ -1191,7 +1197,7 @@ components:
           format: date-time
     PunchPage:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [data, nextCursor, hasMore]
       properties:
         data:

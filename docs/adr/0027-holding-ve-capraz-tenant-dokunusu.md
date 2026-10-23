@@ -927,7 +927,11 @@ e-postaları, iki tenant'ın mesai kayıtları (CLAUDE.md §4.3, §4.6), holding
    değişmedi. Katalog pini gevşemedi, yeni sütunu adıyla içerir: `feedWrittenColumns`
    (`TestFeedCatalog_TwoRolesTriggerOrderExecuteOwnerOnlyRelid`), `tappa_app`'in `punch_events` SELECT
    listesi (`TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`) ve iki satırın aynı değeri
-   (`TestPunchDirectionSource_BothFeedWritersCarryTheRowsSource`).
+   (`TestPunchDirectionSource_BothFeedWritersCarryTheRowsSource`). *Kabul edilmiş çıkarım (güvenlik
+   merceği, 2026-10-23):* saha tenant'ı `direction` + `direction_source`'tan motorun o dokunuş için
+   hesapladığı yönü, yani çalışanın işverende açık bir girişi olup olmadığını çıkarabilir; bu bilgi türü
+   `00049`'dan beri `auto` satırlarda (`direction` motorun yönüdür) zaten vardır, `00067` onu `employee`
+   satırlarına da ekler (seçilen yönün tersi motorunkidir) — kabul edilmiş bir durumdur.
 4. **Kendi tenant'ındaki ayrıcalıklı olmayan kod yolu (SQL kusuru, enjeksiyon) `tappa_app` olarak.**
    Erişebileceği en geniş yüzey: kapalı listedeki fonksiyonların sabit dönüşleri, yalnız eş
    tenant'ın anahtarlarıyla. Tetikleyicileri bağlayamaz (EXECUTE yalnız sahipte + `TG_RELID`

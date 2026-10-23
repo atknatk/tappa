@@ -24,21 +24,29 @@ import (
 //     AND in KF's location scope (the site's row -- ADR 0027 §9 item 3's K note);
 //   - an approved flag the employee chose answers "employee";
 //   - a manual record carrying "employee" is in no scope.
+//
+// The rows declare FIXED instants that straddle a UTC midnight (punch_time is the declared instant),
+// so neither the feed nor the history range depends on the machine's clock, date or time zone.
 func TestPunches_DirectionSourceIsTheRecordsInBothCompaniesFeeds(t *testing.T) {
 	w := newPunchWorld(t)
 	employee := sp("employee")
-	auto := w.write(own(w.kf, "nfc", "in"))
-	chosenRow := own(w.kf, "qr", "out")
-	chosenRow.ago, chosenRow.source = 3*time.Minute, employee
+	midnight := time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
+	declared := func(r punchRow, offset time.Duration) punchRow {
+		r.at = tp(midnight.Add(offset))
+		return r
+	}
+	auto := w.write(declared(own(w.kf, "nfc", "in"), -1750*time.Millisecond))
+	chosenRow := declared(own(w.kf, "qr", "out"), -250*time.Millisecond)
+	chosenRow.source = employee
 	chosen := w.write(chosenRow)
-	acrossRow := at(w.km, w.kf, "in")
+	acrossRow := declared(at(w.km, w.kf, "in"), 250*time.Millisecond)
 	acrossRow.source = employee
 	across := w.write(acrossRow)
-	flagRow := own(w.kf, "nfc", "in")
-	flagRow.verdict, flagRow.ago, flagRow.source = "flag", 4*time.Minute, employee
+	flagRow := declared(own(w.kf, "nfc", "in"), 1250*time.Millisecond)
+	flagRow.verdict, flagRow.source = "flag", employee
 	flag := w.write(flagRow)
 	w.review(w.kf, flag, "approved")
-	manual := w.write(punchRow{employer: w.kf, verdict: "ok", channel: "manual", kind: "in", ago: 5 * time.Minute, source: employee})
+	manual := w.write(declared(punchRow{employer: w.kf, verdict: "ok", channel: "manual", kind: "in", source: employee}, 2*time.Second))
 
 	w.checkScope(w.kf, "employer", []uuid.UUID{auto, chosen, flag})
 	w.checkScope(w.kf, "location", []uuid.UUID{auto, chosen, across, flag})
@@ -58,12 +66,34 @@ func TestPunches_DirectionSourceIsTheRecordsInBothCompaniesFeeds(t *testing.T) {
 			}
 		}
 	}
+	// The history range is built from the rows' own instants, in whole seconds: never from the test's
+	// clock. (CI run 39880323091: from = time.Now() carried nanoseconds on Linux -- macOS's clock
+	// ticks in microseconds -- and the API refuses an instant finer than punch_time's microsecond,
+	// 400 invalid_request.) Every event of both businesses lies in [from, to).
+	var from, to time.Time
+	for _, b := range []punchBiz{w.kf, w.km} {
+		for _, f := range w.feedOf(b.id) {
+			if from.IsZero() || f.punchTime.Before(from) {
+				from = f.punchTime
+			}
+			if f.punchTime.After(to) {
+				to = f.punchTime
+			}
+		}
+	}
+	from, to = from.UTC().Truncate(time.Second), to.UTC().Truncate(time.Second).Add(time.Second)
 	for _, b := range []punchBiz{w.kf, w.km} {
 		for _, scope := range []string{"employer", "location"} {
-			check(b.code+" feed scope="+scope, w.all(b, scope, 1000))
-			from := time.Now().Add(-time.Hour)
-			ps, _ := w.walk(b, scope, from, from.Add(2*time.Hour), 1000)
-			check(b.code+" history scope="+scope, ps)
+			feed := w.all(b, scope, 1000)
+			check(b.code+" feed scope="+scope, feed)
+			history, _ := w.walk(b, scope, from, to, 1000)
+			check(b.code+" history scope="+scope, history)
+			got, want := ids(history), ids(feed)
+			slices.Sort(got)
+			slices.Sort(want)
+			if !slices.Equal(got, want) {
+				t.Errorf("%s scope=%s: the history range [%s, %s) answers %v, the feed %v", b.code, scope, from, to, got, want)
+			}
 		}
 	}
 }
@@ -110,8 +140,10 @@ var (
 //     property, not required), so an edition-1 answer -- the same punch without the field -- is
 //     still a valid answer, and so is the answer with it.
 //
-// Not covered, and said so in the report: a client that validates answers against edition 1's
-// document itself, whose Punch is additionalProperties: false, refuses any added field.
+// A client that validated answers against editions 1-2's document, whose punch schemas were closed
+// (additionalProperties: false), would refuse any added field: since edition 3 the punch schemas are
+// open and the rule is written (the guide's §3, ADR 0028 §8's K note of 2026-10-23 -- within v1 an
+// answer may gain fields, ignore the ones you do not know). The schemas below are held open.
 func TestPunches_AV1ClientReadsAPunchWithoutKnowingDirectionSource(t *testing.T) {
 	w := newPunchWorld(t)
 	row := own(w.kf, "nfc", "out")
@@ -178,6 +210,14 @@ func TestPunches_AV1ClientReadsAPunchWithoutKnowingDirectionSource(t *testing.T)
 		}
 		if _, ok := yat(doc, "components", "schemas", schema, "properties", "directionSource"); !ok {
 			t.Errorf("%s does not document directionSource", schema)
+		}
+	}
+	// The rule on the document (2026-10-23): the punch's answer schemas are open, the request bodies
+	// stay closed (422 unknown_field).
+	for schema, open := range map[string]bool{"Punch": true, "PunchDelivery": true, "PunchEmployee": true, "PunchLocation": true,
+		"PunchPage": true, "LocationPut": false, "EmployeePut": false} {
+		if ap, _ := yat(doc, "components", "schemas", schema, "additionalProperties"); ap != open {
+			t.Errorf("%s's additionalProperties is %v, want %v", schema, ap, open)
 		}
 	}
 	punchSchema, _ := yat(doc, "components", "schemas", "Punch")

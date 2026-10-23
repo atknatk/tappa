@@ -534,6 +534,22 @@ kural listesi testle değil **kayıttan** türetilir ve API-10'un ret listesi he
   kararı olan maddeler: 1 (K-2), 2 (K-4), 3 (K-5), 6 (debounce iki şirketin plaketleri arasında —
   ADR 0027), 7 (K-7), 8 (K-20), 11–14 (K-15, K-17, K-24), 17 (K-6), 19 (K-21), 20 (K-19), 22 (K-25),
   23 (K-22), 24 (K-14), 27 (K-32), 29 (rehber sayfalı).
+- *K notu (2026-10-23, kullanıcı kararı, M15-13) — ileri uyum kuralı.* **v1 içinde yanıt ve webhook
+  gövdelerine alan eklenebilir; istemci tanımadığı alanı yok sayar. Alan silmek, ad değiştirmek ya da
+  bir değerin anlamını değiştirmek yeni sürümdür.** İstek gövdeleri kapalı kalır (bilinmeyen alan 422
+  `unknown_field`). Yayımlanan OpenAPI'de punch'ın yanıt şemaları açıldı (`additionalProperties: true`:
+  `Punch`, `PunchDelivery`, `PunchEmployee`, `PunchLocation`, `PunchPage`); rehberin 3. baskısı kuralı
+  §3'te yazar. *Neden:* `directionSource` (M15-13) v1'e eklenen ilk alandır ve 1.–2. baskının kapalı
+  şemasıyla katı doğrulayan bir istemci her eklemeyi reddederdi — v1'i dondurmak ya da her alanda sürüm
+  açmak gerekirdi. Kural, şimdi bunun bedeli yokken konur: kullanıcı kararının gerekçesine göre canlıda
+  kırılacak istemci yoktur (tek anahtar kullanılmamış, webhook teslimi 0; bu sayılar orkestratörün
+  aktardığıdır, bu notun yazarı ölçmedi). *Sızıntı koruması zayıflamadı:* punch anahtarları şemaya değil
+  testlere birebir pinlidir — `TestPunches_NothingButTheFeedsColumnsAnswers`,
+  `TestWebhookPayload_CarriesNothingButTheFeedItem`, `TestPunches_AV1ClientReadsAPunchWithoutKnowingDirectionSource`
+  ve `TestOpenAPI_TheExamplesAreTheHandlersAnswers`; yanıta eklenen bir anahtar (üst düzeyde ya da
+  `employee` içinde) bu testleri açık şemayla da kırmızıya çevirir (ölçüldü, M15-13 düzeltme turu).
+  Şema kapalıyken bile `TestOpenAPI_EveryRouteAndErrorDocumented`'in punch sondaları boş sayfa
+  döndürdüğü için o test bir punch anahtarını yakalamıyordu (aynı turda ölçüldü).
 
 ### 9. Çalışan ve lokasyon uçları, davet kuyruğu (K-7, K-14 … K-18, K-20, K-21, K-24)
 
