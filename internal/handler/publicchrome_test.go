@@ -2,7 +2,6 @@ package handler
 
 import (
 	"bytes"
-	"slices"
 	"strings"
 	"testing"
 
@@ -109,14 +108,10 @@ func TestPublicChrome_LinkScanRefusesATableThePageDoesNotMatch(t *testing.T) {
 	}
 	clone := func() []pages.PublicLink { return append([]pages.PublicLink(nil), pages.PublicProductLinks...) }
 
-	// The table says a page is mounted that the chrome does not draw: the first entry
-	// whose page is not mounted yet, given a route.
-	ahead := clone()
-	unmounted := slices.IndexFunc(ahead, func(l pages.PublicLink) bool { return l.Href == "" })
-	if unmounted < 0 {
-		t.Fatal("PREMISE: every Product entry is mounted; this control needs one that is not (retire it in LP-11)")
-	}
-	ahead[unmounted].Href = "/not-mounted"
+	// The table says a page is mounted that the chrome does not draw. Since LP-09 and
+	// LP-10 every Product entry is mounted, so the entry is a synthetic row -- a path no
+	// card mounts, the way TestPublicPages_TheTableIsTheMountedRoutes' control writes one.
+	ahead := append(clone(), pages.PublicLink{Label: "For nobody", Href: "/for/nobody"})
 	if len(publicChromeLinkViolations(body, ahead, pages.LegalPages)) == 0 {
 		t.Error("a table entry the menu and footer do not draw passed the scan")
 	}

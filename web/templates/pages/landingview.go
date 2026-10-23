@@ -485,12 +485,13 @@ type PublicLink struct {
 
 // PublicProductLinks is the Product column of the footer and the phone menu, in the
 // boards' order. Mounted so far: the product tour (LP-08), the pricing page (LP-06), the
-// security page (LP-07), the integration guide and the production page (LP-10).
+// security page (LP-07), the restaurants page (LP-09), the production page (LP-10) and the
+// integration guide.
 var PublicProductLinks = []PublicLink{
 	{Label: "Product tour", Href: ProductPath},
 	{Label: "Security", Href: SecurityPath},
 	{Label: "Pricing", Href: PricingPath},
-	{Label: "For restaurants & bars"},
+	{Label: "For restaurants & bars", Href: ForRestaurantsPath},
 	{Label: "For production & facilities", Href: ForProductionPath},
 	{Label: "API docs", Href: APIGuidePath},
 }
@@ -520,6 +521,7 @@ var PublicPages = []PublicPage{
 	{Path: ProductPath, Title: "Product tour — Taptime"},
 	{Path: SecurityPath, Title: "Security — Taptime"},
 	{Path: PricingPath, Title: "Pricing — Taptime"},
+	{Path: ForRestaurantsPath, Title: "For restaurants & bars — Taptime"},
 	{Path: ForProductionPath, Title: "For production & facilities — Taptime"},
 }
 
@@ -1185,9 +1187,10 @@ type Audience struct {
 	Points []Claim
 	// Example is the green chip under the paragraph.
 	Example Claim
-	// Href is the route of the shape's own page, or "" while it has none: a card with a
-	// page is one link to it, with Link at its foot (the boards' fits cards). A LINK
-	// ARRIVES WITH ITS ROUTE (README O8): the card stays a plain card until then.
+	// Href is the page the whole card links to, and Link the words at its foot -- the
+	// label PublicProductLinks gives that page. Href is "" while the page is not mounted,
+	// and the card is then no link and draws no foot (plan decision O8: a link arrives
+	// with its route; LP-09 mounted the restaurants page, LP-10 the production page).
 	Href string
 	Link string
 }
@@ -1238,6 +1241,8 @@ var LandingAudiences = []Audience{
 			Text:    "9 sites · 1 dashboard · hours per location",
 			Anchors: []Anchor{AnchorPerVenueReport},
 		},
+		Href: ForRestaurantsPath,
+		Link: "For restaurants & bars",
 	},
 	{
 		Kicker: "Single site, many teams",
@@ -1350,12 +1355,18 @@ var LandingFAQ = []Question{
 		Facts: []Fact{FactManualEntryNamesAManager},
 	},
 	{
-		Q: "What if the phone has no NFC?",
-		A: "The same page opens from a QR code with the camera. A QR tap carries no " +
-			"cryptographic signature — no proof of a physical touch — so it needs your " +
-			"venue's network address to match before it's approved. A position on its own " +
-			"is not enough: without the address it's stored, flagged and queued for review.",
-		Facts: []Fact{FactTapPageNeedsNoApp, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager},
+		// LP-09 review (2026-10-22): this asked "What if the phone has no NFC?" and answered
+		// with the QR code, but a phone is set up only by a real NFC tap (ADR 0026), so a
+		// phone with no NFC never gets as far as a check-in. The QR code is the fallback
+		// for a set-up phone whose NFC is off or fails, and the answer now says both.
+		Q: "What if a phone's NFC fails?",
+		A: "If a phone's NFC is off or fails on the day, the same page opens from the venue's QR " +
+			"code with the camera. A QR tap carries no cryptographic signature — no proof of a " +
+			"physical touch — so it needs your venue's network address to match before it's " +
+			"approved. A position on its own is not enough: without the address it's stored, " +
+			"flagged and queued for review. Setting a phone up still takes one real tap on a plaque.",
+		Facts: []Fact{FactTapPageNeedsNoApp, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager,
+			FactActivationEndsOnARealTap, FactSetupTakesARealTap},
 	},
 	{
 		Q: "Can someone clock in from home?",

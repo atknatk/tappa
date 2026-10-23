@@ -76,6 +76,7 @@ var nonPanelTemplates = map[string]string{
 	"pages/pricing.templ":          "marketing (the public pricing page, LP-06)",
 	"pages/security.templ":         "marketing (the public security page, LP-07)",
 	"pages/product.templ":          "marketing (the public product tour, LP-08)",
+	"pages/forrestaurants.templ":   "marketing (the public restaurants page, LP-09)",
 	"pages/forproduction.templ":    "marketing (the public production page, LP-10)",
 	"pages/legal.templ":            "marketing (the legal pages)",
 	"pages/apiguide.templ":         "marketing (the public API guide)",

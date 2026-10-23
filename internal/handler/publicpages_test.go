@@ -47,11 +47,14 @@ func publicPagesCopy() map[string]publicCopy {
 		landing[fmt.Sprintf("LandingPricingIncludes[%d]", i)] = l
 	}
 	return map[string]publicCopy{
-		"/":                     {lines: landing, questions: pages.LandingFAQ},
-		pages.PricingPath:       {lines: pricingLines(), questions: pages.PricingFAQ},
-		pages.SecurityPath:      {lines: securityLines()},
-		pages.ProductPath:       {lines: productLines()},
-		pages.ForProductionPath: {lines: forProductionLines()},
+		"/":                {lines: landing, questions: pages.LandingFAQ},
+		pages.PricingPath:  {lines: pricingLines(), questions: pages.PricingFAQ},
+		pages.SecurityPath: {lines: securityLines()},
+		pages.ProductPath:  {lines: productLines()},
+
+		// The For pages (LP-09 …), one row each.
+		pages.ForRestaurantsPath: {lines: restaurantsLines()},
+		pages.ForProductionPath:  {lines: forProductionLines()},
 	}
 }
 
@@ -220,6 +223,12 @@ func TestPublicPages_TheTableIsTheMountedRoutes(t *testing.T) {
 	if productPath != pages.ProductPath {
 		t.Errorf("Mount registers %q and the page's path is %q", productPath, pages.ProductPath)
 	}
+	if forRestaurantsPath != pages.ForRestaurantsPath {
+		t.Errorf("Mount registers %q and the page's path is %q", forRestaurantsPath, pages.ForRestaurantsPath)
+	}
+	if pages.PublicPageTitle(pages.ForRestaurantsPath) == "Taptime" {
+		t.Error("the restaurants page has no row title")
+	}
 	if forProductionPath != pages.ForProductionPath {
 		t.Errorf("Mount registers %q and the page's path is %q", forProductionPath, pages.ForProductionPath)
 	}
@@ -246,8 +255,9 @@ func TestPublicPages_TheTableIsTheMountedRoutes(t *testing.T) {
 	if len(publicTableProblems(mounted, without)) == 0 {
 		t.Error("CONTROL: a table without /pricing passed while /pricing is mounted")
 	}
-	// CONTROL: a row nobody mounted.
-	ahead := append(slices.Clone(pages.PublicPages), pages.PublicPage{Path: "/for/restaurants", Title: "For restaurants & bars — Taptime"})
+	// CONTROL: a row nobody mounted (a path no card mounts; it was /for/restaurants
+	// until LP-09 mounted that page).
+	ahead := append(slices.Clone(pages.PublicPages), pages.PublicPage{Path: "/for/nobody", Title: "Nobody — Taptime"})
 	if len(publicTableProblems(mounted, ahead)) == 0 {
 		t.Error("CONTROL: a row with no route passed")
 	}

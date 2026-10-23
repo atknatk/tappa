@@ -3309,6 +3309,197 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 }
 
 /* =========================================================================
+   THE RESTAURANTS PAGE (LP-09, 2026-10-22)
+
+   /for/restaurants, from the ForRestaurants / T-ForRestaurants /
+   M-ForRestaurants boards (web/templates/pages/forrestaurants.templ). The
+   opening, the bands, the section frame, the trust strip, the bullets
+   (.lp-prodBullets), the panel's docket (.lp-secDocket) and small stamp, the
+   icon tile, The Roll's drawing (.lp-mini*), the "next step" link and the
+   sign-off are the other pages'; what is here is the page's own furniture: the
+   chain card, the overnight timeline, the venue table, the cover drawing, the
+   forgotten check-out's three cards, the four chores and The Roll's legend --
+   and the landing fit card's foot, now that the card is a link.
+
+   ONE DOM AT EVERY WIDTH. The phone stacks a section's words over its drawing,
+   the forgotten check-out's cards in a column and the chores in a column; the
+   tablet puts the chores two by two and the three cards in a row; from the
+   desktop the words and the drawing share a row and the chores are four.
+
+   THE TIMELINE'S GEOMETRY IS A FIXED SET OF CLASSES, not values in the markup:
+   its axis runs twelve hours from 16:00, so 18:00 sits at 16.6667%, midnight at
+   66.6667%, 02:00 at 83.3333%, and the sample's two taps at 17:58 (16.39%) and
+   02:04 (83.89%). internal/handler holds these to the sample's times and to
+   Rusty Bar's hours in the seed.
+
+   THE DRAWINGS ARE PICTURES (role img): nothing in them is pressed, so they
+   reserve no 44px floor. The fit card, the buttons and the "next step" link are
+   pressed, and reserve it.
+
+   CONTRAST, MEASURED (the WCAG ratio, alpha composited over its ground):
+     ink at 72% on paper / porcelain        6.47:1 / 6.08:1  the tiles' hours /
+                                                             The Roll's legend
+     ink at 75% on paper                    7.17:1  the step details, the axis
+     paper at 72% on ink                    8.92:1  the dashboard's sub-line
+     green on paper                         7.73:1  the fit card's foot, the
+                                                    step numbers
+     green on the shift's band              5.37:1  the shift's name (green at
+                                                    16% over porcelain)
+   ========================================================================= */
+
+/* ---------------- the landing's fit card, as a link ---------------- */
+.lp .lp-fitLink { display: inline-flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 6px; font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--green); }
+.lp .lp-fitLink svg { display: block; }
+
+/* ---------------- the opening ---------------- */
+.lp .lp-forHero { display: flex; flex-direction: column; gap: 32px; }
+.lp .lp-forHeroCopy { display: flex; flex-direction: column; min-width: 0; }
+.lp .lp-forLede { margin-bottom: 16px; }
+.lp .lp-forBuilt { max-width: 560px; font-size: 15.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .8); }
+
+/* The chain card: the venues as tiles, the lines into one dashboard. */
+.lp .lp-forChain { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 16px; box-shadow: 0 20px 50px rgb(var(--ink-ch) / .1); }
+/* The drawing inside the card is the picture; the chip under it is words. */
+.lp .lp-forChainDraw { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.lp .lp-forTiles { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.lp .lp-forTile { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.lp .lp-forTile--night { border-color: var(--ink); }
+.lp .lp-forTileIcons { display: flex; align-items: center; justify-content: space-between; gap: 4px; color: var(--green); }
+.lp .lp-forTileIcons svg { display: block; }
+.lp .lp-forTileName { overflow-wrap: anywhere; font-family: var(--mono); font-size: 10px; font-weight: 700; line-height: 1.25; letter-spacing: .02em; text-transform: uppercase; }
+.lp .lp-forTileHours { font-family: var(--mono); font-size: 10px; color: rgb(var(--ink-ch) / .72); }
+.lp .lp-forFeed { display: block; width: 100%; height: 26px; }
+.lp .lp-forDash { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; background: var(--ink); color: var(--paper); }
+.lp .lp-forDashDot { position: relative; flex: none; display: inline-block; width: 26px; height: 26px; border-radius: 50%; background: var(--green); }
+.lp .lp-forDashRing { position: absolute; inset: 5px; border: 2px solid rgb(var(--paper-ch) / .92); border-radius: 50%; }
+.lp .lp-forDashWords { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lp .lp-forDashName { font-size: 15px; font-weight: 700; }
+.lp .lp-forDashSub { font-family: var(--mono); font-size: 11px; color: rgb(var(--paper-ch) / .72); }
+.lp .lp-forEx { align-self: flex-start; margin-top: 0; }
+
+/* ---------------- a section's words beside its drawing ---------------- */
+.lp .lp-forRow { display: flex; flex-direction: column; gap: 28px; }
+.lp .lp-forSide { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; min-width: 0; }
+.lp .lp-forSide > .lp-prodBullets { align-self: stretch; }
+.lp .lp-forAfterTitle { margin-top: 12px; }
+.lp .lp-forPara { font-size: 15.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
+.lp .lp-forChip { margin-top: 0; font-size: 12px; }
+.lp .lp-forCard { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 16px; }
+.lp .lp-forDocketNote { padding: 5px 8px; border-left: 2px solid var(--line); background: rgb(var(--ink-ch) / .04); font-family: var(--mono); font-size: 10.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .8); }
+
+/* ---------------- the overnight shift ---------------- */
+.lp .lp-forTl { position: relative; margin: 54px 0 4px; }
+.lp .lp-forTlSpan { position: absolute; left: 16.39%; right: 16.11%; top: -52px; text-align: center; font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--green); }
+.lp .lp-forTlBrace { position: absolute; left: 16.39%; right: 16.11%; top: -34px; height: 8px; border: 2px solid var(--green); border-bottom: 0; }
+.lp .lp-forTlTrack { position: relative; height: 34px; border: 1px solid var(--line); border-radius: 8px; background: var(--porcelain); }
+.lp .lp-forTick1 { left: 16.6667%; }
+.lp .lp-forTick2 { left: 33.3333%; }
+.lp .lp-forTick3 { left: 50%; }
+.lp .lp-forTick4 { left: 66.6667%; }
+.lp .lp-forTick5 { left: 83.3333%; }
+.lp .lp-forTlShift { position: absolute; left: 16.6667%; right: 16.6667%; top: 6px; bottom: 6px; border: 1px solid var(--green); border-radius: 5px; background: rgb(var(--green-ch) / .16); }
+.lp .lp-forTlShiftName { position: absolute; left: 16.6667%; top: 9px; padding-left: 8px; font-family: var(--mono); font-size: 10px; font-weight: 700; white-space: nowrap; color: var(--green); }
+.lp .lp-forTlMidnight { position: absolute; left: 66.6667%; top: -8px; bottom: -8px; width: 0; border-left: 2px dashed var(--ink); }
+.lp .lp-forTlTap { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink); }
+.lp .lp-forTlIn { left: 16.39%; }
+.lp .lp-forTlOut { left: 83.89%; }
+.lp .lp-forTlTag { position: absolute; bottom: -24px; padding: 1px 6px; border: 1px solid var(--ink); background: var(--paper); font-family: var(--mono); font-size: 11px; font-weight: 700; white-space: nowrap; transform: translateX(-50%); }
+.lp .lp-forTlAxis { display: flex; justify-content: space-between; margin-top: 30px; font-family: var(--mono); font-size: 10px; color: rgb(var(--ink-ch) / .75); }
+/* The phone prints every other hour, as M-ForRestaurants does (16:00, 20:00, 00:00, 04:00):
+   still evenly spaced, so space-between still places them. */
+.lp .lp-forTlAxis span:nth-child(even) { display: none; }
+.lp .lp-forTlDays { position: relative; height: 16px; margin-top: 4px; font-family: var(--mono); font-size: 11px; font-weight: 700; }
+.lp .lp-forTlNextDay { position: absolute; left: 66.6667%; padding-left: 6px; }
+.lp .lp-forPair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.lp .lp-forPair .lp-secDocketTop { flex-direction: column; gap: 6px; }
+
+/* ---------------- the venues ---------------- */
+.lp .lp-forTableBox { min-width: 0; overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+.lp .lp-forTable { width: 100%; border-collapse: collapse; }
+.lp .lp-forTable caption { caption-side: top; padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+.lp .lp-forTable thead th { padding: 10px; font-size: 10px; font-weight: 400; text-align: left; }
+.lp .lp-forTable tbody tr { border-top: 1px dashed var(--line); }
+.lp .lp-forTable tbody th { padding: 10px; font-size: 13px; font-weight: 700; text-align: left; }
+.lp .lp-forTable td { padding: 10px; font-family: var(--mono); font-size: 11.5px; }
+.lp .lp-forHours { white-space: nowrap; }
+.lp .lp-forNight { display: block; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-forNet { overflow-wrap: anywhere; color: rgb(var(--ink-ch) / .8); }
+
+/* ---------------- covering another venue ---------------- */
+.lp .lp-forMove { display: flex; align-items: center; gap: 10px; }
+.lp .lp-forPlace { flex: 1 1 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 12px; border: 1.5px dashed var(--line); border-radius: 12px; }
+.lp .lp-forPlace--here { border: 1.5px solid var(--ink); background: var(--paper); }
+.lp .lp-forPlace .lp-lbl { font-size: 9.5px; }
+.lp .lp-forPlaceName { overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; font-weight: 700; text-transform: uppercase; }
+.lp .lp-forMoveArrow { flex: none; display: inline-flex; color: var(--green); }
+.lp .lp-forMoveArrow svg,
+.lp .lp-forStepArrow svg { display: block; }
+
+/* ---------------- a forgotten check-out ---------------- */
+/* An ordered list of cards; the arrow between two sits in the gap, inside the later
+   card's item, so every card keeps one width. */
+.lp .lp-forSteps { list-style: none; display: flex; flex-direction: column; align-items: stretch; gap: 34px; }
+.lp .lp-forStep { position: relative; flex: 1 1 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 16px; }
+.lp .lp-forStepNo { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--green); }
+.lp .lp-forStepTitle { font-size: 15px; font-weight: 700; line-height: 1.3; }
+.lp .lp-forStepDetail { font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .75); }
+.lp .lp-forStepArrow { position: absolute; left: 50%; top: -26px; display: inline-flex; color: var(--green); transform: translateX(-50%); }
+.lp .lp-forStepArrow svg { rotate: 90deg; }
+.lp .lp-forUnder { max-width: 760px; margin-top: 24px; }
+
+/* ---------------- day to day ---------------- */
+.lp .lp-forCases { list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.lp .lp-forCase { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: start; gap: 14px; padding: 18px; }
+.lp .lp-forCaseText { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.lp .lp-forCase .lp-lbl { font-size: 10.5px; }
+.lp .lp-forCaseLine { font-size: 16px; font-weight: 700; line-height: 1.35; letter-spacing: -0.01em; }
+
+/* ---------------- the hours ---------------- */
+.lp .lp-forSample { font-family: var(--mono); font-size: 13px; line-height: 1.6; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-forRoll { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.lp .lp-forLegend { list-style: none; display: flex; flex-wrap: wrap; gap: 8px 18px; font-family: var(--mono); font-size: 11px; line-height: 1.5; color: rgb(var(--ink-ch) / .72); }
+.lp .lp-forLegend li { display: inline-flex; align-items: center; gap: 6px; }
+.lp .lp-forKey { flex: none; display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.lp .lp-forKey--worked,
+.lp .lp-forKey--away { background: rgb(var(--green-ch) / .15); }
+.lp .lp-forKey--away { box-shadow: inset 0 0 0 1px var(--ink); }
+.lp .lp-forKey--open { border: 1px dashed var(--saffron); background: rgb(var(--saffron-ch) / .1); }
+.lp .lp-forKey--none { width: auto; height: auto; }
+
+@media (min-width: 768px) {
+  .lp .lp-forChain { padding: 22px; }
+  .lp .lp-forTile { padding: 10px; }
+  .lp .lp-forTileName { font-size: 11px; }
+  .lp .lp-forTileHours { font-size: 10.5px; }
+  .lp .lp-forAfterTitle { margin-top: 32px; }
+  .lp .lp-forCard { padding: 20px; }
+  .lp .lp-forTlShiftName { font-size: 10.5px; }
+  .lp .lp-forTlAxis { font-size: 11px; }
+  .lp .lp-forTlAxis span:nth-child(even) { display: inline; }
+  .lp .lp-forPair { gap: 14px; }
+  .lp .lp-forPair .lp-secDocketTop { flex-direction: row; gap: 8px; }
+  .lp .lp-forTable caption { padding: 12px 14px; }
+  .lp .lp-forTable thead th { padding: 12px 14px; }
+  .lp .lp-forTable tbody th { padding: 10px 14px; font-size: 14px; }
+  .lp .lp-forTable td { padding: 10px 14px; font-size: 12.5px; }
+  .lp .lp-forNight { display: inline; }
+  .lp .lp-forSteps { flex-direction: row; gap: 36px; }
+  .lp .lp-forStepArrow { left: -27px; top: 50%; transform: translateY(-50%); }
+  .lp .lp-forStepArrow svg { rotate: none; }
+  .lp .lp-forCases { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .lp .lp-forCase { padding: 20px; }
+}
+@media (min-width: 1200px) {
+  .lp .lp-forHero { display: grid; grid-template-columns: minmax(0, 1fr) 540px; align-items: center; gap: 56px; }
+  .lp .lp-forRow { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); align-items: start; gap: 56px; }
+  .lp .lp-forRow--even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .lp .lp-forRow--wide { grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); }
+  .lp .lp-forCases { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .lp .lp-forCase { display: flex; flex-direction: column; gap: 10px; }
+  .lp .lp-forCaseText { gap: 10px; }
+}
+
+/* =========================================================================
    THE PRODUCTION PAGE (LP-10, 2026-10-22)
 
    /for/production, from the ForProduction / T-ForProduction / M-ForProduction
@@ -3318,8 +3509,8 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
    screen's pieces (.lp-prod*), the icon tile and the sign-off are the landing's
    and the other pages'; what is here is the page's own furniture: the gate and
    its departments, the shifts timeline, the department's Pass, the queue, the
-   floor's cards and the phone cut at the counter -- and the landing fits
-   card's foot line, now that the card is a link.
+   floor's cards and the phone cut at the counter -- and the focus ring of
+   the landing's fits cards, now that both are links.
 
    THE TIMELINE IS A CLOSED SET OF POSITIONS. It runs 03:00 to 18:00 (900
    minutes); a time the page draws is placed by one class below
@@ -3350,10 +3541,9 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
      ink on green-lite                     13.70:1  the plaque's two signs
    ========================================================================= */
 
-/* ---------------- the landing's fits card, as a link ---------------- */
-/* The ring follows the card's own corner. */
+/* ---------------- the landing's fits cards, focused ---------------- */
+/* The ring follows the card's own corner (the foot line, .lp-fitLink, is LP-09's). */
 .lp .fitcard:focus-visible { border-radius: 18px; }
-.lp .lp-fitLink { display: inline-flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 6px; font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--green); }
 
 /* ---------------- the opening ---------------- */
 .lp .lp-fpHero { display: flex; flex-direction: column; gap: 36px; }

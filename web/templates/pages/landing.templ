@@ -1,6 +1,7 @@
 package pages
 
 import (
+	"path"
 	"strconv"
 	"strings"
 
@@ -690,9 +691,10 @@ templ landingMiniRoll() {
 // paragraph is Audience.Paragraph: the card's sentences joined by one space.
 //
 // THE BOARDS DRAW EACH CARD AS ONE LINK, to /for/restaurants and /for/production,
-// with the page's name at its foot. A card becomes that link when its page has a route
-// (Audience.Href, README O8): LP-10 mounted /for/production; until a card's page
-// exists it stays a plain card with no link and no such line.
+// with the page's name at its foot. A card whose page is mounted (Audience.Href) is
+// that link -- the whole card one <a>, nothing else in it pressed, the focus ring
+// around the card -- and a card whose page is not is a plain card with no foot
+// (README O8: LP-09 linked the restaurants card with its route, LP-10 the production card).
 templ landingFits() {
 	<div class="band band--porcelain">
 		<section class="lp-sec">
@@ -701,18 +703,18 @@ templ landingFits() {
 				<h2 class="lp-h2">Chains and facilities, one system.</h2>
 				<p class="lp-lede">Whether your people are spread across a city or across one production floor, Taptime maps to how you actually operate.</p>
 				<div class="lp-fits">
-					for i, a := range LandingAudiences {
+					for _, a := range LandingAudiences {
 						if a.Href != "" {
-							<a class="card fitcard lp-fit" href={ templ.URL(a.Href) } aria-labelledby={ landingFitID(i, "title") + " " + landingFitID(i, "link") } aria-describedby={ landingFitID(i, "body") }>
-								@landingFitBody(a, i)
-								<span class="lp-fitLink" id={ landingFitID(i, "link") }>
+							<a class="card fitcard lp-fit" href={ templ.URL(a.Href) } aria-labelledby={ landingFitID(a, "title") + " " + landingFitID(a, "link") } aria-describedby={ landingFitID(a, "body") }>
+								@landingFitBody(a)
+								<span class="lp-fitLink" id={ landingFitID(a, "link") }>
 									{ a.Link }
 									@moreArrow()
 								</span>
 							</a>
 						} else {
 							<div class="card lp-fit">
-								@landingFitBody(a, i)
+								@landingFitBody(a)
 							</div>
 						}
 					}
@@ -722,20 +724,26 @@ templ landingFits() {
 	</div>
 }
 
-// landingFitBody is a fits card's words: the kicker, the heading, the paragraph and the
-// example chip. A card that is a link holds nothing else that can be pressed; its name is
-// the heading and the page's name (aria-labelledby) and the paragraph describes it, so the
-// link is not announced as its whole text.
-templ landingFitBody(a Audience, i int) {
+// landingFitBody is a fit card's words: the kicker, the title, the paragraph and the chip.
+// A card that is a link is NAMED by its title and its foot (aria-labelledby) and DESCRIBED
+// by its paragraph (aria-describedby), so the link is not announced as its whole text;
+// the ids are the card's own, from its page's path.
+templ landingFitBody(a Audience) {
 	<span class="lp-fitKick">{ a.Kicker }</span>
-	<h3 class="lp-fitTitle" id={ landingFitID(i, "title") }>{ a.Title }</h3>
-	<p class="lp-fitBody" id={ landingFitID(i, "body") }>{ a.Paragraph() }</p>
+	if a.Href != "" {
+		<h3 class="lp-fitTitle" id={ landingFitID(a, "title") }>{ a.Title }</h3>
+		<p class="lp-fitBody" id={ landingFitID(a, "body") }>{ a.Paragraph() }</p>
+	} else {
+		<h3 class="lp-fitTitle">{ a.Title }</h3>
+		<p class="lp-fitBody">{ a.Paragraph() }</p>
+	}
 	<span class="lp-fitEx">{ a.Example.Text }</span>
 }
 
-// landingFitID is the id of part of fits card i.
-func landingFitID(i int, part string) string {
-	return "fit-" + itoa(i) + "-" + part
+// landingFitID is the id of one part of a linked fit card: "fit-restaurants-title" for
+// the card that links to /for/restaurants.
+func landingFitID(a Audience, part string) string {
+	return "fit-" + path.Base(a.Href) + "-" + part
 }
 
 // landingPricing is the price section: the one-piece price card and, under it, the way

@@ -414,6 +414,8 @@ func (m *Marketing) Mount(r chi.Router) {
 	r.Head(securityPath, m.Security)
 	r.Get(pricingPath, m.Pricing)
 	r.Head(pricingPath, m.Pricing)
+	r.Get(forRestaurantsPath, m.ForRestaurants)
+	r.Head(forRestaurantsPath, m.ForRestaurants)
 	r.Get(forProductionPath, m.ForProduction)
 	r.Head(forProductionPath, m.ForProduction)
 	for _, p := range pages.LegalPages {
@@ -526,6 +528,21 @@ func (m *Marketing) Product(w http.ResponseWriter, r *http.Request) {
 		FreeMonths: foundingFreeMonths,
 		Figures:    m.product,
 		Copy:       m.productCopy,
+	}))
+}
+
+// forRestaurantsPath is pages.ForRestaurantsPath, spelled out so the route scan can read
+// it; the public-page table test holds the two equal.
+const forRestaurantsPath = "/for/restaurants"
+
+// ForRestaurants serves GET /for/restaurants (LP-09). The page's sentences and its demo
+// table are values of the pages package (pages.RestaurantsCopy, pages.RestaurantsVenues);
+// what the handler hands in is the chrome's two ways in and the founding offer's months.
+func (m *Marketing) ForRestaurants(w http.ResponseWriter, r *http.Request) {
+	m.render(w, r, pages.ForRestaurants(pages.ForRestaurantsView{
+		SignupHref: m.signupHref,
+		SignInHref: adminLoginPath,
+		FreeMonths: foundingFreeMonths,
 	}))
 }
 

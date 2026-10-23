@@ -127,6 +127,7 @@ var pageFactDerivations = []func(*testing.T) map[pages.Fact]func() string{
 	pricingFactDerivations,
 	securityFactDerivations,
 	productFactDerivations,
+	restaurantsFactDerivations,
 	forProductionFactDerivations,
 }
 
@@ -1333,11 +1334,14 @@ func TestLanding_UsesOnlyPaletteTokens(t *testing.T) {
 // sitePageTemplates is the template each page of the public site is drawn by. A page
 // card adds its row with its route.
 var sitePageTemplates = map[string]string{
-	"/":                     "landing.templ",
-	pages.PricingPath:       "pricing.templ",
-	pages.SecurityPath:      "security.templ",
-	pages.ProductPath:       "product.templ",
-	pages.ForProductionPath: "forproduction.templ",
+	"/":                "landing.templ",
+	pages.PricingPath:  "pricing.templ",
+	pages.SecurityPath: "security.templ",
+	pages.ProductPath:  "product.templ",
+
+	// The For pages (LP-09 …), one row each.
+	pages.ForRestaurantsPath: "forrestaurants.templ",
+	pages.ForProductionPath:  "forproduction.templ",
 }
 
 // landingFAQAnswerBeforeM11 is "Where does the data go?" as the page answered it until

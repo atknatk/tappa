@@ -1722,6 +1722,11 @@ var securityRefusedPhrasings = map[string]string{
 	// enter the feed").
 	"every punch": "a record typed by a manager does not enter the feed or the webhook",
 	"Each punch":  "a record typed by a manager does not enter the feed or the webhook",
+	// LP-09 review: a phone is set up only by a real NFC tap (ADR 0026), so a phone with
+	// no NFC never reaches the QR fallback; the QR code is for a set-up phone whose NFC
+	// is off or fails.
+	"A phone without NFC": "a phone is set up only by a real NFC tap (ADR 0026)",
+	"no NFC":              "a phone is set up only by a real NFC tap (ADR 0026)",
 }
 
 // TestSecurityPage_SaysNoneOfTheRefusedPhrasings: the review's refused sentences are on

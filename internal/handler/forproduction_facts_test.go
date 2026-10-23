@@ -916,84 +916,15 @@ func TestForProductionPage_TheDrawingsAreWhatTheProductWouldDraw(t *testing.T) {
 
 // --- the links ------------------------------------------------------------------------------
 
-// fitsSectionRE is the landing's "Built for both shapes of business" section.
-var fitsSectionRE = regexp.MustCompile(`(?s)<div class="lp-fits">.*?</section>`)
-
 // fitsText is a piece of markup as words: tags dropped, entities read, runs of space one.
 func fitsText(markup string) string {
 	return asRendered(html.UnescapeString(regexp.MustCompile(`<[^>]+>`).ReplaceAllString(markup, " ")))
 }
 
-// fitsLinkProblems is every way the landing's fits cards depart from their pages: a card
-// whose shape has a page is one link to it, holding the card's words and the page's name
-// and nothing else that can be pressed; a card without one is no link.
-func fitsLinkProblems(body string) []string {
-	var out []string
-	section := fitsSectionRE.FindString(body)
-	if section == "" {
-		return []string{"the landing has no fits section"}
-	}
-	for _, a := range pages.LandingAudiences {
-		title := `>` + templEscape(a.Title) + `</h3>`
-		at := strings.Index(section, title)
-		if at < 0 {
-			out = append(out, a.Title+"'s card is not drawn")
-			continue
-		}
-		plain := strings.LastIndex(section[:at], `<div class="card lp-fit">`)
-		linked := strings.LastIndex(section[:at], `<a class="card fitcard lp-fit" href="`)
-		if a.Href == "" {
-			if linked > plain {
-				out = append(out, a.Title+" has no page and its card is a link")
-			}
-			continue
-		}
-		m := regexp.MustCompile(`(?s)<a class="card fitcard lp-fit" href="` + regexp.QuoteMeta(a.Href) + `"([^>]*)>(.*?)</a>`).FindStringSubmatch(section)
-		if m == nil || linked < plain || !strings.Contains(m[2], title) {
-			out = append(out, a.Title+"'s card is not one link to "+a.Href)
-			continue
-		}
-		// Its name is the heading and the page's name, its description the paragraph: not
-		// the card's whole text.
-		named := map[string]string{}
-		for _, part := range []string{"labelledby", "describedby"} {
-			if r := regexp.MustCompile(`aria-` + part + `="([^"]*)"`).FindStringSubmatch(m[1]); r != nil {
-				for _, id := range strings.Fields(r[1]) {
-					el := regexp.MustCompile(`(?s)id="` + regexp.QuoteMeta(id) + `"[^>]*>(.*?)</(?:h3|p|span)>`).FindStringSubmatch(m[2])
-					if el == nil {
-						out = append(out, fmt.Sprintf("%s's link names #%s, which is not inside it", a.Title, id))
-						continue
-					}
-					named[part] += " " + fitsText(el[1])
-				}
-			}
-		}
-		if asRendered(named["labelledby"]) != asRendered(a.Title+" "+a.Link) {
-			out = append(out, fmt.Sprintf("%s's link is named %q; it is the heading and the page's name", a.Title, named["labelledby"]))
-		}
-		if asRendered(named["describedby"]) != asRendered(a.Paragraph()) {
-			out = append(out, fmt.Sprintf("%s's link is described by %q; it is the paragraph", a.Title, named["describedby"]))
-		}
-		inner := fitsText(m[2])
-		for _, w := range []string{a.Kicker, a.Title, a.Paragraph(), a.Example.Text, a.Link} {
-			if w == "" || !strings.Contains(inner, asRendered(w)) {
-				out = append(out, fmt.Sprintf("%s's link does not hold %q", a.Title, w))
-			}
-		}
-		for _, c := range []string{"<a ", "<button", "<input", "<select", "<textarea", "<details", "<summary", "tabindex", "href="} {
-			if strings.Contains(m[2], c) {
-				out = append(out, fmt.Sprintf("%s's link holds %q; the card is one control", a.Title, c))
-			}
-		}
-		if n := strings.Count(section, `href="`+a.Href+`"`); n != 1 {
-			out = append(out, fmt.Sprintf("the fits section links %s %d times", a.Href, n))
-		}
-	}
-	return out
-}
-
 // TestForProductionPage_TheLandingCardAndTheChromeLinkToIt: the landing's production card
-// is one link to /for/production (README O8: it arrived with the route), and on the page
+// is one link to /for/production (README O8: it arrived with the route), held by the same
+// fitCardProblems the restaurants card is (forrestaurants_facts_test.go: named by its title
+// and foot, described by its paragraph, ids "fit-production-…"), and on the page
 // itself the menu and the footer mark its entry as the current one while the header marks
 // none; the page has one h1. CONTROLS: a link inside the card, the card pointed elsewhere,
 // and the footer's mark taken away are each red.
@@ -1004,7 +935,7 @@ func TestForProductionPage_TheLandingCardAndTheChromeLinkToIt(t *testing.T) {
 	if pages.LandingAudiences[1].Href != pages.ForProductionPath {
 		t.Errorf("the landing's production card links %q", pages.LandingAudiences[1].Href)
 	}
-	for _, p := range fitsLinkProblems(landing) {
+	for _, p := range fitCardProblems(landing) {
 		t.Error(p)
 	}
 	page := mustFetchMarketing(t, r, pages.ForProductionPath)
@@ -1036,13 +967,13 @@ func TestForProductionPage_TheLandingCardAndTheChromeLinkToIt(t *testing.T) {
 	if link == "" {
 		t.Fatal("PREMISE: the landing has no production card link")
 	}
-	if len(fitsLinkProblems(strings.Replace(landing, link, link+`<a href="/x">x</a>`, 1))) == 0 {
+	if len(fitCardProblems(strings.Replace(landing, link, link+`<a href="/x">x</a>`, 1))) == 0 {
 		t.Error("CONTROL: a link nested in the card passed")
 	}
-	if len(fitsLinkProblems(strings.Replace(landing, link, strings.Replace(link, pages.ForProductionPath, "/pricing", 1), 1))) == 0 {
+	if len(fitCardProblems(strings.Replace(landing, link, strings.Replace(link, pages.ForProductionPath, "/pricing", 1), 1))) == 0 {
 		t.Error("CONTROL: the card pointed at /pricing passed")
 	}
-	if len(fitsLinkProblems(regexp.MustCompile(` aria-labelledby="[^"]*"`).ReplaceAllString(landing, ""))) == 0 {
+	if len(fitCardProblems(regexp.MustCompile(` aria-labelledby="[^"]*"`).ReplaceAllString(landing, ""))) == 0 {
 		t.Error("CONTROL: the card named by its whole text passed")
 	}
 	footer := chromeSegment(page, "Product")

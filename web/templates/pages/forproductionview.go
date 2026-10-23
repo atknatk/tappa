@@ -39,7 +39,9 @@ import "strconv"
 //     is built for instead of its pixels, as the landing's and the product tour's
 //     sentences on the same rule do.
 //   - The QR answer says "by default": base:qr-requires-ip is a baseline rule an owner
-//     may change (the security page's wording).
+//     may change (the security page's wording). Its question is the landing's since the
+//     LP-09 review, "What if a phone's NFC fails?", and it says a phone is still set up
+//     by a real tap: a phone with no NFC never reaches the QR fallback (ADR 0026).
 //   - The board's queue draws two people of the seed (Saviour Bonnici, Dragan Nikolic)
 //     as sample taps; the drawing is a sample, and sample people are invented, so two
 //     invented names stand in their place.
@@ -328,12 +330,14 @@ func ForProductionCopy(f ForProductionFigures) ForProductionText {
 					FactTapButtonSizedForAWetHand, FactTapScreenIsOneButton),
 			},
 			{
-				Title: l("What if the phone has no NFC?", FactTapPageNeedsNoApp),
-				Body: l("The same page opens from a QR code with the camera. A QR tap carries no cryptographic "+
-					"signature — no proof of a physical touch — so by default it needs your venue's network address to "+
-					"match before it's approved. A position on its own is not enough: without the address it's stored, "+
-					"flagged and queued for review.",
-					FactTapPageNeedsNoApp, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager),
+				Title: l("What if a phone's NFC fails?", FactTapPageNeedsNoApp, FactSetupTakesARealTap),
+				Body: l("If a phone's NFC is off or fails on the day, the same page opens from the venue's QR code with "+
+					"the camera. A QR tap carries no cryptographic signature — no proof of a physical touch — so by "+
+					"default it needs your venue's network address to match before it's approved. A position on its "+
+					"own is not enough: without the address it's stored, flagged and queued for review. Setting a "+
+					"phone up still takes one real tap on a plaque.",
+					FactTapPageNeedsNoApp, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager,
+					FactActivationEndsOnARealTap, FactSetupTakesARealTap),
 			},
 		},
 	}
