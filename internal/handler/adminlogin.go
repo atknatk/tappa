@@ -31,7 +31,10 @@ type adminAuthenticator interface {
 	// ChangeOwnPassword rotates the signed-in admin's own credential (M7-05, T73). It
 	// takes exceptSessionID -- the CURRENT session's id -- so the change keeps this
 	// device signed in and revokes the others (K3), and returns how many it revoked.
-	ChangeOwnPassword(ctx context.Context, tenantID, adminID, exceptSessionID uuid.UUID, current, next string) (int, error)
+	// session is the request's own cookie token (M14-08): a row linked to an identity
+	// changes through the identity, keyed by that token's hash (adminauth.PasswordChange
+	// says which path ran and whether the database already wrote the trail).
+	ChangeOwnPassword(ctx context.Context, tenantID, adminID, exceptSessionID uuid.UUID, session adminauth.Token, current, next string) (adminauth.PasswordChange, error)
 }
 
 // Audit actions written by the panel auth flow. The vocabulary is free text by
@@ -94,6 +97,9 @@ type AdminAuth struct {
 	// cookies writes the PANEL SESSION cookie (internal/adminauth owns its
 	// attributes).
 	cookies adminauth.Cookies
+	// identityGate is TAPPA_ADMIN_IDENTITY's table of surfaces (ADR 0031 §8, M14-08): every
+	// identity surface of the panel asks it, by its row, through gated (identitygate.go).
+	identityGate adminauth.IdentityGate
 	// short writes the two SHORT-LIVED auth cookies: the synchronizer token and
 	// the signed verified-candidate set (logincontext.go).
 	short   adminCookies
@@ -473,6 +479,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		encoder:        encoder,
 		notices:        notices,
 		cookies:        adminauth.NewCookies(cfg),
+		identityGate:   adminauth.NewIdentityGate(cfg.AdminIdentity),
 		short:          newAdminCookies(cfg),
 		choices:        choices,
 		confirm:        confirm,

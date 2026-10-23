@@ -204,6 +204,18 @@ data:
   # already frozen on rows stay.
   TAPPA_BUSINESS_DAY_FROM: "2026-10-22T16:30:00Z"
 
+  # 🔴 TAPPA_ADMIN_IDENTITY — the panel identity flag (ADR 0031 §8, M14-08). "off" | "on"; anything
+  # else stops the boot (internal/config). OFF: every panel surface where a session linked to a
+  # person's identity could look different from an unlinked one answers as before M14 — the sign-in
+  # is today's, /admin/switch is 404, the account page has no identity section (internal/adminauth's
+  # IdentityGate holds the whole table, in one place). The dual-write — a password change, a legacy
+  # reset link and a registration writing the identity — runs in BOTH states.
+  # TURNING IT ON IS THE USER'S DECISION (M14-19, after M14-17's verified registration is live and
+  # its pre-checks pass): a commit to THIS line and a main deploy. Never `kubectl edit` — the next
+  # deploy applies this file and silently turns it back. The way back is "off", committed and
+  # deployed. cmd/tappa's TestPackaging_TheIdentityFlagShipsOff pins this value.
+  TAPPA_ADMIN_IDENTITY: "off"
+
   # (Tappa's own legal texts are published by the platform operator on its own host,
   # /operator/legal -- M10 OP-10, ADR 0020 §7. The customer panel's legal screen and
   # its env allow-list were removed with it; there is no key for it here.)

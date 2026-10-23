@@ -247,6 +247,24 @@ type Config struct {
 	// would switch the rule on before any business set its cutoff.
 	BusinessDayFrom *time.Time
 
+	// AdminIdentity is the panel identity flag (TAPPA_ADMIN_IDENTITY, ADR 0031 §8): true when every
+	// surface where a session linked to a person's identity could look different from an unlinked
+	// one is open -- the identity sign-in, "Switch business", the account page's identity sections,
+	// invitations, membership management, the per-identity reset. internal/adminauth's IdentityGate
+	// holds the table of those surfaces, in one place; this field is only its input.
+	//
+	// 🔴 THE WRITE PATHS DO NOT READ IT (ADR 0031 §8): the dual-write of a password change, of a
+	// legacy reset link and of a registration runs whatever this says, because a linked row refuses
+	// a direct password write (00069's trigger) and a pod with the flag on and one with it off serve
+	// the same people during a rollout.
+	//
+	// "off" | "on", empty = off. An unknown value is a STARTUP FAILURE, never a silent off: "On",
+	// "true" or "1" typed by someone who meant to open the surfaces must not boot a server that kept
+	// them closed without saying so. Turning it on is a commit to deploy/k8s/05-config.yaml and a
+	// main deploy -- the user's decision (M14-19), never `kubectl edit` (the next deploy would
+	// silently turn it back).
+	AdminIdentity bool
+
 	// RetentionYears is how long attendance records are kept, in whole years. It
 	// is REQUIRED and has no default because it is a LEGAL statement: the GDPR
 	// Art. 13 notice on the activation page renders this number, and a number
@@ -445,6 +463,9 @@ func Load() (*Config, error) {
 	if c.BusinessDayFrom, err = ParseBusinessDayFrom(os.Getenv(EnvBusinessDayFrom), time.Now()); err != nil {
 		push(err)
 	}
+	if c.AdminIdentity, err = adminIdentityFlag(os.Getenv(EnvAdminIdentity)); err != nil {
+		push(err)
+	}
 	for _, err := range sandboxSettings(c) {
 		push(err)
 	}
@@ -541,6 +562,42 @@ func validLogFormat(v string) error {
 
 // EnvBusinessDayFrom is the business-day switch's variable (ADR 0032 §A.8, Config.BusinessDayFrom).
 const EnvBusinessDayFrom = "TAPPA_BUSINESS_DAY_FROM"
+
+// EnvAdminIdentity is the panel identity flag's variable (ADR 0031 §8); AdminIdentityOff and
+// AdminIdentityOn are its only values.
+const (
+	EnvAdminIdentity = "TAPPA_ADMIN_IDENTITY"
+	AdminIdentityOff = "off"
+	AdminIdentityOn  = "on"
+)
+
+// adminIdentityFlag parses TAPPA_ADMIN_IDENTITY: "off" or "on", empty = off. Exact spelling --
+// unlike the delivery modes it forgives no case and no blank, because it is a security boundary
+// with a two-word vocabulary and every other spelling is somebody's guess (Config.AdminIdentity).
+// The value is not repeated in the error.
+func adminIdentityFlag(v string) (bool, error) {
+	switch v {
+	case "", AdminIdentityOff:
+		return false, nil
+	case AdminIdentityOn:
+		return true, nil
+	}
+	return false, fmt.Errorf("%s: must be %q or %q (ADR 0031 §8; empty means %q). The value is not repeated here",
+		EnvAdminIdentity, AdminIdentityOff, AdminIdentityOn, AdminIdentityOff)
+}
+
+// AnnounceAdminIdentity writes the panel identity flag's state at start-up, a line in both states,
+// so "off" is read rather than inferred from silence (AnnounceBusinessDay's rule).
+func AnnounceAdminIdentity(log *slog.Logger, on bool) {
+	if on {
+		log.Info("panel identity flag is ON: the identity sign-in, the business switch and the identity "+
+			"sections of the account page are open", "variable", EnvAdminIdentity, "admin_identity", AdminIdentityOn)
+		return
+	}
+	log.Info("panel identity flag is OFF: every panel surface answers as before the identity; the "+
+		"dual-write of credentials, reset links and registrations runs regardless", "variable", EnvAdminIdentity,
+		"admin_identity", AdminIdentityOff)
+}
 
 // BusinessDayFromMaxAhead is how far past the start-up instant TAPPA_BUSINESS_DAY_FROM may lie
 // (ADR 0032 §A.8, security lens F-3): a release writes the switch for the coming days, so a value

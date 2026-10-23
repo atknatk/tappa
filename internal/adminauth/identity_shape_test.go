@@ -99,6 +99,27 @@ func (s *shapeDB) RecordFailedIdentityLogin(_ context.Context, id uuid.UUID, eve
 	return true, nil
 }
 
+// The session-keyed four (M14-08) are not the sign-in's: AuthenticatePerson never reaches them.
+func (s *shapeDB) SwitchIdentitySession(context.Context, string, uuid.UUID, string) (db.IdentitySession, error) {
+	s.op("switch")
+	return db.IdentitySession{}, errNoIdentityData
+}
+
+func (s *shapeDB) RevokeIdentitySessions(context.Context, string, bool) (int, error) {
+	s.op("revoke-all")
+	return 0, errNoIdentityData
+}
+
+func (s *shapeDB) IdentityPasswordForSession(context.Context, string) (db.PasswordHash, error) {
+	s.op("password-for-session")
+	return db.PasswordHash{}, errNoIdentityData
+}
+
+func (s *shapeDB) SetIdentityPassword(context.Context, string, string) (int, error) {
+	s.op("set-password")
+	return 0, errNoIdentityData
+}
+
 // countingBudget is a FailureBudget with a small limit, so the over-limit branch is reachable; it is
 // safe for concurrent use, like httpx.Limiter.
 type countingBudget struct {

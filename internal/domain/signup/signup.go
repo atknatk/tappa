@@ -746,6 +746,25 @@ func (p *Provisioner) Provision(ctx context.Context, d Draft) (Result, error) {
 		}
 		adminID = row.ID
 
+		// THE IDENTITY'S DUAL-WRITE (ADR 0031 §5.2 named exception 2, M14-08; migration 00074): an
+		// address that is nobody's yet -- no identity, no other membership row -- gets an identity
+		// carrying this row's digest, and the row is linked to it; a known address leaves the row
+		// unlinked and every identity as it was. It runs whatever TAPPA_ADMIN_IDENTITY says (write
+		// paths do not wait for the flag, ADR 0031 §8), until M14-17's verified registration replaces
+		// it.
+		//
+		// 🔴 IN THIS TRANSACTION, AND THIS ONE IS TOP-LEVEL (db.WithTenant above, never the
+		// savepointing db.WithTenantIn): the function links only a row this transaction wrote, and a
+		// row written under a savepoint would be refused silently (S13). signup_db_test.go's real-path
+		// test is red if no identity is born.
+		//
+		// 🔴 THE ANSWER IS DROPPED HERE, ON PURPOSE. Whether it linked says whether the address was
+		// new -- ADR 0031 §5.10 lets that difference show on no surface the flag leaves open: not the
+		// confirmation page, not the log line below, not the trail.
+		if _, e := db.CreateIdentityForSignup(ctx, tx, tenantID, adminID); e != nil {
+			return e
+		}
+
 		// THE TRAIL SHARES THE TRANSACTION (see the Trail interface). ActorID is the
 		// operator who was just created: they caused this, and they are the only
 		// person this event can be attributed to.

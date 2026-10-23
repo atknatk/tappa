@@ -110,19 +110,36 @@ func (a *AdminAuth) accountPasswordSave(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	revoked, err := a.admins.ChangeOwnPassword(r.Context(),
-		id.TenantID(), id.Admin.AdminUserID, id.Admin.SessionID, current, chosen)
+	// THE SESSION'S OWN TOKEN, read again from the cookie the gate just verified (M14-08): a row
+	// linked to an identity changes its password through the identity, and the identity functions
+	// are keyed by the session token's hash and nothing else (ADR 0031 §5.2). It is never logged.
+	token, err := a.cookies.Read(r)
+	if err != nil {
+		a.log.Error("panel: the verified session's cookie could not be read again", "actor_id", id.Admin.AdminUserID)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPasswordUnavailable)
+		return
+	}
+
+	change, err := a.admins.ChangeOwnPassword(r.Context(),
+		id.TenantID(), id.Admin.AdminUserID, id.Admin.SessionID, token, current, chosen)
+	revoked := change.RevokedOtherSessions
 	switch {
 	case err == nil:
-		a.record(r.Context(), audit.Event{
-			// §4.5: the tenant is the SESSION's. The target is the admin themselves --
-			// this event is about a person's credential, not about the business.
-			TenantID: id.TenantID(),
-			ActorID:  ptr(id.Admin.AdminUserID),
-			Action:   ActionAdminPasswordChanged,
-			Target:   id.Admin.AdminUserID.String(),
-			Detail:   passwordChangedDetail{Outcome: "ok", RevokedOtherSessions: revoked},
-		})
+		// 🔴 ONE ROW, WHICHEVER PATH RAN. A linked row's change went through
+		// identity_set_password, which wrote this business's admin.password_changed row -- the
+		// same action, actor, target and {"outcome":"ok","revoked_other_sessions":n} -- itself,
+		// and every other linked business its own (00072). Writing ours too would double it.
+		if !change.Recorded {
+			a.record(r.Context(), audit.Event{
+				// §4.5: the tenant is the SESSION's. The target is the admin themselves --
+				// this event is about a person's credential, not about the business.
+				TenantID: id.TenantID(),
+				ActorID:  ptr(id.Admin.AdminUserID),
+				Action:   ActionAdminPasswordChanged,
+				Target:   id.Admin.AdminUserID.String(),
+				Detail:   passwordChangedDetail{Outcome: "ok", RevokedOtherSessions: revoked},
+			})
+		}
 		a.log.Info("panel credential changed",
 			"actor_id", id.Admin.AdminUserID, "revoked_other_sessions", revoked)
 		// THE ACCOUNT HOLDER IS TOLD (M10 EM-9), on THIS branch only: a refused or failed

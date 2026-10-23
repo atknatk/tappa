@@ -33,3 +33,19 @@ func (noIdentityData) LinkLegacySession(context.Context, string, string) (db.Lin
 func (noIdentityData) RecordFailedIdentityLogin(context.Context, uuid.UUID, string) (bool, error) {
 	return false, errNoIdentityData
 }
+
+func (noIdentityData) SwitchIdentitySession(context.Context, string, uuid.UUID, string) (db.IdentitySession, error) {
+	return db.IdentitySession{}, errNoIdentityData
+}
+
+func (noIdentityData) RevokeIdentitySessions(context.Context, string, bool) (int, error) {
+	return 0, errNoIdentityData
+}
+
+func (noIdentityData) IdentityPasswordForSession(context.Context, string) (db.PasswordHash, error) {
+	return db.PasswordHash{}, errNoIdentityData
+}
+
+func (noIdentityData) SetIdentityPassword(context.Context, string, string) (int, error) {
+	return 0, errNoIdentityData
+}

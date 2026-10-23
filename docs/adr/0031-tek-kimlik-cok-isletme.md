@@ -295,6 +295,29 @@ aktif değilse sessizce bir sonrakine düşer — Go çağıranı dönen `tenant
 tenant'ına bir sıradan çıkış satırı yazar — **yalnız aktif ve reddedilmemiş** (`unlinked_at IS NULL`)
 üyeliklerde.
 
+**M14-08 uygulama notları (2026-10-23; kart dışı kararlar, denetime açık):**
+- `identity_create_for_signup(p_tenant_id uuid, p_admin_user_id uuid)` → **`boolean`** (bağladı mı)
+  `00074`'te doğdu. Yüklemler tablodakilerin hepsi (`app.tenant_id` eşitliği, satırın bu tenant'ın,
+  bağlanmamış, reddedilmemiş, aktif olması, `admin_users.created_at = now()` **ve** `xmin =
+  pg_current_xact_id()::xid`, tenant'ın tek `admin_users` satırı) artı **`tenants.created_at = now()`**
+  (işletme de bu transaction'da doğmuş). Dolu adres ve bcrypt biçimi INSERT'ten **önce** denetlenir:
+  definer `password_hash`'i okuduğundan bir CHECK ihlali digest'i `DETAIL`'e yazardı. Yeni yetkiler:
+  `admin_identities INSERT (email, password_hash)`, `admin_users SELECT (password_hash, xmin)`,
+  `tenants SELECT (created_at)`. `pg_current_xact_id()::xid` 17.10'da ölçüldü: üst düzeyde doğru,
+  SAVEPOINT altında yanlış.
+- **Audit satırı yazmaz**: "bağlandı" satırı yalnız yeni adreste olurdu — §5.10'un bayrağın kapatmadığı
+  hiçbir yüzeyde görünmesine izin vermediği fark. Backfill ve uzlaştırma da satırsız bağlar; dönüş
+  değerini çağıran (kayıt) kimseye göstermez.
+- Kemerin üçüncü sınıfı: `<alias>.email OPERATOR(public.=) <güvenilir değer>` ile sınırlı tek-adres
+  okuması, fonksiyon başına sayıyla adlandırılır (yalnız bu fonksiyon, 1). `ON CONFLICT (email) DO
+  NOTHING`'in üç sözcüğü bu gövde için adlandırılmış yapıdır.
+- Kimlik üstünden parola değişimi ve eski sıfırlama linki, bağlı her işletmeye kendi
+  `admin.password_changed` / `admin.recovery.completed` satırını **definer'ın kendisi** yazdığı için
+  handler o yolda ikinci satır yazmaz (`adminauth.PasswordChange.Recorded`,
+  `ConsumedReset.Recorded`). Bedel: o yolda kurtarma satırında `reset_id` / `retired_count` yok.
+- Bayrağın tablosu (§8) `adminauth.IdentityGate`'tedir; HTTP yarısı `handler`'ın `gated`'i — kapalı
+  rota, panelin hiç sahip olmadığı bir yolun 404'ünü bayt bayt verir, zincirin hiçbir kapısı koşmaz.
+
 Her fonksiyon: `SECURITY DEFINER`, `SET search_path = pg_catalog, pg_temp`, şema-nitelikli gövde,
 dinamik SQL yok, sabit dönüş sütunları, `REVOKE ALL … FROM PUBLIC`, `EXECUTE` **yalnız**
 `tappa_app` — **tek istisna `identity_reconcile()`**: `EXECUTE` yalnız `tappa_owner`'da (katalog testinin

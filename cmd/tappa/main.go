@@ -157,6 +157,8 @@ func run() error {
 	// The business-day switch's state (ADR 0032 §A.8): configuration, not a secret, and a line
 	// in both states, so "off" is read rather than inferred from silence.
 	config.AnnounceBusinessDay(slog.Default(), cfg.BusinessDayFrom, time.Now())
+	// The panel identity flag's state (ADR 0031 §8), the same way: a line in both states.
+	config.AnnounceAdminIdentity(slog.Default(), cfg.AdminIdentity)
 
 	// 🔴 A DELIVERY MODE THE CONFIGURATION ACCEPTS AND THIS BUILD DOES NOT IMPLEMENT
 	// STOPS THE BOOT HERE, before the database is dialled (M10 EM-3). Since M10 EM-7B

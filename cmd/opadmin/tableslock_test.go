@@ -17,8 +17,9 @@ import (
 
 // tablesLockDirs are the test packages that take the operator-tables lock, relative to
 // this directory: internal/db EXCLUSIVE (opTx) and SHARED (TestOperatorDB_RunsAsTappaOperator
-// and opLiveFixture, OP-10), the others SHARED (internal/adminauth since M14-07).
-var tablesLockDirs = []string{".", "../../internal/db", "../../internal/handler/operator", "../../internal/operatorauth", "../../internal/adminauth"}
+// and opLiveFixture, OP-10), the others SHARED (internal/adminauth since M14-07; internal/domain/signup
+// and internal/handler since M14-08, whose registrations and panel identity tests commit identities).
+var tablesLockDirs = []string{".", "../../internal/db", "../../internal/handler/operator", "../../internal/operatorauth", "../../internal/adminauth", "../../internal/domain/signup", "../../internal/handler"}
 
 // tablesLockStatements are the functions that send the lock statement themselves, per
 // directory -- the closed list the scan must find (its control against going blind).
@@ -29,6 +30,10 @@ var tablesLockStatements = map[string][]string{
 	"../../internal/operatorauth":     {"sharedTablesLock"},
 	// M14-07: the identity worlds commit identities (ownerConn takes it shared).
 	"../../internal/adminauth": {"sharedTablesLock"},
+	// M14-08: a registration of a new address commits an identity (identityOwner takes it shared).
+	"../../internal/domain/signup": {"sharedTablesLock"},
+	// M14-08: the panel's flag-off and password tests link a committed identity (linkHarness).
+	"../../internal/handler": {"sharedTablesLock"},
 }
 
 // lockSite is one place a function asks for the lock: the statement itself (via ""),
