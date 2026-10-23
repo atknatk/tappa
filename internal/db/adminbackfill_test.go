@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -582,5 +583,44 @@ func TestAdminBackfill00073_DownUndoesOnlyItsOwnAndUpAgain(t *testing.T) {
 				}
 			})
 		})
+	}
+}
+
+// TestAdminBackfill00073_TheDownLocksTheIdentitiesBeforeItReadsThem pins, in the Down's text, the
+// lock a suite cannot exercise without committing an identity: the backfill's identities are taken
+// FOR UPDATE after `theirs` is filled and BEFORE the first check that reads them ("has it lived").
+// Without it, a verification, a login or a window committed between that unlocked check and the
+// DELETE would be deleted with the identity (proved by hand with two sessions in the M14-06 audit).
+func TestAdminBackfill00073_TheDownLocksTheIdentitiesBeforeItReadsThem(t *testing.T) {
+	_, _, down := bfSections(t)
+	var b strings.Builder
+	for _, line := range strings.Split(down, "\n") {
+		if i := strings.Index(line, "--"); i >= 0 {
+			line = line[:i]
+		}
+		b.WriteString(line + "\n")
+	}
+	code := b.String()
+	filled := regexp.MustCompile(`(?i)\bINTO\s+backfilled\s*,\s*theirs\b`).FindStringIndex(code)
+	lock := regexp.MustCompile(`(?i)\bPERFORM\s+1\s+FROM\s+public\.admin_identities\s+WHERE\s+id\s*=\s*ANY\s*\(\s*theirs\s*\)\s+ORDER\s+BY\s+id\s+FOR\s+UPDATE\s*;`).FindStringIndex(code)
+	if filled == nil {
+		t.Fatal("the Down does not fill theirs (INTO backfilled, theirs)")
+	}
+	if lock == nil {
+		t.Fatal("the Down does not lock the backfill's identities: PERFORM 1 FROM public.admin_identities WHERE id = ANY (theirs) ORDER BY id FOR UPDATE")
+	}
+	firstCheck := -1
+	for _, m := range regexp.MustCompile(`(?is)\bIF\s+EXISTS\b(.*?)\bTHEN\b`).FindAllStringSubmatchIndex(code, -1) {
+		if regexp.MustCompile(`\btheirs\b`).MatchString(code[m[2]:m[3]]) {
+			firstCheck = m[0]
+			break
+		}
+	}
+	if firstCheck < 0 {
+		t.Fatal("PREMISE: the Down has no IF EXISTS check that reads theirs")
+	}
+	if !(filled[1] <= lock[0] && lock[1] <= firstCheck) {
+		t.Errorf("the identity lock is at %d, want after theirs is filled (%d) and before the first check that reads them (%d)",
+			lock[0], filled[1], firstCheck)
 	}
 }
