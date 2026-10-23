@@ -4211,10 +4211,11 @@ eski satırların kalıba uyup uymadığını sayar, çünkü `admin_identities.
 taşıyacak ve backfill seçilen satırın digest'ini kopyalayacak.
 
 **Gruplama anahtarı backfill'inkiyle bire bir değil.** Sorgu `NULLIF(btrim(lower(email)), '')` ile
-gruplar; backfill citext eşitliği ve `email IS NOT NULL` ile gruplar. İkisi yalnız boş dize ve
-baş-son boşluklu adreslerde ayrışır: **`01c` / `01d` ≠ 0 ise `08a` / `05f` backfill'le uyuşmaz.**
-2026-10-22'de ikisi de 0'dı, yani aşağıdaki sayılar backfill'in göreceğiyle aynıdır. (Kaydedilen
-sayılar bu SQL'in çıktısı olduğu için SQL değiştirilmedi.)
+gruplar; backfill (`00073`) citext eşitliğiyle ve yalnız dolu e-postayla (`email IS NOT NULL AND
+btrim(email) <> ''`) gruplar — boş ya da yalnız boşluktan oluşan adresi ikisi de dışarıda bırakır. İkisi
+artık yalnız baş-son boşluklu adreslerde ayrışır (sorgu kırpar, backfill kırpmaz): **`01d` ≠ 0 ise
+`08a` / `05f` backfill'le uyuşmaz.** 2026-10-22'de 0'dı, yani aşağıdaki sayılar backfill'in
+göreceğiyle aynıdır. (Kaydedilen sayılar bu SQL'in çıktısı olduğu için SQL değiştirilmedi.)
 
 `m14-02-measure.sql` (metnin tamamı):
 
