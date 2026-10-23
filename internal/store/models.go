@@ -303,6 +303,7 @@ type PunchEvent struct {
 	LocationCompany *string
 	TagUid          *string
 	CreatedAt       time.Time
+	DirectionSource *string
 }
 
 type Session struct {

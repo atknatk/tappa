@@ -150,8 +150,16 @@ Yeniden tartışılmaz; ayrıntı ve gerekçe ADR 0032'de.
 | **00064** | M15-02 | `tenants.day_cutoff` (NOT NULL DEFAULT `'05:00'`), `locations.day_cutoff`, `departments.day_cutoff`, `employees.day_cutoff` (NULL = devral), `transactions.business_day_start` + CHECK `NOT VALID`, çıkış sınıflandırmasının SQL fonksiyonu | dolu bir `business_day_start` varsa **reddeder**; kesim sütunları düşer |
 | **00065** | M15-09 | `transactions.direction_source` + CHECK `NOT VALID` | dolu bir değer varsa **reddeder** |
 | **00066** | M15-09 | iki CHECK'in `VALIDATE`'i (`00044`'ün deseni — `SHARE UPDATE EXCLUSIVE`, tap'in INSERT'ini bekletmez) | `NOT VALID` hâline döner |
-| **00067** | M15-15 | `punch_claims` + `punch_claim_decisions` (append-only, §6 beşlisi, TRUNCATE tetikleyicileri) | satır varsa **reddeder** |
-| **00068** | M15-13 | `/v1` punch olayına `direction_source` (Q31 *evet*, 2026-10-21) | dolu bir değer varsa **reddeder** |
+| **00067** | M15-13 | `/v1` punch olayına `direction_source` (Q31 *evet*, 2026-10-21) | dolu bir değer varsa **reddeder** |
+| **00068** | M15-15 | `punch_claims` + `punch_claim_decisions` (append-only, §6 beşlisi, TRUNCATE tetikleyicileri) | satır varsa **reddeder** |
+
+**Numara değişikliği (2026-10-22, M15-13):** M15-13 `00067`'yi, M15-15 `00068`'i alır (önceki dağıtım
+tersiydi: M15-15 → `00067`, M15-13 → `00068`). Gerekçe goose'un sırası: M15-13 `main`'e M15-15'ten önce
+girer, ve goose uygulanmış en yüksek sürümün altında numaralı bir dosyayı sonradan *missing* sayıp
+reddeder — ölçüldü (goose v3.24.1, atılabilir bir veritabanında üç boş dosyayla): `00066` ve `00068` uygulandıktan sonra eklenen
+`00067` için *"found 1 missing migrations before current version 68"*, çıkış kodu 1. Depo `allow-missing`
+kullanmaz (`Makefile`'ın `migrate` hedefi ve `deploy/k8s/30-migrate-job.yaml` düz `up`). Yayımlanmış
+hiçbir migration'ın numarası değişmedi; iki numara da henüz kullanılmamıştı.
 
 **Çakışma — ölçüldü (2026-10-21):** ADR 0031 M14'ün dalında alınmış; M14 migration numarası **ayırmıyor**
 (`000NN` yer tutucusu), hiçbir dalda `00064`+ yok. M14'ün kodu M15'ten önce `main`'e girerse M15 kendi
@@ -174,9 +182,9 @@ asla değişmez. M14'ün dalı `roadmap.md`'ye bir satır ekliyor — metin düz
 | M15-10 | B | Tap motoru: istenen yön, `DirectionSource`, `PredictDirection`, iki dilli not; CLAUDE.md §5 ikinci paragraf | yapıcı | iki | M15-09 |
 | M15-11 | B | `POST /api/checkin`: `want` (asla 400), kilit altında karar, yazım | yapıcı | iki | M15-06, M15-10 |
 | M15-12 | B | `GET /t` tahmini (**kapılı**) + tap ekranı (§9) + `tap.js` + Account önizlemesi + skill/ADR 0023 notları | yapıcı (`tappa-brand`) | iki | M15-11 |
-| M15-13 | B | `/v1` punch akışına `directionSource` (00068) — Q31 *evet* (2026-10-21), Faz B ile birlikte | yapıcı + agent `tappa-db-migrator` | iki | M15-11 |
+| M15-13 | B | `/v1` punch akışına `directionSource` (00067) — Q31 *evet* (2026-10-21), Faz B ile birlikte | yapıcı + agent `tappa-db-migrator` | iki | M15-11 |
 | M15-14 | B | Faz B kapanışı (+ M15-06'nın güvenlik denetimi, gerçek tarayıcıda `want`, anahtar canlıda) | denetçi + güvenlik | iki | M15-06, M15-09…13 |
-| M15-15 | C | Şema 00067: `punch_claims` + `punch_claim_decisions` + RLS + TRUNCATE testi | agent `tappa-db-migrator` | iki | M15-14 |
+| M15-15 | C | Şema 00068: `punch_claims` + `punch_claim_decisions` + RLS + TRUNCATE testi | agent `tappa-db-migrator` | iki | M15-14 |
 | M15-16 | C | Domain: pencere (18 sa kırpılmış, açık uçlar), K3 bandı, K4 gösterim kuralı, yeniden doğrulama, askı | yapıcı | iki | M15-15 |
 | M15-17 | C | Sonuç ekranı talep kartı + `POST /api/claim`; CLAUDE.md §5 *"Unutulan çıkış"*, §9; skill sonuç ekranı | yapıcı (`tappa-brand`) | iki | M15-16 |
 | M15-18 | C | Panel: talep kuyruğu (odak deseni, K3 işaretleri, bant dışı onay adımı, toplu onay yok) | yapıcı (`tappa-brand`) | iki | M15-16 |
@@ -950,7 +958,7 @@ not (kuyruk `want`'ı saklar).
 **Tuzaklar.** Bağlantıyı `<a href>` yapmak · ikinci `<form>` · statik gizli alan · tahmini kapısız
 hesaplamak · sayacı sayfaya geri getirmek.
 
-## M15-13 — `/v1` punch akışına `directionSource` (00068)
+## M15-13 — `/v1` punch akışına `directionSource` (00067)
 
 - **Bağımlılık:** M15-11 · **Karar:** Q31 *evet* (2026-10-21) — kart **koşulsuz**, Faz B ile birlikte sevk edilir
 - **Kırmızı çizgi:** §4.5 (feed yazıcısı tanımlayıcı rolü), §4.3, ADR 0028 (sözleşme)
@@ -994,7 +1002,7 @@ değeri ve ayarlandığı an).
 
 ## Faz C — Eksik yarı talebi
 
-## M15-15 — Şema: `punch_claims` ve `punch_claim_decisions` (00067)
+## M15-15 — Şema: `punch_claims` ve `punch_claim_decisions` (00068)
 
 - **Bağımlılık:** M15-14
 - **Kırmızı çizgi:** §4.5, §6, §4.3'ün kardeşi (append-only), §4.7
@@ -1175,8 +1183,9 @@ vakası kuyrukta aralık + süre + sapma + işaretle görünür; M12 `Panel*`; 4
 - **Commit:** `docs(adr): record the business day and the direction chain as built` (+ düzeltmeler)
 
 **Adımlar.** Tam `make check`, `make audit`; güvenlik merceği bütün M15 diff'inde; ADR 0032'ye *"Uygulandı"*
-notu; ekran görüntüsü turu; **toplu geçiş deploy notu** (`state.md`): migration sırası 00064 → 00067
-(+ 00068), çakışma raporunun sonucu, panel duyurusunun tarihi, geri dönüşün binary olduğu.
+notu; ekran görüntüsü turu; **toplu geçiş deploy notu** (`state.md`): migration sırası 00064 → 00068
+(00067 M15-13'ün, 00068 M15-15'in — 2026-10-22 numara notu), çakışma raporunun sonucu, panel duyurusunun
+tarihi, geri dönüşün binary olduğu.
 
 **Kabul kriterleri.** Tam suit yeşil (iki sabit saatli koşum dahil); `make audit` exit 0;
 `TestEveryNamedTestExists` yeşil; güvenlik merceği ONAY; RLS ve TRUNCATE testleri iki yeni tabloda yeşil;

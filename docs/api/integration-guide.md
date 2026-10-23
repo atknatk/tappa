@@ -1,6 +1,6 @@
 # Taptime integration API — integration guide
 
-Guide edition 1 (2026-10-16), for API version 1. This guide is served by the API itself, without a
+Guide edition 3 (2026-10-22), for API version 1. This guide is served by the API itself, without a
 key, at `GET /v1/guide.md`; its Turkish translation, the same document section by section, at
 `GET /v1/guide.tr.md`. The machine-readable contract is the OpenAPI 3.1 document at
 `GET /v1/openapi.yaml`; this guide explains it, and where they say the same thing they agree.
@@ -662,7 +662,8 @@ employee at a partner company's plaque is in the employer's `employer` scope and
 `location` scope — **the same `id` in both**. The partner is told who and where: the employee's
 `id`, `externalRef`, `employeeCode` and `company`, the location's `id`, `externalRef`, `name` and
 `company`, and `tagId` — never an e-mail address, a coordinate, a network address, a note or why a
-decision was made.
+decision was made. Like every punch, it carries the `direction` and its `directionSource`: the
+employer's record, the same in both companies' feeds.
 
 The decision on such a punch is the **employer's**: its rules judge it, and a rule the partner set
 for its own location does not apply to the employer's employee there — with one exception Taptime
@@ -685,7 +686,8 @@ across them are refused from the end on.
 | `punchTime` | The instant of the tap (UTC): the one the phone declared, or Taptime's own when it declared none — today always Taptime's ([6.1](#feed-what)). |
 | `recordedAt` | The instant the punch entered the feed (UTC); for an approved flag, the approval's. |
 | `channel` | `nfc` or `qr`. |
-| `direction` | `in` or `out`, as Taptime computed it at the **employer**. |
+| `direction` | `in` or `out`, as recorded at the **employer**: the direction Taptime computed, or the other one when the employee chose it (`directionSource`). |
+| `directionSource` | Who chose `direction`: `auto` (Taptime) or `employee` (the employee chose the other one on the tap page); `null` for a punch the feed recorded before it carried this field. |
 | `employee` | `id`, `externalRef`, `employeeCode`, `company` — as they were at the punch. |
 | `location` | `id`, `externalRef`, `name`, `company` — as they were at the punch. |
 | `tagId` | `tag_…`, the plaque touched — also for a QR punch. |
@@ -700,6 +702,11 @@ across them are refused from the end on.
 - `direction` is Taptime's own: it toggles on the employee's last open entry at the employer, not
   on the calendar day (a 02:00 exit of an 18:00 shift is an `out`). Your system does not have to
   work it out.
+- The tap page shows the employee the direction Taptime predicts and lets them choose the other
+  one ("Not right?"). Such a punch carries the chosen `direction` and `directionSource: employee`;
+  every other punch `directionSource: auto`. A punch recorded before the feed carried the field has
+  `directionSource: null`. The field was added to version 1: a client that does not read it reads
+  every other field as before.
 - An employee created through the API has no home location in Taptime, so Taptime's own reports do
   not mark their punches as "at another location".
 
@@ -750,6 +757,7 @@ did Jane (KF).
       "recordedAt": "2026-10-16T09:13:13.051707Z",
       "channel": "nfc",
       "direction": "in",
+      "directionSource": "auto",
       "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
       "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
       "tagId": "tag_0DD4F2FE3B9A6A"
@@ -762,6 +770,7 @@ did Jane (KF).
       "recordedAt": "2026-10-16T09:13:13.116875Z",
       "channel": "nfc",
       "direction": "in",
+      "directionSource": "auto",
       "employee": {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "externalRef": "E-1042", "employeeCode": "1042", "company": "KF"},
       "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
       "tagId": "tag_0DD4F2FE3B9A6A"
@@ -802,6 +811,7 @@ both:
       "recordedAt": "2026-10-16T09:13:13.051707Z",
       "channel": "nfc",
       "direction": "in",
+      "directionSource": "auto",
       "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
       "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
       "tagId": "tag_0DD4F2FE3B9A6A"
@@ -814,6 +824,7 @@ both:
       "recordedAt": "2026-10-16T09:14:14.261497Z",
       "channel": "nfc",
       "direction": "out",
+      "directionSource": "auto",
       "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
       "location": {"id": "loc_4b6d2cc5-44e7-42c0-9830-abd1b8e370bb", "externalRef": "DEP-1", "name": "Production", "company": "KM"},
       "tagId": "tag_DF83F315A119DF"
@@ -984,8 +995,8 @@ body: {"event":"ping"}
 signature: sha256=1deefe0009103810c89395f2d078e1ba71edb003b3692a3ebca6d0866bf99935
 body: (empty)
 signature: sha256=88d05ff68b9d0e7585161401b08cb679fbf1701b3e28f683a3e96e4c33653576
-body: {"event":"punch","deliveryId":"dlv_44721ce2-0f54-41ce-a757-7ee03cfec107","id":"pch_04ce3ad0-fb32-477d-9d5d-7c0e9b079b41","version":1,"status":"valid","punchTime":"2026-10-16T09:13:13.083662Z","recordedAt":"2026-10-16T09:13:13.116875Z","channel":"nfc","direction":"in","employee":{"id":"emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91","externalRef":"E-1042","employeeCode":"1042","company":"KF"},"location":{"id":"loc_30258476-2ce5-4a5d-a7dd-36651c3019dd","externalRef":"KF-VLT","name":"Valletta","company":"KF"},"tagId":"tag_0DD4F2FE3B9A6A"}
-signature: sha256=be925cb6fade218b39df6aa4ea0f1b78e52457c25068710ab32ad7ab6e8cb69c
+body: {"event":"punch","deliveryId":"dlv_44721ce2-0f54-41ce-a757-7ee03cfec107","id":"pch_04ce3ad0-fb32-477d-9d5d-7c0e9b079b41","version":1,"status":"valid","punchTime":"2026-10-16T09:13:13.083662Z","recordedAt":"2026-10-16T09:13:13.116875Z","channel":"nfc","direction":"in","directionSource":"auto","employee":{"id":"emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91","externalRef":"E-1042","employeeCode":"1042","company":"KF"},"location":{"id":"loc_30258476-2ce5-4a5d-a7dd-36651c3019dd","externalRef":"KF-VLT","name":"Valletta","company":"KF"},"tagId":"tag_0DD4F2FE3B9A6A"}
+signature: sha256=c243d4f326b6a981d6dec95a7cca0360625eea97c8bd139045f943a76661339b
 ```
 
 The first known answer with `openssl` — it prints the first signature above:
@@ -1106,7 +1117,7 @@ explained.
 1. The activation touch is **not a punch**: the first punch is the employee's second touch. Activation completes only at a plaque of the employee's **own company**. ([5.2](#employees-activation))
 2. A tap judged `flag` enters the feed only **when a manager of the employer company approves it**, at the approval; a rejected one never comes. ([6.1](#feed-what))
 3. In v1 `version` is always `1`, and `voided` is never produced. ([6.3](#feed-punch))
-4. Extra fields: `channel` (`nfc` | `qr`) and `direction` (`in` | `out` — the direction Taptime computed at the employer); `tagId` is filled in on both channels. ([6.3](#feed-punch))
+4. Extra fields: `channel` (`nfc` | `qr`), `direction` (`in` | `out` — the direction recorded at the employer) and `directionSource` (`auto` | `employee` — who chose it); `tagId` is filled in on both channels. ([6.3](#feed-punch))
 5. `punchTime` is the instant of the tap — the one the phone declared, or Taptime's own when it declared none (Taptime's tap page declares none today); a declared instant is `ok` up to 120 seconds late by default (the business can change this), and the ceiling is 72 hours; `recordedAt` is the instant the server recorded it. ([6.1](#feed-what))
 6. A repeat touch within 60 seconds is not a punch — per person, **across the two companies' plaques too** — and the 60 seconds are counted in the declared instants or on Taptime's own clock, whichever is closer: should a client send two touches back to back from an offline queue, the second is lost, even when their declared instants are further apart. ([6.1](#feed-what))
 7. A location's `timezone` must be the business's, or the answer is 422. ([4](#locations))
@@ -1142,3 +1153,4 @@ explained.
 |---|---|---|
 | 1 | 2026-10-16 | The first edition, for API version 1. |
 | 2 | 2026-10-18 | §1.4 describes the sandbox: `tt_test_` keys, its own operator, no e-mail, and the tap simulation (its domain is not chosen yet). |
+| 3 | 2026-10-22 | §6.3: a punch carries `directionSource` (`auto` \| `employee` \| `null`) — who chose its `direction`. The examples and the signature's known answer carry it. |

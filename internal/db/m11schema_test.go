@@ -161,9 +161,12 @@ var m11Tables = map[string]map[string]m11TableACL{
 		"tappa_feedwriter":     {Select: "tenant_id,last_seq", Insert: "tenant_id,last_seq", Update: "last_seq"},
 		"tappa_holdingdefiner": {Select: "tenant_id,last_seq", Insert: "tenant_id,last_seq", Update: "last_seq"},
 	},
+	// 00067 (M15-13, ADR 0032 §B.6): direction_source -- tappa_app reads it (the API), both writers
+	// insert it (the event's snapshot), nobody updates it.
 	"punch_events": {
 		"tappa_app": {Select: "tenant_id,seq,punch_id,punch_tenant_id,roles,version,status,punch_time,recorded_at,channel," +
-			"direction,employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,created_at"},
+			"direction,employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,created_at," +
+			"direction_source"},
 		"tappa_feedwriter":     {Insert: feedEventInsertColumns},
 		"tappa_holdingdefiner": {Insert: feedEventInsertColumns},
 	},
@@ -214,9 +217,9 @@ var m11Tables = map[string]map[string]m11TableACL{
 }
 
 // feedEventInsertColumns are the columns both feed writers insert into punch_events (attnum order;
-// version, status and created_at take their defaults).
+// version, status and created_at take their defaults). direction_source is 00067's (M15-13).
 const feedEventInsertColumns = "tenant_id,seq,punch_id,punch_tenant_id,roles,punch_time,recorded_at,channel,direction,employee_id," +
-	"employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid"
+	"employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,direction_source"
 
 // m11ScopelessTables are the matrix's tenant-scope-less tables (CLAUDE.md §6): ENABLE and FORCE
 // row level security like every other, and NO policy at all -- no role that obeys RLS reads or
@@ -296,9 +299,10 @@ var m11Columns = []m11Column{
 	{"transactions", "business_day_start", map[string]string{"tappa_app": "SI"}},
 	// 00065 (M15-09, ADR 0032 §B.4): who chose a tap's direction. transactions' table-level SELECT
 	// and INSERT (00005), nothing else: written once by the tap's INSERT, never updated (§4.3).
-	// Neither feed writer reads it YET -- tappa_feedwriter's reach on transactions is 00049's column
-	// list, which 00065 does not widen; M15-13 (00068) is the card that names it for the punch event.
-	{"transactions", "direction_source", map[string]string{"tappa_app": "SI"}},
+	// 00067 (M15-13, ADR 0032 §B.6): and both feed writers READ it -- the approval arms of punch_feed
+	// and holding_feed read the approved row by its key (an ok tap's arm reads NEW, which needs no
+	// privilege); nothing else of theirs on it.
+	{"transactions", "direction_source", map[string]string{"tappa_app": "SI", "tappa_feedwriter": "S", "tappa_holdingdefiner": "S"}},
 }
 
 // m11FunctionACL is one function's owner, SECURITY DEFINER flag and EXACT EXECUTE grantees

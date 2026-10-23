@@ -568,6 +568,15 @@ tenant'ının satırına da geçer (holding punch'ının iki hedefi — ADR 0028
 (`0027:915-918`) sahanın gördüğü sütunları katalogla pinler — o maddeye tarihli bir **K notu** ve katalog
 pininin genişletilmesi kartın kabul kriteridir.
 
+*Uygulama notu (2026-10-22, M15-13).* Bu not kararı değiştirmez. Migration `00067`'dir (plan `00068`
+diyordu; goose sırası yüzünden M15-15 ile yer değiştirdi — plan *"Migration ve ADR numaraları"*).
+`punch_events.direction_source` iki besleyici tetikleyicide (`punch_feed`, `holding_feed`) aynı tek ifadeyle
+yazılır: §B.4'ün okuyucu kuralının SQL kopyasıdır (yönlü nfc/qr satırında NULL → `auto`; manuel ve yönsüz
+satırda değer yok, saklanan değere güvenilmez). Go'daki tek yardımcıyla (`tap.RecordedDirectionSource`)
+`TestPunchDirectionSource_TheFeedsExpressionIsTheReaderRule` bağlar. Eski olaylar NULL kalır ve `/v1`
+onları `null` cevaplar (geri doldurma yok). Besleyicilerin `transactions` erişimi tek sütunla genişledi
+(onay kollarının okuması; `TestDirectionSource_TheFeedWritersReachIsNotWidened`).
+
 ### Faz C — eksik yarı talebi
 
 **C.1 Akış ve ne zaman sorulur.** Talep kayıt **değildir**. Sonuç ekranında, dokunuş kaydı yazıldıktan

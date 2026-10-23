@@ -1172,7 +1172,8 @@ func TestWebhookPayload_CarriesNothingButTheFeedItem(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("%d bodies, want 3", len(got))
 	}
-	top := []string{"channel", "deliveryId", "direction", "employee", "event", "id", "location", "punchTime", "recordedAt", "status", "tagId", "version"}
+	// directionSource: M15-13 (00067) -- the feed item gained it, so the body carries it too.
+	top := []string{"channel", "deliveryId", "direction", "directionSource", "employee", "event", "id", "location", "punchTime", "recordedAt", "status", "tagId", "version"}
 	for _, h := range got {
 		body := string(h.body)
 		for _, leak := range []string{w.canary, strings.ToLower(w.canary), "198.51.100.213", "35.98", "14.12", "verdict", "policy",

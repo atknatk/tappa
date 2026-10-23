@@ -918,6 +918,16 @@ e-postaları, iki tenant'ın mesai kayıtları (CLAUDE.md §4.3, §4.6), holding
    (katalog pinleri; `sun_valid`'in değeri başka sütunlardan türetilebilir — §13 madde 22). KM, KF'nin `static_ips`'ini ve GPS'ini görmez (K-39); KM satırının `ip_match`'i ve
    `policy_context`'i KF'nin ağını/koordinatını **dolaylı** açabilir — adlandırılmış bedel (§13).
    **K-1i (2026-10-14) ile KM kendi satırından plaketin dokunuştan önceki mutlak `last_ctr`'ını türetebilir** (`ctr − tap:ctrGap − 1`; ölçüldü: 150, 49 → 100) — `ctr` KF'nin yeni değerini `00043`'ten beri zaten taşıyor; K-1i'nin eklediği, KM'nin iki dokunuşu arasında KF'nin ya da başka bir eşin kabul edilmiş son okumasının sayaç değeridir; replay için sömürülemez (sayaç yalnız artar, ilerletme katı `<`).
+   *K notu (2026-10-22, M15-13 — `directionSource`: sahanın gördüğü sütunlara eklendi):* holding punch'ının
+   saha satırı (`punch_events`, `roles = {location}`) işverenin satırıyla **aynı** `direction_source`'u taşır
+   (`00067`; `/v1`'de `directionSource`: `auto` | `employee` | `null`) — `direction` gibi işverenin kaydıdır
+   (K-40), ADR 0032 §B.4'ün okuyucu kuralıyla tetikleyicide bir kez yazılır. Sahaya açtığı tek bilgi yönün
+   kimden geldiğidir (motor ya da çalışanın *"Not right?"* seçimi); not, politika bağlamı, `verdict` ve
+   kanıt sütunu değildir ve yukarıdaki *"asla"* listesi değişmez. `site_punches` (sahanın izdüşümü)
+   değişmedi. Katalog pini gevşemedi, yeni sütunu adıyla içerir: `feedWrittenColumns`
+   (`TestFeedCatalog_TwoRolesTriggerOrderExecuteOwnerOnlyRelid`), `tappa_app`'in `punch_events` SELECT
+   listesi (`TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`) ve iki satırın aynı değeri
+   (`TestPunchDirectionSource_BothFeedWritersCarryTheRowsSource`).
 4. **Kendi tenant'ındaki ayrıcalıklı olmayan kod yolu (SQL kusuru, enjeksiyon) `tappa_app` olarak.**
    Erişebileceği en geniş yüzey: kapalı listedeki fonksiyonların sabit dönüşleri, yalnız eş
    tenant'ın anahtarlarıyla. Tetikleyicileri bağlayamaz (EXECUTE yalnız sahipte + `TG_RELID`

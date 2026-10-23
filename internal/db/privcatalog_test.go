@@ -166,7 +166,9 @@ SELECT line FROM (
 // live one; 00061 changed nine function lines, read again at 00061; 00063 -- M10 OP-15 -- added
 // op_suspend_tenant and op_reinstate_tenant and the two suspension columns to tappa_opdefiner's
 // two tenants lines, read again at 00063; 00064 -- M15-02 -- added day_cutoff to tappa_app's tenants
-// UPDATE line and tappa_checkout_class, read again at 00064) and READ line by line before
+// UPDATE line and tappa_checkout_class, read again at 00064; 00067 -- M15-13 -- added direction_source
+// to the two feed writers' transactions SELECT lines and punch_events INSERT lines and to tappa_app's
+// punch_events SELECT line, read again at 00067) and READ line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
 //   - nine pre-M11 trigger functions (tappa_forbid_*, tappa_check_transaction_review,
@@ -248,9 +250,9 @@ column platform_admins tappa_operator SELECT id,email,display_name,status,passwo
 column platform_sessions tappa_opdefiner INSERT admin_id,token_hash,mfa_verified_at
 column platform_sessions tappa_opdefiner SELECT id,admin_id,token_hash,created_at,mfa_verified_at,last_used_at,revoked_at
 column platform_sessions tappa_opdefiner UPDATE last_used_at,revoked_at
-column punch_events tappa_app SELECT tenant_id,seq,punch_id,punch_tenant_id,roles,version,status,punch_time,recorded_at,channel,direction,employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,created_at
-column punch_events tappa_feedwriter INSERT tenant_id,seq,punch_id,punch_tenant_id,roles,punch_time,recorded_at,channel,direction,employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid
-column punch_events tappa_holdingdefiner INSERT tenant_id,seq,punch_id,punch_tenant_id,roles,punch_time,recorded_at,channel,direction,employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid
+column punch_events tappa_app SELECT tenant_id,seq,punch_id,punch_tenant_id,roles,version,status,punch_time,recorded_at,channel,direction,employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,created_at,direction_source
+column punch_events tappa_feedwriter INSERT tenant_id,seq,punch_id,punch_tenant_id,roles,punch_time,recorded_at,channel,direction,employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,direction_source
+column punch_events tappa_holdingdefiner INSERT tenant_id,seq,punch_id,punch_tenant_id,roles,punch_time,recorded_at,channel,direction,employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,direction_source
 column sessions tappa_resolver SELECT id,tenant_id,employee_id,token_hash,revoked_at
 column site_punches tappa_app SELECT tenant_id,id,transaction_id,employer_tenant_id,employer_api_code,employee_id,employee_ref,employee_code,employee_name,site_location_id,site_tag_uid,ctr,bucket_hour,occurred_at,channel,type,outcome,ctr_gap,created_at
 column site_punches tappa_holdingdefiner INSERT tenant_id,transaction_id,employer_tenant_id,employer_api_code,employee_id,employee_ref,employee_code,employee_name,site_location_id,site_tag_uid,ctr,sun_valid,bucket_hour,occurred_at,channel,type,outcome,ctr_gap
@@ -271,8 +273,8 @@ column tenants tappa_holdingdefiner SELECT id,name,timezone,vat_verified,api_ena
 column tenants tappa_opdefiner SELECT id,name,vat_number,business_type,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,api_enabled_at,api_code,suspended_at,suspension_reason
 column tenants tappa_opdefiner UPDATE vat_verified,vat_checked_at,api_enabled_at,api_code,suspended_at,suspension_reason
 column tenants tappa_resolver SELECT id,api_enabled_at
-column transactions tappa_feedwriter SELECT id,tenant_id,employee_id,location_id,tag_uid,type,occurred_at,verdict,channel,practice,site_tenant_id
-column transactions tappa_holdingdefiner SELECT id,tenant_id,employee_id,ctr,type,occurred_at,sun_valid,verdict,channel,practice,site_tenant_id,site_location_id,site_tag_uid
+column transactions tappa_feedwriter SELECT id,tenant_id,employee_id,location_id,tag_uid,type,occurred_at,verdict,channel,practice,site_tenant_id,direction_source
+column transactions tappa_holdingdefiner SELECT id,tenant_id,employee_id,ctr,type,occurred_at,sun_valid,verdict,channel,practice,site_tenant_id,site_location_id,site_tag_uid,direction_source
 column webhook_deliveries tappa_app SELECT tenant_id,id,endpoint_id,punch_event_seq,attempt,next_attempt_at,lease_until,state,last_status,last_error_class,created_at,delivered_at,settled_at
 column webhook_deliveries tappa_app UPDATE attempt,next_attempt_at,lease_until,state,last_status,last_error_class,delivered_at
 column webhook_deliveries tappa_feedwriter INSERT tenant_id,endpoint_id,punch_event_seq

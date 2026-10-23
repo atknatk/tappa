@@ -158,6 +158,8 @@ var opAtVersionSkips = map[int]string{
 		"ACCESS EXCLUSIVE on transactions and refuses while a row carries a direction source",
 	66: "the validation of 00064's and 00065's three transactions CHECKs (M15-09) -- no operator object; its Down drops " +
 		"and adds them again NOT VALID under ACCESS EXCLUSIVE on transactions",
+	67: "punch_events.direction_source and the two feed triggers that write it (M15-13) -- no operator object; its Down " +
+		"takes ACCESS EXCLUSIVE on punch_events and refuses while an event carries a direction source",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

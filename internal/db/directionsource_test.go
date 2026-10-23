@@ -30,6 +30,7 @@ import (
 const (
 	ds00065File = "00065_record_who_chose_the_direction.sql"
 	ds00066File = "00066_validate_the_direction_checks.sql"
+	ds00067File = "00067_say_who_chose_a_punchs_direction.sql"
 )
 
 // dsChecks are the three transactions CHECKs 00064 and 00065 add NOT VALID and 00066 validates.
@@ -98,28 +99,41 @@ func TestDirectionSource_TheCheckAdmitsTheTwoSourcesAndRefusesEveryOtherValue(t 
 	}
 }
 
-// TestDirectionSource_TheFeedWritersReachIsNotWidened is the card's "feed yazıcısının kolon
-// yetkileri genişlemez": no role but tappa_app holds any column privilege on direction_source,
-// tappa_app holds SELECT and INSERT and no UPDATE (§4.3: written once), and tappa_feedwriter's and
-// tappa_holdingdefiner's whole reach on transactions is the column list it was at 00064 -- 00065
-// grants nothing. M15-13 is the card that names the column for the punch event (00068).
+// TestDirectionSource_TheFeedWritersReachIsNotWidened is M15-09's "feed yazıcısının kolon yetkileri
+// genişlemez", carried through M15-13 (00067) -- which widens each feed writer's reach on
+// transactions by EXACTLY the one column, for reading, and nothing more:
+//   - on transactions.direction_source: tappa_app holds SELECT and INSERT and no UPDATE (§4.3:
+//     written once); tappa_feedwriter and tappa_holdingdefiner SELECT and nothing else (the approval
+//     arms of punch_feed and holding_feed read the approved row by its key -- measured 42501 without
+//     it, 00067's header); every other role nothing;
+//   - each writer's whole reach on transactions is its 00064 column list plus direction_source --
+//     a second new column, or an INSERT or UPDATE, is red;
+//   - on punch_events.direction_source: the two writers INSERT and nothing else, tappa_app SELECT and
+//     nothing else, every other role nothing.
 func TestDirectionSource_TheFeedWritersReachIsNotWidened(t *testing.T) {
 	ctx, tx := opTx(t)
-	for _, role := range m11Roles {
-		for _, priv := range []string{"SELECT", "INSERT", "UPDATE", "REFERENCES"} {
-			var has bool
-			if err := tx.QueryRow(ctx, `SELECT has_column_privilege($1, 'public.transactions', 'direction_source', $2)`, role, priv).Scan(&has); err != nil {
-				t.Fatal(err)
-			}
-			want := role == "tappa_app" && (priv == "SELECT" || priv == "INSERT")
-			if has != want {
-				t.Errorf("%s %s on transactions.direction_source = %v, want %v", role, priv, has, want)
+	for _, c := range []struct {
+		table string
+		verbs map[string]string // role -> the verbs it holds on the column ("S", "I", "U", "R")
+	}{
+		{"transactions", map[string]string{"tappa_app": "SI", "tappa_feedwriter": "S", "tappa_holdingdefiner": "S"}},
+		{"punch_events", map[string]string{"tappa_app": "S", "tappa_feedwriter": "I", "tappa_holdingdefiner": "I"}},
+	} {
+		for _, role := range m11Roles {
+			for _, priv := range []string{"SELECT", "INSERT", "UPDATE", "REFERENCES"} {
+				var has bool
+				if err := tx.QueryRow(ctx, `SELECT has_column_privilege($1, 'public.' || $2, 'direction_source', $3)`, role, c.table, priv).Scan(&has); err != nil {
+					t.Fatal(err)
+				}
+				if want := strings.Contains(c.verbs[role], priv[:1]); has != want {
+					t.Errorf("%s %s on %s.direction_source = %v, want %v", role, priv, c.table, has, want)
+				}
 			}
 		}
 	}
 	for _, c := range []struct{ role, want string }{
-		{"tappa_feedwriter", "id,tenant_id,employee_id,location_id,tag_uid,type,occurred_at,verdict,channel,practice,site_tenant_id"},
-		{"tappa_holdingdefiner", "id,tenant_id,employee_id,ctr,type,occurred_at,sun_valid,verdict,channel,practice,site_tenant_id,site_location_id,site_tag_uid"},
+		{"tappa_feedwriter", "id,tenant_id,employee_id,location_id,tag_uid,type,occurred_at,verdict,channel,practice,site_tenant_id,direction_source"},
+		{"tappa_holdingdefiner", "id,tenant_id,employee_id,ctr,type,occurred_at,sun_valid,verdict,channel,practice,site_tenant_id,site_location_id,site_tag_uid,direction_source"},
 	} {
 		for _, priv := range []string{"SELECT", "INSERT", "UPDATE"} {
 			want := ""
@@ -127,7 +141,7 @@ func TestDirectionSource_TheFeedWritersReachIsNotWidened(t *testing.T) {
 				want = c.want
 			}
 			if got := opColumns(t, ctx, tx, c.role, "transactions", priv); got != want {
-				t.Errorf("%s %s on transactions = %q, want %q (00064's reach)", c.role, priv, got, want)
+				t.Errorf("%s %s on transactions = %q, want %q (00064's reach and 00067's one column)", c.role, priv, got, want)
 			}
 		}
 	}
@@ -137,10 +151,12 @@ func TestDirectionSource_TheFeedWritersReachIsNotWidened(t *testing.T) {
 // with SET LOCAL lock_timeout = '1s' (ADR 0032 §A.5's rule for every ALTER TABLE transactions file;
 // TestM11Migrations00037And00038_OpenWithASecondsLockTimeout's pin, for these two). 00065's ALTER
 // and Down, and 00066's Down, take ACCESS EXCLUSIVE on the table every tap writes; behind a long
-// reader the file gives up with 55P03 instead of queueing every later tap behind it.
+// reader the file gives up with 55P03 instead of queueing every later tap behind it. M15-13's 00067
+// is held to the same line: its ALTER and its Down take ACCESS EXCLUSIVE on punch_events, which every
+// ok tap writes.
 func TestDirectionSource00065And00066_OpenWithASecondsLockTimeout(t *testing.T) {
 	const want = "SET LOCAL lock_timeout = '1s';"
-	for _, file := range []string{ds00065File, ds00066File} {
+	for _, file := range []string{ds00065File, ds00066File, ds00067File} {
 		up, down := opMigrationSections(t, file)
 		for name, section := range map[string]string{"Up": up, "Down": down} {
 			var first string
@@ -165,11 +181,14 @@ func TestDirectionSource00065And00066_OpenWithASecondsLockTimeout(t *testing.T) 
 // invisible to the EXISTS, waits for the ALTER's lock, commits behind the check -- and the DROP
 // COLUMN then drops the evidence it wrote (§4.3). The Down tests take the table first themselves
 // (lockForDowns), so with the line deleted they stayed green (measured); this is a pin on the text.
-// 00064 carries the same arrangement over the five tables its Down alters, in the Up's order.
+// 00064 carries the same arrangement over the five tables its Down alters, in the Up's order; 00067
+// (M15-13) over punch_events -- a tap's event committed between the EXISTS and the DROP COLUMN would
+// lose who chose its direction.
 func TestDirectionSource00064And00065_TheDownLocksBeforeItLooks(t *testing.T) {
 	for _, c := range []struct{ file, lock string }{
 		{bd00064File, "LOCK TABLE employees, departments, locations, tenants, transactions IN ACCESS EXCLUSIVE MODE;"},
 		{ds00065File, "LOCK TABLE transactions IN ACCESS EXCLUSIVE MODE;"},
+		{ds00067File, "LOCK TABLE punch_events IN ACCESS EXCLUSIVE MODE;"},
 	} {
 		_, down := opMigrationSections(t, c.file)
 		var statements []string
@@ -409,19 +428,28 @@ func dsRead(t *testing.T, ctx context.Context, q opQuerier) dsSurface {
 //   - without one it takes the column and its two CHECKs away and leaves 00064's CHECK as it was,
 //     and the Ups take HEAD's catalogue again (00066's Up: all three validated).
 //
-// The walk runs in this test's transaction (rolled back), with the tables the Downs name locked
-// first (lockForDowns), and the Downs may take no strong lock outside them.
+// Since M15-13 the walk starts with 00067's Down (the punch feed's column and the two trigger
+// bodies that read transactions.direction_source -- goose's own order), any event's source set aside
+// first, and ends with 00067's Up. The walk runs in this test's transaction (rolled back), with the
+// tables the Downs name locked first (lockForDowns), and the Downs may take no strong lock outside
+// them.
 func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *testing.T) {
 	ctx, tx := opTx(t)
 	up65, down65 := opMigrationSections(t, ds00065File)
 	up66, down66 := opMigrationSections(t, ds00066File)
-	tables := append(downTables(down65), downTables(down66)...)
+	up67, down67 := opMigrationSections(t, ds00067File)
+	tables := append(append(downTables(down65), downTables(down66)...), downTables(down67)...)
 	slices.Sort(tables)
 	tables = slices.Compact(tables)
-	if strings.Join(tables, ",") != "transactions" {
-		t.Fatalf("PREMISE: the two Downs name %v, want transactions alone", tables)
+	if strings.Join(tables, ",") != "punch_events,transactions" {
+		t.Fatalf("PREMISE: the three Downs name %v, want punch_events and transactions alone", tables)
 	}
 	lockForDowns(t, ctx, tx, tables)
+	to66 := func(sp pgx.Tx) {
+		t.Helper()
+		feedSetAsideDirectionSources(t, ctx, sp)
+		opRunSection(t, ctx, sp, down67, "00067 Down")
+	}
 
 	head := dsRead(t, ctx, tx)
 	const (
@@ -460,6 +488,7 @@ func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *
 
 	t.Run("a row with either direction source: 00066 gives back NOT VALID and 00065 refuses", func(t *testing.T) {
 		dsSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			to66(sp)
 			opRunSection(t, ctx, sp, down66, "00066 Down")
 			at65 := dsRead(t, ctx, sp)
 			if at65.constraints != notValid || at65.column != head.column {
@@ -546,6 +575,7 @@ func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *
 					}
 				}
 			}
+			to66(sp)
 			opRunSection(t, ctx, sp, down66, "00066 Down")
 			at65 := dsRead(t, ctx, sp)
 			opRunSection(t, ctx, sp, down65, "00065 Down")
@@ -565,6 +595,7 @@ func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *
 			if again := dsRead(t, ctx, sp); again != head {
 				t.Errorf("after 00066's Up again:\n %+v\nwant HEAD's\n %+v", again, head)
 			}
+			opRunSection(t, ctx, sp, up67, "00067 Up again")
 		})
 	})
 }

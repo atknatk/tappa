@@ -587,7 +587,7 @@ paths:
                   value: {"data": [
                       {"id": "pch_00d216d4-3012-4d76-9c35-8f24028b432a", "version": 1, "status": "valid",
                         "punchTime": "2026-10-16T09:13:13.008183Z", "recordedAt": "2026-10-16T09:13:13.051707Z",
-                        "channel": "nfc", "direction": "in",
+                        "channel": "nfc", "direction": "in", "directionSource": "auto",
                         "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001",
                           "employeeCode": "2001", "company": "KM"},
                         "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT",
@@ -595,7 +595,7 @@ paths:
                         "tagId": "tag_0DD4F2FE3B9A6A"},
                       {"id": "pch_04ce3ad0-fb32-477d-9d5d-7c0e9b079b41", "version": 1, "status": "valid",
                         "punchTime": "2026-10-16T09:13:13.083662Z", "recordedAt": "2026-10-16T09:13:13.116875Z",
-                        "channel": "nfc", "direction": "in",
+                        "channel": "nfc", "direction": "in", "directionSource": "auto",
                         "employee": {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "externalRef": "E-1042",
                           "employeeCode": "1042", "company": "KF"},
                         "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT",
@@ -607,7 +607,7 @@ paths:
                   value: {"data": [
                       {"id": "pch_00d216d4-3012-4d76-9c35-8f24028b432a", "version": 1, "status": "valid",
                         "punchTime": "2026-10-16T09:13:13.008183Z", "recordedAt": "2026-10-16T09:13:13.051707Z",
-                        "channel": "nfc", "direction": "in",
+                        "channel": "nfc", "direction": "in", "directionSource": "auto",
                         "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001",
                           "employeeCode": "2001", "company": "KM"},
                         "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT",
@@ -615,7 +615,7 @@ paths:
                         "tagId": "tag_0DD4F2FE3B9A6A"},
                       {"id": "pch_f01406af-dfcc-4fc0-bc4e-c3d982645fe8", "version": 1, "status": "valid",
                         "punchTime": "2026-10-16T09:14:14.253191Z", "recordedAt": "2026-10-16T09:14:14.261497Z",
-                        "channel": "nfc", "direction": "out",
+                        "channel": "nfc", "direction": "out", "directionSource": "auto",
                         "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001",
                           "employeeCode": "2001", "company": "KM"},
                         "location": {"id": "loc_4b6d2cc5-44e7-42c0-9830-abd1b8e370bb", "externalRef": "DEP-1",
@@ -769,7 +769,7 @@ webhooks:
                 value: {"event": "punch", "deliveryId": "dlv_44721ce2-0f54-41ce-a757-7ee03cfec107",
                   "id": "pch_04ce3ad0-fb32-477d-9d5d-7c0e9b079b41", "version": 1, "status": "valid",
                   "punchTime": "2026-10-16T09:13:13.083662Z", "recordedAt": "2026-10-16T09:13:13.116875Z",
-                  "channel": "nfc", "direction": "in",
+                  "channel": "nfc", "direction": "in", "directionSource": "auto",
                   "employee": {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "externalRef": "E-1042",
                     "employeeCode": "1042", "company": "KF"},
                   "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT",
@@ -1101,6 +1101,14 @@ components:
           type: string
           enum: [in, out]
           description: In or out, as Taptime computed it for the employee's own business.
+        directionSource:
+          type: ["string", "null"]
+          enum: [auto, employee, null]
+          description: |
+            Who chose `direction`: `auto` -- Taptime's own direction; `employee` -- the employee chose the
+            other one on the tap page ("Not right?") and that was recorded. null for a punch the feed recorded
+            before it carried this field. Added to version 1 (the guide's edition 3) and not required: a
+            client that does not read it reads every other field as before.
         employee:
           $ref: "#/components/schemas/PunchEmployee"
         location:
@@ -1150,6 +1158,14 @@ components:
           type: string
           enum: [in, out]
           description: In or out, as Taptime computed it for the employee's own business.
+        directionSource:
+          type: ["string", "null"]
+          enum: [auto, employee, null]
+          description: |
+            Who chose `direction`: `auto` -- Taptime's own direction; `employee` -- the employee chose the
+            other one on the tap page ("Not right?") and that was recorded. null for a punch the feed recorded
+            before it carried this field. Added to version 1 (the guide's edition 3) and not required: a
+            client that does not read it reads every other field as before.
         employee:
           $ref: "#/components/schemas/PunchEmployee"
         location:

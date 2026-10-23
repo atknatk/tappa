@@ -34,9 +34,14 @@ type Punch struct {
 	RecordedAt time.Time `json:"recordedAt"`
 	Channel    string    `json:"channel"`
 	Direction  string    `json:"direction"`
-	Employee   Employee  `json:"employee"`
-	Location   Location  `json:"location"`
-	TagID      *string   `json:"tagId"`
+	// DirectionSource is who chose Direction: "auto" or "employee" (M15-13; ADR 0032 §B.6). Always
+	// on the wire, null for a punch the feed recorded before it carried this -- the contract's shape
+	// for every other nullable field (tagId). An addition to v1: a client that does not know the
+	// field reads every other field as before.
+	DirectionSource *string  `json:"directionSource"`
+	Employee        Employee `json:"employee"`
+	Location        Location `json:"location"`
+	TagID           *string  `json:"tagId"`
 }
 
 // Employee is the punch's employee snapshot (K-32).
@@ -61,6 +66,7 @@ func Of(e tenant.PunchEvent) Punch {
 	b := Punch{
 		ID: PunchIDPrefix + e.PunchID.String(), Version: e.Version, Status: e.Status,
 		PunchTime: e.PunchTime.UTC(), RecordedAt: e.RecordedAt.UTC(), Channel: e.Channel, Direction: e.Direction,
+		DirectionSource: e.DirectionSource,
 		Employee: Employee{ID: EmployeeIDPrefix + e.EmployeeID.String(), ExternalRef: e.EmployeeRef,
 			EmployeeCode: e.EmployeeCode, Company: e.EmployeeCompany},
 		Location: Location{ExternalRef: e.LocationRef, Name: e.LocationName, Company: e.LocationCompany},

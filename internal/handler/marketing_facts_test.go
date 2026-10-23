@@ -143,9 +143,12 @@ type apiFactSources struct {
 	Auth     string // internal/apikey/auth.go: the closed-API refusal
 	Mig38    string // api_enabled_at, and the guard that tappa_app cannot write it
 	Mig39    string // op_enable_tenant_api
-	Mig49    string // punch_feed(), which queues the webhook delivery
-	// Migrations is every migration by file name, to see that nothing after 00049
-	// redefines punch_feed(): a later CREATE OR REPLACE would make 00049 stale.
+	// MigFeed is the Up section of the newest migration that defines punch_feed() and
+	// holding_feed() -- feedMigration (00049 until M15-13; 00067 since): punch_feed(), which
+	// queues the webhook delivery, and holding_feed(), which queues the employer's.
+	MigFeed string
+	// Migrations is every migration by file name, to see that nothing after feedMigration
+	// redefines either trigger: a later CREATE OR REPLACE would make MigFeed stale.
 	Migrations map[string]string
 }
 
@@ -181,7 +184,7 @@ func loadAPIFactSources(t *testing.T) apiFactSources {
 		Auth:       strip(repoFile(t, "internal", "apikey", "auth.go")),
 		Mig38:      migs["00038_add_api_access_to_tenants.sql"],
 		Mig39:      migs["00039_open_the_api_from_the_operator.sql"],
-		Mig49:      migs["00049_write_the_punch_feed.sql"],
+		MigFeed:    gooseUp(migs[feedMigration]),
 		Migrations: migs,
 	}
 }
@@ -232,20 +235,23 @@ func v1RouteViolation(s apiFactSources, method, pathConst, want string) string {
 	return ""
 }
 
-// punchFeedBodyRE cuts 00049's punch_feed() out of the migration, up to its closing
-// dollar quote.
-var punchFeedBodyRE = regexp.MustCompile(`(?s)CREATE FUNCTION public\.punch_feed\(\).*?\n\$\$;`)
+// feedMigration is the newest migration whose Up defines punch_feed() and holding_feed(): 00049
+// wrote both, M15-13's 00067 replaced both (directionSource).
+const feedMigration = "00067_say_who_chose_a_punchs_direction.sql"
+
+// punchFeedBodyRE cuts punch_feed() out of feedMigration's Up, up to its closing dollar quote.
+var punchFeedBodyRE = regexp.MustCompile(`(?s)CREATE (?:OR REPLACE )?FUNCTION public\.punch_feed\(\).*?\n\$\$;`)
 
 // punchFeedRedefinedRE is any definition of the same trigger function.
 var punchFeedRedefinedRE = regexp.MustCompile(`(?i)CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?punch_feed\s*\(`)
 
-// holdingFeedBodyRE cuts holding_feed() out of 00049's Up section. A holding punch's
+// holdingFeedBodyRE cuts holding_feed() out of feedMigration's Up section. A holding punch's
 // two events are written by the holding trigger, not punch_feed (K-31), so "every
 // punch" reaches a webhook only if THIS function queues one for the employer too.
 var holdingFeedBodyRE = regexp.MustCompile(`(?s)CREATE OR REPLACE FUNCTION public\.holding_feed\(\).*?\n\$\$;`)
 
 // holdingFeedRedefinedRE is any definition of holding_feed(); 00046 wrote the first
-// one, so only a migration after 00049 makes the reading below stale.
+// one, so only a migration after feedMigration makes the reading below stale.
 var holdingFeedRedefinedRE = regexp.MustCompile(`(?i)CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?holding_feed\s*\(`)
 
 // employerWebhookRE is the employer's webhook row inside holding_feed(): the punch
@@ -284,26 +290,26 @@ func apiFeedViolation(s apiFactSources) string {
 	if why := v1RouteViolation(s, "Get", "punchesPath", "/punches"); why != "" {
 		return why + ", so there is no punch feed to read"
 	}
-	body := punchFeedBodyRE.FindString(s.Mig49)
+	body := punchFeedBodyRE.FindString(s.MigFeed)
 	if body == "" {
-		return "migration 00049 no longer defines punch_feed()"
+		return "migration " + feedMigration + "'s Up no longer defines punch_feed()"
 	}
 	if !strings.Contains(body, "INSERT INTO public.webhook_deliveries") {
-		return "00049's punch_feed() no longer queues a webhook delivery for a punch"
+		return feedMigration + "'s punch_feed() no longer queues a webhook delivery for a punch"
 	}
-	holding := holdingFeedBodyRE.FindString(gooseUp(s.Mig49))
+	holding := holdingFeedBodyRE.FindString(s.MigFeed)
 	if holding == "" {
-		return "migration 00049's Up no longer defines holding_feed()"
+		return "migration " + feedMigration + "'s Up no longer defines holding_feed()"
 	}
 	if !employerWebhookRE.MatchString(holding) {
-		return "00049's holding_feed() no longer queues the employer's webhook delivery, so a holding " +
+		return feedMigration + "'s holding_feed() no longer queues the employer's webhook delivery, so a holding " +
 			"punch (K-31) never reaches the employer's HR system and \"every punch\" is false"
 	}
 	for name, src := range s.Migrations {
-		if name != "00049_write_the_punch_feed.sql" && punchFeedRedefinedRE.MatchString(src) {
+		if name > feedMigration && punchFeedRedefinedRE.MatchString(src) {
 			return name + " redefines punch_feed(); re-derive the webhook half from that definition"
 		}
-		if name > "00049_write_the_punch_feed.sql" && holdingFeedRedefinedRE.MatchString(src) {
+		if name > feedMigration && holdingFeedRedefinedRE.MatchString(src) {
 			return name + " redefines holding_feed(); re-derive the holding webhook half from that definition"
 		}
 	}
@@ -1127,7 +1133,7 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		auth     field = func(s *apiFactSources) *string { return &s.Auth }
 		mig38    field = func(s *apiFactSources) *string { return &s.Mig38 }
 		mig39    field = func(s *apiFactSources) *string { return &s.Mig39 }
-		mig49    field = func(s *apiFactSources) *string { return &s.Mig49 }
+		migFeed  field = func(s *apiFactSources) *string { return &s.MigFeed }
 	)
 	for _, tc := range []struct {
 		name     string
@@ -1142,8 +1148,8 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{"no PUT employees", apiWritesViolation, apiPkg, "r.Put(employeePath,", "r.Get(employeePath,"},
 		{"locations moved", apiWritesViolation, apiPkg, `locationPath = "/locations/{ref}"`, `locationPath = "/sites/{ref}"`},
 		{"no GET punches", apiFeedViolation, apiPkg, "r.Get(punchesPath,", "r.Head(punchesPath,"},
-		{"the trigger queues no webhook", apiFeedViolation, mig49, "INSERT INTO public.webhook_deliveries", "INSERT INTO public.nothing"},
-		{"a holding punch queues no employer webhook", apiFeedViolation, mig49,
+		{"the trigger queues no webhook", apiFeedViolation, migFeed, "INSERT INTO public.webhook_deliveries", "INSERT INTO public.nothing"},
+		{"a holding punch queues no employer webhook", apiFeedViolation, migFeed,
 			"INSERT INTO public.webhook_deliveries (tenant_id, endpoint_id, punch_event_seq) VALUES (v_employer",
 			"INSERT INTO public.nothing (tenant_id, endpoint_id, punch_event_seq) VALUES (v_employer"},
 		{"no webhook sender", apiFeedViolation, cmd, "work.Add(deliveries)", "_ = deliveries"},
