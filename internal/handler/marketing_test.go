@@ -21,6 +21,7 @@ import (
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/apiguide"
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/store"
@@ -565,7 +566,10 @@ func TestMarketing_AVisitorLeavingIsNotAnError(t *testing.T) {
 // externalReference matches a reference to somewhere that is not this origin: an
 // absolute URL in any attribute or stylesheet function, and a protocol-relative
 // one. mailto: and tel: are NOT matched -- they open a mail client rather than
-// making a request -- but the surface carries neither today.
+// making a request. Since ADR 0033 a PUBLISHED legal text can carry them, and http(s)
+// anchors too: those are links the operator typed and a reader follows, never a
+// resource the page loads, and the public suite's fake texts carry none, so this scan
+// still sees only what the product itself renders.
 var externalReference = regexp.MustCompile(
 	`(?i)(?:href|src|srcset|action|data|poster|content)\s*=\s*["']\s*(?:[a-z][a-z0-9+.-]*:)?//|` +
 		`url\(\s*["']?\s*(?:[a-z][a-z0-9+.-]*:)?//|` +
@@ -1584,7 +1588,7 @@ func TestLegalPages_SkeletonsAreNotIndexedAndSayWhatTheyAreWaitingFor(t *testing
 	// They now live in legal_documents, so publication is "a text was published" and
 	// the fact lives on the VIEW rather than on the route table.
 	waiting := pages.LegalPageView{Page: pages.LegalPage{Path: "/legal/x", Title: "X", Needs: []string{"a fact somebody has to supply"}}}
-	finished := pages.LegalPageView{Page: pages.LegalPage{Path: "/legal/x", Title: "X"}, Body: []string{"The finished text."}}
+	finished := pages.LegalPageView{Page: pages.LegalPage{Path: "/legal/x", Title: "X"}, Body: legal.Paragraphs("The finished text.")}
 	if waiting.Published() {
 		t.Error("a document with no published text reports itself as published. Publication " +
 			"is defined as \"somebody published a text\" precisely so that it cannot be " +

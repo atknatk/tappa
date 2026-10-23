@@ -92,34 +92,40 @@ type Doc struct {
 	// like. A security audit measured the splitting cost at 253 ms for a pathological
 	// 9 MB body; the body is now bounded (256 KiB: op_publish_legal's octet_length
 	// check, and internal/handler/operator's maxLegalBody) AND the split happens
-	// at publication rather than at render, so the read is a map lookup.
-	Paragraphs []string
+	// at publication rather than at render, so the read is a map lookup. The link
+	// recognition (links.go) runs here too, for the same reason.
+	Paragraphs []Paragraph
 }
 
-// Paragraphs splits a body into the paragraphs a page renders, and it is the ONLY
-// transformation applied to a legal text.
+// Paragraphs splits a body into the paragraphs a page renders and recognises the
+// links inside each one; together they are the ONLY transformation applied to a
+// legal text.
 //
 // 🔴 THE POINT IS THAT templ.Raw IS NOT REACHED. templ escapes every `{ expr }`
 // through html.EscapeString, so a body containing <script> renders as text — but it
-// does NOTHING to newlines, so a typed document would arrive as one run-on
-// paragraph. The obvious fix (build <p> tags in Go and hand them to templ.Raw) is
-// the one that must not be taken: measured on this repository, `templ.Raw` has ZERO
-// call sites and NOT ONE of the twelve tests that scan .templ files would notice a
-// thirteenth appearing — internal/handler/policies_test.go says so about its own
-// blind spot in as many words. So the split returns STRINGS and the template loops
-// over them, which keeps every character of a legal text inside templ's escaping.
+// does NOTHING to newlines or links, so a typed document would arrive as one run-on
+// paragraph of dead addresses. The obvious fix (build <p> and <a> tags in Go and hand
+// them to templ.Raw) is the one that must not be taken: measured on this repository,
+// `templ.Raw` has ZERO call sites and NOT ONE of the twelve tests that scan .templ
+// files would notice a thirteenth appearing — internal/handler/policies_test.go says
+// so about its own blind spot in as many words. So this returns DATA — paragraphs of
+// Spans, each a piece of the operator's text and, for a link, an href that passed
+// SafeHref — and the template loops over them, which keeps every character of a
+// legal text inside templ's escaping and every href inside an allow-list we test.
 //
-// THE RULE, which a person typing into a textarea can predict: one or more blank
-// lines start a new paragraph; a single newline inside a paragraph is a space,
+// THE PARAGRAPH RULE, which a person typing into a textarea can predict: one or more
+// blank lines start a new paragraph; a single newline inside a paragraph is a space,
 // because a line wrapped by the textarea is not a new thought. Leading and trailing
 // whitespace goes; an empty result means the body was blank, which 00020's CHECK
-// already refuses at the column.
+// already refuses at the column. THE LINK RULE is the closed grammar in links.go
+// (ADR 0033).
 //
 // ⚠️ IT IS NOT MARKDOWN AND MUST NOT BECOME MARKDOWN. A renderer would need a
-// dependency (go.mod has five and no HTML sanitizer), and every markdown renderer
-// worth having emits HTML — which is a templ.Raw with extra steps.
-func Paragraphs(body string) []string {
-	var out []string
+// dependency (go.mod has no HTML sanitizer), and every markdown renderer worth having
+// emits HTML — which is a templ.Raw with extra steps. The link grammar is four shapes
+// and no nesting; growing it into emphasis, headings or lists is a new ADR.
+func Paragraphs(body string) []Paragraph {
+	var out []Paragraph
 	for _, block := range strings.Split(normalizeNewlines(body), "\n\n") {
 		var lines []string
 		for _, line := range strings.Split(block, "\n") {
@@ -128,7 +134,7 @@ func Paragraphs(body string) []string {
 			}
 		}
 		if len(lines) > 0 {
-			out = append(out, strings.Join(lines, " "))
+			out = append(out, linkify(strings.Join(lines, " ")))
 		}
 	}
 	return out

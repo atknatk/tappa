@@ -276,7 +276,7 @@ func legalEditor(d LegalDoc) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</textarea><p class=\"text-xs text-ink/70\">A blank line starts a new paragraph. At most 256 KiB.</p><button type=\"submit\" class=\"btn btn--primary\">Publish a new version</button></form></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</textarea><p class=\"text-xs text-ink/70\">A blank line starts a new paragraph. Web addresses, e-mail addresses and phone numbers starting with + become links; <span class=\"font-mono\">[text](https://…)</span> links your own text. At most 256 KiB.</p><button type=\"submit\" class=\"btn btn--primary\">Publish a new version</button></form></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -330,7 +330,7 @@ func legalVersions(v LegalView) templ.Component {
 				var templ_7745c5c3_Var15 string
 				templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(r.PublishedAt)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 88, Col: 27}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 92, Col: 27}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 				if templ_7745c5c3_Err != nil {
@@ -343,7 +343,7 @@ func legalVersions(v LegalView) templ.Component {
 				var templ_7745c5c3_Var16 string
 				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(r.Path)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 89, Col: 20}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 93, Col: 20}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 				if templ_7745c5c3_Err != nil {
@@ -356,7 +356,7 @@ func legalVersions(v LegalView) templ.Component {
 				var templ_7745c5c3_Var17 string
 				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(r.Bytes)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 90, Col: 21}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 94, Col: 21}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 				if templ_7745c5c3_Err != nil {
@@ -369,7 +369,7 @@ func legalVersions(v LegalView) templ.Component {
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(r.Publisher)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 91, Col: 25}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 95, Col: 25}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 				if templ_7745c5c3_Err != nil {
@@ -402,7 +402,7 @@ func legalVersions(v LegalView) templ.Component {
 				var templ_7745c5c3_Var19 string
 				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(v.Limit))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 99, Col: 74}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 103, Col: 74}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 				if templ_7745c5c3_Err != nil {
