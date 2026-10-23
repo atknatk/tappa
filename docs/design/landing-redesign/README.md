@@ -80,8 +80,12 @@ already measured that (comment above `.lp`, `input.css:1745-1754`). Board pages 
   town, data-centre or provider name is published. Source of the fact: `deploy/README.md:9`
   (node `k8s-1.fsn1.private`, Hetzner fsn1) and `:6800-6801` ("fsn1 = Hetzner Falkenstein,
   Almanya").
-- **K3 — Share images are PNGs exported from the ShareCards canvas** and committed under
-  `web/static/og/`. No new dependency, no Go image generation.
+- **K3 — Share images are 1200×630 PNGs committed under `web/static/og/`** (updated by the user's
+  decision of 2026-10-23; it said "exported from the ShareCards canvas" until then). Each PNG is
+  drawn locally from the ShareCards board's markup with the correction table
+  `shareCardBoardEdits` (`internal/handler/sharecards_test.go`) applied, rendered by headless
+  Chrome at 1200×630 with the repository's self-hosted fonts. The drawing script is local and is
+  not in the repository. No new dependency, no Node, no Go image generation.
 - **K4 — A public 404 page is added**, in the new chrome: header + footer + one sentence + a link
   home. §8 lists what that touches.
 - **Order:** the public site first, then the operator surface (M13).
@@ -346,9 +350,13 @@ router level changes all four. Measured in LP-12 (ADR 0034): it cannot -- chi's 
   names each page's `<title>`, `description` and source value. **No price in an image** (board
   rule: the price is derived, an image is not). Names in images are invented samples; KM
   department names are seed data (K1).
-- **How the PNG is produced (K3):** exported from the ShareCards canvas in the user's design tool,
-  1200×630 per card, and committed. There is no second route: if the builder cannot export, it
-  asks for the user's export; no screenshot tool, no generator in the repo.
+- **How the PNG is produced (K3, updated 2026-10-23):** each card is the board's 1200×630 element
+  with `shareCardBoardEdits` applied (`internal/handler/sharecards_test.go`: the retracted security
+  heading, a seed person replaced by the landing panel's sample, the location route as the API
+  serves it), drawn locally by headless Chrome at 1200×630 with the self-hosted fonts and
+  committed. The script that draws them is a local one, not in the repository; the test pins
+  each PNG's sha256 together with the sha256 of the corrected card source, so the two are
+  renewed together.
 - **Head tags only in the marketing shells.** `documentHead` (base.templ:206) is shared by every
   shell (tap, activation, panel, operator); the tap/activation heads are pinned byte for byte by
   `TestUnbrandedScreens_AreByteIdenticalToTheGolden`. Add `description` / `og:*` /

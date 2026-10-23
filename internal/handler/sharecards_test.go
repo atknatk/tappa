@@ -2,13 +2,17 @@ package handler
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"html"
 	"io/fs"
+	"maps"
 	"net/http"
+	"net/url"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -47,8 +51,8 @@ func shareCardPages() []shareCardPage {
 		out = append(out, shareCardPage{p.Path, p.Lede, f.Legal})
 	}
 	out = append(out,
-		shareCardPage{pages.APIGuidePath, pages.APIGuideDescription(false), f.API},
-		shareCardPage{pages.APIGuideTRPath, pages.APIGuideDescription(true), f.API},
+		shareCardPage{pages.APIGuidePath, pages.APIGuideDescription(false).Text, f.API},
+		shareCardPage{pages.APIGuideTRPath, pages.APIGuideDescription(true).Text, f.API},
 	)
 	return out
 }
@@ -116,7 +120,10 @@ func TestShareCards_EveryPublicPageCarriesItsCard(t *testing.T) {
 			"og:image":        image,
 			"og:image:width":  "1200",
 			"og:image:height": "630",
-			"twitter:card":    "summary_large_image",
+			// The alternative text is the title, not a new sentence (layout.Share).
+			"og:image:alt":      html.UnescapeString(title[1]),
+			"twitter:card":      "summary_large_image",
+			"twitter:image:alt": html.UnescapeString(title[1]),
 		} {
 			if !reflect.DeepEqual(meta[name], []string{value}) {
 				t.Errorf("GET %s: %s is %q, want exactly [%q]", c.url, name, meta[name], value)
@@ -125,8 +132,8 @@ func TestShareCards_EveryPublicPageCarriesItsCard(t *testing.T) {
 		if c.description == "" {
 			t.Errorf("%s: the description's source is empty", c.url)
 		}
-		if len(meta) != 8 {
-			t.Errorf("GET %s carries share lines %v, want the eight above", c.url, meta)
+		if len(meta) != 10 {
+			t.Errorf("GET %s carries share lines %v, want the ten above", c.url, meta)
 		}
 		// The image is the file the binary embeds, served where og:image says.
 		raw, err := fs.ReadFile(static, c.image)
@@ -186,6 +193,9 @@ func TestShareCards_NoOriginNoImage(t *testing.T) {
 		"ftp://taptime.mt":           "",
 		"https://":                   "",
 		"javascript:alert(1)":        "",
+		// A user part is dropped: the origin is scheme and host only. The URL is built
+		// from its parts so that no credential-shaped literal sits in the source.
+		(&url.URL{Scheme: "https", User: url.UserPassword("u", "p"), Host: "taptime.mt"}).String(): "https://taptime.mt",
 	} {
 		if got := shareOrigin(base); got != want {
 			t.Errorf("shareOrigin(%q) = %q, want %q", base, got, want)
@@ -391,8 +401,10 @@ func TestShareImageExemption_IsNarrow(t *testing.T) {
 // The PNGs are drawn from the ShareCards board's markup (K3, user decision of 2026-10-23):
 // each card is the board's 1200×630 element with the edits below applied, rendered at
 // 1200×630. A test cannot read text out of a PNG, so it reads what the PNG was drawn
-// FROM: the board in docs/design and this table. The extractor that drew the committed
-// files reads this table (between the two marker comments) rather than a copy of it.
+// FROM: the board in docs/design and this table. The drawing script is a local one and
+// is not in the repository (K3, updated 2026-10-23); it reads this table between the two
+// marker comments rather than a copy of it. shareImagePins ties each committed PNG to the
+// corrected source it was drawn from.
 
 // shareCardNames is the board's cards in its order -- the order of pages.ShareImageFiles.
 var shareCardNames = []string{"landing", "product", "pricing", "security", "restaurants", "production", "signup", "legal", "api"}
@@ -503,5 +515,88 @@ func TestShareCards_TheImagesSayWhatThePagesSay(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("CONTROL: the unedited board was not refused for %q; got:\n%s", want, got)
 		}
+	}
+}
+
+// TestShareCards_TheGuideDescriptionRestsOnTheAPIFacts: the guide's description is the one
+// that is not a sentence the page prints (the board's N1), so it is a Line pinned to the
+// two facts it states, in both languages.
+func TestShareCards_TheGuideDescriptionRestsOnTheAPIFacts(t *testing.T) {
+	t.Parallel()
+	for _, turkish := range []bool{false, true} {
+		l := pages.APIGuideDescription(turkish)
+		if l.Text == "" || !slices.Contains(l.Facts, pages.FactAPIWritesPeopleAndLocations) ||
+			!slices.Contains(l.Facts, pages.FactAPIFeedsEveryCountedTap) {
+			t.Errorf("APIGuideDescription(%v) = %+v; want a sentence pinned to the API's write and feed facts", turkish, l)
+		}
+	}
+}
+
+// shareImagePins is each committed PNG's sha256 beside the sha256 of the corrected card
+// source it was drawn from (shareCardSources: the board's element with
+// shareCardBoardEdits applied). A test cannot read a PNG's text, so the pair is the bond:
+// a change to either side -- a board edit, a correction, a re-drawn image -- turns
+// TestShareImages_AreDrawnFromThePinnedSources red until both are renewed together.
+var shareImagePins = map[string]struct{ png, source string }{
+	"landing":     {"2e7568c81abe6bc02464d76271a6e7d98ff86d8ea7477f7d4bb73ece74653630", "82b0524c04ce2590e7172dd215ab97fe1249ca89912f823c347fdc4422d45348"},
+	"product":     {"58a287c31cf668eedcf577d4a003aff8153091dfa85ae29be0d694272dc0743c", "bc98b22e0cdef1ede9e93938f6da86921d2e2ced2a369f31f1fc529481424a78"},
+	"pricing":     {"4f7f3879b64697b3d88377f30abde0781adfe8b57b91ed7b2820ed5d8a6d01a2", "2463e68634b394e04ab88a6eb4a8bc38a19404268dff33f7db20a0ee54a36042"},
+	"security":    {"52ce19e0ba102c227093a7dfb887eaccb06cff13bb560f8fd7b4c5ce993f81db", "4a12281a9f58726bbcf0ac4f1690708d704b1301c6239d4c6bad2c04677cd572"},
+	"restaurants": {"411d88200d9dc919e0585bd48a5f79c3c8d940ae77574c9940f661b44a2054ff", "577d4c72fb0f159ab170b1dcf9d53b17e4d267a699c73ffa6f2b05fc5ef66616"},
+	"production":  {"e6032f0e71bc508cff13a9fc69437f0e75ace8dd5ab82730da12767478c93ea5", "55d98bb1fd41e5bae00dfc5ed04f8f2f6e471aa445d185357471b26ef981250d"},
+	"signup":      {"4e5ee00c25041147b47bc4b285f08a4792114015cde55a017a93020f7b4daf7e", "266f80c006cdd3a4c365b4a85e0b89dc1b85a9494081a7bb392a60120d66ae86"},
+	"legal":       {"f5ac201eba4150b33f7a64d7f151e32d2e771ef6b00fddfa7b49fa0d471a2c8c", "0935aa16b8fe493334a949e53065fff0585cd3bfd2664659ae8135bb0d5f5b20"},
+	"api":         {"a9aab0205782d71730bb65a75007712c4ea7fe384f68011f05f650bb9fb470ba", "f7d53b2ee40c80973bc004248977898376163dfecc2c500cbd34bdc193a8c427"},
+}
+
+// sharePinProblems compares each card's PNG and corrected source with its pins.
+func sharePinProblems(pngs map[string][]byte, sources map[string]string) []string {
+	var out []string
+	for _, name := range shareCardNames {
+		pin, ok := shareImagePins[name]
+		if !ok {
+			out = append(out, name+": no pin")
+			continue
+		}
+		png := fmt.Sprintf("%x", sha256.Sum256(pngs[name]))
+		src := fmt.Sprintf("%x", sha256.Sum256([]byte(sources[name])))
+		if png != pin.png || src != pin.source {
+			out = append(out, fmt.Sprintf("%s: png %s (pinned %s), source %s (pinned %s) -- re-draw the image "+
+				"from the corrected source and renew BOTH pins together", name, png, pin.png, src, pin.source))
+		}
+	}
+	return out
+}
+
+// TestShareImages_AreDrawnFromThePinnedSources holds each committed PNG to the corrected
+// card source it was drawn from. CONTROL: a changed source and a changed image are each red.
+func TestShareImages_AreDrawnFromThePinnedSources(t *testing.T) {
+	t.Parallel()
+	sources := shareCardSources(t)
+	pngs := map[string][]byte{}
+	files := reflect.ValueOf(pages.ShareImageFiles)
+	for i, name := range shareCardNames {
+		raw, err := fs.ReadFile(web.Static(), files.Field(i).String())
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		pngs[name] = raw
+	}
+	if len(shareImagePins) != len(shareCardNames) {
+		t.Errorf("%d pin(s) for %d card(s)", len(shareImagePins), len(shareCardNames))
+	}
+	for _, p := range sharePinProblems(pngs, sources) {
+		t.Error(p)
+	}
+	// CONTROL.
+	edited := maps.Clone(sources)
+	edited["product"] = strings.Replace(edited["product"], "Claire Mifsud", "Grace Attard", 1)
+	if len(sharePinProblems(pngs, edited)) != 1 {
+		t.Error("CONTROL: a changed card source passed its pin")
+	}
+	redrawn := maps.Clone(pngs)
+	redrawn["legal"] = append(bytes.Clone(redrawn["legal"]), 0)
+	if len(sharePinProblems(redrawn, sources)) != 1 {
+		t.Error("CONTROL: a changed image passed its pin")
 	}
 }

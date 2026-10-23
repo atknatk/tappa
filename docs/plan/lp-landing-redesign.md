@@ -18,8 +18,11 @@
   etiketi kalır.
 - **K2** — Barınma metni **"Hosted in the EU (Germany)"**; Falkenstein / veri merkezi / sağlayıcı adı
   yazılmaz.
-- **K3** — OG görselleri tasarım tuvalinden **PNG export** edilip `web/static/og/` altına commit
-  edilir; yeni bağımlılık yok, Go üretimi yok.
+- **K3** — OG görselleri 1200×630 **PNG** olarak `web/static/og/` altına commit edilir; yeni
+  bağımlılık yok, Node yok, Go üretimi yok. *(Güncellendi, kullanıcı kararı 2026-10-23: önceden
+  "tasarım tuvalinden PNG export" diyordu.)* Her PNG, ShareCards panosunun markup'ına düzeltme
+  tablosu `shareCardBoardEdits` (`internal/handler/sharecards_test.go`) uygulanarak yerelde
+  headless Chrome ile 1200×630 çizilir; çizen betik yereldir, depoda üreteç yoktur.
 - **K4** — Public **404 sayfası eklenir**, yeni landing kabuğuyla (header/footer + tek cümle + ana
   sayfa linki).
 - **Sıra:** önce landing/public site (bu faz), sonra operatör (M13).
@@ -734,9 +737,11 @@ gerekçesiz.
 kılavuz sayfası bir görseli paylaşır — README §9).
 
 **Kapsam.**
-- PNG'ler K3'e göre **ShareCards tuvalinden dışa aktarılır** (kullanıcının tasarım aracı), kart başına
-  1200×630, ve commit edilir. İkinci bir yol yok: yapıcı dışa aktaramıyorsa kullanıcının
-  aktarımını ister — ekran yakalama aracı ya da depoda üreteç yok. Görselde fiyat yok.
+- PNG'ler K3'e göre (güncellendi 2026-10-23) **ShareCards panosunun markup'ından** çizilir: panonun
+  kartına düzeltme tablosu `shareCardBoardEdits` uygulanır, yerelde headless Chrome ile kart başına
+  1200×630 ekran görüntüsü alınır ve commit edilir. Çizen betik yereldir, depoda üreteç yoktur;
+  test her PNG'nin sha256'sını düzeltilmiş kart kaynağının sha256'sıyla birlikte pinler. Görselde
+  fiyat yok.
 - Meta yalnız `marketingDocument` yolunda (base.templ:473); `documentHead`'in paylaşılan çıktısı
   değişmez (`TestUnbrandedScreens_AreByteIdenticalToTheGolden`).
 - `og:image` mutlak URL: köken `TAPPA_BASE_URL`'den (`config.go:276`), `NewMarketing`'e verilir

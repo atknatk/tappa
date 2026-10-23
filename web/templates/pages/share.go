@@ -6,9 +6,12 @@ import "strings"
 //
 // What a public page shows when its link is pasted into a chat or a feed: the head's
 // description and one 1200×630 image (layout.Share). The ShareCards board names the
-// image of every page and the sentence its description comes from; the sentences
-// below are the pages' own -- a Line, a lede, the sign-off -- read from where the page
-// prints them, so a description cannot say something the page no longer does.
+// image of every page and the sentence its description comes from. Every description
+// but one is a sentence the page itself prints -- a Line, a lede, the sign-off -- read
+// from where the page prints it, so a description cannot say something the page no
+// longer does. The exception is the integration guide's (the board's N1): the guide is
+// Markdown with no Line of its own, so its description is a Line here, pinned to the
+// two API facts it states (APIGuideDescription).
 //
 // THE IMAGES ARE COMMITTED PNGs under web/static/og, drawn from the board's markup at
 // 1200×630 (K3, user decision of 2026-10-23). No price is drawn into one: the price is
@@ -59,16 +62,18 @@ func ProductDescription(c ProductText) string {
 }
 
 // APIGuideDescription is the integration guide's description, in the page's language:
-// what the guide's section 1.1 says the API lets a business's own system do. "Every
-// counted tap" is the feed's own word (FactAPIFeedsEveryCountedTap): a record a manager
-// types is not in the feed, so neither page says "every punch".
-func APIGuideDescription(turkish bool) string {
+// what the guide's section 1.1 says the API lets a business's own system do, pinned to
+// the two facts it states. "Every counted tap" is the feed's own word
+// (FactAPIFeedsEveryCountedTap): a record a manager types is not in the feed, so neither
+// page says "every punch".
+func APIGuideDescription(turkish bool) Line {
+	facts := []Fact{FactAPIWritesPeopleAndLocations, FactAPIFeedsEveryCountedTap}
 	if turkish {
-		return "Lokasyonları ve çalışanları yazın, sayılan her dokunuşu bir akıştan okuyun ya da " +
-			"webhook ile alın: Taptime entegrasyon API'si, açıklamalı."
+		return Line{Text: "Lokasyonları ve çalışanları yazın, sayılan her dokunuşu bir akıştan okuyun ya da " +
+			"webhook ile alın: Taptime entegrasyon API'si, açıklamalı.", Facts: facts}
 	}
-	return "Write locations and employees, read every counted tap from a feed or receive it by " +
-		"webhook: the Taptime integration API, explained."
+	return Line{Text: "Write locations and employees, read every counted tap from a feed or receive it by " +
+		"webhook: the Taptime integration API, explained.", Facts: facts}
 }
 
 // leadingSentences is the first n sentences of text, a sentence ending in ". ".

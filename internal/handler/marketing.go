@@ -527,7 +527,7 @@ func (m *Marketing) apiGuide(w http.ResponseWriter, r *http.Request, turkish boo
 		return
 	}
 	m.render(w, r, pages.APIGuide(pages.APIGuideView{
-		Share:       layout.Share{Description: pages.APIGuideDescription(turkish), Image: m.share.API},
+		Share:       layout.Share{Description: pages.APIGuideDescription(turkish).Text, Image: m.share.API},
 		Guide:       g,
 		Turkish:     turkish,
 		OpenAPIHref: m.openAPIHref,

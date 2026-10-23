@@ -236,7 +236,9 @@ templ documentHead(title, script string, robots Robots, theme Theme, alternates 
 			<meta property="og:image" content={ share.Image }/>
 			<meta property="og:image:width" content={ share.imageWidth() }/>
 			<meta property="og:image:height" content={ share.imageHeight() }/>
+			<meta property="og:image:alt" content={ title }/>
 			<meta name="twitter:card" content="summary_large_image"/>
+			<meta name="twitter:image:alt" content={ title }/>
 		}
 		<link rel="stylesheet" href={ web.AssetURL(ctx, "/static/css/app.css") }/>
 		if theme.Linked() {

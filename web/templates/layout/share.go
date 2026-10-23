@@ -16,7 +16,9 @@ import "strconv"
 // it against: the configured origin (TAPPA_BASE_URL) and a file under /static/og,
 // resolved once at start-up by internal/handler and never built from a request -- the
 // page renders the same bytes for every visitor and every Host header. "" writes no
-// image and no large card.
+// image and no large card. The image's alternative text (og:image:alt,
+// twitter:image:alt) is the page's title: every card draws the page's own heading under
+// the brand, so the title says what the image shows without a new sentence to pin.
 type Share struct {
 	Description string
 	Image       string
