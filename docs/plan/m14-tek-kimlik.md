@@ -662,7 +662,7 @@ devir iki adım, her adım audit'te; kimliği etkileyen hiçbir yol yok.
 `unlinked_at` + `status='disabled'`) son-owner değişmeziyle şöyle uzlaşır: contract öncesi çözmeyle **aynı
 uyarı, izin ver** (kişinin kendi kararı; ADR 0031 §5.2). Değişmez bir veritabanı tetikleyicisi olarak
 yazılırsa `tappa_identitydefiner`'ın bu yolunu durdurmaz (adlandırılmış istisna, testli); panelin
-"devre dışı bırak" yolu `unlinked_at` damgalı satırı yeniden **açamaz** (oturum yolları `unlinked_at IS
+"devre dışı bırak" yolu `unlinked_at` damgalı satırı yeniden **açamaz** (oturum **veren** yollar `unlinked_at IS
 NULL` süzer).
 
 ## M14-17 — Kayıt: e-posta doğrulaması ve var olan adres
@@ -824,7 +824,10 @@ tarihsel olarak işaretlenir; **eski binary (M14-19 sürümü) bu binary'nin şe
 **dayanmaz** (`tappa_app`'ın `UPDATE (status)`'u var, `00017:380-381`; M14-16'nın panel yolu yeniden
 açabilirdi): `identity_unlink_backfilled`'ın yeni gövdesi `identity_id`'yi korur, `unlinked_at`'i damgalar
 **ve** `status='disabled'` yapar; `identity_memberships`, `identity_switch_session`,
-`identity_open_session` ve `TouchAdminSession` `unlinked_at IS NULL` süzer. Test: çözülen satırı başka
+`identity_open_session` ve yeniden tanımlanan `resolve_admin_by_email` `unlinked_at IS NULL` süzer;
+`TouchAdminSession` süzmez (`tappa_app` `unlinked_at`'i okuyamaz, R16). Güvence: çözme o tenant'ın
+oturumlarını aynı transaction'da iptal eder, oturum **veren** her yol süzer, contract sonrasında
+`status='disabled'` (ADR 0031 §5.2). Oturum veren yollar çözümleme anında süzer; eski kolun `CreateAdminSession`'ı (`db/queries/admins.sql:117-123`) satırı yalnız `status = 'active'` ile yeniden okur, `unlinked_at`'e bakamaz (R16) — çözümleme ile oturum yazımı arasında bcrypt süresi kadar bir yarış penceresi kalır (tenant sınırı aşılmaz: oturum satırın kendi tenant'ındadır). Yükümlülük (M14-05/M14-18): çözme hedef satırı `FOR UPDATE` kilitler; pencere adlandırılmış bir kalıntıdır. Test: çözülen satırı başka
 bir owner panelden `active` yapar → kişi yine geçemez/giremez. Bu yol son-owner değişmezinin bilinçli
 istisnasıdır (M14-16).
 
