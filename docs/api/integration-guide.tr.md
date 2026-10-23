@@ -701,8 +701,8 @@ anından itibaren reddedilir.
 | `punchTime` | Dokunuşun anı (UTC): telefonun beyan ettiği an, beyan etmediyse Taptime'ın kendi anı — bugün her zaman Taptime'ınki ([6.1](#feed-what)). |
 | `recordedAt` | Punch'ın akışa girdiği an (UTC); onaylanan bir flag için onayın anı. |
 | `channel` | `nfc` ya da `qr`. |
-| `direction` | `in` ya da `out`, **işverende** kaydedildiği gibi: Taptime'ın hesapladığı yön ya da çalışan seçtiyse öbürü (`directionSource`). |
-| `directionSource` | `direction`'ı kim seçti: `auto` (Taptime) ya da `employee` (çalışan dokunuş sayfasında öbürünü seçti); akış bu alanı taşımadan önce kaydedilmiş bir punch için `null`. |
+| `direction` | `in` ya da `out`, **işverende** kaydedildiği gibi: Taptime'ın dokunuş anında hesapladığı yön ya da öbürü (`directionSource`). |
+| `directionSource` | `direction` kimin: `auto` (Taptime'ın dokunuş anında hesapladığı yön) ya da `employee` (çalışanın; Taptime'ın hesapladığı yön değil — aşağıya bakın); akış bu alanı taşımadan önce kaydedilmiş bir punch için `null`. |
 | `employee` | `id`, `externalRef`, `employeeCode`, `company` — punch anındaki hâlleriyle. |
 | `location` | `id`, `externalRef`, `name`, `company` — punch anındaki hâlleriyle. |
 | `tagId` | `tag_…`, dokunulan plaket — bir QR punch'ında da. |
@@ -715,14 +715,24 @@ anından itibaren reddedilir.
   bir plaket için `null`'dır (`company` yine plaketin şirketini söyler); iki şirketin grup üyeliği
   bittikten sonra onaylanmış, ortağın lokasyonundaki bir punch için dördü de `null`'dır.
 - `direction` işverende kaydedilen yöndür. Taptime onu takvim gününe göre değil, çalışanın
-  işverendeki son açık girişine göre çıkarır (18:00 vardiyasının 02:00 çıkışı bir `out`'tur); çalışan
-  öbürünü seçtiyse (`directionSource: employee`) kaydedilen o seçimdir. Sisteminizin onu hesaplaması
-  gerekmez.
-- Dokunuş sayfası çalışana Taptime'ın tahmin ettiği yönü gösterir ve öbürünü seçmesine izin verir
-  ("Not right?"). Böyle bir punch seçilen `direction`'ı ve `directionSource: employee`'yi taşır;
-  öbür her punch `directionSource: auto`'yu. Akış alanı taşımadan önce kaydedilmiş bir punch'ta
+  işverendeki son açık girişine göre çıkarır (18:00 vardiyasının 02:00 çıkışı bir `out`'tur).
+  `directionSource: auto` taşıyan bir punch için sisteminizin onu hesaplaması gerekmez;
+  `directionSource: employee` taşıyan bir punch istisnadır (aşağıda).
+- `directionSource: employee`, kaydedilen `direction`'ın Taptime'ın dokunuş anında hesapladığı yön
+  olmadığı demektir. Çoğunlukla çalışan, Taptime'ın tahmin ettiği yönü gösteren dokunuş sayfasında
+  öbürünü seçmiştir ("Not right?"); sayfa işverenin iş günü başlamadan önce açılıp başladıktan
+  sonra basıldıysa sayfanın ana düğmesi de onu verebilir. `directionSource: auto`, kaydedilen yönün
+  Taptime'ın hesapladığı yön olduğu demektir. Akış alanı taşımadan önce kaydedilmiş bir punch'ta
   `directionSource: null`'dır. Alan sürüm 1'e eklendi: onu okumayan bir istemci öbür her alanı
   eskisi gibi okur ([3](#common)).
+- **`directionSource: employee` taşıyan bir punch'ı kendinden önceki punch'la eşlemeyin.** Böyle
+  bir `out` Taptime'da hiçbir aralığı kapatmaz: kaydedildiğinde çalışanın o iş gününde kapatacağı bir
+  girişi yoktu; bu yüzden Taptime ona süre saymaz ve onu müdüre "Check-in missing" (giriş eksik)
+  olarak listeler. Böyle bir `in` önceki girişi çıkışsız bırakır ve Taptime ona da süre saymaz. Saat
+  için Taptime'ın raporu esastır: bir müdürün düzeltmesi manuel bir kayıttır ve manuel bir kayıt
+  akışta yoktur ([6.1](#feed-what)). Örnek, işverenin iş günü 05:00'te başlarken: dün 15:00'te bir
+  `in`, sonra bugün 07:00'de "Not right? Clock out". Taptime 0 saat sayar ve 07:00 `out`'unu "Check-in
+  missing" olarak listeler; ikisini eşleyen bir sistem 16 saat öder.
 - API ile oluşturulan bir çalışanın Taptime'da ev lokasyonu yoktur; bu yüzden Taptime'ın kendi
   raporları onun punch'larını "başka bir lokasyonda" diye işaretlemez.
 
@@ -1160,7 +1170,7 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 27. Şirketler arası bir punch **öbür şirketin kimliklerini** taşır: çalışanın `id`, `externalRef`, `employeeCode` ve `company`'si, lokasyonun `id`, `externalRef`, `name` ve `company`'si ve `tagId`. Bir punch'ın alanları **punch anındaki** değerlerdir (sonradan yapılan bir yeniden adlandırma onu değiştirmez). ([6.2](#feed-scopes))
 28. Başka bir şirketin kayıp ya da emekli bir plaketine dokunuş reddedilir; punch olmaz. ([6.1](#feed-what))
 29. Rehber (`GET /v1/directory`) **sayfalıdır** (`cursor`, en çok 1000). ([8.2](#directory-walk))
-30. Bir KF lokasyonunda başlayıp **bir KM plaketinde** biten bir KM vardiyasında KF (`scope=location`) yalnız **girişi** alır; çıkış bir KM lokasyonu punch'ıdır ve KM'nin iki kapsamında gelir. Her punch **işverende** kaydedilen `direction`'ı taşır (`in`/`out`); entegrasyonun onu hesaplaması gerekmez. Lokasyonun şirketinin Taptime paneli bir grup çalışanının dokunuşlarını listeler ama sürelerini hesaplamaz ("süre işverende"). ([6.5](#feed-working-time))
+30. Bir KF lokasyonunda başlayıp **bir KM plaketinde** biten bir KM vardiyasında KF (`scope=location`) yalnız **girişi** alır; çıkış bir KM lokasyonu punch'ıdır ve KM'nin iki kapsamında gelir. Her punch **işverende** kaydedilen `direction`'ı taşır (`in`/`out`); entegrasyonun onu hesaplaması gerekmez — yalnız `directionSource: employee` taşıyan bir punch kendinden önceki punch'la eşlenmez ([6.3](#feed-punch)). Lokasyonun şirketinin Taptime paneli bir grup çalışanının dokunuşlarını listeler ama sürelerini hesaplamaz ("süre işverende"). ([6.5](#feed-working-time))
 31. **`scope=location` ile çalışma süresi hesaplayan entegrasyon dikkat:** bir ortak şirketin çalışanının sizin lokasyonlarınızdaki punch'ları işverenin aradaki olaylarını (öbür şirketin plaketlerindeki dokunuşları) içermez; giriş ve çıkışı yalnız bu kapsamdan eşlemek süreyi **fazla** sayabilir. **Bu `direction` ile de geçerlidir:** her punch'ın yönü doğrudur, ama eksik olan **aradaki olaylardır** — sizin lokasyonunuzdaki bir `in`'in eşi orada hiç görünmeyebilir ya da başka bir lokasyonun `out`'u olabilir. Bir grup çalışanının süresi için işveren şirketin verisi (onun `employer` kapsamı) esastır. ([6.5](#feed-working-time))
 
 <a id="changes"></a>

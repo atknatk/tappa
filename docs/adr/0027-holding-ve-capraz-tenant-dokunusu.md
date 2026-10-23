@@ -922,7 +922,10 @@ e-postaları, iki tenant'ın mesai kayıtları (CLAUDE.md §4.3, §4.6), holding
    saha satırı (`punch_events`, `roles = {location}`) işverenin satırıyla **aynı** `direction_source`'u taşır
    (`00067`; `/v1`'de `directionSource`: `auto` | `employee` | `null`) — `direction` gibi işverenin kaydıdır
    (K-40), ADR 0032 §B.4'ün okuyucu kuralıyla tetikleyicide bir kez yazılır. Sahaya açtığı tek bilgi yönün
-   kimden geldiğidir (motor ya da çalışanın *"Not right?"* seçimi); not, politika bağlamı, `verdict` ve
+   kimden geldiğidir: `auto` = motorun dokunuş anında hesapladığı yön, `employee` = kaydedilen yön motorunki
+   değil — çoğunlukla çalışanın *"Not right?"* seçimi, ama iş günü sınırından önce açılıp sonra basılan bir
+   sayfanın ana düğmesi de (`TestCheckinDB_AStalePagePressedAfterTheCutoffIsTheChoiceAndListedAsCheckInMissing`; tanım
+   2026-10-23'te, M15-14 genel merceğinin ORTA-1'iyle *"yalnız Not right?"* darlığından düzeltildi); not, politika bağlamı, `verdict` ve
    kanıt sütunu değildir ve yukarıdaki *"asla"* listesi değişmez. `site_punches` (sahanın izdüşümü)
    değişmedi. Katalog pini gevşemedi, yeni sütunu adıyla içerir: `feedWrittenColumns`
    (`TestFeedCatalog_TwoRolesTriggerOrderExecuteOwnerOnlyRelid`), `tappa_app`'in `punch_events` SELECT

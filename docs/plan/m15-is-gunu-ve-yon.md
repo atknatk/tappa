@@ -166,6 +166,22 @@ hiçbir migration'ın numarası değişmedi; iki numara da henüz kullanılmamı
 migration'larını yeniden numaralar (aynı commit'te bütün atıflar); yayımlanmış bir migration'ın numarası
 asla değişmez. M14'ün dalı `roadmap.md`'ye bir satır ekliyor — metin düzeyinde birleştirme çakışması.
 
+**Çakışma — yeniden ölçüldü (2026-10-23, M15-14; yukarıdaki 2026-10-21 paragrafının *"M14 numara
+ayırmıyor"* ve *"hiçbir dalda `00064`+ yok"* cümlelerinin yerine):** M14 artık numara alıyor ve M15'in
+aralığının **üstünden** alıyor: `ce9fac07` (2026-10-22, `feat(db): add admin identities…`) `00069` ve
+`00070`'i ekledi; `origin/m14-identity` ve `origin/m14-resolve`'da `00069`–`00071`, `origin/m14-password`'da
+`00069`–`00072`, `origin/m14-backfill`'de `00069`, `00070`, `00073` var (ölçüm: `git show ce9fac07 --stat`,
+`git ls-tree --name-only origin/<dal> db/migrations/`). Hiçbir M14 dalında `00065`–`00068` yok; bu dalda
+`00065`–`00067` var, `00068` M15-15'in. Sonuç **sıraya bağlı:**
+- **M15 `main`'e M14'ten ÖNCE girerse** iki seri de numarasını korur: üretim `00064` → `00068` → sonra `00069`+.
+- **M14 önce girerse** üretimde `00069`+ uygulanmış olur ve goose `00065`–`00068`'i *missing* sayıp
+  reddeder (yukarıdaki ölçüm: *"found N missing migrations before current version"*, çıkış kodu 1; depo
+  `allow-missing` kullanmaz). O zaman M15 kendi `00065`–`00068`'ini M14'ün en büyüğünün üstüne yeniden
+  numaralar — **dosyalar ve onlara atıf yapan testler** (ör. `internal/db/directionsource_test.go`,
+  `internal/handler/api/directionsource_db_test.go`; tam liste o gün `grep -rlE '0006[5-8]' --include='*_test.go' .`
+  ile çıkarılır ve isabetler elle ayıklanır — `internal/sun`'un vektörleri gibi ilgisiz eşleşmeler var; bu plan
+  ve ADR 0032'nin atıfları da) aynı commit'te. Bu koşul M15-19'un deploy notundadır.
+
 ## Görev listesi
 
 | ID | Faz | Görev | Araç | Mercek | Bağımlılık |
@@ -1116,18 +1132,23 @@ zorunlu. *"Send to my manager"*;
 atlama düğmesi yok.
 
 **Okumanın yeri** (güvenlik merceği G-O5): kartın okuması kayıt işleminin **içinde değildir** (`gatherPerson`
-içinde bir hata kaydı düşürürdü — `checkin.go:1388-1390`, iptal edilmiş işlem 25P02) ve isteğin bağlamında
-**da değildir** (WL-9 S1: 200 + boş gövde — `handler/checkin.go:250-268`). Commit'ten sonra, `post` bağlamında
+içinde bir hata kaydı düşürürdü — `gatherWith`'in `gatherPerson` çağrısı ve hata dönüşü
+`internal/domain/checkin/checkin.go:1471-1475`, `gatherPerson` `:1482`; iptal edilmiş işlem 25P02) ve isteğin bağlamında
+**da değildir** (WL-9 S1: 200 + boş gövde — `post` bağlamı `internal/handler/checkin.go:274-278`, ölçümü
+`resultBrandWait`'in yorumunda `:282-324`; satırlar 2026-10-23'te `HEAD` `fe9cf6d1` üstünde `grep -n` ile güncellendi). Commit'ten sonra, `post` bağlamında
 (isteğin değerleri, iptali yok), `resultBrandWait` gibi **sınırlı** bir sürede okunur; hata ya da zaman aşımı
 → kart çıkmaz, sonuç ekranı aynen çizilir.
 
-**`POST /api/claim`:** `Tap.Mount` grubuna bağlanır (`internal/handler/tap.go:270-276`, `chain()` —
+**`POST /api/claim`:** `Tap.Mount` grubuna bağlanır (`internal/handler/tap.go:274-280`, `chain()` —
 ByAddress → Identify → BySession), aynı Origin kuralı, `SessionLive`, imzalı talep bağlamı (yeni MAC etiketi,
 oturum id'si ek veri, 15 dk), duvar saati → pencere içindeki aday anlardan **erken** olanı (sonbahar),
 `claim.Submit`. Yanıt *"Sent — your manager will review it."*. **Askı:** tap yüzeyi, askıyı bilmez.
 
-**CLAUDE.md ve skill (bu commit'te, tek yerde):** §5 *"Unutulan çıkış"* cümlesi; §9 onay ekranı istisnası;
-skill `tappa-brand`'in sonuç ekranı maddesi.
+**CLAUDE.md ve skill (bu commit'te, tek yerde):** §5 *"Unutulan çıkış"* cümlesi **ve §5 *"Unutulan giriş"*
+maddesi** (2026-10-23, M15-14: giriş eksik kartı — *"What time did you come in?"* — o maddenin
+*"sistem giriş üretmez"* + *Check-in missing* anlatımına çalışanın talebini — onaylanırsa müdürün yazdığı
+manuel giriş — ekler; madde M15-06'dan beri listeyi anlatıyor ve talebi bilmiyor); §9 onay ekranı istisnası; skill `tappa-brand`'in
+sonuç ekranı maddesi.
 
 **Kabul kriterleri.**
 - Kartsız sonuç ekranları — M15-12'nin (Q33 başlığıyla) yeniden ürettiği golden'lara göre — **bayt-aynı** (`TestUnbrandedScreens_AreByteIdenticalToTheGolden`,
@@ -1143,9 +1164,18 @@ skill `tappa-brand`'in sonuç ekranı maddesi.
 - K4: aynı çapa için kart tam iki dokunuşta; `ignored`/`reject` sonucunda kart yok.
 - **`flag` sonucu (ürün N5):** kart `ok` ve `flag`'te çıkar; `flag`'te sonuç ekranının kapanış cümlesi
   (*"…waiting for your manager"*) kartın **altında** kalır — render testi iki şekil için.
-- **Not bastırma (ürün N6):** kart varken `EmployeeNote`'un *"Your previous clock-in has no clock-out."*
-  cümlesi **gösterilmez** (kart aynı şeyi soruyor); kaydın notu değişmez. Kart yoksa (atlanmış, iki fırsat
-  dolmuş, S NULL) cümle gösterilir.
+- **Not bastırma (ürün N6):** kart varken açık bırakılan giriş notu **gösterilmez** (kart aynı şeyi soruyor);
+  kaydın notu değişmez. Kart yoksa (atlanmış, iki fırsat dolmuş, S NULL) not gösterilir. *Düzeltme
+  (2026-10-23, M15-14 genel merceği):* not artık bağımsız bir cümle değil — `tap.LeftOpenEmployeeNote`
+  (`"your previous clock-in has no clock-out"`) kuralın çalışan cümlesine `; ` ile eklenen küçük harfli
+  bir parçadır (`appendNote`, `internal/domain/tap/decide.go`; ADR 0032 §B.4 metin notu) ve
+  `Decision.EmployeeNote` tek bir birleşik dizedir (ör. `you chose to clock out` da aynı dizeye eklenebilir).
+  Bu yüzden bastırma **dize kırpmayla yapılmaz** (`strings.Replace`/`TrimSuffix` ayırıcıyı, sırayı ve öteki
+  parçaları bozar): yapısal yapılır — not parçaları birleştirilmeden önce bilinir (`resolveDirection`'ın
+  `notes`'u; `Decision.LeftOpen`), ya ekran notu kart kararıyla birlikte parça listesinden yeniden kurulur ya
+  da motor/sonuç görünümü açık bırakma parçasını ayrı bir alanda taşır. Kabul: kartlı şekilde ekran notunda
+  `LeftOpenEmployeeNote` yok **ve** öteki parçalar (kuralın cümlesi, `you chose to …`) aynen; kartsız şekilde
+  dize bugünkü golden'la aynı; kaydın `note`'u iki şekilde de `LeftOpenNote`'u taşır.
 - `getCurrentPosition` sonuç ekranında yok; CLAUDE.md §5/§9 ve skill bu commit'in diff'inde.
 
 ## M15-18 — Panel: talep kuyruğu
@@ -1171,10 +1201,34 @@ yineleyen bir onay adımı ister.
 `reviewDecision`'da rol kontrolü yok). Anomali ekranında *"çıkış eksik"* / *"giriş eksik"* satırlarında
 *"claim pending"* rozeti.
 
+**Rozetin ve çapa işaretinin veri yolu (2026-10-23, M15-14 genel merceği ORTA-3 — bugün eksik, ölçüldü).**
+Rozet bir anomali satırını bir talebe **satır kimliğiyle** bağlar; bugün iki listenin satırı kimlik
+taşımıyor: `ListCheckoutsWithoutCheckInRow` ve `ListOpenCheckInsRow` yalnız `EmployeeID`, ad, lokasyon,
+`SiteLocationID`, `OccurredAt` ve sınıf bayraklarını seçiyor (`internal/store/anomalies.sql.go`,
+`cmd/tappa/storekeyshape_test.go`'nun iki satırı); `ledger.AnomalyInMissing` ve `ledger.AnomalyOpen` da
+id'siz (`internal/domain/ledger/anomaly.go`). Zaman damgası tek başına bir satırı seçmez — ADR 0032 §A.6'nın
+sırası bu yüzden `(occurred_at, id)`'dir. Adımlar:
+1. `db/queries/anomalies.sql`: `ListCheckoutsWithoutCheckIn` ve `ListOpenCheckIns` çapanın `o.id`'sini
+   (`transactions.id`) seçer; `EmployeeID` zaten seçiliyor (yoksa eklenir). Çapa işareti için
+   ayrıca çapanın `channel`, `type`, `direction_source`'u (aşağıda 3).
+2. `ledger.AnomalyInMissing` ve `ledger.AnomalyOpen` id taşır (`ID uuid.UUID`; gerekirse `EmployeeID`);
+   rozet bu id ile `punch_claims`'in çapasına bağlanır.
+3. `make gen` (sqlc yeniden üretimi) ve kolon şekli pinleri **bilinçli** güncellenir:
+   `cmd/tappa/storekeyshape_test.go`'nun `ListCheckoutsWithoutCheckIn` / `ListOpenCheckIns` satırları
+   (`TestStoreSurface_IsTheOneRecorded`); değişen sorgu dosyası için
+   `grep -rl 'queries/anomalies.sql' --include='*_test.go' .`.
+4. Kuyrukta çapanın *"`direction_source = employee` ise işaretli"* göstergesi **`tap.RecordedDirectionSource`**
+   üzerinden okunur (ADR 0032 §B.4'ün tek okuyucu kuralı): yönlü nfc/qr NULL = `auto`; **manuel satırın
+   değerine güvenilmez** (DB'de manuel için CHECK yok — `tappa_app` manual + `'employee'` yazabilir, kod
+   yolu yok). Ham sütunu `= 'employee'` diye karşılaştıran bir render yolu yanlıştır; kabul kriterine
+   manuel + `'employee'` fixture'ında işaretin **çıkmadığı** bir test girer.
+
 **Kabul kriterleri.** Odak + Approve tek POST (PRG); bant dışı talepte ilk POST yazmaz, onay adımı yazar;
 ikinci karar *"already decided"*; başka tenant'ın id'si → bulunamadı; süresi dolmuş/*already resolved*
 talepte yalnız Reject; ekranda toplu seçim/düğme yok (render testi); askıda karar POST'u 403; G-Y1'in iki
-vakası kuyrukta aralık + süre + sapma + işaretle görünür; M12 `Panel*`; 44 px.
+vakası kuyrukta aralık + süre + sapma + işaretle görünür; M12 `Panel*`; 44 px; iki anomali listesinin
+satırı id taşır ve rozet id ile bağlanır (kolon şekli pinleri güncel); manuel + `'employee'` çapada işaret
+yok.
 
 ## M15-19 — Son kapanış
 
@@ -1185,7 +1239,11 @@ vakası kuyrukta aralık + süre + sapma + işaretle görünür; M12 `Panel*`; 4
 **Adımlar.** Tam `make check`, `make audit`; güvenlik merceği bütün M15 diff'inde; ADR 0032'ye *"Uygulandı"*
 notu; ekran görüntüsü turu; **toplu geçiş deploy notu** (`state.md`): migration sırası 00064 → 00068
 (00067 M15-13'ün, 00068 M15-15'in — 2026-10-22 numara notu), çakışma raporunun sonucu, panel duyurusunun
-tarihi, geri dönüşün binary olduğu.
+tarihi, geri dönüşün binary olduğu. **Sıra koşulu (2026-10-23, M15-14 — §"Çakışma — yeniden ölçüldü"):**
+M15 `main`'e M14'ten **önce** girer; birleştirmeden hemen önce `git ls-tree --name-only origin/main
+db/migrations/ | tail -3` ile `main`'in en büyük migration'ı yeniden ölçülür. `main`'de `00069`+ varsa
+(M14 önce girmiş) M15 birleştirilmez: önce `00065`–`00068` ve onlara atıf yapan testler `main`'in en
+büyüğünün üstüne yeniden numaralanır (goose *missing*), sonra birleştirme kullanıcıya yeniden sorulur.
 
 **Kabul kriterleri.** Tam suit yeşil (iki sabit saatli koşum dahil); `make audit` exit 0;
 `TestEveryNamedTestExists` yeşil; güvenlik merceği ONAY; RLS ve TRUNCATE testleri iki yeni tabloda yeşil;

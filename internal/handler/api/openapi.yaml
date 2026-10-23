@@ -1106,15 +1106,20 @@ components:
         direction:
           type: string
           enum: [in, out]
-          description: In or out, the direction recorded at the employee's own business -- Taptime's, or the one the employee chose (directionSource).
+          description: In or out, the direction recorded at the employee's own business -- the one Taptime computed at the tap, or the other one (directionSource).
         directionSource:
           type: ["string", "null"]
           enum: [auto, employee, null]
           description: |
-            Who chose `direction`: `auto` -- Taptime's own direction; `employee` -- the employee chose the
-            other one on the tap page ("Not right?") and that was recorded. null for a punch the feed recorded
-            before it carried this field. Added to version 1 (the guide's edition 3) and not required: a
-            client that does not read it reads every other field as before.
+            Whose `direction` it is. `auto` -- the direction Taptime computed at the tap. `employee` -- the
+            recorded direction is not the one Taptime computed at the tap: most often the employee chose the
+            other one on the tap page ("Not right?"); the page's main button can give it too when the page was
+            opened before the employer's business day began and pressed after. Do not pair a punch with
+            `employee` with the punch before it: such an `out` closes no interval in Taptime (Taptime counts
+            no time for it and lists it as "Check-in missing"), and such an `in` leaves the previous clock-in
+            without a clock-out. For hours, Taptime's report is the record (the guide's section 6.3). null
+            for a punch the feed recorded before it carried this field. Added to version 1 (the guide's
+            edition 3) and not required: a client that does not read it reads every other field as before.
         employee:
           $ref: "#/components/schemas/PunchEmployee"
         location:
@@ -1163,15 +1168,20 @@ components:
         direction:
           type: string
           enum: [in, out]
-          description: In or out, the direction recorded at the employee's own business -- Taptime's, or the one the employee chose (directionSource).
+          description: In or out, the direction recorded at the employee's own business -- the one Taptime computed at the tap, or the other one (directionSource).
         directionSource:
           type: ["string", "null"]
           enum: [auto, employee, null]
           description: |
-            Who chose `direction`: `auto` -- Taptime's own direction; `employee` -- the employee chose the
-            other one on the tap page ("Not right?") and that was recorded. null for a punch the feed recorded
-            before it carried this field. Added to version 1 (the guide's edition 3) and not required: a
-            client that does not read it reads every other field as before.
+            Whose `direction` it is. `auto` -- the direction Taptime computed at the tap. `employee` -- the
+            recorded direction is not the one Taptime computed at the tap: most often the employee chose the
+            other one on the tap page ("Not right?"); the page's main button can give it too when the page was
+            opened before the employer's business day began and pressed after. Do not pair a punch with
+            `employee` with the punch before it: such an `out` closes no interval in Taptime (Taptime counts
+            no time for it and lists it as "Check-in missing"), and such an `in` leaves the previous clock-in
+            without a clock-out. For hours, Taptime's report is the record (the guide's section 6.3). null
+            for a punch the feed recorded before it carried this field. Added to version 1 (the guide's
+            edition 3) and not required: a client that does not read it reads every other field as before.
         employee:
           $ref: "#/components/schemas/PunchEmployee"
         location:

@@ -690,8 +690,8 @@ across them are refused from the end on.
 | `punchTime` | The instant of the tap (UTC): the one the phone declared, or Taptime's own when it declared none — today always Taptime's ([6.1](#feed-what)). |
 | `recordedAt` | The instant the punch entered the feed (UTC); for an approved flag, the approval's. |
 | `channel` | `nfc` or `qr`. |
-| `direction` | `in` or `out`, as recorded at the **employer**: the direction Taptime computed, or the other one when the employee chose it (`directionSource`). |
-| `directionSource` | Who chose `direction`: `auto` (Taptime) or `employee` (the employee chose the other one on the tap page); `null` for a punch the feed recorded before it carried this field. |
+| `direction` | `in` or `out`, as recorded at the **employer**: the direction Taptime computed at the tap, or the other one (`directionSource`). |
+| `directionSource` | Whose `direction` it is: `auto` (the direction Taptime computed at the tap) or `employee` (the employee's, not the one Taptime computed — see below); `null` for a punch the feed recorded before it carried this field. |
 | `employee` | `id`, `externalRef`, `employeeCode`, `company` — as they were at the punch. |
 | `location` | `id`, `externalRef`, `name`, `company` — as they were at the punch. |
 | `tagId` | `tag_…`, the plaque touched — also for a QR punch. |
@@ -705,13 +705,24 @@ across them are refused from the end on.
   punch at a partner's location that was approved after the two companies' group membership ended.
 - `direction` is the direction recorded at the employer. Taptime works it out from the employee's
   last open entry at the employer, not from the calendar day (a 02:00 exit of an 18:00 shift is an
-  `out`), unless the employee chose the other one (`directionSource: employee`). Your system does not
-  have to work it out.
-- The tap page shows the employee the direction Taptime predicts and lets them choose the other
-  one ("Not right?"). Such a punch carries the chosen `direction` and `directionSource: employee`;
-  every other punch `directionSource: auto`. A punch recorded before the feed carried the field has
-  `directionSource: null`. The field was added to version 1: a client that does not read it reads
-  every other field as before ([3](#common)).
+  `out`). For a punch with `directionSource: auto` your system does not have to work it out; a
+  punch with `directionSource: employee` is the exception (below).
+- `directionSource: employee` means the recorded `direction` is not the one Taptime computed at the
+  tap. Most often the employee chose the other one on the tap page, which shows the direction
+  Taptime predicts ("Not right?"); the page's main button can give it too when the page was opened
+  before the employer's business day began and pressed after. `directionSource: auto` means the
+  recorded direction is the one Taptime computed. A punch recorded before the feed carried the
+  field has `directionSource: null`. The field was added to version 1: a client that does not read
+  it reads every other field as before ([3](#common)).
+- **Do not pair a punch with `directionSource: employee` with the punch before it.** Such an `out`
+  closes no interval in Taptime: when it was recorded, the employee had no clock-in of that business
+  day for it to close, so Taptime counts no time for it and lists it for the manager as "Check-in
+  missing". Such an `in` leaves the previous clock-in without a clock-out, and Taptime counts no
+  time for that one either. For hours, Taptime's report is the record: a manager's correction is a
+  manual record, and a manual record is not in the feed ([6.1](#feed-what)). For example, with the
+  employer's business day starting at 05:00: an `in` yesterday at 15:00, then today at 07:00 "Not
+  right? Clock out". Taptime counts 0 hours and lists the 07:00 `out` as "Check-in missing"; a
+  system that pairs the two pays 16 hours.
 - An employee created through the API has no home location in Taptime, so Taptime's own reports do
   not mark their punches as "at another location".
 
@@ -1148,7 +1159,7 @@ explained.
 27. A punch across companies carries **the other company's identifiers**: the employee's `id`, `externalRef`, `employeeCode` and `company`, the location's `id`, `externalRef`, `name` and `company`, and `tagId`. A punch's fields are the values **at the punch** (a later rename does not change it). ([6.2](#feed-scopes))
 28. A touch of another company's lost or retired plaque is refused; it is not a punch. ([6.1](#feed-what))
 29. The directory (`GET /v1/directory`) is **paged** (`cursor`, at most 1000). ([8.2](#directory-walk))
-30. In a KM shift that starts at a KF location and ends **at a KM plaque**, KF (`scope=location`) receives only the **in**; the out is a punch at a KM location and comes in both of KM's scopes. Every punch carries the `direction` recorded **at the employer** (`in`/`out`); the integration does not have to work it out. The Taptime panel of the location's company lists a group employee's touches but does not compute their time ("time is the employer's"). ([6.5](#feed-working-time))
+30. In a KM shift that starts at a KF location and ends **at a KM plaque**, KF (`scope=location`) receives only the **in**; the out is a punch at a KM location and comes in both of KM's scopes. Every punch carries the `direction` recorded **at the employer** (`in`/`out`); the integration does not have to work it out — except that a punch with `directionSource: employee` is not paired with the punch before it ([6.3](#feed-punch)). The Taptime panel of the location's company lists a group employee's touches but does not compute their time ("time is the employer's"). ([6.5](#feed-working-time))
 31. **An integration that computes working time with `scope=location`, beware:** a partner company's employee's punches at your locations do not include the employer's events in between (touches at the other company's plaques); pairing in and out from this scope alone can count the time **too long**. **This holds with `direction` too:** each punch's direction is right, but what is missing are the **events in between** — the pair of an `in` at your location may never appear there, or may be an `out` at another location. For a group employee's time, the employer company's data (its `employer` scope) is the record. ([6.5](#feed-working-time))
 
 <a id="changes"></a>

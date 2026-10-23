@@ -569,6 +569,20 @@ kural listesi testle değil **kayıttan** türetilir ve API-10'un ret listesi he
     edilmiş bir çalışanı ya da pasif bir lokasyonu okuyan test yoktur (backlog T154). Şema kapalıyken
     de `TestOpenAPI_EveryRouteAndErrorDocumented`'in punch sondaları boş sayfa döndürdüğü için o test bir
     punch anahtarını yakalamıyordu.
+- *K notu (2026-10-23, M15-14) — `directionSource: employee` olan bir punch eşlenmez (Q31'in (a)'sı).*
+  Alan Q31'in (a)'sının cevabıdır: ADR 0032 §A.6'nın *"çıkış yalnız kendi iş gününün girişini kapatır"*
+  koruması dış eşleyicide yoktur, alan ona bunu söyleyen tek işarettir. Rehberin 3. baskısı (§6.3, §11
+  madde 30) ve OpenAPI'nin `directionSource` açıklaması bunu artık açıkça yazar: `employee` olan bir
+  `out` Taptime'da hiçbir aralığı kapatmaz (yazıldığında o iş gününde kapatacağı giriş yoktu — sınıf (b)
+  ya da (c), *"Check-in missing"*), `employee` olan bir `in` önceki girişi çıkışsız bırakır; saat için
+  Taptime'ın raporu esastır, çünkü müdürün düzeltmesi manuel kayıttır ve akışa girmez (K-6). Ölçülen
+  şekil (M15-14 güvenlik merceği): dün 15:00 `in`, bugün 07:00 *"Not right? Clock out"*, kesim 05:00 →
+  Taptime 0 sa yazar ve çıkış *"Check-in missing"*e düşer; iki punch'ı saf eşleyen bir dış sistem 16 sa
+  öder. `employee`'nin anlamı da daraltılmış hâlinden düzeltildi: *"kaydedilen yön ≠ Taptime'ın dokunuş
+  anında hesapladığı yön"* (ADR 0032 §B.3'ün değişmezi) — çoğunlukla *"Not right?"*, ama iş günü
+  sınırından önce açılıp sonra basılan bir sayfanın ana düğmesi de
+  (`TestCheckinDB_AStalePagePressedAfterTheCutoffIsTheChoiceAndListedAsCheckInMissing`). Sözleşme
+  değişmedi (alan, değerleri, şema aynı); değişen yalnız açıklama metnidir.
 
 ### 9. Çalışan ve lokasyon uçları, davet kuyruğu (K-7, K-14 … K-18, K-20, K-21, K-24)
 

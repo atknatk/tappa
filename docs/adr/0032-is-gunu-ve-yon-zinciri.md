@@ -284,6 +284,22 @@ ve `occurred_at ≥ S` olan bir `in` var mı; `W` = `P`, çıkıştan **sonra ya
     çıkışın `P`'si o kapanış çıkışıdır ve onu (e) yapmak için kapanış çıkışının **sonradan** yazılmış
     olması gerekir — yani çalışanın kendi geçmişini değiştirmesi değil, bir düzeltme. 120 sn'den uzun
     geriye beyan `flag` olur ve müdür görür; 72 sa üstü ya da gelecek reddedilir.
+  - *Düzeltme notu (2026-10-23, M15-14 güvenlik merceği, DÜŞÜK) — kararı değiştirmez, yukarıdaki
+    *"gizlenmez, yalnız yer değiştirir"* cümlesini daraltır.* Cümle yalnız (c)'yi **(e)'ye** çevirme
+    denemesi için doğrudur. Başka bir yol var: (c)'yi **kapatır**'a çevirmek. Mola vakasında 17:00'nin
+    (c) çıkışından **önceye** geriye tarihli bir `auto` `in` yazılırsa (ör. 16:59 beyanlı; o anda açık
+    giriş yok, motor `in` der) 17:00'nin `P`'si o `in` olur, iki koşul sağlanır, sınıf *kapatır*'dır ve
+    çıkış *"Check-in missing"*ten **düşer**. Varsayılanlarda bunun penceresi **sıfırdır** (yalnız
+    eşitlikteki tek bir an): `in`'in debounce'tan geçmesi için hem beyan farkı (17:00 − beyan) hem
+    sunucu yaşı (dokunuşun sunucu anı − 17:00 satırının `created_at`'i) ≥ 60 sn olmalı
+    (`sys:person-debounce` `gap < debounce`'u yok sayar), yani geriye tarihleme (sunucu anı − beyan) ≥
+    120 sn; `base:queued-window` 120 sn'yi **aşan** geriye beyanı `flag`'ler (müdür görür;
+    `BaselineQueuedSkewSeconds`). Pencere yalnız debounce 60 sn'nin altına çekilirse (guardrail'in
+    ayarlanabilir aralığı 30–300 sn, `DebounceMinSeconds`) ya da `base:queued-window` gevşetilirse
+    açılır. Açıldığında da: hiçbir kayıt silinmez (17:00 çıkışı ve geriye tarihli `in`
+    `transactions`'ta, CLAUDE.md §4.3), ve çalışanın kazancı kapanan aralıktır — `out.At − in.At` ≤
+    geriye tarihleme süresi; 13:00–16:59 boşluğu yine sayılmaz, yalnız listede görünmez. Kabul edilmiş
+    karar (`W` ve `I` ile (e)) değişmedi.
   - **Eşzamanlı yazım:** `created_at` işlemin başlangıç anıdır; kişi başına advisory kilit beklerken iki
     dokunuşun yazım sırası ters dönebilir (ADR 0006 bunu ölçtü), ama aynı kişinin 60 sn içindeki ikinci
     yönlü dokunuşu `ignored`'dır — iki **yönlü** satır arasında ters dönme pratikte oluşmaz. Eşitlikte
