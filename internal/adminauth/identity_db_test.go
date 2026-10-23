@@ -603,3 +603,33 @@ func TestIssue_ConcurrentSignInsOfOneAdminDoNotDeadlock(t *testing.T) {
 		t.Fatalf("%d sessions, want %d", got, 5*n)
 	}
 }
+
+// TestAuthenticatePerson_ConcurrentFailuresKeepTheBudgetExact (security audit DÜŞÜK-1): forty
+// concurrent wrong-password sign-ins of one identity write exactly the budget's login_failed rows and
+// exactly ONE login_limited row -- the budget is charged and read in one step (TryCharge).
+func TestAuthenticatePerson_ConcurrentFailuresKeepTheBudgetExact(t *testing.T) {
+	d := testDB(t)
+	m := testManager(t, d)
+	w := newIDWorld(t, ownerConn(t), true)
+	w.linked(w.tenant("M14-07 Budget Co"), "active", "backfill", 48*time.Hour)
+	const limit, n = 10, 40
+	budget := newCountingBudget(limit)
+	errs := make(chan error, n)
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		go func() {
+			<-start
+			_, err := m.AuthenticatePerson(context.Background(), w.email, "not-the-password", uuid.Nil, budget)
+			errs <- err
+		}()
+	}
+	close(start)
+	for i := 0; i < n; i++ {
+		if err := <-errs; err != ErrBadCredentials {
+			t.Fatalf("a concurrent failure answered %v", err)
+		}
+	}
+	if failed, limited := w.events("login_failed"), w.events("login_limited"); failed != limit || limited != 1 {
+		t.Fatalf("%d login_failed and %d login_limited rows after %d concurrent failures; want %d and 1", failed, limited, n, limit)
+	}
+}

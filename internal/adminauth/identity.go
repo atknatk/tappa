@@ -60,9 +60,13 @@ import (
 // 3: an adminAccountLimit bucket per identity). Declared here, at the consumer; internal/handler's
 // account limiter (*httpx.Limiter) satisfies it, so one budget meters the account rows and the
 // identity rows under distinct keys (identityBudgetKey).
+//
+// TryCharge, NOT Allowed-then-Charge: the two reads would be two locked steps, and N concurrent
+// failures could all pass Allowed before any charged -- more rows than the budget and, when an
+// allowed caller drew the crossing charge, no login_limited row at all (httpx.Limiter.TryCharge's
+// measurement on the reset flow; the same shape measured here by M14-07's security audit).
 type FailureBudget interface {
-	Allowed(key string) bool
-	Charge(key string) int
+	TryCharge(key string) (within bool, count int)
 	FirstOverLimit(count int) bool
 }
 
@@ -362,11 +366,11 @@ func (m *Manager) revokeProofs(ctx context.Context, proofs []proofSession) error
 func (m *Manager) recordFailure(ctx context.Context, hasIdentity bool, id uuid.UUID, budget FailureBudget) error {
 	target, event := uuid.Nil, db.IdentityEventLoginFailed
 	if hasIdentity {
-		key := identityBudgetKey(id)
-		if budget.Allowed(key) {
-			budget.Charge(key)
+		within, count := budget.TryCharge(identityBudgetKey(id))
+		switch {
+		case within:
 			target = id
-		} else if budget.FirstOverLimit(budget.Charge(key)) {
+		case budget.FirstOverLimit(count):
 			target, event = id, db.IdentityEventLoginLimited
 		}
 	}

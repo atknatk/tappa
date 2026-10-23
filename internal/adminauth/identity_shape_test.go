@@ -98,8 +98,10 @@ func (s *shapeDB) RecordFailedIdentityLogin(_ context.Context, id uuid.UUID, eve
 	return true, nil
 }
 
-// countingBudget is a FailureBudget with a tiny limit, so the over-limit branch is reachable.
+// countingBudget is a FailureBudget with a small limit, so the over-limit branch is reachable; it is
+// safe for concurrent use, like httpx.Limiter.
 type countingBudget struct {
+	mu    sync.Mutex
 	limit int
 	n     map[string]int
 }
@@ -108,11 +110,11 @@ func newCountingBudget(limit int) *countingBudget {
 	return &countingBudget{limit: limit, n: map[string]int{}}
 }
 
-func (b *countingBudget) Allowed(key string) bool { return b.n[key] < b.limit }
-
-func (b *countingBudget) Charge(key string) int {
+func (b *countingBudget) TryCharge(key string) (bool, int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.n[key]++
-	return b.n[key]
+	return b.n[key] <= b.limit, b.n[key]
 }
 
 func (b *countingBudget) FirstOverLimit(count int) bool { return count == b.limit+1 }
