@@ -158,7 +158,9 @@ func TestSignupProvision_ConcurrentRegistrationsOfOneNewAddress(t *testing.T) {
 	p, _, owner := newProvisionerFixtureWithOwner(t)
 	ctx := context.Background()
 
-	const n = 6
+	// Four, not more: each registration first pays a cost-12 bcrypt, ~11 s under -race on a CI
+	// runner, and the four run on its two cores while this test holds the operator-tables lock.
+	const n = 4
 	email := "concurrent-" + uuid.NewString() + "@signup.example"
 	drafts := make([]Draft, n)
 	for i := range drafts {
@@ -169,6 +171,21 @@ func TestSignupProvision_ConcurrentRegistrationsOfOneNewAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// RELEASED ON EVERY EXIT, a failure included (CI run 39960777540): a registration still waiting on
+	// the barrier holds a pool connection, and the pool's Close in the fixture's cleanup waits for it
+	// -- a barrier left standing hangs the test until the binary's timeout. Deferred calls run before
+	// the cleanups.
+	released := false
+	release := func() {
+		if released {
+			return
+		}
+		released = true
+		if err := barrier.Rollback(context.Background()); err != nil {
+			t.Errorf("release the barrier: %v", err)
+		}
+	}
+	defer release()
 	for _, d := range drafts {
 		if _, err := barrier.Exec(ctx, `INSERT INTO tenants (id, name, vat_number, business_type, structure)
 		                                VALUES ($1, 'Barrier', $2, 'other', 'single')`, uuid.New(), d.Business.VATNumber); err != nil {
@@ -202,7 +219,7 @@ func TestSignupProvision_ConcurrentRegistrationsOfOneNewAddress(t *testing.T) {
 			t.Errorf("close the probe: %v", err)
 		}
 	}()
-	deadline := time.Now().Add(60 * time.Second)
+	deadline := time.Now().Add(4 * time.Minute)
 	for waiting := 0; waiting < n; {
 		if time.Now().After(deadline) {
 			t.Fatalf("only %d of %d registrations reached the barrier", waiting, n)
@@ -213,9 +230,7 @@ func TestSignupProvision_ConcurrentRegistrationsOfOneNewAddress(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if err := barrier.Rollback(ctx); err != nil {
-		t.Fatal(err)
-	}
+	release()
 	wg.Wait()
 	for i, err := range errs {
 		if err != nil {
