@@ -1696,6 +1696,9 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-23 (30. oturum, devam) — ✅ **Faz A canlıda gerçek satırla doğrulandı**
+- Canlıda (salt okuma, `BEGIN READ ONLY`) anahtarın açıldığı 2026-10-22 16:30 UTC'den 2026-10-23 09:01 UTC'ye kadar **0** satır; ilk satır 2026-10-23 13:02:25 UTC: Kebab Factory Ltd., `nfc/in/ok`, `business_day_start = 2026-10-23 03:00 UTC` = Europe/Malta 05:00 (KF kesimi 05:00, CEST) — doğru. Yönlü nfc/qr satırında S'siz satır: **0**. Sorgu 14:31 UTC'de koştu.
+
 ### 2026-10-23 (30. oturum, devam — worktree `tappa-m15-plan`, dal `plan/m15-is-gunu`) — ✅ **M15-14 done · Faz B TAMAMLANDI**
 - **Koşucu:** `fe9cf6d1` (Faz B kapanış ölçümleri).
 - **Belge düzeltmeleri:** `429a5266` + `2d849ece` + `eb1228d3` — tek mercek ONAY, son DÜŞÜK turu.
