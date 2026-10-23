@@ -1176,7 +1176,7 @@ func TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage(t *testing.T) {
 		for _, why := range navBarProblems(body, url) {
 			t.Errorf("%s: %s", url, why)
 		}
-		if !strings.Contains(body, `<div class="lp lp-top"><a class="lp-skip" href="#main">Skip to content</a><header class="lp-head"`) {
+		if !stickingHeaderRE.MatchString(body) {
 			t.Errorf("%s: the header is not in the root that sticks", url)
 		}
 	}
@@ -1200,6 +1200,10 @@ func TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage(t *testing.T) {
 		t.Error("sign-up's header is not in the root that scrolls away; its phone screens pin the progress bar instead")
 	}
 }
+
+// stickingHeaderRE is the header in the root that sticks (the guide's root also asks
+// for the instant scroll, TestAPIGuidePages_JumpInsteadOfGliding).
+var stickingHeaderRE = regexp.MustCompile(`<div class="lp lp-top(?: lp-instant)?"><a class="lp-skip" href="#main">Skip to content</a><header class="lp-head"`)
 
 // chromeOnlyURLs is the pages that draw the public chrome around a body written in
 // the product's utility classes, in their own roots (LP-11), and are served by the

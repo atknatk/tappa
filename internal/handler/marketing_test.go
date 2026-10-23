@@ -659,6 +659,13 @@ func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 					"reading.", c.name, url, hit)
 			}
 		}
+		// The sign-up wizard is served beside these pages and draws the same chrome
+		// (LP-11); its screens are rendered by the wizard's own driver.
+		for name, body := range signupSurfaceScreens(t) {
+			if hit := externalReference.FindString(body); hit != "" {
+				t.Errorf("%s: the sign-up %s screen reaches outside this origin: %q", c.name, name, hit)
+			}
+		}
 		// Anti-vacuity for the production half: the exemption is used, on the guide's two
 		// pages (the download link, at least once each), so the API-host router is really
 		// the configuration it names.

@@ -20,15 +20,20 @@ import "github.com/atknatk/tappa/web/templates/layout"
 // box (input.css), so the page itself never scrolls sideways.
 //
 // THE SIDE NAVIGATION STICKS BELOW THE HEADER. The public header sticks too (69 px tall from the
-// tablet width: its 68 px row and its hairline), so the navigation's sticky offset is that height
-// plus the 24 px gap it always kept, and its height leaves the same 24 px below it. Stuck at the
-// old offset its first entries sat under the header.
+// tablet width: its 68 px row and its 1 px hairline, input.css's .lp .lp-headIn and .lp .lp-head;
+// the desk width changes neither), so the navigation's offset is that height plus the 24 px
+// gap it always kept, 93, and its height leaves the same 24 px below it, 100vh less 117. Stuck at
+// the old offset its first entries sat under the header. The two numbers are written out because
+// Tailwind can only read a literal; TestAPIGuidePages_TheSideNavigationSticksBelowTheHeader
+// derives them from the compiled stylesheet, so a header of another height turns it red.
+//
+// ANCHOR JUMPS ARE INSTANT HERE (InstantScroll), unlike the rest of the public site.
 //
 // LANGUAGE. The document is English (the chrome is); the article carries the page's language,
 // and the head names both translations (layout.MarketingTranslated).
 templ APIGuide(v APIGuideView) {
 	@layout.MarketingTranslated(v.pageTitle(), layout.RobotsPublic, v.alternates()) {
-		@PublicChrome(PublicChromeOpts{Current: v.path(), SignInHref: v.SignInHref, SignupHref: v.SignupHref, OwnRoots: true}) {
+		@PublicChrome(PublicChromeOpts{Current: v.path(), SignInHref: v.SignInHref, SignupHref: v.SignupHref, OwnRoots: true, InstantScroll: true}) {
 			<article class="px-4 py-10 sm:py-14" lang={ v.lang() }>
 				<div class="mx-auto w-full max-w-3xl xl:grid xl:max-w-none xl:grid-cols-[minmax(0,1fr)_minmax(0,48rem)_minmax(0,1fr)] xl:gap-8">
 					@apiGuideSideNav(v)

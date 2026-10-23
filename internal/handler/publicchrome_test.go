@@ -3,11 +3,13 @@ package handler
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/atknatk/tappa/web"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -376,18 +378,30 @@ func TestPublicChrome_ThePhoneBarIsTheWizardsAndCanBeLeftOut(t *testing.T) {
 }
 
 // TestPublicChrome_TheFooterStatesTheTwoRedLines: the footer carries §4.1 and §4.2 in
-// the words redline-check's R1 already recognises, the §4.1 denial on one source line.
+// the words redline-check's R1 already recognises, the §4.1 denial on one source line,
+// on every page that draws it.
 func TestPublicChrome_TheFooterStatesTheTwoRedLines(t *testing.T) {
 	t.Parallel()
 	const (
 		noBodyData = "Taptime collects no biometric data of any kind: no fingerprints, no face, no voice."
 		promise    = "A phone's position is read only at the moment somebody presses the button."
 	)
-	landing := mustFetchMarketing(t, marketingRouter(t), "/")
-	footer := screenText(t, "<body>"+between(landing, "<footer", "</footer>")+"</body>")
-	for _, s := range []string{noBodyData, promise} {
-		if !strings.Contains(footer, s) {
-			t.Errorf("the footer does not say %q", s)
+	// On every page that draws the footer: the thirteen the marketing router serves and
+	// every sign-up screen (LP-11), not only the landing.
+	r := marketingRouter(t)
+	bodies := map[string]string{}
+	for _, url := range publicChromeURLs() {
+		bodies[url] = mustFetchMarketing(t, r, url)
+	}
+	for name, body := range signupSurfaceScreens(t) {
+		bodies["sign-up "+name] = body
+	}
+	for name, body := range bodies {
+		footer := screenText(t, "<body>"+between(body, "<footer", "</footer>")+"</body>")
+		for _, s := range []string{noBodyData, promise} {
+			if !strings.Contains(footer, s) {
+				t.Errorf("%s: the footer does not say %q", name, s)
+			}
 		}
 	}
 	src := repoFile(t, "web", "templates", "pages", "publicchrome.templ")
@@ -400,5 +414,118 @@ func TestPublicChrome_TheFooterStatesTheTwoRedLines(t *testing.T) {
 	if !oneLine {
 		t.Error("the §4.1 sentence is not on one line of publicchrome.templ; R1 is line-local and " +
 			"clears it only beside its denial")
+	}
+}
+
+// mediaCSSRule is one style rule of a stylesheet: the at-rule preludes it sits in (joined
+// by " / ", "" at the top level), its selector list as written, and its declarations.
+type mediaCSSRule struct {
+	media, selectors, decls string
+}
+
+// cssRules lists every style rule of css, descending into at-rule blocks.
+func cssRules(css string) []mediaCSSRule {
+	css = cssCommentRE.ReplaceAllString(css, "")
+	var out []mediaCSSRule
+	var open []string
+	start := 0
+	for i, c := range css {
+		switch c {
+		case '{':
+			open = append(open, strings.TrimSpace(css[start:i]))
+			start = i + 1
+		case '}':
+			if len(open) == 0 {
+				start = i + 1
+				continue
+			}
+			prelude := open[len(open)-1]
+			open = open[:len(open)-1]
+			if !strings.HasPrefix(prelude, "@") {
+				out = append(out, mediaCSSRule{strings.Join(open, " / "), prelude, css[start:i]})
+			}
+			start = i + 1
+		}
+	}
+	return out
+}
+
+// cssDecls is the declarations of the rules whose selector list is exactly sel, in
+// the at-rule context media, merged in source order (a later value wins).
+func cssDecls(css, media, sel string) map[string]string {
+	out := map[string]string{}
+	for _, r := range cssRules(css) {
+		if r.media != media || strings.Join(strings.Fields(r.selectors), " ") != sel {
+			continue
+		}
+		for _, d := range strings.Split(r.decls, ";") {
+			if k, v, ok := strings.Cut(d, ":"); ok {
+				out[strings.TrimSpace(k)] = strings.TrimSpace(v)
+			}
+		}
+	}
+	return out
+}
+
+// compiledCSS is app.css as the binary embeds it, or a skip: it is a build product.
+func compiledCSS(t *testing.T) string {
+	t.Helper()
+	raw, err := fs.ReadFile(web.Static(), "css/app.css")
+	if err != nil {
+		t.Skipf("no compiled stylesheet to read (%v) — run `make css`. THIS IS NOT A PASS.", err)
+	}
+	return string(raw)
+}
+
+// stickProblems says how css fails to pin the public chrome: the header (LP-02's
+// .lp .lp-head, and since LP-11 the root around it on the pages with their own roots)
+// sticks to the top, the phone bar (.lp .mbar, and its root) to the bottom, and the
+// sign-up header's root does not stick at all.
+func stickProblems(css string) []string {
+	var out []string
+	for _, c := range []struct{ sel, edge string }{
+		{".lp .lp-head", "top"}, {".lp.lp-top", "top"},
+		{".lp .mbar", "bottom"}, {".lp.lp-dock", "bottom"},
+	} {
+		d := cssDecls(css, "", c.sel)
+		if d["position"] != "sticky" || d[c.edge] != "0" {
+			out = append(out, fmt.Sprintf("%s is position %q, %s %q; want sticky at %s 0", c.sel, d["position"], c.edge, d[c.edge], c.edge))
+		}
+	}
+	if d := cssDecls(css, "", ".lp.lp-topStill"); d["position"] == "sticky" || d["position"] == "" {
+		out = append(out, fmt.Sprintf(".lp.lp-topStill is position %q; sign-up's header root scrolls away (and is positioned, to lift an open Menu over the progress bar)", d["position"]))
+	}
+	return out
+}
+
+// TestPublicChrome_TheHeaderAndThePhoneBarStick: the compiled stylesheet pins the
+// header to the top and the phone bar to the bottom -- the rules LP-02 wrote for the
+// landing's root and the ones LP-11 wrote for the chrome's own roots, whose stickiness
+// is what a page with its own roots actually gets (a pinned element sticks only inside
+// its parent). CONTROL: each of the four rules without its position, and the sign-up
+// root made to stick, are red.
+func TestPublicChrome_TheHeaderAndThePhoneBarStick(t *testing.T) {
+	t.Parallel()
+	css := compiledCSS(t)
+	for _, p := range stickProblems(css) {
+		t.Error(p)
+	}
+	for _, rule := range []string{
+		".lp .lp-head{background:rgb(var(--porcelain-ch)/.94);border-bottom:1px solid var(--line);position:sticky;",
+		".lp.lp-top{background:transparent;position:sticky;",
+		".lp .mbar{background:rgb(var(--porcelain-ch)/.96);border-top:1px solid var(--line);bottom:0;box-shadow:0 -8px 24px rgb(var(--ink-ch)/.08);padding:10px 16px 12px;position:sticky;",
+		".lp.lp-dock{background:transparent;bottom:0;position:sticky;",
+	} {
+		if !strings.Contains(css, rule) {
+			t.Fatalf("PREMISE: the control cannot find %q in app.css", rule)
+		}
+		cut := strings.Replace(css, rule, strings.Replace(rule, "position:sticky;", "", 1), 1)
+		if len(stickProblems(cut)) == 0 {
+			t.Errorf("CONTROL: app.css with %q unpinned passed", rule[:strings.Index(rule, "{")])
+		}
+	}
+	still := strings.Replace(css, ".lp.lp-topStill{background:transparent;position:relative;", ".lp.lp-topStill{background:transparent;position:sticky;", 1)
+	if still == css || len(stickProblems(still)) == 0 {
+		t.Error("CONTROL: a sign-up header root that sticks passed")
 	}
 }

@@ -33,7 +33,7 @@ package pages
 // its own roots — one around the skip link and the header, one around the footer,
 // one around the phone bar — and leaves <main> outside every one of them.
 //
-// THE OWN ROOTS CARRY THE STICKINESS. A sticky element sticks only inside its parent,
+// THE OWN ROOTS ARE WHAT STICKS. An element pinned this way sticks only inside its parent,
 // and a root that holds nothing but the header is exactly the header's height, so the
 // header root itself is what sticks to the top (and the phone bar's root to the
 // bottom); the rules are the LP-11 section of input.css.
@@ -67,6 +67,12 @@ type PublicChromeOpts struct {
 	// as the Signup board does, for a visitor who may have come to the wrong door. It
 	// is text outside the link, so the link's words stay "Sign in".
 	SignInPrompt bool
+	// InstantScroll makes an anchor jump a jump rather than a glide (OwnRoots only, and
+	// only with a header that sticks). The integration guide sets it: on a page some
+	// 50,000 px long, the smooth scrolling every public page has (html:has(.lp)) turns
+	// one press of a link in its table of contents into seconds of text sliding past. A decision of the
+	// orchestrator's (LP-11 review); the rule is input.css's.
+	InstantScroll bool
 }
 
 // PublicChrome wraps a public page's content in the shared header and footer.
@@ -97,7 +103,7 @@ templ publicChromeInRoot(c PublicChromeOpts) {
 
 // publicChromeRooted is the chrome in roots of its own, with the content outside them.
 templ publicChromeRooted(c PublicChromeOpts) {
-	<div class={ publicTopRoot(c.StaticHeader) }>
+	<div class={ publicTopRoot(c) }>
 		<a class="lp-skip" href="#main">Skip to content</a>
 		@publicHeader(c)
 	</div>
@@ -114,13 +120,17 @@ templ publicChromeRooted(c PublicChromeOpts) {
 	}
 }
 
-// publicTopRoot is the class of the root around the header: the sticky one, or the
-// one that scrolls away. Both are literals.
-func publicTopRoot(static bool) string {
-	if static {
+// publicTopRoot is the class of the root around the header: the one that sticks (with or
+// without the instant scroll), or the one that scrolls away. All are literals.
+func publicTopRoot(c PublicChromeOpts) string {
+	switch {
+	case c.StaticHeader:
 		return "lp lp-topStill"
+	case c.InstantScroll:
+		return "lp lp-top lp-instant"
+	default:
+		return "lp lp-top"
 	}
-	return "lp lp-top"
 }
 
 // publicPhoneBarShown says whether the phone's Start free bar is drawn: there is a
@@ -129,7 +139,7 @@ func publicPhoneBarShown(c PublicChromeOpts) bool {
 	return c.SignupHref != "" && !c.NoPhoneBar
 }
 
-// publicPhoneBar is the phone's sticky Start free bar.
+// publicPhoneBar is the phone's Start free bar, pinned to the bottom.
 templ publicPhoneBar(c PublicChromeOpts) {
 	<div class="mbar">
 		<a class="hbtn" href={ templ.URL(c.SignupHref) }>Start free</a>

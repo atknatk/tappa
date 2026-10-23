@@ -13,6 +13,8 @@ package handler
 //	TestAPIGuidePages_NameBothTranslationsInTheHead     hreflang alternates for both, nowhere else
 //	TestAPIGuidePages_FitAPhone                         tables and code scroll in their own box; the
 //	                                                    contents list's links are touch targets
+//	TestAPIGuidePages_TheSideNavigationSticksBelowTheHeader  its offset is the compiled header's height + 24
+//	TestAPIGuidePages_JumpInsteadOfGliding              anchor jumps are instant on the guide only
 //	TestAPIGuidePages_OfferOpenAPIOnlyWithAnAPIHost     the download link is the API host's, or absent
 //	TestAPIGuidePages_AreLinkedFromTheFootersAndThePanel  the two footers, the panel's API keys screen
 //	                                                    and its webhook section (to #webhooks)
@@ -20,6 +22,7 @@ package handler
 
 import (
 	"bytes"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +30,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -65,22 +69,17 @@ func TestAPIGuidePages_AreTheGuideInTheMarketingChrome(t *testing.T) {
 				t.Errorf("GET %s lacks %q", c.path, want)
 			}
 		}
-		// THE PUBLIC CHROME, since LP-11: its header and footer, the page's own entry marked
-		// in the menu and the footer on the English page (the Turkish page is another URL,
-		// so no entry points at it), and the side navigation stuck below the header that
-		// sticks above it, not under it (apiguide.templ says the arithmetic).
-		for _, want := range []string{`<header class="lp-head"`, `<footer class="lp-foot">`, `class="sticky top-[93px] max-h-[calc(100vh-117px)]`} {
+		// THE PUBLIC CHROME, since LP-11: its header and footer, and the page's own entry
+		// marked in the menu and the footer on the English page (the Turkish page is another
+		// URL, so no entry points at it). Where the side navigation sticks is
+		// TestAPIGuidePages_TheSideNavigationSticksBelowTheHeader's.
+		for _, want := range []string{`<header class="lp-head"`, `<footer class="lp-foot">`} {
 			if !strings.Contains(body, want) {
 				t.Errorf("GET %s lacks %q", c.path, want)
 			}
 		}
 		if marked := strings.Contains(body, `href="`+pages.APIGuidePath+`" aria-current="page"`); marked != (c.path == pages.APIGuidePath) {
 			t.Errorf("GET %s marks the guide's chrome entry current = %v", c.path, marked)
-		}
-		// The offset is the header's 68 px row and its hairline: a header of another height
-		// must move it.
-		if !strings.Contains(repoFile(t, "web", "static", "css", "input.css"), ".lp .lp-headIn { height: auto; min-height: 68px;") {
-			t.Error("the public header's row is no longer 68 px from the tablet width; the guide's side navigation sticks at that height plus 24 px (apiguide.templ)")
 		}
 		// The guide's title names the product; the document title does not name it twice.
 		if title := between(body, "<title>", "</title>"); strings.Count(title, "Taptime") != 1 {
@@ -221,6 +220,106 @@ func TestAPIGuidePages_FitAPhone(t *testing.T) {
 		if !regexp.MustCompile(`<h2 id="` + apiguide.ContentsID + `"><a href="#` + apiguide.ContentsID + `">[^<]+</a></h2>\s*<ul>\s*<li><a href="#`).MatchString(prose) {
 			t.Errorf("GET %s: the contents heading is not directly followed by its list of links", path)
 		}
+	}
+}
+
+// sideNavClassFor is the class the side navigation's box must carry under css: it
+// sticks the header's height plus 24 px from the top -- the header being its row's
+// min-height from the tablet width (the side navigation is drawn only far above it) and
+// the header's bottom hairline -- and leaves 24 px below. It says why it cannot derive
+// the height instead, when the header's rules are not the shape it reads.
+func sideNavClassFor(css string) (string, error) {
+	row := cssDecls(css, "@media (min-width:768px)", ".lp .lp-headIn")
+	minH, err := strconv.Atoi(strings.TrimSuffix(row["min-height"], "px"))
+	if err != nil || row["height"] != "auto" {
+		return "", fmt.Errorf("the header row's tablet rule is height %q, min-height %q; the derivation reads an auto height over a px min-height", row["height"], row["min-height"])
+	}
+	for _, media := range []string{"@media (min-width:1200px)", ""} {
+		d := cssDecls(css, media, ".lp .lp-headIn")
+		if _, ok := d["min-height"]; ok && media != "" {
+			return "", fmt.Errorf("the desk width sets the header row's min-height (%q); the side navigation (from 1280 px) would sit under another height", d["min-height"])
+		}
+		if h, ok := d["height"]; ok && media != "" {
+			return "", fmt.Errorf("the desk width sets the header row's height (%q)", h)
+		}
+	}
+	edge, _, _ := strings.Cut(cssDecls(css, "", ".lp .lp-head")["border-bottom"], " ")
+	line, err := strconv.Atoi(strings.TrimSuffix(edge, "px"))
+	if err != nil {
+		return "", fmt.Errorf("the header's bottom edge is %q; the derivation reads a px width", edge)
+	}
+	top := minH + line + 24
+	return fmt.Sprintf("sticky top-[%dpx] max-h-[calc(100vh-%dpx)] ", top, top+24), nil
+}
+
+// TestAPIGuidePages_TheSideNavigationSticksBelowTheHeader: from the extra-large width the
+// guide's side navigation sticks, and so does the public header above it (LP-11); the
+// navigation's offset is DERIVED here from the compiled header rules -- its row's
+// min-height and its hairline -- plus the 24 px gap, so a header of another height turns
+// this red instead of sliding the navigation's first entries under it. Measured in
+// Chrome at 1440: header 0-69, navigation 93-776 in an 800 px window. CONTROL: a header
+// row 4 px taller, a desk rule giving it a height, and the navigation at the old 24 px
+// offset are each red.
+func TestAPIGuidePages_TheSideNavigationSticksBelowTheHeader(t *testing.T) {
+	t.Parallel()
+	css := compiledCSS(t)
+	want, err := sideNavClassFor(css)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want != "sticky top-[93px] max-h-[calc(100vh-117px)] " {
+		t.Logf("derived %q", want)
+	}
+	r := marketingRouter(t)
+	for _, path := range []string{pages.APIGuidePath, pages.APIGuideTRPath} {
+		nav := between(mustFetchMarketing(t, r, path), `<nav class="hidden xl:block`, "</nav>")
+		if !strings.Contains(nav, `<div class="`+want) {
+			t.Errorf("GET %s: the side navigation's box is not %q; the header above it is %s tall", path, want, strings.TrimPrefix(want, "sticky top-"))
+		}
+	}
+	taller := strings.Replace(css, "min-height:68px;padding:0 40px}", "min-height:72px;padding:0 40px}", 1)
+	if got, _ := sideNavClassFor(taller); taller == css || got == want {
+		t.Error("CONTROL: a 72 px header row derived the same offset")
+	}
+	desk := strings.Replace(css, ".lp .lp-headIn{margin:0 auto;", ".lp .lp-headIn{height:80px;margin:0 auto;", 1)
+	if _, err := sideNavClassFor(desk); desk == css || err == nil {
+		t.Error("CONTROL: a desk rule giving the header row a height passed")
+	}
+	if want == "sticky top-6 max-h-[calc(100vh-3rem)] " {
+		t.Error("CONTROL: the derivation answers the old offset")
+	}
+}
+
+// TestAPIGuidePages_JumpInsteadOfGliding: the public site scrolls smoothly to an anchor
+// (html:has(.lp)), and the integration guide -- some 50,000 px of text whose contents
+// links are its navigation -- does not (an orchestrator decision at LP-11's review):
+// its header root alone carries .lp-instant, and the compiled stylesheet answers it
+// with an instant scroll after, and heavier than, the smooth one. Measured in Chrome:
+// the guide's root element computes scroll-behavior auto, /legal/cookies and / smooth.
+// CONTROL: the rule removed is red.
+func TestAPIGuidePages_JumpInsteadOfGliding(t *testing.T) {
+	t.Parallel()
+	r := marketingRouter(t)
+	for _, url := range append(publicChromeURLs(), pages.APIGuideTRPath) {
+		guide := url == pages.APIGuidePath || url == pages.APIGuideTRPath
+		if got := strings.Contains(mustFetchMarketing(t, r, url), "lp-instant"); got != guide {
+			t.Errorf("%s carries the instant scroll = %v, want %v (the guide's pages only)", url, got, guide)
+		}
+	}
+	problem := func(css string) string {
+		smooth := strings.Index(css, "html:has(.lp){scroll-behavior:smooth}")
+		instant := strings.Index(css, "html:has(.lp.lp-instant){scroll-behavior:auto}")
+		if smooth < 0 || instant < smooth {
+			return fmt.Sprintf("smooth rule at %d, the guide's instant rule at %d; want both, the guide's after", smooth, instant)
+		}
+		return ""
+	}
+	css := compiledCSS(t)
+	if p := problem(css); p != "" {
+		t.Error(p)
+	}
+	if problem(strings.Replace(css, "html:has(.lp.lp-instant){scroll-behavior:auto}", "", 1)) == "" {
+		t.Error("CONTROL: app.css without the guide's instant scroll passed")
 	}
 }
 

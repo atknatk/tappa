@@ -2238,6 +2238,11 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp.lp-top { position: sticky; top: 0; z-index: 5; background: transparent; }
 .lp.lp-topStill { position: relative; z-index: 20; background: transparent; }
 .lp.lp-dock { position: sticky; bottom: 0; z-index: 4; background: transparent; }
+/* The integration guide jumps instead of gliding: smooth scrolling (top of this block)
+   across a page some 50,000 px long turns one contents link into seconds of motion.
+   Only the guide's header root carries .lp-instant (PublicChromeOpts.InstantScroll);
+   this selector outweighs html:has(.lp) and comes after it. */
+html:has(.lp.lp-instant) { scroll-behavior: auto; }
 /* "Already with Taptime?" before Sign in: the Signup board's desk header, 12px apart. */
 .lp .lp-signinPair { display: inline-flex; align-items: center; gap: 12px; }
 .lp .lp-signinAsk { display: none; font-size: 14px; color: rgb(var(--ink-ch) / .7); }

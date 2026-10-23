@@ -41,7 +41,7 @@ import templruntime "github.com/a-h/templ/runtime"
 // its own roots — one around the skip link and the header, one around the footer,
 // one around the phone bar — and leaves <main> outside every one of them.
 //
-// THE OWN ROOTS CARRY THE STICKINESS. A sticky element sticks only inside its parent,
+// THE OWN ROOTS ARE WHAT STICKS. An element pinned this way sticks only inside its parent,
 // and a root that holds nothing but the header is exactly the header's height, so the
 // header root itself is what sticks to the top (and the phone bar's root to the
 // bottom); the rules are the LP-11 section of input.css.
@@ -75,6 +75,12 @@ type PublicChromeOpts struct {
 	// as the Signup board does, for a visitor who may have come to the wrong door. It
 	// is text outside the link, so the link's words stay "Sign in".
 	SignInPrompt bool
+	// InstantScroll makes an anchor jump a jump rather than a glide (OwnRoots only, and
+	// only with a header that sticks). The integration guide sets it: on a page some
+	// 50,000 px long, the smooth scrolling every public page has (html:has(.lp)) turns
+	// one press of a link in its table of contents into seconds of text sliding past. A decision of the
+	// orchestrator's (LP-11 review); the rule is input.css's.
+	InstantScroll bool
 }
 
 // PublicChrome wraps a public page's content in the shared header and footer.
@@ -228,7 +234,7 @@ func publicChromeRooted(c PublicChromeOpts) templ.Component {
 			templ_7745c5c3_Var5 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		var templ_7745c5c3_Var6 = []any{publicTopRoot(c.StaticHeader)}
+		var templ_7745c5c3_Var6 = []any{publicTopRoot(c)}
 		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var6...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -292,13 +298,17 @@ func publicChromeRooted(c PublicChromeOpts) templ.Component {
 	})
 }
 
-// publicTopRoot is the class of the root around the header: the sticky one, or the
-// one that scrolls away. Both are literals.
-func publicTopRoot(static bool) string {
-	if static {
+// publicTopRoot is the class of the root around the header: the one that sticks (with or
+// without the instant scroll), or the one that scrolls away. All are literals.
+func publicTopRoot(c PublicChromeOpts) string {
+	switch {
+	case c.StaticHeader:
 		return "lp lp-topStill"
+	case c.InstantScroll:
+		return "lp lp-top lp-instant"
+	default:
+		return "lp lp-top"
 	}
-	return "lp lp-top"
 }
 
 // publicPhoneBarShown says whether the phone's Start free bar is drawn: there is a
@@ -307,7 +317,7 @@ func publicPhoneBarShown(c PublicChromeOpts) bool {
 	return c.SignupHref != "" && !c.NoPhoneBar
 }
 
-// publicPhoneBar is the phone's sticky Start free bar.
+// publicPhoneBar is the phone's Start free bar, pinned to the bottom.
 func publicPhoneBar(c PublicChromeOpts) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -401,7 +411,7 @@ func publicHeader(c PublicChromeOpts) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(l.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 158, Col: 16}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 168, Col: 16}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
@@ -491,7 +501,7 @@ func publicHeader(c PublicChromeOpts) templ.Component {
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(l.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 186, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 196, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 			if templ_7745c5c3_Err != nil {
@@ -582,7 +592,7 @@ func publicFooter(c PublicChromeOpts) templ.Component {
 			var templ_7745c5c3_Var20 string
 			templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(l.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 241, Col: 15}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 251, Col: 15}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 			if templ_7745c5c3_Err != nil {
@@ -624,7 +634,7 @@ func publicFooter(c PublicChromeOpts) templ.Component {
 			var templ_7745c5c3_Var22 string
 			templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(p.NavLabel)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 252, Col: 18}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/publicchrome.templ`, Line: 262, Col: 18}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 			if templ_7745c5c3_Err != nil {
