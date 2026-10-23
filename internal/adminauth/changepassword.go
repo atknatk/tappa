@@ -43,22 +43,93 @@ var (
 	// rotate a credential for.
 )
 
-// ChangeOwnPassword verifies the caller's CURRENT password and, if it matches and the
-// NEW one differs, replaces the digest and revokes every OTHER live session of the same
-// admin -- the one that made the change survives (K3). It returns how many other
-// sessions were revoked.
-//
-// EVERY STEP RUNS IN ONE WithTenant TRANSACTION (reset.go's pair-transaction shape): the
-// read, the two comparisons, the hash, the write and the revocation share a fate, so a
-// failure anywhere leaves the digest and the sessions exactly as they were. The tenant
-// comes from the SESSION (§4.5), never the request; the id can only ever be the caller's
-// own, because SetOwnAdminPassword has no admin_user_id parameter that could name
-// someone else.
-func (m *Manager) ChangeOwnPassword(ctx context.Context, tenantID, adminID, exceptSessionID uuid.UUID, current, next string) (int, error) {
-	if tenantID == uuid.Nil || adminID == uuid.Nil {
-		return 0, errors.New("adminauth: change password: tenant and admin are required")
-	}
+// PasswordChange is what ChangeOwnPassword did.
+type PasswordChange struct {
+	// RevokedOtherSessions is how many OTHER live sessions of this business were revoked (K3); the
+	// one that made the change survives.
+	RevokedOtherSessions int
+	// Recorded: the row is linked to an identity and identity_set_password changed the password of
+	// the identity and every row linked to it, revoked the person's other sessions in EVERY business
+	// and wrote each business its admin.password_changed row itself (00072) -- the caller writes no
+	// row of its own (a second one would double this business's trail). False: today's one-row change,
+	// and the caller writes the row as it always has.
+	Recorded bool
+}
 
+// ChangeOwnPassword verifies the caller's CURRENT password and, if it matches and the NEW one
+// differs, replaces the digest and revokes every OTHER live session -- the one that made the change
+// survives (K3).
+//
+// 🔴 THROUGH THE IDENTITY WHEN THE ROW IS LINKED (ADR 0031 §5.1, §5.2, §8 -- M14-08's dual-write),
+// WHATEVER TAPPA_ADMIN_IDENTITY SAYS. A linked row refuses a direct password write (00069's trigger:
+// 23001), so today's one-row path would answer 500 to every linked person. session is the cookie's
+// token -- the request's own, the one Verify resolved -- and its hash is the only key:
+//
+//	identity_password_for_session(hash)  -> the IDENTITY's digest; current and next are compared with
+//	                                        it, the same two comparisons as below;
+//	identity_set_password(hash, new)     -> the identity and every linked row take the new digest,
+//	                                        every other session of the person in every business is
+//	                                        revoked, each business gets its row.
+//
+// An identity_set_password that finds the session no longer live (a reset, a sign-out-everywhere or
+// another change committed between the two calls revoked it) answers ErrNoSuchAdmin: nothing changed.
+// A row that is NOT linked (pgx.ErrNoRows from the first call) takes today's path, unchanged: the
+// tenant comes from the SESSION (§4.5), never the request, and SetOwnAdminPassword has no
+// admin_user_id parameter that could name someone else.
+//
+// ⚠️ NAMED COST: a row linked BETWEEN the two paths' first reads (a sign-in elsewhere linking it,
+// the reconciliation) reaches today's UPDATE and the trigger refuses it -- one 500, nothing written,
+// the next try goes through the identity. The same class as ADR 0031 §5.1's rollout cost.
+func (m *Manager) ChangeOwnPassword(ctx context.Context, tenantID, adminID, exceptSessionID uuid.UUID, session Token, current, next string) (PasswordChange, error) {
+	if tenantID == uuid.Nil || adminID == uuid.Nil {
+		return PasswordChange{}, errors.New("adminauth: change password: tenant and admin are required")
+	}
+	h, err := session.hash(m.hmacKey)
+	if err != nil {
+		// The cookie Verify just accepted cannot be malformed; if it is, nothing is changed.
+		return PasswordChange{}, ErrNoSuchAdmin
+	}
+	digest, err := m.data.IdentityPasswordForSession(ctx, h)
+	switch {
+	case err == nil:
+		return m.changeIdentityPassword(ctx, h, digest.RevealForPasswordComparison(), current, next)
+	case !errors.Is(err, pgx.ErrNoRows):
+		return PasswordChange{}, fmt.Errorf("adminauth: change own credential: %w", err)
+	}
+	n, err := m.changeRowPassword(ctx, tenantID, adminID, exceptSessionID, current, next)
+	return PasswordChange{RevokedOtherSessions: n}, err
+}
+
+// changeIdentityPassword is the linked row's change: the same two comparisons and the same Hash as
+// the row's, against the identity's digest, then identity_set_password. Neither password nor digest
+// leaves it (§4.7).
+func (m *Manager) changeIdentityPassword(ctx context.Context, sessionHash, digest, current, next string) (PasswordChange, error) {
+	if !Compare(digest, current) {
+		return PasswordChange{}, ErrWrongCurrentPassword
+	}
+	if Compare(digest, next) {
+		return PasswordChange{}, ErrSameAsCurrentPassword
+	}
+	newDigest, err := m.hash(next)
+	if err != nil {
+		return PasswordChange{}, fmt.Errorf("adminauth: change own credential: %w", err)
+	}
+	n, err := m.data.SetIdentityPassword(ctx, sessionHash, newDigest)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PasswordChange{}, ErrNoSuchAdmin
+	}
+	if err != nil {
+		return PasswordChange{}, fmt.Errorf("adminauth: change own credential: %w", err)
+	}
+	return PasswordChange{RevokedOtherSessions: n, Recorded: true}, nil
+}
+
+// changeRowPassword is today's change of an UNLINKED row (M7-05, T73).
+//
+// EVERY STEP RUNS IN ONE WithTenant TRANSACTION (reset.go's pair-transaction shape): the read, the
+// two comparisons, the hash, the write and the revocation share a fate, so a failure anywhere leaves
+// the digest and the sessions exactly as they were.
+func (m *Manager) changeRowPassword(ctx context.Context, tenantID, adminID, exceptSessionID uuid.UUID, current, next string) (int, error) {
 	var revoked int
 	err := m.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
@@ -93,7 +164,7 @@ func (m *Manager) ChangeOwnPassword(ctx context.Context, tenantID, adminID, exce
 		// 4. Hash the new password. adminauth.Hash is the ONLY producer of a value written
 		//    to password_hash; it refuses an empty or over-72-byte input, and migration
 		//    00018's CHECK refuses at the database anything Hash would not have produced.
-		digest, e := Hash(next)
+		digest, e := m.hash(next)
 		if e != nil {
 			return e
 		}

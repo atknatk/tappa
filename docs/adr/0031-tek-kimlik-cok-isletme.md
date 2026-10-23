@@ -295,13 +295,46 @@ aktif değilse sessizce bir sonrakine düşer — Go çağıranı dönen `tenant
 tenant'ına bir sıradan çıkış satırı yazar — **yalnız aktif ve reddedilmemiş** (`unlinked_at IS NULL`)
 üyeliklerde.
 
+**M14-08 uygulama notları (2026-10-23; kart dışı kararlar, denetime açık):**
+- `identity_create_for_signup(p_tenant_id uuid, p_admin_user_id uuid)` → **`boolean`** (bağladı mı)
+  `00074`'te doğdu. Yüklemler tablodakilerin hepsi (`app.tenant_id` eşitliği, satırın bu tenant'ın,
+  bağlanmamış, reddedilmemiş, aktif olması, `admin_users.created_at = now()` **ve** `xmin =
+  pg_current_xact_id()::xid`, tenant'ın tek `admin_users` satırı) artı **`tenants.created_at = now()`**
+  (işletme de bu transaction'da doğmuş). Dolu adres ve bcrypt biçimi INSERT'ten **önce** denetlenir:
+  definer `password_hash`'i okuduğundan bir CHECK ihlali digest'i `DETAIL`'e yazardı. Yeni yetkiler:
+  `admin_identities INSERT (email, password_hash)`, `admin_users SELECT (password_hash, xmin)`,
+  `tenants SELECT (created_at)`. `pg_current_xact_id()::xid` 17.10'da ölçüldü: üst düzeyde doğru,
+  SAVEPOINT altında yanlış.
+- **Audit satırı yazmaz**: "bağlandı" satırı yalnız yeni adreste olurdu — §5.10'un bayrağın kapatmadığı
+  hiçbir yüzeyde görünmesine izin vermediği fark. Backfill ve uzlaştırma da satırsız bağlar; dönüş
+  değerini çağıran (kayıt) kimseye göstermez.
+- Kemerin üçüncü sınıfı: `<alias>.email OPERATOR(public.=) <güvenilir değer>` ile sınırlı tek-adres
+  okuması, fonksiyon başına sayıyla adlandırılır (yalnız bu fonksiyon, 1). `ON CONFLICT (email) DO
+  NOTHING`'in üç sözcüğü bu gövde için adlandırılmış yapıdır.
+- Kimlik üstünden parola değişimi ve eski sıfırlama linki, bağlı her işletmeye kendi
+  `admin.password_changed` / `admin.recovery.completed` satırını **definer'ın kendisi** yazdığı için
+  handler o yolda ikinci satır yazmaz (`adminauth.PasswordChange.Recorded`,
+  `ConsumedReset.Recorded`). Satırın **biçimi** bağı ele vermesin diye (M14-08 denetimi) `00074`
+  `identity_consume_row_reset`'i **aynı imzayla** yeniden tanımlar: linkin kendi işletmesine handler'ın
+  satırı anahtar anahtar yazılır — `reset_id`, sıfır değilse `retired_count` (iptal edilen kardeş
+  linkler) ve sıfır değilse `revoked_sessions` (`adminResetDetail`'in `omitempty`'si); Down `00072`'nin
+  gövdesini geri koyar.
+- Bayrağın tablosu (§8) `adminauth.IdentityGate`'tedir; HTTP yarısı `handler`'ın `mountGated`'i —
+  bayrak başlangıçta okunduğu için kapalı bir yüzeyin rotaları **hiç bağlanmaz**: her yöntemde (GET,
+  POST, HEAD, PUT, DELETE, OPTIONS, PATCH) panelin hiç sahip olmadığı bir yolun 404'ü bayt bayt döner.
+  (İstek anında reddeden ilk biçim, r.Get/r.Post ile bağlı rotada öbür yöntemlere 405 + Allow
+  döndürüyor ve yüzeyin varlığını sızdırıyordu — denetimde ölçüldü.)
+- Adresin danışma kilidi (`hashtextextended('admin-identity-email:' || lower(email), 0)`) ve
+  yazımı, başka bir işletmenin aynı adresli satırını kilit beklerken commit eden bir oturumla
+  pinlenir: bekleyen kayıt kimlik doğurmaz (`ON CONFLICT` burada yerine geçemez — çakışacak kimlik yok).
+
 Her fonksiyon: `SECURITY DEFINER`, `SET search_path = pg_catalog, pg_temp`, şema-nitelikli gövde,
 dinamik SQL yok, sabit dönüş sütunları, `REVOKE ALL … FROM PUBLIC`, `EXECUTE` **yalnız**
 `tappa_app` — **tek istisna `identity_reconcile()`**: `EXECUTE` yalnız `tappa_owner`'da (katalog testinin
 izin listesi bunu adıyla taşır — ONAY notu 1); `tappa_operator` ve `tappa_opdefiner` hiçbir `identity_*` / `resolve_identity_*`
 fonksiyonunu çalıştıramaz ve hiçbir kimlik tablosunda yetki taşımaz (katalog testi
 `has_function_privilege` / `has_any_column_privilege`). Tenant'a yazan her fonksiyon **o tenant'ın**
-`audit_log`'una yazar ve satır karşı tenant'ı anmaz.
+`audit_log`'una yazar ve satır karşı tenant'ı anmaz (istisna: `identity_create_for_signup`, M14-08 notu).
 
 **Kanonik liste ve matris** (R9). Yukarıdaki tablo bu ADR'nin onayladığı listenin **tamamıdır**; her
 kart kendi satırlarını ekler ve bu ADR o eklemeleri **önceden onaylar** — listede olmayan bir fonksiyon
@@ -310,7 +343,9 @@ kullanıcı onayı + ADR değişikliği ister. Kanonik biçim M14-04'te doğan *
 katalog testiyle birebir pinlenir. `tappa_identitydefiner`'ın **fiil × sütun matrisi** (özet; tam hâli
 M14-04'ün testinde): beş kimlik tablosunda gerektiği kadar — `admin_identities`: SELECT (`id`, `password_hash`,
 `last_used_tenant`), UPDATE (`last_used_tenant`, `last_login_at`) — M14-04; `password_hash` yalnız
-`identity_open_session`'ın kilit altındaki karşılaştırması için okunur, hiçbir fonksiyon döndürmez (2026-10-23);
+`identity_open_session`'ın kilit altındaki karşılaştırması için okunur, hiçbir fonksiyon döndürmez —
+`identity_password_for_session` dışında, o da yalnız canlı oturumla (hesap sayfasının mevcut parola
+denetimi) (2026-10-23); INSERT (`email`, `password_hash`) — `identity_create_for_signup` (M14-08);
 `admin_identity_resets`: SELECT (`id`,
 `identity_id`, `token_hash`, `expires_at`, `used_at`, `cancelled_at`), INSERT (`identity_id`, `token_hash`,
 `expires_at`) — `identity_open_reset`, UPDATE (`used_at`, `cancelled_at`) — tüketim ve
@@ -318,7 +353,7 @@ M14-04'ün testinde): beş kimlik tablosunda gerektiği kadar — `admin_identit
 (yalnız `identity_sweep_events`); `admin_signup_claims`'in hücrelerini — `identity_sweep_signup_claims`'in
 SELECT/DELETE'i dahil (süresi dolmuş ya da kullanılmış satırlar, §5.1) — M14-17 ekler · `admin_users`: SELECT (`id`, `tenant_id`,
 `email`, `password_hash`, `role`, `status`, `identity_id`, `linked_via`, `linked_at`, `unlinked_at`,
-`created_at`), INSERT (`tenant_id`, `full_name`, `email`, `password_hash`, `role`, `identity_id`,
+`created_at`) ve sistem sütunu `xmin` (`identity_create_for_signup`, M14-08), INSERT (`tenant_id`, `full_name`, `email`, `password_hash`, `role`, `identity_id`,
 `linked_via`, `linked_at`), UPDATE (`password_hash`, `identity_id`, `linked_via`, `linked_at`,
 `unlinked_at`, `last_login_at`, `status` — yalnız contract sonrası çözmenin devre dışı bırakma biçimi,
 T1) — **`UPDATE (email)` yok**: e-posta değiştirme K-15 ile kapsam dışı,

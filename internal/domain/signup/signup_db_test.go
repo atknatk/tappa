@@ -47,12 +47,79 @@ import (
 // that tried would be testing something the product refuses. Fresh random ids keep
 // runs from colliding and `make db-reset` clears the development database.
 
+// THE IDENTITIES A REGISTRATION BIRTHS ARE TAKEN BACK (M14-08). From migration 00074 on, Provision of
+// a new address commits an identity and links the row to it (ADR 0031 §5.2 named exception 2). An
+// identity left behind would make internal/db's Down walks refuse (00069's Down refuses while one
+// exists) and, committed while those run, would change what they read -- so every fixture here holds
+// internal/db's operator-tables test lock SHARED for the length of the test (cmd/opadmin's
+// TestTablesLock_IsTakenOncePerTestTree lists this package) and, at the end, unlinks and deletes the
+// identities of this package's addresses (signupIdentityAddresses). The tenants and rows stay, as
+// every other fixture's do.
+
+// operatorTablesTestLock is internal/db's schema-test lock; the spelling is read from its source
+// (TestSignupFixtures_TakeTheLockInternalDBTakes).
+const operatorTablesTestLock = "tappa/test/operator-tables"
+
+// signupIdentityAddresses matches every address this package's fixtures register (draftFor) or plant.
+const signupIdentityAddresses = "%@signup.example"
+
+// sharedTablesLock takes the operator-tables lock SHARED on conn, held until conn closes.
+func sharedTablesLock(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock_shared(hashtext($1))`, operatorTablesTestLock); err != nil {
+		t.Fatalf("operator-tables test lock: %v", err)
+	}
+}
+
+// identityOwner is a dedicated owner connection holding the lock for the test, which unlinks and
+// deletes this package's identities when the test ends. It returns the connection (the identity
+// assertions read admin_users' link columns, which tappa_app may not).
+func identityOwner(t *testing.T) *pgx.Conn {
+	t.Helper()
+	dsn := os.Getenv("DATABASE_MIGRATE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_MIGRATE_URL not set; a registration births an identity and the fixture must take it back (real Postgres required)")
+	}
+	ctx := context.Background()
+	c, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect as the owner: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := c.Close(context.Background()); err != nil {
+			t.Errorf("close the owner connection: %v", err)
+		}
+	})
+	sharedTablesLock(t, ctx, c)
+	t.Cleanup(func() {
+		for _, sql := range []string{
+			`UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL, unlinked_at = NULL
+			  WHERE identity_id IN (SELECT id FROM admin_identities WHERE email LIKE $1)`,
+			`DELETE FROM admin_identities WHERE email LIKE $1`,
+		} {
+			if _, err := c.Exec(context.Background(), sql, signupIdentityAddresses); err != nil {
+				t.Errorf("take the registrations' identities back (%s): %v", sql, err)
+			}
+		}
+	})
+	return c
+}
+
 func newProvisionerFixture(t *testing.T) (*Provisioner, *db.DB) {
+	t.Helper()
+	p, data, _ := newProvisionerFixtureWithOwner(t)
+	return p, data
+}
+
+// newProvisionerFixtureWithOwner is newProvisionerFixture for a test that also reads what only the
+// owner may (an identity, a row's link) -- through the same locked connection.
+func newProvisionerFixtureWithOwner(t *testing.T) (*Provisioner, *db.DB, *pgx.Conn) {
 	t.Helper()
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping signup provisioning tests (real Postgres required)")
 	}
+	owner := identityOwner(t)
 	data, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
@@ -66,7 +133,7 @@ func newProvisionerFixture(t *testing.T) (*Provisioner, *db.DB) {
 	if err != nil {
 		t.Fatalf("NewProvisioner: %v", err)
 	}
-	return p, data
+	return p, data, owner
 }
 
 // ownerData opens a pool connecting as the MIGRATION role.

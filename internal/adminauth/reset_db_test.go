@@ -489,6 +489,12 @@ func (x *txCountingDB) GetAdminByEmail(ctx context.Context, email string) ([]db.
 	return x.inner.GetAdminByEmail(ctx, email)
 }
 
+// ConsumeIdentityRowReset is the linked row's path (M14-08); it is no tenant transaction of this
+// package's, so it is not counted -- the unlinked rows these tests reset answer it 0 rows.
+func (x *txCountingDB) ConsumeIdentityRowReset(ctx context.Context, h, digest string) (db.ConsumedIdentityRowReset, error) {
+	return x.inner.ConsumeIdentityRowReset(ctx, h, digest)
+}
+
 // TestConsume_BothWritesShareOneTransaction is reset.go's first 🔴 claim -- "a reset
 // that could not revoke does not happen at all" -- executed, in the two ways it can be
 // observed from outside the package.

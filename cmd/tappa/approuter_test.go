@@ -95,6 +95,23 @@ func (silentDB) RecordFailedIdentityLogin(context.Context, uuid.UUID, string) (b
 	return false, errSilent
 }
 
+// The session-keyed four and the legacy link's dual-write (adminauth.Database / ResetDatabase, M14-08).
+func (silentDB) SwitchIdentitySession(context.Context, string, uuid.UUID, string) (db.IdentitySession, error) {
+	return db.IdentitySession{}, errSilent
+}
+func (silentDB) RevokeIdentitySessions(context.Context, string, bool) (int, error) {
+	return 0, errSilent
+}
+func (silentDB) IdentityPasswordForSession(context.Context, string) (db.PasswordHash, error) {
+	return db.PasswordHash{}, errSilent
+}
+func (silentDB) SetIdentityPassword(context.Context, string, string) (int, error) {
+	return 0, errSilent
+}
+func (silentDB) ConsumeIdentityRowReset(context.Context, string, string) (db.ConsumedIdentityRowReset, error) {
+	return db.ConsumedIdentityRowReset{}, errSilent
+}
+
 // appFeatures is every feature appRouter takes, built as run() builds it, plus the
 // feature names the walk attributes routes to.
 type appFeatures struct {

@@ -973,18 +973,26 @@ func (h *AdminReset) Submit(w http.ResponseWriter, r *http.Request) {
 		// and applies its account budget only inside failLogin's FAILURE loop. "A
 		// successful state transition can never be silenced" was already this
 		// repository's rule.
-		h.record(r.Context(), audit.Event{
-			TenantID: consumed.TenantID,
-			ActorID:  ptr(consumed.AdminUserID),
-			Action:   ActionAdminResetCompleted,
-			Target:   consumed.AdminUserID.String(),
-			Detail: adminResetDetail{
-				Outcome:         "ok",
-				ResetID:         consumed.ResetID.String(),
-				RetiredCount:    consumed.RetiredCount,
-				RevokedSessions: consumed.RevokedSessions,
-			},
-		})
+		//
+		// 🔴 AND IT IS NOT WRITTEN TWICE (M14-08): a link of a row linked to an identity was spent
+		// by identity_consume_row_reset, which wrote admin.recovery.completed in this business --
+		// and in every other business of the person -- itself (00072; ADR 0015's meaning change,
+		// ADR 0031 §5.9). Its detail carries the outcome and the revoked sessions; the reset id and
+		// the retired count are this row's alone.
+		if !consumed.Recorded {
+			h.record(r.Context(), audit.Event{
+				TenantID: consumed.TenantID,
+				ActorID:  ptr(consumed.AdminUserID),
+				Action:   ActionAdminResetCompleted,
+				Target:   consumed.AdminUserID.String(),
+				Detail: adminResetDetail{
+					Outcome:         "ok",
+					ResetID:         consumed.ResetID.String(),
+					RetiredCount:    consumed.RetiredCount,
+					RevokedSessions: consumed.RevokedSessions,
+				},
+			})
+		}
 		h.log.Info("panel recovery completed", "admin_user_id", consumed.AdminUserID,
 			"ip", ip, "revoked_sessions", consumed.RevokedSessions)
 		// THE ACCOUNT HOLDER IS TOLD (M10 EM-9) — after the change committed and its row

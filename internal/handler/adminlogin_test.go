@@ -56,6 +56,9 @@ type fakeAdmins struct {
 	// changePassword is the hook for ChangeOwnPassword (T73). Nil means "succeed,
 	// revoking nothing", so every test that does not care about this path is unaffected.
 	changePassword func(tenantID, adminID, exceptSessionID uuid.UUID, current, next string) (int, error)
+	// changeRecorded is what a successful ChangeOwnPassword reports as Recorded (M14-08): true is a
+	// linked row's change, whose audit row the database wrote.
+	changeRecorded bool
 
 	authCalls   int
 	issuedFor   []adminauth.Verified
@@ -156,15 +159,16 @@ func (f *fakeAdmins) Revoke(_ context.Context, _, _ uuid.UUID) error {
 	return nil
 }
 
-func (f *fakeAdmins) ChangeOwnPassword(_ context.Context, tenantID, adminID, exceptSessionID uuid.UUID, current, next string) (int, error) {
+func (f *fakeAdmins) ChangeOwnPassword(_ context.Context, tenantID, adminID, exceptSessionID uuid.UUID, _ adminauth.Token, current, next string) (adminauth.PasswordChange, error) {
 	f.mu.Lock()
 	f.changeArgs = append(f.changeArgs, changePasswordArgs{tenantID, adminID, exceptSessionID, current, next})
-	hook := f.changePassword
+	hook, recorded := f.changePassword, f.changeRecorded
 	f.mu.Unlock()
 	if hook == nil {
-		return 0, nil
+		return adminauth.PasswordChange{Recorded: recorded}, nil
 	}
-	return hook(tenantID, adminID, exceptSessionID, current, next)
+	n, err := hook(tenantID, adminID, exceptSessionID, current, next)
+	return adminauth.PasswordChange{RevokedOtherSessions: n, Recorded: recorded && err == nil}, err
 }
 
 // changeCalls is how many times the handler reached ChangeOwnPassword — the number that

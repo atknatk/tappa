@@ -129,6 +129,26 @@ func TestAccountPasswordSave_ManagerMayChangeOwnPassword(t *testing.T) {
 	}
 }
 
+// TestAccountPasswordSave_AChangeThroughTheIdentityWritesNoSecondRow (M14-08): when the change went
+// through the identity (a linked row -- adminauth.PasswordChange.Recorded), identity_set_password has
+// written this business's admin.password_changed row itself; the handler writes NONE, and the person
+// is still told (the notice) and sent to the flash, exactly as for an unlinked row.
+//
+// MUTATION (measured): the `!change.Recorded` guard removed -> 1 row here, red.
+func TestAccountPasswordSave_AChangeThroughTheIdentityWritesNoSecondRow(t *testing.T) {
+	admins := &fakeAdmins{changeRecorded: true, changePassword: func(_, _, _ uuid.UUID, _, _ string) (int, error) { return 1, nil }}
+	trail := &fakeTrail{}
+	b := passwordBrowser(t, admins, trail, accountTestManagerRole, nil)
+
+	rec := b.do(http.MethodPost, accountPasswordHref, validChange("the-current-password", "a-brand-new-password"))
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "done=password") {
+		t.Fatalf("a change through the identity: %d %q, want 303 to the done=password flash", rec.Code, rec.Header().Get("Location"))
+	}
+	if n := trail.count(ActionAdminPasswordChanged); n != 0 {
+		t.Fatalf("the handler wrote %d %s row(s) for a change the database already recorded; a second row doubles the trail", n, ActionAdminPasswordChanged)
+	}
+}
+
 // TestAccountPasswordSave_UnauthenticatedIsRefused drives the handler's OWN belt (id.Live())
 // by calling it with no admin identity in the request context. The write chain would
 // normally refuse this at the resolver, but the belt must hold on its own.

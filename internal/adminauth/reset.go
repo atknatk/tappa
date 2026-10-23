@@ -291,6 +291,10 @@ type ResetDatabase interface {
 	// (resetrequest.go), in THIS package rather than in a handler, because the answer
 	// is a rule about identities and not about HTTP.
 	GetAdminByEmail(ctx context.Context, email string) ([]db.ResolvedAdmin, error)
+	// ConsumeIdentityRowReset spends a per-row link whose row is LINKED to an identity (ADR 0031 §5.9,
+	// M14-08: ADR 0015's meaning change starts here) -- identity_consume_row_reset, keyed by the link's
+	// own hash. pgx.ErrNoRows sends Consume down today's path.
+	ConsumeIdentityRowReset(ctx context.Context, resetHash, newDigest string) (db.ConsumedIdentityRowReset, error)
 }
 
 // The one implementation, bound AT COMPILE TIME rather than in a test. An audit found
@@ -524,6 +528,12 @@ type ConsumedReset struct {
 	// the same transaction as the password write: a reset that could not revoke does
 	// not happen at all.
 	RevokedSessions int
+	// Recorded: the link's row is linked to an identity, so identity_consume_row_reset wrote the
+	// identity and every linked row, revoked every session of the person in every business and wrote
+	// each business its admin.recovery.completed row itself (00072) -- the caller writes none (a
+	// second row would double the link's business's trail). RetiredCount is 0 then: the function
+	// cancels the other live links without counting them.
+	Recorded bool
 }
 
 // Consume spends a reset token and writes the new password, then signs the
@@ -613,6 +623,25 @@ func (r *Resets) Consume(ctx context.Context, t ResetToken, newPassword string) 
 	// acceptance criteria and into ADR 0015's accepted risks rather than only here.
 	digest, err := r.digest(newPassword)
 	if err != nil {
+		return ConsumedReset{}, db.ResolvedPasswordReset{}, fmt.Errorf("adminauth: consume reset: %w", err)
+	}
+
+	// 🔴 A LINKED ROW'S LINK WRITES THE IDENTITY (ADR 0031 §5.9, M14-08), whatever
+	// TAPPA_ADMIN_IDENTITY says: the row refuses a direct password write (00069's trigger), so
+	// today's statement would answer 500 for it. The definer re-checks the link under the person's
+	// lock (single use, not cancelled, not expired by the clock read after the lock) and also marks
+	// the mailbox proved and opens a reset-scope confirmation window -- the person who clicked the
+	// mail is the address's owner (S5). Unknown, spent, expired, cancelled, unlinked, disabled or
+	// refused -> 0 rows, and today's path below decides, exactly as before M14.
+	if c, err := r.data.ConsumeIdentityRowReset(ctx, h, digest); err == nil {
+		return ConsumedReset{
+			ResetID:         c.ResetID,
+			TenantID:        c.TenantID,
+			AdminUserID:     c.AdminUserID,
+			RevokedSessions: c.RevokedSessions,
+			Recorded:        true,
+		}, db.ResolvedPasswordReset{}, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return ConsumedReset{}, db.ResolvedPasswordReset{}, fmt.Errorf("adminauth: consume reset: %w", err)
 	}
 

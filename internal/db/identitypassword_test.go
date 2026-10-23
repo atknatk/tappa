@@ -2094,8 +2094,22 @@ func ipCatalogue(t *testing.T, ctx context.Context, q pgx.Tx) string {
 // resolve_admin_by_email back with 00017's four columns and grants, drops every identity function
 // and table, takes away every grant 00072 ALONE gives and keeps the ones 00071 gives too, taking no
 // strong lock outside the tables it names; the Up gives HEAD's catalogue back byte for byte.
+//
+// M14-08: "HEAD" here is the catalogue 00072 hands on, so the files above 00073 (00073 grants nothing
+// and writes data only) are walked down first, in the test's transaction, newest first -- 00074 gives
+// the definer admin_identities INSERT (email, password_hash) and admin_users SELECT (password_hash),
+// which a 00072 Down taken at the true HEAD would rightly leave in place.
 func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndUp(t *testing.T) {
 	ctx, tx := opTx(t)
+	later := aiLaterMigrations(t)
+	for i := len(later) - 1; i >= 0; i-- {
+		if later[i].name >= "00074" {
+			if tables := downTables(later[i].down); len(tables) > 0 {
+				t.Fatalf("PREMISE: %s's Down locks %v; walk it with lockForDowns", later[i].name, tables)
+			}
+			opRunSection(t, ctx, tx, later[i].down, later[i].name+" Down")
+		}
+	}
 	up, down := opMigrationSections(t, ip00072File)
 	tables := downTables(down)
 	slices.Sort(tables)

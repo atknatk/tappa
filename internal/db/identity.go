@@ -237,3 +237,92 @@ func (d *DB) IdentitySessionDecoy(ctx context.Context) error {
 	}
 	return nil
 }
+
+// ---------------------------------------------------------------- M14-08 --
+
+// The dual-write's callers (ADR 0031 §5.2, §5.9, §8; M14-08): the account page's password change and
+// the legacy reset link of a LINKED row write the identity and every row linked to it (00072), and a
+// registration births an identity for a new address (00074, named exception 2). They run whatever
+// TAPPA_ADMIN_IDENTITY says: a linked row refuses a direct password write (00069's trigger), so the
+// only way to change its password is through the identity.
+const identityPasswordForSessionSQL = `SELECT password_hash
+FROM identity_password_for_session($1)`
+
+const setIdentityPasswordSQL = `SELECT revoked_other_sessions
+FROM identity_set_password($1, $2)`
+
+const consumeIdentityRowResetSQL = `SELECT admin_user_id, tenant_id, reset_id, revoked_sessions
+FROM identity_consume_row_reset($1, $2)`
+
+const createIdentityForSignupSQL = `SELECT identity_create_for_signup($1, $2)`
+
+// IdentityPasswordForSession is the digest of the identity behind a live session -- the account
+// page's "current password" check. pgx.ErrNoRows when the session is not live or its membership is
+// not linked: the caller then compares with the row's own digest, as before M14.
+func (d *DB) IdentityPasswordForSession(ctx context.Context, sessionHash string) (PasswordHash, error) {
+	var digest string
+	if err := d.pool.QueryRow(ctx, identityPasswordForSessionSQL, sessionHash).Scan(&digest); err != nil {
+		return PasswordHash{}, fmt.Errorf("db: identity digest for session: %w", err)
+	}
+	return NewPasswordHash(digest), nil
+}
+
+// SetIdentityPassword writes newDigest to the identity behind a live, linked session AND to every
+// row linked to it, revokes every other session of those rows in every business (the calling one
+// kept) and writes each business its admin.password_changed row (00072). It returns how many of THIS
+// business's other sessions it revoked. pgx.ErrNoRows: the session is not live or not linked (the
+// caller writes the one row, as before M14), or it was revoked while the call waited for the person's
+// lock. newDigest never reaches an error.
+func (d *DB) SetIdentityPassword(ctx context.Context, sessionHash, newDigest string) (int, error) {
+	var n int32
+	if err := d.pool.QueryRow(ctx, setIdentityPasswordSQL, sessionHash, newDigest).Scan(&n); err != nil {
+		return 0, fmt.Errorf("db: set identity credential: %w", err)
+	}
+	return int(n), nil
+}
+
+// ConsumedIdentityRowReset is identity_consume_row_reset's row: the link's own membership, its
+// business, the link, and how many sessions of THAT business were revoked.
+type ConsumedIdentityRowReset struct {
+	AdminUserID     uuid.UUID
+	TenantID        uuid.UUID
+	ResetID         uuid.UUID
+	RevokedSessions int
+}
+
+// ConsumeIdentityRowReset spends a per-row password_resets link whose row is LINKED (ADR 0015's
+// meaning change, ADR 0031 §5.9): the identity and every linked row take newDigest, every session of
+// every linked row is revoked, every other live link is cancelled, the mailbox is marked proved and
+// a reset-scope confirmation window opens; each business gets its admin.recovery.completed row.
+// pgx.ErrNoRows: the link is unknown, spent, cancelled, expired, or its row is not linked, not active
+// or refused -- the caller's legacy consumption decides then.
+func (d *DB) ConsumeIdentityRowReset(ctx context.Context, resetHash, newDigest string) (ConsumedIdentityRowReset, error) {
+	var (
+		c ConsumedIdentityRowReset
+		n int32
+	)
+	if err := d.pool.QueryRow(ctx, consumeIdentityRowResetSQL, resetHash, newDigest).Scan(&c.AdminUserID, &c.TenantID, &c.ResetID, &n); err != nil {
+		return ConsumedIdentityRowReset{}, fmt.Errorf("db: consume identity row reset: %w", err)
+	}
+	c.RevokedSessions = int(n)
+	return c, nil
+}
+
+// CreateIdentityForSignup is the registration's dual-write -- ADR 0031 §5.2's named exception 2
+// (migration 00074): inside the registration's OWN transaction (tx, under tenantID's context), it
+// births an identity for the new owner's address and links the row to it, or -- when the address is
+// already anyone's -- does nothing. It reports whether it linked.
+//
+// 🔴 tx MUST BE A TOP-LEVEL TRANSACTION (db.WithTenant), NEVER A SAVEPOINT (db.WithTenantIn): the
+// function only links a row this transaction wrote, and a row written under a savepoint carries the
+// subtransaction's xid -- the call would then refuse silently (S13, measured on 17.10 in 00074).
+//
+// 🔴 THE ANSWER STAYS IN THE CALLER. It says whether the address was new; ADR 0031 §5.10 allows that
+// difference on no surface the flag does not close -- not a response, a log line or an audit row.
+func CreateIdentityForSignup(ctx context.Context, tx pgx.Tx, tenantID, adminUserID uuid.UUID) (bool, error) {
+	var linked bool
+	if err := tx.QueryRow(ctx, createIdentityForSignupSQL, tenantID, adminUserID).Scan(&linked); err != nil {
+		return false, fmt.Errorf("db: create identity for signup: %w", err)
+	}
+	return linked, nil
+}

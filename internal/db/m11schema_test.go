@@ -116,11 +116,13 @@ var m11Tables = map[string]map[string]m11TableACL{
 	// 00072 (M14-05, ADR 0031 §5.2): what the M14-05 bodies read and write of an identity -- the
 	// address, the digest, the verification and the confirmation window; never an e-mail write
 	// (K-15). identitycatalog_test.go holds the union inside the ADR's matrix and shows every column
-	// used.
+	// used. 00074 (M14-08, named exception 2): the identity's birth at registration --
+	// identity_create_for_signup INSERTs (email, password_hash) and nothing else (no mailbox proof).
 	"admin_identities": {
 		"tappa_resolver": {Select: "id,email,password_hash,email_verified_at"},
 		"tappa_identitydefiner": {
 			Select: "id,email,password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope,last_used_tenant",
+			Insert: "email,password_hash",
 			Update: "password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope,last_used_tenant,last_login_at",
 		},
 	},
@@ -463,6 +465,9 @@ var m11Functions = map[string]m11FunctionACL{
 	"identity_sweep_events()":                                 {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 	"identity_open_reset(uuid,text,timestamp with time zone)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 	"identity_withdraw_reset(text)":                           {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	// 00074 (M14-08, ADR 0031 §5.2 named exception 2): the registration's dual-write. EXECUTE
+	// tappa_app (and the owner) until M14-19 takes it away; contract B drops it.
+	"identity_create_for_signup(uuid,uuid)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every

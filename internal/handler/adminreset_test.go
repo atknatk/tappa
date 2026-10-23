@@ -707,6 +707,28 @@ func TestAdminReset_SuccessSendsThePersonToSignIn(t *testing.T) {
 	}
 }
 
+// TestAdminReset_ALinkedRowsRecoveryIsRecordedOnce (M14-08, ADR 0031 §5.9): a link of a row linked
+// to an identity is spent by identity_consume_row_reset, which writes admin.recovery.completed itself
+// (adminauth.ConsumedReset.Recorded); the handler writes none, and the person still lands on the
+// sign-in form.
+//
+// MUTATION (measured): the `!consumed.Recorded` guard removed -> 1 row here, red.
+func TestAdminReset_ALinkedRowsRecoveryIsRecordedOnce(t *testing.T) {
+	t.Parallel()
+	resets := &fakeResets{consumed: adminauth.ConsumedReset{
+		ResetID: uuid.New(), TenantID: uuid.New(), AdminUserID: uuid.New(), RevokedSessions: 2, Recorded: true,
+	}}
+	trail := &fakeTrail{}
+	router, _ := newResetRouter(t, resets, &recordingChannel{}, trail)
+	rec := submitLink(t, newBrowser(t, router), "qCq0TQlXqhQ0T2vJmMHhVh2mSpXk4rKzM0f7YyQvCJ8", "a-good-enough-password")
+	if rec.Code != http.StatusSeeOther || !strings.HasPrefix(rec.Header().Get("Location"), adminLoginPath) {
+		t.Fatalf("a linked row's recovery: %d %q, want 303 to the sign-in form", rec.Code, rec.Header().Get("Location"))
+	}
+	if n := trail.count(ActionAdminResetCompleted); n != 0 {
+		t.Fatalf("the handler wrote %d completed row(s) for a recovery the database already recorded", n)
+	}
+}
+
 // --- the budgets ----------------------------------------------------------------
 
 // TestAdminResetBudgets_RefuseAtTheCeilingAndDoNotShareABucket drives the REAL

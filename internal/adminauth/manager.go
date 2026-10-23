@@ -34,6 +34,9 @@ import (
 //     identity.go), identity_link_legacy (two live sessions), identity_record_failed_login (named
 //     exception 3) and the decoy the sign-in sends instead of an open. All run on the raw pool:
 //     like the resolvers they PRODUCE a tenant rather than run inside one.
+//   - The four session-keyed ones are M14-08's (identityops.go, changepassword.go): the switch, "sign
+//     out everywhere", and the account page's password check and change through the identity. Each
+//     takes a live session's token HASH -- the secret ADR 0031 §5.2 keys every identity writer by.
 type Database interface {
 	WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error
 	GetAdminByEmail(ctx context.Context, email string) ([]db.ResolvedAdmin, error)
@@ -44,7 +47,15 @@ type Database interface {
 	IdentitySessionDecoy(ctx context.Context) error
 	LinkLegacySession(ctx context.Context, identitySessionHash, legacySessionHash string) (db.LinkedMembership, error)
 	RecordFailedIdentityLogin(ctx context.Context, identityID uuid.UUID, event string) (bool, error)
+
+	SwitchIdentitySession(ctx context.Context, sessionHash string, target uuid.UUID, newSessionHash string) (db.IdentitySession, error)
+	RevokeIdentitySessions(ctx context.Context, sessionHash string, keepCurrent bool) (int, error)
+	IdentityPasswordForSession(ctx context.Context, sessionHash string) (db.PasswordHash, error)
+	SetIdentityPassword(ctx context.Context, sessionHash, newDigest string) (int, error)
 }
+
+// The one implementation, bound at compile time (reset.go's ResetDatabase has the same line).
+var _ Database = (*db.DB)(nil)
 
 // MaxCandidates bounds how many resolved identities ONE login request will
 // bcrypt-compare — migration 00011's PHASE B OBLIGATION 4, the DoS bound, decided
@@ -213,6 +224,10 @@ type Manager struct {
 	// sign-in pays 1 + MaxCandidates), the way `dummy` exists so a test can make them cheap.
 	// Production never sets it.
 	compareFn func(digest, password string) bool
+	// hashFn is the ONE producer of a new digest a password change writes (nil = Hash, the shipped
+	// cost). It exists for the reason Resets.digest does: one cost-12 bcrypt is ~11 s under -race,
+	// and the identity tests change passwords several times (M14-08). Production never sets it.
+	hashFn func(password string) (string, error)
 	// openCost is the measured duration of identity_open_session, which the decoy pads itself to
 	// (identity.go, S15). It is per Manager, never package state.
 	openCost *costMeter
@@ -237,6 +252,14 @@ func New(data Database, cfg *config.Config) (*Manager, error) {
 		return nil, err
 	}
 	return &Manager{data: data, hmacKey: key, dummy: dummyDigest, proofKey: proofKey, openCost: newCostMeter(openCostDefault)}, nil
+}
+
+// hash is the one digest a password change writes (see hashFn).
+func (m *Manager) hash(password string) (string, error) {
+	if m.hashFn != nil {
+		return m.hashFn(password)
+	}
+	return Hash(password)
 }
 
 // compare is the one comparison every login path makes (see compareFn).
