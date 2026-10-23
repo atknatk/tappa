@@ -3,15 +3,27 @@ package db
 // identitybelt_test.go -- M14-04 (ADR 0031 §5.2, ADR 0021 §3.2): two text scans over the bodies of
 // the identity functions, both FAIL CLOSED.
 //
+// 🔴 SCOPE. The belt is a guard against a BUILDER'S MISTAKE -- a statement in a BYPASSRLS body that
+// forgot its tenant -- not a proof that a body is safe. The behaviour tests (identitysession_test.go:
+// the refusal and isolation cases, the mutation proofs) remain the primary line. What the belt owes
+// is to FAIL CLOSED: anything it does not model is a finding, never a pass.
+//
 //  1. THE BELT. tappa_identitydefiner and tappa_resolver are BYPASSRLS, so in their bodies the
-//     explicit tenant predicate is the only barrier: every reference to a tenant table must name its
-//     tenant. The scanner models a small SQL subset -- the one these bodies are written in -- and
+//     explicit tenant predicate is the only barrier: every reference to a tenant relation must name
+//     its tenant. The scanner models a small SQL subset -- the one these bodies are written in -- and
 //     every construct outside it is ITSELF a finding unless identityBeltAllowedConstructs names it for
-//     that function: a top-level OR or NOT in a predicate, a WITH, a double-quoted identifier, a
-//     function or a subquery in FROM, a tenant table reached other than as `public.<name>`, dynamic
-//     SQL, a dollar quote. (The third eye's rounds: an anchor counted in a SELECT list, a join
-//     correlation, an OR, a comment, a CTE alias and a quoted name each passed an earlier version
-//     that tried to recognise the bad shapes; this one recognises only the good ones.)
+//     that function: in a WHERE/ON, a conjunct holding any bare word but IS / NOT / NULL / OPERATOR /
+//     TRUE / FALSE (OR, CASE, DISTINCT FROM, IN, a function call ...), an IS other than IS [NOT] NULL,
+//     a NOT other than IS NOT NULL; anywhere, a WITH, a CASE, a set operation, a double-quoted
+//     identifier, a function, a subquery or a relation list in FROM, a relation reached other than as
+//     `public.<name>`, a `public.<name>` that is neither a tenant relation (table, view or
+//     materialised view with a tenant_id) nor a named non-tenant one, dynamic SQL, a dollar quote.
+//     A value anchors only if it is a parameter, or a variable / FOR record every writer of which
+//     (SELECT INTO, RETURNING INTO, FOR ... IN) itself passed the belt -- never one written by `:=`.
+//     (The third eye's rounds, each measured: an anchor in a SELECT list, a join correlation, an OR,
+//     a comment, a CTE alias, a quoted name, a region cut by DISTINCT FROM or CASE, `= v IS NOT TRUE`,
+//     a variable of any source and a view each passed an earlier version that tried to recognise the
+//     bad shapes; this one recognises only the good ones.)
 //  2. DELETE ON THE PERSON TABLES. ADR 0031 §5.1: no deletion on the five identity tables but the two
 //     named sweeps (R17). Every function body in the database is read; a DELETE or TRUNCATE that
 //     reaches an identity table may appear only in the function identityPersonTableDeleters names
@@ -19,7 +31,7 @@ package db
 //
 // M14-05 and later cards add their functions' counts to identityTenantWideReads /
 // identitySessionKeyLookups (identitycatalog_test.go's skeleton rule) and, for a construct the scanner
-// does not model, a named entry here with its reason.
+// does not model, a named entry in identityBeltAllowedConstructs with its reason.
 
 import (
 	"context"
@@ -160,18 +172,25 @@ func identityLex(src string) identityLexed {
 var (
 	identityStatementSplit = regexp.MustCompile(`(?i);|\bLOOP\b`)
 	identityToken          = regexp.MustCompile(`[A-Za-z_][\w.]*|<>|<=|>=|!=|\S`)
-	identityStop           = map[string]bool{
-		"WHERE": true, "ON": true, "ORDER": true, "GROUP": true, "LIMIT": true, "RETURNING": true, "FOR": true,
-		"JOIN": true, "LEFT": true, "RIGHT": true, "FULL": true, "INNER": true, "CROSS": true, "SET": true, "VALUES": true,
-		"UNION": true, "EXCEPT": true, "INTERSECT": true, "SELECT": true, "FROM": true, "INTO": true, "THEN": true,
-		"LOOP": true, "HAVING": true, "WINDOW": true, "USING": true,
+	// The TRUE clause boundaries a WHERE/ON region ends at, at its own depth (V1/V2: an inner keyword
+	// -- DISTINCT FROM, CASE ... THEN -- is no boundary; it is inside the region and unmodelled).
+	identityStop = map[string]bool{
+		"WHERE": true, "ON": true, "ORDER": true, "GROUP": true, "HAVING": true, "WINDOW": true, "LIMIT": true,
+		"OFFSET": true, "RETURNING": true, "FOR": true, "INTO": true, "JOIN": true, "LEFT": true, "RIGHT": true,
+		"FULL": true, "INNER": true, "CROSS": true, "UNION": true, "EXCEPT": true, "INTERSECT": true,
 	}
-	identityParamOrVar = regexp.MustCompile(`^[pv]_\w+$`)
+	// The bare words a conjunct may hold; any other bare word (OR, CASE, DISTINCT, IN, ANY, EXISTS, a
+	// function name ...) is a construct the belt does not model.
+	identityConjunctWords = map[string]bool{"IS": true, "NOT": true, "NULL": true, "OPERATOR": true, "TRUE": true, "FALSE": true}
+	identityParamOrVar    = regexp.MustCompile(`^[pv]_\w+$`)
+	identityWord          = regexp.MustCompile(`^[A-Za-z_]\w*$`)
 )
 
-// identityRegions returns, for every WHERE and ON of a statement, its TOP-LEVEL equalities (inside
-// parentheses nothing anchors: `(x.tenant_id = v OR true)` constrains nothing) and the top-level
-// constructs the scanner does not model (OR, a NOT that is not IS NOT).
+// identityRegions returns, for every WHERE and ON of a statement, the equalities that ANCHOR -- a
+// top-level conjunct that is exactly `X = Y` (inside parentheses nothing anchors, and `X = Y IS NOT
+// TRUE` is not `X = Y` -- V3) -- and the constructs the belt does not model: a conjunct with a bare
+// word outside identityConjunctWords, an IS other than IS NULL / IS NOT NULL at the conjunct's end,
+// a NOT other than in IS NOT NULL, and a FOR that is not a row lock.
 func identityRegions(stmt string) (eqs [][2]string, unmodelled []string) {
 	toks := identityToken.FindAllString(stmt, -1)
 	for i, tk := range toks {
@@ -194,26 +213,51 @@ func identityRegions(stmt string) (eqs [][2]string, unmodelled []string) {
 				continue
 			}
 			if depth == 0 && identityStop[strings.ToUpper(t)] {
+				if strings.ToUpper(t) == "FOR" && (j+1 >= len(toks) || !slices.Contains([]string{"UPDATE", "SHARE", "NO", "KEY"}, strings.ToUpper(toks[j+1]))) {
+					unmodelled = append(unmodelled, "a FOR in a predicate that is not a row lock")
+				}
 				break
 			}
 			if depth == 0 {
 				top = append(top, t)
 			}
 		}
-		for k, t := range top {
-			switch strings.ToUpper(t) {
-			case "OR":
-				unmodelled = append(unmodelled, "a top-level OR in a predicate")
-			case "NOT":
-				if k == 0 || strings.ToUpper(top[k-1]) != "IS" {
-					unmodelled = append(unmodelled, "a top-level NOT in a predicate")
+		var conj []string
+		flush := func() {
+			defer func() { conj = nil }()
+			for k, t := range conj {
+				u := strings.ToUpper(t)
+				if !identityWord.MatchString(t) || identityParamOrVar.MatchString(t) {
+					continue
 				}
-			case "=":
-				if k > 0 && k+1 < len(top) {
-					eqs = append(eqs, [2]string{top[k-1], top[k+1]})
+				if !identityConjunctWords[u] {
+					unmodelled = append(unmodelled, fmt.Sprintf("%q in a predicate", u))
+					continue
+				}
+				switch u {
+				case "IS":
+					rest := strings.ToUpper(strings.Join(conj[k+1:], " "))
+					if rest != "NULL" && rest != "NOT NULL" {
+						unmodelled = append(unmodelled, "an IS other than IS NULL / IS NOT NULL in a predicate")
+					}
+				case "NOT":
+					if k == 0 || strings.ToUpper(conj[k-1]) != "IS" {
+						unmodelled = append(unmodelled, "a NOT in a predicate")
+					}
 				}
 			}
+			if len(conj) == 3 && conj[1] == "=" {
+				eqs = append(eqs, [2]string{conj[0], conj[2]})
+			}
 		}
+		for _, t := range top {
+			if strings.ToUpper(t) == "AND" {
+				flush()
+				continue
+			}
+			conj = append(conj, t)
+		}
+		flush()
 	}
 	return eqs, unmodelled
 }
@@ -236,9 +280,15 @@ func identityBodies(ctx context.Context, q opQuerier) ([]identityBody, error) {
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[identityBody])
 }
 
-// identityTenantTables: every table in public with a tenant_id column, and tenants.
-func identityTenantTables(ctx context.Context, q opQuerier) ([]string, error) {
-	rows, err := q.Query(ctx, `SELECT c.relname FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+// identityBeltNonTenantRelations are the relations in public a belt body may name that carry no
+// tenant: ADR 0031 §5.1's five identity tables. Any other `public.<name>` that is not a tenant
+// relation is a finding (V5) -- a view over a tenant table without a tenant_id column included.
+var identityBeltNonTenantRelations = identityPersonTables
+
+// identityTenantRelations: every table, view and materialised view in public with a tenant_id column
+// (V5: a view over admin_sessions is a tenant relation), and tenants.
+func identityTenantRelations(ctx context.Context, q opQuerier) ([]string, error) {
+	rows, err := q.Query(ctx, `SELECT c.relname FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p', 'v', 'm')
 	                             AND (c.relname = 'tenants' OR EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid
 	                                                                    AND a.attname = 'tenant_id' AND NOT a.attisdropped))
 	                            ORDER BY 1`)
@@ -248,21 +298,211 @@ func identityTenantTables(ctx context.Context, q opQuerier) ([]string, error) {
 	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
-// identityBeltFindings holds every body to the belt. A reference to a tenant table is either an
-// INSERT whose column list names tenant_id, or `public.<table> AS <alias>` whose alias is
+// identityBeltScope is what one body's statements share: the function's parameters, the variables
+// its DECLARE names, the FOR records it declares, and which of them are TRUSTED as tenant / identity
+// values (V4): a parameter always; a variable or a FOR record only when every statement that writes
+// it -- SELECT ... INTO, RETURNING ... INTO, FOR <record> IN -- itself passed the belt; never one
+// written by `:=` (unless from a single parameter).
+type identityBeltScope struct {
+	params, declared, records map[string]bool
+	trusted                   map[string]bool
+	assigned                  map[string]bool // written by := from anything but a parameter
+}
+
+// identityStatementVerdict is one statement held to the belt under a scope.
+type identityStatementVerdict struct {
+	findings    []string
+	passed      bool
+	wide, keyed int
+	writes      []string // the variables (INTO) or the record (FOR ... IN) the statement writes
+}
+
+var (
+	identityRef        *regexp.Regexp // set per run: public.<tenant relation>
+	identityIntoList   = regexp.MustCompile(`(?i)\bINTO\s+(\w+(?:\s*,\s*\w+)*)`)
+	identityForRecord  = regexp.MustCompile(`(?i)^\s*(?:\w+\s+)*?FOR\s+(\w+)\s+IN\b`)
+	identityPublicName = regexp.MustCompile(`(?i)\bpublic\s*\.\s*(\w+)`)
+	identityRelation   = regexp.MustCompile(`(?i)\b(FROM|JOIN|INTO|UPDATE|TABLE)\s+([^\s(,;]+)`)
+)
+
+func identityStatement(fn, stmt string, tenantRel map[string]bool, sc identityBeltScope) identityStatementVerdict {
+	var v identityStatementVerdict
+	bad := func(format string, a ...any) { v.findings = append(v.findings, fn+": "+fmt.Sprintf(format, a...)) }
+	unmodelled := func(what string) {
+		if _, ok := identityBeltAllowedConstructs[fn][what]; !ok {
+			bad("%s -- a construct the belt does not model (name it in identityBeltAllowedConstructs, with its reason, or rewrite it)", what)
+		}
+	}
+	if m := identityForRecord.FindStringSubmatch(stmt); m != nil {
+		v.writes = append(v.writes, m[1])
+	}
+	for _, m := range identityRelation.FindAllStringSubmatch(stmt, -1) {
+		kw, target := strings.ToUpper(m[1]), m[2]
+		switch {
+		case kw == "INTO" && !regexp.MustCompile(`(?i)\bINSERT\s+INTO\s+`+regexp.QuoteMeta(target)).MatchString(stmt):
+			continue // a plpgsql INTO list
+		case kw == "UPDATE" && strings.EqualFold(target, "OF"):
+			continue // FOR UPDATE OF <alias>
+		case kw == "TABLE":
+			unmodelled("a TABLE command")
+		case !strings.HasPrefix(strings.ToLower(target), "public."):
+			unmodelled(fmt.Sprintf("a relation reached other than as public.<name> (%s %s)", kw, target))
+		}
+	}
+	for _, m := range identityPublicName.FindAllStringSubmatch(stmt, -1) {
+		name := strings.ToLower(m[1])
+		if !tenantRel[name] && !slices.Contains(identityBeltNonTenantRelations, name) {
+			bad("public.%s is neither a tenant relation nor a named non-tenant one (identityBeltNonTenantRelations)", name)
+		}
+	}
+
+	tableOf := map[string]string{}
+	refs := identityRef.FindAllStringSubmatch(stmt, -1)
+	for _, m := range refs {
+		table, alias := strings.ToLower(m[2]), m[4]
+		switch {
+		case m[1] != "":
+			if !regexp.MustCompile(`\btenant_id\b`).MatchString(m[6]) {
+				bad("INSERT INTO %s does not name tenant_id", table)
+			}
+		case alias == "":
+			bad("a reference to %s without `AS <alias>`", table)
+		default:
+			tableOf[alias] = table
+		}
+	}
+	eqs, um := identityRegions(stmt)
+	for _, u := range um {
+		unmodelled(u)
+	}
+	for _, m := range identityIntoList.FindAllStringSubmatch(stmt, -1) {
+		if regexp.MustCompile(`(?i)\bINSERT\s+INTO\s+` + regexp.QuoteMeta(strings.TrimSpace(strings.Split(m[1], ",")[0]))).MatchString(stmt) {
+			continue // INSERT INTO <relation>
+		}
+		for _, n := range strings.Split(m[1], ",") {
+			v.writes = append(v.writes, strings.TrimSpace(n))
+		}
+	}
+	identities := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(?i)\bpublic\.admin_identities\s+AS\s+(\w+)`).FindAllStringSubmatch(stmt, -1) {
+		identities[m[1]] = true
+	}
+	trustedValue := func(x string) bool {
+		if sc.params[x] {
+			return true
+		}
+		if identityParamOrVar.MatchString(x) {
+			if sc.assigned[x] {
+				unmodelled(fmt.Sprintf("%s, written by :=, used as an anchor", x))
+				return false
+			}
+			return sc.declared[x] && sc.trusted[x]
+		}
+		return false
+	}
+	isAnchor := func(x string) bool {
+		if trustedValue(x) {
+			return true
+		}
+		rec, col, ok := strings.Cut(x, ".")
+		return ok && sc.records[rec] && sc.trusted[rec] && (col == "tenant_id" || col == "id")
+	}
+	isIdentity := func(x string) bool {
+		if trustedValue(x) {
+			return true
+		}
+		rec, col, ok := strings.Cut(x, ".")
+		return ok && col == "id" && identities[rec]
+	}
+	has := func(l, r string) bool {
+		for _, p := range eqs {
+			if (p[0] == l && p[1] == r) || (p[0] == r && p[1] == l) {
+				return true
+			}
+		}
+		return false
+	}
+	key := func(alias string) string {
+		if tableOf[alias] == "tenants" {
+			return alias + ".id"
+		}
+		return alias + ".tenant_id"
+	}
+	anchored, bounded, selfBounded := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for alias, table := range tableOf {
+		for _, p := range eqs {
+			for _, side := range [][2]string{{p[0], p[1]}, {p[1], p[0]}} {
+				if side[0] == key(alias) && isAnchor(side[1]) {
+					anchored[alias] = true
+				}
+				if table == "admin_sessions" && side[0] == alias+".token_hash" && sc.params[side[1]] && !anchored[alias] {
+					anchored[alias] = true
+					v.keyed++
+				}
+				if table == "admin_users" && side[0] == alias+".identity_id" && isIdentity(side[1]) {
+					bounded[alias], selfBounded[alias] = true, true
+				}
+			}
+		}
+	}
+	correlated := func(x, y string) bool {
+		if !has(key(x), key(y)) {
+			return false
+		}
+		switch {
+		case tableOf[x] == "admin_users" && tableOf[y] == "admin_sessions":
+			return has(x+".id", y+".admin_user_id")
+		case tableOf[x] == "admin_sessions" && tableOf[y] == "admin_users":
+			return has(y+".id", x+".admin_user_id")
+		}
+		return true
+	}
+	for changed := true; changed; {
+		changed = false
+		for x := range tableOf {
+			for y := range tableOf {
+				if x == y || !correlated(x, y) {
+					continue
+				}
+				if anchored[y] && !anchored[x] {
+					anchored[x], changed = true, true
+				}
+				if bounded[y] && !bounded[x] {
+					bounded[x], changed = true, true
+				}
+			}
+		}
+	}
+	for alias, table := range tableOf {
+		switch {
+		case anchored[alias]:
+		case bounded[alias]:
+			if selfBounded[alias] {
+				v.wide++
+			}
+		default:
+			bad("%s AS %s is anchored by no tenant (parameter, trusted variable, trusted FOR record), no session key and no identity", table, alias)
+		}
+	}
+	v.passed = len(v.findings) == 0
+	return v
+}
+
+// identityBeltFindings holds every body to the belt. A reference to a tenant relation is either an
+// INSERT whose column list names tenant_id, or `public.<relation> AS <alias>` whose alias is
 //
-//   - ANCHORED: at the top level of a WHERE/ON, `<alias>.tenant_id` (`<alias>.id` for tenants) equals
-//     a parameter of the function (p_*), a variable its DECLARE names (v_*), or a column of a record
-//     the body declares with `FOR <name> IN`; or it is a sessions alias found by its own key
-//     (identitySessionKeyLookups); or it is correlated by the tenant key to an anchored alias (a
-//     membership and a session: both halves of the composite key); or
-//   - in a NAMED TENANT-WIDE READ: an admin_users alias bounded by `identity_id = ...`, or correlated
-//     by the tenant key to one (identityTenantWideReads).
+//   - ANCHORED: a top-level conjunct `<alias>.tenant_id = X` (`<alias>.id` for tenants) of a WHERE/ON
+//     with X a parameter, a TRUSTED variable or a column of a TRUSTED FOR record (identityBeltScope);
+//     or a sessions alias found by its own key (identitySessionKeyLookups); or correlated by the
+//     tenant key to an anchored alias (a membership and a session: both halves of the composite key);
+//     or
+//   - in a NAMED TENANT-WIDE READ: an admin_users alias bounded by `identity_id = <trusted value |
+//     an admin_identities row's id>`, or correlated by the tenant key to one (identityTenantWideReads).
 //
-// Nothing else counts -- another alias's tenant_id, a CTE's or a subquery's column, a SELECT-list
-// expression -- and the counts of both named classes are pinned per function.
+// Everything the scanner does not model is a finding of its own (fail closed). The counts of both
+// named classes are pinned per function.
 func identityBeltFindings(ctx context.Context, q opQuerier, wide, keyed map[string]int) ([]string, int, error) {
-	tenantTables, err := identityTenantTables(ctx, q)
+	tenantRelations, err := identityTenantRelations(ctx, q)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -270,14 +510,15 @@ func identityBeltFindings(ctx context.Context, q opQuerier, wide, keyed map[stri
 	if err != nil {
 		return nil, 0, err
 	}
-	names := strings.Join(tenantTables, "|")
-	ref := regexp.MustCompile(`(?i)(INSERT\s+INTO\s+)?\bpublic\.(` + names + `)\b(\s+AS\s+(\w+))?(\s*\(([^)]*)\))?`)
+	tenantRel := map[string]bool{}
+	for _, r := range tenantRelations {
+		tenantRel[r] = true
+	}
+	names := strings.Join(tenantRelations, "|")
+	identityRef = regexp.MustCompile(`(?i)(INSERT\s+INTO\s+)?\bpublic\.(` + names + `)\b(\s+AS\s+(\w+))?(\s*\(([^)]*)\))?`)
 	anyMention := regexp.MustCompile(`(?i)\b(` + names + `)\b`)
 	qualified := regexp.MustCompile(`(?i)\bpublic\.(` + names + `)\b`)
-	identityRef := regexp.MustCompile(`(?i)\bpublic\.admin_identities\s+AS\s+(\w+)`)
-	forRecord := regexp.MustCompile(`(?i)\bFOR\s+(\w+)\s+IN\b`)
-	declared := regexp.MustCompile(`\bv_\w+\b`)
-	unmodelledRes := []struct {
+	bodyWide := []struct {
 		what string
 		re   *regexp.Regexp
 	}{
@@ -285,8 +526,14 @@ func identityBeltFindings(ctx context.Context, q opQuerier, wide, keyed map[stri
 		{"a function in FROM", regexp.MustCompile(`(?i)\b(FROM|JOIN)\s+[A-Za-z_][\w.]*\s*\(`)},
 		{"a subquery in FROM", regexp.MustCompile(`(?i)\b(FROM|JOIN)\s*\(`)},
 		{"a relation list in FROM", regexp.MustCompile(`(?i)\bFROM\s+[A-Za-z_][\w.]*(\s+AS\s+\w+)?\s*,`)},
+		{"a set operation", regexp.MustCompile(`(?i)\b(UNION|EXCEPT|INTERSECT)\b`)},
 		{"dynamic SQL", regexp.MustCompile(`(?i)\bEXECUTE\b`)},
+		{"a CASE", regexp.MustCompile(`(?i)\bCASE\b`)},
+		{"an IS [NOT] DISTINCT FROM", regexp.MustCompile(`(?i)\bDISTINCT\s+FROM\b`)},
 	}
+	assignRe := regexp.MustCompile(`(\w+)\s*:=\s*([^;]*)`)
+	declaredRe := regexp.MustCompile(`\bv_\w+\b`)
+	forDecl := regexp.MustCompile(`(?i)\bFOR\s+(\w+)\s+IN\b`)
 
 	var out []string
 	refs := 0
@@ -303,149 +550,70 @@ func identityBeltFindings(ctx context.Context, q opQuerier, wide, keyed map[stri
 		if lx.dollar {
 			flag("a dollar quote or a positional parameter")
 		}
-		for _, u := range unmodelledRes {
+		for _, u := range bodyWide {
 			if u.re.MatchString(lx.code) {
 				flag(u.what)
 			}
 		}
 		if n, m := len(anyMention.FindAllString(lx.code, -1)), len(qualified.FindAllString(lx.code, -1)); n != m {
-			flag(fmt.Sprintf("a tenant table reached other than as public.<name> (%d mention(s), %d qualified)", n, m))
+			flag(fmt.Sprintf("a tenant relation reached other than as public.<name> (%d mention(s), %d qualified)", n, m))
 		}
-		params := map[string]bool{}
+		sc := identityBeltScope{params: map[string]bool{}, declared: map[string]bool{}, records: map[string]bool{}, trusted: map[string]bool{}, assigned: map[string]bool{}}
 		for _, a := range b.Args {
 			if strings.HasPrefix(a, "p_") {
-				params[a] = true
+				sc.params[a] = true
 			}
 		}
-		vars := map[string]bool{}
-		if up := strings.ToUpper(lx.code); strings.Contains(up, "DECLARE") {
+		code := lx.code
+		if up := strings.ToUpper(code); strings.Contains(up, "DECLARE") {
 			start := strings.Index(up, "DECLARE")
 			if end := strings.Index(up[start:], "BEGIN"); end > 0 {
-				for _, v := range declared.FindAllString(lx.code[start:start+end], -1) {
-					vars[v] = true
+				for _, v := range declaredRe.FindAllString(code[start:start+end], -1) {
+					sc.declared[v] = true
 				}
+				code = code[:start] + code[start+end:] // the DECLARE section is no statement
 			}
 		}
-		records := map[string]bool{}
-		for _, m := range forRecord.FindAllStringSubmatch(lx.code, -1) {
-			records[m[1]] = true
+		for _, m := range forDecl.FindAllStringSubmatch(code, -1) {
+			sc.records[m[1]] = true
 		}
-		isVar := func(x string) bool {
-			return identityParamOrVar.MatchString(x) && (params[x] || vars[x])
+		for _, m := range assignRe.FindAllStringSubmatch(code, -1) {
+			if rhs := strings.TrimSpace(m[2]); !sc.params[rhs] {
+				sc.assigned[m[1]] = true
+			}
 		}
-
+		stmts := identityStatementSplit.Split(code, -1)
+		// V4: trust grows from the parameters, statement by statement, until nothing changes -- a
+		// variable (or a FOR record) is trusted once EVERY statement that writes it passed.
+		var verdicts []identityStatementVerdict
+		for {
+			verdicts = verdicts[:0]
+			writers := map[string][]bool{}
+			for _, s := range stmts {
+				v := identityStatement(b.Name, s, tenantRel, sc)
+				verdicts = append(verdicts, v)
+				for _, w := range v.writes {
+					writers[w] = append(writers[w], v.passed)
+				}
+			}
+			grew := false
+			for w, passes := range writers {
+				if !sc.trusted[w] && !sc.assigned[w] && !slices.Contains(passes, false) {
+					sc.trusted[w], grew = true, true
+				}
+			}
+			if !grew {
+				break
+			}
+		}
 		wideUsed, keyedUsed := 0, 0
-		for _, stmt := range identityStatementSplit.Split(lx.code, -1) {
-			tableOf := map[string]string{}
-			for _, m := range ref.FindAllStringSubmatch(stmt, -1) {
-				refs++
-				table, alias := m[2], m[4]
-				switch {
-				case m[1] != "":
-					if !regexp.MustCompile(`\btenant_id\b`).MatchString(m[6]) {
-						out = append(out, fmt.Sprintf("%s: INSERT INTO %s does not name tenant_id", b.Name, table))
-					}
-				case alias == "":
-					out = append(out, fmt.Sprintf("%s: a reference to %s without `AS <alias>`", b.Name, table))
-				default:
-					tableOf[alias] = table
-				}
-			}
-			eqs, unmodelled := identityRegions(stmt)
-			for _, u := range unmodelled {
-				flag(u)
-			}
-			if len(tableOf) == 0 {
-				continue
-			}
-			identities := map[string]bool{}
-			for _, m := range identityRef.FindAllStringSubmatch(stmt, -1) {
-				identities[m[1]] = true
-			}
-			has := func(l, r string) bool {
-				for _, p := range eqs {
-					if (p[0] == l && p[1] == r) || (p[0] == r && p[1] == l) {
-						return true
-					}
-				}
-				return false
-			}
-			isAnchor := func(x string) bool {
-				if isVar(x) {
-					return true
-				}
-				rec, col, ok := strings.Cut(x, ".")
-				return ok && records[rec] && (col == "tenant_id" || col == "id")
-			}
-			isIdentity := func(x string) bool {
-				if isVar(x) {
-					return true
-				}
-				rec, col, ok := strings.Cut(x, ".")
-				return ok && col == "id" && identities[rec]
-			}
-			key := func(alias string) string {
-				if tableOf[alias] == "tenants" {
-					return alias + ".id"
-				}
-				return alias + ".tenant_id"
-			}
-			anchored, bounded, selfBounded := map[string]bool{}, map[string]bool{}, map[string]bool{}
-			for alias, table := range tableOf {
-				for _, p := range eqs {
-					for _, side := range [][2]string{{p[0], p[1]}, {p[1], p[0]}} {
-						if side[0] == key(alias) && isAnchor(side[1]) {
-							anchored[alias] = true
-						}
-						if table == "admin_sessions" && side[0] == alias+".token_hash" && params[side[1]] && !anchored[alias] {
-							anchored[alias] = true
-							keyedUsed++
-						}
-						if table == "admin_users" && side[0] == alias+".identity_id" && isIdentity(side[1]) {
-							bounded[alias], selfBounded[alias] = true, true
-						}
-					}
-				}
-			}
-			correlated := func(x, y string) bool {
-				if !has(key(x), key(y)) {
-					return false
-				}
-				switch {
-				case tableOf[x] == "admin_users" && tableOf[y] == "admin_sessions":
-					return has(x+".id", y+".admin_user_id")
-				case tableOf[x] == "admin_sessions" && tableOf[y] == "admin_users":
-					return has(y+".id", x+".admin_user_id")
-				}
-				return true
-			}
-			for changed := true; changed; {
-				changed = false
-				for x := range tableOf {
-					for y := range tableOf {
-						if x == y || !correlated(x, y) {
-							continue
-						}
-						if anchored[y] && !anchored[x] {
-							anchored[x], changed = true, true
-						}
-						if bounded[y] && !bounded[x] {
-							bounded[x], changed = true, true
-						}
-					}
-				}
-			}
-			for alias, table := range tableOf {
-				switch {
-				case anchored[alias]:
-				case bounded[alias]:
-					if selfBounded[alias] {
-						wideUsed++
-					}
-				default:
-					out = append(out, fmt.Sprintf("%s: %s AS %s is anchored by no tenant (parameter, variable, FOR record), no session key and no identity", b.Name, table, alias))
-				}
-			}
+		for _, v := range verdicts {
+			out = append(out, v.findings...)
+			wideUsed += v.wide
+			keyedUsed += v.keyed
+		}
+		for _, s := range stmts {
+			refs += len(identityRef.FindAllString(s, -1))
 		}
 		if wideUsed != wide[b.Name] {
 			out = append(out, fmt.Sprintf("%s: %d tenant-wide read(s), identityTenantWideReads names %d", b.Name, wideUsed, wide[b.Name]))
@@ -468,12 +636,17 @@ func identityBeltFindings(ctx context.Context, q opQuerier, wide, keyed map[stri
 //     x.admin_user_id AND a.tenant_id = x.tenant_id` -- every session of every business);
 //   - the session lookup joined by half its composite key;
 //   - E1: a top-level OR (`AND NOT p_keep_current OR x.id <> v_session` -- the parentheses gone);
-//   - E2: the anchor inside a block comment (`WHERE /* o.tenant_id = v_tenant */ o.id IS NOT NULL`);
-//   - E3: a CTE column as the "anchor" (`WITH c AS (SELECT i.last_used_tenant AS tenant_id ...) ...
-//     WHERE o.tenant_id = c.tenant_id`);
-//   - E4: a quoted name (`public."admin_sessions"`), invisible to `public.<name>`;
-//   - a block comment hiding the whole anchor clause at the end, an anchor inside parentheses with
-//     an OR, and an unqualified tenant table.
+//   - E2: the anchor inside a block comment;
+//   - E3: a CTE column as the "anchor";
+//   - E4: a quoted name (`public."admin_sessions"`);
+//   - an anchor inside parentheses with an OR, a spaced qualification, an unqualified tenant table,
+//     a subquery in FROM;
+//   - V1: a region an inner `IS DISTINCT FROM` used to cut before a later top-level OR;
+//   - V2: the same with `CASE ... THEN`;
+//   - V3: `o.tenant_id = v_tenant IS NOT TRUE` (an equality that is not the conjunct);
+//   - V4: the anchor variable written by `:=`, and written by a statement that names no tenant;
+//   - V5: the table behind a view (with a tenant_id column: a tenant relation unanchored; without
+//     one: a relation the belt does not know).
 func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 	ctx, tx := opTx(t)
 	findings, refs, err := identityBeltFindings(ctx, tx, identityTenantWideReads, identitySessionKeyLookups)
@@ -492,30 +665,49 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 		membership = "public.identity_memberships(text)"
 	)
 	switchRevoke := "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.tenant_id = v_tenant\n       AND o.revoked_at IS NULL;"
-	for _, c := range []struct{ name, fn, cut, put string }{
-		{"the revoke loop's tenant", revoke, "WHERE x.tenant_id = m.tenant_id\n               AND ", "WHERE "},
-		{"the switch's target tenant", switchFn, "WHERE b.tenant_id = p_target_tenant\n       AND ", "WHERE "},
-		{"M5: the membership list without its identity", membership, "WHERE a.identity_id = v_identity\n           AND ", "WHERE "},
-		{"M9: the revoke correlated to itself", revoke,
-			"WHERE x.tenant_id = m.tenant_id\n               AND x.admin_user_id = m.id\n",
-			"FROM public.admin_users AS a\n             WHERE a.id = x.admin_user_id\n               AND a.tenant_id = x.tenant_id\n"},
-		{"the session joined by half its key", membership,
-			"JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id\n     WHERE s.token_hash",
-			"JOIN public.admin_users AS a ON a.id = s.admin_user_id\n     WHERE s.token_hash"},
-		{"E1: a top-level OR", revoke, "AND (NOT p_keep_current OR x.id <> v_session)", "AND NOT p_keep_current OR x.id <> v_session"},
-		{"E2: the anchor in a block comment", switchFn, switchRevoke,
-			"    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE /* o.tenant_id = v_tenant */ o.id IS NOT NULL\n       AND o.id = v_session\n       AND o.revoked_at IS NULL;"},
-		{"E3: a CTE column as the anchor", switchFn, switchRevoke,
-			"    WITH c AS (SELECT i.last_used_tenant AS tenant_id FROM public.admin_identities AS i WHERE i.id = v_identity)\n" +
+	plainRevoke := "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE "
+	viewRevoke := "    UPDATE public.zz_belt_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.revoked_at IS NULL;"
+	type control struct {
+		name, fn, cut, put string
+		pre                []string
+	}
+	for _, c := range []control{
+		{name: "the revoke loop's tenant", fn: revoke, cut: "WHERE x.tenant_id = m.tenant_id\n               AND ", put: "WHERE "},
+		{name: "the switch's target tenant", fn: switchFn, cut: "WHERE b.tenant_id = p_target_tenant\n       AND ", put: "WHERE "},
+		{name: "M5: the membership list without its identity", fn: membership, cut: "WHERE a.identity_id = v_identity\n           AND ", put: "WHERE "},
+		{name: "M9: the revoke correlated to itself", fn: revoke,
+			cut: "WHERE x.tenant_id = m.tenant_id\n               AND x.admin_user_id = m.id\n",
+			put: "FROM public.admin_users AS a\n             WHERE a.id = x.admin_user_id\n               AND a.tenant_id = x.tenant_id\n"},
+		{name: "the session joined by half its key", fn: membership,
+			cut: "JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id\n     WHERE s.token_hash",
+			put: "JOIN public.admin_users AS a ON a.id = s.admin_user_id\n     WHERE s.token_hash"},
+		{name: "E1: a top-level OR", fn: revoke, cut: "AND (NOT p_keep_current OR x.id <> v_session)", put: "AND NOT p_keep_current OR x.id <> v_session"},
+		{name: "E2: the anchor in a block comment", fn: switchFn, cut: switchRevoke,
+			put: plainRevoke + "/* o.tenant_id = v_tenant */ o.id IS NOT NULL\n       AND o.id = v_session\n       AND o.revoked_at IS NULL;"},
+		{name: "E3: a CTE column as the anchor", fn: switchFn, cut: switchRevoke,
+			put: "    WITH c AS (SELECT i.last_used_tenant AS tenant_id FROM public.admin_identities AS i WHERE i.id = v_identity)\n" +
 				"    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n      FROM c\n     WHERE o.id = v_session\n       AND o.tenant_id = c.tenant_id\n       AND o.revoked_at IS NULL;"},
-		{"E4: a quoted table name", switchFn, switchRevoke,
-			"    UPDATE public.\"admin_sessions\" AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.revoked_at IS NULL;"},
-		{"the anchor inside parentheses with an OR", switchFn, "       AND o.tenant_id = v_tenant\n       AND o.revoked_at IS NULL;",
-			"       AND (o.tenant_id = v_tenant OR true)\n       AND o.revoked_at IS NULL;"},
-		{"a spaced qualification", switchFn, "    UPDATE public.admin_sessions AS o\n", "    UPDATE public . admin_sessions AS o\n"},
-		{"a tenant table without its schema", switchFn, "    UPDATE public.admin_sessions AS o\n", "    UPDATE admin_sessions AS o\n"},
-		{"a subquery in FROM", switchFn, switchRevoke,
-			"    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n      FROM (SELECT v_tenant AS tenant_id) AS c\n     WHERE o.id = v_session\n       AND o.tenant_id = c.tenant_id\n       AND o.revoked_at IS NULL;"},
+		{name: "E4: a quoted table name", fn: switchFn, cut: switchRevoke,
+			put: "    UPDATE public.\"admin_sessions\" AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.revoked_at IS NULL;"},
+		{name: "the anchor inside parentheses with an OR", fn: switchFn, cut: "       AND o.tenant_id = v_tenant\n       AND o.revoked_at IS NULL;",
+			put: "       AND (o.tenant_id = v_tenant OR true)\n       AND o.revoked_at IS NULL;"},
+		{name: "a spaced qualification", fn: switchFn, cut: "    UPDATE public.admin_sessions AS o\n", put: "    UPDATE public . admin_sessions AS o\n"},
+		{name: "a tenant table without its schema", fn: switchFn, cut: "    UPDATE public.admin_sessions AS o\n", put: "    UPDATE admin_sessions AS o\n"},
+		{name: "a subquery in FROM", fn: switchFn, cut: switchRevoke,
+			put: "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n      FROM (SELECT v_tenant AS tenant_id) AS c\n     WHERE o.id = v_session\n       AND o.tenant_id = c.tenant_id\n       AND o.revoked_at IS NULL;"},
+		{name: "V1: IS DISTINCT FROM before a top-level OR", fn: switchFn, cut: switchRevoke,
+			put: plainRevoke + "o.id IS DISTINCT FROM v_session AND o.tenant_id = v_tenant OR o.id = v_session;"},
+		{name: "V2: CASE before a top-level OR", fn: switchFn, cut: switchRevoke,
+			put: plainRevoke + "CASE WHEN o.id = v_session THEN true ELSE false END AND o.tenant_id = v_tenant OR true;"},
+		{name: "V3: an equality that is not the conjunct", fn: switchFn, cut: switchRevoke,
+			put: plainRevoke + "o.id = v_session\n       AND o.tenant_id = v_tenant IS NOT TRUE\n       AND o.revoked_at IS NULL;"},
+		{name: "V4: the anchor written by :=", fn: switchFn, cut: switchRevoke, put: "    v_tenant := v_target;\n" + switchRevoke},
+		{name: "V4: the anchor written by a statement that names no tenant", fn: switchFn, cut: switchRevoke,
+			put: "    SELECT b.tenant_id INTO v_tenant FROM public.admin_users AS b WHERE b.id = v_target;\n" + switchRevoke},
+		{name: "V5: a view with a tenant_id", fn: switchFn, cut: switchRevoke, put: viewRevoke,
+			pre: []string{`CREATE VIEW public.zz_belt_sessions AS SELECT * FROM public.admin_sessions`}},
+		{name: "V5: a view without one", fn: switchFn, cut: switchRevoke, put: viewRevoke,
+			pre: []string{`CREATE VIEW public.zz_belt_sessions AS SELECT id, revoked_at FROM public.admin_sessions`}},
 	} {
 		t.Run("control/"+c.name, func(t *testing.T) {
 			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
@@ -525,6 +717,9 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 				}
 				if !strings.Contains(def, c.cut) {
 					t.Fatalf("PREMISE: %s's body lacks %q", c.fn, c.cut)
+				}
+				for _, p := range c.pre {
+					aiExec(t, ctx, sp, p)
 				}
 				aiExec(t, ctx, sp, strings.Replace(def, c.cut, c.put, 1))
 				got, _, err := identityBeltFindings(ctx, sp, identityTenantWideReads, identitySessionKeyLookups)
