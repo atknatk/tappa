@@ -63,9 +63,45 @@ var identitySignaturesM1404 = []identitySignature{
 		"TABLE(revoked integer)", "tappa_identitydefiner"},
 }
 
+// identitySignaturesM1405 is M14-05's part (migration 00072), verbatim -- resolve_admin_by_email's
+// redefinition (T2, T5) included.
+var identitySignaturesM1405 = []identitySignature{
+	{"resolve_admin_by_email", "p_email citext", "TABLE(id uuid, tenant_id uuid, password_hash text, status text, identity_id uuid)", "tappa_resolver"},
+	{"resolve_identity_reset_by_token_hash", "p_token_hash text",
+		"TABLE(id uuid, identity_id uuid, expires_at timestamp with time zone, used_at timestamp with time zone, cancelled_at timestamp with time zone)", "tappa_resolver"},
+	{"resolve_identity_verification_by_token_hash", "p_token_hash text",
+		"TABLE(id uuid, identity_id uuid, expires_at timestamp with time zone, used_at timestamp with time zone)", "tappa_resolver"},
+	{"identity_password_for_session", "p_session_hash text", "TABLE(password_hash text)", "tappa_identitydefiner"},
+	{"identity_set_password", "p_session_hash text, p_new_hash text", "TABLE(revoked_other_sessions integer)", "tappa_identitydefiner"},
+	{"identity_consume_row_reset", "p_reset_hash text, p_new_hash text",
+		"TABLE(admin_user_id uuid, tenant_id uuid, reset_id uuid, revoked_sessions integer)", "tappa_identitydefiner"},
+	{"identity_consume_reset", "p_reset_hash text, p_new_hash text", "TABLE(identity_id uuid, revoked_sessions integer)", "tappa_identitydefiner"},
+	{"identity_link_legacy", "p_identity_session_hash text, p_legacy_session_hash text", "TABLE(admin_user_id uuid, tenant_id uuid)", "tappa_identitydefiner"},
+	{"identity_unlink_backfilled", "p_session_hash text, p_tenant uuid", "TABLE(admin_user_id uuid, revoked_sessions integer)", "tappa_identitydefiner"},
+	{"identity_relink_refused", "p_session_hash text, p_tenant uuid", "TABLE(admin_user_id uuid)", "tappa_identitydefiner"},
+	{"identity_request_verification", "p_session_hash text, p_token_hash text",
+		"TABLE(verification_id uuid, expires_at timestamp with time zone)", "tappa_identitydefiner"},
+	{"identity_verify_email", "p_verification_hash text, p_session_hash text", "TABLE(first_verification boolean)", "tappa_identitydefiner"},
+	{"identity_record_failed_login", "p_identity_id uuid, p_event text", "TABLE(recorded boolean)", "tappa_identitydefiner"},
+	{"identity_sweep_events", "", "TABLE(deleted bigint)", "tappa_identitydefiner"},
+	{"identity_open_reset", "p_identity_id uuid, p_token_hash text, p_expires_at timestamp with time zone",
+		"TABLE(reset_id uuid, expires_at timestamp with time zone, issued boolean)", "tappa_identitydefiner"},
+	{"identity_withdraw_reset", "p_token_hash text", "boolean", "tappa_identitydefiner"},
+}
+
 // identitySignatures is the union of every card's part: the whole closed list as far as it is built.
 // The functions tappa_identitydefiner owns are EXACTLY its tappa_identitydefiner rows.
-var identitySignatures = slices.Concat(identitySignaturesM1404)
+var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405)
+
+// identitySignatureNames lists the table's names (resolve_admin_by_email is a row though neither
+// identity_* nor the definer's -- M14-05's redefinition).
+func identitySignatureNames() []string {
+	names := make([]string, 0, len(identitySignatures))
+	for _, s := range identitySignatures {
+		names = append(names, s.name)
+	}
+	return names
+}
 
 // identityExecuteExceptions names the functions whose EXECUTE is NOT tappa_app's (ADR 0031 §5.2,
 // ONAY note 1): identity_reconcile() -- M14-06b's maintenance function, EXECUTE in tappa_owner
@@ -287,7 +323,8 @@ func TestIdentityFunctions_NoOperatorRoleMayExecuteThem(t *testing.T) {
 			  FROM pg_proc p CROSS JOIN unnest($1::text[] || ARRAY['tappa_app']) AS r(r)
 			 WHERE p.proowner = 'tappa_identitydefiner'::regrole
 			    OR p.proname LIKE 'identity\_%' OR p.proname LIKE 'resolve\_identity\_%'
-			 ORDER BY 1, 2`, identityRolesThatMayNotExecute)
+			    OR p.proname = ANY ($2)
+			 ORDER BY 1, 2`, identityRolesThatMayNotExecute, identitySignatureNames())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -365,8 +402,36 @@ var identityDefinerMatrixM1404 = map[string]string{
 	"audit_log:INSERT":        "tenant_id,actor_id,action,target,detail",
 }
 
+// identityDefinerMatrixM1405 is what 00072 grants tappa_identitydefiner (its cells shared with 00071
+// are unioned; 00072's Down revokes only what 00072 alone grants).
+var identityDefinerMatrixM1405 = map[string]string{
+	"admin_identities:SELECT":             "id,email,password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope",
+	"admin_identities:UPDATE":             "password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope",
+	"admin_identity_resets:SELECT":        "id,identity_id,token_hash,expires_at,used_at,cancelled_at",
+	"admin_identity_resets:INSERT":        "identity_id,token_hash,expires_at",
+	"admin_identity_resets:UPDATE":        "used_at,cancelled_at",
+	"admin_identity_verifications:SELECT": "id,identity_id,token_hash,expires_at,used_at",
+	"admin_identity_verifications:INSERT": "identity_id,token_hash,expires_at",
+	"admin_identity_verifications:UPDATE": "used_at",
+	"admin_identity_events:SELECT":        "created_at",
+	"admin_identity_events:INSERT":        "identity_id,event,detail",
+	"admin_users:SELECT":                  "id,tenant_id,email,status,identity_id,linked_via,linked_at,unlinked_at",
+	"admin_users:UPDATE":                  "password_hash,status,identity_id,linked_via,linked_at,unlinked_at",
+	"admin_sessions:SELECT":               "id,tenant_id,admin_user_id,token_hash,revoked_at,authenticated_at",
+	"admin_sessions:UPDATE":               "revoked_at",
+	"password_resets:SELECT":              "id,tenant_id,admin_user_id,token_hash,expires_at,used_at,cancelled_at",
+	"password_resets:UPDATE":              "used_at,cancelled_at",
+	"audit_log:INSERT":                    "tenant_id,actor_id,action,target,detail",
+}
+
+// identityDefinerTableVerbs are the table-level verbs the definer may hold, each with its one user:
+// ADR 0031 §5.1 / R17's sweep (identitybelt_test.go's identityPersonTableDeleters names the same).
+var identityDefinerTableVerbs = map[string]string{
+	"admin_identity_events:DELETE": "identity_sweep_events -- the event log's 90-day sweep (ADR 0031 §5.1, R17)",
+}
+
 // identityDefinerMatrixParts are the cards' matrices; identityDefinerMatrix is their union.
-var identityDefinerMatrixParts = []map[string]string{identityDefinerMatrixM1404}
+var identityDefinerMatrixParts = []map[string]string{identityDefinerMatrixM1404, identityDefinerMatrixM1405}
 
 // identityDefinerMatrix unions the parts, cell by cell, as sorted column sets.
 func identityDefinerMatrix() map[string]string {
@@ -421,8 +486,8 @@ func identityDefinerReachFindings(t *testing.T, ctx context.Context, q opQuerier
 			if err := q.QueryRow(ctx, `SELECT has_table_privilege('tappa_identitydefiner', 'public.' || quote_ident($1), $2)`, table, priv).Scan(&may); err != nil {
 				t.Fatal(err)
 			}
-			if may {
-				out = append(out, fmt.Sprintf("%s on %s", priv, table))
+			if _, named := identityDefinerTableVerbs[table+":"+priv]; may != named {
+				out = append(out, fmt.Sprintf("%s on %s: held=%v, identityDefinerTableVerbs names it=%v", priv, table, may, named))
 			}
 		}
 	}
@@ -502,13 +567,16 @@ func TestIdentityDefiner_ColumnMatrix(t *testing.T) {
 var identityResolverColumns = map[string]string{
 	"admin_identities:SELECT": "id,email,password_hash,email_verified_at",
 	"admin_users:SELECT":      "id,tenant_id,email,password_hash,status,created_at,identity_id,unlinked_at",
+	// M14-05 (00072): the two token resolvers' columns.
+	"admin_identity_resets:SELECT":        "id,identity_id,token_hash,expires_at,used_at,cancelled_at",
+	"admin_identity_verifications:SELECT": "id,identity_id,token_hash,expires_at,used_at",
 }
 
 // TestIdentityResolver_ReachOnTheIdentityColumns pins tappa_resolver's SELECT on admin_identities
 // and admin_users (00011/00017's six and 00071's two) and nothing written on either.
 func TestIdentityResolver_ReachOnTheIdentityColumns(t *testing.T) {
 	ctx, tx := opTx(t)
-	for _, table := range []string{"admin_identities", "admin_users"} {
+	for _, table := range []string{"admin_identities", "admin_users", "admin_identity_resets", "admin_identity_verifications"} {
 		for _, priv := range []string{"SELECT", "INSERT", "UPDATE"} {
 			if got, want := opColumns(t, ctx, tx, "tappa_resolver", table, priv), identityResolverColumns[table+":"+priv]; got != want {
 				t.Errorf("tappa_resolver %s on %s = (%s), want (%s)", priv, table, got, want)
@@ -518,6 +586,69 @@ func TestIdentityResolver_ReachOnTheIdentityColumns(t *testing.T) {
 }
 
 // ------------------------------------------------- every grant is used --
+
+// identityStep is one call of the exercise: an owner statement first (a world change), then the call
+// as tappa_app, which must answer at least one row.
+type identityStep struct {
+	name  string
+	owner string // run as the owner first (a world change between calls)
+	sql   string
+	args  []any
+}
+
+// identityExerciseM1405 builds M14-05's world (an identity of its own: rows linked in C and D, an
+// unlinked row of its address in E) and returns its calls, in an order where each answers a row:
+// the digest, the password, the e-mail verification, the identity reset link (issued, kept, read,
+// withdrawn, issued again, spent), the per-row link, unlink / relink / link, the failed login, the
+// sweep, and the unlink's post-contract form (a stand-in for contract B's CHECK) -- every 00072
+// column grant and the events DELETE on a path that runs. Sessions a freshness test reads are born
+// right before their call, at clock_timestamp() (the transaction's now() ages over a long test).
+func identityExerciseM1405(t *testing.T, ctx context.Context, sp pgx.Tx) []identityStep {
+	t.Helper()
+	c, d, e := idTenant(t, ctx, sp, "exercise C"), idTenant(t, ctx, sp, "exercise D"), idTenant(t, ctx, sp, "exercise E")
+	email := aiEmail()
+	ident := aiIdentity(t, ctx, sp, email)
+	pc, pd, pe := aiAdmin(t, ctx, sp, c, email), aiAdmin(t, ctx, sp, d, email), aiAdmin(t, ctx, sp, e, email)
+	aiExec(t, ctx, sp, `UPDATE admin_users SET identity_id = $2, linked_via = 'backfill', linked_at = now() - interval '2 days',
+	                           password_hash = (SELECT password_hash FROM admin_identities WHERE id = $2) WHERE id = $1`, pc, ident)
+	aiExec(t, ctx, sp, `UPDATE admin_users SET identity_id = $2, linked_via = 'password', linked_at = now() - interval '2 days',
+	                           password_hash = (SELECT password_hash FROM admin_identities WHERE id = $2) WHERE id = $1`, pd, ident)
+	sc := idSession(t, ctx, sp, c, pc, nil)
+	hV, hR, hR2, hR3, link, sFresh, sLegacy := opRandHex(t), opRandHex(t), opRandHex(t), opRandHex(t), opRandHex(t), opRandHex(t), opRandHex(t)
+	var moment string
+	if err := sp.QueryRow(ctx, `SELECT now()::text`).Scan(&moment); err != nil {
+		t.Fatal(err)
+	}
+	session := func(tenant, admin uuid.UUID, hash string) string {
+		return `INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash, authenticated_at) VALUES ('` + tenant.String() + `', '` + admin.String() + `', '` + hash + `', clock_timestamp())`
+	}
+	return []identityStep{
+		{name: "M14-05 password for session", sql: `SELECT * FROM identity_password_for_session($1)`, args: []any{sc}},
+		{name: "M14-05 set password", sql: `SELECT * FROM identity_set_password($1, $2)`, args: []any{sc, opFakeDigest("g")}},
+		{name: "M14-05 request verification", sql: `SELECT * FROM identity_request_verification($1, $2)`, args: []any{sc, hV}},
+		{name: "M14-05 resolve verification", sql: `SELECT * FROM resolve_identity_verification_by_token_hash($1)`, args: []any{hV}},
+		{name: "M14-05 verify e-mail", sql: `SELECT * FROM identity_verify_email($1, $2)`, args: []any{hV, sc}},
+		{name: "M14-05 open reset", sql: `SELECT * FROM identity_open_reset($1, $2, now() + interval '1 hour')`, args: []any{ident, hR}},
+		{name: "M14-05 open reset, live", sql: `SELECT * FROM identity_open_reset($1, $2, now() + interval '1 hour')`, args: []any{ident, hR2}},
+		{name: "M14-05 resolve reset", sql: `SELECT * FROM resolve_identity_reset_by_token_hash($1)`, args: []any{hR}},
+		{name: "M14-05 withdraw reset", sql: `SELECT identity_withdraw_reset($1)`, args: []any{hR}},
+		{name: "M14-05 open reset again", sql: `SELECT * FROM identity_open_reset($1, $2, now() + interval '1 hour')`, args: []any{ident, hR3}},
+		{name: "M14-05 consume reset", sql: `SELECT * FROM identity_consume_reset($1, $2)`, args: []any{hR3, opFakeDigest("h")}},
+		{name: "M14-05 consume row reset",
+			owner: `INSERT INTO password_resets (tenant_id, admin_user_id, token_hash, expires_at) VALUES ('` + d.String() + `', '` + pd.String() + `', '` + link + `', now() + interval '1 hour')`,
+			sql:   `SELECT * FROM identity_consume_row_reset($1, $2)`, args: []any{link, opFakeDigest("i")}},
+		{name: "M14-05 unlink", owner: session(c, pc, sFresh), sql: `SELECT * FROM identity_unlink_backfilled($1, $2)`, args: []any{sFresh, d}},
+		{name: "M14-05 relink", sql: `SELECT * FROM identity_relink_refused($1, $2)`, args: []any{sFresh, d}},
+		{name: "M14-05 link legacy", owner: session(e, pe, sLegacy), sql: `SELECT * FROM identity_link_legacy($1, $2)`, args: []any{sFresh, sLegacy}},
+		{name: "M14-05 failed login", sql: `SELECT * FROM identity_record_failed_login($1, 'login_failed')`, args: []any{ident}},
+		{name: "M14-05 sweep",
+			owner: fmt.Sprintf(`INSERT INTO admin_identity_events (identity_id, event, created_at) VALUES ('%s', 'login_failed', now() - interval '91 days')`, ident),
+			sql:   `SELECT * FROM identity_sweep_events()`},
+		{name: "M14-05 unlink after contract B",
+			owner: `ALTER TABLE admin_users ADD CONSTRAINT zz_m14_05_contract_b CHECK (identity_id IS NOT NULL OR created_at < '` + moment + `'::timestamptz) NOT VALID`,
+			sql:   `SELECT * FROM identity_unlink_backfilled($1, $2)`, args: []any{sFresh, d}},
+	}
+}
 
 // identityExercise runs every function of the list through every branch that reads a column, as
 // tappa_app, on a world it builds in sp (as the owner). It returns the first error. With the full
@@ -534,12 +665,7 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx) error {
 	plainHash := idSession(t, ctx, sp, a, plain, nil)
 	h1, h2, h3, h4 := opRandHex(t), opRandHex(t), opRandHex(t), opRandHex(t)
 
-	steps := []struct {
-		name  string
-		owner string // run as the owner first (a world change between calls)
-		sql   string
-		args  []any
-	}{
+	steps := []identityStep{
 		{name: "resolve", sql: resolveIdentityByEmailSQL, args: []any{email}},
 		{name: "open, requested", sql: openIdentitySessionSQL, args: []any{ident, a, h1, opFakeDigest("a")}},
 		{name: "open, last used", sql: openIdentitySessionSQL, args: []any{ident, nil, h2, opFakeDigest("a")}},
@@ -550,6 +676,7 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx) error {
 		{name: "switch", sql: switchIdentitySessionSQL, args: []any{h1, b, h4}},
 		{name: "revoke", sql: revokeIdentitySessionsSQL, args: []any{h4, false}},
 	}
+	steps = append(steps, identityExerciseM1405(t, ctx, sp)...)
 	for _, s := range steps {
 		if s.owner != "" {
 			aiExec(t, ctx, sp, s.owner)
@@ -602,8 +729,10 @@ func TestIdentityDefiner_EveryGrantIsUsed(t *testing.T) {
 	for _, c := range []string{"identity_id", "unlinked_at"} {
 		grants = append(grants, grant{"tappa_resolver", "admin_users", "SELECT", c})
 	}
-	for _, c := range strings.Split(identityResolverColumns["admin_identities:SELECT"], ",") {
-		grants = append(grants, grant{"tappa_resolver", "admin_identities", "SELECT", c})
+	for _, table := range []string{"admin_identities", "admin_identity_resets", "admin_identity_verifications"} {
+		for _, c := range strings.Split(identityResolverColumns[table+":SELECT"], ",") {
+			grants = append(grants, grant{"tappa_resolver", table, "SELECT", c})
+		}
 	}
 	slices.SortFunc(grants, func(x, y grant) int {
 		return strings.Compare(x.role+x.table+x.verb+x.col, y.role+y.table+y.verb+y.col)
@@ -730,13 +859,27 @@ func TestStoreQueries_IdentityColumnsStayOutOfTheApplication(t *testing.T) {
 // identityAt00070 takes the test's transaction back to 00070 by running 00071's Down in it (rolled
 // back with the test): M14-03's tests pin the catalogue as 00069/00070 left it. 00071's Down is
 // GRANT / REVOKE / DROP FUNCTION alone -- no table lock (downTables finds none).
+//
+// M14-05: every migration above 00070, newest first (00072's Down before 00071's), the tables their
+// Downs lock taken first in one statement (lockForDowns); 00071's own Down still locks nothing.
 func identityAt00070(t *testing.T, ctx context.Context, tx pgx.Tx) {
 	t.Helper()
 	_, down := opMigrationSections(t, identity00071File)
 	if tables := downTables(down); len(tables) > 0 {
 		t.Fatalf("PREMISE: 00071's Down locks %v", tables)
 	}
-	opRunSection(t, ctx, tx, down, "00071 Down")
+	later := aiLaterMigrations(t)
+	var tables []string
+	for _, f := range later {
+		tables = append(tables, downTables(f.down)...)
+	}
+	if len(tables) > 0 {
+		slices.Sort(tables)
+		lockForDowns(t, ctx, tx, slices.Compact(tables))
+	}
+	for i := len(later) - 1; i >= 0; i-- {
+		opRunSection(t, ctx, tx, later[i].down, later[i].name+" Down")
+	}
 }
 
 const identity00071File = "00071_resolve_identities_and_switch_sessions.sql"

@@ -209,116 +209,14 @@ func ipNewPerson(t *testing.T, ctx context.Context, q pgx.Tx) ipPerson {
 
 // ---------------------------------------------------------- the catalogue --
 
-// ipFunctions is this card's part of ADR 0031 §5.2's signature catalogue: identity arguments,
-// result, owner, volatility. Every one is SECURITY DEFINER, search_path pinned, EXECUTE to
-// tappa_app and nobody else but its owner.
-var ipFunctions = []struct{ name, args, result, owner, volatile string }{
-	{"resolve_admin_by_email", "p_email citext", "TABLE(id uuid, tenant_id uuid, password_hash text, status text, identity_id uuid)", "tappa_resolver", "s"},
-	{"resolve_identity_reset_by_token_hash", "p_token_hash text", "TABLE(id uuid, identity_id uuid, expires_at timestamp with time zone, used_at timestamp with time zone, cancelled_at timestamp with time zone)", "tappa_resolver", "s"},
-	{"resolve_identity_verification_by_token_hash", "p_token_hash text", "TABLE(id uuid, identity_id uuid, expires_at timestamp with time zone, used_at timestamp with time zone)", "tappa_resolver", "s"},
-	{"identity_password_for_session", "p_session_hash text", "TABLE(password_hash text)", "tappa_identitydefiner", "s"},
-	{"identity_set_password", "p_session_hash text, p_new_hash text", "TABLE(revoked_other_sessions integer)", "tappa_identitydefiner", "v"},
-	{"identity_consume_row_reset", "p_reset_hash text, p_new_hash text", "TABLE(admin_user_id uuid, tenant_id uuid, reset_id uuid, revoked_sessions integer)", "tappa_identitydefiner", "v"},
-	{"identity_consume_reset", "p_reset_hash text, p_new_hash text", "TABLE(identity_id uuid, revoked_sessions integer)", "tappa_identitydefiner", "v"},
-	{"identity_link_legacy", "p_identity_session_hash text, p_legacy_session_hash text", "TABLE(admin_user_id uuid, tenant_id uuid)", "tappa_identitydefiner", "v"},
-	{"identity_unlink_backfilled", "p_session_hash text, p_tenant uuid", "TABLE(admin_user_id uuid, revoked_sessions integer)", "tappa_identitydefiner", "v"},
-	{"identity_relink_refused", "p_session_hash text, p_tenant uuid", "TABLE(admin_user_id uuid)", "tappa_identitydefiner", "v"},
-	{"identity_request_verification", "p_session_hash text, p_token_hash text", "TABLE(verification_id uuid, expires_at timestamp with time zone)", "tappa_identitydefiner", "v"},
-	{"identity_verify_email", "p_verification_hash text, p_session_hash text", "TABLE(first_verification boolean)", "tappa_identitydefiner", "v"},
-	{"identity_record_failed_login", "p_identity_id uuid, p_event text", "TABLE(recorded boolean)", "tappa_identitydefiner", "v"},
-	{"identity_sweep_events", "", "TABLE(deleted bigint)", "tappa_identitydefiner", "v"},
-	{"identity_open_reset", "p_identity_id uuid, p_token_hash text, p_expires_at timestamp with time zone", "TABLE(reset_id uuid, expires_at timestamp with time zone, issued boolean)", "tappa_identitydefiner", "v"},
-	{"identity_withdraw_reset", "p_token_hash text", "boolean", "tappa_identitydefiner", "v"},
-}
-
-// ipMatrix is this card's part of ADR 0031 §5.2's verb x column matrix (and T6's resolver grants):
-// tappa_identitydefiner's and tappa_resolver's EXACT columns at 00072 (attnum order). M14-04's
-// columns join these cells when the lanes meet.
-var ipMatrix = []struct{ role, table, priv, want string }{
-	{"tappa_identitydefiner", "admin_identities", "SELECT", "id,email,password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope"},
-	{"tappa_identitydefiner", "admin_identities", "INSERT", ""},
-	{"tappa_identitydefiner", "admin_identities", "UPDATE", "password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope"},
-	{"tappa_identitydefiner", "admin_identity_resets", "SELECT", "id,identity_id,token_hash,expires_at,used_at,cancelled_at"},
-	{"tappa_identitydefiner", "admin_identity_resets", "INSERT", "identity_id,token_hash,expires_at"},
-	{"tappa_identitydefiner", "admin_identity_resets", "UPDATE", "used_at,cancelled_at"},
-	{"tappa_identitydefiner", "admin_identity_verifications", "SELECT", "id,identity_id,token_hash,expires_at,used_at"},
-	{"tappa_identitydefiner", "admin_identity_verifications", "INSERT", "identity_id,token_hash,expires_at"},
-	{"tappa_identitydefiner", "admin_identity_verifications", "UPDATE", "used_at"},
-	{"tappa_identitydefiner", "admin_identity_events", "SELECT", "created_at"},
-	{"tappa_identitydefiner", "admin_identity_events", "INSERT", "identity_id,event,detail"},
-	{"tappa_identitydefiner", "admin_identity_events", "UPDATE", ""},
-	{"tappa_identitydefiner", "admin_users", "SELECT", "id,tenant_id,email,status,identity_id,linked_via,linked_at,unlinked_at"},
-	{"tappa_identitydefiner", "admin_users", "INSERT", ""},
-	{"tappa_identitydefiner", "admin_users", "UPDATE", "password_hash,status,identity_id,linked_via,linked_at,unlinked_at"},
-	{"tappa_identitydefiner", "admin_sessions", "SELECT", "id,tenant_id,admin_user_id,token_hash,revoked_at,authenticated_at"},
-	{"tappa_identitydefiner", "admin_sessions", "INSERT", ""},
-	{"tappa_identitydefiner", "admin_sessions", "UPDATE", "revoked_at"},
-	{"tappa_identitydefiner", "password_resets", "SELECT", "id,tenant_id,admin_user_id,token_hash,expires_at,used_at,cancelled_at"},
-	{"tappa_identitydefiner", "password_resets", "UPDATE", "used_at,cancelled_at"},
-	{"tappa_identitydefiner", "audit_log", "INSERT", "tenant_id,actor_id,action,target,detail"},
-	{"tappa_identitydefiner", "tenants", "SELECT", ""},
-	{"tappa_resolver", "admin_users", "SELECT", "id,tenant_id,email,password_hash,status,created_at,identity_id,unlinked_at"},
-	{"tappa_resolver", "admin_identity_resets", "SELECT", "id,identity_id,token_hash,expires_at,used_at,cancelled_at"},
-	{"tappa_resolver", "admin_identity_verifications", "SELECT", "id,identity_id,token_hash,expires_at,used_at"},
-}
-
-// TestIdentity00072_TheFunctionsAndTheMatrixAreTheADRs pins the signatures (T5: the redefined
-// resolve_admin_by_email included -- prosecdef, proconfig, its owner and tappa_app's EXECUTE after
-// the DROP + CREATE), the definer's and the resolver's columns, the table-level verbs (DELETE on the
-// event log alone), that tappa_operator / tappa_opdefiner reach no function and no table here, and
-// the three tables' shape (no tenant_id, ENABLE + FORCE, no policy, no sequence, nothing for
-// tappa_app).
-func TestIdentity00072_TheFunctionsAndTheMatrixAreTheADRs(t *testing.T) {
+// TestIdentity00072_TheThreeTablesAreScopeLessAndWaived pins 00072's three tables (ADR 0031 §5.1,
+// CLAUDE.md §6): ENABLE + FORCE, no policy, no column called tenant_id, no sequence, nothing for
+// tappa_app / the operator's two / the other definers, and the three R5 waivers. The signatures, the
+// definer's matrix (DELETE on the event log alone) and the resolver's columns are
+// identitycatalog_test.go's (identitySignaturesM1405, identityDefinerMatrixM1405,
+// identityDefinerTableVerbs, identityResolverColumns).
+func TestIdentity00072_TheThreeTablesAreScopeLessAndWaived(t *testing.T) {
 	ctx, tx := opTx(t)
-	for _, f := range ipFunctions {
-		var (
-			n                                     int
-			args, result, owner, config, vol, exe string
-			definer                               bool
-		)
-		if err := tx.QueryRow(ctx, `
-			SELECT count(*) OVER (), pg_get_function_identity_arguments(p.oid), pg_get_function_result(p.oid),
-			       pg_get_userbyid(p.proowner), p.prosecdef, coalesce(array_to_string(p.proconfig, ';'), ''), p.provolatile::text,
-			       coalesce((SELECT string_agg(CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END, ','
-			                                   ORDER BY CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END)
-			                   FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a WHERE a.privilege_type = 'EXECUTE'), '')
-			  FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname = $1`, f.name).
-			Scan(&n, &args, &result, &owner, &definer, &config, &vol, &exe); err != nil {
-			t.Errorf("%s: %v", f.name, err)
-			continue
-		}
-		wantExe := "tappa_app," + f.owner
-		if n != 1 || args != f.args || result != f.result || owner != f.owner || !definer ||
-			config != "search_path=pg_catalog, pg_temp" || vol != f.volatile || exe != wantExe {
-			t.Errorf("%s: overloads=%d args=%q result=%q owner=%s definer=%v config=%q volatile=%s execute=%q;\n want 1, %q, %q, %s, true, the pinned search_path, %s, %q",
-				f.name, n, args, result, owner, definer, config, vol, exe, f.args, f.result, f.owner, f.volatile, wantExe)
-		}
-		for _, role := range []string{"public", "tappa_operator", "tappa_opdefiner", "tappa_holdingdefiner", "tappa_feedwriter"} {
-			if opInt(t, ctx, tx, `SELECT has_function_privilege($1, p.oid, 'EXECUTE')::int FROM pg_proc p
-			                       WHERE p.pronamespace = 'public'::regnamespace AND p.proname = $2`, role, f.name) != 0 {
-				t.Errorf("%s may EXECUTE %s (ADR 0031 §5.2: tappa_app alone)", role, f.name)
-			}
-		}
-	}
-	for _, c := range ipMatrix {
-		if got := opColumns(t, ctx, tx, c.role, c.table, c.priv); got != c.want {
-			t.Errorf("%s %s on %s = %q, want %q (ADR 0031 §5.2 matrix, this card's cells)", c.role, c.priv, c.table, got, c.want)
-		}
-	}
-	for _, table := range []string{"admin_identities", "admin_identity_resets", "admin_identity_verifications", "admin_identity_events",
-		"admin_users", "admin_sessions", "password_resets", "audit_log"} {
-		for _, verb := range []string{"DELETE", "TRUNCATE", "TRIGGER", "REFERENCES"} {
-			want := table == "admin_identity_events" && verb == "DELETE"
-			if got := opInt(t, ctx, tx, `SELECT has_table_privilege('tappa_identitydefiner', ('public.' || $1)::regclass, $2)::int`, table, verb) == 1; got != want {
-				t.Errorf("tappa_identitydefiner %s on %s = %v, want %v", verb, table, got, want)
-			}
-		}
-	}
-	if opInt(t, ctx, tx, `SELECT (has_column_privilege('tappa_identitydefiner', 'public.admin_users', 'email', 'UPDATE')
-	                          OR has_column_privilege('tappa_identitydefiner', 'public.admin_identities', 'email', 'UPDATE'))::int`) != 0 {
-		t.Error("the identity definer may UPDATE an e-mail (K-15 keeps it out of M14)")
-	}
-
 	for _, table := range []string{"admin_identity_resets", "admin_identity_verifications", "admin_identity_events"} {
 		var enabled, forced bool
 		if err := tx.QueryRow(ctx, `SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid = ('public.' || $1)::regclass`, table).Scan(&enabled, &forced); err != nil {
@@ -401,217 +299,8 @@ func TestRLS_IdentityTables_TheApplicationReadsAndWritesNothing(t *testing.T) {
 	}
 }
 
-// THE BELT SCANNER (00072's header; M14-05's security audit, DÜŞÜK-3). Fail closed, reference by
-// reference: comments are stripped except the two exact markers, string literals are emptied, a
-// quoted identifier is a finding, and every `public.<tenant table>` reference is judged on its OWN
-// alias:
-//   - a write (UPDATE / DELETE) needs `<alias>.tenant_id = <bound>`; an INSERT into audit_log needs
-//     its tenant_id VALUE from a bound name; a write never carries a marker;
-//   - a read needs `<alias>.tenant_id = <bound>`, or its own secret key `<alias>.token_hash = p_x /*
-//     secret-scope */`, or its own identity key `<alias>.identity_id = v_identity /* identity-scope
-//     */`, or a join `<alias>.tenant_id = <other>.tenant_id` to a reference that is anchored itself;
-//   - <bound> is a v_ / p_ name or `<r>.tenant_id` of a record declared by `FOR <r> IN`;
-//   - an anchoring predicate counts only where no OR sits beside it in its parenthesis group.
-//
-// The e-mail rule: no `<alias>.email` compared with a v_ / p_ name, either way round, except the
-// ADR's one predicate (identity_relink_refused: the refused row has the identity's address -- T4).
-var (
-	ipLineComment  = regexp.MustCompile(`--[^\n]*`)
-	ipBlockComment = regexp.MustCompile(`(?s)/\*.*?\*/`)
-	ipStringLit    = regexp.MustCompile(`'(?:[^']|'')*'`)
-	ipChunkSplit   = regexp.MustCompile(`(?i);|\bloop\b|\bthen\b|\belse\b`)
-	ipTableRef     = regexp.MustCompile(`(?i)(?:\b(delete\s+from|update|insert\s+into|from|join)\s+|[,(]\s*|)public\.(admin_users|admin_sessions|password_resets|audit_log|tenants)\b(?:\s+(?:as\s+)?([a-z_][a-z0-9_]*))?`)
-	ipForRecord    = regexp.MustCompile(`(?i)\bfor\s+([a-z_][a-z0-9_]*)\s+in\b`)
-	ipEmailCmp     = regexp.MustCompile(`(?i)\b[a-z_][a-z0-9_]*\.email\s*(?:=|operator\s*\(\s*public\.=\s*\))\s*[pv]_\w+|\b[pv]_\w+\s*(?:=|operator\s*\(\s*public\.=\s*\))\s*[a-z_][a-z0-9_]*\.email\b`)
-	ipAliasStop    = map[string]bool{"where": true, "set": true, "on": true, "values": true, "join": true, "using": true, "for": true, "returning": true, "select": true, "order": true, "limit": true}
-)
-
-// ipEmailAllowed is the e-mail comparison the ADR names (T4), by function.
-var ipEmailAllowed = map[string]string{"identity_relink_refused": "a.email operator(public.=) v_email"}
-
-// ipOrFree reports whether the text at pos sits in a parenthesis group with no OR at its own depth.
-func ipOrFree(text string, pos int) bool {
-	lower := strings.ToLower(text)
-	start, depth := 0, 0
-	for i := pos - 1; i >= 0 && start == 0; i-- {
-		switch lower[i] {
-		case ')':
-			depth++
-		case '(':
-			if depth == 0 {
-				start = i + 1
-			} else {
-				depth--
-			}
-		}
-	}
-	depth = 0
-	for i := start; i < len(lower); i++ {
-		switch lower[i] {
-		case '(':
-			depth++
-		case ')':
-			if depth == 0 {
-				return true
-			}
-			depth--
-		default:
-			if depth == 0 && strings.HasPrefix(lower[i:], "or") &&
-				(i == 0 || !isWordByte(lower[i-1])) && (i+2 == len(lower) || !isWordByte(lower[i+2])) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func isWordByte(b byte) bool { return b == '_' || b >= 'a' && b <= 'z' || b >= '0' && b <= '9' }
-
-// ipHas reports an OR-free match of pattern in chunk.
-func ipHas(chunk, pattern string) bool {
-	re := regexp.MustCompile(`(?i)` + pattern)
-	for _, loc := range re.FindAllStringIndex(chunk, -1) {
-		if ipOrFree(chunk, loc[0]) {
-			return true
-		}
-	}
-	return false
-}
-
-// ipBeltFindings returns every reference of one body (prosrc of function fn) that breaks the belt.
-func ipBeltFindings(fn, body string) []string {
-	var out []string
-	body = ipLineComment.ReplaceAllString(body, "")
-	body = strings.NewReplacer("/* secret-scope */", " __secret_scope__ ", "/* identity-scope */", " __identity_scope__ ").Replace(body)
-	body = ipBlockComment.ReplaceAllString(body, " ")
-	body = ipStringLit.ReplaceAllString(body, "''")
-	if strings.Contains(body, `"`) {
-		out = append(out, "a quoted identifier (the scanner does not read them)")
-	}
-	allowed := ipEmailAllowed[fn]
-	for _, m := range ipEmailCmp.FindAllString(body, -1) {
-		if strings.ToLower(strings.Join(strings.Fields(m), " ")) != allowed {
-			out = append(out, "an e-mail compared with a name: "+m)
-		}
-	}
-	bound := `(?:v_\w+|p_\w+`
-	for _, m := range ipForRecord.FindAllStringSubmatch(body, -1) {
-		bound += `|` + regexp.QuoteMeta(m[1]) + `\.tenant_id`
-	}
-	bound += `)\b`
-	for _, chunk := range ipChunkSplit.Split(body, -1) {
-		refs := ipTableRef.FindAllStringSubmatch(chunk, -1)
-		if len(refs) == 0 {
-			continue
-		}
-		flat := strings.Join(strings.Fields(chunk), " ")
-		anchored := map[string]bool{}
-		var reads []string
-		for _, r := range refs {
-			verb, table, alias := strings.ToLower(strings.Join(strings.Fields(r[1]), " ")), strings.ToLower(r[2]), strings.ToLower(r[3])
-			if alias == "" || ipAliasStop[alias] {
-				alias = table
-			}
-			q := regexp.QuoteMeta(alias)
-			switch verb {
-			case "insert into":
-				if table != "audit_log" || !regexp.MustCompile(`(?is)insert\s+into\s+public\.audit_log\s*\(\s*tenant_id\b[^)]*\)\s*values\s*\(\s*`+bound).MatchString(chunk) {
-					out = append(out, "an insert whose tenant is not a bound name: "+flat)
-				}
-			case "update", "delete from":
-				if strings.Contains(chunk, "__secret_scope__") || strings.Contains(chunk, "__identity_scope__") {
-					out = append(out, "a scope marker in a write: "+flat)
-				}
-				if !ipHas(chunk, `\b`+q+`\.tenant_id\s*=\s*`+bound) {
-					out = append(out, "a write without its own tenant: "+flat)
-				}
-			default:
-				if ipHas(chunk, `\b`+q+`\.tenant_id\s*=\s*`+bound) ||
-					ipHas(chunk, `\b`+q+`\.token_hash\s*=\s*p_\w+\s*__secret_scope__`) ||
-					ipHas(chunk, `\b`+q+`\.identity_id\s*=\s*v_identity\s*__identity_scope__`) {
-					anchored[alias] = true
-				} else {
-					reads = append(reads, alias)
-				}
-			}
-		}
-		for changed := true; changed; {
-			changed = false
-			for _, alias := range reads {
-				if anchored[alias] {
-					continue
-				}
-				q := regexp.QuoteMeta(alias)
-				for other := range anchored {
-					o := regexp.QuoteMeta(other)
-					if ipHas(chunk, `\b`+q+`\.tenant_id\s*=\s*`+o+`\.tenant_id\b`) || ipHas(chunk, `\b`+o+`\.tenant_id\s*=\s*`+q+`\.tenant_id\b`) {
-						anchored[alias], changed = true, true
-						break
-					}
-				}
-			}
-		}
-		for _, alias := range reads {
-			if !anchored[alias] {
-				out = append(out, "a read of "+alias+" with neither its tenant, its own marked key nor a join to an anchored one: "+flat)
-			}
-		}
-	}
-	return out
-}
-
-// TestIdentity00072_EveryTenantStatementCarriesItsTenant is the card's text scan (ADR 0031 §5.2,
-// §6): the bodies of this card's identity_* writers, read from pg_proc, keep 00072's belt reference
-// by reference and never compare an e-mail with a name but the ADR's one. The controls show the scan
-// sees each way of breaking it, and passes the clean shapes.
-func TestIdentity00072_EveryTenantStatementCarriesItsTenant(t *testing.T) {
-	ctx, tx := opTx(t)
-	checked := 0
-	for _, f := range ipFunctions {
-		if f.owner != "tappa_identitydefiner" {
-			continue
-		}
-		var body string
-		if err := tx.QueryRow(ctx, `SELECT prosrc FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = $1`, f.name).Scan(&body); err != nil {
-			t.Fatalf("%s: %v", f.name, err)
-		}
-		for _, finding := range ipBeltFindings(f.name, body) {
-			t.Errorf("%s: %s", f.name, finding)
-		}
-		checked++
-	}
-	if checked != 13 {
-		t.Fatalf("anti-vacuity: scanned %d bodies, want 13", checked)
-	}
-	for _, c := range []struct{ what, body string }{
-		{"a write with no tenant", "UPDATE public.admin_users a SET password_hash = p_new_hash WHERE a.id = m.id;"},
-		{"a join is not a bound tenant", "UPDATE public.admin_sessions s SET revoked_at = now() FROM public.admin_users a WHERE s.tenant_id = a.tenant_id;"},
-		{"a marker in a write", "UPDATE public.admin_users a SET x = 1 WHERE a.token_hash = p_h /* secret-scope */ AND a.tenant_id = v_tenant;"},
-		{"an unmarked read", "SELECT a.id FROM public.admin_users a WHERE a.identity_id = v_identity;"},
-		{"a marker that is another reference's", "SELECT 1 FROM public.admin_sessions s, public.admin_users a WHERE s.token_hash = p_h /* secret-scope */ AND a.id = s.admin_user_id;"},
-		{"an anchor beside an OR", "SELECT 1 FROM public.admin_users a WHERE a.tenant_id = v_t OR a.id = v_x;"},
-		{"a write inside a CTE", "WITH w AS (UPDATE public.admin_users a SET status = 'x' WHERE a.id = v_x RETURNING 1) SELECT count(*) FROM w;"},
-		{"a loop record that is not declared", "UPDATE public.admin_users a SET status = 'x' WHERE a.id = q.id AND a.tenant_id = q.tenant_id;"},
-		{"an audit row from a column", "INSERT INTO public.audit_log (tenant_id, action) SELECT a.tenant_id, 'x' FROM public.admin_users a WHERE a.tenant_id = v_t;"},
-		{"a quoted identifier", `SELECT 1 FROM public."admin_users" a WHERE a.tenant_id = v_t;`},
-		{"an e-mail key by parameter", "SELECT i.id FROM public.admin_identities i WHERE i.email OPERATOR(public.=) p_email;"},
-		{"an e-mail key by variable", "SELECT i.id FROM public.admin_identities i WHERE v_email = i.email;"},
-	} {
-		if len(ipBeltFindings("control", c.body)) == 0 {
-			t.Errorf("control %q: the scan found nothing", c.what)
-		}
-	}
-	// And the controls' clean twins pass (the scanner is not simply red).
-	for _, body := range []string{
-		"SELECT 1 FROM public.admin_sessions s JOIN public.admin_users a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id WHERE s.token_hash = p_h /* secret-scope */;",
-		"FOR m IN SELECT a.id FROM public.admin_users a WHERE a.identity_id = v_identity /* identity-scope */ LOOP UPDATE public.admin_users a SET x = 1 WHERE a.id = m.id AND a.tenant_id = m.tenant_id; END LOOP;",
-		"INSERT INTO public.audit_log (tenant_id, action) VALUES (v_t, 'x');",
-	} {
-		if f := ipBeltFindings("control", body); len(f) != 0 {
-			t.Errorf("clean control flagged: %v", f)
-		}
-	}
-}
+// ipLineComment drops `--` comments from a body before the lock-order scan.
+var ipLineComment = regexp.MustCompile(`--[^\n]*`)
 
 // --------------------------------------------------- resolve_admin_by_email --
 
@@ -2111,16 +1800,19 @@ func ipLockFindings(body string) []string {
 // control: 00072's old token-first consumption is a finding.
 func TestIdentity00072_EveryWriterLocksIdentityMembershipsThenTokens(t *testing.T) {
 	ctx, tx := opTx(t)
-	recheck := map[string][]string{
-		"identity_set_password":      {`(?s)PERFORM 1\s+FROM public\.admin_sessions s.*?WHERE s\.id = v_session AND s\.tenant_id = v_tenant.*?FOR UPDATE OF s;`},
-		"identity_link_legacy":       {`(?s)PERFORM 1\s+FROM public\.admin_sessions s.*?WHERE s\.id = v_id_session AND s\.tenant_id = v_id_tenant.*?FOR UPDATE OF s;`, `(?s)PERFORM 1 FROM public\.admin_sessions s\s+WHERE s\.id = v_legacy_session AND s\.tenant_id = v_legacy_tenant.*?FOR UPDATE;`},
-		"identity_unlink_backfilled": {`(?s)PERFORM 1\s+FROM public\.admin_sessions s.*?WHERE s\.id = v_session AND s\.tenant_id = v_tenant.*?FOR UPDATE OF s;`},
-		"identity_relink_refused":    {`(?s)PERFORM 1\s+FROM public\.admin_sessions s.*?WHERE s\.id = v_session AND s\.tenant_id = v_tenant.*?FOR UPDATE OF s;`},
-		"identity_verify_email":      {`(?s)PERFORM 1\s+FROM public\.admin_sessions s.*?WHERE s\.id = v_session AND s\.tenant_id = v_tenant.*?FOR UPDATE OF s;`, `(?s)PERFORM 1 FROM public\.admin_identity_verifications v\s+WHERE v\.id = v_verification AND v\.used_at IS NULL.*?FOR UPDATE;`},
-		"identity_consume_row_reset": {`(?s)PERFORM 1\s+FROM public\.password_resets r.*?WHERE r\.id = v_reset AND r\.tenant_id = v_tenant\s+AND r\.used_at IS NULL\s+AND r\.cancelled_at IS NULL.*?FOR UPDATE OF r;`},
-		"identity_consume_reset":     {`(?s)PERFORM 1 FROM public\.admin_identity_resets r\s+WHERE r\.id = v_reset AND r\.identity_id = v_identity\s+AND r\.used_at IS NULL AND r\.cancelled_at IS NULL.*?FOR UPDATE;`},
+	sess := func(id, tenant string) string {
+		return `(?s)PERFORM 1\s+FROM public\.admin_sessions AS s.*?WHERE s\.id = ` + id + `\s+AND s\.tenant_id = ` + tenant + `.*?FOR UPDATE OF s;`
 	}
-	identityLock := regexp.MustCompile(`(?s)FROM public\.admin_identities i WHERE i\.id = v_identity FOR UPDATE;|FROM public\.admin_identities i\s+WHERE i\.id = v_identity.*?FOR UPDATE;`)
+	recheck := map[string][]string{
+		"identity_set_password":      {sess("v_session", "v_tenant")},
+		"identity_link_legacy":       {sess("v_id_session", "v_id_tenant"), `(?s)PERFORM 1 FROM public\.admin_sessions AS s\s+WHERE s\.id = v_legacy_session\s+AND s\.tenant_id = v_legacy_tenant.*?FOR UPDATE;`},
+		"identity_unlink_backfilled": {sess("v_session", "v_tenant")},
+		"identity_relink_refused":    {sess("v_session", "v_tenant")},
+		"identity_verify_email":      {sess("v_session", "v_tenant"), `(?s)PERFORM 1 FROM public\.admin_identity_verifications AS v\s+WHERE v\.id = v_verification AND v\.used_at IS NULL.*?FOR UPDATE;`},
+		"identity_consume_row_reset": {`(?s)PERFORM 1\s+FROM public\.password_resets AS r.*?WHERE r\.id = v_reset\s+AND r\.tenant_id = v_tenant\s+AND r\.used_at IS NULL\s+AND r\.cancelled_at IS NULL.*?FOR UPDATE OF r;`},
+		"identity_consume_reset":     {`(?s)PERFORM 1 FROM public\.admin_identity_resets AS r\s+WHERE r\.id = v_reset AND r\.identity_id = v_identity\s+AND r\.used_at IS NULL AND r\.cancelled_at IS NULL.*?FOR UPDATE;`},
+	}
+	identityLock := regexp.MustCompile(`(?s)FROM public\.admin_identities AS i\s+WHERE i\.id = v_identity.*?FOR UPDATE;`)
 	for fn, res := range recheck {
 		var body string
 		if err := tx.QueryRow(ctx, `SELECT prosrc FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = $1`, fn).Scan(&body); err != nil {
@@ -2296,12 +1988,12 @@ func TestIdentityUnlink_TakesThePersonsLockAndTheRowsLock(t *testing.T) {
 	}
 	body = ipLineComment.ReplaceAllString(body, "")
 	steps := []*regexp.Regexp{
-		regexp.MustCompile(`(?s)FROM public\.admin_identities i\s+WHERE i\.id = v_identity.*?FOR UPDATE;`),
-		regexp.MustCompile(`FROM public\.admin_users a WHERE a\.identity_id = v_identity /\* identity-scope \*/ FOR UPDATE;`),
-		regexp.MustCompile(`(?s)PERFORM 1\s+FROM public\.admin_sessions s.*?WHERE s\.id = v_session AND s\.tenant_id = v_tenant.*?FOR UPDATE OF s;`),
-		regexp.MustCompile(`(?s)FROM public\.admin_users a\s+WHERE a\.tenant_id = p_tenant.*?FOR UPDATE;`),
-		regexp.MustCompile(`UPDATE public\.admin_users a\s+SET identity_id = NULL`),
-		regexp.MustCompile(`UPDATE public\.admin_sessions s SET revoked_at = now\(\)\s+WHERE s\.tenant_id = p_tenant AND s\.admin_user_id = v_target`),
+		regexp.MustCompile(`(?s)FROM public\.admin_identities AS i\s+WHERE i\.id = v_identity.*?FOR UPDATE;`),
+		regexp.MustCompile(`PERFORM 1 FROM public\.admin_users AS a WHERE a\.identity_id = v_identity FOR UPDATE;`),
+		regexp.MustCompile(`(?s)PERFORM 1\s+FROM public\.admin_sessions AS s.*?WHERE s\.id = v_session\s+AND s\.tenant_id = v_tenant.*?FOR UPDATE OF s;`),
+		regexp.MustCompile(`(?s)FROM public\.admin_users AS a\s+WHERE a\.tenant_id = p_tenant.*?FOR UPDATE;`),
+		regexp.MustCompile(`UPDATE public\.admin_users AS a\s+SET identity_id = NULL`),
+		regexp.MustCompile(`UPDATE public\.admin_sessions AS s SET revoked_at = now\(\)\s+WHERE s\.tenant_id = p_tenant AND s\.admin_user_id = v_target`),
 	}
 	at := -1
 	for i, re := range steps {
@@ -2403,19 +2095,19 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 		aiExec(t, ctx, sp, `UPDATE admin_users SET unlinked_at = NULL WHERE unlinked_at IS NOT NULL`)
 		opRunSection(t, ctx, sp, down, "00072 Down")
 		at70 := ipCatalogue(t, ctx, sp)
-		for _, gone := range []string{"identity_password_for_session", "identity_sweep_events", "resolve_identity_", "admin_identity_",
+		for _, gone := range []string{"identity_password_for_session", "identity_sweep_events", "resolve_identity_reset", "resolve_identity_verification", "admin_identity_",
 			"tappa_identitydefiner admin_users.email", "tappa_identitydefiner admin_users.linked_via", "tappa_identitydefiner admin_users.password_hash",
 			"tappa_identitydefiner admin_users.identity_id SU", "tappa_identitydefiner admin_users.status SU", "tappa_identitydefiner password_resets.",
-			"tappa_identitydefiner admin_identities.email", "tappa_identitydefiner admin_identities.password_hash", "tappa_identitydefiner admin_identities.confirm_"} {
+			"tappa_identitydefiner admin_identities.email", "tappa_identitydefiner admin_identities.password_hash SU", "tappa_identitydefiner admin_identities.confirm_"} {
 			if strings.Contains(at70, gone) {
 				t.Errorf("after 00072's Down the catalogue still holds %q (a grant 00072 alone gives)", gone)
 			}
 		}
 		// The grants 00071 (M14-04) gives too stay: revoking them would break a database walked down
 		// to 71 (column privileges are not counted).
-		for _, kept := range []string{"tappa_identitydefiner admin_sessions.revoked_at SU\n", "tappa_identitydefiner admin_sessions.authenticated_at S\n",
+		for _, kept := range []string{"tappa_identitydefiner admin_sessions.revoked_at SU\n", "tappa_identitydefiner admin_sessions.authenticated_at SI\n",
 			"tappa_identitydefiner audit_log.detail I\n", "tappa_identitydefiner admin_users.identity_id S\n", "tappa_identitydefiner admin_users.unlinked_at S\n",
-			"tappa_identitydefiner admin_identities.id S\n", "tappa_resolver admin_users.identity_id S\n", "tappa_resolver admin_users.unlinked_at S\n"} {
+			"tappa_identitydefiner admin_identities.id S\n", "tappa_identitydefiner admin_identities.password_hash S\n", "tappa_resolver admin_users.identity_id S\n", "tappa_resolver admin_users.unlinked_at S\n"} {
 			if !strings.Contains(at70, kept) {
 				t.Errorf("after 00072's Down the catalogue lost %q, which 00071 grants too", strings.TrimSpace(kept))
 			}

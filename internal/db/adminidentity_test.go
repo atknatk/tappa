@@ -989,23 +989,7 @@ func TestAdminIdentities00069_DownRefusesAnIdentityAndOtherwiseWalksBackAndUp(t 
 			}
 			aiExec(t, ctx, sp, `DELETE FROM admin_identities`)
 
-			// The later M14 files first, newest first (each Down refuses while its own tables hold
-			// rows -- set aside above).
-			for i := len(later) - 1; i >= 0; i-- {
-				opRunSection(t, ctx, sp, later[i].down, later[i].name+" Down")
-			}
-			// 00072's Down keeps the column grants it shares with 00071 (00071's Down takes them).
-			// Without 00071 in the tree they would stay behind and 00069's precondition would refuse
-			// a definer that "already reaches" admin_users; with it, these REVOKEs find nothing.
-			for _, stmt := range []string{
-				`REVOKE SELECT (id) ON admin_identities FROM tappa_identitydefiner`,
-				`REVOKE SELECT (id, tenant_id, status, identity_id, unlinked_at) ON admin_users FROM tappa_identitydefiner`,
-				`REVOKE SELECT (id, tenant_id, admin_user_id, token_hash, revoked_at, authenticated_at), UPDATE (revoked_at) ON admin_sessions FROM tappa_identitydefiner`,
-				`REVOKE INSERT (tenant_id, actor_id, action, target, detail) ON audit_log FROM tappa_identitydefiner`,
-				`REVOKE SELECT (identity_id, unlinked_at) ON admin_users FROM tappa_resolver`,
-			} {
-				aiExec(t, ctx, sp, stmt)
-			}
+			// The later M14 files' Downs ran in identityAt00070 above (the test starts at 00070).
 			opRunSection(t, ctx, sp, down, "00069 Down")
 			at64 := aiCatalogue(t, ctx, sp)
 			for _, gone := range []string{"identity_id", "linked_via", "linked_at", "unlinked_at", "authenticated_at", "admin_identities", "admin_users_guard_identity_credentials"} {
@@ -1088,9 +1072,6 @@ func TestAdminIdentities00069_DownRefusesAnIdentityAndOtherwiseWalksBackAndUp(t 
 
 			opRunSection(t, ctx, sp, up, "00069 Up again")
 			opRunSection(t, ctx, sp, strings.ReplaceAll(up70, " CONCURRENTLY", ""), "00070 Up again (in the transaction)")
-			for _, f := range later {
-				opRunSection(t, ctx, sp, f.up, f.name+" Up again")
-			}
 			if again := aiCatalogue(t, ctx, sp); again != head {
 				t.Errorf("after the Up again:\n%s\nwant HEAD's\n%s", again, head)
 			}

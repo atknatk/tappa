@@ -64,17 +64,42 @@ var identityTenantWideReads = map[string]int{
 	"identity_memberships":      1, // the membership list itself (LIMIT 50)
 	"identity_revoke_sessions":  1, // "sign out everywhere"'s driver; every write it drives is pinned
 	"resolve_identity_by_email": 1, // md.7's has_active_membership
+	// M14-05 (00072): the lock on every membership of the identity (the lock order: identity ->
+	// memberships -> tokens / sessions) and, where the digest is written to every linked row, the loop
+	// that drives those writes -- each write pinned to the loop record's tenant.
+	"identity_set_password":      2,
+	"identity_consume_row_reset": 2,
+	"identity_consume_reset":     2,
+	"identity_link_legacy":       1,
+	"identity_unlink_backfilled": 1,
+	"identity_relink_refused":    1,
 }
 
-// identitySessionKeyLookups names, per function, how many statements find a session by its OWN key
-// (`<sessions alias>.token_hash = p_*`, globally UNIQUE -- the md.7 shape: the statement produces the
-// tenant, it cannot name one). A membership row joined to it is anchored only through BOTH halves of
-// the composite key, `a.id = s.admin_user_id AND a.tenant_id = s.tenant_id`.
+// identitySessionKeyLookups names, per function, how many statements find a session -- or (M14-05) a
+// per-row reset link -- by its OWN key (`<alias>.token_hash = p_*`, globally UNIQUE on both tables --
+// the md.7 shape: the statement produces the tenant, it cannot name one). A membership row joined to
+// it is anchored only through BOTH halves of the composite key, `a.id = s.admin_user_id AND
+// a.tenant_id = s.tenant_id` (`a.id = r.admin_user_id AND a.tenant_id = r.tenant_id`).
 var identitySessionKeyLookups = map[string]int{
 	"identity_memberships":     1,
 	"identity_switch_session":  1,
 	"identity_revoke_sessions": 1,
+	// M14-05 (00072): the session behind the call; link_legacy reads two (the identity's and the
+	// legacy row's), verify_email one, consume_row_reset its per-row link (password_resets.token_hash).
+	"identity_password_for_session": 1,
+	"identity_set_password":         1,
+	"identity_link_legacy":          2,
+	"identity_unlink_backfilled":    1,
+	"identity_relink_refused":       1,
+	"identity_request_verification": 1,
+	"identity_verify_email":         1,
+	"identity_consume_row_reset":    1,
 }
+
+// identityTokenKeyed are the tenant tables whose own globally UNIQUE token_hash may anchor a lookup
+// (counted in identitySessionKeyLookups): the panel session (00006) and, from M14-05, the per-row reset
+// link (00006/00019, password_resets_token_hash_key).
+var identityTokenKeyed = map[string]bool{"admin_sessions": true, "password_resets": true}
 
 // identityUnkeyedIdentityStatement is the construct name of the identity key rule's finding.
 const identityUnkeyedIdentityStatement = "an identity-table statement keyed by no id, identity_id or token hash"
@@ -85,6 +110,16 @@ var identityBeltAllowedConstructs = map[string]map[string]string{
 	"resolve_identity_by_email": {
 		identityUnkeyedIdentityStatement: "ADR 0002 md.7 / ADR 0031 §5.2: the one e-mail -> identity path; the address is the key " +
 			"(admin_identities.email is globally UNIQUE, compared with OPERATOR(public.=)); STABLE sql, it writes nothing",
+	},
+	// M14-05 (00072).
+	"identity_sweep_events": {
+		identityUnkeyedIdentityStatement: "ADR 0031 §5.1, R17: the event log's 90-day sweep deletes by age alone, no argument, " +
+			"no identity; identityPersonTableDeleters names it the table's one deleter",
+	},
+	"identity_unlink_backfilled": {
+		"a call to public.crypt":            "ADR 0031 §5.8, S20: the sentinel digest is bcrypt (pgcrypto, a C function that reads no table) of ...",
+		"a call to public.gen_random_bytes": "... 32 random bytes from pgcrypto's strong source, discarded in the same expression ...",
+		"a call to public.gen_salt":         "... at cost 12 (adminauth.Cost); pgcrypto lives in public (scripts/db-init/01-roles.sql), 00072's precondition checks it",
 	},
 }
 
@@ -338,8 +373,11 @@ var (
 	identityRef        *regexp.Regexp // set per run: public.<tenant relation>
 	identityIntoList   = regexp.MustCompile(`(?i)\bINTO\s+(\w+(?:\s*,\s*\w+)*)`)
 	identityForRecord  = regexp.MustCompile(`(?i)^\s*(?:\w+\s+)*?FOR\s+(\w+)\s+IN\b`)
-	identityPublicName = regexp.MustCompile(`(?i)\bpublic\s*\.\s*(\w+)`)
-	identityRelation   = regexp.MustCompile(`(?i)\b(FROM|JOIN|INTO|UPDATE|TABLE)\s+([^\s(,;]+)`)
+	identityPublicName = regexp.MustCompile(`(?i)\bpublic\s*\.\s*(\w+)(\s*\()?`)
+	// identityRelationKeyword: what makes `public.<name> (` a relation with a column list (INSERT INTO
+	// public.audit_log (...)) and not a call.
+	identityRelationKeyword = regexp.MustCompile(`(?i)\b(INTO|FROM|JOIN|UPDATE|TABLE|ONLY)\s*$`)
+	identityRelation        = regexp.MustCompile(`(?i)\b(FROM|JOIN|INTO|UPDATE|TABLE)\s+([^\s(,;]+)`)
 )
 
 func identityStatement(fn, stmt string, tenantRel map[string]bool, sc identityBeltScope) identityStatementVerdict {
@@ -366,8 +404,15 @@ func identityStatement(fn, stmt string, tenantRel map[string]bool, sc identityBe
 			unmodelled(fmt.Sprintf("a relation reached other than as public.<name> (%s %s)", kw, target))
 		}
 	}
-	for _, m := range identityPublicName.FindAllStringSubmatch(stmt, -1) {
-		name := strings.ToLower(m[1])
+	for _, ix := range identityPublicName.FindAllStringSubmatchIndex(stmt, -1) {
+		name := strings.ToLower(stmt[ix[2]:ix[3]])
+		called := ix[4] >= 0 && !identityRelationKeyword.MatchString(stmt[:ix[0]])
+		if called {
+			// M14-05: a call to a function in public (pgcrypto's, for the unlink's sentinel). A function
+			// can read any table under the definer's BYPASSRLS, so each is a named construct per body.
+			unmodelled("a call to public." + name)
+			continue
+		}
 		if !tenantRel[name] && !slices.Contains(identityBeltNonTenantRelations, name) {
 			bad("public.%s is neither a tenant relation nor a named non-tenant one (identityBeltNonTenantRelations)", name)
 		}
@@ -482,7 +527,7 @@ func identityStatement(fn, stmt string, tenantRel map[string]bool, sc identityBe
 				if side[0] == key(alias) && isAnchor(side[1]) {
 					anchored[alias] = true
 				}
-				if table == "admin_sessions" && side[0] == alias+".token_hash" && sc.params[side[1]] && !anchored[alias] {
+				if identityTokenKeyed[table] && side[0] == alias+".token_hash" && sc.params[side[1]] && !anchored[alias] {
 					anchored[alias] = true
 					v.keyed++
 				}
@@ -500,6 +545,10 @@ func identityStatement(fn, stmt string, tenantRel map[string]bool, sc identityBe
 		case tableOf[x] == "admin_users" && tableOf[y] == "admin_sessions":
 			return has(x+".id", y+".admin_user_id")
 		case tableOf[x] == "admin_sessions" && tableOf[y] == "admin_users":
+			return has(y+".id", x+".admin_user_id")
+		case tableOf[x] == "admin_users" && tableOf[y] == "password_resets":
+			return has(x+".id", y+".admin_user_id")
+		case tableOf[x] == "password_resets" && tableOf[y] == "admin_users":
 			return has(y+".id", x+".admin_user_id")
 		}
 		return true
@@ -871,9 +920,11 @@ func TestIdentityTables_OnlyTheNamedSweepsDelete(t *testing.T) {
 		{"quoted and qualified", []string{plpgsql("public", "zz_identity_probe", `DELETE FROM "public"."admin_identities";`)}, true},
 		{"dynamic SQL", []string{plpgsql("public", "zz_identity_probe", `EXECUTE 'DELETE FROM admin_identities';`)}, true},
 		{"a TRUNCATE", []string{plpgsql("public", "zz_identity_probe", "TRUNCATE public.admin_identities;")}, true},
-		{"the named sweep", []string{plpgsql("public", "identity_sweep_events",
+		// (M14-05's real sweep exists from 00072 on; each control replaces it in its savepoint.)
+		{"the named sweep", []string{`DROP FUNCTION IF EXISTS public.identity_sweep_events()`, plpgsql("public", "identity_sweep_events",
 			"DELETE FROM public.admin_identity_events WHERE created_at < now() - interval '90 days';")}, false},
-		{"the named sweep over another table", []string{plpgsql("public", "identity_sweep_events", "DELETE FROM public.admin_identity_resets;")}, true},
+		{"the named sweep over another table", []string{`DROP FUNCTION IF EXISTS public.identity_sweep_events()`,
+			plpgsql("public", "identity_sweep_events", "DELETE FROM public.admin_identity_resets;")}, true},
 		{"the named sweep in another schema", []string{`CREATE SCHEMA zz_identity_probe`,
 			plpgsql("zz_identity_probe", "identity_sweep_events", "DELETE FROM public.admin_identity_events;")}, true},
 	} {

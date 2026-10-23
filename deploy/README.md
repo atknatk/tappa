@@ -1921,7 +1921,8 @@ Sonra `main`'e birleştir; deploy `00069` ve `00070`'i uygular.
   ROLLBACK;
   ```
 
-  beklenen: `public` ve `t|t|t`. Satır yoksa ya da `f` varsa deploy yapılmaz (migration zaten hiçbir şey
+  beklenen: `public` ve `t|t|t`. `crypt(text,text)` hiç yoksa `has_function_privilege` sonuç vermez,
+  **hata** verir — o da "deploy yok" demektir. Satır yoksa ya da `f` varsa deploy yapılmaz (migration zaten hiçbir şey
   değiştirmeden reddeder; Job `Failed` olur): uzantı `01-roles.sql`'deki gibi `public`'te kurulur ya da
   yetki düzeltilir, sonra yeniden denenir.
 
