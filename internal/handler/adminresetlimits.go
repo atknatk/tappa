@@ -185,8 +185,8 @@ const (
 	//	 5000 addresses                 = 10650   CPU-s per 600 s = ~17.8 CORES
 	//
 	// THAT IS NOT A LOOSENING AND THE COMPARISON IS THE EVIDENCE: adminLoginWorkLimit
-	// allows 120 x 8 x 0.38 s = ~365 CPU-s per window PER ADDRESS, i.e. one address on
-	// the sign-in path buys 174x what one address buys here. A distributed attacker is
+	// allows 106 x 9 x 0.38 s = ~362 CPU-s per window PER ADDRESS (M14-09; 120 x 8 = ~365
+	// before), i.e. one address on the sign-in path buys ~172x what one address buys here. A distributed attacker is
 	// bounded by nothing in-process on either surface, and adminratelimit.go already
 	// names the honest mitigation for that class: it is operational (a proxy-level
 	// limit, M8) rather than something a per-address counter can reach. Written down

@@ -70,6 +70,7 @@ func TestPanelProblem_TheOwnerPillComesFromTheConstant(t *testing.T) {
 		"problemPanelUnavailable": problemPanelUnavailable, "problemPanelWriteFailed": problemPanelWriteFailed,
 		"problemAdminServer": problemAdminServer, "problemAdminRestart": problemAdminRestart,
 		"problemAdminTooMany": problemAdminTooMany, "problemAdminNoCookie": problemAdminNoCookie,
+		"problemAdminSignInAgain":  problemAdminSignInAgain,
 		"problemAccountUnreadable": problemAccountUnreadable, "problemAPIKeysUnavailable": problemAPIKeysUnavailable,
 		"tapProblemServer": tapProblemServer, "tapProblemBadURL": tapProblemBadURL,
 		"problemServer": problemServer, "problemBadLink": problemBadLink,

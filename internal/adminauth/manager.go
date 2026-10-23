@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
@@ -850,6 +851,28 @@ func (m *Manager) Issue(ctx context.Context, v Verified) (Issued, error) {
 		Token: t,
 	}, nil
 }
+
+// SignInLapsed reports whether err -- from Issue, or from AuthenticatePerson -- means the sign-in's
+// verified credential no longer held when its session was to be written, so the honest answer is
+// "sign in again", not an outage (M14-09; the M14-07 audit's carry-over):
+//
+//	ErrProofStale   the row's digest is no longer the one the password verified (a password
+//	                change or a reset committed in between -- the picker can sit for minutes)
+//	pgx.ErrNoRows   the session write found no row to write for: the row was disabled, changed
+//	                or refused from an identity (CreateAdminSession's digest predicate, §5.2)
+//	40P01           the write lost a deadlock to a concurrent change of the same row
+//
+// Nothing was signed in in any of the three. Every other error is the database failing.
+func SignInLapsed(err error) bool {
+	if errors.Is(err, ErrProofStale) || errors.Is(err, pgx.ErrNoRows) {
+		return true
+	}
+	var pg *pgconn.PgError
+	return errors.As(err, &pg) && pg.Code == pgDeadlockDetected
+}
+
+// pgDeadlockDetected is PostgreSQL's deadlock_detected SQLSTATE.
+const pgDeadlockDetected = "40P01"
 
 // Resolved is who a panel request is acting as, once its cookie has been resolved
 // AND the session proved live.
