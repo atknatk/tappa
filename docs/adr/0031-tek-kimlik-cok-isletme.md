@@ -17,6 +17,11 @@
   daraltıldı (bakım yazarları `identity_reconcile()`, backfill ve M14-19'un migration'ı adıyla; `tappa_app`'ın yazamadığı ve
   okuyamadığı bağ sütunları; operatör yasağına `resolve_identity_*`; onay cümlesine `tappa_app` /
   `tappa_resolver` yetkileri) — CLAUDE.md §4.5 (3) ile bayt bayt aynı.
+  **2026-10-22:** kapalı listeye iki fonksiyon eklendi — `identity_open_reset` ve
+  `identity_withdraw_reset` (M14-14'ün kimlik başına talebinin yazarı listede yoktu; denetim boşluğu,
+  kullanıcı onayı; M14-05 yazar — §5.2, §5.9). §6.1'in kapanış cümlesi kimliğe ve `admin_users`'ın bağ
+  sütunlarına göre yeniden yazıldı; M14-04'ün iki denetiminin kabul ettiği kart dışı kararlar §5.2 ve
+  §5.4'e not edildi.
 - **Tarih:** 2026-10-21
 - **Karar veren:** kullanıcı (ürün sahibi) — 2026-10-21: *"Hesapları birleştir (tek kimlik)"*: bir
   kişi = tek giriş kimliği, birden çok işletmeye (tenant) üye olabilir; ör. Kebab Factory ile Kebab
@@ -244,8 +249,9 @@ fonksiyon kimliği yalnız bir sırdan bulur** — canlı oturum (`admin_session
 token'ı. **E-postadan kimliğe giden tek yol `resolve_identity_by_email`'dir ve hiçbir şey yazmaz**
 (bulgu 2). Sırra anahtarlı olmayan **üç adlandırılmış istisna** vardır (`identity_open_session`,
 `identity_create_for_signup`, `identity_record_failed_login`); her biri neden zararsız olduğunu ve onu
-yapısal kılan yüklemleri taşır. Bunlara ek olarak **kimlik yazmayan** ama sırra da anahtarlı olmayan iki
-yazar sınıfı adıyla sayılır (S11): `identity_open_signup_claim` (yalnız taslak satırı, oranla sınırlı) ve
+yapısal kılan yüklemleri taşır. Bunlara ek olarak **kimlik yazmayan** ama sırra da anahtarlı olmayan yazarlar
+adıyla sayılır (S11): `identity_open_signup_claim` (yalnız taslak satırı, oranla sınırlı),
+`identity_open_reset` (yalnız bir sıfırlama linki + bir olay satırı, kimlik başına tek canlı link) ve
 iki sabit periyotlu süpürme. ⚠️ işaretlilerin hepsi bunlardır. Gövdeler BYPASSRLS ile koştuğu için
 tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi taşır (kuşak + kemer, ADR 0021
 §3.2'nin `op_*` kuralı).
@@ -262,8 +268,10 @@ tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi taşır (
 | `identity_set_password(p_session_hash, p_new_hash)` | canlı oturum | Kimliğe **ve** bağlı bütün satırlara yazar, öbür oturumları bütün işletmelerde iptal eder; satır bağlı değilse **0 satır** ve uygulama parolayı **yalnız o satıra** yazar (bugünkü gibi) |
 | `identity_consume_row_reset(p_reset_hash, p_new_hash)` | **eski** `password_resets` token'ı | M14-08'den itibaren: link bağlı bir satırınsa kimliği + bağlı satırları yazar, bütün oturumları iptal eder, **`email_verified_at`'i doldurur** (linke tıklayan posta kutusunun sahibidir — S5; aksi hâlde çözme hiç mümkün olmazdı) ve **`reset` kapsamlı** onay penceresini açar (ADR 0015'in anlam değişikliği **burada başlar**, bulgu 6); bağlı değilse 0 satır (eski yol). `unlinked_at` damgalı satıra hiçbir zaman link gönderilmez (S8) |
 | `identity_consume_reset(p_reset_hash, p_new_hash)` | kimlik sıfırlama token'ı | M14-14: kimlik + bağlı satırlar, `email_verified_at`, bütün oturumlar iptal, oturum vermez; bağlanmamış eski satırları **bağlamaz**; **her** tüketimde **`reset` kapsamlı** onay penceresi (kimliğin denetimi el değiştirdiği an — R2, S3) |
+| `identity_open_reset(p_identity_id uuid, p_token_hash text, p_expires_at timestamptz)` → `TABLE (reset_id uuid, expires_at timestamptz, issued boolean)` | ⚠️ **sır değil — yazar ama kimlik yazmaz** (2026-10-22, kullanıcı onayı) | M14-14'ün kimlik başına talebi: kimliği çağıran e-postadan `resolve_identity_by_email` ile bulur; `p_token_hash` çağıranın o anda ürettiği yeni token'ın hash'idir. Kimlik başına ad alanlı danışma kilidi altında (`pg_advisory_xact_lock`, bugünkü `LockAdminForResetIssue` deseni) canlı link okunur (`used_at` ve `cancelled_at` NULL, süresi dolmamış): **canlı link varsa** hiçbir şey basmaz, hiçbir şeyi iptal etmez, hiçbir şey yazmaz ve o linkin `reset_id` / `expires_at`'ini `issued = false` ile döndürür (EM-7C, §5.9); **yoksa** tek bir `admin_identity_resets` satırı + tek bir `reset_requested` `admin_identity_events` satırı (`detail` boş) yazar, `issued = true`. Kimliğe ve `audit_log`'a yazmaz; e-posta, IP, tenant ve üyelik sayısı hiçbir satıra girmez. Sınır: uygulamanın istek bütçesi + kimlik başına tek canlı link |
+| `identity_withdraw_reset(p_token_hash text)` → `boolean` | kimlik sıfırlama token'ı (çağıranın az önce bastığı linkin hash'i) | Bugünkü `Withdraw`'ın karşılığı (`resetrequest.go:290-312`): teslim edilemeyen bir linki geri çeker ki sonraki talep yenisini basabilsin. Yalnız kullanılmamış ve iptal edilmemiş linkte `cancelled_at = now()`; geri çekildiyse `true`, link zaten gitmişse `false` (hata değil). Başka hiçbir şey yazmaz: bugünkü tenant satırlarının (`admin.recovery.undelivered` / `kept`) kimlik düzeyinde karşılığı yoktur — kimlik tenant'sızdır ve iz açılıştaki `reset_requested` satırıdır |
 | `identity_link_legacy(p_identity_session_hash, p_legacy_session_hash)` | **iki** canlı oturum | Biri bağlı (kimlikli), öbürü bağlanmamış ve `unlinked_at IS NULL` bir satırın oturumu; **ikisinin de `authenticated_at > now() - interval '5 minutes'`** (R3; `NULL` → 0 satır). Akışlar iki tarafta da o istekte **taze** oturum açar — hesap sayfasında bu, mevcut oturumun parolasının da yeniden sorulması demektir (S6). Savunma katmanı: iki satırın e-postası eşit (`OPERATOR(public.=)`). Bağlanan satırın digest'i kimliğinkine eşitlenir (contract B'ye dek), `linked_at = now()`, eski oturum iptal, o tenant'a "linked" (karşı tenant'ı anmadan) |
-| `identity_unlink_backfilled(p_session_hash, p_tenant)` | **taze** canlı oturum (S4) | Oturumun `authenticated_at`'i son 5 dakika içinde (uygulama çözmeden önce kimlik parolasını **yeniden sorar** ve taze oturum açar), `email_verified_at IS NOT NULL`, `now() < confirm_open_until`; listelenebilir satır kümesi pencerenin kapsamına bağlıdır: `first_verify` → `linked_via IN ('backfill','reconcile','signup')`; **`reset` → `linked_at < confirm_opened_at` olan bütün üyelikler, `claim` ve `invite` dahil her `linked_via`** (S3, T1: önceden ekilmiş bir kimlik, kurbanın posta kutusuna giden bir kayıt ya da davet linkini sosyal mühendislikle iletilmiş olarak kendi oturumuyla tıklayıp `claim` / `invite` bağı da kurabilir — kimliğin denetimi el değiştirdiğinde hepsi görünür); `first_verify` kapsamı `claim` / `invite` istisnasını korur. `created_at < contract anı` olan satır çözülür; **contract B'den sonra doğmuş** bir satır için "çöz" **bağı korur, `unlinked_at`'i damgalar ve `status='disabled'` yapar** (ONAY notu 2): `status` tek başına yetmez — `tappa_app`'ın `UPDATE (status)` yetkisi var (`00017:380-381`) ve M14-16'nın panel yolu, saldırganın tenant'ındaki başka bir owner'ın onu yeniden açmasına izin verirdi; `unlinked_at`'i uygulama yazamaz. `identity_memberships`, `identity_switch_session`, `identity_open_session` ve `TouchAdminSession` `unlinked_at IS NULL` süzer. `identity_id` korunduğu için VALID CHECK'e dokunulmaz. Bu yol M14-16'nın son-owner değişmezinin **bilinçli istisnasıdır**: değişmez bir veritabanı tetikleyicisiyse definer'ı burada durdurmaz; arayüz contract öncesindeki gibi **uyarır ve izin verir** (ONAY notu 4) — T1. Satırı bağlanmamışa çevirir, `unlinked_at = now()`, `password_hash`'e **nöbetçi digest** (32 rastgele baytın bcrypt'i; baytlar atılır, repoda sabit yok — S20; contract B'den sonra `NULL` — T3), satırın süresi dolmamış `password_resets` linklerini `cancelled_at` ile iptal eder (T5), o tenant'taki oturumları iptal eder. Satır tenant'ın **son aktif owner'ı** ise arayüz açık bir uyarı gösterir (S4) |
+| `identity_unlink_backfilled(p_session_hash, p_tenant)` | **taze** canlı oturum (S4) | Oturumun `authenticated_at`'i son 5 dakika içinde (uygulama çözmeden önce kimlik parolasını **yeniden sorar** ve taze oturum açar), `email_verified_at IS NOT NULL`, `now() < confirm_open_until`; listelenebilir satır kümesi pencerenin kapsamına bağlıdır: `first_verify` → `linked_via IN ('backfill','reconcile','signup')`; **`reset` → `linked_at < confirm_opened_at` olan bütün üyelikler, `claim` ve `invite` dahil her `linked_via`** (S3, T1: önceden ekilmiş bir kimlik, kurbanın posta kutusuna giden bir kayıt ya da davet linkini sosyal mühendislikle iletilmiş olarak kendi oturumuyla tıklayıp `claim` / `invite` bağı da kurabilir — kimliğin denetimi el değiştirdiğinde hepsi görünür); `first_verify` kapsamı `claim` / `invite` istisnasını korur. `created_at < contract anı` olan satır çözülür; **contract B'den sonra doğmuş** bir satır için "çöz" **bağı korur, `unlinked_at`'i damgalar ve `status='disabled'` yapar** (ONAY notu 2): `status` tek başına yetmez — `tappa_app`'ın `UPDATE (status)` yetkisi var (`00017:380-381`) ve M14-16'nın panel yolu, saldırganın tenant'ındaki başka bir owner'ın onu yeniden açmasına izin verirdi; `unlinked_at`'i uygulama yazamaz. `identity_memberships`, `identity_switch_session`, `identity_open_session` ve yeniden tanımlanan `resolve_admin_by_email` `unlinked_at IS NULL` süzer; `TouchAdminSession` **süzmez** — `tappa_app` `unlinked_at`'i okuyamaz (R16). Güvence şuna dayanır: çözme o tenant'ın oturumlarını **aynı transaction'da** iptal eder, oturum veren her yol `unlinked_at`'i süzer ve contract sonrasında satır `status='disabled'` olur. `identity_id` korunduğu için VALID CHECK'e dokunulmaz. Bu yol M14-16'nın son-owner değişmezinin **bilinçli istisnasıdır**: değişmez bir veritabanı tetikleyicisiyse definer'ı burada durdurmaz; arayüz contract öncesindeki gibi **uyarır ve izin verir** (ONAY notu 4) — T1. Satırı bağlanmamışa çevirir, `unlinked_at = now()`, `password_hash`'e **nöbetçi digest** (32 rastgele baytın bcrypt'i; baytlar atılır, repoda sabit yok — S20; contract B'den sonra `NULL` — T3), satırın süresi dolmamış `password_resets` linklerini `cancelled_at` ile iptal eder (T5), o tenant'taki oturumları iptal eder. Satır tenant'ın **son aktif owner'ı** ise arayüz açık bir uyarı gösterir (S4) |
 | `identity_relink_refused(p_session_hash, p_tenant)` | **taze** canlı oturum + kimlik parolasının yeniden girilmesi | S4/T4: çözme pencere açıkken **geri alınabilir**. Yüklem: `tenant_id = p_tenant` **ve** `email OPERATOR(public.=) identity.email` (e-posta global tekil; K-15 kapsam dışı) **ve** `unlinked_at >= confirm_opened_at` (yalnız **bu** pencerede reddedilmiş satır) **ve** `now() < confirm_open_until`; o tenant'ta kimliğin başka bir üyeliği varsa (arada davetle doğmuş — `UNIQUE (tenant_id, identity_id)`) 0 satır. Satırı yeniden bağlar (`linked_via='account'`, **özgün `linked_at` korunur** → satır pencerenin geri kalanında listede kalır; ele geçirilmiş 5 dakikalık bir oturumun ya da yanlış tıklamanın etkisi aynı pencerede geri alınabilir), `unlinked_at = NULL`, digest kopyası contract B'ye dek. Pencere kapandıktan sonra satır için geri alma yolu **yoktur**; üyelik ancak owner'ın **yeni bir daveti** ile döner ve kabul **aynı satırı** yeniden bağlar (§5.11, ONAY notu 3). Arada "davetle doğmuş başka üyelik" dalı bu yüzden oluşamaz (aynı tenant'ta aynı e-postalı ikinci satır `00006:96-97` ile imkânsızdır); 0 satır kuralı savunma olarak kalır |
 | `identity_request_verification(p_session_hash, p_token_hash)` | canlı oturum | Doğrulama token'ını **isteyen kimliğe** bağlı yazar |
 | `identity_verify_email(p_verification_hash, p_session_hash)` | doğrulama token'ı + tıklayan tarayıcıdaki **aynı kimliğin** canlı oturumu | Tıklayan tarayıcıda token'ı isteyen **kimliğin** canlı bir oturumu yoksa 0 satır (R2: başka bir tarayıcıdan tıklama kimseyi doğrulamaz). Bağ oturuma değil kimliğe: istek ile tıklama arasında işletme değiştiren (yeni oturum) kişi kırılmaz (S16). `email_verified_at`; ilk doğrulamada `first_verify` kapsamlı onay penceresi |
@@ -272,6 +280,14 @@ tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi taşır (
 | `identity_open_signup_claim(p_token_hash, p_email, p_draft jsonb, p_password_hash, p_expires_at)` | ⚠️ **sır değil — yazar ama kimlik yazmaz** (S11) | Yalnız `admin_signup_claims`'e bir taslak satırı; başka hiçbir tabloya dokunmaz. Anahtar, çağıranın o anda ürettiği yeni token + e-posta; sınır `signupCreateLimit` + alıcı başına üst sınır. `p_draft` kapalı anahtarlı (ad, VAT, işletme adı, lokasyonlar); doğrulayıcı uygulamadadır |
 | `identity_claim_signup(p_claim_hash, p_tenant_id, p_session_hash NULL)` | kayıt token'ı (+ var olan kimlikte canlı oturum) | M14-17 (§5.10). **Tenant'ı uygulama yaratır** (bugünkü `Provision`, `WithTenant`); definer talebi tüketir ve kimliği + owner satırını yazar (`linked_via='claim'`, S7). **Yapısal yüklemler (S2, T7) — biri tutmazsa 0 satır:** tenant'ın hiç `admin_users` satırı yok (**asıl güvence**), `tenants.created_at = now()` (transaction başlangıcı; alt transaction'dan etkilenmez; `created_at` uygulamaya yazılamaz — `00016:84-88`'in INSERT/UPDATE sütun listelerinde yok), ek olarak `tenants.xmin = pg_current_xact_id()::xid` (denetçinin PostgreSQL 17.10 ölçümü: üst düzey transaction'da doğru, SAVEPOINT altında yanlış — kayıt üst düzey `WithTenant` kullanır, `signup.go:689`, SAVEPOINT'li `WithTenantIn` değil, `internal/db/tenant.go:115-119`; `GRANT SELECT (xmin)` mümkün), `p_tenant_id = current_setting('app.tenant_id')`, tenant'ın VAT'ı ve adı talebin taslağına eşit. Var olan kimlikte `identity.email = claim.email` (R18). Yeni adreste kimlik talebin saklı digest'ini alır; **parola karşılaştırması uygulamadadır** — çözümleyici talebin digest'ini yalnız talep sırrıyla döndürür, uygulama yeniden girilen parolayı onunla karşılaştırır ve fonksiyonu yalnız eşleşmede çağırır (Go tipiyle bağlı güvence, `identity_open_session` gibi — S12). Kimlik INSERT'i e-posta kilidi + `ON CONFLICT DO NOTHING` (S13) |
 | `identity_sweep_signup_claims()` / `identity_sweep_events()` | ⚠️ **sır değil — sabit periyotlu silme** (S11) | Süresi dolmuş taleplerin ve 90 günü geçmiş olayların tek silme yolu (R17); parametresiz, yalnız süreye göre |
+
+**M14-04 uygulama notları (2026-10-22; iki denetimin kabul ettiği kart dışı kararlar):**
+`identity_open_session` ve `identity_switch_session` `(session_id, tenant_id, admin_user_id)` döndürür.
+`identity_open_session`'ın iniş sırası istenen → son kullanılan → en eski aktif üyeliktir; istenen üyelik
+aktif değilse sessizce bir sonrakine düşer — Go çağıranı dönen `tenant_id`'yi istenenle karşılaştırmalıdır.
+`identity_revoke_sessions` `TABLE (revoked integer)` döndürür ve iptal ettiği her oturum için o oturumun
+tenant'ına bir sıradan çıkış satırı yazar — **yalnız aktif ve reddedilmemiş** (`unlinked_at IS NULL`)
+üyeliklerde.
 
 Her fonksiyon: `SECURITY DEFINER`, `SET search_path = pg_catalog, pg_temp`, şema-nitelikli gövde,
 dinamik SQL yok, sabit dönüş sütunları, `REVOKE ALL … FROM PUBLIC`, `EXECUTE` **yalnız**
@@ -286,7 +302,10 @@ kart kendi satırlarını ekler ve bu ADR o eklemeleri **önceden onaylar** — 
 kullanıcı onayı + ADR değişikliği ister. Kanonik biçim M14-04'te doğan **imza tablosudur**
 (`pg_get_function_identity_arguments` + `pg_get_function_result` metni) ve ADR 0027 §2/§3'teki gibi
 katalog testiyle birebir pinlenir. `tappa_identitydefiner`'ın **fiil × sütun matrisi** (özet; tam hâli
-M14-04'ün testinde): beş kimlik tablosunda gerektiği kadar · `admin_users`: SELECT (`id`, `tenant_id`,
+M14-04'ün testinde): beş kimlik tablosunda gerektiği kadar — `admin_identity_resets`: SELECT (`id`,
+`identity_id`, `token_hash`, `expires_at`, `used_at`, `cancelled_at`), INSERT (`identity_id`, `token_hash`,
+`expires_at`) — `identity_open_reset`, UPDATE (`used_at`, `cancelled_at`) — tüketim ve
+`identity_withdraw_reset`; `admin_identity_events`: INSERT (`identity_id`, `event`, `detail`) · `admin_users`: SELECT (`id`, `tenant_id`,
 `email`, `password_hash`, `role`, `status`, `identity_id`, `linked_via`, `linked_at`, `unlinked_at`,
 `created_at`), INSERT (`tenant_id`, `full_name`, `email`, `password_hash`, `role`, `identity_id`,
 `linked_via`, `linked_at`), UPDATE (`password_hash`, `identity_id`, `linked_via`, `linked_at`,
@@ -345,6 +364,9 @@ Tek definer çağrısı, tek transaction:
    **çıkış** satırı, B'ye sıradan bir **giriş** satırı; `via=switch` **yazılmaz** (B'nin sahibi kişinin
    başka bir işletmesi olduğunu öğrenmesin). Metin taraması testi iki satırda karşı tenant id'sini,
    adını, üyelik sayısını ve `identity_id`'yi yasaklar.
+
+**M14-04 uygulama notları (2026-10-22, kabul edilmiş):** hedef mevcut tenant'sa 0 satır (geçiş yok);
+geçiş hedef üyeliğin `last_login_at`'ini damgalar.
 
 **Eşzamanlı geçiş** (bulgu 29): aynı oturumla N paralel istek → tam olarak bir kazanan; kaybedenlerin
 yanıtı **`Set-Cookie` yazmaz ve çerezi silmez** (kazananın çerezi tarayıcıda kalır).
@@ -476,7 +498,10 @@ itibaren talep e-posta → kimlik → **tek** link; bağlanmamış satırlar con
 alır. Her tüketim onay penceresini açar. Linkler GET ile **tüketilmez** (posta tarayıcılarının ön
 yüklemesi): bugünkü sıfırlama deseni — GET token'ı kısa ömürlü bir çereze alıp formu gösterir, tüketim
 POST'tadır (`adminreset.go:1415-1425`, `readLink`) — doğrulama, davet ve kayıt linklerinde de aynen
-uygulanır (R19). ADR 0022 §3/§4/§9/§10 ve EM-7C'nin "hesap başına tek canlı link" kuralı aynen.
+uygulanır (R19). ADR 0022 §3/§4/§9/§10 ve EM-7C'nin "hesap başına tek canlı link" kuralı aynen. Kimlik başına talep
+(`identity_open_reset`) EM-7C'yi kimlik düzeyinde korur — canlı link varken hiçbir şey basılmaz, iptal
+edilmez, gönderilmez — ve teslim edilemeyen link `identity_withdraw_reset` ile geri çekilir (bugünkü
+`Withdraw`).
 
 ### 5.10 Kayıt sihirbazı (K-9 a)
 
@@ -589,10 +614,12 @@ yazıcısı"*; (2) maddesinin sonundaki parantezden sonra şu madde eklenir:
 > (`EXECUTE` yalnız `tappa_owner`'da; M14-06b'nin migration'ı ve M14-19'dan önce runbook çağırır,
 > contract B'de düşer), M14-06'nın backfill migration'ı (`tappa_owner`, ADR 0031 §5.8) ve M14-19'un
 > migration'ı (`tappa_owner`; yalnız bayrak kapalıyken açılmış onay pencerelerinin `confirm_open_until`'i,
-> ADR 0031 §5.8, §8 adım 5); bunların ve adlandırılmış üç istisnanın dışında kimlik tablolarına sırsız
-> yazan yoktur. Kimlik yazmayan ama sırra da
+> ADR 0031 §5.8, §8 adım 5); bunların ve adlandırılmış üç istisnanın dışında kimliği ya da
+> `admin_users`'ın bağ sütunlarını (`identity_id`, `linked_via`, `linked_at`, `unlinked_at`) sırsız yazan
+> yoktur. Kimlik yazmayan ama sırra da
 > anahtarlı olmayan yazarlar adıyla şunlardır:
-> `identity_open_signup_claim` (yalnız taslak satırı, oranla sınırlı) ve iki sabit periyotlu süpürme. BYPASSRLS gövdelerinde tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi
+> `identity_open_signup_claim` (yalnız taslak satırı, oranla sınırlı), `identity_open_reset` (yalnız bir
+> sıfırlama linki + bir `reset_requested` olayı; kimlik başına tek canlı link, EM-7C) ve iki sabit periyotlu süpürme. BYPASSRLS gövdelerinde tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi
 > taşır. Bir tenant'a yazan her fonksiyon o tenant'ın `audit_log`'una yazar; satır karşı tenant'ı,
 > kişinin üyelik sayısını ve `identity_id`'yi anmaz; bir istek her an tek tenant bağlamında koşar.
 > `tappa_app`'ın `admin_users.identity_id`'yi okuması (geçiş oran kovası) adlandırılmış bir kalıntıdır ve

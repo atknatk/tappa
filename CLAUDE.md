@@ -215,10 +215,12 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    (`EXECUTE` yalnız `tappa_owner`'da; M14-06b'nin migration'ı ve M14-19'dan önce runbook çağırır,
    contract B'de düşer), M14-06'nın backfill migration'ı (`tappa_owner`, ADR 0031 §5.8) ve M14-19'un
    migration'ı (`tappa_owner`; yalnız bayrak kapalıyken açılmış onay pencerelerinin `confirm_open_until`'i,
-   ADR 0031 §5.8, §8 adım 5); bunların ve adlandırılmış üç istisnanın dışında kimlik tablolarına sırsız
-   yazan yoktur. Kimlik yazmayan ama sırra da
+   ADR 0031 §5.8, §8 adım 5); bunların ve adlandırılmış üç istisnanın dışında kimliği ya da
+   `admin_users`'ın bağ sütunlarını (`identity_id`, `linked_via`, `linked_at`, `unlinked_at`) sırsız yazan
+   yoktur. Kimlik yazmayan ama sırra da
    anahtarlı olmayan yazarlar adıyla şunlardır:
-   `identity_open_signup_claim` (yalnız taslak satırı, oranla sınırlı) ve iki sabit periyotlu süpürme. BYPASSRLS gövdelerinde tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi
+   `identity_open_signup_claim` (yalnız taslak satırı, oranla sınırlı), `identity_open_reset` (yalnız bir
+   sıfırlama linki + bir `reset_requested` olayı; kimlik başına tek canlı link, EM-7C) ve iki sabit periyotlu süpürme. BYPASSRLS gövdelerinde tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi
    taşır. Bir tenant'a yazan her fonksiyon o tenant'ın `audit_log`'una yazar; satır karşı tenant'ı,
    kişinin üyelik sayısını ve `identity_id`'yi anmaz; bir istek her an tek tenant bağlamında koşar.
    `tappa_app`'ın `admin_users.identity_id`'yi okuması (geçiş oran kovası) adlandırılmış bir kalıntıdır ve

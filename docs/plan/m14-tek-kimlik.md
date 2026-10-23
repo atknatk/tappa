@@ -313,7 +313,8 @@ tenant-kapsamsız kuralları) + ADR 0031 §5.2'deki `identity_password_for_sessi
 `identity_consume_reset`, `identity_link_legacy`, `identity_unlink_backfilled`,
 `identity_relink_refused`, `identity_request_verification`,
 `resolve_identity_verification_by_token_hash`, `identity_verify_email`, `identity_record_failed_login`,
-`identity_sweep_events`; `resolve_admin_by_email` `unlinked_at IS NULL` süzgeciyle ve dönüşüne
+`identity_sweep_events`, `identity_open_reset`, `identity_withdraw_reset` (2026-10-22, kullanıcı onayı —
+ADR 0031 §5.2); `resolve_admin_by_email` `unlinked_at IS NULL` süzgeciyle ve dönüşüne
 `identity_id` eklenerek yeniden tanımlanır (S8, T2 — orkestratör kararı (a); dönüş tipi değiştiği için
 `DROP` + `CREATE`; md.7 (iii) genişlemesi ADR 0031 §5.2'de gerekçeli; eski binary sütunları adıyla seçer,
 `internal/db/resolve.go:301-302`). `tappa_resolver`'a `admin_users (identity_id, unlinked_at)` SELECT
@@ -360,6 +361,10 @@ tenant-kapsamsız kuralları) + ADR 0031 §5.2'deki `identity_password_for_sessi
 - `identity_record_failed_login` (R9, R17): yalnız `admin_identity_events`, `identity_id NOT NULL`,
   `detail`'de e-posta ve IP yok; bilinmeyen e-postada çağrılmaz. `identity_sweep_events` 90 günü geçen
   satırların tek silme yolu (`00058` deseni).
+- `identity_open_reset` (EM-7C, ADR 0031 §5.2, §5.9): kimlik başına danışma kilidi; canlı link varken
+  hiçbir şey yazılmaz ve o link `issued = false` ile döner; yoksa tek link + tek `reset_requested` olayı
+  (`detail` boş), `issued = true`; kimliğe ve `audit_log`'a yazmaz; N eşzamanlı talep → tek link.
+  `identity_withdraw_reset`: yalnız kullanılmamış ve iptal edilmemiş linkin `cancelled_at`'i; başka yazma yok.
 - Değişmez testi: bağlı her satırda `password_hash = kimliğin digest'i` her fonksiyondan sonra
   (çözülen satır hariç — artık bağlı değil).
 - İmza ve matris testleri M14-04'ünkine eklenir.
@@ -602,7 +607,8 @@ anlatır; üç genişlik; bayrak `off` iken sayfa 404.
 - **Commit:** `feat(auth): reset a person's password once for every business`
 
 **Kabul kriterleri.** Kimlik başına talep bayrakla kapılı (`off` iken bugünkü satır-başı talep).
-Adres → kimlik → en çok bir canlı link (bugün en çok 8); kayıtlı/kayıtsız adres yanıt ve zamanlamada
+Adres → kimlik → en çok bir canlı link (bugün en çok 8) — `identity_open_reset` ile basılır, teslim
+edilemeyen link `identity_withdraw_reset` ile geri çekilir (EM-7C, ADR 0031 §5.9); kayıtlı/kayıtsız adres yanıt ve zamanlamada
 ayırt edilemez (EM-5 asenkron deseni); link GET'te tüketilmez, tüketim POST (bugünkü `readLink` deseni,
 `adminreset.go:1415-1425`); tüketim kimliği + bağlı satırları yazar, bütün oturumları iptal eder, oturum
 vermez, eski satırları bağlamaz ve **her** tüketimde onay penceresini açar (R2; liste M14-18); bağlanmamış satırlar contract'a dek satır başı link alır; şablon "kimlik başına
