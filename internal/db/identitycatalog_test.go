@@ -52,7 +52,8 @@ type identitySignature struct {
 var identitySignaturesM1404 = []identitySignature{
 	{"resolve_identity_by_email", "p_email citext",
 		"TABLE(id uuid, password_hash text, email_verified_at timestamp with time zone, has_active_membership boolean)", "tappa_resolver"},
-	{"identity_open_session", "p_identity_id uuid, p_tenant uuid, p_token_hash text",
+	// p_verified_digest: the user's decision of 2026-10-23 (ADR 0031 §5.2) -- the proof re-checked under the lock.
+	{"identity_open_session", "p_identity_id uuid, p_tenant uuid, p_token_hash text, p_verified_digest text",
 		"TABLE(session_id uuid, tenant_id uuid, admin_user_id uuid)", "tappa_identitydefiner"},
 	{"identity_memberships", "p_session_hash text",
 		"TABLE(tenant_id uuid, tenant_name text, role text, suspended boolean, is_current boolean)", "tappa_identitydefiner"},
@@ -235,7 +236,7 @@ func TestIdentityCatalog_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 		{"the resolver given to the definer", []string{
 			`ALTER FUNCTION public.resolve_identity_by_email(citext) OWNER TO tappa_identitydefiner`}, identitySignatures, "(i) owned by tappa_identitydefiner"},
 		{"SECURITY INVOKER", []string{
-			`ALTER FUNCTION public.identity_open_session(uuid, uuid, text) SECURITY INVOKER`}, identitySignatures, "(v)"},
+			`ALTER FUNCTION public.identity_open_session(uuid, uuid, text, text) SECURITY INVOKER`}, identitySignatures, "(v)"},
 		{"a search path reaching public", []string{
 			`ALTER FUNCTION public.identity_revoke_sessions(text, boolean) SET search_path = pg_catalog, public`}, identitySignatures, "(v)"},
 		{"identity_reconcile, EXECUTE in tappa_owner alone (the named exception)", append(slices.Clone(makeReconcile),
@@ -353,7 +354,7 @@ var identityADRMatrix = map[string]string{
 // identityDefinerMatrixM1404 is what 00071 grants tappa_identitydefiner: "table:VERB" -> the exact
 // column set (order free). Every relation, verb and column not listed is "no privilege".
 var identityDefinerMatrixM1404 = map[string]string{
-	"admin_identities:SELECT": "id,last_used_tenant",
+	"admin_identities:SELECT": "id,password_hash,last_used_tenant",
 	"admin_identities:UPDATE": "last_used_tenant,last_login_at",
 	"admin_users:SELECT":      "id,tenant_id,role,status,created_at,identity_id,unlinked_at",
 	"admin_users:UPDATE":      "last_login_at",
@@ -540,10 +541,10 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx) error {
 		args  []any
 	}{
 		{name: "resolve", sql: resolveIdentityByEmailSQL, args: []any{email}},
-		{name: "open, requested", sql: openIdentitySessionSQL, args: []any{ident, a, h1}},
-		{name: "open, last used", sql: openIdentitySessionSQL, args: []any{ident, nil, h2}},
+		{name: "open, requested", sql: openIdentitySessionSQL, args: []any{ident, a, h1, opFakeDigest("a")}},
+		{name: "open, last used", sql: openIdentitySessionSQL, args: []any{ident, nil, h2, opFakeDigest("a")}},
 		{name: "open, oldest", owner: `UPDATE admin_identities SET last_used_tenant = NULL WHERE id = '` + ident.String() + `'`,
-			sql: openIdentitySessionSQL, args: []any{ident, nil, h3}},
+			sql: openIdentitySessionSQL, args: []any{ident, nil, h3, opFakeDigest("a")}},
 		{name: "memberships", sql: identityMembershipsSQL, args: []any{h1}},
 		{name: "memberships, unlinked", sql: identityMembershipsSQL, args: []any{plainHash}},
 		{name: "switch", sql: switchIdentitySessionSQL, args: []any{h1, b, h4}},

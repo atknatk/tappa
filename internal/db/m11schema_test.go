@@ -111,11 +111,12 @@ var m11Tables = map[string]map[string]m11TableACL{
 	//
 	// 00071 (M14-04, ADR 0031 §5.2): the first column grants, each with the function that reads or
 	// writes it -- tappa_resolver what resolve_identity_by_email returns and filters on;
-	// tappa_identitydefiner the person's lock, the landing hint and the login stamp
+	// tappa_identitydefiner the person's lock, the landing hint, the login stamp and (2026-10-23, the
+	// user's decision) the digest identity_open_session re-checks under the lock
 	// (identitycatalog_test.go holds both inside the ADR's matrix and shows every one used).
 	"admin_identities": {
 		"tappa_resolver":        {Select: "id,email,password_hash,email_verified_at"},
-		"tappa_identitydefiner": {Select: "id,last_used_tenant", Update: "last_used_tenant,last_login_at"},
+		"tappa_identitydefiner": {Select: "id,password_hash,last_used_tenant", Update: "last_used_tenant,last_login_at"},
 	},
 	// 00037 (K-17's queue): the worker reads it, a request is queued by naming the employee
 	// (the queue's order, the lease and the tries start at their defaults), the lease and the
@@ -406,11 +407,11 @@ var m11Functions = map[string]m11FunctionACL{
 	// first four of the closed identity_* list -- EXECUTE to tappa_app alone
 	// (identitycatalog_test.go pins the signatures; identity_reconcile, M14-06b, is the one whose
 	// EXECUTE is tappa_owner's).
-	"resolve_identity_by_email(citext)":       {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
-	"identity_open_session(uuid,uuid,text)":   {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_memberships(text)":              {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_switch_session(text,uuid,text)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_revoke_sessions(text,boolean)":  {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"resolve_identity_by_email(citext)":          {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"identity_open_session(uuid,uuid,text,text)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_memberships(text)":                 {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_switch_session(text,uuid,text)":    {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_revoke_sessions(text,boolean)":     {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every

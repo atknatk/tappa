@@ -82,7 +82,7 @@ func TestIdentityAudit_TheDefinersRowsAreTheOrdinaryOnes(t *testing.T) {
 		return got[0]
 	}
 	h1, h2 := uuid.NewString()+uuid.NewString(), uuid.NewString()+uuid.NewString()
-	opened := asApp(`SELECT session_id FROM identity_open_session($1, $2, $3)`, ident, a, h1)
+	opened := asApp(`SELECT session_id FROM identity_open_session($1, $2, $3, $4)`, ident, a, h1, ownerDigest)
 	s1 := uuid.UUID(opened[0].([16]byte))
 	switched := asApp(`SELECT session_id FROM identity_switch_session($1, $2, $3)`, h1, b, h2)
 	s2 := uuid.UUID(switched[0].([16]byte))

@@ -70,7 +70,7 @@ const resolveIdentityByEmailSQL = `SELECT id, password_hash, email_verified_at, 
 FROM resolve_identity_by_email($1::citext)`
 
 const openIdentitySessionSQL = `SELECT session_id, tenant_id, admin_user_id
-FROM identity_open_session($1, $2, $3)`
+FROM identity_open_session($1, $2, $3, $4)`
 
 const identityMembershipsSQL = `SELECT tenant_id, tenant_name, role, suspended, is_current
 FROM identity_memberships($1)`
@@ -99,16 +99,19 @@ func (d *DB) ResolveIdentityByEmail(ctx context.Context, email string) (Resolved
 // OpenIdentitySession opens a panel session for an identity WHOSE PASSWORD THE CALLER VERIFIED --
 // ADR 0031 §5.2's named exception 1: the function is not keyed by a secret, so the caller's type is
 // the guarantee (internal/adminauth's verified-identity type, M14-07/08; 00011 OBLIGATION 5's
-// analogue). tenant is the business asked for, uuid.Nil for none: the session lands there if it is
-// an active membership, else in the one used last, else in the oldest. pgx.ErrNoRows: no such
-// identity, or no active membership.
-func (d *DB) OpenIdentitySession(ctx context.Context, identityID, tenant uuid.UUID, sessionHash string) (IdentitySession, error) {
+// analogue). verified is the digest the password was compared with -- ResolvedIdentity.PasswordHash,
+// handed back unchanged: the function opens nothing unless it is still the identity's digest under
+// the person's lock (the user's decision of 2026-10-23 -- a login with the old password must not
+// outlive a reset that committed while it waited). tenant is the business asked for, uuid.Nil for
+// none: the session lands there if it is an active membership, else in the one used last, else in
+// the oldest. pgx.ErrNoRows: no such identity, a stale digest, or no active membership.
+func (d *DB) OpenIdentitySession(ctx context.Context, identityID, tenant uuid.UUID, sessionHash string, verified PasswordHash) (IdentitySession, error) {
 	var want *uuid.UUID
 	if tenant != uuid.Nil {
 		want = &tenant
 	}
 	var s IdentitySession
-	if err := d.pool.QueryRow(ctx, openIdentitySessionSQL, identityID, want, sessionHash).Scan(&s.SessionID, &s.TenantID, &s.AdminUserID); err != nil {
+	if err := d.pool.QueryRow(ctx, openIdentitySessionSQL, identityID, want, sessionHash, verified.RevealForPasswordComparison()).Scan(&s.SessionID, &s.TenantID, &s.AdminUserID); err != nil {
 		return IdentitySession{}, fmt.Errorf("db: open identity session: %w", err)
 	}
 	return s, nil

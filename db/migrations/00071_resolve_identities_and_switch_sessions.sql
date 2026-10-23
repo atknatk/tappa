@@ -2,7 +2,7 @@
 -- first members of the CLOSED identity_* list -- and the column grants they need, nothing more:
 --
 --   resolve_identity_by_email(citext)                      tappa_resolver   (md.7, read-only, <= 1 row)
---   identity_open_session(uuid, uuid, text)                tappa_identitydefiner  (named exception 1)
+--   identity_open_session(uuid, uuid, text, text)          tappa_identitydefiner  (named exception 1)
 --   identity_memberships(text)                             tappa_identitydefiner  (live session)
 --   identity_switch_session(text, uuid, text)              tappa_identitydefiner  (live session, §5.4)
 --   identity_revoke_sessions(text, boolean)                tappa_identitydefiner  (live session)
@@ -95,16 +95,17 @@ $$;
 -- none): no table-level privilege anywhere, no DELETE, no UPDATE of an e-mail.
 --
 -- admin_identities: the person's lock (FOR UPDATE needs an UPDATE privilege), last_used_tenant (the
---   login's landing, the switch's hint) and last_login_at. Not email, not password_hash: no function
---   of this file reads the address or the digest -- the login compares the digest in Go, from the
---   resolver.
+--   login's landing, the switch's hint), last_login_at, and password_hash -- read, never returned:
+--   identity_open_session refuses unless the digest Go verified is still the identity's under the
+--   lock (the user's decision of 2026-10-23, ADR 0031 §5.2). Not email: no function of this file
+--   reads the address.
 -- admin_users: the membership's identity, state and role; its last_login_at, stamped as an ordinary
 --   login stamps it (MarkAdminLoggedIn) so the tenant entered sees what it sees after any login.
 -- admin_sessions: the session the secret names, the new one, the revocation.
 -- tenants: the membership list's name and suspension flag (K-10).
 -- audit_log: the ordinary rows.
 SET LOCAL lock_timeout = '1s';
-GRANT SELECT (id, last_used_tenant), UPDATE (last_used_tenant, last_login_at)
+GRANT SELECT (id, password_hash, last_used_tenant), UPDATE (last_used_tenant, last_login_at)
     ON admin_identities TO tappa_identitydefiner;
 SET LOCAL lock_timeout = '1s';
 GRANT SELECT (id, tenant_id, role, status, created_at, identity_id, unlinked_at), UPDATE (last_login_at)
@@ -174,10 +175,18 @@ GRANT EXECUTE ON FUNCTION public.resolve_identity_by_email(citext) TO tappa_app;
 -- active and not refused; the session's tenant and admin come from that row; authenticated_at is
 -- now() (the password proof just happened); the login's ordinary audit row lands in that tenant.
 -- Landing (K-4): the requested business if it is an active membership, else the one used last, else
--- the oldest active membership. 0 rows: no such identity, or no active membership (the app's flat
--- timing path makes a dummy call instead -- R14, S15).
+-- the oldest active membership. 0 rows: no such identity, no active membership (the app's flat
+-- timing path makes a dummy call instead -- R14, S15), or a STALE PROOF.
+--
+-- THE PROOF IS RE-CHECKED UNDER THE PERSON'S LOCK (the user's decision of 2026-10-23, "Kapat,
+-- M14-04'te"; ADR 0031 §5.2): p_verified_digest is the digest Go compared the typed password with,
+-- and the identity row is locked only while its password_hash still equals it. A login with the OLD
+-- password that resolved before a reset (or a password change) committed would otherwise wait on the
+-- lock and then open a session AFTER the reset -- the very thing the reset was for. Under READ
+-- COMMITTED the FOR UPDATE re-evaluates the predicate on the committed row: a changed digest is 0
+-- rows, no session, no audit row. The digest is read, never returned.
 -- +goose StatementBegin
-CREATE FUNCTION public.identity_open_session(p_identity_id uuid, p_tenant uuid, p_token_hash text)
+CREATE FUNCTION public.identity_open_session(p_identity_id uuid, p_tenant uuid, p_token_hash text, p_verified_digest text)
     RETURNS TABLE (session_id uuid, tenant_id uuid, admin_user_id uuid)
     LANGUAGE plpgsql
     VOLATILE
@@ -191,40 +200,39 @@ DECLARE
     v_admin   uuid;
     v_session uuid;
 BEGIN
-    IF p_identity_id IS NULL OR p_token_hash IS NULL THEN
+    IF p_identity_id IS NULL OR p_token_hash IS NULL OR p_verified_digest IS NULL THEN
         RETURN;
     END IF;
 
-    -- The person's lock (the order every identity_* writer takes it in), and the landing hint.
+    -- The person's lock (the order every identity_* writer takes it in), the proof still current,
+    -- and the landing hint.
     SELECT i.last_used_tenant INTO v_last
       FROM public.admin_identities AS i
      WHERE i.id = p_identity_id
+       AND i.password_hash = p_verified_digest
        FOR UPDATE;
     IF NOT FOUND THEN
         RETURN;
     END IF;
 
+    -- Each branch sets v_admin and v_tenant from the membership row it found (SELECT INTO leaves
+    -- both NULL when it finds none) -- never by assignment: the belt trusts a variable as a tenant
+    -- only when a statement that names its tenant wrote it (identitybelt_test.go).
     IF p_tenant IS NOT NULL THEN
-        SELECT a.id INTO v_admin
+        SELECT a.id, a.tenant_id INTO v_admin, v_tenant
           FROM public.admin_users AS a
          WHERE a.tenant_id = p_tenant
            AND a.identity_id = p_identity_id
            AND a.status = 'active'
            AND a.unlinked_at IS NULL;
-        IF FOUND THEN
-            v_tenant := p_tenant;
-        END IF;
     END IF;
     IF v_tenant IS NULL AND v_last IS NOT NULL THEN
-        SELECT a.id INTO v_admin
+        SELECT a.id, a.tenant_id INTO v_admin, v_tenant
           FROM public.admin_users AS a
          WHERE a.tenant_id = v_last
            AND a.identity_id = p_identity_id
            AND a.status = 'active'
            AND a.unlinked_at IS NULL;
-        IF FOUND THEN
-            v_tenant := v_last;
-        END IF;
     END IF;
     IF v_tenant IS NULL THEN
         -- NAMED TENANT-WIDE READ (the oldest active membership): bounded by the identity and LIMIT 1.
@@ -263,9 +271,9 @@ BEGIN
 END;
 $$;
 -- +goose StatementEnd
-ALTER FUNCTION public.identity_open_session(uuid, uuid, text) OWNER TO tappa_identitydefiner;
-REVOKE ALL ON FUNCTION public.identity_open_session(uuid, uuid, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.identity_open_session(uuid, uuid, text) TO tappa_app;
+ALTER FUNCTION public.identity_open_session(uuid, uuid, text, text) OWNER TO tappa_identitydefiner;
+REVOKE ALL ON FUNCTION public.identity_open_session(uuid, uuid, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.identity_open_session(uuid, uuid, text, text) TO tappa_app;
 
 -- ---------------------------------------------------------------------------
 -- 4. identity_memberships (ADR 0031 §5.2; K-5, K-10)
@@ -471,6 +479,7 @@ AS $$
 #variable_conflict error
 DECLARE
     v_session  uuid;
+    v_tenant   uuid;
     v_identity uuid;
     v_n        integer := 0;
     m          record;
@@ -480,7 +489,7 @@ BEGIN
         RETURN;
     END IF;
 
-    SELECT s.id, a.identity_id INTO v_session, v_identity
+    SELECT s.id, s.tenant_id, a.identity_id INTO v_session, v_tenant, v_identity
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_session_hash
@@ -496,6 +505,22 @@ BEGIN
        FROM public.admin_identities AS i
       WHERE i.id = v_identity
         FOR UPDATE;
+    -- The session again, under its own lock (the M14-04 security audit): a call that resolved its
+    -- session before a concurrent sign-out-everywhere or reset committed must not go on to revoke the
+    -- sessions that came after -- a session revoked meanwhile is no key any more.
+    PERFORM 1
+       FROM public.admin_sessions AS s
+       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+      WHERE s.id = v_session
+        AND s.tenant_id = v_tenant
+        AND s.revoked_at IS NULL
+        AND a.status = 'active'
+        AND a.unlinked_at IS NULL
+        AND a.identity_id = v_identity
+        FOR UPDATE OF s;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
 
     -- NAMED TENANT-WIDE READ (the driver): the identity's memberships; every write below is pinned
     -- to one of them, tenant and row.
@@ -592,7 +617,7 @@ GRANT INSERT ON admin_sessions TO tappa_app;
 DROP FUNCTION public.identity_revoke_sessions(text, boolean);
 DROP FUNCTION public.identity_switch_session(text, uuid, text);
 DROP FUNCTION public.identity_memberships(text);
-DROP FUNCTION public.identity_open_session(uuid, uuid, text);
+DROP FUNCTION public.identity_open_session(uuid, uuid, text, text);
 DROP FUNCTION public.resolve_identity_by_email(citext);
 
 SET LOCAL lock_timeout = '1s';
@@ -612,5 +637,5 @@ SET LOCAL lock_timeout = '1s';
 REVOKE SELECT (id, tenant_id, role, status, created_at, identity_id, unlinked_at), UPDATE (last_login_at)
     ON admin_users FROM tappa_identitydefiner;
 SET LOCAL lock_timeout = '1s';
-REVOKE SELECT (id, last_used_tenant), UPDATE (last_used_tenant, last_login_at)
+REVOKE SELECT (id, password_hash, last_used_tenant), UPDATE (last_used_tenant, last_login_at)
     ON admin_identities FROM tappa_identitydefiner;

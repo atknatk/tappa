@@ -201,7 +201,7 @@ SELECT line FROM (
 // A line is added here only together with the migration that makes it true, and with the reason
 // in that migration (or, for an M11 object, in m11schema_test.go's matrix).
 const privCatalogAllowed = `
-column admin_identities tappa_identitydefiner SELECT id,last_used_tenant
+column admin_identities tappa_identitydefiner SELECT id,password_hash,last_used_tenant
 column admin_identities tappa_identitydefiner UPDATE last_used_tenant,last_login_at
 column admin_identities tappa_resolver SELECT id,email,password_hash,email_verified_at
 column admin_sessions tappa_app INSERT id,tenant_id,admin_user_id,token_hash
@@ -332,7 +332,7 @@ function holding_site_locations(uuid) owner=tappa_holdingdefiner definer=true ex
 function holding_tap_site(character) owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
 function holding_timezone_lock() owner=tappa_holdingdefiner definer=true execute=tappa_holdingdefiner
 function identity_memberships(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
-function identity_open_session(uuid,uuid,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function identity_open_session(uuid,uuid,text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_revoke_sessions(text,boolean) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_switch_session(text,uuid,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function op_add_holding_member(text,uuid,uuid) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator

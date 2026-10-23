@@ -158,7 +158,7 @@ func TestIdentityOpenSession_LandsRequestedThenLastUsedThenOldest(t *testing.T) 
 	w := idNewWorld(t, ctx, tx)
 	aiExec(t, ctx, tx, `UPDATE admin_users SET created_at = created_at - interval '1 day' WHERE id = $1`, w.mb)
 	open := func(tenant any) (uuid.UUID, uuid.UUID, uuid.UUID, int) {
-		rows, err := idAs(t, ctx, tx, openIdentitySessionSQL, w.ident, tenant, opRandHex(t))
+		rows, err := idAs(t, ctx, tx, openIdentitySessionSQL, w.ident, tenant, opRandHex(t), opFakeDigest("a"))
 		if err != nil {
 			t.Fatalf("identity_open_session: %v", err)
 		}
@@ -206,7 +206,7 @@ func TestIdentityOpenSession_LandsRequestedThenLastUsedThenOldest(t *testing.T) 
 	if _, _, _, n := open(nil); n != 0 {
 		t.Fatal("every membership disabled: a session was opened")
 	}
-	if rows, err := idAs(t, ctx, tx, openIdentitySessionSQL, uuid.New(), nil, opRandHex(t)); err != nil || len(rows) != 0 {
+	if rows, err := idAs(t, ctx, tx, openIdentitySessionSQL, uuid.New(), nil, opRandHex(t), opFakeDigest("a")); err != nil || len(rows) != 0 {
 		t.Fatalf("an identity that does not exist: %d rows, %v", len(rows), err)
 	}
 	if after := idCount(t, ctx, tx, `SELECT count(*) FROM admin_sessions`); after != before {
@@ -633,11 +633,11 @@ func TestIdentitySwitch_ConcurrentSwitchesOpenExactlyOneSession(t *testing.T) {
 		t.Fatalf("ResolveIdentityByEmail of an unknown address: %v, want pgx.ErrNoRows", err)
 	}
 	h := opRandHex(t)
-	opened, err := app.OpenIdentitySession(ctx, w.ident, uuid.Nil, h)
+	opened, err := app.OpenIdentitySession(ctx, w.ident, uuid.Nil, h, r.PasswordHash)
 	if err != nil || opened.TenantID != w.a || opened.AdminUserID != w.ma {
 		t.Fatalf("OpenIdentitySession: %+v, %v; want A (the business used last)", opened, err)
 	}
-	if _, err := app.OpenIdentitySession(ctx, uuid.New(), w.a, opRandHex(t)); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := app.OpenIdentitySession(ctx, uuid.New(), w.a, opRandHex(t), r.PasswordHash); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("OpenIdentitySession of no identity: %v, want pgx.ErrNoRows", err)
 	}
 	ms, err := app.IdentityMemberships(ctx, h)
@@ -794,5 +794,168 @@ func TestAdminSessions00071_TheApplicationCannotChooseAuthenticatedAt(t *testing
 		return err
 	}); err != nil {
 		t.Fatalf("the binary before 00071 (CreateAdminSession) and the explicit-id fixture: %v", err)
+	}
+}
+
+// ------------------------------------------- the person's lock against a late call --
+
+// idCommittedWorld commits an idWorld (other connections must see it) and takes its identities back
+// at the end (00069's Down refuses while one exists); sessions, business rows and audit rows stay,
+// as every package's committed panel fixtures do.
+func idCommittedWorld(t *testing.T) (*DB, *DB, idWorld) {
+	t.Helper()
+	app, owner := appDB(t), ownerDB(t)
+	ctx := context.Background()
+	var w idWorld
+	if err := pgx.BeginFunc(ctx, owner.pool, func(tx pgx.Tx) error {
+		w = idNewWorld(t, ctx, tx)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		err := pgx.BeginFunc(context.Background(), owner.pool, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(context.Background(), `UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL, unlinked_at = NULL
+			                                             WHERE identity_id IN ($1, $2)`, w.ident, w.other); err != nil {
+				return err
+			}
+			_, err := tx.Exec(context.Background(), `DELETE FROM admin_identities WHERE id IN ($1, $2)`, w.ident, w.other)
+			return err
+		})
+		if err != nil {
+			t.Errorf("take the committed identities back: %v", err)
+		}
+	})
+	return app, owner, w
+}
+
+// idHoldThePerson begins an owner transaction that takes the person's lock (the identity row FOR
+// UPDATE, as every identity_* writer does first) and runs more statements in it; the caller commits.
+func idHoldThePerson(t *testing.T, owner *DB, ident uuid.UUID, stmts ...[]any) pgx.Tx {
+	t.Helper()
+	ctx := context.Background()
+	held, err := owner.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = held.Rollback(context.Background()) })
+	if _, err := held.Exec(ctx, `SELECT 1 FROM admin_identities WHERE id = $1 FOR UPDATE`, ident); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range stmts {
+		if _, err := held.Exec(ctx, s[0].(string), s[1:]...); err != nil {
+			t.Fatalf("%s: %v", s[0], err)
+		}
+	}
+	return held
+}
+
+// idWaitForLock waits until n statements calling fn wait on a lock in the database.
+func idWaitForLock(t *testing.T, owner *DB, fn string, n int64) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var waiting int64
+		if err := owner.pool.QueryRow(context.Background(), `SELECT count(*) FROM pg_stat_activity
+		                                                       WHERE wait_event_type = 'Lock' AND query LIKE '%' || $1 || '%'`, fn).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting == n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("PREMISE: %d of %d %s call(s) are waiting on a lock after 15 s", waiting, n, fn)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestIdentityOpenSession_AStaleProofOpensNothing (the user's decision of 2026-10-23, "Kapat,
+// M14-04'te"; ADR 0031 §5.2): identity_open_session opens a session only while the digest Go verified
+// is still the identity's under the person's lock.
+//   - A stale digest: 0 rows, no session, no audit row.
+//   - THE RACE: a login with the old password has resolved; a reset (here: the digest changed under
+//     the person's lock, in another connection) is in flight; the login's open waits on the lock;
+//     the reset commits -- the open must answer pgx.ErrNoRows, and no session or audit row exists.
+func TestIdentityOpenSession_AStaleProofOpensNothing(t *testing.T) {
+	t.Run("a stale digest", func(t *testing.T) {
+		ctx, tx := opTx(t)
+		w := idNewWorld(t, ctx, tx)
+		rows, err := idAs(t, ctx, tx, openIdentitySessionSQL, w.ident, w.a, opRandHex(t), opFakeDigest("b"))
+		if err != nil || len(rows) != 0 {
+			t.Fatalf("a digest that is not the identity's: %v, %v; want 0 rows", rows, err)
+		}
+		if n := idCount(t, ctx, tx, `SELECT (SELECT count(*) FROM admin_sessions WHERE admin_user_id IN ($1, $2))
+		                                  + (SELECT count(*) FROM audit_log WHERE tenant_id IN ($3, $4))`, w.ma, w.mb, w.a, w.b); n != 0 {
+			t.Fatalf("a refused open wrote %d row(s)", n)
+		}
+	})
+	t.Run("a reset that commits while the open waits", func(t *testing.T) {
+		app, owner, w := idCommittedWorld(t)
+		ctx := context.Background()
+		r, err := app.ResolveIdentityByEmail(ctx, w.email)
+		if err != nil {
+			t.Fatal(err)
+		}
+		held := idHoldThePerson(t, owner, w.ident, []any{`UPDATE admin_identities SET password_hash = $2 WHERE id = $1`, w.ident, opFakeDigest("c")})
+		done := make(chan error, 1)
+		go func() {
+			_, err := app.OpenIdentitySession(ctx, w.ident, w.a, opRandHex(t), r.PasswordHash)
+			done <- err
+		}()
+		idWaitForLock(t, owner, "identity_open_session", 1)
+		if err := held.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-done; !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("the login with the old password answered %v after the reset, want pgx.ErrNoRows", err)
+		}
+		var n int64
+		if err := owner.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM admin_sessions WHERE admin_user_id IN ($1, $2))
+		                                         + (SELECT count(*) FROM audit_log WHERE tenant_id IN ($3, $4))`, w.ma, w.mb, w.a, w.b).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Fatalf("the late login left %d session/audit row(s)", n)
+		}
+	})
+}
+
+// TestIdentityRevokeSessions_ALateCallFromARevokedSessionRevokesNothing (the M14-04 security audit):
+// a sign-out-everywhere that resolved its session before another writer -- holding the person's lock
+// -- revoked that session and opened a fresh one, must not revoke the fresh one once it gets the lock:
+// it re-reads its own session under the lock, finds it revoked and answers 0 rows.
+func TestIdentityRevokeSessions_ALateCallFromARevokedSessionRevokesNothing(t *testing.T) {
+	app, owner, w := idCommittedWorld(t)
+	ctx := context.Background()
+	var stale string
+	if err := pgx.BeginFunc(ctx, owner.pool, func(tx pgx.Tx) error {
+		stale = idSession(t, ctx, tx, w.a, w.ma, nil)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fresh := opRandHex(t)
+	held := idHoldThePerson(t, owner, w.ident,
+		[]any{`UPDATE admin_sessions SET revoked_at = now() WHERE token_hash = $1`, stale},
+		[]any{`INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3)`, w.b, w.mb, fresh})
+	done := make(chan error, 1)
+	go func() {
+		_, err := app.RevokeIdentitySessions(ctx, stale, false)
+		done <- err
+	}()
+	idWaitForLock(t, owner, "identity_revoke_sessions", 1)
+	if err := held.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("the late call from a revoked session answered %v, want pgx.ErrNoRows", err)
+	}
+	var live bool
+	if err := owner.pool.QueryRow(ctx, `SELECT revoked_at IS NULL FROM admin_sessions WHERE token_hash = $1`, fresh).Scan(&live); err != nil {
+		t.Fatal(err)
+	}
+	if !live {
+		t.Fatal("the fresh session was revoked by a call whose own session was already revoked")
 	}
 }
