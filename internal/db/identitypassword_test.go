@@ -401,49 +401,159 @@ func TestRLS_IdentityTables_TheApplicationReadsAndWritesNothing(t *testing.T) {
 	}
 }
 
-// ipSecretScope / ipIdentityScope are the two read markers of 00072's belt (its header).
+// THE BELT SCANNER (00072's header; M14-05's security audit, DÜŞÜK-3). Fail closed, reference by
+// reference: comments are stripped except the two exact markers, string literals are emptied, a
+// quoted identifier is a finding, and every `public.<tenant table>` reference is judged on its OWN
+// alias:
+//   - a write (UPDATE / DELETE) needs `<alias>.tenant_id = <bound>`; an INSERT into audit_log needs
+//     its tenant_id VALUE from a bound name; a write never carries a marker;
+//   - a read needs `<alias>.tenant_id = <bound>`, or its own secret key `<alias>.token_hash = p_x /*
+//     secret-scope */`, or its own identity key `<alias>.identity_id = v_identity /* identity-scope
+//     */`, or a join `<alias>.tenant_id = <other>.tenant_id` to a reference that is anchored itself;
+//   - <bound> is a v_ / p_ name or `<r>.tenant_id` of a record declared by `FOR <r> IN`;
+//   - an anchoring predicate counts only where no OR sits beside it in its parenthesis group.
+//
+// The e-mail rule: no `<alias>.email` compared with a v_ / p_ name, either way round, except the
+// ADR's one predicate (identity_relink_refused: the refused row has the identity's address -- T4).
 var (
-	ipTenantTable  = regexp.MustCompile(`(?i)\bpublic\.(admin_users|admin_sessions|password_resets|audit_log|tenants)\b`)
-	ipWriteStmt    = regexp.MustCompile(`(?i)\b(update\s+public\.(admin_users|admin_sessions|password_resets|tenants)|insert\s+into\s+public\.(audit_log|admin_users|admin_sessions|password_resets)|delete\s+from\s+public\.(admin_users|admin_sessions|password_resets|audit_log|tenants))\b`)
-	ipBoundTenant  = regexp.MustCompile(`(?i)\btenant_id\s*=\s*(v_\w+|p_\w+|m\.tenant_id)\b`)
-	ipAuditInsert  = regexp.MustCompile(`(?is)insert\s+into\s+public\.audit_log\s*\(\s*tenant_id\b[^)]*\)\s*values\s*\(\s*(v_\w+|p_\w+|m\.tenant_id)\b`)
-	ipSecretRead   = regexp.MustCompile(`(?i)token_hash\s*=\s*p_\w+\s*/\* secret-scope \*/`)
-	ipIdentityRead = regexp.MustCompile(`(?i)identity_id\s*=\s*v_identity\s*/\* identity-scope \*/`)
-	ipEmailKey     = regexp.MustCompile(`(?i)email\s*(=|operator\s*\(\s*public\.=\s*\))\s*p_\w+`)
-	ipChunkSplit   = regexp.MustCompile(`(?i);|\bloop\b|\bthen\b|\belse\b`)
 	ipLineComment  = regexp.MustCompile(`--[^\n]*`)
+	ipBlockComment = regexp.MustCompile(`(?s)/\*.*?\*/`)
+	ipStringLit    = regexp.MustCompile(`'(?:[^']|'')*'`)
+	ipChunkSplit   = regexp.MustCompile(`(?i);|\bloop\b|\bthen\b|\belse\b`)
+	ipTableRef     = regexp.MustCompile(`(?i)(?:\b(delete\s+from|update|insert\s+into|from|join)\s+|[,(]\s*|)public\.(admin_users|admin_sessions|password_resets|audit_log|tenants)\b(?:\s+(?:as\s+)?([a-z_][a-z0-9_]*))?`)
+	ipForRecord    = regexp.MustCompile(`(?i)\bfor\s+([a-z_][a-z0-9_]*)\s+in\b`)
+	ipEmailCmp     = regexp.MustCompile(`(?i)\b[a-z_][a-z0-9_]*\.email\s*(?:=|operator\s*\(\s*public\.=\s*\))\s*[pv]_\w+|\b[pv]_\w+\s*(?:=|operator\s*\(\s*public\.=\s*\))\s*[a-z_][a-z0-9_]*\.email\b`)
+	ipAliasStop    = map[string]bool{"where": true, "set": true, "on": true, "values": true, "join": true, "using": true, "for": true, "returning": true, "select": true, "order": true, "limit": true}
 )
 
-// ipBeltFindings reads one body (prosrc) and returns each statement that breaks 00072's belt:
-// a write on a tenant table without its tenant bound to a variable, a marker on a write, a read on a
-// tenant table that neither binds its tenant nor is a marked secret or identity lookup, and any
-// comparison of an e-mail with a parameter (no writer resolves by e-mail -- bulgu 2).
-func ipBeltFindings(body string) []string {
+// ipEmailAllowed is the e-mail comparison the ADR names (T4), by function.
+var ipEmailAllowed = map[string]string{"identity_relink_refused": "a.email operator(public.=) v_email"}
+
+// ipOrFree reports whether the text at pos sits in a parenthesis group with no OR at its own depth.
+func ipOrFree(text string, pos int) bool {
+	lower := strings.ToLower(text)
+	start, depth := 0, 0
+	for i := pos - 1; i >= 0 && start == 0; i-- {
+		switch lower[i] {
+		case ')':
+			depth++
+		case '(':
+			if depth == 0 {
+				start = i + 1
+			} else {
+				depth--
+			}
+		}
+	}
+	depth = 0
+	for i := start; i < len(lower); i++ {
+		switch lower[i] {
+		case '(':
+			depth++
+		case ')':
+			if depth == 0 {
+				return true
+			}
+			depth--
+		default:
+			if depth == 0 && strings.HasPrefix(lower[i:], "or") &&
+				(i == 0 || !isWordByte(lower[i-1])) && (i+2 == len(lower) || !isWordByte(lower[i+2])) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isWordByte(b byte) bool { return b == '_' || b >= 'a' && b <= 'z' || b >= '0' && b <= '9' }
+
+// ipHas reports an OR-free match of pattern in chunk.
+func ipHas(chunk, pattern string) bool {
+	re := regexp.MustCompile(`(?i)` + pattern)
+	for _, loc := range re.FindAllStringIndex(chunk, -1) {
+		if ipOrFree(chunk, loc[0]) {
+			return true
+		}
+	}
+	return false
+}
+
+// ipBeltFindings returns every reference of one body (prosrc of function fn) that breaks the belt.
+func ipBeltFindings(fn, body string) []string {
 	var out []string
 	body = ipLineComment.ReplaceAllString(body, "")
-	if ipEmailKey.MatchString(body) {
-		out = append(out, "an e-mail compared with a parameter: "+ipEmailKey.FindString(body))
+	body = strings.NewReplacer("/* secret-scope */", " __secret_scope__ ", "/* identity-scope */", " __identity_scope__ ").Replace(body)
+	body = ipBlockComment.ReplaceAllString(body, " ")
+	body = ipStringLit.ReplaceAllString(body, "''")
+	if strings.Contains(body, `"`) {
+		out = append(out, "a quoted identifier (the scanner does not read them)")
 	}
+	allowed := ipEmailAllowed[fn]
+	for _, m := range ipEmailCmp.FindAllString(body, -1) {
+		if strings.ToLower(strings.Join(strings.Fields(m), " ")) != allowed {
+			out = append(out, "an e-mail compared with a name: "+m)
+		}
+	}
+	bound := `(?:v_\w+|p_\w+`
+	for _, m := range ipForRecord.FindAllStringSubmatch(body, -1) {
+		bound += `|` + regexp.QuoteMeta(m[1]) + `\.tenant_id`
+	}
+	bound += `)\b`
 	for _, chunk := range ipChunkSplit.Split(body, -1) {
-		if !ipTenantTable.MatchString(chunk) {
+		refs := ipTableRef.FindAllStringSubmatch(chunk, -1)
+		if len(refs) == 0 {
 			continue
 		}
 		flat := strings.Join(strings.Fields(chunk), " ")
-		switch {
-		case ipWriteStmt.MatchString(chunk):
-			if strings.Contains(chunk, "-scope */") {
-				out = append(out, "a scope marker on a write: "+flat)
+		anchored := map[string]bool{}
+		var reads []string
+		for _, r := range refs {
+			verb, table, alias := strings.ToLower(strings.Join(strings.Fields(r[1]), " ")), strings.ToLower(r[2]), strings.ToLower(r[3])
+			if alias == "" || ipAliasStop[alias] {
+				alias = table
 			}
-			if regexp.MustCompile(`(?i)insert\s+into\s+public\.audit_log`).MatchString(chunk) {
-				if !ipAuditInsert.MatchString(chunk) {
-					out = append(out, "an audit row whose tenant is not a variable: "+flat)
+			q := regexp.QuoteMeta(alias)
+			switch verb {
+			case "insert into":
+				if table != "audit_log" || !regexp.MustCompile(`(?is)insert\s+into\s+public\.audit_log\s*\(\s*tenant_id\b[^)]*\)\s*values\s*\(\s*`+bound).MatchString(chunk) {
+					out = append(out, "an insert whose tenant is not a bound name: "+flat)
 				}
-			} else if !ipBoundTenant.MatchString(chunk) {
-				out = append(out, "a write without its tenant: "+flat)
+			case "update", "delete from":
+				if strings.Contains(chunk, "__secret_scope__") || strings.Contains(chunk, "__identity_scope__") {
+					out = append(out, "a scope marker in a write: "+flat)
+				}
+				if !ipHas(chunk, `\b`+q+`\.tenant_id\s*=\s*`+bound) {
+					out = append(out, "a write without its own tenant: "+flat)
+				}
+			default:
+				if ipHas(chunk, `\b`+q+`\.tenant_id\s*=\s*`+bound) ||
+					ipHas(chunk, `\b`+q+`\.token_hash\s*=\s*p_\w+\s*__secret_scope__`) ||
+					ipHas(chunk, `\b`+q+`\.identity_id\s*=\s*v_identity\s*__identity_scope__`) {
+					anchored[alias] = true
+				} else {
+					reads = append(reads, alias)
+				}
 			}
-		default:
-			if !ipBoundTenant.MatchString(chunk) && !ipSecretRead.MatchString(chunk) && !ipIdentityRead.MatchString(chunk) {
-				out = append(out, "a read that neither binds its tenant nor is a marked lookup: "+flat)
+		}
+		for changed := true; changed; {
+			changed = false
+			for _, alias := range reads {
+				if anchored[alias] {
+					continue
+				}
+				q := regexp.QuoteMeta(alias)
+				for other := range anchored {
+					o := regexp.QuoteMeta(other)
+					if ipHas(chunk, `\b`+q+`\.tenant_id\s*=\s*`+o+`\.tenant_id\b`) || ipHas(chunk, `\b`+o+`\.tenant_id\s*=\s*`+q+`\.tenant_id\b`) {
+						anchored[alias], changed = true, true
+						break
+					}
+				}
+			}
+		}
+		for _, alias := range reads {
+			if !anchored[alias] {
+				out = append(out, "a read of "+alias+" with neither its tenant, its own marked key nor a join to an anchored one: "+flat)
 			}
 		}
 	}
@@ -451,9 +561,9 @@ func ipBeltFindings(body string) []string {
 }
 
 // TestIdentity00072_EveryTenantStatementCarriesItsTenant is the card's text scan (ADR 0031 §5.2,
-// §6): the bodies of this card's eleven identity_* writers, read from pg_proc, keep 00072's belt
-// and never key on an e-mail parameter. The controls show the scan sees a missing predicate, a
-// marker on a write and an e-mail key.
+// §6): the bodies of this card's identity_* writers, read from pg_proc, keep 00072's belt reference
+// by reference and never compare an e-mail with a name but the ADR's one. The controls show the scan
+// sees each way of breaking it, and passes the clean shapes.
 func TestIdentity00072_EveryTenantStatementCarriesItsTenant(t *testing.T) {
 	ctx, tx := opTx(t)
 	checked := 0
@@ -465,7 +575,7 @@ func TestIdentity00072_EveryTenantStatementCarriesItsTenant(t *testing.T) {
 		if err := tx.QueryRow(ctx, `SELECT prosrc FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = $1`, f.name).Scan(&body); err != nil {
 			t.Fatalf("%s: %v", f.name, err)
 		}
-		for _, finding := range ipBeltFindings(body) {
+		for _, finding := range ipBeltFindings(f.name, body) {
 			t.Errorf("%s: %s", f.name, finding)
 		}
 		checked++
@@ -476,13 +586,29 @@ func TestIdentity00072_EveryTenantStatementCarriesItsTenant(t *testing.T) {
 	for _, c := range []struct{ what, body string }{
 		{"a write with no tenant", "UPDATE public.admin_users a SET password_hash = p_new_hash WHERE a.id = m.id;"},
 		{"a join is not a bound tenant", "UPDATE public.admin_sessions s SET revoked_at = now() FROM public.admin_users a WHERE s.tenant_id = a.tenant_id;"},
-		{"a marker on a write", "UPDATE public.admin_users a SET x = 1 WHERE a.token_hash = p_h /* secret-scope */ AND a.tenant_id = v_tenant;"},
+		{"a marker in a write", "UPDATE public.admin_users a SET x = 1 WHERE a.token_hash = p_h /* secret-scope */ AND a.tenant_id = v_tenant;"},
 		{"an unmarked read", "SELECT a.id FROM public.admin_users a WHERE a.identity_id = v_identity;"},
+		{"a marker that is another reference's", "SELECT 1 FROM public.admin_sessions s, public.admin_users a WHERE s.token_hash = p_h /* secret-scope */ AND a.id = s.admin_user_id;"},
+		{"an anchor beside an OR", "SELECT 1 FROM public.admin_users a WHERE a.tenant_id = v_t OR a.id = v_x;"},
+		{"a write inside a CTE", "WITH w AS (UPDATE public.admin_users a SET status = 'x' WHERE a.id = v_x RETURNING 1) SELECT count(*) FROM w;"},
+		{"a loop record that is not declared", "UPDATE public.admin_users a SET status = 'x' WHERE a.id = q.id AND a.tenant_id = q.tenant_id;"},
 		{"an audit row from a column", "INSERT INTO public.audit_log (tenant_id, action) SELECT a.tenant_id, 'x' FROM public.admin_users a WHERE a.tenant_id = v_t;"},
-		{"an e-mail key", "SELECT i.id FROM public.admin_identities i WHERE i.email OPERATOR(public.=) p_email;"},
+		{"a quoted identifier", `SELECT 1 FROM public."admin_users" a WHERE a.tenant_id = v_t;`},
+		{"an e-mail key by parameter", "SELECT i.id FROM public.admin_identities i WHERE i.email OPERATOR(public.=) p_email;"},
+		{"an e-mail key by variable", "SELECT i.id FROM public.admin_identities i WHERE v_email = i.email;"},
 	} {
-		if len(ipBeltFindings(c.body)) == 0 {
+		if len(ipBeltFindings("control", c.body)) == 0 {
 			t.Errorf("control %q: the scan found nothing", c.what)
+		}
+	}
+	// And the controls' clean twins pass (the scanner is not simply red).
+	for _, body := range []string{
+		"SELECT 1 FROM public.admin_sessions s JOIN public.admin_users a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id WHERE s.token_hash = p_h /* secret-scope */;",
+		"FOR m IN SELECT a.id FROM public.admin_users a WHERE a.identity_id = v_identity /* identity-scope */ LOOP UPDATE public.admin_users a SET x = 1 WHERE a.id = m.id AND a.tenant_id = m.tenant_id; END LOOP;",
+		"INSERT INTO public.audit_log (tenant_id, action) VALUES (v_t, 'x');",
+	} {
+		if f := ipBeltFindings("control", body); len(f) != 0 {
+			t.Errorf("clean control flagged: %v", f)
 		}
 	}
 }
@@ -1669,6 +1795,237 @@ func TestIdentityOpenReset_ConcurrentRequestsIssueOneLink(t *testing.T) {
 	}
 }
 
+// ipRaceWorld is a COMMITTED fixture for the lock tests (their two sides are separate transactions):
+// identity I with a linked row in T and the attacker's fresh session on it, a membership in X linked
+// 'password' three days ago (on the reset list), an unlinked row of I's address in Y with a fresh
+// session, and the victim's live identity reset link. t.Cleanup unlinks the rows and removes the
+// identity's links, events and the identity (tenants, rows, sessions and audit rows stay, as other
+// committed DB tests leave theirs -- audit_log is append-only).
+type ipRaceWorld struct {
+	identity     uuid.UUID
+	t, x, y      uuid.UUID
+	rowX, rowY   uuid.UUID
+	sA, sY, link string
+}
+
+func ipNewRaceWorld(t *testing.T, ctx context.Context, owner *pgx.Conn) ipRaceWorld {
+	t.Helper()
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := owner.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	w := ipRaceWorld{t: uuid.New(), x: uuid.New(), y: uuid.New(), rowX: uuid.New(), rowY: uuid.New(), sA: opRandHex(t), sY: opRandHex(t), link: opRandHex(t)}
+	email, digest := ipEmail(), opFakeDigest("d")
+	for _, tenant := range []uuid.UUID{w.t, w.x, w.y} {
+		exec(`INSERT INTO tenants (id, name, vat_number, business_type, structure) VALUES ($1, 'm14-05 race', $2, 'restaurant', 'single')`, tenant, "VAT-M1405R-"+tenant.String())
+	}
+	if err := owner.QueryRow(ctx, `INSERT INTO admin_identities (email, password_hash) VALUES ($1, $2) RETURNING id`, email, digest).Scan(&w.identity); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, sql := range []string{
+			`UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL, unlinked_at = NULL WHERE tenant_id = ANY ($2) AND $1::uuid IS NOT NULL`,
+			`DELETE FROM admin_identity_events WHERE identity_id = $1 AND $2::uuid[] IS NOT NULL`,
+			`DELETE FROM admin_identity_resets WHERE identity_id = $1 AND $2::uuid[] IS NOT NULL`,
+			`DELETE FROM admin_identities WHERE id = $1 AND $2::uuid[] IS NOT NULL`,
+		} {
+			if _, err := owner.Exec(context.Background(), sql, w.identity, []uuid.UUID{w.t, w.x, w.y}); err != nil {
+				t.Errorf("cleanup %s: %v", sql, err)
+			}
+		}
+	})
+	rowT := uuid.New()
+	exec(`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'R', $3, $4, 'owner'), ($5, $6, 'R', $3, $4, 'owner'), ($7, $8, 'R', $3, $4, 'owner')`,
+		rowT, w.t, email, digest, w.rowX, w.x, w.rowY, w.y)
+	exec(`UPDATE admin_users SET identity_id = $2, linked_via = 'backfill', linked_at = now() - interval '30 days' WHERE id = $1`, rowT, w.identity)
+	exec(`UPDATE admin_users SET identity_id = $2, linked_via = 'password', linked_at = now() - interval '3 days' WHERE id = $1`, w.rowX, w.identity)
+	exec(`INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash, authenticated_at) VALUES ($1, $2, $3, now()), ($4, $5, $6, now())`, w.t, rowT, w.sA, w.y, w.rowY, w.sY)
+	exec(`INSERT INTO admin_identity_resets (identity_id, token_hash, expires_at) VALUES ($1, $2, now() + interval '1 hour')`, w.identity, w.link)
+	// An open reset window (X's link predates it), so the unlink's lock-taking read matches the
+	// committed identity and the call reaches the lock.
+	exec(`UPDATE admin_identities SET email_verified_at = now() - interval '2 days', confirm_opened_at = now() - interval '1 day',
+	             confirm_open_until = now() + interval '6 days', confirm_scope = 'reset' WHERE id = $1`, w.identity)
+	return w
+}
+
+// TestIdentityWriters_RecheckTheSessionUnderTheIdentityLock is the M14-05 security audit's YÜKSEK
+// (measured on 17.10): the victim's identity_consume_reset holds the identity lock in an open
+// transaction (and has revoked every session of the identity, uncommitted); the attacker's call with a
+// session that was live when it read it waits on that lock; once the reset commits, the call must
+// answer 0 rows -- identity_set_password leaves the victim's new digest, identity_unlink_backfilled
+// leaves the membership linked, identity_link_legacy links nothing. The attacker is seen waiting on a
+// lock (pg_stat_activity) before the victim commits, so the interleaving is real, not lucky.
+func TestIdentityWriters_RecheckTheSessionUnderTheIdentityLock(t *testing.T) {
+	d := appDB(t)
+	ctx := context.Background()
+	owner, err := pgx.Connect(ctx, opOwnerDSN(t))
+	if err != nil {
+		t.Fatalf("connect as the owner: %v", err)
+	}
+	t.Cleanup(func() { _ = owner.Close(context.Background()) })
+	victimDigest := opFakeDigest("v")
+
+	for _, c := range []struct {
+		name  string
+		call  func(w ipRaceWorld) (string, []any)
+		after func(t *testing.T, w ipRaceWorld)
+	}{
+		{"identity_set_password", func(w ipRaceWorld) (string, []any) {
+			return `SELECT * FROM identity_set_password($1, $2)`, []any{w.sA, opFakeDigest("e")}
+		}, func(t *testing.T, w ipRaceWorld) {
+			var got string
+			if err := owner.QueryRow(ctx, `SELECT password_hash FROM admin_identities WHERE id = $1`, w.identity).Scan(&got); err != nil || got != victimDigest {
+				t.Errorf("the identity's digest after the race is not the victim's new one (err %v) -- the reset was undone", err)
+			}
+		}},
+		{"identity_unlink_backfilled", func(w ipRaceWorld) (string, []any) {
+			return `SELECT * FROM identity_unlink_backfilled($1, $2)`, []any{w.sA, w.x}
+		}, func(t *testing.T, w ipRaceWorld) {
+			var linked bool
+			if err := owner.QueryRow(ctx, `SELECT identity_id IS NOT NULL AND unlinked_at IS NULL FROM admin_users WHERE id = $1`, w.rowX).Scan(&linked); err != nil || !linked {
+				t.Errorf("the membership was unlinked through a revoked session (err %v)", err)
+			}
+		}},
+		{"identity_link_legacy", func(w ipRaceWorld) (string, []any) {
+			return `SELECT * FROM identity_link_legacy($1, $2)`, []any{w.sA, w.sY}
+		}, func(t *testing.T, w ipRaceWorld) {
+			var unlinked bool
+			if err := owner.QueryRow(ctx, `SELECT identity_id IS NULL FROM admin_users WHERE id = $1`, w.rowY).Scan(&unlinked); err != nil || !unlinked {
+				t.Errorf("the legacy row was linked through a revoked session (err %v)", err)
+			}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := ipNewRaceWorld(t, ctx, owner)
+			victim, err := d.pool.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = victim.Rollback(context.Background()) }()
+			var revoked int32
+			if err := victim.QueryRow(ctx, `SELECT revoked_sessions FROM identity_consume_reset($1, $2)`, w.link, victimDigest).Scan(&revoked); err != nil || revoked < 1 {
+				t.Fatalf("the victim's reset: %v (revoked %d)", err, revoked)
+			}
+			marker := "race-" + uuid.NewString()
+			sql, args := c.call(w)
+			type answer struct {
+				rows int
+				err  error
+			}
+			done := make(chan answer, 1)
+			go func() {
+				var a answer
+				rows, err := d.pool.Query(ctx, sql+" /* "+marker+" */", args...)
+				if err == nil {
+					for rows.Next() {
+						a.rows++
+					}
+					rows.Close()
+					err = rows.Err()
+				}
+				a.err = err
+				done <- a
+			}()
+			waiting := false
+			for i := 0; i < 100 && !waiting; i++ {
+				select {
+				case a := <-done:
+					t.Fatalf("the attacker's call answered (%d rows, %v) while the victim's reset held the identity", a.rows, a.err)
+				case <-time.After(50 * time.Millisecond):
+				}
+				if err := owner.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%' || $1 || '%')`, marker).Scan(&waiting); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !waiting {
+				t.Fatal("the attacker's call is neither answered nor seen waiting on a lock after 5 s")
+			}
+			if err := victim.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			a := <-done
+			if a.err != nil || a.rows != 0 {
+				t.Errorf("%s after the reset committed: %d rows, err %v; want 0 rows (its session was revoked)", c.name, a.rows, a.err)
+			}
+			c.after(t, w)
+		})
+	}
+}
+
+// TestIdentityUnlink_ASessionBornUnderTheRowsShareLockIsRevoked is M14-01's audit (DÜŞÜK) for the
+// unlink's order: connection A holds the refused-to-be row FOR SHARE (M14-07's legacy login shape)
+// and inserts a session for it in the same open transaction; B's unlink waits; A commits; after B
+// returns, A's session is revoked -- the row's write and the revocation both follow the wait, the
+// revocation last.
+func TestIdentityUnlink_ASessionBornUnderTheRowsShareLockIsRevoked(t *testing.T) {
+	d := appDB(t)
+	ctx := context.Background()
+	owner, err := pgx.Connect(ctx, opOwnerDSN(t))
+	if err != nil {
+		t.Fatalf("connect as the owner: %v", err)
+	}
+	t.Cleanup(func() { _ = owner.Close(context.Background()) })
+	w := ipNewRaceWorld(t, ctx, owner)
+
+	a, err := pgx.Connect(ctx, opOwnerDSN(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close(context.Background()) })
+	txA, err := a.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = txA.Rollback(context.Background()) }()
+	if _, err := txA.Exec(ctx, `SELECT 1 FROM admin_users a WHERE a.id = $1 FOR SHARE OF a`, w.rowX); err != nil {
+		t.Fatal(err)
+	}
+	born := opRandHex(t)
+	if _, err := txA.Exec(ctx, `INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash, authenticated_at) VALUES ($1, $2, $3, now())`, w.x, w.rowX, born); err != nil {
+		t.Fatal(err)
+	}
+	marker := "share-" + uuid.NewString()
+	done := make(chan error, 1)
+	var rows int
+	go func() {
+		r, err := d.pool.Query(ctx, `SELECT * FROM identity_unlink_backfilled($1, $2) /* `+marker+` */`, w.sA, w.x)
+		if err == nil {
+			for r.Next() {
+				rows++
+			}
+			r.Close()
+			err = r.Err()
+		}
+		done <- err
+	}()
+	waiting := false
+	for i := 0; i < 100 && !waiting; i++ {
+		select {
+		case err := <-done:
+			t.Fatalf("the unlink answered (%v) while A held the row FOR SHARE", err)
+		case <-time.After(50 * time.Millisecond):
+		}
+		if err := owner.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%' || $1 || '%')`, marker).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !waiting {
+		t.Fatal("the unlink is neither answered nor seen waiting on a lock after 5 s")
+	}
+	if err := txA.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil || rows != 1 {
+		t.Fatalf("the unlink after A committed: %d rows, %v; want 1", rows, err)
+	}
+	var revoked bool
+	if err := owner.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM admin_sessions WHERE token_hash = $1`, born).Scan(&revoked); err != nil || !revoked {
+		t.Errorf("the session born under the row's share lock survived the unlink (err %v)", err)
+	}
+}
+
 // TestIdentityWithdrawReset_RetiresOneUnspentLinkOnce is EM-7C's Withdraw for the identity link: a
 // live link withdrawn by its hash -> true and cancelled_at set, and the next request issues a new
 // link; the same hash again, a wrong hash and a used link -> false (the used one keeps cancelled_at
@@ -1715,8 +2072,9 @@ func TestIdentityWithdrawReset_RetiresOneUnspentLinkOnce(t *testing.T) {
 
 // TestIdentityUnlink_TakesThePersonsLockAndTheRowsLock is M14-04's audit obligation (DÜŞÜK): the
 // unlink takes the identity's row lock (the person's lock every identity writer takes first), then
-// the membership row FOR UPDATE, then writes the row and revokes that tenant's sessions -- one body,
-// one transaction (TestIdentityUnlink_RefusesForGoodWithASentinel measures the revocation itself).
+// re-reads its session FOR UPDATE OF s, then the membership row FOR UPDATE, then writes the row and revokes that tenant's sessions -- one body,
+// one transaction, the row written BEFORE the revocation (M14-01's audit -- the order a share-locked
+// login needs; TestIdentityUnlink_RefusesForGoodWithASentinel measures the revocation itself).
 func TestIdentityUnlink_TakesThePersonsLockAndTheRowsLock(t *testing.T) {
 	ctx, tx := opTx(t)
 	var body string
@@ -1726,6 +2084,7 @@ func TestIdentityUnlink_TakesThePersonsLockAndTheRowsLock(t *testing.T) {
 	body = ipLineComment.ReplaceAllString(body, "")
 	steps := []*regexp.Regexp{
 		regexp.MustCompile(`(?s)FROM public\.admin_identities i\s+WHERE i\.id = v_identity.*?FOR UPDATE;`),
+		regexp.MustCompile(`(?s)PERFORM 1\s+FROM public\.admin_sessions s.*?WHERE s\.id = v_session AND s\.tenant_id = v_tenant.*?FOR UPDATE OF s;`),
 		regexp.MustCompile(`(?s)FROM public\.admin_users a\s+WHERE a\.tenant_id = p_tenant.*?FOR UPDATE;`),
 		regexp.MustCompile(`UPDATE public\.admin_users a\s+SET identity_id = NULL`),
 		regexp.MustCompile(`UPDATE public\.admin_sessions s SET revoked_at = now\(\)\s+WHERE s\.tenant_id = p_tenant AND s\.admin_user_id = v_target`),

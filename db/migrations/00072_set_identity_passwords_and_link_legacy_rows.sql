@@ -36,9 +36,17 @@
 -- exception for). Neither marker may sit on a write.
 --
 -- FRESHNESS (R3, S4, M14-03's audit). "Fresh" is authenticated_at within the last five minutes AND
--- not in the future: `authenticated_at > now() - interval '5 minutes' AND authenticated_at <=
--- statement_timestamp()`. A NULL (a session older than 00069) is never fresh; a future-dated value
+-- not in the future: `authenticated_at > statement_timestamp() - interval '5 minutes' AND
+-- authenticated_at <= statement_timestamp()`. A NULL (a session older than 00069) is never fresh; a future-dated value
 -- (or 'infinity') is never fresh either, whatever wrote it.
+--
+-- LOCK ORDER AND THE RE-CHECK (M14-05's security audit, measured on 17.10). Every writer takes the
+-- identity's row lock FIRST and only then the rows it writes. A session-keyed writer reads its
+-- session lock-free, takes the identity lock, then re-reads the session FOR UPDATE OF s with the
+-- same predicates (the bounded freshness included) and answers 0 rows if it no longer holds: a reset
+-- that committed while the call waited (it revokes every session) is not undone by the session it
+-- revoked. A token-keyed writer re-checks its link the same way. Liveness and freshness compare with
+-- statement_timestamp(): after a lock wait now() is the transaction's start (passwordresets.sql:129).
 --
 -- THE CONFIRMATION WINDOW (§5.8). Two scopes, opened `now() .. now() + 7 days`:
 --   first_verify -- the identity's FIRST verification (identity_verify_email here; invite and claim
@@ -421,6 +429,20 @@ BEGIN
     END IF;
 
     PERFORM 1 FROM public.admin_identities i WHERE i.id = v_identity FOR UPDATE;
+    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
+    -- reset or a revocation that committed while this call waited).
+    PERFORM 1
+      FROM public.admin_sessions s
+      JOIN public.admin_users a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+     WHERE s.id = v_session AND s.tenant_id = v_tenant
+       AND s.revoked_at IS NULL
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id = v_identity
+       FOR UPDATE OF s;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
     UPDATE public.admin_identities i SET password_hash = p_new_hash WHERE i.id = v_identity;
 
     FOR m IN
@@ -478,16 +500,30 @@ BEGIN
      WHERE r.token_hash = p_reset_hash /* secret-scope */
        AND r.used_at IS NULL
        AND r.cancelled_at IS NULL
-       AND now() < r.expires_at
+       AND statement_timestamp() < r.expires_at
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
-       AND a.identity_id IS NOT NULL
-       FOR UPDATE OF r;
+       AND a.identity_id IS NOT NULL;
     IF NOT FOUND THEN
         RETURN;
     END IF;
 
+    -- The identity first (the order every identity writer keeps), then the link, re-checked.
     PERFORM 1 FROM public.admin_identities i WHERE i.id = v_identity FOR UPDATE;
+    PERFORM 1
+      FROM public.password_resets r
+      JOIN public.admin_users a ON a.id = r.admin_user_id AND a.tenant_id = r.tenant_id
+     WHERE r.id = v_reset AND r.tenant_id = v_tenant
+       AND r.used_at IS NULL
+       AND r.cancelled_at IS NULL
+       AND statement_timestamp() < r.expires_at
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id = v_identity
+       FOR UPDATE OF r;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
     UPDATE public.password_resets r SET used_at = now()
      WHERE r.id = v_reset AND r.tenant_id = v_tenant AND r.used_at IS NULL;
 
@@ -499,7 +535,7 @@ BEGIN
            confirm_scope      = 'reset'
      WHERE i.id = v_identity;
     UPDATE public.admin_identity_resets r SET cancelled_at = now()
-     WHERE r.identity_id = v_identity AND r.used_at IS NULL AND r.cancelled_at IS NULL AND now() < r.expires_at;
+     WHERE r.identity_id = v_identity AND r.used_at IS NULL AND r.cancelled_at IS NULL AND statement_timestamp() < r.expires_at;
 
     FOR m IN
         SELECT a.id, a.tenant_id FROM public.admin_users a
@@ -511,7 +547,7 @@ BEGIN
          WHERE a.id = m.id AND a.tenant_id = m.tenant_id AND a.identity_id = v_identity;
         UPDATE public.password_resets r SET cancelled_at = now()
          WHERE r.tenant_id = m.tenant_id AND r.admin_user_id = m.id
-           AND r.used_at IS NULL AND r.cancelled_at IS NULL AND now() < r.expires_at;
+           AND r.used_at IS NULL AND r.cancelled_at IS NULL AND statement_timestamp() < r.expires_at;
         UPDATE public.admin_sessions s SET revoked_at = now()
          WHERE s.tenant_id = m.tenant_id AND s.admin_user_id = m.id AND s.revoked_at IS NULL;
         GET DIAGNOSTICS v_n = ROW_COUNT;
@@ -552,17 +588,24 @@ BEGIN
      WHERE r.token_hash = p_reset_hash
        AND r.used_at IS NULL
        AND r.cancelled_at IS NULL
-       AND now() < r.expires_at
-       FOR UPDATE;
+       AND statement_timestamp() < r.expires_at;
     IF NOT FOUND THEN
         RETURN;
     END IF;
 
+    -- The identity first, then the link, re-checked.
     PERFORM 1 FROM public.admin_identities i WHERE i.id = v_identity FOR UPDATE;
+    PERFORM 1 FROM public.admin_identity_resets r
+     WHERE r.id = v_reset AND r.identity_id = v_identity
+       AND r.used_at IS NULL AND r.cancelled_at IS NULL AND statement_timestamp() < r.expires_at
+       FOR UPDATE;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
     UPDATE public.admin_identity_resets r SET used_at = now() WHERE r.id = v_reset AND r.used_at IS NULL;
     UPDATE public.admin_identity_resets r SET cancelled_at = now()
      WHERE r.identity_id = v_identity AND r.id <> v_reset
-       AND r.used_at IS NULL AND r.cancelled_at IS NULL AND now() < r.expires_at;
+       AND r.used_at IS NULL AND r.cancelled_at IS NULL AND statement_timestamp() < r.expires_at;
 
     UPDATE public.admin_identities i
        SET password_hash      = p_new_hash,
@@ -582,7 +625,7 @@ BEGIN
          WHERE a.id = m.id AND a.tenant_id = m.tenant_id AND a.identity_id = v_identity;
         UPDATE public.password_resets r SET cancelled_at = now()
          WHERE r.tenant_id = m.tenant_id AND r.admin_user_id = m.id
-           AND r.used_at IS NULL AND r.cancelled_at IS NULL AND now() < r.expires_at;
+           AND r.used_at IS NULL AND r.cancelled_at IS NULL AND statement_timestamp() < r.expires_at;
         UPDATE public.admin_sessions s SET revoked_at = now()
          WHERE s.tenant_id = m.tenant_id AND s.admin_user_id = m.id AND s.revoked_at IS NULL;
         GET DIAGNOSTICS v_n = ROW_COUNT;
@@ -621,13 +664,15 @@ DECLARE
     v_legacy_tenant  uuid;
     v_legacy_admin   uuid;
     v_legacy_email   public.citext;
+    v_id_session     uuid;
+    v_id_tenant      uuid;
 BEGIN
-    SELECT a.identity_id INTO v_identity
+    SELECT s.id, s.tenant_id, a.identity_id INTO v_id_session, v_id_tenant, v_identity
       FROM public.admin_sessions s
       JOIN public.admin_users a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_identity_session_hash /* secret-scope */
        AND s.revoked_at IS NULL
-       AND s.authenticated_at > now() - interval '5 minutes'
+       AND s.authenticated_at > statement_timestamp() - interval '5 minutes'
        AND s.authenticated_at <= statement_timestamp()
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
@@ -638,6 +683,22 @@ BEGIN
 
     SELECT i.email, i.password_hash INTO v_identity_email, v_digest
       FROM public.admin_identities i WHERE i.id = v_identity FOR UPDATE;
+    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
+    -- reset or a revocation that committed while this call waited).
+    PERFORM 1
+      FROM public.admin_sessions s
+      JOIN public.admin_users a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+     WHERE s.id = v_id_session AND s.tenant_id = v_id_tenant
+       AND s.revoked_at IS NULL
+       AND s.authenticated_at > statement_timestamp() - interval '5 minutes'
+       AND s.authenticated_at <= statement_timestamp()
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id = v_identity
+       FOR UPDATE OF s;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
 
     SELECT s.id, s.tenant_id, a.id, a.email INTO v_legacy_session, v_legacy_tenant, v_legacy_admin, v_legacy_email
       FROM public.admin_sessions s
@@ -645,12 +706,12 @@ BEGIN
      WHERE s.token_hash = p_legacy_session_hash /* secret-scope */
        AND s.token_hash <> p_identity_session_hash
        AND s.revoked_at IS NULL
-       AND s.authenticated_at > now() - interval '5 minutes'
+       AND s.authenticated_at > statement_timestamp() - interval '5 minutes'
        AND s.authenticated_at <= statement_timestamp()
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
        AND a.identity_id IS NULL
-       FOR UPDATE OF a;
+       FOR UPDATE OF s, a;
     IF NOT FOUND
        OR v_legacy_email IS NULL
        OR NOT (v_legacy_email OPERATOR(public.=) v_identity_email)
@@ -702,13 +763,15 @@ DECLARE
     v_sentinel   text;
     v_constraint text;
     v_n          integer;
+    v_session    uuid;
+    v_tenant     uuid;
 BEGIN
-    SELECT a.identity_id INTO v_identity
+    SELECT s.id, s.tenant_id, a.identity_id INTO v_session, v_tenant, v_identity
       FROM public.admin_sessions s
       JOIN public.admin_users a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_session_hash /* secret-scope */
        AND s.revoked_at IS NULL
-       AND s.authenticated_at > now() - interval '5 minutes'
+       AND s.authenticated_at > statement_timestamp() - interval '5 minutes'
        AND s.authenticated_at <= statement_timestamp()
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
@@ -721,8 +784,24 @@ BEGIN
       FROM public.admin_identities i
      WHERE i.id = v_identity
        AND i.email_verified_at IS NOT NULL
-       AND now() < i.confirm_open_until
+       AND statement_timestamp() < i.confirm_open_until
        FOR UPDATE;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
+    -- reset or a revocation that committed while this call waited).
+    PERFORM 1
+      FROM public.admin_sessions s
+      JOIN public.admin_users a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+     WHERE s.id = v_session AND s.tenant_id = v_tenant
+       AND s.revoked_at IS NULL
+       AND s.authenticated_at > statement_timestamp() - interval '5 minutes'
+       AND s.authenticated_at <= statement_timestamp()
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id = v_identity
+       FOR UPDATE OF s;
     IF NOT FOUND THEN
         RETURN;
     END IF;
@@ -739,6 +818,11 @@ BEGIN
         RETURN;
     END IF;
 
+    -- ORDER (M14-01's audit): the row's UPDATE (sentinel + unlinked_at) runs BEFORE the statement that
+    -- revokes the tenant's sessions. A legacy login that holds the row FOR SHARE while it inserts a
+    -- session makes the unlink wait; the revocation, a LATER statement, then sees that session and
+    -- revokes it (READ COMMITTED takes a new snapshot per statement). Here the wait already comes at
+    -- the FOR UPDATE above, so both statements follow it; the order keeps that true if the lock moves.
     BEGIN
         -- The 32 random bytes exist only inside this expression (S20).
         v_sentinel := public.crypt(pg_catalog.encode(public.gen_random_bytes(32), 'hex'), public.gen_salt('bf', 12));
@@ -759,7 +843,7 @@ BEGIN
 
     UPDATE public.password_resets r SET cancelled_at = now()
      WHERE r.tenant_id = p_tenant AND r.admin_user_id = v_target
-       AND r.used_at IS NULL AND r.cancelled_at IS NULL AND now() < r.expires_at;
+       AND r.used_at IS NULL AND r.cancelled_at IS NULL AND statement_timestamp() < r.expires_at;
     UPDATE public.admin_sessions s SET revoked_at = now()
      WHERE s.tenant_id = p_tenant AND s.admin_user_id = v_target AND s.revoked_at IS NULL;
     GET DIAGNOSTICS v_n = ROW_COUNT;
@@ -795,13 +879,15 @@ DECLARE
     v_digest   text;
     v_opened   timestamptz;
     v_target   uuid;
+    v_session  uuid;
+    v_tenant   uuid;
 BEGIN
-    SELECT a.identity_id INTO v_identity
+    SELECT s.id, s.tenant_id, a.identity_id INTO v_session, v_tenant, v_identity
       FROM public.admin_sessions s
       JOIN public.admin_users a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_session_hash /* secret-scope */
        AND s.revoked_at IS NULL
-       AND s.authenticated_at > now() - interval '5 minutes'
+       AND s.authenticated_at > statement_timestamp() - interval '5 minutes'
        AND s.authenticated_at <= statement_timestamp()
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
@@ -813,8 +899,24 @@ BEGIN
     SELECT i.email, i.password_hash, i.confirm_opened_at INTO v_email, v_digest, v_opened
       FROM public.admin_identities i
      WHERE i.id = v_identity
-       AND now() < i.confirm_open_until
+       AND statement_timestamp() < i.confirm_open_until
        FOR UPDATE;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
+    -- reset or a revocation that committed while this call waited).
+    PERFORM 1
+      FROM public.admin_sessions s
+      JOIN public.admin_users a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+     WHERE s.id = v_session AND s.tenant_id = v_tenant
+       AND s.revoked_at IS NULL
+       AND s.authenticated_at > statement_timestamp() - interval '5 minutes'
+       AND s.authenticated_at <= statement_timestamp()
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id = v_identity
+       FOR UPDATE OF s;
     IF NOT FOUND THEN
         RETURN;
     END IF;
@@ -909,18 +1011,19 @@ DECLARE
     v_verification uuid;
     v_identity     uuid;
     v_first        boolean;
+    v_session      uuid;
+    v_tenant       uuid;
 BEGIN
     SELECT v.id, v.identity_id INTO v_verification, v_identity
       FROM public.admin_identity_verifications v
      WHERE v.token_hash = p_verification_hash
        AND v.used_at IS NULL
-       AND now() < v.expires_at
-       FOR UPDATE;
+       AND statement_timestamp() < v.expires_at;
     IF NOT FOUND THEN
         RETURN;
     END IF;
 
-    PERFORM 1
+    SELECT s.id, s.tenant_id INTO v_session, v_tenant
       FROM public.admin_sessions s
       JOIN public.admin_users a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_session_hash /* secret-scope */
@@ -934,6 +1037,26 @@ BEGIN
 
     SELECT i.email_verified_at IS NULL INTO v_first
       FROM public.admin_identities i WHERE i.id = v_identity FOR UPDATE;
+    PERFORM 1 FROM public.admin_identity_verifications v
+     WHERE v.id = v_verification AND v.used_at IS NULL AND statement_timestamp() < v.expires_at
+       FOR UPDATE;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
+    -- reset or a revocation that committed while this call waited).
+    PERFORM 1
+      FROM public.admin_sessions s
+      JOIN public.admin_users a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+     WHERE s.id = v_session AND s.tenant_id = v_tenant
+       AND s.revoked_at IS NULL
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id = v_identity
+       FOR UPDATE OF s;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
     UPDATE public.admin_identity_verifications v SET used_at = now() WHERE v.id = v_verification AND v.used_at IS NULL;
     IF v_first THEN
         UPDATE public.admin_identities i
@@ -1028,7 +1151,7 @@ BEGIN
      WHERE r.identity_id = p_identity_id
        AND r.used_at IS NULL
        AND r.cancelled_at IS NULL
-       AND now() < r.expires_at
+       AND statement_timestamp() < r.expires_at
      ORDER BY r.expires_at DESC
      LIMIT 1;
     IF FOUND THEN
