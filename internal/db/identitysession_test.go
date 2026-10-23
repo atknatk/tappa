@@ -852,7 +852,7 @@ func TestAdminSessions00071_TheApplicationCannotChooseAuthenticatedAt(t *testing
 		}), sqlstateInsufficientPrivi, "tappa_app naming "+col)
 	}
 	if err := aiApp(t, ctx, tx, w.a, func(sp pgx.Tx) error {
-		row, err := store.New(sp).CreateAdminSession(ctx, store.CreateAdminSessionParams{TokenHash: opRandHex(t), AdminUserID: w.unlinked, TenantID: w.a})
+		row, err := store.New(sp).CreateAdminSession(ctx, store.CreateAdminSessionParams{TokenHash: opRandHex(t), AdminUserID: w.unlinked, TenantID: w.a, VerifiedDigest: opFakeDigest("a")})
 		if err != nil {
 			return err
 		}

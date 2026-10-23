@@ -307,8 +307,13 @@ var ipLineComment = regexp.MustCompile(`--[^\n]*`)
 // TestResolveAdminByEmail00072_ReturnsTheLinkAndHidesARefusedRow is T2 / S8 / T5: the redefined
 // resolver returns identity_id, keeps 00017's incumbent-first order and no LIMIT (eight linked rows
 // and one unlinked row of one person are all returned, the unlinked one told apart by its NULL),
-// never returns a refused row, and the binary before 00072's statement (getAdminByEmailSQL, four
-// columns by name) runs on it as tappa_app.
+// never returns a refused row, and the binary before 00072's statement (four columns by name --
+// getAdminByEmailSQL until M14-07 added identity_id to it; held here as that binary's literal) runs
+// on it as tappa_app.
+// getAdminByEmailSQLBefore00072 is the statement the binary before 00072 (and before M14-07) sends.
+const getAdminByEmailSQLBefore00072 = `SELECT id, tenant_id, password_hash, status
+FROM resolve_admin_by_email($1::citext)`
+
 func TestResolveAdminByEmail00072_ReturnsTheLinkAndHidesARefusedRow(t *testing.T) {
 	ctx, tx := opTx(t)
 	p := ipNewPerson(t, ctx, tx)
@@ -350,7 +355,7 @@ func TestResolveAdminByEmail00072_ReturnsTheLinkAndHidesARefusedRow(t *testing.T
 		t.Errorf("resolve_admin_by_email = %v, want the eight linked rows oldest first, then the unlinked one %v (and never the refused %s)", ids, want, refused)
 	}
 	if err := opAs(t, ctx, tx, "tappa_app", func(sp pgx.Tx) error {
-		r, err := sp.Query(ctx, getAdminByEmailSQL, p.email)
+		r, err := sp.Query(ctx, getAdminByEmailSQLBefore00072, p.email)
 		if err != nil {
 			return err
 		}

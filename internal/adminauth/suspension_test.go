@@ -33,6 +33,7 @@ type touchScript struct {
 // from its script. Nothing else is implemented: a second statement would panic on the
 // embedded nil Tx, which is the point -- Verify runs exactly one.
 type scriptedDB struct {
+	noIdentityData
 	tenant, admin, session uuid.UUID
 	role                   string
 	script                 touchScript

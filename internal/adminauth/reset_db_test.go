@@ -61,14 +61,21 @@ func cheapResets(t *testing.T, data ResetDatabase) *Resets {
 	return r
 }
 
-// newSessionRow issues a panel session through the real query and returns its id.
+// newSessionRow issues a panel session through the real query and returns its id. The verified
+// digest is the row's current one, read in the same transaction -- what a password that verified a
+// moment ago would hand CreateAdminSession (M14-07).
 func newSessionRow(t *testing.T, d *db.DB, tenantID, adminID uuid.UUID) uuid.UUID {
 	t.Helper()
 	var row store.CreateAdminSessionRow
 	err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		var e error
-		row, e = store.New(tx).CreateAdminSession(ctx, store.CreateAdminSessionParams{
+		q := store.New(tx)
+		cur, e := q.GetAdminPasswordHashByID(ctx, store.GetAdminPasswordHashByIDParams{ID: adminID, TenantID: tenantID})
+		if e != nil {
+			return e
+		}
+		row, e = q.CreateAdminSession(ctx, store.CreateAdminSessionParams{
 			TenantID: tenantID, AdminUserID: adminID, TokenHash: "reset-fixture-" + uuid.NewString(),
+			VerifiedDigest: cur.PasswordHash,
 		})
 		return e
 	})
