@@ -100,8 +100,17 @@ const (
 	// In or out is decided against the person's last OPEN check-in and never the calendar
 	// day: a check-out after midnight closes the evening's check-in. Derived from
 	// AnchorDirectionFollowsLastOpenEntry and by asking tap.Decide about a tap at 02:04
-	// with a check-in open since 17:58 the evening before.
+	// with a check-in open since 17:58 the evening before, under the business day the
+	// product runs with (a 05:00 cutoff in Europe/Malta, FactDirectionPairsWithinTheBusinessDay).
 	FactDirectionFollowsLastOpenCheckIn Fact = "tap:LastOpenIn closes across midnight"
+	// A check-out pairs with the last open check-in only within the same BUSINESS DAY
+	// (ADR 0032, M15): a day that starts at the business's cutoff, 05:00 unless the owner
+	// sets another (migration 00064's default, the Account screen's business-day form),
+	// and the rule is switched on in production (deploy/k8s TAPPA_BUSINESS_DAY_FROM). A
+	// tap on a later business day starts a new check-in and leaves the old one open.
+	// Derived by asking tap.Decide with that cutoff (17:58 → 02:04 closes, 22:00 → 05:30
+	// does not) and from the migration, the panel's routes, the gather and the manifest.
+	FactDirectionPairsWithinTheBusinessDay Fact = "tap:BusinessDayStart cuts the pairing; 00064 default; owner sets it; switch on"
 	// A worked shift's hours are booked on the day its check-in falls on and at the venue
 	// of its check-in. Derived from internal/domain/ledger's accumulate.
 	FactShiftCountsOnItsStartDayAndVenue Fact = "ledger:shift booked on its check-in's day and venue"
@@ -241,6 +250,11 @@ const RestaurantsCoverNote = "tapped at a location other than the employee's hom
 // the engine), held equal to it by internal/handler's tests.
 const RestaurantsStaleHours = 18
 
+// RestaurantsDayCutoff is when a business day starts unless the owner sets another time:
+// migration 00064's tenants.day_cutoff default. A MIRROR OF THAT DEFAULT, held equal to
+// it by internal/handler's tests (FactDirectionPairsWithinTheBusinessDay).
+const RestaurantsDayCutoff = "05:00"
+
 // RestaurantsForgotStep is one card of the forgotten check-out's drawing.
 type RestaurantsForgotStep struct {
 	No     string
@@ -315,16 +329,19 @@ func restaurantsCopy() RestaurantsText {
 	rusty, hamrun := RestaurantsVenueNamed("Rusty Bar"), RestaurantsVenueNamed("KF Hamrun")
 	return RestaurantsText{
 		Lede: l(fits.Paragraph(),
-			FactVenueHoldsItsEvidenceAndHours, FactPlaqueIdentifiesThePlace, FactDirectionFollowsLastOpenCheckIn),
+			FactVenueHoldsItsEvidenceAndHours, FactPlaqueIdentifiesThePlace, FactDirectionFollowsLastOpenCheckIn,
+			FactDirectionPairsWithinTheBusinessDay),
 		Built: l("Built for a chain where staff cover each other's venues and the bar closes after midnight.",
 			FactCrossLocationTapIsNotedNotPenalised, FactDirectionFollowsLastOpenCheckIn),
 
 		OvernightHeading: l("A shift that ends after midnight is still one shift.",
 			FactDirectionFollowsLastOpenCheckIn, FactShiftCountsOnItsStartDayAndVenue),
-		OvernightLede: l(fits.Points[1].Text, FactDirectionFollowsLastOpenCheckIn),
+		OvernightLede: l(fits.Points[1].Text, FactDirectionFollowsLastOpenCheckIn, FactDirectionPairsWithinTheBusinessDay),
 		OvernightBullets: []Line{
-			l("In or out is decided by the person's last open check-in, so the "+RestaurantsOvernightOut.At+
-				" tap closes the "+RestaurantsOvernightIn.At+" one.", FactDirectionFollowsLastOpenCheckIn),
+			l("In or out is decided by the person's last open check-in: a tap on the same business day and "+
+				"within "+itoa(RestaurantsStaleHours)+" hours of it closes it, so with the day starting at "+
+				RestaurantsDayCutoff+" the "+RestaurantsOvernightOut.At+" tap closes the "+RestaurantsOvernightIn.At+" one.",
+				FactDirectionFollowsLastOpenCheckIn, FactDirectionPairsWithinTheBusinessDay, FactForgottenCheckOutIsNotPaid),
 			l("The hours land on the day the shift started, at the venue where it started.",
 				FactShiftCountsOnItsStartDayAndVenue),
 			l("Lateness is measured against the shift of the venue where the person tapped — "+rusty.Start+
@@ -360,14 +377,14 @@ func restaurantsCopy() RestaurantsText {
 				FactRollMarksWorkAtAnotherVenue),
 		},
 
-		ForgotHeading: l("A check-in left open for more than "+itoa(RestaurantsStaleHours)+" hours is not counted "+
-			"until a manager closes it.",
+		ForgotHeading: l("A check-in nobody closes is not counted until a manager closes it.",
 			FactForgottenCheckOutIsNotPaid, FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager),
 		ForgotBullets: []Line{
-			l("A tap more than "+itoa(RestaurantsStaleHours)+" hours after a check-in does not close it: the tap "+
-				"starts a new check-in with a note, The Roll lists the old one as open and does not count it, and a "+
-				"manager enters the real check-out by hand.",
-				FactForgottenCheckOutIsNotPaid, FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager),
+			l("A tap on a later business day, or more than "+itoa(RestaurantsStaleHours)+" hours after it, does not "+
+				"close it: the tap starts a new check-in with a note, The Roll lists the old one as open and does not "+
+				"count it, and a manager enters the real check-out by hand.",
+				FactForgottenCheckOutIsNotPaid, FactDirectionPairsWithinTheBusinessDay,
+				FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager),
 			l("The Roll says how many check-ins are open, and its week's figure says it is short by them.",
 				FactOpenCheckInIsListedNotCounted),
 		},

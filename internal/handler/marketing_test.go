@@ -1771,6 +1771,7 @@ func anchorDerivations(t *testing.T) map[pages.Anchor]func() string {
 	mig04 := repoFile(t, "db", "migrations", "00004_create_tags.sql")
 	mig05 := repoFile(t, "db", "migrations", "00005_create_transactions_audit_reviews.sql")
 	tapSrc := repoFile(t, "internal", "domain", "tap", "decide.go")
+	businessDay := loadBusinessDaySources(t)
 
 	// The two shift-carrying tables, isolated from each other.
 	locations := createTableBlock(t, mig02, "locations")
@@ -1803,6 +1804,12 @@ func anchorDerivations(t *testing.T) map[pages.Anchor]func() string {
 				return "internal/domain/tap no longer has resolveDirection; the direction rule the page describes is gone"
 			}
 			return ""
+		},
+		pages.AnchorDirectionPairsWithinTheBusinessDay: func() string {
+			// The restaurants page's FactDirectionPairsWithinTheBusinessDay, over the same
+			// sources: the cutoff run through tap.Decide, its default, the owner's form, the
+			// gather's switch and production's manifest.
+			return businessDayProblem(businessDay)
 		},
 		pages.AnchorPerVenueReport: func() string {
 			f, ok := fieldNames(ledger.Report{})["Venues"]

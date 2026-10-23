@@ -295,7 +295,7 @@ func shareCopyProblems(text string) []string {
 		out = append(out, "superiority claim "+hit)
 	}
 	out = append(out, freeMonthsCopyProblems(text)...)
-	for _, refused := range []map[string]string{securityRefusedPhrasings, forProductionRefusedPhrasings} {
+	for _, refused := range []map[string]string{securityRefusedPhrasings, forProductionRefusedPhrasings, restaurantsRefusedPhrasings} {
 		for phrase := range refused {
 			if strings.Contains(text, phrase) {
 				out = append(out, "withdrawn "+phrase)

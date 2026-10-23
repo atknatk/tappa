@@ -237,6 +237,13 @@ const (
 	// reflection over tap.Input and a scan for the function. It was a Fact until
 	// 2026-09-15; the only sentence that claims it now is in the two-shapes block.
 	AnchorDirectionFollowsLastOpenEntry Anchor = "tap:resolveDirection(Input.LastOpenIn)"
+	// AnchorDirectionPairsWithinTheBusinessDay — that pairing holds only within one
+	// business day (ADR 0032, M15): it starts at the business's cutoff, 05:00 unless the
+	// owner sets another (RestaurantsDayCutoff), and the rule is switched on in
+	// production. Derived by running tap.Decide with that cutoff and from migration 00064,
+	// the panel's business-day routes, the gather's switch and the deploy manifest — the
+	// same check as the restaurants page's FactDirectionPairsWithinTheBusinessDay.
+	AnchorDirectionPairsWithinTheBusinessDay Anchor = "tap:BusinessDayStart+00064 default+owner form+switch on"
 )
 
 // Fact is a PRODUCT fact one of the other blocks rests on.
@@ -1241,9 +1248,10 @@ var LandingAudiences = []Audience{
 				Anchors: []Anchor{AnchorPlaqueBelongsToVenue, AnchorVenueShiftAndAddress},
 			},
 			{
-				Text: "Late-night bars welcome: overnight shifts pair check-outs to the last open " +
-					"check-in, not the calendar date.",
-				Anchors: []Anchor{AnchorDirectionFollowsLastOpenEntry},
+				Text: "Late-night bars welcome: a check-out pairs with the last open check-in of the same " +
+					"business day — a day that starts at a time you set, " + RestaurantsDayCutoff + " by default — " +
+					"not the calendar date.",
+				Anchors: []Anchor{AnchorDirectionFollowsLastOpenEntry, AnchorDirectionPairsWithinTheBusinessDay},
 			},
 		},
 		Example: Claim{

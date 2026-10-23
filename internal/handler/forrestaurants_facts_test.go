@@ -68,7 +68,128 @@ type restaurantsFactSources struct {
 	Decide func(tap.Input) tap.Decision
 	// Anchors is what each Anchor derivation the facts lean on answers today ("" holds).
 	Anchors map[pages.Anchor]string
+	// BusinessDay is what the business-day pairing reads (businessDayProblem).
+	BusinessDay businessDaySources
 }
+
+// businessDaySources is what the business-day pairing (ADR 0032, M15) is derived from: the
+// landing's AnchorDirectionPairsWithinTheBusinessDay and the restaurants page's
+// FactDirectionPairsWithinTheBusinessDay read the same, so a control can take one away.
+type businessDaySources struct {
+	Migration string // db/migrations/00064_add_the_business_day.sql
+	Dashboard string // internal/handler/dashboard.go, comments removed: the panel's routes
+	Checkin   string // internal/domain/checkin/checkin.go, comments removed: the gather
+	Deploy    string // deploy/k8s/05-config.yaml: the production switch
+	// Decide is the engine the probes ask; a control swaps in one that behaves otherwise.
+	Decide func(tap.Input) tap.Decision
+}
+
+func loadBusinessDaySources(t *testing.T) businessDaySources {
+	t.Helper()
+	strip := func(s string) string { return goLineCommentRE.ReplaceAllString(s, "") }
+	return businessDaySources{
+		Migration: repoFile(t, "db", "migrations", "00064_add_the_business_day.sql"),
+		Dashboard: strip(repoFile(t, "internal", "handler", "dashboard.go")),
+		Checkin:   strip(repoFile(t, "internal", "domain", "checkin", "checkin.go")),
+		Deploy:    repoFile(t, "deploy", "k8s", "05-config.yaml"),
+		Decide:    tap.Decide,
+	}
+}
+
+var (
+	// tenantCutoffDefaultRE is migration 00064's business-level cutoff and its default.
+	tenantCutoffDefaultRE = regexp.MustCompile(`ALTER TABLE tenants\s+ADD COLUMN day_cutoff time NOT NULL DEFAULT '(\d\d:\d\d)'`)
+	// businessDaySwitchRE is the production manifest's switch.
+	businessDaySwitchRE = regexp.MustCompile(`(?m)^\s*TAPPA_BUSINESS_DAY_FROM:\s*"([^"]*)"`)
+)
+
+// samplesAt is d days after Monday 12 October 2026 at hh:mm, Malta's wall clock: the
+// samples' times are the venue's, and the cutoff is a wall clock in the business's zone.
+func samplesAt(d, hh, mm int) time.Time {
+	loc, err := time.LoadLocation("Europe/Malta")
+	if err != nil {
+		panic("the Europe/Malta zone does not load: " + err.Error())
+	}
+	return time.Date(2026, 10, 12+d, hh, mm, 0, 0, loc)
+}
+
+// productCutoff is the business day the product runs a tap with when nobody changed it:
+// migration 00064's default (pages.RestaurantsDayCutoff, held equal to it) in the demo
+// businesses' zone.
+func productCutoff() *tap.DayCutoff {
+	at, err := time.Parse("15:04", pages.RestaurantsDayCutoff)
+	if err != nil {
+		panic("pages.RestaurantsDayCutoff is not a wall clock: " + err.Error())
+	}
+	return &tap.DayCutoff{Cutoff: time.Duration(at.Hour())*time.Hour + time.Duration(at.Minute())*time.Minute, Timezone: "Europe/Malta"}
+}
+
+// pairProbe is a tap at Rusty Bar at to, with the person's check-in open since from (nil:
+// nothing open), under the product's business day.
+func pairProbe(from *time.Time, to time.Time) tap.Input {
+	in := panelEngineInput(pages.RestaurantsOvernightOut, false)
+	in.Now = to
+	in.Employee.ActivatedAt = to.Add(-30 * 24 * time.Hour)
+	in.DayCutoff = productCutoff()
+	in.LastOpenIn = nil
+	if from != nil {
+		in.LastOpenIn = &tap.Transaction{ID: uuid.New(), OccurredAt: *from, Direction: tap.TypeIn}
+	}
+	return in
+}
+
+// businessDayProblem says how the business-day pairing departs from what the public pages
+// say: with the product's cutoff the 17:58 → 02:04 night is one shift, a 22:00 check-in is
+// closed at 04:50 and left open by a 05:30 tap (a new check-in with the note); the cutoff
+// is migration 00064's default and the page's figure; the owner can change it (the
+// column's grant and the panel's two routes); the gather applies it behind the switch,
+// and the production manifest switches it on.
+func businessDayProblem(s businessDaySources) string {
+	m := tenantCutoffDefaultRE.FindStringSubmatch(s.Migration)
+	if m == nil {
+		return "migration 00064 no longer gives tenants.day_cutoff a NOT NULL default"
+	}
+	if m[1] != pages.RestaurantsDayCutoff {
+		return fmt.Sprintf("the business day starts at %s by default and the pages say %s", m[1], pages.RestaurantsDayCutoff)
+	}
+	night, late := samplesAt(0, 17, 58), samplesAt(0, 22, 0)
+	if d := s.Decide(pairProbe(&night, samplesAt(1, 2, 4))); d.Type == nil || *d.Type != tap.TypeOut {
+		return fmt.Sprintf("with a %s cutoff a 02:04 tap after a 17:58 check-in is %v, not the check-out that closes it", pages.RestaurantsDayCutoff, d.Type)
+	}
+	if d := s.Decide(pairProbe(&late, samplesAt(1, 4, 50))); d.Type == nil || *d.Type != tap.TypeOut {
+		return fmt.Sprintf("a 04:50 tap after a 22:00 check-in, inside one business day, is %v, not a check-out", d.Type)
+	}
+	probe := pairProbe(&late, samplesAt(1, 5, 30))
+	d := s.Decide(probe)
+	if d.Type == nil || *d.Type != tap.TypeIn || d.LeftOpen == nil || d.LeftOpen.ID != probe.LastOpenIn.ID ||
+		d.LeftOpen.Reason != tap.LeftOpenPreviousBusinessDay || !strings.Contains(d.Note, tap.LeftOpenNote) {
+		return fmt.Sprintf("a 05:30 tap after a 22:00 check-in, on the next business day, is %v with the note %q and "+
+			"left open %+v, not a new check-in that leaves the old one open", d.Type, d.Note, d.LeftOpen)
+	}
+	if !strings.Contains(s.Migration, "GRANT UPDATE (day_cutoff) ON tenants TO tappa_app;") {
+		return "the application can no longer write the business's cutoff"
+	}
+	for _, route := range []string{"r.Post(businessDayHref, a.businessDayReview)", "r.Post(businessDayApplyHref, a.businessDayApply)"} {
+		if !strings.Contains(s.Dashboard, route) {
+			return "the panel no longer mounts " + route + ", so nobody can set the business day"
+		}
+	}
+	if !strings.Contains(s.Checkin, "tap.SwitchedDayCutoff(s.businessDayFrom") {
+		return "the gather no longer hands the engine the business day behind its switch"
+	}
+	sw := businessDaySwitchRE.FindStringSubmatch(s.Deploy)
+	if sw == nil {
+		return "the production manifest no longer names TAPPA_BUSINESS_DAY_FROM"
+	}
+	from, err := time.Parse(time.RFC3339, sw[1])
+	if err != nil || from.After(time.Now()) {
+		return fmt.Sprintf("production's business-day switch is %q: the rule is not on, so the pages describe a rule the service does not run", sw[1])
+	}
+	return ""
+}
+
+// businessDayViolation is FactDirectionPairsWithinTheBusinessDay.
+func businessDayViolation(s restaurantsFactSources) string { return businessDayProblem(s.BusinessDay) }
 
 func loadRestaurantsFactSources(t *testing.T) restaurantsFactSources {
 	t.Helper()
@@ -96,6 +217,7 @@ func loadRestaurantsFactSources(t *testing.T) restaurantsFactSources {
 		SunParams:     strip(repoFile(t, "internal", "sun", "params.go")),
 		GoFiles:       productGoFiles(t),
 		StaleHours:    pages.RestaurantsStaleHours,
+		BusinessDay:   loadBusinessDaySources(t),
 	}
 }
 
@@ -135,16 +257,15 @@ func productGoFiles(t *testing.T) map[string]string {
 }
 
 // overnightProbe is a tap at Rusty Bar at 02:04 on the Tuesday, the person's check-in open
-// since 17:58 on the Monday (open = false leaves nothing open).
+// since 17:58 on the Monday (open = false leaves nothing open), Malta's wall clock, under
+// the business day the product runs with (productCutoff): the rule in production since
+// the switch, not the 18-hour rule alone.
 func overnightProbe(open bool) tap.Input {
-	in := panelEngineInput(pages.RestaurantsOvernightOut, false)
-	in.Now = time.Date(2026, 10, 13, 2, 4, 0, 0, time.UTC)
-	in.Employee.ActivatedAt = in.Now.Add(-30 * 24 * time.Hour)
-	in.LastOpenIn = nil
-	if open {
-		in.LastOpenIn = &tap.Transaction{ID: uuid.New(), OccurredAt: time.Date(2026, 10, 12, 17, 58, 0, 0, time.UTC), Direction: tap.TypeIn}
+	if !open {
+		return pairProbe(nil, samplesAt(1, 2, 4))
 	}
-	return in
+	from := samplesAt(0, 17, 58)
+	return pairProbe(&from, samplesAt(1, 2, 4))
 }
 
 // coverProbe is d's tap made by somebody whose home venue is home (home == d.Venue is a
@@ -374,14 +495,16 @@ func setupViolation(s restaurantsFactSources) string {
 	return ""
 }
 
-// staleProbe is a tap at KF Hamrun the morning after a check-in nobody closed: 24 hours
-// and 28 minutes later.
+// staleProbe is a tap at KF Hamrun at 04:00 on the Tuesday, after a check-in nobody closed
+// at 05:30 on the Monday: 22 hours and 30 minutes later and still inside the same business
+// day (productCutoff), so what leaves the check-in open is the 18-hour rule itself.
 func staleProbe() tap.Input {
-	in := panelEngineInput(pages.PanelDocket{Venue: "KF Hamrun", Who: "Sample Person", Direction: "OUT", At: "10:30",
+	in := panelEngineInput(pages.PanelDocket{Venue: "KF Hamrun", Who: "Sample Person", Direction: "OUT", At: "04:00",
 		Channel: "nfc", IP: "yes", GPS: "no", Verdict: "ok", Trust: "70"}, false)
-	in.Now = time.Date(2026, 10, 13, 10, 30, 0, 0, time.UTC)
+	in.Now = samplesAt(1, 4, 0)
 	in.Employee.ActivatedAt = in.Now.Add(-30 * 24 * time.Hour)
-	in.LastOpenIn = &tap.Transaction{ID: uuid.New(), OccurredAt: time.Date(2026, 10, 12, 10, 2, 0, 0, time.UTC), Direction: tap.TypeIn}
+	in.DayCutoff = productCutoff()
+	in.LastOpenIn = &tap.Transaction{ID: uuid.New(), OccurredAt: samplesAt(0, 5, 30), Direction: tap.TypeIn}
 	return in
 }
 
@@ -397,7 +520,7 @@ func forgotViolation(s restaurantsFactSources) string {
 	probe := staleProbe()
 	d := s.Decide(probe)
 	if d.Type == nil || *d.Type != tap.TypeIn || !strings.Contains(d.Note, tap.LeftOpenNote) ||
-		d.LeftOpen == nil || d.LeftOpen.ID != probe.LastOpenIn.ID {
+		d.LeftOpen == nil || d.LeftOpen.ID != probe.LastOpenIn.ID || d.LeftOpen.Reason != tap.LeftOpenStale {
 		return fmt.Sprintf("a tap a day after a check-in nobody closed is %v with the note %q and left open %+v, "+
 			"not a new check-in that leaves the old one open with a note", d.Type, d.Note, d.LeftOpen)
 	}
@@ -416,6 +539,7 @@ var restaurantsDerivationFuncs = map[pages.Fact]func(restaurantsFactSources) str
 	pages.FactRollMarksWorkAtAnotherVenue:         rollOtherViolation,
 	pages.FactSetupTakesARealTap:                  setupViolation,
 	pages.FactForgottenCheckOutIsNotPaid:          forgotViolation,
+	pages.FactDirectionPairsWithinTheBusinessDay:  businessDayViolation,
 }
 
 // restaurantsFactDerivations is the restaurants page's derivation table (pageFactDerivations).
@@ -528,6 +652,31 @@ func TestRestaurantsFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		})},
 		{pages.FactForgottenCheckOutIsNotPaid, "the ledger's case stops asserting the new check-in leaves the old one open", replace(ledger,
 			"r.Worked != 0 || !openAt(reopened.Open, in.At)", "r.Worked != 0")},
+		{pages.FactDirectionPairsWithinTheBusinessDay, "the engine ignores the business day", func(s *restaurantsFactSources) {
+			s.BusinessDay.Decide = func(in tap.Input) tap.Decision { in.DayCutoff = nil; return tap.Decide(in) }
+		}},
+		{pages.FactDirectionPairsWithinTheBusinessDay, "the default cutoff moves", replace(func(s *restaurantsFactSources) *string { return &s.BusinessDay.Migration },
+			"day_cutoff time NOT NULL DEFAULT '05:00'", "day_cutoff time NOT NULL DEFAULT '04:00'")},
+		{pages.FactDirectionPairsWithinTheBusinessDay, "the owner's form is not mounted", replace(func(s *restaurantsFactSources) *string { return &s.BusinessDay.Dashboard },
+			"r.Post(businessDayApplyHref, a.businessDayApply)", "_ = a.businessDayApply")},
+		{pages.FactDirectionPairsWithinTheBusinessDay, "the gather drops the switch", replace(func(s *restaurantsFactSources) *string { return &s.BusinessDay.Checkin },
+			"tap.SwitchedDayCutoff(s.businessDayFrom", "tap.SwitchedDayCutoff(nil")},
+		{pages.FactDirectionPairsWithinTheBusinessDay, "production's switch is off", func(s *restaurantsFactSources) {
+			s.BusinessDay.Deploy = businessDaySwitchRE.ReplaceAllString(s.BusinessDay.Deploy, `  TAPPA_BUSINESS_DAY_FROM: ""`)
+		}},
+		{pages.FactDirectionFollowsLastOpenCheckIn, "the engine closes nothing across the cutoff it is given", engine(func(in tap.Input, d tap.Decision) tap.Decision {
+			if in.DayCutoff != nil && in.LastOpenIn != nil {
+				ty := tap.TypeIn
+				d.Type = &ty
+			}
+			return d
+		})},
+		{pages.FactForgottenCheckOutIsNotPaid, "the engine leaves it open for the business day and not the 18 hours", engine(func(in tap.Input, d tap.Decision) tap.Decision {
+			if d.LeftOpen != nil {
+				d.LeftOpen.Reason = tap.LeftOpenPreviousBusinessDay
+			}
+			return d
+		})},
 		{pages.FactForgottenCheckOutIsNotPaid, "the ledger's case stops asserting the unpaid interval", replace(ledger,
 			"f.Worked != 0 || left.Totals.TooLong != 1 || len(left.Open) != 1", "f.Worked != 0")},
 	}
@@ -1210,6 +1359,12 @@ var restaurantsRefusedPhrasings = map[string]string{
 	"hours of the venue where the person tapped:": "a department's own shift comes first (§5)",
 	"Sample setup": "the venues and their hours are the demo data, not a sample (K1)",
 	"is not paid":  "a sooner tap closes an open check-in as an ordinary check-out whose hours count, and the product counts hours, it pays nothing",
+	// The main merge (2026-10-23): M15's business day (ADR 0032) and its 18-hour rule.
+	"pair check-outs to the last open check-in, not the calendar date": "a check-out pairs only within the same business day (M15), which production runs",
+	"check-in closes it with a note":                                   "since M15 such a tap starts a new check-in and leaves the old one open",
+	"A tap sooner than that closes it":                                 "a sooner tap on a later business day does not close it (M15)",
+	"last open check-in, so the":                                       "the last open check-in closes only on the same business day and within 18 hours",
+	"left open for more than 18 hours is":                              "18 hours is not the only way a check-in stays open: a later business day is the other",
 }
 
 // TestRestaurantsPage_SaysNoneOfTheWithdrawnSentences: none of the board's withdrawn
