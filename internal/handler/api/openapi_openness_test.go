@@ -15,12 +15,16 @@ import (
 // Nested object schemas (Employee's activationEmail) follow the schema they sit in. The split is read
 // from the document itself, so a new schema is held to the rule by where it is used, not by a list.
 //
-// What keeps a leak visible now that the answers are open is not the schema but the tests that pin
-// every answer's keys: TestOpenAPI_TheExamplesAreTheHandlersAnswers (every family the story answers),
+// What keeps a leak visible now that the answers are open is not the schema but the tests that pin an
+// answer's keys -- and only in the cases those tests read: the story's answers
+// (TestOpenAPI_TheExamplesAreTheHandlersAnswers, every family), the handler tests that decode an
+// answer with DisallowUnknownFields (locOf / empOf in TestLocationsPut_* and TestEmployeesPut_*),
 // TestPunches_NothingButTheFeedsColumnsAnswers, TestWebhookPayload_CarriesNothingButTheFeedItem,
 // TestDirectory_HoldingTenantsOnlyNoEmailWithActive, TestWebhookPing_TheBodyIsSyntheticAndSigned, and
 // for Error's details TestOpenAPI_EveryRouteAndErrorDocumented (its keys are read from the package's
-// source, both ways). Each was measured red against an added key (M15-13 fix round).
+// source, both ways). A key added unconditionally was measured red in each family (M15-13 fix
+// rounds). A key added only in a state no test answers -- an activated employee, an inactive
+// location -- is caught by none of them, and was not before the schemas opened either (backlog T154).
 func TestOpenAPI_EveryAnswerSchemaIsOpenEveryRequestClosed(t *testing.T) {
 	doc := openAPIDoc(t)
 	schemas := mustMap(t, func() any { v, _ := yat(doc, "components", "schemas"); return v }(), "components.schemas")
