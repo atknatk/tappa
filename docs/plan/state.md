@@ -1704,7 +1704,8 @@ yazılır.
 | M14-05 | done | 00072, `9b6354b` … `b0be872f` (union `66df02be` + `ea13085c`); üçüncü göz + güvenlik ONAY. Kullanıcı kararları: `identity_open_reset` (EM-7C) + `identity_withdraw_reset`. Güvenlik turlarında kapananlar: oturum kimlik kilidinden sonra yeniden denetlenir (YÜKSEK, ölçüldü), tek kilit sırası kimlik → üyelikler → token/oturum, saat kilitlerden sonra `clock_timestamp()`, NULL'da kapalı koşullar. **Deploy 1 ön kontrolü:** canlıda pgcrypto (`deploy/README.md`) |
 | M14-06 | done | 00073, `1f3d439` … `c99b6a82`; üçüncü göz + güvenlik ONAY. Canlıda beklenen: 3 kimlik / 3 bağ, 1 aktif owner satırı bağlanmaz (05f = 1); süre ~8 ms. `internal/db` tam `-race` birleşik dalda 1381 PASS |
 | M14-07 | wip | dal `m14-auth` (kimlikle giriş, otomatik bağlama, eski kolda digest + `FOR SHARE`) |
-| M14-06b, M14-08 … M14-21 | todo | M14-06b migration 00074 |
+| M14-06b | done (bekliyor) | 00074, `57f07658` + `ccf1b874` (dal `m14-reconcile`, `m14-identity`'ye **bilinçli olarak birleştirilmedi**: ADR 0031 §8 gereği Deploy 2 = expand'den sonraki ayrı deploy); üçüncü göz + güvenlik ONAY. Deploy 2 zamanı m14-identity'yi alıp yeniden doğrulanır |
+| M14-08 … M14-21 | todo | |
 
 ## Oturum günlüğü
 
