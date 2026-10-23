@@ -1043,6 +1043,29 @@ func TestIdentityUnlink_AfterContractBItDisablesTheMembership(t *testing.T) {
 	ipInvariant(t, ctx, tx, w.v.id)
 }
 
+// TestIdentityUnlink_AnUnnamedCheckViolationIsNoContract is the security audit's DÜŞÜK on the
+// contract-B branch: a check_violation that names no constraint (a bare RAISE ... USING ERRCODE =
+// 'check_violation'; GET STACKED DIAGNOSTICS then gives ” -- not NULL) is NOT contract B's CHECK, so
+// it propagates and the membership is not disabled. The stand-in is a throwaway trigger (in the test's
+// transaction) on the unlinking UPDATE alone (identity_id going NULL).
+func TestIdentityUnlink_AnUnnamedCheckViolationIsNoContract(t *testing.T) {
+	ctx, tx := opTx(t)
+	w := ipNewUnlinkWorld(t, ctx, tx)
+	x, row := w.member(t, ctx, tx, "backfill", "2 days")
+	ipOpenWindow(t, ctx, tx, w.v.id, "first_verify")
+	aiExec(t, ctx, tx, `CREATE FUNCTION pg_temp.zz_m14_05_unnamed_check() RETURNS trigger LANGUAGE plpgsql AS
+	                    'BEGIN RAISE EXCEPTION ''no constraint named'' USING ERRCODE = ''check_violation''; END'`)
+	aiExec(t, ctx, tx, `CREATE TRIGGER zz_m14_05_unnamed_check BEFORE UPDATE ON admin_users FOR EACH ROW
+	                    WHEN (OLD.identity_id IS NOT NULL AND NEW.identity_id IS NULL) EXECUTE FUNCTION pg_temp.zz_m14_05_unnamed_check()`)
+	_, err := ipApp(t, ctx, tx, `SELECT * FROM identity_unlink_backfilled($1, $2)`, w.sH, x)
+	if code, _ := opCode(err); code != sqlstateCheckViolation {
+		t.Fatalf("the unlink over an unnamed check_violation answered %v, want the 23514 itself", err)
+	}
+	if opInt(t, ctx, tx, `SELECT count(*) FROM admin_users WHERE id = $1 AND status = 'active' AND unlinked_at IS NULL AND identity_id = $2`, row, w.v.id) != 1 {
+		t.Error("the membership was disabled or unlinked over an unnamed check_violation")
+	}
+}
+
 // TestIdentityRelink_OnlyThisWindowsRefusal is S4 / T4: inside the window a refused row is linked
 // again ('account', its ORIGINAL linked_at, unlinked_at NULL, the identity's digest) and stays on the
 // reset list (it can be unlinked again); the 0-row cases: a stale, a NULL and a future session, a
@@ -1817,17 +1840,22 @@ func ipLockFindings(body string) []string {
 // control: 00072's old token-first consumption is a finding.
 func TestIdentity00072_EveryWriterLocksIdentityMembershipsThenTokens(t *testing.T) {
 	ctx, tx := opTx(t)
+	// A re-check that a clock comparison follows is a SELECT ... INTO under the lock, then FOUND, then
+	// the clock read AGAIN (third eye: a lock wait must not leave a stale v_now) -- the regex pins all
+	// three in order; set_password compares no time, its re-check is a PERFORM.
+	const lead = `(?:PERFORM 1|SELECT [a-z_., ]+ INTO [a-z_, ]+)\s+`
+	const clock = `[^;]*;\s+v_\w+ := FOUND;\s+v_now := pg_catalog\.clock_timestamp\(\);`
 	sess := func(id, tenant string) string {
-		return `(?s)PERFORM 1\s+FROM public\.admin_sessions AS s.*?WHERE s\.id = ` + id + `\s+AND s\.tenant_id = ` + tenant + `.*?FOR UPDATE OF s;`
+		return `(?s)` + lead + `FROM public\.admin_sessions AS s\s+JOIN public\.admin_users AS a ON a\.id = s\.admin_user_id AND a\.tenant_id = s\.tenant_id\s+WHERE s\.id = ` + id + `\s+AND s\.tenant_id = ` + tenant + `[^;]*?FOR UPDATE OF s`
 	}
 	recheck := map[string][]string{
-		"identity_set_password":      {sess("v_session", "v_tenant")},
-		"identity_link_legacy":       {sess("v_id_session", "v_id_tenant"), `(?s)PERFORM 1 FROM public\.admin_sessions AS s\s+WHERE s\.id = v_legacy_session\s+AND s\.tenant_id = v_legacy_tenant.*?FOR UPDATE;`},
-		"identity_unlink_backfilled": {sess("v_session", "v_tenant")},
-		"identity_relink_refused":    {sess("v_session", "v_tenant")},
-		"identity_verify_email":      {sess("v_session", "v_tenant"), `(?s)PERFORM 1 FROM public\.admin_identity_verifications AS v\s+WHERE v\.id = v_verification AND v\.used_at IS NULL.*?FOR UPDATE;`},
-		"identity_consume_row_reset": {`(?s)PERFORM 1\s+FROM public\.password_resets AS r.*?WHERE r\.id = v_reset\s+AND r\.tenant_id = v_tenant\s+AND r\.used_at IS NULL\s+AND r\.cancelled_at IS NULL.*?FOR UPDATE OF r;`},
-		"identity_consume_reset":     {`(?s)PERFORM 1 FROM public\.admin_identity_resets AS r\s+WHERE r\.id = v_reset AND r\.identity_id = v_identity\s+AND r\.used_at IS NULL AND r\.cancelled_at IS NULL.*?FOR UPDATE;`},
+		"identity_set_password":      {sess("v_session", "v_tenant") + `;`},
+		"identity_link_legacy":       {sess("v_id_session", "v_id_tenant") + clock, `(?s)` + lead + `FROM public\.admin_sessions AS s\s+WHERE s\.id = v_legacy_session\s+AND s\.tenant_id = v_legacy_tenant[^;]*?FOR UPDATE` + clock},
+		"identity_unlink_backfilled": {sess("v_session", "v_tenant") + clock},
+		"identity_relink_refused":    {sess("v_session", "v_tenant") + clock},
+		"identity_verify_email":      {sess("v_session", "v_tenant") + `;`, `(?s)` + lead + `FROM public\.admin_identity_verifications AS v\s+WHERE v\.id = v_verification AND v\.used_at IS NULL[^;]*?FOR UPDATE` + clock},
+		"identity_consume_row_reset": {`(?s)` + lead + `FROM public\.password_resets AS r[^;]*?WHERE r\.id = v_reset\s+AND r\.tenant_id = v_tenant\s+AND r\.used_at IS NULL\s+AND r\.cancelled_at IS NULL[^;]*?FOR UPDATE OF r` + clock},
+		"identity_consume_reset":     {`(?s)` + lead + `FROM public\.admin_identity_resets AS r\s+WHERE r\.id = v_reset AND r\.identity_id = v_identity\s+AND r\.used_at IS NULL AND r\.cancelled_at IS NULL[^;]*?FOR UPDATE` + clock},
 	}
 	identityLock := regexp.MustCompile(`(?s)FROM public\.admin_identities AS i\s+WHERE i\.id = v_identity.*?FOR UPDATE;`)
 	for fn, res := range recheck {
@@ -2007,7 +2035,7 @@ func TestIdentityUnlink_TakesThePersonsLockAndTheRowsLock(t *testing.T) {
 	steps := []*regexp.Regexp{
 		regexp.MustCompile(`(?s)FROM public\.admin_identities AS i\s+WHERE i\.id = v_identity.*?FOR UPDATE;`),
 		regexp.MustCompile(`PERFORM 1 FROM public\.admin_users AS a WHERE a\.identity_id = v_identity FOR UPDATE;`),
-		regexp.MustCompile(`(?s)PERFORM 1\s+FROM public\.admin_sessions AS s.*?WHERE s\.id = v_session\s+AND s\.tenant_id = v_tenant.*?FOR UPDATE OF s;`),
+		regexp.MustCompile(`(?s)SELECT s\.authenticated_at INTO v_auth\s+FROM public\.admin_sessions AS s.*?WHERE s\.id = v_session\s+AND s\.tenant_id = v_tenant.*?FOR UPDATE OF s;`),
 		regexp.MustCompile(`(?s)FROM public\.admin_users AS a\s+WHERE a\.tenant_id = p_tenant.*?FOR UPDATE;`),
 		regexp.MustCompile(`UPDATE public\.admin_users AS a\s+SET identity_id = NULL`),
 		regexp.MustCompile(`UPDATE public\.admin_sessions AS s SET revoked_at = now\(\)\s+WHERE s\.tenant_id = p_tenant AND s\.admin_user_id = v_target`),

@@ -33,8 +33,10 @@
 -- function, with their reasons.
 --
 -- FRESHNESS (R3, S4, M14-03's audit). "Fresh" is authenticated_at within the last five minutes AND
--- not in the future: `authenticated_at > v_fresh AND authenticated_at <= v_now`, v_now read from
--- clock_timestamp() and read again after every lock wait, v_fresh = v_now - 5 minutes. A NULL (a
+-- not in the future: `authenticated_at > v_now - 5 minutes AND authenticated_at <= v_now`, v_now
+-- read from clock_timestamp(); a check that follows a row lock reads the row's value under the lock
+-- and compares it in plpgsql with the clock read again AFTER the lock (a wait must not leave a stale
+-- v_now) -- the session's freshness, a link's expiry, the window's end. A NULL (a
 -- session older than 00069) is never fresh; a future-dated value (or 'infinity') is never fresh
 -- either, whatever wrote it.
 --
@@ -504,6 +506,8 @@ DECLARE
     v_admin    uuid;
     v_identity uuid;
     v_now      timestamptz;
+    v_expires  timestamptz;
+    v_found    boolean;
     v_n        integer;
     v_own      integer := 0;
     m          record;
@@ -527,20 +531,21 @@ BEGIN
     -- The identity first, its memberships, then the link, re-checked.
     PERFORM 1 FROM public.admin_identities AS i WHERE i.id = v_identity FOR UPDATE;
     PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
-    v_now := pg_catalog.clock_timestamp();
-    PERFORM 1
+    SELECT r.expires_at INTO v_expires
       FROM public.password_resets AS r
       JOIN public.admin_users AS a ON a.id = r.admin_user_id AND a.tenant_id = r.tenant_id
      WHERE r.id = v_reset
        AND r.tenant_id = v_tenant
        AND r.used_at IS NULL
        AND r.cancelled_at IS NULL
-       AND r.expires_at > v_now
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
        AND a.identity_id = v_identity
        FOR UPDATE OF r;
-    IF NOT FOUND THEN
+    -- The expiry after the link's own lock, with the clock read again (NULL fails closed).
+    v_found := FOUND;
+    v_now := pg_catalog.clock_timestamp();
+    IF (v_found AND v_expires > v_now) IS NOT TRUE THEN
         RETURN;
     END IF;
     UPDATE public.password_resets AS r SET used_at = now()
@@ -599,6 +604,8 @@ DECLARE
     v_reset    uuid;
     v_identity uuid;
     v_now      timestamptz;
+    v_expires  timestamptz;
+    v_found    boolean;
     v_n        integer;
     v_all      integer := 0;
     m          record;
@@ -617,12 +624,14 @@ BEGIN
     -- The identity first, its memberships, then the link, re-checked.
     PERFORM 1 FROM public.admin_identities AS i WHERE i.id = v_identity FOR UPDATE;
     PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
-    v_now := pg_catalog.clock_timestamp();
-    PERFORM 1 FROM public.admin_identity_resets AS r
+    SELECT r.expires_at INTO v_expires FROM public.admin_identity_resets AS r
      WHERE r.id = v_reset AND r.identity_id = v_identity
-       AND r.used_at IS NULL AND r.cancelled_at IS NULL AND r.expires_at > v_now
+       AND r.used_at IS NULL AND r.cancelled_at IS NULL
        FOR UPDATE;
-    IF NOT FOUND THEN
+    -- The expiry after the link's own lock, with the clock read again (NULL fails closed).
+    v_found := FOUND;
+    v_now := pg_catalog.clock_timestamp();
+    IF (v_found AND v_expires > v_now) IS NOT TRUE THEN
         RETURN;
     END IF;
     UPDATE public.admin_identity_resets AS r SET used_at = now() WHERE r.id = v_reset AND r.used_at IS NULL;
@@ -694,6 +703,8 @@ DECLARE
     v_legacy_found   boolean;
     v_legacy_live    boolean := false;
     v_member         boolean := false;
+    v_auth           timestamptz;
+    v_auth_found     boolean;
 BEGIN
     v_now := pg_catalog.clock_timestamp();
     v_fresh := v_now - interval '5 minutes';
@@ -715,8 +726,6 @@ BEGIN
     SELECT i.email, i.password_hash INTO v_identity_email, v_digest
       FROM public.admin_identities AS i WHERE i.id = v_identity FOR UPDATE;
     PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
-    v_now := pg_catalog.clock_timestamp();
-    v_fresh := v_now - interval '5 minutes';
 
     SELECT s.id, s.tenant_id, a.id, a.email INTO v_legacy_session, v_legacy_tenant, v_legacy_admin, v_legacy_email
       FROM public.admin_sessions AS s
@@ -724,41 +733,42 @@ BEGIN
      WHERE s.token_hash = p_legacy_session_hash
        AND s.token_hash <> p_identity_session_hash
        AND s.revoked_at IS NULL
-       AND s.authenticated_at > v_fresh
-       AND s.authenticated_at <= v_now
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
        AND a.identity_id IS NULL
        FOR UPDATE OF a;
     v_legacy_found := FOUND;
 
-    -- The sessions: the identity's re-checked under the identity lock (READ COMMITTED: the lock-free
-    -- read above may predate a reset or a revocation that committed while this call waited), the
-    -- legacy one locked and re-checked.
-    PERFORM 1
+    -- The sessions, after every row lock: the identity's re-checked under the identity lock, the
+    -- legacy one locked and re-checked; each one's freshness compared after its own lock.
+    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
+    -- reset or a revocation that committed while this call waited); its freshness is judged AFTER the
+    -- row lock, with the clock read again -- a lock wait must not leave a stale v_now.
+    SELECT s.authenticated_at INTO v_auth
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.id = v_id_session
        AND s.tenant_id = v_id_tenant
        AND s.revoked_at IS NULL
-       AND s.authenticated_at > v_fresh
-       AND s.authenticated_at <= v_now
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
        AND a.identity_id = v_identity
        FOR UPDATE OF s;
-    IF NOT FOUND THEN
+    v_auth_found := FOUND;
+    v_now := pg_catalog.clock_timestamp();
+    IF (v_auth_found AND v_auth > v_now - interval '5 minutes' AND v_auth <= v_now) IS NOT TRUE THEN
         RETURN;
     END IF;
     IF v_legacy_found IS TRUE THEN
-        PERFORM 1 FROM public.admin_sessions AS s
+        SELECT s.authenticated_at INTO v_auth
+          FROM public.admin_sessions AS s
          WHERE s.id = v_legacy_session
            AND s.tenant_id = v_legacy_tenant
            AND s.revoked_at IS NULL
-           AND s.authenticated_at > v_fresh
-           AND s.authenticated_at <= v_now
            FOR UPDATE;
-        v_legacy_live := FOUND;
+        v_auth_found := FOUND;
+        v_now := pg_catalog.clock_timestamp();
+        v_legacy_live := (v_auth_found AND v_auth > v_now - interval '5 minutes' AND v_auth <= v_now) IS TRUE;
         PERFORM 1 FROM public.admin_users AS o WHERE o.tenant_id = v_legacy_tenant AND o.identity_id = v_identity;
         v_member := FOUND;
     END IF;
@@ -816,6 +826,10 @@ DECLARE
     v_tenant     uuid;
     v_now        timestamptz;
     v_fresh      timestamptz;
+    v_auth       timestamptz;
+    v_auth_found boolean;
+    v_until      timestamptz;
+    v_verified   timestamptz;
 BEGIN
     v_now := pg_catalog.clock_timestamp();
     v_fresh := v_now - interval '5 minutes';
@@ -833,34 +847,33 @@ BEGIN
         RETURN;
     END IF;
 
-    SELECT i.confirm_scope, i.confirm_opened_at INTO v_scope, v_opened
+    SELECT i.confirm_scope, i.confirm_opened_at, i.confirm_open_until, i.email_verified_at
+      INTO v_scope, v_opened, v_until, v_verified
       FROM public.admin_identities AS i
      WHERE i.id = v_identity
-       AND i.email_verified_at IS NOT NULL
-       AND i.confirm_open_until > v_now
        FOR UPDATE;
-    IF NOT FOUND THEN
-        RETURN;
-    END IF;
     -- Lock order: the identity (above), every membership of it, then the session and token rows.
     PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
-    v_now := pg_catalog.clock_timestamp();
-    v_fresh := v_now - interval '5 minutes';
     -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
-    -- reset or a revocation that committed while this call waited).
-    PERFORM 1
+    -- reset or a revocation that committed while this call waited); its freshness is judged AFTER the
+    -- row lock, with the clock read again -- a lock wait must not leave a stale v_now.
+    SELECT s.authenticated_at INTO v_auth
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.id = v_session
        AND s.tenant_id = v_tenant
        AND s.revoked_at IS NULL
-       AND s.authenticated_at > v_fresh
-       AND s.authenticated_at <= v_now
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
        AND a.identity_id = v_identity
        FOR UPDATE OF s;
-    IF NOT FOUND THEN
+    v_auth_found := FOUND;
+    v_now := pg_catalog.clock_timestamp();
+    IF (v_auth_found AND v_auth > v_now - interval '5 minutes' AND v_auth <= v_now) IS NOT TRUE THEN
+        RETURN;
+    END IF;
+    -- The window too, after the locks (NULL fails closed).
+    IF (v_verified IS NOT NULL AND v_until > v_now) IS NOT TRUE THEN
         RETURN;
     END IF;
 
@@ -892,9 +905,9 @@ BEGIN
          WHERE a.id = v_target AND a.tenant_id = p_tenant AND a.identity_id = v_identity;
     EXCEPTION WHEN check_violation THEN
         GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-        -- Only a CHECK this file does not know (contract B's) takes the disable branch; a NULL name
-        -- re-raises.
-        IF v_constraint IS NULL OR v_constraint IN ('admin_users_link_has_a_time', 'admin_users_linked_via_known',
+        -- Only a CHECK this file does not know (contract B's) takes the disable branch; no name (GET
+        -- STACKED DIAGNOSTICS gives '' for a bare RAISE, NULL never) re-raises.
+        IF coalesce(v_constraint, '') = '' OR v_constraint IN ('admin_users_link_has_a_time', 'admin_users_linked_via_known',
                             'admin_users_password_hash_is_bcrypt', 'admin_users_role_check',
                             'admin_users_status_check') THEN
             RAISE;
@@ -948,6 +961,10 @@ DECLARE
     v_member   boolean;
     v_now      timestamptz;
     v_fresh    timestamptz;
+    v_auth       timestamptz;
+    v_auth_found boolean;
+    v_until      timestamptz;
+    v_verified   timestamptz;
 BEGIN
     v_now := pg_catalog.clock_timestamp();
     v_fresh := v_now - interval '5 minutes';
@@ -965,14 +982,10 @@ BEGIN
         RETURN;
     END IF;
 
-    SELECT i.email, i.password_hash, i.confirm_opened_at INTO v_email, v_digest, v_opened
+    SELECT i.email, i.password_hash, i.confirm_opened_at, i.confirm_open_until INTO v_email, v_digest, v_opened, v_until
       FROM public.admin_identities AS i
      WHERE i.id = v_identity
-       AND i.confirm_open_until > v_now
        FOR UPDATE;
-    IF NOT FOUND THEN
-        RETURN;
-    END IF;
     -- Lock order: the identity (above), every membership of it, the refused row, then the session.
     PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
     SELECT a.id INTO v_target
@@ -983,23 +996,26 @@ BEGIN
        AND a.unlinked_at >= v_opened
        FOR UPDATE;
     v_found := FOUND;
-    v_now := pg_catalog.clock_timestamp();
-    v_fresh := v_now - interval '5 minutes';
     -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
-    -- reset or a revocation that committed while this call waited).
-    PERFORM 1
+    -- reset or a revocation that committed while this call waited); its freshness is judged AFTER the
+    -- row lock, with the clock read again -- a lock wait must not leave a stale v_now.
+    SELECT s.authenticated_at INTO v_auth
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.id = v_session
        AND s.tenant_id = v_tenant
        AND s.revoked_at IS NULL
-       AND s.authenticated_at > v_fresh
-       AND s.authenticated_at <= v_now
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
        AND a.identity_id = v_identity
        FOR UPDATE OF s;
-    IF NOT FOUND OR v_found IS NOT TRUE THEN
+    v_auth_found := FOUND;
+    v_now := pg_catalog.clock_timestamp();
+    IF (v_auth_found AND v_auth > v_now - interval '5 minutes' AND v_auth <= v_now) IS NOT TRUE THEN
+        RETURN;
+    END IF;
+    -- The window too, after the locks (NULL fails closed).
+    IF (v_found AND v_until > v_now) IS NOT TRUE THEN
         RETURN;
     END IF;
     PERFORM 1 FROM public.admin_users AS o WHERE o.tenant_id = p_tenant AND o.identity_id = v_identity;
@@ -1088,6 +1104,8 @@ DECLARE
     v_session      uuid;
     v_tenant       uuid;
     v_now          timestamptz;
+    v_expires      timestamptz;
+    v_found        boolean;
 BEGIN
     v_now := pg_catalog.clock_timestamp();
     SELECT v.id, v.identity_id INTO v_verification, v_identity
@@ -1114,11 +1132,13 @@ BEGIN
     -- The identity first, then the link and the session, re-checked.
     SELECT i.email_verified_at IS NULL INTO v_first
       FROM public.admin_identities AS i WHERE i.id = v_identity FOR UPDATE;
-    v_now := pg_catalog.clock_timestamp();
-    PERFORM 1 FROM public.admin_identity_verifications AS v
-     WHERE v.id = v_verification AND v.used_at IS NULL AND v.expires_at > v_now
+    SELECT v.expires_at INTO v_expires FROM public.admin_identity_verifications AS v
+     WHERE v.id = v_verification AND v.used_at IS NULL
        FOR UPDATE;
-    IF NOT FOUND THEN
+    -- The expiry after the link's own lock, with the clock read again (NULL fails closed).
+    v_found := FOUND;
+    v_now := pg_catalog.clock_timestamp();
+    IF (v_found AND v_expires > v_now) IS NOT TRUE THEN
         RETURN;
     END IF;
     -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
