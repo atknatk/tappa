@@ -22,6 +22,12 @@
   kullanıcı onayı; M14-05 yazar — §5.2, §5.9). §6.1'in kapanış cümlesi kimliğe ve `admin_users`'ın bağ
   sütunlarına göre yeniden yazıldı; M14-04'ün iki denetiminin kabul ettiği kart dışı kararlar §5.2 ve
   §5.4'e not edildi.
+  **2026-10-23:** kullanıcı kararı (*"Kapat, M14-04'te"*, M14-04'ün güvenlik denetiminden sonra): 
+  `identity_open_session` dördüncü bir argüman alır, `p_verified_digest` — Go'nun parolayı karşılaştırdığı
+  digest. Fonksiyon kişinin kilidi altında `password_hash = p_verified_digest` değilse 0 satır döner
+  (oturum yok, audit yok): eski parolayla başlamış bir giriş, araya giren bir sıfırlama commit edildikten
+  sonra oturum alamaz. `tappa_identitydefiner`'ın matrisine `admin_identities` SELECT (`password_hash`)
+  eklenir (okunur, döndürülmez) — §5.2'nin imza satırı ve matrisi buna göre.
 - **Tarih:** 2026-10-21
 - **Karar veren:** kullanıcı (ürün sahibi) — 2026-10-21: *"Hesapları birleştir (tek kimlik)"*: bir
   kişi = tek giriş kimliği, birden çok işletmeye (tenant) üye olabilir; ör. Kebab Factory ile Kebab
@@ -258,7 +264,7 @@ tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi taşır (
 
 | Fonksiyon | Anahtar | Ne yapar / ne zaman reddeder |
 |---|---|---|
-| `identity_open_session(p_identity_id, p_tenant, p_token_hash)` | ⚠️ **sır değil — istisna 1** | Parolası uygulamada doğrulanmış kimlik için istenen / son kullanılan / en eski aktif üyelikte oturum açar, `authenticated_at = now()`, o tenant'a giriş audit'i. Tek çağrı yolu Go'daki doğrulanmış-kimlik tipidir (00011 YÜKÜMLÜLÜK 5'in karşılığı; bugünkü `Issue(Verified)` ile aynı güven) |
+| `identity_open_session(p_identity_id, p_tenant, p_token_hash, p_verified_digest)` | ⚠️ **sır değil — istisna 1** | Parolası uygulamada doğrulanmış kimlik için istenen / son kullanılan / en eski aktif üyelikte oturum açar, `authenticated_at = now()`, o tenant'a giriş audit'i. Kişinin kilidi altında kimliğin digest'i hâlâ `p_verified_digest` değilse 0 satır (2026-10-23 kullanıcı kararı: araya giren sıfırlama eski parolanın girişini düşürür). Tek çağrı yolu Go'daki doğrulanmış-kimlik tipidir (00011 YÜKÜMLÜLÜK 5'in karşılığı; bugünkü `Issue(Verified)` ile aynı güven) |
 | `identity_create_for_signup(p_tenant_id, p_admin_user_id)` | ⚠️ **sır değil — istisna 2, yalnız expand → M14-17 arası** | Kayıt transaction'ı içinde. **Neden zararsız** (R13): etkisi uzlaştırmanınkiyle aynıdır — tek satırlı bir e-posta grubundan kimlik. **Yapısal yüklemler:** tenant'ın **tek** `admin_users` satırı bu satırdır (asıl güvence — T7), satır bu transaction'ın başında doğmuş (`admin_users.created_at = now()`; `now()` transaction başlangıcıdır, alt transaction'dan etkilenmez, `created_at` uygulamaya yazılamaz — `00017:379-416`) ve **ek olarak** `xmin = pg_current_xact_id()::xid` (xmin "bu transaction'da **yazılmış**" demektir, "eklenmiş" değil — aynı transaction'daki bir UPDATE de onu koyar), `p_tenant_id = current_setting('app.tenant_id')`; e-posta hiçbir kimlikte ve başka hiçbir `admin_users` satırında yok → kimlik + bağ (`linked_via='signup'`); varsa hiçbir şey, satır bağlanmamış doğar. **Eşzamanlı iki kayıt** (READ COMMITTED'da ikisi de "başka satır yok" görür): repodaki ad alanlı kilit deseniyle (`passwordresets.sql:353`, `invites.sql:404`) `pg_advisory_xact_lock(hashtextextended('admin-identity-email:' || lower(email), 0))` — tap debounce'unun kilit uzayıyla çakışmaz (S13) — + kimlik INSERT'inde `ON CONFLICT (email) DO NOTHING` → ikincisi bağlanmamış satırla biter, **500 yok**. **SAVEPOINT tuzağı** (S13): `xmin` yüklemi bir alt transaction'da (pgx iç içe `Begin`) yazılan satırda tutmaz; sonuç güvenli (satır bağlanmamış doğar) ama sessizdir — kart testi **gerçek `Provision` yolundan** koşar ve kimlik doğmazsa kırmızıdır; `pg_current_xact_id()::xid` hedef PostgreSQL sürümünde (17.10) doğrulanır. M14-17 onu çağırmayı bırakır; **DROP bir sonraki deploy'dadır** (contract B, M14-20b — R8: rollout penceresindeki eski pod düşmüş bir fonksiyonu çağırmasın) |
 | `identity_record_failed_login(p_identity_id, p_event)` | ⚠️ **sır değil — istisna 3** (R9) | Parolası **doğrulanmamış** bir kimliğe karşı başarısız giriş: yalnız `admin_identity_events`'e bir satır yazar, başka hiçbir şeye dokunmaz. Sınır uygulamadadır: kimlik başına `adminAccountLimit` kovası (`adminratelimit.go:740-781`'in deseni) — limit aşılınca yalnız **bir** `FirstOverLimit` satırı, sonra hiç |
 | `identity_memberships(p_session_hash)` | canlı oturum | Kişinin aktif üyelikleri, ≤ 50, `(tenant_id, tenant_name, role, suspended, is_current)`; oturumun satırı bağlı değilse yalnız kendisi |
@@ -302,7 +308,10 @@ kart kendi satırlarını ekler ve bu ADR o eklemeleri **önceden onaylar** — 
 kullanıcı onayı + ADR değişikliği ister. Kanonik biçim M14-04'te doğan **imza tablosudur**
 (`pg_get_function_identity_arguments` + `pg_get_function_result` metni) ve ADR 0027 §2/§3'teki gibi
 katalog testiyle birebir pinlenir. `tappa_identitydefiner`'ın **fiil × sütun matrisi** (özet; tam hâli
-M14-04'ün testinde): beş kimlik tablosunda gerektiği kadar — `admin_identity_resets`: SELECT (`id`,
+M14-04'ün testinde): beş kimlik tablosunda gerektiği kadar — `admin_identities`: SELECT (`id`, `password_hash`,
+`last_used_tenant`), UPDATE (`last_used_tenant`, `last_login_at`) — M14-04; `password_hash` yalnız
+`identity_open_session`'ın kilit altındaki karşılaştırması için okunur, hiçbir fonksiyon döndürmez (2026-10-23);
+`admin_identity_resets`: SELECT (`id`,
 `identity_id`, `token_hash`, `expires_at`, `used_at`, `cancelled_at`), INSERT (`identity_id`, `token_hash`,
 `expires_at`) — `identity_open_reset`, UPDATE (`used_at`, `cancelled_at`) — tüketim ve
 `identity_withdraw_reset`; `admin_identity_events`: INSERT (`identity_id`, `event`, `detail`), SELECT (`created_at`) ve DELETE

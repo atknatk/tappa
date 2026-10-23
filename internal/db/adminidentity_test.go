@@ -141,6 +141,9 @@ func aiSavepoint(t *testing.T, ctx context.Context, tx pgx.Tx, body func(sp pgx.
 // hands tappa_app SELECT/INSERT on a table a pg_dump re-creates) reads and writes nothing.
 func TestAdminIdentities00069_TheTableIsTheADRsAndScopeLess(t *testing.T) {
 	ctx, tx := opTx(t)
+	// M14-04: this test pins the catalogue AT 00069/00070 -- 00071's grants and functions are taken
+	// back first, inside the rolled-back transaction (identityAt00070).
+	identityAt00070(t, ctx, tx)
 
 	var cols string
 	if err := tx.QueryRow(ctx, `
@@ -253,6 +256,9 @@ func TestAdminIdentities00069_TheTableIsTheADRsAndScopeLess(t *testing.T) {
 // privilege's and not RLS's. The operator's two roles and the resolver reach none of the new columns.
 func TestAdminUsers00069_TheApplicationCannotWriteTheLink(t *testing.T) {
 	ctx, tx := opTx(t)
+	// M14-04: this test pins the catalogue AT 00069/00070 -- 00071's grants and functions are taken
+	// back first, inside the rolled-back transaction (identityAt00070).
+	identityAt00070(t, ctx, tx)
 
 	for _, c := range []struct{ role, table, priv, want string }{
 		{"tappa_app", "admin_users", "SELECT", aiAppSelect},
@@ -857,6 +863,9 @@ func aiIdentityRolesBlock(t *testing.T) string {
 //     refuses a member, a membership and a default privilege; and the runbook names the section.
 func TestAdminIdentities00069_DownRefusesAnIdentityAndOtherwiseWalksBackAndUp(t *testing.T) {
 	ctx, tx := opTx(t)
+	// M14-04: this test pins the catalogue AT 00069/00070 -- 00071's grants and functions are taken
+	// back first, inside the rolled-back transaction (identityAt00070).
+	identityAt00070(t, ctx, tx)
 	up, down := opMigrationSections(t, ai00069File)
 	up70, _ := opMigrationSections(t, ai00070File)
 	tables := append(downTables(down), "tenants")

@@ -294,6 +294,11 @@ sıcak tablodur. Rolü migration'da yaratmak R5b'yi kırar.
 - BYPASSRLS gövdelerinde tenant tablosuna dokunan her ifadede açık `tenant_id` yüklemi (metin taraması).
 - Mutasyon: kimlik eşitliği, `status='active'`, eski oturum iptali silinince; audit'e hedef eklenince
   → kırmızı.
+- **Kullanıcı kararı (2026-10-23, *"Kapat, M14-04'te"*):** `identity_open_session` dördüncü argüman
+  `p_verified_digest` alır; kişinin kilidi altında kimliğin digest'i ona eşit değilse 0 satır (oturum ve
+  audit yok). Testler: bayat digest → 0 satır; açılış kilitte beklerken commit edilen sıfırlama → 0 satır;
+  mutasyon: digest karşılaştırması silinince kırmızı. `tappa_identitydefiner`'a `admin_identities` SELECT
+  (`password_hash`) (ADR 0031 §5.2 matrisi).
 
 **ONAY sonrası yükümlülük (754f36f, not 1).** Katalog testinin EXECUTE izin listesi
 `identity_reconcile()`'ı **tek istisna** olarak adıyla taşır (`EXECUTE` yalnız `tappa_owner`); öbür her
@@ -439,6 +444,8 @@ dolu e-posta = 0, reddedilmişler hariç; bağlı satırda digest uyuşmazlığ�
   kurbanın kimliğine bağlanmaz ve oturum açmaz.
 - `identity_open_session`'ın tek çağrı yolu doğrulanmış-kimlik tipidir; ikinci bir üretici varsa
   adıyla yazılır (`manager.go:251-292`'nin iki-bacak dürüstlüğü).
+- `identity_open_session`'a doğrulanan digest'in kendisi verilir (`db.OpenIdentitySession`'ın `verified`
+  argümanı = çözümleyicinin döndürdüğü `PasswordHash`, değiştirilmeden — 2026-10-23 kullanıcı kararı).
 - Başarısız kimlik girişi `identity_record_failed_login` ile, kimlik başına kova (aşınca tek
   `FirstOverLimit` satırı); log'da e-posta yok.
 - **Eski kolun oturum yazımı doğrulanan digest'e koşulludur ve satırı kilitler** (ADR 0031 §5.2,
