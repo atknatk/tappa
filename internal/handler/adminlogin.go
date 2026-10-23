@@ -98,7 +98,8 @@ type AdminAuth struct {
 	// attributes).
 	cookies adminauth.Cookies
 	// identityGate is TAPPA_ADMIN_IDENTITY's table of surfaces (ADR 0031 §8, M14-08): every
-	// identity surface of the panel asks it, by its row, through gated (identitygate.go).
+	// identity surface of the panel is mounted through mountGated (identitygate.go): a closed
+	// surface is not mounted at all.
 	identityGate adminauth.IdentityGate
 	// short writes the two SHORT-LIVED auth cookies: the synchronizer token and
 	// the signed verified-candidate set (logincontext.go).

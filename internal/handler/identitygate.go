@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"net/http"
+	"github.com/go-chi/chi/v5"
 
 	"github.com/atknatk/tappa/internal/adminauth"
 )
@@ -9,24 +9,25 @@ import (
 // identitygate.go -- how a panel route binds to TAPPA_ADMIN_IDENTITY (ADR 0031 §8, M14-08).
 //
 // The decision is adminauth.IdentityGate's table, by row (adminauth/flag.go). This is the HTTP half,
-// in one place: a route of an identity surface (/admin/switch -- M14-10, invitations -- M14-15, ...)
-// is mounted as a.gated(<its Surface>, <its whole chain>), and while that row is closed the request
-// answers EXACTLY what a path the panel never had answers -- the router's own 404, before any gate of
-// the chain runs. So a closed surface cannot be told from a missing one by anybody: not by a signed-in
-// session (linked or not -- R4), not by a signed-out visitor, not by a forged POST (the chain's
-// flood, origin and session gates would each answer something of their own).
+// in one place: the routes of an identity surface (/admin/switch -- M14-10, invitations -- M14-15, ...)
+// are mounted through a.mountGated(r, <its Surface>, func(r chi.Router) { ... }), and while that row is
+// closed they are NOT MOUNTED AT ALL. The flag is read once, at start-up (config.Load), so nothing
+// needs deciding per request -- and an unmounted route is the only thing that answers exactly what a
+// path the panel never had answers, for EVERY method: a route bound with r.Get / r.Post and refused
+// at request time still made the router answer HEAD, PUT, DELETE, OPTIONS and PATCH with 405 and an
+// Allow header (M14-08's audit, measured) -- the closed surface's existence, leaked. So a closed
+// surface cannot be told from a missing one by anybody: not by a signed-in session (linked or not --
+// R4), not by a signed-out visitor, not by any method.
 //
-// TestGated_AClosedRouteIsAPathThePanelNeverHad holds the bytes to the router's: the day the panel's
-// router gets a NotFound of its own, that test is red until this follows it.
+// TestMountGated_AClosedSurfaceIsAPathThePanelNeverHad holds the bytes to the router's, method by
+// method.
 
-// gated is h while s is open under the panel's identity flag, and the 404 of an unmounted path while
-// it is closed. It wraps the WHOLE chain -- mount it outermost.
-func (a *AdminAuth) gated(s adminauth.Surface, h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !a.identityGate.Open(s) {
-			http.NotFound(w, r)
-			return
-		}
-		h.ServeHTTP(w, r)
-	})
+// mountGated mounts the routes mount registers when s is open under the panel's identity flag, and
+// nothing at all when it is closed. mount receives r itself (no sub-router, no path prefix): a
+// surface's routes keep their full /admin/... paths and their chains, exactly as an ungated mount.
+func (a *AdminAuth) mountGated(r chi.Router, s adminauth.Surface, mount func(chi.Router)) {
+	if !a.identityGate.Open(s) {
+		return
+	}
+	mount(r)
 }
