@@ -943,55 +943,57 @@ func idWaitForLock(t *testing.T, owner *DB, fn string, n int64) {
 	}
 }
 
-// TestIdentityOpenSession_AStaleProofOpensNothing (the user's decision of 2026-10-23, "Kapat,
+// TestIdentityOpenSession_AStaleDigestOpensNothing (the user's decision of 2026-10-23, "Kapat,
 // M14-04'te"; ADR 0031 §5.2): identity_open_session opens a session only while the digest Go verified
-// is still the identity's under the person's lock.
-//   - A stale digest: 0 rows, no session, no audit row.
-//   - THE RACE: a login with the old password has resolved; a reset (here: the digest changed under
-//     the person's lock, in another connection) is in flight; the login's open waits on the lock;
-//     the reset commits -- the open must answer pgx.ErrNoRows, and no session or audit row exists.
-func TestIdentityOpenSession_AStaleProofOpensNothing(t *testing.T) {
-	t.Run("a stale digest", func(t *testing.T) {
-		ctx, tx := opTx(t)
-		w := idNewWorld(t, ctx, tx)
-		rows, err := idAs(t, ctx, tx, openIdentitySessionSQL, w.ident, w.a, opRandHex(t), opFakeDigest("b"))
-		if err != nil || len(rows) != 0 {
-			t.Fatalf("a digest that is not the identity's: %v, %v; want 0 rows", rows, err)
-		}
-		if n := idCount(t, ctx, tx, `SELECT (SELECT count(*) FROM admin_sessions WHERE admin_user_id IN ($1, $2))
-		                                  + (SELECT count(*) FROM audit_log WHERE tenant_id IN ($3, $4))`, w.ma, w.mb, w.a, w.b); n != 0 {
-			t.Fatalf("a refused open wrote %d row(s)", n)
-		}
-	})
-	t.Run("a reset that commits while the open waits", func(t *testing.T) {
-		app, owner, w := idCommittedWorld(t)
-		ctx := context.Background()
-		r, err := app.ResolveIdentityByEmail(ctx, w.email)
-		if err != nil {
-			t.Fatal(err)
-		}
-		held := idHoldThePerson(t, owner, w.ident, []any{`UPDATE admin_identities SET password_hash = $2 WHERE id = $1`, w.ident, opFakeDigest("c")})
-		done := make(chan error, 1)
-		go func() {
-			_, err := app.OpenIdentitySession(ctx, w.ident, w.a, opRandHex(t), r.PasswordHash)
-			done <- err
-		}()
-		idWaitForLock(t, owner, "identity_open_session", 1)
-		if err := held.Commit(ctx); err != nil {
-			t.Fatal(err)
-		}
-		if err := <-done; !errors.Is(err, pgx.ErrNoRows) {
-			t.Fatalf("the login with the old password answered %v after the reset, want pgx.ErrNoRows", err)
-		}
-		var n int64
-		if err := owner.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM admin_sessions WHERE admin_user_id IN ($1, $2))
-		                                         + (SELECT count(*) FROM audit_log WHERE tenant_id IN ($3, $4))`, w.ma, w.mb, w.a, w.b).Scan(&n); err != nil {
-			t.Fatal(err)
-		}
-		if n != 0 {
-			t.Fatalf("the late login left %d session/audit row(s)", n)
-		}
-	})
+// is still the identity's under the person's lock -- a stale digest is 0 rows, no session, no audit
+// row. (A top-level test of its own, not a subtest: opTx takes the operator-tables lock, which
+// cmd/opadmin's TestTablesLock_IsTakenOncePerTestTree allows once per test tree and never inside a
+// func literal.)
+func TestIdentityOpenSession_AStaleDigestOpensNothing(t *testing.T) {
+	ctx, tx := opTx(t)
+	w := idNewWorld(t, ctx, tx)
+	rows, err := idAs(t, ctx, tx, openIdentitySessionSQL, w.ident, w.a, opRandHex(t), opFakeDigest("b"))
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("a digest that is not the identity's: %v, %v; want 0 rows", rows, err)
+	}
+	if n := idCount(t, ctx, tx, `SELECT (SELECT count(*) FROM admin_sessions WHERE admin_user_id IN ($1, $2))
+	                                  + (SELECT count(*) FROM audit_log WHERE tenant_id IN ($3, $4))`, w.ma, w.mb, w.a, w.b); n != 0 {
+		t.Fatalf("a refused open wrote %d row(s)", n)
+	}
+}
+
+// TestIdentityOpenSession_AResetCommittedWhileTheOpenWaitsWins is THE RACE of the same decision: a
+// login with the old password has resolved; a reset (here: the digest changed under the person's
+// lock, in another connection) is in flight; the login's open waits on the lock; the reset commits --
+// the open must answer pgx.ErrNoRows, and no session or audit row exists.
+func TestIdentityOpenSession_AResetCommittedWhileTheOpenWaitsWins(t *testing.T) {
+	app, owner, w := idCommittedWorld(t)
+	ctx := context.Background()
+	r, err := app.ResolveIdentityByEmail(ctx, w.email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held := idHoldThePerson(t, owner, w.ident, []any{`UPDATE admin_identities SET password_hash = $2 WHERE id = $1`, w.ident, opFakeDigest("c")})
+	done := make(chan error, 1)
+	go func() {
+		_, err := app.OpenIdentitySession(ctx, w.ident, w.a, opRandHex(t), r.PasswordHash)
+		done <- err
+	}()
+	idWaitForLock(t, owner, "identity_open_session", 1)
+	if err := held.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("the login with the old password answered %v after the reset, want pgx.ErrNoRows", err)
+	}
+	var n int64
+	if err := owner.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM admin_sessions WHERE admin_user_id IN ($1, $2))
+	                                         + (SELECT count(*) FROM audit_log WHERE tenant_id IN ($3, $4))`, w.ma, w.mb, w.a, w.b).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("the late login left %d session/audit row(s)", n)
+	}
 }
 
 // TestIdentityRevokeSessions_ALateCallFromARevokedSessionRevokesNothing (the M14-04 security audit):

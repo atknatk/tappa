@@ -409,9 +409,8 @@ var storeSurface = map[string]string{
 	"SetTenantAccent":                  "(context.Context, SetTenantAccentParams{Accent string; UpdatedBy uuid.UUID; TenantID uuid.UUID}) (int64, error)",
 	"SetTenantLogo":                    "(context.Context, SetTenantLogoParams{Logo []byte; LogoSha256 string; LogoMime string; LogoWidth int32; LogoHeight int32; UpdatedBy uuid.UUID; TenantID uuid.UUID}) (int64, error)",
 	"TenantHasAnyTransaction":          "(context.Context, uuid.UUID) (bool, error)",
-	// M14-04 (ADR 0031 §5.3, §5.4; recorded here by M14-07, which found the inventory behind the
-	// statement): the business's name for the shell and the membership's identity_id -- the switch's
-	// rate-bucket key, ADR 0031 §6's named residue. Neither is a key or a secret.
+	// M14-04 (ADR 0031 §5.3): the business's name (a string the shell prints) and the membership's
+	// identity_id (a uuid, the switch's rate bucket) -- neither is key material: no []byte, no row dump.
 	"TouchAdminSession":     "(context.Context, TouchAdminSessionParams{ID uuid.UUID; TenantID uuid.UUID}) (TouchAdminSessionRow{ID uuid.UUID; LastUsedAt *time.Time; AdminUserID uuid.UUID; Role string; FullName string; SuspendedAt *time.Time; SuspensionReason *string; TenantName string; IdentityID *uuid.UUID}, error)",
 	"TouchSession":          "(context.Context, TouchSessionParams{ID uuid.UUID; TenantID uuid.UUID}) (TouchSessionRow{ID uuid.UUID; LastUsedAt *time.Time}, error)",
 	"UnmountTagFromWall":    "(context.Context, UnmountTagFromWallParams{TenantID uuid.UUID; Uid string}) (UnmountTagFromWallRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
