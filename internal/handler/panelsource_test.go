@@ -80,6 +80,7 @@ var nonPanelTemplates = map[string]string{
 	"pages/forproduction.templ":    "marketing (the public production page, LP-10)",
 	"pages/legal.templ":            "marketing (the legal pages)",
 	"pages/apiguide.templ":         "marketing (the public API guide)",
+	"pages/notfound.templ":         "marketing (the public 404, LP-12)",
 	"pages/signup.templ":           "the public sign-up flow, before there is a panel",
 	"operatorpages/audit.templ":    "the platform operator's surface (ADR 0020), a separate host",
 	"operatorpages/billing.templ":  "the platform operator's surface (ADR 0020), a separate host",

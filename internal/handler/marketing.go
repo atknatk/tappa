@@ -433,6 +433,11 @@ func (m *Marketing) Mount(r chi.Router) {
 	r.Head(apiGuidePath, m.apiGuideEN)
 	r.Get(apiGuideTRPath, m.apiGuideTR)
 	r.Head(apiGuideTRPath, m.apiGuideTR)
+	// THE PUBLIC 404 (LP-12, K4; ADR 0034). r is the router itself, so this is the
+	// answer for every path nothing is mounted on, and chi hands it to the subrouters
+	// that have none of their own (the operator surface's). notFound decides which of
+	// those requests get the page and which keep http.NotFound's bytes.
+	r.NotFound(m.notFound)
 }
 
 // The guide's two routes. They are pages.APIGuidePath and pages.APIGuideTRPath -- the
@@ -706,11 +711,19 @@ func (m *Marketing) render(w http.ResponseWriter, r *http.Request, c templ.Compo
 // above keeps its three-argument shape so that "the marketing policy" stays the
 // default a caller gets without asking.
 func (m *Marketing) renderWith(w http.ResponseWriter, r *http.Request, policy string, c templ.Component) {
+	m.writePage(w, r, http.StatusOK, marketingCacheControl, policy, r.URL.Path, c)
+}
+
+// writePage is renderWith with the status, the Cache-Control and the path the log
+// names spelled out. The public 404 (notfound.go) is its one other caller: it answers
+// 404 with no-store, and its logPath is "" because the path it was asked for is
+// whatever a stranger typed -- this surface's log names only its own routes' paths.
+func (m *Marketing) writePage(w http.ResponseWriter, r *http.Request, status int, cacheControl, policy, logPath string, c templ.Component) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", policy)
-	w.Header().Set("Cache-Control", marketingCacheControl)
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Cache-Control", cacheControl)
+	w.WriteHeader(status)
 	if err := c.Render(r.Context(), w); err != nil {
 		// 🔴 A CLIENT THAT WENT AWAY IS NOT AN ERROR, AND LOGGING IT AS ONE WAS
 		// MEASURED COSTING SOMETHING REAL. 200 cancelled page loads produced 200
@@ -730,7 +743,11 @@ func (m *Marketing) renderWith(w http.ResponseWriter, r *http.Request, policy st
 		// to render, or a write that fails on a live connection, is this server's
 		// fault and is rare.
 		if errors.Is(err, context.Canceled) {
-			m.log.Debug("a visitor left before the page finished", "path", r.URL.Path)
+			if logPath == "" {
+				m.log.Debug("a visitor left before the page finished")
+				return
+			}
+			m.log.Debug("a visitor left before the page finished", "path", logPath)
 			return
 		}
 		// The status line is already on the wire, so there is nothing to send but a
