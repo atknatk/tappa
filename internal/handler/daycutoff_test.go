@@ -132,6 +132,7 @@ func dayBrowser(t *testing.T, role string, days *fakeBusinessDays, staff *fakeSt
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	return b
@@ -504,7 +505,7 @@ func TestBusinessDay_ASuspendedBusinessIsRefusedAtBothPresses(t *testing.T) {
 		code := db.SuspensionNonPayment
 		trail := &fakeTrail{}
 		h := tripwirePanel(t, suspendedIdentityAs("manager", uuid.New(), uuid.New(), uuid.New(), &code), trail, discardLogger())
-		req := httptest.NewRequest(http.MethodPost, route, strings.NewReader(url.Values{
+		req := httptest.NewRequest(http.MethodPost, boundPath(h, suspensionCookieValue, route), strings.NewReader(url.Values{
 			"level": {"person"}, "id": {uuid.NewString()}, "cutoff": {"23:00"}}.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("Origin", testBaseURL)

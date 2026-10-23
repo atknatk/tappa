@@ -332,7 +332,7 @@ func dayCutoffBody(v DayCutoffView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var17 templ.SafeURL = templ.URL(v.Action)
+			var templ_7745c5c3_Var17 templ.SafeURL = templ.URL(Bound(ctx, v.Action))
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var17)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

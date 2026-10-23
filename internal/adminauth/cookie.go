@@ -141,6 +141,11 @@ func (c Cookies) Secure() bool { return !c.insecure }
 // The sentence is corrected rather than deleted because the Lax-over-Strict
 // decision leans on what the endpoints actually do, and leaning on a defence that
 // is not there is how the decision stops being reviewable.
+//
+// SINCE M14-10a EVERY PANEL WRITE DOES CARRY ONE: the tenant binding in each form's
+// action (formbind.go, ADR 0031 §5.5) is a MAC under this cookie's raw value, so a page
+// that does not hold the cookie cannot produce it. The encode relay's three routes are
+// the named exception (internal/handler/formbinding.go).
 func (c Cookies) Set(w http.ResponseWriter, t Token) error {
 	// reveal() is "" for the zero Token as well as an empty one, so one check
 	// covers both and nothing is dereferenced blindly.

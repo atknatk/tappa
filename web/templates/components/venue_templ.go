@@ -101,7 +101,7 @@ func VenueForm(v VenueFormView, side VenueFormSide) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var4 templ.SafeURL = templ.URL(v.Action)
+		var templ_7745c5c3_Var4 templ.SafeURL = templ.URL(Bound(ctx, v.Action))
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var4)))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -113,7 +113,7 @@ func VenueForm(v VenueFormView, side VenueFormSide) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(v.Heading)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/venue.templ`, Line: 38, Col: 76}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/venue.templ`, Line: 38, Col: 88}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -1382,7 +1382,7 @@ func venueRefForm(v VenueRefFormView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var73 templ.SafeURL = templ.URL(v.Action)
+			var templ_7745c5c3_Var73 templ.SafeURL = templ.URL(Bound(ctx, v.Action))
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var73)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1523,7 +1523,7 @@ func DepartmentForm(v DepartmentFormView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var80 templ.SafeURL = templ.URL(v.Action)
+		var templ_7745c5c3_Var80 templ.SafeURL = templ.URL(Bound(ctx, v.Action))
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var80)))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -1535,7 +1535,7 @@ func DepartmentForm(v DepartmentFormView) templ.Component {
 		var templ_7745c5c3_Var81 string
 		templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.JoinStringErrs(v.Heading)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/venue.templ`, Line: 416, Col: 76}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/venue.templ`, Line: 416, Col: 88}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var81))
 		if templ_7745c5c3_Err != nil {
@@ -2187,7 +2187,7 @@ func Removal(v RemovalView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var110 templ.SafeURL = templ.URL(v.Action)
+			var templ_7745c5c3_Var110 templ.SafeURL = templ.URL(Bound(ctx, v.Action))
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var110)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

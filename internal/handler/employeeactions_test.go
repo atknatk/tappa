@@ -91,6 +91,7 @@ func panelBrowserWithLogsAndLedger(t *testing.T, records *fakeLedger, staff *fak
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	return b, &buf
@@ -926,7 +927,7 @@ func TestEmployeeActions_SecFetchSiteSameSiteIsRefusedByTheOriginGate(t *testing
 	// the wrong refusal.
 	confirmed := deactivateConfirmed(t, b, employeeID, nil)
 	send := func(site string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPost, employeeDeactivateHref,
+		req := httptest.NewRequest(http.MethodPost, boundPath(b.h, b.cookies[adminauth.CookieName], employeeDeactivateHref),
 			strings.NewReader(confirmed.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("Sec-Fetch-Site", site)
@@ -1365,6 +1366,7 @@ func newAdminRouterLogging(t *testing.T, into *strings.Builder, trail *fakeTrail
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	return r
 }
 

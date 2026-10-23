@@ -90,6 +90,7 @@ func policyOriginBrowser(t *testing.T, scribe panelScribe) (*browser, *int) {
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	return b, &calls

@@ -548,7 +548,7 @@ func apiKeyCreateForm(v APIKeysView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var22 templ.SafeURL = templ.URL(v.PostHref)
+		var templ_7745c5c3_Var22 templ.SafeURL = templ.URL(components.Bound(ctx, v.PostHref))
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var22)))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -884,7 +884,7 @@ func apiKeysList(v APIKeysView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var38 templ.SafeURL = templ.URL(v.RevokeAllHref)
+				var templ_7745c5c3_Var38 templ.SafeURL = templ.URL(components.Bound(ctx, v.RevokeAllHref))
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var38)))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -963,7 +963,7 @@ func apiKeyRevokeForm(v APIKeysView, k APIKeyRow) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var41 templ.SafeURL = templ.URL(v.RevokeHref)
+		var templ_7745c5c3_Var41 templ.SafeURL = templ.URL(components.Bound(ctx, v.RevokeHref))
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var41)))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -1454,7 +1454,7 @@ func webhookBody(w WebhookView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var61 templ.SafeURL = templ.URL(w.PingHref)
+			var templ_7745c5c3_Var61 templ.SafeURL = templ.URL(components.Bound(ctx, w.PingHref))
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var61)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1469,7 +1469,7 @@ func webhookBody(w WebhookView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var62 templ.SafeURL = templ.URL(w.DisableHref)
+			var templ_7745c5c3_Var62 templ.SafeURL = templ.URL(components.Bound(ctx, w.DisableHref))
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var62)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1483,7 +1483,7 @@ func webhookBody(w WebhookView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var63 templ.SafeURL = templ.URL(w.EnableHref)
+			var templ_7745c5c3_Var63 templ.SafeURL = templ.URL(components.Bound(ctx, w.EnableHref))
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var63)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1518,7 +1518,7 @@ func webhookBody(w WebhookView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var64 templ.SafeURL = templ.URL(w.RotateHref)
+			var templ_7745c5c3_Var64 templ.SafeURL = templ.URL(components.Bound(ctx, w.RotateHref))
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var64)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -2148,7 +2148,7 @@ func webhookResendForm(w WebhookView, d WebhookDeliveryRow) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var92 templ.SafeURL = templ.URL(w.ResendHref)
+		var templ_7745c5c3_Var92 templ.SafeURL = templ.URL(components.Bound(ctx, w.ResendHref))
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var92)))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -2202,7 +2202,7 @@ func webhookAddressForm(w WebhookView, action, label, fieldID, value string, pri
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var95 templ.SafeURL = templ.URL(action)
+		var templ_7745c5c3_Var95 templ.SafeURL = templ.URL(components.Bound(ctx, action))
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var95)))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err

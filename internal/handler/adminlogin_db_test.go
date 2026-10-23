@@ -284,6 +284,7 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
 	h.Mount(r)
+	registerPanel(r, h)
 
 	// 🔴 THE ACTIVATION FLOW IS MOUNTED BESIDE THE PANEL (M6-05 phase B, round 3), so
 	// one harness can drive the WHOLE loop a manager and an employee share: press
@@ -399,12 +400,19 @@ func (p *panelHarness) get(t *testing.T, path string) (*http.Response, string) {
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
 	}
-	return res, readAll(t, res)
+	return res, withoutBinding(readAll(t, res))
 }
 
+// post submits a form as the signed-in browser does: to a bound panel route it carries
+// the binding the page it was shown would have carried (M14-10a), computed for the jar's
+// current session cookie by the panel's own binder and resolver.
 func (p *panelHarness) post(t *testing.T, path string, form url.Values) (*http.Response, string) {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodPost, p.server.URL+path, strings.NewReader(form.Encode()))
+	target := path
+	if strings.HasPrefix(path, "/admin/") && !strings.Contains(path, "tb=") && !unboundPanelPost[strings.SplitN(path, "?", 2)[0]] {
+		target = boundPath(p.server.Config.Handler, p.panelCookie(t), path)
+	}
+	req, err := http.NewRequest(http.MethodPost, p.server.URL+target, strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
@@ -414,7 +422,22 @@ func (p *panelHarness) post(t *testing.T, path string, form url.Values) (*http.R
 	if err != nil {
 		t.Fatalf("POST %s: %v", path, err)
 	}
-	return res, readAll(t, res)
+	return res, withoutBinding(readAll(t, res))
+}
+
+// panelCookie is the panel session cookie the jar holds, or "".
+func (p *panelHarness) panelCookie(t *testing.T) string {
+	t.Helper()
+	u, err := url.Parse(p.server.URL + adminauth.CookiePath + "/")
+	if err != nil {
+		t.Fatalf("parse server url: %v", err)
+	}
+	for _, c := range p.client.Jar.Cookies(u) {
+		if c.Name == adminauth.CookieName {
+			return c.Value
+		}
+	}
+	return ""
 }
 
 // setCookie puts a cookie back into the jar by hand.

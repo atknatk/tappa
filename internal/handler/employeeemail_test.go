@@ -60,6 +60,7 @@ func emailBrowser(t *testing.T, role string, staff *fakeStaff, trail *fakeTrail)
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	return b, admins, logs

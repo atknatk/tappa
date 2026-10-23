@@ -110,6 +110,10 @@ type AdminAuth struct {
 	// label, its own TTL, its own bindings — so a blob minted for one purpose can
 	// never be spent on the other.
 	confirm adminConfirm
+	// forms binds every panel form to the business it was rendered for (ADR 0031 §5.5,
+	// M14-10a; formbinding.go): rendered into each POST form's action, checked by
+	// formBindingGate in both writing chains before the body is read.
+	forms adminauth.FormBinder
 	// baseURL is this deployment's own origin, for the Origin header check.
 	baseURL string
 
@@ -448,6 +452,10 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	if err != nil {
 		return nil, err
 	}
+	forms, err := adminauth.NewFormBinder(cfg.SessionHMACKey)
+	if err != nil {
+		return nil, err
+	}
 	if log == nil {
 		log = slog.Default()
 	}
@@ -484,6 +492,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		short:          newAdminCookies(cfg),
 		choices:        choices,
 		confirm:        confirm,
+		forms:          forms,
 		baseURL:        originOf(cfg.BaseURL),
 		floodLimiter:   newLimiter(adminFloodLimit, adminFloodPeriod),
 		attemptLimiter: newLimiter(adminAttemptLimit, adminAttemptPeriod),
@@ -793,7 +802,8 @@ func (a *AdminAuth) ProtectWriting() func(http.Handler) http.Handler {
 			a.sameOriginGate(
 				a.requireAdmin()(
 					a.sessionGate(
-						a.suspensionGate(next)))))
+						a.formBindingGate(
+							a.suspensionGate(next))))))
 	}
 }
 
@@ -816,7 +826,8 @@ func (a *AdminAuth) protectWritingThroughSuspension() func(http.Handler) http.Ha
 		return a.floodGate("admin_panel")(
 			a.sameOriginGate(
 				a.requireAdmin()(
-					a.sessionGate(next))))
+					a.sessionGate(
+						a.formBindingGate(next)))))
 	}
 }
 
@@ -1826,7 +1837,7 @@ func (a *AdminAuth) renderWithPolicy(w http.ResponseWriter, r *http.Request, sta
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", policy)
 	w.WriteHeader(status)
-	if err := c.Render(r.Context(), w); err != nil {
+	if err := c.Render(a.formBindingContext(r), w); err != nil {
 		// The status line is already on the wire, so there is nothing to send but a
 		// log line. Never swallowed (section 7).
 		a.log.Error("rendering the panel page failed", "err", err)

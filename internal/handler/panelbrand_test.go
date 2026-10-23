@@ -167,6 +167,7 @@ func brandedPanel(t *testing.T, brands panelBrands) (*browser, *lockedBuffer) {
 		slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = panelCookie().Value
 	return b, logs
@@ -574,6 +575,7 @@ func TestPanelBrand_TheLogoSrcIsTheLogoRoute(t *testing.T) {
 	r := chi.NewRouter()
 	tp.Mount(r)
 	panel.Mount(r)
+	registerPanel(r, panel)
 	logos.Mount(r)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = panelCookie().Value
@@ -614,6 +616,7 @@ func TestPanelBrand_TheSignInFamilyStaysTaptime(t *testing.T) {
 	h := newAdminRouterWithBrands(t, admins, brands, discardLogger())
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 
 	// The problem page keeps layout's porcelain shell, so its opening is the tap

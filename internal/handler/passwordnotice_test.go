@@ -318,6 +318,7 @@ func newNoticeAuth(t *testing.T, admins *fakeAdmins, trail auditRecorder, n pass
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	return r
 }
 
@@ -510,13 +511,21 @@ func TestAdminReset_ACompletedRecoveryNotifiesAndStillSignsIn(t *testing.T) {
 // hostileHost rewrites every request's Host and forwarding headers to another place
 // before it reaches h — the shape of a request a proxy or a client can send.
 func hostileHost(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Host = "evil.example"
-		r.Header.Set("X-Forwarded-Host", "evil.example")
-		r.Header.Set("X-Forwarded-Proto", "http")
-		r.Header.Set("Forwarded", "host=evil.example;proto=http")
-		h.ServeHTTP(w, r)
-	})
+	out := &hostileHostHandler{h: h}
+	inheritPanel(out, h)
+	return out
+}
+
+// hostileHostHandler is hostileHost's wrapper. It is a pointer type rather than a
+// HandlerFunc so the test browser can find the panel behind it (inheritPanel).
+type hostileHostHandler struct{ h http.Handler }
+
+func (x *hostileHostHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	r.Host = "evil.example"
+	r.Header.Set("X-Forwarded-Host", "evil.example")
+	r.Header.Set("X-Forwarded-Proto", "http")
+	r.Header.Set("Forwarded", "host=evil.example;proto=http")
+	x.h.ServeHTTP(w, r)
 }
 
 // absoluteURLs finds every absolute or protocol-relative URL start and the run after it.

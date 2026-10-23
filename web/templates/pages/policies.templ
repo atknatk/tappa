@@ -703,7 +703,7 @@ templ policyRule(r PolicyRuleView) {
 // With no label there is NO control -- absent, never disabled.
 templ policySwitch(r PolicyRuleView) {
 	if r.Switch.Label != "" {
-		<form method="post" action={ templ.URL(r.Action) } class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+		<form method="post" action={ templ.URL(components.Bound(ctx, r.Action)) } class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
 			<input type="hidden" name="op" value={ r.Switch.Op }/>
 			<input type="hidden" name="policy" value={ r.ID }/>
 			<button class={ ruleSwitchClass(r.Switch.Op) } type="submit"><span class="rule-switch-knob"></span>{ r.Switch.Label }</button>
@@ -718,7 +718,7 @@ templ policyBindings(r PolicyRuleView) {
 	if len(r.Unbind) > 0 {
 		<div class="flex flex-wrap gap-2">
 			for _, b := range r.Unbind {
-				<form method="post" action={ templ.URL(r.Action) }>
+				<form method="post" action={ templ.URL(components.Bound(ctx, r.Action)) }>
 					<input type="hidden" name="op" value="unbind"/>
 					<input type="hidden" name="policy" value={ r.ID }/>
 					<input type="hidden" name="resource" value={ b.Resource }/>
@@ -728,7 +728,7 @@ templ policyBindings(r PolicyRuleView) {
 		</div>
 	}
 	if len(r.Bindable) > 0 {
-		<form method="post" action={ templ.URL(r.Action) } class="flex flex-wrap items-end gap-2">
+		<form method="post" action={ templ.URL(components.Bound(ctx, r.Action)) } class="flex flex-wrap items-end gap-2">
 			<input type="hidden" name="op" value="bind"/>
 			<input type="hidden" name="policy" value={ r.ID }/>
 			<label class="field-stack min-w-0 flex-1 basis-60 text-xs text-ink/85">
@@ -782,7 +782,7 @@ templ policyAuthoring(v PoliciesView) {
 				The copy keeps the Taptime rule’s answer, condition and reason; its sid becomes
 				own:… and only where it applies is yours to choose.
 			</p>
-			<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-4">
+			<form method="post" action={ templ.URL(components.Bound(ctx, v.Action)) } class="flex flex-col gap-4">
 				<input type="hidden" name="op" value="author"/>
 				// 🔴 THE POLICY PICKER IS WHAT MAKES THIS FORM ABLE TO EDIT AT ALL. Without it
 				// every save took the CREATE branch, so pressing it twice left two rules with the

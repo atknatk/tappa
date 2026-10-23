@@ -30,6 +30,7 @@ func gatedPanel(t *testing.T, flag bool, admins *fakeAdmins) http.Handler {
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	reached := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) })
 	h.mountGated(r, adminauth.SurfaceSwitch, func(r chi.Router) {
 		r.With(h.Protect()).Get("/admin/zz-gated", reached)

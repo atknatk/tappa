@@ -106,6 +106,7 @@ func newBrandDBFixture(t *testing.T) *brandDBFixture {
 		}
 		r := chi.NewRouter()
 		h.Mount(r)
+		registerPanel(r, h)
 		s := httptest.NewServer(r)
 		t.Cleanup(s.Close)
 		return h, s
@@ -192,7 +193,7 @@ func (f *brandDBFixture) trail(t *testing.T, action string) []map[string]any {
 // post sends form (or, with a content type, body) to route on s as a same-origin browser.
 func dbPost(t *testing.T, s *httptest.Server, route string, body []byte, contentType string) *http.Response {
 	t.Helper()
-	req, _ := http.NewRequest(http.MethodPost, s.URL+route, bytes.NewReader(body))
+	req, _ := http.NewRequest(http.MethodPost, s.URL+boundPath(s.Config.Handler, panelCookie().Value, route), bytes.NewReader(body))
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Origin", testBaseURL)
 	req.AddCookie(panelCookie())
@@ -356,7 +357,7 @@ func TestBrandRoutesDB_ConcurrentWritesLeaveOneOfTheirStates(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			req, _ := http.NewRequest(http.MethodPost, f.ownerServer.URL+c.route, strings.NewReader(c.form.Encode()))
+			req, _ := http.NewRequest(http.MethodPost, f.ownerServer.URL+boundPath(f.ownerServer.Config.Handler, panelCookie().Value, c.route), strings.NewReader(c.form.Encode()))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			req.Header.Set("Origin", testBaseURL)
 			req.AddCookie(panelCookie())

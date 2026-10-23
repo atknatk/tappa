@@ -1989,6 +1989,53 @@ kimliklerden biri backfill'den sonra **yaşamışsa** (başka yolla bağlanmış
 doğrulanmış adres, onay penceresi, giriş, son kullanılan işletme ya da başka bir tablodan ona işaret eden
 satır) hiçbir şeyi değiştirmeden **reddeder** — geri dönüş önceki binary'dir (ADR 0031 §8).
 
+### Panel formlarının tenant bağı (M14-10a)
+
+Her panel POST formunun `action`'ı `?tb=<bağ>` taşır (ADR 0031 §5.5): oturumun işletmesinin, oturumun
+**ham** token'ından türetilmiş anahtarla MAC'i (`internal/adminauth/formbind.go`). İki yazma zinciri
+(`ProtectWriting`, `protectWritingThroughSuspension`) bağı gövdeye dokunmadan, askı halkasından ve her
+yazmadan **önce** karşılaştırır; uyuşmazsa **409** *"This page belongs to another business — reload it."*
+Bayraktan bağımsız, her zaman açık. Tek adlandırılmış istisna plaket encode rölesinin üç rotası (form
+değil; Android rölesi bağı öğrenemez — `internal/handler/formbinding.go`).
+
+**Adlandırılmış bedeller:**
+
+- **Bu binary'nin rollout'u:** eski binary'nin çizdiği sayfalarda bağ yok. Rollout'tan sonra açık kalmış
+  her panel formu **bir kez** 409 alır ve hiçbir şey yazmaz; sayfayı yenilemek çözer. Destek cümlesi:
+  *"sayfayı yenileyin"*.
+- **`TAPPA_SESSION_HMAC_KEY` rotasyonu:** aynı anahtar hem `admin_sessions.token_hash`'i
+  (`internal/adminauth/token.go`, `deriveKey`) hem bağı anahtarlar. Rotasyonda **önce oturumlar ölür**:
+  açık bir formun POST'u çözümleyicide düşer ve `303 → /admin/login` alır (409 değil), hiçbir şey
+  yazılmaz; herkes yeniden girer. İleride oturumları rotasyondan geçiren bir ikili anahtar eklenirse açık
+  formların payı 409 olur. İki durumda da bedel: açık her panel formu bir kez reddedilir.
+
+**Bağ hiçbir URL'de kalmamalı (S14) — ölçülenler:**
+
+- Uygulama log'u yalnız rota desenini yazar, URL'yi değil (`internal/httpx/requestlog.go`, `AccessLog`).
+- Panel `<meta name="referrer" content="no-referrer">` gönderir (`web/templates/layout/base.templ`).
+- Kapı bağı isteğin URL'sinden **siler**; handler onu göremez, yönlendirme hedefi taşıyamaz. Her bağlı
+  rotada `Location`'da `tb` yok (`TestFormBinding_NoRedirectCarriesTheBinding`).
+- ⚠️ **Sayfayla cevap veren POST'lar** (doğrulama hatasında yeniden çizilen form, onay adımları,
+  bir kez gösterilen anahtar/link ekranı) adres çubuğunda ve geçmişte `?tb=…`'yi bırakır — PRG yalnız
+  yönlendirmeyle biten yazmalarda geçerli. Bağ çerezsiz işe yaramaz (Origin kapısı + oturum gerekir).
+- 🔴 **Ingress erişim log'u — ölçüldü (yalnız repodan, kümeye dokunulmadan, 2026-10-23): AÇIK ve
+  SORGUYU YAZIYOR.** `ingress-nginx` ConfigMap'i boş (`deploy/k8s/40-ingress.yaml`'ın ölçüm notu), yani
+  denetleyici varsayılanları geçerli: erişim log'u açık, varsayılan `log-format-upstream` `"$request"`
+  içerir (sorgu dizgisi dahil tam istek satırı); `tappa` Ingress'i `enable-access-log` notu taşımıyor
+  (`deploy/k8s/*.yaml`'da 0 eşleşme). ADR 0020 de *"Ingress erişim log'u URL'yi yazar"* diye kaydeder.
+  Yani bu binary canlıya çıkınca her panel POST'unun bağı denetleyicinin stdout'una yazılır. **Karar
+  bekliyor (kullanıcı):** (a) yalnız `/admin` yolu için ayrı bir Ingress'te
+  `nginx.ingress.kubernetes.io/enable-access-log: "false"` (panel istekleri ingress log'unda görünmez
+  olur), ya da (b) bilinen risk olarak kabul (bağ ham çerez olmadan üretilemez ve kullanılamaz).
+  Doğrulama (küme yöneticisi, rollout'tan sonra; yalnız sayı basar):
+
+  ```bash
+  kubectl -n ingress-nginx get cm ingress-nginx-controller -o jsonpath='{.data}'
+  kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --since=10m | grep -c 'tb='
+  ```
+
+  Beklenen: (a) seçildiyse ikinci satır `0`; bugünkü yapılandırmayla panelde POST olduysa `> 0`.
+
 ---
 
 ## Webhook (M11 API-9) — `TAPPA_WEBHOOK_KEK` ve düğüm/ingress adres listesi

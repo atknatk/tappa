@@ -176,6 +176,7 @@ func logoRouter(t *testing.T, reader logoReader, sess *fakeSessions, admins *fak
 	r := chi.NewRouter()
 	tp.Mount(r)
 	panel.Mount(r)
+	registerPanel(r, panel)
 	logos.Mount(r)
 	return r
 }

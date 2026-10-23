@@ -102,6 +102,7 @@ func newRefusalFixture(t *testing.T, role string) *refusalFixture {
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	f.router = r
 	return f
 }
