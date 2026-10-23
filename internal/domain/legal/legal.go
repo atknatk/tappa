@@ -120,10 +120,11 @@ type Doc struct {
 // already refuses at the column. THE LINK RULE is the closed grammar in links.go
 // (ADR 0033).
 //
-// ⚠️ IT IS NOT MARKDOWN AND MUST NOT BECOME MARKDOWN. A renderer would need a
-// dependency (go.mod has no HTML sanitizer), and every markdown renderer worth having
-// emits HTML — which is a templ.Raw with extra steps. The link grammar is four shapes
-// and no nesting; growing it into emphasis, headings or lists is a new ADR.
+// ⚠️ IT IS NOT MARKDOWN AND MUST NOT BECOME MARKDOWN. Every markdown renderer emits
+// HTML (goldmark, already in go.mod for the integration guide, included), and HTML
+// would have to reach this page through templ.Raw — a templ.Raw with extra steps. The
+// link grammar is four shapes and no nesting, returned as data; growing it into
+// emphasis, headings or lists is a new ADR.
 func Paragraphs(body string) []Paragraph {
 	var out []Paragraph
 	for _, block := range strings.Split(normalizeNewlines(body), "\n\n") {

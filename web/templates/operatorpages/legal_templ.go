@@ -276,7 +276,7 @@ func legalEditor(d LegalDoc) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</textarea><p class=\"text-xs text-ink/70\">A blank line starts a new paragraph. Web addresses, e-mail addresses and phone numbers starting with + become links; <span class=\"font-mono\">[text](https://…)</span> links your own text. At most 256 KiB.</p><button type=\"submit\" class=\"btn btn--primary\">Publish a new version</button></form></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</textarea><p class=\"text-xs text-ink/70\">A blank line starts a new paragraph. Addresses starting with https://, e-mail addresses and phone numbers starting with + become links; <span class=\"font-mono\">[text](https://…)</span> links your own text. At most 256 KiB.</p><button type=\"submit\" class=\"btn btn--primary\">Publish a new version</button></form></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

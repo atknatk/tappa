@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atknatk/tappa/internal/domain/legal"
 )
@@ -94,6 +95,36 @@ func TestParagraphs_LinksTheClosedGrammarAndNothingElse(t *testing.T) {
 			}},
 		},
 		{
+			"url in square brackets",
+			"[see https://x.mt]",
+			[]legal.Paragraph{{{Text: "[see "}, {Text: "https://x.mt", Href: "https://x.mt"}, {Text: "]"}}},
+		},
+		{
+			"url with its own brackets keeps them",
+			"https://x.mt/a[1]",
+			[]legal.Paragraph{{{Text: "https://x.mt/a[1]", Href: "https://x.mt/a[1]"}}},
+		},
+		{
+			// Text pasted from a word processor carries no-break spaces; one ENDS the URL.
+			"a no-break space ends a url",
+			"https://x.mt/\u00a0b and https://y.mt\u202fc and https://z.mt\u2007d",
+			[]legal.Paragraph{{
+				{Text: "https://x.mt/", Href: "https://x.mt/"}, {Text: "\u00a0b and "},
+				{Text: "https://y.mt", Href: "https://y.mt"}, {Text: "\u202fc and "},
+				{Text: "https://z.mt", Href: "https://z.mt"}, {Text: "\u2007d"},
+			}},
+		},
+		{
+			"a no-break space ends an email",
+			"a@b.mt\u00a0x",
+			[]legal.Paragraph{{{Text: "a@b.mt", Href: "mailto:a@b.mt"}, {Text: "\u00a0x"}}},
+		},
+		{
+			"a no-break space inside an explicit target: no explicit link, the bare url before it still links",
+			"[x](https://x.mt/\u00a0b)",
+			[]legal.Paragraph{{{Text: "[x]("}, {Text: "https://x.mt/", Href: "https://x.mt/"}, {Text: "\u00a0b)"}}},
+		},
+		{
 			"url in parentheses",
 			"(see https://x.mt/a)",
 			[]legal.Paragraph{{{Text: "(see "}, {Text: "https://x.mt/a", Href: "https://x.mt/a"}, {Text: ")"}}},
@@ -127,6 +158,38 @@ func TestParagraphs_LinksTheClosedGrammarAndNothingElse(t *testing.T) {
 			"phone with plus and hyphens",
 			"Call +356-9931-0184.",
 			[]legal.Paragraph{{{Text: "Call "}, {Text: "+356-9931-0184", Href: "tel:+35699310184"}, {Text: "."}}},
+		},
+		{
+			"phone grouped with no-break spaces",
+			"+356\u00a09931\u00a00184",
+			[]legal.Paragraph{{{Text: "+356\u00a09931\u00a00184", Href: "tel:+35699310184"}}},
+		},
+		{
+			// phoneSpaceStop: a space ends the number once it has 11 digits, so a year
+			// after it is not swallowed into a 15-digit tel:.
+			"a number after a complete phone is not absorbed",
+			"+356 9931 0184 2024 and +1 415 555 2671 10",
+			[]legal.Paragraph{{
+				{Text: "+356 9931 0184", Href: "tel:+35699310184"}, {Text: " 2024 and "},
+				{Text: "+1 415 555 2671", Href: "tel:+14155552671"}, {Text: " 10"},
+			}},
+		},
+		{
+			"longer numbers cross their last space below 11 digits",
+			"+44 20 7946 0958, +49 1511 2345678, +86 138 0013 8000",
+			[]legal.Paragraph{{
+				{Text: "+44 20 7946 0958", Href: "tel:+442079460958"}, {Text: ", "},
+				{Text: "+49 1511 2345678", Href: "tel:+4915112345678"}, {Text: ", "},
+				{Text: "+86 138 0013 8000", Href: "tel:+8613800138000"},
+			}},
+		},
+		{
+			"hyphens do not stop at 11 digits, the 15-digit cap still applies",
+			"+356-9931-0184-2024 and +356-9931-0184-20245",
+			[]legal.Paragraph{{
+				{Text: "+356-9931-0184-2024", Href: "tel:+356993101842024"},
+				{Text: " and +356-9931-0184-20245"},
+			}},
 		},
 		{
 			"phone without plus is not linked",
@@ -249,5 +312,46 @@ func TestParagraphs_EveryHrefPassesTheAllowList(t *testing.T) {
 	// ANTI-VACUITY: the input has links that must survive.
 	if links < 5 {
 		t.Errorf("found %d link(s); the input carries at least five allowed ones", links)
+	}
+}
+
+// TestParagraphs_AdversarialBodiesStayLinear: the link pass runs on a body of up to
+// 256 KiB (op_publish_legal's limit), and two of its first shapes were quadratic
+// (fix round, 2026-10-23, measured before the fix at 256 KiB: 1.50 s for a URL followed
+// by ")" repeated, 0.75 s for ")." repeated, 0.40 s for repeated `[a](javascript:x)`,
+// 0.62 s for repeated `[a](//x)`).
+//
+// WHY A SCALING RATIO AND AN ABSOLUTE FLOOR TOGETHER: an absolute bound alone is either
+// too tight for a loaded -race CI runner or too loose to catch 0.4 s. So each shape is
+// timed at 64 KiB and at 256 KiB (best of three, which strips GC and scheduler spikes),
+// and the test fails only when the large run is slow (over 250 ms) AND it grew more
+// than 10x for 4x the input. Linear code grows ~4x; quadratic grows ~16x. A slow machine
+// alone, or a noisy small run alone, cannot fail it.
+func TestParagraphs_AdversarialBodiesStayLinear(t *testing.T) {
+	shapes := map[string]func(n int) string{
+		"url then )":         func(n int) string { return "https://a.mt/" + strings.Repeat(")", n) },
+		"url then ].":        func(n int) string { return "https://a.mt/" + strings.Repeat("].", n/2) },
+		"url then ).":        func(n int) string { return "https://a.mt/" + strings.Repeat(").", n/2) },
+		"refused javascript": func(n int) string { return strings.Repeat("[a](javascript:x)", n/17) },
+		"refused //":         func(n int) string { return strings.Repeat("[a](//x)", n/8) },
+	}
+	best := func(in string) time.Duration {
+		var b time.Duration
+		for i := 0; i < 3; i++ {
+			start := time.Now()
+			legal.Paragraphs(in)
+			if d := time.Since(start); i == 0 || d < b {
+				b = d
+			}
+		}
+		return b
+	}
+	for name, mk := range shapes {
+		small, large := best(mk(64<<10)), best(mk(256<<10))
+		ratio := float64(large) / float64(max(small, time.Microsecond))
+		t.Logf("%s: 64 KiB %v, 256 KiB %v (x%.1f)", name, small, large, ratio)
+		if large > 250*time.Millisecond && ratio > 10 {
+			t.Errorf("%s: 256 KiB took %v, %.1fx the 64 KiB run; the link pass is not linear", name, large, ratio)
+		}
 	}
 }

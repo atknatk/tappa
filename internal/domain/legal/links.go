@@ -41,26 +41,41 @@ func (p Paragraph) Text() string {
 //  1. `[label](target)` — label is plain text (no brackets inside, so no nesting),
 //     target has no whitespace and at most one level of balanced parentheses. If the
 //     target fails SafeHref the WHOLE `[label](target)` stays literal text.
-//  2. A bare `http://` or `https://` URL, label as typed. Trailing sentence
-//     punctuation and an unmatched closing parenthesis are not part of it.
+//  2. A bare `http://` or `https://` URL, label as typed. It ends at any whitespace,
+//     Unicode included (a no-break space pasted from a word processor ends it rather
+//     than spoiling it), at a control character, or at `<`, `>` or `"`. Trailing
+//     sentence punctuation and an unmatched closing `)` or `]` are not part of it.
 //  3. A bare e-mail address (a conservative shape) → `mailto:`.
 //  4. A bare international phone number that STARTS WITH `+`: digits with optional
-//     single spaces or hyphens between them, 8 to 15 digits (E.164's maximum) →
-//     `tel:+<digits>`, label as typed. Without the `+` nothing is linked, because
-//     dates, amounts, registration numbers and VAT ids are digit runs too.
+//     single separators between them (a hyphen or one space, a no-break space
+//     included), 8 to 15 digits (E.164's maximum) → `tel:+<digits>`, label as typed.
+//     Without the `+` nothing is linked, because dates, amounts, registration numbers
+//     and VAT ids are digit runs too. ONE MORE RULE, because a number is often followed
+//     by another number in prose ("call +356 9931 0184 2024 hours a year"): a SPACE
+//     ends the number once it already has phoneSpaceStop (11) digits. Hyphens do not.
+//     11 is the length of the common international forms (+356 XXXX XXXX,
+//     +1 XXX XXX XXXX, +33 X XX XX XX XX, +61 X XXXX XXXX) and every common
+//     grouping of a longer number (+44 20 7946 0958, +49 1511 2345678,
+//     +86 138 0013 8000) crosses its last space with fewer than 11 digits behind it.
 //
 // Go's regexp is RE2 (linear time), and this runs once per publication, not per
 // request (see Doc.Paragraphs), so an attacker-shaped body costs nothing per view.
 var (
-	explicitLinkRE = regexp.MustCompile(`\[([^\[\]]+)\]\(((?:[^\s()]|\([^\s()]*\))+)\)`)
-	bareURLRE      = regexp.MustCompile(`(?i)\bhttps?://[^\s<>"]+`)
+	// \p{Cc} and \p{Z} together are every rune unicode.IsSpace or unicode.IsControl
+	// reports for a URL's purposes: Go's \s is ASCII-only, and a no-break space must END
+	// a URL rather than end up inside one (where SafeHref would refuse the whole thing).
+	explicitLinkRE = regexp.MustCompile(`\[([^\[\]]+)\]\(((?:[^\p{Cc}\p{Z}()]|\([^\p{Cc}\p{Z}()]*\))+)\)`)
+	bareURLRE      = regexp.MustCompile(`(?i)\bhttps?://[^\p{Cc}\p{Z}<>"]+`)
 	emailRE        = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*\.[A-Za-z]{2,}`)
-	phoneRE        = regexp.MustCompile(`\+[0-9](?:[ -]?[0-9])+`)
+	phoneRE        = regexp.MustCompile(`\+[0-9](?:[\p{Zs}-]?[0-9])+`)
 )
 
 const (
 	minPhoneDigits = 8
 	maxPhoneDigits = 15
+	// phoneSpaceStop is the digit count after which a space ends a phone number (see
+	// the grammar above).
+	phoneSpaceStop = 11
 )
 
 // match kinds, in the order that wins a tie on the same start position.
@@ -96,18 +111,11 @@ func linkify(text string) Paragraph {
 		return ms[i].kind < ms[j].kind
 	})
 
+	// THE TEXT BETWEEN LINKS IS ONE CONTIGUOUS SLICE OF text, so it is cut once, when a
+	// link (or the end) closes it, rather than grown piece by piece. Growing it with +=
+	// was quadratic: 256 KiB of refused `[a](//x)` cost 0.6 s (fix round, 2026-10-23).
 	var out Paragraph
-	addText := func(s string) {
-		if s == "" {
-			return
-		}
-		if n := len(out); n > 0 && out[n-1].Href == "" {
-			out[n-1].Text += s
-			return
-		}
-		out = append(out, Span{Text: s})
-	}
-	cursor := 0
+	textFrom, cursor := 0, 0
 	for _, m := range ms {
 		if m.start < cursor {
 			continue
@@ -118,16 +126,19 @@ func linkify(text string) Paragraph {
 			// allow-list the whole construct stays literal (end covers it); for the
 			// bare shapes nothing is consumed and later matches still get their turn.
 			if end > m.start {
-				addText(text[cursor:end])
 				cursor = end
 			}
 			continue
 		}
-		addText(text[cursor:m.start])
+		if m.start > textFrom {
+			out = append(out, Span{Text: text[textFrom:m.start]})
+		}
 		out = append(out, span)
-		cursor = end
+		textFrom, cursor = end, end
 	}
-	addText(text[cursor:])
+	if textFrom < len(text) {
+		out = append(out, Span{Text: text[textFrom:]})
+	}
 	return out
 }
 
@@ -168,7 +179,11 @@ func resolve(text string, m linkMatch) (Span, int, bool) {
 			return Span{}, m.start, false
 		}
 		var digits strings.Builder
-		for _, r := range raw {
+		for i, r := range raw {
+			if unicode.Is(unicode.Zs, r) && digits.Len() >= phoneSpaceStop {
+				raw = raw[:i]
+				break
+			}
 			if r >= '0' && r <= '9' {
 				digits.WriteRune(r)
 			}
@@ -180,24 +195,31 @@ func resolve(text string, m linkMatch) (Span, int, bool) {
 		if !ok {
 			return Span{}, m.start, false
 		}
-		return Span{Text: raw, Href: href}, m.end, true
+		return Span{Text: raw, Href: href}, m.start + len(raw), true
 	}
 	return Span{}, m.start, false
 }
 
 // trimURLTail drops what a sentence puts after a URL: trailing punctuation, and a
-// closing parenthesis that has no opening one inside the URL ("(see https://x.mt)").
+// closing parenthesis or bracket that has no opening one inside the URL
+// ("(see https://x.mt)", "[see https://x.mt]").
+//
+// THE BRACKETS ARE COUNTED ONCE AND DECREMENTED AS THE TAIL IS TRIMMED. Recounting per
+// trimmed character was quadratic: "https://a.mt/" followed by 256 KiB of ")" cost
+// 1.4 s (fix round, 2026-10-23).
 func trimURLTail(u string) string {
+	open := map[byte]int{')': strings.Count(u, "("), ']': strings.Count(u, "[")}
+	closed := map[byte]int{')': strings.Count(u, ")"), ']': strings.Count(u, "]")}
 	for len(u) > 0 {
 		last := u[len(u)-1]
 		switch {
 		case strings.IndexByte(".,;:!?'", last) >= 0:
-			u = u[:len(u)-1]
-		case last == ')' && strings.Count(u, "(") < strings.Count(u, ")"):
-			u = u[:len(u)-1]
+		case (last == ')' || last == ']') && open[last] < closed[last]:
+			closed[last]--
 		default:
 			return u
 		}
+		u = u[:len(u)-1]
 	}
 	return u
 }
