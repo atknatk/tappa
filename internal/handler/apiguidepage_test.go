@@ -4,7 +4,8 @@ package handler
 //
 //	TestAPIGuidePages_AreTheGuideInTheMarketingChrome   /docs/api and /docs/api/tr: 200 HTML, indexable,
 //	                                                    the title, the side navigation, the body, the
-//	                                                    page's language; HEAD, caching, the policy, no
+//	                                                    page's language, the public chrome around it
+//	                                                    (LP-11) and below it; HEAD, caching, the policy, no
 //	                                                    third party and every link resolving are the
 //	                                                    marketing tests' (publicSurfaceURLs)
 //	TestAPIGuidePages_RoutesAreTheLinkedPaths           the routes are the constants the links use
@@ -63,6 +64,23 @@ func TestAPIGuidePages_AreTheGuideInTheMarketingChrome(t *testing.T) {
 			if !strings.Contains(body, want) {
 				t.Errorf("GET %s lacks %q", c.path, want)
 			}
+		}
+		// THE PUBLIC CHROME, since LP-11: its header and footer, the page's own entry marked
+		// in the menu and the footer on the English page (the Turkish page is another URL,
+		// so no entry points at it), and the side navigation stuck below the header that
+		// sticks above it, not under it (apiguide.templ says the arithmetic).
+		for _, want := range []string{`<header class="lp-head"`, `<footer class="lp-foot">`, `class="sticky top-[93px] max-h-[calc(100vh-117px)]`} {
+			if !strings.Contains(body, want) {
+				t.Errorf("GET %s lacks %q", c.path, want)
+			}
+		}
+		if marked := strings.Contains(body, `href="`+pages.APIGuidePath+`" aria-current="page"`); marked != (c.path == pages.APIGuidePath) {
+			t.Errorf("GET %s marks the guide's chrome entry current = %v", c.path, marked)
+		}
+		// The offset is the header's 68 px row and its hairline: a header of another height
+		// must move it.
+		if !strings.Contains(repoFile(t, "web", "static", "css", "input.css"), ".lp .lp-headIn { height: auto; min-height: 68px;") {
+			t.Error("the public header's row is no longer 68 px from the tablet width; the guide's side navigation sticks at that height plus 24 px (apiguide.templ)")
 		}
 		// The guide's title names the product; the document title does not name it twice.
 		if title := between(body, "<title>", "</title>"); strings.Count(title, "Taptime") != 1 {

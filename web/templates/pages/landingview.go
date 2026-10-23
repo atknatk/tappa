@@ -1433,7 +1433,8 @@ type LegalPage struct {
 }
 
 // LegalPages is Q23's four documents. The card requires them reachable from the
-// footer, and they are: marketingChrome renders this exact slice.
+// footer, and they are: the public chrome's Legal column (PublicChrome) renders this
+// exact slice.
 //
 // 🔴 ALL FOUR SHIP AS SKELETONS AND THAT IS A DECISION, NOT AN OMISSION. A privacy
 // policy names a controller, an imprint names a registered company and an address,

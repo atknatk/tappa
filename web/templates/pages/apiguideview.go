@@ -33,6 +33,16 @@ type APIGuideView struct {
 	OpenAPIHref string
 	// SignInHref is the panel's sign-in page, for the shared chrome.
 	SignInHref string
+	// SignupHref is the wizard, for the chrome's Start free ("" draws none).
+	SignupHref string
+}
+
+// path is the page's own route, the chrome's current page.
+func (v APIGuideView) path() string {
+	if v.Turkish {
+		return APIGuideTRPath
+	}
+	return APIGuidePath
 }
 
 // lang is the page's language tag.

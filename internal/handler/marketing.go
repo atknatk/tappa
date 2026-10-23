@@ -448,7 +448,7 @@ func (m *Marketing) apiGuideEN(w http.ResponseWriter, r *http.Request) { m.apiGu
 func (m *Marketing) apiGuideTR(w http.ResponseWriter, r *http.Request) { m.apiGuide(w, r, true) }
 
 // apiGuide serves /docs/api or /docs/api/tr: the guide converted at construction, in
-// the legal pages' chrome, cacheable and indexable like them.
+// the public chrome, cacheable and indexable like the legal pages.
 func (m *Marketing) apiGuide(w http.ResponseWriter, r *http.Request, turkish bool) {
 	g := m.guideEN
 	if turkish {
@@ -464,6 +464,7 @@ func (m *Marketing) apiGuide(w http.ResponseWriter, r *http.Request, turkish boo
 		Turkish:     turkish,
 		OpenAPIHref: m.openAPIHref,
 		SignInHref:  adminLoginPath,
+		SignupHref:  m.signupHref,
 	}))
 }
 

@@ -37,17 +37,21 @@ import (
 // the constants that write the cookies (internal/handler's cookieNotice). Only the
 // legal framing around it is waiting.
 
-// THE REDESIGN (M12-46, design "The Pass"): still a PUBLIC page in the marketing
-// chrome, never a panel screen. The chrome is the wide one with "Start free"; beside
-// the document (below it on a tablet and a phone) a navigation lists the four
-// documents, marks the one being read, and says which are not in force yet. That
-// mark is read from what is published and from nothing about the visitor, so every
-// visitor gets the same bytes and the public caching still holds.
+// THE REDESIGN (M12-46, design "The Pass"): still a PUBLIC page, never a panel
+// screen. Beside the document (below it on a tablet and a phone) a navigation lists
+// the four documents, marks the one being read, and says which are not in force yet.
+// That mark is read from what is published and from nothing about the visitor, so
+// every visitor gets the same bytes and the public caching still holds.
+//
+// THE CHROME IS THE PUBLIC SITE'S (LP-11): PublicChrome, in its own roots so the
+// document's utility classes keep their spacing, with Start free and the phone bar.
+// Its footer marks the document being read in its Legal column, as the navigation
+// beside the text does; no header entry is marked, none of them being this page.
 
 // Legal renders one document.
 templ Legal(v LegalPageView) {
 	@layout.Marketing(v.Page.Title+" — Taptime", v.Robots()) {
-		@marketingChromeWith(marketingChromeOpts{SignInHref: v.SignInHref, SignupHref: v.SignupHref, Wide: true}) {
+		@PublicChrome(PublicChromeOpts{Current: v.Page.Path, SignInHref: v.SignInHref, SignupHref: v.SignupHref, OwnRoots: true}) {
 			<div class="px-4 pb-12 pt-5 md:px-7 md:pb-14 md:pt-7 desk:px-4 desk:pb-16 desk:pt-10">
 				<div class="mx-auto flex w-full max-w-6xl flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,300px)_minmax(0,820px)] desk:items-start desk:gap-10">
 					@legalNav(v)

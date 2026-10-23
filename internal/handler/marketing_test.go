@@ -138,8 +138,9 @@ func publicPagePaths() []string {
 	return out
 }
 
-// siteURLs is the landing and the public site's own pages: the pages drawn in the
-// public chrome (the legal documents and the guide move onto it in LP-11).
+// siteURLs is the landing and the public site's own pages, the ones whose content is
+// drawn in the public site's own classes. The legal documents, the guide and sign-up
+// draw the same chrome around bodies of their own since LP-11 (chromeOnlyURLs).
 func siteURLs() []string {
 	return append([]string{"/"}, publicPagePaths()...)
 }
@@ -2827,17 +2828,31 @@ func splitAtRuleBodies(css, name string) []atRuleBlock {
 // only itself current, every document without a published text carries the "Not in
 // force yet" mark and a published one does not, and the header's "Start free" goes to
 // the wizard the handler mounts.
+//
+// Since LP-11 the page marks itself in two places: the document navigation, and the
+// public chrome's footer, whose Legal column marks the document being read as it marks
+// any page. So the navigation must mark exactly this page, and no mark anywhere on the
+// page may point at another one.
 func TestLegalPages_NavigationMarksTheCurrentDocumentAndWhatIsNotInForce(t *testing.T) {
 	t.Parallel()
 	texts := newFakeTexts()
 	texts.put("privacy", "Kebab Factory Ltd is the controller of this fictional example.")
 	r := marketingRouterWithTexts(t, texts)
-	current := regexp.MustCompile(`<a href="([^"]*)"[^>]*aria-current="page"`)
+	current := regexp.MustCompile(`<a\b[^>]*\bhref="([^"]*)"[^>]*aria-current="page"`)
 	for _, p := range pages.LegalPages {
 		body := mustFetchMarketing(t, r, p.Path)
-		got := current.FindAllStringSubmatch(body, -1)
+		got := current.FindAllStringSubmatch(between(body, `<nav aria-label="Legal documents"`, "</nav>"), -1)
 		if len(got) != 1 || got[0][1] != p.Path {
-			t.Errorf("%s marks %v as the current document, want exactly %s", p.Path, got, p.Path)
+			t.Errorf("%s: the document navigation marks %v as the current document, want exactly %s", p.Path, got, p.Path)
+		}
+		all := current.FindAllStringSubmatch(body, -1)
+		for _, m := range all {
+			if m[1] != p.Path {
+				t.Errorf("%s marks %s as the current page", p.Path, m[1])
+			}
+		}
+		if len(all) != 2 {
+			t.Errorf("%s carries %d current-page mark(s); want the navigation's and the footer's", p.Path, len(all))
 		}
 		for _, q := range pages.LegalPages {
 			_, marked := withoutNavMark(body, q.Path)
@@ -2846,7 +2861,7 @@ func TestLegalPages_NavigationMarksTheCurrentDocumentAndWhatIsNotInForce(t *test
 					p.Path, q.Path, marked, want)
 			}
 		}
-		if !regexp.MustCompile(`<a href="` + regexp.QuoteMeta(signupPath) + `"[^>]*>\s*Start free\s*</a>`).MatchString(body) {
+		if !regexp.MustCompile(`<a\b[^>]*\bhref="` + regexp.QuoteMeta(signupPath) + `"[^>]*>\s*Start free\s*</a>`).MatchString(body) {
 			t.Errorf("%s offers no \"Start free\" to %s", p.Path, signupPath)
 		}
 	}

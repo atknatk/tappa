@@ -1142,6 +1142,13 @@ var idAttrRE = regexp.MustCompile(`\sid="([^"]+)"`)
 // first <nav>; and the entry pointing at the page being read is marked
 // aria-current="page" while no other entry is (on the landing, none is).
 //
+// SINCE LP-11 THAT IS EVERY PUBLIC PAGE. Until then its second half held the opposite
+// -- the legal pages carried no header entry and no sticky header -- because they kept
+// the old chrome. Now the legal documents and the integration guide carry the same bar
+// with no entry marked (none of the three is them), sticking to the top; sign-up
+// carries the same three entries and Sign in, and neither Start free nor the phone bar
+// (that is where they lead -- the Signup boards draw none).
+//
 // ⚠️ IT USED TO PANIC. The bar's segment was cut at "<main", which the user's
 // design does not have, and body[:-1] took the whole package down with it. The
 // segment is the first <nav> now, and a page without one is a fatal, not a panic.
@@ -1162,19 +1169,48 @@ func TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage(t *testing.T) {
 			t.Errorf("%s: %s", url, why)
 		}
 	}
-	// AND THE PLAIN CHROME STAYS PLAIN until LP-11 moves it onto the public chrome: the
-	// legal pages render no header link and no sticky header.
-	for _, p := range pages.LegalPages {
-		legal := mustFetchMarketing(t, r, p.Path)
-		for _, l := range pages.LandingNav {
-			if strings.Contains(legal, `href="`+l.Href+`"`) {
-				t.Errorf("%s renders the public header's %q link; the legal pages keep their own chrome until LP-11", p.Path, l.Label)
-			}
+	// AND THE PAGES THAT KEPT THE OLD CHROME UNTIL LP-11 carry the same bar, in the
+	// root that sticks (input.css, .lp.lp-top).
+	for _, url := range chromeOnlyURLs() {
+		body := mustFetchMarketing(t, r, url)
+		for _, why := range navBarProblems(body, url) {
+			t.Errorf("%s: %s", url, why)
 		}
-		if strings.Contains(legal, "sticky") {
-			t.Errorf("%s renders a sticky header; only the public chrome has one", p.Path)
+		if !strings.Contains(body, `<div class="lp lp-top"><a class="lp-skip" href="#main">Skip to content</a><header class="lp-head"`) {
+			t.Errorf("%s: the header is not in the root that sticks", url)
 		}
 	}
+	signup := mustFetchMarketing(t, r, signupPath)
+	bar := between(signup, "<nav", "</nav>")
+	for _, l := range pages.LandingNav {
+		if !strings.Contains(bar, `href="`+l.Href+`"`) {
+			t.Errorf("sign-up's bar lacks the %q entry", l.Label)
+		}
+	}
+	if strings.Contains(bar, "aria-current") {
+		t.Error("sign-up's bar marks an entry as the current page; none of them is sign-up")
+	}
+	if !strings.Contains(bar, `href="`+adminLoginPath+`"`) {
+		t.Error("sign-up's bar carries no Sign in")
+	}
+	if strings.Contains(signup, `href="`+signupPath+`"`) || strings.Contains(signup, `class="mbar"`) {
+		t.Error("sign-up offers Start free or the phone bar; the Signup boards draw neither on the page they lead to")
+	}
+	if !strings.Contains(signup, `<div class="lp lp-topStill">`) {
+		t.Error("sign-up's header is not in the root that scrolls away; its phone screens pin the progress bar instead")
+	}
+}
+
+// chromeOnlyURLs is the pages that draw the public chrome around a body written in
+// the product's utility classes, in their own roots (LP-11), and are served by the
+// marketing handler: the four legal documents and the integration guide's two pages.
+// Sign-up, the third such page, is the wizard's and is measured on its own.
+func chromeOnlyURLs() []string {
+	var out []string
+	for _, p := range pages.LegalPages {
+		out = append(out, p.Path)
+	}
+	return append(out, pages.APIGuidePath, pages.APIGuideTRPath)
 }
 
 // navEntryProblem says why a header entry's href does not resolve, or "": a "/#id"

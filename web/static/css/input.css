@@ -2226,6 +2226,23 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
   .lp .lp-footIn { grid-template-columns: minmax(0, 1fr) 260px 200px; gap: 48px; max-width: 1180px; margin: 0 auto; padding: 40px clamp(16px, 3vw, 40px); }
 }
 
+/* ---------------- the chrome's own roots (LP-11) ---------------- */
+/* Sign-up, the legal documents and the integration guide draw their bodies with the
+   product's utility classes, which `.lp *` above would zero (measured, see
+   publicchrome.templ), so on those pages the chrome brings three roots of its own and
+   <main> stays outside them. A sticky element sticks only inside its parent, so the
+   ROOT is what sticks: the header's to the top, the phone bar's to the bottom. They
+   are see-through, so the header's own translucent ground is the one that shows.
+   Sign-up's header scrolls away (its phone screens pin their progress bar instead,
+   at z-index 10), and its root is lifted above that bar so an open Menu covers it. */
+.lp.lp-top { position: sticky; top: 0; z-index: 5; background: transparent; }
+.lp.lp-topStill { position: relative; z-index: 20; background: transparent; }
+.lp.lp-dock { position: sticky; bottom: 0; z-index: 4; background: transparent; }
+/* "Already with Taptime?" before Sign in: the Signup board's desk header, 12px apart. */
+.lp .lp-signinPair { display: inline-flex; align-items: center; gap: 12px; }
+.lp .lp-signinAsk { display: none; font-size: 14px; color: rgb(var(--ink-ch) / .7); }
+@media (min-width: 1200px) { .lp .lp-signinAsk { display: inline; } }
+
 /* =========================================================================
    THE HERO (LP-03, 2026-10-21)
 

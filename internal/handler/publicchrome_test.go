@@ -2,6 +2,9 @@ package handler
 
 import (
 	"bytes"
+	"fmt"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -68,32 +71,199 @@ func publicChromeLinkViolations(body string, product []pages.PublicLink, legal [
 	return out
 }
 
-// TestPublicChrome_TheMenuAndTheFooterListOnlyMountedRoutesFromTheTable: the landing
-// page's menu and footer are the table, mounted entries only.
+// TestPublicChrome_TheMenuAndTheFooterListOnlyMountedRoutesFromTheTable: on every
+// page that draws the chrome -- the landing, the five pages of the site, and since
+// LP-11 sign-up, the four legal documents and the guide's two pages, thirteen -- the
+// menu and footer are the table, mounted entries only.
+//
+// AND THE TABLE IS IN ITS FINAL STATE (LP-11 closes the P2 cards' conditional
+// acceptance): every one of the six Product entries is mounted, in the boards' order,
+// and the header's three entries are pages, none a "/#…" section of the landing.
 func TestPublicChrome_TheMenuAndTheFooterListOnlyMountedRoutesFromTheTable(t *testing.T) {
 	t.Parallel()
-	body := mustFetchMarketing(t, marketingRouter(t), "/")
 	if len(pages.PublicProductLinks) != 6 {
 		t.Fatalf("PublicProductLinks has %d entries; the boards' Product column has six", len(pages.PublicProductLinks))
 	}
-	if len(pages.MountedPublicLinks(pages.PublicProductLinks)) == 0 {
-		t.Fatal("PREMISE: no Product entry is mounted, so the scan below would compare two empty lists")
-	}
-	for _, v := range publicChromeLinkViolations(body, pages.PublicProductLinks, pages.LegalPages) {
-		t.Error(v)
-	}
-	// One menu, and it is the native element: no script opens it.
-	if n := strings.Count(body, `<details class="menu"`); n != 1 {
-		t.Errorf("the page renders %d phone menu(s), want one <details class=\"menu\">", n)
-	}
-	// Header and menu are named landmarks.
-	for _, label := range []string{"Primary", "Menu", "Product", "Legal"} {
-		if chromeSegment(body, label) == "" {
-			t.Errorf("no <nav aria-label=%q> on the page", label)
+	var labels []string
+	for _, l := range pages.PublicProductLinks {
+		labels = append(labels, l.Label)
+		if l.Href == "" {
+			t.Errorf("the Product column's %q is not mounted; every page exists since LP-10", l.Label)
 		}
 	}
-	if !strings.Contains(body, `<header class="lp-head" aria-label="`) {
-		t.Error("the public header carries no aria-label")
+	if got, want := strings.Join(labels, " | "), "Product tour | Security | Pricing | For restaurants & bars | For production & facilities | API docs"; got != want {
+		t.Errorf("the Product column reads %q; the boards read %q", got, want)
+	}
+	for _, l := range pages.LandingNav {
+		if strings.Contains(l.Href, "#") {
+			t.Errorf("the header's %q is %q, a landing section; every header entry is a page since LP-08", l.Label, l.Href)
+		}
+	}
+	r := marketingRouter(t)
+	for _, url := range publicChromeURLs() {
+		body := mustFetchMarketing(t, r, url)
+		for _, v := range publicChromeLinkViolations(body, pages.PublicProductLinks, pages.LegalPages) {
+			t.Errorf("%s: %s", url, v)
+		}
+		// One menu, and it is the native element: no script opens it.
+		if n := strings.Count(body, `<details class="menu"`); n != 1 {
+			t.Errorf("%s renders %d phone menu(s), want one <details class=\"menu\">", url, n)
+		}
+		// Header and menu are named landmarks.
+		for _, label := range []string{"Primary", "Menu", "Product", "Legal"} {
+			if chromeSegment(body, label) == "" {
+				t.Errorf("%s: no <nav aria-label=%q> on the page", url, label)
+			}
+		}
+		if !strings.Contains(body, `<header class="lp-head" aria-label="`) {
+			t.Errorf("%s: the public header is missing or carries no aria-label", url)
+		}
+	}
+}
+
+// publicChromeURLs is every page that draws the public chrome and is served by the
+// marketing router: the site's own (siteURLs), sign-up's first screen and the pages
+// that draw it around a body of their own (chromeOnlyURLs).
+func publicChromeURLs() []string {
+	out := append(siteURLs(), signupPath)
+	return append(out, chromeOnlyURLs()...)
+}
+
+// voidElements are the HTML elements with no closing tag.
+var voidElements = map[string]bool{
+	"area": true, "base": true, "br": true, "col": true, "embed": true, "hr": true, "img": true,
+	"input": true, "link": true, "meta": true, "source": true, "track": true, "wbr": true,
+}
+
+var (
+	htmlTagRE   = regexp.MustCompile(`<(/?)([a-zA-Z][a-zA-Z0-9]*)((?:[^>"']|"[^"]*"|'[^']*')*)>`)
+	htmlClassRE = regexp.MustCompile(`\bclass="([^"]*)"`)
+)
+
+// insideLPRoot reports, for the first element whose opening tag starts with open,
+// whether an ancestor of it (or the element itself) carries the class lp; found is
+// false when no such element exists. The page is walked as a stack of open tags,
+// which is exact for the markup templ writes: every element closed, attributes
+// quoted, no "<" in text.
+func insideLPRoot(body, open string) (inside, found bool) {
+	type frame struct {
+		name string
+		lp   bool
+	}
+	var stack []frame
+	for _, m := range htmlTagRE.FindAllStringSubmatchIndex(body, -1) {
+		name := strings.ToLower(body[m[4]:m[5]])
+		if body[m[2]:m[3]] == "/" {
+			for i := len(stack) - 1; i >= 0; i-- {
+				if stack[i].name == name {
+					stack = stack[:i]
+					break
+				}
+			}
+			continue
+		}
+		attrs := body[m[6]:m[7]]
+		lp := false
+		if c := htmlClassRE.FindStringSubmatch(attrs); c != nil {
+			lp = slices.Contains(strings.Fields(c[1]), "lp")
+		}
+		if strings.HasPrefix(body[m[0]:], open) {
+			for _, f := range stack {
+				lp = lp || f.lp
+			}
+			return lp, true
+		}
+		if !voidElements[name] && !strings.HasSuffix(attrs, "/") {
+			stack = append(stack, frame{name, lp})
+		}
+	}
+	return false, false
+}
+
+// lpRootProblems says how body departs from the layout its kind needs: ownBody pages
+// (sign-up, the legal documents, the guide) keep <main> outside every .lp root and the
+// header, the footer and the phone bar inside one; the site's own pages keep all of
+// them inside theirs.
+func lpRootProblems(body string, ownBody bool) []string {
+	var out []string
+	parts := []struct {
+		open       string
+		wantInside bool
+		optional   bool
+	}{
+		{`<main id="main">`, !ownBody, false},
+		{`<header class="lp-head"`, true, false},
+		{`<footer class="lp-foot">`, true, false},
+		{`<div class="mbar">`, true, true},
+	}
+	for _, p := range parts {
+		inside, found := insideLPRoot(body, p.open)
+		if !found {
+			if !p.optional {
+				out = append(out, p.open+" is not on the page")
+			}
+			continue
+		}
+		if inside != p.wantInside {
+			out = append(out, fmt.Sprintf("%s inside a .lp root = %v, want %v", p.open, inside, p.wantInside))
+		}
+	}
+	// Nor may a root open INSIDE the body: the reset reaches whatever such a root holds.
+	if ownBody {
+		for _, c := range htmlClassRE.FindAllStringSubmatch(between(body, `<main id="main">`, "</main>"), -1) {
+			if slices.Contains(strings.Fields(c[1]), "lp") {
+				out = append(out, fmt.Sprintf("an element in <main> opens a .lp root (class=%q)", c[1]))
+			}
+		}
+	}
+	return out
+}
+
+// TestPublicChrome_UtilityBodiesStayOutsideTheLPRoot: the pages whose body is written
+// in the product's utility classes -- every sign-up screen, the four legal documents,
+// the guide's two pages -- draw the chrome in .lp roots of its own and keep <main>
+// outside them, because inside a .lp root `.lp *` zeroes the margins and paddings
+// those classes set (measured in Chrome: publicchrome.templ gives the numbers). The
+// site's own pages keep everything inside their root, as before. CONTROL: a body
+// wrapped in a .lp root, a .lp root opened inside the body, and a footer taken out of
+// its root are each red.
+func TestPublicChrome_UtilityBodiesStayOutsideTheLPRoot(t *testing.T) {
+	t.Parallel()
+	r := marketingRouter(t)
+	for _, url := range siteURLs() {
+		for _, p := range lpRootProblems(mustFetchMarketing(t, r, url), false) {
+			t.Errorf("%s: %s", url, p)
+		}
+	}
+	own := map[string]string{}
+	for _, url := range chromeOnlyURLs() {
+		own[url] = mustFetchMarketing(t, r, url)
+	}
+	for name, body := range signupSurfaceScreens(t) {
+		own["sign-up "+name] = body
+	}
+	for name, body := range own {
+		for _, p := range lpRootProblems(body, true) {
+			t.Errorf("%s: %s", name, p)
+		}
+	}
+	legal := own[pages.LegalPages[0].Path]
+	if len(lpRootProblems(legal, true)) != 0 {
+		t.Fatal("PREMISE: the legal page fails the scan")
+	}
+	wrapped := strings.Replace(legal, `<main id="main">`, `<div class="lp"><main id="main">`, 1)
+	wrapped = strings.Replace(wrapped, `</main>`, `</main></div>`, 1)
+	if wrapped == legal || len(lpRootProblems(wrapped, true)) == 0 {
+		t.Error("CONTROL: a legal body wrapped in a .lp root passed")
+	}
+	inner := strings.Replace(legal, `<main id="main">`, `<main id="main"><div class="lp">`, 1)
+	inner = strings.Replace(inner, `</main>`, `</div></main>`, 1)
+	if inner == legal || len(lpRootProblems(inner, true)) == 0 {
+		t.Error("CONTROL: a legal body opening a .lp root inside <main> passed")
+	}
+	bare := strings.Replace(legal, `<div class="lp"><footer class="lp-foot">`, `<div><footer class="lp-foot">`, 1)
+	if bare == legal || len(lpRootProblems(bare, true)) == 0 {
+		t.Error("CONTROL: a footer outside every .lp root passed")
 	}
 }
 
@@ -187,6 +357,21 @@ func TestPublicChrome_ThePhoneBarIsTheWizardsAndCanBeLeftOut(t *testing.T) {
 	none := renderPublicChrome(t, pages.PublicChromeOpts{SignInHref: adminLoginPath})
 	if strings.Contains(none, `class="mbar"`) || strings.Contains(none, "Start free") {
 		t.Error("with no wizard mounted the chrome still offers Start free")
+	}
+	// LP-11: the legal documents and the guide draw the bar too, after the footer, in
+	// the root that sticks it to the bottom; no sign-up screen draws it.
+	r := marketingRouter(t)
+	for _, url := range chromeOnlyURLs() {
+		body := mustFetchMarketing(t, r, url)
+		at := strings.Index(body, `<div class="lp lp-dock"><div class="mbar"><a class="hbtn" href="`+signupPath+`">`)
+		if at < 0 || at < strings.Index(body, "</footer>") {
+			t.Errorf("%s: the phone bar is missing, outside its root or before the footer", url)
+		}
+	}
+	for name, body := range signupSurfaceScreens(t) {
+		if strings.Contains(body, `class="mbar"`) {
+			t.Errorf("the sign-up %s screen draws the phone bar; the boards draw it on every public phone page but Signup", name)
+		}
 	}
 }
 

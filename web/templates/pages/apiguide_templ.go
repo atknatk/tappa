@@ -11,7 +11,8 @@ import templruntime "github.com/a-h/templ/runtime"
 import "github.com/atknatk/tappa/web/templates/layout"
 
 // The INTEGRATION GUIDE on the product site (M11 DOCS-1, ADR 0030): /docs/api in English and
-// /docs/api/tr in Turkish, public and without a sign-in, in the legal pages' chrome.
+// /docs/api/tr in Turkish, public and without a sign-in, in the public site's chrome (PublicChrome,
+// since LP-11; in its own roots, so the guide's utility classes keep their spacing).
 //
 // THE BODY IS THE MARKDOWN, CONVERTED. docs/api/integration-guide.md (and .tr.md) is the one
 // source: /v1/guide.md serves its bytes on the API host, and internal/apiguide turns the same bytes
@@ -19,16 +20,20 @@ import "github.com/atknatk/tappa/web/templates/layout"
 // to http(s), this site or this page; the body is the one block on this page written without
 // escaping, and only that package can produce it (apiguide.Guide's body is unexported).
 //
-// LAYOUT. On a phone, a tablet and a small laptop the page is one column, the width of the
-// chrome's header and footer, and the guide's own contents list, right after the title, is the
+// LAYOUT. On a phone, a tablet and a small laptop the page is one centred column of at most
+// 48 rem, and the guide's own contents list, right after the title, is the
 // table of contents (its links are 44 px touch targets: the scoped rules in input.css). From the
 // extra-large breakpoint up a sticky side navigation lists the sections and subsections in the
-// left margin, and the text column stays the header's width and centre, so the title lines up
-// with the wordmark above it. Tables and code blocks scroll inside their own box (input.css), so
-// the page itself never scrolls sideways.
+// left margin, and the text column stays centred. Tables and code blocks scroll inside their own
+// box (input.css), so the page itself never scrolls sideways.
 //
-// LANGUAGE. The document is English (the marketing chrome is); the article carries the page's
-// language, and the head names both translations (layout.MarketingTranslated).
+// THE SIDE NAVIGATION STICKS BELOW THE HEADER. The public header sticks too (69 px tall from the
+// tablet width: its 68 px row and its hairline), so the navigation's sticky offset is that height
+// plus the 24 px gap it always kept, and its height leaves the same 24 px below it. Stuck at the
+// old offset its first entries sat under the header.
+//
+// LANGUAGE. The document is English (the chrome is); the article carries the page's language,
+// and the head names both translations (layout.MarketingTranslated).
 func APIGuide(v APIGuideView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -81,7 +86,7 @@ func APIGuide(v APIGuideView) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(v.lang())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 27, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 32, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -102,7 +107,7 @@ func APIGuide(v APIGuideView) templ.Component {
 				var templ_7745c5c3_Var5 string
 				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(v.say("Integration API", "Entegrasyon API'si"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 31, Col: 78}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 36, Col: 78}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 				if templ_7745c5c3_Err != nil {
@@ -115,7 +120,7 @@ func APIGuide(v APIGuideView) templ.Component {
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.Guide.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 32, Col: 85}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 37, Col: 85}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 				if templ_7745c5c3_Err != nil {
@@ -143,7 +148,7 @@ func APIGuide(v APIGuideView) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = marketingChrome(v.SignInHref).Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = PublicChrome(PublicChromeOpts{Current: v.path(), SignInHref: v.SignInHref, SignupHref: v.SignupHref, OwnRoots: true}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -230,7 +235,7 @@ func apiGuideLinks(v APIGuideView) templ.Component {
 			var templ_7745c5c3_Var11 string
 			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(v.say("Download openapi.yaml", "openapi.yaml'ı indir"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 60, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 65, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 			if templ_7745c5c3_Err != nil {
@@ -243,7 +248,7 @@ func apiGuideLinks(v APIGuideView) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(v.say("the OpenAPI 3.1 document, to load into your tools", "OpenAPI 3.1 belgesi, araçlarınıza yüklemek için"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 62, Col: 146}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 67, Col: 146}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
@@ -292,20 +297,20 @@ func apiGuideSideNav(v APIGuideView) templ.Component {
 		var templ_7745c5c3_Var14 string
 		templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(v.say("On this page", "Bu sayfada"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 71, Col: 120}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 76, Col: 120}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "\"><div class=\"sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto pr-2\"><p class=\"docket-label\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "\"><div class=\"sticky top-[93px] max-h-[calc(100vh-117px)] overflow-y-auto pr-2\"><p class=\"docket-label\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var15 string
 		templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(v.say("On this page", "Bu sayfada"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 73, Col: 64}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 78, Col: 64}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 		if templ_7745c5c3_Err != nil {
@@ -333,7 +338,7 @@ func apiGuideSideNav(v APIGuideView) templ.Component {
 				var templ_7745c5c3_Var17 string
 				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(s.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 78, Col: 155}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 83, Col: 155}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 				if templ_7745c5c3_Err != nil {
@@ -360,7 +365,7 @@ func apiGuideSideNav(v APIGuideView) templ.Component {
 				var templ_7745c5c3_Var19 string
 				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(s.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 82, Col: 119}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/apiguide.templ`, Line: 87, Col: 119}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 				if templ_7745c5c3_Err != nil {

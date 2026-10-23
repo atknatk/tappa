@@ -14,11 +14,15 @@ import (
 // is the page that closes a sale (so no sentence may promise something the product
 // does not do).
 //
-// IT USES THE MARKETING CHROME, NOT THE PANEL SHELL AND NOT THE PHONE SHELL. A
+// IT USES THE PUBLIC CHROME, NOT THE PANEL SHELL AND NOT THE PHONE SHELL. A
 // visitor arrives here from the landing page and has no identity yet, so the
 // navigation and the legal footer they were looking at a moment ago must still be
 // there — a sign-up form is exactly where somebody goes looking for the privacy
-// policy.
+// policy. Since LP-11 it is the public site's own chrome (PublicChrome), in its own
+// roots so this file's utility classes keep their spacing, with three differences the
+// Signup boards draw: no Start free (this is where it leads) and so no phone bar, the
+// "Already with Taptime?" prompt, and a header that scrolls away so the phone's
+// progress bar is the one thing pinned to the top.
 //
 // ⚠️ layout.RobotsPrivate ON EVERY SCREEN, unlike the landing page's RobotsPublic.
 // The wizard carries form state and its URLs are steps in a flow rather than
@@ -34,12 +38,12 @@ import (
 // and the buttons are rounded as drawn. No class name is assembled from pieces: every tone is a
 // literal in a switch below, because Tailwind reads this file as raw text.
 
-// signupPage is the frame every wizard screen shares: the marketing chrome (wide,
-// with the "Already with Taptime?" prompt), the progress when the screen has one, and
-// the card the screen's own content goes in.
+// signupPage is the frame every wizard screen shares: the public chrome (with the
+// "Already with Taptime?" prompt), the progress when the screen has one, and the card
+// the screen's own content goes in.
 templ signupPage(title string, p signupProgress) {
 	@layout.Marketing(title, layout.RobotsPrivate) {
-		@marketingChromeWith(marketingChromeOpts{SignInHref: AdminLoginPath, SignInPrompt: true, Wide: true}) {
+		@PublicChrome(PublicChromeOpts{SignInHref: AdminLoginPath, SignInPrompt: true, NoPhoneBar: true, OwnRoots: true, StaticHeader: true}) {
 			<section class={ signupSectionClass(p.shown()) }>
 				<div class={ signupGridClass(p.shown()) }>
 					if p.shown() {
