@@ -71,7 +71,7 @@ import "github.com/atknatk/tappa/web/templates/layout"
 // block, and the docket always closed straight into the form.
 templ Tap(v TapView, b layout.Brand) {
 	@layout.PageWithScript("Tap — Taptime", "/static/js/tap.js", b) {
-		@templ.Join(TapHeading(v.EmployeeName, v.LocationName), tapForm(v.TapContext, v.Direction))
+		@templ.Join(TapHeading(v.EmployeeName, v.LocationName), tapForm(v.TapContext, v.Direction, v.QR))
 	}
 }
 
@@ -90,11 +90,24 @@ templ Tap(v TapView, b layout.Brand) {
 // form.submit() never sends a submitter -- so a static field here would only ever be
 // a second, unpressed value.
 //
+// THE CHANNEL IS AN ATTRIBUTE OF A QR PAGE ONLY (data-tap-channel="qr", M15-14): tap.js
+// reloads a QR page the browser restored from its back-forward cache and leaves an NFC
+// page as it was. Nothing on screen changes; an NFC page carries no attribute at all, so
+// its bytes are the ones before.
+//
 // ONE FORM, TWO SUBMIT BUTTONS, NO LINK. The correction is a button of this form, not
 // a second form (it would carry no signed context and no coordinates) and not an
 // anchor (a GET cannot record a tap, and a link to POST is not a thing HTML has).
-templ tapForm(signedContext string, d TapDirection) {
-	<form method="post" action="/api/checkin" data-tap-form class="flex flex-col gap-4">
+templ tapForm(signedContext string, d TapDirection, qr bool) {
+	<form
+		method="post"
+		action="/api/checkin"
+		data-tap-form
+		if qr {
+			data-tap-channel="qr"
+		}
+		class="flex flex-col gap-4"
+	>
 		<input type="hidden" name="ctx" value={ signedContext }/>
 		<input type="hidden" name="lat" value="" data-tap-lat/>
 		<input type="hidden" name="lng" value="" data-tap-lng/>

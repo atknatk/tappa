@@ -363,43 +363,85 @@ func TestTapScript_WritesThePressedDirectionFirst(t *testing.T) {
 	}
 }
 
-// TestTapScript_APageRestoredFromTheCacheReloadsItself is the user's decision of 2026-10-23
+// TestTapScript_APageRestoredFromTheCacheReloadsItself is the user's decisions of 2026-10-23
 // (M15-14), TestTapScript_DoublePressCannotEscapeAsANativeSubmit's pattern: back from the
 // confirmation screen, a page the browser restored from its back-forward cache came back with
 // `submitting` set and both buttons disabled, so a second press posted nothing (measured in
-// Chrome 156). The script listens for pageshow and reloads ONLY when the event says the page
-// was restored (persisted === true) -- a reload is a new navigation, so its own pageshow is not
-// persisted and there is no loop. The listener asks for no position (§4.2) and leaves the
-// submit handler's order alone. A SOURCE net: the restore itself is measured in a browser
-// (M15-14), not here.
+// Chrome 156). A QR page reloads itself; an NFC page does not -- its counter is spent, and a press
+// there records a sun-invalid reject that debounces the person's real tap. The channel is the
+// form's server-rendered data-tap-channel. The pageshow listener is pinned WHOLE: a reload outside
+// the condition (measured: 96 GETs in 5 s in Chrome) or a condition without the channel is red.
+// It asks for no position (§4.2) and leaves the submit handler alone. A SOURCE net: the restore
+// itself is measured in a browser (M15-14), not here.
 func TestTapScript_APageRestoredFromTheCacheReloadsItself(t *testing.T) {
 	raw, err := fs.ReadFile(web.Static(), "js/tap.js")
 	if err != nil {
 		t.Fatalf("read the served script: %v", err)
 	}
 	code := stripJSComments(string(raw))
-	at := strings.Index(code, "window.addEventListener('pageshow', function (event) {")
+	norm := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	const listener = "window.addEventListener('pageshow', function (event) {"
+	at := strings.Index(code, listener)
 	if at < 0 {
-		t.Fatal("no pageshow listener: a page restored from the back-forward cache keeps its disabled buttons")
+		t.Fatal("no pageshow listener: a QR page restored from the back-forward cache keeps its disabled buttons")
 	}
 	block := code[at:]
 	end := strings.Index(block, "\n  });")
 	if end < 0 {
 		t.Fatal("could not delimit the pageshow listener")
 	}
-	block = block[:end]
-	guard := strings.Index(block, "if (event.persisted === true) {")
-	reload := strings.Index(block, "window.location.reload();")
-	if guard < 0 || reload < 0 || reload < guard {
-		t.Fatalf("the reload is not inside the persisted branch (a reload on every pageshow loops):\n%s", block)
+	got := norm(block[:end+len("\n  });")])
+	want := norm(listener + `
+    if (event.persisted === true && restoredPageReloads) {
+      window.location.reload();
+    }
+  });`)
+	if got != want {
+		t.Errorf("the pageshow listener is not exactly the restored-QR-page reload:\n got %s\nwant %s", got, want)
+	}
+	if !strings.Contains(code, `var restoredPageReloads = form.getAttribute('data-tap-channel') === 'qr';`) {
+		t.Error("the reload is not tied to the server-rendered QR channel")
 	}
 	if n := strings.Count(code, "location.reload("); n != 1 {
-		t.Errorf("%d reload calls, want exactly 1 -- the restored-page branch", n)
-	}
-	if strings.Contains(block, "geolocation") || strings.Contains(block, "submit") {
-		t.Errorf("the pageshow listener reaches for a position or a submit:\n%s", block)
+		t.Errorf("%d reload calls, want exactly 1 -- the restored QR page's", n)
 	}
 	if n := strings.Count(code, "pageshow"); n != 1 {
 		t.Errorf("%d pageshow mentions in the code, want 1", n)
+	}
+	for _, never := range []string{"location.search", "location.href", "URLSearchParams"} {
+		if strings.Contains(code, never) {
+			t.Errorf("the script reads %q: the channel is the server's attribute, never parsed from the address", never)
+		}
+	}
+}
+
+// TestTapPage_OnlyAQRPageSaysItsChannel: the form of a page opened from the plaque's QR code
+// carries data-tap-channel="qr" -- what tap.js reloads a restored page by -- and an NFC page's
+// form carries no channel attribute at all, in every shape of the button.
+func TestTapPage_OnlyAQRPageSaysItsChannel(t *testing.T) {
+	const attr = `data-tap-channel="qr"`
+	for _, c := range []struct {
+		name    string
+		target  string
+		preview sun.Preview
+		facts   tenant.TapPageFacts
+		qr      bool
+	}{
+		{"QR, predicted", "/t?tag=" + tapUID, previewWithStatus(false, "active"), predicted(tap.TypeIn), true},
+		{"QR, undirected", "/t?tag=" + tapUID, previewWithStatus(false, "retired"), okFacts(), true},
+		{"NFC, predicted", tapURL(), okPreview(true), predicted(tap.TypeIn), false},
+		{"NFC, undirected", tapURL(), okPreview(false), okFacts(), false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h, _ := newTapHandler(t, &fakePreviewer{preview: c.preview}, &fakeDirectory{facts: c.facts}, fixedSessions())
+			form := tapFormOf(t, get(t, h, c.target, sessionCookie()).Body.String())
+			open := form[:strings.Index(form, ">")]
+			if got := strings.Contains(open, attr); got != c.qr {
+				t.Errorf("the form says %s: %v, want %v\n%s", attr, got, c.qr, open)
+			}
+			if !c.qr && strings.Contains(form, "data-tap-channel") {
+				t.Errorf("an NFC page carries a channel attribute: %s", open)
+			}
+		})
 	}
 }

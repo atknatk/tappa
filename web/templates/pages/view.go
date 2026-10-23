@@ -133,7 +133,7 @@ type ConfirmView struct {
 // TapView is the tap screen — the one an employee sees several times a day, and
 // the one CLAUDE.md §9 calls sacred: one screen, one button, zero learning.
 //
-// FOUR FIELDS, AND THAT IS THE SPEC. There is no menu, no history, no shift
+// FIVE FIELDS, AND THAT IS THE SPEC. There is no menu, no history, no shift
 // summary, no "you are currently clocked in" and no settings, because a view
 // model with a field cannot help rendering it. Adding one here is the first step
 // of adding a feature to this screen, and the rule is to ask first.
@@ -170,6 +170,12 @@ type TapView struct {
 	// Direction is what the button says: TapUndirected ("Tap", no want, no second
 	// button) unless the handler's gate let a prediction through (ADR 0032 §B.2).
 	Direction TapDirection
+	// QR marks a page opened from the plaque's printed QR code. It is never shown: it
+	// becomes the form's data-tap-channel="qr", which tap.js reads to decide that a page
+	// the browser restored from its back-forward cache may reload itself (user decision
+	// 2026-10-23, M15-14). An NFC page never reloads: its URL's counter is spent, and a
+	// press there would record a sun-invalid reject that debounces the person's real tap.
+	QR bool
 }
 
 // TapDirection is the tap screen's predicted direction: a closed set of three, and the

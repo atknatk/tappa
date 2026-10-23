@@ -432,10 +432,14 @@ func TestResultScreen_ABrandReadFailureCostsOnlyTheLogo(t *testing.T) {
 // TestTapView_FieldCountIsTheSpec is TestResultView_FieldCountIsTheSpec's twin: the
 // brand reached the tap screen as a second parameter, not as a field. The fourth field
 // is the predicted direction (M15-12), the user's §9 decision of 2026-10-21 (ADR 0032
-// §B.1) -- asked, as the message below says.
+// §B.1) -- asked, as the message below says. The fifth, QR, is never shown: it is the
+// form's data-tap-channel, which only a QR page carries (M15-14, user decision 2026-10-23).
 func TestTapView_FieldCountIsTheSpec(t *testing.T) {
-	if got := reflect.TypeOf(pages.TapView{}).NumField(); got != 4 {
-		t.Fatalf("TapView has %d fields, want 4 (§9: ask before adding one)", got)
+	if got := reflect.TypeOf(pages.TapView{}).NumField(); got != 5 {
+		t.Fatalf("TapView has %d fields, want 5 (§9: ask before adding one)", got)
+	}
+	if f, ok := reflect.TypeOf(pages.TapView{}).FieldByName("QR"); !ok || f.Type.Kind() != reflect.Bool {
+		t.Fatal("TapView's fifth field is not QR, a bool")
 	}
 	if f, ok := reflect.TypeOf(pages.TapView{}).FieldByName("Direction"); !ok || f.Type != reflect.TypeOf(pages.TapUndirected) {
 		t.Fatal("TapView's fourth field is not Direction, a pages.TapDirection")

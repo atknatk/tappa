@@ -584,6 +584,7 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 		LocationName: facts.LocationName,
 		TapContext:   signed,
 		Direction:    direction,
+		QR:           p.Channel == sun.ChannelQR,
 	}, look), look.Logo().Drawn())
 }
 

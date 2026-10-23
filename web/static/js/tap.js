@@ -52,18 +52,29 @@
   var form = document.querySelector('[data-tap-form]');
   if (!form) return;
 
-  // A PAGE THE BROWSER RESTORED FROM ITS BACK-FORWARD CACHE RELOADS ITSELF (user
-  // decision 2026-10-23, M15-14). Back from the confirmation screen, the browser
-  // can hand this page back exactly as it was left -- measured in Chrome 156
-  // despite Cache-Control: no-store: `submitting` still true, both buttons
-  // disabled, "Tapping…" on the primary one and a prediction that is no longer
-  // true -- so a second press posted nothing. A reload fetches the page again:
-  // a fresh prediction, a fresh signed context and buttons that work, with the
-  // same words on the screen. It cannot loop: a reloaded page is a new
-  // navigation, never a restore, so its pageshow is not persisted. It asks for
-  // no position (§4.2: that happens at a press, in the submit handler below).
+  // A QR PAGE THE BROWSER RESTORED FROM ITS BACK-FORWARD CACHE RELOADS ITSELF;
+  // AN NFC PAGE DOES NOT (user decisions 2026-10-23, M15-14). Back from the
+  // confirmation screen, the browser can hand this page back exactly as it was
+  // left -- measured in Chrome 156 despite Cache-Control: no-store: `submitting`
+  // still true, both buttons disabled, "Tapping…" on the primary one and a
+  // prediction that is no longer true -- so a second press posted nothing.
+  //
+  // For a QR code a reload fetches the page again: a fresh prediction (the
+  // button's words may change with it), a fresh signed context and buttons that
+  // work. It cannot loop: a reloaded page is a new navigation, never a restore,
+  // so its pageshow is not persisted.
+  //
+  // For NFC the URL's counter is already spent. Reloading it would draw a page
+  // whose press can only record a sun-invalid reject -- and that reject starts
+  // the person's 60-second debounce, so their real tap a moment later would be
+  // `ignored` and the checkout lost. The restored NFC page stays as it is; the
+  // next real touch of the plaque is a fresh URL and records correctly.
+  //
+  // The channel is the server's (the form's data-tap-channel), never parsed from
+  // the address here. Nothing asks for a position (§4.2: only at a press).
+  var restoredPageReloads = form.getAttribute('data-tap-channel') === 'qr';
   window.addEventListener('pageshow', function (event) {
-    if (event.persisted === true) {
+    if (event.persisted === true && restoredPageReloads) {
       window.location.reload();
     }
   });

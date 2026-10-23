@@ -1008,21 +1008,29 @@ ekran görüntüsü turu.
 **Gerçek tarayıcıda elle doğrulama:** ağ panelinde `POST /api/checkin` gövdesi — JS açık + konum izni var
 (ana düğme, bağlantı), JS açık + konum API'si yok/reddedildi, JS kapalı, **bfcache'ten geri dönüp ikinci
 basış**.
-*Tarihli not (2026-10-23, kullanıcı kararı "Sayfayı yenile").* Bu vakanın ölçütü artık şudur: **geri gelen
-sayfa kendini yeniler; ikinci basış tam bir `want`.** Ölçülen kusur (Chrome 156, `Cache-Control: no-store`'a
+*Tarihli not (2026-10-23, kullanıcı kararları "Sayfayı yenile" ve "Yenileme yalnız QR'da").* Bu vakanın
+ölçütü artık şudur: **QR'da geri gelen sayfa kendini yeniler, ikinci basış tam bir `want`. NFC'de sayfa donuk
+kalır, sonraki gerçek dokunuş doğru kaydı yazar.** Ölçülen kusur (Chrome 156, `Cache-Control: no-store`'a
 rağmen gerçek bfcache): sayfa `submitting=true`, iki düğme devre dışı ve bayat tahminle dönüyor, ikinci basış
-hiçbir POST üretmiyordu (M15 öncesinde de vardı). `tap.js` `pageshow` + `event.persisted === true` iken
-`location.reload()` yapar (yeniden yüklenen sayfa yeni bir gezinmedir, `persisted=false` — döngü yok; konum
-istenmez); kaynak testi `TestTapScript_APageRestoredFromTheCacheReloadsItself`. Gerçek tarayıcıda ölçüldü
-(2026-10-23): QR'da geri → `BackForwardCacheRestore` → yeni gezinme, taze tahmin (*"Clock out"*), etkin
-düğmeler; ikinci basış tek `want=out`, tek POST, tek satır (`flag`, `base:qr-requires-ip`). NFC'de
-(dev simülatörü, gerçek SUN URL'si) yeniden yüklenen sayfa harcanmış sayaçlı URL'yi tahminle gösterir
-(`sun.Preview` sayaç taşımaz — ADR 0032 §B.2'nin kabul edilmiş riski); ikinci basış tek `want=out`, tek
-satır: `reject`, `sys:sun-invalid` (§5 satır 2), ekranda *"Not counted"* / REJECTED; `last_ctr` değişmez.
+hiçbir POST üretmiyordu (M15 öncesinde de vardı). `tap.js` `pageshow` + `event.persisted === true` **ve**
+formun sunucunun yazdığı `data-tap-channel="qr"` özniteliği varken `location.reload()` yapar (yeniden
+yüklenen sayfa yeni bir gezinmedir — döngü yok; konum istenmez); kaynak testi
+`TestTapScript_APageRestoredFromTheCacheReloadsItself`, öznitelik `TestTapPage_OnlyAQRPageSaysItsChannel`.
+**NFC'de yenileme yok, çünkü** harcanmış URL'yi yenilemek tıklanabilir bir tahmin çiziyordu; basış `reject`
+`sys:sun-invalid` yazıyor, bu ret 60 sn'lik debounce'u başlatıyor (`SecondsSinceLastRecordedTap` verdict'e
+bakmaz) ve çalışanın hemen ardından gelen gerçek dokunuşu `ignored` oluyordu — çıkış yazılmıyor, ctr
+harcanıyordu (genel mercek run3). ADR 0032 §B.2'nin kabul ettiği risk **yalnız tahminin gösterilmesidir**;
+bu zincir o riskin parçası değildir, bu yüzden kapatıldı (kalıcı çare önerisi backlog T160). Gerçek
+tarayıcıda ölçüldü (2026-10-23, `fix(tap): reload a restored tap page only for a QR code`): QR'da geri →
+`BackForwardCacheRestore` → tek yeni gezinme, taze tahmin, etkin düğmeler; ikinci basış tek `want=out`,
+tek POST, tek satır (`qr/flag/out/auto`). NFC'de geri → `BackForwardCacheRestore`, yeni gezinme ve ek
+`GET /t` yok, sayfa donuk (*"Tapping…"*, iki düğme devre dışı); 65 sn sonra plakete yeni dokunuş (ctr 2)
+→ tek `want=out`, satır `nfc/ok/out/auto`, `ignored` değil; `last_ctr` 2.
 
 **Kabul kriterleri.** Tam suit yeşil; `make audit` exit 0; `TestEveryNamedTestExists` yeşil; güvenlik
 merceği ONAY (M15-06 dahil); beş elle vakada gövdede **tam bir** `want` ve basılan değer, her vakada tam bir
-satır (bfcache vakasında: geri gelen sayfa kendini yeniler, ikinci basış tam bir `want` — 2026-10-23 notu); M15-13 bitti (Q31 *evet*); **anahtar canlıda ayarlı ve geçmişte** (`state.md`'de
+satır (bfcache vakasında: QR'da geri gelen sayfa kendini yeniler, ikinci basış tam bir `want`; NFC'de sayfa
+donuk kalır, sonraki gerçek dokunuş doğru kaydı yazar — 2026-10-23 notu); M15-13 bitti (Q31 *evet*); **anahtar canlıda ayarlı ve geçmişte** (`state.md`'de
 değeri ve ayarlandığı an).
 
 ---
