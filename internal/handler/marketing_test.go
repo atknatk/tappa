@@ -120,6 +120,12 @@ func structuralConfigs(t *testing.T) []structuralConfig {
 // marketingURLs is every URL this feature serves, derived from the same tables the
 // chrome and Mount both read: the landing, the public site's own pages
 // (pages.PublicPages, LP-06) and the four legal documents.
+//
+// THE PUBLIC 404 IS NOT ON THIS LIST, OR ON publicSurfaceURLs (LP-12): the scans over them
+// ask for a 200. It goes through the same scanners -- the policy, no third party, every
+// link resolving, the footer's red lines, one <h1>, the .lp root, the copy rules -- in
+// TestPublicNotFound_IsTheChromeAndOneSentence. A new shared scanner added over these
+// lists is added there too.
 func marketingURLs() []string {
 	out := []string{"/"}
 	out = append(out, publicPagePaths()...)

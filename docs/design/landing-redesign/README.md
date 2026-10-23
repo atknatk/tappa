@@ -335,7 +335,7 @@ prefixes are excluded. The theme reference sits in four places on the customer h
 (`brandtheme_test.go:89, 512, 550, 602`; :712 is the operator host), and those tests build a router
 **without** Marketing (:64, :704): a 404 bound in Marketing's `Mount` leaves them unchanged but no
 longer describing production, so LP-12 then adds a test on the full composition; a 404 bound at
-router level changes all four. Not measured yet: whether chi's `NotFound` can be scoped this way without a wrapper.
+router level changes all four. Measured in LP-12 (ADR 0034): it cannot -- chi's `NotFound` is router-wide and is handed down to every subrouter without one of its own (the operator surface's), so the scoping is a wrapper: `internal/handler/notfound.go` answers the page only for GET/HEAD outside eleven plain roots and `http.NotFound` everywhere else; the 404 was bound in Marketing's `Mount`, so the theme tests did not move.
 
 ---
 
