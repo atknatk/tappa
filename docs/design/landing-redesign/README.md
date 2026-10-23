@@ -207,30 +207,39 @@ taken — `.lp-btn`, `.lp-docket`, `.lp-ledger`). Continue it:
 `porcelain #EDF0EA` · `paper #FFFDF4` · `tappa-green #1F5C41` · `green-lite #E1EDE6` ·
 `saffron #D98E2B` · `saffron-lite #F7EBD6` · `tomato #BE3D2A` · `line #C9D2C8`; plus `--mint
 #8FD3AF`, a `.lp` token only (`input.css:1780`, the plaque wave). The `.lp` block's `--ink-soft
-#3D4F44` and `--green-deep` are not used by the boards (*gap report*); delete them only when no
-rule reads them. Board rgba values are token + alpha: `rgba(21,34,25,.7/.82/.85/.24/.12/.08)` =
+#3D4F44` and `--green-deep` were not used by the boards (*gap report*) and are gone (LP-01). Board rgba values are token + alpha: `rgba(21,34,25,.7/.82/.85/.24/.12/.08)` =
 ink at that alpha; `rgba(31,92,65,.1/.22)` = green; `rgba(217,142,43,.1)` = saffron;
 `rgba(190,61,42,.1)` = tomato.
 
-**Board classes** (from the boards' `<style>` blocks; present on all 23 unless noted):
+**Board classes** (from the boards' `<style>` blocks; present on all 23 unless noted) and the
+names they were **built under** (LP-15, 2026-10-23 — `web/static/css/input.css`'s `.lp` block,
+the chrome in `web/templates/pages/publicchrome.templ`). Every rule is `.lp`-scoped plain CSS
+outside `@layer`; a board name is kept where nothing in the product owned it, otherwise it is
+`lp-` prefixed.
 
-| Board class | Product name / note |
-|---|---|
-| `.btn`, `.btn--green`, `.btn--ghost` | 48 px, radius 12; green: paper on green + soft shadow, hover ink; ghost: 2 px ink border, hover inverts. Product `.btn` exists → `lp-` prefixed (today `.lp-btn` input.css:1821, `.lp-btn-ghost` :1831). |
-| `.hbtn` | header "Start free", 44 px |
-| `.navlink`, `.navlink[aria-current]` | header links; current = ink 700 + 2 px green underline (inset shadow) |
-| `details.menu`, `.mopen`/`.mclose`, `.mlink`, `.mlink[aria-current]` | phone menu, native `<details>`, no JS; open summary = "Close" on ink; current = green text + 3 px green bar |
-| `.mbar` | sticky bottom "Start free" on every public phone page **except Signup** |
-| `.fcol`, `.flink` | footer columns (Product 6 links, Legal 4) and mono footer links |
-| `.band--paper`, `.band--ink`, `.band--porcelain` | section grounds; inside `--paper`, cards/dockets/qa take an `ink/24` border; focus ring turns paper on ink and green |
-| `.card`, `.fitcard`, `.ico` | 18 px card; whole-card link (landing fits) darkening its border on hover; 44 px green-lite icon tile |
-| `.more` | "next step" link, one per section end ("Pricing in detail →", "How each proof works →", "Take the product tour →") |
-| `details.qa`, `.pl` | FAQ item; first open; `+` rotates to `×` |
-| `.eyebrow`, `.lbl`, `.mono` | mono kickers/labels |
-| `.docket` (board), `.tapdocket` | board `.docket` has only a bottom perforation and differs from the product's `.docket` → use the existing `.lp-docket` or a new `lp-` name; `.tapdocket` = the tap-screen mock's ticket (both edges perforated) |
-| `.stamp`, `--ok/--flag/--rej/--ign`, `--sm` | product: `.stamp--approved/--flagged/--rejected/--ignored` (input.css; word always ink — `TestCompiledCSS_StampWordIsInk`); board tilts −6/−3/−10/−4°; `--sm` is a 9.5–10 px variant (Security, States, For*) |
-| `.chk`, `--ok/--no/--na`, `.tick` | Security and For* only: 18 px check squares (paper on green / paper on tomato / ink on line) with a glyph; `.tick` = timeline hairline |
-| `.cell`, `.na` | States-Public / ShareCards / Product only: the state-matrix cell — board furniture, **not ported** |
+| Board class | Built as | Note |
+|---|---|---|
+| `.btn`, `.btn--green`, `.btn--ghost` | `.lp-button`, `.lp-button--green`, `.lp-button--ghost` (+ `.lp-button--paper` on the green sign-off) | 48 px, radius 12. Product `.btn` exists → prefixed; the reference's `.lp-btn`/`.lp-btn-ghost` are gone (LP-04). |
+| `.hbtn` | `.hbtn` | header and phone-bar "Start free", 44 px (48 in `.mbar`) |
+| `.navlink`, `.navlink[aria-current]` | `.navlink`, `[aria-current]` | inside `.lp-headNav`; shown from 768 px |
+| `details.menu`, `.mopen`/`.mclose`, `.mlink` | same, + `.lp-menuHead`, `.lp-menuList` | native `<details>`, no script; hidden from 768 px; lists the Product column (`MountedPublicLinks(PublicProductLinks)`) |
+| `.mbar` | `.mbar` | every public phone page except Signup (`NoPhoneBar`); on `OwnRoots` pages inside `.lp.lp-dock` |
+| `.fcol`, `.flink` | `.fcol` (+ `.fcol a`, `.lp-fcolHead`), `.flink` | footer link 44 px (board 40) |
+| — (header/footer frame) | `.lp-head`, `.lp-headIn`, `.lp-mark`, `.lp-markDot`, `.lp-signin`, `.lp-skip`, `.lp-foot`, `.lp-footIn` | the chrome's own classes (LP-02); roots `.lp.lp-top` / `.lp-topStill` / `.lp-instant` / `.lp-dock` for `OwnRoots` pages (LP-11) |
+| `.band--paper`, `.band--ink`, `.band--porcelain` | `.band` + `.band--paper/--ink/--porcelain`; green box `.ondark` | `--ring` turns paper in `.band--ink` and `.ondark` |
+| `.card`, `.fitcard`, `.ico` | `.card`, `.fitcard` (with `.lp-fit`), `.lp-ico` | `.ico` → prefixed (the reference's step emoji slot was `.ico`) |
+| `.more` | `.more` (+ `.lp-moreAfter` under the price card) | |
+| `details.qa`, `.pl` | `details.qa`, `.pl` (list `.lp-faq`, `.lp-faqList`) | `.pl` turn is the only transition, under `no-preference` |
+| `.eyebrow`, `.lbl`, `.mono` | `.lp-eyebrow`, `.lp-lbl`, `.mono` | `.lbl` is the product's label → prefixed |
+| `.docket` (board), `.tapdocket` | `.lp-slip`, `.tapdocket` | `.docket` is the product's → `.lp-slip` (bottom perforation only) |
+| `.stamp`, `--ok/--flag/--rej/--ign`, `--sm` | the product's `.stamp .stamp--approved/--flagged/--rejected/--ignored`, `.lp-stamp-sm` | README O7; word always ink (`TestCompiledCSS_StampWordIsInk`); public-only: `--rejected` −10°, `--ignored` −4°, the small size |
+| `.chk`, `--ok/--no/--na`, `.tick` | `.chk`, `.chk--ok/--no/--na`, `.tick` | Security and For* only |
+| section frame (inline on the boards) | `.lp-sec`, `.lp-wrap`, `.lp-h2`, `.lp-lede`, `.lp-pilot`; page opening `.lp-pageHead`, `.lp-pageEyebrow`, `.lp-h1`, `.lp-pageLede` | LP-04 / LP-06 |
+| `.cell`, `.na` | — | States-Public / ShareCards / Product board furniture, **not ported** |
+
+Pages whose body is the product's utility classes (Signup, Legal, API guide) take no `.lp` body
+class at all: `PublicBodyFrame` and `PublicBodyRing` (`publicchrome.templ`) give them the
+chrome's box and the one focus ring (§5's reset finding, measured in LP-11).
 
 **Focus ring** (States-Public): one ring for every public control, `2px solid` ink with `2px`
 offset on porcelain/paper, **paper** inside `.band--ink` and on green. It replaces `.lp`'s 3 px
