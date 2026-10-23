@@ -250,6 +250,13 @@ func TestIdentityMemberships_TheSessionsPersonOnlyAndAtMostFifty(t *testing.T) {
 	if got := list(hu); len(got) != 1 || uuid.UUID(got[0][0].([16]byte)) != w.a || got[0][4] != true {
 		t.Fatalf("an unlinked row's session lists %v; want itself alone", got)
 	}
+	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		aiExec(t, ctx, sp, `UPDATE admin_users SET unlinked_at = now() WHERE id = $1`, w.mb)
+		rows, err := idAs(t, ctx, sp, identityMembershipsSQL, hb)
+		if err != nil || len(rows) != 0 {
+			t.Fatalf("a session whose own row is refused (identity kept) lists %v, %v; want nothing", rows, err)
+		}
+	})
 	aiExec(t, ctx, tx, `UPDATE admin_sessions SET revoked_at = now() WHERE token_hash = $1`, hb)
 	if got := list(hb); len(got) != 0 {
 		t.Fatalf("a revoked session lists %v", got)
@@ -317,6 +324,12 @@ func TestIdentitySwitch_RefusesEachCaseSeparately(t *testing.T) {
 		{"the session's own row disabled", func(sp pgx.Tx) (string, uuid.UUID) {
 			h := idSession(t, ctx, sp, w.a, w.ma, nil)
 			aiExec(t, ctx, sp, `UPDATE admin_users SET status = 'disabled' WHERE id = $1`, w.ma)
+			return h, w.b
+		}},
+		{"the session's own row refused (identity kept)", func(sp pgx.Tx) (string, uuid.UUID) {
+			// The third eye's M10: both `a.unlinked_at IS NULL` of the switch removed stayed green.
+			h := idSession(t, ctx, sp, w.a, w.ma, nil)
+			aiExec(t, ctx, sp, `UPDATE admin_users SET unlinked_at = now() WHERE id = $1`, w.ma)
 			return h, w.b
 		}},
 		{"the current business", func(sp pgx.Tx) (string, uuid.UUID) {
@@ -694,6 +707,54 @@ func TestIdentityRevokeSessions_EveryBusinessOrdinaryRowsKeepCurrent(t *testing.
 	}
 	if rows := revoke(cur, false); len(rows) != 0 {
 		t.Fatalf("a revoked session: %v, want 0 rows", rows)
+	}
+}
+
+// TestIdentityRevokeSessions_ADisabledOrRefusedMembershipIsRevokedSilently (the security audit's
+// ORTA, ADR 0031 §5.4 / bulgu 17): "sign out everywhere" revokes the live session of a DISABLED
+// membership and of a REFUSED one (unlinked_at stamped, identity kept) -- they are the person's -- but
+// writes NO audit row in those businesses: a sign-out row where the person can no longer sign in
+// would tell that business's owner the person signed out from somewhere else. The active
+// membership's revoked session still gets its ordinary row. And a session whose OWN row is refused
+// is no key at all: 0 rows, nothing revoked.
+func TestIdentityRevokeSessions_ADisabledOrRefusedMembershipIsRevokedSilently(t *testing.T) {
+	ctx, tx := opTx(t)
+	w := idNewWorld(t, ctx, tx)
+	d, e := idTenant(t, ctx, tx, "Disabled"), idTenant(t, ctx, tx, "Refused")
+	md, me := aiAdmin(t, ctx, tx, d, w.email), aiAdmin(t, ctx, tx, e, w.email)
+	aiLink(t, ctx, tx, md, w.ident)
+	aiLink(t, ctx, tx, me, w.ident)
+	hd, he := idSession(t, ctx, tx, d, md, nil), idSession(t, ctx, tx, e, me, nil)
+	aiExec(t, ctx, tx, `UPDATE admin_users SET status = 'disabled' WHERE id = $1`, md)
+	aiExec(t, ctx, tx, `UPDATE admin_users SET unlinked_at = now() WHERE id = $1`, me)
+	cur := idSession(t, ctx, tx, w.a, w.ma, nil)
+	hb := idSession(t, ctx, tx, w.b, w.mb, nil)
+
+	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		rows, err := idAs(t, ctx, sp, revokeIdentitySessionsSQL, he, false)
+		if err != nil || len(rows) != 0 {
+			t.Fatalf("a session whose own row is refused: %v, %v; want 0 rows", rows, err)
+		}
+		if n := idCount(t, ctx, sp, `SELECT count(*) FROM admin_sessions WHERE token_hash IN ($1, $2, $3, $4) AND revoked_at IS NOT NULL`, hd, he, cur, hb); n != 0 {
+			t.Fatalf("a refused row's session revoked %d session(s)", n)
+		}
+	})
+
+	rows, err := idAs(t, ctx, tx, revokeIdentitySessionsSQL, cur, true)
+	if err != nil || len(rows) != 1 || rows[0][0] != int32(3) {
+		t.Fatalf("keep current: %v, %v; want 3 revoked (B's, the disabled one's, the refused one's)", rows, err)
+	}
+	if n := idCount(t, ctx, tx, `SELECT count(*) FROM admin_sessions WHERE token_hash IN ($1, $2, $3) AND revoked_at IS NOT NULL`, hd, he, hb); n != 3 {
+		t.Fatalf("%d of the three sessions revoked, want 3", n)
+	}
+	for _, c := range []struct {
+		name   string
+		tenant uuid.UUID
+		want   int64
+	}{{"the disabled membership's business", d, 0}, {"the refused membership's business", e, 0}, {"B", w.b, 1}} {
+		if n := idCount(t, ctx, tx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1`, c.tenant); n != c.want {
+			t.Errorf("audit rows in %s: %d, want %d", c.name, n, c.want)
+		}
 	}
 }
 

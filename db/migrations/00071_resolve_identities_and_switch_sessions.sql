@@ -452,8 +452,13 @@ GRANT EXECUTE ON FUNCTION public.identity_switch_session(text, uuid, text) TO ta
 -- 6. identity_revoke_sessions (ADR 0031 §5.2: "Sign out everywhere")
 -- ---------------------------------------------------------------------------
 -- Every live session of every membership of the session's identity, in every business, the current
--- one kept when p_keep_current. Each revoked session leaves its own tenant an ordinary sign-out row
--- (the membership as actor), nothing more. Returns how many were revoked; 0 rows when the session is
+-- one kept when p_keep_current. Each revoked session of an ACTIVE, NOT-REFUSED membership leaves its
+-- own tenant an ordinary sign-out row (the membership as actor), nothing more. A session of a
+-- disabled or refused membership is revoked too -- it is the person's -- but SILENTLY (M14-04 security
+-- audit, ADR 0031 §5.4 / bulgu 17): a sign-out row in a business where the person can no longer sign
+-- in would tell that business's owner the person signed out from somewhere else, i.e. holds another
+-- business; an ordinary sign-out there cannot happen. Returns how many were revoked (all of them --
+-- the count reaches the person's own response alone, never an audit row); 0 rows when the session is
 -- not live or its row is not linked (the app then revokes that one admin's sessions as today).
 -- +goose StatementBegin
 CREATE FUNCTION public.identity_revoke_sessions(p_session_hash text, p_keep_current boolean)
@@ -495,7 +500,7 @@ BEGIN
     -- NAMED TENANT-WIDE READ (the driver): the identity's memberships; every write below is pinned
     -- to one of them, tenant and row.
     FOR m IN
-        SELECT a.id, a.tenant_id
+        SELECT a.id, a.tenant_id, (a.status = 'active' AND a.unlinked_at IS NULL) AS ordinary
           FROM public.admin_users AS a
          WHERE a.identity_id = v_identity
          ORDER BY a.tenant_id, a.id
@@ -509,9 +514,11 @@ BEGIN
                AND (NOT p_keep_current OR x.id <> v_session)
             RETURNING x.id
         LOOP
-            INSERT INTO public.audit_log (tenant_id, actor_id, action, target, detail)
-            VALUES (m.tenant_id, m.id, 'admin.logout', m.id::text,
-                    pg_catalog.jsonb_build_object('outcome', 'ok', 'session_id', k.id::text));
+            IF m.ordinary THEN
+                INSERT INTO public.audit_log (tenant_id, actor_id, action, target, detail)
+                VALUES (m.tenant_id, m.id, 'admin.logout', m.id::text,
+                        pg_catalog.jsonb_build_object('outcome', 'ok', 'session_id', k.id::text));
+            END IF;
             v_n := v_n + 1;
         END LOOP;
     END LOOP;
