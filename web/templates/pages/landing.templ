@@ -436,6 +436,12 @@ templ landingCTA(v LandingView) {
 // They come from LegalPages, the same table internal/handler mounts the routes
 // from — one list, so a document cannot gain a route without a link or a link
 // without a route.
+//
+// THE "Built by" LINE (2026-10-23, user request) credits the platform operator's
+// company, layout.CreditURL — the same line the shared chrome's footer carries. It is
+// a plain followable link: no nofollow, sponsored or ugc, because it is the operator's
+// own company and an honest editorial link. It is the only absolute href this footer
+// has, and the public-surface scans admit it by that constant and nothing else.
 templ landingFooter() {
 	<footer>
 		<div class="wrap footIn">
@@ -448,6 +454,7 @@ templ landingFooter() {
 			}
 			<a href={ templ.URL(APIGuidePath) }>API docs</a>
 		</nav>
+		<p class="wrap footLegal"><span>Built by <a href={ templ.URL(layout.CreditURL) } rel="noopener">{ layout.CreditName }</a></span></p>
 	</footer>
 }
 
@@ -572,6 +579,9 @@ templ landingDemoDialog(v LandingView) {
 // this task's widening was given back. ADR 0012 records what remains and why.
 // KEEP THE DENIAL ON ONE LINE — the scanner is line-local.
 //
+// THE "Built by" LINE credits the platform operator's company (layout.CreditURL,
+// user request 2026-10-23) — see landingFooter for why it is followable.
+//
 // THE WIDTH IS NOT A FREE PARAMETER. It was one only so the landing page could ask
 // for a wider column; the landing page no longer renders this shell. What remains is
 // one bool (marketingChromeOpts.Wide) with two literal answers in marketingChromeBar
@@ -673,6 +683,9 @@ templ marketingChromeWith(c marketingChromeOpts) {
 					API docs
 				</a>
 			</nav>
+			<p class="mt-2 font-mono text-xs uppercase tracking-widest text-ink/70">
+				Built by <a href={ templ.URL(layout.CreditURL) } rel="noopener" class="inline-flex min-h-11 items-center underline underline-offset-4 motion-safe:transition-colors hover:text-ink">{ layout.CreditName }</a>
+			</p>
 		</div>
 	</footer>
 }

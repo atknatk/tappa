@@ -67,7 +67,11 @@ templ legalEditor(d LegalDoc) {
 			<input type="hidden" name="slug" value={ d.Slug }/>
 			<label for={ "legal-body-" + d.Slug } class="docket-label">Text</label>
 			<textarea id={ "legal-body-" + d.Slug } name="body" rows="12" required class="op-input">{ d.Body }</textarea>
-			<p class="text-xs text-ink/70">A blank line starts a new paragraph. At most 256 KiB.</p>
+			<p class="text-xs text-ink/70">
+				A blank line starts a new paragraph. Addresses starting with http:// or https://, e-mail addresses and
+				phone numbers starting with + become links; <span class="font-mono">[text](https://…)</span>
+				links your own text. At most 256 KiB.
+			</p>
 			<button type="submit" class="btn btn--primary">Publish a new version</button>
 		</form>
 	</section>

@@ -21,10 +21,12 @@ import (
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/apiguide"
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/store"
 	"github.com/atknatk/tappa/web/templates/components"
+	"github.com/atknatk/tappa/web/templates/layout"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -565,7 +567,10 @@ func TestMarketing_AVisitorLeavingIsNotAnError(t *testing.T) {
 // externalReference matches a reference to somewhere that is not this origin: an
 // absolute URL in any attribute or stylesheet function, and a protocol-relative
 // one. mailto: and tel: are NOT matched -- they open a mail client rather than
-// making a request -- but the surface carries neither today.
+// making a request. Since ADR 0033 a PUBLISHED legal text can carry them, and http(s)
+// anchors too: those are links the operator typed and a reader follows, never a
+// resource the page loads, and the public suite's fake texts carry none, so this scan
+// still sees only what the product itself renders.
 var externalReference = regexp.MustCompile(
 	`(?i)(?:href|src|srcset|action|data|poster|content)\s*=\s*["']\s*(?:[a-z][a-z0-9+.-]*:)?//|` +
 		`url\(\s*["']?\s*(?:[a-z][a-z0-9+.-]*:)?//|` +
@@ -587,12 +592,25 @@ var externalReference = regexp.MustCompile(
 // loads. It is admitted only as the exact anchor href openAPIHrefFor(host) returns
 // (the adminLoginPath pattern below), and its count is pinned: it is drawn on the
 // guide's two pages, nowhere else.
+//
+// ⚠️ AND THE OPERATOR COMPANY'S CREDIT (2026-10-23, user request): layout.CreditURL,
+// once as the footer's "Built by" anchor and once as the head's <link rel="author">.
+// Neither is a request -- an anchor is followed by a reader and a browser fetches no
+// rel="author" link -- so the cookie notice's "no third party is contacted" holds. It is
+// admitted only as that constant's exact href and its count is pinned: exactly two on
+// every page of the public surface.
 func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 	t.Parallel()
 	for _, c := range structuralConfigs(t) {
 		exempted := 0
 		for _, url := range publicSurfaceURLs() {
 			body := mustFetchMarketing(t, c.r, url)
+			credit := `href="` + layout.CreditURL + `"`
+			if n := strings.Count(body, credit); n != 2 {
+				t.Errorf("%s: GET %s carries the credit href %d time(s), want 2 (the head's "+
+					"rel=\"author\" and the footer's \"Built by\")", c.name, url, n)
+			}
+			body = strings.ReplaceAll(body, credit, `href=""`)
 			if c.openAPI != "" {
 				exempt := `href="` + c.openAPI + `"`
 				exempted += strings.Count(body, exempt)
@@ -763,10 +781,16 @@ func TestMarketing_EveryInternalLinkResolves(t *testing.T) {
 		seen, openAPI := 0, 0
 		for _, url := range publicSurfaceURLs() {
 			body := mustFetchMarketing(t, c.r, url)
+			credits := 0
 			for _, m := range hrefRE.FindAllStringSubmatch(body, -1) {
 				href := m[1]
 				switch {
 				case href == "" || strings.HasPrefix(href, "#"):
+					continue
+				case href == layout.CreditURL:
+					// The operator company's credit in the footer (2026-10-23); an
+					// external site this router does not serve, admitted by constant.
+					credits++
 					continue
 				case c.openAPI != "" && href == c.openAPI && guidePages[url]:
 					// The API host's document; this router does not serve it.
@@ -786,6 +810,9 @@ func TestMarketing_EveryInternalLinkResolves(t *testing.T) {
 					t.Errorf("%s: %s links to %s, which answers %d. A dead link on the most public "+
 						"URL in the product is a promise the router does not keep.", c.name, url, href, code)
 				}
+			}
+			if credits != 1 {
+				t.Errorf("%s: %s links the operator's company %d time(s), want once (the footer)", c.name, url, credits)
 			}
 		}
 		// ANTI-VACUITY: a page whose links stopped rendering would pass everything above.
@@ -1584,7 +1611,7 @@ func TestLegalPages_SkeletonsAreNotIndexedAndSayWhatTheyAreWaitingFor(t *testing
 	// They now live in legal_documents, so publication is "a text was published" and
 	// the fact lives on the VIEW rather than on the route table.
 	waiting := pages.LegalPageView{Page: pages.LegalPage{Path: "/legal/x", Title: "X", Needs: []string{"a fact somebody has to supply"}}}
-	finished := pages.LegalPageView{Page: pages.LegalPage{Path: "/legal/x", Title: "X"}, Body: []string{"The finished text."}}
+	finished := pages.LegalPageView{Page: pages.LegalPage{Path: "/legal/x", Title: "X"}, Body: legal.Paragraphs("The finished text.")}
 	if waiting.Published() {
 		t.Error("a document with no published text reports itself as published. Publication " +
 			"is defined as \"somebody published a text\" precisely so that it cannot be " +
