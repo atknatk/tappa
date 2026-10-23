@@ -9,6 +9,9 @@
   [ADR 0005](0005-kabul-edilen-riskler.md)
 - **Durum notu:** 2026-10-03 — teslimat yükümlülüğünün normatif metni artık
   [ADR 0022](0022-islemsel-eposta.md); bu ADR'nin kararı değişmedi (sondaki *"Durum notu"*).
+- **M14 notu:** 2026-10-22 — M14-08'den itibaren yetkinin **nesnesi** kimliktir
+  ([ADR 0031](0031-tek-kimlik-cok-isletme.md) §5.9); token'ın tek geçişlik, oturum vermeyen yetki
+  oluşu değişmedi (sondaki *"M14 notu"*).
 
 ## Neden ayrı bir ADR
 
@@ -216,3 +219,16 @@ yükümlülüğünün **evi**dir.
   gün **canlanır** (bugün basılmayan link kimseyi emekliye ayırmıyor — M7-04 kart notu 6).
   Alıcı başına bir gönderim tavanı bu yüzden ADR 0022'de **karar verilmedi**: o sınırı
   yeniden üretir.
+
+## M14 notu — 2026-10-22 ([ADR 0031](0031-tek-kimlik-cok-isletme.md) §5.9)
+
+- **Yetkinin nesnesi M14-08'den itibaren kimliktir.** Bağlı bir satırın eski sıfırlama linki
+  (`identity_consume_row_reset`) yalnız kendi satırını değil **kimliği** ve bütün bağlı satırları
+  yazar, bütün oturumları iptal eder, `email_verified_at`'i doldurur ve `reset` kapsamlı onay penceresini açar
+  (ADR 0031 §5.2, §5.8). Bu değişiklik bayrağa değil **dual-write'a** bağlıdır; satır bağlı değilse
+  fonksiyon 0 satır döner ve eski yol aynen sürer.
+- **M14-14'ten itibaren** talep e-posta → kimlik → **tek** link; bağlanmamış satırlar contract'a dek
+  satır başı link alır (ADR 0031 §5.9).
+- **Karar 1 değişmez:** token tek bir durum geçişine izin verir ve **oturum vermez**; kimlik sıfırlama
+  linki de oturum vermez (`identity_consume_reset`, ADR 0031 §5.2). Linkler GET ile tüketilmez, tüketim
+  POST'tadır; bu desen doğrulama, davet ve kayıt linklerine de uygulanır (ADR 0031 §5.9).
