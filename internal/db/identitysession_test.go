@@ -214,6 +214,79 @@ func TestIdentityOpenSession_LandsRequestedThenLastUsedThenOldest(t *testing.T) 
 	}
 }
 
+// TestIdentityOpenSession_NeverLandsInAnotherPersonsMembership (third eye, round 5): in every landing
+// branch the membership is the PERSON'S -- in the business asked for, in the one used last and in
+// the oldest -- although each business also holds an active admin of ANOTHER identity that was
+// created EARLIER (first in the table's order, and older than any of the person's rows). A branch
+// that lost its `a.identity_id = p_identity_id` would sign the person in as that admin. And the
+// login and the switch write nothing of anybody else: the other identity's last_used_tenant and
+// last_login_at, the other admins' last_login_at and the unlinked admin's stay as they were.
+func TestIdentityOpenSession_NeverLandsInAnotherPersonsMembership(t *testing.T) {
+	ctx, tx := opTx(t)
+	a, b := idTenant(t, ctx, tx, "First"), idTenant(t, ctx, tx, "Second")
+	// The other person FIRST in every order a lost predicate could read the business in: its rows are
+	// inserted first (heap and tenant-index order) and its identity id sorts below the person's (the
+	// (tenant_id, identity_id) index's order) -- so no plan can pick the person's row by luck.
+	idWithPrefix := func(fill byte) uuid.UUID {
+		id := uuid.New()
+		for i := range 8 {
+			id[i] = fill
+		}
+		return id
+	}
+	identityAt := func(id uuid.UUID, email string) uuid.UUID {
+		aiExec(t, ctx, tx, `INSERT INTO admin_identities (id, email, password_hash) VALUES ($1, $2, $3)`, id, email, opFakeDigest("a"))
+		return id
+	}
+	otherEmail := aiEmail()
+	other := identityAt(idWithPrefix(0x00), otherEmail)
+	// ... and the oldest of all.
+	oa, ob := aiAdmin(t, ctx, tx, a, otherEmail), aiAdmin(t, ctx, tx, b, otherEmail)
+	aiLink(t, ctx, tx, oa, other)
+	aiLink(t, ctx, tx, ob, other)
+	plain := aiAdmin(t, ctx, tx, a, aiEmail())
+	aiExec(t, ctx, tx, `UPDATE admin_users SET created_at = '2000-01-01' WHERE id IN ($1, $2, $3)`, oa, ob, plain)
+	email := aiEmail()
+	ident := identityAt(idWithPrefix(0xff), email)
+	ma, mb := aiAdmin(t, ctx, tx, a, email), aiAdmin(t, ctx, tx, b, email)
+	aiLink(t, ctx, tx, ma, ident)
+	aiLink(t, ctx, tx, mb, ident)
+	aiExec(t, ctx, tx, `UPDATE admin_users SET created_at = created_at - interval '1 day' WHERE id = $1`, mb)
+
+	open := func(tenant any) (string, uuid.UUID, uuid.UUID) {
+		h := opRandHex(t)
+		rows, err := idAs(t, ctx, tx, openIdentitySessionSQL, ident, tenant, h, opFakeDigest("a"))
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("identity_open_session: %d rows, %v", len(rows), err)
+		}
+		return h, uuid.UUID(rows[0][1].([16]byte)), uuid.UUID(rows[0][2].([16]byte))
+	}
+	if _, tenant, admin := open(nil); tenant != b || admin != mb {
+		t.Fatalf("the oldest-membership branch landed in %v as %v, want the person's B row %v", tenant, admin, mb)
+	}
+	if _, tenant, admin := open(a); tenant != a || admin != ma {
+		t.Fatalf("the requested branch landed in %v as %v, want the person's A row %v", tenant, admin, ma)
+	}
+	h, tenant, admin := open(nil)
+	if tenant != a || admin != ma {
+		t.Fatalf("the last-used branch landed in %v as %v, want the person's A row %v", tenant, admin, ma)
+	}
+	if rows := idSwitch(t, ctx, tx, h, b, opRandHex(t)); len(rows) != 1 || uuid.UUID(rows[0][2].([16]byte)) != mb {
+		t.Fatalf("the switch to B: %v, want the person's B row", rows)
+	}
+
+	var untouched bool
+	if err := tx.QueryRow(ctx, `SELECT (SELECT last_used_tenant IS NULL AND last_login_at IS NULL FROM admin_identities WHERE id = $1)
+	                                   AND (SELECT bool_and(last_login_at IS NULL) FROM admin_users WHERE id IN ($2, $3, $4))
+	                                   AND NOT EXISTS (SELECT 1 FROM admin_sessions WHERE admin_user_id IN ($2, $3, $4))`,
+		other, oa, ob, plain).Scan(&untouched); err != nil {
+		t.Fatal(err)
+	}
+	if !untouched {
+		t.Fatal("the login or the switch wrote another person's identity, another admin's last_login_at or a session for them")
+	}
+}
+
 // ------------------------------------------------------------ memberships --
 
 // TestIdentityMemberships_TheSessionsPersonOnlyAndAtMostFifty: the list is the session's person's
@@ -935,6 +1008,15 @@ func TestIdentityRevokeSessions_ALateCallFromARevokedSessionRevokesNothing(t *te
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// Another LIVE session of the same membership in the same business: the re-read must be keyed by
+	// the caller's own session (`s.id = v_session`), not satisfied by any live one.
+	var sibling string
+	if err := pgx.BeginFunc(ctx, owner.pool, func(tx pgx.Tx) error {
+		sibling = idSession(t, ctx, tx, w.a, w.ma, nil)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	fresh := opRandHex(t)
 	held := idHoldThePerson(t, owner, w.ident,
 		[]any{`UPDATE admin_sessions SET revoked_at = now() WHERE token_hash = $1`, stale},
@@ -957,5 +1039,11 @@ func TestIdentityRevokeSessions_ALateCallFromARevokedSessionRevokesNothing(t *te
 	}
 	if !live {
 		t.Fatal("the fresh session was revoked by a call whose own session was already revoked")
+	}
+	if err := owner.pool.QueryRow(ctx, `SELECT revoked_at IS NULL FROM admin_sessions WHERE token_hash = $1`, sibling).Scan(&live); err != nil {
+		t.Fatal(err)
+	}
+	if !live {
+		t.Fatal("the sibling session was revoked by a call whose own session was already revoked")
 	}
 }
