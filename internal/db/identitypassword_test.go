@@ -844,6 +844,23 @@ func TestIdentityUnlink_TheWindowsScopeDecidesWhatIsListed(t *testing.T) {
 		})
 	}
 
+	// A membership with linked_via NULL (no CHECK forbids it) is on no first_verify list: the scope
+	// guard, moved from SQL into plpgsql, fails closed on NULL (M14-05 union audit, DÜŞÜK).
+	t.Run("first_verify/NULL linked_via", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			w := ipNewUnlinkWorld(t, ctx, sp)
+			x, row := w.member(t, ctx, sp, "backfill", "1 day")
+			aiExec(t, ctx, sp, `UPDATE admin_users SET linked_via = NULL WHERE id = $1`, row)
+			ipOpenWindow(t, ctx, sp, w.v.id, "first_verify")
+			if n := ipUnlink(t, ctx, sp, w.sH, x); n != 0 {
+				t.Errorf("unlink of a NULL-linked_via membership under first_verify = %d rows, want 0", n)
+			}
+			if opInt(t, ctx, sp, `SELECT count(*) FROM admin_users WHERE id = $1 AND identity_id = $2 AND unlinked_at IS NULL`, row, w.v.id) != 1 {
+				t.Error("the NULL-linked_via membership was unlinked")
+			}
+		})
+	})
+
 	for _, c := range []struct{ what, via string }{
 		{"S3: a pre-planted identity's password link", "password"},
 		{"T1: a claim made with a forwarded link", "claim"},

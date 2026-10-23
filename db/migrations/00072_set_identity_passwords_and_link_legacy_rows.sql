@@ -750,7 +750,7 @@ BEGIN
     IF NOT FOUND THEN
         RETURN;
     END IF;
-    IF v_legacy_found THEN
+    IF v_legacy_found IS TRUE THEN
         PERFORM 1 FROM public.admin_sessions AS s
          WHERE s.id = v_legacy_session
            AND s.tenant_id = v_legacy_tenant
@@ -762,10 +762,8 @@ BEGIN
         PERFORM 1 FROM public.admin_users AS o WHERE o.tenant_id = v_legacy_tenant AND o.identity_id = v_identity;
         v_member := FOUND;
     END IF;
-    IF NOT v_legacy_live
-       OR v_legacy_email IS NULL
-       OR NOT (v_legacy_email OPERATOR(public.=) v_identity_email)
-       OR v_member THEN
+    -- Every guard moved out of SQL fails closed on NULL: `(<allowed>) IS NOT TRUE` refuses a NULL.
+    IF (v_legacy_live AND v_legacy_email OPERATOR(public.=) v_identity_email AND NOT v_member) IS NOT TRUE THEN
         INSERT INTO public.admin_identity_events (identity_id, event) VALUES (v_identity, 'link_refused');
         RETURN;
     END IF;
@@ -874,9 +872,10 @@ BEGIN
        AND a.identity_id = v_identity
        AND a.unlinked_at IS NULL
        FOR UPDATE;
+    -- Fails closed on NULL (a NULL linked_via or linked_at is on no list): `IS NOT TRUE`, never `NOT`.
     IF NOT FOUND
-       OR NOT ((v_scope = 'first_verify' AND v_via IN ('backfill', 'reconcile', 'signup'))
-               OR (v_scope = 'reset' AND v_linked_at < v_opened)) THEN
+       OR ((v_scope = 'first_verify' AND v_via IN ('backfill', 'reconcile', 'signup'))
+           OR (v_scope = 'reset' AND v_linked_at < v_opened)) IS NOT TRUE THEN
         RETURN;
     END IF;
 
@@ -893,7 +892,9 @@ BEGIN
          WHERE a.id = v_target AND a.tenant_id = p_tenant AND a.identity_id = v_identity;
     EXCEPTION WHEN check_violation THEN
         GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-        IF v_constraint IN ('admin_users_link_has_a_time', 'admin_users_linked_via_known',
+        -- Only a CHECK this file does not know (contract B's) takes the disable branch; a NULL name
+        -- re-raises.
+        IF v_constraint IS NULL OR v_constraint IN ('admin_users_link_has_a_time', 'admin_users_linked_via_known',
                             'admin_users_password_hash_is_bcrypt', 'admin_users_role_check',
                             'admin_users_status_check') THEN
             RAISE;
@@ -998,12 +999,12 @@ BEGIN
        AND a.unlinked_at IS NULL
        AND a.identity_id = v_identity
        FOR UPDATE OF s;
-    IF NOT FOUND OR NOT v_found THEN
+    IF NOT FOUND OR v_found IS NOT TRUE THEN
         RETURN;
     END IF;
     PERFORM 1 FROM public.admin_users AS o WHERE o.tenant_id = p_tenant AND o.identity_id = v_identity;
     v_member := FOUND;
-    IF v_member THEN
+    IF v_member IS NOT FALSE THEN
         RETURN;
     END IF;
 
@@ -1136,7 +1137,7 @@ BEGIN
         RETURN;
     END IF;
     UPDATE public.admin_identity_verifications AS v SET used_at = now() WHERE v.id = v_verification AND v.used_at IS NULL;
-    IF v_first THEN
+    IF v_first IS TRUE THEN
         UPDATE public.admin_identities AS i
            SET email_verified_at  = now(),
                confirm_opened_at  = now(),
@@ -1166,7 +1167,7 @@ CREATE FUNCTION public.identity_record_failed_login(p_identity_id uuid, p_event 
 AS $$
 #variable_conflict use_column
 BEGIN
-    IF p_event IS NULL OR (p_event <> 'login_failed' AND p_event <> 'login_limited') THEN
+    IF (p_event = 'login_failed' OR p_event = 'login_limited') IS NOT TRUE THEN
         RETURN;
     END IF;
     INSERT INTO public.admin_identity_events (identity_id, event)
