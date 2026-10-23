@@ -1115,9 +1115,12 @@ components:
             recorded direction is not the one Taptime computed at the tap: most often the employee chose the
             other one on the tap page ("Not right?"); the page's main button can give it too when the page was
             opened before the employer's business day began and pressed after. Do not pair a punch with
-            `employee` with the punch before it: such an `out` closes no interval in Taptime (Taptime counts
-            no time for it and lists it as "Check-in missing"), and such an `in` leaves the previous clock-in
-            without a clock-out. For hours, Taptime's report is the record (the guide's section 6.3). null
+            `employee` with the punch before it: when such an `out` is recorded it has nothing to close (no
+            clock-in of that business day -- Taptime lists it as "Check-in missing" -- or a clock-in more than
+            18 hours old, which stays open) and Taptime counts no time for it; a manual clock-in a manager
+            enters later can change that, and a manual record is not in the feed. Such an `in` leaves the
+            previous clock-in without a clock-out. For hours, Taptime's report is the record (the guide's
+            section 6.3). null
             for a punch the feed recorded before it carried this field. Added to version 1 (the guide's
             edition 3) and not required: a client that does not read it reads every other field as before.
         employee:
@@ -1177,9 +1180,12 @@ components:
             recorded direction is not the one Taptime computed at the tap: most often the employee chose the
             other one on the tap page ("Not right?"); the page's main button can give it too when the page was
             opened before the employer's business day began and pressed after. Do not pair a punch with
-            `employee` with the punch before it: such an `out` closes no interval in Taptime (Taptime counts
-            no time for it and lists it as "Check-in missing"), and such an `in` leaves the previous clock-in
-            without a clock-out. For hours, Taptime's report is the record (the guide's section 6.3). null
+            `employee` with the punch before it: when such an `out` is recorded it has nothing to close (no
+            clock-in of that business day -- Taptime lists it as "Check-in missing" -- or a clock-in more than
+            18 hours old, which stays open) and Taptime counts no time for it; a manual clock-in a manager
+            enters later can change that, and a manual record is not in the feed. Such an `in` leaves the
+            previous clock-in without a clock-out. For hours, Taptime's report is the record (the guide's
+            section 6.3). null
             for a punch the feed recorded before it carried this field. Added to version 1 (the guide's
             edition 3) and not required: a client that does not read it reads every other field as before.
         employee:

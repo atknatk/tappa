@@ -284,22 +284,34 @@ ve `occurred_at ≥ S` olan bir `in` var mı; `W` = `P`, çıkıştan **sonra ya
     çıkışın `P`'si o kapanış çıkışıdır ve onu (e) yapmak için kapanış çıkışının **sonradan** yazılmış
     olması gerekir — yani çalışanın kendi geçmişini değiştirmesi değil, bir düzeltme. 120 sn'den uzun
     geriye beyan `flag` olur ve müdür görür; 72 sa üstü ya da gelecek reddedilir.
-  - *Düzeltme notu (2026-10-23, M15-14 güvenlik merceği, DÜŞÜK) — kararı değiştirmez, yukarıdaki
-    *"gizlenmez, yalnız yer değiştirir"* cümlesini daraltır.* Cümle yalnız (c)'yi **(e)'ye** çevirme
-    denemesi için doğrudur. Başka bir yol var: (c)'yi **kapatır**'a çevirmek. Mola vakasında 17:00'nin
-    (c) çıkışından **önceye** geriye tarihli bir `auto` `in` yazılırsa (ör. 16:59 beyanlı; o anda açık
-    giriş yok, motor `in` der) 17:00'nin `P`'si o `in` olur, iki koşul sağlanır, sınıf *kapatır*'dır ve
-    çıkış *"Check-in missing"*ten **düşer**. Varsayılanlarda bunun penceresi **sıfırdır** (yalnız
-    eşitlikteki tek bir an): `in`'in debounce'tan geçmesi için hem beyan farkı (17:00 − beyan) hem
-    sunucu yaşı (dokunuşun sunucu anı − 17:00 satırının `created_at`'i) ≥ 60 sn olmalı
-    (`sys:person-debounce` `gap < debounce`'u yok sayar), yani geriye tarihleme (sunucu anı − beyan) ≥
-    120 sn; `base:queued-window` 120 sn'yi **aşan** geriye beyanı `flag`'ler (müdür görür;
-    `BaselineQueuedSkewSeconds`). Pencere yalnız debounce 60 sn'nin altına çekilirse (guardrail'in
-    ayarlanabilir aralığı 30–300 sn, `DebounceMinSeconds`) ya da `base:queued-window` gevşetilirse
-    açılır. Açıldığında da: hiçbir kayıt silinmez (17:00 çıkışı ve geriye tarihli `in`
-    `transactions`'ta, CLAUDE.md §4.3), ve çalışanın kazancı kapanan aralıktır — `out.At − in.At` ≤
-    geriye tarihleme süresi; 13:00–16:59 boşluğu yine sayılmaz, yalnız listede görünmez. Kabul edilmiş
-    karar (`W` ve `I` ile (e)) değişmedi.
+  - *Düzeltme notu (2026-10-23, M15-14 güvenlik merceği DÜŞÜK + tek mercek ORTA-1, ölçüldü) — kararı
+    değiştirmez, yukarıdaki *"gizlenmez, yalnız yer değiştirir"* cümlesini daraltır.* Cümle yalnız
+    (c)'yi **(e)'ye** çevirme denemesi için doğrudur. Başka bir yol var: (c)'yi **kapatır**'a çevirmek.
+    Mola vakasında 17:00'nin (c) çıkışından (çalışanın seçtiği `out`) **önceye** geriye tarihli bir
+    `auto` `in` yazılırsa (o anda açık giriş yok, motor `in` der) 17:00'nin `P`'si o `in` olur, iki
+    koşul sağlanır, sınıf *kapatır*'dır ve çıkış *"Check-in missing"*ten **düşer**. Yukarıdaki kabul
+    edilmiş metnin kendi örneği (*"17:01'de `occurred_at = 16:59:59`"*, *"60 sn debounce sunucu saatinde
+    geçer"*) bu pencerenin içindedir; orada `out` beyan edildiği için (e) denemesi olarak okunmuştu.
+    **Debounce'un iki ayağı da sunucu anından ölçer:** beyan ayağı
+    `in.Now.Sub(in.LastForPerson.OccurredAt)`'tir (`internal/domain/tap/decide.go:959`) ve `Now` sunucu
+    anıdır (`internal/domain/checkin/checkin.go:755`, `Input.Now`); yeni dokunuşun **beyan ettiği an
+    debounce'a girmez**. Öbür ayak `SecondsSinceLastRecordedTap`'tir (veritabanı saati, `created_at`).
+    **Pencerenin koşulu:** sunucu anı çıkışın hem `occurred_at`'inden hem `created_at`'inden en az
+    debounce kadar sonradır; beyan çıkıştan önceki bir andır; geriye tarihleme (sunucu anı − beyan) en
+    çok `base:queued-window`'dur (`BaselineQueuedSkewSeconds`, aşan `flag`). **Varsayılanlarda ölçüm**
+    (mercek; varsayılan politikalarla `tap.Decide` + `ClassifyCheckout`, mola vakası, 17:00 seçilmiş
+    `out`): sunucu +59 sn / geriye tarihleme 60 sn → `ignored`; +60 sn / 61 sn → `ok`/`in`/`auto`, 17:00
+    *kapatır*; +119 sn / 120 sn → `ok`, *kapatır*; 121 sn → `flag` (queued-window). Yani pencere
+    **yaklaşık 60 sn**: geriye tarihleme 60 sn'den büyük ve en çok 120 sn. `POST /api/checkin`
+    `occurred_at` alanını kabul eder, yani yol tap yüzeyinden açıktır. Debounce 60 sn'nin altına
+    çekilirse (guardrail'in ayarlanabilir aralığı 30–300 sn, `DebounceMinSeconds`) ya da
+    `base:queued-window` gevşetilirse pencere genişler. **Bedeli sınırlı:** hiçbir kayıt silinmez (17:00
+    çıkışı ve geriye tarihli `in` `transactions`'ta, CLAUDE.md §4.3); kapanan aralık *geriye tarihleme −
+    (sunucu anı − 17:00)* ≤ geriye tarihleme − 60 sn, yani varsayılanlarda **en çok 60 sn**; 13:00–16:59
+    boşluğu yine sayılmaz, yalnız *"Check-in missing"*te görünmez. Kalan risk backlog **T159**'dadır
+    (olası çare yalnız öneri). Kabul edilmiş karar (`W` ve `I` ile (e)) değişmedi. *(Bu notun
+    2026-10-23'teki ilk hâli pencereyi "sıfır" sanıyordu — beyan ayağını yeni dokunuşun beyanından
+    ölçülür varsaymıştı; aynı gün düzeltildi.)*
   - **Eşzamanlı yazım:** `created_at` işlemin başlangıç anıdır; kişi başına advisory kilit beklerken iki
     dokunuşun yazım sırası ters dönebilir (ADR 0006 bunu ölçtü), ama aynı kişinin 60 sn içindeki ikinci
     yönlü dokunuşu `ignored`'dır — iki **yönlü** satır arasında ters dönme pratikte oluşmaz. Eşitlikte

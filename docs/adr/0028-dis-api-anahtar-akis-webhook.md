@@ -573,9 +573,17 @@ kural listesi testle değil **kayıttan** türetilir ve API-10'un ret listesi he
   Alan Q31'in (a)'sının cevabıdır: ADR 0032 §A.6'nın *"çıkış yalnız kendi iş gününün girişini kapatır"*
   koruması dış eşleyicide yoktur, alan ona bunu söyleyen tek işarettir. Rehberin 3. baskısı (§6.3, §11
   madde 30) ve OpenAPI'nin `directionSource` açıklaması bunu artık açıkça yazar: `employee` olan bir
-  `out` Taptime'da hiçbir aralığı kapatmaz (yazıldığında o iş gününde kapatacağı giriş yoktu — sınıf (b)
-  ya da (c), *"Check-in missing"*), `employee` olan bir `in` önceki girişi çıkışsız bırakır; saat için
-  Taptime'ın raporu esastır, çünkü müdürün düzeltmesi manuel kayıttır ve akışa girmez (K-6). Ölçülen
+  `out` **yazıldığında** kapatacağı bir giriş bulmaz ve Taptime ona süre saymaz — ya o iş gününde giriş
+  yoktur (sınıf (b) ya da (c); yalnız bunlar *"Check-in missing"*e düşer), ya da önceki giriş aynı iş
+  gününün 18 saatten eski girişidir (sınıf (a), `too_long`; giriş açık listede kalır, çıkış
+  *"Check-in missing"*e düşmez — `TestDecide_RequestedDirectionChosenOutAnchorsAMissingCheckIn`'in
+  `stale_same_day_is_too_long` vakası). Bu **mutlak değildir**: sonradan yazılan bir kayıt çıkışı
+  *kapatır*'a çevirebilir — müdürün çıkıştan önceye yazdığı manuel `in` (bugünkü manuel kayıt ya da Faz C
+  talep onayı; Taptime o zaman süre sayar, manuel kayıt akışta yoktur) ya da ADR 0032 §A.6'nın 2026-10-23
+  düzeltme notundaki geriye tarihli `auto` `in` (pencere ~60 sn, backlog T159). `employee` olan bir `in`
+  önceki girişi çıkışsız bırakır. Saat için Taptime'ın raporu esastır, çünkü müdürün düzeltmesi manuel
+  kayıttır ve akışa girmez (K-6). *(2. tur, aynı gün: ilk hâli *"hiçbir aralığı kapatmaz"* diye mutlak
+  yazıyordu; tek mercek DÜŞÜK-1.)* Ölçülen
   şekil (M15-14 güvenlik merceği): dün 15:00 `in`, bugün 07:00 *"Not right? Clock out"*, kesim 05:00 →
   Taptime 0 sa yazar ve çıkış *"Check-in missing"*e düşer; iki punch'ı saf eşleyen bir dış sistem 16 sa
   öder. `employee`'nin anlamı da daraltılmış hâlinden düzeltildi: *"kaydedilen yön ≠ Taptime'ın dokunuş

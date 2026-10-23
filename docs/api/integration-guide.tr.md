@@ -726,13 +726,15 @@ anından itibaren reddedilir.
   `directionSource: null`'dır. Alan sürüm 1'e eklendi: onu okumayan bir istemci öbür her alanı
   eskisi gibi okur ([3](#common)).
 - **`directionSource: employee` taşıyan bir punch'ı kendinden önceki punch'la eşlemeyin.** Böyle
-  bir `out` Taptime'da hiçbir aralığı kapatmaz: kaydedildiğinde çalışanın o iş gününde kapatacağı bir
-  girişi yoktu; bu yüzden Taptime ona süre saymaz ve onu müdüre "Check-in missing" (giriş eksik)
-  olarak listeler. Böyle bir `in` önceki girişi çıkışsız bırakır ve Taptime ona da süre saymaz. Saat
-  için Taptime'ın raporu esastır: bir müdürün düzeltmesi manuel bir kayıttır ve manuel bir kayıt
-  akışta yoktur ([6.1](#feed-what)). Örnek, işverenin iş günü 05:00'te başlarken: dün 15:00'te bir
-  `in`, sonra bugün 07:00'de "Not right? Clock out". Taptime 0 saat sayar ve 07:00 `out`'unu "Check-in
-  missing" olarak listeler; ikisini eşleyen bir sistem 16 saat öder.
+  bir `out` kaydedildiğinde kapatacağı bir şey yoktur: ya çalışanın o iş gününde bir girişi yoktur ve
+  Taptime `out`'u müdüre "Check-in missing" (giriş eksik) olarak listeler, ya da ondan önceki giriş
+  18 saatten eskidir ve açık kalır. İki durumda da Taptime ona süre saymaz. Sonradan yazılan bir kayıt
+  bunu değiştirebilir — çoğunlukla bir müdürün `out`'tan önceye girdiği manuel bir giriş; ondan sonra
+  Taptime süreyi sayar — ve manuel bir kayıt akışta yoktur ([6.1](#feed-what)). Böyle bir `in` önceki
+  girişi çıkışsız bırakır ve Taptime ona da süre saymaz. Saat için Taptime'ın raporu esastır. Örnek,
+  işverenin iş günü 05:00'te başlarken: dün 15:00'te bir `in`, sonra bugün 07:00'de "Not right? Clock
+  out". Taptime 0 saat sayar ve 07:00 `out`'unu "Check-in missing" olarak listeler; ikisini eşleyen
+  bir sistem 16 saat öder.
 - API ile oluşturulan bir çalışanın Taptime'da ev lokasyonu yoktur; bu yüzden Taptime'ın kendi
   raporları onun punch'larını "başka bir lokasyonda" diye işaretlemez.
 
@@ -1144,7 +1146,7 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 1. Aktivasyon dokunuşu **punch değildir**: ilk punch, çalışanın ikinci dokunuşudur. Aktivasyon yalnız çalışanın **kendi şirketinin** bir plaketinde tamamlanır. ([5.2](#employees-activation))
 2. `flag` olarak karara bağlanmış bir dokunuş akışa yalnız **işveren şirketin bir yöneticisi onaylarsa**, onay anında girer; reddedilen hiç gelmez. ([6.1](#feed-what))
 3. v1'de `version` her zaman `1`'dir ve `voided` hiç üretilmez. ([6.3](#feed-punch))
-4. Ek alanlar: `channel` (`nfc` | `qr`), `direction` (`in` | `out` — işverende kaydedilen yön) ve `directionSource` (`auto` | `employee` — onu kimin seçtiği); `tagId` her iki kanalda doludur. ([6.3](#feed-punch))
+4. Ek alanlar: `channel` (`nfc` | `qr`), `direction` (`in` | `out` — işverende kaydedilen yön) ve `directionSource` (`auto` | `employee` — onun Taptime'ın dokunuş anında hesapladığı yön olup olmadığı); `tagId` her iki kanalda doludur. ([6.3](#feed-punch))
 5. `punchTime` dokunuşun anıdır — telefonun beyan ettiği an, beyan etmediyse Taptime'ın kendi anı (Taptime'ın dokunuş sayfası bugün hiçbir an beyan etmez); beyan edilen bir an varsayılan olarak 120 saniyeye kadar gecikmeyle `ok`'tur (işletme bunu değiştirebilir), tavan 72 saattir; `recordedAt` sunucunun kaydettiği andır. ([6.1](#feed-what))
 6. 60 saniye içindeki tekrar dokunuş punch değildir — kişi bazlı, **iki şirketin plaketleri arasında da** — ve 60 saniye beyan edilen anlarda ya da Taptime'ın kendi saatinde, hangisi yakınsa, sayılır: bir istemci çevrimdışı bir kuyruktan iki dokunuşu arka arkaya gönderirse ikincisi, beyan edilen anları daha uzak olsa da, kaybolur. ([6.1](#feed-what))
 7. Lokasyonun `timezone`'u işletmeninkine eşit olmalıdır, değilse cevap 422'dir. ([4](#locations))
@@ -1180,4 +1182,4 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 |---|---|---|
 | 1 | 2026-10-16 | API sürüm 1 için ilk baskı. |
 | 2 | 2026-10-18 | §1.4 sandbox'ı anlatır: `tt_test_` anahtarlar, kendi operatörü, e-posta yok ve dokunuş simülasyonu (alan adı henüz seçilmedi). |
-| 3 | 2026-10-22 | §6.3: bir punch `directionSource`'u (`auto` \| `employee` \| `null`) taşır — `direction`'ını kimin seçtiği. Örnekler ve imzanın bilinen cevabı onu taşır. §3: sürüm 1 içinde yanıtlara ve webhook gövdelerine alan eklenebilir — tanımadığınızı yok sayın. 1. ve 2. baskının yanıt şemaları kapalıydı (`additionalProperties: false`); bu baskı bütün yanıt ve webhook şemalarını açar; istek gövdeleri kapalı kalır. |
+| 3 | 2026-10-22 | §6.3: bir punch `directionSource`'u (`auto` \| `employee` \| `null`) taşır — `direction`'ı kimin: Taptime'ın dokunuş anında hesapladığı yön mü, değil mi. Örnekler ve imzanın bilinen cevabı onu taşır. §3: sürüm 1 içinde yanıtlara ve webhook gövdelerine alan eklenebilir — tanımadığınızı yok sayın. 1. ve 2. baskının yanıt şemaları kapalıydı (`additionalProperties: false`); bu baskı bütün yanıt ve webhook şemalarını açar; istek gövdeleri kapalı kalır. |

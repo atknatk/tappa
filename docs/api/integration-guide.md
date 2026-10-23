@@ -714,15 +714,17 @@ across them are refused from the end on.
   recorded direction is the one Taptime computed. A punch recorded before the feed carried the
   field has `directionSource: null`. The field was added to version 1: a client that does not read
   it reads every other field as before ([3](#common)).
-- **Do not pair a punch with `directionSource: employee` with the punch before it.** Such an `out`
-  closes no interval in Taptime: when it was recorded, the employee had no clock-in of that business
-  day for it to close, so Taptime counts no time for it and lists it for the manager as "Check-in
-  missing". Such an `in` leaves the previous clock-in without a clock-out, and Taptime counts no
-  time for that one either. For hours, Taptime's report is the record: a manager's correction is a
-  manual record, and a manual record is not in the feed ([6.1](#feed-what)). For example, with the
-  employer's business day starting at 05:00: an `in` yesterday at 15:00, then today at 07:00 "Not
-  right? Clock out". Taptime counts 0 hours and lists the 07:00 `out` as "Check-in missing"; a
-  system that pairs the two pays 16 hours.
+- **Do not pair a punch with `directionSource: employee` with the punch before it.** When such an
+  `out` is recorded, it has nothing to close: either the employee has no clock-in of that business
+  day, and Taptime lists the `out` for the manager as "Check-in missing", or the clock-in before it
+  is more than 18 hours old and stays open. Either way Taptime counts no time for it. A record
+  written later can change that — most often a manual clock-in a manager enters before the `out`,
+  after which Taptime counts the time — and a manual record is not in the feed ([6.1](#feed-what)).
+  Such an `in` leaves the previous clock-in without a clock-out, and Taptime counts no time for that
+  one either. For hours, Taptime's report is the record. For example, with the employer's business
+  day starting at 05:00: an `in` yesterday at 15:00, then today at 07:00 "Not right? Clock out".
+  Taptime counts 0 hours and lists the 07:00 `out` as "Check-in missing"; a system that pairs the
+  two pays 16 hours.
 - An employee created through the API has no home location in Taptime, so Taptime's own reports do
   not mark their punches as "at another location".
 
@@ -1133,7 +1135,7 @@ explained.
 1. The activation touch is **not a punch**: the first punch is the employee's second touch. Activation completes only at a plaque of the employee's **own company**. ([5.2](#employees-activation))
 2. A tap judged `flag` enters the feed only **when a manager of the employer company approves it**, at the approval; a rejected one never comes. ([6.1](#feed-what))
 3. In v1 `version` is always `1`, and `voided` is never produced. ([6.3](#feed-punch))
-4. Extra fields: `channel` (`nfc` | `qr`), `direction` (`in` | `out` — the direction recorded at the employer) and `directionSource` (`auto` | `employee` — who chose it); `tagId` is filled in on both channels. ([6.3](#feed-punch))
+4. Extra fields: `channel` (`nfc` | `qr`), `direction` (`in` | `out` — the direction recorded at the employer) and `directionSource` (`auto` | `employee` — whether it is the direction Taptime computed at the tap); `tagId` is filled in on both channels. ([6.3](#feed-punch))
 5. `punchTime` is the instant of the tap — the one the phone declared, or Taptime's own when it declared none (Taptime's tap page declares none today); a declared instant is `ok` up to 120 seconds late by default (the business can change this), and the ceiling is 72 hours; `recordedAt` is the instant the server recorded it. ([6.1](#feed-what))
 6. A repeat touch within 60 seconds is not a punch — per person, **across the two companies' plaques too** — and the 60 seconds are counted in the declared instants or on Taptime's own clock, whichever is closer: should a client send two touches back to back from an offline queue, the second is lost, even when their declared instants are further apart. ([6.1](#feed-what))
 7. A location's `timezone` must be the business's, or the answer is 422. ([4](#locations))
@@ -1169,4 +1171,4 @@ explained.
 |---|---|---|
 | 1 | 2026-10-16 | The first edition, for API version 1. |
 | 2 | 2026-10-18 | §1.4 describes the sandbox: `tt_test_` keys, its own operator, no e-mail, and the tap simulation (its domain is not chosen yet). |
-| 3 | 2026-10-22 | §6.3: a punch carries `directionSource` (`auto` \| `employee` \| `null`) — who chose its `direction`. The examples and the signature's known answer carry it. §3: within version 1 answers and webhook bodies can gain fields — ignore one you do not know. The answer schemas of editions 1 and 2 were closed (`additionalProperties: false`); this edition opens every answer and webhook schema; request bodies stay closed. |
+| 3 | 2026-10-22 | §6.3: a punch carries `directionSource` (`auto` \| `employee` \| `null`) — whose `direction` it is: the one Taptime computed at the tap, or not. The examples and the signature's known answer carry it. §3: within version 1 answers and webhook bodies can gain fields — ignore one you do not know. The answer schemas of editions 1 and 2 were closed (`additionalProperties: false`); this edition opens every answer and webhook schema; request bodies stay closed. |
