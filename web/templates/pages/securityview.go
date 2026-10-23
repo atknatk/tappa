@@ -236,10 +236,12 @@ const (
 	// Taptime's staff sign in separately (internal/operatorauth's own cookie), a read
 	// into a business starts with a row in the append-only operator_audit_log, and every
 	// op_* function that writes outside the operator's own tables writes that log's row
-	// in its own body, so the change and its row commit or roll back together. (The
-	// change comes first inside the function: "first" is said of reads only.) Derived
-	// from the two cookie names, the latest op_begin_read and the latest definition of
-	// every op_* function.
+	// in its own body, so no change commits without its row. Only that direction holds:
+	// the functions change conditionally and write the row on every successful call, so
+	// a row may record a call that changed nothing (00034 says so; 00063's suspend of a
+	// tenant that does not exist). The change comes first inside the function: "first"
+	// is said of reads only. Derived from the two cookie names, the latest op_begin_read
+	// and the latest definition of every op_* function and of every function one calls.
 	FactOperatorReadsAreAudited Fact = "operatorauth+op_begin_read audit first+op_* writes audited"
 	// The one crossing between businesses is a holding Taptime sets up: outside one,
 	// a tap on another business's plaque redirects and writes nothing; inside one, it
@@ -743,7 +745,7 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 		IsolationOperator: Line{
 			Text: "Taptime's support console has its own sign-in, separate from yours. Every read it makes into " +
 				"an account is written to an operator audit log first, and every change it makes to an account is " +
-				"written there together with the change: neither is stored without the other.",
+				"written there in the same transaction as the change: no change is stored without its entry.",
 			Facts: []Fact{FactOperatorReadsAreAudited},
 		},
 		IsolationGroup: Line{

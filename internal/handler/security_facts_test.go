@@ -806,27 +806,40 @@ func operatorViolation(s securityFactSources) string {
 		return "operator_audit_log is no longer append-only and out of the application's reach"
 	}
 	// THE CHANGES (LP-15 security review): the page says every change the console makes
-	// to an account is written to the log together with the change. The operator's role
-	// can only EXECUTE op_* functions (ADR 0021), so it is each function's latest
+	// to an account is written to the log in the same transaction as the change. The
+	// operator's role can only EXECUTE op_* functions (ADR 0021; the catalog side is
+	// internal/db's TestOperator00026_PrivilegeMatrix), so it is each function's latest
 	// definition that has to write the row in its own body -- one function, one
-	// transaction, so the change and its row commit or roll back together. Writing only
-	// the operator's own tables (operator_*, platform_*) is the console's bookkeeping,
-	// not a change to an account.
-	defs := latestOpFunctions(s.Migs)
+	// transaction: no change commits without its row. (The converse is not claimed: a
+	// call that changes nothing still writes its row.) Writing only the operator's own
+	// tables (operator_*, platform_*) is the console's bookkeeping, not a change to an
+	// account.
+	//
+	// THE SCAN IS HARDENED AGAINST THE SHAPES THE REVIEW TRIED (M2-M7): comments are cut
+	// before anything is read, so a commented-out INSERT is no INSERT; a definition is
+	// found in any case and with or without its schema; a write delegated to another
+	// function of the migrations counts as the caller's write; and no op_* body may hold
+	// EXECUTE (dynamic SQL this scan cannot read, which could hide a write) or WHEN OTHERS
+	// (a handler that could swallow the audit row's failure and let the change commit).
+	defs := latestSQLFunctions(s.Migs)
+	writes := sqlFunctionWrites(defs)
 	writers := map[string]bool{}
 	for _, name := range slices.Sorted(maps.Keys(defs)) {
-		def := defs[name]
-		changes := false
-		for _, m := range opWriteTarget.FindAllStringSubmatch(def.body, -1) {
-			if !strings.HasPrefix(m[1], "operator_") && !strings.HasPrefix(m[1], "platform_") {
-				changes = true
-			}
+		if !strings.HasPrefix(name, "op_") {
+			continue
 		}
-		if !changes {
+		def := defs[name]
+		// Every op_* body, writing or not: dynamic SQL can hide a write from this scan, so
+		// "not writing" cannot be decided for a body that holds it.
+		if m := opOpaque.FindString(def.body); m != "" {
+			return def.mig + "'s " + name + " holds " + strings.ToUpper(m) +
+				", so the scan cannot hold its audit row to its change"
+		}
+		if !writes[name] {
 			continue
 		}
 		writers[name] = true
-		if !strings.Contains(def.body, "INSERT INTO public.operator_audit_log") {
+		if !opAuditInsert.MatchString(def.body) {
 			return def.mig + "'s " + name + " changes an account and writes no operator audit row"
 		}
 	}
@@ -842,24 +855,89 @@ func operatorViolation(s securityFactSources) string {
 }
 
 // opWriteTarget is a statement in a function body that writes a table, with the table.
-var opWriteTarget = regexp.MustCompile(`(?i)\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:ONLY\s+)?(?:public\.)?([a-z_]+)`)
+// The first group catches the two places UPDATE is not a statement (SELECT … FOR UPDATE,
+// ON CONFLICT … DO UPDATE), which are skipped.
+var opWriteTarget = regexp.MustCompile(`(?i)\b(FOR\s+|DO\s+)?(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:ONLY\s+)?(?:public\.)?([a-z_][a-z0-9_]*)`)
 
-// opFunction is the latest definition of one op_* function and the migration it is in.
+// opAuditInsert is the operator audit row's INSERT, in any case and with or without the
+// schema.
+var opAuditInsert = regexp.MustCompile(`(?i)\bINSERT\s+INTO\s+(?:public\.)?operator_audit_log\b`)
+
+// opOpaque is what a writing op_* body may not hold (see operatorViolation).
+var opOpaque = regexp.MustCompile(`(?i)\bWHEN\s+OTHERS\b|\bEXECUTE\b`)
+
+// sqlComment is an SQL comment: a line comment or a block comment.
+var sqlComment = regexp.MustCompile(`(?s)--[^\n]*|/\*.*?\*/`)
+
+// sqlFunctionDef is a function definition in any case, with or without the public schema.
+var sqlFunctionDef = regexp.MustCompile(`(?i)\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?([a-z_][a-z0-9_]*)\s*\(`)
+
+// sqlCall is a name followed by an opening parenthesis: a call, when the name is a
+// function the migrations define.
+var sqlCall = regexp.MustCompile(`(?i)\b(?:public\.)?([a-z_][a-z0-9_]*)\s*\(`)
+
+// sqlDollarTag is a dollar-quote tag ($$ or $name$).
+var sqlDollarTag = regexp.MustCompile(`\$[A-Za-z_]*\$`)
+
+// opFunction is the latest definition of one function and the migration it is in.
 type opFunction struct{ mig, body string }
 
-// latestOpFunctions is every op_* function's latest definition across migs (by file
-// name order), cut at the end of its body.
-func latestOpFunctions(migs map[string]string) map[string]opFunction {
-	re := regexp.MustCompile(`CREATE (?:OR REPLACE )?FUNCTION public\.(op_[a-z_]+)\(`)
+// latestSQLFunctions is every function's latest definition across migs' Up sections (by
+// file name order), with comments cut, from CREATE to the end of its dollar-quoted body.
+func latestSQLFunctions(migs map[string]string) map[string]opFunction {
 	out := map[string]opFunction{}
 	for _, name := range slices.Sorted(maps.Keys(migs)) {
-		up := gooseUp(migs[name])
-		for _, m := range re.FindAllStringSubmatchIndex(up, -1) {
+		up := sqlComment.ReplaceAllString(gooseUp(migs[name]), "")
+		for _, m := range sqlFunctionDef.FindAllStringSubmatchIndex(up, -1) {
 			body := up[m[0]:]
-			if end := strings.Index(body, "$$;"); end >= 0 {
-				body = body[:end]
+			if tag := sqlDollarTag.FindStringIndex(body); tag != nil {
+				open := body[tag[0]:tag[1]]
+				if end := strings.Index(body[tag[1]:], open); end >= 0 {
+					body = body[:tag[1]+end]
+				}
 			}
-			out[up[m[2]:m[3]]] = opFunction{mig: name, body: body}
+			out[strings.ToLower(up[m[2]:m[3]])] = opFunction{mig: name, body: body}
+		}
+	}
+	return out
+}
+
+// sqlFunctionWrites says, for every function in defs, whether it writes a table outside
+// the operator's own -- itself, or through any function of defs it calls, at any depth.
+func sqlFunctionWrites(defs map[string]opFunction) map[string]bool {
+	direct := map[string]bool{}
+	calls := map[string][]string{}
+	for name, def := range defs {
+		for _, m := range opWriteTarget.FindAllStringSubmatch(def.body, -1) {
+			table := strings.ToLower(m[2])
+			if m[1] == "" && !strings.HasPrefix(table, "operator_") && !strings.HasPrefix(table, "platform_") {
+				direct[name] = true
+			}
+		}
+		for _, m := range sqlCall.FindAllStringSubmatch(def.body, -1) {
+			if callee := strings.ToLower(m[1]); callee != name {
+				if _, ok := defs[callee]; ok {
+					calls[name] = append(calls[name], callee)
+				}
+			}
+		}
+	}
+	out := map[string]bool{}
+	for name := range defs {
+		seen := map[string]bool{name: true}
+		queue := []string{name}
+		for len(queue) > 0 && !out[name] {
+			f := queue[0]
+			queue = queue[1:]
+			if direct[f] {
+				out[name] = true
+			}
+			for _, c := range calls[f] {
+				if !seen[c] {
+					seen[c] = true
+					queue = append(queue, c)
+				}
+			}
 		}
 	}
 	return out
@@ -1231,6 +1309,31 @@ func TestSecurityFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{"a new console function changes an account unlogged", operatorViolation, later(
 			"CREATE FUNCTION public.op_rename_tenant(p_session text, p_name text) RETURNS void AS $$\nBEGIN\n" +
 				"UPDATE public.tenants SET name = p_name;\nEND\n$$;")},
+		// The security review's shapes (LP-15, M2-M7), each one the earlier scan passed.
+		{"M2: the audit row is commented out", operatorViolation, later(
+			"CREATE OR REPLACE FUNCTION public.op_suspend_tenant(p_session text, p_tenant uuid) RETURNS void AS $$\nBEGIN\n" +
+				"UPDATE public.tenants SET suspended_at = now() WHERE id = p_tenant;\n" +
+				"-- INSERT INTO public.operator_audit_log (kind) VALUES ('tenant_suspended');\nEND\n$$;")},
+		{"M3: a lower-case definition", operatorViolation, later(
+			"create or replace function public.op_suspend_tenant(p_session text, p_tenant uuid) returns void as $$\nbegin\n" +
+				"update public.tenants set suspended_at = now() where id = p_tenant;\nend\n$$;")},
+		{"M4: a handler swallows the audit row's failure", operatorViolation, later(
+			"CREATE OR REPLACE FUNCTION public.op_suspend_tenant(p_session text, p_tenant uuid) RETURNS void AS $$\nBEGIN\n" +
+				"UPDATE public.tenants SET suspended_at = now() WHERE id = p_tenant;\nBEGIN\n" +
+				"INSERT INTO public.operator_audit_log (kind) VALUES ('tenant_suspended');\n" +
+				"EXCEPTION WHEN OTHERS THEN NULL;\nEND;\nEND\n$$;")},
+		{"M5: the write is handed to a helper", operatorViolation, later(
+			"CREATE FUNCTION public.tappa_set_suspended(p uuid) RETURNS void AS $$\nBEGIN\n" +
+				"UPDATE public.tenants SET suspended_at = now() WHERE id = p;\nEND\n$$;\n" +
+				"CREATE OR REPLACE FUNCTION public.op_suspend_tenant(p_session text, p_tenant uuid) RETURNS void AS $$\nBEGIN\n" +
+				"PERFORM public.tappa_set_suspended(p_tenant);\nEND\n$$;")},
+		{"M6: a definition without its schema", operatorViolation, later(
+			"CREATE FUNCTION op_rename_tenant(p_session text, p_name text) RETURNS void AS $$\nBEGIN\n" +
+				"UPDATE public.tenants SET name = p_name;\nEND\n$$;")},
+		{"M7: the write is dynamic SQL", operatorViolation, later(
+			"CREATE OR REPLACE FUNCTION public.op_suspend_tenant(p_session text, p_tenant uuid) RETURNS void AS $$\nBEGIN\n" +
+				"EXECUTE format('UPD' || 'ATE %I SET suspended_at = now() WHERE id = $1', 'ten' || 'ants') USING p_tenant;\n" +
+				"END\n$$;")},
 		{"the scan stops seeing a known change", operatorViolation, func(s *securityFactSources) {
 			const m = "00039_open_the_api_from_the_operator.sql"
 			src := strings.ReplaceAll(s.Migs[m], "UPDATE public.tenants", "PERFORM 1 FROM public.tenants")
@@ -1811,8 +1914,9 @@ var securityRefusedPhrasings = map[string]string{
 	// LP-09 review: a phone is set up only by a real NFC tap (ADR 0026), so a phone with
 	// no NFC never reaches the QR fallback; the QR code is for a set-up phone whose NFC
 	// is off or fails.
-	"A phone without NFC": "a phone is set up only by a real NFC tap (ADR 0026)",
-	"no NFC":              "a phone is set up only by a real NFC tap (ADR 0026)",
+	"neither is stored without the other": "an op_* call that changes nothing still writes its audit row; only no change without its row holds",
+	"A phone without NFC":                 "a phone is set up only by a real NFC tap (ADR 0026)",
+	"no NFC":                              "a phone is set up only by a real NFC tap (ADR 0026)",
 }
 
 // TestSecurityPage_SaysNoneOfTheRefusedPhrasings: the review's refused sentences are on
