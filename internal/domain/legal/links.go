@@ -208,14 +208,15 @@ func resolve(text string, m linkMatch) (Span, int, bool) {
 // trimmed character was quadratic: "https://a.mt/" followed by 256 KiB of ")" cost
 // 1.4 s (fix round, 2026-10-23).
 func trimURLTail(u string) string {
-	open := map[byte]int{')': strings.Count(u, "("), ']': strings.Count(u, "[")}
-	closed := map[byte]int{')': strings.Count(u, ")"), ']': strings.Count(u, "]")}
+	openParen, closeParen := strings.Count(u, "("), strings.Count(u, ")")
+	openBracket, closeBracket := strings.Count(u, "["), strings.Count(u, "]")
 	for len(u) > 0 {
-		last := u[len(u)-1]
-		switch {
+		switch last := u[len(u)-1]; {
 		case strings.IndexByte(".,;:!?'", last) >= 0:
-		case (last == ')' || last == ']') && open[last] < closed[last]:
-			closed[last]--
+		case last == ')' && openParen < closeParen:
+			closeParen--
+		case last == ']' && openBracket < closeBracket:
+			closeBracket--
 		default:
 			return u
 		}

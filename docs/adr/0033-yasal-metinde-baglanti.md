@@ -18,10 +18,18 @@ düz metin kalıyordu.
 ## Karar
 
 1. **Kapalı bir bağlantı dilbilgisi**, Markdown değil. Paragraf metninde yalnız dört biçim tanınır:
-   `[etiket](hedef)`; çıplak `http://`/`https://` adresi (sondaki `.,;:!?'` ve eşi olmayan `)`
-   hariç); çıplak e-posta (`mailto:`); `+` ile başlayan, rakamları arasında tek boşluk/tire olan,
-   8–15 rakamlı telefon (`tel:+<rakamlar>`). `+`'sız rakam dizisi (tarih, tutar, sicil, KDV no)
-   bağlantı **olmaz**. İç içe yapı, vurgu, başlık, liste yok.
+   - `[etiket](hedef)` — etikette `[`/`]` yok; hedefte boşluk yok, en çok bir kat dengeli parantez.
+   - Çıplak `http://`/`https://` adresi: herhangi bir Unicode boşlukta (`\p{Z}`, ör. Word'den gelen
+     NBSP) ya da kontrol karakterinde (`\p{Cc}`) ve `<`, `>`, `"`'de **biter**; sondaki `.,;:!?'`
+     ile eşi olmayan `)` ve `]` adrese dahil değildir. Aynı boşluk kuralı `[…](hedef)`'in hedefinde
+     ve e-postanın sonunda da geçerlidir.
+   - Çıplak e-posta (`mailto:`).
+   - `+` ile başlayan telefon (`tel:+<rakamlar>`): rakam grupları arasında tek ayırıcı — herhangi bir
+     `\p{Zs}` boşluk (NBSP dahil) ya da `-`; **bir boşluk, numara 11 rakama ulaştıysa numarayı
+     bitirir** (`+356 9931 0184 2024` → yalnız `+356 9931 0184`), tire bitirmez; toplam 8–15 rakam.
+   `+`'sız rakam dizisi (tarih, tutar, sicil, KDV no) bağlantı **olmaz**. İç içe yapı, vurgu,
+   başlık, liste yok. Tanıma yayın başına bir kez koşar ve **doğrusaldır** (256 KiB'lık düşmanca
+   gövdeler için ölçülerek tutulur).
 2. **İzin listesi** (`legal.SafeHref`): yalnız `http`/`https` (host'lu), `mailto`, `tel`; şema
    büyük-küçük harf duyarsız, `net/url` ile ayrıştırılır; kontrol karakteri, boşluk veya ters bölü
    taşıyan hedef, `javascript:`, `data:`, `vbscript:`, göreli ve `//host` hedef reddedilir.
@@ -47,5 +55,6 @@ adresler) dört biçimle karşılanıyor; geri kalan HTML gücüne ihtiyaç yok.
   yüklemez), çerez metnindeki "üçüncü tarafa istek yok" cümlesi doğru kalır.
 - Dilbilgisini büyütmek (vurgu, liste, başka şema) bu ADR'nin değişikliğidir.
 - Testler: `TestParagraphs_LinksTheClosedGrammarAndNothingElse`, `TestSafeHref_AllowsOnlyTheFourSchemes`,
-  `TestParagraphs_EveryHrefPassesTheAllowList`, `TestParagraphs_LinkingNeverLosesACharacter`
+  `TestParagraphs_EveryHrefPassesTheAllowList`, `TestParagraphs_LinkingNeverLosesACharacter`,
+  `TestTrimURLTail_IsLinear`, `TestParagraphs_RefusedLinksAllocateLinearly`
   (`internal/domain/legal`), `TestLegalPublicPage_LinksAreEscapedAndAllowListed` (`internal/handler`).

@@ -4,7 +4,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/atknatk/tappa/internal/domain/legal"
 )
@@ -312,46 +311,5 @@ func TestParagraphs_EveryHrefPassesTheAllowList(t *testing.T) {
 	// ANTI-VACUITY: the input has links that must survive.
 	if links < 5 {
 		t.Errorf("found %d link(s); the input carries at least five allowed ones", links)
-	}
-}
-
-// TestParagraphs_AdversarialBodiesStayLinear: the link pass runs on a body of up to
-// 256 KiB (op_publish_legal's limit), and two of its first shapes were quadratic
-// (fix round, 2026-10-23, measured before the fix at 256 KiB: 1.50 s for a URL followed
-// by ")" repeated, 0.75 s for ")." repeated, 0.40 s for repeated `[a](javascript:x)`,
-// 0.62 s for repeated `[a](//x)`).
-//
-// WHY A SCALING RATIO AND AN ABSOLUTE FLOOR TOGETHER: an absolute bound alone is either
-// too tight for a loaded -race CI runner or too loose to catch 0.4 s. So each shape is
-// timed at 64 KiB and at 256 KiB (best of three, which strips GC and scheduler spikes),
-// and the test fails only when the large run is slow (over 250 ms) AND it grew more
-// than 10x for 4x the input. Linear code grows ~4x; quadratic grows ~16x. A slow machine
-// alone, or a noisy small run alone, cannot fail it.
-func TestParagraphs_AdversarialBodiesStayLinear(t *testing.T) {
-	shapes := map[string]func(n int) string{
-		"url then )":         func(n int) string { return "https://a.mt/" + strings.Repeat(")", n) },
-		"url then ].":        func(n int) string { return "https://a.mt/" + strings.Repeat("].", n/2) },
-		"url then ).":        func(n int) string { return "https://a.mt/" + strings.Repeat(").", n/2) },
-		"refused javascript": func(n int) string { return strings.Repeat("[a](javascript:x)", n/17) },
-		"refused //":         func(n int) string { return strings.Repeat("[a](//x)", n/8) },
-	}
-	best := func(in string) time.Duration {
-		var b time.Duration
-		for i := 0; i < 3; i++ {
-			start := time.Now()
-			legal.Paragraphs(in)
-			if d := time.Since(start); i == 0 || d < b {
-				b = d
-			}
-		}
-		return b
-	}
-	for name, mk := range shapes {
-		small, large := best(mk(64<<10)), best(mk(256<<10))
-		ratio := float64(large) / float64(max(small, time.Microsecond))
-		t.Logf("%s: 64 KiB %v, 256 KiB %v (x%.1f)", name, small, large, ratio)
-		if large > 250*time.Millisecond && ratio > 10 {
-			t.Errorf("%s: 256 KiB took %v, %.1fx the 64 KiB run; the link pass is not linear", name, large, ratio)
-		}
 	}
 }
