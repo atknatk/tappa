@@ -24,6 +24,15 @@ package db
 //     a comment, a CTE alias, a quoted name, a region cut by DISTINCT FROM or CASE, `= v IS NOT TRUE`,
 //     a variable of any source and a view each passed an earlier version that tried to recognise the
 //     bad shapes; this one recognises only the good ones.)
+//     THE IDENTITY KEY RULE (third eye, round 5): every statement that reads or writes one of the
+//     five identity tables (identityPersonTables) through `public.<table> AS <alias>` carries, as a
+//     top-level conjunct of its WHERE/ON, a KEY: `<alias>.id = X` (X a parameter, a proven variable or
+//     a proven FOR record's column), `<alias>.token_hash = p_*`, or -- on the four tables below
+//     admin_identities -- `<alias>.identity_id = X`. A statement without one is a finding (its
+//     construct name is identityUnkeyedIdentityStatement; a sweep or the e-mail resolver names it in
+//     identityBeltAllowedConstructs with its reason), and a variable it writes is never trusted --
+//     whitelisted or not (`SELECT i.last_used_tenant INTO v_last ... LIMIT 1` is no tenant). An
+//     INSERT INTO an identity table needs no key. M14-05's union runs this rule over 00072.
 //  2. DELETE ON THE PERSON TABLES. ADR 0031 §5.1: no deletion on the five identity tables but the two
 //     named sweeps (R17). Every function body in the database is read; a DELETE or TRUNCATE that
 //     reaches an identity table may appear only in the function identityPersonTableDeleters names
@@ -67,9 +76,17 @@ var identitySessionKeyLookups = map[string]int{
 	"identity_revoke_sessions": 1,
 }
 
+// identityUnkeyedIdentityStatement is the construct name of the identity key rule's finding.
+const identityUnkeyedIdentityStatement = "an identity-table statement keyed by no id, identity_id or token hash"
+
 // identityBeltAllowedConstructs: function -> the unmodelled constructs it may use, each with its
-// reason. Empty for M14-04: none of its bodies needs one.
-var identityBeltAllowedConstructs = map[string]map[string]string{}
+// reason.
+var identityBeltAllowedConstructs = map[string]map[string]string{
+	"resolve_identity_by_email": {
+		identityUnkeyedIdentityStatement: "ADR 0002 md.7 / ADR 0031 §5.2: the one e-mail -> identity path; the address is the key " +
+			"(admin_identities.email is globally UNIQUE, compared with OPERATOR(public.=)); STABLE sql, it writes nothing",
+	},
+}
 
 // identityPersonTables are ADR 0031 §5.1's five tenant-scope-less identity tables.
 var identityPersonTables = []string{
@@ -422,6 +439,36 @@ func identityStatement(fn, stmt string, tenantRel map[string]bool, sc identityBe
 		}
 		return false
 	}
+	// THE IDENTITY KEY RULE (the file header).
+	unkeyed := false
+	for _, m := range regexp.MustCompile(`(?i)(INSERT\s+INTO\s+)?\bpublic\.(`+strings.Join(identityPersonTables, "|")+`)\b(\s+AS\s+(\w+))?`).FindAllStringSubmatch(stmt, -1) {
+		table, alias := strings.ToLower(m[2]), m[4]
+		switch {
+		case m[1] != "":
+			continue
+		case alias == "":
+			bad("a reference to %s without `AS <alias>`", table)
+			unkeyed = true
+			continue
+		}
+		keyed := false
+		for _, p := range eqs {
+			for _, side := range [][2]string{{p[0], p[1]}, {p[1], p[0]}} {
+				switch side[0] {
+				case alias + ".id":
+					keyed = keyed || isAnchor(side[1])
+				case alias + ".token_hash":
+					keyed = keyed || sc.params[side[1]]
+				case alias + ".identity_id":
+					keyed = keyed || (table != "admin_identities" && isAnchor(side[1]))
+				}
+			}
+		}
+		if !keyed {
+			unkeyed = true
+			unmodelled(identityUnkeyedIdentityStatement)
+		}
+	}
 	key := func(alias string) string {
 		if tableOf[alias] == "tenants" {
 			return alias + ".id"
@@ -484,7 +531,7 @@ func identityStatement(fn, stmt string, tenantRel map[string]bool, sc identityBe
 			bad("%s AS %s is anchored by no tenant (parameter, trusted variable, trusted FOR record), no session key and no identity", table, alias)
 		}
 	}
-	v.passed = len(v.findings) == 0
+	v.passed = len(v.findings) == 0 && !unkeyed
 	return v
 }
 
@@ -663,6 +710,7 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 		revoke     = "public.identity_revoke_sessions(text, boolean)"
 		switchFn   = "public.identity_switch_session(text, uuid, text)"
 		membership = "public.identity_memberships(text)"
+		openFn     = "public.identity_open_session(uuid, uuid, text, text)"
 	)
 	switchRevoke := "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.tenant_id = v_tenant\n       AND o.revoked_at IS NULL;"
 	plainRevoke := "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE "
@@ -708,6 +756,13 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 			pre: []string{`CREATE VIEW public.zz_belt_sessions AS SELECT * FROM public.admin_sessions`}},
 		{name: "V5: a view without one", fn: switchFn, cut: switchRevoke, put: viewRevoke,
 			pre: []string{`CREATE VIEW public.zz_belt_sessions AS SELECT id, revoked_at FROM public.admin_sessions`}},
+		// The identity key rule (round 5): an identity-table UPDATE without its key, and P3 -- a tenant
+		// read off an unkeyed identity row and then used as the landing's anchor.
+		{name: "the login's identity stamp without its key", fn: openFn, cut: "WHERE i.id = p_identity_id;", put: "WHERE true;"},
+		{name: "the switch's last-used hint without its key", fn: switchFn, cut: "WHERE i.id = v_identity;", put: "WHERE true;"},
+		{name: "P3: a tenant read off an unkeyed identity row", fn: openFn,
+			cut: "WHERE i.id = p_identity_id\n       AND i.password_hash = p_verified_digest\n       FOR UPDATE;",
+			put: "WHERE i.password_hash = p_verified_digest\n     LIMIT 1;"},
 	} {
 		t.Run("control/"+c.name, func(t *testing.T) {
 			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
