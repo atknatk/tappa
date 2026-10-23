@@ -89,9 +89,15 @@ var identitySignaturesM1405 = []identitySignature{
 	{"identity_withdraw_reset", "p_token_hash text", "boolean", "tappa_identitydefiner"},
 }
 
+// identitySignaturesM1408 is M14-08's part (migration 00074): named exception 2, the registration's
+// dual-write. Its answer -- did it link -- is a boolean the caller keeps to itself.
+var identitySignaturesM1408 = []identitySignature{
+	{"identity_create_for_signup", "p_tenant_id uuid, p_admin_user_id uuid", "boolean", "tappa_identitydefiner"},
+}
+
 // identitySignatures is the union of every card's part: the whole closed list as far as it is built.
 // The functions tappa_identitydefiner owns are EXACTLY its tappa_identitydefiner rows.
-var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405)
+var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405, identitySignaturesM1408)
 
 // identitySignatureNames lists the table's names (resolve_admin_by_email is a row though neither
 // identity_* nor the definer's -- M14-05's redefinition).
@@ -424,6 +430,21 @@ var identityDefinerMatrixM1405 = map[string]string{
 	"audit_log:INSERT":                    "tenant_id,actor_id,action,target,detail",
 }
 
+// identityDefinerMatrixM1408 is what 00074 grants tappa_identitydefiner for identity_create_for_signup:
+// the identity's birth, the digest it is born with, and the business's birth instant (predicate 4).
+// The row's xmin (predicate 3) is a SYSTEM column, outside opColumns' attnum > 0 -- identitySystemColumns
+// pins it.
+var identityDefinerMatrixM1408 = map[string]string{
+	"admin_identities:INSERT": "email,password_hash",
+	"admin_users:SELECT":      "password_hash",
+	"tenants:SELECT":          "created_at",
+}
+
+// identitySystemColumns are the system columns tappa_identitydefiner may SELECT, "table.column": the
+// whole list (ADR 0031 §5.2: admin_users' xmin for identity_create_for_signup -- M14-08; tenants' xmin
+// for identity_claim_signup arrives with M14-17).
+var identitySystemColumns = []string{"admin_users.xmin"}
+
 // identityDefinerTableVerbs are the table-level verbs the definer may hold, each with its one user:
 // ADR 0031 §5.1 / R17's sweep (identitybelt_test.go's identityPersonTableDeleters names the same).
 var identityDefinerTableVerbs = map[string]string{
@@ -431,7 +452,7 @@ var identityDefinerTableVerbs = map[string]string{
 }
 
 // identityDefinerMatrixParts are the cards' matrices; identityDefinerMatrix is their union.
-var identityDefinerMatrixParts = []map[string]string{identityDefinerMatrixM1404, identityDefinerMatrixM1405}
+var identityDefinerMatrixParts = []map[string]string{identityDefinerMatrixM1404, identityDefinerMatrixM1405, identityDefinerMatrixM1408}
 
 // identityDefinerMatrix unions the parts, cell by cell, as sorted column sets.
 func identityDefinerMatrix() map[string]string {
@@ -480,6 +501,23 @@ func identityDefinerReachFindings(t *testing.T, ctx context.Context, q opQuerier
 			if got, want := identitySortedCols(opColumns(t, ctx, q, "tappa_identitydefiner", table, priv)), matrix[table+":"+priv]; got != want {
 				out = append(out, fmt.Sprintf("%s on %s = (%s), want (%s)", priv, table, got, want))
 			}
+		}
+		// The system columns (M14-08): a grant on one is invisible to opColumns (attnum > 0).
+		var system string
+		if err := q.QueryRow(ctx, `SELECT coalesce(string_agg(a.attname, ',' ORDER BY a.attname), '') FROM pg_attribute a
+		                            WHERE a.attrelid = ('public.' || quote_ident($1))::regclass AND a.attnum < 0
+		                              AND has_column_privilege('tappa_identitydefiner', a.attrelid, a.attname, 'SELECT')`, table).Scan(&system); err != nil {
+			t.Fatal(err)
+		}
+		var want []string
+		for _, c := range identitySystemColumns {
+			if rel, col, _ := strings.Cut(c, "."); rel == table {
+				want = append(want, col)
+			}
+		}
+		slices.Sort(want)
+		if system != strings.Join(want, ",") {
+			out = append(out, fmt.Sprintf("SELECT on %s's system columns = (%s), identitySystemColumns names (%s)", table, system, strings.Join(want, ",")))
 		}
 		for _, priv := range []string{"DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"} {
 			var may bool
@@ -552,6 +590,8 @@ func TestIdentityDefiner_ColumnMatrix(t *testing.T) {
 		{"DELETE on the sessions", `GRANT DELETE ON admin_sessions TO tappa_identitydefiner`, "DELETE on admin_sessions"},
 		{"CREATE on public", `GRANT CREATE ON SCHEMA public TO tappa_identitydefiner`, "schema privilege"},
 		{"EXECUTE on a resolver", `GRANT EXECUTE ON FUNCTION public.resolve_admin_session_by_token_hash(text) TO tappa_identitydefiner`, "resolve_admin_session_by_token_hash"},
+		// M14-08: a system column outside identitySystemColumns (tenants' xmin is M14-17's, not yet granted).
+		{"tenants' xmin", `GRANT SELECT (xmin) ON tenants TO tappa_identitydefiner`, "tenants's system columns"},
 	} {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 			aiExec(t, ctx, sp, c.sql)
@@ -650,10 +690,23 @@ func identityExerciseM1405(t *testing.T, ctx context.Context, sp pgx.Tx) []ident
 	}
 }
 
+// identitySignupWorld is identity_create_for_signup's world (M14-08): a business and its one owner
+// row, written by the test's TOP-LEVEL transaction -- the function links only a row this transaction
+// wrote, and a row written inside a savepoint carries the subtransaction's xid (S13). Every exercise
+// runs in a savepoint over it, so the link it makes is rolled back with that savepoint.
+type identitySignupWorld struct{ tenant, admin uuid.UUID }
+
+func newIdentitySignupWorld(t *testing.T, ctx context.Context, tx pgx.Tx) identitySignupWorld {
+	t.Helper()
+	w := identitySignupWorld{tenant: idTenant(t, ctx, tx, "exercise signup")}
+	w.admin = aiAdmin(t, ctx, tx, w.tenant, aiEmail())
+	return w
+}
+
 // identityExercise runs every function of the list through every branch that reads a column, as
 // tappa_app, on a world it builds in sp (as the owner). It returns the first error. With the full
 // grants it succeeds; with any one column of the matrix revoked some call is refused (42501).
-func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx) error {
+func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx, signup identitySignupWorld) error {
 	t.Helper()
 	a, b := idTenant(t, ctx, sp, "exercise A"), idTenant(t, ctx, sp, "exercise B")
 	email := aiEmail()
@@ -666,6 +719,11 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx) error {
 	h1, h2, h3, h4 := opRandHex(t), opRandHex(t), opRandHex(t), opRandHex(t)
 
 	steps := []identityStep{
+		// M14-08 (00074) first: its row was written by the TOP-LEVEL transaction (identitySignupWorld) and
+		// must still be the business's only one. `WHERE` turns its false (a refusal) into 0 rows.
+		{name: "M14-08 create for signup",
+			owner: `SELECT set_config('app.tenant_id', '` + signup.tenant.String() + `', true)`,
+			sql:   `SELECT 1 WHERE ` + strings.TrimPrefix(createIdentityForSignupSQL, "SELECT "), args: []any{signup.tenant, signup.admin}},
 		{name: "resolve", sql: resolveIdentityByEmailSQL, args: []any{email}},
 		{name: "open, requested", sql: openIdentitySessionSQL, args: []any{ident, a, h1, opFakeDigest("a")}},
 		{name: "open, last used", sql: openIdentitySessionSQL, args: []any{ident, nil, h2, opFakeDigest("a")}},
@@ -712,8 +770,9 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx) error {
 // stay green and is flagged. ADR 0031 §5.2: the matrix grants "gerektiği kadar", no more.
 func TestIdentityDefiner_EveryGrantIsUsed(t *testing.T) {
 	ctx, tx := opTx(t)
+	signup := newIdentitySignupWorld(t, ctx, tx)
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
-		if err := identityExercise(t, ctx, sp); err != nil {
+		if err := identityExercise(t, ctx, sp, signup); err != nil {
 			t.Fatalf("positive control: the exercise failed on the full grants: %v", err)
 		}
 	})
@@ -724,6 +783,11 @@ func TestIdentityDefiner_EveryGrantIsUsed(t *testing.T) {
 		for _, c := range strings.Split(cols, ",") {
 			grants = append(grants, grant{"tappa_identitydefiner", table, verb, c})
 		}
+	}
+	// The system columns the definer reads (M14-08: admin_users' xmin).
+	for _, c := range identitySystemColumns {
+		table, col, _ := strings.Cut(c, ".")
+		grants = append(grants, grant{"tappa_identitydefiner", table, "SELECT", col})
 	}
 	// The resolver's two NEW admin_users columns and its four admin_identities columns (00071).
 	for _, c := range []string{"identity_id", "unlinked_at"} {
@@ -744,7 +808,7 @@ func TestIdentityDefiner_EveryGrantIsUsed(t *testing.T) {
 		t.Run(fmt.Sprintf("%s %s(%s) on %s", g.role, g.verb, g.col, g.table), func(t *testing.T) {
 			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 				aiExec(t, ctx, sp, fmt.Sprintf("REVOKE %s (%s) ON %s FROM %s", g.verb, g.col, g.table, g.role))
-				err := identityExercise(t, ctx, sp)
+				err := identityExercise(t, ctx, sp, signup)
 				if err == nil {
 					t.Fatalf("every call succeeded without it: the grant is not used (ADR 0031 §5.2: no more than needed)")
 				}
