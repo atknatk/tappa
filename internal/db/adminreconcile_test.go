@@ -393,93 +393,189 @@ func rcConn(t *testing.T, ctx context.Context) *pgx.Conn {
 	return conn
 }
 
-// rcCommittedRow commits one unlinked row of the address in a tenant of its own (other sessions must
-// see it) and, at the end, takes back the identities of the address, the links to them and the row
-// (00069's Down refuses while an identity exists). The tenant stays, as every package's committed
-// fixtures do (its feed counter keys it).
-func rcCommittedRow(t *testing.T, ctx context.Context, conn *pgx.Conn, email string) uuid.UUID {
+// rcTakeBack runs one owner transaction at cleanup time on a connection of its own.
+func rcTakeBack(t *testing.T, what string, fn func(ctx context.Context, tx pgx.Tx) error) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx := context.Background()
+		conn, err := pgx.Connect(ctx, opOwnerDSN(t))
+		if err != nil {
+			t.Errorf("take back %s: %v", what, err)
+			return
+		}
+		defer func() { _ = conn.Close(ctx) }()
+		if err := pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
+			// Bounded: a take-back must never wait forever behind a session a failed test left open.
+			if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '30s'`); err != nil {
+				return err
+			}
+			return fn(ctx, tx)
+		}); err != nil {
+			t.Errorf("take back %s: %v", what, err)
+		}
+	})
+}
+
+// rcInsertRow commits one unlinked active row of the address, born daysAgo, in a tenant of its own
+// (other sessions must see it). It registers no cleanup: rcCommittedRow's take-back of the address
+// takes it back too -- a row committed after rcStart must not register a cleanup that would run
+// before the call's own (LIFO) and wait on its locks.
+func rcInsertRow(t *testing.T, ctx context.Context, conn *pgx.Conn, email string, daysAgo int) uuid.UUID {
 	t.Helper()
 	var row uuid.UUID
 	if err := pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
-		row = bfAdmin(t, ctx, tx, aiTenant(t, ctx, tx), email, "active", 1, opFakeDigest("a"))
+		row = bfAdmin(t, ctx, tx, aiTenant(t, ctx, tx), email, "active", daysAgo, opFakeDigest("a"))
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		ctx := context.Background()
-		cleanup, err := pgx.Connect(ctx, opOwnerDSN(t))
-		if err != nil {
-			t.Errorf("take the committed fixture back: %v", err)
-			return
-		}
-		defer func() { _ = cleanup.Close(ctx) }()
-		err = pgx.BeginFunc(ctx, cleanup, func(tx pgx.Tx) error {
-			if _, err := tx.Exec(ctx, `UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL
-			                            WHERE identity_id IN (SELECT id FROM admin_identities WHERE email = $1)`, email); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `DELETE FROM admin_identities WHERE email = $1`, email); err != nil {
-				return err
-			}
-			_, err := tx.Exec(ctx, `DELETE FROM admin_users WHERE id = $1`, row)
+	return row
+}
+
+// rcCommittedRow is rcInsertRow plus, at the end, the take-back of the ADDRESS: its identities, the
+// links to them and every row of it (00069's Down refuses while an identity exists). The tenants stay,
+// as every package's committed fixtures do (their feed counters key them).
+func rcCommittedRow(t *testing.T, ctx context.Context, conn *pgx.Conn, email string, daysAgo int) uuid.UUID {
+	t.Helper()
+	row := rcInsertRow(t, ctx, conn, email, daysAgo)
+	rcTakeBack(t, "a committed address", func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL
+		                            WHERE identity_id IN (SELECT id FROM admin_identities WHERE email = $1)`, email); err != nil {
 			return err
-		})
-		if err != nil {
-			t.Errorf("take the committed fixture back: %v", err)
 		}
+		if _, err := tx.Exec(ctx, `DELETE FROM admin_identities WHERE email = $1`, email); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `DELETE FROM admin_users WHERE email = $1`, email)
+		return err
 	})
 	return row
 }
 
-// rcWaitFor waits until the backend pid waits on a lock and returns its wait_event ('advisory',
-// 'transactionid', 'tuple' ...). If done delivers first, the call did not wait at all: "".
-func rcWaitFor(t *testing.T, ctx context.Context, observer *pgx.Conn, pid uint32, done <-chan error) (string, error) {
+// rcCommittedIdentity commits an identity of another address and takes it back at the end, its links
+// first (whatever order the row cleanups run in).
+func rcCommittedIdentity(t *testing.T, ctx context.Context, conn *pgx.Conn) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	if err := conn.QueryRow(ctx, `INSERT INTO admin_identities (email, password_hash) VALUES ($1, $2) RETURNING id`,
+		bfEmail("rc-elsewhere"), opFakeDigest("e")).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	rcTakeBack(t, "a committed identity", func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL WHERE identity_id = $1`, id); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `DELETE FROM admin_identities WHERE id = $1`, id)
+		return err
+	})
+	return id
+}
+
+// rcCall is one identity_reconcile() running in a transaction of its own, in a goroutine.
+type rcCall struct {
+	tx   pgx.Tx
+	pid  uint32
+	done chan struct{}
+	err  error // written before done is closed
+}
+
+func (c *rcCall) finished() bool {
+	select {
+	case <-c.done:
+		return true
+	default:
+		return false
+	}
+}
+
+// result waits (bounded) for the call and returns its error.
+func (c *rcCall) result(t *testing.T) error {
+	t.Helper()
+	select {
+	case <-c.done:
+		return c.err
+	case <-time.After(20 * time.Second):
+		t.Fatal("the pass did not finish in 20 s")
+		return nil
+	}
+}
+
+// rcStart begins a transaction on conn and runs the pass in a goroutine; the transaction stays open.
+// ONE cleanup, in this order (the M14-06b audit: a failing test must not roll back a transaction a
+// goroutine is still using): roll back the holder the call may be waiting behind, wait for the call
+// to finish, then roll back the call's transaction.
+func rcStart(t *testing.T, ctx context.Context, conn *pgx.Conn, holder pgx.Tx) *rcCall {
+	t.Helper()
+	c := &rcCall{pid: conn.PgConn().PID(), done: make(chan struct{})}
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.tx = tx
+	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '20s'`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if holder != nil {
+			_ = holder.Rollback(context.Background())
+		}
+		select {
+		case <-c.done:
+		case <-time.After(25 * time.Second):
+			t.Errorf("the pass was still running at cleanup")
+			return
+		}
+		_ = tx.Rollback(context.Background())
+	})
+	go func() {
+		_, err := tx.Exec(ctx, `SELECT public.identity_reconcile()`)
+		c.err = err
+		close(c.done)
+	}()
+	return c
+}
+
+// rcWaitFor waits until the call waits on a lock and returns its wait_event ('advisory',
+// 'transactionid', 'tuple' ...); "" when it finished without waiting.
+func rcWaitFor(t *testing.T, ctx context.Context, observer *pgx.Conn, c *rcCall) string {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
 	for {
-		select {
-		case err := <-done:
-			return "", err
-		default:
+		if c.finished() {
+			return ""
 		}
 		var kind, event string
-		if err := observer.QueryRow(ctx, `SELECT coalesce(wait_event_type, ''), coalesce(wait_event, '') FROM pg_stat_activity WHERE pid = $1`, pid).Scan(&kind, &event); err != nil {
+		if err := observer.QueryRow(ctx, `SELECT coalesce(wait_event_type, ''), coalesce(wait_event, '') FROM pg_stat_activity WHERE pid = $1`, c.pid).Scan(&kind, &event); err != nil {
 			t.Fatal(err)
 		}
 		if kind == "Lock" {
-			return event, nil
+			return event
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("PREMISE: the second session neither waited on a lock nor finished in 15 s")
+			t.Fatalf("PREMISE: the pass neither waited on a lock nor finished in 15 s")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 }
 
-// rcStart begins a transaction on conn, runs the pass in a goroutine and reports its error on the
-// returned channel; the transaction stays open (the caller rolls it back).
-func rcStart(t *testing.T, ctx context.Context, conn *pgx.Conn) (pgx.Tx, uint32, <-chan error) {
+// rcHolder begins a transaction on a connection of its own and runs stmts in it, uncommitted.
+func rcHolder(t *testing.T, ctx context.Context, stmts ...[]any) pgx.Tx {
 	t.Helper()
-	pid := conn.PgConn().PID()
-	tx, err := conn.Begin(ctx)
+	tx, err := rcConn(t, ctx).Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
-	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '20s'`); err != nil {
-		t.Fatal(err)
+	for _, s := range stmts {
+		if _, err := tx.Exec(ctx, s[0].(string), s[1:]...); err != nil {
+			t.Fatalf("holder: %s: %v", s[0], err)
+		}
 	}
-	done := make(chan error, 1)
-	go func() {
-		_, err := tx.Exec(ctx, `SELECT public.identity_reconcile()`)
-		done <- err
-	}()
-	return tx, pid, done
+	return tx
 }
 
 // TestIdentityReconcile_ConcurrentWritersOfOneAddress (T8: the pass runs while the application is
-// live; the card: "uzlaştırma ile eşzamanlı bir kayıt -> 500 yok"). Two sessions, a committed row of
+// live; the card: "uzlaştırma ile eşzamanlı bir kayıt -> 500 yok"). Two sessions, committed rows of
 // one address; the pass under test (B) is rolled back at the end, so the shared database's other
 // candidates are never linked for real.
 //   - TWO PASSES: A runs the pass and holds its transaction; B's pass QUEUES ON THE ADDRESS'S ADVISORY
@@ -491,7 +587,16 @@ func rcStart(t *testing.T, ctx context.Context, conn *pgx.Conn) (pgx.Tx, uint32,
 //     ERROR and leaves the row unlinked -- the address has an identity now -- one identity.
 //   - A WRITER OUTSIDE THE LOCK (the second belt): A inserts the address's identity without the lock;
 //     B reaches its INSERT and waits on A's transaction; A commits; B's ON CONFLICT DO NOTHING inserts
-//     nothing -- no 23505, no 500 -- the row stays unlinked, one identity.
+//     nothing -- no 23505, no 500 -- the row stays unlinked, one identity; a group B linked earlier in
+//     the same call does not lend it its identity.
+//   - A LINK COMMITTED WHILE THE PASS WAITS ON THE GROUP'S ROWS (the M14-06b audit; a linker that takes
+//     no address lock -- identity_link_legacy's shape): A links the group's older row to an identity of
+//     ANOTHER address and holds; B waits on that row; A commits; B leaves the group alone -- its other
+//     row stays unlinked, no identity under the address (the linked-or-refused check reads after the
+//     row locks).
+//   - A ROW COMMITTED WHILE THE PASS WAITS (the M14-06b audit): A holds the group's only row (a login's
+//     last_login_at); B waits on it; an OLDER active row of the address is committed; A commits; B
+//     links the row it LOCKED, not the newcomer it never locked (the choice reads the locked ids only).
 //
 // Run with -race.
 func TestIdentityReconcile_ConcurrentWritersOfOneAddress(t *testing.T) {
@@ -500,106 +605,127 @@ func TestIdentityReconcile_ConcurrentWritersOfOneAddress(t *testing.T) {
 	lockKey := func(email string) string {
 		return `SELECT pg_advisory_xact_lock(hashtextextended('admin-identity-email:' || lower('` + email + `'), 0))`
 	}
+	linkedVia := func(q pgx.Tx, id uuid.UUID) string {
+		var via string
+		if err := q.QueryRow(ctx, `SELECT coalesce(linked_via, '-') FROM admin_users WHERE id = $1`, id).Scan(&via); err != nil {
+			t.Fatal(err)
+		}
+		return via
+	}
 
 	t.Run("two passes: the second queues on the address's lock", func(t *testing.T) {
 		email := bfEmail("rc-two-passes")
 		setup, observer := rcConn(t, ctx), rcConn(t, ctx)
-		row := rcCommittedRow(t, ctx, setup, email)
-		a, err := rcConn(t, ctx).Begin(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = a.Rollback(context.Background()) })
-		if _, err := a.Exec(ctx, `SELECT public.identity_reconcile()`); err != nil {
-			t.Fatalf("A's pass: %v", err)
-		}
-		bConn := rcConn(t, ctx)
-		b, pid, done := rcStart(t, ctx, bConn)
-		event, err := rcWaitFor(t, ctx, observer, pid, done)
-		if event != "advisory" {
-			t.Fatalf("B's pass did not queue on the address's advisory lock: wait event %q (finished: %v)", event, err)
+		row := rcCommittedRow(t, ctx, setup, email, 1)
+		a := rcHolder(t, ctx, []any{`SELECT public.identity_reconcile()`})
+		b := rcStart(t, ctx, rcConn(t, ctx), a)
+		if event := rcWaitFor(t, ctx, observer, b); event != "advisory" {
+			t.Fatalf("B's pass did not queue on the address's advisory lock: wait event %q", event)
 		}
 		if err := a.Rollback(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if err := <-done; err != nil {
+		if err := b.result(t); err != nil {
 			t.Fatalf("B's pass after A: %v", err)
 		}
-		var linked, identities int64
-		if err := b.QueryRow(ctx, `SELECT (SELECT count(*) FROM admin_users WHERE id = $1 AND linked_via = 'reconcile'),
-		                                  (SELECT count(*) FROM admin_identities WHERE email = $2)`, row, email).Scan(&linked, &identities); err != nil {
-			t.Fatal(err)
-		}
-		if linked != 1 || identities != 1 {
-			t.Errorf("after two passes: row linked %d, identities %d; want 1 and 1", linked, identities)
+		if via, n := linkedVia(b.tx, row), bfIdentities(t, ctx, b.tx, email); via != "reconcile" || n != 1 {
+			t.Errorf("after two passes: row linked via %q, identities %d; want reconcile and 1", via, n)
 		}
 	})
 
 	t.Run("a signup under the lock commits the identity first", func(t *testing.T) {
 		email := bfEmail("rc-signup-first")
 		setup, observer := rcConn(t, ctx), rcConn(t, ctx)
-		row := rcCommittedRow(t, ctx, setup, email)
-		a, err := rcConn(t, ctx).Begin(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = a.Rollback(context.Background()) })
-		for _, s := range []string{lockKey(email), `INSERT INTO admin_identities (email, password_hash) VALUES ('` + email + `', '` + opFakeDigest("s") + `')`} {
-			if _, err := a.Exec(ctx, s); err != nil {
-				t.Fatalf("A: %v", err)
-			}
-		}
-		b, pid, done := rcStart(t, ctx, rcConn(t, ctx))
-		event, err := rcWaitFor(t, ctx, observer, pid, done)
-		if event != "advisory" {
-			t.Fatalf("the pass did not queue on the address's advisory lock behind the signup: wait event %q (finished: %v)", event, err)
+		row := rcCommittedRow(t, ctx, setup, email, 1)
+		a := rcHolder(t, ctx, []any{lockKey(email)},
+			[]any{`INSERT INTO admin_identities (email, password_hash) VALUES ($1, $2)`, email, opFakeDigest("s")})
+		b := rcStart(t, ctx, rcConn(t, ctx), a)
+		if event := rcWaitFor(t, ctx, observer, b); event != "advisory" {
+			t.Fatalf("the pass did not queue on the address's advisory lock behind the signup: wait event %q", event)
 		}
 		if err := a.Commit(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if err := <-done; err != nil {
+		if err := b.result(t); err != nil {
 			t.Fatalf("the pass after a signup of the same address: %v (want no error)", err)
 		}
-		if !bfUnlinked(t, ctx, b, row) || bfIdentities(t, ctx, b, email) != 1 {
-			t.Errorf("want the row unlinked and one identity: %s, %d", bfRow(t, ctx, b, row), bfIdentities(t, ctx, b, email))
+		if !bfUnlinked(t, ctx, b.tx, row) || bfIdentities(t, ctx, b.tx, email) != 1 {
+			t.Errorf("want the row unlinked and one identity: %s, %d", bfRow(t, ctx, b.tx, row), bfIdentities(t, ctx, b.tx, email))
 		}
 	})
 
 	t.Run("a writer outside the lock: ON CONFLICT DO NOTHING", func(t *testing.T) {
 		email := bfEmail("rc-outside-lock")
 		setup, observer := rcConn(t, ctx), rcConn(t, ctx)
-		row := rcCommittedRow(t, ctx, setup, email)
+		row := rcCommittedRow(t, ctx, setup, email, 1)
 		// A group the same call links FIRST (its address sorts before): the conflicting group after it
 		// must not reuse that group's identity (RETURNING INTO of no row assigns NULL).
-		before := rcCommittedRow(t, ctx, setup, "m14-06-rc-0-before-"+uuid.NewString()+"@backfill.example")
-		a, err := rcConn(t, ctx).Begin(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = a.Rollback(context.Background()) })
-		if _, err := a.Exec(ctx, `INSERT INTO admin_identities (email, password_hash) VALUES ($1, $2)`, email, opFakeDigest("w")); err != nil {
-			t.Fatalf("A: %v", err)
-		}
-		b, pid, done := rcStart(t, ctx, rcConn(t, ctx))
-		event, err := rcWaitFor(t, ctx, observer, pid, done)
-		if event != "transactionid" {
-			t.Fatalf("the pass did not wait on the other writer's identity INSERT: wait event %q (finished: %v)", event, err)
+		before := rcCommittedRow(t, ctx, setup, "m14-06-rc-0-before-"+uuid.NewString()+"@backfill.example", 1)
+		a := rcHolder(t, ctx, []any{`INSERT INTO admin_identities (email, password_hash) VALUES ($1, $2)`, email, opFakeDigest("w")})
+		b := rcStart(t, ctx, rcConn(t, ctx), a)
+		if event := rcWaitFor(t, ctx, observer, b); event != "transactionid" {
+			t.Fatalf("the pass did not wait on the other writer's identity INSERT: wait event %q", event)
 		}
 		if err := a.Commit(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if err := <-done; err != nil {
+		if err := b.result(t); err != nil {
 			var pg *pgconn.PgError
 			if errors.As(err, &pg) && pg.Code == sqlstateUniqueViolation {
 				t.Fatalf("the pass answered 23505 (a 500 in a live request): ON CONFLICT DO NOTHING is missing: %v", err)
 			}
 			t.Fatalf("the pass after an identity committed outside the lock: %v", err)
 		}
-		if !bfUnlinked(t, ctx, b, row) || bfIdentities(t, ctx, b, email) != 1 {
-			t.Errorf("want the row unlinked and one identity: %s, %d", bfRow(t, ctx, b, row), bfIdentities(t, ctx, b, email))
+		if !bfUnlinked(t, ctx, b.tx, row) || bfIdentities(t, ctx, b.tx, email) != 1 {
+			t.Errorf("want the row unlinked and one identity: %s, %d", bfRow(t, ctx, b.tx, row), bfIdentities(t, ctx, b.tx, email))
 		}
-		if !rcLinked(t, ctx, b, before) {
-			t.Errorf("PREMISE: the group before it is not linked in the same call: %s", bfRow(t, ctx, b, before))
+		if !rcLinked(t, ctx, b.tx, before) {
+			t.Errorf("PREMISE: the group before it is not linked in the same call: %s", bfRow(t, ctx, b.tx, before))
+		}
+	})
+
+	t.Run("a link committed while the pass waits on the group's rows", func(t *testing.T) {
+		email := bfEmail("rc-linked-meanwhile")
+		setup, observer := rcConn(t, ctx), rcConn(t, ctx)
+		older := rcCommittedRow(t, ctx, setup, email, 2)
+		other := rcCommittedRow(t, ctx, setup, email, 1)
+		elsewhere := rcCommittedIdentity(t, ctx, setup)
+		a := rcHolder(t, ctx, []any{`UPDATE admin_users SET identity_id = $2, linked_via = 'account', linked_at = now(),
+		                                    password_hash = (SELECT password_hash FROM admin_identities WHERE id = $2)
+		                              WHERE id = $1`, older, elsewhere})
+		b := rcStart(t, ctx, rcConn(t, ctx), a)
+		if event := rcWaitFor(t, ctx, observer, b); event == "" {
+			t.Fatal("PREMISE: the pass did not wait on the row the linker holds")
+		}
+		if err := a.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := b.result(t); err != nil {
+			t.Fatalf("the pass after a link committed meanwhile: %v", err)
+		}
+		if !bfUnlinked(t, ctx, b.tx, other) || bfIdentities(t, ctx, b.tx, email) != 0 {
+			t.Errorf("the group holding a row linked meanwhile was taken: %s, %d identities", bfRow(t, ctx, b.tx, other), bfIdentities(t, ctx, b.tx, email))
+		}
+	})
+
+	t.Run("a row committed while the pass waits is not chosen unlocked", func(t *testing.T) {
+		email := bfEmail("rc-born-meanwhile")
+		setup, observer := rcConn(t, ctx), rcConn(t, ctx)
+		held := rcCommittedRow(t, ctx, setup, email, 1)
+		a := rcHolder(t, ctx, []any{`UPDATE admin_users SET last_login_at = now() WHERE id = $1`, held})
+		b := rcStart(t, ctx, rcConn(t, ctx), a)
+		if event := rcWaitFor(t, ctx, observer, b); event == "" {
+			t.Fatal("PREMISE: the pass did not wait on the row the login holds")
+		}
+		newcomer := rcInsertRow(t, ctx, setup, email, 30) // older, active: the rule would prefer it
+		if err := a.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := b.result(t); err != nil {
+			t.Fatalf("the pass: %v", err)
+		}
+		if !rcLinked(t, ctx, b.tx, held) || !bfUnlinked(t, ctx, b.tx, newcomer) {
+			t.Errorf("want the locked row linked and the unlocked newcomer not: %s / %s", bfRow(t, ctx, b.tx, held), bfRow(t, ctx, b.tx, newcomer))
 		}
 	})
 }

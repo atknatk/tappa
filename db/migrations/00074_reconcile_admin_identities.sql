@@ -13,7 +13,7 @@
 -- (Deploy 2; "Binary'yi expand'in altına geri almak yalnız uzlaştırmayla birlikte"), §4.5 (3) of
 -- CLAUDE.md (the three maintenance writers). The card is docs/plan/m14-tek-kimlik.md -> M14-06b.
 --
--- THE RULE IS 00073's, STATEMENT FOR STATEMENT, so the two never diverge (adminreconcile_test.go
+-- THE RULE IS 00073's, CASE FOR CASE, so the two never diverge (adminreconcile_test.go
 -- runs one fixture through both and compares):
 --   * a candidate is a row with a filled e-mail (NOT NULL, not blank), no identity and no refusal
 --     stamp (unlinked_at);
@@ -36,9 +36,13 @@
 --      'admin-identity-email:' || lower(email), 0)) -- the key every identity INSERT takes
 --      (identity_create_for_signup, identity_accept_invite_new, identity_claim_signup: ADR 0031
 --      §5.2, S13); a second reconcile, or a signup of the same address, queues here;
---   2. the group checks, read after the lock (a writer that held it has committed);
---   3. the group's candidate rows FOR UPDATE, in id order; then the choice READ AGAIN after the
---      lock wait (a status or a link that changed while it waited is seen);
+--   2. the address check (no identity under it), read after that lock (a writer that held it has
+--      committed);
+--   3. the group's candidate rows FOR UPDATE, in id order, their ids kept; THEN the linked-or-refused
+--      group check, read after the row locks (a link committed meanwhile by a writer that does not
+--      take the address's lock -- identity_link_legacy -- is seen); THEN the choice, among the
+--      LOCKED ids only (00073's way) and read after the wait -- a row committed while it waited is
+--      never chosen unlocked, so the digest the identity is born with cannot change before the link;
 --   4. the identity INSERT with ON CONFLICT (email) DO NOTHING -- an identity born by a writer that
 --      did not take the lock (none should; this is the second belt) makes the group skipped, never a
 --      23505 and never a 500;
@@ -56,7 +60,8 @@
 -- ADR 0021 §3.2: "bilerek bütün tenant'ları tarayan fonksiyonlar adıyla bellidir"), pinned by count
 -- and never a write; the one write (the link) is pinned to the chosen row's own tenant. Its address
 -- check of admin_identities is keyed by the address (the identity does not exist yet -- no secret
--- can name it) and its INSERT carries ON CONFLICT; both are named in identityBeltAllowedConstructs.
+-- can name it), its INSERT carries ON CONFLICT and its choice reads `a.id = ANY (v_locked)`; each is
+-- named in identityBeltAllowedConstructs and pinned by count (identityBeltAllowedCounts).
 --
 -- GRANTS. tappa_identitydefiner gains exactly what the body needs and 00071/00072 did not grant:
 -- SELECT (password_hash) on admin_users (the chosen row's digest) and INSERT (email, password_hash)
@@ -137,6 +142,8 @@ AS $$
 #variable_conflict use_column
 DECLARE
     c          record;
+    r          record;
+    v_locked   uuid[];
     v_row      uuid;
     v_tenant   uuid;
     v_email    public.citext;
@@ -168,7 +175,24 @@ BEGIN
                     WHERE i.email OPERATOR(public.=) c.email) THEN
             CONTINUE;
         END IF;
-        -- ... and so is a group holding a linked or a refused row (00073's rule, verbatim).
+        -- 3. The group's candidates, locked in id order; their ids are kept. A row committed while
+        -- this waited is not among them and is not chosen (it is the next call's).
+        v_locked := '{}';
+        FOR r IN
+            SELECT a.id
+              FROM public.admin_users AS a
+             WHERE a.email OPERATOR(public.=) c.email
+               AND a.identity_id IS NULL
+               AND a.unlinked_at IS NULL
+             ORDER BY a.id
+               FOR UPDATE
+        LOOP
+            v_locked := pg_catalog.array_append(v_locked, r.id);
+        END LOOP;
+
+        -- ... and, read AFTER those locks, a group holding a linked or a refused row is left alone
+        -- (00073's rule): a link committed by a writer that does not take the address's lock
+        -- (identity_link_legacy) while this waited is seen here.
         IF EXISTS (SELECT 1
                      FROM public.admin_users AS o
                     WHERE o.email OPERATOR(public.=) c.email
@@ -176,18 +200,12 @@ BEGIN
             CONTINUE;
         END IF;
 
-        -- 3. The group's candidates, locked in id order; then the choice, read again after the wait.
-        PERFORM 1
-           FROM public.admin_users AS a
-          WHERE a.email OPERATOR(public.=) c.email
-            AND a.identity_id IS NULL
-            AND a.unlinked_at IS NULL
-          ORDER BY a.id
-            FOR UPDATE;
+        -- 4. The choice, among the LOCKED rows only, read after the wait: no status or digest of a
+        -- row it may choose can change before the link.
         SELECT a.id, a.tenant_id, a.email, a.password_hash
           INTO v_row, v_tenant, v_email, v_digest
           FROM public.admin_users AS a
-         WHERE a.email OPERATOR(public.=) c.email
+         WHERE a.id = ANY (v_locked)
            AND a.identity_id IS NULL
            AND a.unlinked_at IS NULL
          ORDER BY (a.status = 'active') DESC, a.created_at, a.tenant_id, a.id
@@ -202,7 +220,7 @@ BEGIN
                 USING ERRCODE = 'object_not_in_prerequisite_state';
         END IF;
 
-        -- 4. The identity. An identity under the address committed meanwhile by a writer outside the
+        -- 5. The identity. An identity under the address committed meanwhile by a writer outside the
         -- lock: nothing is inserted, the group is left alone.
         INSERT INTO public.admin_identities (email, password_hash)
         VALUES (v_email, v_digest)
@@ -212,7 +230,7 @@ BEGIN
             CONTINUE;
         END IF;
 
-        -- 5. The link: the chosen row alone, by its own key and tenant (§4.5's belt).
+        -- 6. The link: the chosen row alone, by its own key and tenant (§4.5's belt).
         UPDATE public.admin_users AS a
            SET identity_id = v_identity,
                linked_via  = 'reconcile',

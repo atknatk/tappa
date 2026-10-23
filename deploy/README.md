@@ -2011,8 +2011,10 @@ notu); reddedilmiş satır hiçbir koşuda bağlanmaz. İdempotenttir: ikinci ko
   biçimi (definer, `search_path`, `EXECUTE` yalnız `tappa_owner`) doğru.
 - **Canlı uygulamayla eşzamanlılık (T8):** her grup için önce adresin ad alanlı danışma kilidi
   (`hashtextextended('admin-identity-email:' || lower(email), 0)` — her kimlik INSERT'inin aldığı anahtar),
-  sonra grubun aday satırları `id` sırasıyla `FOR UPDATE`, seçim kilitten **sonra** yeniden okunur; kimlik
-  INSERT'i `ON CONFLICT (email) DO NOTHING` — aynı adresin eşzamanlı bir kaydı ya da ikinci bir uzlaştırma
+  sonra grubun aday satırları `id` sırasıyla `FOR UPDATE` (kimlikleri tutulur); bağlı/reddedilmiş grup
+  kontrolü bu kilitlerden **sonra** okunur (danışma kilidini almayan bir bağlayıcının — `identity_link_legacy`
+  — arada commit ettiği bağ görülür); seçim **yalnız kilitlenen satırlar** arasından yapılır (bekleme
+  sırasında doğan satır kilitsiz seçilmez, kimlik bayat bir digest'le doğmaz); kimlik INSERT'i `ON CONFLICT (email) DO NOTHING` — aynı adresin eşzamanlı bir kaydı ya da ikinci bir uzlaştırma
   **500 vermez**, grup atlanır. Tablo kilidi yok; `SET LOCAL lock_timeout = '1s'` altında bir satırı tutan
   yazarın arkasında 55P03 ile düşer — hiçbir şey yazılmaz, Job `Failed`, sakin bir anda yeniden koşulur.
 - **Digest:** seçilen satırın digest'i bcrypt biçiminde değilse çağrı **hiçbir şey yazmadan** reddeder;
@@ -2030,12 +2032,22 @@ kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
 BEGIN;
 SET LOCAL lock_timeout = '1s';
 SELECT public.identity_reconcile();
+-- 00074'ün kapanış iddiası (b), COMMIT'ten ÖNCE: uyuşmazlık varsa hata -> ON_ERROR_STOP -> hiçbir şey commit edilmez.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM admin_users a JOIN admin_identities i ON i.id = a.identity_id
+                WHERE a.linked_via = 'reconcile' AND a.password_hash IS DISTINCT FROM i.password_hash) THEN
+        RAISE EXCEPTION 'reconcile re-call: a reconcile-linked row does not carry its identity''s digest; nothing was committed';
+    END IF;
+END
+$$;
 COMMIT;
 SQL
 ```
 
 beklenen: `BEGIN` · `SET` · bir sayı (bu çağrının bağladığı satır — Deploy 2'den beri doğmuş kimliksiz grup
-sayısı; sıfır da olabilir) · `COMMIT`. 55P03 → sakin bir anda yeniden. Başka bir hata → DUR, bayrak açılmaz.
+sayısı; sıfır da olabilir) · `DO` · `COMMIT`. `DO` hata verirse psql durur ve transaction commit edilmez —
+DUR, bayrak açılmaz. 55P03 → sakin bir anda yeniden. Başka bir hata → DUR, bayrak açılmaz.
 
 **M14-19'un iki ön-kontrol sayımı** (bu kartın runbook adımı; yeniden çağrıdan **sonra**; salt okuma, yalnız
 sayı, `READ ONLY` transaction ve `ROLLBACK`):
