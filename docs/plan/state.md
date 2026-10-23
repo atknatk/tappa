@@ -1705,7 +1705,8 @@ yazılır.
 | M14-06 | done | 00073, `1f3d439` … `c99b6a82`; üçüncü göz + güvenlik ONAY. Canlıda beklenen: 3 kimlik / 3 bağ, 1 aktif owner satırı bağlanmaz (05f = 1); süre ~8 ms. `internal/db` tam `-race` birleşik dalda 1381 PASS |
 | M14-07 | done | `b0f7771b` … `3ac635d5` (2 tur); üçüncü göz + güvenlik ONAY; dal CI yeşil (39946823502). Eski kol oturum yazımı doğrulanan digest + `FOR NO KEY UPDATE OF a` (`FOR SHARE` aynı txn'deki UPDATE ile deadlock veriyordu — ölçüldü, main'e girmeden yakalandı). Decoy = commit kaydı + gerçek açılışların medyanına bekleme (orkestratör kararı, ADR §5.6 notu). Proof (seçici çerezinde doğrulanan digest'in MAC'i), TryCharge bütçesi |
 | M14-06b | done (bekliyor) | 00074, `57f07658` + `ccf1b874` (dal `m14-reconcile`, `m14-identity`'ye **bilinçli olarak birleştirilmedi**: ADR 0031 §8 gereği Deploy 2 = expand'den sonraki ayrı deploy); üçüncü göz + güvenlik ONAY. Deploy 2 zamanı m14-identity'yi alıp yeniden doğrulanır |
-| M14-08 … M14-21 | todo | |
+| M14-08 | wip | dal `m14-session`; migration **00074** (`identity_create_for_signup` vb.). **Numara kararı:** M14-06b'nin migration'ı Deploy 2 zamanı expand'in son numarasından sonraya taşınır (goose allow-missing yok) |
+| M14-09 … M14-21 | todo | |
 
 ## Oturum günlüğü
 
