@@ -1496,9 +1496,10 @@ func TestBillingScreen_WearsTheDocketAnatomy(t *testing.T) {
 // TestBillingScreen_TheChipsAndTextClearAA recomputes, from tailwind.config.js's palette, the
 // contrast of the billing screen's text on its grounds (WCAG 2.1 relative luminance, sRGB; a
 // translucent token composited on paper, the docket's ground): ink on the four chip grounds
-// (green-lite for a frozen month, saffron-lite for one ended and not closed, line at 10% for a
-// running month and one before sign-up, ink at 10% for an unreadable one), ink and ink at 70%
-// on paper (the rows, the help line), tappa-green on paper (the two ways back, in the intro
+// (green-lite for a frozen month, saffron-lite for one ended and not closed, line at 10% for
+// one before sign-up, ink at 10% for an unreadable one), ink and ink at 70% on paper (the rows,
+// the help line, and -- M13-02 -- a running month's chip, whose ground is paper inside a dashed
+// saffron frame; the frame carries no text), tappa-green on paper (the two ways back, in the intro
 // card) and tappa-green on porcelain (the pager, which sits outside the docket on the page's
 // ground -- 2nd round: the first version said "on paper" of it, which it is not) -- each
 // against AA's 4.5:1 (the chips' words are 11px, the rest 14px and smaller). No ground is
@@ -1537,9 +1538,9 @@ func TestBillingScreen_TheChipsAndTextClearAA(t *testing.T) {
 	}{
 		{"ink on green-lite (frozen)", ink, hexOf("green-lite")},
 		{"ink on saffron-lite (ended, not closed)", ink, hexOf("saffron-lite")},
-		{"ink on line at 10% over paper (running, before sign-up)", ink, over(hexOf("line"), 0.1, paper)},
+		{"ink on line at 10% over paper (before sign-up)", ink, over(hexOf("line"), 0.1, paper)},
 		{"ink on ink at 10% over paper (unreadable)", ink, over(ink, 0.1, paper)},
-		{"ink on paper", ink, paper},
+		{"ink on paper (the rows; a running month's chip)", ink, paper},
 		{"ink at 70% on paper", over(ink, 0.7, paper), paper},
 		{"tappa-green on paper (the ways back, in the intro card)", hexOf("tappa-green"), paper},
 		{"tappa-green on porcelain (the pager, outside the docket)", hexOf("tappa-green"), hexOf("porcelain")},
@@ -1558,32 +1559,40 @@ func TestBillingScreen_TheChipsAndTextClearAA(t *testing.T) {
 // has exactly one rule whose selector list names its class, and that rule's @apply names the
 // ground and the frame of its tone and nothing else (2nd round: a third utility -- the third
 // eye's MZ8, text-saffron in the waiting tone, 2.27:1 -- passed the first version) -- the
-// brand's fixed mapping. It reads input.css, the committed source.
+// brand's fixed mapping. M13-02 re-toned the running month to the polished boards' live month,
+// a dashed saffron frame on paper: for that tone ONLY, exactly border-dashed is a third token,
+// and it is required (the dashed line is what tells a live month from an ended one at a glance).
+// It reads input.css, the committed source.
+//
+// CONTROLS, read by the same check: the running rule without border-dashed is a finding (the
+// dash is measured, not merely allowed); the running rule with a fourth token is a finding; the
+// waiting tone with border-dashed added is a finding (the allowance is that tone's alone).
 //
 // PART II -- red on: a tone class with no rule, with two rules, or with a rule of another
-// ground or frame or of a third utility; two tones drawing one class. PART III -- A rule written outside the
+// ground or frame or of a third utility (but the running tone's border-dashed); the running tone
+// without its dash; two tones drawing one class. PART III -- A rule written outside the
 // `selectors { @apply … }` shape this reads, or a later rule that overrides one, is code
 // review's -- no completeness claim.
 func TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes(t *testing.T) {
-	css, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	css := string(raw)
 	want := map[operatorpages.BillingTone][2]string{ // ground, frame
 		operatorpages.BillingToneFrozen:       {"bg-green-lite", "border-tappa-green"},
 		operatorpages.BillingToneUnclosed:     {"bg-saffron-lite", "border-saffron"},
-		operatorpages.BillingToneRunning:      {"bg-line/10", "border-line"},
+		operatorpages.BillingToneRunning:      {"bg-paper", "border-saffron"},
 		operatorpages.BillingToneBeforeSignup: {"bg-line/10", "border-line"},
 		operatorpages.BillingToneUnreadable:   {"bg-ink/10", "border-ink"},
 	}
+	// The one tone with a third token, and the token: the live month's dashed frame (M13-02).
+	third := map[operatorpages.BillingTone]string{operatorpages.BillingToneRunning: "border-dashed"}
 	chipRe := regexp.MustCompile(`<span class="tally (tally--[a-z-]+)">`)
 	ruleRe := regexp.MustCompile(`(?m)((?:^\s*\.[a-z-]+,\s*\n)*^\s*\.[a-z-]+\s*)\{\s*@apply ([^;]+);\s*\}`)
-	rules := ruleRe.FindAllStringSubmatch(string(css), -1)
-	if len(rules) < 10 {
-		t.Fatalf("PREMISE: %d one-line @apply rule(s) read from input.css", len(rules))
-	}
+	classOf := map[operatorpages.BillingTone]string{}
 	classes := map[string]bool{}
-	for tone, w := range want {
+	for tone := range want {
 		var b strings.Builder
 		if err := operatorpages.TenantBilling(operatorpages.TenantBillingView{Name: mustName(t, "FAKE Tone Ltd"), Tabs: fixtureTabs, Page: 1, LastPage: 5,
 			MonthsPerPage: 12, Rows: []operatorpages.BillingRow{{Month: "M", Label: "L", Sentence: "S", Tone: tone}}}).Render(t.Context(), &b); err != nil {
@@ -1598,21 +1607,61 @@ func TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes(t *testing.T) {
 			t.Errorf("two tones draw %s", class)
 		}
 		classes[class] = true
-		var found []string
-		for _, r := range rules {
-			for _, sel := range strings.Split(r[1], ",") {
-				if strings.TrimSpace(sel) == "."+class {
-					found = append(found, r[2])
+		classOf[tone] = class
+	}
+	check := func(css string) []string {
+		rules := ruleRe.FindAllStringSubmatch(css, -1)
+		if len(rules) < 10 {
+			return []string{fmt.Sprintf("PREMISE: %d one-line @apply rule(s) read from input.css", len(rules))}
+		}
+		var findings []string
+		for tone, w := range want {
+			class := classOf[tone]
+			var found []string
+			for _, r := range rules {
+				for _, sel := range strings.Split(r[1], ",") {
+					if strings.TrimSpace(sel) == "."+class {
+						found = append(found, r[2])
+					}
 				}
 			}
+			if len(found) != 1 {
+				findings = append(findings, fmt.Sprintf("%s: %d rule(s) in input.css, want one", class, len(found)))
+				continue
+			}
+			tokens := strings.Fields(found[0])
+			wantN := 2
+			if x, ok := third[tone]; ok {
+				wantN = 3
+				if !slices.Contains(tokens, x) {
+					findings = append(findings, fmt.Sprintf("%s's rule applies %q; want %s too", class, found[0], x))
+				}
+			}
+			if len(tokens) != wantN || !slices.Contains(tokens, w[0]) || !slices.Contains(tokens, w[1]) {
+				but := ""
+				if wantN == 3 {
+					but = " but " + third[tone]
+				}
+				findings = append(findings, fmt.Sprintf("%s's rule applies %q; want the ground %s and the frame %s and nothing else%s",
+					class, found[0], w[0], w[1], but))
+			}
 		}
-		if len(found) != 1 {
-			t.Errorf("%s: %d rule(s) in input.css, want one", class, len(found))
-			continue
+		return findings
+	}
+	for _, f := range check(css) {
+		t.Error(f)
+	}
+	for _, c := range []struct{ what, from, to string }{
+		{"the running month without its dash", "border-dashed border-saffron bg-paper; }", "border-saffron bg-paper; }"},
+		{"the running month with a fourth token", "border-dashed border-saffron bg-paper; }", "border-dashed border-saffron bg-paper rounded-full; }"},
+		{"the waiting tone dashed too", "border-saffron bg-saffron-lite; }", "border-dashed border-saffron bg-saffron-lite; }"},
+	} {
+		mutated := strings.Replace(css, c.from, c.to, 1)
+		if mutated == css {
+			t.Fatalf("CONTROL %s: %q is not in input.css", c.what, c.from)
 		}
-		tokens := strings.Fields(found[0])
-		if len(tokens) != 2 || !slices.Contains(tokens, w[0]) || !slices.Contains(tokens, w[1]) {
-			t.Errorf("%s's rule applies %q; want the ground %s and the frame %s and nothing else", class, found[0], w[0], w[1])
+		if len(check(mutated)) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the check is blind", c.what)
 		}
 	}
 }
@@ -1640,16 +1689,24 @@ func tallyWordUtility(u string) bool { return u == "text-ink" || strings.HasPref
 //
 // PART I -- comments stripped, every flat rule whose selector text names `.tally` is either the
 // base rule (its selector exactly `.tally`; exactly one; its @apply carries text-ink and no
-// other text- utility but an arbitrary size, and no opacity utility) or a tone rule (every
+// other text- utility but an arbitrary size, and no opacity utility), a tone rule (every
 // selector of its list exactly `.tally--<name>`; its body one @apply of border- and bg-
-// utilities only -- no text-, no opacity, no declaration of its own); and the tone rules name,
-// among others, the five billing tones and OP-13's five plaque ones. CONTROL: a tone rule with
-// a text-saffron utility added, read by the same function, is a finding.
+// utilities only -- no text-, no opacity, no declaration of its own), or -- M13-02, the one
+// shape added -- the operator's chip shape (its selector exactly `.op-main .tally`; at most one;
+// its body one @apply of shape and type utilities only: rounded-, px-, py-, min-h-, leading-,
+// tracking- and font-bold -- no colour, no opacity); the tone rules name, among others, the five
+// billing tones and OP-13's five plaque ones; and the operator's chip shape exists and rounds
+// the chip (rounded-full, user decision D2). CONTROLS, each read by the same function and each a
+// finding: a tone rule with text-saffron added; a tone rule with rounded-full added (M12-52's:
+// the scoped exception is no road for a shape into a tone rule); the operator's chip shape with
+// a text, ground, frame-colour or opacity utility added; the operator's chip shape under any
+// other selector (.op-col .tally).
 //
 // PART II -- red on: a tone rule with a text-, opacity- or other non-frame non-ground utility, or
 // a declaration of its own (color: …); a second base rule, or one without text-ink or with
-// another colour; a rule that names a chip in any other shape (a compound or descendant
-// selector); one of the ten tones missing. PART III -- the escapes in the threat model;
+// another colour; a second operator chip shape, or one applying anything but shape and type; a
+// rule that names a chip in any other shape (a compound or descendant selector but the one
+// above); one of the ten tones missing; the operator's chip shape missing or not round. PART III -- the escapes in the threat model;
 // TestCompiledCSS_TallyWordIsInkOnEveryChip reads the compiled half -- no completeness claim.
 func TestTallyRules_NoToneRuleColoursTheWord(t *testing.T) {
 	css, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
@@ -1666,17 +1723,46 @@ func TestTallyRules_NoToneRuleColoursTheWord(t *testing.T) {
 			t.Errorf("no tone rule names .tally--%s (read: %v)", want, slices.Sorted(maps.Keys(tones)))
 		}
 	}
-	mutated := strings.Replace(string(css), "bg-saffron-lite; }", "bg-saffron-lite text-saffron; }", 1)
-	if mutated == string(css) {
-		t.Fatal("CONTROL: the waiting tone's rule is not where this test looks for it")
+	scoped := regexp.MustCompile(`(?m)^\s*\.op-main \.tally \{ @apply ([^;]+); \}`).FindStringSubmatch(string(css))
+	if scoped == nil || !slices.Contains(strings.Fields(scoped[1]), "rounded-full") {
+		t.Error("input.css has no `.op-main .tally { @apply … rounded-full … }`: the operator's chips are not round")
 	}
-	if _, f := readTallyRules(mutated); len(f) == 0 {
-		t.Error("CONTROL: a tone rule with text-saffron added is not a finding; the reading is blind")
+	for _, c := range []struct{ what, from, to string }{
+		{"a tone rule with text-saffron added", "bg-saffron-lite; }", "bg-saffron-lite text-saffron; }"},
+		{"a tone rule with rounded-full added", "bg-saffron-lite; }", "bg-saffron-lite rounded-full; }"},
+		{"the operator's chip shape with text-saffron added", "tracking-[0.08em]; }", "tracking-[0.08em] text-saffron; }"},
+		{"the operator's chip shape with bg-saffron-lite added", "tracking-[0.08em]; }", "tracking-[0.08em] bg-saffron-lite; }"},
+		{"the operator's chip shape with border-saffron added", "tracking-[0.08em]; }", "tracking-[0.08em] border-saffron; }"},
+		{"the operator's chip shape with opacity-80 added", "tracking-[0.08em]; }", "tracking-[0.08em] opacity-80; }"},
+		{"the operator's chip shape under another selector", ".op-main .tally {", ".op-col .tally {"},
+	} {
+		mutated := strings.Replace(string(css), c.from, c.to, 1)
+		if mutated == string(css) {
+			t.Fatalf("CONTROL %s: %q is not in input.css", c.what, c.from)
+		}
+		if _, f := readTallyRules(mutated); len(f) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
+		}
 	}
 }
 
+// tallyShapeUtility is an @apply utility the operator's chip shape (`.op-main .tally`, M13-02)
+// may carry: the boards' pill -- its corners, its padding, its height, its line, its tracking,
+// its weight. Nothing that colours the word, the frame or the ground, and no opacity.
+func tallyShapeUtility(u string) bool {
+	if strings.Contains(u, "opacity") {
+		return false
+	}
+	for _, p := range []string{"rounded-", "px-", "py-", "min-h-", "leading-", "tracking-"} {
+		if strings.HasPrefix(u, p) {
+			return true
+		}
+	}
+	return u == "font-bold"
+}
+
 // readTallyRules is TestTallyRules_NoToneRuleColoursTheWord's reading of input.css: the tones
-// its rules name and every rule naming a chip that is not of the two allowed shapes.
+// its rules name and every rule naming a chip that is not of the three allowed shapes.
 func readTallyRules(css string) (map[string]bool, []string) {
 	src := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
 	rule := regexp.MustCompile(`([^{}]*)\{([^{}]*)\}`)
@@ -1685,7 +1771,7 @@ func readTallyRules(css string) (map[string]bool, []string) {
 	apply := regexp.MustCompile(`^@apply ([^;]+);$`)
 	tones := map[string]bool{}
 	var findings []string
-	base := 0
+	base, scoped := 0, 0
 	for _, m := range rule.FindAllStringSubmatch(src, -1) {
 		sel, body := strings.TrimSpace(m[1]), strings.TrimSpace(m[2])
 		if !names.MatchString(sel) {
@@ -1701,6 +1787,19 @@ func readTallyRules(css string) (map[string]bool, []string) {
 			for _, u := range strings.Fields(a[1]) {
 				if (strings.HasPrefix(u, "text-") && !tallyWordUtility(u)) || strings.Contains(u, "opacity") {
 					findings = append(findings, "the chip's base rule applies "+u)
+				}
+			}
+			continue
+		}
+		if sel == ".op-main .tally" {
+			scoped++
+			if a == nil {
+				findings = append(findings, "the operator's chip shape is not one @apply: "+sel+" { "+body+" }")
+				continue
+			}
+			for _, u := range strings.Fields(a[1]) {
+				if !tallyShapeUtility(u) {
+					findings = append(findings, "the operator's chip shape applies "+u+", which is neither shape nor type: "+sel)
 				}
 			}
 			continue
@@ -1737,6 +1836,9 @@ func readTallyRules(css string) (map[string]bool, []string) {
 	}
 	if base != 1 {
 		findings = append(findings, fmt.Sprintf("%d base rule(s) for the chip, want 1", base))
+	}
+	if scoped > 1 {
+		findings = append(findings, fmt.Sprintf("%d operator chip shape rule(s), want at most 1", scoped))
 	}
 	return tones, findings
 }

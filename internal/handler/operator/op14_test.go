@@ -750,8 +750,9 @@ func TestAuditScreen_WearsTheDocketAnatomy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The operator nav's and the tenant sub-nav's items (M13-01) are pressable op-* classes too.
-	for _, class := range []string{"op-input", "op-link", "op-nav-item", "op-subnav-item"} {
+	// The operator nav's and the tenant sub-nav's items (M13-01) are pressable op-* classes too,
+	// and so is the pager's outlined button (M13-02; the screens take it in M13-10, -12, -13).
+	for _, class := range []string{"op-input", "op-link", "op-nav-item", "op-subnav-item", "op-pager"} {
 		m := regexp.MustCompile(`(?m)^\s*\.` + class + `\s*\{\s*@apply ([^;]+);`).FindStringSubmatch(string(css))
 		if m == nil || !slices.Contains(strings.Fields(m[1]), "min-h-11") {
 			t.Errorf("input.css's .%s rule does not give the 44 px touch target (min-h-11)", class)

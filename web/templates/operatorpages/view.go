@@ -509,7 +509,8 @@ const (
 	// BillingToneFrozen: closed by the business, its figures read from the frozen record --
 	// the settled tone.
 	BillingToneFrozen
-	// BillingToneRunning: the month is still running, a live count -- the neutral tone.
+	// BillingToneRunning: the month is still running, a live count -- a dashed saffron frame on
+	// paper (M13-02: the polished boards' live month; not final yet, nobody needs to act).
 	BillingToneRunning
 	// BillingToneUnclosed: the month has ended and the business has not closed it -- the
 	// waiting tone (a fact for a person to look at, not a verdict).

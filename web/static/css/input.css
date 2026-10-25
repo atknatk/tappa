@@ -725,8 +725,9 @@
   /* M10 OP-12 adds a billing month's four states to the same groups: a month the business
      closed is settled (the active tone -- the tenant's own screen stamps it in the same
      green), one that ended and was not closed waits for a person to look (the waiting tone;
-     a fact, not a verdict), and a running month and one before sign-up are neutral. No
-     ground is new; TestBillingScreen_TheChipsAndTextClearAA computes each from the palette. */
+     a fact, not a verdict), and a running month and one before sign-up are neutral (M13-02
+     re-toned the running month, below). No ground is new; TestBillingScreen_TheChipsAndTextClearAA
+     computes each from the palette. */
   /* M10 OP-16 adds the four VAT verdicts of a tenant's VAT screen to the same groups, in the
      customer account screen's mapping: a number the register confirmed is the active tone, one
      it does not know the rejection tone (above), no answer the waiting tone, never asked the
@@ -745,9 +746,15 @@
   .tally--manual,
   .tally--deactivated,
   .tally--stock,
-  .tally--running,
   .tally--before-signup,
   .tally--vat-not-checked { @apply border-line bg-line/10; }
+  /* M13-02: a running billing month left the neutral group above for a tone of its own -- a
+     dashed saffron frame on paper, the polished billing boards' live month (their .t-saffron-o).
+     A month still counting is neither settled nor waiting for a person: the dashed frame says
+     "not final yet" in the warning hue without borrowing the ended-not-closed month's ground.
+     No new ground: the word is ink on paper, 16.17:1, which
+     TestBillingScreen_TheChipsAndTextClearAA computes; the frame carries no text. */
+  .tally--running { @apply border-dashed border-saffron bg-paper; }
   /* M6-09: the LOCK tone, and it is the one chip on the product that is not a
      status. A guardrail is not a state a rule is in — it is structure, part of the
      product rather than a setting — and the policies screen has to make that
@@ -1175,7 +1182,8 @@
            md:-mb-px md:flex-row md:border-b-[3px] md:border-transparent md:px-3 md:py-0 md:text-[15px] md:font-normal
            md:leading-normal md:text-ink md:aria-[current=true]:border-ink
            desk:mb-0 desk:justify-start desk:border-b-0 desk:border-l-[3px] desk:pl-[21px] desk:pr-4
-           desk:aria-[current=true]:bg-ink/5;
+           desk:aria-[current=true]:bg-ink/5
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink;
   }
   .op-nav-item[aria-current="true"]::before {
     content: '';
@@ -1190,14 +1198,67 @@
   .op-subnav-item {
     @apply -mb-px inline-flex min-h-11 items-center whitespace-nowrap border-b-[3px] border-transparent
            px-2.5 font-display text-sm text-ink no-underline hover:bg-saffron/10
-           aria-[current=page]:border-saffron aria-[current=page]:font-bold md:px-3 md:text-[15px];
+           aria-[current=page]:border-saffron aria-[current=page]:font-bold md:px-3 md:text-[15px]
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink;
   }
-  .op-card    { @apply border border-line bg-paper px-6 py-7 shadow-sm; }
+  /* --- THE OPERATOR'S COMPONENTS, ROUNDED AS DRAWN (M13-02, docs/design/operator-redesign
+     README §5-§6; user decision D2: a card, a field and a button may round, a docket and a stamp
+     stay sharp, a chip is a full pill) ---
+     One padding scale for every card and docket of the surface, no per-screen padding: 20 px
+     round a card on the phone, 22 px 24 px from the tablet, so a card's text and a docket's
+     start on one vertical line. No operator card casts a shadow (the boards removed it). */
+  .op-card    { @apply rounded-[14px] border border-line bg-paper p-5 md:px-6 md:py-[22px]; }
+  /* The docket keeps its own padding for the panel; on the operator's surface it takes the
+     card's scale, from the content column, so the docket's markup stays as pinned. Sharp. */
+  .op-main .docket { @apply px-5 py-4 md:px-6 md:py-[18px]; }
+  /* The operator's buttons round like its fields; the panel's keep their own corners. */
+  .op-main .btn { @apply rounded-[10px]; }
+  /* A chip on the operator's surface is the boards' pill: 24 px tall (18 px line, 2 px above
+     and below, the 1 px frame), 10 px sides, bold, tracking .08em. Scoped from the content
+     column, never a class on the span (its markup is regex-pinned). SHAPE AND TYPE ONLY: the
+     word's colour, the frame's and the ground stay the tone rules' -- this is the one shape
+     TestTallyRules_NoToneRuleColoursTheWord allows besides the base and the tone lists. */
+  .op-main .tally { @apply rounded-full px-2.5 py-0.5 font-bold leading-[18px] tracking-[0.08em]; }
+  /* A new in-card eyebrow: mono 11 px capitals, ink at 70 % on paper (6.05:1). */
+  .op-label   { @apply font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70; }
+  /* The two in-card headings the boards draw where the code writes a docket label today: an
+     enrollment step (16 px, 17 px from the tablet) and a card's own heading (19 px). */
+  .op-step    { @apply font-display text-base font-bold tracking-tight md:text-[17px]; }
+  .op-heading { @apply font-display text-[19px] font-bold tracking-tight; }
+  /* The pager (Billing, Audit, Holdings): an outlined button in the panel's manner. The frame,
+     ink at 30 %, is no text; the word is ink on paper, 16.17:1. */
+  .op-pager {
+    @apply inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-[10px] border
+           border-ink/30 bg-paper px-[22px] font-display text-[15px] font-bold text-ink no-underline
+           hover:border-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-ink;
+  }
+  /* A billing month's four figures as a receipt strip: two by two on the phone, four across
+     from the tablet with the amount's column a little wider and its figure larger, set at the
+     strip's end. The labels are the docket label; the words stay the code's. */
+  .op-receipt {
+    @apply grid grid-cols-2 gap-x-5 gap-y-3 border-y border-dashed border-line py-3
+           md:grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,1.2fr)];
+  }
+  .op-receipt dd { @apply text-base; }
+  .op-receipt > div:last-child { @apply text-right; }
+  .op-receipt > div:last-child dd { @apply text-xl font-bold; }
   .op-input {
-    @apply min-h-11 w-full rounded-sm border border-line bg-paper px-3 py-2 font-mono text-sm
+    @apply min-h-11 w-full rounded-[10px] border border-line bg-paper px-3 py-2 font-mono text-sm
            text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green;
   }
-  .op-link    { @apply inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline underline-offset-4 hover:text-ink; }
+  .op-link {
+    @apply inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline underline-offset-4
+           hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-ink;
+  }
+  /* The audit row's tenant link, inside a sentence: from the tablet it keeps the line's height
+     (inline, no 44 px box of its own) and takes a transparent 44 px overlay centred on it, so
+     the target stays 44 px without opening the row up. On the phone the link's own 44 px box
+     stands. Scoped from the list; the link's markup is pinned. */
+  [aria-labelledby="audit-list"] .op-row > span > .op-link { @apply md:relative md:inline md:min-h-0; }
+  [aria-labelledby="audit-list"] .op-row > span > .op-link::before {
+    content: '';
+    @apply md:absolute md:inset-x-0 md:top-1/2 md:h-11 md:-translate-y-1/2;
+  }
   /* The enrollment key: grouped base32, read aloud and typed by a person -- mono, wide
      tracking, wrapped anywhere rather than overflowing a phone. */
   .op-key     { @apply break-all font-mono text-lg font-bold tracking-widest text-ink; }
@@ -1230,7 +1291,7 @@
      in TestTenantScreens_TheTextClearsAA. */
   .op-version,
   .op-row {
-    @apply flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-line py-2 text-ink last:border-b-0;
+    @apply flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-dashed border-line py-2.5 text-ink last:border-b-0;
   }
 
   /* THE INTEGRATION GUIDE'S BODY (M11 DOCS-1, /docs/api). internal/apiguide converts the
