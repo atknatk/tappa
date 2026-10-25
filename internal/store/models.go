@@ -281,6 +281,29 @@ type PolicyVersion struct {
 	CreatedBy *uuid.UUID
 }
 
+type PunchClaim struct {
+	ID                  uuid.UUID
+	TenantID            uuid.UUID
+	EmployeeID          uuid.UUID
+	AnchorTransactionID uuid.UUID
+	Kind                string
+	ClaimedAt           time.Time
+	PrefilledAt         *time.Time
+	CreatedAt           time.Time
+}
+
+type PunchClaimDecision struct {
+	ID            uuid.UUID
+	TenantID      uuid.UUID
+	ClaimID       uuid.UUID
+	Outcome       string
+	DecidedBy     uuid.UUID
+	ApprovedAt    *time.Time
+	TransactionID *uuid.UUID
+	Note          *string
+	CreatedAt     time.Time
+}
+
 type PunchEvent struct {
 	TenantID        uuid.UUID
 	Seq             int64

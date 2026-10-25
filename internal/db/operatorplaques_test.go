@@ -160,6 +160,9 @@ var opAtVersionSkips = map[int]string{
 		"and adds them again NOT VALID under ACCESS EXCLUSIVE on transactions",
 	67: "punch_events.direction_source and the two feed triggers that write it (M15-13) -- no operator object; its Down " +
 		"takes ACCESS EXCLUSIVE on punch_events and refuses while an event carries a direction source",
+	68: "punch_claims, punch_claim_decisions and their two trigger functions (M15-15) -- no operator object; its Down " +
+		"takes ACCESS EXCLUSIVE on transactions, employees, admin_users and tenants (the DROPs' keys) and refuses while " +
+		"either table holds a row",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

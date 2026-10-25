@@ -214,6 +214,22 @@ var m11Tables = map[string]map[string]m11TableACL{
 		"tappa_feedwriter":     {Insert: "tenant_id,endpoint_id,punch_event_seq"},
 		"tappa_holdingdefiner": {Insert: "tenant_id,endpoint_id,punch_event_seq"},
 	},
+	// 00068 (M15-15, ADR 0032 §C.2): the employee's claim of a missing half and the manager's
+	// decision on it -- append-only, so tappa_app reads every column and inserts the ones a writer
+	// names (id and created_at take their defaults: the database's clock), and updates and deletes
+	// nothing. No other role reaches either: no definer, resolver or operator reads a claim.
+	"punch_claims": {
+		"tappa_app": {
+			Select: "id,tenant_id,employee_id,anchor_transaction_id,kind,claimed_at,prefilled_at,created_at",
+			Insert: "tenant_id,employee_id,anchor_transaction_id,kind,claimed_at,prefilled_at",
+		},
+	},
+	"punch_claim_decisions": {
+		"tappa_app": {
+			Select: "id,tenant_id,claim_id,outcome,decided_by,approved_at,transaction_id,note,created_at",
+			Insert: "tenant_id,claim_id,outcome,decided_by,approved_at,transaction_id,note",
+		},
+	},
 }
 
 // feedEventInsertColumns are the columns both feed writers insert into punch_events (attnum order;
@@ -370,6 +386,11 @@ var m11Functions = map[string]m11FunctionACL{
 	// reads no table (its callers find P, I and W), so its owner is the migration role and its reach
 	// is nothing but its arguments. EXECUTE to tappa_app alone, whose queries call it (M15-05).
 	"tappa_checkout_class(timestamp with time zone,boolean,boolean,boolean,timestamp with time zone,timestamp with time zone)": {owner: "tappa_owner", execute: "tappa_app,tappa_owner"},
+	// 00068 (M15-15, ADR 0032 §C.2-§C.3): the two claim tables' BEFORE INSERT checks -- SECURITY
+	// INVOKER trigger functions (00005's tappa_check_transaction_review shape), EXECUTE in their
+	// owner alone, bodies asserting TG_RELID.
+	"tappa_check_punch_claim()":          {owner: "tappa_owner", execute: "tappa_owner"},
+	"tappa_check_punch_claim_decision()": {owner: "tappa_owner", execute: "tappa_owner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every

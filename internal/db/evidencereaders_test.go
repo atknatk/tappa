@@ -85,6 +85,9 @@ var evidenceNonReaders = map[string]string{
 	"ListCheckoutsWithoutCheckIn": "Odd shapes' check-in missing list (M15-06): who, the venue's name, when, and the checkout's class " +
 		"from type, occurred_at, created_at and business_day_start -- a row at a peer's venue names the venue and nothing the peer's " +
 		"evidence showed",
+	"InsertPunchClaim": "the claim's INSERT built from its anchor row (M15-15, 00068): it reads the anchor's id, tenant_id and " +
+		"employee_id and nothing else -- no verdict, no address, no coordinate; the claim carries ids and two moments, and the " +
+		"queue (M15-18) reads the anchor through its own statements, filed here when they are written",
 }
 
 // evidenceColumnRE names the columns a K-39 leak would be computed from.

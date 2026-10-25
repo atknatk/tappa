@@ -341,8 +341,11 @@ var storeSurface = map[string]string{
 	"GetTransactionReview": "(context.Context, GetTransactionReviewParams{TenantID uuid.UUID; TransactionID uuid.UUID}) (GetTransactionReviewRow{ReviewerID uuid.UUID; Outcome string}, error)",
 	// M11 API-11: the sandbox simulation's read of the tap it recorded -- the decision's columns, no
 	// source address, no coordinate, no policy context.
-	"GetTapOutcome":                    "(context.Context, GetTapOutcomeParams{TenantID uuid.UUID; ID uuid.UUID}) (GetTapOutcomeRow{ID uuid.UUID; EmployeeID *uuid.UUID; Verdict string; Type *string; Trust *int16; Channel string; OccurredAt time.Time; MatchedSid *string; Practice bool; LocationID *uuid.UUID; SiteLocationID *uuid.UUID; TagUid *string; SiteTagUid *string}, error)",
-	"InsertManualTransaction":          "(context.Context, InsertManualTransactionParams{TenantID uuid.UUID; Type string; OccurredAt time.Time; Trust int16; Note *string; EnteredBy uuid.UUID; LocationID *uuid.UUID; EmployeeID uuid.UUID}) (InsertManualTransactionRow{ID uuid.UUID; OccurredAt time.Time; CreatedAt time.Time; Type *string; Verdict string; Channel string; Trust *int16; Practice bool; Queued bool}, error)",
+	"GetTapOutcome":           "(context.Context, GetTapOutcomeParams{TenantID uuid.UUID; ID uuid.UUID}) (GetTapOutcomeRow{ID uuid.UUID; EmployeeID *uuid.UUID; Verdict string; Type *string; Trust *int16; Channel string; OccurredAt time.Time; MatchedSid *string; Practice bool; LocationID *uuid.UUID; SiteLocationID *uuid.UUID; TagUid *string; SiteTagUid *string}, error)",
+	"InsertManualTransaction": "(context.Context, InsertManualTransactionParams{TenantID uuid.UUID; Type string; OccurredAt time.Time; Trust int16; Note *string; EnteredBy uuid.UUID; LocationID *uuid.UUID; EmployeeID uuid.UUID}) (InsertManualTransactionRow{ID uuid.UUID; OccurredAt time.Time; CreatedAt time.Time; Type *string; Verdict string; Channel string; Trust *int16; Practice bool; Queued bool}, error)",
+	// M15-15 (00068): the claim's INSERT, built from the anchor row -- ids, a kind and two moments
+	// in; the new row's id and the database's created_at out. No evidence, no e-mail.
+	"InsertPunchClaim":                 "(context.Context, InsertPunchClaimParams{Kind string; ClaimedAt time.Time; PrefilledAt *time.Time; AnchorTransactionID uuid.UUID; TenantID uuid.UUID; EmployeeID uuid.UUID}) (InsertPunchClaimRow{ID uuid.UUID; CreatedAt time.Time}, error)",
 	"InsertTransaction":                "(context.Context, InsertTransactionParams{TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string; BusinessDayStart *time.Time; DirectionSource *string}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string; BusinessDayStart *time.Time; DirectionSource *string}, error)",
 	"InsertTransactionReview":          "(context.Context, InsertTransactionReviewParams{TenantID uuid.UUID; ReviewerID uuid.UUID; Outcome string; Note *string; TransactionID uuid.UUID}) (InsertTransactionReviewRow{ID uuid.UUID; ReviewedAt time.Time}, error)",
 	"InsertUnassigned":                 "(context.Context, InsertUnassignedParams{Uid string; TenantID uuid.UUID; AesKeyRef []byte; AppKeyRef []byte}) (InsertUnassignedRow{Uid string; CreatedAt time.Time}, error)",
@@ -1018,10 +1021,13 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 26 -> 27 on 2026-10-22 (M15-07): db/queries/daycutoff.sql, the business-day settings
 	// screen's reads over tenants, locations, departments, employees, transactions and audit_log; none
 	// calls a definer.
-	if files != 27 {
-		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-SEVEN were there when this was "+
-			"pinned (2026-10-22; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
-			"apiidempotency.sql, invitequeue.sql, punchfeed.sql, directory.sql, webhooks.sql and daycutoff.sql)", files)
+	// 27 -> 28 on 2026-10-23 (M15-15, migration 00068): db/queries/punchclaims.sql, the claim's INSERT
+	// built from its anchor row (transactions); it calls no definer.
+	if files != 28 {
+		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-EIGHT were there when this was "+
+			"pinned (2026-10-23; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
+			"apiidempotency.sql, invitequeue.sql, punchfeed.sql, directory.sql, webhooks.sql, daycutoff.sql and "+
+			"punchclaims.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -1128,14 +1134,16 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 234 -> 235 on 2026-10-22 (M15-06): anomalies.sql's ListCheckoutsWithoutCheckIn, the "check-in
 	// missing" list over the caller's own rows; tappa_checkout_class is SECURITY INVOKER, so it
 	// calls no definer.
-	if named != 235 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND THIRTY-FIVE were "+
-			"there when this was pinned (2026-10-22: 111 on 2026-08-24, + T73's three "+
+	// 235 -> 236 on 2026-10-23 (M15-15, migration 00068): punchclaims.sql's InsertPunchClaim, an
+	// INSERT built from the caller's own anchor row; it calls no definer.
+	if named != 236 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND THIRTY-SIX were "+
+			"there when this was pinned (2026-10-23: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
@@ -1326,9 +1334,11 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// neither reads tags.
 	// 27 -> 28 (2026-10-22, M15-07): db/queries/daycutoff.sql adds daycutoff.sql.go -- the
 	// business-day settings screen's reads (six since the review round), in storeSurface; none carries bytes, none reads tags.
-	if len(out) != 28 {
-		t.Fatalf("parsed %d file(s) under %s; TWENTY-EIGHT were generated when this floor was last set "+
-			"(2026-10-22). If sqlc genuinely emits a different number now, change this number "+
+	// 28 -> 29 (2026-10-23, M15-15): db/queries/punchclaims.sql adds punchclaims.sql.go -- the claim's
+	// INSERT (one method, in storeSurface); it carries no bytes and reads no tags.
+	if len(out) != 29 {
+		t.Fatalf("parsed %d file(s) under %s; TWENTY-NINE were generated when this floor was last set "+
+			"(2026-10-23). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}
 	return out, fset
