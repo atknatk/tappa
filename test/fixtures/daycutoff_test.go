@@ -103,6 +103,8 @@ func TestFarDayCutoff_EveryDirectionChainTestHasACutoffAwayFromNow(t *testing.T)
 		{"internal/handler/practice_direction_db_test.go", "TestSeedDB_APracticeRowNeverHidesAnOlderOpenCheckIn", []string{"f.hire("}},
 		{"internal/handler/practice_direction_db_test.go", "TestSeedDB_ASecondActivationWritesNoRecordAndLeavesTheChainAlone", []string{"f.hire("}},
 		{"internal/handler/api/examples_db_test.go", "TestOpenAPI_TheExamplesAreTheHandlersAnswers", []string{"runExampleStory("}},
+		// M15-16: the claim approval's lock against a live tap that must otherwise read the check-in open.
+		{"internal/domain/claim/claim_db_test.go", "TestDecideDB_TheLockHoldsATapUntilTheApprovalCommits", []string{"fixtures.GiveFarDayCutoff("}},
 		// The clock route: M15-04's own acceptance tests.
 		{"internal/domain/checkin/businessday_db_test.go", "TestRecordDB_ACheckInOfThePreviousBusinessDayStaysOpen", []string{"recordAt("}},
 		{"internal/domain/checkin/businessday_db_test.go", "TestRecordDB_TheRustyBarNightIsOneBusinessDay", []string{"recordAt("}},

@@ -71,7 +71,10 @@ var evidenceReaders = map[string]evidenceReaderClass{
 	"InsertTransaction":             {"not-rendered", "", 0, "the writer"},
 	"InsertManualTransaction":       {"not-rendered", "", 0, "the writer (manual)"},
 	"InsertManualSiteTransaction":   {"not-rendered", "", 0, "the writer (manual at a peer's venue)"},
-	"InsertTransactionReview":       {"not-rendered", "", 0, "the review writer reads the decided row's verdict to refuse a non-flag"},
+	"InsertManualTransactionAtAnchor": {"not-rendered", "", 0,
+		"the writer (manual, answering a punch claim at its anchor's local venue -- M15-16); it reads the anchor's location_id only, " +
+			"and a peer's-venue anchor is filed by InsertManualSiteTransaction instead"},
+	"InsertTransactionReview": {"not-rendered", "", 0, "the review writer reads the decided row's verdict to refuse a non-flag"},
 	"GetTapOutcome": {"go-blank", "site_location_id", 0,
 		"the sandbox simulation's answer (M11 API-11): internal/sandbox's tapBodyOf blanks trust and the rule of a row at a partner venue; the verdict is the residue"},
 }
@@ -88,6 +91,10 @@ var evidenceNonReaders = map[string]string{
 	"InsertPunchClaim": "the claim's INSERT built from its anchor row (M15-15, 00068): it reads the anchor's id, tenant_id and " +
 		"employee_id and nothing else -- no verdict, no address, no coordinate; the claim carries ids and two moments, and the " +
 		"queue (M15-18) reads the anchor through its own statements, filed here when they are written",
+	"GetPunchClaimAnchor": "a claim's anchor (M15-16, internal/domain/claim): its direction, instants, business day, practice flag, " +
+		"venue ids and resolved shift -- no verdict, no address, no coordinate, no note",
+	"ListPunchClaimChain": "the person's direction chain around a claim (M15-16): ids, direction, two instants, the business day and " +
+		"the channel -- the classification's inputs, nothing the tap was judged on",
 }
 
 // evidenceColumnRE names the columns a K-39 leak would be computed from.

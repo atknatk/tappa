@@ -465,6 +465,36 @@ func shiftStartInstant(at time.Time, s Shift) (time.Time, bool) {
 		loc), true
 }
 
+// ShiftSpanAt is the instance of the shift `at` belongs to: its start -- shiftStartInstant's, the
+// one lateness measures from (`at`'s local day; the after-midnight tail of an overnight shift
+// belongs to the shift that started the previous day) -- and its end, the End wall clock on the
+// start's local date, or on the next date for an overnight shift (or a stored end at or before the
+// start, which can only mean the same). Both are UTC instants built with time.Date in the shift's
+// zone, so a DST day is 23 or 25 hours long here as on the wall. ok is false when the zone is
+// empty or unknown -- no shift is guessed.
+//
+// IT IS EXPORTED FOR FAZ C (ADR 0032 §C.2, §C.4; internal/domain/claim): a claim's prefill is the
+// real end (or start) of its anchor's shift, and the decision's band is (start − 1 h, end + 2 h]
+// around the same instance. A second implementation of the wall-clock arithmetic in that package
+// would be the copy that drifts over DST, the reason MinutesLate is exported.
+func ShiftSpanAt(at time.Time, s Shift) (start, end time.Time, ok bool) {
+	start, ok = shiftStartInstant(at, s)
+	if !ok {
+		return time.Time{}, time.Time{}, false
+	}
+	y, mo, d := start.Date() // start is in the shift's zone (shiftStartInstant builds it there)
+	if s.Overnight || s.End <= s.Start {
+		d++
+	}
+	end = time.Date(y, mo, d,
+		int(s.End/time.Hour),
+		int((s.End%time.Hour)/time.Minute),
+		int((s.End%time.Minute)/time.Second),
+		int(s.End%time.Second),
+		start.Location())
+	return start.UTC(), end.UTC(), true
+}
+
 // localTimeOfDay is t's wall-clock time of day as a Duration since local midnight
 // — used only to place an overnight tap in either the evening (>= Start) or the
 // after-midnight tail (< End) portion of its shift.

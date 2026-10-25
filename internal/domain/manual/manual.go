@@ -373,6 +373,14 @@ type Entry struct {
 	// not a peer's is ErrVenue, and the database's site gate refuses a membership that ended
 	// meanwhile (manual is strict -- ADR 0027 §6).
 	SiteLocationID uuid.UUID
+	// AnchorID is the record whose missing half this one answers -- an employee's punch claim the
+	// manager approved (M15-16, internal/domain/claim; ADR 0032 §C.4: "mekân = çapanın mekânı").
+	// When set (and SiteLocationID is not), the record is filed at THAT record's local venue by
+	// InsertManualTransactionAtAnchor, which reads the venue from the anchor row under the tenant and
+	// the person, and LocationID is not read; an anchor filed at no local venue writes nothing and is
+	// ErrVenue. A claim whose anchor is at a holding peer's venue passes that venue as SiteLocationID
+	// instead -- the partner path and its strict gate. uuid.Nil for every record a manager types.
+	AnchorID uuid.UUID
 }
 
 // Recorded is what was written, read back from the row itself.
@@ -588,57 +596,117 @@ func (r *Recorder) Backdated(at time.Time) bool {
 // the composite foreign key (employee_id, tenant_id). Nothing here compares tenants
 // in Go.
 func (r *Recorder) Record(ctx context.Context, e Entry) (Recorded, error) {
-	switch {
-	case e.TenantID == uuid.Nil:
-		return Recorded{}, errors.New("manual: tenant id is required")
-	case e.EmployeeID == uuid.Nil:
-		return Recorded{}, ErrUnknownEmployee
-	case e.EnteredBy == uuid.Nil:
-		return Recorded{}, errors.New("manual: the administrator entering the record is required")
-	}
-	if _, ok := ParseDirection(string(e.Direction)); !ok {
-		return Recorded{}, ErrDirection
-	}
-	if err := r.Bounds(e.At); err != nil {
+	if err := r.validate(e); err != nil {
 		return Recorded{}, err
 	}
-	backdated := r.Backdated(e.At)
-
 	var out Recorded
+	err := r.Within(ctx, e.TenantID, e.EmployeeID, func(ctx context.Context, tx pgx.Tx, write Write) error {
+		var err error
+		out, err = write(e)
+		return err
+	})
+	switch {
+	case err == nil:
+		return out, nil
+	case errors.Is(err, ErrVenue), errors.Is(err, ErrUnknownEmployee):
+		return Recorded{}, err
+	default:
+		return Recorded{}, fmt.Errorf("manual: record entry: %w", err)
+	}
+}
+
+// validate is the refusals that need no database: Record makes them before any transaction
+// opens, and Within's write makes them again before its row (a caller of Within builds its Entry
+// inside the transaction).
+func (r *Recorder) validate(e Entry) error {
+	switch {
+	case e.TenantID == uuid.Nil:
+		return errors.New("manual: tenant id is required")
+	case e.EmployeeID == uuid.Nil:
+		return ErrUnknownEmployee
+	case e.EnteredBy == uuid.Nil:
+		return errors.New("manual: the administrator entering the record is required")
+	}
+	if _, ok := ParseDirection(string(e.Direction)); !ok {
+		return ErrDirection
+	}
+	return r.Bounds(e.At)
+}
+
+// Write appends one manual record inside the transaction Within runs: the same refusals, venue,
+// row and trail row as Record, in that transaction -- so the caller's own rows commit or roll back
+// with it. Its errors are Record's: ErrUnknownEmployee, ErrVenue, ErrFuture, ErrTooOld,
+// ErrDirection, or a database error.
+type Write func(Entry) (Recorded, error)
+
+// TxFunc is a caller's work inside Within: its own reads and writes, and write for the record.
+type TxFunc func(ctx context.Context, tx pgx.Tx, write Write) error
+
+// Within runs fn in ONE transaction of the person's, the transaction Record writes in: the
+// person's tap lock first, then the race check and its retries (lock's comment below), and only
+// then fn. It is the variant of Record that takes a caller's work into the transaction (M15-16:
+// a punch claim's approval re-checks the chain, writes the record through write, then its decision
+// row and its trail row -- ADR 0032 §C.4: "tek işlemde"; a rejection takes the same lock and writes
+// no record).
+//
+// 🔴 fn MAY RUN MORE THAN ONCE. A retry starts the whole transaction again (a record of the
+// person's committed after it began -- the third order below), so fn must read what it decides on
+// inside the transaction, every time; nothing it wrote in a rolled-back attempt survives. An error
+// from fn rolls everything back and is returned as it is; write's own errors are the typed ones.
+//
+// The records write appended are logged after the transaction commits, never before: a log line
+// for a record a later statement rolled back would be a statement about nothing.
+func (r *Recorder) Within(ctx context.Context, tenantID, employeeID uuid.UUID, fn TxFunc) error {
+	switch {
+	case tenantID == uuid.Nil:
+		return errors.New("manual: tenant id is required")
+	case employeeID == uuid.Nil:
+		return ErrUnknownEmployee
+	case fn == nil:
+		return errors.New("manual: nothing to run")
+	}
+	type entered struct {
+		e   Entry
+		rec Recorded
+	}
+	var written []entered
 	var err error
 	for attempt := 0; ; attempt++ {
-		err = r.data.WithTenant(ctx, e.TenantID, func(ctx context.Context, tx pgx.Tx) error {
-			return r.write(ctx, tx, e, backdated, attempt, &out)
+		written = written[:0]
+		err = r.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			if err := r.lock(ctx, tx, tenantID, employeeID, attempt); err != nil {
+				return err
+			}
+			return fn(ctx, tx, func(e Entry) (Recorded, error) {
+				out, err := r.writeTx(ctx, tx, tenantID, employeeID, e)
+				if err == nil {
+					written = append(written, entered{e, out})
+				}
+				return out, err
+			})
 		})
 		if !errors.Is(err, errBeganBeforeATap) {
 			break
 		}
 	}
-	switch {
-	case err == nil:
-	case errors.Is(err, ErrVenue):
-		return Recorded{}, ErrVenue
-	case errors.Is(err, pgx.ErrNoRows):
-		// 🔴 NO ROWS IS A REFUSAL HERE, NOT AN ABSENCE, and it is the statement's design
-		// rather than an accident: the INSERT builds its row FROM an employee in this
-		// tenant, so "nothing was inserted" means "that is not your employee". Treating
-		// it as success would make this endpoint report records it never wrote.
-		return Recorded{}, ErrUnknownEmployee
-	default:
-		return Recorded{}, fmt.Errorf("manual: record entry: %w", err)
+	if err != nil {
+		return err
 	}
 	// 🔴 THE NOTE IS NOT LOGGED. It is a manager's free text about a named person, so
 	// it stays in the row it was written into; the ids below are opaque handles and
 	// the direction is a two-value vocabulary (sections 4.7, 7).
-	r.log.Info("attendance record entered by hand",
-		"record_id", out.ID, "employee_id", e.EmployeeID, "entered_by", e.EnteredBy,
-		"direction", string(e.Direction), "backdated", backdated, "partner_venue", e.SiteLocationID != uuid.Nil)
-	return out, nil
+	for _, w := range written {
+		r.log.Info("attendance record entered by hand",
+			"record_id", w.rec.ID, "employee_id", w.e.EmployeeID, "entered_by", w.e.EnteredBy,
+			"direction", string(w.e.Direction), "backdated", w.rec.Backdated,
+			"partner_venue", w.e.SiteLocationID != uuid.Nil, "answers_a_claim", w.e.AnchorID != uuid.Nil)
+	}
+	return nil
 }
 
-// write is one attempt of Record's transaction: the person's tap lock, the race check, then the
-// read, the INSERT and the trail row.
-func (r *Recorder) write(ctx context.Context, tx pgx.Tx, e Entry, backdated bool, attempt int, out *Recorded) error {
+// lock is the first statements of every attempt of Within's transaction: the person's tap lock
+// and the race check.
+func (r *Recorder) lock(ctx context.Context, tx pgx.Tx, tenantID, employeeID uuid.UUID, attempt int) error {
 	q := store.New(tx)
 	if r.beforeLock != nil {
 		r.beforeLock(attempt)
@@ -651,10 +719,9 @@ func (r *Recorder) write(ctx context.Context, tx pgx.Tx, e Entry, backdated bool
 	// first (LockEmployeeForTap, checkin.go) the two are serial for this person. The order of
 	// locks is the tap path's -- this person's key, then whatever the INSERT's triggers take (the
 	// holding feed's counters, ADR 0027 §8, K-31) -- so no new lock order exists;
-	// pg_advisory_xact_lock is re-entrant in one transaction (a claim approval that takes it
-	// first, M15-16, takes it again here at no cost).
+	// pg_advisory_xact_lock is re-entrant in one transaction.
 	if err := q.LockEmployeeForTap(ctx, store.LockEmployeeForTapParams{
-		TenantID: e.TenantID, EmployeeID: e.EmployeeID,
+		TenantID: tenantID, EmployeeID: employeeID,
 	}); err != nil {
 		return fmt.Errorf("lock employee: %w", err)
 	}
@@ -676,7 +743,7 @@ func (r *Recorder) write(ctx context.Context, tx pgx.Tx, e Entry, backdated bool
 	// record is written anyway.
 	if attempt < retriesAfterATap {
 		later, err := q.AnyRecordWrittenSinceThisTransactionBegan(ctx, store.AnyRecordWrittenSinceThisTransactionBeganParams{
-			TenantID: e.TenantID, EmployeeID: e.EmployeeID,
+			TenantID: tenantID, EmployeeID: employeeID,
 		})
 		if err != nil {
 			return fmt.Errorf("check for a record written meanwhile: %w", err)
@@ -686,8 +753,42 @@ func (r *Recorder) write(ctx context.Context, tx pgx.Tx, e Entry, backdated bool
 		}
 	} else {
 		r.log.Warn("manual record written after its last retry; its checkout classification may lean to an orphan",
-			"employee_id", e.EmployeeID, "entered_by", e.EnteredBy, "retries", retriesAfterATap)
+			"employee_id", employeeID, "retries", retriesAfterATap)
 	}
+	return nil
+}
+
+// writeTx is Write: the refusals, the read, the INSERT and the trail row, in Within's transaction.
+// The entry must be the locked person's -- a record of somebody else's would be written outside
+// their lock.
+func (r *Recorder) writeTx(ctx context.Context, tx pgx.Tx, tenantID, employeeID uuid.UUID, e Entry) (Recorded, error) {
+	if e.TenantID != tenantID || e.EmployeeID != employeeID {
+		return Recorded{}, errors.New("manual: the entry is not the locked person's")
+	}
+	if err := r.validate(e); err != nil {
+		return Recorded{}, err
+	}
+	var out Recorded
+	err := r.write(ctx, tx, e, r.Backdated(e.At), &out)
+	switch {
+	case err == nil:
+		return out, nil
+	case errors.Is(err, ErrVenue):
+		return Recorded{}, ErrVenue
+	case errors.Is(err, pgx.ErrNoRows):
+		// 🔴 NO ROWS IS A REFUSAL HERE, NOT AN ABSENCE, and it is the statement's design
+		// rather than an accident: the INSERT builds its row FROM an employee in this
+		// tenant, so "nothing was inserted" means "that is not your employee". Treating
+		// it as success would make this endpoint report records it never wrote.
+		return Recorded{}, ErrUnknownEmployee
+	default:
+		return Recorded{}, err
+	}
+}
+
+// write is the read, the INSERT and the trail row of one record.
+func (r *Recorder) write(ctx context.Context, tx pgx.Tx, e Entry, backdated bool, out *Recorded) error {
+	q := store.New(tx)
 	// WHO AND WHERE, READ FIRST IN THE SAME TRANSACTION, so a 0-row INSERT below can
 	// be told apart: no such person (ErrUnknownEmployee) or no venue to file a
 	// venue-less person at (ErrVenue). The statement remains the authority on
@@ -700,6 +801,9 @@ func (r *Recorder) write(ctx context.Context, tx pgx.Tx, e Entry, backdated bool
 	}
 	if e.SiteLocationID != uuid.Nil {
 		return r.recordAtPartner(ctx, tx, e, backdated, out)
+	}
+	if e.AnchorID != uuid.Nil {
+		return r.recordAtAnchor(ctx, tx, e, backdated, out)
 	}
 	if who.LocationID == nil && e.LocationID == uuid.Nil {
 		return ErrVenue
@@ -800,6 +904,48 @@ func (r *Recorder) recordAtPartner(ctx context.Context, tx pgx.Tx, e Entry, back
 		out.Trust = *row.Trust
 	}
 	return r.trailOf(ctx, tx, e, backdated, true, out)
+}
+
+// recordAtAnchor is the write of a record that answers a punch claim (Entry.AnchorID, M15-16): filed
+// at the anchor's local venue by InsertManualTransactionAtAnchor, which reads that venue from the
+// anchor row under the tenant and the person. No row means the anchor names no local venue (or is
+// not this person's -- the caller read it under the same predicate, so that is not reachable from
+// it): ErrVenue, nothing written. The trail row is the record's own, like every manual record's.
+func (r *Recorder) recordAtAnchor(ctx context.Context, tx pgx.Tx, e Entry, backdated bool, out *Recorded) error {
+	params := store.InsertManualTransactionAtAnchorParams{
+		TenantID:   e.TenantID,
+		EmployeeID: e.EmployeeID,
+		AnchorID:   e.AnchorID,
+		EnteredBy:  e.EnteredBy,
+		Type:       string(e.Direction),
+		OccurredAt: e.At.UTC(),
+		Trust:      tap.TrustBase,
+	}
+	if e.Note != "" {
+		n := e.Note
+		params.Note = &n
+	}
+	row, err := store.New(tx).InsertManualTransactionAtAnchor(ctx, params)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrVenue
+		}
+		return err
+	}
+	*out = Recorded{
+		ID:         row.ID,
+		At:         row.OccurredAt,
+		CreatedAt:  row.CreatedAt,
+		Direction:  Direction(deref(row.Type)),
+		Verdict:    row.Verdict,
+		Channel:    row.Channel,
+		Backdated:  backdated,
+		EmployeeID: e.EmployeeID,
+	}
+	if row.Trust != nil {
+		out.Trust = *row.Trust
+	}
+	return r.trailOf(ctx, tx, e, backdated, false, out)
 }
 
 // trailOf writes a manual record's audit row in the record's transaction and keeps its id on out.

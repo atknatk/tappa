@@ -68,6 +68,10 @@ internal/domain/tap/  ⭐ tap karar motoru. §5 buranın spec'i. Saf fonksiyon,
                       DB/HTTP bilmez → tablo bazlı testlerle kanıtlanır.
 internal/domain/tenant/  tenant/lokasyon/departman/çalışan iş kuralları; dış API'nin yazma işleri
                       (`PutVenueTx`, `staffapi.go`) ve punch akışının okuma ucu (`PunchFeed`, M11 API-7)
+internal/domain/claim/  eksik yarı talebi (ADR 0032 Faz C): çapa durumu okuyucunun sınıfından
+                      (tap.ClassifyCheckout), pencere, ön dolgu, K4, bant; gönderim ve karar kişi
+                      kilidi altında, karar manual.Recorder.Within ile tek işlem. Talep kayıt
+                      değildir; saat yalnız onayın manuel satırıyla doğar.
 internal/sun/         NTAG 424 DNA SDM doğrulama: AES-CMAC + ctr. Kriptografi
                       SADECE burada. Skill: `tappa-sun`
 internal/session/     oturum token üretimi/doğrulama (hash saklanır, token değil)

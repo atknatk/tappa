@@ -731,6 +731,22 @@ yönetici hem çalışan kimliği taşıyorsa kendi talebini onaylayabilir. Kapa
 17:00 → 8 sa, açık 0"*). Giriş talebi yetim bir çıkışın önüne bir `in` koyar; ADR 0011'in tuzağı ancak
 arada yanlış bir `in` varsa kurulur ve pencere (*"önceki yönlü olaydan sonra"*) bunu dışarıda bırakır.
 
+*Uygulama notu (2026-10-25, M15-16 — kararı değiştirmez, nasıl kurulduğunu söyler).* (1) **Mekân:** onayın
+manuel satırı çapanın yerel mekânındaysa yeni `InsertManualTransactionAtAnchor` ile yazılır — mekân bir formdan
+değil, çapa satırından, `tenant_id` + `employee_id` yüklemiyle okunur (`InsertManualTransaction`'ın *"ev
+mekânı"* sayılı sınırı talepte yoktur, çünkü bir dokunulmuş mekân vardır); eş mekândaki çapa
+`InsertManualSiteTransaction` yolundan (eşlik bittiyse `ErrVenue`); mekânı olmayan çapa ev mekânına.
+Ölçüm: `TestDecideDB_AnApprovalIsOneRecordOneDecisionAndTwoTrailRows`,
+`TestWithin_AnAnswerToAClaimIsFiledAtItsAnchorsVenue`. (2) **Kapanış sınaması iki okumadır:** saklanan satırın
+okuyucu sınıfı (manuel satırın S'si NULL — yalnız 18 sa) **ve** motorun o anda bir dokunuşu okuyacağı sınıf
+(bugünkü kesimle `S(at)`). Pencere çapanın **dondurulmuş** S'sinden çizilir; kesim çapadan sonra değiştiyse
+pencerenin kabul ettiği bir anı ikincisi reddedebilir — muhafazakâr taraf (§A.6): onay *"already resolved"*
+(`TestDecideDB_ACutoffChangedSinceTheAnchorIsJudgedByTheStricterRule`). (3) **Trail:** `claim.submitted` (aktör
+NULL) ve kararın iki sonucu için tek ad `claim.decided` (sonuç `detail`'de — `review.recorded`'ın gerekçesi);
+onay ayrıca manuel satırın kendi `record.entered` satırını yazar. (4) **İkinci gönderim** pencereye bakılmadan
+*"Sent"*tir (`ErrAlreadySent`; kilit altında okunur, UNIQUE kemerdir). (5) **Ön dolgu** gönderimde kilit altında
+sunucuda yeniden hesaplanır; formun değeri okunmaz.
+
 **Askı (ADR 0025).** Karar yolu bir panel yazmasıdır ve `mountWriting`'in **ana grubuna**
 (`ProtectWriting`, `internal/handler/dashboard.go:166`; flag kararı `:167`'nin yanı) gider: askı talep
 kararını durdurur. ADR 0025'in kapalı istisna listesi (`0025:46-53`, `:87`; kardeş grup

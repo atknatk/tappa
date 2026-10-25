@@ -468,8 +468,10 @@ func TestPunchClaims_TheInsertIsBuiltFromTheAnchor(t *testing.T) {
 // `a.tenant_id = @tenant_id` refuses it. TestPunchClaims_TheInsertIsBuiltFromTheAnchor cannot see
 // that predicate: as tappa_app, RLS alone already hides B's anchor. Control: the same superuser
 // with B's own tenant id writes B's claim. One transaction, rolled back. (The ledger belt,
-// TestPanelQueries_CarryAnExplicitTenantPredicate, reads the queries its own package calls; no
-// package calls this one yet; M15-16's internal/domain/claim is to carry its own copy over its calls.)
+// TestPanelQueries_CarryAnExplicitTenantPredicate, reads the queries its own package calls; since
+// M15-16 internal/domain/claim calls this one and carries its own copy over the statements it added --
+// TestPunchClaimQueries_TheNewStatementsCarryTheirOwnTenantPredicate -- and internal/domain/tenant's
+// TestPunchClaimsQueries_CarryAnExplicitTenantPredicate belts the whole file statically.)
 func TestPunchClaimQueries_CarryTheirOwnTenantPredicate(t *testing.T) {
 	app := appDB(t)
 	owner := ownerDB(t)

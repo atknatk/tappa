@@ -888,6 +888,93 @@ func (q *Queries) InsertManualTransaction(ctx context.Context, arg InsertManualT
 	return i, err
 }
 
+const insertManualTransactionAtAnchor = `-- name: InsertManualTransactionAtAnchor :one
+INSERT INTO transactions (
+    tenant_id, employee_id, location_id, department_id, type, occurred_at,
+    trust, verdict, note, channel, entered_by, practice, queued
+)
+SELECT $1, e.id, a.location_id, e.department_id, $2::text,
+       $3, $4::smallint, 'ok', $5::text, 'manual',
+       $6::uuid, false, false
+FROM transactions a
+JOIN employees e
+  ON e.id = a.employee_id
+ AND e.tenant_id = $1
+WHERE a.tenant_id = $1
+  AND a.id = $7::uuid
+  AND a.employee_id = $8::uuid
+  AND a.location_id IS NOT NULL
+RETURNING id, occurred_at, created_at, type, verdict, channel, trust, practice, queued
+`
+
+type InsertManualTransactionAtAnchorParams struct {
+	TenantID   uuid.UUID
+	Type       string
+	OccurredAt time.Time
+	Trust      int16
+	Note       *string
+	EnteredBy  uuid.UUID
+	AnchorID   uuid.UUID
+	EmployeeID uuid.UUID
+}
+
+type InsertManualTransactionAtAnchorRow struct {
+	ID         uuid.UUID
+	OccurredAt time.Time
+	CreatedAt  time.Time
+	Type       *string
+	Verdict    string
+	Channel    string
+	Trust      *int16
+	Practice   bool
+	Queued     bool
+}
+
+// THE MANAGER'S RECORD THAT ANSWERS AN EMPLOYEE'S CLAIM, FILED AT THE CLAIM'S ANCHOR'S VENUE (M15-16,
+// ADR 0032 §C.4: "mekân = çapanın mekânı"). InsertManualTransaction's statement and its narrowing --
+// verdict 'ok', channel 'manual', practice and queued false, no evidence column named, trust a
+// parameter, entered_by required -- word for word, with ONE difference: location_id is READ FROM THE
+// ANCHOR ROW rather than from the employee row.
+//
+// 🔴 WHY THE ANCHOR AND NOT THE HOME VENUE. InsertManualTransaction files at the person's home venue
+// and calls that a COUNTED LIMIT: "there is no tapped location here". For a claim there IS one -- the
+// anchor, the record whose missing half is claimed, taken at a plaque on a wall -- and the approved
+// half belongs to the same shift at the same venue (§5: the TAPPED location, never the profile's).
+// The venue still comes from a row the database holds, never from a form: the SELECT reads the
+// anchor under its tenant AND its person (§4.5's belt; the composite FK (location_id, tenant_id) the
+// braces), so another tenant's or another person's anchor, or an anchor filed at no local venue (a
+// holding peer's -- internal/domain/manual files that one with InsertManualSiteTransaction -- or a
+// plaque on no wall), is ZERO ROWS, never a foreign write.
+//
+// department_id IS THE EMPLOYEE'S, as on every manual row (InsertManualSiteTransaction's sentence: a
+// department is not a venue). created_at is not named: the database's clock (00068's decision trigger
+// holds the row to being written no earlier than the claim).
+func (q *Queries) InsertManualTransactionAtAnchor(ctx context.Context, arg InsertManualTransactionAtAnchorParams) (InsertManualTransactionAtAnchorRow, error) {
+	row := q.db.QueryRow(ctx, insertManualTransactionAtAnchor,
+		arg.TenantID,
+		arg.Type,
+		arg.OccurredAt,
+		arg.Trust,
+		arg.Note,
+		arg.EnteredBy,
+		arg.AnchorID,
+		arg.EmployeeID,
+	)
+	var i InsertManualTransactionAtAnchorRow
+	err := row.Scan(
+		&i.ID,
+		&i.OccurredAt,
+		&i.CreatedAt,
+		&i.Type,
+		&i.Verdict,
+		&i.Channel,
+		&i.Trust,
+		&i.Practice,
+		&i.Queued,
+	)
+	return i, err
+}
+
 const insertTransaction = `-- name: InsertTransaction :one
 INSERT INTO transactions (
     tenant_id, employee_id, location_id, department_id, tag_uid, ctr, type,

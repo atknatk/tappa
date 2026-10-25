@@ -2921,6 +2921,27 @@ type Querier interface {
 	// explicit same-tenant LEFT JOIN, so an id that names nobody this tenant can see
 	// is reported as unresolvable rather than printed (§4.5 doing its job).
 	GetPolicyVersionDocument(ctx context.Context, arg GetPolicyVersionDocumentParams) (GetPolicyVersionDocumentRow, error)
+	// ONE OF THE PERSON'S RECORDS, AS A CLAIM READS IT (M15-16, internal/domain/claim): the anchor a
+	// claim names (Submit, Decide, Inspect) or the tap whose result screen may ask one (Offer). Under its
+	// tenant AND its person -- the explicit predicate beside RLS (§4.5's belt) -- so another tenant's or
+	// another person's id is ZERO ROWS, the same refusal InsertPunchClaim gives.
+	//
+	// WHAT IT RETURNS IS THE ROW'S CHAIN FACTS AND ITS SHIFT, NOTHING THE TAP WAS JUDGED ON. type (NULL
+	// for a refusal or an ignored tap -- no missing half, no card), occurred_at, business_day_start (NULL
+	// before M15 and on a manual row -- ADR 0032 §C.1 Ü-Y2: no claim), practice, the venue the record is
+	// filed at (location_id, or a holding peer's site_location_id -- ADR 0032 §C.4: the approval's manual
+	// row goes to the anchor's venue), and the anchor's RESOLVED SHIFT: the department's when the row's
+	// department has one, otherwise the venue's (§5, the rule tap.Decide's lateness reads) -- the
+	// prefill's real end and the band (ADR 0032 §C.2, §C.4). The department is the ROW's (frozen at the
+	// tap), the shift times today's. A row at a peer's venue has no local location row, so its shift is
+	// the department's or none: no prefill, and the decision asks the confirmation step (ADR 0032 §C.4:
+	// "vardiya yoksa"). No address, no coordinate, no verdict, no note.
+	GetPunchClaimAnchor(ctx context.Context, arg GetPunchClaimAnchorParams) (GetPunchClaimAnchorRow, error)
+	// A CLAIM AND WHETHER IT IS DECIDED (M15-16, Decide and Inspect). Read once before the person's lock
+	// (the claim names the person whose lock it is -- a claim row never changes, §4.3) and AGAIN under
+	// it, where decided_outcome is the "already decided" answer (ADR 0009: a decision is final; the
+	// UNIQUE punch_claim_decisions_one_per_claim is the braces). Explicit tenant on both tables.
+	GetPunchClaimForDecision(ctx context.Context, arg GetPunchClaimForDecisionParams) (GetPunchClaimForDecisionRow, error)
 	// The event a delivery carries, in the delivering business's own feed (a delivery points at its
 	// tenant's (tenant_id, seq) -- 00048's webhook_deliveries_event_fk). The snapshot columns only: the
 	// table has no address, coordinate, note, policy context or verdict to read.
@@ -3395,10 +3416,31 @@ type Querier interface {
 	// this row" and "no trust score" EXPRESSIBLE from this path. They are not. `note` is
 	// the one field that really is optional, and it is the only sqlc.narg here.
 	InsertManualTransaction(ctx context.Context, arg InsertManualTransactionParams) (InsertManualTransactionRow, error)
+	// THE MANAGER'S RECORD THAT ANSWERS AN EMPLOYEE'S CLAIM, FILED AT THE CLAIM'S ANCHOR'S VENUE (M15-16,
+	// ADR 0032 §C.4: "mekân = çapanın mekânı"). InsertManualTransaction's statement and its narrowing --
+	// verdict 'ok', channel 'manual', practice and queued false, no evidence column named, trust a
+	// parameter, entered_by required -- word for word, with ONE difference: location_id is READ FROM THE
+	// ANCHOR ROW rather than from the employee row.
+	//
+	// 🔴 WHY THE ANCHOR AND NOT THE HOME VENUE. InsertManualTransaction files at the person's home venue
+	// and calls that a COUNTED LIMIT: "there is no tapped location here". For a claim there IS one -- the
+	// anchor, the record whose missing half is claimed, taken at a plaque on a wall -- and the approved
+	// half belongs to the same shift at the same venue (§5: the TAPPED location, never the profile's).
+	// The venue still comes from a row the database holds, never from a form: the SELECT reads the
+	// anchor under its tenant AND its person (§4.5's belt; the composite FK (location_id, tenant_id) the
+	// braces), so another tenant's or another person's anchor, or an anchor filed at no local venue (a
+	// holding peer's -- internal/domain/manual files that one with InsertManualSiteTransaction -- or a
+	// plaque on no wall), is ZERO ROWS, never a foreign write.
+	//
+	// department_id IS THE EMPLOYEE'S, as on every manual row (InsertManualSiteTransaction's sentence: a
+	// department is not a venue). created_at is not named: the database's clock (00068's decision trigger
+	// holds the row to being written no earlier than the claim).
+	InsertManualTransactionAtAnchor(ctx context.Context, arg InsertManualTransactionAtAnchorParams) (InsertManualTransactionAtAnchorRow, error)
 	// punchclaims.sql -- an employee's claim of the missing half of a punch (M15-15, ADR 0032 §C.2-§C.3;
 	// migration 00068). The window, the K4 rule, the lock and the decision are M15-16's
-	// (internal/domain/claim); this file holds the one statement the schema card owns: the claim's
-	// INSERT, BUILT FROM THE ANCHOR ROW.
+	// (internal/domain/claim); the schema card wrote the claim's INSERT, BUILT FROM THE ANCHOR ROW, and
+	// M15-16 adds the domain's reads (the anchor, the chain around it, the claimed anchors, the claim
+	// with its decision) and the decision's INSERT, built from the claim row the same way.
 	// ADR 0032 §C.3: the anchor id arrives from the client (inside the signed claim context) and is not
 	// trusted on its own. So the row is not VALUES from parameters: it is SELECTed from the anchor,
 	// under its tenant AND its person -- tenant_id and employee_id are the anchor's own columns, read
@@ -3415,6 +3457,15 @@ type Querier interface {
 	// prefilled_at is NULL when the form offered no real shift end inside the window (ADR 0032 §C.2).
 	// created_at is the database's clock (tappa_app may not write it -- 00068's grant).
 	InsertPunchClaim(ctx context.Context, arg InsertPunchClaimParams) (InsertPunchClaimRow, error)
+	// THE MANAGER'S DECISION ON A CLAIM (M15-16; ADR 0032 §C.2, §C.4, §C.5; migration 00068). Built FROM
+	// the claim row under its tenant (§4.5's belt): another tenant's claim id is ZERO ROWS -- pgx.ErrNoRows,
+	// nothing written. An approval names the manual row it wrote and that row's moment (approved_at =
+	// the row's occurred_at, which tappa_check_punch_claim_decision holds, with the row's person, channel,
+	// direction, entered_by and write instant); a rejection names neither (the shape CHECK). A second
+	// decision on one claim is 23505 (punch_claim_decisions_one_per_claim) -- "already decided"; one
+	// manual row answering two claims is 23505 too (one_per_record). The note is the manager's free text:
+	// stored here once, never logged and never copied into audit_log.
+	InsertPunchClaimDecision(ctx context.Context, arg InsertPunchClaimDecisionParams) (InsertPunchClaimDecisionRow, error)
 	// THE TAP write path -- and it stopped being THE ONLY one on 2026-08-10.
 	//
 	// 🔴 THIS COMMENT SAID "THE single write path" UNTIL M6-08 ADDED THE SECOND ONE.
@@ -4837,6 +4888,26 @@ type Querier interface {
 	// failure. op_read_legal_versions (00027) uses the same ORDER BY (published_at DESC,
 	// id DESC) for its version list and for the version it marks current.
 	ListPublishedLegalDocuments(ctx context.Context) ([]ListPublishedLegalDocumentsRow, error)
+	// THE PERSON'S DIRECTION CHAIN AROUND A CLAIM (M15-16; ADR 0032 §A.6, §C.1, §C.3): every directed,
+	// non-practice record with occurred_at in [@from_at, @to_at], in (occurred_at, id) order, AND the one
+	// record immediately before @from_at (before_range true) -- the predecessor of the first record in
+	// range, so that record's class (its P) is known. internal/domain/claim classifies these rows with
+	// tap.ClassifyCheckout, the Go half of tappa_checkout_class (the parity test binds the two), so an
+	// anchor's "still open / still an orphan", the window's ends and K4's two showings are the READER's
+	// answer, never Decision.LeftOpen or Decision.MissingIn (the M15-10/M15-16 handover).
+	//
+	// created_at is selected because the classification's W reads it (the database's write instant --
+	// TestTransactions_NoStatementWritesCreatedAt). Nothing read here is evidence: direction, two
+	// instants, the frozen business day and the channel.
+	//
+	// BOUNDED BY TIME AND BY @row_limit: the caller asks for a window of hours (internal/domain/claim:
+	// the anchor's day and 18 hours on either side) and REFUSES when the limit is reached, rather than
+	// judging a truncated chain.
+	ListPunchClaimChain(ctx context.Context, arg ListPunchClaimChainParams) ([]ListPunchClaimChainRow, error)
+	// WHICH OF THESE RECORDS ALREADY CARRY A CLAIM (M15-16, K4: "talep gönderildiyse ikinci gösterim
+	// yok"; ADR 0032 §C.5: one claim per anchor, ever -- a rejected one included). Explicit tenant and
+	// person beside RLS.
+	ListPunchClaimedAnchors(ctx context.Context, arg ListPunchClaimedAnchorsParams) ([]uuid.UUID, error)
 	// The events of one scope in (after_seq, upto_seq], in seq order, at most page_size of them -- the
 	// caller asks for one more than it hands out, to know whether the window holds more. The scope is
 	// a role the row carries (ADR 0028 §2: employer -- the punch's employee is this business's; location

@@ -10,7 +10,140 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const getPunchClaimAnchor = `-- name: GetPunchClaimAnchor :one
+SELECT a.id,
+       a.type,
+       a.occurred_at,
+       a.created_at,
+       a.business_day_start,
+       a.practice,
+       a.location_id,
+       a.site_location_id,
+       (CASE WHEN d.shift_start IS NOT NULL THEN d.shift_start ELSE l.shift_start END)::time AS shift_start,
+       (CASE WHEN d.shift_start IS NOT NULL THEN d.shift_end ELSE l.shift_end END)::time     AS shift_end,
+       COALESCE(CASE WHEN d.shift_start IS NOT NULL THEN d.overnight ELSE l.overnight END, false)::boolean
+                                                                                       AS shift_overnight
+  FROM transactions AS a
+  LEFT JOIN departments AS d
+         ON d.id = a.department_id
+        AND d.tenant_id = $1
+  LEFT JOIN locations AS l
+         ON l.id = a.location_id
+        AND l.tenant_id = $1
+ WHERE a.id = $2
+   AND a.tenant_id = $1
+   AND a.employee_id = $3::uuid
+`
+
+type GetPunchClaimAnchorParams struct {
+	TenantID   uuid.UUID
+	ID         uuid.UUID
+	EmployeeID uuid.UUID
+}
+
+type GetPunchClaimAnchorRow struct {
+	ID               uuid.UUID
+	Type             *string
+	OccurredAt       time.Time
+	CreatedAt        time.Time
+	BusinessDayStart *time.Time
+	Practice         bool
+	LocationID       *uuid.UUID
+	SiteLocationID   *uuid.UUID
+	ShiftStart       pgtype.Time
+	ShiftEnd         pgtype.Time
+	ShiftOvernight   bool
+}
+
+// ONE OF THE PERSON'S RECORDS, AS A CLAIM READS IT (M15-16, internal/domain/claim): the anchor a
+// claim names (Submit, Decide, Inspect) or the tap whose result screen may ask one (Offer). Under its
+// tenant AND its person -- the explicit predicate beside RLS (§4.5's belt) -- so another tenant's or
+// another person's id is ZERO ROWS, the same refusal InsertPunchClaim gives.
+//
+// WHAT IT RETURNS IS THE ROW'S CHAIN FACTS AND ITS SHIFT, NOTHING THE TAP WAS JUDGED ON. type (NULL
+// for a refusal or an ignored tap -- no missing half, no card), occurred_at, business_day_start (NULL
+// before M15 and on a manual row -- ADR 0032 §C.1 Ü-Y2: no claim), practice, the venue the record is
+// filed at (location_id, or a holding peer's site_location_id -- ADR 0032 §C.4: the approval's manual
+// row goes to the anchor's venue), and the anchor's RESOLVED SHIFT: the department's when the row's
+// department has one, otherwise the venue's (§5, the rule tap.Decide's lateness reads) -- the
+// prefill's real end and the band (ADR 0032 §C.2, §C.4). The department is the ROW's (frozen at the
+// tap), the shift times today's. A row at a peer's venue has no local location row, so its shift is
+// the department's or none: no prefill, and the decision asks the confirmation step (ADR 0032 §C.4:
+// "vardiya yoksa"). No address, no coordinate, no verdict, no note.
+func (q *Queries) GetPunchClaimAnchor(ctx context.Context, arg GetPunchClaimAnchorParams) (GetPunchClaimAnchorRow, error) {
+	row := q.db.QueryRow(ctx, getPunchClaimAnchor, arg.TenantID, arg.ID, arg.EmployeeID)
+	var i GetPunchClaimAnchorRow
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.OccurredAt,
+		&i.CreatedAt,
+		&i.BusinessDayStart,
+		&i.Practice,
+		&i.LocationID,
+		&i.SiteLocationID,
+		&i.ShiftStart,
+		&i.ShiftEnd,
+		&i.ShiftOvernight,
+	)
+	return i, err
+}
+
+const getPunchClaimForDecision = `-- name: GetPunchClaimForDecision :one
+SELECT c.id,
+       c.employee_id,
+       c.anchor_transaction_id,
+       c.kind,
+       c.claimed_at,
+       c.prefilled_at,
+       c.created_at,
+       d.outcome AS decided_outcome
+  FROM punch_claims AS c
+  LEFT JOIN punch_claim_decisions AS d
+         ON d.claim_id = c.id
+        AND d.tenant_id = $1
+ WHERE c.id = $2
+   AND c.tenant_id = $1
+`
+
+type GetPunchClaimForDecisionParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+type GetPunchClaimForDecisionRow struct {
+	ID                  uuid.UUID
+	EmployeeID          uuid.UUID
+	AnchorTransactionID uuid.UUID
+	Kind                string
+	ClaimedAt           time.Time
+	PrefilledAt         *time.Time
+	CreatedAt           time.Time
+	DecidedOutcome      *string
+}
+
+// A CLAIM AND WHETHER IT IS DECIDED (M15-16, Decide and Inspect). Read once before the person's lock
+// (the claim names the person whose lock it is -- a claim row never changes, §4.3) and AGAIN under
+// it, where decided_outcome is the "already decided" answer (ADR 0009: a decision is final; the
+// UNIQUE punch_claim_decisions_one_per_claim is the braces). Explicit tenant on both tables.
+func (q *Queries) GetPunchClaimForDecision(ctx context.Context, arg GetPunchClaimForDecisionParams) (GetPunchClaimForDecisionRow, error) {
+	row := q.db.QueryRow(ctx, getPunchClaimForDecision, arg.TenantID, arg.ID)
+	var i GetPunchClaimForDecisionRow
+	err := row.Scan(
+		&i.ID,
+		&i.EmployeeID,
+		&i.AnchorTransactionID,
+		&i.Kind,
+		&i.ClaimedAt,
+		&i.PrefilledAt,
+		&i.CreatedAt,
+		&i.DecidedOutcome,
+	)
+	return i, err
+}
 
 const insertPunchClaim = `-- name: InsertPunchClaim :one
 
@@ -40,8 +173,9 @@ type InsertPunchClaimRow struct {
 
 // punchclaims.sql -- an employee's claim of the missing half of a punch (M15-15, ADR 0032 §C.2-§C.3;
 // migration 00068). The window, the K4 rule, the lock and the decision are M15-16's
-// (internal/domain/claim); this file holds the one statement the schema card owns: the claim's
-// INSERT, BUILT FROM THE ANCHOR ROW.
+// (internal/domain/claim); the schema card wrote the claim's INSERT, BUILT FROM THE ANCHOR ROW, and
+// M15-16 adds the domain's reads (the anchor, the chain around it, the claimed anchors, the claim
+// with its decision) and the decision's INSERT, built from the claim row the same way.
 // ADR 0032 §C.3: the anchor id arrives from the client (inside the signed claim context) and is not
 // trusted on its own. So the row is not VALUES from parameters: it is SELECTed from the anchor,
 // under its tenant AND its person -- tenant_id and employee_id are the anchor's own columns, read
@@ -69,4 +203,185 @@ func (q *Queries) InsertPunchClaim(ctx context.Context, arg InsertPunchClaimPara
 	var i InsertPunchClaimRow
 	err := row.Scan(&i.ID, &i.CreatedAt)
 	return i, err
+}
+
+const insertPunchClaimDecision = `-- name: InsertPunchClaimDecision :one
+INSERT INTO punch_claim_decisions (tenant_id, claim_id, outcome, decided_by, approved_at, transaction_id, note)
+SELECT c.tenant_id, c.id, $1::text, $2::uuid,
+       $3::timestamptz, $4::uuid, $5::text
+  FROM punch_claims AS c
+ WHERE c.id = $6
+   AND c.tenant_id = $7
+RETURNING id, created_at
+`
+
+type InsertPunchClaimDecisionParams struct {
+	Outcome       string
+	DecidedBy     uuid.UUID
+	ApprovedAt    *time.Time
+	TransactionID *uuid.UUID
+	Note          *string
+	ClaimID       uuid.UUID
+	TenantID      uuid.UUID
+}
+
+type InsertPunchClaimDecisionRow struct {
+	ID        uuid.UUID
+	CreatedAt time.Time
+}
+
+// THE MANAGER'S DECISION ON A CLAIM (M15-16; ADR 0032 §C.2, §C.4, §C.5; migration 00068). Built FROM
+// the claim row under its tenant (§4.5's belt): another tenant's claim id is ZERO ROWS -- pgx.ErrNoRows,
+// nothing written. An approval names the manual row it wrote and that row's moment (approved_at =
+// the row's occurred_at, which tappa_check_punch_claim_decision holds, with the row's person, channel,
+// direction, entered_by and write instant); a rejection names neither (the shape CHECK). A second
+// decision on one claim is 23505 (punch_claim_decisions_one_per_claim) -- "already decided"; one
+// manual row answering two claims is 23505 too (one_per_record). The note is the manager's free text:
+// stored here once, never logged and never copied into audit_log.
+func (q *Queries) InsertPunchClaimDecision(ctx context.Context, arg InsertPunchClaimDecisionParams) (InsertPunchClaimDecisionRow, error) {
+	row := q.db.QueryRow(ctx, insertPunchClaimDecision,
+		arg.Outcome,
+		arg.DecidedBy,
+		arg.ApprovedAt,
+		arg.TransactionID,
+		arg.Note,
+		arg.ClaimID,
+		arg.TenantID,
+	)
+	var i InsertPunchClaimDecisionRow
+	err := row.Scan(&i.ID, &i.CreatedAt)
+	return i, err
+}
+
+const listPunchClaimChain = `-- name: ListPunchClaimChain :many
+SELECT p.id, p.type, p.occurred_at, p.created_at, p.business_day_start, p.channel, p.before_range
+  FROM (
+        (SELECT b.id, b.type, b.occurred_at, b.created_at, b.business_day_start, b.channel,
+                true AS before_range
+           FROM transactions AS b
+          WHERE b.tenant_id = $1
+            AND b.employee_id = $2::uuid
+            AND b.type IS NOT NULL
+            AND NOT b.practice
+            AND b.occurred_at < $3
+          ORDER BY b.occurred_at DESC, b.id DESC
+          LIMIT 1)
+        UNION ALL
+        (SELECT r.id, r.type, r.occurred_at, r.created_at, r.business_day_start, r.channel,
+                false AS before_range
+           FROM transactions AS r
+          WHERE r.tenant_id = $1
+            AND r.employee_id = $2::uuid
+            AND r.type IS NOT NULL
+            AND NOT r.practice
+            AND r.occurred_at >= $3
+            AND r.occurred_at <= $4
+          ORDER BY r.occurred_at, r.id
+          LIMIT $5)
+       ) AS p
+ ORDER BY p.occurred_at, p.id
+`
+
+type ListPunchClaimChainParams struct {
+	TenantID   uuid.UUID
+	EmployeeID uuid.UUID
+	FromAt     time.Time
+	ToAt       time.Time
+	RowLimit   int32
+}
+
+type ListPunchClaimChainRow struct {
+	ID               uuid.UUID
+	Type             *string
+	OccurredAt       time.Time
+	CreatedAt        time.Time
+	BusinessDayStart *time.Time
+	Channel          string
+	BeforeRange      bool
+}
+
+// THE PERSON'S DIRECTION CHAIN AROUND A CLAIM (M15-16; ADR 0032 §A.6, §C.1, §C.3): every directed,
+// non-practice record with occurred_at in [@from_at, @to_at], in (occurred_at, id) order, AND the one
+// record immediately before @from_at (before_range true) -- the predecessor of the first record in
+// range, so that record's class (its P) is known. internal/domain/claim classifies these rows with
+// tap.ClassifyCheckout, the Go half of tappa_checkout_class (the parity test binds the two), so an
+// anchor's "still open / still an orphan", the window's ends and K4's two showings are the READER's
+// answer, never Decision.LeftOpen or Decision.MissingIn (the M15-10/M15-16 handover).
+//
+// created_at is selected because the classification's W reads it (the database's write instant --
+// TestTransactions_NoStatementWritesCreatedAt). Nothing read here is evidence: direction, two
+// instants, the frozen business day and the channel.
+//
+// BOUNDED BY TIME AND BY @row_limit: the caller asks for a window of hours (internal/domain/claim:
+// the anchor's day and 18 hours on either side) and REFUSES when the limit is reached, rather than
+// judging a truncated chain.
+func (q *Queries) ListPunchClaimChain(ctx context.Context, arg ListPunchClaimChainParams) ([]ListPunchClaimChainRow, error) {
+	rows, err := q.db.Query(ctx, listPunchClaimChain,
+		arg.TenantID,
+		arg.EmployeeID,
+		arg.FromAt,
+		arg.ToAt,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPunchClaimChainRow{}
+	for rows.Next() {
+		var i ListPunchClaimChainRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.OccurredAt,
+			&i.CreatedAt,
+			&i.BusinessDayStart,
+			&i.Channel,
+			&i.BeforeRange,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPunchClaimedAnchors = `-- name: ListPunchClaimedAnchors :many
+SELECT c.anchor_transaction_id
+  FROM punch_claims AS c
+ WHERE c.tenant_id = $1
+   AND c.employee_id = $2::uuid
+   AND c.anchor_transaction_id = ANY ($3::uuid[])
+`
+
+type ListPunchClaimedAnchorsParams struct {
+	TenantID   uuid.UUID
+	EmployeeID uuid.UUID
+	AnchorIds  []uuid.UUID
+}
+
+// WHICH OF THESE RECORDS ALREADY CARRY A CLAIM (M15-16, K4: "talep gönderildiyse ikinci gösterim
+// yok"; ADR 0032 §C.5: one claim per anchor, ever -- a rejected one included). Explicit tenant and
+// person beside RLS.
+func (q *Queries) ListPunchClaimedAnchors(ctx context.Context, arg ListPunchClaimedAnchorsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listPunchClaimedAnchors, arg.TenantID, arg.EmployeeID, arg.AnchorIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var anchor_transaction_id uuid.UUID
+		if err := rows.Scan(&anchor_transaction_id); err != nil {
+			return nil, err
+		}
+		items = append(items, anchor_transaction_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

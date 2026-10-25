@@ -1099,6 +1099,10 @@ var employeeLocationNonReaders = map[string]string{
 	// a site row names no local venue) and the venue is the peer's site_location_id; employees is
 	// read for the id and the department alone, so an employee with no home venue is filed the same.
 	"InsertManualSiteTransaction": "writes location_id NULL and the peer's site_location_id; employees is read for id and department_id",
+	// M15-16: the manual record answering a punch claim -- its venue is the ANCHOR's a.location_id (a
+	// transactions row), never the employee's; employees is read for id and department_id, so a
+	// person with no home venue is filed the same (at the anchor's venue).
+	"InsertManualTransactionAtAnchor": "a.location_id, the claim's anchor's venue; employees is read for id and department_id",
 }
 
 // TestEmployeeLocationReaders_Counted pins K-14's count: the statements of db/queries that
