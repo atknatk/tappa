@@ -566,7 +566,7 @@ kural listesi testle değil **kayıttan** türetilir ve API-10'un ret listesi he
     sandbox cevabı (`TestSandboxOpenAPI_TheAnswerIsTheWireStructKeyForKey` — bu turda eklendi; öncesinde
     pin yoktu). **Yakalanmayan, ve açılmadan önce de yakalanmayan:** yalnız belirli bir durumda eklenen
     anahtar — çalışan `activated` iken (M-A) ya da lokasyon pasif iken (M-B); `/v1` cevabında aktive
-    edilmiş bir çalışanı ya da pasif bir lokasyonu okuyan test yoktur (backlog T154). Şema kapalıyken
+    edilmiş bir çalışanı ya da pasif bir lokasyonu okuyan test yoktur (backlog T162, eski T154). Şema kapalıyken
     de `TestOpenAPI_EveryRouteAndErrorDocumented`'in punch sondaları boş sayfa döndürdüğü için o test bir
     punch anahtarını yakalamıyordu.
 - *K notu (2026-10-23, M15-14) — `directionSource: employee` olan bir punch eşlenmez (Q31'in (a)'sı).*

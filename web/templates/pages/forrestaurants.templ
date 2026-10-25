@@ -1,0 +1,432 @@
+package pages
+
+import (
+	"strings"
+
+	"github.com/atknatk/tappa/web/templates/layout"
+)
+
+// THE RESTAURANTS PAGE (LP-09), drawn from the ForRestaurants, T-ForRestaurants and
+// M-ForRestaurants boards: the landing's "Multi-location" card opened up -- the chain
+// on its own hours, the late night past midnight, the venues and their networks,
+// somebody covering another venue, a forgotten check-out, the day-to-day and the hours
+// -- in the shared public chrome.
+//
+// THE WORDS ARE NOT WRITTEN HERE. Every sentence that says something about the product
+// is a value in forrestaurantsview.go (RestaurantsCopy, or the landing's own values where
+// this page repeats them) with the facts it rests on. What stays literal is furniture:
+// the eyebrows, the buttons, and the drawings' own labels.
+//
+// THE TABLE IS THE DEMO SEED'S CHAIN (K1) and says so; internal/handler holds every row
+// to test/fixtures/seed.sql.
+//
+// NO SCRIPT, NO IMAGE, NO STYLE ATTRIBUTE: the page is served with the marketing policy
+// as it is. Each drawing is a picture (role img) whose name says it is a sample; nothing
+// in one is pressed. The overnight drawing's geometry is a fixed set of classes, and
+// internal/handler holds their positions to the sample's times.
+//
+// ONE DOM FOR EVERY WIDTH; input.css's LP-09 rules place it.
+
+// ForRestaurants is the page at /for/restaurants.
+templ ForRestaurants(v ForRestaurantsView) {
+	@layout.Marketing(PublicPageTitle(ForRestaurantsPath), layout.RobotsPublic, v.Share) {
+		<div class="lp">
+			@PublicChrome(PublicChromeOpts{Current: ForRestaurantsPath, SignInHref: v.SignInHref, SignupHref: v.SignupHref}) {
+				@restaurantsHead(v)
+				@landingStrip()
+				@restaurantsOvernight()
+				@restaurantsVenues()
+				@restaurantsCover()
+				@restaurantsForgot()
+				@restaurantsDayToDay()
+				@restaurantsHours()
+				@signOff(v.FreeMonths, v.SignupHref)
+			}
+		</div>
+	}
+}
+
+// restaurantsHead is the opening: the landing card's kicker and title (the page's one
+// h1), its two sentences, the line under them, the two ways on and the chain card.
+templ restaurantsHead(v ForRestaurantsView) {
+	<div class="band band--porcelain">
+		<section class="lp-pageHead" aria-label={ LandingAudiences[0].Kicker }>
+			<div class="lp-wrap lp-forHero">
+				<div class="lp-forHeroCopy">
+					<p class="lp-eyebrow lp-pageEyebrow">{ LandingAudiences[0].Kicker }</p>
+					<h1 class="lp-h1">{ LandingAudiences[0].Title }</h1>
+					<p class="lp-pageLede lp-forLede">{ RestaurantsCopy.Lede.Text }</p>
+					<p class="lp-forBuilt">{ RestaurantsCopy.Built.Text }</p>
+					<div class="lp-secBtns">
+						if v.SignupHref != "" {
+							<a class="lp-button lp-button--green" href={ templ.URL(v.SignupHref) }>Start free</a>
+						}
+						<a class="lp-button lp-button--ghost" href={ templ.URL(SecurityPath) }>How a tap is verified</a>
+					</div>
+				</div>
+				@restaurantsChain()
+			</div>
+		</section>
+	</div>
+}
+
+// restaurantsChain is the chain card: every venue of the seed's chain with its hours, the
+// overnight one marked with a moon, and the one dashboard they feed.
+templ restaurantsChain() {
+	<div class="card lp-forChain">
+		<div class="lp-forChainDraw" role="img" aria-label={ RestaurantsChainLabel() }>
+			<span class="lp-lbl">{ "A chain of " + RestaurantsChainCount() + " venues · " + RestaurantsDemoLabel }</span>
+			<ul class="lp-forTiles">
+				for _, x := range RestaurantsVenues {
+					<li class={ "lp-forTile", templ.KV("lp-forTile--night", x.Overnight) }>
+						<span class="lp-forTileIcons">
+							@restaurantsPlaqueIcon()
+							if x.Overnight {
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+									<path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"></path>
+								</svg>
+							}
+						</span>
+						<span class="lp-forTileName">{ x.Name }</span>
+						<span class="lp-forTileHours">{ x.Hours() }</span>
+					</li>
+				}
+			</ul>
+			<svg class="lp-forFeed" viewBox="0 0 300 26" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+				<path class="lp-strokeGreen" d="M50 0 L150 24 M150 0 L150 24 M250 0 L150 24" stroke-width="1.6" fill="none" vector-effect="non-scaling-stroke"></path>
+			</svg>
+			<div class="lp-forDash">
+				<span class="lp-forDashDot" aria-hidden="true"><span class="lp-forDashRing"></span></span>
+				<span class="lp-forDashWords"><span class="lp-forDashName">One dashboard</span><span class="lp-forDashSub">hours per person and per venue</span></span>
+			</div>
+		</div>
+		<span class="lp-fitEx lp-forEx">{ LandingAudiences[0].Example.Text }</span>
+	</div>
+}
+
+// restaurantsPlaqueIcon is the boards' plaque glyph.
+templ restaurantsPlaqueIcon() {
+	<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+		<rect x="5" y="2.5" width="14" height="19" rx="2.5"></rect>
+		<path d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"></path>
+		<path d="M10.4 12.4a2.2 2.2 0 0 1 3.2 0"></path>
+		<circle cx="12" cy="14.6" r=".5" fill="currentColor"></circle>
+		<path d="M9 18.2h6"></path>
+	</svg>
+}
+
+// restaurantsTitle is a section's eyebrow and heading; the heading's id names the section.
+templ restaurantsTitle(id, kick string, heading Line) {
+	<p class="lp-eyebrow lp-secEyebrow">{ kick }</p>
+	<h2 id={ id + "-title" } class="lp-h2">{ heading.Text }</h2>
+}
+
+// restaurantsOvernight is the late night: three bullets beside the shift drawn on its
+// twelve hours and its two dockets.
+templ restaurantsOvernight() {
+	<div class="band band--paper">
+		<section id={ RestaurantsOvernightID } class="lp-sec" aria-labelledby={ RestaurantsOvernightID + "-title" }>
+			<div class="lp-wrap">
+				@restaurantsTitle(RestaurantsOvernightID, "Late nights", RestaurantsCopy.OvernightHeading)
+				<p class="lp-lede">{ RestaurantsCopy.OvernightLede.Text }</p>
+				<div class="lp-forRow">
+					<div class="lp-forSide">
+						@productBullets(RestaurantsCopy.OvernightBullets)
+					</div>
+					@restaurantsTimeline()
+				</div>
+			</div>
+		</section>
+	</div>
+}
+
+// restaurantsTimeline draws the overnight shift: the venue's hours on a line from 16:00 to
+// 04:00, the check-in and the check-out on it, the brace over the one shift they make,
+// and the two dockets.
+templ restaurantsTimeline() {
+	<div class="card lp-forCard" role="img" aria-label={ RestaurantsTimelineLabel() }>
+		<span class="lp-lbl">{ "An overnight shift at " + RestaurantsOvernightIn.Venue + " · sample" }</span>
+		<div class="lp-forTl">
+			<span class="lp-forTlSpan">{ RollHours(RestaurantsOvernightMinutes) + " · one shift" }</span>
+			<span class="lp-forTlBrace"></span>
+			<div class="lp-forTlTrack">
+				for i := range len(RestaurantsTimelineAxis) - 2 {
+					<span class={ restaurantsTickClass(i) }></span>
+				}
+				<span class="lp-forTlShift"></span>
+				<span class="lp-forTlShiftName">{ strings.ToUpper(RestaurantsOvernightIn.Venue) + " " + RestaurantsVenueNamed(RestaurantsOvernightIn.Venue).Hours() }</span>
+				<span class="lp-forTlMidnight"></span>
+				<span class="lp-forTlTap lp-forTlIn"></span>
+				<span class="lp-forTlTag lp-forTlIn">{ RestaurantsOvernightIn.Direction + " " + RestaurantsOvernightIn.At }</span>
+				<span class="lp-forTlTap lp-forTlOut"></span>
+				<span class="lp-forTlTag lp-forTlOut">{ RestaurantsOvernightOut.Direction + " " + RestaurantsOvernightOut.At }</span>
+			</div>
+			<div class="lp-forTlAxis">
+				for _, h := range RestaurantsTimelineAxis {
+					<span>{ h }</span>
+				}
+			</div>
+			<div class="lp-forTlDays">
+				<span>{ RestaurantsOvernightDays[0] }</span>
+				<span class="lp-forTlNextDay">{ RestaurantsOvernightDays[1] }</span>
+			</div>
+		</div>
+		<div class="lp-forPair">
+			@restaurantsDocket(RestaurantsOvernightIn, RestaurantsOvernightDays[0], "")
+			@restaurantsDocket(RestaurantsOvernightOut, RestaurantsOvernightDays[1], "")
+		</div>
+	</div>
+}
+
+// restaurantsTickClass is the i-th inner hour mark of the overnight drawing (18:00 …
+// 02:00), from literal class names.
+func restaurantsTickClass(i int) string {
+	switch i {
+	case 0:
+		return "tick lp-forTick1"
+	case 1:
+		return "tick lp-forTick2"
+	case 2:
+		return "tick lp-forTick3"
+	case 3:
+		return "tick lp-forTick4"
+	}
+	return "tick lp-forTick5"
+}
+
+// restaurantsDocket is one sample record as the panel's docket draws it -- the venue and
+// the label after it, the stamp, the person, the direction and time, the trust with the
+// two evidence signs -- and the record's note when it has one.
+templ restaurantsDocket(d PanelDocket, label, note string) {
+	<div class="lp-slip lp-secDocket">
+		<div class="lp-secDocketTop">
+			<span class="lp-lbl lp-secDocketVenue">{ d.Venue + " · " + label }</span>
+			@securityStamp(d.Verdict)
+		</div>
+		<span class="lp-secDocketWho">{ d.Who }</span>
+		<span class="lp-secDocketTime"><span class="lp-dir">{ d.Direction }</span><span>{ d.At }</span></span>
+		<span class="lp-secDocketFoot"><span>Trust { d.Trust }</span><span>IP { d.IP } · GPS { d.GPS }</span></span>
+		if note != "" {
+			<span class="lp-forDocketNote">{ note }</span>
+		}
+	</div>
+}
+
+// restaurantsVenues is the venues: two bullets, the price card's line about hours and the
+// way to the network check, beside the seed's chain as a table.
+templ restaurantsVenues() {
+	<div class="band band--porcelain">
+		<section id={ RestaurantsVenuesID } class="lp-sec" aria-labelledby={ RestaurantsVenuesID + "-title" }>
+			<div class="lp-wrap">
+				@restaurantsTitle(RestaurantsVenuesID, "Every venue on its own terms", RestaurantsCopy.VenuesHeading)
+				<p class="lp-lede">{ RestaurantsCopy.VenuesLede.Text }</p>
+				<div class="lp-forRow">
+					<div class="lp-forSide">
+						@productBullets(RestaurantsCopy.VenuesBullets)
+						<span class="lp-fitEx lp-forChip">{ RestaurantsCopy.VenuesChip.Text }</span>
+						<a class="more" href={ templ.URL(SecurityPath + "#" + SecurityProofsID) }>
+							How the network check works
+							@moreArrow()
+						</a>
+					</div>
+					<div class="lp-forTableBox">
+						<table class="lp-forTable">
+							<caption class="lp-lbl">{ "Venues, hours and networks · " + RestaurantsDemoLabel }</caption>
+							<thead>
+								<tr>
+									<th class="lp-lbl" scope="col">Venue</th>
+									<th class="lp-lbl" scope="col">Hours</th>
+									<th class="lp-lbl" scope="col">Network on file</th>
+								</tr>
+							</thead>
+							<tbody>
+								for _, x := range RestaurantsVenues {
+									<tr>
+										<th scope="row">{ x.Name }</th>
+										<td class="lp-forHours">
+											{ x.Hours() }
+											if x.Overnight {
+												<span class="lp-forNight">· overnight</span>
+											}
+										</td>
+										<td class="lp-forNet">{ x.Network }</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				</div>
+			</div>
+		</section>
+	</div>
+}
+
+// restaurantsCover is somebody covering another venue: the sentence and two bullets
+// beside the drawing of Maria Vella's Thursday.
+templ restaurantsCover() {
+	<div class="band band--paper">
+		<section id={ RestaurantsCoverID } class="lp-sec" aria-labelledby={ RestaurantsCoverID + "-title" }>
+			<div class="lp-wrap">
+				@restaurantsTitle(RestaurantsCoverID, "Covering another venue", RestaurantsCopy.CoverHeading)
+				<div class="lp-forRow lp-forRow--even lp-forAfterTitle">
+					<div class="lp-forSide">
+						<p class="lp-forPara">{ RestaurantsCopy.CoverLede.Text }</p>
+						@productBullets(RestaurantsCopy.CoverBullets)
+					</div>
+					<div class="card lp-forCard" role="img" aria-label={ RestaurantsCoverLabel() }>
+						<span class="lp-lbl">Covering another venue · sample</span>
+						<div class="lp-forMove">
+							<div class="lp-forPlace">
+								<span class="lp-lbl">Home venue</span>
+								<span class="lp-forPlaceName">{ RestaurantsCoverHome }</span>
+							</div>
+							<span class="lp-forMoveArrow">
+								@moreArrow()
+							</span>
+							<div class="lp-forPlace lp-forPlace--here">
+								<span class="lp-lbl">{ "Tapped on " + RestaurantsCoverDay }</span>
+								<span class="lp-forPlaceName">{ RestaurantsCoverDocket.Venue }</span>
+							</div>
+						</div>
+						@restaurantsDocket(RestaurantsCoverDocket, RestaurantsCoverDayShort+" · PLAQUE "+RestaurantsCoverPlaque, RestaurantsCoverNote)
+					</div>
+				</div>
+			</div>
+		</section>
+	</div>
+}
+
+// restaurantsForgot is the forgotten check-out: the three steps it takes, as an ordered
+// list of cards (words, not a picture -- an arrow between two cards is drawing only), and
+// two bullets.
+templ restaurantsForgot() {
+	<div class="band band--porcelain">
+		<section id={ RestaurantsForgotID } class="lp-sec" aria-labelledby={ RestaurantsForgotID + "-title" }>
+			<div class="lp-wrap">
+				@restaurantsTitle(RestaurantsForgotID, "When someone forgets", RestaurantsCopy.ForgotHeading)
+				<ol class="lp-forSteps lp-forAfterTitle" role="list" aria-label={ RestaurantsForgotLabel }>
+					for i, s := range RestaurantsForgotSteps {
+						<li class="card lp-forStep">
+							if i > 0 {
+								<span class="lp-forStepArrow">
+									@moreArrow()
+								</span>
+							}
+							<span class="lp-forStepNo">{ s.No }</span>
+							<span class="lp-forStepTitle">{ s.Title }</span>
+							<span class="lp-forStepDetail">{ s.Detail }</span>
+						</li>
+					}
+				</ol>
+				<div class="lp-forUnder">
+					@productBullets(RestaurantsCopy.ForgotBullets)
+				</div>
+			</div>
+		</section>
+	</div>
+}
+
+// restaurantsDayToDay is the four chores, each a card with its icon, its label and its
+// sentence.
+templ restaurantsDayToDay() {
+	<div class="band band--paper">
+		<section id={ RestaurantsDayID } class="lp-sec" aria-labelledby={ RestaurantsDayID + "-title" }>
+			<div class="lp-wrap">
+				@restaurantsTitle(RestaurantsDayID, "Day to day", RestaurantsCopy.CasesHeading)
+				<ul class="lp-forCases lp-forAfterTitle" role="list">
+					for i, c := range RestaurantsCopy.Cases {
+						<li class="card lp-forCase">
+							<span class="lp-ico">
+								@restaurantsCaseIcon(i)
+							</span>
+							<span class="lp-forCaseText">
+								<span class="lp-lbl">{ c.Label }</span>
+								<span class="lp-forCaseLine">{ c.Text.Text }</span>
+							</span>
+						</li>
+					}
+				</ul>
+			</div>
+		</section>
+	</div>
+}
+
+// restaurantsCaseIcon is the boards' icon for the i-th chore: an envelope, two people, a
+// plaque, a Wi-Fi fan.
+templ restaurantsCaseIcon(i int) {
+	switch i {
+		case 0:
+			<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+				<rect x="3" y="5" width="18" height="14" rx="2.5"></rect>
+				<path d="M3.8 6.6 12 12.8l8.2-6.2"></path>
+			</svg>
+		case 1:
+			<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+				<circle cx="9" cy="8.5" r="3.2"></circle>
+				<path d="M3.5 19.5c.6-3.1 2.8-5 5.5-5s4.9 1.9 5.5 5"></path>
+				<circle cx="16.8" cy="9.5" r="2.6"></circle>
+				<path d="M16 14.6c2.4 0 4 1.6 4.5 4.4"></path>
+			</svg>
+		case 2:
+			<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+				<rect x="5" y="2.5" width="14" height="19" rx="2.5"></rect>
+				<path d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"></path>
+				<path d="M10.4 12.4a2.2 2.2 0 0 1 3.2 0"></path>
+				<circle cx="12" cy="14.6" r=".5" fill="currentColor"></circle>
+				<path d="M9 18.2h6"></path>
+			</svg>
+		default:
+			<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+				<path d="M2.8 9.2a13.5 13.5 0 0 1 18.4 0"></path>
+				<path d="M5.9 12.6a9 9 0 0 1 12.2 0"></path>
+				<path d="M9 16a4.4 4.4 0 0 1 6 0"></path>
+				<circle cx="12" cy="19.2" r=".9" fill="currentColor"></circle>
+			</svg>
+	}
+}
+
+// restaurantsHours is the hours: two lines of the price card beside the landing's drawing
+// of The Roll and its legend, in the panel's words.
+templ restaurantsHours() {
+	<div class="band band--porcelain">
+		<section id={ RestaurantsHoursID } class="lp-sec" aria-labelledby={ RestaurantsHoursID + "-title" }>
+			<div class="lp-wrap">
+				@restaurantsTitle(RestaurantsHoursID, "Hours", RestaurantsCopy.HoursHeading)
+				<div class="lp-forRow lp-forRow--wide lp-forAfterTitle">
+					<div class="lp-forSide">
+						@productBullets(RestaurantsCopy.HoursBullets)
+						<p class="lp-forSample">{ LandingPanelSampleNote }</p>
+					</div>
+					<div class="lp-forRoll">
+						<span class="lp-lbl">{ LandingPanelRoll.Title + " · sample" }</span>
+						@landingMiniRoll()
+						<ul class="lp-forLegend" role="list">
+							for i, w := range RestaurantsRollLegend {
+								<li>
+									if i == len(RestaurantsRollLegend)-1 {
+										<span class="lp-forKey lp-forKey--none" aria-hidden="true">—</span>
+									} else {
+										<span class={ restaurantsKeyClass(i) } aria-hidden="true"></span>
+									}
+									{ w }
+								</li>
+							}
+						</ul>
+					</div>
+				</div>
+			</div>
+		</section>
+	</div>
+}
+
+// restaurantsKeyClass is the swatch beside the i-th legend entry, from literal class
+// names, in RestaurantsRollLegend's order; the last entry's mark is the dash itself.
+func restaurantsKeyClass(i int) string {
+	switch i {
+	case 0:
+		return "lp-forKey lp-forKey--worked"
+	case 1:
+		return "lp-forKey lp-forKey--away"
+	}
+	return "lp-forKey lp-forKey--open"
+}

@@ -1,0 +1,884 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Product tour — Taptime</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.eyebrow{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#1F5C41;margin:0}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.tapdocket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;box-shadow:0 1px 2px rgba(21,34,25,.08);padding:12px 16px;font-family:'IBM Plex Mono',monospace;font-size:14px}
+.tapdocket::before,.tapdocket::after{content:"";position:absolute;left:0;right:0;height:8px;background:radial-gradient(circle at 6px 4px,#EDF0EA 3px,transparent 3.5px) 0 0/12px 8px repeat-x}
+.tapdocket::before{top:-4px}.tapdocket::after{bottom:-4px}
+.stamp{display:inline-block;padding:3px 8px;border:2px solid;border-radius:0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-6deg);white-space:nowrap}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
+.stamp--flag{border-color:#D98E2B;box-shadow:inset 0 0 0 1px #D98E2B;background:rgba(217,142,43,.1);transform:rotate(-3deg)}
+.stamp--rej{border-color:#BE3D2A;box-shadow:inset 0 0 0 1px #BE3D2A;background:rgba(190,61,42,.1);transform:rotate(-10deg)}
+.btn{min-height:48px;padding:0 22px;border-radius:12px;font:700 15px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:9px;text-decoration:none;box-sizing:border-box;white-space:nowrap}
+.btn--green{background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
+.btn--green:hover{background:#152219;color:#FFFDF4}
+.btn--ghost{border:2px solid #152219;color:#152219;background:transparent}
+.btn--ghost:hover{background:#152219;color:#FFFDF4}
+.ico{flex:none;width:44px;height:44px;border-radius:12px;background:#E1EDE6;color:#1F5C41;display:inline-flex;align-items:center;justify-content:center}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:18px;box-sizing:border-box}
+details.qa{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px}
+details.qa summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:44px;font-weight:700;color:#152219}
+details.qa summary::-webkit-details-marker{display:none}
+details.qa .pl{flex:none;width:28px;height:28px;border-radius:50%;border:1px solid #C9D2C8;display:inline-flex;align-items:center;justify-content:center;color:#1F5C41;transition:transform .2s}
+details.qa[open] .pl{transform:rotate(45deg)}
+.flink{min-height:44px;display:inline-flex;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7);text-decoration:underline;text-underline-offset:4px}
+.flink:hover{color:#152219}
+.navlink{min-height:44px;display:inline-flex;align-items:center;font-size:14px;font-weight:500;color:rgba(21,34,25,.85);text-decoration:none}
+.navlink:hover{color:#152219}
+.navlink[aria-current]{color:#152219;font-weight:700;box-shadow:inset 0 -2px 0 #1F5C41}
+.fcol a{min-height:40px;display:flex;align-items:center;font-size:14px;color:rgba(21,34,25,.85);text-decoration:none}
+.fcol a:hover{color:#152219;text-decoration:underline;text-underline-offset:4px}
+details.menu>summary{list-style:none;cursor:pointer;min-height:44px;min-width:44px;padding:0 10px;box-sizing:border-box;border:1.5px solid #152219;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#152219;background:transparent}
+details.menu>summary::-webkit-details-marker{display:none}
+details.menu:not([open])>nav{display:none}
+details.menu[open]>summary{background:#152219;color:#FFFDF4;border-color:#152219}
+details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}details.menu[open] .mopen{display:none}
+.mlink{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:16px;font-weight:700;color:#152219;text-decoration:none;border-top:1px dashed #C9D2C8}
+.mlink:first-child{border-top:0}
+.hbtn{min-height:44px;padding:0 18px;border-radius:12px;font:700 14px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box;white-space:nowrap;background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
+.hbtn:hover{background:#152219;color:#FFFDF4}
+.mlink[aria-current]{color:#1F5C41;box-shadow:inset 3px 0 0 #1F5C41;padding-left:12px}
+:focus-visible{outline:2px solid #152219;outline-offset:2px}
+.ondark :focus-visible,.band--ink :focus-visible{outline-color:#FFFDF4}
+html{scroll-padding-top:72px}
+@media (max-width:599px){html{scroll-padding-bottom:80px}}
+.fitcard{transition:border-color .15s}.fitcard:hover{border-color:#152219;color:#152219}
+.band--paper .card,.band--paper .docket,.band--paper details.qa{border-color:rgba(21,34,25,.24)}
+.band--paper .docket{box-shadow:0 2px 6px rgba(21,34,25,.08)}
+.band--paper .docket::after{background:radial-gradient(circle at 7px 7px,#EDF0EA 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.more{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-weight:700;font-size:15px;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
+  <header style="position: sticky; top: 0; z-index: 5; background: rgba(237,240,234,.94); border-bottom: 1px solid #C9D2C8">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box; min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 12px">
+      <a href="Landing.dc.html" style="text-decoration: none; color: #152219; display: flex; align-items: center; gap: 10px; min-height: 44px">
+        <span aria-hidden="true" style="flex: none; width: 28px; height: 28px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 6px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
+        <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em">taptime</span>
+        <span class="mono" style="font-size: 11px; letter-spacing: .14em; color: rgba(21,34,25,.7); padding-top: 4px">PUNCHLESS</span>
+      </a>
+      <div style="display: flex; align-items: center; gap: 26px">
+        <nav aria-label="Pages" style="display: flex; align-items: center; gap: 26px"><a href="Product.dc.html" class="navlink" aria-current="page">Product</a><a href="Security.dc.html" class="navlink">Security</a><a href="Pricing.dc.html" class="navlink">Pricing</a></nav>
+        <span aria-hidden="true" style="width: 1px; height: 22px; background: #C9D2C8"></span>
+        <a href="SignIn.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
+        <a href="Signup.dc.html" class="hbtn">Start free</a>
+      </div>
+    </div>
+  </header>
+  <section aria-label="Product tour" style="padding: 80px 0 8px">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 72px; align-items: center">
+      <div style="min-width: 0">
+        <p class="eyebrow" style="margin-bottom: 18px">Product tour</p>
+        <h1 style="margin: 0 0 20px; max-width: 760px; font-size: 56px; line-height: 1.05; letter-spacing: -0.035em; font-weight: 700">{{prod.h1}}</h1>
+        <p style="margin: 0 0 30px; max-width: 560px; font-size: 19px; line-height: 1.55; color: rgba(21,34,25,.85)">{{prod.lede}}</p>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap">
+          <a class="btn btn--green" href="Signup.dc.html">{{heroCta}}</a>
+          <a class="btn btn--ghost" href="Pricing.dc.html">See pricing</a>
+        </div>
+      </div>
+      <nav aria-label="On this page" class="docket" style="padding: 20px 22px 18px; box-shadow: 0 14px 30px rgba(21,34,25,.08)">
+          <span class="lbl" style="display: block; padding-bottom: 6px">On this page</span>
+          <ol style="list-style: none; margin: 0; padding: 0">
+            <sc-for list="{{prod.index}}" as="x" hint-placeholder-count="7">
+              <li style="border-top: 1px dashed #C9D2C8"><a href="#" style="min-height: 40px; display: flex; align-items: center; gap: 14px; text-decoration: none; color: #152219; font-weight: 700; font-size: 15px"><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); font-weight: 400">{{x.n}}</span>{{x.t}}</a></li>
+            </sc-for>
+          </ol>
+        </nav>
+    </div>
+  </section>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 96px">
+  <section id="tap" style="padding: 96px 0 0">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box; display: flex; flex-direction: column; gap: 40px">
+      <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: start">
+          <div><div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px">
+            <span class="mono" style="flex: none; width: 34px; height: 34px; border-radius: 50%; background: #152219; color: #FFFDF4; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">{{prod.tour.0.n}}</span>
+            <span class="eyebrow">{{prod.tour.0.k}}</span>
+          </div><h2 style="margin: 0 0 14px; font-size: 40px; line-height: 1.08; letter-spacing: -0.03em">{{prod.tour.0.t}}</h2><p style="margin: 0; font-size: 17px; line-height: 1.6; color: rgba(21,34,25,.85)"><sc-for list="{{steps.2.body}}" as="r"><span style="{{r.s}}">{{r.t}}</span></sc-for></p></div>
+          <div style="padding-top: 48px"><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+            <sc-for list="{{prod.tour.0.bullets}}" as="b" hint-placeholder-count="3">
+              <li style="display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 15px; line-height: 1.5; color: rgba(21,34,25,.88)"><span style="color: #1F5C41; padding-top: 1px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>{{b}}</span></li>
+            </sc-for>
+          </ul></div>
+        </div>
+      <div style="background: rgba(255,253,244,.6); border: 1px solid #C9D2C8; border-radius: 24px; padding: 36px 32px 32px"><div style="display: flex; align-items: center; justify-content: center; gap: 28px">
+            <div style="flex: none">
+          <div aria-hidden="true" style="width: 200px; box-sizing: border-box; background: #152219; border-radius: 20px; padding: 26px 20px 20px; color: #FFFDF4; text-align: center; box-shadow: 0 24px 60px rgba(21,34,25,.32)">
+            <div class="mono" style="font-size: 10px; letter-spacing: .3em; color: rgba(255,253,244,.6); margin-bottom: 18px">TAPTIME</div>
+            <div style="width: 84px; height: 84px; margin: 0 auto 18px; border-radius: 50%; border: 2px dashed rgba(143,211,175,.75); display: flex; align-items: center; justify-content: center; position: relative">
+              <span style="position: absolute; inset: -10px; border-radius: 50%; border: 2px solid rgba(143,211,175,.28)"></span>
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#8FD3AF" stroke-width="1.6" stroke-linecap="round"><path d="M6 8.5a8 8 0 0 1 12 0M8.5 11a4.5 4.5 0 0 1 7 0"/><circle cx="12" cy="14.5" r="1.6" fill="#8FD3AF" stroke="none"/></svg>
+            </div>
+            <div style="font-size: 16px; font-weight: 700; line-height: 1.35; margin-bottom: 14px">Tap here to<br>clock in / out</div>
+            <div class="mono" style="font-size: 10px; letter-spacing: 0.04em; color: rgba(255,253,244,.6); border-top: 1px dashed rgba(255,253,244,.2); padding-top: 12px; white-space: nowrap">KF MSIDA · 04A1-C33C</div>
+          </div></div>
+            
+        <div aria-hidden="true" style="flex: none; width: 70px; display: flex; align-items: center; justify-content: center; color: #1F5C41">
+          <svg width="70" height="110" viewBox="0 0 50 110" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" preserveAspectRatio="none">
+            <path d="M14 38a24 24 0 0 1 0 34" opacity=".9"/><path d="M22 28a36 36 0 0 1 0 54" opacity=".55"/><path d="M30 18a48 48 0 0 1 0 74" opacity=".3"/>
+          </svg>
+        </div>
+            <div style="display: flex; justify-content: center; align-items: flex-start; gap: 28px">
+          <figure style="margin: 0; display: flex; flex-direction: column; gap: 14px; align-items: flex-start; min-width: 0">
+        <div role="img" aria-label="Sample screen: the tap screen — Hello {{sample.n}}, {{sample.loc}}, one Tap button" style="flex: none; width: 250px; box-sizing: border-box; background: #152219; border-radius: 40px; padding: 10px; box-shadow: 0 30px 60px rgba(21,34,25,.28)">
+          <div style="width: 230px; height: 400px; border-radius: 31px; background: #EDF0EA; overflow: hidden; position: relative">
+            <div aria-hidden="true" style="position: absolute; top: 9px; left: 50%; width: 76px; height: 20px; margin-left: -38px; border-radius: 10px; background: #152219; z-index: 2"></div>
+            <div style="width: 375px; height: 652px; transform: scale(0.6133); transform-origin: 0 0; position: absolute; left: 0; top: 0">
+              <div aria-hidden="true" style="height: 54px; padding: 0 30px; display: flex; align-items: center; justify-content: space-between; font: 700 16px 'Space Grotesk', sans-serif; color: #152219">
+                <span>{{sample.time}}</span>
+                <span style="display: flex; align-items: center; gap: 6px">
+                  <svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.5" width="3" height="9.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+                  <svg width="26" height="13" viewBox="0 0 26 13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x=".7" y=".7" width="21.5" height="11.6" rx="3.5"/><rect x="3" y="3" width="15" height="7" rx="1.6" fill="currentColor" stroke="none"/><path d="M24.4 4.6v3.8" stroke-linecap="round"/></svg>
+                </span>
+              </div>
+              <div style="padding: 32px 16px; display: flex; flex-direction: column; gap: 24px; font-family: 'Space Grotesk', sans-serif; color: #152219">
+                <div style="display: flex; align-items: baseline; justify-content: space-between">
+                  <span style="font-size: 18px; font-weight: 700; letter-spacing: -0.025em; color: #152219">taptime</span>
+                  <span class="mono" style="font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: rgba(21,34,25,.7)">punchless</span>
+                </div>
+                <section class="tapdocket">
+                  <p style="margin: 0; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: rgba(21,34,25,.7)">Tapping</p>
+                  <p style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 30px; line-height: 36px; font-weight: 700; letter-spacing: -0.025em; color: #152219">Hello <span>{{sample.n}}</span></p>
+                  <p style="margin: 4px 0 0; color: rgba(21,34,25,.7)">{{sample.loc}}</p>
+                </section>
+                <div style="width: 100%; min-height: 64px; border-radius: 2px; background: #1F5C41; color: #FFFDF4; font: 400 20px 'Space Grotesk', sans-serif; letter-spacing: -0.025em; display: flex; align-items: center; justify-content: center">Tap</div>
+              </div>
+            </div>
+          </div>
+        </div><figcaption style="display: flex; flex-direction: column; gap: 4px; max-width: 250px">
+              <span class="lbl" style="font-size: 10.5px">Tap screen</span>
+              <span style="font-size: 13.5px; line-height: 1.45; color: rgba(21,34,25,.8)">{{team.capTap}}</span>
+            </figcaption></figure>
+          <figure style="margin: 0; display: flex; flex-direction: column; gap: 14px; align-items: flex-start; min-width: 0">
+        <div role="img" aria-label="Sample screen: the result of a flagged tap — Tapped in {{sample.time}}, FLAGGED" style="flex: none; width: 250px; box-sizing: border-box; background: #152219; border-radius: 40px; padding: 10px; box-shadow: 0 30px 60px rgba(21,34,25,.28)">
+          <div style="width: 230px; height: 400px; border-radius: 31px; background: #EDF0EA; overflow: hidden; position: relative">
+            <div aria-hidden="true" style="position: absolute; top: 9px; left: 50%; width: 76px; height: 20px; margin-left: -38px; border-radius: 10px; background: #152219; z-index: 2"></div>
+            <div style="width: 375px; height: 652px; transform: scale(0.6133); transform-origin: 0 0; position: absolute; left: 0; top: 0">
+              <div aria-hidden="true" style="height: 54px; padding: 0 30px; display: flex; align-items: center; justify-content: space-between; font: 700 16px 'Space Grotesk', sans-serif; color: #152219">
+                <span>{{sample.time}}</span>
+                <span style="display: flex; align-items: center; gap: 6px">
+                  <svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.5" width="3" height="9.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+                  <svg width="26" height="13" viewBox="0 0 26 13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x=".7" y=".7" width="21.5" height="11.6" rx="3.5"/><rect x="3" y="3" width="15" height="7" rx="1.6" fill="currentColor" stroke="none"/><path d="M24.4 4.6v3.8" stroke-linecap="round"/></svg>
+                </span>
+              </div>
+              <div style="padding: 32px 16px; display: flex; flex-direction: column; gap: 24px; font-family: 'Space Grotesk', sans-serif; color: #152219">
+                <div style="display: flex; align-items: baseline; justify-content: space-between">
+                  <span style="font-size: 18px; font-weight: 700; letter-spacing: -0.025em; color: #152219">taptime</span>
+                  <span class="mono" style="font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: rgba(21,34,25,.7)">punchless</span>
+                </div>
+                <section class="tapdocket">
+                  <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px">
+                    <div>
+                      <p style="margin: 0; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: rgba(21,34,25,.7)">{{sample.loc}}</p>
+                      <p style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 30px; line-height: 36px; font-weight: 700; letter-spacing: -0.025em; color: #152219">Tapped in<span class="mono" style="display: block; font-size: 20px; line-height: 28px; font-weight: 400; color: rgba(21,34,25,.7)">{{sample.time}}</span></p>
+                    </div>
+                    <span class="stamp stamp--flag" style="flex: none; margin-top: 4px">Flagged</span>
+                  </div>
+                  <div style="margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px">
+                    <span style="font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: rgba(21,34,25,.7); line-height: 22px">Trust</span><span>{{sample.trust}}</span>
+                  </div>
+                  <p style="margin: 8px 0 0; color: rgba(21,34,25,.7)">{{sample.note}}</p>
+                </section>
+                <div style="display: flex; flex-direction: column; gap: 32px; margin-top: 16px; font-size: 16px; line-height: 24px; color: rgba(21,34,25,.7)">
+                  <p style="margin: 0">Recorded — it needs your manager's approval before it counts toward your hours. Tell them if that looks wrong.</p>
+                  <p style="margin: 0">You can close this page.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div><figcaption style="display: flex; flex-direction: column; gap: 4px; max-width: 250px">
+              <span class="lbl" style="font-size: 10.5px">Result · flagged</span>
+              <span style="font-size: 13.5px; line-height: 1.45; color: rgba(21,34,25,.8)">{{team.capFlag}}</span>
+            </figcaption></figure>
+        </div>
+          </div></div>
+      <div style="display: flex; flex-direction: column; gap: 20px">
+        <div>
+          <h3 style="margin: 0 0 8px; font-size: 26px; letter-spacing: -0.025em">{{team.h2}}</h3>
+          <p style="margin: 0; max-width: 620px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.85)">{{team.sub}}</p>
+        </div>
+        <ul style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px 28px">
+          <sc-for list="{{team.points}}" as="p" hint-placeholder-count="4">
+            <li style="display: grid; grid-template-columns: 44px minmax(0, 1fr); column-gap: 16px; align-items: start">
+              <span class="ico"><sc-if value="{{p.browser}}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 8.5h18"/><circle cx="6" cy="6.3" r=".5" fill="currentColor"/><circle cx="8.2" cy="6.3" r=".5" fill="currentColor"/></svg></sc-if><sc-if value="{{p.hello}}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c.8-3.6 3.6-5.6 7-5.6s6.2 2 7 5.6"/></svg></sc-if><sc-if value="{{p.drop}}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2c3.4 4.2 5.6 7.4 5.6 10.4a5.6 5.6 0 0 1-11.2 0c0-3 2.2-6.2 5.6-10.4z"/></svg></sc-if><sc-if value="{{p.done}}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8.2 12.2l2.6 2.6 5-5.2"/></svg></sc-if></span>
+              <span style="display: flex; flex-direction: column; gap: 4px; padding-top: 2px">
+                <span style="font-size: 17px; font-weight: 700; letter-spacing: -0.015em">{{p.t}}</span>
+                <span style="font-size: 14.5px; line-height: 1.55; color: rgba(21,34,25,.8)">{{p.b}}</span>
+              </span>
+            </li>
+          </sc-for>
+        </ul>
+        <p class="mono" style="margin: 0; font-size: 11.5px; color: rgba(21,34,25,.7)">{{team.foot}}</p>
+      </div>
+    </div>
+  </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 96px">
+  <section id="pass" style="padding: 96px 0 0">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box"><div style="display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 56px; align-items: center"><div style="min-width: 0"><div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px">
+            <span class="mono" style="flex: none; width: 34px; height: 34px; border-radius: 50%; background: #152219; color: #FFFDF4; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">{{prod.tour.1.n}}</span>
+            <span class="eyebrow">{{prod.tour.1.k}}</span>
+          </div><h2 style="margin: 0 0 14px; font-size: 40px; line-height: 1.08; letter-spacing: -0.03em">{{prod.tour.1.t}}</h2><sc-if value="{{prod.tour.1.hasLine}}"><p style="margin: 0 0 22px; font-size: 17px; line-height: 1.6; color: rgba(21,34,25,.85)">{{prod.tour.1.line}}</p></sc-if><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+            <sc-for list="{{prod.tour.1.bullets}}" as="b" hint-placeholder-count="3">
+              <li style="display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 15px; line-height: 1.5; color: rgba(21,34,25,.88)"><span style="color: #1F5C41; padding-top: 1px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>{{b}}</span></li>
+            </sc-for>
+          </ul></div><div style="min-width: 0"><div role="img" aria-label="Sample screen: The Pass" style="display: flex; border: 1px solid #C9D2C8; border-radius: 18px; overflow: hidden; background: #EDF0EA; box-shadow: 0 18px 40px rgba(21,34,25,.10)">
+            <div aria-hidden="true" style="flex: none; width: 46px; background: #152219; padding: 18px 9px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; position: relative">
+              <span style="position: absolute; left: 0; right: 0; top: 0; height: 3px; background: #1F5C41"></span>
+              <span style="width: 18px; height: 18px; border-radius: 50%; background: #1F5C41; margin-bottom: 8px; box-shadow: inset 0 0 0 4px #152219, inset 0 0 0 6px #FFFDF4"></span>
+              <span style="display: block; height: 8px; border-radius: 4px; background: #FFFDF4; width: 28px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span>
+            </div>
+            <div style="flex: 1; min-width: 0; padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px">
+              <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 10px">
+                <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+                  <span class="lbl" style="font-size: 10px">Tue 20 Oct · newest on the left</span>
+                  <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">The Pass</span>
+                </div>
+                
+              </div>
+              <div style="position: relative; padding-top: 6px">
+                <div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 6px; height: 7px; border-radius: 4px; background: #152219"></div>
+                <div style="display: flex; gap: 14px; padding: 0 8px 12px; justify-content: flex-start">
+                  <sc-for list="{{pass}}" as="d" hint-placeholder-count="4">
+                    <div style="flex: 1 1 0; min-width: 0; max-width: 168px; display: flex; flex-direction: column; align-items: center">
+                      <div aria-hidden="true" style="width: 34px; height: 13px; background: rgba(21,34,25,.7); border-radius: 0 0 5px 5px; position: relative; z-index: 1"></div>
+                      <div class="docket" style="width: 100%; margin-top: -3px; padding: 13px 12px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 7px; transform: rotate({{d.tilt}}deg); transform-origin: top center">
+                        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 6px">
+                          <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 2px">{{d.venue}}</span>
+                        </div>
+                        <span class="{{d.stampCls}}" style="align-self: flex-end; font-size: 9.5px; padding: 2px 6px">{{d.stamp}}</span>
+                        <span style="font-size: 14px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap">{{d.name}}</span>
+                        <span class="mono" style="display: flex; align-items: baseline; gap: 8px"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">{{d.dir}}</span><span style="font-size: 17px">{{d.time}}</span></span>
+                        <span class="mono" style="font-size: 9.5px; color: rgba(21,34,25,.7); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 6px; border-top: 1px dashed #C9D2C8; padding-top: 6px; white-space: nowrap"><span>{{d.trust}}</span><span>{{d.ev}}</span></span>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </div></div></div></div>
+  </section>
+  </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 96px">
+  <section id="spike" style="padding: 96px 0 0">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box"><div style="display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 56px; align-items: center"><div style="min-width: 0"><div role="img" aria-label="Sample screen: The Spike" style="display: flex; border: 1px solid #C9D2C8; border-radius: 18px; overflow: hidden; background: #EDF0EA; box-shadow: 0 18px 40px rgba(21,34,25,.10)">
+            <div aria-hidden="true" style="flex: none; width: 46px; background: #152219; padding: 18px 9px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; position: relative">
+              <span style="position: absolute; left: 0; right: 0; top: 0; height: 3px; background: #1F5C41"></span>
+              <span style="width: 18px; height: 18px; border-radius: 50%; background: #1F5C41; margin-bottom: 8px; box-shadow: inset 0 0 0 4px #152219, inset 0 0 0 6px #FFFDF4"></span>
+              <span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: #FFFDF4; width: 28px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span>
+            </div>
+            <div style="flex: 1; min-width: 0; padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px">
+              <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 10px">
+                <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+                  <span class="lbl" style="font-size: 10px">Waiting for review: 3</span>
+                  <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">The Spike</span>
+                </div>
+                
+              </div>
+              <div style="display: flex; gap: 14px; align-items: flex-start"><ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; flex: 1 1 0; min-width: 0">
+                  <sc-for list="{{spike}}" as="q" hint-placeholder-count="3">
+                    <li style="{{q.style}}">
+                      <span style="display: flex; justify-content: space-between; gap: 8px"><span style="font-size: 13px; font-weight: 700">{{q.name}}</span><span class="mono" style="font-size: 11px">{{q.when}}</span></span>
+                      <span class="mono" style="font-size: 10.5px; line-height: 1.4; color: rgba(21,34,25,.7)">{{q.line}}</span>
+                    </li>
+                  </sc-for>
+                </ol><div class="docket" style="flex: 1 1 0; min-width: 0; padding: 14px 14px 14px; display: flex; flex-direction: column; gap: 10px; align-self: flex-start; box-sizing: border-box">
+                  <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px">
+                    <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+                      <span class="lbl" style="font-size: 9.5px; display: flex; flex-wrap: wrap; gap: 0 6px"><span style="white-space: nowrap">KF MSIDA ·</span><span style="white-space: nowrap">PLAQUE 04A1C33C2B7E10</span></span>
+                      <span style="font-size: 17px; font-weight: 700; letter-spacing: -0.02em">Grace Attard</span>
+                      <span class="mono" style="font-size: 11px">IN · 09:41 · NFC</span>
+                    </div>
+                    <span class="stamp stamp--flag" style="flex: none; font-size: 9.5px; padding: 2px 6px">Flagged</span>
+                  </div>
+                  <div style="display: flex; gap: 6px"><div style="flex: 1 1 0; min-width: 0; border-radius: 10px; padding: 7px 8px; display: flex; flex-direction: column; gap: 2px; border: 1px solid #C9D2C8; background: rgba(31,92,65,.06)"><span class="lbl" style="font-size: 9px; letter-spacing: .06em; line-height: 1.3">Physical tap</span><span style="font-size: 13px; font-weight: 700"><span class="mono" aria-hidden="true" style="width: 16px; height: 16px; border-radius: 4px; margin-right: 5px; display: inline-flex; align-items: center; justify-content: center; vertical-align: -2px; font-size: 10px; background: #1F5C41; color: #FFFDF4">✓</span>yes</span></div><div style="flex: 1 1 0; min-width: 0; border-radius: 10px; padding: 7px 8px; display: flex; flex-direction: column; gap: 2px; border: 1px solid #C9D2C8; background: rgba(190,61,42,.06)"><span class="lbl" style="font-size: 9px; letter-spacing: .06em; line-height: 1.3">Network</span><span style="font-size: 13px; font-weight: 700"><span class="mono" aria-hidden="true" style="width: 16px; height: 16px; border-radius: 4px; margin-right: 5px; display: inline-flex; align-items: center; justify-content: center; vertical-align: -2px; font-size: 10px; background: #BE3D2A; color: #FFFDF4">✗</span>no</span></div><div style="flex: 1 1 0; min-width: 0; border-radius: 10px; padding: 7px 8px; display: flex; flex-direction: column; gap: 2px; border: 1px solid #C9D2C8; background: rgba(190,61,42,.06)"><span class="lbl" style="font-size: 9px; letter-spacing: .06em; line-height: 1.3">Location</span><span style="font-size: 13px; font-weight: 700"><span class="mono" aria-hidden="true" style="width: 16px; height: 16px; border-radius: 4px; margin-right: 5px; display: inline-flex; align-items: center; justify-content: center; vertical-align: -2px; font-size: 10px; background: #BE3D2A; color: #FFFDF4">✗</span>no</span></div></div>
+                  <div style="display: flex; gap: 8px">
+                    <span style="flex: 1; min-height: 34px; border-radius: 10px; background: #1F5C41; color: #FFFDF4; font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; justify-content: center">Approve</span>
+                    <span style="flex: 1; min-height: 34px; border-radius: 10px; border: 2px solid #BE3D2A; box-sizing: border-box; color: #152219; font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; justify-content: center">Reject</span>
+                  </div>
+                </div></div>
+            </div>
+          </div></div><div style="min-width: 0"><div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px">
+            <span class="mono" style="flex: none; width: 34px; height: 34px; border-radius: 50%; background: #152219; color: #FFFDF4; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">{{prod.tour.2.n}}</span>
+            <span class="eyebrow">{{prod.tour.2.k}}</span>
+          </div><h2 style="margin: 0 0 14px; font-size: 40px; line-height: 1.08; letter-spacing: -0.03em">{{prod.tour.2.t}}</h2><sc-if value="{{prod.tour.2.hasLine}}"><p style="margin: 0 0 22px; font-size: 17px; line-height: 1.6; color: rgba(21,34,25,.85)">{{prod.tour.2.line}}</p></sc-if><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+            <sc-for list="{{prod.tour.2.bullets}}" as="b" hint-placeholder-count="3">
+              <li style="display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 15px; line-height: 1.5; color: rgba(21,34,25,.88)"><span style="color: #1F5C41; padding-top: 1px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>{{b}}</span></li>
+            </sc-for>
+          </ul></div></div></div>
+  </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 96px">
+  <section id="roll" style="padding: 96px 0 0">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box"><div style="display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 56px; align-items: center"><div style="min-width: 0"><div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px">
+            <span class="mono" style="flex: none; width: 34px; height: 34px; border-radius: 50%; background: #152219; color: #FFFDF4; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">{{prod.tour.3.n}}</span>
+            <span class="eyebrow">{{prod.tour.3.k}}</span>
+          </div><h2 style="margin: 0 0 14px; font-size: 40px; line-height: 1.08; letter-spacing: -0.03em">{{prod.tour.3.t}}</h2><sc-if value="{{prod.tour.3.hasLine}}"><p style="margin: 0 0 22px; font-size: 17px; line-height: 1.6; color: rgba(21,34,25,.85)">{{prod.tour.3.line}}</p></sc-if><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+            <sc-for list="{{prod.tour.3.bullets}}" as="b" hint-placeholder-count="3">
+              <li style="display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 15px; line-height: 1.5; color: rgba(21,34,25,.88)"><span style="color: #1F5C41; padding-top: 1px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>{{b}}</span></li>
+            </sc-for>
+          </ul></div><div style="min-width: 0"><div role="img" aria-label="Sample screen: The Roll" style="display: flex; border: 1px solid #C9D2C8; border-radius: 18px; overflow: hidden; background: #EDF0EA; box-shadow: 0 18px 40px rgba(21,34,25,.10)">
+            <div aria-hidden="true" style="flex: none; width: 46px; background: #152219; padding: 18px 9px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; position: relative">
+              <span style="position: absolute; left: 0; right: 0; top: 0; height: 3px; background: #1F5C41"></span>
+              <span style="width: 18px; height: 18px; border-radius: 50%; background: #1F5C41; margin-bottom: 8px; box-shadow: inset 0 0 0 4px #152219, inset 0 0 0 6px #FFFDF4"></span>
+              <span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: #FFFDF4; width: 28px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span>
+            </div>
+            <div style="flex: 1; min-width: 0; padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px">
+              <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 10px">
+                <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+                  <span class="lbl" style="font-size: 10px">Hours per person · week 42</span>
+                  <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">The Roll</span>
+                </div>
+                <span style="flex: none; min-height: 32px; padding: 0 12px; border-radius: 10px; border: 1px solid #152219; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>CSV</span>
+              </div>
+              <div style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 14px; padding: 2px 0">
+                <table class="mono" style="width: 100%; border-collapse: collapse; font-size: 9.5px; table-layout: fixed">
+                  <thead><tr>
+                    <th class="lbl" style="font-size: 9.5px; text-align: left; padding: 9px 4px 9px 12px; width: 22%">Person</th>
+                    <sc-for list="{{days}}" as="d"><th class="lbl" style="font-size: 9px; letter-spacing: .04em; padding: 9px 0; text-align: center">{{d}}</th></sc-for>
+                    <th class="lbl" style="font-size: 9.5px; text-align: right; padding: 9px 12px 9px 4px; width: 15%">Total</th>
+                  </tr></thead>
+                  <tbody>
+                    <sc-for list="{{roll}}" as="r" hint-placeholder-count="4">
+                      <tr style="border-top: 1px dashed #C9D2C8">
+                        <th scope="row" style="text-align: left; padding: 8px 4px 8px 12px; font-family: 'Space Grotesk', sans-serif; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.name}}</th>
+                        <sc-for list="{{r.cells}}" as="c"><td style="{{c.style}}"><span style="{{c.box}}">{{c.v}}</span></td></sc-for>
+                        <td style="text-align: right; padding: 8px 12px 8px 4px; font-weight: 700; white-space: nowrap">{{r.total}}</td>
+                      </tr>
+                    </sc-for>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div></div></div></div>
+  </section>
+  </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 96px">
+  <section id="people" style="padding: 96px 0 0">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box"><div style="display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 56px; align-items: center"><div style="min-width: 0"><div role="img" aria-label="Sample screen: People" style="display: flex; border: 1px solid #C9D2C8; border-radius: 18px; overflow: hidden; background: #EDF0EA; box-shadow: 0 18px 40px rgba(21,34,25,.10)">
+            <div aria-hidden="true" style="flex: none; width: 46px; background: #152219; padding: 18px 9px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; position: relative">
+              <span style="position: absolute; left: 0; right: 0; top: 0; height: 3px; background: #1F5C41"></span>
+              <span style="width: 18px; height: 18px; border-radius: 50%; background: #1F5C41; margin-bottom: 8px; box-shadow: inset 0 0 0 4px #152219, inset 0 0 0 6px #FFFDF4"></span>
+              <span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: #FFFDF4; width: 28px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span>
+            </div>
+            <div style="flex: 1; min-width: 0; padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px">
+              <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 10px">
+                <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+                  <span class="lbl" style="font-size: 10px">Kebab Factory</span>
+                  <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">People</span>
+                </div>
+                <span style="flex: none; min-height: 32px; padding: 0 12px; border-radius: 10px; background: #1F5C41; color: #FFFDF4; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add somebody</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 12px">
+                <div aria-hidden="true" style="display: flex; flex-wrap: wrap; gap: 2px; align-self: flex-start; padding: 3px; border: 1px solid #C9D2C8; border-radius: 999px; background: #FFFDF4"><span style="padding: 5px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: #152219; color: #FFFDF4">All</span><span style="padding: 5px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 700; color: #152219">Active</span><span style="padding: 5px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 700; color: #152219">Invited</span><span style="padding: 5px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 700; color: #152219">Deactivated</span></div>
+                <div style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 14px; padding: 2px 0">
+                  <sc-for list="{{people}}" as="p" hint-placeholder-count="5"><div style="display: grid; grid-template-columns: 32px minmax(0, 1fr) 118px 96px; column-gap: 12px; align-items: center; padding: 10px 14px; {{p.sep}}">
+                    <span class="mono" style="width: 32px; height: 32px; box-sizing: border-box; border: 1.5px solid #152219; border-radius: 8px; font-size: 10.5px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{p.ini}}</span>
+                    <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 13.5px; font-weight: 700; white-space: nowrap">{{p.name}}</span><span class="mono" style="font-size: 10px; color: rgba(21,34,25,.7); white-space: nowrap">{{p.venue}}</span></span>
+                    <span style="display: flex"><span class="mono" style="{{p.pill}}">{{p.status}}</span></span>
+                    <span class="mono" style="font-size: 10px; color: rgba(21,34,25,.7); text-align: right; white-space: nowrap">{{p.dev}}</span>
+                  </div></sc-for>
+                </div>
+              </div>
+            </div>
+          </div></div><div style="min-width: 0"><div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px">
+            <span class="mono" style="flex: none; width: 34px; height: 34px; border-radius: 50%; background: #152219; color: #FFFDF4; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">{{prod.tour.4.n}}</span>
+            <span class="eyebrow">{{prod.tour.4.k}}</span>
+          </div><h2 style="margin: 0 0 14px; font-size: 40px; line-height: 1.08; letter-spacing: -0.03em">{{prod.tour.4.t}}</h2><sc-if value="{{prod.tour.4.hasLine}}"><p style="margin: 0 0 22px; font-size: 17px; line-height: 1.6; color: rgba(21,34,25,.85)">{{prod.tour.4.line}}</p></sc-if><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+            <sc-for list="{{prod.tour.4.bullets}}" as="b" hint-placeholder-count="3">
+              <li style="display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 15px; line-height: 1.5; color: rgba(21,34,25,.88)"><span style="color: #1F5C41; padding-top: 1px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>{{b}}</span></li>
+            </sc-for>
+          </ul></div></div></div>
+  </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 96px">
+  <section id="venues" style="padding: 96px 0 0">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box"><div style="display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 56px; align-items: center"><div style="min-width: 0"><div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px">
+            <span class="mono" style="flex: none; width: 34px; height: 34px; border-radius: 50%; background: #152219; color: #FFFDF4; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">{{prod.tour.5.n}}</span>
+            <span class="eyebrow">{{prod.tour.5.k}}</span>
+          </div><h2 style="margin: 0 0 14px; font-size: 40px; line-height: 1.08; letter-spacing: -0.03em">{{prod.tour.5.t}}</h2><sc-if value="{{prod.tour.5.hasLine}}"><p style="margin: 0 0 22px; font-size: 17px; line-height: 1.6; color: rgba(21,34,25,.85)">{{prod.tour.5.line}}</p></sc-if><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+            <sc-for list="{{prod.tour.5.bullets}}" as="b" hint-placeholder-count="3">
+              <li style="display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 15px; line-height: 1.5; color: rgba(21,34,25,.88)"><span style="color: #1F5C41; padding-top: 1px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>{{b}}</span></li>
+            </sc-for>
+          </ul></div><div style="min-width: 0"><div role="img" aria-label="Sample screen: Venues & plaques" style="display: flex; border: 1px solid #C9D2C8; border-radius: 18px; overflow: hidden; background: #EDF0EA; box-shadow: 0 18px 40px rgba(21,34,25,.10)">
+            <div aria-hidden="true" style="flex: none; width: 46px; background: #152219; padding: 18px 9px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; position: relative">
+              <span style="position: absolute; left: 0; right: 0; top: 0; height: 3px; background: #1F5C41"></span>
+              <span style="width: 18px; height: 18px; border-radius: 50%; background: #1F5C41; margin-bottom: 8px; box-shadow: inset 0 0 0 4px #152219, inset 0 0 0 6px #FFFDF4"></span>
+              <span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: #FFFDF4; width: 28px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span>
+            </div>
+            <div style="flex: 1; min-width: 0; padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px">
+              <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 10px">
+                <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+                  <span class="lbl" style="font-size: 10px">Kebab Factory</span>
+                  <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">Venues & plaques</span>
+                </div>
+                
+              </div>
+              <div style="display: flex; gap: 12px; align-items: flex-start"><div style="display: flex; flex-direction: column; gap: 7px; flex: none; width: 190px">
+                  <sc-for list="{{venues}}" as="x" hint-placeholder-count="4"><div style="{{x.card}}">
+                      <span style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px"><span style="font-size: 12.5px; font-weight: 700; white-space: nowrap">{{x.name}}</span><span class="mono" style="font-size: 9.5px; white-space: nowrap">{{x.hours}}</span></span>
+                      <span class="mono" style="display: flex; gap: 5px"><span style="{{x.ipChip}}">{{x.ip}}</span><span style="{{x.gpsChip}}">{{x.gps}}</span></span>
+                    </div></sc-for>
+                </div><div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+                  <div style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 14px; padding: 12px 14px">
+                    <span class="lbl" style="font-size: 9.5px">Venue</span>
+                    <div style="font-size: 17px; font-weight: 700; letter-spacing: -0.02em; margin: 2px 0 6px">KF St Julians</div>
+                    <div style="display: grid; grid-template-columns: 108px minmax(0, 1fr); gap: 8px; padding: 5px 0"><span class="lbl" style="font-size: 9px; letter-spacing: .08em; line-height: 1.5">Venue network</span><span class="mono" style="font-size: 10.5px; line-height: 1.5">203.0.113.15/32</span></div>
+                    <div style="display: grid; grid-template-columns: 108px minmax(0, 1fr); gap: 8px; padding: 5px 0"><span class="lbl" style="font-size: 9px; letter-spacing: .08em; line-height: 1.5">GPS point</span><span class="mono" style="font-size: 10.5px; line-height: 1.5">35.918000, 14.489000</span></div>
+                    <div style="display: grid; grid-template-columns: 108px minmax(0, 1fr); gap: 8px; padding: 5px 0"><span class="lbl" style="font-size: 9px; letter-spacing: .08em; line-height: 1.5">Shift</span><span class="mono" style="font-size: 10.5px; line-height: 1.5">10:00 – 22:00 · Europe/Malta</span></div>
+                  </div>
+                  <div style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 14px; padding: 10px 14px">
+                    <span style="font-size: 13px; font-weight: 700">Plaques at this venue</span>
+                    <sc-for list="{{plaques}}" as="q" hint-placeholder-count="2">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0 4px; {{q.sep}}"><span class="mono" style="font-size: 10.5px; font-weight: 700">{{q.uid}}</span><span class="mono" style="{{q.pill}}">{{q.st}}</span></div>
+                    </sc-for>
+                  </div>
+                </div></div>
+            </div>
+          </div></div></div></div>
+  </section>
+  </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 96px">
+  <section id="rules" style="padding: 96px 0 0">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box"><div style="display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 56px; align-items: center"><div style="min-width: 0"><div role="img" aria-label="Sample screen: Rules" style="display: flex; border: 1px solid #C9D2C8; border-radius: 18px; overflow: hidden; background: #EDF0EA; box-shadow: 0 18px 40px rgba(21,34,25,.10)">
+            <div aria-hidden="true" style="flex: none; width: 46px; background: #152219; padding: 18px 9px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; position: relative">
+              <span style="position: absolute; left: 0; right: 0; top: 0; height: 3px; background: #1F5C41"></span>
+              <span style="width: 18px; height: 18px; border-radius: 50%; background: #1F5C41; margin-bottom: 8px; box-shadow: inset 0 0 0 4px #152219, inset 0 0 0 6px #FFFDF4"></span>
+              <span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: rgba(237,240,234,.22); width: 22px"></span><span style="display: block; height: 8px; border-radius: 4px; background: #FFFDF4; width: 28px"></span>
+            </div>
+            <div style="flex: 1; min-width: 0; padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px">
+              <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 10px">
+                <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+                  <span class="lbl" style="font-size: 10px">Checked in this order</span>
+                  <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">Rules</span>
+                </div>
+                
+              </div>
+              <div style="display: flex; gap: 14px; align-items: flex-start"><div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+                  <span class="lbl" style="font-size: 9.5px">Taptime guarantees</span>
+                  <sc-for list="{{guards}}" as="g" hint-placeholder-count="3"><div style="display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 10px; align-items: start">
+                    <span class="mono" style="height: 22px; border-radius: 6px; background: #152219; color: #FFFDF4; font-size: 10.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 6px">{{g.n}}</span>
+                    <div style="background: rgba(31,92,65,.05); border: 1px solid #C9D2C8; border-radius: 10px; padding: 9px 11px; display: flex; flex-direction: column; gap: 6px">
+                      <span style="font-size: 12px; font-weight: 700; line-height: 1.35">{{g.t}}</span>
+                      <span style="display: flex; flex-direction: column; align-items: flex-start; gap: 5px"><span class="mono" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; border: 1px solid #152219; font-size: 9px; font-weight: 700; letter-spacing: .04em; white-space: nowrap"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Cannot be switched off</span><span class="mono" style="padding: 2px 8px; border-radius: 999px; border: 1px solid #C9D2C8; font-size: 9px; font-weight: 700; white-space: nowrap">{{g.e}}</span></span>
+                    </div>
+                  </div></sc-for>
+                </div><div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+                  <span class="lbl" style="font-size: 9.5px">Taptime baseline</span>
+                  <div style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 14px; padding: 2px 12px 10px">
+                    <sc-for list="{{baseRows}}" as="r" hint-placeholder-count="3"><div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; padding: 8px 0; {{r.sep}}">
+                      <span style="font-size: 12.5px; font-weight: 700">{{r.t}}</span>
+                      <span style="display: flex; flex-wrap: wrap; align-items: center; gap: 5px"><span class="mono" style="padding: 2px 8px; border-radius: 999px; border: 1px solid #C9D2C8; font-size: 9px; font-weight: 700; white-space: nowrap">{{r.e}}</span><span class="mono" style="padding: 2px 8px; border-radius: 999px; border: 1px solid #1F5C41; background: #E1EDE6; font-size: 9px; font-weight: 700; white-space: nowrap">In force</span></span>
+                    </div></sc-for>
+                    <span style="margin-top: 4px; min-height: 30px; padding: 0 12px; border-radius: 10px; border: 1.5px solid #152219; font-size: 11.5px; font-weight: 700; display: inline-flex; align-items: center">Switch this rule off</span>
+                  </div>
+                </div></div>
+            </div>
+          </div></div><div style="min-width: 0"><div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px">
+            <span class="mono" style="flex: none; width: 34px; height: 34px; border-radius: 50%; background: #152219; color: #FFFDF4; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">{{prod.tour.6.n}}</span>
+            <span class="eyebrow">{{prod.tour.6.k}}</span>
+          </div><h2 style="margin: 0 0 14px; font-size: 40px; line-height: 1.08; letter-spacing: -0.03em">{{prod.tour.6.t}}</h2><sc-if value="{{prod.tour.6.hasLine}}"><p style="margin: 0 0 22px; font-size: 17px; line-height: 1.6; color: rgba(21,34,25,.85)">{{prod.tour.6.line}}</p></sc-if><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+            <sc-for list="{{prod.tour.6.bullets}}" as="b" hint-placeholder-count="3">
+              <li style="display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 15px; line-height: 1.5; color: rgba(21,34,25,.88)"><span style="color: #1F5C41; padding-top: 1px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>{{b}}</span></li>
+            </sc-for>
+          </ul></div></div><p class="mono" style="margin: 28px 0 0; font-size: 11.5px; color: rgba(21,34,25,.7)">Drawn for this page — sample names and times.</p></div>
+  </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 96px">
+  <section id="shift" style="padding: 96px 0 0">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box">
+      
+      <p class="eyebrow" style="margin-bottom: 14px">A shift, start to finish</p>
+      <h2 style="margin: 0 0 16px; max-width: 820px; font-size: 44px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">{{shift.h2}}</h2>
+      <p style="margin: 0 0 48px; max-width: 600px; font-size: 17px; line-height: 1.6; color: rgba(21,34,25,.85)">{{shift.sub}}</p>
+      <div style="display: flex; flex-direction: column; gap: 36px">
+          <sc-for list="{{shift.rows6}}" as="row" hint-placeholder-count="1">
+            <div style="position: relative; padding-top: 4px">
+              <div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 4px; height: 8px; border-radius: 4px; background: #152219"></div>
+              <ol style="list-style: none; margin: 0; padding: 0 10px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; align-items: start">
+                <sc-for list="{{row}}" as="s" hint-placeholder-count="6">
+                  <li style="display: flex; flex-direction: column; align-items: center; min-width: 0; padding-bottom: 8px">
+                    <span aria-hidden="true" style="width: 38px; height: 13px; background: rgba(21,34,25,.7); border-radius: 0 0 6px 6px; position: relative; z-index: 1"></span>
+                    <div class="docket" style="width: 100%; box-sizing: border-box; margin-top: -3px; padding: 14px 14px 16px; display: flex; flex-direction: column; gap: 8px; transform: rotate({{s.tilt}}deg); transform-origin: top center; box-shadow: 0 10px 22px rgba(21,34,25,.08)">
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+                    <span class="mono" style="font-size: 12px; font-weight: 700; color: #152219">{{s.n}}</span>
+                    <span class="lbl" style="font-size: 9.5px; letter-spacing: .1em; padding: 2px 8px; border: 1px solid #C9D2C8; border-radius: 999px">{{s.who}}</span>
+                  </div>
+                  <h3 style="margin: 0; font-size: 17px; letter-spacing: -0.015em; line-height: 1.2">{{s.t}}</h3>
+                  <sc-if value="{{s.flag}}"><span class="stamp stamp--flag" style="align-self: flex-start; font-size: 9.5px; padding: 2px 6px; margin: 2px 0 2px">Flagged</span></sc-if>
+                  <p style="margin: 0; font-size: 13.5px; line-height: 1.5; color: rgba(21,34,25,.8)">{{s.b}}</p>
+                </div>
+                  </li>
+                </sc-for>
+              </ol>
+            </div>
+          </sc-for>
+        </div>
+    </div>
+  </section>
+  </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 96px">
+  <section id="integrations" style="padding: 96px 0 0">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box">
+      
+      <p class="eyebrow" style="margin-bottom: 14px">Integrations</p>
+      <h2 style="margin: 0 0 16px; max-width: 820px; font-size: 44px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">{{integ.h2}}</h2>
+      <div class="card" style="margin-top: 32px; overflow: hidden">
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr))">
+          <sc-for list="{{integ.items}}" as="it" hint-placeholder-count="3">
+            <div style="padding: 28px 28px 30px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; {{it.sepL}}">
+              <span class="ico"><sc-if value="{{it.csv}}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/><path d="M9.5 12.5h6M9.5 16h6"/></svg></sc-if><sc-if value="{{it.api}}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 7.5 4 12l4.5 4.5M15.5 7.5 20 12l-4.5 4.5"/><path d="M13.2 5.5l-2.4 13"/></svg></sc-if><sc-if value="{{it.hook}}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/><circle cx="12" cy="6.5" r="2.5"/><path d="M10.8 8.7 7.7 15.3M13.2 8.7l3.1 6.6M9 17.5h6"/></svg></sc-if></span>
+              <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start; min-width: 0; align-self: stretch">
+                <h3 style="margin: 4px 0 0; font-size: 19px; letter-spacing: -0.02em">{{it.t}}</h3>
+                <p style="margin: 0; font-size: 14.5px; line-height: 1.6; color: rgba(21,34,25,.8)">{{it.b}}</p>
+                <span class="mono" style="display: flex; flex-direction: column; gap: 2px; align-self: stretch; box-sizing: border-box; font-size: 11.5px; line-height: 1.5; color: #152219; background: #EDF0EA; border: 1px solid #C9D2C8; border-radius: 10px; padding: 8px 11px; overflow-wrap: anywhere"><sc-for list="{{it.code}}" as="c"><span>{{c}}</span></sc-for></span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 20px; border-top: 1px solid #C9D2C8; background: #E1EDE6; padding: 10px 28px">
+          <p style="margin: 0; font-size: 14px; line-height: 1.5; color: #152219">{{integ.note}}</p>
+          <a class="more" href="#api-docs">Read the API docs <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+        </div>
+      </div>
+    </div>
+  </section>
+  </div>
+  <section id="pilot" style="padding: 96px 0 0">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box">
+      <div class="ondark" style="background: #1F5C41; border-radius: 24px; padding: 68px 48px; text-align: center; color: #FFFDF4; position: relative; overflow: hidden">
+        <span aria-hidden="true" style="position: absolute; width: 420px; height: 420px; top: -190px; left: -140px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
+        <span aria-hidden="true" style="position: absolute; width: 280px; height: 280px; bottom: -120px; right: -80px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
+        <h2 style="position: relative; margin: 0 0 14px; font-size: 50px; line-height: 1.05; letter-spacing: -0.035em; color: #FFFDF4">Go punchless.</h2>
+        <p style="position: relative; margin: 0 0 30px; font-size: 16.5px; line-height: 1.55; color: rgba(255,253,244,.82)">{{ctaLine}}</p>
+        <a class="btn" href="{{v.signup}}" style="position: relative; background: #FFFDF4; color: #1F5C41">{{ctaBtn}}</a>
+      </div>
+    </div>
+  </section>
+  <footer style="margin-top: 96px; border-top: 1px solid #C9D2C8">
+    <div style="max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); box-sizing: border-box; padding-top: 40px; padding-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 260px 200px; gap: 48px">
+        <div style="display: flex; flex-direction: column; gap: 12px; min-width: 0">
+          <span style="display: flex; align-items: center; gap: 10px">
+            <span aria-hidden="true" style="flex: none; width: 22px; height: 22px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 4px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.8)">© 2026 Taptime · Malta</span>
+          </span>
+          <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">tap in · tap out · that's it</span>
+          <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-width: 460px">
+            <span class="lbl">Taptime</span>
+            <p style="margin: 0; font-size: 14px; line-height: 1.55; color: rgba(21,34,25,.85)">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p>
+          </div>
+        </div>
+        <nav aria-label="Product" class="fcol" style="display: flex; flex-direction: column; min-width: 0">
+          <span class="lbl" style="padding-bottom: 6px">Product</span><a href="Product.dc.html">Product tour</a><a href="Security.dc.html">Security</a><a href="Pricing.dc.html">Pricing</a><a href="ForRestaurants.dc.html">For restaurants & bars</a><a href="ForProduction.dc.html">For production & facilities</a><a href="#api-docs">API docs</a>
+        </nav>
+        <nav aria-label="Legal" class="fcol" style="display: flex; flex-direction: column; min-width: 0">
+          <span class="lbl" style="padding-bottom: 6px">Legal</span><a href="Legal.dc.html">Privacy</a><a href="Legal.dc.html">Terms</a><a href="Legal.dc.html">Company details</a><a href="Legal.dc.html">Cookies</a>
+        </nav>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview": {"width": 1440, "height": 7455}}'>
+class Component extends DCLogic {
+  renderVals() {
+    // LandingView, as internal/handler builds it today (pages.LandingView):
+    //   SignupHref → the wizard, SignInHref → the panel sign-in, PricePerEmployeeMonth "1.50" (migration 00016),
+    //   FreeMonths 3 (tappa_first_chargeable_month), ExampleHeadcount 60, ExampleMonthly "90" (exampleTeamMonthly, computed).
+    // exampleTeamMonthly mirrors internal/handler/marketing.go exampleTeamMonthly: headcount × price in integer
+    // CENTS (no float), "90" or "37.50", no currency sign. EVERY monthly figure on every board comes from it —
+    // the landing's example AND the /pricing team-size table — so the price is typed exactly once (here, v.price).
+    const exampleTeamMonthly = (price, headcount) => {
+      const [e, c] = price.split('.');
+      const total = (Number(e) * 100 + Number(c)) * headcount;
+      return total % 100 === 0 ? String(total / 100) : Math.floor(total / 100) + '.' + String(total % 100).padStart(2, '0');
+    };
+    // billing.Money as the Billing screen prints it (money(): "€" + two decimals) — same cents arithmetic.
+    const moneyOf = (price, headcount) => {
+      const [e, c] = price.split('.');
+      const total = (Number(e) * 100 + Number(c)) * headcount;
+      return '€' + Math.floor(total / 100) + '.' + String(total % 100).padStart(2, '0');
+    };
+    const v = { signup: 'Signup.dc.html', signin: 'SignIn.dc.html', price: '1.50', free: 3, headcount: 60 };
+    v.monthly = exampleTeamMonthly(v.price, v.headcount);
+    // The hero rotates through landing.js's four invented records. User decision (fix round): landing.js also swaps the
+    // phone's greeting name + venue and the plaque's venue/uid line, so ticket, phone and plaque always show ONE record.
+    const TICKETS = {
+      maria: { n: 'Maria Vella', t: 'CLOCK IN', time: '09:58', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55' },
+      kevin: { n: 'Kevin Grech', t: 'CLOCK IN', time: '09:52', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55' },
+      anna: { n: 'Anna Farrugia', t: 'CLOCK IN', time: '04:02', loc: 'KM Plant', plaque: 'KM PLANT · 2F04-1B9A' },
+      luke: { n: 'Luke Borg', t: 'CLOCK OUT', time: '02:04', loc: 'Rusty Bar', plaque: 'RUSTY BAR · 6D31-C8E2' }
+    };
+    const ticket = TICKETS[this.props.ticket] || TICKETS.maria;
+    const free = String(v.free);
+    const B = 'font-weight:700;color:#152219', N = '';
+    // pages.LandingSteps — Icon (emoji) is replaced by a line icon key; the text is verbatim.
+    const steps = [
+      { ord: 'STEP 1', title: 'Stick the plaque', plaque: true, invite: false, tap: false, body: [
+        { t: 'One branded A5 plaque per location, placed by the entrance — ideally in view of your camera. Inside it: a cryptographic NFC chip that identifies ', s: N },
+        { t: 'the place', s: B }, { t: ', not the person.', s: N }] },
+      { ord: 'STEP 2', title: 'Invite your team', plaque: false, invite: true, tap: false, body: [
+        { t: 'Create a profile, send the invite. Each person activates on their own phone — ', s: N },
+        { t: 'once, ever', s: B },
+        { t: '. New hires clock in on day one; leavers are switched off from the dashboard — their next tap is refused.', s: N }] },
+      { ord: 'STEP 3', title: 'Tap in, tap out', plaque: false, invite: false, tap: true, body: [
+        { t: 'Hold the phone to the plaque. The page opens by itself — no app — greets them by name, one button, done. ', s: N },
+        { t: 'Built for wet or floury hands.', s: B }] }
+    ];
+    // pages.LandingComparison + LandingComparisonNote
+    const rows = [
+      ['Hardware per site', 'Reader + wiring + maintenance', 'One passive sticker-plaque'],
+      ['New-hire setup', 'Enrollment at the device', 'Invite link, activated on their own phone'],
+      ['When someone leaves', 'Delete from each terminal', 'Switch off in the dashboard — the next tap is refused'],
+      ['If it breaks', 'Site goes blind until repair', 'Stick a spare plaque and swap it in the dashboard'],
+      ['Internet down on site', 'Device offline, records stuck', 'Phones fall back to mobile data + GPS'],
+      ['Biometric data', 'Fingerprints stored = GDPR weight', 'None collected, ever']
+    ].map(([aspect, terminal, tappa], i) => ({ aspect, no: '✗  ' + terminal, yes: '✓  ' + tappa, terminal, tappa, first: i === 0 }));
+    const ledgerNote = 'This table compares how the two approaches work. It is not a benchmark: we have measured no device against Taptime and make no claim about accuracy or reliability.';
+    // pages.LandingEvidence
+    const proofs = [
+      { proof: 'Proof of moment', label: 'One-time signature', body: 'The plaque\'s NTAG 424 DNA chip signs every tap with a fresh counter + AES cryptogram. Copied or replayed links are rejected — you must physically be at the plaque, right now.' },
+      { proof: 'Proof of person', label: 'Phone session', body: 'Identity lives in a secure session on each employee\'s own phone, behind their own screen lock. No shared PINs, no swappable cards — the phone has to be there.' },
+      { proof: 'Proof of place', label: 'Site IP match', body: 'Requests from your site\'s WiFi carry its static IP — hard evidence the person is inside the building.' },
+      { proof: 'Backup proof of place', label: 'GPS fallback', body: 'WiFi down or phone on mobile data? GPS confirms presence within 150 m. Anything unverified is stored, flagged, and queued for manager review — never silently approved.' }
+    ];
+    // pages.LandingAudiences — Paragraph() joins the points with one space.
+    const fits = [
+      { k: 'Multi-location', title: 'Restaurant & retail chains',
+        p: 'One plaque per site, each with its own network address on file. Late-night bars welcome: overnight shifts pair check-outs to the last open check-in, not the calendar date.',
+        ex: '9 sites · 1 dashboard · hours per location', link: 'For restaurants & bars', href: 'ForRestaurants.dc.html' },
+      { k: 'Single site, many teams', title: 'Production & facilities',
+        p: 'One plaque at the gate; departments resolve automatically from each employee\'s profile — bakers against their 04:00 shift, meat production against 05:00. No extra hardware per floor.',
+        ex: '5 departments · per-department shifts · records filtered by department', link: 'For production & facilities', href: 'ForProduction.dc.html' }
+    ];
+    // pages.LandingPricingIncludes
+    const includes = ['Locations & departments, each on its own hours', 'Branded wall plaques included & replaced free', 'Dashboard, flags & manager review queue', 'Hours & headcount reports, CSV export for your payroll flow', 'Manual entries, marked apart from tapped ones'];
+    // pages.LandingFAQ
+    const faq = [
+      ['What if someone doesn\'t have their phone that day?', 'The shift lead records the entry from the dashboard. It\'s stored with a "Entered by a manager" label, so your reports always show exactly which records were tapped and which were vouched for.'],
+      ['What if the phone has no NFC?', 'The same page opens from a QR code with the camera. A QR tap carries no cryptographic signature — no proof of a physical touch — so it needs your venue\'s network address to match before it\'s approved. A position on its own is not enough: without the address it\'s stored, flagged and queued for review.'],
+      ['Can someone clock in from home?', 'Not without a manager seeing it. The plaque\'s chip signs each tap with a one-time cryptogram, so the link only exists if a phone touched the plaque at that moment. A copied link, a screenshot, or yesterday\'s URL is rejected by the server. A check-in without the code needs your venue\'s network address to be approved; from anywhere else it\'s stored, flagged and queued for a manager rather than approved.'],
+      ['How do we migrate from our current device?', "Add your people from the dashboard and hand out invite links — one profile at a time; there is no file import today. If your HR system already holds the list, the integration API can write your people and locations once Taptime enables it for you. The old box is yours to unplug whenever you're ready — Taptime doesn't talk to it."],
+      ['Where does the data go?', "Into your dashboard: hours per person and per site, and the monthly headcount you're billed on — both as CSV exports for your payroll. Once Taptime enables the integration API for you, your HR or payroll system can also read every punch from a feed or receive it by webhook. Taptime is the source of truth for in/out times — it doesn't try to replace your payroll."]
+    ].map(([q, a], i) => ({ q, a, open: i === 0 }));
+    // ---- "The panel" showcase: INVENTED SAMPLE DATA, drawn for this page (no record is real). ----
+    // No figure may trip TestLanding_MakesNoUnmeasuredNumericClaim: no "100", "99" or "%" anywhere (so no trust 100).
+    const STAMP = { APPROVED: 'stamp stamp--ok', FLAGGED: 'stamp stamp--flag', REJECTED: 'stamp stamp--rej' };
+    const pass = [
+      ['KF ST JULIANS', 'Maria Vella', 'IN', '09:58', 'APPROVED', 'TRUST 70', 'IP yes · GPS n/a', -1.5],
+      ['KF ST JULIANS', 'Kevin Grech', 'IN', '09:52', 'APPROVED', 'TRUST 50', 'IP no · GPS yes', 1],
+      ['KF MSIDA', 'Grace Attard', 'IN', '09:41', 'FLAGGED', 'TRUST 20', 'IP no · GPS n/a', -0.5],
+      ['RUSTY BAR', 'Luke Borg', 'OUT', '02:04', 'APPROVED', 'TRUST 70', 'IP yes · GPS n/a', 1.5]
+    ].map(([venue, name, dir, time, stamp, trust, ev, tilt]) => ({ venue, name, dir, time, stamp, stampCls: STAMP[stamp], trust, ev, tilt }));
+    const passM = pass.slice(0, 2);
+    const spike = [
+      ['Grace Attard', '09:41', 'KF Msida · IN · no network, no location', true],
+      ['Daniel Zammit', '08:57', 'KF Valletta · IN · QR without network', false],
+      ['Sara Camilleri', '07:03', 'KF Hamrun · OUT · location outside the venue', false]
+    ].map(([name, when, line, on]) => ({ name, when, line, style: 'display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:10px;background:#FFFDF4;' + (on ? 'border:2px solid #152219' : 'border:1px solid #C9D2C8') }));
+    const hm = m => Math.floor(m / 60) + 'h ' + String(m % 60).padStart(2, '0') + 'm';
+    const roll = [
+      ['Maria Vella', 'Line Cook · KF St Julians', [482, 495, 0, 478, 510, 545, 0], [3]],
+      ['Kevin Grech', 'Kitchen Porter · KF St Julians', [360, -1, 370, 365, 0, 480, 465]],
+      ['Grace Attard', 'Line Cook · KF Msida', [480, 485, 478, 490, 482, 0, 0]],
+      ['Luke Borg', 'Bar · Rusty Bar', [486, 0, 465, 470, 480, 495, 510]]
+    ].map(([name, sub, days, other], ri) => {
+      const total = days.reduce((a, m) => a + Math.max(m, 0), 0);
+      const shifts = days.filter(m => m > 0).length;
+      return { name, sub, total: hm(total), shifts: shifts + ' shifts', sep: ri ? 'border-top:1px dashed #C9D2C8' : '',
+        // the product's .roll-cell looks (reports.templ rollCellClass): worked green/15, other venue inset ink ring,
+        // open dashed saffron + saffron/10, none ink/70 dash.
+        cells: days.map((m, di) => ({ v: m < 0 ? 'open' : m === 0 ? '—' : hm(m),
+          style: 'padding:6px 2px;text-align:center;white-space:nowrap;' + (m === 0 ? 'color:rgba(21,34,25,.7)' : 'color:#152219'),
+          box: 'display:inline-block;padding:2px 3px;border-radius:4px;' + (m < 0 ? 'border:1px dashed #D98E2B;background:rgba(217,142,43,.1)' : m === 0 ? '' : 'background:rgba(31,92,65,.15)' + ((other || []).includes(di) ? ';box-shadow:inset 0 0 0 1px #152219' : '')) })),
+        dots: days.map((m, di) => ({ style: 'width:14px;height:14px;border-radius:4px;box-sizing:border-box;' + (m < 0 ? 'border:1px dashed #D98E2B;background:rgba(217,142,43,.1)' : m === 0 ? 'border:1px solid #C9D2C8' : 'background:rgba(31,92,65,.15)' + ((other || []).includes(di) ? ';box-shadow:inset 0 0 0 1px #152219' : '')) })) };
+    });
+    const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    const railIcons = [1, 2, 3, 4, 5, 6, 7];
+    const panelCards = [
+      { title: 'The Pass', line: 'The day\'s taps as dockets, newest first, each stamped with its verdict.' },
+      { title: 'The Spike', line: 'Taps the rules could not judge on evidence alone wait here for a manager to approve or reject.' },
+      { title: 'The Roll', line: 'Hours per person for the week, with the CSV for your payroll.' }
+    ];
+
+    // ======================= LP-6 (builder A): new landing sections + /product + /pricing =======================
+    // Every sentence below that is not marked EXISTING is a NEW CLAIM listed in handoff/LP6-inventory-A.md with
+    // the code fact that makes it true. ASCII apostrophes, no emoji.
+    const NEW = {};
+    // ---- landing: the employee experience ----
+    NEW.team = {
+      h2: 'One screen, one button.',
+      sub: 'No menu, no settings, no history to scroll: a greeting, the venue that was tapped and one button.',
+      points: [
+        { browser: true, t: 'No app to install', b: 'The plaque opens an ordinary web page in the phone\'s own browser.' },
+        { hello: true, t: 'Greeted by name', b: 'The page says hello by name and shows the venue that was tapped.' },
+        { drop: true, t: 'Made for wet hands', b: 'One large button, sized for a wet or gloved finger.' },
+        { done: true, t: 'Done means done', b: 'A counted tap ends on its stamp and "All done — you can close this page." There is no button on it.' }
+      ],
+      capTap: 'What opens when the phone touches the plaque.',
+      capFlag: 'When the evidence is short, the screen says so.',
+      foot: 'Drawn as the product renders them — sample name, venue and time.'
+    };
+    // The phones' sample record (invented; KF tenant, matches the panel showcase's FLAGGED docket).
+    // The result strings are the product's own: result.templ (flag branch) + base:no-evidence-review's note.
+    NEW.sample = { n: 'Grace Attard', loc: 'KF Msida', time: '09:41', trust: '20', note: 'neither IP nor GPS could place this tap' };
+    // ---- landing: a shift, start to finish ----
+    NEW.shift = {
+      h2: 'From the invite link to the payroll file.',
+      sub: 'Who does what, from a new hire\'s first link to the hours your payroll reads.',
+      steps: [
+        { n: '01', who: 'Manager', t: 'Invite', b: 'Add the person in People, then hand over their invite link.' },
+        { n: '02', who: 'Employee', t: 'Activation tap', b: 'They open the link on their own phone. Their first tap on one of your plaques finishes the setup — it records no hours.' },
+        { n: '03', who: 'Employee', t: 'Clock in', b: 'From then on, a tap opens the tap screen and one press records it.' },
+        { n: '04', who: 'Taptime', t: 'Flag', b: 'If neither the venue\'s network nor GPS can place the tap, it is still recorded — flagged, never approved in silence.' },
+        { n: '05', who: 'Manager', t: 'Decision', b: 'A manager approves or rejects it on The Spike. The decision stays beside the record.' },
+        { n: '06', who: 'Manager', t: 'The Roll', b: 'Hours add up per person on The Roll, and the week downloads as CSV for your payroll.' }
+      ].map((s, i) => ({ ...s, tilt: [-1, 0.8, -0.6, 1.2, -1.2, 0.6][i], flag: s.t === 'Flag', line: i === 5 ? 'background: transparent' : 'background: rgba(21,34,25,.2)' }))
+    };
+    NEW.shift.rows6 = [NEW.shift.steps];
+    NEW.shift.rows3 = [NEW.shift.steps.slice(0, 3), NEW.shift.steps.slice(3)];
+    // ---- landing (+ /product): integrations strip ----
+    NEW.integ = {
+      h2: 'Hand the hours to the payroll you already run.',
+      items: [
+        { csv: true, t: 'CSV export', b: 'Hours per person and per venue, and the monthly headcount you\'re billed on, download as CSV.', code: ['Download CSV'] },
+        { api: true, t: 'Integration API', b: 'Your HR system can write your people and locations, and read every punch from a feed.', code: ['PUT /v1/employees/{ref}', 'PUT /v1/locations/{ref}', 'GET /v1/punches'] },
+        { hook: true, t: 'Webhooks', b: 'Each punch can also be sent to one endpoint of yours, signed so you can check it came from Taptime.', code: ['X-Taptime-Signature: sha256=…'] }
+      ],
+      note: 'The integration API and webhooks are enabled by Taptime for your business.'
+    };
+    NEW.integ.items = NEW.integ.items.map((it, i) => ({ ...it, sepL: i ? 'border-left: 1px dashed #C9D2C8' : '', sepT: i ? 'border-top: 1px dashed #C9D2C8' : '' }));
+    // ---- /product ----
+    NEW.prod = {
+      h1: 'From one tap to the week\'s hours.',
+      lede: 'Your people touch a plaque with their own phone. Managers read the record, settle the doubtful ones and export the week. These are the screens in between.',
+      index: ['The tap', 'The Pass', 'The Spike', 'The Roll', 'People', 'Venues & plaques', 'Rules'].map((t, i) => ({ n: String(i + 1).padStart(2, '0'), t })),
+      tour: [
+        { k: 'For your team', t: 'The tap', line: '', bullets: [
+          'The phone\'s position is read once, at the press — never in the background.',
+          'A second tap by the same person moments later is recorded, not counted.',
+          'The answer is a stamped docket: APPROVED, FLAGGED, REJECTED or IGNORED.'] },
+        { k: 'For managers', t: 'The Pass', line: 'The day\'s taps as dockets, newest first, each stamped with its verdict.', bullets: [
+          'Pick any earlier day to read it in full.',
+          'A record typed in by a manager carries "Entered by a manager".',
+          'Nothing here can be edited or deleted: a correction is a new record.'] },
+        { k: 'For managers', t: 'The Spike', line: 'Taps the rules could not judge on evidence alone wait here for a manager to approve or reject.', bullets: [
+          'Each record shows its evidence and the rule\'s own sentence for why it is here.',
+          'A note can go on the record with the decision.',
+          'Nobody can decide on their own record.'] },
+        { k: 'For managers', t: 'The Roll', line: 'Hours per person for the week, with the CSV for your payroll.', bullets: [
+          'A check-in with no check-out is listed, not counted, and the totals say they are incomplete.',
+          'Manual entries, marked apart from tapped ones',
+          'Lateness is measured against the person\'s own shift: their department\'s, else the venue they tapped.'] },
+        { k: 'For managers', t: 'People', line: 'Add somebody, hand over the invite, and switch them off the day they leave.', bullets: [
+          'Each person shows one status: INVITED, ACTIVE or DEACTIVATED.',
+          'The link is shown once, on the next screen. Taptime keeps no copy of it.',
+          'Switch off in the dashboard — the next tap is refused',
+          'A shift nobody tapped can be entered by hand from the person\'s card.'] },
+        { k: 'For managers', t: 'Venues & plaques', line: 'Each venue keeps its own plaques, network addresses, GPS point and shift hours.', bullets: [
+          'A replaced or lost plaque decides nothing: its taps are refused.',
+          'An address list too wide to be one venue\'s network is refused, and never counted as evidence.',
+          'Departments can keep shift hours of their own.'] },
+        { k: 'For the owner', t: 'Rules', line: 'You can switch a Taptime baseline rule off, and write your own version of one that applies at the venues you choose. Every change is shown to you in words before it is written, and every change is recorded with your name against it.', bullets: [
+          'The Taptime guarantees come first and cannot be switched off.',
+          'Only the owner can change a rule; managers read the page.',
+          'When no rule decides a tap, it goes to The Spike — never approved by default.'] }
+      ].map((s, i) => ({ ...s, n: String(i + 1).padStart(2, '0'), hasLine: s.line !== '' }))
+    };
+    // Sample data for the new miniatures (invented, one tenant: Kebab Factory).
+    NEW.people = [
+      // consistent with the Spike queue: everyone with a tap there is ACTIVE; the INVITED person has no session,
+      // the DEACTIVATED one (the seed's Paul Spiteri) keeps a live session (deactivation does not sign phones out).
+      ['MV', 'Maria Vella', 'KF St Julians', 'ACTIVE', '1 signed in'],
+      ['GA', 'Grace Attard', 'KF Msida', 'ACTIVE', '1 signed in'],
+      ['DZ', 'Daniel Zammit', 'KF Valletta', 'ACTIVE', '1 signed in'],
+      ['AH', 'Ahmed Hassan', 'KF Valletta', 'INVITED', 'none signed in'],
+      ['PS', 'Paul Spiteri', 'KF St Julians', 'DEACTIVATED', '1 signed in']
+    ].map(([ini, name, venue, status, dev], i) => ({ ini, name, venue, status, dev, sep: i ? 'border-top: 1px dashed #C9D2C8' : '',
+      pill: 'flex: none; padding: 2px 8px; border-radius: 999px; font-size: 9.5px; font-weight: 700; letter-spacing: .08em; color: #152219; ' +
+        (status === 'ACTIVE' ? 'border: 1px solid #1F5C41; background: #E1EDE6' : status === 'INVITED' ? 'border: 1px dashed #D98E2B; background: #F7EBD6' : 'border: 1px solid #C9D2C8; background: transparent') }));
+    NEW.venues = [
+      // test/fixtures/seed.sql: every KF venue has one /32 on file and a GPS point.
+      ['KF St Julians', '10:00 – 22:00', true, true, true],
+      ['KF Msida', '10:00 – 22:00', true, true, false],
+      ['KF Valletta', '10:00 – 22:00', true, true, false],
+      ['Rusty Bar', '18:00 – 02:00', true, true, false]
+    ].map(([name, hours, ip, gps, on]) => ({ name, hours, ip: ip ? 'IP ✓' : 'IP –', gps: gps ? 'GPS ✓' : 'GPS –',
+      card: 'display: flex; flex-direction: column; gap: 6px; padding: 9px 11px; border-radius: 10px; background: #FFFDF4; ' + (on ? 'border: 2px solid #152219' : 'border: 1px solid #C9D2C8'),
+      ipChip: 'padding: 1px 6px; border-radius: 6px; font-size: 9.5px; font-weight: 700; ' + (ip ? 'border: 1px solid #1F5C41; background: #E1EDE6' : 'border: 1px dashed #C9D2C8'),
+      gpsChip: 'padding: 1px 6px; border-radius: 6px; font-size: 9.5px; font-weight: 700; ' + (gps ? 'border: 1px solid #1F5C41; background: #E1EDE6' : 'border: 1px dashed #C9D2C8') }));
+    NEW.plaques = [['0491AC7E55A3C1', 'IN SERVICE', true], ['04E41290AB3E12', 'RETIRED', false]]
+      .map(([uid, st, live], i) => ({ uid, st, sep: i ? 'border-top: 1px dashed #C9D2C8' : '',
+        pill: 'padding: 1px 7px; border-radius: 999px; font-size: 9px; font-weight: 700; letter-spacing: .08em; white-space: nowrap; ' + (live ? 'border: 1px solid #1F5C41; background: #E1EDE6' : 'border: 1px solid #C9D2C8') }));
+    // Rules miniature: the guardrails' own phrases (internal/domain/tenant/rulebook.go guardrailWhen) and effect
+    // labels (internal/handler/policies.go effectLabel); the baseline names (policy.Baseline tapDoc names).
+    NEW.guards = [['03', 'The NFC signature is wrong, or the plaque\'s counter did not move', 'Reject'],
+      ['05', 'The person has been deactivated', 'Reject'],
+      ['08', 'The same person taps again inside the repeat window', 'Ignore — recorded, counts nothing']]
+      .map(([n, t, e]) => ({ n, t, e }));
+    NEW.baseRows = [['IP proof of place', 'Approve'], ['GPS-only allowance', 'Approve'], ['no evidence needs review', 'Send to The Spike']]
+      .map(([t, e], i) => ({ t, e, sep: i ? 'border-top: 1px dashed #C9D2C8' : '' }));
+    // ---- /pricing ----
+    const SIZES = [10, 25, 60, 150];
+    NEW.price = {
+      examplesH2: 'What a month costs at your size.',
+      examplesSub: 'People counted in the month, times the price per person.',
+      // COMPUTED: the port computes these server-side with exampleTeamMonthly (marketing.go) — never typed.
+      rows: SIZES.map((n, i) => ({ size: n + ' people', amount: '€' + exampleTeamMonthly(v.price, n), sep: i ? 'border-top: 1px dashed #C9D2C8' : '', ex: n === v.headcount })),
+      freeNote: 'Inside the founding offer\'s free months, the amount is zero.',
+      receipt: { month: 'September 2026', people: String(v.headcount), unit: '€' + v.price, total: moneyOf(v.price, v.headcount) },
+      receiptCap: 'A frozen month on the Billing screen — sample figures.',
+      faqH2: 'How the month is counted.',
+      faq: [
+        ['Who counts as a person?', 'Everybody whose employment overlapped the month — anybody who was on the books for even one day of it.'],
+        ['Does hiring or letting someone go change a past month?', 'No. A finished month is counted over its own dates, not over today\'s list of people. Until it is frozen, correcting somebody\'s joining or leaving dates can still move it.'],
+        ['What does freezing a month do?', 'It fixes that month\'s figures: nothing recomputes them afterwards, and it can\'t be undone. Only the owner can freeze a month, and only once the month is over.'],
+        ['Can we check the figure ourselves?', 'Yes. Every month downloads as CSV from the Billing screen, frozen or not.'],
+        ['When does the founding offer start charging?', 'The Billing screen names the first month that is charged for, so the end of the free months is never a guess.'],
+        ['How do we get the integration API?', 'Ask Taptime: the integration API and webhooks are switched on per business by Taptime, not from your dashboard.']
+      ].map(([q, a], i) => ({ q, a, open: i === 0 }))
+    };
+
+    return {
+      v, ticket, steps, rows, ledgerNote, proofs, fits, includes, faq,
+      menuOpen: this.props.menu === 'open',
+      ...NEW,
+      pass, passM, spike, roll, days, railIcons, panel: panelCards,
+      heroLede: 'Stick one smart plaque on the wall. Your team taps their own phone on it and they\'re clocked in — verified, timestamped, on the right site.',
+      heroFoot: 'Set up a location · works with the phone already in every pocket',
+      heroCta: 'Start free — ' + free + ' months on us',
+      setupLede: 'There is nothing to install, enroll, or maintain. The plaque is passive — no battery, no software, no internet of its own.',
+      securityLede: 'A tap isn\'t trusted — it\'s verified. Each clock-in is scored against four independent signals before it lands in your records.',
+      privacy: 'Taptime stores no fingerprints, no face scans, and never tracks location — GPS is read only at the moment of the tap. Built for GDPR from day one.',
+      priceHeading: 'Pay per person. Nothing per device — there are none.',
+      priceLede: 'No hardware bill, no installation fee, no maintenance contract. Plaques included.',
+      priceNum: '€' + v.price,
+      priceNote: v.monthly ? 'A ' + v.headcount + '-person chain runs on €' + v.monthly + '/month.' : '',
+      hasExample: v.monthly !== '',
+      founding: 'FOUNDING OFFER: first ' + free + ' months free · pricing locked for life',
+      ctaLine: 'Start yourself today — first ' + free + ' months free.',
+      ctaBtn: 'Start free — ' + free + ' months',
+      demoState: this.props.state || 'soon',
+      demoVideo: (this.props.state || 'soon') === 'video',
+      demoSoon: (this.props.state || 'soon') !== 'video',
+      demoTitle: (this.props.state || 'soon') === 'video' ? 'The Taptime demo' : 'The demo is being recorded'
+    };
+  }
+}
+</script>
+</body>
+</html>

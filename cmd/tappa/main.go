@@ -875,7 +875,7 @@ func run() error {
 	//
 	// IT IS MOUNTED LAST for readability only — chi matches on the pattern, not on
 	// registration order, and these paths overlap with nothing above.
-	marketing := handler.NewMarketing(texts, slog.Default(), cfg.APIHost)
+	marketing := handler.NewMarketing(texts, slog.Default(), cfg.APIHost, cfg.BaseURL)
 
 	// 🔴 THE SIGN-UP WIZARD (M7-02) — THE FIRST PATH IN THIS PROCESS THAT CREATES A
 	// TENANT. Until this line, `INSERT INTO tenants` existed only in the seed fixture

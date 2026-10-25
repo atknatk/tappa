@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -113,6 +116,21 @@ const continuousPositionCall = "watch" + "Position"
 // radius: internal/config's floatEnvRange("TAPPA_GPS_RADIUS_M", <default>, …).
 var gpsRadiusDefaultRE = regexp.MustCompile(`floatEnvRange\(\s*"TAPPA_GPS_RADIUS_M"\s*,\s*(\d+)`)
 
+// priceLockedForLifeRE is handoff §11's founding-offer term: "ömür boyu fiyat sabit"
+// (the price fixed for life), on the founding offer's own line and inside §11 -- no
+// line it walks over may open another section.
+var priceLockedForLifeRE = regexp.MustCompile(`(?m)^## 11\..*\n(?:(?:[^#\n].*)?\n)*?.*[Ff]ounding offer.*ömür boyu fiyat sabit`)
+
+// pageFactDerivations is one derivation table per public page beyond the landing, in
+// the order the pages were added. A page card appends its own.
+var pageFactDerivations = []func(*testing.T) map[pages.Fact]func() string{
+	pricingFactDerivations,
+	securityFactDerivations,
+	productFactDerivations,
+	restaurantsFactDerivations,
+	forProductionFactDerivations,
+}
+
 // plaquesIncludedRE is handoff §11's pricing term: "plaketler dahil ve ücretsiz
 // değişim" (plaques included and replaced free).
 var plaquesIncludedRE = regexp.MustCompile(`(?m)^## 11\..*\n(?:.*\n)*?.*plaketler dahil ve ücretsiz değişim`)
@@ -147,6 +165,15 @@ type apiFactSources struct {
 	// holding_feed() -- feedMigration (00049 until M15-13; 00067 since): punch_feed(), which
 	// queues the webhook delivery, and holding_feed(), which queues the employer's.
 	MigFeed string
+	// ReportsCSV is internal/handler/reportscsv.go: where a manager's typed entry goes
+	// instead of the feed (the hours CSV's manager_entered_arrivals column).
+	ReportsCSV string
+	// TxQueries is db/queries/transactions.sql and Report internal/domain/ledger/report.go:
+	// the worked-hours read and the ledger that totals it, which is what the CSV prints.
+	// A manager's typed entry stays in the CSV only while neither filters the manual
+	// channel out of the hours.
+	TxQueries string
+	Report    string
 	// Migrations is every migration by file name, to see that nothing after feedMigration
 	// redefines either trigger: a later CREATE OR REPLACE would make MigFeed stale.
 	Migrations map[string]string
@@ -185,6 +212,9 @@ func loadAPIFactSources(t *testing.T) apiFactSources {
 		Mig38:      migs["00038_add_api_access_to_tenants.sql"],
 		Mig39:      migs["00039_open_the_api_from_the_operator.sql"],
 		MigFeed:    gooseUp(migs[feedMigration]),
+		ReportsCSV: strip(repoFile(t, "internal", "handler", "reportscsv.go")),
+		TxQueries:  repoFile(t, "db", "queries", "transactions.sql"),
+		Report:     strip(repoFile(t, "internal", "domain", "ledger", "report.go")),
 		Migrations: migs,
 	}
 }
@@ -281,8 +311,29 @@ func apiWritesViolation(s apiFactSources) string {
 	return ""
 }
 
-// apiFeedViolation is FactAPIFeedsEveryPunch's: the feed route, the trigger that
-// queues a webhook for each punch, the sender that is running, and its body.
+// The punch feed's two gates (feedMigration's punch_feed): a record enters as an ok tap on the NFC
+// or QR channel, or as a flagged one when it is approved. Nothing on the manual channel
+// passes either, which is what the pages say ("every counted tap … entries typed by a
+// manager stay in the CSV").
+var (
+	feedTapGateRE    = regexp.MustCompile(`IF NEW\.verdict <> 'ok' OR NEW\.channel NOT IN \('nfc', 'qr'\) OR NEW\.practice IS NOT FALSE OR NEW\.type IS NULL THEN\s+RETURN NULL;`)
+	feedReviewGateRE = regexp.MustCompile(`IF NEW\.outcome <> 'approved' THEN\s+RETURN NULL;`)
+	// holding_feed's two gates (feedMigration's): the employer's event is an ok NFC or QR tap, or an
+	// approved flagged one -- the holding twins of the two above (LP-08 re-review: a
+	// 'manual' added to either was green).
+	holdingTapGateRE  = regexp.MustCompile(`v_event := NEW\.verdict = 'ok' AND NEW\.channel IN \('nfc', 'qr'\) AND NEW\.practice IS FALSE AND NEW\.type IS NOT NULL;`)
+	holdingFlagGateRE = regexp.MustCompile(`v_event := NEW\.outcome = 'approved' AND v_verdict = 'flag' AND v_channel IN \('nfc', 'qr'\) AND v_practice IS FALSE\s+AND v_type IS NOT NULL;`)
+	// reportChannelRE is every place the ledger's code reads a record's channel, and
+	// reportManualFieldRE the one it may: marking a row as typed (it never drops it).
+	reportChannelRE     = regexp.MustCompile(`\.Channel\b`)
+	reportManualFieldRE = regexp.MustCompile(`Manual:\s+row\.Channel == "manual",`)
+	reportManualSkipRE  = regexp.MustCompile(`(?s)if\s[^{]*\bManual\b[^{]*\{\s*(?:continue|return)\b`)
+	feedFlagGateRE      = regexp.MustCompile(`IF v_verdict <> 'flag' OR v_channel NOT IN \('nfc', 'qr'\) OR v_practice IS NOT FALSE OR v_type IS NULL THEN\s+RETURN NULL;`)
+)
+
+// apiFeedViolation is FactAPIFeedsEveryCountedTap's: the feed route, the trigger that
+// queues a webhook for each counted tap (and for nothing a manager typed), the sender
+// that is running, its body, and the hours CSV that carries a manager's entries.
 func apiFeedViolation(s apiFactSources) string {
 	if why := v1MountViolation(s); why != "" {
 		return why
@@ -297,13 +348,39 @@ func apiFeedViolation(s apiFactSources) string {
 	if !strings.Contains(body, "INSERT INTO public.webhook_deliveries") {
 		return feedMigration + "'s punch_feed() no longer queues a webhook delivery for a punch"
 	}
+	if !feedTapGateRE.MatchString(body) || !feedReviewGateRE.MatchString(body) || !feedFlagGateRE.MatchString(body) {
+		return feedMigration + "'s punch_feed() no longer admits exactly an ok NFC or QR tap and an approved flagged one, " +
+			"so \"every counted tap, and no entry typed by a manager\" is no longer what the feed carries"
+	}
+	if hold := holdingFeedBodyRE.FindString(s.MigFeed); !holdingTapGateRE.MatchString(hold) || !holdingFlagGateRE.MatchString(hold) {
+		return feedMigration + "'s holding_feed() no longer admits exactly an ok NFC or QR tap and an approved flagged one, " +
+			"so a holding punch's employer feed is no longer \"every counted tap, and no entry typed by a manager\""
+	}
+	// The hours the CSV prints include a manager's typed entry: the worked-hours read
+	// does not filter by channel, and the ledger reads the channel only to mark a row.
+	worked := queryBlock(s.TxQueries, "ListWorkedShiftEvents")
+	at := strings.LastIndex(worked, "\nWHERE ")
+	if worked == "" || at < 0 {
+		return "db/queries/transactions.sql no longer has ListWorkedShiftEvents with a WHERE"
+	}
+	where, _, _ := strings.Cut(worked[at:], ";")
+	if strings.Contains(where, "channel") {
+		return "the worked-hours read filters by channel, so a manager's typed entry may not be in the CSV's hours"
+	}
+	if n := len(reportChannelRE.FindAllString(s.Report, -1)); n != 1 || !reportManualFieldRE.MatchString(s.Report) || reportManualSkipRE.MatchString(s.Report) {
+		return fmt.Sprintf("the ledger reads a record's channel %d time(s) or skips a typed row; it may only mark one "+
+			"(Manual), so a manager's entry may not be in the CSV's hours", n)
+	}
+	if !strings.Contains(s.ReportsCSV, "manager_entered_arrivals") {
+		return "the hours CSV no longer carries the manager's entries, so \"entries typed by a manager stay in the CSV\" is false"
+	}
 	holding := holdingFeedBodyRE.FindString(s.MigFeed)
 	if holding == "" {
 		return "migration " + feedMigration + "'s Up no longer defines holding_feed()"
 	}
 	if !employerWebhookRE.MatchString(holding) {
 		return feedMigration + "'s holding_feed() no longer queues the employer's webhook delivery, so a holding " +
-			"punch (K-31) never reaches the employer's HR system and \"every punch\" is false"
+			"punch (K-31) never reaches the employer's HR system and \"every counted tap\" is false"
 	}
 	for name, src := range s.Migrations {
 		if name > feedMigration && punchFeedRedefinedRE.MatchString(src) {
@@ -462,6 +539,10 @@ var factSourceDelegations = map[pages.Fact][]pages.Source{
 	pages.FactFlaggedQueueDecidedByAManager: {pages.SourceNoEvidenceReview},
 	pages.FactCopiedLinkIsRefused:           {pages.SourceCounterAdvanceIsGuarded, pages.SourceSUNInvalid},
 	pages.FactCodelessTapNeedsAddress:       {pages.SourceQRRequiresIP},
+	// The security page's two (LP-07): where the checks run is where the signature is
+	// verified and the counter advanced, and the radius's default is the Source's.
+	pages.FactChecksRunOnTheServer: {pages.SourceSignatureIsVerified, pages.SourceCounterAdvanceIsGuarded},
+	pages.FactGPSRadiusIsADefault:  {pages.SourceGPSRadiusDefault},
 }
 
 // factAnchorDelegations is the same for the Facts that are schema or domain facts
@@ -506,6 +587,7 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 	goSrc := nonTestGoSource(t, "internal", "cmd")
 	scripts := shippedScripts(t)
 	apiSrc := loadAPIFactSources(t)
+	panelSrc := loadPanelFactSources(t)
 
 	registered := func(src, method, href string) bool {
 		return regexp.MustCompile(`r\.` + method + `\(\s*` + regexp.QuoteMeta(href) + `\s*,`).MatchString(src)
@@ -519,7 +601,7 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 			}
 			if !strings.Contains(body, "min-h-16") {
 				return "input.css's .tap-button rule no longer carries the 64px floor (min-h-16), " +
-					"so the button is no longer built for a gloved or wet finger"
+					"so the button is no longer built for a wet or floury finger"
 			}
 			return ""
 		},
@@ -544,8 +626,12 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 			return bulkImportViolation(goSrc)
 		},
 		pages.FactAPIWritesPeopleAndLocations:    func() string { return apiWritesViolation(apiSrc) },
-		pages.FactAPIFeedsEveryPunch:             func() string { return apiFeedViolation(apiSrc) },
+		pages.FactAPIFeedsEveryCountedTap:        func() string { return apiFeedViolation(apiSrc) },
 		pages.FactAPIEnabledPerBusinessByTaptime: func() string { return apiGateViolation(apiSrc) },
+		// The panel section's three (LP-05; landingpanel_test.go).
+		pages.FactPassShowsTheDaysDocketsNewestFirst: func() string { return passRailViolation(panelSrc) },
+		pages.FactReviewIsApproveOrReject:            func() string { return reviewOutcomeViolation(panelSrc) },
+		pages.FactRollIsTheWeekPerPerson:             both(func() string { return rollWeekViolation(panelSrc) }, rollWeekStartsOnMonday),
 		pages.FactNoAuthenticatorAPI: func() string {
 			for path, src := range goSrc {
 				if hit := authenticatorAPIHit(src); hit != "" {
@@ -624,6 +710,24 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 			}
 			return ""
 		},
+		pages.FactSignupMonthAndTheNextAreFree: func() string { return freeMonthsViolation(loadBillingFactSources(t)) },
+		pages.FactPriceLockedForLife: func() string {
+			if !priceLockedForLifeRE.MatchString(handoff) {
+				return "docs/handoff.md §11 no longer publishes \"ömür boyu fiyat sabit\" on the founding " +
+					"offer's line; the price card's \"Founding customers: price locked for life.\" is that pricing term"
+			}
+			return ""
+		},
+	}
+	// The public pages' own facts (LP-06 …): each page's test file derives the facts its
+	// view file declares, and they join this one map, so the closure test sees them all.
+	for _, page := range pageFactDerivations {
+		for fact, derive := range page(t) {
+			if _, dup := out[fact]; dup {
+				t.Fatalf("fact %q is derived twice", fact)
+			}
+			out[fact] = derive
+		}
 	}
 
 	// The registrations the delegating facts add to their delegated half.
@@ -685,18 +789,50 @@ var factConstRE = regexp.MustCompile(`(?m)^\s*(\w+)\s+Fact\s*=\s*"([^"]+)"`)
 
 // declaredFacts reads the Fact constants OUT OF pages' OWN SOURCE, for the reason
 // written on declaredAnchors: it is the only way to see a constant nothing uses.
+// Every view file is read (pagesViewSource), so a fact a new public page declares in
+// its own file is closed like a landing one (LP-06; README §7 step 1).
 func declaredFacts(t *testing.T) map[pages.Fact]string {
 	t.Helper()
-	src := repoFile(t, "web", "templates", "pages", "landingview.go")
+	src := pagesViewSource(t)
 	out := map[pages.Fact]string{}
 	for _, m := range factConstRE.FindAllStringSubmatch(src, -1) {
 		out[pages.Fact(m[2])] = m[1]
 	}
 	if len(out) < 10 {
-		t.Fatalf("read %d Fact constant(s) out of landingview.go; there are more, so this scan "+
-			"is not seeing the const block", len(out))
+		t.Fatalf("read %d Fact constant(s) out of the pages package; there are more, so this scan "+
+			"is not seeing the const blocks", len(out))
 	}
 	return out
+}
+
+// pagesViewSource is every hand-written Go file of the pages package, concatenated:
+// the files the three vocabularies' constants can be declared in. The generated
+// *_templ.go files and the tests are left out. LP-06 widened the readers from
+// landingview.go alone, so a public page's view file (pricingview.go, …) is read too.
+func pagesViewSource(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join("..", "..", "web", "templates", "pages")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading %s: %v", dir, err)
+	}
+	var b strings.Builder
+	read := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") ||
+			strings.HasSuffix(name, "_templ.go") {
+			continue
+		}
+		b.WriteString(repoFile(t, "web", "templates", "pages", name))
+		b.WriteString("\n")
+		read++
+	}
+	if read < 2 || !strings.Contains(b.String(), "var LandingFAQ = ") || !strings.Contains(b.String(), "var PricingFAQ = ") {
+		t.Fatalf("read %d file(s) of the pages package and not landingview.go and pricingview.go; "+
+			"this scan is reading the wrong tree", read)
+	}
+	return b.String()
 }
 
 // landingLines is every stand-alone sentence the page renders from a pages.Line,
@@ -710,32 +846,64 @@ func landingLines() map[string]pages.Line {
 		"LandingPrivacyNote":    pages.LandingPrivacyNote,
 		"LandingPricingHeading": pages.LandingPricingHeading,
 		"LandingPricingLede":    pages.LandingPricingLede,
+		// The founding chip's second half (LP-06): a pricing term, pinned like the price.
+		"LandingPriceLockedForLife": pages.LandingPriceLockedForLife,
+		// The free months in the code's terms (K6): the chip and the sign-off say it.
+		"LandingFreeMonthsLine": pages.LandingFreeMonthsLine(foundingFreeMonths),
+		// The panel section (LP-05): its heading is a Line too, because it is a claim.
+		"LandingPanelHeading":    pages.LandingPanelHeading,
+		"LandingPanelLede":       pages.LandingPanelLede,
+		"LandingPanelPass.Line":  pages.LandingPanelPass.Line,
+		"LandingPanelSpike.Line": pages.LandingPanelSpike.Line,
+		"LandingPanelRoll.Line":  pages.LandingPanelRoll.Line,
 	}
 }
 
-// claimedFacts is every Fact some rendered value names, with the sentence that
-// names it (for the error message).
-func claimedFacts() map[pages.Fact]string {
+// claimedFacts is every Fact some rendered value names, on any public page, with the
+// page and the sentence that name it (for the error message: `/product says "…"`).
+func claimedFacts() map[pages.Fact]string { return claimedFactsExcept("") }
+
+// claimedFactsExcept is claimedFacts without the copy of the page at skip ("" skips
+// nothing). It exists for the control that shows the closure counts every page's
+// sentences: leave one page out and the facts only it claims fall unclaimed.
+func claimedFactsExcept(skip string) map[pages.Fact]string {
 	out := map[pages.Fact]string{}
-	note := func(text string, facts []pages.Fact) {
+	note := func(url, text string, facts []pages.Fact) {
 		for _, f := range facts {
-			out[f] = text
+			out[f] = url + " says " + strconv.Quote(text)
 		}
 	}
-	for _, s := range pages.LandingSteps {
-		note(s.Title, s.Facts)
+	// The landing's own blocks, which are not Lines or Questions.
+	if skip != "/" {
+		for _, s := range pages.LandingSteps {
+			note("/", s.Title, s.Facts)
+		}
+		for _, r := range pages.LandingComparison {
+			note("/", r.Tappa, r.Facts)
+		}
 	}
-	for _, r := range pages.LandingComparison {
-		note(r.Tappa, r.Facts)
+	// Every public page's Lines and Questions (README §7 step 2), the landing's included.
+	for url, c := range publicPagesCopy() {
+		if url == skip {
+			continue
+		}
+		for _, l := range c.lines {
+			note(url, l.Text, l.Facts)
+		}
+		for _, q := range c.questions {
+			note(url, q.Q, q.Facts)
+		}
 	}
-	for _, q := range pages.LandingFAQ {
-		note(q.Q, q.Facts)
-	}
-	for _, l := range pages.LandingPricingIncludes {
-		note(l.Text, l.Facts)
-	}
-	for _, l := range landingLines() {
-		note(l.Text, l.Facts)
+	return out
+}
+
+// unclaimedFacts is every declared fact no sentence in claimed rests on.
+func unclaimedFacts(declared map[pages.Fact]string, claimed map[pages.Fact]string) []pages.Fact {
+	var out []pages.Fact
+	for fact := range declared {
+		if _, ok := claimed[fact]; !ok {
+			out = append(out, fact)
+		}
 	}
 	return out
 }
@@ -757,10 +925,11 @@ func TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed(t *testing.T) {
 			t.Errorf("pages declares the fact %s = %q and nothing in factDerivations derives it. "+
 				"A fact with no derivation is a comment: a sentence could name it and be pinned by nothing.", name, fact)
 		}
-		if _, ok := claimed[fact]; !ok {
-			t.Errorf("pages declares the fact %s = %q and NO sentence rests on it. Either a sentence "+
-				"was deleted and its pin left behind, or the pin was written for a sentence never added.", name, fact)
-		}
+	}
+	for _, fact := range unclaimedFacts(declared, claimed) {
+		t.Errorf("pages declares the fact %s = %q and NO sentence on any public page rests on it. "+
+			"Either a sentence was deleted and its pin left behind, or the pin was written for a "+
+			"sentence never added.", declared[fact], fact)
 	}
 	for fact := range derivations {
 		if _, ok := declared[fact]; !ok {
@@ -769,7 +938,7 @@ func TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed(t *testing.T) {
 	}
 	for fact, derive := range derivations {
 		if why := derive(); why != "" {
-			t.Errorf("the landing page says (%q) and the product no longer supports it: %s\n(fact %q)\n"+
+			t.Errorf("%s, and the product no longer supports it: %s\n(fact %q)\n"+
 				"Fix the product or delete the sentence — a marketing page may not describe a "+
 				"capability that is not there.", claimed[fact], why, fact)
 		}
@@ -871,8 +1040,8 @@ func TestLandingLines_EveryLedeIsRenderedAndRestsOnAFact(t *testing.T) {
 	t.Parallel()
 	text := renderedLandingText(t)
 	lines := landingLines()
-	if len(lines) < 7 {
-		t.Fatalf("landingLines names %d line(s); the page renders seven, so this test is not reading them all", len(lines))
+	if len(lines) < 12 {
+		t.Fatalf("landingLines names %d line(s); the page renders twelve, so this test is not reading them all", len(lines))
 	}
 	for name, l := range lines {
 		if len(l.Facts) == 0 {
@@ -971,66 +1140,186 @@ func TestLandingEvidence_EveryProofLabelIsRendered(t *testing.T) {
 
 var idAttrRE = regexp.MustCompile(`\sid="([^"]+)"`)
 
-// TestLandingNav_EveryLinkPointsAtASectionOnThePage follows each in-page link in
-// the sticky bar against the rendered page, and holds the bar to the two hrefs
-// that are not in-page: the sign-in constant and the wizard.
+// TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage holds the public header's page
+// links (LP-06; it was the landing bar's in-page-link test until /pricing existed, and
+// its intent is kept): every entry is either a section of the landing -- "/#how", an id
+// the landing renders -- or a mounted public page, a row of pages.PublicPages; every
+// page the header is drawn on carries all three entries, Sign in and Start free in its
+// first <nav>; and the entry pointing at the page being read is marked
+// aria-current="page" while no other entry is (on the landing, none is).
+//
+// SINCE LP-11 THAT IS EVERY PUBLIC PAGE. Until then its second half held the opposite
+// -- the legal pages carried no header entry and no sticky header -- because they kept
+// the old chrome. Now the legal documents and the integration guide carry the same bar
+// with no entry marked (none of the three is them), sticking to the top; sign-up
+// carries the same three entries and Sign in, and neither Start free nor the phone bar
+// (that is where they lead -- the Signup boards draw none).
 //
 // ⚠️ IT USED TO PANIC. The bar's segment was cut at "<main", which the user's
 // design does not have, and body[:-1] took the whole package down with it. The
 // segment is the first <nav> now, and a page without one is a fatal, not a panic.
-func TestLandingNav_EveryLinkPointsAtASectionOnThePage(t *testing.T) {
+func TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage(t *testing.T) {
 	t.Parallel()
-	body := mustFetchMarketing(t, marketingRouter(t), "/")
-	ids := map[string]bool{}
-	for _, m := range idAttrRE.FindAllStringSubmatch(body, -1) {
-		ids[m[1]] = true
-	}
+	r := marketingRouter(t)
+	landing := mustFetchMarketing(t, r, "/")
 	if len(pages.LandingNav) != 3 {
 		t.Fatalf("LandingNav carries %d link(s); the bar has three", len(pages.LandingNav))
 	}
+	for _, l := range pages.LandingNav {
+		if why := navEntryProblem(l.Href, landing, pages.PublicPages); why != "" {
+			t.Errorf("nav link %q: %s", l.Label, why)
+		}
+	}
+	for _, url := range siteURLs() {
+		for _, why := range navBarProblems(mustFetchMarketing(t, r, url), url) {
+			t.Errorf("%s: %s", url, why)
+		}
+	}
+	// AND THE PAGES THAT KEPT THE OLD CHROME UNTIL LP-11 carry the same bar, in the
+	// root that sticks (input.css, .lp.lp-top).
+	for _, url := range chromeOnlyURLs() {
+		body := mustFetchMarketing(t, r, url)
+		for _, why := range navBarProblems(body, url) {
+			t.Errorf("%s: %s", url, why)
+		}
+		if !stickingHeaderRE.MatchString(body) {
+			t.Errorf("%s: the header is not in the root that sticks", url)
+		}
+	}
+	signup := mustFetchMarketing(t, r, signupPath)
+	bar := between(signup, "<nav", "</nav>")
+	for _, l := range pages.LandingNav {
+		if !strings.Contains(bar, `href="`+l.Href+`"`) {
+			t.Errorf("sign-up's bar lacks the %q entry", l.Label)
+		}
+	}
+	if strings.Contains(bar, "aria-current") {
+		t.Error("sign-up's bar marks an entry as the current page; none of them is sign-up")
+	}
+	if !strings.Contains(bar, `href="`+adminLoginPath+`"`) {
+		t.Error("sign-up's bar carries no Sign in")
+	}
+	if strings.Contains(signup, `href="`+signupPath+`"`) || strings.Contains(signup, `class="mbar"`) {
+		t.Error("sign-up offers Start free or the phone bar; the Signup boards draw neither on the page they lead to")
+	}
+	if !strings.Contains(signup, `<div class="lp lp-topStill">`) {
+		t.Error("sign-up's header is not in the root that scrolls away; its phone screens pin the progress bar instead")
+	}
+}
+
+// stickingHeaderRE is the header in the root that sticks (the guide's root also asks
+// for the instant scroll, TestAPIGuidePages_JumpInsteadOfGliding).
+var stickingHeaderRE = regexp.MustCompile(`<div class="lp lp-top(?: lp-instant)?"><a class="lp-skip" href="#main">Skip to content</a><header class="lp-head"`)
+
+// chromeOnlyURLs is the pages that draw the public chrome around a body written in
+// the product's utility classes, in their own roots (LP-11), and are served by the
+// marketing handler: the four legal documents and the integration guide's two pages.
+// Sign-up, the third such page, is the wizard's and is measured on its own.
+func chromeOnlyURLs() []string {
+	var out []string
+	for _, p := range pages.LegalPages {
+		out = append(out, p.Path)
+	}
+	return append(out, pages.APIGuidePath, pages.APIGuideTRPath)
+}
+
+// navEntryProblem says why a header entry's href does not resolve, or "": a "/#id"
+// entry must name an element the landing renders; anything else must be the path of
+// a row of public (a mounted public page -- the table test holds rows and routes equal).
+func navEntryProblem(href, landing string, public []pages.PublicPage) string {
+	if path, id, ok := strings.Cut(href, "#"); ok {
+		if path != "/" || id == "" {
+			return fmt.Sprintf("%q names a section somewhere other than the landing; a header entry is a landing section or a page", href)
+		}
+		for _, m := range idAttrRE.FindAllStringSubmatch(landing, -1) {
+			if m[1] == id {
+				return ""
+			}
+		}
+		return fmt.Sprintf("%q names #%s and no element on the landing carries that id; the link would land nowhere", href, id)
+	}
+	for _, p := range public {
+		if p.Path == href {
+			return ""
+		}
+	}
+	return fmt.Sprintf("%q is neither a landing section nor a row of pages.PublicPages", href)
+}
+
+// navBarProblems says how body's header bar -- its first <nav> -- departs from the
+// table, when the page drawn is current: every entry, with its label; Sign in and Start
+// free from the views' constants; aria-current="page" on exactly the entries whose href
+// is current.
+func navBarProblems(body, current string) []string {
 	navStart := strings.Index(body, "<nav")
 	navEnd := strings.Index(body, "</nav>")
 	if navStart < 0 || navEnd < navStart {
-		t.Fatalf("the landing page renders no <nav>…</nav>; the sticky bar is gone")
+		return []string{"the page renders no <nav>…</nav>; the header bar is gone"}
 	}
 	bar := body[navStart:navEnd]
 	barText := strings.Join(strings.Fields(tagRE.ReplaceAllString(bar, " ")), " ")
+	var out []string
 	for _, l := range pages.LandingNav {
-		target, ok := strings.CutPrefix(l.Href, "#")
-		if !ok || target == "" {
-			t.Errorf("nav link %q points at %q, which is not an in-page anchor", l.Label, l.Href)
+		m := regexp.MustCompile(`<a[^>]*href="` + regexp.QuoteMeta(l.Href) + `"[^>]*>`).FindString(bar)
+		if m == "" {
+			out = append(out, fmt.Sprintf("nav link %q (%s) is declared and NOT rendered in the bar", l.Label, l.Href))
 			continue
 		}
-		if !ids[target] {
-			t.Errorf("nav link %q points at #%s and no element on the page carries that id; "+
-				"the link would scroll nowhere", l.Label, target)
-		}
-		if !strings.Contains(bar, `href="`+l.Href+`"`) {
-			t.Errorf("nav link %q (%s) is declared and NOT rendered in the bar", l.Label, l.Href)
-		}
 		if !strings.Contains(barText, l.Label) {
-			t.Errorf("nav label %q is not in the bar", l.Label)
+			out = append(out, fmt.Sprintf("nav label %q is not in the bar", l.Label))
 		}
+		marked := strings.Contains(m, `aria-current="page"`)
+		if l.Href == current && !marked {
+			out = append(out, fmt.Sprintf("the bar's %q entry points at this page and is not marked aria-current=\"page\"", l.Label))
+		}
+		if l.Href != current && marked {
+			out = append(out, fmt.Sprintf("the bar marks %q (%s) as the current page", l.Label, l.Href))
+		}
+	}
+	if n := strings.Count(bar, "aria-current"); n > 1 {
+		out = append(out, fmt.Sprintf("the bar marks %d entries as current", n))
 	}
 	// The bar's two ways in come from the view, never from a literal.
 	if !strings.Contains(bar, `href="`+signupPath+`"`) {
-		t.Errorf("the bar carries no link to %s", signupPath)
+		out = append(out, "the bar carries no link to "+signupPath)
 	}
 	if !strings.Contains(bar, `href="`+adminLoginPath+`"`) {
-		t.Errorf("the bar carries no link to %s", adminLoginPath)
+		out = append(out, "the bar carries no link to "+adminLoginPath)
 	}
-	// AND THE PLAIN CHROME STAYS PLAIN: the wizard and the legal pages render no
-	// bar, no in-page link and no sticky header.
-	for _, p := range pages.LegalPages {
-		legal := mustFetchMarketing(t, marketingRouter(t), p.Path)
-		for _, l := range pages.LandingNav {
-			if strings.Contains(legal, `href="`+l.Href+`"`) {
-				t.Errorf("%s renders the landing page's %q link; the bar is the landing page's only", p.Path, l.Label)
-			}
+	return out
+}
+
+// TestPublicNav_CheckRefusesADeadEntryOrAWrongMark is the control for the two checks
+// above: a section the landing does not have, a page that is not a row of the table, a
+// current page left unmarked and another page marked are each red.
+func TestPublicNav_CheckRefusesADeadEntryOrAWrongMark(t *testing.T) {
+	t.Parallel()
+	r := marketingRouter(t)
+	landing := mustFetchMarketing(t, r, "/")
+	pricing := mustFetchMarketing(t, r, pages.PricingPath)
+	for href, ok := range map[string]bool{
+		"/#how": true, pages.PricingPath: true,
+		"/#yok": false, "/yok": false, "#how": false, pages.PricingPath + "#billing": false,
+	} {
+		if got := navEntryProblem(href, landing, pages.PublicPages) == ""; got != ok {
+			t.Errorf("CONTROL navEntryProblem(%q) holds=%v, want %v", href, got, ok)
 		}
-		if strings.Contains(legal, "sticky") {
-			t.Errorf("%s renders a sticky header; only the landing page asked for one", p.Path)
-		}
+	}
+	if navEntryProblem(pages.PricingPath, landing, nil) == "" {
+		t.Error("CONTROL: a page with no row of the table passed as a header entry")
+	}
+	if p := navBarProblems(pricing, pages.PricingPath); len(p) != 0 {
+		t.Fatalf("PREMISE: the pricing page's bar fails the check: %v", p)
+	}
+	unmarked := strings.Replace(pricing, ` aria-current="page"`, "", 1)
+	if unmarked == pricing || len(navBarProblems(unmarked, pages.PricingPath)) == 0 {
+		t.Error("CONTROL: the pricing page with its header entry unmarked passed")
+	}
+	// Since LP-08 no header entry is a landing section; the landing marks none, so an
+	// entry marked there -- the product tour's -- points at another page.
+	marked := strings.Replace(landing, `class="navlink" href="`+pages.ProductPath+`"`, `class="navlink" href="`+pages.ProductPath+`" aria-current="page"`, 1)
+	if marked == landing || len(navBarProblems(marked, "/")) == 0 {
+		t.Error("CONTROL: the landing with another page's entry marked as the current page passed")
 	}
 }
 
@@ -1057,18 +1346,48 @@ var rawHexRE = regexp.MustCompile(`#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{3}\b`)
 // reference's stylesheet keeps them, as tokens on .lp — input.css records why.)
 func TestLanding_UsesOnlyPaletteTokens(t *testing.T) {
 	t.Parallel()
-	src := repoFile(t, "web", "templates", "pages", "landing.templ")
-	if hit := rawHexRE.FindString(src); hit != "" {
-		t.Errorf("landing.templ carries the raw colour %q; the palette is tokens only (skill tappa-brand)", hit)
+	// The shared public chrome (LP-02) renders on every page and is held to the same
+	// rule, and so is every public page's own template (LP-06 …): sitePageTemplates
+	// names one per page, and a page with none is red rather than unscanned.
+	files := []string{"publicchrome.templ"}
+	for _, url := range siteURLs() {
+		name, ok := sitePageTemplates[url]
+		if !ok {
+			t.Errorf("%s has no template named in sitePageTemplates, so its source is not scanned", url)
+			continue
+		}
+		files = append(files, name)
 	}
-	body := mustFetchMarketing(t, marketingRouter(t), "/")
-	if hit := rawHexRE.FindString(body); hit != "" {
-		t.Errorf("the rendered landing page carries the raw colour %q", hit)
+	for _, name := range files {
+		src := repoFile(t, "web", "templates", "pages", name)
+		if hit := rawHexRE.FindString(src); hit != "" {
+			t.Errorf("%s carries the raw colour %q; the palette is tokens only (skill tappa-brand)", name, hit)
+		}
 	}
-	// The page contains no inline style attribute at all — every tone is a class.
-	if strings.Contains(body, " style=") {
-		t.Error("the landing page carries an inline style attribute; tones are tokens in classes")
+	r := marketingRouter(t)
+	for _, url := range siteURLs() {
+		body := mustFetchMarketing(t, r, url)
+		if hit := rawHexRE.FindString(body); hit != "" {
+			t.Errorf("the rendered %s carries the raw colour %q", url, hit)
+		}
+		// The page contains no inline style attribute at all — every tone is a class.
+		if strings.Contains(body, " style=") {
+			t.Errorf("%s carries an inline style attribute; tones are tokens in classes", url)
+		}
 	}
+}
+
+// sitePageTemplates is the template each page of the public site is drawn by. A page
+// card adds its row with its route.
+var sitePageTemplates = map[string]string{
+	"/":                "landing.templ",
+	pages.PricingPath:  "pricing.templ",
+	pages.SecurityPath: "security.templ",
+	pages.ProductPath:  "product.templ",
+
+	// The For pages (LP-09 …), one row each.
+	pages.ForRestaurantsPath: "forrestaurants.templ",
+	pages.ForProductionPath:  "forproduction.templ",
 }
 
 // landingFAQAnswerBeforeM11 is "Where does the data go?" as the page answered it until
@@ -1134,6 +1453,10 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		mig38    field = func(s *apiFactSources) *string { return &s.Mig38 }
 		mig39    field = func(s *apiFactSources) *string { return &s.Mig39 }
 		migFeed  field = func(s *apiFactSources) *string { return &s.MigFeed }
+		// reportsCSV is a field of the struct like the others.
+		reportsCSV field = func(s *apiFactSources) *string { return &s.ReportsCSV }
+		txQueries  field = func(s *apiFactSources) *string { return &s.TxQueries }
+		report     field = func(s *apiFactSources) *string { return &s.Report }
 	)
 	for _, tc := range []struct {
 		name     string
@@ -1154,6 +1477,14 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			"INSERT INTO public.nothing (tenant_id, endpoint_id, punch_event_seq) VALUES (v_employer"},
 		{"no webhook sender", apiFeedViolation, cmd, "work.Add(deliveries)", "_ = deliveries"},
 		{"the webhook body is not the punch", apiFeedViolation, delivery, "\tpunchwire.Punch\n", "\tX int\n"},
+		{"the feed admits a manual record", apiFeedViolation, migFeed, "OR NEW.channel NOT IN ('nfc', 'qr')", "OR NEW.channel NOT IN ('nfc', 'qr', 'manual')"},
+		{"the feed admits a rejected record", apiFeedViolation, migFeed, "IF NEW.outcome <> 'approved' THEN", "IF NEW.outcome = 'never' THEN"},
+		{"the CSV drops the manager's entries", apiFeedViolation, reportsCSV, "manager_entered_arrivals", "arrivals"},
+		{"the holding feed admits a manual record", apiFeedViolation, migFeed, "v_event := NEW.verdict = 'ok' AND NEW.channel IN ('nfc', 'qr')", "v_event := NEW.verdict = 'ok' AND NEW.channel IN ('nfc', 'qr', 'manual')"},
+		{"the holding feed admits a manual approval", apiFeedViolation, migFeed, "AND v_verdict = 'flag' AND v_channel IN ('nfc', 'qr')", "AND v_verdict = 'flag' AND v_channel IN ('nfc', 'qr', 'manual')"},
+		{"the worked-hours read drops typed rows", apiFeedViolation, txQueries, "  AND NOT t.practice\n  AND t.occurred_at >= @from_at", "  AND NOT t.practice\n  AND t.channel <> 'manual'\n  AND t.occurred_at >= @from_at"},
+		{"the ledger skips a typed row", apiFeedViolation, report, "if e.Manual {", "if e.Manual {\n\t\t\tcontinue\n\t\t}\n\t\tif e.Manual {"},
+		{"the ledger reads the channel again", apiFeedViolation, report, `Manual:       row.Channel == "manual",`, `Manual:       row.Channel == "manual" || row.Channel == "x",`},
 		{"a closed API is not refused", apiGateViolation, auth, "case k.APIEnabledAt == nil:", "case false:"},
 		{"the refusal is not a 403", apiGateViolation, auth, `&AuthError{http.StatusForbidden, "the integration`, `&AuthError{http.StatusUnauthorized, "the integration`},
 		{"a 403 is not api_disabled", apiGateViolation, apiPkg, "writeProblem(w, problemAPIDisabled)", "writeProblem(w, problemUnauthorized)"},
@@ -1189,6 +1520,82 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		t.Errorf("apiFeedViolation refuses holding_feed()'s definition BEFORE 00049, which 00049 replaces: %s", why)
 	}
 
+	// The panel section's three facts (LP-05): each holds over the real sources and says no
+	// when one piece of what it reads is taken away. A mutation is applied inside the one
+	// component or query it is about, so it cannot land on a twin elsewhere in the file.
+	panel := loadPanelFactSources(t)
+	within := func(src, whole, old, new string) string {
+		return strings.Replace(src, whole, strings.ReplaceAll(whole, old, new), 1)
+	}
+	for _, tc := range []struct {
+		name   string
+		derive func(panelFactSources) string
+		mutate func(*panelFactSources)
+	}{
+		{"the panel's records are oldest first", passRailViolation, func(s *panelFactSources) {
+			s.Queries = within(s.Queries, queryBlock(s.Queries, "ListPanelTransactions"), "ORDER BY t.occurred_at DESC", "ORDER BY t.occurred_at ASC")
+		}},
+		{"the panel's query is not read", passRailViolation, func(s *panelFactSources) {
+			s.Ledger = strings.ReplaceAll(s.Ledger, ".ListPanelTransactions(", ".ListOtherTransactions(")
+		}},
+		{"The Pass hangs no rail", passRailViolation, func(s *panelFactSources) {
+			s.Transactions = within(s.Transactions, templBody(s.Transactions, "passBody"), "@rail(v)", "")
+		}},
+		{"the rail hangs another docket", passRailViolation, func(s *panelFactSources) {
+			s.Transactions = within(s.Transactions, templBody(s.Transactions, "rail"), "@components.RailDocket(d)", "@components.TransactionDocket(d)")
+		}},
+		{"the rail docket prints no stamp", passRailViolation, func(s *panelFactSources) {
+			s.Docket = within(s.Docket, templBody(s.Docket, "RailDocket"), "@VerdictStamp(d.Verdict)", "")
+		}},
+		{"the stamp says another word", passRailViolation, func(s *panelFactSources) {
+			s.Docket = within(s.Docket, templBody(s.Docket, "VerdictStamp"), `stamp--flagged">FLAGGED<`, `stamp--flagged">HELD<`)
+		}},
+		{"a third outcome", reviewOutcomeViolation, func(s *panelFactSources) {
+			s.Mig05 = strings.Replace(s.Mig05, "IN ('approved', 'rejected')", "IN ('approved', 'rejected', 'deferred')", 1)
+		}},
+		{"the form cannot reject", reviewOutcomeViolation, func(s *panelFactSources) {
+			s.Review = strings.ReplaceAll(s.Review, `name="outcome" value="rejected"`, `name="outcome" value="deferred"`)
+		}},
+		{"the form offers a third outcome", reviewOutcomeViolation, func(s *panelFactSources) {
+			s.Review = strings.Replace(s.Review, `name="outcome" value="rejected"`,
+				`name="outcome" value="rejected">Reject</button><button type="submit" name="outcome" value="deferred"`, 1)
+		}},
+		{"a later migration changes the outcome check", reviewOutcomeViolation, func(s *panelFactSources) {
+			later := maps.Clone(s.Later)
+			later["00099_x.sql"] = "-- +goose Up\nALTER TABLE transaction_reviews DROP CONSTRAINT transaction_reviews_outcome_check;\n" +
+				"-- +goose Down\nSELECT 1;\n"
+			s.Later = later
+		}},
+		{"a report is a fortnight", rollWeekViolation, func(s *panelFactSources) {
+			s.Report = strings.Replace(s.Report, "const ReportDays = 7", "const ReportDays = 14", 1)
+		}},
+		{"The Roll is per venue", rollWeekViolation, func(s *panelFactSources) {
+			s.Reports = within(s.Reports, templBody(s.Reports, "reportPeople"), "range v.People", "range v.Venues")
+		}},
+		{"The Roll has no day cells", rollWeekViolation, func(s *panelFactSources) {
+			s.Reports = within(s.Reports, templBody(s.Reports, "reportPeople"), "range v.DayHeadings", "range v.Totals")
+		}},
+		{"only the header ranges over the days", rollWeekViolation, func(s *panelFactSources) {
+			body := templBody(s.Reports, "reportPeople")
+			row := body[strings.Index(body, "range v.People"):]
+			s.Reports = within(s.Reports, row, "range v.DayHeadings", "range v.DayLetters")
+		}},
+	} {
+		if why := tc.derive(panel); why != "" {
+			t.Errorf("panel control %q: the derivation does not hold over the real sources: %s", tc.name, why)
+			continue
+		}
+		m := panel
+		tc.mutate(&m)
+		if reflect.DeepEqual(m, panel) {
+			t.Errorf("panel control %q: the mutation changed nothing in the sources", tc.name)
+			continue
+		}
+		if tc.derive(m) == "" {
+			t.Errorf("panel control %q: the derivation still holds over a source without it", tc.name)
+		}
+	}
+
 	// The no-"no API" scanner sees the sentence the FAQ carried until 2026-10-21, and
 	// the other ways of saying it, and not a noun phrase about something else.
 	for _, s := range []string{
@@ -1217,7 +1624,7 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 	}
 	// And with today's API sentence swapped for another way of denying it.
 	const apiSentence = "Once Taptime enables the integration API for you, your HR or payroll system " +
-		"can also read every punch from a feed or receive it by webhook."
+		"can also read every counted tap from a feed or receive it by webhook; entries typed by a manager stay in the CSV."
 	swapped := false
 	for _, q := range pages.LandingFAQ {
 		if strings.Contains(q.A, apiSentence) {

@@ -24,7 +24,7 @@ import (
 // for Error's details TestOpenAPI_EveryRouteAndErrorDocumented (its keys are read from the package's
 // source, both ways). A key added unconditionally was measured red in each family (M15-13 fix
 // rounds). A key added only in a state no test answers -- an activated employee, an inactive
-// location -- is caught by none of them, and was not before the schemas opened either (backlog T154).
+// location -- is caught by none of them, and was not before the schemas opened either (backlog T162).
 func TestOpenAPI_EveryAnswerSchemaIsOpenEveryRequestClosed(t *testing.T) {
 	doc := openAPIDoc(t)
 	schemas := mustMap(t, func() any { v, _ := yat(doc, "components", "schemas"); return v }(), "components.schemas")

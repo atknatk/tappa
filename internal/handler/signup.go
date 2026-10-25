@@ -12,6 +12,8 @@ import (
 
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/domain/signup"
+	"github.com/atknatk/tappa/web"
+	"github.com/atknatk/tappa/web/templates/layout"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -114,6 +116,10 @@ type Signup struct {
 	state   signupState
 	// baseURL is this deployment's own origin, for the Origin header check.
 	baseURL string
+	// shareImage is the full URL of the wizard's share image (LP-13), resolved once in
+	// NewSignup from the configured origin, the way handler.Marketing resolves its
+	// pages' (shareImagesFor). "" draws none.
+	shareImage string
 
 	// See signupratelimit.go for what each may refuse.
 	floodLimiter   *limiter
@@ -148,6 +154,7 @@ func NewSignup(p signupProvisioner, vat vatChecker, cfg *config.Config, log *slo
 		cookies:        newSignupCookies(cfg),
 		state:          st,
 		baseURL:        originOf(cfg.BaseURL),
+		shareImage:     shareImageURL(web.Static(), shareOrigin(cfg.BaseURL), pages.ShareImageFiles.Signup),
 		floodLimiter:   newLimiter(signupFloodLimit, signupFloodPeriod),
 		checkLimiter:   newLimiter(signupCheckLimit, signupCheckPeriod),
 		attemptLimiter: newLimiter(signupAttemptLimit, signupAttemptPeriod),
@@ -235,6 +242,10 @@ func (s *Signup) Business(w http.ResponseWriter, r *http.Request) {
 	// leaving it would let a stale draft survive into a new registration.
 	s.cookies.clear(w, signupStateCookieName)
 	s.render(w, r, http.StatusOK, pages.SignupBusiness(pages.SignupBusinessView{
+		// The share card is the wizard's first screen only: it is the address a link
+		// to sign-up names, and the later steps and the refused re-renders are
+		// answers to a form, not pages anybody shares.
+		Share:     layout.Share{Description: pages.SignOffLine(foundingFreeMonths), Image: s.shareImage},
 		CSRFToken: st.csrf,
 		Types:     businessTypeOptions(),
 	}))

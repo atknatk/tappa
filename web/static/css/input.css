@@ -945,9 +945,11 @@
     .plaque-field--outer { animation-delay: 360ms; }
   }
 
-  /* --- the landing page's ONE animation (M7-01): a docket coming off the printer ---
-     The M7-01 card asks the hero for "canlı plaket + basılan adisyon animasyonu"
-     and requires it to respect prefers-reduced-motion. It is a single downward
+  /* --- a docket coming off the printer (M7-01) ---
+     Written for the landing hero (the M7-01 card asked for "canlı plaket + basılan
+     adisyon animasyonu"); today the sign-up wizard is its only user (signup.templ),
+     and the landing has no animation at all since LP-03 (README O2). It must still
+     respect prefers-reduced-motion. It is a single downward
      slide that runs once, which is the motion a printed docket actually makes; the
      brand forbids anything that sways or repeats.
 
@@ -1755,16 +1757,14 @@
 
    AND IT UNDOES ONE PIECE OF PREFLIGHT, deliberately: Tailwind's reset
    makes h1-h6 inherit their weight, where the reference relies on the
-   browser default for its h3s (.step h3, .link h3, .fit h3 set a size and
-   no weight). Without the rule below those three headings would render at
-   400 here and at 700 in the reference.
+   browser default for its h3s (they set a size and no weight; since LP-04
+   the landing body's step, proof and fit headings). Without the rule below
+   those headings would render at 400 here and at 700 on the boards.
    ===================================================================== */
 
 .lp {
   --ink: #152219;
-  --ink-soft: #3D4F44;
   --green: #1F5C41;
-  --green-deep: #17462F;
   --green-lite: #E1EDE6;
   --porcelain: #EDF0EA;
   --paper: #FFFDF4;
@@ -1778,6 +1778,22 @@
      plaque's wave takes the colour through the two classes below. Same value,
      one declaration. */
   --mint: #8FD3AF;
+  /* The public site's translucent tones (LP-01) are a token at an alpha, never a
+     new colour: rgb(var(--ink-ch) / .85) is ink at 85%. A channel triplet rather
+     than color-mix() because every browser that reads :has() above also reads
+     this. Each triplet is the hex token beside it, digit for digit -- the test on
+     the public site's stylesheet compares them. */
+  --ink-ch: 21 34 25;
+  --green-ch: 31 92 65;
+  --porcelain-ch: 237 240 234;
+  --paper-ch: 255 253 244;
+  --mint-ch: 143 211 175;
+  /* LP-05: the panel drawings' evidence tiles and The Roll's open day. */
+  --saffron-ch: 217 142 43;
+  --tomato-ch: 190 61 42;
+  /* The focus ring's colour. Ink on porcelain and paper; a dark ground (.band--ink,
+     the green .ondark box) sets it to paper. See the ring below. */
+  --ring: var(--ink);
   --disp: 'Space Grotesk', system-ui, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, monospace;
 
@@ -1796,218 +1812,56 @@ html:has(.lp) { scroll-behavior: smooth; }
 .lp a { color: inherit; }
 .lp img { max-width: 100%; }
 .lp ::selection { background: var(--green); color: #fff; }
-.lp :focus-visible { outline: 3px solid var(--saffron); outline-offset: 3px; border-radius: 4px; }
+/* THE ONE FOCUS RING OF THE PUBLIC SITE (LP-01, board States-Public). It replaces
+   the reference's 3px saffron ring, which measured 2.32:1 on porcelain and 2.62:1
+   on paper -- below the 3:1 a focus indicator needs. 2px solid with a 2px offset,
+   so the ring always sits on the SURFACE around the control, never on the control:
+     ink   #152219 on porcelain 14.32:1 · on paper 16.17:1
+     paper #FFFDF4 on green      7.73:1 · on ink   16.17:1
+   (ink on green would be 2.09:1, which is why a green ground switches --ring.)
+   The 4px corner is the reference's and is kept so an unclassed link's ring keeps
+   its shape; every component below with its own radius wins on source order. */
+.lp :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 4px; }
 
-.lp .wrap { max-width: 1140px; margin: 0 auto; padding: 0 24px; }
+/* The reference's sections -- its .wrap, its button, the trust strip, the steps,
+   the ledger, the proofs, the fits, the price card, the FAQ and the sign-off box,
+   and the `.lp section` / `.lp h2` element rules they leaned on -- were redrawn on
+   the boards' bands in LP-04 and their rules went with them; see THE LANDING BODY
+   at the end of this file. */
 
-/* ---------------- nav ---------------- */
-.lp nav { position: sticky; top: 0; z-index: 50; background: rgba(237,240,234,.88); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
-.lp .navIn { display: flex; align-items: center; justify-content: space-between; height: 66px; }
-.lp .wordmark { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 21px; letter-spacing: -.5px; text-decoration: none; }
-.lp .wordmark .dot { width: 30px; height: 30px; border-radius: 50%; background: var(--green); position: relative; flex-shrink: 0; }
-.lp .wordmark .dot::after { content: ''; position: absolute; inset: 6px; border-radius: 50%; border: 2px solid #fff; opacity: .9; }
-.lp .navLinks { display: flex; align-items: center; gap: 28px; font-size: 14.5px; font-weight: 500; }
-.lp .navLinks a { text-decoration: none; color: var(--ink-soft); }
-.lp .navLinks a:hover { color: var(--ink); }
-/* The reference's own cascade leaves the bar's Start free unreadable, and this is
-   the one place this replication departs from it (2026-09-14, measured). Its
-   `.navLinks a` beats `.btn-green` on specificity (0,1,1 over 0,1,0), so the pill's
-   label renders ink-soft on green at 1.35:1 -- the primary call to action, in the
-   bar that follows the reader down the page, with its word effectively invisible.
-   Restoring the pill's own colour puts it back at 7.88:1. Nothing else about the
-   bar moves. */
-.lp .navLinks a.lp-btn-green { color: #fff; }
-.lp .navLinks a.lp-btn-green:hover { color: #fff; }
-.lp .lp-btn { display: inline-block; font-family: var(--disp); font-weight: 700; font-size: 15px; text-decoration: none; border-radius: 12px; padding: 13px 24px; transition: transform .12s ease, box-shadow .12s ease; cursor: pointer; border: none; }
-.lp .lp-btn:active { transform: scale(.98); }
-.lp .lp-btn-green { background: var(--green); color: #fff; box-shadow: 0 4px 14px rgba(31,92,65,.28); }
-.lp .lp-btn-green:hover { background: var(--green-deep); }
-/* A button that carries a glyph beside its word. Separate from .lp-btn so the
-   reference's own buttons keep their inline-block box exactly as drawn; this one
-   becomes a flex line only to put the mark on the text's optical centre. The glyph
-   inherits currentColor, so the ghost button's hover inversion carries it too. */
-.lp .lp-btn-withIcon { display: inline-flex; align-items: center; gap: 9px; }
-.lp .lp-btn-withIcon svg { flex-shrink: 0; }
-.lp .lp-btn-ghost { background: transparent; color: var(--ink); border: 2px solid var(--ink); padding: 11px 22px; }
-.lp .lp-btn-ghost:hover { background: var(--ink); color: #fff; }
-.lp .navLinks .lp-btn { padding: 10px 18px; font-size: 14px; }
-@media (max-width: 720px) { .lp .navLinks a:not(.lp-btn) { display: none; } }
-
-/* ---------------- hero ---------------- */
-.lp .hero { padding: 84px 0 70px; overflow: hidden; }
-.lp .heroGrid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 56px; align-items: center; }
-@media (max-width: 900px) { .lp .heroGrid { grid-template-columns: 1fr; gap: 48px; } }
-.lp .eyebrow { font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--green); margin-bottom: 18px; }
-.lp h1 { font-size: clamp(40px, 5.6vw, 64px); line-height: 1.03; letter-spacing: -2px; font-weight: 700; margin-bottom: 22px; }
-.lp h1 .tapWord { color: var(--green); white-space: nowrap; }
-.lp .heroSub { font-size: 18.5px; color: var(--ink-soft); max-width: 480px; margin-bottom: 14px; }
-.lp .heroCreed { font-family: var(--mono); font-size: 13.5px; font-weight: 500; color: var(--ink); margin-bottom: 32px; }
-.lp .heroCreed s { color: #9AA79C; text-decoration-color: var(--tomato); }
-.lp .heroBtns { display: flex; gap: 14px; flex-wrap: wrap; }
-.lp .heroFoot { margin-top: 26px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); }
-
-/* the scene: plaque + docket */
-.lp .scene { position: relative; min-height: 430px; display: flex; align-items: center; justify-content: center; }
-.lp .plaque { width: 230px; background: var(--ink); border-radius: 20px; padding: 28px 22px 22px; color: #F2F5EF; text-align: center; box-shadow: 0 24px 60px rgba(15,25,18,.35); position: relative; z-index: 2; }
-/* The next rule is one of the four sites on the occurrence golden (themeBrandGolden,
-   internal/brand/theme_test.go): an edit to it edits that list in the same change. */
-.lp .plaque .p-brand { font-family: var(--mono); font-size: 10px; letter-spacing: 3px; color: #9DB3A5; margin-bottom: 18px; }
-.lp .plaque .p-ring { width: 84px; height: 84px; margin: 0 auto 18px; border-radius: 50%; border: 2px dashed #6FA88B; display: flex; align-items: center; justify-content: center; position: relative; }
-.lp .plaque .p-ring svg { width: 36px; height: 36px; }
-.lp .plaque .p-wave { stroke: var(--mint); }
-.lp .plaque .p-dot { fill: var(--mint); }
-.lp .plaque .p-txt { font-size: 16px; font-weight: 700; line-height: 1.35; margin-bottom: 14px; }
-.lp .plaque .p-loc { font-family: var(--mono); font-size: 9.5px; color: #7A9484; border-top: 1px dashed #33473B; padding-top: 12px; }
-.lp .tapPulse { position: absolute; inset: -12px; border-radius: 50%; border: 2px solid #6FA88B; opacity: 0; transform: scale(.7); }
-.lp .scene.play .tapPulse { animation: tapring 3.8s ease-out infinite; }
-@keyframes tapring { 0%,55% { opacity: 0; transform: scale(.7); } 60% { opacity: .95; transform: scale(.8); } 78% { opacity: 0; transform: scale(1.5); } 100% { opacity: 0; } }
-
-/* docket that "prints" */
-.lp .lp-docket { position: absolute; right: max(0px, calc(50% - 300px)); top: 50%; transform: translateY(-46%) rotate(2.5deg); width: 212px; background: var(--paper); border: 1px solid #E2DFC9; border-radius: 4px; font-family: var(--mono); padding: 14px 16px 16px; box-shadow: 0 14px 34px rgba(20,30,22,.18); z-index: 3; clip-path: inset(0 0 100% 0); }
-.lp .scene.play .lp-docket { animation: printout 3.8s ease-out infinite; }
-@keyframes printout { 0%,62% { clip-path: inset(0 0 100% 0); } 80%,100% { clip-path: inset(0 0 0% 0); } }
-.lp .lp-docket::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 5px; background: repeating-linear-gradient(90deg, var(--green) 0 12px, transparent 12px 18px); }
-.lp .d-name { font-weight: 600; font-size: 13.5px; margin: 6px 0 2px; }
-.lp .d-tag { display: inline-block; font-size: 9px; font-weight: 600; letter-spacing: 1.5px; background: var(--green-lite); color: var(--green); border-radius: 4px; padding: 2px 7px; margin-bottom: 8px; }
-.lp .d-rows { border-top: 1px dashed #C9C4A8; padding-top: 7px; font-size: 10.5px; color: #4B5C50; display: flex; flex-direction: column; gap: 3px; }
-.lp .d-rows div { display: flex; justify-content: space-between; gap: 8px; }
-.lp .d-rows b { color: var(--ink); font-weight: 600; }
-.lp .d-stamp { position: absolute; right: 10px; bottom: 12px; font-weight: 600; font-size: 10px; letter-spacing: 1.5px; padding: 3px 8px; border: 2px solid var(--green); color: var(--green); border-radius: 4px; transform: rotate(-7deg); background: rgba(255,253,244,.9); }
-@media (max-width: 520px) { .lp .lp-docket { right: -6px; width: 190px; } }
-
-/* ---------------- trust strip ---------------- */
-.lp .strip { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #F4F6F1; }
-.lp .stripIn { display: flex; align-items: center; justify-content: center; gap: 38px; padding: 20px 24px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
-.lp .stripIn b { color: var(--ink); font-weight: 600; letter-spacing: .5px; }
-
-/* ---------------- sections ---------------- */
-.lp section { padding: 92px 0; }
-.lp .secEyebrow { font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--green); margin-bottom: 14px; }
-.lp .secEyebrow.onInk { color: var(--mint); }
-.lp h2 { font-size: clamp(30px, 3.8vw, 44px); letter-spacing: -1.2px; line-height: 1.1; font-weight: 700; margin-bottom: 16px; max-width: 640px; }
-.lp .secSub { font-size: 17px; color: var(--ink-soft); max-width: 560px; margin-bottom: 52px; }
-
-/* how it works */
-.lp .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-@media (max-width: 860px) { .lp .steps { grid-template-columns: 1fr; } }
-.lp .step { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 30px 26px; }
-.lp .step .n { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--saffron); letter-spacing: 2px; margin-bottom: 16px; display: block; }
-.lp .step .ico { font-size: 30px; margin-bottom: 14px; display: block; }
-.lp .step h3 { font-size: 19px; letter-spacing: -.3px; margin-bottom: 10px; }
-.lp .step p { font-size: 14.5px; color: var(--ink-soft); }
-.lp .step p b { color: var(--ink); }
-
-/* ledger comparison */
-.lp .ledgerWrap { background: var(--ink); border-radius: 24px; padding: 56px 48px; color: #E9EFE9; }
-@media (max-width: 720px) { .lp .ledgerWrap { padding: 40px 24px; } }
-.lp .ledgerWrap h2 { color: #fff; }
-.lp .ledgerWrap .secSub { color: #9DB3A5; }
-.lp .lp-ledger { width: 100%; border-collapse: collapse; font-size: 14.5px; }
-.lp .lp-ledger th { font-family: var(--mono); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; text-align: left; padding: 14px 16px; border-bottom: 1px solid #33473B; color: #9DB3A5; font-weight: 600; }
-.lp .lp-ledger th.tappaCol { color: var(--mint); }
-.lp .lp-ledger td { padding: 15px 16px; border-bottom: 1px solid #24352B; vertical-align: top; }
-.lp .lp-ledger tr:last-child td { border-bottom: none; }
-.lp .lp-ledger td:first-child { color: #B9C8BC; font-weight: 500; width: 26%; }
-.lp .lp-ledger .no { color: #D98B7B; font-family: var(--mono); font-size: 13px; }
-.lp .lp-ledger .yes { color: var(--mint); font-family: var(--mono); font-size: 13px; }
-/* The footnote under the table is not the reference's; it is the sentence that
-   makes the table a comparison of mechanisms rather than a benchmark
-   (TestLanding_ComparesMechanismsAndDeclaresNoWinner). Set in the ledger's own
-   muted tone, at the size of the cards' small print. */
-.lp .ledgerNote { margin-top: 18px; font-size: 12.5px; color: #9DB3A5; max-width: 640px; }
-@media (max-width: 640px) {
-  .lp .lp-ledger td:nth-child(2) { display: none; }
-  .lp .lp-ledger th:nth-child(2) { display: none; }
-  .lp .lp-ledger td:first-child { width: 40%; }
-}
-
-/* security chain */
-.lp .chain { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; counter-reset: layer; }
-@media (max-width: 960px) { .lp .chain { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 540px) { .lp .chain { grid-template-columns: 1fr; } }
-.lp .link { background: var(--paper); border: 1px solid #E2DFC9; border-radius: 6px; padding: 24px 22px; position: relative; font-family: var(--mono); }
-.lp .link::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 5px; background: repeating-linear-gradient(90deg, var(--green) 0 12px, transparent 12px 18px); }
-.lp .link .proof { font-size: 10px; font-weight: 600; letter-spacing: 2px; color: var(--saffron); text-transform: uppercase; display: block; margin-bottom: 12px; }
-.lp .link h3 { font-family: var(--disp); font-size: 17.5px; letter-spacing: -.2px; margin-bottom: 8px; }
-.lp .link p { font-size: 12.5px; color: var(--ink-soft); line-height: 1.6; }
-.lp .gdprNote { margin-top: 26px; background: var(--green-lite); border: 1px solid var(--green); border-radius: 14px; padding: 18px 22px; font-size: 14.5px; color: var(--ink-soft); max-width: 760px; }
-.lp .gdprNote b { color: var(--ink); }
-
-/* fits */
-.lp .fits { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-@media (max-width: 820px) { .lp .fits { grid-template-columns: 1fr; } }
-.lp .fit { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 32px 28px; }
-.lp .fit .k { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: var(--saffron); display: block; margin-bottom: 14px; }
-.lp .fit h3 { font-size: 21px; letter-spacing: -.4px; margin-bottom: 10px; }
-.lp .fit p { font-size: 14.5px; color: var(--ink-soft); }
-.lp .fit .ex { margin-top: 16px; font-family: var(--mono); font-size: 11.5px; color: var(--green); background: var(--green-lite); display: inline-block; border-radius: 6px; padding: 5px 10px; }
-
-/* pricing */
-.lp .priceCard { background: #fff; border: 1.5px solid var(--green); border-radius: 24px; padding: 52px 48px; display: grid; grid-template-columns: 1.1fr .9fr; gap: 44px; align-items: center; box-shadow: 0 20px 50px rgba(31,92,65,.1); }
-@media (max-width: 820px) { .lp .priceCard { grid-template-columns: 1fr; padding: 36px 26px; } }
-.lp .priceNum { font-size: clamp(52px, 6vw, 74px); font-weight: 700; letter-spacing: -3px; line-height: 1; }
-.lp .priceNum small { font-size: 17px; font-weight: 500; letter-spacing: 0; color: var(--ink-soft); }
-.lp .priceNote { color: var(--ink-soft); margin-top: 14px; font-size: 15px; }
-.lp .priceList { list-style: none; display: flex; flex-direction: column; gap: 12px; font-size: 15px; }
-.lp .priceList li { padding-left: 28px; position: relative; }
-.lp .priceList li::before { content: '✓'; position: absolute; left: 0; color: var(--green); font-weight: 700; }
-.lp .founding { margin-top: 22px; font-family: var(--mono); font-size: 12px; color: var(--saffron); background: var(--saffron-lite); display: inline-block; border-radius: 8px; padding: 7px 12px; }
-
-/* faq */
-.lp .faq { max-width: 760px; }
-.lp .faq.gap44 { margin-top: 44px; }
-.lp .faq details { background: #fff; border: 1px solid var(--line); border-radius: 14px; margin-bottom: 12px; overflow: hidden; }
-.lp .faq summary { cursor: pointer; padding: 20px 24px; font-weight: 700; font-size: 16px; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-.lp .faq summary::-webkit-details-marker { display: none; }
-.lp .faq summary::after { content: '+'; font-family: var(--mono); font-size: 20px; color: var(--green); transition: transform .2s; }
-.lp .faq details[open] summary::after { transform: rotate(45deg); }
-.lp .faq .a { padding: 0 24px 22px; font-size: 15px; color: var(--ink-soft); }
-
-/* footer cta */
-.lp .footCta { background: var(--green); border-radius: 24px; padding: 64px 48px; text-align: center; color: #fff; position: relative; overflow: hidden; }
-@media (max-width: 720px) { .lp .footCta { padding: 48px 24px; } }
-.lp .footCta h2 { color: #fff; margin: 0 auto 14px; max-width: none; }
-.lp .footCta p { color: #CFE6D8; font-size: 16.5px; margin-bottom: 32px; }
-.lp .footCta .lp-btn { background: #fff; color: var(--green); }
-.lp .footCta .lp-btn-onGreen { background: transparent; color: #fff; border: 2px solid rgba(255,255,255,.7); }
-.lp .pilotSection { padding-top: 0; }
-.lp .ctaBtns { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
-.lp .footCta .ringBg { position: absolute; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.14); pointer-events: none; }
-.lp .footCta .ringBg--one { width: 420px; height: 420px; top: -190px; left: -140px; }
-.lp .footCta .ringBg--two { width: 280px; height: 280px; bottom: -120px; right: -80px; }
-.lp footer { padding: 44px 0 60px; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
-.lp .footIn { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; align-items: center; }
-/* The legal line is not the reference's either (open-questions Q23): the same
-   type scale as the two lines above it, and each link reserved to the 44px floor
-   every target in this product holds. */
-.lp .footLegal { display: flex; gap: 22px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
-.lp .footLegal a { display: inline-flex; align-items: center; min-height: 44px; text-decoration: underline; text-underline-offset: 3px; }
-.lp .footLegal a:hover { color: var(--ink); }
-
+/* Smooth anchor scrolling is a scroll, not an animation, and it is the one motion
+   the reference keeps; a reader who asked for less gets the jump. */
 @media (prefers-reduced-motion: reduce) {
-  .lp .scene.play .tapPulse, .lp .scene.play .lp-docket { animation: none; }
-  .lp .scene.play .lp-docket { clip-path: none; }
   html:has(.lp) { scroll-behavior: auto; }
 }
 
 /* =========================================================================
-   "WATCH DEMO" DIALOG (2026-09-14)
+   "WATCH DEMO" DIALOG (2026-09-14; restyled to the LandingDemo boards in LP-03)
 
    NOT part of the user's reference design -- the reference's second hero
-   button scrolled to "How it works" -- so it is DRAWN IN THE REFERENCE'S
-   LANGUAGE rather than copied from it: the paper ground, the --line
-   hairline, the plaque's 20px corner and the plaque's shadow. Every colour
-   below is a token already declared on .lp; nothing new is invented.
+   button scrolled to "How it works". The LandingDemo / M-LandingDemo boards
+   draw it: a paper panel on the --line hairline, the plaque's 20px corner and
+   shadow, the empty state on porcelain behind a dashed edge, and the public
+   site's own eyebrow and green button inside it. Every colour is a token on
+   .lp, translucent ones a token at an alpha.
 
-   CONTRAST, MEASURED AGAINST --paper #FFFDF4 (AA asks 4.5:1):
-     --ink      #152219  16.17:1   title, lead, close glyph
-     --ink-soft #3D4F44   8.59:1   body copy
-     --green    #1F5C41   7.73:1   kicker
-     #fff on --green      7.88:1   the call to action
+   CONTRAST, MEASURED (AA asks 4.5:1 for text):
+     --ink on --paper              16.17:1   title, close glyph
+     --ink on --porcelain          14.32:1   the empty state's lead
+     ink at 82% on --porcelain      8.43:1   the empty state's body
+     --green on --porcelain         6.85:1   the kicker (.lp-eyebrow)
+     --paper on --green             7.73:1   the call to action
    --saffron was the obvious kicker colour and IS REJECTED HERE: it measures
-   2.62:1 on paper. The kicker is green, exactly like .secEyebrow above.
-   The close control's outline is 2px --ink, the same border the hero's
-   ghost button carries, so it clears 1.4.11's 3:1 for a UI boundary too.
+   2.62:1 on paper. The close control's outline is 2px --ink, the same border
+   the hero's ghost button carries, so it clears 1.4.11's 3:1 for a UI
+   boundary too.
+
+   🔴 IT DOES NOT ANIMATE (README O2, orchestrator decision: follow the boards,
+   which draw none). Until LP-03 it slid and faded in under no-preference; the
+   browser's own showModal() is the whole of the opening now, so there is no
+   motion to ask a reader about and no reduced-motion rule to get wrong.
+   TestLandingDemo_TheDialogIsLabelledAndCanBeClosedWithoutAMouse reads the
+   compiled stylesheet for it.
    ========================================================================= */
 .lp .demoDialog {
   /* margin:auto IS NOT DECORATION. `.lp * { margin: 0 }` at the top of this
@@ -2024,39 +1878,1872 @@ html:has(.lp) { scroll-behavior: smooth; }
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 20px;
-  box-shadow: 0 24px 60px rgba(15,25,18,.35);
+  box-shadow: 0 24px 60px rgb(var(--ink-ch) / .35);
 }
 /* The dim behind it is painted by the browser, not by a div. */
-.lp .demoDialog::backdrop { background: rgba(15,25,18,.62); }
+.lp .demoDialog::backdrop { background: rgb(var(--ink-ch) / .62); }
 
-.lp .demoHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 20px 16px 26px; border-bottom: 1px dashed var(--line); }
-.lp .demoTitle { font-size: 21px; letter-spacing: -.4px; line-height: 1.25; margin: 0; max-width: none; }
-.lp .demoClose { width: 44px; height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: center; border: 2px solid var(--ink); border-radius: 12px; background: transparent; color: var(--ink); cursor: pointer; transition: background .12s ease, color .12s ease; }
-.lp .demoClose:hover { background: var(--ink); color: #fff; }
+.lp .demoHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 16px 14px 14px 18px; border-bottom: 1px dashed var(--line); }
+.lp .demoTitle { padding-top: 10px; font-size: 18px; letter-spacing: -0.02em; line-height: 1.25; margin: 0; max-width: none; }
+.lp .demoClose { width: 44px; height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: center; border: 2px solid var(--ink); border-radius: 12px; background: transparent; color: var(--ink); cursor: pointer; }
+.lp .demoClose:hover { background: var(--ink); color: var(--paper); }
+.lp .demoClose:active { background: var(--ink); color: var(--paper); transform: translateY(1px); }
 .lp .demoClose svg { width: 18px; height: 18px; }
 
-.lp .demoBody { padding: 22px 26px 26px; }
+.lp .demoBody { padding: 18px; }
 .lp .demoVideo { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; background: var(--ink); }
 
-.lp .demoSoon { background: #fff; border: 1px dashed var(--line); border-radius: 14px; padding: 26px 24px; }
-.lp .demoSoonKicker { font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--green); margin-bottom: 12px; }
-.lp .demoSoonLead { font-size: 19px; font-weight: 700; letter-spacing: -.3px; margin-bottom: 10px; }
-.lp .demoSoonBody { font-size: 14.5px; color: var(--ink-soft); max-width: 54ch; }
-.lp .demoSoonCta { margin-top: 22px; }
+.lp .demoSoon { display: flex; flex-direction: column; align-items: flex-start; background: var(--porcelain); border: 1px dashed var(--line); border-radius: 14px; padding: 20px 16px; }
+.lp .demoSoonKicker { margin-bottom: 12px; }
+.lp .demoSoonLead { font-size: 18px; font-weight: 700; letter-spacing: -0.015em; margin-bottom: 10px; }
+.lp .demoSoonBody { font-size: 14.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); max-width: 54ch; }
+/* The phone stretches the call to action across the panel, as the board does. */
+.lp .demoSoonCta { margin-top: 22px; align-self: stretch; }
 
-@media (max-width: 520px) {
-  .lp .demoHead { padding: 16px 14px 14px 18px; }
-  .lp .demoTitle { font-size: 18px; }
-  .lp .demoBody { padding: 18px; }
-  .lp .demoSoon { padding: 20px 16px; }
+@media (min-width: 768px) {
+  .lp .demoHead { padding: 20px 20px 16px 26px; }
+  .lp .demoTitle { font-size: 21px; }
+  .lp .demoBody { padding: 22px 26px 26px; }
+  .lp .demoSoon { padding: 26px 24px; }
+  .lp .demoSoonLead { font-size: 19px; }
+  .lp .demoSoonCta { align-self: flex-start; }
 }
 
-/* The opening move is motion, so it is ASKED FOR rather than assumed: the
-   animation lives inside no-preference, and a reader who has asked for less
-   gets the panel already there. */
+/* =========================================================================
+   THE PUBLIC SITE'S COMPONENTS (LP-01, 2026-10-21)
+
+   The classes every public board shares (docs/design/landing-redesign/README.md
+   §6, the boards' own <style> block, and the States-Public board for hover,
+   focus, pressed, disabled and current). Defined here once so the page cards
+   (LP-02 ... LP-11) write markup only. Nothing on the landing carries them yet.
+
+   SAME RULES AS THE BLOCK ABOVE: every selector starts with `.lp` (or
+   `html:has(.lp …)`), plain CSS outside @layer so nothing is tree-shaken, and
+   every colour is a token on .lp -- translucent tones are a token at an alpha
+   (rgb(var(--ink-ch) / a)), never a literal.
+
+   NAMES. A board name is kept where nothing else owns it; where something does,
+   the class is prefixed lp- so no leftover property of the owner leaks in (the
+   reason the reference's .lp-btn existed, until LP-04 moved the sign-off box
+   onto .lp-button):
+     board .btn      -> .lp-button  (.btn is the product's)
+     board .docket   -> .lp-slip    (.docket is the product's; the hero's ticket
+                                     is one since LP-03)
+     board .eyebrow  -> .lp-eyebrow (the reference hero's .eyebrow went in LP-03)
+     board .ico      -> .lp-ico     (the reference's emoji slot was .lp .step .ico)
+     board .lbl      -> .lp-lbl     (.lbl is the product's label)
+     board .stamp    -> the PRODUCT stamp (.stamp .stamp--approved …, as the
+                        panel does -- README O7); only the tilt of two verdicts and
+                        the small size are the public site's own.
+   Space Grotesk 500 on the boards (.navlink) is 400 here: the product ships 400
+   and 700 only (web/static/fonts/README.md).
+
+   BREAKPOINTS are the product's, mobile first: base = phone, 768px = tablet,
+   1200px = desktop (tailwind.config.js screens.desk).
+
+   TOUCH TARGETS: every class a visitor presses reserves 44px (min-height); the
+   menu's links and the full-size buttons 48px. The board's footer link is 40px
+   and is 44px here -- the product's floor wins over the drawing.
+
+   MOTION: the only movement is a state change (the FAQ's + turning to ×, a card's
+   border darkening), and it is asked for, not assumed -- the transitions live in
+   prefers-reduced-motion: no-preference. Nothing animates: the hero's loops and
+   the demo dialog's opening went in LP-03 (README O2), and
+   TestLandingCSS_ThePublicSiteDeclaresNoAnimation keeps it so.
+
+   The reference block's ELEMENT rules are gone: `.lp nav` and `.lp footer` with
+   its bar and footer (LP-02), the `.lp h1` size with its hero (LP-03), and
+   `.lp section` / `.lp h2` with its sections (LP-04). What is left of them --
+   the reset, the h1-h6 weight, `.lp a` -- sets no size and no space, so a new
+   section is drawn by its classes alone.
+   ========================================================================= */
+
+/* ---------------- grounds ---------------- */
+.lp .band { padding-bottom: 56px; }
+@media (min-width: 768px) { .lp .band { padding-bottom: 72px; } }
+@media (min-width: 1200px) { .lp .band { padding-bottom: 96px; } }
+.lp .band--paper { background: var(--paper); }
+.lp .band--porcelain { background: var(--porcelain); }
+/* --ring is inherited. A light surface placed INSIDE a dark ground (a paper card on
+   the ink band, a paper panel in the green box) must set it back to ink, or its
+   controls get a paper ring on paper (1:1). The ring test measures only the rules
+   that switch --ring, so such a surface is not caught by it -- it is on the card
+   that draws one. */
+.lp .band--ink { background: var(--ink); color: var(--paper); --ring: var(--paper); }
+/* On paper a hairline in --line all but disappears (1.24:1), so the board darkens
+   the edge of whatever sits on a paper band to ink at 24%. */
+.lp .band--paper .card,
+.lp .band--paper .lp-slip,
+.lp .band--paper details.qa { border-color: rgb(var(--ink-ch) / .24); }
+.lp .band--paper .lp-slip { box-shadow: 0 2px 6px rgb(var(--ink-ch) / .08); }
+.lp .band--paper .lp-slip::after { background: radial-gradient(circle at 7px 7px, var(--porcelain) 4px, var(--paper) 4.5px) 0 0 / 14px 7px repeat-x; }
+
+/* The green "Go punchless." box. Its ring is paper: ink on green is 2.09:1. */
+.lp .ondark { position: relative; overflow: hidden; background: var(--green); color: var(--paper); border-radius: 24px; padding: 44px 22px; text-align: center; --ring: var(--paper); }
+@media (min-width: 768px) { .lp .ondark { padding: 56px 40px; } }
+@media (min-width: 1200px) { .lp .ondark { padding: 68px 48px; } }
+
+/* ---------------- type ---------------- */
+.lp .mono { font-family: var(--mono); }
+.lp .lp-lbl { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-eyebrow { font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--green); }
+.lp .band--ink .lp-eyebrow { color: var(--mint); }
+
+/* ---------------- buttons ---------------- */
+/* Pressed is :active: ink, a 2px inner edge in the ground's accent and 1px down.
+   NO DISABLED STATE (LP-14): the board draws one only on a form submit, the one form on
+   the public site is sign-up's, its submit is the product's .btn (not this class), and
+   with no script on that page it is never disabled -- the cell is unreachable, so no
+   rule draws it here (a .lp-button is always a link). */
+.lp .lp-button { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 48px; padding: 0 22px; border: 0; border-radius: 12px; font: 700 15px var(--disp); white-space: nowrap; text-decoration: none; cursor: pointer; }
+.lp .lp-button--green { background: var(--green); color: var(--paper); box-shadow: 0 4px 14px rgb(var(--green-ch) / .22); }
+.lp .lp-button--green:hover { background: var(--ink); color: var(--paper); }
+.lp .lp-button--green:active { background: var(--ink); color: var(--paper); box-shadow: inset 0 0 0 2px var(--green); transform: translateY(1px); }
+.lp .lp-button--ghost { background: transparent; color: var(--ink); border: 2px solid var(--ink); }
+.lp .lp-button--ghost:hover { background: var(--ink); color: var(--paper); }
+.lp .lp-button--ghost:active { background: var(--ink); color: var(--paper); box-shadow: inset 0 0 0 2px var(--green); transform: translateY(1px); }
+/* Paper on the green box: the box's own button. */
+.lp .lp-button--paper { background: var(--paper); color: var(--green); }
+.lp .lp-button--paper:hover { background: var(--ink); color: var(--paper); }
+.lp .lp-button--paper:active { background: var(--ink); color: var(--paper); box-shadow: inset 0 0 0 2px var(--paper); transform: translateY(1px); }
+
+/* The header's "Start free": the green button's states at 44px. */
+.lp .hbtn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 18px; border: 0; border-radius: 12px; font: 700 14px var(--disp); white-space: nowrap; text-decoration: none; cursor: pointer; background: var(--green); color: var(--paper); box-shadow: 0 4px 14px rgb(var(--green-ch) / .22); }
+.lp .hbtn:hover { background: var(--ink); color: var(--paper); }
+.lp .hbtn:active { background: var(--ink); color: var(--paper); box-shadow: inset 0 0 0 2px var(--green); transform: translateY(1px); }
+
+/* ---------------- header links ---------------- */
+.lp .navlink { display: inline-flex; align-items: center; min-height: 44px; font-size: 14px; font-weight: 400; color: rgb(var(--ink-ch) / .85); text-decoration: none; }
+.lp .navlink:hover { color: var(--ink); }
+.lp .navlink:active { color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); }
+.lp .navlink[aria-current] { color: var(--ink); font-weight: 700; box-shadow: inset 0 -2px 0 var(--green); }
+
+/* ---------------- phone menu (native <details>, no script) ---------------- */
+.lp details.menu > summary { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 0 10px; border: 1.5px solid var(--ink); border-radius: 12px; background: transparent; color: var(--ink); font-weight: 700; font-size: 14px; list-style: none; cursor: pointer; }
+.lp details.menu > summary::-webkit-details-marker { display: none; }
+.lp details.menu > summary:hover { background: rgb(var(--ink-ch) / .08); }
+.lp details.menu > summary:active,
+.lp details.menu[open] > summary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.lp details.menu .mclose { display: none; }
+.lp details.menu[open] .mclose { display: inline; }
+.lp details.menu[open] .mopen { display: none; }
+/* The open panel hangs from the nearest positioned ancestor -- the header. */
+.lp details.menu:not([open]) > nav { display: none; }
+.lp details.menu > nav { position: absolute; left: 0; right: 0; top: 60px; z-index: 10; background: var(--paper); border-bottom: 1px solid var(--line); box-shadow: 0 18px 40px rgb(var(--ink-ch) / .16); padding: 8px 16px 16px; }
+.lp .mlink { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; font-size: 16px; font-weight: 700; color: var(--ink); text-decoration: none; border-top: 1px dashed var(--line); }
+.lp .mlink:first-child { border-top: 0; }
+.lp .mlink:hover { background: rgb(var(--ink-ch) / .05); }
+.lp .mlink:active { background: rgb(var(--ink-ch) / .08); }
+.lp .mlink:focus-visible { border-radius: 8px; }
+.lp .mlink[aria-current] { color: var(--green); box-shadow: inset 3px 0 0 var(--green); padding-left: 12px; }
+@media (min-width: 768px) { .lp details.menu { display: none; } }
+
+/* ---------------- sticky phone bar ---------------- */
+/* Every public phone page but Signup. Touch: no hover; its button keeps its own. */
+.lp .mbar { position: sticky; bottom: 0; z-index: 4; padding: 10px 16px 12px; background: rgb(var(--porcelain-ch) / .96); border-top: 1px solid var(--line); box-shadow: 0 -8px 24px rgb(var(--ink-ch) / .08); }
+.lp .mbar .hbtn { width: 100%; min-height: 48px; font-size: 15px; }
+@media (min-width: 768px) { .lp .mbar { display: none; } }
+
+/* ---------------- links ---------------- */
+/* "Next step" link, one per section end. */
+.lp .more { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; font-weight: 700; font-size: 15px; color: var(--green); text-decoration: underline; text-underline-offset: 4px; }
+.lp .more:hover { color: var(--ink); }
+.lp .more:active { color: var(--ink); text-decoration-thickness: 2px; }
+/* Legal links: mono, uppercase, underlined. */
+.lp .flink { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); text-decoration: underline; text-underline-offset: 4px; }
+.lp .flink:hover { color: var(--ink); }
+.lp .flink:active { color: var(--ink); text-decoration-thickness: 2px; }
+/* Footer columns (Product, Legal). */
+.lp .fcol { display: flex; flex-direction: column; min-width: 0; }
+.lp .fcol a { display: flex; align-items: center; min-height: 44px; font-size: 14px; color: rgb(var(--ink-ch) / .85); text-decoration: none; text-underline-offset: 4px; }
+.lp .fcol a:hover { color: var(--ink); text-decoration: underline; }
+.lp .fcol a:active { color: var(--ink); text-decoration: underline; text-decoration-thickness: 2px; }
+.lp .navlink:focus-visible,
+.lp .more:focus-visible,
+.lp .flink:focus-visible,
+.lp .fcol a:focus-visible { border-radius: 6px; }
+
+/* ---------------- cards ---------------- */
+.lp .card { background: var(--paper); border: 1px solid var(--line); border-radius: 18px; }
+/* The whole card is one link: hover darkens the edge, pressed sinks to porcelain. */
+.lp .fitcard { color: var(--ink); text-decoration: none; }
+.lp .fitcard:hover { border-color: var(--ink); color: var(--ink); }
+.lp .fitcard:active { border-color: var(--ink); background: var(--porcelain); }
+.lp .lp-ico { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 12px; background: var(--green-lite); color: var(--green); }
+
+/* ---------------- FAQ item ---------------- */
+.lp details.qa { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; }
+.lp details.qa:hover { border-color: var(--ink); }
+/* Pressed is the hover's edge. A press on the summary is a press on the item: :active
+   matches every ancestor of the pressed element, and a finger has no hover. */
+.lp details.qa:active { border-color: var(--ink); }
+.lp details.qa > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; padding: 16px; border-radius: 13px; font-weight: 700; font-size: 15px; line-height: 1.4; color: var(--ink); list-style: none; cursor: pointer; }
+.lp details.qa > summary::-webkit-details-marker { display: none; }
+.lp details.qa > p { padding: 0 16px 18px; font-size: 14.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
+@media (min-width: 768px) {
+  .lp details.qa > summary { padding: 18px 22px; font-size: 16px; }
+  .lp details.qa > p { padding: 0 22px 22px; font-size: 15px; }
+}
+.lp details.qa .pl { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); color: var(--green); }
+.lp details.qa[open] .pl { transform: rotate(45deg); }
+
+/* ---------------- dockets ---------------- */
+/* The board's docket: a paper slip torn at the bottom edge only. */
+.lp .lp-slip { position: relative; background: var(--paper); border: 1px solid var(--line); border-bottom: 0; }
+.lp .lp-slip::after { content: ''; position: absolute; left: -1px; right: -1px; bottom: -7px; height: 7px; background: radial-gradient(circle at 7px 7px, transparent 4px, var(--paper) 4.5px) 0 0 / 14px 7px repeat-x; }
+/* The tap screen mock's ticket: perforated at both edges, as the real one is. */
+.lp .tapdocket { position: relative; background: var(--paper); border: 1px solid var(--line); box-shadow: 0 1px 2px rgb(var(--ink-ch) / .08); padding: 12px 16px; font-family: var(--mono); font-size: 14px; }
+.lp .tapdocket::before,
+.lp .tapdocket::after { content: ''; position: absolute; left: 0; right: 0; height: 8px; background: radial-gradient(circle at 6px 4px, var(--porcelain) 3px, transparent 3.5px) 0 0 / 12px 8px repeat-x; }
+.lp .tapdocket::before { top: -4px; }
+.lp .tapdocket::after { bottom: -4px; }
+
+/* ---------------- stamps ---------------- */
+/* The product stamp (word ink, colour in the frame -- skill tappa-brand). The
+   boards tilt two verdicts differently from the panel: rejected -10°, ignored -4°
+   (approved -6° and flagged -3° are already the product's). No colour here.
+   THE PADDING IS PUT BACK, NOT RESTYLED: `.lp * { padding: 0 }` at the top of this
+   block has the product .stamp rule's specificity and comes after it in app.css, so
+   inside .lp it zeroed the stamp's padding and the word sat on the frame. The value
+   is the product's own (Tailwind's py-1 px-2.5 on .stamp), not the boards' 3px 8px:
+   the public site uses the panel's stamp (README O7), whose letter spacing and
+   corner it already keeps, so its inner space is the panel's too. .lp-stamp-sm
+   below overrides it and must stay AFTER this rule (same specificity). The
+   reused-product-class test holds both. */
+.lp .stamp { padding: .25rem .625rem; }
+.lp .stamp--rejected { transform: rotate(-10deg); }
+.lp .stamp--ignored { transform: rotate(-4deg); }
+.lp .lp-stamp-sm { font-size: 10px; padding: 2px 7px; letter-spacing: .12em; }
+
+/* ---------------- checks ---------------- */
+/* Never colour alone: each square carries a glyph in the markup. */
+.lp .chk { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; font-family: var(--mono); font-size: 11px; font-weight: 700; }
+.lp .chk--ok { background: var(--green); color: var(--paper); }
+.lp .chk--no { background: var(--tomato); color: var(--paper); }
+.lp .chk--na { border: 1px solid var(--line); color: rgb(var(--ink-ch) / .7); }
+/* A timeline's hairline. */
+.lp .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: rgb(var(--ink-ch) / .12); }
+
+/* ---------------- scrolling ---------------- */
+/* An anchor jump clears the sticky header; on a phone, the sticky bar too. */
+html:has(.lp) { scroll-padding-top: 72px; }
+html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
+@media (min-width: 768px) { html:has(.lp .mbar) { scroll-padding-bottom: 0; } }
+
 @media (prefers-reduced-motion: no-preference) {
-  .lp .demoDialog[open] { animation: demoIn .18s ease-out both; }
-  .lp .demoDialog[open]::backdrop { animation: demoFade .18s ease-out both; }
+  .lp details.qa .pl { transition: transform .2s; }
+  .lp .fitcard { transition: border-color .15s; }
 }
-@keyframes demoIn { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
-@keyframes demoFade { from { opacity: 0; } to { opacity: 1; } }
+
+/* =========================================================================
+   THE PUBLIC CHROME (LP-02, 2026-10-21)
+
+   The header, the phone menu, the phone's Start free bar and the footer that
+   every public board draws, rendered by pages.PublicChrome
+   (web/templates/pages/publicchrome.templ). One DOM for every width: the phone
+   shows Sign in, Start free and the Menu; from 768px the page links and a hairline
+   join them and the Menu goes (details.menu's own rule above). The reference's
+   bar and footer, and their `.lp nav` / `.lp footer` element rules, are gone --
+   everything here is a class, so nothing reaches the menu's panel or the footer's
+   columns by element name.
+
+   The boards' inline values are these rules, digit for digit, at the product's
+   breakpoints (base = phone, 768 = tablet, 1200 = desktop). Two departures, each
+   for the floor every public target holds: the footer's column links are 44px (the
+   board drew 40), and the skip link the boards do not draw (README §4.8) is a
+   44px paper chip that appears on focus.
+
+   The footer takes no top margin: the gap above its rule belongs to the section
+   before it -- on the landing, the sign-off's own bottom space (.lp-pilot, LP-04),
+   56 / 72 / 96px as the boards draw it.
+   ========================================================================= */
+
+/* ---------------- skip link ---------------- */
+.lp .lp-skip { position: absolute; left: 16px; top: 8px; z-index: 20; display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border: 1.5px solid var(--ink); border-radius: 8px; background: var(--paper); color: var(--ink); font-weight: 700; font-size: 14px; text-decoration: none; transform: translateY(-200%); }
+.lp .lp-skip:focus { transform: none; }
+
+/* ---------------- header ---------------- */
+/* Sticky, and positioned for the open menu's panel to hang from (top: 60px). */
+.lp .lp-head { position: sticky; top: 0; z-index: 5; background: rgb(var(--porcelain-ch) / .94); border-bottom: 1px solid var(--line); }
+.lp .lp-headIn { display: flex; align-items: center; justify-content: space-between; gap: 6px; height: 60px; padding: 0 12px 0 16px; }
+.lp .lp-mark { display: flex; align-items: center; gap: 9px; min-height: 44px; min-width: 0; color: var(--ink); text-decoration: none; }
+.lp .lp-markDot { flex: none; position: relative; display: inline-block; width: 26px; height: 26px; border-radius: 50%; background: var(--green); }
+.lp .lp-markDot::after { content: ''; position: absolute; inset: 5px; border-radius: 50%; border: 2px solid var(--paper); opacity: .92; }
+.lp .lp-markWords { display: flex; flex-direction: column; gap: 1px; }
+.lp .lp-markName { font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+.lp .lp-markTag { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; line-height: 1.4; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-headEnd { display: flex; align-items: center; gap: 4px; }
+.lp .lp-headNav { display: flex; align-items: center; gap: 4px; }
+/* The page links and the hairline are the tablet's and the desktop's; the phone
+   reaches the pages through the Menu. */
+.lp .lp-headNav .navlink,
+.lp .lp-headNav .lp-headSep { display: none; }
+.lp .lp-headSep { width: 1px; height: 22px; background: var(--line); }
+/* Sign in (States-Public: green, underlined; hover ink; pressed ink, thicker). */
+.lp .lp-signin { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; font-weight: 700; font-size: 14px; color: var(--green); text-decoration: underline; text-underline-offset: 4px; }
+.lp .lp-signin:hover { color: var(--ink); }
+.lp .lp-signin:active { color: var(--ink); text-decoration-thickness: 2px; }
+.lp .lp-signin:focus-visible,
+.lp .lp-mark:focus-visible { border-radius: 6px; }
+/* The home link (States-Public, LP-14): hover turns the word green, pressed green and
+   underlined; the dot and the tag line keep their colours. Green on porcelain 6.85:1. */
+.lp .lp-mark:hover .lp-markName { color: var(--green); }
+.lp .lp-mark:active .lp-markName { color: var(--green); text-decoration: underline; text-underline-offset: 4px; }
+/* The phone's header button is the slimmer one the board draws. */
+.lp .lp-head .hbtn { padding: 0 12px; box-shadow: none; }
+/* ...WHICH WOULD ALSO TAKE AWAY ITS PRESSED EDGE: this rule and the tablet's below have
+   .hbtn:active's weight and come after it, so the header's button pressed with its
+   resting shadow (measured in Chrome, LP-14) where every other green button draws the
+   2px green inner edge. One more class puts the edge back at every width. */
+.lp .lp-head .hbtn:active { box-shadow: inset 0 0 0 2px var(--green); }
+@media (min-width: 768px) {
+  .lp .lp-headIn { height: auto; min-height: 68px; gap: 12px; padding: 0 40px; }
+  .lp .lp-mark { gap: 10px; }
+  .lp .lp-markDot { width: 28px; height: 28px; }
+  .lp .lp-markDot::after { inset: 6px; }
+  .lp .lp-markWords { flex-direction: row; align-items: center; gap: 10px; }
+  .lp .lp-markName { font-size: 24px; line-height: 1.2; }
+  .lp .lp-markTag { font-size: 11px; letter-spacing: .14em; padding-top: 4px; }
+  .lp .lp-headEnd,
+  .lp .lp-headNav { gap: 18px; }
+  .lp .lp-headNav .navlink { display: inline-flex; }
+  .lp .lp-headNav .lp-headSep { display: block; }
+  .lp .lp-signin { padding: 0 2px; }
+  .lp .lp-head .hbtn { padding: 0 18px; box-shadow: 0 4px 14px rgb(var(--green-ch) / .22); }
+}
+@media (min-width: 1200px) {
+  .lp .lp-headIn { max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); }
+  .lp .lp-headEnd,
+  .lp .lp-headNav { gap: 26px; }
+}
+
+/* ---------------- phone menu's panel ---------------- */
+.lp .lp-menuHead { display: block; padding: 10px 0 4px; }
+.lp .lp-menuList { display: flex; flex-direction: column; }
+.lp .mlink svg { flex: none; color: var(--green); }
+
+/* ---------------- footer ---------------- */
+.lp .lp-foot { border-top: 1px solid var(--line); }
+.lp .lp-footIn { display: flex; flex-direction: column; gap: 28px; padding: 40px 16px; }
+.lp .lp-footAbout { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.lp .lp-footMark { display: flex; align-items: center; gap: 10px; }
+.lp .lp-markDot.lp-markDot--sm { width: 22px; height: 22px; }
+.lp .lp-markDot.lp-markDot--sm::after { inset: 4px; }
+.lp .lp-footCopy { font-family: var(--mono); font-size: 12px; color: rgb(var(--ink-ch) / .8); }
+.lp .lp-footLine { font-family: var(--mono); font-size: 12px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-footNote { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-width: 460px; }
+.lp .lp-footNote p { font-size: 14px; line-height: 1.55; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-fcolHead { padding-bottom: 6px; }
+@media (min-width: 768px) {
+  .lp .lp-footIn { display: grid; grid-template-columns: minmax(0, 1fr) 230px 160px; gap: 32px; padding: 40px; }
+}
+@media (min-width: 1200px) {
+  .lp .lp-footIn { grid-template-columns: minmax(0, 1fr) 260px 200px; gap: 48px; max-width: 1180px; margin: 0 auto; padding: 40px clamp(16px, 3vw, 40px); }
+}
+
+/* ---------------- the chrome's own roots (LP-11) ---------------- */
+/* Sign-up, the legal documents and the integration guide draw their bodies with the
+   product's utility classes, which `.lp *` above would zero (measured, see
+   publicchrome.templ), so on those pages the chrome brings three roots of its own and
+   <main> stays outside them. A sticky element sticks only inside its parent, so the
+   ROOT is what sticks: the header's to the top, the phone bar's to the bottom. They
+   are see-through, so the header's own translucent ground is the one that shows.
+   Sign-up's header scrolls away (its phone screens pin their progress bar instead,
+   at z-index 10), and its root is lifted above that bar so an open Menu covers it. */
+.lp.lp-top { position: sticky; top: 0; z-index: 5; background: transparent; }
+.lp.lp-topStill { position: relative; z-index: 20; background: transparent; }
+.lp.lp-dock { position: sticky; bottom: 0; z-index: 4; background: transparent; }
+/* The integration guide jumps instead of gliding: smooth scrolling (top of this block)
+   across a page some 50,000 px long turns one contents link into seconds of motion.
+   Only the guide's header root carries .lp-instant (PublicChromeOpts.InstantScroll);
+   this selector outweighs html:has(.lp) and comes after it. */
+html:has(.lp.lp-instant) { scroll-behavior: auto; }
+/* "Already with Taptime?" before Sign in: the Signup board's desk header, 12px apart. */
+.lp .lp-signinPair { display: inline-flex; align-items: center; gap: 12px; }
+.lp .lp-signinAsk { display: none; font-size: 14px; color: rgb(var(--ink-ch) / .7); }
+@media (min-width: 1200px) { .lp .lp-signinAsk { display: inline; } }
+
+/* =========================================================================
+   THE HERO (LP-03, 2026-10-21)
+
+   The Landing / T-Landing / M-Landing boards' opener, rendered by landingHero
+   and landingScene (web/templates/pages/landing.templ): the copy column, then the
+   scene -- the wall plaque, the phone held to it showing the tap screen, and the
+   ticket the plaque prints. One DOM for every width: the scene sits under the copy
+   on the phone and the tablet, beside it from 1200px. The boards' inline values are
+   these rules at the product's breakpoints (base = phone, 768 = tablet, 1200 =
+   desktop).
+
+   🔴 NOTHING HERE MOVES (README O2). The reference's pulsing ring and printing
+   ticket are gone, and with them the clip-path that kept the ticket hidden until
+   the print animation revealed it: a still has to be drawn in its visible state.
+   TestLandingHero_TheDocketIsVisibleWithNoAnimation reads every compiled rule that
+   reaches the ticket's classes for a hiding declaration, and
+   TestLandingCSS_ThePublicSiteDeclaresNoAnimation keeps animation out of the
+   public site's stylesheet altogether.
+
+   THE PHONE IS A DRAWING OF THE TAP SCREEN at the real screen's own size (a
+   375px canvas) scaled into the bezel, so its type and spacing are the tap
+   screen's -- 30px greeting, 64px button -- and only the scale differs per width.
+   None of it is the product's tap screen or its classes (CLAUDE.md §9).
+   ========================================================================= */
+
+/* ---------------- copy column ---------------- */
+.lp .hero { padding: 40px 0 52px; }
+.lp .heroGrid { display: flex; flex-direction: column; gap: 44px; padding: 0 16px; }
+.lp .heroCopy { display: flex; flex-direction: column; min-width: 0; }
+.lp .heroEyebrow { margin-bottom: 18px; }
+.lp .heroTitle { margin-bottom: 22px; font-size: 40px; line-height: 1.03; letter-spacing: -0.035em; font-weight: 700; }
+.lp .heroTap { color: var(--green); white-space: nowrap; }
+.lp .heroSub { max-width: 500px; margin-bottom: 16px; font-size: 17px; line-height: 1.55; color: rgb(var(--ink-ch) / .85); }
+.lp .heroCreed { margin-bottom: 30px; font-family: var(--mono); font-size: 13px; line-height: 1.7; color: rgb(var(--ink-ch) / .7); }
+.lp .heroCreed s { white-space: nowrap; text-decoration-color: var(--tomato); text-decoration-thickness: 1.5px; }
+.lp .heroCreed b { white-space: nowrap; color: var(--ink); }
+/* The phone stacks the two buttons at full width; the tablet puts them in a row. */
+.lp .heroBtns { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+.lp .heroFoot { margin-top: 24px; font-family: var(--mono); font-size: 12px; line-height: 1.6; color: rgb(var(--ink-ch) / .7); }
+
+/* ---------------- the scene ---------------- */
+/* Three columns -- plaque, the waves between, phone -- and the printer under the
+   plaque on a second row. The column widths are the boards'. */
+.lp .scene { display: grid; grid-template-columns: 176px 20px 150px; row-gap: 24px; align-items: center; justify-content: center; }
+
+/* The plaque. */
+.lp .plaque { background: var(--ink); color: var(--paper); text-align: center; border-radius: 16px; padding: 20px 12px 14px; box-shadow: 0 24px 60px rgb(var(--ink-ch) / .32); }
+/* The next rule is one of the sites on the occurrence golden (themeBrandGolden,
+   internal/brand/theme_test.go): an edit to it edits that list in the same change.
+   It moved here from the reference block in LP-03 unchanged, and the phone's smaller
+   size is written against .p-word, the element's second class, because a second
+   rule naming this one's class would be a new site on the golden. */
+.lp .plaque .p-brand { font-family: var(--mono); font-size: 10px; letter-spacing: 3px; color: #9DB3A5; margin-bottom: 18px; }
+.lp .plaque .p-word { font-size: 9px; margin-bottom: 12px; }
+.lp .plaque .p-ring { position: relative; display: flex; align-items: center; justify-content: center; width: 64px; height: 64px; margin: 0 auto 12px; border-radius: 50%; border: 2px dashed rgb(var(--mint-ch) / .75); }
+/* A still halo where the reference pulsed a ring: the boards draw it, at rest. */
+.lp .plaque .p-halo { position: absolute; inset: -10px; border-radius: 50%; border: 2px solid rgb(var(--mint-ch) / .28); }
+.lp .plaque .p-ring svg { width: 26px; height: 26px; }
+.lp .plaque .p-wave { stroke: var(--mint); }
+.lp .plaque .p-dot { fill: var(--mint); }
+.lp .plaque .p-txt { margin-bottom: 10px; font-size: 13px; font-weight: 700; line-height: 1.35; }
+.lp .plaque .p-loc { padding-top: 9px; border-top: 1px dashed rgb(var(--paper-ch) / .2); font-family: var(--mono); font-size: 8.5px; letter-spacing: 0; white-space: nowrap; color: rgb(var(--paper-ch) / .6); }
+
+/* The waves from plaque to phone. */
+.lp .heroWaves { display: flex; align-items: center; justify-content: center; color: var(--green); }
+.lp .heroWaves svg { width: 20px; height: 70px; }
+
+/* The phone: a bezel cut off at the bottom edge, its screen, and the shelf line. */
+.lp .heroPhoneCol { display: flex; flex-direction: column; align-items: center; }
+.lp .heroPhone { width: 100%; padding: 8px 8px 0; background: var(--ink); border-radius: 30px 30px 0 0; box-shadow: 0 -6px 30px rgb(var(--ink-ch) / .16); }
+.lp .heroScreen { position: relative; overflow: hidden; height: 134px; background: var(--porcelain); border-radius: 23px 23px 0 0; }
+.lp .heroNotch { position: absolute; z-index: 2; top: 6px; left: 50%; width: 52px; height: 14px; margin-left: -26px; border-radius: 10px; background: var(--ink); }
+.lp .heroCanvas { position: absolute; left: 0; top: 0; width: 375px; color: var(--ink); transform: scale(.3573); transform-origin: 0 0; }
+.lp .heroStatus { display: flex; align-items: center; justify-content: space-between; height: 54px; padding: 0 30px; font: 700 16px var(--disp); }
+.lp .heroStatusIcons { display: flex; align-items: center; gap: 6px; }
+.lp .heroTapScreen { display: flex; flex-direction: column; gap: 24px; padding: 32px 16px; font-family: var(--disp); }
+.lp .heroWordmark { display: flex; align-items: baseline; justify-content: space-between; }
+/* Green, as the unbranded tap screen draws its wordmark (pages/tap.templ). */
+.lp .heroWordmarkName { font-size: 18px; font-weight: 700; letter-spacing: -0.025em; color: var(--green); }
+.lp .heroWordmarkTag { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); }
+.lp .heroTapLabel { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); }
+.lp .heroHello { font-family: var(--disp); font-size: 30px; line-height: 36px; font-weight: 700; letter-spacing: -0.025em; }
+.lp .heroVenue { margin-top: 4px; color: rgb(var(--ink-ch) / .7); }
+.lp .heroTapButton { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 64px; border-radius: 2px; background: var(--green); color: var(--paper); font: 400 20px var(--disp); letter-spacing: -0.025em; }
+.lp .heroPhoneEdge { display: block; width: 100%; height: 4px; border-radius: 0 0 2px 2px; background: var(--ink); }
+.lp .heroPhoneCut { display: block; width: 100%; margin-top: 6px; border-top: 1.5px dashed rgb(var(--ink-ch) / .35); }
+
+/* The printer under the plaque, and the ticket coming out of its slot. */
+.lp .heroPrinter { grid-column: 1; display: flex; flex-direction: column; align-items: center; }
+.lp .heroPrinterBar { display: block; width: 100%; height: 8px; border-radius: 4px; background: var(--ink); }
+.lp .heroPrinterSlot { position: relative; z-index: 1; display: block; width: 42px; height: 14px; margin-bottom: -4px; border-radius: 0 0 6px 6px; background: rgb(var(--ink-ch) / .7); }
+.lp .heroSlip { display: flex; flex-direction: column; gap: 9px; width: 100%; padding: 14px 12px; transform: rotate(1.5deg); transform-origin: top center; box-shadow: 0 14px 30px rgb(var(--ink-ch) / .14); }
+/* 🔴 THE TICKET IS ONE HEIGHT FOR EVERY RECORD, because landing.js rotates its words
+   and a ticket that grows pushes the whole page below it down on every tick
+   (measured before this rule: "CLOCK OUT" beside the stamp wrapped at 390 and 834
+   and the scene grew 28px). So nothing on it wraps, and the head does not reflow:
+   below 1200px the stamp always has a line of its own, at the right; from 1200px
+   the longest record's words and the stamp fit on one line (measured, all four).
+   TestLandingHero_TheTicketKeepsItsHeightForEveryRecord reads these rules. */
+.lp .heroSlipHead { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.lp .heroSlipType { padding: 2px 5px; border: 1px solid var(--ink); font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .06em; white-space: nowrap; }
+/* The product stamp, smaller on the phone as M-Landing draws it; the tablet gives
+   back the product's own size (input.css .stamp: 11px, .18em, py-1 px-2.5). */
+.lp .heroSlip .stamp { flex: none; align-self: flex-end; white-space: nowrap; font-size: 10px; padding: 2px 6px; letter-spacing: .12em; }
+.lp .heroSlipName { white-space: nowrap; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+.lp .heroSlipRows { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px dashed var(--line); white-space: nowrap; font-family: var(--mono); font-size: 11px; color: rgb(var(--ink-ch) / .75); }
+.lp .heroSlipRows div { display: flex; justify-content: space-between; gap: 8px; }
+.lp .heroSlipRows b { color: var(--ink); }
+/* "Sample record" (LP-15 fact review): the records are invented, and the ticket says so
+   where it is read. The same words on every record, so the ticket's height does not
+   move; ink at 70% on paper is 6.05:1. */
+.lp .heroSlipNote { white-space: nowrap; font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); }
+
+/* The scene's pause button (WCAG 2.2.2; not on the boards). It sits under the phone,
+   in the row the printer opens, so it adds no height. Mono and quiet, like the
+   board's labels; the word is ink (14.32:1 on porcelain). It ships [hidden] and
+   landing.js reveals it -- the class's display would otherwise win over the UA's
+   [hidden], so the attribute is honoured here explicitly. */
+.lp .heroPause { grid-column: 2 / 4; grid-row: 2; align-self: start; justify-self: center; display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 72px; padding: 0 14px; border: 1px solid rgb(var(--ink-ch) / .24); border-radius: 12px; background: transparent; color: var(--ink); font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; cursor: pointer; }
+.lp .heroPause:hover { background: rgb(var(--ink-ch) / .06); border-color: var(--ink); }
+.lp .heroPause:active { background: rgb(var(--ink-ch) / .12); }
+.lp .heroPause[hidden] { display: none; }
+
+@media (min-width: 768px) {
+  .lp .hero { padding: 60px 0 72px; }
+  .lp .heroGrid { gap: 56px; padding: 0 40px; }
+  .lp .heroTitle { font-size: 58px; }
+  .lp .heroSub { font-size: 19px; }
+  .lp .heroCreed { font-size: 14px; }
+  .lp .heroBtns { flex-direction: row; flex-wrap: wrap; align-items: center; }
+
+  .lp .scene { grid-template-columns: 214px 60px 204px; row-gap: 30px; }
+  .lp .plaque { border-radius: 20px; padding: 26px 20px 20px; }
+  .lp .plaque .p-word { font-size: 10px; margin-bottom: 18px; }
+  .lp .plaque .p-ring { width: 80px; height: 80px; margin-bottom: 18px; }
+  .lp .plaque .p-ring svg { width: 36px; height: 36px; }
+  .lp .plaque .p-txt { margin-bottom: 14px; font-size: 16px; }
+  .lp .plaque .p-loc { padding-top: 12px; font-size: 10px; letter-spacing: .04em; }
+  .lp .heroWaves svg { width: 60px; height: 110px; }
+  .lp .heroPhone { padding: 10px 10px 0; border-radius: 40px 40px 0 0; }
+  .lp .heroScreen { height: 178px; border-radius: 31px 31px 0 0; }
+  .lp .heroNotch { top: 9px; width: 76px; height: 20px; margin-left: -38px; }
+  .lp .heroCanvas { transform: scale(.4907); }
+  .lp .heroSlip { padding: 16px; }
+  .lp .heroSlipType { padding: 2px 7px; letter-spacing: .14em; }
+  .lp .heroSlip .stamp { font-size: 11px; padding: .25rem .625rem; letter-spacing: .18em; }
+}
+@media (min-width: 1200px) {
+  .lp .hero { padding: 80px 0 84px; }
+  .lp .heroGrid { display: grid; grid-template-columns: minmax(0, 1fr) 580px; gap: 44px; align-items: center; max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); }
+  .lp .heroTitle { font-size: 60px; }
+
+  .lp .scene { grid-template-columns: 226px 70px 214px; }
+  .lp .plaque .p-ring { width: 84px; height: 84px; }
+  .lp .heroWaves svg { width: 70px; }
+  .lp .heroScreen { height: 186px; }
+  .lp .heroCanvas { transform: scale(.5173); }
+  /* One line from here: the board's head, type left and stamp right. */
+  .lp .heroSlipHead { flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
+  .lp .heroSlip .stamp { align-self: auto; }
+}
+
+/* =========================================================================
+   THE LANDING BODY (LP-04, 2026-10-21)
+
+   The Landing / T-Landing / M-Landing boards' sections between the hero and the
+   footer, rendered by landingStrip ... landingCTA (web/templates/pages/
+   landing.templ): the trust strip, How it works, the comparison on ink, the four
+   proofs, the two fits, the price card, the FAQ and the green sign-off. One DOM for
+   every width; the boards' inline values are these rules at the product's
+   breakpoints (base = phone, 768 = tablet, 1200 = desktop).
+
+   THE GROUNDS ARE THE BANDS (LP-01): a section sits in a .band of its colour and
+   takes the band's space -- 56 / 72 / 96px above its eyebrow (.lp-sec) and the
+   same under its last card (.band). The sign-off is on no band; its own bottom
+   space is the gap above the footer's rule.
+
+   ONLY THE LOOK CHANGED. Every word is the one landingview.go held before this
+   card (the served text was compared before and after). Two things the boards draw
+   are not here, both links to pages that have no route yet (README O8): the fit
+   cards are plain cards rather than links, and the "more" links under the proofs
+   and the price card wait for /security and /pricing.
+
+   CONTRAST, MEASURED (AA asks 4.5:1 for text; WCAG relative luminance, the alpha
+   composited over its ground; the lowest pair of each kind):
+     ink at 85% on porcelain                9.29:1   the ledes, the privacy box
+     ink at 80% on porcelain                7.90:1   step, proof and fit bodies
+     ink at 70% on paper                    6.05:1   the step numbers
+     ink at 75% on the strip's tint         6.96:1   the trust strip
+     paper at 60% on ink                    6.60:1   the comparison's column heads
+     paper at 62% on ink                    6.96:1   the device column, the note
+     mint on ink                            9.50:1   the Taptime column
+     green on green-lite                    6.55:1   the fit chips
+     paper at 82% on green                  5.81:1   the sign-off's line
+     ink on saffron-lite                   13.97:1   the founding chip -- the
+                                                     reference set it in saffron,
+                                                     2.27:1, and that is refused
+   ========================================================================= */
+
+/* ---------------- section frame ---------------- */
+.lp .lp-sec { padding-top: 56px; }
+.lp .lp-wrap { padding: 0 16px; }
+.lp .lp-secEyebrow { margin-bottom: 14px; }
+.lp .lp-h2 { max-width: 680px; margin-bottom: 16px; font-size: 30px; line-height: 1.1; letter-spacing: -0.03em; }
+.lp .lp-lede { max-width: 600px; margin-bottom: 28px; font-size: 16px; line-height: 1.6; color: rgb(var(--ink-ch) / .85); }
+.lp .band--ink .lp-lede { color: rgb(var(--paper-ch) / .72); }
+
+/* ---------------- trust strip ---------------- */
+.lp .lp-strip { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: rgb(var(--paper-ch) / .55); }
+.lp .lp-stripIn { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 20px 16px; text-align: center; font-family: var(--mono); font-size: 12px; color: rgb(var(--ink-ch) / .75); }
+.lp .lp-stripIn b { font-weight: 700; letter-spacing: .04em; color: var(--ink); }
+
+/* ---------------- how it works ---------------- */
+/* Four children placed by name: icon and number over the heading on the phone and
+   the desktop, the icon in a column of its own on the tablet. */
+.lp .lp-steps { display: flex; flex-direction: column; gap: 14px; }
+.lp .lp-step { display: grid; grid-template-columns: 44px minmax(0, 1fr); grid-template-areas: "ico no" "title title" "body body"; align-items: center; align-content: start; gap: 12px; padding: 22px 20px; }
+.lp .lp-stepIco { grid-area: ico; }
+.lp .lp-stepNo { grid-area: no; justify-self: end; font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: .14em; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-stepTitle { grid-area: title; margin-top: 4px; font-size: 19px; line-height: 1.3; letter-spacing: -0.02em; }
+.lp .lp-stepBody { grid-area: body; font-size: 14.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .8); }
+.lp .lp-stepBody b { font-weight: 700; color: var(--ink); }
+
+/* ---------------- the comparison, on ink ---------------- */
+/* Below 768px the same cells are a list (M-Landing): the head row turns into two
+   labelled chips, each body row into a stack of its three cells. From 768px the
+   cells are a grid of columns again, every value reset. */
+.lp .lp-ledgerBox { padding: 32px 20px; border-radius: 24px; background: var(--ink); color: var(--paper); }
+.lp .lp-ledger,
+.lp .lp-ledger thead,
+.lp .lp-ledger tbody,
+.lp .lp-ledger tr,
+.lp .lp-ledger th,
+.lp .lp-ledger td { display: block; }
+.lp .lp-ledger { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+.lp .lp-ledger th { text-align: left; }
+.lp .lp-ledger thead tr { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.lp .lp-ledger .lp-ledgerCorner { display: none; }
+.lp .lp-ledger .lp-ledgerHead { padding: 4px 10px; border: 1px solid rgb(var(--paper-ch) / .25); border-radius: 999px; font-family: var(--mono); font-size: 11px; font-weight: 400; letter-spacing: .1em; text-transform: uppercase; color: rgb(var(--paper-ch) / .75); }
+.lp .lp-ledger .lp-ledgerHead.lp-ledgerYes { border-color: rgb(var(--mint-ch) / .5); color: var(--mint); }
+/* The chip's mark, drawn (M-Landing's ✗ and ✓): the phone is where a chip stands
+   apart from the cells it labels. No generated text -- TestCompiledCSS_GeneratesNoText. */
+.lp .lp-ledger .lp-ledgerMark { display: inline-block; margin-right: 6px; vertical-align: 0; }
+.lp .lp-ledger tbody tr { display: flex; flex-direction: column; gap: 8px; padding: 16px 0; border-top: 1px solid rgb(var(--paper-ch) / .12); }
+.lp .lp-ledger .lp-ledgerAspect { font-size: 15px; font-weight: 700; color: var(--paper); }
+.lp .lp-ledger td.lp-ledgerNo,
+.lp .lp-ledger td.lp-ledgerYes { font-family: var(--mono); font-size: 13px; line-height: 1.5; }
+.lp .lp-ledger td.lp-ledgerNo { color: rgb(var(--paper-ch) / .62); }
+.lp .lp-ledger td.lp-ledgerYes { color: var(--mint); }
+/* The mark in a gutter of its own, so a long answer wraps under its words. */
+.lp .lp-ledgerCell { display: grid; grid-template-columns: 18px minmax(0, 1fr); }
+.lp .lp-ledgerNote { max-width: 640px; margin-top: 20px; font-size: 12.5px; line-height: 1.55; color: rgb(var(--paper-ch) / .62); }
+
+/* ---------------- the four proofs ---------------- */
+/* Paper slips torn at the bottom edge; the 7px under the last row is the tear's. */
+.lp .lp-proofs { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding-bottom: 7px; }
+.lp .lp-proof { display: flex; flex-direction: column; gap: 10px; padding: 22px 20px; }
+.lp .lp-proofKick { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--green); }
+.lp .lp-proofTitle { font-size: 18px; line-height: 1.3; letter-spacing: -0.015em; }
+.lp .lp-proofBody { font-family: var(--mono); font-size: 12.5px; line-height: 1.65; color: rgb(var(--ink-ch) / .8); }
+.lp .lp-privacy { display: flex; align-items: flex-start; gap: 14px; margin-top: 22px; padding: 18px 22px; border: 1px solid var(--green); border-radius: 16px; background: var(--green-lite); font-size: 15px; line-height: 1.55; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-privacy b { color: var(--ink); }
+.lp .lp-privacyIco { flex: none; padding-top: 1px; color: var(--green); }
+.lp .lp-privacyIco svg,
+.lp .lp-priceTick svg { display: block; }
+
+/* ---------------- the two fits ---------------- */
+.lp .lp-fits { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.lp .lp-fit { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 26px 22px; }
+.lp .lp-fitKick { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--green); }
+.lp .lp-fitTitle { font-size: 22px; line-height: 1.25; letter-spacing: -0.02em; }
+.lp .lp-fitBody { font-size: 15px; line-height: 1.6; color: rgb(var(--ink-ch) / .8); }
+.lp .lp-fitEx { margin-top: 6px; padding: 6px 12px; border-radius: 10px; background: var(--green-lite); font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: var(--green); }
+
+/* ---------------- the price card ---------------- */
+.lp .lp-price { display: flex; flex-direction: column; gap: 28px; padding: 32px 22px; border: 1.5px solid var(--green); border-radius: 24px; background: var(--paper); box-shadow: 0 20px 50px rgb(var(--green-ch) / .1); }
+.lp .lp-priceMain { display: flex; flex-direction: column; align-items: flex-start; }
+.lp .lp-priceNum { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.lp .lp-priceBig { font-size: 56px; font-weight: 700; line-height: 1; letter-spacing: -0.045em; }
+.lp .lp-pricePer { font-size: 17px; color: rgb(var(--ink-ch) / .8); }
+.lp .lp-priceNote { margin-top: 14px; font-size: 15px; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-priceOffer { margin-top: 22px; padding: 7px 12px; border: 1px solid var(--saffron); border-radius: 10px; background: var(--saffron-lite); font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--ink); }
+.lp .lp-priceList { display: flex; flex-direction: column; gap: 12px; list-style: none; font-size: 15px; line-height: 1.45; }
+.lp .lp-priceList li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 8px; align-items: start; }
+.lp .lp-priceTick { padding-top: 1px; color: var(--green); }
+
+/* ---------------- the FAQ ---------------- */
+.lp .lp-faqTitle { margin-bottom: 0; }
+.lp .lp-faqList { display: flex; flex-direction: column; gap: 12px; margin-top: 32px; }
+
+/* ---------------- the sign-off ---------------- */
+/* The green box is LP-01's .ondark; its rings sit behind the words. */
+.lp .lp-pilot { padding-bottom: 56px; }
+.lp .lp-pilotRing { position: absolute; border: 1.5px solid rgb(var(--paper-ch) / .14); border-radius: 50%; pointer-events: none; }
+.lp .lp-pilotRing--one { top: -190px; left: -140px; width: 420px; height: 420px; }
+.lp .lp-pilotRing--two { right: -80px; bottom: -120px; width: 280px; height: 280px; }
+.lp .lp-pilotTitle { position: relative; max-width: none; margin-bottom: 14px; font-size: 36px; line-height: 1.05; letter-spacing: -0.035em; color: var(--paper); }
+.lp .lp-pilotLine { position: relative; margin-bottom: 30px; font-size: 16.5px; line-height: 1.55; color: rgb(var(--paper-ch) / .82); }
+.lp .lp-pilotBtn { position: relative; }
+
+@media (min-width: 768px) {
+  .lp .lp-sec { padding-top: 72px; }
+  .lp .lp-wrap { padding: 0 40px; }
+  .lp .lp-h2 { font-size: 38px; }
+  .lp .lp-lede { margin-bottom: 40px; font-size: 17px; }
+
+  .lp .lp-stripIn { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 12px 40px; padding: 20px 24px; }
+
+  .lp .lp-step { grid-template-areas: "ico no" "ico title" "ico body"; align-items: start; gap: 8px 20px; padding: 24px 26px; }
+  .lp .lp-stepNo { justify-self: start; }
+  .lp .lp-stepTitle { margin-top: 0; }
+
+  .lp .lp-ledgerBox { padding: 44px 36px; }
+  .lp .lp-ledger { display: table; }
+  .lp .lp-ledger thead { display: table-header-group; }
+  .lp .lp-ledger tbody { display: table-row-group; }
+  .lp .lp-ledger thead tr,
+  .lp .lp-ledger tbody tr { display: table-row; margin: 0; padding: 0; border-top: 0; }
+  .lp .lp-ledger th,
+  .lp .lp-ledger td,
+  .lp .lp-ledger .lp-ledgerCorner { display: table-cell; }
+  .lp .lp-ledger .lp-ledgerMark { display: none; }
+  .lp .lp-ledger .lp-ledgerCorner,
+  .lp .lp-ledger .lp-ledgerHead,
+  .lp .lp-ledger .lp-ledgerHead.lp-ledgerYes { padding: 14px 16px; border: 0; border-bottom: 1px solid rgb(var(--paper-ch) / .18); border-radius: 0; font-size: 11px; font-weight: 700; letter-spacing: .16em; }
+  .lp .lp-ledger .lp-ledgerHead { color: rgb(var(--paper-ch) / .6); }
+  .lp .lp-ledger .lp-ledgerCorner { width: 24%; }
+  .lp .lp-ledger tbody th,
+  .lp .lp-ledger tbody td { padding: 15px 16px; border-bottom: 1px solid rgb(var(--paper-ch) / .1); vertical-align: top; }
+  .lp .lp-ledger .lp-ledgerAspect { padding-left: 0; font-size: 14.5px; font-weight: 400; line-height: 1.5; color: rgb(var(--paper-ch) / .82); }
+  .lp .lp-ledgerCell { grid-template-columns: 22px minmax(0, 1fr); }
+
+  .lp .lp-proofs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .lp .lp-fits { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lp .lp-fit { padding: 32px 30px; }
+
+  .lp .lp-price { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); align-items: center; gap: 32px; padding: 40px 36px; }
+  .lp .lp-priceBig { font-size: 62px; }
+
+  .lp .lp-pilot { padding-bottom: 72px; }
+  .lp .lp-pilotTitle { font-size: 44px; }
+}
+@media (min-width: 1200px) {
+  .lp .lp-sec { padding-top: 96px; }
+  .lp .lp-wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 40px); }
+  .lp .lp-h2 { font-size: 44px; }
+  .lp .lp-lede { margin-bottom: 48px; }
+
+  .lp .lp-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+  .lp .lp-step { grid-template-areas: "ico no" "title title" "body body"; align-items: center; gap: 14px 12px; padding: 28px 26px; }
+  .lp .lp-stepNo { justify-self: end; }
+  .lp .lp-stepTitle { margin-top: 4px; }
+
+  .lp .lp-ledgerBox { padding: 56px 52px; }
+  .lp .lp-ledger .lp-ledgerCorner { width: 26%; }
+
+  .lp .lp-proofs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+  .lp .lp-price { gap: 44px; padding: 52px; }
+  .lp .lp-priceBig { font-size: 76px; }
+
+  /* The heading stays in view beside the questions. */
+  .lp .lp-faq { display: grid; grid-template-columns: 360px minmax(0, 1fr); align-items: start; gap: 64px; }
+  .lp .lp-faqHead { position: sticky; top: 96px; }
+  .lp .lp-faqTitle { font-size: 40px; }
+  .lp .lp-faqList { margin-top: 0; }
+
+  .lp .lp-pilot { padding-bottom: 96px; }
+  .lp .lp-pilotTitle { font-size: 50px; }
+}
+
+/* =========================================================================
+   THE PANEL (LP-05, 2026-10-22)
+
+   "The panel" on the Landing / T-Landing / M-Landing boards, rendered by
+   landingPanel (web/templates/pages/landing.templ): three drawings of the
+   manager's screens -- The Pass, The Spike, The Roll -- each beside its line.
+   One DOM at every width. On the phone and the tablet a drawing sits over its
+   line; from the desktop the two share a row, the line in a 300px column, and
+   the middle row puts its line first.
+
+   THE DRAWINGS ARE PICTURES (role="img"): nothing in them is pressed, so no rule
+   here reserves the 44px floor -- the "Approve" and "Reject" in The Spike are
+   drawn spans, not controls. Every value is sample data and the page says so.
+
+   WHAT EACH WIDTH SHOWS, AS THE BOARDS DRAW IT. The Pass hangs four dockets, two
+   on the phone (the later two are not drawn there). The Spike's docket comes
+   before its queue on the phone and beside it from the tablet. The Roll is a
+   sheet of seven day columns from the tablet; on the phone each person is a card
+   whose seven days are small squares, with the shift count beside them and the
+   role and home venue under the name -- the same cells, their words drawn only
+   where there is room for them.
+
+   TILTS ARE BY POSITION (nth-child), as the panel's own rail tilts its dockets;
+   no tilt is chosen per record and none is written in the page.
+
+   CONTRAST, MEASURED (the WCAG ratio, alpha composited over its ground):
+     ink at 80% on paper                     8.54:1  the lines beside the drawings
+     ink at 70% on paper                     6.05:1  the note, the dockets' labels and foot
+     ink at 70% on porcelain                 5.70:1  the drawings' eyebrows
+     ink at 70% on tomato at 6% over paper   5.81:1  a tile's label on its tint
+     paper on green                          7.73:1  the drawn Approve, a ✓ mark
+     paper on tomato                         5.30:1  a ✗ mark
+   ========================================================================= */
+
+/* ---------------- section ---------------- */
+.lp .lp-panels { display: flex; flex-direction: column; gap: 28px; }
+.lp .lp-panelRow { display: flex; flex-direction: column; gap: 14px; }
+.lp .lp-panelCap { display: flex; flex-direction: column; gap: 4px; padding: 0 4px; }
+.lp .lp-panelCapTitle { font-size: 19px; line-height: 1.3; letter-spacing: -0.02em; }
+.lp .lp-panelCapLine { font-size: 15px; line-height: 1.55; color: rgb(var(--ink-ch) / .8); }
+.lp .lp-panelNote { margin-top: 18px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .7); }
+
+/* ---------------- the drawing's frame ---------------- */
+.lp .lp-mini { display: flex; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--porcelain); box-shadow: 0 18px 40px rgb(var(--ink-ch) / .1); }
+.lp .lp-miniRail { position: relative; flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; width: 46px; padding: 18px 9px; background: var(--ink); }
+.lp .lp-miniRailTop { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--green); }
+.lp .lp-miniDot { width: 18px; height: 18px; margin-bottom: 8px; border-radius: 50%; background: var(--green); box-shadow: inset 0 0 0 4px var(--ink), inset 0 0 0 6px var(--paper); }
+.lp .lp-miniPill { display: block; width: 22px; height: 8px; border-radius: 4px; background: rgb(var(--porcelain-ch) / .22); }
+.lp .lp-miniPill--on { width: 28px; background: var(--paper); }
+.lp .lp-miniBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 18px 20px 20px; }
+.lp .lp-miniHead { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.lp .lp-miniTitles { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.lp .lp-miniKick,
+.lp .lp-miniLbl { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; line-height: 1.4; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-miniTitle { font-size: 24px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; }
+.lp .lp-miniCsv { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 1px solid var(--ink); border-radius: 10px; font-size: 12px; font-weight: 700; }
+.lp .lp-miniCsv svg { display: block; }
+/* The drawings' stamps keep the product's word and frame; only where they sit is
+   the drawing's. */
+.lp .lp-panelStamp { flex: none; align-self: flex-end; }
+
+/* ---------------- The Pass ---------------- */
+.lp .lp-pass { position: relative; padding-top: 6px; }
+.lp .lp-passBar { position: absolute; left: 0; right: 0; top: 6px; height: 7px; border-radius: 4px; background: var(--ink); }
+.lp .lp-passList { display: flex; justify-content: center; gap: 10px; padding: 0 8px 12px; list-style: none; }
+.lp .lp-passItem { flex: 1 1 0; min-width: 0; max-width: 150px; display: flex; flex-direction: column; align-items: center; }
+.lp .lp-passItem:nth-child(n+3) { display: none; }
+.lp .lp-passClip { position: relative; z-index: 1; width: 34px; height: 13px; border-radius: 0 0 5px 5px; background: rgb(var(--ink-ch) / .7); }
+.lp .lp-passDocket { width: 100%; margin-top: -3px; display: flex; flex-direction: column; gap: 7px; padding: 13px 12px 12px; transform-origin: top center; }
+.lp .lp-passItem:nth-child(1) .lp-passDocket { transform: rotate(-1.5deg); }
+.lp .lp-passItem:nth-child(2) .lp-passDocket { transform: rotate(1deg); }
+.lp .lp-passItem:nth-child(3) .lp-passDocket { transform: rotate(-0.5deg); }
+.lp .lp-passItem:nth-child(4) .lp-passDocket { transform: rotate(1.5deg); }
+.lp .lp-passDocket .lp-miniLbl { font-size: 9.5px; letter-spacing: .08em; }
+.lp .lp-passWho { overflow: hidden; font-size: 14px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; text-overflow: ellipsis; }
+.lp .lp-passTime { display: flex; align-items: baseline; gap: 8px; font-family: var(--mono); font-size: 17px; }
+.lp .lp-dir { padding: 1px 5px; border: 1px solid var(--ink); font-size: 10px; font-weight: 700; }
+.lp .lp-passFoot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 6px; padding-top: 6px; border-top: 1px dashed var(--line); font-family: var(--mono); font-size: 9.5px; white-space: nowrap; color: rgb(var(--ink-ch) / .7); }
+
+/* ---------------- The Spike ---------------- */
+.lp .lp-spike { display: flex; flex-direction: column; gap: 14px; }
+.lp .lp-queue { display: flex; flex-direction: column; gap: 7px; list-style: none; }
+.lp .lp-queueItem { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.lp .lp-queueItem--on { padding: 9px 11px; border: 2px solid var(--ink); }
+.lp .lp-queueTop { display: flex; justify-content: space-between; gap: 8px; }
+.lp .lp-queueWho { font-size: 13px; font-weight: 700; }
+.lp .lp-queueWhen { flex: none; font-family: var(--mono); font-size: 11px; }
+.lp .lp-queueWhy { font-family: var(--mono); font-size: 10.5px; line-height: 1.4; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-focus { order: -1; display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+.lp .lp-focusHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.lp .lp-focusId { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.lp .lp-focusId .lp-miniLbl { font-size: 9.5px; }
+.lp .lp-focusWho { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+.lp .lp-focusLine { font-family: var(--mono); font-size: 11px; }
+.lp .lp-focusHead .lp-panelStamp { align-self: flex-start; }
+.lp .lp-tiles { display: flex; gap: 6px; }
+.lp .lp-tile { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 10px; }
+.lp .lp-tile--ok { background: rgb(var(--green-ch) / .06); }
+.lp .lp-tile--no { background: rgb(var(--tomato-ch) / .06); }
+.lp .lp-tile .lp-miniLbl { font-size: 9px; letter-spacing: .06em; line-height: 1.3; }
+.lp .lp-tileVal { display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 700; }
+.lp .lp-tileVal .chk { width: 16px; height: 16px; border-radius: 4px; font-size: 10px; }
+.lp .lp-focusBtns { display: flex; gap: 8px; }
+.lp .lp-fakeBtn { flex: 1; display: inline-flex; align-items: center; justify-content: center; min-height: 34px; border-radius: 10px; font-size: 13px; font-weight: 700; }
+.lp .lp-fakeBtn--approve { background: var(--green); color: var(--paper); }
+.lp .lp-fakeBtn--reject { border: 2px solid var(--tomato); color: var(--ink); }
+
+/* ---------------- The Roll ---------------- */
+.lp .lp-roll { padding: 4px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+.lp .lp-rollHead { display: none; }
+.lp .lp-rollRow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "who who sum" "days shifts shifts"; align-items: center; gap: 7px 6px; padding: 11px 0; border-top: 1px dashed var(--line); }
+.lp .lp-rollHead + .lp-rollRow { border-top: 0; }
+.lp .lp-rollWho { grid-area: who; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lp .lp-rollName { overflow: hidden; font-size: 14px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
+.lp .lp-rollSub { font-family: var(--mono); font-size: 10px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-rollSum { grid-area: sum; justify-self: end; font-family: var(--mono); font-size: 14px; font-weight: 700; white-space: nowrap; }
+.lp .lp-rollShifts { grid-area: shifts; font-family: var(--mono); font-size: 10px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-rollDays { grid-area: days; display: flex; gap: 5px; }
+/* On the phone a day is a 14px square and its words are not drawn. */
+.lp .lp-rollCell { width: 14px; height: 14px; overflow: hidden; border-radius: 4px; font-family: var(--mono); font-size: 0; }
+.lp .lp-rollCell--worked,
+.lp .lp-rollCell--away { background: rgb(var(--green-ch) / .15); }
+.lp .lp-rollCell--away { box-shadow: inset 0 0 0 1px var(--ink); }
+.lp .lp-rollCell--open { border: 1px dashed var(--saffron); background: rgb(var(--saffron-ch) / .1); }
+.lp .lp-rollCell--none { border: 1px solid var(--line); }
+
+@media (min-width: 768px) {
+  .lp .lp-panels { gap: 32px; }
+
+  .lp .lp-passList { justify-content: flex-start; gap: 14px; }
+  .lp .lp-passItem { max-width: 168px; }
+  .lp .lp-passItem:nth-child(n+3) { display: flex; }
+
+  .lp .lp-spike { flex-direction: row; align-items: flex-start; }
+  .lp .lp-queue,
+  .lp .lp-focus { flex: 1 1 0; min-width: 0; }
+  .lp .lp-focus { order: 0; }
+
+  .lp .lp-roll { padding: 2px 0; }
+  .lp .lp-rollHead,
+  .lp .lp-rollRow { display: grid; grid-template-columns: 22% repeat(7, minmax(0, 1fr)) 15%; grid-template-areas: none; align-items: center; gap: 0; padding: 0 12px; }
+  .lp .lp-rollHead { padding-top: 9px; padding-bottom: 9px; font-family: var(--mono); font-size: 9px; letter-spacing: .04em; text-align: center; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); }
+  .lp .lp-rollHeadWho { text-align: left; }
+  .lp .lp-rollHeadSum { text-align: right; }
+  .lp .lp-rollRow { border-top: 1px dashed var(--line); }
+  .lp .lp-rollHead + .lp-rollRow { border-top: 1px dashed var(--line); }
+  .lp .lp-rollWho,
+  .lp .lp-rollSum { grid-area: auto; padding: 8px 4px 8px 0; }
+  .lp .lp-rollName { font-size: 12.5px; font-weight: 400; }
+  .lp .lp-rollSub,
+  .lp .lp-rollShifts { display: none; }
+  .lp .lp-rollSum { padding: 8px 0 8px 4px; font-size: 9.5px; }
+  .lp .lp-rollDays { display: contents; }
+  .lp .lp-rollCell { justify-self: center; width: auto; height: auto; padding: 2px 3px; border: 0; font-size: 9.5px; white-space: nowrap; }
+  .lp .lp-rollCell--open { border: 1px dashed var(--saffron); }
+  .lp .lp-rollCell--none { color: rgb(var(--ink-ch) / .7); }
+}
+@media (min-width: 1200px) {
+  .lp .lp-panels { gap: 44px; }
+  .lp .lp-panelRow { display: grid; grid-template-columns: minmax(0, 1fr) 300px; align-items: center; gap: 40px; }
+  .lp .lp-panelRow--flip { grid-template-columns: 300px minmax(0, 1fr); }
+  .lp .lp-panelRow--flip .lp-panelCap { order: -1; }
+}
+
+/* =========================================================================
+   THE PUBLIC PAGES (LP-06, 2026-10-22)
+
+   What a public page beyond the landing is drawn with, starting with /pricing
+   (the Pricing / T-Pricing / M-Pricing boards; web/templates/pages/pricing.templ).
+   The page's opening -- eyebrow, its one h1, the lede -- is shared: the Product,
+   Security and For* boards draw the same opening, so LP-07 ... LP-10 write
+   markup only. Everything else a page needs from the landing it reuses as is:
+   the bands, .lp-sec / .lp-wrap / .lp-h2 / .lp-lede, the price card, the FAQ
+   (.lp-faq), the green sign-off (.lp-pilot) and the "next step" link (.more).
+
+   THE OPENING SITS ON A PORCELAIN BAND, a deviation from the boards measured
+   rather than chosen by taste: the boards give the opening section no bottom
+   space, so the price card's lower edge and its 50px shadow would meet the paper
+   band of the next section. The band is LP-04's rule for every section ("a
+   section sits in a .band of its colour and takes the band's space").
+
+   THE DRAWN MONTH is the Billing screen's receipt (pages/billing.templ
+   billingReceipt) drawn on the board's slip (.lp-slip): the product stamp in its
+   own frame, the figures in the data face, tilted 1 degree. It is a picture
+   (role img), so nothing in it reserves the 44px floor; its CSV is a drawn
+   label, not a link.
+
+   CONTRAST, MEASURED (the WCAG ratio, alpha composited over its ground):
+     ink at 85% on porcelain                 9.29:1  the lede
+     ink at 70% on paper                     6.05:1  the table's labels, the
+                                                     frozen time, the caption
+     ink on saffron-lite                    13.97:1  the free-months note
+   ========================================================================= */
+
+/* ---------------- a page's opening ---------------- */
+.lp .lp-pageHead { padding-top: 40px; }
+.lp .lp-pageEyebrow { margin-bottom: 18px; }
+.lp .lp-h1 { max-width: 760px; margin-bottom: 20px; font-size: 38px; line-height: 1.05; letter-spacing: -0.035em; font-weight: 700; }
+.lp .lp-pageLede { max-width: 560px; margin-bottom: 28px; font-size: 17px; line-height: 1.55; color: rgb(var(--ink-ch) / .85); }
+
+/* The landing's "Pricing in detail" under its price card. */
+.lp .lp-moreAfter { margin-top: 14px; }
+
+/* ---------------- examples ---------------- */
+.lp .lp-examples { display: flex; flex-direction: column; gap: 36px; }
+.lp .lp-examplesMain { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.lp .lp-sizes { padding: 6px 0; }
+.lp .lp-sizesTable { width: 100%; border-collapse: collapse; }
+.lp .lp-sizesTable th,
+.lp .lp-sizesTable td { padding: 14px 18px; text-align: left; vertical-align: baseline; }
+.lp .lp-sizesTable thead th { padding: 12px 18px 10px; border-bottom: 1px solid var(--line); font-weight: 400; }
+.lp .lp-sizesTable tbody tr + tr th,
+.lp .lp-sizesTable tbody tr + tr td { border-top: 1px dashed var(--line); }
+.lp .lp-sizesTable .lp-sizesAmt { text-align: right; white-space: nowrap; }
+.lp .lp-sizesN { font-size: 16px; font-weight: 700; }
+.lp .lp-sizesTable td.lp-sizesAmt { font-family: var(--mono); font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.lp .lp-freeNote { padding: 12px 16px; border: 1px solid var(--saffron); border-radius: 12px; background: var(--saffron-lite); font-size: 14.5px; line-height: 1.55; color: var(--ink); }
+
+/* ---------------- the drawn month ---------------- */
+.lp .lp-receiptFig { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.lp .lp-receipt { display: flex; flex-direction: column; gap: 12px; padding: 22px 22px 24px; transform: rotate(-1deg); }
+.lp .band--paper .lp-receipt { box-shadow: 0 14px 30px rgb(var(--ink-ch) / .1); }
+.lp .lp-receiptTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.lp .lp-receiptMonth { min-height: 30px; font-size: 18px; font-weight: 700; letter-spacing: -0.015em; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 4px; }
+.lp .lp-receiptStamp { flex: none; }
+.lp .lp-receiptRows { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px dashed var(--line); font-family: var(--mono); font-size: 13px; }
+.lp .lp-receiptRow { display: flex; justify-content: space-between; gap: 8px; }
+.lp .lp-receiptTotal { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-top: 12px; border-top: 1px dashed var(--line); font-family: var(--mono); }
+.lp .lp-receiptTotalLbl { font-size: 12px; font-weight: 700; }
+.lp .lp-receiptTotalAmt { font-size: 20px; font-weight: 700; }
+.lp .lp-receiptWhen { font-family: var(--mono); font-size: 11px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-receiptCsv { font-family: var(--mono); font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 4px; }
+.lp .lp-receiptCap { font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .7); }
+
+@media (min-width: 768px) {
+  .lp .lp-pageHead { padding-top: 60px; }
+  .lp .lp-h1 { font-size: 50px; }
+  .lp .lp-pageLede { margin-bottom: 40px; font-size: 19px; }
+
+  .lp .lp-examples { display: grid; grid-template-columns: minmax(0, 1fr) 260px; align-items: start; gap: 36px; }
+  .lp .lp-sizesTable th,
+  .lp .lp-sizesTable td { padding: 14px 24px; }
+  .lp .lp-sizesTable thead th { padding: 12px 24px 10px; }
+  .lp .lp-sizesN { font-size: 17px; }
+  .lp .lp-sizesTable td.lp-sizesAmt { font-size: 24px; }
+}
+@media (min-width: 1200px) {
+  .lp .lp-pageHead { padding-top: 80px; }
+  .lp .lp-h1 { font-size: 56px; }
+  .lp .lp-pageLede { margin-bottom: 48px; }
+
+  .lp .lp-examples { grid-template-columns: minmax(0, 1fr) 300px; gap: 64px; }
+}
+
+/* =========================================================================
+   THE SECURITY PAGE (LP-07, 2026-10-22)
+
+   /security, from the Security / T-Security / M-Security boards
+   (web/templates/pages/security.templ). The opening, the bands, the section
+   frame, the proof cards (.lp-proof), the privacy note (.lp-privacy), the
+   panel's small stamp and fake buttons, the check squares (.chk) and the
+   sign-off are the landing's and the pricing page's; what is here is the
+   page's own furniture: the sample check, the four proofs' three cells, the
+   drawings, the decision ladder, the flow of a flagged record, the paired
+   text-and-drawing sections and the hosting card.
+
+   ONE DOM AT EVERY WIDTH. The phone stacks every cell. From the tablet the
+   proof's card and its text sit side by side with the drawing under them,
+   the privacy cards make a row, and text sits beside its drawing. From the
+   desktop the proof is three cells, the opening and the ladder take a side
+   column, and the flagged record's four steps run in a row.
+
+   THE DRAWINGS ARE PICTURES (role img): nothing in them is pressed, so they
+   reserve no 44px floor. SVG colours are classes naming palette tokens
+   (.lp-fill*, .lp-stroke*), never a value in the markup.
+
+   CONTRAST, MEASURED (the WCAG ratio, alpha composited over its ground):
+     green on green-lite (the sample's chips)      6.48:1
+     ink at 70% on paper (labels, notes)           6.05:1
+     ink at 75% on porcelain (the ladder's note)   7.39:1
+     ink on saffron (the outside mark)             6.66:1
+   ========================================================================= */
+
+/* ---------------- the opening ---------------- */
+.lp .lp-secHero { display: flex; flex-direction: column; gap: 32px; }
+.lp .lp-secHeroCopy { display: flex; flex-direction: column; min-width: 0; }
+.lp .lp-secHeroLede { margin-bottom: 16px; }
+.lp .lp-secServer { font-family: var(--mono); font-size: 13px; line-height: 1.6; color: rgb(var(--ink-ch) / .75); }
+.lp .lp-secBtns { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+
+/* The sample tap, checked four ways. */
+.lp .lp-secCheck { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 20px 18px 24px; box-shadow: 0 20px 50px rgb(var(--ink-ch) / .1); }
+.lp .lp-secChecks { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+.lp .lp-secCheckRow { position: relative; display: flex; align-items: center; gap: 12px; }
+.lp .lp-secCheckRow + .lp-secCheckRow::before { content: ''; position: absolute; left: 19px; top: -12px; width: 2px; height: 12px; background: var(--green); }
+.lp .lp-secCheckRow:last-child::before { background: var(--line); }
+.lp .lp-secCheckIco { width: 40px; height: 40px; border-radius: 11px; }
+.lp .lp-secCheckName { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 15px; font-weight: 700; line-height: 1.3; }
+.lp .lp-secCheckName .lp-lbl { font-size: 9.5px; font-weight: 400; }
+.lp .lp-secChip { flex: none; padding: 4px 9px; border-radius: 999px; background: var(--green-lite); color: var(--green); font-family: var(--mono); font-size: 11px; font-weight: 700; }
+/* The chip of a check that did not carry the sample: quiet, not green. */
+.lp .lp-secChip--quiet { background: transparent; border: 1px solid var(--line); color: rgb(var(--ink-ch) / .7); }
+.lp .lp-secDown { display: flex; justify-content: center; color: var(--green); }
+.lp .lp-secDown svg { transform: rotate(90deg); }
+
+/* A sample record, as the panel's docket draws it. The 7px under it is the tear's. */
+.lp .lp-secDocket { display: flex; flex-direction: column; gap: 7px; min-width: 0; margin-bottom: 7px; padding: 13px 14px; box-shadow: 0 8px 20px rgb(var(--ink-ch) / .08); }
+.lp .lp-secDocketTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.lp .lp-secDocketVenue { min-width: 0; padding-top: 3px; font-size: 9.5px; letter-spacing: .08em; }
+.lp .lp-secStamp { flex: none; }
+.lp .lp-secDocketWho { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.lp .lp-secDocketTime { display: flex; align-items: baseline; gap: 8px; font-family: var(--mono); font-size: 17px; }
+.lp .lp-secDocketFoot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; padding-top: 7px; border-top: 1px dashed var(--line); font-family: var(--mono); font-size: 10.5px; color: rgb(var(--ink-ch) / .72); }
+
+/* ---------------- the four proofs ---------------- */
+.lp .lp-secProofs { display: flex; flex-direction: column; gap: 40px; }
+.lp .lp-secProof { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 24px; }
+.lp .lp-secProof + .lp-secProof { padding-top: 40px; border-top: 1px dashed var(--line); }
+.lp .lp-secProofCard { margin-bottom: 7px; }
+.lp .lp-secHood { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.lp .lp-secHoodKick { color: var(--green); font-weight: 700; }
+.lp .lp-secHoodTitle { font-size: 19px; line-height: 1.25; letter-spacing: -0.02em; }
+.lp .lp-secHood p { font-size: 15.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
+
+/* The drawings' frame. */
+.lp .lp-secDraw { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 20px 18px; }
+.lp .lp-secDrawNote { font-size: 11.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-secCenter { text-align: center; }
+.lp .lp-secLegend { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.lp .lp-secLegend li { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 10px; font-size: 13.5px; line-height: 1.45; }
+.lp .lp-secLegend .chk { margin-top: 1px; }
+/* The square that marks a tap sent to a manager: saffron, its glyph in ink. */
+.lp .lp-chk--flag { background: var(--saffron); color: var(--ink); }
+
+/* The link a tap opens, and the counter. */
+.lp .lp-secUrl { font-size: 12px; color: rgb(var(--ink-ch) / .7); overflow-wrap: anywhere; }
+.lp .lp-secParams { display: flex; flex-direction: column; gap: 6px; }
+.lp .lp-secParam { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; padding: 7px 10px; border-left: 3px solid var(--green); background: rgb(var(--ink-ch) / .05); }
+.lp .lp-secParam .mono { font-size: 12px; white-space: nowrap; }
+.lp .lp-secParam .lp-lbl { font-size: 9.5px; text-align: right; }
+.lp .lp-secCtr { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.lp .lp-secCtrRow { display: grid; grid-template-columns: 18px 64px minmax(0, 1fr); align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; font-size: 13.5px; line-height: 1.4; }
+.lp .lp-secCtrRow .mono { font-size: 13px; font-weight: 700; }
+.lp .lp-secCtrRow--ok { background: var(--green-lite); }
+.lp .lp-secCtrRow--no { background: rgb(var(--tomato-ch) / .07); }
+
+/* Activation, and what each side keeps. */
+.lp .lp-secSteps { list-style: none; display: flex; gap: 8px; }
+.lp .lp-secStep { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--porcelain); font-size: 14px; font-weight: 700; line-height: 1.3; }
+.lp .lp-secStep .mono { font-size: 11px; color: var(--green); }
+.lp .lp-secSession { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--green-lite); font-size: 14px; font-weight: 700; }
+.lp .lp-secSession svg,
+.lp .lp-secKeep svg { flex: none; color: var(--green); }
+.lp .lp-secKeeps { display: flex; flex-direction: column; gap: 8px; }
+.lp .lp-secKeep { flex: 1 1 0; min-width: 0; display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.lp .lp-secKeepText { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.lp .lp-secKeepText .lp-lbl { font-size: 9.5px; }
+.lp .lp-secKeepText .mono { font-size: 12px; line-height: 1.45; }
+
+/* The scale and the radius: SVG, coloured by token. */
+/* At most its viewBox wide, so the labels inside it stay at their 10-11px instead of
+   growing with a full-width card (the drawing spans the row on the tablet). */
+.lp .lp-secScale { display: block; width: 100%; max-width: 348px; height: auto; overflow: visible; }
+.lp .lp-secScaleMark { font-family: var(--mono); font-size: 11px; font-weight: 700; }
+.lp .lp-secScaleTick { font-family: var(--mono); font-size: 10px; }
+.lp .lp-secRadius { display: block; width: 100%; max-width: 320px; height: auto; margin: 0 auto; }
+.lp .lp-secSvgBold { font-family: var(--disp); font-size: 11px; font-weight: 700; }
+.lp .lp-secSvgSoft { font-family: var(--disp); font-size: 10px; fill-opacity: .75; }
+.lp .lp-fillInk { fill: var(--ink); }
+.lp .lp-fillPaper { fill: var(--paper); }
+.lp .lp-fillGreen { fill: var(--green); }
+.lp .lp-fillGreenLite { fill: var(--green-lite); }
+.lp .lp-fillSaffron { fill: var(--saffron); }
+.lp .lp-fillTomato { fill: rgb(var(--tomato-ch) / .35); }
+.lp .lp-strokeInk { stroke: var(--ink); }
+.lp .lp-strokeGreen { stroke: var(--green); }
+.lp .lp-strokePaper { stroke: var(--paper); }
+
+/* ---------------- the decision ladder ---------------- */
+.lp .lp-ladder { display: flex; flex-direction: column; gap: 20px; }
+.lp .lp-ladderSteps { display: flex; flex-direction: column; min-width: 0; }
+.lp .lp-rung { padding: 18px 18px 8px; }
+.lp .lp-rungLink { display: block; width: 2px; height: 18px; margin-left: 32px; background: var(--line); }
+.lp .lp-rungHead { display: flex; align-items: flex-start; gap: 12px; padding-bottom: 12px; }
+.lp .lp-rungNo { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--ink); color: var(--paper); font-size: 13px; font-weight: 700; }
+.lp .lp-rungNo--lock { border: 1px solid var(--line); background: var(--porcelain); color: var(--ink); }
+.lp .lp-rungTitles { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.lp .lp-rungTitle { font-size: 18px; font-weight: 700; line-height: 1.3; letter-spacing: -0.015em; }
+.lp .lp-rules { list-style: none; }
+.lp .lp-rule { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px 0; border-top: 1px dashed var(--line); font-size: 14.5px; line-height: 1.45; }
+.lp .lp-ruleEnd { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lp .lp-ruleNote { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-ladderSide { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.lp .lp-secTrust { display: flex; flex-direction: column; gap: 12px; margin-bottom: 7px; padding: 20px; }
+.lp .lp-secTrustRows div { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px dashed var(--line); font-size: 13px; }
+.lp .lp-secTrustRows dd { font-weight: 700; }
+.lp .lp-secTrust p { font-size: 14px; line-height: 1.55; color: rgb(var(--ink-ch) / .82); }
+.lp .lp-secDebounce { display: flex; flex-direction: column; gap: 12px; padding: 20px; }
+.lp .lp-secCardTitle { font-size: 18px; line-height: 1.3; letter-spacing: -0.015em; }
+.lp .lp-secDebounce p,
+.lp .lp-secCard p { font-size: 14.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
+.lp .lp-secLadderNote { max-width: 860px; margin-top: 28px; font-size: 12px; line-height: 1.65; color: rgb(var(--ink-ch) / .75); }
+
+/* ---------------- flagged, never dropped ---------------- */
+.lp .lp-secFlow { display: flex; flex-direction: column; gap: 10px; padding: 18px; }
+.lp .lp-secFlowStep { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 14px; background: var(--porcelain); }
+.lp .lp-secFlowTitle { font-size: 14.5px; font-weight: 700; line-height: 1.35; }
+.lp .lp-secFlowMeta { font-size: 11px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-secFlowArrow { display: flex; justify-content: center; color: var(--green); }
+.lp .lp-secFlowArrow svg { transform: rotate(90deg); }
+.lp .lp-secFlowLine { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 1.4; }
+.lp .lp-secFakeBtns { display: flex; gap: 8px; }
+.lp .lp-secTicks { list-style: none; display: flex; flex-direction: column; gap: 12px; max-width: 760px; margin-top: 24px; }
+.lp .lp-secTicks li { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; line-height: 1.55; }
+
+/* A section with no lede: the board's space between the heading and what follows. */
+.lp .lp-secH2Solo { margin-bottom: 36px; }
+
+/* ---------------- text beside a drawing ---------------- */
+.lp .lp-secPair { display: flex; flex-direction: column; gap: 28px; }
+.lp .lp-secText { display: flex; flex-direction: column; gap: 14px; max-width: 600px; }
+.lp .lp-secText p { font-size: 16px; line-height: 1.6; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-secTextNote { font-size: 12px; font-weight: 700; color: var(--green); }
+.lp .lp-secPairDockets { display: flex; flex-direction: column; gap: 12px; }
+.lp .lp-secAudit { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 10px; font-size: 11px; color: rgb(var(--ink-ch) / .75); }
+.lp .lp-secAudit span:first-child { font-weight: 700; color: var(--ink); }
+.lp .lp-secWall { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.lp .lp-secSide { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--porcelain); }
+.lp .lp-secSideName { font-size: 14px; font-weight: 700; }
+.lp .lp-secRow { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: rgb(var(--ink-ch) / .8); }
+.lp .lp-secRls { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px; border-radius: 10px; background: var(--ink); color: var(--paper); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-align: center; }
+.lp .lp-secRls svg { flex: none; }
+
+/* ---------------- privacy ---------------- */
+.lp .lp-secCards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.lp .lp-secCard { display: flex; flex-direction: column; gap: 12px; padding: 22px 20px; }
+.lp .lp-secCardKick { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--green); }
+
+/* ---------------- hosting ---------------- */
+.lp .lp-secHost { display: flex; flex-direction: column; gap: 18px; padding: 24px 20px; }
+.lp .lp-secHostIco { width: 56px; height: 56px; border-radius: 14px; }
+.lp .lp-secHostText { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.lp .lp-secHostText p { font-size: 15.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
+.lp .lp-secHostLinks { display: flex; flex-wrap: wrap; gap: 0 18px; }
+
+@media (min-width: 768px) {
+  .lp .lp-secCheck { padding: 22px 22px 24px; }
+  .lp .lp-secDraw { padding: 20px; }
+  .lp .lp-secProof { grid-template-columns: 260px minmax(0, 1fr); gap: 28px; }
+  .lp .lp-secProof > .lp-secDraw { grid-column: 1 / -1; }
+  .lp .lp-secKeeps { flex-direction: row; }
+  .lp .lp-secLegend { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 16px; }
+  .lp .lp-secPairDockets { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  /* Two dockets side by side are narrow on the tablet: the venue takes its own line and
+     the tilted stamp sits under it, rather than its corner meeting the venue's words. */
+  .lp .lp-secPairDockets .lp-secDocketTop { flex-direction: column; gap: 6px; }
+  .lp .lp-secH2Solo { margin-bottom: 44px; }
+  .lp .lp-rule { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; }
+  .lp .lp-ruleEnd { justify-content: flex-end; }
+  .lp .lp-ladderSide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 16px; }
+  .lp .lp-secCards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .lp .lp-secPair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 36px; }
+  .lp .lp-secWall { grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1fr); }
+  .lp .lp-secRls { flex-direction: column; }
+  .lp .lp-secHost { flex-direction: row; align-items: flex-start; padding: 28px; }
+}
+@media (min-width: 1200px) {
+  .lp .lp-secHero { display: grid; grid-template-columns: minmax(0, 1fr) 500px; align-items: center; gap: 56px; }
+  .lp .lp-secProofs { gap: 48px; }
+  .lp .lp-secProof { grid-template-columns: 280px minmax(0, 1fr) minmax(0, 1.05fr); gap: 36px; }
+  .lp .lp-secProof + .lp-secProof { padding-top: 48px; }
+  .lp .lp-secProof > .lp-secDraw { grid-column: auto; }
+  .lp .lp-ladder { display: grid; grid-template-columns: minmax(0, 1fr) 330px; align-items: start; gap: 36px; }
+  .lp .lp-ladderSide { display: flex; flex-direction: column; gap: 20px; }
+  .lp .lp-secFlow { display: grid; grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) 16px minmax(0, 1fr) 16px minmax(0, 1.1fr); align-items: center; padding: 24px; }
+  .lp .lp-secFlowArrow svg { transform: none; }
+  .lp .lp-secPair { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 56px; }
+  .lp .lp-secPairDockets .lp-secDocketTop { flex-direction: row; gap: 8px; }
+  .lp .lp-secH2Solo { margin-bottom: 52px; }
+}
+
+/* =========================================================================
+   THE PRODUCT TOUR (LP-08, 2026-10-22)
+
+   /product, from the Product / T-Product / M-Product boards
+   (web/templates/pages/product.templ). The opening, the bands, the section
+   frame, the panel's three drawings and their frame (.lp-mini*), the slips,
+   the stamps, the icon tile, the "next step" link and the sign-off are the
+   landing's, the pricing page's and the security page's; what is here is the
+   tour's own furniture: the index, a section's number and bullets, the plaque
+   and the two phones, the tap screen's four points, the People, Venues and
+   Rules drawings, the shift's six dockets and the integrations card.
+
+   ONE DOM AT EVERY WIDTH. The phone stacks a section's words over its drawing;
+   from the desktop the two share a row, the words in a 380px column, and every
+   other row puts the drawing first. The phone draws the plaque and the two
+   phones in one column; from the tablet the plaque, the waves and the first
+   phone share a row.
+
+   THE DRAWINGS ARE PICTURES (role img): nothing in them is pressed, so they
+   reserve no 44px floor. The index's links are pressed, and reserve it.
+
+   CONTRAST, MEASURED (the WCAG ratio, alpha composited over its ground):
+     ink at 85% on paper / porcelain       10.4:1 / 9.29:1  the sections' lines
+     ink at 70% on paper                    6.05:1          labels, notes, the
+                                                            index's numbers
+     ink at 70% on porcelain                5.70:1          the drawings' sub-lines
+     paper on ink                          16.17:1          the section numbers,
+                                                            the chosen chip
+     ink on green-lite / saffron-lite      13.6:1 / 13.97:1 the status pills
+   ========================================================================= */
+
+/* ---------------- the opening ---------------- */
+.lp .lp-prodHero { display: flex; flex-direction: column; gap: 32px; }
+.lp .lp-prodHeroCopy { display: flex; flex-direction: column; min-width: 0; }
+/* The index: a row of chips on the phone and the tablet, as T-Product and M-Product
+   draw it (the nav's own name says what it is, so its label is drawn only on the
+   slip); from the desktop a slip beside the copy. The boards' chip is 36px; the
+   product's floor is 44. */
+.lp .lp-prodIndex { padding: 0; border: 0; background: none; }
+.lp .lp-prodIndex::after { display: none; }
+.lp .lp-prodIndex > .lp-lbl { display: none; }
+.lp .lp-prodIndexList { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; }
+.lp .lp-prodIndexLink { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); font-size: 13.5px; font-weight: 700; color: var(--ink); text-decoration: none; }
+/* States as States-Public draws the chip (LP-14): hover inks the edge, pressed fills it
+   green-lite. The slip's entry from 1200px has its own two below. */
+.lp .lp-prodIndexLink:hover { border-color: var(--ink); }
+.lp .lp-prodIndexLink:active { border-color: var(--ink); background: var(--green-lite); }
+.lp .lp-prodIndexLink:focus-visible { border-radius: 999px; }
+.lp .lp-prodIndexNo { font-family: var(--mono); font-size: 10.5px; font-weight: 400; color: rgb(var(--ink-ch) / .7); }
+
+/* ---------------- a section's words ---------------- */
+.lp .lp-prodText { display: flex; flex-direction: column; min-width: 0; }
+.lp .lp-prodKick { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.lp .lp-prodNo { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 12px; font-weight: 700; }
+.lp .lp-prodH2 { margin-bottom: 14px; font-size: 28px; line-height: 1.08; }
+.lp .lp-prodLine { max-width: 600px; margin-bottom: 22px; font-size: 16px; line-height: 1.6; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-prodBullets { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.lp .lp-prodBullets li { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: start; gap: 8px; font-size: 14.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .88); }
+.lp .lp-prodTick { padding-top: 1px; color: var(--green); }
+.lp .lp-prodTick svg { display: block; }
+.lp .lp-prodH3 { font-size: 22px; line-height: 1.2; letter-spacing: -0.025em; }
+.lp .lp-prodNote { margin-top: 18px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .7); }
+
+/* A section beside its drawing. */
+.lp .lp-prodRow { display: flex; flex-direction: column; gap: 28px; }
+.lp .lp-prodDraw { min-width: 0; }
+
+/* ---------------- the tap ---------------- */
+.lp .lp-prodStack { display: flex; flex-direction: column; gap: 32px; }
+.lp .lp-prodTapText { display: flex; flex-direction: column; gap: 22px; }
+.lp .lp-prodTapText .lp-prodLine { margin-bottom: 0; }
+
+/* The plaque, the waves and the two phones, on a card. */
+.lp .lp-prodScene { display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 24px 12px 20px; border: 1px solid var(--line); border-radius: 24px; background: rgb(var(--paper-ch) / .6); }
+.lp .lp-prodSceneRow { display: flex; flex-direction: column; align-items: center; gap: 28px; }
+.lp .lp-prodPlaque { width: 176px; }
+.lp .lp-prodWaves { display: flex; align-items: center; justify-content: center; color: var(--green); }
+.lp .lp-prodWaves svg { width: 40px; height: 70px; rotate: 90deg; }
+.lp .lp-prodFig { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.lp .lp-prodCap { display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: 250px; text-align: center; font-size: 13.5px; line-height: 1.45; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-prodPhone { width: 250px; padding: 8px; border-radius: 30px; background: var(--ink); box-shadow: 0 30px 60px rgb(var(--ink-ch) / .28); }
+.lp .lp-prodScreen { display: flex; flex-direction: column; gap: 16px; min-height: 380px; padding: 12px 14px 22px; border-radius: 23px; background: var(--porcelain); color: var(--ink); }
+.lp .lp-prodStatus { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; font: 700 13px var(--disp); }
+.lp .lp-prodWordmark { display: flex; align-items: baseline; justify-content: space-between; }
+.lp .lp-prodTapDocket { display: flex; flex-direction: column; gap: 6px; }
+.lp .lp-prodTapLbl { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-prodHello { font-family: var(--disp); font-size: 24px; line-height: 1.15; font-weight: 700; letter-spacing: -0.025em; }
+.lp .lp-prodTapVenue { font-family: var(--disp); font-size: 14px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-prodTapButton { display: flex; align-items: center; justify-content: center; min-height: 64px; border-radius: 2px; background: var(--green); color: var(--paper); font-size: 20px; letter-spacing: -0.025em; }
+.lp .lp-prodResultTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.lp .lp-prodTapped { display: flex; flex-direction: column; font-family: var(--disp); font-size: 22px; line-height: 1.2; font-weight: 700; letter-spacing: -0.025em; }
+.lp .lp-prodTappedWord { white-space: nowrap; }
+.lp .lp-prodTapped .mono { font-size: 15px; font-weight: 400; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-prodResultTop .stamp { flex: none; }
+.lp .lp-prodTrust { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.lp .lp-prodResultNote { font-family: var(--disp); font-size: 12.5px; line-height: 1.45; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-prodClosing { display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; line-height: 1.45; color: rgb(var(--ink-ch) / .7); }
+
+/* The tap screen's four points. */
+.lp .lp-prodTeam { display: flex; flex-direction: column; gap: 20px; }
+.lp .lp-prodTeamHead { display: flex; flex-direction: column; gap: 8px; max-width: 640px; }
+.lp .lp-prodTeamLede { font-size: 15.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-prodPoints { list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.lp .lp-prodPoint { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: start; gap: 14px; }
+.lp .lp-prodPointText { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 14.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-prodPointTitle { font-size: 16px; font-weight: 700; color: var(--ink); }
+.lp .lp-prodTeam .lp-prodNote { margin-top: 0; }
+
+/* ---------------- People ---------------- */
+.lp .lp-prodChips { display: flex; flex-wrap: wrap; gap: 6px; }
+.lp .lp-prodChip { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); font-size: 11px; font-weight: 700; }
+.lp .lp-prodChip--on { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.lp .lp-prodList { list-style: none; padding: 2px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+/* On the phone the signed-in phones go under the venue, as M-Product draws them; the
+   grid places them there, so the row's words keep one order at every width. */
+.lp .lp-prodPerson { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; grid-template-areas: "ini who pill" ". signed ."; align-items: center; gap: 2px 10px; padding: 9px 0; border-top: 1px dashed var(--line); }
+.lp .lp-prodPerson:first-child { border-top: 0; }
+.lp .lp-prodInitials { grid-area: ini; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1.5px solid var(--ink); border-radius: 8px; font-family: var(--mono); font-size: 10px; font-weight: 700; }
+.lp .lp-prodWho { grid-area: who; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.lp .lp-prodPerson .lp-prodPill { grid-area: pill; }
+.lp .lp-prodName { overflow: hidden; font-size: 13px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
+.lp .lp-prodSub { font-family: var(--mono); font-size: 10px; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-prodPill { flex: none; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; color: var(--ink); }
+.lp .lp-prodPill--active { border-color: var(--green); background: var(--green-lite); }
+.lp .lp-prodPill--invited { border-style: dashed; border-color: var(--saffron); background: var(--saffron-lite); }
+.lp .lp-prodSigned { grid-area: signed; font-family: var(--mono); font-size: 9.5px; color: rgb(var(--ink-ch) / .7); white-space: nowrap; }
+
+/* ---------------- Venues & plaques ---------------- */
+.lp .lp-prodVenues { display: flex; flex-direction: column; gap: 10px; }
+.lp .lp-prodVenueList { list-style: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.lp .lp-prodVenue { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.lp .lp-prodVenue--on { padding: 8px 10px; border: 2px solid var(--ink); }
+.lp .lp-prodVenueTop { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lp .lp-prodBadges { display: flex; flex-wrap: wrap; gap: 4px; }
+.lp .lp-prodBadge { padding: 1px 6px; border: 1px dashed var(--line); border-radius: 6px; font-family: var(--mono); font-size: 9.5px; font-weight: 700; }
+.lp .lp-prodBadge--ok { border-style: solid; border-color: var(--green); background: var(--green-lite); }
+.lp .lp-prodVenueOpen { display: flex; flex-direction: column; gap: 8px; }
+.lp .lp-prodVenueCard { display: flex; flex-direction: column; gap: 6px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.lp .lp-prodKV { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 10px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.lp .lp-prodKV .mono { font-size: 11.5px; overflow-wrap: anywhere; }
+
+/* ---------------- Rules ---------------- */
+.lp .lp-prodRules { display: flex; flex-direction: column; gap: 12px; }
+.lp .lp-prodRuleBlock { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.lp .lp-prodGuard { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: start; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.lp .lp-prodGuardNo { font-family: var(--mono); font-size: 11px; font-weight: 700; padding-top: 1px; }
+.lp .lp-prodGuardText { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.lp .lp-prodRuleWords { font-size: 12.5px; font-weight: 700; line-height: 1.35; }
+.lp .lp-prodRuleTags { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.lp .lp-prodLock { padding: 1px 7px; border: 1px solid var(--ink); border-radius: 999px; font-family: var(--mono); font-size: 9.5px; font-weight: 700; }
+.lp .lp-prodEffect { font-family: var(--mono); font-size: 10px; font-weight: 700; color: rgb(var(--ink-ch) / .85); }
+.lp .lp-prodEffect--on { padding: 1px 7px; border: 1px solid var(--green); border-radius: 999px; background: var(--green-lite); color: var(--ink); }
+.lp .lp-prodBase { display: flex; flex-direction: column; gap: 5px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.lp .lp-prodSwitch { align-self: flex-start; min-height: 30px; padding: 0 12px; border: 1.5px solid var(--ink); font-size: 12px; }
+
+/* ---------------- a shift, start to finish ---------------- */
+.lp .lp-prodSteps { list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+.lp .lp-prodStepItem { min-width: 0; }
+.lp .lp-prodStep { display: flex; flex-direction: column; gap: 8px; margin-bottom: 7px; padding: 16px 16px 18px; transform-origin: top center; }
+.lp .lp-prodStepItem:nth-child(1) .lp-prodStep { transform: rotate(-1deg); }
+.lp .lp-prodStepItem:nth-child(2) .lp-prodStep { transform: rotate(.8deg); }
+.lp .lp-prodStepItem:nth-child(3) .lp-prodStep { transform: rotate(-.6deg); }
+.lp .lp-prodStepItem:nth-child(4) .lp-prodStep { transform: rotate(1.2deg); }
+.lp .lp-prodStepItem:nth-child(5) .lp-prodStep { transform: rotate(-1.2deg); }
+.lp .lp-prodStepItem:nth-child(6) .lp-prodStep { transform: rotate(.6deg); }
+.lp .lp-prodStepTop { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lp .lp-prodStepNo { font-family: var(--mono); font-size: 12px; font-weight: 700; }
+.lp .lp-prodStepTitle { font-size: 17px; line-height: 1.2; letter-spacing: -0.015em; }
+.lp .lp-prodStepStamp { align-self: flex-start; }
+.lp .lp-prodStep p { font-size: 14px; line-height: 1.5; color: rgb(var(--ink-ch) / .82); }
+
+/* ---------------- integrations ---------------- */
+.lp .lp-prodInteg { display: flex; flex-direction: column; gap: 22px; padding: 22px 18px; }
+.lp .lp-prodIntegItems { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; }
+.lp .lp-prodIntegItem { display: flex; align-items: flex-start; gap: 14px; min-width: 0; }
+.lp .lp-prodIntegItem + .lp-prodIntegItem { padding-top: 22px; border-top: 1px dashed var(--line); }
+.lp .lp-prodIntegText { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.lp .lp-prodIntegTitle { font-size: 19px; }
+.lp .lp-prodIntegText p { font-size: 14.5px; line-height: 1.55; color: rgb(var(--ink-ch) / .82); }
+.lp .lp-prodCode { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.lp .lp-prodCode .mono { padding: 2px 6px; border-radius: 6px; background: rgb(var(--ink-ch) / .05); font-size: 12px; overflow-wrap: anywhere; }
+.lp .lp-prodIntegFoot { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding-top: 18px; border-top: 1px dashed var(--line); }
+.lp .lp-prodIntegFoot p { font-size: 14px; line-height: 1.55; color: rgb(var(--ink-ch) / .82); }
+
+@media (min-width: 768px) {
+  .lp .lp-prodH2 { font-size: 36px; }
+  .lp .lp-prodLine { font-size: 17px; }
+  .lp .lp-prodBullets li { font-size: 15px; }
+  .lp .lp-prodH3 { font-size: 26px; }
+
+  .lp .lp-prodScene { flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: flex-start; padding: 32px 24px 28px; }
+  .lp .lp-prodSceneRow { flex-direction: row; align-items: center; }
+  .lp .lp-prodPlaque { width: 214px; }
+  .lp .lp-prodWaves svg { width: 60px; height: 110px; rotate: none; }
+  .lp .lp-prodPhone { width: 240px; padding: 10px; border-radius: 40px; }
+  .lp .lp-prodScreen { border-radius: 31px; }
+  .lp .lp-prodPoints { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 28px; }
+
+  .lp .lp-prodPerson { grid-template-columns: 32px minmax(0, 1fr) auto 84px; grid-template-areas: "ini who pill signed"; gap: 10px; }
+  .lp .lp-prodInitials { width: 32px; height: 32px; font-size: 10.5px; }
+  .lp .lp-prodSigned { font-size: 10px; text-align: right; }
+  .lp .lp-prodVenues { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  .lp .lp-prodVenueList { grid-template-columns: minmax(0, 1fr); }
+  .lp .lp-prodRules { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+
+  .lp .lp-prodSteps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .lp .lp-prodInteg { padding: 28px; }
+  .lp .lp-prodIntegFoot { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; }
+}
+@media (min-width: 1200px) {
+  .lp .lp-prodHero { display: grid; grid-template-columns: minmax(0, 1fr) 320px; align-items: center; gap: 72px; }
+  .lp .lp-prodIndex { display: flex; flex-direction: column; gap: 6px; margin-bottom: 7px; padding: 20px 22px 18px; border: 1px solid var(--line); border-bottom: 0; background: var(--paper); box-shadow: 0 14px 30px rgb(var(--ink-ch) / .08); }
+  .lp .lp-prodIndex::after { display: block; }
+  .lp .lp-prodIndex > .lp-lbl { display: block; }
+  .lp .lp-prodIndexList { display: block; }
+  .lp .lp-prodIndexList li { border-top: 1px dashed var(--line); }
+  .lp .lp-prodIndexLink { display: flex; gap: 14px; padding: 0; border: 0; border-radius: 0; background: none; font-size: 15px; }
+  .lp .lp-prodIndexLink:focus-visible { border-radius: 6px; }
+  /* The slip's entry (States-Public, LP-14): hover turns it green, pressed green and
+     underlined -- and no fill, which is the chip's. Green on paper 7.73:1. */
+  .lp .lp-prodIndexLink:hover { color: var(--green); }
+  .lp .lp-prodIndexLink:active { color: var(--green); background: none; text-decoration: underline; text-underline-offset: 4px; }
+  .lp .lp-prodIndexNo { font-size: 11px; }
+  .lp .lp-prodH2 { font-size: 40px; }
+  .lp .lp-prodRow { display: grid; grid-template-columns: 380px minmax(0, 1fr); align-items: center; gap: 56px; }
+  .lp .lp-prodRow--flip { grid-template-columns: minmax(0, 1fr) 380px; }
+  .lp .lp-prodRow--flip .lp-prodDraw { order: -1; }
+  .lp .lp-prodTapText { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 56px; }
+  .lp .lp-prodTapText > .lp-prodBullets { padding-top: 48px; }
+  .lp .lp-prodScene { flex-wrap: nowrap; padding: 36px 32px 32px; }
+  .lp .lp-prodPlaque { width: 226px; }
+  .lp .lp-prodWaves svg { width: 70px; }
+  .lp .lp-prodPhone { width: 250px; }
+  .lp .lp-prodPoints { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .lp .lp-prodSteps { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; }
+  .lp .lp-prodIntegItems { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+  .lp .lp-prodIntegItem + .lp-prodIntegItem { padding-top: 0; padding-left: 28px; border-top: 0; border-left: 1px dashed var(--line); }
+}
+
+/* =========================================================================
+   THE RESTAURANTS PAGE (LP-09, 2026-10-22)
+
+   /for/restaurants, from the ForRestaurants / T-ForRestaurants /
+   M-ForRestaurants boards (web/templates/pages/forrestaurants.templ). The
+   opening, the bands, the section frame, the trust strip, the bullets
+   (.lp-prodBullets), the panel's docket (.lp-secDocket) and small stamp, the
+   icon tile, The Roll's drawing (.lp-mini*), the "next step" link and the
+   sign-off are the other pages'; what is here is the page's own furniture: the
+   chain card, the overnight timeline, the venue table, the cover drawing, the
+   forgotten check-out's three cards, the four chores and The Roll's legend --
+   and the landing fit card's foot, now that the card is a link.
+
+   ONE DOM AT EVERY WIDTH. The phone stacks a section's words over its drawing,
+   the forgotten check-out's cards in a column and the chores in a column; the
+   tablet puts the chores two by two and the three cards in a row; from the
+   desktop the words and the drawing share a row and the chores are four.
+
+   THE TIMELINE'S GEOMETRY IS A FIXED SET OF CLASSES, not values in the markup:
+   its axis runs twelve hours from 16:00, so 18:00 sits at 16.6667%, midnight at
+   66.6667%, 02:00 at 83.3333%, and the sample's two taps at 17:58 (16.39%) and
+   02:04 (83.89%). internal/handler holds these to the sample's times and to
+   Rusty Bar's hours in the seed.
+
+   THE DRAWINGS ARE PICTURES (role img): nothing in them is pressed, so they
+   reserve no 44px floor. The fit card, the buttons and the "next step" link are
+   pressed, and reserve it.
+
+   CONTRAST, MEASURED (the WCAG ratio, alpha composited over its ground):
+     ink at 72% on paper / porcelain        6.47:1 / 6.08:1  the tiles' hours /
+                                                             The Roll's legend
+     ink at 75% on paper                    7.17:1  the step details, the axis
+     paper at 72% on ink                    8.92:1  the dashboard's sub-line
+     green on paper                         7.73:1  the fit card's foot, the
+                                                    step numbers
+     green on the shift's band              5.37:1  the shift's name (green at
+                                                    16% over porcelain)
+   ========================================================================= */
+
+/* ---------------- the landing's fit card, as a link ---------------- */
+.lp .lp-fitLink { display: inline-flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 6px; font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--green); }
+.lp .lp-fitLink svg { display: block; }
+
+/* ---------------- the opening ---------------- */
+.lp .lp-forHero { display: flex; flex-direction: column; gap: 32px; }
+.lp .lp-forHeroCopy { display: flex; flex-direction: column; min-width: 0; }
+.lp .lp-forLede { margin-bottom: 16px; }
+.lp .lp-forBuilt { max-width: 560px; font-size: 15.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .8); }
+
+/* The chain card: the venues as tiles, the lines into one dashboard. */
+.lp .lp-forChain { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 16px; box-shadow: 0 20px 50px rgb(var(--ink-ch) / .1); }
+/* The drawing inside the card is the picture; the chip under it is words. */
+.lp .lp-forChainDraw { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.lp .lp-forTiles { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.lp .lp-forTile { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.lp .lp-forTile--night { border-color: var(--ink); }
+.lp .lp-forTileIcons { display: flex; align-items: center; justify-content: space-between; gap: 4px; color: var(--green); }
+.lp .lp-forTileIcons svg { display: block; }
+.lp .lp-forTileName { overflow-wrap: anywhere; font-family: var(--mono); font-size: 10px; font-weight: 700; line-height: 1.25; letter-spacing: .02em; text-transform: uppercase; }
+.lp .lp-forTileHours { font-family: var(--mono); font-size: 10px; color: rgb(var(--ink-ch) / .72); }
+.lp .lp-forFeed { display: block; width: 100%; height: 26px; }
+.lp .lp-forDash { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; background: var(--ink); color: var(--paper); }
+.lp .lp-forDashDot { position: relative; flex: none; display: inline-block; width: 26px; height: 26px; border-radius: 50%; background: var(--green); }
+.lp .lp-forDashRing { position: absolute; inset: 5px; border: 2px solid rgb(var(--paper-ch) / .92); border-radius: 50%; }
+.lp .lp-forDashWords { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lp .lp-forDashName { font-size: 15px; font-weight: 700; }
+.lp .lp-forDashSub { font-family: var(--mono); font-size: 11px; color: rgb(var(--paper-ch) / .72); }
+.lp .lp-forEx { align-self: flex-start; margin-top: 0; }
+
+/* ---------------- a section's words beside its drawing ---------------- */
+.lp .lp-forRow { display: flex; flex-direction: column; gap: 28px; }
+.lp .lp-forSide { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; min-width: 0; }
+.lp .lp-forSide > .lp-prodBullets { align-self: stretch; }
+.lp .lp-forAfterTitle { margin-top: 12px; }
+.lp .lp-forPara { font-size: 15.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
+.lp .lp-forChip { margin-top: 0; font-size: 12px; }
+.lp .lp-forCard { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 16px; }
+.lp .lp-forDocketNote { padding: 5px 8px; border-left: 2px solid var(--line); background: rgb(var(--ink-ch) / .04); font-family: var(--mono); font-size: 10.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .8); }
+
+/* ---------------- the overnight shift ---------------- */
+.lp .lp-forTl { position: relative; margin: 54px 0 4px; }
+.lp .lp-forTlSpan { position: absolute; left: 16.39%; right: 16.11%; top: -52px; text-align: center; font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--green); }
+.lp .lp-forTlBrace { position: absolute; left: 16.39%; right: 16.11%; top: -34px; height: 8px; border: 2px solid var(--green); border-bottom: 0; }
+.lp .lp-forTlTrack { position: relative; height: 34px; border: 1px solid var(--line); border-radius: 8px; background: var(--porcelain); }
+.lp .lp-forTick1 { left: 16.6667%; }
+.lp .lp-forTick2 { left: 33.3333%; }
+.lp .lp-forTick3 { left: 50%; }
+.lp .lp-forTick4 { left: 66.6667%; }
+.lp .lp-forTick5 { left: 83.3333%; }
+.lp .lp-forTlShift { position: absolute; left: 16.6667%; right: 16.6667%; top: 6px; bottom: 6px; border: 1px solid var(--green); border-radius: 5px; background: rgb(var(--green-ch) / .16); }
+.lp .lp-forTlShiftName { position: absolute; left: 16.6667%; top: 9px; padding-left: 8px; font-family: var(--mono); font-size: 10px; font-weight: 700; white-space: nowrap; color: var(--green); }
+.lp .lp-forTlMidnight { position: absolute; left: 66.6667%; top: -8px; bottom: -8px; width: 0; border-left: 2px dashed var(--ink); }
+.lp .lp-forTlTap { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink); }
+.lp .lp-forTlIn { left: 16.39%; }
+.lp .lp-forTlOut { left: 83.89%; }
+.lp .lp-forTlTag { position: absolute; bottom: -24px; padding: 1px 6px; border: 1px solid var(--ink); background: var(--paper); font-family: var(--mono); font-size: 11px; font-weight: 700; white-space: nowrap; transform: translateX(-50%); }
+.lp .lp-forTlAxis { display: flex; justify-content: space-between; margin-top: 30px; font-family: var(--mono); font-size: 10px; color: rgb(var(--ink-ch) / .75); }
+/* The phone prints every other hour, as M-ForRestaurants does (16:00, 20:00, 00:00, 04:00):
+   still evenly spaced, so space-between still places them. */
+.lp .lp-forTlAxis span:nth-child(even) { display: none; }
+.lp .lp-forTlDays { position: relative; height: 16px; margin-top: 4px; font-family: var(--mono); font-size: 11px; font-weight: 700; }
+.lp .lp-forTlNextDay { position: absolute; left: 66.6667%; padding-left: 6px; }
+.lp .lp-forPair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.lp .lp-forPair .lp-secDocketTop { flex-direction: column; gap: 6px; }
+
+/* ---------------- the venues ---------------- */
+.lp .lp-forTableBox { min-width: 0; overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+.lp .lp-forTable { width: 100%; border-collapse: collapse; }
+.lp .lp-forTable caption { caption-side: top; padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+.lp .lp-forTable thead th { padding: 10px; font-size: 10px; font-weight: 400; text-align: left; }
+.lp .lp-forTable tbody tr { border-top: 1px dashed var(--line); }
+.lp .lp-forTable tbody th { padding: 10px; font-size: 13px; font-weight: 700; text-align: left; }
+.lp .lp-forTable td { padding: 10px; font-family: var(--mono); font-size: 11.5px; }
+.lp .lp-forHours { white-space: nowrap; }
+.lp .lp-forNight { display: block; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-forNet { overflow-wrap: anywhere; color: rgb(var(--ink-ch) / .8); }
+
+/* ---------------- covering another venue ---------------- */
+.lp .lp-forMove { display: flex; align-items: center; gap: 10px; }
+.lp .lp-forPlace { flex: 1 1 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 12px; border: 1.5px dashed var(--line); border-radius: 12px; }
+.lp .lp-forPlace--here { border: 1.5px solid var(--ink); background: var(--paper); }
+.lp .lp-forPlace .lp-lbl { font-size: 9.5px; }
+.lp .lp-forPlaceName { overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; font-weight: 700; text-transform: uppercase; }
+.lp .lp-forMoveArrow { flex: none; display: inline-flex; color: var(--green); }
+.lp .lp-forMoveArrow svg,
+.lp .lp-forStepArrow svg { display: block; }
+
+/* ---------------- a forgotten check-out ---------------- */
+/* An ordered list of cards; the arrow between two sits in the gap, inside the later
+   card's item, so every card keeps one width. */
+.lp .lp-forSteps { list-style: none; display: flex; flex-direction: column; align-items: stretch; gap: 34px; }
+.lp .lp-forStep { position: relative; flex: 1 1 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 16px; }
+.lp .lp-forStepNo { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--green); }
+.lp .lp-forStepTitle { font-size: 15px; font-weight: 700; line-height: 1.3; }
+.lp .lp-forStepDetail { font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .75); }
+.lp .lp-forStepArrow { position: absolute; left: 50%; top: -26px; display: inline-flex; color: var(--green); transform: translateX(-50%); }
+.lp .lp-forStepArrow svg { rotate: 90deg; }
+.lp .lp-forUnder { max-width: 760px; margin-top: 24px; }
+
+/* ---------------- day to day ---------------- */
+.lp .lp-forCases { list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.lp .lp-forCase { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: start; gap: 14px; padding: 18px; }
+.lp .lp-forCaseText { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.lp .lp-forCase .lp-lbl { font-size: 10.5px; }
+.lp .lp-forCaseLine { font-size: 16px; font-weight: 700; line-height: 1.35; letter-spacing: -0.01em; }
+
+/* ---------------- the hours ---------------- */
+.lp .lp-forSample { font-family: var(--mono); font-size: 13px; line-height: 1.6; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-forRoll { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.lp .lp-forLegend { list-style: none; display: flex; flex-wrap: wrap; gap: 8px 18px; font-family: var(--mono); font-size: 11px; line-height: 1.5; color: rgb(var(--ink-ch) / .72); }
+.lp .lp-forLegend li { display: inline-flex; align-items: center; gap: 6px; }
+.lp .lp-forKey { flex: none; display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.lp .lp-forKey--worked,
+.lp .lp-forKey--away { background: rgb(var(--green-ch) / .15); }
+.lp .lp-forKey--away { box-shadow: inset 0 0 0 1px var(--ink); }
+.lp .lp-forKey--open { border: 1px dashed var(--saffron); background: rgb(var(--saffron-ch) / .1); }
+.lp .lp-forKey--none { width: auto; height: auto; }
+
+@media (min-width: 768px) {
+  .lp .lp-forChain { padding: 22px; }
+  .lp .lp-forTile { padding: 10px; }
+  .lp .lp-forTileName { font-size: 11px; }
+  .lp .lp-forTileHours { font-size: 10.5px; }
+  .lp .lp-forAfterTitle { margin-top: 32px; }
+  .lp .lp-forCard { padding: 20px; }
+  .lp .lp-forTlShiftName { font-size: 10.5px; }
+  .lp .lp-forTlAxis { font-size: 11px; }
+  .lp .lp-forTlAxis span:nth-child(even) { display: inline; }
+  .lp .lp-forPair { gap: 14px; }
+  .lp .lp-forPair .lp-secDocketTop { flex-direction: row; gap: 8px; }
+  .lp .lp-forTable caption { padding: 12px 14px; }
+  .lp .lp-forTable thead th { padding: 12px 14px; }
+  .lp .lp-forTable tbody th { padding: 10px 14px; font-size: 14px; }
+  .lp .lp-forTable td { padding: 10px 14px; font-size: 12.5px; }
+  .lp .lp-forNight { display: inline; }
+  .lp .lp-forSteps { flex-direction: row; gap: 36px; }
+  .lp .lp-forStepArrow { left: -27px; top: 50%; transform: translateY(-50%); }
+  .lp .lp-forStepArrow svg { rotate: none; }
+  .lp .lp-forCases { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .lp .lp-forCase { padding: 20px; }
+}
+@media (min-width: 1200px) {
+  .lp .lp-forHero { display: grid; grid-template-columns: minmax(0, 1fr) 540px; align-items: center; gap: 56px; }
+  .lp .lp-forRow { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); align-items: start; gap: 56px; }
+  .lp .lp-forRow--even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .lp .lp-forRow--wide { grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); }
+  .lp .lp-forCases { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .lp .lp-forCase { display: flex; flex-direction: column; gap: 10px; }
+  .lp .lp-forCaseText { gap: 10px; }
+}
+
+/* =========================================================================
+   THE PRODUCTION PAGE (LP-10, 2026-10-22)
+
+   /for/production, from the ForProduction / T-ForProduction / M-ForProduction
+   boards (web/templates/pages/forproduction.templ). The opening, the bands,
+   the section frame, the trust strip, the panel's drawing frame (.lp-mini*),
+   the sample docket (.lp-secDocket), the bullets (.lp-prodBullets), the tap
+   screen's pieces (.lp-prod*), the icon tile and the sign-off are the landing's
+   and the other pages'; what is here is the page's own furniture: the gate and
+   its departments, the shifts timeline, the department's Pass, the queue, the
+   floor's cards and the phone cut at the counter -- and the focus ring of
+   the landing's fits cards, now that both are links.
+
+   THE TIMELINE IS A CLOSED SET OF POSITIONS. It runs 03:00 to 18:00 (900
+   minutes); a time the page draws is placed by one class below
+   (forProductionAt / forProductionUntil in the template), never by a value in
+   a style attribute. A time with no class has no place, and internal/handler's
+   test refuses a drawing that would need one.
+
+   ONE DOM AT EVERY WIDTH. On the phone a shift's name sits over its track and
+   the timeline's labels have no left column; from the tablet the name is a
+   210px column beside the track. The phone draws the tap screen before the
+   floor's cards, as M-ForProduction does; from the tablet the cards and the
+   phone share a row (T-ForProduction), the cards two abreast from the desktop.
+
+   THE PLAQUE, THE PASS, THE QUEUE AND THE PHONE ARE PICTURES (role img); the
+   gate's departments and the timeline are text a screen reader reads. Nothing
+   in either is pressed, so they reserve no 44px floor. The fits card's link is
+   pressed; it is the whole card.
+
+   CONTRAST, MEASURED (the WCAG ratio, alpha composited over its ground):
+     green on green-lite                    6.55:1  the chips
+     green on green 10% over porcelain      5.89:1  a shift's hours on its bar
+     green on green 22% over porcelain      4.87:1  the bakery's hours on its
+                                                    highlighted bar (the lowest)
+     ink at 82% on paper / porcelain        9.21:1 / 8.43:1  the sections' lines
+     ink at 70% on paper                    6.03:1  the notes, the filter label
+     paper on ink                          16.17:1  the plaque's gate
+     paper at 60% on ink                    6.57:1  the plaque's small words
+     ink on green-lite                     13.70:1  the plaque's two signs
+   ========================================================================= */
+
+/* ---------------- the landing's fits cards, focused ---------------- */
+/* The ring follows the card's own corner (the foot line, .lp-fitLink, is LP-09's). */
+.lp .fitcard:focus-visible { border-radius: 18px; }
+
+/* ---------------- the opening ---------------- */
+.lp .lp-fpHero { display: flex; flex-direction: column; gap: 36px; }
+.lp .lp-fpHeroCopy { display: flex; flex-direction: column; min-width: 0; }
+.lp .lp-fpLede { margin-bottom: 16px; }
+.lp .lp-fpLedeFoot { max-width: 560px; font-size: 15.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .8); }
+
+/* The gate: the plaque, a green spine, and one box per department. */
+.lp .lp-fpGate { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 16px; box-shadow: 0 20px 50px rgb(var(--ink-ch) / .1); }
+.lp .lp-fpGateRow { display: flex; align-items: center; }
+.lp .lp-fpPlaque { flex: none; display: flex; flex-direction: column; align-items: center; gap: 10px; width: 108px; padding: 16px 10px; border-radius: 16px; background: var(--ink); color: var(--paper); text-align: center; box-shadow: 0 18px 40px rgb(var(--ink-ch) / .28); }
+.lp .lp-fpPlaqueWord { font-family: var(--mono); font-size: 9px; letter-spacing: .26em; color: rgb(var(--paper-ch) / .6); }
+.lp .lp-fpPlaqueRing { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 2px dashed rgb(var(--mint-ch) / .75); border-radius: 50%; color: var(--mint); }
+.lp .lp-fpPlaqueRing svg { display: block; }
+.lp .lp-fpPlaqueGate { font-size: 12px; font-weight: 700; line-height: 1.3; }
+.lp .lp-fpPlaqueSite { padding-top: 8px; border-top: 1px dashed rgb(var(--paper-ch) / .2); font-family: var(--mono); font-size: 9px; text-transform: uppercase; color: rgb(var(--paper-ch) / .6); }
+.lp .lp-fpPlaqueSigns { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.lp .lp-fpPlaque .lp-prodBadge { color: var(--ink); }
+.lp .lp-fpDepts { list-style: none; flex: 1; display: flex; flex-direction: column; gap: 7px; min-width: 0; margin-left: 10px; border-left: 2px solid var(--green); }
+.lp .lp-fpDept { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; margin-left: 14px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.lp .lp-fpDept::before { content: ''; position: absolute; left: -15px; top: 50%; width: 14px; height: 2px; margin-top: -1px; background: var(--green); }
+.lp .lp-fpDeptName { min-width: 0; font-size: 12px; font-weight: 700; }
+.lp .lp-fpDeptStart { flex: none; font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--green); }
+.lp .lp-fpChip { align-self: flex-start; padding: 6px 12px; border-radius: 10px; background: var(--green-lite); font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: var(--green); }
+
+/* ---------------- the shifts timeline ---------------- */
+.lp .lp-fpTimeline { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 20px 16px; }
+.lp .lp-fpMarkRow { position: relative; height: 22px; }
+.lp .lp-fpMarkTag { position: absolute; top: 0; padding: 1px 6px; border: 1px solid var(--ink); background: var(--paper); font-family: var(--mono); font-size: 11px; font-weight: 700; white-space: nowrap; transform: translateX(-50%); }
+.lp .lp-fpRows { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.lp .lp-fpRow { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.lp .lp-fpRowName { min-width: 0; font-size: 13.5px; font-weight: 700; }
+.lp .lp-fpRow--site { padding-top: 10px; border-top: 1px dashed var(--line); }
+.lp .lp-fpRow--site .lp-fpRowName { font-size: 13px; font-weight: 400; color: rgb(var(--ink-ch) / .75); }
+.lp .lp-fpTrack { position: relative; display: block; height: 26px; border: 1px solid var(--line); border-radius: 7px; background: var(--porcelain); }
+.lp .lp-fpTick--1 { left: 20%; }
+.lp .lp-fpTick--2 { left: 40%; }
+.lp .lp-fpTick--3 { left: 60%; }
+.lp .lp-fpTick--4 { left: 80%; }
+.lp .lp-fpBar { position: absolute; top: 4px; bottom: 4px; border: 1px solid var(--green); border-radius: 5px; background: rgb(var(--green-ch) / .1); }
+.lp .lp-fpBar--on { background: rgb(var(--green-ch) / .22); }
+.lp .lp-fpBarHours { position: absolute; top: 5px; padding-left: 6px; font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--green); white-space: nowrap; }
+.lp .lp-fpMark { position: absolute; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: var(--ink); }
+.lp .lp-fpAxis { position: relative; height: 16px; }
+.lp .lp-fpAxisHour { position: absolute; top: 0; font-family: var(--mono); font-size: 10.5px; color: rgb(var(--ink-ch) / .75); transform: translateX(-50%); }
+.lp .lp-fpAxisHour:first-child { transform: none; }
+.lp .lp-fpAxisHour:last-child { transform: translateX(-100%); }
+/* The closed set of places: a start (left) and an end (right) on 03:00-18:00. */
+.lp .lp-fpAt0300 { left: 0; }
+.lp .lp-fpAt0400 { left: 6.6667%; }
+.lp .lp-fpAt0402 { left: 6.8889%; }
+.lp .lp-fpAt0500 { left: 13.3333%; }
+.lp .lp-fpAt0600 { left: 20%; }
+.lp .lp-fpAt0800 { left: 33.3333%; }
+.lp .lp-fpAt0900 { left: 40%; }
+.lp .lp-fpAt1200 { left: 60%; }
+.lp .lp-fpAt1500 { left: 80%; }
+.lp .lp-fpAt1800 { left: 100%; }
+.lp .lp-fpTo1200 { right: 40%; }
+.lp .lp-fpTo1300 { right: 33.3333%; }
+.lp .lp-fpTo1400 { right: 26.6667%; }
+.lp .lp-fpTo1600 { right: 13.3333%; }
+.lp .lp-fpTo1700 { right: 6.6667%; }
+.lp .lp-fpSampleNote { margin-top: 6px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: rgb(var(--ink-ch) / .7); }
+.lp .lp-fpPair { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.lp .lp-fpCaption { padding-top: 10px; border-top: 1px dashed var(--line); font-family: var(--mono); font-size: 11.5px; line-height: 1.55; color: rgb(var(--ink-ch) / .8); }
+.lp .lp-fpTimeline + .lp-prodBullets,
+.lp .lp-fpQueue + .lp-prodBullets { max-width: 760px; margin-top: 24px; }
+
+/* A sample record at the site: the panel's docket, its top stacked so the site and
+   the department keep their line beside a narrow column. */
+.lp .lp-fpDocket .lp-secDocketTop { flex-direction: column; gap: 6px; }
+.lp .lp-fpDocket .lp-secDocketTime { font-size: 15px; }
+.lp .lp-fpDocketNote { padding-top: 7px; border-top: 1px dashed var(--line); font-family: var(--mono); font-size: 10.5px; color: rgb(var(--ink-ch) / .72); }
+
+/* ---------------- departments ---------------- */
+.lp .lp-fpSplit { display: flex; flex-direction: column; gap: 24px; }
+.lp .lp-fpSplitText { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.lp .lp-fpLine { font-size: 15.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
+.lp .lp-fpSplitText .lp-fpChip { padding: 7px 12px; font-size: 12px; }
+.lp .lp-fpNote { margin-top: 0; font-size: 13px; line-height: 1.6; }
+.lp .lp-fpFilters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lp .lp-fpFilter { display: inline-flex; gap: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; font-family: var(--mono); font-size: 11px; color: rgb(var(--ink-ch) / .75); }
+.lp .lp-fpFilter--on { border: 1.5px solid var(--ink); background: var(--paper); color: var(--ink); }
+.lp .lp-fpFilterLbl { color: rgb(var(--ink-ch) / .7); }
+/* The Pass's bar, a clip per docket, and the dockets hanging from it. */
+.lp .lp-fpRail { list-style: none; position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 6px 6px 0; }
+.lp .lp-fpRail::before { content: ''; position: absolute; left: 0; right: 0; top: 6px; height: 7px; border-radius: 4px; background: var(--ink); }
+.lp .lp-fpRailItem { position: relative; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.lp .lp-fpRailItem::before { content: ''; position: relative; z-index: 1; width: 34px; height: 13px; border-radius: 0 0 5px 5px; background: rgb(var(--ink-ch) / .7); }
+.lp .lp-fpRailItem .lp-fpDocket { width: 100%; margin-top: -3px; transform-origin: top center; }
+.lp .lp-fpRailItem:nth-child(1) .lp-fpDocket { transform: rotate(-1deg); }
+.lp .lp-fpRailItem:nth-child(2) .lp-fpDocket { transform: rotate(1deg); }
+.lp .lp-fpRailItem:nth-child(3) .lp-fpDocket { transform: rotate(-.5deg); }
+
+/* ---------------- the queue ---------------- */
+.lp .lp-fpQueue { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 20px 16px; }
+.lp .lp-fpQueueList { list-style: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.lp .lp-fpQueueItem { min-width: 0; }
+.lp .lp-fpQueueItem .lp-fpDocket { transform-origin: top center; }
+.lp .lp-fpQueueItem:nth-child(odd) .lp-fpDocket { transform: rotate(-1deg); }
+.lp .lp-fpQueueItem:nth-child(even) .lp-fpDocket { transform: rotate(1deg); }
+
+/* ---------------- the floor ---------------- */
+.lp .lp-fpFloor { display: flex; flex-direction: column; gap: 16px; }
+.lp .lp-fpCards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.lp .lp-fpCard { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 20px; }
+.lp .lp-fpCardTitle { font-size: 17px; line-height: 1.25; letter-spacing: -0.02em; }
+.lp .lp-fpCardBody { font-size: 14.5px; line-height: 1.6; color: rgb(var(--ink-ch) / .82); }
+/* The person's own phone, cut at the counter's edge. */
+.lp .lp-fpPhoneWrap { order: -1; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.lp .lp-fpPhone { width: 214px; padding: 10px 10px 0; border-radius: 40px 40px 0 0; background: var(--ink); box-shadow: 0 -6px 30px rgb(var(--ink-ch) / .16); }
+.lp .lp-fpScreen { position: relative; display: flex; flex-direction: column; gap: 12px; padding: 12px 12px 16px; border-radius: 31px 31px 0 0; background: var(--porcelain); color: var(--ink); }
+.lp .lp-fpNotch { position: absolute; top: 9px; left: 50%; width: 76px; height: 20px; margin-left: -38px; border-radius: 10px; background: var(--ink); }
+.lp .lp-fpScreen .lp-prodHello { font-size: 18px; }
+.lp .lp-fpScreen .lp-prodTapButton { min-height: 52px; font-size: 18px; }
+.lp .lp-fpPhoneNote { margin-top: 10px; text-align: center; }
+.lp .lp-fpLedge { display: block; width: 214px; height: 4px; border-radius: 0 0 2px 2px; background: var(--ink); }
+.lp .lp-fpCounter { display: block; width: 214px; margin-top: 6px; border-top: 1.5px dashed rgb(var(--ink-ch) / .35); }
+
+@media (min-width: 768px) {
+  .lp .lp-fpHero { gap: 48px; }
+  .lp .lp-fpGate { padding: 22px; }
+  .lp .lp-fpPlaque { width: 132px; padding: 20px 14px; }
+  .lp .lp-fpPlaqueRing { width: 56px; height: 56px; }
+  .lp .lp-fpDepts { margin-left: 16px; }
+  .lp .lp-fpDept { margin-left: 22px; padding: 9px 12px; }
+  .lp .lp-fpDept::before { left: -23px; width: 22px; }
+  .lp .lp-fpDeptName { font-size: 13.5px; }
+  .lp .lp-fpDeptStart { font-size: 11.5px; }
+
+  .lp .lp-fpTimeline { padding: 20px; }
+  .lp .lp-fpMarkRow,
+  .lp .lp-fpAxis { margin-left: 224px; }
+  .lp .lp-fpRow { display: grid; grid-template-columns: 210px minmax(0, 1fr); align-items: center; gap: 14px; }
+  .lp .lp-fpPair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .lp .lp-fpPair .lp-fpDocket .lp-secDocketTop { flex-direction: row; gap: 8px; }
+
+  .lp .lp-fpSplit { gap: 32px; }
+  .lp .lp-fpRail { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 6px 6px 12px; }
+
+  .lp .lp-fpQueue { padding: 20px; }
+  .lp .lp-fpQueueList { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+
+  /* T-ForProduction: the cards in one column, the phone beside them. */
+  .lp .lp-fpFloor { display: grid; grid-template-columns: minmax(0, 1fr) 260px; align-items: center; gap: 32px; }
+  .lp .lp-fpPhoneWrap { order: 0; }
+}
+@media (min-width: 1200px) {
+  .lp .lp-fpHero { display: grid; grid-template-columns: minmax(0, 1fr) 540px; align-items: center; gap: 56px; }
+  .lp .lp-fpSplit { display: grid; grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); align-items: center; gap: 56px; }
+  .lp .lp-fpFloor { grid-template-columns: minmax(0, 1fr) 300px; gap: 40px; }
+  .lp .lp-fpCards { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .lp .lp-fpCard--wide { grid-column: 1 / -1; }
+  .lp .lp-fpDocket .lp-secDocketTop { flex-direction: row; gap: 8px; }
+}

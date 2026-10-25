@@ -109,8 +109,8 @@ func unbrandedChromeRenders() []unbrandedRender {
 		// Every other shell that renders layout.documentHead.
 		unbrandedRender{"layout.Page", layout.Page("A page — Taptime"), body},
 		unbrandedRender{"layout.PageWithScript", layout.PageWithScript("A page — Taptime", "/static/js/tap.js", layout.Brand{}), body},
-		unbrandedRender{"layout.Marketing, public", layout.Marketing("Taptime", layout.RobotsPublic), body},
-		unbrandedRender{"layout.MarketingWithScript, private", layout.MarketingWithScript("Taptime", layout.RobotsPrivate, "/static/js/landing.js"), body},
+		unbrandedRender{"layout.Marketing, public", layout.Marketing("Taptime", layout.RobotsPublic, layout.Share{}), body},
+		unbrandedRender{"layout.MarketingWithScript, private", layout.MarketingWithScript("Taptime", layout.RobotsPrivate, "/static/js/landing.js", layout.Share{}), body},
 		unbrandedRender{"layout.Auth, no script", layout.Auth("Sign in — Taptime", ""), body},
 		unbrandedRender{"layout.Auth, a script", layout.Auth("Sign in — Taptime", "/static/js/login.js"), body},
 		unbrandedRender{"layout.Operator", layout.Operator("Taptime operator"), body},
@@ -224,12 +224,31 @@ func TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8(t *testing.T) {
 		if isPanelRender(r.name) {
 			unbrandedPanelCarriesNoBrand(t, r.name, body)
 		}
+		if strings.HasPrefix(r.name, "layout.Marketing") {
+			body = withoutCredit(t, r.name, body)
+		}
 		if got := digestUnbranded(body); got != want {
 			t.Errorf("%s: %d bytes sha256 %s; %s it was %d bytes sha256 %s.\nrendered:\n%s",
 				r.name, got.n, got.sum, from, want.n, want.sum, body)
 		}
 	}
 	t.Logf("%d unbranded renders byte-identical to their goldens: %s", len(renders), strings.Join(names, "; "))
+}
+
+// marketingCredit is the operator company's two author tags (user request 2026-10-23),
+// which the marketing shells' head has carried since; no other shell has them.
+var marketingCredit = `<meta name="author" content="` + layout.CreditName + `"><link rel="author" href="` + layout.CreditURL + `">`
+
+// withoutCredit removes the credit from a marketing render, which must carry it exactly
+// once. THE MARKETING DIGESTS ARE STILL df544c1's: the credit is the only change to
+// those shells since, so a render with it taken out is the bytes WL-8 pinned, and any
+// other change still fails the digest.
+func withoutCredit(t *testing.T, name string, body []byte) []byte {
+	t.Helper()
+	if n := bytes.Count(body, []byte(marketingCredit)); n != 1 {
+		t.Errorf("%s: the head carries the operator's credit %d time(s), want once", name, n)
+	}
+	return bytes.Replace(body, []byte(marketingCredit), nil, 1)
 }
 
 // unbrandedPanelCarriesNoBrand is WL-8's "no brand, no change" as properties of one

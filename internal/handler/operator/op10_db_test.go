@@ -316,7 +316,7 @@ func newLegalE2E(t *testing.T) *legalE2E {
 		t.Fatal(err)
 	}
 	g.auth, l.surface = auth, s
-	g.h = httpx.NewRouter(&config.Config{OperatorHost: opHost, BaseURL: opBase}, log, s, handler.NewMarketing(l.texts, log, ""))
+	g.h = httpx.NewRouter(&config.Config{OperatorHost: opHost, BaseURL: opBase}, log, s, handler.NewMarketing(l.texts, log, "", opBase))
 	return l
 }
 
@@ -461,7 +461,7 @@ func TestE2E_LegalPublishRefreshesThePublicPageAndTheListNamesThePublisher(t *te
 	if got := l.texts.Published()["privacy"].Body; got != earlier {
 		t.Errorf("the snapshot after the undo serves another text (%d bytes, want %d)", len(got), len(earlier))
 	}
-	if paras := legal.Paragraphs(earlier); len(paras) == 0 || !strings.Contains(l.publicPrivacy(), html.EscapeString(paras[0])) {
+	if paras := legal.Paragraphs(earlier); len(paras) == 0 || !strings.Contains(l.publicPrivacy(), html.EscapeString(paras[0].Text())) {
 		t.Error("/legal/privacy does not show the earlier text after the undo")
 	}
 	page = l.get("/operator/legal", sess)
