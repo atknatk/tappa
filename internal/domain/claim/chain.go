@@ -227,7 +227,9 @@ func upper(bs ...Bound) Bound {
 // next is the first directed record after the anchor, prev the one before it -- in chain order,
 // any channel. Next(A.S) is tap.NextBusinessDayStart of the anchor's FROZEN business day under the
 // person's cutoff now; with no resolvable cutoff there is no window (ok=false: no day end is
-// invented). ok is also false when the record at i admits no claim or the slice cannot tell.
+// invented), and none either when the cutoff moved since the anchor so that its business day now
+// ends EARLIER than the day it was recorded in (DayCutShort). ok is also false when the record at i
+// admits no claim or the slice cannot tell.
 func (c Chain) WindowOf(i int, cutoff *tap.DayCutoff, now time.Time) (Window, bool) {
 	kind, ok := c.Missing(i)
 	if !ok || kind == "" {
@@ -236,7 +238,7 @@ func (c Chain) WindowOf(i int, cutoff *tap.DayCutoff, now time.Time) (Window, bo
 	a := c.events[i]
 	switch kind {
 	case KindOut:
-		if cutoff == nil {
+		if cutoff == nil || c.DayCutShort(i, cutoff) {
 			return Window{}, false
 		}
 		dayEnd, ok := tap.NextBusinessDayStart(*a.DayStart, *cutoff)
@@ -265,6 +267,36 @@ func (c Chain) WindowOf(i int, cutoff *tap.DayCutoff, now time.Time) (Window, bo
 		}
 		return Window{From: lower(starts...), To: Bound{At: a.At, Inclusive: false}}, true
 	}
+}
+
+// DayCutShort reports whether the open check-in at i sits, under the cutoff in force NOW, in a
+// business day that ends before the one it was recorded in -- the cutoff moved since the tap (05:00
+// to 06:00 and an 05:30 check-in: recorded in Monday's day, today's rule puts it in Sunday's, which
+// ended at Monday 06:00). Such an anchor admits no claim, at Offer, Submit and Decide alike (M15-16
+// review D-1): the frozen day would draw a window the engine's rule today no longer pairs, so Submit
+// would take a claim no approval could pass (Closes reads the engine's rule). ADR 0032 §A.6: while
+// a cutoff changes, lean to the conservative side -- the anomaly list keeps the entry and the
+// manager can still enter a record. A change that does not end the day earlier (a later cutoff, or
+// one that leaves the day's end where it was) does not touch the window: the frozen day still
+// bounds it and is the stricter of the two, so Closes agrees with every instant it admits.
+//
+// WHY NOT ONLY ADD Next(S_now(A.At)) TO THE WINDOW'S ENDS (the other option the review offered): it
+// would also make Submit and Decide agree, but it leaves a sliver -- (05:30, 06:00) above -- on the
+// card, a question whose honest answer is almost never in it, about a day the rule redrew after the
+// fact. Refusing the anchor is one rule in one place (here, read by WindowOf), and it asks less,
+// never more.
+func (c Chain) DayCutShort(i int, cutoff *tap.DayCutoff) bool {
+	a := c.events[i]
+	if cutoff == nil || a.DayStart == nil || a.Direction != tap.TypeIn {
+		return false
+	}
+	frozenEnd, ok1 := tap.NextBusinessDayStart(*a.DayStart, *cutoff)
+	nowStart, ok2 := tap.BusinessDayStart(a.At, *cutoff)
+	if !ok1 || !ok2 {
+		return false
+	}
+	nowEnd, ok3 := tap.NextBusinessDayStart(nowStart, *cutoff)
+	return ok3 && nowEnd.Before(frozenEnd)
 }
 
 // Closes is the decision's second check (ADR 0032 §C.3 "Onayda yeniden doğrulama"): the manual
@@ -496,18 +528,40 @@ type Assessment struct {
 	At       time.Time
 	Interval Interval
 	// Shift is the anchor's shift instance; nil without one.
-	Shift     *Span
-	Deviation Deviation
+	Shift *Span
+	// Deviation is the claimed (or edited) moment's against the shift; AnchorDeviation the
+	// anchor's -- the interval's two ends, both shown (M15-16 review, orchestrator's decision).
+	Deviation       Deviation
+	AnchorDeviation Deviation
 	// DefaultUnchanged: the form offered the shift's real end (prefilled) and At is it. Meaningful
 	// only while a prefill exists (§C.2: a computation, not a column).
 	DefaultUnchanged bool
-	// RequiresConfirmation: At is outside the band, or there is no shift -- Approve does not write
+	// RequiresConfirmation: either END of the interval the approval would make is outside the band
+	// -- the claimed (or edited) moment or the anchor -- or there is no shift: Approve does not write
 	// on the first press (ADR 0032 §C.4; the manager's Edit is held to the same band, ürün N8).
 	RequiresConfirmation bool
 }
 
+// deviationOf is where t lies against the shift instance.
+func deviationOf(span Span, t time.Time) Deviation {
+	switch {
+	case t.Before(span.Start):
+		return Deviation{Side: BeforeStart, By: span.Start.Sub(t)}
+	case t.After(span.End):
+		return Deviation{Side: AfterEnd, By: t.Sub(span.End)}
+	default:
+		return Deviation{Side: WithinShift}
+	}
+}
+
 // Assess is the assessment of an approval at `at` of a claim of kind on the anchor at anchorAt,
 // whose form offered prefilled.
+//
+// THE BAND IS JUDGED AT BOTH ENDS (M15-16 review, G-Y1 widened by the orchestrator, 2026-10-25):
+// the interval an approval writes runs from the anchor to the claimed moment, and either end can be
+// the one that inflates it -- a 05:30 check-in at a 10:00–22:00 venue claimed out at 23:30 is 18 h
+// with the claimed end inside the band. So the step is asked when EITHER end is outside it; the
+// rule can only ask more often than the claimed end alone did, never less.
 func Assess(kind Kind, anchorAt, at time.Time, shift *tap.Shift, prefilled *time.Time) Assessment {
 	a := Assessment{Kind: kind, At: at, Interval: Interval{In: anchorAt, Out: at}}
 	if kind == KindIn {
@@ -517,18 +571,13 @@ func Assess(kind Kind, anchorAt, at time.Time, shift *tap.Shift, prefilled *time
 	span, ok := SpanOf(anchorAt, shift)
 	if !ok {
 		a.Deviation = Deviation{Side: NoShift}
+		a.AnchorDeviation = Deviation{Side: NoShift}
 		a.RequiresConfirmation = true
 		return a
 	}
 	a.Shift = &span
-	switch {
-	case at.Before(span.Start):
-		a.Deviation = Deviation{Side: BeforeStart, By: span.Start.Sub(at)}
-	case at.After(span.End):
-		a.Deviation = Deviation{Side: AfterEnd, By: at.Sub(span.End)}
-	default:
-		a.Deviation = Deviation{Side: WithinShift}
-	}
-	a.RequiresConfirmation = !InBand(span, at)
+	a.Deviation = deviationOf(span, at)
+	a.AnchorDeviation = deviationOf(span, anchorAt)
+	a.RequiresConfirmation = !InBand(span, at) || !InBand(span, anchorAt)
 	return a
 }

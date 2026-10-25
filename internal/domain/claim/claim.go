@@ -132,6 +132,15 @@ var (
 	// ErrNeedsConfirmation: the approval's moment is outside the shift's band, or there is no shift
 	// (§C.4, K3, G-Y1): nothing was written; the decision must be posted again with Confirmed.
 	ErrNeedsConfirmation = errors.New("claim: this approval needs the confirmation step")
+	// ErrPartnershipEnded: the anchor was taken at a holding peer's venue and that partnership has
+	// ended (or the venue is no longer the peer's): the approval's record cannot be filed there and
+	// nothing was written (manual's strict site gate, ADR 0027 §6). Only Reject is left. It replaces
+	// manual.ErrVenue on this path, whose sentence ("no home venue; choose the venue") is a manager's
+	// form instruction that does not fit a claim.
+	ErrPartnershipEnded = errors.New("claim: the partnership the record was taken in has ended")
+	// ErrNoVenue: the anchor names no venue (a plaque on no wall) and the person has no home venue,
+	// so the approval's record has nowhere to be filed; nothing was written.
+	ErrNoVenue = errors.New("claim: there is no venue to file the answer at")
 	// ErrRefused: the database refused the row (a trigger of migration 00068). The domain's checks
 	// make it unreachable; it is a 500's sentence, not a manager's.
 	ErrRefused = errors.New("claim: the database refused the row")

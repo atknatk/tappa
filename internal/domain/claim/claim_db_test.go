@@ -987,29 +987,191 @@ func TestSubmitDB_TheLockHoldsAManualRecordUntilTheClaimCommits(t *testing.T) {
 	}
 }
 
-// TestDecideDB_ACutoffChangedSinceTheAnchorIsJudgedByTheStricterRule: the window is drawn from the
-// anchor's FROZEN business day, the closing check from the cutoff in force now (Chain.Closes: "as the
-// engine would have read a tap at that instant"). When the cutoff moved since the anchor -- 05:00 to
-// 06:00, anchor Mon 05:30 -- a moment the window still admits (12:00) is one the engine would no
-// longer pair with the anchor (05:30 is Sunday's business day now): the approval is refused,
-// "already resolved", and writes nothing (ADR 0032 §A.6: while a cutoff changes the rules lean to
-// the conservative side). The only shape in which the closing check refuses what the window admits.
-func TestDecideDB_ACutoffChangedSinceTheAnchorIsJudgedByTheStricterRule(t *testing.T) {
+// TestClaimDB_ACutoffThatEndsTheAnchorsDayEarlierAdmitsNoClaim is the review's D-1 scenario: the
+// check-in Mon 05:30 (cutoff 05:00), then the cutoff moved to 06:00. Before the fix Submit took
+// "Sent" with a 17:00 prefill while every approval and every Edit was refused. Now one rule
+// (Chain.DayCutShort, read by WindowOf) answers everywhere: no card on the next tap, Submit is
+// ErrResolved, a claim sent before the change is resolved for Approve and for an Edit, and Reject
+// still decides it.
+func TestClaimDB_ACutoffThatEndsTheAnchorsDayEarlierAdmitsNoClaim(t *testing.T) {
 	w := newWorld(t)
-	in := w.tapAt("in", w.at(0, 5, 30), w.home)
-	c := w.mustSubmit(in, KindOut, w.at(0, 12, 0))
+	early := w.tapAt("in", w.at(0, 5, 30), w.home)
+	before := w.mustSubmit(early, KindOut, w.at(0, 12, 0)) // sent while the cutoff was 05:00
+	other := w.tapAt("in", w.at(2, 5, 30), w.home)
+	t1 := w.tapAt("in", w.at(3, 9, 0), w.home)
 	w.exec(`UPDATE employees SET day_cutoff = '06:00' WHERE id = $1`, w.who)
-	ins, err := w.svc.Inspect(w.ctx, w.tenant, c.ID, nil)
-	if err != nil || ins.Window == nil || !ins.Window.Contains(w.at(0, 12, 0)) {
-		t.Fatalf("PREMISE: the window still admits 12:00: %+v, %v", ins.Window, err)
+	if card, err := w.svc.Offer(w.ctx, w.tenant, w.who, t1); err != nil || card != nil {
+		t.Errorf("Offer after the change = %+v, %v; want no card", card, err)
 	}
-	if ins.State != StateResolved {
-		t.Errorf("Inspect state %s, want resolved", ins.State)
+	if _, err := w.submit(other, KindOut, w.at(2, 17, 0)); !errors.Is(err, ErrResolved) {
+		t.Errorf("Submit after the change: %v, want ErrResolved", err)
 	}
-	if _, err := w.decide(c.ID, Approved, nil, true); !errors.Is(err, ErrResolved) {
-		t.Fatalf("approve: %v, want ErrResolved", err)
+	ins, err := w.svc.Inspect(w.ctx, w.tenant, before.ID, nil)
+	if err != nil || ins.State != StateResolved || ins.Window != nil {
+		t.Errorf("Inspect the earlier claim: state %s, window %+v, %v; want resolved and no window", ins.State, ins.Window, err)
+	}
+	edit := w.at(0, 5, 45)
+	for _, at := range []*time.Time{nil, &edit} {
+		if _, err := w.decide(before.ID, Approved, at, true); !errors.Is(err, ErrResolved) {
+			t.Errorf("approve (edit %v): %v, want ErrResolved", at, err)
+		}
+	}
+	if _, err := w.decide(before.ID, Rejected, nil, false); err != nil {
+		t.Errorf("reject: %v", err)
+	}
+	if m, n := w.manualRows(), w.claims(); m != 0 || n != 1 {
+		t.Errorf("%d records, %d claims; want 0 and the one sent before the change", m, n)
+	}
+}
+
+// TestDecideDB_X2TheAnchorsEndOutsideTheBandAsksTheConfirmationStep is X2 end to end: the other venue
+// (10:00–22:00), the check-in Mon 05:30, the checkout claimed at 23:30 -- the first Approve writes
+// nothing and repeats both ends; the confirmed one writes the 18 h.
+func TestDecideDB_X2TheAnchorsEndOutsideTheBandAsksTheConfirmationStep(t *testing.T) {
+	w := newWorld(t)
+	in := w.tapAt("in", w.at(0, 5, 30), w.other)
+	c := w.mustSubmit(in, KindOut, w.at(0, 23, 30))
+	d, err := w.decide(c.ID, Approved, nil, false)
+	if !errors.Is(err, ErrNeedsConfirmation) || d.Assessment == nil {
+		t.Fatalf("first approve: %+v, %v; want ErrNeedsConfirmation", d, err)
+	}
+	if a := d.Assessment; a.Interval.Duration() != 18*time.Hour || a.AnchorDeviation.Side != BeforeStart || a.Deviation.Side != AfterEnd {
+		t.Errorf("the step repeats %+v", a)
 	}
 	if m := w.manualRows(); m != 0 {
-		t.Errorf("%d records", m)
+		t.Fatalf("%d records after the first approve", m)
+	}
+	if _, err := w.decide(c.ID, Approved, nil, true); err != nil {
+		t.Fatalf("confirmed: %v", err)
+	}
+}
+
+// TestSubmitDB_AnExpiredMomentIsRefused (R14): a moment inside its window but further back than
+// manual.MaxBackdate is ErrExpired, and nothing is written.
+func TestSubmitDB_AnExpiredMomentIsRefused(t *testing.T) {
+	w := newWorld(t)
+	in := w.tapAt("in", w.at(0, 9, 0), w.home)
+	w.svc.now = func() time.Time { return w.at(0, 17, 0).Add(manual.MaxBackdate + time.Hour) }
+	if _, err := w.submit(in, KindOut, w.at(0, 17, 0)); !errors.Is(err, ErrExpired) {
+		t.Errorf("Submit: %v, want ErrExpired", err)
+	}
+	if n := w.claims(); n != 0 {
+		t.Errorf("%d claims", n)
+	}
+}
+
+// TestSubmitDB_TheChainReachesBackPastTheAnchorsDay (R13, chainBefore): a check-in claim on an orphan
+// out at Tue 01:00 needs the out's whole business day (Mon 05:00, 20 h back) to know I. With the read
+// starting 27 h back the claim is judged and accepted; a read only 18 h back would start inside the
+// day, find the slice unable to classify the out, and refuse the claim.
+func TestSubmitDB_TheChainReachesBackPastTheAnchorsDay(t *testing.T) {
+	w := newWorld(t)
+	w.tapAt("in", w.at(0, 6, 0), w.home)
+	w.tapAt("out", w.at(0, 10, 0), w.home)
+	x := w.tapAt("out", w.at(1, 1, 0), w.home) // Tue 01:00: Monday's business day, P the 10:00 out -> (c)
+	if _, err := w.submit(x, KindIn, w.at(0, 11, 0)); err != nil {
+		t.Errorf("Submit: %v, want accepted", err)
+	}
+}
+
+// peerWorld adds a holding peer to w: tenant KF (UTC too -- K-36 locks a holding to one zone), its
+// venue and plaque, and the membership.
+type peerWorld struct {
+	*world
+	peer, peerVenue, holding uuid.UUID
+	peerTag                  string
+}
+
+func newPeerWorld(t *testing.T) *peerWorld {
+	w := newWorld(t)
+	p := &peerWorld{world: w, peer: uuid.New()}
+	w.exec(`INSERT INTO tenants (id, name, vat_number, business_type, structure, timezone) VALUES ($1, 'm15-16 peer', $2, 'restaurant', 'multi', 'UTC')`,
+		p.peer, "VAT-M1516P-"+p.peer.String())
+	if err := w.owner.QueryRow(w.ctx, `INSERT INTO holdings (name) VALUES ('m15-16 claims') RETURNING id`).Scan(&p.holding); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		bg := context.Background()
+		_, _ = w.owner.Exec(bg, `DELETE FROM holding_members WHERE holding_id = $1`, p.holding)
+		_, _ = w.owner.Exec(bg, `DELETE FROM holdings WHERE id = $1`, p.holding)
+	})
+	w.exec(`INSERT INTO holding_members (holding_id, member_tenant_id) VALUES ($1, $2), ($1, $3)`, p.holding, w.tenant, p.peer)
+	if err := w.owner.QueryRow(w.ctx, `INSERT INTO locations (tenant_id, name, static_ips) VALUES ($1, 'm15-16 peer venue', '{198.51.100.0/24}') RETURNING id`,
+		p.peer).Scan(&p.peerVenue); err != nil {
+		t.Fatal(err)
+	}
+	b, key := make([]byte, 7), make([]byte, 44)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	p.peerTag = strings.ToUpper(hex.EncodeToString(b))
+	w.exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 10000, 'active')`,
+		p.peerTag, p.peer, p.peerVenue, key)
+	return p
+}
+
+// peerTap writes the employer's directed tap at the PEER's plaque (ADR 0027 §5): no local venue, no
+// local plaque, the site's tenant, venue and plaque named.
+func (p *peerWorld) peerTap(dir string, at time.Time) uuid.UUID {
+	p.t.Helper()
+	s, ok := tap.BusinessDayStart(at, p.cutoff)
+	if !ok {
+		p.t.Fatal("no business day")
+	}
+	p.ctr++
+	var id uuid.UUID
+	if err := p.data.WithTenant(p.ctx, p.tenant, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, site_tenant_id, site_location_id, site_tag_uid, occurred_at, created_at, verdict, channel, type, sun_valid, ctr, business_day_start)
+		                         VALUES ($1, $2, $3, $4, $5, $6, $6, 'ok', 'nfc', $7, true, $8, $9) RETURNING id`,
+			p.tenant, p.who, p.peer, p.peerVenue, p.peerTag, at, dir, p.ctr, s).Scan(&id)
+	}); err != nil {
+		p.t.Fatalf("write a peer %s: %v", dir, err)
+	}
+	return id
+}
+
+// TestDecideDB_APeersVenueAnchorIsAnsweredAtThatVenue (review D-3, security X4): a check-in taken at a
+// holding peer's plaque is answered at the peer's venue -- the employer's row, site_tenant_id the
+// peer, site_location_id the peer's venue, no local venue (ADR 0032 §C.4, ADR 0027 §9). With no
+// department shift there is no prefill and the step is asked. Once the partnership ends an approval
+// writes nothing (ErrPartnershipEnded -- not manual's "no home venue" sentence) and Reject decides.
+func TestDecideDB_APeersVenueAnchorIsAnsweredAtThatVenue(t *testing.T) {
+	p := newPeerWorld(t)
+	a := p.peerTap("in", p.at(0, 9, 0))
+	c := p.mustSubmit(a, KindOut, p.at(0, 17, 0))
+	if c.Prefilled != nil {
+		t.Errorf("prefilled %v at a peer's venue with no department shift", c.Prefilled)
+	}
+	if _, err := p.decide(c.ID, Approved, nil, false); !errors.Is(err, ErrNeedsConfirmation) {
+		t.Fatalf("first approve: %v, want the step (no shift)", err)
+	}
+	d, err := p.decide(c.ID, Approved, nil, true)
+	if err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	var tenant uuid.UUID
+	var site, venue, local *uuid.UUID
+	if err := p.owner.QueryRow(p.ctx, `SELECT tenant_id, site_tenant_id, site_location_id, location_id FROM transactions WHERE id = $1`, *d.RecordID).
+		Scan(&tenant, &site, &venue, &local); err != nil {
+		t.Fatal(err)
+	}
+	if tenant != p.tenant || site == nil || *site != p.peer || venue == nil || *venue != p.peerVenue || local != nil {
+		t.Errorf("the record: tenant %s, site %v, venue %v, local %v; want the employer's row at the peer's venue", tenant, site, venue, local)
+	}
+
+	b := p.peerTap("in", p.at(1, 9, 0))
+	c2 := p.mustSubmit(b, KindOut, p.at(1, 17, 0))
+	p.exec(`UPDATE holding_members SET left_at = clock_timestamp() WHERE member_tenant_id = $1 AND left_at IS NULL`, p.peer)
+	if _, err := p.decide(c2.ID, Approved, nil, true); !errors.Is(err, ErrPartnershipEnded) {
+		t.Errorf("approve after the partnership ended: %v, want ErrPartnershipEnded", err)
+	}
+	if n := p.count(`SELECT count(*) FROM transactions WHERE tenant_id = $1 AND channel = 'manual'`, p.tenant); n != 1 {
+		t.Errorf("%d manual records, want the first approval's only", n)
+	}
+	if _, err := p.decide(c2.ID, Rejected, nil, false); err != nil {
+		t.Errorf("reject: %v", err)
 	}
 }

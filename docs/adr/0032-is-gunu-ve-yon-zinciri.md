@@ -735,17 +735,38 @@ arada yanlış bir `in` varsa kurulur ve pencere (*"önceki yönlü olaydan sonr
 manuel satırı çapanın yerel mekânındaysa yeni `InsertManualTransactionAtAnchor` ile yazılır — mekân bir formdan
 değil, çapa satırından, `tenant_id` + `employee_id` yüklemiyle okunur (`InsertManualTransaction`'ın *"ev
 mekânı"* sayılı sınırı talepte yoktur, çünkü bir dokunulmuş mekân vardır); eş mekândaki çapa
-`InsertManualSiteTransaction` yolundan (eşlik bittiyse `ErrVenue`); mekânı olmayan çapa ev mekânına.
-Ölçüm: `TestDecideDB_AnApprovalIsOneRecordOneDecisionAndTwoTrailRows`,
-`TestWithin_AnAnswerToAClaimIsFiledAtItsAnchorsVenue`. (2) **Kapanış sınaması iki okumadır:** saklanan satırın
-okuyucu sınıfı (manuel satırın S'si NULL — yalnız 18 sa) **ve** motorun o anda bir dokunuşu okuyacağı sınıf
-(bugünkü kesimle `S(at)`). Pencere çapanın **dondurulmuş** S'sinden çizilir; kesim çapadan sonra değiştiyse
-pencerenin kabul ettiği bir anı ikincisi reddedebilir — muhafazakâr taraf (§A.6): onay *"already resolved"*
-(`TestDecideDB_ACutoffChangedSinceTheAnchorIsJudgedByTheStricterRule`). (3) **Trail:** `claim.submitted` (aktör
-NULL) ve kararın iki sonucu için tek ad `claim.decided` (sonuç `detail`'de — `review.recorded`'ın gerekçesi);
-onay ayrıca manuel satırın kendi `record.entered` satırını yazar. (4) **İkinci gönderim** pencereye bakılmadan
-*"Sent"*tir (`ErrAlreadySent`; kilit altında okunur, UNIQUE kemerdir). (5) **Ön dolgu** gönderimde kilit altında
-sunucuda yeniden hesaplanır; formun değeri okunmaz.
+`InsertManualSiteTransaction` yolundan; mekânı olmayan çapa ev mekânına. Eşlik bittiyse onay hiçbir şey yazmaz ve
+talep bağlamında `manual.ErrVenue`'nun *"no home venue"* cümlesi değil adlandırılmış `ErrPartnershipEnded` döner
+(yalnız Reject kalır); mekânsız çapa ve ev mekânı olmayan kişi `ErrNoVenue`. Ölçüm:
+`TestDecideDB_AnApprovalIsOneRecordOneDecisionAndTwoTrailRows`, `TestDecideDB_APeersVenueAnchorIsAnsweredAtThatVenue`,
+`TestWithin_AnAnswerToAClaimIsFiledAtItsAnchorsVenue`, `TestWithin_AnAnswerToAnotherPersonsAnchorWritesNothing`.
+(2) **Eş mekânda vardiya** yalnız çapanın **departmanından** okunur; motor eşin mekân vardiyasını
+`holding_tap_site`'tan okur, talep domain'i okumaz. Departman vardiyası yoksa ön dolgu yoktur ve onay adımı
+istenir — **muhafazakâr** tercih (eşin mekân satırı işverenin okuyabildiği bir satır değildir; ADR 0027 K-33).
+(3) **Kapanış sınaması iki okumadır:** saklanan satırın okuyucu sınıfı (manuel satırın S'si NULL — yalnız 18 sa)
+**ve** motorun o anda bir dokunuşu okuyacağı sınıf (bugünkü kesimle `S(at)`). Pencere çapanın dondurulmuş S'sinden
+çizilir. **Kesim çapadan sonra değişip çapanın iş gününü daha erken bitiriyorsa** (05:00 → 06:00, çapa 05:30:
+kaydedildiği gün Pzt'nin, bugünkü kurala göre Pzt 06:00'da biten Paz'ın) çapa hiç talep kabul etmez — kart
+çıkmaz, Submit ve Decide `ErrResolved` (*"already resolved"*), Reject kalır (`Chain.DayCutShort`, `WindowOf`'un
+okuduğu tek kural; M15-16 düzeltme turu D-1). Gerekçe: pencereye `Next(S_bugün(A.At))` ucunu eklemek de Submit
+ile Decide'ı uzlaştırırdı ama kartta kuralın sonradan yeniden çizdiği bir güne dair (05:30, 06:00) gibi bir
+kıymık bırakırdı; reddetmek daha az sorar, hiçbir zaman daha çok değil (§A.6: kesim değişirken muhafazakâr).
+Günün sonunu öne çekmeyen bir değişiklik pencereye dokunmaz; o zaman dondurulmuş gün ikisinin katı olanıdır ve
+kapanış sınaması pencerenin kabul ettiği her ana katılır. Ölçüm:
+`TestClaimDB_ACutoffThatEndsTheAnchorsDayEarlierAdmitsNoClaim`,
+`TestWindow_ACutoffThatEndsTheAnchorsDayEarlierLeavesNoWindow`. (4) **Trail:** `claim.submitted` (aktör NULL) ve
+kararın iki sonucu için tek ad `claim.decided` (sonuç `detail`'de — `review.recorded`'ın gerekçesi); onay ayrıca
+manuel satırın kendi `record.entered` satırını yazar. (5) **İkinci gönderim** pencereye bakılmadan *"Sent"*tir
+(`ErrAlreadySent`; kilit altında okunur, UNIQUE kemerdir). (6) **Ön dolgu** gönderimde kilit altında sunucuda
+yeniden hesaplanır; formun değeri okunmaz.
+
+*Uygulama notu (2026-10-25, M15-16 düzeltme turu — **kural genişledi**, orkestratör kararı).* **Bant oluşacak
+aralığın iki ucunu da ölçer:** talep edilen (ya da *Edit* ile girilen) an **ve** çapa. Uçlardan biri §A.7
+bandının dışındaysa — ya da vardiya yoksa — Approve ilk basışta yazmaz, onay adımı ister; sapma iki uç için ayrı
+hesaplanır (`Assessment.Deviation`, `Assessment.AnchorDeviation`). Vaka (güvenlik merceği X2): 10:00–22:00 mekân,
+çapa Pzt 05:30, çıkış talebi 23:30 → 18 sa, talep edilen uç bandın içinde, çapa dışında → eskiden tek tık, şimdi
+onay adımı. Sonuç: onay adımı **daha çok** çıkar, **hiçbir zaman daha az**. Ölçüm:
+`TestAssess_TheBandJudgesBothEnds`, `TestDecideDB_X2TheAnchorsEndOutsideTheBandAsksTheConfirmationStep`.
 
 **Askı (ADR 0025).** Karar yolu bir panel yazmasıdır ve `mountWriting`'in **ana grubuna**
 (`ProtectWriting`, `internal/handler/dashboard.go:166`; flag kararı `:167`'nin yanı) gider: askı talep

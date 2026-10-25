@@ -121,8 +121,8 @@ func (s *Service) Submit(ctx context.Context, c Claim) (Submitted, error) {
 			return ErrResolved // not a directed, non-practice record: it misses nothing
 		}
 		kind, ok := chain.Missing(i)
-		if !ok || kind != c.Kind {
-			return ErrResolved
+		if !ok || kind != c.Kind || chain.DayCutShort(i, p.cutoff) {
+			return ErrResolved // DayCutShort: WindowOf would refuse it too; named as Decide names it
 		}
 		w, ok := chain.WindowOf(i, p.cutoff, now)
 		if !ok || !w.Contains(c.ClaimedAt) {
@@ -187,10 +187,10 @@ func utcOrNil(t *time.Time) *time.Time {
 	return &u
 }
 
-// isTyped reports whether err is one of this package's sentences (or manual's venue refusal).
+// isTyped reports whether err is one of this package's sentences.
 func isTyped(err error) bool {
 	for _, e := range []error{ErrUnknownAnchor, ErrUnknownClaim, ErrNotActive, ErrResolved, ErrOutsideWindow, ErrExpired,
-		ErrAlreadySent, ErrAlreadyDecided, ErrSelfDecision, ErrNeedsConfirmation, ErrRefused, manual.ErrVenue} {
+		ErrAlreadySent, ErrAlreadyDecided, ErrSelfDecision, ErrNeedsConfirmation, ErrRefused, ErrPartnershipEnded, ErrNoVenue} {
 		if errors.Is(err, e) {
 			return true
 		}

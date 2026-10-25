@@ -157,6 +157,12 @@ func TestMissing_IsTheReadersClassification(t *testing.T) {
 		{"the correction's surplus out (e) is no anchor", chainOf(tapEv(1, tap.TypeIn, mon(9, 0)),
 			manualEv(2, tap.TypeOut, mon(17, 0), mon(21, 0)), tapEv(3, tap.TypeOut, mon(20, 0))), 2, ""},
 		{"a manual out (no business day, d) is no anchor", chainOf(manualEv(1, tap.TypeOut, mon(17, 0), mon(18, 0))), 0, ""},
+		// I at its edge (R08): an in exactly at the out's business day start is of that day, so a
+		// correction's surplus after it is (e), not an orphan
+		{"an in exactly at the day's start counts for I", chainOf(tapEv(1, tap.TypeIn, mon(5, 0)),
+			manualEv(2, tap.TypeOut, mon(12, 0), mon(20, 0)), tapEv(3, tap.TypeOut, mon(18, 0))), 2, ""},
+		{"a second before the day's start does not", chainOf(tapEv(1, tap.TypeIn, wall(19, 4, 59, 59)),
+			manualEv(2, tap.TypeOut, mon(12, 0), mon(20, 0)), tapEv(3, tap.TypeOut, mon(18, 0))), 2, KindIn},
 		{"an in written before M15 (no business day) is no anchor", chainOf(pre), 0, ""},
 	}
 	for _, tc := range tests {
@@ -570,5 +576,73 @@ func TestWindow_EmptyAndContainsAgree(t *testing.T) {
 	}
 	if w := (Window{From: Bound{at, true}, To: Bound{at, true}}); w.Empty() || !w.Contains(at) {
 		t.Errorf("a one-instant window: Empty %v, Contains %v", w.Empty(), w.Contains(at))
+	}
+}
+
+// TestAssess_TheBandJudgesBothEnds is the security lens's X2 case (M15-16 review; the orchestrator's
+// decision, 2026-10-25): a 10:00–22:00 venue, the check-in at Mon 05:30 and its checkout claimed at
+// 23:30 -- 18 h, inside the window, the claimed end inside the band (09:00, 24:00]. The anchor's end
+// is outside it, so the step is asked; both ends' deviations are computed.
+func TestAssess_TheBandJudgesBothEnds(t *testing.T) {
+	t.Parallel()
+	venue := shift(10*time.Hour, 22*time.Hour, false)
+	c := chainOf(tapEv(1, tap.TypeIn, wall(19, 5, 30, 0)))
+	w, _ := c.WindowOf(0, cutoff05, farNow)
+	if !w.Contains(wall(19, 23, 30, 0)) {
+		t.Fatalf("PREMISE: 23:30 is outside the window %+v", w)
+	}
+	a := Assess(KindOut, wall(19, 5, 30, 0), wall(19, 23, 30, 0), venue, nil)
+	if !InBand(*a.Shift, wall(19, 23, 30, 0)) {
+		t.Fatal("PREMISE: the claimed end is inside the band")
+	}
+	if !a.RequiresConfirmation || a.Interval.Duration() != 18*time.Hour {
+		t.Errorf("X2: confirmation %v, interval %v; want the step and 18h", a.RequiresConfirmation, a.Interval.Duration())
+	}
+	if a.AnchorDeviation != (Deviation{Side: BeforeStart, By: 4*time.Hour + 30*time.Minute}) ||
+		a.Deviation != (Deviation{Side: AfterEnd, By: 90 * time.Minute}) {
+		t.Errorf("deviations: anchor %+v, claimed %+v", a.AnchorDeviation, a.Deviation)
+	}
+	// the same at a check-in claim: the anchor out at Tue 00:30 is 9 h 30 m before its shift's start
+	a = Assess(KindIn, wall(20, 0, 30, 0), wall(19, 21, 0, 0), venue, nil)
+	if !a.RequiresConfirmation || a.AnchorDeviation.Side != BeforeStart {
+		t.Errorf("a check-in claim on a 00:30 out: %+v", a)
+	}
+	// both ends inside: no step
+	if Assess(KindOut, wall(19, 10, 0, 0), wall(19, 22, 0, 0), venue, nil).RequiresConfirmation {
+		t.Error("10:00–22:00 asks the step")
+	}
+}
+
+// TestWindow_ACutoffThatEndsTheAnchorsDayEarlierLeavesNoWindow (M15-16 review D-1): the check-in
+// Mon 05:30 was recorded in Monday's business day (05:00); with the cutoff now 06:00 it sits in
+// Sunday's, which ended at Mon 06:00 -- no window, no card, no claim. A change that does not end the
+// day earlier (05:00 to 04:00 for a 09:00 check-in) leaves the window as it was.
+func TestWindow_ACutoffThatEndsTheAnchorsDayEarlierLeavesNoWindow(t *testing.T) {
+	t.Parallel()
+	moved := &tap.DayCutoff{Cutoff: 6 * time.Hour, Timezone: "Europe/Malta"}
+	c := chainOf(tapEv(1, tap.TypeIn, wall(19, 5, 30, 0)), tapEv(2, tap.TypeIn, wall(20, 9, 0, 0)))
+	if !c.DayCutShort(0, moved) {
+		t.Fatal("DayCutShort = false for an 05:30 check-in after 05:00 → 06:00")
+	}
+	if _, ok := c.WindowOf(0, moved, farNow); ok {
+		t.Error("a window for an anchor whose day the new cutoff cut short")
+	}
+	if _, ok := c.Offer(1, nil, moved, farNow); ok {
+		t.Error("a card for it")
+	}
+	if _, ok := c.WindowOf(0, cutoff05, farNow); !ok {
+		t.Error("PREMISE: under the cutoff it was recorded with, the window exists")
+	}
+	earlier := &tap.DayCutoff{Cutoff: 4 * time.Hour, Timezone: "Europe/Malta"}
+	nine := chainOf(tapEv(1, tap.TypeIn, wall(19, 9, 0, 0)))
+	if nine.DayCutShort(0, earlier) {
+		t.Error("05:00 → 04:00 cut a 09:00 check-in's day short")
+	}
+	w, ok := nine.WindowOf(0, earlier, farNow)
+	if !ok || !w.Contains(wall(19, 17, 0, 0)) || !nine.Closes(0, wall(19, 17, 0, 0), earlier) {
+		t.Errorf("05:00 → 04:00: window %+v, %v", w, ok)
+	}
+	if c.DayCutShort(0, nil) || chainOf(tapEv(1, tap.TypeOut, wall(19, 5, 30, 0))).DayCutShort(0, moved) {
+		t.Error("DayCutShort answered without a cutoff, or for an out")
 	}
 }

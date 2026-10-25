@@ -1125,6 +1125,9 @@ varsa reddeder.
   değiştirilmeden gönderilirse *"default not changed"* ve bant içi.
 - **K4 — çıkış talebi:** A açık, `T1` (in), `T2` (in, aynı gün), `T3` (out, aynı gün), `T4` (out) → kart `T1`
   ve `T3`'te *göster*, `T2` ve `T4`'te *gösterme*; talep gönderildiyse ikinci gösterim yok.
+  *Not (2026-10-25, M15-16):* bu sonuç **çapa A için**dir (`Chain.Shown`). `T2` aynı gün bir `in` olduğundan
+  `T1`'i de açık bırakır ve `T1` kendisi bir çıkış çapasıdır; `T3`'te ikisi birden gösterilir ve `Offer` N3
+  gereği daha taze çapayı (`T1`) seçer — A anomali listesinde kalır (`TestShown_K4TheCheckoutClaimIsAskedAtTwoTaps`).
 - **K4 — giriş talebi:** X (yetim out), `Y` (in), `Z` (out, X'in günü) → kart X'te ve Z'de *göster*, Y'de
   *gösterme* (3. sürümün formülü burada üç gösterim veriyordu).
 - **K4 — yönsüz sonuç:** `ignored` ya da `reject` sonuçlu bir dokunuşta kart yok ve sayılmaz.

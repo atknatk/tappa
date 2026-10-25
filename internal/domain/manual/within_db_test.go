@@ -127,3 +127,29 @@ func TestWithin_AnAnswerToAClaimIsFiledAtItsAnchorsVenue(t *testing.T) {
 		t.Errorf("%d answers written, want 1", n)
 	}
 }
+
+// TestWithin_AnAnswerToAnotherPersonsAnchorWritesNothing (M15-16 review D-2): the statement reads the
+// anchor under the tenant AND the person -- another person's check-in is no anchor for this one, so
+// the record is refused (ErrVenue: no row) and neither person gets a row. Without the person
+// predicate the JOIN would file the record for the anchor's person.
+func TestWithin_AnAnswerToAnotherPersonsAnchorWritesNothing(t *testing.T) {
+	w := newRaceWorld(t)
+	other := uuid.New()
+	w.exec(`INSERT INTO employees (id, tenant_id, external_ref, full_name, status, invited_at, location_id) VALUES ($1, $2, $3, 'Other Staff', 'active', now(), $4)`,
+		other, w.tenant, "ext-"+other.String()[:8], w.venue)
+	at := time.Now().Add(-5 * time.Hour).UTC().Truncate(time.Second)
+	var anchor uuid.UUID
+	if err := w.data.WithTenant(w.ctx, w.tenant, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, occurred_at, verdict, channel, type, trust, entered_by)
+		                         VALUES ($1, $2, $3, $4, 'ok', 'manual', 'in', 20, $5) RETURNING id`, w.tenant, other, w.venue, at, w.admin).Scan(&anchor)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.rec.Record(w.ctx, Entry{TenantID: w.tenant, EmployeeID: w.who, EnteredBy: w.admin, Direction: Out,
+		At: at.Add(time.Hour), AnchorID: anchor}); !errors.Is(err, ErrVenue) {
+		t.Errorf("another person's anchor: %v, want ErrVenue", err)
+	}
+	if n := w.count(`SELECT count(*) FROM transactions WHERE tenant_id = $1 AND channel = 'manual' AND type = 'out'`, w.tenant); n != 0 {
+		t.Errorf("%d answers written, want none", n)
+	}
+}

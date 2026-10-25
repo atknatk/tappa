@@ -117,7 +117,7 @@ func (s *Service) evaluate(ctx context.Context, q *store.Queries, tenantID uuid.
 		ev.state = StateResolved
 		return ev, nil
 	}
-	if k, ok := ev.chain.Missing(ev.index); !ok || k != kind {
+	if k, ok := ev.chain.Missing(ev.index); !ok || k != kind || ev.chain.DayCutShort(ev.index, p.cutoff) {
 		ev.state = StateResolved
 		return ev, nil
 	}
@@ -230,7 +230,7 @@ func (s *Service) Inspect(ctx context.Context, tenantID, claimID uuid.UUID, at *
 //	  the moment within manual.MaxBackdate                        else ErrExpired
 //	  inside the band, or Confirmed                               else ErrNeedsConfirmation
 //	  the manual record at the anchor's venue (manual's write: its trail row, record.entered; a
-//	  peer's venue through the partner path, ErrVenue when the membership ended), the decision row,
+//	  peer's venue through the partner path, ErrPartnershipEnded when the membership ended), the decision row,
 //	  its trail row.
 //
 // Every refusal writes nothing; a failure at any later step rolls the record back with it -- an
@@ -328,6 +328,10 @@ func (s *Service) Decide(ctx context.Context, d Decision) (Decided, error) {
 			}
 			rec, err := write(entry)
 			switch {
+			case errors.Is(err, manual.ErrVenue) && entry.SiteLocationID != uuid.Nil:
+				return ErrPartnershipEnded
+			case errors.Is(err, manual.ErrVenue):
+				return ErrNoVenue
 			case errors.Is(err, manual.ErrTooOld):
 				return ErrExpired
 			case errors.Is(err, manual.ErrFuture):
