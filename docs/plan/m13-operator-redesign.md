@@ -1,6 +1,6 @@
 # M13 — Operatör yüzeyi yeniden tasarımı: kabuk, gezinme ve ekranların taşınması
 
-> **Durum:** plan (2026-10-20; **OP-15 eki 2026-10-25** — askı yüzeyi, iki orkestratör kararı, atıf
+> **Durum:** plan (2026-10-20; **OP-15 eki 2026-10-25** — askı yüzeyi, üç orkestratör kararı (a/b/c), atıf
 > tazelemesi). Canlı durum yalnız [state.md](state.md)'dedir; bu dosyaya
 > "yapıldı" yazılmaz.
 >
@@ -512,7 +512,7 @@ bir açma ve bir kapama formu, kapalıda yalnız açma formu; `TestTenantOvervie
   ekranıdır (ölçüldü: `tenants.templ:129` yalnız `<p class="docket-label">Tenant overview</p>`; Plaques,
   Billing, VAT'ta tek `<h1>` sayfa başlığıdır — `plaques.templ:20`, `billing.templ:28`, `vat.templ:25`).
   `<h1>` **sayfa başlığıdır, tenant adı değil**: o öğe `<h1 class="docket-label">Tenant overview</h1>`
-  olur — sözcük ve sınıf aynı, yalnız öğe (onu sabitleyen test yok). Tenant adı bandı `<h1>` olmaz
+  olur — sözcük ve sınıf aynı, yalnız öğe (onu sabitleyen test yok); görünüşü `docket-label` kalır, katalogdaki display boy `<h1>` tarifi ona uygulanmaz (README §6 "Card" istisnası; pano da küçük etiket çizer). Tenant adı bandı `<h1>` olmaz
   (kabuğundur; öteki üç ekranda iki `<h1>` çıkar ve bandın sabit `<p class="font-display text-xl
   font-bold tracking-tight">`'ı bozulur). **Yeni test** (adını yapıcı koyar): dört tek-tenant ekranın
   `screens()`'teki her render'ı (overview / plaques / billing / VAT fixture'ları) tam **bir** `<h1`

@@ -350,7 +350,7 @@ operator data screen without an `<h1>` — Plaques, Billing and VAT each carry o
 re-check"), and the overview's first card opens with `<p class="docket-label">Tenant overview</p>`
 (`tenants.templ:129`). The `<h1>` is the **page heading, not the tenant's name**: M13-08 changes
 that one element to `<h1 class="docket-label">Tenant overview</h1>` — same word, same class, only
-the element (no test pins the `<p>`). The tenant-name banner does **not** become an `<h1>`: it is
+the element (no test pins the `<p>`); it keeps the `docket-label` look, not the catalogue's display-size `<h1>` (README §6 "Card" exception). The tenant-name banner does **not** become an `<h1>`: it is
 the shell's, on all four one-tenant screens, so the other three would carry two, and its pinned
 `<p class="font-display text-xl font-bold tracking-tight">` would change. README §2 "OP-15 annex" (c).
 
