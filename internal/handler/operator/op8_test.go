@@ -895,6 +895,16 @@ func TestOperatorScreens_EveryOneWearsTheOperatorChrome(t *testing.T) {
 					name, n, navAt, bar, main)
 			} else {
 				seg := html[navAt : navAt+strings.Index(html[navAt:], "</nav>")]
+				// One frame, the nav its first child and the content column its sibling after it
+				// -- never inside the column (README §2 "DOM order").
+				frame := strings.Index(html, `<div class="op-frame">`)
+				col := strings.Index(html, `<div class="op-col">`)
+				if strings.Count(html, `<div class="op-frame">`) != 1 || strings.Count(html, `<div class="op-col">`) != 1 ||
+					frame < bar || !strings.HasPrefix(strings.TrimLeft(html[frame+len(`<div class="op-frame">`):], " \t\n"), `<nav class="op-nav"`) ||
+					col < navAt+len(seg) || col > main {
+					t.Errorf("%s: the order is not op-frame > op-nav, then op-col (frame %d, nav %d-%d, col %d, main %d)",
+						name, frame, navAt, navAt+len(seg), col, main)
+				}
 				var hrefs []string
 				for _, m := range navHref.FindAllStringSubmatch(seg, -1) {
 					hrefs = append(hrefs, m[1])
@@ -958,6 +968,64 @@ func TestOperatorScreens_EveryOneWearsTheOperatorChrome(t *testing.T) {
 	}
 	if oneTenant != 19 || withCurrent != 39 {
 		t.Fatalf("PREMISE: %d one-tenant render(s), %d with a current section; the comment says 19 and 39", oneTenant, withCurrent)
+	}
+}
+
+// TestOperatorShell_ThePhoneBarStaysInTheFlowAndTheBannerNameIsItsSecondParagraph (M13-01):
+// two facts of the shell input.css relies on and no render shows.
+//
+// PART I -- the stylesheet: .op-nav's rule makes the phone bar sticky and never fixed (a fixed
+// bar covers the page's last control), and neither .op-frame's nor .op-col's rule, nor the
+// nav's own, clips its overflow (a clipping ancestor turns a sticky bar into an ordinary one).
+// PART II -- the banner: input.css sizes the tenant's name as the banner's second paragraph
+// (.op-tenant > div > p:nth-of-type(2)); on every one-tenant render of screens() the banner's
+// section opens on that div, and its second <p> is the name's (named or unnamed). CONTROL:
+// the rules are found and the 19 banners are read.
+func TestOperatorShell_ThePhoneBarStaysInTheFlowAndTheBannerNameIsItsSecondParagraph(t *testing.T) {
+	css, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := func(class string) []string {
+		m := regexp.MustCompile(`(?m)^\s*\.` + class + `\s*\{\s*@apply ([^;]+);`).FindSubmatch(css)
+		if m == nil {
+			t.Fatalf("CONTROL: input.css has no .%s rule", class)
+		}
+		return strings.Fields(string(m[1]))
+	}
+	nav := rule("op-nav")
+	if !slices.Contains(nav, "sticky") || !slices.Contains(nav, "bottom-0") {
+		t.Errorf(".op-nav does not make the phone bar sticky at the bottom: %v", nav)
+	}
+	for _, class := range []string{"op-frame", "op-col", "op-nav"} {
+		for _, u := range rule(class) {
+			if u == "fixed" || strings.HasSuffix(u, ":fixed") || strings.Contains(u, "overflow") {
+				t.Errorf(".%s applies %s", class, u)
+			}
+		}
+	}
+	if !strings.Contains(string(css), ".op-tenant > div > p:nth-of-type(2) {") {
+		t.Fatal("CONTROL: input.css does not size the banner's name as its second paragraph")
+	}
+	banners := 0
+	for name, html := range screens(t) {
+		at := strings.Index(html, `<section class="op-tenant" aria-label="Tenant">`)
+		if at < 0 {
+			continue
+		}
+		banners++
+		in := html[at+len(`<section class="op-tenant" aria-label="Tenant">`):]
+		in = in[:strings.Index(in, "</section>")]
+		if !strings.HasPrefix(strings.TrimLeft(in, " \t\n"), "<div") {
+			t.Errorf("%s: the banner does not open on its div", name)
+		}
+		ps := regexp.MustCompile(`<p[ >][^>]*>?`).FindAllString(in, -1)
+		if len(ps) < 2 || ps[1] != `<p class="font-display text-xl font-bold tracking-tight">` {
+			t.Errorf("%s: the banner's second paragraph is %q, not the name's", name, ps)
+		}
+	}
+	if banners != 19 {
+		t.Fatalf("CONTROL: %d banner(s) read, want 19", banners)
 	}
 }
 
@@ -1176,8 +1244,8 @@ func TestTenantScreen_RefusesToRenderWithoutAName(t *testing.T) {
 // membership's Remove button to its removal (an ended one has none), a membership links its
 // business's overview, and the pager links the list's next and previous pages; and (OP-15 C) the
 // active overview's one suspension form posts to the tenant's suspend path and a suspended
-// overview's one to its reinstate path. Since M13-01 those controls read the page from <main
-// on, because the operator nav and the tenant sub-nav before it link the console, the tenants
+// overview's one to its reinstate path. Since M13-01 the controls that a link IS there read
+// the page from <main on, because the operator nav and the tenant sub-nav before it link the console, the tenants
 // and a tenant's four screens on every signed-in page; and the CONTROL adds the nav's five
 // sections (on home, a signed-in problem page, a one-tenant page and the holdings) and the
 // overview's sub-nav's four paths, which the walk then requires to be mounted routes. The nav
@@ -1186,9 +1254,10 @@ func TestOperatorScreens_EveryActionAndLinkIsAMountedRoute(t *testing.T) {
 	attr := regexp.MustCompile(`\s(action|href|src)="([^"]*)"`)
 	absolute := 0
 	all := screens(t)
-	// The page's own links and forms are read inside <main (M13-01): the nav and the tenant
-	// sub-nav before it link the console, the tenants and a tenant's four screens on every
-	// signed-in page, and must not stand in for a link the page itself is meant to carry.
+	// A link the page itself is meant to carry is looked for inside <main (M13-01): the nav and
+	// the tenant sub-nav before it link the console, the tenants and a tenant's four screens on
+	// every signed-in page, and must not stand in for it. Every count and every absence is read
+	// on the WHOLE page: a form or a link the shell gained would be one too many there.
 	inMain := func(render string) string {
 		h := all[render]
 		at := strings.Index(h, "<main")
@@ -1205,41 +1274,41 @@ func TestOperatorScreens_EveryActionAndLinkIsAMountedRoute(t *testing.T) {
 	}
 	if !strings.Contains(inMain("tenant overview"), `href="/operator/tenants/10000000-0000-4000-8000-000000000001/billing"`) ||
 		!strings.Contains(inMain("tenant billing"), `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) ||
-		strings.Count(inMain("tenant billing, page 3"), `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/billing">`) != 2 {
+		strings.Count(all["tenant billing, page 3"], `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/billing">`) != 2 {
 		t.Fatal("CONTROL: the overview does not link the billing, the billing does not link the overview, or its pager does not post to it")
 	}
 	if !strings.Contains(inMain("tenant overview"), `href="/operator/tenants/10000000-0000-4000-8000-000000000001/vat"`) ||
 		!strings.Contains(inMain("tenant VAT"), `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) ||
-		strings.Count(inMain("tenant VAT"), `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/vat"`) != 1 ||
-		strings.Contains(inMain("tenant VAT, odd number"), `action="/operator/tenants/10000000-0000-4000-8000-000000000001/vat"`) {
+		strings.Count(all["tenant VAT"], `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/vat"`) != 1 ||
+		strings.Contains(all["tenant VAT, odd number"], `action="/operator/tenants/10000000-0000-4000-8000-000000000001/vat"`) {
 		t.Fatal("CONTROL: the overview does not link the VAT screen, the VAT screen does not link the overview, its form does not post to it, or the number VIES does not take still has the form")
 	}
-	if strings.Count(inMain("tenant overview"), `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/integration" class=`) != 1 ||
-		strings.Count(inMain("tenant overview"), `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/integration/close" class=`) != 1 ||
-		strings.Count(inMain("tenant overview, unnamed"), `action="/operator/tenants/10000000-0000-4000-8000-000000000001/integration"`) != 1 ||
-		strings.Contains(inMain("tenant overview, unnamed"), `/integration/close"`) {
+	if strings.Count(all["tenant overview"], `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/integration" class=`) != 1 ||
+		strings.Count(all["tenant overview"], `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/integration/close" class=`) != 1 ||
+		strings.Count(all["tenant overview, unnamed"], `action="/operator/tenants/10000000-0000-4000-8000-000000000001/integration"`) != 1 ||
+		strings.Contains(all["tenant overview, unnamed"], `/integration/close"`) {
 		t.Fatal("CONTROL: the overview's integration API forms are not where they should be (open: both; closed: the open form alone)")
 	}
 	if !strings.Contains(inMain("home"), `<a href="/operator/holdings" class="op-link">Holdings</a>`) ||
-		strings.Count(inMain("holdings"), `<form method="post" action="/operator/holdings" class=`) != 1 ||
-		strings.Count(inMain("holdings"), `<form method="post" action="/operator/holdings/60000000-0000-4000-8000-000000000001/members"`) != 1 ||
-		strings.Count(inMain("holdings"), `<form method="post" action="/operator/holdings/60000000-0000-4000-8000-000000000002/members"`) != 1 ||
-		strings.Count(inMain("holdings"), `action="/operator/holdings/60000000-0000-4000-8000-000000000001/members/`) != 1 ||
+		strings.Count(all["holdings"], `<form method="post" action="/operator/holdings" class=`) != 1 ||
+		strings.Count(all["holdings"], `<form method="post" action="/operator/holdings/60000000-0000-4000-8000-000000000001/members"`) != 1 ||
+		strings.Count(all["holdings"], `<form method="post" action="/operator/holdings/60000000-0000-4000-8000-000000000002/members"`) != 1 ||
+		strings.Count(all["holdings"], `action="/operator/holdings/60000000-0000-4000-8000-000000000001/members/`) != 1 ||
 		!strings.Contains(inMain("holdings"), `<form method="post" action="/operator/holdings/60000000-0000-4000-8000-000000000001/members/10000000-0000-4000-8000-000000000001/remove">`) ||
 		!strings.Contains(inMain("holdings"), `href="/operator/tenants/10000000-0000-4000-8000-000000000002"`) ||
 		!strings.Contains(inMain("holdings"), `href="/operator/holdings?page=2"`) ||
 		!strings.Contains(inMain("holdings, past the end"), `href="/operator/holdings?page=2"`) {
 		t.Fatal("CONTROL: the console does not link the holdings, or the holdings' forms, membership links and pager are not where they should be")
 	}
-	if strings.Count(inMain("tenant overview"), `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/suspend"`) != 1 ||
-		strings.Contains(inMain("tenant overview"), `/reinstate"`) ||
-		strings.Count(inMain("tenant overview, suspended"), `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/reinstate"`) != 1 ||
-		strings.Contains(inMain("tenant overview, suspended"), `/suspend"`) {
+	if strings.Count(all["tenant overview"], `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/suspend"`) != 1 ||
+		strings.Contains(all["tenant overview"], `/reinstate"`) ||
+		strings.Count(all["tenant overview, suspended"], `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/reinstate"`) != 1 ||
+		strings.Contains(all["tenant overview, suspended"], `/suspend"`) {
 		t.Fatal("CONTROL: the active overview's one form does not post to its suspend path, or the suspended one's to its reinstate path")
 	}
 	if !strings.Contains(inMain("home"), `<a href="/operator/audit" class="op-link">Audit log</a>`) ||
 		!strings.Contains(inMain("audit log"), `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) ||
-		strings.Count(inMain("audit log, filtered"), `<form method="post" action="/operator/audit"`) != 3 {
+		strings.Count(all["audit log, filtered"], `<form method="post" action="/operator/audit"`) != 3 {
 		t.Fatal("CONTROL: the console does not link the audit log, an audit row does not link its tenant, or the filter and the pager do not post to the log")
 	}
 	// The nav (M13-01): its five sections on every signed-in page, the tenant's four screens in
@@ -1333,8 +1402,9 @@ func TestOperatorChrome_TheColouredTextClearsAA(t *testing.T) {
 			t.Logf("%s on ink = %.2f:1", tok, got)
 		}
 	}
-	// The operator nav and the tenant sub-nav (M13-01), from input.css's op-nav-item and
-	// op-subnav-item rules: an inactive phone label is ink at 70 % on the bar's paper; the
+	// The operator nav and the tenant sub-nav (M13-01), from input.css's op-nav-item,
+	// op-nav-label and op-subnav-item rules: an inactive phone label, and the desktop's
+	// "Platform" label, are ink at 70 % on the nav's paper; the
 	// tablet's and the desktop's labels are ink on paper; the current desktop item is ink on
 	// ink at 5 % over paper; a sub-nav tab is ink on the banner's saffron-lite -- and, should the
 	// banner's ground ever be dropped, on paper. Alpha blended in sRGB, as the browser paints.
@@ -1350,7 +1420,7 @@ func TestOperatorChrome_TheColouredTextClearsAA(t *testing.T) {
 		what   string
 		fg, bg [3]float64
 	}{
-		{"the nav's inactive phone label, ink/70 on paper", over(ink, 0.7, paper), paper},
+		{"the nav's inactive phone label and its Platform label, ink/70 on paper", over(ink, 0.7, paper), paper},
 		{"the nav's label, ink on paper", ink, paper},
 		{"the nav's current item, ink on ink/5 over paper", ink, over(ink, 0.05, paper)},
 		{"the sub-nav's tab, ink on saffron-lite", ink, hex("saffron-lite")},
@@ -1370,6 +1440,7 @@ func TestOperatorChrome_TheColouredTextClearsAA(t *testing.T) {
 	for class, tones := range map[string][]string{
 		"op-nav-item":    {"text-ink/70", "md:text-ink", "aria-[current=true]:text-ink", "desk:aria-[current=true]:bg-ink/5"},
 		"op-nav":         {"bg-paper"},
+		"op-nav-label":   {"text-ink/70"},
 		"op-subnav-item": {"text-ink"},
 		"op-tenant":      {"bg-saffron-lite", "text-ink"},
 	} {

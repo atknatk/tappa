@@ -703,8 +703,9 @@ func TestBillingScreen_SaysTheCountIsAFloor(t *testing.T) {
 //
 // PART I -- every href and action on the page (page 3, so the pager has both forms) is one of
 // the tenant's overview, the tenant list, the screen's own path (the pager's posts) and the
-// bar's sign-out, besides /static/ -- and, since M13-01, the operator nav's other four sections
-// and the tenant sub-nav's plaques and VAT number, none of which names a person; the page says no person is listed; the read's month type,
+// bar's sign-out, besides /static/ -- read on the page with the operator nav and the tenant sub-nav
+// cut out (M13-01); those two are read on their own and link exactly the five sections and the
+// tenant's four screens, none of which names a person; the page says no person is listed; the read's month type,
 // the view and the row have exactly the fields written below -- none for a person -- read by
 // reflection.
 //
@@ -722,18 +723,46 @@ func TestBillingScreen_OffersNoItemisationAnywhere(t *testing.T) {
 	}
 	body := w.Body.String()
 	allowed := map[string]bool{"/operator/tenants/" + tenant.String(): true, "/operator/tenants": true,
-		billingPathOf(tenant.String()): true, "/operator/logout": true,
-		// The operator nav and the tenant sub-nav (M13-01): sections and the tenant's other screens.
-		"/operator": true, "/operator/holdings": true, "/operator/audit": true, "/operator/legal": true,
-		"/operator/tenants/" + tenant.String() + "/plaques": true, vatPathOf(tenant.String()): true}
+		billingPathOf(tenant.String()): true, "/operator/logout": true}
+	// The operator nav and the tenant sub-nav (M13-01) are cut out of the page and read on their
+	// own: each links exactly its fixed list, in order.
+	targets := regexp.MustCompile(`\s(href|action)="([^"]*)"`)
+	page := body
+	for _, nav := range []struct {
+		open string
+		want []string
+	}{
+		{`<nav class="op-nav" aria-label="Operator sections">`, []string{"/operator", "/operator/tenants", "/operator/holdings",
+			"/operator/audit", "/operator/legal"}},
+		{`<nav class="op-subnav" aria-label="This tenant">`, []string{"/operator/tenants/" + tenant.String(),
+			"/operator/tenants/" + tenant.String() + "/plaques", billingPathOf(tenant.String()), vatPathOf(tenant.String())}},
+	} {
+		at := strings.Index(page, nav.open)
+		end := -1
+		if at >= 0 {
+			end = strings.Index(page[at:], "</nav>")
+		}
+		if strings.Count(page, nav.open) != 1 || end < 0 {
+			t.Errorf("the billing screen does not carry %s once", nav.open)
+			continue
+		}
+		var got []string
+		for _, m := range targets.FindAllStringSubmatch(page[at:at+end], -1) {
+			got = append(got, m[2])
+		}
+		if !slices.Equal(got, nav.want) {
+			t.Errorf("%s links %v, want %v", nav.open, got, nav.want)
+		}
+		page = page[:at] + page[at+end+len("</nav>"):]
+	}
 	n := 0
-	for _, m := range regexp.MustCompile(`\s(href|action)="([^"]*)"`).FindAllStringSubmatch(body, -1) {
+	for _, m := range targets.FindAllStringSubmatch(page, -1) {
 		if strings.HasPrefix(m[2], "/static/") {
 			continue
 		}
 		n++
 		if !allowed[m[2]] {
-			t.Errorf("the billing screen points at %q, which is none of its targets", m[2])
+			t.Errorf("the billing screen points at %q, which is none of its four targets", m[2])
 		}
 	}
 	if n < 5 {
