@@ -280,10 +280,15 @@ zemine koymak (panolar bandın içinde çizer) · telefonda sign-out'u ikona çe
 tablet/masaüstünde 18 px 24 px; `.docket`'in kendi `px-4 py-3`'ü panel için kalır. **Tek ölçek, tek
 görünüm:** her operatör ekranında delikli `.docket` (panoların Tenants/Tenant/Plaques/VAT'taki kesikli-üst
 kısayolu da delikli docket'e hizalanıyor) ve her kart/docket için bu tek dolgu ölçeği — ekran başına
-dolgu yok; `.op-input`
+dolgu yok. **Kart içi boşluk** (README §6 "Card": `flex flex-col gap-3.5`) bu kartta **yapılmaz**
+(2026-10-25, denetim): `.op-card` her ekranda paylaşılır ve bugünkü gövdeler kendi `mt-*`'lerini
+taşır — kurala girerse taşınmamış her ekranın boşluğu ikiye katlanır. Her ekran kartı kendi
+ekranının kartlarında yapar (aşağıda her ekran kartında tek satır), M13-15 üç yardımcıyı `.op-card`'a
+taşır; `.op-input`
 `rounded-[10px]`; `.op-signout` ve operatör ekranlarındaki `btn` `rounded-[10px]`; `.op-row`/`.op-version`
 kesikli ayraç; yeni `.op-label` (mono 11 px etiket); çipler `rounded-full` — **span'e sınıf eklemeden**,
-kapsamlı kural `.op-main .tally` (`op-main` sınıfını M13-01 `<main>`'e koydu).
+kapsamlı kural `.op-main .tally { @apply rounded-full px-2.5 py-0.5 font-bold leading-[18px] tracking-[0.08em]; }`
+(`op-main` sınıfını M13-01 `<main>`'e koydu; 18 px satır + 2 px + 2 px + 1 px çerçeve = panoların 24 px'i).
 
 Cilalı panoların getirdiği yeni sınıflar (yalnız CSS; işaretlemeye ekran kartlarında girer):
 - **`.op-pager`** — Billing / Audit / Holdings sayfalayıcısının çerçeveli düğmesi (panoların
@@ -301,7 +306,9 @@ Cilalı panoların getirdiği yeni sınıflar (yalnız CSS; işaretlemeye ekran 
   bant üstünde de ink).
 - **Satır içi bağlantı isabet alanı** — denetim satırının tenant bağlantısı için kapsamlı kural,
   tablet/masaüstünde satır yüksekliğini korur ve 44 px görünmez bir `::before` örtüsü ekler
-  (README §6 "Inline link hit area"); işaretleme değişmez.
+  (README §6 "Inline link hit area"); işaretleme değişmez. Bağlantı `md:inline-block`'tur, `inline`
+  değil (denetim, ölçüldü): satır kıran uzun bir tenant adında satır içi bağlantı iki parçaya bölünür
+  ve örtü 18 px'e çöker; panodan farkı README'de.
 - **`tally--running` yeniden tonlanır, yeni değiştirici yok:** canlı ay kesikli safran çerçeve —
   seçicisi çizgi grubundan (`input.css:745-750`) çıkar, kendi tek satırlık kuralını alır:
   `.tally--running { @apply border-dashed border-saffron bg-paper; }` (panoların `.t-saffron-o`'su: kâğıt zeminde kesikli safran çerçeve). Ad `tally--[a-z-]+`'e
@@ -320,7 +327,7 @@ testleri), `op14_test.go` (44 px listesi).
 - `TestTallyRules_NoToneRuleColoursTheWord`'ün okuyucusu `readTallyRules` (`op12_test.go:1645-1707`)
   `.tally` geçen her seçiciyi okur ve yalnız taban `.tally` ile `.tally--x` listelerine izin verir —
   `.op-main .tally` bugün bir bulgudur. Okuyucu **tek bir** yeni biçimle genişletilir: seçicisi
-  **tam olarak** `.op-main .tally` olan, tek `@apply`'lı kural, yalnız biçim ve yazı yardımcıları (`rounded-*`, `px-*`, `py-*`, `min-h-*`,
+  **tam olarak** `.op-main .tally` olan, tek `@apply`'lı kural, yalnız biçim ve yazı yardımcıları (`rounded-*`, `px-*`, `py-*`, `min-h-*`, `leading-*` (yalnız `line-height` üretir — ölçüldü; çipin 24 px'i ondan: `leading-[18px]`),
   `font-bold`, `tracking-*` — panoların çipi 24 px, 2 px 10 px, kalın, .08em; `text-*`, `bg-*`,
   `border-<renk>`, `opacity` yok); KONTROL: kapsamlı kurala bir renk yardımcısı eklenmiş mutasyon
   kırmızı. **Bu kart, bir `.tally--x` kuralının uygulayabileceğini genişleterek asla geçilmez** —
@@ -420,6 +427,8 @@ yeşil; 390 / 834 / 1200 / 1440'ta yatay kaydırma yok.
 
 İmzasız kabuk, ortalanmış kart; altı durum (varsayılan, Expired, Failed, kod, Rejected, Locked).
 
+**Kart içi boşluk (M13-02'den devreden):** bu ekranın `op-card`'larında kart içi boşluk `gap-3.5`'e geçer (`flex flex-col gap-3.5`, işaretlemede), gövdelerin `mt-*`'leri aynı commit'te kalkar (README §6 "Card").
+
 **Kabul kriterleri.** O2 ortak kabulü ve: `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike`,
 `TestE2E_EveryRefusedSignInIsOneRowAndTheSameBytes`, `TestSignIn_ReadsTheBodyNeverTheQuery` yeşil;
 yazılan adres yankılanmaz; "forgot password", kayıt, "remember me" yok.
@@ -439,6 +448,8 @@ yine tek `<h1>`). Hiçbir test bu iki satırda `docket-label`'ı sabitlemez (`a8
 Panoların QR'ı artık deponun kodlayıcısıyla basılmış **gerçek bir örnek** (sürüm 8, 57 modül × 4 px
 = 228 px, mürekkep/kâğıt, `op-qr`, `role="img"`, aria-label + `<title>`); port yine `qr.go`'nun
 SVG'sini (`enroll.templ:40-44`) çizer, örneğin içeriği örnek veridir.
+
+**Kart içi boşluk (M13-02'den devreden):** bu ekranın `op-card`'larında kart içi boşluk `gap-3.5`'e geçer (`flex flex-col gap-3.5`, işaretlemede), gövdelerin `mt-*`'leri aynı commit'te kalkar (README §6 "Card").
 
 **Kabul kriterleri.** O2 ortak kabulü ve: `enroll.js`'e dokunulmaz (`TestEnrollScript_IsTheReviewedBody`, `TestEnrollScript_TouchesTheFragmentAndNothingElse`);
 `enroll-token` / `enroll-token-wrap` kimlikleri aynı; `TestEnrollQR_IsTheKeysURIInkOnPaper`,
@@ -460,6 +471,8 @@ panoların eski bir sürümü her bağlantının yanına 48 px ikon kutucuğu ç
 `OpHome` / `T-OpHome` / `M-OpHome`'dan kaldırıldı — Home'da bugün yok ve imzalı sayfanın SVG'leri
 tam olarak nav'ın beşi.
 
+**Kart içi boşluk (M13-02'den devreden):** bu ekranın `op-card`'larında kart içi boşluk `gap-3.5`'e geçer (`flex flex-col gap-3.5`, işaretlemede), gövdelerin `mt-*`'leri aynı commit'te kalkar (README §6 "Card").
+
 **Kabul kriterleri.** O2 ortak kabulü ve: `<a href="/operator/holdings"
 class="op-link">Holdings</a>` ve `…/audit" class="op-link">Audit log</a>` aynen; sayı, widget, operatör
 adı/e-postası yok; Home'un store çağrısı 0.
@@ -477,6 +490,8 @@ masaüstünde tek satır, dört iz (ad · Since · plan · id — `OpTenants`), 
 genişlik (`T-OpTenants`), telefonda ad bağlantısı ilk satırda tek başına, 44 px (README §6.1 "Tenants
 row"; kapsamlı seçici — `<li class="op-row">` aynen; README'nin önceki tarifi tablete de dört iz
 veriyordu, düzeltildi). Sayfalayıcı cilalı listede değil: `op-link` kalır.
+
+**Kart içi boşluk (M13-02'den devreden):** bu ekranın `op-card`'larında kart içi boşluk `gap-3.5`'e geçer (`flex flex-col gap-3.5`, işaretlemede), gövdelerin `mt-*`'leri aynı commit'te kalkar (README §6 "Card").
 
 **Kabul kriterleri.** O2 ortak kabulü ve: `TestTenantSearch_NoLogLineHeaderOrOtherPageCarriesTheTerm`,
 `TestTenantList_PagesForwardOnlyAfterAFullPage`, `TestTenantScreens_EscapeWhatATenantAndAnOperatorTyped`,
@@ -509,6 +524,8 @@ form: dört gerekçe radyosu + security-hold uyarısı + kutu + "Suspend writes"
 suspension"). Askı kartının panosu yok: screens.md §6 "Panel writes card"daki tarifle, bileşen
 kataloğunun parçalarından kurulur (`op-card`, `docket-label`, `.op-main .tally`, `dl`, radyo ızgarası,
 `opNotice(warn)`, `btn`).
+
+**Kart içi boşluk (M13-02'den devreden):** bu ekranın `op-card`'larında kart içi boşluk `gap-3.5`'e geçer (`flex flex-col gap-3.5`, işaretlemede), gövdelerin `mt-*`'leri aynı commit'te kalkar (README §6 "Card").
 
 **Kabul kriterleri.** O2 ortak kabulü ve: `dt`/`dd` regex'leri (`op11_test.go:894`, `:900`) aynen; açık API'de tam
 bir açma ve bir kapama formu, kapalıda yalnız açma formu; `TestTenantOverview_NamesTheTenantInTheBannerAndRefusesABadPath`,
@@ -589,6 +606,8 @@ sütununda, çip + cümle + olgular yanında tek bir `<div>` içinde; telefonda 
 "Plaque row"). Satır yine UID span'iyle **başlar** (`op13_test.go:285`); `<div>` form ya da düğme
 değildir.
 
+**Kart içi boşluk (M13-02'den devreden):** bu ekranın `op-card`'larında kart içi boşluk `gap-3.5`'e geçer (`flex flex-col gap-3.5`, işaretlemede), gövdelerin `mt-*`'leri aynı commit'te kalkar (README §6 "Card").
+
 **Kabul kriterleri.** O2 ortak kabulü ve: sayfada tam bir `<form` (sign-out), tam bir `<button`
 (sign-out'un metin düğmesi), hiç `hx-` (`op13_test.go:327-332`);
 `TestPlaqueScreen_NoKeyReachesThePage`, `TestPlaqueWords_NameEveryShapeAndNothingElse`,
@@ -613,6 +632,8 @@ Cilalı panolar:
   class="op-pager">` (README §6 "Pager").
 - **Çip tonları:** canlı = kesikli safran çerçeve (`tally--running`'in yeni tonu, M13-02), bitmiş ama
   kapanmamış = safran, dondurulmuş = yeşil, kayıt öncesi = çizgi, okunamayan = mürekkep.
+
+**Kart içi boşluk (M13-02'den devreden):** bu ekranın `op-card`'larında kart içi boşluk `gap-3.5`'e geçer (`flex flex-col gap-3.5`, işaretlemede), gövdelerin `mt-*`'leri aynı commit'te kalkar (README §6 "Card").
 
 **Kabul kriterleri.** O2 ortak kabulü ve:
 - **Fiş şeridinin test güncellemesi, aynı commit'te, gevşetmeden:** dört rakamı okuyan her yer yeni
@@ -653,6 +674,8 @@ sorulamaz cümlesi, üç uyarı, adsız tenant bandı (cilalı `OpVat` panoları
 (`dl`, `vat.templ:41` → `md:grid md:grid-cols-2`), telefonda alt alta; sabit
 `<dd class="mt-1 break-all font-mono text-lg font-bold">` (`op16_test.go:1409`) aynen.
 
+**Kart içi boşluk (M13-02'den devreden):** bu ekranın `op-card`'larında kart içi boşluk `gap-3.5`'e geçer (`flex flex-col gap-3.5`, işaretlemede), gövdelerin `mt-*`'leri aynı commit'te kalkar (README §6 "Card").
+
 **Kabul kriterleri.** O2 ortak kabulü ve: `TestVATScreen_TheFourStatesAreCalledWhatTheAccountScreenCallsThem`,
 `TestVATScreen_EveryStateSaysItsWordAndSentence`, `TestVATRecheck_TheNumberIsTheServersNotTheClients`,
 `TestVATRecheck_TheNumberIsOnNoLogLineOrHeader` yeşil; sorulabilirde tam bir form, garip numarada
@@ -673,6 +696,8 @@ yerde — zaman, sayfa, oturum, kimlikler, belge, bayt. "Of a scope this screen 
 kodda var (`audit.templ:117-118`) ve listelenir. Satır içi tenant bağlantısı tablet/masaüstünde satır
 yüksekliğini korur, **44 px görünmez örtü** alır (README §6 "Inline link hit area"; işaretleme
 `op14_test.go:317, 328, 387`'de sabit, değişmez). Sayfalayıcı çerçeveli düğme: `class="op-pager"`.
+
+**Kart içi boşluk (M13-02'den devreden):** bu ekranın `op-card`'larında kart içi boşluk `gap-3.5`'e geçer (`flex flex-col gap-3.5`, işaretlemede), gövdelerin `mt-*`'leri aynı commit'te kalkar (README §6 "Card").
 
 **Kabul kriterleri.** O2 ortak kabulü ve: `TestAuditScreen_WearsTheDocketAnatomy`
 (başlık işaretlemesi aynen; sayfalayıcı iddiaları `op14_test.go:742-743` **aynı commit'te**
@@ -717,6 +742,8 @@ formu, sayfa bölünmesi cümleleri), **bağlantı** sayfalayıcısı. Cilalı p
 - "page 3, past the end" durumu ("This page is empty: the list ended on the page before.",
   `holdings.templ:51-52`; fixture "holdings, past the end") panolarda da var.
 
+**Kart içi boşluk (M13-02'den devreden):** bu ekranın `op-card`'larında kart içi boşluk `gap-3.5`'e geçer (`flex flex-col gap-3.5`, işaretlemede), gövdelerin `mt-*`'leri aynı commit'te kalkar (README §6 "Card").
+
 **Kabul kriterleri.** O2 ortak kabulü ve: form sayıları
 (`op8_test.go:911-913`) ve çip işaretlemesi (`holdings_test.go:~689, ~987`) aynen;
 `TestHoldings_CreateAddRemoveThroughTheScreen`, `TestHoldings_TheResultIsReadNotPosted`,
@@ -747,6 +774,8 @@ Giriş kartı (müşteri sitesi `/legal` metin, bağlantı değil), dört düzen
   yayımlayan · Live çipi), telefonda alt alta kartlar; kapsamlı seçici — `<li class="op-version">`
   aynen (`op10_test.go:308, 631, 656`).
 
+**Kart içi boşluk (M13-02'den devreden):** bu ekranın `op-card`'larında kart içi boşluk `gap-3.5`'e geçer (`flex flex-col gap-3.5`, işaretlemede), gövdelerin `mt-*`'leri aynı commit'te kalkar (README §6 "Card").
+
 **Kabul kriterleri.** O2 ortak kabulü ve: `TestLegalPage_ShowsWhoPublishedEachVersion`,
 `TestLegalPublish_AFailedRefreshRedirectsAndTheScreenSaysThePageIsBehind`,
 `TestLegalScreen_ReopensOnPastedMarkupWithoutExecutingIt`, `TestLegalScreen_TheTextClearsAA` yeşil;
@@ -773,6 +802,8 @@ güncellenir.
 
 **Dosyalar.** `.claude/skills/tappa-brand/` (operatör notu), `docs/design/operator-redesign/README.md`
 (katalog), yalnız düzeltme gerektiren kod/test dosyaları.
+
+**Kart içi boşluğun toplanması (M13-02'den):** M13-04…M13-14 her operatör `op-card`'ına `flex flex-col gap-3.5` yazdıktan sonra üç yardımcı `.op-card` kuralına taşınır ve işaretlemeden düşer (README §6 "Card"); işaretlemede kalan `op-card flex flex-col gap-3.5` yok.
 
 **Kabul kriterleri.** `TestEveryNamedTestExists` yeşil (belgede adı geçen her test var). Bulgu →
 düzeltme → yeni denetçi. Bittiğinde `state.md`; `main`'e birleştirme **kullanıcının deploy kararıdır**.

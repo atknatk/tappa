@@ -1843,6 +1843,103 @@ func readTallyRules(css string) (map[string]bool, []string) {
 	return tones, findings
 }
 
+// TestOperatorComponentRules_KeepTheDecidedCorners pins, in web/static/css/input.css (the
+// committed source), the corner and rule decisions M13-02 made for the operator's components
+// (user decision D2: a docket and a stamp stay sharp; a card, a field and a button may round; a
+// chip is a pill on the operator's surface only):
+//
+// PART I -- comments stripped, read as flat `selectors { @apply …; }` rules: the docket's own
+// rule (selector `.docket`) and the operator's docket padding (selector `.op-main .docket`) each
+// exist and apply nothing that rounds; the chip's base rule (selector `.tally`) applies nothing
+// that rounds -- a chip is round only under the operator's `<main>`; the operator card's rule
+// (selector `.op-card`) exists and applies no shadow; the operator's row rule (the list naming
+// `.op-row` and `.op-version`) applies border-dashed; the audit row's tenant link is an
+// inline-block from the tablet, not inline (a wrapping inline link splits in two and its 44 px
+// overlay collapsed to 18 px -- measured, M13-02 review). CONTROLS, each read by the same
+// function and each a finding: rounded-sm on the docket; rounded-[14px] on the operator's docket;
+// rounded-full on the chip's base; shadow-sm on the card; the row without its dash; the audit
+// link back to md:inline.
+//
+// PART II -- red on: any of the six above. PART III -- a rule written outside the shape read
+// here, a later rule that overrides one, or a utility class in a template is code review's --
+// no completeness claim.
+func TestOperatorComponentRules_KeepTheDecidedCorners(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(raw)
+	for _, f := range readOperatorComponentRules(css) {
+		t.Error(f)
+	}
+	for _, c := range []struct{ what, from, to string }{
+		{"a rounded docket", "shadow-sm px-4 py-3 font-mono text-sm;", "shadow-sm px-4 py-3 font-mono text-sm rounded-sm;"},
+		{"a rounded operator docket", "md:px-6 md:py-[18px]; }", "md:px-6 md:py-[18px] rounded-[14px]; }"},
+		{"a round chip everywhere", "uppercase tracking-widest text-ink;", "uppercase tracking-widest text-ink rounded-full;"},
+		{"a card with a shadow", "md:px-6 md:py-[22px]; }", "md:px-6 md:py-[22px] shadow-sm; }"},
+		{"a row without its dash", "border-b border-dashed border-line py-2.5", "border-b border-line py-2.5"},
+		{"an inline audit link", "md:relative md:inline-block md:min-h-0", "md:relative md:inline md:min-h-0"},
+	} {
+		mutated := strings.Replace(css, c.from, c.to, 1)
+		if mutated == css {
+			t.Fatalf("CONTROL %s: %q is not in input.css", c.what, c.from)
+		}
+		if len(readOperatorComponentRules(mutated)) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
+		}
+	}
+}
+
+// readOperatorComponentRules is TestOperatorComponentRules_KeepTheDecidedCorners's reading of
+// input.css: one finding per decision the source breaks.
+func readOperatorComponentRules(css string) []string {
+	src := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
+	rule := regexp.MustCompile(`([^{}]*)\{([^{}]*)\}`)
+	apply := regexp.MustCompile(`^@apply ([^;]+);$`)
+	// utilities of the rule whose selector list is exactly the given selectors, each list once
+	found := map[string][][]string{}
+	for _, m := range rule.FindAllStringSubmatch(src, -1) {
+		var sels []string
+		for _, s := range strings.Split(m[1], ",") {
+			sels = append(sels, strings.Join(strings.Fields(s), " "))
+		}
+		key := strings.Join(sels, ", ")
+		a := apply.FindStringSubmatch(strings.TrimSpace(m[2]))
+		if a == nil {
+			continue
+		}
+		found[key] = append(found[key], strings.Fields(a[1]))
+	}
+	var findings []string
+	one := func(key string) []string {
+		if len(found[key]) != 1 {
+			findings = append(findings, fmt.Sprintf("%d `%s { @apply … }` rule(s) in input.css, want 1", len(found[key]), key))
+			return nil
+		}
+		return found[key][0]
+	}
+	for _, key := range []string{".docket", ".op-main .docket", ".tally"} {
+		for _, u := range one(key) {
+			if strings.Contains(u, "rounded") {
+				findings = append(findings, "`"+key+"` applies "+u+": it must stay sharp (D2; a chip rounds only under .op-main)")
+			}
+		}
+	}
+	for _, u := range one(".op-card") {
+		if strings.Contains(u, "shadow") {
+			findings = append(findings, "`.op-card` applies "+u+": no operator card casts a shadow")
+		}
+	}
+	if us := one(".op-version, .op-row"); us != nil && !slices.Contains(us, "border-dashed") {
+		findings = append(findings, "`.op-version, .op-row` does not apply border-dashed: the rows' rule is dashed")
+	}
+	const hit = `[aria-labelledby="audit-list"] .op-row > span > .op-link`
+	if us := one(hit); us != nil && (!slices.Contains(us, "md:inline-block") || slices.Contains(us, "md:inline")) {
+		findings = append(findings, "`"+hit+"` is not md:inline-block: a wrapping inline link splits and its 44 px overlay collapses")
+	}
+	return findings
+}
+
 // TestCompiledCSS_TallyWordIsInkOnEveryChip is TestTallyRules_NoToneRuleColoursTheWord's
 // compiled half, on internal/handler's TestCompiledCSS_StampWordIsInk's reading: in
 // web/static/css/app.css every flat rule whose selector text names `.tally` declares, if it

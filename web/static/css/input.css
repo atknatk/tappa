@@ -1251,10 +1251,14 @@
            hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-ink;
   }
   /* The audit row's tenant link, inside a sentence: from the tablet it keeps the line's height
-     (inline, no 44 px box of its own) and takes a transparent 44 px overlay centred on it, so
-     the target stays 44 px without opening the row up. On the phone the link's own 44 px box
-     stands. Scoped from the list; the link's markup is pinned. */
-  [aria-labelledby="audit-list"] .op-row > span > .op-link { @apply md:relative md:inline md:min-h-0; }
+     (no 44 px box of its own) and takes a transparent 44 px overlay centred on it, so the target
+     stays 44 px without opening the row up. On the phone the link's own 44 px box stands. Scoped
+     from the list; the link's markup is pinned.
+     INLINE-BLOCK, NOT INLINE (measured, M13-02 review): an inline link that wraps -- a tenant
+     name of about 95 characters at 834 px, 110 at 1440, and the name has no length limit -- is
+     split into two fragments, and the overlay, positioned against them, collapsed to 18 px. As
+     one box the link keeps a 44 px overlay at one line and at two. */
+  [aria-labelledby="audit-list"] .op-row > span > .op-link { @apply md:relative md:inline-block md:min-h-0; }
   [aria-labelledby="audit-list"] .op-row > span > .op-link::before {
     content: '';
     @apply md:absolute md:inset-x-0 md:top-1/2 md:h-11 md:-translate-y-1/2;
