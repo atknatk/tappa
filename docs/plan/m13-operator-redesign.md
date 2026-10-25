@@ -774,7 +774,7 @@ Giriş kartı (müşteri sitesi `/legal` metin, bağlantı değil), dört düzen
   yayımlayan · Live çipi), telefonda alt alta kartlar; kapsamlı seçici — `<li class="op-version">`
   aynen (`op10_test.go:308, 631, 656`).
 
-**Kart içi boşluk (M13-02'den devreden):** bu ekranın `op-card`'larında kart içi boşluk `gap-3.5`'e geçer (`flex flex-col gap-3.5`, işaretlemede), gövdelerin `mt-*`'leri aynı commit'te kalkar (README §6 "Card").
+**Kart içi boşluk (M13-02'den devreden):** `gap-3.5` yalnız **giriş kartında** (`legal.templ:23`): kart içi boşluk `gap-3.5`'e geçer (`flex flex-col gap-3.5`, işaretlemede), gövdesinin `mt-*`'leri aynı commit'te kalkar (README §6 "Card"). **Düzenleyici kartı hariç** (belge başına `op-card`, `legal.templ:47-77`; README §6.1 "Legal editor"; panoda `.ed{gap:0;padding:0;overflow:hidden}`): kartın kendisi **dolgusuz ve `gap-0`**, bantlara bölünür; ölçeğin 24 / 24 / 20 px'i bantların yan boşluğudur.
 
 **Kabul kriterleri.** O2 ortak kabulü ve: `TestLegalPage_ShowsWhoPublishedEachVersion`,
 `TestLegalPublish_AFailedRefreshRedirectsAndTheScreenSaysThePageIsBehind`,
@@ -803,7 +803,7 @@ güncellenir.
 **Dosyalar.** `.claude/skills/tappa-brand/` (operatör notu), `docs/design/operator-redesign/README.md`
 (katalog), yalnız düzeltme gerektiren kod/test dosyaları.
 
-**Kart içi boşluğun toplanması (M13-02'den):** M13-04…M13-14 her operatör `op-card`'ına `flex flex-col gap-3.5` yazdıktan sonra üç yardımcı `.op-card` kuralına taşınır ve işaretlemeden düşer (README §6 "Card"); işaretlemede kalan `op-card flex flex-col gap-3.5` yok.
+**Kart içi boşluğun toplanması (M13-02'den):** M13-04…M13-14 her operatör `op-card`'ına `flex flex-col gap-3.5` yazdıktan sonra üç yardımcı `.op-card` kuralına taşınır ve işaretlemeden düşer (README §6 "Card"); işaretlemede kalan `op-card flex flex-col gap-3.5` yok. **İstisna korunur:** yasal metin düzenleyici kartı (M13-14; README §6.1 "Legal editor", panoda `.ed{gap:0;padding:0}`) taşımadan sonra da **dolgusuz ve `gap-0`** kalır — `.op-card`'ın yeni boşluğu ve dolgusu ona geçmez (M13-14'ün koyduğu geçersiz kılma ya da kapsamlı kural toplamada silinmez); KONTROL olarak taşımadan sonra düzenleyicinin bantları 390 / 834 / 1440'ta panoyla karşılaştırılır.
 
 **Kabul kriterleri.** `TestEveryNamedTestExists` yeşil (belgede adı geçen her test var). Bulgu →
 düzeltme → yeni denetçi. Bittiğinde `state.md`; `main`'e birleştirme **kullanıcının deploy kararıdır**.
