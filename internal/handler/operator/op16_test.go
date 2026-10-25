@@ -1517,7 +1517,7 @@ func TestVATScreen_EachChipHasTheRuleTheContrastTestComputes(t *testing.T) {
 	classes := map[string]bool{}
 	for tone, w := range want {
 		var b strings.Builder
-		if err := operatorpages.TenantVAT(operatorpages.TenantVATView{Name: mustName(t, "FAKE Tone Ltd"), Label: "L", Sentence: "S",
+		if err := operatorpages.TenantVAT(operatorpages.TenantVATView{Name: mustName(t, "FAKE Tone Ltd"), Tabs: fixtureTabs, Label: "L", Sentence: "S",
 			Tone: tone}).Render(t.Context(), &b); err != nil {
 			t.Fatal(err)
 		}

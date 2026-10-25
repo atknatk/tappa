@@ -1114,11 +1114,83 @@
   .op-bar     { @apply border-b-4 border-saffron bg-ink text-paper; }
   .op-lockup  { @apply font-mono text-sm font-bold uppercase tracking-widest text-paper; }
   .op-signout {
-    @apply inline-flex min-h-11 items-center border border-paper px-4 font-display text-sm
+    @apply inline-flex min-h-11 items-center rounded-[10px] border border-paper px-4 font-display text-sm
            font-bold tracking-tight text-paper hover:border-saffron hover:text-saffron
            focus:outline-none focus:ring-2 focus:ring-saffron;
   }
   .op-tenant  { @apply border-b border-saffron bg-saffron-lite text-ink; }
+  /* The banner's name grows with the width (the boards draw it larger on the tablet and
+     the desktop). Set from the banner, not on the name's paragraph, whose class is pinned
+     (TestTenantOverview_AnUnnamedTenantIsNamedByItsID); the name is the banner's second
+     paragraph in both of its shapes (the label first, the id, when shown, third). The
+     selector names no utility: a utility's name in a selector here makes Tailwind add the
+     rule to every class that applies that utility (measured, M13-01: every font-display
+     user grew 24 and 30 px rules). */
+  .op-tenant > div > p:nth-of-type(2) { @apply md:text-2xl desk:text-3xl; }
+
+  /* --- THE OPERATOR'S NAVIGATION (M13-01, user decision OP-1: "Menü ekle") ---
+     One nav element for the three widths, restyled here (docs/design/operator-redesign
+     README §6 "Frame", "Main nav", "Tenant sub-nav", "Content column"):
+     - desktop (desk): a 232 px PAPER column left of the content, a mono "Platform" label
+       over five items, the current one marked by an ink 3 px left rule and an ink/5 ground;
+     - tablet (md): a row of text tabs under the band, the current one on an ink 3 px
+       underline; it wraps if it must;
+     - phone: a paper bar of five items, icon over a short label, at the foot of the
+       viewport, the current one ink and bold under an ink 3 px top marker.
+     The phone bar is position: sticky at bottom 0, NOT position: fixed: the frame is a flex
+     column at least the viewport tall (minus the band: its 64 px row and 4 px rule, 4.25rem),
+     the nav is ordered last and pushed down by an automatic top margin, so on a short page it
+     rests on the viewport's lower edge and on a long one it sticks while scrolling and comes to
+     rest under the last control -- it keeps its place in the flow and never covers the page,
+     so the page needs no clearance under it. Nothing on the frame or above the nav may clip
+     its overflow: that would turn the sticky bar into an ordinary one. The tablet and desktop
+     undo the bar (back in the flow, first, no top margin).
+     Never the panel's shell classes (panel-side, side-nav, bar-link, tab-link): the two
+     surfaces must not be mistaken for each other (chrome.templ).
+
+     TONES, computed (WCAG 2.1, sRGB; TestOperatorChrome_TheColouredTextClearsAA recomputes
+     them): an inactive phone label, ink at 70 % on paper, 6.05:1; ink on paper 16.17:1; the
+     current desktop item, ink on ink/5 over paper, 14.67:1; the sub-nav's ink on the banner's
+     saffron-lite 13.97:1. */
+  .op-frame {
+    @apply flex min-h-[calc(100vh-4.25rem)] flex-col desk:flex-row;
+  }
+  .op-col { @apply min-w-0 flex-1; }
+  .op-nav {
+    @apply sticky bottom-0 z-10 order-last mt-auto grid grid-cols-5 border-t border-line bg-paper
+           pb-[env(safe-area-inset-bottom)]
+           md:static md:order-first md:mt-0 md:flex md:flex-row md:flex-wrap md:border-b md:border-t-0
+           md:px-3 md:pb-0
+           desk:order-none desk:w-[232px] desk:flex-none desk:flex-col desk:flex-nowrap desk:border-b-0
+           desk:border-r desk:px-0 desk:py-7;
+  }
+  .op-nav-label {
+    @apply hidden px-6 pb-2.5 font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70 desk:block;
+  }
+  .op-nav-item {
+    @apply relative flex min-h-11 flex-col items-center justify-center gap-0.5 py-2 font-display
+           text-[11px] leading-4 text-ink/70 no-underline hover:bg-ink/5 hover:text-ink
+           aria-[current=true]:font-bold aria-[current=true]:text-ink max-md:min-h-[60px]
+           md:-mb-px md:flex-row md:border-b-[3px] md:border-transparent md:px-3 md:py-0 md:text-[15px]
+           md:leading-normal md:text-ink md:aria-[current=true]:border-ink
+           desk:mb-0 desk:justify-start desk:border-b-0 desk:border-l-[3px] desk:pl-[21px] desk:pr-4
+           desk:aria-[current=true]:bg-ink/5;
+  }
+  .op-nav-item[aria-current="true"]::before {
+    content: '';
+    @apply absolute inset-x-[20%] -top-px h-[3px] bg-ink md:hidden;
+  }
+  .op-nav-icon { @apply size-[22px] shrink-0 md:hidden; }
+  /* The tenant sub-nav sits INSIDE the banner, under the name, on the banner's saffron-lite;
+     each tab's 3 px underline overlaps the banner's own 1 px saffron rule (the banner has no
+     bottom padding for that reason). The current tab -- the page -- is saffron-marked, the
+     warning tone, because the screen shows another business. 14 px and wrapping on the phone. */
+  .op-subnav { @apply -ml-2.5 mt-2 flex flex-wrap md:-ml-3; }
+  .op-subnav-item {
+    @apply -mb-px inline-flex min-h-11 items-center whitespace-nowrap border-b-[3px] border-transparent
+           px-2.5 font-display text-sm text-ink no-underline hover:bg-saffron/10
+           aria-[current=page]:border-saffron aria-[current=page]:font-bold md:px-3 md:text-[15px];
+  }
   .op-card    { @apply border border-line bg-paper px-6 py-7 shadow-sm; }
   .op-input {
     @apply min-h-11 w-full rounded-sm border border-line bg-paper px-3 py-2 font-mono text-sm

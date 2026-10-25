@@ -19,7 +19,7 @@ import (
 // The texts reach the page as data: the editor's content and every list value are
 // templ expressions, escaped (TestLegalScreen_ReopensOnPastedMarkupWithoutExecutingIt).
 templ Legal(v LegalView) {
-	@screen("Legal texts", true) {
+	@screen("Legal texts", true, navLegal) {
 		<section class="op-card">
 			<p class="docket-label">Legal texts</p>
 			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Taptime's legal texts</h1>

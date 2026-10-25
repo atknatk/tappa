@@ -84,17 +84,48 @@ func (n TenantName) title() string {
 // row whose tenant shows no name.
 const unnamedTenant = "Unnamed tenant"
 
+// TenantTab names one tab of a one-tenant screen's sub-nav (M13-01, OP-1): the page the
+// screen is. Its zero value names none and TenantScreen refuses it.
+type TenantTab int
+
+// The four one-tenant screens, in the sub-nav's order.
+const (
+	TabOverview TenantTab = iota + 1
+	TabPlaques
+	TabBilling
+	TabVAT
+)
+
+// TenantTabs is the four paths of one tenant's sub-nav (M13-01, OP-1): its overview,
+// /operator/tenants/<id>; its plaques, billing months and VAT number under it. The handler
+// builds them (the view's other paths are built there too); the sub-nav is links only -- no
+// read, no route, no form of its own.
+type TenantTabs struct {
+	Overview, Plaques, Billing, VAT string
+}
+
+// ErrNoTenantTabs is TenantScreen's refusal of a sub-nav with a path missing or no current
+// tab: a link with an empty href would point at the page it is on, and a sub-nav without a
+// current tab would not say which page this is.
+var ErrNoTenantTabs = errors.New("operatorpages: a tenant screen needs its four tab paths and its current tab")
+
 // TenantScreen is the chrome for a screen that shows ONE tenant's data: the operator bar,
-// then a banner naming the tenant, then the page. For the zero TenantName it returns
-// ErrNoTenantName before writing a byte (it checks first), and
+// the operator nav with Tenants current, then a banner naming the tenant with the tenant's
+// sub-nav inside it (tabs, current marking the page), then the page. For the zero
+// TenantName it returns ErrNoTenantName, and for a missing path or a current tab outside
+// the four ErrNoTenantTabs, before writing a byte (it checks first), and
 // internal/handler/operator's render renders into a buffer, so the client gets a plain
 // 500 (TestTenantScreen_RefusesToRenderWithoutAName).
-func TenantScreen(title string, tenant TenantName) templ.Component {
+func TenantScreen(title string, tenant TenantName, tabs TenantTabs, current TenantTab) templ.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if tenant.v == "" {
 			return ErrNoTenantName
 		}
-		return tenantScreen(title, tenant).Render(ctx, w)
+		if tabs.Overview == "" || tabs.Plaques == "" || tabs.Billing == "" || tabs.VAT == "" ||
+			current < TabOverview || current > TabVAT {
+			return ErrNoTenantTabs
+		}
+		return tenantScreen(title, tenant, tabs, current).Render(ctx, w)
 	})
 }
 
@@ -238,6 +269,8 @@ type TenantOverviewView struct {
 	// BillingPath its billing months, /operator/tenants/<id>/billing (OP-12); VATPath its VAT
 	// number, /operator/tenants/<id>/vat (OP-16).
 	PlaquesPath, BillingPath, VATPath string
+	// Tabs is the tenant's sub-nav (M13-01).
+	Tabs TenantTabs
 	// API is the integration API section (M11 API-13a, K-22).
 	API TenantAPIView
 	// Suspension is the tenant's suspension and the one form its state calls for (OP-15 C).
@@ -297,6 +330,8 @@ type TenantPlaquesView struct {
 	ID   string
 	// OverviewPath is the tenant's overview, /operator/tenants/<id> -- the way back.
 	OverviewPath string
+	// Tabs is the tenant's sub-nav (M13-01).
+	Tabs TenantTabs
 	// Total is every plaque the tenant holds and Shown the rows below (the read returns
 	// 200 at most); Truncated says Shown is fewer than Total. Noun is "plaque" or
 	// "plaques", for Total.
@@ -431,6 +466,8 @@ type TenantBillingView struct {
 	// OverviewPath is the tenant's overview, /operator/tenants/<id> -- the way back;
 	// BillingPath this screen's own path, which its pager posts to.
 	OverviewPath, BillingPath string
+	// Tabs is the tenant's sub-nav (M13-01).
+	Tabs TenantTabs
 	// Page is the page number, 1..LastPage; MonthsPerPage the months on each page.
 	Page, LastPage, MonthsPerPage int
 	Rows                          []BillingRow
@@ -491,6 +528,8 @@ type TenantVATView struct {
 	// OverviewPath is the tenant's overview, /operator/tenants/<id> -- the way back; VATPath
 	// this screen's own path, which its form posts to.
 	OverviewPath, VATPath string
+	// Tabs is the tenant's sub-nav (M13-01).
+	Tabs TenantTabs
 	// Number is the VAT number on file, as stored. The form does not carry it: the server
 	// sends VIES the number its own read returned.
 	Number string

@@ -16,7 +16,7 @@ import "github.com/atknatk/tappa/web/templates/components"
 // read -- the Origin, or with none the fetch metadata's same-origin
 // (internal/handler/operator, sameOriginGate; TestSameOriginGate_ACrossOriginPostReachesNoStore).
 templ SignIn(v SignInView) {
-	@screen("Sign in", false) {
+	@screen("Sign in", false, navNone) {
 		<section class="op-card">
 			<h1 class="font-display text-2xl font-bold tracking-tight">Operator sign-in</h1>
 			<p class="mt-2 text-sm text-ink/70">Taptime staff only. This is not the business panel.</p>
@@ -56,7 +56,7 @@ templ SignIn(v SignInView) {
 // holding a challenge, which the right password mints, so it tells the password holder
 // what trying codes would tell them.
 templ Code(v CodeView) {
-	@screen("Sign-in code", false) {
+	@screen("Sign-in code", false, navNone) {
 		<section class="op-card">
 			<h1 class="font-display text-2xl font-bold tracking-tight">Enter your code</h1>
 			<p class="mt-2 text-sm text-ink/70">Type the six-digit code your authenticator app shows for Taptime operator.</p>

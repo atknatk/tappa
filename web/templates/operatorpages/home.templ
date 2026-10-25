@@ -18,7 +18,7 @@ import "github.com/atknatk/tappa/web/templates/components"
 // It does not show the operator's address: the session resolves to an id, and no
 // definer reads an operator's email (a new op_* is a migration).
 templ Home() {
-	@screen("Console", true) {
+	@screen("Console", true, navConsole) {
 		<section class="op-card">
 			<p class="docket-label">Operator console</p>
 			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">You are signed in</h1>
@@ -51,7 +51,7 @@ templ Home() {
 // Problem is the operator surface's refusal and fault page. Its sentences come from the
 // handler's ProblemView constants.
 templ Problem(v ProblemView) {
-	@screen(v.Title, v.SignedIn) {
+	@screen(v.Title, v.SignedIn, navNone) {
 		@components.Notice(components.ToneAlert, "") {
 			<h1 class="font-display text-xl font-bold tracking-tight">{ v.Title }</h1>
 			<p class="mt-2">{ v.Message }</p>

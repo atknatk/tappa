@@ -494,7 +494,15 @@ func TestSuspension_NothingIsWrittenWithoutTheBoxOrAKnownReason(t *testing.T) {
 		if got := g.store.count("SuspendTenant") + g.store.count("ReinstateTenant") - n; got != 0 {
 			t.Errorf("POST %s %v made %d write call(s), want none", path, f, got)
 		}
-		if strings.Contains(w.Body.String(), id.String()) || (len(strings.TrimSpace(posted)) > 2 && strings.Contains(w.Body.String(), html.EscapeString(posted))) {
+		// The posted value is looked for from <main on (M13-01): the operator nav before it says
+		// aria-hidden="true" on its icons, constant markup that is no echo of a posted "true".
+		inMain := w.Body.String()
+		if at := strings.Index(inMain, "<main"); at >= 0 {
+			inMain = inMain[at:]
+		} else {
+			t.Errorf("POST %s %v: the refusal page has no <main", path, f)
+		}
+		if strings.Contains(w.Body.String(), id.String()) || (len(strings.TrimSpace(posted)) > 2 && strings.Contains(inMain, html.EscapeString(posted))) {
 			t.Errorf("POST %s %v: the refusal page carries the tenant's id or the posted value", path, f)
 		}
 	}

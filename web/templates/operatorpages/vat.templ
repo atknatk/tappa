@@ -19,7 +19,7 @@ import "github.com/atknatk/tappa/web/templates/components"
 // a notice above the record saying that nothing was changed; a POST whose answer was recorded
 // answers with a redirect to this screen, which reads the record again.
 templ TenantVAT(v TenantVATView) {
-	@TenantScreen("VAT number", v.Name) {
+	@TenantScreen("VAT number", v.Name, v.Tabs, TabVAT) {
 		<section class="op-card">
 			<p class="docket-label">VAT number</p>
 			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">VAT re-check</h1>

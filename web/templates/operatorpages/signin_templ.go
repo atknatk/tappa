@@ -130,7 +130,7 @@ func SignIn(v SignInView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = screen("Sign in", false).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = screen("Sign in", false, navNone).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -251,7 +251,7 @@ func Code(v CodeView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = screen("Sign-in code", false).Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = screen("Sign-in code", false, navNone).Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

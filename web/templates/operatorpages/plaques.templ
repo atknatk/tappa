@@ -14,7 +14,7 @@ package operatorpages
 // replaced it and its counter -- every figure and time in the data face. A state the
 // handler's reading does not know is drawn as such, with the status as it is stored.
 templ TenantPlaques(v TenantPlaquesView) {
-	@TenantScreen("Plaques", v.Name) {
+	@TenantScreen("Plaques", v.Name, v.Tabs, TabPlaques) {
 		<section class="op-card">
 			<p class="docket-label">Plaques</p>
 			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Plaque inventory</h1>

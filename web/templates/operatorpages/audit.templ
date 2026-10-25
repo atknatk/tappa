@@ -25,7 +25,7 @@ import "strconv"
 //
 // THE SCREEN WRITES NOTHING: its forms read (the filter, the pager) and the bar signs out.
 templ AuditLog(v AuditLogView) {
-	@screen("Audit log", true) {
+	@screen("Audit log", true, navAudit) {
 		<section class="op-card">
 			<p class="docket-label">Audit log</p>
 			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Who did what on this surface</h1>

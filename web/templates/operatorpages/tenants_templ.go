@@ -115,7 +115,7 @@ func Tenants(v TenantsView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = screen("Tenants", true).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = screen("Tenants", true, navTenants).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -554,7 +554,7 @@ func TenantOverview(v TenantOverviewView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = TenantScreen("Tenant overview", v.Name).Render(templ.WithChildren(ctx, templ_7745c5c3_Var19), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = TenantScreen("Tenant overview", v.Name, v.Tabs, TabOverview).Render(templ.WithChildren(ctx, templ_7745c5c3_Var19), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

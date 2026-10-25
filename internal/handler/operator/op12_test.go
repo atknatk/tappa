@@ -703,7 +703,8 @@ func TestBillingScreen_SaysTheCountIsAFloor(t *testing.T) {
 //
 // PART I -- every href and action on the page (page 3, so the pager has both forms) is one of
 // the tenant's overview, the tenant list, the screen's own path (the pager's posts) and the
-// bar's sign-out, besides /static/; the page says no person is listed; the read's month type,
+// bar's sign-out, besides /static/ -- and, since M13-01, the operator nav's other four sections
+// and the tenant sub-nav's plaques and VAT number, none of which names a person; the page says no person is listed; the read's month type,
 // the view and the row have exactly the fields written below -- none for a person -- read by
 // reflection.
 //
@@ -721,7 +722,10 @@ func TestBillingScreen_OffersNoItemisationAnywhere(t *testing.T) {
 	}
 	body := w.Body.String()
 	allowed := map[string]bool{"/operator/tenants/" + tenant.String(): true, "/operator/tenants": true,
-		billingPathOf(tenant.String()): true, "/operator/logout": true}
+		billingPathOf(tenant.String()): true, "/operator/logout": true,
+		// The operator nav and the tenant sub-nav (M13-01): sections and the tenant's other screens.
+		"/operator": true, "/operator/holdings": true, "/operator/audit": true, "/operator/legal": true,
+		"/operator/tenants/" + tenant.String() + "/plaques": true, vatPathOf(tenant.String()): true}
 	n := 0
 	for _, m := range regexp.MustCompile(`\s(href|action)="([^"]*)"`).FindAllStringSubmatch(body, -1) {
 		if strings.HasPrefix(m[2], "/static/") {
@@ -729,7 +733,7 @@ func TestBillingScreen_OffersNoItemisationAnywhere(t *testing.T) {
 		}
 		n++
 		if !allowed[m[2]] {
-			t.Errorf("the billing screen points at %q, which is none of its four targets", m[2])
+			t.Errorf("the billing screen points at %q, which is none of its targets", m[2])
 		}
 	}
 	if n < 5 {
@@ -753,7 +757,9 @@ func TestBillingScreen_OffersNoItemisationAnywhere(t *testing.T) {
 			"FirstChargeableMonth", "Free", "EmployeeCount", "UnstampedEmployees", "UnitPrice", "Currency", "AmountDue", "ClosedAt", "HasEnded"}},
 		"db.TenantBillingTimeline": {fields(db.TenantBillingTimeline{}), []string{"TenantID", "TenantName", "Page", "Months"}},
 		"operatorpages.TenantBillingView": {fields(operatorpages.TenantBillingView{}), []string{"Name", "ID", "OverviewPath", "BillingPath",
-			"Page", "LastPage", "MonthsPerPage", "Rows"}},
+			"Tabs", "Page", "LastPage", "MonthsPerPage", "Rows"}},
+		// Tabs (M13-01) is the sub-nav's four paths, strings the handler builds from the tenant's id.
+		"operatorpages.TenantTabs": {fields(operatorpages.TenantTabs{}), []string{"Overview", "Plaques", "Billing", "VAT"}},
 		"operatorpages.BillingRow": {fields(operatorpages.BillingRow{}), []string{"Month", "Label", "Sentence", "Tone", "HasFigures", "Plan",
 			"People", "UnitPrice", "Amount", "Free", "FirstCharged", "ClosedAt", "Period", "Floor"}},
 	} {
@@ -1550,7 +1556,7 @@ func TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes(t *testing.T) {
 	classes := map[string]bool{}
 	for tone, w := range want {
 		var b strings.Builder
-		if err := operatorpages.TenantBilling(operatorpages.TenantBillingView{Name: mustName(t, "FAKE Tone Ltd"), Page: 1, LastPage: 5,
+		if err := operatorpages.TenantBilling(operatorpages.TenantBillingView{Name: mustName(t, "FAKE Tone Ltd"), Tabs: fixtureTabs, Page: 1, LastPage: 5,
 			MonthsPerPage: 12, Rows: []operatorpages.BillingRow{{Month: "M", Label: "L", Sentence: "S", Tone: tone}}}).Render(t.Context(), &b); err != nil {
 			t.Fatal(err)
 		}

@@ -21,7 +21,7 @@ import (
 // text (bdi), so a direction override inside one does not turn the words around it.
 // A row whose tenant shows no name says "Unnamed tenant"; its id is printed beside it.
 templ Tenants(v TenantsView) {
-	@screen("Tenants", true) {
+	@screen("Tenants", true, navTenants) {
 		<section class="op-card">
 			<p class="docket-label">Tenants</p>
 			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Find a tenant</h1>
@@ -124,7 +124,7 @@ templ tenantPageForm(search string, page int, label string) {
 // the integration API (M11 API-13a; tenantAPISection) and, last, whether the business's panel
 // takes writes (OP-15 C; tenantSuspension) -- the gravest of the overview's writes at its foot.
 templ TenantOverview(v TenantOverviewView) {
-	@TenantScreen("Tenant overview", v.Name) {
+	@TenantScreen("Tenant overview", v.Name, v.Tabs, TabOverview) {
 		<section class="op-card">
 			<p class="docket-label">Tenant overview</p>
 			<dl class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">

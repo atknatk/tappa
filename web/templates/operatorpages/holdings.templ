@@ -22,7 +22,7 @@ import (
 // and each live membership has its own Remove button, whose path names the holding and the
 // business (the body carries nothing).
 templ Holdings(v HoldingsView) {
-	@screen("Holdings", true) {
+	@screen("Holdings", true, navHoldings) {
 		<section class="op-card">
 			<p class="docket-label">Holdings</p>
 			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Holdings</h1>

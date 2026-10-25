@@ -16,9 +16,22 @@ import "github.com/atknatk/tappa/web/templates/layout"
 // tappa-green, white cards. The operator bar inverts that -- a full-width ink band
 // with the lockup in IBM Plex Mono capitals and a saffron rule under it. Saffron is
 // the palette's WARNING colour (the skill's status table), and the bar uses it for that:
-// this surface reaches across tenants (ADR 0021: the op_* definers). No tab bar, no green
-// wordmark, a narrower column: the two surfaces are meant not to be mistaken for each
-// other -- a design judgement the brand review makes, not a test.
+// this surface reaches across tenants (ADR 0021: the op_* definers).
+//
+// IT HAS A NAVIGATION NOW, AND STILL CANNOT BE MISTAKEN FOR THE PANEL (M13-01, user decision
+// OP-1, 2026-10-20: "Menü ekle"). Until then this comment said "no tab bar": the console's
+// front page was the menu and every screen carried only its "Back to ..." links. The
+// operator asked for a menu, so opNav below draws one -- five links, no read, no route, no
+// form -- and the separation the old sentence bought is kept another way: the nav is a
+// PAPER column with a mono "Platform" label on the desktop (the panel's sidebar is ink), a
+// row of text tabs under the band on the tablet (the panel's is an icon rail), a paper bar
+// of five always-shown items on the phone (the panel's has a More sheet); its current item
+// is marked in ink, never in tappa-green or a tenant's accent; the one-tenant screens add a
+// SAFFRON-marked sub-nav inside the tenant banner, the warning tone again, because such a
+// screen shows another business. It uses its own op-* classes only and none of the panel's
+// -- an operator render carrying a panel or tenant-brand marker is red in
+// internal/handler/operator's chrome tests. No tenant brand (ADR 0023: Theme{}, no logo, no
+// accent); the band is unchanged.
 //
 // CONTRAST, COMPUTED (WCAG 2.1 relative luminance, sRGB; the ground is ink #152219):
 // paper text 16.17:1 · saffron text 6.16:1 · the docket label tone (ink at 70%) on the
@@ -32,7 +45,7 @@ import "github.com/atknatk/tappa/web/templates/layout"
 // page that makes the browser fetch a URL sign the operator out.
 templ bar(signedIn bool) {
 	<header class="op-bar">
-		<div class="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+		<div class="flex min-h-16 flex-wrap items-center justify-between gap-3 px-4 md:px-6 desk:px-8">
 			<p class="op-lockup">
 				TAPTIME <span class="text-saffron">OPERATOR</span>
 			</p>
@@ -46,14 +59,15 @@ templ bar(signedIn bool) {
 }
 
 // tenantBanner names the tenant a screen is showing, under the bar and above the
-// screen's content (ADR 0020 §9). In this package's source today its caller is
-// tenantScreen, whose caller is TenantScreen, which refuses the zero name (read, not
+// screen's content (ADR 0020 §9), and carries the tenant's sub-nav under the name
+// (M13-01). In this package's source today its caller is tenantScreen, whose caller is
+// TenantScreen, which refuses the zero name and an incomplete sub-nav (read, not
 // pinned). A tenant named by its id (UnnamedTenant) shows the placeholder's words and
 // the id, mono. The name is isolated for bidirectional text: a tenant chose it, and a
 // direction override inside it must not turn the banner's other words around.
-templ tenantBanner(name TenantName) {
+templ tenantBanner(name TenantName, tabs TenantTabs, current TenantTab) {
 	<section class="op-tenant" aria-label="Tenant">
-		<div class="mx-auto w-full max-w-3xl px-4 py-3">
+		<div class="mx-auto w-full max-w-[960px] px-4 pt-4 md:px-6 md:pt-5 desk:px-10 desk:pt-6">
 			<p class="docket-label">Tenant</p>
 			if name.byID {
 				<p class="font-display text-xl font-bold tracking-tight">{ unnamedTenant }</p>
@@ -61,39 +75,135 @@ templ tenantBanner(name TenantName) {
 			} else {
 				<p class="font-display text-xl font-bold tracking-tight"><bdi>{ name.v }</bdi></p>
 			}
+			@opSubNav(tabs, current)
 		</div>
 	</section>
 }
 
-// screen is a platform-wide operator screen: no tenant in view.
-templ screen(title string, signedIn bool) {
+// opSubNav is one tenant's four screens (M13-01, OP-1). The current tab is the PAGE, so it
+// says aria-current="page" -- unlike the operator nav, whose current item is the section
+// (README §2 "OP-15 annex" (b)). Links only.
+templ opSubNav(tabs TenantTabs, current TenantTab) {
+	<nav class="op-subnav" aria-label="This tenant">
+		<a href={ templ.URL(tabs.Overview) } class="op-subnav-item" { ariaCurrent(current == TabOverview, "page")... }>Overview</a>
+		<a href={ templ.URL(tabs.Plaques) } class="op-subnav-item" { ariaCurrent(current == TabPlaques, "page")... }>Plaques</a>
+		<a href={ templ.URL(tabs.Billing) } class="op-subnav-item" { ariaCurrent(current == TabBilling, "page")... }>Billing</a>
+		<a href={ templ.URL(tabs.VAT) } class="op-subnav-item" { ariaCurrent(current == TabVAT, "page")... }>VAT number</a>
+	</nav>
+}
+
+// navItem is the operator nav's current section; navNone marks none (a signed-in problem
+// page is not a section).
+type navItem int
+
+const (
+	navNone navItem = iota
+	navConsole
+	navTenants
+	navHoldings
+	navAudit
+	navLegal
+)
+
+// ariaCurrent is the aria-current attribute of a nav link: value on the current one,
+// nothing on the others.
+func ariaCurrent(on bool, value string) templ.Attributes {
+	if on {
+		return templ.Attributes{"aria-current": value}
+	}
+	return templ.Attributes{}
+}
+
+// opNav is the operator's navigation (M13-01, user decision OP-1): ONE element for the
+// three widths -- a column on the desktop, a row of tabs on the tablet, a bar at the foot
+// of the viewport on the phone, restyled by input.css's op-nav rules. Its current item is
+// the SECTION the page belongs to, so it says aria-current="true", never "page": a
+// tenant's plaques are in the Tenants section but are not the Tenants page (README §2
+// "OP-15 annex" (b)). Five links, no read, no form, no button: the plaques page allows
+// exactly one form and one button, the sign-out. The icons are the phone's (the CSP has
+// no img-src, so they are drawn in the page and kept from assistive technology); the phone says
+// "Audit" and "Legal" where the wider nav says "Audit log" and "Legal texts".
+templ opNav(current navItem) {
+	<nav class="op-nav" aria-label="Operator sections">
+		<p class="op-nav-label">Platform</p>
+		<a href="/operator" class="op-nav-item" { ariaCurrent(current == navConsole, "true")... }>
+			<svg class="op-nav-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"></rect><path d="M7 20h10M8 9l3 2-3 2M13 13h3"></path></svg>
+			<span>Console</span>
+		</a>
+		<a href="/operator/tenants" class="op-nav-item" { ariaCurrent(current == navTenants, "true")... }>
+			<svg class="op-nav-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V9l6-4 6 4v12"></path><path d="M15 21V13h6v8"></path><path d="M7 13h4M7 17h4"></path></svg>
+			<span>Tenants</span>
+		</a>
+		<a href="/operator/holdings" class="op-nav-item" { ariaCurrent(current == navHoldings, "true")... }>
+			<svg class="op-nav-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="3"></circle><circle cx="17" cy="7" r="3"></circle><circle cx="12" cy="17" r="3"></circle><path d="M9.5 8.5l1.5 6M14.5 8.5l-1.5 6"></path></svg>
+			<span>Holdings</span>
+		</a>
+		<a href="/operator/audit" class="op-nav-item" { ariaCurrent(current == navAudit, "true")... }>
+			<svg class="op-nav-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"></path><path d="M15 3v4h4M9 12h7M9 16h7"></path></svg>
+			<span class="md:hidden">Audit</span><span class="hidden md:inline">Audit log</span>
+		</a>
+		<a href="/operator/legal" class="op-nav-item" { ariaCurrent(current == navLegal, "true")... }>
+			<svg class="op-nav-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M5 7h14M7 7l-3 7h6zM17 7l-3 7h6z"></path></svg>
+			<span class="md:hidden">Legal</span><span class="hidden md:inline">Legal texts</span>
+		</a>
+	</nav>
+}
+
+// frame is the signed-in shell under the bar (M13-01): the operator nav, then the content
+// column the page (and, on a one-tenant screen, the banner before it) sits in. The nav
+// comes first in the document on every width -- first for the keyboard and a screen
+// reader -- and input.css moves it to the foot of the viewport on the phone.
+templ frame(current navItem) {
+	<div class="op-frame">
+		@opNav(current)
+		<div class="op-col">
+			{ children... }
+		</div>
+	</div>
+}
+
+// screen is a platform-wide operator screen: no tenant in view. Signed in, it wears the
+// frame with current as the nav's current section (navNone on a signed-in problem page);
+// signed out it is the band and one narrow column, no nav.
+templ screen(title string, signedIn bool, current navItem) {
 	@layout.Operator(title + " — Taptime operator") {
 		@bar(signedIn)
-		<main class="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
-			{ children... }
-		</main>
+		if signedIn {
+			@frame(current) {
+				<main class="op-main mx-auto flex w-full max-w-[960px] flex-col gap-4 px-4 pt-4 pb-6 md:gap-5 md:px-6 md:py-6 desk:gap-6 desk:px-10 desk:pt-8 desk:pb-14">
+					{ children... }
+				</main>
+			}
+		} else {
+			<main class="op-main mx-auto flex w-full max-w-lg flex-col gap-6 px-4 py-8">
+				{ children... }
+			</main>
+		}
 	}
 }
 
 // scriptedScreen is screen plus one script; Enroll is its caller. It draws the bar
-// signed out: enrollment ends in a session, it does not start in one.
+// signed out and no nav: enrollment ends in a session, it does not start in one.
 templ scriptedScreen(title, src string) {
 	@layout.OperatorWithScript(title+" — Taptime operator", src) {
 		@bar(false)
-		<main class="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
+		<main class="op-main mx-auto flex w-full max-w-lg flex-col gap-6 px-4 py-8">
 			{ children... }
 		</main>
 	}
 }
 
 // tenantScreen is a screen showing one tenant: the tenant's name is in the document
-// title and in the banner. Unexported; TenantScreen calls it after checking the name.
-templ tenantScreen(title string, name TenantName) {
+// title and in the banner, the nav's current section is Tenants and the banner's sub-nav
+// marks the page. Unexported; TenantScreen calls it after checking the name and the tabs.
+templ tenantScreen(title string, name TenantName, tabs TenantTabs, current TenantTab) {
 	@layout.Operator(title + " — " + name.title() + " — Taptime operator") {
 		@bar(true)
-		@tenantBanner(name)
-		<main class="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
-			{ children... }
-		</main>
+		@frame(navTenants) {
+			@tenantBanner(name, tabs, current)
+			<main class="op-main mx-auto flex w-full max-w-[960px] flex-col gap-4 px-4 pt-4 pb-6 md:gap-5 md:px-6 md:py-6 desk:gap-6 desk:px-10 desk:pt-8 desk:pb-14">
+				{ children... }
+			</main>
+		}
 	}
 }

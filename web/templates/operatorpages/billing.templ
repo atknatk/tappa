@@ -22,7 +22,7 @@ import "strconv"
 // NO PERSON IS LISTED: the read returns counts, the view has no field for a name, and no
 // row links anywhere. The page says so in a sentence.
 templ TenantBilling(v TenantBillingView) {
-	@TenantScreen("Billing", v.Name) {
+	@TenantScreen("Billing", v.Name, v.Tabs, TabBilling) {
 		<section class="op-card">
 			<p class="docket-label">Billing</p>
 			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Billing months</h1>

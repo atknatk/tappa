@@ -197,8 +197,11 @@ func TestEnrollQR_IsTheKeysURIInkOnPaper(t *testing.T) {
 
 // TestEnrollQR_OnlyOnTheFirstLoad: the code is on the enrollment page's first load and on
 // no other page -- a re-render after a refused attempt has no key and no svg (the handler
-// cannot open the blob), and of the 40 renders screens() makes, the one enrollment render
-// that carries a QR matrix is the only one with an svg, and it draws one.
+// cannot open the blob), and of the 49 renders screens() makes, the one enrollment render
+// that carries a QR matrix is the only signed-out one with an svg, and it draws one; the
+// other eight signed-out renders draw none. Each of the 40 signed-in renders draws exactly
+// five, the operator nav's icons (M13-01): all five inside <nav class="op-nav">, each
+// aria-hidden="true", and none anywhere else on the page.
 func TestEnrollQR_OnlyOnTheFirstLoad(t *testing.T) {
 	g := newRig(t)
 	id := uuid.NewString()
@@ -218,13 +221,39 @@ func TestEnrollQR_OnlyOnTheFirstLoad(t *testing.T) {
 	if strings.Contains(w.Body.String(), "<svg") || strings.Contains(w.Body.String(), `class="op-key"`) {
 		t.Error("the re-render after a refused attempt draws a code or prints a key")
 	}
+	signedIn := 0
 	for name, page := range screens(t) {
+		nav := strings.Index(page, `<nav class="op-nav"`)
+		if strings.Contains(page, `action="/operator/logout"`) {
+			signedIn++
+			end := -1
+			if nav >= 0 {
+				end = nav + strings.Index(page[nav:], "</nav>")
+			}
+			if got := strings.Count(page, "<svg"); got != 5 || nav < 0 || end < nav {
+				t.Errorf("%s: %d svg element(s), nav at %d; want the nav's five", name, got, nav)
+				continue
+			}
+			seg := page[nav:end]
+			if got := strings.Count(seg, "<svg"); got != 5 || strings.Count(seg, `<svg class="op-nav-icon" `) != 5 {
+				t.Errorf("%s: %d of the five svg elements are the nav's icons", name, got)
+			}
+			for _, m := range regexp.MustCompile(`<svg[^>]*>`).FindAllString(seg, -1) {
+				if !strings.Contains(m, ` aria-hidden="true"`) {
+					t.Errorf("%s: a nav icon is not hidden from assistive technology: %s", name, m)
+				}
+			}
+			continue
+		}
 		want := 0
 		if name == "enroll" {
 			want = 1
 		}
-		if got := strings.Count(page, "<svg"); got != want {
-			t.Errorf("%s: %d svg element(s), want %d", name, got, want)
+		if got := strings.Count(page, "<svg"); got != want || nav >= 0 {
+			t.Errorf("%s: %d svg element(s), nav at %d; want %d and no nav", name, got, nav, want)
 		}
+	}
+	if signedIn != 40 {
+		t.Fatalf("PREMISE: %d signed-in render(s), the comment says 40", signedIn)
 	}
 }
