@@ -169,7 +169,8 @@ templ landingPlayIcon() {
 // landing.js swaps the words.
 //
 // 🔴 ONE RECORD, THREE PLACES. The plaque's venue line (pPlaque), the phone's
-// greeting and venue (pName, pLoc) and its clock (pTime), and the ticket's four
+// greeting and venue (pName, pLoc), its clock (pTime) and its button and the line under it
+// (pBtn, pFix), and the ticket's four
 // values all show the SAME made-up record; landing.js rotates them together through
 // the same four records. What is written here is the first of the four, so a
 // browser that runs no script shows a consistent still rather than a broken one --
@@ -178,10 +179,12 @@ templ landingPlayIcon() {
 //
 // 🔴 THE PHONE IS A DRAWING OF THE TAP SCREEN, NOT THE TAP SCREEN. It imitates
 // pages.TapHeading and the tap button -- the "Tapping" label, "Hello" and the name,
-// the venue, the one word "Tap", the unbranded wordmark in green -- with classes of
-// its own, so nothing here reaches the real screen (CLAUDE.md §9) and the real
-// screen's components are not rendered on a public page. The button is a div: it is
-// a picture of a button, and a picture is not something a visitor can press.
+// the venue, the button in the record's direction ("Clock in" / "Clock out") with the
+// small "Not right? …" under it (ADR 0032 §B.1; landing.js rotates both with the
+// record), the unbranded wordmark in green -- with classes of its own, so nothing here
+// reaches the real screen (CLAUDE.md §9) and the real screen's components are not
+// rendered on a public page. The button and the line under it are divs: a picture of
+// a button is not something a visitor can press.
 //
 // THE SVGs ARE INLINE BECAUSE THEY HAVE TO BE: the response's policy names no
 // img-src, so a file would not load. Their colours are classes (input.css, --mint and
@@ -234,7 +237,7 @@ templ landingScene() {
 			</svg>
 		</div>
 		<div class="heroPhoneCol">
-			<div class="heroPhone" role="img" aria-label="The employee's own phone showing the tap screen: a greeting by name, the venue and one Tap button">
+			<div class="heroPhone" role="img" aria-label="The employee's own phone showing the tap screen: a greeting by name, the venue, a Clock in or Clock out button and a small “Not right?” under it">
 				<div class="heroScreen">
 					<span class="heroNotch"></span>
 					<div class="heroCanvas">
@@ -264,7 +267,8 @@ templ landingScene() {
 								<p class="heroHello">Hello <span id="pName">Maria Vella</span></p>
 								<p class="heroVenue" id="pLoc">KF St Julians</p>
 							</div>
-							<div class="heroTapButton">Tap</div>
+							<div class="heroTapButton" id="pBtn">Clock in</div>
+							<div class="heroTapFix" id="pFix">Not right? Clock out</div>
 						</div>
 					</div>
 				</div>

@@ -16,6 +16,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/policy"
+	"github.com/atknatk/tappa/internal/sun"
 	"github.com/atknatk/tappa/internal/webhook"
 	"github.com/atknatk/tappa/web/templates/layout"
 	"github.com/atknatk/tappa/web/templates/pages"
@@ -83,7 +84,10 @@ type productFactSources struct {
 	// prediction, Clock in, Clock out), and ResultRenders the result screen for each
 	// verdict: a control a sub-template adds is in the render, not in the templates a
 	// source scan names.
-	TapRenders    map[pages.TapDirection]string
+	TapRenders map[pages.TapDirection]string
+	// TapPage is internal/handler/tap.go, comments removed: the handler that renders the
+	// tap screen and chooses its direction (ADR 0032 §B.2).
+	TapPage       string
 	ResultRenders map[string]string
 }
 
@@ -183,6 +187,7 @@ func loadProductFactSources(t *testing.T) productFactSources {
 	return productFactSources{
 		Result:        repoFile(t, "web", "templates", "pages", "result.templ"),
 		TapHandler:    strip(repoFile(t, "internal", "handler", "checkin.go")),
+		TapPage:       strip(repoFile(t, "internal", "handler", "tap.go")),
 		Tap:           repoFile(t, "web", "templates", "pages", "tap.templ"),
 		Transactions:  repoFile(t, "web", "templates", "pages", "transactions.templ"),
 		TxHandler:     strip(repoFile(t, "internal", "handler", "transactions.go")),
@@ -282,6 +287,58 @@ var renderedControlRE = regexp.MustCompile(`(?i)<(a|button|form|input|select|tex
 // renderedControl is the first control in html, or "".
 func renderedControl(html string) string { return renderedControlRE.FindString(html) }
 
+// docketTapDirection is the tap screen's prediction before a sample docket's tap -- the
+// docket's own direction -- written out here rather than read from pages.DrawnTapDirection,
+// so a drawing that took the wrong direction from it is caught too.
+var docketTapDirection = map[string]pages.TapDirection{"IN": pages.TapClockIn, "OUT": pages.TapClockOut}
+
+// tapScreenWords is what the REAL tap screen's buttons say for each direction: the primary
+// button's words and the "Not right? …" correction's ("" with no prediction), read from
+// pages.Tap's render -- TapButtonFace and tapCorrection as the product draws them. Every
+// drawing of the tap screen on the public site is held to this, never to a copy of it.
+func tapScreenWords() (map[pages.TapDirection][2]string, error) {
+	out := map[pages.TapDirection][2]string{}
+	for _, d := range tapDirections {
+		var b bytes.Buffer
+		view := pages.TapView{EmployeeName: "Sample Person", LocationName: "Sample Venue", TapContext: "ctx", Direction: d}
+		if err := pages.Tap(view, layout.Brand{}).Render(context.Background(), &b); err != nil {
+			return nil, err
+		}
+		var words [2]string
+		for _, m := range tapButtonRE.FindAllStringSubmatch(b.String(), -1) {
+			switch {
+			case strings.Contains(m[1], `class="tap-button"`):
+				words[0] = m[2]
+			case strings.Contains(m[1], "data-tap-correction"):
+				words[1] = m[2]
+			}
+		}
+		if words[0] == "" {
+			return nil, fmt.Errorf("the tap screen drawn for direction %d renders no primary button", d)
+		}
+		out[d] = words
+	}
+	return out, nil
+}
+
+// tapDrawingProblem says how a drawing of the tap screen before a docket's tap (direction
+// "IN" / "OUT") departs from the real screen: its button's words, and the correction
+// under it, against tapScreenWords. drawn is the drawing's button and correction text.
+func tapDrawingProblem(direction, button, correction string) string {
+	d, ok := docketTapDirection[direction]
+	if !ok {
+		return fmt.Sprintf("the drawing's record has no direction (%q), and the tap screen draws one before a counted tap", direction)
+	}
+	words, err := tapScreenWords()
+	if err != nil {
+		return err.Error()
+	}
+	if want := words[d]; button != want[0] || correction != want[1] {
+		return fmt.Sprintf("the drawing's tap screen says %q with %q under it, and the product says %q with %q", button, correction, want[0], want[1])
+	}
+	return ""
+}
+
 // tapCorrectionCallRE is tapForm's one call of the correction, and the condition it sits
 // under: the "Not right? …" button is drawn only when the predicted direction has an
 // other -- under "Clock in" or "Clock out", never under "Tap" (ADR 0032 §B.1).
@@ -361,6 +418,44 @@ func tapScreenViolation(s productFactSources) string {
 		if why := tapRenderProblem(s.TapRenders[d], d); why != "" {
 			return fmt.Sprintf("the tap screen drawn for %q: %s", d.Words(), why)
 		}
+	}
+	return tapPagePredictionProblem(s.TapPage)
+}
+
+var (
+	// tapPageGateRE is the handler asking the prediction's plaque-and-channel gate and handing
+	// it to the directory, which reads the person's day only under it (ADR 0032 §B.2).
+	tapPageGateRE = regexp.MustCompile(`predict := predictionAllowed\(p, pv\)\s+facts, err := t\.directory\.TapPage\(r\.Context\(\), [^\n]*, predict\)`)
+	// tapPageDirectionRE is the directory's prediction becoming the screen's direction.
+	tapPageDirectionRE = regexp.MustCompile(`\bdirection = tapDirectionOf\(facts\.Prediction\)`)
+	// tapPageRenderRE is the tap screen's render carrying that direction.
+	tapPageRenderRE = regexp.MustCompile(`(?s)pages\.Tap\(pages\.TapView\{[^}]*\bDirection:\s*direction,[^}]*\}`)
+)
+
+// tapPagePredictionProblem is the handler half of "the button says Clock in or Clock out":
+// the served screen takes its direction from the directory's prediction under the gate, and
+// tapDirectionOf and predictionAllowed answer as the page says for an active plaque's NFC
+// tap with a verified signature, a QR tap, and a prediction with a business day.
+func tapPagePredictionProblem(src string) string {
+	if !tapPageGateRE.MatchString(src) {
+		return "the tap page no longer asks predictionAllowed and hands it to the directory's TapPage"
+	}
+	if !tapPageDirectionRE.MatchString(src) {
+		return "the tap page no longer takes its direction from the directory's prediction (tapDirectionOf)"
+	}
+	if !tapPageRenderRE.MatchString(src) {
+		return "the tap page no longer renders the screen with the predicted direction"
+	}
+	day := time.Date(2026, 10, 12, 6, 0, 0, 0, time.UTC)
+	for typ, want := range map[tap.Type]pages.TapDirection{tap.TypeIn: pages.TapClockIn, tap.TypeOut: pages.TapClockOut} {
+		if got := tapDirectionOf(&tap.Prediction{Direction: typ, BusinessDayStart: &day}); got != want {
+			return fmt.Sprintf("a prediction of %q draws %q, not %q", typ, got.Words(), want.Words())
+		}
+	}
+	active := string(tap.TagActive)
+	if !predictionAllowed(sun.Params{Channel: sun.ChannelNFC}, sun.Preview{TagStatus: active, CMACValid: true}) ||
+		!predictionAllowed(sun.Params{Channel: sun.ChannelQR}, sun.Preview{TagStatus: active}) {
+		return "predictionAllowed refuses an active plaque's verified NFC tap or its QR tap, so no screen says Clock in or Clock out"
 	}
 	return ""
 }
@@ -720,6 +815,7 @@ func TestProductFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 	}
 	result := func(s *productFactSources) *string { return &s.Result }
 	tapT := func(s *productFactSources) *string { return &s.Tap }
+	tapPageSrc := func(s *productFactSources) *string { return &s.TapPage }
 	// tapRender edits the screen served for one direction, on a copy of the map.
 	tapRender := func(d pages.TapDirection, old, new string) func(*productFactSources) {
 		return func(s *productFactSources) {
@@ -753,6 +849,9 @@ func TestProductFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{pages.FactTapScreenIsOneButtonAndACorrection, "the correction takes the accent", replace(tapT, `items-center self-center px-3 text-base text-ink underline`, `items-center self-center px-3 text-base bg-brand text-ink underline`)},
 		{pages.FactTapScreenIsOneButtonAndACorrection, "the correction becomes a second primary button", replace(tapT, `class="mt-2 inline-flex min-h-11`, `class="tap-button mt-2 inline-flex min-h-11`)},
 		{pages.FactTapScreenIsOneButtonAndACorrection, "the face draws a button that is not the primary one", replace(tapT, `<button type="button" class="tap-button">`, `<button type="button" class="tap-link">`)},
+		{pages.FactTapScreenIsOneButtonAndACorrection, "the handler draws no direction", replace(tapPageSrc, "Direction:    direction,", "Direction:    pages.TapUndirected,")},
+		{pages.FactTapScreenIsOneButtonAndACorrection, "the handler stops reading the prediction", replace(tapPageSrc, "direction = tapDirectionOf(facts.Prediction)", "direction = pages.TapUndirected")},
+		{pages.FactTapScreenIsOneButtonAndACorrection, "the handler stops asking the gate", replace(tapPageSrc, "predict := predictionAllowed(p, pv)", "predict := false")},
 		{pages.FactTapScreenIsOneButtonAndACorrection, "the served tap screen carries a second button", tapRender(pages.TapUndirected, "</form>", `</form><button type="button">History</button>`)},
 		{pages.FactTapScreenIsOneButtonAndACorrection, "the undirected screen draws a correction", tapRender(pages.TapUndirected, "</button>", `</button><button type="submit" name="want" value="out" class="text-ink" data-tap-correction>Not right? Clock out</button>`)},
 		{pages.FactTapScreenIsOneButtonAndACorrection, "the served correction leaves the form", func(s *productFactSources) {
@@ -994,6 +1093,12 @@ func productTapProblems(t *testing.T, d pages.PanelDocket, note string, closing 
 	heading := screenText(t, "<body>"+b.String()+"</body>")
 	if want := "Tapping Hello " + d.Who + " " + d.Venue; heading != want {
 		out = append(out, fmt.Sprintf("the tap screen reads %q, the drawing %q", heading, want))
+	}
+	// The drawing's button and the line under it come from DrawnTapDirection and
+	// DrawnCorrection; both are held to the real screen's render for the record's direction.
+	drawn := pages.DrawnTapDirection(d.Direction)
+	if why := tapDrawingProblem(d.Direction, drawn.Words(), pages.DrawnCorrection(drawn)); why != "" {
+		out = append(out, why)
 	}
 	if want := strings.ToUpper(pages.LandingPanelSpikeFocus.Label); plaque != want {
 		out = append(out, fmt.Sprintf("the plaque reads %q and The Spike names the record's plaque %q", plaque, want))
@@ -1245,10 +1350,20 @@ func TestProductPage_TheDrawingsAreWhatTheProductWouldDraw(t *testing.T) {
 	// The page draws each sample, whole and in order.
 	text := renderedPublicText(t, pages.ProductPath)
 	d := pages.ProductTapSample
+	// The phone's button and the line under it are the REAL screen's words before this
+	// record's tap (tapScreenWords), not a copy of the drawing's.
+	words, err := tapScreenWords()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tw := words[docketTapDirection[d.Direction]]
+	if tw[1] == "" {
+		t.Fatalf("PREMISE: the sample's direction %q draws no correction on the real screen", d.Direction)
+	}
 	want := []string{
 		pages.ProductTapPlaque,
-		"Sample screen: the tap screen — Hello " + d.Who + ", " + d.Venue + ", one Tap button",
-		"Tapping Hello " + d.Who + " " + d.Venue + " Tap",
+		"Sample screen: the tap screen — Hello " + d.Who + ", " + d.Venue + ", a " + tw[0] + " button and a small “" + tw[1] + "” under it",
+		"Tapping Hello " + d.Who + " " + d.Venue + " " + tw[0] + " " + tw[1],
 		"Sample screen: the result of a flagged tap — Clocked in " + d.At + ", FLAGGED",
 		d.Venue + " Clocked in " + d.At + " FLAGGED Trust " + d.Trust + " " + pages.ProductTapNote + " " + strings.Join(pages.ProductTapClosing, " "),
 	}

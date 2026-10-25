@@ -508,6 +508,66 @@ func staleProbe() tap.Input {
 	return in
 }
 
+// laterDayProbe is a tap at KF Hamrun at 07:00 on the Tuesday after a check-in nobody
+// closed at 15:00 on the Monday: 16 hours later, but on a later business day (cutoff 05:00).
+func laterDayProbe() tap.Input {
+	in := staleProbe()
+	in.Now = samplesAt(1, 7, 0)
+	in.LastOpenIn = &tap.Transaction{ID: uuid.New(), OccurredAt: samplesAt(0, 15, 0), Direction: tap.TypeIn}
+	return in
+}
+
+var (
+	// ledgerOtherDayKeepsTheInRE is accumulate's class (b): the check-in stays open and the
+	// check-out is counted as one with no open check-in.
+	ledgerOtherDayKeepsTheInRE = regexp.MustCompile(`if class == tap\.CheckoutOtherDay \{\s*open = nil\s*openEntry\(in\)\s*inMissing\(e\)`)
+	// ledgerTooLongKeepsTheInRE is accumulate's class (a): no shift, the check-in is open.
+	ledgerTooLongKeepsTheInRE = regexp.MustCompile(`if class == tap\.CheckoutTooLong \{\s*out\.Totals\.TooLong\+\+\s*openEntry\(in\)\s*continue`)
+)
+
+// chosenOutProblem is the "Not right? Clock out" half of FactForgottenCheckOutIsNotPaid:
+// pressed after a check-in nobody closed, the engine records the check-out the person
+// chose (ADR 0032 §B.3), the check-out closes nothing -- class (a) in the same business
+// day, (b) on a later one (§A.6) -- and the ledger keeps the old check-in open for both.
+func chosenOutProblem(s restaurantsFactSources) string {
+	out := tap.TypeOut
+	for name, probe := range map[string]tap.Input{"22.5 hours later": staleProbe(), "a business day later": laterDayProbe()} {
+		probe.RequestedDirection = &out
+		d := s.Decide(probe)
+		if d.Type == nil || *d.Type != tap.TypeOut || d.DirectionSource != tap.DirectionEmployee {
+			return fmt.Sprintf("“Not right? Clock out” %s is %v (%s), not the check-out the person chose", name, d.Type, d.DirectionSource)
+		}
+		p := tap.PredictDirection(probe.Now, probe.LastOpenIn, probe.DayCutoff)
+		prev := &tap.Prev{Direction: tap.TypeIn, At: probe.LastOpenIn.OccurredAt}
+		if c := tap.ClassifyCheckout(prev, false, probe.Now, p.BusinessDayStart); c != tap.CheckoutTooLong && c != tap.CheckoutOtherDay {
+			return fmt.Sprintf("a chosen check-out %s classifies %q, so it may close the old check-in", name, c)
+		}
+	}
+	body := accumulateBody(s.Report)
+	if !ledgerOtherDayKeepsTheInRE.MatchString(body) || !ledgerTooLongKeepsTheInRE.MatchString(body) {
+		return "accumulate no longer keeps the check-in open under a check-out of class (a) or (b)"
+	}
+	return ""
+}
+
+// checkoutWithoutInViolation is FactCheckoutWithoutCheckInIsListed: The Roll counts the
+// check-outs with no open check-in to close, its short box is drawn for them too and says
+// the figure is short, and the ledger is what counts them (inMissing, classes (b) and (c)).
+func checkoutWithoutInViolation(s restaurantsFactSources) string {
+	for _, want := range []string{`@receiptLine("Checkouts with no open check-in", itoa(v.Totals.OutWithoutIn))`,
+		"if v.Totals.Open > 0 || v.Totals.OutWithoutIn > 0 {", "with no open check-in to close.",
+		"The figure above is SHORT by whatever these add up to."} {
+		if !strings.Contains(s.Reports, want) {
+			return "The Roll no longer carries " + strconv.Quote(want)
+		}
+	}
+	body := accumulateBody(s.Report)
+	if !strings.Contains(body, "out.Totals.OutWithoutIn++") || !ledgerOtherDayKeepsTheInRE.MatchString(body) {
+		return "accumulate no longer counts a check-out of class (b) as one with no open check-in"
+	}
+	return ""
+}
+
 // forgotViolation is FactForgottenCheckOutIsNotPaid: the engine does not close a check-in
 // older than its stale threshold -- the tap is a check-in with the left-open note and names
 // the old entry as left open (ADR 0032, M15) -- the page's figure is that threshold, and the
@@ -524,6 +584,9 @@ func forgotViolation(s restaurantsFactSources) string {
 		return fmt.Sprintf("a tap a day after a check-in nobody closed is %v with the note %q and left open %+v, "+
 			"not a new check-in that leaves the old one open with a note", d.Type, d.Note, d.LeftOpen)
 	}
+	if why := chosenOutProblem(s); why != "" {
+		return why
+	}
 	return ledgerWeekProblem(s.LedgerTest, "gap <= tap.StaleOpenIn",
 		"f.Worked != 0 || left.Totals.TooLong != 1 || len(left.Open) != 1", "manual())",
 		"r.Worked != 0 || !openAt(reopened.Open, in.At)",
@@ -539,6 +602,7 @@ var restaurantsDerivationFuncs = map[pages.Fact]func(restaurantsFactSources) str
 	pages.FactRollMarksWorkAtAnotherVenue:         rollOtherViolation,
 	pages.FactSetupTakesARealTap:                  setupViolation,
 	pages.FactForgottenCheckOutIsNotPaid:          forgotViolation,
+	pages.FactCheckoutWithoutCheckInIsListed:      checkoutWithoutInViolation,
 	pages.FactDirectionPairsWithinTheBusinessDay:  businessDayViolation,
 }
 
@@ -638,6 +702,20 @@ func TestRestaurantsFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			m["internal/handler/qr.go"] += "\nfunc qrSetup() { _, _ = a.sessions.Issue(ctx, session.IssueParams{}) }\n"
 			s.GoFiles = m
 		}},
+		{pages.FactForgottenCheckOutIsNotPaid, "the engine ignores a chosen check-out", engine(func(in tap.Input, d tap.Decision) tap.Decision {
+			if in.RequestedDirection != nil {
+				ty, src := tap.TypeIn, tap.DirectionAuto
+				d.Type, d.DirectionSource = &ty, src
+			}
+			return d
+		})},
+		{pages.FactForgottenCheckOutIsNotPaid, "the ledger closes a check-in under a later day's check-out", replace(report,
+			"open = nil\n\t\t\topenEntry(in)\n\t\t\tinMissing(e)", "open = nil\n\t\t\tinMissing(e)")},
+		{pages.FactCheckoutWithoutCheckInIsListed, "The Roll drops the line", replace(func(s *restaurantsFactSources) *string { return &s.Reports },
+			`@receiptLine("Checkouts with no open check-in", itoa(v.Totals.OutWithoutIn))`, ``)},
+		{pages.FactCheckoutWithoutCheckInIsListed, "the short box is drawn for open check-ins only", replace(func(s *restaurantsFactSources) *string { return &s.Reports },
+			"if v.Totals.Open > 0 || v.Totals.OutWithoutIn > 0 {", "if v.Totals.Open > 0 {")},
+		{pages.FactCheckoutWithoutCheckInIsListed, "the ledger stops counting them", replace(report, "out.Totals.OutWithoutIn++", "")},
 		{pages.FactForgottenCheckOutIsNotPaid, "the page's hours drift from the engine's", func(s *restaurantsFactSources) { s.StaleHours = 12 }},
 		{pages.FactForgottenCheckOutIsNotPaid, "the engine writes no note on a forgotten check-out", engine(func(_ tap.Input, d tap.Decision) tap.Decision {
 			d.Note = strings.ReplaceAll(d.Note, tap.LeftOpenNote, "")

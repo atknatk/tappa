@@ -142,9 +142,18 @@ const (
 	// check-in WITH a note and the old entry stays open; the report does not pay it, lists
 	// it as open, and a check-out a manager types closes it for pay. (Until M15 the tap
 	// closed it as a check-out with a note; the page said so and was corrected with the
-	// merge.) Derived by asking tap.Decide, and from internal/domain/ledger's
+	// merge.) Nor does a check-out the person chooses instead ("Not right? Clock out", ADR
+	// 0032 §B.3): the engine records it, it is class (a) or (b) of §A.6 and closes nothing,
+	// and the ledger keeps the old entry open. Derived by asking tap.Decide and
+	// tap.ClassifyCheckout, and from internal/domain/ledger's accumulate and
 	// TestAccumulate_TheRestaurantsPagesWeek.
 	FactForgottenCheckOutIsNotPaid Fact = "tap:stale open → new in+note, left open; ledger: open, manual out pays"
+	// A check-out with no open check-in to close -- one the person chose with "Not right?
+	// Clock out" on a later business day, or one with nothing before it -- is counted on
+	// The Roll ("Checkouts with no open check-in"), and the week's figure says it is short by
+	// it (ADR 0032 §A.6 (b), (c); M15-06). Derived from pages/reports.templ and
+	// internal/domain/ledger's accumulate.
+	FactCheckoutWithoutCheckInIsListed Fact = "templ:reports checkouts with no open check-in+short box; ledger: inMissing"
 )
 
 // The page's sections' ids, in the page's order.
@@ -381,12 +390,14 @@ func restaurantsCopy() RestaurantsText {
 			FactForgottenCheckOutIsNotPaid, FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager),
 		ForgotBullets: []Line{
 			l("A tap on a later business day, or more than "+itoa(RestaurantsStaleHours)+" hours after it, does not "+
-				"close it: the tap starts a new check-in with a note, The Roll lists the old one as open and does not "+
-				"count it, and a manager enters the real check-out by hand.",
+				"close it. The tap starts a new check-in with a note — or, if they press “Not right? Clock out”, a "+
+				"check-out that does not close it either. Either way The Roll lists the old check-in as open and does "+
+				"not count it, and a manager enters the real check-out by hand.",
 				FactForgottenCheckOutIsNotPaid, FactDirectionPairsWithinTheBusinessDay,
-				FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager),
-			l("The Roll says how many check-ins are open, and its week's figure says it is short by them.",
-				FactOpenCheckInIsListedNotCounted),
+				FactOpenCheckInIsListedNotCounted, FactManualEntryNamesAManager, FactTapScreenIsOneButtonAndACorrection),
+			l("The Roll says how many check-ins are open and how many check-outs have no open check-in to close, "+
+				"and its week's figure says it is short by them.",
+				FactOpenCheckInIsListedNotCounted, FactCheckoutWithoutCheckInIsListed),
 		},
 
 		CasesHeading: l("Hiring, leaving, broken plaques, dead Wi-Fi.",

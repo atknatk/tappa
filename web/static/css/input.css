@@ -2333,7 +2333,10 @@ html:has(.lp.lp-instant) { scroll-behavior: auto; }
 /* The phone: a bezel cut off at the bottom edge, its screen, and the shelf line. */
 .lp .heroPhoneCol { display: flex; flex-direction: column; align-items: center; }
 .lp .heroPhone { width: 100%; padding: 8px 8px 0; background: var(--ink); border-radius: 30px 30px 0 0; box-shadow: 0 -6px 30px rgb(var(--ink-ch) / .16); }
-.lp .heroScreen { position: relative; overflow: hidden; height: 134px; background: var(--porcelain); border-radius: 23px 23px 0 0; }
+/* The screen's fixed height (143 / 196 / 206px) shows the canvas down to the "Not right? …"
+   line under the button; it was 134 / 178 / 186 while the drawing ended at the button
+   (main merge, 2026-10-25 -- measured in Chrome at 390 / 834 / 1200). */
+.lp .heroScreen { position: relative; overflow: hidden; height: 143px; background: var(--porcelain); border-radius: 23px 23px 0 0; }
 .lp .heroNotch { position: absolute; z-index: 2; top: 6px; left: 50%; width: 52px; height: 14px; margin-left: -26px; border-radius: 10px; background: var(--ink); }
 .lp .heroCanvas { position: absolute; left: 0; top: 0; width: 375px; color: var(--ink); transform: scale(.3573); transform-origin: 0 0; }
 .lp .heroStatus { display: flex; align-items: center; justify-content: space-between; height: 54px; padding: 0 30px; font: 700 16px var(--disp); }
@@ -2347,6 +2350,12 @@ html:has(.lp.lp-instant) { scroll-behavior: auto; }
 .lp .heroHello { font-family: var(--disp); font-size: 30px; line-height: 36px; font-weight: 700; letter-spacing: -0.025em; }
 .lp .heroVenue { margin-top: 4px; color: rgb(var(--ink-ch) / .7); }
 .lp .heroTapButton { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 64px; border-radius: 2px; background: var(--green); color: var(--paper); font: 400 20px var(--disp); letter-spacing: -0.025em; }
+/* The "Not right? …" under the button, as pages/tap.templ's tapCorrection draws it (ADR 0032
+   §B.1): ink, underlined, 16px, its words 34px below the button -- the real 44px box sits
+   24px down and centres a 24px line. Drawn as the line alone (the canvas's 24px gap and 10px
+   of its own) so the screen's fixed height only has to show the words. No accent and no
+   green: the real one takes none. */
+.lp .heroTapFix { margin-top: 10px; text-align: center; font: 400 16px/24px var(--disp); color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
 .lp .heroPhoneEdge { display: block; width: 100%; height: 4px; border-radius: 0 0 2px 2px; background: var(--ink); }
 .lp .heroPhoneCut { display: block; width: 100%; margin-top: 6px; border-top: 1.5px dashed rgb(var(--ink-ch) / .35); }
 
@@ -2403,7 +2412,7 @@ html:has(.lp.lp-instant) { scroll-behavior: auto; }
   .lp .plaque .p-loc { padding-top: 12px; font-size: 10px; letter-spacing: .04em; }
   .lp .heroWaves svg { width: 60px; height: 110px; }
   .lp .heroPhone { padding: 10px 10px 0; border-radius: 40px 40px 0 0; }
-  .lp .heroScreen { height: 178px; border-radius: 31px 31px 0 0; }
+  .lp .heroScreen { height: 196px; border-radius: 31px 31px 0 0; }
   .lp .heroNotch { top: 9px; width: 76px; height: 20px; margin-left: -38px; }
   .lp .heroCanvas { transform: scale(.4907); }
   .lp .heroSlip { padding: 16px; }
@@ -2418,7 +2427,7 @@ html:has(.lp.lp-instant) { scroll-behavior: auto; }
   .lp .scene { grid-template-columns: 226px 70px 214px; }
   .lp .plaque .p-ring { width: 84px; height: 84px; }
   .lp .heroWaves svg { width: 70px; }
-  .lp .heroScreen { height: 186px; }
+  .lp .heroScreen { height: 206px; }
   .lp .heroCanvas { transform: scale(.5173); }
   /* One line from here: the board's head, type left and stamp right. */
   .lp .heroSlipHead { flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
@@ -3205,6 +3214,10 @@ html:has(.lp.lp-instant) { scroll-behavior: auto; }
 .lp .lp-prodHello { font-family: var(--disp); font-size: 24px; line-height: 1.15; font-weight: 700; letter-spacing: -0.025em; }
 .lp .lp-prodTapVenue { font-family: var(--disp); font-size: 14px; color: rgb(var(--ink-ch) / .7); }
 .lp .lp-prodTapButton { display: flex; align-items: center; justify-content: center; min-height: 64px; border-radius: 2px; background: var(--green); color: var(--paper); font-size: 20px; letter-spacing: -0.025em; }
+/* The "Not right? …" under the drawn button, as pages/tap.templ's tapCorrection draws it
+   (ADR 0032 §B.1): ink, underlined, 16px, a 44px box 24px below the button (the screen's
+   16px gap and 8px of its own). No accent and no green: the real one takes none. */
+.lp .lp-prodTapFix { display: flex; align-items: center; justify-content: center; min-height: 44px; margin-top: 8px; font-size: 16px; color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
 .lp .lp-prodResultTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .lp .lp-prodTapped { display: flex; flex-direction: column; font-family: var(--disp); font-size: 22px; line-height: 1.2; font-weight: 700; letter-spacing: -0.025em; }
 .lp .lp-prodTappedWord { white-space: nowrap; }
@@ -3707,6 +3720,7 @@ html:has(.lp.lp-instant) { scroll-behavior: auto; }
 .lp .lp-fpNotch { position: absolute; top: 9px; left: 50%; width: 76px; height: 20px; margin-left: -38px; border-radius: 10px; background: var(--ink); }
 .lp .lp-fpScreen .lp-prodHello { font-size: 18px; }
 .lp .lp-fpScreen .lp-prodTapButton { min-height: 52px; font-size: 18px; }
+.lp .lp-fpScreen .lp-prodTapFix { min-height: 36px; margin-top: 4px; font-size: 15px; }
 .lp .lp-fpPhoneNote { margin-top: 10px; text-align: center; }
 .lp .lp-fpLedge { display: block; width: 214px; height: 4px; border-radius: 0 0 2px 2px; background: var(--ink); }
 .lp .lp-fpCounter { display: block; width: 214px; margin-top: 6px; border-top: 1.5px dashed rgb(var(--ink-ch) / .35); }

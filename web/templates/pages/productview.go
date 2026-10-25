@@ -284,7 +284,7 @@ func ProductCopy(f ProductFigures) ProductText {
 		TeamHeading: l("One screen, one large button.", FactTapScreenIsOneButtonAndACorrection),
 		TeamLede: l("No menu, no settings, no history to scroll: a greeting, the venue that was tapped and one large button "+
 			"that says Clock in or Clock out. If Taptime's guess is wrong, a small “Not right?” under it records the "+
-			"other one. When Taptime cannot tell, the button just says Tap.",
+			"other one. When Taptime does not suggest a direction, the button just says Tap.",
 			FactTapScreenIsOneButtonAndACorrection, FactTapPageGreetsByName, FactPlaqueIdentifiesThePlace),
 		TeamPoints: []ProductPoint{
 			{
@@ -450,6 +450,39 @@ const ProductSampleNote = "Drawn for this page — sample names and times."
 // ProductTapSample is the record the two phones draw: The Pass's flagged docket (a real
 // NFC tap with neither the venue's network nor a position).
 var ProductTapSample = LandingPanelPassDockets[2]
+
+// DrawnTapDirection is what the tap screen's button says before a sample docket's tap
+// (ADR 0032 §B.1): the docket's own direction, predicted -- "IN" is "Clock in", "OUT"
+// "Clock out" -- and nothing for anything else. The site's drawings of the tap screen take
+// their words from it; internal/handler holds those words to the real screen's render.
+func DrawnTapDirection(docketDirection string) TapDirection {
+	switch docketDirection {
+	case "IN":
+		return TapClockIn
+	case "OUT":
+		return TapClockOut
+	default:
+		return TapUndirected
+	}
+}
+
+// DrawnCorrection is the small "Not right? …" line a drawing puts under the button for d, or
+// "" for a direction with nothing to correct -- as pages/tap.templ's tapCorrection words it.
+func DrawnCorrection(d TapDirection) string {
+	if d.Other().Want() == "" {
+		return ""
+	}
+	return "Not right? " + d.Other().Words()
+}
+
+// DrawnTapButtons names a drawing's buttons for its accessible name: "a Clock in button and
+// a small “Not right? Clock out” under it", or "one Tap button" with no prediction.
+func DrawnTapButtons(d TapDirection) string {
+	if fix := DrawnCorrection(d); fix != "" {
+		return "a " + d.Words() + " button and a small “" + fix + "” under it"
+	}
+	return "one " + d.Words() + " button"
+}
 
 // ProductTapPlaque is the drawn plaque's line: the venue and the plaque, as The Spike's
 // record in focus names it (LandingPanelSpikeFocus).
