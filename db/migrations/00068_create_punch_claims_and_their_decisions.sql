@@ -46,18 +46,28 @@
 -- decider is a same-tenant admin (composite FK to admin_users (id, tenant_id) -- billing_periods'
 -- closed_by precedent, 00016); and tappa_check_punch_claim_decision holds the approving row to the
 -- claim: the manual channel, the claim's person, the claimed direction, the approved moment, the
--- decider as entered_by.
+-- decider as entered_by, that moment on the anchor's open side (the claim's own rule, read from
+-- the anchor again -- the approved moment is the manager's and may differ from the claimed one),
+-- and a row written no earlier than the claim (the approval writes it; a manual row entered before
+-- the claim existed is not this approval's). The last is a statement about the honest writer, not
+-- a wall: transactions.created_at defaults to now() but tappa_app holds INSERT on every column of
+-- transactions (00005), so it could name one -- and a writer who would forge it could as well
+-- write a fresh manual row that passes every check. It catches a domain that names the wrong row.
 --
--- THE TRIGGERS DEFER, NEVER WAVE THROUGH, WHEN THEY CANNOT SEE THE ROW. Both are SECURITY INVOKER
--- (00005's reasoning: the body runs as tappa_app, subject to RLS -- a DEFINER would be privilege
--- surface for nothing) and read with an explicit tenant predicate. A row they cannot see is left
--- to the FK and the WITH CHECK, which refuse it: for tappa_app in a context the anchor of the
--- context's own tenant is always visible (transactions' policy is the tenant equality alone), so
--- "invisible" means the row's tenant_id is not the context's -- 42501 from WITH CHECK -- or the row
--- does not exist -- 23503 from the FK. Raising there instead would make the WITH CHECK
--- unreachable from tappa_app and so untestable (internal/db/punchclaims_test.go forges across
--- tenants and reads 42501). The migration role bypasses RLS and sees every row, so the checks bind
--- it as well.
+-- WHEN A TRIGGER CANNOT SEE THE ROW. Both are SECURITY INVOKER (00005's reasoning: the body runs as
+-- tappa_app, subject to RLS -- a DEFINER would be privilege surface for nothing) and read with an
+-- explicit tenant predicate. A row stamped with ANOTHER tenant than the context's, or written with
+-- no context, is left to the WITH CHECK and the FK, which refuse it (42501, 23503): raising there
+-- would make the WITH CHECK unreachable from tappa_app and so untestable (internal/db/
+-- punchclaims_test.go forges across tenants and reads 42501). A row stamped with the context's OWN
+-- tenant that the trigger cannot see is REFUSED (23514), not deferred: today transactions,
+-- punch_claims and their policies make such a row one that does not exist (the FK would refuse it
+-- too), but that is a property of the policies, not of this file -- a RESTRICTIVE SELECT policy
+-- added later would hide a row that the FK (which bypasses RLS) and the WITH CHECK (which reads the
+-- new row only) both let through, and every check below would be skipped (measured, in a rolled-
+-- back transaction). So in a tenant's own context the trigger refuses before the composite keys;
+-- they are proven where the trigger defers -- the migration role with no context, which bypasses
+-- RLS and sees every row, so the checks bind it as well.
 --
 -- APPEND-ONLY (CLAUDE.md §4.3's treatment, 00005 + 00021, ADR 0032 §C.2): no UPDATE, DELETE or
 -- TRUNCATE for tappa_app (REVOKE ALL; the grants below are SELECT and INSERT alone), and for every
@@ -155,7 +165,12 @@ BEGIN
      WHERE a.id = NEW.anchor_transaction_id
        AND a.tenant_id = NEW.tenant_id;
     IF NOT FOUND THEN
-        -- another tenant's row (WITH CHECK refuses it) or no row (the FK does) -- the header
+        -- the header: in the claim's own tenant's context an unseen anchor is refused here; any
+        -- other stamp is the WITH CHECK's (another tenant) or the FK's (no context)
+        IF NEW.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid THEN
+            RAISE EXCEPTION 'punch claim: the anchor is not visible in its own tenant''s context'
+                USING ERRCODE = 'check_violation';
+        END IF;
         RETURN NEW;
     END IF;
 
@@ -261,26 +276,37 @@ CREATE FUNCTION public.tappa_check_punch_claim_decision()
     SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE
-    v_employee uuid;
-    v_kind     text;
-    t_employee uuid;
-    t_type     text;
-    t_channel  text;
-    t_at       timestamptz;
-    t_by       uuid;
+    v_ctx        uuid;
+    v_employee   uuid;
+    v_kind       text;
+    v_anchor     uuid;
+    v_created    timestamptz;
+    v_anchor_at  timestamptz;
+    t_employee   uuid;
+    t_type       text;
+    t_channel    text;
+    t_at         timestamptz;
+    t_by         uuid;
+    t_created    timestamptz;
 BEGIN
     IF TG_WHEN <> 'BEFORE' OR TG_LEVEL <> 'ROW' OR TG_OP <> 'INSERT'
        OR TG_RELID <> 'public.punch_claim_decisions'::pg_catalog.regclass THEN
         RAISE EXCEPTION 'tappa_check_punch_claim_decision: bound to a table or an event it is not for'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
+    v_ctx := NULLIF(current_setting('app.tenant_id', true), '')::uuid;
 
-    SELECT c.employee_id, c.kind
-      INTO v_employee, v_kind
+    SELECT c.employee_id, c.kind, c.anchor_transaction_id, c.created_at
+      INTO v_employee, v_kind, v_anchor, v_created
       FROM public.punch_claims AS c
      WHERE c.id = NEW.claim_id
        AND c.tenant_id = NEW.tenant_id;
     IF NOT FOUND THEN
+        -- the header: refused in the decision's own tenant's context, else the WITH CHECK's or the FK's
+        IF NEW.tenant_id = v_ctx THEN
+            RAISE EXCEPTION 'punch claim decision: the claim is not visible in its own tenant''s context'
+                USING ERRCODE = 'check_violation';
+        END IF;
         RETURN NEW;
     END IF;
 
@@ -294,12 +320,16 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    SELECT t.employee_id, t.type, t.channel, t.occurred_at, t.entered_by
-      INTO t_employee, t_type, t_channel, t_at, t_by
+    SELECT t.employee_id, t.type, t.channel, t.occurred_at, t.entered_by, t.created_at
+      INTO t_employee, t_type, t_channel, t_at, t_by, t_created
       FROM public.transactions AS t
      WHERE t.id = NEW.transaction_id
        AND t.tenant_id = NEW.tenant_id;
     IF NOT FOUND THEN
+        IF NEW.tenant_id = v_ctx THEN
+            RAISE EXCEPTION 'punch claim decision: the approving record is not visible in its own tenant''s context'
+                USING ERRCODE = 'check_violation';
+        END IF;
         RETURN NEW;
     END IF;
 
@@ -321,6 +351,29 @@ BEGIN
     END IF;
     IF t_by IS DISTINCT FROM NEW.decided_by THEN
         RAISE EXCEPTION 'punch claim decision: the approving record was entered by somebody else'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF NOT t_created >= v_created THEN
+        RAISE EXCEPTION 'punch claim decision: the approving record was written before the claim'
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- The claim's anchor is its tenant's (the claim's composite FK) and immutable; the claim was
+    -- visible, so an unseen anchor is a policy hiding it -- refused whatever the context.
+    SELECT a.occurred_at
+      INTO v_anchor_at
+      FROM public.transactions AS a
+     WHERE a.id = v_anchor
+       AND a.tenant_id = NEW.tenant_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'punch claim decision: the claim''s anchor is not visible'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    -- tappa_check_punch_claim's rule on claimed_at, again on the approved moment: an out after the
+    -- open in, an in before the orphan out, both strictly.
+    IF (v_kind = 'out' AND NOT NEW.approved_at > v_anchor_at)
+       OR (v_kind = 'in' AND NOT NEW.approved_at < v_anchor_at) THEN
+        RAISE EXCEPTION 'punch claim decision: the approved moment is on the wrong side of the anchor'
             USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;

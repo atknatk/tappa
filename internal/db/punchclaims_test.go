@@ -144,6 +144,29 @@ func pcTry(t *testing.T, d *DB, ctxTenant uuid.UUID, sql string, args ...any) er
 	})
 }
 
+// pcOwnerTry runs one statement as the migration role with NO tenant context (app.tenant_id
+// cleared for the transaction), always rolled back, and returns its error. The superuser bypasses
+// RLS, and with no context the claim triggers defer an unseen row to the keys and CHECKs -- the
+// only place those are reached first (00068's header).
+func pcOwnerTry(t *testing.T, owner *DB, sql string, args ...any) error {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := owner.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if rb := tx.Rollback(ctx); rb != nil && !errors.Is(rb, pgx.ErrTxClosed) {
+			t.Errorf("rollback: %v", rb)
+		}
+	}()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', '', true)`); err != nil {
+		t.Fatalf("clear the context: %v", err)
+	}
+	_, err = tx.Exec(ctx, sql, args...)
+	return err
+}
+
 // pcWant asserts err is the SQLSTATE code and, when msg is not empty, carries msg.
 func pcWant(t *testing.T, what string, err error, code, msg string) {
 	t.Helper()
@@ -232,35 +255,53 @@ func TestRLS_PunchClaims_TenantIsolation(t *testing.T) {
 	})
 }
 
-// TestRLS_PunchClaims_AForeignRowIsRefusedByTheKey: inside the claimant's OWN context, a claim on
-// another tenant's anchor, a decision on another tenant's claim and an approval naming another
-// tenant's record are refused by the composite keys (23503) -- the trigger cannot see the foreign
-// row and defers, and the key, which bypasses RLS, is what says no. A key on the id alone would
-// let each of the three through.
+// TestRLS_PunchClaims_AForeignRowIsRefusedByTheKey: a claim on another tenant's anchor, a decision
+// on another tenant's claim and an approval naming another tenant's record. In the claimant's OWN
+// context tappa_app's trigger cannot see the foreign row, which is stamped with the context's own
+// tenant, and refuses it (23514 -- 00068's header: such a row is never deferred). The composite keys
+// are proven where the trigger does defer: the migration role with no context, which RLS does not
+// bind and whose context matches no stamp -- there each is refused by its key (23503), which a key
+// on the id alone would let through. The decider's key is reached from tappa_app too (no trigger
+// reads admin_users).
 func TestRLS_PunchClaims_AForeignRowIsRefusedByTheKey(t *testing.T) {
 	app := appDB(t)
 	assertAppRole(t, app)
+	owner := ownerDB(t)
+	assertOwnerRole(t, owner)
 	a, b := pcBuildWorld(t, app), pcBuildWorld(t, app)
 	claimB := pcClaim(t, app, b, b.openIn, "out", b.inAt.Add(8*time.Hour), nil)
 	claimA := pcClaim(t, app, a, a.openIn, "out", a.inAt.Add(8*time.Hour), nil)
 	manualB := pcManual(t, app, b, b.employee, "out", b.inAt.Add(8*time.Hour), b.admin)
 	manualA := pcManual(t, app, a, a.employee, "out", a.inAt.Add(8*time.Hour), a.admin)
 
-	pcWant(t, "a claim on another tenant's anchor",
-		pcTry(t, app, a.tenant, pcInsertClaim, a.tenant, a.employee, b.spareIn, "out", a.inAt.Add(4*time.Hour), nil),
-		"23503", "punch_claims_anchor_fk")
-	pcWant(t, "a decision on another tenant's claim",
-		pcTry(t, app, a.tenant, pcInsertDecision, a.tenant, claimB, "rejected", a.admin, nil, nil),
-		"23503", "punch_claim_decisions_claim_fk")
-	pcWant(t, "an approval naming another tenant's record",
-		pcTry(t, app, a.tenant, pcInsertDecision, a.tenant, claimA, "approved", a.admin, a.inAt.Add(8*time.Hour), manualB),
-		"23503", "punch_claim_decisions_transaction_fk")
+	for _, c := range []struct {
+		name, sql string
+		args      []any
+		appMsg    string
+		key       string
+	}{
+		{"a claim on another tenant's anchor", pcInsertClaim,
+			[]any{a.tenant, a.employee, b.spareIn, "out", a.inAt.Add(4 * time.Hour), nil},
+			"the anchor is not visible in its own tenant's context", "punch_claims_anchor_fk"},
+		{"a decision on another tenant's claim", pcInsertDecision,
+			[]any{a.tenant, claimB, "rejected", a.admin, nil, nil},
+			"the claim is not visible in its own tenant's context", "punch_claim_decisions_claim_fk"},
+		{"an approval naming another tenant's record", pcInsertDecision,
+			[]any{a.tenant, claimA, "approved", a.admin, a.inAt.Add(8 * time.Hour), manualB},
+			"the approving record is not visible in its own tenant's context", "punch_claim_decisions_transaction_fk"},
+	} {
+		pcWant(t, c.name+" (tappa_app, own context)", pcTry(t, app, a.tenant, c.sql, c.args...), "23514", c.appMsg)
+		pcWant(t, c.name+" (migration role, no context)", pcOwnerTry(t, owner, c.sql, c.args...), "23503", c.key)
+	}
 	pcWant(t, "a decision by another tenant's admin",
 		pcTry(t, app, a.tenant, pcInsertDecision, a.tenant, claimA, "rejected", b.admin, nil, nil),
 		"23503", "punch_claim_decisions_decided_by_fk")
-	// Positive control: the same approval with A's own record and admin is written.
+	// Positive controls: the same approval with A's own record and admin is written, in both roles.
 	if e := pcTry(t, app, a.tenant, pcInsertDecision, a.tenant, claimA, "approved", a.admin, a.inAt.Add(8*time.Hour), manualA); e != nil {
 		t.Fatalf("positive control: A's own approval was refused: %v", e)
+	}
+	if e := pcOwnerTry(t, owner, pcInsertDecision, a.tenant, claimA, "approved", a.admin, a.inAt.Add(8*time.Hour), manualA); e != nil {
+		t.Fatalf("positive control: A's own approval was refused to the migration role: %v", e)
 	}
 }
 
@@ -335,6 +376,9 @@ func TestPunchClaims_OneClaimPerAnchorAndOneDecisionPerClaim(t *testing.T) {
 	w := pcBuildWorld(t, app)
 	at := w.inAt.Add(8 * time.Hour)
 	first := pcClaim(t, app, w, w.openIn, "out", at, nil)
+	// A second claim of the same person and direction, written before the manual record below:
+	// an approval's record is written after its claim (tappa_check_punch_claim_decision).
+	second := pcClaim(t, app, w, w.openIn2, "out", at, nil)
 
 	err := app.WithTenant(context.Background(), w.tenant, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := store.New(tx).InsertPunchClaim(ctx, store.InsertPunchClaimParams{
@@ -358,8 +402,7 @@ func TestPunchClaims_OneClaimPerAnchorAndOneDecisionPerClaim(t *testing.T) {
 		pcTry(t, app, w.tenant, pcInsertDecision, w.tenant, first, "rejected", w.admin, nil, nil),
 		"23505", "punch_claim_decisions_one_per_claim")
 
-	// A second claim of the same person and direction, approved with the FIRST approval's record.
-	second := pcClaim(t, app, w, w.openIn2, "out", at, nil)
+	// The second claim, approved with the FIRST approval's record.
 	pcWant(t, "one manual record answering two claims",
 		pcTry(t, app, w.tenant, pcInsertDecision, w.tenant, second, "approved", w.admin, at, manual),
 		"23505", "punch_claim_decisions_one_per_record")
@@ -479,6 +522,7 @@ func TestPunchClaims_TheAnchorMustBeTheClaimantsDirectedRecord(t *testing.T) {
 		{"another person's anchor", w.employee, w.otherIn, "out", after, nil, "another person's record"},
 		{"an undirected anchor", w.employee, w.refused, "out", after, nil, "has no direction"},
 		{"the anchor's own direction", w.employee, w.spareIn, "in", before, nil, "opposite the anchor"},
+		{"the orphan out's own direction", w.employee, w.orphanOut, "out", w.outAt.Add(time.Minute), nil, "opposite the anchor"},
 		{"an anchor before the business day", w.employee, w.noDay, "out", after, nil, "no business day"},
 		{"a practice anchor", w.employee, w.practice, "out", after, nil, "practice tap"},
 		{"an out at the open in's own moment", w.employee, w.spareIn, "out", w.inAt.Add(2 * time.Minute), nil, "claimed moment is on the wrong side"},
@@ -487,6 +531,8 @@ func TestPunchClaims_TheAnchorMustBeTheClaimantsDirectedRecord(t *testing.T) {
 		{"an in at the orphan out's own moment", w.employee, w.orphanOut, "in", w.outAt, nil, "claimed moment is on the wrong side"},
 		{"a prefill before the open in", w.employee, w.spareIn, "out", after, before, "prefilled moment is on the wrong side"},
 		{"a prefill after the orphan out", w.employee, w.orphanOut, "in", w.outAt.Add(-time.Hour), w.outAt.Add(time.Hour), "prefilled moment is on the wrong side"},
+		{"a prefill at the open in's own moment", w.employee, w.spareIn, "out", after, w.inAt.Add(2 * time.Minute), "prefilled moment is on the wrong side"},
+		{"a prefill at the orphan out's own moment", w.employee, w.orphanOut, "in", w.outAt.Add(-time.Hour), w.outAt, "prefilled moment is on the wrong side"},
 	} {
 		pcWant(t, c.name, pcTry(t, app, w.tenant, pcInsertClaim, w.tenant, c.employee, c.anchor, c.kind, c.claimed, c.prefilled),
 			"23514", c.msg)
@@ -555,11 +601,12 @@ func TestPunchClaimDecisions_TheApprovalIsTheClaimedHalf(t *testing.T) {
 	}{
 		{"an approval naming no record", "approved", w.admin, at, nil, "23514", "punch_claim_decisions_shape_by_outcome"},
 		// The trigger runs before the CHECKs: with a record it can read, a missing moment is its
-		// refusal; with one it cannot (here: none at all), it defers and the shape CHECK refuses.
+		// refusal; with one it cannot (here: none at all) in its own tenant's context, the unseen
+		// record is. The shape CHECK under these two is reached below, as the migration role.
 		{"an approval naming no moment", "approved", w.admin, nil, good, "23514", "not at the approved moment"},
-		{"an approval naming no moment and an unseen record", "approved", w.admin, nil, uuid.New(), "23514", "punch_claim_decisions_shape_by_outcome"},
+		{"an approval naming no moment and an unseen record", "approved", w.admin, nil, uuid.New(), "23514", "approving record is not visible"},
 		{"a rejection naming a readable record", "rejected", w.admin, nil, good, "23514", "not at the approved moment"},
-		{"a rejection naming an unseen record", "rejected", w.admin, nil, uuid.New(), "23514", "punch_claim_decisions_shape_by_outcome"},
+		{"a rejection naming an unseen record", "rejected", w.admin, nil, uuid.New(), "23514", "approving record is not visible"},
 		{"a rejection naming a moment", "rejected", w.admin, at, nil, "23514", "punch_claim_decisions_shape_by_outcome"},
 		{"an unknown outcome", "withdrawn", w.admin, nil, nil, "23514", "punch_claim_decisions_outcome_is_known"},
 		{"an approval naming a tap, not a manual record", "approved", w.admin, w.inAt, w.openIn, "23514", "names the manual record"},
@@ -577,6 +624,159 @@ func TestPunchClaimDecisions_TheApprovalIsTheClaimedHalf(t *testing.T) {
 	}
 	if e := pcTry(t, app, w.tenant, pcInsertDecision, w.tenant, claim, "rejected", w.admin, nil, nil); e != nil {
 		t.Fatalf("positive control: the rejection was refused: %v", e)
+	}
+
+	// With no context the trigger defers an unseen record, so the shape CHECK is what refuses
+	// a record-naming approval without a moment and a rejection that names a record.
+	owner := ownerDB(t)
+	assertOwnerRole(t, owner)
+	for _, outcome := range []string{"approved", "rejected"} {
+		pcWant(t, "the migration role's "+outcome+" naming an unseen record and no moment",
+			pcOwnerTry(t, owner, pcInsertDecision, w.tenant, claim, outcome, w.admin, nil, uuid.New()),
+			"23514", "punch_claim_decisions_shape_by_outcome")
+	}
+}
+
+// TestPunchClaimDecisions_TheApprovalIsOnTheAnchorsOpenSideAndAfterTheClaim is the rest of
+// tappa_check_punch_claim_decision: the approved moment obeys the claim's own rule against the
+// anchor -- an out strictly after the open in, an in strictly before the orphan out (the security
+// lens's D8: an open in's out approved with a manual out dated 2020 was written) -- and the
+// approving record was written no earlier than the claim, so a manual row entered before the claim
+// existed is not its approval. Every other fact of each record is the claimed half, so the one
+// refusal is the one under test; the two valid approvals are the positive controls.
+func TestPunchClaimDecisions_TheApprovalIsOnTheAnchorsOpenSideAndAfterTheClaim(t *testing.T) {
+	app := appDB(t)
+	assertAppRole(t, app)
+	w := pcBuildWorld(t, app)
+	outOK, inOK := w.inAt.Add(8*time.Hour), w.outAt.Add(-6*time.Hour)
+	early := pcManual(t, app, w, w.employee, "out", outOK, w.admin) // before either claim
+	outClaim := pcClaim(t, app, w, w.openIn, "out", outOK, nil)
+	inClaim := pcClaim(t, app, w, w.orphanOut, "in", inOK, nil)
+	in2020 := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	for _, c := range []struct {
+		name      string
+		claim     uuid.UUID
+		typ       string
+		approved  time.Time
+		wantError string
+	}{
+		{"an out approved before the open in (D8: 2020)", outClaim, "out", in2020, "approved moment is on the wrong side"},
+		{"an out approved a minute before the open in", outClaim, "out", w.inAt.Add(-time.Minute), "approved moment is on the wrong side"},
+		{"an out approved at the open in's own moment", outClaim, "out", w.inAt, "approved moment is on the wrong side"},
+		{"an in approved after the orphan out", inClaim, "in", w.outAt.Add(time.Hour), "approved moment is on the wrong side"},
+		{"an in approved at the orphan out's own moment", inClaim, "in", w.outAt, "approved moment is on the wrong side"},
+	} {
+		record := pcManual(t, app, w, w.employee, c.typ, c.approved, w.admin) // after the claim
+		pcWant(t, c.name, pcTry(t, app, w.tenant, pcInsertDecision, w.tenant, c.claim, "approved", w.admin, c.approved, record),
+			"23514", c.wantError)
+	}
+	pcWant(t, "a manual record entered before the claim",
+		pcTry(t, app, w.tenant, pcInsertDecision, w.tenant, outClaim, "approved", w.admin, outOK, early),
+		"23514", "written before the claim")
+
+	for _, ok := range []struct {
+		name     string
+		claim    uuid.UUID
+		typ      string
+		approved time.Time
+	}{
+		{"an out approved after the open in", outClaim, "out", outOK},
+		{"an in approved before the orphan out", inClaim, "in", inOK},
+	} {
+		record := pcManual(t, app, w, w.employee, ok.typ, ok.approved, w.admin)
+		if e := pcTry(t, app, w.tenant, pcInsertDecision, w.tenant, ok.claim, "approved", w.admin, ok.approved, record); e != nil {
+			t.Fatalf("positive control (%s) was refused: %v", ok.name, e)
+		}
+	}
+	// The claim, the record and the approval in ONE transaction share now(), so the record's
+	// created_at EQUALS the claim's: "no earlier than" is >=, and this is its boundary. (M15-16
+	// writes the claim and the approval in two requests; the record and the approval in one.)
+	if e := pcRolledBack(t, app, w.tenant, func(ctx context.Context, tx pgx.Tx) error {
+		row, err := store.New(tx).InsertPunchClaim(ctx, store.InsertPunchClaimParams{
+			Kind: "out", ClaimedAt: outOK, AnchorTransactionID: w.spareIn, TenantID: w.tenant, EmployeeID: w.employee,
+		})
+		if err != nil {
+			return err
+		}
+		id := uuid.New()
+		if _, err := tx.Exec(ctx, `INSERT INTO transactions (id, tenant_id, employee_id, location_id, occurred_at, verdict, channel, type, entered_by, trust)
+		                           VALUES ($1, $2, $3, $4, $5, 'ok', 'manual', 'out', $6, 0)`, id, w.tenant, w.employee, w.location, outOK, w.admin); err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, pcInsertDecision, w.tenant, row.ID, "approved", w.admin, outOK, id)
+		return err
+	}); e != nil {
+		t.Fatalf("positive control (the claim, its record and its approval in one transaction) was refused: %v", e)
+	}
+}
+
+// TestPunchClaims_ATriggerThatCannotSeeItsOwnTenantsRowRefuses is 00068's "when a trigger cannot
+// see the row": a RESTRICTIVE SELECT policy that does not exist today, created inside the probe's
+// rolled-back transaction, hides one row of the context's own tenant from tappa_app. The FK
+// (which bypasses RLS) and the WITH CHECK (which reads the new row) would both let the INSERT
+// through; the trigger is what refuses it. One probe per lookup the two triggers make, each with
+// its control -- the same INSERT, without the policy, is written -- and its premise: under the
+// policy tappa_app sees 0 of the hidden row.
+func TestPunchClaims_ATriggerThatCannotSeeItsOwnTenantsRowRefuses(t *testing.T) {
+	app := appDB(t)
+	assertAppRole(t, app)
+	w := pcBuildWorld(t, app)
+	at := w.inAt.Add(8 * time.Hour)
+	claim := pcClaim(t, app, w, w.openIn, "out", at, nil)
+	manual := pcManual(t, app, w, w.employee, "out", at, w.admin)
+
+	ctx, tx := opTx(t)
+	lockForDowns(t, ctx, tx, []string{"transactions", "punch_claims"})
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1::text, true)`, w.tenant); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []struct {
+		name, table string
+		hidden      uuid.UUID
+		sql         string
+		args        []any
+		msg         string
+	}{
+		{"a claim whose anchor is hidden", "transactions", w.spareIn,
+			pcInsertClaim, []any{w.tenant, w.employee, w.spareIn, "out", at, nil}, "the anchor is not visible"},
+		{"a decision whose claim is hidden", "punch_claims", claim,
+			pcInsertDecision, []any{w.tenant, claim, "rejected", w.admin, nil, nil}, "the claim is not visible"},
+		{"an approval whose record is hidden", "transactions", manual,
+			pcInsertDecision, []any{w.tenant, claim, "approved", w.admin, at, manual}, "the approving record is not visible"},
+		{"an approval whose claim's anchor is hidden", "transactions", w.openIn,
+			pcInsertDecision, []any{w.tenant, claim, "approved", w.admin, at, manual}, "the claim's anchor is not visible"},
+	} {
+		control, err := tx.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e := opExecAs(t, ctx, control, "tappa_app", p.sql, p.args...); e != nil {
+			t.Fatalf("%s: control without the policy was refused: %v", p.name, e)
+		}
+		if err := control.Rollback(ctx); err != nil {
+			t.Fatalf("%s: roll the control back: %v", p.name, err)
+		}
+
+		probe, err := tx.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := probe.Exec(ctx, fmt.Sprintf(`CREATE POLICY pc_probe_hide ON %s AS RESTRICTIVE FOR SELECT TO tappa_app USING (id <> '%s'::uuid)`,
+			pgx.Identifier{p.table}.Sanitize(), p.hidden)); err != nil {
+			t.Fatalf("%s: create the probe policy: %v", p.name, err)
+		}
+		var seen int
+		if e := opAs(t, ctx, probe, "tappa_app", func(sp pgx.Tx) error {
+			return sp.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s WHERE id = $1`, pgx.Identifier{p.table}.Sanitize()), p.hidden).Scan(&seen)
+		}); e != nil || seen != 0 {
+			t.Fatalf("%s: PREMISE: under the probe policy tappa_app sees %d of the hidden row (err %v), want 0", p.name, seen, e)
+		}
+		err = opExecAs(t, ctx, probe, "tappa_app", p.sql, p.args...)
+		if rb := probe.Rollback(ctx); rb != nil {
+			t.Fatalf("%s: roll the probe back: %v", p.name, rb)
+		}
+		pcWant(t, p.name, err, "23514", p.msg)
 	}
 }
 
