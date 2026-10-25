@@ -751,8 +751,14 @@ kaydedildiği gün Pzt'nin, bugünkü kurala göre Pzt 06:00'da biten Paz'ın) �
 okuduğu tek kural; M15-16 düzeltme turu D-1). Gerekçe: pencereye `Next(S_bugün(A.At))` ucunu eklemek de Submit
 ile Decide'ı uzlaştırırdı ama kartta kuralın sonradan yeniden çizdiği bir güne dair (05:30, 06:00) gibi bir
 kıymık bırakırdı; reddetmek daha az sorar, hiçbir zaman daha çok değil (§A.6: kesim değişirken muhafazakâr).
-Günün sonunu öne çekmeyen bir değişiklik pencereye dokunmaz; o zaman dondurulmuş gün ikisinin katı olanıdır ve
-kapanış sınaması pencerenin kabul ettiği her ana katılır. Ölçüm:
+*Düzeltme (2026-10-25, M15-16 genel merceği D-7, merceğin taramasıyla ölçüldü):* reddedilmeyen bir kesim
+değişikliği de pencereyi **oynatır** — önceki sürümdeki *"pencereye dokunmaz"* cümlesi yanlıştı. Pencerenin günlük
+ucu `NextBusinessDayStart(dondurulmuş S, bugünkü kesim)`'dir; ne eski kuralın ne bugünkünün gün sonudur. (i)
+Bugünkü kesim dondurulmuş S ile çapa arasına düşerse pencere **boş** olur (05:00 → 14:00, çapa Pzt 15:00: kart
+çıkmaz, Submit `ErrOutsideWindow`; taramada 54 123 çapa). (ii) Bazı vakalarda pencere dondurulmuş günün gerçek
+sonunu **aşar** (00:00 → 01:00, çapa Cmt 06:10, pencere Paz 00:10'a kadar; 8 422 vaka). İkisi de saat şişirmez ve
+kayıt kaybettirmez: (i) muhafazakârdır, (ii) bugünkü kuralla — kapanış sınamasının okuduğu kural — tutarlıdır. Kod
+değişmedi; dondurulmuş günün sonunu S'nin kendi duvar saatiyle hesaplamak backlog **T165**. Ölçüm:
 `TestClaimDB_ACutoffThatEndsTheAnchorsDayEarlierAdmitsNoClaim`,
 `TestWindow_ACutoffThatEndsTheAnchorsDayEarlierLeavesNoWindow`. (4) **Trail:** `claim.submitted` (aktör NULL) ve
 kararın iki sonucu için tek ad `claim.decided` (sonuç `detail`'de — `review.recorded`'ın gerekçesi); onay ayrıca

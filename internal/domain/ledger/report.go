@@ -1088,10 +1088,13 @@ func accumulate(evs []reportEvent, p Period, zone *time.Location, now time.Time)
 		if class == tap.CheckoutTooLong {
 			// 🔴 NOT A SHIFT -- class (a). A checkout this far from its check-in is a probable
 			// forgotten checkout, and paying it would charge payroll for the hours nobody worked
-			// between them. Since ADR 0032 the engine writes no such `out` (a tap that far from
-			// the open check-in is an `in`, and the check-in stays open), so this branch is fed
-			// by historical rows and by a manager's typed checkout. The opening tap is reported
-			// as open instead, which is the state a manager has to correct.
+			// between them. Since ADR 0032 the engine's own direction never writes such an `out` (a
+			// tap that far from the open check-in is D = `in`, and the check-in stays open) -- but
+			// since Faz B the PERSON can: "Not right? Clock out" more than StaleOpenIn after the
+			// check-in is recorded as `out` (direction_source 'employee', ADR 0032 §B.3), and it lands
+			// here. So this branch is fed by historical rows, by a manager's typed checkout and by a
+			// chosen checkout past 18 hours within the check-in's business day (across it, it is (b)). The opening tap is reported as open instead, which is
+			// the state a manager has to correct.
 			out.Totals.TooLong++
 			openEntry(in)
 			continue

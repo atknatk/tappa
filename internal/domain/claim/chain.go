@@ -276,9 +276,18 @@ func (c Chain) WindowOf(i int, cutoff *tap.DayCutoff, now time.Time) (Window, bo
 // review D-1): the frozen day would draw a window the engine's rule today no longer pairs, so Submit
 // would take a claim no approval could pass (Closes reads the engine's rule). ADR 0032 §A.6: while
 // a cutoff changes, lean to the conservative side -- the anomaly list keeps the entry and the
-// manager can still enter a record. A change that does not end the day earlier (a later cutoff, or
-// one that leaves the day's end where it was) does not touch the window: the frozen day still
-// bounds it and is the stricter of the two, so Closes agrees with every instant it admits.
+// manager can still enter a record.
+//
+// ⚠️ A CHANGE THIS DOES NOT REFUSE STILL MOVES THE WINDOW (the M15-16 general lens's D-7, measured
+// by its sweep; an earlier version of this comment said such a change "does not touch the window",
+// which was wrong). WindowOf's daily end is NextBusinessDayStart(the FROZEN S, today's cutoff) --
+// neither the old rule's day end nor today's. Two shapes, both counted by the lens: (i) today's
+// cutoff falls between the frozen S and the anchor (05:00 → 14:00, a Mon 15:00 check-in) and the
+// window is EMPTY -- no card, Submit ErrOutsideWindow (54 123 anchors in the sweep); (ii) the
+// window runs past the frozen day's real end (00:00 → 01:00, a Sat 06:10 check-in, the window to
+// Sun 00:10; 8 422 cases). Neither inflates an hour or loses a record: (i) asks less, (ii) agrees
+// with today's rule, which Closes reads. Drawing the frozen day's end from S's own wall clock is
+// backlog T165; the code is unchanged.
 //
 // WHY NOT ONLY ADD Next(S_now(A.At)) TO THE WINDOW'S ENDS (the other option the review offered): it
 // would also make Submit and Decide agree, but it leaves a sliver -- (05:30, 06:00) above -- on the
