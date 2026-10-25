@@ -170,8 +170,9 @@ bağlantıları taşıyor (`chrome.templ:19-21`). Bütün ekran kartları bu kab
   [`section.op-tenant` (ad + içinde `nav.op-subnav`)] → `main.op-main`. Bant ve alt gezinme
   `<main>`'in **dışında ve önünde** (bugünkü `tenantScreen` sırası); `<header class="op-bar">` yine
   `<main`'den önce.
-- İçerik sütunu: `div.op-col` + `<main class="op-main mx-auto flex w-full max-w-[960px] …">`
-  (README §6 "Content column"); **`op-main` sınıfı bu kartta konur** — M13-02'nin çip kuralı ona
+- İçerik sütunu: `div.op-col` + `<main class="op-main flex w-full max-w-[960px] …">` — **sola dayalı
+  (pano)**, `mx-auto` yok; tenant bandının iç satırı da sola dayalı (README §6 "Content column",
+  "Tenant banner"; orkestratör kararı 2026-10-25: pano kazanır); **`op-main` sınıfı bu kartta konur** — M13-02'nin çip kuralı ona
   bağlıdır. İmzasız ekranların `<main>`'i de `op-main` taşır.
 - `input.css`: `.op-frame`, `.op-nav`, `.op-nav-item`, `.op-nav-label`, `.op-subnav`, `.op-subnav-item`
   (README §6 tarifleri; tablette `md:static md:order-first md:mt-0 md:border-t-0 md:pb-0`, öğe

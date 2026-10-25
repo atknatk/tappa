@@ -95,11 +95,11 @@ no new route, no form. It must stay unmistakable from the tenant panel.
   (`#FFFDF4`) ground, 1 px `line` right border. A mono section label **"PLATFORM"** above five
   items: **Console · Tenants · Holdings · Audit log · Legal texts** (min-height 44 px, Space
   Grotesk 15 px, ink). Current item: ink 3 px left marker + `bg-ink/5` + bold +
-  `aria-current="true"` (the section, not the page — §2 "OP-15 annex" (b)). Content to the right on porcelain, max-width about 960 px.
+  `aria-current="true"` (the section, not the page — §2 "OP-15 annex" (b)). Content to the right on porcelain, max-width 960 px, **left-aligned** in the column (no `mx-auto` — the boards' `.opmain`, §6 "Content column").
 - **Tablet (768–1199, `md:`).** Under the band, a horizontal row (paper, `line` bottom border):
   the same five items as text tabs, 44 px tall; current = ink 3 px bottom marker + bold; wraps if
   needed.
-- **Phone (< 768).** The band stays (lockup + sign out). A **bottom tab bar in paper (not
+- **Phone (< 768).** The band stays (lockup + sign out), its row **56 px** (64 px from the tablet — §6 "Band"). A **bottom tab bar in paper (not
   ink)** with a 1 px `line` top border; five items, icon 22 px + 11 px label: **Console, Tenants,
   Holdings, Audit, Legal**; current = ink icon + bold label + ink 3 px top marker; inactive
   label `text-ink/70`. The bar is **sticky** at the viewport bottom and, on a page shorter than
@@ -115,7 +115,8 @@ no new route, no form. It must stay unmistakable from the tenant panel.
   - legal `<path d="M12 3v18M5 7h14M7 7l-3 7h6zM17 7l-3 7h6z"/>`
 - **One-tenant screens** (overview, plaques, billing, VAT number): below the nav (desktop: at
   the top of the content column), the existing saffron-lite **tenant banner** with its **1 px**
-  saffron bottom rule (label "Tenant", name in display XL bold; **"Unnamed tenant"** + the id,
+  saffron bottom rule (label "Tenant", name in Space Grotesk bold at **26 / 30 / 34 px** — phone /
+  tablet / desktop, §6 "Tenant banner"; **"Unnamed tenant"** + the id,
   mono, when unnamed), and **inside the banner**, under the name, the **tenant sub-nav**
   `<nav aria-label="This tenant">`: **Overview · Plaques · Billing · VAT number** (text tabs on
   the banner's saffron-lite ground, 44 px tall, 3 px transparent bottom border sitting on the
