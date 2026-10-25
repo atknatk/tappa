@@ -36,7 +36,7 @@
   **Suspended** çipi (M13-07), genel bakışın **Panel writes** kartı — panosu yok, bileşen kataloğunun
   parçalarından (M13-08), iki audit türü (M13-12), altı problem sayfası (M13-03). Plaques, Billing, VAT
   ve API kartı askıyı okumaz, göstermez. Ayrıntı: README §2 *"OP-15 annex"*, screens.md §4–§6, §10.
-  İki **orkestratör kararı**:
+  **Orkestratör kararları**:
   - **(a) Çip tonları — kodun bugünkü tonları korunur.** Panoda ton farklıysa pano değil kod kazanır
     (D1): port çipi yuvarlar (`.op-main .tally`), yeniden tonlamaz; tek yeniden tonlama önceden
     kararlaştırılmış `tally--running` kalır. Plaket farkı (README §2 annex (a) tablosu): *On a wall*
@@ -54,6 +54,9 @@
     bağlantısı sayfanın kendisi olsa da — Home'da Console, listede Tenants), böylece her nav'da tek
     anlam, kabuk testinde nav başına tek değer. İmzalı problem sayfasında ikisi de yok. Bağlandığı yerler:
     README §2 kabuk maddeleri, §4.1, §6 "Main nav" / "Tenant sub-nav", screens.md §0, M13-01.
+  - **(c) Genel bakışın `<h1>`'i sayfa başlığıdır, tenant adı değil:** `<p class="docket-label">Tenant
+    overview</p>` → `<h1 class="docket-label">Tenant overview</h1>` (yalnız öğe); tenant adı bandı `<p>`
+    kalır. Ölçüm, gerekçe ve test tarifi M13-08'de; README §2 annex (c), screens.md §6.
 
 **Yeni okuma kararı gerekmiyor.** Panoların her öğesi bugünkü okumalardan gelir (envanter + 12 pano,
 2026-10-20). Bir öğe yeni okuma isterse (ör. Home'a bir sayı) bu bir **karar**dır, kart değil: yeni
@@ -376,10 +379,12 @@ kökü `<section>` değilse.
   `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike`).
 - Uyarı zemini AA: `ink/85` saffron-lite üzerinde (`TestLegalScreen_TheTextClearsAA`) ve yeni `ok`
   zemini (`tappa-green/10` paper üstü) üzerinde ink — hesap ilgili AA testine eklenir.
-- **OP-15 eki — askının altı problem sayfası** (`render.go:452-501`; screens.md §4): başlık, mesaj ve
-  "Back to the tenants" kelimesi kelimesine; hepsi imzalı (nav var, geçerli öğe yok, bant/alt gezinme
-  yok). Üç ret (413, iki "The box was not ticked", "Choose one of the reasons") "Nothing was changed."
-  der; iki 503 ("The suspension was not confirmed", "Lifting the suspension was not confirmed") **demez**
+- **OP-15 eki — askının altı problem sayfası** (`render.go:452-502`; screens.md §4): başlık, mesaj ve
+  "Back to the tenants" kelimesi kelimesine; hepsi imzalı (bant `op-bar` ve nav var, geçerli öğe yok; tenant bandı / alt
+  gezinme yok). **Dört** ret sayfası (413 "That request was too large", formu başına bir tane olmak üzere
+  iki 400 "The box was not ticked", 400 "Choose one of the reasons") "Nothing was changed." der — kod
+  yorumu (`render.go:453`) "three refusals" der, çünkü üç denetimi (boyut, kutu, gerekçe) sayar; belge
+  sayfaları sayar; iki 503 ("The suspension was not confirmed", "Lifting the suspension was not confirmed") **demez**
   ve operatörü genel bakışa yollar; hiçbiri tenant'ı adlandırmaz, gönderilen değeri yankılamaz.
   `TestOperatorHeaders_TheSuspensionClassesCarryThePolicy` (C218–C242), `TestProblemPages_LinkOnlyToMountedRoutes`
   ve `TestSuspension_EveryRefusalWritesNothing` yeşil.
@@ -458,7 +463,7 @@ adı/e-postası yok; Home'un store çağrısı 0.
 - **Bağımlılık:** M13-02 · **Araç:** yapıcı (`tappa-brand`) + agent `tappa-security-auditor` · **Commit:** `feat(operator): port the tenant list to the redesign`
 - **Kırmızı çizgi:** §7 (arama terimi kişisel veri: URL'ye, bağlantıya, problem sayfasına girmez)
 - **Spec:** [screens.md §5](../design/operator-redesign/screens.md) · **Panolar:** `OpTenants`, `T-OpTenants`, `M-OpTenants`
-- **Dosyalar:** `web/templates/operatorpages/tenants.templ` (`Tenants`, `tenantList`, `tenantPager`, `tenantPageForm`), `op11_test.go`
+- **Dosyalar:** `web/templates/operatorpages/tenants.templ` (`Tenants`, `tenantList`, `tenantPager`, `tenantPageForm`), `web/static/css/input.css` (satır ızgarası, kapsamlı seçiciler), `op11_test.go`, `internal/handler/operator/op15_test.go` (yalnız sabit liste işaretlemesi bilerek değişirse)
 
 Arama kartı (`role="search"`, POST), sonuç satırı + "Show every tenant", docket satırları, üç boş durum,
 POST sayfalayıcı, askıdaki tenant'ın **Suspended** çipi (OP-15). Cilalı panolar (ölçüldü): satır
@@ -473,8 +478,8 @@ veriyordu, düzeltildi). Sayfalayıcı cilalı listede değil: `op-link` kalır.
 süzgeç, sıralama, "son aramalar" yok.
 - **OP-15 eki — Suspended çipi ve ızgara:** `TestTenantList_ASuspendedTenantCarriesTheChip` yeşil —
   `<span>plan</span>`, `<span class="tally tally--tenant-suspended">Suspended</span>`,
-  `<span class="break-all text-xs text-ink/70">id</span>` bu sırayla, askıdaki satır başına tam bir
-  çip; bu yüzden planın mono'su ve id'nin 12 px'i kapsamlı seçiciden gelir (`> :nth-child(3)`,
+  `<span class="break-all text-xs text-ink/70">id</span>` bu sırayla, ve bir askıdaki + bir aktif
+  tenant'lı listede **listenin tamamında** tam bir çip (aktif satırda çip yok); bu yüzden planın mono'su ve id'nin 12 px'i kapsamlı seçiciden gelir (`> :nth-child(3)`,
   `> :last-child`), bu span'lere sınıf eklenmez. Izgara: bugün satır 4 çocuk, askıda 5 (çip plan ile id
   arasında, `tenants.templ:81-83`); id (son çocuk) açıkça yerleşir — masaüstünde 1. satır 4. iz,
   tablette tam genişlik — ve çip otomatik yerleşimle **adın altındaki 2. satıra** düşer; çipsiz satır
@@ -492,7 +497,7 @@ süzgeç, sıralama, "son aramalar" yok.
 - **Spec:** [screens.md §6](../design/operator-redesign/screens.md) (+ "Panel writes card") · **Panolar:** `OpTenant`, `T-OpTenant`, `M-OpTenant` (askı kartı panolarda yok)
 - **Dosyalar:** `web/templates/operatorpages/tenants.templ` (`TenantOverview`, `tenantFact`, `tenantCount`, `tenantAPISection`, `apiNotice`, `tenantSuspension`, `suspensionReason`, `suspendForm`, `holdWarning`, `reinstateForm`), `op11_test.go`, `tenantapi_test.go`, `op15_test.go` (yalnız sabit işaretleme bilerek değişirse)
 
-Olgular kartı, "Live now" docket'i, üç bağlantı, API bölümü (durum satırı, cümle, form, Close), altı
+Olgular kartı (ilk satırı sayfanın `<h1>`'i olur — aşağıda), "Live now" docket'i, üç bağlantı, API bölümü (durum satırı, cümle, form, Close), altı
 bildirim + kurallar, ve OP-15'in **Panel writes** kartı (durum çipi, askıda iki olgu, duruma göre tek
 form: dört gerekçe radyosu + security-hold uyarısı + kutu + "Suspend writes", ya da kutu + "Lift the
 suspension"). Askı kartının panosu yok: screens.md §6 "Panel writes card"daki tarifle, bileşen
@@ -503,6 +508,17 @@ kataloğunun parçalarından kurulur (`op-card`, `docket-label`, `.op-main .tall
 bir açma ve bir kapama formu, kapalıda yalnız açma formu; `TestTenantOverview_NamesTheTenantInTheBannerAndRefusesABadPath`,
 `TestTenantOverview_AnUnnamedTenantIsNamedByItsID`, `TestOperatorAPI_TheResultIsReadNotPosted`,
 `TestOperatorAPI_TheCodeRuleIsTheDatabases` yeşil; onay adımı eklenmez.
+- **Sayfa başlığı — orkestratör kararı (2026-10-25):** genel bakış bugün `<h1>`'siz tek operatör veri
+  ekranıdır (ölçüldü: `tenants.templ:129` yalnız `<p class="docket-label">Tenant overview</p>`; Plaques,
+  Billing, VAT'ta tek `<h1>` sayfa başlığıdır — `plaques.templ:20`, `billing.templ:28`, `vat.templ:25`).
+  `<h1>` **sayfa başlığıdır, tenant adı değil**: o öğe `<h1 class="docket-label">Tenant overview</h1>`
+  olur — sözcük ve sınıf aynı, yalnız öğe (onu sabitleyen test yok). Tenant adı bandı `<h1>` olmaz
+  (kabuğundur; öteki üç ekranda iki `<h1>` çıkar ve bandın sabit `<p class="font-display text-xl
+  font-bold tracking-tight">`'ı bozulur). **Yeni test** (adını yapıcı koyar): dört tek-tenant ekranın
+  `screens()`'teki her render'ı (overview / plaques / billing / VAT fixture'ları) tam **bir** `<h1`
+  taşır, o `<h1` `<main`'in içindedir ve tenant bandının (`<section class="op-tenant"`) içinde değildir;
+  genel bakışınki `Tenant overview`'dur; KONTROL: `<h1>`'siz bir genel bakış render'ı (bugünkü
+  işaretleme) kırmızıdır.
 - **OP-15 eki — Panel writes kartı** (screens.md §6): API kartından sonra, alt bağlantılardan önce; her
   metin, iki form ve üç durum (aktif, askıda, tanınmayan gerekçe) kelimesi kelimesine; sabit işaretleme
   bayt-aynı (radyonun öznitelik sırası, `op-reason-hold` sınıfının başta olması ve
@@ -539,10 +555,13 @@ bir açma ve bir kapama formu, kapalıda yalnız açma formu; `TestTenantOvervie
    yolu açılmaz.
 5. **Onay:** kutu `name="confirm" value="yes" required`; modal / JS onayı yok (genel bakışın CSP'sinde
    `script-src` yok); onay adımı (ikinci sayfa) eklenmez.
-6. **Yankı ve sızıntı:** problem sayfaları ve günlük satırları gönderilen değeri ya da tenant adını
-   taşımaz (`TestSuspension_NoPostedValueReachesALogLine`, `TestOperatorHeaders_TheSuspensionClassesCarryThePolicy`,
-   `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`); security-hold uyarısı kapalı metindir,
-   tenant verisi taşımaz.
+6. **Yankı ve sızıntı:** problem sayfaları gönderilen hiçbir değeri ve tenant adını taşımaz; ret
+   günlük satırı yazmaz. Başarılı yazmanın günlük satırı (`suspension.go:187-188`) tenant id'si,
+   operatör id'si ve gerekçe **kodunu** yazar — `Known()`'dan geçmiş, kapalı kümenin bir üyesi; serbest
+   metin ya da ham gönderilen değer değil (`TestSuspension_NoPostedValueReachesALogLine`'ın PART I'i
+   buna izin verir), `TestOperatorHeaders_TheSuspensionClassesCarryThePolicy`,
+   `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`. Port bu satıra alan eklemez. Security-hold
+   uyarısı kapalı metindir, tenant verisi taşımaz.
 7. **Okuma ve `op_*`:** yeni `op_*`, yeni okuma, genişlemiş dönüş sütunu yok; kartın durumu genel
    bakışın kendi okumasından; yazma bir istek birimi, okuma birimi değil
    (`TestSuspensionBudget_AWriteIsOneRequestAndNoRead`).

@@ -8,7 +8,9 @@ Citations: written at HEAD `022ba3c` (operator files unchanged since `1e5cc83`; 
 lines of 2026-10-20 re-read at `a8a06f6`, unchanged at `27516b7`). **Re-read on 2026-10-25 at
 `98546448`** (the OP-15 annex): every citation into a file that changed since `022ba3c`
 (`render.go`, `routes.go`, `surface.go`, `tenants.go`, `audit.go`, `view.go`, `tenants.templ`,
-`legal.templ`, `input.css`, `op8_test.go`, `op14_test.go`, `internal/db/operator.go`) points at
+`legal.templ`, `layout/base.templ`, `input.css`, `internal/db/operator.go`,
+`internal/domain/legal/legal.go`, `op8_test.go`, `op14_test.go`, `op12_db_test.go`,
+`typepins_test.go` — the README header's list) points at
 `98546448`, and the OP-15 lines are new (`suspension.go`, `op15_test.go`, `op15_db_test.go`); the
 other cited files are byte-identical at both commits (README header lists them). File prefixes:
 templates are `web/templates/operatorpages/`, handlers `internal/handler/operator/`, tests
@@ -247,12 +249,18 @@ Signed in = every constant from Legal onward, plus SignOutFailed and TooMany(tru
 rules: problems never repeat the search term or the VAT number (`render.go:231-236, 359-364`);
 an unconfirmed write never claims "nothing happened" (`render.go:381-388, 425-428`); the billing
 fault never shows a figure (`render.go:335-336`). **The suspension's six (OP-15, ADR 0025 §5;
-`render.go:452-501`):** the three refusals (413, two 400s for the box, one for the reason) are
-answered before any store call and say "Nothing was changed."; the two 503s **never** say that —
+`render.go:452-502`):** the **four refusal pages** — 413 "That request was too large", the two 400
+"The box was not ticked" (one per form) and the 400 "Choose one of the reasons" — are answered
+before any store call and say "Nothing was changed." (the code's comment, `render.go:453`, says
+"three refusals": it counts the three checks — size, box, reason — where this list counts pages);
+the two 503s **never** say that —
 an error from the one autocommit statement does not prove it was not committed — and send the
 operator to the overview, which says what the database holds; none names the tenant or repeats a
 posted value. A malformed id in either path answers `problemTenantNotAnID` (404) before any store
-call (`suspension.go:163-167`, `:198-202`). Their status, headers and the no-echo rule are pinned
+call (`suspension.go:163-167`, `:198-202`). Two more answers of the two routes are not suspension
+pages: a body that does not parse is the shared `problemBadForm` (400, "That form could not be
+read", `readForm`, `render.go:61`), and a session that died between the gate and the write is a
+redirect to the sign-in (`suspensionWritten`, `suspension.go:233-234`), as the gate itself answers. Their status, headers and the no-echo rule are pinned
 per response class by `TestOperatorHeaders_TheSuspensionClassesCarryThePolicy` (C218–C242); their
 links by `TestProblemPages_LinkOnlyToMountedRoutes` (through `problemPages()`); that a refusal
 writes nothing by `TestSuspension_NothingIsWrittenWithoutTheBoxOrAKnownReason` and
@@ -300,8 +308,8 @@ draws it): the id is placed explicitly (desktop line 1, track 4), so the chip �
 auto-places on **line 2, under the name**; a row without it keeps one line. Tablet: chip line 2,
 id line 3. Phone: the chip flows after the plan. Recipe and the pins it must not break: README
 §6.1 "Tenants row" (`TestTenantList_ASuspendedTenantCarriesTheChip` holds `<span>plan</span>`,
-the chip and `<span class="break-all text-xs text-ink/70">id</span>` in that order, and exactly
-one chip per suspended row).
+the chip and `<span class="break-all text-xs text-ink/70">id</span>` in that order, and — on a list
+of one suspended and one active tenant — exactly one chip on the whole list).
 
 **States:** every tenant page 1 · searched with matches · no match · no tenants yet · later page
 empty · pager Previous + Next · a suspended row (fixture "tenants, a suspended row").
@@ -323,7 +331,7 @@ Signed-in shell, current = Tenants; banner + sub-nav (current = Overview). Title
 
 | Element | Words / markup |
 |---|---|
-| label | Tenant overview |
+| label → **h1** | Tenant overview — today `<p class="docket-label">Tenant overview</p>` (`tenants.templ:129`), the page's only label and **no `<h1>`**; M13-08 makes it `<h1 class="docket-label">Tenant overview</h1>` (below) |
 | facts `dl` | **Tenant id**, **Signed up**, **Plan**, **Business type** — pinned regex `<dt class="docket-label">LABEL</dt>\s*<dd class="mt-1 break-all font-mono text-sm">` (`op11_test.go:894`) |
 | docket heading | Live now (`<section class="docket" aria-labelledby="tenant-live">`) |
 | counts | **Locations**, **Active employees**, **Active plaques**, **Active panel accounts** — pinned `<dd class="mt-1 font-mono text-3xl font-bold">` (`op11_test.go:900`) |
@@ -335,6 +343,16 @@ Signed-in shell, current = Tenants; banner + sub-nav (current = Overview). Title
 | buttons | **Open the API** (closed) / **Change the code** (open); **Close the API** (`btn--quiet`, open only) |
 | suspension card (OP-15) | **Panel writes** — after the API card, before the footer links; below, "Panel writes card" |
 | footer links | Back to the tenants · Back to the console |
+
+**The overview's `<h1>` (orchestrator decision, 2026-10-25).** Measured: the overview is the one
+operator data screen without an `<h1>` — Plaques, Billing and VAT each carry one, the page heading
+(`plaques.templ:20` "Plaque inventory", `billing.templ:28` "Billing months", `vat.templ:25` "VAT
+re-check"), and the overview's first card opens with `<p class="docket-label">Tenant overview</p>`
+(`tenants.templ:129`). The `<h1>` is the **page heading, not the tenant's name**: M13-08 changes
+that one element to `<h1 class="docket-label">Tenant overview</h1>` — same word, same class, only
+the element (no test pins the `<p>`). The tenant-name banner does **not** become an `<h1>`: it is
+the shell's, on all four one-tenant screens, so the other three would carry two, and its pinned
+`<p class="font-display text-xl font-bold tracking-tight">` would change. README §2 "OP-15 annex" (c).
 
 **API notices** (`apiNotice` `:230-248`, words `apiSentences` `tenantapi.go:172-185`, driven by
 the 303's `?done=` and decided by the fresh read):
@@ -376,7 +394,7 @@ reads nothing of its own. View `TenantSuspensionView` (`view.go:269-282`), built
 
 | Element | Words / markup (verbatim) |
 |---|---|
-| card | `<section class="op-card" aria-labelledby="tenant-suspension">`; `<h2 id="tenant-suspension" class="docket-label">Panel writes</h2>` |
+| card | `<section class="op-card" aria-labelledby="tenant-suspension">`; `<h2 id="tenant-suspension" class="docket-label">Panel writes</h2>` (under the page's `<h1>` "Tenant overview" — above, "The overview's `<h1>`") |
 | state — active | chip `<span class="tally tally--tenant-active">Active</span>` (in `<p class="mt-3">`) · The business's panel accepts its writes. |
 | state — suspended | chip `<span class="tally tally--tenant-suspended">Suspended</span>` · The business's panel refuses its writes. Taps, signing in, reading every section, the CSV exports and the four paths of the time record stay open. |
 | facts (suspended) | `dl` with **Suspended since** — `<dt class="docket-label">Suspended since</dt>` `<dd class="mt-1 break-all font-mono text-sm">`, UTC to the minute (`utcStamp`) — and **Reason** — `<dt class="docket-label">Reason</dt>` `<dd class="mt-1 text-sm">` the label |
@@ -385,7 +403,7 @@ reads nothing of its own. View `TenantSuspensionView` (`view.go:269-282`), built
 | suspend form, first paragraph | Every write of the business's panel is refused until the suspension is lifted — except signing in and out, a panel account's own password, and the four paths of the time record: adding a person to the staff, a new invitation and both steps of a manual entry. Taps, reading every section and the CSV exports go on, and the months of a suspension are billed as usual. |
 | suspend form, second paragraph | Every section shows the business a banner with a sentence for the reason: non-payment and a breach of the terms are named; a security hold and the business's own request share one neutral sentence. |
 | reasons | `<fieldset>` with `<legend class="docket-label">Reason</legend>`; four radios in the closed set's order (`db.SuspensionReasons()`), each followed by its label |
-| security-hold warning | warn notice, heading **A security hold freezes writes. It does not contain an account.**, body `holdWarning` (`tenants.templ:357-384`) — two paragraphs and two bulleted lists ("Whoever holds a session of this business keeps it. …", "What does stop an account:" …), word for word as the code and `holdSentences` (`op15_test.go`); closed text, no tenant data. In the page whatever is chosen; the stylesheet shows it only while **Security hold** is checked |
+| security-hold warning | warn notice, heading **A security hold freezes writes. It does not contain an account.**, body `holdWarning` (`tenants.templ:357-384`), in this order: `<p>` "Whoever holds a session of this business keeps it. While the business is suspended, that session still:" (`:358`) · `<ul class="mt-1 list-disc pl-5">` of three items (reads and CSV; staff and invitations; manual records) · `<p class="mt-2">` "The business's own defensive writes stop too: …" (`:370`) · `<p class="mt-2 font-bold">` "What does stop an account:" (`:375`) · `<ul class="mt-1 list-disc pl-5">` of three items (disabling the panel account; a password reset by the rightful admin; the rightful admin changing their own password) — three paragraphs and two lists, word for word as the code and `holdSentences` (`op15_test.go`); closed text, no tenant data. In the page whatever is chosen; the stylesheet shows it only while **Security hold** is checked |
 | box | I have checked that this is the right tenant. |
 | suspend button | **Suspend writes** (`btn btn--quiet self-start`) |
 | reinstate form h3 (suspended only) | Lift the suspension |
@@ -429,8 +447,7 @@ reads nothing of its own. View `TenantSuspensionView` (`view.go:269-282`), built
 **Recipe — built from the catalogue (README §6), same words, same order, same forms (D1):**
 - An `op-card` like the API card above it (M13-02: `rounded-[14px]`, no shadow, the single padding
   scale). The h2 stays `docket-label` "Panel writes", as its sibling "Integration API"; the two
-  `<h3>`s keep their element and size (`font-display text-lg font-bold tracking-tight`) — the
-  overview's `<h1>` count is not touched.
+  `<h3>`s keep their element and size (`font-display text-lg font-bold tracking-tight`).
 - The state chip alone on its line, rounded by `.op-main .tally` (M13-02) — no class on the span.
 - Facts: the `dl`'s `sm:grid-cols-2` becomes `md:grid-cols-2` (this surface's breakpoints are base /
   `md:` / `desk:`; two facts, so no `desk:grid-cols-4`); the `dt`/`dd` stay as pinned.
@@ -658,7 +675,7 @@ or raw mono + chip **Unrecognised** · actor: By the platform owner, with opadmi
 unnamed operator `<id>`] · [Tenant `<link>name</link>` / Tenant `<link><i>Unnamed tenant</i></link>`
 `<id>` / A tenant id no tenant has `<id>` (no link)] · [Of the legal texts / the tenant list / a
 tenant's overview / a tenant's plaques / this audit log / a tenant's billing / a tenant's VAT
-number / the holdings (`audit.go:238-247`) / Of a scope this screen does not show] · [Page n (m
+number / the holdings (`audit.go:239-248`) / Of a scope this screen does not show] · [Page n (m
 per page)] · [No search term / Searched by name / Searched by address / Searched by tenant id —
 **the class, never the term**] · [Filter: `<word>`] · [Document `<mono slug>`] · [`<n>` bytes] ·
 [Detail not shown, italic] · [Session `<first 8 hex>`].
