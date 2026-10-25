@@ -1,6 +1,7 @@
 # M13 — Operatör yüzeyi yeniden tasarımı: kabuk, gezinme ve ekranların taşınması
 
-> **Durum:** plan (2026-10-20). Canlı durum yalnız [state.md](state.md)'dedir; bu dosyaya
+> **Durum:** plan (2026-10-20; **OP-15 eki 2026-10-25** — askı yüzeyi, iki orkestratör kararı, atıf
+> tazelemesi). Canlı durum yalnız [state.md](state.md)'dedir; bu dosyaya
 > "yapıldı" yazılmaz.
 >
 > **Teslim paketi (okumadan başlama):** [docs/design/operator-redesign/README.md](../design/operator-redesign/README.md)
@@ -9,7 +10,9 @@
 > sızıntı alanları), kabuğu ve işaretlemeyi sabitleyen testler, bileşen kataloğu (Tailwind
 > tarifleriyle), ekran haritası. Ekran başına ayrıntı:
 > [docs/design/operator-redesign/screens.md](../design/operator-redesign/screens.md) (`file:line`
-> atıfları HEAD `022ba3c`'ye göredir). Panolar: `docs/design/panel-redesign/boards/Op*.dc.html`,
+> atıfları HEAD `022ba3c`'de yazıldı; OP-15 / M15 / legal-links / LP sonrası değişen dosyalardakiler
+> 2026-10-25'te `98546448`'e göre yeniden okundu — değişen ve değişmeyen dosyaların ölçülmüş listesi
+> README başlığında; bu dosyadaki atıflar da aynı kuralla tazelendi). Panolar: `docs/design/panel-redesign/boards/Op*.dc.html`,
 > `T-Op*`, `M-Op*` (12 ekran × 3 genişlik). Ortak token haritası ve D1–D4:
 > [docs/design/panel-redesign/README.md](../design/panel-redesign/README.md).
 
@@ -28,6 +31,29 @@
   `taptime`, koyu kenar çubuğu) **kullanılmaz** — yalnız kendi `op-*` sınıfları.
 - **OP-2 — Kırılma noktaları:** masaüstü (`desk:` ≥ 1200) + tablet (`md:` 768–1199) + telefon
   (< 768). Her ekran kartı üç genişliği **birlikte**, tek DOM ile taşır.
+- **OP-15 eki (2026-10-25).** Paket OP-15'ten (tenant askıya alma, ADR 0025; canlı `5aaa562`, goose 63)
+  önce yazıldı; panolar askıyı çizmez. D1 gereği kodun askı yüzeyi olduğu gibi taşınır: liste satırının
+  **Suspended** çipi (M13-07), genel bakışın **Panel writes** kartı — panosu yok, bileşen kataloğunun
+  parçalarından (M13-08), iki audit türü (M13-12), altı problem sayfası (M13-03). Plaques, Billing, VAT
+  ve API kartı askıyı okumaz, göstermez. Ayrıntı: README §2 *"OP-15 annex"*, screens.md §4–§6, §10.
+  İki **orkestratör kararı**:
+  - **(a) Çip tonları — kodun bugünkü tonları korunur.** Panoda ton farklıysa pano değil kod kazanır
+    (D1): port çipi yuvarlar (`.op-main .tally`), yeniden tonlamaz; tek yeniden tonlama önceden
+    kararlaştırılmış `tally--running` kalır. Plaket farkı (README §2 annex (a) tablosu): *On a wall*
+    kodda `green-lite` zemin ↔ panoda yeşil %10; *never encoded / not encoded* kodda düz safran çerçeve +
+    `saffron-lite` ↔ panoda **kesikli** safran + safran %12; *In stock* kodda `line` çerçeve + `line/10` ↔
+    panoda ink %50 çerçeve, kâğıt zemin; *Unrecognised* kodda `ink` + `ink/10` ↔ panoda **kesikli** ink %50,
+    kâğıt; *Retired / Lost* aynı. Aynı pano paleti OpTenant (API Open/Closed) ve OpVat'ta da var; orada
+    da kod kazanır (M13-02 zaten `tally--running` dışındaki her ton kuralını korur).
+  - **(b) `aria-current`:** ana gezinmede (rail — masaüstü sütunu / tablet satırı / telefon çubuğu, tek
+    DOM) geçerli öğe `aria-current="true"`; tek-tenant alt gezinmesinde (Overview · Plaques · Billing ·
+    VAT number) geçerli sekme `aria-current="page"`. **Gerekçe:** rail sayfanın **bölümünü**, alt sekme
+    **sayfayı** işaret eder — Tenants listesinden açılmış bir tenant'ın Plaques sayfasında rail "Tenants"
+    bölümündedir ama o sayfa değildir; rail'de `page` ekran okuyucuya "geçerli sayfa: Tenants" dedirtir
+    ve tek-tenant sayfasında iki öğe birden "sayfa" olurdu. Rail her ekranda `"true"` taşır (öğenin
+    bağlantısı sayfanın kendisi olsa da — Home'da Console, listede Tenants), böylece her nav'da tek
+    anlam, kabuk testinde nav başına tek değer. İmzalı problem sayfasında ikisi de yok. Bağlandığı yerler:
+    README §2 kabuk maddeleri, §4.1, §6 "Main nav" / "Tenant sub-nav", screens.md §0, M13-01.
 
 **Yeni okuma kararı gerekmiyor.** Panoların her öğesi bugünkü okumalardan gelir (envanter + 12 pano,
 2026-10-20). Bir öğe yeni okuma isterse (ör. Home'a bir sayı) bu bir **karar**dır, kart değil: yeni
@@ -56,8 +82,8 @@ karar yok; "çizilmiş ama yapılmamış" listesi de yok.
   ekranları; `components.Notice`, `layout.*`) ve marka CSS golden'ı (`TestCompiledCSS_BrandNamesOccurOnlyInTheGolden`)
   M13 boyunca **bayt-aynı** kalır; bunlar hiçbir kartta yeniden üretilmez — kırmızıya dönerlerse
   kart paylaşılan bir bileşene dokunmuştur ve düzeltilecek olan koddur, golden değil.
-- **Dal:** `claude/admiring-brown-jw8hf1` (ya da kullanıcının açtığı feature dalı). `main`'e
-  birleştirme bir deploy kararıdır — kullanıcı istemedikçe yok.
+- **Dal:** `m13-operator` (worktree `../tappa-m13`). `main`'e birleştirme bir deploy kararıdır —
+  kullanıcı istemedikçe yok.
 - **Kart bitince:** `state.md` ledger + "ŞU AN" + oturum notu.
 
 ## Her kartın miras aldığı kısıtlar (özet — tam metin README §3)
@@ -81,7 +107,7 @@ templ yorumuna yardımcı sınıf adı yazılmaz · tek `<h1>`.
 | ID | Faz | Görev | Ajan | Bağımlılık |
 |---|---|---|---|---|
 | M13-01 | O0 | Operatör kabuğu + gezinme (OP-1): bant, `op-nav` (üç genişlik), tenant alt gezinmesi, içerik sütunu; kabuk testinin genişletilmesi | yapıcı (`tappa-brand`) + güvenlik | — |
-| M13-02 | O1 | Bileşen katmanı: `op-card`, `op-input`, düğmeler, `op-row`, kapsamlı yuvarlak çip, `op-label` | yapıcı (`tappa-brand`) | M13-01, M12-52 |
+| M13-02 | O1 | Bileşen katmanı: `op-card`, `op-input`, düğmeler, `op-row`, kapsamlı yuvarlak çip, `op-label` | yapıcı (`tappa-brand`) | M13-01 (M12-52: ad değişikliği canlıda; kalan KONTROL bu karta katıldı) |
 | M13-03 | O1 | Operatöre özgü bildirim (`opNotice`) + problem sayfası | yapıcı (`tappa-brand`) | M13-02 |
 | M13-04 | O2 | Ekran: giriş + kod (OpSignIn) | yapıcı (`tappa-brand`) | M13-03 |
 | M13-05 | O2 | Ekran: hesap kurulumu (OpEnroll) | yapıcı (`tappa-brand`) + güvenlik | M13-03 |
@@ -133,7 +159,8 @@ bağlantıları taşıyor (`chrome.templ:19-21`). Bütün ekran kartları bu kab
 - Nav: beş bağlantı, sıra Console · Tenants · Holdings · Audit log · Legal texts; telefonda
   "Audit"/"Legal" kısa etiketleri (`md:hidden` / `hidden md:inline` span çifti); beş ikon README §2'deki
   yollarla satır içi `<svg … aria-hidden="true">`, yalnız telefonda görünür; masaüstünde "PLATFORM"
-  etiketi; `aria-current="page"` tek öğede.
+  etiketi; geçerli öğede `aria-current="true"` (OP-15 eki karar (b): rail **bölümü** işaret eder), tek
+  öğede. Alt gezinmenin geçerli sekmesi `aria-current="page"` (sayfa).
 - Sign out tek form ve tek **metin** düğmesi kalır — her genişlikte aynı; telefonda ikon/`<svg>` yok
   (plaket sayfası tam bir `<button>` ister, imzalı sayfanın SVG'leri yalnız nav'ın beşi).
 - **DOM sırası** (README §2): `header.op-bar` → `div.op-frame` → `nav.op-nav` → `div.op-col` →
@@ -170,17 +197,21 @@ tipi), her ekranın `@screen` / `@TenantScreen` çağrısı (`home.templ`, `sign
 (44 px listesi), `docs/adr/0020-…md`, `docs/adr/0023-…md`.
 
 **Kabul kriterleri.**
-- `TestOperatorScreens_EveryOneWearsTheOperatorChrome`'un **beş mevcut iddiası bayt-aynı** kalır
-  (`<header class="op-bar">` `<main`'den önce, tam kilit, panel işaretleri yok, sign-out tam 37 imzalı
-  render'da, başlık `Taptime operator</title>` ile biter) ve şunlarla **genişletilir**: imzalı 37
-  render'da tam bir `<nav class="op-nav"` bant ile `<main` arasında, tam beş href (`/operator`,
-  `/operator/tenants`, `/operator/holdings`, `/operator/audit`, `/operator/legal`); imzasız 9
-  render'da hiç; ana nav'da `aria-current="page"` "problem, signed in" dışındaki 36 imzalı render'da
-  tam bir ve doğru öğede (Home → Console; liste + dört tek-tenant ekranı → Tenants; Holdings, Audit
-  log, Legal texts kendilerinde), imzalı problemde sıfır; **her tek-tenant render'ında (17** — 16
-  overview / plaques / billing / VAT fixture'ı + çıplak "tenant screen" fixture'ı**)** alt gezinme
-  bandın **içinde** (`<section class="op-tenant"` … `<nav class="op-subnav"` … `</section>`, `<main`'den
-  önce), tenant'ın dört yolu ve tam bir geçerli sekme; başka hiçbir render'da alt gezinme yok.
+- `TestOperatorScreens_EveryOneWearsTheOperatorChrome`'un (`op8_test.go:784-821`) **beş mevcut iddiası
+  bayt-aynı** kalır (`<header class="op-bar">` `<main`'den önce, tam kilit, panel işaretleri yok,
+  sign-out tam 40 imzalı render'da, başlık `Taptime operator</title>` ile biter) ve şunlarla
+  **genişletilir**: imzalı 40 render'da tam bir `<nav class="op-nav"` bant ile `<main` arasında, tam
+  beş href (`/operator`, `/operator/tenants`, `/operator/holdings`, `/operator/audit`,
+  `/operator/legal`); imzasız 9 render'da hiç; ana nav'da `aria-current="true"` "problem, signed in"
+  dışındaki 39 imzalı render'da tam bir ve doğru öğede (Home → Console; liste + dört tek-tenant ekranı
+  → Tenants; Holdings, Audit log, Legal texts kendilerinde), imzalı problemde sıfır; `op-nav` içinde
+  hiçbir render'da `aria-current="page"` yok; **her tek-tenant render'ında (19** — 18 overview /
+  plaques / billing / VAT fixture'ı + çıplak "tenant screen" fixture'ı**)** alt gezinme bandın
+  **içinde** (`<section class="op-tenant"` … `<nav class="op-subnav"` … `</section>`, `<main`'den
+  önce), tenant'ın dört yolu ve tam bir `aria-current="page"`; başka hiçbir render'da alt gezinme yok.
+  (Sayılar `022ba3c`'de 46 / 37 / 36 / 17 idi; OP-15 üç imzalı fixture ekledi — "tenants, a suspended
+  row", "tenant overview, suspended", "tenant overview, an unrecognised reason"; `op8_test.go:736,
+  742-743`, testin PREMISE'i 49 / 40.)
 - **Yeni test** (adını yapıcı koyar; kabuk testinin yanında): hiçbir operatör render'ı panel kabuğunun
   işaretlerini (`panel-side`, `side-nav`, `bar-link`, `tab-link`, `sheet-`, `panel-well`,
   `panel-stripe`, `punchless`, yeşil `taptime`) ya da tenant markasını (`/brand/` — tema ve logo yolları,
@@ -199,7 +230,7 @@ tipi), her ekranın `@screen` / `@TenantScreen` çağrısı (`home.templ`, `sign
   (`op13_test.go:327-332`) — nav ve alt gezinme form/düğme taşımaz.
 - `TestOperatorChrome_TheColouredTextClearsAA` genişletilir: nav'ın `ink/70` etiketi paper'da ve
   geçerli öğenin `ink`'i `ink/5`-üstü-paper'da ≥ 4.5:1; alt gezinmenin `ink`'i paper'da.
-- `op14_test.go:750`'deki input.css 44 px listesine yeni basılabilir `op-*` sınıfları eklenir.
+- `op14_test.go:753`'teki input.css 44 px listesine yeni basılabilir `op-*` sınıfları eklenir.
 - Okuma sayısı değişmez: `TestReadBudget_TheReadsOfEveryScreenShareOneBudgetPerSession`,
   `TestHoldingsBudget_AViewIsOneReadAndAWriteIsNone`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`,
   `TestOperatorHeaders_FortyResponseClassesCarryThePolicy`, `TestOperatorPages_ImportedOnlyByTheSurfaceAndSharingOnlyTheShell`,
@@ -224,16 +255,22 @@ zemine koymak (panolar bandın içinde çizer) · telefonda sign-out'u ikona çe
 
 ## M13-02 — Bileşen katmanı
 
-- **Bağımlılık:** M13-01, **M12-52** (panelin `.tally--pill`'i `TestTallyRules_NoToneRuleColoursTheWord`'ü
-  kırmızıya çevirdi — [m12-panel-redesign.md → M12-52](m12-panel-redesign.md); o kart bitmeden bu kart
-  başlamaz)
+- **Bağımlılık:** M13-01. **M12-52'nin durumu (ölçüldü 2026-10-25):** M12 canlıda (`ab85193`,
+  2026-10-21 — state.md) ve `origin/main` `5524505` + `00ca1e6`'yı içerir: `.tally--pill` → `.pill-tally`
+  ad değişikliği kodda (`input.css:1307` @ `98546448`) ve `TestTallyRules_NoToneRuleColoursTheWord`
+  yeşil (bu tarihte `-run` ile koşuldu). M12-52'nin **kalan** kabulü — bir `.tally--x` kuralına eklenen
+  **biçim** yardımcısının (ör. `rounded-full`) bulgu olduğunu gösteren ikinci mutasyon KONTROL'ü —
+  testte **yok**: `op12_test.go` OP-12'den (`a54459d`) beri değişmedi ve okuyucunun tek mutasyonu
+  `text-saffron`'dur (`op12_test.go:1634-1640`). M12 kapandığı ve bu kart `readTallyRules`'a zaten
+  dokunduğu için o KONTROL **bu kartın kabulüne katıldı** (aşağıda); M12-52 artık bu kartı bloke etmez
+  ([m12-panel-redesign.md → M12-52](m12-panel-redesign.md))
 - **Kırmızı çizgi:** — (yalnız sınıflar; D2)
 - **Araç:** yapıcı, skill `tappa-brand`
 - **Commit:** `style(operator): round the operator cards, fields and chips as drawn`
 - **Spec:** [README §5–§6](../design/operator-redesign/README.md)
 
-**Amaç.** README §6'nın operatör sınıflarını `input.css`'in `op-*` bloğunda (`input.css:1098-1145`,
-`a8a06f6`'da yeniden okundu, `27516b7`'de değişmedi) güncellemek: `.op-card` `rounded-[14px]`, `shadow-sm` düşer (hiçbir operatör kartında gölge yok), iç boşluklar üç genişlikte
+**Amaç.** README §6'nın operatör sınıflarını `input.css`'in `op-*` bloğunda (`input.css:1114-1161` @
+`98546448`) güncellemek: `.op-card` `rounded-[14px]`, `shadow-sm` düşer (hiçbir operatör kartında gölge yok), iç boşluklar üç genişlikte
 (telefonda **20 px**, `p-5`; tablet/masaüstünde 22 px 24 px); docket dolgusu kapsamlı kuralla
 `.op-main .docket { @apply px-5 py-4 md:px-6 md:py-[18px]; }` — telefonda 16 px 20 px,
 tablet/masaüstünde 18 px 24 px; `.docket`'in kendi `px-4 py-3`'ü panel için kalır. **Tek ölçek, tek
@@ -257,7 +294,7 @@ Cilalı panoların getirdiği yeni sınıflar (yalnız CSS; işaretlemeye ekran 
   tablet/masaüstünde satır yüksekliğini korur ve 44 px görünmez bir `::before` örtüsü ekler
   (README §6 "Inline link hit area"); işaretleme değişmez.
 - **`tally--running` yeniden tonlanır, yeni değiştirici yok:** canlı ay kesikli safran çerçeve —
-  seçicisi çizgi grubundan (`input.css:731-736`) çıkar, kendi tek satırlık kuralını alır:
+  seçicisi çizgi grubundan (`input.css:745-750`) çıkar, kendi tek satırlık kuralını alır:
   `.tally--running { @apply border-dashed border-saffron bg-paper; }` (panoların `.t-saffron-o`'su: kâğıt zeminde kesikli safran çerçeve). Ad `tally--[a-z-]+`'e
   uyar, çip regex'i değişmez.
 
@@ -279,8 +316,13 @@ testleri), `op14_test.go` (44 px listesi).
   `border-<renk>`, `opacity` yok); KONTROL: kapsamlı kurala bir renk yardımcısı eklenmiş mutasyon
   kırmızı. **Bu kart, bir `.tally--x` kuralının uygulayabileceğini genişleterek asla geçilmez** —
   okuyucunun `border-`/`bg-` dışını bulgu sayan kolu aynen kalır. (Bu test panelin `.tally--pill`'i — `2afa9db` — yüzünden kırmızıydı; M12-52'nin ad değişikliği
-  `5524505` + `00ca1e6` (`.pill-tally`, `input.css:1292`) onu yeşile döndürdü — ölçüldü. M12-52'nin kalan
-  mutasyon kontrolü de bu kartın ön koşuludur.)
+  `5524505` + `00ca1e6` (`.pill-tally`, `input.css:1307` @ `98546448`) onu yeşile döndürdü — ölçüldü,
+  2026-10-25'te yeniden.)
+- **M12-52'den devralınan KONTROL:** `TestTallyRules_NoToneRuleColoursTheWord`'e, bir `.tally--x`
+  kuralına eklenmiş bir **biçim** yardımcısının (ör. `rounded-full`) bulgu olduğunu gösteren mutasyon
+  eklenir — mevcut `text-saffron` mutasyonunun biçimiyle (`op12_test.go:1634-1640`: değiştirilmiş CSS'i
+  okuyucuya ver, bulgu yoksa kırmızı). Böylece kapsamlı `.op-main .tally` istisnası bir ton kuralına
+  biçim sızdırmanın yolu olamaz.
 - `tally--running`'in yeni tonu iki fatura testinde **aynı commit'te** genişletilir, gevşetilmez:
   `TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes` (`op12_test.go:1532-1583`; `want`
   `BillingToneRunning: {"bg-paper", "border-saffron"}` olur ve yalnız bu ton için üçüncü
@@ -289,8 +331,8 @@ testleri), `op14_test.go` (44 px listesi).
   `TestBillingScreen_TheChipsAndTextClearAA` (`op12_test.go:1471`; canlı ay mevcut "ink on paper" satırına adıyla taşınır — 16.17:1 —,
   `line`/10 satırı yalnız before sign-up için kalır).
   `readTallyRules` `border-dashed`'i zaten kabul eder (`border-` öneki).
-- `.op-input` / `.op-link` hâlâ `min-h-11` (`op12_test.go:1457`, `op14_test.go:750`); `.op-pager`
-  `op14_test.go:750`'deki listeye eklenir.
+- `.op-input` / `.op-link` hâlâ `min-h-11` (`op12_test.go:1457`, `op14_test.go:753`); `.op-pager`
+  `op14_test.go:753`'teki listeye eklenir.
 - Üretilen işaretleme ekran gövdelerinde değişmez (yalnız CSS) — kabuk testi ve docket anatomisi
   testleri dokunulmadan yeşil (yeni sınıflar işaretlemeye ekran kartlarında girer).
 
@@ -304,14 +346,17 @@ testleri), `op14_test.go` (44 px listesi).
 
 **Amaç.** `operatorpages/notice.templ`'de dışa kapalı `opNotice(tone, heading)` (ok / warn / alert;
 `role="status"` / `role="alert"`); bütün operatör çağıranları (`signin.templ`, `enroll.templ`,
-`holdings.templ:70-88`, `tenants.templ:222-240`, `vat.templ:35`, `legal.templ:56`, `home.templ:55`)
+`holdings.templ:70-88`, `tenants.templ:230-248` (API) ve `:339-343` (askı kartının security-hold
+uyarısı, OP-15), `vat.templ:35`, `legal.templ:56`, `home.templ:55`)
 ona geçer — **ton ve metinler değişmeden**. `Problem` (`home.templ:53-65`) yeni çerçevede: imzasız
 ortalanmış kart, imzalı nav'lı ve geçerli öğesiz; durum çipi yok (görünüm durumu taşımaz — D1).
 
 **Dosyalar.** `web/templates/operatorpages/notice.templ` (yeni), `signin.templ`, `enroll.templ`,
 `holdings.templ`, `tenants.templ`, `vat.templ`, `legal.templ`, `home.templ`, `web/static/css/input.css`;
 `internal/handler/operator/op10_test.go` (`warnNotice`), `holdings_test.go` (`headingsOn`),
-`tenantapi_test.go` (`apiHeadingsOn`) — yalnız başlık biçimi değişirse.
+`tenantapi_test.go` (`apiHeadingsOn`) — yalnız başlık biçimi değişirse; `op15_test.go`
+(`TestSuspendForm_TheHoldWarningIsShownOnlyByTheHoldChoice`'ın `</section>` kesiti) — yalnız `opNotice`'in
+kökü `<section>` değilse.
 
 **Kabul kriterleri.**
 - `components.Notice` baytları değişmez (`TestUnbrandedScreens_AreByteIdenticalToTheGolden`);
@@ -331,6 +376,19 @@ ortalanmış kart, imzalı nav'lı ve geçerli öğesiz; durum çipi yok (görü
   `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike`).
 - Uyarı zemini AA: `ink/85` saffron-lite üzerinde (`TestLegalScreen_TheTextClearsAA`) ve yeni `ok`
   zemini (`tappa-green/10` paper üstü) üzerinde ink — hesap ilgili AA testine eklenir.
+- **OP-15 eki — askının altı problem sayfası** (`render.go:452-501`; screens.md §4): başlık, mesaj ve
+  "Back to the tenants" kelimesi kelimesine; hepsi imzalı (nav var, geçerli öğe yok, bant/alt gezinme
+  yok). Üç ret (413, iki "The box was not ticked", "Choose one of the reasons") "Nothing was changed."
+  der; iki 503 ("The suspension was not confirmed", "Lifting the suspension was not confirmed") **demez**
+  ve operatörü genel bakışa yollar; hiçbiri tenant'ı adlandırmaz, gönderilen değeri yankılamaz.
+  `TestOperatorHeaders_TheSuspensionClassesCarryThePolicy` (C218–C242), `TestProblemPages_LinkOnlyToMountedRoutes`
+  ve `TestSuspension_EveryRefusalWritesNothing` yeşil.
+- **OP-15 eki — security-hold uyarısı** `opNotice(warn, …)`'e geçer; başlığı ("A security hold freezes
+  writes. It does not contain an account."), cümleleri (`holdSentences`) ve yeri (`<div id="suspend-hold-warning"
+  class="op-hold-warning">` içi, `op-reasons` ebeveyninde dört radyonun ardından) aynı. `TestSuspendForm_TheHoldWarningIsShownOnlyByTheHoldChoice`
+  uyarıyı ilk `</section>`'da keser: `opNotice` burada `<section>` kökünü korur ya da test aynı commit'te,
+  kesitin başlığı hâlâ içerdiğini gösteren bir KONTROL'le güncellenir. `input.css:1711-1713`'teki üç kural
+  bayt-aynı (test her birini tam bir kez arar).
 
 ---
 
@@ -403,29 +461,95 @@ adı/e-postası yok; Home'un store çağrısı 0.
 - **Dosyalar:** `web/templates/operatorpages/tenants.templ` (`Tenants`, `tenantList`, `tenantPager`, `tenantPageForm`), `op11_test.go`
 
 Arama kartı (`role="search"`, POST), sonuç satırı + "Show every tenant", docket satırları, üç boş durum,
-POST sayfalayıcı. Cilalı panolar: satır tablet/masaüstünde ızgara (ad · Since · plan, id altta tam
-genişlik), telefonda ad bağlantısı ilk satırda tek başına, 44 px (README §6.1 "Tenants row"; kapsamlı
-seçici — `<li class="op-row">` aynen). Sayfalayıcı cilalı listede değil: `op-link` kalır.
+POST sayfalayıcı, askıdaki tenant'ın **Suspended** çipi (OP-15). Cilalı panolar (ölçüldü): satır
+masaüstünde tek satır, dört iz (ad · Since · plan · id — `OpTenants`), tablette üç iz + id altta tam
+genişlik (`T-OpTenants`), telefonda ad bağlantısı ilk satırda tek başına, 44 px (README §6.1 "Tenants
+row"; kapsamlı seçici — `<li class="op-row">` aynen; README'nin önceki tarifi tablete de dört iz
+veriyordu, düzeltildi). Sayfalayıcı cilalı listede değil: `op-link` kalır.
 
 **Kabul kriterleri.** O2 ortak kabulü ve: `TestTenantSearch_NoLogLineHeaderOrOtherPageCarriesTheTerm`,
 `TestTenantList_PagesForwardOnlyAfterAFullPage`, `TestTenantScreens_EscapeWhatATenantAndAnOperatorTyped`,
 `TestTenantScreens_TheTextClearsAA` yeşil; `op11_test.go:845` ve `:997` işaretlemesi aynen; sayaç,
 süzgeç, sıralama, "son aramalar" yok.
+- **OP-15 eki — Suspended çipi ve ızgara:** `TestTenantList_ASuspendedTenantCarriesTheChip` yeşil —
+  `<span>plan</span>`, `<span class="tally tally--tenant-suspended">Suspended</span>`,
+  `<span class="break-all text-xs text-ink/70">id</span>` bu sırayla, askıdaki satır başına tam bir
+  çip; bu yüzden planın mono'su ve id'nin 12 px'i kapsamlı seçiciden gelir (`> :nth-child(3)`,
+  `> :last-child`), bu span'lere sınıf eklenmez. Izgara: bugün satır 4 çocuk, askıda 5 (çip plan ile id
+  arasında, `tenants.templ:81-83`); id (son çocuk) açıkça yerleşir — masaüstünde 1. satır 4. iz,
+  tablette tam genişlik — ve çip otomatik yerleşimle **adın altındaki 2. satıra** düşer; çipsiz satır
+  panonun tek satırı kalır; `md:justify-items-start` çipi kendi genişliğinde tutar (README §6.1).
+  Hiçbir yeni seçici `.tally` adını taşımaz (`TestTallyRules_NoToneRuleColoursTheWord` sayar). Fixture
+  "tenants, a suspended row" (ve bir çipsiz satır yanında) 834 / 1200 / 1440 / 390'da ekran görüntüsü:
+  çipli ve çipsiz satırda Since / plan / id hizası aynı, yatay kaydırma yok.
+  `TestSuspensionScreen_TheChipsAndTextClearAA` yeşil; listede gerekçe, başlangıç zamanı, "yalnız
+  askıdakiler" süzgeci ya da satırda askı denetimi yok.
 
 ## M13-08 — Tenant özeti + entegrasyon API'si (OpTenant)
 
 - **Bağımlılık:** M13-03 · **Araç:** yapıcı (`tappa-brand`) + agent `tappa-security-auditor` · **Commit:** `feat(operator): port the tenant overview to the redesign`
-- **Kırmızı çizgi:** §4.5 istisna (1) (OP-11 en aza indirme: kişi, adres, uid, VAT, holding, anahtar, webhook yok), ADR 0020 §9
-- **Spec:** [screens.md §6](../design/operator-redesign/screens.md) · **Panolar:** `OpTenant`, `T-OpTenant`, `M-OpTenant`
-- **Dosyalar:** `web/templates/operatorpages/tenants.templ` (`TenantOverview`, `tenantFact`, `tenantCount`, `tenantAPISection`, `apiNotice`), `op11_test.go`, `tenantapi_test.go`
+- **Kırmızı çizgi:** §4.5 istisna (1) (OP-11 en aza indirme: kişi, adres, uid, VAT, holding, anahtar, webhook yok; askının iki `op_*` yazması), ADR 0020 §9, ADR 0025 §1 ve §5 (kapalı gerekçe kümesi, tenant yoldan, PRG)
+- **Spec:** [screens.md §6](../design/operator-redesign/screens.md) (+ "Panel writes card") · **Panolar:** `OpTenant`, `T-OpTenant`, `M-OpTenant` (askı kartı panolarda yok)
+- **Dosyalar:** `web/templates/operatorpages/tenants.templ` (`TenantOverview`, `tenantFact`, `tenantCount`, `tenantAPISection`, `apiNotice`, `tenantSuspension`, `suspensionReason`, `suspendForm`, `holdWarning`, `reinstateForm`), `op11_test.go`, `tenantapi_test.go`, `op15_test.go` (yalnız sabit işaretleme bilerek değişirse)
 
 Olgular kartı, "Live now" docket'i, üç bağlantı, API bölümü (durum satırı, cümle, form, Close), altı
-bildirim + kurallar.
+bildirim + kurallar, ve OP-15'in **Panel writes** kartı (durum çipi, askıda iki olgu, duruma göre tek
+form: dört gerekçe radyosu + security-hold uyarısı + kutu + "Suspend writes", ya da kutu + "Lift the
+suspension"). Askı kartının panosu yok: screens.md §6 "Panel writes card"daki tarifle, bileşen
+kataloğunun parçalarından kurulur (`op-card`, `docket-label`, `.op-main .tally`, `dl`, radyo ızgarası,
+`opNotice(warn)`, `btn`).
 
 **Kabul kriterleri.** O2 ortak kabulü ve: `dt`/`dd` regex'leri (`op11_test.go:894`, `:900`) aynen; açık API'de tam
 bir açma ve bir kapama formu, kapalıda yalnız açma formu; `TestTenantOverview_NamesTheTenantInTheBannerAndRefusesABadPath`,
 `TestTenantOverview_AnUnnamedTenantIsNamedByItsID`, `TestOperatorAPI_TheResultIsReadNotPosted`,
 `TestOperatorAPI_TheCodeRuleIsTheDatabases` yeşil; onay adımı eklenmez.
+- **OP-15 eki — Panel writes kartı** (screens.md §6): API kartından sonra, alt bağlantılardan önce; her
+  metin, iki form ve üç durum (aktif, askıda, tanınmayan gerekçe) kelimesi kelimesine; sabit işaretleme
+  bayt-aynı (radyonun öznitelik sırası, `op-reason-hold` sınıfının başta olması ve
+  `aria-describedby`, etiket, kutu, `<div class="op-reasons mt-1">` içinde dört radyonun ardından
+  `<div id="suspend-hold-warning" class="op-hold-warning">`, iki çip, `Suspended since`/`Reason`
+  `dt`/`dd`'leri); `dl`'in `sm:grid-cols-2`'si `md:grid-cols-2` olur. `TestTenantOverview_SaysTheSuspensionAndOffersOneForm`,
+  `TestSuspendForm_TheHoldWarningIsShownOnlyByTheHoldChoice`, `TestSuspensionWords_NameEveryReasonAndNothingElse`,
+  `TestSuspensionScreen_TheChipsAndTextClearAA`, `TestSuspensionScreen_EachChipHasTheRuleTheContrastTestComputes`,
+  `TestSuspension_TheListedSitesAloneWrite` yeşil; `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute`'un
+  askı KONTROL'ü (`op8_test.go:921-926`: aktifte yalnız suspend, askıdakinde yalnız reinstate formu)
+  yeşil; tam koşuda `TestE2E_OperatorSuspendsAndReinstatesAFixtureTenant` ve
+  `TestE2E_TheOperatorsSuspensionClosesThePanelAndTheAPIAndItsLiftingOpensThem` yeşil. Üç fixture'ın
+  ekran görüntüsü üç genişlikte; Security hold seçiliyken uyarının göründüğü ve başka seçimde gizlendiği
+  bir kez tarayıcıda gözle doğrulanır (testler yalnız işaretleme + kuralları ölçer).
+
+**Güvenlik merceği — askı formları** (agent `tappa-security-auditor`, diff üstünde; işi yapan bakmaz):
+1. **Yalnız POST, tek form:** iki `action` aynı kökenli bağlı yol (`/operator/tenants/{id}/suspend`,
+   `…/reinstate`, `routes.go:111-112`), açılış etiketinde `method` `action`'dan önce; genel bakışta
+   duruma göre tam **bir** askı formu. Form GET'e, bağlantıya ya da düğmesiz bir JS eylemine dönmez;
+   `formaction` / `formmethod` eklenmez.
+2. **CSRF ve kimlik:** savunma konsol grubunun zinciridir — `floodGate → sameOriginGate(true) →
+   requireOperator → sessionGate` (`routes.go:96-119`) — ve oturum çerezinin SameSite=Strict'i
+   (`suspension.go:37-39`). Port CSRF jetonu alanı eklemez, onay kutusunu CSRF savunması saymaz, yeni
+   rota/handler eklemez; `SuspensionStore` çağrı yerleri aynı (`TestSuspension_TheListedSitesAloneWrite`,
+   SU1–SU5).
+3. **Tenant yalnız yoldan:** formda tenant id'si taşıyan gizli ya da görünür alan yok — suspend formunun
+   alanları tam `reason` + `confirm`, reinstate'inki tam `confirm`
+   (`TestTenantOverview_SaysTheSuspensionAndOffersOneForm`, `TestSuspension_TheTenantIsThePathsNotTheForms`).
+4. **ADR 0025 §1 — gerekçe zorunlu ve kapalı küme:** dört radyo `name="reason"`, `required`, değerleri
+   `db.SuspensionReasons()` sırasıyla kodlar; serbest metin, `<textarea>`, `type="text"`, "Other"
+   seçeneği yok; varsayılan seçili radyo yok (yanlış gerekçe sessizce gitmesin). İstemcinin `required`'ı
+   tek savunma değildir: sunucu kutuyu (tam `yes`) ve gerekçeyi (kapalı küme, kırpmasız) store'dan önce
+   yine denetler — 400 (`TestSuspension_NothingIsWrittenWithoutTheBoxOrAKnownReason`). Gerekçesiz askı
+   yolu açılmaz.
+5. **Onay:** kutu `name="confirm" value="yes" required`; modal / JS onayı yok (genel bakışın CSP'sinde
+   `script-src` yok); onay adımı (ikinci sayfa) eklenmez.
+6. **Yankı ve sızıntı:** problem sayfaları ve günlük satırları gönderilen değeri ya da tenant adını
+   taşımaz (`TestSuspension_NoPostedValueReachesALogLine`, `TestOperatorHeaders_TheSuspensionClassesCarryThePolicy`,
+   `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`); security-hold uyarısı kapalı metindir,
+   tenant verisi taşımaz.
+7. **Okuma ve `op_*`:** yeni `op_*`, yeni okuma, genişlemiş dönüş sütunu yok; kartın durumu genel
+   bakışın kendi okumasından; yazma bir istek birimi, okuma birimi değil
+   (`TestSuspensionBudget_AWriteIsOneRequestAndNoRead`).
+8. **PRG ve dürüstlük:** başarı 303 → genel bakış; başarı bildirimi ya da "zaten askıda" / "hiçbir şey
+   değişmedi" cümlesi eklenmez (ADR 0021 §2 v 7); 503 sayfaları "kaydedilmedi" demez.
+9. **Uyarının görünürlüğü** yalnız CSS genel kardeş kuralıyla kalır (stil dosyası yoksa görünür —
+   uyarı için güvenli yön); `:has()`'e ya da betiğe çevrilmez.
 
 ## M13-09 — Plaket envanteri (OpPlaques)
 
@@ -471,7 +595,7 @@ Cilalı panolar:
   ötekiler için eskisini), `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`'in döngüsü
   (`op12_test.go:513-517`), `TestBillingScreen_WearsTheDocketAnatomy`'nin döngüsü (`op12_test.go:1436-1440`;
   dört rakam artık şeridin `dt`/`dd` çiftinde mono değerle, üçü eski span'de) ve uçtan uca okuyucu
-  `screenFact` (`op12_db_test.go:166`; şerit hücresini de okur, `len(r.facts)` karşılaştırması
+  `screenFact` (`op12_db_test.go:167`; şerit hücresini de okur, `len(r.facts)` karşılaştırması
   `op12_db_test.go:343` aynı kalır). KONTROL: rakamlı bir satırda tam dört şerit hücresi bulunur ve
   eski `<span class="text-sm">Plan <span class="font-mono">` biçimi sayfada **yoktur**; kayıt öncesi
   ve okunamayan satırda şerit hiç yoktur (§4.6, "not even a zero").
@@ -516,8 +640,9 @@ hiç; numara düzenleme alanı yok; başarı bildirimi yok.
 - **Spec:** [screens.md §10](../design/operator-redesign/screens.md) · **Panolar:** `OpAudit`, `T-OpAudit`, `M-OpAudit`
 - **Dosyalar:** `web/templates/operatorpages/audit.templ`, `op14_test.go`, `op14d_test.go`
 
-Süzgeç kartı (`<select id="audit-kind" name="kind" class="op-input">`), docket satırı (her olgu bir
-span), boş/son sayfa durumları, POST sayfalayıcı. Cilalı panolar: operatör ve hesap **adları Space
+Süzgeç kartı (`<select id="audit-kind" name="kind" class="op-input">`; OP-15'ten beri Every kind + 22
+tür), docket satırı (her olgu bir span), boş/son sayfa durumları, POST sayfalayıcı; OP-15'in iki türü
+"Tenant suspension recorded" / "Tenant reinstatement recorded" (screens.md §10). Cilalı panolar: operatör ve hesap **adları Space
 Grotesk** (kod onları mono'suz `<bdi>` içinde yazar, `audit.templ:92, 98`); mono yalnız kodun bastığı
 yerde — zaman, sayfa, oturum, kimlikler, belge, bayt. "Of a scope this screen does not show" satırı
 kodda var (`audit.templ:117-118`) ve listelenir. Satır içi tenant bağlantısı tablet/masaüstünde satır
@@ -525,19 +650,28 @@ yüksekliğini korur, **44 px görünmez örtü** alır (README §6 "Inline link
 `op14_test.go:317, 328, 387`'de sabit, değişmez). Sayfalayıcı çerçeveli düğme: `class="op-pager"`.
 
 **Kabul kriterleri.** O2 ortak kabulü ve: `TestAuditScreen_WearsTheDocketAnatomy`
-(başlık işaretlemesi aynen; sayfalayıcı iddiaları `op14_test.go:739-740` **aynı commit'te**
+(başlık işaretlemesi aynen; sayfalayıcı iddiaları `op14_test.go:742-743` **aynı commit'te**
 `<button type="submit" class="op-pager">Previous page</button>` / `…Next page</button>` olur — öğe,
 `type`, etiket aynen; `TestAuditScreen_ReadsNothingFromTheURL`'ün form `method`/`action` ve gizli
 `kind` + `page` iddiaları değişmez; KONTROL: `class="op-link">Previous page</button>` sayfada yok),
 **AA satırının etiketi aynı commit'te** — `TestAuditScreen_TheTextClearsAA`'nın doc yorumu
-(`op14_test.go:1011-1012`, "and on porcelain (the pager's links)") ve `"tappa-green on porcelain"` satırı
-(`op14_test.go:1052`) sayfalayıcıyı anmayacak biçimde yeniden yazılır, satır ve eşiği silinmeden;
-sayfalayıcının sözcüğü "ink on paper" satırında (`op14_test.go:1048`) adıyla anılır. (Tenant listesinin
+(`op14_test.go:1014-1015`, "and on porcelain (the pager's links)") ve `"tappa-green on porcelain"` satırı
+(`op14_test.go:1055`) sayfalayıcıyı anmayacak biçimde yeniden yazılır, satır ve eşiği silinmeden;
+sayfalayıcının sözcüğü "ink on paper" satırında (`op14_test.go:1051`) adıyla anılır. (Tenant listesinin
 eşi `op11_test.go:1064`/`:1109` doğru kalır: `tenantPageForm` `op-link` kalıyor ve özetin alt
 bağlantıları sayfa zeminindedir — M13-07 sayfalayıcıyı değiştirirse aynı düzeltme orada yapılır.) `TestAuditWords_NameEveryKindAndNothingElse`,
 `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditScreen_NoCredentialFieldReachesThePage`,
 `TestAuditScreen_ReadsNothingFromTheURL` yeşil; süzülmüş sayfada tam üç form; dışa aktarım, tenant
 başına görünüm, türetilmiş hüküm yok.
+- **OP-15 eki — iki audit türü:** "Tenant suspension recorded" / "Tenant reinstatement recorded"
+  (`audit.go:226-227`) süzgeçte iki seçenek (kapalı küme sırası, `internal/db/operator.go:893-903`) ve
+  satırda tenant'lı satır biçiminde: zaman · tür · aktör · Tenant olgusu (bağlantı / adsız / "A tenant
+  id no tenant has", `audit.templ:103-114`); satırın `detail`'i `{}` — **gerekçe bu ekranda yok**
+  (tenant'ın kendi `audit_log`'undadır). `TestAuditWords_NameEveryKindAndNothingElse` (22 tür) yeşil;
+  tam koşuda `TestE2E_OperatorSuspendsAndReinstatesAFixtureTenant`'ın günlük adımı
+  (`op15_db_test.go:205-208`: tür sözcüğü + genel bakış bağlantısı + tenant adı) yeşil. Türetilmiş
+  "suspended" hükmü ya da çipi eklenmez: sözcük eylemin **kaydedildiğini** söyler, durumun değiştiğini
+  değil.
 
 ## M13-13 — Holding'ler (OpHoldings)
 
@@ -554,12 +688,12 @@ formu, sayfa bölünmesi cümleleri), **bağlantı** sayfalayıcısı. Cilalı p
   "Holdings"); DOM sırası kodunki (`holdings.templ:131-160`), hiçbir test onu sabitlemez.
 - Sayfalayıcı çerçeveli düğme görünümünde **bağlantı** kalır: `<a href="/operator/holdings?page=N"
   class="op-pager">`. Bağlantının sınıfını sabitleyen test yok; `href` iddiaları
-  (`op8_test.go:890-891`, `holdings_test.go:741, 757`) aynen.
+  (`op8_test.go:917-918`, `holdings_test.go:741, 757`) aynen.
 - "page 3, past the end" durumu ("This page is empty: the list ended on the page before.",
   `holdings.templ:51-52`; fixture "holdings, past the end") panolarda da var.
 
 **Kabul kriterleri.** O2 ortak kabulü ve: form sayıları
-(`op8_test.go:884-886`) ve çip işaretlemesi (`holdings_test.go:~689, ~987`) aynen;
+(`op8_test.go:911-913`) ve çip işaretlemesi (`holdings_test.go:~689, ~987`) aynen;
 `TestHoldings_CreateAddRemoveThroughTheScreen`, `TestHoldings_TheResultIsReadNotPosted`,
 `TestHoldings_PagesForwardOnlyAfterAFullPage`, `TestHoldingsScreen_EscapesWhatOperatorsAndBusinessesNamed`
 yeşil; reddedilen ad yankılanmaz; tenant seçici, holding sayfası, onay adımı yok.
@@ -580,6 +714,10 @@ Giriş kartı (müşteri sitesi `/legal` metin, bağlantı değil), dört düzen
   page is behind" uyarısı başlık ile form **arasında** (kodun sırası); "TEXT" etiket çubuklu
   **çerçeveli textarea**, mono 14 px / 1.7, `rows="12"`; solda yardım, sağda **Publish a new version**
   (telefonda tam genişlik düğme).
+- **Yardım metni (legal-links, ADR 0033 — paket yazıldıktan sonra):** textarea'nın altındaki yardım artık
+  bağlantı kuralını da söyler (`legal.templ:70-74`: "… Addresses starting with http:// or https://,
+  e-mail addresses and phone numbers starting with + become links; `[text](https://…)` links your own
+  text. At most 256 KiB."); panolar eski iki cümleyi çizer — kod kazanır (D1), metin aynen.
 - Sürüm listesi tablet/masaüstünde **beş sütunlu ızgara** (zaman kalın mono · yol · bayt sağa yaslı ·
   yayımlayan · Live çipi), telefonda alt alta kartlar; kapsamlı seçici — `<li class="op-version">`
   aynen (`op10_test.go:308, 631, 656`).

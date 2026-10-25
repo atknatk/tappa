@@ -4,12 +4,17 @@ Companion to [README.md](README.md). Per screen: what the code draws, the bindin
 form with its hidden fields, the states, what is never shown, and the tests that hold it. Under
 D1 a board may show **only** what is listed here.
 
-Citations: HEAD `022ba3c` (operator files unchanged since `1e5cc83`); every line the board-polish sync of 2026-10-20
-added was **re-read at `a8a06f6` (unchanged at `27516b7`)**. File prefixes:
+Citations: written at HEAD `022ba3c` (operator files unchanged since `1e5cc83`; the board-polish
+lines of 2026-10-20 re-read at `a8a06f6`, unchanged at `27516b7`). **Re-read on 2026-10-25 at
+`98546448`** (the OP-15 annex): every citation into a file that changed since `022ba3c`
+(`render.go`, `routes.go`, `surface.go`, `tenants.go`, `audit.go`, `view.go`, `tenants.templ`,
+`legal.templ`, `input.css`, `op8_test.go`, `op14_test.go`, `internal/db/operator.go`) points at
+`98546448`, and the OP-15 lines are new (`suspension.go`, `op15_test.go`, `op15_db_test.go`); the
+other cited files are byte-identical at both commits (README header lists them). File prefixes:
 templates are `web/templates/operatorpages/`, handlers `internal/handler/operator/`, tests
 `internal/handler/operator/` unless named. Times print as `utcStamp` "2006-01-02 15:04 UTC"
 (`legal.go:344`) unless noted; the audit log uses `utcSecond` "2006-01-02 15:04:05 UTC"
-(`audit.go:429`); billing prints in the month's own zone.
+(`audit.go:434`); billing prints in the month's own zone.
 
 Shared vocabulary: `op-card` = paper card; `docket` = perforated paper list (sharp, D2);
 `docket-label` = 10 px mono small caps label; `op-link` = tappa-green underlined bold link,
@@ -27,9 +32,9 @@ code writes `docket-label` today (Enroll's steps, "Create a holding"). Notices a
 | Element | Today | After OP-1 |
 |---|---|---|
 | Band | `bar(signedIn)` `chrome.templ:33-46`: `<header class="op-bar">`, inner `max-w-3xl`, lockup `<p class="op-lockup">TAPTIME <span class="text-saffron">OPERATOR</span></p>`; signed in: `<form method="post" action="/operator/logout"><button type="submit" class="op-signout">Sign out</button></form>` | same markup; inner row full width; one sign-out form at every width |
-| Nav | none (`chrome.templ:19-21`) | `<nav class="op-nav" aria-label="Operator sections">` — label "PLATFORM" (desk only); Console `/operator` · Tenants `/operator/tenants` · Holdings `/operator/holdings` · Audit log (phone: "Audit") `/operator/audit` · Legal texts (phone: "Legal") `/operator/legal`; one current, `aria-current="page"` |
-| Tenant banner | `tenantBanner(name)` `chrome.templ:54-66`: `<section class="op-tenant" aria-label="Tenant">`, `docket-label` "Tenant", name `<p class="font-display text-xl font-bold tracking-tight"><bdi>…</bdi></p>`; unnamed: `<p …>Unnamed tenant</p>` + `<p class="break-all font-mono text-sm">id</p>` (`view.go:84`) | same markup, in the content column |
-| Tenant sub-nav | none | `<nav class="op-subnav" aria-label="This tenant">` **inside** `section.op-tenant`, after the name: Overview · Plaques · Billing · VAT number, current saffron 3 px marker; phone 14 px, wraps |
+| Nav | none (`chrome.templ:19-21`) | `<nav class="op-nav" aria-label="Operator sections">` — label "PLATFORM" (desk only); Console `/operator` · Tenants `/operator/tenants` · Holdings `/operator/holdings` · Audit log (phone: "Audit") `/operator/audit` · Legal texts (phone: "Legal") `/operator/legal`; one current, `aria-current="true"` (the section — README §2 "OP-15 annex" (b)) |
+| Tenant banner | `tenantBanner(name)` `chrome.templ:54-66`: `<section class="op-tenant" aria-label="Tenant">`, `docket-label` "Tenant", name `<p class="font-display text-xl font-bold tracking-tight"><bdi>…</bdi></p>`; unnamed: `<p …>Unnamed tenant</p>` + `<p class="break-all font-mono text-sm">id</p>` (`view.go:85`) | same markup, in the content column |
+| Tenant sub-nav | none | `<nav class="op-subnav" aria-label="This tenant">` **inside** `section.op-tenant`, after the name: Overview · Plaques · Billing · VAT number, current saffron 3 px marker and `aria-current="page"` (the page — README §2 "OP-15 annex" (b)); phone 14 px, wraps |
 | Main | `<main class="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">` (`chrome.templ:72,83,95`) | `<main class="op-main …">`, `max-w-[960px]`, phone bottom padding for the bar |
 | Title | `screen`: `<Title> — Taptime operator`; `tenantScreen`: `<Title> — <name or "Unnamed tenant <id>"> — Taptime operator` | unchanged |
 
@@ -47,9 +52,10 @@ Signed-out shell (band only): SignIn, Code, Enroll (enrollment *ends* in a sessi
 `chrome.templ:78-79`), signed-out problems.
 
 Which item is current: Console (Home) · Tenants (Tenants, TenantOverview, TenantPlaques,
-TenantBilling, TenantVAT) · Holdings · Audit log · Legal texts · none (signed-in Problem: no
-`aria-current` in `op-nav`, no marker at any width — as the polished `OpProblem` boards draw it).
-Sub-nav current: Overview / Plaques / Billing / VAT number.
+TenantBilling, TenantVAT) · Holdings · Audit log · Legal texts — marked `aria-current="true"` · none
+(signed-in Problem: no `aria-current` in `op-nav`, no marker at any width — as the polished
+`OpProblem` boards draw it). Sub-nav current (`aria-current="page"`): Overview / Plaques / Billing /
+VAT number. A suspended tenant's screens mark the same items (the suspension is not a section).
 
 **Tests:** `TestOperatorScreens_EveryOneWearsTheOperatorChrome` (extended, README §4.1),
 `TestTenantScreen_RefusesToRenderWithoutAName`, `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute`,
@@ -182,11 +188,11 @@ these stay exact and unique in meaning).
 
 ---
 
-## 4. OpProblem — `Problem` (`home.templ:53-65`), constants `render.go:137-452`
+## 4. OpProblem — `Problem` (`home.templ:53-65`), constants `render.go:137-503`
 
 Alert notice with `<h1>` = Title, `<p>` = Message; optional `op-link` Back / BackLabel; shell
 signed in or not per constant. Signed in: band + nav with **no current item** and no tenant
-banner or sub-nav; signed out: band only, no nav. All constants are binding (`problemPages()` `render.go:456-471`;
+banner or sub-nav; signed out: band only, no nav. All constants are binding (`problemPages()` `render.go:507-524`;
 `TestProblemPages_LinkOnlyToMountedRoutes`, `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo`).
 
 | Constant | Status | Title | Message | Back |
@@ -230,20 +236,38 @@ banner or sub-nav; signed out: band only, no nav. All constants are binding (`pr
 | problemHoldingChangeNotConfirmed | 503 | The change was not confirmed | The database did not confirm it. Open the holdings again — the list shows each holding's members as the database holds them — and try again from there if nothing changed. | Back to the holdings |
 | problemTenantAPIFormTooLarge | 413 | That form was too large | Open the business's overview again and send the form from there. Nothing was changed. | Back to the tenants |
 | problemTenantAPINotConfirmed | 503 | The change was not confirmed | The database did not confirm it. Open the business's overview again — its API section shows the API as the database holds it — and try again from there if nothing changed. | Back to the tenants |
+| problemSuspensionFormTooLarge (OP-15) | 413 | That request was too large | Open the tenant's overview again and send the form from there. Nothing was changed. | Back to the tenants |
+| problemSuspensionUnconfirmed (OP-15) | 400 | The box was not ticked | A suspension needs the box under the reasons ticked: it is there so a wrong click changes nothing. Nothing was changed. Open the tenant's overview again to suspend it. | Back to the tenants |
+| problemSuspensionReasonRefused (OP-15) | 400 | Choose one of the reasons | A suspension needs one of the four reasons on the overview's form. Nothing was changed. | Back to the tenants |
+| problemReinstateUnconfirmed (OP-15) | 400 | The box was not ticked | Lifting a suspension needs the box above the button ticked: it is there so a wrong click changes nothing. Nothing was changed. Open the tenant's overview again to lift it. | Back to the tenants |
+| problemSuspendNotConfirmed (OP-15) | 503 | The suspension was not confirmed | The database did not confirm it, which does not mean it was not made. Open the tenant's overview from the list — it shows whether the business is suspended — before you try again. | Back to the tenants |
+| problemReinstateNotConfirmed (OP-15) | 503 | Lifting the suspension was not confirmed | The database did not confirm it, which does not mean it was not made. Open the tenant's overview from the list — it shows whether the business is suspended — before you try again. | Back to the tenants |
 
 Signed in = every constant from Legal onward, plus SignOutFailed and TooMany(true). Wording
 rules: problems never repeat the search term or the VAT number (`render.go:231-236, 359-364`);
 an unconfirmed write never claims "nothing happened" (`render.go:381-388, 425-428`); the billing
-fault never shows a figure (`render.go:335-336`).
+fault never shows a figure (`render.go:335-336`). **The suspension's six (OP-15, ADR 0025 §5;
+`render.go:452-501`):** the three refusals (413, two 400s for the box, one for the reason) are
+answered before any store call and say "Nothing was changed."; the two 503s **never** say that —
+an error from the one autocommit statement does not prove it was not committed — and send the
+operator to the overview, which says what the database holds; none names the tenant or repeats a
+posted value. A malformed id in either path answers `problemTenantNotAnID` (404) before any store
+call (`suspension.go:163-167`, `:198-202`). Their status, headers and the no-echo rule are pinned
+per response class by `TestOperatorHeaders_TheSuspensionClassesCarryThePolicy` (C218–C242); their
+links by `TestProblemPages_LinkOnlyToMountedRoutes` (through `problemPages()`); that a refusal
+writes nothing by `TestSuspension_NothingIsWrittenWithoutTheBoxOrAKnownReason` and
+`TestSuspension_EveryRefusalWritesNothing`. The two "The box was not ticked" pages share a title
+and differ in the message (suspend: "under the reasons"; lift: "above the button").
 
 **Board states:** signed-out with back link (cross-origin) · signed-out without link (setup link
 does not work) · signed-in with back (change not confirmed; nav drawn, nothing current) · 429
-without link.
+without link. The six suspension pages are on no board (OP-15 came later); each is a signed-in
+page with a back link — the "signed-in with back" state, with the code's words.
 **Not boards:** plain-text 404, 503, 500 (README §7).
 
 ---
 
-## 5. OpTenants — `Tenants` (`tenants.templ:23-109`)
+## 5. OpTenants — `Tenants` (`tenants.templ:23-113`)
 
 Signed-in shell, current = Tenants. Title `Tenants`.
 
@@ -256,34 +280,43 @@ Signed-in shell, current = Tenants. Title `Tenants`.
 | searched line | Tenants matching `<bdi class="font-mono">term</bdi>`. + link **Show every tenant** (`<a href="/operator/tenants" class="op-link">Show every tenant</a>`, GET) |
 | link | Back to the console |
 | docket heading | Newest first · page `N` (N mono) |
-| row | name link → overview (`<bdi>`; italic **Unnamed tenant** when the name shows nothing) · Since `<created UTC>` · plan · tenant id (xs, `text-ink/70`, break-all) |
+| row | name link → overview (`<bdi>`; italic **Unnamed tenant** when the name shows nothing) · Since `<created UTC>` · plan · [chip **Suspended** — OP-15] · tenant id (xs, `text-ink/70`, break-all) |
+| chip (OP-15, K15-3) | `<span class="tally tally--tenant-suspended">Suspended</span>` (`tenants.templ:81-83`), **between the plan and the id**, only on a tenant with a suspension start — `op_read_tenants` returns the start alone, no reason (`tenants.go:326-328`); a tenant that is not suspended has **no** chip on the list (the overview's "Active" chip is the overview's). Rejection tone: `border-tomato bg-tomato/10` (`input.css:696-699`; ink word 11 px on tomato/10 over paper, `TestSuspensionScreen_TheChipsAndTextClearAA`) |
 | empty | page > 1: This page is empty: the list ended on the page before. · searched: No tenant matches that search. · none: There are no tenants yet. |
 | pager | `<nav aria-label="Pages of the list">` **Previous page** / **Next page** |
 
-**Forms:** search `<form role="search" method="post" action="/operator/tenants">` with `q`
+**Forms:** search `<form method="post" action="/operator/tenants" role="search" class="…">` with `q`
 (type search, maxlength 254, autocomplete off, spellcheck false, value = the term as searched).
 Pager: each button a POST form to `/operator/tenants` with hidden `q` + `page`, button
 `<button type="submit" class="op-link">`. Next only after a full page (50 rows,
 `tenants.go:91`) and page < 1000. (Not in the polished-pager list: it keeps `op-link` unless its
 board is redrawn — README §6 "Pager".)
 
-**Layout (polished boards):** the row is a grid on tablet/desktop (name · Since · plan, the id
-on its own line under them); on the phone the name link stands alone on the first line, 44 px
-tall (`op-link`'s `min-h-11`) — README §6.1 "Tenants row".
+**Layout (polished boards):** the row is a grid — desktop one line, four tracks (name · Since ·
+plan · id, `OpTenants`); tablet three tracks with the id on its own full-width line under them
+(`T-OpTenants`); on the phone the name link stands alone on the first line, 44 px tall
+(`op-link`'s `min-h-11`) — README §6.1 "Tenants row". **The Suspended chip on that grid** (no board
+draws it): the id is placed explicitly (desktop line 1, track 4), so the chip — the fifth child —
+auto-places on **line 2, under the name**; a row without it keeps one line. Tablet: chip line 2,
+id line 3. Phone: the chip flows after the plan. Recipe and the pins it must not break: README
+§6.1 "Tenants row" (`TestTenantList_ASuspendedTenantCarriesTheChip` holds `<span>plan</span>`,
+the chip and `<span class="break-all text-xs text-ink/70">id</span>` in that order, and exactly
+one chip per suspended row).
 
 **States:** every tenant page 1 · searched with matches · no match · no tenants yet · later page
-empty · pager Previous + Next.
+empty · pager Previous + Next · a suspended row (fixture "tenants, a suspended row").
 **Binding:** the term is personal data (it may be an e-mail): never in a URL, link or problem
 page (`tenants.templ:12-17`).
-**Not shown:** counts, plan filter, sort control, recent searches.
-**Tests:** `TestTenantSearch_NoLogLineHeaderOrOtherPageCarriesTheTerm`,
+**Not shown:** counts, plan filter, sort control, recent searches; the suspension's reason or
+start on the list (the overview's), a "suspended only" filter, a suspend control on a row.
+**Tests:** `TestTenantList_ASuspendedTenantCarriesTheChip`, `TestTenantSearch_NoLogLineHeaderOrOtherPageCarriesTheTerm`,
 `TestTenantSearch_TheBoundaryRefusesBeforeTheStore`, `TestTenantList_PagesForwardOnlyAfterAFullPage`,
 `TestTenantScreens_EscapeWhatATenantAndAnOperatorTyped`, `TestTenantScreens_TheTextClearsAA`;
 exact markup in `op11_test.go:845` (Show every tenant) and `:997` (unnamed row link).
 
 ---
 
-## 6. OpTenant — `TenantOverview` (`tenants.templ:119-240`) in `TenantScreen`
+## 6. OpTenant — `TenantOverview` (`tenants.templ:126-400`) in `TenantScreen`
 
 Signed-in shell, current = Tenants; banner + sub-nav (current = Overview). Title
 `Tenant overview — <name> — Taptime operator`.
@@ -300,9 +333,10 @@ Signed-in shell, current = Tenants; banner + sub-nav (current = Overview). Title
 | API sentence | open: The business's integration keys work and its webhooks are sent. Every punch names it by this code. · closed with code: The business's integration keys are refused and no webhook is sent. Punches are still recorded, and keep this code. · never opened: The API has never been opened for this business. Its owner can create keys in the panel; they work once it is open. |
 | API field | API code; help: A capital letter followed by 1 to 15 capital letters or digits, such as KF. No other business in its holding may have it. |
 | buttons | **Open the API** (closed) / **Change the code** (open); **Close the API** (`btn--quiet`, open only) |
+| suspension card (OP-15) | **Panel writes** — after the API card, before the footer links; below, "Panel writes card" |
 | footer links | Back to the tenants · Back to the console |
 
-**API notices** (`apiNotice` `:222-240`, words `apiSentences` `tenantapi.go:172-185`, driven by
+**API notices** (`apiNotice` `:230-248`, words `apiSentences` `tenantapi.go:172-185`, driven by
 the 303's `?done=` and decided by the fresh read):
 
 | Tone | Heading | Body |
@@ -322,14 +356,110 @@ less than 60 seconds ago. · The business exists.
 required, value = current code) — exactly one; when open, `POST
 /operator/tenants/{id}/integration/close` (no field) — exactly one. No confirmation step.
 
-**States:** API open · closed with code · never opened · each notice · unnamed tenant banner.
-**Not shown (OP-11 minimisation, `tenants.templ:111-118`):** any person, address, plaque uid,
+**States:** API open · closed with code · never opened · each notice · unnamed tenant banner ·
+suspension: active, suspended, suspended with an unrecognised reason (below).
+**Not shown (OP-11 minimisation, `tenants.templ:115-125`):** any person, address, plaque uid,
 VAT number, holding membership, owner e-mail, keys, webhook URL. No link to Holdings or Audit
 in the page body (the nav's links are the shell's).
 **Tests:** `TestTenantOverview_NamesTheTenantInTheBannerAndRefusesABadPath`,
 `TestTenantOverview_AnUnnamedTenantIsNamedByItsID`, `TestOperatorAPI_TheCodeRuleIsTheDatabases`,
 `TestOperatorAPI_TheResultIsReadNotPosted`, `TestOperatorAPI_ARefusedOrFailedOpenNoticesNothing`,
 `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` (form counts), `TestTenantScreens_TheTextClearsAA`.
+
+### Panel writes card (OP-15, ADR 0025 §5) — no board
+
+`tenantSuspension` (`tenants.templ:254-279`): the overview's **last** card — after the Integration
+API card, before the footer links (the gravest of the overview's writes at its foot, ADR 0025 C
+annex). Its state is the overview's own read (`op_read_tenant_detail`, migration 00063); the card
+reads nothing of its own. View `TenantSuspensionView` (`view.go:269-282`), built by `suspensionView`
+(`suspension.go:124-140`). The boards predate OP-15 and draw none of it.
+
+| Element | Words / markup (verbatim) |
+|---|---|
+| card | `<section class="op-card" aria-labelledby="tenant-suspension">`; `<h2 id="tenant-suspension" class="docket-label">Panel writes</h2>` |
+| state — active | chip `<span class="tally tally--tenant-active">Active</span>` (in `<p class="mt-3">`) · The business's panel accepts its writes. |
+| state — suspended | chip `<span class="tally tally--tenant-suspended">Suspended</span>` · The business's panel refuses its writes. Taps, signing in, reading every section, the CSV exports and the four paths of the time record stay open. |
+| facts (suspended) | `dl` with **Suspended since** — `<dt class="docket-label">Suspended since</dt>` `<dd class="mt-1 break-all font-mono text-sm">`, UTC to the minute (`utcStamp`) — and **Reason** — `<dt class="docket-label">Reason</dt>` `<dd class="mt-1 text-sm">` the label |
+| reason labels (`suspension.go:104-109`) | `non_payment` **Non-payment** · `terms_breach` **Breach of the terms** · `security_hold` **Security hold** · `customer_request` **At the business's request**. A stored code this build does not name: its raw text (mono) + `<span class="tally tally--unrecognised">Unrecognised</span>` when it has a closed-set member's shape, the chip alone otherwise (`suspensionReason`, `tenants.templ:283-291`; the audit log's `unknownWord` rule) |
+| suspend form h3 (active only) | Suspend this tenant's writes |
+| suspend form, first paragraph | Every write of the business's panel is refused until the suspension is lifted — except signing in and out, a panel account's own password, and the four paths of the time record: adding a person to the staff, a new invitation and both steps of a manual entry. Taps, reading every section and the CSV exports go on, and the months of a suspension are billed as usual. |
+| suspend form, second paragraph | Every section shows the business a banner with a sentence for the reason: non-payment and a breach of the terms are named; a security hold and the business's own request share one neutral sentence. |
+| reasons | `<fieldset>` with `<legend class="docket-label">Reason</legend>`; four radios in the closed set's order (`db.SuspensionReasons()`), each followed by its label |
+| security-hold warning | warn notice, heading **A security hold freezes writes. It does not contain an account.**, body `holdWarning` (`tenants.templ:357-384`) — two paragraphs and two bulleted lists ("Whoever holds a session of this business keeps it. …", "What does stop an account:" …), word for word as the code and `holdSentences` (`op15_test.go`); closed text, no tenant data. In the page whatever is chosen; the stylesheet shows it only while **Security hold** is checked |
+| box | I have checked that this is the right tenant. |
+| suspend button | **Suspend writes** (`btn btn--quiet self-start`) |
+| reinstate form h3 (suspended only) | Lift the suspension |
+| reinstate paragraph | The business's panel accepts its writes again from its next request. The suspension and its lifting stay on record in the business's own audit log and in the operator audit log. |
+| reinstate box | I have checked that this is the right tenant. |
+| reinstate button | **Lift the suspension** (`btn btn--primary self-start`) |
+
+**Forms — exactly one, by state** (`op8_test.go:921-926`):
+- suspend (active): `<form method="post" action="/operator/tenants/{id}/suspend" class="mt-5 flex flex-col gap-3">`
+  — fields **only** `reason` (radio, `required`) and `confirm` (checkbox, `value="yes"`, `required`);
+  no tenant field, no text field, no `<textarea>` (`TestTenantOverview_SaysTheSuspensionAndOffersOneForm`).
+- reinstate (suspended): `<form method="post" action="/operator/tenants/{id}/reinstate" class="mt-5 flex flex-col gap-3">`
+  — field **only** `confirm`.
+- No CSRF field and none is added: the forgery defence is `sameOriginGate(true)` + the session
+  cookie's SameSite=Strict (`suspension.go:37-39`); the box is against a wrong click. The server
+  re-checks everything (box exactly `yes`, reason a closed-set code, the id's 36-character path
+  form) before any store call — §4. Success: 303 back to the overview, **no success notice** (the
+  fresh read shows the state); there is no "already suspended" / "nothing changed" message (ADR 0021
+  §2 v 7, `suspension.go:24-28`).
+
+**Pinned markup — keep byte for byte** (`op15_test.go`):
+- radio `<input id="suspend-reason-CODE" class="…" type="radio" name="reason" value="CODE" required`
+  (attribute order id, class, type, name, value, required); the security-hold radio's class
+  **starts with** `op-reason-hold ` and it continues `value="security_hold" required
+  aria-describedby="suspend-hold-warning"`; exactly one radio carries `op-reason-hold`;
+- label `<label for="suspend-reason-CODE" class="inline-flex min-h-11 items-center text-sm">LABEL</label>`;
+- box `<input type="checkbox" name="confirm" value="yes" required class="h-5 w-5 shrink-0 accent-tappa-green">`;
+- the radios' parent `<div class="op-reasons mt-1">` and, **after all four radios in that parent**,
+  `<div id="suspend-hold-warning" class="op-hold-warning">`; the test cuts the warning at its first
+  `</section>` — today `components.Notice`'s root. `opNotice` (M13-03) keeps a `<section>` root here,
+  or the test changes in the same commit with a control that the cut still holds the heading;
+- `input.css` holds **exactly once** each of `.op-reasons { @apply grid grid-cols-[auto_1fr] items-center gap-x-3; }`,
+  `.op-hold-warning { @apply col-span-2 mt-2 hidden; }` and
+  `.op-reason-hold:checked ~ .op-hold-warning { @apply block; }` (`input.css:1711-1713`); when
+  `app.css` is built, it carries `.op-reason-hold:checked~.op-hold-warning{display:block}` and
+  `.op-hold-warning{display:none;…}` — a port that restyles these changes the test in the same commit;
+- the chips (`chipActive`, `chipSuspended`), the two facts' `dt`/`dd` regexes, and the chip rules —
+  `tally--tenant-active` exactly `border-tappa-green bg-green-lite`, `tally--tenant-suspended`
+  exactly `border-tomato bg-tomato/10` (`TestSuspensionScreen_EachChipHasTheRuleTheContrastTestComputes`).
+
+**Recipe — built from the catalogue (README §6), same words, same order, same forms (D1):**
+- An `op-card` like the API card above it (M13-02: `rounded-[14px]`, no shadow, the single padding
+  scale). The h2 stays `docket-label` "Panel writes", as its sibling "Integration API"; the two
+  `<h3>`s keep their element and size (`font-display text-lg font-bold tracking-tight`) — the
+  overview's `<h1>` count is not touched.
+- The state chip alone on its line, rounded by `.op-main .tally` (M13-02) — no class on the span.
+- Facts: the `dl`'s `sm:grid-cols-2` becomes `md:grid-cols-2` (this surface's breakpoints are base /
+  `md:` / `desk:`; two facts, so no `desk:grid-cols-4`); the `dt`/`dd` stay as pinned.
+- Reasons: the `.op-reasons` two-column grid (radio · label) as coded; the label is the 44 px target.
+- Warning: `opNotice(warn, heading)` (M13-03) inside the `op-hold-warning` div, its lists
+  `list-disc pl-5` as coded. Shown by the general-sibling rule alone — **no `:has()`, no script**
+  (the overview's CSP carries no `script-src`); a browser without the stylesheet shows it always.
+  Ink/85 on saffron-lite is the warn notice's measured pair (README §6 "Operator notice").
+- Buttons: `btn` with the catalogue's `rounded-[10px]`; **Suspend writes** quiet (tomato on hover),
+  **Lift the suspension** primary, each `self-start` as coded.
+
+**States:** active (fixture "tenant overview") · suspended, a known reason ("tenant overview,
+suspended") · suspended, an unrecognised reason ("tenant overview, an unrecognised reason") ·
+Security hold checked (the warning shown — a CSS state; the suite measures the markup and the rules,
+not a browser) · unnamed tenant (the card is the same).
+**Not shown:** a free-text reason; a "change the reason" form for a suspended tenant (ADR 0025 C
+annex LC2 — not decided, a v2 candidate); a confirm step or modal; a platform-wide list of
+suspensions (`/operator/suspensions`, `…/{id}/suspension` stay unmounted —
+`TestSurface_TheScreensOfLaterTasksAreNotMounted`, `op8_test.go:1139`); the tenant's banner sentence;
+the tenant's own `audit_log` rows; who suspended it (the audit log's row, §10).
+**Tests:** `TestTenantOverview_SaysTheSuspensionAndOffersOneForm`,
+`TestSuspendForm_TheHoldWarningIsShownOnlyByTheHoldChoice`, `TestSuspensionWords_NameEveryReasonAndNothingElse`,
+`TestSuspensionScreen_TheChipsAndTextClearAA`, `TestSuspensionScreen_EachChipHasTheRuleTheContrastTestComputes`,
+`TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` (one form by state),
+`TestOperatorHeaders_TheSuspensionClassesCarryThePolicy`, `TestSuspension_TheTenantIsThePathsNotTheForms`,
+`TestSuspension_TheAnswerIsTheSameWhateverTheTenantHeld`, `TestSuspension_NoPostedValueReachesALogLine`,
+`TestSuspensionBudget_AWriteIsOneRequestAndNoRead`, `TestSuspension_TheListedSitesAloneWrite`;
+against PostgreSQL `TestE2E_OperatorSuspendsAndReinstatesAFixtureTenant` and
+`TestE2E_TheOperatorsSuspensionClosesThePanelAndTheAPIAndItsLiftingOpensThem`.
 
 ---
 
@@ -367,7 +497,8 @@ sign-out's text button; no `hx-` attribute (`plaques.templ:7-9`, `op13_test.go:3
 and sub-nav are links, and the phone sign-out stays text (no icon).
 **States:** mixed rows covering all seven chips · truncated "first 200 of N" · no plaques ·
 unnamed tenant (drawn on the polished `OpPlaques` boards too; fixture "tenant plaques, unnamed",
-`op8_test.go:723`).
+`op8_test.go:747`). A **suspended** tenant's plaques render the same: this screen reads and shows
+no suspension (OP-15 changed neither `plaques.go` nor `plaques.templ`).
 **Not shown:** AES key, key ref, CMAC, tap URL, a QR of the plaque (D4's plaque drawing is a
 panel feature).
 **Tests:** `TestPlaqueScreen_NoKeyReachesThePage`, `TestPlaqueScreen_EveryShapeHasItsSentenceAndAnUnknownStatusStaysVisible`,
@@ -410,12 +541,14 @@ outline on paper** (a re-tone of its own rule, README §6 "Chip / tally"); ended
 frozen = green; before sign-up = line; unreadable = ink (the last four as today).
 
 **Forms:** pager — POST forms to `/operator/tenants/{id}/billing` with hidden `page` (1..5);
-exactly 2 on page 3 (`op8_test.go:868`). Drawn as outlined buttons: `<button type="submit"
+exactly 2 on page 3 (`op8_test.go:895`). Drawn as outlined buttons: `<button type="submit"
 class="op-pager">` after M13-10 (today `class="op-link"`, pinned at `op12_test.go:1372, 1441`).
 
 **States:** every tone on one page · page 3 (both pager buttons) · the last page (oldest-page
 note) · unnamed tenant (fixtures "tenant billing", "tenant billing, page 3", "tenant billing, the
-last", "tenant billing, unnamed", `op8_test.go:729-732`).
+last", "tenant billing, unnamed", `op8_test.go:753-756`). A **suspended** tenant's months render the
+same — a suspension's months are billed as usual (ADR 0025 §6) and this screen shows no
+suspension.
 **Binding:** no word claims owed / late / paid (`billing.go:230-233`); a frozen and a live month
 never render alike; unreadable / before-sign-up rows show no figure (§4.6).
 **Not shown:** any person, invoice PDF, payment status, CSV, close / freeze control.
@@ -467,7 +600,8 @@ font-bold">` stays (`op16_test.go:1409`).
 
 **States:** each of the four verdicts · never asked · a warn notice · odd number (no form) ·
 unnamed tenant (drawn on the polished `OpVat` boards too; the fixture "tenant VAT, not found"
-carries the unnamed banner, `op8_test.go:663, 736`).
+carries the unnamed banner, `op8_test.go:684, 760`). A **suspended** tenant's VAT screen renders the
+same: it reads and shows no suspension.
 
 **Form:** `POST /operator/tenants/{id}/vat` with **no field** — only the button; the server sends
 the number it read (`vat.templ:10-14`). Exactly one when askable, none otherwise.
@@ -497,13 +631,26 @@ Signed-in shell, current = Audit log; no banner. Title `Audit log`.
 | last page | This is the last page the screen shows: the newest `<50,000>` entries of the kind chosen. |
 | pager | `aria-label="Pages of the audit log"` Previous page / Next page |
 
-Kind words (`audit.go:191-223`): Sign-in refused: wrong password · Sign-in refused: no active
+Kind words (`audit.go:191-228`; 22 kinds — the derived count `TestAuditWords_NameEveryKindAndNothingElse`
+checks): Sign-in refused: wrong password · Sign-in refused: no active
 account with that address · Code refused · Account locked after wrong codes · Setup link refused
 · Password accepted, before the code · Signed in · Set up and signed in · Signed out · Read ·
 Legal text published · Operator account created · Operator account reset to a new setup link ·
 Operator account disabled · VAT re-check recorded · Integration API opened · Integration API
 closed · Holding created · Asked to add a business to a holding · Asked to remove a business
-from a holding.
+from a holding · **Tenant suspension recorded** · **Tenant reinstatement recorded** (OP-15,
+`audit.go:226-227`; kinds `tenant_suspended`, `tenant_reinstated`, `internal/db/operator.go:1630-1631`).
+
+**The two OP-15 kinds** are written on every accepted call, whether or not the tenant exists and
+whatever it held, so the word says the operator's action was **recorded**, not that a state moved
+(`audit.go:223-225`). Their row is the tenant-targeted shape the VAT and API rows have: time · word ·
+actor · **Tenant** fact (link / unnamed / an id no tenant has — `audit.templ:103-114`, as for
+every row with a tenant); the row's `detail` is `{}` (migration 00063), so the **reason is not on this
+screen** — it is in the tenant's own `audit_log` (`tenant.suspended`), which this surface does not
+read. The filter's `<select>` lists them as two more options (Every kind + 22), in the closed set's
+order (`internal/db/operator.go:893-903`). Measured end to end: the filtered log shows "Tenant
+suspension recorded" with the overview link and the tenant's name
+(`TestE2E_OperatorSuspendsAndReinstatesAFixtureTenant`, `op15_db_test.go:205-208`).
 
 Row `op-row`, one fact per span: time (UTC to the second, mono bold) · kind word (display bold)
 or raw mono + chip **Unrecognised** · actor: By the platform owner, with opadmin / Before sign-in
@@ -511,7 +658,7 @@ or raw mono + chip **Unrecognised** · actor: By the platform owner, with opadmi
 unnamed operator `<id>`] · [Tenant `<link>name</link>` / Tenant `<link><i>Unnamed tenant</i></link>`
 `<id>` / A tenant id no tenant has `<id>` (no link)] · [Of the legal texts / the tenant list / a
 tenant's overview / a tenant's plaques / this audit log / a tenant's billing / a tenant's VAT
-number / the holdings (`audit.go:233-242`) / Of a scope this screen does not show] · [Page n (m
+number / the holdings (`audit.go:238-247`) / Of a scope this screen does not show] · [Page n (m
 per page)] · [No search term / Searched by name / Searched by address / Searched by tenant id —
 **the class, never the term**] · [Filter: `<word>`] · [Document `<mono slug>`] · [`<n>` bytes] ·
 [Detail not shown, italic] · [Session `<first 8 hex>`].
@@ -526,19 +673,20 @@ inline tenant link keeps its line height on tablet/desktop and gets a **44 px in
 
 **Forms:** filter `POST /operator/audit` (`kind`); pager POST forms with hidden `kind` + `page`,
 buttons `<button type="submit" class="op-link">` today, drawn as outlined buttons →
-`class="op-pager"` in M13-12 (the pin `op14_test.go:739-740` changes with it); 3 forms when
-filtered (`op8_test.go:896`). 50 rows per page, 1000 pages max.
+`class="op-pager"` in M13-12 (the pin `op14_test.go:742-743` changes with it); 3 forms when
+filtered (`op8_test.go:929`). 50 rows per page, 1000 pages max.
 
 **States:** every row shape (fixture "audit log") · filtered · past the end ("This page is
 empty: the log ended on the page before.") · the last page · empty ("The log holds no entry of
-this kind.") — `op8_test.go:724-728`.
+this kind.") — `op8_test.go:748-752`.
 **Not shown:** export, per-tenant audit view, derived verdicts ("compromised"), search terms,
 credentials.
 **Tests:** `TestAuditScreen_WearsTheDocketAnatomy`, `TestAuditScreen_EveryRowSaysWhatTheLogHolds`,
 `TestAuditWords_NameEveryKindAndNothingElse`, `TestAuditWords_NameEveryScopeTheNewestMigrationReturns`,
 `TestAuditScreen_ReadsNothingFromTheURL`, `TestAuditScreen_PagesForwardOnlyAfterAFullPage`,
 `TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed`, `TestAuditScreen_NoCredentialFieldReachesThePage`,
-`TestAuditScreen_TheTextClearsAA`, `TestAuditScreen_TheOwnersRowsNameTheOwner`.
+`TestAuditScreen_TheTextClearsAA`, `TestAuditScreen_TheOwnersRowsNameTheOwner`; the OP-15 rows:
+`TestE2E_OperatorSuspendsAndReinstatesAFixtureTenant` (PostgreSQL).
 
 ---
 
@@ -557,7 +705,7 @@ Signed-in shell, current = Holdings; no banner. Title `Holdings`.
 | holding entry | name (display lg; italic **Unnamed holding**) · Created `<UTC>` · id (xs) · [Its first memberships are on the page before.] · members or "No business has been in this holding." · [More of its memberships are on the next page.] · add form |
 | add form | label **Add a business**; help: The business's id, from its overview. It must work in the timezone of every member.; button **Add** |
 | member row `op-row` | name link → overview (italic Unnamed tenant) · chip `<span class="tally tally--active">Live</span>` / `<span class="tally tally--deactivated">Ended</span>` · Timezone `<mono>` · No API code / API code `<mono>` · Joined `<UTC>` · [Left `<UTC>`] · tenant id (xs) · live only: **Remove** (`btn--quiet`). The polished boards draw the tenant id **under the name**: visual order only (CSS `order`, README §6.1 "Holdings"); the DOM keeps the code's order (`holdings.templ:131-160`) — no test pins it. |
-| pager | **links** `?page=N` Previous page / Next page (`holdings.templ:165-176`), drawn as outlined buttons → `<a … class="op-pager">` in M13-13 (no test pins the link's class; the `href` pins stay, `op8_test.go:890-891`, `holdings_test.go:741, 757`) |
+| pager | **links** `?page=N` Previous page / Next page (`holdings.templ:165-176`), drawn as outlined buttons → `<a … class="op-pager">` in M13-13 (no test pins the link's class; the `href` pins stay, `op8_test.go:917-918`, `holdings_test.go:741, 757`) |
 
 Notices (`holdingNotice` `:70-88`, words `holdings.go:443-460`; from the 303's `?done=` checked
 against the page's own read):
@@ -582,12 +730,12 @@ code is not one a member of the holding already has. · The holding and the busi
 one; add `POST /operator/holdings/{id}/members` (`tenant_id`, maxlength 64) — one per holding;
 remove `POST /operator/holdings/{id}/members/{tenant}/remove` (empty body) — one per live
 membership. No confirmation step. A refused name is **not echoed back**. 200 memberships per
-page (`db.HoldingsPerPage`, `internal/db/operator.go:1488`); the page number is not personal
+page (`db.HoldingsPerPage`, `internal/db/operator.go:1509`); the page number is not personal
 data (`holdings.templ:163-164`).
 **States:** holdings with live and ended members (fixture "holdings") · empty ("There are no
 holdings yet.") · **page 3, past the end** — "This page is empty: the list ended on the page
 before." (`holdings.templ:51-52`; fixture "holdings, past the end", `HoldingsView{Page: 3}`,
-`op8_test.go:741`; its Previous link still points to page 2, `op8_test.go:891`) · added ·
+`op8_test.go:765`; its Previous link still points to page 2, `op8_test.go:918`) · added ·
 not added (+ rules) · unnamed holding and member split across pages ("holdings, unnamed").
 **Not shown:** rename / delete holding, a tenant picker or search (the id is pasted), a
 per-holding page.
@@ -599,7 +747,7 @@ pager links `holdings_test.go:741-757`.
 
 ---
 
-## 12. OpLegal — `Legal` (`legal.templ:21-103`)
+## 12. OpLegal — `Legal` (`legal.templ:21-107`)
 
 Signed-in shell, current = Legal texts; no banner. Title `Legal texts`.
 
@@ -607,11 +755,11 @@ Signed-in shell, current = Legal texts; no banner. Title `Legal texts`.
 |---|---|
 | label · h1 | Legal texts · Taptime's legal texts |
 | intro | Publishing adds a new version; nothing is overwritten. To undo a change, publish the earlier text again. |
-| public pages | The public pages are on the customer site, under /legal. — **text, not a link** (`view.go:162-164`) |
+| public pages | The public pages are on the customer site, under /legal. — **text, not a link** (`view.go:163-165`) |
 | link | Back to the console |
 | editor card (privacy, terms, imprint, cookies — `internal/domain/legal/legal.go:67`) | h2 = path mono ("/legal/privacy") · Live since `<UTC>` / Not published. The public page shows its placeholder. |
 | warn notice | **The public page is behind** — The newest version, published `<UTC>`, has not reached the public page yet. This editor opened on the text the page shows, so publishing it replaces the newest version. + Reload this screen to try again. The page also catches up after the next publication or a restart. |
-| field | label **Text**; `<textarea name="body" rows="12" required>` prefilled with the live text; help: A blank line starts a new paragraph. At most 256 KiB. |
+| field | label **Text**; `<textarea name="body" rows="12" required>` prefilled with the live text; help (`legal.templ:70-74`, since the legal-links change, ADR 0033): A blank line starts a new paragraph. Addresses starting with http:// or https://, e-mail addresses and phone numbers starting with + become links; `<span class="font-mono">[text](https://…)</span>` links your own text. At most 256 KiB. — the boards draw the earlier two-sentence help; the code's wins (D1) |
 | button | Publish a new version |
 | docket heading | Versions, newest first |
 | version row | `<li class="op-version">` published UTC · path · `<n>` bytes · publisher (operator name / operator / **tenant admin (legacy)**) · chip `tally--active` **Live** on each document's current version |
