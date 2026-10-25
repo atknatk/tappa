@@ -180,7 +180,7 @@ bağlantıları taşıyor (`chrome.templ:19-21`). Bütün ekran kartları bu kab
   telefonda 14 px ve satır kırar.
 - **Telefon alt çubuğu (cilalı panolar, 2026-10-20):** `fixed` değil **`sticky bottom-0`**; kısa
   sayfada da görüntü alanının alt kenarına oturur: `.op-frame` en az görüntü alanı yüksekliğinde
-  (bant hariç: `min-h-[calc(100vh-4.25rem)]`) bir **flex sütun**dur, nav `order-last mt-auto`
+  (bant hariç: telefonda `min-h-[calc(100vh-3.75rem)]`, tabletten `md:min-h-[calc(100vh-4.25rem)]` — panonun 56 / 64 px bant satırı + 4 px çizgi; orkestratör kararı 2026-10-25: pano kazanır) bir **flex sütun**dur, nav `order-last mt-auto`
   alır (tablette `md:static md:order-first md:mt-0`, masaüstünde `desk:flex-row`,
   `desk:order-none`). `layout.Operator`'ın `<body>`'sine dokunulmaz (paylaşılan kabuk). Çerçevede
   ya da nav'ın hiçbir atasında `overflow-*` yok (sticky'yi bozar). Sticky çubuk akışta yer
@@ -293,6 +293,11 @@ Cilalı panoların getirdiği yeni sınıflar (yalnız CSS; işaretlemeye ekran 
 - **`.op-step`** (Enroll adımları, 16/17 px) ve **`.op-heading`** ("Create a holding", 19 px) —
   bugün `docket-label` yazılan kart içi başlıklar (README §6).
 - **`.op-receipt`** — fatura satırının dört rakamlık fiş şeridi (README §6 "Billing receipt strip").
+- **Odak halkası** (M13-01 denetiminden, 2026-10-25) — `.op-nav-item`, `.op-subnav-item` ve `.op-link`
+  için `focus-visible` ink halka, panel nav'ıyla tutarlı (`focus:outline-none` yerine
+  `focus-visible:` görünür bir ink çerçeve); bugün tarayıcı varsayılanı görünür (WCAG 2.4.7
+  sağlanıyor), bu madde tutarlılık içindir. Halka rengi ink (ink on paper 16.17:1; saffron-lite
+  bant üstünde de ink).
 - **Satır içi bağlantı isabet alanı** — denetim satırının tenant bağlantısı için kapsamlı kural,
   tablet/masaüstünde satır yüksekliğini korur ve 44 px görünmez bir `::before` örtüsü ekler
   (README §6 "Inline link hit area"); işaretleme değişmez.

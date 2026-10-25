@@ -1119,14 +1119,14 @@
            focus:outline-none focus:ring-2 focus:ring-saffron;
   }
   .op-tenant  { @apply border-b border-saffron bg-saffron-lite text-ink; }
-  /* The banner's name grows with the width (the boards draw it larger on the tablet and
-     the desktop). Set from the banner, not on the name's paragraph, whose class is pinned
+  /* The banner's name at the boards' sizes: 26 px on the phone, 30 px on the tablet, 34 px on
+     the desktop, line height 1.12, tracking -0.03em. Set from the banner, not on the name's paragraph, whose class is pinned
      (TestTenantOverview_AnUnnamedTenantIsNamedByItsID); the name is the banner's second
      paragraph in both of its shapes (the label first, the id, when shown, third). The
      selector names no utility: a utility's name in a selector here makes Tailwind add the
      rule to every class that applies that utility (measured, M13-01: every font-display
      user grew 24 and 30 px rules). */
-  .op-tenant > div > p:nth-of-type(2) { @apply md:text-2xl desk:text-3xl; }
+  .op-tenant > div > p:nth-of-type(2) { @apply text-[26px] leading-[1.12] tracking-[-0.03em] md:text-[30px] desk:text-[34px]; }
 
   /* --- THE OPERATOR'S NAVIGATION (M13-01, user decision OP-1: "Menü ekle") ---
      One nav element for the three widths, restyled here (docs/design/operator-redesign
@@ -1138,7 +1138,8 @@
      - phone: a paper bar of five items, icon over a short label, at the foot of the
        viewport, the current one ink and bold under an ink 3 px top marker.
      The phone bar is position: sticky at bottom 0, NOT position: fixed: the frame is a flex
-     column at least the viewport tall (minus the band: its 64 px row and 4 px rule, 4.25rem),
+     column at least the viewport tall (minus the band: its row, 56 px on the phone and 64 px
+     from the tablet, and its 4 px rule -- 3.75rem and 4.25rem),
      the nav is ordered last and pushed down by an automatic top margin, so on a short page it
      rests on the viewport's lower edge and on a long one it sticks while scrolling and comes to
      rest under the last control -- it keeps its place in the flow and never covers the page,
@@ -1153,7 +1154,7 @@
      current desktop item, ink on ink/5 over paper, 14.67:1; the sub-nav's ink on the banner's
      saffron-lite 13.97:1. */
   .op-frame {
-    @apply flex min-h-[calc(100vh-4.25rem)] flex-col desk:flex-row;
+    @apply flex min-h-[calc(100vh-3.75rem)] flex-col md:min-h-[calc(100vh-4.25rem)] desk:flex-row;
   }
   .op-col { @apply min-w-0 flex-1; }
   .op-nav {
@@ -1168,10 +1169,10 @@
     @apply hidden px-6 pb-2.5 font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70 desk:block;
   }
   .op-nav-item {
-    @apply relative flex min-h-11 flex-col items-center justify-center gap-0.5 py-2 font-display
-           text-[11px] leading-4 text-ink/70 no-underline hover:bg-ink/5 hover:text-ink
+    @apply relative flex min-h-11 flex-col items-center justify-center gap-[3px] py-2 font-display
+           text-[11px] font-medium leading-4 text-ink/70 no-underline hover:bg-ink/5 hover:text-ink
            aria-[current=true]:font-bold aria-[current=true]:text-ink max-md:min-h-[60px]
-           md:-mb-px md:flex-row md:border-b-[3px] md:border-transparent md:px-3 md:py-0 md:text-[15px]
+           md:-mb-px md:flex-row md:border-b-[3px] md:border-transparent md:px-3 md:py-0 md:text-[15px] md:font-normal
            md:leading-normal md:text-ink md:aria-[current=true]:border-ink
            desk:mb-0 desk:justify-start desk:border-b-0 desk:border-l-[3px] desk:pl-[21px] desk:pr-4
            desk:aria-[current=true]:bg-ink/5;

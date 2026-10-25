@@ -45,7 +45,7 @@ import "github.com/atknatk/tappa/web/templates/layout"
 // page that makes the browser fetch a URL sign the operator out.
 templ bar(signedIn bool) {
 	<header class="op-bar">
-		<div class="flex min-h-16 flex-wrap items-center justify-between gap-3 px-4 md:px-6 desk:px-8">
+		<div class="flex min-h-14 flex-wrap items-center justify-between gap-3 px-4 md:min-h-16 md:px-6">
 			<p class="op-lockup">
 				TAPTIME <span class="text-saffron">OPERATOR</span>
 			</p>
@@ -67,7 +67,7 @@ templ bar(signedIn bool) {
 // direction override inside it must not turn the banner's other words around.
 templ tenantBanner(name TenantName, tabs TenantTabs, current TenantTab) {
 	<section class="op-tenant" aria-label="Tenant">
-		<div class="mx-auto w-full max-w-[960px] px-4 pt-4 md:px-6 md:pt-5 desk:px-10 desk:pt-6">
+		<div class="w-full max-w-[960px] px-4 pt-4 md:px-6 md:pt-5 desk:px-10 desk:pt-6">
 			<p class="docket-label">Tenant</p>
 			if name.byID {
 				<p class="font-display text-xl font-bold tracking-tight">{ unnamedTenant }</p>
@@ -170,7 +170,7 @@ templ screen(title string, signedIn bool, current navItem) {
 		@bar(signedIn)
 		if signedIn {
 			@frame(current) {
-				<main class="op-main mx-auto flex w-full max-w-[960px] flex-col gap-4 px-4 pt-4 pb-6 md:gap-5 md:px-6 md:py-6 desk:gap-6 desk:px-10 desk:pt-8 desk:pb-14">
+				<main class="op-main flex w-full max-w-[960px] flex-col gap-4 px-4 pt-5 pb-16 md:gap-5 md:px-6 md:pt-6 md:pb-12 desk:gap-6 desk:px-10 desk:pt-8 desk:pb-16">
 					{ children... }
 				</main>
 			}
@@ -201,7 +201,7 @@ templ tenantScreen(title string, name TenantName, tabs TenantTabs, current Tenan
 		@bar(true)
 		@frame(navTenants) {
 			@tenantBanner(name, tabs, current)
-			<main class="op-main mx-auto flex w-full max-w-[960px] flex-col gap-4 px-4 pt-4 pb-6 md:gap-5 md:px-6 md:py-6 desk:gap-6 desk:px-10 desk:pt-8 desk:pb-14">
+			<main class="op-main flex w-full max-w-[960px] flex-col gap-4 px-4 pt-5 pb-16 md:gap-5 md:px-6 md:pt-6 md:pb-12 desk:gap-6 desk:px-10 desk:pt-8 desk:pb-16">
 				{ children... }
 			</main>
 		}

@@ -72,7 +72,7 @@ func bar(signedIn bool) templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<header class=\"op-bar\"><div class=\"flex min-h-16 flex-wrap items-center justify-between gap-3 px-4 md:px-6 desk:px-8\"><p class=\"op-lockup\">TAPTIME <span class=\"text-saffron\">OPERATOR</span></p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<header class=\"op-bar\"><div class=\"flex min-h-14 flex-wrap items-center justify-between gap-3 px-4 md:min-h-16 md:px-6\"><p class=\"op-lockup\">TAPTIME <span class=\"text-saffron\">OPERATOR</span></p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -118,7 +118,7 @@ func tenantBanner(name TenantName, tabs TenantTabs, current TenantTab) templ.Com
 			templ_7745c5c3_Var2 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<section class=\"op-tenant\" aria-label=\"Tenant\"><div class=\"mx-auto w-full max-w-[960px] px-4 pt-4 md:px-6 md:pt-5 desk:px-10 desk:pt-6\"><p class=\"docket-label\">Tenant</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<section class=\"op-tenant\" aria-label=\"Tenant\"><div class=\"w-full max-w-[960px] px-4 pt-4 md:px-6 md:pt-5 desk:px-10 desk:pt-6\"><p class=\"docket-label\">Tenant</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -490,7 +490,7 @@ func screen(title string, signedIn bool, current navItem) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<main class=\"op-main mx-auto flex w-full max-w-[960px] flex-col gap-4 px-4 pt-4 pb-6 md:gap-5 md:px-6 md:py-6 desk:gap-6 desk:px-10 desk:pt-8 desk:pb-14\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<main class=\"op-main flex w-full max-w-[960px] flex-col gap-4 px-4 pt-5 pb-16 md:gap-5 md:px-6 md:pt-6 md:pb-12 desk:gap-6 desk:px-10 desk:pt-8 desk:pb-16\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -653,7 +653,7 @@ func tenantScreen(title string, name TenantName, tabs TenantTabs, current Tenant
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, " <main class=\"op-main mx-auto flex w-full max-w-[960px] flex-col gap-4 px-4 pt-4 pb-6 md:gap-5 md:px-6 md:py-6 desk:gap-6 desk:px-10 desk:pt-8 desk:pb-14\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, " <main class=\"op-main flex w-full max-w-[960px] flex-col gap-4 px-4 pt-5 pb-16 md:gap-5 md:px-6 md:pt-6 md:pb-12 desk:gap-6 desk:px-10 desk:pt-8 desk:pb-16\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
