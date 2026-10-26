@@ -85,8 +85,8 @@ func TestInviteToken_HashesUnderItsOwnKey(t *testing.T) {
 	if err != nil || len(h1) != 64 {
 		t.Fatalf("hash %q, %v", h1, err)
 	}
-	h2, _ := Token{v: tok.v}.hash(sk)
-	h3, _ := ResetToken{v: tok.v}.hash(rk)
+	h2, _ := Token(tok).hash(sk)
+	h3, _ := ResetToken(tok).hash(rk)
 	if h1 == h2 || h1 == h3 {
 		t.Error("the invitation hashes like another credential")
 	}
