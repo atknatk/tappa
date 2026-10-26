@@ -1461,6 +1461,68 @@
   [aria-labelledby="audit-list"] .op-row > :nth-child(n+3) { @apply font-display text-ink/70; }
   [aria-labelledby="audit-list"] .op-row > :nth-child(n+3) > :not(a) { @apply text-ink; }
   [aria-labelledby="audit-list"] .op-row > span:has(> .op-link) { @apply max-md:flex max-md:flex-wrap max-md:items-center max-md:gap-x-1.5; }
+  /* THE HOLDINGS IN THE REDESIGN (M13-13; docs/design/operator-redesign README §6.1 "Holdings",
+     screens.md §11, boards OpHoldings, T-OpHoldings, M-OpHoldings). Scoped from the docket's
+     heading id: the membership's <li class="op-row"> is pinned, and every element keeps the
+     code's order in the document -- each rule here only places it.
+     THE HEADING: the boards' rule under it, a 2 px dash in the perforation tone, 12 px below the
+     words; the page number bold, in ink.
+     A HOLDING: a block between 2 px dashed rules, 22 px above and 24 px below (the last 8 px, no
+     rule), its parts 14 px apart. Its head: the name, the id 2 px under it and, from the tablet,
+     the creation time at the line's end on the name's baseline; on the phone the name, the id and
+     the time each take a line, the time 4 px under the id (the name and the id are drawn first,
+     the time keeping its place in the document). Every later part takes the whole width; the
+     memberships open with a 1 px rule. A name or an id with no space in it breaks anywhere rather
+     than widening the page (a holding's name is up to 120 characters, a business's has no limit;
+     measured in M13-08: both widened the page at every width).
+     A MEMBERSHIP, the boards' grid (.mrow): on the phone one column -- the name and the chip, the
+     business's id 3 px under them, the timezone and the API code, the times, then Remove (at
+     least 120 px wide, 4 px lower), 6 px apart, 14 px above and below. On the tablet three tracks
+     (the name and the id across two, the timezone and the times side by side under them, Remove
+     in the third, centred, at the end), 8 px apart. On the desktop four tracks, 172 px, 212 px and
+     96 px after the name's: the name with the id under it, the timezone and the API code, the
+     times, Remove. 18 px between the tracks. A solid 1 px rule under every membership, the last
+     too. The facts' words at ink 70 % (6.05:1 on paper, on the markup), their values in ink
+     (16.17:1). The name's link keeps the line's height from the tablet and takes the audit link's
+     transparent 44 px overlay (README §6 "Inline link hit area"); on the phone its own 44 px box
+     stands. NO SELECTOR HERE NAMES THE CHIP'S CLASS (TestTallyRules_NoToneRuleColoursTheWord reads
+     every rule that does). Each rule is one @apply but the overlay, read and pinned by
+     TestHoldingsDocket_TheScopedRulesKeepTheBoardsGrid. */
+  [aria-labelledby="holding-list"] > h2 { @apply border-b-2 border-dashed border-line pb-3; }
+  [aria-labelledby="holding-list"] > h2 > span { @apply font-bold text-ink; }
+  [aria-labelledby="holding-list"] > ol > li {
+    @apply flex flex-wrap items-baseline gap-x-5 gap-y-3.5 border-b-2 border-dashed border-line pt-[22px] pb-6
+           [overflow-wrap:anywhere] last:border-b-0 last:pb-2;
+  }
+  [aria-labelledby="holding-list"] > ol > li > :first-child { @apply min-w-0 max-md:-order-1 max-md:basis-full md:flex-1; }
+  [aria-labelledby="holding-list"] > ol > li > :nth-child(2) { @apply max-md:-mt-2.5; }
+  [aria-labelledby="holding-list"] > ol > li > :nth-child(3) { @apply -mt-3 basis-full max-md:-order-1; }
+  [aria-labelledby="holding-list"] > ol > li > :nth-child(n+4) { @apply basis-full; }
+  [aria-labelledby="holding-list"] > ol > li > ol { @apply border-t border-line; }
+  [aria-labelledby="holding-list"] .op-row {
+    @apply grid grid-cols-1 items-start gap-x-[18px] gap-y-1.5 border-solid py-3.5 last:border-b
+           md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_92px] md:gap-y-2 desk:grid-cols-[minmax(0,1fr)_172px_212px_96px] desk:gap-y-1.5;
+  }
+  [aria-labelledby="holding-list"] .op-row > div:first-child { @apply row-start-1 md:col-start-1 md:col-end-3 desk:col-end-2; }
+  [aria-labelledby="holding-list"] .op-row > div:nth-child(2) {
+    @apply md:col-start-1 md:row-start-3 desk:col-start-2 desk:row-start-1 desk:row-end-3;
+  }
+  [aria-labelledby="holding-list"] .op-row > div:nth-child(3) {
+    @apply md:col-start-2 md:row-start-3 desk:col-start-3 desk:row-start-1 desk:row-end-3;
+  }
+  [aria-labelledby="holding-list"] .op-row > span {
+    @apply row-start-2 -mt-[3px] md:col-start-1 md:col-end-3 md:-mt-[5px] desk:col-end-2 desk:-mt-[3px];
+  }
+  [aria-labelledby="holding-list"] .op-row > form {
+    @apply mt-1 md:col-start-3 md:row-start-1 md:row-end-4 md:mt-0 md:self-center md:justify-self-end desk:col-start-4 desk:row-end-3;
+  }
+  [aria-labelledby="holding-list"] .op-row > form > button { @apply max-md:min-w-[120px]; }
+  [aria-labelledby="holding-list"] .op-row > div > span > span { @apply text-ink; }
+  [aria-labelledby="holding-list"] .op-row > div > .op-link { @apply md:relative md:min-h-0; }
+  [aria-labelledby="holding-list"] .op-row > div > .op-link::before {
+    content: '';
+    @apply md:absolute md:inset-x-0 md:top-1/2 md:h-11 md:-translate-y-1/2;
+  }
 
   /* THE INTEGRATION GUIDE'S BODY (M11 DOCS-1, /docs/api). internal/apiguide converts the
      Markdown with goldmark, whose output carries no class, so every rule here is scoped

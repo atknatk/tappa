@@ -29,6 +29,21 @@ import (
 // Every form posts to a path the handler parses; the add form's one field is the business's id,
 // and each live membership has its own Remove button, whose path names the holding and the
 // business (the body carries nothing).
+//
+// THE REDESIGN (M13-13; docs/design/operator-redesign README §6 "Pager", §6.1 "Holdings",
+// screens.md §11, boards OpHoldings): the intro card -- the mono label, the h1 at the board's
+// 26 / 28 / 32 px, the intro and the way back -- then the create card under its 19 px heading,
+// the field and its button on one line from the tablet and the help under them; the cards space
+// their blocks and their bodies carry no top margin. On the docket each holding is a block
+// between dashed rules: its name with its id under it and the time it was created beside it
+// (under them on the phone), its memberships, and the add form in a dashed box of its own. A
+// membership is the boards' grid: the name and the chip, the business's id under them, the
+// timezone and the API code, the times, and Remove. Every element keeps the code's order in the
+// document; the place each takes is a rule in input.css scoped from the docket's heading id, and
+// so is the rule that breaks a name or an id with no space in it anywhere rather than widening
+// the page. Words are Space Grotesk, the values the code prints in the data face keep it. The
+// pager's links are drawn as outlined buttons. Pinned by
+// TestHoldingsScreen_IsTheCreateCardAndTheDocket and TestHoldingsDocket_TheScopedRulesKeepTheBoardsGrid.
 func Holdings(v HoldingsView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -62,7 +77,7 @@ func Holdings(v HoldingsView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><p class=\"docket-label\">Holdings</p><h1 class=\"mt-1 font-display text-2xl font-bold tracking-tight\">Holdings</h1><p class=\"mt-3 text-sm\">A holding groups businesses that work in one timezone; while a business is in one, and for 60 seconds after it leaves, its owner cannot change its timezone. Only this screen changes who is in a holding.</p><p class=\"mt-2 text-sm\"><a href=\"/operator\" class=\"op-link\">Back to the console</a></p></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card flex flex-col gap-3.5\"><p class=\"op-label\">Holdings</p><h1 class=\"font-display text-[26px] font-bold leading-[1.1] tracking-[-0.03em] md:text-[28px] desk:text-[32px]\">Holdings</h1><p class=\"text-[15px] leading-[1.55]\">A holding groups businesses that work in one timezone; while a business is in one, and for 60 seconds after it leaves, its owner cannot change its timezone. Only this screen changes who is in a holding.</p><p class=\"text-sm\"><a href=\"/operator\" class=\"op-link\">Back to the console</a></p></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -70,14 +85,14 @@ func Holdings(v HoldingsView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " <section class=\"op-card\" aria-labelledby=\"holding-create\"><h2 id=\"holding-create\" class=\"docket-label\">Create a holding</h2><form method=\"post\" action=\"/operator/holdings\" class=\"mt-4 flex flex-col gap-3\"><label for=\"holding-name\" class=\"docket-label\">Name</label> <input id=\"holding-name\" type=\"text\" name=\"name\" maxlength=\"120\" required autocomplete=\"off\" spellcheck=\"false\" class=\"op-input\"><p class=\"text-xs text-ink/70\">One line of at most 120 characters. The new holding has no business in it yet.</p><button type=\"submit\" class=\"btn btn--primary\">Create</button></form></section><section class=\"docket\" aria-labelledby=\"holding-list\"><h2 id=\"holding-list\" class=\"docket-label\">Newest first · page <span class=\"font-mono\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " <section class=\"op-card flex flex-col gap-3.5\" aria-labelledby=\"holding-create\"><h2 id=\"holding-create\" class=\"op-heading\">Create a holding</h2><form method=\"post\" action=\"/operator/holdings\" class=\"flex flex-wrap gap-x-2.5 gap-y-1.5\"><label for=\"holding-name\" class=\"op-label basis-full\">Name</label> <input id=\"holding-name\" type=\"text\" name=\"name\" maxlength=\"120\" required autocomplete=\"off\" spellcheck=\"false\" class=\"op-input min-w-0 max-w-[520px] flex-[1_1_240px]\"><p class=\"order-last basis-full text-xs text-ink/70\">One line of at most 120 characters. The new holding has no business in it yet.</p><button type=\"submit\" class=\"btn btn--primary max-md:basis-full\">Create</button></form></section><section class=\"docket\" aria-labelledby=\"holding-list\"><h2 id=\"holding-list\" class=\"docket-label\">Newest first · page <span class=\"font-mono\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(v.Page))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 49, Col: 113}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 64, Col: 113}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -89,18 +104,18 @@ func Holdings(v HoldingsView) templ.Component {
 			}
 			if len(v.Holdings) == 0 {
 				if v.Page > 1 {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<p class=\"mt-2\">This page is empty: the list ended on the page before.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<p class=\"pt-[22px] pb-2 font-display text-[15px] leading-normal\">This page is empty: the list ended on the page before.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				} else {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<p class=\"mt-2\">There are no holdings yet.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<p class=\"pt-[22px] pb-2 font-display text-[15px] leading-normal\">There are no holdings yet.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<ol class=\"mt-2 flex flex-col gap-6\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<ol>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -177,7 +192,7 @@ func holdingNotice(v HoldingsView) templ.Component {
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.Notice)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 74, Col: 17}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 89, Col: 17}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 				if templ_7745c5c3_Err != nil {
@@ -213,7 +228,7 @@ func holdingNotice(v HoldingsView) templ.Component {
 				var templ_7745c5c3_Var8 string
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(v.Notice)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 78, Col: 17}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 93, Col: 17}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 				if templ_7745c5c3_Err != nil {
@@ -236,7 +251,7 @@ func holdingNotice(v HoldingsView) templ.Component {
 						var templ_7745c5c3_Var9 string
 						templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(rule)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 82, Col: 17}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 97, Col: 17}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 						if templ_7745c5c3_Err != nil {
@@ -264,7 +279,7 @@ func holdingNotice(v HoldingsView) templ.Component {
 }
 
 // holdingEntry is one holding: its name, id and creation time, its memberships, and the form that
-// adds a business to it.
+// adds a business to it. The block's layout is input.css's, scoped from the docket's heading id.
 func holdingEntry(h HoldingView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -286,7 +301,7 @@ func holdingEntry(h HoldingView) templ.Component {
 			templ_7745c5c3_Var10 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<li class=\"flex flex-col gap-2\"><p class=\"font-display text-lg font-bold tracking-tight\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<li><p class=\"font-display text-[21px] font-bold leading-[1.2] tracking-[-0.02em]\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -303,7 +318,7 @@ func holdingEntry(h HoldingView) templ.Component {
 			var templ_7745c5c3_Var11 string
 			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(h.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 98, Col: 17}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 113, Col: 17}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 			if templ_7745c5c3_Err != nil {
@@ -314,14 +329,14 @@ func holdingEntry(h HoldingView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</p><p class=\"text-sm\">Created <span class=\"font-mono\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</p><p class=\"font-display text-[13px] leading-normal text-ink/70\">Created <span class=\"font-mono font-bold text-ink\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var12 string
 		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(h.CreatedAt)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 101, Col: 66}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 116, Col: 129}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 		if templ_7745c5c3_Err != nil {
@@ -334,7 +349,7 @@ func holdingEntry(h HoldingView) templ.Component {
 		var templ_7745c5c3_Var13 string
 		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(h.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 102, Col: 49}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 117, Col: 49}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
@@ -345,13 +360,13 @@ func holdingEntry(h HoldingView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if h.ContinuedFromBefore {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<p class=\"text-sm\">Its first memberships are on the page before.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<p class=\"font-display text-sm leading-normal\">Its first memberships are on the page before.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
 		if len(h.Members) == 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<p class=\"text-sm\">No business has been in this holding.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<p class=\"font-display text-sm leading-normal\">No business has been in this holding.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -372,7 +387,7 @@ func holdingEntry(h HoldingView) templ.Component {
 			}
 		}
 		if h.ContinuesAfter {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<p class=\"text-sm\">More of its memberships are on the next page.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<p class=\"font-display text-sm leading-normal\">More of its memberships are on the next page.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -386,33 +401,33 @@ func holdingEntry(h HoldingView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "\" class=\"flex flex-col gap-2\"><label for=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "\" class=\"flex flex-wrap gap-x-2.5 gap-y-1.5 rounded-xl border border-dashed border-line bg-ink/[.03] p-3.5 md:px-4\"><label for=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var15 string
 		templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs("holding-add-" + h.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 119, Col: 37}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 134, Col: 37}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "\" class=\"docket-label\">Add a business</label> <input id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "\" class=\"op-label basis-full\">Add a business</label> <input id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs("holding-add-" + h.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 120, Col: 36}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 135, Col: 36}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "\" type=\"text\" name=\"tenant_id\" maxlength=\"64\" required autocomplete=\"off\" spellcheck=\"false\" class=\"op-input\"><p class=\"text-xs text-ink/70\">The business's id, from its overview. It must work in the timezone of every member.</p><button type=\"submit\" class=\"btn btn--primary\">Add</button></form></li>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "\" type=\"text\" name=\"tenant_id\" maxlength=\"64\" required autocomplete=\"off\" spellcheck=\"false\" class=\"op-input min-w-0 max-w-[440px] flex-[1_1_240px]\"><p class=\"order-last basis-full font-display text-xs text-ink/70\">The business's id, from its overview. It must work in the timezone of every member.</p><button type=\"submit\" class=\"btn btn--primary max-md:basis-full\">Add</button></form></li>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -422,7 +437,9 @@ func holdingEntry(h HoldingView) templ.Component {
 
 // holdingMember is one membership on the docket: the business (its overview a link), a chip saying
 // whether the membership is live or ended, the timezone and API code, the times, the business's
-// id and -- live only -- its Remove button.
+// id and -- live only -- its Remove button. The name and the chip, the timezone and the API code,
+// and the times are each a block of their own, in the code's order; where each block, the id and
+// the button stand is input.css's, scoped from the docket's heading id.
 func holdingMember(m HoldingMemberView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -444,7 +461,7 @@ func holdingMember(m HoldingMemberView) templ.Component {
 			templ_7745c5c3_Var17 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<li class=\"op-row\"><a href=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<li class=\"op-row\"><div class=\"flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[15px] leading-snug\"><a href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -465,7 +482,7 @@ func holdingMember(m HoldingMemberView) templ.Component {
 			var templ_7745c5c3_Var19 string
 			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(unnamedTenant)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 134, Col: 40}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 152, Col: 41}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 			if templ_7745c5c3_Err != nil {
@@ -483,7 +500,7 @@ func holdingMember(m HoldingMemberView) templ.Component {
 			var templ_7745c5c3_Var20 string
 			templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(m.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 136, Col: 17}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 154, Col: 18}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 			if templ_7745c5c3_Err != nil {
@@ -499,24 +516,24 @@ func holdingMember(m HoldingMemberView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if m.Live {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "<span class=\"tally tally--active\">Live</span> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "<span class=\"tally tally--active\">Live</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "<span class=\"tally tally--deactivated\">Ended</span> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "<span class=\"tally tally--deactivated\">Ended</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "<span class=\"text-sm\">Timezone <span class=\"font-mono\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "</div><div class=\"flex flex-col gap-px\"><span class=\"font-display text-[13px] leading-normal text-ink/70\">Timezone <span class=\"font-mono\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var21 string
 		templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(m.Timezone)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 144, Col: 69}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 164, Col: 114}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 		if templ_7745c5c3_Err != nil {
@@ -527,37 +544,37 @@ func holdingMember(m HoldingMemberView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if m.APICode == "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "<span class=\"text-sm\">No API code</span> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "<span class=\"font-display text-[13px] leading-normal text-ink/70\">No API code</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "<span class=\"text-sm\">API code <span class=\"font-mono\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "<span class=\"font-display text-[13px] leading-normal text-ink/70\">API code <span class=\"font-mono\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var22 string
 			templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(m.APICode)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 148, Col: 69}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 168, Col: 114}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "</span></span> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "</span></span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "<span class=\"text-sm\">Joined <span class=\"font-mono\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "</div><div class=\"flex flex-col gap-px\"><span class=\"font-display text-[13px] leading-normal text-ink/70\">Joined <span class=\"font-mono\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var23 string
 		templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(m.JoinedAt)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 150, Col: 67}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 172, Col: 112}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 		if templ_7745c5c3_Err != nil {
@@ -568,32 +585,32 @@ func holdingMember(m HoldingMemberView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if !m.Live {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "<span class=\"text-sm\">Left <span class=\"font-mono\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "<span class=\"font-display text-[13px] leading-normal text-ink/70\">Left <span class=\"font-mono\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var24 string
 			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(m.LeftAt)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 152, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 174, Col: 109}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "</span></span> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "</span></span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<span class=\"w-full break-all text-xs text-ink/70\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "</div><span class=\"break-all text-xs text-ink/70\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var25 string
 		templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(m.TenantID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 154, Col: 65}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/holdings.templ`, Line: 177, Col: 58}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 		if templ_7745c5c3_Err != nil {
@@ -627,7 +644,8 @@ func holdingMember(m HoldingMemberView) templ.Component {
 }
 
 // holdingPager is the way to the page before and after this one -- links, each a page number in
-// the URL (a page number is not personal data, unlike the tenant search's term).
+// the URL (a page number is not personal data, unlike the tenant search's term), drawn as the
+// outlined pager buttons; on the phone each grows from nothing, half the row each where both fit.
 func holdingPager(v HoldingsView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -650,7 +668,7 @@ func holdingPager(v HoldingsView) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if v.Page > 1 || v.HasNext {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "<nav class=\"flex flex-wrap items-center gap-x-6\" aria-label=\"Pages of the list\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "<nav class=\"flex flex-wrap gap-2.5 md:gap-3 max-md:*:flex-1\" aria-label=\"Pages of the list\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -664,7 +682,7 @@ func holdingPager(v HoldingsView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "\" class=\"op-link\">Previous page</a> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "\" class=\"op-pager\">Previous page</a> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -679,7 +697,7 @@ func holdingPager(v HoldingsView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "\" class=\"op-link\">Next page</a>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "\" class=\"op-pager\">Next page</a>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

@@ -808,13 +808,13 @@ Signed-in shell, current = Holdings; no banner. Title `Holdings`.
 | label · h1 | Holdings · Holdings |
 | intro | A holding groups businesses that work in one timezone; while a business is in one, and for 60 seconds after it leaves, its owner cannot change its timezone. Only this screen changes who is in a holding. |
 | link | Back to the console |
-| create card | **Create a holding** (today `<h2 id="holding-create" class="docket-label">`, `holdings.templ:40`; drawn as a **19 px display heading** → `.op-heading`, id kept — no test pins the class); label **Name**; help: One line of at most 120 characters. The new holding has no business in it yet.; button **Create** |
+| create card | **Create a holding** (`<h2 id="holding-create" class="op-heading">` since M13-13, the 19 px display heading; before it `class="docket-label"`; id kept); the field and Create share a line from the tablet, the help under them — the document keeps the code's order, label · field · help · button (the help takes `order-last`); label **Name**; help: One line of at most 120 characters. The new holding has no business in it yet.; button **Create** |
 | docket heading | Newest first · page `N` |
 | empty | This page is empty: the list ended on the page before. · There are no holdings yet. |
 | holding entry | name (display lg; italic **Unnamed holding**) · Created `<UTC>` · id (xs) · [Its first memberships are on the page before.] · members or "No business has been in this holding." · [More of its memberships are on the next page.] · add form |
 | add form | label **Add a business**; help: The business's id, from its overview. It must work in the timezone of every member.; button **Add** |
-| member row `op-row` | name link → overview (italic Unnamed tenant) · chip `<span class="tally tally--active">Live</span>` / `<span class="tally tally--deactivated">Ended</span>` · Timezone `<mono>` · No API code / API code `<mono>` · Joined `<UTC>` · [Left `<UTC>`] · tenant id (xs) · live only: **Remove** (`btn--quiet`). The polished boards draw the tenant id **under the name**: visual order only (CSS `order`, README §6.1 "Holdings"); the DOM keeps the code's order (`holdings.templ:131-160`) — no test pins it. |
-| pager | **links** `?page=N` Previous page / Next page (`holdings.templ:165-176`), drawn as outlined buttons → `<a … class="op-pager">` in M13-13 (no test pins the link's class; the `href` pins stay, `op8_test.go:917-918`, `holdings_test.go:741, 757`) |
+| member row `op-row` | name link → overview (italic Unnamed tenant) · chip `<span class="tally tally--active">Live</span>` / `<span class="tally tally--deactivated">Ended</span>` · Timezone `<mono>` · No API code / API code `<mono>` · Joined `<UTC>` · [Left `<UTC>`] · tenant id (xs) · live only: **Remove** (`btn--quiet`). The polished boards draw the tenant id **under the name**: visual placement only (since M13-13 grid lines from scoped rules, README §6.1 "Holdings"); the DOM keeps the code's order — name, chip, Timezone, API code, Joined, [Left], id, [Remove], the first six in three order-preserving `<div>`s — pinned by `TestHoldingsScreen_IsTheCreateCardAndTheDocket`. |
+| pager | **links** `?page=N` Previous page / Next page, `<a … class="op-pager">` since M13-13 (before it `class="op-link"`); on the phone the two share the row, each half of it; the `href` pins stay (`op8_test.go:1329-1330`, `holdings_test.go:741, 757`) |
 
 Notices (`holdingNotice` `:70-88`, words `holdings.go:443-460`; from the 303's `?done=` checked
 against the page's own read):
@@ -852,7 +852,10 @@ per-holding page.
 `TestHoldings_PagesForwardOnlyAfterAFullPage`, `TestHoldings_TheNameIsCheckedAtTheBoundary`,
 `TestHoldings_IDsAreCheckedAtTheBoundary`, `TestHoldingsScreen_EscapesWhatOperatorsAndBusinessesNamed`,
 `TestHoldingsBudget_AViewIsOneReadAndAWriteIsNone`; chip markup `holdings_test.go:~689, ~987`;
-pager links `holdings_test.go:741-757`.
+pager links `holdings_test.go:741-757`; the redesign (M13-13): `TestHoldingsScreen_IsTheCreateCardAndTheDocket`
+(the whole column, tags and words, every membership and both forms' attribute sets),
+`TestHoldingsDocket_TheScopedRulesKeepTheBoardsGrid` (the docket's scoped rules — README §6.1 "Holdings"),
+`TestHoldingsScreen_TheTextClearsAA`.
 
 ---
 
