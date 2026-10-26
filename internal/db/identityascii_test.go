@@ -117,10 +117,10 @@ func identityAddressRule(t *testing.T, ctx context.Context, q pgx.Tx) string {
 func identityAddressCorpus() []string {
 	named := []string{
 		// The finding and its relatives.
-		"ceo@corİp.com", "Kate@example.mt", "ceo@corip.com", "kate@example.mt",
-		"josé@example.mt", "maria@exаmple.mt", "a@b c.mt", "a@b.c​",
+		"ceo@cor\u0130p.com", "\u212aate@example.mt", "ceo@corip.com", "kate@example.mt",
+		"jos\u00e9@example.mt", "maria@ex\u0430mple.mt", "a@b\u00a0c.mt", "a@b.c\u200b",
 		// Punycode is ASCII and passes; its Unicode form does not.
-		"ceo@xn--corp-ifa.com", "ceo@xn--80ak6aa92e.com", "ceo@пример.com",
+		"ceo@xn--corp-ifa.com", "ceo@xn--80ak6aa92e.com", "ceo@\u043f\u0440\u0438\u043c\u0435\u0440.com",
 		// Spaces and controls, inside and around.
 		" a@b.c", "a@b.c ", "a @b.c", "a@ b.c", "a\t@b.c", "a@b.c\n", "a\r\n@b.c", "a\x7f@b.c", "a\x01@b.c", "\x1fa@b.c",
 		// Shape.
@@ -141,7 +141,7 @@ func identityAddressCorpus() []string {
 	r := rand.New(rand.NewPCG(76, 8))
 	pick := func(xs []string) string { return xs[r.IntN(len(xs))] }
 	atomBits := []string{"a", "Z", "9", "-", "_", "+", "'", "=", "?", "~", "{", "}", "|", "/", "^", "`", "!", "#", "$", "%", "&", "*"}
-	noise := []string{".", "..", "@", "\"", "(", ")", "[", "]", ":", ";", ",", "<", ">", "\\", " ", "\t", "İ", "K", "é", "=?"}
+	noise := []string{".", "..", "@", "\"", "(", ")", "[", "]", ":", ";", ",", "<", ">", "\\", " ", "\t", "\u0130", "\u212a", "\u00e9", "=?"}
 	atom := func() string {
 		var b strings.Builder
 		for n := 1 + r.IntN(4); n > 0; n-- {
@@ -354,9 +354,9 @@ func TestIdentityCreateForSignup_ANonASCIIAddressBirthsNothing(t *testing.T) {
 		w.email = email
 		aiExec(t, ctx, tx, `UPDATE admin_users SET email = $2 WHERE id = $1`, w.admin, email)
 	}
-	set(&squatI, "ceo-"+tag+"@corİp-a.example")
-	set(&squatK, "Kate-"+tag+"@corp-b.example")
-	set(&attacker, "ceo-"+tag+"@corİp-c.example")
+	set(&squatI, "ceo-"+tag+"@cor\u0130p-a.example")
+	set(&squatK, "\u212aate-"+tag+"@corp-b.example")
+	set(&attacker, "ceo-"+tag+"@cor\u0130p-c.example")
 	set(&victim, "ceo-"+tag+"@corip-c.example")
 	set(&caseVariant, "kate-"+tag+"@corp-d.example")
 	set(&casePeer, "KATE-"+strings.ToUpper(tag)+"@CORP-D.EXAMPLE")

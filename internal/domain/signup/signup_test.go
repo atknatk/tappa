@@ -205,10 +205,10 @@ func TestValidateAccount_RefusesAnAddressMailCannotReach(t *testing.T) {
 		name, email string
 		nonASCII    bool
 	}{
-		{"U+0130 in the domain (folds onto 'i')", "ceo@corİp.com", true},
-		{"U+212A KELVIN SIGN in the local part (folds onto 'k')", "Kate@example.mt", true},
-		{"an accented local part", "josé@example.mt", true},
-		{"a Cyrillic 'a' in the domain", "maria@exаmple.mt", true},
+		{"U+0130 in the domain (folds onto 'i')", "ceo@cor\u0130p.com", true},
+		{"U+212A KELVIN SIGN in the local part (folds onto 'k')", "\u212aate@example.mt", true},
+		{"an accented local part", "jos\u00e9@example.mt", true},
+		{"a Cyrillic 'a' in the domain", "maria@ex\u0430mple.mt", true},
 		{"a quoted local part", `"maria"@example.mt`, false},
 		{"a leading dot", ".maria@example.mt", false},
 		{"two dots in a row", "maria..borg@example.mt", false},
