@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/atknatk/tappa/internal/httpx"
@@ -81,15 +82,48 @@ func (a *AdminAuth) formBound(r *http.Request) bool {
 	if !id.Live() {
 		return false
 	}
-	got := r.URL.Query()[components.FormBindingParam]
-	if len(got) != 1 {
+	got, ok := rawBinding(r.URL.RawQuery, components.FormBindingParam)
+	if !ok {
 		return false
 	}
 	tok, err := a.cookies.Read(r)
 	if err != nil {
 		return false
 	}
-	return a.forms.Matches(tok, id.TenantID(), got[0])
+	return a.forms.Matches(tok, id.TenantID(), got)
+}
+
+// rawBinding is the one value the RAW query carries under the literal key name.
+//
+// 🔴 IT READS THE RAW QUERY, NOT r.URL.Query(), AND REFUSES AN ENCODED SPELLING OF THE
+// KEY (M14-10a audit). Query() unescapes keys, so ?t%62=… and ?%74b=… arrive there as
+// "tb"; a gate that accepted them while the strip compared raw keys passed the binding
+// on in RawQuery and RequestURI -- measured, 204. Here a pair whose key DECODES to name
+// counts only when it is spelled name literally; any other spelling, or a second pair,
+// is "not bound". The strip (dropQueryParam) removes every pair whose key decodes to
+// name, so what passes this check leaves nothing behind.
+func rawBinding(raw, name string) (string, bool) {
+	value, n := "", 0
+	for _, pair := range strings.Split(raw, "&") {
+		key, val, _ := strings.Cut(pair, "=")
+		if !queryKeyIs(key, name) {
+			continue
+		}
+		if key != name {
+			return "", false
+		}
+		value, n = val, n+1
+	}
+	return value, n == 1
+}
+
+// queryKeyIs reports whether a raw query key is name, spelled literally or encoded.
+func queryKeyIs(key, name string) bool {
+	if key == name {
+		return true
+	}
+	decoded, err := url.QueryUnescape(key)
+	return err == nil && decoded == name
 }
 
 // withoutFormBinding is r with the binding removed from its URL, so nothing downstream
@@ -105,8 +139,9 @@ func withoutFormBinding(r *http.Request) *http.Request {
 	return out
 }
 
-// dropQueryParam removes every name=… pair from a raw query, keeping the others and
-// their order byte for byte.
+// dropQueryParam removes every pair whose key is name -- literally or once decoded, the
+// way r.URL.Query() reads it -- from a raw query, keeping the others and their order
+// byte for byte.
 func dropQueryParam(raw, name string) string {
 	if raw == "" {
 		return raw
@@ -114,7 +149,7 @@ func dropQueryParam(raw, name string) string {
 	kept := make([]string, 0, 2)
 	for _, pair := range strings.Split(raw, "&") {
 		key, _, _ := strings.Cut(pair, "=")
-		if key == name {
+		if queryKeyIs(key, name) {
 			continue
 		}
 		kept = append(kept, pair)

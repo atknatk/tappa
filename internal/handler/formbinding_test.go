@@ -458,6 +458,20 @@ func TestFormBinding_TheHandlerSeesNoBindingAndNoNewTenant(t *testing.T) {
 		if seen.ctxBound != "/x" {
 			t.Errorf("%s: the gate put a binding on the handler's context (%q)", route, seen.ctxBound)
 		}
+		// An encoded spelling of the key (the audit's case): url.Query() decodes it to
+		// "tb", so it must be refused rather than passed on with the binding left in
+		// RawQuery and RequestURI; and alongside a literal one it is a second binding.
+		for _, q := range []string{"t%62=" + tb, "%74b=" + tb, "%74%62=" + tb, "tb=" + tb + "&t%62=" + tb} {
+			seen.calls = 0
+			rec = panelPost(h, route+"?keep=1&"+q, formBindingCookie, strings.NewReader("x=1"))
+			if rec.Code != http.StatusConflict || seen.calls != 0 {
+				t.Errorf("%s?%s: %d, %d call(s); want 409 and none -- an encoded key is not the binding", route, q, rec.Code, seen.calls)
+			}
+		}
+		// The strip removes every spelling that decodes to the key.
+		if got := dropQueryParam("a=1&t%62=x&%74b=y&tb=z&b=2", "tb"); got != "a=1&b=2" {
+			t.Errorf("dropQueryParam left %q, want a=1&b=2", got)
+		}
 		// The body is not a channel for the binding.
 		seen.calls = 0
 		rec = panelPost(h, route, formBindingCookie, strings.NewReader("tb="+tb))
