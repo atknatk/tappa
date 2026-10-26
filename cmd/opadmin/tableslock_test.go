@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -52,19 +53,40 @@ var tablesLockReentrant = map[string][]string{
 	"../../internal/adminauth": {"holdTablesLock"},
 }
 
-// tablesLockRowHolders are, per directory, the functions whose call HOLDS the lock from that call
-// until the test ends: the re-entrant holder and what holds through it for the whole test. A helper
-// that holds it only around its own insert and releases it (internal/adminauth's newAdminRow) is NOT
-// one -- a test that called it holds nothing afterwards (M14 test-infra card, the audit's finding:
-// TestNoticeRecipient_IsTheAddressOnTheRowAndNothingElse committed a raw admin row after newAdminRow
-// had released). TestTablesLock_AdminRowsAreWrittenUnderTheHolder reads it.
+// tablesLockRowHolders are, per directory, the re-entrant holders whose call HOLDS the lock from that
+// call until the test ends -- or until the release it returns is called. What else holds is DERIVED
+// (rowHoldersOf): a function that calls a holder at its own top level and never releases holds through
+// it for the whole test (internal/handler's panel harnesses through newPanelHarnessWith, internal/adminauth's
+// ownerConn). A helper that holds it only around its own write and releases it (internal/adminauth's
+// newAdminRow) is NOT one -- a test that called it holds nothing afterwards (M14 test-infra card, the
+// audit's finding: TestNoticeRecipient_IsTheAddressOnTheRowAndNothingElse committed a raw admin row after
+// newAdminRow had released). TestTablesLock_AdminRowsAreWrittenUnderTheHolder reads it. internal/handler
+// since the second test-infra card: its panel harnesses commit admin rows, and so did six fixtures
+// that held nothing.
 var tablesLockRowHolders = map[string][]string{
-	"../../internal/adminauth": {"holdTablesLock", "ownerConn"},
+	"../../internal/adminauth": {"holdTablesLock"},
+	"../../internal/handler":   {"holdPanelTablesLock"},
 }
 
-// tablesLockRowTables are the tables a raw INSERT of which commits what internal/db's EXCLUSIVE
-// backfill tests read whole (bfTx): a row of one written past the holder is the M14-09 deadlock.
+// tablesLockRowTables are the tables a raw write of which (INSERT, UPDATE, DELETE) changes what
+// internal/db's EXCLUSIVE backfill tests read whole (bfTx, READ COMMITTED: each statement sees what
+// committed before it): a row of one written past the holder is the M14-09 deadlock -- or a closing
+// assertion that counts another package's row.
 var tablesLockRowTables = []string{"admin_users"}
+
+// tablesLockRowExempt are, per directory, the functions that write a row of tablesLockRowTables without
+// the holder, each with the reason. CLOSED and checked: an entry names a function of the directory
+// that does write one AND sends a transaction-scoped lock statement itself (a pg_advisory_xact_lock
+// literal) -- the one shape exempted: every write on one owner transaction that holds the lock for
+// itself and is rolled back, so nothing is ever committed for bfTx to see. Calling the re-entrant holder
+// there instead would be the deadlock TestTablesLock_IsTakenOncePerTestTree is about (a second request
+// on a second connection while the first is held).
+var tablesLockRowExempt = map[string]map[string]string{
+	"../../internal/handler": {
+		"TestIdentityAudit_TheDefinersRowsAreTheOrdinaryOnes":           "one owner transaction under pg_advisory_xact_lock_shared, rolled back: nothing is committed",
+		"TestIdentityResetAudit_ALinkedRowsRecoveryRowIsTheHandlersRow": "one owner transaction per subtest under pg_advisory_xact_lock_shared, rolled back: nothing is committed",
+	},
+}
 
 // lockSite is one place a function asks for the lock: the statement itself (via ""),
 // or a call to a function that reaches it.
@@ -355,36 +377,183 @@ func bypass(t *testing.T) { harness(t); lock(t) }
 	}
 }
 
-// rowInsertsIn: the string literals in body that INSERT INTO one of tables
-// (case and white space ignored).
-func rowInsertsIn(body *ast.BlockStmt, tables []string) []token.Pos {
-	var at []token.Pos
-	ast.Inspect(body, func(n ast.Node) bool {
-		lit, ok := n.(*ast.BasicLit)
-		if !ok || lit.Kind != token.STRING {
+// writesRow: lit is a string literal that writes a row of one of tables -- INSERT INTO, UPDATE,
+// DELETE FROM (case and white space ignored; a table name that ends the literal counts, so a statement
+// built by concatenation is still seen).
+func writesRow(lit *ast.BasicLit, tables []string) bool {
+	if lit.Kind != token.STRING {
+		return false
+	}
+	s, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		s = lit.Value
+	}
+	norm := strings.ToLower(strings.Join(strings.Fields(s), " ")) + " "
+	for _, tbl := range tables {
+		if strings.Contains(norm, "insert into "+tbl+" ") || strings.Contains(norm, "insert into "+tbl+"(") ||
+			strings.Contains(norm, "update "+tbl+" ") || strings.Contains(norm, "delete from "+tbl+" ") {
 			return true
 		}
-		norm := strings.ToLower(strings.Join(strings.Fields(lit.Value), " "))
-		for _, tbl := range tables {
-			if strings.Contains(norm, "insert into "+tbl+" ") || strings.Contains(norm, "insert into "+tbl+"(") {
-				at = append(at, lit.Pos())
-				break
-			}
+	}
+	return false
+}
+
+// rowWritesIn: the string literals in body that write a row of one of tables (writesRow).
+func rowWritesIn(body *ast.BlockStmt, tables []string) []token.Pos {
+	var at []token.Pos
+	ast.Inspect(body, func(n ast.Node) bool {
+		if lit, ok := n.(*ast.BasicLit); ok && writesRow(lit, tables) {
+			at = append(at, lit.Pos())
 		}
 		return true
 	})
 	return at
 }
 
-// tablesLockRowOutsiders: every function of one package that writes a row of tables (a raw INSERT
-// literal) at a point not covered by a holder. A point of a function is covered when the function
-// called a holder BEFORE it (by source position), or -- for a helper -- when it has callers and every
-// call to it is itself at a covered point of its caller (methods matched by name alone).
-func tablesLockRowOutsiders(fset *token.FileSet, files []*ast.File, holders, tables []string) []string {
-	type call struct {
-		caller string
-		at     token.Pos
+// rowPoint is a place in a function body: a holder call (pos..end), a release, a call site or a
+// write, with the constructs around it that decide whether it runs (rowScopes).
+type rowPoint struct {
+	pos, end token.Pos
+	scopes   []ast.Node
+	deferred bool
+}
+
+// rowScopes: the nodes of stack that bound where a point runs -- the blocks and clauses it is in, and a
+// func literal, go or defer statement around it. stack[0] is the function body.
+func rowScopes(stack []ast.Node) []ast.Node {
+	var out []ast.Node
+	for _, n := range stack {
+		switch n.(type) {
+		case *ast.BlockStmt, *ast.CaseClause, *ast.CommClause, *ast.FuncLit, *ast.GoStmt, *ast.DeferStmt:
+			out = append(out, n)
+		}
 	}
+	return out
+}
+
+// dominates: hold has run, on every path, by the time at runs -- it ends before at starts and every
+// scope it is in also encloses at (a hold in a branch or a loop body covers only that branch or body).
+func (hold rowPoint) dominates(at rowPoint) bool {
+	if hold.end > at.pos {
+		return false
+	}
+	for _, s := range hold.scopes {
+		if !slices.Contains(at.scopes, s) {
+			return false
+		}
+	}
+	return true
+}
+
+// rowFunc is what the row scan reads of one function.
+type rowFunc struct {
+	holds, releases, returns, writes []rowPoint
+	calls                            map[string][]rowPoint // callee -> its call sites (at the call's ")")
+	top                              *ast.BlockStmt
+}
+
+// readRowFunc reads fd against holders. A release is a call to a value a holder call was assigned to,
+// or to a field or method named releaseTablesLock (the panel harness keeps its holder's release there).
+func readRowFunc(fd *ast.FuncDecl, holders map[string]bool, tables []string) *rowFunc {
+	rf := &rowFunc{calls: map[string][]rowPoint{}, top: fd.Body}
+	bound := map[string]bool{}
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		if a, ok := n.(*ast.AssignStmt); ok && len(a.Lhs) == len(a.Rhs) {
+			for i, r := range a.Rhs {
+				if c, ok := r.(*ast.CallExpr); ok && holders[calleeKey(c)] {
+					if id, ok := a.Lhs[i].(*ast.Ident); ok && id.Name != "_" {
+						bound[id.Name] = true
+					}
+				}
+			}
+		}
+		return true
+	})
+	var stack []ast.Node
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		if n == nil {
+			stack = stack[:len(stack)-1]
+			return true
+		}
+		point := func(pos, end token.Pos) rowPoint {
+			_, deferred := stack[len(stack)-1].(*ast.DeferStmt)
+			return rowPoint{pos: pos, end: end, scopes: rowScopes(stack), deferred: deferred}
+		}
+		switch x := n.(type) {
+		case *ast.BasicLit:
+			if writesRow(x, tables) {
+				rf.writes = append(rf.writes, point(x.Pos(), x.End()))
+			}
+		case *ast.ReturnStmt:
+			rf.returns = append(rf.returns, point(x.Pos(), x.End()))
+		case *ast.CallExpr:
+			k := calleeKey(x)
+			switch {
+			case holders[k]:
+				rf.holds = append(rf.holds, point(x.Pos(), x.End()))
+			case k == ".releaseTablesLock":
+				rf.releases = append(rf.releases, point(x.Pos(), x.End()))
+			default:
+				if id, ok := x.Fun.(*ast.Ident); ok && bound[id.Name] {
+					rf.releases = append(rf.releases, point(x.Pos(), x.End()))
+				}
+			}
+			if k != "" {
+				rf.calls[k] = append(rf.calls[k], point(x.Rparen, x.Rparen))
+			}
+		}
+		stack = append(stack, n)
+		return true
+	})
+	return rf
+}
+
+// holdsForTheTest: rf calls a holder at its own top level (in no branch, loop, func literal, go or
+// defer statement, and after no return), and releases nothing -- so once it has returned, its caller
+// holds the lock until the test ends.
+func (rf *rowFunc) holdsForTheTest() bool {
+	if len(rf.releases) > 0 {
+		return false
+	}
+	for _, h := range rf.holds {
+		if len(h.scopes) != 1 || h.scopes[0] != rf.top {
+			continue
+		}
+		early := false
+		for _, r := range rf.returns {
+			if r.end <= h.pos && !slices.ContainsFunc(r.scopes, func(s ast.Node) bool { _, ok := s.(*ast.FuncLit); return ok }) {
+				early = true
+			}
+		}
+		if !early {
+			return true
+		}
+	}
+	return false
+}
+
+// coveredAt: a holder call dominates at and no release (other than a deferred one) runs between them.
+func (rf *rowFunc) coveredAt(at rowPoint) bool {
+	for _, h := range rf.holds {
+		if !h.dominates(at) {
+			continue
+		}
+		released := false
+		for _, r := range rf.releases {
+			if !r.deferred && r.pos > h.end && r.pos < at.pos {
+				released = true
+			}
+		}
+		if !released {
+			return true
+		}
+	}
+	return false
+}
+
+// rowHoldersOf reads files' functions and derives, to a fixed point, which of them hold through
+// holders for the whole test (holdsForTheTest); it returns every function read against the full set.
+func rowHoldersOf(files []*ast.File, holders, tables []string) (map[string]*rowFunc, map[string]bool) {
 	decls := map[string]*ast.FuncDecl{}
 	for _, f := range files {
 		for _, d := range f.Decls {
@@ -393,28 +562,50 @@ func tablesLockRowOutsiders(fset *token.FileSet, files []*ast.File, holders, tab
 			}
 		}
 	}
-	held := map[string][]token.Pos{} // function -> positions of its calls to a holder
-	callers := map[string][]call{}   // callee -> its call sites
-	for k, fd := range decls {
-		ast.Inspect(fd.Body, func(n ast.Node) bool {
-			if c, ok := n.(*ast.CallExpr); ok {
-				ck := calleeKey(c)
-				if slices.Contains(holders, ck) {
-					held[k] = append(held[k], c.Pos())
-				}
-				if ck != "" && ck != k {
-					callers[ck] = append(callers[ck], call{k, c.Pos()})
-				}
-			}
-			return true
-		})
+	set := map[string]bool{}
+	for _, h := range holders {
+		set[h] = true
 	}
-	var covered func(fn string, at token.Pos, seen map[string]bool) bool
-	covered = func(fn string, at token.Pos, seen map[string]bool) bool {
-		for _, h := range held[fn] {
-			if h < at {
-				return true
+	for changed := true; changed; {
+		changed = false
+		for k, fd := range decls {
+			if !set[k] && readRowFunc(fd, set, tables).holdsForTheTest() {
+				set[k], changed = true, true
 			}
+		}
+	}
+	funcs := map[string]*rowFunc{}
+	for k, fd := range decls {
+		funcs[k] = readRowFunc(fd, set, tables)
+	}
+	return funcs, set
+}
+
+// tablesLockRowOutsiders: every function of one package that writes a row of tables (a raw INSERT,
+// UPDATE or DELETE literal) at a point not covered by a holder, except exempt's. A point of a function
+// is covered when a holder call -- one of holders or a function derived from them (rowHoldersOf) --
+// dominates it with no release in between, or, for a helper, when it has callers and every call to it
+// is itself at a covered point of its caller (methods matched by name alone).
+func tablesLockRowOutsiders(fset *token.FileSet, files []*ast.File, holders, tables []string, exempt map[string]string) []string {
+	funcs, _ := rowHoldersOf(files, holders, tables)
+	type call struct {
+		caller string
+		at     rowPoint
+	}
+	callers := map[string][]call{}
+	for k, rf := range funcs {
+		for callee, sites := range rf.calls {
+			if callee != k {
+				for _, s := range sites {
+					callers[callee] = append(callers[callee], call{k, s})
+				}
+			}
+		}
+	}
+	var covered func(fn string, at rowPoint, seen map[string]bool) bool
+	covered = func(fn string, at rowPoint, seen map[string]bool) bool {
+		if funcs[fn].coveredAt(at) {
+			return true
 		}
 		cs := callers[fn]
 		if len(cs) == 0 || seen[fn] || strings.HasPrefix(fn, "Test") {
@@ -430,18 +621,30 @@ func tablesLockRowOutsiders(fset *token.FileSet, files []*ast.File, holders, tab
 		return true
 	}
 	var bad []string
-	for k, fd := range decls {
-		if slices.Contains(holders, k) {
+	for k, rf := range funcs {
+		if slices.Contains(holders, k) || exempt[k] != "" {
 			continue
 		}
-		for _, at := range rowInsertsIn(fd.Body, tables) {
+		for _, at := range rf.writes {
 			if !covered(k, at, map[string]bool{}) {
-				bad = append(bad, fmt.Sprintf("%s writes %v (line %d) outside the holder %v", k, tables, fset.Position(at).Line, holders))
+				bad = append(bad, fmt.Sprintf("%s writes %v (line %d) outside the holder %v", k, tables, fset.Position(at.pos).Line, holders))
 			}
 		}
 	}
 	sort.Strings(bad)
 	return bad
+}
+
+// sendsXactLock: body sends a transaction-scoped advisory lock statement (tablesLockRowExempt's shape).
+func sendsXactLock(body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING && strings.Contains(lit.Value, "pg_advisory_xact_lock") {
+			found = true
+		}
+		return !found
+	})
+	return found
 }
 
 // TestTablesLock_AdminRowsAreWrittenUnderTheHolder -- the M14 test-infra card (an audit's finding).
@@ -453,18 +656,25 @@ func tablesLockRowOutsiders(fset *token.FileSet, files []*ast.File, holders, tab
 // (holdTablesLock says why). TestTablesLock_IsTakenOncePerTestTree could not see it: it checks who
 // ASKS for the lock, not who writes without it.
 //
-// PINNED HERE. In every directory of tablesLockRowHolders, a raw INSERT INTO one of
-// tablesLockRowTables in a _test.go function is at a covered point: the function called a holder
-// (the re-entrant holder, or what holds through it until the test ends) before it, or every call to
-// the helper is at a covered point of its caller. POSITIVE CONTROL first: the finding's shape (a
-// scoped helper, then a raw insert), a holder called AFTER the insert, a helper called from one
-// uncovered test among covered ones, and a test with no holder -- and none for the scoped helper's
-// own insert (it holds around it), a helper called only under the holder (also from a subtest), a
-// held test, or another table.
+// THE SECOND TEST-INFRA CARD widened it: internal/handler is read too (six fixtures there committed
+// admin rows holding nothing -- the tap-brand, logo-route, brand-editor, API-keys and peer-logo fixtures
+// and the activation-logo test; internal/adminauth had two status UPDATEs past newAdminRow), an UPDATE or DELETE is a write as well as an INSERT (bfTx is READ COMMITTED, and
+// an unlink committed mid-test turns a row into a candidate its closing assertion counts), a holder
+// that only might run (in a branch, or a loop body the write is after) covers nothing, and a release
+// ends the cover (p.releaseTablesLock(), release()).
 //
-// NO COMPLETENESS CLAIM (as PART III above): the scan is syntactic -- a holder released before the
-// insert, an INSERT built at run time or reached through a function value or another package, or a
-// directory outside tablesLockRowHolders is not seen; a method is matched by its name alone.
+// PINNED HERE. In every directory of tablesLockRowHolders, a raw write of a row of
+// tablesLockRowTables in a _test.go function is at a covered point: a holder call -- the re-entrant
+// holder, or a function derived from it that holds for the whole test -- dominates it with no release
+// in between, or every call to the helper is at a covered point of its caller; or the function is one
+// of tablesLockRowExempt's, which must exist, write one, and send its own transaction-scoped lock.
+// POSITIVE CONTROL first, below, each line with what the scan must say of it.
+//
+// NO COMPLETENESS CLAIM (as PART III above): the scan is syntactic -- a write built at run time or
+// reached through a function value, an interface or another package, a holder or a release reached
+// through a function value, or a directory outside tablesLockRowHolders is not seen; a method is
+// matched by its name alone, and a release by its field name (releaseTablesLock) or by the variable a
+// holder's result was assigned to.
 func TestTablesLock_AdminRowsAreWrittenUnderTheHolder(t *testing.T) {
 	const control = `package p
 func hold(t *testing.T) func() { lock(t); return nil }
@@ -482,42 +692,91 @@ func TestSharedHeld(t *testing.T) { hold(t); shared() }
 func TestSharedBare(t *testing.T) { shared() }
 func TestHeld(t *testing.T) { release := hold(t); exec("INSERT INTO admin_users (id) VALUES ($1)"); release() }
 func TestOtherTable(t *testing.T) { exec("INSERT INTO admin_sessions (id) VALUES ($1)"); exec("INSERT INTO admin_users_archive (id) VALUES ($1)") }
+func harness(t *testing.T) *h { return &h{c: whole(t)} }
+func TestHarness(t *testing.T) { p := harness(t); exec("UPDATE admin_users SET status = 'disabled' WHERE id = $1", p) }
+func TestReleased(t *testing.T) { p := harness(t); p.releaseTablesLock(); exec("DELETE FROM admin_users WHERE id = $1") }
+func TestReheld(t *testing.T) { p := harness(t); p.releaseTablesLock(); for range 2 { release := hold(t); exec("UPDATE admin_users SET x = 1"); release() } }
+func TestAfterTheLoop(t *testing.T) { for range 2 { hold(t) }; exec("UPDATE admin_users SET x = 1") }
+func TestBranch(t *testing.T) { if ok { hold(t) }; exec("UPDATE admin_users SET x = 1") }
+func maybe(t *testing.T) *h { if skip { return nil }; return &h{c: whole(t)} }
+func TestMaybe(t *testing.T) { maybe(t); exec("UPDATE admin_users SET x = 1") }
+func plant(c *pgx.Conn) { exec("INSERT INTO admin_users (id) VALUES ($1)") }
+func TestPlantHeld(t *testing.T) { plant(whole(t)) }
+func TestConcat(t *testing.T) { exec("INSERT INTO admin_users" + " (id) VALUES ($1)") }
+func TestExempt(t *testing.T) { exec("SELECT pg_advisory_xact_lock_shared(hashtext($1))", key); exec("INSERT INTO admin_users (id) VALUES ($1)") }
 `
 	cfset := token.NewFileSet()
 	cf, err := parser.ParseFile(cfset, "control.go", control, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := tablesLockRowOutsiders(cfset, []*ast.File{cf}, []string{"hold", "whole"}, tablesLockRowTables)
+	got := tablesLockRowOutsiders(cfset, []*ast.File{cf}, []string{"hold"}, tablesLockRowTables, map[string]string{"TestExempt": "control"})
 	want := []string{
-		"TestBare writes [admin_users] (line 8) outside the holder [hold whole]",
-		"TestFinding writes [admin_users] (line 5) outside the holder [hold whole]",
-		"TestLate writes [admin_users] (line 7) outside the holder [hold whole]",
-		"shared writes [admin_users] (line 12) outside the holder [hold whole]",
+		"TestAfterTheLoop writes [admin_users] (line 21) outside the holder [hold]", // the loop may not run
+		"TestBare writes [admin_users] (line 8) outside the holder [hold]",
+		"TestBranch writes [admin_users] (line 22) outside the holder [hold]", // the branch may not run
+		"TestConcat writes [admin_users] (line 27) outside the holder [hold]", // the table name ends a literal
+		"TestFinding writes [admin_users] (line 5) outside the holder [hold]", // scoped: holds nothing after
+		"TestLate writes [admin_users] (line 7) outside the holder [hold]",
+		"TestMaybe writes [admin_users] (line 24) outside the holder [hold]",    // maybe may return first
+		"TestReleased writes [admin_users] (line 19) outside the holder [hold]", // released before it
+		"shared writes [admin_users] (line 12) outside the holder [hold]",       // TestSharedBare
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("POSITIVE CONTROL FAILED: the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	// ... and the derivation: whole (top level, no release) and harness (through whole) hold for the
+	// test; scoped (it releases) and maybe (a return before) do not.
+	if _, set := rowHoldersOf([]*ast.File{cf}, []string{"hold"}, tablesLockRowTables); !set["whole"] || !set["harness"] || set["scoped"] || set["maybe"] {
+		t.Fatalf("POSITIVE CONTROL FAILED: derived holders %v", set)
 	}
 
 	fset := token.NewFileSet()
 	for dir, holders := range tablesLockRowHolders {
 		writers := 0
+		exempt := tablesLockRowExempt[dir]
+		seen := map[string]bool{}
+		var derived []string
 		for _, files := range parsePackages(t, fset, dir) {
-			for _, f := range tablesLockRowOutsiders(fset, files, holders, tablesLockRowTables) {
+			for _, f := range tablesLockRowOutsiders(fset, files, holders, tablesLockRowTables, exempt) {
 				t.Errorf("%s: %s", dir, f)
+			}
+			_, set := rowHoldersOf(files, holders, tablesLockRowTables)
+			for k := range set {
+				if !slices.Contains(holders, k) && !strings.HasPrefix(k, "Test") {
+					derived = append(derived, k)
+				}
 			}
 			for _, f := range files {
 				for _, d := range f.Decls {
-					if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
-						writers += len(rowInsertsIn(fd.Body, tablesLockRowTables))
+					fd, ok := d.(*ast.FuncDecl)
+					if !ok || fd.Body == nil {
+						continue
+					}
+					n := len(rowWritesIn(fd.Body, tablesLockRowTables))
+					writers += n
+					// The exemption is closed: it names a function here that writes and takes its own
+					// transaction-scoped lock -- not a stale name, and not a way round the holder.
+					if exempt[funcKey(fd)] != "" {
+						seen[funcKey(fd)] = true
+						if n == 0 || !sendsXactLock(fd.Body) {
+							t.Errorf("%s: %s is exempt, so it must write a row of %v (it writes %d) and send its own transaction-scoped lock (it sends one: %v)",
+								dir, funcKey(fd), tablesLockRowTables, n, sendsXactLock(fd.Body))
+						}
 					}
 				}
 			}
 		}
+		for fn := range exempt {
+			if !seen[fn] {
+				t.Errorf("%s: the exemption names %s, which is not a function there", dir, fn)
+			}
+		}
 		// Against going blind: the directory's writers are there to be checked.
 		if writers == 0 {
-			t.Errorf("%s: no raw INSERT INTO %v found -- the scan went blind or the directory moved", dir, tablesLockRowTables)
+			t.Errorf("%s: no raw write of %v found -- the scan went blind or the directory moved", dir, tablesLockRowTables)
 		}
-		t.Logf("%s: %d raw inserts of %v checked against %v", dir, writers, tablesLockRowTables, holders)
+		sort.Strings(derived)
+		t.Logf("%s: %d raw writes of %v checked against %v and the helpers that hold through them %v; exempt %v", dir, writers, tablesLockRowTables, holders, derived, exempt)
 	}
 }

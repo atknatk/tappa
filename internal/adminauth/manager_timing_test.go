@@ -1062,7 +1062,7 @@ func TestAuthenticate_PadsEveryExitToTheCap(t *testing.T) {
 		t.Fatalf("parsing manager.go: %v", err)
 	}
 	if bad := bcryptPastTheSeam(fset, f, "Authenticate", "pad"); len(bad) > 0 {
-		t.Errorf("bcrypt work outside m.compare in the sign-in path:\n%s", strings.Join(bad, "\n"))
+		t.Errorf("the sign-in path's bcrypt seam (bcrypt work outside m.compare, or a method the scan cannot find):\n%s", strings.Join(bad, "\n"))
 	}
 	// POSITIVE CONTROL: the same scan finds each shape in a source written here, and not the seam.
 	const control = `package p
@@ -1083,17 +1083,40 @@ func (m *Manager) compare() { Compare("d", "p") }
 	if !slices.Equal(got, want) {
 		t.Fatalf("POSITIVE CONTROL FAILED: the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
+	// ... and AGAINST GOING BLIND (the second test-infra card): a method the scan is told to read and
+	// cannot find -- renamed, or moved out of the file -- is a finding, not zero findings. Measured
+	// when written: Authenticate renamed in a copy of manager.go turned the check above red.
+	got = bcryptPastTheSeam(fset, cf, "Authenticate", "padded")
+	want = []string{
+		"Authenticate calls Compare (control.go:2)",
+		"Authenticate calls CompareDummy (control.go:2)",
+		"padded: no Manager method of that name in control.go -- the scan read nothing of it",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("POSITIVE CONTROL FAILED (a method not found): the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
 }
 
 // bcryptPastTheSeam lists the calls in the named Manager methods of f that do bcrypt work
-// without going through m.compare: Compare, CompareDummy, or anything of package bcrypt.
+// without going through m.compare: Compare, CompareDummy, or anything of package bcrypt -- and
+// every named method f does not declare (with a body), so a rename cannot leave the scan reading
+// nothing and reporting nothing.
 func bcryptPastTheSeam(fset *token.FileSet, f *ast.File, methods ...string) []string {
 	var bad []string
+	read := map[string]bool{}
 	for _, d := range f.Decls {
 		fd, ok := d.(*ast.FuncDecl)
-		if !ok || fd.Recv == nil || fd.Body == nil || !slices.Contains(methods, fd.Name.Name) {
+		if !ok || fd.Recv == nil || len(fd.Recv.List) != 1 || fd.Body == nil || !slices.Contains(methods, fd.Name.Name) {
 			continue
 		}
+		recv := fd.Recv.List[0].Type
+		if st, ok := recv.(*ast.StarExpr); ok {
+			recv = st.X
+		}
+		if id, ok := recv.(*ast.Ident); !ok || id.Name != "Manager" {
+			continue
+		}
+		read[fd.Name.Name] = true
 		ast.Inspect(fd.Body, func(n ast.Node) bool {
 			c, ok := n.(*ast.CallExpr)
 			if !ok {
@@ -1116,6 +1139,11 @@ func bcryptPastTheSeam(fset *token.FileSet, f *ast.File, methods ...string) []st
 			}
 			return true
 		})
+	}
+	for _, m := range methods {
+		if !read[m] {
+			bad = append(bad, fmt.Sprintf("%s: no Manager method of that name in %s -- the scan read nothing of it", m, fset.Position(f.Pos()).Filename))
+		}
 	}
 	sort.Strings(bad)
 	return bad
