@@ -35,13 +35,13 @@ const (
 	legalPublic     = `<p class="text-sm text-ink/70">The public pages are on the customer site, under <span class="font-mono">/legal</span>.</p>`
 	legalEditorOpen = `<section class="op-card flex flex-col gap-0 overflow-hidden p-0" aria-labelledby="legal-`
 	legalHead       = `<div class="flex flex-wrap items-center justify-between gap-x-5 gap-y-1.5 border-b border-line px-5 pt-[18px] pb-3.5 md:px-6 md:pt-5 md:pb-4">`
-	legalPath       = `" class="min-w-0 font-mono text-[17px] font-bold leading-[1.3] [overflow-wrap:anywhere] md:text-lg">`
+	legalPath       = `" class="min-w-0 font-mono text-[17px] font-bold leading-[1.3] [overflow-wrap:anywhere] md:text-[18px]">`
 	legalState      = `<p class="flex min-w-0 items-start gap-2 text-sm leading-[1.4] text-ink/75">`
 	legalDotLive    = `<span class="mt-1.5 size-2 flex-none rounded-full bg-tappa-green" aria-hidden="true"></span>`
 	legalDotNone    = `<span class="mt-1.5 size-2 flex-none rounded-full border-[1.5px] border-ink/45" aria-hidden="true"></span>`
 	legalWarnBand   = `<div class="px-5 pt-4 md:px-6">`
 	legalFormTag    = `<form method="post" action="/operator/legal" class="flex flex-col gap-3 px-5 pt-[18px] pb-[22px] md:px-6">`
-	legalFrame      = `<div class="overflow-hidden rounded-[10px] border border-line bg-paper focus-within:border-tappa-green focus-within:ring-1 focus-within:ring-tappa-green">`
+	legalFrame      = `<div class="overflow-hidden rounded-[10px] border border-line bg-paper focus-within:border-tappa-green focus-within:outline-none focus-within:ring-1 focus-within:ring-tappa-green">`
 	legalBar        = `<div class="flex min-h-9 items-center border-b border-line bg-ink/[0.04] px-4">`
 	legalTextarea   = `" name="body" rows="12" required class="op-input block resize-y rounded-none border-0 bg-transparent px-3.5 py-[18px] leading-[1.7] focus:ring-0 md:px-5 desk:px-[22px]">`
 	legalFoot       = `<div class="flex flex-wrap items-center justify-between gap-x-5 gap-y-3">`
@@ -252,7 +252,8 @@ func legalLongView() operatorpages.LegalView {
 // input, a role but the warning's, a chip but Live, the words of screens.md §12's Not shown.
 // CONTROLS, each read by the same function and each a finding: a word of the intro changed; the
 // intro given back its top margin; the h1 back to its earlier size; the editor given the card's
-// padding; the editor given a gap; the text's rows changed; its required dropped; its name
+// padding; the editor given a gap; the path back to text-lg (its 28 px line); the frame's
+// forced-colours outline dropped; the text's rows changed; its required dropped; its name
 // changed; a maxlength added; the hidden slug dropped; a word of the help changed; the warning
 // moved under the form; the dot's aria-hidden dropped; aria-hidden on the state's words; the
 // version list hidden; sr-only on a path; the button not the whole width on the phone; a preview
@@ -332,7 +333,9 @@ func TestLegalScreen_IsTheIntroCardTheEditorsAndTheDocket(t *testing.T) {
 		{"the dot's aria-hidden dropped", "legal, published", legalDotLive, `<span class="mt-1.5 size-2 flex-none rounded-full bg-tappa-green"></span>`},
 		{"aria-hidden on the state's words", "legal, published", `<span>Live since`, `<span aria-hidden="true">Live since`},
 		{"the version list hidden", "legal, published", `<ol><li class="op-version">`, `<ol hidden><li class="op-version">`},
-		{"sr-only on a path", "legal, published", `[overflow-wrap:anywhere] md:text-lg">`, `[overflow-wrap:anywhere] md:text-lg sr-only">`},
+		{"sr-only on a path", "legal, published", `[overflow-wrap:anywhere] md:text-[18px]">`, `[overflow-wrap:anywhere] md:text-[18px] sr-only">`},
+		{"the path back to text-lg's 28 px line", "legal, published", `[overflow-wrap:anywhere] md:text-[18px]">`, `[overflow-wrap:anywhere] md:text-lg">`},
+		{"the frame's forced-colours outline dropped", "legal, published", `focus-within:outline-none focus-within:ring-1`, `focus-within:ring-1`},
 		{"the button not the whole width on the phone", "legal, published", legalButton,
 			`<button type="submit" class="btn btn--primary">Publish a new version</button>`},
 		{"a preview button", "legal, published", `</div></form>`, `<a href="/operator/legal" class="op-link">Preview</a></div></form>`},

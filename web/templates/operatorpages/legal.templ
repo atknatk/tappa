@@ -63,11 +63,12 @@ templ Legal(v LegalView) {
 //
 // The card has no padding and no gap: its bands carry the inset. The status dot is
 // decoration for a sighted reader (aria-hidden); the sentence beside it says the state. The
-// focus ring is drawn on the text's frame, not on the text, whose box the frame clips.
+// focus ring is drawn on the text's frame, not on the text, whose box the frame clips; so is
+// the transparent outline a forced-colours display paints in its place.
 templ legalEditor(d LegalDoc) {
 	<section class="op-card flex flex-col gap-0 overflow-hidden p-0" aria-labelledby={ "legal-" + d.Slug }>
 		<div class="flex flex-wrap items-center justify-between gap-x-5 gap-y-1.5 border-b border-line px-5 pt-[18px] pb-3.5 md:px-6 md:pt-5 md:pb-4">
-			<h2 id={ "legal-" + d.Slug } class="min-w-0 font-mono text-[17px] font-bold leading-[1.3] [overflow-wrap:anywhere] md:text-lg">{ d.Path }</h2>
+			<h2 id={ "legal-" + d.Slug } class="min-w-0 font-mono text-[17px] font-bold leading-[1.3] [overflow-wrap:anywhere] md:text-[18px]">{ d.Path }</h2>
 			if d.Published {
 				<p class="flex min-w-0 items-start gap-2 text-sm leading-[1.4] text-ink/75"><span class="mt-1.5 size-2 flex-none rounded-full bg-tappa-green" aria-hidden="true"></span><span>Live since <span class="font-mono text-[13px] text-ink">{ d.PublishedAt }</span></span></p>
 			} else {
@@ -88,7 +89,7 @@ templ legalEditor(d LegalDoc) {
 		}
 		<form method="post" action="/operator/legal" class="flex flex-col gap-3 px-5 pt-[18px] pb-[22px] md:px-6">
 			<input type="hidden" name="slug" value={ d.Slug }/>
-			<div class="overflow-hidden rounded-[10px] border border-line bg-paper focus-within:border-tappa-green focus-within:ring-1 focus-within:ring-tappa-green">
+			<div class="overflow-hidden rounded-[10px] border border-line bg-paper focus-within:border-tappa-green focus-within:outline-none focus-within:ring-1 focus-within:ring-tappa-green">
 				<div class="flex min-h-9 items-center border-b border-line bg-ink/[0.04] px-4">
 					<label for={ "legal-body-" + d.Slug } class="docket-label">Text</label>
 				</div>
