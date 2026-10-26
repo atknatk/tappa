@@ -504,6 +504,13 @@ var storeSurface = map[string]string{
 	"DeleteSettledWebhookDeliveries": "(context.Context, DeleteSettledWebhookDeliveriesParams{TenantID uuid.UUID; RetentionDays int32; MaxRows int32}) (int64, error)",
 	// M11 API-10: an approval's site business (K-19's second tenant) -- an id, nothing of the record.
 	"GetReviewedPunchSite": "(context.Context, GetReviewedPunchSiteParams{TenantID uuid.UUID; ID uuid.UUID}) (*uuid.UUID, error)",
+	// M14-15 (00077): the owner's side of an administrator invitation. The token's HASH goes in (a
+	// 64-hex string, never the token) and is never handed back -- tappa_app cannot read token_hash; the
+	// list returns the address and the name the owner typed, to the owner's page alone.
+	"CancelOpenAdminInvitesForAddress": "(context.Context, CancelOpenAdminInvitesForAddressParams{TenantID uuid.UUID; Email string}) (int64, error)",
+	"InsertAdminInvite":                "(context.Context, InsertAdminInviteParams{Email string; FullName string; Role string; TokenHash string; ExpiresAt time.Time; TenantID uuid.UUID; InvitedBy uuid.UUID}) (InsertAdminInviteRow{ID uuid.UUID; CreatedAt time.Time; ExpiresAt time.Time}, error)",
+	"ListAdminInvites":                 "(context.Context, uuid.UUID) ([]ListAdminInvitesRow{ID uuid.UUID; Email string; FullName string; Role string; InvitedBy uuid.UUID; CreatedAt time.Time; ExpiresAt time.Time; UsedAt *time.Time; CancelledAt *time.Time}, error)",
+	"CancelAdminInvite":                "(context.Context, CancelAdminInviteParams{TenantID uuid.UUID; ID uuid.UUID}) (CancelAdminInviteRow{ID uuid.UUID; ExpiresAt time.Time}, error)",
 }
 
 // TestStoreSurface_IsTheOneRecorded is the inventory check.
@@ -1324,8 +1331,10 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// neither reads tags.
 	// 27 -> 28 (2026-10-22, M15-07): db/queries/daycutoff.sql adds daycutoff.sql.go -- the
 	// business-day settings screen's reads (six since the review round), in storeSurface; none carries bytes, none reads tags.
-	if len(out) != 28 {
-		t.Fatalf("parsed %d file(s) under %s; TWENTY-EIGHT were generated when this floor was last set "+
+	// 28 -> 29 (2026-10-26, M14-15): db/queries/admininvites.sql adds admininvites.sql.go -- the owner's
+	// side of an administrator invitation (four methods, in storeSurface); none carries bytes, none reads tags.
+	if len(out) != 29 {
+		t.Fatalf("parsed %d file(s) under %s; TWENTY-NINE were generated when this floor was last set "+
 			"(2026-10-22). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}

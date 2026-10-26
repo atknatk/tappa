@@ -103,8 +103,14 @@ func renderEach(t *testing.T, employeeName, tenantName string) []rendered {
 	if err != nil {
 		t.Fatalf("per-person notice: %v", err)
 	}
+	// M14-15: the manager invitation (the business named, VIES-verified).
+	adm := testBase + adminInvitePath + "?" + adminInviteParam + "=" + randomValue(t)
+	ma, err := RenderAdminInvitation(ctx, adm, AdminInvitationView{BaseURL: testBase, TenantName: tenantName, TenantVerified: true, ValidFor: 72 * time.Hour})
+	if err != nil {
+		t.Fatalf("manager invitation for tenant %q: %v", tenantName, err)
+	}
 	return []rendered{{"invitation", inv, mi}, {"reset", rst, mr}, {"password changed", sin, mp},
-		{"reset, every business", rsp, mrp}, {"password changed, every business", sin, mpp}}
+		{"reset, every business", rsp, mrp}, {"password changed, every business", sin, mpp}, {"manager invitation", adm, ma}}
 }
 
 // hostileNames are names an open signup lets an attacker choose. Each must be
@@ -1402,12 +1408,13 @@ func TestRender_TheTwoPartsSayTheSameWords(t *testing.T) {
 		"reset, every business":            resetLetter("1 hour", true),
 		"password changed":                 passwordChangedLetter(false),
 		"password changed, every business": passwordChangedLetter(true),
+		"manager invitation":               adminInvitationLetter("Kebab Factory Ltd.", true, "3 days"),
 	}
 	r := renderEach(t, "Maria Borg", "Kebab Factory Ltd.")
 	if len(r) != len(letters) {
 		t.Fatalf("renderEach renders %d message(s) and this test knows %d letter(s); a message is missing from one of them", len(r), len(letters))
 	}
-	for i, kind := range []string{"invitation", "reset", "password changed", "reset, every business", "password changed, every business"} {
+	for i, kind := range []string{"invitation", "reset", "password changed", "reset, every business", "password changed, every business", "manager invitation"} {
 		if r[i].kind != kind {
 			t.Fatalf("message %d is %q, want %q (renderEach's order)", i, r[i].kind, kind)
 		}
@@ -1629,5 +1636,47 @@ func TestReset_EveryBusinessIsThePersonsOneLink(t *testing.T) {
 	}
 	if byKind["reset, every business"].msg.Subject != subjectReset || byKind["password changed, every business"].msg.Subject != subjectPasswordChanged {
 		t.Error("a per-identity e-mail changed its fixed subject")
+	}
+}
+
+// TestRender_AcceptsTheAdminInvitationLinkAdminauthMints (M14-15): the link internal/adminauth builds
+// (IssuedInvite.Link over its InvitePath and InviteParam) is the one shape RenderAdminInvitation
+// accepts; another path or parameter is refused.
+func TestRender_AcceptsTheAdminInvitationLinkAdminauthMints(t *testing.T) {
+	if adminauth.InvitePath != adminInvitePath || adminauth.InviteParam != adminInviteParam {
+		t.Fatalf("internal/adminauth's invitation link is %s?%s=, this package checks %s?%s=",
+			adminauth.InvitePath, adminauth.InviteParam, adminInvitePath, adminInviteParam)
+	}
+	v := AdminInvitationView{BaseURL: testBase, ValidFor: 72 * time.Hour}
+	if _, err := RenderAdminInvitation(context.Background(), testBase+adminInvitePath+"?t="+randomValue(t), v); err != nil {
+		t.Fatalf("the minted shape was refused: %v", err)
+	}
+	for _, bad := range []string{testBase + resetPath + "?t=" + randomValue(t), testBase + adminInvitePath + "?code=" + randomValue(t),
+		"https://evil.example" + adminInvitePath + "?t=" + randomValue(t)} {
+		if _, err := RenderAdminInvitation(context.Background(), bad, v); !errors.Is(err, ErrLink) {
+			t.Errorf("%q: %v, want ErrLink", bad, err)
+		}
+	}
+}
+
+// TestAdminInvitation_NamesNoPersonAndTheBusinessOnlyWhenVerified (M14-15, ADR 0031 §5.14): unverified ->
+// the neutral "A business"; verified -> the name; and in both, no person is named and the words are the
+// same for an address with and without a sign-in (there is no field that could tell them apart).
+func TestAdminInvitation_NamesNoPersonAndTheBusinessOnlyWhenVerified(t *testing.T) {
+	link := testBase + adminInvitePath + "?t=" + randomValue(t)
+	for _, verified := range []bool{false, true} {
+		m, err := RenderAdminInvitation(context.Background(), link, AdminInvitationView{BaseURL: testBase, TenantName: "Kebab Factory", TenantVerified: verified, ValidFor: 72 * time.Hour})
+		if err != nil {
+			t.Fatal(err)
+		}
+		named := strings.Contains(m.Text, "Kebab Factory")
+		if named != verified || (!verified && !strings.Contains(m.Text, "A business has invited you")) {
+			t.Errorf("verified=%v: named=%v\n%s", verified, named, m.Text)
+		}
+		for _, both := range []string{"sign in first", "choose a password"} {
+			if !strings.Contains(m.Text, both) {
+				t.Errorf("verified=%v: the e-mail does not say %q -- it must serve both kinds of reader (R18)", verified, both)
+			}
+		}
 	}
 }

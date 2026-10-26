@@ -366,6 +366,46 @@ satırıdır (`deploy/README.md`, M14-14).
   yazımı, başka bir işletmenin aynı adresli satırını kilit beklerken commit eden bir oturumla
   pinlenir: bekleyen kayıt kimlik doğurmaz (`ON CONFLICT` burada yerine geçemez — çakışacak kimlik yok).
 
+**M14-15 uygulama notları (2026-10-26; kart dışı kararlar, denetime açık):**
+- İmzalar (`00077`): `resolve_admin_invite_by_token_hash(p_token_hash text)` → `TABLE (id, tenant_id, role,
+  expires_at, used_at, cancelled_at)` (argüman adı `resolve_identity_reset_by_token_hash`'inki gibi
+  `p_token_hash`; tablo ikisini de `p_hash` diye kısaltır); `identity_accept_invite(p_invite_hash text,
+  p_session_hash text)` ve `identity_accept_invite_new(p_invite_hash text, p_new_hash text)` → `TABLE
+  (admin_user_id uuid, tenant_id uuid)` (doğan ya da yeniden bağlanan üyelik ve işletmesi; red 0 satır).
+- `admin_invites`'in sütun özetine `full_name` eklendi (yeni üyelik satırının `NOT NULL` adı — owner'ın
+  yazdığı ad); `role` CHECK'le yalnız `manager` (sahiplik M14-16'nın iki adımlı devriyle döner, e-posta
+  linkiyle değil); adres başına tek açık davet (kısmi UNIQUE) — yeni davet açık olanı iptal eder.
+  Definer matrisi: `admin_invites` SELECT (token_hash dahil dokuz sütun) + UPDATE (`used_at`),
+  `admin_users` INSERT (matrisin sekiz sütunu). `tappa_app`: `token_hash` dışında SELECT, INSERT, yalnız
+  `UPDATE (cancelled_at)`, DELETE yok.
+- Reddedilmiş satırın yeniden bağlanması `linked_via='invite'`, **yeni** `linked_at`, `unlinked_at = NULL`,
+  digest kopyası ve `status='active'` yazar (§5.11'in contract sonrası `active`'i contract öncesinde de —
+  owner'ın taze daveti satırı geri ister); satırın `role`'ü korunur (definer'ın `UPDATE (role)` yetkisi
+  yok). İşletmede adresin reddedilmemiş başka bir satırı varsa kabul 0 satır ve davet açık kalır: yanıt
+  tıklayana (posta kutusunun sahibine) gider, owner yok sayılmış bir e-postanın gördüğünü görür (R18).
+  Yeni kimlik `email_verified_at = now()` ile doğar (INSERT sonra UPDATE — definer'a `INSERT
+  (email_verified_at)` verilmez, 00074'ün son koşulu); onay penceresi açmaz.
+- **ASCII adres kuralı** (kullanıcı kararı, 2026-10-26: *"saklanan adres gönderebileceğimiz bir adrestir"*;
+  citext 'İ' (U+0130) ve Kelvin 'K' (U+212A) harflerini ASCII'ye katlar): davet adresi kaydedilmeden önce
+  `mail.ValidRecipient`'ten geçer (form doğrulaması, her okumadan önce — R18'i bozmaz) ve
+  `admin_invites_email_ascii` CHECK'i yalnız yazdırılabilir ASCII'yi saklar; `identity_accept_invite_new`
+  ASCII olmayan bir adrese kimlik doğurmaz, `identity_accept_invite` iki adresten biri ASCII değilse
+  bağlamaz (fail-closed, `IS NOT TRUE`).
+- Kemer: `admin_invites` kendi küresel UNIQUE `token_hash`'iyle bir tenant ilişkisini çapalar
+  (`identityTokenKeyed`); `resolve_admin_invite_*` gövdeleri de kemerde.
+- Owner kapısı politika motorundandır: `tenant.RuleWriter.May` — `policy:edit`, saklı kural kitabı
+  (`sys:policy-edit-owner-only` owner olmayanı terminal reddeder). Yeni bir eylem kapalı sözlüğü (ADR 0004
+  §8) büyütür ve materyalize edilmiş baseline'da `deny sid=default` alırdı (M7-07'nin tuzağı;
+  `TestRuleWriterDB_TheManagerInvitationGateLetsAMaterialisedOwnerIn` ölçer). Bedel: kural kitabı hiç
+  kurulmamış (henüz dokunuş yok) işletmenin owner'ı da reddedilir, politikalar ekranındaki gibi.
+  İkinci kemer: davet INSERT'i davet edenin aktif owner satırından yazılır.
+- Gönderme `mountWriting`'in askı halkalı ana grubunda (ADR 0025'in kapalı listesi daveti adlandırmaz).
+  Davetlinin `POST /admin/invite`'ı yazma zincirinin dışındadır (giriş gibi: davetli işletmenin oturumunu
+  taşımaz) ve askı testinin istisna listesinde adıyla durur.
+- Davet ve kabul audit satırları: `admin.invite.sent` / `admin.invite.undelivered` (handler, gönderimin
+  sonucuyla, `invite_id`), `admin.invite.cancelled`, `admin.invite.accepted` (definer, `{outcome,
+  invite_id}`, iki fonksiyonda aynı biçim). Adres, ad, token yok.
+
 Her fonksiyon: `SECURITY DEFINER`, `SET search_path = pg_catalog, pg_temp`, şema-nitelikli gövde,
 dinamik SQL yok, sabit dönüş sütunları, `REVOKE ALL … FROM PUBLIC`, `EXECUTE` **yalnız**
 `tappa_app` — **tek istisna `identity_reconcile()`**: `EXECUTE` yalnız `tappa_owner`'da (katalog testinin

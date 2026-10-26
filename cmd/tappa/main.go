@@ -844,6 +844,15 @@ func run() error {
 			return err
 		}
 	}
+	// THE MANAGER INVITATION (M14-15, ADR 0031 §5.11): issued, listed and cancelled by the owner, accepted
+	// by the invitee through ADR 0031 §5.2's identity_accept_invite / _new. Built always; its routes are
+	// mounted only while TAPPA_ADMIN_IDENTITY is on, and its e-mail rides the invitation transport above
+	// (one per-mailbox cap, one breaker).
+	adminInvites, err := adminauth.NewAdminInvites(data, cfg)
+	if err != nil {
+		return err
+	}
+	panelOptions = append(panelOptions, handler.AdminInvitations(adminInvites))
 	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, encoder, resetFlow, cfg, slog.Default(), panelOptions...)
 	if err != nil {
 		return err

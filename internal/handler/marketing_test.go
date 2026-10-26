@@ -2048,6 +2048,8 @@ var cookieWriters = map[string]cookieWriter{
 	"tappa_admin_login":   {[]string{"internal", "handler", "logincontext.go"}, "set"},
 	"tappa_admin_choice":  {[]string{"internal", "handler", "logincontext.go"}, "set"},
 	"tappa_admin_confirm": {[]string{"internal", "handler", "logincontext.go"}, "set"},
+	// M14-15: the invitation page's synchronizer cookie, through the same setter.
+	"tappa_admin_invite": {[]string{"internal", "handler", "logincontext.go"}, "set"},
 	// The two the sign-up wizard sets (M7-02). They share a setter for the same
 	// reason the three above do: signupCookies.set takes the name as a parameter and
 	// applies the same attributes to both.

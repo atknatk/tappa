@@ -2102,10 +2102,14 @@ func ipCatalogue(t *testing.T, ctx context.Context, q pgx.Tx) string {
 func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndUp(t *testing.T) {
 	ctx, tx := opTx(t)
 	later := aiLaterMigrations(t)
+	// M14-15: a later Down that locks tables (00077's locks tenants, admin_users and the table it drops)
+	// has them taken first, as identityAt00070 takes every later Down's tables, so the walk queues behind
+	// nothing.
 	for i := len(later) - 1; i >= 0; i-- {
 		if later[i].name >= "00074" {
 			if tables := downTables(later[i].down); len(tables) > 0 {
-				t.Fatalf("PREMISE: %s's Down locks %v; walk it with lockForDowns", later[i].name, tables)
+				slices.Sort(tables)
+				lockForDowns(t, ctx, tx, slices.Compact(tables))
 			}
 			opRunSection(t, ctx, tx, later[i].down, later[i].name+" Down")
 		}
@@ -2119,6 +2123,9 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 			t.Fatalf("PREMISE: downTables found %v in 00072's Down, not %s", tables, want)
 		}
 	}
+	// The strong locks the later Downs left in this transaction (00077's Down locks its two
+	// foreign keys' tables, tenants among them) are theirs, not 00072's Down's.
+	walked := strongTableLocksOutside(t, ctx, tx, tables)
 	lockForDowns(t, ctx, tx, tables)
 	head := ipCatalogue(t, ctx, tx)
 
@@ -2182,7 +2189,7 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 			                     FROM pg_proc p WHERE p.oid = 'public.resolve_admin_by_email(citext)'::regprocedure`) != 1 {
 			t.Errorf("after 00072's Down resolve_admin_by_email is not 00017's (four columns, definer, tappa_app alone):\n%s", at70)
 		}
-		if extra := strongTableLocksOutside(t, ctx, sp, tables); len(extra) > 0 {
+		if extra := strongTableLocksOutside(t, ctx, sp, append(slices.Clone(tables), walked...)); len(extra) > 0 {
 			t.Errorf("the Down took a strong lock on %v, outside the tables it names", extra)
 		}
 		opRunSection(t, ctx, sp, up, "00072 Up again")
