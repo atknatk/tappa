@@ -77,7 +77,7 @@ type fakeAdmins struct {
 // revokeAllArgs is one recorded RevokeAll call.
 type revokeAllArgs struct {
 	tenantID, adminID, sessionID uuid.UUID
-	keepCurrent                  bool
+	linked, keepCurrent          bool
 }
 
 // changePasswordArgs is one recorded ChangeOwnPassword call. It deliberately keeps the
@@ -182,9 +182,9 @@ func (f *fakeAdmins) ChangeOwnPassword(_ context.Context, tenantID, adminID, exc
 	return adminauth.PasswordChange{RevokedOtherSessions: n, Recorded: recorded && err == nil}, err
 }
 
-func (f *fakeAdmins) RevokeAll(_ context.Context, tenantID, adminID, sessionID uuid.UUID, _ adminauth.Token, keepCurrent bool) (adminauth.Revocation, error) {
+func (f *fakeAdmins) RevokeAll(_ context.Context, tenantID, adminID, sessionID uuid.UUID, linked bool, _ adminauth.Token, keepCurrent bool) (adminauth.Revocation, error) {
 	f.mu.Lock()
-	f.revokeAllArgs = append(f.revokeAllArgs, revokeAllArgs{tenantID, adminID, sessionID, keepCurrent})
+	f.revokeAllArgs = append(f.revokeAllArgs, revokeAllArgs{tenantID, adminID, sessionID, linked, keepCurrent})
 	hook := f.revokeAll
 	f.mu.Unlock()
 	if hook == nil {

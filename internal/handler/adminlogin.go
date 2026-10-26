@@ -38,7 +38,9 @@ type adminAuthenticator interface {
 	// RevokeAll signs the person behind the cookie out everywhere (M14-11, ADR 0031 §5.2): through
 	// the identity when the row is linked (every business; the database writes each its sign-out
 	// rows), this admin in this business otherwise (the caller writes those rows -- Sessions).
-	RevokeAll(ctx context.Context, tenantID, adminID, sessionID uuid.UUID, current adminauth.Token, keepCurrent bool) (adminauth.Revocation, error)
+	// linked is the verified session's Resolved.Linked: a linked session never takes the one-business
+	// fallback.
+	RevokeAll(ctx context.Context, tenantID, adminID, sessionID uuid.UUID, linked bool, current adminauth.Token, keepCurrent bool) (adminauth.Revocation, error)
 }
 
 // Audit actions written by the panel auth flow. The vocabulary is free text by

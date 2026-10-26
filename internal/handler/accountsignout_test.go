@@ -182,7 +182,7 @@ func TestSignOutEverywhere_TheAccountPageOffersItToEveryLiveAdmin(t *testing.T) 
 //	                      business, this admin -- adminLoggedOutEvent, byte for byte -- and no
 //	                      count anywhere in them
 //
-// MUTATION (measured): keepCurrent=true -> red; the rows written on the identity path too -> red
+// MUTATION (measured): the session's Linked not passed (a constant false) -> red; keepCurrent=true -> red; the rows written on the identity path too -> red
 // (doubled trail); the loop over Sessions dropped -> red; the cookie not cleared -> red.
 func TestSignOutEverywhere_SignsThePersonOutAndLandsOnTheSignIn(t *testing.T) {
 	other := uuid.New()
@@ -199,7 +199,9 @@ func TestSignOutEverywhere_SignsThePersonOutAndLandsOnTheSignIn(t *testing.T) {
 				rv := tc.rv
 				admins := &fakeAdmins{revokeAll: func(uuid.UUID, uuid.UUID, uuid.UUID, bool) (adminauth.Revocation, error) { return rv, nil }}
 				trail := &fakeTrail{}
-				b := signOutBrowser(t, true, admins, trail, role)
+				// The session is linked exactly when the revocation goes through the identity, and the
+				// handler must hand RevokeAll that fact (a linked session never takes the fallback).
+				b := signOutBrowserWith(t, true, rv.ThroughIdentity, admins, trail, role, nil)
 				rec := b.do(http.MethodPost, accountSignOutEverywhereHref, nil)
 				if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != adminLoginPath {
 					t.Fatalf("answered %d %q, want 303 to %s", rec.Code, rec.Header().Get("Location"), adminLoginPath)
@@ -208,7 +210,7 @@ func TestSignOutEverywhere_SignsThePersonOutAndLandsOnTheSignIn(t *testing.T) {
 					t.Error("the panel cookie was not cleared")
 				}
 				calls := admins.revokeAllCalls()
-				want := revokeAllArgs{panelTestTenant, panelTestAdmin, panelTestSession, false}
+				want := revokeAllArgs{panelTestTenant, panelTestAdmin, panelTestSession, rv.ThroughIdentity, false}
 				if len(calls) != 1 || calls[0] != want {
 					t.Fatalf("RevokeAll calls %+v, want exactly %+v", calls, want)
 				}

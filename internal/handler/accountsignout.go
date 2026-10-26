@@ -75,7 +75,9 @@ func (a *AdminAuth) accountSignOutEverywhere(w http.ResponseWriter, r *http.Requ
 		a.renderProblem(w, r, http.StatusInternalServerError, problemSignOutEverywhereUnavailable)
 		return
 	}
-	rv, err := a.admins.RevokeAll(r.Context(), id.TenantID(), id.Admin.AdminUserID, id.Admin.SessionID, token, false)
+	// id.Admin.Linked: a session verified as linked must go through the identity or nowhere -- a
+	// membership disabled since would otherwise reach the one-business fallback (adminauth).
+	rv, err := a.admins.RevokeAll(r.Context(), id.TenantID(), id.Admin.AdminUserID, id.Admin.SessionID, id.Admin.Linked, token, false)
 	if errors.Is(err, adminauth.ErrRevokeAllSessionGone) {
 		// The session is dead already; its cookie is worth nothing, so it is cleared.
 		a.log.Warn("panel sign-out everywhere refused: the session ended before the revocation", "actor_id", id.Admin.AdminUserID)
