@@ -13,8 +13,8 @@ import (
 
 // SWITCHING BUSINESSES WITHOUT SIGNING OUT (M14-10, ADR 0031 §5.4, §8).
 //
-//	GET  /admin/switch   the person's businesses, one switch form per other business. The route's
-//	                     minimum: M14-13 designs the page.
+//	GET  /admin/switch   the person's businesses, one switch form per other business, in the
+//	                     Choose board's dockets (M14-13).
 //	POST /admin/switch   tenant_id + csrf: a NEW session in the target business, the old one
 //	                     revoked -- one definer call, one transaction (adminauth.Switch,
 //	                     identity_switch_session, 00071), then a 303 into the panel.
@@ -62,11 +62,19 @@ const adminSwitchMaxBody = 4 << 10
 // The switch's problem pages.
 var (
 	// problemSwitchRefused is the ONE refusal of the target (see above): it must read the same
-	// whatever the reason.
+	// whatever the reason -- and so it must be TRUE for every reason, including the commonest
+	// one a person meets: a double press. Two POSTs of one page race, the first wins and moves
+	// the browser's cookie to the business picked, and the second is this refusal; the browser
+	// shows the page of the request it sent last, so "you are still where you were" would be a
+	// lie exactly then (M14-13). The copy therefore says only what this request did (nothing),
+	// names the double press as a possibility without saying that it happened, and sends the
+	// person to the panel, which shows where the session now is. It names no business and no
+	// reason: "not a member", "no such business", "disabled", "the current one" and "lost the
+	// race" read alike (TestAdminSwitch_ARefusalIsOneAnswerAndTouchesNoCookie).
 	problemSwitchRefused = pages.ProblemView{
-		Title:   "You can't switch to that business",
-		Message: "You are still in the business you were in. Nothing was changed.",
-		Hint:    "Open the list of your businesses again and pick one from there.",
+		Title:   "That switch did not go through",
+		Message: "This request changed nothing. If you pressed the button twice, the first press may already have switched you.",
+		Hint:    "Go back to the panel to see which business you are in, or open your list of businesses again.",
 	}
 	// problemSwitchForged answers a POST without this session's synchronizer token: a page drawn
 	// for another session (one that has since switched or signed out), or a request no page of
@@ -80,7 +88,7 @@ var (
 	problemSwitchTooMany = pages.ProblemView{
 		Title:   "Too many switches",
 		Message: "You have switched businesses many times in a few minutes, so we have paused switching from here.",
-		Hint:    "Wait a few minutes and try again. You are still in the business you were in.",
+		Hint:    "Wait a few minutes and try again. This request changed nothing.",
 	}
 	// problemSwitchUnavailable is the database failing: one transaction, so nothing was switched,
 	// and the cookie is kept.
@@ -136,10 +144,10 @@ func (a *AdminAuth) adminSwitchPage(w http.ResponseWriter, r *http.Request) {
 	v := pages.AdminSwitchView{CSRFToken: csrf, SwitchHref: adminSwitchHref, BackHref: transactionsHref}
 	for _, m := range memberships {
 		if m.Current {
-			v.Current = m.TenantName
+			v.Current, v.CurrentSuspended = m.TenantName, m.Suspended
 			continue
 		}
-		v.Others = append(v.Others, pages.AdminSwitchBusiness{TenantID: m.TenantID.String(), TenantName: m.TenantName, Role: m.Role})
+		v.Others = append(v.Others, pages.AdminSwitchBusiness{TenantID: m.TenantID.String(), TenantName: m.TenantName, Role: m.Role, Suspended: m.Suspended})
 	}
 	a.render(w, r, http.StatusOK, pages.AdminSwitch(v))
 }

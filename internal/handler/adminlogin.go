@@ -1204,7 +1204,8 @@ func (a *AdminAuth) ChoosePage(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusOK, problemAdminRestart)
 		return
 	}
-	v := pages.AdminChooseView{CSRFToken: st.csrf}
+	// The paragraph names the panel's switch only where it exists (ADR 0031 §8).
+	v := pages.AdminChooseView{CSRFToken: st.csrf, PanelSwitch: a.identityGate.Open(adminauth.SurfaceSwitch)}
 	for _, c := range choices {
 		v.Businesses = append(v.Businesses, pages.AdminBusiness{
 			TenantID:   c.TenantID.String(),

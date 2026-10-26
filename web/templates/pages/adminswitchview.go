@@ -1,19 +1,22 @@
 package pages
 
-// AdminSwitchView is GET /admin/switch (M14-10, ADR 0031 §5.4): the businesses of the person
-// behind the session, each but the current one with its own switch form.
+// AdminSwitchView is GET /admin/switch (ADR 0031 §5.4; M14-10 the route, M14-13 the page): the
+// businesses of the person behind the session, each but the current one with its own switch form.
 //
-// IT IS THE ROUTE'S MINIMUM, NOT THE PAGE. The card that designs this page is M14-13 (the
-// Choose screen's docket layout, the suspension mark, the copy); this view carries what the
-// switch needs to be pressed at all: the session's synchronizer token and, per business, the
-// target and the words a screen reader tells the buttons apart by.
+// EVERYTHING HERE IS THE PERSON'S OWN. The list comes from identity_memberships keyed by the
+// session's token (adminauth.Manager.Memberships): the businesses this person is an active member
+// of, nothing about anyone else's. The page prints names, roles and the suspension mark (K-10) of
+// those, and no count, no other person and no business the person is not in.
 //
-// The token is a per-session credential: it is written into the form and nowhere else.
+// The token is a per-session credential: it is written into the forms and nowhere else.
 type AdminSwitchView struct {
 	CSRFToken string
 	// Current is the business the session is in now ("" when the list could not say).
 	Current string
-	// Others are the person's other businesses, each a switch target.
+	// CurrentSuspended marks the current business as suspended (K-10).
+	CurrentSuspended bool
+	// Others are the person's other businesses, each a switch target. Empty: the person has one
+	// business on this sign-in, and the page says so rather than drawing an empty rail.
 	Others []AdminSwitchBusiness
 	// SwitchHref is where each form posts (the handler's route; the binding is added at render).
 	SwitchHref string
@@ -27,4 +30,6 @@ type AdminSwitchBusiness struct {
 	TenantID   string
 	TenantName string
 	Role       string
+	// Suspended marks the docket (ADR 0031 K-10): switching in is allowed, writing there is not.
+	Suspended bool
 }
