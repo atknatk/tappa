@@ -1927,6 +1927,33 @@ Sonra `main`'e birleştir; deploy `00069` ve `00070`'i uygular.
   değiştirmeden reddeder; Job `Failed` olur): uzantı `01-roles.sql`'deki gibi `public`'te kurulur ya da
   yetki düzeltilir, sonra yeniden denenir.
 
+  **İkinci ön kontrol — adres kuralı (M14-08a, ADR 0031 §5.1'in 2026-10-26 notu; kullanıcı koşar,
+  salt okuma, yalnız sayı).** `00073`'ün backfill'i her dolu e-posta grubuna, grubun seçilen satırının
+  **yazımıyla** kimlik doğurur ve citext U+0130'u (`İ` → `i`) ve U+212A'yı (KELVIN SIGN → `k`) ASCII'ye
+  katlar: yazdırılabilir ASCII olmayan bir satır seçilirse kimlik postanın gidemeyeceği bir yazımla
+  doğar ve gerçek posta kutusunun sahibi o adrese bir daha sıfırlama alamaz. `00073` uygulanmış bir
+  migration'dır (geliştirme ve CI veritabanlarında) ve değiştirilmez (CLAUDE.md §6); kuralın backfill
+  tarafı bu sayımdır. `tappa_owner` ile, backfill'in aday kümesi (`email` dolu ve boş değil) üzerinde:
+
+  ```sql
+  BEGIN READ ONLY;
+  SELECT count(*)                                                AS backfill_candidates,
+         count(*) FILTER (WHERE email::text !~ '^[\x21-\x7e]+$') AS not_printable_ascii
+    FROM admin_users
+   WHERE email IS NOT NULL AND btrim(email::text) <> '';
+  ROLLBACK;
+  ```
+
+  beklenen: `not_printable_ascii` = **0** (M14-02'nin 2026-10-22 sayılarıyla `4|0`). **0 değilse deploy
+  yapılmaz — DUR**: o satırlar adıyla değil yalnız sayıyla bilinir (adres log'a ve bu dosyaya yazılmaz,
+  CLAUDE.md §7); ne yapılacağı kullanıcının kararıdır. `email::text` dönüşümü şarttır: citext'in kendi
+  `~`'ı harf büyüklüğüne duyarsızdır. Desen `mail.ValidRecipient`'in ASCII yarısıdır (0x21–0x7e; boşluk,
+  denetim karakteri, DEL ve 0x80 üstü her bayt sayılır); homoglif tehdidi tam bu kümedir — yalnız
+  biçimi bozuk bir ASCII adres citext'te başka bir adrese katlanmaz (ASCII'de citext yalnız harf
+  büyüklüğünü katlar). Ölçüm (2026-10-26, bu dalın veritabanı, goose 76): `97|0`; geri alınan bir
+  transaction'da U+0130'lu, U+212A'lı ve başı boşluklu üç satır eklenince `101|3`, düz ASCII dördüncüsü
+  sayılmadı.
+
 **Eski binary yeni şemada çalışır** (ADR 0031 §8 expand): kayıt `identity_id NULL` ile satır yazar,
 oturum `authenticated_at`'i varsayılandan alır; `tappa_app`'ın `admin_users` okuması sütun listesine
 indi ama bugünkü hiçbir sorgu o listenin dışını okumaz
@@ -2030,6 +2057,19 @@ satır) hiçbir şeyi değiştirmeden **reddeder** — geri dönüş önceki bin
   link satırı silinmez, kimliğe ve üyeliklere dokunulmaz. İptal edilen linki tıklayan kişi tek tip "That
   link no longer works" ekranını görür ve yeni bir link isteyebilir (bayrak açıksa kimlik linki, kapalıysa
   satır başı link). Satır başı linkler (`password_resets`) bu ifadenin kapsamında değildir.
+
+### Adres kuralı (M14-08a) — `00076`
+
+- **`00076`** `identity_create_for_signup`'ı aynı imzayla (`CREATE OR REPLACE`) yeniden tanımlar: kaydın
+  adresi `mail.ValidRecipient`'ten geçmiyorsa (254 oktet, `=?` yok, yazdırılabilir ASCII'de net/mail'in
+  kendine geri verdiği addr-spec) kimlik doğmaz ve satır bağlanmaz; adresin e-posta-geniş okuması
+  yazdırılabilir ASCII olmayan bir satırı artık saymaz (bir homoglif satırı gerçek adresin kimliğini
+  engellemesin). Tablo kilidi yok, yeni yetki yok; eski binary aynı çağrıyı yapar ve ASCII olmayan
+  adreste `false` alır (satır bağlanmamış doğar — bilinen bir adres gibi). `admin_identities.email`'e
+  CHECK **eklenmedi**: ölçüldü, ihlalin `DETAIL`'i adresi ve digest'i hataya ve sunucu log'una basar
+  (00076'nın başlığı). Down 00074'ün gövdesini bayt bayt geri koyar.
+- Kayıt formu aynı kuralı sınırda uygular (`signup.ValidateAccount`); giriş ve sıfırlama formları yalnız
+  arar, değişmedi. Backfill'in tarafı yukarıdaki ikinci ön kontroldür (Expand deploy'undan önce).
 
 ### Panel formlarının tenant bağı (M14-10a)
 
