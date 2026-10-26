@@ -28,12 +28,12 @@ type idPanel struct {
 	owner *pgx.Conn
 }
 
-// newIDPanel builds the harness (o.identity is forced on) and the owner connection. Every identity
+// newIDPanel builds the harness (o.adminIdentity is forced on) and the owner connection. Every identity
 // made for an address this panel used is taken back at the end: its rows unlinked, its events and
 // the identity deleted.
 func newIDPanel(t *testing.T, o panelHarnessOptions) *idPanel {
 	t.Helper()
-	o.identity = true
+	o.adminIdentity = true
 	p := &idPanel{panelHarness: newPanelHarnessWith(t, o)}
 	dsn := os.Getenv("DATABASE_MIGRATE_URL")
 	if dsn == "" {

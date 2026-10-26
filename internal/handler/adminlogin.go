@@ -38,6 +38,12 @@ type adminAuthenticator interface {
 	// changes through the identity, keyed by that token's hash (adminauth.PasswordChange
 	// says which path ran and whether the database already wrote the trail).
 	ChangeOwnPassword(ctx context.Context, tenantID, adminID, exceptSessionID uuid.UUID, session adminauth.Token, current, next string) (adminauth.PasswordChange, error)
+	// RevokeAll signs the person behind the cookie out everywhere (M14-11, ADR 0031 §5.2): through
+	// the identity when the row is linked (every business; the database writes each its sign-out
+	// rows), this admin in this business otherwise (the caller writes those rows -- Sessions).
+	// linked is the verified session's Resolved.Linked: a linked session never takes the one-business
+	// fallback.
+	RevokeAll(ctx context.Context, tenantID, adminID, sessionID uuid.UUID, linked bool, current adminauth.Token, keepCurrent bool) (adminauth.Revocation, error)
 }
 
 // Audit actions written by the panel auth flow. The vocabulary is free text by
@@ -807,8 +813,9 @@ func (a *AdminAuth) ProtectWriting() func(http.Handler) http.Handler {
 // 🔴 IT IS THE NAMED CHAIN OF ADR 0025 §3's CLOSED EXCEPTION LIST, and it has exactly
 // one user: the sibling group at the end of mountWriting, which holds the admin's own
 // password, the four record paths (adding a person, re-inviting, and the manual
-// record's two steps) and K-26's defences (revoking API keys, switching the webhook
-// off). The record paths are not the business's settings but how an attendance record
+// record's two steps), K-26's defences (revoking API keys, switching the webhook
+// off) and, while TAPPA_ADMIN_IDENTITY is on, signing yourself out everywhere (ADR
+// 0025's M14 note, M14-11). The record paths are not the business's settings but how an attendance record
 // gets written or recovered (§4.3, §4.6) -- a suspension stops writes, not evidence --
 // and the defences only take away what the business exposes. An exception made by PATH
 // would open or close silently on a rename; made by GROUP, it is a visible edit in one

@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -311,6 +312,8 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 	//	                          opposite of what a suspension is for
 	//	switching the webhook     K-26 likewise -- the act internal/webhook/endpoints names
 	//	off                       open (OpenWhileSuspended), mounted here by that answer
+	//	signing yourself out      ADR 0025's M14 note (M14-11): personal, like the password;
+	//	everywhere                mounted only while TAPPA_ADMIN_IDENTITY is on
 	r.Group(func(r chi.Router) {
 		r.Use(a.protectWritingThroughSuspension())
 		// 🔴 CHANGE-MY-OWN-PASSWORD (M7-05, T73). It shares this chain for the ordinary
@@ -319,6 +322,12 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// (K-A), so it is NOT owner-only. It is a separate route from accountSave for
 		// exactly that reason: the two must never share a gate.
 		r.Post(accountPasswordHref, a.accountPasswordSave)
+		// SIGN OUT EVERYWHERE (M14-11): the person's own sessions, beside their own password
+		// (ADR 0025's M14 note). Mounted only while TAPPA_ADMIN_IDENTITY is on (ADR 0031 §8);
+		// any live admin, like the password.
+		a.mountGated(r, adminauth.SurfaceAccountIdentity, func(r chi.Router) {
+			r.Post(accountSignOutEverywhereHref, a.accountSignOutEverywhere)
+		})
 		// 🔴 THE ROUTE THAT CREATES A PERSON (M6-13). It belongs on a writing chain for
 		// the reason every other write does — the Origin check must run AHEAD of the
 		// resolver — and it is the first one in this section whose absence was a
