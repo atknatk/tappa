@@ -2032,6 +2032,10 @@ M14-10a notu 1; onları Origin, oturum, oturum bütçesi, askı ve encode tavan�
   `/`'yi yönlendirmeye devam eder; ingress-nginx en uzun öneki seçtiği için `/admin` ve altı **yalnız**
   `tappa-panel`'e gider. Bedel: panel istekleri ingress erişim log'unda görünmez (süreç log'u rota
   desenini yazmaya devam eder). Pin: `TestPackaging_ThePanelPathsAreRoutedWithoutAnAccessLog`.
+  **Kabul edilen bedel:** not yalnız erişim log'unu kapatır; denetleyicinin **hata** log'u, nginx'in
+  kendisinin düşürdüğü bir panel isteğinde (1m'yi aşan logo gövdesinin 413'ü, upstream bağlantı hatası,
+  zaman aşımı) istek satırını sorgusuyla yazmaya devam eder — gerekçe kararın 2. maddesiyle aynı (bağ ham
+  çerez olmadan işe yaramaz; ADR 0031 §5.5 not 3). Yapılandırma değişmez.
   Deploy aynı `kubectl apply -f deploy/k8s/40-ingress.yaml` adımıyla uygular (RBAC'ta `create` var).
 
   **Doğrulama (deploy'dan sonra, küme yöneticisi, salt-okur).** Önce iki nesne, yolları ve log notu;
@@ -2044,7 +2048,9 @@ M14-10a notu 1; onları Origin, oturum, oturum bütçesi, askı ve encode tavan�
 
   Sonra panelde bir sayfa açıp bir form gönderdikten sonra, denetleyicinin log'unda panel satırı
   sayısı — yalnız sayı basar; denetleyici bir DaemonSet ise `deploy/` yerine `ds/`. Beklenen `0` ve `0`
-  (öteki yollar, ör. ` /t?`, log'da görünmeye devam eder):
+  (öteki yollar, ör. ` /t?`, log'da görünmeye devam eder). ⚠️ İki sayı hata satırlarını da sayar
+  (`logs` erişim ve hata log'unu birlikte basar): `0` yalnız o pencerede panel isteklerinde nginx hatası
+  olmadıysa beklenir; `> 0` görülürse önce o satırların hata satırı olup olmadığına bakılır:
 
   ```bash
   kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --since=10m | grep -c ' /admin'

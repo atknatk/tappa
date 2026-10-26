@@ -480,7 +480,11 @@ sonra gönderilirse **B'ye yazardı** — bugün panel yazmalarında tenant'a ba
    (tek sır, tek Certificate). ingress-nginx en uzun öneki seçtiği için `/admin` ve altı yalnız
    `tappa-panel`'e gider; geri kalan her şey `tappa`'da ve log'lu kalır. Pin:
    `TestPackaging_ThePanelPathsAreRoutedWithoutAnAccessLog`. Doğrulama komutu runbook'ta
-   (`deploy/README.md`, *"Panel formlarının tenant bağı (M14-10a)"*).
+   (`deploy/README.md`, *"Panel formlarının tenant bağı (M14-10a)"*). **Kabul edilen bedel
+   (denetim, 2026-10-26):** not yalnız **erişim** log'unu kapatır; denetleyicinin **hata** log'u nginx'in
+   kendisinin düşürdüğü bir panel isteğinde (1m'yi aşan gövdenin 413'ü, upstream bağlantı hatası, zaman
+   aşımı) istek satırını sorgusuyla birlikte yazmaya devam eder. Gerekçe not 2'ninki: bağ o oturumun ham
+   çerezi olmadan işe yaramaz. Yapılandırma değişmez.
 
 ### 5.6 Giriş
 

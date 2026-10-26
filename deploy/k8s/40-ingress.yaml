@@ -199,6 +199,13 @@ spec:
 # log still writes one line per response with the ROUTE PATTERN and never the URL
 # (internal/httpx/requestlog.go), and the panel's flood and session budgets log their
 # own refusals.
+#
+# WHAT IS NOT CLOSED, ACCEPTED (2026-10-26, the rationale of ADR 0031 §5.5 note 2): this
+# annotation turns off the ACCESS log only. The controller's ERROR log still writes the
+# request line, query included, when nginx itself fails a panel request -- a body over
+# the 1m limit (its 413), an upstream connect error, a timeout. The binding in such a
+# line is useless without that session's raw cookie, so the cost is named, not closed;
+# no other setting changes (ADR 0031 §5.5 note 3).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
