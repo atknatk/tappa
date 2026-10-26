@@ -1,7 +1,11 @@
 package handler
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/adminauth"
@@ -23,20 +28,39 @@ import (
 // accountsignout_db_test.go.
 
 // signOutBrowser is the real panel under the given identity flag, with a browser carrying a panel
-// cookie of a live admin of role (panelTest* ids).
+// cookie of a live admin of role (panelTest* ids), whose row is not linked to an identity.
 func signOutBrowser(t *testing.T, flag bool, admins *fakeAdmins, trail *fakeTrail, role string) *browser {
+	t.Helper()
+	return signOutBrowserWith(t, flag, false, admins, trail, role, nil)
+}
+
+// signOutBrowserWith is signOutBrowser with the row's link (Resolved.Linked) and the panel's log
+// (nil: discarded) chosen.
+func signOutBrowserWith(t *testing.T, flag, linked bool, admins *fakeAdmins, trail *fakeTrail, role string, logw io.Writer) *browser {
 	t.Helper()
 	if admins.verify == nil {
 		admins.verify = func() (adminauth.Resolved, error) {
 			return adminauth.Resolved{
 				SessionID: panelTestSession, TenantID: panelTestTenant, AdminUserID: panelTestAdmin,
-				Role: role, FullName: "Admin Person",
+				Role: role, FullName: "Admin Person", Linked: linked,
 			}, nil
 		}
 	}
 	cfg := adminTestConfig()
 	cfg.AdminIdentity = flag
-	b := newBrowser(t, newAdminRouterWithActionsUnder(t, cfg, admins, trail, newFakeLedger(), &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}))
+	logger := slog.New(slog.DiscardHandler)
+	if logw != nil {
+		logger = slog.New(slog.NewJSONHandler(logw, nil))
+	}
+	h, err := NewAdminAuth(admins, trail, newFakeLedger(), newFakeLedger(), &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
+		&fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(),
+		newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, cfg, logger)
+	if err != nil {
+		t.Fatalf("NewAdminAuth: %v", err)
+	}
+	r := chi.NewRouter()
+	h.Mount(r)
+	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	return b
 }
@@ -110,10 +134,19 @@ func TestSignOutEverywhere_FlagOffIsAPathThePanelNeverHad(t *testing.T) {
 
 // TestSignOutEverywhere_TheAccountPageOffersItToEveryLiveAdmin: flag on, an owner and a manager
 // both get the card -- one form, posting to the route, a submit button, no field (nothing from the
-// request is an input to the identity).
+// request is an input to the identity) -- and its sentence promises what the press does: "every
+// business" for a session whose row is linked, "in this business" for an unlinked one, whose press
+// reaches this business alone (ADR 0031 §8 opens this difference with the flag on).
+//
+// MUTATION (measured): the view's every-business switch set without the link (always true) -> the
+// unlinked card says "every business", red; always false -> the linked card does not, red.
 func TestSignOutEverywhere_TheAccountPageOffersItToEveryLiveAdmin(t *testing.T) {
-	for _, role := range []string{"owner", "manager"} {
-		b := signOutBrowser(t, true, &fakeAdmins{}, &fakeTrail{}, role)
+	for _, tc := range []struct {
+		role   string
+		linked bool
+	}{{"owner", true}, {"owner", false}, {"manager", true}, {"manager", false}} {
+		role := tc.role
+		b := signOutBrowserWith(t, true, tc.linked, &fakeAdmins{}, &fakeTrail{}, role, nil)
 		rec := b.do(http.MethodGet, accountHref, nil)
 		body := rec.Body.String()
 		if rec.Code != http.StatusOK {
@@ -129,6 +162,13 @@ func TestSignOutEverywhere_TheAccountPageOffersItToEveryLiveAdmin(t *testing.T) 
 		}
 		if strings.Contains(form, "<input") {
 			t.Errorf("%s: the form carries a field; it must carry none: %q", role, form)
+		}
+		every, here := strings.Contains(form, "every business"), strings.Contains(form, "in this business")
+		if tc.linked && (!every || here) {
+			t.Errorf("%s, linked: the card does not promise every business: %q", role, form)
+		}
+		if !tc.linked && (every || !here) {
+			t.Errorf("%s, unlinked: the card promises more than this business: %q", role, form)
 		}
 	}
 }
@@ -219,5 +259,81 @@ func TestSignOutEverywhere_AFailedRevocationKeepsTheCookie(t *testing.T) {
 	}
 	if clearsTheCookie(rec) || len(trail.eventsSnapshot()) != 0 {
 		t.Errorf("a failed revocation cleared the cookie (%v) or wrote %d row(s)", clearsTheCookie(rec), len(trail.eventsSnapshot()))
+	}
+}
+
+// TestSignOutEverywhere_ASessionThatEndedMeanwhileSignsNothingOut: RevokeAll answers
+// ErrRevokeAllSessionGone (the verified session died before the revocation; nothing was revoked)
+// -> 409 with the "sign in again" problem, no audit row, and the dead session's cookie cleared;
+// never the redirect a success gets.
+func TestSignOutEverywhere_ASessionThatEndedMeanwhileSignsNothingOut(t *testing.T) {
+	admins := &fakeAdmins{revokeAll: func(uuid.UUID, uuid.UUID, uuid.UUID, bool) (adminauth.Revocation, error) {
+		return adminauth.Revocation{}, adminauth.ErrRevokeAllSessionGone
+	}}
+	trail := &fakeTrail{}
+	b := signOutBrowser(t, true, admins, trail, "owner")
+	rec := b.do(http.MethodPost, accountSignOutEverywhereHref, nil)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), problemSignOutEverywhereSessionGone.Title) {
+		t.Fatalf("answered %d, want 409 and the sign-in-again problem", rec.Code)
+	}
+	if len(trail.eventsSnapshot()) != 0 || !clearsTheCookie(rec) {
+		t.Errorf("rows %d, cookie cleared %v; want none and cleared", len(trail.eventsSnapshot()), clearsTheCookie(rec))
+	}
+}
+
+// TestSignOutEverywhere_TheLogNamesTheFallbackAndNoCountFromElsewhere: the identity path's line
+// carries through_identity and NO count -- rv.Revoked spans every business and must not sit beside
+// this business's actor_id; the one-business fallback is a WARN under the stable event name "sign
+// out everywhere fell back to one business" (ADR 0031 §5.15's counter pattern) with this business's
+// own count. No line carries the token or the identity's id.
+//
+// MUTATION (measured): the count logged on the identity path -> red; the fallback logged at Info or
+// under another message -> red.
+func TestSignOutEverywhere_TheLogNamesTheFallbackAndNoCountFromElsewhere(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		rv   adminauth.Revocation
+	}{
+		{"through the identity", adminauth.Revocation{Revoked: 7, ThroughIdentity: true}},
+		{"fallback", adminauth.Revocation{Revoked: 2, Sessions: []uuid.UUID{panelTestSession, uuid.New()}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rv := tc.rv
+			var logs bytes.Buffer
+			admins := &fakeAdmins{revokeAll: func(uuid.UUID, uuid.UUID, uuid.UUID, bool) (adminauth.Revocation, error) { return rv, nil }}
+			b := signOutBrowserWith(t, true, rv.ThroughIdentity, admins, &fakeTrail{}, "owner", &logs)
+			if rec := b.do(http.MethodPost, accountSignOutEverywhereHref, nil); rec.Code != http.StatusSeeOther {
+				t.Fatalf("answered %d", rec.Code)
+			}
+			var lines []map[string]any
+			for _, l := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+				var m map[string]any
+				if err := json.Unmarshal([]byte(l), &m); err != nil {
+					t.Fatalf("log line %q: %v", l, err)
+				}
+				if strings.Contains(l, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA") {
+					t.Errorf("a log line carries the cookie's token: %s", l)
+				}
+				if m["msg"] == "panel signed out everywhere" || m["msg"] == "sign out everywhere fell back to one business" {
+					lines = append(lines, m)
+				}
+			}
+			if len(lines) != 1 {
+				t.Fatalf("%d sign-out-everywhere line(s), want 1: %s", len(lines), logs.String())
+			}
+			l := lines[0]
+			if rv.ThroughIdentity {
+				if l["msg"] != "panel signed out everywhere" || l["level"] != "INFO" || l["through_identity"] != true {
+					t.Errorf("identity path line %v", l)
+				}
+				if _, ok := l["revoked_sessions"]; ok {
+					t.Errorf("the identity path's line carries a count spanning every business: %v", l)
+				}
+				return
+			}
+			if l["msg"] != "sign out everywhere fell back to one business" || l["level"] != "WARN" || l["revoked_sessions"] != float64(len(rv.Sessions)) {
+				t.Errorf("fallback line %v, want a WARN with this business's own count", l)
+			}
+		})
 	}
 }

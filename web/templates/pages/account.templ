@@ -448,15 +448,23 @@ templ accountPasswordForm(v AccountView) {
 //
 // IT IS ITS OWN FORM AND ITS OWN CARD, beside the password: one press, no field. The button is the
 // outlined one the page already uses for a secondary act -- it ends sessions, it destroys no data.
-// The sentence says the one surprise in plain words: this device is signed out too, and so is every
-// other business the person belongs to. No synchronizer token field, like every other panel write.
+// The sentence says the one surprise in plain words: this device is signed out too -- and, only when
+// the session's row is linked to an identity, every other business the person belongs to; an
+// unlinked row's press reaches this business alone, and the sentence says so. No synchronizer token
+// field, like every other panel write.
 templ accountSignOutEverywhere(v AccountView) {
 	<form method="post" action={ templ.URL(v.SignOutEverywhereHref) } class="panel-card min-w-0" aria-labelledby="account-everywhere-heading">
 		@accountCardHeading("account-everywhere-heading", "Sign out everywhere")
 		<p class="text-[13px] leading-normal text-ink/70">
-			This signs you out of Taptime on every phone and computer, in every business you
-			belong to — this device too. Use it if you signed in somewhere you no longer
-			trust. You can sign straight back in with your password.
+			if v.SignOutEverywhereEveryBusiness {
+				This signs you out of Taptime on every phone and computer, in every business you
+				belong to — this device too.
+			} else {
+				This signs you out of Taptime on every phone and computer in this business — this
+				device too.
+			}
+			Use it if you signed in somewhere you no longer trust. You can sign straight back in
+			with your password.
 		</p>
 		<div>
 			<button class="btn btn--line" type="submit">Sign out everywhere</button>

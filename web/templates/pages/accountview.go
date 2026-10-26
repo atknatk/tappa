@@ -195,6 +195,10 @@ type AccountView struct {
 	// byte for byte today's (ADR 0031 §8). Drawn for every live admin: it is personal, like
 	// the password.
 	SignOutEverywhereHref string
+	// SignOutEverywhereEveryBusiness is whether the press reaches every business of the person --
+	// true only when this session's row is linked to an identity. An unlinked row's press signs out
+	// this business alone (adminauth.RevokeAll's fallback), and the card must not promise more.
+	SignOutEverywhereEveryBusiness bool
 }
 
 // AccountForm is the three editable fields.

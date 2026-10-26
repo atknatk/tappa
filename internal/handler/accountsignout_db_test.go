@@ -243,8 +243,9 @@ func TestSignOutEverywhereDB_OnePressEndsThePersonsSessionsInEveryBusiness(t *te
 	refusedBefore := len(tenantRows(t, owner, a.tenant, ActionTenantWriteRefused))
 
 	// The account page offers it -- and in a suspended business too.
-	if _, page := a1.get(t, accountHref); !strings.Contains(page, `action="`+accountSignOutEverywhereHref+`"`) {
-		t.Fatal("the account page does not offer \"Sign out everywhere\" with the flag on")
+	if _, page := a1.get(t, accountHref); !strings.Contains(page, `action="`+accountSignOutEverywhereHref+`"`) ||
+		!strings.Contains(page, "every business you") {
+		t.Fatal("the account page of a linked session does not offer \"Sign out everywhere\" for every business")
 	}
 	res, _ := a1.post(t, accountSignOutEverywhereHref, url.Values{})
 	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != adminLoginPath {
@@ -283,7 +284,8 @@ func TestSignOutEverywhereDB_OnePressEndsThePersonsSessionsInEveryBusiness(t *te
 // linked to an identity (two businesses under one address, today's model) presses in A: A's two
 // sessions are revoked and A gets one ordinary sign-out row each -- written by the handler, the
 // database wrote none -- while B's session is untouched and B gets no row (today's single-tenant
-// path, adminauth.RevokeAll's fallback).
+// path, adminauth.RevokeAll's fallback) -- and its card says "in this business", never "every
+// business".
 //
 // MUTATION (measured): the handler's loop over Revocation.Sessions dropped -> A gets no row, red.
 func TestSignOutEverywhereDB_AnUnlinkedRowIsTodaysOneBusiness(t *testing.T) {
@@ -311,6 +313,10 @@ func TestSignOutEverywhereDB_AnUnlinkedRowIsTodaysOneBusiness(t *testing.T) {
 	a2.signInTo(t, a.tenant)
 	b1.signInTo(t, b.tenant)
 	beforeA, beforeB := len(tenantRows(t, owner, a.tenant, ActionAdminLoggedOut)), len(tenantRows(t, owner, b.tenant, ActionAdminLoggedOut))
+	// The card promises what this press does: this business, not every business.
+	if _, page := a1.get(t, accountHref); !strings.Contains(page, "computer in this business") || strings.Contains(page, "every business you") {
+		t.Fatal("an unlinked session's card does not say it signs out of this business only")
+	}
 
 	res, _ := a1.post(t, accountSignOutEverywhereHref, url.Values{})
 	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != adminLoginPath {

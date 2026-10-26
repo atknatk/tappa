@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -80,6 +81,16 @@ func (m *Manager) Switch(ctx context.Context, current Token, target uuid.UUID) (
 	}, nil
 }
 
+// ErrRevokeAllSessionGone is RevokeAll's refusal on the one-business fallback (keepCurrent false):
+// the request's own session -- verified moments earlier -- was not among the sessions the fallback
+// revoked, i.e. it died in between (a reset, another sign-out, a concurrent change of the row). The
+// identity's revocation answers 0 rows for exactly that case too, so the fallback cannot tell "this
+// row is not linked" from "this session is no longer a key" -- and revoking this business alone
+// while the person believes every business was signed out is the wrong answer to the second. So
+// nothing is revoked (the fallback's transaction is rolled back) and the person is asked to sign in
+// again and press once more (M14-11 security review).
+var ErrRevokeAllSessionGone = errors.New("adminauth: revoke all: the session is no longer live")
+
 // Revocation is what RevokeAll did.
 type Revocation struct {
 	// Revoked is how many sessions were revoked -- in every business when ThroughIdentity, in this
@@ -98,7 +109,9 @@ type Revocation struct {
 // session when keepCurrent. A linked row's session goes through the identity: every live session of
 // every membership of the person, in every business. An unlinked row's session is today's case: the
 // admin's own sessions in this business (tenantID, adminID and sessionID are the request's VERIFIED
-// session -- httpx.AdminOf -- and are used for that fallback alone).
+// session -- httpx.AdminOf -- and are used for that fallback alone). With keepCurrent false the
+// fallback must revoke the request's own session among the others; when it does not, nothing is
+// revoked and the answer is ErrRevokeAllSessionGone.
 func (m *Manager) RevokeAll(ctx context.Context, tenantID, adminID, sessionID uuid.UUID, current Token, keepCurrent bool) (Revocation, error) {
 	if tenantID == uuid.Nil || adminID == uuid.Nil || sessionID == uuid.Nil {
 		return Revocation{}, errors.New("adminauth: revoke all: tenant, admin and session are required")
@@ -119,6 +132,7 @@ func (m *Manager) RevokeAll(ctx context.Context, tenantID, adminID, sessionID uu
 	}
 	// Not linked (or not live): this admin, this business, as before M14.
 	var ids []uuid.UUID
+	var gone bool
 	err = m.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
 		var e error
@@ -131,8 +145,17 @@ func (m *Manager) RevokeAll(ctx context.Context, tenantID, adminID, sessionID uu
 		ids, e = q.RevokeAdminSessionsForAdmin(ctx, store.RevokeAdminSessionsForAdminParams{
 			TenantID: tenantID, AdminUserID: adminID,
 		})
+		if e == nil && !slices.Contains(ids, sessionID) {
+			// The verified session was already dead: roll the revocation back (see
+			// ErrRevokeAllSessionGone).
+			gone = true
+			return ErrRevokeAllSessionGone
+		}
 		return e
 	})
+	if gone {
+		return Revocation{}, ErrRevokeAllSessionGone
+	}
 	if err != nil {
 		return Revocation{}, fmt.Errorf("adminauth: revoke all: %w", err)
 	}

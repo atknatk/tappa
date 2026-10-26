@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
+	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
@@ -45,6 +47,16 @@ var problemSignOutEverywhereUnavailable = pages.ProblemView{
 	Hint:    "This one is ours rather than yours — please try again in a moment.",
 }
 
+// problemSignOutEverywhereSessionGone answers adminauth.ErrRevokeAllSessionGone: this session ended
+// between the check at the door and the revocation, so nothing was signed out -- and signing out
+// this business alone would let the person believe every business was. Signing in again gives a
+// live session to press with.
+var problemSignOutEverywhereSessionGone = pages.ProblemView{
+	Title:   "Your session ended before we could sign you out everywhere",
+	Message: "Nothing was signed out by that press. Your session on this device had already ended, so we stopped rather than sign out only part of your sessions.",
+	Hint:    "Sign in again, then press \"Sign out everywhere\" once more.",
+}
+
 // accountSignOutEverywhere serves POST accountSignOutEverywhereHref.
 func (a *AdminAuth) accountSignOutEverywhere(w http.ResponseWriter, r *http.Request) {
 	id := httpx.AdminOf(r)
@@ -64,6 +76,13 @@ func (a *AdminAuth) accountSignOutEverywhere(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	rv, err := a.admins.RevokeAll(r.Context(), id.TenantID(), id.Admin.AdminUserID, id.Admin.SessionID, token, false)
+	if errors.Is(err, adminauth.ErrRevokeAllSessionGone) {
+		// The session is dead already; its cookie is worth nothing, so it is cleared.
+		a.log.Warn("panel sign-out everywhere refused: the session ended before the revocation", "actor_id", id.Admin.AdminUserID)
+		a.cookies.Clear(w)
+		a.renderProblem(w, r, http.StatusConflict, problemSignOutEverywhereSessionGone)
+		return
+	}
 	if err != nil {
 		// Clearing the cookie without revoking would leave live sessions behind a browser that
 		// thinks it signed out -- Logout's rule.
@@ -79,7 +98,18 @@ func (a *AdminAuth) accountSignOutEverywhere(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	a.cookies.Clear(w)
-	a.log.Info("panel signed out everywhere",
-		"actor_id", id.Admin.AdminUserID, "revoked_sessions", rv.Revoked, "through_identity", rv.ThroughIdentity)
+	if rv.ThroughIdentity {
+		// NO COUNT HERE: on the identity path rv.Revoked spans every business, and a line carrying it
+		// beside this business's actor_id would tell this business's log how many sessions the person
+		// holds elsewhere (the M14-11 review; accountpassword.go keeps its count to this business too).
+		a.log.Info("panel signed out everywhere", "actor_id", id.Admin.AdminUserID, "through_identity", true)
+	} else {
+		// A STABLE EVENT NAME, AT WARN (ADR 0031 §5.15's counter pattern): this route exists only with
+		// TAPPA_ADMIN_IDENTITY on, and M14-19's precheck promises every row is linked by then -- a
+		// fallback here is a row that precheck missed (or one the person refused), and must be
+		// countable. The count is this business's own.
+		a.log.Warn("sign out everywhere fell back to one business",
+			"actor_id", id.Admin.AdminUserID, "revoked_sessions", len(rv.Sessions))
+	}
 	a.redirect(w, adminLoginPath)
 }

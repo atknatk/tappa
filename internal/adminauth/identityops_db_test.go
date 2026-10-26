@@ -258,6 +258,79 @@ func TestRevokeAll_ThePersonEverywhereOrTheRowAlone(t *testing.T) {
 	}
 }
 
+// TestRevokeAll_ASessionThatDiedMeanwhileRevokesNothing (M14-11 security review): the request's
+// session is verified, then revoked (a reset, another sign-out) before RevokeAll runs. The identity's
+// revocation answers 0 rows for a dead session exactly as for an unlinked row, so RevokeAll reaches
+// the one-business fallback -- which must NOT then revoke this business alone and call it done:
+// with keepCurrent false and the current session not among the revoked, it rolls back and answers
+// ErrRevokeAllSessionGone. Both shapes -- a linked row (the person's sessions in both businesses
+// survive) and an unlinked one (its other session survives) -- and the control: the same call with
+// a live session succeeds.
+//
+// MUTATION (measured): the current-session check removed from the fallback -> the linked row's
+// other session in this business is revoked and RevokeAll reports success, red.
+func TestRevokeAll_ASessionThatDiedMeanwhileRevokesNothing(t *testing.T) {
+	d := testDB(t)
+	m := testManager(t, d)
+	ctx := context.Background()
+
+	w := newIDWorld(t, ownerConn(t), true)
+	ta, tb := w.tenant("M14-11 Stale A"), w.tenant("M14-11 Stale B")
+	a := w.linked(ta, "active", "backfill", 72*time.Hour)
+	w.linked(tb, "active", "backfill", 48*time.Hour)
+	cur, err := w.signInOn(m, w.pw, ta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := w.signInOn(m, w.pw, ta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	elsewhere, err := w.signInOn(m, w.pw, tb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Verify(ctx, cur.Token); err != nil {
+		t.Fatalf("CONTROL: the current session does not verify: %v", err)
+	}
+	if err := m.Revoke(ctx, ta, cur.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rv, err := m.RevokeAll(ctx, ta, a, cur.Session.ID, cur.Token, false); !errors.Is(err, ErrRevokeAllSessionGone) {
+		t.Fatalf("linked row, dead session: RevokeAll = %+v, %v; want ErrRevokeAllSessionGone", rv, err)
+	}
+	for name, tok := range map[string]Token{"the other session here": other.Token, "the session in the other business": elsewhere.Token} {
+		if _, err := m.Verify(ctx, tok); err != nil {
+			t.Errorf("linked row: %s was revoked by a refused RevokeAll: %v", name, err)
+		}
+	}
+
+	plain := newIDWorld(t, w.owner, false)
+	tp := plain.tenant("M14-11 Stale plain")
+	pa := plain.row(tp, plain.digest, "active", time.Hour)
+	s1, _, err := plain.signInOff(m, plain.pw, tp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s2, _, err := plain.signInOff(m, plain.pw, tp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Revoke(ctx, tp, s1.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rv, err := m.RevokeAll(ctx, tp, pa, s1.Session.ID, s1.Token, false); !errors.Is(err, ErrRevokeAllSessionGone) {
+		t.Fatalf("unlinked row, dead session: RevokeAll = %+v, %v; want ErrRevokeAllSessionGone", rv, err)
+	}
+	if _, err := m.Verify(ctx, s2.Token); err != nil {
+		t.Errorf("unlinked row: the other session was revoked by a refused RevokeAll: %v", err)
+	}
+	// CONTROL: from the live session the same call goes through (its own session the one revoked).
+	if rv, err := m.RevokeAll(ctx, tp, pa, s2.Session.ID, s2.Token, false); err != nil || rv.ThroughIdentity || len(rv.Sessions) != 1 {
+		t.Fatalf("CONTROL: a live unlinked session's RevokeAll = %+v, %v", rv, err)
+	}
+}
+
 // TestChangeOwnPassword_ThroughTheIdentitySignsInUnderEitherFlag is the card's dual-write criterion:
 //
 //	ON -> OFF   signed in through the identity, the password is changed: today's sign-in (flag off)
