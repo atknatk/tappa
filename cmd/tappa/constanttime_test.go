@@ -84,6 +84,11 @@ var constantTimeInventory = map[string]int{
 	// Attacker-fed in shape (the cookie travels through the browser; its own signature
 	// is checked first), so it decides an authentication outcome.
 	"internal/adminauth/proof.go": 1,
+	// The panel form's tenant binding (M14-10a, ADR 0031 §5.5): the `tb` query value a
+	// POST carries against the binding of the session's tenant under its raw token. It
+	// is ATTACKER-FED (the query string) and it is a synchronizer token, so it decides
+	// whether a write reaches the handler at all.
+	"internal/adminauth/formbind.go": 1,
 	// The signup state: CSRF and the signed cookie.
 	"internal/handler/signupstate.go": 2,
 	// The tap context's signed cookie.

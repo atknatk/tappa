@@ -245,7 +245,7 @@ templ accountVATMarker(v AccountView) {
 // A FIELD WITH A MESSAGE IS MARKED INVALID, so the frame a sighted owner sees and the
 // state a screen reader announces come from one attribute.
 templ accountForm(v AccountView) {
-	<form method="post" action={ templ.URL(v.PostHref) } class="flex flex-col gap-4 border-t border-dashed border-line pt-4">
+	<form method="post" action={ templ.URL(components.Bound(ctx, v.PostHref)) } class="flex flex-col gap-4 border-t border-dashed border-line pt-4">
 		<div class="field-stack">
 			<label class="lbl" for="account-name">Business name</label>
 			<input
@@ -374,7 +374,7 @@ templ accountForm(v AccountView) {
 // 🔴 NO SYNCHRONIZER TOKEN FIELD, matching every other panel write (sameOriginGate is the
 // CSRF defence, not a hidden field), and PanelShell loads no script for it.
 templ accountPasswordForm(v AccountView) {
-	<form method="post" action={ templ.URL(v.PasswordPostHref) } class="panel-card min-w-0" aria-labelledby="account-password-heading">
+	<form method="post" action={ templ.URL(components.Bound(ctx, v.PasswordPostHref)) } class="panel-card min-w-0" aria-labelledby="account-password-heading">
 		@accountCardHeading("account-password-heading", "Your password")
 		<p class="text-[13px] leading-normal text-ink/70">
 			This changes the password you sign in to Taptime with. Changing it keeps you
@@ -453,7 +453,7 @@ templ accountPasswordForm(v AccountView) {
 // unlinked row's press reaches this business alone, and the sentence says so. No synchronizer token
 // field, like every other panel write.
 templ accountSignOutEverywhere(v AccountView) {
-	<form method="post" action={ templ.URL(v.SignOutEverywhereHref) } class="panel-card min-w-0" aria-labelledby="account-everywhere-heading">
+	<form method="post" action={ templ.URL(components.Bound(ctx, v.SignOutEverywhereHref)) } class="panel-card min-w-0" aria-labelledby="account-everywhere-heading">
 		@accountCardHeading("account-everywhere-heading", "Sign out everywhere")
 		<p class="text-[13px] leading-normal text-ink/70">
 			if v.SignOutEverywhereEveryBusiness {
@@ -653,7 +653,7 @@ templ TapPreviewHeading(employeeName string) {
 // longer see.
 templ accountBrandLogo(e BrandEditor) {
 	<div class="flex flex-col gap-2.5 border-t border-dashed border-line pt-4">
-		<form method="post" action={ templ.URL(e.LogoPostHref) } enctype="multipart/form-data" class="flex flex-col gap-2.5">
+		<form method="post" action={ templ.URL(components.Bound(ctx, e.LogoPostHref)) } enctype="multipart/form-data" class="flex flex-col gap-2.5">
 			<label class="lbl" for="brand-logo">Logo</label>
 			<div class="flex flex-col gap-2 rounded-[14px] border-2 border-dashed border-ink/50 p-3">
 				<input
@@ -677,7 +677,7 @@ templ accountBrandLogo(e BrandEditor) {
 			</div>
 		</form>
 		if e.HasLogo {
-			<form method="post" action={ templ.URL(e.ResetPostHref) }>
+			<form method="post" action={ templ.URL(components.Bound(ctx, e.ResetPostHref)) }>
 				<input type="hidden" name="what" value="logo"/>
 				<button class="btn btn--line" type="submit">Remove the logo</button>
 			</form>
@@ -702,7 +702,7 @@ templ accountBrandLogo(e BrandEditor) {
 // to print.
 templ accountBrandAccent(e BrandEditor) {
 	<div class="flex flex-col gap-2.5 border-t border-dashed border-line pt-4">
-		<form method="post" action={ templ.URL(e.AccentPostHref) } class="flex flex-col gap-2.5">
+		<form method="post" action={ templ.URL(components.Bound(ctx, e.AccentPostHref)) } class="flex flex-col gap-2.5">
 			<label class="lbl" for="brand-accent">Accent colour</label>
 			<div class="flex flex-wrap items-center gap-2">
 				<input
@@ -744,7 +744,7 @@ templ accountBrandAccent(e BrandEditor) {
 					</p>
 				}
 				if e.Suggest != "" {
-					<form method="post" action={ templ.URL(e.AccentPostHref) } class="flex flex-wrap items-center gap-2">
+					<form method="post" action={ templ.URL(components.Bound(ctx, e.AccentPostHref)) } class="flex flex-wrap items-center gap-2">
 						<input type="hidden" name="accent_hex" value={ e.SuggestHex }/>
 						<input class="field-input w-11 shrink-0 px-1" type="color" value={ e.SuggestValue() } disabled aria-label="The suggested colour"/>
 						<button class="btn btn--line bg-paper" type="submit">Use <span class="ml-1 font-mono">{ e.Suggest }</span></button>
@@ -753,7 +753,7 @@ templ accountBrandAccent(e BrandEditor) {
 			</div>
 		}
 		if e.HasAccent {
-			<form method="post" action={ templ.URL(e.ResetPostHref) }>
+			<form method="post" action={ templ.URL(components.Bound(ctx, e.ResetPostHref)) }>
 				<input type="hidden" name="what" value="accent"/>
 				<button class="btn btn--line" type="submit">Back to Taptime green</button>
 			</form>

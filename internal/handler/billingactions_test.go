@@ -656,6 +656,7 @@ func TestBillingRoutes_AreRefusedCrossOriginBeforeTheResolverRuns(t *testing.T) 
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 

@@ -37,7 +37,7 @@ templ AdminBusinessDayReview(v BusinessDayReviewView) {
 			if v.Splits != "" {
 				<p class="text-sm leading-normal text-ink">{ v.Splits }</p>
 			}
-			<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-2.5 md:flex-row md:flex-wrap md:gap-3">
+			<form method="post" action={ templ.URL(components.Bound(ctx, v.Action)) } class="flex flex-col gap-2.5 md:flex-row md:flex-wrap md:gap-3">
 				for _, f := range v.Hidden {
 					<input type="hidden" name={ f.Name } value={ f.Value }/>
 				}
@@ -45,7 +45,7 @@ templ AdminBusinessDayReview(v BusinessDayReviewView) {
 				<a class="btn btn--line" href={ templ.URL(v.BackHref) }>Cancel</a>
 			</form>
 			if v.Suggest != nil {
-				<form method="post" action={ templ.URL(v.Suggest.Action) } class="flex flex-col gap-2.5">
+				<form method="post" action={ templ.URL(components.Bound(ctx, v.Suggest.Action)) } class="flex flex-col gap-2.5">
 					for _, f := range v.Suggest.Hidden {
 						<input type="hidden" name={ f.Name } value={ f.Value }/>
 					}

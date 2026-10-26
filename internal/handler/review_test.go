@@ -671,6 +671,7 @@ func TestReviewDecision_AMalformedFormNeverLogsWhatWasSubmitted(t *testing.T) {
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
@@ -865,6 +866,7 @@ func TestSameOriginRefusal_NamesTheRouteItRefused(t *testing.T) {
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"

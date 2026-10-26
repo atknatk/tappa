@@ -1466,6 +1466,7 @@ func newAdminRouterWithActionsUnder(t *testing.T, cfg *config.Config, admins *fa
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	return r
 }
 
@@ -1480,6 +1481,66 @@ type browser struct {
 	ip string
 	// origin is what the browser claims; "" omits the header entirely.
 	origin string
+	// tb is the last tenant binding a page this browser loaded put in a form's action
+	// (ADR 0031 §5.5, M14-10a). A POST to a bound panel route that names none is sent
+	// with it, which is what a real browser does when it submits the form it was shown.
+	// unbound turns that off, for the tests that measure the gate itself.
+	tb      string
+	unbound bool
+	// raw keeps the binding in the recorded page (learnBinding).
+	raw bool
+}
+
+// boundFormAction lifts a tenant binding out of a rendered form action.
+var boundFormAction = regexp.MustCompile(`[?&;]tb=([A-Za-z0-9_-]{43})`)
+
+// withBinding is path with the browser's last binding appended, when path is a panel
+// write the binding gate guards and does not already carry one.
+func (b *browser) withBinding(method, path string) string {
+	if method != http.MethodPost || b.unbound || strings.Contains(path, "tb=") ||
+		!strings.HasPrefix(path, "/admin/") || unboundPanelPost[strings.SplitN(path, "?", 2)[0]] {
+		return path
+	}
+	// A cross-origin POST is refused before the resolver; computing a binding for it
+	// would cost the fake a resolver answer the request itself never asked for.
+	if b.origin != testBaseURL {
+		return path
+	}
+	tb := bindingFor(b.h, b.cookies[adminauth.CookieName])
+	if tb == "" {
+		tb = b.tb
+	}
+	if tb == "" {
+		return path
+	}
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "tb=" + tb
+}
+
+// learnBinding keeps the binding the response's forms carry, if any, and then takes it
+// OUT of the recorded page unless the browser is raw.
+//
+// WHY THE PAGE IS NORMALISED: the binding is per session and per tenant, so every form
+// action in every page now ends in a different ?tb=…. The tests that read a page ask
+// where its forms post (a route, a field, a count); they predate the binding and are not
+// about it. The binding's own presence on every bound form is measured on the RAW page by
+// formbinding_test.go (TestPanelForms_EveryRenderedPostFormIsBound), and the gate's
+// answer to a missing or foreign one by the tests there.
+func (b *browser) learnBinding(rec *httptest.ResponseRecorder) {
+	m := boundFormAction.FindStringSubmatch(rec.Body.String())
+	if m == nil {
+		return
+	}
+	b.tb = m[1]
+	if b.raw {
+		return
+	}
+	body := strings.NewReplacer("?tb="+m[1], "", "&amp;tb="+m[1], "", "&tb="+m[1], "").Replace(rec.Body.String())
+	rec.Body.Reset()
+	rec.Body.WriteString(body)
 }
 
 func newBrowser(t *testing.T, h http.Handler) *browser {
@@ -1488,6 +1549,7 @@ func newBrowser(t *testing.T, h http.Handler) *browser {
 
 func (b *browser) do(method, path string, form url.Values) *httptest.ResponseRecorder {
 	b.t.Helper()
+	path = b.withBinding(method, path)
 	var req *http.Request
 	if form == nil {
 		req = httptest.NewRequest(method, path, nil)
@@ -1504,6 +1566,7 @@ func (b *browser) do(method, path string, form url.Values) *httptest.ResponseRec
 	}
 	rec := httptest.NewRecorder()
 	b.h.ServeHTTP(rec, req)
+	b.learnBinding(rec)
 	for _, ck := range rec.Result().Cookies() {
 		if ck.MaxAge < 0 || ck.Value == "" {
 			delete(b.cookies, ck.Name)
@@ -1518,6 +1581,7 @@ func (b *browser) do(method, path string, form url.Values) *httptest.ResponseRec
 // url.Values path would hide. Same cookies, same origin, same address as do().
 func (b *browser) doRaw(method, path, body string) *httptest.ResponseRecorder {
 	b.t.Helper()
+	path = b.withBinding(method, path)
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.RemoteAddr = b.ip
@@ -2427,6 +2491,7 @@ func TestAdminRoutes_AreAllUnderTheCookiePath(t *testing.T) {
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 
 	var routes []string
 	err = chi.Walk(r, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {

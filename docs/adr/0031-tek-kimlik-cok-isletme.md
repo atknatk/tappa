@@ -453,6 +453,39 @@ sonra gönderilirse **B'ye yazardı** — bugün panel yazmalarında tenant'a ba
   ek olarak her bağlı POST **POST-redirect-GET** ile biter (yönlendirme hedefinde `tb` yok — kabul
   kriteri) ve runbook ingress erişim log'unun kapalı ya da sorgusuz olduğunu doğrular.
 
+**M14-10a uygulama notları (2026-10-26, kullanıcı kararı — üçü de önerilen seçenek):**
+
+1. **Plaket encode rölesinin üç rotası bağdan muaftır** (`/admin/plaques/encode`, `…/step`, `…/abort`;
+   kapalı küme `encodeRelayRoutes`, `internal/handler/formbinding.go`; testte adıyla:
+   `TestFormBinding_EveryWritingRouteRefusesAPostWithoutItsBinding`). Sebep: bunlar form değil. Android
+   rölesi (`android/`, ADR 0017) sayfa çizmez, panel çerezini her istekte WebView'ın `CookieManager`'ından
+   okur — eski bir sayfası yoktur ve bağı öğrenemez; bağlansalardı plaket encode tamamen dururdu. Onları
+   koruyan zincir değişmedi: `floodGate` (adres tavanı) → `sameOriginGate` (Origin, çözümleyiciden
+   **önce**) → `requireAdmin` (oturum çerezi → `resolve_admin_session_by_token_hash`) → `sessionGate`
+   (oturum bütçesi) → `suspensionGate` (askıda JSON `suspended`) → `encodeGate` (oturum başına encode
+   tavanı + 8 KiB gövde sınırı); tur kimliği `Begin`'de oturumun tenant'ına bağlanır. Röle için bir bağ
+   sözleşmesi (rölenin bağı sunucudan alıp taşıması) **ileride açılabilecek ayrı bir iştir**.
+2. **Sayfayla cevap veren bağlı POST'lar `?tb=`'yi adres çubuğunda ve geçmişte bırakır** — doğrulama
+   hatasında yeniden çizilen form, inceleme/onay adımları, bir kez gösterilen anahtar ve link ekranları.
+   **Kabul edildi:** bağ o oturumun ham çerezi olmadan işe yaramaz — çerezi bilmeyen onu ne üretebilir
+   ne de tek başına yeniden oynatabilir (kapı çerezi ve Origin'i ayrıca ister). POST-redirect-GET
+   yönlendirmeyle biten her yazmada geçerlidir: hiçbir yönlendirme hedefi `tb` taşımaz (kapı bağı
+   handler'ın gördüğü URL'den siler; `TestFormBinding_NoRedirectCarriesTheBinding`,
+   `TestFormBinding_TheHandlerSeesNoBindingAndNoNewTenant`).
+3. **Ingress erişim log'u panel yollarında kapalı.** Ölçüm (repodan): denetleyicinin ConfigMap'i boş, yani
+   erişim log'u açık ve varsayılan biçim `"$request"`'i (sorgu dahil) yazar. `deploy/k8s/40-ingress.yaml`'a
+   ayrı bir Ingress (`tappa-panel`) eklendi: aynı host, TLS, sınıf, backend ve notlar, tek yol `/admin`
+   (Prefix — panel çerezinin `Path`'i, `adminauth.CookiePath`) ve
+   `nginx.ingress.kubernetes.io/enable-access-log: "false"`; cert-manager issuer notu yalnız `tappa`'da
+   (tek sır, tek Certificate). ingress-nginx en uzun öneki seçtiği için `/admin` ve altı yalnız
+   `tappa-panel`'e gider; geri kalan her şey `tappa`'da ve log'lu kalır. Pin:
+   `TestPackaging_ThePanelPathsAreRoutedWithoutAnAccessLog`. Doğrulama komutu runbook'ta
+   (`deploy/README.md`, *"Panel formlarının tenant bağı (M14-10a)"*). **Kabul edilen bedel
+   (denetim, 2026-10-26):** not yalnız **erişim** log'unu kapatır; denetleyicinin **hata** log'u nginx'in
+   kendisinin düşürdüğü bir panel isteğinde (1m'yi aşan gövdenin 413'ü, upstream bağlantı hatası, zaman
+   aşımı) istek satırını sorgusuyla birlikte yazmaya devam eder. Gerekçe not 2'ninki: bağ o oturumun ham
+   çerezi olmadan işe yaramaz. Yapılandırma değişmez.
+
 ### 5.6 Giriş
 
 Bayrak açıkken: e-posta → `resolve_identity_by_email` (≤ 1) → kimlik digest'i karşılaştırılır →

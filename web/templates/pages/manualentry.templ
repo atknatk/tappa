@@ -253,7 +253,7 @@ func manualTimeInvalid(problem string) bool {
 // mis-file somebody through. The one exception is a person with NO home venue (K-14):
 // the form then asks for the venue, and the statement reads it only for them.
 templ manualFormStep(v ManualEntryView) {
-	<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-4 font-display md:gap-[18px]">
+	<form method="post" action={ templ.URL(components.Bound(ctx, v.Action)) } class="flex flex-col gap-4 font-display md:gap-[18px]">
 		<input type="hidden" name="id" value={ v.EmployeeID }/>
 		<fieldset class="flex flex-col">
 			<legend class="lbl mb-2">What happened</legend>
@@ -404,7 +404,7 @@ templ manualFormStep(v ManualEntryView) {
 // reading order. The form carries only hidden fields and the button: nothing on this step
 // can be typed into, so what is posted is what the summary says.
 templ manualConfirmStep(v ManualEntryView) {
-	<form method="post" action={ templ.URL(v.RecordAction) } class="flex flex-col gap-4 font-display">
+	<form method="post" action={ templ.URL(components.Bound(ctx, v.RecordAction)) } class="flex flex-col gap-4 font-display">
 		<div class="flex flex-col gap-1 rounded-xl border border-dashed border-ink/50 px-3.5 py-3 font-mono md:px-4 md:py-3.5">
 			<p class="lbl">About to be recorded</p>
 			<p class="text-sm font-bold text-ink md:text-[15px]">

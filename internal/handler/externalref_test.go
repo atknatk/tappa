@@ -39,6 +39,7 @@ func refVenueBrowser(t *testing.T, role string, venues *fakeVenues, trail *fakeT
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	return b
@@ -252,6 +253,7 @@ func TestPanelWrites_EveryRouteMountWritingRegistersRefusesAForeignOriginBeforeT
 	}
 	full := chi.NewRouter()
 	a.Mount(full)
+	registerPanel(full, a)
 	writing := chi.NewRouter()
 	a.mountWriting(writing)
 	var routes []string

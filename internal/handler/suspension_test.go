@@ -100,13 +100,21 @@ func tripwirePanelUnder(t *testing.T, identity bool, admins *fakeAdmins, trail a
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	return r
 }
 
 // suspensionDrive sends one request the way a signed-in browser on this origin would,
 // and recovers a tripwire's panic into the second result.
 func suspensionDrive(h http.Handler, method, route string) (rec *httptest.ResponseRecorder, tripped any) {
-	req := httptest.NewRequest(method, route, strings.NewReader(""))
+	target := route
+	if method == http.MethodPost {
+		// The page's binding, as the form a signed-in browser submits carries it
+		// (M14-10a): without it every write would stop at the binding ring, one ring
+		// before the suspension gate this walk measures.
+		target = boundPath(h, suspensionCookieValue, route)
+	}
+	req := httptest.NewRequest(method, target, strings.NewReader(""))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", testBaseURL)
 	req.RemoteAddr = "203.0.113.9:1234"
@@ -437,6 +445,7 @@ func TestSuspensionStrip_EverySectionShowsItInTheBusinesssTimezone(t *testing.T)
 		}
 		r := chi.NewRouter()
 		h.Mount(r)
+		registerPanel(r, h)
 		rec, tripped := suspensionDrive(r, http.MethodGet, href)
 		if tripped != nil || rec.Code != http.StatusOK {
 			t.Fatalf("GET %s = %d (%v)", href, rec.Code, tripped)
@@ -625,7 +634,7 @@ func TestSuspensionGate_AFailedRefusalRowStillRefusesAndLogsThreeFields(t *testi
 			tenant := uuid.New()
 			code := c.code
 			h := tripwirePanel(t, suspendedIdentity(tenant, uuid.New(), uuid.New(), &code), trail, log)
-			req := httptest.NewRequest(http.MethodPost, route, strings.NewReader("full_name=PROBE-FORM-VALUE"))
+			req := httptest.NewRequest(http.MethodPost, boundPath(h, suspensionCookieValue, route), strings.NewReader("full_name=PROBE-FORM-VALUE"))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			req.Header.Set("Origin", testBaseURL)
 			req.RemoteAddr = "203.0.113.9:1234"
@@ -681,7 +690,7 @@ func TestSuspensionGate_TheRowIsWrittenBeforeTheAnswer(t *testing.T) {
 	for _, route := range []string{venueSaveHref, plaqueEncodeStepHref} {
 		trail := &orderTrail{}
 		h := tripwirePanel(t, suspendedIdentity(uuid.New(), uuid.New(), uuid.New(), codePtr(db.SuspensionNonPayment)), trail, discardLogger())
-		req := httptest.NewRequest(http.MethodPost, route, strings.NewReader(""))
+		req := httptest.NewRequest(http.MethodPost, boundPath(h, suspensionCookieValue, route), strings.NewReader(""))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("Origin", testBaseURL)
 		req.RemoteAddr = "203.0.113.9:1234"
@@ -798,10 +807,13 @@ func TestSuspensionChain_TheGateIsTheLastRingOfProtectWriting(t *testing.T) {
 		}
 		return rings
 	}
-	if got, want := ringsOf("ProtectWriting"), []string{"floodGate", "sameOriginGate", "requireAdmin", "sessionGate", "suspensionGate"}; !slices.Equal(got, want) {
+	// M14-10a (ADR 0031 §5.5): the form binding is a ring of BOTH chains, after the
+	// session budget and BEFORE the suspension ring, so a stale page's POST is refused
+	// without the suspension gate writing its refusal row into the other business.
+	if got, want := ringsOf("ProtectWriting"), []string{"floodGate", "sameOriginGate", "requireAdmin", "sessionGate", "formBindingGate", "suspensionGate"}; !slices.Equal(got, want) {
 		t.Errorf("ProtectWriting is %v, want %v", got, want)
 	}
-	if got, want := ringsOf("protectWritingThroughSuspension"), []string{"floodGate", "sameOriginGate", "requireAdmin", "sessionGate"}; !slices.Equal(got, want) {
+	if got, want := ringsOf("protectWritingThroughSuspension"), []string{"floodGate", "sameOriginGate", "requireAdmin", "sessionGate", "formBindingGate"}; !slices.Equal(got, want) {
 		t.Errorf("protectWritingThroughSuspension is %v, want %v", got, want)
 	}
 	// The declaration's name is not a selector, so the one selector is mountWriting's

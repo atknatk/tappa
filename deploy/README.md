@@ -80,7 +80,8 @@ küme kapsamlı olanlar **hâlâ 3**, çünkü `CronJob` namespace'li):
 > `CronJob`'ı. İkisi de namespace'li, yani küme kapsamlı sayı **hâlâ 3**. `--dry-run=client`
 > ölçümü orkestratörün küme adımlarında.
 > ⚠️ 2026-10-10 (T112): `41-operator-ingress.yaml`'ın iki `Ingress`'i (namespace'li) →
-> **Güncel sayım: 20/3/17** (toplam / küme kapsamlı / namespace'li). Bu satır artık elle
+> ⚠️ 2026-10-26 (M14-10a): `40-ingress.yaml`'ın üçüncü `Ingress`'i (`tappa-panel`, namespace'li) →
+> **Güncel sayım: 21/3/18** (toplam / küme kapsamlı / namespace'li). Bu satır artık elle
 > tutulmuyor: `TestPackaging_TheReadmeCountsTheManifestObjects` dosyalardaki sütun-0 `kind:`
 > satırlarını sayar (yukarıdaki `grep`'in aynısı), türleri kapsamına göre ayırır ve bu çapayı
 > arar — bir manifest eklenip sayı güncellenmezse kırmızı. `--dry-run=client` ölçümü yine
@@ -1988,6 +1989,73 @@ beklenen (2026-10-22 sayılarıyla): `3|3|1`.
 kimliklerden biri backfill'den sonra **yaşamışsa** (başka yolla bağlanmış bir satır, ret damgası,
 doğrulanmış adres, onay penceresi, giriş, son kullanılan işletme ya da başka bir tablodan ona işaret eden
 satır) hiçbir şeyi değiştirmeden **reddeder** — geri dönüş önceki binary'dir (ADR 0031 §8).
+
+### Panel formlarının tenant bağı (M14-10a)
+
+Her panel POST formunun `action`'ı `?tb=<bağ>` taşır (ADR 0031 §5.5): oturumun işletmesinin, oturumun
+**ham** token'ından türetilmiş anahtarla MAC'i (`internal/adminauth/formbind.go`). İki yazma zinciri
+(`ProtectWriting`, `protectWritingThroughSuspension`) bağı gövdeye dokunmadan, askı halkasından ve her
+yazmadan **önce** karşılaştırır; uyuşmazsa **409** *"This page belongs to another business — reload it."*
+Bayraktan bağımsız, her zaman açık. Tek adlandırılmış istisna plaket encode rölesinin üç rotası (form
+değil; Android rölesi sayfa çizmez ve bağı öğrenemez — kullanıcı kararı 2026-10-26, ADR 0031 §5.5'in
+M14-10a notu 1; onları Origin, oturum, oturum bütçesi, askı ve encode tavanı korumaya devam eder).
+
+**Adlandırılmış bedeller:**
+
+- **Bu binary'nin rollout'u:** eski binary'nin çizdiği sayfalarda bağ yok. Rollout'tan sonra açık kalmış
+  her panel formu **bir kez** 409 alır ve hiçbir şey yazmaz; sayfayı yenilemek çözer. Destek cümlesi:
+  *"sayfayı yenileyin"*.
+- **`TAPPA_SESSION_HMAC_KEY` rotasyonu:** aynı anahtar hem `admin_sessions.token_hash`'i
+  (`internal/adminauth/token.go`, `deriveKey`) hem bağı anahtarlar. Rotasyonda **önce oturumlar ölür**:
+  açık bir formun POST'u çözümleyicide düşer ve `303 → /admin/login` alır (409 değil), hiçbir şey
+  yazılmaz; herkes yeniden girer. İleride oturumları rotasyondan geçiren bir ikili anahtar eklenirse açık
+  formların payı 409 olur. İki durumda da bedel: açık her panel formu bir kez reddedilir.
+
+**Bağ hiçbir URL'de kalmamalı (S14) — ölçülenler:**
+
+- Uygulama log'u yalnız rota desenini yazar, URL'yi değil (`internal/httpx/requestlog.go`, `AccessLog`).
+- Panel `<meta name="referrer" content="no-referrer">` gönderir (`web/templates/layout/base.templ`).
+- Kapı bağı isteğin URL'sinden **siler**; handler onu göremez, yönlendirme hedefi taşıyamaz. Her bağlı
+  rotada `Location`'da `tb` yok (`TestFormBinding_NoRedirectCarriesTheBinding`).
+- **Sayfayla cevap veren POST'lar** (doğrulama hatasında yeniden çizilen form, inceleme/onay adımları,
+  bir kez gösterilen anahtar/link ekranı) adres çubuğunda ve geçmişte `?tb=…`'yi bırakır. **Kabul
+  edildi** (kullanıcı kararı 2026-10-26, ADR 0031 §5.5 not 2): bağ o oturumun ham çerezi olmadan ne
+  üretilebilir ne de tek başına oynatılabilir. PRG yönlendirmeyle biten her yazmada geçerli (yukarıdaki test).
+- **Ingress erişim log'u panel yollarında KAPALI** (kullanıcı kararı 2026-10-26, ADR 0031 §5.5 not 3).
+  Ölçüm (yalnız repodan, 2026-10-23): `ingress-nginx` ConfigMap'i boş (`deploy/k8s/40-ingress.yaml`'ın
+  ölçüm notu), yani denetleyicinin erişim log'u açık ve varsayılan `log-format-upstream` `"$request"`'i
+  — sorgu dahil tam istek satırını — yazar; ADR 0020 de *"Ingress erişim log'u URL'yi yazar"* der.
+  Değişiklik: `40-ingress.yaml`'a üçüncü Ingress **`tappa-panel`** — host `taptime.mt`, tek yol `/admin`
+  (Prefix; panel çerezinin `Path`'i), TLS/sınıf/backend/etiketler ve notlar `tappa`'nınkiyle aynı,
+  artı `nginx.ingress.kubernetes.io/enable-access-log: "false"`; cert-manager issuer notu yalnız
+  `tappa`'da (tek sır `taptime-tls`, tek Certificate — 41'in konsol/legal çiftinin kuralı). `tappa`
+  `/`'yi yönlendirmeye devam eder; ingress-nginx en uzun öneki seçtiği için `/admin` ve altı **yalnız**
+  `tappa-panel`'e gider. Bedel: panel istekleri ingress erişim log'unda görünmez (süreç log'u rota
+  desenini yazmaya devam eder). Pin: `TestPackaging_ThePanelPathsAreRoutedWithoutAnAccessLog`.
+  **Kabul edilen bedel:** not yalnız erişim log'unu kapatır; denetleyicinin **hata** log'u, nginx'in
+  kendisinin düşürdüğü bir panel isteğinde (1m'yi aşan logo gövdesinin 413'ü, upstream bağlantı hatası,
+  zaman aşımı) istek satırını sorgusuyla yazmaya devam eder — gerekçe kararın 2. maddesiyle aynı (bağ ham
+  çerez olmadan işe yaramaz; ADR 0031 §5.5 not 3). Yapılandırma değişmez.
+  Deploy aynı `kubectl apply -f deploy/k8s/40-ingress.yaml` adımıyla uygular (RBAC'ta `create` var).
+
+  **Doğrulama (deploy'dan sonra, küme yöneticisi, salt-okur).** Önce iki nesne, yolları ve log notu;
+  beklenen `tappa` için `/` ve `<none>`, `tappa-panel` için `/admin` ve `false`:
+
+  ```bash
+  kubectl -n tappa get ingress tappa tappa-panel \
+    -o custom-columns='NAME:.metadata.name,PATHS:.spec.rules[*].http.paths[*].path,ACCESSLOG:.metadata.annotations.nginx\.ingress\.kubernetes\.io/enable-access-log'
+  ```
+
+  Sonra panelde bir sayfa açıp bir form gönderdikten sonra, denetleyicinin log'unda panel satırı
+  sayısı — yalnız sayı basar; denetleyici bir DaemonSet ise `deploy/` yerine `ds/`. Beklenen `0` ve `0`
+  (öteki yollar, ör. ` /t?`, log'da görünmeye devam eder). ⚠️ İki sayı hata satırlarını da sayar
+  (`logs` erişim ve hata log'unu birlikte basar): `0` yalnız o pencerede panel isteklerinde nginx hatası
+  olmadıysa beklenir; `> 0` görülürse önce o satırların hata satırı olup olmadığına bakılır:
+
+  ```bash
+  kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --since=10m | grep -c ' /admin'
+  kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --since=10m | grep -c 'tb='
+  ```
 
 ---
 

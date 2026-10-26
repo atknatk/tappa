@@ -35,7 +35,7 @@ templ VenueForm(v VenueFormView, side VenueFormSide) {
 					<p>{ v.ErrorMessage }</p>
 				}
 			}
-			<form method="post" action={ templ.URL(v.Action) } aria-label={ v.Heading } class="flex min-w-0 flex-col rounded-[18px] border border-line bg-paper px-4 pb-6 pt-1 md:px-7 md:pb-7 md:pt-2">
+			<form method="post" action={ templ.URL(Bound(ctx, v.Action)) } aria-label={ v.Heading } class="flex min-w-0 flex-col rounded-[18px] border border-line bg-paper px-4 pb-6 pt-1 md:px-7 md:pb-7 md:pt-2">
 				if v.ID != "" {
 					<input type="hidden" name="id" value={ v.ID }/>
 				}
@@ -370,7 +370,7 @@ templ venueRefForm(v VenueRefFormView) {
 	<section aria-labelledby="vf-ref-h" class="flex flex-col gap-2.5 rounded-[18px] border border-line bg-paper px-[22px] py-5">
 		<h2 id="vf-ref-h" class="font-display text-lg font-bold tracking-tight">External ref <span class="font-mono text-xs font-normal text-ink/70">optional</span></h2>
 		if v.CanChange {
-			<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-2.5">
+			<form method="post" action={ templ.URL(Bound(ctx, v.Action)) } class="flex flex-col gap-2.5">
 				<input type="hidden" name="id" value={ v.ID }/>
 				<div class="field-stack">
 					<label class="lbl" for="venue-external-ref">Identifier in your HR or ERP system</label>
@@ -413,7 +413,7 @@ templ DepartmentForm(v DepartmentFormView) {
 					<p>{ v.ErrorMessage }</p>
 				}
 			}
-			<form method="post" action={ templ.URL(v.Action) } aria-label={ v.Heading } class="flex min-w-0 flex-col rounded-[18px] border border-line bg-paper px-4 pb-6 pt-1 md:px-7 md:pb-7 md:pt-2">
+			<form method="post" action={ templ.URL(Bound(ctx, v.Action)) } aria-label={ v.Heading } class="flex min-w-0 flex-col rounded-[18px] border border-line bg-paper px-4 pb-6 pt-1 md:px-7 md:pb-7 md:pt-2">
 				if v.ID != "" {
 					<input type="hidden" name="id" value={ v.ID }/>
 				}
@@ -617,7 +617,7 @@ templ Removal(v RemovalView) {
 					belongs to this { v.Kind } right now, so no hours are affected. A record
 					of the removal is kept.
 				</p>
-				<form method="post" action={ templ.URL(v.Action) } class="mt-1.5 flex flex-wrap gap-2.5">
+				<form method="post" action={ templ.URL(Bound(ctx, v.Action)) } class="mt-1.5 flex flex-wrap gap-2.5">
 					<input type="hidden" name="id" value={ v.ID }/>
 					<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
 					<button type="submit" class="btn btn--danger">Yes, remove it</button>

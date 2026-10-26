@@ -372,6 +372,7 @@ func (f *webhookPanelFixture) suspendedOwnerBrowser(t *testing.T, code db.Suspen
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	return b

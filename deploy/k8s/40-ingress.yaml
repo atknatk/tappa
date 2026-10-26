@@ -175,6 +175,67 @@ spec:
                 port:
                   name: http
 ---
+# 🔴 THE PANEL'S PATHS, WITH NO ACCESS LOG (M14-10a, ADR 0031 §5.5 S14; user decision
+# 2026-10-26). Every panel POST form's action carries the tenant binding in its query
+# (?tb=...). This controller runs with an EMPTY ConfigMap (the header above), so its
+# access log is ON and its default log-format-upstream writes "$request" -- the full
+# request line, query included. The binding would land in the controller's stdout on
+# every panel write. This Ingress takes the panel's prefix (adminauth.CookiePath, /admin:
+# the panel cookie is scoped to it, so every panel route lives under it) off the `tappa`
+# Ingress's "/" and turns the access log off for it alone; ingress-nginx sends a request
+# to the LONGEST matching prefix, so /admin and /admin/... are routed here exactly once and
+# everything else stays on `tappa`, logged as before (the shape 41's console and legal
+# pair already uses for one host).
+#
+# EVERYTHING ELSE IS THE `tappa` INGRESS'S, field for field: host, TLS block (the same
+# secret), class, backend, the two HTTPS redirects and the 1m body limit -- the logo
+# upload, /admin/account/brand/logo, is a panel route. ONE DIFFERENCE, deliberate: no
+# cert-manager.io/cluster-issuer. The issuer annotation makes cert-manager create a
+# Certificate for the TLS secret; two annotated Ingresses naming one secret would be two
+# owners of one Certificate. `tappa` keeps it and issues taptime-tls for both (41's
+# console/legal pair, same rule). Pinned by TestPackaging_ThePanelPathsAreRoutedWithoutAnAccessLog.
+#
+# WHAT IS LOST: panel requests no longer appear in the ingress access log. The process
+# log still writes one line per response with the ROUTE PATTERN and never the URL
+# (internal/httpx/requestlog.go), and the panel's flood and session budgets log their
+# own refusals.
+#
+# WHAT IS NOT CLOSED, ACCEPTED (2026-10-26, the rationale of ADR 0031 §5.5 note 2): this
+# annotation turns off the ACCESS log only. The controller's ERROR log still writes the
+# request line, query included, when nginx itself fails a panel request -- a body over
+# the 1m limit (its 413), an upstream connect error, a timeout. The binding in such a
+# line is useless without that session's raw cookie, so the cost is named, not closed;
+# no other setting changes (ADR 0031 §5.5 note 3).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tappa-panel
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/enable-access-log: "false"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - taptime.mt
+      secretName: taptime-tls
+  rules:
+    - host: taptime.mt
+      http:
+        paths:
+          - path: /admin
+            pathType: Prefix
+            backend:
+              service:
+                name: tappa
+                port:
+                  name: http
+---
 # 🔴 EVERY NON-CANONICAL HOST 301s HERE — NOT ONE OF THEM SERVES CONTENT. Two hosts
 # 301 to https://taptime.mt (the apex home — the path is NOT carried, see below):
 #

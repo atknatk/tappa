@@ -1632,7 +1632,7 @@ func policySwitch(r PolicyRuleView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var69 templ.SafeURL = templ.URL(r.Action)
+			var templ_7745c5c3_Var69 templ.SafeURL = templ.URL(components.Bound(ctx, r.Action))
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var69)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1753,7 +1753,7 @@ func policyBindings(r PolicyRuleView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var77 templ.SafeURL = templ.URL(r.Action)
+				var templ_7745c5c3_Var77 templ.SafeURL = templ.URL(components.Bound(ctx, r.Action))
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var77)))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -1812,7 +1812,7 @@ func policyBindings(r PolicyRuleView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var81 templ.SafeURL = templ.URL(r.Action)
+			var templ_7745c5c3_Var81 templ.SafeURL = templ.URL(components.Bound(ctx, r.Action))
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var81)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1916,7 +1916,7 @@ func policyAuthoring(v PoliciesView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var86 templ.SafeURL = templ.URL(v.Action)
+			var templ_7745c5c3_Var86 templ.SafeURL = templ.URL(components.Bound(ctx, v.Action))
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var86)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

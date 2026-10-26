@@ -39,6 +39,7 @@ func newLoginAuth(t *testing.T, admins *fakeAdmins, trail *fakeTrail, on bool) (
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	return h, r
 }
 

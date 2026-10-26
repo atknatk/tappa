@@ -713,7 +713,7 @@ func accountForm(v AccountView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var27 templ.SafeURL = templ.URL(v.PostHref)
+		var templ_7745c5c3_Var27 templ.SafeURL = templ.URL(components.Bound(ctx, v.PostHref))
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var27)))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -1082,7 +1082,7 @@ func accountPasswordForm(v AccountView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var44 templ.SafeURL = templ.URL(v.PasswordPostHref)
+		var templ_7745c5c3_Var44 templ.SafeURL = templ.URL(components.Bound(ctx, v.PasswordPostHref))
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var44)))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -1215,7 +1215,7 @@ func accountSignOutEverywhere(v AccountView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var50 templ.SafeURL = templ.URL(v.SignOutEverywhereHref)
+		var templ_7745c5c3_Var50 templ.SafeURL = templ.URL(components.Bound(ctx, v.SignOutEverywhereHref))
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var50)))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -1765,7 +1765,7 @@ func accountBrandLogo(e BrandEditor) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var67 templ.SafeURL = templ.URL(e.LogoPostHref)
+		var templ_7745c5c3_Var67 templ.SafeURL = templ.URL(components.Bound(ctx, e.LogoPostHref))
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var67)))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -1792,7 +1792,7 @@ func accountBrandLogo(e BrandEditor) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var69 templ.SafeURL = templ.URL(e.ResetPostHref)
+			var templ_7745c5c3_Var69 templ.SafeURL = templ.URL(components.Bound(ctx, e.ResetPostHref))
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var69)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1850,7 +1850,7 @@ func accountBrandAccent(e BrandEditor) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var71 templ.SafeURL = templ.URL(e.AccentPostHref)
+		var templ_7745c5c3_Var71 templ.SafeURL = templ.URL(components.Bound(ctx, e.AccentPostHref))
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var71)))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -1950,7 +1950,7 @@ func accountBrandAccent(e BrandEditor) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var77 templ.SafeURL = templ.URL(e.AccentPostHref)
+				var templ_7745c5c3_Var77 templ.SafeURL = templ.URL(components.Bound(ctx, e.AccentPostHref))
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var77)))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -2009,7 +2009,7 @@ func accountBrandAccent(e BrandEditor) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var81 templ.SafeURL = templ.URL(e.ResetPostHref)
+			var templ_7745c5c3_Var81 templ.SafeURL = templ.URL(components.Bound(ctx, e.ResetPostHref))
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var81)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

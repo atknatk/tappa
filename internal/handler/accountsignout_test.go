@@ -60,6 +60,7 @@ func signOutBrowserWith(t *testing.T, flag, linked bool, admins *fakeAdmins, tra
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	return b

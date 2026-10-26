@@ -149,6 +149,7 @@ func encodeRouter(t *testing.T, admins *fakeAdmins, enc PlaqueEncoder, log *slog
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	return r
 }
 

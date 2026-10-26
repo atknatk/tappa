@@ -65,6 +65,7 @@ func billingBrowserWithTrail(t *testing.T, books panelBooks, trail *fakeTrail, r
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	return b

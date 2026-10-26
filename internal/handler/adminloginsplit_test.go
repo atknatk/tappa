@@ -256,6 +256,7 @@ func TestAdminLogin_ChromeLinksReachRoutesThatAreMounted(t *testing.T) {
 	}
 	r := chi.NewRouter()
 	auth.Mount(r)
+	registerPanel(r, auth)
 	reset.Mount(r)
 	wizard.Mount(r)
 

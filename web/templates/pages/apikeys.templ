@@ -152,7 +152,7 @@ templ apiKeyBudgetAlerts(v APIKeysView) {
 // apiKeyCreateForm names a new key. Stacked on a phone; the field and the button share a row
 // from the tablet up.
 templ apiKeyCreateForm(v APIKeysView) {
-	<form method="post" action={ templ.URL(v.PostHref) } class="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-end desk:w-[340px] desk:flex-none">
+	<form method="post" action={ templ.URL(components.Bound(ctx, v.PostHref)) } class="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-end desk:w-[340px] desk:flex-none">
 		<div class="field-stack md:flex-1">
 			<label class="lbl" for="api-key-name">Name</label>
 			<input
@@ -245,7 +245,7 @@ templ apiKeysList(v APIKeysView) {
 			}
 		</ul>
 		if v.AnyLive() {
-			<form method="post" action={ templ.URL(v.RevokeAllHref) } class="flex flex-col gap-2.5 border-t border-line pt-3.5">
+			<form method="post" action={ templ.URL(components.Bound(ctx, v.RevokeAllHref)) } class="flex flex-col gap-2.5 border-t border-line pt-3.5">
 				<p class="max-w-2xl text-sm leading-normal text-ink/70">
 					If a key may have leaked and you do not know which, revoke them all. Every
 					integration stops at once until you give it a new key.
@@ -274,7 +274,7 @@ templ apiKeyStatusPill(k APIKeyRow) {
 // apiKeyRevokeForm revokes one key at once (a single key is one press; the screen file keeps it).
 // The button's name carries the key's name for a screen reader, which hears a row of "Revoke"s.
 templ apiKeyRevokeForm(v APIKeysView, k APIKeyRow) {
-	<form method="post" action={ templ.URL(v.RevokeHref) } class="flex-none">
+	<form method="post" action={ templ.URL(components.Bound(ctx, v.RevokeHref)) } class="flex-none">
 		<input type="hidden" name="key_id" value={ k.ID }/>
 		<button class="btn btn--danger" type="submit">Revoke<span class="sr-only">{ " " + k.Name }</span></button>
 	</form>
@@ -415,16 +415,16 @@ templ webhookBody(w WebhookView) {
 			}
 			<div class="flex flex-col gap-2 md:flex-row md:flex-wrap">
 				if w.APIEnabled && w.Active && !w.BucketFull() {
-					<form method="post" action={ templ.URL(w.PingHref) }>
+					<form method="post" action={ templ.URL(components.Bound(ctx, w.PingHref)) }>
 						<button class="btn btn--primary w-full rounded-xl md:w-auto" type="submit">Send a test message</button>
 					</form>
 				}
 				if w.Active {
-					<form method="post" action={ templ.URL(w.DisableHref) }>
+					<form method="post" action={ templ.URL(components.Bound(ctx, w.DisableHref)) }>
 						<button class="btn btn--line w-full md:w-auto" type="submit">Switch the webhook off</button>
 					</form>
 				} else if w.APIEnabled {
-					<form method="post" action={ templ.URL(w.EnableHref) }>
+					<form method="post" action={ templ.URL(components.Bound(ctx, w.EnableHref)) }>
 						<button class="btn btn--line w-full md:w-auto" type="submit">Switch the webhook on</button>
 					</form>
 				}
@@ -438,7 +438,7 @@ templ webhookBody(w WebhookView) {
 				</p>
 			}
 			if w.APIEnabled {
-				<form method="post" action={ templ.URL(w.RotateHref) } class="flex flex-col gap-2.5 border-t border-dashed border-line pt-3">
+				<form method="post" action={ templ.URL(components.Bound(ctx, w.RotateHref)) } class="flex flex-col gap-2.5 border-t border-dashed border-line pt-3">
 					<p class="text-[13px] leading-normal text-ink/70">
 						If the signing key may have leaked, give the webhook a new one. Your system must switch to
 						the new key: messages signed with the old one stop at once.
@@ -621,7 +621,7 @@ templ webhookDeliveryNote(d WebhookDeliveryRow) {
 
 // webhookResendForm sends one delivery again now.
 templ webhookResendForm(w WebhookView, d WebhookDeliveryRow) {
-	<form method="post" action={ templ.URL(w.ResendHref) } class="flex-none">
+	<form method="post" action={ templ.URL(components.Bound(ctx, w.ResendHref)) } class="flex-none">
 		<input type="hidden" name="delivery" value={ d.ID }/>
 		<button class="btn btn--line whitespace-nowrap" type="submit">Send again now</button>
 	</form>
@@ -631,7 +631,7 @@ templ webhookResendForm(w WebhookView, d WebhookDeliveryRow) {
 // (the primary act on a card with nothing else) or changing its address (pre-filled with the
 // saved one).
 templ webhookAddressForm(w WebhookView, action, label, fieldID, value string, primary bool) {
-	<form method="post" action={ templ.URL(action) } class="flex flex-col gap-2.5">
+	<form method="post" action={ templ.URL(components.Bound(ctx, action)) } class="flex flex-col gap-2.5">
 		<div class="field-stack">
 			<label class="lbl" for={ fieldID }>Address</label>
 			<input

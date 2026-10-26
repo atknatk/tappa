@@ -288,6 +288,7 @@ func policyBrowserWith(t *testing.T, rules panelRules, scribe panelScribe) *brow
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	return b
@@ -1501,6 +1502,7 @@ func mountedRoutes(t *testing.T) map[string]bool {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
 	h.Mount(r)
+	registerPanel(r, h)
 	out := map[string]bool{}
 	if err := chi.Walk(r, func(_, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
 		out[route] = true
