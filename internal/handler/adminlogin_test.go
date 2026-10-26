@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -79,6 +80,40 @@ type fakeAdmins struct {
 	person        func(email, password string, want uuid.UUID, budget adminauth.FailureBudget) (adminauth.PersonSignIn, error)
 	personCalls   int
 	personBudgets []adminauth.FailureBudget
+
+	// switchTo is the hook for Switch (M14-10). Nil means "refused" (ErrSwitchRefused), so no
+	// test that does not care moves a session. switchTargets records every target asked for.
+	switchTo      func(target uuid.UUID) (adminauth.Issued, error)
+	switchTargets []uuid.UUID
+	// memberships is the hook for Memberships (M14-10). Nil means none.
+	memberships func() ([]adminauth.Membership, error)
+}
+
+func (f *fakeAdmins) Switch(_ context.Context, _ adminauth.Token, target uuid.UUID) (adminauth.Issued, error) {
+	f.mu.Lock()
+	f.switchTargets = append(f.switchTargets, target)
+	hook := f.switchTo
+	f.mu.Unlock()
+	if hook == nil {
+		return adminauth.Issued{}, adminauth.ErrSwitchRefused
+	}
+	return hook(target)
+}
+
+func (f *fakeAdmins) switchCalls() []uuid.UUID {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.switchTargets)
+}
+
+func (f *fakeAdmins) Memberships(context.Context, adminauth.Token) ([]adminauth.Membership, error) {
+	f.mu.Lock()
+	hook := f.memberships
+	f.mu.Unlock()
+	if hook == nil {
+		return nil, nil
+	}
+	return hook()
 }
 
 // revokeAllArgs is one recorded RevokeAll call.
@@ -2489,9 +2524,28 @@ func TestAdminScreens_NeverRenderACredential(t *testing.T) {
 // TestAdminRoutes_AreAllUnderTheCookiePath. The panel cookie is Path=/admin, so a
 // route outside that prefix would arrive with no cookie and look permanently
 // signed out. This is a structural tripwire for the next person adding a route.
+//
+// BOTH STATES OF THE PANEL IDENTITY FLAG are walked (M14-10's third-eye audit): the identity
+// surfaces are mounted only while TAPPA_ADMIN_IDENTITY is on (mountGated), so a walk with the
+// flag off never saw /admin/switch or "sign out everywhere". With the flag on the walk must
+// report those routes -- the positive check that the surfaces were walked at all.
+//
+// MUTATION (measured): adminSwitchHref = "/switch" -> red here (outside the cookie path, and
+// the expected route not walked).
 func TestAdminRoutes_AreAllUnderTheCookiePath(t *testing.T) {
+	for _, identity := range []bool{false, true} {
+		t.Run(map[bool]string{false: "flag off", true: "flag on"}[identity], func(t *testing.T) {
+			adminRoutesUnderTheCookiePath(t, identity)
+		})
+	}
+}
+
+func adminRoutesUnderTheCookiePath(t *testing.T, identity bool) {
+	t.Helper()
+	cfg := adminTestConfig()
+	cfg.AdminIdentity = identity
 	nilCfgLedger := newFakeLedger()
-	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, nilCfgLedger, nilCfgLedger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, nilCfgLedger, nilCfgLedger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -2521,6 +2575,13 @@ func TestAdminRoutes_AreAllUnderTheCookiePath(t *testing.T) {
 	}
 	if len(routes) == 0 {
 		t.Fatalf("no routes were mounted — the assertion is vacuous")
+	}
+	// The identity surfaces, by their literal paths (not the constants, which a mutation moves).
+	surfaces := []string{"GET /admin/switch", "POST /admin/switch", "POST /admin/account/sign-out-everywhere"}
+	for _, want := range surfaces {
+		if walked := slices.Contains(routes, want); walked != identity {
+			t.Errorf("flag on=%v: %s walked=%v, want %v", identity, want, walked, identity)
+		}
 	}
 	t.Logf("panel routes (%d): %s", len(routes), strings.Join(routes, ", "))
 }
@@ -2764,6 +2825,20 @@ func TestPanelConstants_ShippedValuesArePinned(t *testing.T) {
 				"comparison) instead of growing to ~410. Still above the largest modelled office (60).",
 		},
 		{
+			"adminSwitchLimit", adminSwitchLimit, 30,
+			"switching businesses, keyed by the PERSON (+ address), never the session: every switch " +
+				"is a new session, so a session budget would reset on each hop (ADR 0031 §5.4, bulgu 8). " +
+				"30 per 10 minutes = one every 20 s sustained, far above a person's handful an hour; " +
+				"each switch writes a session row, a revocation stamp and two audit rows, so a stolen " +
+				"cookie leaves at most 120 rows a window per address.",
+		},
+		{
+			"adminSwitchPersonLimit", adminSwitchPersonLimit, 120,
+			"the switch's per-PERSON cap across addresses (M14-10 security review): without it N " +
+				"addresses buy 30 x N switches, each writing four permanent rows. 120 = four " +
+				"addresses' worth of adminSwitchLimit, one switch every 5 s sustained.",
+		},
+		{
 			"adminAccountLimit", adminAccountLimit, 10,
 			"bounds audit_log writes per account per window and gates NOTHING (a per-account " +
 				"gate would be an account lockout an attacker triggers with a known email). " +
@@ -2804,6 +2879,8 @@ func TestPanelConstants_ShippedValuesArePinned(t *testing.T) {
 		{"adminAccountPeriod", adminAccountPeriod, 10 * time.Minute},
 		{"adminSessionPeriod", adminSessionPeriod, 10 * time.Minute},
 		{"adminLogoutPeriod", adminLogoutPeriod, 10 * time.Minute},
+		{"adminSwitchPeriod", adminSwitchPeriod, 10 * time.Minute},
+		{"adminSwitchPersonPeriod", adminSwitchPersonPeriod, 10 * time.Minute},
 		{"adminChoiceTTL", adminChoiceTTL, 5 * time.Minute},
 		{"adminChoiceFutureSkew", adminChoiceFutureSkew, time.Minute},
 	}

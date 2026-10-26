@@ -1,0 +1,57 @@
+package pages
+
+import (
+	"github.com/atknatk/tappa/web/templates/components"
+	"github.com/atknatk/tappa/web/templates/layout"
+)
+
+// AdminSwitch is the switch page's minimum (M14-10): the sign-in family's frame, the business the
+// session is in, and one form per other business -- each its own decision, like the picker's
+// rows. Each form posts the session's synchronizer token in its body and the tenant binding in
+// its action (ADR 0031 §5.4, §5.5). M14-13 gives it the picker's docket layout.
+templ AdminSwitch(v AdminSwitchView) {
+	@layout.Auth("Switch business — Taptime", "") {
+		@AuthHeader("")
+		<main class="mx-auto flex w-full max-w-[1040px] flex-col gap-[22px] px-4 pb-10 pt-4 md:gap-[30px] md:px-10 md:pb-14 md:pt-6">
+			<div class="flex flex-col gap-2 md:gap-2.5">
+				if v.Current != "" {
+					<p class="lbl">You are in { v.Current }</p>
+				}
+				<h1 class="font-display text-3xl font-bold leading-none tracking-tight md:text-[40px]">Switch business</h1>
+				if len(v.Others) == 0 {
+					<p class="max-w-[560px] text-[15px] leading-normal text-ink/70 md:text-base">
+						You have no other business to switch to.
+					</p>
+				}
+			</div>
+			if len(v.Others) > 0 {
+				<ol class="grid gap-[22px]">
+					for _, b := range v.Others {
+						<li class="flex min-w-0 flex-col">
+							<article class="docket w-full px-4 py-[18px] font-display md:px-[22px] md:py-5">
+								<form method="post" action={ templ.URL(components.Bound(ctx, v.SwitchHref)) } class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-5">
+									<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+									<input type="hidden" name="tenant_id" value={ b.TenantID }/>
+									<div class="flex min-w-0 flex-col gap-1">
+										<p class="lbl">Business</p>
+										<p class="break-words text-xl font-bold leading-tight tracking-tight text-ink md:text-[22px]">{ b.TenantName }</p>
+										<p class="font-mono text-[11px] font-bold uppercase tracking-widest text-ink md:text-[13px]">{ b.Role }</p>
+									</div>
+									<button type="submit" class="btn btn--primary w-full gap-2 rounded-xl md:w-auto md:max-w-[45%] md:flex-none">
+										<span class="min-w-0 break-words">Continue to { b.TenantName }</span>
+									</button>
+								</form>
+							</article>
+						</li>
+					}
+				</ol>
+			}
+			<p>
+				<a href={ templ.SafeURL(v.BackHref) } class="inline-flex min-h-11 items-center gap-1 font-display text-sm font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline">
+					<span aria-hidden="true">←</span>
+					Back to the panel
+				</a>
+			</p>
+		</main>
+	}
+}

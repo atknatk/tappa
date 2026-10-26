@@ -122,6 +122,12 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 	// mountWriting, because both need the Origin check AHEAD of the resolver and
 	// neither can get it here.
 	r.Get(billingCSVHref, a.billingExport)
+	// THE SWITCH PAGE (M14-10): the person's businesses, each with its switch form. A read --
+	// it lists and mints the form's token, it writes nothing -- mounted only while
+	// TAPPA_ADMIN_IDENTITY is on (ADR 0031 §8); its POST is in mountWriting's sibling group.
+	a.mountGated(r, adminauth.SurfaceSwitch, func(r chi.Router) {
+		r.Get(adminSwitchHref, a.adminSwitchPage)
+	})
 }
 
 // mountWriting registers the panel's state-changing routes: the review decision
@@ -314,6 +320,9 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 	//	off                       open (OpenWhileSuspended), mounted here by that answer
 	//	signing yourself out      ADR 0025's M14 note (M14-11): personal, like the password;
 	//	everywhere                mounted only while TAPPA_ADMIN_IDENTITY is on
+	//	switching businesses      ADR 0025's M14 note (M14-10): moving between one's own
+	//	                          businesses changes no business data, and a suspension keeps
+	//	                          sign-in open; mounted only while TAPPA_ADMIN_IDENTITY is on
 	r.Group(func(r chi.Router) {
 		r.Use(a.protectWritingThroughSuspension())
 		// 🔴 CHANGE-MY-OWN-PASSWORD (M7-05, T73). It shares this chain for the ordinary
@@ -327,6 +336,14 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// any live admin, like the password.
 		a.mountGated(r, adminauth.SurfaceAccountIdentity, func(r chi.Router) {
 			r.Post(accountSignOutEverywhereHref, a.accountSignOutEverywhere)
+		})
+		// SWITCHING BUSINESSES (M14-10): moving into or out of a suspended business stays open
+		// (ADR 0031 §5.4, ADR 0025's M14 note -- sign-in and reading are open during a
+		// suspension); the business entered is read-only afterwards through its own next write.
+		// Mounted only while TAPPA_ADMIN_IDENTITY is on; any live admin, with its own
+		// synchronizer token and person-keyed budget (adminswitch.go).
+		a.mountGated(r, adminauth.SurfaceSwitch, func(r chi.Router) {
+			r.Post(adminSwitchHref, a.adminSwitch)
 		})
 		// 🔴 THE ROUTE THAT CREATES A PERSON (M6-13). It belongs on a writing chain for
 		// the reason every other write does — the Origin check must run AHEAD of the

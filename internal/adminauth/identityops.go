@@ -2,6 +2,9 @@ package adminauth
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"slices"
@@ -79,6 +82,68 @@ func (m *Manager) Switch(ctx context.Context, current Token, target uuid.UUID) (
 		Session: Session{ID: s.SessionID, TenantID: s.TenantID, AdminUserID: s.AdminUserID},
 		Token:   t,
 	}, nil
+}
+
+// switchBucketLabel is the domain of the switch's rate bucket under this package's key.
+const switchBucketLabel = "tappa/admin-switch-bucket/v1|"
+
+// switchBucketOf is Resolved.switchBucket for a row whose identity_id is identity (nil: an
+// unlinked row, the zero bucket). A MAC rather than the id, so the bucket can key a limiter
+// without the id ever leaving this package.
+func (m *Manager) switchBucketOf(identity *uuid.UUID) [sha256.Size]byte {
+	var out [sha256.Size]byte
+	if identity == nil || *identity == uuid.Nil {
+		return out
+	}
+	h := hmac.New(sha256.New, m.hmacKey)
+	_, _ = h.Write([]byte(switchBucketLabel + identity.String())) // hash writes never fail
+	copy(out[:], h.Sum(nil))
+	return out
+}
+
+// SwitchBucket is the switch's rate bucket of the person behind this session (ADR 0031 §5.4):
+// the same value for every session of every membership of one identity, and nothing that names
+// the identity. ok is false for an unlinked row, which has no person to key by -- its switch is
+// refused anyway (identity_switch_session answers 0 rows), and the caller keys it by the session.
+func (r Resolved) SwitchBucket() (bucket string, ok bool) {
+	if r.switchBucket == ([sha256.Size]byte{}) {
+		return "", false
+	}
+	return base64.RawURLEncoding.EncodeToString(r.switchBucket[:]), true
+}
+
+// Membership is one business of the person behind a session, for the switch page (ADR 0031
+// §5.4): display data and the target a switch form names. It is never the authority for a
+// switch -- identity_switch_session re-proves the membership under the person's lock.
+type Membership struct {
+	TenantID   uuid.UUID
+	TenantName string
+	Role       string
+	Suspended  bool
+	Current    bool
+}
+
+// Memberships lists the businesses of the person behind the cookie's session -- at most 50, the
+// current one first (identity_memberships, 00071). An unlinked row lists its own business alone;
+// a session that is not live lists nothing. Keyed by the cookie's token, like Switch: a tenant
+// from the request is never an input.
+func (m *Manager) Memberships(ctx context.Context, current Token) ([]Membership, error) {
+	h, err := current.hash(m.hmacKey)
+	if err != nil {
+		if errors.Is(err, errMalformed) {
+			return nil, ErrNoSession
+		}
+		return nil, fmt.Errorf("adminauth: memberships: %w", err)
+	}
+	rows, err := m.data.IdentityMemberships(ctx, h)
+	if err != nil {
+		return nil, fmt.Errorf("adminauth: memberships: %w", err)
+	}
+	out := make([]Membership, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, Membership{TenantID: r.TenantID, TenantName: r.TenantName, Role: r.Role, Suspended: r.Suspended, Current: r.IsCurrent})
+	}
+	return out, nil
 }
 
 // ErrRevokeAllSessionGone is RevokeAll's refusal on the one-business fallback (keepCurrent false):

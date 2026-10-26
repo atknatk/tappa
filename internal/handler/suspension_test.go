@@ -154,7 +154,7 @@ func isRead(methodRoute string) bool {
 // five record paths of mountWriting's sibling group -- and K-26's three defences (ADR
 // 0025's M11 note; plan §4.7: revoking a key, revoking every key, switching the webhook
 // off); with the panel identity flag on, the identity surfaces ADR 0025's M14 note adds
-// (M14-11: signing yourself out everywhere). It is written out rather than derived on
+// (M14-11: signing yourself out everywhere; M14-10: switching businesses). It is written out rather than derived on
 // purpose -- deriving it from the sibling group (or from internal/webhook/endpoints'
 // table) would make a further route an exception by construction, and the point of the
 // list is that a further one is a decision.
@@ -174,6 +174,7 @@ func suspensionExceptions(identity bool) map[string]string {
 	}
 	if identity {
 		out["POST "+accountSignOutEverywhereHref] = "signing yourself out everywhere (ADR 0025's M14 note, M14-11)"
+		out["POST "+adminSwitchHref] = "switching businesses (ADR 0025's M14 note, M14-10)"
 	}
 	return out
 }
@@ -203,9 +204,9 @@ func refusalEvents(tr *fakeTrail) []audit.Event {
 //	                            everybody would pass the first row
 //
 // and an exception, suspended, answers neither 403 nor a refusal row. Every exception
-// must be a route the router serves, and there must be exactly eleven -- twelve with
-// the panel identity flag on, which mounts its surfaces (M14-11); the walk runs under
-// both.
+// must be a route the router serves, and there must be exactly eleven -- thirteen with
+// the panel identity flag on, which mounts its surfaces (M14-11, M14-10); the walk runs
+// under both.
 //
 // PART II -- what it catches: the gate taken out of ProtectWriting; the gate moved
 // ahead of the resolver (no identity -- no row); a route added to the sibling group
@@ -216,10 +217,10 @@ func refusalEvents(tr *fakeTrail) []audit.Event {
 // code review's -- no completeness claim.
 func TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException(t *testing.T) {
 	tenant, admin, session := uuid.New(), uuid.New(), uuid.New()
-	for identity, want := range map[bool]int{false: 11, true: 12} {
+	for identity, want := range map[bool]int{false: 11, true: 13} {
 		if n := len(suspensionExceptions(identity)); n != want {
 			t.Fatalf("the exception list (identity flag %v) has %d entries; ADR 0025 §3 names eight, "+
-				"K-26 three and its M14 note, under the flag, one so far", identity, n)
+				"K-26 three and its M14 note, under the flag, two so far", identity, n)
 		}
 	}
 
@@ -888,7 +889,7 @@ func TestSuspensionChain_TheGateIsTheLastRingOfProtectWriting(t *testing.T) {
 		return true
 	})
 	sort.Strings(exempt)
-	want := []string{"Post accountPasswordSave", "Post accountSignOutEverywhere", "Post apiKeyRevoke", "Post apiKeyRevokeAll", "Post employeeAdd",
+	want := []string{"Post accountPasswordSave", "Post accountSignOutEverywhere", "Post adminSwitch", "Post apiKeyRevoke", "Post apiKeyRevokeAll", "Post employeeAdd",
 		"Post employeeInvite", "Post manualEntryRecord", "Post manualEntryReview"}
 	if !slices.Equal(exempt, want) {
 		t.Errorf("the exempt group registers %v, want exactly %v", exempt, want)

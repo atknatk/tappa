@@ -802,6 +802,45 @@ const (
 	// rather than half-built.
 	adminAccountLimit  = 10
 	adminAccountPeriod = 10 * time.Minute
+
+	// adminSwitchLimit / adminSwitchPeriod: switching businesses (M14-10, ADR 0031 §5.4, bulgu
+	// 8), keyed by the PERSON and the address together -- adminSwitchKey.
+	//
+	// 🔴 NOT THE SESSION BUDGET, BECAUSE EVERY SWITCH IS A NEW SESSION. sessionGate keys on the
+	// session id, and a switch revokes that session and issues another: A -> B -> A -> B... would
+	// start a fresh 300 on every hop and never be refused. Keyed by the person, the count
+	// survives the hop.
+	//
+	// WHAT IT BOUNDS. Each switch that goes through writes four rows that nothing deletes -- a
+	// session in the new business, the revocation stamp on the old one, and an ordinary sign-out
+	// and sign-in audit row (identity_switch_session, 00071) -- and takes the person's row lock.
+	// 30 per 10 minutes is one every 20 seconds sustained; a person moving between their
+	// businesses by hand does a handful an hour, so the ceiling is never in a real person's way,
+	// and a script holding a stolen cookie leaves at most 120 rows a window per address. A refusal
+	// here writes nothing at all (no audit row, no session) -- the audit trail stops growing at
+	// the limit, which is the card's measurement.
+	//
+	// WHY THE ADDRESS IS PART OF THE KEY (ADR 0031 §5.4: "identity_id (+ kaynak adres)"): one
+	// address spends only its own 30 of this bucket. It does NOT stop one address from locking the
+	// person out of switching: every attempt is charged to adminSwitchPersonLimit's bucket too, so
+	// somebody holding the person's cookie can exhaust that one (120) from a single address -- the
+	// cost to the person is at most one window (10 minutes) of switching; signing out and back in
+	// stays open. adminFloodLimit still bounds what one address can send in total.
+	adminSwitchLimit  = 30
+	adminSwitchPeriod = 10 * time.Minute
+
+	// adminSwitchPersonLimit / adminSwitchPersonPeriod: the switch's SECOND, looser bucket, keyed
+	// by the person alone (M14-10 security review). The (person, address) bucket above has no
+	// ceiling across addresses: N addresses would buy 30 x N switches a window, each writing four
+	// rows nothing deletes. This one caps the person whatever the addresses: 120 a window -- four
+	// addresses' worth of the first bucket, still one every five seconds sustained and far above
+	// anybody switching by hand -- so a cookie held from many addresses leaves at most 480 rows a
+	// window in all. Both are charged on every attempt past the synchronizer; either one
+	// exhausted is the 429. It is the bucket the first one's comment declined -- the person alone
+	// -- kept loose enough that a thief spending it costs the person minutes of switching, not
+	// their panel.
+	adminSwitchPersonLimit  = 120
+	adminSwitchPersonPeriod = 10 * time.Minute
 )
 
 // ⚠️ THE VALUES ABOVE ARE PINNED BY TestPanelConstants_ShippedValuesArePinned

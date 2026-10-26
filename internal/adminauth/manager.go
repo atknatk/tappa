@@ -2,6 +2,7 @@ package adminauth
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
@@ -38,6 +39,8 @@ import (
 //   - The four session-keyed ones are M14-08's (identityops.go, changepassword.go): the switch, "sign
 //     out everywhere", and the account page's password check and change through the identity. Each
 //     takes a live session's token HASH -- the secret ADR 0031 §5.2 keys every identity writer by.
+//     M14-10 adds the read beside the switch, identity_memberships (the switch page's list), keyed
+//     the same way.
 type Database interface {
 	WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error
 	GetAdminByEmail(ctx context.Context, email string) ([]db.ResolvedAdmin, error)
@@ -50,6 +53,7 @@ type Database interface {
 	RecordFailedIdentityLogin(ctx context.Context, identityID uuid.UUID, event string) (bool, error)
 
 	SwitchIdentitySession(ctx context.Context, sessionHash string, target uuid.UUID, newSessionHash string) (db.IdentitySession, error)
+	IdentityMemberships(ctx context.Context, sessionHash string) ([]db.IdentityMembership, error)
 	RevokeIdentitySessions(ctx context.Context, sessionHash string, keepCurrent bool) (int, error)
 	IdentityPasswordForSession(ctx context.Context, sessionHash string) (db.PasswordHash, error)
 	SetIdentityPassword(ctx context.Context, sessionHash, newDigest string) (int, error)
@@ -888,6 +892,14 @@ type Resolved struct {
 	// only when it is true); the identity's id itself never leaves this package (ADR 0031 §6's
 	// named residue).
 	Linked bool
+	// switchBucket is the switch's rate bucket (ADR 0031 §5.4, M14-10): an opaque MAC of the
+	// row's identity_id under this package's key, zero for an unlinked row. The bucket must be
+	// the PERSON's -- every switch is a new session, so a session-keyed budget would reset on
+	// each one -- and identity_id is the person (ADR 0031 §6's named residue: TouchAdminSession
+	// returns it for this alone). It leaves this package only as SwitchBucket's opaque string,
+	// never as the id: a log line or a limiter key that carried it would be a cross-tenant
+	// correlation key outside the residue's scan.
+	switchBucket [sha256.Size]byte
 	// Suspended is the business's suspension as the same TouchAdminSession statement
 	// read it (ADR 0025 §1, §3): nil when the business is not suspended.
 	//
@@ -1013,13 +1025,14 @@ func (m *Manager) Verify(ctx context.Context, t Token) (Resolved, error) {
 		return Resolved{}, fmt.Errorf("adminauth: verify: %w", err)
 	}
 	return Resolved{
-		SessionID:   row.ID,
-		TenantID:    rs.TenantID,
-		AdminUserID: row.AdminUserID,
-		Role:        row.Role,
-		FullName:    row.FullName,
-		Linked:      row.IdentityID != nil,
-		Suspended:   suspensionOf(row.SuspendedAt, row.SuspensionReason),
+		SessionID:    row.ID,
+		TenantID:     rs.TenantID,
+		AdminUserID:  row.AdminUserID,
+		Role:         row.Role,
+		FullName:     row.FullName,
+		Linked:       row.IdentityID != nil,
+		switchBucket: m.switchBucketOf(row.IdentityID),
+		Suspended:    suspensionOf(row.SuspendedAt, row.SuspensionReason),
 	}, nil
 }
 
