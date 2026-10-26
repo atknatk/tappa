@@ -1026,10 +1026,13 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 26 -> 27 on 2026-10-22 (M15-07): db/queries/daycutoff.sql, the business-day settings
 	// screen's reads over tenants, locations, departments, employees, transactions and audit_log; none
 	// calls a definer.
-	if files != 27 {
-		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-SEVEN were there when this was "+
-			"pinned (2026-10-22; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
-			"apiidempotency.sql, invitequeue.sql, punchfeed.sql, directory.sql, webhooks.sql and daycutoff.sql)", files)
+	// 27 -> 28 on 2026-10-26 (M14-15): db/queries/admininvites.sql, the owner's side of an administrator
+	// invitation over admin_invites and admin_users; none calls a definer (the acceptances and the
+	// resolver are called by hand from internal/db/identity.go).
+	if files != 28 {
+		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-EIGHT were there when this was "+
+			"pinned (2026-10-26; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
+			"apiidempotency.sql, invitequeue.sql, punchfeed.sql, directory.sql, webhooks.sql, daycutoff.sql and admininvites.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -1133,14 +1136,17 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// calls a definer.
 	// 233 -> 234 on 2026-10-22 (M15-07 review round): daycutoff.sql's CountDayCutoffChanges,
 	// a count of the caller's own audit_log rows; it calls no definer.
-	if named != 234 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND THIRTY-FOUR were "+
-			"there when this was pinned (2026-10-22: 111 on 2026-08-24, + T73's three "+
+	// 234 -> 238 on 2026-10-26 (M14-15): admininvites.sql's four (CancelOpenAdminInvitesForAddress,
+	// InsertAdminInvite, ListAdminInvites, CancelAdminInvite), each over the caller's own business's
+	// admin_invites (the INSERT from the inviter's own admin_users row); none calls a definer.
+	if named != 238 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND THIRTY-EIGHT were "+
+			"there when this was pinned (2026-10-26: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M14-15's four invitation queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
