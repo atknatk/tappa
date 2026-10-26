@@ -774,6 +774,27 @@ hesaplanır (`Assessment.Deviation`, `Assessment.AnchorDeviation`). Vaka (güven
 onay adımı. Sonuç: onay adımı **daha çok** çıkar, **hiçbir zaman daha az**. Ölçüm:
 `TestAssess_TheBandJudgesBothEnds`, `TestDecideDB_X2TheAnchorsEndOutsideTheBandAsksTheConfirmationStep`.
 
+*Uygulama notu (2026-10-26, M15-17 — kararı değiştirmez, nasıl kurulduğunu söyler).* (1) **Talep bağlamı:**
+kendi türetilmiş anahtarı ve etiketi (`tappa/claim-context/v1|`), oturum id'si ek veri, 15 dk; içinde tür, çapa id'si,
+çapanın anı, **pencere** (iki uç ve dahil/hariç), `prefilled_at`, kartı gösteren dokunuşun anı ve işletmenin bölgesi.
+`/api/claim` çapayı ve türü **yalnız** bağlamdan okur — K4'ü gönderimde uygulayan tek şey budur (M15-16 güvenlik
+merceğinin devri); form çapa, tür ya da ön dolgu taşımaz. (2) **Duvar saati → an:** ön dolgunun kendi duvar saati
+ön dolgunun kendi anına döner (sonbaharın iki kez yaşanan saatinde vardiya ucu **geç** adaydır — `time.Date`; aksi
+hâlde *"default not changed"* sunucunun seçtiği değerde yanlış çıkardı); başka her saat, pencerenin dokunduğu takvim
+günlerinde pencere içindeki adaylardan **erken** olanıdır; ilkbaharda yaşanmamış saatin adayı yoktur → form yeniden.
+`Submit` pencereyi ve ön dolguyu kilit altında yine kendisi hesaplar. (3) **Okumanın yeri (G-O5):** kayıt commit
+edildikten sonra, isteğin değerleriyle ve iptali olmadan, `resultClaimWait` (2 sn) sınırıyla; hata ya da zaman aşımı
+kartı düşürür, sonuç ekranı kartsız hâliyle bayt bayt aynıdır. (4) **Not bastırma yapısal:** motor ekran notunu iki
+biçimde kurar (`EmployeeNote`, `EmployeeNoteAsked` — aynı parçalar, açık bırakma parçası hariç); kart **bu dokunuşun
+açık bıraktığı** girişi soruyorsa ekran ikincisini gösterir; kaydın notu değişmez. (5) **Kamu metni:** `/product`'ın
+*"There is no button on it."* cümlesi kart yüzünden yanlış oldu; *"Nothing on it records another tap."* ile
+değiştirildi ve olgu yeniden türetildi (kullanıcının *"Metni M15'e göre yaz"* kararının devamı). Ölçüm:
+`TestClaim_TheAnchorAndTheKindComeOnlyFromTheSignedContext`,
+`TestClaim_ACrossLabelOrForeignContextIsRefusedAndNothingIsSent`,
+`TestResolveClaimedAt_TheEarlierOfARepeatedAutumnHourAndTheDefaultAsItCame`,
+`TestResultScreen_AFailedOrLateCardReadDrawsTheScreenWithoutIt`,
+`TestResultScreen_TheCardTakesTheLeftOpenNoteOutStructurally`, `TestClaimDB_TheCardIsShownOnTwoTapsOnly`.
+
 **Askı (ADR 0025).** Karar yolu bir panel yazmasıdır ve `mountWriting`'in **ana grubuna**
 (`ProtectWriting`, `internal/handler/dashboard.go:166`; flag kararı `:167`'nin yanı) gider: askı talep
 kararını durdurur. ADR 0025'in kapalı istisna listesi (`0025:46-53`, `:87`; kardeş grup

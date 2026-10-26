@@ -68,7 +68,7 @@ func (f *fakeCheckins) last(t *testing.T) checkin.Request {
 func newCheckinHandler(t *testing.T, svc *fakeCheckins, sess *fakeSessions) (http.Handler, *Tap) {
 	t.Helper()
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		sess, svc, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		sess, svc, noClaims{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
@@ -516,7 +516,7 @@ func TestNewTap_RefusesANilCheckinService(t *testing.T) {
 	for name, svc := range map[string]checkinRecorder{"untyped nil": nil, "typed nil": typedNil} {
 		t.Run(name, func(t *testing.T) {
 			_, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-				&fakeSessions{}, svc, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+				&fakeSessions{}, svc, noClaims{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 			if err == nil {
 				t.Fatal("a nil checkin service was accepted: the endpoint would panic at the first tap")
 			}

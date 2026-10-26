@@ -325,14 +325,21 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
   eski `allow` durur; o etkinken panel bir kanıt kuralının kapatılmasını reddeder (T125).
 - **Unutulan çıkış:** sistem çıkış kaydı **üretmez**. Açık kayıt anomali olarak
   listelenir, müdür manuel girer. Açık kayıtlar saat toplamına **girmez** ve
-  raporda toplamın eksik olduğu açıkça söylenir.
+  raporda toplamın eksik olduğu açıkça söylenir. Çalışan eksik saati **talep**
+  edebilir (ADR 0032 Faz C): sonuç ekranında tek kart (*"What time did you leave?"*;
+  yalnız `business_day_start` dolu çapa, en çok iki gösterim — K4). Talep kayıt
+  **değildir** (`punch_claims`); saati yalnız müdürün onayı yazar — manuel kaydın tek
+  yazarından bir `channel='manual'` satırı. Gönderilmeyen ya da reddedilen talepte
+  açık kayıt listede kalır.
 - **Unutulan giriş:** sistem giriş üretmez. Kapatacağı açık bir girişi olmayan çıkış
   (önceki kaydı bir çıkış, daha önceki bir iş gününün girişi ya da hiçbir şey; ADR 0032
   §A.6 (b), (c); yalnız `business_day_start` dolu satırlar) saate girmez,
   `Totals.OutWithoutIn`'de sayılır, Odd shapes *Check-in missing* listesine düşer ve
   raporda toplamın eksik olduğu söylenir. İş günü dönem başından önce başladıysa rapor onu
   `StartedEarlier` dikişinde sayar, liste yine gösterir. Düzeltmenin fazla çıkışı (e) ve
-  S'siz satır (d) yetim değildir.
+  S'siz satır (d) yetim değildir. Çalışan eksik girişi de talep edebilir (*"What time did
+  you come in?"*, aynı kart ve aynı kurallar); onaylanırsa müdürün manuel girişi o çıkışı
+  kapatır.
 - **QR kanalı** (`channel='qr'`): SUN yok → **IP zorunlu**, GPS tek başına yetmez
   → `flag`. QR fotoğraflanır ve süresiz geçerlidir; fiziksel dokunuş kanıtı yok.
   Baseline politikası `base:qr-requires-ip`, tenant değiştirebilir.
@@ -466,13 +473,17 @@ IBM Plex Mono (veri). İmza motif **mutfak adisyonu (kitchen docket)** — işle
 perforeli fiş kartı, APPROVED/FLAGGED/REJECTED hafif eğik kaşe damgası.
 
 Çalışan tap ekranı kutsaldır: **tek ekran, tek buton, sıfır öğrenme**. Onay ekranında
-buton YOK — "All done — you can close this page." Bir sonraki işlem zaten yeni fiziksel
+buton YOK (talep kartı dışında) — "All done — you can close this page." Bir sonraki işlem zaten yeni fiziksel
 dokunuş gerektirir. Bu ekrana özellik eklemek istiyorsan önce sor.
 Sayılı istisnalar (kullanıcı §9 kararı, 2026-10-21 — ADR 0032): tek birincil düğme tahmini
 yönü söyler (*"Clock in"* / *"Clock out"*; tahmin kapısı kapalıyken eskisi gibi *"Tap"*) ve
 altında küçük bir *"Not right? …"* düğmesi vardır (aynı formun ikinci gönderimi, accent'siz);
-onay ekranının başlığı *"Clocked in"* / *"Clocked out"*'tur. Başka her değişiklik yine önce
-sorulur.
+onay ekranının başlığı *"Clocked in"* / *"Clocked out"*'tur. Onay ekranının tek düğmeli
+istisnası **talep kartıdır** (ADR 0032 §C.1, M15-17): kayıt yarısı eksik bir çapa
+bıraktıysa docket ile kapanış cümlesi arasında soru, saat alanı ve *"Send to my manager"*
+(palet düğmesi, accent yok, betik yok); atlama düğmesi yok (*"You can skip this."*);
+`flag`'te kapanış cümlesi kartın altında; kartsız onay ekranı değişmedi. Başka her
+değişiklik yine önce sorulur.
 
 **Tenant markası (M10 white-label — ADR 0023/0024, skill `tappa-brand` → "Tenant slotları").** İşletme sayılı slotları boyar: bir logo (tap ve sonuç ekranında 24 px yuva + altında "taptime · punchless", panelde 32 px; aktivasyon ailesinde — sihirbazın dört adımı, "Activation complete", "already set up" — tap ekranının başlığı, ama **yalnız VIES-doğrulanmış** işletmede) ve tek bir accent. Accent'in ürün yüzeyinde boyadığı CSS slotları iki tanedir: tap düğmesinin zemini (tap ekranı ve aktivasyon sihirbazının 1–3. adımlarının birincil düğmesi) ve panelin 4 px şeridi (editörün renk seçicisi kendi rengini gösterir — ADR 0023 §2); accent WCAG kapısından geçer; accent varken sihirbazın öteki yeşil işaretleri (ilerleme çubuğu, 01/02/03, işaretli onay kutusu) ink olur. Kaşe damgaları, durum→renk eşlemesi, docket, sonuç ekranının renkleri, aktivasyonun problem ve onay ekranları ve bekleme ekranının plaket çizimi değişmez; sonuç ekranında accent yoktur. Bu, "paletin dışına çıkma" ve tap ekranı kuralına kullanıcının §9 kararlarıyla (D-C; K-2a, K-2b; aktivasyon ailesi 2026-10-09 — ADR 0023 WL-13 notu) verilmiş sayılı istisnadır — tap/sonuç/aktivasyon ekranlarındaki başka her değişiklik yine önce sorulur. Marka taklidi kabul edilmiş bir risktir (ADR 0005, risk 9).
 

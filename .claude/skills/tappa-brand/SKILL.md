@@ -155,6 +155,27 @@ Anatomi:
   okuma başarısız) düğme eskisi gibi yönsüz *"Tap"*, altında hiçbir şey yok.
 - Onay ekranında **buton yok**: *"All done — you can close this page."*
   Sonraki işlem zaten yeni fiziksel dokunuş gerektiriyor.
+  **Tek istisna — talep kartı** (2026-10-26, M15-17; kullanıcının §9 kararı, ADR 0032 §C.1):
+  kaydın ardından bir yarının eksik olduğu M15 sonrası bir çapa varsa (talep yok, K4'ün iki
+  gösterimi içinde, `manual.MaxBackdate` içinde; yalnız `ok`/`flag`), docket'in **altında**,
+  kapanış cümlesinin **üstünde** tek bir kart: kaydı adlandıran cümle (*"Yesterday you clocked in
+  at 09:12 but there's no clock-out."* · aynı gün *"You clocked in at 11:00 and didn't clock
+  out."* · daha eski *"On Mon 27 Jul you clocked in at 09:12 but there's no clock-out."* — gün,
+  işletmenin bölgesindeki takvim günüdür), soru (*"What time did you leave?"* / giriş eksikse
+  yalnız *"What time did you come in?"*), saat alanı (vardiyanın gerçek ucu pencere içindeyse dolu,
+  değilse **boş ve zorunlu**), *"Send to my manager"* ve *"You can skip this."* — **atlama düğmesi
+  yok**. Kart `paper` zeminde yuvarlak kart (`line` kenarlık, 18 px), alan 10 px yuvarlak ve 44 px,
+  düğme palet `tappa-green` zemin + `paper` yazı (7,73:1) ve 44 px — **accent almaz**, `.tap-button`
+  değildir. Betik yok: sonuç ekranı konum okumaz. `flag`'te kapanış cümlesi kartın altında kalır.
+  Kart, bu dokunuşun açık bıraktığı girişi soruyorsa o girişin ekran notu (*"your previous clock-in
+  has no clock-out"*) gösterilmez; kayıt notu değişmez (yapısal: `tap.Decision.EmployeeNoteAsked`).
+  Kartsız ekran bayt-aynı kalır. Gönderimin cevapları: *"Sent — your manager will review it."*
+  (ikinci gönderim de), pencere dışı saat → kart yeniden (problem cümlesi saffron sol çizgiyle),
+  *"This question has expired"*, *"Already resolved"*, pasif hesap, genel ekran — hiçbiri *"Nothing
+  was recorded"* demez. Chrome'da 390 px'te ölçüldü: yatay kaydırma yok; kart metni paper'da
+  16,17:1, *"You can skip this."* 6,05:1. Testler: `TestClaimScreens_AreByteIdenticalToTheGolden`,
+  `TestResultScreen_TheCardDrawsTheLogoAndNoAccent`,
+  `TestResultScreen_OnFlagTheClosingSentenceStaysBelowTheCard`.
 - Başarısız işlemde "Try again" **var**.
 - Marka mesajı onay sonrası gösterilir (yalnız sayılan `ok`'ta; practice, flag, ignored ve
   reject'te yok). **İşletmenin türüne göre seçilir, tenant düzenleyemez** — Account ekranı
@@ -531,7 +552,7 @@ handler'da `mayEditAccount`, domain'de ikinci kez, rol ve durum DB'den
 | Yüzey | Logo | Accent | Logonun `alt`'ı | Kaynak |
 |---|---|---|---|---|
 | Tap ekranı | başlıkta 24 px yuva, altında 4 px aralıkla *"taptime · punchless"* (K-2b) | **tap düğmesinin zemini** | işletme adı | WL-9 — `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` |
-| Sonuç ekranı | tap ekranınınkiyle aynı başlık | **yok** — tema `<link>`'i 0, renkler durumu anlatır | işletme adı | WL-9 — `TestResultScreen_DrawsTheLogoAndNoAccent` |
+| Sonuç ekranı | tap ekranınınkiyle aynı başlık | **yok** — tema `<link>`'i 0, renkler durumu anlatır; talep kartının düğmesi de paletin (M15-17) | işletme adı | WL-9 — `TestResultScreen_DrawsTheLogoAndNoAccent`, M15-17 — `TestResultScreen_TheCardDrawsTheLogoAndNoAccent` |
 | Panel kabuğu | başlıkta 32 px kutu + işletme adı + co-brand | **4 px şerit** | **boş** (`alt=""`) — ad logonun yanında görünür metin | WL-8 — `TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection` |
 | Account → *"Your brand"* önizlemesi | önizlemedeki tap başlığı, kaynak `/admin/brand/logo/{sha}` | önizlemedeki tap düğmesi — **yalnız kaydedilen** accent | işletme adı | WL-7 — `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit` |
 | Aktivasyon ailesi — sihirbazın dört adımı, *"Activation complete"*, *"already set up"* | tap ekranının başlığı (24 px yuva + co-brand) — **yalnız VIES-doğrulanmış** işletmede; sihirbazda `/activate/logo/{sha}`, oturumlu iki ekranda `/t/logo/{sha}` | **adım 1–3'ün birincil düğmesinin zemini**; accent varken ilerleme çubuğu, 01/02/03 ve işaretli onay kutusu **ink** | işletme adı | WL-13 — `TestActivationScreens_ABrandedBusinessGetsTheTapScreensHeaderAndTheme` |
@@ -803,7 +824,8 @@ ekranının görüntüsüdür.
   K-2a, K-2b) yalnız dört değişikliği kapsar: tap başlığında logo + co-brand, tap düğmesinde
   accent, sonuç başlığında logo + co-brand, logosuz ama accent'li tap ekranında ink `taptime`
   (ADR 0023 §7). Aktivasyon ailesinin üç kararı (2026-10-09) üç değişiklik daha kapsar (ADR 0023
-  §7'nin WL-13 eki: v–vii). Başka her tap/sonuç/aktivasyon değişikliği yeniden sorulur.
+  §7'nin WL-13 eki: v–vii). Sonuç ekranının talep kartı ayrı bir §9 kararıdır (ADR 0032 §C.1,
+  M15-17; yukarıda). Başka her tap/sonuç/aktivasyon değişikliği yeniden sorulur.
 - Şablon **yorumunda** yardımcı sınıf adı yazma, tarif et — `.templ` taranır, bu dosya
   taranmaz (yukarıdaki not).
 - Accent'i sonuç ekranına, damgaya, docket'e ya da panelin birincil düğmesine taşıma

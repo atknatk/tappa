@@ -89,14 +89,21 @@ type productFactSources struct {
 	// tap screen and chooses its direction (ADR 0032 §B.2).
 	TapPage       string
 	ResultRenders map[string]string
+	// AskingRenders is the result screen WITH the claim card (pages.ResultAsking, M15-17) for
+	// the two verdicts that can show one, ok and flag; ClaimCard is pages/claim.templ and
+	// ClaimHandler internal/handler/claim.go, comments removed -- the card's one form and the
+	// endpoint it posts to (ADR 0032 §C.1: a claim is not a record).
+	AskingRenders map[string]string
+	ClaimCard     string
+	ClaimHandler  string
 }
 
 // tapDirections is every direction the tap screen is drawn with (ADR 0032 §B.1).
 var tapDirections = []pages.TapDirection{pages.TapUndirected, pages.TapClockIn, pages.TapClockOut}
 
-// renderTapAndResults renders the tap screen for every direction and the result screen
-// for every verdict.
-func renderTapAndResults(t *testing.T) (map[pages.TapDirection]string, map[string]string) {
+// renderTapAndResults renders the tap screen for every direction, the result screen for
+// every verdict, and the result screen with the claim card for ok and flag.
+func renderTapAndResults(t *testing.T) (map[pages.TapDirection]string, map[string]string, map[string]string) {
 	t.Helper()
 	var b bytes.Buffer
 	taps := map[pages.TapDirection]string{}
@@ -120,7 +127,18 @@ func renderTapAndResults(t *testing.T) (map[pages.TapDirection]string, map[strin
 		}
 		results[v] = b.String()
 	}
-	return taps, results
+	asking := map[string]string{}
+	for _, v := range []string{"ok", "flag"} {
+		b.Reset()
+		view := pages.ResultView{Verdict: v, Direction: "in", Venue: "Sample Venue", At: "09:41:00", Trust: tap.TrustBase}
+		card := pages.ClaimCardView{Lead: "Yesterday you clocked in at 09:12 but there's no clock-out.",
+			Question: "What time did you leave?", Context: "ctx", Value: "17:00"}
+		if err := pages.ResultAsking(view, layout.Logo{}, card).Render(context.Background(), &b); err != nil {
+			t.Fatal(err)
+		}
+		asking[v] = b.String()
+	}
+	return taps, results, asking
 }
 
 // allMigrations is every migration, by file name.
@@ -183,7 +201,7 @@ func loadProductFactSources(t *testing.T) productFactSources {
 		}
 		answers[a] = derive()
 	}
-	taps, results := renderTapAndResults(t)
+	taps, results, asking := renderTapAndResults(t)
 	return productFactSources{
 		Result:        repoFile(t, "web", "templates", "pages", "result.templ"),
 		TapHandler:    strip(repoFile(t, "internal", "handler", "checkin.go")),
@@ -219,6 +237,9 @@ func loadProductFactSources(t *testing.T) productFactSources {
 		Migs:          allMigrations(t),
 		TapRenders:    taps,
 		ResultRenders: results,
+		AskingRenders: asking,
+		ClaimCard:     repoFile(t, "web", "templates", "pages", "claim.templ"),
+		ClaimHandler:  strip(repoFile(t, "internal", "handler", "claim.go")),
 		Anchors:       answers,
 	}
 }
@@ -239,7 +260,11 @@ func noControl(src string) string {
 // docket with the verdict's stamp, the stamp prints the four words, and the tap handler
 // renders it for a recorded tap.
 func recordedDocketViolation(s productFactSources) string {
-	body := templBody(s.Result, "Result")
+	// Result and ResultAsking (M15-17) are one body, result's; Result must still be it.
+	if !strings.Contains(templBody(s.Result, "Result"), "@result(v, logo, nil)") {
+		return "pages/result.templ's Result is no longer the docket body"
+	}
+	body := templBody(s.Result, "result")
 	if !strings.Contains(body, `<section class="docket">`) || !strings.Contains(body, "@stamp(v)") {
 		return "pages/result.templ's Result is no longer a docket carrying the verdict's stamp"
 	}
@@ -249,14 +274,17 @@ func recordedDocketViolation(s productFactSources) string {
 			return "the result screen's stamp no longer prints " + w[1]
 		}
 	}
-	if !strings.Contains(s.TapHandler, "pages.Result(resultView(res)") {
+	if !strings.Contains(s.TapHandler, "view := resultView(res)") || !strings.Contains(s.TapHandler, "pages.Result(view, logo)") {
 		return "the tap handler no longer renders pages.Result for a recorded tap"
 	}
 	return ""
 }
 
 // resultNoButtonViolation is FactResultScreenEndsWithoutAButton: a counted tap's closing is
-// "All done — you can close this page.", and the result screen holds no control.
+// "All done — you can close this page.", and nothing on the result screen records a tap: it
+// holds no control of its own, and the one form it can carry is the claim card's, which posts
+// to POST /api/claim -- a claim, never a record (ADR 0032 §C.1; M15-17 withdrew "There is no
+// button on it.").
 func resultNoButtonViolation(s productFactSources) string {
 	closing := withoutTemplComments(templBody(s.Result, "closing"))
 	ok, done, flag := strings.Index(closing, `case "ok":`), strings.Index(closing, "All done — you can close this page."),
@@ -264,7 +292,7 @@ func resultNoButtonViolation(s productFactSources) string {
 	if ok < 0 || done < 0 || flag < 0 || !(ok < done && done < flag) {
 		return "the result screen's counted tap no longer ends on \"All done — you can close this page.\""
 	}
-	for _, name := range []string{"Result", "closing", "stamp", "brandMessage"} {
+	for _, name := range []string{"Result", "ResultAsking", "result", "cardThenClosing", "closing", "stamp", "brandMessage"} {
 		if c := noControl(withoutTemplComments(templBody(s.Result, name))); c != "" {
 			return "pages/result.templ's " + name + " now carries " + strconv.Quote(c)
 		}
@@ -276,6 +304,31 @@ func resultNoButtonViolation(s productFactSources) string {
 	for _, v := range slices.Sorted(maps.Keys(s.ResultRenders)) {
 		if c := renderedControl(s.ResultRenders[v]); c != "" {
 			return "the result screen for " + v + " renders " + strconv.Quote(c)
+		}
+	}
+	// The claim card: its one form posts to the claim endpoint, and every control the screen
+	// with a card serves is that form, its two fields and its one submit button.
+	card := withoutTemplComments(templBody(s.ClaimCard, "ClaimCard"))
+	if strings.Count(card, "<form") != 1 || !strings.Contains(card, `<form method="post" action="/api/claim"`) ||
+		strings.Contains(card, "<a ") || strings.Contains(card, "<nav") {
+		return "the claim card is no longer one form posting to /api/claim"
+	}
+	if strings.Contains(s.ClaimHandler, "t.checkins.") {
+		return "the claim endpoint reaches the tap's recorder"
+	}
+	if len(s.AskingRenders) != 2 {
+		return fmt.Sprintf("the result screen with a card was rendered for %d verdict(s), not ok and flag", len(s.AskingRenders))
+	}
+	want := []string{`<form method="post" action="/api/claim"`, `<input type="hidden" name="ctx"`, `<input id="claim-at" type="time" name="at"`, `<button type="submit"`}
+	for _, v := range slices.Sorted(maps.Keys(s.AskingRenders)) {
+		got := renderedControlRE.FindAllString(s.AskingRenders[v], -1)
+		if len(got) != len(want) {
+			return fmt.Sprintf("the result screen with a card for %s renders %d controls, not the card's %d", v, len(got), len(want))
+		}
+		for i, c := range got {
+			if !strings.HasPrefix(c, want[i]) {
+				return "the result screen with a card for " + v + " renders " + strconv.Quote(c)
+			}
 		}
 	}
 	return ""
@@ -834,7 +887,15 @@ func TestProductFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 	}{
 		{pages.FactRecordedTapEndsOnAStampedDocket, "the result screen is no docket", replace(result, `<section class="docket">`, `<section class="slip">`)},
 		{pages.FactRecordedTapEndsOnAStampedDocket, "the stamp loses IGNORED", replace(result, `stamp--ignored">IGNORED<`, `stamp--ignored">DONE<`)},
-		{pages.FactRecordedTapEndsOnAStampedDocket, "the handler renders something else", replace(func(s *productFactSources) *string { return &s.TapHandler }, "pages.Result(resultView(res)", "pages.Other(resultView(res)")},
+		{pages.FactRecordedTapEndsOnAStampedDocket, "the handler renders something else", replace(func(s *productFactSources) *string { return &s.TapHandler }, "pages.Result(view, logo)", "pages.Other(view, logo)")},
+		{pages.FactRecordedTapEndsOnAStampedDocket, "Result stops being the docket body", replace(result, "@result(v, logo, nil)", "@other(v, logo)")},
+		{pages.FactResultScreenEndsWithoutAButton, "the card posts somewhere else", replace(func(s *productFactSources) *string { return &s.ClaimCard }, `action="/api/claim"`, `action="/api/checkin"`)},
+		{pages.FactResultScreenEndsWithoutAButton, "the claim endpoint records a tap", replace(func(s *productFactSources) *string { return &s.ClaimHandler }, "t.claims.Submit(", "t.checkins.Record(")},
+		{pages.FactResultScreenEndsWithoutAButton, "the screen with a card gains a link", func(s *productFactSources) {
+			r := maps.Clone(s.AskingRenders)
+			r["ok"] = strings.Replace(r["ok"], "</form>", `</form><a href="/again">Tap again</a>`, 1)
+			s.AskingRenders = r
+		}},
 		{pages.FactResultScreenEndsWithoutAButton, "a counted tap's closing changes", replace(result, `<p class="mt-4 text-ink/70">All done — you can close this page.</p>`, `<p class="mt-4 text-ink/70">Done.</p>`)},
 		{pages.FactResultScreenEndsWithoutAButton, "the result screen gains a button", replace(result, `<p class="mt-4 text-ink/70">All done`, `<button>Again</button><p class="mt-4 text-ink/70">All done`)},
 		{pages.FactResultScreenEndsWithoutAButton, "a sub-template renders a link on the flagged result", func(s *productFactSources) {
@@ -1453,6 +1514,9 @@ var productRefusedPhrasings = map[string]string{
 	"One screen, one button.":    "a prediction draws the correction under the one large button (ADR 0032 §B.1)",
 	"was tapped and one button.": "a prediction draws the correction under the one large button (ADR 0032 §B.1)",
 	"one button, done":           "a prediction draws the correction under the one large button (ADR 0032 §B.1)",
+	// Withdrawn by M15-17 (ADR 0032 §C.1, the user's §9 exception): a result screen can carry
+	// the claim card's form and its "Send to my manager" button.
+	"There is no button on it.": "the result screen can carry the claim card's \"Send to my manager\" (ADR 0032 §C.1)",
 }
 
 // TestProductPage_SaysNoGuaranteeAndNoneOfTheWithdrawnSentences: the served bytes of every

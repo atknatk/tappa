@@ -71,6 +71,9 @@ type Tap struct {
 	directory tapDirectory
 	sessions  sessionVerifier
 	checkins  checkinRecorder
+	// claims offers the result screen's claim card and takes its answer (ADR 0032 Faz C,
+	// M15-17; claim.go). Required: without it the card could never be drawn or sent.
+	claims tapClaims
 	// activation completes a CONSENTED activation on its first NFC tap (ADR
 	// 0026). It is the Activation handler, reached through the narrow interface
 	// below: the advancing SUN verify it needs lives THERE, so this handler's
@@ -78,7 +81,10 @@ type Tap struct {
 	activation tapActivation
 	cookies    session.Cookies
 	contexts   tapContexts
-	limiter    *httpx.TapLimiter
+	// claimContexts signs the claim card's context under its own key and label
+	// (claimcontext.go): a tap context does not verify as one, nor the other way round.
+	claimContexts claimContexts
+	limiter       *httpx.TapLimiter
 	// devTools marks renders for the DEV-ONLY simulate-tap strip; false unless
 	// cmd/tappa calls EnableDevTools on a DevToolsEnabled deployment.
 	devTools bool
@@ -89,6 +95,9 @@ type Tap struct {
 	// brandWait bounds the confirmation screen's brand read: resultBrandWait
 	// (checkin.go), a field so a test can shorten it.
 	brandWait time.Duration
+	// claimWait bounds the result screen's claim-card read: resultClaimWait (claim.go), a
+	// field so a test can shorten it.
+	claimWait time.Duration
 	log       *slog.Logger
 }
 
@@ -138,7 +147,7 @@ type (
 
 // NewTap wires the screen. Every dependency is required: a nil one cannot fail
 // safely on a path whose failure mode is a missing hour on a payslip.
-func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checkins checkinRecorder, activation tapActivation, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*Tap, error) {
+func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checkins checkinRecorder, claims tapClaims, activation tapActivation, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*Tap, error) {
 	switch {
 	case preview == nil:
 		return nil, errors.New("handler: nil sun previewer")
@@ -159,6 +168,10 @@ func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checki
 		// at boot. isNil rather than == nil because a TYPED nil in an interface
 		// parameter is not nil (the same trap the recorder check documents).
 		return nil, errors.New("handler: nil checkin service")
+	case isNil(claims):
+		// REQUIRED (M15-17): the result screen's card and POST /api/claim both need it, and
+		// a nil one would be found at the first card, as a panic, rather than at boot.
+		return nil, errors.New("handler: nil claim service")
 	case isNil(rec):
 		// REQUIRED, not optional. httpx.TapLimiter accepts a nil recorder
 		// because it must be constructible before a database is (tests, a future
@@ -187,17 +200,24 @@ func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checki
 	if err != nil {
 		return nil, err
 	}
+	claimCtxs, err := newClaimContexts(cfg)
+	if err != nil {
+		return nil, err
+	}
 	t := &Tap{
-		sun:        preview,
-		directory:  dir,
-		sessions:   sess,
-		checkins:   checkins,
-		activation: activation,
-		cookies:    session.NewCookies(cfg),
-		contexts:   ctxs,
-		baseURL:    originOf(cfg.BaseURL),
-		brandWait:  resultBrandWait,
-		log:        log,
+		sun:           preview,
+		directory:     dir,
+		sessions:      sess,
+		checkins:      checkins,
+		claims:        claims,
+		activation:    activation,
+		cookies:       session.NewCookies(cfg),
+		contexts:      ctxs,
+		claimContexts: claimCtxs,
+		baseURL:       originOf(cfg.BaseURL),
+		brandWait:     resultBrandWait,
+		claimWait:     resultClaimWait,
+		log:           log,
 	}
 	t.limiter = httpx.NewTapLimiter(httpx.TapLimitParams{
 		Log: log,
@@ -276,6 +296,10 @@ func (t *Tap) Mount(r chi.Router) {
 		r.Use(t.chain()...)
 		r.Get(TapPath, t.Page)
 		r.Post("/api/checkin", t.Checkin)
+		// The claim card's answer (M15-17): the same chain, the same limiter instance -- a
+		// claim is the tail of a tap, metered with it -- and, like the tap, no suspension
+		// gate (ADR 0025, ADR 0032 §C.4).
+		r.Post(ClaimPath, t.Claim)
 	})
 }
 

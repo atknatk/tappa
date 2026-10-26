@@ -206,8 +206,9 @@ func Decide(in Input) Decision {
 		Note: pd.Reason,
 		// The employee's screen gets the rule's sentence and, below, the direction's
 		// annotation -- never the notes (types.go EmployeeNote).
-		EmployeeNote: pd.Reason,
-		Security:     pd.SecurityAlert != "", // §5 row 4 / lost-tag: a manager push
+		EmployeeNote:      pd.Reason,
+		EmployeeNoteAsked: pd.Reason,
+		Security:          pd.SecurityAlert != "", // §5 row 4 / lost-tag: a manager push
 		// M4-05 report fact, independent of which policy won the tiebreak (see the
 		// CrossLocation doc): recorded so the report shows cross-location taps apart.
 		CrossLocation: crossLocation,
@@ -268,9 +269,14 @@ func Decide(in Input) Decision {
 		dec.MissingIn = r.missingIn
 		// Two languages for one fact (ADR 0032 §B.4): the record's note is for the
 		// manager and the report, the screen's for the person at the plaque.
+		// The screen's second shape (EmployeeNoteAsked) is built from the same parts,
+		// leaving the left-open one out by its kind -- never by cutting a string.
 		for _, n := range r.notes {
 			dec.Note = appendNote(dec.Note, n.record)
 			dec.EmployeeNote = appendNote(dec.EmployeeNote, n.employee)
+			if !n.leftOpen {
+				dec.EmployeeNoteAsked = appendNote(dec.EmployeeNoteAsked, n.employee)
+			}
 		}
 		// NO PRACTICE TAP ANY MORE (ADR 0026). The first tap after activation used
 		// to be a TRAINING record that never counted toward hours (M4-06); the
@@ -574,8 +580,13 @@ const (
 	ChoseClockOutEmployeeNote = "you chose to clock out"
 )
 
-// note is one annotation in its two languages (ADR 0032 §B.4).
-type note struct{ record, employee string }
+// note is one annotation in its two languages (ADR 0032 §B.4). leftOpen marks the
+// left-open part, the one a claim card asking about that check-in replaces on the
+// screen (Decision.EmployeeNoteAsked).
+type note struct {
+	record, employee string
+	leftOpen         bool
+}
 
 // direction is resolveDirection's answer: the recorded direction and who chose it, the
 // business day it was judged in, the check-in it left open, the checkout-without-
@@ -727,14 +738,14 @@ func resolveDirection(in Input) direction {
 		}
 	}
 	if r.leftOpen != nil {
-		r.notes = append(r.notes, note{LeftOpenNote, LeftOpenEmployeeNote})
+		r.notes = append(r.notes, note{record: LeftOpenNote, employee: LeftOpenEmployeeNote, leftOpen: true})
 	}
 	if r.source == DirectionEmployee {
 		chose := ChoseClockOutEmployeeNote
 		if r.dir == TypeIn {
 			chose = ChoseClockInEmployeeNote
 		}
-		r.notes = append(r.notes, note{DirectionChosenNote, chose})
+		r.notes = append(r.notes, note{record: DirectionChosenNote, employee: chose})
 	}
 	return r
 }

@@ -101,8 +101,11 @@ const (
 	// from pages/result.templ (the docket and its stamp's four words) and the tap
 	// handler rendering pages.Result for a recorded outcome.
 	FactRecordedTapEndsOnAStampedDocket Fact = "templ:Result docket+stamp's four words"
-	// A counted tap's screen ends on "All done — you can close this page." and the
-	// result screen carries no button, link or form. Derived from pages/result.templ.
+	// A counted tap's screen ends on "All done — you can close this page." and nothing on
+	// the result screen records a tap: it carries no link, and its one possible form is the
+	// claim card's (M15-17, ADR 0032 §C.1), which sends a claim to the manager and writes no
+	// record. Derived from pages/result.templ, pages/claim.templ, the served result screens
+	// and internal/handler/claim.go.
 	FactResultScreenEndsWithoutAButton Fact = "templ:Result closing, no control"
 	// The tap screen is the greeting docket and one form: one large primary button that
 	// says the predicted direction ("Clock in" / "Clock out", or "Tap" when there is no
@@ -301,7 +304,7 @@ func ProductCopy(f ProductFigures) ProductText {
 			},
 			{
 				Title: l("Done means done", FactResultScreenEndsWithoutAButton),
-				Body: l("A counted tap ends on its stamp and “All done — you can close this page.” There is no button on it.",
+				Body: l("A counted tap ends on its stamp and “All done — you can close this page.” Nothing on it records another tap.",
 					FactResultScreenEndsWithoutAButton, FactRecordedTapEndsOnAStampedDocket),
 			},
 		},

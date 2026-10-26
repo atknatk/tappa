@@ -669,7 +669,7 @@ func TestTapPreviewHeading_IsTapHeadingWithoutItsHeading(t *testing.T) {
 // answers 200 with the logo's bytes.
 func TestBrandPreview_TheLogoIsThePanelRoute(t *testing.T) {
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		liveEmployee(logoTenantA), &fakeCheckins{}, noActivation{}, &fakeAudit{}, tapCfg(), discardLogger())
+		liveEmployee(logoTenantA), &fakeCheckins{}, noClaims{}, noActivation{}, &fakeAudit{}, tapCfg(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}

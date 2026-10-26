@@ -479,3 +479,31 @@ func (v ResultView) Headline() string {
 		return "Tapped"
 	}
 }
+
+// ClaimCardView is the result screen's one optional card (ADR 0032 §C.1, M15-17 -- the user's §9
+// exception): the missing half of a punch, asked once, with a time field and "Send to my
+// manager". There is no skip button; the card says "You can skip this." and the person closes the
+// page, which is what skipping is.
+//
+// IT IS NOT A FIELD OF ResultView, and that is TestResultView_FieldCountIsTheSpec's rule kept
+// rather than bent: the card arrives as Result's sibling ResultAsking's third parameter, as the
+// logo arrived as Result's second (M10 WL-9), so a result without a card is the same view and the
+// same bytes it was (TestUnbrandedScreens_AreByteIdenticalToTheGolden).
+//
+// Every field is a word the handler wrote or a value the server signed: no record id, no tenant,
+// no coordinate. Context is the signed claim context (internal/handler, claimcontext.go) -- the
+// ONLY place the anchor and the kind travel; the form carries no anchor, no kind and no prefill.
+type ClaimCardView struct {
+	// Lead is the sentence that names the record ("Yesterday you clocked in at 09:12 but there's
+	// no clock-out."), or "" when the question says it all ("What time did you come in?").
+	Lead string
+	// Question is the field's label.
+	Question string
+	// Context is the signed claim context for the form's hidden ctx field.
+	Context string
+	// Value is the time field's value, HH:MM in the tenant's zone: the shift's real end or start
+	// (the prefill), what the person sent when the form is shown again, or "" -- empty and required.
+	Value string
+	// Problem is why the form is shown again ("" on the result screen).
+	Problem string
+}

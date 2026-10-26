@@ -49,6 +49,7 @@ import (
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/billing"
 	"github.com/atknatk/tappa/internal/domain/checkin"
+	"github.com/atknatk/tappa/internal/domain/claim"
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/domain/manual"
@@ -390,7 +391,28 @@ func run() error {
 	// An open window is ANNOUNCED, repeatedly, for the whole time it stays open:
 	// see announceKEKRotationWindow.
 	go announceKEKRotationWindow(ctx, len(cfg.TagKEKPrevious) > 0, slog.Default())
-	tap, err := handler.NewTap(verifier, directory, sessions, checkins, activation, trail, cfg, slog.Default())
+	// The manual record writer (M6-08) — the SECOND writer of `transactions` in this
+	// process, and the first that is not a tap. It exists because Q18 decided the
+	// system produces no checkout of its own: an hour the software invented is an hour
+	// that stops being evidence, so somebody has to type it.
+	//
+	// Same audit recorder again, and here the reason is the strongest of the five: the
+	// record and its trail row are ONE act, `transactions` takes no UPDATE and no
+	// DELETE, and a record that appeared with no trail would be an hour on a payslip
+	// that nobody can be shown to have entered.
+	entries, err := manual.NewRecorder(data, trail, slog.Default())
+	if err != nil {
+		return err
+	}
+	// The punch claim service (M15-16/17, ADR 0032 Faz C): the result screen's card and
+	// POST /api/claim on the tap surface, the decision on the panel (M15-18). It writes a claim
+	// and its trail row in one act, and an approval only through the manual writer above --
+	// the one writer of manual records -- so it takes that writer and the same trail.
+	claims, err := claim.New(data, trail, entries, cfg.BusinessDayFrom, slog.Default())
+	if err != nil {
+		return err
+	}
+	tap, err := handler.NewTap(verifier, directory, sessions, checkins, claims, activation, trail, cfg, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -485,19 +507,6 @@ func run() error {
 		tap.EnableDevTools(cfg)
 		log := slog.Default()
 		log.Warn("DEV TOOLS ARE MOUNTED: POST /dev/simulate-tap mints plaque taps (dev on loopback only)")
-	}
-	// The manual record writer (M6-08) — the SECOND writer of `transactions` in this
-	// process, and the first that is not a tap. It exists because Q18 decided the
-	// system produces no checkout of its own: an hour the software invented is an hour
-	// that stops being evidence, so somebody has to type it.
-	//
-	// Same audit recorder again, and here the reason is the strongest of the five: the
-	// record and its trail row are ONE act, `transactions` takes no UPDATE and no
-	// DELETE, and a record that appeared with no trail would be an hour on a payslip
-	// that nobody can be shown to have entered.
-	entries, err := manual.NewRecorder(data, trail, slog.Default())
-	if err != nil {
-		return err
 	}
 	// records is passed TWICE, as the day reader and as the queue reader. Two
 	// parameters rather than one because internal/handler declares two narrow

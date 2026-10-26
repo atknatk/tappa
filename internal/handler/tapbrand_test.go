@@ -258,7 +258,7 @@ func TestTapPage_AnotherBusinesssPlaqueShowsNoBrand(t *testing.T) {
 func capturingTap(t *testing.T, pv *fakePreviewer, dir *fakeDirectory, svc *fakeCheckins) (http.Handler, *Tap, *bytes.Buffer) {
 	t.Helper()
 	var buf bytes.Buffer
-	tp, err := NewTap(pv, dir, fixedSessions(), svc, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(&buf, nil)))
+	tp, err := NewTap(pv, dir, fixedSessions(), svc, noClaims{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(&buf, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
@@ -301,7 +301,7 @@ func fmtErr(sentinel, cause error) error { return fmt.Errorf("%w: %w", sentinel,
 // confirmation screen as the client receives it.
 func resultAnswer(t *testing.T, dir *fakeDirectory, res checkin.Result, tagTenant, wall uuid.UUID) answer {
 	t.Helper()
-	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, dir, fixedSessions(), &fakeCheckins{result: res}, noActivation{},
+	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, dir, fixedSessions(), &fakeCheckins{result: res}, noClaims{}, noActivation{},
 		&fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
@@ -624,7 +624,7 @@ func TestTapPage_ALogoTapIsTwoChargedRequestsWarmAndThreeCold(t *testing.T) {
 		f := okFacts()
 		f.Brand = testPageBrand(t, true, true)
 		tp, err := NewTap(pv, &fakeDirectory{facts: f, resultBrand: testPageBrand(t, true, true)}, sess,
-			&fakeCheckins{result: okResult()}, noActivation{}, &fakeAudit{}, tapCfg(), discardLogger())
+			&fakeCheckins{result: okResult()}, noClaims{}, noActivation{}, &fakeAudit{}, tapCfg(), discardLogger())
 		if err != nil {
 			t.Fatalf("NewTap: %v", err)
 		}
@@ -743,7 +743,7 @@ func postConfirmation(t *testing.T, s confirmationShape, requestID string) (answ
 	svc := &fakeCheckins{result: okResult()}
 	dir := &fakeDirectory{facts: okFacts(), resultBrand: testPageBrand(t, true, true), resultBrandStall: s.stall}
 	var logs bytes.Buffer
-	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, dir, fixedSessions(), lateCommit{svc, s.commitAt}, noActivation{},
+	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, dir, fixedSessions(), lateCommit{svc, s.commitAt}, noClaims{}, noActivation{},
 		&fakeAudit{}, tapCfg(), slog.New(httpx.WithRequestID(slog.NewTextHandler(&logs, nil))))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)

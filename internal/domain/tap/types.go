@@ -646,6 +646,16 @@ type Decision struct {
 	// (LeftOpenEmployeeNote, where Note has LeftOpenNote — ADR 0032 §B.4), so with
 	// one the two strings differ even at home.
 	EmployeeNote string
+	// EmployeeNoteAsked is EmployeeNote assembled from the same parts in the same
+	// order WITHOUT the left-open part (LeftOpenEmployeeNote): what the result screen
+	// shows when its claim card asks about the very check-in this tap left open (ADR
+	// 0032 §C.1, M15-17, product lens N6 -- the card asks the same thing). It is built
+	// beside EmployeeNote rather than cut out of it: the parts are joined with "; " and
+	// a later one ("you chose to clock in") may follow, so removing a substring would
+	// have to guess the separator, the order and the position (the 2026-10-23
+	// correction). Equal to EmployeeNote whenever LeftOpen is nil. The record's Note
+	// keeps LeftOpenNote in both shapes; only the screen chooses.
+	EmployeeNoteAsked string
 	// CrossLocation is true when the tap happened at a location OTHER than the
 	// employee's home location (Employee.Location != Tag.Location) — normal chain
 	// movement (Q17, M4-05). It is a REPORT fact, recorded so the report can show

@@ -74,6 +74,7 @@ var nonPanelTemplates = map[string]string{
 	"pages/activate.templ":         "the activation screens (CLAUDE.md §9: changed only on request)",
 	"pages/tap.templ":              "the employee's tap screen (CLAUDE.md §9: changed only on request)",
 	"pages/result.templ":           "the employee's result screen (CLAUDE.md §9: changed only on request)",
+	"pages/claim.templ":            "the result screen's claim card and its answers (CLAUDE.md §9's M15-17 exception)",
 	"pages/landing.templ":          "marketing",
 	"pages/publicchrome.templ":     "marketing (the public site's shared header, menu and footer, LP-02)",
 	"pages/pricing.templ":          "marketing (the public pricing page, LP-06)",

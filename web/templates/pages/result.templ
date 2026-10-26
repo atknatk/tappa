@@ -35,6 +35,22 @@ import "strconv"
 // accent nowhere on it, because the colours here tell the verdict. ResultView keeps
 // its eight fields; a zero Logo renders the wordmark, as before.
 templ Result(v ResultView, logo layout.Logo) {
+	@result(v, logo, nil)
+}
+
+// ResultAsking is the result screen with its one claim card (ADR 0032 §C.1, M15-17; the user's
+// §9 exception): the docket, then the card, then the closing sentence -- so on `flag` the "needs
+// your manager's approval" sentence stays BELOW the card (product lens N5), and on `ok` the brand
+// line and "All done" do. The card is a third parameter, never a ResultView field (ClaimCardView).
+//
+// It is the only screen of this family with a form. The form posts natively to POST /api/claim:
+// no script, so the page still reads no position (§4.2) -- the tap page's script is not loaded
+// here, and the card asks a time, not a place.
+templ ResultAsking(v ResultView, logo layout.Logo, card ClaimCardView) {
+	@result(v, logo, &card)
+}
+
+templ result(v ResultView, logo layout.Logo, card *ClaimCardView) {
 	@layout.BrandedPage("Tapped — Taptime", logo) {
 		<section class="docket">
 			<div class="flex items-start justify-between gap-4">
@@ -63,6 +79,21 @@ templ Result(v ResultView, logo layout.Logo) {
 				<p class="mt-2 text-ink/70">{ v.Note }</p>
 			}
 		</section>
+		@cardThenClosing(v, card)
+	}
+}
+
+// cardThenClosing is the card, when there is one, and then the closing sentence: one component
+// call after the docket on purpose. templ writes the whitespace between an element or a component
+// call and a following `if` block or call as a space, so an `if` (or a second call) in result's
+// body moved every screen WITHOUT a card by one byte -- measured, all fourteen result goldens of
+// TestUnbrandedScreens_AreByteIdenticalToTheGolden red. With one call, the screen without a card
+// is the same bytes as before the card existed.
+templ cardThenClosing(v ResultView, card *ClaimCardView) {
+	if card != nil {
+		@ClaimCard(*card)
+		@closing(v)
+	} else {
 		@closing(v)
 	}
 }

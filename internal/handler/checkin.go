@@ -275,7 +275,25 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		readCtx, cancel := context.WithTimeout(post, t.brandWait)
 		logo := t.resultLogo(readCtx, id, tctx, res)
 		cancel()
-		t.render(w, r.WithContext(post), http.StatusOK, withDevStrip(pages.Result(resultView(res), logo), t.devTools, false), logo.Drawn())
+		// The claim card (M15-17, ADR 0032 §C.1): a read of its own, after the commit, under
+		// post and its own bound (claim.go, G-O5); none, failed or late -> no card, and the
+		// screen below is the one it would have been.
+		cardCtx, cancelCard := context.WithTimeout(post, t.claimWait)
+		card := t.resultClaim(cardCtx, id, res)
+		cancelCard()
+		view := resultView(res)
+		screen := pages.Result(view, logo)
+		if card != nil {
+			if card.asksLeftOpen {
+				// The card asks what the left-open sentence says (product lens N6): the
+				// screen's note is the same parts without that one -- the engine built it
+				// beside the whole note, so nothing is cut out of a string here. The
+				// record's note is untouched.
+				view.Note = res.Decision.EmployeeNoteAsked
+			}
+			screen = pages.ResultAsking(view, logo, card.view)
+		}
+		t.render(w, r.WithContext(post), http.StatusOK, withDevStrip(screen, t.devTools, false), logo.Drawn())
 	}
 }
 

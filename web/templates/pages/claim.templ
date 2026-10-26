@@ -1,0 +1,53 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/layout"
+
+// ClaimCard is the missing half of a punch, asked on the result screen (ADR 0032 §C.1, M15-17):
+// one sentence naming the record, one time field, one "Send to my manager" -- and no skip button
+// ("You can skip this." is a sentence: closing the page is skipping).
+//
+// IT CARRIES NO ACCENT (user decision D-C: the result screen has no accent slot). The send button
+// is the palette's primary action -- tappa-green under paper, 7.69:1 -- never .tap-button, which
+// is the accent's slot; the field and the frame are the palette's line on paper. Corners follow the
+// 2026-10-20 rule: the docket keeps its sharp edge, a card and a field may round.
+//
+// THE FORM SENDS THREE THINGS AND ONLY THESE: the signed claim context (ctx), the time (at) and
+// nothing else. No anchor, no kind, no prefill -- those are the context's, signed for this session
+// (internal/handler, claimcontext.go). The time is a wall clock in the business's zone; the server
+// turns it into an instant (the earlier one of an autumn hour that happens twice).
+templ ClaimCard(c ClaimCardView) {
+	<form method="post" action="/api/claim" class="flex flex-col gap-3 rounded-[18px] border border-line bg-paper p-4" data-claim-card>
+		<input type="hidden" name="ctx" value={ c.Context }/>
+		if c.Lead != "" {
+			<p class="text-ink">{ c.Lead }</p>
+		}
+		<label for="claim-at" class="font-display text-lg font-bold tracking-tight text-ink">{ c.Question }</label>
+		if c.Problem != "" {
+			<p class="border-l-4 border-saffron pl-3 text-ink">{ c.Problem }</p>
+		}
+		<input id="claim-at" type="time" name="at" value={ c.Value } required class="min-h-11 w-full rounded-[10px] border border-line bg-paper px-3 font-mono text-lg text-ink"/>
+		<button type="submit" class="min-h-11 w-full rounded-xl bg-tappa-green px-4 font-display text-lg font-bold tracking-tight text-paper focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">Send to my manager</button>
+		<p class="text-sm text-ink/70">You can skip this.</p>
+	</form>
+}
+
+// ClaimForm is the card again, alone, when POST /api/claim cannot take the time it was sent: the
+// field was empty, the time was not one, or it is outside what can be claimed for the record (ADR
+// 0032 §C.3). Problem says which; the signed context is the one the card carried.
+templ ClaimForm(c ClaimCardView) {
+	@layout.BrandedPage("Your time — Taptime", layout.Logo{}) {
+		@ClaimCard(c)
+	}
+}
+
+// ClaimSent is the answer to a claim that was written -- and to a second "Send" of the same card,
+// which the claim already on the record answers (ADR 0032 §C.5: the Sent screen, never an error).
+// The tap's own record was written before the card was drawn; this screen is about the claim only.
+templ ClaimSent() {
+	@layout.BrandedPage("Sent — Taptime", layout.Logo{}) {
+		<section class="docket">
+			<h1 class="font-display text-2xl font-bold tracking-tight text-ink">Sent — your manager will review it.</h1>
+		</section>
+		<p class="text-ink/70">You can close this page.</p>
+	}
+}

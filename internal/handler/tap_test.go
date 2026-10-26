@@ -199,7 +199,7 @@ func newTapHandler(t *testing.T, pv *fakePreviewer, dir *fakeDirectory, sess *fa
 func newTapHandlerWithAudit(t *testing.T, pv *fakePreviewer, dir *fakeDirectory, sess *fakeSessions) (http.Handler, *Tap, *fakeAudit) {
 	t.Helper()
 	rec := &fakeAudit{}
-	tp, err := NewTap(pv, dir, sess, &fakeCheckins{}, noActivation{}, rec, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	tp, err := NewTap(pv, dir, sess, &fakeCheckins{}, noClaims{}, noActivation{}, rec, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestTapPage_APendingActivationTakesTheTap(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			pv := &fakePreviewer{preview: okPreview(true)}
 			act := &pendingActivation{}
-			tp, err := NewTap(pv, &fakeDirectory{facts: okFacts()}, tc.sess, &fakeCheckins{}, act, &fakeAudit{},
+			tp, err := NewTap(pv, &fakeDirectory{facts: okFacts()}, tc.sess, &fakeCheckins{}, noClaims{}, act, &fakeAudit{},
 				tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 			if err != nil {
 				t.Fatalf("NewTap: %v", err)
@@ -299,7 +299,7 @@ func TestTapPage_AQRScanWithALiveSessionStaysACheckIn(t *testing.T) {
 	build := func(sess *fakeSessions) (http.Handler, *pendingActivation, *fakePreviewer) {
 		pv := &fakePreviewer{preview: okPreview(true)}
 		act := &pendingActivation{}
-		tp, err := NewTap(pv, &fakeDirectory{facts: okFacts()}, sess, &fakeCheckins{}, act, &fakeAudit{},
+		tp, err := NewTap(pv, &fakeDirectory{facts: okFacts()}, sess, &fakeCheckins{}, noClaims{}, act, &fakeAudit{},
 			tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 		if err != nil {
 			t.Fatalf("NewTap: %v", err)
@@ -337,7 +337,7 @@ func TestTapPage_AQRScanWithALiveSessionStaysACheckIn(t *testing.T) {
 func TestTapPage_ADeactivatedHolderStaysOnRowFour(t *testing.T) {
 	pv := &fakePreviewer{preview: okPreview(true)}
 	act := &pendingActivation{deactivated: true}
-	tp, err := NewTap(pv, &fakeDirectory{facts: okFacts()}, &fakeSessions{}, &fakeCheckins{}, act, &fakeAudit{},
+	tp, err := NewTap(pv, &fakeDirectory{facts: okFacts()}, &fakeSessions{}, &fakeCheckins{}, noClaims{}, act, &fakeAudit{},
 		tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
@@ -357,7 +357,7 @@ func TestNewTap_RequiresTheActivationFlow(t *testing.T) {
 	var typedNil *pendingActivation
 	for _, a := range []tapActivation{nil, typedNil} {
 		_, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-			&fakeSessions{}, &fakeCheckins{}, a, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+			&fakeSessions{}, &fakeCheckins{}, noClaims{}, a, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 		if err == nil {
 			t.Errorf("NewTap accepted a nil activation flow (%T)", a)
 		}
@@ -439,7 +439,7 @@ func TestTapPage_LiveSessionOfADeactivatedEmployeeStillRenders(t *testing.T) {
 // exactly that wiring mistake.
 func TestTapPage_UnresolvedIdentityIsNotNoSession(t *testing.T) {
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, &fakeCheckins{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, noClaims{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
@@ -807,7 +807,7 @@ func TestTapPage_IsNotCached(t *testing.T) {
 // hand-off 6).
 func TestTapPage_RateLimitIsMountedAndBranded(t *testing.T) {
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, &fakeCheckins{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, noClaims{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
@@ -971,7 +971,7 @@ func TestNewTap_RefusesATypedNilAuditRecorder(t *testing.T) {
 	var typedNil *audit.Recorder // nil pointer, non-nil interface once passed
 
 	_, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, &fakeCheckins{}, noActivation{}, typedNil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, noClaims{}, noActivation{}, typedNil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil {
 		t.Fatal("a typed-nil audit recorder was accepted: the trail would fail at the first " +
 			"refused tap instead of at startup")
@@ -1013,7 +1013,7 @@ func TestTapPage_CarriesAContentPolicy(t *testing.T) {
 // now a startup error, so it cannot be made again by leaving an argument out.
 func TestNewTap_RefusesANilAuditRecorder(t *testing.T) {
 	_, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, &fakeCheckins{}, noActivation{}, nil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, noClaims{}, noActivation{}, nil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil {
 		t.Fatal("a nil audit recorder was accepted: half of an accepted M5-03 criterion would silently not happen")
 	}
@@ -1028,7 +1028,7 @@ func TestTapPage_MountOrderMetersTheSession(t *testing.T) {
 	// STABLE one — a fresh uuid per request would silently spread three requests
 	// across three buckets and the test would pass while measuring nothing.
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		fixedSessions(), &fakeCheckins{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		fixedSessions(), &fakeCheckins{}, noClaims{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
