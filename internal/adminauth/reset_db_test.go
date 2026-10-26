@@ -495,6 +495,28 @@ func (x *txCountingDB) ConsumeIdentityRowReset(ctx context.Context, h, digest st
 	return x.inner.ConsumeIdentityRowReset(ctx, h, digest)
 }
 
+// The per-identity reset's five (M14-14): no tenant transaction of this package's either, so none is
+// counted -- the per-row links these tests reset answer the identity consumption 0 rows.
+func (x *txCountingDB) ResolveIdentityByEmail(ctx context.Context, email string) (db.ResolvedIdentity, error) {
+	return x.inner.ResolveIdentityByEmail(ctx, email)
+}
+
+func (x *txCountingDB) OpenIdentityReset(ctx context.Context, id uuid.UUID, h string, exp time.Time) (db.OpenedIdentityReset, error) {
+	return x.inner.OpenIdentityReset(ctx, id, h, exp)
+}
+
+func (x *txCountingDB) WithdrawIdentityReset(ctx context.Context, h string) (bool, error) {
+	return x.inner.WithdrawIdentityReset(ctx, h)
+}
+
+func (x *txCountingDB) ConsumeIdentityReset(ctx context.Context, h, digest string) (db.ConsumedIdentityReset, error) {
+	return x.inner.ConsumeIdentityReset(ctx, h, digest)
+}
+
+func (x *txCountingDB) GetIdentityResetByTokenHash(ctx context.Context, h string) (db.ResolvedIdentityReset, error) {
+	return x.inner.GetIdentityResetByTokenHash(ctx, h)
+}
+
 // TestConsume_BothWritesShareOneTransaction is reset.go's first 🔴 claim -- "a reset
 // that could not revoke does not happen at all" -- executed, in the two ways it can be
 // observed from outside the package.

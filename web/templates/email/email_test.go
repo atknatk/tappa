@@ -92,7 +92,19 @@ func renderEach(t *testing.T, employeeName, tenantName string) []rendered {
 	if err != nil {
 		t.Fatalf("password-changed notice: %v", err)
 	}
-	return []rendered{{"invitation", inv, mi}, {"reset", rst, mr}, {"password changed", sin, mp}}
+	// M14-14: the per-identity reset and the person's notice -- every property the other three are held
+	// to holds for them too.
+	rsp := testBase + resetPath + "?" + resetParam + "=" + randomValue(t)
+	mrp, err := RenderPasswordReset(ctx, rsp, ResetView{BaseURL: testBase, ValidFor: time.Hour, EveryBusiness: true})
+	if err != nil {
+		t.Fatalf("per-identity reset: %v", err)
+	}
+	mpp, err := RenderPasswordChanged(ctx, sin, PasswordChangedView{BaseURL: testBase, EveryBusiness: true})
+	if err != nil {
+		t.Fatalf("per-person notice: %v", err)
+	}
+	return []rendered{{"invitation", inv, mi}, {"reset", rst, mr}, {"password changed", sin, mp},
+		{"reset, every business", rsp, mrp}, {"password changed, every business", sin, mpp}}
 }
 
 // hostileNames are names an open signup lets an attacker choose. Each must be
@@ -1385,15 +1397,17 @@ func TestLifetime_NeverOverstates(t *testing.T) {
 // text part verbatim and in the HTML escaped — one source, two renderings.
 func TestRender_TheTwoPartsSayTheSameWords(t *testing.T) {
 	letters := map[string]letter{
-		"invitation":       invitationLetter("Maria Borg", "Kebab Factory Ltd.", true, "7 days"),
-		"reset":            resetLetter("1 hour"),
-		"password changed": passwordChangedLetter(),
+		"invitation":                       invitationLetter("Maria Borg", "Kebab Factory Ltd.", true, "7 days"),
+		"reset":                            resetLetter("1 hour", false),
+		"reset, every business":            resetLetter("1 hour", true),
+		"password changed":                 passwordChangedLetter(false),
+		"password changed, every business": passwordChangedLetter(true),
 	}
 	r := renderEach(t, "Maria Borg", "Kebab Factory Ltd.")
 	if len(r) != len(letters) {
 		t.Fatalf("renderEach renders %d message(s) and this test knows %d letter(s); a message is missing from one of them", len(r), len(letters))
 	}
-	for i, kind := range []string{"invitation", "reset", "password changed"} {
+	for i, kind := range []string{"invitation", "reset", "password changed", "reset, every business", "password changed, every business"} {
 		if r[i].kind != kind {
 			t.Fatalf("message %d is %q, want %q (renderEach's order)", i, r[i].kind, kind)
 		}
@@ -1571,5 +1585,42 @@ func TestReset_AskingAgainSaysWhatTheFlowDoes(t *testing.T) {
 				t.Errorf("the %s part still promises %q — asking again replaces nothing while a link is live", name, old)
 			}
 		}
+	}
+}
+
+// TestReset_EveryBusinessIsThePersonsOneLink (M14-14, ADR 0031 §5.14): the per-identity reset e-mail
+// opens with the one-password-for-every-business sentence instead of the per-account one, keeps the
+// rest of the letter (EM-7C's "asking again" included), and names no business; the per-person notice
+// likewise. The per-row variants keep their opening.
+func TestReset_EveryBusinessIsThePersonsOneLink(t *testing.T) {
+	r := renderEach(t, "Maria", "Kebab Factory")
+	byKind := map[string]rendered{}
+	for _, m := range r {
+		byKind[m.kind] = m
+	}
+	for _, c := range []struct {
+		kind, want, not string
+	}{
+		{"reset, every business", resetEveryBusiness, "administrator account that uses"},
+		{"password changed, every business", changedEveryBusiness, "administrator account that uses"},
+		{"reset", "administrator account that uses", resetEveryBusiness},
+		{"password changed", "administrator account that uses", changedEveryBusiness},
+	} {
+		m := byKind[c.kind]
+		if !strings.Contains(m.msg.Text, c.want) || !strings.Contains(visibleText(t, m.msg.HTML), c.want) {
+			t.Errorf("%s: does not say %q", c.kind, c.want)
+		}
+		if strings.Contains(m.msg.Text, c.not) {
+			t.Errorf("%s: says %q", c.kind, c.not)
+		}
+		if strings.Contains(m.msg.Text, "Kebab Factory") {
+			t.Errorf("%s: names a business", c.kind)
+		}
+	}
+	if !strings.Contains(byKind["reset, every business"].msg.Text, resetAskAgain) {
+		t.Error("the per-identity reset lost EM-7C's sentence about asking again")
+	}
+	if byKind["reset, every business"].msg.Subject != subjectReset || byKind["password changed, every business"].msg.Subject != subjectPasswordChanged {
+		t.Error("a per-identity e-mail changed its fixed subject")
 	}
 }

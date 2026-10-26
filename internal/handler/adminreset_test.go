@@ -60,6 +60,12 @@ type fakeResets struct {
 	consumedWith  []string
 	consumePasswd []string
 
+	// personFor is what IssueForPerson returns for an address (M14-14, the flag on); identityWithdrawn
+	// counts WithdrawIdentity's calls.
+	personFor         map[string]adminauth.PersonResets
+	personCalls       int
+	identityWithdrawn int
+
 	// recipients is what NoticeRecipient reads for an administrator (M10 EM-9): the
 	// address "on the row". A missing entry is a row with nowhere to send to.
 	recipients     map[uuid.UUID]string
@@ -90,6 +96,28 @@ func (f *fakeResets) IssueForEmail(_ context.Context, email string) ([]adminauth
 		return nil, nil, err
 	}
 	return grants, kept, nil
+}
+
+func (f *fakeResets) IssueForPerson(_ context.Context, email string) (adminauth.PersonResets, error) {
+	f.mu.Lock()
+	f.personCalls++
+	f.issuedFor = append(f.issuedFor, email)
+	delay, err, p := f.issueDelay, f.issueErr, f.personFor[email]
+	f.mu.Unlock()
+	if delay > 0 && !p.Empty() {
+		time.Sleep(delay)
+	}
+	if err != nil {
+		return adminauth.PersonResets{}, err
+	}
+	return p, nil
+}
+
+func (f *fakeResets) WithdrawIdentity(context.Context, adminauth.ResetToken) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.identityWithdrawn++
+	return f.withdrawErr
 }
 
 func (f *fakeResets) Withdraw(_ context.Context, _, resetID uuid.UUID) error {

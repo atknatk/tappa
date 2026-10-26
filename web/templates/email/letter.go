@@ -89,15 +89,20 @@ func invitationLetter(employeeName, tenantName string, verified bool, life strin
 // The recovery page says the same (web/templates/pages/adminreset.templ);
 // TestReset_AskingAgainSaysWhatTheFlowDoes pins this sentence and internal/handler's
 // TestAdminReset_TheSentPageSaysWhatAskingAgainDoes the page's.
-func resetLetter(life string) letter {
+//
+// everyBusiness (M14-14) is the per-identity link: one password for every business the person signs
+// in to with this address, so the opening sentence says that instead -- still naming no business.
+func resetLetter(life string, everyBusiness bool) letter {
+	opening := "Someone asked to reset the password of a Taptime administrator account that uses " +
+		"this email address. If it was you, use the link below."
+	if everyBusiness {
+		opening = resetEveryBusiness
+	}
 	return letter{
 		subject: subjectReset,
 		heading: "Reset your password",
-		before: []string{
-			"Someone asked to reset the password of a Taptime administrator account that uses " +
-				"this email address. If it was you, use the link below.",
-		},
-		action: "Set a new password",
+		before:  []string{opening},
+		action:  "Set a new password",
 		after: []string{
 			"The link works once and stays valid for " + life + ". " + resetAskAgain,
 			"Nothing has changed yet: your current password keeps working until you use the " +
@@ -113,6 +118,15 @@ func resetLetter(life string) letter {
 // a link that arrived late still works only as long as the e-mail itself states.
 const resetAskAgain = "Asking again sends no new link while this one still works."
 
+// resetEveryBusiness opens the per-identity reset e-mail (M14-14): the one link sets the password the
+// person uses for every business, which is what identity_consume_reset writes.
+const resetEveryBusiness = "Someone asked to reset the password you use to sign in to Taptime with this email " +
+	"address. The new password will work for every business you manage. If it was you, use the link below."
+
+// changedEveryBusiness opens the per-identity notice (M14-14, EM-9): one notice for every business.
+const changedEveryBusiness = "The password you use to sign in to Taptime with this email address was just " +
+	"changed for every business you manage, and every device signed in with it was signed out."
+
 // passwordChangedLetter is the "your password was changed" notice (M10 EM-9). It
 // takes NO argument, so its words are the same for every account: it names nobody
 // (PasswordChangedView says why) and it carries no instant, no device and no
@@ -123,15 +137,21 @@ const resetAskAgain = "Asking again sends no new link while this one still works
 // session but the one that made it, so "any other device ... was signed out" holds
 // for both. The advice names the sign-in page's forgotten-password link by what it
 // does rather than by its label, so a relabelled link does not make the e-mail wrong.
-func passwordChangedLetter() letter {
+//
+// everyBusiness (M14-14) is the person's notice after a per-identity reset: the same e-mail but for its
+// opening, which says the change holds for every business -- the person gets ONE notice, not one per
+// business.
+func passwordChangedLetter(everyBusiness bool) letter {
+	opening := "The password of a Taptime administrator account that uses this email address was just " +
+		"changed, and any other device signed in to that account was signed out."
+	if everyBusiness {
+		opening = changedEveryBusiness
+	}
 	return letter{
 		subject: subjectPasswordChanged,
 		heading: "Your password was changed",
-		before: []string{
-			"The password of a Taptime administrator account that uses this email address was just " +
-				"changed, and any other device signed in to that account was signed out.",
-		},
-		action: "Go to the sign-in page",
+		before:  []string{opening},
+		action:  "Go to the sign-in page",
 		after: []string{
 			"If you made this change, there is nothing more to do.",
 			"If you did not, someone else may have your password. Open the sign-in page and use its " +

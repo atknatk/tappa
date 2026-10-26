@@ -254,6 +254,11 @@ type PasswordNotice struct {
 	Recipient   string
 	TenantID    uuid.UUID
 	AdminUserID uuid.UUID
+	// IdentityID is set (and TenantID / AdminUserID are not) for the PERSON's notice after a
+	// per-identity reset (M14-14): one notice for every business, at the identity's registered
+	// address, saying so (EveryBusiness).
+	IdentityID    uuid.UUID
+	EveryBusiness bool
 }
 
 // passwordChange is one committed password change the notice is about.
@@ -399,4 +404,61 @@ func (h *AdminReset) containNotice(base context.Context, c passwordChange, f fun
 	}()
 	f()
 	return false
+}
+
+// personPasswordChanged is passwordChanged for a PER-IDENTITY reset (M14-14, EM-9, ADR 0031 §5.14):
+// ONE notice for the person -- not one per business -- to the identity's registered address, which
+// identity_consume_reset returned from the row it had just written (00075). Same containment, same
+// mode switch, the same per-account budget keyed on the identity, the same bounded send.
+//
+// ITS OUTCOME IS A LOG LINE, NOT AN AUDIT ROW: the notice belongs to no business (the per-identity
+// link's trail, recordIdentityOutcome's reason), and every business already holds its
+// admin.recovery.completed row from the definer. The line carries ids only -- never the address.
+func (h *AdminReset) personPasswordChanged(ctx context.Context, identityID uuid.UUID, to string) {
+	base := context.WithoutCancel(ctx)
+	outcome := func(o, reason string, extra ...any) {
+		attrs := append([]any{"identity_id", identityID, "outcome", o, "via", noticeViaRecovery}, extra...)
+		if reason != "" {
+			attrs = append(attrs, "reason", reason)
+		}
+		if o == "sent" {
+			h.log.InfoContext(base, "panel credential notice", attrs...)
+			return
+		}
+		h.log.WarnContext(base, "panel credential notice", attrs...)
+	}
+	defer func() {
+		if recover() != nil {
+			h.log.ErrorContext(base, "panel credential notice: the notice panicked; the change stands and the request went on",
+				"identity_id", identityID)
+		}
+	}()
+	if !h.canDeliver() {
+		outcome("undelivered", noticeReasonOff)
+		return
+	}
+	if within, n := h.noticeLimiter.TryCharge(identityResetBudgetKey(identityID)); !within {
+		if h.noticeLimiter.FirstOverLimit(n) {
+			h.log.WarnContext(base, "panel credential notice rate limited", "identity_id", identityID)
+		}
+		outcome("undelivered", noticeReasonLimited)
+		return
+	}
+	if to == "" {
+		outcome("undelivered", noticeReasonNoAddress)
+		return
+	}
+	sendCtx, cancelSend := context.WithTimeout(base, h.noticeSendGrace)
+	defer cancelSend()
+	err := h.mail.DeliverPasswordNotice(sendCtx, PasswordNotice{Recipient: to, IdentityID: identityID, EveryBusiness: true})
+	cancelSend()
+	if err != nil {
+		extra := []any{"err_type", fmt.Sprintf("%T", err)}
+		if class, code, ok := sendErrorClass(err); ok {
+			extra = append(extra, "class", class, "smtp_code", code)
+		}
+		outcome("undelivered", noticeReasonSendFailed, extra...)
+		return
+	}
+	outcome("sent", "")
 }

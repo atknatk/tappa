@@ -189,6 +189,11 @@ type AdminReset struct {
 	// shipped ten seconds. Production always gets the constant from NewAdminReset.
 	noticeSendGrace time.Duration
 
+	// identityGate decides the request's shape (ADR 0031 §8's table, adminauth/flag.go): with
+	// SurfaceResetPerIdentity closed -- the flag off -- Request is today's per-row request, byte for
+	// byte; open, it is the per-identity one (IssueForPerson). Read once at start-up.
+	identityGate adminauth.IdentityGate
+
 	// sleep is the constant-time floor's clock, injectable so a test can assert the
 	// floor is APPLIED without paying it on every case. Production leaves it nil.
 	sleep func(time.Duration)
@@ -207,6 +212,12 @@ type panelResets interface {
 	// is never one no inbox holds (recordOutcome).
 	Withdraw(ctx context.Context, tenantID, resetID uuid.UUID) error
 	Consume(ctx context.Context, t adminauth.ResetToken, newPassword string) (adminauth.ConsumedReset, db.ResolvedPasswordReset, error)
+	// IssueForPerson is the per-identity request (M14-14, ADR 0031 §5.9), asked instead of
+	// IssueForEmail when the identity gate opens SurfaceResetPerIdentity: the address's identity gets
+	// at most one live link, its unlinked rows today's per-row links.
+	IssueForPerson(ctx context.Context, email string) (adminauth.PersonResets, error)
+	// WithdrawIdentity retires a per-identity link recorded undelivered (recordOutcome).
+	WithdrawIdentity(ctx context.Context, t adminauth.ResetToken) error
 	// NoticeRecipient reads the address on an administrator's own row for the "your
 	// password was changed" notice (M10 EM-9); "" means nowhere to send it.
 	NoticeRecipient(ctx context.Context, tenantID, adminUserID uuid.UUID) (string, error)
@@ -223,7 +234,9 @@ type panelResets interface {
 //
 // Recipient IS READ FROM THE ADMINISTRATOR'S OWN ROW (adminauth.ResetGrant), never
 // from the submitted form, which is the acceptance criterion "link yalnızca
-// yöneticinin KENDİ satırındaki adrese gider" made structural.
+// yöneticinin KENDİ satırındaki adrese gider" made structural. For a per-identity
+// link (M14-14, EveryBusiness) it is the identity's REGISTERED address, from the same
+// resolver row as the identity the link was opened for (adminauth's identityRecipient).
 //
 // ResetID is the reset ROW's id — never the token, never its hash. A channel may
 // log it next to its own receipt (ADR 0022 §10), which is what joins a relay's
@@ -233,6 +246,9 @@ type ResetDelivery struct {
 	Link      string
 	ExpiresAt time.Time
 	ResetID   uuid.UUID
+	// EveryBusiness: the link is a per-identity one (M14-14) and resets the person's password in
+	// every business they sign in to with this address -- the e-mail says so.
+	EveryBusiness bool
 }
 
 // ResetChannel delivers a reset link to the administrator it belongs to.
@@ -399,6 +415,7 @@ func NewAdminReset(resets panelResets, mail ResetChannel, rec auditRecorder, cfg
 		linkLimiter:    newLimiter(adminResetLinkLimit, adminResetLinkPeriod),
 		unknownLimiter: newLimiter(adminResetUnknownLimit, adminResetUnknownPeriod),
 		noticeLimiter:  newLimiter(passwordNoticeLimit, passwordNoticePeriod),
+		identityGate:   adminauth.NewIdentityGate(cfg.AdminIdentity),
 		log:            log,
 
 		noticeSendGrace: PasswordNoticeSendGrace,
@@ -587,7 +604,19 @@ func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
 	// be the M5-01/02/03 failure class.
 	email := strings.TrimSpace(r.PostFormValue("email"))
 
-	grants, kept, err := h.resets.IssueForEmail(r.Context(), email)
+	var (
+		grants       []adminauth.ResetGrant
+		kept         []adminauth.Reset
+		identityKept *adminauth.IdentityResetKept
+		err          error
+	)
+	if h.identityGate.Open(adminauth.SurfaceResetPerIdentity) {
+		var p adminauth.PersonResets
+		p, err = h.resets.IssueForPerson(r.Context(), email)
+		grants, kept, identityKept = p.Grants, p.Kept, p.IdentityKept
+	} else {
+		grants, kept, err = h.resets.IssueForEmail(r.Context(), email)
+	}
 	if err != nil {
 		// A database failure is NOT "unknown address", and it must not be reported as
 		// one: that would hide an outage behind a screen saying a link is on its way.
@@ -604,7 +633,10 @@ func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
 	for _, k := range kept {
 		h.recordKept(r, k)
 	}
-	if len(grants) == 0 && len(kept) == 0 {
+	if identityKept != nil {
+		h.recordIdentityKept(r, *identityKept)
+	}
+	if len(grants) == 0 && len(kept) == 0 && identityKept == nil {
 		// Unattributable: nothing resolved, so there is no tenant and audit_log's
 		// tenant_id is NOT NULL with an FK (00005). Logged WITHOUT the address, and
 		// bounded, so a flood of guesses cannot write a list of guessed addresses into
@@ -653,6 +685,9 @@ func (h *AdminReset) deliver(base context.Context, ip string, g adminauth.ResetG
 		Link:      g.Issued.Link(h.linkBase),
 		ExpiresAt: g.Issued.Reset.ExpiresAt,
 		ResetID:   g.Issued.Reset.ID,
+		// A per-identity link resets the person's password in every business (M14-14): the
+		// e-mail says so (ADR 0031 §5.14's "kimlik başına sıfırlama").
+		EveryBusiness: g.IdentityID != uuid.Nil,
 	})
 	// Released as soon as the send returns (the defer above covers only a panic): the
 	// row below must never run on the send's context.
@@ -699,15 +734,12 @@ func (h *AdminReset) deliver(base context.Context, ip string, g adminauth.ResetG
 		// relay's console holds it, reachable through the message id the channel logs
 		// on success (ADR 0022 §11). The occurrence is never swallowed (§7): it is
 		// here, and it is an audit row.
+		attrs := append([]any{"ip", ip}, grantIDs(g)...)
+		attrs = append(attrs, "err_type", fmt.Sprintf("%T", err))
 		if class, code, ok := sendErrorClass(err); ok {
-			h.log.ErrorContext(base, "panel recovery: delivery failed", "ip", ip,
-				"admin_user_id", g.Issued.Reset.AdminUserID, "reset_id", g.Issued.Reset.ID,
-				"err_type", fmt.Sprintf("%T", err), "class", class, "smtp_code", code)
-		} else {
-			h.log.ErrorContext(base, "panel recovery: delivery failed", "ip", ip,
-				"admin_user_id", g.Issued.Reset.AdminUserID, "reset_id", g.Issued.Reset.ID,
-				"err_type", fmt.Sprintf("%T", err))
+			attrs = append(attrs, "class", class, "smtp_code", code)
 		}
+		h.log.ErrorContext(base, "panel recovery: delivery failed", attrs...)
 	}
 	*decided = true
 	h.recordWorkerOutcome(base, g, action, outcome, reason)
@@ -737,6 +769,10 @@ func (h *AdminReset) recordWorkerOutcome(base context.Context, g adminauth.Reset
 // asking again gets a fresh one — fail-closed, never a window with no way to get a
 // link. A failed withdrawal is logged (ids only) and the row is still written.
 func (h *AdminReset) recordOutcome(ctx context.Context, g adminauth.ResetGrant, action, outcome, reason string) {
+	if g.IdentityID != uuid.Nil {
+		h.recordIdentityOutcome(ctx, g, action, outcome, reason)
+		return
+	}
 	if action == ActionAdminResetUndelivered {
 		if err := h.resets.Withdraw(ctx, g.Issued.Reset.TenantID, g.Issued.Reset.ID); err != nil {
 			h.log.ErrorContext(ctx, "panel recovery: withdrawing an undelivered link failed",
@@ -793,6 +829,61 @@ func (h *AdminReset) recordKept(r *http.Request, k adminauth.Reset) {
 
 // resetReasonLiveLink is the kept row's reason.
 const resetReasonLiveLink = "the account already holds a live recovery link, so no new one was created or sent"
+
+// recordIdentityOutcome is recordOutcome for a PER-IDENTITY link (M14-14): withdrawn first when it
+// was not delivered (recordOutcome's EM-7C reason, at the identity level), then ONE log line through
+// the per-identity budget -- and NO audit row. ADR 0031 §5.2 (identity_open_reset /
+// identity_withdraw_reset): the identity has no tenant, so there is no business whose trail could take
+// the row without naming the person's other businesses to it; the identity's own trail is the
+// reset_requested event the opening wrote. The line carries ids only (§7, ADR 0031 §5.15): the reset
+// row's id, the identity's id, the outcome -- never the address or the link.
+func (h *AdminReset) recordIdentityOutcome(ctx context.Context, g adminauth.ResetGrant, action, outcome, reason string) {
+	if action == ActionAdminResetUndelivered {
+		if err := h.resets.WithdrawIdentity(ctx, g.Issued.Token); err != nil {
+			h.log.ErrorContext(ctx, "panel recovery: withdrawing an undelivered identity link failed",
+				"identity_id", g.IdentityID, "reset_id", g.Issued.Reset.ID, "err_type", fmt.Sprintf("%T", err))
+		}
+	}
+	if within, n := h.accountLimiter.TryCharge(identityResetBudgetKey(g.IdentityID)); !within {
+		if h.accountLimiter.FirstOverLimit(n) {
+			h.log.WarnContext(ctx, "panel recovery rate limited", "scope", "identity", "identity_id", g.IdentityID)
+		}
+		return
+	}
+	h.log.InfoContext(ctx, "panel recovery: identity link outcome",
+		"identity_id", g.IdentityID, "reset_id", g.Issued.Reset.ID, "outcome", outcome, "reason", reason,
+		"expires_at", g.Issued.Reset.ExpiresAt.UTC().Format(time.RFC3339))
+}
+
+// recordIdentityKept is recordKept for a person whose identity already held a live link (EM-7C):
+// nothing was opened, retired or sent, and -- recordIdentityOutcome's reason -- the trail is one
+// budgeted log line, not an audit row.
+func (h *AdminReset) recordIdentityKept(r *http.Request, k adminauth.IdentityResetKept) {
+	if within, n := h.accountLimiter.TryCharge(identityResetBudgetKey(k.IdentityID)); !within {
+		if h.accountLimiter.FirstOverLimit(n) {
+			h.log.WarnContext(r.Context(), "panel recovery rate limited", "scope", "identity", "identity_id", k.IdentityID)
+		}
+		return
+	}
+	h.log.InfoContext(r.Context(), "panel recovery: identity link kept",
+		"identity_id", k.IdentityID, "reset_id", k.ResetID, "outcome", "kept", "reason", resetReasonLiveLink,
+		"expires_at", k.ExpiresAt.UTC().Format(time.RFC3339))
+}
+
+// identityResetBudgetKey namespaces an identity's bucket in the per-account budget it shares with
+// administrator ids (adminauth's identityBudgetKey precedent): same limiter, distinct key, so neither
+// can spend the other.
+func identityResetBudgetKey(id uuid.UUID) string { return "identity:" + id.String() }
+
+// grantIDs is a grant's ids for a log line: the administrator and the reset row for a per-row link,
+// the identity and the reset row for a per-identity one (ADR 0031 §5.15's identity_id). Never the
+// address, never the link.
+func grantIDs(g adminauth.ResetGrant) []any {
+	if g.IdentityID != uuid.Nil {
+		return []any{"identity_id", g.IdentityID, "reset_id", g.Issued.Reset.ID}
+	}
+	return []any{"admin_user_id", g.Issued.Reset.AdminUserID, "reset_id", g.Issued.Reset.ID}
+}
 
 // NewPage serves GET /admin/reset/new — what a reset link opens.
 //
@@ -993,6 +1084,17 @@ func (h *AdminReset) Submit(w http.ResponseWriter, r *http.Request) {
 				},
 			})
 		}
+		if consumed.IdentityID != uuid.Nil {
+			// A PER-IDENTITY LINK (M14-14): identity_consume_reset wrote every linked business its
+			// admin.recovery.completed row (Recorded), and the person -- not a business -- gets the
+			// ONE "your password was changed" notice at the identity's registered address (EM-9, ADR
+			// 0031 §5.14: once in every business, i.e. once).
+			h.log.Info("panel recovery completed", "identity_id", consumed.IdentityID,
+				"ip", ip, "revoked_sessions", consumed.RevokedSessions)
+			h.personPasswordChanged(r.Context(), consumed.IdentityID, consumed.NoticeTo)
+			h.redirect(w, adminLoginPath+"?"+adminResetDoneQuery)
+			return
+		}
 		h.log.Info("panel recovery completed", "admin_user_id", consumed.AdminUserID,
 			"ip", ip, "revoked_sessions", consumed.RevokedSessions)
 		// THE ACCOUNT HOLDER IS TOLD (M10 EM-9) — after the change committed and its row
@@ -1009,6 +1111,8 @@ func (h *AdminReset) Submit(w http.ResponseWriter, r *http.Request) {
 		// browser holding this cookie" from "the browser that stole it". Sending them
 		// anywhere else would be sending them to a page that is about to answer 303.
 		h.redirect(w, adminLoginPath+"?"+adminResetDoneQuery)
+	case errors.Is(err, adminauth.ErrResetUnusable) && consumed.IdentityRefusal != nil:
+		h.refusedIdentityLink(w, r, ip, *consumed.IdentityRefusal)
 	case errors.Is(err, adminauth.ErrResetUnusable):
 		h.refused(w, r, ip, resolved)
 	default:
@@ -1074,6 +1178,24 @@ func (h *AdminReset) refused(w http.ResponseWriter, r *http.Request, ip string, 
 	})
 	h.log.Warn("panel recovery refused", "reason", "link resolved but could not be spent",
 		"ip", ip, "admin_user_id", resolved.AdminUserID)
+	h.clearLink(w)
+	h.problem(w, r, http.StatusBadRequest, problemResetLinkUnusable)
+}
+
+// refusedIdentityLink is refused for a PER-IDENTITY link that resolved and could not be spent
+// (M14-14). The link belongs to no business, so its trail cannot be an audit row (audit_log.tenant_id
+// is NOT NULL); it is one log line with the three state facts, budgeted on the link's own row id
+// (recordForLink's reason: only the holder of that link can burn it). The visitor gets refused's
+// screen, byte for byte.
+func (h *AdminReset) refusedIdentityLink(w http.ResponseWriter, r *http.Request, ip string, ir db.ResolvedIdentityReset) {
+	if within, n := h.linkLimiter.TryCharge(ir.ID.String()); within {
+		h.log.Warn("panel recovery refused", "reason", "identity link resolved but could not be spent",
+			"ip", ip, "identity_id", ir.IdentityID, "reset_id", ir.ID,
+			"already_used", ir.UsedAt != nil, "superseded", ir.CancelledAt != nil,
+			"expired", !ir.ExpiresAt.IsZero() && time.Now().After(ir.ExpiresAt))
+	} else if h.linkLimiter.FirstOverLimit(n) {
+		h.log.Warn("panel recovery rate limited", "scope", "link", "identity_id", ir.IdentityID, "reset_id", ir.ID)
+	}
 	h.clearLink(w)
 	h.problem(w, r, http.StatusBadRequest, problemResetLinkUnusable)
 }
