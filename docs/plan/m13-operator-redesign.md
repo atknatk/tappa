@@ -376,7 +376,7 @@ testleri), `op14_test.go` (44 px listesi).
 - **Commit:** `feat(operator): give the operator surface its own notice and problem card`
 - **Spec:** [README §6 "Operator notice", "Problem page"](../design/operator-redesign/README.md), [screens.md §4](../design/operator-redesign/screens.md)
 
-**Orkestratör kararı (a), 2026-10-26 — bildirim biçimi.** Bildirim README §6 "Operator notice"
+**Orkestratör kararı (d), 2026-10-26 — bildirim biçimi.** Bildirim README §6 "Operator notice"
 tarifinde kalır: tam çerçeve, 14 px köşe (D2 `rounded-[14px]`; panelin `PanelNotice`'i ve States
 panolarıyla tek ürün, tek biçim). Operatör panolarının 4 px sol çizgisi (`0 10px 10px 0` köşe) **uygulanmaz**.
 Tonun rengi testle sabittir (ok tappa-green, warn saffron, alert tomato; durum→renk asla ters çevrilmez);

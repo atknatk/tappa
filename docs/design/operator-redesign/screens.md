@@ -409,7 +409,7 @@ writes card are `op-card` (its gap the card rule's since M13-15); the API form s
 Close the API is full width on the phone. **Deliberate differences from the boards:** the API code is not bold (its span is pinned,
 `tenantapi_test.go`); the box carries no `aria-describedby` (D1 — the boards' wiring is mock-up markup, as on the tenant list); the
 primary button is the shared `btn--primary`'s 48 px, so the box beside it stretches to 48 px (the boards 44 px); the boards'
-`aria-label` on the first card is not ported (its h1 names it); the notices keep the full-frame shape (orchestrator decision (a)).
+`aria-label` on the first card is not ported (its h1 names it); the notices keep the full-frame shape (orchestrator decision (d)).
 Pinned by `TestTenantOverviewScreen_IsTheFactsTheCountsAndTheTwoWriteCards` (the column's blocks, every word per state, the whole
 tags, each input's attribute set, the forms and anchors, no hidden or preselected control),
 `TestTenantScreens_EachHasOneH1InTheMainAndNoneInTheBanner` and `TestTenantOverviewCounts_TheScopedRuleKeepsTheBoardsSizes`.
