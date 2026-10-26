@@ -695,7 +695,9 @@ beside the whole chip —; one column on the phone. The sentence and the time li
 `docket-label` heading; its sentence (at most 560 px) and the form share a row from the tablet, the
 button at the row's end; on the phone the button takes the card's width. Measured at 320 / 390 / 834 /
 1200 / 1440 with every fixture and a 64-character number without a space under a 130-character tenant
-name: no horizontal scroll. Recipe and deliberate differences: README §6.1 "VAT On file".
+name: no horizontal scroll. The two terms, "VAT number" and "VIES answer", keep the code's
+`docket-label` (10 px, 0.1em; the boards' `.lbl` is 11 px, 0.12em). Recipe and deliberate
+differences: README §6.1 "VAT On file".
 
 **States:** each of the four verdicts · never asked · a warn notice · odd number (no form) ·
 unnamed tenant (drawn on the polished `OpVat` boards too; the fixture "tenant VAT, not found"
@@ -713,7 +715,8 @@ VAT number anywhere but this screen.
 `TestVATRecheck_TheNumberIsTheServersNotTheClients`, `TestVATRecheck_TheNumberIsOnNoLogLineOrHeader`,
 `TestVATNumber_TheListedSitesAloneReadIt`; since M13-11 `TestVATScreen_IsTheIntroCardTheRecordAndTheAsking`
 (the whole column, tags and words, per state; the number once on the page; one form or none, no
-field) and `TestVATRecord_TheScopedRuleKeepsTheTimeInInk` (the time line's one scoped rule).
+field), `TestVATRecord_TheScopedRuleKeepsTheTimeInInk` (the time line's one scoped rule) and
+`TestVATScreen_AnUnnamedTenantIsNamedByItsID` (through the handler, on the GET and a refused re-check).
 
 ---
 

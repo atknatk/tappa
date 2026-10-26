@@ -7,11 +7,15 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/web/templates/operatorpages"
 )
@@ -297,5 +301,50 @@ func TestVATRecord_TheScopedRuleKeepsTheTimeInInk(t *testing.T) {
 		if len(readScopedRules(mutated, "tenant-vat", vatRecordRules)) == 0 {
 			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
 		}
+	}
+}
+
+// TestVATScreen_AnUnnamedTenantIsNamedByItsID (M13-11; ADR 0020 §9, screens.md §9 "States"): a
+// tenant whose stored name shows nothing (blankNames) is named by its id on its VAT screen,
+// through the shipped router and handler (renderVAT's tenantBanner) -- on the GET (200) and on
+// a POST that changed nothing (a number VIES does not take: 422, the format notice): the banner
+// says "Unnamed tenant" with the id under it, the document title is "VAT number — Unnamed
+// tenant <id> — Taptime operator", and the number stays on the page once. CONTROL: a name with
+// one visible letter among invisible characters is the tenant's name on the same screen, in a
+// bdi, with no "Unnamed tenant".
+//
+// PART II -- red on a VAT screen that draws a blank name any other way (the stored blank, a
+// fixed word, the overview's read) on either answer. PART III -- the banner's markup is
+// TestOperatorScreens_EveryOneWearsTheOperatorChrome's -- no completeness claim.
+func TestVATScreen_AnUnnamedTenantIsNamedByItsID(t *testing.T) {
+	g := newRig(t)
+	c := g.signIn(g.active())
+	named := func(what string, w *httptest.ResponseRecorder, code int, id uuid.UUID, number string) {
+		t.Helper()
+		body := w.Body.String()
+		b := strings.Index(body, `<section class="op-tenant" aria-label="Tenant">`)
+		if w.Code != code || b < 0 ||
+			!strings.Contains(body[b:], `<p class="font-display text-xl font-bold tracking-tight">Unnamed tenant</p>`) ||
+			!strings.Contains(body[b:], `<p class="break-all font-mono text-sm">`+id.String()+`</p>`) ||
+			!strings.Contains(body, "<title>VAT number — Unnamed tenant "+id.String()+" — Taptime operator</title>") ||
+			strings.Count(body, number) != 1 {
+			t.Errorf("%s = %d (want %d): the banner or the title does not name the tenant by its id, or the number is not on the page once",
+				what, w.Code, code)
+		}
+	}
+	for label, blank := range blankNames {
+		id := g.seedVAT(uuid.Nil, blank, vatNumberOK, nil, nil)
+		named("a tenant named "+label+", the screen", g.get(vatPathOf(id.String()), c), http.StatusOK, id, vatNumberOK)
+		odd := g.seedVAT(uuid.Nil, blank, vatNumberOdd, nil, nil)
+		w := g.recheck(odd, c)
+		if !strings.Contains(w.Body.String(), "This number cannot be sent to VIES") {
+			t.Errorf("a tenant named %s: the refused re-check does not carry the format notice", label)
+		}
+		named("a tenant named "+label+", a refused re-check", w, http.StatusUnprocessableEntity, odd, vatNumberOdd)
+	}
+	id := g.seedVAT(uuid.Nil, "​A⁠", vatNumberOK, nil, nil)
+	if body := g.get(vatPathOf(id.String()), c).Body.String(); strings.Contains(body, "Unnamed tenant") ||
+		!strings.Contains(body, "<bdi>​A⁠</bdi>") {
+		t.Error("CONTROL: a name with a visible letter is not the VAT screen's name")
 	}
 }
