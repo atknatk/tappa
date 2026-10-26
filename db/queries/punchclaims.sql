@@ -205,8 +205,10 @@ SELECT c.id,
 -- by transactions.id and this joins them to punch_claims.anchor_transaction_id -- an id, never a
 -- timestamp (two records can share an instant; ADR 0032 §A.6 orders by (occurred_at, id) for that
 -- reason). A rejected claim's anchor is NOT marked: the record still misses its half and nobody is
--- asked about it any more. Explicit tenant on both tables.
-SELECT c.anchor_transaction_id
+-- asked about it any more. The claim's own id comes back too: the mark links to the claim in focus on
+-- the queue (M15-18 review round). Explicit tenant on both tables.
+SELECT c.anchor_transaction_id,
+       c.id
   FROM punch_claims AS c
  WHERE c.tenant_id = @tenant_id
    AND c.anchor_transaction_id = ANY (@anchor_ids::uuid[])
@@ -216,3 +218,23 @@ SELECT c.anchor_transaction_id
         WHERE d.tenant_id = @tenant_id
           AND d.claim_id = c.id
    );
+
+-- name: CountPendingPunchClaims :one
+-- HOW MANY CLAIMS WAIT FOR A DECISION, AS FAR AS IT COUNTS (M15-18 review round, user decision "Üç yerde
+-- sayı", 2026-10-26): The Spike's "Time claims · N" link, its empty state and The Pass's "On the spike"
+-- card. It rides the panel chrome's badge read (internal/domain/ledger.Pending), so it is paid on every
+-- panel page -- hence the cap: the inner LIMIT stops the scan at @cap rows (the caller asks one past
+-- its cap, the flagged count's shape). Explicit tenant on both tables.
+SELECT count(*)
+  FROM (
+        SELECT 1
+          FROM punch_claims AS c
+         WHERE c.tenant_id = @tenant_id
+           AND NOT EXISTS (
+               SELECT 1
+                 FROM punch_claim_decisions AS d
+                WHERE d.tenant_id = @tenant_id
+                  AND d.claim_id = c.id
+           )
+         LIMIT sqlc.arg('cap')::int
+       ) AS capped;

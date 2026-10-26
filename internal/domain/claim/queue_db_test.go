@@ -7,6 +7,7 @@ package claim
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -162,7 +163,7 @@ func TestAnomaliesDB_TheClaimPendingMarkIsBoundByTheRecordsIDNotItsTime(t *testi
 	if bytes.Compare(y[:], x[:]) > 0 {
 		later, earlier = y, x
 	}
-	w.mustSubmit(later, KindOut, w.at(0, 17, 0))
+	onLater := w.mustSubmit(later, KindOut, w.at(0, 17, 0))
 	tue := w.tapAt("out", w.at(1, 12, 0), w.home)
 	w.mustSubmit(tue, KindIn, w.at(1, 10, 0))
 	wed := w.tapAt("out", w.at(2, 12, 0), w.home)
@@ -184,6 +185,9 @@ func TestAnomaliesDB_TheClaimPendingMarkIsBoundByTheRecordsIDNotItsTime(t *testi
 			}
 		}
 		marked[o.ID] = o.ClaimPending
+		if o.ID == later && o.PendingClaimID != onLater.ID {
+			t.Errorf("the marked check-in names claim %s, want %s (the mark's link)", o.PendingClaimID, onLater.ID)
+		}
 	}
 	if open != 2 {
 		t.Fatalf("the open list holds %d of the two same-instant check-ins (%+v); the test needs both", open, screen.Open)
@@ -200,5 +204,71 @@ func TestAnomaliesDB_TheClaimPendingMarkIsBoundByTheRecordsIDNotItsTime(t *testi
 	}
 	if v, ok := inMissing[wed]; !ok || v {
 		t.Errorf("Wednesday's checkout (claim rejected): listed %v, marked %v; want listed and unmarked", ok, v)
+	}
+}
+
+// TestPendingDB_TheClaimCountIsThisBusinesssOwn (user decision "Üç yerde sayı"): the count the Spike's
+// link, its empty state and The Pass print is this business's undecided claims -- a decided one leaves
+// it, another business's never enters it.
+func TestPendingDB_TheClaimCountIsThisBusinesssOwn(t *testing.T) {
+	w, other := newWorld(t), newWorld(t)
+	reader, err := ledger.NewReader(w.data, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := func(tenant uuid.UUID) ledger.ClaimCount {
+		t.Helper()
+		p, err := reader.Pending(w.ctx, tenant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.Claims
+	}
+	if c := count(w.tenant); !c.Queried || c.Failed || c.N != 0 {
+		t.Fatalf("a business with no claim counts %+v, want a measured 0", c)
+	}
+	w.mustSubmit(w.tapAt("in", w.at(0, 9, 0), w.home), KindOut, w.at(0, 17, 0))
+	decided := w.mustSubmit(w.tapAt("in", w.at(1, 9, 0), w.home), KindOut, w.at(1, 17, 0))
+	w.mustSubmit(w.tapAt("in", w.at(2, 9, 0), w.home), KindOut, w.at(2, 17, 0))
+	if _, err := w.decide(decided.ID, Rejected, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		other.mustSubmit(other.tapAt("in", other.at(i, 9, 0), other.home), KindOut, other.at(i, 17, 0))
+	}
+	if c := count(w.tenant); c.N != 2 || c.Capped {
+		t.Errorf("this business counts %+v, want 2 (three sent, one decided, the other business's three not counted)", c)
+	}
+	if c := count(other.tenant); c.N != 3 {
+		t.Errorf("the other business counts %+v, want its own 3", c)
+	}
+}
+
+// TestDecideDB_AConfirmationForAnotherShiftIsNotAConfirmation (M15-18 review round, security DÜŞÜK-1):
+// the step was signed against the 09:00–17:00 instance; the venue's shift is 09:00–18:00 when Decide
+// judges under the lock -- the approval writes nothing and asks the step again; the subject of the
+// assessment Decide made is what writes.
+func TestDecideDB_AConfirmationForAnotherShiftIsNotAConfirmation(t *testing.T) {
+	w := newWorld(t)
+	c := w.mustSubmit(w.tapAt("in", w.at(0, 9, 0), w.home), KindOut, w.at(1, 1, 0))
+	in, err := w.svc.Inspect(w.ctx, w.tenant, c.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed := ConfirmationSubject(c.ID, in.Assessment)
+	w.exec(`UPDATE locations SET shift_end = '18:00' WHERE id = $1`, w.home)
+	got, err := w.svc.Decide(w.ctx, Decision{TenantID: w.tenant, ClaimID: c.ID, DecidedBy: w.admin, Outcome: Approved, Confirmation: signed})
+	if !errors.Is(err, ErrNeedsConfirmation) || got.Assessment == nil {
+		t.Fatalf("Decide with the old shift's subject = %v, want ErrNeedsConfirmation with the new assessment", err)
+	}
+	if n := w.manualRows(); n != 0 {
+		t.Fatalf("%d manual record(s) written against a shift nobody was shown", n)
+	}
+	if _, err := w.svc.Decide(w.ctx, Decision{TenantID: w.tenant, ClaimID: c.ID, DecidedBy: w.admin, Outcome: Approved,
+		Confirmation: ConfirmationSubject(c.ID, *got.Assessment)}); err != nil {
+		t.Fatalf("Decide with the new shift's subject: %v", err)
+	}
+	if n := w.manualRows(); n != 1 {
+		t.Errorf("%d manual record(s), want 1", n)
 	}
 }

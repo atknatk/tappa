@@ -1233,6 +1233,9 @@ sırası bu yüzden `(occurred_at, id)`'dir. Adımlar:
 1. `db/queries/anomalies.sql`: `ListCheckoutsWithoutCheckIn` ve `ListOpenCheckIns` çapanın `o.id`'sini
    (`transactions.id`) seçer; `EmployeeID` zaten seçiliyor (yoksa eklenir). Çapa işareti için
    ayrıca çapanın `channel`, `type`, `direction_source`'u (aşağıda 3).
+   *Not (2026-10-26, M15-18 — sapma 1, genel mercekçe kabul edildi):* işaret anomali listesinde değil kuyrukta
+   çizilir ve çapa satırından okunur (`GetPunchClaimAnchor` `channel` + `direction_source` seçer,
+   `tap.RecordedDirectionSource` üzerinden); anomali sorguları yalnız `id` taşır — okuyucusu olmayan sütun seçilmez.
 2. `ledger.AnomalyInMissing` ve `ledger.AnomalyOpen` id taşır (`ID uuid.UUID`; gerekirse `EmployeeID`);
    rozet bu id ile `punch_claims`'in çapasına bağlanır.
 3. `make gen` (sqlc yeniden üretimi) ve kolon şekli pinleri **bilinçli** güncellenir:

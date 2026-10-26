@@ -209,6 +209,9 @@ templ spikeCard(s SpikeView) {
 					}
 				</span>
 			</span>
+			if s.Claims != "" {
+				<span class="font-mono text-xs text-ink/85">{ s.Claims }</span>
+			}
 			<span class="mt-auto flex min-h-11 items-center gap-1.5 text-[13px] font-bold md:text-sm">
 				Work the spike
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" focusable="false"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>

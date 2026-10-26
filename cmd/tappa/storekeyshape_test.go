@@ -353,12 +353,15 @@ var storeSurface = map[string]string{
 	// M15-18: the anchor also hands back its channel and direction_source (a vocabulary word, read
 	// only through tap.RecordedDirectionSource -- the queue's "they chose this direction" mark); the
 	// panel's claim queue (ids, the person's name, a kind, three instants) and the pending claims
-	// among listed records (ids). Nothing of the evidence, no note, no e-mail.
+	// among listed records (two ids: the record and its claim, the mark's link); and, in the review
+	// round, the capped count of undecided claims (an integer). Nothing of the evidence, no note, no
+	// e-mail.
 	"GetPunchClaimAnchor":              "(context.Context, GetPunchClaimAnchorParams{TenantID uuid.UUID; ID uuid.UUID; EmployeeID uuid.UUID}) (GetPunchClaimAnchorRow{ID uuid.UUID; Type *string; Channel string; DirectionSource *string; OccurredAt time.Time; CreatedAt time.Time; BusinessDayStart *time.Time; Practice bool; LocationID *uuid.UUID; SiteLocationID *uuid.UUID; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; ShiftOvernight bool}, error)",
 	"ListPunchClaimChain":              "(context.Context, ListPunchClaimChainParams{TenantID uuid.UUID; EmployeeID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListPunchClaimChainRow{ID uuid.UUID; Type *string; OccurredAt time.Time; CreatedAt time.Time; BusinessDayStart *time.Time; Channel string; BeforeRange bool}, error)",
 	"ListPunchClaimedAnchors":          "(context.Context, ListPunchClaimedAnchorsParams{TenantID uuid.UUID; EmployeeID uuid.UUID; AnchorIds []uuid.UUID}) ([]uuid.UUID, error)",
 	"ListPendingPunchClaims":           "(context.Context, ListPendingPunchClaimsParams{TenantID uuid.UUID; RowLimit int32}) ([]ListPendingPunchClaimsRow{ID uuid.UUID; EmployeeID uuid.UUID; EmployeeName *string; Kind string; ClaimedAt time.Time; CreatedAt time.Time; AnchorAt time.Time}, error)",
-	"ListPendingPunchClaimAnchors":     "(context.Context, ListPendingPunchClaimAnchorsParams{TenantID uuid.UUID; AnchorIds []uuid.UUID}) ([]uuid.UUID, error)",
+	"ListPendingPunchClaimAnchors":     "(context.Context, ListPendingPunchClaimAnchorsParams{TenantID uuid.UUID; AnchorIds []uuid.UUID}) ([]ListPendingPunchClaimAnchorsRow{AnchorTransactionID uuid.UUID; ID uuid.UUID}, error)",
+	"CountPendingPunchClaims":          "(context.Context, CountPendingPunchClaimsParams{TenantID uuid.UUID; Cap int32}) (int64, error)",
 	"GetPunchClaimForDecision":         "(context.Context, GetPunchClaimForDecisionParams{TenantID uuid.UUID; ID uuid.UUID}) (GetPunchClaimForDecisionRow{ID uuid.UUID; EmployeeID uuid.UUID; AnchorTransactionID uuid.UUID; Kind string; ClaimedAt time.Time; PrefilledAt *time.Time; CreatedAt time.Time; DecidedOutcome *string}, error)",
 	"InsertPunchClaimDecision":         "(context.Context, InsertPunchClaimDecisionParams{Outcome string; DecidedBy uuid.UUID; ApprovedAt *time.Time; TransactionID *uuid.UUID; Note *string; ClaimID uuid.UUID; TenantID uuid.UUID}) (InsertPunchClaimDecisionRow{ID uuid.UUID; CreatedAt time.Time}, error)",
 	"InsertManualTransactionAtAnchor":  "(context.Context, InsertManualTransactionAtAnchorParams{TenantID uuid.UUID; Type string; OccurredAt time.Time; Trust int16; Note *string; EnteredBy uuid.UUID; AnchorID uuid.UUID; EmployeeID uuid.UUID}) (InsertManualTransactionAtAnchorRow{ID uuid.UUID; OccurredAt time.Time; CreatedAt time.Time; Type *string; Verdict string; Channel string; Trust *int16; Practice bool; Queued bool}, error)",
@@ -1160,14 +1163,16 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 242 -> 244 on 2026-10-26 (M15-18): punchclaims.sql's ListPendingPunchClaims (the panel's claim
 	// queue) and ListPendingPunchClaimAnchors (Odd shapes' "claim pending" mark) -- each over the
 	// caller's own rows; neither calls a definer.
-	if named != 244 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND FORTY-FOUR were "+
+	// 244 -> 245 on 2026-10-26 (M15-18 review round): punchclaims.sql's CountPendingPunchClaims, the
+	// capped count of the caller's own undecided claims beside the flagged badge; it calls no definer.
+	if named != 245 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND FORTY-FIVE were "+
 			"there when this was pinned (2026-10-26: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue and its pending mark). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue, its pending mark and its count). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

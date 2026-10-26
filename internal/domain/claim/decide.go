@@ -2,8 +2,10 @@ package claim
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,9 +30,13 @@ type Decision struct {
 	// check and the same band as the claimed moment (ADR 0032 §C.4, ürün N8: "Edit'le gir, adımı
 	// atla" must not be a shortcut).
 	At *time.Time
-	// Confirmed is the confirmation step's second post: an approval outside the band (or with no
-	// shift) writes only with it.
-	Confirmed bool
+	// Confirmation is what the confirmation step was shown for: ConfirmationSubject of the claim, the
+	// moment and the shift instance it was judged against (M15-18 review round, security DÜŞÜK-1). An
+	// approval outside the band (or with no shift) writes only when it EQUALS the subject of the
+	// assessment Decide makes itself, under the person's lock -- so a shift that changed between the
+	// step and the write asks the step again instead of writing against what nobody was shown. ""
+	// (the first press) never writes outside the band.
+	Confirmation string
 	// Note is the manager's optional sentence, already bounded by the handler. Stored on the
 	// decision once; never logged, never in audit_log.
 	Note string
@@ -234,7 +240,7 @@ func (s *Service) Inspect(ctx context.Context, tenantID, claimID uuid.UUID, at *
 //	  the moment is inside the window                             else ErrOutsideWindow
 //	  the pair the record would make truly closes (Chain.Closes)  else ErrResolved
 //	  the moment within manual.MaxBackdate                        else ErrExpired
-//	  inside the band, or Confirmed                               else ErrNeedsConfirmation
+//	  inside the band, or Confirmation is this assessment's       else ErrNeedsConfirmation
 //	  the manual record at the anchor's venue (manual's write: its trail row, record.entered; a
 //	  peer's venue through the partner path, ErrPartnershipEnded when the membership ended), the decision row,
 //	  its trail row.
@@ -317,7 +323,8 @@ func (s *Service) Decide(ctx context.Context, d Decision) (Decided, error) {
 			case StateDecided:
 				return ErrAlreadyDecided
 			}
-			if a.RequiresConfirmation && !d.Confirmed {
+			if a.RequiresConfirmation && (d.Confirmation == "" ||
+				subtle.ConstantTimeCompare([]byte(d.Confirmation), []byte(ConfirmationSubject(c.ID, a))) != 1) {
 				return ErrNeedsConfirmation
 			}
 			detail.RequiredConfirmation = a.RequiresConfirmation
@@ -390,4 +397,17 @@ func insertDecisionError(err error) error {
 		return ErrRefused
 	}
 	return err
+}
+
+// ConfirmationSubject is what a confirmation step binds (M15-18): the claim, the moment it shows and
+// the shift instance the assessment judged it against ("none" without one). The panel signs it when it
+// draws the step and Decide recomputes it from its own assessment under the lock; the two must be
+// equal for an out-of-band approval to write. No field can carry "|" (the panel signature's separator):
+// a uuid, decimal microseconds and "none".
+func ConfirmationSubject(claimID uuid.UUID, a Assessment) string {
+	shift := "none"
+	if a.Shift != nil {
+		shift = strconv.FormatInt(a.Shift.Start.UnixMicro(), 10) + "-" + strconv.FormatInt(a.Shift.End.UnixMicro(), 10)
+	}
+	return claimID.String() + "@" + strconv.FormatInt(a.At.UnixMicro(), 10) + "@" + shift
 }

@@ -33,12 +33,15 @@ import (
 // answers "not found" and writes nothing.
 //
 // 🔴 THE CONFIRMATION STEP IS BOUND HERE, BECAUSE THE DOMAIN DOES NOT BIND IT (M15-16's hand-over).
-// claim.Decide writes an out-of-band approval whenever Decision.Confirmed is true, whatever was or was
-// not shown before. So Confirmed is never read from the request: the first press of Approve on a
-// claim outside the band gets ErrNeedsConfirmation back and draws the step, which mints an adminConfirm
-// value over THE CLAIM, THE MOMENT the step shows and THE SHIFT INSTANCE it was judged against
-// (claimConfirmSubject), for THIS panel session, for ten minutes. The second press is Confirmed only
-// when that value verifies against the moment it posts AND the shift the server reads again now.
+// Nothing about the step is read from the request as a fact: the first press of Approve on a claim
+// outside the band gets ErrNeedsConfirmation back and draws the step, which mints an adminConfirm value
+// over THE CLAIM, THE MOMENT the step shows and THE SHIFT INSTANCE it was judged against
+// (claim.ConfirmationSubject), for THIS panel session, for ten minutes. The second press carries that
+// subject to Decide only when the value verifies against the moment it posts and the shift the server
+// reads again now -- and Decide writes only when the subject equals the one it computes ITSELF, under
+// the person's lock (M15-18 review round, security DÜŞÜK-1: a shift changed between this check and the
+// write asks the step again). A posted moment without a genuine value is never the moment written
+// (security DÜŞÜK-2).
 // Why a signature and not only a hidden moment: a hidden moment is the client's word, and a forged
 // first POST could carry "shown=<the claimed moment>" and skip the step; a moment the server signed
 // can only come from a step the server drew. Why not ALSO server state: the deactivation gate's
@@ -118,15 +121,21 @@ type claimPageState struct {
 	clipped bool
 	problem string
 	// note is the manager's sentence carried back into the form; confirm the step to draw.
-	note     string
-	confirm  *claimStep
-	editOpen bool
+	note    string
+	confirm *claimStep
+	// editOpen opens the Edit field; editValue is the time typed into it, carried back; editHint
+	// names the times that fit (D-3).
+	editOpen  bool
+	editValue string
+	editHint  string
 }
 
-// claimStep is the confirmation step to draw: the assessment it repeats and the signed moment.
+// claimStep is the confirmation step to draw: the assessment it repeats, the signed moment and --
+// when it is drawn AGAIN -- why (D-5).
 type claimStep struct {
 	assessment claim.Assessment
 	token      string
+	reason     string
 }
 
 // renderClaims reads the list and the focused claim and draws the page.
@@ -155,6 +164,7 @@ func (a *AdminAuth) renderClaims(w http.ResponseWriter, r *http.Request, st clai
 		Clipped:     st.clipped,
 		Problem:     st.problem,
 	}
+	v.Queues.ClaimsCount = v.PanelChrome.Pending.Claims.Count()
 	v.PanelChrome.Title = "Time claims"
 	v.PanelChrome.Kicker = "Oldest first · shrinks as you work it"
 	v.PanelChrome.Crumbs = []pages.Crumb{{Label: pages.SectionLabel(pages.TabReview), Href: reviewHref}, {Label: "Time claims"}}
@@ -193,9 +203,12 @@ func (a *AdminAuth) renderClaims(w http.ResponseWriter, r *http.Request, st clai
 		}
 		f := claimFocusView(in, personName(c.EmployeeName), zone)
 		f.Note = st.note
-		f.EditOpen = f.EditOpen || st.editOpen
-		if st.confirm != nil && in.ClaimID == c.ID {
-			f.Confirm = claimConfirmView(*st.confirm, in, zone)
+		if c.ID == st.focus {
+			f.EditOpen = f.EditOpen || st.editOpen
+			f.EditValue, f.EditHint = st.editValue, st.editHint
+			if st.confirm != nil {
+				f.Confirm = claimConfirmView(*st.confirm, in, zone)
+			}
 		}
 		v.Focus = &f
 	}
@@ -270,38 +283,55 @@ func (a *AdminAuth) claimDecision(w http.ResponseWriter, r *http.Request) {
 
 	d := claim.Decision{TenantID: id.TenantID(), ClaimID: claimID, DecidedBy: id.Admin.AdminUserID, Outcome: outcome, Note: note}
 	if outcome == claim.Approved {
-		at, problem, err := a.claimMoment(r, id.TenantID(), claimID)
-		switch {
-		case err != nil:
-			a.claimDecisionError(w, r, claimID, back, err)
-			return
-		case problem != "":
-			a.log.Warn("panel claim decision refused: the moment could not be read", "claim_id", claimID, "reason", problem)
-			a.renderClaims(w, r, claimPageState{focus: claimID, problem: problem, note: note, editOpen: true})
-			return
+		if strings.TrimSpace(r.PostFormValue(claimShownField)) != "" {
+			// THE STEP'S PRESS. Its moment counts only with its signature (DÜŞÜK-2): otherwise nothing
+			// is decided, and the focus says why (D-5).
+			step, err := a.claimStepPress(r, id.TenantID(), claimID)
+			if err != nil {
+				a.claimDecisionError(w, r, claimID, back, err)
+				return
+			}
+			if step.why != "" {
+				a.log.Info("panel claim decision: the step's press was not confirmed", "claim_id", claimID, "reason", step.why)
+				a.renderClaims(w, r, claimPageState{focus: claimID, problem: step.why, note: note,
+					editOpen: step.editValue != "", editValue: step.editValue})
+				return
+			}
+			d.At, d.Confirmation = &step.at, step.subject
+		} else {
+			at, st, err := a.claimEdit(r, id.TenantID(), claimID)
+			if err != nil {
+				a.claimDecisionError(w, r, claimID, back, err)
+				return
+			}
+			if st.problem != "" {
+				a.log.Warn("panel claim decision refused: the edited time could not be used", "claim_id", claimID)
+				st.focus, st.note, st.editOpen = claimID, note, true
+				a.renderClaims(w, r, st)
+				return
+			}
+			d.At = at
 		}
-		d.At = at
-		confirmed, err := a.claimConfirmed(r, id.TenantID(), claimID, at)
-		if err != nil {
-			a.claimDecisionError(w, r, claimID, back, err)
-			return
-		}
-		d.Confirmed = confirmed
 	}
 
 	got, err := a.claims.Decide(r.Context(), d)
 	if errors.Is(err, claim.ErrNeedsConfirmation) && got.Assessment != nil {
 		// THE STEP: nothing was written. Its value is minted over the moment the domain assessed and
-		// the shift it judged against.
-		token, terr := a.setConfirmation(w, r, confirmActionApproveClaim, claimConfirmSubject(claimID, *got.Assessment))
+		// the shift it judged against. A step drawn although a verified subject was posted means the
+		// shift changed between the check here and Decide's own, under the lock (DÜŞÜK-1) -- said.
+		token, terr := a.setConfirmation(w, r, confirmActionApproveClaim, claim.ConfirmationSubject(claimID, *got.Assessment))
 		if terr != nil {
 			a.log.Error("panel: could not mint the claim confirmation", "err", terr)
 			a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 			return
 		}
+		reason := ""
+		if d.Confirmation != "" {
+			reason = "The record's shift changed since you were shown the interval, so nothing was recorded. Check it again."
+		}
 		a.log.Info("panel claim decision: the approval asks the confirmation step", "claim_id", claimID)
 		a.renderClaims(w, r, claimPageState{focus: claimID, note: note,
-			confirm: &claimStep{assessment: *got.Assessment, token: token}})
+			confirm: &claimStep{assessment: *got.Assessment, token: token, reason: reason}})
 		return
 	}
 	if err != nil {
@@ -316,42 +346,95 @@ func (a *AdminAuth) claimDecision(w http.ResponseWriter, r *http.Request) {
 	a.redirect(w, to)
 }
 
-// claimMoment is the moment an approval records: the confirmation step's signed moment (shown), the
-// manager's Edit (a time of day resolved inside the claim's window in the business's zone), or nil --
-// the claimed moment. problem names a moment that could not be read ("unreadable", "edit").
-func (a *AdminAuth) claimMoment(r *http.Request, tenantID, claimID uuid.UUID) (*time.Time, string, error) {
-	if shown := strings.TrimSpace(r.PostFormValue(claimShownField)); shown != "" {
-		t, err := time.Parse(time.RFC3339Nano, shown)
-		if err != nil {
-			return nil, "unreadable", nil
-		}
-		return &t, "", nil
+// claimStepResult is the step's press, read: the signed moment and its subject, or why it is not one.
+type claimStepResult struct {
+	at      time.Time
+	subject string
+	// why is "" for a genuine press; otherwise a problem word ("unreadable", "step-expired",
+	// "step-changed") and nothing is decided.
+	why string
+	// editValue is the moment's time of day when it was not the claimed one, so the Edit the manager
+	// made is not lost with the step (a form value only -- never a moment written).
+	editValue string
+}
+
+// claimStepPress reads the confirmation step's press: the posted moment (claimShownField) is the
+// moment written ONLY when its signature (confirmField, and its twin cookie) verifies for this claim,
+// this moment and the shift the server assesses it against now, in this session. Otherwise the press
+// decides nothing (security DÜŞÜK-2): an absent, forged or expired value is "step-expired", a value
+// minted for another moment or another shift is "step-changed".
+func (a *AdminAuth) claimStepPress(r *http.Request, tenantID, claimID uuid.UUID) (claimStepResult, error) {
+	t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(r.PostFormValue(claimShownField)))
+	if err != nil {
+		return claimStepResult{why: "unreadable"}, nil
 	}
+	in, err := a.claims.Inspect(r.Context(), tenantID, claimID, &t)
+	if err != nil {
+		return claimStepResult{}, err
+	}
+	subject := claim.ConfirmationSubject(claimID, in.Assessment)
+	switch a.confirmationRefusalFor(r, confirmActionApproveClaim, subject) {
+	case "":
+		return claimStepResult{at: t, subject: subject}, nil
+	case "confirm-stale":
+		return claimStepResult{why: "step-changed", editValue: a.claimEditValue(r.Context(), tenantID, t, in.ClaimedAt)}, nil
+	default:
+		return claimStepResult{why: "step-expired", editValue: a.claimEditValue(r.Context(), tenantID, t, in.ClaimedAt)}, nil
+	}
+}
+
+// claimEditValue is the time of day to put back into the Edit field: "" for the claimed moment.
+func (a *AdminAuth) claimEditValue(ctx context.Context, tenantID uuid.UUID, t, claimed time.Time) string {
+	if t.Equal(claimed) {
+		return ""
+	}
+	zone, err := a.claimZone(ctx, tenantID)
+	if err != nil {
+		return ""
+	}
+	return t.In(zone).Format("15:04")
+}
+
+// claimEdit is the manager's Edit: a time of day resolved inside the claim's window in the business's
+// zone, or nil (no Edit: the claimed moment). A typed time that cannot be used is NEVER dropped in
+// favour of the claimed moment (D-1/M4: that would write a moment the manager replaced -- §4.3, a
+// record nobody can take back): it answers the form again, with the time kept and the times that fit
+// named (D-3); with no window at all the claim takes no other time (D-2).
+func (a *AdminAuth) claimEdit(r *http.Request, tenantID, claimID uuid.UUID) (*time.Time, claimPageState, error) {
 	edit := strings.TrimSpace(r.PostFormValue("at"))
 	if edit == "" {
-		return nil, "", nil
+		return nil, claimPageState{}, nil
 	}
+	refused := claimPageState{problem: "edit", editValue: edit}
 	c, ok := parseWallClock([]string{edit})
 	if !ok {
-		return nil, "edit", nil
+		return nil, refused, nil
 	}
 	in, err := a.claims.Inspect(r.Context(), tenantID, claimID, nil)
 	if err != nil {
-		return nil, "", err
+		return nil, claimPageState{}, err
 	}
 	if in.Window == nil {
-		// No window: the claim is resolved, expired or decided -- Decide says which.
-		return nil, "", nil
+		refused.problem = "edit-closed"
+		return nil, refused, nil
 	}
 	zone, err := a.claimZone(r.Context(), tenantID)
 	if err != nil {
-		return nil, "", err
+		return nil, claimPageState{}, err
 	}
 	at, ok := resolveInWindow(c, *in.Window, nil, zone)
 	if !ok {
-		return nil, "edit", nil
+		from, to := "after ", " and before "
+		if in.Window.From.Inclusive {
+			from = "from "
+		}
+		if in.Window.To.Inclusive {
+			to = " up to "
+		}
+		refused.editHint = "Pick a time " + from + claimMoment(in.Window.From.At, zone) + to + claimMoment(in.Window.To.At, zone) + "."
+		return nil, refused, nil
 	}
-	return &at, "", nil
+	return &at, claimPageState{}, nil
 }
 
 // claimZone is the business's zone, read with the queue (the same snapshot rule the list keeps).
@@ -364,34 +447,6 @@ func (a *AdminAuth) claimZone(ctx context.Context, tenantID uuid.UUID) (*time.Lo
 		return time.UTC, nil
 	}
 	return page.Zone, nil
-}
-
-// claimConfirmed is the confirmation binding: true only for the step's own press -- a moment posted
-// in claimShownField whose signature verifies for this claim, this moment and the shift the server
-// assesses it against NOW, in this session (and whose twin cookie agrees). Anything else -- a first
-// press, a forged or expired value, one minted for another moment or another claim, a shift changed
-// since the step -- is false, and Decide asks the step again.
-func (a *AdminAuth) claimConfirmed(r *http.Request, tenantID, claimID uuid.UUID, at *time.Time) (bool, error) {
-	if at == nil || strings.TrimSpace(r.PostFormValue(claimShownField)) == "" || strings.TrimSpace(r.PostFormValue(confirmField)) == "" {
-		return false, nil
-	}
-	in, err := a.claims.Inspect(r.Context(), tenantID, claimID, at)
-	if err != nil {
-		return false, err
-	}
-	return a.confirmationRefusalFor(r, confirmActionApproveClaim, claimConfirmSubject(claimID, in.Assessment)) == "", nil
-}
-
-// claimConfirmSubject is what the step's value binds: the claim, the moment and the shift instance
-// the assessment judged against ("none" without one) -- so a value drawn for one moment cannot be
-// spent on another, and a step drawn against one shift is drawn again when the shift changed. No
-// field can carry the separator ("|"): a uuid, decimal micro-seconds and "none".
-func claimConfirmSubject(claimID uuid.UUID, a claim.Assessment) string {
-	shift := "none"
-	if a.Shift != nil {
-		shift = strconv.FormatInt(a.Shift.Start.UnixMicro(), 10) + "-" + strconv.FormatInt(a.Shift.End.UnixMicro(), 10)
-	}
-	return claimID.String() + "@" + strconv.FormatInt(a.At.UnixMicro(), 10) + "@" + shift
 }
 
 // claimDecisionError maps a refusal to its sentence (a 303) and a failure to the writer's page.
@@ -448,6 +503,7 @@ func claimFocusView(in claim.Inspection, who string, zone *time.Location) pages.
 		// (tap.StaleOpenIn) -- a later record exists or not, the read cannot say.
 		After:      claimNeighbour(in.After, zone, "none within "+strconv.Itoa(int(tap.StaleOpenIn/time.Hour))+" h"),
 		ClaimedDir: claimDirWord(in.Kind),
+		EditLabel:  claimEditLabel(in.Kind),
 		ClaimedAt:  claimMoment(in.ClaimedAt, zone),
 		Sent:       claimMoment(in.CreatedAt, zone),
 		Interval:   claimInterval(as.Interval, zone),
@@ -487,10 +543,18 @@ func claimFocusView(in claim.Inspection, who string, zone *time.Location) pages.
 // claimConfirmView is the step's repeat of the assessment it was drawn for.
 func claimConfirmView(st claimStep, in claim.Inspection, zone *time.Location) *pages.ClaimConfirmView {
 	as := st.assessment
+	edited := !as.At.Equal(in.ClaimedAt)
+	label := "Claimed time"
+	if edited {
+		// ORTA-1: the step's first line names the moment it would write -- the Edit, not the claim.
+		label = "Your edited time"
+	}
 	return &pages.ClaimConfirmView{
+		Reason:          st.reason,
+		ClaimedLabel:    label,
 		Shown:           as.At.UTC().Format(time.RFC3339Nano),
 		Token:           st.token,
-		Edited:          !as.At.Equal(in.ClaimedAt),
+		Edited:          edited,
 		At:              claimMoment(as.At, zone),
 		Interval:        claimInterval(as.Interval, zone),
 		Shift:           claimShift(as.Shift, zone),
@@ -507,6 +571,14 @@ func claimKindWords(k claim.Kind) string {
 }
 
 func claimDirWord(k claim.Kind) string { return strings.ToUpper(string(k)) }
+
+// claimEditLabel names the Edit field by what it records (D-4).
+func claimEditLabel(k claim.Kind) string {
+	if k == claim.KindIn {
+		return "New clock-in time"
+	}
+	return "New clock-out time"
+}
 
 func claimChannelWord(c tap.Channel) string {
 	switch c {
@@ -554,14 +626,14 @@ func claimInterval(iv claim.Interval, zone *time.Location) string {
 
 func claimShift(s *claim.Span, zone *time.Location) string {
 	if s == nil {
-		return "No shift is set for this record, so there is nothing to compare with."
+		return "none set for this record, so there is nothing to compare with"
 	}
 	a, b := s.Start.In(zone), s.End.In(zone)
 	end := claimClock(s.End, zone)
 	if a.YearDay() != b.YearDay() || a.Year() != b.Year() {
 		end = claimMoment(s.End, zone)
 	}
-	return "Shift " + claimMoment(s.Start, zone) + " – " + end
+	return claimMoment(s.Start, zone) + " – " + end
 }
 
 func claimDeviation(d claim.Deviation) string {

@@ -153,6 +153,9 @@ type FloorRow struct {
 // so the card and the navigation cannot disagree.
 type SpikeView struct {
 	State WidgetState
+	// Claims is the time claims' own line (M15-18 review round): "3 time claims waiting", "no time
+	// claims waiting", "time claims not counted"; "" draws no line (not asked, or no claim queue).
+	Claims string
 	// Count is "0" only when the queue was measured empty, "N+" when the count was capped.
 	Count string
 	Href  string

@@ -165,11 +165,18 @@ templ AdminReview(v ReviewView) {
 					</section>
 				</div>
 			} else if v.Queried {
-				@components.PanelEmpty(SectionLabel(TabReview), "Nothing is waiting for review", components.PanelEmptyCTA{}) {
+				// M15-18 review round (user decision "Üç yerde sayı"): the heading names WHICH queue is
+				// empty, and the time claims still waiting are said here, with their queue's link.
+				@components.PanelEmpty(SectionLabel(TabReview), "No flagged tap is waiting", components.PanelEmptyCTA{}) {
 					<p>
 						Every flagged tap has been decided. New ones arrive here when the engine
 						records a tap it could not judge on evidence alone.
 					</p>
+					if v.Queues.ClaimsHref != "" && v.Queues.ClaimsWaiting != "" {
+						<p class="mt-2">
+							<a class="hit-link font-bold text-ink underline" href={ templ.URL(v.Queues.ClaimsHref) }>{ v.Queues.ClaimsWaiting } →</a>
+						</p>
+					}
 					<p class="mt-2">
 						Decided records stay on The Pass, with the
 						flag they were given and the decision beside it.

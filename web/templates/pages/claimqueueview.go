@@ -13,6 +13,10 @@ type SpikeQueuesView struct {
 	ClaimsHref string
 	// OnClaims marks the claims link current; otherwise the flagged taps link is.
 	OnClaims bool
+	// ClaimsCount is the number the claims link carries ("Time claims · N"; PendingClaims.Count --
+	// "" draws no number); ClaimsWaiting the Spike's empty-state sentence ("" for none).
+	ClaimsCount   string
+	ClaimsWaiting string
 }
 
 // ClaimQueueView is the claims section.
@@ -85,8 +89,13 @@ type ClaimFocusView struct {
 	StateLine string
 	// CanApprove draws Approve and the Edit field; Reject is always drawn.
 	CanApprove bool
-	// EditOpen opens the Edit field (the claimed moment no longer fits the window).
-	EditOpen bool
+	// EditOpen opens the Edit field (the claimed moment no longer fits the window, or a typed time
+	// is shown again); EditLabel names it ("New clock-out time"); EditValue is the time typed, carried
+	// back; EditHint names the times that fit.
+	EditOpen  bool
+	EditLabel string
+	EditValue string
+	EditHint  string
 	// Note is the manager's sentence carried back into the form on a re-render.
 	Note string
 	// Confirm is the confirmation step: non-nil when Approve was pressed outside the band.
@@ -98,6 +107,10 @@ type ClaimFocusView struct {
 // the step was drawn for, Token the server's signature over it (the claim, the moment and the shift
 // it was judged against, this panel session) -- a second press for any other moment is refused.
 type ClaimConfirmView struct {
+	// Reason says why the step is drawn AGAIN ("" the first time).
+	Reason string
+	// ClaimedLabel names the written moment's line: "Claimed time", or "Your edited time".
+	ClaimedLabel    string
 	Shown           string
 	Token           string
 	Edited          bool

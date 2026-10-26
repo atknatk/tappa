@@ -143,6 +143,9 @@ type panelHarnessOptions struct {
 	// claims wires the Spike's "Time claims" with the REAL claim service over this database and
 	// the real manual recorder (M15-18), the business-day switch on -- cmd/tappa's wiring.
 	claims bool
+	// wrapClaims, when set, wraps the claim service the PANEL is given (the harness keeps the real
+	// one) -- so a test can act between the handler's checks and Decide (M15-18 review round).
+	wrapClaims func(panelClaims) panelClaims
 }
 
 func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
@@ -281,7 +284,11 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 			t.Fatalf("claim.New: %v", err)
 		}
 		ph.claims = svc
-		opts = append(opts, PunchClaims(records, svc))
+		var panelSvc panelClaims = svc
+		if o.wrapClaims != nil {
+			panelSvc = o.wrapClaims(svc)
+		}
+		opts = append(opts, PunchClaims(records, panelSvc))
 	}
 	if o.invitations != nil {
 		cfg.InviteDelivery = config.InviteDeliveryEmail

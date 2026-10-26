@@ -130,7 +130,7 @@ var (
 	// ErrSelfDecision: the decider is the claimant -- unreachable today (the package doc, G-O1).
 	ErrSelfDecision = errors.New("claim: a claim cannot be decided by its claimant")
 	// ErrNeedsConfirmation: the approval's moment is outside the shift's band, or there is no shift
-	// (§C.4, K3, G-Y1): nothing was written; the decision must be posted again with Confirmed.
+	// (§C.4, K3, G-Y1): nothing was written; the decision must be posted again with this assessment's Confirmation.
 	ErrNeedsConfirmation = errors.New("claim: this approval needs the confirmation step")
 	// ErrPartnershipEnded: the anchor was taken at a holding peer's venue and that partnership has
 	// ended (or the venue is no longer the peer's): the approval's record cannot be filed there and

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/web/templates/components"
@@ -382,6 +384,7 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen, now time.
 			ManagerTyped: o.ManagerTyped,
 			WasMaskable:  o.WasMaskable,
 			ClaimPending: o.ClaimPending,
+			ClaimHref:    pendingClaimHref(o.ClaimPending, o.PendingClaimID),
 		})
 	}
 
@@ -394,6 +397,7 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen, now time.
 			At:              o.At.In(zone).Format("Mon 2 Jan 15:04"),
 			AfterEarlierDay: o.AfterEarlierDay,
 			ClaimPending:    o.ClaimPending,
+			ClaimHref:       pendingClaimHref(o.ClaimPending, o.PendingClaimID),
 		})
 	}
 
@@ -745,4 +749,14 @@ func policyBucketName(r ledger.AnomalyPolicyRule) string {
 		return "At a partner business's venue (rules not shown)"
 	}
 	return ruleName(r.SID)
+}
+
+// pendingClaimHref is a "Claim pending" mark's link: the claim in focus on the Spike's "Time claims"
+// (M15-18 review round). The queue chooses only among the claims it lists, so an id it does not list
+// falls back to its first claim -- the link names nothing the queue would not show anyway.
+func pendingClaimHref(pending bool, claimID uuid.UUID) string {
+	if !pending || claimID == uuid.Nil {
+		return ""
+	}
+	return claimsHref + "?focus=" + claimID.String()
 }

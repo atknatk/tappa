@@ -316,6 +316,8 @@ type AnomalyOpenView struct {
 	// ClaimPending: the person sent a claim of the missing checkout and it waits in the Spike's
 	// "Time claims" (M15-18; bound by the record's id, ledger.AnomalyOpen.ClaimPending).
 	ClaimPending bool
+	// ClaimHref is that claim in focus on the queue ("" draws the mark without a link).
+	ClaimHref string
 }
 
 // AnomalyInMissingView is a checkout with no open check-in for it to close (ledger.AnomalyInMissing).
@@ -328,6 +330,8 @@ type AnomalyInMissingView struct {
 	AfterEarlierDay bool
 	// ClaimPending is AnomalyOpenView.ClaimPending's twin: a claim of the missing check-in waits.
 	ClaimPending bool
+	// ClaimHref is that claim in focus on the queue ("" draws the mark without a link).
+	ClaimHref string
 }
 
 // MaskedOpenView is the ADR 0008 retrospective tally.

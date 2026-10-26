@@ -499,13 +499,13 @@ func TestReviewsQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 
 // TestPunchClaimsQueries_CarryAnExplicitTenantPredicate is the same belt over punchclaims.sql (M15-15,
 // M15-16): the claim's INSERT built from the anchor, the decision's INSERT built from the claim, the
-// claim domain's four reads, and (M15-18) the panel's two -- the queue and the pending mark, called from
+// claim domain's four reads, and (M15-18) the panel's three -- the queue, the pending mark and the count, called from
 // internal/domain/ledger, whose TestPanelQueries_CarryAnExplicitTenantPredicate checks them too. The
 // claim domain carries a behavioural copy (TestPunchClaimQueries_TheNewStatementsCarryTheirOwnTenantPredicate,
 // the migration role with another tenant's id); this one is FILE-DERIVED, so a statement added to the
 // file is checked before anything calls it.
 func TestPunchClaimsQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
-	fileBelt(t, "punchclaims.sql", 8)
+	fileBelt(t, "punchclaims.sql", 9)
 }
 
 // TestTransactionsQueries_CarryAnExplicitTenantPredicate is the tags belt pointed at

@@ -371,7 +371,9 @@ type AnomalyOpen struct {
 	WasMaskable bool
 	// ClaimPending: the person sent a claim of this check-in's missing checkout and nobody has
 	// decided it yet (M15-18; ADR 0032 §C.4) -- bound by ID to punch_claims.anchor_transaction_id.
-	ClaimPending bool
+	// PendingClaimID is that claim (the mark links to it in the queue).
+	ClaimPending   bool
+	PendingClaimID uuid.UUID
 }
 
 // AnomalyInMissing is a checkout with no open check-in for it to close -- ADR 0032 §A.6's (b) and
@@ -387,8 +389,10 @@ type AnomalyInMissing struct {
 	// is itself on the open list. False is (c): nothing, or a checkout tapped before it, is before
 	// it.
 	AfterEarlierDay bool
-	// ClaimPending is AnomalyOpen.ClaimPending's twin: an undecided claim of the missing check-in.
-	ClaimPending bool
+	// ClaimPending and PendingClaimID are AnomalyOpen's twins: an undecided claim of the missing
+	// check-in.
+	ClaimPending   bool
+	PendingClaimID uuid.UUID
 }
 
 // MaskedOpenTally is the retrospective half of the ADR 0008 devir note: the week's check-ins a
@@ -957,15 +961,15 @@ func markPendingClaims(ctx context.Context, q *store.Queries, tenantID uuid.UUID
 	if err != nil {
 		return fmt.Errorf("list the pending claims of the listed records: %w", err)
 	}
-	pending := make(map[uuid.UUID]bool, len(rows))
-	for _, id := range rows {
-		pending[id] = true
+	pending := make(map[uuid.UUID]uuid.UUID, len(rows))
+	for _, r := range rows {
+		pending[r.AnchorTransactionID] = r.ID
 	}
 	for i := range open {
-		open[i].ClaimPending = pending[open[i].ID]
+		open[i].PendingClaimID, open[i].ClaimPending = pending[open[i].ID]
 	}
 	for i := range inMissing {
-		inMissing[i].ClaimPending = pending[inMissing[i].ID]
+		inMissing[i].PendingClaimID, inMissing[i].ClaimPending = pending[inMissing[i].ID]
 	}
 	return nil
 }

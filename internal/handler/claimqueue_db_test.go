@@ -182,3 +182,54 @@ func TestClaimQueueDB_OnePressInTheBandTwoOutsideAndEveryRefusalWritesNothing(t 
 		t.Errorf("the refusals wrote: %d manual record(s), %d decision(s); want 2 and 2 (unchanged)", m, d)
 	}
 }
+
+// shiftBeforeDecide is the claim service with one act slipped in between the handler's checks and
+// Decide: the moment a shift change would have to land to get past a check made without the lock.
+type shiftBeforeDecide struct {
+	panelClaims
+	before func()
+}
+
+func (s shiftBeforeDecide) Decide(ctx context.Context, d claim.Decision) (claim.Decided, error) {
+	if s.before != nil {
+		s.before()
+	}
+	return s.panelClaims.Decide(ctx, d)
+}
+
+// TestClaimQueueDB_AShiftChangedBeforeTheWriteAsksTheStepAgain (M15-18 review round, security DÜŞÜK-1):
+// the step's press verifies against 09:00–17:00, and the venue's shift becomes 09:00–18:00 right
+// before Decide -- Decide binds the confirmation to its OWN assessment under the lock, so nothing is
+// written and the step is drawn again, saying why.
+func TestClaimQueueDB_AShiftChangedBeforeTheWriteAsksTheStepAgain(t *testing.T) {
+	var arm func()
+	p := newPanelHarnessWith(t, panelHarnessOptions{claims: true, wrapClaims: func(c panelClaims) panelClaims {
+		return shiftBeforeDecide{panelClaims: c, before: func() {
+			if arm != nil {
+				arm()
+			}
+		}}
+	}})
+	p.signIn(t)
+	s := newClaimScene(t, p, p.tenantID)
+	outOfBand := s.submit(t, p, s.tap(t, p, "in", s.at(1, 9, 5)), claim.KindOut, s.at(2, 1, 0))
+	_, step := p.post(t, claimsHref, decisionForm(outOfBand, "approved"))
+	shown, token := stepFields(t, step)
+	arm = func() {
+		arm = nil
+		if err := p.data.WithTenant(context.Background(), s.tenant, func(ctx context.Context, tx pgx.Tx) error {
+			_, e := tx.Exec(ctx, `UPDATE locations SET shift_end = '18:00' WHERE id = $1 AND tenant_id = $2`, s.venue, s.tenant)
+			return e
+		}); err != nil {
+			t.Errorf("change the shift: %v", err)
+		}
+	}
+	res, again := p.post(t, claimsHref, decisionForm(outOfBand, "approved", "shown", shown, "confirm_token", token))
+	if m, d := s.manualRows(t, p), s.decisions(t, p); m != 0 || d != 0 {
+		t.Fatalf("the press wrote %d manual record(s) and %d decision(s) against a shift nobody was shown", m, d)
+	}
+	if res.StatusCode != http.StatusOK || !strings.Contains(again, "Confirm this interval") ||
+		!strings.Contains(again, "shift changed since you were shown the interval") || !strings.Contains(again, "7 h 00 m after the shift ends") {
+		t.Errorf("answered %d without the step drawn again against the new shift, with its reason", res.StatusCode)
+	}
+}

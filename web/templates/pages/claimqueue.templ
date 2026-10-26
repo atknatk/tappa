@@ -58,10 +58,15 @@ templ AdminClaimQueue(v ClaimQueueView) {
 						</div>
 					</section>
 					<section aria-label="The claim being decided" class="flex min-w-0 flex-col gap-[18px] desk:grow-[999] desk:basis-[520px]">
-						@reviewPager(v.Pager)
+						// 🔴 THE STEP OPENS THE SECTION (M15-18 review round, YÜKSEK-1): on the phone the
+						// first Approve is a bar pinned above the navigation, and a step whose press sat in
+						// that same bar while its interval was a scroll away let two taps on one spot write
+						// an interval nobody saw. The step's box comes first, its buttons right under it,
+						// in the flow -- never .spike-actions -- and the pager waits for the decision.
 						if v.Focus.Confirm != nil {
 							@claimConfirmForm(v.Action, *v.Focus)
 						} else {
+							@reviewPager(v.Pager)
 							@claimFocusForm(v.Action, *v.Focus)
 						}
 					</section>
@@ -84,7 +89,12 @@ templ SpikeQueues(q SpikeQueuesView) {
 	if q.ClaimsHref != "" {
 		<nav aria-label="Queues" class="chip-group">
 			<a href={ templ.URL(q.ReviewHref) } class={ chipClass(!q.OnClaims) } { chipCurrent(!q.OnClaims)... }>Flagged taps</a>
-			<a href={ templ.URL(q.ClaimsHref) } class={ chipClass(q.OnClaims) } { chipCurrent(q.OnClaims)... }>Time claims</a>
+			<a href={ templ.URL(q.ClaimsHref) } class={ chipClass(q.OnClaims) } { chipCurrent(q.OnClaims)... }>
+				Time claims
+				if q.ClaimsCount != "" {
+					<span class="chip-count">{ "· " + q.ClaimsCount }</span>
+				}
+			</a>
 		</nav>
 	}
 }
@@ -110,7 +120,9 @@ templ claimQueueEntry(item ClaimQueueItem) {
 	</a>
 }
 
-// claimFacts is what the focus shows before any press (K3, G-Y1).
+// claimFacts is what the focus shows before any press (K3, G-Y1). On the step (f.Confirm set) the
+// assessment rows are left to the step's box, so the screen names ONE interval -- the one the press
+// writes (ORTA-1); a claim only Reject is left for names none (D-4).
 templ claimFacts(f ClaimFocusView) {
 	<div class="panel-card flex flex-col gap-3">
 		<div class="flex flex-col gap-1">
@@ -140,14 +152,18 @@ templ claimFacts(f ClaimFocusView) {
 			<dd class="break-words">{ f.Offered }</dd>
 			<dt class="font-mono text-xs text-ink/70">Sent</dt>
 			<dd class="break-words">{ f.Sent }</dd>
-			<dt class="font-mono text-xs text-ink/70">Approving makes</dt>
-			<dd class="break-words font-mono font-bold">{ f.Interval }</dd>
-			<dt class="font-mono text-xs text-ink/70">Shift</dt>
-			<dd class="break-words">{ f.Shift }</dd>
-			<dt class="font-mono text-xs text-ink/70">Claimed time</dt>
-			<dd class="break-words">{ f.ClaimedDeviates }</dd>
-			<dt class="font-mono text-xs text-ink/70">Their record&#39;s time</dt>
-			<dd class="break-words">{ f.AnchorDeviates }</dd>
+			if f.Confirm == nil {
+				if f.CanApprove {
+					<dt class="font-mono text-xs text-ink/70">Approving makes</dt>
+					<dd class="break-words font-mono font-bold">{ f.Interval }</dd>
+				}
+				<dt class="font-mono text-xs text-ink/70">Shift</dt>
+				<dd class="break-words">{ f.Shift }</dd>
+				<dt class="font-mono text-xs text-ink/70">Claimed time</dt>
+				<dd class="break-words">{ f.ClaimedDeviates }</dd>
+				<dt class="font-mono text-xs text-ink/70">Their record&#39;s time</dt>
+				<dd class="break-words">{ f.AnchorDeviates }</dd>
+			}
 		</dl>
 		if f.StateLine != "" {
 			<p class="odd-callout odd-callout--warn" role="note">{ f.StateLine }</p>
@@ -169,9 +185,14 @@ templ claimFocusForm(action string, f ClaimFocusView) {
 			<details class="panel-card" open?={ f.EditOpen }>
 				<summary class="flex min-h-11 cursor-pointer items-center font-display text-sm font-bold">Edit the time before approving</summary>
 				<div class="field-stack mt-2">
-					<label for="claim-at" class="lbl">Record this time instead (in { f.ClaimedDir })</label>
-					<input id="claim-at" name="at" type="time" autocomplete="off" class="field-input" aria-describedby="claim-at-help"/>
-					<p id="claim-at-help" class="field-help">Leave it empty to approve the claimed time. An edited time is held to the same rules, and the same confirmation outside the shift.</p>
+					<label for="claim-at" class="lbl">{ f.EditLabel }</label>
+					<input id="claim-at" name="at" type="time" autocomplete="off" value={ f.EditValue } class="field-input" aria-describedby="claim-at-help"/>
+					<p id="claim-at-help" class="field-help">
+						if f.EditHint != "" {
+							{ f.EditHint }
+						}
+						Leave it empty to approve the claimed time. An edited time is held to the same rules, and the same confirmation outside the shift.
+					</p>
 				</div>
 			</details>
 		}
@@ -185,41 +206,45 @@ templ claimFocusForm(action string, f ClaimFocusView) {
 			}
 			<button type="submit" name="outcome" value="rejected" class="btn btn--reject max-md:min-h-14 max-md:flex-1 max-md:rounded-[14px] max-md:text-base desk:flex-[1_1_200px]">Reject</button>
 		</div>
-		<p class="font-mono text-xs text-ink/70">
-			Approving writes a new manual record entered by you.
-			<span class="hidden md:inline">The person&#39;s own tap record is never edited.</span>
-		</p>
+		if f.CanApprove {
+			<p class="font-mono text-xs text-ink/70">
+				Approving writes a new manual record entered by you.
+				<span class="hidden md:inline">The person&#39;s own tap record is never edited.</span>
+			</p>
+		}
 	</form>
 }
 
-// claimConfirmForm is the confirmation step: the interval and both deviations again, and the press
-// that writes. The moment and its signature travel as hidden fields; the note comes back filled.
+// claimConfirmForm is the confirmation step: FIRST the box -- the interval it writes and both
+// deviations -- then its two buttons right under it, in the flow (never the phone's pinned bar, where
+// the first Approve was: YÜKSEK-1), then the note and the record's facts. The moment and its signature
+// travel as hidden fields; the note comes back filled.
 templ claimConfirmForm(action string, f ClaimFocusView) {
 	<form method="post" action={ templ.URL(action) } class="flex flex-col gap-[18px]">
 		<input type="hidden" name="id" value={ f.ID }/>
 		<input type="hidden" name="shown" value={ f.Confirm.Shown }/>
 		<input type="hidden" name="confirm_token" value={ f.Confirm.Token }/>
-		@claimFacts(f)
-		<div class="odd-callout odd-callout--alert flex flex-col gap-2" role="note">
-			<p class="text-sm font-bold">Confirm this interval before it is recorded</p>
-			<p class="font-mono font-bold">{ f.Confirm.Interval }</p>
-			if f.Confirm.Edited {
-				<p>You edited the time: { f.ClaimedDir } { f.Confirm.At }.</p>
+		<div id="claim-step" class="odd-callout odd-callout--alert flex flex-col gap-2" role="note">
+			<p class="text-sm font-bold">Confirm this interval before it is recorded · { f.Who }</p>
+			if f.Confirm.Reason != "" {
+				<p class="font-bold">{ f.Confirm.Reason }</p>
 			}
-			<p>{ f.Confirm.Shift }</p>
-			<p>Claimed time: { f.Confirm.ClaimedDeviates }</p>
+			<p class="font-mono font-bold">{ f.Confirm.Interval }</p>
+			<p>Shift: { f.Confirm.Shift }</p>
+			<p>{ f.Confirm.ClaimedLabel }: { f.Confirm.ClaimedDeviates }</p>
 			<p>Their record&#39;s time: { f.Confirm.AnchorDeviates }</p>
 			<p>It is outside the shift&#39;s band, or there is no shift, so it is not approved in one press.</p>
 		</div>
+		<div id="claim-step-actions" class="grid grid-cols-2 gap-3">
+			<button type="submit" name="outcome" value="approved" class="btn btn--approve">Approve this interval</button>
+			<button type="submit" name="outcome" value="rejected" class="btn btn--reject">Reject</button>
+		</div>
+		<p class="font-mono text-xs text-ink/70">Nothing has been recorded yet.</p>
 		<div class="field-stack">
 			<label for="claim-note" class="lbl">Note for the record (optional)</label>
 			<input id="claim-note" name="note" type="text" maxlength="500" autocomplete="off" value={ f.Note } class="field-input"/>
 		</div>
-		<div class="spike-actions">
-			<button type="submit" name="outcome" value="approved" class="btn btn--approve max-md:min-h-14 max-md:flex-[2] max-md:rounded-[14px] max-md:text-base desk:flex-[1_1_200px]">Approve this interval</button>
-			<button type="submit" name="outcome" value="rejected" class="btn btn--reject max-md:min-h-14 max-md:flex-1 max-md:rounded-[14px] max-md:text-base desk:flex-[1_1_200px]">Reject</button>
-		</div>
-		<p class="font-mono text-xs text-ink/70">Nothing has been recorded yet.</p>
+		@claimFacts(f)
 	</form>
 }
 
@@ -257,8 +282,10 @@ func claimProblemHeading(p string) string {
 		return "The partnership has ended"
 	case "novenue":
 		return "No venue to record it at"
-	case "unreadable", "edit":
+	case "unreadable", "edit", "edit-closed":
 		return "We could not read that"
+	case "step-expired", "step-changed":
+		return "Not recorded yet"
 	default:
 		return "Nothing was recorded"
 	}
@@ -282,6 +309,12 @@ func claimProblemLine(p string) string {
 		return "That time is outside what can be recorded for this claim. Nothing was recorded."
 	case "edit":
 		return "The edited time could not be read, or no such time fits this claim. Nothing was recorded."
+	case "edit-closed":
+		return "This claim can no longer be approved at another time. Nothing was recorded."
+	case "step-expired":
+		return "The confirmation had expired or could not be read, so nothing was recorded. Press Approve to see the interval again."
+	case "step-changed":
+		return "What you were shown no longer matches the record: its shift or the time changed. Nothing was recorded. Press Approve to see the interval again."
 	case "unreadable":
 		return "We could not read that submission, so nothing was recorded. The claim is still waiting."
 	default:

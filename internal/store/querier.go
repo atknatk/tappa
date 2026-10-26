@@ -999,6 +999,12 @@ type Querier interface {
 	// the caller renders "100+" and never a wrong exact figure. What it does NOT do is
 	// hide a record -- the list below pages through every one of them.
 	CountPendingFlagged(ctx context.Context, arg CountPendingFlaggedParams) (int32, error)
+	// HOW MANY CLAIMS WAIT FOR A DECISION, AS FAR AS IT COUNTS (M15-18 review round, user decision "Üç yerde
+	// sayı", 2026-10-26): The Spike's "Time claims · N" link, its empty state and The Pass's "On the spike"
+	// card. It rides the panel chrome's badge read (internal/domain/ledger.Pending), so it is paid on every
+	// panel page -- hence the cap: the inner LIMIT stops the scan at @cap rows (the caller asks one past
+	// its cap, the flagged count's shape). Explicit tenant on both tables.
+	CountPendingPunchClaims(ctx context.Context, arg CountPendingPunchClaimsParams) (int64, error)
 	// How many TRAINING taps fall in the reporting period (M6-07 phase A).
 	//
 	// 🔴 IT EXISTS SO THAT "excluded" IS NOT THE SAME AS "invisible". Section 5 says a
@@ -4615,8 +4621,9 @@ type Querier interface {
 	// by transactions.id and this joins them to punch_claims.anchor_transaction_id -- an id, never a
 	// timestamp (two records can share an instant; ADR 0032 §A.6 orders by (occurred_at, id) for that
 	// reason). A rejected claim's anchor is NOT marked: the record still misses its half and nobody is
-	// asked about it any more. Explicit tenant on both tables.
-	ListPendingPunchClaimAnchors(ctx context.Context, arg ListPendingPunchClaimAnchorsParams) ([]uuid.UUID, error)
+	// asked about it any more. The claim's own id comes back too: the mark links to the claim in focus on
+	// the queue (M15-18 review round). Explicit tenant on both tables.
+	ListPendingPunchClaimAnchors(ctx context.Context, arg ListPendingPunchClaimAnchorsParams) ([]ListPendingPunchClaimAnchorsRow, error)
 	// THE PANEL'S CLAIM QUEUE (M15-18; ADR 0032 §C.4): the claims of this business nobody has decided
 	// yet, OLDEST FIRST -- (created_at, id), the order a manager works a backlog in, so a shortened list
 	// keeps the claims that have waited longest. A claim whose anchor has since been closed another

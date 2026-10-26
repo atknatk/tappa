@@ -13,6 +13,39 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countPendingPunchClaims = `-- name: CountPendingPunchClaims :one
+SELECT count(*)
+  FROM (
+        SELECT 1
+          FROM punch_claims AS c
+         WHERE c.tenant_id = $1
+           AND NOT EXISTS (
+               SELECT 1
+                 FROM punch_claim_decisions AS d
+                WHERE d.tenant_id = $1
+                  AND d.claim_id = c.id
+           )
+         LIMIT $2::int
+       ) AS capped
+`
+
+type CountPendingPunchClaimsParams struct {
+	TenantID uuid.UUID
+	Cap      int32
+}
+
+// HOW MANY CLAIMS WAIT FOR A DECISION, AS FAR AS IT COUNTS (M15-18 review round, user decision "Üç yerde
+// sayı", 2026-10-26): The Spike's "Time claims · N" link, its empty state and The Pass's "On the spike"
+// card. It rides the panel chrome's badge read (internal/domain/ledger.Pending), so it is paid on every
+// panel page -- hence the cap: the inner LIMIT stops the scan at @cap rows (the caller asks one past
+// its cap, the flagged count's shape). Explicit tenant on both tables.
+func (q *Queries) CountPendingPunchClaims(ctx context.Context, arg CountPendingPunchClaimsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countPendingPunchClaims, arg.TenantID, arg.Cap)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getPunchClaimAnchor = `-- name: GetPunchClaimAnchor :one
 SELECT a.id,
        a.type,
@@ -264,7 +297,8 @@ func (q *Queries) InsertPunchClaimDecision(ctx context.Context, arg InsertPunchC
 }
 
 const listPendingPunchClaimAnchors = `-- name: ListPendingPunchClaimAnchors :many
-SELECT c.anchor_transaction_id
+SELECT c.anchor_transaction_id,
+       c.id
   FROM punch_claims AS c
  WHERE c.tenant_id = $1
    AND c.anchor_transaction_id = ANY ($2::uuid[])
@@ -281,25 +315,31 @@ type ListPendingPunchClaimAnchorsParams struct {
 	AnchorIds []uuid.UUID
 }
 
+type ListPendingPunchClaimAnchorsRow struct {
+	AnchorTransactionID uuid.UUID
+	ID                  uuid.UUID
+}
+
 // WHICH OF THESE RECORDS CARRY A CLAIM NOBODY HAS DECIDED (M15-18): the "claim pending" mark on
 // Odd shapes' two lists (check-ins with no checkout, check-in missing). The lists name their rows
 // by transactions.id and this joins them to punch_claims.anchor_transaction_id -- an id, never a
 // timestamp (two records can share an instant; ADR 0032 §A.6 orders by (occurred_at, id) for that
 // reason). A rejected claim's anchor is NOT marked: the record still misses its half and nobody is
-// asked about it any more. Explicit tenant on both tables.
-func (q *Queries) ListPendingPunchClaimAnchors(ctx context.Context, arg ListPendingPunchClaimAnchorsParams) ([]uuid.UUID, error) {
+// asked about it any more. The claim's own id comes back too: the mark links to the claim in focus on
+// the queue (M15-18 review round). Explicit tenant on both tables.
+func (q *Queries) ListPendingPunchClaimAnchors(ctx context.Context, arg ListPendingPunchClaimAnchorsParams) ([]ListPendingPunchClaimAnchorsRow, error) {
 	rows, err := q.db.Query(ctx, listPendingPunchClaimAnchors, arg.TenantID, arg.AnchorIds)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []uuid.UUID{}
+	items := []ListPendingPunchClaimAnchorsRow{}
 	for rows.Next() {
-		var anchor_transaction_id uuid.UUID
-		if err := rows.Scan(&anchor_transaction_id); err != nil {
+		var i ListPendingPunchClaimAnchorsRow
+		if err := rows.Scan(&i.AnchorTransactionID, &i.ID); err != nil {
 			return nil, err
 		}
-		items = append(items, anchor_transaction_id)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

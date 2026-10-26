@@ -567,7 +567,7 @@ templ anomalyOpen(v AnomaliesView) {
 							}
 							if o.ClaimPending {
 								// M15-18: bound to this row by its id, never by its time.
-								<span class="odd-chip tally--manual">Claim pending</span>
+								@claimPendingMark(o.ClaimHref)
 							}
 						</p>
 					</li>
@@ -650,7 +650,7 @@ templ anomalyInMissing(v AnomaliesView) {
 								<span class="odd-chip tally--manual">After a check-in of an earlier day</span>
 							}
 							if o.ClaimPending {
-								<span class="odd-chip tally--manual">Claim pending</span>
+								@claimPendingMark(o.ClaimHref)
 							}
 						</p>
 					</li>
@@ -743,5 +743,15 @@ templ anomalyLostPlaques(v AnomaliesView) {
 				}
 			</ul>
 		</div>
+	}
+}
+
+// claimPendingMark is the "Claim pending" mark (M15-18): a link to the claim on the Spike's "Time
+// claims" when the read named it, a plain mark otherwise.
+templ claimPendingMark(href string) {
+	if href != "" {
+		<a href={ templ.URL(href) } class="odd-chip tally--manual hit-link">Claim pending</a>
+	} else {
+		<span class="odd-chip tally--manual">Claim pending</span>
 	}
 }

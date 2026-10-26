@@ -124,7 +124,7 @@ func (f *fakeClaimQueue) Decide(_ context.Context, d claim.Decision) (claim.Deci
 		}
 		a := claim.Assess(c.in.Kind, c.in.Anchor.At, moment, c.shift, c.in.Prefilled)
 		out.Assessment = &a
-		if a.RequiresConfirmation && !d.Confirmed {
+		if a.RequiresConfirmation && d.Confirmation != claim.ConfirmationSubject(c.in.ClaimID, a) {
 			return claim.Decided{Assessment: &a}, claim.ErrNeedsConfirmation
 		}
 	}
@@ -142,7 +142,12 @@ func (f *fakeClaimQueue) writes() []claim.Decision {
 // claimPanel is the real router with the claim queue wired (and an identity the caller picks).
 func claimPanel(t *testing.T, admins *fakeAdmins, claims *fakeClaimQueue) *browser {
 	t.Helper()
-	records := newFakeLedger()
+	return claimPanelWith(t, admins, claims, newFakeLedger())
+}
+
+// claimPanelWith is claimPanel over a ledger the caller set up (the badge's counts).
+func claimPanelWith(t *testing.T, admins *fakeAdmins, claims *fakeClaimQueue, records *fakeLedger) *browser {
+	t.Helper()
 	opts := []AdminAuthOption{}
 	if claims != nil {
 		opts = append(opts, PunchClaims(claims, claims))
@@ -235,7 +240,7 @@ func TestClaimQueue_FocusAndApproveIsOnePostThatRedirects(t *testing.T) {
 		t.Fatalf("Approve answered %d, want 303", res.Code)
 	}
 	w := f.writes()
-	if len(w) != 1 || w[0].Outcome != claim.Approved || w[0].At != nil || w[0].Confirmed || w[0].DecidedBy != panelTestAdmin || w[0].TenantID != panelTestTenant {
+	if len(w) != 1 || w[0].Outcome != claim.Approved || w[0].At != nil || w[0].Confirmation != "" || w[0].DecidedBy != panelTestAdmin || w[0].TenantID != panelTestTenant {
 		t.Fatalf("decisions written = %+v, want one approval of the claimed moment, by the session's admin, unconfirmed", w)
 	}
 	done := htmlOf(t, b.do(http.MethodGet, res.Header().Get("Location"), nil))
@@ -249,7 +254,7 @@ func TestClaimQueue_FocusAndApproveIsOnePostThatRedirects(t *testing.T) {
 
 // TestClaimQueue_AnOutOfBandApprovalAsksTheStepAndOnlyItsPressWrites is G-Y1: the first press of
 // Approve on a claim outside the band writes nothing and draws the step (interval, duration, both
-// deviations); the step's own press writes, Confirmed.
+// deviations); the step's own press writes, with the step's subject.
 func TestClaimQueue_AnOutOfBandApprovalAsksTheStepAndOnlyItsPressWrites(t *testing.T) {
 	c := inClaim(claimDay(0, 9, 0), claimDay(0, 5, 0))
 	f := newFakeClaimQueue(time.UTC, c)
@@ -274,7 +279,7 @@ func TestClaimQueue_AnOutOfBandApprovalAsksTheStepAndOnlyItsPressWrites(t *testi
 		t.Fatalf("the step's press answered %d, want 303", second.Code)
 	}
 	w := f.writes()
-	if len(w) != 1 || !w[0].Confirmed || w[0].At == nil || !w[0].At.Equal(c.in.ClaimedAt) {
+	if len(w) != 1 || w[0].Confirmation == "" || w[0].At == nil || !w[0].At.Equal(c.in.ClaimedAt) {
 		t.Fatalf("decisions written = %+v, want one confirmed approval of the claimed moment", w)
 	}
 	// A second decision on the same claim is "already decided".
@@ -314,12 +319,13 @@ func TestClaimQueue_ConfirmedIsNeverTakenFromTheFirstPost(t *testing.T) {
 			if n := len(f.writes()); n != 0 {
 				t.Fatalf("%d decision(s) written", n)
 			}
-			if res.Code != http.StatusOK || !strings.Contains(htmlOf(t, res), "Confirm this interval") {
-				t.Errorf("answered %d without the step", res.Code)
+			if page := strings.ToLower(htmlOf(t, res)); res.Code != http.StatusOK ||
+				!(strings.Contains(page, "nothing was recorded") || strings.Contains(page, "nothing has been recorded yet")) {
+				t.Errorf("answered %d without saying nothing was recorded", res.Code)
 			}
 			for _, d := range f.calls {
-				if d.Confirmed {
-					t.Errorf("Decide was called Confirmed: %+v", d)
+				if d.Confirmation != "" {
+					t.Errorf("Decide was called with a confirmation: %+v", d)
 				}
 			}
 		})
@@ -432,7 +438,7 @@ func TestClaimQueue_TheTwoGY1CasesShowTheIntervalTheDeviationAndTheMark(t *testi
 		want []string
 		mark bool
 	}{
-		{ahmet, []string{"in Mon 12 Oct 05:00 → out Mon 12 Oct 09:00 = 4 h 00 m", "Shift Mon 12 Oct 09:00 – 17:00",
+		{ahmet, []string{"in Mon 12 Oct 05:00 → out Mon 12 Oct 09:00 = 4 h 00 m", "Mon 12 Oct 09:00 – 17:00",
 			"4 h 00 m before the shift starts", "within the shift", "Approve will ask you to confirm"}, true},
 		{tuesday, []string{"in Mon 12 Oct 09:12 → out Tue 13 Oct 03:00 = 17 h 48 m", "10 h 00 m after the shift ends",
 			"within the shift", "Approve will ask you to confirm"}, false},
@@ -511,7 +517,7 @@ func TestClaimQueue_AnEditIsResolvedInsideTheWindowAndHeldToTheBand(t *testing.T
 		t.Fatalf("an unreadable Edit answered %d after %d Decide call(s), want the form again and none", res.Code, len(f.calls))
 	}
 	out := b.do(http.MethodPost, claimsHref, decisionForm(c.in.ClaimID, "approved", "at", "23:30"))
-	if out.Code != http.StatusOK || !strings.Contains(htmlOf(t, out), "You edited the time") || len(f.writes()) != 0 {
+	if out.Code != http.StatusOK || !strings.Contains(htmlOf(t, out), "Your edited time:") || len(f.writes()) != 0 {
 		t.Fatalf("an Edit outside the band answered %d with %d write(s), want the step and none", out.Code, len(f.writes()))
 	}
 	res := b.do(http.MethodPost, claimsHref, decisionForm(c.in.ClaimID, "approved", "at", "16:30"))
@@ -575,7 +581,8 @@ func TestAnomaliesView_TheClaimPendingMarkIsDrawnOnItsOwnRowOnly(t *testing.T) {
 	at := claimDay(0, 9, 0)
 	var a ledger.AnomalyScreen
 	a.Queried, a.Period, a.Zone = true, period, time.UTC
-	a.Open = []ledger.AnomalyOpen{{ID: uuid.New(), EmployeeName: "Marked In", At: at, ClaimPending: true}, {ID: uuid.New(), EmployeeName: "Plain In", At: at}}
+	onIn := uuid.New()
+	a.Open = []ledger.AnomalyOpen{{ID: uuid.New(), EmployeeName: "Marked In", At: at, ClaimPending: true, PendingClaimID: onIn}, {ID: uuid.New(), EmployeeName: "Plain In", At: at}}
 	a.InMissing = []ledger.AnomalyInMissing{{ID: uuid.New(), EmployeeName: "Marked Out", At: at, ClaimPending: true}, {ID: uuid.New(), EmployeeName: "Plain Out", At: at}}
 	var v pages.AnomaliesView
 	fillAnomaliesView(&v, a, claimDay(7, 12, 0))
@@ -586,6 +593,10 @@ func TestAnomaliesView_TheClaimPendingMarkIsDrawnOnItsOwnRowOnly(t *testing.T) {
 	page := b.String()
 	if n := strings.Count(page, "Claim pending"); n != 2 {
 		t.Fatalf("the page draws %d marks, want 2", n)
+	}
+	// The mark whose claim the read named links to it in focus on the queue (review round).
+	if !strings.Contains(page, `<a href="`+claimsHref+`?focus=`+onIn.String()+`" class="odd-chip tally--manual hit-link">Claim pending</a>`) {
+		t.Error("the mark does not link to its claim on the queue")
 	}
 	for _, who := range []string{"Marked In", "Marked Out"} {
 		i := strings.Index(page, who)
@@ -621,5 +632,202 @@ func TestClaimQueue_AnUnreadableDecisionIsNeverAnApproval(t *testing.T) {
 	}
 	if len(f.calls) != 0 {
 		t.Errorf("the claim service was asked %d time(s)", len(f.calls))
+	}
+}
+
+// mainOf is the page's <main>, where the section draws (the chrome's own forms are outside it).
+func mainOf(page string) string {
+	i, j := strings.Index(page, "<main"), strings.Index(page, "</main>")
+	if i < 0 || j < i {
+		return page
+	}
+	return page[i:j]
+}
+
+// TestClaimQueue_TheStepOpensTheSectionAndItsButtonsAreNotPinned (M15-18 review round, YÜKSEK-1): on
+// the step the box -- interval, duration, deviations -- comes FIRST in the claim's section, its buttons
+// right under it and before the record's facts, and nothing on the step is in the phone's pinned bar
+// (.spike-actions), where the first Approve was pressed.
+func TestClaimQueue_TheStepOpensTheSectionAndItsButtonsAreNotPinned(t *testing.T) {
+	c := outClaim(claimDay(0, 9, 12), claimDay(1, 3, 0), nil)
+	b := claimPanel(t, claimAdmins("manager", false), newFakeClaimQueue(time.UTC, c))
+	first := mainOf(htmlOf(t, b.do(http.MethodGet, claimsHref, nil)))
+	if !strings.Contains(first, `class="spike-actions"`) {
+		t.Fatal("control: the focus form's first Approve is not in the pinned bar, so the check below would be vacuous")
+	}
+	page := mainOf(htmlOf(t, b.do(http.MethodPost, claimsHref, decisionForm(c.in.ClaimID, "approved"))))
+	section := page[strings.Index(page, `aria-label="The claim being decided"`):]
+	box := strings.Index(section, `id="claim-step"`)
+	buttons := strings.Index(section, `id="claim-step-actions"`)
+	facts := strings.Index(section, "Their record</dt>")
+	pager := strings.Index(section, `aria-label="Records on this page"`)
+	if box < 0 || buttons < 0 || facts < 0 {
+		t.Fatalf("the step lacks a part: box %d, buttons %d, facts %d", box, buttons, facts)
+	}
+	if !(box < buttons && buttons < facts) {
+		t.Errorf("the step's order is box %d, buttons %d, facts %d; want the box first, then its buttons, then the facts", box, buttons, facts)
+	}
+	if pager >= 0 && pager < box {
+		t.Error("something comes before the step's box in the claim's section")
+	}
+	if strings.Contains(page, "spike-actions") {
+		t.Error("the step carries .spike-actions: its press would sit where the first Approve was")
+	}
+	if i := strings.Index(section, "in Mon 12 Oct 09:12 → out Tue 13 Oct 03:00 = 17 h 48 m"); i < 0 || i > buttons {
+		t.Error("the interval and its duration are not in the box above the step's buttons")
+	}
+}
+
+// TestClaimQueue_TheStepNamesOneIntervalAndTheEditedTime (ORTA-1): an Edit's step names the edited
+// moment as such and the screen shows ONE interval -- the one the press writes -- not the claimed one
+// beside it.
+func TestClaimQueue_TheStepNamesOneIntervalAndTheEditedTime(t *testing.T) {
+	c := outClaim(claimDay(0, 9, 5), claimDay(0, 17, 0), nil)
+	c.in.Window = &claim.Window{From: claim.Bound{At: c.in.Anchor.At}, To: claim.Bound{At: claimDay(1, 3, 5), Inclusive: true}}
+	b := claimPanel(t, claimAdmins("manager", false), newFakeClaimQueue(time.UTC, c))
+	page := mainOf(htmlOf(t, b.do(http.MethodPost, claimsHref, decisionForm(c.in.ClaimID, "approved", "at", "23:30"))))
+	if !strings.Contains(page, "Your edited time: 6 h 30 m after the shift ends") {
+		t.Error("the step does not name the edited time as the user's edit")
+	}
+	if strings.Contains(page, "Claimed time:") || strings.Contains(page, "Approving makes") {
+		t.Error("the step still names the claimed moment's line or the claimed interval")
+	}
+	if n := strings.Count(page, htmlText("→ out")); n != 1 {
+		t.Errorf("the step shows %d intervals, want exactly one", n)
+	}
+	if !strings.Contains(page, htmlText("→ out Mon 12 Oct 23:30")) {
+		t.Error("the one interval is not the edited one")
+	}
+}
+
+// TestClaimQueue_AShiftChangedSinceTheStepIsNotConfirmed (D-1, the mutant that took the shift out
+// of the signed subject): the step was drawn against 09:00–17:00; the shift is 09:00–18:00 at the
+// press -- nothing is written and the page says why.
+func TestClaimQueue_AShiftChangedSinceTheStepIsNotConfirmed(t *testing.T) {
+	c := outClaim(claimDay(0, 9, 12), claimDay(1, 3, 0), nil)
+	f := newFakeClaimQueue(time.UTC, c)
+	b := claimPanel(t, claimAdmins("manager", false), f)
+	shown, token := stepFields(t, htmlOf(t, b.do(http.MethodPost, claimsHref, decisionForm(c.in.ClaimID, "approved"))))
+	f.mu.Lock()
+	c.shift = &tap.Shift{Start: 9 * time.Hour, End: 18 * time.Hour, Timezone: "UTC"}
+	f.mu.Unlock()
+	res := b.do(http.MethodPost, claimsHref, decisionForm(c.in.ClaimID, "approved", "shown", shown, "confirm_token", token))
+	if n := len(f.writes()); n != 0 {
+		t.Fatalf("%d decision(s) written against a shift nobody was shown", n)
+	}
+	if page := htmlOf(t, res); !strings.Contains(page, "its shift or the time changed") {
+		t.Error("the page does not say why nothing was recorded")
+	}
+}
+
+// TestClaimQueue_AnUnsignedMomentIsNeverWritten (security DÜŞÜK-2): a posted step moment without a
+// genuine signature is not the moment written -- not even inside the band, where no step is needed.
+func TestClaimQueue_AnUnsignedMomentIsNeverWritten(t *testing.T) {
+	c := outClaim(claimDay(0, 9, 5), claimDay(0, 17, 0), nil)
+	f := newFakeClaimQueue(time.UTC, c)
+	b := claimPanel(t, claimAdmins("manager", false), f)
+	res := b.do(http.MethodPost, claimsHref, decisionForm(c.in.ClaimID, "approved", "shown", claimDay(0, 16, 0).Format(time.RFC3339Nano)))
+	if len(f.calls) != 0 || len(f.writes()) != 0 {
+		t.Fatalf("an unsigned moment reached Decide (%d call(s))", len(f.calls))
+	}
+	page := htmlOf(t, res)
+	if !strings.Contains(page, "The confirmation had expired or could not be read") || !strings.Contains(page, `value="16:00"`) {
+		t.Error("the page does not say why, or lost the time to edit")
+	}
+}
+
+// TestClaimQueue_AnEditThatCannotBeUsedIsNeverTheClaimedMoment (D-1/M4, D-2, D-3): a typed time outside
+// the window -- or on a claim that takes no other time -- writes nothing (never the claimed moment, a
+// record nobody could take back), keeps the typed time and names the times that fit.
+func TestClaimQueue_AnEditThatCannotBeUsedIsNeverTheClaimedMoment(t *testing.T) {
+	c := outClaim(claimDay(0, 10, 5), claimDay(0, 17, 0), nil)
+	c.in.Window = &claim.Window{From: claim.Bound{At: c.in.Anchor.At}, To: claim.Bound{At: claimDay(1, 4, 5), Inclusive: true}}
+	f := newFakeClaimQueue(time.UTC, c)
+	b := claimPanel(t, claimAdmins("manager", false), f)
+	res := b.do(http.MethodPost, claimsHref, decisionForm(c.in.ClaimID, "approved", "at", "08:00"))
+	if len(f.calls) != 0 {
+		t.Fatalf("an Edit outside the window reached Decide: %+v", f.calls)
+	}
+	page := htmlOf(t, res)
+	for _, want := range []string{`value="08:00"`, "Pick a time after Mon 12 Oct 10:05 up to Tue 13 Oct 04:05."} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the form shown again does not carry %q", want)
+		}
+	}
+	closed := outClaim(claimDay(2, 9, 5), claimDay(2, 17, 0), nil)
+	f2 := newFakeClaimQueue(time.UTC, closed)
+	b2 := claimPanel(t, claimAdmins("manager", false), f2)
+	res = b2.do(http.MethodPost, claimsHref, decisionForm(closed.in.ClaimID, "approved", "at", "16:00"))
+	if len(f2.calls) != 0 || !strings.Contains(htmlOf(t, res), "can no longer be approved at another time") {
+		t.Errorf("an Edit on a claim with no window reached Decide (%d call(s)) or was not refused in words", len(f2.calls))
+	}
+}
+
+// TestClaimQueue_ABannerIsNeverPrintedForAPendingClaim (D-1/M10): ?done=approved names a decision; a
+// claim nobody decided gets no banner.
+func TestClaimQueue_ABannerIsNeverPrintedForAPendingClaim(t *testing.T) {
+	c := outClaim(claimDay(0, 9, 5), claimDay(0, 17, 0), nil)
+	b := claimPanel(t, claimAdmins("manager", false), newFakeClaimQueue(time.UTC, c))
+	if page := htmlOf(t, b.do(http.MethodGet, claimsHref+"?done=approved&claim="+c.in.ClaimID.String(), nil)); strings.Contains(page, "Claim approved") {
+		t.Error("a banner was printed for a claim still waiting")
+	}
+}
+
+// TestClaimQueue_TheFocusWordsSayEachThingOnce (D-4): no "Shift Shift", the Edit names what it
+// records, and a claim only Reject is left for names no interval it cannot write.
+func TestClaimQueue_TheFocusWordsSayEachThingOnce(t *testing.T) {
+	c := outClaim(claimDay(0, 9, 5), claimDay(0, 17, 0), nil)
+	page := htmlOf(t, claimPanel(t, claimAdmins("manager", false), newFakeClaimQueue(time.UTC, c)).do(http.MethodGet, claimsHref, nil))
+	if strings.Contains(page, "Shift Shift") || strings.Contains(page, ">Shift Mon") {
+		t.Error("the shift's line repeats its label")
+	}
+	if !strings.Contains(page, "New clock-out time") {
+		t.Error("the Edit does not name what it records")
+	}
+	r := outClaim(claimDay(0, 9, 5), claimDay(0, 17, 0), nil)
+	r.in.State = claim.StateResolved
+	page = htmlOf(t, claimPanel(t, claimAdmins("manager", false), newFakeClaimQueue(time.UTC, r)).do(http.MethodGet, claimsHref, nil))
+	if strings.Contains(page, "Approving makes") || strings.Contains(page, "Approving writes") {
+		t.Error("a claim only Reject is left for still names what approving would write")
+	}
+}
+
+// TestClaimQueue_TheWaitingClaimsAreCountedInThreePlaces (user decision "Üç yerde sayı"): the Spike's
+// queue link "Time claims · N", its empty state's sentence and The Pass's card -- for N, for 0 and for
+// a count that failed (never printed as 0).
+func TestClaimQueue_TheWaitingClaimsAreCountedInThreePlaces(t *testing.T) {
+	cases := []struct {
+		name                     string
+		claims                   ledger.ClaimCount
+		link, sentence, passLine string
+	}{
+		{"three", ledger.ClaimCount{Queried: true, N: 3}, "· 3", "3 time claims are waiting →", "3 time claims waiting"},
+		{"one", ledger.ClaimCount{Queried: true, N: 1}, "· 1", "1 time claim is waiting →", "1 time claim waiting"},
+		{"none", ledger.ClaimCount{Queried: true}, "· 0", "", "no time claims waiting"},
+		{"failed", ledger.ClaimCount{Failed: true}, "· ?", "", "time claims not counted"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			records := newFakeLedger()
+			records.pending = ledger.Pending{Claims: tc.claims}
+			b := claimPanelWith(t, claimAdmins("manager", false), newFakeClaimQueue(time.UTC), records)
+			spike := mainOf(htmlOf(t, b.do(http.MethodGet, reviewHref, nil)))
+			if !strings.Contains(spike, `<span class="chip-count">`+htmlText(tc.link)+`</span>`) {
+				t.Errorf("the queue link does not carry %q", tc.link)
+			}
+			if !strings.Contains(spike, "No flagged tap is waiting") {
+				t.Error("the empty Spike does not say which queue is empty")
+			}
+			if tc.sentence != "" && !strings.Contains(spike, htmlText(tc.sentence)) {
+				t.Errorf("the empty Spike does not say %q", tc.sentence)
+			}
+			if tc.sentence == "" && strings.Contains(spike, "are waiting →") {
+				t.Error("the empty Spike invents waiting claims")
+			}
+			pass := mainOf(htmlOf(t, b.do(http.MethodGet, transactionsHref, nil)))
+			if !strings.Contains(pass, tc.passLine) {
+				t.Errorf("The Pass's card does not say %q", tc.passLine)
+			}
+		})
 	}
 }

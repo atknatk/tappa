@@ -208,7 +208,15 @@ func (w *world) mustSubmit(anchor uuid.UUID, kind Kind, at time.Time) Submitted 
 }
 
 func (w *world) decide(claim uuid.UUID, o Outcome, edit *time.Time, confirmed bool) (Decided, error) {
-	return w.svc.Decide(w.ctx, Decision{TenantID: w.tenant, ClaimID: claim, DecidedBy: w.admin, Outcome: o, At: edit, Confirmed: confirmed})
+	d := Decision{TenantID: w.tenant, ClaimID: claim, DecidedBy: w.admin, Outcome: o, At: edit}
+	if confirmed {
+		// The step's subject, as the panel would have signed it: the assessment at the moment.
+		in, err := w.svc.Inspect(w.ctx, w.tenant, claim, edit)
+		if err == nil {
+			d.Confirmation = ConfirmationSubject(claim, in.Assessment)
+		}
+	}
+	return w.svc.Decide(w.ctx, d)
 }
 
 // TestSubmitDB_WritesTheClaimAndItsTrailWithTheServersPrefill: Mon 09:12 in, shift 09:00–17:00 -- the
@@ -837,10 +845,13 @@ func TestPunchClaimQueries_TheNewStatementsCarryTheirOwnTenantPredicate(t *testi
 			AnchorIds: []uuid.UUID{in}}); e != nil || len(rows) == 0 {
 			errs = append(errs, fmt.Errorf("ListPendingPunchClaimAnchors: %d rows, %v", len(rows), e))
 		}
+		if n, e := q.CountPendingPunchClaims(ctx, store.CountPendingPunchClaimsParams{TenantID: tenant, Cap: 10}); e != nil || n == 0 {
+			errs = append(errs, fmt.Errorf("CountPendingPunchClaims: 0 rows (counted %d), %v", n, e))
+		}
 		return errs
 	}
-	if got := probe(a.tenant); len(got) != 8 {
-		t.Errorf("with A's tenant id and B's rows, %d of 8 statements found nothing (want all eight): %v", len(got), got)
+	if got := probe(a.tenant); len(got) != 9 {
+		t.Errorf("with A's tenant id and B's rows, %d of 9 statements found nothing (want all nine): %v", len(got), got)
 	} else {
 		for _, e := range got {
 			if !strings.Contains(e.Error(), "no rows") && !strings.Contains(e.Error(), ": 0 rows") {
