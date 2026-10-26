@@ -45,8 +45,14 @@ RETURNING id, created_at;
 -- tap), the shift times today's. A row at a peer's venue has no local location row, so its shift is
 -- the department's or none: no prefill, and the decision asks the confirmation step (ADR 0032 §C.4:
 -- "vardiya yoksa"). No address, no coordinate, no verdict, no note.
+--
+-- M15-18: channel and direction_source are the anchor's mark on the panel's claim queue ("the person
+-- chose this direction") -- read ONLY through tap.RecordedDirectionSource (ADR 0032 §B.4's one reader
+-- rule), never compared raw: a manual row's value is not believed, a directed nfc/qr NULL is "auto".
 SELECT a.id,
        a.type,
+       a.channel,
+       a.direction_source,
        a.occurred_at,
        a.created_at,
        a.business_day_start,
@@ -157,3 +163,56 @@ SELECT c.tenant_id, c.id, @outcome::text, @decided_by::uuid,
  WHERE c.id = @claim_id
    AND c.tenant_id = @tenant_id
 RETURNING id, created_at;
+
+-- name: ListPendingPunchClaims :many
+-- THE PANEL'S CLAIM QUEUE (M15-18; ADR 0032 §C.4): the claims of this business nobody has decided
+-- yet, OLDEST FIRST -- (created_at, id), the order a manager works a backlog in, so a shortened list
+-- keeps the claims that have waited longest. A claim whose anchor has since been closed another
+-- way, or whose moment has aged past manual.MaxBackdate, is STILL here: it is undecided, and the
+-- focus says "already resolved" / "expired" and offers Reject (§C.5) -- this list does not judge.
+--
+-- What crosses the boundary is ids, the person's name, the kind, three instants (the claimed moment,
+-- when it was sent, the anchor's moment) and nothing the anchor was judged on. Explicit tenant on
+-- every table it reads (§4.5's belt beside RLS). Bounded by @row_limit (the caller reads one past
+-- its cap to say "more").
+SELECT c.id,
+       c.employee_id,
+       e.full_name     AS employee_name,
+       c.kind,
+       c.claimed_at,
+       c.created_at,
+       a.occurred_at   AS anchor_at
+  FROM punch_claims AS c
+  JOIN transactions AS a
+    ON a.id = c.anchor_transaction_id
+   AND a.tenant_id = @tenant_id
+  LEFT JOIN employees AS e
+         ON e.id = c.employee_id
+        AND e.tenant_id = @tenant_id
+ WHERE c.tenant_id = @tenant_id
+   AND NOT EXISTS (
+       SELECT 1
+         FROM punch_claim_decisions AS d
+        WHERE d.tenant_id = @tenant_id
+          AND d.claim_id = c.id
+   )
+ ORDER BY c.created_at, c.id
+ LIMIT @row_limit;
+
+-- name: ListPendingPunchClaimAnchors :many
+-- WHICH OF THESE RECORDS CARRY A CLAIM NOBODY HAS DECIDED (M15-18): the "claim pending" mark on
+-- Odd shapes' two lists (check-ins with no checkout, check-in missing). The lists name their rows
+-- by transactions.id and this joins them to punch_claims.anchor_transaction_id -- an id, never a
+-- timestamp (two records can share an instant; ADR 0032 §A.6 orders by (occurred_at, id) for that
+-- reason). A rejected claim's anchor is NOT marked: the record still misses its half and nobody is
+-- asked about it any more. Explicit tenant on both tables.
+SELECT c.anchor_transaction_id
+  FROM punch_claims AS c
+ WHERE c.tenant_id = @tenant_id
+   AND c.anchor_transaction_id = ANY (@anchor_ids::uuid[])
+   AND NOT EXISTS (
+       SELECT 1
+         FROM punch_claim_decisions AS d
+        WHERE d.tenant_id = @tenant_id
+          AND d.claim_id = c.id
+   );

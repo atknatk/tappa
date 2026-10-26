@@ -1,0 +1,290 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// The SPIKE'S SECOND SECTION, "Time claims" (M15-18; ADR 0032 §C.4, ürün merceği Ü-O4).
+//
+// 🔴 IT IS THE FLAGGED QUEUE'S FOCUS PATTERN, NOT A NEW ONE (review.templ's header): the queue is a
+// list of LINKS that put one claim in focus (?focus=<id>), the decision form is about that claim only,
+// its two outcomes are the form's two submit buttons, and there is no script and no keyboard shortcut.
+// "One click" is focus + Approve; Edit is a <details> inside the same form.
+//
+// 🔴 THERE IS NO BULK APPROVAL, for internal/handler/review.go's reason: each decision is a separate
+// legal act about a separate person's pay. Nothing here selects more than one claim.
+//
+// 🔴 APPROVE OUTSIDE THE BAND DOES NOT WRITE ON THE FIRST PRESS (ADR 0032 §C.4, G-Y1, and M15-16's
+// widening to both ends): the same page comes back with the confirmation step -- the interval, its
+// duration and both ends' deviation repeated -- and only its own press writes. The step's form
+// carries the moment it was drawn for and the server's signature over it; the handler accepts the
+// second press only when that signature is genuine for this claim, this moment and this session.
+//
+// §4.3: a claim is not a record. Approving writes a NEW manual record (and the decision beside it);
+// the employee's own tap record is never edited, and the page says so.
+templ AdminClaimQueue(v ClaimQueueView) {
+	@PanelActions(claimQueueMeta(v)) {
+		@PanelShell(v.PanelChrome) {
+			@SpikeQueues(v.Queues)
+			if v.Done != "" {
+				@components.PanelNotice(components.ToneOK, claimDoneHeading(v.Done)) {
+					if v.Done == "approved" {
+						<p>A manual record was written for the claimed half, entered by you. The employee&#39;s own tap record is unchanged.</p>
+					} else {
+						<p>Nothing was written to the person&#39;s records. The record still misses its half and stays on Odd shapes; you can still enter it by hand.</p>
+					}
+					if v.Clipped {
+						<p class="mt-2">Your note was longer than 500 characters, so only the first 500 were saved.</p>
+					}
+				}
+			}
+			if v.Problem != "" {
+				@components.PanelNotice(components.ToneWarn, claimProblemHeading(v.Problem)) {
+					<p>{ claimProblemLine(v.Problem) }</p>
+				}
+			}
+			if len(v.Items) > 0 && v.Focus != nil {
+				<div class="flex flex-col gap-[22px] pb-[84px] md:pb-0 desk:flex-row desk:items-start desk:gap-7">
+					<section aria-label="Claims" class="order-last flex min-w-0 flex-col gap-3 md:order-none desk:shrink-0 desk:basis-[280px]">
+						if v.More {
+							<p class="font-mono text-xs leading-normal text-ink/80">This list is shortened · more claims are waiting than one page lists, so it stops at { itoa(v.ListCap) }, oldest first. Decide some to see the rest.</p>
+						}
+						<div class="hidden md:-mx-8 md:block md:overflow-x-auto md:px-8 md:pb-1 desk:mx-0 desk:overflow-visible desk:px-0 desk:pb-0">
+							<ol class="flex gap-2.5 md:min-w-max desk:min-w-0 desk:flex-col desk:gap-2">
+								for _, item := range v.Items {
+									<li>
+										@claimQueueEntry(item)
+									</li>
+								}
+							</ol>
+						</div>
+					</section>
+					<section aria-label="The claim being decided" class="flex min-w-0 flex-col gap-[18px] desk:grow-[999] desk:basis-[520px]">
+						@reviewPager(v.Pager)
+						if v.Focus.Confirm != nil {
+							@claimConfirmForm(v.Action, *v.Focus)
+						} else {
+							@claimFocusForm(v.Action, *v.Focus)
+						}
+					</section>
+				</div>
+			} else if v.Queried {
+				@components.PanelEmpty(SectionLabel(TabReview)+" · time claims", "No time claim is waiting", components.PanelEmptyCTA{}) {
+					<p>
+						When a person answers the result screen&#39;s question about a missing clock-in or
+						clock-out, their answer waits here for you to approve or reject.
+					</p>
+				}
+			}
+		}
+	}
+}
+
+// SpikeQueues is the pair of links that switches between the Spike's two queues. It draws nothing
+// when the claims queue is not wired (ClaimsHref "").
+templ SpikeQueues(q SpikeQueuesView) {
+	if q.ClaimsHref != "" {
+		<nav aria-label="Queues" class="chip-group">
+			<a href={ templ.URL(q.ReviewHref) } class={ chipClass(!q.OnClaims) } { chipCurrent(!q.OnClaims)... }>Flagged taps</a>
+			<a href={ templ.URL(q.ClaimsHref) } class={ chipClass(q.OnClaims) } { chipCurrent(q.OnClaims)... }>Time claims</a>
+		</nav>
+	}
+}
+
+templ claimQueueMeta(v ClaimQueueView) {
+	<p class="font-mono text-[13px] text-ink/85">
+		{ claimQueueLine(v) }
+		<span class="text-ink/70">· { v.ZoneLabel }</span>
+	</p>
+}
+
+// claimQueueEntry is one claim as a link: who, what is missing, the claimed moment.
+templ claimQueueEntry(item ClaimQueueItem) {
+	<a
+		href={ templ.URL(item.FocusHref) }
+		class={ "queue-item md:h-full md:min-h-14 md:w-[220px] desk:h-auto desk:min-h-11 desk:w-full", templ.KV("queue-item--current", item.Current) }
+		if item.Current {
+			aria-current="true"
+		}
+	>
+		<span class="min-w-0 break-words font-display text-sm font-bold desk:text-[15px]">{ item.Who }</span>
+		<span class="break-words font-mono text-[11px] text-ink/70 desk:text-xs">{ item.What } · { item.When }</span>
+	</a>
+}
+
+// claimFacts is what the focus shows before any press (K3, G-Y1).
+templ claimFacts(f ClaimFocusView) {
+	<div class="panel-card flex flex-col gap-3">
+		<div class="flex flex-col gap-1">
+			<p class="font-mono text-xs text-ink/70">{ f.Heading }</p>
+			<h2 class="break-words font-display text-xl font-bold text-ink">{ f.Who }</h2>
+		</div>
+		<dl class="grid grid-cols-1 gap-x-4 gap-y-2 text-sm md:grid-cols-[150px_minmax(0,1fr)]">
+			<dt class="font-mono text-xs text-ink/70">Their record</dt>
+			<dd class="break-words">
+				<span class="font-mono font-bold">{ f.AnchorDir }</span>{ " " + f.AnchorAt } · { f.AnchorChannel }
+				if f.AnchorChose {
+					<span class="odd-chip tally--manual ml-1">They chose this direction</span>
+				}
+			</dd>
+			<dt class="font-mono text-xs text-ink/70">Record before</dt>
+			<dd class="break-words">{ f.Before }</dd>
+			<dt class="font-mono text-xs text-ink/70">Record after</dt>
+			<dd class="break-words">{ f.After }</dd>
+			<dt class="font-mono text-xs text-ink/70">They claim</dt>
+			<dd class="break-words">
+				<span class="font-mono font-bold">{ f.ClaimedDir }</span>{ " " + f.ClaimedAt }
+				if f.DefaultUnchanged {
+					<span class="odd-chip tally--manual ml-1">Default not changed</span>
+				}
+			</dd>
+			<dt class="font-mono text-xs text-ink/70">The form offered</dt>
+			<dd class="break-words">{ f.Offered }</dd>
+			<dt class="font-mono text-xs text-ink/70">Sent</dt>
+			<dd class="break-words">{ f.Sent }</dd>
+			<dt class="font-mono text-xs text-ink/70">Approving makes</dt>
+			<dd class="break-words font-mono font-bold">{ f.Interval }</dd>
+			<dt class="font-mono text-xs text-ink/70">Shift</dt>
+			<dd class="break-words">{ f.Shift }</dd>
+			<dt class="font-mono text-xs text-ink/70">Claimed time</dt>
+			<dd class="break-words">{ f.ClaimedDeviates }</dd>
+			<dt class="font-mono text-xs text-ink/70">Their record&#39;s time</dt>
+			<dd class="break-words">{ f.AnchorDeviates }</dd>
+		</dl>
+		if f.StateLine != "" {
+			<p class="odd-callout odd-callout--warn" role="note">{ f.StateLine }</p>
+		} else if f.NeedsStep && f.Confirm == nil {
+			<p class="odd-callout odd-callout--warn" role="note">
+				This interval is outside the shift&#39;s band (from 1 h before it starts to 2 h after it ends), or
+				there is no shift to compare with. Approve will ask you to confirm the interval first.
+			</p>
+		}
+	</div>
+}
+
+// claimFocusForm is the ONE form: the facts, the Edit, the note and the two outcomes.
+templ claimFocusForm(action string, f ClaimFocusView) {
+	<form method="post" action={ templ.URL(action) } class="flex flex-col gap-[18px]">
+		<input type="hidden" name="id" value={ f.ID }/>
+		@claimFacts(f)
+		if f.CanApprove {
+			<details class="panel-card" open?={ f.EditOpen }>
+				<summary class="flex min-h-11 cursor-pointer items-center font-display text-sm font-bold">Edit the time before approving</summary>
+				<div class="field-stack mt-2">
+					<label for="claim-at" class="lbl">Record this time instead (in { f.ClaimedDir })</label>
+					<input id="claim-at" name="at" type="time" autocomplete="off" class="field-input" aria-describedby="claim-at-help"/>
+					<p id="claim-at-help" class="field-help">Leave it empty to approve the claimed time. An edited time is held to the same rules, and the same confirmation outside the shift.</p>
+				</div>
+			</details>
+		}
+		<div class="field-stack">
+			<label for="claim-note" class="lbl">Note for the record (optional)</label>
+			<input id="claim-note" name="note" type="text" maxlength="500" autocomplete="off" value={ f.Note } class="field-input"/>
+		</div>
+		<div class="spike-actions">
+			if f.CanApprove {
+				<button type="submit" name="outcome" value="approved" class="btn btn--approve max-md:min-h-14 max-md:flex-[2] max-md:rounded-[14px] max-md:text-base desk:flex-[1_1_200px]">Approve</button>
+			}
+			<button type="submit" name="outcome" value="rejected" class="btn btn--reject max-md:min-h-14 max-md:flex-1 max-md:rounded-[14px] max-md:text-base desk:flex-[1_1_200px]">Reject</button>
+		</div>
+		<p class="font-mono text-xs text-ink/70">
+			Approving writes a new manual record entered by you.
+			<span class="hidden md:inline">The person&#39;s own tap record is never edited.</span>
+		</p>
+	</form>
+}
+
+// claimConfirmForm is the confirmation step: the interval and both deviations again, and the press
+// that writes. The moment and its signature travel as hidden fields; the note comes back filled.
+templ claimConfirmForm(action string, f ClaimFocusView) {
+	<form method="post" action={ templ.URL(action) } class="flex flex-col gap-[18px]">
+		<input type="hidden" name="id" value={ f.ID }/>
+		<input type="hidden" name="shown" value={ f.Confirm.Shown }/>
+		<input type="hidden" name="confirm_token" value={ f.Confirm.Token }/>
+		@claimFacts(f)
+		<div class="odd-callout odd-callout--alert flex flex-col gap-2" role="note">
+			<p class="text-sm font-bold">Confirm this interval before it is recorded</p>
+			<p class="font-mono font-bold">{ f.Confirm.Interval }</p>
+			if f.Confirm.Edited {
+				<p>You edited the time: { f.ClaimedDir } { f.Confirm.At }.</p>
+			}
+			<p>{ f.Confirm.Shift }</p>
+			<p>Claimed time: { f.Confirm.ClaimedDeviates }</p>
+			<p>Their record&#39;s time: { f.Confirm.AnchorDeviates }</p>
+			<p>It is outside the shift&#39;s band, or there is no shift, so it is not approved in one press.</p>
+		</div>
+		<div class="field-stack">
+			<label for="claim-note" class="lbl">Note for the record (optional)</label>
+			<input id="claim-note" name="note" type="text" maxlength="500" autocomplete="off" value={ f.Note } class="field-input"/>
+		</div>
+		<div class="spike-actions">
+			<button type="submit" name="outcome" value="approved" class="btn btn--approve max-md:min-h-14 max-md:flex-[2] max-md:rounded-[14px] max-md:text-base desk:flex-[1_1_200px]">Approve this interval</button>
+			<button type="submit" name="outcome" value="rejected" class="btn btn--reject max-md:min-h-14 max-md:flex-1 max-md:rounded-[14px] max-md:text-base desk:flex-[1_1_200px]">Reject</button>
+		</div>
+		<p class="font-mono text-xs text-ink/70">Nothing has been recorded yet.</p>
+	</form>
+}
+
+func claimQueueLine(v ClaimQueueView) string {
+	switch {
+	case !v.Queried:
+		return "Time claims: not counted"
+	case v.More:
+		return "Time claims waiting: more than " + itoa(len(v.Items))
+	default:
+		return "Time claims waiting: " + itoa(len(v.Items))
+	}
+}
+
+func claimDoneHeading(done string) string {
+	if done == "rejected" {
+		return "Claim rejected"
+	}
+	return "Claim approved"
+}
+
+// claimProblemHeading and claimProblemLine are the refusals the decision can answer with -- a closed
+// vocabulary; an unknown word is never echoed (the handler admits only these).
+func claimProblemHeading(p string) string {
+	switch p {
+	case "decided":
+		return "Already decided"
+	case "unknown":
+		return "Claim not found"
+	case "resolved":
+		return "Already resolved"
+	case "expired":
+		return "Expired"
+	case "partnership":
+		return "The partnership has ended"
+	case "novenue":
+		return "No venue to record it at"
+	case "unreadable", "edit":
+		return "We could not read that"
+	default:
+		return "Nothing was recorded"
+	}
+}
+
+func claimProblemLine(p string) string {
+	switch p {
+	case "decided":
+		return "That claim is already decided. A claim is decided once, so nothing was written for yours."
+	case "unknown":
+		return "That claim was not found. Nothing was recorded."
+	case "resolved":
+		return "The record no longer misses this half, so the claim cannot be approved. Nothing was recorded; only Reject is left."
+	case "expired":
+		return "The time is more than 90 days back and can no longer be recorded. Nothing was recorded; only Reject is left."
+	case "partnership":
+		return "The partnership with that venue has ended, so the record cannot be filed there. Nothing was recorded; only Reject is left."
+	case "novenue":
+		return "There is no venue to file this record at: the record has no venue and the person has no home venue. Nothing was recorded; only Reject is left."
+	case "outside":
+		return "That time is outside what can be recorded for this claim. Nothing was recorded."
+	case "edit":
+		return "The edited time could not be read, or no such time fits this claim. Nothing was recorded."
+	case "unreadable":
+		return "We could not read that submission, so nothing was recorded. The claim is still waiting."
+	default:
+		return "The claim could not be decided. Nothing was recorded."
+	}
+}

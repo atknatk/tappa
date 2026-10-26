@@ -263,6 +263,13 @@ const (
 	// page says "Business day starts X → Y after the move" first. Its subject is the
 	// statement -- person, venue and department together (moveConfirmSubject).
 	confirmActionMoveAcrossCutoff = "employee.move_cutoff"
+	// 🔴 APPROVING A PUNCH CLAIM OUTSIDE THE SHIFT'S BAND (M15-18, ADR 0032 §C.4, G-Y1). The domain's
+	// Decide writes an out-of-band approval only with Confirmed, and Confirmed is not bound to any
+	// earlier assessment there -- so the panel binds it: the confirmation step mints this value over
+	// the claim, the moment the step was drawn for and the shift instance it was judged against
+	// (claimConfirmSubject), and the second press is Confirmed only when it verifies. A first press
+	// that merely says "confirmed", or a value minted for another moment, writes nothing.
+	confirmActionApproveClaim = "claim.approve_outside_band"
 )
 
 // adminConfirmTTL is how long a rendered warning stays spendable.

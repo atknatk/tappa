@@ -357,6 +357,9 @@ type AnomalyPair struct {
 
 // AnomalyOpen is a check-in with no later checkout.
 type AnomalyOpen struct {
+	// ID is the check-in's own row id (transactions.id, M15-18): what the "claim pending" mark is
+	// bound by -- an instant alone does not pick one row.
+	ID           uuid.UUID
 	EmployeeName string
 	LocationName string
 	At           time.Time
@@ -366,12 +369,17 @@ type AnomalyOpen struct {
 	// the shape ADR 0008 fixed, and one an ordinary new starter also produces. It is
 	// a hint about where to look, and the screen says exactly that.
 	WasMaskable bool
+	// ClaimPending: the person sent a claim of this check-in's missing checkout and nobody has
+	// decided it yet (M15-18; ADR 0032 §C.4) -- bound by ID to punch_claims.anchor_transaction_id.
+	ClaimPending bool
 }
 
 // AnomalyInMissing is a checkout with no open check-in for it to close -- ADR 0032 §A.6's (b) and
 // (c), the "check-in missing" list (M15-06; ListCheckoutsWithoutCheckIn). Like an
 // open check-in it is a record a manager completes, and nothing here completes it.
 type AnomalyInMissing struct {
+	// ID is the checkout's own row id (M15-18), AnomalyOpen.ID's reason.
+	ID           uuid.UUID
 	EmployeeName string
 	LocationName string
 	At           time.Time
@@ -379,6 +387,8 @@ type AnomalyInMissing struct {
 	// is itself on the open list. False is (c): nothing, or a checkout tapped before it, is before
 	// it.
 	AfterEarlierDay bool
+	// ClaimPending is AnomalyOpen.ClaimPending's twin: an undecided claim of the missing check-in.
+	ClaimPending bool
 }
 
 // MaskedOpenTally is the retrospective half of the ADR 0008 devir note: the week's check-ins a
@@ -690,6 +700,7 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 		body.Open = make([]AnomalyOpen, 0, len(open))
 		for _, o := range open {
 			body.Open = append(body.Open, AnomalyOpen{
+				ID:           o.ID,
 				EmployeeName: deref(o.EmployeeName),
 				LocationName: deref(o.LocationName),
 				At:           o.OccurredAt,
@@ -714,11 +725,18 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 		body.InMissing = make([]AnomalyInMissing, 0, len(inMissing))
 		for _, o := range inMissing {
 			body.InMissing = append(body.InMissing, AnomalyInMissing{
+				ID:              o.ID,
 				EmployeeName:    deref(o.EmployeeName),
 				LocationName:    deref(o.LocationName),
 				At:              o.OccurredAt,
 				AfterEarlierDay: o.AfterEarlierDay,
 			})
+		}
+
+		// M15-18: the "claim pending" mark on the two lists above -- one read over the listed rows'
+		// ids, and none when both lists are empty.
+		if err := markPendingClaims(ctx, q, tenantID, body.Open, body.InMissing); err != nil {
+			return err
 		}
 
 		// M11 API-1c: name the peers' venues the listings above reached (ADR 0027 §9) -- one
@@ -918,6 +936,39 @@ func togetherOn(days []pgtype.Date, period Period, zone *time.Location) []bool {
 // them to lose the second statement -- silently, because a page that is one row short
 // looks exactly like a page that is complete.
 func anomalyReadLimit() int32 { return readLimit(AnomalyRowCap) }
+
+// markPendingClaims sets ClaimPending on the listed check-ins and checkouts that are the anchor of
+// an undecided punch claim (M15-18). THE BINDING IS THE ROW'S ID, NEVER ITS INSTANT: two records of
+// one person can share an occurred_at, and a mark matched by time would land on both. A failed read
+// fails the screen with the rest of its reads -- the mark is not dropped silently, which would say
+// "no claim" about rows nobody asked about (§4.6).
+func markPendingClaims(ctx context.Context, q *store.Queries, tenantID uuid.UUID, open []AnomalyOpen, inMissing []AnomalyInMissing) error {
+	ids := make([]uuid.UUID, 0, len(open)+len(inMissing))
+	for _, o := range open {
+		ids = append(ids, o.ID)
+	}
+	for _, o := range inMissing {
+		ids = append(ids, o.ID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := q.ListPendingPunchClaimAnchors(ctx, store.ListPendingPunchClaimAnchorsParams{TenantID: tenantID, AnchorIds: ids})
+	if err != nil {
+		return fmt.Errorf("list the pending claims of the listed records: %w", err)
+	}
+	pending := make(map[uuid.UUID]bool, len(rows))
+	for _, id := range rows {
+		pending[id] = true
+	}
+	for i := range open {
+		open[i].ClaimPending = pending[open[i].ID]
+	}
+	for i := range inMissing {
+		inMissing[i].ClaimPending = pending[inMissing[i].ID]
+	}
+	return nil
+}
 
 func trimAnomalyRows[T any](rows []T) (kept []T, more bool) {
 	if len(rows) > AnomalyRowCap {

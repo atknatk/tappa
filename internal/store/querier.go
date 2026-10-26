@@ -2936,6 +2936,10 @@ type Querier interface {
 	// tap), the shift times today's. A row at a peer's venue has no local location row, so its shift is
 	// the department's or none: no prefill, and the decision asks the confirmation step (ADR 0032 §C.4:
 	// "vardiya yoksa"). No address, no coordinate, no verdict, no note.
+	//
+	// M15-18: channel and direction_source are the anchor's mark on the panel's claim queue ("the person
+	// chose this direction") -- read ONLY through tap.RecordedDirectionSource (ADR 0032 §B.4's one reader
+	// rule), never compared raw: a manual row's value is not believed, a directed nfc/qr NULL is "auto".
 	GetPunchClaimAnchor(ctx context.Context, arg GetPunchClaimAnchorParams) (GetPunchClaimAnchorRow, error)
 	// A CLAIM AND WHETHER IT IS DECIDED (M15-16, Decide and Inspect). Read once before the person's lock
 	// (the claim names the person whose lock it is -- a claim row never changes, §4.3) and AGAIN under
@@ -3900,7 +3904,8 @@ type Querier interface {
 	// distance, no verdict): who, where, when, and which of the two classes.
 	//
 	// ORDERED OLDEST FIRST, the window on the CHECKOUT's occurred_at, LIMIT @row_limit -- the open
-	// list's shape.
+	// list's shape. M15-18: id is the checkout's own row id, for the open list's reason (the "claim
+	// pending" mark binds by identity, not by instant).
 	//
 	// EXPLAIN (ANALYZE, BUFFERS), M15-06, 2026-10-22, the M15 development database, seed tenant
 	// 10000000-0000-4000-8000-000000000001 (918 rows; the week from Monday 2026-10-19 00:00 Malta
@@ -4138,6 +4143,10 @@ type Querier interface {
 	// check-ins open RIGHT NOW that a new cutoff would split, among the people who inherit it
 	// (ADR 0032 §A.7). It reads this list rather than a copy of its definition, so "open" on
 	// that screen is this list's "open"; the column names a person by opaque id, never a name.
+	//
+	// M15-18: id is the check-in's own row id (transactions.id), so the panel's "claim pending" mark
+	// binds a listed entry to a punch claim's anchor by IDENTITY -- a timestamp alone does not pick one
+	// row (ADR 0032 §A.6 orders by (occurred_at, id) for that reason).
 	//
 	// EXPLAIN (ANALYZE, BUFFERS): M15-05's before/after measurement is in CountMaskedOpenCheckIns'
 	// header -- the two statements share the next-record lookup and were measured together.
@@ -4601,6 +4610,24 @@ type Querier interface {
 	// used_at is not selected: the WHERE pins it to NULL for every returned row.
 	// code_hash is not selected either (section 4.7).
 	ListPendingInvitesForEmployee(ctx context.Context, arg ListPendingInvitesForEmployeeParams) ([]ListPendingInvitesForEmployeeRow, error)
+	// WHICH OF THESE RECORDS CARRY A CLAIM NOBODY HAS DECIDED (M15-18): the "claim pending" mark on
+	// Odd shapes' two lists (check-ins with no checkout, check-in missing). The lists name their rows
+	// by transactions.id and this joins them to punch_claims.anchor_transaction_id -- an id, never a
+	// timestamp (two records can share an instant; ADR 0032 §A.6 orders by (occurred_at, id) for that
+	// reason). A rejected claim's anchor is NOT marked: the record still misses its half and nobody is
+	// asked about it any more. Explicit tenant on both tables.
+	ListPendingPunchClaimAnchors(ctx context.Context, arg ListPendingPunchClaimAnchorsParams) ([]uuid.UUID, error)
+	// THE PANEL'S CLAIM QUEUE (M15-18; ADR 0032 §C.4): the claims of this business nobody has decided
+	// yet, OLDEST FIRST -- (created_at, id), the order a manager works a backlog in, so a shortened list
+	// keeps the claims that have waited longest. A claim whose anchor has since been closed another
+	// way, or whose moment has aged past manual.MaxBackdate, is STILL here: it is undecided, and the
+	// focus says "already resolved" / "expired" and offers Reject (§C.5) -- this list does not judge.
+	//
+	// What crosses the boundary is ids, the person's name, the kind, three instants (the claimed moment,
+	// when it was sent, the anchor's moment) and nothing the anchor was judged on. Explicit tenant on
+	// every table it reads (§4.5's belt beside RLS). Bounded by @row_limit (the caller reads one past
+	// its cap to say "more").
+	ListPendingPunchClaims(ctx context.Context, arg ListPendingPunchClaimsParams) ([]ListPendingPunchClaimsRow, error)
 	// WHO did WHAT to this plaque, and WHEN -- the audit half of M6-06's "tag history is
 	// visible (audit)" criterion.
 	//

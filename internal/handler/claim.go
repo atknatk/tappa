@@ -249,20 +249,27 @@ func parseWallClock(values []string) (wallClock, bool) {
 //
 // ok is false when no candidate is inside the window: the form is shown again.
 func resolveClaimedAt(c wallClock, cc claimContext, loc *time.Location) (time.Time, bool) {
-	if p := cc.Prefilled; p != nil && c.s == 0 && p.In(loc).Format("15:04:05") == time.Date(2000, 1, 1, c.h, c.m, 0, 0, time.UTC).Format("15:04:05") && cc.Window.Contains(*p) {
+	return resolveInWindow(c, cc.Window, cc.Prefilled, loc)
+}
+
+// resolveInWindow is resolveClaimedAt over any window: the prefill's own instant for its own clock,
+// otherwise the earliest candidate inside w. The panel's Edit (M15-18) resolves a manager's time of
+// day with it -- without a prefill, so a repeated autumn hour is its earlier instant there too.
+func resolveInWindow(c wallClock, w claim.Window, prefilled *time.Time, loc *time.Location) (time.Time, bool) {
+	if p := prefilled; p != nil && c.s == 0 && p.In(loc).Format("15:04:05") == time.Date(2000, 1, 1, c.h, c.m, 0, 0, time.UTC).Format("15:04:05") && w.Contains(*p) {
 		return *p, true
 	}
 	var best time.Time
 	found := false
-	from := cc.Window.From.At.In(loc)
-	last := cc.Window.To.At.In(loc)
+	from := w.From.At.In(loc)
+	last := w.To.At.In(loc)
 	y, mo, d := from.Date()
 	ly, lm, ld := last.Date()
 	for i := 0; i < 3; i++ {
 		day := time.Date(y, mo, d+i, 12, 0, 0, 0, loc)
 		dy, dm, dd := day.Date()
 		for _, cand := range wallClockInstants(dy, dm, dd, c, loc) {
-			if cc.Window.Contains(cand) && (!found || cand.Before(best)) {
+			if w.Contains(cand) && (!found || cand.Before(best)) {
 				best, found = cand, true
 			}
 		}

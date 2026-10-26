@@ -12,6 +12,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/domain/manual"
+	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/store"
 )
 
@@ -153,10 +154,14 @@ type Inspection struct {
 	// later than that bounds no window). nil for none, and when the claim is decided (not read then).
 	Anchor        Event
 	Before, After *Event
-	Decided       *Outcome
-	State         State
-	Window        *Window
-	Assessment    Assessment
+	// AnchorChose is true when the PERSON chose the anchor's direction ("Not right?" -- ADR 0032
+	// §B.4: direction_source = employee), read through tap.RecordedDirectionSource; false for the
+	// engine's choice, a manual row (whose stored value is not believed) and a pre-M15 NULL.
+	AnchorChose bool
+	Decided     *Outcome
+	State       State
+	Window      *Window
+	Assessment  Assessment
 }
 
 // Inspect reads one claim for the queue, assessed at `at` (nil: the claimed moment). It writes
@@ -186,7 +191,8 @@ func (s *Service) Inspect(ctx context.Context, tenantID, claimID uuid.UUID, at *
 		}
 		out = Inspection{ClaimID: c.ID, EmployeeID: c.EmployeeID, Kind: Kind(c.Kind), ClaimedAt: c.ClaimedAt,
 			Prefilled: c.PrefilledAt, CreatedAt: c.CreatedAt, State: ev.state, Window: ev.window, Assessment: ev.assessment,
-			Anchor: Event{ID: ev.anchor.id, At: ev.anchor.at, DayStart: ev.anchor.dayStart}}
+			Anchor:      Event{ID: ev.anchor.id, At: ev.anchor.at, DayStart: ev.anchor.dayStart, Channel: ev.anchor.channel},
+			AnchorChose: ev.anchor.sourceKnown && ev.anchor.source == tap.DirectionEmployee}
 		if ev.anchor.direction != nil {
 			out.Anchor.Direction = *ev.anchor.direction
 		}

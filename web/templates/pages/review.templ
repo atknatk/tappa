@@ -52,6 +52,9 @@ import "github.com/atknatk/tappa/web/templates/components"
 templ AdminReview(v ReviewView) {
 	@PanelActions(reviewMeta(v)) {
 		@PanelShell(v.PanelChrome) {
+			// M15-18: the pair of links to the Spike's second queue, "Time claims" -- nothing on a
+			// panel built without the claim service.
+			@SpikeQueues(v.Queues)
 			if v.Done != "" {
 				@components.PanelNotice(components.ToneOK, doneHeading(v.Done)) {
 					<p>

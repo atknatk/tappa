@@ -828,10 +828,19 @@ func TestPunchClaimQueries_TheNewStatementsCarryTheirOwnTenantPredicate(t *testi
 		if _, e := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT p"); e != nil {
 			errs = append(errs, e)
 		}
+		// M15-18: the panel's two reads (internal/domain/ledger calls them) -- the queue and the
+		// pending mark.
+		if rows, e := q.ListPendingPunchClaims(ctx, store.ListPendingPunchClaimsParams{TenantID: tenant, RowLimit: 10}); e != nil || len(rows) == 0 {
+			errs = append(errs, fmt.Errorf("ListPendingPunchClaims: %d rows, %v", len(rows), e))
+		}
+		if rows, e := q.ListPendingPunchClaimAnchors(ctx, store.ListPendingPunchClaimAnchorsParams{TenantID: tenant,
+			AnchorIds: []uuid.UUID{in}}); e != nil || len(rows) == 0 {
+			errs = append(errs, fmt.Errorf("ListPendingPunchClaimAnchors: %d rows, %v", len(rows), e))
+		}
 		return errs
 	}
-	if got := probe(a.tenant); len(got) != 6 {
-		t.Errorf("with A's tenant id and B's rows, %d of 6 statements found nothing (want all six): %v", len(got), got)
+	if got := probe(a.tenant); len(got) != 8 {
+		t.Errorf("with A's tenant id and B's rows, %d of 8 statements found nothing (want all eight): %v", len(got), got)
 	} else {
 		for _, e := range got {
 			if !strings.Contains(e.Error(), "no rows") && !strings.Contains(e.Error(), ": 0 rows") {

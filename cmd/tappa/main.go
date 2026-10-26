@@ -774,6 +774,9 @@ func run() error {
 		return err
 	}
 	panelOptions = append(panelOptions, handler.BusinessDays(dayCutoffs))
+	// The Spike's "Time claims" (M15-18): the list from the panel's read side, the focus and the
+	// decision from the same claim service the tap surface submits through.
+	panelOptions = append(panelOptions, handler.PunchClaims(records, claims))
 	switch cfg.InviteDelivery {
 	case config.InviteDeliveryPanel:
 		// No e-mail transport: the integration API's invitation requests wait in the queue (an

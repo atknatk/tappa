@@ -16,6 +16,8 @@ import (
 const getPunchClaimAnchor = `-- name: GetPunchClaimAnchor :one
 SELECT a.id,
        a.type,
+       a.channel,
+       a.direction_source,
        a.occurred_at,
        a.created_at,
        a.business_day_start,
@@ -47,6 +49,8 @@ type GetPunchClaimAnchorParams struct {
 type GetPunchClaimAnchorRow struct {
 	ID               uuid.UUID
 	Type             *string
+	Channel          string
+	DirectionSource  *string
 	OccurredAt       time.Time
 	CreatedAt        time.Time
 	BusinessDayStart *time.Time
@@ -73,12 +77,18 @@ type GetPunchClaimAnchorRow struct {
 // tap), the shift times today's. A row at a peer's venue has no local location row, so its shift is
 // the department's or none: no prefill, and the decision asks the confirmation step (ADR 0032 §C.4:
 // "vardiya yoksa"). No address, no coordinate, no verdict, no note.
+//
+// M15-18: channel and direction_source are the anchor's mark on the panel's claim queue ("the person
+// chose this direction") -- read ONLY through tap.RecordedDirectionSource (ADR 0032 §B.4's one reader
+// rule), never compared raw: a manual row's value is not believed, a directed nfc/qr NULL is "auto".
 func (q *Queries) GetPunchClaimAnchor(ctx context.Context, arg GetPunchClaimAnchorParams) (GetPunchClaimAnchorRow, error) {
 	row := q.db.QueryRow(ctx, getPunchClaimAnchor, arg.TenantID, arg.ID, arg.EmployeeID)
 	var i GetPunchClaimAnchorRow
 	err := row.Scan(
 		&i.ID,
 		&i.Type,
+		&i.Channel,
+		&i.DirectionSource,
 		&i.OccurredAt,
 		&i.CreatedAt,
 		&i.BusinessDayStart,
@@ -251,6 +261,129 @@ func (q *Queries) InsertPunchClaimDecision(ctx context.Context, arg InsertPunchC
 	var i InsertPunchClaimDecisionRow
 	err := row.Scan(&i.ID, &i.CreatedAt)
 	return i, err
+}
+
+const listPendingPunchClaimAnchors = `-- name: ListPendingPunchClaimAnchors :many
+SELECT c.anchor_transaction_id
+  FROM punch_claims AS c
+ WHERE c.tenant_id = $1
+   AND c.anchor_transaction_id = ANY ($2::uuid[])
+   AND NOT EXISTS (
+       SELECT 1
+         FROM punch_claim_decisions AS d
+        WHERE d.tenant_id = $1
+          AND d.claim_id = c.id
+   )
+`
+
+type ListPendingPunchClaimAnchorsParams struct {
+	TenantID  uuid.UUID
+	AnchorIds []uuid.UUID
+}
+
+// WHICH OF THESE RECORDS CARRY A CLAIM NOBODY HAS DECIDED (M15-18): the "claim pending" mark on
+// Odd shapes' two lists (check-ins with no checkout, check-in missing). The lists name their rows
+// by transactions.id and this joins them to punch_claims.anchor_transaction_id -- an id, never a
+// timestamp (two records can share an instant; ADR 0032 §A.6 orders by (occurred_at, id) for that
+// reason). A rejected claim's anchor is NOT marked: the record still misses its half and nobody is
+// asked about it any more. Explicit tenant on both tables.
+func (q *Queries) ListPendingPunchClaimAnchors(ctx context.Context, arg ListPendingPunchClaimAnchorsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listPendingPunchClaimAnchors, arg.TenantID, arg.AnchorIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var anchor_transaction_id uuid.UUID
+		if err := rows.Scan(&anchor_transaction_id); err != nil {
+			return nil, err
+		}
+		items = append(items, anchor_transaction_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingPunchClaims = `-- name: ListPendingPunchClaims :many
+SELECT c.id,
+       c.employee_id,
+       e.full_name     AS employee_name,
+       c.kind,
+       c.claimed_at,
+       c.created_at,
+       a.occurred_at   AS anchor_at
+  FROM punch_claims AS c
+  JOIN transactions AS a
+    ON a.id = c.anchor_transaction_id
+   AND a.tenant_id = $1
+  LEFT JOIN employees AS e
+         ON e.id = c.employee_id
+        AND e.tenant_id = $1
+ WHERE c.tenant_id = $1
+   AND NOT EXISTS (
+       SELECT 1
+         FROM punch_claim_decisions AS d
+        WHERE d.tenant_id = $1
+          AND d.claim_id = c.id
+   )
+ ORDER BY c.created_at, c.id
+ LIMIT $2
+`
+
+type ListPendingPunchClaimsParams struct {
+	TenantID uuid.UUID
+	RowLimit int32
+}
+
+type ListPendingPunchClaimsRow struct {
+	ID           uuid.UUID
+	EmployeeID   uuid.UUID
+	EmployeeName *string
+	Kind         string
+	ClaimedAt    time.Time
+	CreatedAt    time.Time
+	AnchorAt     time.Time
+}
+
+// THE PANEL'S CLAIM QUEUE (M15-18; ADR 0032 §C.4): the claims of this business nobody has decided
+// yet, OLDEST FIRST -- (created_at, id), the order a manager works a backlog in, so a shortened list
+// keeps the claims that have waited longest. A claim whose anchor has since been closed another
+// way, or whose moment has aged past manual.MaxBackdate, is STILL here: it is undecided, and the
+// focus says "already resolved" / "expired" and offers Reject (§C.5) -- this list does not judge.
+//
+// What crosses the boundary is ids, the person's name, the kind, three instants (the claimed moment,
+// when it was sent, the anchor's moment) and nothing the anchor was judged on. Explicit tenant on
+// every table it reads (§4.5's belt beside RLS). Bounded by @row_limit (the caller reads one past
+// its cap to say "more").
+func (q *Queries) ListPendingPunchClaims(ctx context.Context, arg ListPendingPunchClaimsParams) ([]ListPendingPunchClaimsRow, error) {
+	rows, err := q.db.Query(ctx, listPendingPunchClaims, arg.TenantID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPendingPunchClaimsRow{}
+	for rows.Next() {
+		var i ListPendingPunchClaimsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmployeeID,
+			&i.EmployeeName,
+			&i.Kind,
+			&i.ClaimedAt,
+			&i.CreatedAt,
+			&i.AnchorAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listPunchClaimChain = `-- name: ListPunchClaimChain :many

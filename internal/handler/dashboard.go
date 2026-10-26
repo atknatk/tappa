@@ -62,6 +62,8 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 			r.Get(s.Href, a.transactionsSection)
 		case pages.TabReview:
 			r.Get(s.Href, a.reviewSection)
+			// M15-18: the Spike's second queue, "Time claims" -- a read under the Spike's own URL.
+			r.Get(claimsHref, a.claimsSection)
 		case pages.TabEmployees:
 			r.Get(s.Href, a.employeesSection)
 		case pages.TabLocations:
@@ -165,6 +167,10 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(a.ProtectWriting())
 		r.Post(reviewHref, a.reviewDecision)
+		// 🔴 THE CLAIM DECISION (M15-18, ADR 0032 §C.4): beside the flagged decision, on the MAIN group
+		// -- a suspended business is refused it (ADR 0025 §3; the exception list is not widened). An
+		// approval appends a manual record, so it is a write in the heaviest sense this panel has.
+		r.Post(claimsHref, a.claimDecision)
 		// (Adding a person and re-inviting one are in the sibling group at the end of
 		// this function: a suspension does not stop them — ADR 0025 §3.)
 		r.Post(employeeDeactivateHref, a.employeeDeactivate)

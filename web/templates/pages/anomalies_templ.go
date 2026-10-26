@@ -1819,17 +1819,23 @@ func anomalyOpen(v AnomaliesView) templ.Component {
 					}
 				}
 				if o.WasMaskable {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 146, "<span class=\"odd-chip tally--manual\">Training tap follows</span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 146, "<span class=\"odd-chip tally--manual\">Training tap follows</span> ")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 147, "</p></li>")
+				if o.ClaimPending {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 147, " <span class=\"odd-chip tally--manual\">Claim pending</span>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 148, "</p></li>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 148, "</ul>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 149, "</ul>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1846,7 +1852,7 @@ func anomalyOpen(v AnomaliesView) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 149, "<p>Nothing in this week is waiting for a missing record.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 150, "<p>Nothing in this week is waiting for a missing record.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1858,38 +1864,38 @@ func anomalyOpen(v AnomaliesView) templ.Component {
 			}
 		}
 		if v.Masked.Total > 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 150, "      <div class=\"odd-callout odd-callout--warn\" role=\"note\"><p class=\"text-sm font-bold\">Check-ins with a training tap after them</p><p>A training tap sitting after a check-in used to hide it, so the next tap was recorded as another arrival instead of a departure. Those records are still here — nothing was lost — and a check-in is only taken off the list above by its own checkout, so the ones nothing closed are all on it.</p><p class=\"font-mono text-xs\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 151, "      <div class=\"odd-callout odd-callout--warn\" role=\"note\"><p class=\"text-sm font-bold\">Check-ins with a training tap after them</p><p>A training tap sitting after a check-in used to hide it, so the next tap was recorded as another arrival instead of a departure. Those records are still here — nothing was lost — and a check-in is only taken off the list above by its own checkout, so the ones nothing closed are all on it.</p><p class=\"font-mono text-xs\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var85 string
 			templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.JoinStringErrs(v.Masked.StillOpen)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 593, Col: 25}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 597, Col: 25}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var85))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 151, " · ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 152, " · ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var86 string
 			templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.JoinStringErrs(v.Masked.ClosedByItsCheckout)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 593, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 597, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var86))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 152, "</p><p class=\"text-xs\">This is a hint about where to look rather than a diagnosis: a new starter who taps again after training produces the same shape.</p></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 153, "</p><p class=\"text-xs\">This is a hint about where to look rather than a diagnosis: a new starter who taps again after training produces the same shape.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 153, "</section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 154, "</section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1928,89 +1934,95 @@ func anomalyInMissing(v AnomaliesView) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if len(v.InMissing) > 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 154, "<section class=\"odd-card order-6 md:order-none\" aria-labelledby=\"odd-in-missing\"><div class=\"flex flex-col gap-1.5\"><div class=\"flex flex-wrap items-baseline justify-between gap-2\"><h2 class=\"odd-title\" id=\"odd-in-missing\">Check-in missing</h2><p class=\"font-mono text-xs text-ink/70\">not counted in hours</p></div><p class=\"text-[13px] leading-normal text-ink/80\">A checkout with no open check-in for it to close: the person&#39;s previous record is a checkout, a check-in of an earlier business day, or nothing. No hours are counted for the shift it ends until a manager enters the missing check-in. The Roll counts the same checkouts, except one whose business day began in the week before — The Roll counts that one with the shifts that began before the week.</p><p class=\"text-xs leading-normal text-ink/70\">A checkout left over by a correction — one replaced by an earlier checkout a manager entered afterwards — is not in this list.</p></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 155, "<section class=\"odd-card order-6 md:order-none\" aria-labelledby=\"odd-in-missing\"><div class=\"flex flex-col gap-1.5\"><div class=\"flex flex-wrap items-baseline justify-between gap-2\"><h2 class=\"odd-title\" id=\"odd-in-missing\">Check-in missing</h2><p class=\"font-mono text-xs text-ink/70\">not counted in hours</p></div><p class=\"text-[13px] leading-normal text-ink/80\">A checkout with no open check-in for it to close: the person&#39;s previous record is a checkout, a check-in of an earlier business day, or nothing. No hours are counted for the shift it ends until a manager enters the missing check-in. The Roll counts the same checkouts, except one whose business day began in the week before — The Roll counts that one with the shifts that began before the week.</p><p class=\"text-xs leading-normal text-ink/70\">A checkout left over by a correction — one replaced by an earlier checkout a manager entered afterwards — is not in this list.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if v.MoreInMissing {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 155, "  <p class=\"font-mono text-xs leading-normal text-ink/80\">This list is shortened · More checkouts match than one page lists, so this list stops at ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 156, "  <p class=\"font-mono text-xs leading-normal text-ink/80\">This list is shortened · More checkouts match than one page lists, so this list stops at ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var88 string
 				templ_7745c5c3_Var88, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(v.ListCap))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 636, Col: 167}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 640, Col: 167}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var88))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 156, ". The Roll&#39;s count is not shortened.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 157, ". The Roll&#39;s count is not shortened.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 157, "<ul class=\"flex flex-col\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 158, "<ul class=\"flex flex-col\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			for _, o := range v.InMissing {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 158, "<li class=\"flex flex-col gap-1.5 border-t border-dashed border-line py-3\"><p class=\"text-sm font-bold text-ink\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 159, "<li class=\"flex flex-col gap-1.5 border-t border-dashed border-line py-3\"><p class=\"text-sm font-bold text-ink\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var89 string
 				templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.JoinStringErrs(o.Who)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 641, Col: 51}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 645, Col: 51}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var89))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 159, "</p><p class=\"font-mono text-[11px] text-ink/70\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 160, "</p><p class=\"font-mono text-[11px] text-ink/70\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var90 string
 				templ_7745c5c3_Var90, templ_7745c5c3_Err = templ.JoinStringErrs(o.Venue)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 642, Col: 60}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 646, Col: 60}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var90))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 160, " · OUT ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 161, " · OUT ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var91 string
 				templ_7745c5c3_Var91, templ_7745c5c3_Err = templ.JoinStringErrs(o.At)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 642, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 646, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var91))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 161, "</p><p class=\"flex flex-wrap gap-1.5\"><span class=\"odd-chip tally--queued\">Check-in missing</span> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 162, "</p><p class=\"flex flex-wrap gap-1.5\"><span class=\"odd-chip tally--queued\">Check-in missing</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if o.AfterEarlierDay {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 162, "<span class=\"odd-chip tally--manual\">After a check-in of an earlier day</span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 163, "<span class=\"odd-chip tally--manual\">After a check-in of an earlier day</span> ")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 163, "</p></li>")
+				if o.ClaimPending {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 164, "<span class=\"odd-chip tally--manual\">Claim pending</span>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 165, "</p></li>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 164, "</ul></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 166, "</ul></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2050,7 +2062,7 @@ func anomalyPolicies(v AnomaliesView) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if len(v.Policies) > 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 165, "<section class=\"odd-card order-7 md:order-none\" aria-labelledby=\"odd-rules\"><div class=\"flex flex-col gap-1\"><h2 class=\"odd-title\" id=\"odd-rules\">Which rule decided</h2><p class=\"text-[13px] leading-normal text-ink/70\">Every record names the rule that judged it. A rule firing is not a problem in itself; a rule firing far more than last week is worth a look.</p></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 167, "<section class=\"odd-card order-7 md:order-none\" aria-labelledby=\"odd-rules\"><div class=\"flex flex-col gap-1\"><h2 class=\"odd-title\" id=\"odd-rules\">Which rule decided</h2><p class=\"text-[13px] leading-normal text-ink/70\">Every record names the rule that judged it. A rule firing is not a problem in itself; a rule firing far more than last week is worth a look.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2060,48 +2072,48 @@ func anomalyPolicies(v AnomaliesView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 166, "<ul class=\"flex flex-col gap-2.5\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 168, "<ul class=\"flex flex-col gap-2.5\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			for _, s := range v.Policies {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 167, "<li class=\"grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 md:grid-cols-[220px_minmax(0,1fr)_96px]\"><p class=\"flex min-w-0 flex-wrap gap-x-2 font-mono text-xs text-ink\"><span class=\"break-all\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 169, "<li class=\"grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 md:grid-cols-[220px_minmax(0,1fr)_96px]\"><p class=\"flex min-w-0 flex-wrap gap-x-2 font-mono text-xs text-ink\"><span class=\"break-all\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var93 string
 				templ_7745c5c3_Var93, templ_7745c5c3_Err = templ.JoinStringErrs(s.SID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 682, Col: 38}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 689, Col: 38}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var93))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 168, "</span> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 170, "</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if s.Layer != "" {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 169, "<span class=\"text-ink/70\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 171, "<span class=\"text-ink/70\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var94 string
 					templ_7745c5c3_Var94, templ_7745c5c3_Err = templ.JoinStringErrs(s.Layer)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 684, Col: 43}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 691, Col: 43}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var94))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 170, "</span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 172, "</span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 171, "</p><span class=\"col-span-2 row-start-2 flex h-2 overflow-hidden rounded bg-ink/5 md:col-span-1 md:col-start-2 md:row-start-1 md:h-3 md:bg-porcelain\" aria-hidden=\"true\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 173, "</p><span class=\"col-span-2 row-start-2 flex h-2 overflow-hidden rounded bg-ink/5 md:col-span-1 md:col-start-2 md:row-start-1 md:h-3 md:bg-porcelain\" aria-hidden=\"true\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -2111,7 +2123,7 @@ func anomalyPolicies(v AnomaliesView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 172, "<span class=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 174, "<span class=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -2124,7 +2136,7 @@ func anomalyPolicies(v AnomaliesView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 173, "\"></span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 175, "\"></span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -2134,7 +2146,7 @@ func anomalyPolicies(v AnomaliesView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 174, "<span class=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 176, "<span class=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -2147,30 +2159,30 @@ func anomalyPolicies(v AnomaliesView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 175, "\"></span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 177, "\"></span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 176, "</span><p class=\"col-start-2 row-start-1 whitespace-nowrap text-right font-mono text-xs text-ink md:col-start-3\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 178, "</span><p class=\"col-start-2 row-start-1 whitespace-nowrap text-right font-mono text-xs text-ink md:col-start-3\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var99 string
 				templ_7745c5c3_Var99, templ_7745c5c3_Err = templ.JoinStringErrs(s.Records)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 694, Col: 123}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 701, Col: 123}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var99))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 177, "</p></li>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 179, "</p></li>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 178, "</ul></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 180, "</ul></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2216,7 +2228,7 @@ func anomalyLostPlaques(v AnomaliesView) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if len(v.LostPlaques) > 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 179, "<div class=\"odd-callout odd-callout--alert\" role=\"alert\"><p class=\"text-[15px] font-bold\">A lost plaque was tapped</p><p class=\"text-sm\">Staff of another business in your group touched a plaque you reported lost or retired. Their employer refused the tap. If the plaque is still on a wall, take it down.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 181, "<div class=\"odd-callout odd-callout--alert\" role=\"alert\"><p class=\"text-[15px] font-bold\">A lost plaque was tapped</p><p class=\"text-sm\">Staff of another business in your group touched a plaque you reported lost or retired. Their employer refused the tap. If the plaque is still on a wall, take it down.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2226,69 +2238,69 @@ func anomalyLostPlaques(v AnomaliesView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 180, "<ul class=\"flex flex-col\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 182, "<ul class=\"flex flex-col\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			for _, l := range v.LostPlaques {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 181, "<li class=\"flex flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t border-dashed border-line pt-2.5\"><span class=\"text-sm font-bold\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 183, "<li class=\"flex flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t border-dashed border-line pt-2.5\"><span class=\"text-sm font-bold\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var101 string
 				templ_7745c5c3_Var101, templ_7745c5c3_Err = templ.JoinStringErrs(l.LocationName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 732, Col: 54}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 739, Col: 54}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var101))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 182, "</span> <span class=\"break-all font-mono text-xs text-ink/70\">Plaque ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 184, "</span> <span class=\"break-all font-mono text-xs text-ink/70\">Plaque ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var102 string
 				templ_7745c5c3_Var102, templ_7745c5c3_Err = templ.JoinStringErrs(l.TagUID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 733, Col: 77}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 740, Col: 77}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var102))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 183, " · ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 185, " · ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var103 string
 				templ_7745c5c3_Var103, templ_7745c5c3_Err = templ.JoinStringErrs(l.Last)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 733, Col: 91}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 740, Col: 91}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var103))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 184, "</span> <span class=\"odd-chip tally--rejected\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 186, "</span> <span class=\"odd-chip tally--rejected\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var104 string
 				templ_7745c5c3_Var104, templ_7745c5c3_Err = templ.JoinStringErrs(l.Refusals)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 734, Col: 57}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/anomalies.templ`, Line: 741, Col: 57}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var104))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 185, "</span></li>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 187, "</span></li>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 186, "</ul></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 188, "</ul></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -16,6 +16,7 @@ import (
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/manual"
 	"github.com/atknatk/tappa/internal/domain/tap"
+	"github.com/atknatk/tappa/internal/store"
 )
 
 // stubDB fails the test if anything reaches it (manual's stubDB): the refusals below must happen
@@ -183,5 +184,35 @@ func TestSpanOf_NoShiftNoSpan(t *testing.T) {
 	}
 	if _, ok := SpanOf(wall(19, 9, 0, 0), &tap.Shift{Start: 9 * time.Hour, End: 17 * time.Hour, Timezone: ""}); ok {
 		t.Error("a span in no zone")
+	}
+}
+
+// TestAnchorOf_TheDirectionsSourceIsReadThroughTheReaderRule: the anchor's "they chose this direction"
+// is tap.RecordedDirectionSource's answer over the row's own channel, type and stored value (M15-18,
+// the card's step 4) -- never the raw column compared with 'employee'. The manual row is the case a raw
+// comparison gets wrong.
+func TestAnchorOf_TheDirectionsSourceIsReadThroughTheReaderRule(t *testing.T) {
+	t.Parallel()
+	in, employee, auto, other := "in", "employee", "auto", "manager"
+	cases := []struct {
+		name    string
+		channel string
+		typ     *string
+		stored  *string
+		chose   bool
+	}{
+		{"nfc, employee", "nfc", &in, &employee, true},
+		{"qr, employee", "qr", &in, &employee, true},
+		{"nfc, auto", "nfc", &in, &auto, false},
+		{"nfc, NULL (before M15)", "nfc", &in, nil, false},
+		{"manual, employee (not believed)", "manual", &in, &employee, false},
+		{"nfc, undirected", "nfc", nil, &employee, false},
+		{"nfc, a value the CHECK refuses", "nfc", &in, &other, false},
+	}
+	for _, tc := range cases {
+		a := anchorOf(store.GetPunchClaimAnchorRow{ID: uuid.New(), Type: tc.typ, Channel: tc.channel, DirectionSource: tc.stored}, "UTC")
+		if got := a.sourceKnown && a.source == tap.DirectionEmployee; got != tc.chose {
+			t.Errorf("%s: chose = %v, want %v", tc.name, got, tc.chose)
+		}
 	}
 }

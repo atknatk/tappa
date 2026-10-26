@@ -63,6 +63,7 @@ var panelTemplates = map[string]bool{
 	"pages/policychange.templ":       true,
 	"pages/reports.templ":            true,
 	"pages/review.templ":             true,
+	"pages/claimqueue.templ":         true,
 	"pages/transactions.templ":       true,
 }
 

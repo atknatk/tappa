@@ -169,6 +169,9 @@ func (a *AdminAuth) reviewSection(w http.ResponseWriter, r *http.Request) {
 		// hand-edited URL can turn the sentence on but cannot put anything in it.
 		Clipped: r.URL.Query().Get("clipped") == "1",
 	}
+	if a.claims != nil {
+		v.Queues = pages.SpikeQueuesView{ReviewHref: reviewHref, ClaimsHref: claimsHref}
+	}
 	v.PanelChrome.Kicker = "Every day · newest first · shrinks as you work it"
 	// "N decided today" (M12-25) in its three states; the template prints "not counted" for a
 	// failed count and nothing for one never asked -- never a 0 nobody measured.

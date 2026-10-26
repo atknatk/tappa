@@ -565,6 +565,10 @@ templ anomalyOpen(v AnomaliesView) {
 							if o.WasMaskable {
 								<span class="odd-chip tally--manual">Training tap follows</span>
 							}
+							if o.ClaimPending {
+								// M15-18: bound to this row by its id, never by its time.
+								<span class="odd-chip tally--manual">Claim pending</span>
+							}
 						</p>
 					</li>
 				}
@@ -644,6 +648,9 @@ templ anomalyInMissing(v AnomaliesView) {
 							<span class="odd-chip tally--queued">Check-in missing</span>
 							if o.AfterEarlierDay {
 								<span class="odd-chip tally--manual">After a check-in of an earlier day</span>
+							}
+							if o.ClaimPending {
+								<span class="odd-chip tally--manual">Claim pending</span>
 							}
 						</p>
 					</li>

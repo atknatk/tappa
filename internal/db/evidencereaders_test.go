@@ -90,9 +90,12 @@ var evidenceNonReaders = map[string]string{
 		"evidence showed",
 	"InsertPunchClaim": "the claim's INSERT built from its anchor row (M15-15, 00068): it reads the anchor's id, tenant_id and " +
 		"employee_id and nothing else -- no verdict, no address, no coordinate; the claim carries ids and two moments, and the " +
-		"queue (M15-18) reads the anchor through its own statements, filed here when they are written",
-	"GetPunchClaimAnchor": "a claim's anchor (M15-16, internal/domain/claim): its direction, instants, business day, practice flag, " +
-		"venue ids and resolved shift -- no verdict, no address, no coordinate, no note",
+		"queue (M15-18) reads the anchor through GetPunchClaimAnchor and ListPendingPunchClaims, both filed here",
+	"GetPunchClaimAnchor": "a claim's anchor (M15-16, internal/domain/claim): its direction, channel, direction_source (M15-18, read " +
+		"through tap.RecordedDirectionSource), instants, business day, practice flag, venue ids and resolved shift -- no verdict, " +
+		"no address, no coordinate, no note",
+	"ListPendingPunchClaims": "the panel's claim queue (M15-18): the claim's ids, kind and two instants, the person's name and the " +
+		"anchor's occurred_at -- nothing the anchor was judged on; a claim on a record at a peer's venue names no venue here at all",
 	"ListPunchClaimChain": "the person's direction chain around a claim (M15-16): ids, direction, two instants, the business day and " +
 		"the channel -- the classification's inputs, nothing the tap was judged on",
 }

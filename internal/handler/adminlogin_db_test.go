@@ -39,6 +39,7 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/billing"
+	"github.com/atknatk/tappa/internal/domain/claim"
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/manual"
 	"github.com/atknatk/tappa/internal/domain/review"
@@ -47,6 +48,7 @@ import (
 	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/test/fixtures"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -94,6 +96,9 @@ type panelHarness struct {
 	// reset is the recovery flow itself, so a test can drain its outbox (M10 EM-5:
 	// the send happens on a worker, after the response).
 	reset *AdminReset
+	// claims is the punch claim service the panel's "Time claims" is wired with (M15-18), nil
+	// unless the harness was built with panelHarnessOptions.claims.
+	claims *claim.Service
 }
 
 func newPanelHarness(t *testing.T) *panelHarness {
@@ -135,6 +140,9 @@ type panelHarnessOptions struct {
 	// recovery flow and the domain packages keep the real one) — so a test can make
 	// one action's row fail (M10 EM-7B round 3).
 	wrapTrail func(auditRecorder) auditRecorder
+	// claims wires the Spike's "Time claims" with the REAL claim service over this database and
+	// the real manual recorder (M15-18), the business-day switch on -- cmd/tappa's wiring.
+	claims bool
 }
 
 func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
@@ -267,6 +275,14 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 		t.Fatalf("NewAdminReset: %v", err)
 	}
 	var opts []AdminAuthOption
+	if o.claims {
+		svc, err := claim.New(data, trail, entries, fixtures.BusinessDaySwitchOn(), slog.New(slog.DiscardHandler))
+		if err != nil {
+			t.Fatalf("claim.New: %v", err)
+		}
+		ph.claims = svc
+		opts = append(opts, PunchClaims(records, svc))
+	}
 	if o.invitations != nil {
 		cfg.InviteDelivery = config.InviteDeliveryEmail
 		opts = append(opts, InvitationsByEmail(o.invitations(t, cfg)))

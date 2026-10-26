@@ -313,6 +313,9 @@ type AnomalyOpenView struct {
 	// is a hint about where to look and the screen says exactly that — an ordinary new
 	// starter produces the same shape.
 	WasMaskable bool
+	// ClaimPending: the person sent a claim of the missing checkout and it waits in the Spike's
+	// "Time claims" (M15-18; bound by the record's id, ledger.AnomalyOpen.ClaimPending).
+	ClaimPending bool
 }
 
 // AnomalyInMissingView is a checkout with no open check-in for it to close (ledger.AnomalyInMissing).
@@ -323,6 +326,8 @@ type AnomalyInMissingView struct {
 	// AfterEarlierDay is ADR 0032 §A.6's (b): the record before it is a check-in of an earlier
 	// business day, which is on the open list too. False is (c).
 	AfterEarlierDay bool
+	// ClaimPending is AnomalyOpenView.ClaimPending's twin: a claim of the missing check-in waits.
+	ClaimPending bool
 }
 
 // MaskedOpenView is the ADR 0008 retrospective tally.

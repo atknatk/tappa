@@ -915,6 +915,7 @@ func (q *Queries) ListAnomalyVenues(ctx context.Context, arg ListAnomalyVenuesPa
 
 const listCheckoutsWithoutCheckIn = `-- name: ListCheckoutsWithoutCheckIn :many
 SELECT
+    o.id                                                           AS id,
     o.employee_id                                                  AS employee_id,
     e.full_name                                                    AS employee_name,
     l.name                                                         AS location_name,
@@ -977,6 +978,7 @@ type ListCheckoutsWithoutCheckInParams struct {
 }
 
 type ListCheckoutsWithoutCheckInRow struct {
+	ID              uuid.UUID
 	EmployeeID      *uuid.UUID
 	EmployeeName    *string
 	LocationName    *string
@@ -1026,7 +1028,8 @@ type ListCheckoutsWithoutCheckInRow struct {
 // distance, no verdict): who, where, when, and which of the two classes.
 //
 // ORDERED OLDEST FIRST, the window on the CHECKOUT's occurred_at, LIMIT @row_limit -- the open
-// list's shape.
+// list's shape. M15-18: id is the checkout's own row id, for the open list's reason (the "claim
+// pending" mark binds by identity, not by instant).
 //
 // EXPLAIN (ANALYZE, BUFFERS), M15-06, 2026-10-22, the M15 development database, seed tenant
 // 10000000-0000-4000-8000-000000000001 (918 rows; the week from Monday 2026-10-19 00:00 Malta
@@ -1052,6 +1055,7 @@ func (q *Queries) ListCheckoutsWithoutCheckIn(ctx context.Context, arg ListCheck
 	for rows.Next() {
 		var i ListCheckoutsWithoutCheckInRow
 		if err := rows.Scan(
+			&i.ID,
 			&i.EmployeeID,
 			&i.EmployeeName,
 			&i.LocationName,
@@ -1071,6 +1075,7 @@ func (q *Queries) ListCheckoutsWithoutCheckIn(ctx context.Context, arg ListCheck
 
 const listOpenCheckIns = `-- name: ListOpenCheckIns :many
 SELECT
+    t.id                                                           AS id,
     t.employee_id                                                  AS employee_id,
     e.full_name                                                    AS employee_name,
     l.name                                                         AS location_name,
@@ -1123,6 +1128,7 @@ type ListOpenCheckInsParams struct {
 }
 
 type ListOpenCheckInsRow struct {
+	ID             uuid.UUID
 	EmployeeID     *uuid.UUID
 	EmployeeName   *string
 	LocationName   *string
@@ -1192,6 +1198,10 @@ type ListOpenCheckInsRow struct {
 // (ADR 0032 §A.7). It reads this list rather than a copy of its definition, so "open" on
 // that screen is this list's "open"; the column names a person by opaque id, never a name.
 //
+// M15-18: id is the check-in's own row id (transactions.id), so the panel's "claim pending" mark
+// binds a listed entry to a punch claim's anchor by IDENTITY -- a timestamp alone does not pick one
+// row (ADR 0032 §A.6 orders by (occurred_at, id) for that reason).
+//
 // EXPLAIN (ANALYZE, BUFFERS): M15-05's before/after measurement is in CountMaskedOpenCheckIns'
 // header -- the two statements share the next-record lookup and were measured together.
 func (q *Queries) ListOpenCheckIns(ctx context.Context, arg ListOpenCheckInsParams) ([]ListOpenCheckInsRow, error) {
@@ -1209,6 +1219,7 @@ func (q *Queries) ListOpenCheckIns(ctx context.Context, arg ListOpenCheckInsPara
 	for rows.Next() {
 		var i ListOpenCheckInsRow
 		if err := rows.Scan(
+			&i.ID,
 			&i.EmployeeID,
 			&i.EmployeeName,
 			&i.LocationName,

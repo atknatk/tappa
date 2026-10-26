@@ -241,8 +241,14 @@ func (s *Service) readPerson(ctx context.Context, q *store.Queries, tenantID, em
 
 // anchorRecord is GetPunchClaimAnchor's row in domain terms.
 type anchorRecord struct {
-	id             uuid.UUID
-	direction      *tap.Type
+	id        uuid.UUID
+	direction *tap.Type
+	channel   tap.Channel
+	// source is who chose the anchor's direction, read through tap.RecordedDirectionSource (ADR 0032
+	// §B.4's one reader rule); sourceKnown is its ok -- false on a manual row (whatever is stored
+	// there is not believed) and on an unknown value.
+	source         tap.DirectionSource
+	sourceKnown    bool
 	at             time.Time
 	dayStart       *time.Time
 	practice       bool
@@ -256,13 +262,22 @@ func (s *Service) readAnchor(ctx context.Context, q *store.Queries, tenantID, em
 	if err != nil {
 		return anchorRecord{}, err
 	}
-	a := anchorRecord{id: row.ID, at: row.OccurredAt, dayStart: row.BusinessDayStart, practice: row.Practice,
-		locationID: row.LocationID, siteLocationID: row.SiteLocationID, shift: shiftOf(row.ShiftStart, row.ShiftEnd, row.ShiftOvernight, zone)}
+	return anchorOf(row, zone), nil
+}
+
+// anchorOf maps the row. The direction's source goes through tap.RecordedDirectionSource and
+// nowhere else (M15-18, the card's step 4): the stored column is never compared raw, so a manual
+// row carrying 'employee' (no code path writes one; the schema does not refuse it) is no mark.
+func anchorOf(row store.GetPunchClaimAnchorRow, zone string) anchorRecord {
+	a := anchorRecord{id: row.ID, channel: tap.Channel(row.Channel), at: row.OccurredAt, dayStart: row.BusinessDayStart,
+		practice: row.Practice, locationID: row.LocationID, siteLocationID: row.SiteLocationID,
+		shift: shiftOf(row.ShiftStart, row.ShiftEnd, row.ShiftOvernight, zone)}
 	if row.Type != nil {
 		d := tap.Type(*row.Type)
 		a.direction = &d
 	}
-	return a, nil
+	a.source, a.sourceKnown = tap.RecordedDirectionSource(a.channel, a.direction, (*tap.DirectionSource)(row.DirectionSource))
+	return a
 }
 
 // shiftOf is internal/domain/checkin's shiftOf: a stored shift in the domain shape, nil without one.

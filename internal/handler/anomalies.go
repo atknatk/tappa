@@ -381,6 +381,7 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen, now time.
 			Age:          openAge(o.At, now),
 			ManagerTyped: o.ManagerTyped,
 			WasMaskable:  o.WasMaskable,
+			ClaimPending: o.ClaimPending,
 		})
 	}
 
@@ -392,6 +393,7 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen, now time.
 			Venue:           venueName(o.LocationName),
 			At:              o.At.In(zone).Format("Mon 2 Jan 15:04"),
 			AfterEarlierDay: o.AfterEarlierDay,
+			ClaimPending:    o.ClaimPending,
 		})
 	}
 
