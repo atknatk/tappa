@@ -1062,7 +1062,7 @@ func TestAuthenticate_PadsEveryExitToTheCap(t *testing.T) {
 		t.Fatalf("parsing manager.go: %v", err)
 	}
 	if bad := bcryptPastTheSeam(fset, f, "Authenticate", "pad"); len(bad) > 0 {
-		t.Errorf("the sign-in path's bcrypt seam (bcrypt work outside m.compare, or a method the scan cannot find):\n%s", strings.Join(bad, "\n"))
+		t.Errorf("the sign-in path's bcrypt seam (bcrypt work outside m.compare, a method the scan cannot find, or the seam gone):\n%s", strings.Join(bad, "\n"))
 	}
 	// POSITIVE CONTROL: the same scan finds each shape in a source written here, and not the seam.
 	const control = `package p
@@ -1095,32 +1095,62 @@ func (m *Manager) compare() { Compare("d", "p") }
 	if !slices.Equal(got, want) {
 		t.Fatalf("POSITIVE CONTROL FAILED (a method not found): the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
+	// ... and the SEAM ITSELF (its audit, D-3): compare renamed everywhere -- declaration and calls --
+	// left every named method found and no Compare outside it, so the scan was green with no seam to
+	// stand behind. Each named method must call m.compare, and the file must declare it. Measured when
+	// written: compare -> compareHash throughout a copy of manager.go turned the check above red.
+	const renamed = `package p
+func (m *Manager) Authenticate() { m.compareHash("d", "p"); m.pad("p", "", 0) }
+func (m *Manager) pad() { _ = m.compareHash("d", "p") }
+func (m *Manager) compareHash() { Compare("d", "p") }
+`
+	rf, err := parser.ParseFile(fset, "renamed.go", renamed, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = bcryptPastTheSeam(fset, rf, "Authenticate", "pad")
+	want = []string{
+		"Authenticate makes no m.compare call -- the seam is gone from it",
+		"compare: no Manager method of that name in renamed.go -- the seam is gone",
+		"pad makes no m.compare call -- the seam is gone from it",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("POSITIVE CONTROL FAILED (the seam missing): the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
 }
 
 // bcryptPastTheSeam lists the calls in the named Manager methods of f that do bcrypt work
 // without going through m.compare: Compare, CompareDummy, or anything of package bcrypt -- and
-// every named method f does not declare (with a body), so a rename cannot leave the scan reading
-// nothing and reporting nothing.
+// every named method f does not declare (with a body), every named method that makes no m.compare
+// call, and the seam m.compare itself when f does not declare it -- so a rename of a method or of the
+// seam cannot leave the scan reading nothing and reporting nothing.
 func bcryptPastTheSeam(fset *token.FileSet, f *ast.File, methods ...string) []string {
 	var bad []string
 	read := map[string]bool{}
+	seam := false
 	for _, d := range f.Decls {
 		fd, ok := d.(*ast.FuncDecl)
-		if !ok || fd.Recv == nil || len(fd.Recv.List) != 1 || fd.Body == nil || !slices.Contains(methods, fd.Name.Name) {
+		if !ok || fd.Recv == nil || len(fd.Recv.List) != 1 || fd.Body == nil {
 			continue
 		}
-		recv := fd.Recv.List[0].Type
-		if st, ok := recv.(*ast.StarExpr); ok {
-			recv = st.X
+		if fd.Name.Name == "compare" && isManagerRecv(fd) {
+			seam = true
 		}
-		if id, ok := recv.(*ast.Ident); !ok || id.Name != "Manager" {
+		if !slices.Contains(methods, fd.Name.Name) {
+			continue
+		}
+		if !isManagerRecv(fd) {
 			continue
 		}
 		read[fd.Name.Name] = true
+		throughSeam := false
 		ast.Inspect(fd.Body, func(n ast.Node) bool {
 			c, ok := n.(*ast.CallExpr)
 			if !ok {
 				return true
+			}
+			if sel, ok := c.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "compare" {
+				throughSeam = true
 			}
 			name := ""
 			switch fn := c.Fun.(type) {
@@ -1139,12 +1169,28 @@ func bcryptPastTheSeam(fset *token.FileSet, f *ast.File, methods ...string) []st
 			}
 			return true
 		})
+		if !throughSeam {
+			bad = append(bad, fmt.Sprintf("%s makes no m.compare call -- the seam is gone from it", fd.Name.Name))
+		}
 	}
 	for _, m := range methods {
 		if !read[m] {
 			bad = append(bad, fmt.Sprintf("%s: no Manager method of that name in %s -- the scan read nothing of it", m, fset.Position(f.Pos()).Filename))
 		}
 	}
+	if !seam {
+		bad = append(bad, fmt.Sprintf("compare: no Manager method of that name in %s -- the seam is gone", fset.Position(f.Pos()).Filename))
+	}
 	sort.Strings(bad)
 	return bad
+}
+
+// isManagerRecv: fd is a method of Manager (value or pointer receiver).
+func isManagerRecv(fd *ast.FuncDecl) bool {
+	recv := fd.Recv.List[0].Type
+	if st, ok := recv.(*ast.StarExpr); ok {
+		recv = st.X
+	}
+	id, ok := recv.(*ast.Ident)
+	return ok && id.Name == "Manager"
 }

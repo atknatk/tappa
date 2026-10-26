@@ -607,9 +607,12 @@ işletmeleri hakkında bilgi taşıyan her alan kimlik yolunda **kalkar** (R21):
   yazar (`:260-263`). Kimlik yolunda seçici yoktur; birden çok **eski** satır doğrularsa seçici
   contract'a dek kalır. Başarı satırını `identity_open_session` yazar, handler ikincisini **yazmaz**
   (`adminloginidentity.go:104-106`).
-- **R21.** Kimlik yolunda giriş akışının her audit detail'i `loginDetail`'den geçer
-  (`adminloginidentity.go:183-191`; çağrı yerleri `adminlogin.go:1194`, `:1273`, `:1543`): `VerifiedBusiness`,
-  `Resolved`, `Compared` ve `AttemptedTenant` sıfırlanır. Seçicinin satırları da buna dahildir, çünkü o yolda
+- **R21.** Kimlik yolunda giriş akışının, kişinin öbür işletmeleri hakkında bir sayı ya da bir işletme
+  taşıyabilen her audit detail'i `loginDetail`'den geçer (kodun kendi sınırlaması,
+  `adminloginidentity.go:169-191`; çağrı yerleri `adminlogin.go:1194`, `:1273`, `:1543`). Bunu taşıyamayan
+  sabit biçimli satırlar doğrudan yazılır (ör. `adminlogin.go:1334`, `:1391`, `:1418`,
+  `adminloginidentity.go:118`, `:148`). `loginDetail` `VerifiedBusiness`,
+  `Resolved`, `Compared` ve `AttemptedTenant`'ı sıfırlar. Seçicinin satırları da buna dahildir, çünkü o yolda
   seçici blob'unu yalnız `AuthenticatePerson`'ın eski kolu üretir. İşletmelerden **çoğul** söz eden üç sabit
   gerekçe metni tekil ikizine çevrilir (`identityReasons`, `adminloginidentity.go:193-206`). Bağlanan eski
   satır sayısı (`PersonSignIn.Linked`) yalnız log satırına gider, audit'e hiç gitmez

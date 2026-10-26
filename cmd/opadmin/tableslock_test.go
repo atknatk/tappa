@@ -377,37 +377,144 @@ func bypass(t *testing.T) { harness(t); lock(t) }
 	}
 }
 
-// writesRow: lit is a string literal that writes a row of one of tables -- INSERT INTO, UPDATE,
-// DELETE FROM (case and white space ignored; a table name that ends the literal counts, so a statement
-// built by concatenation is still seen).
-func writesRow(lit *ast.BasicLit, tables []string) bool {
-	if lit.Kind != token.STRING {
-		return false
-	}
+// rowWriteVerbs open a write of a row; normSQL's form.
+var rowWriteVerbs = []string{"insert into ", "update ", "delete from "}
+
+// normSQL: s lower-cased, white space collapsed to one space, the schema prefix `public.` and the
+// double quotes of a quoted identifier dropped -- so `INSERT INTO public."admin_users"` reads as the
+// plain spelling (the second test-infra card's audit, O-1).
+func normSQL(s string) string {
+	s = strings.ToLower(strings.Join(strings.Fields(s), " "))
+	s = strings.ReplaceAll(s, `"`, "")
+	return strings.ReplaceAll(s, "public.", "")
+}
+
+// litText is a string literal's value (its source text if it does not unquote).
+func litText(lit *ast.BasicLit) string {
 	s, err := strconv.Unquote(lit.Value)
 	if err != nil {
 		s = lit.Value
 	}
-	norm := strings.ToLower(strings.Join(strings.Fields(s), " ")) + " "
+	return s
+}
+
+// writesRowSQL: s writes a row of one of tables -- INSERT INTO, UPDATE, DELETE FROM. A table name that
+// ends s counts, so a statement built by concatenation is still seen.
+func writesRowSQL(s string, tables []string) bool {
+	norm := normSQL(s) + " "
 	for _, tbl := range tables {
-		if strings.Contains(norm, "insert into "+tbl+" ") || strings.Contains(norm, "insert into "+tbl+"(") ||
-			strings.Contains(norm, "update "+tbl+" ") || strings.Contains(norm, "delete from "+tbl+" ") {
+		if strings.Contains(norm, "insert into "+tbl+"(") {
+			return true
+		}
+		for _, v := range rowWriteVerbs {
+			if strings.Contains(norm, v+tbl+" ") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// writesRow: lit is a string literal that writes a row of one of tables on its own (writesRowSQL).
+func writesRow(lit *ast.BasicLit, tables []string) bool {
+	return lit.Kind == token.STRING && writesRowSQL(litText(lit), tables)
+}
+
+// opensWrite: lit leaves the table of a write open -- it ends in a write verb ("UPDATE " + name) or
+// carries a format slot right after one ("INSERT INTO %s").
+func opensWrite(lit *ast.BasicLit) bool {
+	if lit.Kind != token.STRING {
+		return false
+	}
+	norm := normSQL(litText(lit))
+	for _, v := range rowWriteVerbs {
+		if strings.HasSuffix(norm+" ", v) || strings.Contains(norm, v+"%") {
 			return true
 		}
 	}
 	return false
 }
 
-// rowWritesIn: the string literals in body that write a row of one of tables (writesRow).
-func rowWritesIn(body *ast.BlockStmt, tables []string) []token.Pos {
-	var at []token.Pos
-	ast.Inspect(body, func(n ast.Node) bool {
-		if lit, ok := n.(*ast.BasicLit); ok && writesRow(lit, tables) {
-			at = append(at, lit.Pos())
+// writesAt: lit, whose parent node is parent, is a write of a row of tables -- on its own (writesRow),
+// or as the open half of one (opensWrite) in the two places a statement is assembled: the left operand
+// of a + whose right side is not a literal naming another table, and the format of a Sprintf whose
+// arguments are not all literals naming none of tables. A bare "UPDATE" anywhere else (a test case's
+// label) is not one. Fail closed: what cannot be resolved syntactically counts as a write.
+func writesAt(lit *ast.BasicLit, parent ast.Node, tables []string) bool {
+	if writesRow(lit, tables) {
+		return true
+	}
+	if !opensWrite(lit) {
+		return false
+	}
+	switch p := parent.(type) {
+	case *ast.BinaryExpr:
+		if p.Op != token.ADD || p.X != lit {
+			return false
 		}
+		if y, ok := p.Y.(*ast.BasicLit); ok && y.Kind == token.STRING {
+			return writesRowSQL(litText(lit)+litText(y), tables)
+		}
+		return true
+	case *ast.CallExpr:
+		if k := calleeKey(p); (k != ".Sprintf" && k != "Sprintf") || len(p.Args) == 0 || p.Args[0] != lit {
+			return false
+		}
+		for _, a := range p.Args[1:] {
+			y, ok := a.(*ast.BasicLit)
+			if !ok || y.Kind != token.STRING {
+				return true
+			}
+			if slices.Contains(tables, normSQL(litText(y))) {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// rowWritesIn: the string literals under n that write a row of one of tables (writesAt).
+func rowWritesIn(n ast.Node, tables []string) []token.Pos {
+	var at []token.Pos
+	var stack []ast.Node
+	ast.Inspect(n, func(n ast.Node) bool {
+		if n == nil {
+			stack = stack[:len(stack)-1]
+			return true
+		}
+		if lit, ok := n.(*ast.BasicLit); ok {
+			var parent ast.Node
+			if len(stack) > 0 {
+				parent = stack[len(stack)-1]
+			}
+			if writesAt(lit, parent, tables) {
+				at = append(at, lit.Pos())
+			}
+		}
+		stack = append(stack, n)
 		return true
 	})
 	return at
+}
+
+// packageRowWrites: every write of a row of tables in a package-level declaration (a const or var) of
+// files -- always a finding: the scan places a write by where its literal stands, and a package-level
+// one stands in no function (O-1). Inline it.
+func packageRowWrites(fset *token.FileSet, files []*ast.File, tables []string) []string {
+	var bad []string
+	for _, f := range files {
+		for _, d := range f.Decls {
+			if gd, ok := d.(*ast.GenDecl); ok {
+				for _, at := range rowWritesIn(gd, tables) {
+					bad = append(bad, fmt.Sprintf("a package-level declaration writes %v (%s:%d) -- inline it where it runs, so the scan can see under what",
+						tables, filepath.Base(fset.Position(at).Filename), fset.Position(at).Line))
+				}
+			}
+		}
+	}
+	sort.Strings(bad)
+	return bad
 }
 
 // rowPoint is a place in a function body: a holder call (pos..end), a release, a call site or a
@@ -416,6 +523,27 @@ type rowPoint struct {
 	pos, end token.Pos
 	scopes   []ast.Node
 	deferred bool
+	// late is the outermost construct that makes the point run after the statements around it rather
+	// than where it stands -- a defer or go statement, or a func literal handed to a Cleanup (rowLate);
+	// nil for a point that runs in place.
+	late ast.Node
+}
+
+// rowLate: the outermost defer or go statement, or func literal passed to a Cleanup, on stack.
+func rowLate(stack []ast.Node) ast.Node {
+	for i, n := range stack {
+		switch n.(type) {
+		case *ast.DeferStmt, *ast.GoStmt:
+			return n
+		case *ast.FuncLit:
+			if i > 0 {
+				if c, ok := stack[i-1].(*ast.CallExpr); ok && calleeKey(c) == ".Cleanup" {
+					return n
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // rowScopes: the nodes of stack that bound where a point runs -- the blocks and clauses it is in, and a
@@ -477,11 +605,11 @@ func readRowFunc(fd *ast.FuncDecl, holders map[string]bool, tables []string) *ro
 		}
 		point := func(pos, end token.Pos) rowPoint {
 			_, deferred := stack[len(stack)-1].(*ast.DeferStmt)
-			return rowPoint{pos: pos, end: end, scopes: rowScopes(stack), deferred: deferred}
+			return rowPoint{pos: pos, end: end, scopes: rowScopes(stack), deferred: deferred, late: rowLate(stack)}
 		}
 		switch x := n.(type) {
 		case *ast.BasicLit:
-			if writesRow(x, tables) {
+			if writesAt(x, stack[len(stack)-1], tables) {
 				rf.writes = append(rf.writes, point(x.Pos(), x.End()))
 			}
 		case *ast.ReturnStmt:
@@ -533,14 +661,20 @@ func (rf *rowFunc) holdsForTheTest() bool {
 }
 
 // coveredAt: a holder call dominates at and no release (other than a deferred one) runs between them.
-func (rf *rowFunc) coveredAt(at rowPoint) bool {
+// A point that runs LATE relative to the hold -- in a defer or go statement or a Cleanup func literal the
+// hold is not itself inside (rowLate), or reached from one (late, passed down the call chain) -- runs
+// after the function's statements, so ANY release after the hold, deferred or not, comes before it
+// (the second test-infra card's audit, D-1). Conservative: a deferred write registered after a deferred
+// release (LIFO: it runs first) is still counted uncovered.
+func (rf *rowFunc) coveredAt(at rowPoint, late bool) bool {
 	for _, h := range rf.holds {
 		if !h.dominates(at) {
 			continue
 		}
+		after := late || (at.late != nil && !slices.Contains(h.scopes, at.late))
 		released := false
 		for _, r := range rf.releases {
-			if !r.deferred && r.pos > h.end && r.pos < at.pos {
+			if r.pos > h.end && (after || (!r.deferred && r.pos < at.pos)) {
 				released = true
 			}
 		}
@@ -602,11 +736,14 @@ func tablesLockRowOutsiders(fset *token.FileSet, files []*ast.File, holders, tab
 			}
 		}
 	}
-	var covered func(fn string, at rowPoint, seen map[string]bool) bool
-	covered = func(fn string, at rowPoint, seen map[string]bool) bool {
-		if funcs[fn].coveredAt(at) {
+	var covered func(fn string, at rowPoint, late bool, seen map[string]bool) bool
+	covered = func(fn string, at rowPoint, late bool, seen map[string]bool) bool {
+		if funcs[fn].coveredAt(at, late) {
 			return true
 		}
+		// Not covered here: the callers must cover the call, and a point that runs late here runs late
+		// for them too.
+		late = late || at.late != nil
 		cs := callers[fn]
 		if len(cs) == 0 || seen[fn] || strings.HasPrefix(fn, "Test") {
 			return false
@@ -614,19 +751,19 @@ func tablesLockRowOutsiders(fset *token.FileSet, files []*ast.File, holders, tab
 		seen[fn] = true
 		defer delete(seen, fn)
 		for _, c := range cs {
-			if !covered(c.caller, c.at, seen) {
+			if !covered(c.caller, c.at, late, seen) {
 				return false
 			}
 		}
 		return true
 	}
-	var bad []string
+	bad := packageRowWrites(fset, files, tables)
 	for k, rf := range funcs {
 		if slices.Contains(holders, k) || exempt[k] != "" {
 			continue
 		}
 		for _, at := range rf.writes {
-			if !covered(k, at, map[string]bool{}) {
+			if !covered(k, at, false, map[string]bool{}) {
 				bad = append(bad, fmt.Sprintf("%s writes %v (line %d) outside the holder %v", k, tables, fset.Position(at.pos).Line, holders))
 			}
 		}
@@ -635,16 +772,75 @@ func tablesLockRowOutsiders(fset *token.FileSet, files []*ast.File, holders, tab
 	return bad
 }
 
-// sendsXactLock: body sends a transaction-scoped advisory lock statement (tablesLockRowExempt's shape).
-func sendsXactLock(body *ast.BlockStmt) bool {
-	found := false
-	ast.Inspect(body, func(n ast.Node) bool {
-		if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING && strings.Contains(lit.Value, "pg_advisory_xact_lock") {
-			found = true
+// xactLockStatements are the transaction-scoped lock statements an exemption may send (normSQL's form).
+var xactLockStatements = map[string]bool{
+	"select pg_advisory_xact_lock_shared(hashtext($1))": true,
+	"select pg_advisory_xact_lock(hashtext($1))":        true,
+}
+
+// reportsText: c is a call that writes its arguments as text -- a test's log or report, a print --
+// rather than sending them to the database.
+func reportsText(c *ast.CallExpr) bool {
+	k := strings.TrimPrefix(calleeKey(c), ".")
+	for _, p := range []string{"Log", "Error", "Fatal", "Skip", "Print", "Sprint", "Errorf", "Info", "Warn", "Debug"} {
+		if strings.HasPrefix(k, p) {
+			return true
 		}
-		return !found
+	}
+	return false
+}
+
+// exemptionFlaws: what fd -- a tablesLockRowExempt entry, rf its reading against the full holder set
+// (rowHoldersOf) -- lacks of the one exempted shape (the second test-infra card's audit, D-2):
+//   - it writes a row of tables;
+//   - the statement SELECT pg_advisory_xact_lock[_shared](hashtext($1)), exactly, is the first argument
+//     of a call that is not a log or a report (sent, not a text: reportsText) and stands before every
+//     write;
+//   - it calls .Rollback (nothing is committed);
+//   - it calls no holder, nor anything that holds through one: a second lock on a second connection
+//     is the deadlock TestTablesLock_IsTakenOncePerTestTree is about.
+func exemptionFlaws(fd *ast.FuncDecl, rf *rowFunc) []string {
+	var flaws []string
+	if len(rf.writes) == 0 {
+		flaws = append(flaws, "it writes no row")
+	}
+	lock := token.NoPos
+	rollback := false
+	var stack []ast.Node
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		if n == nil {
+			stack = stack[:len(stack)-1]
+			return true
+		}
+		switch x := n.(type) {
+		case *ast.BasicLit:
+			if c, ok := stack[len(stack)-1].(*ast.CallExpr); ok && len(c.Args) > 0 && c.Args[0] == ast.Expr(x) &&
+				xactLockStatements[normSQL(litText(x))] && !reportsText(c) && (lock == token.NoPos || x.Pos() < lock) {
+				lock = x.Pos()
+			}
+		case *ast.CallExpr:
+			rollback = rollback || calleeKey(x) == ".Rollback"
+		}
+		stack = append(stack, n)
+		return true
 	})
-	return found
+	if lock == token.NoPos {
+		flaws = append(flaws, "it sends no SELECT pg_advisory_xact_lock statement")
+	} else {
+		for _, w := range rf.writes {
+			if w.pos < lock {
+				flaws = append(flaws, "a write stands before its transaction-scoped lock")
+				break
+			}
+		}
+	}
+	if !rollback {
+		flaws = append(flaws, "it calls no Rollback")
+	}
+	if len(rf.holds) > 0 {
+		flaws = append(flaws, "it also calls a holder (a second lock on a second connection)")
+	}
+	return flaws
 }
 
 // TestTablesLock_AdminRowsAreWrittenUnderTheHolder -- the M14 test-infra card (an audit's finding).
@@ -667,14 +863,25 @@ func sendsXactLock(body *ast.BlockStmt) bool {
 // tablesLockRowTables in a _test.go function is at a covered point: a holder call -- the re-entrant
 // holder, or a function derived from it that holds for the whole test -- dominates it with no release
 // in between, or every call to the helper is at a covered point of its caller; or the function is one
-// of tablesLockRowExempt's, which must exist, write one, and send its own transaction-scoped lock.
-// POSITIVE CONTROL first, below, each line with what the scan must say of it.
+// of tablesLockRowExempt's, which must be the one exempted shape (exemptionFlaws). A write in a
+// package-level declaration is always a finding. POSITIVE CONTROL first, below, each line with what
+// the scan must say of it.
 //
-// NO COMPLETENESS CLAIM (as PART III above): the scan is syntactic -- a write built at run time or
-// reached through a function value, an interface or another package, a holder or a release reached
-// through a function value, or a directory outside tablesLockRowHolders is not seen; a method is
-// matched by its name alone, and a release by its field name (releaseTablesLock) or by the variable a
-// holder's result was assigned to.
+// ITS AUDIT (single lens, RET) widened it once more: O-1, a write whose table is not in its literal --
+// assembled with + or Sprintf, spelled public."admin_users", or held in a package-level const -- went
+// uncounted; D-1, a write registered in a defer, a go statement or a Cleanup between the hold and a
+// release counted as covered though it runs after the release; D-2, the exemption passed on any
+// literal naming the xact lock, a log text included.
+//
+// NO COMPLETENESS CLAIM (as PART III above): the scan is syntactic. Not seen: a write whose verb and
+// table are both outside its literals (a whole statement in a variable, a function value, an interface,
+// another package), a statement assembled in any other way than + or Sprintf (strings.Join, a builder);
+// a holder or a release reached through a function value, an aliased release (r := release; r()), a
+// release in a loop or a goroutine counted only by where it stands, a release inside another function
+// than the one holding; a directory outside tablesLockRowHolders. A method is matched by its name alone,
+// a release by its field name (releaseTablesLock) or the variable a holder's result was assigned to, and
+// a Cleanup by the method name .Cleanup. Conservative: a deferred write registered after a deferred
+// release counts as uncovered although it runs first.
 func TestTablesLock_AdminRowsAreWrittenUnderTheHolder(t *testing.T) {
 	const control = `package p
 func hold(t *testing.T) func() { lock(t); return nil }
@@ -704,6 +911,20 @@ func plant(c *pgx.Conn) { exec("INSERT INTO admin_users (id) VALUES ($1)") }
 func TestPlantHeld(t *testing.T) { plant(whole(t)) }
 func TestConcat(t *testing.T) { exec("INSERT INTO admin_users" + " (id) VALUES ($1)") }
 func TestExempt(t *testing.T) { exec("SELECT pg_advisory_xact_lock_shared(hashtext($1))", key); exec("INSERT INTO admin_users (id) VALUES ($1)") }
+func TestSprintf(t *testing.T) { exec(fmt.Sprintf("INSERT INTO %s (id) VALUES ($1)", "admin_users")) }
+func TestSprintfVar(t *testing.T) { exec(fmt.Sprintf("DELETE FROM %s WHERE id = $1", table)) }
+func TestSprintfOther(t *testing.T) { exec(fmt.Sprintf("INSERT INTO %s (id) VALUES ($1)", "tenants")) }
+const packageWrite = "INSERT INTO admin_users (id) VALUES ($1)"
+func TestPlus(t *testing.T) { exec("UPDATE " + adminUsers + " SET x = 1") }
+func TestPlusOther(t *testing.T) { exec("UPDATE " + "tenants SET x = 1") }
+func TestSchema(t *testing.T) { exec("UPDATE public.\"admin_users\" SET x = 1") }
+func TestLabel(t *testing.T) { cases := []struct{ what, sql string }{{"UPDATE", "UPDATE tenants SET x = 1"}}; run(cases) }
+func TestCleanupAfterRelease(t *testing.T) { release := hold(t); t.Cleanup(func() { exec("DELETE FROM admin_users WHERE id = $1") }); release() }
+func TestDeferAfterRelease(t *testing.T) { release := hold(t); defer exec("DELETE FROM admin_users WHERE id = $1"); release() }
+func TestCleanupHeld(t *testing.T) { whole(t); t.Cleanup(func() { exec("DELETE FROM admin_users WHERE id = $1") }) }
+func TestCleanupHoldsItself(t *testing.T) { t.Cleanup(func() { release := hold(t); defer release(); exec("DELETE FROM admin_users WHERE id = $1") }) }
+func registers(t *testing.T) { t.Cleanup(func() { exec("DELETE FROM admin_users WHERE id = $1") }) }
+func TestHelperLate(t *testing.T) { release := hold(t); registers(t); release() }
 `
 	cfset := token.NewFileSet()
 	cf, err := parser.ParseFile(cfset, "control.go", control, parser.SkipObjectResolution)
@@ -715,12 +936,24 @@ func TestExempt(t *testing.T) { exec("SELECT pg_advisory_xact_lock_shared(hashte
 		"TestAfterTheLoop writes [admin_users] (line 21) outside the holder [hold]", // the loop may not run
 		"TestBare writes [admin_users] (line 8) outside the holder [hold]",
 		"TestBranch writes [admin_users] (line 22) outside the holder [hold]", // the branch may not run
+		// D-1: registered between the hold and the release, it runs after the release.
+		"TestCleanupAfterRelease writes [admin_users] (line 37) outside the holder [hold]",
 		"TestConcat writes [admin_users] (line 27) outside the holder [hold]", // the table name ends a literal
+		"TestDeferAfterRelease writes [admin_users] (line 38) outside the holder [hold]",
 		"TestFinding writes [admin_users] (line 5) outside the holder [hold]", // scoped: holds nothing after
 		"TestLate writes [admin_users] (line 7) outside the holder [hold]",
-		"TestMaybe writes [admin_users] (line 24) outside the holder [hold]",    // maybe may return first
+		"TestMaybe writes [admin_users] (line 24) outside the holder [hold]", // maybe may return first
+		// O-1: the table is not in the literal -- an identifier after "UPDATE " + ..., a Sprintf slot
+		// (a literal argument, or one the scan cannot read), a schema prefix and a quoted identifier.
+		"TestPlus writes [admin_users] (line 33) outside the holder [hold]",
 		"TestReleased writes [admin_users] (line 19) outside the holder [hold]", // released before it
-		"shared writes [admin_users] (line 12) outside the holder [hold]",       // TestSharedBare
+		"TestSchema writes [admin_users] (line 35) outside the holder [hold]",
+		"TestSprintf writes [admin_users] (line 29) outside the holder [hold]",
+		"TestSprintfVar writes [admin_users] (line 30) outside the holder [hold]",
+		// O-1: a package-level statement stands in no function.
+		"a package-level declaration writes [admin_users] (control.go:32) -- inline it where it runs, so the scan can see under what",
+		"registers writes [admin_users] (line 41) outside the holder [hold]", // late, reached from TestHelperLate
+		"shared writes [admin_users] (line 12) outside the holder [hold]",    // TestSharedBare
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("POSITIVE CONTROL FAILED: the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -729,6 +962,39 @@ func TestExempt(t *testing.T) { exec("SELECT pg_advisory_xact_lock_shared(hashte
 	// test; scoped (it releases) and maybe (a return before) do not.
 	if _, set := rowHoldersOf([]*ast.File{cf}, []string{"hold"}, tablesLockRowTables); !set["whole"] || !set["harness"] || set["scoped"] || set["maybe"] {
 		t.Fatalf("POSITIVE CONTROL FAILED: derived holders %v", set)
+	}
+	// ... and the exemption's shape (D-2): each function below lacks exactly what its name says.
+	const exemptControl = `package p
+func hold(t *testing.T) func() { lock(t); return nil }
+func TestGood(t *testing.T) { tx := begin(); defer func() { tx.Rollback(ctx) }(); exec("SELECT pg_advisory_xact_lock_shared(hashtext($1))", key); exec("INSERT INTO admin_users (id) VALUES ($1)") }
+func TestLogged(t *testing.T) { tx := begin(); defer tx.Rollback(ctx); t.Log("SELECT pg_advisory_xact_lock_shared(hashtext($1))", key); exec("INSERT INTO admin_users (id) VALUES ($1)") }
+func TestLockAfter(t *testing.T) { tx := begin(); defer tx.Rollback(ctx); exec("INSERT INTO admin_users (id) VALUES ($1)"); exec("SELECT pg_advisory_xact_lock_shared(hashtext($1))", key) }
+func TestCommits(t *testing.T) { tx := begin(); exec("SELECT pg_advisory_xact_lock_shared(hashtext($1))", key); exec("INSERT INTO admin_users (id) VALUES ($1)"); tx.Commit(ctx) }
+func TestHeldToo(t *testing.T) { hold(t); tx := begin(); defer tx.Rollback(ctx); exec("SELECT pg_advisory_xact_lock_shared(hashtext($1))", key); exec("INSERT INTO admin_users (id) VALUES ($1)") }
+func TestNoWrite(t *testing.T) { tx := begin(); defer tx.Rollback(ctx); exec("SELECT pg_advisory_xact_lock_shared(hashtext($1))", key) }
+`
+	ef, err := parser.ParseFile(cfset, "exempt.go", exemptControl, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	efuncs, _ := rowHoldersOf([]*ast.File{ef}, []string{"hold"}, tablesLockRowTables)
+	wantFlaws := map[string]string{
+		"TestGood":      "",
+		"TestLogged":    "it sends no SELECT pg_advisory_xact_lock statement",
+		"TestLockAfter": "a write stands before its transaction-scoped lock",
+		"TestCommits":   "it calls no Rollback",
+		"TestHeldToo":   "it also calls a holder (a second lock on a second connection)",
+		"TestNoWrite":   "it writes no row",
+	}
+	for _, d := range ef.Decls {
+		fd := d.(*ast.FuncDecl)
+		want, ok := wantFlaws[fd.Name.Name]
+		if !ok {
+			continue
+		}
+		if got := strings.Join(exemptionFlaws(fd, efuncs[fd.Name.Name]), "; "); got != want {
+			t.Errorf("POSITIVE CONTROL FAILED (exemption shape): %s has flaws %q, want %q", fd.Name.Name, got, want)
+		}
 	}
 
 	fset := token.NewFileSet()
@@ -741,7 +1007,7 @@ func TestExempt(t *testing.T) { exec("SELECT pg_advisory_xact_lock_shared(hashte
 			for _, f := range tablesLockRowOutsiders(fset, files, holders, tablesLockRowTables, exempt) {
 				t.Errorf("%s: %s", dir, f)
 			}
-			_, set := rowHoldersOf(files, holders, tablesLockRowTables)
+			funcs, set := rowHoldersOf(files, holders, tablesLockRowTables)
 			for k := range set {
 				if !slices.Contains(holders, k) && !strings.HasPrefix(k, "Test") {
 					derived = append(derived, k)
@@ -755,13 +1021,12 @@ func TestExempt(t *testing.T) { exec("SELECT pg_advisory_xact_lock_shared(hashte
 					}
 					n := len(rowWritesIn(fd.Body, tablesLockRowTables))
 					writers += n
-					// The exemption is closed: it names a function here that writes and takes its own
-					// transaction-scoped lock -- not a stale name, and not a way round the holder.
+					// The exemption is closed: it names a function here of the one exempted shape --
+					// not a stale name, and not a way round the holder (exemptionFlaws).
 					if exempt[funcKey(fd)] != "" {
 						seen[funcKey(fd)] = true
-						if n == 0 || !sendsXactLock(fd.Body) {
-							t.Errorf("%s: %s is exempt, so it must write a row of %v (it writes %d) and send its own transaction-scoped lock (it sends one: %v)",
-								dir, funcKey(fd), tablesLockRowTables, n, sendsXactLock(fd.Body))
+						if flaws := exemptionFlaws(fd, funcs[funcKey(fd)]); len(flaws) > 0 {
+							t.Errorf("%s: %s is exempt but is not the exempted shape: %s", dir, funcKey(fd), strings.Join(flaws, "; "))
 						}
 					}
 				}
