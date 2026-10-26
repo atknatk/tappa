@@ -2052,13 +2052,14 @@ var operatorCSSHides = map[string]string{
 
 // TestOperatorCSS_NoScopedRuleHidesContent (M13-15; README §3, §6) reads web/static/css/input.css
 // (comments stripped, every flat `selectors { … }` rule at any nesting) and, for each rule whose
-// selector names an operator class (`.op-…`, which covers `.op-main`) or an aria-labelledby id an
-// operatorpages template declares, finds every way the rule hides content: a hiding utility in an
-// @apply at any variant (hidden, sr-only, invisible, collapse, opacity-0, text-transparent,
-// scale-0, a zero font size, a clip or clip-path or display/visibility/opacity/font-size
+// selector names an operator class (`.op-…`, which covers `.op-main`) or any aria-labelledby
+// attribute selector (=, ^=, *=, $= -- the legal editors' ids are built at render time), finds every way the rule hides content: a hiding utility in an
+// @apply at any variant (hidden, sr-only, invisible, collapse, opacity-0 or a bracketed zero
+// opacity, text-transparent, scale-0 / scale-x-0 / scale-y-0 or a bracketed zero, a zero font size, a clip or clip-path or display/visibility/opacity/font-size
 // arbitrary property, a zero height, width, size or max height beside an overflow that clips) or
-// a declaration (display:none, visibility:hidden or collapse, opacity:0, clip, clip-path,
-// font-size:0, color:transparent, content-visibility:hidden, a zero height or width beside
+// a declaration (display:none, visibility:hidden or collapse, opacity or font-size or scale at a
+// zero in any spelling -- 0, .0, 0.0, 0% --, a transform scaling to zero, clip, clip-path,
+// color:transparent, content-visibility:hidden, a zero height or width beside
 // overflow:hidden). The deliberate hidings are listed (operatorCSSHides) by exact selector and
 // exact hiding; a listed rule with another hiding, or a listed hiding that no longer exists, is a
 // finding. CONTROLS, each appended to the source and each a finding: the M13-12 review's living
@@ -2066,7 +2067,8 @@ var operatorCSSHides = map[string]string{
 // paragraph; md:invisible on an operator chip; a zero height with overflow-hidden; text-transparent;
 // display:none and opacity:0 as declarations; hidden on a rule scoped by an operator list's id;
 // hidden behind a bracketed variant; display:none as an arbitrary property; a second hiding on a
-// listed selector.
+// listed selector; opacity-[0]; scale-y-0; opacity:.0 and opacity:0% as declarations; display:none
+// under `[aria-labelledby^="legal-"]`; transform:scale(0).
 //
 // PART II -- red on: a scoped rule that hides content, a deliberate hiding changed. PART III --
 // a hiding through a selector that names neither an operator class nor an operator id (a bare
@@ -2098,6 +2100,12 @@ func TestOperatorCSS_NoScopedRuleHidesContent(t *testing.T) {
 		{"hidden behind a bracketed variant", `.op-row { @apply aria-[current=true]:md:hidden; }`},
 		{"display none as an arbitrary property", `.op-main dt { @apply md:[display:none]; }`},
 		{"a listed rule given a second hiding", `.op-nav-icon { @apply sr-only; }`},
+		{"an arbitrary zero opacity", `.op-main dd { @apply opacity-[0]; }`},
+		{"a zero vertical scale", `.op-row > span { @apply scale-y-0; }`},
+		{"opacity .0 as a declaration", `.op-col p { opacity: .0; }`},
+		{"display none under a dynamic id prefix", `[aria-labelledby^="legal-"] p { display: none; }`},
+		{"opacity 0% as a declaration", `.op-main li { opacity: 0%; }`},
+		{"a zero scale in a transform", `.op-main dt { transform: scale(0); }`},
 	} {
 		mutated := strings.Replace(css, "@layer components {", "@layer components {\n  "+c.rule, 1)
 		if mutated == css {
@@ -2145,10 +2153,12 @@ func readOperatorCSSHides(css string, ids []string) (int, []string) {
 	rule := regexp.MustCompile(`([^{}]*)\{([^{}]*)\}`)
 	applyRe := regexp.MustCompile(`@apply\s+([^;]+);`)
 	opClass := regexp.MustCompile(`\.op-[a-z]`)
-	hideUtility := regexp.MustCompile(`^(?:hidden|sr-only|invisible|collapse|opacity-0|text-transparent|scale-0|text-\[0(?:px|rem|em)?\]|\[(?:clip|clip-path|display:none|visibility:(?:hidden|collapse)|opacity:0|font-size:0)[^\]]*\])$`)
+	// zero is a numeric zero in any of its spellings: 0, 00, .0, 0.0, 0%, 0px.
+	const zero = `(?:0+(?:\.0*)?|\.0+)(?:%|px|rem|em)?`
+	hideUtility := regexp.MustCompile(`^(?:hidden|sr-only|invisible|collapse|opacity-0|opacity-\[` + zero + `\]|text-transparent|scale-(?:[xy]-)?0|scale-(?:[xy]-)?\[` + zero + `\]|text-\[` + zero + `\]|\[(?:clip|clip-path|display:none|visibility:(?:hidden|collapse)|opacity:` + zero + `|font-size:` + zero + `|scale:` + zero + `|transform:scale\(` + zero + `)[^\]]*\])$`)
 	zeroBox := regexp.MustCompile(`^(?:h-0|w-0|size-0|max-h-0|max-w-0|h-px|w-px)$`)
 	clips := regexp.MustCompile(`^overflow(?:-[xy])?-(?:hidden|clip)$`)
-	decl := regexp.MustCompile(`(?:^|;|\s)(display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse)|opacity\s*:\s*0(?:\.0*)?\s*(?:;|$|!)|clip(?:-path)?\s*:|font-size\s*:\s*0(?:px|rem|em)?\s*(?:;|$|!)|color\s*:\s*transparent|content-visibility\s*:\s*hidden)`)
+	decl := regexp.MustCompile(`(?:^|;|\s)(display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse)|opacity\s*:\s*` + zero + `\s*(?:;|$|!)|clip(?:-path)?\s*:|font-size\s*:\s*` + zero + `\s*(?:;|$|!)|color\s*:\s*transparent|content-visibility\s*:\s*hidden|scale\s*:\s*` + zero + `\s*(?:;|$|!)|transform\s*:[^;]*scale(?:[XY])?\(\s*` + zero + `\s*[,)])`)
 	zeroDecl := regexp.MustCompile(`(?:^|;|\s)(?:height|width|max-height)\s*:\s*0(?:px)?\s*(?:;|$)`)
 	clipDecl := regexp.MustCompile(`overflow(?:-[xy])?\s*:\s*(?:hidden|clip)`)
 	read, findings := 0, []string{}
@@ -2158,7 +2168,9 @@ func readOperatorCSSHides(css string, ids []string) (int, []string) {
 		if i := strings.LastIndex(sel, ";"); i >= 0 {
 			sel = strings.TrimSpace(sel[i+1:])
 		}
-		operator := opClass.MatchString(sel)
+		// Every aria-labelledby selector counts, whatever its operator (=, ^=, *=, $=): the editor
+		// cards' ids are built at render time ("legal-" + slug), so no literal id list covers them.
+		operator := opClass.MatchString(sel) || strings.Contains(sel, "[aria-labelledby")
 		for _, id := range ids {
 			if strings.Contains(sel, `[aria-labelledby="`+id+`"]`) {
 				operator = true
@@ -2239,11 +2251,14 @@ const legalEditorCardClass = "op-card flex flex-col gap-0 overflow-hidden p-0"
 // TestOperatorCards_TakeTheirInnerGapFromTheCardRule (M13-15; README §6 "Card") reads every
 // `class="op-card…"` attribute -- in the templ sources of web/templates/operatorpages and in
 // every screens() render -- and finds none that writes the card's inner spacing back on the
-// markup: no flex, flex-col or gap-* utility beside op-card, except the legal editor's exact class
+// markup: no utility beside op-card, at any variant, that changes the card's display, direction or
+// inner spacing (cardLayoutUtility: block, inline*, flex, flex-row/col/wrap*, grid*, contents,
+// hidden, table*, space-x/y-*, gap-*, divide-*), except the legal editor's exact class
 // (legalEditorCardClass), which must keep its gap-0 and p-0. The rule's half -- `.op-card`
 // applies flex, flex-col and gap-3.5 -- is TestOperatorComponentRules_KeepTheDecidedCorners's.
 // CONTROLS, each read by the same function and each a finding: a card's tag given back
-// `flex flex-col gap-3.5`; the editor's gap-0 dropped; the editor's p-0 dropped; and the
+// `flex flex-col gap-3.5`; a card given block, flex-row, space-y-4, grid, md:flex-row; the
+// editor's gap-0 dropped; the editor's p-0 dropped; and the
 // premise that the readings found the cards (at least seventeen tags in the sources, the editor
 // among them, and a card on every signed-in data screen render).
 //
@@ -2288,6 +2303,11 @@ func TestOperatorCards_TakeTheirInnerGapFromTheCardRule(t *testing.T) {
 	}
 	for _, c := range []struct{ what, from, to string }{
 		{"a card's gap back on its markup", `<section class="op-card">`, `<section class="op-card flex flex-col gap-3.5">`},
+		{"a card made a block", `<section class="op-card">`, `<section class="op-card block">`},
+		{"a card made a row", `<section class="op-card">`, `<section class="op-card flex-row">`},
+		{"a card spaced by space-y", `<section class="op-card">`, `<section class="op-card space-y-4">`},
+		{"a card made a grid", `<section class="op-card">`, `<section class="op-card grid">`},
+		{"a card made a row from the tablet", `<section class="op-card">`, `<section class="op-card md:flex-row">`},
 		{"the editor's gap-0 dropped", legalEditorCardClass, "op-card flex flex-col overflow-hidden p-0"},
 		{"the editor's p-0 dropped", legalEditorCardClass, "op-card flex flex-col gap-0 overflow-hidden"},
 	} {
@@ -2300,6 +2320,10 @@ func TestOperatorCards_TakeTheirInnerGapFromTheCardRule(t *testing.T) {
 		}
 	}
 }
+
+// cardLayoutUtility matches a utility (variants stripped) that changes an op-card's display, its
+// direction or the spacing between its blocks -- what the card rule decides (M13-15).
+var cardLayoutUtility = regexp.MustCompile(`^(?:block|inline(?:-.+)?|flex|flex-(?:row|col|wrap|nowrap)(?:-.+)?|grid(?:-.+)?|contents|hidden|table(?:-.+)?|flow-root|list-item|space-[xy]-.+|gap(?:-[xy])?-.+|divide-[xy](?:-.+)?)$`)
 
 // readCardClasses is TestOperatorCards_TakeTheirInnerGapFromTheCardRule's reading: the number of
 // op-card class attributes in s, how many are the legal editor's, and one finding per attribute
@@ -2317,8 +2341,8 @@ func readCardClasses(s string) (cards, editors int, findings []string) {
 			continue
 		}
 		for _, u := range strings.Fields(class)[1:] {
-			if u == "flex" || u == "flex-col" || strings.HasPrefix(u, "gap-") || strings.Contains(u, ":gap-") {
-				findings = append(findings, "an op-card writes "+u+" on its markup (the card rule spaces its blocks): "+class)
+			if cardLayoutUtility.MatchString(strings.TrimPrefix(utilityBase(u), "-")) {
+				findings = append(findings, "an op-card writes "+u+" on its markup (the card rule sets its display, direction and spacing): "+class)
 			}
 		}
 	}
