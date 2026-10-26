@@ -777,7 +777,9 @@ inline tenant link keeps its line height on tablet/desktop and gets a **44 px in
 
 **Forms:** filter `POST /operator/audit` (`kind`); pager POST forms with hidden `kind` + `page`,
 buttons `<button type="submit" class="op-pager">` since M13-12 (before it `class="op-link"`); on
-the phone the two share the row, each half of it; 3 forms when filtered (`op8_test.go:929`). 50
+the phone the two share the row, each button filling its form and never breaking its word (the phone
+board's `.pager > *{flex:1 1 0}`): half the row each at 360 and 390 px, and at 320 px still one row
+but not equal, 148 / 130 px, because Previous page's word is wider than half; 3 forms when filtered (`op8_test.go:929`). 50
 rows per page, 1000 pages max.
 
 **States:** every row shape (fixture "audit log") · filtered · past the end ("This page is

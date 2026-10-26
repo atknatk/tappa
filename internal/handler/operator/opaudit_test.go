@@ -32,7 +32,7 @@ const (
 	auditFilter = `<form method="post" action="/operator/audit" class="flex flex-col gap-2 rounded-xl border border-line bg-ink/[.03] p-3.5 md:px-[18px] md:py-4">`
 	auditKinds  = `<div class="flex flex-wrap gap-2.5"><div class="min-w-0 max-w-[440px] flex-[1_1_240px] *:h-full *:font-display *:text-[15px]">`
 	auditShow   = `<button type="submit" class="btn btn--primary max-md:basis-full">Show</button>`
-	auditEmpty  = `<p class="pt-[22px] pb-2 font-display text-[15px]">`
+	auditEmpty  = `<p class="pt-[22px] pb-2 font-display text-[15px] leading-normal">`
 	auditLast   = `<p class="mt-1.5 border-t-2 border-dashed border-line pt-3 font-display text-[13px] text-ink/70">`
 	auditPagerN = `<nav class="flex flex-wrap gap-2.5 md:gap-3 max-md:*:grid max-md:*:flex-1" aria-label="Pages of the audit log">`
 )
@@ -184,7 +184,8 @@ func auditScreenFindings(name, body string, v operatorpages.AuditLogView) []stri
 // function and each a finding: a word of the card changed; the intro given back its top margin;
 // the select's box dropped; the Kind label back to docket-label; aria-hidden on the way back; a
 // pager button back to op-link; a third pager form; a suspended chip on a suspension's row; an
-// export link; the empty sentence's words changed.
+// export link; the empty sentence's words changed; the empty sentence back to the docket's line
+// height (the boards' .dempty is 1.5).
 //
 // PART II -- red on any of the above. PART III -- what the screen looks like at each width is the
 // screenshot round's (320 / 390 / 834 / 1200 / 1440 px), the row's rules
@@ -259,6 +260,7 @@ func TestAuditScreen_IsTheFilterCardAndTheDocket(t *testing.T) {
 		{"a suspended chip on a suspension's row", "long values", `>Tenant suspension recorded</span>`,
 			`>Tenant suspension recorded</span><span class="tally tally--suspended">Suspended</span>`},
 		{"the empty sentence's words changed", "audit log, empty", "holds no entry of this kind", "holds no entry"},
+		{"the empty sentence back to the docket's line height", "audit log, empty", ` leading-normal">The log holds`, `">The log holds`},
 		{"the past-the-end sentence given the empty one", "audit log, past the end", "This page is empty: the log ended on the page before.",
 			"The log holds no entry of this kind."},
 	} {
@@ -307,7 +309,9 @@ func auditLongView() operatorpages.AuditLogView {
 // selector and its utilities exactly: the heading's dashed rule and bold page number; the row one
 // column on the phone and, from the tablet, the indent of the time's column (206 px on the tablet,
 // 220 on the desktop) with the time pulled back into it, 18 px between facts, values breaking
-// anywhere; the time 13 px, never breaking; the kind 15 px on a line of its own from the tablet;
+// anywhere; the time 13 px, never breaking; the kind 15 px, 6 px above the first fact at every
+// width (2 px under the phone's 4 px gap, 4 px under the tablet's 2 px), on a line of its own from
+// the tablet;
 // the facts in Space Grotesk at ink 70 %, their values (not the link) in ink; on the phone the tenant's
 // fact a wrapping flex, its word centred on the 44 px link; and M13-02's tenant
 // link, inline-block from the tablet so its 44 px overlay holds on a wrapping name.
@@ -318,7 +322,7 @@ var auditRowRules = map[string][]string{
 		"md:flex-row", "md:items-baseline", "md:gap-x-[18px]", "md:gap-y-0.5", "md:py-4", "md:pl-[206px]", "desk:pl-[220px]"},
 	`[aria-labelledby="audit-list"] .op-row > :first-child`: {"whitespace-nowrap", "text-[13px]", "md:-ml-[206px]", "md:w-[188px]",
 		"desk:-ml-[220px]", "desk:w-[202px]"},
-	`[aria-labelledby="audit-list"] .op-row > :nth-child(2)`:             {"text-[15px]", "leading-[1.35]", "md:mb-1", "md:basis-full"},
+	`[aria-labelledby="audit-list"] .op-row > :nth-child(2)`:             {"mb-0.5", "text-[15px]", "leading-[1.35]", "md:mb-1", "md:basis-full"},
 	`[aria-labelledby="audit-list"] .op-row > :nth-child(n+3)`:           {"font-display", "text-ink/70"},
 	`[aria-labelledby="audit-list"] .op-row > :nth-child(n+3) > :not(a)`: {"text-ink"},
 	`[aria-labelledby="audit-list"] .op-row > span:has(> .op-link)`:      {"max-md:flex", "max-md:flex-wrap", "max-md:items-center", "max-md:gap-x-1.5"},
@@ -349,7 +353,7 @@ func readAuditRowRules(css string) []string {
 // each exactly once, one @apply of exactly its utilities; the overlay is there whole, once.
 // CONTROLS, each read by the same function and each a finding: the row's rule deleted; the phone's
 // one column dropped; the values not breaking; the tablet's indent dropped; the time not pulled
-// back; the time breaking; the kind not alone on its line; the facts' face dropped; the values'
+// back; the time breaking; the kind not alone on its line; the phone's 6 px under the kind back to 4; the facts' face dropped; the values'
 // ink rule reaching the link; the phone's centred word dropped; the link inline (M13-02's measured collapse); the overlay deleted;
 // a tenth rule, in the double-quoted, the single-quoted and the unquoted spelling.
 //
@@ -374,6 +378,7 @@ func TestAuditRow_TheScopedRulesKeepTheBoardsColumns(t *testing.T) {
 		{"the time not pulled back", " md:-ml-[206px]", ""},
 		{"the time breaking", "@apply whitespace-nowrap text-[13px]", "@apply text-[13px]"},
 		{"the kind not alone on its line", " md:basis-full", ""},
+		{"the phone's 6 px under the kind back to 4", "@apply mb-0.5 text-[15px]", "@apply text-[15px]"},
 		{"the facts' face dropped", "@apply font-display text-ink/70", "@apply text-ink/70"},
 		{"the values' ink reaching the link", "> :nth-child(n+3) > :not(a) {", "> :nth-child(n+3) > * {"},
 		{"the phone's centred word dropped", " max-md:items-center", ""},

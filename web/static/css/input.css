@@ -1426,8 +1426,9 @@
      its sentence) -- nothing here is a class on an element.
      THE HEADING: the boards' rule under it, a 2 px dash in the perforation tone, 12 px below the
      words; the page number bold, in ink.
-     PHONE: one column -- the time, the kind and each fact a line of its own, 4 px apart, 14 px
-     above and below the row. The tenant's fact is the link's own 44 px, its word centred on the
+     PHONE: one column -- the time, the kind and each fact a line of its own, 4 px apart (6 px
+     under the kind, the boards' gap between the kind and the facts), 14 px above and below the
+     row. The tenant's fact is the link's own 44 px, its word centred on the
      link as the phone board draws it (a sentence holding the link is a wrapping flex there; on a
      line box the word sat above the link's, measured at 390 px).
      TABLET AND DESKTOP: the boards' two columns without a wrapper -- the time in the first, 182 px
@@ -1456,7 +1457,7 @@
   [aria-labelledby="audit-list"] .op-row > :first-child {
     @apply whitespace-nowrap text-[13px] md:-ml-[206px] md:w-[188px] desk:-ml-[220px] desk:w-[202px];
   }
-  [aria-labelledby="audit-list"] .op-row > :nth-child(2) { @apply text-[15px] leading-[1.35] md:mb-1 md:basis-full; }
+  [aria-labelledby="audit-list"] .op-row > :nth-child(2) { @apply mb-0.5 text-[15px] leading-[1.35] md:mb-1 md:basis-full; }
   [aria-labelledby="audit-list"] .op-row > :nth-child(n+3) { @apply font-display text-ink/70; }
   [aria-labelledby="audit-list"] .op-row > :nth-child(n+3) > :not(a) { @apply text-ink; }
   [aria-labelledby="audit-list"] .op-row > span:has(> .op-link) { @apply max-md:flex max-md:flex-wrap max-md:items-center max-md:gap-x-1.5; }

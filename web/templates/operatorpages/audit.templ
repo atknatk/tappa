@@ -74,9 +74,9 @@ templ auditList(v AuditLogView) {
 		<h2 id="audit-list" class="docket-label">Newest first · { v.Filter } · page <span class="font-mono">{ strconv.Itoa(v.Page) }</span></h2>
 		if len(v.Rows) == 0 {
 			if v.Page > 1 {
-				<p class="pt-[22px] pb-2 font-display text-[15px]">This page is empty: the log ended on the page before.</p>
+				<p class="pt-[22px] pb-2 font-display text-[15px] leading-normal">This page is empty: the log ended on the page before.</p>
 			} else {
-				<p class="pt-[22px] pb-2 font-display text-[15px]">The log holds no entry of this kind.</p>
+				<p class="pt-[22px] pb-2 font-display text-[15px] leading-normal">The log holds no entry of this kind.</p>
 			}
 		} else {
 			<ol>
@@ -196,8 +196,9 @@ templ auditFact(label string, w AuditWord, mono bool) {
 
 // auditPager is the way to the page before and after this one -- each a form that posts the
 // same kind and the page's number. On the phone each form grows from nothing and its button fills
-// it: half the row each where both fit, one above the other where they do not (the billing
-// pager's arrangement, as the phone board draws it).
+// it, never breaking its word (the phone board's pager): half the row each where each word fits
+// in half (360 and 390 px); at 320 px the two still share the row, Previous the wider, because
+// its word is wider than half.
 templ auditPager(v AuditLogView) {
 	if v.Page > 1 || v.HasNext {
 		<nav class="flex flex-wrap gap-2.5 md:gap-3 max-md:*:grid max-md:*:flex-1" aria-label="Pages of the audit log">
