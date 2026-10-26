@@ -577,6 +577,11 @@ func screens(t *testing.T) map[string]string {
 		CreatedAt: "2026-07-05 09:30 UTC", Plan: "founding"}
 	suspendedRow := row
 	suspendedRow.Suspended = true
+	// Beside it a tenant that is not suspended (M13-07): the list with one chip, so the two rows'
+	// columns can be compared at every width.
+	activeRow := operatorpages.TenantRow{ID: "10000000-0000-4000-8000-000000000003",
+		Path: "/operator/tenants/10000000-0000-4000-8000-000000000003", Name: "Rusty Bar",
+		CreatedAt: "2026-07-24 10:02 UTC", Plan: "standard"}
 	// The tenant's sub-nav (M13-01): the four {id} routes of the row's tenant.
 	tabs := operatorpages.TenantTabs{Overview: row.Path, Plaques: row.Path + "/plaques", Billing: row.Path + "/billing",
 		VAT: row.Path + "/vat"}
@@ -742,7 +747,7 @@ func screens(t *testing.T) map[string]string {
 				Publisher: "tenant admin (legacy)", Current: true}}}),
 		"tenants":                                 operatorpages.Tenants(operatorpages.TenantsView{Page: 1}),
 		"tenants, a page":                         operatorpages.Tenants(operatorpages.TenantsView{Page: 1, Rows: []operatorpages.TenantRow{row, {ID: row.ID, Path: row.Path, CreatedAt: row.CreatedAt, Plan: "standard"}}, HasNext: true}),
-		"tenants, a suspended row":                operatorpages.Tenants(operatorpages.TenantsView{Page: 1, Rows: []operatorpages.TenantRow{suspendedRow}}),
+		"tenants, a suspended row":                operatorpages.Tenants(operatorpages.TenantsView{Page: 1, Rows: []operatorpages.TenantRow{suspendedRow, activeRow}}),
 		"tenants, searched":                       operatorpages.Tenants(operatorpages.TenantsView{Search: "kebab", Page: 1, Rows: []operatorpages.TenantRow{row}}),
 		"tenants, a later page":                   operatorpages.Tenants(operatorpages.TenantsView{Search: "kebab", Page: 2, Rows: []operatorpages.TenantRow{row}, HasNext: true}),
 		"tenants, past the end":                   operatorpages.Tenants(operatorpages.TenantsView{Page: 3}),

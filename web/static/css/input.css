@@ -1323,6 +1323,34 @@
   .op-row {
     @apply flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-dashed border-line py-2.5 text-ink last:border-b-0;
   }
+  /* THE TENANT LIST'S ROW IN THE REDESIGN (M13-07; docs/design/operator-redesign README §6.1
+     "Tenants row", boards OpTenants, T-OpTenants, M-OpTenants). Scoped from the list's heading
+     id, because the row's markup is pinned (<li class="op-row">, the plan's bare span, the id's
+     span with its three classes): nothing here is a class on an element.
+     PHONE: the name link alone on its first line, 44 px tall (the link's own height), when it
+     signed up and the plan on the line under it -- the chip, on a suspended tenant, flowing after
+     the plan -- and the id on a line of its own.
+     TABLET: three tracks (name, since, plan) and the id on a full line under them.
+     DESKTOP: one line of four tracks; the id is placed in the fourth, on the first line, at the
+     line's end -- so a suspended tenant's chip, the row's fifth child, between the plan and the
+     id, is auto-placed in the first free cell after the plan: the second line, under the name.
+     A row without one keeps the board's single line. Items keep their own width (start), so the
+     chip is not stretched to its track. The plan is mono by its own rule, not only by the
+     docket's. NO SELECTOR HERE NAMES THE CHIP'S CLASS: TestTallyRules_NoToneRuleColoursTheWord
+     reads every rule that does. A name or an id that cannot break (no space in it) breaks
+     anywhere rather than widening the page. */
+  [aria-labelledby="tenant-list"] .op-row {
+    @apply gap-y-0.5 pt-1 pb-3 md:grid md:grid-cols-[minmax(0,1fr)_auto_76px] md:items-center md:justify-items-start
+           md:gap-x-5 md:gap-y-0 md:pt-1.5 md:pb-2.5 desk:grid-cols-[minmax(0,1fr)_auto_76px_auto] desk:pb-1.5;
+  }
+  [aria-labelledby="tenant-list"] .op-row > :first-child {
+    overflow-wrap: anywhere;
+    @apply min-w-0 basis-full text-[15px];
+  }
+  [aria-labelledby="tenant-list"] .op-row > :nth-child(3) { @apply font-mono; }
+  [aria-labelledby="tenant-list"] .op-row > :last-child {
+    @apply basis-full md:col-span-full desk:col-span-1 desk:col-start-4 desk:row-start-1 desk:justify-self-end;
+  }
 
   /* THE INTEGRATION GUIDE'S BODY (M11 DOCS-1, /docs/api). internal/apiguide converts the
      Markdown with goldmark, whose output carries no class, so every rule here is scoped

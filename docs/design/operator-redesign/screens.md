@@ -323,6 +323,12 @@ id line 3. Phone: the chip flows after the plan. Recipe and the pins it must not
 §6.1 "Tenants row" (`TestTenantList_ASuspendedTenantCarriesTheChip` holds `<span>plan</span>`,
 the chip and `<span class="break-all text-xs text-ink/70">id</span>` in that order, and — on a list
 of one suspended and one active tenant — exactly one chip on the whole list).
+**As built (M13-07):** the card is `op-card flex flex-col gap-3.5` — `op-label` "Tenants", the h1 at 28 px at every width (line
+height 1.1, -0.03em), the form (label, box, help, button in that order; the button beside the box and the help under both from the
+tablet by grid placement), the matching line under a dashed rule (the term mono and bold), then one row of links (stacked on the
+phone); the docket's empty sentence is the display face; the pager unchanged (`op-link`). Every word, the form's tags, the box's
+attribute set, the hidden fields and the term's three designed places (box, matching line, pager) are pinned by
+`TestTenantsScreen_IsTheSearchCardTheDocketAndThePager`.
 
 **States:** every tenant page 1 · searched with matches · no match · no tenants yet · later page
 empty · pager Previous + Next · a suspended row (fixture "tenants, a suspended row").
