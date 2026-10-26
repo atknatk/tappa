@@ -1707,7 +1707,7 @@ yazılır.
 | M14-06b | done (bekliyor) | 00074, `57f07658` + `ccf1b874` (dal `m14-reconcile`, `m14-identity`'ye **bilinçli olarak birleştirilmedi**: ADR 0031 §8 gereği Deploy 2 = expand'den sonraki ayrı deploy); üçüncü göz + güvenlik ONAY. Deploy 2 zamanı m14-identity'yi alıp yeniden doğrulanır |
 | M14-08 | done | 00074 (`identity_create_for_signup` + `identity_consume_row_reset` audit şekli), `9536aacf` … `44694a69` (2 tur); üçüncü göz + güvenlik ONAY; dal CI yeşil (39978957241). Bayrak `TAPPA_ADMIN_IDENTITY` (05-config `off`), ADR §8 tablosu `adminauth.IdentityGate`; kapalı yüzey hiç bağlanmaz (`mountGated`). Yazma yolları bayraktan bağımsız (kayıt, parola, eski sıfırlama linki) |
 | M14-11 | done | `669ab08b` … `10f7e040` (3 tur); üçüncü göz + güvenlik ONAY; CI yeşil. `POST /admin/account/sign-out-everywhere` (mountGated, askı istisna grubu — ADR 0025 notu: kapalı 11 / açık 12 istisna); kart metni bağlı/bağlanmamış oturuma göre doğru; bağlı oturum tek işletmeye asla düşmez (409 "sign in again") |
-| M14-09 | wip | dal `m14-login`, yeniden denetimde |
+| M14-09 | done | `4ccc6f69` … `5a45f7d6` (3 tur + birleşme); üçüncü göz + güvenlik ONAY; CI yeşil (40331137126). Bayrak açıkken son kullanılan işletmeye iniş; R21 (öbür işletmeleri ima eden alan ve metinler kimlik yolunda yok); `adminLoginWorkLimit` = 106 (1 + 8 karşılaştırmadan türetildi); açılış öncesi gecikme 409, açılış sonrası hata 500 + oturum iptali; test kilidi düzeni (yeniden girilebilir tutucular, Down testlerinin saati kilitten sonra) |
 | M14-10a | wip | dal `m14-formbind`; kullanıcı kararları 2026-10-26: encode rölesi muaf + ADR notu, sayfayla biten POST'ta `tb` kabul + ADR notu, `/admin` için erişim log'u kapalı Ingress |
 | M14-10, M14-12 … M14-21 | todo | |
 
