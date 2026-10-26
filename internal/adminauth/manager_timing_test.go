@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -870,10 +871,11 @@ func TestTimingConfig_RejectsTheKnownBadTuples(t *testing.T) {
 // address that IS registered more than once" — died when M7-02 made an attacker able
 // to CREATE that condition.
 //
-// IT IS A RATIO ASSERTION, NOT A DELTA. The two arms now do the same NUMBER of
-// comparisons (MaxCandidates), so their times track each other whatever the machine is
-// doing; a mutation that removes the padding makes the unknown arm 8x faster, which no
-// amount of load can imitate.
+// IT IS A COUNT AND A RATIO, NOT A DELTA. The two arms do the same NUMBER of comparisons
+// (MaxCandidates), each at the shipped work factor -- asserted exactly, through the
+// comparison seam, so no load can imitate or hide it -- and the clock is read as the ratio
+// of each arm's MEDIAN comparison, the arms running at the same time; a mutation that
+// removes the padding makes the unknown arm 8x cheaper, which fails both.
 func TestAuthenticate_TimingDoesNotCountTheCandidates(t *testing.T) {
 	if testing.Short() {
 		t.Skip("-short: skipping the bcrypt wall-clock SAMPLE. The COUNT this measures is " +
@@ -890,51 +892,95 @@ func TestAuthenticate_TimingDoesNotCountTheCandidates(t *testing.T) {
 	}})
 	none := newFakeManager(t, nil)
 
-	measure := func(m *Manager) time.Duration {
-		start := time.Now()
-		_, _ = m.Authenticate(context.Background(), "probe@example.test", "not-the-password")
-		return time.Since(start)
+	// EACH ARM'S COMPARISONS ARE WATCHED, NOT REPLACED: the wrapper runs the real Compare (the
+	// SHIPPED cost stays the subject) and records, per comparison, the digest's work factor and
+	// how long it took. compareFn is the seam every login path compares through (manager.go).
+	type arm struct {
+		costs []int
+		took  []time.Duration
+		total time.Duration
 	}
-	// Interleaved, so load moves both arms together; the minimum is the cleanest
-	// estimator of the work actually done.
-	// ⚠️ ONE ROUND PER ARM, NOT THREE (M7-02, after measurement). At three it cost
-	// 200.1 s under -race — 6 logins x MaxCandidates cost-12 comparisons — which is a
-	// quarter of the whole package for a check whose signal is an 8x ratio. Shrunk to
-	// the smallest sample that still exercises both arms at the SHIPPED cost; the
-	// five-arm comparison at a cheap shared cost is TestAuthenticate_TimingIsFlat's
-	// job, and the exact, sample-free statement is
-	// TestAuthenticate_PadsEveryExitToTheCap.
-	//
-	// WHAT THE SHRINK COSTS: with one round there is no min-of-N smoothing, so a
-	// single scheduler stall can move a reading. The gate is a factor of TWO against a
-	// mutation that produces a factor of EIGHT, so there is 4x of headroom for that
-	// noise — and the anti-vacuity floor below independently catches "the padding did
-	// not run at all".
-	var minNone, minOne time.Duration
-	for i := 0; i < 1; i++ {
-		if d := measure(none); minNone == 0 || d < minNone {
-			minNone = d
-		}
-		if d := measure(one); minOne == 0 || d < minOne {
-			minOne = d
+	watch := func(m *Manager, a *arm) {
+		m.compareFn = func(digest, password string) bool {
+			c, err := bcrypt.Cost([]byte(digest))
+			if err != nil {
+				c = -1 // not a bcrypt digest: no work factor at all, and the assertion below says so
+			}
+			start := time.Now()
+			ok := Compare(digest, password)
+			a.took = append(a.took, time.Since(start))
+			a.costs = append(a.costs, c)
+			return ok
 		}
 	}
-	t.Logf("0 candidates: %v · 1 candidate: %v (both must be %d comparisons)",
-		minNone.Round(time.Millisecond), minOne.Round(time.Millisecond), MaxCandidates)
+	var armNone, armOne arm
+	watch(none, &armNone)
+	watch(one, &armOne)
 
-	ratio := float64(minOne) / float64(minNone)
-	if ratio < 0.5 || ratio > 2.0 {
-		t.Errorf("an unregistered address takes %v and a registered one %v (ratio %.2f). "+
-			"They must be within a factor of two: a variable comparison count is a timing "+
-			"oracle for 'is this address registered', measured at 216 ms vs 437 ms before "+
-			"padComparisons existed.", minNone, minOne, ratio)
+	// 🔴 THE TWO ARMS RUN AT THE SAME TIME (M14 test-infra card). They ran one after the other,
+	// one login each, and the gate compared the two totals: when several -race packages ran in
+	// parallel a stall that fell on one arm alone read 73 s against 30 s (ratio 0.41) for the same
+	// eight comparisons -- the machine, not the code. Run concurrently, whatever the machine does
+	// it does to both arms (each comparison is CPU-bound on its own goroutine), and the timing gate
+	// below reads the MEDIAN comparison of each arm, which one stall cannot move. It also halves the
+	// wall time the old sequential pair cost (one cost-12 comparison is ~11 s under -race).
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		start := time.Now()
+		_, _ = none.Authenticate(context.Background(), "probe@example.test", "not-the-password")
+		armNone.total = time.Since(start)
+	}()
+	start := time.Now()
+	_, _ = one.Authenticate(context.Background(), "probe@example.test", "not-the-password")
+	armOne.total = time.Since(start)
+	<-done
+	t.Logf("0 candidates: %d comparisons, %v · 1 candidate: %d comparisons, %v (both must be %d)",
+		len(armNone.took), armNone.total.Round(time.Millisecond),
+		len(armOne.took), armOne.total.Round(time.Millisecond), MaxCandidates)
+
+	// THE PROPERTY ITSELF, EXACTLY: the response time cannot count the candidates when the work
+	// does not -- the same NUMBER of comparisons on both arms, each at the SHIPPED work factor. A
+	// mutation that removes the padding (the unknown arm 8x cheaper) or pads against a cheaper
+	// digest fails here whatever the machine is doing.
+	for _, a := range []struct {
+		name string
+		arm  arm
+	}{{"an unregistered address", armNone}, {"a registered address", armOne}} {
+		if len(a.arm.took) != MaxCandidates {
+			t.Fatalf("%s made %d comparisons, want %d: a variable comparison count is a timing "+
+				"oracle for 'is this address registered', measured at 216 ms vs 437 ms before "+
+				"padComparisons existed", a.name, len(a.arm.took), MaxCandidates)
+		}
+		for i, c := range a.arm.costs {
+			if c != Cost {
+				t.Errorf("%s: comparison %d ran at work factor %d, want the shipped %d -- padding "+
+					"that is cheaper than a real comparison counts the candidates", a.name, i+1, c, Cost)
+			}
+		}
 	}
-	// ANTI-VACUITY: both arms must really be doing the full padded work. One
-	// comparison alone cannot take this long at the shipped cost.
-	if floor := time.Duration(MaxCandidates/2) * 100 * time.Millisecond; minNone < floor {
+
+	// AND THE CLOCK AGREES: the median comparison of each arm within a factor of two (the gate is
+	// unchanged; a padding against a cheap digest is far outside it).
+	median := func(ds []time.Duration) time.Duration {
+		s := slices.Clone(ds)
+		slices.Sort(s)
+		return s[len(s)/2]
+	}
+	medNone, medOne := median(armNone.took), median(armOne.took)
+	ratio := float64(medOne) / float64(medNone)
+	if ratio < 0.5 || ratio > 2.0 {
+		t.Errorf("a comparison for an unregistered address takes %v and one for a registered "+
+			"address %v (median of %d each, ratio %.2f). They must be within a factor of two: "+
+			"otherwise the response time still counts the candidates.", medNone, medOne,
+			MaxCandidates, ratio)
+	}
+	// ANTI-VACUITY: both arms must really be doing the full padded work. One comparison alone
+	// cannot take this long at the shipped cost, and a stall only makes a login slower.
+	if floor := time.Duration(MaxCandidates/2) * 100 * time.Millisecond; armNone.total < floor {
 		t.Errorf("an unregistered address took %v, which is below the floor %d cost-%d "+
 			"comparisons can take (%v) — the padding is not running",
-			minNone, MaxCandidates, Cost, floor)
+			armNone.total, MaxCandidates, Cost, floor)
 	}
 }
 
