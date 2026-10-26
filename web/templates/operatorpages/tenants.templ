@@ -134,30 +134,41 @@ templ tenantPageForm(search string, page int, label string) {
 // overview's two cards that change the tenant, each its state and the form that state calls for:
 // the integration API (M11 API-13a; tenantAPISection) and, last, whether the business's panel
 // takes writes (OP-15 C; tenantSuspension) -- the gravest of the overview's writes at its foot.
+//
+// THE REDESIGN (M13-08; docs/design/operator-redesign screens.md §6, boards OpTenant): the page's
+// one h1 is the first card's small label "Tenant overview" -- the page heading, not the tenant's
+// name, which is the banner's (orchestrator decision (c)); it keeps the label's look, as the boards
+// draw it. The facts: on the phone the id and the sign-up time each on a line of their own and
+// plan and business type side by side, two columns on the tablet, and on the desktop the boards'
+// four tracks, wide enough for the id on one line. The counts: two by two on the phone, four
+// across from the tablet, their figures at the boards' sizes by a rule on the list (the figure's
+// own markup is pinned). Each card spaces its blocks; its bodies carry no top margin. Links stack
+// on the phone and stand in a row from the tablet. Pinned by
+// TestTenantOverviewScreen_IsTheFactsTheCountsAndTheTwoWriteCards.
 templ TenantOverview(v TenantOverviewView) {
 	@TenantScreen("Tenant overview", v.Name, v.Tabs, TabOverview) {
-		<section class="op-card">
-			<p class="docket-label">Tenant overview</p>
-			<dl class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-				@tenantFact("Tenant id", v.ID)
-				@tenantFact("Signed up", v.CreatedAt)
-				@tenantFact("Plan", v.Plan)
-				@tenantFact("Business type", v.BusinessType)
+		<section class="op-card flex flex-col gap-3.5">
+			<h1 class="docket-label">Tenant overview</h1>
+			<dl class="grid grid-cols-2 gap-x-4 gap-y-3.5 md:gap-x-5 md:gap-y-4 desk:grid-cols-[320px_200px_minmax(0,1fr)_minmax(0,1fr)]">
+				@tenantFact("Tenant id", v.ID, true)
+				@tenantFact("Signed up", v.CreatedAt, true)
+				@tenantFact("Plan", v.Plan, false)
+				@tenantFact("Business type", v.BusinessType, false)
 			</dl>
 		</section>
 		<section class="docket" aria-labelledby="tenant-live">
 			<h2 id="tenant-live" class="docket-label">Live now</h2>
-			<dl class="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+			<dl class="mt-3 grid grid-cols-2 items-end gap-4 md:grid-cols-4 md:gap-x-5">
 				@tenantCount("Locations", v.Locations)
 				@tenantCount("Active employees", v.ActiveEmployees)
 				@tenantCount("Active plaques", v.ActivePlaques)
 				@tenantCount("Active panel accounts", v.ActiveAdmins)
 			</dl>
-			<p class="mt-3 text-xs text-ink/70">
+			<p class="mt-3 text-xs leading-[1.45] text-ink/70">
 				Counted when this page was opened. Locations have no status; the other three count the
 				active ones only.
 			</p>
-			<p class="mt-2 flex flex-wrap gap-x-6">
+			<p class="mt-2 flex flex-col items-start text-sm md:flex-row md:flex-wrap md:gap-x-6">
 				<a href={ templ.URL(v.PlaquesPath) } class="op-link">See this tenant's plaques</a>
 				<a href={ templ.URL(v.BillingPath) } class="op-link">See this tenant's billing</a>
 				<a href={ templ.URL(v.VATPath) } class="op-link">See this tenant's VAT number</a>
@@ -165,18 +176,27 @@ templ TenantOverview(v TenantOverviewView) {
 		</section>
 		@tenantAPISection(v.API)
 		@tenantSuspension(v.Suspension)
-		<p class="flex flex-wrap gap-x-6">
+		<p class="flex flex-col items-start text-sm md:flex-row md:flex-wrap md:gap-x-6">
 			<a href="/operator/tenants" class="op-link">Back to the tenants</a>
 			<a href="/operator" class="op-link">Back to the console</a>
 		</p>
 	}
 }
 
-templ tenantFact(label, value string) {
-	<div>
-		<dt class="docket-label">{ label }</dt>
-		<dd class="mt-1 break-all font-mono text-sm">{ value }</dd>
-	</div>
+// tenantFact is one labelled fact. A wide one takes both of the phone's two columns (the id, a
+// time) and one track from the tablet on.
+templ tenantFact(label, value string, wide bool) {
+	if wide {
+		<div class="col-span-2 md:col-span-1">
+			<dt class="docket-label">{ label }</dt>
+			<dd class="mt-1 break-all font-mono text-sm">{ value }</dd>
+		</div>
+	} else {
+		<div>
+			<dt class="docket-label">{ label }</dt>
+			<dd class="mt-1 break-all font-mono text-sm">{ value }</dd>
+		</div>
+	}
 }
 
 templ tenantCount(label, value string) {
@@ -192,9 +212,9 @@ templ tenantCount(label, value string) {
 // last write: the write's answer says nothing about what the database found (ADR 0021 §2 v 7).
 templ tenantAPISection(a TenantAPIView) {
 	@apiNotice(a)
-	<section class="op-card" aria-labelledby="tenant-api">
+	<section class="op-card flex flex-col gap-3.5" aria-labelledby="tenant-api">
 		<h2 id="tenant-api" class="docket-label">Integration API</h2>
-		<p class="mt-3 flex flex-wrap items-center gap-3">
+		<p class="flex flex-wrap items-center gap-x-3.5 gap-y-2">
 			if a.Open {
 				<span class="tally tally--active">Open</span>
 				<span class="text-sm">Since <span class="font-mono">{ a.OpenedAt }</span></span>
@@ -207,7 +227,7 @@ templ tenantAPISection(a TenantAPIView) {
 				<span class="text-sm">API code <span class="font-mono">{ a.Code }</span></span>
 			}
 		</p>
-		<p class="mt-2 text-sm">
+		<p class="text-sm leading-normal">
 			if a.Open {
 				The business's integration keys work and its webhooks are sent. Every punch names it by this code.
 			} else if a.Code != "" {
@@ -216,11 +236,11 @@ templ tenantAPISection(a TenantAPIView) {
 				The API has never been opened for this business. Its owner can create keys in the panel; they work once it is open.
 			}
 		</p>
-		<form method="post" action={ templ.URL(a.OpenPath) } class="mt-4 flex flex-col gap-3">
-			<label for="tenant-api-code" class="docket-label">API code</label>
+		<form method="post" action={ templ.URL(a.OpenPath) } class="flex flex-col gap-2 border-t border-dashed border-line pt-3.5 md:grid md:grid-cols-[minmax(0,220px)_auto] md:justify-start md:gap-x-2.5">
+			<label for="tenant-api-code" class="op-label md:col-span-2">API code</label>
 			<input id="tenant-api-code" type="text" name="api_code" value={ a.Code } maxlength="16" required autocomplete="off" spellcheck="false" class="op-input font-mono"/>
-			<p class="text-xs text-ink/70">A capital letter followed by 1 to 15 capital letters or digits, such as KF. No other business in its holding may have it.</p>
-			<button type="submit" class="btn btn--primary">
+			<p class="text-xs leading-[1.45] text-ink/70 md:col-span-2 md:row-start-3">A capital letter followed by 1 to 15 capital letters or digits, such as KF. No other business in its holding may have it.</p>
+			<button type="submit" class="btn btn--primary md:col-start-2 md:row-start-2 md:justify-self-start">
 				if a.Open {
 					Change the code
 				} else {
@@ -229,7 +249,7 @@ templ tenantAPISection(a TenantAPIView) {
 			</button>
 		</form>
 		if a.Open {
-			<form method="post" action={ templ.URL(a.ClosePath) } class="mt-3">
+			<form method="post" action={ templ.URL(a.ClosePath) } class="flex flex-col md:block">
 				<button type="submit" class="btn btn--quiet">Close the API</button>
 			</form>
 		}
@@ -263,16 +283,16 @@ templ apiNotice(a TenantAPIView) {
 // state, ONE form. The answer to either form is a redirect back to this overview, which reads the
 // database again: the page never says "already suspended" (ADR 0021 §2 v 7).
 templ tenantSuspension(v TenantSuspensionView) {
-	<section class="op-card" aria-labelledby="tenant-suspension">
+	<section class="op-card flex flex-col gap-3.5" aria-labelledby="tenant-suspension">
 		<h2 id="tenant-suspension" class="docket-label">Panel writes</h2>
 		if v.Suspended {
-			<p class="mt-3"><span class="tally tally--tenant-suspended">Suspended</span></p>
-			<p class="mt-2 text-sm">
+			<p><span class="tally tally--tenant-suspended">Suspended</span></p>
+			<p class="text-sm leading-normal">
 				The business's panel refuses its writes. Taps, signing in, reading every section, the CSV exports and the
 				four paths of the time record stay open.
 			</p>
-			<dl class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-				@tenantFact("Suspended since", v.Since)
+			<dl class="grid grid-cols-1 gap-4 md:grid-cols-2">
+				@tenantFact("Suspended since", v.Since, false)
 				<div>
 					<dt class="docket-label">Reason</dt>
 					<dd class="mt-1 text-sm">
@@ -282,8 +302,8 @@ templ tenantSuspension(v TenantSuspensionView) {
 			</dl>
 			@reinstateForm(v)
 		} else {
-			<p class="mt-3"><span class="tally tally--tenant-active">Active</span></p>
-			<p class="mt-2 text-sm">The business's panel accepts its writes.</p>
+			<p><span class="tally tally--tenant-active">Active</span></p>
+			<p class="text-sm leading-normal">The business's panel accepts its writes.</p>
 			@suspendForm(v)
 		}
 	</section>
@@ -309,15 +329,15 @@ templ suspensionReason(w AuditWord) {
 // warning follows the choices in the same parent, so a sibling rule can see it -- no script; the
 // page's policy allows none). A browser that loads no stylesheet shows it always.
 templ suspendForm(v TenantSuspensionView) {
-	<form method="post" action={ templ.URL(v.SuspendPath) } class="mt-5 flex flex-col gap-3">
+	<form method="post" action={ templ.URL(v.SuspendPath) } class="flex flex-col gap-3 border-t border-dashed border-line pt-3.5">
 		<h3 class="font-display text-lg font-bold tracking-tight">Suspend this tenant's writes</h3>
-		<p class="text-sm">
+		<p class="text-sm leading-normal">
 			Every write of the business's panel is refused until the suspension is lifted — except signing in and out,
 			a panel account's own password, and the four paths of the time record: adding a person to the staff, a new
 			invitation and both steps of a manual entry. Taps, reading every section and the CSV exports go on, and the
 			months of a suspension are billed as usual.
 		</p>
-		<p class="text-sm">
+		<p class="text-sm leading-normal">
 			Every section shows the business a banner with a sentence for the reason: non-payment and a breach of the
 			terms are named; a security hold and the business's own request share one neutral sentence.
 		</p>
@@ -396,9 +416,9 @@ templ holdWarning() {
 
 // reinstateForm lifts the suspension: a ticked box, nothing else.
 templ reinstateForm(v TenantSuspensionView) {
-	<form method="post" action={ templ.URL(v.ReinstatePath) } class="mt-5 flex flex-col gap-3">
+	<form method="post" action={ templ.URL(v.ReinstatePath) } class="flex flex-col gap-3 border-t border-dashed border-line pt-3.5">
 		<h3 class="font-display text-lg font-bold tracking-tight">Lift the suspension</h3>
-		<p class="text-sm">
+		<p class="text-sm leading-normal">
 			The business's panel accepts its writes again from its next request. The suspension and its lifting stay on
 			record in the business's own audit log and in the operator audit log.
 		</p>

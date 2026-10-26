@@ -397,6 +397,23 @@ less than 60 seconds ago. · The business exists.
 required, value = current code) — exactly one; when open, `POST
 /operator/tenants/{id}/integration/close` (no field) — exactly one. No confirmation step.
 
+**As built (M13-08):** `<h1 class="docket-label">Tenant overview</h1>` opens the facts card (`op-card flex flex-col gap-3.5`);
+the facts `dl` follows the boards — on the phone two columns with the id and the sign-up time each across both (their wrapper
+`col-span-2 md:col-span-1`; the `dt`/`dd` stay as pinned), two on the tablet, on the desktop the boards' tracks
+`320px 200px minmax(0,1fr) minmax(0,1fr)` (the id on one line) — so the overview's facts do not take the catalogue's generic
+"Fact grid" columns (README §6, which says so); the counts two by two on the phone and four across from the tablet, bottom-aligned,
+their figures 30 / 32 / 34 px with line height 1.1 by `[aria-labelledby="tenant-live"] dd` (the figure's class stays pinned); the
+note 12 px; the docket's links and the back links stacked on the phone and in a row from the tablet. The API card and the Panel
+writes card are `op-card flex flex-col gap-3.5`; the API form sits under a dashed rule, its children in the code's order (label
+`op-label`, box, help, button) with the button beside the 220 px box and the help under both from the tablet by grid placement;
+Close the API is full width on the phone. **Deliberate differences from the boards:** the API code is not bold (its span is pinned,
+`tenantapi_test.go`); the box carries no `aria-describedby` (D1 — the boards' wiring is mock-up markup, as on the tenant list); the
+primary button is the shared `btn--primary`'s 48 px, so the box beside it stretches to 48 px (the boards 44 px); the boards'
+`aria-label` on the first card is not ported (its h1 names it); the notices keep the full-frame shape (orchestrator decision (a)).
+Pinned by `TestTenantOverviewScreen_IsTheFactsTheCountsAndTheTwoWriteCards` (the column's blocks, every word per state, the whole
+tags, each input's attribute set, the forms and anchors, no hidden or preselected control),
+`TestTenantScreens_EachHasOneH1InTheMainAndNoneInTheBanner` and `TestTenantOverviewCounts_TheScopedRuleKeepsTheBoardsSizes`.
+
 **States:** API open · closed with code · never opened · each notice · unnamed tenant banner ·
 suspension: active, suspended, suspended with an unrecognised reason (below).
 **Not shown (OP-11 minimisation, `tenants.templ:115-125`):** any person, address, plaque uid,
@@ -418,7 +435,7 @@ reads nothing of its own. View `TenantSuspensionView` (`view.go:269-282`), built
 | Element | Words / markup (verbatim) |
 |---|---|
 | card | `<section class="op-card" aria-labelledby="tenant-suspension">`; `<h2 id="tenant-suspension" class="docket-label">Panel writes</h2>` (under the page's `<h1>` "Tenant overview" — above, "The overview's `<h1>`") |
-| state — active | chip `<span class="tally tally--tenant-active">Active</span>` (in `<p class="mt-3">`) · The business's panel accepts its writes. |
+| state — active | chip `<span class="tally tally--tenant-active">Active</span>` (in `<p class="mt-3">` before M13-08; a bare `<p>` since, the card spacing it) · The business's panel accepts its writes. |
 | state — suspended | chip `<span class="tally tally--tenant-suspended">Suspended</span>` · The business's panel refuses its writes. Taps, signing in, reading every section, the CSV exports and the four paths of the time record stay open. |
 | facts (suspended) | `dl` with **Suspended since** — `<dt class="docket-label">Suspended since</dt>` `<dd class="mt-1 break-all font-mono text-sm">`, UTC to the minute (`utcStamp`) — and **Reason** — `<dt class="docket-label">Reason</dt>` `<dd class="mt-1 text-sm">` the label |
 | reason labels (`suspension.go:104-109`) | `non_payment` **Non-payment** · `terms_breach` **Breach of the terms** · `security_hold` **Security hold** · `customer_request` **At the business's request**. A stored code this build does not name: its raw text (mono) + `<span class="tally tally--unrecognised">Unrecognised</span>` when it has a closed-set member's shape, the chip alone otherwise (`suspensionReason`, `tenants.templ:283-291`; the audit log's `unknownWord` rule) |
@@ -435,10 +452,10 @@ reads nothing of its own. View `TenantSuspensionView` (`view.go:269-282`), built
 | reinstate button | **Lift the suspension** (`btn btn--primary self-start`) |
 
 **Forms — exactly one, by state** (`op8_test.go:921-926`):
-- suspend (active): `<form method="post" action="/operator/tenants/{id}/suspend" class="mt-5 flex flex-col gap-3">`
+- suspend (active): `<form method="post" action="/operator/tenants/{id}/suspend" class="mt-5 flex flex-col gap-3">` (as built in M13-08: `class="flex flex-col gap-3 border-t border-dashed border-line pt-3.5"` — the card spaces it, a dashed rule above it as above the API form; the test prefix `<form method="post" action="…/suspend"` is unchanged)
   — fields **only** `reason` (radio, `required`) and `confirm` (checkbox, `value="yes"`, `required`);
   no tenant field, no text field, no `<textarea>` (`TestTenantOverview_SaysTheSuspensionAndOffersOneForm`).
-- reinstate (suspended): `<form method="post" action="/operator/tenants/{id}/reinstate" class="mt-5 flex flex-col gap-3">`
+- reinstate (suspended): `<form method="post" action="/operator/tenants/{id}/reinstate" class="mt-5 flex flex-col gap-3">` (as built in M13-08: the same class as the suspend form)
   — field **only** `confirm`.
 - No CSRF field and none is added: the forgery defence is `sameOriginGate(true)` + the session
   cookie's SameSite=Strict (`suspension.go:37-39`); the box is against a wrong click. The server

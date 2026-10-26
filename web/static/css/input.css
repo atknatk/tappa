@@ -1349,6 +1349,14 @@
   [aria-labelledby="tenant-list"] .op-row > :last-child {
     @apply basis-full md:col-span-full desk:col-span-1 desk:col-start-4 desk:row-start-1 desk:justify-self-end;
   }
+  /* THE OVERVIEW'S COUNTS IN THE REDESIGN (M13-08; screens.md §6, boards OpTenant, T-OpTenant,
+     M-OpTenant): the four figures of "Live now" at the boards' sizes -- 30 px on the phone, 32 px
+     on the tablet, 34 px on the desktop -- with the boards' line height of 1.1. Scoped from the
+     docket's heading id, because the figure's markup is pinned (the overview's count regex in
+     TestTenantOverview_NamesTheTenantInTheBannerAndRefusesABadPath); the scoped selector outranks
+     the figure's own size class, which stays the phone's. One @apply, read and pinned by
+     TestTenantOverviewCounts_TheScopedRuleKeepsTheBoardsSizes. */
+  [aria-labelledby="tenant-live"] dd { @apply leading-[1.1] md:text-[32px] desk:text-[34px]; }
 
   /* THE INTEGRATION GUIDE'S BODY (M11 DOCS-1, /docs/api). internal/apiguide converts the
      Markdown with goldmark, whose output carries no class, so every rule here is scoped
