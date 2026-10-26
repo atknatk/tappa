@@ -308,7 +308,8 @@ var tenantRowRules = map[string][]string{
 // takes the fourth track and the id falls to the second line), the row's items stretched again
 // (md:justify-items-start dropped: the chip grows to its track), the name link sharing its phone
 // line (basis-full dropped), the desktop's four tracks back to three, the tablet's three tracks
-// changed, the plan's mono dropped, a fifth rule on the list.
+// changed, the plan's mono dropped, a fifth rule on the list -- in the double-quoted spelling, the
+// single-quoted one and the unquoted one (any selector naming tenant-list is the list's).
 //
 // PART II -- red on: any of the above. PART III -- what the rules draw at each width is the
 // screenshot round's (README §6.1, as built); a later rule elsewhere that overrides one of these,
@@ -334,6 +335,10 @@ func TestTenantsRow_TheScopedRulesKeepTheBoardsTracks(t *testing.T) {
 		{"the plan not mono", third + " @apply font-mono; }", third + " @apply font-display; }"},
 		{"the id not placed on the first line", " desk:row-start-1", ""},
 		{"a fifth rule", row, `[aria-labelledby="tenant-list"] .op-row > span { @apply text-sm; }` + "\n  " + row},
+		{"a fifth rule, single-quoted, moving the id back", row,
+			`[aria-labelledby='tenant-list'] .op-row > :last-child { @apply desk:col-start-1 desk:row-start-2; }` + "\n  " + row},
+		{"a fifth rule, unquoted, stretching the items", row,
+			`[aria-labelledby=tenant-list] .op-row { @apply md:justify-items-stretch; }` + "\n  " + row},
 	} {
 		mutated := strings.Replace(css, c.from, c.to, 1)
 		if mutated == css {
@@ -355,7 +360,9 @@ func readTenantRowRules(css string) []string {
 	var findings []string
 	for _, m := range rule.FindAllStringSubmatch(src, -1) {
 		sel := strings.Join(strings.Fields(m[1]), " ")
-		if !strings.Contains(sel, `aria-labelledby="tenant-list"`) {
+		// Any spelling of the list's id -- double, single or no quotes, another attribute operator --
+		// is the list's; only the four exact selectors are allowed (the re-review's two quotings).
+		if !strings.Contains(sel, "tenant-list") {
 			continue
 		}
 		if _, known := tenantRowRules[sel]; !known {
