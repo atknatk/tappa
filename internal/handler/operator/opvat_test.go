@@ -342,9 +342,9 @@ func TestVATScreen_AnUnnamedTenantIsNamedByItsID(t *testing.T) {
 		}
 		named("a tenant named "+label+", a refused re-check", w, http.StatusUnprocessableEntity, odd, vatNumberOdd)
 	}
-	id := g.seedVAT(uuid.Nil, "​A⁠", vatNumberOK, nil, nil)
+	id := g.seedVAT(uuid.Nil, "\u200bA\u2060", vatNumberOK, nil, nil)
 	if body := g.get(vatPathOf(id.String()), c).Body.String(); strings.Contains(body, "Unnamed tenant") ||
-		!strings.Contains(body, "<bdi>​A⁠</bdi>") {
+		!strings.Contains(body, "<bdi>\u200bA\u2060</bdi>") {
 		t.Error("CONTROL: a name with a visible letter is not the VAT screen's name")
 	}
 }
