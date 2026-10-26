@@ -28,12 +28,28 @@ var tablesLockStatements = map[string][]string{
 	"../../internal/db":               {"TestOperatorDB_RunsAsTappaOperator", "bfTx", "opLiveFixture", "opTx"},
 	"../../internal/handler/operator": {"newE2E"},
 	"../../internal/operatorauth":     {"sharedTablesLock"},
-	// M14-07: the identity worlds commit identities (ownerConn takes it shared).
+	// M14-07: the identity worlds commit identities; M14-09's audit: every committed admin row too
+	// (ownerConn and newAdminRow take it shared, through holdTablesLock).
 	"../../internal/adminauth": {"sharedTablesLock"},
 	// M14-08: a registration of a new address commits an identity (identityOwner takes it shared).
 	"../../internal/domain/signup": {"sharedTablesLock"},
-	// M14-08: the panel's flag-off and password tests link a committed identity (linkHarness).
+	// M14-08: the panel's flag-off and password tests link a committed identity (linkHarness);
+	// M14-09: every panel harness holds it (its rows are committed), through holdPanelTablesLock.
 	"../../internal/handler": {"sharedTablesLock"},
+}
+
+// tablesLockReentrant are, per directory, the functions that hold the lock RE-ENTRANTLY for the
+// whole test process: only the first caller sends the statement, every later one -- while any is
+// alive -- counts itself in, and the last to end releases it, so a caller already holding it never
+// asks again (internal/handler's holdPanelTablesLock, M14-09: every panel harness takes it, and a test
+// builds two harnesses or one inside a subtest). A call TO one is therefore not a site of the lock,
+// so its callers are not checked by the once-per-tree rule; in exchange the directory's statement
+// may be reached from NOTHING ELSE: every function that reaches the lock there must be a statement
+// function of tablesLockStatements or a re-entrant holder (TestTablesLock_IsTakenOncePerTestTree).
+var tablesLockReentrant = map[string][]string{
+	"../../internal/handler": {"holdPanelTablesLock"},
+	// M14-09's audit: every test that commits an admin row (newAdminRow) or an identity (ownerConn).
+	"../../internal/adminauth": {"holdTablesLock"},
 }
 
 // lockSite is one place a function asks for the lock: the statement itself (via ""),
@@ -118,8 +134,10 @@ func sitesIn(fset *token.FileSet, body *ast.BlockStmt, takers map[string]bool) [
 }
 
 // tablesLockSites returns, for every function of one package (files) that reaches the
-// lock -- directly or through other functions of the package -- the sites in its body.
-func tablesLockSites(fset *token.FileSet, files []*ast.File) map[string][]lockSite {
+// lock -- directly or through other functions of the package -- the sites in its body. A call to
+// a re-entrant holder (reentrant, tablesLockReentrant) is not a site: the holder is listed with its
+// own sites, and nothing reaches the lock through it.
+func tablesLockSites(fset *token.FileSet, files []*ast.File, reentrant []string) map[string][]lockSite {
 	decls := map[string]*ast.FuncDecl{}
 	for _, f := range files {
 		for _, d := range f.Decls {
@@ -129,19 +147,40 @@ func tablesLockSites(fset *token.FileSet, files []*ast.File) map[string][]lockSi
 		}
 	}
 	takers := map[string]bool{}
+	// through is takers without the re-entrant holders: what a call can reach the lock through.
+	through := map[string]bool{}
 	for changed := true; changed; {
 		changed = false
 		for k, fd := range decls {
-			if !takers[k] && len(sitesIn(fset, fd.Body, takers)) > 0 {
+			if !takers[k] && len(sitesIn(fset, fd.Body, through)) > 0 {
 				takers[k], changed = true, true
+				if !slices.Contains(reentrant, k) {
+					through[k] = true
+				}
 			}
 		}
 	}
 	out := map[string][]lockSite{}
 	for k := range takers {
-		out[k] = sitesIn(fset, decls[k].Body, takers)
+		out[k] = sitesIn(fset, decls[k].Body, through)
 	}
 	return out
+}
+
+// tablesLockOutsiders: with re-entrant holders, every function reaching the lock other than the
+// statement functions and the holders themselves -- a call that bypasses the holder.
+func tablesLockOutsiders(sites map[string][]lockSite, statements, reentrant []string) []string {
+	if len(reentrant) == 0 {
+		return nil
+	}
+	var bad []string
+	for fn := range sites {
+		if !slices.Contains(statements, fn) && !slices.Contains(reentrant, fn) {
+			bad = append(bad, fmt.Sprintf("%s reaches the lock outside the re-entrant holder %v", fn, reentrant))
+		}
+	}
+	sort.Strings(bad)
+	return bad
 }
 
 // tablesLockFindings: a function that reaches the lock more than once, or from inside
@@ -217,6 +256,13 @@ func parsePackages(t *testing.T, fset *token.FileSet, dir string) map[string][]*
 // finds the CI shape, a function that asks twice and one that asks in a loop -- and not
 // one whose subtest asks nothing, nor an unlock -- in a source written here.
 //
+// THE ONE EXCEPTION, M14-09: a directory may name a RE-ENTRANT holder (tablesLockReentrant --
+// internal/handler's holdPanelTablesLock, which every panel harness takes, and internal/adminauth's
+// holdTablesLock, which every committed admin row and identity world takes). It sends the statement
+// only while nothing in the process holds the lock, so a test that already holds it never asks
+// again; calls to it are not sites, and in exchange nothing else in that directory may reach the
+// statement (tablesLockOutsiders). Its own positive control is the second source below.
+//
 // PART III -- NO COMPLETENESS CLAIM. The scan is syntactic: a lock reached through a
 // function value, an interface, a helper in another package or a statement built at run
 // time is not seen, a method is matched by its name alone, and a package outside
@@ -236,7 +282,7 @@ func unlocks(t *testing.T) { tx(t); conn.Exec(ctx, "SELECT pg_advisory_unlock_sh
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := tablesLockFindings(tablesLockSites(cfset, []*ast.File{cf}))
+	got := tablesLockFindings(tablesLockSites(cfset, []*ast.File{cf}, nil))
 	want := []string{
 		`looped reaches the lock inside a loop (line 6 via "tx")`,
 		`nested reaches the lock 2 times (line 4 via "lock", line 4 via "tx")`,
@@ -247,12 +293,35 @@ func unlocks(t *testing.T) { tx(t); conn.Exec(ctx, "SELECT pg_advisory_unlock_sh
 		t.Fatalf("POSITIVE CONTROL FAILED: the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 
+	// THE RE-ENTRANT HOLDER'S CONTROL (M14-09): callers of the holder -- twice, in a subtest -- are
+	// no finding, and a function that ALSO reaches the statement past the holder is an outsider.
+	const reentrantControl = `package p
+func lock(t *testing.T) { conn.Exec(ctx, "SELECT pg_advisory_lock_shared(hashtext($1))", operatorTablesTestLock) }
+func hold(t *testing.T) { if first { lock(t) } }
+func harness(t *testing.T) { hold(t) }
+func two(t *testing.T) { harness(t); harness(t); t.Run("sub", func(t *testing.T) { harness(t) }) }
+func bypass(t *testing.T) { harness(t); lock(t) }
+`
+	rf, err := parser.ParseFile(cfset, "reentrant.go", reentrantControl, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rsites := tablesLockSites(cfset, []*ast.File{rf}, []string{"hold"})
+	got = append(tablesLockFindings(rsites), tablesLockOutsiders(rsites, []string{"lock"}, []string{"hold"})...)
+	want = []string{"bypass reaches the lock outside the re-entrant holder [hold]"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("POSITIVE CONTROL FAILED (re-entrant holder): the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
 	fset := token.NewFileSet()
 	for _, dir := range tablesLockDirs {
 		var holders, tests []string
 		for _, files := range parsePackages(t, fset, dir) {
-			sites := tablesLockSites(fset, files)
+			sites := tablesLockSites(fset, files, tablesLockReentrant[dir])
 			for _, f := range tablesLockFindings(sites) {
+				t.Errorf("%s: %s", dir, f)
+			}
+			for _, f := range tablesLockOutsiders(sites, tablesLockStatements[dir], tablesLockReentrant[dir]) {
 				t.Errorf("%s: %s", dir, f)
 			}
 			for fn, ss := range sites {

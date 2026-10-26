@@ -119,6 +119,13 @@ func fixtureDigest(t *testing.T, password string) string {
 func newAdminRow(t *testing.T, d *db.DB, tenantID uuid.UUID, email, password, status, role, fullName string) uuid.UUID {
 	t.Helper()
 	digest := fixtureDigest(t, password)
+	// The row is COMMITTED: the operator-tables lock is held shared AROUND THE INSERT (holdTablesLock
+	// says why), so no admin row is committed while internal/db's exclusive tests run. Not for the
+	// whole test: the sign-ins that follow add no admin row (ItIsIdempotent's EXCLUSIVE table lock
+	// keeps their UPDATEs out of its way), and a whole-test hold made every exclusive waiter -- and
+	// every shared request queued behind it -- wait out this package's tests (M14-09, measured on CI).
+	release := holdTablesLock(t)
+	defer release()
 	id := uuid.New()
 	err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,

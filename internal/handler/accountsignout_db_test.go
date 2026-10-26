@@ -3,8 +3,8 @@ package handler
 // accountsignout_db_test.go -- M14-11 "Sign out everywhere" end to end: the real panel (flag on),
 // the real adminauth.Manager over the real pool, identity_revoke_sessions (00071) and the real
 // audit trail. A person is ONE identity linked to admin rows in several test-made businesses; the
-// identity is committed, so each test holds internal/db's operator-tables lock SHARED (linkHarness /
-// sharedTablesLock) and takes the identity back at the end.
+// identity is committed, so each test holds internal/db's operator-tables lock SHARED -- through its
+// panel harness (holdPanelTablesLock, M14-09's re-entrant holder) -- and takes the identity back at the end.
 
 import (
 	"context"
@@ -52,6 +52,15 @@ func addBusiness(t *testing.T, p *panelHarness, owner *pgx.Conn, ident uuid.UUID
 		}
 	}
 	return b
+}
+
+// landOn makes tenant the business ident's next sign-in lands on: on the identity path there is no
+// picker, and identity_open_session lands on the business used last (K-4, M14-09).
+func landOn(t *testing.T, owner *pgx.Conn, ident, tenant uuid.UUID) {
+	t.Helper()
+	if _, err := owner.Exec(context.Background(), `UPDATE admin_identities SET last_used_tenant = $2 WHERE id = $1`, ident, tenant); err != nil {
+		t.Fatalf("land the next sign-in on %s: %v", tenant, err)
+	}
 }
 
 // anotherBrowser is p with a cookie jar of its own: another device of the same person.
@@ -219,11 +228,24 @@ func TestSignOutEverywhereDB_OnePressEndsThePersonsSessionsInEveryBusiness(t *te
 	d := addBusiness(t, p, owner, ident, "Everywhere D Ltd")
 
 	a1, a2, b1, c1, d1 := p, p.anotherBrowser(t), p.anotherBrowser(t), p.anotherBrowser(t), p.anotherBrowser(t)
-	a1.signInTo(t, a.tenant)
-	a2.signInTo(t, a.tenant)
-	b1.signInTo(t, b.tenant)
-	c1.signInTo(t, c.tenant)
-	d1.signInTo(t, d.tenant)
+	// The rows are linked and the flag is on, so each sign-in takes the identity path (M14-09): no
+	// picker, it lands in the business used last (K-4) -- set before each one.
+	for _, s := range []struct {
+		br     *panelHarness
+		tenant uuid.UUID
+	}{{a1, a.tenant}, {a2, a.tenant}, {b1, b.tenant}, {c1, c.tenant}, {d1, d.tenant}} {
+		landOn(t, owner, ident, s.tenant)
+		s.br.signInTo(t, s.tenant)
+	}
+	for _, x := range []everywhereBusiness{a, b, c, d} {
+		want := 1
+		if x == a {
+			want = 2
+		}
+		if n := p.liveSessionsOf(t, x.tenant, x.admin); n != want {
+			t.Fatalf("CONTROL: %s holds %d live session(s) after the sign-ins, want %d", x.name, n, want)
+		}
+	}
 	if _, err := owner.Exec(context.Background(), `UPDATE admin_users SET status = 'disabled' WHERE id = $1`, c.admin); err != nil {
 		t.Fatalf("disable the membership in C: %v", err)
 	}
@@ -304,7 +326,6 @@ func TestSignOutEverywhereDB_AnUnlinkedRowIsTodaysOneBusiness(t *testing.T) {
 			t.Errorf("close the owner connection: %v", err)
 		}
 	})
-	sharedTablesLock(t, ctx, owner)
 	a := everywhereBusiness{tenant: p.tenantID, admin: p.adminID, name: "Unlinked A Ltd"}
 	b := addBusiness(t, p, owner, uuid.Nil, "Unlinked B Ltd")
 

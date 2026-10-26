@@ -72,6 +72,13 @@ type fakeAdmins struct {
 	changeArgs []changePasswordArgs
 	// revokeAllArgs records every RevokeAll call: the session's ids and keepCurrent.
 	revokeAllArgs []revokeAllArgs
+
+	// person is the hook for AuthenticatePerson (M14-09, the identity path). Nil means "every
+	// sign-in fails" (ErrBadCredentials), Authenticate's default. personCalls counts the calls and
+	// personBudgets keeps the failure budget each was handed, in order.
+	person        func(email, password string, want uuid.UUID, budget adminauth.FailureBudget) (adminauth.PersonSignIn, error)
+	personCalls   int
+	personBudgets []adminauth.FailureBudget
 }
 
 // revokeAllArgs is one recorded RevokeAll call.
@@ -96,6 +103,18 @@ func (f *fakeAdmins) Authenticate(_ context.Context, email, password string) (ad
 		return adminauth.Authentication{}, adminauth.ErrBadCredentials
 	}
 	return f.authenticate(email, password)
+}
+
+func (f *fakeAdmins) AuthenticatePerson(_ context.Context, email, password string, want uuid.UUID, budget adminauth.FailureBudget) (adminauth.PersonSignIn, error) {
+	f.mu.Lock()
+	f.personCalls++
+	f.personBudgets = append(f.personBudgets, budget)
+	hook := f.person
+	f.mu.Unlock()
+	if hook == nil {
+		return adminauth.PersonSignIn{}, adminauth.ErrBadCredentials
+	}
+	return hook(email, password, want, budget)
 }
 
 func (f *fakeAdmins) TenantChoices(_ context.Context, v []adminauth.Verified) ([]adminauth.Choice, error) {
@@ -2664,6 +2683,14 @@ func TestPanelConstants_ShippedValuesArePinned(t *testing.T) {
 			"THE CPU BOUND: 10 failures x adminauth.MaxCandidates (8) x ~380 ms = ~30 s of CPU " +
 				"per 10-minute window per address, about 5% of one core. Raising it raises that " +
 				"linearly — see adminauth.MaxCandidates, which carries the other half.",
+		},
+		{
+			"adminLoginWorkLimit", adminLoginWorkLimit, 106,
+			"every sign-in that reaches the password loop, success included (M7-02's hole). " +
+				"RE-SIZED IN M14-09 for the identity path's 1 + MaxCandidates = 9 comparisons: the " +
+				"operator model's comparison budget (120 sign-ins x 8 = 960) divided by 9 = 106, so " +
+				"the CPU ceiling stays ~362 CPU-s per window per address (~0.60 core at 0.38 s a " +
+				"comparison) instead of growing to ~410. Still above the largest modelled office (60).",
 		},
 		{
 			"adminAccountLimit", adminAccountLimit, 10,
