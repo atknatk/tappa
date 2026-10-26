@@ -1247,8 +1247,9 @@
   /* A new in-card eyebrow: mono 11 px capitals, ink at 70 % on paper (6.05:1). */
   .op-label   { @apply font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70; }
   /* The two in-card headings the boards draw where the code writes a docket label today: an
-     enrollment step (16 px, 17 px from the tablet) and a card's own heading (19 px). */
-  .op-step    { @apply font-display text-base font-bold tracking-tight md:text-[17px]; }
+     enrollment step (16 px, 17 px from the tablet; line height 1.3, the boards', so a step that
+     wraps on a phone stays one heading) and a card's own heading (19 px). */
+  .op-step    { @apply font-display text-base font-bold leading-[1.3] tracking-tight md:text-[17px]; }
   .op-heading { @apply font-display text-[19px] font-bold tracking-tight; }
   /* The pager (Billing, Audit, Holdings): an outlined button in the panel's manner. The frame,
      ink at 30 %, is no text; the word is ink on paper, 16.17:1. */

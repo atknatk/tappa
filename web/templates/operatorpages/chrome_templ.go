@@ -443,7 +443,7 @@ func frame(current navItem) templ.Component {
 // tablet, 24 / 16 / 40 on the phone. So the column is centred, as wide as the wider of the two
 // and padded outside that width (its width counts the content alone); each screen then sets
 // its own: the sign-in card 480 px at most, the problem card its own 640 px rule, which the
-// column caps at 560. The enrollment page's column is scriptedScreen's, below.
+// column caps at 560. scriptedScreen, below, draws this column for the enrollment page.
 func screen(title string, signedIn bool, current navItem) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -541,7 +541,9 @@ func screen(title string, signedIn bool, current navItem) templ.Component {
 }
 
 // scriptedScreen is screen plus one script; Enroll is its caller. It draws the bar
-// signed out and no nav: enrollment ends in a session, it does not start in one.
+// signed out and no nav: enrollment ends in a session, it does not start in one. Its
+// column is the signed-out column above, to the class (M13-05): the enrollment boards
+// draw the card 560 px wide under the same padding, and the card fills the column.
 func scriptedScreen(title, src string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -579,7 +581,7 @@ func scriptedScreen(title, src string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, " <main class=\"op-main mx-auto flex w-full max-w-lg flex-col gap-6 px-4 py-8\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, " <main class=\"op-main mx-auto box-content flex max-w-[560px] flex-col gap-6 px-4 pt-6 pb-10 md:px-8 md:pt-16 md:pb-20 desk:px-6 desk:pt-[72px] desk:pb-24\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

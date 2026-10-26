@@ -133,7 +133,7 @@ Signed-out shell via `scriptedScreen` (the only page with a script). Title `Set 
 |---|---|
 | h1 | Set up your operator account |
 | sub | This link works once, for 30 minutes from when it was made. |
-| step 1 heading (first load only) | Step 1 · Add this key to your authenticator app — today `<p class="docket-label">` (`enroll.templ:38`); the polished boards draw it as a **display heading, 17 px (16 px phone), bold** → `.op-step`, same words (README §6). No test pins the `docket-label` class here. |
+| step 1 heading (first load only) | Step 1 · Add this key to your authenticator app — `<p class="docket-label">` until M13-05; the polished boards draw it as a **display heading, 17 px (16 px phone), bold** → **as built (M13-05):** `<h2 class="op-step">`, same words (README §6). |
 | QR (first load only) | `<svg class="op-qr" role="img" aria-label="Scan with your authenticator app" viewBox=… width/height=whole px shape-rendering="crispEdges"><title>Scan with your authenticator app</title><rect fill="#FFFDF4"/><path fill="#152219" d=…/></svg>` (`enroll.templ:40-44`, `qr.go`; ~207–264 px, `qr.go:29`). Omitted if encoding fails — the text key still shows. The boards draw a real sample of this shape (repo encoder, version 8, 57 modules × 4 px = 228 px — the size a host of up to 18 bytes gets, `qr.go:26-28`); its content is sample data. |
 | key | Scan the code with your app, or type this key: → `<p class="op-key">` grouped base32 |
 | URI | If your app takes a setup link instead, use this one: → `<p class="op-uri">` the `otpauth://` URI |
@@ -141,7 +141,7 @@ Signed-out shell via `scriptedScreen` (the only page with a script). Title `Set 
 | alert Mismatch | **The two passwords differ** — Type the same new password in both fields. |
 | alert WeakPassword | **Choose another password** — Use at least 14 characters and at most 72 bytes. A letter with an accent, or from another alphabet, takes two bytes or more. |
 | alert CodeRejected | **That code was not accepted** — Check that your phone's clock is right, then type the next code. |
-| step 2 heading | Step 2 · Choose a password and confirm the code — `<p class="docket-label">` today (`enroll.templ:83`) → `.op-step` like step 1 |
+| step 2 heading | Step 2 · Choose a password and confirm the code — `<p class="docket-label">` until M13-05 → `<h2 class="op-step">` like step 1, the form's first child |
 | fields | Link code (help: The part of your link after the # sign.) · New password · New password again · Code from the app |
 | button | Finish setup |
 
@@ -161,7 +161,10 @@ re-render "Use the key you already added" with Mismatch / WeakPassword / CodeRej
 **Tests:** `TestEnrollQR_IsTheKeysURIInkOnPaper`, `TestEnrollQR_OnlyOnTheFirstLoad`,
 `TestEnrollScript_IsTheReviewedBody`, `TestEnrollScript_TouchesTheFragmentAndNothingElse`,
 `TestEnroll_TheWeakPasswordNoticeNamesBothLimits`, `TestEnroll_TheTokenNeverTravelsInTheURL`,
-`TestEnrollScreen_TheListedFormsRenderItOnlyInRenderEnroll`.
+`TestEnrollScreen_TheListedFormsRenderItOnlyInRenderEnroll`, `TestEnrollScreen_IsOneCardInTheSignedOutColumn`
+(M13-05: the column, the card, its words in order, the step headings, every input's whole attribute
+set — the hidden fields' and the token's value by presence only — the labels, the one button and the
+one script).
 
 ---
 
