@@ -246,8 +246,8 @@ type ResetDelivery struct {
 	Link      string
 	ExpiresAt time.Time
 	ResetID   uuid.UUID
-	// EveryBusiness: the link is a per-identity one (M14-14) and resets the person's password in
-	// every business they sign in to with this address -- the e-mail says so.
+	// EveryBusiness: the link is a per-identity one (M14-14) and resets the sign-in's password in
+	// every business linked to it (not in an unlinked account of the same address) -- the e-mail says so.
 	EveryBusiness bool
 }
 
@@ -685,8 +685,8 @@ func (h *AdminReset) deliver(base context.Context, ip string, g adminauth.ResetG
 		Link:      g.Issued.Link(h.linkBase),
 		ExpiresAt: g.Issued.Reset.ExpiresAt,
 		ResetID:   g.Issued.Reset.ID,
-		// A per-identity link resets the person's password in every business (M14-14): the
-		// e-mail says so (ADR 0031 §5.14's "kimlik başına sıfırlama").
+		// A per-identity link resets the password in every business linked to the identity
+		// (M14-14): the e-mail says so (ADR 0031 §5.14's "kimlik başına sıfırlama").
 		EveryBusiness: g.IdentityID != uuid.Nil,
 	})
 	// Released as soon as the send returns (the defer above covers only a panic): the
@@ -835,8 +835,9 @@ const resetReasonLiveLink = "the account already holds a live recovery link, so 
 // the per-identity budget -- and NO audit row. ADR 0031 §5.2 (identity_open_reset /
 // identity_withdraw_reset): the identity has no tenant, so there is no business whose trail could take
 // the row without naming the person's other businesses to it; the identity's own trail is the
-// reset_requested event the opening wrote. The line carries ids only (§7, ADR 0031 §5.15): the reset
-// row's id, the identity's id, the outcome -- never the address or the link.
+// reset_requested event the opening wrote. The line carries ids and constant-valued keys only (§7, ADR
+// 0031 §5.2's M14-14 note lists them): the reset row's id, the identity's id, the outcome and a fixed
+// reason -- never the address, the link or anything derived from them.
 func (h *AdminReset) recordIdentityOutcome(ctx context.Context, g adminauth.ResetGrant, action, outcome, reason string) {
 	if action == ActionAdminResetUndelivered {
 		if err := h.resets.WithdrawIdentity(ctx, g.Issued.Token); err != nil {
@@ -851,8 +852,7 @@ func (h *AdminReset) recordIdentityOutcome(ctx context.Context, g adminauth.Rese
 		return
 	}
 	h.log.InfoContext(ctx, "panel recovery: identity link outcome",
-		"identity_id", g.IdentityID, "reset_id", g.Issued.Reset.ID, "outcome", outcome, "reason", reason,
-		"expires_at", g.Issued.Reset.ExpiresAt.UTC().Format(time.RFC3339))
+		"identity_id", g.IdentityID, "reset_id", g.Issued.Reset.ID, "outcome", outcome, "reason", reason)
 }
 
 // recordIdentityKept is recordKept for a person whose identity already held a live link (EM-7C):
@@ -866,8 +866,7 @@ func (h *AdminReset) recordIdentityKept(r *http.Request, k adminauth.IdentityRes
 		return
 	}
 	h.log.InfoContext(r.Context(), "panel recovery: identity link kept",
-		"identity_id", k.IdentityID, "reset_id", k.ResetID, "outcome", "kept", "reason", resetReasonLiveLink,
-		"expires_at", k.ExpiresAt.UTC().Format(time.RFC3339))
+		"identity_id", k.IdentityID, "reset_id", k.ResetID, "outcome", "kept", "reason", resetReasonLiveLink)
 }
 
 // identityResetBudgetKey namespaces an identity's bucket in the per-account budget it shares with

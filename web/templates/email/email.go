@@ -295,8 +295,8 @@ type ResetView struct {
 	// ValidFor is the link's lifetime (adminauth.ResetTTL today).
 	ValidFor time.Duration
 	// EveryBusiness: a per-identity link (M14-14, ADR 0031 §5.14's "kimlik başına sıfırlama") -- one
-	// link resets the password the person signs in with for every business. The e-mail says that in
-	// one sentence and still names no business. False (the zero value) is the per-row e-mail,
+	// link resets the sign-in's password for every business LINKED to it (an unlinked account of the
+	// same address is not touched). The e-mail says that in one sentence and still names no business. False (the zero value) is the per-row e-mail,
 	// unchanged byte for byte.
 	EveryBusiness bool
 }

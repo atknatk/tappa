@@ -1617,6 +1617,13 @@ func TestReset_EveryBusinessIsThePersonsOneLink(t *testing.T) {
 			t.Errorf("%s: names a business", c.kind)
 		}
 	}
+	// Truthful for a person who also has an UNLINKED account of the address (third-eye audit): the
+	// sentences speak of the businesses LINKED to the sign-in, never of "every business you manage".
+	for _, k := range []string{"reset, every business", "password changed, every business"} {
+		if txt := byKind[k].msg.Text; !strings.Contains(txt, "every business this sign-in is linked to") || strings.Contains(txt, "you manage") {
+			t.Errorf("%s: does not limit itself to the businesses linked to the sign-in", k)
+		}
+	}
 	if !strings.Contains(byKind["reset, every business"].msg.Text, resetAskAgain) {
 		t.Error("the per-identity reset lost EM-7C's sentence about asking again")
 	}

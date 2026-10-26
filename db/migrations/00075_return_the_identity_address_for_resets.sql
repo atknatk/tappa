@@ -1,7 +1,9 @@
 -- 00075 -- M14-14: the identity's REGISTERED address reaches the application in exactly two places --
 -- resolve_identity_by_email (the reset request's recipient) and identity_consume_reset (the "your
 -- password was changed" notice after an identity link was spent). Each is redefined (DROP + CREATE:
--- the return type gains one column, `email text`, appended); nothing else in either body changes.
+-- the return type gains one column, `email text`, appended). resolve_identity_by_email's body is
+-- otherwise unchanged; identity_consume_reset's audit detail also takes 00074's omitempty shape
+-- (section 2).
 --
 -- WHY (ADR 0031 §5.2's 2026-10-26 note; the user's decision, option (A)). Before this file no function
 -- returned admin_identities.email to tappa_app, which holds nothing on the identity tables (00069).
@@ -99,9 +101,13 @@ GRANT EXECUTE ON FUNCTION public.resolve_identity_by_email(citext) TO tappa_app;
 -- ---------------------------------------------------------------------------
 -- 2. identity_consume_reset (ADR 0031 §5.2, §5.9, §5.14) -- + email
 -- ---------------------------------------------------------------------------
--- 00072's body, word for word, but for the last statement: the result reads the identity's address
--- from the row the body locked FOR UPDATE at its start (the lock is held to COMMIT; K-15 keeps the
--- address unchangeable anyway), keyed by the identity id the spent link named.
+-- 00072's body, word for word, but for two places: (1) the last statement -- the result reads the
+-- identity's address from the row the body locked FOR UPDATE at its start (the lock is held to COMMIT;
+-- K-15 keeps the address unchangeable anyway), keyed by the identity id the spent link named; (2) each
+-- business's admin.recovery.completed detail is built as 00074 builds it for identity_consume_row_reset
+-- in a business that is not the link's own -- outcome, and revoked_sessions only when not zero (the
+-- handler's omitempty) -- where 00072 wrote revoked_sessions always, a 0 that only this path writes
+-- (M14-14's security audit: the row's shape must not say "a per-identity link"). No reset_id.
 DROP FUNCTION public.identity_consume_reset(text, text);
 -- +goose StatementBegin
 CREATE FUNCTION public.identity_consume_reset(p_reset_hash text, p_new_hash text)
@@ -120,6 +126,7 @@ DECLARE
     v_found    boolean;
     v_n        integer;
     v_all      integer := 0;
+    v_detail   jsonb;
     m          record;
 BEGIN
     v_now := pg_catalog.clock_timestamp();
@@ -174,9 +181,16 @@ BEGIN
          WHERE s.tenant_id = m.tenant_id AND s.admin_user_id = m.id AND s.revoked_at IS NULL;
         GET DIAGNOSTICS v_n = ROW_COUNT;
         v_all := v_all + v_n;
+        -- 00074's builder (identity_consume_row_reset, every business but the link's own): outcome, and
+        -- revoked_sessions only when not zero -- internal/handler's adminResetDetail, omitempty -- so the
+        -- row's SHAPE does not say "a per-identity link" (M14-14's security audit). No reset_id: the
+        -- identity's link is no business's row, and its id would correlate the person's businesses.
+        v_detail := pg_catalog.jsonb_build_object('outcome', 'ok');
+        IF v_n > 0 THEN
+            v_detail := v_detail || pg_catalog.jsonb_build_object('revoked_sessions', v_n);
+        END IF;
         INSERT INTO public.audit_log (tenant_id, actor_id, action, target, detail)
-        VALUES (m.tenant_id, m.id, 'admin.recovery.completed', m.id::text,
-                pg_catalog.jsonb_build_object('outcome', 'ok', 'revoked_sessions', v_n));
+        VALUES (m.tenant_id, m.id, 'admin.recovery.completed', m.id::text, v_detail);
     END LOOP;
 
     RETURN QUERY SELECT v_identity, v_all, i.email::text FROM public.admin_identities AS i WHERE i.id = v_identity;

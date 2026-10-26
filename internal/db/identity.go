@@ -37,8 +37,9 @@ import (
 // and whether it holds at least one active, not-refused membership (R14: the login's fifth timing
 // case is decided after the comparison, never before it).
 //
-// ID IS A CROSS-TENANT KEY. It travels to OpenIdentitySession and nowhere else: not into a log, a
-// response, a template or an audit row.
+// ID IS A CROSS-TENANT KEY. It travels to OpenIdentitySession, RecordFailedIdentityLogin and (M14-14)
+// OpenIdentityReset, and into a log line only under the identity_id key ADR 0031 §5.15 allows -- never
+// into a response, a template or an audit row.
 type ResolvedIdentity struct {
 	ID                  uuid.UUID
 	PasswordHash        PasswordHash

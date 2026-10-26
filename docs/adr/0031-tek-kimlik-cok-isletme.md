@@ -297,8 +297,8 @@ tenant'ına bir sıradan çıkış satırı yazar — **yalnız aktif ve reddedi
 
 **M14-14 notu (2026-10-26; kullanıcı onayı — AskUserQuestion, seçenek (A)):** `00075`,
 `resolve_identity_by_email` ve `identity_consume_reset`'i `DROP` + `CREATE` ile yeniden tanımlar; ikisinin de
-dönüşünün **sonuna** `email text` (kimliğin `admin_identities.email`'i, **kayıtlı yazımıyla**) eklenir, gövdeler
-başka hiçbir yerde değişmez. **Neden:** 00075'ten önce hiçbir fonksiyon kimliğin adresini `tappa_app`'e
+dönüşünün **sonuna** `email text` (kimliğin `admin_identities.email`'i, **kayıtlı yazımıyla**) eklenir;
+gövdelerde başka tek değişiklik `identity_consume_reset`'in audit detail'inin biçimidir (aşağıda). **Neden:** 00075'ten önce hiçbir fonksiyon kimliğin adresini `tappa_app`'e
 döndürmüyordu (kimlik tablolarında yetkisi yok), bu yüzden kartın iki maddesi karşılanamıyordu —
 (1) **alıcı bağı** (M14-01 güvenlik denetiminin devrettiği not): `identity_open_reset` bir sırla değil
 kimlik id'siyle anahtarlıdır ve linkin nereye gideceğini denetleyemez; link, ziyaretçinin yazdığı yazıma
@@ -317,8 +317,21 @@ Yeniden tanım kuralı (T5) aynen: `SECURITY DEFINER`, `SET search_path`, sahip,
 yoktur. Down 00071/00072 tanımlarını bayt bayt geri koyar
 (`TestIdentity00075_DownGivesBackTheOldDefinitionsByteForByte`; dev DB'de `pg_get_functiondef` ve `proacl`
 md5'i 74 ↔ 75 → Down eşit). Kimlik başına linkin talep, teslim edilememe, "kept" ve reddedilme izi
-**audit satırı değil** bütçeli bir log satırıdır (yalnız id'ler; §5.15) — link hiçbir işletmenin değildir;
-işletmelerin izi tüketimin `admin.recovery.completed` satırlarıdır.
+**audit satırı değil** bütçeli bir log satırıdır — link hiçbir işletmenin değildir; işletmelerin izi
+tüketimin `admin.recovery.completed` satırlarıdır. Bu satırların anahtarları **id'ler ve sabit değerli
+anahtarlardır**, başka hiçbir şey: id'ler ADR 0022 §10'un kapalı kümesinden (`reset_id`, istek yolunda
+`ip`, teslim hatasında `err_type` / `class` / `smtp_code`) ve §5.15'in `identity_id`'si; sabit değerliler
+`outcome` (`ok` | `undelivered` | `kept` | `sent`), `reason` (`internal/handler`'ın sabit cümleleri),
+`via` (`recovery`), `scope` (`identity` | `link`), reddin üç olgusu `already_used` / `superseded` /
+`expired` (boolean) ve tamamlanmanın `revoked_sessions` sayısı. Adres, link, token, hash ve bunlardan
+türeyen hiçbir değer yoktur (CLAUDE.md §7). **Tüketimin işletme satırının biçimi** (M14-14 güvenlik
+denetimi): `identity_consume_reset` her işletmeye 00074'ün `identity_consume_row_reset`'in linkin kendi
+işletmesi **olmayan** işletmelere yazdığı detail'i yazar — `outcome`, ve yalnız sıfır değilse
+`revoked_sessions` (00072 onu hep yazıyordu; bir 0, satırı "kimlik başına link" diye ele verirdi);
+`reset_id` **yok** — kimliğin linkinin id'si kişinin işletmelerini birbirine bağlardı
+(`TestIdentityConsumeReset00075_TheDetailHasTheRowPathsShape`). **Bayrak bir kesme anahtarı değildir:**
+tüketim bayraktan bağımsızdır (§8); canlı kimlik linklerini acilen iptal etmek runbook'un tek
+satırıdır (`deploy/README.md`, M14-14).
 
 **M14-08 uygulama notları (2026-10-23; kart dışı kararlar, denetime açık):**
 - `identity_create_for_signup(p_tenant_id uuid, p_admin_user_id uuid)` → **`boolean`** (bağladı mı)

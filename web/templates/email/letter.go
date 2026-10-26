@@ -118,14 +118,19 @@ func resetLetter(life string, everyBusiness bool) letter {
 // a link that arrived late still works only as long as the e-mail itself states.
 const resetAskAgain = "Asking again sends no new link while this one still works."
 
-// resetEveryBusiness opens the per-identity reset e-mail (M14-14): the one link sets the password the
-// person uses for every business, which is what identity_consume_reset writes.
-const resetEveryBusiness = "Someone asked to reset the password you use to sign in to Taptime with this email " +
-	"address. The new password will work for every business you manage. If it was you, use the link below."
+// resetEveryBusiness opens the per-identity reset e-mail (M14-14): the one link sets the password of the
+// sign-in -- every business LINKED to it, which is what identity_consume_reset writes. Not "every
+// business you manage": an account of the same address that is not linked keeps its own password and
+// sessions and gets its own, per-account e-mail (M14-14's third-eye audit).
+const resetEveryBusiness = "Someone asked to reset the password of your Taptime sign-in that uses this email " +
+	"address. The new password will work for every business this sign-in is linked to. If it was you, use " +
+	"the link below."
 
-// changedEveryBusiness opens the per-identity notice (M14-14, EM-9): one notice for every business.
-const changedEveryBusiness = "The password you use to sign in to Taptime with this email address was just " +
-	"changed for every business you manage, and every device signed in with it was signed out."
+// changedEveryBusiness opens the per-identity notice (M14-14, EM-9): one notice for the sign-in, true for
+// exactly the businesses identity_consume_reset wrote and signed out.
+const changedEveryBusiness = "The password of your Taptime sign-in that uses this email address was just " +
+	"changed for every business this sign-in is linked to, and every device signed in to those businesses " +
+	"was signed out."
 
 // passwordChangedLetter is the "your password was changed" notice (M10 EM-9). It
 // takes NO argument, so its words are the same for every account: it names nobody

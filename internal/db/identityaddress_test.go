@@ -124,3 +124,49 @@ func TestIdentity00075_DownGivesBackTheOldDefinitionsByteForByte(t *testing.T) {
 		}
 	})
 }
+
+// TestIdentityConsumeReset00075_TheDetailHasTheRowPathsShape is the M14-14 security audit's finding:
+// a per-identity consumption leaves each business the admin.recovery.completed detail that
+// identity_consume_row_reset (00074) leaves a business that is not the link's own -- outcome, and
+// revoked_sessions only when sessions were revoked -- so the row's shape does not tell a per-identity
+// link from a per-row one there. Measured for a business with sessions (C) and one without (D); never a
+// reset_id (the identity's link id would correlate the person's businesses). MUTATION: 00072's
+// always-present revoked_sessions back in 00075's Up -> red (D's key set differs).
+func TestIdentityConsumeReset00075_TheDetailHasTheRowPathsShape(t *testing.T) {
+	ctx, tx := opTx(t)
+	w := ipNewResetWorld(t, ctx, tx)
+	d := aiTenant(t, ctx, tx)
+	rowD := ipMember(t, ctx, tx, d, w.p.email, w.p.digest)
+	ipLink(t, ctx, tx, rowD, w.p.id, "backfill", "1 day")
+	keys := func(q pgx.Tx, tenant uuid.UUID) string {
+		t.Helper()
+		var k *string
+		if err := q.QueryRow(ctx, `SELECT string_agg(k, ',' ORDER BY k) FROM audit_log a, jsonb_object_keys(a.detail) k
+		                            WHERE a.tenant_id = $1 AND a.action = 'admin.recovery.completed'`, tenant).Scan(&k); err != nil {
+			t.Fatal(err)
+		}
+		if k == nil {
+			return ""
+		}
+		return *k
+	}
+	var identityC, identityD, rowC, rowDKeys string
+	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		if n := ipRows(t, ctx, sp, `SELECT * FROM identity_consume_reset($1, $2)`, w.identityLink, w.newDigest); n != 1 {
+			t.Fatalf("PREMISE: the identity link was not spent (%d rows)", n)
+		}
+		identityC, identityD = keys(sp, w.c), keys(sp, d)
+	})
+	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		if n := ipRows(t, ctx, sp, `SELECT * FROM identity_consume_row_reset($1, $2)`, w.linkA, w.newDigest); n != 1 {
+			t.Fatalf("PREMISE: the row link was not spent (%d rows)", n)
+		}
+		rowC, rowDKeys = keys(sp, w.c), keys(sp, d)
+	})
+	if identityC != "outcome,revoked_sessions" || identityD != "outcome" {
+		t.Errorf("the identity path's detail keys: C %q, D %q; want outcome,revoked_sessions and outcome", identityC, identityD)
+	}
+	if identityC != rowC || identityD != rowDKeys {
+		t.Errorf("the identity path (C %q, D %q) and the row path (C %q, D %q) leave different shapes", identityC, identityD, rowC, rowDKeys)
+	}
+}
