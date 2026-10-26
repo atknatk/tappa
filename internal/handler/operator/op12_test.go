@@ -2034,6 +2034,202 @@ func readOperatorComponentRules(css string) []string {
 	return findings
 }
 
+// operatorCSSHides are the deliberate hidings in input.css's operator rules, each by selector and
+// the one hiding it applies -- none of them hides the page's content (TestOperatorCSS_NoScopedRuleHidesContent):
+// the nav's "Platform" label is the desktop column's only (desk:block beside it); the current
+// item's marker is a decoration on the phone bar only; the nav's icons are aria-hidden and give
+// way to the words from the tablet; the token field honours its own hidden attribute (enroll.js
+// shows it); the security hold's warning stays hidden until its reason is checked (the rule after
+// it shows it). Hiding utilities on the markup (md:hidden / hidden md:inline short-label pairs)
+// are not CSS rules and are not read here.
+var operatorCSSHides = map[string]string{
+	".op-nav-label": "hidden",
+	`.op-nav-item[aria-current="true"]::before`: "md:hidden",
+	".op-nav-icon":            "md:hidden",
+	".op-token-field[hidden]": "display:none",
+	".op-hold-warning":        "hidden",
+}
+
+// TestOperatorCSS_NoScopedRuleHidesContent (M13-15; README §3, §6) reads web/static/css/input.css
+// (comments stripped, every flat `selectors { … }` rule at any nesting) and, for each rule whose
+// selector names an operator class (`.op-…`, which covers `.op-main`) or an aria-labelledby id an
+// operatorpages template declares, finds every way the rule hides content: a hiding utility in an
+// @apply at any variant (hidden, sr-only, invisible, collapse, opacity-0, text-transparent,
+// scale-0, a zero font size, a clip or clip-path or display/visibility/opacity/font-size
+// arbitrary property, a zero height, width, size or max height beside an overflow that clips) or
+// a declaration (display:none, visibility:hidden or collapse, opacity:0, clip, clip-path,
+// font-size:0, color:transparent, content-visibility:hidden, a zero height or width beside
+// overflow:hidden). The deliberate hidings are listed (operatorCSSHides) by exact selector and
+// exact hiding; a listed rule with another hiding, or a listed hiding that no longer exists, is a
+// finding. CONTROLS, each appended to the source and each a finding: the M13-12 review's living
+// mutation `.op-main .op-row > span:last-child { @apply hidden; }`; sr-only on a card's
+// paragraph; md:invisible on an operator chip; a zero height with overflow-hidden; text-transparent;
+// display:none and opacity:0 as declarations; hidden on a rule scoped by an operator list's id;
+// hidden behind a bracketed variant; display:none as an arbitrary property; a second hiding on a
+// listed selector.
+//
+// PART II -- red on: a scoped rule that hides content, a deliberate hiding changed. PART III --
+// a hiding through a selector that names neither an operator class nor an operator id (a bare
+// `main p`), through a colour equal to its ground, or through position/transform tricks is not
+// read; no completeness claim.
+func TestOperatorCSS_NoScopedRuleHidesContent(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := operatorLabelledByIDs(t)
+	css := string(raw)
+	scoped, findings := readOperatorCSSHides(css, ids)
+	for _, f := range findings {
+		t.Error(f)
+	}
+	if scoped < 60 {
+		t.Errorf("PREMISE: %d operator rule(s) read, want at least 60 (the reading found the operator's block)", scoped)
+	}
+	for _, c := range []struct{ what, rule string }{
+		{"the M13-12 review's living mutation", `.op-main .op-row > span:last-child { @apply hidden; }`},
+		{"sr-only on a card's paragraph", `.op-card > p { @apply sr-only; }`},
+		{"an invisible chip from the tablet", `.op-main .tally { @apply md:invisible; }`},
+		{"a zero height that clips", `.op-main .docket ol { @apply h-0 overflow-hidden; }`},
+		{"transparent words", `.op-row > span { @apply text-transparent; }`},
+		{"display none as a declaration", `.op-main dd { display: none; }`},
+		{"opacity 0 as a declaration", `.op-col p { opacity: 0; }`},
+		{"hidden on a rule scoped by an operator list's id", `[aria-labelledby="holding-list"] > ol > li > :nth-child(2) { @apply hidden; }`},
+		{"hidden behind a bracketed variant", `.op-row { @apply aria-[current=true]:md:hidden; }`},
+		{"display none as an arbitrary property", `.op-main dt { @apply md:[display:none]; }`},
+		{"a listed rule given a second hiding", `.op-nav-icon { @apply sr-only; }`},
+	} {
+		mutated := strings.Replace(css, "@layer components {", "@layer components {\n  "+c.rule, 1)
+		if mutated == css {
+			t.Fatal("CONTROL: input.css has no components layer to append to")
+		}
+		if _, f := readOperatorCSSHides(mutated, ids); len(f) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
+		}
+	}
+}
+
+// operatorLabelledByIDs are the aria-labelledby ids the operatorpages templates declare literally.
+func operatorLabelledByIDs(t *testing.T) []string {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join("..", "..", "..", "web", "templates", "operatorpages", "*.templ"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no operatorpages templates (%v)", err)
+	}
+	seen := map[string]bool{}
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range regexp.MustCompile(`aria-labelledby="([a-z0-9-]+)"`).FindAllStringSubmatch(string(raw), -1) {
+			seen[m[1]] = true
+		}
+	}
+	var ids []string
+	for id := range seen {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	if !slices.Contains(ids, "audit-list") || !slices.Contains(ids, "holding-list") {
+		t.Fatalf("PREMISE: the operator's list ids are not among %v", ids)
+	}
+	return ids
+}
+
+// readOperatorCSSHides is TestOperatorCSS_NoScopedRuleHidesContent's reading: the number of
+// operator rules read and one finding per hiding not on operatorCSSHides (or per listed hiding
+// gone or joined by another).
+func readOperatorCSSHides(css string, ids []string) (int, []string) {
+	src := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
+	rule := regexp.MustCompile(`([^{}]*)\{([^{}]*)\}`)
+	applyRe := regexp.MustCompile(`@apply\s+([^;]+);`)
+	opClass := regexp.MustCompile(`\.op-[a-z]`)
+	hideUtility := regexp.MustCompile(`^(?:hidden|sr-only|invisible|collapse|opacity-0|text-transparent|scale-0|text-\[0(?:px|rem|em)?\]|\[(?:clip|clip-path|display:none|visibility:(?:hidden|collapse)|opacity:0|font-size:0)[^\]]*\])$`)
+	zeroBox := regexp.MustCompile(`^(?:h-0|w-0|size-0|max-h-0|max-w-0|h-px|w-px)$`)
+	clips := regexp.MustCompile(`^overflow(?:-[xy])?-(?:hidden|clip)$`)
+	decl := regexp.MustCompile(`(?:^|;|\s)(display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse)|opacity\s*:\s*0(?:\.0*)?\s*(?:;|$|!)|clip(?:-path)?\s*:|font-size\s*:\s*0(?:px|rem|em)?\s*(?:;|$|!)|color\s*:\s*transparent|content-visibility\s*:\s*hidden)`)
+	zeroDecl := regexp.MustCompile(`(?:^|;|\s)(?:height|width|max-height)\s*:\s*0(?:px)?\s*(?:;|$)`)
+	clipDecl := regexp.MustCompile(`overflow(?:-[xy])?\s*:\s*(?:hidden|clip)`)
+	read, findings := 0, []string{}
+	listed := map[string]int{}
+	for _, m := range rule.FindAllStringSubmatch(src, -1) {
+		sel := strings.Join(strings.Fields(m[1]), " ")
+		if i := strings.LastIndex(sel, ";"); i >= 0 {
+			sel = strings.TrimSpace(sel[i+1:])
+		}
+		operator := opClass.MatchString(sel)
+		for _, id := range ids {
+			if strings.Contains(sel, `[aria-labelledby="`+id+`"]`) {
+				operator = true
+			}
+		}
+		if !operator {
+			continue
+		}
+		read++
+		body := m[2]
+		var hides []string
+		var utils []string
+		for _, a := range applyRe.FindAllStringSubmatch(body, -1) {
+			utils = append(utils, strings.Fields(a[1])...)
+		}
+		clipping := false
+		for _, u := range utils {
+			if clips.MatchString(utilityBase(u)) {
+				clipping = true
+			}
+		}
+		for _, u := range utils {
+			base := utilityBase(u)
+			if hideUtility.MatchString(base) || (zeroBox.MatchString(base) && clipping) {
+				hides = append(hides, u)
+			}
+		}
+		rest := applyRe.ReplaceAllString(body, "")
+		for _, d := range decl.FindAllStringSubmatch(rest, -1) {
+			hides = append(hides, strings.Join(strings.Fields(strings.TrimRight(d[1], ";!")), ""))
+		}
+		if zeroDecl.MatchString(rest) && clipDecl.MatchString(rest) {
+			hides = append(hides, "a zero box with overflow hidden")
+		}
+		for _, h := range hides {
+			if want, ok := operatorCSSHides[sel]; ok && h == want {
+				listed[sel]++
+				continue
+			}
+			findings = append(findings, "`"+sel+"` hides content with "+h+": an operator rule may not hide what the markup prints")
+		}
+	}
+	for sel, h := range operatorCSSHides {
+		if listed[sel] != 1 {
+			findings = append(findings, fmt.Sprintf("the deliberate hiding `%s { %s }` is read %d time(s), want 1: the exception list is stale", sel, h, listed[sel]))
+		}
+	}
+	slices.Sort(findings)
+	return read, findings
+}
+
+// utilityBase is a Tailwind class without its variants and its important mark: the text after
+// the last colon outside square brackets ("aria-[current=true]:md:hidden" -> "hidden",
+// "md:[display:none]" -> "[display:none]").
+func utilityBase(u string) string {
+	depth, last := 0, -1
+	for i, r := range u {
+		switch r {
+		case '[':
+			depth++
+		case ']':
+			depth--
+		case ':':
+			if depth == 0 {
+				last = i
+			}
+		}
+	}
+	return strings.TrimPrefix(u[last+1:], "!")
+}
+
 // legalEditorCardClass is the one operator card whose markup keeps layout utilities after M13-15:
 // the legal texts' editor, padding-less and gap-less (README §6 "Card" exception, §6.1 "Legal
 // editor"). Its utilities win over `.op-card`'s padding and gap, so dropping one of them hands the

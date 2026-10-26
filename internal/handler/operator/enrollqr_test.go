@@ -195,9 +195,13 @@ func TestEnrollQR_IsTheKeysURIInkOnPaper(t *testing.T) {
 		code.Version(), n, px, px, len(drawn), len(d))
 }
 
+// enrollFirstLoadMarks are what only the enrollment page's first load prints: the QR's svg, the
+// key, the setup link's paragraph and the link's scheme (the URI carries the secret).
+var enrollFirstLoadMarks = []string{"<svg", `class="op-key"`, `class="op-uri"`, "otpauth"}
+
 // TestEnrollQR_OnlyOnTheFirstLoad: the code is on the enrollment page's first load and on
-// no other page -- a re-render after a refused attempt has no key and no svg (the handler
-// cannot open the blob), and of the 49 renders screens() makes, the one enrollment render
+// no other page -- a re-render after a refused attempt has no svg, no key, no setup link
+// (no op-uri paragraph and no otpauth scheme; the handler cannot open the blob), and of the 49 renders screens() makes, the one enrollment render
 // that carries a QR matrix is the only signed-out one with an svg, and it draws one; the
 // other eight signed-out renders draw none. Each of the 40 signed-in renders draws exactly
 // five, the operator nav's icons (M13-01): all five inside <nav class="op-nav">, each
@@ -209,6 +213,14 @@ func TestEnrollQR_OnlyOnTheFirstLoad(t *testing.T) {
 	if strings.Count(w.Body.String(), "<svg") != 1 {
 		t.Fatal("PREMISE: the first load draws no code")
 	}
+	// The four marks the re-render must not carry are each on the first load (else the
+	// searches below would read nothing): the code, the key, the setup link's class and its
+	// scheme.
+	for _, mark := range enrollFirstLoadMarks {
+		if !strings.Contains(w.Body.String(), mark) {
+			t.Fatalf("PREMISE: the first load does not carry %q", mark)
+		}
+	}
 	blob := regexp.MustCompile(`name="blob" value="([^"]+)"`).FindStringSubmatch(w.Body.String())
 	if blob == nil {
 		t.Fatal("PREMISE: the first load has no blob")
@@ -218,8 +230,10 @@ func TestEnrollQR_OnlyOnTheFirstLoad(t *testing.T) {
 	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "The two passwords differ") {
 		t.Fatalf("PREMISE: the re-render is not the passwords-differ branch (%d)", w.Code)
 	}
-	if strings.Contains(w.Body.String(), "<svg") || strings.Contains(w.Body.String(), `class="op-key"`) {
-		t.Error("the re-render after a refused attempt draws a code or prints a key")
+	for _, mark := range enrollFirstLoadMarks {
+		if strings.Contains(w.Body.String(), mark) {
+			t.Errorf("the re-render after a refused attempt carries %q: it draws a code or prints a key or the setup link", mark)
+		}
 	}
 	signedIn := 0
 	for name, page := range screens(t) {
