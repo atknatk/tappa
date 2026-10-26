@@ -30,6 +30,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -110,11 +111,20 @@ func wl8Brand(t *testing.T, accent, logo bool) tenant.PanelBrand {
 	return b
 }
 
+// panelBrandAsOf is the moment The Pass is measured at in these tests, and passKickerAsOf what
+// its kicker prints for it. The tests here compare whole bodies across renders; with the handler
+// reading the clock itself, a pair that straddled a minute differed in the kicker alone (the
+// flake the M14 test-infra card fixed).
+var panelBrandAsOf = time.Date(2026, time.August, 5, 9, 41, 0, 0, time.UTC)
+
+const passKickerAsOf = "Wed 5 Aug · 09:41 · UTC"
+
 // newAdminRouterWithBrands is the panel's real wiring with the caller's brand reader and
-// a logger the caller can read.
+// a logger the caller can read. Its ledger measures today at panelBrandAsOf.
 func newAdminRouterWithBrands(t *testing.T, admins *fakeAdmins, brands panelBrands, log *slog.Logger) *AdminAuth {
 	t.Helper()
 	records := newFakeLedger()
+	records.asOf = panelBrandAsOf
 	h, err := NewAdminAuth(admins, &fakeTrail{}, records, records, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
 		&fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(),
 		newFakeAccount(), brands, newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), log)
@@ -295,6 +305,11 @@ func TestPanelBrand_UnbrandedSectionsAreTheWordmarkChrome(t *testing.T) {
 			}
 			if want := wantSectionPolicy(s.Href, false); got.csp != want {
 				t.Errorf("%s: policy %q, want today's %q", where, got.csp, want)
+			}
+			// The Pass prints the moment it was measured: the ledger's, not the handler's own clock
+			// reading -- otherwise the byte comparison below is at the mercy of the minute.
+			if s.Href == transactionsHref && !strings.Contains(got.body, passKickerAsOf) {
+				t.Errorf("%s: The Pass's kicker is not the ledger's moment %q", where, passKickerAsOf)
 			}
 			// M10 WL-7: the Account section's brand editor draws the tap screen's header in
 			// its preview -- the wordmark, unbranded -- so the chrome is read with that
