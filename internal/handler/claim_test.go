@@ -5,11 +5,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -24,6 +26,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/web"
 )
 
 // claim_test.go -- the result screen's claim card and POST /api/claim against fakes (M15-17,
@@ -832,7 +835,7 @@ func TestClaimCard_TheFieldIsDescribedAndMarkedOnlyOnAProblem(t *testing.T) {
 	result := postTapThrough(t, h, tp).Body.String()
 	field := regexp.MustCompile(`<input id="claim-at"[^>]*>`)
 	f := field.FindString(result)
-	if !strings.Contains(f, `aria-describedby="claim-lead"`) || !strings.Contains(f, `class="field-input field-input--mono"`) ||
+	if !strings.Contains(f, `aria-describedby="claim-lead"`) || !strings.Contains(f, `class="field-input field-input--mono field-input--claim"`) ||
 		strings.Contains(f, "aria-invalid") || strings.Contains(f, "autofocus") || !strings.Contains(result, `<p id="claim-lead"`) {
 		t.Errorf("the result screen's field: %s", f)
 	}
@@ -844,5 +847,55 @@ func TestClaimCard_TheFieldIsDescribedAndMarkedOnlyOnAProblem(t *testing.T) {
 	}
 	if strings.Contains(again, "<script") || strings.Contains(result, "<script") {
 		t.Error("a claim screen loads a script")
+	}
+}
+
+// fontSizePx reads a font-size value in px or rem (16 px to the rem, Tailwind's base).
+func fontSizePx(v string) (float64, bool) {
+	v = strings.TrimSpace(v)
+	for unit, scale := range map[string]float64{"px": 1, "rem": 16} {
+		if n, ok := strings.CutSuffix(v, unit); ok {
+			f, err := strconv.ParseFloat(n, 64)
+			return f * scale, err == nil
+		}
+	}
+	return 0, false
+}
+
+// TestCompiledCSS_TheClaimFieldIsSixteenPixels (M15-17 closing round, orchestrator decision): the
+// claim card's time field is on the employee's own phone, and iOS Safari zooms the page into a
+// field whose text is under 16 px -- which .field-input's panel size (14 px) is. The card's field
+// carries .field-input--claim, the stylesheet's source declares it the 16 px size, and, wherever a
+// stylesheet has been built, the compiled rule sets a font-size of at least 16 px and comes AFTER
+// .field-input's (same specificity: the later rule wins). The panel's .field-input is not touched.
+func TestCompiledCSS_TheClaimFieldIsSixteenPixels(t *testing.T) {
+	src, err := fs.ReadFile(web.Static(), "css/input.css")
+	if err != nil {
+		t.Fatalf("read the stylesheet's source: %v", err)
+	}
+	if !regexp.MustCompile(`\.field-input--claim\s*\{\s*@apply\s+text-(base|lg|xl)\s*;\s*\}`).Match(src) {
+		t.Fatal("input.css does not declare .field-input--claim at text-base (16 px) or larger")
+	}
+	h, tp := newClaimHandler(t, &fakeCheckins{result: cardResult("ok")}, &fakeClaims{card: outCard(true)})
+	if f := regexp.MustCompile(`<input id="claim-at"[^>]*>`).FindString(postTapThrough(t, h, tp).Body.String()); !strings.Contains(f, "field-input--claim") {
+		t.Fatalf("the card's field does not carry the 16 px modifier: %s", f)
+	}
+	raw, err := fs.ReadFile(web.Static(), "css/app.css")
+	if err != nil {
+		t.Logf("no compiled stylesheet (%v): the source and the markup were checked, the compiled rule was not", err)
+		return
+	}
+	css := string(raw)
+	base, claimAt := strings.Index(css, ".field-input{"), strings.Index(css, ".field-input--claim{")
+	if base < 0 || claimAt < 0 || claimAt < base {
+		t.Fatalf(".field-input at %d, .field-input--claim at %d: the modifier must be compiled, after the field", base, claimAt)
+	}
+	decls := css[claimAt : claimAt+strings.Index(css[claimAt:], "}")]
+	m := regexp.MustCompile(`font-size:([^;}]*)`).FindStringSubmatch(decls)
+	if m == nil {
+		t.Fatalf("the compiled .field-input--claim sets no font-size: %s}", decls)
+	}
+	if px, ok := fontSizePx(m[1]); !ok || px < 16 {
+		t.Fatalf("the claim field's font-size is %q (%v px): under 16 px a phone zooms into it", m[1], px)
 	}
 }

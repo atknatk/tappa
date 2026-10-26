@@ -167,7 +167,9 @@ Anatomi:
   saat alanı (vardiyanın gerçek ucu pencere içindeyse dolu,
   değilse **boş ve zorunlu**), *"Send to my manager"* ve *"You can skip this."* — **atlama düğmesi
   yok**. Kart `paper` zeminde yuvarlak kart (`line` kenarlık, 18 px), alan ortak `.field-input
-  .field-input--mono` bileşeni (44 px; kayıt cümlesi ve sorun cümlesi `aria-describedby` ile bağlı,
+  .field-input--mono` bileşeni + `.field-input--claim` (yazı **16 px**: iOS Safari 16 px altındaki
+  alana odaklanınca sayfayı yakınlaştırır, bu ekran çalışanın kendi telefonu; panelin alanı 14 px
+  kalır — `TestCompiledCSS_TheClaimFieldIsSixteenPixels`; 44 px; kayıt cümlesi ve sorun cümlesi `aria-describedby` ile bağlı,
   hatada `aria-invalid` ve `autofocus` — betik yok; yeniden gösterilen formda `h1` *"Check the time"*),
   düğme palet `tappa-green` zemin + `paper` yazı (7,73:1) ve 44 px — **accent almaz**, `.tap-button`
   değildir. Betik yok: sonuç ekranı konum okumaz. `flag`'te kapanış cümlesi kartın altında kalır.

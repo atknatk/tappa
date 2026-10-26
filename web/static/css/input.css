@@ -1273,6 +1273,9 @@
            focus:ring-tappa-green/40;
   }
   .field-input--mono { @apply font-mono; }
+  /* The claim card's time field (M15-17): the employee's own phone, where iOS Safari zooms the
+     page into any field set below 16 px. The panel's field stays as it is; this one is 16 px. */
+  .field-input--claim { @apply text-base; }
   .field-input[aria-invalid="true"] { @apply border-2 border-tomato px-[11px]; }
   .field-help { @apply text-[13px] leading-[1.45] text-ink/70; }
 
