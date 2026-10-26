@@ -39,18 +39,20 @@ import (
 //
 // 🔴 IT LEAVES NO URL BEHIND (S14). After a match the parameter is removed from the
 // request the handler sees, so no handler can build a redirect or a link that carries it;
-// every bound write still ends in a 303 to a fixed panel path (POST-redirect-GET). The
+// every write that redirects ends in a 303 to a fixed panel path (POST-redirect-GET); a
+// POST answered with a page keeps the binding in the address bar, accepted on 2026-10-26
+// (ADR 0031 §5.5 note 2: the binding is useless without the session's raw cookie). The
 // access log writes route patterns only (internal/httpx/requestlog.go), the panel sends
-// no-referrer (layout.documentHead), and deploy/README.md records what the ingress's own
-// access log does with a query string.
+// no-referrer (layout.documentHead), and the panel's prefix has its own Ingress with the
+// controller's access log off (deploy/k8s/40-ingress.yaml, tappa-panel; note 3).
 //
 // THE ONE NAMED EXCEPTION: the plaque encode relay's three routes (encodeRelayRoutes).
 // They are not forms. The Android relay (android/, ADR 0017) posts them with the panel
 // cookie it reads from its WebView's CookieManager on EVERY request and renders no page,
 // so there is no stale page to bind and it has no way to learn a binding: binding them
 // would stop every plaque encoding. They keep the Origin check, the session and their own
-// per-session ceiling (encodeGate). This is a decision outside ADR 0031 §5.5's text and
-// is reported as such (M14-10a hand-off).
+// per-session ceiling (encodeGate). The user decided it on 2026-10-26 (ADR 0031 §5.5,
+// M14-10a note 1); a binding contract for the relay is a possible later item.
 
 // formBindingGate refuses a panel write whose binding is missing or is not the binding
 // of the session's tenant under the session's token.

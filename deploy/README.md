@@ -80,7 +80,8 @@ küme kapsamlı olanlar **hâlâ 3**, çünkü `CronJob` namespace'li):
 > `CronJob`'ı. İkisi de namespace'li, yani küme kapsamlı sayı **hâlâ 3**. `--dry-run=client`
 > ölçümü orkestratörün küme adımlarında.
 > ⚠️ 2026-10-10 (T112): `41-operator-ingress.yaml`'ın iki `Ingress`'i (namespace'li) →
-> **Güncel sayım: 20/3/17** (toplam / küme kapsamlı / namespace'li). Bu satır artık elle
+> ⚠️ 2026-10-26 (M14-10a): `40-ingress.yaml`'ın üçüncü `Ingress`'i (`tappa-panel`, namespace'li) →
+> **Güncel sayım: 21/3/18** (toplam / küme kapsamlı / namespace'li). Bu satır artık elle
 > tutulmuyor: `TestPackaging_TheReadmeCountsTheManifestObjects` dosyalardaki sütun-0 `kind:`
 > satırlarını sayar (yukarıdaki `grep`'in aynısı), türleri kapsamına göre ayırır ve bu çapayı
 > arar — bir manifest eklenip sayı güncellenmezse kırmızı. `--dry-run=client` ölçümü yine
@@ -1996,7 +1997,8 @@ Her panel POST formunun `action`'ı `?tb=<bağ>` taşır (ADR 0031 §5.5): oturu
 (`ProtectWriting`, `protectWritingThroughSuspension`) bağı gövdeye dokunmadan, askı halkasından ve her
 yazmadan **önce** karşılaştırır; uyuşmazsa **409** *"This page belongs to another business — reload it."*
 Bayraktan bağımsız, her zaman açık. Tek adlandırılmış istisna plaket encode rölesinin üç rotası (form
-değil; Android rölesi bağı öğrenemez — `internal/handler/formbinding.go`).
+değil; Android rölesi sayfa çizmez ve bağı öğrenemez — kullanıcı kararı 2026-10-26, ADR 0031 §5.5'in
+M14-10a notu 1; onları Origin, oturum, oturum bütçesi, askı ve encode tavanı korumaya devam eder).
 
 **Adlandırılmış bedeller:**
 
@@ -2015,26 +2017,36 @@ değil; Android rölesi bağı öğrenemez — `internal/handler/formbinding.go`
 - Panel `<meta name="referrer" content="no-referrer">` gönderir (`web/templates/layout/base.templ`).
 - Kapı bağı isteğin URL'sinden **siler**; handler onu göremez, yönlendirme hedefi taşıyamaz. Her bağlı
   rotada `Location`'da `tb` yok (`TestFormBinding_NoRedirectCarriesTheBinding`).
-- ⚠️ **Sayfayla cevap veren POST'lar** (doğrulama hatasında yeniden çizilen form, onay adımları,
-  bir kez gösterilen anahtar/link ekranı) adres çubuğunda ve geçmişte `?tb=…`'yi bırakır — PRG yalnız
-  yönlendirmeyle biten yazmalarda geçerli. Bağ çerezsiz işe yaramaz (Origin kapısı + oturum gerekir).
-- 🔴 **Ingress erişim log'u — ölçüldü (yalnız repodan, kümeye dokunulmadan, 2026-10-23): AÇIK ve
-  SORGUYU YAZIYOR.** `ingress-nginx` ConfigMap'i boş (`deploy/k8s/40-ingress.yaml`'ın ölçüm notu), yani
-  denetleyici varsayılanları geçerli: erişim log'u açık, varsayılan `log-format-upstream` `"$request"`
-  içerir (sorgu dizgisi dahil tam istek satırı); `tappa` Ingress'i `enable-access-log` notu taşımıyor
-  (`deploy/k8s/*.yaml`'da 0 eşleşme). ADR 0020 de *"Ingress erişim log'u URL'yi yazar"* diye kaydeder.
-  Yani bu binary canlıya çıkınca her panel POST'unun bağı denetleyicinin stdout'una yazılır. **Karar
-  bekliyor (kullanıcı):** (a) yalnız `/admin` yolu için ayrı bir Ingress'te
-  `nginx.ingress.kubernetes.io/enable-access-log: "false"` (panel istekleri ingress log'unda görünmez
-  olur), ya da (b) bilinen risk olarak kabul (bağ ham çerez olmadan üretilemez ve kullanılamaz).
-  Doğrulama (küme yöneticisi, rollout'tan sonra; yalnız sayı basar):
+- **Sayfayla cevap veren POST'lar** (doğrulama hatasında yeniden çizilen form, inceleme/onay adımları,
+  bir kez gösterilen anahtar/link ekranı) adres çubuğunda ve geçmişte `?tb=…`'yi bırakır. **Kabul
+  edildi** (kullanıcı kararı 2026-10-26, ADR 0031 §5.5 not 2): bağ o oturumun ham çerezi olmadan ne
+  üretilebilir ne de tek başına oynatılabilir. PRG yönlendirmeyle biten her yazmada geçerli (yukarıdaki test).
+- **Ingress erişim log'u panel yollarında KAPALI** (kullanıcı kararı 2026-10-26, ADR 0031 §5.5 not 3).
+  Ölçüm (yalnız repodan, 2026-10-23): `ingress-nginx` ConfigMap'i boş (`deploy/k8s/40-ingress.yaml`'ın
+  ölçüm notu), yani denetleyicinin erişim log'u açık ve varsayılan `log-format-upstream` `"$request"`'i
+  — sorgu dahil tam istek satırını — yazar; ADR 0020 de *"Ingress erişim log'u URL'yi yazar"* der.
+  Değişiklik: `40-ingress.yaml`'a üçüncü Ingress **`tappa-panel`** — host `taptime.mt`, tek yol `/admin`
+  (Prefix; panel çerezinin `Path`'i), TLS/sınıf/backend/etiketler ve notlar `tappa`'nınkiyle aynı,
+  artı `nginx.ingress.kubernetes.io/enable-access-log: "false"`; cert-manager issuer notu yalnız
+  `tappa`'da (tek sır `taptime-tls`, tek Certificate — 41'in konsol/legal çiftinin kuralı). `tappa`
+  `/`'yi yönlendirmeye devam eder; ingress-nginx en uzun öneki seçtiği için `/admin` ve altı **yalnız**
+  `tappa-panel`'e gider. Bedel: panel istekleri ingress erişim log'unda görünmez (süreç log'u rota
+  desenini yazmaya devam eder). Pin: `TestPackaging_ThePanelPathsAreRoutedWithoutAnAccessLog`.
+  Deploy aynı `kubectl apply -f deploy/k8s/40-ingress.yaml` adımıyla uygular (RBAC'ta `create` var).
+
+  **Doğrulama (deploy'dan sonra, küme yöneticisi, salt-okur):**
 
   ```bash
-  kubectl -n ingress-nginx get cm ingress-nginx-controller -o jsonpath='{.data}'
+  # 1) İki nesne, yollar ve log notu:
+  kubectl -n tappa get ingress tappa tappa-panel \
+    -o custom-columns='NAME:.metadata.name,PATHS:.spec.rules[*].http.paths[*].path,ACCESSLOG:.metadata.annotations.nginx\.ingress\.kubernetes\.io/enable-access-log'
+  # beklenen: tappa  /  <none>   ·   tappa-panel  /admin  false
+  # 2) Panelde bir sayfa açıp bir form gönderdikten sonra, denetleyicinin log'unda panel satırı sayısı
+  #    (yalnız sayı basar; denetleyici bir DaemonSet ise deploy/ yerine ds/):
+  kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --since=10m | grep -c ' /admin'
   kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --since=10m | grep -c 'tb='
+  # beklenen: 0 ve 0 (öteki yollar, ör. ' /t?', log'da görünmeye devam eder)
   ```
-
-  Beklenen: (a) seçildiyse ikinci satır `0`; bugünkü yapılandırmayla panelde POST olduysa `> 0`.
 
 ---
 
