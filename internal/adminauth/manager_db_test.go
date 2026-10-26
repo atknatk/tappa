@@ -118,6 +118,9 @@ func fixtureDigest(t *testing.T, password string) string {
 // management is M6-05), so the fixture writes the row directly.
 func newAdminRow(t *testing.T, d *db.DB, tenantID uuid.UUID, email, password, status, role, fullName string) uuid.UUID {
 	t.Helper()
+	// The row is COMMITTED: the operator-tables lock is held shared while this test lives
+	// (holdTablesLock says why).
+	holdTablesLock(t)
 	digest := fixtureDigest(t, password)
 	id := uuid.New()
 	err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {

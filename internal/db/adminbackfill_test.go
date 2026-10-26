@@ -340,8 +340,13 @@ func TestAdminBackfill00073_ItIsIdempotent(t *testing.T) {
 	// No other session may commit an admin_users row between the two runs: the backfill reads every
 	// committed row (READ COMMITTED), so a row another package's test commits in between would
 	// legitimately birth an identity in the second run and read as "not idempotent" (measured beside
-	// internal/adminauth's tests, M14-07's audit). SHARE blocks writers until this transaction ends.
-	if _, err := tx.Exec(ctx, `LOCK TABLE admin_users IN SHARE MODE`); err != nil {
+	// internal/adminauth's tests, M14-07's audit). EXCLUSIVE, not SHARE (M14-09's third-eye audit):
+	// SHARE let a sign-in take its row lock (SELECT ... FOR NO KEY UPDATE takes ROW SHARE, which SHARE
+	// admits) and then wait on this table lock for its UPDATE, while the backfill waited on that row
+	// -- 40P01 / 55P03 against TestIssue_ConcurrentSignInsOfOneAdminDoNotDeadlock, 6 rounds of 6.
+	// EXCLUSIVE also refuses ROW SHARE, so such a sign-in waits before it holds anything; plain reads
+	// still pass.
+	if _, err := tx.Exec(ctx, `LOCK TABLE admin_users IN EXCLUSIVE MODE`); err != nil {
 		t.Fatalf("lock admin_users: %v", err)
 	}
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {

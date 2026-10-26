@@ -28,7 +28,8 @@ var tablesLockStatements = map[string][]string{
 	"../../internal/db":               {"TestOperatorDB_RunsAsTappaOperator", "bfTx", "opLiveFixture", "opTx"},
 	"../../internal/handler/operator": {"newE2E"},
 	"../../internal/operatorauth":     {"sharedTablesLock"},
-	// M14-07: the identity worlds commit identities (ownerConn takes it shared).
+	// M14-07: the identity worlds commit identities; M14-09's audit: every committed admin row too
+	// (ownerConn and newAdminRow take it shared, through holdTablesLock).
 	"../../internal/adminauth": {"sharedTablesLock"},
 	// M14-08: a registration of a new address commits an identity (identityOwner takes it shared).
 	"../../internal/domain/signup": {"sharedTablesLock"},
@@ -47,6 +48,8 @@ var tablesLockStatements = map[string][]string{
 // function of tablesLockStatements or a re-entrant holder (TestTablesLock_IsTakenOncePerTestTree).
 var tablesLockReentrant = map[string][]string{
 	"../../internal/handler": {"holdPanelTablesLock"},
+	// M14-09's audit: every test that commits an admin row (newAdminRow) or an identity (ownerConn).
+	"../../internal/adminauth": {"holdTablesLock"},
 }
 
 // lockSite is one place a function asks for the lock: the statement itself (via ""),
@@ -254,7 +257,8 @@ func parsePackages(t *testing.T, fset *token.FileSet, dir string) map[string][]*
 // one whose subtest asks nothing, nor an unlock -- in a source written here.
 //
 // THE ONE EXCEPTION, M14-09: a directory may name a RE-ENTRANT holder (tablesLockReentrant --
-// internal/handler's holdPanelTablesLock, which every panel harness takes). It sends the statement
+// internal/handler's holdPanelTablesLock, which every panel harness takes, and internal/adminauth's
+// holdTablesLock, which every committed admin row and identity world takes). It sends the statement
 // only while nothing in the process holds the lock, so a test that already holds it never asks
 // again; calls to it are not sites, and in exchange nothing else in that directory may reach the
 // statement (tablesLockOutsiders). Its own positive control is the second source below.

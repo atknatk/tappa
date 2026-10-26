@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,7 +36,8 @@ import (
 // FAILs in internal/db when the two packages ran in parallel (M14-07's audit).
 const operatorTablesTestLock = "tappa/test/operator-tables"
 
-// sharedTablesLock takes the lock shared on conn, held until conn closes (the test's end).
+// sharedTablesLock takes the lock shared on conn, held until conn closes. Its one caller is
+// holdTablesLock.
 func sharedTablesLock(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
 	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock_shared(hashtext($1))`, operatorTablesTestLock); err != nil {
@@ -43,15 +45,81 @@ func sharedTablesLock(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	}
 }
 
-// ownerConn is a dedicated owner connection (DATABASE_MIGRATE_URL; test-only, redline R5), holding
-// the operator-tables lock shared until the test ends. One per test: the lock is taken once per test
-// tree (cmd/opadmin's TestTablesLock_IsTakenOncePerTestTree).
+// tablesLock is this test binary's ONE holder of the operator-tables lock (holdTablesLock).
+var tablesLock struct {
+	mu   sync.Mutex
+	held int
+	conn *pgx.Conn
+}
+
+// holdTablesLock holds internal/db's operator-tables lock SHARED until t ends. Every test here that
+// COMMITS an admin_users row (newAdminRow) or an identity (ownerConn) takes it: internal/db's backfill
+// tests read and lock every committed admin_users row under it held EXCLUSIVE, and a row committed --
+// or a sign-in's UPDATE of one -- while they run made them red: TestAdminBackfill00073_ItIsIdempotent
+// and TestIssue_ConcurrentSignInsOfOneAdminDoNotDeadlock deadlocked each other, 6 rounds of 6 (23x
+// 40P01, 19x 55P03; M14-09's third-eye audit).
+//
+// 🔴 RE-ENTRANT, PER PROCESS -- internal/handler's holdPanelTablesLock, the same shape and the same
+// reason: a test that builds two fixtures, or one inside a subtest or a loop, must not ask for the
+// lock a second time while holding it (a SHARED request queues behind a waiting EXCLUSIVE one, and the
+// EXCLUSIVE one waits on this test -- cmd/opadmin's TestTablesLock_IsTakenOncePerTestTree). Only the
+// first holder sends the statement; later ones count themselves in; the last to end closes the
+// connection, which releases the lock. The scan names this function the package's re-entrant holder
+// (tablesLockReentrant) and requires sharedTablesLock to have no other caller.
+//
+// Without DATABASE_MIGRATE_URL nothing is held: every test that takes the lock EXCLUSIVE connects as
+// the owner and skips without it.
+func holdTablesLock(t *testing.T) {
+	t.Helper()
+	dsn := os.Getenv("DATABASE_MIGRATE_URL")
+	if dsn == "" {
+		return
+	}
+	tablesLock.mu.Lock()
+	defer tablesLock.mu.Unlock()
+	if tablesLock.held == 0 {
+		ctx := context.Background()
+		conn, err := pgx.Connect(ctx, dsn)
+		if err != nil {
+			t.Fatalf("connect as the owner for the operator-tables lock: %v", err)
+		}
+		ok := false
+		defer func() {
+			if ok {
+				return
+			}
+			if err := conn.Close(context.Background()); err != nil {
+				t.Errorf("close the owner connection: %v", err)
+			}
+		}()
+		sharedTablesLock(t, ctx, conn)
+		ok = true
+		tablesLock.conn = conn
+	}
+	tablesLock.held++
+	t.Cleanup(func() {
+		tablesLock.mu.Lock()
+		defer tablesLock.mu.Unlock()
+		tablesLock.held--
+		if tablesLock.held > 0 {
+			return
+		}
+		if err := tablesLock.conn.Close(context.Background()); err != nil {
+			t.Errorf("release the operator-tables lock: %v", err)
+		}
+		tablesLock.conn = nil
+	})
+}
+
+// ownerConn is a dedicated owner connection (DATABASE_MIGRATE_URL; test-only, redline R5); the
+// operator-tables lock is held shared until the test ends (holdTablesLock).
 func ownerConn(t *testing.T) *pgx.Conn {
 	t.Helper()
 	dsn := os.Getenv("DATABASE_MIGRATE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_MIGRATE_URL not set; the identity fixtures are written as the owner (real Postgres required)")
 	}
+	holdTablesLock(t)
 	c, err := pgx.Connect(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("connect as the owner: %v", err)
@@ -61,7 +129,6 @@ func ownerConn(t *testing.T) *pgx.Conn {
 			t.Errorf("close the owner connection: %v", err)
 		}
 	})
-	sharedTablesLock(t, context.Background(), c)
 	return c
 }
 
