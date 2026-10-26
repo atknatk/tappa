@@ -470,6 +470,19 @@ eklenir — `tenants.name` (kabukta işletme adı, ek okuma yok) ve `admin_users
 kovası). Askı kapısı, `ProtectWriting`, `RequireAdmin`, ~50 `AdminOf` çağrı yeri ve rol kapıları
 dokunulmadan çalışır; var olan oturumlar deploy'u atlatır.
 
+**M14-12 uygulama notu (2026-10-26):** ad `adminauth.Resolved.TenantName`'den (aynı `RETURNING`; Verify
+işletme işleminde tek ifade koşar — `TestVerify_CarriesTheBusinessNameTheStatementReturned`). Markasız
+işletmede kabuk Wordmark'ın altına bir işletme bloğu çizer (ad; bayrak `on` iken "Switch business"
+bağlantısı); markalıda ad zaten başlıkta olduğundan blok yalnız bağlantıdır, bayrak `off` iken markalı
+kabuk bayt-aynıdır. **Bağlantı bayrak `on` iken her zaman görünür** — ölçülen seçim: üyelik sayısını
+damgalamanın yeri yok (`admin_sessions`'ta sütun yok, `tappa_app`'ın INSERT'i yalnız `id, tenant_id,
+admin_user_id, token_hash`; `identity_open_session`/`identity_switch_session` sayı döndürmez — 00071),
+yani damga bir migration + iki definer yeniden tanımı ister ve başka işletmede kabul edilen bir davet ya
+da kaldırılan bir üyelikle bayatlar; tek işletmede sayfa bunu söyler (M14-13). WL-8 panel golden'ı
+(`TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8`) değişmedi — derlemi işletme taşımayan kabuktur;
+adlı kabuğun golden'dan yalnız blok kadar farklı olduğunu `TestPanelShell_TheNamedShellIsTheGoldenPlusTheBlock`
+ölçer.
+
 ### 5.4 Geçiş
 
 `POST /admin/switch` (form: `tenant_id`, `csrf`). Zincir `protectWritingThroughSuspension`
