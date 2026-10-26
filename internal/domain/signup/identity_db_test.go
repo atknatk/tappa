@@ -228,7 +228,11 @@ func TestSignupProvision_ConcurrentBirthsOfOneNewAddress(t *testing.T) {
 	p, data, owner := newProvisionerFixtureWithOwner(t)
 	ctx := context.Background()
 
-	const claimsN = 5
+	// Three confirmations and the old pod's registration: FOUR at the barrier at once, each holding a
+	// pool connection while it waits -- pgxpool's floor is four connections (max(4, NumCPU)), so a
+	// fifth on a two-core CI runner would wait for a connection instead of the barrier (CI run
+	// 40411487251: "only 4 of 6 registrations reached the barrier").
+	const claimsN = 3
 	email := "concurrent-" + uuid.NewString() + "@signup.example"
 	drafts := make([]Draft, claimsN+1)
 	for i := range drafts {

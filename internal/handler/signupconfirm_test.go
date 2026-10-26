@@ -59,14 +59,13 @@ func emailSignupConfig() *config.Config {
 
 // newEmailSignupDriver is newSignupDriver with the letters going to a recording sender (the outbox and
 // its worker are real) and the log captured.
-func newEmailSignupDriver(t *testing.T, p *fakeProvisioner, floor time.Duration) (*wizardDriver, *Signup, *recordingMail, *bytes.Buffer) {
+func newEmailSignupDriver(t *testing.T, p *fakeProvisioner, floor time.Duration) (*wizardDriver, *Signup, *recordingMail, *lockedWriter) {
 	t.Helper()
 	claims := newFakeClaims()
 	p.claims, claims.onOpen = claims, p.opened
 	rec := &recordingMail{}
-	var logged bytes.Buffer
-	var mu sync.Mutex
-	log := slog.New(slog.NewJSONHandler(&lockedWriter{w: &logged, mu: &mu}, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	logged := &lockedWriter{w: &bytes.Buffer{}, mu: &sync.Mutex{}}
+	log := slog.New(slog.NewJSONHandler(logged, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	wizard, err := NewSignup(p, claims, nil, rec, emailSignupConfig(), log)
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
@@ -82,7 +81,7 @@ func newEmailSignupDriver(t *testing.T, p *fakeProvisioner, floor time.Duration)
 	wizard.state.now = func() time.Time { return now }
 	wizard.floor = floor
 	d := &wizardDriver{t: t, router: httpx.NewRouter(nil, nil, wizard), jar: map[string]string{}, clock: &now, claims: claims}
-	return d, wizard, rec, &logged
+	return d, wizard, rec, logged
 }
 
 type lockedWriter struct {
@@ -94,6 +93,13 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.w.Write(p)
+}
+
+// String reads what was written so far, under the writer's lock (the outbox's worker logs too).
+func (l *lockedWriter) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.String()
 }
 
 // drainLetters waits for the outbox to hand n letters to the sender.
@@ -156,6 +162,14 @@ func TestSignupAccount_ANewAndAKnownAddressAreIndistinguishable(t *testing.T) {
 		a.sentPage = d.get(signupSentPath).Body.String()
 		letters := drainLetters(t, rec, 1)
 		a.letters = append(a.letters, letters[0].scope+"|"+letters[0].m.Subject+"|"+letters[0].m.To)
+		// The worker logs its accepted line after the send returns: wait for it, so both arms compare
+		// complete logs.
+		for deadline := time.Now().Add(5 * time.Second); !strings.Contains(logged.String(), "the relay accepted the registration letter"); {
+			if time.Now().After(deadline) {
+				t.Fatal("the worker never logged the accepted letter")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
 		var lines []string
 		for _, m := range logLine.FindAllStringSubmatch(logged.String(), -1) {
 			lines = append(lines, m[1])
