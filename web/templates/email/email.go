@@ -222,6 +222,10 @@ const (
 	subjectInvitation      = "Your Taptime invitation"
 	subjectReset           = "Reset your Taptime password"
 	subjectPasswordChanged = "Your Taptime password was changed"
+	// M14-17 (ADR 0031 §5.14): the registration's two letters -- the new address's verification and
+	// the existing address's "a registration was started with your address".
+	subjectSignupVerify = "Confirm your Taptime registration"
+	subjectSignupKnown  = "A Taptime registration used your address"
 )
 
 // Where each link must point, relative to the configured BaseURL. They are the
@@ -240,6 +244,10 @@ const (
 	// checks it, so the two disagreeing refuses every render, and the e-mail
 	// channel's constructor renders once at boot (NewEmailResetChannel).
 	signInPath = "/admin/login"
+	// signupConfirmPath is the registration link's page (M14-17): internal/handler's
+	// signupConfirmPath, held here like signInPath (the handler's constructor renders once at boot).
+	signupConfirmPath  = "/admin/signup/confirm"
+	signupConfirmParam = "t"
 )
 
 // maxLinkValue bounds the code or token in a link. Both producers write 43
@@ -316,6 +324,42 @@ type PasswordChangedView struct {
 	// business (EM-9, ADR 0031 §5.14). It is a fact about the change, not a name: the notice still
 	// names nobody. False (the zero value) is the per-account notice, unchanged byte for byte.
 	EveryBusiness bool
+}
+
+// SignupView is what the registration letters say besides their link (M14-17, ADR 0031 §5.10, §5.14).
+//
+// IT NAMES NOBODY AND NO BUSINESS, ON PURPOSE: anyone can start a registration with any address, so
+// the business name and the person's name are text a stranger chose -- ADR 0022 counted limit 22's
+// reason, and the reset e-mail's. And there is no field that says which of the two letters this is:
+// the caller picks the renderer.
+type SignupView struct {
+	// BaseURL is cfg.BaseURL; the link must be BaseURL + "/admin/signup/confirm?t=" + the token.
+	BaseURL string
+	// ValidFor is the link's lifetime: the time it has left when the e-mail is sent.
+	ValidFor time.Duration
+}
+
+// RenderSignupVerification renders the new address's letter: open the link and re-enter the password
+// chosen in the form. The returned Message has Subject, Text and HTML; the caller sets To and Ref.
+func RenderSignupVerification(ctx context.Context, link string, v SignupView) (mail.Message, error) {
+	return renderSignup(ctx, link, v, signupVerifyLetter)
+}
+
+// RenderSignupKnownAddress renders the existing address's letter: someone started a registration with
+// this address; if it was you, sign in and open the link in the same browser.
+func RenderSignupKnownAddress(ctx context.Context, link string, v SignupView) (mail.Message, error) {
+	return renderSignup(ctx, link, v, signupKnownLetter)
+}
+
+func renderSignup(ctx context.Context, link string, v SignupView, letterOf func(life string) letter) (mail.Message, error) {
+	if err := checkLink(v.BaseURL, signupConfirmPath, signupConfirmParam, link); err != nil {
+		return mail.Message{}, err
+	}
+	life, err := lifetime(v.ValidFor)
+	if err != nil {
+		return mail.Message{}, err
+	}
+	return render(ctx, letterOf(life), link)
 }
 
 // RenderPasswordChanged renders the notice for the sign-in page's address. The

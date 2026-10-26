@@ -63,6 +63,17 @@ type AdminSession struct {
 	AuthenticatedAt *time.Time
 }
 
+type AdminSignupClaim struct {
+	ID           uuid.UUID
+	TokenHash    string
+	Email        string
+	Draft        []byte
+	PasswordHash string
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+	UsedAt       *time.Time
+}
+
 type AdminUser struct {
 	ID           uuid.UUID
 	TenantID     uuid.UUID

@@ -100,6 +100,8 @@ var identitySessionKeyLookups = map[string]int{
 	"identity_request_verification": 1,
 	"identity_verify_email":         1,
 	"identity_consume_row_reset":    1,
+	// M14-17 (00078): the existing identity's own live session -- the only way the claim reaches it.
+	"identity_claim_signup": 1,
 }
 
 // identityEmailWideReads names, per function, how many statements read admin_users by ONE ADDRESS
@@ -140,6 +142,19 @@ var identityBeltAllowedConstructs = map[string]map[string]string{
 			"address's advisory lock; a concurrent birth of the same address ends in no row, never a 500 ...",
 		`"DO" in a predicate`:      "... (ON CONFLICT's DO; the arbiter is admin_identities_email_key, an INSERT INTO an identity table needs no key) ...",
 		`"NOTHING" in a predicate`: "... (DO NOTHING: no row is updated, so no SET and no WHERE follow it)",
+	},
+	// M14-17 (00078). The new address's identity INSERT carries 00074's ON CONFLICT (email) DO NOTHING
+	// (S13: the second belt behind the address's advisory lock); its three words are named for this body
+	// alone, as for identity_create_for_signup.
+	"identity_claim_signup": {
+		`"CONFLICT" in a predicate`: "ADR 0031 §5.2 / S13: the new identity's INSERT ... ON CONFLICT (email) DO NOTHING -- a concurrent birth of " +
+			"the same address (another confirmation, an invitation, the old pod's identity_create_for_signup) ends in no row and a refusal, never a 500 ...",
+		`"DO" in a predicate`:      "... (ON CONFLICT's DO; the arbiter is admin_identities_email_key, an INSERT INTO an identity table needs no key) ...",
+		`"NOTHING" in a predicate`: "... (DO NOTHING: no row is updated, so no SET and no WHERE follow it)",
+	},
+	"identity_sweep_signup_claims": {
+		identityUnkeyedIdentityStatement: "ADR 0031 §5.1, R17: the registration drafts' sweep deletes the expired ones by age and the used ones " +
+			"by state, no argument, no identity (a draft is not a record); identityPersonTableDeleters names it the table's one deleter",
 	},
 	"identity_unlink_backfilled": {
 		"a call to public.crypt":            "ADR 0031 §5.8, S20: the sentinel digest is bcrypt (pgcrypto, a C function that reads no table) of ...",
@@ -816,6 +831,7 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 		membership = "public.identity_memberships(text)"
 		openFn     = "public.identity_open_session(uuid, uuid, text, text)"
 		signupFn   = "public.identity_create_for_signup(uuid, uuid)"
+		claimFn    = "public.identity_claim_signup(text, uuid, text)"
 	)
 	emailRead := "    PERFORM 1\n       FROM public.admin_users AS a\n      WHERE a.email OPERATOR(public.=) v_email\n        AND a.id <> p_admin_user_id;"
 	switchRevoke := "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.tenant_id = v_tenant\n       AND o.revoked_at IS NULL;"
@@ -883,6 +899,18 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 		{name: "a second e-mail read the map does not count", fn: signupFn, cut: emailRead, put: emailRead + "\n" + emailRead},
 		{name: "an e-mail read in a function the map does not name", fn: switchFn, cut: switchRevoke,
 			put: "    PERFORM 1 FROM public.admin_users AS z WHERE z.email OPERATOR(public.=) p_new_hash;\n" + switchRevoke},
+		// M14-17 (00078): identity_claim_signup's tenant statements, each without what holds it.
+		{name: "the claim's membership test without its tenant", fn: claimFn,
+			cut: "WHERE a.tenant_id = p_tenant_id;", put: "WHERE a.identity_id IS NULL;"},
+		{name: "the claim's business read without its id", fn: claimFn,
+			cut: "WHERE t.id = p_tenant_id;", put: "WHERE t.id IS NOT NULL;"},
+		{name: "the claim's session joined by half its key", fn: claimFn,
+			cut: "JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id",
+			put: "JOIN public.admin_users AS a ON a.id = s.admin_user_id"},
+		{name: "the claim's owner row without its tenant", fn: claimFn,
+			cut: "INSERT INTO public.admin_users (tenant_id, full_name,", put: "INSERT INTO public.admin_users (full_name,"},
+		{name: "the claim's draft consumed without its key", fn: claimFn,
+			cut: "     WHERE c.id = v_claim\n       AND c.used_at IS NULL;", put: "     WHERE c.used_at IS NULL;"},
 		{name: "P3: a tenant read off an unkeyed identity row", fn: openFn,
 			cut: "WHERE i.id = p_identity_id\n       AND i.password_hash = p_verified_digest\n       FOR UPDATE;",
 			put: "WHERE i.password_hash = p_verified_digest\n     LIMIT 1;"},

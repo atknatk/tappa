@@ -714,6 +714,15 @@ func validEnv(v string) error {
 // IsHardened is a convenience, never a security boundary by itself.
 func (c *Config) IsHardened() bool { return c.Env == EnvProd || c.Env == EnvSandbox }
 
+// RegistrationLinksOnScreen reports whether a registration's verification link is shown on the
+// wizard's "Check your inbox" page instead of being e-mailed (M14-17, the user's decision of
+// 2026-10-26; ADR 0031 §5.10, ADR 0028 §11): only where no e-mail is sent (TAPPA_RESET_DELIVERY=none)
+// AND the installation is a development or a sandbox one -- data there is not a customer's. With no
+// e-mail anywhere else the wizard takes no registrations; production never shows a link.
+func (c *Config) RegistrationLinksOnScreen() bool {
+	return c.ResetDelivery != ResetDeliveryEmail && (c.Env == EnvDev || c.Env == EnvSandbox)
+}
+
 // retentionYearsMin / retentionYearsMax bound TAPPA_RETENTION_YEARS.
 //
 // THESE ARE SANITY BOUNDS, NOT A LEGAL RANGE — the distinction matters, because

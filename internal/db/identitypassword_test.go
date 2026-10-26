@@ -2102,11 +2102,24 @@ func ipCatalogue(t *testing.T, ctx context.Context, q pgx.Tx) string {
 func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndUp(t *testing.T) {
 	ctx, tx := opTx(t)
 	later := aiLaterMigrations(t)
+	// M14-17: 00078's Down drops admin_signup_claims -- its table lock is taken first (lockForDowns),
+	// like every walk over a Down that names a table.
+	var laterTables []string
+	for _, f := range later {
+		if f.name >= "00074" {
+			laterTables = append(laterTables, downTables(f.down)...)
+		}
+	}
+	for _, tb := range laterTables {
+		if tb != "admin_signup_claims" {
+			t.Fatalf("PREMISE: a Down above 00074 locks %s; walk it with lockForDowns", tb)
+		}
+	}
+	if len(laterTables) > 0 {
+		lockForDowns(t, ctx, tx, laterTables)
+	}
 	for i := len(later) - 1; i >= 0; i-- {
 		if later[i].name >= "00074" {
-			if tables := downTables(later[i].down); len(tables) > 0 {
-				t.Fatalf("PREMISE: %s's Down locks %v; walk it with lockForDowns", later[i].name, tables)
-			}
 			opRunSection(t, ctx, tx, later[i].down, later[i].name+" Down")
 		}
 	}

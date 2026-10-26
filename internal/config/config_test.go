@@ -685,3 +685,25 @@ func TestLoad_TheBuildDecidesTheSandboxValue(t *testing.T) {
 		t.Errorf("the sandbox loaded with the invitation e-mailed: %v", err)
 	}
 }
+
+// TestConfig_RegistrationLinksOnScreenOnlyWithoutEmailOnDevOrSandbox (M14-17, the user's decision of
+// 2026-10-26): the verification link is shown on screen only where no e-mail is sent AND the installation
+// is a development or sandbox one -- never in production or staging, never where e-mail is on.
+func TestConfig_RegistrationLinksOnScreenOnlyWithoutEmailOnDevOrSandbox(t *testing.T) {
+	for _, c := range []struct {
+		env, delivery string
+		want          bool
+	}{
+		{config.EnvDev, config.ResetDeliveryNone, true},
+		{config.EnvSandbox, config.ResetDeliveryNone, true},
+		{config.EnvStaging, config.ResetDeliveryNone, false},
+		{config.EnvProd, config.ResetDeliveryNone, false},
+		{config.EnvDev, config.ResetDeliveryEmail, false},
+		{config.EnvProd, config.ResetDeliveryEmail, false},
+	} {
+		cfg := &config.Config{Env: c.env, ResetDelivery: c.delivery}
+		if got := cfg.RegistrationLinksOnScreen(); got != c.want {
+			t.Errorf("%s/%s: %v, want %v", c.env, c.delivery, got, c.want)
+		}
+	}
+}

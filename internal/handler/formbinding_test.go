@@ -196,7 +196,9 @@ var nonPanelPostActions = map[string]bool{
 	`"/admin/login"`: true, `"/admin/login/choose"`: true, `"/admin/logout"`: true,
 	`"/admin/reset"`: true, `"/admin/reset/new"`: true,
 	`"/signup"`: true, `"/signup/places"`: true, `"/signup/account"`: true,
-	`"/activate"`: true, `"/api/activate"`: true, `"/api/checkin"`: true,
+	// M14-17: the registration link's confirmation -- it creates a business; no tenant to bind to yet.
+	`{ templ.URL(SignupConfirmPath) }`: true,
+	`"/activate"`:                      true, `"/api/activate"`: true, `"/api/checkin"`: true,
 	`{ templ.SafeURL(DevSimulateTapPath) }`: true,
 }
 

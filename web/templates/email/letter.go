@@ -166,6 +166,51 @@ func passwordChangedLetter(everyBusiness bool) letter {
 	}
 }
 
+// signupVerifyLetter is the registration verification for an address with no Taptime sign-in (M14-17,
+// ADR 0031 §5.10): nothing exists until the link is used, and using it asks again for the password the
+// form chose -- so a click by somebody who did not choose it creates nothing (R2). It names nobody
+// (SignupView says why).
+func signupVerifyLetter(life string) letter {
+	return letter{
+		subject: subjectSignupVerify,
+		heading: "Confirm your registration",
+		before: []string{
+			"Someone started registering a business with Taptime using this email address. If it was " +
+				"you, use the link below to finish: you will be asked for the password you chose.",
+		},
+		action: "Finish registering",
+		after: []string{
+			"The link works once and stays valid for " + life + ". Nothing has been created yet, and " +
+				"nothing will be until the link is used.",
+			"Once it is done, you sign in with this email address and the password you chose.",
+		},
+		closing: "If you did not start a registration, you can ignore this email — nothing will be created.",
+	}
+}
+
+// signupKnownLetter is the registration letter for an address that already has a Taptime sign-in (M14-17,
+// ADR 0031 §5.14's "var olan adresle kayıt"): the new business is added to that sign-in only by its
+// owner -- signed in with their own password, in the browser that opens the link (R18). It names
+// nobody, and it says nothing about the person's other businesses.
+func signupKnownLetter(life string) letter {
+	return letter{
+		subject: subjectSignupKnown,
+		heading: "A registration used your address",
+		before: []string{
+			"Someone started registering a new business with Taptime using this email address, which " +
+				"already has a Taptime sign-in. If it was you, sign in with your usual password first, " +
+				"then open the link below in the same browser to add the new business to your sign-in.",
+		},
+		action: "Add the business",
+		after: []string{
+			"The link works once and stays valid for " + life + ". Nothing has been created yet, and " +
+				"nothing about your sign-in changes until the link is used.",
+			"Signing in does not add the business by itself: only the link, opened while you are signed in, does.",
+		},
+		closing: "If you did not start this, you can ignore this email — your sign-in stays as it is.",
+	}
+}
+
 // nameMarks is the punctuation a shown name may carry besides letters, marks,
 // digits, spaces and a sentence-ending ".".
 const nameMarks = "&'’-–—,()!"

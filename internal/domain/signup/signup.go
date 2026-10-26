@@ -26,7 +26,9 @@
 package signup
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -41,7 +43,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/atknatk/tappa/internal/adminauth"
-	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/store"
@@ -50,51 +51,39 @@ import (
 // ActionSignupCompleted is the audit action a completed registration writes. The
 // vocabulary is free text by schema decision (00005), so this constant is the
 // vocabulary.
-const ActionSignupCompleted = "signup.completed"
-
-// ActionSignupUnreachable marks a registration whose account cannot be reached by the
-// sign-in path — the address already resolves to more identities than one login
-// compares, and this one sorts outside that window.
 //
-// 🔴 IT EXISTS BECAUSE THE CHECK THAT PRODUCES IT IS ITSELF A CHANNEL, AND THIS
-// REPOSITORY'S RULE IS THAT A CHANNEL IS EITHER CLOSED OR COUNTED — NEVER SILENT. See
-// Provisioner.signInBlocked for the measurement, the price and what an attacker can
-// learn; this row is the "counted" half, in the same shape
-// internal/handler.AdminAuth.recordCandidateProbe uses for the login side.
-const ActionSignupUnreachable = "signup.sign_in_unreachable"
+// SINCE M14-17 THE ROW IS WRITTEN BY THE DATABASE, NOT BY THIS PACKAGE: identity_claim_signup
+// (migration 00078) writes it in the registration's own transaction, with this package's
+// detail key for key (vat_number, vat_check, business_type, structure, venues) and the new
+// owner as its actor -- the same row whether the address was new or an existing identity's
+// (ADR 0031 §5.2: a function that writes a tenant writes that tenant's trail). The constant
+// stays the vocabulary.
+const ActionSignupCompleted = "signup.completed"
 
 // Database is the narrow slice of *db.DB this package needs, declared HERE at the
 // consumer (§7).
 //
-// ONE METHOD, AND IT IS THE TENANT-SCOPED ONE. This package never needs a
-// context-less lookup: a registration knows which tenant it is creating because it
-// is the one minting the id. That is worth stating because the two OTHER things
-// this flow touches — an email that may exist elsewhere, a VAT number that may
-// exist elsewhere — are questions this package deliberately does not ask. See
-// Provision for what answers them instead and why asking would be worse.
+// ONE METHOD, AND IT IS THE TENANT-SCOPED ONE. A registration knows which tenant it is
+// creating because it is the one minting the id. Since M14-17 nothing here asks the
+// database about an e-mail address at all: the address reaches this package only inside a
+// draft its mailbox already confirmed (ADR 0031 §5.10), and the context-less resolver the
+// sign-in reachability check used is gone with that check (signInBlocked retired -- the
+// identity path has no candidate window to fall outside of).
 type Database interface {
 	WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error
-	// GetAdminByEmail is the CONTEXT-LESS resolver (ADR 0002 madde 7, migration
-	// 00011). It is used for exactly ONE thing here and the scope is the point — see
-	// Provision's sign-in reachability check.
-	GetAdminByEmail(ctx context.Context, email string) ([]db.ResolvedAdmin, error)
 }
 
-// Trail is the slice of audit.Recorder this package needs (§7).
+// Claim is the proof a registration draft was confirmed (internal/adminauth.ClaimProof: a
+// re-entered password that matched the draft's digest, or the address's own panel session).
+// It is declared here at the consumer (§7) and does exactly two things: hand over the draft
+// it proves, and consume it INSIDE this package's transaction, writing the owner row.
 //
-// IT IS RecordTx AND NOT Record, which is the opposite of what most callers of
-// internal/audit want and is the same choice internal/domain/manual and
-// internal/domain/billing make. The reason is sharper here than for either: a
-// registration is atomic — tenant, venues and first operator in one transaction —
-// and an audit row written in its OWN transaction would survive a rollback and
-// claim a business exists that does not.
-type Trail interface {
-	RecordTx(ctx context.Context, tx pgx.Tx, e audit.Event) (uuid.UUID, error)
-	// Record appends in its OWN transaction. It is here for exactly ONE event — the
-	// sign-in reachability observation — which is taken AFTER the provisioning
-	// transaction has committed and therefore cannot share it. Everything else this
-	// package writes uses RecordTx.
-	Record(ctx context.Context, e audit.Event) (uuid.UUID, error)
+// 🔴 THE ONLY IMPLEMENTATION THAT REACHES THE DATABASE IS adminauth.ClaimProof, whose fields
+// are unexported -- so the claim cannot be made without the comparison or the session
+// (ADR 0031 §5.2 S12; internal/adminauth's TestSignupClaimProof_HasItsProducersAndOneConsumer).
+type Claim interface {
+	Draft() []byte
+	Claim(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (uuid.UUID, error)
 }
 
 // ---------------------------------------------------------------- the rules --
@@ -499,6 +488,94 @@ func Validate(d Draft) (Draft, Errors) {
 	return Draft{Business: b, Venues: v, Account: a}, errs
 }
 
+// ------------------------------------------------------------ the draft --
+
+// claimDraft is the registration draft as admin_signup_claims stores it: THE CLOSED KEY SET
+// (ADR 0031 §5.2 and its 2026-10-26 user decision -- full_name, business_name, vat_number,
+// business_type, structure, vat_check, venues), mirrored by 00078's CHECK. It carries NO
+// password and NO address: the digest and the address are columns of their own.
+type claimDraft struct {
+	FullName     string   `json:"full_name"`
+	BusinessName string   `json:"business_name"`
+	VATNumber    string   `json:"vat_number"`
+	BusinessType string   `json:"business_type"`
+	Structure    string   `json:"structure"`
+	VATCheck     string   `json:"vat_check"`
+	Venues       []string `json:"venues"`
+}
+
+// ErrDraftInvalid means a draft did not validate (encoding) or did not decode to one that does.
+var ErrDraftInvalid = errors.New("signup: the registration draft is not valid")
+
+// EncodeDraft validates a complete registration (Validate -- the password included, though it
+// is not stored here) and returns the draft's JSON, the address normalised as ValidateAccount
+// leaves it. The password is the caller's to hash; the address is the caller's to store.
+func EncodeDraft(d Draft) ([]byte, Draft, error) {
+	v, errs := Validate(d)
+	if errs.Any() {
+		return nil, Draft{}, fmt.Errorf("%w: %d field(s)", ErrDraftInvalid, len(errs))
+	}
+	venues := make([]string, 0, len(v.Venues))
+	for _, x := range v.Venues {
+		venues = append(venues, x.Name)
+	}
+	b, err := json.Marshal(claimDraft{
+		FullName: v.Account.FullName, BusinessName: v.Business.Name, VATNumber: v.Business.VATNumber,
+		BusinessType: v.Business.BusinessType, Structure: v.Business.Structure,
+		VATCheck: v.Business.VAT.String(), Venues: venues,
+	})
+	if err != nil {
+		return nil, Draft{}, fmt.Errorf("signup: encode draft: %w", err)
+	}
+	return b, v, nil
+}
+
+// DecodeDraft reads a stored draft back -- unknown keys refused -- and validates it again
+// (every rule but the password, which the draft does not carry): a draft that reached the
+// table some other way still cannot skip a rule the form applied.
+func DecodeDraft(b []byte) (Draft, error) {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	var c claimDraft
+	if err := dec.Decode(&c); err != nil {
+		return Draft{}, fmt.Errorf("%w: %w", ErrDraftInvalid, err)
+	}
+	venues := make([]Venue, 0, len(c.Venues))
+	for _, n := range c.Venues {
+		venues = append(venues, Venue{Name: n})
+	}
+	d := Draft{
+		Business: Business{Name: c.BusinessName, VATNumber: c.VATNumber, BusinessType: c.BusinessType,
+			Structure: c.Structure, VAT: parseVATStatus(c.VATCheck)},
+		Venues:  venues,
+		Account: Account{FullName: c.FullName},
+	}
+	b2, be := ValidateBusiness(d.Business)
+	v2, ve := ValidateVenues(b2.Structure, d.Venues)
+	b2.VAT = d.Business.VAT
+	a2 := d.Account
+	a2.FullName = collapseSpaces(a2.FullName)
+	if a2.FullName == "" || utf8.RuneCountInString(a2.FullName) > MaxPersonNameRunes || !isStorableText(a2.FullName) {
+		return Draft{}, fmt.Errorf("%w: the name", ErrDraftInvalid)
+	}
+	if be.Any() || ve.Any() {
+		return Draft{}, fmt.Errorf("%w: %d field(s)", ErrDraftInvalid, len(be)+len(ve))
+	}
+	return Draft{Business: b2, Venues: v2, Account: a2}, nil
+}
+
+// parseVATStatus is VATStatus.String's inverse; anything else is VATUnknown (the fail-closed
+// verdict: "not checked", never "invalid").
+func parseVATStatus(s string) VATStatus {
+	switch s {
+	case VATValid.String():
+		return VATValid
+	case VATInvalid.String():
+		return VATInvalid
+	}
+	return VATUnknown
+}
+
 // ------------------------------------------------------------ provisioning --
 
 // Result is what a completed registration produced. IT CARRIES NO PASSWORD, NO
@@ -514,28 +591,8 @@ type Result struct {
 	// VAT is what VIES said at sign-up time, carried so the done screen can be
 	// honest about a check that did not complete.
 	VAT VATStatus
-
-	// SignInBlocked is true when this account was MEASURED to be unreachable by the
-	// sign-in path: the address resolves to more identities than one login compares
-	// (adminauth.MaxCandidates) and this one sorts outside that window.
-	//
-	// 🔴 IT EXISTS BECAUSE MIGRATION 00017 MADE A TRADE AND THE HALF THAT JUSTIFIED IT
-	// WAS NOT BUILT. Ordering the resolver by created_at protects the INCUMBENT and,
-	// deterministically, puts a NEW registration last — so somebody registering with
-	// an address that already carries MaxCandidates rows gets an account they can
-	// never sign into. 00017 and ADR 0013 defended that as acceptable because "a
-	// customer who cannot complete a sign-up finds out immediately, at a moment when
-	// they are on our page and can be told something". AN AUDIT MEASURED THAT IT WAS
-	// NOT TRUE: the wizard answered 303 to a confirmation stamped APPROVED that said
-	// "Sign in — use the email address and password you just chose", and the very next
-	// request answered 401 with no explanation, on the one screen that must not give
-	// one (00011's OBLIGATION 1).
-	//
-	// This field is that sentence made real. FALSE is the default and the answer
-	// whenever the check could not be taken: telling a customer their brand-new
-	// account is broken because OUR read failed would be the §4.6 error in the other
-	// direction.
-	SignInBlocked bool
+	// VATNumber is the registered number, for the done screen.
+	VATNumber string
 }
 
 // ErrVATTaken means the VAT number already belongs to a tenant.
@@ -553,31 +610,37 @@ type Result struct {
 // cost a real customer the one sentence that tells them what to do. An email
 // address is not public data, which is why 00011's OBLIGATION 1 exists and why this
 // package asks the database nothing about email.
+//
+// SINCE M14-17 IT IS ANSWERED AT THE CONFIRMATION (ADR 0031 §5.10): a draft reserves
+// nothing, so of two pending drafts with one VAT number the first confirmed gets the
+// business and the second gets this -- today's sentence.
 var ErrVATTaken = errors.New("signup: that VAT number is already registered")
 
-// Provisioner turns a validated Draft into a business.
+// ErrClaimRefused means identity_claim_signup refused the confirmation (a spent or
+// expired link, an address that now has an identity on the new address's path, a session
+// that is not the address's person, a concurrent confirmation of the same address).
+// Nothing was created: the business this transaction made was rolled back with it.
+var ErrClaimRefused = errors.New("signup: the registration link could not be confirmed")
+
+// Provisioner turns a confirmed draft into a business.
 type Provisioner struct {
-	data  Database
-	trail Trail
-	log   *slog.Logger
+	data Database
+	log  *slog.Logger
 	// newID is the tenant/id source, injectable ONLY for tests that need a
 	// collision. Production leaves it nil and uses uuid.NewRandom (crypto/rand).
 	newID func() (uuid.UUID, error)
 }
 
-// NewProvisioner wires it. Both dependencies are required: a nil recorder would
-// silently drop the §4.6 trail for the one event that creates a customer.
-func NewProvisioner(data Database, trail Trail, log *slog.Logger) (*Provisioner, error) {
+// NewProvisioner wires it. The trail is the database's own since M14-17 (identity_claim_signup
+// writes signup.completed in this transaction), so it takes none.
+func NewProvisioner(data Database, log *slog.Logger) (*Provisioner, error) {
 	if data == nil {
 		return nil, errors.New("signup: nil database")
-	}
-	if trail == nil {
-		return nil, errors.New("signup: nil audit trail")
 	}
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Provisioner{data: data, trail: trail, log: log}, nil
+	return &Provisioner{data: data, log: log}, nil
 }
 
 func (p *Provisioner) mintID() (uuid.UUID, error) {
@@ -591,92 +654,38 @@ func (p *Provisioner) mintID() (uuid.UUID, error) {
 	return uuid.NewRandom()
 }
 
-// signupDetail is the audit payload. A PURPOSE-BUILT STRUCT, NOT A MAP
-// (internal/audit's rule): there is no field here through which a password, a
-// digest or an email could travel, so no later edit adds one by accident.
-//
-// THE VAT NUMBER IS IN IT AND THE EMAIL IS NOT, which is a deliberate split rather
-// than an oversight. A VAT number is the business's public registration and is the
-// single most useful thing an investigator has when asking "who registered this
-// tenant"; an email address is personal data, and audit_log cannot be deleted from
-// (00005), so a row carrying one is a row carrying it forever.
-type signupDetail struct {
-	VATNumber    string `json:"vat_number"`
-	VATCheck     string `json:"vat_check"`
-	BusinessType string `json:"business_type"`
-	Structure    string `json:"structure"`
-	Venues       int    `json:"venues"`
-}
-
-// Provision creates the tenant, its venues and its first operator IN ONE
-// TRANSACTION.
+// Provision creates the business a confirmed draft describes -- the tenant, its venues
+// and, through the claim, its first operator -- IN ONE TRANSACTION.
 //
 // 🔴 ONE TRANSACTION IS THE WHOLE POINT AND IT IS M7-03's CRITERION HONOURED EARLY
 // ("Başarısızlıkta yarım tenant kalmıyor (rollback)"). A half-provisioned business
 // is the worst outcome available here: a `tenants` row with no operator cannot be
-// signed into, is not removable by anything in this repository, and holds the VAT
-// number against the customer's own second attempt. db.WithTenant rolls back on any
-// error and on a panic, so every failure below leaves nothing.
+// signed into and holds the VAT number against the customer's own second attempt.
+// db.WithTenant rolls back on any error and on a panic, so every failure below --
+// identity_claim_signup's refusal included -- leaves nothing.
 //
-// ⚠️ "NOT REMOVABLE" IS THE MEASURED WORDING, AND AN EARLIER VERSION GAVE THE WRONG
-// REASON FOR IT. It said "00001 grants no path a customer can reach" — and 00001
-// grants tappa_app TABLE-LEVEL DELETE on `tenants`, which no migration has ever
-// revoked (measured: relacl is `tappa_app=rd/tappa_owner`). What actually holds is
-// weaker and worth stating correctly: every child table references `tenants` ON
-// DELETE RESTRICT, so a tenant with any location, employee, admin or audit row
-// cannot be removed — and a tenant with NOTHING under it, which is exactly the
-// half-provisioned row this paragraph is about, is the one shape that COULD be, by a
-// statement nothing here writes. The conclusion stands; the mechanism named for it
-// was false, and a false mechanism is what the next reader builds on.
+// 🔴 THE TENANT CONTEXT IS SET TO A ROW THAT DOES NOT EXIST YET. db/queries/tenants.sql
+// argues it at length: the `tenants` policy scopes on `id`, so the INSERT can only
+// satisfy WITH CHECK if the context already equals the id being written. The id is
+// MINTED HERE from crypto/rand and reaches this function from nowhere else.
 //
-// 🔴 THE TENANT CONTEXT IS SET TO A ROW THAT DOES NOT EXIST YET. That is the one
-// genuinely unusual thing this function does and db/queries/tenants.sql argues it
-// at length: the `tenants` policy scopes on `id`, so the INSERT can only satisfy
-// WITH CHECK if the context already equals the id being written. What makes it safe
-// rather than alarming is that the id is MINTED HERE from crypto/rand and reaches
-// this function from nowhere else — no form field, no cookie, no query parameter —
-// and that a context pointing at a non-existent tenant makes RLS show this
-// transaction NOTHING. The wizard runs with strictly less reach than any
-// authenticated panel request.
+// 🔴 TOP-LEVEL, NEVER A SAVEPOINT (db.WithTenant, not db.WithTenantIn): identity_claim_signup
+// claims only a business THIS transaction wrote (tenants.xmin = pg_current_xact_id(), S2/T7),
+// and a row written under a savepoint carries the subtransaction's xid -- the claim would be
+// refused (measured on 17.10, 00074/00078).
 //
-// ORDER: tenant, then venues, then the operator, then the trail. The operator comes
-// after the venues so a venue name that violates something takes the whole
-// registration down before a password digest has been written anywhere; the trail
-// comes last because it describes what the other three did.
-//
-// ⚠️ WHAT IT DOES NOT DO, NAMED RATHER THAN LEFT TO BE DISCOVERED:
-//
-//   - NO DEPARTMENTS. `multi` unlocks them and the wizard does not ask; M7-03's card
-//     carries them and the panel already has the screen (M6-06).
-//   - NO PLAQUE. A tenant is created with no `tags` row, so a brand-new business has
-//     venues nobody can tap at yet. That is correct — Tappa encodes and ships the
-//     plaque (user decision 2026-08-08, cmd/tappa/main.go) — and M7-03's "waiting
-//     for a plaque" state is what tells the customer so.
-//   - NO POLICY ROWS. The baseline is materialised lazily by internal/domain/checkin
-//     the first time a decision is made for the tenant, so a registration that wrote
-//     policy rows would be a second materialiser.
-func (p *Provisioner) Provision(ctx context.Context, d Draft) (Result, error) {
-	d, errs := Validate(d)
-	if errs.Any() {
-		// Unreachable through the wizard, which validates every step as it is
-		// submitted. It is checked anyway because THIS is the function that writes,
-		// and a rule enforced only by the caller is a rule the next caller does not
-		// inherit.
-		return Result{}, fmt.Errorf("signup: provision: %d field(s) did not validate", len(errs))
+// ORDER: tenant, then venues, then the claim (the identity, the owner row, the draft spent and
+// the signup.completed row -- the database's). The claim is last because its predicates read
+// the business this transaction just wrote: no membership yet, born now, this xid, the draft's
+// VAT number and name.
+func (p *Provisioner) Provision(ctx context.Context, c Claim) (Result, error) {
+	if c == nil {
+		return Result{}, errors.New("signup: provision: no claim")
 	}
-
-	// Hashing happens BEFORE the transaction opens. bcrypt at cost 12 is ~380 ms of
-	// CPU (internal/adminauth measured it), and holding a pooled connection — and a
-	// row lock on nothing — for that long would put an unauthenticated caller's CPU
-	// budget inside the database's connection budget. The tap surface shares that
-	// pool.
-	digest, err := adminauth.Hash(d.Account.Password)
+	d, err := DecodeDraft(c.Draft())
 	if err != nil {
-		// The error from adminauth names a length and never a value, and it is
-		// wrapped rather than replaced so the package name is on it.
 		return Result{}, fmt.Errorf("signup: provision: %w", err)
 	}
-
 	tenantID, err := p.mintID()
 	if err != nil {
 		return Result{}, fmt.Errorf("signup: provision: minting a tenant id: %w", err)
@@ -707,17 +716,12 @@ func (p *Provisioner) Provision(ctx context.Context, d Draft) (Result, error) {
 			// db/queries/locations.sql states the consequence of getting this wrong:
 			// a shift of 00:00 makes every arrival late, and a coordinate of 0,0 is a
 			// real point in the Gulf of Guinea that would put every tap 5 000 km from
-			// its venue. A new venue has no proof of place configured, and that is a
-			// state §5 rows 6-7 already handle (`flag`, recorded, queued for a
-			// manager) rather than a gap.
+			// its venue.
 			//
-			// ⚠️ static_ips IS AN EMPTY SLICE AND **NOT** nil, and the difference is a
-			// constraint violation rather than a style point. The column is
+			// ⚠️ static_ips IS AN EMPTY SLICE AND **NOT** nil: the column is
 			// `cidr[] NOT NULL DEFAULT '{}'` (migration 00002) and this query NAMES it,
-			// so a nil slice is sent as SQL NULL and the INSERT fails with 23502 —
-			// measured, before this line said so. The empty set is the schema's own
-			// representation of "no IP evidence configured", chosen there over NULL
-			// because `<<= ANY('{}')` is cleanly FALSE while `ANY(NULL)` is NULL.
+			// so a nil slice is sent as SQL NULL and the INSERT fails with 23502 --
+			// measured.
 			row, e := q.CreateLocation(ctx, store.CreateLocationParams{
 				TenantID:  tenantID,
 				Name:      v.Name,
@@ -730,213 +734,51 @@ func (p *Provisioner) Provision(ctx context.Context, d Draft) (Result, error) {
 			venues = append(venues, row.Name)
 		}
 
-		email := d.Account.Email
-		row, e := q.CreateAdminUser(ctx, store.CreateAdminUserParams{
-			TenantID:     tenantID,
-			FullName:     d.Account.FullName,
-			Email:        &email,
-			PasswordHash: digest,
-			// 'owner' rather than a constant from this package: migration 00006's
-			// CHECK is the authority on the vocabulary and the first operator of a
-			// business they just registered is its owner by definition.
-			Role: "owner",
-		})
-		if e != nil {
-			return e
+		// THE CLAIM (ADR 0031 §5.10, migration 00078): the draft consumed, the identity (a new
+		// address) or the session's identity (an existing one), the owner row linked via
+		// `claim`, and the business's signup.completed row -- all the database's, in this
+		// transaction. Its refusal rolls the business back.
+		var e error
+		adminID, e = c.Claim(ctx, tx, tenantID)
+		if errors.Is(e, pgx.ErrNoRows) {
+			return ErrClaimRefused
 		}
-		adminID = row.ID
-
-		// THE IDENTITY'S DUAL-WRITE (ADR 0031 §5.2 named exception 2, M14-08; migration 00074): an
-		// address that is nobody's yet -- no identity, no other membership row -- gets an identity
-		// carrying this row's digest, and the row is linked to it; a known address leaves the row
-		// unlinked and every identity as it was. It runs whatever TAPPA_ADMIN_IDENTITY says (write
-		// paths do not wait for the flag, ADR 0031 §8), until M14-17's verified registration replaces
-		// it.
-		//
-		// 🔴 IN THIS TRANSACTION, AND THIS ONE IS TOP-LEVEL (db.WithTenant above, never the
-		// savepointing db.WithTenantIn): the function links only a row this transaction wrote, and a
-		// row written under a savepoint would be refused silently (S13). signup_db_test.go's real-path
-		// test is red if no identity is born.
-		//
-		// 🔴 THE ANSWER IS DROPPED HERE, ON PURPOSE. Whether it linked says whether the address was
-		// new -- ADR 0031 §5.10 lets that difference show on no surface the flag leaves open: not the
-		// confirmation page, not the log line below, not the trail.
-		if _, e := db.CreateIdentityForSignup(ctx, tx, tenantID, adminID); e != nil {
-			return e
-		}
-
-		// THE TRAIL SHARES THE TRANSACTION (see the Trail interface). ActorID is the
-		// operator who was just created: they caused this, and they are the only
-		// person this event can be attributed to.
-		_, e = p.trail.RecordTx(ctx, tx, audit.Event{
-			TenantID: tenantID,
-			ActorID:  &adminID,
-			Action:   ActionSignupCompleted,
-			Target:   tenantID.String(),
-			Detail: signupDetail{
-				VATNumber:    d.Business.VATNumber,
-				VATCheck:     d.Business.VAT.String(),
-				BusinessType: d.Business.BusinessType,
-				Structure:    d.Business.Structure,
-				Venues:       len(d.Venues),
-			},
-		})
 		return e
 	})
 	if err != nil {
 		if isUniqueViolation(err, "tenants_vat_number_key") {
 			return Result{}, ErrVATTaken
 		}
+		if errors.Is(err, ErrClaimRefused) {
+			return Result{}, ErrClaimRefused
+		}
 		return Result{}, fmt.Errorf("signup: provision: %w", err)
 	}
 
-	blocked := p.signInBlocked(ctx, d.Account.Email, tenantID, adminID)
-
-	// The log line names the tenant and the VAT check, and NOT the operator's
-	// address (§4.7's spirit: this request was unauthenticated until this instant,
-	// and a process log is not the place for personal data).
+	// The log line names the tenant and the VAT check, and NOT the operator's address
+	// (§7) -- nor which path confirmed it (ADR 0031 §5.10: no surface says whether the
+	// address was new).
 	p.log.Info("a business registered",
-		"tenant_id", tenantID, "venues", len(venues), "vat_check", d.Business.VAT.String(),
-		"sign_in_blocked", blocked)
+		"tenant_id", tenantID, "venues", len(venues), "vat_check", d.Business.VAT.String())
 
 	return Result{
-		TenantID:      tenantID,
-		AdminUserID:   adminID,
-		BusinessName:  d.Business.Name,
-		VenueNames:    venues,
-		VAT:           d.Business.VAT,
-		SignInBlocked: blocked,
+		TenantID:     tenantID,
+		AdminUserID:  adminID,
+		BusinessName: d.Business.Name,
+		VenueNames:   venues,
+		VAT:          d.Business.VAT,
+		VATNumber:    d.Business.VATNumber,
 	}, nil
-}
-
-// signInBlocked reports whether the account just created sorts OUTSIDE the window a
-// login compares, i.e. whether this customer can ever sign in.
-//
-// 🔴 IT RUNS AFTER THE COMMIT AND ONLY THERE, WHICH IS WHAT KEEPS IT FROM BEING AN
-// ORACLE. internal/handler/signup.go states the flow's rule — it never asks the
-// database whether an email exists, because that is the question 00011's OBLIGATION 1
-// spends a dummy bcrypt refusing to answer. This does ask, and the reason it is not
-// the same thing is the PRICE and the SCOPE:
-//
-//   - IT IS REACHABLE ONLY BY COMPLETING A REGISTRATION. A caller must create a
-//     tenant — a real row, a real VAT number, against signupCreateLimit — before this
-//     runs at all. There is no pre-registration probe here.
-//   - IT BRANCHES ON ONE BIT AND NOT ON THE LIST. The only thing that leaves this
-//     function is "is the row I just wrote inside the window".
-//
-// 🔴 AND THAT BIT IS A CHANNEL, WHICH FIVE PLACES IN THIS REPOSITORY USED TO DENY. They
-// said "an address with one, two or seven existing accounts answers exactly as an
-// unknown one does" — TRUE ONLY WHILE THE ATTACKER PLANTS NOTHING, and planting is the
-// premise of every other control in this area. Measured against real Postgres: plant
-// adminauth.MaxCandidates-1 rows for an address, then complete ONE MORE registration.
-// Unknown address -> 8 identities total -> false. One existing account -> 9 -> true.
-// This package's own table test is that measurement (7 -> false, 8 -> true, where the
-// 8 is the attacker's seven plus the victim's one).
-//
-// ⚠️ AND IT IS NOT ONE BIT IF THE ATTACKER VARIES THE PLANT COUNT. Registering at
-// several plant counts and observing where the flag flips reveals k, the number of
-// identities that were already there, exactly — not merely whether k > 0.
-//
-// THE SHAPE IS THE ONE MIGRATION 00017 REJECTED AS CLOSURE #2 ("the identical oracle
-// reappears at the new bound"), and it is what the withdrawn general statement
-// described: a bound the caller can saturate reports itself at the bound. The
-// difference from the picker count is that this is not a DISPLAY cap that a narrower
-// one could absorb — it is the comparison window's edge, reported.
-//
-// WHY IT IS KEPT ANYWAY, PRICED: the probe costs adminauth.MaxCandidates COMPLETED
-// registrations per address, each needing its own globally UNIQUE VAT number and a
-// unit of signupCreateLimit (3 per hour per address) — about three hours from one
-// address, i.e. roughly EIGHT TIMES the price of the timing channel that was closed.
-// Removing the check restores a defect an audit measured end to end: a real customer
-// gets an APPROVED stamp and then a bare 401 on the one screen forbidden to explain
-// itself. A certain loss to a paying customer is worse than an expensive, counted,
-// observable signal.
-//   - THE CHEAP VERSION OF THE SAME QUESTION IS CLOSED ELSEWHERE. adminauth pads every
-//     login to a constant number of comparisons (M7-02 round 4), so timing no longer
-//     answers it, and the picker is capped so its row count no longer answers it.
-//
-// A FAILED READ IS NOT A BLOCKED ACCOUNT. The error is logged and the answer is
-// false: the business exists either way, and an outage on our side must not tell a
-// customer their account is broken.
-func (p *Provisioner) signInBlocked(ctx context.Context, email string, tenantID, adminID uuid.UUID) bool {
-	rows, err := p.data.GetAdminByEmail(ctx, email)
-	if err != nil {
-		// Never swallowed (§7). It does not change the outcome of the registration,
-		// which has already committed.
-		p.log.Error("signup: could not check whether the new account is reachable by sign-in",
-			"err", err)
-		return false
-	}
-	if len(rows) <= adminauth.MaxCandidates {
-		// The window holds everything, so position cannot matter.
-		return false
-	}
-	for _, r := range rows[:adminauth.MaxCandidates] {
-		if r.ID == adminID {
-			return false
-		}
-	}
-	p.observeUnreachable(ctx, tenantID, adminID, len(rows))
-	return true
-}
-
-// observeUnreachable leaves a trail for the one channel this package could not close.
-//
-// 🔴 IT IS THE "COUNTED" HALF OF signInBlocked, in the shape
-// internal/handler.AdminAuth.recordCandidateProbe uses on the login side: a channel
-// that is not closed must at least be visible, or nobody can tell it was used.
-//
-// WHERE THE ROW GOES: into the tenant this registration just CREATED, attributed to
-// the operator it just created. That is the caller's own tenant by construction —
-// there is no id here that came from a request, so this cannot be aimed at a third
-// party's undeletable audit_log, which is the line recordCandidateProbe draws.
-//
-// IT IS ALREADY BOUNDED AND NEEDS NO BUDGET OF ITS OWN. This runs only after a
-// registration COMMITS, and completed registrations are metered at signupCreateLimit
-// (3 per hour per address). No new mechanism is introduced; the existing create budget
-// is the ceiling.
-//
-// §4.7: the row carries NO email and no digest — the address is the thing being asked
-// about, and audit_log cannot be deleted from. What it carries is two counts and the
-// window they were compared against, which is what an investigator needs to see that
-// an address was stuffed.
-//
-// A FAILED WRITE DOES NOT FAIL THE REGISTRATION. The business exists; the trail is the
-// observation, not the act. It is never swallowed (§7).
-func (p *Provisioner) observeUnreachable(ctx context.Context, tenantID, adminID uuid.UUID, resolved int) {
-	if _, err := p.trail.Record(ctx, audit.Event{
-		TenantID: tenantID,
-		ActorID:  &adminID,
-		Action:   ActionSignupUnreachable,
-		Target:   tenantID.String(),
-		Detail: unreachableDetail{
-			Resolved: resolved,
-			Compared: adminauth.MaxCandidates,
-			Reason: "the address already resolves to more identities than one sign-in " +
-				"compares, and this registration sorts outside that window",
-		},
-	}); err != nil {
-		p.log.Error("audit write failed", "action", ActionSignupUnreachable, "err", err)
-	}
-	// The address is NOT in this line either, for the reason adminlogin.go gives about
-	// its own unauthenticated paths: a flood of attempts would otherwise write a list
-	// of addresses into the process log.
-	p.log.Warn("signup: the new account cannot be reached by sign-in",
-		"tenant_id", tenantID, "resolved", resolved, "compared", adminauth.MaxCandidates)
-}
-
-// unreachableDetail is the audit payload. A purpose-built struct with no field an
-// address, a password or a digest could travel in (internal/audit's rule).
-type unreachableDetail struct {
-	Resolved int    `json:"resolved"`
-	Compared int    `json:"compared"`
-	Reason   string `json:"reason"`
 }
 
 // checkedAt is the stamp that distinguishes "we never asked" from "we asked and got
 // no answer" — migration 00017's four-state vocabulary. A registration that never
 // reached VIES (a format failure cannot get this far, so in practice this is a
 // deployment with no checker wired) stores NULL in both columns.
+//
+// ⚠️ SINCE M14-17 THE STAMP IS THE CONFIRMATION'S, NOT THE CHECK'S: VIES answered at step one
+// and the draft carries only the verdict (its closed keys hold no instant), so the stored time is
+// up to SignupClaimTTL (24 hours) after the answer it dates. The verdict itself is the one received.
 func checkedAt(s VATStatus) *time.Time {
 	if s == VATUnknown {
 		// ⚠️ THIS COLLAPSES TWO OF THE FOUR STATES AND THE LIMIT IS STATED. "Asked,

@@ -84,7 +84,7 @@ func marketingRouterWithTexts(t *testing.T, texts legalReader) http.Handler {
 func marketingRouterFor(t *testing.T, texts legalReader, apiHost string) http.Handler {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	wizard, err := NewSignup(&fakeProvisioner{}, nil, signupTestConfig(), log)
+	wizard, err := NewSignup(&fakeProvisioner{}, newFakeClaims(), nil, nil, signupTestConfig(), log)
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}
@@ -2053,6 +2053,8 @@ var cookieWriters = map[string]cookieWriter{
 	// applies the same attributes to both.
 	"tappa_signup":       {[]string{"internal", "handler", "signupstate.go"}, "set"},
 	"tappa_signup_state": {[]string{"internal", "handler", "signupstate.go"}, "set"},
+	// M14-17: the registration link's cookie, its own writer (a narrower Path, the link's page).
+	"tappa_signup_claim": {[]string{"internal", "handler", "signupconfirm.go"}, "setConfirmCookie"},
 	// The two the recovery flow sets (M7-04 phase B), and they name DIFFERENT
 	// writers, which is the disclosure this map exists to keep honest. The
 	// synchronizer cookie goes through the shared adminCookies.set like the three
@@ -2160,6 +2162,8 @@ func TestCookieNotice_FlagsAndScopeMatchTheCookieTheCodeWrites(t *testing.T) {
 			// cookie: it is the only one carrying a §4.7 secret, so it is scoped to
 			// the single route that reads it.
 			"adminResetLinkCookiePath": adminResetLinkCookiePath,
+			// M14-17. The registration LINK cookie: the confirmation page alone.
+			"signupConfirmPath": signupConfirmPath,
 		}[attrs["Path"]]
 		if wantPath == "" {
 			t.Errorf("%s: %s writes Path: %s, which this test cannot resolve. Resolve it here "+
