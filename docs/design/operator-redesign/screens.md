@@ -323,7 +323,7 @@ id line 3. Phone: the chip flows after the plan. Recipe and the pins it must not
 §6.1 "Tenants row" (`TestTenantList_ASuspendedTenantCarriesTheChip` holds `<span>plan</span>`,
 the chip and `<span class="break-all text-xs text-ink/70">id</span>` in that order, and — on a list
 of one suspended and one active tenant — exactly one chip on the whole list).
-**As built (M13-07):** the card is `op-card flex flex-col gap-3.5` — `op-label` "Tenants", the h1 at 28 px at every width (line
+**As built (M13-07):** the card is `op-card` (its gap the card rule's since M13-15) — `op-label` "Tenants", the h1 at 28 px at every width (line
 height 1.1, -0.03em), the form (label, box, help, button in that order; the button beside the box and the help under both from the
 tablet by grid placement), the matching line under a dashed rule (the term mono and bold), then one row of links (stacked on the
 phone); the docket's empty sentence is the display face; the pager unchanged (`op-link`). Every word, the form's tags, the box's
@@ -397,14 +397,14 @@ less than 60 seconds ago. · The business exists.
 required, value = current code) — exactly one; when open, `POST
 /operator/tenants/{id}/integration/close` (no field) — exactly one. No confirmation step.
 
-**As built (M13-08):** `<h1 class="docket-label">Tenant overview</h1>` opens the facts card (`op-card flex flex-col gap-3.5`);
+**As built (M13-08):** `<h1 class="docket-label">Tenant overview</h1>` opens the facts card (`op-card` (its gap the card rule's since M13-15));
 the facts `dl` follows the boards — on the phone two columns with the id and the sign-up time each across both (their wrapper
 `col-span-2 md:col-span-1`; the `dt`/`dd` stay as pinned), two on the tablet, on the desktop the boards' tracks
 `320px 200px minmax(0,1fr) minmax(0,1fr)` (the id on one line) — so the overview's facts do not take the catalogue's generic
 "Fact grid" columns (README §6, which says so); the counts two by two on the phone and four across from the tablet, bottom-aligned,
 their figures 30 / 32 / 34 px with line height 1.1 by `[aria-labelledby="tenant-live"] dd` (the figure's class stays pinned); the
 note 12 px; the docket's links and the back links stacked on the phone and in a row from the tablet. The API card and the Panel
-writes card are `op-card flex flex-col gap-3.5`; the API form sits under a dashed rule, its children in the code's order (label
+writes card are `op-card` (its gap the card rule's since M13-15); the API form sits under a dashed rule, its children in the code's order (label
 `op-label`, box, help, button) with the button beside the 220 px box and the help under both from the tablet by grid placement;
 Close the API is full width on the phone. **Deliberate differences from the boards:** the API code is not bold (its span is pinned,
 `tenantapi_test.go`); the box carries no `aria-describedby` (D1 — the boards' wiring is mock-up markup, as on the tenant list); the
@@ -434,7 +434,7 @@ reads nothing of its own. View `TenantSuspensionView` (`view.go:269-282`), built
 
 | Element | Words / markup (verbatim) |
 |---|---|
-| card | `<section class="op-card" aria-labelledby="tenant-suspension">` (as built in M13-08: `<section class="op-card flex flex-col gap-3.5" aria-labelledby="tenant-suspension">`, the card spacing its blocks); `<h2 id="tenant-suspension" class="docket-label">Panel writes</h2>` (under the page's `<h1>` "Tenant overview" — above, "The overview's `<h1>`") |
+| card | `<section class="op-card" aria-labelledby="tenant-suspension">` (as built: M13-08 wrote `flex flex-col gap-3.5` on the tag, M13-15 moved the three utilities into `.op-card` — the card spaces its blocks); `<h2 id="tenant-suspension" class="docket-label">Panel writes</h2>` (under the page's `<h1>` "Tenant overview" — above, "The overview's `<h1>`") |
 | state — active | chip `<span class="tally tally--tenant-active">Active</span>` (in `<p class="mt-3">` before M13-08; a bare `<p>` since, the card spacing it) · The business's panel accepts its writes. |
 | state — suspended | chip `<span class="tally tally--tenant-suspended">Suspended</span>` · The business's panel refuses its writes. Taps, signing in, reading every section, the CSV exports and the four paths of the time record stay open. |
 | facts (suspended) | `dl` with **Suspended since** — `<dt class="docket-label">Suspended since</dt>` `<dd class="mt-1 break-all font-mono text-sm">`, UTC to the minute (`utcStamp`) — and **Reason** — `<dt class="docket-label">Reason</dt>` `<dd class="mt-1 text-sm">` the label |
@@ -548,7 +548,7 @@ Chips (`plaques.go:136-149`):
 **Layout (polished boards):** two columns on tablet/desktop — the UID in its own column, chip,
 sentence and facts beside it (one wrapper `<div>` after the UID span; the row still starts with
 the UID span, `op13_test.go:285`); stacked on the phone — README §6.1 "Plaque row".
-**As built (M13-09):** the card is `op-card flex flex-col gap-3.5` — `op-label` "Plaques", the h1 at
+**As built (M13-09):** the card is `op-card` (its gap the card rule's since M13-15) — `op-label` "Plaques", the h1 at
 28 px at every width (line height 1.1, -0.03em), the summary `text-sm`, the note
 `text-xs leading-[1.45] text-ink/70`, the links stacked on the phone and in a row from the tablet; no
 top margins. The docket's list is `<ol class="mt-3">`. The uid's column is 156 px on the tablet, 168 px
@@ -685,7 +685,7 @@ Warn notices (a POST that changed nothing, `vat.go:394-401`):
 **Layout (polished boards):** the two "On file" facts side by side on tablet/desktop (the `dl`,
 `vat.templ:41`), stacked on the phone; the pinned `<dd class="mt-1 break-all font-mono text-lg
 font-bold">` stays (`op16_test.go:1409`).
-**As built (M13-11):** the intro card is `op-card flex flex-col gap-3.5` — `op-label` "VAT number",
+**As built (M13-11):** the intro card is `op-card` (its gap the card rule's since M13-15) — `op-label` "VAT number",
 the h1 at 28 px at every width (line height 1.1, -0.03em), the intro `text-sm`, the links stacked on
 the phone and in a row from the tablet; no top margins. On the docket the term list is two columns
 from the tablet, `minmax(0,max-content)` and `minmax(max-content,1fr)`, 56 px apart — the number's
