@@ -646,3 +646,32 @@ func TestWindow_ACutoffThatEndsTheAnchorsDayEarlierLeavesNoWindow(t *testing.T) 
 		t.Error("DayCutShort answered without a cutoff, or for an out")
 	}
 }
+
+// TestAssess_WithAnchorChosenOnlyAddsTheStep (S5): the chooser folds in as an OR -- it asks the step
+// inside the band, keeps it outside, and never takes one away.
+func TestAssess_WithAnchorChosenOnlyAddsTheStep(t *testing.T) {
+	t.Parallel()
+	nineToFive := shift(9*time.Hour, 17*time.Hour, false)
+	inBand := Assess(KindIn, wall(19, 18, 55, 0), wall(19, 9, 0, 0), nineToFive, nil)
+	outBand := Assess(KindOut, wall(19, 9, 0, 0), wall(19, 22, 0, 0), nineToFive, nil)
+	for _, tc := range []struct {
+		name   string
+		a      Assessment
+		chosen bool
+		want   bool
+	}{
+		{"in the band, the engine's anchor", inBand, false, false},
+		{"in the band, the person's anchor", inBand, true, true},
+		{"outside the band, the engine's anchor", outBand, false, true},
+		{"outside the band, the person's anchor", outBand, true, true},
+		{"no shift, the engine's anchor", Assess(KindOut, wall(19, 9, 0, 0), wall(19, 17, 0, 0), nil, nil), false, true},
+	} {
+		got := tc.a.WithAnchorChosen(tc.chosen)
+		if got.RequiresConfirmation != tc.want || got.AnchorChosen != tc.chosen || got.OutsideBand != tc.a.OutsideBand {
+			t.Errorf("%s: %+v", tc.name, got)
+		}
+	}
+	if inBand.OutsideBand || !outBand.OutsideBand {
+		t.Fatal("PREMISE: the two assessments are in and outside the band")
+	}
+}

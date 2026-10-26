@@ -1200,3 +1200,124 @@ func TestDecideDB_APeersVenueAnchorIsAnsweredAtThatVenue(t *testing.T) {
 		t.Errorf("reject: %v", err)
 	}
 }
+
+// chosen writes a directed record of the person's at `at` with an explicit direction_source, on the
+// given channel ('nfc' with its frozen business day; 'manual' with the same business day forged in, the
+// one shape where a manual row could be a claim's anchor at all).
+func (w *world) chosen(dir, channel, source string, at time.Time) uuid.UUID {
+	w.t.Helper()
+	s, ok := tap.BusinessDayStart(at, w.cutoff)
+	if !ok {
+		w.t.Fatal("no business day")
+	}
+	w.ctr++
+	var id uuid.UUID
+	if err := w.data.WithTenant(w.ctx, w.tenant, func(ctx context.Context, tx pgx.Tx) error {
+		if channel == "manual" {
+			return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, occurred_at, created_at, verdict, channel, type, trust, entered_by, business_day_start, direction_source)
+			                         VALUES ($1, $2, $3, $4, $4, 'ok', 'manual', $5, 20, $6, $7, $8) RETURNING id`,
+				w.tenant, w.who, w.home, at, dir, w.admin, s, source).Scan(&id)
+		}
+		return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, created_at, verdict, channel, type, sun_valid, ctr, business_day_start, direction_source)
+		                         VALUES ($1, $2, $3, $4, $5, $5, 'ok', 'nfc', $6, true, $7, $8, $9) RETURNING id`,
+			w.tenant, w.who, w.home, w.plaque, at, dir, w.ctr, s, source).Scan(&id)
+	}); err != nil {
+		w.t.Fatalf("write a chosen %s: %v", dir, err)
+	}
+	return id
+}
+
+// TestDecideDB_S5AnAnchorThePersonChoseAlwaysAsksTheStep is the M15-19 security lens's S5 shape, the
+// orchestrator's decision (2026-10-26): one tap at 18:55, 1 h 55 m after a 09:00–17:00 shift, "Not
+// right? Clock out" -- an orphan out (c) whose direction the PERSON chose -- and the card's prefill,
+// the shift's start, sent untouched. Both ends of the 9 h 55 m interval sit inside the band, so the
+// band alone let one Approve write it. Now the first Approve writes nothing and asks the step; the
+// step's press writes. The contrast rows: the engine's (auto) out in the same place is still one
+// press, and a manual row carrying 'employee' is not believed (tap.RecordedDirectionSource) -- one
+// press too.
+func TestDecideDB_S5AnAnchorThePersonChoseAlwaysAsksTheStep(t *testing.T) {
+	for _, tc := range []struct {
+		name, dir, channel, source string
+		kind                       Kind
+		step                       bool
+	}{
+		{"the person chose the out (S5)", "out", "nfc", "employee", KindIn, true},
+		{"the engine's out", "out", "nfc", "auto", KindIn, false},
+		{"a manual in carrying 'employee'", "in", "manual", "employee", KindOut, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWorld(t)
+			at, claimed := w.at(0, 18, 55), w.at(0, 9, 0)
+			if tc.kind == KindOut {
+				at, claimed = w.at(0, 9, 0), w.at(0, 17, 0)
+			}
+			// the approvals' records only (the manual anchor is a manual row too)
+			answers := func() int {
+				return w.count(`SELECT count(*) FROM transactions WHERE tenant_id = $1 AND channel = 'manual' AND note = $2`, w.tenant, ClaimApprovedNote)
+			}
+			anchor := w.chosen(tc.dir, tc.channel, tc.source, at)
+			c := w.mustSubmit(anchor, tc.kind, claimed)
+			if tc.kind == KindIn && (c.Prefilled == nil || !c.DefaultUnchanged) {
+				t.Fatalf("PREMISE: the prefill is the shift's start and was sent untouched: %+v", c)
+			}
+			ins, err := w.svc.Inspect(w.ctx, w.tenant, c.ID, nil)
+			if err != nil || ins.Assessment.OutsideBand {
+				t.Fatalf("PREMISE: both ends inside the band: %+v, %v", ins.Assessment, err)
+			}
+			if ins.AnchorChose != tc.step || ins.Assessment.AnchorChosen != tc.step || ins.Assessment.RequiresConfirmation != tc.step {
+				t.Errorf("Inspect: mark %v, chosen %v, step %v; want %v", ins.AnchorChose, ins.Assessment.AnchorChosen,
+					ins.Assessment.RequiresConfirmation, tc.step)
+			}
+			d, err := w.decide(c.ID, Approved, nil, false)
+			switch {
+			case tc.step && !errors.Is(err, ErrNeedsConfirmation):
+				t.Fatalf("one Approve: %v, want ErrNeedsConfirmation", err)
+			case tc.step && answers() != 0:
+				t.Fatalf("one Approve wrote %d records", answers())
+			case !tc.step && err != nil:
+				t.Fatalf("one Approve: %v, want it written", err)
+			}
+			if tc.step {
+				if d.Assessment == nil || !d.Assessment.AnchorChosen {
+					t.Errorf("the refusal's assessment does not say why: %+v", d.Assessment)
+				}
+				if _, err := w.decide(c.ID, Approved, nil, true); err != nil {
+					t.Fatalf("the step's press: %v", err)
+				}
+			}
+			if n := answers(); n != 1 {
+				t.Errorf("%d records, want 1", n)
+			}
+		})
+	}
+}
+
+// TestDecideDB_AWindowThatAdmitsTooMuchIsStillRefusedByTheClassification is M15-16's re-validation
+// criterion made visible (M15-19, ORTA-1): "pencere aritmetiğini bozan bir mutasyon sınıflandırma
+// sınamasıyla yine kırmızı". A correct WindowOf never admits an instant the classification refuses,
+// so the test widens the decision's window (Service.widen, test-only) one hour past in.At + 18 h;
+// an Edit 30 minutes past 18 h is then inside it, and Chain.Closes -- the pair is too long -- refuses
+// it: ErrResolved, nothing written. Without Closes in evaluate the record would be written.
+func TestDecideDB_AWindowThatAdmitsTooMuchIsStillRefusedByTheClassification(t *testing.T) {
+	w := newWorld(t)
+	in := w.tapAt("in", w.at(0, 5, 30), w.home) // in.At + 18 h = Mon 23:30, before Next(S) Tue 05:00
+	c := w.mustSubmit(in, KindOut, w.at(0, 17, 0))
+	w.svc.widen = func(win Window) Window {
+		win.To = Bound{At: win.To.At.Add(time.Hour), Inclusive: true}
+		return win
+	}
+	edit := w.at(0, 23, 30).Add(30 * time.Minute)
+	ins, err := w.svc.Inspect(w.ctx, w.tenant, c.ID, &edit)
+	if err != nil || ins.Window == nil || !ins.Window.Contains(edit) {
+		t.Fatalf("PREMISE: the widened window admits the Edit: %+v, %v", ins.Window, err)
+	}
+	if ins.State != StateResolved {
+		t.Errorf("Inspect state %s, want resolved (the classification)", ins.State)
+	}
+	if _, err := w.decide(c.ID, Approved, &edit, true); !errors.Is(err, ErrResolved) {
+		t.Errorf("approve the Edit: %v, want ErrResolved", err)
+	}
+	if n := w.manualRows(); n != 0 {
+		t.Errorf("%d records: the 18 h 30 m pair was written", n)
+	}
+}

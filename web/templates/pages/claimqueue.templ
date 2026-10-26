@@ -233,7 +233,7 @@ templ claimConfirmForm(action string, f ClaimFocusView) {
 			<p>Shift: { f.Confirm.Shift }</p>
 			<p>{ f.Confirm.ClaimedLabel }: { f.Confirm.ClaimedDeviates }</p>
 			<p>Their record&#39;s time: { f.Confirm.AnchorDeviates }</p>
-			<p>It is outside the shift&#39;s band, or there is no shift, so it is not approved in one press.</p>
+			<p>{ f.Confirm.Why }</p>
 		</div>
 		<div id="claim-step-actions" class="grid grid-cols-2 gap-3">
 			<button type="submit" name="outcome" value="approved" class="btn btn--approve">Approve</button>

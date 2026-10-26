@@ -1190,20 +1190,33 @@ func claimConfirmForm(action string, f ClaimFocusView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 99, "</p><p>It is outside the shift&#39;s band, or there is no shift, so it is not approved in one press.</p></div><div id=\"claim-step-actions\" class=\"grid grid-cols-2 gap-3\"><button type=\"submit\" name=\"outcome\" value=\"approved\" class=\"btn btn--approve\">Approve</button> <button type=\"submit\" name=\"outcome\" value=\"rejected\" class=\"btn btn--reject\">Reject</button></div><p class=\"font-mono text-xs text-ink/70\">Nothing has been recorded yet.</p><div class=\"field-stack\"><label for=\"claim-note\" class=\"lbl\">Note for the record (optional)</label> <input id=\"claim-note\" name=\"note\" type=\"text\" maxlength=\"500\" autocomplete=\"off\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 99, "</p><p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var63 string
-		templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(f.Note)
+		templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(f.Confirm.Why)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/claimqueue.templ`, Line: 245, Col: 99}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/claimqueue.templ`, Line: 236, Col: 21}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 100, "\" class=\"field-input\"></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 100, "</p></div><div id=\"claim-step-actions\" class=\"grid grid-cols-2 gap-3\"><button type=\"submit\" name=\"outcome\" value=\"approved\" class=\"btn btn--approve\">Approve</button> <button type=\"submit\" name=\"outcome\" value=\"rejected\" class=\"btn btn--reject\">Reject</button></div><p class=\"font-mono text-xs text-ink/70\">Nothing has been recorded yet.</p><div class=\"field-stack\"><label for=\"claim-note\" class=\"lbl\">Note for the record (optional)</label> <input id=\"claim-note\" name=\"note\" type=\"text\" maxlength=\"500\" autocomplete=\"off\" value=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var64 string
+		templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.JoinStringErrs(f.Note)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/claimqueue.templ`, Line: 245, Col: 99}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var64))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 101, "\" class=\"field-input\"></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1211,7 +1224,7 @@ func claimConfirmForm(action string, f ClaimFocusView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 101, "</form>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 102, "</form>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

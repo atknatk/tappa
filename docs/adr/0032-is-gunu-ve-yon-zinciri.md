@@ -808,12 +808,42 @@ commit sonrası iki okuması (marka, kart) bir panikte yalnız kendilerini kaybe
 `TestClaim_ASecondSendIsSentWhateverItsTime`, `TestSubmitDB_ASecondSendIsAlreadySent`,
 `TestResultScreen_APanickingPostCommitReadDrawsTheScreenWithoutIt`.
 
+*Uygulama notu (2026-10-26, M15-18 — panelin kuyruğu nasıl kuruldu).* Rota `/admin/review/claims`
+(`claimsHref`, inceleme bölümünün alt rotası; karar POST'u ana yazma grubunda, aşağıda). **Onay adımının
+bağlaması:** bant dışı (ya da adım gerektiren) bir onayın ilk basışı `ErrNeedsConfirmation` alır ve adımı
+çizer; adım `adminConfirm` ile bir değer basar — eylem `claim.approve_outside_band`, konu
+`claim.ConfirmationSubject` (talep, adımın gösterdiği an ve değerlendirildiği vardiya örneği), bu panel
+oturumu için, 10 dakika (`adminConfirmTTL`), ikiz çerezle (HttpOnly, `Path=/admin`). İkinci basış konuyu
+`Decide`'a ancak değer, gönderdiği ana ve sunucunun o an yeniden okuduğu vardiyaya karşı doğrulandığında taşır;
+`Decide` konuyu **kişi kilidi altında kendisi** yeniden üretir ve `subtle.ConstantTimeCompare` ile karşılaştırır —
+arada vardiya değiştiyse adım yeniden istenir. İmzasız bir `shown` anı hiçbir zaman yazılan an değildir
+(`TestClaimQueue_AnUnsignedMomentIsNeverWritten`). Kullanıcı kararı *"Üç yerde sayı"* (2026-10-26): bekleyen
+talep sayısı Spike bağlantısında, Spike'ın boş durumunda ve The Pass kartında; bildirim ya da e-posta yok.
+*Edit* saati sonbaharın iki kez yaşanan saatinde **erken** adayı alır (`resolveInWindow`, kartın kuralı). Odaktaki
+*"Record after"* satırı, Inspect zinciri çapadan yalnız `StaleOpenIn` kadar ileri okuduğu için *"none within 18 h"*
+der, *"none"* değil. **Sapma 1:** çapanın *"They chose this direction"* işareti anomali sorgularından değil
+çapa satırından (`GetPunchClaimAnchor`'ın `channel` + `direction_source`'u, `tap.RecordedDirectionSource`)
+okunur; manuel satırdaki değere güvenilmez. Kart zinciri ve ölçümler: *"Uygulandı"* bölümü ve `state.md`'nin
+2026-10-26 M15-18 kayıtları.
+
+*Uygulama notu (2026-10-26, M15-19 — **kural genişledi**, orkestratör kararı S5).* **Çalışanın yönünü seçtiği
+çapada onay adımı HER ZAMAN istenir.** Güvenlik merceğinin ölçtüğü şekil: vardiyadan 1 sa 55 dk sonra tek dokunuş
+ve *"Not right? Clock out"* (yetim çıkış, (c)); kartın ön dolgusu vardiya başı, çalışan dokunmadan gönderir;
+oluşacak 9 sa 55 dk'lık aralığın iki ucu da bantta ve ikisi de çalışanın seçimi — bant tek başına tek bir
+Approve'a izin veriyordu. Kural `claim.Assessment.WithAnchorChosen`'dadır: `RequiresConfirmation = OutsideBand ∨
+AnchorChosen`; okuma `tap.RecordedDirectionSource` iledir (manuel satırın `'employee'`'si tetiklemez); domain ve
+panel aynı değerlendirmeyi okur ve adımın kutusu nedeni söyler (*"They chose this direction on the plaque, so it
+is not approved in one press."*). Onay konusu (`ConfirmationSubject`) değişmedi. Sonuç: onay adımı **daha çok**
+çıkar, **hiçbir zaman daha az**. Ölçüm: `TestDecideDB_S5AnAnchorThePersonChoseAlwaysAsksTheStep` (çalışanın seçtiği
+çapa → adım; motorun seçtiği bant içi çapa → tek basış; manuel + `'employee'` → tek basış),
+`TestAssess_WithAnchorChosenOnlyAddsTheStep`, `TestClaimQueue_S5AChosenRecordAsksTheStepAndSaysWhy`.
+
 **Askı (ADR 0025).** Karar yolu bir panel yazmasıdır ve `mountWriting`'in **ana grubuna**
-(`ProtectWriting`, `internal/handler/dashboard.go:166`; flag kararı `:167`'nin yanı) gider: askı talep
-kararını durdurur. ADR 0025'in kapalı istisna listesi (`0025:46-53`, `:87`; kardeş grup
-`dashboard.go:309`, manuel kayıt `:330-331`) **genişletilmez** — telafi yolu zaten oradadır. Çalışanın
-talep gönderimi (`POST /api/claim`) bir tap yüzeyidir (`Tap.Mount`, `internal/handler/tap.go:270-276`,
-`chain()`) ve askıyı bilmez (`0025:49-53`).
+(`ProtectWriting`, `internal/handler/dashboard.go:168`; flag kararı `:169`, talep kararı `:173`) gider: askı
+talep kararını durdurur. ADR 0025'in kapalı istisna listesi (`0025:46-53`, `:87`; kardeş grup
+`dashboard.go:320-321`, manuel kayıt `:342-343`) **genişletilmez** — telafi yolu zaten oradadır. Çalışanın
+talep gönderimi (`POST /api/claim`) bir tap yüzeyidir (`Tap.Mount`, `internal/handler/tap.go:294-303`,
+`chain()`) ve askıyı bilmez (`0025:49-53`). *(Satır atıfları 2026-10-26'da `grep -n` ile güncellendi, M15-19.)*
 
 **C.5 Ret, süre, deaktivasyon.**
 - **Ret:** karar + audit; anomali kalır, müdür yine manuel kayıt girebilir. Aynı çapaya ikinci talep yok.
@@ -1073,7 +1103,10 @@ floor"* ve şerit okuma ufku 18 sa · geçmiş ters kayıtların düzeltilmesi (
 
 **Açık backlog (M15 kökenli, 2026-10-26'da numaraları doğrulandı):** T145 (M15-08) · T155–T166 (T162 = eski
 T154). Arada kalan T146–T154 başka dalların maddeleridir (LP / `main`); T154 landing'in palet dışı hex'i,
-M15'in değil. Hiçbiri kapanmadı.
+M15'in değil. Hiçbiri kapanmadı. **T159** (geriye tarihli `auto` `in` ~60 sn'lik pencerede bir çıkışı *"Check-in
+missing"*ten düşürür) M15 kapsamının dışında, **kabul edilmiş bir sınır** olarak açık kalır (orkestratör kararı,
+2026-10-26): pencere ~60 sn, kazanç ≤ 60 sn, kayıt silinmez; çare motor/ADR düzeyindedir ve T160 ile birlikte ele
+alınır.
 
 **Sevk.** Faz B ve C `main`'e birlikte ve M14'ten önce girer; birleştirme kullanıcının kararıdır. Toplu geçiş
 deploy notu (migration sırası, `main`'in en büyük migration'ının yeniden ölçümü, M14 dallarının durumu, geri

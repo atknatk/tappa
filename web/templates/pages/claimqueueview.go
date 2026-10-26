@@ -119,4 +119,7 @@ type ClaimConfirmView struct {
 	Shift           string
 	ClaimedDeviates string
 	AnchorDeviates  string
+	// Why is the box's last line: why this approval is not one press -- the band, the person's own
+	// choice of the record's direction (M15-19, S5), or both.
+	Why string
 }

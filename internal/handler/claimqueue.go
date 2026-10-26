@@ -424,18 +424,25 @@ func (a *AdminAuth) claimEdit(r *http.Request, tenantID, claimID uuid.UUID) (*ti
 	}
 	at, ok := resolveInWindow(c, *in.Window, nil, zone)
 	if !ok {
-		from, to := "after ", " and before "
-		if in.Window.From.Inclusive {
-			from = "from "
-		}
-		if in.Window.To.Inclusive {
-			to = " up to "
-		}
 		refused.problem = "edit-outside"
-		refused.editHint = "Pick a time " + from + claimMoment(in.Window.From.At, zone) + to + claimMoment(in.Window.To.At, zone) + "."
+		refused.editHint = "Pick a time " + claimWindowPhrase(*in.Window, func(t time.Time) string { return claimMoment(t, zone) }) + "."
 		return nil, refused, nil
 	}
 	return &at, claimPageState{}, nil
+}
+
+// claimWindowPhrase says a window's two ends the way the panel and the result card both say them: an
+// excluded end "after" / "before", an included one "from" / "up to" (M15-19 DÜŞÜK-2: the card used to
+// say "between 18:05 and 05:00" of a window whose 05:00 is the next business day's, so excluded).
+func claimWindowPhrase(w claim.Window, say func(time.Time) string) string {
+	from, to := "after ", " and before "
+	if w.From.Inclusive {
+		from = "from "
+	}
+	if w.To.Inclusive {
+		to = " up to "
+	}
+	return from + say(w.From.At) + to + say(w.To.At)
 }
 
 // claimZone is the business's zone, read with the queue (the same snapshot rule the list keeps).
@@ -525,17 +532,23 @@ func claimFocusView(in claim.Inspection, who string, zone *time.Location) pages.
 	} else {
 		f.Offered = "no time: there was no shift time inside what could be claimed, so they typed it"
 	}
-	switch in.State {
-	case claim.StatePending:
+	switch {
+	case in.State == claim.StatePending:
 		f.CanApprove = true
-	case claim.StateOutsideWindow:
+	case in.State == claim.StateOutsideWindow && in.Window == nil:
+		// M15-19 DÜŞÜK-3: no window at all is not "a later record narrowed it" -- WindowOf drew none
+		// (the business day cannot be measured: no resolvable cutoff, or the chain around the record
+		// cannot be read whole). No Edit can fit, so none is offered (the POST refuses it too:
+		// "edit-closed").
+		f.StateLine = "No time can be claimed for this record: its business day can no longer be measured, so there is no window to fit a time in. Only Reject is left."
+	case in.State == claim.StateOutsideWindow:
 		f.CanApprove, f.EditOpen = true, true
 		f.StateLine = "The claimed time no longer fits: a later record narrowed what can be claimed. Edit a time that fits, or reject."
-	case claim.StateResolved:
+	case in.State == claim.StateResolved:
 		f.StateLine = "Already resolved: the record no longer misses this half. Only Reject is left."
-	case claim.StateExpired:
+	case in.State == claim.StateExpired:
 		f.StateLine = "Expired: the time is more than 90 days back and can no longer be recorded. Only Reject is left."
-	case claim.StateDecided:
+	case in.State == claim.StateDecided:
 		f.StateLine = "Already decided."
 	}
 	return f
@@ -561,6 +574,22 @@ func claimConfirmView(st claimStep, in claim.Inspection, zone *time.Location) *p
 		Shift:           claimShift(as.Shift, zone),
 		ClaimedDeviates: claimDeviation(as.Deviation),
 		AnchorDeviates:  claimDeviation(as.AnchorDeviation),
+		Why:             claimStepWhy(as),
+	}
+}
+
+// claimStepWhy says why the step is drawn -- the domain's two reasons (claim.Assessment's OutsideBand
+// and AnchorChosen), never a third the panel invents: M15-19, S5 made the person's own choice of the
+// record's direction a reason of its own.
+func claimStepWhy(as claim.Assessment) string {
+	const chose = "they chose this direction on the plaque"
+	switch {
+	case as.AnchorChosen && as.OutsideBand:
+		return "It is outside the shift's band, or there is no shift, and " + chose + ", so it is not approved in one press."
+	case as.AnchorChosen:
+		return "They chose this direction on the plaque, so it is not approved in one press."
+	default:
+		return "It is outside the shift's band, or there is no shift, so it is not approved in one press."
 	}
 }
 

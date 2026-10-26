@@ -366,8 +366,8 @@ func (t *Tap) Claim(w http.ResponseWriter, r *http.Request) {
 	var at time.Time
 	if clock, ok := parseWallClock(r.PostForm[claimAtField]); ok {
 		value = clock.String()
-		problem = "That time does not fit this record. It has to be between " +
-			cc.Window.From.At.In(loc).Format("15:04") + " and " + cc.Window.To.At.In(loc).Format("15:04") + "."
+		problem = "That time does not fit this record. It has to be " +
+			claimWindowPhrase(cc.Window, func(t time.Time) string { return t.In(loc).Format("15:04") }) + "."
 		if resolved, ok := resolveClaimedAt(clock, cc, loc); ok {
 			at = resolved
 		}

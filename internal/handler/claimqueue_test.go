@@ -94,7 +94,7 @@ func (f *fakeClaimQueue) Inspect(_ context.Context, tenantID, claimID uuid.UUID,
 		moment = *at
 	}
 	if in.Assessment.At.IsZero() || at != nil {
-		in.Assessment = claim.Assess(in.Kind, in.Anchor.At, moment, c.shift, in.Prefilled)
+		in.Assessment = claim.Assess(in.Kind, in.Anchor.At, moment, c.shift, in.Prefilled).WithAnchorChosen(in.AnchorChose)
 	}
 	if o, ok := f.decided[claimID]; ok {
 		in.Decided, in.State = &o, claim.StateDecided
@@ -122,7 +122,7 @@ func (f *fakeClaimQueue) Decide(_ context.Context, d claim.Decision) (claim.Deci
 		if d.At != nil {
 			moment = *d.At
 		}
-		a := claim.Assess(c.in.Kind, c.in.Anchor.At, moment, c.shift, c.in.Prefilled)
+		a := claim.Assess(c.in.Kind, c.in.Anchor.At, moment, c.shift, c.in.Prefilled).WithAnchorChosen(c.in.AnchorChose)
 		out.Assessment = &a
 		if a.RequiresConfirmation && d.Confirmation != claim.ConfirmationSubject(c.in.ClaimID, a) {
 			return claim.Decided{Assessment: &a}, claim.ErrNeedsConfirmation
@@ -847,5 +847,76 @@ func TestClaimQueue_AnUnreadableEditIsNotCalledOutsideTheWindow(t *testing.T) {
 	outside := htmlOf(t, b.do(http.MethodPost, claimsHref, decisionForm(c.in.ClaimID, "approved", "at", "08:00")))
 	if strings.Contains(outside, "We could not read that") || !strings.Contains(outside, htmlText("That time is outside this claim's window")) {
 		t.Error("a time that reads but does not fit is called unreadable")
+	}
+}
+
+// TestClaimQueue_S5AChosenRecordAsksTheStepAndSaysWhy (M15-19, S5): a check-in claim on an out the
+// person chose, both ends inside the band (09:00 → 17:30) -- the first Approve draws the step and its
+// box says why (their own choice, not the band); only the step's press writes. The band-only reason
+// keeps its sentence.
+func TestClaimQueue_S5AChosenRecordAsksTheStepAndSaysWhy(t *testing.T) {
+	c := inClaim(claimDay(0, 17, 30), claimDay(0, 9, 0))
+	f := newFakeClaimQueue(time.UTC, c)
+	b := claimPanel(t, claimAdmins("owner", false), f)
+	first := b.do(http.MethodPost, claimsHref, decisionForm(c.in.ClaimID, "approved"))
+	if first.Code != http.StatusOK || len(f.writes()) != 0 {
+		t.Fatalf("the first press answered %d and wrote %d; want the step and nothing written", first.Code, len(f.writes()))
+	}
+	page := htmlOf(t, first)
+	if !strings.Contains(page, "They chose this direction on the plaque, so it is not approved in one press.") {
+		t.Error("the step does not say the person chose the record's direction")
+	}
+	if strings.Contains(page, "outside the shift&#39;s band") {
+		t.Error("the step blames the band for an interval inside it")
+	}
+	shown, token := stepFields(t, page)
+	if second := b.do(http.MethodPost, claimsHref, decisionForm(c.in.ClaimID, "approved", "shown", shown, "confirm_token", token)); second.Code != http.StatusSeeOther {
+		t.Fatalf("the step's press answered %d, want 303", second.Code)
+	}
+	if n := len(f.writes()); n != 1 {
+		t.Errorf("%d decisions written, want 1", n)
+	}
+}
+
+// TestClaimStepWhy_NamesTheDomainsReasons: the box's line for each of the domain's two reasons and
+// for both.
+func TestClaimStepWhy_NamesTheDomainsReasons(t *testing.T) {
+	for _, tc := range []struct {
+		a    claim.Assessment
+		want string
+	}{
+		{claim.Assessment{OutsideBand: true}, "It is outside the shift's band, or there is no shift, so it is not approved in one press."},
+		{claim.Assessment{AnchorChosen: true}, "They chose this direction on the plaque, so it is not approved in one press."},
+		{claim.Assessment{OutsideBand: true, AnchorChosen: true}, "It is outside the shift's band, or there is no shift, and they chose this direction on the plaque, so it is not approved in one press."},
+	} {
+		if got := claimStepWhy(tc.a); got != tc.want {
+			t.Errorf("claimStepWhy(%+v) = %q, want %q", tc.a, got, tc.want)
+		}
+	}
+}
+
+// TestClaimQueue_AClaimWithNoWindowSaysSoAndOffersOnlyReject (M15-19 DÜŞÜK-3): a claim the domain
+// judges outside any window because it drew none (in.Window nil) is not "a later record narrowed
+// it": its own sentence, no Approve, no Edit -- only Reject. A claim whose window a later record
+// narrowed still offers the Edit.
+func TestClaimQueue_AClaimWithNoWindowSaysSoAndOffersOnlyReject(t *testing.T) {
+	c := outClaim(claimDay(0, 9, 5), claimDay(0, 17, 0), nil)
+	c.in.State, c.in.Window = claim.StateOutsideWindow, nil
+	page := htmlOf(t, claimPanel(t, claimAdmins("manager", false), newFakeClaimQueue(time.UTC, c)).do(http.MethodGet, claimsHref, nil))
+	if !strings.Contains(page, "its business day can no longer be measured") || !strings.Contains(page, "Only Reject is left") {
+		t.Error("a windowless claim does not say it has no window")
+	}
+	if strings.Contains(page, "a later record narrowed") || strings.Contains(page, `value="approved"`) || strings.Contains(page, `name="at"`) {
+		t.Error("a windowless claim offers an Approve or an Edit, or blames a later record")
+	}
+	if !strings.Contains(page, `value="rejected"`) {
+		t.Error("a windowless claim offers no Reject")
+	}
+	narrowed := outClaim(claimDay(0, 9, 5), claimDay(0, 17, 0), nil)
+	w := claim.Window{From: claim.Bound{At: claimDay(0, 9, 5)}, To: claim.Bound{At: claimDay(0, 16, 0)}}
+	narrowed.in.State, narrowed.in.Window = claim.StateOutsideWindow, &w
+	page = htmlOf(t, claimPanel(t, claimAdmins("manager", false), newFakeClaimQueue(time.UTC, narrowed)).do(http.MethodGet, claimsHref, nil))
+	if !strings.Contains(page, "a later record narrowed") || !strings.Contains(page, `name="at"`) {
+		t.Error("control: a narrowed window no longer offers the Edit")
 	}
 }

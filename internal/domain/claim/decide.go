@@ -14,7 +14,6 @@ import (
 
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/domain/manual"
-	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/store"
 )
 
@@ -110,7 +109,7 @@ func (s *Service) evaluate(ctx context.Context, q *store.Queries, tenantID uuid.
 		return ev, fmt.Errorf("read the anchor: %w", err)
 	}
 	kind := Kind(c.Kind)
-	ev.assessment = Assess(kind, ev.anchor.at, at, ev.anchor.shift, c.PrefilledAt)
+	ev.assessment = Assess(kind, ev.anchor.at, at, ev.anchor.shift, c.PrefilledAt).WithAnchorChosen(ev.anchor.chosen())
 	if c.DecidedOutcome != nil {
 		ev.state = StateDecided
 		return ev, nil
@@ -128,7 +127,7 @@ func (s *Service) evaluate(ctx context.Context, q *store.Queries, tenantID uuid.
 		ev.state = StateResolved
 		return ev, nil
 	}
-	w, ok := ev.chain.WindowOf(ev.index, p.cutoff, now)
+	w, ok := s.windowOf(ev.chain, ev.index, p.cutoff, now)
 	if ok {
 		ev.window = &w
 	}
@@ -198,7 +197,7 @@ func (s *Service) Inspect(ctx context.Context, tenantID, claimID uuid.UUID, at *
 		out = Inspection{ClaimID: c.ID, EmployeeID: c.EmployeeID, Kind: Kind(c.Kind), ClaimedAt: c.ClaimedAt,
 			Prefilled: c.PrefilledAt, CreatedAt: c.CreatedAt, State: ev.state, Window: ev.window, Assessment: ev.assessment,
 			Anchor:      Event{ID: ev.anchor.id, At: ev.anchor.at, DayStart: ev.anchor.dayStart, Channel: ev.anchor.channel},
-			AnchorChose: ev.anchor.sourceKnown && ev.anchor.source == tap.DirectionEmployee}
+			AnchorChose: ev.anchor.chosen()}
 		if ev.anchor.direction != nil {
 			out.Anchor.Direction = *ev.anchor.direction
 		}

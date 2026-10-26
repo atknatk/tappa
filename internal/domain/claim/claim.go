@@ -191,6 +191,21 @@ type Service struct {
 	// after every check and before the first write -- the one place a test can hold a claim or a
 	// decision whose checks passed while somebody else acts on the person.
 	afterCheck func()
+	// widen is injectable for tests only (M15-19, ORTA-1): it replaces the window the DECISION judges
+	// with a wider one, so a test can hand Decide an instant the window admits and the classification
+	// refuses -- the only way to show that the second check (Chain.Closes) refuses on its own, since a
+	// correct WindowOf never admits such an instant. Production leaves it nil; Submit and Offer never
+	// read it.
+	widen func(Window) Window
+}
+
+// windowOf is the decision's window: Chain.WindowOf, widened only by a test (widen).
+func (s *Service) windowOf(c Chain, i int, cutoff *tap.DayCutoff, now time.Time) (Window, bool) {
+	w, ok := c.WindowOf(i, cutoff, now)
+	if ok && s.widen != nil {
+		w = s.widen(w)
+	}
+	return w, ok
 }
 
 // New wires a Service. A nil database, trail or recorder is refused: a claim service that could
@@ -264,6 +279,10 @@ func (s *Service) readAnchor(ctx context.Context, q *store.Queries, tenantID, em
 	}
 	return anchorOf(row, zone), nil
 }
+
+// chosen reports whether the person chose the anchor's direction -- the one reading the queue's mark
+// and the step rule share (WithAnchorChosen).
+func (a anchorRecord) chosen() bool { return a.sourceKnown && a.source == tap.DirectionEmployee }
 
 // anchorOf maps the row. The direction's source goes through tap.RecordedDirectionSource and
 // nowhere else (M15-18, the card's step 4): the stored column is never compared raw, so a manual

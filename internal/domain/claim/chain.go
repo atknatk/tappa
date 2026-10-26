@@ -545,10 +545,31 @@ type Assessment struct {
 	// DefaultUnchanged: the form offered the shift's real end (prefilled) and At is it. Meaningful
 	// only while a prefill exists (§C.2: a computation, not a column).
 	DefaultUnchanged bool
-	// RequiresConfirmation: either END of the interval the approval would make is outside the band
-	// -- the claimed (or edited) moment or the anchor -- or there is no shift: Approve does not write
-	// on the first press (ADR 0032 §C.4; the manager's Edit is held to the same band, ürün N8).
+	// OutsideBand: either END of the interval the approval would make is outside the band -- the
+	// claimed (or edited) moment or the anchor -- or there is no shift.
+	OutsideBand bool
+	// AnchorChosen: the PERSON chose the anchor's direction ("Not right?" -- direction_source
+	// employee, read through tap.RecordedDirectionSource; a manual row's stored value is not
+	// believed). Set by WithAnchorChosen, never by Assess, which knows no anchor row.
+	AnchorChosen bool
+	// RequiresConfirmation is OutsideBand OR AnchorChosen: Approve does not write on the first press
+	// (ADR 0032 §C.4; the manager's Edit is held to the same rule, ürün N8; the chosen anchor is the
+	// M15-19 orchestrator's decision, S5).
 	RequiresConfirmation bool
+}
+
+// WithAnchorChosen is a with the anchor's chooser folded in (M15-19, S5 -- the orchestrator's
+// decision, 2026-10-26): when the person chose the anchor's direction the step is asked ALWAYS, band
+// or no band. The measured shape: one tap 1 h 55 m after the shift, "Not right? Clock out" -- an
+// orphan out (c) -- and the card's prefill, the shift's start, sent untouched: both ends of the
+// 9 h 55 m interval are the person's choices and both sit inside the band, so the band alone let
+// one Approve write it. The rule only ever asks MORE often ("onay adımı daha sık çıkar, hiçbir
+// zaman daha az"); the confirmation subject (the claim, the moment, the shift instance) is
+// unchanged by it.
+func (a Assessment) WithAnchorChosen(chosen bool) Assessment {
+	a.AnchorChosen = chosen
+	a.RequiresConfirmation = a.OutsideBand || chosen
+	return a
 }
 
 // deviationOf is where t lies against the shift instance.
@@ -581,12 +602,13 @@ func Assess(kind Kind, anchorAt, at time.Time, shift *tap.Shift, prefilled *time
 	if !ok {
 		a.Deviation = Deviation{Side: NoShift}
 		a.AnchorDeviation = Deviation{Side: NoShift}
-		a.RequiresConfirmation = true
+		a.OutsideBand, a.RequiresConfirmation = true, true
 		return a
 	}
 	a.Shift = &span
 	a.Deviation = deviationOf(span, at)
 	a.AnchorDeviation = deviationOf(span, anchorAt)
-	a.RequiresConfirmation = !InBand(span, at) || !InBand(span, anchorAt)
+	a.OutsideBand = !InBand(span, at) || !InBand(span, anchorAt)
+	a.RequiresConfirmation = a.OutsideBand
 	return a
 }

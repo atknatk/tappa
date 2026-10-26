@@ -573,7 +573,7 @@ func TestClaim_EveryRefusalHasItsOwnAnswer(t *testing.T) {
 	}{
 		{nil, http.StatusOK, "Sent — your manager will review it."},
 		{claim.ErrAlreadySent, http.StatusOK, "Sent — your manager will review it."},
-		{claim.ErrOutsideWindow, http.StatusUnprocessableEntity, "That time does not fit this record. It has to be between 09:12 and 05:00."},
+		{claim.ErrOutsideWindow, http.StatusUnprocessableEntity, "That time does not fit this record. It has to be after 09:12 and before 05:00."},
 		{claim.ErrExpired, http.StatusGone, "This question has expired"},
 		{claim.ErrResolved, http.StatusConflict, "Already resolved"},
 		{claim.ErrNotActive, http.StatusForbidden, "Only an active employee can send a time to their manager."},
@@ -897,5 +897,32 @@ func TestCompiledCSS_TheClaimFieldIsSixteenPixels(t *testing.T) {
 	}
 	if px, ok := fontSizePx(m[1]); !ok || px < 16 {
 		t.Fatalf("the claim field's font-size is %q (%v px): under 16 px a phone zooms into it", m[1], px)
+	}
+}
+
+// TestClaim_TheOutOfWindowSentenceSaysWhichEndsAreIncluded (M15-19 DÜŞÜK-2): the card's refusal names
+// each end as the window holds it -- an excluded end "after"/"before", an included one "from"/"up to"
+// -- never "between", which read the excluded 05:00 (the next business day's first instant) as
+// allowed. The panel's Edit hint says it the same way (claimWindowPhrase).
+func TestClaim_TheOutOfWindowSentenceSaysWhichEndsAreIncluded(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		from, to bool
+		says     string
+	}{
+		{"both excluded", false, false, "It has to be after 09:12 and before 05:00."},
+		{"the upper end included (18 h, now)", false, true, "It has to be after 09:12 up to 05:00."},
+		{"the lower end included (a check-in claim's day start)", true, false, "It has to be from 09:12 and before 05:00."},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fc := &fakeClaims{submitErr: claim.ErrOutsideWindow}
+			h, tp := newClaimHandler(t, &fakeCheckins{}, fc)
+			cc := julyContext()
+			cc.Window.From.Inclusive, cc.Window.To.Inclusive = c.from, c.to
+			w := claimPost(t, h, url.Values{"ctx": {mintClaim(t, tp, tapFixedSessionID, cc)}, "at": {"17:00"}})
+			if body := w.Body.String(); !strings.Contains(body, c.says) || strings.Contains(body, "It has to be between") {
+				t.Errorf("status %d; want %q (and no \"between\") in\n%s", w.Code, c.says, body)
+			}
+		})
 	}
 }
