@@ -420,6 +420,23 @@ yanıtı **`Set-Cookie` yazmaz ve çerezi silmez** (kazananın çerezi tarayıc�
 **Oran sınırı** (bulgu 8): kova `identity_id`'ye (+ kaynak adres) anahtarlı — oturum id'sine değil,
 çünkü her geçiş yeni oturumdur ve oturum kovası sıfırlanırdı. Aşılınca 429, audit yazılmaz.
 
+**M14-10 uygulama notları (2026-10-26):**
+
+1. **Senkronizör:** `HMAC(K, "tappa/admin-switch/v1|" + session_id)`, `K = HMAC(HMAC(TAPPA_SESSION_HMAC_KEY,
+   "tappa/admin-switch/v1/key-derivation"), ham oturum token'ı)` — §5.5'in bağıyla aynı şekil, kendi
+   etiketiyle (`internal/adminauth/switchtoken.go`, sabit-zamanlı karşılaştırma `cmd/tappa`'nın envanterinde).
+   Formun gövdesinde (`csrf`); bağ (`?tb=`) ayrıca action'da. Sıra: zincir → senkronizör → oran kovası →
+   definer. Senkronizör reddi 400, kova 429, hedef reddi **tek tip 403** (sayfa gövdesi her nedende bayt-aynı);
+   hiçbir ret `Set-Cookie` yazmaz.
+2. **Kova anahtarı = (kişi, adres) çifti**, limit 30 / 10 dk (`adminSwitchLimit`, pinli). Kişi değeri
+   `identity_id`'nin kendisi değil, `internal/adminauth` içinde hesaplanan opak bir MAC'tir
+   (`Resolved.SwitchBucket`) — kimlik id'si paketten çıkmaz. Adres anahtardadır ki kişinin çerezini tutan
+   biri kişinin bütün cihazlarındaki geçişi kilitleyemesin; adres başına toplamı `adminFloodLimit` sınırlar.
+   Bağlanmamış satırın kişisi yoktur; onun geçişi zaten 0 satırdır ve kovası oturumudur.
+3. **`GET /admin/switch` bu kartta en küçük hâliyle** (giriş ailesinin çerçevesi, mevcut işletme, öbür
+   üyeliklerin her biri için bir form); sayfanın tasarımı M14-13'ündür. Liste `identity_memberships`'ten
+   (`Manager.Memberships`, aynı token anahtarıyla) gelir ve geçişin yetkisi değildir.
+
 **Askı:** hedef askıdaysa geçiş serbest (ADR 0025 `:509-514` — giriş ve okuma açık); panel o
 işletmede salt okunur. ADR 0025'in sekiz rotalık istisna listesi (`:374-387`) **birden fazla** rota
 büyür (bulgu 16): `/admin/switch`, "Sign out everywhere", "Link a business", e-posta doğrulama

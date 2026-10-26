@@ -100,6 +100,9 @@ func (silentDB) RecordFailedIdentityLogin(context.Context, uuid.UUID, string) (b
 func (silentDB) SwitchIdentitySession(context.Context, string, uuid.UUID, string) (db.IdentitySession, error) {
 	return db.IdentitySession{}, errSilent
 }
+func (silentDB) IdentityMemberships(context.Context, string) ([]db.IdentityMembership, error) {
+	return nil, errSilent
+}
 func (silentDB) RevokeIdentitySessions(context.Context, string, bool) (int, error) {
 	return 0, errSilent
 }
@@ -366,8 +369,8 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		"POST /signup/account":  "signup",
 	}
 	// Panel exceptions that exist only with the panel identity flag on (ADR 0025's M14 note):
-	// signing yourself out everywhere (M14-11).
-	panelExceptionsWhenOn := map[string]bool{"POST /admin/account/sign-out-everywhere": true}
+	// signing yourself out everywhere (M14-11) and switching businesses (M14-10).
+	panelExceptionsWhenOn := map[string]bool{"POST /admin/account/sign-out-everywhere": true, "POST /admin/switch": true}
 	// Named routes that exist only with the optional surfaces on.
 	outsidePanelWhenOn := map[string]string{
 		"POST " + handler.DevSimulateTapPath: "devtools",

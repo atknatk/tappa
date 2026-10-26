@@ -38,6 +38,10 @@ func (noIdentityData) SwitchIdentitySession(context.Context, string, uuid.UUID, 
 	return db.IdentitySession{}, errNoIdentityData
 }
 
+func (noIdentityData) IdentityMemberships(context.Context, string) ([]db.IdentityMembership, error) {
+	return nil, errNoIdentityData
+}
+
 func (noIdentityData) RevokeIdentitySessions(context.Context, string, bool) (int, error) {
 	return 0, errNoIdentityData
 }

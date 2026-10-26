@@ -105,6 +105,11 @@ func (s *shapeDB) SwitchIdentitySession(context.Context, string, uuid.UUID, stri
 	return db.IdentitySession{}, errNoIdentityData
 }
 
+func (s *shapeDB) IdentityMemberships(context.Context, string) ([]db.IdentityMembership, error) {
+	s.op("memberships")
+	return nil, errNoIdentityData
+}
+
 func (s *shapeDB) RevokeIdentitySessions(context.Context, string, bool) (int, error) {
 	s.op("revoke-all")
 	return 0, errNoIdentityData

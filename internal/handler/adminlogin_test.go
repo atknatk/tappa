@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -79,6 +80,40 @@ type fakeAdmins struct {
 	person        func(email, password string, want uuid.UUID, budget adminauth.FailureBudget) (adminauth.PersonSignIn, error)
 	personCalls   int
 	personBudgets []adminauth.FailureBudget
+
+	// switchTo is the hook for Switch (M14-10). Nil means "refused" (ErrSwitchRefused), so no
+	// test that does not care moves a session. switchTargets records every target asked for.
+	switchTo      func(target uuid.UUID) (adminauth.Issued, error)
+	switchTargets []uuid.UUID
+	// memberships is the hook for Memberships (M14-10). Nil means none.
+	memberships func() ([]adminauth.Membership, error)
+}
+
+func (f *fakeAdmins) Switch(_ context.Context, _ adminauth.Token, target uuid.UUID) (adminauth.Issued, error) {
+	f.mu.Lock()
+	f.switchTargets = append(f.switchTargets, target)
+	hook := f.switchTo
+	f.mu.Unlock()
+	if hook == nil {
+		return adminauth.Issued{}, adminauth.ErrSwitchRefused
+	}
+	return hook(target)
+}
+
+func (f *fakeAdmins) switchCalls() []uuid.UUID {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.switchTargets)
+}
+
+func (f *fakeAdmins) Memberships(context.Context, adminauth.Token) ([]adminauth.Membership, error) {
+	f.mu.Lock()
+	hook := f.memberships
+	f.mu.Unlock()
+	if hook == nil {
+		return nil, nil
+	}
+	return hook()
 }
 
 // revokeAllArgs is one recorded RevokeAll call.
@@ -2758,6 +2793,14 @@ func TestPanelConstants_ShippedValuesArePinned(t *testing.T) {
 				"comparison) instead of growing to ~410. Still above the largest modelled office (60).",
 		},
 		{
+			"adminSwitchLimit", adminSwitchLimit, 30,
+			"switching businesses, keyed by the PERSON (+ address), never the session: every switch " +
+				"is a new session, so a session budget would reset on each hop (ADR 0031 §5.4, bulgu 8). " +
+				"30 per 10 minutes = one every 20 s sustained, far above a person's handful an hour; " +
+				"each switch writes a session row, a revocation stamp and two audit rows, so a stolen " +
+				"cookie leaves at most 120 rows a window per address.",
+		},
+		{
 			"adminAccountLimit", adminAccountLimit, 10,
 			"bounds audit_log writes per account per window and gates NOTHING (a per-account " +
 				"gate would be an account lockout an attacker triggers with a known email). " +
@@ -2798,6 +2841,7 @@ func TestPanelConstants_ShippedValuesArePinned(t *testing.T) {
 		{"adminAccountPeriod", adminAccountPeriod, 10 * time.Minute},
 		{"adminSessionPeriod", adminSessionPeriod, 10 * time.Minute},
 		{"adminLogoutPeriod", adminLogoutPeriod, 10 * time.Minute},
+		{"adminSwitchPeriod", adminSwitchPeriod, 10 * time.Minute},
 		{"adminChoiceTTL", adminChoiceTTL, 5 * time.Minute},
 		{"adminChoiceFutureSkew", adminChoiceFutureSkew, time.Minute},
 	}

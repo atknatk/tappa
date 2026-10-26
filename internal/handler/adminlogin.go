@@ -44,6 +44,13 @@ type adminAuthenticator interface {
 	// linked is the verified session's Resolved.Linked: a linked session never takes the one-business
 	// fallback.
 	RevokeAll(ctx context.Context, tenantID, adminID, sessionID uuid.UUID, linked bool, current adminauth.Token, keepCurrent bool) (adminauth.Revocation, error)
+	// Switch moves the cookie's session to another business of the same person (M14-10, ADR 0031
+	// §5.4): a new session there, the old one revoked, the two ordinary audit rows -- all the
+	// database's. ErrSwitchRefused is its one refusal; the caller then touches no cookie.
+	Switch(ctx context.Context, current adminauth.Token, target uuid.UUID) (adminauth.Issued, error)
+	// Memberships lists the businesses of the person behind the cookie's session (the switch
+	// page, M14-10), keyed by the token like Switch.
+	Memberships(ctx context.Context, current adminauth.Token) ([]adminauth.Membership, error)
 }
 
 // Audit actions written by the panel auth flow. The vocabulary is free text by
@@ -123,6 +130,9 @@ type AdminAuth struct {
 	// M14-10a; formbinding.go): rendered into each POST form's action, checked by
 	// formBindingGate in both writing chains before the body is read.
 	forms adminauth.FormBinder
+	// switches mints and checks the switch form's synchronizer token (M14-10, ADR 0031 §5.4;
+	// adminswitch.go).
+	switches adminauth.SwitchTokens
 	// baseURL is this deployment's own origin, for the Origin header check.
 	baseURL string
 
@@ -325,6 +335,9 @@ type AdminAuth struct {
 	accountLimiter *limiter
 	sessionLimiter *limiter
 	logoutLimiter  *limiter
+	// switchLimiter is the switch's budget, keyed by the person and the address
+	// (adminSwitchLimit says why not the session).
+	switchLimiter *limiter
 	// encodeLimiter is the plaque relay's own per-session ceiling. It is a SEVENTH
 	// bucket rather than a share of sessionLimiter's, and plaqueencode.go's
 	// adminEncodeLimit carries the arithmetic for why.
@@ -465,6 +478,10 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	if err != nil {
 		return nil, err
 	}
+	switches, err := adminauth.NewSwitchTokens(cfg.SessionHMACKey)
+	if err != nil {
+		return nil, err
+	}
 	if log == nil {
 		log = slog.Default()
 	}
@@ -502,6 +519,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		choices:        choices,
 		confirm:        confirm,
 		forms:          forms,
+		switches:       switches,
 		baseURL:        originOf(cfg.BaseURL),
 		floodLimiter:   newLimiter(adminFloodLimit, adminFloodPeriod),
 		attemptLimiter: newLimiter(adminAttemptLimit, adminAttemptPeriod),
@@ -509,6 +527,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		accountLimiter: newLimiter(adminAccountLimit, adminAccountPeriod),
 		sessionLimiter: newLimiter(adminSessionLimit, adminSessionPeriod),
 		logoutLimiter:  newLimiter(adminLogoutLimit, adminLogoutPeriod),
+		switchLimiter:  newLimiter(adminSwitchLimit, adminSwitchPeriod),
 		encodeLimiter:  newLimiter(adminEncodeLimit, adminEncodePeriod),
 		log:            log,
 
@@ -824,8 +843,8 @@ func (a *AdminAuth) ProtectWriting() func(http.Handler) http.Handler {
 // one user: the sibling group at the end of mountWriting, which holds the admin's own
 // password, the four record paths (adding a person, re-inviting, and the manual
 // record's two steps), K-26's defences (revoking API keys, switching the webhook
-// off) and, while TAPPA_ADMIN_IDENTITY is on, signing yourself out everywhere (ADR
-// 0025's M14 note, M14-11). The record paths are not the business's settings but how an attendance record
+// off) and, while TAPPA_ADMIN_IDENTITY is on, signing yourself out everywhere and switching
+// businesses (ADR 0025's M14 note, M14-11, M14-10). The record paths are not the business's settings but how an attendance record
 // gets written or recovered (§4.3, §4.6) -- a suspension stops writes, not evidence --
 // and the defences only take away what the business exposes. An exception made by PATH
 // would open or close silently on a rename; made by GROUP, it is a visible edit in one

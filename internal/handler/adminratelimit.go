@@ -802,6 +802,31 @@ const (
 	// rather than half-built.
 	adminAccountLimit  = 10
 	adminAccountPeriod = 10 * time.Minute
+
+	// adminSwitchLimit / adminSwitchPeriod: switching businesses (M14-10, ADR 0031 §5.4, bulgu
+	// 8), keyed by the PERSON and the address together -- adminSwitchKey.
+	//
+	// 🔴 NOT THE SESSION BUDGET, BECAUSE EVERY SWITCH IS A NEW SESSION. sessionGate keys on the
+	// session id, and a switch revokes that session and issues another: A -> B -> A -> B... would
+	// start a fresh 300 on every hop and never be refused. Keyed by the person, the count
+	// survives the hop.
+	//
+	// WHAT IT BOUNDS. Each switch that goes through writes four rows that nothing deletes -- a
+	// session in the new business, the revocation stamp on the old one, and an ordinary sign-out
+	// and sign-in audit row (identity_switch_session, 00071) -- and takes the person's row lock.
+	// 30 per 10 minutes is one every 20 seconds sustained; a person moving between their
+	// businesses by hand does a handful an hour, so the ceiling is never in a real person's way,
+	// and a script holding a stolen cookie leaves at most 120 rows a window per address. A refusal
+	// here writes nothing at all (no audit row, no session) -- the audit trail stops growing at
+	// the limit, which is the card's measurement.
+	//
+	// WHY THE ADDRESS IS PART OF THE KEY (ADR 0031 §5.4: "identity_id (+ kaynak adres)"). Keyed by
+	// the person alone, somebody holding one of the person's cookies could spend the person's
+	// budget from anywhere and lock their switching on every other device; with the address in
+	// the key a flood spends its own address's share, and adminFloodLimit still bounds what one
+	// address can send in total.
+	adminSwitchLimit  = 30
+	adminSwitchPeriod = 10 * time.Minute
 )
 
 // ⚠️ THE VALUES ABOVE ARE PINNED BY TestPanelConstants_ShippedValuesArePinned

@@ -89,6 +89,10 @@ var constantTimeInventory = map[string]int{
 	// is ATTACKER-FED (the query string) and it is a synchronizer token, so it decides
 	// whether a write reaches the handler at all.
 	"internal/adminauth/formbind.go": 1,
+	// The switch's synchronizer token (M14-10, ADR 0031 §5.4): the posted csrf field against
+	// HMAC(key from the raw session token, "tappa/admin-switch/v1|" + session_id). ATTACKER-FED
+	// (the form body), and it decides whether a request may move the session to another business.
+	"internal/adminauth/switchtoken.go": 1,
 	// The signup state: CSRF and the signed cookie.
 	"internal/handler/signupstate.go": 2,
 	// The tap context's signed cookie.

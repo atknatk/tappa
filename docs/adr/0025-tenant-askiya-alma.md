@@ -1360,5 +1360,10 @@ farkıyla taşındı; taban kaymasının değiştirdiği sayılar ve yerler ADR 
     iken on iki rotadır**; `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException` yürüyüşü iki
     bayrak durumunda da koşar, `cmd/tappa`'nın `TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses`'ı
     yapılandırılmış yürüyüşte bayrağı açar.
+  - **M14-10 (2026-10-26):** `POST /admin/switch` aynı kardeş grupta, "Sign out everywhere"ın hemen
+    altında, `mountGated(SurfaceSwitch)` ile (okuma tarafı `GET /admin/switch` de aynı yüzeyle
+    kapılı, `mountSections`'ta). Liste **bayrak `off` iken on bir, `on` iken on üç rotadır**; iki test
+    aynı commit'te güncellendi. Askıdaki işletmeye geçiş başarılıdır ve o oturumun sonraki yazması
+    askı kapısına takılır (`TestAdminSwitchDB_IntoASuspendedBusinessIsReadOnlyThere`).
 - **Operatör değişmez** (K-12, ADR 0031 §5.12): ileride gelecek `op_disable_tenant_admins` (§7) yalnız
   üyelik `status`'una dokunabilir, kimliğe asla.
