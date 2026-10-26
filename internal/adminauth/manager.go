@@ -859,6 +859,12 @@ type Resolved struct {
 	AdminUserID uuid.UUID
 	Role        string
 	FullName    string
+	// Linked reports whether the session's row is linked to an identity (admin_users.identity_id
+	// IS NOT NULL, read by the same TouchAdminSession statement -- M14-04's column, no extra read).
+	// A fact for the panel's own wording alone (M14-11: "Sign out everywhere" says "every business"
+	// only when it is true); the identity's id itself never leaves this package (ADR 0031 §6's
+	// named residue).
+	Linked bool
 	// Suspended is the business's suspension as the same TouchAdminSession statement
 	// read it (ADR 0025 §1, §3): nil when the business is not suspended.
 	//
@@ -989,6 +995,7 @@ func (m *Manager) Verify(ctx context.Context, t Token) (Resolved, error) {
 		AdminUserID: row.AdminUserID,
 		Role:        row.Role,
 		FullName:    row.FullName,
+		Linked:      row.IdentityID != nil,
 		Suspended:   suspensionOf(row.SuspendedAt, row.SuspensionReason),
 	}, nil
 }

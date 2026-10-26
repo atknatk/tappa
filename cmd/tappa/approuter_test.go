@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -165,6 +166,9 @@ func walkConfig(t *testing.T, on bool) *config.Config {
 		cfg.OperatorTOTPKEK, cfg.OperatorTokenHMACKey, cfg.OperatorHost = randBytes(t, 32), randBytes(t, 32), "ops.taptime.mt"
 		cfg.APIHost = "api.taptime.mt"
 		cfg.DevTools, cfg.BaseURL = true, "http://localhost:8080"
+		// The panel identity flag (ADR 0031 §8): on, the panel mounts its identity surfaces, and
+		// the walk must classify them too (M14-11).
+		cfg.AdminIdentity = true
 	}
 	return cfg
 }
@@ -320,7 +324,8 @@ func walkOf(t *testing.T, h http.Handler) []string {
 //	                    by internal/handler's
 //	                    TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException.
 //	2 panel exception   ADR 0025's exceptions, by name: its eight, and K-26's three
-//	                    defences (ADR 0025's M11 note; plan §4.7).
+//	                    defences (ADR 0025's M11 note; plan §4.7); with the panel identity
+//	                    flag on (the configured walk), its M14 note's routes (M14-11).
 //	3 outside the panel the tap, activation, password recovery and sign-up routes and
 //	                    the dev-only simulator, by name; the configured operator surface's
 //	                    routes (its own host, its own identity -- ADR 0020; classified
@@ -360,6 +365,9 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		"POST /signup/places":   "signup",
 		"POST /signup/account":  "signup",
 	}
+	// Panel exceptions that exist only with the panel identity flag on (ADR 0025's M14 note):
+	// signing yourself out everywhere (M14-11).
+	panelExceptionsWhenOn := map[string]bool{"POST /admin/account/sign-out-everywhere": true}
 	// Named routes that exist only with the optional surfaces on.
 	outsidePanelWhenOn := map[string]string{
 		"POST " + handler.DevSimulateTapPath: "devtools",
@@ -381,10 +389,12 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 			for mr, who := range outsidePanel {
 				named[mr] = who
 			}
+			exceptions := maps.Clone(panelExceptions)
 			if on {
 				for mr, who := range outsidePanelWhenOn {
 					named[mr] = who
 				}
+				maps.Copy(exceptions, panelExceptionsWhenOn)
 			}
 
 			owner := map[string]string{}
@@ -437,7 +447,7 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 				method, route, _ := strings.Cut(mr, " ")
 				who := owner[mr]
 				switch {
-				case who == "panel" && panelExceptions[mr]:
+				case who == "panel" && exceptions[mr]:
 					counts[2]++
 					found[mr] = true
 				case who == "panel":
@@ -458,7 +468,7 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 						"chain that ADR 0025 §3 has not named", mr, who)
 				}
 			}
-			for mr := range panelExceptions {
+			for mr := range exceptions {
 				if !found[mr] {
 					t.Errorf("the panel exception %s is not served", mr)
 				}
@@ -479,7 +489,7 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 						"either it gained a method or this walk stopped looking at every method", route, got, allWrites)
 				}
 			}
-			if counts[1] < 20 || counts[2] != len(panelExceptions) || (on && api == 0) {
+			if counts[1] < 20 || counts[2] != len(exceptions) || (on && api == 0) {
 				t.Fatalf("classes %v (/v1 %d): the panel's writes or the API's were not walked", counts, api)
 			}
 			t.Logf("%s: class 1 (panel, gated) %d · class 2 (named exceptions) %d · class 3 (outside the panel) %d, of them /v1 %d · class 4 (methodless) %d",
