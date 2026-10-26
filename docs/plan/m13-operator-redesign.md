@@ -363,7 +363,9 @@ testleri), `op14_test.go` (44 px listesi).
 **Orkestratör kararı (a), 2026-10-26 — bildirim biçimi.** Bildirim README §6 "Operator notice"
 tarifinde kalır: tam çerçeve, 14 px köşe (D2 `rounded-[14px]`; panelin `PanelNotice`'i ve States
 panolarıyla tek ürün, tek biçim). Operatör panolarının 4 px sol çizgisi (`0 10px 10px 0` köşe) **uygulanmaz**.
-Tonun rengi testle sabittir (ok tappa-green, warn saffron, alert tomato; durum→renk asla ters çevrilmez).
+Tonun rengi testle sabittir (ok tappa-green, warn saffron, alert tomato; durum→renk asla ters çevrilmez);
+alert zemini **yalnız** `paper` (orkestratör kararı, 2026-10-26); `op-notice` geçen her seçici kaynakta ve
+derlenmiş CSS'te bilinen listeye sabittir (daha özgül bir seçiciyle tonu ezmek bulgudur).
 
 **Amaç.** `operatorpages/notice.templ`'de dışa kapalı `opNotice(tone, heading)` (ok / warn / alert;
 `role="status"` / `role="alert"`); bütün operatör çağıranları (`signin.templ`, `enroll.templ`,

@@ -386,11 +386,12 @@ var noticeColour = regexp.MustCompile(`(?:^| )(border|bg|text)-(ink|porcelain|pa
 // noticeToneColourFindings is what is wrong with the colours of the notice's tone rules against
 // the brand's status mapping (skill tappa-brand: ok/APPROVED tappa-green, flag/FLAGGED saffron,
 // reject/REJECTED tomato, never inverted): each rule has exactly one frame colour and one ground,
-// the frame is its tone's colour and the ground is its tone's colour or tint -- or paper, for the
-// alert, as README §6 draws it --, and nothing colours the words (they stay ink, from .op-notice).
+// the frame is its tone's colour and the ground is its tone's colour or tint -- paper, and only
+// paper, for the alert, as README §6 draws it (orchestrator decision, 2026-10-26) --, and nothing
+// colours the words (they stay ink, from .op-notice).
 func noticeToneColourFindings(rules map[string]string) []string {
 	frame := map[string]string{"ok": "tappa-green", "warn": "saffron", "alert": "tomato"}
-	ground := map[string][]string{"ok": {"tappa-green", "green-lite"}, "warn": {"saffron", "saffron-lite"}, "alert": {"paper", "tomato"}}
+	ground := map[string][]string{"ok": {"tappa-green", "green-lite"}, "warn": {"saffron", "saffron-lite"}, "alert": {"paper"}}
 	var bad []string
 	for _, tone := range []string{"ok", "warn", "alert"} {
 		apply, ok := rules[tone]
@@ -419,14 +420,92 @@ func noticeToneColourFindings(rules map[string]string) []string {
 	return bad
 }
 
+// opNoticeSelectors is every selector of input.css that names the operator notice, as written
+// there: the base frame, the three tone rules and the problem card's padding. A new one is a
+// finding, because a selector more specific than a tone rule can re-colour it (a combined
+// .op-notice.op-notice--alert, or a colour on the problem card's rule, measured in the audit).
+var opNoticeSelectors = []string{".op-notice", ".op-notice--ok", ".op-notice--warn", ".op-notice--alert", ".op-problem > .op-notice"}
+
+// opNoticeCompiled is the selectors of the compiled app.css that name the notice: Tailwind
+// writes the tone rules' shared opacity variables under one grouped selector, and the problem
+// card's padding twice (base and from the tablet) under the same selector.
+var opNoticeCompiled = []string{".op-notice", ".op-notice--ok", ".op-notice--warn", ".op-notice--alert",
+	".op-notice--alert,.op-notice--warn", ".op-problem>.op-notice"}
+
+// cssRule is one innermost rule of a stylesheet: its selector and its body.
+var cssRule = regexp.MustCompile(`([^{}]+)\{([^{}]*)\}`)
+
+// cssComment is a stylesheet comment, dropped before the rules are read.
+var cssComment = regexp.MustCompile(`(?s)/\*.*?\*/`)
+
+// noticeRulesOf is the innermost rules of a stylesheet whose selector names op-notice, selector to
+// bodies (a selector may occur more than once, as in the compiled sheet's media blocks).
+func noticeRulesOf(css string) map[string][]string {
+	out := map[string][]string{}
+	for _, m := range cssRule.FindAllStringSubmatch(cssComment.ReplaceAllString(css, ""), -1) {
+		sel := strings.Join(strings.Fields(m[1]), " ")
+		if strings.Contains(sel, "op-notice") {
+			out[sel] = append(out[sel], strings.TrimSpace(m[2]))
+		}
+	}
+	return out
+}
+
+// anyColour is a utility that colours something with a palette token or any other colour:
+// border-, bg-, text-, ring-, outline-, divide-, decoration-, shadow-, fill-, stroke-, accent-,
+// caret- followed by a colour name (a width or a size such as border-2 or text-sm is not one).
+var anyColour = regexp.MustCompile(`(?:^|\s)(?:[a-z-]+:)*(?:border|bg|text|ring|outline|divide|decoration|shadow|fill|stroke|accent|caret)-` +
+	`(?:ink|porcelain|paper|tappa-green|green-lite|saffron-lite|saffron|tomato|line|white|black|transparent|current|inherit|\[#)`)
+
+// noticeSelectorFindings is what is wrong with input.css's notice rules beyond the tone rules'
+// own colours: a selector naming op-notice that is not one of opNoticeSelectors, one of them
+// missing or written twice, and a colour on a rule that is not a tone rule -- the base frame may
+// set the words' ink (text-ink) and nothing else, the problem card's rule nothing.
+func noticeSelectorFindings(rules map[string][]string) []string {
+	var bad []string
+	for sel, bodies := range rules {
+		if !slices.Contains(opNoticeSelectors, sel) {
+			bad = append(bad, "a selector naming the notice that is not on the list: "+sel)
+			continue
+		}
+		if len(bodies) != 1 {
+			bad = append(bad, sel+": written "+strconv.Itoa(len(bodies))+" times")
+		}
+		if strings.HasPrefix(sel, ".op-notice--") {
+			continue
+		}
+		for _, b := range bodies {
+			b = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(b, "@apply")), ";"))
+			body := "  " + strings.ReplaceAll(b, " ", "  ") + "  "
+			if sel == ".op-notice" {
+				body = strings.Replace(body, "  text-ink  ", "  ", 1)
+			}
+			if m := anyColour.FindString(body); m != "" {
+				bad = append(bad, sel+": a colour on a rule that is not a tone rule:"+m)
+			}
+		}
+	}
+	for _, sel := range opNoticeSelectors {
+		if _, ok := rules[sel]; !ok {
+			bad = append(bad, "no rule "+sel)
+		}
+	}
+	return bad
+}
+
 // TestOperatorNotice_EachToneRuleKeepsItsStatusColour (M13-03, audit): input.css's three tone
 // rules of the operator notice keep the brand's status mapping -- ok framed in tappa-green on a
 // green ground, warn in saffron on a saffron ground, alert in tomato on paper --, one frame colour
-// and one ground each, nothing colouring the words. CONTROL: the same reader finds the ok rule
-// painted saffron and the alert rule painted saffron.
+// and one ground each, nothing colouring the words; and nothing else can re-colour them: every
+// selector of input.css naming op-notice is one of opNoticeSelectors, written once, and the two
+// that are not tone rules carry no colour (the base its words' ink alone); when the compiled
+// app.css is present (make css), its selectors naming op-notice are opNoticeCompiled exactly.
+// CONTROL: the same readers find the ok rule painted saffron, the alert rule painted saffron, a
+// combined .op-notice.op-notice--alert rule, and a saffron frame on the problem card's rule.
 //
 // PART II -- red on: a tone rule re-toned (the mapping inverted or crossed), a second frame or
-// ground colour, a text colour, a rule missing. PART III -- the frame widths and the corners are
+// ground colour, a text colour, a rule missing, a new selector naming the notice in the source or
+// the compiled sheet, a colour on the base or the problem card's rule. PART III -- the frame widths and the corners are
 // the screenshot's; the words' contrast is TestOperatorNotice_TheWordsClearAAOnEveryTone's -- no
 // completeness claim.
 func TestOperatorNotice_EachToneRuleKeepsItsStatusColour(t *testing.T) {
@@ -453,5 +532,37 @@ func TestOperatorNotice_EachToneRuleKeepsItsStatusColour(t *testing.T) {
 		if len(noticeToneColourFindings(control)) == 0 {
 			t.Errorf("CONTROL: the rules with %s raise no finding; the reader is blind", what)
 		}
+	}
+	source := noticeRulesOf(string(css))
+	for _, f := range noticeSelectorFindings(source) {
+		t.Error(f)
+	}
+	for what, extra := range map[string]string{
+		"a combined alert rule":           "\n  .op-notice.op-notice--alert { @apply border-saffron; }\n",
+		"a saffron problem card frame":    "\n  .op-problem > .op-notice { @apply border-saffron; }\n",
+		"a second notice selector inside": "\n  .op-main .op-notice--ok { @apply border-tomato; }\n",
+	} {
+		control := noticeRulesOf(string(css) + extra)
+		if what == "a saffron problem card frame" {
+			control = noticeRulesOf(strings.Replace(string(css), ".op-problem > .op-notice { @apply ", ".op-problem > .op-notice { @apply border-saffron ", 1))
+		}
+		if len(noticeSelectorFindings(control)) == 0 {
+			t.Errorf("CONTROL: %s raises no finding; the selector reader is blind", what)
+		}
+	}
+	compiled, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "app.css"))
+	if err != nil {
+		t.Log("app.css not built (make css): the compiled selectors are not measured on this run")
+		return
+	}
+	var got []string
+	for sel := range noticeRulesOf(string(compiled)) {
+		got = append(got, sel)
+	}
+	slices.Sort(got)
+	want := slices.Clone(opNoticeCompiled)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("the compiled app.css names the notice in %q, want %q", got, want)
 	}
 }
