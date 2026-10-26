@@ -180,6 +180,10 @@ type AdminBusiness struct {
 type AdminChooseView struct {
 	CSRFToken  string
 	Businesses []AdminBusiness
+	// PanelSwitch is true while the panel's switch exists (TAPPA_ADMIN_IDENTITY on, ADR 0031
+	// §8's /admin/switch row): the paragraph then says how to move between businesses without
+	// signing out instead of "sign out and switch".
+	PanelSwitch bool
 }
 
 // adminRoleOwner is the role a PanelSection's OwnerOnly flag is compared against.

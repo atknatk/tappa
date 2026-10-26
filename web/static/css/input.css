@@ -764,6 +764,11 @@
   .tally--frozen,
   .tally--vat-confirmed,
   .tally--tenant-active { @apply border-tappa-green bg-green-lite; }
+  /* M14-13 adds a business whose changes are paused (ADR 0031 K-10) to the waiting group: the
+     switch page marks a suspended business in the tone of the panel's own suspension strip
+     (a warning notice, saffron), not the operator's rejection tone -- the customer reads "you
+     can go in and read", not "refused". No ground is new. */
+  .tally--changes-paused,
   .tally--queued,
   .tally--invited,
   .tally--unencoded,
