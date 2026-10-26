@@ -699,7 +699,9 @@ sözcüğü, fatura PDF'i, kişi listesi yok.
 "On file" docket'i, dört karar çipi, zaman satırı, "Ask again" kartı (alansız form) ya da
 sorulamaz cümlesi, üç uyarı, adsız tenant bandı (cilalı `OpVat` panolarında da bir durum; fixture
 "tenant VAT, not found"). Cilalı panolar: "On file"un iki olgusu tablet/masaüstünde **yan yana**
-(`dl`, `vat.templ:41` → `md:grid md:grid-cols-2`), telefonda alt alta; sabit
+(`dl`, `vat.templ:41` → `md:grid`; izler panonun `max-content` + 56 px'i, uzun numara için
+`minmax(0,max-content)_minmax(max-content,1fr)` — README §6.1 "VAT On file", ölçüm orada; ilk yazımdaki
+`md:grid-cols-2` çipi satırın ortasına koyuyordu), telefonda alt alta; sabit
 `<dd class="mt-1 break-all font-mono text-lg font-bold">` (`op16_test.go:1409`) aynen.
 
 **Kart içi boşluk (M13-02'den devreden):** bu ekranın `op-card`'larında kart içi boşluk `gap-3.5`'e geçer (`flex flex-col gap-3.5`, işaretlemede), gövdelerin `mt-*`'leri aynı commit'te kalkar (README §6 "Card").

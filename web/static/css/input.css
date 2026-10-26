@@ -1410,6 +1410,15 @@
   [aria-labelledby="tenant-billing"] .op-row > span:nth-child(n+3) { @apply font-display; }
   [aria-labelledby="tenant-billing"] .op-row > dl { @apply w-full; }
   [aria-labelledby="tenant-billing"] .op-row > p > span > span { @apply text-ink; }
+  /* THE VAT RECORD IN THE REDESIGN (M13-11; docs/design/operator-redesign README §6.1 "VAT On
+     file", boards OpVat, T-OpVat, M-OpVat). The time line under the verdict is one paragraph
+     whose word is a bare text run and whose time a pinned span ("Last answer" / "Asked" and
+     the time's mono span, op16_test.go), so the boards' two tones are set from the docket's
+     heading id: the paragraph's word at ink 70 % (6.05:1 on paper, written on the markup) and
+     the time here in ink (16.17:1). NO SELECTOR HERE NAMES THE CHIP'S CLASS (the chip sits in
+     the term list, never in a paragraph of the docket). One @apply, read and pinned by
+     TestVATRecord_TheScopedRuleKeepsTheTimeInInk. */
+  [aria-labelledby="tenant-vat"] > p > span { @apply text-ink; }
 
   /* THE INTEGRATION GUIDE'S BODY (M11 DOCS-1, /docs/api). internal/apiguide converts the
      Markdown with goldmark, whose output carries no class, so every rule here is scoped

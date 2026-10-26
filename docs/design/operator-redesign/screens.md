@@ -685,6 +685,17 @@ Warn notices (a POST that changed nothing, `vat.go:394-401`):
 **Layout (polished boards):** the two "On file" facts side by side on tablet/desktop (the `dl`,
 `vat.templ:41`), stacked on the phone; the pinned `<dd class="mt-1 break-all font-mono text-lg
 font-bold">` stays (`op16_test.go:1409`).
+**As built (M13-11):** the intro card is `op-card flex flex-col gap-3.5` — `op-label` "VAT number",
+the h1 at 28 px at every width (line height 1.1, -0.03em), the intro `text-sm`, the links stacked on
+the phone and in a row from the tablet; no top margins. On the docket the term list is two columns
+from the tablet, `minmax(0,max-content)` and `minmax(max-content,1fr)`, 56 px apart — the number's
+column as wide as the number, the chip right after it as the boards draw it, and a long number breaks
+beside the whole chip —; one column on the phone. The sentence and the time line are Space Grotesk
+(decision (f)), the time line's word ink 70 % and its time ink, mono. The asking card keeps its
+`docket-label` heading; its sentence (at most 560 px) and the form share a row from the tablet, the
+button at the row's end; on the phone the button takes the card's width. Measured at 320 / 390 / 834 /
+1200 / 1440 with every fixture and a 64-character number without a space under a 130-character tenant
+name: no horizontal scroll. Recipe and deliberate differences: README §6.1 "VAT On file".
 
 **States:** each of the four verdicts · never asked · a warn notice · odd number (no form) ·
 unnamed tenant (drawn on the polished `OpVat` boards too; the fixture "tenant VAT, not found"
@@ -700,7 +711,9 @@ VAT number anywhere but this screen.
 `TestVATScreen_TheFourStatesAreTheAccountScreensFour`, `TestVATScreen_EveryStateSaysItsWordAndSentence`,
 `TestVATScreen_TheChipsAndTextClearAA`, `TestVATScreen_EachChipHasTheRuleTheContrastTestComputes`,
 `TestVATRecheck_TheNumberIsTheServersNotTheClients`, `TestVATRecheck_TheNumberIsOnNoLogLineOrHeader`,
-`TestVATNumber_TheListedSitesAloneReadIt`.
+`TestVATNumber_TheListedSitesAloneReadIt`; since M13-11 `TestVATScreen_IsTheIntroCardTheRecordAndTheAsking`
+(the whole column, tags and words, per state; the number once on the page; one form or none, no
+field) and `TestVATRecord_TheScopedRuleKeepsTheTimeInInk` (the time line's one scoped rule).
 
 ---
 
