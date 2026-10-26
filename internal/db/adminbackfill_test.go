@@ -35,9 +35,13 @@ const bfFile = "00073_backfill_admin_identities.sql"
 func bfTx(t *testing.T) (context.Context, pgx.Tx) {
 	t.Helper()
 	dsn := opOwnerDSN(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	t.Cleanup(cancel)
-	conn, err := pgx.Connect(ctx, dsn)
+	// THE TEST'S THREE MINUTES START ONCE THE LOCK IS HELD (M14-09's third-eye audit): the wait for
+	// the operator-tables lock runs on its own, longer context, because the packages that hold it
+	// SHARED keep it for a whole test -- ~120 s for a cost-12 HTTP timing sample under -race -- and a
+	// wait counted against the test's own budget left the Downs' table locks too little of it.
+	lockCtx, lockCancel := context.WithTimeout(context.Background(), opLockWait)
+	t.Cleanup(lockCancel)
+	conn, err := pgx.Connect(lockCtx, dsn)
 	if err != nil {
 		t.Fatalf("connect as the owner: %v", err)
 	}
@@ -50,9 +54,11 @@ func bfTx(t *testing.T) (context.Context, pgx.Tx) {
 	// locks every committed admin_users row of the shared database, and another package's committed
 	// identity world (internal/adminauth's, which holds the lock SHARED) made its postcondition and
 	// its Down see identities that are not its own -- measured as FAILs when the two ran in parallel.
-	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext($1))`, operatorTablesTestLock); err != nil {
+	if _, err := conn.Exec(lockCtx, `SELECT pg_advisory_lock(hashtext($1))`, operatorTablesTestLock); err != nil {
 		t.Fatalf("operator-tables test lock: %v", err)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	t.Cleanup(cancel)
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		t.Fatalf("BEGIN: %v", err)
