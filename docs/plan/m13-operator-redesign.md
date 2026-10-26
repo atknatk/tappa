@@ -360,6 +360,11 @@ testleri), `op14_test.go` (44 px listesi).
 - **Commit:** `feat(operator): give the operator surface its own notice and problem card`
 - **Spec:** [README §6 "Operator notice", "Problem page"](../design/operator-redesign/README.md), [screens.md §4](../design/operator-redesign/screens.md)
 
+**Orkestratör kararı (a), 2026-10-26 — bildirim biçimi.** Bildirim README §6 "Operator notice"
+tarifinde kalır: tam çerçeve, 14 px köşe (D2 `rounded-[14px]`; panelin `PanelNotice`'i ve States
+panolarıyla tek ürün, tek biçim). Operatör panolarının 4 px sol çizgisi (`0 10px 10px 0` köşe) **uygulanmaz**.
+Tonun rengi testle sabittir (ok tappa-green, warn saffron, alert tomato; durum→renk asla ters çevrilmez).
+
 **Amaç.** `operatorpages/notice.templ`'de dışa kapalı `opNotice(tone, heading)` (ok / warn / alert;
 `role="status"` / `role="alert"`); bütün operatör çağıranları (`signin.templ`, `enroll.templ`,
 `holdings.templ:70-88`, `tenants.templ:230-248` (API) ve `:339-343` (askı kartının security-hold
@@ -428,6 +433,15 @@ yeşil; 390 / 834 / 1200 / 1440'ta yatay kaydırma yok.
 İmzasız kabuk, ortalanmış kart; altı durum (varsayılan, Expired, Failed, kod, Rejected, Locked).
 
 **Kart içi boşluk (M13-02'den devreden):** bu ekranın `op-card`'larında kart içi boşluk `gap-3.5`'e geçer (`flex flex-col gap-3.5`, işaretlemede), gövdelerin `mt-*`'leri aynı commit'te kalkar (README §6 "Card").
+
+**İmzasız sütun (M13-03'ten devreden; README §6 "Signed-out card").** SignIn, Code ve imzasız `Problem`
+tek sütunu paylaşır (`screen(…, false, …)`: bugün `mx-auto max-w-lg px-4 py-8`). Panolar ekran başına
+farklı genişlik çizer — `OpSignIn` / `T-OpSignIn` **480 px**, `OpProblem` / `T-OpProblem` **560 px** —;
+dolgu ortak: masaüstü 72 / 24 / 96 px, tablet 64 / 32 / 80, telefon 24 / 16 / 40 (üst / yan / alt).
+Tek bir `max-w` ikisine uymaz: bu kart sütunun dolgusunu panoya getirir, genişliği ekrana bırakır
+(öneri: sütun 560 px'e yetecek genişlikte, giriş ve kod kartı `max-w-[480px]`, imzasız problemin
+`.op-problem`'i 560 px — bugün 640 px'lik kural imzalı problemin; M13-03'ün problem testi kartın
+yapısını sabitler, genişliği değil). Enroll'un `scriptedScreen` sütunu (pano 560 px) M13-05'indir.
 
 **Kabul kriterleri.** O2 ortak kabulü ve: `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike`,
 `TestE2E_EveryRefusedSignInIsOneRowAndTheSameBytes`, `TestSignIn_ReadsTheBodyNeverTheQuery` yeşil;

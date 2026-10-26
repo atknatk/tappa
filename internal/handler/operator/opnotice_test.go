@@ -8,9 +8,11 @@ import (
 	"bytes"
 	"context"
 	"html"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -34,8 +36,17 @@ var opNoticeHeading = regexp.MustCompile(`^\s*<p class="font-display font-bold t
 // operator surface no longer draws it.
 var sharedNoticeFrame = regexp.MustCompile(`class="border-l-4 border-(tappa-green|saffron|tomato) `)
 
-// noticeOf is one notice as a reader meets it: the tone its frame draws and the heading it says.
-type noticeOf struct{ tone, heading string }
+// noticeOf is one notice as a reader meets it: the tone its frame draws, the heading it says and
+// the text under the heading (tags dropped, entities decoded, white space collapsed). In a table of
+// wanted notices, body is a part of that text the notice must say.
+type noticeOf struct{ tone, heading, body string }
+
+// noticeTag is any tag of a notice's body, read as a space so two paragraphs do not run together;
+// spaceBeforeMark undoes the space a closing inline tag leaves before punctuation.
+var (
+	noticeTag       = regexp.MustCompile(`<[^>]*>`)
+	spaceBeforeMark = regexp.MustCompile(` ([,.;:])`)
+)
 
 // noticesOn parses every operator notice of a render, checking its role against its tone.
 func noticesOn(t *testing.T, name, body string) []noticeOf {
@@ -46,11 +57,11 @@ func noticesOn(t *testing.T, name, body string) []noticeOf {
 		if want := map[string]string{"ok": "status", "warn": "status", "alert": "alert"}[tone]; want == "" || role != want {
 			t.Errorf("%s: a notice of tone %q has role %q, want %q", name, tone, role, want)
 		}
-		heading := ""
-		if h := opNoticeHeading.FindStringSubmatch(m[3]); h != nil {
-			heading = html.UnescapeString(h[1])
+		heading, rest := "", m[3]
+		if h := opNoticeHeading.FindStringSubmatch(rest); h != nil {
+			heading, rest = html.UnescapeString(h[1]), rest[len(h[0]):]
 		}
-		out = append(out, noticeOf{tone, heading})
+		out = append(out, noticeOf{tone, heading, spaceBeforeMark.ReplaceAllString(spaced(html.UnescapeString(noticeTag.ReplaceAllString(rest, " "))), "$1")})
 	}
 	return out
 }
@@ -63,7 +74,9 @@ func noticesOn(t *testing.T, name, body string) []noticeOf {
 // PART I -- the 49 renders of screens() and eight more (the API card's two answers, the legal
 // screen behind its page, the enrollment's three refusals one at a time, the code step's two):
 // each render carries exactly the notices the table below names, in order, tone by tone and
-// heading by heading (screens.md §1, §2, §4, §6, §9, §11, §12 for the words); every render not
+// heading by heading, each saying the part of its body sentence the table names -- the whole of a
+// fixed sentence the template writes, the fixture's words where the view supplies them
+// (screens.md §1, §2, §4, §6, §9, §11, §12 for the words); every render not
 // in the table carries none; an ok or warn notice is role status and an alert role alert; the
 // count of "op-notice" in a render is the count of parsed notices (no notice in another shape);
 // the alerts of a render are its alert-toned notices, at most one -- except the screens()
@@ -73,10 +86,13 @@ func noticesOn(t *testing.T, name, body string) []noticeOf {
 // the parser finds a notice in a render whose tone and heading the table names.
 //
 // PART II -- red on: a caller back on components.Notice, a tone changed, a heading changed, a
-// role on the wrong tone, a notice added to or dropped from a screen, a second alert on a page.
-// PART III -- the words under a heading are the screens' own tests' (TestEnroll_TheWeakPasswordNoticeNamesBothLimits
-// and the others the card names); whether a screen reader announces the box is a browser's, not
-// measured here -- no completeness claim.
+// fixed body sentence changed, a role on the wrong tone, a notice added to or dropped from a
+// screen, a second alert on a page.
+// PART III -- the sentences a handler puts in a view (holdings, the API card, VAT) are the
+// handlers' tests' (headingsOn, apiHeadingsOn and the VAT screen's); the problem card's body is
+// TestProblemPage_IsOneAlertCardWhoseHeadingIsThePagesOnlyH1's; the hold warning's every sentence is
+// TestSuspendForm_TheHoldWarningIsShownOnlyByTheHoldChoice's (here its first); whether a screen
+// reader announces the box is a browser's, not measured here -- no completeness claim.
 func TestOperatorNotice_EveryCallerKeepsItsToneAndHeadingInTheOperatorsOwnBox(t *testing.T) {
 	renders := screens(t)
 	name, err := operatorpages.NewTenantName("Kebab Factory Ltd")
@@ -114,25 +130,34 @@ func TestOperatorNotice_EveryCallerKeepsItsToneAndHeadingInTheOperatorsOwnBox(t 
 		renders[k] = b.String()
 	}
 	const hold = "A security hold freezes writes. It does not contain an account."
+	const holdFirst = "Whoever holds a session of this business keeps it. While the business is suspended, that session still:"
+	const enrollUseTheKey = "Type a code from the authenticator entry this page gave you. If you did not add it, open your link again for a new key."
+	const enrollMismatch = "Type the same new password in both fields."
+	const enrollWeak = "Use at least 14 characters and at most 72 bytes. A letter with an accent, or from another alphabet, takes two bytes or more."
+	const clock = "Check that your phone's clock is right, then type the next code."
 	want := map[string][]noticeOf{
-		"sign-in, refused":           {{"alert", "We could not sign you in"}},
-		"sign-in, expired":           {{"warn", "That sign-in step expired"}},
-		"code, rejected":             {{"alert", "That code was not accepted"}},
-		"code, locked":               {{"alert", "Sign-in is locked for a while"}},
-		"enroll, re-render":          {{"warn", "Use the key you already added"}, {"alert", "The two passwords differ"}, {"alert", "Choose another password"}, {"alert", "That code was not accepted"}},
-		"enroll, mismatch":           {{"alert", "The two passwords differ"}},
-		"enroll, weak password":      {{"alert", "Choose another password"}},
-		"enroll, code refused":       {{"alert", "That code was not accepted"}},
-		"problem":                    {{"alert", ""}},
-		"problem, signed in":         {{"alert", ""}},
-		"tenant overview":            {{"warn", hold}},
-		"tenant overview, unnamed":   {{"warn", hold}},
-		"overview, API opened":       {{"ok", "Opened."}, {"warn", hold}},
-		"overview, API code refused": {{"warn", "That code cannot be used"}, {"warn", hold}},
-		"legal, behind":              {{"warn", "The public page is behind"}},
-		"tenant VAT, a notice":       {{"warn", "VIES did not answer"}},
-		"holdings, added":            {{"ok", "Added."}},
-		"holdings, not added":        {{"warn", "Not added — nothing changed."}},
+		"sign-in, refused": {{"alert", "We could not sign you in", "Check the email address and the password, then try again."}},
+		"sign-in, expired": {{"warn", "That sign-in step expired", "Sign in again with your email address and password."}},
+		"code, rejected":   {{"alert", "That code was not accepted", clock}},
+		"code, locked":     {{"alert", "Sign-in is locked for a while", "Too many wrong codes. Wait a quarter of an hour, then try again."}},
+		"enroll, re-render": {{"warn", "Use the key you already added", enrollUseTheKey},
+			{"alert", "The two passwords differ", enrollMismatch}, {"alert", "Choose another password", enrollWeak},
+			{"alert", "That code was not accepted", clock}},
+		"enroll, mismatch":           {{"alert", "The two passwords differ", enrollMismatch}},
+		"enroll, weak password":      {{"alert", "Choose another password", enrollWeak}},
+		"enroll, code refused":       {{"alert", "That code was not accepted", clock}},
+		"problem":                    {{"alert", "", "T M"}},
+		"problem, signed in":         {{"alert", "", "T M"}},
+		"tenant overview":            {{"warn", hold, holdFirst}},
+		"tenant overview, unnamed":   {{"warn", hold, holdFirst}},
+		"overview, API opened":       {{"ok", "Opened.", "N"}, {"warn", hold, holdFirst}},
+		"overview, API code refused": {{"warn", "That code cannot be used", "N R1 R2"}, {"warn", hold, holdFirst}},
+		"legal, behind": {{"warn", "The public page is behind", "The newest version, published 2026-10-03 09:31 UTC, has not " +
+			"reached the public page yet. This editor opened on the text the page shows, so publishing it replaces the newest " +
+			"version. Reload this screen to try again. The page also catches up after the next publication or a restart."}},
+		"tenant VAT, a notice": {{"warn", "VIES did not answer", "N"}},
+		"holdings, added":      {{"ok", "Added.", "N"}},
+		"holdings, not added":  {{"warn", "Not added — nothing changed.", "N R1 R2"}},
 	}
 	if len(renders) != 49+6 {
 		t.Fatalf("PREMISE: %d renders, want 55", len(renders))
@@ -178,12 +203,14 @@ func TestOperatorNotice_EveryCallerKeepsItsToneAndHeadingInTheOperatorsOwnBox(t 
 	}
 }
 
-func equalNotices(a, b []noticeOf) bool {
-	if len(a) != len(b) {
+// equalNotices says whether the notices got are the notices want names: the same tones and
+// headings in the same order, each body saying its wanted part.
+func equalNotices(got, want []noticeOf) bool {
+	if len(got) != len(want) {
 		return false
 	}
-	for i := range a {
-		if a[i] != b[i] {
+	for i := range got {
+		if got[i].tone != want[i].tone || got[i].heading != want[i].heading || !strings.Contains(got[i].body, want[i].body) {
 			return false
 		}
 	}
@@ -349,5 +376,82 @@ func TestOperatorNotice_TheWordsClearAAOnEveryTone(t *testing.T) {
 	}
 	if bad := noticeGroundsBelowAA(t, map[string]string{"control": "border-tappa-green bg-tappa-green"}, float64(n)/100); len(bad) == 0 {
 		t.Error("CONTROL: ink on opaque tappa-green passed; the computation cannot fail")
+	}
+}
+
+// noticeColour is a palette colour a utility of a notice's tone rule names: border-x, bg-x or
+// text-x with x a token of tailwind.config.js's palette (a width such as border-2 names none).
+var noticeColour = regexp.MustCompile(`(?:^| )(border|bg|text)-(ink|porcelain|paper|tappa-green|green-lite|saffron-lite|saffron|tomato|line)(?:/\d+)?(?: |$)`)
+
+// noticeToneColourFindings is what is wrong with the colours of the notice's tone rules against
+// the brand's status mapping (skill tappa-brand: ok/APPROVED tappa-green, flag/FLAGGED saffron,
+// reject/REJECTED tomato, never inverted): each rule has exactly one frame colour and one ground,
+// the frame is its tone's colour and the ground is its tone's colour or tint -- or paper, for the
+// alert, as README §6 draws it --, and nothing colours the words (they stay ink, from .op-notice).
+func noticeToneColourFindings(rules map[string]string) []string {
+	frame := map[string]string{"ok": "tappa-green", "warn": "saffron", "alert": "tomato"}
+	ground := map[string][]string{"ok": {"tappa-green", "green-lite"}, "warn": {"saffron", "saffron-lite"}, "alert": {"paper", "tomato"}}
+	var bad []string
+	for _, tone := range []string{"ok", "warn", "alert"} {
+		apply, ok := rules[tone]
+		if !ok {
+			bad = append(bad, tone+": no rule")
+			continue
+		}
+		var frames, grounds []string
+		for _, m := range noticeColour.FindAllStringSubmatch(strings.ReplaceAll(apply, " ", "  "), -1) {
+			switch m[1] {
+			case "border":
+				frames = append(frames, m[2])
+			case "bg":
+				grounds = append(grounds, m[2])
+			default:
+				bad = append(bad, tone+": colours the words "+m[2])
+			}
+		}
+		if len(frames) != 1 || frames[0] != frame[tone] {
+			bad = append(bad, tone+": frame "+strings.Join(frames, ",")+", want "+frame[tone])
+		}
+		if len(grounds) != 1 || !slices.Contains(ground[tone], grounds[0]) {
+			bad = append(bad, tone+": ground "+strings.Join(grounds, ",")+", want one of "+strings.Join(ground[tone], ","))
+		}
+	}
+	return bad
+}
+
+// TestOperatorNotice_EachToneRuleKeepsItsStatusColour (M13-03, audit): input.css's three tone
+// rules of the operator notice keep the brand's status mapping -- ok framed in tappa-green on a
+// green ground, warn in saffron on a saffron ground, alert in tomato on paper --, one frame colour
+// and one ground each, nothing colouring the words. CONTROL: the same reader finds the ok rule
+// painted saffron and the alert rule painted saffron.
+//
+// PART II -- red on: a tone rule re-toned (the mapping inverted or crossed), a second frame or
+// ground colour, a text colour, a rule missing. PART III -- the frame widths and the corners are
+// the screenshot's; the words' contrast is TestOperatorNotice_TheWordsClearAAOnEveryTone's -- no
+// completeness claim.
+func TestOperatorNotice_EachToneRuleKeepsItsStatusColour(t *testing.T) {
+	css, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := map[string]string{}
+	for _, m := range opNoticeRule.FindAllStringSubmatch(string(css), -1) {
+		if _, dup := rules[m[1]]; dup {
+			t.Errorf("input.css has two .op-notice--%s rules", m[1])
+		}
+		rules[m[1]] = m[2]
+	}
+	for _, f := range noticeToneColourFindings(rules) {
+		t.Error(f)
+	}
+	for what, mutate := range map[string][2]string{
+		"ok painted saffron":    {"ok", "border-saffron bg-saffron-lite"},
+		"alert painted saffron": {"alert", "border-2 border-saffron bg-paper"},
+	} {
+		control := maps.Clone(rules)
+		control[mutate[0]] = mutate[1]
+		if len(noticeToneColourFindings(control)) == 0 {
+			t.Errorf("CONTROL: the rules with %s raise no finding; the reader is blind", what)
+		}
 	}
 }

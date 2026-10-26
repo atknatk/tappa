@@ -799,7 +799,7 @@ class="op-version">` stays literal.
 **Not shown:** old versions' text, "republish this version", preview, diff (each would need a new
 `op_read_*`, `legal.templ:15-17`); a link to the customer host.
 **Tests:** `TestLegalPage_ShowsWhoPublishedEachVersion`, `TestLegalPublish_AFailedRefreshRedirectsAndTheScreenSaysThePageIsBehind`
-(with `op10_test.go:492`'s `warnNotice` regex — update with the notice in M13-03),
+(with `op10_test.go`'s `warnNotice` regex — updated in M13-03 to `opNotice`'s `<section role="status" class="op-notice op-notice--warn">`),
 `TestLegalPage_AVersionPublishedBetweenTheTwoReadsIsNotCalledBehind`,
 `TestLegalScreen_ReopensOnPastedMarkupWithoutExecutingIt`, `TestLegalScreen_TheTextClearsAA`,
 `TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget`.
