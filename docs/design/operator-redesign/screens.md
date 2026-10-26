@@ -548,6 +548,16 @@ Chips (`plaques.go:136-149`):
 **Layout (polished boards):** two columns on tablet/desktop — the UID in its own column, chip,
 sentence and facts beside it (one wrapper `<div>` after the UID span; the row still starts with
 the UID span, `op13_test.go:285`); stacked on the phone — README §6.1 "Plaque row".
+**As built (M13-09):** the card is `op-card flex flex-col gap-3.5` — `op-label` "Plaques", the h1 at
+28 px at every width (line height 1.1, -0.03em), the summary `text-sm`, the note
+`text-xs leading-[1.45] text-ink/70`, the links stacked on the phone and in a row from the tablet; no
+top margins. The docket's list is `<ol class="mt-3">`. The uid's column is 156 px on the tablet, 168 px
+on the desktop; on the phone the wrapper draws no box (the uid and the chip share the head line, each
+fact on a line of its own); the sentence and the facts in Space Grotesk, the facts' words ink 70 %
+and their values ink, as the boards draw them; long values break anywhere. Measured at 320 / 390 /
+834 / 1200 / 1440 with every fixture and a row of spaceless long values: no horizontal scroll.
+Deliberate differences: facts 14 px (README §6 "Docket list"), the phone's fact lines 4 px apart,
+the dashed rule under each row, the 10 px docket heading — README §6.1 "Plaque row".
 
 **Forms:** none — the page's only `<form` is the band's sign-out and its only `<button` the
 sign-out's text button; no `hx-` attribute (`plaques.templ:7-9`, `op13_test.go:327-332`). The nav
@@ -561,7 +571,9 @@ panel feature).
 **Tests:** `TestPlaqueScreen_NoKeyReachesThePage`, `TestPlaqueScreen_EveryShapeHasItsSentenceAndAnUnknownStatusStaysVisible`,
 `TestPlaqueWords_NameEveryShapeAndNothingElse`, `TestPlaqueScreen_NamesTheTenantAndRefusesABadPath`,
 `TestPlaqueScreen_TheFirst200OfNAndAnEmptyTenant`, `TestPlaqueScreen_TheChipsAndTextClearAA`,
-`TestPlaqueScreen_EachChipHasTheRuleTheContrastTestComputes`.
+`TestPlaqueScreen_EachChipHasTheRuleTheContrastTestComputes`, `TestPlaqueScreen_IsTheSummaryCardAndTheDocket`
+(the card's words and tags, the row's shape and every fact, the absences),
+`TestPlaqueRow_TheScopedRulesKeepTheBoardsColumns` (the row's five scoped rules).
 
 ---
 

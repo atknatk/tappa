@@ -1359,6 +1359,31 @@
      the figure's own size class, which stays the phone's. One @apply, read and pinned by
      TestTenantOverviewCounts_TheScopedRuleKeepsTheBoardsSizes. */
   [aria-labelledby="tenant-live"] dd { @apply leading-[1.1] md:text-[32px] desk:text-[34px]; }
+  /* THE PLAQUE ROW IN THE REDESIGN (M13-09; docs/design/operator-redesign README §6.1 "Plaque
+     row", boards OpPlaques, T-OpPlaques, M-OpPlaques). Scoped from the docket's heading id,
+     because the row's markup is pinned (<li class="op-row"> opening with the uid's span).
+     PHONE: the row's own wrapping flex, its rows 14 px apart in their padding; the wrapper after
+     the uid draws no box there, so the uid and the chip share the head line, 10 px apart, and
+     the sentence and each fact take a line of their own (their own classes).
+     TABLET AND DESKTOP: two columns -- the uid in the first, 156 px on the tablet and 168 px on
+     the desktop as the boards draw it, the wrapper with the chip, the sentence and the facts in
+     the second -- 24 px apart, 16 px above and below; the uid's baseline sits on the chip's.
+     The uid is 15 px and breaks anywhere (a uid is one word of hex).
+     THE WRAPPER'S CHILDREN, AS THE BOARDS SET THEM: the chip first, in the docket's mono; the
+     sentence and the facts (every child after the chip) in Space Grotesk; each fact's word at
+     ink 70 % (6.05:1 on paper) and its value -- the time, the figure, the uid, the location's
+     name -- in ink (16.17:1), the values keeping their own mono class. The facts' size stays the
+     docket row's 14 px (README §6 "Docket list"). NO SELECTOR HERE NAMES THE CHIP'S CLASS
+     (TestTallyRules_NoToneRuleColoursTheWord reads every rule that does). Each rule is one
+     @apply, read and pinned by TestPlaqueRow_TheScopedRulesKeepTheBoardsColumns. */
+  [aria-labelledby="tenant-plaques"] .op-row {
+    @apply gap-x-2.5 py-3.5 md:grid md:grid-cols-[156px_minmax(0,1fr)] md:gap-x-6 md:gap-y-1 md:py-4
+           desk:grid-cols-[168px_minmax(0,1fr)];
+  }
+  [aria-labelledby="tenant-plaques"] .op-row > :first-child { @apply break-all text-[15px]; }
+  [aria-labelledby="tenant-plaques"] .op-row > div > :nth-child(n+2) { @apply font-display; }
+  [aria-labelledby="tenant-plaques"] .op-row > div > :nth-child(n+3) { @apply text-ink/70; }
+  [aria-labelledby="tenant-plaques"] .op-row > div > :nth-child(n+3) > * { @apply text-ink; }
 
   /* THE INTEGRATION GUIDE'S BODY (M11 DOCS-1, /docs/api). internal/apiguide converts the
      Markdown with goldmark, whose output carries no class, so every rule here is scoped
