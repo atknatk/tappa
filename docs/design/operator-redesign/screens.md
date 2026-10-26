@@ -613,8 +613,21 @@ frozen = green; before sign-up = line; unreadable = ink (the last four as today)
 
 **Forms:** pager — POST forms to `/operator/tenants/{id}/billing` with hidden `page` (1..5);
 exactly 2 on page 3 (`op8_test.go:895`). Drawn as outlined buttons: `<button type="submit"
-class="op-pager">` since M13-10 (before it `class="op-link"`); on the phone the two share the row,
-each half of it.
+class="op-pager">` since M13-10 (before it `class="op-link"`); on the phone, where the row has room
+for both, each takes half of it (390 px: 174 + 174), and at 320 px they stack, because a button
+does not break its word (about 149 px, more than half of the row) — the phone board's
+`.pager > *{flex:1 1 0}` with an unbreakable button does the same.
+
+**Deliberate differences from the boards** (as built, M13-10; the full list with the recipe is
+README §6.1 "Billing row"): the free-window and floor sentences are plain sentences, not the boards'
+`.baside` boxes; the dated facts 14 px with regular values (boards 13 px, bold); the sentence ink
+(boards ink at 80 %); a dashed rule under each row (boards solid); the card's gap 14 px (boards 12);
+the docket heading the pinned 10 px `docket-label` (boards `.lbl.dh` 11 px, 0.14em); the strip's
+labels keep the docket's 20 px line height and `docket-label`'s 0.1em, so a cell is 44 px tall
+(boards `.figl` 10 px / 1.3, about 37 px); when the chip wraps under the month the two are 12 px
+apart and the month's line is 24 px (boards 8 px and 20.8 px). The Amount is right-aligned at
+every width (orchestrator decision, 2026-10-26: README §6's strip recipe; the phone board's left
+alignment is not ported).
 
 **States:** every tone on one page · page 3 (both pager buttons) · the last page (oldest-page
 note) · unnamed tenant (fixtures "tenant billing", "tenant billing, page 3", "tenant billing, the

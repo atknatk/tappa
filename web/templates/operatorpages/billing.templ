@@ -30,7 +30,8 @@ import "strconv"
 // (a term list: each label above its value, the amount at the strip's end and larger; two by two
 // on the phone), the three dated facts in one wrapper, and the free-window and floor sentences. A
 // month with no figure -- before sign-up, unreadable -- has no strip at all, not an empty one. The
-// pager's two ways are outlined buttons, side by side and each half the width on the phone. The
+// pager's two ways are outlined buttons; on the phone, where the row has room for both, each takes
+// half of it, and at 320 px, where it has not, they stack (a button never breaks its word). The
 // row's layout and type are scoped rules in input.css, because the row's markup is pinned.
 // Pinned by TestBillingScreen_IsTheIntroCardAndTheDocket.
 templ TenantBilling(v TenantBillingView) {
@@ -130,8 +131,10 @@ templ billingChip(r BillingRow) {
 }
 
 // billingPager is the way to the newer and the older page -- each a form that posts the page
-// number to this screen; the URL carries none. On the phone the two forms share the row, each
-// half of it, the button filling its form.
+// number to this screen; the URL carries none. On the phone each form grows from nothing and its
+// button fills it: side by side, half the row each, where both fit (390 px), one above the other
+// where they do not (320 px) -- as the phone board draws it, its forms growing from nothing and
+// its button never breaking its word.
 templ billingPager(v TenantBillingView) {
 	if v.Page > 1 || v.Page < v.LastPage {
 		<nav class="flex flex-wrap gap-2.5 md:gap-3 max-md:*:grid max-md:*:flex-1" aria-label="Pages of the billing months">

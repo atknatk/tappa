@@ -1579,9 +1579,12 @@ func TestBillingScreen_WearsTheDocketAnatomy(t *testing.T) {
 // receipt strip's labels and the dated facts' words), tappa-green on paper (the two ways back,
 // in the intro card) and tappa-green on porcelain (an op-link on the page's own ground, outside
 // any card or docket; since M13-10 no element of this screen is drawn so -- the line is kept as
-// the screen's floor for one, its threshold unchanged) -- each against AA's 4.5:1 (the chips'
-// words are 11px, the rest 14px and smaller). No ground is new: the four are the plaque
-// screen's and the review queue's.
+// the screen's floor for one, its threshold unchanged) -- each against AA's 4.5:1, the normal-text
+// threshold, held for every size on the screen: the docket heading and the strip's labels are
+// 10px, the chips' words 11px, the sentences and facts 13-14px, the intro and the pager's word
+// 15px, the month and the strip's values 16px, the amount 20px bold and the h1 26-32px bold (the
+// last two would need only 3:1 as large text; this test does not relax for them). No ground is
+// new: the four are the plaque screen's and the review queue's.
 func TestBillingScreen_TheChipsAndTextClearAA(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "..", "..", "tailwind.config.js"))
 	if err != nil {
