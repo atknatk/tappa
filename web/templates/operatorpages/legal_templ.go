@@ -76,7 +76,7 @@ func Legal(v LegalView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card flex flex-col gap-3.5\"><p class=\"op-label\">Legal texts</p><h1 class=\"font-display text-[26px] font-bold leading-[1.1] tracking-[-0.03em] md:text-[28px] desk:text-[32px]\">Taptime's legal texts</h1><p class=\"text-[15px] leading-[1.55]\">Publishing adds a new version; nothing is overwritten. To undo a change, publish the earlier text again.</p><p class=\"text-sm text-ink/70\">The public pages are on the customer site, under <span class=\"font-mono\">/legal</span>.</p><p class=\"text-sm\"><a href=\"/operator\" class=\"op-link\">Back to the console</a></p></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><p class=\"op-label\">Legal texts</p><h1 class=\"font-display text-[26px] font-bold leading-[1.1] tracking-[-0.03em] md:text-[28px] desk:text-[32px]\">Taptime's legal texts</h1><p class=\"text-[15px] leading-[1.55]\">Publishing adds a new version; nothing is overwritten. To undo a change, publish the earlier text again.</p><p class=\"text-sm text-ink/70\">The public pages are on the customer site, under <span class=\"font-mono\">/legal</span>.</p><p class=\"text-sm\"><a href=\"/operator\" class=\"op-link\">Back to the console</a></p></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -70,7 +70,7 @@ func Tenants(v TenantsView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card flex flex-col gap-3.5\"><p class=\"op-label\">Tenants</p><h1 class=\"font-display text-[28px] font-bold leading-[1.1] tracking-[-0.03em]\">Find a tenant</h1><form method=\"post\" action=\"/operator/tenants\" role=\"search\" class=\"flex flex-col gap-2 md:grid md:grid-cols-[minmax(0,1fr)_auto] md:gap-x-2.5\"><label for=\"tenant-search\" class=\"op-label md:col-span-2\">Search</label> <input id=\"tenant-search\" type=\"search\" name=\"q\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><p class=\"op-label\">Tenants</p><h1 class=\"font-display text-[28px] font-bold leading-[1.1] tracking-[-0.03em]\">Find a tenant</h1><form method=\"post\" action=\"/operator/tenants\" role=\"search\" class=\"flex flex-col gap-2 md:grid md:grid-cols-[minmax(0,1fr)_auto] md:gap-x-2.5\"><label for=\"tenant-search\" class=\"op-label md:col-span-2\">Search</label> <input id=\"tenant-search\" type=\"search\" name=\"q\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -497,7 +497,7 @@ func TenantOverview(v TenantOverviewView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "<section class=\"op-card flex flex-col gap-3.5\"><h1 class=\"docket-label\">Tenant overview</h1><dl class=\"grid grid-cols-2 gap-x-4 gap-y-3.5 md:gap-x-5 md:gap-y-4 desk:grid-cols-[320px_200px_minmax(0,1fr)_minmax(0,1fr)]\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "<section class=\"op-card\"><h1 class=\"docket-label\">Tenant overview</h1><dl class=\"grid grid-cols-2 gap-x-4 gap-y-3.5 md:gap-x-5 md:gap-y-4 desk:grid-cols-[320px_200px_minmax(0,1fr)_minmax(0,1fr)]\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -768,7 +768,7 @@ func tenantAPISection(a TenantAPIView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "<section class=\"op-card flex flex-col gap-3.5\" aria-labelledby=\"tenant-api\"><h2 id=\"tenant-api\" class=\"docket-label\">Integration API</h2><p class=\"flex flex-wrap items-center gap-x-3.5 gap-y-2\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "<section class=\"op-card\" aria-labelledby=\"tenant-api\"><h2 id=\"tenant-api\" class=\"docket-label\">Integration API</h2><p class=\"flex flex-wrap items-center gap-x-3.5 gap-y-2\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1059,7 +1059,7 @@ func tenantSuspension(v TenantSuspensionView) templ.Component {
 			templ_7745c5c3_Var43 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "<section class=\"op-card flex flex-col gap-3.5\" aria-labelledby=\"tenant-suspension\"><h2 id=\"tenant-suspension\" class=\"docket-label\">Panel writes</h2>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "<section class=\"op-card\" aria-labelledby=\"tenant-suspension\"><h2 id=\"tenant-suspension\" class=\"docket-label\">Panel writes</h2>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

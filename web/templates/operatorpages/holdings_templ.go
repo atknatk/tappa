@@ -77,7 +77,7 @@ func Holdings(v HoldingsView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card flex flex-col gap-3.5\"><p class=\"op-label\">Holdings</p><h1 class=\"font-display text-[26px] font-bold leading-[1.1] tracking-[-0.03em] md:text-[28px] desk:text-[32px]\">Holdings</h1><p class=\"text-[15px] leading-[1.55]\">A holding groups businesses that work in one timezone; while a business is in one, and for 60 seconds after it leaves, its owner cannot change its timezone. Only this screen changes who is in a holding.</p><p class=\"text-sm\"><a href=\"/operator\" class=\"op-link\">Back to the console</a></p></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><p class=\"op-label\">Holdings</p><h1 class=\"font-display text-[26px] font-bold leading-[1.1] tracking-[-0.03em] md:text-[28px] desk:text-[32px]\">Holdings</h1><p class=\"text-[15px] leading-[1.55]\">A holding groups businesses that work in one timezone; while a business is in one, and for 60 seconds after it leaves, its owner cannot change its timezone. Only this screen changes who is in a holding.</p><p class=\"text-sm\"><a href=\"/operator\" class=\"op-link\">Back to the console</a></p></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -85,7 +85,7 @@ func Holdings(v HoldingsView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " <section class=\"op-card flex flex-col gap-3.5\" aria-labelledby=\"holding-create\"><h2 id=\"holding-create\" class=\"op-heading\">Create a holding</h2><form method=\"post\" action=\"/operator/holdings\" class=\"flex flex-wrap gap-x-2.5 gap-y-1.5\"><label for=\"holding-name\" class=\"op-label basis-full\">Name</label> <input id=\"holding-name\" type=\"text\" name=\"name\" maxlength=\"120\" required autocomplete=\"off\" spellcheck=\"false\" class=\"op-input min-w-0 max-w-[520px] flex-[1_1_240px]\"><p class=\"order-last basis-full text-xs text-ink/70\">One line of at most 120 characters. The new holding has no business in it yet.</p><button type=\"submit\" class=\"btn btn--primary max-md:basis-full\">Create</button></form></section><section class=\"docket\" aria-labelledby=\"holding-list\"><h2 id=\"holding-list\" class=\"docket-label\">Newest first · page <span class=\"font-mono\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " <section class=\"op-card\" aria-labelledby=\"holding-create\"><h2 id=\"holding-create\" class=\"op-heading\">Create a holding</h2><form method=\"post\" action=\"/operator/holdings\" class=\"flex flex-wrap gap-x-2.5 gap-y-1.5\"><label for=\"holding-name\" class=\"op-label basis-full\">Name</label> <input id=\"holding-name\" type=\"text\" name=\"name\" maxlength=\"120\" required autocomplete=\"off\" spellcheck=\"false\" class=\"op-input min-w-0 max-w-[520px] flex-[1_1_240px]\"><p class=\"order-last basis-full text-xs text-ink/70\">One line of at most 120 characters. The new holding has no business in it yet.</p><button type=\"submit\" class=\"btn btn--primary max-md:basis-full\">Create</button></form></section><section class=\"docket\" aria-labelledby=\"holding-list\"><h2 id=\"holding-list\" class=\"docket-label\">Newest first · page <span class=\"font-mono\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -20,8 +20,8 @@ import (
 )
 
 // enrollCard is the enrollment page's card: the whole of the column, its blocks spaced by the
-// card (README §6 "Card": gap-3.5 on the markup, no mt-* in the bodies).
-const enrollCard = `<section class="op-card flex w-full flex-col gap-3.5">`
+// card (README §6 "Card": gap-3.5 in .op-card's rule, no mt-* in the bodies).
+const enrollCard = `<section class="op-card w-full">`
 
 // tokenField is the link code's field whole (screens.md §2 "Form"): the wrapper enroll.js hides by
 // its id, the label, the input enroll.js fills by its id, the help, and nothing else.

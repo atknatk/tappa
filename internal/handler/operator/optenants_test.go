@@ -21,11 +21,11 @@ import (
 )
 
 // The tenant list's card and the pieces of it screens.md §5 names, each a whole tag: the card
-// spaces its blocks (README §6 "Card": gap-3.5 on the markup, no mt-* in the bodies); the form's
+// spaces its blocks (README §6 "Card": gap-3.5 in .op-card's rule, no mt-* in the bodies); the form's
 // four children are in the order a phone reads them, the button placed beside the box and the
 // help under both from the tablet (the board's search row).
 const (
-	tenantsCard   = `<section class="op-card flex flex-col gap-3.5">`
+	tenantsCard   = `<section class="op-card">`
 	tenantsLabel  = `<p class="op-label">Tenants</p>`
 	tenantsH1     = `<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-[-0.03em]">Find a tenant</h1>`
 	tenantsForm   = `<form method="post" action="/operator/tenants" role="search" class="flex flex-col gap-2 md:grid md:grid-cols-[minmax(0,1fr)_auto] md:gap-x-2.5">`

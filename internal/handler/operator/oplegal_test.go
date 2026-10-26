@@ -19,15 +19,15 @@ import (
 )
 
 // The legal screen's intro card, its editor cards and its docket, and the pieces of them screens.md
-// §12 names, each a whole tag. The intro card spaces its blocks (README §6 "Card": gap-3.5 on the
-// markup, no mt-* in the bodies); the h1 is the board's 26 / 28 / 32 px (orchestrator decision
+// §12 names, each a whole tag. The intro card spaces its blocks (README §6 "Card": gap-3.5 in
+// .op-card's rule, no mt-* in the bodies); the h1 is the board's 26 / 28 / 32 px (orchestrator decision
 // (e)). The editor card is the one operator card with no padding and no gap (README §6 "Card"
 // exception, §6.1 "Legal editor"): its bands carry the card scale's inset, 20 px on the phone and
 // 24 px from the tablet -- the head (the path, the decorative dot and the state's words), the
 // warning's band, the form (the framed text under its label bar, the help and the button, the
 // whole width on the phone). The docket's empty sentence and its cap note are the boards' own.
 const (
-	legalCard       = `<section class="op-card flex flex-col gap-3.5">`
+	legalCard       = `<section class="op-card">`
 	legalLabel      = `<p class="op-label">Legal texts</p>`
 	legalH1         = `<h1 class="font-display text-[26px] font-bold leading-[1.1] tracking-[-0.03em] md:text-[28px] desk:text-[32px]">Taptime's legal texts</h1>`
 	legalIntro      = `<p class="text-[15px] leading-[1.55]">`
@@ -323,6 +323,7 @@ func TestLegalScreen_IsTheIntroCardTheEditorsAndTheDocket(t *testing.T) {
 		{"the h1 back to its earlier size", "legal", legalH1, `<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Taptime's legal texts</h1>`},
 		{"the editor given the card's padding", "legal, published", `gap-0 overflow-hidden p-0"`, `gap-0 overflow-hidden"`},
 		{"the editor given a gap", "legal, published", `flex flex-col gap-0 overflow-hidden`, `flex flex-col gap-3.5 overflow-hidden`},
+		{"the editor's gap-0 dropped, so the card rule's gap reaches it", "legal, published", `flex flex-col gap-0 overflow-hidden`, `flex flex-col overflow-hidden`},
 		{"the text's rows changed", "legal, published", `rows="12"`, `rows="8"`},
 		{"the text's required dropped", "legal, published", ` rows="12" required `, ` rows="12" `},
 		{"the text's name changed", "legal, published", `name="body" rows`, `name="text" rows`},

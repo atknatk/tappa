@@ -11,9 +11,9 @@ import (
 	"testing"
 )
 
-// homeCard is the console's one card, its blocks spaced by the card (README §6 "Card": gap-3.5 on
-// the markup, no mt-* in the bodies).
-const homeCard = `<section class="op-card flex flex-col gap-3.5">`
+// homeCard is the console's one card, its blocks spaced by the card (README §6 "Card": gap-3.5 in
+// .op-card's rule, no mt-* in the bodies).
+const homeCard = `<section class="op-card">`
 
 // homeRow is each of the four list items (README §6.1 "Home hub"): on the phone the link above its
 // gloss, from the tablet the two side by side in a 128 px and a free column, a dashed rule under

@@ -76,7 +76,7 @@ func Enroll(v EnrollView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card flex w-full flex-col gap-3.5\"><div class=\"flex flex-col gap-2\"><h1 class=\"font-display text-[26px] font-bold leading-[1.08] tracking-[-0.03em] md:text-[30px]\">Set up your operator account</h1><p class=\"text-sm leading-[1.45] text-ink/70\">This link works once, for 30 minutes from when it was made.</p></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card w-full\"><div class=\"flex flex-col gap-2\"><h1 class=\"font-display text-[26px] font-bold leading-[1.08] tracking-[-0.03em] md:text-[30px]\">Set up your operator account</h1><p class=\"text-sm leading-[1.45] text-ink/70\">This link works once, for 30 minutes from when it was made.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

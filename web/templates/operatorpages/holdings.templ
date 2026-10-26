@@ -38,7 +38,7 @@ import (
 // TestHoldingsScreen_IsTheCreateCardAndTheDocket and TestHoldingsDocket_TheScopedRulesKeepTheBoardsGrid.
 templ Holdings(v HoldingsView) {
 	@screen("Holdings", true, navHoldings) {
-		<section class="op-card flex flex-col gap-3.5">
+		<section class="op-card">
 			<p class="op-label">Holdings</p>
 			<h1 class="font-display text-[26px] font-bold leading-[1.1] tracking-[-0.03em] md:text-[28px] desk:text-[32px]">Holdings</h1>
 			<p class="text-[15px] leading-[1.55]">
@@ -51,7 +51,7 @@ templ Holdings(v HoldingsView) {
 			</p>
 		</section>
 		@holdingNotice(v)
-		<section class="op-card flex flex-col gap-3.5" aria-labelledby="holding-create">
+		<section class="op-card" aria-labelledby="holding-create">
 			<h2 id="holding-create" class="op-heading">Create a holding</h2>
 			<form method="post" action="/operator/holdings" class="flex flex-wrap gap-x-2.5 gap-y-1.5">
 				<label for="holding-name" class="op-label basis-full">Name</label>

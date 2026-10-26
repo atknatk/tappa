@@ -61,7 +61,7 @@ func SignIn(v SignInView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card mx-auto flex w-full max-w-[480px] flex-col gap-3.5\"><div class=\"flex flex-col gap-2\"><h1 class=\"font-display text-[26px] font-bold leading-[1.08] tracking-[-0.03em] md:text-[30px]\">Operator sign-in</h1><p class=\"text-sm leading-[1.45] text-ink/70\">Taptime staff only. This is not the business panel.</p></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card mx-auto w-full max-w-[480px]\"><div class=\"flex flex-col gap-2\"><h1 class=\"font-display text-[26px] font-bold leading-[1.08] tracking-[-0.03em] md:text-[30px]\">Operator sign-in</h1><p class=\"text-sm leading-[1.45] text-ink/70\">Taptime staff only. This is not the business panel.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -166,7 +166,7 @@ func Code(v CodeView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<section class=\"op-card mx-auto flex w-full max-w-[480px] flex-col gap-3.5\"><div class=\"flex flex-col gap-2\"><h1 class=\"font-display text-[26px] font-bold leading-[1.08] tracking-[-0.03em] md:text-[30px]\">Enter your code</h1><p class=\"text-sm leading-[1.45] text-ink/70\">Type the six-digit code your authenticator app shows for Taptime operator.</p></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<section class=\"op-card mx-auto w-full max-w-[480px]\"><div class=\"flex flex-col gap-2\"><h1 class=\"font-display text-[26px] font-bold leading-[1.08] tracking-[-0.03em] md:text-[30px]\">Enter your code</h1><p class=\"text-sm leading-[1.45] text-ink/70\">Type the six-digit code your authenticator app shows for Taptime operator.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

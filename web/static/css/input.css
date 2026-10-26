@@ -1208,8 +1208,12 @@
      stay sharp, a chip is a full pill) ---
      One padding scale for every card and docket of the surface, no per-screen padding: 20 px
      round a card on the phone, 22 px 24 px from the tablet, so a card's text and a docket's
-     start on one vertical line. No operator card casts a shadow (the boards removed it). */
-  .op-card    { @apply rounded-[14px] border border-line bg-paper p-5 md:px-6 md:py-[22px]; }
+     start on one vertical line. No operator card casts a shadow (the boards removed it).
+     A card stacks its blocks 14 px apart (README §6 "Card"; moved here from each screen's
+     markup once every screen carried it, M13-15), so no body carries a top margin. The legal
+     texts' editor card keeps no padding and no gap: its utilities on the markup win over this
+     rule (the utilities layer comes after the components layer). */
+  .op-card    { @apply flex flex-col gap-3.5 rounded-[14px] border border-line bg-paper p-5 md:px-6 md:py-[22px]; }
   /* The docket keeps its own padding for the panel; on the operator's surface it takes the
      card's scale, from the content column, so the docket's markup stays as pinned. Sharp. */
   .op-main .docket { @apply px-5 py-4 md:px-6 md:py-[18px]; }

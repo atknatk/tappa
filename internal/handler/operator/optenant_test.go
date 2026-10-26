@@ -21,10 +21,10 @@ import (
 )
 
 // The overview's blocks and the pieces of them screens.md §6 names, each a whole tag. Each card
-// spaces its blocks (README §6 "Card": gap-3.5 on the markup, no mt-* on a card's or a form's
+// spaces its blocks (README §6 "Card": gap-3.5 in .op-card's rule, no mt-* on a card's or a form's
 // children); the docket keeps its pinned class attribute and spaces its own children.
 const (
-	overviewCard     = `<section class="op-card flex flex-col gap-3.5">`
+	overviewCard     = `<section class="op-card">`
 	overviewH1       = `<h1 class="docket-label">Tenant overview</h1>`
 	overviewFacts    = `<dl class="grid grid-cols-2 gap-x-4 gap-y-3.5 md:gap-x-5 md:gap-y-4 desk:grid-cols-[320px_200px_minmax(0,1fr)_minmax(0,1fr)]">`
 	overviewWideFact = `<div class="col-span-2 md:col-span-1">`
@@ -36,7 +36,7 @@ const (
 	overviewBack     = `<p class="flex flex-col items-start text-sm md:flex-row md:flex-wrap md:gap-x-6">` +
 		`<a href="/operator/tenants" class="op-link">Back to the tenants</a> <a href="/operator" class="op-link">Back to the console</a></p>`
 
-	apiCard    = `<section class="op-card flex flex-col gap-3.5" aria-labelledby="tenant-api">`
+	apiCard    = `<section class="op-card" aria-labelledby="tenant-api">`
 	apiHeading = `<h2 id="tenant-api" class="docket-label">Integration API</h2>`
 	apiState   = `<p class="flex flex-wrap items-center gap-x-3.5 gap-y-2">`
 	apiTextP   = `<p class="text-sm leading-normal">`
@@ -50,7 +50,7 @@ const (
 	// The close form: its button the phone's full width, its own width from the tablet.
 	apiCloseRest = ` class="flex flex-col md:block"><button type="submit" class="btn btn--quiet">Close the API</button></form>`
 
-	suspensionCard      = `<section class="op-card flex flex-col gap-3.5" aria-labelledby="tenant-suspension">`
+	suspensionCard      = `<section class="op-card" aria-labelledby="tenant-suspension">`
 	suspensionHeading   = `<h2 id="tenant-suspension" class="docket-label">Panel writes</h2>`
 	suspensionFacts     = `<dl class="grid grid-cols-1 gap-4 md:grid-cols-2">`
 	suspensionFormClass = ` class="flex flex-col gap-3 border-t border-dashed border-line pt-3.5">`

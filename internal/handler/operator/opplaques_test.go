@@ -17,13 +17,13 @@ import (
 )
 
 // The plaque screen's card and docket and the pieces of them screens.md §7 names, each a whole
-// tag. The card spaces its blocks (README §6 "Card": gap-3.5 on the markup, no mt-* in the
+// tag. The card spaces its blocks (README §6 "Card": gap-3.5 in .op-card's rule, no mt-* in the
 // bodies). A row opens with the uid's span; the chip, the sentence and the facts stand in one
 // wrapper after it, which draws no box on the phone (the uid and the chip share the head line)
 // and wraps beside the uid's column from the tablet; each fact is a line of its own on the
 // phone. Values that cannot break break anywhere (the wrapper's overflow-wrap).
 const (
-	plaquesCard    = `<section class="op-card flex flex-col gap-3.5">`
+	plaquesCard    = `<section class="op-card">`
 	plaquesLabel   = `<p class="op-label">Plaques</p>`
 	plaquesH1      = `<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-[-0.03em]">Plaque inventory</h1>`
 	plaquesSummary = `<p class="text-sm">`

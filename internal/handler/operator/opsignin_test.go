@@ -23,8 +23,8 @@ const signedOutMain = `<main class="op-main mx-auto box-content flex max-w-[560p
 	`md:px-8 md:pt-16 md:pb-20 desk:px-6 desk:pt-[72px] desk:pb-24">`
 
 // signInCard is the sign-in's and the code step's card: at most 480 px, centred in the column,
-// its blocks spaced by the card (README §6 "Card": gap-3.5 on the markup, no mt-* in the bodies).
-const signInCard = `<section class="op-card mx-auto flex w-full max-w-[480px] flex-col gap-3.5">`
+// its blocks spaced by the card (README §6 "Card": gap-3.5 in .op-card's rule, no mt-* in the bodies).
+const signInCard = `<section class="op-card mx-auto w-full max-w-[480px]">`
 
 // classAttr is every class attribute of a fragment; topMargin a top-margin utility at any width.
 var (

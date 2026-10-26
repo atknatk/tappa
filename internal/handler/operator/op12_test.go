@@ -1933,15 +1933,17 @@ func readTallyRules(css string) (map[string]bool, []string) {
 // rule (selector `.docket`) and the operator's docket padding (selector `.op-main .docket`) each
 // exist and apply nothing that rounds; the chip's base rule (selector `.tally`) applies nothing
 // that rounds -- a chip is round only under the operator's `<main>`; the operator card's rule
-// (selector `.op-card`) exists and applies no shadow; the operator's row rule (the list naming
+// (selector `.op-card`) exists, applies no shadow and applies flex, flex-col and gap-3.5 (the
+// card's inner spacing, moved from each screen's markup into the rule by M13-15; README §6
+// "Card"); the operator's row rule (the list naming
 // `.op-row` and `.op-version`) applies border-dashed; the audit row's tenant link is an
 // inline-block from the tablet, not inline (a wrapping inline link splits in two and its 44 px
 // overlay collapsed to 18 px -- measured, M13-02 review). CONTROLS, each read by the same
 // function and each a finding: rounded-sm on the docket; rounded-[14px] on the operator's docket;
 // rounded-full on the chip's base; shadow-sm on the card; the row without its dash; the audit
-// link back to md:inline.
+// link back to md:inline; the card's rule without gap-3.5, without flex-col, without flex.
 //
-// PART II -- red on: any of the six above. PART III -- a rule written outside the shape read
+// PART II -- red on: any of the nine above. PART III -- a rule written outside the shape read
 // here, a later rule that overrides one, or a utility class in a template is code review's --
 // no completeness claim.
 func TestOperatorComponentRules_KeepTheDecidedCorners(t *testing.T) {
@@ -1960,6 +1962,9 @@ func TestOperatorComponentRules_KeepTheDecidedCorners(t *testing.T) {
 		{"a card with a shadow", "md:px-6 md:py-[22px]; }", "md:px-6 md:py-[22px] shadow-sm; }"},
 		{"a row without its dash", "border-b border-dashed border-line py-2.5", "border-b border-line py-2.5"},
 		{"an inline audit link", "md:relative md:inline-block md:min-h-0", "md:relative md:inline md:min-h-0"},
+		{"a card without its gap", "@apply flex flex-col gap-3.5 rounded-[14px]", "@apply flex flex-col rounded-[14px]"},
+		{"a card that is not a column", "@apply flex flex-col gap-3.5 rounded-[14px]", "@apply flex gap-3.5 rounded-[14px]"},
+		{"a card that is not a flex box", "@apply flex flex-col gap-3.5 rounded-[14px]", "@apply flex-col gap-3.5 rounded-[14px]"},
 	} {
 		mutated := strings.Replace(css, c.from, c.to, 1)
 		if mutated == css {
@@ -2006,9 +2011,17 @@ func readOperatorComponentRules(css string) []string {
 			}
 		}
 	}
-	for _, u := range one(".op-card") {
+	card := one(".op-card")
+	for _, u := range card {
 		if strings.Contains(u, "shadow") {
 			findings = append(findings, "`.op-card` applies "+u+": no operator card casts a shadow")
+		}
+	}
+	// The card's inner spacing is the rule's since M13-15 (README §6 "Card"): a column of
+	// blocks 14 px apart, no longer written on each screen's markup.
+	for _, u := range []string{"flex", "flex-col", "gap-3.5"} {
+		if card != nil && !slices.Contains(card, u) {
+			findings = append(findings, "`.op-card` does not apply "+u+": a card stacks its blocks 14 px apart (README §6 \"Card\")")
 		}
 	}
 	if us := one(".op-version, .op-row"); us != nil && !slices.Contains(us, "border-dashed") {
@@ -2019,6 +2032,101 @@ func readOperatorComponentRules(css string) []string {
 		findings = append(findings, "`"+hit+"` is not md:inline-block: a wrapping inline link splits and its 44 px overlay collapses")
 	}
 	return findings
+}
+
+// legalEditorCardClass is the one operator card whose markup keeps layout utilities after M13-15:
+// the legal texts' editor, padding-less and gap-less (README §6 "Card" exception, §6.1 "Legal
+// editor"). Its utilities win over `.op-card`'s padding and gap, so dropping one of them hands the
+// editor the card rule's.
+const legalEditorCardClass = "op-card flex flex-col gap-0 overflow-hidden p-0"
+
+// TestOperatorCards_TakeTheirInnerGapFromTheCardRule (M13-15; README §6 "Card") reads every
+// `class="op-card…"` attribute -- in the templ sources of web/templates/operatorpages and in
+// every screens() render -- and finds none that writes the card's inner spacing back on the
+// markup: no flex, flex-col or gap-* utility beside op-card, except the legal editor's exact class
+// (legalEditorCardClass), which must keep its gap-0 and p-0. The rule's half -- `.op-card`
+// applies flex, flex-col and gap-3.5 -- is TestOperatorComponentRules_KeepTheDecidedCorners's.
+// CONTROLS, each read by the same function and each a finding: a card's tag given back
+// `flex flex-col gap-3.5`; the editor's gap-0 dropped; the editor's p-0 dropped; and the
+// premise that the readings found the cards (at least seventeen tags in the sources, the editor
+// among them, and a card on every signed-in data screen render).
+//
+// PART II -- red on: a card's moved utilities back on its markup, a gap of its own on a card, the
+// editor's exception lost. PART III -- a card built without the literal `op-card` class token
+// first in its attribute is not read here; no completeness claim on CSS overrides.
+func TestOperatorCards_TakeTheirInnerGapFromTheCardRule(t *testing.T) {
+	dir := filepath.Join("..", "..", "..", "web", "templates", "operatorpages")
+	files, err := filepath.Glob(filepath.Join(dir, "*.templ"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no templ sources in %s (%v)", dir, err)
+	}
+	var src strings.Builder
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src.Write(raw)
+	}
+	sources := src.String()
+	n, editor, findings := readCardClasses(sources)
+	for _, f := range findings {
+		t.Error("templ: " + f)
+	}
+	if n < 17 || editor != 1 {
+		t.Errorf("PREMISE: %d op-card tag(s) and %d legal editor(s) in the templ sources, want at least 17 and 1", n, editor)
+	}
+	editors := 0
+	for name, body := range screens(t) {
+		n, e, findings := readCardClasses(body)
+		for _, f := range findings {
+			t.Errorf("%s: %s", name, f)
+		}
+		editors += e
+		if n == 0 && !strings.HasPrefix(name, "problem") && name != "tenant screen" {
+			t.Errorf("PREMISE: %s renders no op-card", name)
+		}
+	}
+	if editors == 0 {
+		t.Error("PREMISE: no screens() render carries the legal editor's card")
+	}
+	for _, c := range []struct{ what, from, to string }{
+		{"a card's gap back on its markup", `<section class="op-card">`, `<section class="op-card flex flex-col gap-3.5">`},
+		{"the editor's gap-0 dropped", legalEditorCardClass, "op-card flex flex-col overflow-hidden p-0"},
+		{"the editor's p-0 dropped", legalEditorCardClass, "op-card flex flex-col gap-0 overflow-hidden"},
+	} {
+		mutated := strings.Replace(sources, c.from, c.to, 1)
+		if mutated == sources {
+			t.Fatalf("CONTROL %s: %q is not in the templ sources", c.what, c.from)
+		}
+		if _, _, f := readCardClasses(mutated); len(f) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
+		}
+	}
+}
+
+// readCardClasses is TestOperatorCards_TakeTheirInnerGapFromTheCardRule's reading: the number of
+// op-card class attributes in s, how many are the legal editor's, and one finding per attribute
+// that carries the card's inner spacing on the markup.
+func readCardClasses(s string) (cards, editors int, findings []string) {
+	for _, m := range regexp.MustCompile(`class="(op-card(?:\s[^"]*)?)"`).FindAllStringSubmatch(s, -1) {
+		cards++
+		class := m[1]
+		if class == legalEditorCardClass {
+			editors++
+			continue
+		}
+		if strings.Contains(class, "gap-0") || strings.Contains(class, "p-0") {
+			findings = append(findings, "an op-card with the legal editor's exception but not its exact class: "+class)
+			continue
+		}
+		for _, u := range strings.Fields(class)[1:] {
+			if u == "flex" || u == "flex-col" || strings.HasPrefix(u, "gap-") || strings.Contains(u, ":gap-") {
+				findings = append(findings, "an op-card writes "+u+" on its markup (the card rule spaces its blocks): "+class)
+			}
+		}
+	}
+	return cards, editors, findings
 }
 
 // TestCompiledCSS_TallyWordIsInkOnEveryChip is TestTallyRules_NoToneRuleColoursTheWord's

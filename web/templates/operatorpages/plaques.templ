@@ -26,7 +26,7 @@ package operatorpages
 // the page. Pinned by TestPlaqueScreen_IsTheSummaryCardAndTheDocket.
 templ TenantPlaques(v TenantPlaquesView) {
 	@TenantScreen("Plaques", v.Name, v.Tabs, TabPlaques) {
-		<section class="op-card flex flex-col gap-3.5">
+		<section class="op-card">
 			<p class="op-label">Plaques</p>
 			<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-[-0.03em]">Plaque inventory</h1>
 			if len(v.Rows) == 0 {

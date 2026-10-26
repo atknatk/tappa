@@ -71,7 +71,7 @@ func TenantVAT(v TenantVATView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card flex flex-col gap-3.5\"><p class=\"op-label\">VAT number</p><h1 class=\"font-display text-[28px] font-bold leading-[1.1] tracking-[-0.03em]\">VAT re-check</h1><p class=\"text-sm\">The VAT number this business registered with, and the answer of the EU VAT register (VIES) on file for it.</p><p class=\"flex flex-col items-start text-sm md:flex-row md:flex-wrap md:gap-x-6\"><a href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><p class=\"op-label\">VAT number</p><h1 class=\"font-display text-[28px] font-bold leading-[1.1] tracking-[-0.03em]\">VAT re-check</h1><p class=\"text-sm\">The VAT number this business registered with, and the answer of the EU VAT register (VIES) on file for it.</p><p class=\"flex flex-col items-start text-sm md:flex-row md:flex-wrap md:gap-x-6\"><a href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -201,7 +201,7 @@ func TenantVAT(v TenantVATView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</section><section class=\"op-card flex flex-col gap-3.5\" aria-labelledby=\"tenant-vat-ask\"><h2 id=\"tenant-vat-ask\" class=\"docket-label\">Ask again</h2>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</section><section class=\"op-card\" aria-labelledby=\"tenant-vat-ask\"><h2 id=\"tenant-vat-ask\" class=\"docket-label\">Ask again</h2>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

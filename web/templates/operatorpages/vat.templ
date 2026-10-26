@@ -32,7 +32,7 @@ import "github.com/atknatk/tappa/web/templates/components"
 // TestVATScreen_IsTheIntroCardTheRecordAndTheAsking.
 templ TenantVAT(v TenantVATView) {
 	@TenantScreen("VAT number", v.Name, v.Tabs, TabVAT) {
-		<section class="op-card flex flex-col gap-3.5">
+		<section class="op-card">
 			<p class="op-label">VAT number</p>
 			<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-[-0.03em]">VAT re-check</h1>
 			<p class="text-sm">
@@ -71,7 +71,7 @@ templ TenantVAT(v TenantVATView) {
 				<p class="mt-2 font-display text-ink/70">No time of asking is on file.</p>
 			}
 		</section>
-		<section class="op-card flex flex-col gap-3.5" aria-labelledby="tenant-vat-ask">
+		<section class="op-card" aria-labelledby="tenant-vat-ask">
 			<h2 id="tenant-vat-ask" class="docket-label">Ask again</h2>
 			if v.Askable {
 				<div class="flex flex-col gap-3.5 md:flex-row md:items-center md:gap-6">

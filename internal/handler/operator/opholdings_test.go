@@ -18,18 +18,18 @@ import (
 )
 
 // The holdings screen's two cards, its docket and its pager, and the pieces of them screens.md §11
-// names, each a whole tag. The cards space their blocks (README §6 "Card": gap-3.5 on the markup,
+// names, each a whole tag. The cards space their blocks (README §6 "Card": gap-3.5 in .op-card's rule,
 // no mt-* in the bodies); the h1 is the board's 26 / 28 / 32 px (orchestrator decision (e)); the
 // create card's heading is the 19 px op-heading, its id kept; the field and its button share a
 // line from the tablet and the help sits under them, the document keeping the code's order (the
 // help before the button); each holding's add form is the boards' dashed box; the empty sentences
 // are the boards' own; the pager's links are op-pager, each half the row on the phone.
 const (
-	holdingsCard        = `<section class="op-card flex flex-col gap-3.5">`
+	holdingsCard        = `<section class="op-card">`
 	holdingsLabel       = `<p class="op-label">Holdings</p>`
 	holdingsH1          = `<h1 class="font-display text-[26px] font-bold leading-[1.1] tracking-[-0.03em] md:text-[28px] desk:text-[32px]">Holdings</h1>`
 	holdingsIntro       = `<p class="text-[15px] leading-[1.55]">`
-	holdingsCreateCard  = `<section class="op-card flex flex-col gap-3.5" aria-labelledby="holding-create">`
+	holdingsCreateCard  = `<section class="op-card" aria-labelledby="holding-create">`
 	holdingsCreateH2    = `<h2 id="holding-create" class="op-heading">Create a holding</h2>`
 	holdingsCreateForm  = `<form method="post" action="/operator/holdings" class="flex flex-wrap gap-x-2.5 gap-y-1.5">`
 	holdingsNameField   = `<input id="holding-name" type="text" name="name" maxlength="120" required autocomplete="off" spellcheck="false" class="op-input min-w-0 max-w-[520px] flex-[1_1_240px]">`

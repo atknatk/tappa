@@ -19,13 +19,13 @@ import (
 )
 
 // The audit screen's card, docket and pager and the pieces of them screens.md §10 names, each a
-// whole tag. The card spaces its blocks (README §6 "Card": gap-3.5 on the markup, no mt-* in the
+// whole tag. The card spaces its blocks (README §6 "Card": gap-3.5 in .op-card's rule, no mt-* in the
 // bodies); the h1 is the board's 26 / 28 / 32 px (orchestrator decision (e)); the filter is the
 // boards' framed box, the select in a box of its own so its pinned tag keeps its one class; the
 // empty sentences and the last-page note are the boards' own; the pager's buttons are op-pager,
 // each form half the row on the phone.
 const (
-	auditCard   = `<section class="op-card flex flex-col gap-3.5">`
+	auditCard   = `<section class="op-card">`
 	auditLabel  = `<p class="op-label">Audit log</p>`
 	auditH1     = `<h1 class="font-display text-[26px] font-bold leading-[1.1] tracking-[-0.03em] md:text-[28px] desk:text-[32px]">Who did what on this surface</h1>`
 	auditIntro  = `<p class="text-[15px] leading-[1.55]">`

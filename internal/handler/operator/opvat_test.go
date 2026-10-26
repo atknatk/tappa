@@ -21,14 +21,14 @@ import (
 )
 
 // The VAT screen's blocks, each a whole tag (or a tag's opening). The intro card and the asking
-// card space their blocks (README §6 "Card": gap-3.5 on the markup, no mt-* in the bodies); the
+// card space their blocks (README §6 "Card": gap-3.5 in .op-card's rule, no mt-* in the bodies); the
 // docket keeps its own rhythm. On the docket the term list is one column on the phone and, from
 // the tablet, two: the number's as wide as the number (never wider than the row leaves it, so a
 // long number breaks rather than pushing the chip out) and the verdict's, never narrower than
 // the chip (a chip does not wrap its word), 56 px apart. The sentence and the time line are Space
 // Grotesk (decision (f)), the time line's word at ink 70 %.
 const (
-	vatCard        = `<section class="op-card flex flex-col gap-3.5">`
+	vatCard        = `<section class="op-card">`
 	vatLabel       = `<p class="op-label">VAT number</p>`
 	vatH1          = `<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-[-0.03em]">VAT re-check</h1>`
 	vatIntro       = `<p class="text-sm">The VAT number this business registered with, and the answer of the EU VAT register (VIES) on file for it.</p>`
@@ -39,7 +39,7 @@ const (
 	vatAnswerFact  = `<div><dt class="docket-label">VIES answer</dt><dd class="mt-1.5">`
 	vatSentenceTag = `<p class="mt-3 font-display">`
 	vatTimeTag     = `<p class="mt-2 font-display text-ink/70">`
-	vatAskCard     = `<section class="op-card flex flex-col gap-3.5" aria-labelledby="tenant-vat-ask"><h2 id="tenant-vat-ask" class="docket-label">Ask again</h2>`
+	vatAskCard     = `<section class="op-card" aria-labelledby="tenant-vat-ask"><h2 id="tenant-vat-ask" class="docket-label">Ask again</h2>`
 	vatAskRow      = `<div class="flex flex-col gap-3.5 md:flex-row md:items-center md:gap-6">`
 	vatAskSentence = `<p class="text-sm md:max-w-[560px]">Sends the number above to VIES now. If VIES answers, its answer replaces the one on file ` +
 		`and is written to this tenant's own audit log; if it does not answer, nothing changes.</p>`

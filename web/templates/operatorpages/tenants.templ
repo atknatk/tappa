@@ -31,7 +31,7 @@ import (
 // TestTenantsScreen_IsTheSearchCardTheDocketAndThePager.
 templ Tenants(v TenantsView) {
 	@screen("Tenants", true, navTenants) {
-		<section class="op-card flex flex-col gap-3.5">
+		<section class="op-card">
 			<p class="op-label">Tenants</p>
 			<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-[-0.03em]">Find a tenant</h1>
 			<form method="post" action="/operator/tenants" role="search" class="flex flex-col gap-2 md:grid md:grid-cols-[minmax(0,1fr)_auto] md:gap-x-2.5">
@@ -147,7 +147,7 @@ templ tenantPageForm(search string, page int, label string) {
 // TestTenantOverviewScreen_IsTheFactsTheCountsAndTheTwoWriteCards.
 templ TenantOverview(v TenantOverviewView) {
 	@TenantScreen("Tenant overview", v.Name, v.Tabs, TabOverview) {
-		<section class="op-card flex flex-col gap-3.5">
+		<section class="op-card">
 			<h1 class="docket-label">Tenant overview</h1>
 			<dl class="grid grid-cols-2 gap-x-4 gap-y-3.5 md:gap-x-5 md:gap-y-4 desk:grid-cols-[320px_200px_minmax(0,1fr)_minmax(0,1fr)]">
 				@tenantFact("Tenant id", v.ID, true)
@@ -212,7 +212,7 @@ templ tenantCount(label, value string) {
 // last write: the write's answer says nothing about what the database found (ADR 0021 §2 v 7).
 templ tenantAPISection(a TenantAPIView) {
 	@apiNotice(a)
-	<section class="op-card flex flex-col gap-3.5" aria-labelledby="tenant-api">
+	<section class="op-card" aria-labelledby="tenant-api">
 		<h2 id="tenant-api" class="docket-label">Integration API</h2>
 		<p class="flex flex-wrap items-center gap-x-3.5 gap-y-2">
 			if a.Open {
@@ -283,7 +283,7 @@ templ apiNotice(a TenantAPIView) {
 // state, ONE form. The answer to either form is a redirect back to this overview, which reads the
 // database again: the page never says "already suspended" (ADR 0021 §2 v 7).
 templ tenantSuspension(v TenantSuspensionView) {
-	<section class="op-card flex flex-col gap-3.5" aria-labelledby="tenant-suspension">
+	<section class="op-card" aria-labelledby="tenant-suspension">
 		<h2 id="tenant-suspension" class="docket-label">Panel writes</h2>
 		if v.Suspended {
 			<p><span class="tally tally--tenant-suspended">Suspended</span></p>

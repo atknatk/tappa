@@ -37,7 +37,7 @@ func EnrollScript() string { return enrollScript }
 // step. The steps are headings of their own; the page's one h1 is the card's.
 templ Enroll(v EnrollView) {
 	@scriptedScreen("Set up your account", enrollScript) {
-		<section class="op-card flex w-full flex-col gap-3.5">
+		<section class="op-card w-full">
 			<div class="flex flex-col gap-2">
 				<h1 class="font-display text-[26px] font-bold leading-[1.08] tracking-[-0.03em] md:text-[30px]">Set up your operator account</h1>
 				<p class="text-sm leading-[1.45] text-ink/70">This link works once, for 30 minutes from when it was made.</p>

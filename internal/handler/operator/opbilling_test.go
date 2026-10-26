@@ -19,12 +19,12 @@ import (
 )
 
 // The billing screen's card, docket and pager and the pieces of them screens.md §8 names, each a
-// whole tag. The card spaces its blocks (README §6 "Card": gap-3.5 on the markup, no mt-* in the
+// whole tag. The card spaces its blocks (README §6 "Card": gap-3.5 in .op-card's rule, no mt-* in the
 // bodies); the h1 is the board's 26 / 28 / 32 px (orchestrator decision (e)). A month with figures
 // writes them as the receipt strip (a term list of four cells) and its dated facts in one wrapper
 // paragraph; the pager's buttons are op-pager, each form half the row on the phone.
 const (
-	billingCard   = `<section class="op-card flex flex-col gap-3.5">`
+	billingCard   = `<section class="op-card">`
 	billingLabel  = `<p class="op-label">Billing</p>`
 	billingH1     = `<h1 class="font-display text-[26px] font-bold leading-[1.1] tracking-[-0.03em] md:text-[28px] desk:text-[32px]">Billing months</h1>`
 	billingIntro  = `<p class="text-[15px] leading-[1.55]">`
