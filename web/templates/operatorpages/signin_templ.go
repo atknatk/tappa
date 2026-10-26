@@ -23,6 +23,11 @@ import "github.com/atknatk/tappa/web/templates/components"
 // own, and a POST here passes the operator surface's origin check before the form is
 // read -- the Origin, or with none the fetch metadata's same-origin
 // (internal/handler/operator, sameOriginGate; TestSameOriginGate_ACrossOriginPostReachesNoStore).
+//
+// THE CARD (M13-04; docs/design/operator-redesign screens.md §1, boards OpSignIn): at most 480 px,
+// centred in screen's signed-out column; the heading and its line under it, then the notice when
+// there is one, then the form. Nothing else: no reset, no sign-up, no "keep me signed in" -- none
+// exists (a reset is the owner's new setup link, cmd/opadmin). The code step is the same card.
 func SignIn(v SignInView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -56,15 +61,11 @@ func SignIn(v SignInView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><h1 class=\"font-display text-2xl font-bold tracking-tight\">Operator sign-in</h1><p class=\"mt-2 text-sm text-ink/70\">Taptime staff only. This is not the business panel.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card mx-auto flex w-full max-w-[480px] flex-col gap-3.5\"><div class=\"flex flex-col gap-2\"><h1 class=\"font-display text-[26px] font-bold leading-[1.08] tracking-[-0.03em] md:text-[30px]\">Operator sign-in</h1><p class=\"text-sm leading-[1.45] text-ink/70\">Taptime staff only. This is not the business panel.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if v.Expired {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<div class=\"mt-6\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
 				templ_7745c5c3_Var3 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -77,7 +78,7 @@ func SignIn(v SignInView) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<p>Sign in again with your email address and password.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<p>Sign in again with your email address and password.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -87,16 +88,8 @@ func SignIn(v SignInView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
 			}
 			if v.Failed {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<div class=\"mt-6\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
 				templ_7745c5c3_Var4 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -109,7 +102,7 @@ func SignIn(v SignInView) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<p>Check the email address and the password, then try again.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<p>Check the email address and the password, then try again.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -119,12 +112,8 @@ func SignIn(v SignInView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<form method=\"post\" action=\"/operator/login\" class=\"mt-6 flex flex-col gap-5\"><div class=\"flex flex-col gap-1.5\"><label for=\"op-email\" class=\"docket-label\">Email</label> <input id=\"op-email\" name=\"email\" type=\"email\" autocomplete=\"username\" required autofocus class=\"op-input\"></div><div class=\"flex flex-col gap-1.5\"><label for=\"op-password\" class=\"docket-label\">Password</label> <input id=\"op-password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required class=\"op-input\"></div><button type=\"submit\" class=\"btn btn--primary\">Continue</button></form></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<form method=\"post\" action=\"/operator/login\" class=\"flex flex-col gap-[18px]\"><div class=\"flex flex-col gap-1.5\"><label for=\"op-email\" class=\"op-label\">Email</label> <input id=\"op-email\" name=\"email\" type=\"email\" autocomplete=\"username\" required autofocus class=\"op-input\"></div><div class=\"flex flex-col gap-1.5\"><label for=\"op-password\" class=\"op-label\">Password</label> <input id=\"op-password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required class=\"op-input\"></div><button type=\"submit\" class=\"btn btn--primary\">Continue</button></form></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -177,15 +166,11 @@ func Code(v CodeView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<section class=\"op-card\"><h1 class=\"font-display text-2xl font-bold tracking-tight\">Enter your code</h1><p class=\"mt-2 text-sm text-ink/70\">Type the six-digit code your authenticator app shows for Taptime operator.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<section class=\"op-card mx-auto flex w-full max-w-[480px] flex-col gap-3.5\"><div class=\"flex flex-col gap-2\"><h1 class=\"font-display text-[26px] font-bold leading-[1.08] tracking-[-0.03em] md:text-[30px]\">Enter your code</h1><p class=\"text-sm leading-[1.45] text-ink/70\">Type the six-digit code your authenticator app shows for Taptime operator.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if v.Rejected {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<div class=\"mt-6\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
 				templ_7745c5c3_Var7 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -198,7 +183,7 @@ func Code(v CodeView) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<p>Check that your phone's clock is right, then type the next code.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<p>Check that your phone's clock is right, then type the next code.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -208,16 +193,8 @@ func Code(v CodeView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</div>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
 			}
 			if v.Locked {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<div class=\"mt-6\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
 				templ_7745c5c3_Var8 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -230,7 +207,7 @@ func Code(v CodeView) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<p>Too many wrong codes. Wait a quarter of an hour, then try again.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<p>Too many wrong codes. Wait a quarter of an hour, then try again.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -240,12 +217,8 @@ func Code(v CodeView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</div>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<form method=\"post\" action=\"/operator/login/totp\" class=\"mt-6 flex flex-col gap-5\"><div class=\"flex flex-col gap-1.5\"><label for=\"op-code\" class=\"docket-label\">Code</label> <input id=\"op-code\" name=\"code\" type=\"text\" inputmode=\"numeric\" autocomplete=\"one-time-code\" required autofocus class=\"op-input\"></div><button type=\"submit\" class=\"btn btn--primary\">Sign in</button></form><p class=\"mt-5 text-sm\"><a href=\"/operator/login\" class=\"op-link\">Start again</a></p></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<form method=\"post\" action=\"/operator/login/totp\" class=\"flex flex-col gap-[18px]\"><div class=\"flex flex-col gap-1.5\"><label for=\"op-code\" class=\"op-label\">Code</label> <input id=\"op-code\" name=\"code\" type=\"text\" inputmode=\"numeric\" autocomplete=\"one-time-code\" required autofocus class=\"op-input min-h-14 text-[22px] tracking-[0.3em]\"></div><button type=\"submit\" class=\"btn btn--primary\">Sign in</button></form><p class=\"text-sm\"><a href=\"/operator/login\" class=\"op-link\">Start again</a></p></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

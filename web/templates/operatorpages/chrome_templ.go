@@ -436,6 +436,14 @@ func frame(current navItem) templ.Component {
 // screen is a platform-wide operator screen: no tenant in view. Signed in, it wears the
 // frame with current as the nav's current section (navNone on a signed-in problem page);
 // signed out it is the band and one narrow column, no nav.
+//
+// THE SIGNED-OUT COLUMN (M13-04; README §6 "Signed-out card") is shared by the sign-in, the
+// code step and the signed-out problem page, whose boards draw them 480 and 560 px wide under
+// the same padding: 72 / 24 / 96 px (top / sides / bottom) on the desktop, 64 / 32 / 80 on the
+// tablet, 24 / 16 / 40 on the phone. So the column is centred, as wide as the wider of the two
+// and padded outside that width (its width counts the content alone); each screen then sets
+// its own: the sign-in card 480 px at most, the problem card its own 640 px rule, which the
+// column caps at 560. The enrollment page's column is scriptedScreen's, below.
 func screen(title string, signedIn bool, current navItem) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -509,7 +517,7 @@ func screen(title string, signedIn bool, current navItem) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "<main class=\"op-main mx-auto flex w-full max-w-lg flex-col gap-6 px-4 py-8\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "<main class=\"op-main mx-auto box-content flex max-w-[560px] flex-col gap-6 px-4 pt-6 pb-10 md:px-8 md:pt-16 md:pb-20 desk:px-6 desk:pt-[72px] desk:pb-24\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

@@ -1235,7 +1235,8 @@
   .op-notice--ok { @apply border-tappa-green bg-tappa-green/10; }
   .op-notice--warn { @apply border-saffron bg-saffron-lite; }
   .op-notice--alert { @apply border-2 border-tomato bg-paper; }
-  /* The problem page: the alert notice is its card, at most 640 px wide, 20 px 18 px inside on the
+  /* The problem page: the alert notice is its card, at most 640 px wide (560 px signed out, M13-04:
+     the signed-out column of chrome.templ's screen is no wider), 20 px 18 px inside on the
      phone and 24 px 28 px from the tablet; the title 24 px, 28 px from the tablet, line height 1.12,
      tracking -0.03em, ink. */
   .op-problem { @apply flex w-full max-w-[640px] flex-col gap-4; }

@@ -109,12 +109,19 @@ problem, fault → 503 problem (§4).
 
 **Binding:** the Failed answer names no cause and does **not** echo the typed address (unknown
 address, wrong password, pending and disabled accounts answer byte-identically).
+
+**As built (M13-04):** one `op-card` at most 480 px in the signed-out column (README §6
+"Signed-out card"); the words, the two forms, their fields and the six states as above; no
+hidden field, no `value` on any field.
 **Not shown:** forgot password, sign-up, remember me (none exist; a reset is the owner's
 `cmd/opadmin` new setup link).
 
 **Tests:** `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike`
 (`internal/operatorauth`), `TestSignIn_ReadsTheBodyNeverTheQuery`,
-`TestSignIn_TheCodeStepClearsTheChallenge`, `TestE2E_EveryRefusedSignInIsOneRowAndTheSameBytes`.
+`TestSignIn_TheCodeStepClearsTheChallenge`, `TestE2E_EveryRefusedSignInIsOneRowAndTheSameBytes`,
+`TestSignInScreens_AreOneCardInTheSignedOutColumn` (M13-04: the column, the card, no top margin in
+the card, one form, the fields without a value, the links, no recovery or sign-up word; the
+signed-out problem pages in the same column).
 
 ---
 
