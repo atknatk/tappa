@@ -1419,6 +1419,47 @@
      the term list, never in a paragraph of the docket). One @apply, read and pinned by
      TestVATRecord_TheScopedRuleKeepsTheTimeInInk. */
   [aria-labelledby="tenant-vat"] > p > span { @apply text-ink; }
+  /* THE AUDIT LOG IN THE REDESIGN (M13-12; docs/design/operator-redesign README §6.1 "Audit row",
+     screens.md §10, boards OpAudit, T-OpAudit, M-OpAudit). Scoped from the docket's heading id,
+     because the heading's and the row's markup are pinned (the heading's words and spans; a row
+     opening with the time's span, then the kind's, then one span per fact, the tenant's link in
+     its sentence) -- nothing here is a class on an element.
+     THE HEADING: the boards' rule under it, a 2 px dash in the perforation tone, 12 px below the
+     words; the page number bold, in ink.
+     PHONE: one column -- the time, the kind and each fact a line of its own, 4 px apart, 14 px
+     above and below the row. The tenant's fact is the link's own 44 px, its word centred on the
+     link as the phone board draws it (a sentence holding the link is a wrapping flex there; on a
+     line box the word sat above the link's, measured at 390 px).
+     TABLET AND DESKTOP: the boards' two columns without a wrapper -- the time in the first, 182 px
+     drawn on the tablet and 196 px on the desktop, 24 px from the second; the kind and the facts
+     in the second, the kind alone on its line and the facts wrapping under it, 18 px apart, 2 px
+     between their lines, 6 px under the kind; 16 px above and below. The row stays the one wrapping
+     flex the code draws: it is indented by the first column, and the time is pulled back into the
+     indent by a negative margin as wide as the indent, its own box 18 px narrower, so with the
+     gap the time takes no room on its line and the kind, the line's whole width, still fits
+     beside it; every later fact wraps to the indent. The time and the kind share their baseline.
+     The time is 13 px and never breaks (23 characters of the data face, 0.6 em each: 179 px).
+     THE TYPE, AS THE BOARDS SET IT (orchestrator decisions (f)): the kind 15 px; every fact in
+     Space Grotesk at ink 70 % (6.05:1 on paper), its values -- the time's and the ids' data face,
+     the names the code isolates, a chip's word -- in ink (16.17:1); the tenant's link keeps its
+     own colour. The facts' size stays the docket row's 14 px. Every value breaks anywhere rather
+     than widening the page (a name has no length limit and may have no space).
+     NO SELECTOR HERE NAMES THE CHIP'S CLASS (TestTallyRules_NoToneRuleColoursTheWord reads every
+     rule that does). Each rule is one @apply, read and pinned by
+     TestAuditRow_TheScopedRulesKeepTheBoardsColumns. */
+  [aria-labelledby="audit-list"] > h2 { @apply border-b-2 border-dashed border-line pb-3; }
+  [aria-labelledby="audit-list"] > h2 > span { @apply font-bold text-ink; }
+  [aria-labelledby="audit-list"] .op-row {
+    @apply flex-col items-start gap-y-1 py-3.5 [overflow-wrap:anywhere] last:pb-1.5 md:flex-row md:items-baseline
+           md:gap-x-[18px] md:gap-y-0.5 md:py-4 md:pl-[206px] desk:pl-[220px];
+  }
+  [aria-labelledby="audit-list"] .op-row > :first-child {
+    @apply whitespace-nowrap text-[13px] md:-ml-[206px] md:w-[188px] desk:-ml-[220px] desk:w-[202px];
+  }
+  [aria-labelledby="audit-list"] .op-row > :nth-child(2) { @apply text-[15px] leading-[1.35] md:mb-1 md:basis-full; }
+  [aria-labelledby="audit-list"] .op-row > :nth-child(n+3) { @apply font-display text-ink/70; }
+  [aria-labelledby="audit-list"] .op-row > :nth-child(n+3) > :not(a) { @apply text-ink; }
+  [aria-labelledby="audit-list"] .op-row > span:has(> .op-link) { @apply max-md:flex max-md:flex-wrap max-md:items-center max-md:gap-x-1.5; }
 
   /* THE INTEGRATION GUIDE'S BODY (M11 DOCS-1, /docs/api). internal/apiguide converts the
      Markdown with goldmark, whose output carries no class, so every rule here is scoped

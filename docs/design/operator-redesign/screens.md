@@ -776,9 +776,9 @@ inline tenant link keeps its line height on tablet/desktop and gets a **44 px in
 (README §6 "Inline link hit area"); its markup stays as pinned (`op14_test.go:317, 328, 387`).
 
 **Forms:** filter `POST /operator/audit` (`kind`); pager POST forms with hidden `kind` + `page`,
-buttons `<button type="submit" class="op-link">` today, drawn as outlined buttons →
-`class="op-pager"` in M13-12 (the pin `op14_test.go:742-743` changes with it); 3 forms when
-filtered (`op8_test.go:929`). 50 rows per page, 1000 pages max.
+buttons `<button type="submit" class="op-pager">` since M13-12 (before it `class="op-link"`); on
+the phone the two share the row, each half of it; 3 forms when filtered (`op8_test.go:929`). 50
+rows per page, 1000 pages max.
 
 **States:** every row shape (fixture "audit log") · filtered · past the end ("This page is
 empty: the log ended on the page before.") · the last page · empty ("The log holds no entry of
@@ -789,7 +789,10 @@ credentials.
 `TestAuditWords_NameEveryKindAndNothingElse`, `TestAuditWords_NameEveryScopeTheNewestMigrationReturns`,
 `TestAuditScreen_ReadsNothingFromTheURL`, `TestAuditScreen_PagesForwardOnlyAfterAFullPage`,
 `TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed`, `TestAuditScreen_NoCredentialFieldReachesThePage`,
-`TestAuditScreen_TheTextClearsAA`, `TestAuditScreen_TheOwnersRowsNameTheOwner`; the OP-15 rows:
+`TestAuditScreen_TheTextClearsAA`, `TestAuditScreen_TheOwnersRowsNameTheOwner`;
+the redesign (M13-12): `TestAuditScreen_IsTheFilterCardAndTheDocket` (the whole column, tags and
+words, each row's facts left out), `TestAuditRow_TheScopedRulesKeepTheBoardsColumns` (the row's
+scoped rules); the OP-15 rows:
 `TestE2E_OperatorSuspendsAndReinstatesAFixtureTenant` (PostgreSQL).
 
 ---
