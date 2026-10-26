@@ -192,7 +192,7 @@ func TestPanelIdentityLogin_LandsOnTheLastBusinessElseTheOldestActive(t *testing
 // keeps the picker until contract (§5.6, bulgu 10). Along the way every audit row the flow writes
 // is scanned (R21): a choice refused for a business outside the verified set, a successful choice,
 // and a failed sign-in (the legacy rows' own rows; the identity's failure is an event row) -- none
-// carries the four counting fields or the identity's id.
+// carries the four counting fields, the plural reason texts (r21Words) or the identity's id.
 func TestPanelIdentityLogin_SeveralLegacyRowsKeepThePickerAndNameNoOtherBusiness(t *testing.T) {
 	p := newIDPanel(t, panelHarnessOptions{})
 	ident := p.identity(t, p.email, ownerDigest)
@@ -264,8 +264,8 @@ func TestPanelIdentityLogin_SeveralLegacyRowsKeepThePickerAndNameNoOtherBusiness
 			t.Fatal(err)
 		}
 		scanned++
-		for _, k := range append([]string{ident.String()}, r21Keys...) {
-			if strings.Contains(detail, strings.Trim(k, `"`)) {
+		for _, k := range append(append([]string{ident.String()}, r21Keys...), r21Words...) {
+			if strings.Contains(strings.ToLower(detail), strings.Trim(k, `"`)) {
 				t.Errorf("%s row names %s: %s", action, k, detail)
 			}
 		}
@@ -339,6 +339,14 @@ const (
 // cells would differ by the fixtures. The identity's event row is written inside the measured
 // request in three of the five (failLogin's pattern; S15). One sample per cell, the minimum being
 // the single observation: TestPanelE2E_TimingIsFlatOverHTTP's argument, and its gate.
+//
+// ⚠️ WHAT httpTimingGate (4.0x) CAN SEE HERE, stated so it is not over-read (M14-09's security
+// audit): only a GROSS loss of the padding -- a cell that skips most of its nine comparisons (the
+// mutation "an unknown address compares nothing" is red). A cell short by one or two comparisons
+// (~1.1-1.3x), or a decoy whose wait is gone, passes this gate. The exact proof of the five cases'
+// one shape -- every exit's comparison count and call sequence -- is adminauth's
+// TestAuthenticatePerson_EveryFailureIsOneShape; this sample only shows the property survives the
+// HTTP and PostgreSQL path at the shipped cost.
 func TestPanelE2E_IdentityTimingIsFlatOverHTTP(t *testing.T) {
 	if testing.Short() {
 		t.Skip("-short: skipping the HTTP wall-clock SAMPLE (5 cells x 9 cost-12 comparisons); the five " +

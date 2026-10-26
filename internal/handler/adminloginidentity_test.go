@@ -293,6 +293,46 @@ func TestAdminLogin_ALapsedSignInAsksToSignInAgain(t *testing.T) {
 	})
 }
 
+// TestAdminLoginIdentity_AnAbandonedSessionIsToldTheTruth (M14-09's audit, DÜŞÜK-1): the identity
+// session was opened and the sign-in failed after it -- here as a lost deadlock, which BEFORE the open
+// would be "sign in again". The answer is the 500 that does not claim "nothing was changed", no session
+// cookie is set, and the business gets one failed-sign-in row naming the same session and whether its
+// revocation held (completeLogin's session_cookie_failed shape). MUTATION: loginAsPerson's Abandoned
+// branch removed -> the 409 "sign in again" and no row, red.
+func TestAdminLoginIdentity_AnAbandonedSessionIsToldTheTruth(t *testing.T) {
+	for _, revoked := range []bool{true, false} {
+		tenant, admin, session := uuid.New(), uuid.New(), uuid.New()
+		admins := &fakeAdmins{person: func(string, string, uuid.UUID, adminauth.FailureBudget) (adminauth.PersonSignIn, error) {
+			return adminauth.PersonSignIn{Abandoned: &adminauth.AbandonedSession{
+				Session: adminauth.Session{ID: session, TenantID: tenant, AdminUserID: admin},
+				Revoked: revoked,
+			}}, fmt.Errorf("adminauth: authenticate person: %w", &pgconn.PgError{Code: "40P01"})
+		}}
+		trail := &fakeTrail{}
+		_, h := newLoginAuth(t, admins, trail, true)
+		b := newBrowser(t, h)
+		rec := signInWith(t, b, "right")
+		body := htmlOf(t, rec)
+		if rec.Code != http.StatusInternalServerError || !strings.Contains(body, problemAdminSignInAbandoned.Title) {
+			t.Fatalf("revoked=%v: %d; want 500 and %q", revoked, rec.Code, problemAdminSignInAbandoned.Title)
+		}
+		if strings.Contains(body, "nothing was changed") {
+			t.Errorf("revoked=%v: the answer claims nothing was changed; the session and its row were committed", revoked)
+		}
+		if b.cookies[adminauth.CookieName] != "" {
+			t.Errorf("revoked=%v: a panel session cookie was set", revoked)
+		}
+		events := trail.eventsSnapshot()
+		if len(events) != 1 || events[0].Action != ActionAdminLoginFailed || events[0].TenantID != tenant {
+			t.Fatalf("revoked=%v: trail %+v; want one failed-sign-in row in the session's business", revoked, events)
+		}
+		d, ok := events[0].Detail.(adminLoginDetail)
+		if !ok || d.Outcome != "session_abandoned" || d.SessionID != session.String() || strings.Contains(d.Reason, "failed") == revoked {
+			t.Errorf("revoked=%v: detail %+v", revoked, events[0].Detail)
+		}
+	}
+}
+
 func checkSignInAgain(t *testing.T, b *browser, rec *httptest.ResponseRecorder, status int) {
 	t.Helper()
 	if rec.Code != status {
@@ -320,11 +360,17 @@ func checkSignInAgain(t *testing.T, b *browser, rec *httptest.ResponseRecorder, 
 // (ADR 0031 §5.6, R21): VerifiedBusiness, Resolved, Compared, AttemptedTenant.
 var r21Keys = []string{`"verified_businesses"`, `"resolved"`, `"compared"`, `"attempted_tenant"`}
 
+// r21Words are the same counts in words: the flag-off reason texts that speak of businesses in the
+// plural (M14-09's audit, DÜŞÜK-2). Matched lower-cased against a row's detail; the identity path's
+// reasons name no business at all.
+var r21Words = []string{"businesses", "every business", "verified set"}
+
 // TestAdminLoginIdentity_AuditRowsNameNoOtherBusiness is R21's text scan, over every row of the flow
 // that can carry one of the four fields: a truncated legacy sign-in's probe row, a choice refused
 // for a business outside the verified set, the picker whose every business was disabled, and the
-// legacy failures. Flag on: none of the four keys in any row. CONTROL, flag off: the same flows
-// write all four (the scan sees them). MUTATION: loginDetail returns its argument unchanged -> red.
+// legacy failures. Flag on: none of the four keys and none of the plural reason texts (r21Words) in
+// any row. CONTROL, flag off: the same flows write all of them (the scan sees them). MUTATIONS:
+// loginDetail returns its argument unchanged -> red; loginDetail keeps the reason -> red.
 func TestAdminLoginIdentity_AuditRowsNameNoOtherBusiness(t *testing.T) {
 	rows := make([]adminauth.Attempt, adminauth.MaxCandidates)
 	for i := range rows {
@@ -386,8 +432,8 @@ func TestAdminLoginIdentity_AuditRowsNameNoOtherBusiness(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, k := range r21Keys {
-				if strings.Contains(string(raw), k) {
+			for _, k := range append(append([]string(nil), r21Keys...), r21Words...) {
+				if strings.Contains(strings.ToLower(string(raw)), k) {
 					seen[k] = true
 					if on {
 						t.Errorf("identity path: %s row carries %s: %s", e.Action, k, raw)
@@ -395,8 +441,8 @@ func TestAdminLoginIdentity_AuditRowsNameNoOtherBusiness(t *testing.T) {
 				}
 			}
 		}
-		if !on && len(seen) != len(r21Keys) {
-			t.Fatalf("CONTROL: with the flag off the flows wrote only %v of %v -- the scan cannot see what it forbids", seen, r21Keys)
+		if !on && len(seen) != len(r21Keys)+len(r21Words) {
+			t.Fatalf("CONTROL: with the flag off the flows wrote only %v of %v and %v -- the scan cannot see what it forbids", seen, r21Keys, r21Words)
 		}
 	}
 }

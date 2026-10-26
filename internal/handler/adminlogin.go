@@ -1151,7 +1151,7 @@ func (a *AdminAuth) ChoosePage(w http.ResponseWriter, r *http.Request) {
 				Target:   verified[0].AdminUserID.String(),
 				Detail: a.loginDetail(adminLoginDetail{
 					Outcome:          "rejected",
-					Reason:           "password verified but every business was disabled before the choice",
+					Reason:           reasonDisabledByChoice,
 					VerifiedBusiness: len(verified),
 				}),
 			})
@@ -1229,7 +1229,7 @@ func (a *AdminAuth) Choose(w http.ResponseWriter, r *http.Request) {
 				Target:   verified[0].AdminUserID.String(),
 				Detail: a.loginDetail(adminLoginDetail{
 					Outcome:          "refused",
-					Reason:           "chosen business was not in the verified set",
+					Reason:           reasonChoiceRefused,
 					AttemptedTenant:  tenantID.String(),
 					VerifiedBusiness: len(verified),
 				}),
@@ -1498,9 +1498,8 @@ func (a *AdminAuth) recordCandidateProbe(r *http.Request, ip string, auth admina
 		Action:   ActionAdminLoginTruncated,
 		Target:   verified[0].AdminUserID.String(),
 		Detail: a.loginDetail(adminLoginDetail{
-			Outcome: "ok",
-			Reason: "the address is registered in more businesses than one sign-in compares, " +
-				"and this attempt authenticated against a subset",
+			Outcome:          "ok",
+			Reason:           reasonTruncated,
 			VerifiedBusiness: len(verified),
 			Resolved:         auth.Resolved,
 			Compared:         len(auth.Attempts),

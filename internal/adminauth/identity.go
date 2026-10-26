@@ -89,6 +89,19 @@ type PersonSignIn struct {
 	// each business its own admin.membership.linked row). A number for a log line, never for an
 	// audit row (R21).
 	Linked int
+	// Abandoned is set, ALWAYS WITH AN ERROR, when the identity session was opened -- committed, with
+	// the business's admin.login.succeeded row -- and the sign-in failed after that (a link the
+	// database could not write). The session was revoked here (Revoked says whether that worked); the
+	// caller owes the business the rest of the trail, and must not tell the person nothing changed.
+	Abandoned *AbandonedSession
+}
+
+// AbandonedSession is an identity session a failed sign-in opened and then gave up (PersonSignIn).
+type AbandonedSession struct {
+	Session Session
+	// Revoked reports that the revocation committed; false means it failed too (the error says how)
+	// and the session row is live -- unusable all the same, because its token was dropped.
+	Revoked bool
 }
 
 // verifiedIdentity is an identity whose digest this package compared the typed password with and
@@ -206,8 +219,10 @@ func (m *Manager) AuthenticatePerson(ctx context.Context, email, password string
 		if err == nil {
 			return in, nil
 		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return PersonSignIn{}, fmt.Errorf("adminauth: authenticate person: %w", err)
+		// An abandoned session is a failure AFTER the open, whatever the error wraps: a joined
+		// pgx.ErrNoRows must not read as "the open was refused" and go on as a legacy sign-in.
+		if in.Abandoned != nil || !errors.Is(err, pgx.ErrNoRows) {
+			return PersonSignIn{Abandoned: in.Abandoned}, fmt.Errorf("adminauth: authenticate person: %w", err)
 		}
 		// identity_open_session refused under the person's lock -- a reset committed since the
 		// resolver read the digest, or the last active membership went. The open step was paid by
@@ -259,6 +274,14 @@ func (m *Manager) signInAsIdentity(ctx context.Context, v verifiedIdentity, want
 		return PersonSignIn{}, err
 	}
 
+	// FROM HERE THE IDENTITY SESSION IS COMMITTED, and so is its admin.login.succeeded row. A failure
+	// below is not "nothing happened" (M14-09's audit): abandon revokes the session -- ignoring the
+	// request's cancellation, revokeProofs' reason -- and hands it back as Abandoned, so the handler
+	// writes the business the rest of the trail and tells the person only what is true.
+	abandon := func(err error) (PersonSignIn, error) {
+		rerr := m.Revoke(context.WithoutCancel(ctx), issued.Session.TenantID, issued.Session.ID)
+		return PersonSignIn{Abandoned: &AbandonedSession{Session: issued.Session, Revoked: rerr == nil}}, errors.Join(err, rerr)
+	}
 	linked := 0
 	for i, p := range proofs {
 		_, err := m.data.LinkLegacySession(ctx, identityHash, p.hash)
@@ -266,15 +289,14 @@ func (m *Manager) signInAsIdentity(ctx context.Context, v verifiedIdentity, want
 			// Refused (identity_link_legacy wrote the identity its link_refused event) and the
 			// legacy session left live: revoked here, so no proof session outlives the sign-in.
 			if err := m.revokeProofs(ctx, []proofSession{p}); err != nil {
-				return PersonSignIn{}, errors.Join(err, m.revokeProofs(ctx, proofs[i+1:]))
+				return abandon(errors.Join(err, m.revokeProofs(ctx, proofs[i+1:])))
 			}
 			continue
 		}
 		if err != nil {
-			// The database failed mid-way: the sign-in fails (its token is dropped, so the identity
-			// session it opened is unusable -- completeLogin's cookie branch is the same shape), and
-			// the proof sessions not yet consumed are revoked.
-			return PersonSignIn{}, errors.Join(err, m.revokeProofs(ctx, proofs[i:]))
+			// The database failed mid-way: the sign-in fails, the identity session is abandoned
+			// (revoked), and the proof sessions not yet consumed are revoked.
+			return abandon(errors.Join(err, m.revokeProofs(ctx, proofs[i:])))
 		}
 		linked++
 	}

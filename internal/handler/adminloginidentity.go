@@ -37,13 +37,24 @@ import (
 var _ adminauth.FailureBudget = (*httpx.Limiter)(nil)
 
 // problemAdminSignInAgain is the answer when the credential a sign-in verified no longer held as
-// its session was written (adminauth.SignInLapsed). Nothing was signed in and nothing is broken;
-// "Something went wrong on our side" would be false, and a 500 would page somebody for a password
-// that was changed on purpose.
+// its session was written (adminauth.SignInLapsed) -- BEFORE any session was opened. Nothing was
+// signed in and nothing is broken; "Something went wrong on our side" would be false, and a 500 would
+// page somebody for a password that was changed on purpose. It does not say "nothing was changed":
+// on the identity path a lapse can follow proof sessions that were opened and revoked.
 var problemAdminSignInAgain = pages.ProblemView{
 	Title:   "Please sign in again",
-	Message: "Your sign-in could not be completed, so you were not signed in and nothing was changed.",
+	Message: "Your sign-in could not be completed, so you were not signed in.",
 	Hint:    "Start again from the sign-in page.",
+}
+
+// problemAdminSignInAbandoned is the answer when the identity session was OPENED and the sign-in
+// failed after that (adminauth.PersonSignIn.Abandoned, M14-09's audit): a server-side failure, told
+// as one, and without problemAdminServer's "nothing was changed" -- the session and its success row
+// were committed (and the session revoked).
+var problemAdminSignInAbandoned = pages.ProblemView{
+	Title:   "We could not finish signing you in",
+	Message: "Something went wrong on our side while signing you in, so you were not signed in.",
+	Hint:    "Try again in a minute.",
 }
 
 // identityPath reports whether this process signs people in through their identity: §8's
@@ -59,6 +70,11 @@ func (a *AdminAuth) loginAsPerson(w http.ResponseWriter, r *http.Request, ip str
 	// identity's failure rows are metered per identity, under a key the account rows never use
 	// (adminauth.identityBudgetKey).
 	in, err := a.admins.AuthenticatePerson(r.Context(), email, password, uuid.Nil, a.accountLimiter)
+	if err != nil && in.Abandoned != nil {
+		// AFTER the open, whatever the error (a 40P01 included): not a lapse to sign in again from.
+		a.abandonedLogin(w, r, *in.Abandoned, err)
+		return
+	}
 	if err != nil && !errors.Is(err, adminauth.ErrBadCredentials) {
 		if adminauth.SignInLapsed(err) {
 			// identity_open_session and the legacy proof sessions handle their own refusals; what
@@ -113,6 +129,32 @@ func (a *AdminAuth) completePersonLogin(w http.ResponseWriter, r *http.Request, 
 	a.redirect(w, "/admin")
 }
 
+// abandonedLogin answers a sign-in whose identity session was opened -- committed, with the
+// business's admin.login.succeeded row -- and then failed (adminauth revoked it). The business gets
+// the rest of the trail in completeLogin's session_cookie_failed shape: a failed-sign-in row naming
+// the same session, saying whether the revocation held. The person is told only what is true.
+func (a *AdminAuth) abandonedLogin(w http.ResponseWriter, r *http.Request, s adminauth.AbandonedSession, err error) {
+	reason := "the session was opened but the sign-in could not complete, so it was revoked"
+	if !s.Revoked {
+		reason = "the session was opened but the sign-in could not complete, and revoking it failed"
+	}
+	a.log.Error("panel sign-in: the identity session was opened and the sign-in failed after it",
+		"admin_user_id", s.Session.AdminUserID, "revoked", s.Revoked, "err", err)
+	a.record(r.Context(), audit.Event{
+		TenantID: s.Session.TenantID,
+		ActorID:  ptr(s.Session.AdminUserID),
+		Action:   ActionAdminLoginFailed,
+		Target:   s.Session.AdminUserID.String(),
+		Detail: adminLoginDetail{
+			Outcome:   "session_abandoned",
+			Reason:    reason,
+			SessionID: s.Session.ID.String(),
+		},
+	})
+	a.resetLogin(w)
+	a.renderProblem(w, r, http.StatusInternalServerError, problemAdminSignInAbandoned)
+}
+
 // signInAgain answers a sign-in whose verified credential lapsed before its session was written
 // (adminauth.SignInLapsed): nothing was signed in, the short-lived cookies are cleared, and the
 // person starts again. admin is the row the session was for (uuid.Nil when the identity path cannot
@@ -133,9 +175,32 @@ func (a *AdminAuth) signInAgain(w http.ResponseWriter, r *http.Request, admin uu
 //
 // The PICKER is part of the identity path while it is open: a choice blob is minted only by the
 // legacy arm of AuthenticatePerson then, so ChoosePage's and Choose's rows go through here too.
+//
+// THE REASON TEXTS TOO (M14-09's audit, DÜŞÜK-2): three fixed sentences of this flow speak of
+// businesses in the plural ("registered in more businesses", "every business was disabled", "not in
+// the verified set") -- the counts in words. On the identity path each becomes its single-business
+// twin (identityReasons); a reason without a twin is already one account's ("wrong password").
 func (a *AdminAuth) loginDetail(d adminLoginDetail) adminLoginDetail {
 	if a.identityPath() {
 		d.VerifiedBusiness, d.Resolved, d.Compared, d.AttemptedTenant = 0, 0, 0, ""
+		if twin, ok := identityReasons[d.Reason]; ok {
+			d.Reason = twin
+		}
 	}
 	return d
 }
+
+// identityReasons maps the flag-off reason of a row loginDetail shapes to the identity path's.
+var identityReasons = map[string]string{
+	reasonTruncated:        "the per-request candidate cap was reached on this sign-in",
+	reasonDisabledByChoice: "password verified but the account was disabled before the choice",
+	reasonChoiceRefused:    "the posted choice was refused",
+}
+
+// The flag-off reasons identityReasons rewrites, named once so the rows and the map cannot drift.
+const (
+	reasonTruncated = "the address is registered in more businesses than one sign-in compares, " +
+		"and this attempt authenticated against a subset"
+	reasonDisabledByChoice = "password verified but every business was disabled before the choice"
+	reasonChoiceRefused    = "chosen business was not in the verified set"
+)
