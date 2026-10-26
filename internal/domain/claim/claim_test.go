@@ -77,7 +77,9 @@ func TestSubmit_RefusesBeforeItReachesTheDatabase(t *testing.T) {
 	}{
 		{"no employee", func(c *Claim) { c.EmployeeID = uuid.Nil }, ErrUnknownAnchor},
 		{"no anchor", func(c *Claim) { c.AnchorID = uuid.Nil }, ErrUnknownAnchor},
-		{"no moment", func(c *Claim) { c.ClaimedAt = time.Time{} }, ErrOutsideWindow},
+		// "No moment" is NOT refused here any more (M15-17 fix round): it is answered after the
+		// "already sent" read, so a second send the handler could not place is "Sent" --
+		// TestSubmitDB_EveryRefusalWritesNothing and TestSubmitDB_ASecondSendIsAlreadySent.
 		{"an unknown kind", func(c *Claim) { c.Kind = "both" }, ErrResolved},
 	} {
 		c := ok

@@ -337,8 +337,9 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
   `Totals.OutWithoutIn`'de sayılır, Odd shapes *Check-in missing* listesine düşer ve
   raporda toplamın eksik olduğu söylenir. İş günü dönem başından önce başladıysa rapor onu
   `StartedEarlier` dikişinde sayar, liste yine gösterir. Düzeltmenin fazla çıkışı (e) ve
-  S'siz satır (d) yetim değildir. Çalışan eksik girişi de talep edebilir (*"What time did
-  you come in?"*, aynı kart ve aynı kurallar); onaylanırsa müdürün manuel girişi o çıkışı
+  S'siz satır (d) yetim değildir. Çalışan eksik girişi de talep edebilir (çıkışı adlandıran
+  cümle — *"You clocked out at 12:00 but there's no clock-in."* — ve *"What time did you
+  come in?"*; aynı kart ve aynı kurallar); onaylanırsa müdürün manuel girişi o çıkışı
   kapatır.
 - **QR kanalı** (`channel='qr'`): SUN yok → **IP zorunlu**, GPS tek başına yetmez
   → `flag`. QR fotoğraflanır ve süresiz geçerlidir; fiziksel dokunuş kanıtı yok.

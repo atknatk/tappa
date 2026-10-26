@@ -276,8 +276,12 @@ func TestSubmitDB_ASecondSendIsAlreadySent(t *testing.T) {
 	w := newWorld(t)
 	in := w.tapAt("in", w.at(0, 9, 0), w.home)
 	w.mustSubmit(in, KindOut, w.at(0, 17, 0))
-	if _, err := w.submit(in, KindOut, w.at(0, 17, 0)); !errors.Is(err, ErrAlreadySent) {
-		t.Fatalf("second send: %v, want ErrAlreadySent", err)
+	// Whatever the second send's moment -- the same, one outside the window, or none the handler
+	// could place -- it is "already sent", asked before the window (ADR 0032 §C.4 note (5)).
+	for name, at := range map[string]time.Time{"the same moment": w.at(0, 17, 0), "outside the window": w.at(0, 8, 0), "no moment": {}} {
+		if _, err := w.submit(in, KindOut, at); !errors.Is(err, ErrAlreadySent) {
+			t.Fatalf("second send, %s: %v, want ErrAlreadySent", name, err)
+		}
 	}
 	if n := w.claims(); n != 1 {
 		t.Errorf("%d claims, want 1", n)
@@ -308,6 +312,7 @@ func TestSubmitDB_EveryRefusalWritesNothing(t *testing.T) {
 		{"no such record", uuid.New(), KindOut, w.at(0, 17, 0), ErrUnknownAnchor},
 		{"outside the window (past 18 h)", open, KindOut, w.at(1, 3, 1), ErrOutsideWindow},
 		{"before the anchor", open, KindOut, w.at(0, 8, 0), ErrOutsideWindow},
+		{"no moment (the handler could not place the clock)", open, KindOut, time.Time{}, ErrOutsideWindow},
 		{"the wrong half", open, KindIn, w.at(0, 8, 0), ErrResolved},
 		{"a closed check-in", pairIn, KindOut, w.at(1, 16, 0), ErrResolved},
 		{"a refused tap (no direction)", refused, KindOut, w.at(2, 12, 0), ErrResolved},

@@ -5,12 +5,14 @@ import "strconv"
 
 // Result is what a tap lands on: one docket saying what was recorded.
 //
-// THERE IS NO BUTTON ON IT, and that is CLAUDE.md §9 rather than an omission —
-// "All done — you can close this page." The next action is a new physical touch
-// of the plaque, which is the whole shape of the product: nothing on a screen can
-// produce another attendance record, so there is nothing for a button to do. A
-// "Try again" belongs on the FAILURE pages (pages.Problem), where a retry is a
-// real instruction; here it would invite somebody to double their own tap.
+// NOTHING ON IT RECORDS ANOTHER TAP, and that is CLAUDE.md §9 rather than an
+// omission — "All done — you can close this page." The next action is a new physical
+// touch of the plaque, which is the whole shape of the product: nothing on a screen can
+// produce another attendance record. A "Try again" belongs on the FAILURE pages
+// (pages.Problem), where a retry is a real instruction; here it would invite somebody
+// to double their own tap. The ONE control the screen can carry is §9's M15-17
+// exception: the claim card (ResultAsking below, pages/claim.templ), which sends a
+// claim to the manager and writes no record (ADR 0032 §C.1).
 //
 // THE COPY BRANCHES ON THE VERDICT, ONCE, AND THAT IS §4.6 (M5-06). Until this
 // task the closing line was chosen by a single bool — "did this put an hour on

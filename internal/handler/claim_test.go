@@ -9,17 +9,20 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/claim"
 	"github.com/atknatk/tappa/internal/domain/tap"
+	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 )
 
@@ -45,18 +48,30 @@ type fakeClaims struct {
 	card       *claim.Card
 	offerErr   error
 	offerBlock bool
+	offerPanic bool
 	offers     []uuid.UUID
 	submitErr  error
-	submits    []claim.Claim
+	// sent: a claim is already on the record -- Submit answers ErrAlreadySent before it looks at
+	// the moment, as the domain does.
+	sent    bool
+	submits []claim.Claim
 }
 
 func (f *fakeClaims) Offer(ctx context.Context, tenantID, employeeID, tapID uuid.UUID) (*claim.Card, error) {
 	f.mu.Lock()
 	f.offers = append(f.offers, tapID)
 	f.mu.Unlock()
+	// A context that has already ended fails the read at once, as a real query does (pgx checks it
+	// before it sends anything) -- fakeDirectory.ResultBrand's rule.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if f.offerBlock {
 		<-ctx.Done()
 		return nil, ctx.Err()
+	}
+	if f.offerPanic {
+		panic("fakeClaims: Offer panicked")
 	}
 	return f.card, f.offerErr
 }
@@ -65,8 +80,13 @@ func (f *fakeClaims) Submit(_ context.Context, c claim.Claim) (claim.Submitted, 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.submits = append(f.submits, c)
-	if f.submitErr != nil {
+	switch {
+	case f.sent:
+		return claim.Submitted{}, claim.ErrAlreadySent
+	case f.submitErr != nil:
 		return claim.Submitted{}, f.submitErr
+	case c.ClaimedAt.IsZero():
+		return claim.Submitted{}, claim.ErrOutsideWindow // the domain's answer to no moment
 	}
 	return claim.Submitted{ID: uuid.MustParse("77777777-7777-4777-8777-777777777777")}, nil
 }
@@ -294,8 +314,12 @@ func TestClaimCard_SaysWhichRecordItAsksAbout(t *testing.T) {
 			"On Mon 27 Jul you clocked in at 09:12 but there's no clock-out.", "What time did you leave?"},
 		{"yesterday across a month", claim.KindOut, at("2026-07-31T20:00:00Z"), at("2026-08-01T08:00:00Z"),
 			"Yesterday you clocked in at 22:00 but there's no clock-out.", "What time did you leave?"},
-		{"a check-in claim", claim.KindIn, at("2026-07-31T07:00:00Z"), at("2026-07-31T07:00:00Z"),
-			"", "What time did you come in?"},
+		{"a check-in claim, the same day", claim.KindIn, at("2026-07-31T10:00:00Z"), at("2026-07-31T14:00:00Z"),
+			"You clocked out at 12:00 but there's no clock-in.", "What time did you come in?"},
+		{"a check-in claim, yesterday", claim.KindIn, at("2026-07-30T10:00:00Z"), at("2026-07-31T07:00:00Z"),
+			"Yesterday you clocked out at 12:00 but there's no clock-in.", "What time did you come in?"},
+		{"a check-in claim, earlier", claim.KindIn, at("2026-07-27T10:00:00Z"), at("2026-07-31T07:00:00Z"),
+			"On Mon 27 Jul you clocked out at 12:00 but there's no clock-in.", "What time did you come in?"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			v := claimCardView(claimContext{Kind: c.kind, AnchorAt: c.anchor, TapAt: c.tapAt}, malta, "ctx", "", "")
@@ -340,6 +364,9 @@ func autumnContext(t *testing.T) (claimContext, *time.Location) {
 // happened, and one outside the window, have no answer.
 func TestResolveClaimedAt_TheEarlierOfARepeatedAutumnHourAndTheDefaultAsItCame(t *testing.T) {
 	autumn, malta := autumnContext(t)
+	// The anchor at 02:20 CEST (00:20 UTC): the repeated hour's first 02:15 is BEFORE it, its second
+	// (01:15 UTC, CET) inside -- the earlier candidate is outside, so the answer is the later one.
+	lateOnly := claimContext{Window: claim.Window{From: claim.Bound{At: mustTime(t, "2026-10-25T00:20:00Z")}, To: claim.Bound{At: mustTime(t, "2026-10-25T04:00:00Z")}}}
 	spring := claimContext{Window: claim.Window{From: claim.Bound{At: mustTime(t, "2026-03-28T20:00:00Z")}, To: claim.Bound{At: mustTime(t, "2026-03-29T04:00:00Z")}}}
 	for _, c := range []struct {
 		name  string
@@ -352,6 +379,7 @@ func TestResolveClaimedAt_TheEarlierOfARepeatedAutumnHourAndTheDefaultAsItCame(t
 		{"the evening before midnight is Saturday", autumn, wallClock{23, 0, 0}, "2026-10-24T21:00:00Z"},
 		{"after midnight is Sunday", autumn, wallClock{1, 10, 0}, "2026-10-24T23:10:00Z"},
 		{"before the anchor is outside", autumn, wallClock{19, 0, 0}, ""},
+		{"the earlier candidate is outside the window: the later one", lateOnly, wallClock{2, 15, 0}, "2026-10-25T01:15:00Z"},
 		{"the spring clock that never happened", spring, wallClock{2, 30, 0}, ""},
 		{"a spring clock after the change", spring, wallClock{3, 30, 0}, "2026-03-29T01:30:00Z"},
 	} {
@@ -573,7 +601,8 @@ func TestClaim_EveryRefusalHasItsOwnAnswer(t *testing.T) {
 
 // TestClaim_ATimeTheFormCannotTakeShowsTheFormAgain: an empty field, a value that is not a time,
 // two values, and a time outside the signed window are answered with the form, its context
-// intact, and Submit is not called.
+// intact. Submit is asked with NO moment (the zero time) -- so that "already sent" is answered
+// before the window -- and nothing else.
 func TestClaim_ATimeTheFormCannotTakeShowsTheFormAgain(t *testing.T) {
 	fc := &fakeClaims{}
 	h, tp := newClaimHandler(t, &fakeCheckins{}, fc)
@@ -594,8 +623,10 @@ func TestClaim_ATimeTheFormCannotTakeShowsTheFormAgain(t *testing.T) {
 			}
 		})
 	}
-	if fc.submitCount() != 0 {
-		t.Fatalf("Submit was called %d times", fc.submitCount())
+	for _, c := range fc.submits {
+		if !c.ClaimedAt.IsZero() {
+			t.Errorf("Submit was given the moment %v for a time the form could not take", c.ClaimedAt)
+		}
 	}
 }
 
@@ -670,5 +701,148 @@ func TestNewTap_BoundsTheClaimCardRead(t *testing.T) {
 	if (resultBrandWait+resultClaimWait)*5 > httpx.RequestTimeout {
 		t.Fatalf("the two post-commit reads (%v) are more than a fifth of httpx.RequestTimeout %v",
 			resultBrandWait+resultClaimWait, httpx.RequestTimeout)
+	}
+}
+
+// TestClaim_ASecondSendIsSentWhateverItsTime is ADR 0032 §C.4 note (5) through the handler (the
+// M15-17 security lens's spec deviation): once a claim is on the record, a second send is "Sent"
+// even when its time is outside the window, empty or not a time -- "already sent" is asked before
+// the window, never after it.
+func TestClaim_ASecondSendIsSentWhateverItsTime(t *testing.T) {
+	for name, at := range map[string]string{"outside the window": "08:00", "empty": "", "not a time": "5pm", "inside": "17:00"} {
+		t.Run(name, func(t *testing.T) {
+			fc := &fakeClaims{sent: true}
+			h, tp := newClaimHandler(t, &fakeCheckins{}, fc)
+			w := claimPost(t, h, url.Values{"ctx": {mintClaim(t, tp, tapFixedSessionID, julyContext())}, "at": {at}})
+			if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Sent — your manager will review it.") {
+				t.Fatalf("status %d; want 200 and the Sent screen\n%s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+// panickyBrand is a directory whose brand read panics.
+type panickyBrand struct{ *fakeDirectory }
+
+func (panickyBrand) ResultBrand(context.Context, uuid.UUID) (tenant.PageBrand, error) {
+	panic("panickyBrand: ResultBrand panicked")
+}
+
+// TestResultScreen_APanickingPostCommitReadDrawsTheScreenWithoutIt (M15-17 fix round, security
+// lens): the card's read and the brand's read run after the record committed, so a panic in either
+// costs that read -- 200, the whole screen without it, the one record -- and never reaches the
+// router's Recoverer as a 500 over a recorded tap.
+func TestResultScreen_APanickingPostCommitReadDrawsTheScreenWithoutIt(t *testing.T) {
+	res := cardResult("ok")
+	hPlain, tpPlain := newClaimHandler(t, &fakeCheckins{result: res}, noClaims{})
+	want := postTapThrough(t, hPlain, tpPlain).Body.String()
+	for name, build := range map[string]func(svc *fakeCheckins) (http.Handler, *Tap){
+		"the card's read": func(svc *fakeCheckins) (http.Handler, *Tap) {
+			return newClaimHandler(t, svc, &fakeClaims{offerPanic: true})
+		},
+		"the brand's read": func(svc *fakeCheckins) (http.Handler, *Tap) {
+			tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, panickyBrand{&fakeDirectory{facts: okFacts()}},
+				fixedSessions(), svc, noClaims{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return mountTap(tp), tp
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc := &fakeCheckins{result: res}
+			h, tp := build(svc)
+			var w *httptest.ResponseRecorder
+			func() {
+				defer func() {
+					if p := recover(); p != nil {
+						t.Fatalf("the panic left the handler: %v", p)
+					}
+				}()
+				w = postTapThrough(t, h, tp)
+			}()
+			if w.Code != http.StatusOK || w.Body.String() != want || len(svc.calls) != 1 {
+				t.Fatalf("status %d, %d records, body:\n%s\nwant 200, one record and the screen without it:\n%s",
+					w.Code, len(svc.calls), w.Body.String(), want)
+			}
+		})
+	}
+}
+
+// TestResultScreen_ARecordCommittedAtTheDeadlineKeepsItsCard is
+// TestResultScreen_ARecordCommittedAtTheDeadlineKeepsItsLogo's twin for the card (M15-17 fix round,
+// R15): the record commits after the request deadline (chi's Timeout at 800 ms, the commit at 1 s)
+// and the card's read is healthy, so the card is drawn. The read runs on the request's values
+// without its cancellation; one derived from the request's context would find it already ended
+// and drop the card of a tap that counted.
+func TestResultScreen_ARecordCommittedAtTheDeadlineKeepsItsCard(t *testing.T) {
+	svc := &fakeCheckins{result: cardResult("ok")}
+	fc := &fakeClaims{card: outCard(true)}
+	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()}, fixedSessions(),
+		lateCommit{svc, time.Second}, fc, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("NewTap: %v", err)
+	}
+	h := httpx.RequestID(middleware.Timeout(800 * time.Millisecond)(mountTap(tp)))
+	form := url.Values{"ctx": {mintedContext(t, tp, tapFixedSessionID, tapContext{
+		UID: tapUID, Ctr: 641, Channel: "nfc", CMACVerified: true, TagTenantID: testTenant, LocationID: tapLocation,
+	})}}
+	req := httptest.NewRequest(http.MethodPost, "/api/checkin", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.RemoteAddr = "203.0.113.5:41234"
+	req.AddCookie(sessionCookie())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, "data-claim-card") || !strings.Contains(body, "All done — you can close this page.") {
+		t.Fatalf("status %d: the card of a record committed past the deadline is missing:\n%s", rec.Code, body)
+	}
+	if len(svc.calls) != 1 || len(fc.offers) != 1 {
+		t.Fatalf("record %d, card read %d; want 1 and 1", len(svc.calls), len(fc.offers))
+	}
+}
+
+// TestClaimContext_LivesFifteenMinutes pins the card's lifetime as a NUMBER (ADR 0032 §C.3: 15 min;
+// M15-17 fix round, R14): a context minted 14 m 59 s ago is read, one minted 15 m 01 s ago is "this
+// question has expired". Measured against the literal, not against claimContextTTL -- a test that
+// aged the context by the constant followed the constant wherever it moved.
+func TestClaimContext_LivesFifteenMinutes(t *testing.T) {
+	_, tp := newClaimHandler(t, &fakeCheckins{}, noClaims{})
+	minted := time.Date(2026, 10, 26, 9, 0, 0, 0, time.UTC)
+	tp.claimContexts.now = func() time.Time { return minted }
+	v := mintClaim(t, tp, tapFixedSessionID, julyContext())
+	for age, want := range map[time.Duration]error{
+		15*time.Minute - time.Second: nil,
+		15*time.Minute + time.Second: errClaimContextExpired,
+	} {
+		tp.claimContexts.now = func() time.Time { return minted.Add(age) }
+		if _, err := tp.claimContexts.parse(v, tapFixedSessionID); !errors.Is(err, want) && !(want == nil && err == nil) {
+			t.Errorf("a context %v old: %v, want %v", age, err, want)
+		}
+	}
+}
+
+// TestClaimCard_TheFieldIsDescribedAndMarkedOnlyOnAProblem (M15-17 fix round, accessibility): the
+// time field is the shared form field, described by the lead naming the record and, when the form
+// is shown again, by the problem sentence; only then is it marked invalid and focused -- by plain
+// HTML, no script -- and the page has its own heading. On the result screen there is no problem,
+// no invalid mark and no focus taken from the confirmation.
+func TestClaimCard_TheFieldIsDescribedAndMarkedOnlyOnAProblem(t *testing.T) {
+	h, tp := newClaimHandler(t, &fakeCheckins{result: cardResult("ok")}, &fakeClaims{card: outCard(true)})
+	result := postTapThrough(t, h, tp).Body.String()
+	field := regexp.MustCompile(`<input id="claim-at"[^>]*>`)
+	f := field.FindString(result)
+	if !strings.Contains(f, `aria-describedby="claim-lead"`) || !strings.Contains(f, `class="field-input field-input--mono"`) ||
+		strings.Contains(f, "aria-invalid") || strings.Contains(f, "autofocus") || !strings.Contains(result, `<p id="claim-lead"`) {
+		t.Errorf("the result screen's field: %s", f)
+	}
+	again := claimPost(t, h, url.Values{"ctx": {mintClaim(t, tp, tapFixedSessionID, julyContext())}, "at": {"08:00"}}).Body.String()
+	f = field.FindString(again)
+	if !strings.Contains(f, `aria-describedby="claim-lead claim-problem"`) || !strings.Contains(f, `aria-invalid="true"`) ||
+		!strings.Contains(f, "autofocus") || !strings.Contains(again, `<p id="claim-problem"`) || !strings.Contains(again, "<h1") {
+		t.Errorf("the form shown again: field %s\n%s", f, again)
+	}
+	if strings.Contains(again, "<script") || strings.Contains(result, "<script") {
+		t.Error("a claim screen loads a script")
 	}
 }

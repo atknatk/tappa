@@ -642,6 +642,13 @@ sonra, isteğe bağlı **tek** kart (kullanıcının §9 onayı):
     sonraki ilk olay"*ı değiştirebilir ve bir gösterimi kaydırabilir (sınır yine iki fırsattır, ama hangi
     iki dokunuş olduğu değişebilir) — M9-01 kartına not.
 - Kart atlanabilir (*"You can skip this."*); atlama düğmesi yok.
+- *Not (2026-10-26, kullanıcı kararı "Cümle ekle", M15-17 genel merceği ORTA):* giriş kartı da çıkış kartı gibi
+  sorunun üstünde kaydı adlandıran bir cümle taşır — **her** gösterimde, yalnız ikincisinde değil: aynı gün *"You
+  clocked out at 12:00 but there's no clock-in."*, dün *"Yesterday you clocked out at 12:00 but there's no
+  clock-in."*, daha eski *"On Mon 27 Jul you clocked out at 12:00 but there's no clock-in."*; ardından *"What time
+  did you come in?"*. Gerekçe: ikinci gösterimde (günün sonraki `out`'u) yalnız soru hangi çıkışın girişsiz olduğunu
+  söylemiyordu. Gün, işletmenin bölgesindeki takvim günüdür (çapa ile kartı gösteren dokunuş arasında). Ölçüm:
+  `TestClaimCard_SaysWhichRecordItAsksAbout`.
 
 **K2 — kabul edilen sınır.** Geçmiş gün kartı yalnız *"What time did you leave?"* sorar. Gerçekte
 **girişin unutulduğu** gün (sabah dokunmadı, akşam tek dokunuş `in` yazıldı) kart yanlış soruyu sorar;
@@ -794,6 +801,12 @@ değiştirildi ve olgu yeniden türetildi (kullanıcının *"Metni M15'e göre y
 `TestResolveClaimedAt_TheEarlierOfARepeatedAutumnHourAndTheDefaultAsItCame`,
 `TestResultScreen_AFailedOrLateCardReadDrawsTheScreenWithoutIt`,
 `TestResultScreen_TheCardTakesTheLeftOpenNoteOutStructurally`, `TestClaimDB_TheCardIsShownOnTwoTapsOnly`.
+*Düzeltme turu (2026-10-26, M15-17 mercekleri).* (6) **"Zaten gönderildi" pencereden önce:** formun alamadığı saat
+(boş, saat değil, pencere dışı) `Submit`'e **ansız** (sıfır an) gider; `Submit` önce gönderilmiş talebe bakar
+(*"Sent"*), sonra ansızlığı pencere dışı sayar — not (5) artık handler'da da doğru. (7) **Panik:** sonuç ekranının
+commit sonrası iki okuması (marka, kart) bir panikte yalnız kendilerini kaybeder; ekran ve kayıt kalır. Ölçüm:
+`TestClaim_ASecondSendIsSentWhateverItsTime`, `TestSubmitDB_ASecondSendIsAlreadySent`,
+`TestResultScreen_APanickingPostCommitReadDrawsTheScreenWithoutIt`.
 
 **Askı (ADR 0025).** Karar yolu bir panel yazmasıdır ve `mountWriting`'in **ana grubuna**
 (`ProtectWriting`, `internal/handler/dashboard.go:166`; flag kararı `:167`'nin yanı) gider: askı talep

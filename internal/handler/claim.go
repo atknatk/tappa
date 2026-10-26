@@ -3,8 +3,10 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -89,6 +91,24 @@ var (
 	}
 )
 
+// afterCommit runs one of the result screen's post-commit reads -- the brand, the claim card -- and
+// answers its value, or the zero value when the read panics: the record is written and its
+// confirmation does not depend on either read (G-O5, §4.6), so a panic in one of them costs that
+// read and is logged, never the screen. Without it the panic unwound to the router's Recoverer and
+// the person got a 500 over a tap that WAS recorded (M15-17 fix round, security lens). The log
+// carries the panic's type and the stack -- function names, no value the panic was raised with.
+func afterCommit[T any](ctx context.Context, t *Tap, what string, read func() T) (out T) {
+	defer func() {
+		if p := recover(); p != nil {
+			var zero T
+			out = zero
+			t.log.ErrorContext(ctx, "checkin: a post-commit read panicked; drawing the screen without it",
+				"read", what, "panic_type", fmt.Sprintf("%T", p), "stack", string(debug.Stack()))
+		}
+	}()
+	return read()
+}
+
 // resultCard is the card the result screen draws and whether it asks about the check-in this very
 // tap left open -- the one case its left-open note is not shown (product lens N6).
 type resultCard struct {
@@ -139,32 +159,48 @@ func (t *Tap) resultClaim(ctx context.Context, id httpx.Identity, res checkin.Re
 	return out
 }
 
-// claimCardView writes the card's words (ADR 0032 §C.1's sentences) from the signed facts.
+// claimCardView writes the card's words (ADR 0032 §C.1's sentences, and the check-in card's lead
+// by the user's decision of 2026-10-26, "Cümle ekle") from the signed facts:
 //
 //	checkout claim, same calendar day   "You clocked in at 11:00 and didn't clock out."
 //	checkout claim, the day before      "Yesterday you clocked in at 09:12 but there's no clock-out."
 //	checkout claim, earlier             "On Mon 19 Oct you clocked in at 09:12 but there's no clock-out."
 //	                                    then "What time did you leave?"
-//	check-in claim                      "What time did you come in?"
+//	check-in claim, same calendar day   "You clocked out at 12:00 but there's no clock-in."
+//	check-in claim, the day before      "Yesterday you clocked out at 12:00 but there's no clock-in."
+//	check-in claim, earlier             "On Mon 27 Jul you clocked out at 12:00 but there's no clock-in."
+//	                                    then "What time did you come in?"
 //
+// Every check-in card names its record, the first showing as the second: on the second (the day's
+// next `out`) "What time did you come in?" alone would not say WHICH clock-out has no clock-in.
 // The day is the calendar day in the business's zone -- what "yesterday" means to the person --
 // compared between the anchor and the tap that shows the card.
 func claimCardView(cc claimContext, loc *time.Location, signed, value, problem string) pages.ClaimCardView {
 	v := pages.ClaimCardView{Context: signed, Value: value, Problem: problem}
-	if cc.Kind == claim.KindIn {
-		v.Question = "What time did you come in?"
-		return v
-	}
-	v.Question = "What time did you leave?"
 	a, tp := cc.AnchorAt.In(loc), cc.TapAt.In(loc)
 	clock := a.Format("15:04")
 	ay, am, ad := a.Date()
 	ty, tm, td := tp.Date()
 	py, pm, pd := time.Date(ty, tm, td-1, 12, 0, 0, 0, loc).Date()
+	sameDay := ay == ty && am == tm && ad == td
+	yesterday := ay == py && am == pm && ad == pd
+	if cc.Kind == claim.KindIn {
+		v.Question = "What time did you come in?"
+		switch {
+		case sameDay:
+			v.Lead = "You clocked out at " + clock + " but there's no clock-in."
+		case yesterday:
+			v.Lead = "Yesterday you clocked out at " + clock + " but there's no clock-in."
+		default:
+			v.Lead = "On " + a.Format("Mon 2 Jan") + " you clocked out at " + clock + " but there's no clock-in."
+		}
+		return v
+	}
+	v.Question = "What time did you leave?"
 	switch {
-	case ay == ty && am == tm && ad == td:
+	case sameDay:
 		v.Lead = "You clocked in at " + clock + " and didn't clock out."
-	case ay == py && am == pm && ad == pd:
+	case yesterday:
 		v.Lead = "Yesterday you clocked in at " + clock + " but there's no clock-out."
 	default:
 		v.Lead = "On " + a.Format("Mon 2 Jan") + " you clocked in at " + clock + " but there's no clock-out."
@@ -314,20 +350,20 @@ func (t *Tap) Claim(w http.ResponseWriter, r *http.Request) {
 		t.renderProblem(w, r, http.StatusInternalServerError, claimProblemServer)
 		return
 	}
-	again := func(value, problem string) {
-		t.render(w, r, http.StatusUnprocessableEntity, pages.ClaimForm(claimCardView(cc, loc, signed, value, problem)), false)
-	}
-	clock, ok := parseWallClock(r.PostForm[claimAtField])
-	if !ok {
-		again("", "Enter the time, then send it.")
-		return
-	}
-	outside := "That time does not fit this record. It has to be between " +
-		cc.Window.From.At.In(loc).Format("15:04") + " and " + cc.Window.To.At.In(loc).Format("15:04") + "."
-	at, ok := resolveClaimedAt(clock, cc, loc)
-	if !ok {
-		again(clock.String(), outside)
-		return
+	// "ALREADY SENT" IS ASKED BEFORE THE WINDOW (ADR 0032 §C.4 note (5); M15-17 fix round): a time
+	// the form could not take -- empty, not a time, or outside the signed window -- still goes to
+	// Submit, as no moment (the zero time). Submit answers "already sent" before it looks at the
+	// moment, so a second send is "Sent" whatever its time, and otherwise "outside", which shows
+	// the form again with the sentence that fits.
+	value, problem := "", "Enter the time, then send it."
+	var at time.Time
+	if clock, ok := parseWallClock(r.PostForm[claimAtField]); ok {
+		value = clock.String()
+		problem = "That time does not fit this record. It has to be between " +
+			cc.Window.From.At.In(loc).Format("15:04") + " and " + cc.Window.To.At.In(loc).Format("15:04") + "."
+		if resolved, ok := resolveClaimedAt(clock, cc, loc); ok {
+			at = resolved
+		}
 	}
 	sub, err := t.claims.Submit(ctx, claim.Claim{
 		TenantID: id.Session.TenantID, EmployeeID: id.Session.EmployeeID,
@@ -345,7 +381,7 @@ func (t *Tap) Claim(w http.ResponseWriter, r *http.Request) {
 		t.log.InfoContext(ctx, "claim: already sent", "employee_id", id.EmployeeID(), "anchor_id", cc.AnchorID)
 		t.render(w, post, http.StatusOK, pages.ClaimSent(), false)
 	case errors.Is(err, claim.ErrOutsideWindow):
-		t.render(w, post, http.StatusUnprocessableEntity, pages.ClaimForm(claimCardView(cc, loc, signed, clock.String(), outside)), false)
+		t.render(w, post, http.StatusUnprocessableEntity, pages.ClaimForm(claimCardView(cc, loc, signed, value, problem)), false)
 	case errors.Is(err, claim.ErrExpired):
 		t.renderProblem(w, post, http.StatusGone, claimProblemExpired)
 	case errors.Is(err, claim.ErrResolved):

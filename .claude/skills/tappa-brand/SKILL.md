@@ -161,10 +161,14 @@ Anatomi:
   kapanış cümlesinin **üstünde** tek bir kart: kaydı adlandıran cümle (*"Yesterday you clocked in
   at 09:12 but there's no clock-out."* · aynı gün *"You clocked in at 11:00 and didn't clock
   out."* · daha eski *"On Mon 27 Jul you clocked in at 09:12 but there's no clock-out."* — gün,
-  işletmenin bölgesindeki takvim günüdür), soru (*"What time did you leave?"* / giriş eksikse
-  yalnız *"What time did you come in?"*), saat alanı (vardiyanın gerçek ucu pencere içindeyse dolu,
+  işletmenin bölgesindeki takvim günüdür; giriş eksikse aynı yapıda *"You clocked out at 12:00 but
+  there's no clock-in."* / *"Yesterday you clocked out …"* / *"On Mon 27 Jul you clocked out …"* —
+  kullanıcı kararı 2026-10-26), soru (*"What time did you leave?"* / *"What time did you come in?"*),
+  saat alanı (vardiyanın gerçek ucu pencere içindeyse dolu,
   değilse **boş ve zorunlu**), *"Send to my manager"* ve *"You can skip this."* — **atlama düğmesi
-  yok**. Kart `paper` zeminde yuvarlak kart (`line` kenarlık, 18 px), alan 10 px yuvarlak ve 44 px,
+  yok**. Kart `paper` zeminde yuvarlak kart (`line` kenarlık, 18 px), alan ortak `.field-input
+  .field-input--mono` bileşeni (44 px; kayıt cümlesi ve sorun cümlesi `aria-describedby` ile bağlı,
+  hatada `aria-invalid` ve `autofocus` — betik yok; yeniden gösterilen formda `h1` *"Check the time"*),
   düğme palet `tappa-green` zemin + `paper` yazı (7,73:1) ve 44 px — **accent almaz**, `.tap-button`
   değildir. Betik yok: sonuç ekranı konum okumaz. `flag`'te kapanış cümlesi kartın altında kalır.
   Kart, bu dokunuşun açık bıraktığı girişi soruyorsa o girişin ekran notu (*"your previous clock-in

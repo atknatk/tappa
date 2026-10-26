@@ -54,6 +54,7 @@ type submitDetail struct {
 //	the person is active                                   else ErrNotActive
 //	the anchor is this person's record                     else ErrUnknownAnchor
 //	no claim on it yet (read, then the 23505 UNIQUE)       else ErrAlreadySent
+//	a moment was given (the zero time is none)             else ErrOutsideWindow
 //	it still misses exactly that half (the reader's class) else ErrResolved
 //	the moment is inside its window                        else ErrOutsideWindow
 //	the moment is within manual.MaxBackdate                else ErrExpired
@@ -70,8 +71,6 @@ func (s *Service) Submit(ctx context.Context, c Claim) (Submitted, error) {
 		return Submitted{}, errors.New("claim: tenant id is required")
 	case c.EmployeeID == uuid.Nil, c.AnchorID == uuid.Nil:
 		return Submitted{}, ErrUnknownAnchor
-	case c.ClaimedAt.IsZero():
-		return Submitted{}, ErrOutsideWindow
 	}
 	if _, ok := ParseKind(string(c.Kind)); !ok {
 		return Submitted{}, ErrResolved
@@ -111,6 +110,12 @@ func (s *Service) Submit(ctx context.Context, c Claim) (Submitted, error) {
 		}
 		if len(sent) > 0 {
 			return ErrAlreadySent
+		}
+		// No moment at all is outside every window -- asked only AFTER "already sent", so a second
+		// send whose time the handler could not place is "Sent" too (ADR 0032 §C.4 note (5): the
+		// second send is Sent whatever its moment; M15-17 fix round).
+		if c.ClaimedAt.IsZero() {
+			return ErrOutsideWindow
 		}
 		chain, err := chainAround(ctx, q, c.TenantID, c.EmployeeID, a.at)
 		if err != nil {

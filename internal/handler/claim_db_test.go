@@ -101,9 +101,10 @@ func cardContextOn(body string) string {
 // TestClaimDB_YesterdaysOpenCheckInIsAskedAndSentOnce is the card end to end: an open check-in of
 // the previous business day, then a real tap -- recorded `in`, the card on its screen asking "What
 // time did you leave?", the left-open sentence not on the screen and still in the record's note
-// (N6). The answer, inside the window, is "Sent" and one punch_claims row; the second "Send" of the
-// same card is "Sent" again (§C.5: never a 500) and still one row; no `transactions` row is
-// written by either.
+// (N6). The answer, inside the window, is "Sent" and one punch_claims row; every later "Send" of the
+// same card is "Sent" again (§C.5: never a 500) and still one row -- the same time, a time outside
+// the window and an empty field alike, because "already sent" is asked before the window (ADR 0032
+// §C.4 note (5)); no `transactions` row is written by any of them.
 func TestClaimDB_YesterdaysOpenCheckInIsAskedAndSentOnce(t *testing.T) {
 	h := newTapHarness(t)
 	anchor := h.seedDirected(t, "in", 20*time.Hour)
@@ -134,8 +135,9 @@ func TestClaimDB_YesterdaysOpenCheckInIsAskedAndSentOnce(t *testing.T) {
 	}
 	at := card.Window.From.At.Add(time.Hour).In(loc).Format("15:04")
 	before := h.countFor(t, h.employeeID)
-	for i := 0; i < 2; i++ {
-		w := h.postClaim(t, cookie, signed, at)
+	outside := card.Window.From.At.Add(-time.Hour).In(loc).Format("15:04")
+	for i, sent := range []string{at, at, outside, ""} {
+		w := h.postClaim(t, cookie, signed, sent)
 		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Sent — your manager will review it.") {
 			t.Fatalf("send %d: status %d\n%s", i+1, w.Code, w.Body.String())
 		}

@@ -280,12 +280,12 @@ func recordedDocketViolation(s productFactSources) string {
 	return ""
 }
 
-// resultNoButtonViolation is FactResultScreenEndsWithoutAButton: a counted tap's closing is
+// resultRecordsNoOtherTapViolation is FactResultScreenRecordsNoOtherTap: a counted tap's closing is
 // "All done — you can close this page.", and nothing on the result screen records a tap: it
 // holds no control of its own, and the one form it can carry is the claim card's, which posts
 // to POST /api/claim -- a claim, never a record (ADR 0032 §C.1; M15-17 withdrew "There is no
 // button on it.").
-func resultNoButtonViolation(s productFactSources) string {
+func resultRecordsNoOtherTapViolation(s productFactSources) string {
 	closing := withoutTemplComments(templBody(s.Result, "closing"))
 	ok, done, flag := strings.Index(closing, `case "ok":`), strings.Index(closing, "All done — you can close this page."),
 		strings.Index(closing, `case "flag":`)
@@ -810,7 +810,7 @@ func webhookEndpointViolation(s productFactSources) string {
 // productDerivationFuncs is each fact's derivation over the sources.
 var productDerivationFuncs = map[pages.Fact]func(productFactSources) string{
 	pages.FactRecordedTapEndsOnAStampedDocket:       recordedDocketViolation,
-	pages.FactResultScreenEndsWithoutAButton:        resultNoButtonViolation,
+	pages.FactResultScreenRecordsNoOtherTap:         resultRecordsNoOtherTapViolation,
 	pages.FactTapScreenIsOneButtonAndACorrection:    tapScreenViolation,
 	pages.FactRecordsReadForAnyEarlierDay:           earlierDayViolation,
 	pages.FactSpikeShowsEvidenceAndTheRulesSentence: spikeEvidenceViolation,
@@ -889,16 +889,16 @@ func TestProductFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{pages.FactRecordedTapEndsOnAStampedDocket, "the stamp loses IGNORED", replace(result, `stamp--ignored">IGNORED<`, `stamp--ignored">DONE<`)},
 		{pages.FactRecordedTapEndsOnAStampedDocket, "the handler renders something else", replace(func(s *productFactSources) *string { return &s.TapHandler }, "pages.Result(view, logo)", "pages.Other(view, logo)")},
 		{pages.FactRecordedTapEndsOnAStampedDocket, "Result stops being the docket body", replace(result, "@result(v, logo, nil)", "@other(v, logo)")},
-		{pages.FactResultScreenEndsWithoutAButton, "the card posts somewhere else", replace(func(s *productFactSources) *string { return &s.ClaimCard }, `action="/api/claim"`, `action="/api/checkin"`)},
-		{pages.FactResultScreenEndsWithoutAButton, "the claim endpoint records a tap", replace(func(s *productFactSources) *string { return &s.ClaimHandler }, "t.claims.Submit(", "t.checkins.Record(")},
-		{pages.FactResultScreenEndsWithoutAButton, "the screen with a card gains a link", func(s *productFactSources) {
+		{pages.FactResultScreenRecordsNoOtherTap, "the card posts somewhere else", replace(func(s *productFactSources) *string { return &s.ClaimCard }, `action="/api/claim"`, `action="/api/checkin"`)},
+		{pages.FactResultScreenRecordsNoOtherTap, "the claim endpoint records a tap", replace(func(s *productFactSources) *string { return &s.ClaimHandler }, "t.claims.Submit(", "t.checkins.Record(")},
+		{pages.FactResultScreenRecordsNoOtherTap, "the screen with a card gains a link", func(s *productFactSources) {
 			r := maps.Clone(s.AskingRenders)
 			r["ok"] = strings.Replace(r["ok"], "</form>", `</form><a href="/again">Tap again</a>`, 1)
 			s.AskingRenders = r
 		}},
-		{pages.FactResultScreenEndsWithoutAButton, "a counted tap's closing changes", replace(result, `<p class="mt-4 text-ink/70">All done — you can close this page.</p>`, `<p class="mt-4 text-ink/70">Done.</p>`)},
-		{pages.FactResultScreenEndsWithoutAButton, "the result screen gains a button", replace(result, `<p class="mt-4 text-ink/70">All done`, `<button>Again</button><p class="mt-4 text-ink/70">All done`)},
-		{pages.FactResultScreenEndsWithoutAButton, "a sub-template renders a link on the flagged result", func(s *productFactSources) {
+		{pages.FactResultScreenRecordsNoOtherTap, "a counted tap's closing changes", replace(result, `<p class="mt-4 text-ink/70">All done — you can close this page.</p>`, `<p class="mt-4 text-ink/70">Done.</p>`)},
+		{pages.FactResultScreenRecordsNoOtherTap, "the result screen gains a button", replace(result, `<p class="mt-4 text-ink/70">All done`, `<button>Again</button><p class="mt-4 text-ink/70">All done`)},
+		{pages.FactResultScreenRecordsNoOtherTap, "a sub-template renders a link on the flagged result", func(s *productFactSources) {
 			r := maps.Clone(s.ResultRenders)
 			r["flag"] = strings.Replace(r["flag"], "</section>", `</section><a href="/again">Tap again</a>`, 1)
 			s.ResultRenders = r

@@ -16,6 +16,8 @@
 // lines above the type that does.
 package pages
 
+import "strings"
+
 // ActivateView is the activation form: who is activating, which venue's network
 // to join, and the GDPR Art. 13 facts.
 //
@@ -305,7 +307,9 @@ type ProblemView struct {
 //
 // FINISHED AS OF M5-06, and "finished" is a claim about a specific list rather
 // than a feeling: the stamp and its fixed colour, the sentence, the wall clock in
-// mono, the tenant-kind brand line after a good tap, and NO BUTTON. What M5-06
+// mono, the tenant-kind brand line after a good tap, and NO BUTTON of its own -- the
+// one form the screen can carry is the claim card's (M15-17, ADR 0032 §C.1), which is
+// not a field of this view but pages.ResultAsking's third parameter (ClaimCardView). What M5-06
 // did NOT do is make that brand line editable from a panel — the copy is fixed in
 // result.templ and keyed on the tenant's business TYPE, so two restaurants share
 // one sentence. Per-tenant copy needs a column that does not exist yet and is
@@ -506,4 +510,18 @@ type ClaimCardView struct {
 	Value string
 	// Problem is why the form is shown again ("" on the result screen).
 	Problem string
+}
+
+// DescribedBy is the time field's aria-describedby: the ids of the sentences the card draws around
+// it -- the lead naming the record and, when the form is shown again, the problem -- or "" when
+// there is neither (templ then leaves the attribute empty, which describes nothing).
+func (c ClaimCardView) DescribedBy() string {
+	var ids []string
+	if c.Lead != "" {
+		ids = append(ids, "claim-lead")
+	}
+	if c.Problem != "" {
+		ids = append(ids, "claim-problem")
+	}
+	return strings.Join(ids, " ")
 }

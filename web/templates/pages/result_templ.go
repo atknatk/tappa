@@ -13,12 +13,14 @@ import "strconv"
 
 // Result is what a tap lands on: one docket saying what was recorded.
 //
-// THERE IS NO BUTTON ON IT, and that is CLAUDE.md §9 rather than an omission —
-// "All done — you can close this page." The next action is a new physical touch
-// of the plaque, which is the whole shape of the product: nothing on a screen can
-// produce another attendance record, so there is nothing for a button to do. A
-// "Try again" belongs on the FAILURE pages (pages.Problem), where a retry is a
-// real instruction; here it would invite somebody to double their own tap.
+// NOTHING ON IT RECORDS ANOTHER TAP, and that is CLAUDE.md §9 rather than an
+// omission — "All done — you can close this page." The next action is a new physical
+// touch of the plaque, which is the whole shape of the product: nothing on a screen can
+// produce another attendance record. A "Try again" belongs on the FAILURE pages
+// (pages.Problem), where a retry is a real instruction; here it would invite somebody
+// to double their own tap. The ONE control the screen can carry is §9's M15-17
+// exception: the claim card (ResultAsking below, pages/claim.templ), which sends a
+// claim to the manager and writes no record (ADR 0032 §C.1).
 //
 // THE COPY BRANCHES ON THE VERDICT, ONCE, AND THAT IS §4.6 (M5-06). Until this
 // task the closing line was chosen by a single bool — "did this put an hour on
@@ -148,7 +150,7 @@ func result(v ResultView, logo layout.Logo, card *ClaimCardView) templ.Component
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(v.Venue)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 58, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 60, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -161,7 +163,7 @@ func result(v ResultView, logo layout.Logo, card *ClaimCardView) templ.Component
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.Headline())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 60, Col: 20}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 62, Col: 20}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
@@ -179,7 +181,7 @@ func result(v ResultView, logo layout.Logo, card *ClaimCardView) templ.Component
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(v.At)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 62, Col: 75}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 64, Col: 75}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {
@@ -215,7 +217,7 @@ func result(v ResultView, logo layout.Logo, card *ClaimCardView) templ.Component
 			var templ_7745c5c3_Var8 string
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(v.Trust))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 76, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 78, Col: 49}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 			if templ_7745c5c3_Err != nil {
@@ -233,7 +235,7 @@ func result(v ResultView, logo layout.Logo, card *ClaimCardView) templ.Component
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(v.Note)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 79, Col: 40}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 81, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {

@@ -106,7 +106,7 @@ const (
 	// claim card's (M15-17, ADR 0032 §C.1), which sends a claim to the manager and writes no
 	// record. Derived from pages/result.templ, pages/claim.templ, the served result screens
 	// and internal/handler/claim.go.
-	FactResultScreenEndsWithoutAButton Fact = "templ:Result closing, no control"
+	FactResultScreenRecordsNoOtherTap Fact = "templ:Result closing, only the claim card's form"
 	// The tap screen is the greeting docket and one form: one large primary button that
 	// says the predicted direction ("Clock in" / "Clock out", or "Tap" when there is no
 	// prediction), and -- only under a prediction -- a small "Not right? …" button in the
@@ -303,9 +303,9 @@ func ProductCopy(f ProductFigures) ProductText {
 				Body:  l("One large button, sized for a wet or floury finger.", FactTapButtonSizedForAWetHand, FactTapScreenIsOneButtonAndACorrection),
 			},
 			{
-				Title: l("Done means done", FactResultScreenEndsWithoutAButton),
+				Title: l("Done means done", FactResultScreenRecordsNoOtherTap),
 				Body: l("A counted tap ends on its stamp and “All done — you can close this page.” Nothing on it records another tap.",
-					FactResultScreenEndsWithoutAButton, FactRecordedTapEndsOnAStampedDocket),
+					FactResultScreenRecordsNoOtherTap, FactRecordedTapEndsOnAStampedDocket),
 			},
 		},
 

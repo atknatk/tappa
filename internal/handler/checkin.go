@@ -273,13 +273,13 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		// measurements).
 		post := context.WithoutCancel(r.Context())
 		readCtx, cancel := context.WithTimeout(post, t.brandWait)
-		logo := t.resultLogo(readCtx, id, tctx, res)
+		logo := afterCommit(readCtx, t, "the business's brand", func() layout.Logo { return t.resultLogo(readCtx, id, tctx, res) })
 		cancel()
 		// The claim card (M15-17, ADR 0032 §C.1): a read of its own, after the commit, under
 		// post and its own bound (claim.go, G-O5); none, failed or late -> no card, and the
 		// screen below is the one it would have been.
 		cardCtx, cancelCard := context.WithTimeout(post, t.claimWait)
-		card := t.resultClaim(cardCtx, id, res)
+		card := afterCommit(cardCtx, t, "the claim card", func() *resultCard { return t.resultClaim(cardCtx, id, res) })
 		cancelCard()
 		view := resultView(res)
 		screen := pages.Result(view, logo)
