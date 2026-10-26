@@ -2034,18 +2034,21 @@ M14-10a notu 1; onları Origin, oturum, oturum bütçesi, askı ve encode tavan�
   desenini yazmaya devam eder). Pin: `TestPackaging_ThePanelPathsAreRoutedWithoutAnAccessLog`.
   Deploy aynı `kubectl apply -f deploy/k8s/40-ingress.yaml` adımıyla uygular (RBAC'ta `create` var).
 
-  **Doğrulama (deploy'dan sonra, küme yöneticisi, salt-okur):**
+  **Doğrulama (deploy'dan sonra, küme yöneticisi, salt-okur).** Önce iki nesne, yolları ve log notu;
+  beklenen `tappa` için `/` ve `<none>`, `tappa-panel` için `/admin` ve `false`:
 
   ```bash
-  # 1) İki nesne, yollar ve log notu:
   kubectl -n tappa get ingress tappa tappa-panel \
     -o custom-columns='NAME:.metadata.name,PATHS:.spec.rules[*].http.paths[*].path,ACCESSLOG:.metadata.annotations.nginx\.ingress\.kubernetes\.io/enable-access-log'
-  # beklenen: tappa  /  <none>   ·   tappa-panel  /admin  false
-  # 2) Panelde bir sayfa açıp bir form gönderdikten sonra, denetleyicinin log'unda panel satırı sayısı
-  #    (yalnız sayı basar; denetleyici bir DaemonSet ise deploy/ yerine ds/):
+  ```
+
+  Sonra panelde bir sayfa açıp bir form gönderdikten sonra, denetleyicinin log'unda panel satırı
+  sayısı — yalnız sayı basar; denetleyici bir DaemonSet ise `deploy/` yerine `ds/`. Beklenen `0` ve `0`
+  (öteki yollar, ör. ` /t?`, log'da görünmeye devam eder):
+
+  ```bash
   kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --since=10m | grep -c ' /admin'
   kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --since=10m | grep -c 'tb='
-  # beklenen: 0 ve 0 (öteki yollar, ör. ' /t?', log'da görünmeye devam eder)
   ```
 
 ---
