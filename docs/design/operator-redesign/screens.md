@@ -897,4 +897,6 @@ class="op-version">` stays literal.
 (with `op10_test.go`'s `warnNotice` regex — updated in M13-03 to `opNotice`'s `<section role="status" class="op-notice op-notice--warn">`),
 `TestLegalPage_AVersionPublishedBetweenTheTwoReadsIsNotCalledBehind`,
 `TestLegalScreen_ReopensOnPastedMarkupWithoutExecutingIt`, `TestLegalScreen_TheTextClearsAA`,
-`TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget`.
+`TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget`; since M13-14 the column, tags and words,
+`TestLegalScreen_IsTheIntroCardTheEditorsAndTheDocket`, and the docket's rules,
+`TestLegalVersions_TheScopedRulesKeepTheBoardsColumns`.

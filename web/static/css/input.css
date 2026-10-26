@@ -1531,6 +1531,33 @@
     content: '';
     @apply md:absolute md:inset-x-0 md:top-1/2 md:h-11 md:-translate-y-1/2;
   }
+  /* THE LEGAL TEXTS' VERSIONS IN THE REDESIGN (M13-14; docs/design/operator-redesign README §6.1
+     "Legal versions", screens.md §12, boards OpLegal, T-OpLegal, M-OpLegal). Scoped from the
+     docket's heading id: the row's markup is pinned (<li class="op-version">, its four bare spans
+     and, on a document's live version, the chip), and each rule here only places or sets a child.
+     THE HEADING: the boards' rule under it, a 2 px dash in the perforation tone, 12 px below.
+     A ROW from the tablet: the boards' five columns -- the time (bold), the path, the length (at
+     ink 70 %, set at its column's end, never broken), the publisher, the chip at the row's end;
+     a row with no chip leaves the last column empty -- 164 / 136 / 92 / the rest / 64 px on the
+     tablet, 172 / 150 / 96 / the rest / 64 px on the desktop, 20 px apart, centred, at least 44 px
+     tall, 10 px above and below. On the phone the time and the chip share the first line (the
+     chip drawn second, the document keeping it last), the path takes the second, the length and
+     the publisher the third, 14 px apart, 12 px above and below. The values are the data face at
+     13 px, the publisher's name Space Grotesk at 14 px; a value with no space in it breaks
+     anywhere rather than widening the page. Under each row the docket row's own dashed rule.
+     NO SELECTOR HERE NAMES THE CHIP'S CLASS (TestTallyRules_NoToneRuleColoursTheWord). Ink on
+     paper 16.17:1, ink at 70 % on paper 6.05:1 (TestLegalScreen_TheTextClearsAA). Each rule is one
+     @apply, read and pinned by TestLegalVersions_TheScopedRulesKeepTheBoardsColumns. */
+  [aria-labelledby="legal-versions"] > h2 { @apply border-b-2 border-dashed border-line pb-3; }
+  [aria-labelledby="legal-versions"] .op-version {
+    @apply gap-x-3.5 gap-y-0.5 py-3 text-[13px] [overflow-wrap:anywhere] md:grid md:min-h-11 md:grid-cols-[164px_136px_92px_minmax(0,1fr)_64px]
+           md:items-center md:gap-x-5 md:gap-y-1 md:py-2.5 desk:grid-cols-[172px_150px_96px_minmax(0,1fr)_64px];
+  }
+  [aria-labelledby="legal-versions"] .op-version > :first-child { @apply -order-2 flex-1 font-bold md:order-none; }
+  [aria-labelledby="legal-versions"] .op-version > :nth-child(2) { @apply basis-full; }
+  [aria-labelledby="legal-versions"] .op-version > :nth-child(3) { @apply whitespace-nowrap text-ink/70 md:text-right; }
+  [aria-labelledby="legal-versions"] .op-version > :nth-child(4) { @apply min-w-0 font-display text-sm; }
+  [aria-labelledby="legal-versions"] .op-version > :nth-child(5) { @apply -order-1 md:order-none md:justify-self-end; }
 
   /* THE INTEGRATION GUIDE'S BODY (M11 DOCS-1, /docs/api). internal/apiguide converts the
      Markdown with goldmark, whose output carries no class, so every rule here is scoped
