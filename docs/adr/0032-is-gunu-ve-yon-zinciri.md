@@ -832,8 +832,7 @@ ve *"Not right? Clock out"* (yetim çıkış, (c)); kartın ön dolgusu vardiya 
 oluşacak 9 sa 55 dk'lık aralığın iki ucu da bantta ve ikisi de çalışanın seçimi — bant tek başına tek bir
 Approve'a izin veriyordu. Kural `claim.Assessment.WithAnchorChosen`'dadır: `RequiresConfirmation = OutsideBand ∨
 AnchorChosen`; okuma `tap.RecordedDirectionSource` iledir (manuel satırın `'employee'`'si tetiklemez); domain ve
-panel aynı değerlendirmeyi okur ve adımın kutusu nedeni söyler (*"They chose this direction on the plaque, so it
-is not approved in one press."*). Onay konusu (`ConfirmationSubject`) değişmedi. Sonuç: onay adımı **daha çok**
+panel aynı değerlendirmeyi okur ve adımın kutusu nedeni söyler (*"They chose this direction when they tapped, so it is not approved in one press."* — seçim telefondaki tap sayfasında, *"Not right?"* ile yapılır; QR çapasında plaket bile yoktur, odaktaki işaret de *"They chose this direction"* der). Onay konusu (`ConfirmationSubject`) ve adımın `adminConfirm` eylemi `claim.approve_outside_band` değişmedi; etiket artık bant dışını **ve** S5'i (çalışanın seçtiği çapayı) kapsar, adı tarihsel olarak kalır. Sonuç: onay adımı **daha çok**
 çıkar, **hiçbir zaman daha az**. Ölçüm: `TestDecideDB_S5AnAnchorThePersonChoseAlwaysAsksTheStep` (çalışanın seçtiği
 çapa → adım; motorun seçtiği bant içi çapa → tek basış; manuel + `'employee'` → tek basış),
 `TestAssess_WithAnchorChosenOnlyAddsTheStep`, `TestClaimQueue_S5AChosenRecordAsksTheStepAndSaysWhy`.

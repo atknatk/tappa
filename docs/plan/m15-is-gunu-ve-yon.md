@@ -1102,6 +1102,10 @@ varsa reddeder.
    süresi domain'de hesaplanır (kuyruk yalnız gösterir). **Müdürün *Edit* saati de aynı banda tabidir** (ürün
    N8 — bilerek): bant dışı bir *Edit* aynı onay adımını ister; iki yolun ayrı kurala tabi olması *"Edit'le
    gir, adımı atla"* kısayolunu açardı.
+   *Not (2026-10-25 ve 2026-10-26, uygulamada genişledi — ADR 0032 §C.4 uygulama notları):* bant oluşacak
+   aralığın **iki ucunu** ölçer (talep edilen an ve çapa; M15-16 düzeltme turu, X2) ve çalışanın yönünü
+   **seçtiği** çapada onay adımı **her zaman** istenir (M15-19, orkestratör kararı S5). Onay adımı daha sık
+   çıkar, hiçbir zaman daha az.
 7. **Karar** (kilit altında): pencere ve çapa durumu yeniden doğrulanır; **onaylanacak manuel satırın zincire
    eklendiği hâli `tap`'in sınıflandırmasıyla sınanır — yeni çift gerçekten `closes` olmalı**; onay (ya da
    *Edit*) → `manual.Recorder`'ın işlem alan varyantı (mekân = çapanın mekânı; eş mekânda
@@ -1216,7 +1220,8 @@ aynı gerekçe).
 **Odaktaki talep müdüre gösterir (K3, G-Y1):** çapa (an, yön, `direction_source = employee` ise işaretli,
 kanal) · komşu olaylar · **oluşacak aralık ve süresi** · çözülmüş vardiya ve sapma · *"default not changed"* (yalnız `prefilled_at` doluyken)
 işareti. **Bant dışı ya da vardiyasız** talepte Approve doğrudan yazmaz: odak formu aralığı ve sapmayı
-yineleyen bir onay adımı ister.
+yineleyen bir onay adımı ister. *Not (2026-10-26, M15-19 — ADR 0032 §C.4 S5 notu):* çalışanın yönünü seçtiği
+çapada da (bant içinde olsa bile) adım istenir; adımın kutusu nedeni söyler.
 
 **Rota:** karar POST'ları `mountWriting`'in ana grubu (`ProtectWriting()`, `dashboard.go:166`, flag kararı
 `:167`'nin yanı) — askıda 403. Rol: owner ve manager — bugünkü flag kuyruğuyla aynı (ölçüldü: `review.go:359`
@@ -1274,6 +1279,10 @@ büyüğünün üstüne yeniden numaralanır (goose *missing*), sonra birleştir
 `TestEveryNamedTestExists` yeşil; güvenlik merceği ONAY; RLS ve TRUNCATE testleri iki yeni tabloda yeşil;
 uçtan uca DB senaryosu (Pzt unutulan çıkış → Sal sabah `in` → kart → talep → onay → Pzt 8 sa, liste boş;
 reddedilince Pzt listede); skill bu kartta değişmedi; `main`'e birleştirme kullanıcının kararı.
+*Not (2026-10-26, M15-19):* *"iki sabit saatli koşum"*u M15-04 kartı yardımcının özelliğiyle değiştirdi
+(*"Suite saatten bağımsız — yardımcının özelliğiyle kanıtlanır"* ve M15-04'ün kabul kriteri); M15-19'da
+`TestFarDayCutoff_*` özelliği tam suite'te yeşil koştu ve saate bağlı paketler ayrıca `TZ=Pacific/Chatham` ile
+`-race` koşuldu (ADR 0032 *"Uygulandı"*).
 
 ---
 

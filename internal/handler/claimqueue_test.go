@@ -863,7 +863,7 @@ func TestClaimQueue_S5AChosenRecordAsksTheStepAndSaysWhy(t *testing.T) {
 		t.Fatalf("the first press answered %d and wrote %d; want the step and nothing written", first.Code, len(f.writes()))
 	}
 	page := htmlOf(t, first)
-	if !strings.Contains(page, "They chose this direction on the plaque, so it is not approved in one press.") {
+	if !strings.Contains(page, "They chose this direction when they tapped, so it is not approved in one press.") {
 		t.Error("the step does not say the person chose the record's direction")
 	}
 	if strings.Contains(page, "outside the shift&#39;s band") {
@@ -886,8 +886,8 @@ func TestClaimStepWhy_NamesTheDomainsReasons(t *testing.T) {
 		want string
 	}{
 		{claim.Assessment{OutsideBand: true}, "It is outside the shift's band, or there is no shift, so it is not approved in one press."},
-		{claim.Assessment{AnchorChosen: true}, "They chose this direction on the plaque, so it is not approved in one press."},
-		{claim.Assessment{OutsideBand: true, AnchorChosen: true}, "It is outside the shift's band, or there is no shift, and they chose this direction on the plaque, so it is not approved in one press."},
+		{claim.Assessment{AnchorChosen: true}, "They chose this direction when they tapped, so it is not approved in one press."},
+		{claim.Assessment{OutsideBand: true, AnchorChosen: true}, "It is outside the shift's band, or there is no shift, and they chose this direction when they tapped, so it is not approved in one press."},
 	} {
 		if got := claimStepWhy(tc.a); got != tc.want {
 			t.Errorf("claimStepWhy(%+v) = %q, want %q", tc.a, got, tc.want)

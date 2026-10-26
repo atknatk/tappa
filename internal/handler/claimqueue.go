@@ -582,12 +582,12 @@ func claimConfirmView(st claimStep, in claim.Inspection, zone *time.Location) *p
 // and AnchorChosen), never a third the panel invents: M15-19, S5 made the person's own choice of the
 // record's direction a reason of its own.
 func claimStepWhy(as claim.Assessment) string {
-	const chose = "they chose this direction on the plaque"
+	const chose = "they chose this direction when they tapped"
 	switch {
 	case as.AnchorChosen && as.OutsideBand:
 		return "It is outside the shift's band, or there is no shift, and " + chose + ", so it is not approved in one press."
 	case as.AnchorChosen:
-		return "They chose this direction on the plaque, so it is not approved in one press."
+		return "They chose this direction when they tapped, so it is not approved in one press."
 	default:
 		return "It is outside the shift's band, or there is no shift, so it is not approved in one press."
 	}
