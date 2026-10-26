@@ -638,8 +638,7 @@ templ PanelWordmark() {
 // to the switch page (M14-12; panelbusinessview.go says where each part comes from). It sits
 // under the header at every width, so it exists once in the document. On the phone it is a row
 // of the porcelain top bar: the name, then the link at the row's end. On the tablet's rail the
-// name is read but not shown -- the rail is too narrow for words, as it is for a branded
-// business's name -- and the link is a rail tile. On the sidebar the name stands under the
+// name is shown in the rail's small type, at most three lines, and the link is a rail tile. On the sidebar the name stands under the
 // lockup, paper on ink, with the link below it. A branded business's header already prints the
 // name, so there only the link is drawn. The link is a 44 px target at every width.
 templ panelBusiness(c PanelChrome) {

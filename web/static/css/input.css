@@ -487,9 +487,11 @@
   }
   /* The business block (M14-12, pages.panelBusiness): the business's name and, while the
      identity flag is on, "Switch business". Phone: a row of the porcelain top bar, the name
-     wrapping at the left, the link at the right. Tablet rail: the name read but not shown (the
-     brand header's rule for its name), the link a 72px rail tile like a section link. Sidebar:
-     the name under the lockup, the link under the name.
+     wrapping at the left, the link at the right. Tablet rail: the name SHOWN in the rail tabs'
+     10px type, centred in the 72px column, at most three lines (the rest is cut visually, still
+     read in full) -- an unbranded rail has no initial or logo, so hiding the name there would
+     leave the business unnamed at that width (M14-12 review); the link a 72px rail tile like a
+     section link. Sidebar: the name under the lockup, the link under the name.
      CONTRAST, measured: ink on porcelain 14.32:1 (name and link on the phone); paper on ink
      16.2:1 (rail and sidebar). The tenant accent reaches none of it (ADR 0023 §2). The link's
      44px is held by panelTouchTargets. */
@@ -500,7 +502,8 @@
   }
   .side-biz-name {
     @apply min-w-0 flex-1 break-words font-display text-sm font-bold leading-tight tracking-tight
-           text-ink md:sr-only md:text-paper desk:not-sr-only desk:text-base;
+           text-ink md:line-clamp-3 md:w-[72px] md:flex-none md:text-center md:text-[10px]
+           md:text-paper desk:line-clamp-none desk:w-auto desk:text-left desk:text-base;
   }
   .side-switch {
     @apply inline-flex min-h-11 shrink-0 items-center font-display text-sm font-medium text-ink

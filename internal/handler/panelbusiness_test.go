@@ -7,8 +7,10 @@ package handler
 import (
 	"bytes"
 	"context"
+	"io/fs"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/web"
 	"github.com/atknatk/tappa/web/templates/layout"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
@@ -287,5 +290,64 @@ func TestPanelBusinessView_TheZeroValueDrawsNothing(t *testing.T) {
 		if strings.Contains(buf.String(), "side-biz") || strings.Contains(buf.String(), "side-switch") {
 			t.Errorf("%s: the shell draws a business block", name)
 		}
+	}
+}
+
+// hidingDeclarations are the declarations that take an element's text off the screen while
+// leaving it in the document: the visually-hidden recipe's (position, 1px box, clip) and the
+// plain ways.
+var hidingDeclarations = []string{"clip:rect(0,0,0,0)", "position:absolute", "width:1px", "display:none",
+	"visibility:hidden", "opacity:0"}
+
+// hiddenRulesOf returns, for class, every flat rule of the compiled stylesheet whose selector names
+// it and that carries one of hidingDeclarations, and how many rules name it at all. It reads rules
+// inside @media too (the flat-rule shape TestPanelScreens_TouchTargetClassesReserve44px reads).
+func hiddenRulesOf(css, class string) (hidden []string, named int) {
+	ruleRE := regexp.MustCompile(`([^{}]*)\{([^{}]*)\}`)
+	sel := regexp.MustCompile(`\.` + regexp.QuoteMeta(class) + `(?:[^-\w]|$)`)
+	for _, rule := range ruleRE.FindAllStringSubmatch(css, -1) {
+		if !sel.MatchString(rule[1]) {
+			continue
+		}
+		named++
+		for _, d := range hidingDeclarations {
+			if strings.Contains(rule[2], d) {
+				hidden = append(hidden, rule[0])
+				break
+			}
+		}
+	}
+	return hidden, named
+}
+
+// TestPanelShell_TheRailShowsTheBusinessName (M14-12 review): no rule of the compiled stylesheet,
+// at any width, takes the unbranded business's name off the screen -- on the tablet's rail
+// included, where an unbranded business has no initial or logo, so a hidden name would leave the
+// business unnamed (and M14-13's refusal page sends the person to the panel to see it). The
+// name's rules are found at the phone, rail and sidebar widths. CONTROL: the same reader finds the
+// branded header's name block hidden on the rail (it is, on purpose: the branded rail shows the
+// logo or the initial), so a reader that sees nothing cannot pass.
+//
+// ⚠️ IT NEEDS A COMPILED web/static/css/app.css (CI runs make css first); without one it SKIPs,
+// and a SKIP IS NOT A PASS.
+//
+// MUTATION (measured): the rail's screen-reader-only utility put back on the name's rule in
+// input.css, make css -> red.
+func TestPanelShell_TheRailShowsTheBusinessName(t *testing.T) {
+	raw, err := fs.ReadFile(web.Static(), "css/app.css")
+	if err != nil {
+		t.Skipf("no compiled stylesheet to read (%v) -- run `make css`. THIS IS NOT A PASS.", err)
+	}
+	css := string(raw)
+	if hidden, named := hiddenRulesOf(css, "side-named"); named == 0 || len(hidden) == 0 {
+		t.Fatalf("CONTROL: the branded name block has %d rules and %d hiding ones; the reader is not "+
+			"reading the stylesheet", named, len(hidden))
+	}
+	hidden, named := hiddenRulesOf(css, "side-biz-name")
+	if named < 3 {
+		t.Errorf("%d compiled rules name the business's name, want its phone, rail and sidebar rules", named)
+	}
+	for _, r := range hidden {
+		t.Errorf("a compiled rule takes the business's name off the screen: %s", r)
 	}
 }
