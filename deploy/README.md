@@ -2016,12 +2016,13 @@ satır) hiçbir şeyi değiştirmeden **reddeder** — geri dönüş önceki bin
   ROLLBACK;
   ```
 
-  sonra iptal (dönen satır sayısı yukarıdakine yakın olmalı; çok farklıysa `ROLLBACK`):
+  sonra iptal — yüklemi sayımınkiyle **aynı** (süresi dolmuş linklere dokunmaz: onların "expired" izi
+  "superseded"e dönmesin); dönen satır sayısı yukarıdakine yakın olmalı, çok farklıysa `ROLLBACK`:
 
   ```sql
   BEGIN;
   SET LOCAL lock_timeout = '1s';
-  UPDATE admin_identity_resets SET cancelled_at = now() WHERE used_at IS NULL AND cancelled_at IS NULL;
+  UPDATE admin_identity_resets SET cancelled_at = now() WHERE used_at IS NULL AND cancelled_at IS NULL AND expires_at > now();
   COMMIT;
   ```
 

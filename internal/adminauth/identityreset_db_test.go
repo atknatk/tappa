@@ -320,30 +320,38 @@ func TestIssueForPerson_AFailedRequestLeavesNoLiveLink(t *testing.T) {
 }
 
 // TestIssueForEmail_ASecondRowFailureWithdrawsTheFirstRowsLink: the per-row path's pre-existing orphan
-// (the same audit): two rows of one address, the second row's transaction fails -> the request fails
-// and the first row's link, already committed, is withdrawn; the next request mints for both.
-// MUTATION: withdrawAfterFailure in issueForRows removed -> red.
+// (the same audit): two rows of one address, the second row fails -> the request fails and the first
+// row's link, already committed, is withdrawn; the next request mints for both. Run at both failure
+// points of issueForRows: the second row's address read (the third tenant transaction) and its mint
+// (the fourth). MUTATION: either withdrawAfterFailure in issueForRows removed -> its subtest red.
 func TestIssueForEmail_ASecondRowFailureWithdrawsTheFirstRowsLink(t *testing.T) {
 	d := testDB(t)
-	ctx := context.Background()
-	email := randEmail(t)
-	first := newAdminRow(t, d, newTenantRow(t, d, "Orphan One Ltd"), email, "p", "active", "owner", "First")
-	newAdminRow(t, d, newTenantRow(t, d, "Orphan Two Ltd"), email, "p", "active", "owner", "Second")
-	// Per row: the address read (one transaction), then the mint (one). The third is the second row's read.
-	r := cheapResets(t, &faultyResetDB{DB: d, failWithTenantAt: 3})
-	if _, _, err := r.IssueForEmail(ctx, email); !errors.Is(err, errInjected) {
-		t.Fatalf("IssueForEmail = %v, want the injected failure", err)
-	}
-	owner := ownerConn(t)
-	var total, live int
-	if err := owner.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE used_at IS NULL AND cancelled_at IS NULL) FROM password_resets WHERE admin_user_id = $1`, first).Scan(&total, &live); err != nil {
-		t.Fatal(err)
-	}
-	if total != 1 || live != 0 {
-		t.Errorf("the first row: %d links, %d live; want its one link withdrawn", total, live)
-	}
-	grants, kept, err := cheapResets(t, d).IssueForEmail(ctx, email)
-	if err != nil || len(grants) != 2 || len(kept) != 0 {
-		t.Fatalf("the next request: %d grants, %d kept, %v; want both rows minted", len(grants), len(kept), err)
+	for _, c := range []struct {
+		name   string
+		failAt int
+	}{{"the second row's address read fails", 3}, {"the second row's mint fails", 4}} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := context.Background()
+			email := randEmail(t)
+			first := newAdminRow(t, d, newTenantRow(t, d, "Orphan One Ltd"), email, "p", "active", "owner", "First")
+			newAdminRow(t, d, newTenantRow(t, d, "Orphan Two Ltd"), email, "p", "active", "owner", "Second")
+			// Per row: the address read (one tenant transaction), then the mint (one).
+			r := cheapResets(t, &faultyResetDB{DB: d, failWithTenantAt: c.failAt})
+			if _, _, err := r.IssueForEmail(ctx, email); !errors.Is(err, errInjected) {
+				t.Fatalf("IssueForEmail = %v, want the injected failure", err)
+			}
+			owner := ownerConn(t)
+			var total, live int
+			if err := owner.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE used_at IS NULL AND cancelled_at IS NULL) FROM password_resets WHERE admin_user_id = $1`, first).Scan(&total, &live); err != nil {
+				t.Fatal(err)
+			}
+			if total != 1 || live != 0 {
+				t.Errorf("the first row: %d links, %d live; want its one link withdrawn", total, live)
+			}
+			grants, kept, err := cheapResets(t, d).IssueForEmail(ctx, email)
+			if err != nil || len(grants) != 2 || len(kept) != 0 {
+				t.Fatalf("the next request: %d grants, %d kept, %v; want both rows minted", len(grants), len(kept), err)
+			}
+		})
 	}
 }

@@ -52,8 +52,9 @@
 - Uygulanmış migration değişmez (§6); bugün son `00063`. **Migration numaraları (R20):** M14 toplam
   **on bir** dosya doğurur — M14-03 iki (N: tablo + sütunlar + tetikleyici; N+1: `CONCURRENTLY` indeksi),
   M14-04 bir (N+2), M14-05 bir (N+3), M14-06 bir (N+4), M14-06b bir, M14-15 bir, M14-16 bir, M14-17 bir,
-  M14-19 bir (yalnız `REVOKE EXECUTE`), M14-20b bir (M14-20a şemaya dokunmaz; M14-08…M14-14 ve M14-18 migration doğurmaz — doğurursa kart
-  numara ister). **Paralel şema hattı için N … N+4 beş numara**, M14-03 açılırken orkestratörce birlikte
+  M14-19 bir (yalnız `REVOKE EXECUTE`), M14-20b bir (M14-20a şemaya dokunmaz; M14-08…M14-13 ve M14-18 migration doğurmaz — doğurursa kart
+  numara ister; **M14-14 bir doğurdu: `00075`** — `resolve_identity_by_email` ve `identity_consume_reset`'in
+  dönüşüne kimliğin kayıtlı adresi (`email`) eklenir, 2026-10-26 kullanıcı onayı, ADR 0031 §5.2 notu). **Paralel şema hattı için N … N+4 beş numara**, M14-03 açılırken orkestratörce birlikte
   ayrılır (bugün N = `00064`, o gün başka bir migration girmediyse); kalanlar kart açılırken sırayla.
 - Henüz var olmayan testin adı belgeye yazılmaz (`TestEveryNamedTestExists`); testi tarif et.
 - **Dal:** kullanıcının açacağı feature dalı (öneri `m14-identity`). Her `main` birleştirmesi bir
