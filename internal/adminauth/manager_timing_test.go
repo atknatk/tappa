@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"slices"
 	"sort"
@@ -871,11 +874,13 @@ func TestTimingConfig_RejectsTheKnownBadTuples(t *testing.T) {
 // address that IS registered more than once" — died when M7-02 made an attacker able
 // to CREATE that condition.
 //
-// IT IS A COUNT AND A RATIO, NOT A DELTA. The two arms do the same NUMBER of comparisons
+// IT IS A COUNT AND TWO RATIOS, NOT A DELTA. The two arms do the same NUMBER of comparisons
 // (MaxCandidates), each at the shipped work factor -- asserted exactly, through the
-// comparison seam, so no load can imitate or hide it -- and the clock is read as the ratio
-// of each arm's MEDIAN comparison, the arms running at the same time; a mutation that
-// removes the padding makes the unknown arm 8x cheaper, which fails both.
+// comparison seam, so no load can imitate or hide it -- and the clock is read twice, the arms
+// running at the same time: the ratio of each arm's MEDIAN comparison, and the ratio of the
+// two whole logins. The total is the gate for work the seam cannot see (a bcrypt run past
+// m.compare -- its source-side twin is TestAuthenticate_PadsEveryExitToTheCap); a mutation that
+// removes the padding makes the unknown arm 8x cheaper, which fails all three.
 func TestAuthenticate_TimingDoesNotCountTheCandidates(t *testing.T) {
 	if testing.Short() {
 		t.Skip("-short: skipping the bcrypt wall-clock SAMPLE. The COUNT this measures is " +
@@ -975,6 +980,17 @@ func TestAuthenticate_TimingDoesNotCountTheCandidates(t *testing.T) {
 			"otherwise the response time still counts the candidates.", medNone, medOne,
 			MaxCandidates, ratio)
 	}
+	// AND THE WHOLE LOGIN AGREES: the two totals within the same factor of two. The seam above sees
+	// only the comparisons that go through m.compare; work that bypasses it -- a registered
+	// candidate that pays extra bcrypt runs of its own -- shows only here (the third-eye audit's
+	// mutation: 16 extra Compare calls on the candidate loop left the count at 8/8 and the medians
+	// equal, totals 7.93 s vs 2.87 s). Concurrent arms read ~1.00 under load (measured, -race).
+	if total := float64(armOne.total) / float64(armNone.total); total < 0.5 || total > 2.0 {
+		t.Errorf("an unregistered address takes %v and a registered one %v (ratio %.2f). "+
+			"They must be within a factor of two: a variable amount of work is a timing "+
+			"oracle for 'is this address registered', measured at 216 ms vs 437 ms before "+
+			"padComparisons existed.", armNone.total, armOne.total, total)
+	}
 	// ANTI-VACUITY: both arms must really be doing the full padded work. One comparison alone
 	// cannot take this long at the shipped cost, and a stall only makes a login slower.
 	if floor := time.Duration(MaxCandidates/2) * 100 * time.Millisecond; armNone.total < floor {
@@ -1033,4 +1049,74 @@ func TestAuthenticate_PadsEveryExitToTheCap(t *testing.T) {
 		t.Error("Authenticate calls CompareDummy directly; every dummy must go through " +
 			"padComparisons or the total stops being constant")
 	}
+
+	// NO BCRYPT PAST THE SEAM (the M14 test-infra card's audit). Authenticate and pad compare ONLY
+	// through m.compare (pad's loop) and m.pad: a direct Compare / CompareDummy / bcrypt.* call in
+	// either is work the comparison count cannot see, so a registered address could pay more of it
+	// than an unknown one with the count still 8/8. Read from the syntax tree, not the text, so a
+	// comment or a string naming Compare is not a finding. NO COMPLETENESS CLAIM: a call through
+	// another helper of the package is not followed.
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "manager.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parsing manager.go: %v", err)
+	}
+	if bad := bcryptPastTheSeam(fset, f, "Authenticate", "pad"); len(bad) > 0 {
+		t.Errorf("bcrypt work outside m.compare in the sign-in path:\n%s", strings.Join(bad, "\n"))
+	}
+	// POSITIVE CONTROL: the same scan finds each shape in a source written here, and not the seam.
+	const control = `package p
+func (m *Manager) Authenticate() { m.compare("d", "p"); m.pad("p", "", 0); Compare("d", "p"); _ = CompareDummy("p") }
+func (m *Manager) pad() { _ = m.compare("d", "p"); bcrypt.CompareHashAndPassword(nil, nil) }
+func (m *Manager) compare() { Compare("d", "p") }
+`
+	cf, err := parser.ParseFile(fset, "control.go", control, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := bcryptPastTheSeam(fset, cf, "Authenticate", "pad")
+	want := []string{
+		"Authenticate calls Compare (control.go:2)",
+		"Authenticate calls CompareDummy (control.go:2)",
+		"pad calls bcrypt.CompareHashAndPassword (control.go:3)",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("POSITIVE CONTROL FAILED: the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// bcryptPastTheSeam lists the calls in the named Manager methods of f that do bcrypt work
+// without going through m.compare: Compare, CompareDummy, or anything of package bcrypt.
+func bcryptPastTheSeam(fset *token.FileSet, f *ast.File, methods ...string) []string {
+	var bad []string
+	for _, d := range f.Decls {
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok || fd.Recv == nil || fd.Body == nil || !slices.Contains(methods, fd.Name.Name) {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			c, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			name := ""
+			switch fn := c.Fun.(type) {
+			case *ast.Ident:
+				if fn.Name == "Compare" || fn.Name == "CompareDummy" {
+					name = fn.Name
+				}
+			case *ast.SelectorExpr:
+				if x, ok := fn.X.(*ast.Ident); ok && x.Name == "bcrypt" {
+					name = "bcrypt." + fn.Sel.Name
+				}
+			}
+			if name != "" {
+				p := fset.Position(c.Pos())
+				bad = append(bad, fmt.Sprintf("%s calls %s (%s:%d)", fd.Name.Name, name, p.Filename, p.Line))
+			}
+			return true
+		})
+	}
+	sort.Strings(bad)
+	return bad
 }
