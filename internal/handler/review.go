@@ -640,6 +640,7 @@ func (a *AdminAuth) chromeInGroup(r *http.Request, tab pages.PanelTab, inGroup b
 		Role:     id.Admin.Role,
 		Tab:      tab,
 		Brand:    a.panelBrand(r.Context(), id.TenantID()),
+		Business: a.panelBusiness(id),
 		InGroup:  inGroup,
 	}
 	// THE SUSPENSION STRIP (ADR 0025 §3) is built here for the reason the badge and the

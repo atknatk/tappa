@@ -509,6 +509,9 @@ templ panelChrome(c PanelChrome) {
 			} else {
 				@PanelWordmark()
 			}
+			if c.showsBusiness() {
+				@panelBusiness(c)
+			}
 			@components.SideNav(panelNavMain(c), panelNavFoot(c), c.CurrentHref())
 			<div class="side-foot">
 				<p class="side-who">
@@ -629,6 +632,24 @@ templ PanelWordmark() {
 			</div>
 		</div>
 	</header>
+}
+
+// panelBusiness names the business the session is in and, while the identity flag is on, links
+// to the switch page (M14-12; panelbusinessview.go says where each part comes from). It sits
+// under the header at every width, so it exists once in the document. On the phone it is a row
+// of the porcelain top bar: the name, then the link at the row's end. On the tablet's rail the
+// name is shown in the rail's small type, at most three lines, and the link is a rail tile. On the sidebar the name stands under the
+// lockup, paper on ink, with the link below it. A branded business's header already prints the
+// name, so there only the link is drawn. The link is a 44 px target at every width.
+templ panelBusiness(c PanelChrome) {
+	<div class="side-biz">
+		if n := c.businessName(); n != "" {
+			<p class="side-biz-name">{ n }</p>
+		}
+		if c.Business.SwitchHref != "" {
+			<a href={ templ.URL(c.Business.SwitchHref) } class="side-switch">Switch business</a>
+		}
+	</div>
 }
 
 // panelSuspensionStrip is the strip a suspended business sees on every section (ADR 0025
