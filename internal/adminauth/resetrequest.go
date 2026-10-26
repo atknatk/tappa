@@ -218,7 +218,7 @@ func (r *Resets) issueForRows(ctx context.Context, candidates []db.ResolvedAdmin
 		// for identities the resolver already returned.
 		to, err := r.recipient(ctx, c.TenantID, c.ID)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, r.withdrawAfterFailure(ctx, err, grants)
 		}
 		if to == "" {
 			// Disabled or gone between the resolver and this read. Skipped in silence
@@ -230,7 +230,9 @@ func (r *Resets) issueForRows(ctx context.Context, candidates []db.ResolvedAdmin
 			if errors.Is(err, ErrNoSuchAdmin) {
 				continue
 			}
-			return nil, nil, err
+			// The rows minted before this one are withdrawn (M14-14's audit): an error answers the
+			// whole request, so none of its grants is ever delivered.
+			return nil, nil, r.withdrawAfterFailure(ctx, err, grants)
 		}
 		if live != nil {
 			kept = append(kept, *live)

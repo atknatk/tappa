@@ -82,7 +82,7 @@ func (p PersonResets) Empty() bool {
 
 // IssueForPerson is the per-identity request (this file's header): the address's identity gets at most
 // one live link; the address's rows NOT linked to an identity get today's per-row links, inside
-// ResetWindow. An identity with no active, unrefused membership gets no link -- it could not sign in
+// ResetWindow. An error leaves no live link it minted (withdrawAfterFailure). An identity with no active, unrefused membership gets no link -- it could not sign in
 // with any password, the per-row path's rule for a disabled row.
 //
 // The linked rows are taken out BEFORE the window is cut (AuthenticatePerson's legacy arm, T2): left
@@ -94,23 +94,19 @@ func (r *Resets) IssueForPerson(ctx context.Context, email string) (PersonResets
 		return PersonResets{}, nil
 	}
 
-	var out PersonResets
+	// THE READS FIRST, THE IDENTITY'S MINT LAST (M14-14's security audit, measured). Every statement
+	// that can fail -- the two resolvers, the per-row mints -- runs before identity_open_reset, so no
+	// failure can come AFTER the identity's link committed and leave it minted, undelivered and
+	// unwithdrawn: under one live link per identity that orphan answered every later request of the
+	// owner "kept" for ResetTTL -- no recovery in ANY business, repeatable by anyone who could make a
+	// request fail after the mint (a dropped connection is enough). And whatever DID get minted when an
+	// error is returned anyway is withdrawn (withdrawAfterFailure), so an error never leaves a live link
+	// nobody holds.
 	ident, err := r.data.ResolveIdentityByEmail(ctx, email)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-	case err != nil:
+	hasIdentity := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return PersonResets{}, fmt.Errorf("adminauth: issue reset for person: %w", err)
-	case ident.HasActiveMembership:
-		grant, kept, err := r.openForIdentity(ctx, recipientOf(ident))
-		if err != nil {
-			return PersonResets{}, err
-		}
-		if grant != nil {
-			out.Grants = append(out.Grants, *grant)
-		}
-		out.IdentityKept = kept
 	}
-
 	rows, err := r.data.GetAdminByEmail(ctx, email)
 	if err != nil {
 		return PersonResets{}, fmt.Errorf("adminauth: issue reset for person: %w", err)
@@ -128,9 +124,41 @@ func (r *Resets) IssueForPerson(ctx context.Context, email string) (PersonResets
 	if err != nil {
 		return PersonResets{}, err
 	}
-	out.Grants = append(out.Grants, grants...)
-	out.Kept = kept
+	out := PersonResets{Grants: grants, Kept: kept}
+	if hasIdentity && ident.HasActiveMembership {
+		grant, identityKept, err := r.openForIdentity(ctx, recipientOf(ident))
+		if err != nil {
+			return PersonResets{}, r.withdrawAfterFailure(ctx, err, grants)
+		}
+		if grant != nil {
+			out.Grants = append([]ResetGrant{*grant}, out.Grants...)
+		}
+		out.IdentityKept = identityKept
+	}
 	return out, nil
+}
+
+// withdrawAfterFailure retires every link minted by a request that is about to answer err, so a
+// failed request leaves no live link that no inbox will ever hold (EM-7C's Withdraw reason: one live
+// link per account -- or per identity -- would otherwise refuse the owner's next request for
+// ResetTTL). It runs WITHOUT the request's cancellation: the failure is often that very cancellation
+// (a dropped connection). A withdrawal that fails too is joined to err -- never swallowed (§7) -- and
+// the caller logs it.
+func (r *Resets) withdrawAfterFailure(ctx context.Context, err error, minted []ResetGrant) error {
+	base := context.WithoutCancel(ctx)
+	errs := []error{err}
+	for _, g := range minted {
+		var werr error
+		if g.IdentityID != uuid.Nil {
+			werr = r.WithdrawIdentity(base, g.Issued.Token)
+		} else {
+			werr = r.Withdraw(base, g.Issued.Reset.TenantID, g.Issued.Reset.ID)
+		}
+		if werr != nil {
+			errs = append(errs, werr)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // openForIdentity opens the identity's link, or reports the live one it holds. Exactly one result is
@@ -154,7 +182,14 @@ func (r *Resets) openForIdentity(ctx context.Context, who identityRecipient) (*R
 		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("adminauth: issue identity reset: %w", err)
+		// THE CALL MAY HAVE COMMITTED: an error here can arrive after the server wrote the link (a
+		// cancelled context, a dropped connection between COMMIT and its answer). The link's hash is in
+		// hand, so it is withdrawn whatever happened -- a link that was never written withdraws nothing.
+		err = fmt.Errorf("adminauth: issue identity reset: %w", err)
+		if _, werr := r.data.WithdrawIdentityReset(context.WithoutCancel(ctx), h); werr != nil {
+			err = errors.Join(err, fmt.Errorf("adminauth: withdraw identity reset: %w", werr))
+		}
+		return nil, nil, err
 	}
 	if !o.Issued {
 		return nil, &IdentityResetKept{IdentityID: who.id, ResetID: o.ResetID, ExpiresAt: o.ExpiresAt}, nil

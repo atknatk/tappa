@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/atknatk/tappa/internal/db"
 )
 
 // personResetWorld: one person whose identity's REGISTERED address is the upper-case spelling, two
@@ -213,5 +215,122 @@ func TestConsume_TheIdentityLinkResetsThePersonAndNamesTheRegisteredAddress(t *t
 	c, _, err = r.Consume(ctx, unknown, "a-third-password")
 	if !errors.Is(err, ErrResetUnusable) || c.IdentityRefusal != nil {
 		t.Fatalf("an unknown token: %+v, %v; want ErrResetUnusable and no identity facts", c, err)
+	}
+}
+
+// faultyResetDB is the real database with injected failures (M14-14's security audit): a context
+// cancelled right AFTER identity_open_reset committed, a failing row resolver, or the n-th tenant
+// transaction failing.
+type faultyResetDB struct {
+	*db.DB
+	cancelAfterOpen  context.CancelFunc
+	failAdminByEmail bool
+	failWithTenantAt int
+	withTenantCalls  int
+}
+
+var errInjected = errors.New("injected failure")
+
+func (f *faultyResetDB) OpenIdentityReset(ctx context.Context, id uuid.UUID, h string, exp time.Time) (db.OpenedIdentityReset, error) {
+	o, err := f.DB.OpenIdentityReset(ctx, id, h, exp)
+	if err == nil && f.cancelAfterOpen != nil {
+		f.cancelAfterOpen()
+		return db.OpenedIdentityReset{}, ctx.Err()
+	}
+	return o, err
+}
+
+func (f *faultyResetDB) GetAdminByEmail(ctx context.Context, email string) ([]db.ResolvedAdmin, error) {
+	if f.failAdminByEmail {
+		return nil, errInjected
+	}
+	return f.DB.GetAdminByEmail(ctx, email)
+}
+
+func (f *faultyResetDB) WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error {
+	f.withTenantCalls++
+	if f.withTenantCalls == f.failWithTenantAt {
+		return errInjected
+	}
+	return f.DB.WithTenant(ctx, tenantID, fn)
+}
+
+// TestIssueForPerson_AFailedRequestLeavesNoLiveLink is the security audit's ORTA, measured: the
+// request's context is cancelled right after identity_open_reset committed (an attacker dropping the
+// connection). The request fails -- and leaves NO live link: the identity's link is withdrawn by its
+// own hash and the per-row link minted before it is withdrawn too, so the owner's next request mints
+// fresh links instead of answering "kept" for ResetTTL. A failing row resolver mints nothing at all
+// (the identity's link is minted last). MUTATIONS (measured red): the withdrawal in openForIdentity
+// removed; withdrawAfterFailure in IssueForPerson removed; the identity's mint moved back before the
+// row resolver.
+func TestIssueForPerson_AFailedRequestLeavesNoLiveLink(t *testing.T) {
+	d := testDB(t)
+	w := newPersonResetWorld(t)
+	liveIdentity := func() int {
+		return w.int(`SELECT count(*) FROM admin_identity_resets WHERE identity_id = $1 AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > now()`, w.ident)
+	}
+	liveRowB := func() int {
+		return w.int(`SELECT count(*) FROM password_resets WHERE admin_user_id = $1 AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > now()`, w.rowB)
+	}
+
+	t.Run("the row resolver fails: nothing is minted", func(t *testing.T) {
+		r := cheapResets(t, &faultyResetDB{DB: d, failAdminByEmail: true})
+		if _, err := r.IssueForPerson(context.Background(), w.typed); !errors.Is(err, errInjected) {
+			t.Fatalf("IssueForPerson = %v, want the injected failure", err)
+		}
+		if n := w.int(`SELECT count(*) FROM admin_identity_resets WHERE identity_id = $1`, w.ident); n != 0 {
+			t.Errorf("%d identity links minted by a request that failed before its end", n)
+		}
+	})
+
+	t.Run("cancelled right after the identity's mint: everything withdrawn", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		r := cheapResets(t, &faultyResetDB{DB: d, cancelAfterOpen: cancel})
+		if _, err := r.IssueForPerson(ctx, w.typed); !errors.Is(err, context.Canceled) {
+			t.Fatalf("IssueForPerson = %v, want context.Canceled", err)
+		}
+		if n := w.int(`SELECT count(*) FROM admin_identity_resets WHERE identity_id = $1`, w.ident); n != 1 {
+			t.Fatalf("PREMISE: %d identity links written, want the one the cancelled request committed", n)
+		}
+		if n := liveIdentity(); n != 0 {
+			t.Errorf("%d live identity links after the failed request, want 0 (an orphan blocks the owner for ResetTTL)", n)
+		}
+		if n := liveRowB(); n != 0 {
+			t.Errorf("%d live per-row links after the failed request, want 0", n)
+		}
+		next, err := cheapResets(t, d).IssueForPerson(context.Background(), w.typed)
+		if err != nil || next.IdentityKept != nil || len(next.Grants) != 2 || next.Grants[0].IdentityID != w.ident {
+			t.Fatalf("the owner's next request: %+v, %v; want a fresh identity link and B's row link, nothing kept", next, err)
+		}
+	})
+}
+
+// TestIssueForEmail_ASecondRowFailureWithdrawsTheFirstRowsLink: the per-row path's pre-existing orphan
+// (the same audit): two rows of one address, the second row's transaction fails -> the request fails
+// and the first row's link, already committed, is withdrawn; the next request mints for both.
+// MUTATION: withdrawAfterFailure in issueForRows removed -> red.
+func TestIssueForEmail_ASecondRowFailureWithdrawsTheFirstRowsLink(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+	email := randEmail(t)
+	first := newAdminRow(t, d, newTenantRow(t, d, "Orphan One Ltd"), email, "p", "active", "owner", "First")
+	newAdminRow(t, d, newTenantRow(t, d, "Orphan Two Ltd"), email, "p", "active", "owner", "Second")
+	// Per row: the address read (one transaction), then the mint (one). The third is the second row's read.
+	r := cheapResets(t, &faultyResetDB{DB: d, failWithTenantAt: 3})
+	if _, _, err := r.IssueForEmail(ctx, email); !errors.Is(err, errInjected) {
+		t.Fatalf("IssueForEmail = %v, want the injected failure", err)
+	}
+	owner := ownerConn(t)
+	var total, live int
+	if err := owner.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE used_at IS NULL AND cancelled_at IS NULL) FROM password_resets WHERE admin_user_id = $1`, first).Scan(&total, &live); err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || live != 0 {
+		t.Errorf("the first row: %d links, %d live; want its one link withdrawn", total, live)
+	}
+	grants, kept, err := cheapResets(t, d).IssueForEmail(ctx, email)
+	if err != nil || len(grants) != 2 || len(kept) != 0 {
+		t.Fatalf("the next request: %d grants, %d kept, %v; want both rows minted", len(grants), len(kept), err)
 	}
 }
