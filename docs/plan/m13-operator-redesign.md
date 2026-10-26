@@ -65,6 +65,10 @@
     genişlikte 28, 1.1 (M13-06) · Tenants, Plaques, VAT her genişlikte 28, 1.1 (M13-07, M13-09, M13-11) ·
     Audit, Legal, Billing, Holdings 26 / 28 / 32, 1.1 (M13-12, M13-14, M13-10, M13-13). Genel bakış (c) gereği
     `docket-label` kalır (M13-08). Tablo README §6 "Card"da.
+  - **(f) Docket satırının yazı yüzü (2026-10-26, M13-09).** Docket satırında **sözcükler** Space Grotesk,
+    **değerler** (UID, sayı, saat, çip) mono; sabitlenmiş bir span sözcük ile değeri tek metinde birleştiriyorsa
+    o span docket'in mono'sunda kalır (M13-07'nin "Since … UTC"'si bu yüzden mono). Genel kural README §6
+    "Docket list"te; ilk uygulayan ekran Plaques (M13-09).
 
 **Yeni okuma kararı gerekmiyor.** Panoların her öğesi bugünkü okumalardan gelir (envanter + 12 pano,
 2026-10-20). Bir öğe yeni okuma isterse (ör. Home'a bir sayı) bu bir **karar**dır, kart değil: yeni

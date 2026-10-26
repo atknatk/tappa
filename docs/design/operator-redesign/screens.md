@@ -553,10 +553,12 @@ the UID span, `op13_test.go:285`); stacked on the phone — README §6.1 "Plaque
 `text-xs leading-[1.45] text-ink/70`, the links stacked on the phone and in a row from the tablet; no
 top margins. The docket's list is `<ol class="mt-3">`. The uid's column is 156 px on the tablet, 168 px
 on the desktop; on the phone the wrapper draws no box (the uid and the chip share the head line, each
-fact on a line of its own); the sentence and the facts in Space Grotesk, the facts' words ink 70 %
+fact on a line of its own; `display: contents`, README §6.1); the sentence and the facts' words in Space Grotesk, the values mono (decision (f)), the facts' words ink 70 %
 and their values ink, as the boards draw them; long values break anywhere. Measured at 320 / 390 /
 834 / 1200 / 1440 with every fixture and a row of spaceless long values: no horizontal scroll.
-Deliberate differences: facts 14 px (README §6 "Docket list"), the phone's fact lines 4 px apart,
+Deliberate differences: facts 14 px (README §6 "Docket list"), the phone's fact lines 4 px apart
+(boards 3), the phone's head line → sentence → first fact 4 px (boards 6), the wrapped fact lines from
+the tablet 6 px apart (boards 4),
 the dashed rule under each row, the 10 px docket heading — README §6.1 "Plaque row".
 
 **Forms:** none — the page's only `<form` is the band's sign-out and its only `<button` the
