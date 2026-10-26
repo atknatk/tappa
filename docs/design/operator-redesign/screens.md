@@ -196,7 +196,10 @@ empty or error state.
 **Tests:** `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` pins
 `<a href="/operator/holdings" class="op-link">Holdings</a>` and
 `<a href="/operator/audit" class="op-link">Audit log</a>` (the nav must use other classes so
-these stay exact and unique in meaning).
+these stay exact and unique in meaning). `TestHomeScreen_IsOneCardOfFourLinksAndReadsNothing` (M13-06)
+pins the one card, its words in order, the label and the `<h1>` tags, the four rows and their links, nothing
+hidden, no form, field or drawing in the column, and that `GET /operator` costs the store only the session's
+`TouchOperatorSession`.
 
 ---
 
