@@ -50,8 +50,10 @@ type identitySignature struct {
 
 // identitySignaturesM1404 is M14-04's part of the table (migration 00071), verbatim.
 var identitySignaturesM1404 = []identitySignature{
+	// M14-14 (00075, ADR 0031 §5.2's 2026-10-26 note): redefined with the identity's registered address
+	// appended -- the reset request's recipient, from the same row as the id.
 	{"resolve_identity_by_email", "p_email citext",
-		"TABLE(id uuid, password_hash text, email_verified_at timestamp with time zone, has_active_membership boolean)", "tappa_resolver"},
+		"TABLE(id uuid, password_hash text, email_verified_at timestamp with time zone, has_active_membership boolean, email text)", "tappa_resolver"},
 	// p_verified_digest: the user's decision of 2026-10-23 (ADR 0031 §5.2) -- the proof re-checked under the lock.
 	{"identity_open_session", "p_identity_id uuid, p_tenant uuid, p_token_hash text, p_verified_digest text",
 		"TABLE(session_id uuid, tenant_id uuid, admin_user_id uuid)", "tappa_identitydefiner"},
@@ -75,7 +77,8 @@ var identitySignaturesM1405 = []identitySignature{
 	{"identity_set_password", "p_session_hash text, p_new_hash text", "TABLE(revoked_other_sessions integer)", "tappa_identitydefiner"},
 	{"identity_consume_row_reset", "p_reset_hash text, p_new_hash text",
 		"TABLE(admin_user_id uuid, tenant_id uuid, reset_id uuid, revoked_sessions integer)", "tappa_identitydefiner"},
-	{"identity_consume_reset", "p_reset_hash text, p_new_hash text", "TABLE(identity_id uuid, revoked_sessions integer)", "tappa_identitydefiner"},
+	// M14-14 (00075): redefined with the identity's registered address appended -- the EM-9 notice's recipient.
+	{"identity_consume_reset", "p_reset_hash text, p_new_hash text", "TABLE(identity_id uuid, revoked_sessions integer, email text)", "tappa_identitydefiner"},
 	{"identity_link_legacy", "p_identity_session_hash text, p_legacy_session_hash text", "TABLE(admin_user_id uuid, tenant_id uuid)", "tappa_identitydefiner"},
 	{"identity_unlink_backfilled", "p_session_hash text, p_tenant uuid", "TABLE(admin_user_id uuid, revoked_sessions integer)", "tappa_identitydefiner"},
 	{"identity_relink_refused", "p_session_hash text, p_tenant uuid", "TABLE(admin_user_id uuid)", "tappa_identitydefiner"},

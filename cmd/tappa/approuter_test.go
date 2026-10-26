@@ -115,6 +115,16 @@ func (silentDB) SetIdentityPassword(context.Context, string, string) (int, error
 func (silentDB) ConsumeIdentityRowReset(context.Context, string, string) (db.ConsumedIdentityRowReset, error) {
 	return db.ConsumedIdentityRowReset{}, errSilent
 }
+func (silentDB) OpenIdentityReset(context.Context, uuid.UUID, string, time.Time) (db.OpenedIdentityReset, error) {
+	return db.OpenedIdentityReset{}, errSilent
+}
+func (silentDB) WithdrawIdentityReset(context.Context, string) (bool, error) { return false, errSilent }
+func (silentDB) ConsumeIdentityReset(context.Context, string, string) (db.ConsumedIdentityReset, error) {
+	return db.ConsumedIdentityReset{}, errSilent
+}
+func (silentDB) GetIdentityResetByTokenHash(context.Context, string) (db.ResolvedIdentityReset, error) {
+	return db.ResolvedIdentityReset{}, errSilent
+}
 
 // appFeatures is every feature appRouter takes, built as run() builds it, plus the
 // feature names the walk attributes routes to.

@@ -243,7 +243,7 @@ yazmaz):
 | Fonksiyon | Anahtar | Dönüş |
 |---|---|---|
 | `resolve_admin_by_email(p_email citext)` — **yeniden tanım** (M14-05, T2) | e-posta | `(id, tenant_id, password_hash, status, identity_id)`, `unlinked_at IS NULL` süzgeci, incumbent-first sıra aynen. **md.7 (iii) genişlemesi, gerekçesiyle:** kimlik doğrulanmadan önce dönen yüzeye `identity_id` eklenir — kimlik yolunun eski kolu "bağlanmamış satırlar"ı ancak bununla ayırır (Go, kimliğin **kendi** satırlarını atlar); aksi hâlde kimlik digest'inin kopyasını taşıyan bağlı satırlar 8'lik pencereyi doldurur, doğru parola boşuna "eski satırı doğrular" ve 8+ üyelikli bir kişinin bağlanmamış satırları hiç otomatik bağlanmaz. Değer bir korelasyon anahtarıdır, sır değildir; giriş yanıtına, log'a ve audit'e girmez. Eski binary uyumlu: çağıran sütunları adıyla seçer (`internal/db/resolve.go:301-302`). Bayrak `off` iken eski giriş bugünkü gibi bağlı satırları da görür |
-| `resolve_identity_by_email(p_email citext)` | e-posta | `(id, password_hash, email_verified_at, has_active_membership)` — giriş. Global UNIQUE sayesinde md.7 (ii) "≤ 1" giriş için geri gelir (bugün e-posta istisnadır, ADR 0002 `:316-322`). `has_active_membership` beşinci zamanlama durumunu kapatır (§5.6, R14) |
+| `resolve_identity_by_email(p_email citext)` | e-posta | `(id, password_hash, email_verified_at, has_active_membership, email)` — giriş ve (M14-14) kimlik başına sıfırlama talebi. Global UNIQUE sayesinde md.7 (ii) "≤ 1" giriş için geri gelir (bugün e-posta istisnadır, ADR 0002 `:316-322`). `has_active_membership` beşinci zamanlama durumunu kapatır (§5.6, R14). `email` (00075, 2026-10-26 notu): kimliğin **kayıtlı** yazımı — sıfırlama linkinin alıcısı, `id` ile aynı satırdan |
 | `resolve_identity_reset_by_token_hash(p_hash)` | sıfırlama token hash'i | `(id, identity_id, expires_at, used_at, cancelled_at)` |
 | `resolve_admin_invite_by_token_hash(p_hash)` | davet token hash'i | `(id, tenant_id, role, expires_at, used_at, cancelled_at)` |
 | `resolve_signup_claim_by_token_hash(p_hash)` | kayıt token hash'i | `(id, email, password_hash, expires_at, used_at)` — digest yalnız talep sırrıyla döner (S12) |
@@ -273,7 +273,7 @@ tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi taşır (
 | `identity_password_for_session(p_session_hash)` | canlı oturum | Hesap sayfasında mevcut parolayı doğrulamak için digest; satır bağlı değilse 0 satır (uygulama bugünkü tek-satır yolunu kullanır) |
 | `identity_set_password(p_session_hash, p_new_hash)` | canlı oturum | Kimliğe **ve** bağlı bütün satırlara yazar, öbür oturumları bütün işletmelerde iptal eder; satır bağlı değilse **0 satır** ve uygulama parolayı **yalnız o satıra** yazar (bugünkü gibi) |
 | `identity_consume_row_reset(p_reset_hash, p_new_hash)` | **eski** `password_resets` token'ı | M14-08'den itibaren: link bağlı bir satırınsa kimliği + bağlı satırları yazar, bütün oturumları iptal eder, **`email_verified_at`'i doldurur** (linke tıklayan posta kutusunun sahibidir — S5; aksi hâlde çözme hiç mümkün olmazdı) ve **`reset` kapsamlı** onay penceresini açar (ADR 0015'in anlam değişikliği **burada başlar**, bulgu 6); bağlı değilse 0 satır (eski yol). `unlinked_at` damgalı satıra hiçbir zaman link gönderilmez (S8) |
-| `identity_consume_reset(p_reset_hash, p_new_hash)` | kimlik sıfırlama token'ı | M14-14: kimlik + bağlı satırlar, `email_verified_at`, bütün oturumlar iptal, oturum vermez; bağlanmamış eski satırları **bağlamaz**; **her** tüketimde **`reset` kapsamlı** onay penceresi (kimliğin denetimi el değiştirdiği an — R2, S3) |
+| `identity_consume_reset(p_reset_hash, p_new_hash)` → `TABLE (identity_id uuid, revoked_sessions integer, email text)` | kimlik sıfırlama token'ı | M14-14: kimlik + bağlı satırlar, `email_verified_at`, bütün oturumlar iptal, oturum vermez; bağlanmamış eski satırları **bağlamaz**; **her** tüketimde **`reset` kapsamlı** onay penceresi (kimliğin denetimi el değiştirdiği an — R2, S3). `email` (00075): kimliğin kayıtlı adresi — kişi başına tek "parolanız değişti" bildiriminin (EM-9, §5.14) alıcısı |
 | `identity_open_reset(p_identity_id uuid, p_token_hash text, p_expires_at timestamptz)` → `TABLE (reset_id uuid, expires_at timestamptz, issued boolean)` | ⚠️ **sır değil — yazar ama kimlik yazmaz** (2026-10-22, kullanıcı onayı) | M14-14'ün kimlik başına talebi: kimliği çağıran e-postadan `resolve_identity_by_email` ile bulur; `p_token_hash` çağıranın o anda ürettiği yeni token'ın hash'idir. Kimlik başına ad alanlı danışma kilidi altında (`pg_advisory_xact_lock`, bugünkü `LockAdminForResetIssue` deseni) canlı link okunur (`used_at` ve `cancelled_at` NULL, süresi dolmamış): **canlı link varsa** hiçbir şey basmaz, hiçbir şeyi iptal etmez, hiçbir şey yazmaz ve o linkin `reset_id` / `expires_at`'ini `issued = false` ile döndürür (EM-7C, §5.9); **yoksa** tek bir `admin_identity_resets` satırı + tek bir `reset_requested` `admin_identity_events` satırı (`detail` boş) yazar, `issued = true`. Kimliğe ve `audit_log`'a yazmaz; e-posta, IP, tenant ve üyelik sayısı hiçbir satıra girmez. Sınır: uygulamanın istek bütçesi + kimlik başına tek canlı link |
 | `identity_withdraw_reset(p_token_hash text)` → `boolean` | kimlik sıfırlama token'ı (çağıranın az önce bastığı linkin hash'i) | Bugünkü `Withdraw`'ın karşılığı (`resetrequest.go:290-312`): teslim edilemeyen bir linki geri çeker ki sonraki talep yenisini basabilsin. Yalnız kullanılmamış ve iptal edilmemiş linkte `cancelled_at = now()`; geri çekildiyse `true`, link zaten gitmişse `false` (hata değil). Başka hiçbir şey yazmaz: bugünkü tenant satırlarının (`admin.recovery.undelivered` / `kept`) kimlik düzeyinde karşılığı yoktur — kimlik tenant'sızdır ve iz açılıştaki `reset_requested` satırıdır |
 | `identity_link_legacy(p_identity_session_hash, p_legacy_session_hash)` | **iki** canlı oturum | Biri bağlı (kimlikli), öbürü bağlanmamış ve `unlinked_at IS NULL` bir satırın oturumu; **ikisinin de `authenticated_at > now() - interval '5 minutes'`** (R3; `NULL` → 0 satır). Akışlar iki tarafta da o istekte **taze** oturum açar — hesap sayfasında bu, mevcut oturumun parolasının da yeniden sorulması demektir (S6). Savunma katmanı: iki satırın e-postası eşit (`OPERATOR(public.=)`). Bağlanan satırın digest'i kimliğinkine eşitlenir (contract B'ye dek), `linked_at = now()`, eski oturum iptal, o tenant'a "linked" (karşı tenant'ı anmadan) |
@@ -294,6 +294,44 @@ aktif değilse sessizce bir sonrakine düşer — Go çağıranı dönen `tenant
 `identity_revoke_sessions` `TABLE (revoked integer)` döndürür ve iptal ettiği her oturum için o oturumun
 tenant'ına bir sıradan çıkış satırı yazar — **yalnız aktif ve reddedilmemiş** (`unlinked_at IS NULL`)
 üyeliklerde.
+
+**M14-14 notu (2026-10-26; kullanıcı onayı — AskUserQuestion, seçenek (A)):** `00075`,
+`resolve_identity_by_email` ve `identity_consume_reset`'i `DROP` + `CREATE` ile yeniden tanımlar; ikisinin de
+dönüşünün **sonuna** `email text` (kimliğin `admin_identities.email`'i, **kayıtlı yazımıyla**) eklenir;
+gövdelerde başka tek değişiklik `identity_consume_reset`'in audit detail'inin biçimidir (aşağıda). **Neden:** 00075'ten önce hiçbir fonksiyon kimliğin adresini `tappa_app`'e
+döndürmüyordu (kimlik tablolarında yetkisi yok), bu yüzden kartın iki maddesi karşılanamıyordu —
+(1) **alıcı bağı** (M14-01 güvenlik denetiminin devrettiği not): `identity_open_reset` bir sırla değil
+kimlik id'siyle anahtarlıdır ve linkin nereye gideceğini denetleyemez; link, ziyaretçinin yazdığı yazıma
+(citext'te eşit, bayt bayt değil) değil kimliğin kayıtlı adresine gider ve linkin açıldığı id ile alıcı adres
+**aynı** çözümleyici satırının iki sütunudur — Go'da tek bir tiple bağlanır (`adminauth.identityRecipient`,
+tek kurucusu `recipientOf`; `TestIdentityRecipient_IsOneResolverRow`); (2) **EM-9 bildirimi** (§5.14,
+kişi başına bir "parolanız değişti"): tüketim yalnız `(identity_id, revoked_sessions)` döndürüyordu ve
+`tappa_app` bir kimlik id'sinden ne bir satıra ne bir adrese ulaşabilir. **md.7 (iii):**
+`resolve_identity_by_email`'in yeni sütunu, çağıranın aradığı anahtarın kayıtlı yazımıdır — harf
+büyüklüğü dışında çağıranın elinde olmayan bir şey taşımaz (ADR 0002 M14 notu). Tüketimin döndürdüğü adres,
+harcanmış linkin gönderildiği posta kutusudur. **Yeni yetki yok:** `tappa_resolver` `admin_identities SELECT
+(email)`'i 00071'den, `tappa_identitydefiner` 00072'den taşır (00075'in ön koşulu ikisini de doğrular).
+Yeniden tanım kuralı (T5) aynen: `SECURITY DEFINER`, `SET search_path`, sahip, `REVOKE ALL … FROM PUBLIC`,
+`GRANT EXECUTE … TO tappa_app` açıkça yeniden yazılır. Expand açısından güvenli: eski binary
+`resolve_identity_by_email`'in sütunlarını adıyla seçer, `identity_consume_reset`'in eski binary'de çağıranı
+yoktur. Down 00071/00072 tanımlarını bayt bayt geri koyar
+(`TestIdentity00075_DownGivesBackTheOldDefinitionsByteForByte`; dev DB'de `pg_get_functiondef` ve `proacl`
+md5'i 74 ↔ 75 → Down eşit). Kimlik başına linkin talep, teslim edilememe, "kept" ve reddedilme izi
+**audit satırı değil** bütçeli bir log satırıdır — link hiçbir işletmenin değildir; işletmelerin izi
+tüketimin `admin.recovery.completed` satırlarıdır. Bu satırların anahtarları **id'ler ve sabit değerli
+anahtarlardır**, başka hiçbir şey: id'ler ADR 0022 §10'un kapalı kümesinden (`reset_id`, istek yolunda
+`ip`, teslim hatasında `err_type` / `class` / `smtp_code`) ve §5.15'in `identity_id`'si; sabit değerliler
+`outcome` (`ok` | `undelivered` | `kept` | `sent`), `reason` (`internal/handler`'ın sabit cümleleri),
+`via` (`recovery`), `scope` (`identity` | `link`), reddin üç olgusu `already_used` / `superseded` /
+`expired` (boolean) ve tamamlanmanın `revoked_sessions` sayısı. Adres, link, token, hash ve bunlardan
+türeyen hiçbir değer yoktur (CLAUDE.md §7). **Tüketimin işletme satırının biçimi** (M14-14 güvenlik
+denetimi): `identity_consume_reset` her işletmeye 00074'ün `identity_consume_row_reset`'in linkin kendi
+işletmesi **olmayan** işletmelere yazdığı detail'i yazar — `outcome`, ve yalnız sıfır değilse
+`revoked_sessions` (00072 onu hep yazıyordu; bir 0, satırı "kimlik başına link" diye ele verirdi);
+`reset_id` **yok** — kimliğin linkinin id'si kişinin işletmelerini birbirine bağlardı
+(`TestIdentityConsumeReset00075_TheDetailHasTheRowPathsShape`). **Bayrak bir kesme anahtarı değildir:**
+tüketim bayraktan bağımsızdır (§8); canlı kimlik linklerini acilen iptal etmek runbook'un tek
+satırıdır (`deploy/README.md`, M14-14).
 
 **M14-08 uygulama notları (2026-10-23; kart dışı kararlar, denetime açık):**
 - `identity_create_for_signup(p_tenant_id uuid, p_admin_user_id uuid)` → **`boolean`** (bağladı mı)

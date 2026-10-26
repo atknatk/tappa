@@ -294,6 +294,11 @@ type ResetView struct {
 	BaseURL string
 	// ValidFor is the link's lifetime (adminauth.ResetTTL today).
 	ValidFor time.Duration
+	// EveryBusiness: a per-identity link (M14-14, ADR 0031 §5.14's "kimlik başına sıfırlama") -- one
+	// link resets the sign-in's password for every business LINKED to it (an unlinked account of the
+	// same address is not touched). The e-mail says that in one sentence and still names no business. False (the zero value) is the per-row e-mail,
+	// unchanged byte for byte.
+	EveryBusiness bool
 }
 
 // PasswordChangedView is what the "your password was changed" notice needs besides
@@ -307,6 +312,10 @@ type ResetView struct {
 type PasswordChangedView struct {
 	// BaseURL is cfg.BaseURL; the link must be exactly BaseURL + "/admin/login".
 	BaseURL string
+	// EveryBusiness: the change was a per-identity reset (M14-14) -- the person's ONE notice for every
+	// business (EM-9, ADR 0031 §5.14). It is a fact about the change, not a name: the notice still
+	// names nobody. False (the zero value) is the per-account notice, unchanged byte for byte.
+	EveryBusiness bool
 }
 
 // RenderPasswordChanged renders the notice for the sign-in page's address. The
@@ -315,7 +324,7 @@ func RenderPasswordChanged(ctx context.Context, link string, v PasswordChangedVi
 	if err := checkSignInLink(v.BaseURL, link); err != nil {
 		return mail.Message{}, err
 	}
-	return render(ctx, passwordChangedLetter(), link)
+	return render(ctx, passwordChangedLetter(v.EveryBusiness), link)
 }
 
 // checkSignInLink holds the notice's link to ONE string: the base (trailing slashes
@@ -358,7 +367,7 @@ func RenderPasswordReset(ctx context.Context, link string, v ResetView) (mail.Me
 	if err != nil {
 		return mail.Message{}, err
 	}
-	return render(ctx, resetLetter(life), link)
+	return render(ctx, resetLetter(life, v.EveryBusiness), link)
 }
 
 func render(ctx context.Context, l letter, link string) (mail.Message, error) {

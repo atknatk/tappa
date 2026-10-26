@@ -37,13 +37,19 @@ import (
 // and whether it holds at least one active, not-refused membership (R14: the login's fifth timing
 // case is decided after the comparison, never before it).
 //
-// ID IS A CROSS-TENANT KEY. It travels to OpenIdentitySession and nowhere else: not into a log, a
-// response, a template or an audit row.
+// ID IS A CROSS-TENANT KEY. It travels to OpenIdentitySession, RecordFailedIdentityLogin and (M14-14)
+// OpenIdentityReset, and into a log line only under the identity_id key ADR 0031 §5.15 allows -- never
+// into a response, a template or an audit row.
 type ResolvedIdentity struct {
 	ID                  uuid.UUID
 	PasswordHash        PasswordHash
 	EmailVerifiedAt     *time.Time
 	HasActiveMembership bool
+	// Email is the identity's REGISTERED address (00075, M14-14): admin_identities.email as stored, not
+	// the spelling the caller looked it up with (the two are equal under citext, not byte for byte).
+	// It is where a per-identity reset link goes (internal/adminauth binds it to ID through one type);
+	// it is personal data and never reaches a log, a response or an audit row (CLAUDE.md §7).
+	Email string
 }
 
 // IdentitySession is a panel session an identity function opened: identity_open_session's or
@@ -67,7 +73,7 @@ type IdentityMembership struct {
 
 // The SQL mirrors 00071's signatures; identitycatalog_test.go pins the signatures, identitysession_test.go
 // sends these very consts as tappa_app and calls each method below on the application pool.
-const resolveIdentityByEmailSQL = `SELECT id, password_hash, email_verified_at, has_active_membership
+const resolveIdentityByEmailSQL = `SELECT id, password_hash, email_verified_at, has_active_membership, email
 FROM resolve_identity_by_email($1::citext)`
 
 const openIdentitySessionSQL = `SELECT session_id, tenant_id, admin_user_id
@@ -106,7 +112,7 @@ func (d *DB) ResolveIdentityByEmail(ctx context.Context, email string) (Resolved
 		r      ResolvedIdentity
 		digest string
 	)
-	err := d.pool.QueryRow(ctx, resolveIdentityByEmailSQL, email).Scan(&r.ID, &digest, &r.EmailVerifiedAt, &r.HasActiveMembership)
+	err := d.pool.QueryRow(ctx, resolveIdentityByEmailSQL, email).Scan(&r.ID, &digest, &r.EmailVerifiedAt, &r.HasActiveMembership, &r.Email)
 	if err != nil {
 		return ResolvedIdentity{}, fmt.Errorf("db: resolve identity by email: %w", err)
 	}
@@ -325,4 +331,96 @@ func CreateIdentityForSignup(ctx context.Context, tx pgx.Tx, tenantID, adminUser
 		return false, fmt.Errorf("db: create identity for signup: %w", err)
 	}
 	return linked, nil
+}
+
+// ---------------------------------------------------------------- M14-14 --
+
+// The per-identity reset (ADR 0031 §5.2, §5.9; M14-14): a request opens at most one live link per
+// identity (00072's identity_open_reset, keyed by the id the request resolved -- not a secret, so the
+// caller's type binds it to the address the link goes to), an undelivered link is withdrawn by its own
+// hash, and a link is spent by its hash (identity_consume_reset, 00075's shape: it returns the
+// identity's registered address for the "your password was changed" notice).
+const openIdentityResetSQL = `SELECT reset_id, expires_at, issued
+FROM identity_open_reset($1, $2, $3)`
+
+const withdrawIdentityResetSQL = `SELECT identity_withdraw_reset($1)`
+
+const consumeIdentityResetSQL = `SELECT identity_id, revoked_sessions, email
+FROM identity_consume_reset($1, $2)`
+
+const resolveIdentityResetSQL = `SELECT id, identity_id, expires_at, used_at, cancelled_at
+FROM resolve_identity_reset_by_token_hash($1)`
+
+// OpenedIdentityReset is identity_open_reset's row: the identity's live link -- the one just issued
+// (Issued) or the one it already held (EM-7C: nothing was written, nothing is to be sent).
+type OpenedIdentityReset struct {
+	ResetID   uuid.UUID
+	ExpiresAt time.Time
+	Issued    bool
+}
+
+// OpenIdentityReset opens a reset link for an identity, unless it holds a live one (ADR 0031 §5.9,
+// EM-7C): tokenHash is the hash of the token the caller just drew. pgx.ErrNoRows: no such identity.
+// The hash never reaches an error.
+func (d *DB) OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenHash string, expiresAt time.Time) (OpenedIdentityReset, error) {
+	var o OpenedIdentityReset
+	if err := d.pool.QueryRow(ctx, openIdentityResetSQL, identityID, tokenHash, expiresAt).Scan(&o.ResetID, &o.ExpiresAt, &o.Issued); err != nil {
+		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: %w", err)
+	}
+	return o, nil
+}
+
+// WithdrawIdentityReset retires an identity link the caller issued and could not deliver. It reports
+// whether a link was retired; a link already spent, cancelled or unknown is false, not an error.
+func (d *DB) WithdrawIdentityReset(ctx context.Context, tokenHash string) (bool, error) {
+	var withdrawn bool
+	if err := d.pool.QueryRow(ctx, withdrawIdentityResetSQL, tokenHash).Scan(&withdrawn); err != nil {
+		return false, fmt.Errorf("db: withdraw identity reset: %w", err)
+	}
+	return withdrawn, nil
+}
+
+// ConsumedIdentityReset is identity_consume_reset's row: whose link it was, how many sessions it
+// revoked in every business, and the identity's registered address (personal data: the notice's
+// recipient and nothing else).
+type ConsumedIdentityReset struct {
+	IdentityID      uuid.UUID
+	RevokedSessions int
+	Email           string
+}
+
+// ConsumeIdentityReset spends a per-identity link: the identity and every linked row take newDigest,
+// every session of the person is revoked, the mailbox is marked proved and a reset-scope confirmation
+// window opens; each business gets its admin.recovery.completed row. pgx.ErrNoRows: the link is
+// unknown, spent, cancelled or expired.
+func (d *DB) ConsumeIdentityReset(ctx context.Context, resetHash, newDigest string) (ConsumedIdentityReset, error) {
+	var (
+		c ConsumedIdentityReset
+		n int32
+	)
+	if err := d.pool.QueryRow(ctx, consumeIdentityResetSQL, resetHash, newDigest).Scan(&c.IdentityID, &n, &c.Email); err != nil {
+		return ConsumedIdentityReset{}, fmt.Errorf("db: consume identity reset: %w", err)
+	}
+	c.RevokedSessions = int(n)
+	return c, nil
+}
+
+// ResolvedIdentityReset is resolve_identity_reset_by_token_hash's row: a per-identity link and the
+// three facts that decide whether it could be spent -- carried for the refusal's trail, never applied.
+type ResolvedIdentityReset struct {
+	ID          uuid.UUID
+	IdentityID  uuid.UUID
+	ExpiresAt   time.Time
+	UsedAt      *time.Time
+	CancelledAt *time.Time
+}
+
+// GetIdentityResetByTokenHash resolves a per-identity link by its hash (ADR 0002 md.7). pgx.ErrNoRows
+// when no identity link carries it.
+func (d *DB) GetIdentityResetByTokenHash(ctx context.Context, tokenHash string) (ResolvedIdentityReset, error) {
+	var r ResolvedIdentityReset
+	if err := d.pool.QueryRow(ctx, resolveIdentityResetSQL, tokenHash).Scan(&r.ID, &r.IdentityID, &r.ExpiresAt, &r.UsedAt, &r.CancelledAt); err != nil {
+		return ResolvedIdentityReset{}, fmt.Errorf("db: resolve identity reset: %w", err)
+	}
+	return r, nil
 }

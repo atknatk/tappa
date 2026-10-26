@@ -1990,6 +1990,47 @@ kimliklerden biri backfill'den sonra **yaşamışsa** (başka yolla bağlanmış
 doğrulanmış adres, onay penceresi, giriş, son kullanılan işletme ya da başka bir tablodan ona işaret eden
 satır) hiçbir şeyi değiştirmeden **reddeder** — geri dönüş önceki binary'dir (ADR 0031 §8).
 
+### Kimlik başına sıfırlama (M14-14) — `00075` ve canlı kimlik linklerinin acil iptali
+
+- **`00075`** `resolve_identity_by_email` ve `identity_consume_reset`'i `DROP` + `CREATE` ile yeniden
+  tanımlar (dönüşlerine kimliğin kayıtlı adresi eklenir — ADR 0031 §5.2'nin 2026-10-26 notu). Tablo
+  kilidi yok; o an giriş yapan istek fonksiyonun kilidini bir transaction boyu bekler. Eski binary
+  `resolve_identity_by_email`'i sütun adlarıyla okur ve yeni tanımda çalışır; `identity_consume_reset`'i
+  çağırmaz. Yeni yetki yok. Down 00071/00072 tanımlarını bayt bayt geri koyar.
+- **Bayrak bir kesme anahtarı DEĞİLDİR.** `TAPPA_ADMIN_IDENTITY=off` yalnız yeni kimlik linki basılmasını
+  durdurur; basılmış bir kimlik linki ömrü (1 saat) boyunca **harcanabilir** — tüketim bayraktan
+  bağımsızdır (ADR 0031 §8: yazma yolları kapılanmaz). Canlı kimlik linklerini hemen öldürmek gerekirse
+  (sızmış bir posta kutusu, hatalı bir gönderim), `tappa_owner` ile. **Önce rol denetimi** —
+  `admin_identity_resets` FORCE RLS altında ve politikasız; BYPASSRLS olmayan bir rol aşağıdaki sayımdan
+  da UPDATE'ten de **sessizce 0** alır. Şu satır `t` dönmeli, dönmüyorsa durulur:
+
+  ```sql
+  SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user;
+  ```
+
+  sonra salt okuma sayımı:
+
+  ```sql
+  BEGIN READ ONLY;
+  SELECT count(*) FROM admin_identity_resets WHERE used_at IS NULL AND cancelled_at IS NULL AND expires_at > now();
+  ROLLBACK;
+  ```
+
+  sonra iptal — yüklemi sayımınkiyle **aynı** (süresi dolmuş linklere dokunmaz: onların "expired" izi
+  "superseded"e dönmesin); dönen satır sayısı yukarıdakine yakın olmalı, çok farklıysa `ROLLBACK`:
+
+  ```sql
+  BEGIN;
+  SET LOCAL lock_timeout = '1s';
+  UPDATE admin_identity_resets SET cancelled_at = now() WHERE used_at IS NULL AND cancelled_at IS NULL AND expires_at > now();
+  COMMIT;
+  ```
+
+  Yalnız `cancelled_at` değişir (geri çekmenin kendisi — `identity_withdraw_reset`'in yazdığı sütun);
+  link satırı silinmez, kimliğe ve üyeliklere dokunulmaz. İptal edilen linki tıklayan kişi tek tip "That
+  link no longer works" ekranını görür ve yeni bir link isteyebilir (bayrak açıksa kimlik linki, kapalıysa
+  satır başı link). Satır başı linkler (`password_resets`) bu ifadenin kapsamında değildir.
+
 ### Panel formlarının tenant bağı (M14-10a)
 
 Her panel POST formunun `action`'ı `?tb=<bağ>` taşır (ADR 0031 §5.5): oturumun işletmesinin, oturumun
