@@ -1063,8 +1063,9 @@ func TestTenantScreens_EscapeWhatATenantAndAnOperatorTyped(t *testing.T) {
 // cards and the docket: names, figures, labels, help lines), tappa-green on paper (the
 // row and card links) and on porcelain (the pager and the overview's links, on the page
 // ground), paper on tappa-green (the search button), ink and ink at 70% on saffron-lite
-// (the tenant banner's name, id and label) -- each against AA's 4.5:1 (the figures are
-// large, the rest is 14px and smaller, which is not large text).
+// (the tenant banner's name, id and label), and the API card's ok answer -- ink and ink at 85%
+// on tappa-green at 10%, over porcelain and over paper (M13-03) -- each against AA's 4.5:1 (the
+// figures are large, the rest is 14px and smaller, which is not large text).
 //
 // IT COMPUTES THE PALETTE; IT DOES NOT READ THE TEMPLATES. The template side is
 // internal/handler's TestBrand_EveryInkToneClearsAA: it reads every translucent ink tone
@@ -1110,6 +1111,13 @@ func TestTenantScreens_TheTextClearsAA(t *testing.T) {
 		{"paper on tappa-green", paper, green},
 		{"ink on saffron-lite", ink, saffronLite},
 		{"ink at 70% on saffron-lite", over(ink, 0.7, saffronLite), saffronLite},
+		// The API card's ok answer (operatorpages' opNotice, M13-03): its heading ink and its body
+		// ink at 85% on tappa-green at 10%, a tint, so over both grounds it can sit on -- the page's
+		// porcelain (where the overview puts it) and paper.
+		{"ink on tappa-green at 10% over porcelain", ink, over(green, 0.1, porcelain)},
+		{"ink at 85% on tappa-green at 10% over porcelain", over(ink, 0.85, over(green, 0.1, porcelain)), over(green, 0.1, porcelain)},
+		{"ink on tappa-green at 10% over paper", ink, over(green, 0.1, paper)},
+		{"ink at 85% on tappa-green at 10% over paper", over(ink, 0.85, over(green, 0.1, paper)), over(green, 0.1, paper)},
 	} {
 		if got := contrast(c.fg, c.bg); got < 4.5 {
 			t.Errorf("%s = %.2f:1, want at least 4.5:1", c.what, got)

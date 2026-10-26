@@ -22,14 +22,14 @@ templ SignIn(v SignInView) {
 			<p class="mt-2 text-sm text-ink/70">Taptime staff only. This is not the business panel.</p>
 			if v.Expired {
 				<div class="mt-6">
-					@components.Notice(components.ToneWarn, "That sign-in step expired") {
+					@opNotice(components.ToneWarn, "That sign-in step expired") {
 						<p>Sign in again with your email address and password.</p>
 					}
 				</div>
 			}
 			if v.Failed {
 				<div class="mt-6">
-					@components.Notice(components.ToneAlert, "We could not sign you in") {
+					@opNotice(components.ToneAlert, "We could not sign you in") {
 						<p>Check the email address and the password, then try again.</p>
 					}
 				</div>
@@ -62,14 +62,14 @@ templ Code(v CodeView) {
 			<p class="mt-2 text-sm text-ink/70">Type the six-digit code your authenticator app shows for Taptime operator.</p>
 			if v.Rejected {
 				<div class="mt-6">
-					@components.Notice(components.ToneAlert, "That code was not accepted") {
+					@opNotice(components.ToneAlert, "That code was not accepted") {
 						<p>Check that your phone's clock is right, then type the next code.</p>
 					}
 				</div>
 			}
 			if v.Locked {
 				<div class="mt-6">
-					@components.Notice(components.ToneAlert, "Sign-in is locked for a while") {
+					@opNotice(components.ToneAlert, "Sign-in is locked for a while") {
 						<p>Too many wrong codes. Wait a quarter of an hour, then try again.</p>
 					}
 				</div>

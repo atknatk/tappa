@@ -230,14 +230,14 @@ templ tenantAPISection(a TenantAPIView) {
 templ apiNotice(a TenantAPIView) {
 	switch a.NoticeTone {
 		case HoldingNoticeOK:
-			@components.Notice(components.ToneOK, a.NoticeHeading) {
+			@opNotice(components.ToneOK, a.NoticeHeading) {
 				<p>{ a.Notice }</p>
 			}
 		case HoldingNoticeWarn:
-			@components.Notice(components.ToneWarn, a.NoticeHeading) {
+			@opNotice(components.ToneWarn, a.NoticeHeading) {
 				<p>{ a.Notice }</p>
 				if len(a.NoticeRules) > 0 {
-					<ul class="mt-2 flex flex-col gap-1">
+					<ul class="mt-1 list-disc pl-5">
 						for _, rule := range a.NoticeRules {
 							<li>{ rule }</li>
 						}
@@ -337,7 +337,7 @@ templ suspendForm(v TenantSuspensionView) {
 					<label for={ "suspend-reason-" + o.Value } class="inline-flex min-h-11 items-center text-sm">{ o.Label }</label>
 				}
 				<div id="suspend-hold-warning" class="op-hold-warning">
-					@components.Notice(components.ToneWarn, "A security hold freezes writes. It does not contain an account.") {
+					@opNotice(components.ToneWarn, "A security hold freezes writes. It does not contain an account.") {
 						@holdWarning()
 					}
 				</div>

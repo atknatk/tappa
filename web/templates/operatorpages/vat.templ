@@ -32,7 +32,7 @@ templ TenantVAT(v TenantVATView) {
 			</p>
 		</section>
 		if v.Notice != "" {
-			@components.Notice(components.ToneWarn, v.NoticeHeading) {
+			@opNotice(components.ToneWarn, v.NoticeHeading) {
 				<p>{ v.Notice }</p>
 			}
 		}

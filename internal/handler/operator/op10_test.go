@@ -488,8 +488,10 @@ func TestLegalPublish_AFailedRefreshRedirectsAndTheScreenSaysThePageIsBehind(t *
 	}
 }
 
-// warnNotice is a ToneWarn components.Notice block and its contents.
-var warnNotice = regexp.MustCompile(`(?s)<section class="border-l-4 border-saffron[^"]*">(.*?)</section>`)
+// warnNotice is a warn-toned operator notice (operatorpages' opNotice, M13-03 -- the screen's own
+// box since it stopped using components.Notice) and its contents. The test above needs exactly one
+// on the behind page, so a pattern that found none would be red there, not blind.
+var warnNotice = regexp.MustCompile(`(?s)<section role="status" class="op-notice op-notice--warn">(.*?)</section>`)
 
 // liveHash is the hash of one of the fake's live sessions -- the publisher of a version a
 // test commits behind the screen's back.

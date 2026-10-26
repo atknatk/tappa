@@ -70,14 +70,14 @@ templ Holdings(v HoldingsView) {
 templ holdingNotice(v HoldingsView) {
 	switch v.NoticeTone {
 		case HoldingNoticeOK:
-			@components.Notice(components.ToneOK, v.NoticeHeading) {
+			@opNotice(components.ToneOK, v.NoticeHeading) {
 				<p>{ v.Notice }</p>
 			}
 		case HoldingNoticeWarn:
-			@components.Notice(components.ToneWarn, v.NoticeHeading) {
+			@opNotice(components.ToneWarn, v.NoticeHeading) {
 				<p>{ v.Notice }</p>
 				if len(v.NoticeRules) > 0 {
-					<ul class="mt-2 flex flex-col gap-1">
+					<ul class="mt-1 list-disc pl-5">
 						for _, rule := range v.NoticeRules {
 							<li>{ rule }</li>
 						}

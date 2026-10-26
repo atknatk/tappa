@@ -50,7 +50,7 @@ templ Enroll(v EnrollView) {
 				</div>
 			} else {
 				<div class="mt-6">
-					@components.Notice(components.ToneWarn, "Use the key you already added") {
+					@opNotice(components.ToneWarn, "Use the key you already added") {
 						<p>
 							Type a code from the authenticator entry this page gave you. If you did not add
 							it, open your link again for a new key.
@@ -60,21 +60,21 @@ templ Enroll(v EnrollView) {
 			}
 			if v.Mismatch {
 				<div class="mt-6">
-					@components.Notice(components.ToneAlert, "The two passwords differ") {
+					@opNotice(components.ToneAlert, "The two passwords differ") {
 						<p>Type the same new password in both fields.</p>
 					}
 				</div>
 			}
 			if v.WeakPassword {
 				<div class="mt-6">
-					@components.Notice(components.ToneAlert, "Choose another password") {
+					@opNotice(components.ToneAlert, "Choose another password") {
 						<p>Use at least 14 characters and at most 72 bytes. A letter with an accent, or from another alphabet, takes two bytes or more.</p>
 					}
 				</div>
 			}
 			if v.CodeRejected {
 				<div class="mt-6">
-					@components.Notice(components.ToneAlert, "That code was not accepted") {
+					@opNotice(components.ToneAlert, "That code was not accepted") {
 						<p>Check that your phone's clock is right, then type the next code.</p>
 					}
 				</div>

@@ -23,9 +23,9 @@ Shared vocabulary: `op-card` = paper card; `docket` = perforated paper list (sha
 44 px; `btn btn--primary` = green button; `btn btn--quiet` = paper button with line border,
 tomato on hover; `op-pager` (new, README §6) = outlined paper button for the Billing, Audit and
 Holdings pagers; `op-step` / `op-heading` (new, README §6) = in-card display headings where the
-code writes `docket-label` today (Enroll's steps, "Create a holding"). Notices are today `components.Notice(tone, heading)`
-(`web/templates/components/notice.templ:40-49`) and become the operator-only `opNotice`
-(M13-03) with the **same tone and the same words**.
+code writes `docket-label` today (Enroll's steps, "Create a holding"). Notices were `components.Notice(tone, heading)`
+(`web/templates/components/notice.templ:40-49`) until M13-03 and are the operator-only `opNotice`
+(`operatorpages/notice.templ`) with the **same tone and the same words**.
 
 ---
 
@@ -433,8 +433,8 @@ reads nothing of its own. View `TenantSuspensionView` (`view.go:269-282`), built
 - box `<input type="checkbox" name="confirm" value="yes" required class="h-5 w-5 shrink-0 accent-tappa-green">`;
 - the radios' parent `<div class="op-reasons mt-1">` and, **after all four radios in that parent**,
   `<div id="suspend-hold-warning" class="op-hold-warning">`; the test cuts the warning at its first
-  `</section>` — today `components.Notice`'s root. `opNotice` (M13-03) keeps a `<section>` root here,
-  or the test changes in the same commit with a control that the cut still holds the heading;
+  `</section>` — `opNotice`'s root since M13-03 (it was `components.Notice`'s); M13-03 kept the `<section>`
+  root, so the test's cut is unchanged and still holds the heading and every sentence;
 - `input.css` holds **exactly once** each of `.op-reasons { @apply grid grid-cols-[auto_1fr] items-center gap-x-3; }`,
   `.op-hold-warning { @apply col-span-2 mt-2 hidden; }` and
   `.op-reason-hold:checked ~ .op-hold-warning { @apply block; }` (`input.css:1711-1713`); when

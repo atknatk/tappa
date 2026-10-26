@@ -1219,6 +1219,30 @@
      word's colour, the frame's and the ground stay the tone rules' -- this is the one shape
      TestTallyRules_NoToneRuleColoursTheWord allows besides the base and the tone lists. */
   .op-main .tally { @apply rounded-full px-2.5 py-0.5 font-bold leading-[18px] tracking-[0.08em]; }
+  /* --- THE OPERATOR'S NOTICE AND PROBLEM CARD (M13-03, docs/design/operator-redesign README §6
+     "Operator notice", "Problem page") ---
+     The operator's own status box (operatorpages/notice.templ), so the tap screens' shared one
+     keeps its bytes: a card with 14 px corners, 16 px 18 px inside, the tone in the frame and the
+     ground, the words ink. ok is a 1 px tappa-green frame on tappa-green at 10 %, warn a 1 px
+     saffron frame on saffron-lite, alert a 2 px tomato frame on paper -- the panel's notice frames,
+     without the panel's label word and mark (the operator's headings already say the outcome).
+     TONES, computed (WCAG 2.1, sRGB): the heading ink and the body ink at 85 % on the ok ground,
+     over paper 13.85:1 and 9.06:1, over porcelain 12.34:1 and 8.30:1 (the ground is a tint, so it
+     is computed over both: the holdings' and the API's answers sit on the page's porcelain); on
+     saffron-lite 13.97:1 and 9.13:1; on paper 16.17:1 and 10.16:1. TestOperatorNotice_TheWordsClearAAOnEveryTone
+     recomputes them from these rules. */
+  .op-notice { @apply rounded-[14px] border px-[18px] py-4 text-ink; }
+  .op-notice--ok { @apply border-tappa-green bg-tappa-green/10; }
+  .op-notice--warn { @apply border-saffron bg-saffron-lite; }
+  .op-notice--alert { @apply border-2 border-tomato bg-paper; }
+  /* The problem page: the alert notice is its card, at most 640 px wide, 20 px 18 px inside on the
+     phone and 24 px 28 px from the tablet; the title 24 px, 28 px from the tablet, line height 1.12,
+     tracking -0.03em, ink. */
+  .op-problem { @apply flex w-full max-w-[640px] flex-col gap-4; }
+  .op-problem > .op-notice { @apply px-[18px] py-5 md:px-7 md:py-6; }
+  .op-problem-title {
+    @apply font-display text-2xl font-bold leading-[1.12] tracking-[-0.03em] text-ink md:text-[28px];
+  }
   /* A new in-card eyebrow: mono 11 px capitals, ink at 70 % on paper (6.05:1). */
   .op-label   { @apply font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70; }
   /* The two in-card headings the boards draw where the code writes a docket label today: an

@@ -53,7 +53,7 @@ templ legalEditor(d LegalDoc) {
 		}
 		if d.Behind {
 			<div class="mt-4">
-				@components.Notice(components.ToneWarn, "The public page is behind") {
+				@opNotice(components.ToneWarn, "The public page is behind") {
 					<p>
 						The newest version, published <span class="font-mono">{ d.LiveAt }</span>, has not reached
 						the public page yet. This editor opened on the text the page shows, so publishing it

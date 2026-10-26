@@ -50,16 +50,27 @@ templ Home() {
 
 // Problem is the operator surface's refusal and fault page. Its sentences come from the
 // handler's ProblemView constants.
+//
+// THE PAGE IS ONE ALERT CARD (M13-03; docs/design/operator-redesign README §6 "Problem page",
+// screens.md §4): the operator notice in its alert tone, holding the page's one h1 (the title) and
+// the message, and under it the way on, when the constant names one. Signed out it sits in the
+// narrow centred column of the sign-in, with no nav; signed in it sits in the frame, whose nav marks
+// no section (navNone: a refusal is no section's page) and which has no tenant banner, because no
+// problem names a tenant. No state chip either: the view carries no state, only words (D1). The
+// card's inner spacing is written here, on its two lines; its padding and type are the op-problem
+// rules of input.css.
 templ Problem(v ProblemView) {
 	@screen(v.Title, v.SignedIn, navNone) {
-		@components.Notice(components.ToneAlert, "") {
-			<h1 class="font-display text-xl font-bold tracking-tight">{ v.Title }</h1>
-			<p class="mt-2">{ v.Message }</p>
-		}
-		if v.Back != "" {
-			<p>
-				<a href={ templ.URL(v.Back) } class="op-link">{ v.BackLabel }</a>
-			</p>
-		}
+		<div class="op-problem">
+			@opNotice(components.ToneAlert, "") {
+				<h1 class="op-problem-title">{ v.Title }</h1>
+				<p class="mt-2.5 text-[15px] leading-normal">{ v.Message }</p>
+			}
+			if v.Back != "" {
+				<p class="text-[15px]">
+					<a href={ templ.URL(v.Back) } class="op-link">{ v.BackLabel }</a>
+				</p>
+			}
+		</div>
 	}
 }

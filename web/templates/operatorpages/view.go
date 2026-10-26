@@ -11,7 +11,7 @@
 // being run): internal/handler/operator is the module package that imports this
 // package; of the module, this package imports web/templates/layout -- the document head
 // with the no-referrer, robots and single-stylesheet decisions (layout.documentHead) --
-// and web/templates/components (the problem page's notice block)
+// and web/templates/components (components.Tone, the status vocabulary opNotice takes)
 // (internal/handler/operator's TestOperatorPages_ImportedOnlyByTheSurfaceAndSharingOnlyTheShell).
 //
 // skill tappa-brand governs the classes here: palette tokens, Space Grotesk for display,

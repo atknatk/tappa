@@ -92,6 +92,7 @@ var nonPanelTemplates = map[string]string{
 	"operatorpages/holdings.templ": "the platform operator's surface (ADR 0020), a separate host",
 	"operatorpages/home.templ":     "the platform operator's surface (ADR 0020), a separate host",
 	"operatorpages/legal.templ":    "the platform operator's surface (ADR 0020), a separate host",
+	"operatorpages/notice.templ":   "the platform operator's surface (ADR 0020), a separate host",
 	"operatorpages/plaques.templ":  "the platform operator's surface (ADR 0020), a separate host",
 	"operatorpages/signin.templ":   "the platform operator's surface (ADR 0020), a separate host",
 	"operatorpages/tenants.templ":  "the platform operator's surface (ADR 0020), a separate host",
