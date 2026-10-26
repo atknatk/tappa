@@ -431,6 +431,7 @@ func (a *AdminAuth) claimEdit(r *http.Request, tenantID, claimID uuid.UUID) (*ti
 		if in.Window.To.Inclusive {
 			to = " up to "
 		}
+		refused.problem = "edit-outside"
 		refused.editHint = "Pick a time " + from + claimMoment(in.Window.From.At, zone) + to + claimMoment(in.Window.To.At, zone) + "."
 		return nil, refused, nil
 	}

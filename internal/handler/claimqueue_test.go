@@ -749,7 +749,8 @@ func TestClaimQueue_AnEditThatCannotBeUsedIsNeverTheClaimedMoment(t *testing.T) 
 		t.Fatalf("an Edit outside the window reached Decide: %+v", f.calls)
 	}
 	page := htmlOf(t, res)
-	for _, want := range []string{`value="08:00"`, "Pick a time after Mon 12 Oct 10:05 up to Tue 13 Oct 04:05."} {
+	for _, want := range []string{`value="08:00"`, "Pick a time after Mon 12 Oct 10:05 up to Tue 13 Oct 04:05.",
+		htmlText("That time is outside this claim's window")} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the form shown again does not carry %q", want)
 		}
@@ -805,6 +806,7 @@ func TestClaimQueue_TheWaitingClaimsAreCountedInThreePlaces(t *testing.T) {
 		{"one", ledger.ClaimCount{Queried: true, N: 1}, "· 1", "1 time claim is waiting →", "1 time claim waiting"},
 		{"none", ledger.ClaimCount{Queried: true}, "· 0", "", "no time claims waiting"},
 		{"failed", ledger.ClaimCount{Failed: true}, "· ?", "", "time claims not counted"},
+		{"capped", ledger.ClaimCount{Queried: true, N: 100, Capped: true}, "· 100+", "100+ time claims are waiting →", "100+ time claims waiting"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -829,5 +831,21 @@ func TestClaimQueue_TheWaitingClaimsAreCountedInThreePlaces(t *testing.T) {
 				t.Errorf("The Pass's card does not say %q", tc.passLine)
 			}
 		})
+	}
+}
+
+// TestClaimQueue_AnUnreadableEditIsNotCalledOutsideTheWindow (M15-18 last round): a time that cannot be
+// read says so; a time that reads but does not fit says THAT, with the times that fit.
+func TestClaimQueue_AnUnreadableEditIsNotCalledOutsideTheWindow(t *testing.T) {
+	c := outClaim(claimDay(0, 10, 5), claimDay(0, 17, 0), nil)
+	c.in.Window = &claim.Window{From: claim.Bound{At: c.in.Anchor.At}, To: claim.Bound{At: claimDay(1, 4, 5), Inclusive: true}}
+	b := claimPanel(t, claimAdmins("manager", false), newFakeClaimQueue(time.UTC, c))
+	unreadable := htmlOf(t, b.do(http.MethodPost, claimsHref, decisionForm(c.in.ClaimID, "approved", "at", "nonsense")))
+	if !strings.Contains(unreadable, "We could not read that") || strings.Contains(unreadable, htmlText("outside this claim's window")) {
+		t.Error("an unreadable time is not answered as unreadable")
+	}
+	outside := htmlOf(t, b.do(http.MethodPost, claimsHref, decisionForm(c.in.ClaimID, "approved", "at", "08:00")))
+	if strings.Contains(outside, "We could not read that") || !strings.Contains(outside, htmlText("That time is outside this claim's window")) {
+		t.Error("a time that reads but does not fit is called unreadable")
 	}
 }

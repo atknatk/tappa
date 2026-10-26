@@ -1190,7 +1190,7 @@ func claimConfirmForm(action string, f ClaimFocusView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 99, "</p><p>It is outside the shift&#39;s band, or there is no shift, so it is not approved in one press.</p></div><div id=\"claim-step-actions\" class=\"grid grid-cols-2 gap-3\"><button type=\"submit\" name=\"outcome\" value=\"approved\" class=\"btn btn--approve\">Approve this interval</button> <button type=\"submit\" name=\"outcome\" value=\"rejected\" class=\"btn btn--reject\">Reject</button></div><p class=\"font-mono text-xs text-ink/70\">Nothing has been recorded yet.</p><div class=\"field-stack\"><label for=\"claim-note\" class=\"lbl\">Note for the record (optional)</label> <input id=\"claim-note\" name=\"note\" type=\"text\" maxlength=\"500\" autocomplete=\"off\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 99, "</p><p>It is outside the shift&#39;s band, or there is no shift, so it is not approved in one press.</p></div><div id=\"claim-step-actions\" class=\"grid grid-cols-2 gap-3\"><button type=\"submit\" name=\"outcome\" value=\"approved\" class=\"btn btn--approve\">Approve</button> <button type=\"submit\" name=\"outcome\" value=\"rejected\" class=\"btn btn--reject\">Reject</button></div><p class=\"font-mono text-xs text-ink/70\">Nothing has been recorded yet.</p><div class=\"field-stack\"><label for=\"claim-note\" class=\"lbl\">Note for the record (optional)</label> <input id=\"claim-note\" name=\"note\" type=\"text\" maxlength=\"500\" autocomplete=\"off\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1253,10 +1253,14 @@ func claimProblemHeading(p string) string {
 		return "The partnership has ended"
 	case "novenue":
 		return "No venue to record it at"
-	case "unreadable", "edit", "edit-closed":
+	case "unreadable", "edit":
 		return "We could not read that"
+	case "edit-closed":
+		return "No other time can be approved"
 	case "step-expired", "step-changed":
 		return "Not recorded yet"
+	case "edit-outside":
+		return "That time is outside this claim's window"
 	default:
 		return "Nothing was recorded"
 	}
@@ -1282,6 +1286,8 @@ func claimProblemLine(p string) string {
 		return "The edited time could not be read, or no such time fits this claim. Nothing was recorded."
 	case "edit-closed":
 		return "This claim can no longer be approved at another time. Nothing was recorded."
+	case "edit-outside":
+		return "The time you typed does not fit this claim; the field below says which times do. Nothing was recorded."
 	case "step-expired":
 		return "The confirmation had expired or could not be read, so nothing was recorded. Press Approve to see the interval again."
 	case "step-changed":

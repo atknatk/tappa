@@ -272,3 +272,25 @@ func TestDecideDB_AConfirmationForAnotherShiftIsNotAConfirmation(t *testing.T) {
 		t.Errorf("%d manual record(s), want 1", n)
 	}
 }
+
+// TestPendingDB_TheClaimCountStopsAtItsCap (M15-18 last round): 101 undecided claims count as "100+" --
+// N is ledger.PendingCap and Capped is set -- never 101; the three places print the count as given
+// (TestClaimQueue_TheWaitingClaimsAreCountedInThreePlaces, its "capped" case).
+func TestPendingDB_TheClaimCountStopsAtItsCap(t *testing.T) {
+	w := newWorld(t)
+	reader, err := ledger.NewReader(w.data, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < ledger.PendingCap+1; i++ {
+		at := w.at(0, 9, 0).Add(time.Duration(i) * time.Minute)
+		w.claimDirect(w.rowWith("in", at, "nfc", nil), KindOut, at.Add(30*time.Second))
+	}
+	p, err := reader.Pending(w.ctx, w.tenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := p.Claims; !c.Queried || c.N != ledger.PendingCap || !c.Capped {
+		t.Errorf("%d undecided claims count %+v, want N=%d and Capped", ledger.PendingCap+1, c, ledger.PendingCap)
+	}
+}

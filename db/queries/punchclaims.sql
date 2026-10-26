@@ -223,8 +223,11 @@ SELECT c.anchor_transaction_id,
 -- HOW MANY CLAIMS WAIT FOR A DECISION, AS FAR AS IT COUNTS (M15-18 review round, user decision "Üç yerde
 -- sayı", 2026-10-26): The Spike's "Time claims · N" link, its empty state and The Pass's "On the spike"
 -- card. It rides the panel chrome's badge read (internal/domain/ledger.Pending), so it is paid on every
--- panel page -- hence the cap: the inner LIMIT stops the scan at @cap rows (the caller asks one past
--- its cap, the flagged count's shape). Explicit tenant on both tables.
+-- panel page. The cap (@cap; the caller asks one past it, the flagged count's shape) bounds the NUMBER,
+-- not the work: the anti-join walks the tenant's whole claim history to find undecided ones, so the cost
+-- grows with every claim ever sent. Measured: 0.12-0.38 ms at 5 claims (M15-18 builder, tappa-m15-db,
+-- three runs) and ~82 ms at 100 000 claims (M15-18 security lens, 2026-10-26). Negligible at a
+-- realistic scale; a partial index or a counter is backlog T166. Explicit tenant on both tables.
 SELECT count(*)
   FROM (
         SELECT 1
