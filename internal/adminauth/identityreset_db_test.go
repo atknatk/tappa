@@ -227,6 +227,15 @@ type faultyResetDB struct {
 	failAdminByEmail bool
 	failWithTenantAt int
 	withTenantCalls  int
+	// withdrawCtx records the identity withdrawal's context: live (not the cancelled request's) and
+	// bounded (a deadline -- withdrawGrace).
+	withdrawLive, withdrawBounded bool
+}
+
+func (f *faultyResetDB) WithdrawIdentityReset(ctx context.Context, h string) (bool, error) {
+	_, f.withdrawBounded = ctx.Deadline()
+	f.withdrawLive = ctx.Err() == nil
+	return f.DB.WithdrawIdentityReset(ctx, h)
 }
 
 var errInjected = errors.New("injected failure")
@@ -286,9 +295,13 @@ func TestIssueForPerson_AFailedRequestLeavesNoLiveLink(t *testing.T) {
 	t.Run("cancelled right after the identity's mint: everything withdrawn", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		r := cheapResets(t, &faultyResetDB{DB: d, cancelAfterOpen: cancel})
+		f := &faultyResetDB{DB: d, cancelAfterOpen: cancel}
+		r := cheapResets(t, f)
 		if _, err := r.IssueForPerson(ctx, w.typed); !errors.Is(err, context.Canceled) {
 			t.Fatalf("IssueForPerson = %v, want context.Canceled", err)
+		}
+		if !f.withdrawLive || !f.withdrawBounded {
+			t.Errorf("the identity link's withdrawal ran on a context live=%v bounded=%v; want both (not the cancelled request's, not unbounded)", f.withdrawLive, f.withdrawBounded)
 		}
 		if n := w.int(`SELECT count(*) FROM admin_identity_resets WHERE identity_id = $1`, w.ident); n != 1 {
 			t.Fatalf("PREMISE: %d identity links written, want the one the cancelled request committed", n)

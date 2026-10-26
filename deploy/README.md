@@ -2000,7 +2000,15 @@ satır) hiçbir şeyi değiştirmeden **reddeder** — geri dönüş önceki bin
 - **Bayrak bir kesme anahtarı DEĞİLDİR.** `TAPPA_ADMIN_IDENTITY=off` yalnız yeni kimlik linki basılmasını
   durdurur; basılmış bir kimlik linki ömrü (1 saat) boyunca **harcanabilir** — tüketim bayraktan
   bağımsızdır (ADR 0031 §8: yazma yolları kapılanmaz). Canlı kimlik linklerini hemen öldürmek gerekirse
-  (sızmış bir posta kutusu, hatalı bir gönderim), `tappa_owner` ile, önce salt okuma sayımı:
+  (sızmış bir posta kutusu, hatalı bir gönderim), `tappa_owner` ile. **Önce rol denetimi** —
+  `admin_identity_resets` FORCE RLS altında ve politikasız; BYPASSRLS olmayan bir rol aşağıdaki sayımdan
+  da UPDATE'ten de **sessizce 0** alır. Şu satır `t` dönmeli, dönmüyorsa durulur:
+
+  ```sql
+  SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user;
+  ```
+
+  sonra salt okuma sayımı:
 
   ```sql
   BEGIN READ ONLY;

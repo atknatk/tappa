@@ -138,6 +138,17 @@ func (r *Resets) IssueForPerson(ctx context.Context, email string) (PersonResets
 	return out, nil
 }
 
+// withdrawGrace bounds the withdrawals a failed request makes (withdrawAfterFailure, openForIdentity).
+// They run without the request's cancellation -- the failure is often that cancellation -- but not
+// without a deadline: a hung pool or database must not hold the request's goroutine forever. Five
+// seconds, internal/handler's resetAuditGrace for the same kind of after-the-fact write.
+const withdrawGrace = 5 * time.Second
+
+// withdrawContext is ctx without its cancellation, bounded by withdrawGrace.
+func withdrawContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), withdrawGrace)
+}
+
 // withdrawAfterFailure retires every link minted by a request that is about to answer err, so a
 // failed request leaves no live link that no inbox will ever hold (EM-7C's Withdraw reason: one live
 // link per account -- or per identity -- would otherwise refuse the owner's next request for
@@ -145,7 +156,8 @@ func (r *Resets) IssueForPerson(ctx context.Context, email string) (PersonResets
 // (a dropped connection). A withdrawal that fails too is joined to err -- never swallowed (§7) -- and
 // the caller logs it.
 func (r *Resets) withdrawAfterFailure(ctx context.Context, err error, minted []ResetGrant) error {
-	base := context.WithoutCancel(ctx)
+	base, cancel := withdrawContext(ctx)
+	defer cancel()
 	errs := []error{err}
 	for _, g := range minted {
 		var werr error
@@ -186,7 +198,10 @@ func (r *Resets) openForIdentity(ctx context.Context, who identityRecipient) (*R
 		// cancelled context, a dropped connection between COMMIT and its answer). The link's hash is in
 		// hand, so it is withdrawn whatever happened -- a link that was never written withdraws nothing.
 		err = fmt.Errorf("adminauth: issue identity reset: %w", err)
-		if _, werr := r.data.WithdrawIdentityReset(context.WithoutCancel(ctx), h); werr != nil {
+		wctx, cancel := withdrawContext(ctx)
+		_, werr := r.data.WithdrawIdentityReset(wctx, h)
+		cancel()
+		if werr != nil {
 			err = errors.Join(err, fmt.Errorf("adminauth: withdraw identity reset: %w", werr))
 		}
 		return nil, nil, err
