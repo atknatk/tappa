@@ -6,8 +6,9 @@ package handler
 // through the identity end to end (the dual-write is not the flag's).
 //
 // The identity is COMMITTED (the HTTP server reads it on its own connections), so the test holds
-// internal/db's operator-tables lock SHARED on an owner connection and takes the identity back at
-// the end (cmd/opadmin's TestTablesLock_IsTakenOncePerTestTree lists this package).
+// internal/db's operator-tables lock SHARED -- through the harness, whose holdPanelTablesLock is this
+// package's one re-entrant holder (M14-09) -- and takes the identity back at the end (cmd/opadmin's
+// TestTablesLock_IsTakenOncePerTestTree lists this package).
 
 import (
 	"context"
@@ -16,6 +17,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -26,7 +28,8 @@ import (
 // string, taken transaction-scoped by a test that commits nothing).
 const operatorTablesTestLock = identityAuditTablesLock
 
-// sharedTablesLock takes the operator-tables lock SHARED on conn, held until conn closes.
+// sharedTablesLock takes the operator-tables lock SHARED on conn, held until conn closes. Its one
+// caller is holdPanelTablesLock.
 func sharedTablesLock(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
 	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock_shared(hashtext($1))`, operatorTablesTestLock); err != nil {
@@ -34,9 +37,85 @@ func sharedTablesLock(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	}
 }
 
+// panelTablesLock is this test binary's ONE holder of the operator-tables lock (holdPanelTablesLock).
+var panelTablesLock struct {
+	mu   sync.Mutex
+	held int
+	conn *pgx.Conn
+}
+
+// holdPanelTablesLock holds internal/db's operator-tables lock SHARED until t ends (M14-09; the M14-08
+// audit's finding). Every panel harness commits admin_users rows -- and the identity tests commit
+// identities -- into the database internal/db's backfill tests read whole under that lock held
+// EXCLUSIVE (bfTx): TestAdminBackfill00073_TheClosingAssertion went red when a harness committed a
+// row with an address while it ran (`go test ./...` runs the packages in parallel).
+//
+// 🔴 RE-ENTRANT, PER PROCESS, AND THAT IS THE DEADLOCK cmd/opadmin's TestTablesLock_IsTakenOncePerTestTree
+// IS ABOUT. A test that builds two harnesses, or one inside a subtest, would otherwise ask for the
+// lock a second time on a second connection while holding it on the first -- and a SHARED request
+// queues behind a waiting EXCLUSIVE one, so the test would wait on internal/db, which waits on the
+// test. Here only the FIRST holder sends the statement; every later one, while any is alive, counts
+// itself in; the last to end closes the connection, which releases the lock. So no test of this
+// package ever waits for the lock while it holds it. The scan knows this function as the package's
+// re-entrant holder (tablesLockReentrant) and requires sharedTablesLock to have no other caller.
+//
+// Without DATABASE_MIGRATE_URL nothing is held: every test that takes the lock EXCLUSIVE connects as
+// the owner and skips without it, so there is nothing to take turns with.
+//
+// It returns the release (idempotent; t's cleanup calls it too), so a test whose committed fixtures
+// are already in place can stop holding the lock before a long stretch that writes none
+// (TestPanelE2E_TimingIsFlatOverHTTP, TestPanelE2E_IdentityTimingIsFlatOverHTTP: cost-12 samples, a
+// couple of minutes under -race, during which every other package's turn would queue behind them).
+func holdPanelTablesLock(t *testing.T) (release func()) {
+	t.Helper()
+	dsn := os.Getenv("DATABASE_MIGRATE_URL")
+	if dsn == "" {
+		return func() {}
+	}
+	panelTablesLock.mu.Lock()
+	defer panelTablesLock.mu.Unlock()
+	if panelTablesLock.held == 0 {
+		ctx := context.Background()
+		conn, err := pgx.Connect(ctx, dsn)
+		if err != nil {
+			t.Fatalf("connect as the owner for the operator-tables lock: %v", err)
+		}
+		ok := false
+		defer func() {
+			if ok {
+				return
+			}
+			if err := conn.Close(context.Background()); err != nil {
+				t.Errorf("close the owner connection: %v", err)
+			}
+		}()
+		sharedTablesLock(t, ctx, conn)
+		ok = true
+		panelTablesLock.conn = conn
+	}
+	panelTablesLock.held++
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			panelTablesLock.mu.Lock()
+			defer panelTablesLock.mu.Unlock()
+			panelTablesLock.held--
+			if panelTablesLock.held > 0 {
+				return
+			}
+			if err := panelTablesLock.conn.Close(context.Background()); err != nil {
+				t.Errorf("release the operator-tables lock: %v", err)
+			}
+			panelTablesLock.conn = nil
+		})
+	}
+	t.Cleanup(release)
+	return release
+}
+
 // linkHarness links p's admin row to a new identity carrying the row's digest (the way the backfill
-// does), on an owner connection that holds the lock for the test and unlinks and deletes the
-// identity at the end. It returns the connection.
+// does), on an owner connection that unlinks and deletes the identity at the end, and returns the
+// connection. The operator-tables lock is p's (newPanelHarnessWith holds it while p lives).
 func linkHarness(t *testing.T, p *panelHarness) *pgx.Conn {
 	t.Helper()
 	dsn := os.Getenv("DATABASE_MIGRATE_URL")
@@ -53,7 +132,6 @@ func linkHarness(t *testing.T, p *panelHarness) *pgx.Conn {
 			t.Errorf("close the owner connection: %v", err)
 		}
 	})
-	sharedTablesLock(t, ctx, owner)
 	var ident uuid.UUID
 	if err := owner.QueryRow(ctx, `INSERT INTO admin_identities (email, password_hash)
 	                                SELECT email, password_hash FROM admin_users WHERE id = $1 RETURNING id`, p.adminID).Scan(&ident); err != nil {
@@ -173,4 +251,49 @@ func TestPanelPassword_ALinkedRowChangesThroughTheIdentity(t *testing.T) {
 	}
 	p.password = next
 	p.signIn(t)
+}
+
+// TestHoldPanelTablesLock_IsReEntrant: a second harness built while one lives -- in a subtest, the
+// shape cmd/opadmin's scan no longer flags for this holder -- does not ask for the lock again: the
+// count goes up by one, the connection holding the lock is the same, and that connection holds the
+// advisory lock exactly once. When the subtest ends the count comes back down and the lock is still
+// held for the parent. MUTATION: holdPanelTablesLock connects and locks on every call -> red.
+func TestHoldPanelTablesLock_IsReEntrant(t *testing.T) {
+	if os.Getenv("DATABASE_MIGRATE_URL") == "" {
+		t.Skip("DATABASE_MIGRATE_URL not set; nothing is held without the owner connection")
+	}
+	newPanelHarness(t)
+	panelTablesLock.mu.Lock()
+	first, before := panelTablesLock.conn, panelTablesLock.held
+	panelTablesLock.mu.Unlock()
+	if first == nil || before < 1 {
+		t.Fatalf("a live harness holds nothing (conn %v, count %d)", first, before)
+	}
+	held := func(c *pgx.Conn) int {
+		t.Helper()
+		var n int
+		if err := first.QueryRow(context.Background(),
+			`SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted AND pid = $1`, c.PgConn().PID()).Scan(&n); err != nil {
+			t.Fatalf("read pg_locks: %v", err)
+		}
+		return n
+	}
+	t.Run("a second harness", func(t *testing.T) {
+		newPanelHarness(t)
+		panelTablesLock.mu.Lock()
+		conn, count := panelTablesLock.conn, panelTablesLock.held
+		panelTablesLock.mu.Unlock()
+		if conn != first || count != before+1 {
+			t.Fatalf("the second harness asked again: connection replaced %v, count %d (was %d)", conn != first, count, before)
+		}
+		if n := held(first); n != 1 {
+			t.Fatalf("the holding connection holds %d advisory locks, want 1", n)
+		}
+	})
+	panelTablesLock.mu.Lock()
+	conn, after := panelTablesLock.conn, panelTablesLock.held
+	panelTablesLock.mu.Unlock()
+	if conn != first || after != before {
+		t.Fatalf("after the subtest: connection kept %v, count %d, want %d", conn == first, after, before)
+	}
 }

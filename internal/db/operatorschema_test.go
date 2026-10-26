@@ -92,6 +92,10 @@ func opOwnerDSN(t *testing.T) string {
 	return dsn
 }
 
+// opLockWait bounds the wait for the operator-tables lock in opTx and bfTx (their own three minutes
+// start after it).
+const opLockWait = 15 * time.Minute
+
 // opTx opens a dedicated owner connection and a REPEATABLE READ transaction that is
 // rolled back when the test ends. REPEATABLE READ so that every count this suite
 // takes sees this transaction's own writes and nothing another session committed in
@@ -104,8 +108,12 @@ func opOwnerDSN(t *testing.T) string {
 func opTx(t *testing.T, onNotice ...pgconn.NoticeHandler) (context.Context, pgx.Tx) {
 	t.Helper()
 	dsn := opOwnerDSN(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	t.Cleanup(cancel)
+	// THE TEST'S THREE MINUTES START ONCE THE LOCK IS HELD (M14-09's third-eye audit): the wait for
+	// the operator-tables lock runs on its own, longer context, because the packages that hold it
+	// SHARED keep it for a whole test -- ~120 s for a cost-12 HTTP timing sample under -race -- and a
+	// wait counted against the test's own budget left the Downs' table locks too little of it.
+	lockCtx, lockCancel := context.WithTimeout(context.Background(), opLockWait)
+	t.Cleanup(lockCancel)
 	cfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		t.Fatalf("parse the owner connection string: %v", err)
@@ -117,7 +125,7 @@ func opTx(t *testing.T, onNotice ...pgconn.NoticeHandler) (context.Context, pgx.
 	default:
 		t.Fatalf("opTx takes at most one notice handler, got %d", len(onNotice))
 	}
-	conn, err := pgx.ConnectConfig(ctx, cfg)
+	conn, err := pgx.ConnectConfig(lockCtx, cfg)
 	if err != nil {
 		t.Fatalf("connect as the owner: %v", err)
 	}
@@ -139,9 +147,11 @@ func opTx(t *testing.T, onNotice ...pgconn.NoticeHandler) (context.Context, pgx.
 	// keep the two spellings equal), so the two packages' operator-table tests take
 	// turns instead of racing. It is taken before any table lock, on both sides, so it
 	// cannot join a cycle.
-	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext($1))`, operatorTablesTestLock); err != nil {
+	if _, err := conn.Exec(lockCtx, `SELECT pg_advisory_lock(hashtext($1))`, operatorTablesTestLock); err != nil {
 		t.Fatalf("operator-tables test lock: %v", err)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	t.Cleanup(cancel)
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		t.Fatalf("BEGIN: %v", err)

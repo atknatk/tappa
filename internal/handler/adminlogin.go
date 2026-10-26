@@ -24,6 +24,9 @@ import (
 // declared HERE at the consumer (section 7).
 type adminAuthenticator interface {
 	Authenticate(ctx context.Context, email, password string) (adminauth.Authentication, error)
+	// AuthenticatePerson is the identity path of the sign-in (ADR 0031 §5.6, M14-09): asked only
+	// while adminauth.SurfaceLoginIdentity is open (adminloginidentity.go).
+	AuthenticatePerson(ctx context.Context, email, password string, want uuid.UUID, budget adminauth.FailureBudget) (adminauth.PersonSignIn, error)
 	TenantChoices(ctx context.Context, verified []adminauth.Verified) ([]adminauth.Choice, error)
 	Issue(ctx context.Context, v adminauth.Verified) (adminauth.Issued, error)
 	Verify(ctx context.Context, t adminauth.Token) (adminauth.Resolved, error)
@@ -35,6 +38,12 @@ type adminAuthenticator interface {
 	// changes through the identity, keyed by that token's hash (adminauth.PasswordChange
 	// says which path ran and whether the database already wrote the trail).
 	ChangeOwnPassword(ctx context.Context, tenantID, adminID, exceptSessionID uuid.UUID, session adminauth.Token, current, next string) (adminauth.PasswordChange, error)
+	// RevokeAll signs the person behind the cookie out everywhere (M14-11, ADR 0031 §5.2): through
+	// the identity when the row is linked (every business; the database writes each its sign-out
+	// rows), this admin in this business otherwise (the caller writes those rows -- Sessions).
+	// linked is the verified session's Resolved.Linked: a linked session never takes the one-business
+	// fallback.
+	RevokeAll(ctx context.Context, tenantID, adminID, sessionID uuid.UUID, linked bool, current adminauth.Token, keepCurrent bool) (adminauth.Revocation, error)
 }
 
 // Audit actions written by the panel auth flow. The vocabulary is free text by
@@ -814,8 +823,9 @@ func (a *AdminAuth) ProtectWriting() func(http.Handler) http.Handler {
 // 🔴 IT IS THE NAMED CHAIN OF ADR 0025 §3's CLOSED EXCEPTION LIST, and it has exactly
 // one user: the sibling group at the end of mountWriting, which holds the admin's own
 // password, the four record paths (adding a person, re-inviting, and the manual
-// record's two steps) and K-26's defences (revoking API keys, switching the webhook
-// off). The record paths are not the business's settings but how an attendance record
+// record's two steps), K-26's defences (revoking API keys, switching the webhook
+// off) and, while TAPPA_ADMIN_IDENTITY is on, signing yourself out everywhere (ADR
+// 0025's M14 note, M14-11). The record paths are not the business's settings but how an attendance record
 // gets written or recovered (§4.3, §4.6) -- a suspension stops writes, not evidence --
 // and the defences only take away what the business exposes. An exception made by PATH
 // would open or close silently on a rename; made by GROUP, it is a visible edit in one
@@ -1029,6 +1039,14 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 	email := strings.TrimSpace(r.PostFormValue("email"))
 	password := r.PostFormValue("password")
 
+	// THE IDENTITY PATH (ADR 0031 §5.6, M14-09) while its row of §8's table is open; today's
+	// sign-in, byte for byte, while it is closed. Everything above -- the three budgets, Origin,
+	// the synchronizer token -- is the same for both.
+	if a.identityPath() {
+		a.loginAsPerson(w, r, ip, st, email, password)
+		return
+	}
+
 	auth, err := a.admins.Authenticate(r.Context(), email, password)
 	if err != nil && !errors.Is(err, adminauth.ErrBadCredentials) {
 		// A database or internal failure is NOT bad credentials: saying so would
@@ -1038,6 +1056,13 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusInternalServerError, problemAdminServer)
 		return
 	}
+	a.concludeLogin(w, r, ip, st, auth, err)
+}
+
+// concludeLogin is the sign-in's tail once the passwords were compared: the failure, the one
+// verified business, or the picker. auth is Authenticate's -- or, on the identity path, the legacy
+// arm's (adminauth.PersonSignIn.Legacy) -- and err is nil or adminauth.ErrBadCredentials.
+func (a *AdminAuth) concludeLogin(w http.ResponseWriter, r *http.Request, ip string, st adminLoginState, auth adminauth.Authentication, err error) {
 	if auth.Truncated() {
 		// The one signal that keeps the lockout named at adminauth.MaxCandidates
 		// from being invisible. No email in the line (section 4.7 spirit: an address
@@ -1142,11 +1167,11 @@ func (a *AdminAuth) ChoosePage(w http.ResponseWriter, r *http.Request) {
 				ActorID:  &verified[0].AdminUserID,
 				Action:   ActionAdminLoginFailed,
 				Target:   verified[0].AdminUserID.String(),
-				Detail: adminLoginDetail{
+				Detail: a.loginDetail(adminLoginDetail{
 					Outcome:          "rejected",
-					Reason:           "password verified but every business was disabled before the choice",
+					Reason:           reasonDisabledByChoice,
 					VerifiedBusiness: len(verified),
-				},
+				}),
 			})
 		}
 		a.log.Warn("panel sign-in: every verified business was disabled before the choice",
@@ -1220,12 +1245,12 @@ func (a *AdminAuth) Choose(w http.ResponseWriter, r *http.Request) {
 				ActorID:  &verified[0].AdminUserID,
 				Action:   ActionAdminLoginRefused,
 				Target:   verified[0].AdminUserID.String(),
-				Detail: adminLoginDetail{
+				Detail: a.loginDetail(adminLoginDetail{
 					Outcome:          "refused",
-					Reason:           "chosen business was not in the verified set",
+					Reason:           reasonChoiceRefused,
 					AttemptedTenant:  tenantID.String(),
 					VerifiedBusiness: len(verified),
-				},
+				}),
 			})
 		}
 		a.resetLogin(w)
@@ -1250,6 +1275,14 @@ func (a *AdminAuth) Choose(w http.ResponseWriter, r *http.Request) {
 // whose password verified in the same attempt, which is the obligation.
 func (a *AdminAuth) completeLogin(w http.ResponseWriter, r *http.Request, ip string, v adminauth.Verified) {
 	issued, err := a.admins.Issue(r.Context(), v)
+	if err != nil && adminauth.SignInLapsed(err) {
+		// The credential this sign-in verified no longer held when its session was written:
+		// the password changed, the row was disabled or refused, or the write lost a deadlock
+		// to that change (M14-07's proof, §5.2's predicate). Nothing was signed in, and it is
+		// not an outage: the person signs in again (M14-09).
+		a.signInAgain(w, r, v.AdminUserID, err)
+		return
+	}
 	if err != nil {
 		// The password was right and the account is active, but no session exists.
 		// This must be visible: it is not "wrong credentials" and telling the
@@ -1369,7 +1402,15 @@ func (a *AdminAuth) failLogin(w http.ResponseWriter, r *http.Request, ip string,
 		// spirit: an email is personal data and this path is unauthenticated, so a
 		// flood of guesses would otherwise write a list of guessed addresses into
 		// the process log).
-		a.log.Info("panel sign-in refused", "reason", "no such admin", "ip", ip)
+		//
+		// On the identity path "no such admin" would be false for a person whose rows are all
+		// linked: their failure is the identity's own event row (admin_identity_events), and no
+		// UNLINKED row was compared here.
+		reason := "no such admin"
+		if a.identityPath() {
+			reason = "no unlinked admin row compared"
+		}
+		a.log.Info("panel sign-in refused", "reason", reason, "ip", ip)
 	}
 	a.renderLoginFailure(w, r, st)
 }
@@ -1474,14 +1515,13 @@ func (a *AdminAuth) recordCandidateProbe(r *http.Request, ip string, auth admina
 		ActorID:  &verified[0].AdminUserID,
 		Action:   ActionAdminLoginTruncated,
 		Target:   verified[0].AdminUserID.String(),
-		Detail: adminLoginDetail{
-			Outcome: "ok",
-			Reason: "the address is registered in more businesses than one sign-in compares, " +
-				"and this attempt authenticated against a subset",
+		Detail: a.loginDetail(adminLoginDetail{
+			Outcome:          "ok",
+			Reason:           reasonTruncated,
 			VerifiedBusiness: len(verified),
 			Resolved:         auth.Resolved,
 			Compared:         len(auth.Attempts),
-		},
+		}),
 	})
 	a.log.Warn("panel sign-in: an address resolved past the per-request cap AND authenticated",
 		"ip", ip, "resolved", auth.Resolved, "compared", len(auth.Attempts),
@@ -1576,6 +1616,11 @@ func adminLoggedOutEvent(tenant, admin, session uuid.UUID) audit.Event {
 // could travel, so no later edit adds one by accident and the section 4.7 promise
 // is a property of the type rather than of the author's memory. Everything in it
 // is an opaque id or a fixed string written in this file.
+//
+// 🔴 ON THE IDENTITY PATH FOUR OF ITS FIELDS ARE NEVER WRITTEN (ADR 0031 §5.6, R21): AttemptedTenant,
+// VerifiedBusiness, Resolved and Compared tell a business's owner about the person's OTHER businesses.
+// Every row of this flow that can carry one passes through AdminAuth.loginDetail
+// (adminloginidentity.go), which drops them while that path is open.
 type adminLoginDetail struct {
 	Outcome string `json:"outcome"`
 	Reason  string `json:"reason,omitempty"`

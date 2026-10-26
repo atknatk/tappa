@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/web/templates/pages"
@@ -263,6 +264,18 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 	// else; this page reads no key and no webhook.
 	if mayManageAPIKeys(id) {
 		v.DevelopersHref = apiKeysHref
+	}
+	// "Sign out everywhere" (M14-11) is an identity section of this page (ADR 0031 §8): closed
+	// while the flag is off, and then the page is today's. Any live admin -- it is personal.
+	//
+	// THE CARD'S SENTENCE FOLLOWS WHAT THE PRESS WILL DO: "every business" only for a session whose
+	// row is linked (id.Admin.Linked, from the same TouchAdminSession read); an unlinked row's press
+	// signs out this business alone. With the flag ON a linked and an unlinked session may see
+	// different pages -- ADR 0031 §8's table opens the account page's identity sections then; R4's
+	// byte-identity is the flag-OFF rule, and with the flag off nothing of this card is drawn.
+	if a.identityGate.Open(adminauth.SurfaceAccountIdentity) {
+		v.SignOutEverywhereHref = accountSignOutEverywhereHref
+		v.SignOutEverywhereEveryBusiness = id.Admin.Linked
 	}
 	fillAccountVAT(&v, s.VAT, zone)
 	// The "Your brand" editor (M10 WL-7), from the chrome built above -- the one brand

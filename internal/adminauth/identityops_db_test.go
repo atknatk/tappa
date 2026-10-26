@@ -214,7 +214,7 @@ func TestRevokeAll_ThePersonEverywhereOrTheRowAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	logoutsB := w.audit(tb, "admin.logout")
-	rv, err := m.RevokeAll(ctx, ta, a, cur.Session.ID, cur.Token, true)
+	rv, err := m.RevokeAll(ctx, ta, a, cur.Session.ID, true, cur.Token, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestRevokeAll_ThePersonEverywhereOrTheRowAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rv, err = m.RevokeAll(ctx, tp, pa, s1.Session.ID, s1.Token, false)
+	rv, err = m.RevokeAll(ctx, tp, pa, s1.Session.ID, false, s1.Token, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,6 +255,129 @@ func TestRevokeAll_ThePersonEverywhereOrTheRowAlone(t *testing.T) {
 		if _, err := m.Verify(ctx, tok); !errors.Is(err, ErrNoSession) {
 			t.Errorf("an unlinked row's session survived RevokeAll(false): %v", err)
 		}
+	}
+}
+
+// TestRevokeAll_ASessionThatDiedMeanwhileRevokesNothing (M14-11 security review): the request's
+// session is verified, then revoked (a reset, another sign-out) before RevokeAll runs. The identity's
+// revocation answers 0 rows for a dead session exactly as for an unlinked row, so RevokeAll reaches
+// the one-business fallback -- which must NOT then revoke this business alone and call it done:
+// with keepCurrent false and the current session not among the revoked, it rolls back and answers
+// ErrRevokeAllSessionGone. Both shapes -- a linked row (the person's sessions in both businesses
+// survive) and an unlinked one (its other session survives) -- and the control: the same call with
+// a live session succeeds.
+//
+// MUTATION (measured): the current-session check removed from the fallback -> the linked row's
+// other session in this business is revoked and RevokeAll reports success, red.
+func TestRevokeAll_ASessionThatDiedMeanwhileRevokesNothing(t *testing.T) {
+	d := testDB(t)
+	m := testManager(t, d)
+	ctx := context.Background()
+
+	w := newIDWorld(t, ownerConn(t), true)
+	ta, tb := w.tenant("M14-11 Stale A"), w.tenant("M14-11 Stale B")
+	a := w.linked(ta, "active", "backfill", 72*time.Hour)
+	w.linked(tb, "active", "backfill", 48*time.Hour)
+	cur, err := w.signInOn(m, w.pw, ta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := w.signInOn(m, w.pw, ta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	elsewhere, err := w.signInOn(m, w.pw, tb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Verify(ctx, cur.Token); err != nil {
+		t.Fatalf("CONTROL: the current session does not verify: %v", err)
+	}
+	if err := m.Revoke(ctx, ta, cur.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rv, err := m.RevokeAll(ctx, ta, a, cur.Session.ID, true, cur.Token, false); !errors.Is(err, ErrRevokeAllSessionGone) {
+		t.Fatalf("linked row, dead session: RevokeAll = %+v, %v; want ErrRevokeAllSessionGone", rv, err)
+	}
+	for name, tok := range map[string]Token{"the other session here": other.Token, "the session in the other business": elsewhere.Token} {
+		if _, err := m.Verify(ctx, tok); err != nil {
+			t.Errorf("linked row: %s was revoked by a refused RevokeAll: %v", name, err)
+		}
+	}
+
+	plain := newIDWorld(t, w.owner, false)
+	tp := plain.tenant("M14-11 Stale plain")
+	pa := plain.row(tp, plain.digest, "active", time.Hour)
+	s1, _, err := plain.signInOff(m, plain.pw, tp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s2, _, err := plain.signInOff(m, plain.pw, tp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Revoke(ctx, tp, s1.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rv, err := m.RevokeAll(ctx, tp, pa, s1.Session.ID, false, s1.Token, false); !errors.Is(err, ErrRevokeAllSessionGone) {
+		t.Fatalf("unlinked row, dead session: RevokeAll = %+v, %v; want ErrRevokeAllSessionGone", rv, err)
+	}
+	if _, err := m.Verify(ctx, s2.Token); err != nil {
+		t.Errorf("unlinked row: the other session was revoked by a refused RevokeAll: %v", err)
+	}
+	// CONTROL: from the live session the same call goes through (its own session the one revoked).
+	if rv, err := m.RevokeAll(ctx, tp, pa, s2.Session.ID, false, s2.Token, false); err != nil || rv.ThroughIdentity || len(rv.Sessions) != 1 {
+		t.Fatalf("CONTROL: a live unlinked session's RevokeAll = %+v, %v", rv, err)
+	}
+}
+
+// TestRevokeAll_ALinkedSessionNeverFallsBackToOneBusiness (M14-11 re-audit): a LINKED person's
+// membership in A is disabled between the request's verification and RevokeAll (status no longer
+// active, the session's revoked_at still NULL). identity_revoke_sessions answers 0 rows for it, and
+// the one-business fallback -- whose statement does not look at status -- would sign out A alone
+// while the person believes every business. With linked true RevokeAll answers
+// ErrRevokeAllSessionGone instead and revokes nothing: the session in B and A's other session keep
+// their revoked_at NULL.
+//
+// MUTATION (measured): the linked guard removed -> the fallback revokes A's sessions (its own among
+// them, so the current-session check passes) and RevokeAll succeeds, red.
+func TestRevokeAll_ALinkedSessionNeverFallsBackToOneBusiness(t *testing.T) {
+	d := testDB(t)
+	m := testManager(t, d)
+	ctx := context.Background()
+	w := newIDWorld(t, ownerConn(t), true)
+	ta, tb := w.tenant("M14-11 Disabled A"), w.tenant("M14-11 Disabled B")
+	a := w.linked(ta, "active", "backfill", 72*time.Hour)
+	w.linked(tb, "active", "backfill", 48*time.Hour)
+	cur, err := w.signInOn(m, w.pw, ta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := w.signInOn(m, w.pw, ta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	elsewhere, err := w.signInOn(m, w.pw, tb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := m.Verify(ctx, cur.Token)
+	if err != nil || !res.Linked {
+		t.Fatalf("CONTROL: the current session verifies as linked: %+v, %v", res, err)
+	}
+	if _, err := w.owner.Exec(ctx, `UPDATE admin_users SET status = 'disabled' WHERE id = $1`, a); err != nil {
+		t.Fatalf("disable the membership in A: %v", err)
+	}
+	if rv, err := m.RevokeAll(ctx, ta, a, cur.Session.ID, res.Linked, cur.Token, false); !errors.Is(err, ErrRevokeAllSessionGone) {
+		t.Fatalf("a linked session whose membership was disabled meanwhile: RevokeAll = %+v, %v; want ErrRevokeAllSessionGone", rv, err)
+	}
+	if _, err := m.Verify(ctx, elsewhere.Token); err != nil {
+		t.Errorf("the session in the other business was revoked: %v", err)
+	}
+	var live int
+	if err := w.owner.QueryRow(ctx, `SELECT count(*) FROM admin_sessions WHERE admin_user_id = $1 AND revoked_at IS NULL AND id = ANY($2)`,
+		a, []uuid.UUID{cur.Session.ID, other.Session.ID}).Scan(&live); err != nil || live != 2 {
+		t.Errorf("A's sessions: %d still unrevoked (%v), want both -- nothing is revoked on this answer", live, err)
 	}
 }
 

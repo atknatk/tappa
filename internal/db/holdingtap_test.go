@@ -1827,7 +1827,7 @@ func lockForDowns(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string)
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("lock the tables the Downs touch: %d rounds, still busy", round+1)
+			t.Fatalf("lock the tables the Downs touch: %d rounds, still busy; holders now:\n%s", round+1, lockHolders(t, ctx, tx, list))
 		}
 		time.Sleep(25 * time.Millisecond)
 	}

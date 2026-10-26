@@ -1,6 +1,10 @@
 package handler
 
-import "time"
+import (
+	"time"
+
+	"github.com/atknatk/tappa/internal/adminauth"
+)
 
 // The PANEL AUTH budgets — migration 00011's PHASE B OBLIGATION 3, first half.
 //
@@ -664,6 +668,8 @@ const (
 	//
 	// THE CEILING IS UNCHANGED AND WAS ALREADY WRITTEN FOR THIS. That is what made the
 	// trade affordable: this budget was sized on "10 x 8 candidates", not on "10 x 1".
+	// (On the identity path -- M14-09 -- a failure is 1 + 8 = 9 comparisons: 10 x 9 x
+	// 0.38 s = ~34 s, ~5.7% of one core. The number stays.)
 	//
 	// ONLY FAILURES ARE CHARGED, and that is what keeps a shared office address
 	// safe: ten people signing in correctly spend nothing here, so the budget
@@ -734,8 +740,24 @@ const (
 	// wrong passwords, and ten is fewer than one busy office does legitimately. Reusing
 	// it would lock real operators out of their own panel — the harm this file spends
 	// its longest paragraph refusing.
-	adminLoginWorkLimit  = 120
-	adminLoginWorkPeriod = 10 * time.Minute
+	//
+	// 🔴 RE-SIZED FOR THE IDENTITY PATH (ADR 0031 §5.6, M14-09): a sign-in there pays 1 +
+	// MaxCandidates = 9 comparisons, not 8 -- the identity's, then the legacy window padded --
+	// until contract. The limit is now DERIVED from the comparison budget the operator model
+	// above set (120 sign-ins x 8 = adminLoginWorkComparisons), so the CPU ceiling stays where
+	// it was argued rather than growing by an eighth:
+	//
+	//	960 / 9 = 106 sign-ins     106 x 9 x 0.38 s = ~362 CPU-s per window = ~0.60 core
+	//	                           (before: 120 x 8 x 0.38 s = ~365, ~0.61 core)
+	//	measured (M14-09, this workstation, go1.26.10, no -race): one cost-12 comparison
+	//	195-213 ms (9 samples, one 568 ms outlier) -> 106 x 9 x ~0.2 s = ~191 CPU-s, ~0.32 core
+	//
+	// The headroom over the largest modelled office (60) falls from 2x to ~1.8x, and the flag-off
+	// path (8 comparisons) is bounded by the same 106 -- 848 comparisons, under the old ceiling.
+	// When contract A drops the legacy window, re-derive: the divisor falls to 1.
+	adminLoginWorkComparisons = 120 * 8
+	adminLoginWorkLimit       = adminLoginWorkComparisons / (1 + adminauth.MaxCandidates)
+	adminLoginWorkPeriod      = 10 * time.Minute
 
 	// adminAccountLimit / adminAccountPeriod: 10 attributable failures in 10
 	// minutes against ONE admin account, bounding audit_log ONLY.

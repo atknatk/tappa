@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -135,9 +136,18 @@ const formBindingCookie = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 // behind the two writing chains so a test can see what a handler behind them receives.
 func formBindingAuth(t *testing.T, admins *fakeAdmins, probe http.HandlerFunc) (*AdminAuth, http.Handler) {
 	t.Helper()
+	return formBindingAuthUnder(t, false, admins, probe)
+}
+
+// formBindingAuthUnder is formBindingAuth under a panel identity flag (open: the identity
+// surfaces' routes are mounted too).
+func formBindingAuthUnder(t *testing.T, identity bool, admins *fakeAdmins, probe http.HandlerFunc) (*AdminAuth, http.Handler) {
+	t.Helper()
+	cfg := adminTestConfig()
+	cfg.AdminIdentity = identity
 	a, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
 		&fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(),
-		newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), discardLogger())
+		newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, cfg, discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -298,6 +308,16 @@ func TestPanelForms_EveryRenderedPostFormIsBound(t *testing.T) {
 		check(router, s.Href)
 	}
 	check(brand.router, accountHref)
+	// The identity flag open: the Account section also draws M14-11's sign-out everywhere.
+	before := forms
+	_, identityOn := formBindingAuthUnder(t, true, formBindingOwner(), nil)
+	if bindingFor(identityOn, formBindingCookie) != want {
+		t.Fatal("PREMISE: the flag-on panel binds this session differently")
+	}
+	check(identityOn, accountHref)
+	if forms == before {
+		t.Error("the flag-on Account section drew no POST form")
+	}
 	if forms == 0 {
 		t.Fatal("PREMISE: no POST form was rendered, so nothing was checked")
 	}
@@ -311,10 +331,29 @@ func TestPanelForms_EveryRenderedPostFormIsBound(t *testing.T) {
 // comes before anything is read or written. The named exceptions -- the sign-in family
 // and sign-out (no writing chain), and the encode relay (formbinding.go) -- answer
 // something else.
+//
+// BOTH STATES OF THE IDENTITY FLAG are walked: open, the identity surfaces' routes are mounted
+// too (mountGated -- M14-11's sign-out everywhere among them), and they are writes like any other.
 func TestFormBinding_EveryWritingRouteRefusesAPostWithoutItsBinding(t *testing.T) {
+	routes := map[bool][]string{}
+	for _, identity := range []bool{false, true} {
+		t.Run(map[bool]string{false: "flag off", true: "flag on"}[identity], func(t *testing.T) {
+			routes[identity] = everyWritingRouteRefuses(t, identity)
+		})
+	}
+	if slices.Contains(routes[false], accountSignOutEverywhereHref) || !slices.Contains(routes[true], accountSignOutEverywhereHref) {
+		t.Errorf("CONTROL FAILED: %s is bound-walked with the flag off %v and on %v; want only on",
+			accountSignOutEverywhereHref, slices.Contains(routes[false], accountSignOutEverywhereHref),
+			slices.Contains(routes[true], accountSignOutEverywhereHref))
+	}
+}
+
+// everyWritingRouteRefuses is one flag state of the walk above; it returns the bound routes.
+func everyWritingRouteRefuses(t *testing.T, identity bool) []string {
+	t.Helper()
 	trail := &fakeTrail{}
 	owner := formBindingOwner()
-	tripwire := tripwirePanel(t, owner, trail, discardLogger())
+	tripwire := tripwirePanelUnder(t, identity, owner, trail, discardLogger())
 	_, open := formBindingAuth(t, formBindingOwner(), nil)
 	a, _ := formBindingAuth(t, formBindingOwner(), nil)
 	const otherCookie = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
@@ -326,6 +365,7 @@ func TestFormBinding_EveryWritingRouteRefusesAPostWithoutItsBinding(t *testing.T
 		{"a binding that is not one", "?tb=" + strings.Repeat("A", adminauth.FormBindingLen)},
 	}
 	bound := 0
+	var boundRoutes []string
 	for _, mr := range walkedRoutes(t, tripwire) {
 		method, route, _ := strings.Cut(mr, " ")
 		if method != http.MethodPost {
@@ -339,6 +379,7 @@ func TestFormBinding_EveryWritingRouteRefusesAPostWithoutItsBinding(t *testing.T
 			continue
 		}
 		bound++
+		boundRoutes = append(boundRoutes, route)
 		for _, c := range cases {
 			var rec *httptest.ResponseRecorder
 			func() {
@@ -370,6 +411,7 @@ func TestFormBinding_EveryWritingRouteRefusesAPostWithoutItsBinding(t *testing.T
 		t.Fatal("CONTROL: the session's own binding was refused, so the refusals above measure nothing")
 	}
 	t.Logf("%d bound POST routes each refused five ways", bound)
+	return boundRoutes
 }
 
 // TestFormBinding_ARefusedPostIsNeverRead: a POST whose binding does not match is refused
@@ -507,7 +549,16 @@ func TestFormBinding_TheRefusalSaysWhatTheADRSays(t *testing.T) {
 // carries the binding (S14). A write that succeeds ends in a 303 to a fixed panel path;
 // the routes that answer a page instead are logged (they are in the hand-off).
 func TestFormBinding_NoRedirectCarriesTheBinding(t *testing.T) {
-	a, h := formBindingAuth(t, formBindingOwner(), nil)
+	for _, identity := range []bool{false, true} {
+		t.Run(map[bool]string{false: "flag off", true: "flag on"}[identity], func(t *testing.T) {
+			noRedirectCarriesTheBinding(t, identity)
+		})
+	}
+}
+
+// noRedirectCarriesTheBinding is one flag state of the test above.
+func noRedirectCarriesTheBinding(t *testing.T, identity bool) {
+	a, h := formBindingAuthUnder(t, identity, formBindingOwner(), nil)
 	tb := bindingOf(t, a, formBindingCookie, panelTestTenant)
 	codes := map[int][]string{}
 	for _, mr := range walkedRoutes(t, h) {

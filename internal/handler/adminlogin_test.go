@@ -59,6 +59,9 @@ type fakeAdmins struct {
 	// changeRecorded is what a successful ChangeOwnPassword reports as Recorded (M14-08): true is a
 	// linked row's change, whose audit row the database wrote.
 	changeRecorded bool
+	// revokeAll is the hook for RevokeAll (M14-11). Nil means today's unlinked row with only the
+	// current session: revoked, not through the identity, its id handed back for the row.
+	revokeAll func(tenantID, adminID, sessionID uuid.UUID, keepCurrent bool) (adminauth.Revocation, error)
 
 	authCalls   int
 	issuedFor   []adminauth.Verified
@@ -67,6 +70,21 @@ type fakeAdmins struct {
 	// changeArgs records every ChangeOwnPassword call in order, so a test can assert the
 	// handler passed the SESSION's ids (§4.5, K3) rather than anything from the request.
 	changeArgs []changePasswordArgs
+	// revokeAllArgs records every RevokeAll call: the session's ids and keepCurrent.
+	revokeAllArgs []revokeAllArgs
+
+	// person is the hook for AuthenticatePerson (M14-09, the identity path). Nil means "every
+	// sign-in fails" (ErrBadCredentials), Authenticate's default. personCalls counts the calls and
+	// personBudgets keeps the failure budget each was handed, in order.
+	person        func(email, password string, want uuid.UUID, budget adminauth.FailureBudget) (adminauth.PersonSignIn, error)
+	personCalls   int
+	personBudgets []adminauth.FailureBudget
+}
+
+// revokeAllArgs is one recorded RevokeAll call.
+type revokeAllArgs struct {
+	tenantID, adminID, sessionID uuid.UUID
+	linked, keepCurrent          bool
 }
 
 // changePasswordArgs is one recorded ChangeOwnPassword call. It deliberately keeps the
@@ -85,6 +103,18 @@ func (f *fakeAdmins) Authenticate(_ context.Context, email, password string) (ad
 		return adminauth.Authentication{}, adminauth.ErrBadCredentials
 	}
 	return f.authenticate(email, password)
+}
+
+func (f *fakeAdmins) AuthenticatePerson(_ context.Context, email, password string, want uuid.UUID, budget adminauth.FailureBudget) (adminauth.PersonSignIn, error) {
+	f.mu.Lock()
+	f.personCalls++
+	f.personBudgets = append(f.personBudgets, budget)
+	hook := f.person
+	f.mu.Unlock()
+	if hook == nil {
+		return adminauth.PersonSignIn{}, adminauth.ErrBadCredentials
+	}
+	return hook(email, password, want, budget)
 }
 
 func (f *fakeAdmins) TenantChoices(_ context.Context, v []adminauth.Verified) ([]adminauth.Choice, error) {
@@ -169,6 +199,24 @@ func (f *fakeAdmins) ChangeOwnPassword(_ context.Context, tenantID, adminID, exc
 	}
 	n, err := hook(tenantID, adminID, exceptSessionID, current, next)
 	return adminauth.PasswordChange{RevokedOtherSessions: n, Recorded: recorded && err == nil}, err
+}
+
+func (f *fakeAdmins) RevokeAll(_ context.Context, tenantID, adminID, sessionID uuid.UUID, linked bool, _ adminauth.Token, keepCurrent bool) (adminauth.Revocation, error) {
+	f.mu.Lock()
+	f.revokeAllArgs = append(f.revokeAllArgs, revokeAllArgs{tenantID, adminID, sessionID, linked, keepCurrent})
+	hook := f.revokeAll
+	f.mu.Unlock()
+	if hook == nil {
+		return adminauth.Revocation{Revoked: 1, Sessions: []uuid.UUID{sessionID}}, nil
+	}
+	return hook(tenantID, adminID, sessionID, keepCurrent)
+}
+
+// revokeAllCalls returns the recorded RevokeAll calls.
+func (f *fakeAdmins) revokeAllCalls() []revokeAllArgs {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]revokeAllArgs(nil), f.revokeAllArgs...)
 }
 
 // changeCalls is how many times the handler reached ChangeOwnPassword — the number that
@@ -1405,7 +1453,14 @@ func newAdminRouterWithReviewer(t *testing.T, admins *fakeAdmins, trail *fakeTra
 // own limiter measures its own limiter.
 func newAdminRouterWithActions(t *testing.T, admins *fakeAdmins, trail *fakeTrail, records *fakeLedger, reviewer panelReviewer, staff panelStaff, invites panelInviter) http.Handler {
 	t.Helper()
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), slog.New(slog.DiscardHandler))
+	return newAdminRouterWithActionsUnder(t, adminTestConfig(), admins, trail, records, reviewer, staff, invites)
+}
+
+// newAdminRouterWithActionsUnder is the same wiring under a configuration the caller shapes (the
+// panel identity flag -- M14-11).
+func newAdminRouterWithActionsUnder(t *testing.T, cfg *config.Config, admins *fakeAdmins, trail *fakeTrail, records *fakeLedger, reviewer panelReviewer, staff panelStaff, invites panelInviter) http.Handler {
+	t.Helper()
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -2693,6 +2748,14 @@ func TestPanelConstants_ShippedValuesArePinned(t *testing.T) {
 			"THE CPU BOUND: 10 failures x adminauth.MaxCandidates (8) x ~380 ms = ~30 s of CPU " +
 				"per 10-minute window per address, about 5% of one core. Raising it raises that " +
 				"linearly — see adminauth.MaxCandidates, which carries the other half.",
+		},
+		{
+			"adminLoginWorkLimit", adminLoginWorkLimit, 106,
+			"every sign-in that reaches the password loop, success included (M7-02's hole). " +
+				"RE-SIZED IN M14-09 for the identity path's 1 + MaxCandidates = 9 comparisons: the " +
+				"operator model's comparison budget (120 sign-ins x 8 = 960) divided by 9 = 106, so " +
+				"the CPU ceiling stays ~362 CPU-s per window per address (~0.60 core at 0.38 s a " +
+				"comparison) instead of growing to ~410. Still above the largest modelled office (60).",
 		},
 		{
 			"adminAccountLimit", adminAccountLimit, 10,

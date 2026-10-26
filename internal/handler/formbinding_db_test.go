@@ -8,14 +8,13 @@ package handler
 // (a NEW session in B, the old one's page left open). Every row this test writes is in
 // two fresh tenants of its own. It COMMITS admin rows with e-mail addresses, which
 // internal/db's backfill tests count across the table, so it holds internal/db's
-// operator-tables lock SHARED for its whole run (formBindingTablesLock; the rule
-// linkHarness follows, and cmd/opadmin's TestTablesLock_IsTakenOncePerTestTree reads).
+// operator-tables lock SHARED for its whole run through the package's one re-entrant
+// holder (holdPanelTablesLock; cmd/opadmin's TestTablesLock_IsTakenOncePerTestTree reads it).
 
 import (
 	"context"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -25,27 +24,6 @@ import (
 
 	"github.com/atknatk/tappa/internal/db"
 )
-
-// formBindingTablesLock holds internal/db's operator-tables lock shared, on an owner
-// connection, until the test ends.
-func formBindingTablesLock(t *testing.T) {
-	t.Helper()
-	dsn := os.Getenv("DATABASE_MIGRATE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_MIGRATE_URL not set; the tables lock is taken on an owner connection (real Postgres required)")
-	}
-	ctx := context.Background()
-	owner, err := pgx.Connect(ctx, dsn)
-	if err != nil {
-		t.Fatalf("connect as the owner: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := owner.Close(context.Background()); err != nil {
-			t.Errorf("close the owner connection: %v", err)
-		}
-	})
-	sharedTablesLock(t, ctx, owner)
-}
 
 // venueFormAction is the location form's action as the RAW page writes it.
 var venueFormAction = regexp.MustCompile(`action="(` + regexp.QuoteMeta(venueSaveHref) + `\?tb=[A-Za-z0-9_-]{43})"`)
@@ -118,7 +96,7 @@ func (p *panelHarness) auditRowsIn(t *testing.T, tenantID uuid.UUID) int {
 // is suspended, where the refusal must come before the suspension ring writes its row.
 // CONTROL: the same form drawn in B saves in B.
 func TestFormBinding_AStaleFormWritesNothingInTheOtherBusiness(t *testing.T) {
-	formBindingTablesLock(t)
+	holdPanelTablesLock(t)
 	p := newPanelHarness(t)
 	tenantA := p.tenantID
 	p.signIn(t)
