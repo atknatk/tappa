@@ -338,6 +338,9 @@ type AdminAuth struct {
 	// switchLimiter is the switch's budget, keyed by the person and the address
 	// (adminSwitchLimit says why not the session).
 	switchLimiter *limiter
+	// switchPersonLimiter is the switch's per-person cap across addresses
+	// (adminSwitchPersonLimit).
+	switchPersonLimiter *limiter
 	// encodeLimiter is the plaque relay's own per-session ceiling. It is a SEVENTH
 	// bucket rather than a share of sessionLimiter's, and plaqueencode.go's
 	// adminEncodeLimit carries the arithmetic for why.
@@ -528,8 +531,10 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		sessionLimiter: newLimiter(adminSessionLimit, adminSessionPeriod),
 		logoutLimiter:  newLimiter(adminLogoutLimit, adminLogoutPeriod),
 		switchLimiter:  newLimiter(adminSwitchLimit, adminSwitchPeriod),
-		encodeLimiter:  newLimiter(adminEncodeLimit, adminEncodePeriod),
-		log:            log,
+
+		switchPersonLimiter: newLimiter(adminSwitchPersonLimit, adminSwitchPersonPeriod),
+		encodeLimiter:       newLimiter(adminEncodeLimit, adminEncodePeriod),
+		log:                 log,
 
 		brandUploadLimiter: newLimiter(brandUploadLimit, brandUploadPeriod),
 		brandWriteLimiter:  newLimiter(brandWriteLimit, brandWritePeriod),

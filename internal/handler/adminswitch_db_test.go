@@ -9,7 +9,9 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
@@ -189,6 +191,79 @@ func TestAdminSwitchDB_TheBudgetIsThePersonsAcrossAlternatingSwitches(t *testing
 	}
 	if p.panelCookie(t) != cookie || !p.signedIn(t) {
 		t.Error("the refused switch moved or ended the session")
+	}
+}
+
+// switchFrom switches the session cookie holds to target from the source address addr, driving
+// the panel's handler directly (the harness's loopback server cannot vary its peer address): the
+// page for the synchronizer, then its form. It returns the answer and the cookie afterwards.
+func switchFrom(t *testing.T, p *panelHarness, cookie, addr string, target uuid.UUID) (*httptest.ResponseRecorder, string) {
+	t.Helper()
+	h := p.server.Config.Handler
+	send := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.RemoteAddr = addr
+		req.Header.Set("Origin", p.server.URL)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+		req.AddCookie(&http.Cookie{Name: adminauth.CookieName, Value: cookie})
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	page := send(http.MethodGet, adminSwitchHref, "")
+	if page.Code != http.StatusOK {
+		t.Fatalf("GET %s from %s: %d", adminSwitchHref, addr, page.Code)
+	}
+	rec := send(http.MethodPost, boundPath(h, cookie, adminSwitchHref),
+		url.Values{"csrf": {csrfFrom(t, page.Body.String())}, "tenant_id": {target.String()}}.Encode())
+	for _, ck := range rec.Result().Cookies() {
+		if ck.Name == adminauth.CookieName && ck.Value != "" {
+			cookie = ck.Value
+		}
+	}
+	return rec, cookie
+}
+
+// TestAdminSwitchDB_ThePersonHasACapAcrossAddresses (M14-10 security review): the (person,
+// address) bucket alone would let N addresses buy 30 x N switches. From five addresses in turn
+// (24 switches each, under adminSwitchLimit), switch adminSwitchPersonLimit+1 is a 429, and the
+// audit trail of both businesses stops growing there.
+//
+// MUTATION (measured): the person bucket not consulted (only the pair bucket's verdict) -> the
+// 121st switch goes through, red.
+func TestAdminSwitchDB_ThePersonHasACapAcrossAddresses(t *testing.T) {
+	s := newSwitchPerson(t, "Addresses")
+	p := s.p
+	cookie := p.panelCookie(t)
+	addrs := make([]string, 5)
+	for i := range addrs {
+		addrs[i] = fmt.Sprintf("198.51.100.%d:4000", 10+i)
+	}
+	if adminSwitchPersonLimit/len(addrs) >= adminSwitchLimit {
+		t.Fatalf("PREMISE: %d switches per address would reach the per-address bucket first", adminSwitchPersonLimit/len(addrs))
+	}
+	rows0 := s.rowCount(t, s.a.tenant) + s.rowCount(t, s.b.tenant)
+	targets := []uuid.UUID{s.b.tenant, s.a.tenant}
+	for i := 1; i <= adminSwitchPersonLimit; i++ {
+		var rec *httptest.ResponseRecorder
+		rec, cookie = switchFrom(t, p, cookie, addrs[i%len(addrs)], targets[(i-1)%2])
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("switch #%d from %s: %d, want 303", i, addrs[i%len(addrs)], rec.Code)
+		}
+	}
+	rows := s.rowCount(t, s.a.tenant) + s.rowCount(t, s.b.tenant)
+	if rows-rows0 != 2*adminSwitchPersonLimit {
+		t.Fatalf("PREMISE: %d switches wrote %d rows, want %d", adminSwitchPersonLimit, rows-rows0, 2*adminSwitchPersonLimit)
+	}
+	i := adminSwitchPersonLimit + 1
+	rec, after := switchFrom(t, p, cookie, addrs[i%len(addrs)], targets[(i-1)%2])
+	if rec.Code != http.StatusTooManyRequests || after != cookie {
+		t.Fatalf("switch #%d: %d (cookie changed %v), want 429 and the cookie kept", i, rec.Code, after != cookie)
+	}
+	if got := s.rowCount(t, s.a.tenant) + s.rowCount(t, s.b.tenant); got != rows {
+		t.Errorf("the refused switch wrote %d audit row(s)", got-rows)
 	}
 }
 

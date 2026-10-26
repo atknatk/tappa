@@ -36,9 +36,10 @@ import (
 // write that changes WHICH business every later press lands in carries the strongest proof the
 // panel has that the request came from a page this session drew.
 //
-// 🔴 THE BUDGET IS THE PERSON'S (+ the address), NOT THE SESSION'S: every switch is a new
-// session, so sessionGate's per-session count restarts on each hop. adminSwitchLimit carries
-// the arithmetic; a refusal there writes nothing -- no session, no audit row.
+// 🔴 THE BUDGETS ARE THE PERSON'S, NOT THE SESSION'S: every switch is a new session, so
+// sessionGate's per-session count restarts on each hop. Two buckets: (person, address) --
+// adminSwitchLimit -- and the person alone across addresses, looser -- adminSwitchPersonLimit;
+// both carry their arithmetic. A refusal writes nothing -- no session, no audit row.
 //
 // 🔴 ONE REFUSAL, AND IT TOUCHES NO COOKIE. "No such business", "not a member", "disabled", "the
 // current business" and "a concurrent switch of the same session won" are one answer
@@ -90,15 +91,19 @@ var (
 	}
 )
 
-// adminSwitchKey is the switch budget's key: the person (adminauth.Resolved.SwitchBucket -- an
-// opaque value, never the identity id) and the address. An unlinked row has no person; its
-// switch is refused by the database anyway, and it is keyed by its session, which a refused
-// switch does not replace.
-func adminSwitchKey(id httpx.AdminIdentity, addr string) string {
+// adminSwitchPerson is the person the switch budgets are keyed by: adminauth.Resolved.SwitchBucket
+// (an opaque value, never the identity id). An unlinked row has no person; its switch is refused
+// by the database anyway, and it is keyed by its session, which a refused switch does not replace.
+func adminSwitchPerson(id httpx.AdminIdentity) string {
 	if b, ok := id.Admin.SwitchBucket(); ok {
-		return "identity:" + b + "|" + addr
+		return "identity:" + b
 	}
-	return "session:" + id.Admin.SessionID.String() + "|" + addr
+	return "session:" + id.Admin.SessionID.String()
+}
+
+// adminSwitchKey is the first budget's key: the person and the address.
+func adminSwitchKey(id httpx.AdminIdentity, addr string) string {
+	return adminSwitchPerson(id) + "|" + addr
 }
 
 // adminSwitchPage serves GET /admin/switch.
@@ -166,10 +171,20 @@ func (a *AdminAuth) adminSwitch(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusBadRequest, problemSwitchForged)
 		return
 	}
-	if n := a.switchLimiter.Charge(adminSwitchKey(id, clientIP(r))); n > adminSwitchLimit {
-		if a.switchLimiter.FirstOverLimit(n) {
+	// BOTH BUDGETS ARE CHARGED, every time -- the (person, address) one and the person's own cap
+	// across addresses (adminSwitchPersonLimit) -- and either one exhausted is the 429. Charged
+	// AFTER the synchronizer on purpose: a forged POST must not spend the person's budget
+	// (TestAdminSwitch_RefusesForgedAndCrossSiteRequests pins the order).
+	pair := a.switchLimiter.Charge(adminSwitchKey(id, clientIP(r)))
+	person := a.switchPersonLimiter.Charge(adminSwitchPerson(id))
+	if pair > adminSwitchLimit || person > adminSwitchPersonLimit {
+		if a.switchLimiter.FirstOverLimit(pair) || a.switchPersonLimiter.FirstOverLimit(person) {
+			limit := adminSwitchLimit
+			if person > adminSwitchPersonLimit {
+				limit = adminSwitchPersonLimit
+			}
 			a.log.Warn("panel switch budget reached", "actor_id", id.Admin.AdminUserID,
-				"limit", adminSwitchLimit, "period", adminSwitchPeriod.String())
+				"limit", limit, "period", adminSwitchPeriod.String())
 		}
 		a.renderProblem(w, r, http.StatusTooManyRequests, problemSwitchTooMany)
 		return

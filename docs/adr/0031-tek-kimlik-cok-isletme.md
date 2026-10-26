@@ -428,11 +428,17 @@ yanıtı **`Set-Cookie` yazmaz ve çerezi silmez** (kazananın çerezi tarayıc�
    Formun gövdesinde (`csrf`); bağ (`?tb=`) ayrıca action'da. Sıra: zincir → senkronizör → oran kovası →
    definer. Senkronizör reddi 400, kova 429, hedef reddi **tek tip 403** (sayfa gövdesi her nedende bayt-aynı);
    hiçbir ret `Set-Cookie` yazmaz.
-2. **Kova anahtarı = (kişi, adres) çifti**, limit 30 / 10 dk (`adminSwitchLimit`, pinli). Kişi değeri
-   `identity_id`'nin kendisi değil, `internal/adminauth` içinde hesaplanan opak bir MAC'tir
-   (`Resolved.SwitchBucket`) — kimlik id'si paketten çıkmaz. Adres anahtardadır ki kişinin çerezini tutan
-   biri kişinin bütün cihazlarındaki geçişi kilitleyemesin; adres başına toplamı `adminFloodLimit` sınırlar.
-   Bağlanmamış satırın kişisi yoktur; onun geçişi zaten 0 satırdır ve kovası oturumudur.
+2. **İki kova, ikisi de her denemede (senkronizörden sonra) yüklenir; biri dolarsa 429:**
+   - **(kişi, adres) çifti**, 30 / 10 dk (`adminSwitchLimit`, pinli). Adres anahtardadır ki kişinin çerezini
+     tutan biri tek adresten kişinin bütün cihazlarındaki geçişi kilitleyemesin.
+   - **Yalnız kişi**, gevşek: 120 / 10 dk (`adminSwitchPersonLimit`, pinli; M14-10 güvenlik denetimi). Çift
+     kovanın adresler arası tavanı yoktu — N adres 30 × N geçiş, her biri silinmeyen dört satır yazardı. Bu
+     kova adres ne olursa olsun kişiyi sınırlar (pencere başına en çok 480 satır); dört adreslik pay kadar
+     gevşek olduğu için çalınmış bir çerez kişiye en çok birkaç dakikalık geçiş kaybettirir, paneli değil.
+   Kişi değeri `identity_id`'nin kendisi değil, `internal/adminauth` içinde hesaplanan opak bir MAC'tir
+   (`Resolved.SwitchBucket`) — kimlik id'si paketten çıkmaz. Adres başına toplamı ayrıca `adminFloodLimit`
+   sınırlar. Bağlanmamış satırın kişisi yoktur; onun geçişi zaten 0 satırdır ve kovası oturumudur. Sıra
+   (senkronizör → kovalar) testle pinli: sahte POST'lar kovayı harcamaz.
 3. **`GET /admin/switch` bu kartta en küçük hâliyle** (giriş ailesinin çerçevesi, mevcut işletme, öbür
    üyeliklerin her biri için bir form); sayfanın tasarımı M14-13'ündür. Liste `identity_memberships`'ten
    (`Manager.Memberships`, aynı token anahtarıyla) gelir ve geçişin yetkisi değildir.

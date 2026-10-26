@@ -177,6 +177,25 @@ func TestAdminSwitch_RefusesForgedAndCrossSiteRequests(t *testing.T) {
 		})
 	}
 
+	// THE ORDER IS PINNED (M14-10's third-eye audit): adminSwitchLimit forged POSTs from one
+	// browser -- each a 400 -- spend nothing of the budget, so the page's real form still switches.
+	// MUTATION (measured): the budgets charged before the synchronizer -> the real form is a 429, red.
+	t.Run("forged posts spend no budget", func(t *testing.T) {
+		admins := &fakeAdmins{}
+		b := switchBrowser(t, true, admins)
+		csrf := switchCSRF(t, b)
+		forged := strings.Repeat("A", adminauth.SwitchTokenLen)
+		for i := 1; i <= adminSwitchLimit+1; i++ {
+			if rec := b.do(http.MethodPost, adminSwitchHref, url.Values{"csrf": {forged}, "tenant_id": {switchOther.String()}}); rec.Code != http.StatusBadRequest {
+				t.Fatalf("forged POST #%d: %d, want 400", i, rec.Code)
+			}
+		}
+		rec := b.do(http.MethodPost, adminSwitchHref, url.Values{"csrf": {csrf}, "tenant_id": {switchOther.String()}})
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("the real form after %d forged POSTs: %d, want 303 -- the forged ones spent the budget", adminSwitchLimit+1, rec.Code)
+		}
+	})
+
 	t.Run("control: the page's own form", func(t *testing.T) {
 		admins := &fakeAdmins{}
 		b := switchBrowser(t, true, admins)

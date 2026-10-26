@@ -827,6 +827,19 @@ const (
 	// address can send in total.
 	adminSwitchLimit  = 30
 	adminSwitchPeriod = 10 * time.Minute
+
+	// adminSwitchPersonLimit / adminSwitchPersonPeriod: the switch's SECOND, looser bucket, keyed
+	// by the person alone (M14-10 security review). The (person, address) bucket above has no
+	// ceiling across addresses: N addresses would buy 30 x N switches a window, each writing four
+	// rows nothing deletes. This one caps the person whatever the addresses: 120 a window -- four
+	// addresses' worth of the first bucket, still one every five seconds sustained and far above
+	// anybody switching by hand -- so a cookie held from many addresses leaves at most 480 rows a
+	// window in all. Both are charged on every attempt past the synchronizer; either one
+	// exhausted is the 429. It is the bucket the first one's comment declined -- the person alone
+	// -- kept loose enough that a thief spending it costs the person minutes of switching, not
+	// their panel.
+	adminSwitchPersonLimit  = 120
+	adminSwitchPersonPeriod = 10 * time.Minute
 )
 
 // ⚠️ THE VALUES ABOVE ARE PINNED BY TestPanelConstants_ShippedValuesArePinned
