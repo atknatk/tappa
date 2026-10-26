@@ -754,6 +754,8 @@ NULL` süzer).
   eski parolayla en çok 8 aday (dolgulu) → `identity_link_legacy` → karşı geçici oturum iptal; ters yön
   de; reddedilmiş satır aday değil; sonuç tek tip; kimlik başına oran sınırı. Test: 6 dakikalık oturum +
   parola yeniden girişi → bağlama başarılı (S6).
+- Ters yön **bağlanmamış (eski kol) oturumdan** erişilebilir: M14-13'ün Choose paragrafı bayrak `on` iken
+  bağlanmamış kişiye "hesap sayfasında bağla" der; bu yolu sınayan bir test vakası (M14-13 üçüncü göz notu).
 - Bütün rotalar `protectWritingThroughSuspension` grubunda ve tenant bağlı (M14-10a).
 
 ---
