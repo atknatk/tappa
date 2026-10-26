@@ -1706,7 +1706,10 @@ yazılır.
 | M14-07 | done | `b0f7771b` … `3ac635d5` (2 tur); üçüncü göz + güvenlik ONAY; dal CI yeşil (39946823502). Eski kol oturum yazımı doğrulanan digest + `FOR NO KEY UPDATE OF a` (`FOR SHARE` aynı txn'deki UPDATE ile deadlock veriyordu — ölçüldü, main'e girmeden yakalandı). Decoy = commit kaydı + gerçek açılışların medyanına bekleme (orkestratör kararı, ADR §5.6 notu). Proof (seçici çerezinde doğrulanan digest'in MAC'i), TryCharge bütçesi |
 | M14-06b | done (bekliyor) | 00074, `57f07658` + `ccf1b874` (dal `m14-reconcile`, `m14-identity`'ye **bilinçli olarak birleştirilmedi**: ADR 0031 §8 gereği Deploy 2 = expand'den sonraki ayrı deploy); üçüncü göz + güvenlik ONAY. Deploy 2 zamanı m14-identity'yi alıp yeniden doğrulanır |
 | M14-08 | done | 00074 (`identity_create_for_signup` + `identity_consume_row_reset` audit şekli), `9536aacf` … `44694a69` (2 tur); üçüncü göz + güvenlik ONAY; dal CI yeşil (39978957241). Bayrak `TAPPA_ADMIN_IDENTITY` (05-config `off`), ADR §8 tablosu `adminauth.IdentityGate`; kapalı yüzey hiç bağlanmaz (`mountGated`). Yazma yolları bayraktan bağımsız (kayıt, parola, eski sıfırlama linki) |
-| M14-09 … M14-21 | todo | |
+| M14-11 | done | `669ab08b` … `10f7e040` (3 tur); üçüncü göz + güvenlik ONAY; CI yeşil. `POST /admin/account/sign-out-everywhere` (mountGated, askı istisna grubu — ADR 0025 notu: kapalı 11 / açık 12 istisna); kart metni bağlı/bağlanmamış oturuma göre doğru; bağlı oturum tek işletmeye asla düşmez (409 "sign in again") |
+| M14-09 | wip | dal `m14-login`, yeniden denetimde |
+| M14-10a | wip | dal `m14-formbind`; kullanıcı kararları 2026-10-26: encode rölesi muaf + ADR notu, sayfayla biten POST'ta `tb` kabul + ADR notu, `/admin` için erişim log'u kapalı Ingress |
+| M14-10, M14-12 … M14-21 | todo | |
 
 ## Oturum günlüğü
 
