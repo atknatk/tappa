@@ -57,6 +57,10 @@
   - **(c) Genel bakışın `<h1>`'i sayfa başlığıdır, tenant adı değil:** `<p class="docket-label">Tenant
     overview</p>` → `<h1 class="docket-label">Tenant overview</h1>` (yalnız öğe); tenant adı bandı `<p>`
     kalır. Ölçüm, gerekçe ve test tarifi M13-08'de; README §2 annex (c), screens.md §6.
+  - **(d) Operatör bildiriminin biçimi README §6'nınkidir (2026-10-26, M13-03).** `opNotice` tam çerçeve, 14 px
+    köşe (`rounded-[14px]`), panelin `PanelNotice`'iyle tek bildirim biçimi; panoların 4 px sol çizgisi ve
+    `0 10px 10px 0` köşeleri taşınmaz. Alert zemini yalnız paper (ton hiçbir zaman ters çevrilmez). Ayrıntı ve pinleyen
+    testler README §6 "Operator notice".
   - **(e) Ekran başlığının (`<h1>`) boyu ekranın kendi panosundan alınır (2026-10-26, M13-04).** README §6
     "Card"ın genel tarifi (`text-2xl md:text-[28px] desk:text-[32px]`, 24 / 28 / 32 px) yalnız panosu değer
     vermeyen bir ekran içindir (bugün yok). Harf aralığı panoların **-0.03em**'i (`tracking-[-0.03em]`;
