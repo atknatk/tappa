@@ -270,7 +270,9 @@ func TestPanelTypes_CarryNoSecretField(t *testing.T) {
 		"Choice":         {"TenantName": true, "FullName": true, "Role": true},
 		"Session":        {},
 		"Issued":         {},
-		"Resolved":       {"Role": true, "FullName": true},
+		// TenantName (M14-12): the business's name the shell shows, display data from the same
+		// TouchAdminSession row (ADR 0031 §5.3), like Choice's.
+		"Resolved": {"Role": true, "FullName": true, "TenantName": true},
 	}
 	values := []any{
 		adminauth.Attempt{},
@@ -318,7 +320,7 @@ func TestPanelTypes_RenderWithoutASecret(t *testing.T) {
 		"Choice":         adminauth.Choice{AdminUserID: id, TenantID: tenant, TenantName: "Kebab Factory", FullName: "KF Owner", Role: "owner"},
 		"Session":        adminauth.Session{ID: id, TenantID: tenant, AdminUserID: id, CreatedAt: now},
 		"Issued":         adminauth.Issued{Session: adminauth.Session{ID: id}, Token: adminauth.Token{}},
-		"Resolved":       adminauth.Resolved{SessionID: id, TenantID: tenant, AdminUserID: id, Role: "owner", FullName: "KF Owner"},
+		"Resolved":       adminauth.Resolved{SessionID: id, TenantID: tenant, AdminUserID: id, Role: "owner", FullName: "KF Owner", TenantName: "Kebab Factory"},
 	}
 	for name, v := range values {
 		t.Run(name, func(t *testing.T) {

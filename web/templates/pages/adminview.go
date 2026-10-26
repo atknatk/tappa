@@ -447,6 +447,10 @@ type PanelChrome struct {
 	// stylesheet after app.css, no <img>, no business name (panelbrandview.go).
 	Brand PanelBrand
 
+	// Business is the business this session is in and, while the identity flag is on, the
+	// link to switch to another (M14-12; panelbusinessview.go). The zero value draws nothing.
+	Business PanelBusiness
+
 	// InGroup draws the Group tab (GRP-1): true only when the database answered that the business is a
 	// live member of a holding. The zero value -- no holding, or a read that failed -- draws the
 	// chrome exactly as it was before GRP-1.

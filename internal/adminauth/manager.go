@@ -892,6 +892,12 @@ type Resolved struct {
 	// only when it is true); the identity's id itself never leaves this package (ADR 0031 §6's
 	// named residue).
 	Linked bool
+	// TenantName is the business's name (tenants.name) as the same TouchAdminSession statement
+	// returned it (ADR 0031 §5.3, M14-04's column): the shell names the business every section is
+	// in (K-5, M14-12) without a read of its own. Display data for this person's own page only --
+	// never a log field, never an audit row. tenants.name may be empty; the shell's fallback is
+	// internal/handler's businessName.
+	TenantName string
 	// switchBucket is the switch's rate bucket (ADR 0031 §5.4, M14-10): an opaque MAC of the
 	// row's identity_id under this package's key, zero for an unlinked row. The bucket must be
 	// the PERSON's -- every switch is a new session, so a session-keyed budget would reset on
@@ -1031,6 +1037,7 @@ func (m *Manager) Verify(ctx context.Context, t Token) (Resolved, error) {
 		Role:         row.Role,
 		FullName:     row.FullName,
 		Linked:       row.IdentityID != nil,
+		TenantName:   row.TenantName,
 		switchBucket: m.switchBucketOf(row.IdentityID),
 		Suspended:    suspensionOf(row.SuspendedAt, row.SuspensionReason),
 	}, nil

@@ -502,7 +502,15 @@ func TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection(t *testing.T) {
 			if len(header) != 1 {
 				t.Fatalf("%s: %d brand headers", where, len(header))
 			}
-			back := strings.Replace(strings.Replace(chrome, themeLink, "", 1), header[0], wordmark, 1)
+			// M14-12: a branded header prints the business's name itself, so the shell's
+			// business block is not drawn beside it (with the identity flag off there is no
+			// link either); the no-brand page carries the block under the wordmark, with
+			// businessName's fallback because this session's statement returned no name.
+			if strings.Contains(chrome, `class="side-biz`) {
+				t.Errorf("%s: a branded chrome draws the business block beside its header", where)
+			}
+			unbrandedBlock := `<div class="side-biz"><p class="side-biz-name">This business</p></div>`
+			back := strings.Replace(strings.Replace(chrome, themeLink, "", 1), header[0], wordmark+unbrandedBlock, 1)
 			if back != reference[s.Href] {
 				t.Errorf("%s: with the theme link and the header undone, the page is not the no-brand page", where)
 			}
