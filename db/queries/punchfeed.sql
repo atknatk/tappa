@@ -37,7 +37,7 @@ WHERE fc.tenant_id = @tenant_id;
 -- a role the row carries (ADR 0028 §2: employer -- the punch's employee is this business's; location
 -- -- the plaque is this business's); a single-tenant punch carries both. The range is a walk of
 -- punch_events_pkey (tenant_id, seq); the role is a filter on it, bounded by the window.
-SELECT pe.seq, pe.punch_id, pe.version, pe.status, pe.punch_time, pe.recorded_at, pe.channel, pe.direction,
+SELECT pe.seq, pe.punch_id, pe.version, pe.status, pe.punch_time, pe.recorded_at, pe.channel, pe.direction, pe.direction_source,
        pe.employee_id, pe.employee_ref, pe.employee_code, pe.employee_company,
        pe.location_id, pe.location_ref, pe.location_name, pe.location_company, pe.tag_uid
 FROM punch_events pe
@@ -106,7 +106,7 @@ SELECT (SELECT count(*) FROM win)::bigint AS scanned,
 -- name: ListPunchHistory :many
 -- The scope's events of the range after the cursor and up to the window's end, seq <= S0, in
 -- (punch_time, seq) order -- one more than the caller hands out. The same columns as ListPunchEvents.
-SELECT pe.seq, pe.punch_id, pe.version, pe.status, pe.punch_time, pe.recorded_at, pe.channel, pe.direction,
+SELECT pe.seq, pe.punch_id, pe.version, pe.status, pe.punch_time, pe.recorded_at, pe.channel, pe.direction, pe.direction_source,
        pe.employee_id, pe.employee_ref, pe.employee_code, pe.employee_company,
        pe.location_id, pe.location_ref, pe.location_name, pe.location_company, pe.tag_uid
 FROM punch_events pe

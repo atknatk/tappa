@@ -441,8 +441,8 @@ func New(data Database, trail AuditRecorder, cfg *config.Config, log *slog.Logge
 }
 
 // Request is one tap, as the HTTP boundary resolved it. EVERY FIELD IS
-// SERVER-DERIVED except OccurredAt and GPS, and both of those are named as
-// client input where they are used.
+// SERVER-DERIVED except OccurredAt, GPS and RequestedDirection, and each of those is
+// named as client input where it is used.
 type Request struct {
 	// SessionTenantID and EmployeeID come from the session cookie (httpx.Identity)
 	// — the "who". Both are required: a request without them is a caller bug, not
@@ -520,6 +520,22 @@ type Request struct {
 	// THROUGH THIS SERVICE is checked, and M6-04 writing one another way would
 	// not be. Nothing here can enforce that; the test is a net, not a fence.
 	EnteredBy *uuid.UUID
+
+	// RequestedDirection is the direction the person pressed on the tap screen (ADR
+	// 0032 §B.3: the form's want, read by the HTTP boundary — every shape it cannot
+	// read is nil there, not a refusal, in a body that parses), or nil for no request. CLIENT INPUT, and a
+	// preference rather than evidence: it is handed to the engine INSIDE the person's
+	// locked section (ADR 0006), where the engine computes its own direction D from the
+	// facts read under that lock and records the request only where it differs
+	// (Decision.DirectionSource). It changes no verdict, no trust score and nothing in
+	// the policy context, and an undirected decision drops it.
+	//
+	// 🔴 ONLY WHILE THE BUSINESS-DAY SWITCH IS ON (ADR 0032 §B.5, security lens F-1).
+	// Record hands it to the engine only when gather produced a cutoff — the output of
+	// tap.SwitchedDayCutoff, the switch's one gate, read on the SERVER's clock. With the
+	// switch off a chosen `out` would carry no business day: class (d), listed nowhere,
+	// and the choice would vanish. So it is dropped and the engine's D is recorded, auto.
+	RequestedDirection *tap.Type
 }
 
 // Outcome says what happened to a tap, in the caller's terms.
@@ -593,6 +609,13 @@ type Result struct {
 	// read in the record's own transaction, from the same holding_tap_site row the
 	// decision's evidence came from, so the screen names the business the record does.
 	SiteLogo *SiteLogo
+	// DirectionSource is what the record's direction_source column holds (ADR 0032
+	// §B.4, migration 00065): the decision's source on a directed nfc or qr record —
+	// DirectionAuto or DirectionEmployee — and nil (NULL) on an undirected one, on a
+	// manual one and when nothing was recorded. It is the value insertParams wrote, from
+	// the same function (directionSourceColumn), so the screen and the row cannot
+	// disagree about who chose.
+	DirectionSource *tap.DirectionSource
 	// BusinessType is the tenant's own category — one of the eight CHECK-
 	// constrained values in migration 00001 ('restaurant', 'production', …). It
 	// travels for ONE reason (M5-06): the confirmation screen ends with a brand
@@ -902,6 +925,17 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 			Debounce:                    s.debounce,
 			PolicySet:                   set,
 		}
+		// THE PERSON'S CHOICE, ONLY WHILE THE SWITCH IS ON (ADR 0032 §B.5, F-1). The gate
+		// is not a second check of TAPPA_BUSINESS_DAY_FROM: facts.dayCutoff IS the one
+		// gate's output (tap.SwitchedDayCutoff in gatherWith, on the server's clock), nil
+		// while the switch is off or before its instant. The engine drops a request
+		// without a business day too (resolveDirection: S nil), which also covers a cutoff
+		// whose zone cannot be resolved; this line keeps the off-switch request from
+		// reaching the engine at all, as tap.Input.RequestedDirection asks of its caller.
+		// It is here, under the lock, so D and the choice are judged on the same facts.
+		if facts.dayCutoff != nil {
+			in.RequestedDirection = req.RequestedDirection
+		}
 		dec = tap.Decide(in)
 
 		// --- 5. Apply the decision -------------------------------------------
@@ -1034,14 +1068,15 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 	)
 
 	return Result{
-		Outcome:       OutcomeRecorded,
-		Decision:      dec,
-		TransactionID: id,
-		OccurredAt:    occurredAt,
-		LocationName:  facts.locationName,
-		Timezone:      facts.timezone,
-		BusinessType:  facts.businessType,
-		SiteLogo:      siteLogoOf(facts.site, tagRow.UID),
+		Outcome:         OutcomeRecorded,
+		Decision:        dec,
+		TransactionID:   id,
+		OccurredAt:      occurredAt,
+		LocationName:    facts.locationName,
+		Timezone:        facts.timezone,
+		DirectionSource: directionSourceColumn(req.Channel, dec),
+		BusinessType:    facts.businessType,
+		SiteLogo:        siteLogoOf(facts.site, tagRow.UID),
 	}, nil
 }
 
@@ -1709,6 +1744,17 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 	if dec.Type != nil && (req.Channel == tap.ChannelNFC || req.Channel == tap.ChannelQR) {
 		p.BusinessDayStart = dec.BusinessDayStart
 	}
+	// WHO CHOSE THE DIRECTION (ADR 0032 §B.4, migration 00065): the engine's answer
+	// (dec.DirectionSource -- 'employee' exactly when the recorded direction differs from the D
+	// it computed under the person's lock, 'auto' otherwise) on a DIRECTED nfc/qr record, NULL
+	// on everything else, by the same rule and for the same reason as the business day above
+	// (00065's CHECK direction_source IS NULL OR type IS NOT NULL is the second safety). Every
+	// directed nfc/qr row this binary writes carries a value; the NULL on such a row means
+	// "written before M15-11" (tap.RecordedDirectionSource reads it as the engine's choice).
+	if src := directionSourceColumn(req.Channel, dec); src != nil {
+		v := string(*src)
+		p.DirectionSource = &v
+	}
 	// sun_valid is THREE-STATE and the third state is the point (migration 00005:
 	// "NULL = not evaluated for this channel"). An NFC or QR tap really was
 	// judged — false on a QR arrival is the M5-08 criterion and a fact, not an
@@ -1787,6 +1833,27 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 		p.GpsLat, p.GpsLng = lat, lng
 	}
 	return p, nil
+}
+
+// directionSourceColumn is transactions.direction_source for a decision (ADR 0032 §B.4):
+//
+//	directed (ok, flag) nfc or qr  the decision's source, auto or employee
+//	undirected (reject, ignored)   nil: no direction, so nobody chose one
+//	manual                         nil: the direction is the manager's, which the channel and
+//	                               entered_by already say (there is no 'manager' value)
+//
+// A source outside the two the column admits is nil too, never written: 00065's CHECK would
+// refuse it with 23514 and the record would be lost (§4.6). Decide gives every directed
+// decision one of the two (tap's TestDecide_ tests); this does not rely on it.
+func directionSourceColumn(channel tap.Channel, dec tap.Decision) *tap.DirectionSource {
+	if dec.Type == nil || (channel != tap.ChannelNFC && channel != tap.ChannelQR) {
+		return nil
+	}
+	switch src := dec.DirectionSource; src {
+	case tap.DirectionAuto, tap.DirectionEmployee:
+		return &src
+	}
+	return nil
 }
 
 // record appends an audit event, never failing the tap over it.

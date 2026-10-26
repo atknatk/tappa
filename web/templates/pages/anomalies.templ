@@ -63,7 +63,7 @@ templ AdminAnomalies(v AnomaliesView) {
 						<div class="contents md:flex md:min-w-0 md:flex-col md:gap-4">
 							@anomalyPlaques(v)
 							@anomalyDistanceOnly(v)
-							@anomalyOpen(v)
+							@templ.Join(anomalyOpen(v), anomalyInMissing(v))
 						</div>
 					</div>
 					@anomalyPolicies(v)
@@ -565,6 +565,10 @@ templ anomalyOpen(v AnomaliesView) {
 							if o.WasMaskable {
 								<span class="odd-chip tally--manual">Training tap follows</span>
 							}
+							if o.ClaimPending {
+								// M15-18: bound to this row by its id, never by its time.
+								@claimPendingMark(o.ClaimHref)
+							}
 						</p>
 					</li>
 				}
@@ -599,6 +603,61 @@ templ anomalyOpen(v AnomaliesView) {
 			</div>
 		}
 	</section>
+}
+
+// anomalyInMissing is the checkout-side twin of anomalyOpen (M15-06): the week's checkouts
+// with no open check-in for them to close (ADR 0032 §A.6, (b) and (c)). It is JOINED to
+// anomalyOpen rather than called as a sibling, so a week with none renders the page it rendered
+// before this list existed, byte for byte -- the same reason reportPartners is joined.
+//
+// NOTHING ON A ROW COMPLETES IT, as on the open list: a missing check-in is typed from the person
+// on The Pass. A correction's surplus checkout (the one an earlier, later-typed checkout replaced)
+// is NOT here, and the paragraph says so -- it would otherwise sit here after every such
+// correction.
+templ anomalyInMissing(v AnomaliesView) {
+	if len(v.InMissing) > 0 {
+		<section class="odd-card order-6 md:order-none" aria-labelledby="odd-in-missing">
+			<div class="flex flex-col gap-1.5">
+				<div class="flex flex-wrap items-baseline justify-between gap-2">
+					<h2 class="odd-title" id="odd-in-missing">Check-in missing</h2>
+					<p class="font-mono text-xs text-ink/70">not counted in hours</p>
+				</div>
+				<p class="text-[13px] leading-normal text-ink/80">
+					A checkout with no open check-in for it to close: the person&#39;s previous
+					record is a checkout, a check-in of an earlier business day, or nothing. No hours are counted for the shift it ends until a manager enters the
+					missing check-in. The Roll counts the same checkouts, except one whose business
+					day began in the week before — The Roll counts that one with the shifts that
+					began before the week.
+				</p>
+				<p class="text-xs leading-normal text-ink/70">
+					A checkout left over by a correction — one replaced by an earlier checkout a
+					manager entered afterwards — is not in this list.
+				</p>
+			</div>
+			if v.MoreInMissing {
+				// NOT anomalyShortened: its sentence points at the counts at the top of the page,
+				// and none of them counts these checkouts. The Roll's count does.
+				<p class="font-mono text-xs leading-normal text-ink/80">This list is shortened · More checkouts match than one page lists, so this list stops at { itoa(v.ListCap) }. The Roll&#39;s count is not shortened.</p>
+			}
+			<ul class="flex flex-col">
+				for _, o := range v.InMissing {
+					<li class="flex flex-col gap-1.5 border-t border-dashed border-line py-3">
+						<p class="text-sm font-bold text-ink">{ o.Who }</p>
+						<p class="font-mono text-[11px] text-ink/70">{ o.Venue } · OUT { o.At }</p>
+						<p class="flex flex-wrap gap-1.5">
+							<span class="odd-chip tally--queued">Check-in missing</span>
+							if o.AfterEarlierDay {
+								<span class="odd-chip tally--manual">After a check-in of an earlier day</span>
+							}
+							if o.ClaimPending {
+								@claimPendingMark(o.ClaimHref)
+							}
+						</p>
+					</li>
+				}
+			</ul>
+		</section>
+	}
 }
 
 // anomalyPolicies is the rule breakdown (M3-07).
@@ -684,5 +743,15 @@ templ anomalyLostPlaques(v AnomaliesView) {
 				}
 			</ul>
 		</div>
+	}
+}
+
+// claimPendingMark is the "Claim pending" mark (M15-18): a link to the claim on the Spike's "Time
+// claims" when the read named it, a plain mark otherwise.
+templ claimPendingMark(href string) {
+	if href != "" {
+		<a href={ templ.URL(href) } class="odd-chip tally--manual hit-link">Claim pending</a>
+	} else {
+		<span class="odd-chip tally--manual">Claim pending</span>
 	}
 }

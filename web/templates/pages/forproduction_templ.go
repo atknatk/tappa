@@ -1533,7 +1533,8 @@ func forProductionIcon(i int) templ.Component {
 }
 
 // forProductionPhone is the person's own phone on the tap screen, cut at the counter's
-// edge as the boards draw it: the greeting, the site and the one button.
+// edge as the boards draw it: the greeting, the site, the button in the sample's direction
+// and the small "Not right? …" under it (ADR 0032 §B.1; DrawnTapDirection).
 func forProductionPhone() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -1560,9 +1561,9 @@ func forProductionPhone() templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var81 string
-		templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.JoinStringErrs("Sample screen: the person's own phone on the tap screen — Hello " + ForProductionTapSample.Who + ", " + ForProductionSite + ", one Tap button")
+		templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.JoinStringErrs("Sample screen: the person's own phone on the tap screen — Hello " + ForProductionTapSample.Who + ", " + ForProductionSite + ", " + DrawnTapButtons(DrawnTapDirection(ForProductionTapSample.Direction)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/forproduction.templ`, Line: 337, Col: 195}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/forproduction.templ`, Line: 338, Col: 252}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var81))
 		if templ_7745c5c3_Err != nil {
@@ -1575,7 +1576,7 @@ func forProductionPhone() templ.Component {
 		var templ_7745c5c3_Var82 string
 		templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.JoinStringErrs(ForProductionTapSample.At)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/forproduction.templ`, Line: 341, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/forproduction.templ`, Line: 342, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var82))
 		if templ_7745c5c3_Err != nil {
@@ -1596,7 +1597,7 @@ func forProductionPhone() templ.Component {
 		var templ_7745c5c3_Var83 string
 		templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.JoinStringErrs(ForProductionTapSample.Who)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/forproduction.templ`, Line: 347, Col: 63}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/forproduction.templ`, Line: 348, Col: 63}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var83))
 		if templ_7745c5c3_Err != nil {
@@ -1609,26 +1610,62 @@ func forProductionPhone() templ.Component {
 		var templ_7745c5c3_Var84 string
 		templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.JoinStringErrs(ForProductionSite)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/forproduction.templ`, Line: 348, Col: 51}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/forproduction.templ`, Line: 349, Col: 51}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var84))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 116, "</p></div><div class=\"lp-prodTapButton\">Tap</div></div></div><span class=\"lp-fpLedge\" aria-hidden=\"true\"></span> <span class=\"lp-fpCounter\" aria-hidden=\"true\"></span><p class=\"lp-prodNote lp-fpPhoneNote\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 116, "</p></div><div class=\"lp-prodTapButton\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var85 string
-		templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.JoinStringErrs(ForProductionSampleNote)
+		templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.JoinStringErrs(DrawnTapDirection(ForProductionTapSample.Direction).Words())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/forproduction.templ`, Line: 355, Col: 65}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/forproduction.templ`, Line: 351, Col: 95}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var85))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 117, "</p></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 117, "</div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		if fix := DrawnCorrection(DrawnTapDirection(ForProductionTapSample.Direction)); fix != "" {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 118, "<div class=\"lp-prodTapFix\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var86 string
+			templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.JoinStringErrs(fix)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/forproduction.templ`, Line: 353, Col: 37}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var86))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 119, "</div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 120, "</div></div><span class=\"lp-fpLedge\" aria-hidden=\"true\"></span> <span class=\"lp-fpCounter\" aria-hidden=\"true\"></span><p class=\"lp-prodNote lp-fpPhoneNote\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var87 string
+		templ_7745c5c3_Var87, templ_7745c5c3_Err = templ.JoinStringErrs(ForProductionSampleNote)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/forproduction.templ`, Line: 359, Col: 65}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var87))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 121, "</p></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

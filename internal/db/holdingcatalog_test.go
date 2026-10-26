@@ -1183,8 +1183,9 @@ var holdingDefinerMatrix = map[string]string{
 	"site_punches:INSERT": "tenant_id,transaction_id,employer_tenant_id,employer_api_code,employee_id,employee_ref,employee_code," +
 		"employee_name,site_location_id,site_tag_uid,ctr,sun_valid,bucket_hour,occurred_at,channel,type,outcome,ctr_gap",
 	"site_punches:SELECT": "tenant_id,employee_id,site_tag_uid,ctr,sun_valid,bucket_hour,outcome",
-	// 00049 (API-2) adds verdict and practice: K-4 on the approval arm.
-	"transactions:SELECT": "id,tenant_id,employee_id,ctr,type,occurred_at,sun_valid,verdict,channel,practice,site_tenant_id,site_location_id,site_tag_uid",
+	// 00049 (API-2) adds verdict and practice: K-4 on the approval arm. 00067 (M15-13) adds
+	// direction_source: the approval arm's read of who chose the approved row's direction.
+	"transactions:SELECT": "id,tenant_id,employee_id,ctr,type,occurred_at,sun_valid,verdict,channel,practice,site_tenant_id,site_location_id,site_tag_uid,direction_source",
 	// 00055 (API-8) adds status, first_name, last_name and updated_at: holding_directory -- the ADR's row,
 	// complete. email is K-34's "never SELECT" (TestHoldingDefiner_NeverSelectColumns).
 	"employees:SELECT":       "id,tenant_id,full_name,status,external_ref,employee_code,first_name,last_name,updated_at",

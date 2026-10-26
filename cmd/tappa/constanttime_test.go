@@ -82,6 +82,13 @@ var constantTimeInventory = map[string]int{
 	"internal/handler/signupstate.go": 2,
 	// The tap context's signed cookie.
 	"internal/handler/tapcontext.go": 1,
+	// The claim card's signed context (M15-17): the posted MAC against the one this
+	// session's key computes. Attacker-fed (the form field).
+	"internal/handler/claimcontext.go": 1,
+	// The punch claim decision's confirmation subject (M15-18 review round): the subject the panel's
+	// step was signed for against the one Decide computes under the lock. Not a secret -- the MAC was
+	// checked in the panel -- but caller-carried, so compared the redline's way.
+	"internal/domain/claim/decide.go": 1,
 	// The chip's SDM MAC (CLAUDE.md §4.7). Also pinned, more strictly, by
 	// internal/sun/verify_mac_test.go, which asserts the SPELLING inside verifyMAC.
 	"internal/sun/verify_mac.go": 1,

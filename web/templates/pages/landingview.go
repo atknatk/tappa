@@ -769,12 +769,16 @@ var LandingSteps = []Step{
 		// "Under two seconds, even with wet or floury hands." → "Built for wet or
 		// floury hands.": the button's 64px floor is the rule the sentence describes
 		// (FactTapButtonSizedForAWetHand); the two seconds were never measured.
+		// "one button, done" → "one press, done" (main merge, 2026-10-25): under a
+		// predicted direction the screen also draws the small "Not right? …" button
+		// (ADR 0032 §B.1), so it is one press, not one button.
 		Body: []Span{
 			{Text: "Hold the phone to the plaque. The page opens by itself — no app — greets them " +
-				"by name, one button, done. "},
+				"by name, one press, done. "},
 			{Text: "Built for wet or floury hands.", Strong: true},
 		},
-		Facts: []Fact{FactTapPageNeedsNoApp, FactTapPageGreetsByName, FactTapButtonSizedForAWetHand},
+		Facts: []Fact{FactTapPageNeedsNoApp, FactTapPageGreetsByName, FactTapButtonSizedForAWetHand,
+			FactTapScreenIsOneButtonAndACorrection},
 	},
 }
 

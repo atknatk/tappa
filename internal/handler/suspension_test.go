@@ -918,8 +918,10 @@ func TestSuspension_TheTapPathNeverNamesASuspension(t *testing.T) {
 		filepath.Join(root, "internal", "domain", "checkin"),
 		filepath.Join(root, "internal", "sun"),
 		filepath.Join(root, "internal", "session"),
+		// The claim card's send (M15-17, ADR 0032 §C.4): a tap surface, ignorant of it too.
+		filepath.Join(root, "internal", "domain", "claim"),
 	}
-	files := []string{"tap.go", "tapcontext.go", "checkin.go", "activate.go",
+	files := []string{"tap.go", "tapcontext.go", "checkin.go", "activate.go", "claim.go", "claimcontext.go",
 		filepath.Join(root, "internal", "domain", "tenant", "directory.go"),
 		// The holding cross-tap (M11, ADR 0027): the peer's page and the definer calls.
 		filepath.Join(root, "internal", "domain", "tenant", "peerplaque.go"),

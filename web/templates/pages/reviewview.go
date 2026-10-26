@@ -58,6 +58,9 @@ type DecidedToday struct {
 type ReviewView struct {
 	PanelChrome
 
+	// Queues is the pair of links to the Spike's two queues (M15-18). The zero value draws nothing.
+	Queues SpikeQueuesView
+
 	// Action is where a decision POSTs — the section's OWN URL, supplied by the
 	// handler from pages.PanelSections.
 	//

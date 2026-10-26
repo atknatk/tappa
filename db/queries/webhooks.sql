@@ -140,7 +140,7 @@ RETURNING d.id, d.endpoint_id, d.punch_event_seq, d.attempt, d.lease_until;
 -- The event a delivery carries, in the delivering business's own feed (a delivery points at its
 -- tenant's (tenant_id, seq) -- 00048's webhook_deliveries_event_fk). The snapshot columns only: the
 -- table has no address, coordinate, note, policy context or verdict to read.
-SELECT seq, punch_id, version, status, punch_time, recorded_at, channel, direction,
+SELECT seq, punch_id, version, status, punch_time, recorded_at, channel, direction, direction_source,
        employee_id, employee_ref, employee_code, employee_company,
        location_id, location_ref, location_name, location_company, tag_uid
 FROM punch_events

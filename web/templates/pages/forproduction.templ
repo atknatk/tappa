@@ -331,10 +331,11 @@ templ forProductionIcon(i int) {
 }
 
 // forProductionPhone is the person's own phone on the tap screen, cut at the counter's
-// edge as the boards draw it: the greeting, the site and the one button.
+// edge as the boards draw it: the greeting, the site, the button in the sample's direction
+// and the small "Not right? …" under it (ADR 0032 §B.1; DrawnTapDirection).
 templ forProductionPhone() {
 	<div class="lp-fpPhoneWrap">
-		<div class="lp-fpPhone" role="img" aria-label={ "Sample screen: the person's own phone on the tap screen — Hello " + ForProductionTapSample.Who + ", " + ForProductionSite + ", one Tap button" }>
+		<div class="lp-fpPhone" role="img" aria-label={ "Sample screen: the person's own phone on the tap screen — Hello " + ForProductionTapSample.Who + ", " + ForProductionSite + ", " + DrawnTapButtons(DrawnTapDirection(ForProductionTapSample.Direction)) }>
 			<div class="lp-fpScreen">
 				<div class="lp-fpNotch" aria-hidden="true"></div>
 				<div class="lp-prodStatus" aria-hidden="true">
@@ -347,7 +348,10 @@ templ forProductionPhone() {
 					<p class="lp-prodHello">Hello { ForProductionTapSample.Who }</p>
 					<p class="lp-prodTapVenue">{ ForProductionSite }</p>
 				</div>
-				<div class="lp-prodTapButton">Tap</div>
+				<div class="lp-prodTapButton">{ DrawnTapDirection(ForProductionTapSample.Direction).Words() }</div>
+				if fix := DrawnCorrection(DrawnTapDirection(ForProductionTapSample.Direction)); fix != "" {
+					<div class="lp-prodTapFix">{ fix }</div>
+				}
 			</div>
 		</div>
 		<span class="lp-fpLedge" aria-hidden="true"></span>

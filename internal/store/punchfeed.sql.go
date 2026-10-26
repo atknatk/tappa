@@ -159,7 +159,7 @@ func (q *Queries) GetPunchHistoryWindow(ctx context.Context, arg GetPunchHistory
 }
 
 const listPunchEvents = `-- name: ListPunchEvents :many
-SELECT pe.seq, pe.punch_id, pe.version, pe.status, pe.punch_time, pe.recorded_at, pe.channel, pe.direction,
+SELECT pe.seq, pe.punch_id, pe.version, pe.status, pe.punch_time, pe.recorded_at, pe.channel, pe.direction, pe.direction_source,
        pe.employee_id, pe.employee_ref, pe.employee_code, pe.employee_company,
        pe.location_id, pe.location_ref, pe.location_name, pe.location_company, pe.tag_uid
 FROM punch_events pe
@@ -188,6 +188,7 @@ type ListPunchEventsRow struct {
 	RecordedAt      time.Time
 	Channel         string
 	Direction       string
+	DirectionSource *string
 	EmployeeID      uuid.UUID
 	EmployeeRef     *string
 	EmployeeCode    *string
@@ -228,6 +229,7 @@ func (q *Queries) ListPunchEvents(ctx context.Context, arg ListPunchEventsParams
 			&i.RecordedAt,
 			&i.Channel,
 			&i.Direction,
+			&i.DirectionSource,
 			&i.EmployeeID,
 			&i.EmployeeRef,
 			&i.EmployeeCode,
@@ -249,7 +251,7 @@ func (q *Queries) ListPunchEvents(ctx context.Context, arg ListPunchEventsParams
 }
 
 const listPunchHistory = `-- name: ListPunchHistory :many
-SELECT pe.seq, pe.punch_id, pe.version, pe.status, pe.punch_time, pe.recorded_at, pe.channel, pe.direction,
+SELECT pe.seq, pe.punch_id, pe.version, pe.status, pe.punch_time, pe.recorded_at, pe.channel, pe.direction, pe.direction_source,
        pe.employee_id, pe.employee_ref, pe.employee_code, pe.employee_company,
        pe.location_id, pe.location_ref, pe.location_name, pe.location_company, pe.tag_uid
 FROM punch_events pe
@@ -288,6 +290,7 @@ type ListPunchHistoryRow struct {
 	RecordedAt      time.Time
 	Channel         string
 	Direction       string
+	DirectionSource *string
 	EmployeeID      uuid.UUID
 	EmployeeRef     *string
 	EmployeeCode    *string
@@ -330,6 +333,7 @@ func (q *Queries) ListPunchHistory(ctx context.Context, arg ListPunchHistoryPara
 			&i.RecordedAt,
 			&i.Channel,
 			&i.Direction,
+			&i.DirectionSource,
 			&i.EmployeeID,
 			&i.EmployeeRef,
 			&i.EmployeeCode,

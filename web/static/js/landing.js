@@ -11,7 +11,7 @@
 // 🔴 IT MOVES NOTHING (README O2). It swaps words; it adds no class and starts no
 // motion. The page is drawn still and stays still.
 //
-// WHAT IT TOUCHES: the nine text nodes of the record, and the scene's pause button
+// WHAT IT TOUCHES: the eleven text nodes of the record, and the scene's pause button
 // -- its words and its [hidden] attribute. No fetch, no storage, no cookie, no
 // location read (§4.2 — that belongs to tap.js and to the moment of a tap).
 // Everything it writes is invented and is labelled as such on the page. Every
@@ -20,10 +20,12 @@
 // whole -- both held by the LandingHero tests in internal/handler. Each record is a
 // sample the site draws elsewhere (The Pass, /for/production), and its `on` is that
 // docket's evidence in the docket's words: no record shows evidence its other drawing
-// does not, and the engine approves each one (LP-15 fact review).
+// does not, and the engine approves each one (LP-15 fact review). Its `btn` and `fix` are
+// what the real tap screen says before that tap -- the button in the record's direction
+// and the "Not right? …" under it (ADR 0032 §B.1), held to the screen's render there too.
 //
 // A reader who has asked for less motion gets the first record and no timer, and
-// so does a page that lost one of the nine nodes: a rotation that could fill only
+// so does a page that lost one of the eleven nodes: a rotation that could fill only
 // some of them would show two records at once.
 //
 // 🔴 WHAT CHANGES ON ITS OWN MUST BE STOPPABLE (WCAG 2.2.2), AND THE STOPPING IS A
@@ -52,15 +54,15 @@
 (function () {
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var people = [
-    { n: 'Maria Vella', t: 'CLOCK IN', time: '09:58', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55', on: 'IP yes · GPS no' },
-    { n: 'Kevin Grech', t: 'CLOCK IN', time: '09:52', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55', on: 'IP no · GPS yes' },
-    { n: 'Anna Farrugia', t: 'CLOCK IN', time: '04:02', loc: 'KM Plant', plaque: 'KM PLANT · 2F04-1B9A', on: 'IP yes · GPS no' },
-    { n: 'Luke Borg', t: 'CLOCK OUT', time: '02:04', loc: 'Rusty Bar', plaque: 'RUSTY BAR · 6D31-C8E2', on: 'IP yes · GPS no' }
+    { n: 'Maria Vella', t: 'CLOCK IN', time: '09:58', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55', on: 'IP yes · GPS no', btn: 'Clock in', fix: 'Not right? Clock out' },
+    { n: 'Kevin Grech', t: 'CLOCK IN', time: '09:52', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55', on: 'IP no · GPS yes', btn: 'Clock in', fix: 'Not right? Clock out' },
+    { n: 'Anna Farrugia', t: 'CLOCK IN', time: '04:02', loc: 'KM Plant', plaque: 'KM PLANT · 2F04-1B9A', on: 'IP yes · GPS no', btn: 'Clock in', fix: 'Not right? Clock out' },
+    { n: 'Luke Borg', t: 'CLOCK OUT', time: '02:04', loc: 'Rusty Bar', plaque: 'RUSTY BAR · 6D31-C8E2', on: 'IP yes · GPS no', btn: 'Clock out', fix: 'Not right? Clock in' }
   ];
   // id -> the record's field it shows.
   var slots = {
     dName: 'n', dType: 't', dTime: 'time', dLoc: 'loc', dOn: 'on',
-    pName: 'n', pLoc: 'loc', pTime: 'time', pPlaque: 'plaque'
+    pName: 'n', pLoc: 'loc', pTime: 'time', pPlaque: 'plaque', pBtn: 'btn', pFix: 'fix'
   };
   var PAUSE_MACHINE = {"press": {"paused": "flip"}, "pointerenter": {"hovered": true}, "pointerleave": {"hovered": false}, "keyfocus": {"paused": true}};
   function next(state, event) {

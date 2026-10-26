@@ -1746,6 +1746,9 @@ var holdingDownTables = []string{
 	// keys name -- tenants and api_keys, both above.
 	"api_idempotency",
 	// 00055 (API-8) takes no table lock (its index is 00056's, never walked here).
+	// 00068 (M15-15): no Down here drops the claim tables, but holdingSetAsideSiteRows' TRUNCATE takes
+	// them with transactions (they reference it).
+	"punch_claims", "punch_claim_decisions",
 }
 
 // holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every one of
@@ -1985,13 +1988,22 @@ func strongTableLocksOutside(t *testing.T, ctx context.Context, q opQuerier, all
 // 100), but the same shape. TRUNCATE empties each table whatever the snapshot, under the lock the
 // savepoint already holds. It takes EVERY transactions row, not only those naming a site: TRUNCATE has
 // no WHERE, and none of the callers reads a row it committed before the set-aside (each builds its
-// world after it, or none). One statement, because reviews and site_punches reference transactions.
+// world after it, or none). One statement, because reviews, site_punches and (00068) the claim tables
+// reference transactions.
 func holdingSetAsideSiteRows(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
 	tables, triggers := "transactions, transaction_reviews", []string{"transactions transactions_no_truncate", "transaction_reviews transaction_reviews_no_truncate"}
 	if opInt(t, ctx, sp, `SELECT count(*) FROM pg_class WHERE oid = to_regclass('public.site_punches')`) == 1 {
 		tables += ", site_punches"
 		triggers = append(triggers, "site_punches site_punches_no_truncate")
+	}
+	// 00068 (M15-15): punch_claims and punch_claim_decisions reference transactions, and no Down these
+	// callers walk drops them -- so they join the one statement (a TRUNCATE of a referenced table
+	// must name every table that references it: 0A000 otherwise, measured), their guards switched
+	// off and on like the others'. A claim test's committed rows go back with the savepoint.
+	if opInt(t, ctx, sp, `SELECT count(*) FROM pg_class WHERE oid = to_regclass('public.punch_claims')`) == 1 {
+		tables += ", punch_claims, punch_claim_decisions"
+		triggers = append(triggers, "punch_claims punch_claims_no_truncate", "punch_claim_decisions punch_claim_decisions_no_truncate")
 	}
 	var stmts []string
 	for _, tr := range triggers {

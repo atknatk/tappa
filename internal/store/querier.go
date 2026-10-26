@@ -999,6 +999,15 @@ type Querier interface {
 	// the caller renders "100+" and never a wrong exact figure. What it does NOT do is
 	// hide a record -- the list below pages through every one of them.
 	CountPendingFlagged(ctx context.Context, arg CountPendingFlaggedParams) (int32, error)
+	// HOW MANY CLAIMS WAIT FOR A DECISION, AS FAR AS IT COUNTS (M15-18 review round, user decision "Üç yerde
+	// sayı", 2026-10-26): The Spike's "Time claims · N" link, its empty state and The Pass's "On the spike"
+	// card. It rides the panel chrome's badge read (internal/domain/ledger.Pending), so it is paid on every
+	// panel page. The cap (@cap; the caller asks one past it, the flagged count's shape) bounds the NUMBER,
+	// not the work: the anti-join walks the tenant's whole claim history to find undecided ones, so the cost
+	// grows with every claim ever sent. Measured: 0.12-0.38 ms at 5 claims (M15-18 builder, tappa-m15-db,
+	// three runs) and ~82 ms at 100 000 claims (M15-18 security lens, 2026-10-26). Negligible at a
+	// realistic scale; a partial index or a counter is backlog T166. Explicit tenant on both tables.
+	CountPendingPunchClaims(ctx context.Context, arg CountPendingPunchClaimsParams) (int64, error)
 	// How many TRAINING taps fall in the reporting period (M6-07 phase A).
 	//
 	// 🔴 IT EXISTS SO THAT "excluded" IS NOT THE SAME AS "invisible". Section 5 says a
@@ -2416,8 +2425,10 @@ type Querier interface {
 	//
 	// WHAT EACH COLUMN DECIDES, so nothing here is decoration:
 	//   * status         -> sys:employee-deactivated (§5 row 4: reject, RECORD it,
-	//                       and raise a security alert). The tap page deliberately
-	//                       does not read this; a page cannot record a refusal.
+	//                       and raise a security alert). The tap page does not
+	//                       REFUSE on it -- a page cannot record a refusal; since
+	//                       M15-12 it reads it for one thing only: a person who is
+	//                       not active gets no predicted direction (ADR 0032 §B.2).
 	//   * location_id    -> the employee's HOME location, compared against the
 	//                       TAPPED one for the cross-location fact (Q17). It never
 	//                       penalises a tap — chain staff move between branches —
@@ -2479,6 +2490,11 @@ type Querier interface {
 	// department or branch id of another tenant contributes nothing. tenants.day_cutoff
 	// is NOT NULL, so the coalesce always has a value. The cutoff is only an input:
 	// whether it APPLIES (the TAPPA_BUSINESS_DAY_FROM switch, §A.8) is decided in Go.
+	//
+	// A SECOND READER SINCE M15-12, ON PURPOSE: the tap screen's predicted direction
+	// (internal/domain/tenant, predictTap) reads status, timezone and
+	// effective_day_cutoff through THIS query, so the button and the record are judged
+	// from one resolution of the person's day (ADR 0032 §B.2). It renders none of them.
 	GetEmployeeForTap(ctx context.Context, arg GetEmployeeForTapParams) (GetEmployeeForTapRow, error)
 	// The person's lifecycle state, read BEFORE the minting transaction retires anything: only an
 	// 'invited' person is sent an invitation by the queue (K-15: an activated person gets none; a
@@ -2621,9 +2637,9 @@ type Querier interface {
 	// the entry stays open in the list. It takes a hand-written POST that hits the
 	// entry's microsecond, and it gains no hours: the pair counts zero time either way.
 	//
-	// business_day_start is in the list because this query returns the whole store
-	// Transaction (a row type without it would be a second model); nothing here
-	// filters on it. Whether this entry is still in the tap's business day is the
+	// business_day_start and direction_source (00065, M15-09) are in the list because
+	// this query returns the whole store Transaction (a row type without them would be a
+	// second model); nothing here filters on either. Whether this entry is still in the tap's business day is the
 	// engine's question (M15-03), and ADR 0032 §A.6 says why this query does not need
 	// the classification while the cutoff stays fixed.
 	GetLastOpenTransaction(ctx context.Context, arg GetLastOpenTransactionParams) (Transaction, error)
@@ -2914,6 +2930,31 @@ type Querier interface {
 	// explicit same-tenant LEFT JOIN, so an id that names nobody this tenant can see
 	// is reported as unresolvable rather than printed (§4.5 doing its job).
 	GetPolicyVersionDocument(ctx context.Context, arg GetPolicyVersionDocumentParams) (GetPolicyVersionDocumentRow, error)
+	// ONE OF THE PERSON'S RECORDS, AS A CLAIM READS IT (M15-16, internal/domain/claim): the anchor a
+	// claim names (Submit, Decide, Inspect) or the tap whose result screen may ask one (Offer). Under its
+	// tenant AND its person -- the explicit predicate beside RLS (§4.5's belt) -- so another tenant's or
+	// another person's id is ZERO ROWS, the same refusal InsertPunchClaim gives.
+	//
+	// WHAT IT RETURNS IS THE ROW'S CHAIN FACTS AND ITS SHIFT, NOTHING THE TAP WAS JUDGED ON. type (NULL
+	// for a refusal or an ignored tap -- no missing half, no card), occurred_at, business_day_start (NULL
+	// before M15 and on a manual row -- ADR 0032 §C.1 Ü-Y2: no claim), practice, the venue the record is
+	// filed at (location_id, or a holding peer's site_location_id -- ADR 0032 §C.4: the approval's manual
+	// row goes to the anchor's venue), and the anchor's RESOLVED SHIFT: the department's when the row's
+	// department has one, otherwise the venue's (§5, the rule tap.Decide's lateness reads) -- the
+	// prefill's real end and the band (ADR 0032 §C.2, §C.4). The department is the ROW's (frozen at the
+	// tap), the shift times today's. A row at a peer's venue has no local location row, so its shift is
+	// the department's or none: no prefill, and the decision asks the confirmation step (ADR 0032 §C.4:
+	// "vardiya yoksa"). No address, no coordinate, no verdict, no note.
+	//
+	// M15-18: channel and direction_source are the anchor's mark on the panel's claim queue ("the person
+	// chose this direction") -- read ONLY through tap.RecordedDirectionSource (ADR 0032 §B.4's one reader
+	// rule), never compared raw: a manual row's value is not believed, a directed nfc/qr NULL is "auto".
+	GetPunchClaimAnchor(ctx context.Context, arg GetPunchClaimAnchorParams) (GetPunchClaimAnchorRow, error)
+	// A CLAIM AND WHETHER IT IS DECIDED (M15-16, Decide and Inspect). Read once before the person's lock
+	// (the claim names the person whose lock it is -- a claim row never changes, §4.3) and AGAIN under
+	// it, where decided_outcome is the "already decided" answer (ADR 0009: a decision is final; the
+	// UNIQUE punch_claim_decisions_one_per_claim is the braces). Explicit tenant on both tables.
+	GetPunchClaimForDecision(ctx context.Context, arg GetPunchClaimForDecisionParams) (GetPunchClaimForDecisionRow, error)
 	// The event a delivery carries, in the delivering business's own feed (a delivery points at its
 	// tenant's (tenant_id, seq) -- 00048's webhook_deliveries_event_fk). The snapshot columns only: the
 	// table has no address, coordinate, note, policy context or verdict to read.
@@ -3388,6 +3429,56 @@ type Querier interface {
 	// this row" and "no trust score" EXPRESSIBLE from this path. They are not. `note` is
 	// the one field that really is optional, and it is the only sqlc.narg here.
 	InsertManualTransaction(ctx context.Context, arg InsertManualTransactionParams) (InsertManualTransactionRow, error)
+	// THE MANAGER'S RECORD THAT ANSWERS AN EMPLOYEE'S CLAIM, FILED AT THE CLAIM'S ANCHOR'S VENUE (M15-16,
+	// ADR 0032 §C.4: "mekân = çapanın mekânı"). InsertManualTransaction's statement and its narrowing --
+	// verdict 'ok', channel 'manual', practice and queued false, no evidence column named, trust a
+	// parameter, entered_by required -- word for word, with ONE difference: location_id is READ FROM THE
+	// ANCHOR ROW rather than from the employee row.
+	//
+	// 🔴 WHY THE ANCHOR AND NOT THE HOME VENUE. InsertManualTransaction files at the person's home venue
+	// and calls that a COUNTED LIMIT: "there is no tapped location here". For a claim there IS one -- the
+	// anchor, the record whose missing half is claimed, taken at a plaque on a wall -- and the approved
+	// half belongs to the same shift at the same venue (§5: the TAPPED location, never the profile's).
+	// The venue still comes from a row the database holds, never from a form: the SELECT reads the
+	// anchor under its tenant AND its person (§4.5's belt; the composite FK (location_id, tenant_id) the
+	// braces), so another tenant's or another person's anchor, or an anchor filed at no local venue (a
+	// holding peer's -- internal/domain/manual files that one with InsertManualSiteTransaction -- or a
+	// plaque on no wall), is ZERO ROWS, never a foreign write.
+	//
+	// department_id IS THE EMPLOYEE'S, as on every manual row (InsertManualSiteTransaction's sentence: a
+	// department is not a venue). created_at is not named: the database's clock (00068's decision trigger
+	// holds the row to being written no earlier than the claim).
+	InsertManualTransactionAtAnchor(ctx context.Context, arg InsertManualTransactionAtAnchorParams) (InsertManualTransactionAtAnchorRow, error)
+	// punchclaims.sql -- an employee's claim of the missing half of a punch (M15-15, ADR 0032 §C.2-§C.3;
+	// migration 00068). The window, the K4 rule, the lock and the decision are M15-16's
+	// (internal/domain/claim); the schema card wrote the claim's INSERT, BUILT FROM THE ANCHOR ROW, and
+	// M15-16 adds the domain's reads (the anchor, the chain around it, the claimed anchors, the claim
+	// with its decision) and the decision's INSERT, built from the claim row the same way.
+	// ADR 0032 §C.3: the anchor id arrives from the client (inside the signed claim context) and is not
+	// trusted on its own. So the row is not VALUES from parameters: it is SELECTed from the anchor,
+	// under its tenant AND its person -- tenant_id and employee_id are the anchor's own columns, read
+	// with the explicit predicate (§4.5's belt beside RLS's braces). Another tenant's anchor, another
+	// person's anchor or no anchor at all is ZERO ROWS -- pgx.ErrNoRows, nothing written -- never a
+	// claim on a row that is not the employee's.
+	//
+	// What the anchor must otherwise BE (directed, the opposite direction, a business day, not a
+	// practice row, the claimed moment on its open side) is migration 00068's trigger
+	// (tappa_check_punch_claim, 23514); whether it is STILL open / still an orphan, and whether the
+	// moment is inside the window, is the caller's under LockEmployeeForTap. A second claim on the same
+	// anchor is 23505 (punch_claims_one_per_anchor) -- M15-17 answers it with "Sent".
+	//
+	// prefilled_at is NULL when the form offered no real shift end inside the window (ADR 0032 §C.2).
+	// created_at is the database's clock (tappa_app may not write it -- 00068's grant).
+	InsertPunchClaim(ctx context.Context, arg InsertPunchClaimParams) (InsertPunchClaimRow, error)
+	// THE MANAGER'S DECISION ON A CLAIM (M15-16; ADR 0032 §C.2, §C.4, §C.5; migration 00068). Built FROM
+	// the claim row under its tenant (§4.5's belt): another tenant's claim id is ZERO ROWS -- pgx.ErrNoRows,
+	// nothing written. An approval names the manual row it wrote and that row's moment (approved_at =
+	// the row's occurred_at, which tappa_check_punch_claim_decision holds, with the row's person, channel,
+	// direction, entered_by and write instant); a rejection names neither (the shape CHECK). A second
+	// decision on one claim is 23505 (punch_claim_decisions_one_per_claim) -- "already decided"; one
+	// manual row answering two claims is 23505 too (one_per_record). The note is the manager's free text:
+	// stored here once, never logged and never copied into audit_log.
+	InsertPunchClaimDecision(ctx context.Context, arg InsertPunchClaimDecisionParams) (InsertPunchClaimDecisionRow, error)
 	// THE TAP write path -- and it stopped being THE ONLY one on 2026-08-10.
 	//
 	// 🔴 THIS COMMENT SAID "THE single write path" UNTIL M6-08 ADDED THE SECOND ONE.
@@ -3437,6 +3528,16 @@ type Querier interface {
 	// on a PEER's plaque is the employer's row (above) and carries the employer's
 	// business day like any other; InsertManualSiteTransaction, the manual site sibling,
 	// has no such parameter.
+	//
+	// direction_source (M15-09, migration 00065, ADR 0032 §B.4): who chose the direction
+	// -- 'auto' (the engine's D was recorded) or 'employee' (the person asked for the
+	// other one and it was recorded). NULL for an undirected decision, for the manual
+	// channel (the direction is the manager's; there is no 'manager' value) and for every
+	// row written before M15-11, whose insertParams writes it on every directed nfc/qr tap.
+	// On a directed nfc/qr row NULL reads as "before M15, the engine's choice"; the one
+	// place that says so is tap.RecordedDirectionSource. Two NOT VALID CHECKs (00065,
+	// validated by 00066) are the second safety. Neither manual statement has the
+	// parameter, and the column has no default, so their rows are NULL.
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error)
 	// THE decision. One row, append-only, and it is the ONLY write this flow makes to
 	// the record besides audit_log.
@@ -3773,6 +3874,58 @@ type Querier interface {
 	// backwards. The tenant name is joined for the reason GetBillingPeriod states: the
 	// figures are frozen, the addressee is current.
 	ListBillingPeriods(ctx context.Context, arg ListBillingPeriodsParams) ([]ListBillingPeriodsRow, error)
+	// Checkouts in the window with no open check-in for them to close -- the person's previous
+	// record is a checkout (not a correction's surplus), a check-in of an earlier business day, or
+	// nothing: the "check-in missing" list (M15-06; ADR 0032 §A.6, classes (b) other_day and (c) orphan).
+	//
+	// 🔴 THE CLASS IS tappa_checkout_class's (migration 00064), THE ONE SQL FORM OF THE
+	// CLASSIFICATION, fed the way ADR 0032 §A.6 defines its three inputs -- the same subqueries the
+	// Go/SQL parity test feeds it (internal/domain/ledger's checkout parity test):
+	//
+	//   P  the person's directed, non-practice record just BEFORE the checkout, in (occurred_at, id)
+	//      order -- an `in` or an `out` (the LATERAL `pv`);
+	//   I  an `in` before it in that order with occurred_at >= its business day (the EXISTS);
+	//   W  P was written after it: pv.created_at > o.created_at. created_at is the DATABASE's write
+	//      instant (DEFAULT now(), which no statement writes -- TestTransactions_NoStatementWritesCreatedAt),
+	//      never occurred_at, the client's claim: a manager's correction typed into the past is
+	//      written later, a break's checkout tapped before is written earlier.
+	//
+	// 🔴 WHAT IS NOT ON THIS LIST, AND WHY EACH IS LEFT OUT:
+	//   (e) extra       P is a checkout written LATER and the day has a check-in (I and W): a
+	//                   correction's surplus (ADR 0011's "out too late"). Listing it would leave a
+	//                   permanent "check-in missing" behind every such correction.
+	//   (d) unanchored  a row with NO business day (business_day_start IS NULL: every row before
+	//                   M15, every manual row). It cannot be judged against a day it does not carry;
+	//                   the predicate below says so explicitly as well as through the class.
+	//   (a), closes     P is a check-in this checkout consumes; (a)'s check-in is on the open list.
+	// The report counts the same two classes (Totals.OutWithoutIn), except at its period seam -- a
+	// business day that began before the week is the report's StartedEarlier; this list asks the
+	// row question and lists it (ADR 0032 §A.6: "Anomali listeleri dönem değil satır sorusu sorar").
+	//
+	// after_earlier_day is (b): the record before it is a check-in of an EARLIER business day -- that
+	// check-in is on the open list, and the two rows are one forgotten tap or two. Otherwise (c):
+	// nothing, or a checkout tapped before it, is before it.
+	//
+	// A record naming no employee is not here: it has no chain (the report's Unattributable).
+	// `NOT o.practice` and `NOT pv.practice` as in ListOpenCheckIns. site_location_id names the venue
+	// of a checkout taken at a holding PEER's venue (location_id NULL -- K-30), named by the ledger
+	// from holding_site_locations as the open list's is. Nothing read here is evidence (no address, no
+	// distance, no verdict): who, where, when, and which of the two classes.
+	//
+	// ORDERED OLDEST FIRST, the window on the CHECKOUT's occurred_at, LIMIT @row_limit -- the open
+	// list's shape. M15-18: id is the checkout's own row id, for the open list's reason (the "claim
+	// pending" mark binds by identity, not by instant).
+	//
+	// EXPLAIN (ANALYZE, BUFFERS), M15-06, 2026-10-22, the M15 development database, seed tenant
+	// 10000000-0000-4000-8000-000000000001 (918 rows; the week from Monday 2026-10-19 00:00 Malta
+	// holds 193 checkouts, 116 of them with a business day), row_limit 51, three runs: Bitmap Heap
+	// Scan on transactions_tenant_occurred_idx (116 kept, 802 removed by the out / business-day
+	// predicates) -> per checkout one Limit 1 probe of transactions_tenant_employee_occurred_idx for P
+	// and one for I -> the class as a join filter (116 removed, 0 returned); 4.46 / 3.25 / 3.01 ms,
+	// shared hit 1 891 / 1 669 / 1 669. The zero is M15-05's Phase A property seen on live rows: every
+	// engine checkout is 'closes' or 'extra'. One observation on a small table, not a property: the
+	// cost is two index probes per checkout of the week that carries a business day.
+	ListCheckoutsWithoutCheckIn(ctx context.Context, arg ListCheckoutsWithoutCheckInParams) ([]ListCheckoutsWithoutCheckInRow, error)
 	// Every department with its venue, its stored cutoff (NULL = inherit) and its own shift.
 	ListDayCutoffDepartments(ctx context.Context, arg ListDayCutoffDepartmentsParams) ([]ListDayCutoffDepartmentsRow, error)
 	// The people a level's cutoff can reach: everybody who is not deactivated (a person who
@@ -3999,6 +4152,10 @@ type Querier interface {
 	// check-ins open RIGHT NOW that a new cutoff would split, among the people who inherit it
 	// (ADR 0032 §A.7). It reads this list rather than a copy of its definition, so "open" on
 	// that screen is this list's "open"; the column names a person by opaque id, never a name.
+	//
+	// M15-18: id is the check-in's own row id (transactions.id), so the panel's "claim pending" mark
+	// binds a listed entry to a punch claim's anchor by IDENTITY -- a timestamp alone does not pick one
+	// row (ADR 0032 §A.6 orders by (occurred_at, id) for that reason).
 	//
 	// EXPLAIN (ANALYZE, BUFFERS): M15-05's before/after measurement is in CountMaskedOpenCheckIns'
 	// header -- the two statements share the next-record lookup and were measured together.
@@ -4462,6 +4619,25 @@ type Querier interface {
 	// used_at is not selected: the WHERE pins it to NULL for every returned row.
 	// code_hash is not selected either (section 4.7).
 	ListPendingInvitesForEmployee(ctx context.Context, arg ListPendingInvitesForEmployeeParams) ([]ListPendingInvitesForEmployeeRow, error)
+	// WHICH OF THESE RECORDS CARRY A CLAIM NOBODY HAS DECIDED (M15-18): the "claim pending" mark on
+	// Odd shapes' two lists (check-ins with no checkout, check-in missing). The lists name their rows
+	// by transactions.id and this joins them to punch_claims.anchor_transaction_id -- an id, never a
+	// timestamp (two records can share an instant; ADR 0032 §A.6 orders by (occurred_at, id) for that
+	// reason). A rejected claim's anchor is NOT marked: the record still misses its half and nobody is
+	// asked about it any more. The claim's own id comes back too: the mark links to the claim in focus on
+	// the queue (M15-18 review round). Explicit tenant on both tables.
+	ListPendingPunchClaimAnchors(ctx context.Context, arg ListPendingPunchClaimAnchorsParams) ([]ListPendingPunchClaimAnchorsRow, error)
+	// THE PANEL'S CLAIM QUEUE (M15-18; ADR 0032 §C.4): the claims of this business nobody has decided
+	// yet, OLDEST FIRST -- (created_at, id), the order a manager works a backlog in, so a shortened list
+	// keeps the claims that have waited longest. A claim whose anchor has since been closed another
+	// way, or whose moment has aged past manual.MaxBackdate, is STILL here: it is undecided, and the
+	// focus says "already resolved" / "expired" and offers Reject (§C.5) -- this list does not judge.
+	//
+	// What crosses the boundary is ids, the person's name, the kind, three instants (the claimed moment,
+	// when it was sent, the anchor's moment) and nothing the anchor was judged on. Explicit tenant on
+	// every table it reads (§4.5's belt beside RLS). Bounded by @row_limit (the caller reads one past
+	// its cap to say "more").
+	ListPendingPunchClaims(ctx context.Context, arg ListPendingPunchClaimsParams) ([]ListPendingPunchClaimsRow, error)
 	// WHO did WHAT to this plaque, and WHEN -- the audit half of M6-06's "tag history is
 	// visible (audit)" criterion.
 	//
@@ -4749,6 +4925,26 @@ type Querier interface {
 	// failure. op_read_legal_versions (00027) uses the same ORDER BY (published_at DESC,
 	// id DESC) for its version list and for the version it marks current.
 	ListPublishedLegalDocuments(ctx context.Context) ([]ListPublishedLegalDocumentsRow, error)
+	// THE PERSON'S DIRECTION CHAIN AROUND A CLAIM (M15-16; ADR 0032 §A.6, §C.1, §C.3): every directed,
+	// non-practice record with occurred_at in [@from_at, @to_at], in (occurred_at, id) order, AND the one
+	// record immediately before @from_at (before_range true) -- the predecessor of the first record in
+	// range, so that record's class (its P) is known. internal/domain/claim classifies these rows with
+	// tap.ClassifyCheckout, the Go half of tappa_checkout_class (the parity test binds the two), so an
+	// anchor's "still open / still an orphan", the window's ends and K4's two showings are the READER's
+	// answer, never Decision.LeftOpen or Decision.MissingIn (the M15-10/M15-16 handover).
+	//
+	// created_at is selected because the classification's W reads it (the database's write instant --
+	// TestTransactions_NoStatementWritesCreatedAt). Nothing read here is evidence: direction, two
+	// instants, the frozen business day and the channel.
+	//
+	// BOUNDED BY TIME AND BY @row_limit: the caller asks for a window of hours (internal/domain/claim:
+	// the anchor's day and 18 hours on either side) and REFUSES when the limit is reached, rather than
+	// judging a truncated chain.
+	ListPunchClaimChain(ctx context.Context, arg ListPunchClaimChainParams) ([]ListPunchClaimChainRow, error)
+	// WHICH OF THESE RECORDS ALREADY CARRY A CLAIM (M15-16, K4: "talep gönderildiyse ikinci gösterim
+	// yok"; ADR 0032 §C.5: one claim per anchor, ever -- a rejected one included). Explicit tenant and
+	// person beside RLS.
+	ListPunchClaimedAnchors(ctx context.Context, arg ListPunchClaimedAnchorsParams) ([]uuid.UUID, error)
 	// The events of one scope in (after_seq, upto_seq], in seq order, at most page_size of them -- the
 	// caller asks for one more than it hands out, to know whether the window holds more. The scope is
 	// a role the row carries (ADR 0028 §2: employer -- the punch's employee is this business's; location
