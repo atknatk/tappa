@@ -820,11 +820,12 @@ const (
 	// here writes nothing at all (no audit row, no session) -- the audit trail stops growing at
 	// the limit, which is the card's measurement.
 	//
-	// WHY THE ADDRESS IS PART OF THE KEY (ADR 0031 §5.4: "identity_id (+ kaynak adres)"). Keyed by
-	// the person alone, somebody holding one of the person's cookies could spend the person's
-	// budget from anywhere and lock their switching on every other device; with the address in
-	// the key a flood spends its own address's share, and adminFloodLimit still bounds what one
-	// address can send in total.
+	// WHY THE ADDRESS IS PART OF THE KEY (ADR 0031 §5.4: "identity_id (+ kaynak adres)"): one
+	// address spends only its own 30 of this bucket. It does NOT stop one address from locking the
+	// person out of switching: every attempt is charged to adminSwitchPersonLimit's bucket too, so
+	// somebody holding the person's cookie can exhaust that one (120) from a single address -- the
+	// cost to the person is at most one window (10 minutes) of switching; signing out and back in
+	// stays open. adminFloodLimit still bounds what one address can send in total.
 	adminSwitchLimit  = 30
 	adminSwitchPeriod = 10 * time.Minute
 

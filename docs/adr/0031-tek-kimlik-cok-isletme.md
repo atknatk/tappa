@@ -429,8 +429,10 @@ yanıtı **`Set-Cookie` yazmaz ve çerezi silmez** (kazananın çerezi tarayıc�
    definer. Senkronizör reddi 400, kova 429, hedef reddi **tek tip 403** (sayfa gövdesi her nedende bayt-aynı);
    hiçbir ret `Set-Cookie` yazmaz.
 2. **İki kova, ikisi de her denemede (senkronizörden sonra) yüklenir; biri dolarsa 429:**
-   - **(kişi, adres) çifti**, 30 / 10 dk (`adminSwitchLimit`, pinli). Adres anahtardadır ki kişinin çerezini
-     tutan biri tek adresten kişinin bütün cihazlarındaki geçişi kilitleyemesin.
+   - **(kişi, adres) çifti**, 30 / 10 dk (`adminSwitchLimit`, pinli). Bir adres bu kovadan yalnız kendi
+     30'unu harcar. Ama her ret yüklendiği için (depo kuralı: sınırlayıcının kendi reddi de sayılır), kişinin
+     çerezini tutan biri **tek adresten** aşağıdaki kişi kovasını (120) tüketebilir; bunun kişiye bedeli en
+     çok 10 dakikalık geçiş kaybıdır — çıkış + yeniden giriş bu sürede de açıktır.
    - **Yalnız kişi**, gevşek: 120 / 10 dk (`adminSwitchPersonLimit`, pinli; M14-10 güvenlik denetimi). Çift
      kovanın adresler arası tavanı yoktu — N adres 30 × N geçiş, her biri silinmeyen dört satır yazardı. Bu
      kova adres ne olursa olsun kişiyi sınırlar (pencere başına en çok 480 satır); dört adreslik pay kadar
