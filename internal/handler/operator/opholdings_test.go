@@ -37,7 +37,7 @@ const (
 	holdingsAddField    = `" type="text" name="tenant_id" maxlength="64" required autocomplete="off" spellcheck="false" class="op-input min-w-0 max-w-[440px] flex-[1_1_240px]">`
 	holdingsEmpty       = `<p class="pt-[22px] pb-2 font-display text-[15px] leading-normal">`
 	holdingsSay         = `<p class="font-display text-sm leading-normal">`
-	holdingsFact        = `<span class="font-display text-[13px] leading-normal text-ink/70">`
+	holdingsFact        = `<span class="font-display text-sm text-ink/70">`
 	holdingsPagerNav    = `<nav class="flex flex-wrap gap-2.5 md:gap-3 max-md:*:flex-1" aria-label="Pages of the list">`
 	holdingsIntroWords  = `A holding groups businesses that work in one timezone; while a business is in one, and for 60 seconds after it leaves, its owner cannot change its timezone. Only this screen changes who is in a holding.`
 	holdingsCreateWords = `One line of at most 120 characters. The new holding has no business in it yet.`
@@ -89,7 +89,7 @@ func holdingsWantColumn(v operatorpages.HoldingsView) string {
 				name = `<span class="italic">Unnamed holding</span>`
 			}
 			s += `<li><p class="font-display text-[21px] font-bold leading-[1.2] tracking-[-0.02em]">` + name + `</p>` +
-				`<p class="font-display text-[13px] leading-normal text-ink/70">Created <span class="font-mono font-bold text-ink">` + e(h.CreatedAt) +
+				`<p class="font-display text-sm text-ink/70">Created <span class="font-mono font-bold text-ink">` + e(h.CreatedAt) +
 				`</span></p><p class="break-all text-xs text-ink/70">` + e(h.ID) + `</p>`
 			if h.ContinuedFromBefore {
 				s += holdingsSay + `Its first memberships are on the page before.</p>`
@@ -425,11 +425,14 @@ func holdingsLongView() operatorpages.HoldingsView {
 // exactly: the heading's dashed rule and bold page number; a holding a block between 2 px dashed
 // rules whose names and ids break anywhere, its name with the id under it and, from the tablet,
 // the creation time at the line's end (on the phone the name and the id drawn first), every later
-// part the whole width, the memberships under a 1 px rule; a membership the boards' grid -- one
-// column on the phone, three tracks on the tablet (the timezone and the times side by side under
-// the name, Remove centred in the third), four on the desktop (172 / 212 / 96 px after the name's,
-// the id under the name) --, Remove at least 120 px wide on the phone, the facts' values in ink;
-// and the name link's line height from the tablet, under the audit link's overlay.
+// part the whole width, the memberships under a dashed 1 px rule; a membership the boards' grid,
+// its rule the docket row's shared dashed one (README §6 "Docket list") -- one column on the
+// phone, three tracks on the tablet (the timezone and the times side by side under the name,
+// Remove centred in the third), four on the desktop (172 / 212 / 96 px after the name's, the id
+// under the name, the name's row as tall as the name so the id stays 3 px under it beside a
+// zone name that wraps) --, Remove at least 120 px wide on the phone, the facts' values in ink;
+// a time never breaking (it moves whole under its word); and the name link's line height from the
+// tablet, under the audit link's overlay.
 var holdingsDocketRules = map[string][]string{
 	`[aria-labelledby="holding-list"] > h2`:        {"border-b-2", "border-dashed", "border-line", "pb-3"},
 	`[aria-labelledby="holding-list"] > h2 > span`: {"font-bold", "text-ink"},
@@ -439,10 +442,10 @@ var holdingsDocketRules = map[string][]string{
 	`[aria-labelledby="holding-list"] > ol > li > :nth-child(2)`:   {"max-md:-mt-2.5"},
 	`[aria-labelledby="holding-list"] > ol > li > :nth-child(3)`:   {"-mt-3", "basis-full", "max-md:-order-1"},
 	`[aria-labelledby="holding-list"] > ol > li > :nth-child(n+4)`: {"basis-full"},
-	`[aria-labelledby="holding-list"] > ol > li > ol`:              {"border-t", "border-line"},
-	`[aria-labelledby="holding-list"] .op-row`: {"grid", "grid-cols-1", "items-start", "gap-x-[18px]", "gap-y-1.5", "border-solid", "py-3.5",
-		"last:border-b", "md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_92px]", "md:gap-y-2", "desk:grid-cols-[minmax(0,1fr)_172px_212px_96px]",
-		"desk:gap-y-1.5"},
+	`[aria-labelledby="holding-list"] > ol > li > ol`:              {"border-t", "border-dashed", "border-line"},
+	`[aria-labelledby="holding-list"] .op-row`: {"grid", "grid-cols-1", "items-start", "gap-x-[18px]", "gap-y-1.5", "py-3.5",
+		"md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_92px]", "md:gap-y-2", "desk:grid-cols-[minmax(0,1fr)_172px_212px_96px]",
+		"desk:grid-rows-[auto_1fr]", "desk:gap-y-1.5"},
 	`[aria-labelledby="holding-list"] .op-row > div:first-child`: {"row-start-1", "md:col-start-1", "md:col-end-3", "desk:col-end-2"},
 	`[aria-labelledby="holding-list"] .op-row > div:nth-child(2)`: {"md:col-start-1", "md:row-start-3", "desk:col-start-2", "desk:row-start-1",
 		"desk:row-end-3"},
@@ -452,9 +455,10 @@ var holdingsDocketRules = map[string][]string{
 		"desk:col-end-2", "desk:-mt-[3px]"},
 	`[aria-labelledby="holding-list"] .op-row > form`: {"mt-1", "md:col-start-3", "md:row-start-1", "md:row-end-4", "md:mt-0", "md:self-center",
 		"md:justify-self-end", "desk:col-start-4", "desk:row-end-3"},
-	`[aria-labelledby="holding-list"] .op-row > form > button`:     {"max-md:min-w-[120px]"},
-	`[aria-labelledby="holding-list"] .op-row > div > span > span`: {"text-ink"},
-	`[aria-labelledby="holding-list"] .op-row > div > .op-link`:    {"md:relative", "md:min-h-0"},
+	`[aria-labelledby="holding-list"] .op-row > form > button`:                  {"max-md:min-w-[120px]"},
+	`[aria-labelledby="holding-list"] .op-row > div > span > span`:              {"text-ink"},
+	`[aria-labelledby="holding-list"] .op-row > div:nth-child(3) > span > span`: {"whitespace-nowrap"},
+	`[aria-labelledby="holding-list"] .op-row > div > .op-link`:                 {"md:relative", "md:min-h-0"},
 }
 
 // holdingsLinkOverlay is the name link's 44 px overlay (README §6 "Inline link hit area"): a
@@ -477,15 +481,17 @@ func readHoldingsDocketRules(css string) []string {
 // TestHoldingsDocket_TheScopedRulesKeepTheBoardsGrid (M13-13; README §6.1 "Holdings", boards
 // OpHoldings, T-OpHoldings, M-OpHoldings): in web/static/css/input.css (comments stripped, read as
 // flat `selectors { @apply …; }` rules by readScopedRules), every rule whose selector names the
-// holdings docket's heading id is one of holdingsDocketRules' seventeen or the name link's
+// holdings docket's heading id is one of holdingsDocketRules' eighteen or the name link's
 // overlay, each exactly once, one @apply of exactly its utilities; the overlay is there whole,
 // once. CONTROLS, each read by the same function and each a finding: a holding's rule deleted;
 // a name with no space no longer breaking; the name not drawn first on the phone; the creation
 // time not beside the name from the tablet; the id not pulled under the name; a later part not
-// the whole width; the membership not a grid; the desktop's tracks changed; the id not under the
+// the whole width; the membership not a grid; the id sliding down beside a tall zone (the
+// desktop's rows sharing the extra height, the M13-13 review's measured 4-21 px); the boards'
+// solid rule back on the rows; the list's top rule solid; the desktop's tracks changed; the id not under the
 // name on the desktop; the timezone not spanning the name's two lines; Remove not in the last
-// track; Remove narrower on the phone; the values' ink reaching the chip's word; the link back to
-// its own 44 px box from the tablet; the overlay deleted; an eighteenth rule, in the double-quoted,
+// track; Remove narrower on the phone; the values' ink reaching the chip's word; a time breaking at its spaces; the link back to
+// its own 44 px box from the tablet; the overlay deleted; a nineteenth rule, in the double-quoted,
 // the single-quoted and the unquoted spelling.
 //
 // PART II -- red on any of the above. PART III -- what the rules draw at each width is the
@@ -509,17 +515,22 @@ func TestHoldingsDocket_TheScopedRulesKeepTheBoardsGrid(t *testing.T) {
 		{"the id not pulled under the name", "@apply -mt-3 basis-full", "@apply basis-full"},
 		{"a later part not the whole width", ":nth-child(n+4) { @apply basis-full; }", ":nth-child(n+4) { @apply w-auto; }"},
 		{"the membership not a grid", "@apply grid grid-cols-1 items-start", "@apply grid-cols-1 items-start"},
+		{"the id sliding down beside a tall zone (rows sharing the height)", " desk:grid-rows-[auto_1fr]", ""},
+		{"the boards' solid rule back on the rows", "@apply grid grid-cols-1 items-start gap-x-[18px] gap-y-1.5 py-3.5",
+			"@apply grid grid-cols-1 items-start gap-x-[18px] gap-y-1.5 border-solid py-3.5"},
+		{"the list's top rule solid", "> ol { @apply border-t border-dashed border-line; }", "> ol { @apply border-t border-line; }"},
 		{"the desktop's tracks changed", "desk:grid-cols-[minmax(0,1fr)_172px_212px_96px]", "desk:grid-cols-[minmax(0,1fr)_160px_212px_96px]"},
 		{"the id not under the name on the desktop", "md:-mt-[5px] desk:col-end-2", "md:-mt-[5px]"},
 		{"the timezone not spanning the name's two lines", "desk:col-start-2 desk:row-start-1 desk:row-end-3", "desk:col-start-2 desk:row-start-1"},
 		{"Remove not in the last track", " desk:col-start-4 desk:row-end-3", " desk:row-end-3"},
 		{"Remove narrower on the phone", "@apply max-md:min-w-[120px]", "@apply max-md:min-w-[96px]"},
 		{"the values' ink reaching the chip's word", ink, `[aria-labelledby="holding-list"] .op-row > div > span {`},
+		{"a time breaking at its spaces", "> div:nth-child(3) > span > span { @apply whitespace-nowrap; }", "> div:nth-child(3) > span > span { @apply text-ink; }"},
 		{"the link back to its own 44 px box", "> .op-link { @apply md:relative md:min-h-0; }", "> .op-link { @apply md:relative; }"},
 		{"the overlay deleted", holdingsLinkOverlay, ""},
-		{"an eighteenth rule", entry, `[aria-labelledby="holding-list"] .op-row > div { @apply text-xs; }` + "\n  " + entry},
-		{"an eighteenth rule, single-quoted", entry, `[aria-labelledby='holding-list'] .op-row { @apply py-0; }` + "\n  " + entry},
-		{"an eighteenth rule, unquoted", entry, `[aria-labelledby=holding-list] .op-row > span { @apply hidden; }` + "\n  " + entry},
+		{"a nineteenth rule", entry, `[aria-labelledby="holding-list"] .op-row > div { @apply text-xs; }` + "\n  " + entry},
+		{"a nineteenth rule, single-quoted", entry, `[aria-labelledby='holding-list'] .op-row { @apply py-0; }` + "\n  " + entry},
+		{"a nineteenth rule, unquoted", entry, `[aria-labelledby=holding-list] .op-row > span { @apply hidden; }` + "\n  " + entry},
 	} {
 		mutated := strings.Replace(css, c.from, c.to, 1)
 		if mutated == css {
@@ -615,5 +626,98 @@ func TestHoldingsScreen_TheTextClearsAA(t *testing.T) {
 	extra := strings.Replace(css, ".tally--deactivated,", ".tally--deactivated { @apply bg-saffron; }\n  .tally--deactivated,", 1)
 	if extra == css || len(chipRules(extra, "tally--deactivated")) != 2 {
 		t.Fatal("CONTROL: a second rule naming tally--deactivated is not read")
+	}
+}
+
+// operatorHeadingRules is the two in-card headings of web/static/css/input.css (README §6 "Step /
+// card heading"), their selectors and utilities exactly: the card heading 19 px (Holdings' "Create
+// a holding", M13-13) and the enrollment step 16 px, 17 px from the tablet, line height 1.3
+// (M13-05).
+var operatorHeadingRules = map[string]map[string][]string{
+	"op-heading": {`.op-heading`: {"font-display", "text-[19px]", "font-bold", "tracking-tight"}},
+	"op-step":    {`.op-step`: {"font-display", "text-base", "font-bold", "leading-[1.3]", "tracking-tight", "md:text-[17px]"}},
+}
+
+// readOperatorHeadings is TestOperatorHeadings_TheRulesKeepTheBoardsSizes' reading: every rule of
+// css naming either class is its one pinned rule, and README §6's recipe for each names exactly
+// the same utilities.
+func readOperatorHeadings(css, readme string) []string {
+	var f []string
+	for class, want := range operatorHeadingRules {
+		f = append(f, readScopedRules(css, class, want)...)
+		m := regexp.MustCompile("`\\."+regexp.QuoteMeta(class)+"` `([^`]*)`").FindAllStringSubmatch(readme, -1)
+		got := []string{}
+		if len(m) == 1 {
+			got = strings.Fields(m[0][1])
+		}
+		w := want["."+class]
+		if len(m) != 1 || len(got) != len(w) || !holdingsSameSet(got, w) {
+			f = append(f, fmt.Sprintf("README §6 gives .%s the recipe(s) %q, want exactly one naming %v", class, m, w))
+		}
+	}
+	return f
+}
+
+func holdingsSameSet(a, b []string) bool {
+	seen := map[string]int{}
+	for _, x := range a {
+		seen[x]++
+	}
+	for _, x := range b {
+		seen[x]--
+	}
+	for _, n := range seen {
+		if n != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// TestOperatorHeadings_TheRulesKeepTheBoardsSizes (M13-13 review; README §6 "Step / card
+// heading"): in web/static/css/input.css (comments stripped, read by readScopedRules) the one
+// rule naming op-heading is one @apply of exactly the 19 px card heading's utilities and the one
+// naming op-step exactly the enrollment step's (16 px, 17 px from the tablet, line height 1.3);
+// docs/design/operator-redesign/README.md's §6 recipe for each names the same utilities, once.
+// The markup tests pin only the class names (the Holdings column test, the Enroll card test), so
+// without this one a heading could change size with every markup test green. CONTROLS, each read
+// by the same function and each a finding: the card heading at 17 px; the step without its
+// tablet size; the step's line height dropped; a second rule naming op-heading; README's card
+// heading recipe at 17 px.
+//
+// PART II -- red on any of the above. PART III -- these two classes only (no completeness claim).
+func TestOperatorHeadings_TheRulesKeepTheBoardsSizes(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "design", "operator-redesign", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css, readme := string(raw), string(doc)
+	for _, f := range readOperatorHeadings(css, readme) {
+		t.Error(f)
+	}
+	const heading = `.op-heading { @apply font-display text-[19px] font-bold tracking-tight; }`
+	for _, c := range []struct{ what, from, to string }{
+		{"the card heading at 17 px", heading, `.op-heading { @apply font-display text-[17px] font-bold tracking-tight; }`},
+		{"the step without its tablet size", " tracking-tight md:text-[17px]; }", " tracking-tight; }"},
+		{"the step's line height dropped", "font-bold leading-[1.3] tracking-tight", "font-bold tracking-tight"},
+		{"a second rule naming op-heading", heading, heading + "\n  .op-main .op-heading { @apply text-[17px]; }"},
+	} {
+		mutated := strings.Replace(css, c.from, c.to, 1)
+		if mutated == css {
+			t.Fatalf("CONTROL %s: %q is not in input.css", c.what, c.from)
+		}
+		if len(readOperatorHeadings(mutated, readme)) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
+		}
+	}
+	const recipe = "`.op-heading` `font-display text-[19px] font-bold tracking-tight`"
+	if mutated := strings.Replace(readme, recipe, strings.Replace(recipe, "19px", "17px", 1), 1); mutated == readme {
+		t.Fatal("CONTROL: README §6's card heading recipe is not in README.md")
+	} else if len(readOperatorHeadings(css, mutated)) == 0 {
+		t.Error("CONTROL: README's card heading recipe at 17 px is not a finding; the reading is blind")
 	}
 }

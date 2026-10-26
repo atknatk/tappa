@@ -113,7 +113,7 @@ templ holdingEntry(h HoldingView) {
 				<bdi>{ h.Name }</bdi>
 			}
 		</p>
-		<p class="font-display text-[13px] leading-normal text-ink/70">Created <span class="font-mono font-bold text-ink">{ h.CreatedAt }</span></p>
+		<p class="font-display text-sm text-ink/70">Created <span class="font-mono font-bold text-ink">{ h.CreatedAt }</span></p>
 		<p class="break-all text-xs text-ink/70">{ h.ID }</p>
 		if h.ContinuedFromBefore {
 			<p class="font-display text-sm leading-normal">Its first memberships are on the page before.</p>
@@ -161,17 +161,17 @@ templ holdingMember(m HoldingMemberView) {
 			}
 		</div>
 		<div class="flex flex-col gap-px">
-			<span class="font-display text-[13px] leading-normal text-ink/70">Timezone <span class="font-mono">{ m.Timezone }</span></span>
+			<span class="font-display text-sm text-ink/70">Timezone <span class="font-mono">{ m.Timezone }</span></span>
 			if m.APICode == "" {
-				<span class="font-display text-[13px] leading-normal text-ink/70">No API code</span>
+				<span class="font-display text-sm text-ink/70">No API code</span>
 			} else {
-				<span class="font-display text-[13px] leading-normal text-ink/70">API code <span class="font-mono">{ m.APICode }</span></span>
+				<span class="font-display text-sm text-ink/70">API code <span class="font-mono">{ m.APICode }</span></span>
 			}
 		</div>
 		<div class="flex flex-col gap-px">
-			<span class="font-display text-[13px] leading-normal text-ink/70">Joined <span class="font-mono">{ m.JoinedAt }</span></span>
+			<span class="font-display text-sm text-ink/70">Joined <span class="font-mono">{ m.JoinedAt }</span></span>
 			if !m.Live {
-				<span class="font-display text-[13px] leading-normal text-ink/70">Left <span class="font-mono">{ m.LeftAt }</span></span>
+				<span class="font-display text-sm text-ink/70">Left <span class="font-mono">{ m.LeftAt }</span></span>
 			}
 		</div>
 		<span class="break-all text-xs text-ink/70">{ m.TenantID }</span>

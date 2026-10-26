@@ -1472,7 +1472,7 @@
      the creation time at the line's end on the name's baseline; on the phone the name, the id and
      the time each take a line, the time 4 px under the id (the name and the id are drawn first,
      the time keeping its place in the document). Every later part takes the whole width; the
-     memberships open with a 1 px rule. A name or an id with no space in it breaks anywhere rather
+     memberships open with a dashed 1 px rule. A name or an id with no space in it breaks anywhere rather
      than widening the page (a holding's name is up to 120 characters, a business's has no limit;
      measured in M13-08: both widened the page at every width).
      A MEMBERSHIP, the boards' grid (.mrow): on the phone one column -- the name and the chip, the
@@ -1481,9 +1481,16 @@
      (the name and the id across two, the timezone and the times side by side under them, Remove
      in the third, centred, at the end), 8 px apart. On the desktop four tracks, 172 px, 212 px and
      96 px after the name's: the name with the id under it, the timezone and the API code, the
-     times, Remove. 18 px between the tracks. A solid 1 px rule under every membership, the last
-     too. The facts' words at ink 70 % (6.05:1 on paper, on the markup), their values in ink
-     (16.17:1). The name's link keeps the line's height from the tablet and takes the audit link's
+     times, Remove. The name's row is as tall as the name and the id's takes whatever the taller
+     facts beside them need, so the id stays 3 px under the name however long a zone name wraps
+     (measured, M13-13 review: two rows sharing the extra height moved the id 4 to 21 px down).
+     18 px between the tracks. Under each membership the docket row's own dashed 1 px rule, the
+     last without one, and one over the list (README §6 "Docket list"; the boards draw it solid).
+     The facts' words at ink 70 % (6.05:1 on paper, on the markup) at the docket row's 14 px,
+     their values in ink (16.17:1). A time never breaks: at 14 px "Joined 2026-10-12 09:00 UTC"
+     is wider than the desktop's 212 px track, and a wrapped time left "UTC" alone on a line;
+     whole, the time (20 characters of the data face, 168 px) moves under its word and fits
+     every track. A zone name still breaks anywhere (its track is narrower than the longest). The name's link keeps the line's height from the tablet and takes the audit link's
      transparent 44 px overlay (README §6 "Inline link hit area"); on the phone its own 44 px box
      stands. NO SELECTOR HERE NAMES THE CHIP'S CLASS (TestTallyRules_NoToneRuleColoursTheWord reads
      every rule that does). Each rule is one @apply but the overlay, read and pinned by
@@ -1498,10 +1505,10 @@
   [aria-labelledby="holding-list"] > ol > li > :nth-child(2) { @apply max-md:-mt-2.5; }
   [aria-labelledby="holding-list"] > ol > li > :nth-child(3) { @apply -mt-3 basis-full max-md:-order-1; }
   [aria-labelledby="holding-list"] > ol > li > :nth-child(n+4) { @apply basis-full; }
-  [aria-labelledby="holding-list"] > ol > li > ol { @apply border-t border-line; }
+  [aria-labelledby="holding-list"] > ol > li > ol { @apply border-t border-dashed border-line; }
   [aria-labelledby="holding-list"] .op-row {
-    @apply grid grid-cols-1 items-start gap-x-[18px] gap-y-1.5 border-solid py-3.5 last:border-b
-           md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_92px] md:gap-y-2 desk:grid-cols-[minmax(0,1fr)_172px_212px_96px] desk:gap-y-1.5;
+    @apply grid grid-cols-1 items-start gap-x-[18px] gap-y-1.5 py-3.5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_92px] md:gap-y-2
+           desk:grid-cols-[minmax(0,1fr)_172px_212px_96px] desk:grid-rows-[auto_1fr] desk:gap-y-1.5;
   }
   [aria-labelledby="holding-list"] .op-row > div:first-child { @apply row-start-1 md:col-start-1 md:col-end-3 desk:col-end-2; }
   [aria-labelledby="holding-list"] .op-row > div:nth-child(2) {
@@ -1518,6 +1525,7 @@
   }
   [aria-labelledby="holding-list"] .op-row > form > button { @apply max-md:min-w-[120px]; }
   [aria-labelledby="holding-list"] .op-row > div > span > span { @apply text-ink; }
+  [aria-labelledby="holding-list"] .op-row > div:nth-child(3) > span > span { @apply whitespace-nowrap; }
   [aria-labelledby="holding-list"] .op-row > div > .op-link { @apply md:relative md:min-h-0; }
   [aria-labelledby="holding-list"] .op-row > div > .op-link::before {
     content: '';

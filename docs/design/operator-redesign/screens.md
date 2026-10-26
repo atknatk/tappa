@@ -799,7 +799,7 @@ scoped rules); the OP-15 rows:
 
 ---
 
-## 11. OpHoldings — `Holdings` (`holdings.templ:24-176`)
+## 11. OpHoldings — `Holdings` (`holdings.templ:39-200` since M13-13; before it `:24-176`)
 
 Signed-in shell, current = Holdings; no banner. Title `Holdings`.
 
@@ -811,12 +811,12 @@ Signed-in shell, current = Holdings; no banner. Title `Holdings`.
 | create card | **Create a holding** (`<h2 id="holding-create" class="op-heading">` since M13-13, the 19 px display heading; before it `class="docket-label"`; id kept); the field and Create share a line from the tablet, the help under them — the document keeps the code's order, label · field · help · button (the help takes `order-last`); label **Name**; help: One line of at most 120 characters. The new holding has no business in it yet.; button **Create** |
 | docket heading | Newest first · page `N` |
 | empty | This page is empty: the list ended on the page before. · There are no holdings yet. |
-| holding entry | name (display lg; italic **Unnamed holding**) · Created `<UTC>` · id (xs) · [Its first memberships are on the page before.] · members or "No business has been in this holding." · [More of its memberships are on the next page.] · add form |
+| holding entry | name (Space Grotesk 21 px bold since M13-13; italic **Unnamed holding**) · Created `<UTC>` (14 px; the time mono bold) · id (xs, mono) · [Its first memberships are on the page before.] · members or "No business has been in this holding." · [More of its memberships are on the next page.] · add form |
 | add form | label **Add a business**; help: The business's id, from its overview. It must work in the timezone of every member.; button **Add** |
-| member row `op-row` | name link → overview (italic Unnamed tenant) · chip `<span class="tally tally--active">Live</span>` / `<span class="tally tally--deactivated">Ended</span>` · Timezone `<mono>` · No API code / API code `<mono>` · Joined `<UTC>` · [Left `<UTC>`] · tenant id (xs) · live only: **Remove** (`btn--quiet`). The polished boards draw the tenant id **under the name**: visual placement only (since M13-13 grid lines from scoped rules, README §6.1 "Holdings"); the DOM keeps the code's order — name, chip, Timezone, API code, Joined, [Left], id, [Remove], the first six in three order-preserving `<div>`s — pinned by `TestHoldingsScreen_IsTheCreateCardAndTheDocket`. |
+| member row `op-row` | name link → overview (italic Unnamed tenant) · chip `<span class="tally tally--active">Live</span>` / `<span class="tally tally--deactivated">Ended</span>` · Timezone `<mono>` · No API code / API code `<mono>` · Joined `<UTC>` · [Left `<UTC>`] · tenant id (xs) · live only: **Remove** (`btn--quiet`). Since M13-13 the facts are the docket row's 14 px (words Space Grotesk ink 70 %, values mono ink) and each row has the docket row's dashed rule (README §6 "Docket list"; the boards draw 13 px and a solid rule). The polished boards draw the tenant id **under the name**: visual placement only (since M13-13 grid lines from scoped rules, README §6.1 "Holdings"); the DOM keeps the code's order — name, chip, Timezone, API code, Joined, [Left], id, [Remove], the first six in three order-preserving `<div>`s — pinned by `TestHoldingsScreen_IsTheCreateCardAndTheDocket`. |
 | pager | **links** `?page=N` Previous page / Next page, `<a … class="op-pager">` since M13-13 (before it `class="op-link"`); on the phone the two share the row, each half of it; the `href` pins stay (`op8_test.go:1329-1330`, `holdings_test.go:741, 757`) |
 
-Notices (`holdingNotice` `:70-88`, words `holdings.go:443-460`; from the 303's `?done=` checked
+Notices (`holdingNotice` `holdings.templ:85-103`, words `holdings.go:443-460`; from the 303's `?done=` checked
 against the page's own read):
 
 | Tone | Heading | Body |
@@ -840,11 +840,11 @@ one; add `POST /operator/holdings/{id}/members` (`tenant_id`, maxlength 64) — 
 remove `POST /operator/holdings/{id}/members/{tenant}/remove` (empty body) — one per live
 membership. No confirmation step. A refused name is **not echoed back**. 200 memberships per
 page (`db.HoldingsPerPage`, `internal/db/operator.go:1509`); the page number is not personal
-data (`holdings.templ:163-164`).
+data (`holdings.templ:186-188`).
 **States:** holdings with live and ended members (fixture "holdings") · empty ("There are no
 holdings yet.") · **page 3, past the end** — "This page is empty: the list ended on the page
-before." (`holdings.templ:51-52`; fixture "holdings, past the end", `HoldingsView{Page: 3}`,
-`op8_test.go:765`; its Previous link still points to page 2, `op8_test.go:918`) · added ·
+before." (`holdings.templ:67`; fixture "holdings, past the end", `HoldingsView{Page: 3}`,
+`op8_test.go:779`; its Previous link still points to page 2, `op8_test.go:1330`) · added ·
 not added (+ rules) · unnamed holding and member split across pages ("holdings, unnamed").
 **Not shown:** rename / delete holding, a tenant picker or search (the id is pasted), a
 per-holding page.
