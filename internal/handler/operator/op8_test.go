@@ -983,9 +983,11 @@ func TestOperatorScreens_EveryOneWearsTheOperatorChrome(t *testing.T) {
 // bar covers the page's last control), and neither .op-frame's nor .op-col's rule, nor the
 // nav's own, clips its overflow (a clipping ancestor turns a sticky bar into an ordinary one).
 // PART II -- the banner: input.css sizes the tenant's name as the banner's second paragraph
-// (.op-tenant > div > p:nth-of-type(2)); on every one-tenant render of screens() the banner's
-// section opens on that div, and its second <p> is the name's (named or unnamed). CONTROL:
-// the rules are found and the 19 banners are read.
+// (.op-tenant > div > p:nth-of-type(2)), and that one rule breaks the name anywhere
+// ([overflow-wrap:anywhere], M13-08 review: a name with no space in it widened a 320 px page to
+// 735 px); on every one-tenant render of screens() the banner's section opens on that div, and
+// its second <p> is the name's (named or unnamed). CONTROL: the rules are found and the 19
+// banners are read; the name's rule without its break helper is a finding of the same reading.
 func TestOperatorShell_ThePhoneBarStaysInTheFlowAndTheBannerNameIsItsSecondParagraph(t *testing.T) {
 	css, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
 	if err != nil {
@@ -1012,6 +1014,14 @@ func TestOperatorShell_ThePhoneBarStaysInTheFlowAndTheBannerNameIsItsSecondParag
 	if !strings.Contains(string(css), ".op-tenant > div > p:nth-of-type(2) {") {
 		t.Fatal("CONTROL: input.css does not size the banner's name as its second paragraph")
 	}
+	if f := bannerNameBreakFinding(string(css)); f != "" {
+		t.Error(f)
+	}
+	const helper = " [overflow-wrap:anywhere];"
+	if !strings.Contains(string(css), helper) || bannerNameBreakFinding(strings.Replace(string(css),
+		"desk:text-[34px]"+helper, "desk:text-[34px];", 1)) == "" {
+		t.Fatal("CONTROL: the banner name's rule without its break helper is not a finding; the reading is blind")
+	}
 	banners := 0
 	for name, html := range screens(t) {
 		at := strings.Index(html, `<section class="op-tenant" aria-label="Tenant">`)
@@ -1032,6 +1042,21 @@ func TestOperatorShell_ThePhoneBarStaysInTheFlowAndTheBannerNameIsItsSecondParag
 	if banners != 19 {
 		t.Fatalf("CONTROL: %d banner(s) read, want 19", banners)
 	}
+}
+
+// bannerNameBreakFinding is "" when input.css's one rule for the banner's name breaks it anywhere
+// -- the rule exactly once, one @apply, among its utilities [overflow-wrap:anywhere] -- and says
+// what is wrong otherwise.
+func bannerNameBreakFinding(css string) string {
+	src := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
+	m := regexp.MustCompile(`\.op-tenant > div > p:nth-of-type\(2\)\s*\{\s*@apply ([^;]+);\s*\}`).FindAllStringSubmatch(src, -1)
+	if len(m) != 1 {
+		return fmt.Sprintf("%d rule(s) for the banner's name, want one @apply", len(m))
+	}
+	if !slices.Contains(strings.Fields(m[0][1]), "[overflow-wrap:anywhere]") {
+		return "the banner's name does not break anywhere: " + m[0][1]
+	}
+	return ""
 }
 
 // TestTenantScreens_TheSubNavIsTheReadTenantsFourScreens (M13-01): through the surface's

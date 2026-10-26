@@ -1132,8 +1132,10 @@
      paragraph in both of its shapes (the label first, the id, when shown, third). The
      selector names no utility: a utility's name in a selector here makes Tailwind add the
      rule to every class that applies that utility (measured, M13-01: every font-display
-     user grew 24 and 30 px rules). */
-  .op-tenant > div > p:nth-of-type(2) { @apply text-[26px] leading-[1.12] tracking-[-0.03em] md:text-[30px] desk:text-[34px]; }
+     user grew 24 and 30 px rules). A name with no space in it breaks anywhere rather than
+     widening the page (the boards' name breaks so; a tenant chose its name, and a 120-character
+     word at 26 px made a 320 px phone page 735 px wide -- measured, M13-08 review). */
+  .op-tenant > div > p:nth-of-type(2) { @apply text-[26px] leading-[1.12] tracking-[-0.03em] md:text-[30px] desk:text-[34px] [overflow-wrap:anywhere]; }
 
   /* --- THE OPERATOR'S NAVIGATION (M13-01, user decision OP-1: "Menü ekle") ---
      One nav element for the three widths, restyled here (docs/design/operator-redesign
