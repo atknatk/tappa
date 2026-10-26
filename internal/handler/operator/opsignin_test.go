@@ -7,6 +7,8 @@ package operator_test
 import (
 	"bytes"
 	"context"
+	"html"
+	"maps"
 	"regexp"
 	"strings"
 	"testing"
@@ -29,6 +31,7 @@ var (
 	classAttr = regexp.MustCompile(`class="([^"]*)"`)
 	topMargin = regexp.MustCompile(`^(?:[a-z]+:)*-?(?:mt|my|m)-`)
 	inputTag  = regexp.MustCompile(`<input [^>]*>`)
+	attribute = regexp.MustCompile(`\s([a-z-]+)(?:="([^"]*)")?`)
 	anchorTag = regexp.MustCompile(`<a [^>]*>[^<]*</a>`)
 )
 
@@ -36,10 +39,14 @@ var (
 // card"): each of the six sign-in renders of screens() -- sign-in, refused, expired; code,
 // rejected, locked -- is the signed-out column (signedOutMain) holding exactly one card
 // (signInCard) and nothing else; inside the card, outside its notice (whose own heading and body
-// are opNotice's, M13-03), no element carries a top margin (the card spaces its blocks); the page has one h1, the step's ("Operator sign-in" / "Enter your code"), one form,
-// posting to the step's route, whose inputs are exactly the step's named fields (email and
-// password; code), none carrying a value -- the typed address is not written back (screens.md §1
-// "Binding") and no hidden field exists; the sign-in has no link in the column and the code step
+// are opNotice's, M13-03), no element carries a top margin (the card spaces its blocks); the
+// card's words, tags dropped, are exactly the step's own (screens.md §1: the h1, the line under it,
+// the state's notice heading and body, the field labels, the button, "Start again") in that order;
+// the page has one h1, in the card, one form, posting to the step's route, one button, and its
+// labels and button are the whole tags screens.md §1 names, in order; each input's attribute set,
+// its class aside, is exactly the one screens.md §1 gives (id, name, type, autocomplete, inputmode,
+// required, autofocus -- nothing more, so no value: the typed address is not written back, §1
+// "Binding", and no hidden field exists); the sign-in has no link in the column and the code step
 // exactly one, "Start again" to /operator/login; no render says "forgot", "reset", "remember",
 // "sign up", "sign-up" or "register" (screens.md §1 "Not shown"). Every problem constant
 // (problemPages()) signed out sits in the same column, its card (div.op-problem) the column's
@@ -47,7 +54,9 @@ var (
 // (the signed-in problem keeps its 640 px, M13-03).
 //
 // PART II -- red on: a card or column width or padding changed, a wrapper back around a notice
-// or a top margin back in a body, a second form, an input added, removed or given a value, a
+// or a top margin back in a body, a word of the card changed, added or dropped, a label or button
+// changed, a second form, an input added, removed, given a value or an attribute added, dropped or
+// changed (type, autocomplete, inputmode, required, autofocus), a
 // recovery, sign-up or remember-me word, a link added, the signed-out column on a signed-in
 // problem or a signed-in one on a signed-out problem. PART III -- the look at 320 / 390 / 834 /
 // 1200 / 1440 px is the screenshot round's; the refused answers' byte identity is
@@ -55,13 +64,40 @@ var (
 // TestE2E_EveryRefusedSignInIsOneRowAndTheSameBytes's -- no completeness claim.
 func TestSignInScreens_AreOneCardInTheSignedOutColumn(t *testing.T) {
 	all := screens(t)
+	// fields is one input's whole attribute set (screens.md §1 "Form"), its class aside (the look
+	// is the column and card checks' and the screenshot's): a bare attribute maps to "".
+	type fields = map[string]string
 	type step struct {
-		h1, action string
-		inputs     []string
-		links      []string
+		action string
+		inputs []fields
+		// controls is the form's labels and button, each the whole tag with its words, in order.
+		controls []string
+		links    []string
+		// head and tail are the card's words before and after its notice, tags dropped.
+		head, tail string
 	}
-	signIn := step{"Operator sign-in", "/operator/login", []string{`name="email"`, `name="password"`}, nil}
-	code := step{"Enter your code", "/operator/login/totp", []string{`name="code"`}, []string{`<a href="/operator/login" class="op-link">Start again</a>`}}
+	signIn := step{action: "/operator/login",
+		inputs: []fields{
+			{"id": "op-email", "name": "email", "type": "email", "autocomplete": "username", "required": "", "autofocus": ""},
+			{"id": "op-password", "name": "password", "type": "password", "autocomplete": "current-password", "required": ""}},
+		controls: []string{`<label for="op-email" class="op-label">Email</label>`, `<label for="op-password" class="op-label">Password</label>`,
+			`<button type="submit" class="btn btn--primary">Continue</button>`},
+		head: "Operator sign-in Taptime staff only. This is not the business panel.",
+		tail: "Email Password Continue"}
+	code := step{action: "/operator/login/totp",
+		inputs: []fields{{"id": "op-code", "name": "code", "type": "text", "inputmode": "numeric", "autocomplete": "one-time-code",
+			"required": "", "autofocus": ""}},
+		controls: []string{`<label for="op-code" class="op-label">Code</label>`, `<button type="submit" class="btn btn--primary">Sign in</button>`},
+		links:    []string{`<a href="/operator/login" class="op-link">Start again</a>`},
+		head:     "Enter your code Type the six-digit code your authenticator app shows for Taptime operator.",
+		tail:     "Code Sign in Start again"}
+	// notice is each state's notice words (screens.md §1), heading then body; the default states have none.
+	notice := map[string]string{
+		"sign-in, refused": "We could not sign you in Check the email address and the password, then try again.",
+		"sign-in, expired": "That sign-in step expired Sign in again with your email address and password.",
+		"code, rejected":   "That code was not accepted Check that your phone's clock is right, then type the next code.",
+		"code, locked":     "Sign-in is locked for a while Too many wrong codes. Wait a quarter of an hour, then try again.",
+	}
 	for name, s := range map[string]step{"sign-in": signIn, "sign-in, refused": signIn, "sign-in, expired": signIn,
 		"code": code, "code, rejected": code, "code, locked": code} {
 		body, ok := all[name]
@@ -85,8 +121,12 @@ func TestSignInScreens_AreOneCardInTheSignedOutColumn(t *testing.T) {
 				}
 			}
 		}
-		if strings.Count(body, "<h1") != 1 || !strings.Contains(body, ">"+s.h1+"</h1>") {
-			t.Errorf("%s: %d h1, want one saying %q", name, strings.Count(body, "<h1"), s.h1)
+		words := strings.TrimSpace(s.head + " " + notice[name] + " " + s.tail)
+		if got := spaced(html.UnescapeString(noticeTag.ReplaceAllString(inner, " "))); got != spaced(words) {
+			t.Errorf("%s: the card says %q, want %q", name, got, spaced(words))
+		}
+		if strings.Count(body, "<h1") != 1 || !strings.Contains(inner, "<h1 ") {
+			t.Errorf("%s: %d h1, want one, in the card", name, strings.Count(body, "<h1"))
 		}
 		if strings.Count(body, "<form") != 1 || !strings.Contains(inner, `<form method="post" action="`+s.action+`"`) {
 			t.Errorf("%s: %d form(s); want one, posting to %s, in the card", name, strings.Count(body, "<form"), s.action)
@@ -96,12 +136,21 @@ func TestSignInScreens_AreOneCardInTheSignedOutColumn(t *testing.T) {
 			t.Errorf("%s: %d input(s), want %d", name, len(inputs), len(s.inputs))
 		}
 		for i, in := range inputs {
-			if i < len(s.inputs) && !strings.Contains(in, s.inputs[i]) {
-				t.Errorf("%s: input %d is %q, want %s", name, i, in, s.inputs[i])
+			if i < len(s.inputs) && !maps.Equal(attributesOf(in), s.inputs[i]) {
+				t.Errorf("%s: input %d has the attributes %v, want %v", name, i, attributesOf(in), s.inputs[i])
 			}
-			if strings.Contains(in, "value=") || strings.Contains(in, `type="hidden"`) {
-				t.Errorf("%s: input %q carries a value or is hidden", name, in)
+		}
+		at := 0
+		for _, c := range s.controls {
+			i := strings.Index(inner[at:], c)
+			if i < 0 {
+				t.Errorf("%s: %s is not in the form, in order", name, c)
+				break
 			}
+			at += i + len(c)
+		}
+		if n, want := strings.Count(body, "<label"), len(s.controls)-1; n != want || strings.Count(body, "<button") != 1 {
+			t.Errorf("%s: %d label(s) and %d button(s), want %d and one", name, n, strings.Count(body, "<button"), want)
 		}
 		if links := anchorTag.FindAllString(column, -1); strings.Join(links, "|") != strings.Join(s.links, "|") {
 			t.Errorf("%s: the column's links are %q, want %q", name, links, s.links)
@@ -140,6 +189,17 @@ func TestSignInScreens_AreOneCardInTheSignedOutColumn(t *testing.T) {
 	if in == 0 || out == 0 {
 		t.Fatalf("PREMISE: %d signed-in and %d signed-out problem page(s)", in, out)
 	}
+}
+
+// attributesOf is an input tag's attributes but its class, a bare one mapped to "".
+func attributesOf(tag string) map[string]string {
+	out := map[string]string{}
+	for _, m := range attribute.FindAllStringSubmatch(strings.TrimSuffix(strings.TrimPrefix(tag, "<input"), ">"), -1) {
+		if m[1] != "class" {
+			out[m[1]] = html.UnescapeString(m[2])
+		}
+	}
+	return out
 }
 
 // columnOf is a render's <main> element, from its opening tag to its close; the page has one.

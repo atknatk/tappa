@@ -57,6 +57,14 @@
   - **(c) Genel bakışın `<h1>`'i sayfa başlığıdır, tenant adı değil:** `<p class="docket-label">Tenant
     overview</p>` → `<h1 class="docket-label">Tenant overview</h1>` (yalnız öğe); tenant adı bandı `<p>`
     kalır. Ölçüm, gerekçe ve test tarifi M13-08'de; README §2 annex (c), screens.md §6.
+  - **(e) Ekran başlığının (`<h1>`) boyu ekranın kendi panosundan alınır (2026-10-26, M13-04).** README §6
+    "Card"ın genel tarifi (`text-2xl md:text-[28px] desk:text-[32px]`, 24 / 28 / 32 px) yalnız panosu değer
+    vermeyen bir ekran içindir (bugün yok). Harf aralığı panoların **-0.03em**'i (`tracking-[-0.03em]`;
+    `tracking-tight` -0.025em'dir). Panolardan ölçülen boylar (telefon / tablet / masaüstü, satır yüksekliği):
+    SignIn ve Enroll 26 / 30 / 30, 1.08 (M13-04, M13-05) · Problem 24 / 28 / 28, 1.12 (M13-03) · Home her
+    genişlikte 28, 1.1 (M13-06) · Tenants, Plaques, VAT her genişlikte 28, 1.1 (M13-07, M13-09, M13-11) ·
+    Audit, Legal, Billing, Holdings 26 / 28 / 32, 1.1 (M13-12, M13-14, M13-10, M13-13). Genel bakış (c) gereği
+    `docket-label` kalır (M13-08). Tablo README §6 "Card"da.
 
 **Yeni okuma kararı gerekmiyor.** Panoların her öğesi bugünkü okumalardan gelir (envanter + 12 pano,
 2026-10-20). Bir öğe yeni okuma isterse (ör. Home'a bir sayı) bu bir **karar**dır, kart değil: yeni
