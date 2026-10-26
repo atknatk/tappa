@@ -52,6 +52,20 @@ var tablesLockReentrant = map[string][]string{
 	"../../internal/adminauth": {"holdTablesLock"},
 }
 
+// tablesLockRowHolders are, per directory, the functions whose call HOLDS the lock from that call
+// until the test ends: the re-entrant holder and what holds through it for the whole test. A helper
+// that holds it only around its own insert and releases it (internal/adminauth's newAdminRow) is NOT
+// one -- a test that called it holds nothing afterwards (M14 test-infra card, the audit's finding:
+// TestNoticeRecipient_IsTheAddressOnTheRowAndNothingElse committed a raw admin row after newAdminRow
+// had released). TestTablesLock_AdminRowsAreWrittenUnderTheHolder reads it.
+var tablesLockRowHolders = map[string][]string{
+	"../../internal/adminauth": {"holdTablesLock", "ownerConn"},
+}
+
+// tablesLockRowTables are the tables a raw INSERT of which commits what internal/db's EXCLUSIVE
+// backfill tests read whole (bfTx): a row of one written past the holder is the M14-09 deadlock.
+var tablesLockRowTables = []string{"admin_users"}
+
 // lockSite is one place a function asks for the lock: the statement itself (via ""),
 // or a call to a function that reaches it.
 type lockSite struct {
@@ -338,5 +352,172 @@ func bypass(t *testing.T) { harness(t); lock(t) }
 			t.Errorf("%s: the lock statement is in %v, want %v -- a new site is a new tree to check (or the scan went blind)", dir, holders, tablesLockStatements[dir])
 		}
 		t.Logf("%s: the statement in %v; %d tests reach it", dir, holders, len(tests))
+	}
+}
+
+// rowInsertsIn: the string literals in body that INSERT INTO one of tables
+// (case and white space ignored).
+func rowInsertsIn(body *ast.BlockStmt, tables []string) []token.Pos {
+	var at []token.Pos
+	ast.Inspect(body, func(n ast.Node) bool {
+		lit, ok := n.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return true
+		}
+		norm := strings.ToLower(strings.Join(strings.Fields(lit.Value), " "))
+		for _, tbl := range tables {
+			if strings.Contains(norm, "insert into "+tbl+" ") || strings.Contains(norm, "insert into "+tbl+"(") {
+				at = append(at, lit.Pos())
+				break
+			}
+		}
+		return true
+	})
+	return at
+}
+
+// tablesLockRowOutsiders: every function of one package that writes a row of tables (a raw INSERT
+// literal) at a point not covered by a holder. A point of a function is covered when the function
+// called a holder BEFORE it (by source position), or -- for a helper -- when it has callers and every
+// call to it is itself at a covered point of its caller (methods matched by name alone).
+func tablesLockRowOutsiders(fset *token.FileSet, files []*ast.File, holders, tables []string) []string {
+	type call struct {
+		caller string
+		at     token.Pos
+	}
+	decls := map[string]*ast.FuncDecl{}
+	for _, f := range files {
+		for _, d := range f.Decls {
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
+				decls[funcKey(fd)] = fd
+			}
+		}
+	}
+	held := map[string][]token.Pos{} // function -> positions of its calls to a holder
+	callers := map[string][]call{}   // callee -> its call sites
+	for k, fd := range decls {
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			if c, ok := n.(*ast.CallExpr); ok {
+				ck := calleeKey(c)
+				if slices.Contains(holders, ck) {
+					held[k] = append(held[k], c.Pos())
+				}
+				if ck != "" && ck != k {
+					callers[ck] = append(callers[ck], call{k, c.Pos()})
+				}
+			}
+			return true
+		})
+	}
+	var covered func(fn string, at token.Pos, seen map[string]bool) bool
+	covered = func(fn string, at token.Pos, seen map[string]bool) bool {
+		for _, h := range held[fn] {
+			if h < at {
+				return true
+			}
+		}
+		cs := callers[fn]
+		if len(cs) == 0 || seen[fn] || strings.HasPrefix(fn, "Test") {
+			return false
+		}
+		seen[fn] = true
+		defer delete(seen, fn)
+		for _, c := range cs {
+			if !covered(c.caller, c.at, seen) {
+				return false
+			}
+		}
+		return true
+	}
+	var bad []string
+	for k, fd := range decls {
+		if slices.Contains(holders, k) {
+			continue
+		}
+		for _, at := range rowInsertsIn(fd.Body, tables) {
+			if !covered(k, at, map[string]bool{}) {
+				bad = append(bad, fmt.Sprintf("%s writes %v (line %d) outside the holder %v", k, tables, fset.Position(at).Line, holders))
+			}
+		}
+	}
+	sort.Strings(bad)
+	return bad
+}
+
+// TestTablesLock_AdminRowsAreWrittenUnderTheHolder -- the M14 test-infra card (an audit's finding).
+// internal/adminauth's newAdminRow holds the operator-tables lock only AROUND ITS OWN INSERT (since
+// 5a45f7d6; a whole-test hold made every EXCLUSIVE waiter queue behind the package), so a test that
+// called it holds nothing afterwards -- and TestNoticeRecipient_IsTheAddressOnTheRowAndNothingElse
+// then committed a raw admin_users row (the NULL-address one newAdminRow cannot write) with no lock
+// at all: exactly the commit internal/db's backfill tests must not see while they hold it EXCLUSIVE
+// (holdTablesLock says why). TestTablesLock_IsTakenOncePerTestTree could not see it: it checks who
+// ASKS for the lock, not who writes without it.
+//
+// PINNED HERE. In every directory of tablesLockRowHolders, a raw INSERT INTO one of
+// tablesLockRowTables in a _test.go function is at a covered point: the function called a holder
+// (the re-entrant holder, or what holds through it until the test ends) before it, or every call to
+// the helper is at a covered point of its caller. POSITIVE CONTROL first: the finding's shape (a
+// scoped helper, then a raw insert), a holder called AFTER the insert, a helper called from one
+// uncovered test among covered ones, and a test with no holder -- and none for the scoped helper's
+// own insert (it holds around it), a helper called only under the holder (also from a subtest), a
+// held test, or another table.
+//
+// NO COMPLETENESS CLAIM (as PART III above): the scan is syntactic -- a holder released before the
+// insert, an INSERT built at run time or reached through a function value or another package, or a
+// directory outside tablesLockRowHolders is not seen; a method is matched by its name alone.
+func TestTablesLock_AdminRowsAreWrittenUnderTheHolder(t *testing.T) {
+	const control = `package p
+func hold(t *testing.T) func() { lock(t); return nil }
+func whole(t *testing.T) *pgx.Conn { hold(t); return nil }
+func scoped(t *testing.T) { release := hold(t); defer release(); exec("INSERT INTO admin_users (id) VALUES ($1)") }
+func TestFinding(t *testing.T) { scoped(t); exec(` + "`" + `INSERT  INTO
+	admin_users (id, email) VALUES ($1, NULL)` + "`" + `) }
+func TestLate(t *testing.T) { exec("insert into admin_users(id) values ($1)"); hold(t) }
+func TestBare(t *testing.T) { exec("INSERT INTO admin_users (id) VALUES ($1)") }
+func (w *world) row() { w.exec("INSERT INTO admin_users (id) VALUES ($1)") }
+func (w *world) linked() { w.row() }
+func TestHeldWorld(t *testing.T) { w := newWorld(whole(t)); w.linked(); t.Run("s", func(t *testing.T) { w.row() }) }
+func shared() { exec("INSERT INTO admin_users (id) VALUES ($1)") }
+func TestSharedHeld(t *testing.T) { hold(t); shared() }
+func TestSharedBare(t *testing.T) { shared() }
+func TestHeld(t *testing.T) { release := hold(t); exec("INSERT INTO admin_users (id) VALUES ($1)"); release() }
+func TestOtherTable(t *testing.T) { exec("INSERT INTO admin_sessions (id) VALUES ($1)"); exec("INSERT INTO admin_users_archive (id) VALUES ($1)") }
+`
+	cfset := token.NewFileSet()
+	cf, err := parser.ParseFile(cfset, "control.go", control, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := tablesLockRowOutsiders(cfset, []*ast.File{cf}, []string{"hold", "whole"}, tablesLockRowTables)
+	want := []string{
+		"TestBare writes [admin_users] (line 8) outside the holder [hold whole]",
+		"TestFinding writes [admin_users] (line 5) outside the holder [hold whole]",
+		"TestLate writes [admin_users] (line 7) outside the holder [hold whole]",
+		"shared writes [admin_users] (line 12) outside the holder [hold whole]",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("POSITIVE CONTROL FAILED: the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	fset := token.NewFileSet()
+	for dir, holders := range tablesLockRowHolders {
+		writers := 0
+		for _, files := range parsePackages(t, fset, dir) {
+			for _, f := range tablesLockRowOutsiders(fset, files, holders, tablesLockRowTables) {
+				t.Errorf("%s: %s", dir, f)
+			}
+			for _, f := range files {
+				for _, d := range f.Decls {
+					if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
+						writers += len(rowInsertsIn(fd.Body, tablesLockRowTables))
+					}
+				}
+			}
+		}
+		// Against going blind: the directory's writers are there to be checked.
+		if writers == 0 {
+			t.Errorf("%s: no raw INSERT INTO %v found -- the scan went blind or the directory moved", dir, tablesLockRowTables)
+		}
+		t.Logf("%s: %d raw inserts of %v checked against %v", dir, writers, tablesLockRowTables, holders)
 	}
 }
