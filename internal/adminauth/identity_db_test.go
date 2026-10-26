@@ -52,8 +52,8 @@ var tablesLock struct {
 	conn *pgx.Conn
 }
 
-// holdTablesLock holds internal/db's operator-tables lock SHARED until t ends. Every test here that
-// COMMITS an admin_users row (newAdminRow) or an identity (ownerConn) takes it: internal/db's backfill
+// holdTablesLock holds internal/db's operator-tables lock SHARED until t ends (or its release). Every
+// test here that COMMITS an admin_users row (newAdminRow) or an identity (ownerConn) takes it: internal/db's backfill
 // tests read and lock every committed admin_users row under it held EXCLUSIVE, and a row committed --
 // or a sign-in's UPDATE of one -- while they run made them red: TestAdminBackfill00073_ItIsIdempotent
 // and TestIssue_ConcurrentSignInsOfOneAdminDoNotDeadlock deadlocked each other, 6 rounds of 6 (23x
@@ -69,11 +69,14 @@ var tablesLock struct {
 //
 // Without DATABASE_MIGRATE_URL nothing is held: every test that takes the lock EXCLUSIVE connects as
 // the owner and skips without it.
-func holdTablesLock(t *testing.T) {
+//
+// It returns the release (idempotent; t's cleanup calls it too): newAdminRow holds the lock only
+// around its insert (see there), ownerConn for the whole test.
+func holdTablesLock(t *testing.T) (release func()) {
 	t.Helper()
 	dsn := os.Getenv("DATABASE_MIGRATE_URL")
 	if dsn == "" {
-		return
+		return func() {}
 	}
 	tablesLock.mu.Lock()
 	defer tablesLock.mu.Unlock()
@@ -97,18 +100,23 @@ func holdTablesLock(t *testing.T) {
 		tablesLock.conn = conn
 	}
 	tablesLock.held++
-	t.Cleanup(func() {
-		tablesLock.mu.Lock()
-		defer tablesLock.mu.Unlock()
-		tablesLock.held--
-		if tablesLock.held > 0 {
-			return
-		}
-		if err := tablesLock.conn.Close(context.Background()); err != nil {
-			t.Errorf("release the operator-tables lock: %v", err)
-		}
-		tablesLock.conn = nil
-	})
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			tablesLock.mu.Lock()
+			defer tablesLock.mu.Unlock()
+			tablesLock.held--
+			if tablesLock.held > 0 {
+				return
+			}
+			if err := tablesLock.conn.Close(context.Background()); err != nil {
+				t.Errorf("release the operator-tables lock: %v", err)
+			}
+			tablesLock.conn = nil
+		})
+	}
+	t.Cleanup(release)
+	return release
 }
 
 // ownerConn is a dedicated owner connection (DATABASE_MIGRATE_URL; test-only, redline R5); the
