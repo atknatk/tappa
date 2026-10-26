@@ -222,6 +222,11 @@ type AdminAuth struct {
 	// BusinessDays option. Nil draws no business-day block, moves people without the cutoff
 	// warning and answers the two business-day routes with 503.
 	businessDays panelBusinessDays
+	// claimQueue and claims are the Spike's "Time claims" (M15-18, claimqueue.go): the list read
+	// (internal/domain/ledger) and the claim service (Inspect, Decide), given together by the
+	// PunchClaims option. Nil draws no "Time claims" link and answers the section's routes with 503.
+	claimQueue panelClaimQueue
+	claims     panelClaims
 
 	// brands reads the business's brand for the chrome of every panel section (M10
 	// WL-8, panelbrand.go): one more read per panel request. It is a field of its own,

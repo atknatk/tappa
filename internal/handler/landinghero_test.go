@@ -170,12 +170,13 @@ func TestLandingHero_HidingScanRefusesEachWayOfHiding(t *testing.T) {
 }
 
 // heroRecord is one of landing.js's made-up records.
-type heroRecord struct{ n, t, time, loc, plaque, on string }
+// btn and fix are the phone's button and the "Not right? …" under it before the tap.
+type heroRecord struct{ n, t, time, loc, plaque, on, btn, fix string }
 
 // heroRecordRE reads one record of landing.js's `people` list, field by field in the
 // order the script writes them.
 var heroRecordRE = regexp.MustCompile(`\{\s*n:\s*'([^']*)',\s*t:\s*'([^']*)',\s*time:\s*'([^']*)',` +
-	`\s*loc:\s*'([^']*)',\s*plaque:\s*'([^']*)',\s*on:\s*'([^']*)'\s*\}`)
+	`\s*loc:\s*'([^']*)',\s*plaque:\s*'([^']*)',\s*on:\s*'([^']*)',\s*btn:\s*'([^']*)',\s*fix:\s*'([^']*)'\s*\}`)
 
 // heroPeopleRE cuts out the `people` list itself, so the count below is of the list's
 // records and of nothing else in the file.
@@ -196,10 +197,10 @@ func heroRecords(js string) ([]heroRecord, string) {
 	}
 	var out []heroRecord
 	for _, m := range heroRecordRE.FindAllStringSubmatch(list[1], -1) {
-		out = append(out, heroRecord{m[1], m[2], m[3], m[4], m[5], m[6]})
+		out = append(out, heroRecord{m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8]})
 	}
 	if declared := len(heroRecordKeyRE.FindAllString(list[1], -1)); declared != len(out) {
-		return nil, fmt.Sprintf("landing.js's list declares %d record(s) and %d read with all six fields "+
+		return nil, fmt.Sprintf("landing.js's list declares %d record(s) and %d read with all eight fields "+
 			"in single quotes", declared, len(out))
 	}
 	if len(out) == 0 {
@@ -267,15 +268,15 @@ func TestLandingHero_EveryVenueTheScriptShowsIsASeedVenue(t *testing.T) {
 func TestLandingHero_VenueCheckRefusesAVenueTheSeedDoesNotHave(t *testing.T) {
 	t.Parallel()
 	venues := seedVenues(t)
-	old := heroRecord{"Anna Farrugia", "CLOCK IN", "04:02", "KM Facility", "KM FACILITY · 2F04-1B9A", "IP yes · GPS no"}
+	old := heroRecord{"Anna Farrugia", "CLOCK IN", "04:02", "KM Facility", "KM FACILITY · 2F04-1B9A", "IP yes · GPS no", "Clock in", "Not right? Clock out"}
 	if got := heroVenueProblems([]heroRecord{old}, venues); len(got) != 1 {
 		t.Errorf("CONTROL: the reference's KM Facility record drew %q, want one problem", got)
 	}
-	crossed := heroRecord{"Anna Farrugia", "CLOCK IN", "04:02", "KM Plant", "RUSTY BAR · 6D31-C8E2", "IP yes · GPS no"}
+	crossed := heroRecord{"Anna Farrugia", "CLOCK IN", "04:02", "KM Plant", "RUSTY BAR · 6D31-C8E2", "IP yes · GPS no", "Clock in", "Not right? Clock out"}
 	if got := heroVenueProblems([]heroRecord{crossed}, venues); len(got) != 1 {
 		t.Errorf("CONTROL: a plaque naming another venue drew %q, want one problem", got)
 	}
-	good := heroRecord{"Anna Farrugia", "CLOCK IN", "04:02", "KM Plant", "KM PLANT · 2F04-1B9A", "IP yes · GPS no"}
+	good := heroRecord{"Anna Farrugia", "CLOCK IN", "04:02", "KM Plant", "KM PLANT · 2F04-1B9A", "IP yes · GPS no", "Clock in", "Not right? Clock out"}
 	if got := heroVenueProblems([]heroRecord{good}, venues); len(got) != 0 {
 		t.Errorf("CONTROL: a seed venue drew %q", got)
 	}
@@ -286,13 +287,13 @@ func TestLandingHero_VenueCheckRefusesAVenueTheSeedDoesNotHave(t *testing.T) {
 	// not have, beside a good one. The pattern does not read it, so only the count can
 	// catch it -- and before the count was taken from the list's keys, it did not.
 	doubled := "var people = [\n" +
-		"  { n: 'Maria Vella', t: 'CLOCK IN', time: '09:58', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55', on: 'IP yes · GPS no' },\n" +
+		"  { n: 'Maria Vella', t: 'CLOCK IN', time: '09:58', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55', on: 'IP yes · GPS no', btn: 'Clock in', fix: 'Not right? Clock out' },\n" +
 		"  { n: \"Anna Farrugia\", t: \"CLOCK IN\", time: \"04:02\", loc: \"KM Facility\", plaque: \"KM FACILITY · 2F04-1B9A\", on: \"IP yes · GPS no\" }\n" +
 		"];"
 	if recs, p := heroRecords(doubled); p == "" {
 		t.Errorf("CONTROL: a double-quoted record was skipped silently; read %d record(s)", len(recs))
 	}
-	if _, p := heroRecords("var people = [ { n: 'A', t: 'T', time: '1', loc: 'L', plaque: 'L · X', on: 'IP yes · GPS no' } ];"); p != "" {
+	if _, p := heroRecords("var people = [ { n: 'A', t: 'T', time: '1', loc: 'L', plaque: 'L · X', on: 'IP yes · GPS no', btn: 'B', fix: 'F' } ];"); p != "" {
 		t.Errorf("CONTROL: a whole single-quoted record was refused: %s", p)
 	}
 }
@@ -308,10 +309,12 @@ var heroSlots = map[string]func(heroRecord) string{
 	"pTime":   func(r heroRecord) string { return r.time },
 	"pPlaque": func(r heroRecord) string { return r.plaque },
 	"dOn":     func(r heroRecord) string { return r.on },
+	"pBtn":    func(r heroRecord) string { return r.btn },
+	"pFix":    func(r heroRecord) string { return r.fix },
 }
 
 // TestLandingHero_TheStillIsTheScriptsFirstRecord: what the page renders in each of the
-// script's nine slots is the script's FIRST record, so with no script -- or before
+// script's eleven slots is the script's FIRST record, so with no script -- or before
 // its first tick -- the ticket, the phone and the plaque show one record, not a mix.
 // And the script names each slot the page renders, once: a slot the script fills that
 // the page lacks makes it stop (it will not show two records at once), and one the page
@@ -339,7 +342,7 @@ func TestLandingHero_TheStillIsTheScriptsFirstRecord(t *testing.T) {
 			t.Errorf("landing.js does not fill #%s, so it would hold the first record while the others rotate", id)
 		}
 	}
-	// The script's slot map names nothing beyond these nine.
+	// The script's slot map names nothing beyond these eleven.
 	slotMap := regexp.MustCompile(`(?s)var slots = \{(.*?)\};`).FindStringSubmatch(js)
 	if slotMap == nil {
 		t.Fatal("PREMISE: landing.js carries no `var slots = {…};` map")
@@ -377,6 +380,11 @@ func heroRecordProblems(records []heroRecord, samples []pages.PanelDocket) []str
 		if dir == "" {
 			say("the ticket says %q, which is no direction a docket prints", r.t)
 			continue
+		}
+		// The phone before the tap: the real screen's button and correction for the
+		// record's direction (ADR 0032 §B.1), read from its render.
+		if why := tapDrawingProblem(dir, r.btn, r.fix); why != "" {
+			say("%s", why)
 		}
 		on := heroOnRE.FindStringSubmatch(r.on)
 		if on == nil {
@@ -431,7 +439,7 @@ func TestLandingHero_EveryRecordIsASampleTheSiteDrawsAndTheEngineApproves(t *tes
 func TestLandingHero_SampleRecordCheckRefusesEvidenceTheOtherDrawingDoesNotShow(t *testing.T) {
 	t.Parallel()
 	samples := heroSiteSamples()
-	good := heroRecord{"Maria Vella", "CLOCK IN", "09:58", "KF St Julians", "KF ST JULIANS · 91AC-7E55", "IP yes · GPS no"}
+	good := heroRecord{"Maria Vella", "CLOCK IN", "09:58", "KF St Julians", "KF ST JULIANS · 91AC-7E55", "IP yes · GPS no", "Clock in", "Not right? Clock out"}
 	if got := heroRecordProblems([]heroRecord{good}, samples); len(got) != 0 {
 		t.Fatalf("PREMISE: The Pass's own record drew %q", got)
 	}
@@ -441,6 +449,10 @@ func TestLandingHero_SampleRecordCheckRefusesEvidenceTheOtherDrawingDoesNotShow(
 		"nobody else draws them": func(r *heroRecord) { r.n = "Paul Vella" },
 		"another time":           func(r *heroRecord) { r.time = "09:59" },
 		"another direction":      func(r *heroRecord) { r.t = "CLOCK OUT" },
+		"the phone says Tap":     func(r *heroRecord) { r.btn = "Tap" },
+		"no correction":          func(r *heroRecord) { r.fix = "" },
+		"the correction agrees":  func(r *heroRecord) { r.fix = "Not right? Clock in" },
+		"the other button":       func(r *heroRecord) { r.btn = "Clock out" },
 	} {
 		r := good
 		edit(&r)
@@ -450,7 +462,7 @@ func TestLandingHero_SampleRecordCheckRefusesEvidenceTheOtherDrawingDoesNotShow(
 	}
 	// No evidence at all is a record the engine flags: drawn on the site too (The Pass's
 	// Claire Mifsud), it may still not be printed under an APPROVED stamp.
-	claire := heroRecord{"Claire Mifsud", "CLOCK IN", "09:41", "KF Msida", "KF MSIDA · 7E10", "IP no · GPS no"}
+	claire := heroRecord{"Claire Mifsud", "CLOCK IN", "09:41", "KF Msida", "KF MSIDA · 7E10", "IP no · GPS no", "Clock in", "Not right? Clock out"}
 	if len(heroRecordProblems([]heroRecord{claire}, samples)) == 0 {
 		t.Error("CONTROL: a record the engine flags passed under the ticket's APPROVED stamp")
 	}
@@ -581,7 +593,7 @@ func TestLandingHero_TheTicketKeepsItsHeightForEveryRecord(t *testing.T) {
 			t.Errorf("#%s is not inside the ticket's rows", id)
 		}
 	}
-	for _, id := range []string{"pName", "pLoc", "pTime"} {
+	for _, id := range []string{"pName", "pLoc", "pTime", "pBtn", "pFix"} {
 		if at := strings.Index(body, `id="`+id+`"`); screen < 0 || at < screen || at > edge {
 			t.Errorf("#%s is not inside the phone's screen", id)
 		}

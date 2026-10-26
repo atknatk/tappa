@@ -161,7 +161,10 @@ type apiFactSources struct {
 	Auth     string // internal/apikey/auth.go: the closed-API refusal
 	Mig38    string // api_enabled_at, and the guard that tappa_app cannot write it
 	Mig39    string // op_enable_tenant_api
-	Mig49    string // punch_feed(), which queues the webhook delivery
+	// MigFeed is the Up section of the newest migration that defines punch_feed() and
+	// holding_feed() -- feedMigration (00049 until M15-13; 00067 since): punch_feed(), which
+	// queues the webhook delivery, and holding_feed(), which queues the employer's.
+	MigFeed string
 	// ReportsCSV is internal/handler/reportscsv.go: where a manager's typed entry goes
 	// instead of the feed (the hours CSV's manager_entered_arrivals column).
 	ReportsCSV string
@@ -171,8 +174,8 @@ type apiFactSources struct {
 	// channel out of the hours.
 	TxQueries string
 	Report    string
-	// Migrations is every migration by file name, to see that nothing after 00049
-	// redefines punch_feed(): a later CREATE OR REPLACE would make 00049 stale.
+	// Migrations is every migration by file name, to see that nothing after feedMigration
+	// redefines either trigger: a later CREATE OR REPLACE would make MigFeed stale.
 	Migrations map[string]string
 }
 
@@ -208,7 +211,7 @@ func loadAPIFactSources(t *testing.T) apiFactSources {
 		Auth:       strip(repoFile(t, "internal", "apikey", "auth.go")),
 		Mig38:      migs["00038_add_api_access_to_tenants.sql"],
 		Mig39:      migs["00039_open_the_api_from_the_operator.sql"],
-		Mig49:      migs["00049_write_the_punch_feed.sql"],
+		MigFeed:    gooseUp(migs[feedMigration]),
 		ReportsCSV: strip(repoFile(t, "internal", "handler", "reportscsv.go")),
 		TxQueries:  repoFile(t, "db", "queries", "transactions.sql"),
 		Report:     strip(repoFile(t, "internal", "domain", "ledger", "report.go")),
@@ -262,20 +265,23 @@ func v1RouteViolation(s apiFactSources, method, pathConst, want string) string {
 	return ""
 }
 
-// punchFeedBodyRE cuts 00049's punch_feed() out of the migration, up to its closing
-// dollar quote.
-var punchFeedBodyRE = regexp.MustCompile(`(?s)CREATE FUNCTION public\.punch_feed\(\).*?\n\$\$;`)
+// feedMigration is the newest migration whose Up defines punch_feed() and holding_feed(): 00049
+// wrote both, M15-13's 00067 replaced both (directionSource).
+const feedMigration = "00067_say_who_chose_a_punchs_direction.sql"
+
+// punchFeedBodyRE cuts punch_feed() out of feedMigration's Up, up to its closing dollar quote.
+var punchFeedBodyRE = regexp.MustCompile(`(?s)CREATE (?:OR REPLACE )?FUNCTION public\.punch_feed\(\).*?\n\$\$;`)
 
 // punchFeedRedefinedRE is any definition of the same trigger function.
 var punchFeedRedefinedRE = regexp.MustCompile(`(?i)CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?punch_feed\s*\(`)
 
-// holdingFeedBodyRE cuts holding_feed() out of 00049's Up section. A holding punch's
+// holdingFeedBodyRE cuts holding_feed() out of feedMigration's Up section. A holding punch's
 // two events are written by the holding trigger, not punch_feed (K-31), so "every
 // punch" reaches a webhook only if THIS function queues one for the employer too.
 var holdingFeedBodyRE = regexp.MustCompile(`(?s)CREATE OR REPLACE FUNCTION public\.holding_feed\(\).*?\n\$\$;`)
 
 // holdingFeedRedefinedRE is any definition of holding_feed(); 00046 wrote the first
-// one, so only a migration after 00049 makes the reading below stale.
+// one, so only a migration after feedMigration makes the reading below stale.
 var holdingFeedRedefinedRE = regexp.MustCompile(`(?i)CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?holding_feed\s*\(`)
 
 // employerWebhookRE is the employer's webhook row inside holding_feed(): the punch
@@ -305,14 +311,14 @@ func apiWritesViolation(s apiFactSources) string {
 	return ""
 }
 
-// The punch feed's two gates (00049's punch_feed): a record enters as an ok tap on the NFC
+// The punch feed's two gates (feedMigration's punch_feed): a record enters as an ok tap on the NFC
 // or QR channel, or as a flagged one when it is approved. Nothing on the manual channel
 // passes either, which is what the pages say ("every counted tap … entries typed by a
 // manager stay in the CSV").
 var (
 	feedTapGateRE    = regexp.MustCompile(`IF NEW\.verdict <> 'ok' OR NEW\.channel NOT IN \('nfc', 'qr'\) OR NEW\.practice IS NOT FALSE OR NEW\.type IS NULL THEN\s+RETURN NULL;`)
 	feedReviewGateRE = regexp.MustCompile(`IF NEW\.outcome <> 'approved' THEN\s+RETURN NULL;`)
-	// holding_feed's two gates (00049): the employer's event is an ok NFC or QR tap, or an
+	// holding_feed's two gates (feedMigration's): the employer's event is an ok NFC or QR tap, or an
 	// approved flagged one -- the holding twins of the two above (LP-08 re-review: a
 	// 'manual' added to either was green).
 	holdingTapGateRE  = regexp.MustCompile(`v_event := NEW\.verdict = 'ok' AND NEW\.channel IN \('nfc', 'qr'\) AND NEW\.practice IS FALSE AND NEW\.type IS NOT NULL;`)
@@ -335,19 +341,19 @@ func apiFeedViolation(s apiFactSources) string {
 	if why := v1RouteViolation(s, "Get", "punchesPath", "/punches"); why != "" {
 		return why + ", so there is no punch feed to read"
 	}
-	body := punchFeedBodyRE.FindString(s.Mig49)
+	body := punchFeedBodyRE.FindString(s.MigFeed)
 	if body == "" {
-		return "migration 00049 no longer defines punch_feed()"
+		return "migration " + feedMigration + "'s Up no longer defines punch_feed()"
 	}
 	if !strings.Contains(body, "INSERT INTO public.webhook_deliveries") {
-		return "00049's punch_feed() no longer queues a webhook delivery for a punch"
+		return feedMigration + "'s punch_feed() no longer queues a webhook delivery for a punch"
 	}
 	if !feedTapGateRE.MatchString(body) || !feedReviewGateRE.MatchString(body) || !feedFlagGateRE.MatchString(body) {
-		return "00049's punch_feed() no longer admits exactly an ok NFC or QR tap and an approved flagged one, " +
+		return feedMigration + "'s punch_feed() no longer admits exactly an ok NFC or QR tap and an approved flagged one, " +
 			"so \"every counted tap, and no entry typed by a manager\" is no longer what the feed carries"
 	}
-	if hold := holdingFeedBodyRE.FindString(gooseUp(s.Mig49)); !holdingTapGateRE.MatchString(hold) || !holdingFlagGateRE.MatchString(hold) {
-		return "00049's holding_feed() no longer admits exactly an ok NFC or QR tap and an approved flagged one, " +
+	if hold := holdingFeedBodyRE.FindString(s.MigFeed); !holdingTapGateRE.MatchString(hold) || !holdingFlagGateRE.MatchString(hold) {
+		return feedMigration + "'s holding_feed() no longer admits exactly an ok NFC or QR tap and an approved flagged one, " +
 			"so a holding punch's employer feed is no longer \"every counted tap, and no entry typed by a manager\""
 	}
 	// The hours the CSV prints include a manager's typed entry: the worked-hours read
@@ -368,19 +374,19 @@ func apiFeedViolation(s apiFactSources) string {
 	if !strings.Contains(s.ReportsCSV, "manager_entered_arrivals") {
 		return "the hours CSV no longer carries the manager's entries, so \"entries typed by a manager stay in the CSV\" is false"
 	}
-	holding := holdingFeedBodyRE.FindString(gooseUp(s.Mig49))
+	holding := holdingFeedBodyRE.FindString(s.MigFeed)
 	if holding == "" {
-		return "migration 00049's Up no longer defines holding_feed()"
+		return "migration " + feedMigration + "'s Up no longer defines holding_feed()"
 	}
 	if !employerWebhookRE.MatchString(holding) {
-		return "00049's holding_feed() no longer queues the employer's webhook delivery, so a holding " +
+		return feedMigration + "'s holding_feed() no longer queues the employer's webhook delivery, so a holding " +
 			"punch (K-31) never reaches the employer's HR system and \"every counted tap\" is false"
 	}
 	for name, src := range s.Migrations {
-		if name != "00049_write_the_punch_feed.sql" && punchFeedRedefinedRE.MatchString(src) {
+		if name > feedMigration && punchFeedRedefinedRE.MatchString(src) {
 			return name + " redefines punch_feed(); re-derive the webhook half from that definition"
 		}
-		if name > "00049_write_the_punch_feed.sql" && holdingFeedRedefinedRE.MatchString(src) {
+		if name > feedMigration && holdingFeedRedefinedRE.MatchString(src) {
 			return name + " redefines holding_feed(); re-derive the holding webhook half from that definition"
 		}
 	}
@@ -1446,7 +1452,7 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		auth     field = func(s *apiFactSources) *string { return &s.Auth }
 		mig38    field = func(s *apiFactSources) *string { return &s.Mig38 }
 		mig39    field = func(s *apiFactSources) *string { return &s.Mig39 }
-		mig49    field = func(s *apiFactSources) *string { return &s.Mig49 }
+		migFeed  field = func(s *apiFactSources) *string { return &s.MigFeed }
 		// reportsCSV is a field of the struct like the others.
 		reportsCSV field = func(s *apiFactSources) *string { return &s.ReportsCSV }
 		txQueries  field = func(s *apiFactSources) *string { return &s.TxQueries }
@@ -1465,17 +1471,17 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{"no PUT employees", apiWritesViolation, apiPkg, "r.Put(employeePath,", "r.Get(employeePath,"},
 		{"locations moved", apiWritesViolation, apiPkg, `locationPath = "/locations/{ref}"`, `locationPath = "/sites/{ref}"`},
 		{"no GET punches", apiFeedViolation, apiPkg, "r.Get(punchesPath,", "r.Head(punchesPath,"},
-		{"the trigger queues no webhook", apiFeedViolation, mig49, "INSERT INTO public.webhook_deliveries", "INSERT INTO public.nothing"},
-		{"a holding punch queues no employer webhook", apiFeedViolation, mig49,
+		{"the trigger queues no webhook", apiFeedViolation, migFeed, "INSERT INTO public.webhook_deliveries", "INSERT INTO public.nothing"},
+		{"a holding punch queues no employer webhook", apiFeedViolation, migFeed,
 			"INSERT INTO public.webhook_deliveries (tenant_id, endpoint_id, punch_event_seq) VALUES (v_employer",
 			"INSERT INTO public.nothing (tenant_id, endpoint_id, punch_event_seq) VALUES (v_employer"},
 		{"no webhook sender", apiFeedViolation, cmd, "work.Add(deliveries)", "_ = deliveries"},
 		{"the webhook body is not the punch", apiFeedViolation, delivery, "\tpunchwire.Punch\n", "\tX int\n"},
-		{"the feed admits a manual record", apiFeedViolation, mig49, "OR NEW.channel NOT IN ('nfc', 'qr')", "OR NEW.channel NOT IN ('nfc', 'qr', 'manual')"},
-		{"the feed admits a rejected record", apiFeedViolation, mig49, "IF NEW.outcome <> 'approved' THEN", "IF NEW.outcome = 'never' THEN"},
+		{"the feed admits a manual record", apiFeedViolation, migFeed, "OR NEW.channel NOT IN ('nfc', 'qr')", "OR NEW.channel NOT IN ('nfc', 'qr', 'manual')"},
+		{"the feed admits a rejected record", apiFeedViolation, migFeed, "IF NEW.outcome <> 'approved' THEN", "IF NEW.outcome = 'never' THEN"},
 		{"the CSV drops the manager's entries", apiFeedViolation, reportsCSV, "manager_entered_arrivals", "arrivals"},
-		{"the holding feed admits a manual record", apiFeedViolation, mig49, "v_event := NEW.verdict = 'ok' AND NEW.channel IN ('nfc', 'qr')", "v_event := NEW.verdict = 'ok' AND NEW.channel IN ('nfc', 'qr', 'manual')"},
-		{"the holding feed admits a manual approval", apiFeedViolation, mig49, "AND v_verdict = 'flag' AND v_channel IN ('nfc', 'qr')", "AND v_verdict = 'flag' AND v_channel IN ('nfc', 'qr', 'manual')"},
+		{"the holding feed admits a manual record", apiFeedViolation, migFeed, "v_event := NEW.verdict = 'ok' AND NEW.channel IN ('nfc', 'qr')", "v_event := NEW.verdict = 'ok' AND NEW.channel IN ('nfc', 'qr', 'manual')"},
+		{"the holding feed admits a manual approval", apiFeedViolation, migFeed, "AND v_verdict = 'flag' AND v_channel IN ('nfc', 'qr')", "AND v_verdict = 'flag' AND v_channel IN ('nfc', 'qr', 'manual')"},
 		{"the worked-hours read drops typed rows", apiFeedViolation, txQueries, "  AND NOT t.practice\n  AND t.occurred_at >= @from_at", "  AND NOT t.practice\n  AND t.channel <> 'manual'\n  AND t.occurred_at >= @from_at"},
 		{"the ledger skips a typed row", apiFeedViolation, report, "if e.Manual {", "if e.Manual {\n\t\t\tcontinue\n\t\t}\n\t\tif e.Manual {"},
 		{"the ledger reads the channel again", apiFeedViolation, report, `Manual:       row.Channel == "manual",`, `Manual:       row.Channel == "manual" || row.Channel == "x",`},

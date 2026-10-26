@@ -1,6 +1,6 @@
 # Taptime entegrasyon API'si — entegrasyon rehberi
 
-Rehber 1. baskı (2026-10-16), API sürüm 1 için. Bu rehberi API'nin kendisi, anahtarsız,
+Rehber 3. baskı (2026-10-22), API sürüm 1 için. Bu rehberi API'nin kendisi, anahtarsız,
 `GET /v1/guide.tr.md` adresinde sunar; asıl metin olan İngilizcesi — bölüm bölüm aynı belge —
 `GET /v1/guide.md` adresindedir. Makinenin okuduğu sözleşme `GET /v1/openapi.yaml` adresindeki
 OpenAPI 3.1 belgesidir; bu rehber onu açıklar ve ikisinin aynı şeyi söylediği her yerde ikisi
@@ -173,6 +173,10 @@ bkz. [bölüm 3.3](#idempotency) ve [bölüm 3.4](#rate-limits).
 
 <a id="common"></a>
 ## 3. Ortak sözleşme
+
+**Sürüm 1 içinde yanıtlara ve webhook gövdelerine alan eklenebilir: tanımadığınız alanı yok sayın.**
+Bir alanı silmek, adını değiştirmek ya da bir değerin anlamını değiştirmek yeni bir sürümdür. İstek
+gövdeleri bunun tersidir: bir ucun almadığı alan reddedilir ([3.6](#bodies)).
 
 <a id="errors"></a>
 ### 3.1 Hatalar
@@ -673,7 +677,8 @@ Bir işletmenin kendi çalışanının kendi plaketindeki punch'ı iki kapsamda 
 `location` kapsamındadır — **ikisinde de aynı `id`** ile. Ortağa kim ve nerede bilgisi verilir:
 çalışanın `id`, `externalRef`, `employeeCode` ve `company`'si, lokasyonun `id`, `externalRef`,
 `name` ve `company`'si ve `tagId` — asla bir e-posta adresi, bir koordinat, bir ağ adresi, bir not ya
-da bir kararın nedeni değil.
+da bir kararın nedeni değil. Her punch gibi `direction`'ı ve onun `directionSource`'unu taşır:
+işverenin kaydı, iki şirketin akışında da aynı.
 
 Böyle bir punch'ın kararı **işverenindir**: onu işverenin kuralları karara bağlar ve ortağın kendi
 lokasyonu için koyduğu bir kural işverenin oradaki çalışanına uygulanmaz — Taptime'ın koyduğu ve
@@ -696,7 +701,8 @@ anından itibaren reddedilir.
 | `punchTime` | Dokunuşun anı (UTC): telefonun beyan ettiği an, beyan etmediyse Taptime'ın kendi anı — bugün her zaman Taptime'ınki ([6.1](#feed-what)). |
 | `recordedAt` | Punch'ın akışa girdiği an (UTC); onaylanan bir flag için onayın anı. |
 | `channel` | `nfc` ya da `qr`. |
-| `direction` | `in` ya da `out`, Taptime'ın **işverende** hesapladığı gibi. |
+| `direction` | `in` ya da `out`, **işverende** kaydedildiği gibi: Taptime'ın dokunuş anında hesapladığı yön ya da öbürü (`directionSource`). |
+| `directionSource` | `direction` kimin: `auto` (Taptime'ın dokunuş anında hesapladığı yön) ya da `employee` (çalışanın; Taptime'ın hesapladığı yön değil — aşağıya bakın); akış bu alanı taşımadan önce kaydedilmiş bir punch için `null`. |
 | `employee` | `id`, `externalRef`, `employeeCode`, `company` — punch anındaki hâlleriyle. |
 | `location` | `id`, `externalRef`, `name`, `company` — punch anındaki hâlleriyle. |
 | `tagId` | `tag_…`, dokunulan plaket — bir QR punch'ında da. |
@@ -708,9 +714,27 @@ anından itibaren reddedilir.
 - `location` her zaman bir nesnedir. `id`, `externalRef` ve `name`'i bir lokasyona monte edilmemiş
   bir plaket için `null`'dır (`company` yine plaketin şirketini söyler); iki şirketin grup üyeliği
   bittikten sonra onaylanmış, ortağın lokasyonundaki bir punch için dördü de `null`'dır.
-- `direction` Taptime'ın kendisinindir: takvim gününe göre değil, çalışanın işverendeki son açık
-  girişine göre değişir (18:00 vardiyasının 02:00 çıkışı bir `out`'tur). Sisteminizin onu
-  hesaplaması gerekmez.
+- `direction` işverende kaydedilen yöndür. Taptime onu takvim gününe göre değil, çalışanın
+  işverendeki son açık girişine göre çıkarır (18:00 vardiyasının 02:00 çıkışı bir `out`'tur).
+  `directionSource: auto` taşıyan bir punch için sisteminizin onu hesaplaması gerekmez;
+  `directionSource: employee` taşıyan bir punch istisnadır (aşağıda).
+- `directionSource: employee`, kaydedilen `direction`'ın Taptime'ın dokunuş anında hesapladığı yön
+  olmadığı demektir. Çoğunlukla çalışan, Taptime'ın tahmin ettiği yönü gösteren dokunuş sayfasında
+  öbürünü seçmiştir ("Not right?"); sayfa işverenin iş günü başlamadan önce açılıp başladıktan
+  sonra basıldıysa sayfanın ana düğmesi de onu verebilir. `directionSource: auto`, kaydedilen yönün
+  Taptime'ın hesapladığı yön olduğu demektir. Akış alanı taşımadan önce kaydedilmiş bir punch'ta
+  `directionSource: null`'dır. Alan sürüm 1'e eklendi: onu okumayan bir istemci öbür her alanı
+  eskisi gibi okur ([3](#common)).
+- **`directionSource: employee` taşıyan bir punch'ı kendinden önceki punch'la eşlemeyin.** Böyle
+  bir `out` kaydedildiğinde kapatacağı bir şey yoktur: ya çalışanın o iş gününde açık bir girişi yoktur ve
+  Taptime `out`'u müdüre "Check-in missing" (giriş eksik) olarak listeler, ya da ondan önceki giriş
+  18 saatten eskidir ve açık kalır. İki durumda da Taptime ona süre saymaz. Sonradan yazılan bir kayıt
+  bunu değiştirebilir — çoğunlukla bir müdürün `out`'tan önceye girdiği manuel bir giriş; ondan sonra
+  Taptime süreyi sayar — ve manuel bir kayıt akışta yoktur ([6.1](#feed-what)). Böyle bir `in` önceki
+  girişi çıkışsız bırakır ve Taptime ona da süre saymaz. Saat için Taptime'ın raporu esastır. Örnek,
+  işverenin iş günü 05:00'te başlarken: dün 15:00'te bir `in`, sonra bugün 07:00'de "Not right? Clock
+  out". Taptime 0 saat sayar ve 07:00 `out`'unu "Check-in missing" olarak listeler; ikisini eşleyen
+  bir sistem 16 saat öder.
 - API ile oluşturulan bir çalışanın Taptime'da ev lokasyonu yoktur; bu yüzden Taptime'ın kendi
   raporları onun punch'larını "başka bir lokasyonda" diye işaretlemez.
 
@@ -761,6 +785,7 @@ de.
       "recordedAt": "2026-10-16T09:13:13.051707Z",
       "channel": "nfc",
       "direction": "in",
+      "directionSource": "auto",
       "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
       "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
       "tagId": "tag_0DD4F2FE3B9A6A"
@@ -773,6 +798,7 @@ de.
       "recordedAt": "2026-10-16T09:13:13.116875Z",
       "channel": "nfc",
       "direction": "in",
+      "directionSource": "auto",
       "employee": {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "externalRef": "E-1042", "employeeCode": "1042", "company": "KF"},
       "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
       "tagId": "tag_0DD4F2FE3B9A6A"
@@ -813,6 +839,7 @@ okur ve ikisini de görür:
       "recordedAt": "2026-10-16T09:13:13.051707Z",
       "channel": "nfc",
       "direction": "in",
+      "directionSource": "auto",
       "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
       "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
       "tagId": "tag_0DD4F2FE3B9A6A"
@@ -825,6 +852,7 @@ okur ve ikisini de görür:
       "recordedAt": "2026-10-16T09:14:14.261497Z",
       "channel": "nfc",
       "direction": "out",
+      "directionSource": "auto",
       "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
       "location": {"id": "loc_4b6d2cc5-44e7-42c0-9830-abd1b8e370bb", "externalRef": "DEP-1", "name": "Production", "company": "KM"},
       "tagId": "tag_DF83F315A119DF"
@@ -997,8 +1025,8 @@ body: {"event":"ping"}
 signature: sha256=1deefe0009103810c89395f2d078e1ba71edb003b3692a3ebca6d0866bf99935
 body: (empty)
 signature: sha256=88d05ff68b9d0e7585161401b08cb679fbf1701b3e28f683a3e96e4c33653576
-body: {"event":"punch","deliveryId":"dlv_44721ce2-0f54-41ce-a757-7ee03cfec107","id":"pch_04ce3ad0-fb32-477d-9d5d-7c0e9b079b41","version":1,"status":"valid","punchTime":"2026-10-16T09:13:13.083662Z","recordedAt":"2026-10-16T09:13:13.116875Z","channel":"nfc","direction":"in","employee":{"id":"emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91","externalRef":"E-1042","employeeCode":"1042","company":"KF"},"location":{"id":"loc_30258476-2ce5-4a5d-a7dd-36651c3019dd","externalRef":"KF-VLT","name":"Valletta","company":"KF"},"tagId":"tag_0DD4F2FE3B9A6A"}
-signature: sha256=be925cb6fade218b39df6aa4ea0f1b78e52457c25068710ab32ad7ab6e8cb69c
+body: {"event":"punch","deliveryId":"dlv_44721ce2-0f54-41ce-a757-7ee03cfec107","id":"pch_04ce3ad0-fb32-477d-9d5d-7c0e9b079b41","version":1,"status":"valid","punchTime":"2026-10-16T09:13:13.083662Z","recordedAt":"2026-10-16T09:13:13.116875Z","channel":"nfc","direction":"in","directionSource":"auto","employee":{"id":"emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91","externalRef":"E-1042","employeeCode":"1042","company":"KF"},"location":{"id":"loc_30258476-2ce5-4a5d-a7dd-36651c3019dd","externalRef":"KF-VLT","name":"Valletta","company":"KF"},"tagId":"tag_0DD4F2FE3B9A6A"}
+signature: sha256=c243d4f326b6a981d6dec95a7cca0360625eea97c8bd139045f943a76661339b
 ```
 
 İlk bilinen cevap `openssl` ile — yukarıdaki ilk imzayı basar:
@@ -1118,7 +1146,7 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 1. Aktivasyon dokunuşu **punch değildir**: ilk punch, çalışanın ikinci dokunuşudur. Aktivasyon yalnız çalışanın **kendi şirketinin** bir plaketinde tamamlanır. ([5.2](#employees-activation))
 2. `flag` olarak karara bağlanmış bir dokunuş akışa yalnız **işveren şirketin bir yöneticisi onaylarsa**, onay anında girer; reddedilen hiç gelmez. ([6.1](#feed-what))
 3. v1'de `version` her zaman `1`'dir ve `voided` hiç üretilmez. ([6.3](#feed-punch))
-4. Ek alanlar: `channel` (`nfc` | `qr`) ve `direction` (`in` | `out` — Taptime'ın işverende hesapladığı yön); `tagId` her iki kanalda doludur. ([6.3](#feed-punch))
+4. Ek alanlar: `channel` (`nfc` | `qr`), `direction` (`in` | `out` — işverende kaydedilen yön) ve `directionSource` (`auto` | `employee` — onun Taptime'ın dokunuş anında hesapladığı yön olup olmadığı); `tagId` her iki kanalda doludur. ([6.3](#feed-punch))
 5. `punchTime` dokunuşun anıdır — telefonun beyan ettiği an, beyan etmediyse Taptime'ın kendi anı (Taptime'ın dokunuş sayfası bugün hiçbir an beyan etmez); beyan edilen bir an varsayılan olarak 120 saniyeye kadar gecikmeyle `ok`'tur (işletme bunu değiştirebilir), tavan 72 saattir; `recordedAt` sunucunun kaydettiği andır. ([6.1](#feed-what))
 6. 60 saniye içindeki tekrar dokunuş punch değildir — kişi bazlı, **iki şirketin plaketleri arasında da** — ve 60 saniye beyan edilen anlarda ya da Taptime'ın kendi saatinde, hangisi yakınsa, sayılır: bir istemci çevrimdışı bir kuyruktan iki dokunuşu arka arkaya gönderirse ikincisi, beyan edilen anları daha uzak olsa da, kaybolur. ([6.1](#feed-what))
 7. Lokasyonun `timezone`'u işletmeninkine eşit olmalıdır, değilse cevap 422'dir. ([4](#locations))
@@ -1144,7 +1172,7 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 27. Şirketler arası bir punch **öbür şirketin kimliklerini** taşır: çalışanın `id`, `externalRef`, `employeeCode` ve `company`'si, lokasyonun `id`, `externalRef`, `name` ve `company`'si ve `tagId`. Bir punch'ın alanları **punch anındaki** değerlerdir (sonradan yapılan bir yeniden adlandırma onu değiştirmez). ([6.2](#feed-scopes))
 28. Başka bir şirketin kayıp ya da emekli bir plaketine dokunuş reddedilir; punch olmaz. ([6.1](#feed-what))
 29. Rehber (`GET /v1/directory`) **sayfalıdır** (`cursor`, en çok 1000). ([8.2](#directory-walk))
-30. Bir KF lokasyonunda başlayıp **bir KM plaketinde** biten bir KM vardiyasında KF (`scope=location`) yalnız **girişi** alır; çıkış bir KM lokasyonu punch'ıdır ve KM'nin iki kapsamında gelir. Her punch Taptime'ın **işverende** hesapladığı `direction`'ı taşır (`in`/`out`); entegrasyonun onu hesaplaması gerekmez. Lokasyonun şirketinin Taptime paneli bir grup çalışanının dokunuşlarını listeler ama sürelerini hesaplamaz ("süre işverende"). ([6.5](#feed-working-time))
+30. Bir KF lokasyonunda başlayıp **bir KM plaketinde** biten bir KM vardiyasında KF (`scope=location`) yalnız **girişi** alır; çıkış bir KM lokasyonu punch'ıdır ve KM'nin iki kapsamında gelir. Her punch **işverende** kaydedilen `direction`'ı taşır (`in`/`out`); entegrasyonun onu hesaplaması gerekmez — yalnız `directionSource: employee` taşıyan bir punch kendinden önceki punch'la eşlenmez ([6.3](#feed-punch)). Lokasyonun şirketinin Taptime paneli bir grup çalışanının dokunuşlarını listeler ama sürelerini hesaplamaz ("süre işverende"). ([6.5](#feed-working-time))
 31. **`scope=location` ile çalışma süresi hesaplayan entegrasyon dikkat:** bir ortak şirketin çalışanının sizin lokasyonlarınızdaki punch'ları işverenin aradaki olaylarını (öbür şirketin plaketlerindeki dokunuşları) içermez; giriş ve çıkışı yalnız bu kapsamdan eşlemek süreyi **fazla** sayabilir. **Bu `direction` ile de geçerlidir:** her punch'ın yönü doğrudur, ama eksik olan **aradaki olaylardır** — sizin lokasyonunuzdaki bir `in`'in eşi orada hiç görünmeyebilir ya da başka bir lokasyonun `out`'u olabilir. Bir grup çalışanının süresi için işveren şirketin verisi (onun `employer` kapsamı) esastır. ([6.5](#feed-working-time))
 
 <a id="changes"></a>
@@ -1154,3 +1182,4 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 |---|---|---|
 | 1 | 2026-10-16 | API sürüm 1 için ilk baskı. |
 | 2 | 2026-10-18 | §1.4 sandbox'ı anlatır: `tt_test_` anahtarlar, kendi operatörü, e-posta yok ve dokunuş simülasyonu (alan adı henüz seçilmedi). |
+| 3 | 2026-10-22 | §6.3: bir punch `directionSource`'u (`auto` \| `employee` \| `null`) taşır — `direction`'ı kimin: Taptime'ın dokunuş anında hesapladığı yön mü, değil mi. Örnekler ve imzanın bilinen cevabı onu taşır. §3: sürüm 1 içinde yanıtlara ve webhook gövdelerine alan eklenebilir — tanımadığınızı yok sayın. 1. ve 2. baskının yanıt şemaları kapalıydı (`additionalProperties: false`); bu baskı bütün yanıt ve webhook şemalarını açar; istek gövdeleri kapalı kalır. |

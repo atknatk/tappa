@@ -144,8 +144,44 @@ Anatomi:
 - **Tek ekran, tek buton, sıfır öğrenme.** Menü, sekme, ayar yok.
 - "Hello Maria" + lokasyon adı + tek büyük buton (min. 64px yükseklik,
   eldivenli/ıslak parmakla basılabilir).
+- **Düğme tahmini yönü söyler** (2026-10-22, M15-12 — kullanıcının §9 kararı 2026-10-21,
+  ADR 0032 §B.1–§B.3, Q33): *"Clock in"* / *"Clock out"*, altında küçük bir *"Not right? Clock
+  out"* (ya da *in*) — aynı formun ikinci `submit` düğmesi (`name="want"`), bağlantı ya da ikinci
+  form **değil**; ink, altı çizili, en az 44 px yüksek, birincil düğmeden 24 px aşağıda (formun
+  16 px aralığı + kendi 8 px üst boşluğu; Chrome'da 390/834/1200 px'te ölçüldü: aralık 24, yükseklik
+  44, yatay kaydırma yok, porcelain'de 14,32:1), **accent almaz**. HTML'de statik gizli `want`
+  yok; `tap.js` basılan değeri tek gizli alana yazar. Tahmin kapısından geçmeyen her durumda
+  (anahtar kapalı, CMAC doğrulanmadı, plaket aktif değil, kişi aktif değil, iş günü çözülemedi,
+  okuma başarısız) düğme eskisi gibi yönsüz *"Tap"*, altında hiçbir şey yok.
 - Onay ekranında **buton yok**: *"All done — you can close this page."*
   Sonraki işlem zaten yeni fiziksel dokunuş gerektiriyor.
+  **Tek istisna — talep kartı** (2026-10-26, M15-17; kullanıcının §9 kararı, ADR 0032 §C.1):
+  kaydın ardından bir yarının eksik olduğu M15 sonrası bir çapa varsa (talep yok, K4'ün iki
+  gösterimi içinde, `manual.MaxBackdate` içinde; yalnız `ok`/`flag`), docket'in **altında**,
+  kapanış cümlesinin **üstünde** tek bir kart: kaydı adlandıran cümle (*"Yesterday you clocked in
+  at 09:12 but there's no clock-out."* · aynı gün *"You clocked in at 11:00 and didn't clock
+  out."* · daha eski *"On Mon 27 Jul you clocked in at 09:12 but there's no clock-out."* — gün,
+  işletmenin bölgesindeki takvim günüdür; giriş eksikse aynı yapıda *"You clocked out at 12:00 but
+  there's no clock-in."* / *"Yesterday you clocked out …"* / *"On Mon 27 Jul you clocked out …"* —
+  kullanıcı kararı 2026-10-26), soru (*"What time did you leave?"* / *"What time did you come in?"*),
+  saat alanı (vardiyanın gerçek ucu pencere içindeyse dolu,
+  değilse **boş ve zorunlu**), *"Send to my manager"* ve *"You can skip this."* — **atlama düğmesi
+  yok**. Kart `paper` zeminde yuvarlak kart (`line` kenarlık, 18 px), alan ortak `.field-input
+  .field-input--mono` bileşeni + `.field-input--claim` (yazı **16 px**: iOS Safari 16 px altındaki
+  alana odaklanınca sayfayı yakınlaştırır, bu ekran çalışanın kendi telefonu; panelin alanı 14 px
+  kalır — `TestCompiledCSS_TheClaimFieldIsSixteenPixels`; 44 px; kayıt cümlesi ve sorun cümlesi `aria-describedby` ile bağlı,
+  hatada `aria-invalid` ve `autofocus` — betik yok; yeniden gösterilen formda `h1` *"Check the time"*),
+  düğme palet `tappa-green` zemin + `paper` yazı (7,73:1) ve 44 px — **accent almaz**, `.tap-button`
+  değildir. Betik yok: sonuç ekranı konum okumaz. `flag`'te kapanış cümlesi kartın altında kalır.
+  Kart, bu dokunuşun açık bıraktığı girişi soruyorsa o girişin ekran notu (*"your previous clock-in
+  has no clock-out"*) gösterilmez; kayıt notu değişmez (yapısal: `tap.Decision.EmployeeNoteAsked`).
+  Kartsız ekran bayt-aynı kalır. Gönderimin cevapları: *"Sent — your manager will review it."*
+  (ikinci gönderim de), pencere dışı saat → kart yeniden (problem cümlesi saffron sol çizgiyle),
+  *"This question has expired"*, *"Already resolved"*, pasif hesap, genel ekran — hiçbiri *"Nothing
+  was recorded"* demez. Chrome'da 390 px'te ölçüldü: yatay kaydırma yok; kart metni paper'da
+  16,17:1, *"You can skip this."* 6,05:1. Testler: `TestClaimScreens_AreByteIdenticalToTheGolden`,
+  `TestResultScreen_TheCardDrawsTheLogoAndNoAccent`,
+  `TestResultScreen_OnFlagTheClosingSentenceStaysBelowTheCard`.
 - Başarısız işlemde "Try again" **var**.
 - Marka mesajı onay sonrası gösterilir (yalnız sayılan `ok`'ta; practice, flag, ignored ve
   reject'te yok). **İşletmenin türüne göre seçilir, tenant düzenleyemez** — Account ekranı
@@ -253,7 +289,7 @@ mi" diye sorarsa cevap **hayır**.
 
 ## Ses tonu
 
-Kısa, sıcak, kendinden emin. *"Tapped in at 14:03."* — *"Your check-in operation
+Kısa, sıcak, kendinden emin. *"Clocked in at 14:03."* — *"Your check-in operation
 has been successfully processed."* değil. Hata mesajı suçlamaz, ne yapılacağını
 söyler: *"That tag was replaced. Ask your manager for the new plaque."*
 
@@ -522,7 +558,7 @@ handler'da `mayEditAccount`, domain'de ikinci kez, rol ve durum DB'den
 | Yüzey | Logo | Accent | Logonun `alt`'ı | Kaynak |
 |---|---|---|---|---|
 | Tap ekranı | başlıkta 24 px yuva, altında 4 px aralıkla *"taptime · punchless"* (K-2b) | **tap düğmesinin zemini** | işletme adı | WL-9 — `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` |
-| Sonuç ekranı | tap ekranınınkiyle aynı başlık | **yok** — tema `<link>`'i 0, renkler durumu anlatır | işletme adı | WL-9 — `TestResultScreen_DrawsTheLogoAndNoAccent` |
+| Sonuç ekranı | tap ekranınınkiyle aynı başlık | **yok** — tema `<link>`'i 0, renkler durumu anlatır; talep kartının düğmesi de paletin (M15-17) | işletme adı | WL-9 — `TestResultScreen_DrawsTheLogoAndNoAccent`, M15-17 — `TestResultScreen_TheCardDrawsTheLogoAndNoAccent` |
 | Panel kabuğu | başlıkta 32 px kutu + işletme adı + co-brand | **4 px şerit** | **boş** (`alt=""`) — ad logonun yanında görünür metin | WL-8 — `TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection` |
 | Account → *"Your brand"* önizlemesi | önizlemedeki tap başlığı, kaynak `/admin/brand/logo/{sha}` | önizlemedeki tap düğmesi — **yalnız kaydedilen** accent | işletme adı | WL-7 — `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit` |
 | Aktivasyon ailesi — sihirbazın dört adımı, *"Activation complete"*, *"already set up"* | tap ekranının başlığı (24 px yuva + co-brand) — **yalnız VIES-doğrulanmış** işletmede; sihirbazda `/activate/logo/{sha}`, oturumlu iki ekranda `/t/logo/{sha}` | **adım 1–3'ün birincil düğmesinin zemini**; accent varken ilerleme çubuğu, 01/02/03 ve işaretli onay kutusu **ink** | işletme adı | WL-13 — `TestActivationScreens_ABrandedBusinessGetsTheTapScreensHeaderAndTheme` |
@@ -532,7 +568,9 @@ handler'da `mayEditAccount`, domain'de ikinci kez, rol ve durum DB'den
 - **Başka işletmenin plaketi:** tap ve sonuç ekranı Taptime varsayılanıyla açılır — `<img>`,
   tema bağlantısı ve `/t/logo/` 0 (`TestTapPage_AnotherBusinesssPlaqueShowsNoBrand`,
   `TestResultScreen_NoBrandWhereThePlaqueIsNotThisBusinesss`).
-- **Marka yoksa bayt-aynı:** tap, sonuç ve aktivasyon ailesinin 36 render'ı (WL-13'te 33 → 36)
+- **Marka yoksa bayt-aynı:** tap, sonuç ve aktivasyon ailesinin 38 render'ı (WL-13'te 33 → 36,
+  M15-12'de 36 → 38: tap ekranının iki yönlü şekli; aynı kart yönlü on sonuç golden'ını başlık
+  kelimesiyle yeniden yazdı)
   (`TestUnbrandedScreens_AreByteIdenticalToTheGolden`) ve WL-8'in 24 bileşen render'ı
   (`TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8` — 16'sı panel kabuğu, 8'i
   `documentHead`'e ulaşan öteki kabuklar: `Page`, `PageWithScript`, `Marketing` ve
@@ -547,7 +585,8 @@ handler'da `mayEditAccount`, domain'de ikinci kez, rol ve durum DB'den
 - **Tap düğmesinin sınıfı yedi `class` özniteliğinde** (2026-10-09'da sayıldı: `tap.templ`'de
   iki — gönderen yüz ve önizleme yüzü —, aktivasyon ailesinde beş: sihirbazın *Next*, *Agree and
   continue*, *I'm ready*'si, problem ekranının *Try again*'i, onay ekranının *Continue anyway*'i;
-  2026-10-06'da sekizdi, tur ADR 0026 ile kalktı), ama accent'i sınıf değil **sayfanın tema
+  2026-10-06'da sekizdi, tur ADR 0026 ile kalktı; 2026-10-22'de M15-12 ile yine sekiz: `tap.templ`'de
+  üç — yönsüz ve yönlü gönderen yüz, önizleme yüzü), ama accent'i sınıf değil **sayfanın tema
   bağlantısı** taşır: tema tap ekranına, panel kabuğuna ve (WL-13) aktivasyon ailesinin altı
   markalı ekranına, `app.css`'ten hemen sonra bağlanır; problem ve onay ekranlarındaki iki kullanım
   yeşil kalır (ADR 0023 §2, §4). Panelin içindeki Account önizlemesinin düğmesi accent'i bu yüzden
@@ -592,8 +631,11 @@ handler'da `mayEditAccount`, domain'de ikinci kez, rol ve durum DB'den
   ayrılır (kontrol: öznitelik ve yuva yokken bir kayma, 0,0144). Ölçülen: 512×128 → 96×24 ·
   512×16 → 179×24 · uzun ince 128×512 → **6×24** — yuva kararının bedeli (WL-9 sınır 7;
   `TestTapPage_TheLogoCarriesItsStoredBox`).
-- Ekran hâlâ **tek düğme**, kelimesi *"Tap"*, en az 64 px; tap ekranındaki tek yeni metin
-  logonun `alt`'ıdır (ADR 0023 §6 madde 10).
+- Ekran hâlâ **tek birincil düğme**, en az 64 px; markanın tap ekranına getirdiği tek yeni metin
+  logonun `alt`'ıdır (ADR 0023 §6 madde 10). *(2026-10-22, M15-12: burada "kelimesi 'Tap'"
+  yazıyordu; düğme artık tahmini yönü söyler — *"Clock in"* / *"Clock out"*, kapı kapalıyken
+  *"Tap"* — ve yönlü ekranda altında accent'siz *"Not right? …"* durur; ADR 0023 §6 madde 10'un
+  tarihli notu, ADR 0032 §B.1.)*
 - **Kırık logo:** logo isteği 404 alırsa (ör. logo değişti, eski sayfa açık) tarayıcı 24 px
   yuvada kırık görsel simgesini ve `alt`'ı — işletme adını — kırpılmış gösterir. `alt` = ad
   kabul şartının bedeli, kod değişmez (WL-9 sınır 11); ad serbest metin olduğu için bu,
@@ -788,7 +830,8 @@ ekranının görüntüsüdür.
   K-2a, K-2b) yalnız dört değişikliği kapsar: tap başlığında logo + co-brand, tap düğmesinde
   accent, sonuç başlığında logo + co-brand, logosuz ama accent'li tap ekranında ink `taptime`
   (ADR 0023 §7). Aktivasyon ailesinin üç kararı (2026-10-09) üç değişiklik daha kapsar (ADR 0023
-  §7'nin WL-13 eki: v–vii). Başka her tap/sonuç/aktivasyon değişikliği yeniden sorulur.
+  §7'nin WL-13 eki: v–vii). Sonuç ekranının talep kartı ayrı bir §9 kararıdır (ADR 0032 §C.1,
+  M15-17; yukarıda). Başka her tap/sonuç/aktivasyon değişikliği yeniden sorulur.
 - Şablon **yorumunda** yardımcı sınıf adı yazma, tarif et — `.templ` taranır, bu dosya
   taranmaz (yukarıdaki not).
 - Accent'i sonuç ekranına, damgaya, docket'e ya da panelin birincil düğmesine taşıma
@@ -797,5 +840,5 @@ ekranının görüntüsüdür.
 - Logo için uzak URL kullanma — e-postada da (izleme pikseli).
 - Logo pikselleri ve kırık logodaki `alt` durum kelimelerini taklit edebilir; bu kabul edilmiş
   bir risktir ([ADR 0005](../../../docs/adr/0005-kabul-edilen-riskler.md) risk 9) ve
-  hafifletenleri bu bölümün sayılarıdır: 24 px yuva, en çok sütunun yarısı, tek *"Tap"*
-  düğmesi, sonuçta logonun altındaki docket ve damga. Bu sayıları büyütmek riski büyütür.
+  hafifletenleri bu bölümün sayılarıdır: 24 px yuva, en çok sütunun yarısı, tek birincil
+  düğme, sonuçta logonun altındaki docket ve damga. Bu sayıları büyütmek riski büyütür.

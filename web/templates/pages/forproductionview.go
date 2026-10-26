@@ -337,7 +337,7 @@ func ForProductionCopy(f ForProductionFigures) ForProductionText {
 			{
 				Title: l("Built for wet or floury hands.", FactTapButtonSizedForAWetHand),
 				Body: l("The tap screen has one large button, sized for a wet or floury finger.",
-					FactTapButtonSizedForAWetHand, FactTapScreenIsOneButton),
+					FactTapButtonSizedForAWetHand, FactTapScreenIsOneButtonAndACorrection),
 			},
 			{
 				Title: l("What if a phone's NFC fails?", FactTapPageNeedsNoApp, FactSetupTakesARealTap),

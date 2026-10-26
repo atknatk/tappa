@@ -175,7 +175,9 @@ templ productPointIcon(i int) {
 
 // productPhones is the drawing of one tap: the plaque on the wall, the phone's tap
 // screen, and the result of the same tap when the evidence was short. The record is
-// ProductTapSample, The Pass's flagged docket.
+// ProductTapSample, The Pass's flagged docket. The tap screen's button says the record's
+// direction with the small "Not right? …" under it, as the product draws it before that
+// tap (ADR 0032 §B.1; DrawnTapDirection). Under it is a div, as the button is: a drawing.
 templ productPhones(c ProductText) {
 	<div class="lp-prodScene">
 		<div class="lp-prodSceneRow">
@@ -199,7 +201,7 @@ templ productPhones(c ProductText) {
 				</svg>
 			</div>
 			<figure class="lp-prodFig">
-				<div class="lp-prodPhone" role="img" aria-label={ "Sample screen: the tap screen — Hello " + ProductTapSample.Who + ", " + ProductTapSample.Venue + ", one Tap button" }>
+				<div class="lp-prodPhone" role="img" aria-label={ "Sample screen: the tap screen — Hello " + ProductTapSample.Who + ", " + ProductTapSample.Venue + ", " + DrawnTapButtons(DrawnTapDirection(ProductTapSample.Direction)) }>
 					<div class="lp-prodScreen">
 						@productStatusBar()
 						@productWordmark()
@@ -208,7 +210,10 @@ templ productPhones(c ProductText) {
 							<p class="lp-prodHello">Hello { ProductTapSample.Who }</p>
 							<p class="lp-prodTapVenue">{ ProductTapSample.Venue }</p>
 						</div>
-						<div class="lp-prodTapButton">Tap</div>
+						<div class="lp-prodTapButton">{ DrawnTapDirection(ProductTapSample.Direction).Words() }</div>
+						if fix := DrawnCorrection(DrawnTapDirection(ProductTapSample.Direction)); fix != "" {
+							<div class="lp-prodTapFix">{ fix }</div>
+						}
 					</div>
 				</div>
 				<figcaption class="lp-prodCap">
@@ -218,7 +223,7 @@ templ productPhones(c ProductText) {
 			</figure>
 		</div>
 		<figure class="lp-prodFig">
-			<div class="lp-prodPhone" role="img" aria-label={ "Sample screen: the result of a flagged tap — Tapped in " + ProductTapSample.At + ", FLAGGED" }>
+			<div class="lp-prodPhone" role="img" aria-label={ "Sample screen: the result of a flagged tap — Clocked in " + ProductTapSample.At + ", FLAGGED" }>
 				<div class="lp-prodScreen">
 					@productStatusBar()
 					@productWordmark()
@@ -226,7 +231,7 @@ templ productPhones(c ProductText) {
 						<div class="lp-prodResultTop">
 							<div>
 								<p class="lp-prodTapLbl">{ ProductTapSample.Venue }</p>
-								<p class="lp-prodTapped"><span class="lp-prodTappedWord">Tapped in</span><span class="mono">{ ProductTapSample.At }</span></p>
+								<p class="lp-prodTapped"><span class="lp-prodTappedWord">Clocked in</span><span class="mono">{ ProductTapSample.At }</span></p>
 							</div>
 							<span class="stamp stamp--flagged lp-stamp-sm">FLAGGED</span>
 						</div>

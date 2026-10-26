@@ -303,10 +303,17 @@ const (
 	LeftOpenPreviousBusinessDay LeftOpenReason = "previous_business_day"
 	// LeftOpenStale: the open check-in is more than StaleOpenIn older than the tap.
 	LeftOpenStale LeftOpenReason = "stale"
+	// LeftOpenEmployeeChoice: the check-in was the tap's to close — the engine's D was
+	// `out` — and the person asked for `in` instead (ADR 0032 §B.3; the split shift:
+	// 11:00 in, the 15:00 checkout forgotten, 18:00 "Not right? Clock in"). The entry
+	// stays open and is a checkout-claim anchor like the other two (§C.1, Faz C).
+	LeftOpenEmployeeChoice LeftOpenReason = "employee_choice"
 )
 
-// LeftOpen names the check-in a tap LEFT OPEN rather than closed (ADR 0032 §A.1):
-// that entry stays a "checkout missing" anomaly and this tap is an `in`.
+// LeftOpen names the check-in a tap LEFT OPEN rather than closed (ADR 0032 §A.1,
+// §B.3): that entry stays a "checkout missing" anomaly and this tap is an `in`. It is
+// the checkout claim's anchor (§C.1) — Faz C reads the reason; the engine only names
+// the entry.
 type LeftOpen struct {
 	// ID is the open check-in's record (Input.LastOpenIn.ID).
 	ID uuid.UUID
@@ -356,6 +363,20 @@ type Prev struct {
 	// WrittenLater is W: P.created_at > out.created_at — P was inserted AFTER the
 	// out it precedes, the shape a manager's correction leaves. Equal is false.
 	WrittenLater bool
+}
+
+// Prediction is PredictDirection's answer: the engine's direction D for a tap at an
+// instant, and the two facts it was judged on. It is what GET /t shows on the button
+// (ADR 0032 §B.2, M15-12) and what Decide starts from (resolveDirection), so the screen
+// and the record cannot be decided by two rules.
+type Prediction struct {
+	// Direction is D.
+	Direction Type
+	// BusinessDayStart is S(at), or nil with no (resolvable) cutoff.
+	BusinessDayStart *time.Time
+	// LeftOpen is the open check-in D = in leaves open (previous business day or
+	// stale), or nil. Never LeftOpenEmployeeChoice: a prediction has no request.
+	LeftOpen *LeftOpen
 }
 
 // ---------------------------------------------------------------------------
@@ -532,6 +553,27 @@ type Input struct {
 	// never passed here (Transaction.Practice).
 	LastOpenIn *Transaction
 
+	// RequestedDirection is the direction the person pressed on the tap screen (ADR
+	// 0032 §B.3: both buttons send one, want=in|out), or nil for no request. The engine
+	// computes its own direction D first and records the request only when it differs;
+	// then Decision.DirectionSource is DirectionEmployee. A value that is neither in nor
+	// out is no request. It changes NOTHING else: not the verdict, not the trust score,
+	// not the evidence, not the policy context (the request is no policy input — §5:
+	// direction is arithmetic, not policy). Undirected decisions (reject, ignored, the
+	// redirect) drop it.
+	//
+	// It is honoured ONLY WITH A BUSINESS DAY (ADR 0032 §B.5, F-1): when S(at) cannot
+	// be formed, the request is dropped and D is recorded as auto. The protection
+	// against a chosen `out` is the business day: with S such an out is (b) or (c),
+	// listed as "check-in missing"; without S it would be (d), which nothing lists.
+	// There is no S when the switch is off (SwitchedDayCutoff -> nil DayCutoff) or when
+	// the cutoff or its zone cannot be resolved. The engine reads PredictDirection's
+	// BusinessDayStart for this; it does not check the switch itself, whose one gate
+	// stays SwitchedDayCutoff. The caller (internal/domain/checkin's Record, M15-11)
+	// also passes nil while the switch is off: it hands the request over only when
+	// gather produced a cutoff, which is that gate's output.
+	RequestedDirection *Type
+
 	// DayCutoff is the person's resolved business-day cutoff and zone (ADR 0032
 	// §A.3), or nil. nil — or a cutoff/zone that cannot be resolved — means NO
 	// business day: direction applies StaleOpenIn alone and Decision.BusinessDayStart
@@ -578,8 +620,10 @@ type Decision struct {
 	// ignored). Set on every non-redirect path — a redirect (§5 line 3) writes no
 	// record, so its Verdict is not persisted.
 	Verdict Verdict
-	// Type is the resolved direction (in|out), or nil when the verdict carries none
+	// Type is the RECORDED direction (in|out) — the engine's D, or the person's
+	// request where it differs (DirectionSource) — or nil when the verdict carries none
 	// (reject, ignored, redirect). A pointer so "no direction" is unambiguous.
+	// Lateness is measured against it, not against D: a chosen `in` is a check-in.
 	Type *Type
 	// Trust is the confidence score 20 + 50(IP) + 30(GPS) -> 20/50/70/100 (§5,
 	// M4-06). It is INDEPENDENT of Verdict: a flag can carry 20, an ok 50 (GPS-only).
@@ -602,6 +646,16 @@ type Decision struct {
 	// (LeftOpenEmployeeNote, where Note has LeftOpenNote — ADR 0032 §B.4), so with
 	// one the two strings differ even at home.
 	EmployeeNote string
+	// EmployeeNoteAsked is EmployeeNote assembled from the same parts in the same
+	// order WITHOUT the left-open part (LeftOpenEmployeeNote): what the result screen
+	// shows when its claim card asks about the very check-in this tap left open (ADR
+	// 0032 §C.1, M15-17, product lens N6 -- the card asks the same thing). It is built
+	// beside EmployeeNote rather than cut out of it: the parts are joined with "; " and
+	// a later one ("you chose to clock in") may follow, so removing a substring would
+	// have to guess the separator, the order and the position (the 2026-10-23
+	// correction). Equal to EmployeeNote whenever LeftOpen is nil. The record's Note
+	// keeps LeftOpenNote in both shapes; only the screen chooses.
+	EmployeeNoteAsked string
 	// CrossLocation is true when the tap happened at a location OTHER than the
 	// employee's home location (Employee.Location != Tag.Location) — normal chain
 	// movement (Q17, M4-05). It is a REPORT fact, recorded so the report can show
@@ -627,9 +681,29 @@ type Decision struct {
 	// (transactions.business_day_start) because a cutoff can change later and the
 	// past must not be re-paired by today's setting.
 	BusinessDayStart *time.Time
-	// LeftOpen is the open check-in this tap did NOT close (its business day ended
-	// or it is older than StaleOpenIn), or nil. Only on a directed `in`.
+	// LeftOpen is the open check-in this tap did NOT close (its business day ended,
+	// it is older than StaleOpenIn, or the person chose `in` over the engine's `out`),
+	// or nil. Only on a recorded `in`: a chosen `out` over an entry the engine would
+	// have left open carries none — that out's own class (MissingIn) is the fact, and
+	// "left open (no checkout recorded)" on a checkout would misread.
 	LeftOpen *LeftOpen
+	// DirectionSource is who chose Type (ADR 0032 §B.3, §B.4): DirectionEmployee when
+	// the recorded direction differs from the engine's D — the request was honoured —
+	// and DirectionAuto otherwise (no request, or a request equal to D). The invariant
+	// is "recorded != D", never "a request arrived". "" exactly when Type is nil
+	// (reject, ignored, redirect). The caller writes it as transactions.direction_source
+	// on a directed nfc/qr record (internal/domain/checkin's directionSourceColumn,
+	// M15-11); the engine writes nothing.
+	DirectionSource DirectionSource
+	// MissingIn is the checkout-without-check-in anchor (ADR 0032 §C.1, Faz C's
+	// check-in claim): the class this record has when read back (ClassifyCheckout) when
+	// it is a chosen `out` that closes nothing — CheckoutOtherDay (b) or CheckoutOrphan
+	// (c) — and "" otherwise. An engine `out` always closes and is never one; a chosen
+	// out that is (a) too long is not one either, matching the "check-in missing" list
+	// (M15-06). A chosen (d) cannot occur: without a business day the request is dropped
+	// (Input.RequestedDirection). The anchor is this record itself,
+	// whose id the caller learns when it writes it.
+	MissingIn CheckoutClass
 	// Practice marks a training tap (TRAINING stamp; never counts toward hours).
 	// Since ADR 0026 Decide never sets it: the activating NFC tap replaced the
 	// M4-06 practice tap. It remains so the record writer keeps one shape and

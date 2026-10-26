@@ -859,8 +859,19 @@ func TestForProductionPage_TheDrawingsAreWhatTheProductWouldDraw(t *testing.T) {
 	for _, d := range q {
 		want = append(want, docket(d))
 	}
-	want = append(want, "Sample screen: the person's own phone on the tap screen — Hello "+ts.Who+", "+pages.ForProductionSite+", one Tap button",
-		heading+" Tap")
+	// The phone's button and the line under it are the REAL screen's words before the
+	// sample's tap (tapScreenWords), not a copy of the drawing's.
+	words, err := tapScreenWords()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tw := words[docketTapDirection[ts.Direction]]
+	if tw[1] == "" {
+		t.Fatalf("PREMISE: the sample's direction %q draws no correction on the real screen", ts.Direction)
+	}
+	want = append(want, "Sample screen: the person's own phone on the tap screen — Hello "+ts.Who+", "+pages.ForProductionSite+
+		", a "+tw[0]+" button and a small “"+tw[1]+"” under it",
+		heading+" "+tw[0]+" "+tw[1])
 	renderedInOrder(t, text, "the production page's drawings", want)
 	if !strings.Contains(text, pages.ForProductionSampleNote) {
 		t.Errorf("/for/production does not say %q beside its samples", pages.ForProductionSampleNote)

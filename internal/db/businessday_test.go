@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -648,19 +649,29 @@ func bdRead(t *testing.T, ctx context.Context, q opQuerier) bdSurface {
 // 55000 naming 00064 and changes nothing; without one it takes back the five columns, the five
 // CHECKs, the function and the column grant -- tappa_app's UPDATE on tenants is 00024's list again
 // -- and the Up takes them again to the same catalogue. Also read: the transactions CHECK is NOT VALID
-// (00066 validates it) and the four cutoff CHECKs are validated.
+// at 00065 (00066 validates it) and the four cutoff CHECKs are validated.
 //
-// The walk runs in this test's transaction (rolled back), with the tables the Down names locked
-// first (lockForDowns -- the 40P01 class ADR 0027's API-1b note measured), and the Down may take no
+// The walk starts from 00065: 00066's Down runs first and gives the transactions CHECK back NOT
+// VALID, the state 00064 leaves (00066's own test, TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack,
+// reads it). 00065 stays: its column and CHECKs are independent of 00064's, and its Down refuses
+// over a recorded direction source, which this test has no business setting aside.
+//
+// The walk runs in this test's transaction (rolled back), with the tables the Downs name locked
+// first (lockForDowns -- the 40P01 class ADR 0027's API-1b note measured), and the Downs may take no
 // strong lock outside them.
 func TestBusinessDay00064_DownRefusesAFrozenDayAndOtherwiseGivesBack00063(t *testing.T) {
 	ctx, tx := opTx(t)
 	up, down := opMigrationSections(t, bd00064File)
+	_, down66 := opMigrationSections(t, ds00066File)
 	tables := downTables(down)
 	if strings.Join(tables, ",") == "" || !strings.Contains(strings.Join(tables, ","), "transactions") {
 		t.Fatalf("PREMISE: downTables found %v in 00064's Down", tables)
 	}
+	tables = append(tables, downTables(down66)...)
+	slices.Sort(tables)
+	tables = slices.Compact(tables)
 	lockForDowns(t, ctx, tx, tables)
+	opRunSection(t, ctx, tx, down66, "00066 Down, to reach 00065")
 
 	head := bdRead(t, ctx, tx)
 	for _, want := range []string{

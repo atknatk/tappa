@@ -1779,7 +1779,7 @@ func TestCheckinDB_ScreenTextIsWhatProductionRenders(t *testing.T) {
 		h := newTapHarness(t)
 		w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+1), h.sessionCookieFor(t), nil)
 		got := clockRE.ReplaceAllString(screenText(t, w.Body.String()), "<clock>")
-		want := shell + " St Julians Tapped in <clock> APPROVED Trust 70 " + noteIPMatched +
+		want := shell + " St Julians Clocked in <clock> APPROVED Trust 70 " + noteIPMatched +
 			" Have a great shift — keep those kebabs rolling! 🌯 All done — you can close this page."
 		if got != want {
 			t.Fatalf("production ok screen:\n got: %s\nwant: %s", got, want)
@@ -1790,7 +1790,7 @@ func TestCheckinDB_ScreenTextIsWhatProductionRenders(t *testing.T) {
 		h := newTapHarness(t)
 		w := h.postFrom(t, h.nfcContext(uint32(h.startCtr)+1), h.sessionCookieFor(t), "198.51.100.9:5000", nil)
 		got := clockRE.ReplaceAllString(screenText(t, w.Body.String()), "<clock>")
-		want := shell + " St Julians Tapped in <clock> FLAGGED Trust 20 " + noteNoPlace +
+		want := shell + " St Julians Clocked in <clock> FLAGGED Trust 20 " + noteNoPlace +
 			" Recorded — it needs your manager's approval before it counts toward your hours." +
 			" Tell them if that looks wrong. You can close this page."
 		if got != want {
@@ -1840,7 +1840,7 @@ func TestCheckinDB_ScreenTextIsWhatProductionRenders(t *testing.T) {
 			t.Fatalf("record note = %v, want %q", rec.Note, want)
 		}
 		got := clockRE.ReplaceAllString(screenText(t, w.Body.String()), "<clock>")
-		want := shell + " St Julians Tapped in <clock> APPROVED Trust 70 " +
+		want := shell + " St Julians Clocked in <clock> APPROVED Trust 70 " +
 			noteIPMatched + "; " + noteLeftOpenScreen +
 			" Have a great shift — keep those kebabs rolling! 🌯 All done — you can close this page."
 		if got != want {

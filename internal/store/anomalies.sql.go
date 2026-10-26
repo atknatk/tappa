@@ -913,8 +913,169 @@ func (q *Queries) ListAnomalyVenues(ctx context.Context, arg ListAnomalyVenuesPa
 	return items, nil
 }
 
+const listCheckoutsWithoutCheckIn = `-- name: ListCheckoutsWithoutCheckIn :many
+SELECT
+    o.id                                                           AS id,
+    o.employee_id                                                  AS employee_id,
+    e.full_name                                                    AS employee_name,
+    l.name                                                         AS location_name,
+    o.site_location_id                                             AS site_location_id,
+    o.occurred_at                                                  AS occurred_at,
+    (c.class = 'other_day')::boolean                               AS after_earlier_day
+FROM transactions o
+LEFT JOIN LATERAL (
+    SELECT pv.type, pv.occurred_at, pv.created_at
+    FROM transactions pv
+    WHERE pv.tenant_id = $1
+      AND pv.employee_id = o.employee_id
+      AND pv.type IS NOT NULL
+      AND NOT pv.practice
+      AND (pv.occurred_at, pv.id) < (o.occurred_at, o.id)
+    ORDER BY pv.occurred_at DESC, pv.id DESC
+    LIMIT 1
+) p ON true
+CROSS JOIN LATERAL (
+    SELECT public.tappa_checkout_class(
+        CASE WHEN p.type = 'in' THEN p.occurred_at END,
+        p.type = 'out',
+        EXISTS (
+            SELECT 1
+            FROM transactions i
+            WHERE i.tenant_id = $1
+              AND i.employee_id = o.employee_id
+              AND i.type = 'in'
+              AND NOT i.practice
+              AND (i.occurred_at, i.id) < (o.occurred_at, o.id)
+              AND i.occurred_at >= o.business_day_start
+        ),
+        p.created_at > o.created_at,
+        o.occurred_at,
+        o.business_day_start) AS class
+) c
+LEFT JOIN employees e
+       ON e.id = o.employee_id
+      AND e.tenant_id = o.tenant_id
+LEFT JOIN locations l
+       ON l.id = o.location_id
+      AND l.tenant_id = o.tenant_id
+WHERE o.tenant_id = $1
+  AND o.occurred_at >= $2
+  AND o.occurred_at < $3
+  AND o.type = 'out'
+  AND NOT o.practice
+  AND o.employee_id IS NOT NULL
+  AND o.business_day_start IS NOT NULL
+  AND c.class IN ('other_day', 'orphan')
+ORDER BY o.occurred_at, o.id
+LIMIT $4
+`
+
+type ListCheckoutsWithoutCheckInParams struct {
+	TenantID uuid.UUID
+	FromAt   time.Time
+	ToAt     time.Time
+	RowLimit int32
+}
+
+type ListCheckoutsWithoutCheckInRow struct {
+	ID              uuid.UUID
+	EmployeeID      *uuid.UUID
+	EmployeeName    *string
+	LocationName    *string
+	SiteLocationID  *uuid.UUID
+	OccurredAt      time.Time
+	AfterEarlierDay bool
+}
+
+// Checkouts in the window with no open check-in for them to close -- the person's previous
+// record is a checkout (not a correction's surplus), a check-in of an earlier business day, or
+// nothing: the "check-in missing" list (M15-06; ADR 0032 §A.6, classes (b) other_day and (c) orphan).
+//
+// 🔴 THE CLASS IS tappa_checkout_class's (migration 00064), THE ONE SQL FORM OF THE
+// CLASSIFICATION, fed the way ADR 0032 §A.6 defines its three inputs -- the same subqueries the
+// Go/SQL parity test feeds it (internal/domain/ledger's checkout parity test):
+//
+//	P  the person's directed, non-practice record just BEFORE the checkout, in (occurred_at, id)
+//	   order -- an `in` or an `out` (the LATERAL `pv`);
+//	I  an `in` before it in that order with occurred_at >= its business day (the EXISTS);
+//	W  P was written after it: pv.created_at > o.created_at. created_at is the DATABASE's write
+//	   instant (DEFAULT now(), which no statement writes -- TestTransactions_NoStatementWritesCreatedAt),
+//	   never occurred_at, the client's claim: a manager's correction typed into the past is
+//	   written later, a break's checkout tapped before is written earlier.
+//
+// 🔴 WHAT IS NOT ON THIS LIST, AND WHY EACH IS LEFT OUT:
+//
+//	(e) extra       P is a checkout written LATER and the day has a check-in (I and W): a
+//	                correction's surplus (ADR 0011's "out too late"). Listing it would leave a
+//	                permanent "check-in missing" behind every such correction.
+//	(d) unanchored  a row with NO business day (business_day_start IS NULL: every row before
+//	                M15, every manual row). It cannot be judged against a day it does not carry;
+//	                the predicate below says so explicitly as well as through the class.
+//	(a), closes     P is a check-in this checkout consumes; (a)'s check-in is on the open list.
+//
+// The report counts the same two classes (Totals.OutWithoutIn), except at its period seam -- a
+// business day that began before the week is the report's StartedEarlier; this list asks the
+// row question and lists it (ADR 0032 §A.6: "Anomali listeleri dönem değil satır sorusu sorar").
+//
+// after_earlier_day is (b): the record before it is a check-in of an EARLIER business day -- that
+// check-in is on the open list, and the two rows are one forgotten tap or two. Otherwise (c):
+// nothing, or a checkout tapped before it, is before it.
+//
+// A record naming no employee is not here: it has no chain (the report's Unattributable).
+// `NOT o.practice` and `NOT pv.practice` as in ListOpenCheckIns. site_location_id names the venue
+// of a checkout taken at a holding PEER's venue (location_id NULL -- K-30), named by the ledger
+// from holding_site_locations as the open list's is. Nothing read here is evidence (no address, no
+// distance, no verdict): who, where, when, and which of the two classes.
+//
+// ORDERED OLDEST FIRST, the window on the CHECKOUT's occurred_at, LIMIT @row_limit -- the open
+// list's shape. M15-18: id is the checkout's own row id, for the open list's reason (the "claim
+// pending" mark binds by identity, not by instant).
+//
+// EXPLAIN (ANALYZE, BUFFERS), M15-06, 2026-10-22, the M15 development database, seed tenant
+// 10000000-0000-4000-8000-000000000001 (918 rows; the week from Monday 2026-10-19 00:00 Malta
+// holds 193 checkouts, 116 of them with a business day), row_limit 51, three runs: Bitmap Heap
+// Scan on transactions_tenant_occurred_idx (116 kept, 802 removed by the out / business-day
+// predicates) -> per checkout one Limit 1 probe of transactions_tenant_employee_occurred_idx for P
+// and one for I -> the class as a join filter (116 removed, 0 returned); 4.46 / 3.25 / 3.01 ms,
+// shared hit 1 891 / 1 669 / 1 669. The zero is M15-05's Phase A property seen on live rows: every
+// engine checkout is 'closes' or 'extra'. One observation on a small table, not a property: the
+// cost is two index probes per checkout of the week that carries a business day.
+func (q *Queries) ListCheckoutsWithoutCheckIn(ctx context.Context, arg ListCheckoutsWithoutCheckInParams) ([]ListCheckoutsWithoutCheckInRow, error) {
+	rows, err := q.db.Query(ctx, listCheckoutsWithoutCheckIn,
+		arg.TenantID,
+		arg.FromAt,
+		arg.ToAt,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCheckoutsWithoutCheckInRow{}
+	for rows.Next() {
+		var i ListCheckoutsWithoutCheckInRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmployeeID,
+			&i.EmployeeName,
+			&i.LocationName,
+			&i.SiteLocationID,
+			&i.OccurredAt,
+			&i.AfterEarlierDay,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenCheckIns = `-- name: ListOpenCheckIns :many
 SELECT
+    t.id                                                           AS id,
     t.employee_id                                                  AS employee_id,
     e.full_name                                                    AS employee_name,
     l.name                                                         AS location_name,
@@ -967,6 +1128,7 @@ type ListOpenCheckInsParams struct {
 }
 
 type ListOpenCheckInsRow struct {
+	ID             uuid.UUID
 	EmployeeID     *uuid.UUID
 	EmployeeName   *string
 	LocationName   *string
@@ -1036,6 +1198,10 @@ type ListOpenCheckInsRow struct {
 // (ADR 0032 §A.7). It reads this list rather than a copy of its definition, so "open" on
 // that screen is this list's "open"; the column names a person by opaque id, never a name.
 //
+// M15-18: id is the check-in's own row id (transactions.id), so the panel's "claim pending" mark
+// binds a listed entry to a punch claim's anchor by IDENTITY -- a timestamp alone does not pick one
+// row (ADR 0032 §A.6 orders by (occurred_at, id) for that reason).
+//
 // EXPLAIN (ANALYZE, BUFFERS): M15-05's before/after measurement is in CountMaskedOpenCheckIns'
 // header -- the two statements share the next-record lookup and were measured together.
 func (q *Queries) ListOpenCheckIns(ctx context.Context, arg ListOpenCheckInsParams) ([]ListOpenCheckInsRow, error) {
@@ -1053,6 +1219,7 @@ func (q *Queries) ListOpenCheckIns(ctx context.Context, arg ListOpenCheckInsPara
 	for rows.Next() {
 		var i ListOpenCheckInsRow
 		if err := rows.Scan(
+			&i.ID,
 			&i.EmployeeID,
 			&i.EmployeeName,
 			&i.LocationName,

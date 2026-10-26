@@ -534,6 +534,63 @@ kural listesi testle değil **kayıttan** türetilir ve API-10'un ret listesi he
   kararı olan maddeler: 1 (K-2), 2 (K-4), 3 (K-5), 6 (debounce iki şirketin plaketleri arasında —
   ADR 0027), 7 (K-7), 8 (K-20), 11–14 (K-15, K-17, K-24), 17 (K-6), 19 (K-21), 20 (K-19), 22 (K-25),
   23 (K-22), 24 (K-14), 27 (K-32), 29 (rehber sayfalı).
+- *K notu (2026-10-23, M15-13) — ileri uyum kuralı.* **v1 içinde yanıt ve webhook gövdelerine alan
+  eklenebilir; istemci tanımadığı alanı yok sayar. Alan silmek, ad değiştirmek ya da bir değerin
+  anlamını değiştirmek yeni sürümdür.** İstek gövdeleri kapalı kalır (bilinmeyen alan 422 `unknown_field`).
+  - *Kim karar verdi.* **Kullanıcının kararı (2026-10-23):** *"sözleşmeyi aç + kuralı yaz"* — punch'ın
+    yanıt şemaları açılır, kural rehbere yazılır. **Orkestratörün kararı (aynı gün):** kapsam bütün yanıt
+    ve webhook şemalarına genişler; gerekçe, kullanıcının kuralının genel olması (*"yanıta alan
+    eklenebilir"* yalnız punch için değil). İstek gövdelerinin kapalı kalması ikisinin de parçasıdır.
+  - *Ne açık, ne kapalı.* Yayımlanan OpenAPI'de bütün yanıt ve webhook şemaları
+    `additionalProperties: true` (`Location`, `Employee` ve iç `activationEmail`, `EmployeePage`,
+    `PunchEmployee`, `PunchLocation`, `Punch`, `PunchDelivery`, `Ping`, `PunchPage`, `DirectoryEntry`,
+    `DirectoryPage`, `Error`, `ErrorDetails`; sandbox belgesinde `SimulatedTapResult`, `Ref`, `Error`,
+    `ErrorDetails`); bir yolun `requestBody`'sinin eriştiği şemalar kapalı (`LocationPut`, `EmployeePut`;
+    sandbox'ta `SimulatedTap`). Ayrımı belgeden okuyan pinler:
+    `TestOpenAPI_EveryAnswerSchemaIsOpenEveryRequestClosed`, `TestSandboxOpenAPI_AnswersAreOpenTheRequestIsClosed`.
+    Rehberin 3. baskısı kuralı §3'te yazar.
+  - *Neden şimdi.* `directionSource` (M15-13) v1'e eklenen ilk alandır; 1.–2. baskının kapalı şemasıyla
+    katı doğrulayan bir istemci her eklemeyi reddederdi — v1'i dondurmak ya da her alanda sürüm açmak
+    gerekirdi. Bugün bunun bedeli yok: canlıda kırılacak istemci yok — `webhook_endpoints` 0 satır,
+    `api_keys` 1 satır, hiç kullanılmamış (ölçüm: ana oturum, 2026-10-23, salt okuma).
+  - *Sızıntı koruması — ne yakalar, ne yakalamaz.* Yanıtın anahtarları şemaya değil testlere pinlidir;
+    şemayı açmak bu testlerin gördüğünü değiştirmedi. **Örneklerin ve katı çözen handler testlerinin
+    kapsadığı durumlarda** yanıta koşulsuz eklenen bir anahtar kırmızıdır (ölçüldü, M15-13 düzeltme
+    turları): punch (`TestPunches_NothingButTheFeedsColumnsAnswers`, `TestWebhookPayload_CarriesNothingButTheFeedItem`),
+    bütün ailelerin hikâye cevapları (`TestOpenAPI_TheExamplesAreTheHandlersAnswers` — her seviyede aynı
+    anahtarlar), lokasyon ve çalışan cevaplarını `DisallowUnknownFields` ile çözen handler testleri
+    (`locOf` / `empOf` üzerinden `TestLocationsPut_*`, `TestEmployeesPut_*`), rehber
+    (`TestDirectory_HoldingTenantsOnlyNoEmailWithActive`), hata gövdesi (`TestErrors_TheCodeSetIsSection8`
+    ve onlarcası), `details` (`TestOpenAPI_EveryRouteAndErrorDocumented`: anahtarları paketin kaynağından
+    AST ile okunur, `ErrorDetails` ile iki yönlü), `Ping` (`TestWebhookPing_TheBodyIsSyntheticAndSigned`),
+    sandbox cevabı (`TestSandboxOpenAPI_TheAnswerIsTheWireStructKeyForKey` — bu turda eklendi; öncesinde
+    pin yoktu). **Yakalanmayan, ve açılmadan önce de yakalanmayan:** yalnız belirli bir durumda eklenen
+    anahtar — çalışan `activated` iken (M-A) ya da lokasyon pasif iken (M-B); `/v1` cevabında aktive
+    edilmiş bir çalışanı ya da pasif bir lokasyonu okuyan test yoktur (backlog T162, eski T154). Şema kapalıyken
+    de `TestOpenAPI_EveryRouteAndErrorDocumented`'in punch sondaları boş sayfa döndürdüğü için o test bir
+    punch anahtarını yakalamıyordu.
+- *K notu (2026-10-23, M15-14) — `directionSource: employee` olan bir punch eşlenmez (Q31'in (a)'sı).*
+  Alan Q31'in (a)'sının cevabıdır: ADR 0032 §A.6'nın *"çıkış yalnız kendi iş gününün girişini kapatır"*
+  koruması dış eşleyicide yoktur, alan ona bunu söyleyen tek işarettir. Rehberin 3. baskısı (§6.3, §11
+  madde 30) ve OpenAPI'nin `directionSource` açıklaması bunu artık açıkça yazar: `employee` olan bir
+  `out` **yazıldığında** kapatacağı bir giriş bulmaz ve Taptime ona süre saymaz — ya o iş gününde açık giriş
+  yoktur (sınıf (b) ya da (c); yalnız bunlar *"Check-in missing"*e düşer), ya da önceki giriş aynı iş
+  gününün 18 saatten eski girişidir (sınıf (a), `too_long`; giriş açık listede kalır, çıkış
+  *"Check-in missing"*e düşmez — `TestDecide_RequestedDirectionChosenOutAnchorsAMissingCheckIn`'in
+  `stale_same_day_is_too_long` vakası). Bu **mutlak değildir**: sonradan yazılan bir kayıt çıkışı
+  *kapatır*'a çevirebilir — müdürün çıkıştan önceye yazdığı manuel `in` (bugünkü manuel kayıt ya da Faz C
+  talep onayı; Taptime o zaman süre sayar, manuel kayıt akışta yoktur) ya da ADR 0032 §A.6'nın 2026-10-23
+  düzeltme notundaki geriye tarihli `auto` `in` (pencere ~60 sn, backlog T159). `employee` olan bir `in`
+  önceki girişi çıkışsız bırakır. Saat için Taptime'ın raporu esastır, çünkü müdürün düzeltmesi manuel
+  kayıttır ve akışa girmez (K-6). *(2. tur, aynı gün: ilk hâli *"hiçbir aralığı kapatmaz"* diye mutlak
+  yazıyordu; tek mercek DÜŞÜK-1.)* Ölçülen
+  şekil (M15-14 güvenlik merceği): dün 15:00 `in`, bugün 07:00 *"Not right? Clock out"*, kesim 05:00 →
+  Taptime 0 sa yazar ve çıkış *"Check-in missing"*e düşer; iki punch'ı saf eşleyen bir dış sistem 16 sa
+  öder. `employee`'nin anlamı da daraltılmış hâlinden düzeltildi: *"kaydedilen yön ≠ Taptime'ın dokunuş
+  anında hesapladığı yön"* (ADR 0032 §B.3'ün değişmezi) — çoğunlukla *"Not right?"*, ama iş günü
+  sınırından önce açılıp sonra basılan bir sayfanın ana düğmesi de
+  (`TestCheckinDB_AStalePagePressedAfterTheCutoffIsTheChoiceAndListedAsCheckInMissing`). Sözleşme
+  değişmedi (alan, değerleri, şema aynı); değişen yalnız açıklama metnidir.
 
 ### 9. Çalışan ve lokasyon uçları, davet kuyruğu (K-7, K-14 … K-18, K-20, K-21, K-24)
 

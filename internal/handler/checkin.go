@@ -47,6 +47,15 @@ import (
 //	occurred_at  optional, RFC 3339, for a client that queued a tap offline
 //	             (M9-01). It is the one unverified input that matters, and it is
 //	             bounded by a guardrail nobody can switch off — see below.
+//	want         the direction the person pressed (ADR 0032 §B.3: both buttons of
+//	             the tap screen send one, in or out), read by parseWant. CLIENT
+//	             INPUT and only a PREFERENCE: the engine computes its own direction
+//	             under the person's lock and records this one only where it
+//	             differs, and only while there is a business day (§B.5). In a form
+//	             body that parses, no value of want is a 400 — a conflicting or
+//	             unknown value is "no request". A body ParseForm refuses (over
+//	             checkinMaxBody, or a broken percent-encoding) is the 400 below,
+//	             whatever it carries, before any counter is spent.
 //
 // WHAT IS NOT IN THE FORM, deliberately: no tag, no counter, no channel, no
 // verdict, no practice flag, no employee. Every one of those would be a client
@@ -70,6 +79,9 @@ type checkinRecorder interface {
 // bounded because ParseForm reads the whole body into memory and this endpoint
 // sits in front of a database write.
 const checkinMaxBody = 8 << 10
+
+// wantField is the direction the person pressed (ADR 0032 §B.3; parseWant).
+const wantField = "want"
 
 // occurredAtField is the optional client-declared tap time. It is RFC 3339 with
 // an offset, so a client cannot leave the zone to interpretation — a naive local
@@ -198,6 +210,18 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// THE PERSON'S CHOICE, NOT A REFUSAL (ADR 0032 §B.3). Unlike occurred_at above,
+	// whose malformed value is a 400, want has a safe reading for every value a parsed
+	// body can carry: the engine's own direction. (A body ParseForm refused never got
+	// here: that 400 is the body's, not want's.) So a conflicting or unknown value is dropped and said in
+	// the log -- without the value, which is the client's text and not ours to repeat.
+	// It is read from the BODY only (r.PostForm): a want in the URL is not a press.
+	want, unusable := parseWant(r.PostForm[wantField])
+	if unusable {
+		t.log.WarnContext(ctx, "checkin: the want field is conflicting or unknown; the engine chooses the direction",
+			"employee_id", id.EmployeeID())
+	}
+
 	res, err := t.checkins.Record(r.Context(), checkin.Request{
 		SessionTenantID: id.Session.TenantID,
 		EmployeeID:      id.Session.EmployeeID,
@@ -217,6 +241,8 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		SourceIP:     httpx.ClientIP(r),
 		GPS:          parseFix(r.PostFormValue("lat"), r.PostFormValue("lng")),
 		OccurredAt:   occurredAt,
+		// Applied by the domain only while the business-day switch is on (§B.5).
+		RequestedDirection: want,
 	})
 	if err != nil {
 		t.renderCheckinFailure(w, r, id, err)
@@ -247,9 +273,27 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		// measurements).
 		post := context.WithoutCancel(r.Context())
 		readCtx, cancel := context.WithTimeout(post, t.brandWait)
-		logo := t.resultLogo(readCtx, id, tctx, res)
+		logo := afterCommit(readCtx, t, "the business's brand", func() layout.Logo { return t.resultLogo(readCtx, id, tctx, res) })
 		cancel()
-		t.render(w, r.WithContext(post), http.StatusOK, withDevStrip(pages.Result(resultView(res), logo), t.devTools, false), logo.Drawn())
+		// The claim card (M15-17, ADR 0032 §C.1): a read of its own, after the commit, under
+		// post and its own bound (claim.go, G-O5); none, failed or late -> no card, and the
+		// screen below is the one it would have been.
+		cardCtx, cancelCard := context.WithTimeout(post, t.claimWait)
+		card := afterCommit(cardCtx, t, "the claim card", func() *resultCard { return t.resultClaim(cardCtx, id, res) })
+		cancelCard()
+		view := resultView(res)
+		screen := pages.Result(view, logo)
+		if card != nil {
+			if card.asksLeftOpen {
+				// The card asks what the left-open sentence says (product lens N6): the
+				// screen's note is the same parts without that one -- the engine built it
+				// beside the whole note, so nothing is cut out of a string here. The
+				// record's note is untouched.
+				view.Note = res.Decision.EmployeeNoteAsked
+			}
+			screen = pages.ResultAsking(view, logo, card.view)
+		}
+		t.render(w, r.WithContext(post), http.StatusOK, withDevStrip(screen, t.devTools, false), logo.Drawn())
 	}
 }
 
@@ -446,6 +490,49 @@ func parseFix(latRaw, lngRaw string) *geo.Point {
 		return nil
 	}
 	return &geo.Point{Lat: lat, Lng: lng}
+}
+
+// parseWant reads the want field's values (ADR 0032 §B.3) into the person's requested
+// direction, or nil for none:
+//
+//	no value, or only empty ones          -> nil (no request)
+//	every non-empty value in, or every out -> that direction (a repeat is one request)
+//	in AND out, or anything else          -> nil, unusable: no request, and the caller
+//	                                         logs a warning
+//
+// A value is trimmed before it is judged and compared exactly ("OUT" is unknown): the two
+// buttons send the lower-case words, so anything else did not come from them.
+//
+// 🔴 IT DOES NOT REFUSE. In a form body that parses, no value of want is a 400: every one
+// has a safe reading -- the engine's own direction -- so the tap is decided and recorded
+// whatever this field says (§4.6). What this function never sees is a body ParseForm
+// refused -- over checkinMaxBody, or a broken percent-encoding: Checkin answers that 400
+// before the tap context is read, so no counter is spent and no row is written, as for
+// any other unusable body (TestCheckinDB_AnUnparsableBodyIsA400BeforeWantIsRead). Two
+// values arise from a page whose script added a hidden field beside a pressed button;
+// the screen's script writes one field and reuses it (M15-12), and this is the server
+// side of the same rule. It is pure: no log, no clock.
+func parseWant(values []string) (want *tap.Type, unusable bool) {
+	for _, raw := range values {
+		v := strings.TrimSpace(raw)
+		if v == "" {
+			continue
+		}
+		var d tap.Type
+		switch v {
+		case string(tap.TypeIn):
+			d = tap.TypeIn
+		case string(tap.TypeOut):
+			d = tap.TypeOut
+		default:
+			return nil, true
+		}
+		if want != nil && *want != d {
+			return nil, true
+		}
+		want = &d
+	}
+	return want, false
 }
 
 // parseOccurredAt reads the optional client-declared tap time.

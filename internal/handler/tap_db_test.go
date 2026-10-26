@@ -38,6 +38,8 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/checkin"
+	"github.com/atknatk/tappa/internal/domain/claim"
+	"github.com/atknatk/tappa/internal/domain/manual"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/invite"
@@ -88,6 +90,7 @@ type tapHarness struct {
 	cfg        *config.Config
 	tap        *Tap
 	checkins   *checkin.Service
+	claims     *claim.Service
 	trail      *audit.Recorder
 	data       *db.DB
 	cookies    session.Cookies
@@ -186,7 +189,18 @@ func newTapHarness(t *testing.T) *tapHarness {
 	if err != nil {
 		t.Fatalf("NewActivation: %v", err)
 	}
-	tp, err := NewTap(verifier, directory, sessions, checkins, act, trail, cfg,
+	// THE REAL claim service too (M15-17): the result screen's card is read after the record
+	// commits and POST /api/claim writes punch_claims -- both the production ones, on the
+	// production manual writer.
+	entries, err := manual.NewRecorder(data, trail, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("manual.NewRecorder: %v", err)
+	}
+	claims, err := claim.New(data, trail, entries, cfg.BusinessDayFrom, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("claim.New: %v", err)
+	}
+	tp, err := NewTap(verifier, directory, sessions, checkins, claims, act, trail, cfg,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
@@ -212,7 +226,7 @@ func newTapHarness(t *testing.T) *tapHarness {
 
 	h := &tapHarness{
 		invites: invites, activation: act,
-		router: r, cfg: cfg, tap: tp, checkins: checkins, trail: trail, data: data, cookies: session.NewCookies(cfg), sessions: sessions,
+		router: r, cfg: cfg, tap: tp, checkins: checkins, claims: claims, trail: trail, data: data, cookies: session.NewCookies(cfg), sessions: sessions,
 		tenantID: uuid.New(), locationID: uuid.New(), employeeID: uuid.New(),
 		startCtr: 700,
 	}

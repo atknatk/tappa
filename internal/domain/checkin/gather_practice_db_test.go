@@ -149,13 +149,17 @@ func TestGatherDB_APracticeCheckInIsNeverHandedOnAsAnOpenOne(t *testing.T) {
 	}
 }
 
-// chainFixture commits a tenant's location, an activated employee and the rows
+// chainFixtureAt commits a tenant's location, an activated employee and the rows
 // described by `rows`, in the order given. It writes them directly rather than
 // through the engine because the point is to present gather with HISTORY SHAPES,
 // including ones the engine cannot currently produce (see the "unreachable today"
 // row below) — a fixture that could only build reachable shapes could not ask the
 // question this file is about.
-func chainFixture(t *testing.T, data *db.DB, tenantID uuid.UUID, rows []chainRow) (locationID, employeeID uuid.UUID) {
+//
+// Each row is at base + row.ago. The caller holds base and measures against IT, never against a clock read later: a test
+// that compared the rows with its own time.Now() taken after the commit was red on CI whenever the
+// fixture's transaction took longer than the test's tolerance (run 40249469328, M15-17 fix round).
+func chainFixtureAt(t *testing.T, data *db.DB, tenantID uuid.UUID, base time.Time, rows []chainRow) (locationID, employeeID uuid.UUID) {
 	t.Helper()
 	locationID, employeeID = uuid.New(), uuid.New()
 	err := data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
@@ -171,13 +175,12 @@ func chainFixture(t *testing.T, data *db.DB, tenantID uuid.UUID, rows []chainRow
 			employeeID, tenantID, locationID); e != nil {
 			return e
 		}
-		now := time.Now().UTC()
 		for _, r := range rows {
 			if _, e := tx.Exec(ctx,
 				`INSERT INTO transactions
 				   (tenant_id, employee_id, location_id, type, occurred_at, verdict, channel, practice)
 				 VALUES ($1, $2, $3, $4, $5, 'ok', 'nfc', $6)`,
-				tenantID, employeeID, locationID, r.direction, now.Add(r.ago), r.practice); e != nil {
+				tenantID, employeeID, locationID, r.direction, base.Add(r.ago), r.practice); e != nil {
 				return e
 			}
 		}
@@ -281,14 +284,17 @@ func TestGatherDB_APracticeRowDoesNotHideAnOlderOpenCheckIn(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			locationID, employeeID := chainFixture(t, data, tenantID, tc.rows)
+			// One instant for the fixture, the question and the answer (microseconds: what
+			// timestamptz keeps), so the row's identity is an equality, not a tolerance.
+			base := time.Now().UTC().Truncate(time.Microsecond)
+			locationID, employeeID := chainFixtureAt(t, data, tenantID, base, tc.rows)
 
 			var facts tapFacts
 			err := data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
 				var e error
 				facts, e = svc.gather(ctx, tx, Request{
 					SessionTenantID: tenantID, EmployeeID: employeeID,
-				}, locationID, time.Now())
+				}, locationID, base)
 				return e
 			})
 			if err != nil {
@@ -308,10 +314,9 @@ func TestGatherDB_APracticeRowDoesNotHideAnOlderOpenCheckIn(t *testing.T) {
 			}
 			// Which row, not merely "a row": the defect returned a row too (the
 			// practice one), so identity is the assertion that separates the arms.
-			gap := time.Since(facts.lastOpenIn.OccurredAt) + tc.wantAgo
-			if gap < -time.Minute || gap > time.Minute {
-				t.Fatalf("the open check-in handed on is %s old, want ~%s — %s",
-					time.Since(facts.lastOpenIn.OccurredAt).Round(time.Second), -tc.wantAgo, tc.why)
+			if want := base.Add(tc.wantAgo); !facts.lastOpenIn.OccurredAt.Equal(want) {
+				t.Fatalf("the open check-in handed on is the row at %v, want the one at %v — %s",
+					facts.lastOpenIn.OccurredAt, want, tc.why)
 			}
 		})
 	}

@@ -144,6 +144,9 @@ func whereClauses(body string) []string {
 // tenant_id and the caller's parameter. Top-level is the point: `a = @tenant_id AND
 // b` scopes the query and `(a = @tenant_id OR TRUE)` does not.
 func scopedByTenant(where string) bool {
+	if hasTopLevelOr(where) {
+		return false
+	}
 	for _, conjunct := range splitTopLevelAnd(where) {
 		if isScopeEquality(conjunct) {
 			return true
@@ -172,6 +175,44 @@ func splitTopLevelAnd(s string) []string {
 		}
 	}
 	return append(parts, s[last:])
+}
+
+// hasTopLevelOr reports whether s has an OR outside every parenthesis, string literal and SQL
+// comment (M15-16 review, security ORTA, measured). Splitting on AND alone let
+// `x.tenant_id = @tenant_id AND a OR b` through: one conjunct IS the scope equality, but the
+// clause is (scope AND a) OR b -- every row whenever b holds. A WHERE with an OR at depth zero
+// therefore scopes nothing, whatever its conjuncts look like. A parenthesised OR (`AND (a OR b)`)
+// is depth one and stays a filter. An aggregate's `FILTER (WHERE ...)` is no row scope: ledger's
+// reader skips it, the other copies' readers would hand its OR here. Measured 2026-10-25 over
+// every statement in db/queries with tenant's reader and ledger's: the one depth-zero OR is
+// ListAnomalyVenues' `FILTER (WHERE t.ip_match IS NOT NULL OR t.gps_match IS NOT NULL)`, which
+// only ledger's belt reads -- so no shipped statement turns red, and a copy that met it would
+// fail closed (a false alarm, never a pass).
+func hasTopLevelOr(s string) bool {
+	depth := 0
+	upper := strings.ToUpper(s)
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '\'':
+			for i++; i < len(s) && s[i] != '\''; i++ {
+			}
+			continue
+		case strings.HasPrefix(s[i:], "--"):
+			for ; i < len(s) && s[i] != '\n'; i++ {
+			}
+			continue
+		case s[i] == '(':
+			depth++
+			continue
+		case s[i] == ')':
+			depth--
+			continue
+		}
+		if depth == 0 && strings.HasPrefix(upper[i:], "OR") && wordBoundary(upper, i, 2) {
+			return true
+		}
+	}
+	return false
 }
 
 func wordBoundary(s string, i, n int) bool {
@@ -286,6 +327,8 @@ func TestReviewScopeCheck_IsNotVacuous(t *testing.T) {
 		"no predicate at all":               "t.id = @transaction_id",
 		"neutralised by OR":                 "(t.tenant_id = @tenant_id OR TRUE)",
 		"OR at the top level":               "t.tenant_id = @tenant_id OR 1 = 1",
+		"OR after the scope conjunct":       "t.tenant_id = @tenant_id AND x OR true",
+		"OR a caller's switch":              "t.tenant_id = @tenant_id AND x = 1 OR @all::boolean",
 		"a literal, not the caller":         "t.tenant_id = '00000000-0000-0000-0000-000000000000'",
 		"another column, not the parameter": "t.tenant_id = r.tenant_id",
 	}

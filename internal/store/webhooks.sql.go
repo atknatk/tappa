@@ -133,7 +133,7 @@ func (q *Queries) DeleteSettledWebhookDeliveries(ctx context.Context, arg Delete
 }
 
 const getPunchEventForDelivery = `-- name: GetPunchEventForDelivery :one
-SELECT seq, punch_id, version, status, punch_time, recorded_at, channel, direction,
+SELECT seq, punch_id, version, status, punch_time, recorded_at, channel, direction, direction_source,
        employee_id, employee_ref, employee_code, employee_company,
        location_id, location_ref, location_name, location_company, tag_uid
 FROM punch_events
@@ -155,6 +155,7 @@ type GetPunchEventForDeliveryRow struct {
 	RecordedAt      time.Time
 	Channel         string
 	Direction       string
+	DirectionSource *string
 	EmployeeID      uuid.UUID
 	EmployeeRef     *string
 	EmployeeCode    *string
@@ -181,6 +182,7 @@ func (q *Queries) GetPunchEventForDelivery(ctx context.Context, arg GetPunchEven
 		&i.RecordedAt,
 		&i.Channel,
 		&i.Direction,
+		&i.DirectionSource,
 		&i.EmployeeID,
 		&i.EmployeeRef,
 		&i.EmployeeCode,

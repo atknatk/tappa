@@ -39,6 +39,11 @@ type Directory struct {
 	// rules. Injected as a field (CLAUDE.md §7): this package does not import checkin and checkin
 	// does not import this one; both ask tap.SwitchedDayCutoff.
 	businessDayFrom *time.Time
+	// clock is the SERVER's clock the tap screen's prediction reads its instant from (M15-12):
+	// the switch is judged at it (security lens F-2) and the open check-in and the business day
+	// are read at it. time.Now in production; a test of this package sets it. No caller hands an
+	// instant in -- TapPage and PeerTapPage take none -- so a declared one cannot reach the gate.
+	clock func() time.Time
 }
 
 // NewDirectory wires a Directory. A nil database is refused rather than
@@ -49,7 +54,7 @@ func NewDirectory(data Database, businessDayFrom *time.Time) (*Directory, error)
 	if data == nil {
 		return nil, errors.New("tenant: nil database")
 	}
-	d := &Directory{data: data}
+	d := &Directory{data: data, clock: time.Now}
 	if businessDayFrom != nil {
 		v := *businessDayFrom
 		d.businessDayFrom = &v
@@ -90,7 +95,9 @@ var ErrForeignLocation = errors.New("tenant: location does not belong to this te
 //
 // There is deliberately no status, no id and no shift here. A view model with a
 // field cannot help rendering it, and the tap screen's whole discipline is that
-// there is nothing on it to read.
+// there is nothing on it to read. The one fact about the person's day it carries is
+// the predicted direction (M15-12, ADR 0032 §B.1-§B.2) -- the word on the button,
+// a user decision under CLAUDE.md §9 -- and only through its gate (Prediction).
 type TapPageFacts struct {
 	// EmployeeName greets the person: "Hello Maria".
 	EmployeeName string
@@ -105,6 +112,20 @@ type TapPageFacts struct {
 	// 0023 §2: either business's brand would be wrong there) and whenever the read
 	// failed (ErrBrandUnread). The zero value is Taptime's own screen.
 	Brand PageBrand
+	// Prediction is the engine's direction for a tap NOW (tap.PredictDirection), or nil. It
+	// is read only when the caller asked for it (predict: the plaque and channel half of
+	// ADR 0032 §B.2's gate, which the handler judges from the SUN preview), the person is
+	// active, and the business-day switch is on at the server's clock (Directory.DayCutoff,
+	// the ONE gate the orchestrator also asks). nil as well for another business's plaque,
+	// for a plaque on no wall, and whenever a read failed -- the brand's included, because a
+	// failed statement aborts the transaction the prediction is read in. A non-nil value may
+	// still carry no BusinessDayStart (a zone the server cannot load): the engine then drops
+	// a request, so the screen must not offer one either -- the handler's rule.
+	Prediction *tap.Prediction
+	// PredictionErr is why the prediction read failed, for the caller's log; the page is
+	// drawn without a prediction (§4.6: a prediction never costs the page). It is never
+	// rendered.
+	PredictionErr error
 }
 
 // TapPage loads the two display facts for a tap.
@@ -132,13 +153,22 @@ type TapPageFacts struct {
 // Brand, and the error is ErrBrandUnread wrapping the cause (§4.6: a brand never
 // costs the page). The business's name for the logo's alt comes from the employee
 // read, which already joins it.
-func (d *Directory) TapPage(ctx context.Context, tenantID, employeeID, locationID uuid.UUID) (TapPageFacts, error) {
+//
+// THE PREDICTION COMES AFTER THE BRAND (M15-12), and only when predict is set -- the
+// plaque and channel half of ADR 0032 §B.2's gate, which the caller judges from the SUN
+// preview. It is never read for a foreign plaque or one on no wall. When it fails the
+// facts above it still reach the page: the transaction is rolled back the brand's way,
+// Prediction is nil and PredictionErr carries the cause, and the error is nil -- a
+// prediction never costs the page (§4.6). A brand failure ends the transaction before it,
+// so a page without its brand also has no prediction.
+func (d *Directory) TapPage(ctx context.Context, tenantID, employeeID, locationID uuid.UUID, predict bool) (TapPageFacts, error) {
 	if tenantID == uuid.Nil || employeeID == uuid.Nil {
 		return TapPageFacts{}, errors.New("tenant: tap page: tenant and employee are required")
 	}
 	var (
 		out      TapPageFacts
 		brandErr error
+		predErr  error
 	)
 	foreign := false
 	err := d.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
@@ -181,10 +211,19 @@ func (d *Directory) TapPage(ctx context.Context, tenantID, employeeID, locationI
 			b.Name = emp.TenantName
 		}
 		out.Brand = b
+		if predict {
+			if out.Prediction, predErr = d.predictTap(ctx, q, tenantID, employeeID); predErr != nil {
+				return errPredictionRollback
+			}
+		}
 		return nil
 	})
 	if errors.Is(err, errBrandRollback) {
 		return out, fmt.Errorf("%w: %w", ErrBrandUnread, brandErr)
+	}
+	if errors.Is(err, errPredictionRollback) {
+		out.Prediction, out.PredictionErr = nil, fmt.Errorf("tenant: tap page: %w", predErr)
+		return out, nil
 	}
 	if err != nil {
 		return TapPageFacts{}, fmt.Errorf("tenant: tap page: %w", err)

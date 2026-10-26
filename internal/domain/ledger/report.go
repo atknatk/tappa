@@ -272,6 +272,10 @@ type PersonHours struct {
 	// Open counts this person's unclosed check-ins inside the period. The hours are
 	// not estimated and never enter any of the totals above (Q18).
 	Open int
+	// OutWithoutIn counts this person's checkouts inside the period with no open check-in for
+	// them to close -- ADR 0032 §A.6's classes (b) and (c), this person's share of
+	// Totals.OutWithoutIn (M15-06). Like Open, it carries no hours.
+	OutWithoutIn int
 }
 
 // DayMarks is what one cell of the Roll says besides its hours (M12-21). Each mark is a
@@ -291,6 +295,12 @@ type DayMarks struct {
 	// Open: one of this person's check-ins this day has no checkout (an OpenEntry, Q18) -- on
 	// a day with hours too, which is a different cell from a day with none.
 	Open bool
+	// InMissing: one of this person's checkouts this day is counted in PersonHours.OutWithoutIn --
+	// a checkout with no open check-in for it to close (M15-06). The day is the checkout's OWN
+	// local day, the instant a manager reads on the record (orchestrator's decision, 2026-10-22):
+	// there is no check-in to attribute it to, and its business day may have begun the evening
+	// before (a 23:00 cutoff) -- the mark stays on the day of the stamp.
+	InMissing bool
 }
 
 // VenueHours is one location's week. The key is the location of the CHECK-IN: a
@@ -338,6 +348,19 @@ type Totals struct {
 	Shifts   int
 	Open     int
 	TooLong  int
+	// OutWithoutIn counts the period's checkouts with no open check-in for them to close:
+	// ADR 0032 §A.6's (b) -- the record before it is a check-in of an earlier business day,
+	// itself an OpenEntry -- and (c) -- the record before it is a checkout that is not a
+	// correction's surplus, or there is none (M15-06). In (c) the business day MAY hold a
+	// check-in: the break (09:00 in, 12:00 out, 17:00 out) is (c) because 12:00 already closed
+	// 09:00, not because the day has no check-in. It is the report's half of the Odd shapes "check-in
+	// missing" list (ListCheckoutsWithoutCheckIn). No hours are guessed for it, and its shift is
+	// not in Worked: the total is short by it, as it is by an OpenEntry.
+	//
+	// A (b) or (c) whose business day began BEFORE the period is not here but in
+	// Report.StartedEarlier: the read starts at the period, so the check-in it lacks may be in the
+	// previous report (ADR 0032 §A.6 "Dönem sınırı").
+	OutWithoutIn int
 	// OtherVenue counts the COUNTED shifts (a subset of Shifts) that began at a venue other
 	// than the person's home venue (M12-21) -- one per DayMarks.Other source, so a day with
 	// two such shifts is one mark and two here. OtherVenueUnknown counts the counted shifts
@@ -396,12 +419,14 @@ type Report struct {
 	// hours belong to the previous report and are not counted here; the number exists
 	// so a manager comparing two weeks can see the seam rather than wonder about it.
 	//
-	// ⚠️ IT ALSO HOLDS, FOR NOW, THE CHECKOUTS THAT CLOSE NOTHING (M15-05). ADR 0032 §A.6
-	// gives each checkout one counter: a checkout with no `in` before it in the read --
-	// (d) on a row without a business day, (e) a correction's surplus, (c) an orphan --
-	// and the checkout half of (b), a checkout of a later business day than the `in`
-	// it follows, all land here, so no checkout is uncounted. (b) and (c) move to their
-	// own counter with the "check-in missing" list (M15-06); (d) and (e) stay.
+	// ⚠️ IT IS ALSO WHERE TWO KINDS OF CHECKOUT THAT CLOSE NOTHING ARE COUNTED (ADR 0032
+	// §A.6: one class, one counter): (d), a checkout with no `in` before it on a row without a
+	// business day (every row before M15, every manual row) -- which is the seam exactly as it
+	// was before M15 -- and (e), a correction's surplus: the checkout a manager's earlier,
+	// later-typed checkout replaced (ADR 0011's "out too late"). And it holds the seam of
+	// Totals.OutWithoutIn: a (b) or (c) whose business day began before the period. Since
+	// M15-06 a (b) or (c) of the period itself is Totals.OutWithoutIn and never here, so no
+	// checkout is counted twice and none is uncounted.
 	StartedEarlier int
 	// Unattributable counts direction-carrying records with no employee on them.
 	// Migration 0005 permits that shape (§4.6: a record is written even with no
@@ -862,23 +887,34 @@ func worse(a, b HoursState) HoursState {
 //
 // The two that do not apply are the two that would RESTORE pay, and the stranded row
 // is counted rather than lost (StartedEarlier or an OpenEntry) but is not labelled as
-// a correction. Nothing changes here -- each reading above is defended on its own
+// a correction. With the engine's rows carrying a business day the four rows read the same:
+// the stranded checkout of the second row is ADR 0032 §A.6's (e), a correction's surplus,
+// which stays StartedEarlier and is NOT a missing check-in (correction_test.go, the S-set
+// variants). Nothing changes here -- each reading above is defended on its own
 // terms -- but internal/domain/manual.CorrectionsOnlyShorten and the confirmation
 // screen both quote this measurement, so a change to the pairing has to move them too.
 //
-// A CHECKOUT WITH NO OPEN CHECK-IN is not an anomaly, it is the seam: the shift began
-// before the period. It is counted (StartedEarlier) and its hours belong to the
-// previous report, which is what "attribute an interval to the day it STARTED" means
-// at the boundary.
+// A CHECKOUT WITH NO OPEN CHECK-IN ON A ROW WITHOUT A BUSINESS DAY is not an anomaly, it is
+// the seam: the shift began before the period. It is counted (StartedEarlier) and its hours
+// belong to the previous report, which is what "attribute an interval to the day it STARTED"
+// means at the boundary. A row that carries a business day says more: if that day began
+// inside the period, the read holds every check-in it could have, so a checkout with none
+// before it is a MISSING CHECK-IN (Totals.OutWithoutIn, M15-06), not a seam.
 //
 // 🔴 EVERY CHECKOUT IS CLASSIFIED BY ADR 0032 §A.6's ONE RULE (M15-05; checkout.go), and the
 // class picks the branch -- one class, one counter:
 //
 //	closes          the interval in..out (its hours, by verdict)
 //	(a) too_long    Totals.TooLong, and the `in` is an OpenEntry
-//	(b) other_day   the `in` is an OpenEntry and the slot EMPTIES; the checkout half is
-//	                StartedEarlier until M15-06 gives it its own counter
-//	(c), (d), (e)   StartedEarlier ((c) moves with (b) in M15-06)
+//	(b) other_day   the `in` is an OpenEntry and the slot EMPTIES; the checkout is
+//	                Totals.OutWithoutIn (M15-06)
+//	(c) orphan      Totals.OutWithoutIn (M15-06)
+//	(d), (e)        StartedEarlier
+//
+// THE SEAM OF (b) AND (c): the read begins at the period, so a (b) or (c) whose business day
+// began before it may lack a check-in that the previous report holds -- it is StartedEarlier,
+// not OutWithoutIn (ADR 0032 §A.6 "Dönem sınırı"). Whichever of the two it is, a checkout
+// outside the period is counted by neither: it is another report's.
 //
 // A ROW WITHOUT A BUSINESS DAY (every row before M15, every manual row) can only be closes,
 // (a) or (d), which are exactly the three branches this function had before -- so a week of
@@ -974,10 +1010,30 @@ func accumulate(evs []reportEvent, p Period, zone *time.Location, now time.Time)
 			open = nil
 		}
 	}
-	// stranded counts a checkout that ends no interval -- see StartedEarlier for which.
+	// stranded counts a checkout that ends no interval -- (d) and (e), see StartedEarlier.
 	stranded := func(e reportEvent) {
 		if !e.At.Before(p.From) && e.At.Before(p.To) {
 			out.StartedEarlier++
+		}
+	}
+	// inMissing counts a checkout of class (b) or (c): there is no open check-in for it to
+	// close. ONE COUNTER PER CHECKOUT -- Totals.OutWithoutIn, or StartedEarlier at the seam
+	// -- never both.
+	inMissing := func(e reportEvent) {
+		if e.At.Before(p.From) || !e.At.Before(p.To) {
+			return
+		}
+		if e.DayStart == nil || e.DayStart.Before(p.From) {
+			// The seam. (b) and (c) always carry a business day (tap.ClassifyCheckout); a nil one
+			// cannot reach here and is counted rather than dropped should it ever.
+			out.StartedEarlier++
+			return
+		}
+		ph := person(e)
+		ph.OutWithoutIn++
+		out.Totals.OutWithoutIn++
+		if d := dayIndex(e.At, p, zone); d >= 0 && d < len(ph.Marks) {
+			ph.Marks[d].InMissing = true
 		}
 	}
 
@@ -998,10 +1054,15 @@ func accumulate(evs []reportEvent, p Period, zone *time.Location, now time.Time)
 		}
 		// A checkout: its class, by ADR 0032 §A.6's one rule.
 		class := chain.checkout(e.At, e.CreatedAt, e.DayStart)
+		if class == tap.CheckoutOrphan {
+			// (c): no `in` before it, and not a correction's surplus -- a check-in is missing.
+			inMissing(e)
+			continue
+		}
 		if !consumesTheIn(class) || open == nil {
-			// (c), (d), (e): no `in` before it to end. (open == nil cannot meet a consuming
-			// class -- P is an `in` exactly when the slot holds it -- and is counted, not
-			// dropped, should it ever.)
+			// (d), (e): no `in` before it to end. (open == nil cannot meet a consuming class --
+			// P is an `in` exactly when the slot holds it -- and is counted, not dropped,
+			// should it ever.)
 			stranded(e)
 			continue
 		}
@@ -1013,7 +1074,7 @@ func accumulate(evs []reportEvent, p Period, zone *time.Location, now time.Time)
 			// "Açık slot").
 			open = nil
 			openEntry(in)
-			stranded(e)
+			inMissing(e)
 			continue
 		}
 		open = nil
@@ -1027,10 +1088,13 @@ func accumulate(evs []reportEvent, p Period, zone *time.Location, now time.Time)
 		if class == tap.CheckoutTooLong {
 			// 🔴 NOT A SHIFT -- class (a). A checkout this far from its check-in is a probable
 			// forgotten checkout, and paying it would charge payroll for the hours nobody worked
-			// between them. Since ADR 0032 the engine writes no such `out` (a tap that far from
-			// the open check-in is an `in`, and the check-in stays open), so this branch is fed
-			// by historical rows and by a manager's typed checkout. The opening tap is reported
-			// as open instead, which is the state a manager has to correct.
+			// between them. Since ADR 0032 the engine's own direction never writes such an `out` (a
+			// tap that far from the open check-in is D = `in`, and the check-in stays open) -- but
+			// since Faz B the PERSON can: "Not right? Clock out" more than StaleOpenIn after the
+			// check-in is recorded as `out` (direction_source 'employee', ADR 0032 §B.3), and it lands
+			// here. So this branch is fed by historical rows, by a manager's typed checkout and by a
+			// chosen checkout past 18 hours within the check-in's business day (across it, it is (b)). The opening tap is reported as open instead, which is
+			// the state a manager has to correct.
 			out.Totals.TooLong++
 			openEntry(in)
 			continue

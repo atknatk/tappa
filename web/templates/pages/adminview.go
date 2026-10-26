@@ -580,6 +580,45 @@ type PendingBadge struct {
 	// Capped means the count stopped at its cap, so the badge reads "N+".
 	// internal/domain/ledger.PendingCap says why an exact count is not taken.
 	Capped bool
+	// Claims is the undecided punch claims (M15-18 review round), read with the badge. The navigation
+	// badge does not add them; The Spike's queue link, its empty state and The Pass's card print them.
+	Claims PendingClaims
+}
+
+// PendingClaims is the undecided punch claims as far as counted: Queried false says nothing was
+// asked, Failed says the count could not be read (never 0), N is a floor when Capped.
+type PendingClaims struct {
+	Queried bool
+	Failed  bool
+	N       int
+	Capped  bool
+}
+
+// Count is the number as printed: "12", "100+", "?" for a failed count, "" when nothing was asked.
+func (c PendingClaims) Count() string {
+	switch {
+	case c.Failed:
+		return "?"
+	case !c.Queried:
+		return ""
+	case c.Capped:
+		return itoa(c.N) + "+"
+	default:
+		return itoa(c.N)
+	}
+}
+
+// Waiting is the sentence "N time claims are waiting" ("1 time claim is waiting"), "" for none and
+// for a count not measured.
+func (c PendingClaims) Waiting() string {
+	switch {
+	case !c.Queried || c.Failed || c.N <= 0:
+		return ""
+	case c.N == 1 && !c.Capped:
+		return "1 time claim is waiting"
+	default:
+		return c.Count() + " time claims are waiting"
+	}
 }
 
 // Label is what the badge prints: "" when nothing is waiting, "?" when the count

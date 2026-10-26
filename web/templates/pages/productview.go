@@ -101,13 +101,20 @@ const (
 	// from pages/result.templ (the docket and its stamp's four words) and the tap
 	// handler rendering pages.Result for a recorded outcome.
 	FactRecordedTapEndsOnAStampedDocket Fact = "templ:Result docket+stamp's four words"
-	// A counted tap's screen ends on "All done — you can close this page." and the
-	// result screen carries no button, link or form. Derived from pages/result.templ.
-	FactResultScreenEndsWithoutAButton Fact = "templ:Result closing, no control"
-	// The tap screen is the greeting docket and one form with one button: no menu, no
-	// link, no second control. Derived from pages/tap.templ's Tap, TapHeading and
-	// tapForm.
-	FactTapScreenIsOneButton Fact = "templ:Tap = TapHeading+tapForm(one TapButtonFace)"
+	// A counted tap's screen ends on "All done — you can close this page." and nothing on
+	// the result screen records a tap: it carries no link, and its one possible form is the
+	// claim card's (M15-17, ADR 0032 §C.1), which sends a claim to the manager and writes no
+	// record. Derived from pages/result.templ, pages/claim.templ, the served result screens
+	// and internal/handler/claim.go.
+	FactResultScreenRecordsNoOtherTap Fact = "templ:Result closing, only the claim card's form"
+	// The tap screen is the greeting docket and one form: one large primary button that
+	// says the predicted direction ("Clock in" / "Clock out", or "Tap" when there is no
+	// prediction), and -- only under a prediction -- a small "Not right? …" button in the
+	// same form that sends the other direction and takes no accent (ADR 0032 §B.1, §B.3).
+	// No menu, no link, no other control. Derived from pages/tap.templ's Tap, TapHeading,
+	// tapForm, TapButtonFace and tapCorrection, and from the screen rendered for each of
+	// the three directions.
+	FactTapScreenIsOneButtonAndACorrection Fact = "templ:Tap = TapHeading+tapForm(one TapButtonFace, tapCorrection only under a prediction)"
 	// The records list steps back one day at a time ("Previous day"), and the day is a
 	// query the handler reads. Derived from pages/transactions.templ's dayStepper and
 	// internal/handler's parseTransactionFilter.
@@ -277,9 +284,11 @@ func ProductCopy(f ProductFigures) ProductText {
 		},
 		TapCapTap:   l("What opens when the phone touches the plaque.", FactTapPageNeedsNoApp, FactPlaqueIdentifiesThePlace),
 		TapCapFlag:  l("When the evidence is short, the screen says so.", FactRecordedTapEndsOnAStampedDocket, FactFlaggedQueueDecidedByAManager),
-		TeamHeading: l("One screen, one button.", FactTapScreenIsOneButton),
-		TeamLede: l("No menu, no settings, no history to scroll: a greeting, the venue that was tapped and one button.",
-			FactTapScreenIsOneButton, FactTapPageGreetsByName, FactPlaqueIdentifiesThePlace),
+		TeamHeading: l("One screen, one large button.", FactTapScreenIsOneButtonAndACorrection),
+		TeamLede: l("No menu, no settings, no history to scroll: a greeting, the venue that was tapped and one large button "+
+			"that says Clock in or Clock out. If Taptime's guess is wrong, a small “Not right?” under it records the "+
+			"other one. When Taptime does not suggest a direction, the button just says Tap.",
+			FactTapScreenIsOneButtonAndACorrection, FactTapPageGreetsByName, FactPlaqueIdentifiesThePlace),
 		TeamPoints: []ProductPoint{
 			{
 				Title: l("No app to install", FactTapPageNeedsNoApp),
@@ -291,12 +300,12 @@ func ProductCopy(f ProductFigures) ProductText {
 			},
 			{
 				Title: l("Made for wet hands", FactTapButtonSizedForAWetHand),
-				Body:  l("One large button, sized for a wet or floury finger.", FactTapButtonSizedForAWetHand, FactTapScreenIsOneButton),
+				Body:  l("One large button, sized for a wet or floury finger.", FactTapButtonSizedForAWetHand, FactTapScreenIsOneButtonAndACorrection),
 			},
 			{
-				Title: l("Done means done", FactResultScreenEndsWithoutAButton),
-				Body: l("A counted tap ends on its stamp and “All done — you can close this page.” There is no button on it.",
-					FactResultScreenEndsWithoutAButton, FactRecordedTapEndsOnAStampedDocket),
+				Title: l("Done means done", FactResultScreenRecordsNoOtherTap),
+				Body: l("A counted tap ends on its stamp and “All done — you can close this page.” Nothing on it records another tap.",
+					FactResultScreenRecordsNoOtherTap, FactRecordedTapEndsOnAStampedDocket),
 			},
 		},
 
@@ -377,7 +386,7 @@ func ProductCopy(f ProductFigures) ProductText {
 					"setup — it records no hours.", FactActivationEndsOnARealTap)},
 			{No: "03", Who: "Employee", Title: "Clock in",
 				Text: l("From then on, a tap opens the tap screen and one press records it.",
-					FactTapPageNeedsNoApp, FactTapScreenIsOneButton)},
+					FactTapPageNeedsNoApp, FactTapScreenIsOneButtonAndACorrection)},
 			{No: "04", Who: "Taptime", Title: "Flag", Flagged: true,
 				Text: l("If neither the venue's network nor GPS can place the tap, it is still recorded and, by "+
 					"default, flagged for a manager.", FactFlaggedQueueDecidedByAManager)},
@@ -444,6 +453,39 @@ const ProductSampleNote = "Drawn for this page — sample names and times."
 // ProductTapSample is the record the two phones draw: The Pass's flagged docket (a real
 // NFC tap with neither the venue's network nor a position).
 var ProductTapSample = LandingPanelPassDockets[2]
+
+// DrawnTapDirection is what the tap screen's button says before a sample docket's tap
+// (ADR 0032 §B.1): the docket's own direction, predicted -- "IN" is "Clock in", "OUT"
+// "Clock out" -- and nothing for anything else. The site's drawings of the tap screen take
+// their words from it; internal/handler holds those words to the real screen's render.
+func DrawnTapDirection(docketDirection string) TapDirection {
+	switch docketDirection {
+	case "IN":
+		return TapClockIn
+	case "OUT":
+		return TapClockOut
+	default:
+		return TapUndirected
+	}
+}
+
+// DrawnCorrection is the small "Not right? …" line a drawing puts under the button for d, or
+// "" for a direction with nothing to correct -- as pages/tap.templ's tapCorrection words it.
+func DrawnCorrection(d TapDirection) string {
+	if d.Other().Want() == "" {
+		return ""
+	}
+	return "Not right? " + d.Other().Words()
+}
+
+// DrawnTapButtons names a drawing's buttons for its accessible name: "a Clock in button and
+// a small “Not right? Clock out” under it", or "one Tap button" with no prediction.
+func DrawnTapButtons(d TapDirection) string {
+	if fix := DrawnCorrection(d); fix != "" {
+		return "a " + d.Words() + " button and a small “" + fix + "” under it"
+	}
+	return "one " + d.Words() + " button"
+}
 
 // ProductTapPlaque is the drawn plaque's line: the venue and the plaque, as The Spike's
 // record in focus names it (LandingPanelSpikeFocus).
