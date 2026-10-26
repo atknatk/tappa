@@ -188,8 +188,29 @@ func billingPathOf(id string) string { return "/operator/tenants/" + id + "/bill
 // billingRowRe is one month of the screen.
 var billingRowRe = regexp.MustCompile(`(?s)<li class="op-row">(.*?)</li>`)
 
-// fact is a row's labelled fact as the screen writes it.
+// receiptLabels are the four figures of a month the screen writes as its receipt strip (M13-10;
+// README §6 "Billing receipt strip"), in the strip's order.
+var receiptLabels = []string{"Plan", "People counted", "Price per person", "Amount"}
+
+// receiptCell is one cell of a month's receipt strip as the screen writes it: the label a docket
+// label above, the value in the data face.
+func receiptCell(label, value string) string {
+	return `<div><dt class="docket-label">` + label + `</dt><dd class="font-mono">` + html.EscapeString(value) + `</dd></div>`
+}
+
+// oldFigure is the inline span the four figures were written as before M13-10, for the controls
+// that it is gone.
+func oldFigure(label string) string {
+	return `<span class="text-sm">` + label + ` <span class="font-mono">`
+}
+
+// fact is a row's labelled fact as the screen writes it: one of the four figures as its receipt
+// strip's cell (M13-10), any other fact -- Closed, First charged month, Counted over -- as its
+// inline span.
 func fact(label, value string) string {
+	if slices.Contains(receiptLabels, label) {
+		return receiptCell(label, value)
+	}
 	return `<span class="text-sm">` + label + ` <span class="font-mono">` + html.EscapeString(value) + `</span></span>`
 }
 
@@ -510,10 +531,23 @@ func TestBillingScreen_EveryStateSaysItsWordAndNoVerdict(t *testing.T) {
 		if !strings.Contains(r, `<span class="w-full text-sm">`+html.EscapeString(w.sentence)+`</span>`) {
 			t.Errorf("row %d (%s): the sentence is not %q", i+1, w.month, w.sentence)
 		}
-		for _, label := range []string{"People counted", "Price per person", "Amount", "Plan", "Counted over"} {
-			if got := strings.Contains(r, `<span class="text-sm">`+label+` <span class="font-mono">`); got != w.figures {
+		// The four figures are the receipt strip's cells (M13-10), Counted over the row's span.
+		for _, label := range receiptLabels {
+			if got := strings.Contains(r, `<div><dt class="docket-label">`+label+`</dt><dd class="font-mono">`); got != w.figures {
 				t.Errorf("row %d (%s): %q present = %v, want %v", i+1, w.month, label, got, w.figures)
 			}
+		}
+		if got := strings.Contains(r, `<span class="text-sm">Counted over <span class="font-mono">`); got != w.figures {
+			t.Errorf("row %d (%s): \"Counted over\" present = %v, want %v", i+1, w.month, got, w.figures)
+		}
+		// A row with figures has one strip of exactly four cells; a row without has none (§4.6:
+		// not even an empty strip, not even a zero).
+		strips, cells := strings.Count(r, `<dl class="op-receipt">`), strings.Count(r, `<div><dt class="docket-label">`)
+		if w.figures && (strips != 1 || cells != 4 || strings.Count(r, "<dl") != 1 || strings.Count(r, "<dt") != 4 || strings.Count(r, "<dd") != 4) {
+			t.Errorf("row %d (%s): %d strip(s) of %d cell(s), want one of four", i+1, w.month, strips, cells)
+		}
+		if !w.figures && (strings.Contains(r, "op-receipt") || strings.Contains(r, "<dl") || strings.Contains(r, "<dt") || strings.Contains(r, "<dd")) {
+			t.Errorf("row %d (%s), before sign-up, carries a receipt strip", i+1, w.month)
 		}
 		if !w.figures && strings.Contains(r, "€") {
 			t.Errorf("row %d (%s), before sign-up, carries an amount", i+1, w.month)
@@ -536,6 +570,13 @@ func TestBillingScreen_EveryStateSaysItsWordAndNoVerdict(t *testing.T) {
 			t.Errorf("the page does not carry %q", f)
 		}
 	}
+	// CONTROL (M13-10): the four figures' inline spans are gone from the page, so the strip is not
+	// matched alongside a leftover.
+	for _, label := range receiptLabels {
+		if strings.Contains(body, oldFigure(label)) {
+			t.Errorf("the page still writes %s as an inline span", label)
+		}
+	}
 
 	// Shapes the read does not document: unreadable, no figure, logged.
 	odd := billingPageOfEveryState(2026, time.October)
@@ -556,8 +597,9 @@ func TestBillingScreen_EveryStateSaysItsWordAndNoVerdict(t *testing.T) {
 			!strings.Contains(r, `<span class="w-full text-sm">`+html.EscapeString(sentenceUnread)+`</span>`) {
 			t.Errorf("odd row %d is not drawn as unreadable", i+1)
 		}
-		if strings.Contains(r, "€") || strings.Contains(r, "People counted") || strings.Contains(r, "0.00") {
-			t.Errorf("odd row %d, unreadable, carries a figure", i+1)
+		if strings.Contains(r, "€") || strings.Contains(r, "People counted") || strings.Contains(r, "0.00") ||
+			strings.Contains(r, "op-receipt") || strings.Contains(r, "<dl") {
+			t.Errorf("odd row %d, unreadable, carries a figure or a receipt strip", i+1)
 		}
 	}
 	if !strings.Contains(oddRows[8], `<span class="font-mono font-bold">A month with no date</span>`) {
@@ -1390,7 +1432,10 @@ func TestBillingScreen_TimesAreTheMonthsOwnZone(t *testing.T) {
 // PART I -- page 1 offers "Older months" (a form posting page 2 to the screen's path) and no
 // "Newer months"; page 3 offers both (2 and 4); page 5 offers only "Newer months" (4) and says
 // it is the oldest page, 60 months; each page's heading names its number and 5, in the data
-// face, and lists twelve rows.
+// face, and lists twelve rows. M13-10: each offered way is a form whose button is the outlined
+// op-pager (README §6 "Pager"); the page carries exactly as many forms posting to the screen's
+// path and op-pager buttons as it offers ways (two on page 3, one on pages 1 and 5); CONTROL:
+// neither label is an op-link button anywhere on the page.
 //
 // PART II -- the list above. PART III -- no completeness claim.
 func TestBillingScreen_PagesAreFiveOfTwelve(t *testing.T) {
@@ -1404,7 +1449,7 @@ func TestBillingScreen_PagesAreFiveOfTwelve(t *testing.T) {
 	path := billingPathOf(tenant.String())
 	form := func(page int, label string) string {
 		return `<form method="post" action="` + path + `"><input type="hidden" name="page" value="` + strconv.Itoa(page) +
-			`"> <button type="submit" class="op-link">` + label + `</button></form>`
+			`"> <button type="submit" class="op-pager">` + label + `</button></form>`
 	}
 	for _, c2 := range []struct {
 		page         int
@@ -1421,6 +1466,23 @@ func TestBillingScreen_PagesAreFiveOfTwelve(t *testing.T) {
 		if got := strings.Contains(body, form(c2.page-1, "Newer months")); got != c2.newer {
 			t.Errorf("page %d: Newer months offered = %v, want %v", c2.page, got, c2.newer)
 		}
+		// M13-10: the pager is the outlined op-pager button; the old link-styled one is gone, and the
+		// page carries exactly the pager's forms that it offers (both on page 3).
+		for _, label := range []string{"Older months", "Newer months"} {
+			if strings.Contains(body, `class="op-link">`+label+`</button>`) {
+				t.Errorf("page %d: %s is still an op-link button", c2.page, label)
+			}
+		}
+		offered := 0
+		for _, o := range []bool{c2.older, c2.newer} {
+			if o {
+				offered++
+			}
+		}
+		if n := strings.Count(body, `<form method="post" action="`+path+`">`); n != offered ||
+			strings.Count(body, `<button type="submit" class="op-pager">`) != offered {
+			t.Errorf("page %d: %d pager form(s), want %d", c2.page, n, offered)
+		}
 		heading := `page <span class="font-mono">` + strconv.Itoa(c2.page) + `</span> of <span class="font-mono">5</span>`
 		if !strings.Contains(body, heading) {
 			t.Errorf("page %d: the heading does not say %q", c2.page, heading)
@@ -1436,13 +1498,16 @@ func TestBillingScreen_PagesAreFiveOfTwelve(t *testing.T) {
 //
 // PART I -- the months sit in ONE <section class="docket"> labelled by its heading, and every
 // row is inside it; the heading is a docket label with the page numbers in the data face;
-// every figure of a row is in the data face; the pager's buttons and (2nd round) the two ways
-// back -- to the overview, to the tenants -- are op-link controls; and
-// web/static/css/input.css gives op-link the 44 px touch target.
+// every figure of a row is in the data face -- the four of the receipt strip (M13-10) as a
+// docket-label term over a mono value, the three dated facts as an inline span with a mono
+// value; the pager's button is an op-pager control (M13-10; README §6 "Pager") and no pager
+// button is an op-link one; (2nd round) the two ways back -- to the overview, to the tenants --
+// are op-link controls; and web/static/css/input.css gives op-link the 44 px touch target
+// (op-pager's is op14_test.go's 44 px check).
 //
 // PART II -- red on: the docket replaced or doubled; a row outside it; the heading's class or
-// a mono number dropped; a figure out of the data face; a pager button's or a way back's class
-// changed; the touch target dropped. PART III -- These classes only (no completeness claim).
+// a mono number dropped; a figure out of the data face or out of its strip; a pager button's
+// or a way back's class changed; the touch target dropped. PART III -- These classes only (no completeness claim).
 func TestBillingScreen_WearsTheDocketAnatomy(t *testing.T) {
 	g := newRig(t)
 	c := g.signIn(g.active())
@@ -1468,13 +1533,23 @@ func TestBillingScreen_WearsTheDocketAnatomy(t *testing.T) {
 	if !strings.Contains(body, `<h2 id="tenant-billing" class="docket-label">Newest first · page <span class="font-mono">1</span> of <span class="font-mono">5</span></h2>`) {
 		t.Error("the docket's heading is not a docket label with its page numbers in the data face")
 	}
-	for _, label := range []string{"Plan", "People counted", "Price per person", "Amount", "First charged month", "Closed", "Counted over"} {
+	// M13-10: the four figures are the receipt strip's term and value, the value in the data face;
+	// the three dated facts stay inline spans with their value in the data face.
+	for _, label := range receiptLabels {
+		if !regexp.MustCompile(`<div><dt class="docket-label">` + label + `</dt><dd class="font-mono">[^<]+</dd></div>`).MatchString(body) {
+			t.Errorf("the %s figure is not a receipt cell in the data face", label)
+		}
+	}
+	for _, label := range []string{"First charged month", "Closed", "Counted over"} {
 		if !regexp.MustCompile(`<span class="text-sm">` + label + ` <span class="font-mono">[^<]+</span></span>`).MatchString(body) {
 			t.Errorf("the %s fact is not in the data face", label)
 		}
 	}
-	if !strings.Contains(body, `<button type="submit" class="op-link">Older months</button>`) {
-		t.Error("the pager's button is not an op-link button")
+	if !strings.Contains(body, `<button type="submit" class="op-pager">Older months</button>`) {
+		t.Error("the pager's button is not an op-pager button")
+	}
+	if strings.Contains(body, `class="op-link">Older months</button>`) || strings.Contains(body, `class="op-link">Newer months</button>`) {
+		t.Error("CONTROL: a pager button is still an op-link button")
 	}
 	// 2nd round: the screen's two ways back are op-link links too (the 44 px target below).
 	for _, link := range []string{`<a href="/operator/tenants/` + tenant.String() + `" class="op-link">Back to the overview</a>`,
@@ -1499,11 +1574,14 @@ func TestBillingScreen_WearsTheDocketAnatomy(t *testing.T) {
 // (green-lite for a frozen month, saffron-lite for one ended and not closed, line at 10% for
 // one before sign-up, ink at 10% for an unreadable one), ink and ink at 70% on paper (the rows,
 // the help line, and -- M13-02 -- a running month's chip, whose ground is paper inside a dashed
-// saffron frame; the frame carries no text), tappa-green on paper (the two ways back, in the intro
-// card) and tappa-green on porcelain (the pager, which sits outside the docket on the page's
-// ground -- 2nd round: the first version said "on paper" of it, which it is not) -- each
-// against AA's 4.5:1 (the chips' words are 11px, the rest 14px and smaller). No ground is
-// new: the four are the plaque screen's and the review queue's.
+// saffron frame; the frame carries no text; M13-10 -- the pager's word, ink on the op-pager's
+// own paper, whose ink-at-30% frame carries no text either (README §6 "Pager"), and at 70% the
+// receipt strip's labels and the dated facts' words), tappa-green on paper (the two ways back,
+// in the intro card) and tappa-green on porcelain (an op-link on the page's own ground, outside
+// any card or docket; since M13-10 no element of this screen is drawn so -- the line is kept as
+// the screen's floor for one, its threshold unchanged) -- each against AA's 4.5:1 (the chips'
+// words are 11px, the rest 14px and smaller). No ground is new: the four are the plaque
+// screen's and the review queue's.
 func TestBillingScreen_TheChipsAndTextClearAA(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "..", "..", "tailwind.config.js"))
 	if err != nil {
@@ -1540,10 +1618,10 @@ func TestBillingScreen_TheChipsAndTextClearAA(t *testing.T) {
 		{"ink on saffron-lite (ended, not closed)", ink, hexOf("saffron-lite")},
 		{"ink on line at 10% over paper (before sign-up)", ink, over(hexOf("line"), 0.1, paper)},
 		{"ink on ink at 10% over paper (unreadable)", ink, over(ink, 0.1, paper)},
-		{"ink on paper (the rows; a running month's chip)", ink, paper},
+		{"ink on paper (the rows; a running month's chip; the pager's word)", ink, paper},
 		{"ink at 70% on paper", over(ink, 0.7, paper), paper},
 		{"tappa-green on paper (the ways back, in the intro card)", hexOf("tappa-green"), paper},
-		{"tappa-green on porcelain (the pager, outside the docket)", hexOf("tappa-green"), hexOf("porcelain")},
+		{"tappa-green on porcelain (an op-link on the page's ground; none on this screen since M13-10)", hexOf("tappa-green"), hexOf("porcelain")},
 	} {
 		if got := contrast(c.fg, c.bg); got < 4.5 {
 			t.Errorf("%s = %.2f:1, want at least 4.5:1", c.what, got)

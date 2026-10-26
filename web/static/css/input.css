@@ -1384,6 +1384,32 @@
   [aria-labelledby="tenant-plaques"] .op-row > div > :nth-child(n+2) { @apply font-display; }
   [aria-labelledby="tenant-plaques"] .op-row > div > :nth-child(n+3) { @apply text-ink/70; }
   [aria-labelledby="tenant-plaques"] .op-row > div > :nth-child(n+3) > * { @apply text-ink; }
+  /* THE BILLING MONTHS IN THE REDESIGN (M13-10; docs/design/operator-redesign README §6.1
+     "Billing row", boards OpBilling, T-OpBilling, M-OpBilling). Scoped from the docket's heading
+     id, because the heading's and the row's markup are pinned (the heading's words and spans, a
+     row opening with the month's span).
+     THE HEADING: the boards' rule under it, a 2 px dash in the perforation tone, 12 px below the
+     words; the page numbers bold, in ink.
+     THE ROW: 18 px above and below on the phone, 20 px from the tablet, the last row 6 px below;
+     its blocks 12 px apart, the month and the chip 14 px apart; on the phone the chip is pushed
+     to the head line's end, as the phone board draws it (a chip that wraps to a line of its own
+     starts it). Every value breaks anywhere rather than widening the page. The month 16 px.
+     THE TYPE, AS THE BOARDS SET IT (orchestrator decision (f)): the sentence and the free-window
+     and floor sentences in Space Grotesk (the floor's figure keeps its mono class); the dated
+     facts' wrapper sets its own face and its words' ink at 70 % (6.05:1 on paper), and the
+     values here are ink (16.17:1), keeping their mono class. The receipt strip takes the row's
+     width; its labels stay the docket's mono, as the boards' strip sets them. NO SELECTOR HERE
+     NAMES THE CHIP'S CLASS (TestTallyRules_NoToneRuleColoursTheWord reads every rule that does).
+     Each rule is one @apply, read and pinned by TestBillingRow_TheScopedRulesKeepTheBoardsReceipt. */
+  [aria-labelledby="tenant-billing"] > h2 { @apply border-b-2 border-dashed border-line pb-3; }
+  [aria-labelledby="tenant-billing"] > h2 > span { @apply font-bold text-ink; }
+  [aria-labelledby="tenant-billing"] .op-row {
+    @apply gap-x-3.5 gap-y-3 py-[18px] [overflow-wrap:anywhere] last:pb-1.5 max-md:justify-between md:py-5;
+  }
+  [aria-labelledby="tenant-billing"] .op-row > :first-child { @apply text-base; }
+  [aria-labelledby="tenant-billing"] .op-row > span:nth-child(n+3) { @apply font-display; }
+  [aria-labelledby="tenant-billing"] .op-row > dl { @apply w-full; }
+  [aria-labelledby="tenant-billing"] .op-row > p > span > span { @apply text-ink; }
 
   /* THE INTEGRATION GUIDE'S BODY (M11 DOCS-1, /docs/api). internal/apiguide converts the
      Markdown with goldmark, whose output carries no class, so every rule here is scoped

@@ -613,7 +613,8 @@ frozen = green; before sign-up = line; unreadable = ink (the last four as today)
 
 **Forms:** pager — POST forms to `/operator/tenants/{id}/billing` with hidden `page` (1..5);
 exactly 2 on page 3 (`op8_test.go:895`). Drawn as outlined buttons: `<button type="submit"
-class="op-pager">` after M13-10 (today `class="op-link"`, pinned at `op12_test.go:1372, 1441`).
+class="op-pager">` since M13-10 (before it `class="op-link"`); on the phone the two share the row,
+each half of it.
 
 **States:** every tone on one page · page 3 (both pager buttons) · the last page (oldest-page
 note) · unnamed tenant (fixtures "tenant billing", "tenant billing, page 3", "tenant billing, the
@@ -628,7 +629,10 @@ never render alike; unreadable / before-sign-up rows show no figure (§4.6).
 `TestBillingScreen_AFailedReadIsAProblemPageNeverAZeroInvoice`, `TestBillingScreen_ReadsNothingFromTheURL`,
 `TestBillingScreen_TimesAreTheMonthsOwnZone`, `TestBillingScreen_PagesAreFiveOfTwelve`,
 `TestBillingScreen_WearsTheDocketAnatomy`, `TestBillingScreen_TheChipsAndTextClearAA`,
-`TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes`, `TestBillingMoney_PutsTheSymbolInTheRenderLayer`.
+`TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes`, `TestBillingMoney_PutsTheSymbolInTheRenderLayer`;
+since M13-10 `TestBillingScreen_IsTheIntroCardAndTheDocket` (the whole column, tags and words, per
+state) and `TestBillingRow_TheScopedRulesKeepTheBoardsReceipt` (the row's and the strip's rules). As
+built: README §6.1 "Billing row".
 
 ---
 
