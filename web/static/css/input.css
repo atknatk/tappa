@@ -1338,15 +1338,13 @@
      chip is not stretched to its track. The plan is mono by its own rule, not only by the
      docket's. NO SELECTOR HERE NAMES THE CHIP'S CLASS: TestTallyRules_NoToneRuleColoursTheWord
      reads every rule that does. A name or an id that cannot break (no space in it) breaks
-     anywhere rather than widening the page. */
+     anywhere rather than widening the page. Each of the four rules is one @apply, read and
+     pinned by TestTenantsRow_TheScopedRulesKeepTheBoardsTracks. */
   [aria-labelledby="tenant-list"] .op-row {
     @apply gap-y-0.5 pt-1 pb-3 md:grid md:grid-cols-[minmax(0,1fr)_auto_76px] md:items-center md:justify-items-start
            md:gap-x-5 md:gap-y-0 md:pt-1.5 md:pb-2.5 desk:grid-cols-[minmax(0,1fr)_auto_76px_auto] desk:pb-1.5;
   }
-  [aria-labelledby="tenant-list"] .op-row > :first-child {
-    overflow-wrap: anywhere;
-    @apply min-w-0 basis-full text-[15px];
-  }
+  [aria-labelledby="tenant-list"] .op-row > :first-child { @apply min-w-0 basis-full text-[15px] [overflow-wrap:anywhere]; }
   [aria-labelledby="tenant-list"] .op-row > :nth-child(3) { @apply font-mono; }
   [aria-labelledby="tenant-list"] .op-row > :last-child {
     @apply basis-full md:col-span-full desk:col-span-1 desk:col-start-4 desk:row-start-1 desk:justify-self-end;

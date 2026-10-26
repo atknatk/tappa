@@ -6,9 +6,13 @@ package operator_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"html"
 	"maps"
+	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -275,4 +279,108 @@ func TestTenantsScreen_IsTheSearchCardTheDocketAndThePager(t *testing.T) {
 			t.Errorf("%s: the list says %q (screens.md §5 Not shown: counts, filter, sort, recent searches, a reason)", name, m)
 		}
 	}
+}
+
+// tenantRowRules is the tenant list's row layout in web/static/css/input.css (README §6.1
+// "Tenants row"): each rule scoped from the list's heading id, its selector and its utilities
+// exactly. The row: on the phone the shared row's wrapping flex with a 2 px line gap; from the
+// tablet a grid of three tracks (name, since, plan), items at their own width (start) so the
+// chip keeps its size; on the desktop four tracks. The name link alone on its phone line, 15 px,
+// breaking anywhere. The plan mono. The id on its own line on the phone and the tablet, placed
+// explicitly in the fourth track of the first line on the desktop, at its end -- which is what
+// sends a suspended tenant's chip, the fifth child, to the second line under the name.
+var tenantRowRules = map[string][]string{
+	`[aria-labelledby="tenant-list"] .op-row`: {"gap-y-0.5", "pt-1", "pb-3", "md:grid", "md:grid-cols-[minmax(0,1fr)_auto_76px]",
+		"md:items-center", "md:justify-items-start", "md:gap-x-5", "md:gap-y-0", "md:pt-1.5", "md:pb-2.5",
+		"desk:grid-cols-[minmax(0,1fr)_auto_76px_auto]", "desk:pb-1.5"},
+	`[aria-labelledby="tenant-list"] .op-row > :first-child`:  {"min-w-0", "basis-full", "text-[15px]", "[overflow-wrap:anywhere]"},
+	`[aria-labelledby="tenant-list"] .op-row > :nth-child(3)`: {"font-mono"},
+	`[aria-labelledby="tenant-list"] .op-row > :last-child`: {"basis-full", "md:col-span-full", "desk:col-span-1", "desk:col-start-4",
+		"desk:row-start-1", "desk:justify-self-end"},
+}
+
+// TestTenantsRow_TheScopedRulesKeepTheBoardsTracks (M13-07; README §6.1 "Tenants row"): in
+// web/static/css/input.css (the committed source; comments stripped, read as flat `selectors {
+// @apply …; }` rules, as readOperatorComponentRules reads), every rule whose selector names the
+// tenant list's heading id is one of tenantRowRules' four, each exists exactly once, is one
+// @apply, and applies exactly its utilities -- no more, no fewer, none changed. CONTROLS, each
+// read by the same function and each a finding: the id's rule deleted (on the desktop the chip
+// takes the fourth track and the id falls to the second line), the row's items stretched again
+// (md:justify-items-start dropped: the chip grows to its track), the name link sharing its phone
+// line (basis-full dropped), the desktop's four tracks back to three, the tablet's three tracks
+// changed, the plan's mono dropped, a fifth rule on the list.
+//
+// PART II -- red on: any of the above. PART III -- what the rules draw at each width is the
+// screenshot round's (README §6.1, as built); a later rule elsewhere that overrides one of these,
+// or a utility class added to the row in a template, is TestTenantsScreen_IsTheSearchCardTheDocketAndThePager's
+// (the row's markup) or code review's -- no completeness claim.
+func TestTenantsRow_TheScopedRulesKeepTheBoardsTracks(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(raw)
+	for _, f := range readTenantRowRules(css) {
+		t.Error(f)
+	}
+	const row, first, third, last = `[aria-labelledby="tenant-list"] .op-row {`, `[aria-labelledby="tenant-list"] .op-row > :first-child {`,
+		`[aria-labelledby="tenant-list"] .op-row > :nth-child(3) {`, `[aria-labelledby="tenant-list"] .op-row > :last-child {`
+	for _, c := range []struct{ what, from, to string }{
+		{"the id's rule deleted", last, `.m1307-control-deleted {`},
+		{"the items stretched", " md:justify-items-start", ""},
+		{"the name sharing its phone line", first + " @apply min-w-0 basis-full", first + " @apply min-w-0"},
+		{"three tracks on the desktop", "desk:grid-cols-[minmax(0,1fr)_auto_76px_auto]", "desk:grid-cols-[minmax(0,1fr)_auto_76px]"},
+		{"the tablet's tracks changed", "md:grid-cols-[minmax(0,1fr)_auto_76px]", "md:grid-cols-[minmax(0,1fr)_auto_auto]"},
+		{"the plan not mono", third + " @apply font-mono; }", third + " @apply font-display; }"},
+		{"the id not placed on the first line", " desk:row-start-1", ""},
+		{"a fifth rule", row, `[aria-labelledby="tenant-list"] .op-row > span { @apply text-sm; }` + "\n  " + row},
+	} {
+		mutated := strings.Replace(css, c.from, c.to, 1)
+		if mutated == css {
+			t.Fatalf("CONTROL %s: %q is not in input.css", c.what, c.from)
+		}
+		if len(readTenantRowRules(mutated)) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
+		}
+	}
+}
+
+// readTenantRowRules is TestTenantsRow_TheScopedRulesKeepTheBoardsTracks's reading of input.css:
+// one finding per way the source departs from tenantRowRules.
+func readTenantRowRules(css string) []string {
+	src := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
+	rule := regexp.MustCompile(`([^{}]*)\{([^{}]*)\}`)
+	apply := regexp.MustCompile(`^@apply ([^;]+);$`)
+	found := map[string][][]string{}
+	var findings []string
+	for _, m := range rule.FindAllStringSubmatch(src, -1) {
+		sel := strings.Join(strings.Fields(m[1]), " ")
+		if !strings.Contains(sel, `aria-labelledby="tenant-list"`) {
+			continue
+		}
+		if _, known := tenantRowRules[sel]; !known {
+			findings = append(findings, "a rule on the tenant list that is not one of the row's four: "+sel)
+			continue
+		}
+		a := apply.FindStringSubmatch(strings.TrimSpace(m[2]))
+		if a == nil {
+			findings = append(findings, "`"+sel+"` is not one @apply: "+strings.TrimSpace(m[2]))
+			continue
+		}
+		found[sel] = append(found[sel], strings.Fields(a[1]))
+	}
+	for sel, want := range tenantRowRules {
+		if len(found[sel]) != 1 {
+			findings = append(findings, fmt.Sprintf("%d `%s { @apply … }` rule(s) in input.css, want 1", len(found[sel]), sel))
+			continue
+		}
+		got := slices.Clone(found[sel][0])
+		w := slices.Clone(want)
+		slices.Sort(got)
+		slices.Sort(w)
+		if !slices.Equal(got, w) {
+			findings = append(findings, fmt.Sprintf("`%s` applies %v, want exactly %v", sel, found[sel][0], want))
+		}
+	}
+	return findings
 }

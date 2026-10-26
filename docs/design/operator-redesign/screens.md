@@ -329,6 +329,10 @@ tablet by grid placement), the matching line under a dashed rule (the term mono 
 phone); the docket's empty sentence is the display face; the pager unchanged (`op-link`). Every word, the form's tags, the box's
 attribute set, the hidden fields and the term's three designed places (box, matching line, pager) are pinned by
 `TestTenantsScreen_IsTheSearchCardTheDocketAndThePager`.
+The row's four scoped rules by `TestTenantsRow_TheScopedRulesKeepTheBoardsTracks`. Differences from the boards: the help is
+12 px (as drawn; README §6 "Field"); the links row sits 14 px under the block above (the card's gap — the boards' 6 px is a
+`margin-top: -8px`, and the card's bodies carry no top margin); the boards' `aria-labelledby="tenants-h"` on the card is not
+ported (D1: the code writes none); "Since" is mono with its time (the span is pinned whole).
 
 **States:** every tenant page 1 · searched with matches · no match · no tenants yet · later page
 empty · pager Previous + Next · a suspended row (fixture "tenants, a suspended row").
