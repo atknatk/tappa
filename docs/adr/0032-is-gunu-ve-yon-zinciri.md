@@ -975,3 +975,107 @@ gönderim, müdür kararı (onay → manuel kayıt). ADR 0032.*
 - **Öz-onay** (§C.4) bugün engellenmez.
 - **Talep sonucu çalışana bildirilmez** (Q32) — çalışan sonucu M9-05'e kadar göremez.
 - **Geçmiş** düzelmez (§A.8).
+
+## Uygulandı (2026-10-26, M15-19)
+
+M15'in kartları kodda. Bu ADR'nin normatif metni değişmedi; uygulamanın sapmaları ve ölçülerek düzeltilmiş
+cümleler kartların tarihli notlarındadır (§A.6 düzeltme notu 2026-10-23, §C.1 ve §C.4 uygulama notları).
+
+**Faz A canlıda.** M15-01…05, M15-07 ve M15-08 `main`'de:
+- **T0** (2026-10-22): PR #9 → merge `c7226c3`; deploy 39749168776, 00064 üretimde 16 ms, goose 64;
+  `TAPPA_BUSINESS_DAY_FROM` boş (yalnız 18 sa kuralı, ayar ekranları, Account → *Business day check*,
+  çakışma bildirimi, duyurunun liste cümlesi).
+- **Çakışma raporunun sonucu:** KM'nin kesimi owner tarafından canlıda 23:00 yapıldı (2026-10-22 14:24 UTC,
+  `tenant.day_cutoff_updated`); KF, Codevera Labs ve Creekville 05:00 varsayılanında; şube, departman ve kişi
+  düzeyinde değer yok (Q30).
+- **T2** (aynı gün): `ae8fe70` → PR #10 → merge `3e5a00f`; `TAPPA_BUSINESS_DAY_FROM=2026-10-22T16:30:00Z`
+  (prod ve sandbox ConfigMap'i), deploy 16:15 UTC, başlangıç logu `active=false`, kural 16:30 UTC'de sunucu
+  saatiyle açıldı.
+- **İlk gerçek satır** 2026-10-23 13:02:25 UTC: Kebab Factory Ltd., `nfc/in/ok`,
+  `business_day_start = 2026-10-23 03:00 UTC` (Malta 05:00). Yönlü nfc/qr satırında S'siz satır: 0.
+- **Panel duyurusu** iş günü cümlesiyle T2'den beri görünür; T2 + 28 gün = **2026-11-19 16:30 UTC**'de kalkar.
+
+**Faz B ve Faz C dalda** (`plan/m15-is-gunu`; `main`'e alınmadı). Kart başına commit zinciri
+(`git log --oneline origin/main..HEAD`, 45 commit; bu not hariç):
+
+| Kart | Commit'ler |
+|---|---|
+| M15-06 (Faz A, sevk kapısının dışında; B ile sevk) | `e3bd8b2b` · `06d8d97a` · `e366bb1b` · `8fcbcded` |
+| M15-09 (00065, 00066) | `dcc451f2` · `9c89eb5a` |
+| M15-10 | `34a00b68` · `1746cfd9` · `1349e260` · `474a08df` |
+| M15-11 | `60409a8b` · `40df0c05` · `f47e9347` |
+| M15-12 | `e4689ce2` · `373f5986` · `bf282b69` |
+| M15-13 (00067) | `bfa97aa2` · `80a6aef9` · `a1af08ea` · `2b3ad059` |
+| M15-14 (Faz B kapanışı) | `fe9cf6d1` · `429a5266` · `2d849ece` · `eb1228d3` · `ef6aa18d` · `e65b107a` · `64dcb7bb` · `09d3347d` |
+| M15-15 (00068) | `2d04cb46` · `fea757ff` · `95fbd44c` |
+| M15-16 | `09a753c5` · `8f5db081` · `6b3bbd34` |
+| M15-17 | `1d33608c` · `9d298fb3` · `6e68a0f1` |
+| M15-18 | `052e6556` · `86bbcc68` · `f092ec80` |
+| M15-19 | bu commit |
+
+Kart dışı: `a19c1faf`, `31b61a48` (durum kaydı) · `725c7d19`, `d8178a01` (`main`'i dala alan iki merge) ·
+`d660fabd` (public sitenin tap ekranı çizimi; *"Metni M15'e göre yaz"*).
+
+**Migration'lar:** 00064 (M15-02, canlıda) → 00065 `transactions.direction_source` + iki `NOT VALID` CHECK
+(M15-09) → 00066 iki CHECK'in `VALIDATE`'i (M15-09) → 00067 `punch_events.direction_source` (M15-13) →
+00068 `punch_claims` + `punch_claim_decisions` (M15-15). Numaralar 2026-10-22 notundaki gibi: 00067
+M15-13'ün, 00068 M15-15'in. Down'ların hepsi kanıt taşıyan satır varken reddeder (00066'nın Down'ı veri
+düşürmez); geri dönüş bu yüzden binary'dir.
+
+**Uygulama sırasındaki kullanıcı kararları** (kabul notundaki K1–K6 ve Q30–Q33'e ek):
+- 2026-10-22: Faz A CI yeşilse PR ile `main`'e; T2 kesimler canlıda ayarlanınca; sandbox aynı değerle. Faz B ve
+  C birlikte `main`'e, M15 M14'ten önce.
+- 2026-10-23, *"Sözleşmeyi aç + kural yaz"* (M15-13): punch yanıt şemaları ek alanlara açık, istek gövdeleri
+  kapalı; rehberde kural, ADR 0028 §8'de K notu. Kapsamın bütün yanıt şemalarına genişlemesi orkestratörün kararı.
+- 2026-10-23, *"Sayfayı yenile"* → aynı gün *"Yenileme yalnız QR'da"* (M15-14, bfcache): QR'da geri gelen
+  tap sayfası kendini yeniler; NFC'de donuk kalır, sonraki gerçek dokunuş doğru kaydı yazar (T160).
+- 2026-10-25, *"Metni M15'e göre yaz"*: public site `main` birleşmesinde tap/sonuç ekranını anlatan metin ve
+  çizimler M15'e göre yazıldı (`FactTapScreenIsOneButtonAndACorrection`, `FactResultScreenRecordsNoOtherTap`).
+- 2026-10-26, *"Cümle ekle"* (M15-17): giriş kartı sorduğu kaydı adlandırır.
+- 2026-10-26, *"Üç yerde sayı"* (M15-18): bekleyen talep sayısı Spike bağlantısında, Spike'ın boş durumunda
+  ve The Pass kartında; bildirim ya da e-posta yok.
+
+**Kapanış ölçümleri (M15-19, 2026-10-26, dal `f092ec80` + bu commit):**
+Go 1.26.10 (CI pini), `tappa-m15-db` (goose 68).
+- Statik kapılar: `gofmt -l -s` (Makefile'ın kümesi) boş · `templ fmt` changed=0 · `make gen` + `make css`
+  sonrası üretilen dosyalarda fark yok · `go vet` ve staticcheck 2025.1.1, etiketsiz ve `-tags sandbox`, dördü
+  exit 0 · govulncheck v1.6.0 kodu etkileyen 0 açık, exit 0 · `scripts/redline-check.sh` exit 0.
+- **Tam suite** `go test -race -count=1 -timeout 75m ./...`: 1207 sn, 10 226 PASS / 3 FAIL / 6 SKIP; 45 paket
+  yeşil. Kırmızı yalnız `cmd/tappa`'nın üç VCS-damgası testi (`TestPackaging_TheArtifactKnowsWhatItWasBuiltFrom`,
+  `TestArtifact_ServesFromAnEmptyWorkingDirectory`, `TestArtifact_SaysWhatItIsEVENWhenTheBootFails`): bu
+  worktree'de derlenen ikili `vcs.*` damgası taşımıyor (`go version -m` hiçbirini göstermiyor), M15-14'teki
+  ortam kırmızısının aynısı; CI'da yeşil. `TestEveryNamedTestExists` yeşil. İki yeni tablonun RLS testleri
+  (`TestRLS_PunchClaims_*`) ve TRUNCATE testleri (`TestAppendOnly_TruncateIsRefusedEvenForTheOwner` ve
+  `TestAppendOnly_AppHasNoTruncatePrivilege`, `punch_claims` + `punch_claim_decisions` alt testleri) yeşil.
+- Sandbox adımı (`-tags sandbox`, CI'ın `SANDBOX_SKIP`'i): 115 sn, 477 PASS; kırmızı yalnız aynı üç VCS testi.
+- DST tam taraması (`TAPPA_TEST_FULL_DST_SWEEP=1`): 12 bölge × 1095 gün, bölge başına 30 274 560 nokta, 0 ihlal.
+- **Uçtan uca senaryo** (`internal/handler/m15_e2e_db_test.go`, gerçek tap yönlendiricisi + gerçek panel,
+  gerçek Postgres): `TestM15DB_AForgottenCheckoutIsClaimedApprovedAndPaid` — dünün açık girişi, bugünkü gerçek
+  dokunuş `in`, sonuç ekranında *"What time did you leave?"* kartı, `POST /api/claim`, anomali ekranında
+  *"Claim pending"*, Spike'ta tek basışla onay → tek yeni manuel `out` satırı, unutulan gün raporda 8 sa, giriş
+  anomali listesinden çıktı. `TestM15DB_ARejectedClaimLeavesTheForgottenDayListed` — ret: kayıt yok, gün 0 sa,
+  giriş listede (işaretsiz). İkisi de yeşil; `TestFarDayCutoff_EveryDirectionChainTestHasACutoffAwayFromNow`
+  envanterinde.
+- **"İki sabit saatli koşum"** için repoda saati sabitleyen bir kip yok; M15-04 kartı bunun yerine yardımcının
+  özelliğini koydu (DB testlerinin bir kısmı satırını veritabanının `now()`'ıyla kurar, sabit duvar saati onlara
+  uygulanamaz): `TestFarDayCutoff_NoBusinessDayBoundaryFallsNearNow` (Malta'nın 2026-10-25 ve 2027-10-31
+  geri dönüşü dahil, 5 dk ızgarası) ve kaynak düzeyi envanter testi, ikisi de tam suite'te yeşil. Ek olarak
+  saate bağlı paketler (`./internal/domain/...`, `./test/fixtures/...`, `./internal/handler/`) ikinci bir süreç
+  saat dilimiyle (`TZ=Pacific/Chatham`, UTC+13:45) `-race` ile yeniden koşuldu: 694 sn, 4981 PASS / 0 FAIL /
+  1 SKIP. Bu, süreç saat diliminden bağımsızlığı ölçer; duvar saatinin kendisini sabitlemez — iki koşum gerçek
+  anlarda yapıldı (12:15Z ve 12:42Z).
+
+**Bilinçli olarak yok** (plan §*"Bilinçli olarak yok"*; bu notla değişmedi): otomatik çıkış üretimi (Q18) ·
+iki yönlü geçmiş gün sorusu (K2) · talep sonucunun çalışana bildirimi (Q32) · rapor sayacı ve CSV sütunu
+olarak *"chosen by employee"* · bayat sayfa ile bilerek düzeltmenin ayrımı · tahmin için sayaç kontrolü (§4.4;
+QR'da tahmin var, K5) · lokasyon düzeyinde saat dilimi (Q01) · öz-onay güvencesi (M14'e bağlı) · *"On the
+floor"* ve şerit okuma ufku 18 sa · geçmiş ters kayıtların düzeltilmesi (§4.3).
+
+**Açık backlog (M15 kökenli, 2026-10-26'da numaraları doğrulandı):** T145 (M15-08) · T155–T166 (T162 = eski
+T154). Arada kalan T146–T154 başka dalların maddeleridir (LP / `main`); T154 landing'in palet dışı hex'i,
+M15'in değil. Hiçbiri kapanmadı.
+
+**Sevk.** Faz B ve C `main`'e birlikte ve M14'ten önce girer; birleştirme kullanıcının kararıdır. Toplu geçiş
+deploy notu (migration sırası, `main`'in en büyük migration'ının yeniden ölçümü, M14 dallarının durumu, geri
+dönüş) `docs/plan/state.md`'nin 2026-10-26 M15-19 kaydındadır. Bu not yazıldığında M15-19'un iki merceği
+(genel + `tappa-security-auditor`) henüz karar vermemişti; kart onlarla kapanır.

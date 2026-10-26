@@ -110,6 +110,11 @@ func TestFarDayCutoff_EveryDirectionChainTestHasACutoffAwayFromNow(t *testing.T)
 		{"internal/handler/claim_db_test.go", "TestClaimDB_TheCardIsShownOnTwoTapsOnly", []string{"newTapHarness("}},
 		{"internal/handler/claim_db_test.go", "TestClaimDB_AContextIsBoundToItsSessionAndItsLabel", []string{"newTapHarness("}},
 		{"internal/handler/claim_db_test.go", "TestClaimDB_ASuspendedBusinessesEmployeeStillSendsTheClaim", []string{"newTapHarness("}},
+		// M15-19: the acceptance scenario end to end -- a check-in 25 h back must stay open at the tap
+		// and its claimed checkout inside that business day (through newForgottenCheckout).
+		{"internal/handler/m15_e2e_db_test.go", "newForgottenCheckout", []string{"newTapHarness("}},
+		{"internal/handler/m15_e2e_db_test.go", "TestM15DB_AForgottenCheckoutIsClaimedApprovedAndPaid", []string{"newForgottenCheckout("}},
+		{"internal/handler/m15_e2e_db_test.go", "TestM15DB_ARejectedClaimLeavesTheForgottenDayListed", []string{"newForgottenCheckout("}},
 		// The clock route: M15-04's own acceptance tests.
 		{"internal/domain/checkin/businessday_db_test.go", "TestRecordDB_ACheckInOfThePreviousBusinessDayStaysOpen", []string{"recordAt("}},
 		{"internal/domain/checkin/businessday_db_test.go", "TestRecordDB_TheRustyBarNightIsOneBusinessDay", []string{"recordAt("}},
