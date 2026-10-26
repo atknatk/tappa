@@ -322,6 +322,11 @@ type fakeLedger struct {
 	leftOpen ledger.LeftOpen
 	// tally is the day's verdict counts (M12-16), read for every day; NotQueried by default.
 	tally ledger.VerdictTally
+	// asOf is the clock reading TODAY's screen was measured at (ledger.Screen.AsOf), as the real
+	// reader stamps it (passWidgets). Zero -- the default -- leaves the handler to read the clock
+	// itself; a test that compares two renders of The Pass byte for byte sets it, because the
+	// kicker prints the minute (pass.go) and two renders can straddle one.
+	asOf time.Time
 
 	// M6-04's read side. queue/pending default to "asked, and there is nothing
 	// waiting", for the same reason page does: an unqueried zero value renders
@@ -1360,13 +1365,14 @@ func (f *fakeLedger) Screen(_ context.Context, tenantID uuid.UUID, filter ledger
 	f.mu.Lock()
 	tally := f.tally
 	f.mu.Unlock()
+	var asOf time.Time
 	if filter.Date.Zero() {
 		f.mu.Lock()
-		floor, tape, leftOpen = f.floor, f.tape, f.leftOpen
+		floor, tape, leftOpen, asOf = f.floor, f.tape, f.leftOpen, f.asOf
 		f.mu.Unlock()
 	}
 	return ledger.Screen{Page: f.snapshot(filter), Options: f.opts, Plaques: f.plaques, History: f.history,
-		Floor: floor, Tape: tape, LeftOpen: leftOpen, Tally: tally}, nil
+		Floor: floor, Tape: tape, LeftOpen: leftOpen, Tally: tally, AsOf: asOf}, nil
 }
 
 func (f *fakeLedger) Day(_ context.Context, tenantID uuid.UUID, filter ledger.Filter) (ledger.Page, error) {
