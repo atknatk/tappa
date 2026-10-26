@@ -61,11 +61,16 @@ var panelTablesLock struct {
 //
 // Without DATABASE_MIGRATE_URL nothing is held: every test that takes the lock EXCLUSIVE connects as
 // the owner and skips without it, so there is nothing to take turns with.
-func holdPanelTablesLock(t *testing.T) {
+//
+// It returns the release (idempotent; t's cleanup calls it too), so a test whose committed fixtures
+// are already in place can stop holding the lock before a long stretch that writes none
+// (TestPanelE2E_TimingIsFlatOverHTTP, TestPanelE2E_IdentityTimingIsFlatOverHTTP: cost-12 samples, a
+// couple of minutes under -race, during which every other package's turn would queue behind them).
+func holdPanelTablesLock(t *testing.T) (release func()) {
 	t.Helper()
 	dsn := os.Getenv("DATABASE_MIGRATE_URL")
 	if dsn == "" {
-		return
+		return func() {}
 	}
 	panelTablesLock.mu.Lock()
 	defer panelTablesLock.mu.Unlock()
@@ -89,18 +94,23 @@ func holdPanelTablesLock(t *testing.T) {
 		panelTablesLock.conn = conn
 	}
 	panelTablesLock.held++
-	t.Cleanup(func() {
-		panelTablesLock.mu.Lock()
-		defer panelTablesLock.mu.Unlock()
-		panelTablesLock.held--
-		if panelTablesLock.held > 0 {
-			return
-		}
-		if err := panelTablesLock.conn.Close(context.Background()); err != nil {
-			t.Errorf("release the operator-tables lock: %v", err)
-		}
-		panelTablesLock.conn = nil
-	})
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			panelTablesLock.mu.Lock()
+			defer panelTablesLock.mu.Unlock()
+			panelTablesLock.held--
+			if panelTablesLock.held > 0 {
+				return
+			}
+			if err := panelTablesLock.conn.Close(context.Background()); err != nil {
+				t.Errorf("release the operator-tables lock: %v", err)
+			}
+			panelTablesLock.conn = nil
+		})
+	}
+	t.Cleanup(release)
+	return release
 }
 
 // linkHarness links p's admin row to a new identity carrying the row's digest (the way the backfill

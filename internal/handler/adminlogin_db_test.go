@@ -94,6 +94,9 @@ type panelHarness struct {
 	// reset is the recovery flow itself, so a test can drain its outbox (M10 EM-5:
 	// the send happens on a worker, after the response).
 	reset *AdminReset
+	// releaseTablesLock stops this harness holding the operator-tables lock (holdPanelTablesLock);
+	// the test's cleanup does it anyway.
+	releaseTablesLock func()
 }
 
 func newPanelHarness(t *testing.T) *panelHarness {
@@ -150,7 +153,7 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 	}
 	// The rows below are COMMITTED: hold the operator-tables lock shared while this harness lives
 	// (holdPanelTablesLock says why and how).
-	holdPanelTablesLock(t)
+	releaseTablesLock := holdPanelTablesLock(t)
 	data, err := db.New(context.Background(), &config.Config{DatabaseURL: withSmallPool(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
@@ -344,6 +347,7 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 	}
 
 	ph.server = srv
+	ph.releaseTablesLock = releaseTablesLock
 	ph.data = data
 	ph.password = ownerPassword
 	ph.email = "panel-e2e-" + uuid.NewString() + "@m6.example"
@@ -812,6 +816,9 @@ func TestPanelE2E_TimingIsFlatOverHTTP(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("re-hash: %v", err)
 	}
+	// The committed fixture is in place and the cost-12 sample below writes no admin row: stop holding
+	// the operator-tables lock for its minutes (holdPanelTablesLock).
+	p.releaseTablesLock()
 
 	_, page := p.get(t, "/admin/login")
 	csrf := csrfFrom(t, page)

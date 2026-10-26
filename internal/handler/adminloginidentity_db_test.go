@@ -90,6 +90,19 @@ func (p *idPanel) identity(t *testing.T, email, digest string) uuid.UUID {
 	return id
 }
 
+// takeBack is identity's take-back, now rather than at the end of the test: its rows unlinked, its
+// events and the identity deleted (the cleanup identity registered then finds nothing).
+func (p *idPanel) takeBack(t *testing.T, ident uuid.UUID) {
+	t.Helper()
+	for _, sql := range []string{
+		`UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL, unlinked_at = NULL WHERE identity_id = $1`,
+		`DELETE FROM admin_identity_events WHERE identity_id = $1`,
+		`DELETE FROM admin_identities WHERE id = $1`,
+	} {
+		p.exec(t, sql, ident)
+	}
+}
+
 // tenant makes a business.
 func (p *idPanel) tenant(t *testing.T, name string) uuid.UUID {
 	t.Helper()
@@ -353,51 +366,61 @@ func TestPanelE2E_IdentityTimingIsFlatOverHTTP(t *testing.T) {
 			"cases' comparisons and calls are adminauth's TestAuthenticatePerson_EveryFailureIsOneShape, exactly")
 	}
 	p := newIDPanel(t, panelHarnessOptions{})
-	world := func(name string, withIdentity, linkedActive, linkedDisabled, unlinked bool) string {
-		t.Helper()
-		email := "m14-09-five-" + name + "-" + uuid.NewString() + "@identity.example"
-		var ident uuid.UUID
-		if withIdentity {
-			ident = p.identity(t, email, identityDigest12)
-		}
-		if linkedActive || linkedDisabled {
-			status := "active"
-			if linkedDisabled {
-				status = "disabled"
-			}
-			p.link(t, p.row(t, p.tenant(t, "M14-09 Five "+name), email, identityDigest12, status, 48*time.Hour), ident)
-		}
-		if unlinked {
-			p.row(t, p.tenant(t, "M14-09 Five "+name+" legacy"), email, legacyDigest12, "active", time.Hour)
-		}
-		return email
+	// THE LOCK IS HELD PER CELL, NOT FOR THE SAMPLE: the five cost-12 sign-ins take minutes under
+	// -race, and every package that takes turns on the operator-tables lock would queue behind them.
+	// The harness's own row is committed already; each cell holds the lock from its world's birth to
+	// its world's take-back, around the one request it measures.
+	p.releaseTablesLock()
+	type cell struct {
+		name                                               string
+		withIdentity, linkedActive, linkedDisabled, legacy bool
+		password                                           string
 	}
-	cells := []struct {
-		name, email, password string
-		took                  time.Duration
-	}{
-		{name: "identity, no unlinked row, wrong password", email: world("a", true, true, false, false), password: "wrong"},
-		{name: "identity and an unlinked row, wrong password", email: world("b", true, true, false, true), password: "wrong"},
-		{name: "no identity, an unlinked row, wrong password", email: world("c", false, false, false, true), password: "wrong"},
-		{name: "an unknown address", email: "nobody-" + uuid.NewString() + "@identity.example", password: "wrong"},
-		{name: "right password, every membership disabled", email: world("e", true, false, true, false), password: identityPassword12},
+	cells := []cell{
+		{name: "identity, no unlinked row, wrong password", withIdentity: true, linkedActive: true, password: "wrong"},
+		{name: "identity and an unlinked row, wrong password", withIdentity: true, linkedActive: true, legacy: true, password: "wrong"},
+		{name: "no identity, an unlinked row, wrong password", legacy: true, password: "wrong"},
+		{name: "an unknown address", password: "wrong"},
+		{name: "right password, every membership disabled", withIdentity: true, linkedDisabled: true, password: identityPassword12},
 	}
 	_, page := p.get(t, "/admin/login")
 	csrf := csrfFrom(t, page)
 	var slowest, fastest time.Duration
-	for i := range cells {
+	for i, c := range cells {
+		release := holdPanelTablesLock(t)
+		email := "m14-09-five-" + uuid.NewString() + "@identity.example"
+		var ident uuid.UUID
+		if c.withIdentity {
+			ident = p.identity(t, email, identityDigest12)
+		}
+		if c.linkedActive || c.linkedDisabled {
+			status := "active"
+			if c.linkedDisabled {
+				status = "disabled"
+			}
+			p.link(t, p.row(t, p.tenant(t, "M14-09 Five "+c.name), email, identityDigest12, status, 48*time.Hour), ident)
+		}
+		if c.legacy {
+			p.row(t, p.tenant(t, "M14-09 Five "+c.name+" legacy"), email, legacyDigest12, "active", time.Hour)
+		}
+
 		start := time.Now()
-		res, _ := p.post(t, "/admin/login", url.Values{"csrf": {csrf}, "email": {cells[i].email}, "password": {cells[i].password}})
-		cells[i].took = time.Since(start)
+		res, _ := p.post(t, "/admin/login", url.Values{"csrf": {csrf}, "email": {email}, "password": {c.password}})
+		took := time.Since(start)
+
+		if c.withIdentity {
+			p.takeBack(t, ident)
+		}
+		release()
 		if res.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("%s answered %d, want 401", cells[i].name, res.StatusCode)
+			t.Fatalf("%s answered %d, want 401", c.name, res.StatusCode)
 		}
-		t.Logf("%-46s %v", cells[i].name, cells[i].took)
-		if i == 0 || cells[i].took > slowest {
-			slowest = cells[i].took
+		t.Logf("%-46s %v", c.name, took)
+		if i == 0 || took > slowest {
+			slowest = took
 		}
-		if i == 0 || cells[i].took < fastest {
-			fastest = cells[i].took
+		if i == 0 || took < fastest {
+			fastest = took
 		}
 	}
 	ratio := float64(slowest) / float64(fastest)
