@@ -115,8 +115,9 @@ var identitySessionKeyLookups = map[string]int{
 // Only a named exception of ADR 0031 §5.2 may: such a read is how an e-mail reaches a writer, which
 // the rule "a writer finds the identity only through a secret" otherwise forbids.
 var identityEmailWideReads = map[string]int{
-	// M14-08 (00074): "the address is in no other admin_users row" -- an existence test (PERFORM,
-	// FOUND), under the address's namespaced lock; it returns nothing and writes nothing.
+	// M14-08 (00074): "the address is in no other admin_users row" -- an existence test, under the
+	// address's namespaced lock; it returns nothing and writes nothing. M14-08a (00076): a FOR loop
+	// over those rows, a row whose address is not printable ASCII not counting.
 	"identity_create_for_signup": 1,
 }
 
@@ -840,7 +841,8 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 		acceptFn    = "public.identity_accept_invite(text, text)"
 		acceptNewFn = "public.identity_accept_invite_new(text, text)"
 	)
-	emailRead := "    PERFORM 1\n       FROM public.admin_users AS a\n      WHERE a.email OPERATOR(public.=) v_email\n        AND a.id <> p_admin_user_id;"
+	// M14-08a (00076): the e-mail-wide read is a FOR loop (its rows' addresses are tested in plpgsql).
+	emailRead := "    FOR r IN\n        SELECT a.email\n          FROM public.admin_users AS a\n         WHERE a.email OPERATOR(public.=) v_email\n           AND a.id <> p_admin_user_id\n    LOOP"
 	switchRevoke := "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.tenant_id = v_tenant\n       AND o.revoked_at IS NULL;"
 	plainRevoke := "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE "
 	viewRevoke := "    UPDATE public.zz_belt_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.revoked_at IS NULL;"
@@ -903,7 +905,7 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 		{name: "the e-mail read with a top-level OR", fn: signupFn, cut: emailRead,
 			put: strings.Replace(emailRead, "        AND a.id <>", "        OR a.id <>", 1)},
 		{name: "the e-mail read by a value written by :=", fn: signupFn, cut: emailRead, put: "    v_email := v_digest;\n" + emailRead},
-		{name: "a second e-mail read the map does not count", fn: signupFn, cut: emailRead, put: emailRead + "\n" + emailRead},
+		{name: "a second e-mail read the map does not count", fn: signupFn, cut: emailRead, put: emailRead + "\n        NULL;\n    END LOOP;\n" + emailRead},
 		{name: "an e-mail read in a function the map does not name", fn: switchFn, cut: switchRevoke,
 			put: "    PERFORM 1 FROM public.admin_users AS z WHERE z.email OPERATOR(public.=) p_new_hash;\n" + switchRevoke},
 		// M14-15 (00077): the acceptances' and the resolver's statements, each without what holds it.

@@ -167,7 +167,9 @@ func TestIdentityCreateForSignup_BirthsAnIdentityForANewAddressAndNothingElse(t 
 			}},
 		{name: "the address in another business's row", world: fresh, guc: fresh.tenant, tenant: fresh.tenant,
 			setup: func(sp pgx.Tx) { aiAdmin(t, ctx, sp, aiTenant(t, ctx, sp), strings.ToUpper(fresh.email)) },
-			cut:   "    IF FOUND THEN\n        RETURN false;\n    END IF;\n\n    INSERT", put: "    INSERT"},
+			// M14-08a (00076): the read is a FOR loop that skips a row whose address is not printable
+			// ASCII; its refusal is the IF inside it.
+			cut: "IF (r.email::text ~ '^[\\x21-\\x7e]+$') IS NOT FALSE THEN", put: "IF false THEN"},
 		{name: "the address in another business's refused row", world: fresh, guc: fresh.tenant, tenant: fresh.tenant,
 			setup: func(sp pgx.Tx) {
 				aiExec(t, ctx, sp, `UPDATE admin_users SET unlinked_at = now() WHERE id = $1`, aiAdmin(t, ctx, sp, aiTenant(t, ctx, sp), fresh.email))

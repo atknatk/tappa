@@ -101,6 +101,9 @@ func TestActivationLogoDB_OnlyAVerifiedBusinessesOwnLogoIsServed(t *testing.T) {
 		t.Helper()
 		b := wl13Business{id: uuid.New()}
 		owner, location, employee := uuid.New(), uuid.New(), uuid.New()
+		// The owner row is COMMITTED: written under the operator-tables lock, held shared around this
+		// transaction (holdPanelTablesLock; cmd/opadmin's TestTablesLock_AdminRowsAreWrittenUnderTheHolder).
+		release := holdPanelTablesLock(t)
 		err := data.WithTenant(ctx, b.id, func(ctx context.Context, tx pgx.Tx) error {
 			for _, q := range []struct {
 				sql  string
@@ -125,6 +128,7 @@ func TestActivationLogoDB_OnlyAVerifiedBusinessesOwnLogoIsServed(t *testing.T) {
 			}
 			return nil
 		})
+		release()
 		if err != nil {
 			t.Fatalf("fixture business: %v", err)
 		}

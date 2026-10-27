@@ -228,6 +228,24 @@ konur (`ADD COLUMN … DEFAULT now()` eski satırlara ALTER anını yazardı); `
 isteyen her denetim (R3) ve ileride gelecek mutlak ömür bunu fail-closed okur. Oturum hâlâ tek
 üyeliğe, tek tenant'a damgalıdır.
 
+**M14-08a notu — adres kuralı (2026-10-26; kullanıcı kararı):** bir kimliği **doğurabilen ya da ona
+anahtar olabilen** her saklı adres `mail.ValidRecipient`'ten geçer — `internal/mail`'in `Send`'inin
+uyguladığı kural (≤ 254 oktet, `=?` yok, net/mail'in kendine geri verdiği yazdırılabilir-ASCII
+addr-spec). Geçmeyen bir satır hiçbir kimliğe bağlanmaz ve kimlik doğurmaz. **Neden** (M14-08'in
+güvenlik denetimi; canlıyla aynı imaj ve yerel ayar, PostgreSQL 17.10 musl, 0x80–0x10FFFF taranarak):
+citext eşitliği tam iki ASCII-dışı kod noktasını ASCII'ye katlar — U+0130 (→ `i`) ve U+212A KELVIN SIGN
+(→ `k`); adresin danışma kilidinin anahtarı da eşittir. Kayıt her UTF-8 adresi kabul ettiği için
+homoglifi **önce** yazan, kimliği kendi yazımıyla doğururdu; posta yalnız yazdırılabilir-ASCII alıcılara
+gider, yani gerçek posta kutusunun sahibi o adrese hiçbir zaman sıfırlama alamazdı (devralma yok,
+numaralandırma kanalı yok; etkisi kalıcı erişim kaybı). **`admin_identities.email` üzerinde CHECK
+yok — ölçülerek:** ihlalin `DETAIL`'i (`Failing row contains …`) BYPASSRLS definer'ın SELECT edebildiği
+her sütunu, adresi **ve** digest'i, hataya ve sunucu log'una basar (00073 ve 00074'ün digest için
+belgelediği tuzak; CLAUDE.md §7). Kural yüklemlerdedir: her kimlik INSERT'i kuralı INSERT'ten **önce**
+karar verir (§5.2'nin M14-08a notu, §5.8'in M14-08a notu). **Düşünülen ama kurulmayan seçenek**
+(M14-08a güvenlik denetimi, 2026-10-27): sabit mesajlı bir `BEFORE INSERT OR UPDATE` tetikleyicisi —
+adresi hiçbir mesaja koymadan reddeden, sızıntısız bir veritabanı arkalığı. §5.2'nin kapalı
+listesine bir fonksiyon ekler; bu yüzden kullanıcı kararıdır ve bu kartta yapılmadı.
+
 ### 5.2 Roller ve fonksiyonlar — kapalı liste
 
 **`tappa_identitydefiner`**: NOLOGIN, BYPASSRLS, NOSUPERUSER, üyesi yok, varsayılan yetkisi yok,
@@ -366,7 +384,43 @@ satırıdır (`deploy/README.md`, M14-14).
   yazımı, başka bir işletmenin aynı adresli satırını kilit beklerken commit eden bir oturumla
   pinlenir: bekleyen kayıt kimlik doğurmaz (`ON CONFLICT` burada yerine geçemez — çakışacak kimlik yok).
 
-**M14-15 uygulama notları (2026-10-26; kart dışı kararlar, denetime açık):**
+**M14-08a notu (2026-10-26; kullanıcı kararı — §5.1'in adres kuralı):** `00076`
+`identity_create_for_signup`'ı **aynı imzayla** yeniden tanımlar (`CREATE OR REPLACE`; sahip,
+`SECURITY DEFINER`, `SET search_path`, `REVOKE ALL … FROM PUBLIC` ve `GRANT EXECUTE … TO tappa_app`
+yine de açıkça yazılır — T5). Gövdede iki değişiklik, gerisi 00074'ün baytları:
+- **Yeni yüklem (6b), adresin ad alanlı kilidinden önce:** satırın adresi `mail.ValidRecipient`'in
+  SQL'e yazılmış hâlinden geçer — `octet_length ≤ 254`, `=?` yok ve net/mail addr-spec deseni
+  (dot-atom `@` dot-atom ya da `net.ParseIP`'nin kabul ettiği IP alan literali), yazdırılabilir ASCII'de.
+  Tutmazsa `false`, hiçbir şey yazılmaz; `IS NOT TRUE` NULL'u da reddeder. Desen ile `ValidRecipient`
+  bir tablo (U+0130, U+212A, punycode, boşluk, denetim karakterleri, tırnak, noktalar, her literal biçimi)
+  ve üretilmiş bir külliyat üzerinde aynı cevabı verir (`TestIdentityAddressRule_SQLAgreesWithValidRecipient`).
+- **Adlandırılmış e-posta-geniş okuma** yazdırılabilir ASCII olmayan bir satırı artık **saymaz** (bir
+  FOR döngüsü; desen plpgsql'de karar verilir, kemerin modeli bozulmaz, okuma sayısı yine 1). Yoksa eski
+  binary'nin yazdığı bir homoglif satırı, gerçek adresin sahibinin kayıtta kimlik doğurmasını
+  engellerdi. Bu kümede yazdırılabilir ASCII tam kuraldır: 6b'den geçmiş bir adrese citext'te eşit
+  bir ASCII adres ondan yalnız harf büyüklüğüyle ayrılır ve kural harf büyüklüğünü görmez.
+- **Uygulama sınırı:** `signup.ValidateAccount` adresi aynı fonksiyondan (`mail.ValidRecipient`, kopya
+  değil) geçirir; ASCII olmayan adrese kendi cümlesi. Giriş ve sıfırlama formları yalnız **arar**,
+  değişmedi (düz zamanlama korunur; homoglifle yapılan bir giriş en çok gerçek kimliğe çözülür ve onun
+  parolasını ister).
+- **Bundan sonra doğan her kimlik INSERT'i** (`identity_reconcile`, `identity_accept_invite_new`,
+  `identity_claim_signup`) aynı kuralı INSERT'ten önce bir ret olarak taşır. CHECK'in yerine geçen
+  kemer yapısaldır ve kapalı başarısız olur (`TestIdentityAddressRule_EveryIdentityInsertDecidesIt`):
+  sahibi `admin_identities`'e INSERT edebilen (sütun yetkisi yeter) ve tanımı (`pg_get_functiondef` —
+  `BEGIN ATOMIC` gövdesi dahil) tabloyu herhangi bir yazımla anan ya da dinamik SQL (`EXECUTE`) koşan
+  her fonksiyon, kuralı yorumlar ayıklandıktan sonra gerçek bir `IF (…) IS NOT TRUE THEN RETURN |
+  CONTINUE` reddi olarak taşımalı ya da adıyla listelenmiş, oraya gerçekten yazmayan bir okuyucu
+  olmalıdır (bugün on dört `identity_*` fonksiyonu; `resolve_identity_by_email`'in sahibi INSERT
+  taşımadığı için aday değil); tabloyu hedefleyen rewrite kuralı sayısı 0'dır. Kemer **varlığı**
+  denetler; reddin eklenen değere uygulandığı her yazarın kendi davranış testidir. `00076`'nın Up'ı
+  ayrıca yazdırılabilir ASCII olmayan adresli bir kimlik görürse yalnız sayıyla durur (ön kontrol
+  ile `00073` arasındaki pencere).
+- **Kapsam dışı kalan (açık madde):** `identity_link_legacy` adresleri citext ile karşılaştırır ve bu
+  notla değişmedi. ASCII olmayan bir satırı ancak iki taze oturumu — satırın ve kimliğin parolasını —
+  birlikte kanıtlayan kişi kendi kimliğine bağlayabilir; bu bir gasp yolu değildir, ama kuralın
+  harfiyle ("hiç bağlanmaz") uyum için aynı yüklem oraya da gerekir — ayrı bir kart.
+
+**M14-15 uygulama notları (2026-10-26/27; kart dışı kararlar ve iki kullanıcı kararı, denetime açık):**
 - İmzalar (`00077`): `resolve_admin_invite_by_token_hash(p_token_hash text)` → `TABLE (id, tenant_id, role,
   expires_at, used_at, cancelled_at)` (argüman adı `resolve_identity_reset_by_token_hash`'inki gibi
   `p_token_hash`; tablo ikisini de `p_hash` diye kısaltır); `identity_accept_invite(p_invite_hash text,
@@ -376,32 +430,37 @@ satırıdır (`deploy/README.md`, M14-14).
   yazdığı ad); `role` CHECK'le yalnız `manager` (sahiplik M14-16'nın iki adımlı devriyle döner, e-posta
   linkiyle değil); adres başına tek açık davet (kısmi UNIQUE) — yeni davet açık olanı iptal eder.
   Definer matrisi: `admin_invites` SELECT (token_hash dahil dokuz sütun) + UPDATE (`used_at`),
-  `admin_users` INSERT (matrisin sekiz sütunu). `tappa_app`: `token_hash` dışında SELECT, INSERT, yalnız
-  `UPDATE (cancelled_at)`, DELETE yok.
-- Reddedilmiş satırın yeniden bağlanması `linked_via='invite'`, **yeni** `linked_at`, `unlinked_at = NULL`,
-  digest kopyası ve `status='active'` yazar (§5.11'in contract sonrası `active`'i contract öncesinde de —
-  owner'ın taze daveti satırı geri ister); satırın `role`'ü korunur (definer'ın `UPDATE (role)` yetkisi
-  yok). İşletmede adresin reddedilmemiş başka bir satırı varsa kabul 0 satır ve davet açık kalır: yanıt
-  tıklayana (posta kutusunun sahibine) gider, owner yok sayılmış bir e-postanın gördüğünü görür (R18).
+  `admin_users` INSERT (matrisin sekiz sütunu; `00077` bu yetkinin sahibidir — Down'ı onu yalnız
+  `identity_claim_signup` yokken geri alır, M14-17'nin `00078`'i almaz). `tappa_app`: `token_hash`
+  dışında SELECT, INSERT, yalnız `UPDATE (cancelled_at)`, DELETE yok.
+- **Reddedilmiş satır yalnız davetin rolündeyse geri bağlanır** (iki denetimin YÜKSEK bulgusu, 2026-10-27):
+  `linked_via='invite'`, **yeni** `linked_at`, `unlinked_at = NULL`, digest kopyası, `status='active'`;
+  yüklem `(identity_id IS NULL AND unlinked_at IS NOT NULL AND role = davetin rolü) IS NOT TRUE → 0 satır`.
+  Reddedilmiş bir **owner** satırı manager davetiyle hiçbir zaman geri gelmez (definer'da `UPDATE (role)`
+  yok; owner koltuğu M14-16'nın devridir) — kabul 0 satır, davet açık, yanıt tek tip. İşletmede adresin
+  başka bir satırı varsa da kabul 0 satır ve davet açık kalır: yanıt tıklayana gider, owner yok sayılmış
+  bir e-postanın gördüğünü görür (R18). Yeni üyelik satırına iki yolda da **davetin yazımı** yazılır.
   Yeni kimlik `email_verified_at = now()` ile doğar (INSERT sonra UPDATE — definer'a `INSERT
-  (email_verified_at)` verilmez, 00074'ün son koşulu); onay penceresi açmaz.
-- **ASCII adres kuralı** (kullanıcı kararı, 2026-10-26: *"saklanan adres gönderebileceğimiz bir adrestir"*;
-  citext 'İ' (U+0130) ve Kelvin 'K' (U+212A) harflerini ASCII'ye katlar): davet adresi kaydedilmeden önce
-  `mail.ValidRecipient`'ten geçer (form doğrulaması, her okumadan önce — R18'i bozmaz) ve
-  `admin_invites_email_ascii` CHECK'i yalnız yazdırılabilir ASCII'yi saklar; `identity_accept_invite_new`
-  ASCII olmayan bir adrese kimlik doğurmaz, `identity_accept_invite` iki adresten biri ASCII değilse
-  bağlamaz (fail-closed, `IS NOT TRUE`).
+  (email_verified_at)` verilmez); onay penceresi açmaz.
+- **Askıdaki işletme yeni yönetici almaz** (kullanıcı kararı, 2026-10-27): iki kabul fonksiyonu kilitlerden
+  sonra `tenants.suspended_at`'i okur; doluysa ya da satır yoksa hiçbir şey yazmaz, davet açık kalır,
+  sayfa "şimdi kabul edilemez" der. Davetlinin sayfası (`/admin/invite`) panelin yazma rotalarından değil,
+  sıfırlama akışı gibi kendi bağlamasıyla bağlanır; askı istisna listesi 13'te kalır (ADR 0025'in M14 notu).
+- **ASCII adres kuralı**: davet adresi kaydedilmeden önce `mail.ValidRecipient`'ten geçer (form doğrulaması,
+  her okumadan önce — R18'i bozmaz) ve `admin_invites_email_ascii` CHECK'i yalnız yazdırılabilir ASCII'yi
+  saklar; `identity_accept_invite_new` M14-08a'nın 6b yüklemini **birebir** taşır (yukarıdaki not);
+  `identity_accept_invite` iki adresten biri ASCII değilse bağlamaz. `00077`'nin ön koşulu `00076`'dır.
 - Kemer: `admin_invites` kendi küresel UNIQUE `token_hash`'iyle bir tenant ilişkisini çapalar
   (`identityTokenKeyed`); `resolve_admin_invite_*` gövdeleri de kemerde.
-- Owner kapısı politika motorundandır: `tenant.RuleWriter.May` — `policy:edit`, saklı kural kitabı
-  (`sys:policy-edit-owner-only` owner olmayanı terminal reddeder). Yeni bir eylem kapalı sözlüğü (ADR 0004
-  §8) büyütür ve materyalize edilmiş baseline'da `deny sid=default` alırdı (M7-07'nin tuzağı;
-  `TestRuleWriterDB_TheManagerInvitationGateLetsAMaterialisedOwnerIn` ölçer). Bedel: kural kitabı hiç
-  kurulmamış (henüz dokunuş yok) işletmenin owner'ı da reddedilir, politikalar ekranındaki gibi.
-  İkinci kemer: davet INSERT'i davet edenin aktif owner satırından yazılır.
+- **Owner kapısı politika motorundandır** (`tenant.RuleWriter.MayInviteManager`): `policy:edit`; yeni bir
+  eylem kapalı sözlüğü (ADR 0004 §8) büyütür ve materyalize edilmiş baseline'da `deny sid=default` alırdı
+  (M7-07'nin tuzağı). Saklı kural kitabı **hiç yoksa** (hiç materyalize edilmemiş işletme) karar
+  **sevk edilen baseline**'la verilir (kullanıcı kararı, 2026-10-27) — bu yolda yazma yok;
+  materyalize edilmiş işletme saklı kitabıyla karar verir. İkinci kemer: davet INSERT'i davet edenin aktif
+  owner satırından yazılır.
 - Gönderme `mountWriting`'in askı halkalı ana grubunda (ADR 0025'in kapalı listesi daveti adlandırmaz).
-  Davetlinin `POST /admin/invite`'ı yazma zincirinin dışındadır (giriş gibi: davetli işletmenin oturumunu
-  taşımaz) ve askı testinin istisna listesinde adıyla durur.
+- Davet linkinin token'ı adres çubuğunda kalmaz: GET onu dar yollu bir çereze koyar ve temiz
+  `/admin/invite`'a 303 verir (sıfırlama akışının deseni).
 - Davet ve kabul audit satırları: `admin.invite.sent` / `admin.invite.undelivered` (handler, gönderimin
   sonucuyla, `invite_id`), `admin.invite.cancelled`, `admin.invite.accepted` (definer, `{outcome,
   invite_id}`, iki fonksiyonda aynı biçim). Adres, ad, token yok.
@@ -650,6 +709,47 @@ işletmeleri hakkında bilgi taşıyan her alan kimlik yolunda **kalkar** (R21):
   zamanlı karşılaştırır). Seçici blob'unun sürümü "2" oldu; rollout sırasında eski bir blob "yeniden
   giriş" ister.
 
+**M14-09 uygulama notu (2026-10-26; `4ccc6f69` … `5a45f7d6`, iki denetimin kabul ettiği biçim):**
+- **İniş.** Bayrak açıkken `Login` kimlik yoluna geçer (`adminlogin.go:1069-1070` → `loginAsPerson`).
+  Giriş formu işletme adlandırmaz, bu yüzden `AuthenticatePerson` `uuid.Nil` ile çağrılır
+  (`adminloginidentity.go:68-72`); `db.OpenIdentitySession` bunu `NULL` istenen işletmeye çevirir
+  (`internal/db/identity.go:133-136`) ve `identity_open_session` son kullanılan işletmeye
+  (`last_used_tenant`) iner; böyle bir işletme yoksa ya da oradaki üyelik aktif değilse en eski aktif üyeliğe
+  (`00071_resolve_identities_and_switch_sessions.sql:209-249`); indiği işletmeyi `last_used_tenant`'a
+  yazar (`:260-263`). Kimlik yolunda seçici yoktur; birden çok **eski** satır doğrularsa seçici
+  contract'a dek kalır. Başarı satırını `identity_open_session` yazar, handler ikincisini **yazmaz**
+  (`adminloginidentity.go:104-106`).
+- **R21.** Kimlik yolunda giriş akışının, kişinin öbür işletmeleri hakkında bir sayı ya da bir işletme
+  taşıyabilen her audit detail'i `loginDetail`'den geçer (kodun kendi sınırlaması,
+  `adminloginidentity.go:169-191`; çağrı yerleri `adminlogin.go:1194`, `:1273`, `:1543`). Bunu taşıyamayan
+  sabit biçimli satırlar doğrudan yazılır (ör. `adminlogin.go:1334`, `:1391`, `:1418`,
+  `adminloginidentity.go:118`, `:148`). `loginDetail` `VerifiedBusiness`,
+  `Resolved`, `Compared` ve `AttemptedTenant`'ı sıfırlar. Seçicinin satırları da buna dahildir, çünkü o yolda
+  seçici blob'unu yalnız `AuthenticatePerson`'ın eski kolu üretir. İşletmelerden **çoğul** söz eden üç sabit
+  gerekçe metni tekil ikizine çevrilir (`identityReasons`, `adminloginidentity.go:193-206`). Bağlanan eski
+  satır sayısı (`PersonSignIn.Linked`) yalnız log satırına gider, audit'e hiç gitmez
+  (`adminloginidentity.go:127-128`, `internal/adminauth/identity.go:88-91`). Bayrak kapalıyken detail
+  bugünküdür.
+- **`adminLoginWorkLimit` = 106.** Sabit artık türetilir (`adminratelimit.go:744-760`): operatör modelinin
+  karşılaştırma bütçesi `adminLoginWorkComparisons = 120 * 8 = 960`, kimlik yolunda bir girişin bedeli
+  `1 + MaxCandidates = 9` karşılaştırmadır (`MaxCandidates = 8`, `manager.go:146`) → `960 / 9 = 106` giriş /
+  10 dk. Bayrak kapalı yol (8 karşılaştırma) da aynı 106 ile sınırlıdır (848 karşılaştırma, eski tavanın
+  altında). Contract A eski pencereyi kaldırınca bölen 1'e iner ve sabit yeniden türetilir. Sevk edilen
+  değeri `TestPanelConstants_ShippedValuesArePinned` sabitler.
+- **Açılıştan önce geçersizleşen giriş → 409.** Doğrulanan kimlik bilgisi oturum yazılırken artık
+  tutmuyorsa (`ErrProofStale`, satır yok ya da `40P01` — `SignInLapsed`, `manager.go:870-876`) yanıt 500
+  değil `409 "Please sign in again"`'dir (`signInAgain`, `adminloginidentity.go:158-167`; kimlik yolu
+  `:78-83`, bayrak kapalı yol `adminlogin.go:1303-1308`). Metin "hiçbir şey değişmedi" demez: kimlik
+  yolunda bu durum, açılıp iptal edilmiş kanıt oturumlarından sonra da gelebilir
+  (`adminloginidentity.go:39-48`).
+- **Açılıştan sonra hata → 500 + oturum iptali.** `identity_open_session` commit ettikten sonraki bir hata
+  (ör. yazılamayan bir bağlama) kimlik oturumunu isteğin iptalini yok sayarak (`context.WithoutCancel`)
+  iptal eder ve `PersonSignIn.Abandoned` olarak döner (`internal/adminauth/identity.go:276-284`; alan ve tip
+  `:92-105`). Handler o işletmeye aynı oturumu adlandıran bir `admin.login.failed` satırı yazar
+  (`outcome = session_abandoned`; gerekçe iptalin tutup tutmadığını söyler) ve "nothing was changed"
+  demeyen bir 500 döner (`abandonedLogin`, `adminloginidentity.go:132-156`). Bu dal geçersizleşme
+  denetiminden **önce** gelir (`:73-77`), yani açılıştan sonraki bir `40P01` da 500'dür.
+
 ### 5.7 Birleştirme
 
 **Kural: iki satır yalnız kişi her ikisinin kimlik bilgisini kanıtlarsa birleşir** (K-2). "Aynı
@@ -677,6 +777,24 @@ veritabanı; migration'lar seed'den önce koşar) iddia koşulsuz geçer (bulgu 
 atlar): backfill'den sonra doğan satırlar için kimlik yaratır/bağlar (`linked_via='reconcile'`).
 Expand'den **sonraki** deploy'da ve M14-19'dan **hemen önce** koşar (bulgu 6b, 23). Binary'yi
 expand'in altına geri almak yalnız uzlaştırmayla birlikte.
+
+**M14-08a notu (2026-10-26; kullanıcı kararı — §5.1'in adres kuralı):** backfill ve uzlaştırma yalnız
+**dolu ve ASCII** e-postalı satırlardan kimlik doğurur (kural tam olarak `mail.ValidRecipient`'tir,
+00076'nın deseni). Uzlaştırmada grubun adayları kuralı geçen satırlardır: bir homoglif satırı grubun en
+eski aktif satırı olsa bile **seçilmez**, kimlik grubun kuralı geçen satırının yazımı ve digest'iyle
+doğar; yalnız kuralı geçmeyen satırlardan oluşan grup kimlik doğurmaz. `00073` uygulanmış bir
+migration olduğu için değiştirilmedi (CLAUDE.md §6); onun tarafı Deploy 1'den önceki salt-okuma
+sayımıdır (`deploy/README.md`, Expand'in ikinci ön kontrolü: backfill adaylarında yazdırılabilir ASCII
+olmayan adres = 0, değilse **dur**); ön kontrol ile `00073` arasındaki pencereyi `00076`'nın Up'ı
+aynı goose koşusunda kapatır (yazdırılabilir ASCII olmayan bir kimlik → yalnız sayıyla hata). Kalan
+ASCII-dışı satırlar **adlandırılmış kalıntıdır**: hiçbir yoldan bağlanmaz ve kimlik doğurmaz; M14-19'un
+"kimliği olmayan dolu e-posta = 0" ön kontrolü onları ayrı sayar, K-3'ün son tarihi ve contract A'nın
+ön koşulu karşısında ne olacakları kullanıcının kararıdır. **İkinci adlandırılmış kalıntı** (M14-08a
+üçüncü göz denetimi, 2026-10-27): ASCII ama biçimi kurala uymayan adresler (`a..b@x.mt`, `"q"@x.mt` —
+eski `deliverableShape`'in geçirdiği şekiller). `00073` bunlara da kimlik doğurur; citext ASCII'de yalnız
+harf büyüklüğünü katladığı için bu bir gasp değildir, ama o kimliğe posta gidemez. Ön kontrolün üçüncü
+sayımı (`failing_send_rule`, 6b'nin yüklemi) onları sayar; DUR değildir, sayı deploy'dan önce kullanıcıya
+bildirilir.
 
 **Onay penceresi** (bulgu 15, R1, R2, S3–S5): iki kapsamla açılır —
 - **`first_verify`** — kimliğin **ilk** doğrulanması (doğrulama linki, davet/kayıt tıklaması):
