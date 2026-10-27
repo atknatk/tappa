@@ -47,6 +47,7 @@ var panelTemplates = map[string]bool{
 	"components/venuedetail.templ":   true,
 	"layout/base.templ":              true,
 	"pages/account.templ":            true,
+	"pages/accountidentity.templ":    true,
 	"pages/admin.templ":              true,
 	"pages/adminswitch.templ":        true,
 	"pages/adminreset.templ":         true,

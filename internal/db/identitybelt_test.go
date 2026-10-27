@@ -79,6 +79,8 @@ var identityTenantWideReads = map[string]int{
 	"identity_link_legacy":       1,
 	"identity_unlink_backfilled": 1,
 	"identity_relink_refused":    1,
+	// M14-18 (00079): the window's list of the identity's own memberships (bounded by the identity; 49 list rows).
+	"identity_confirm_window": 1,
 	// M14-15 (00077): the lock on every membership of the identity before the business's row and the
 	// invitation are locked (the lock order).
 	"identity_accept_invite": 1,
@@ -103,6 +105,9 @@ var identitySessionKeyLookups = map[string]int{
 	"identity_request_verification": 1,
 	"identity_verify_email":         1,
 	"identity_consume_row_reset":    1,
+	// M14-18 (00079): the session behind the window's read and behind "Keep all".
+	"identity_confirm_window": 1,
+	"identity_keep_all":       1,
 	// M14-17 (00078): the existing identity's own live session -- the only way the claim reaches it.
 	"identity_claim_signup": 1,
 	// M14-15 (00077): the invitation by its own token (admin_invites.token_hash, UNIQUE) -- the
@@ -121,6 +126,10 @@ var identityEmailWideReads = map[string]int{
 	// address's namespaced lock; it returns nothing and writes nothing. M14-08a (00076): a FOR loop
 	// over those rows, a row whose address is not printable ASCII not counting.
 	"identity_create_for_signup": 1,
+	// M14-18 (00079): the rows refused in THIS window -- identity_relink_refused's own predicate (the
+	// identity's address, read from the identity row the session found; unlinked_at >= the window's
+	// opening), LIMIT 50. It writes nothing (STABLE) and lists only what the person may take back.
+	"identity_confirm_window": 1,
 }
 
 // identityTokenKeyed are the tenant tables whose own globally UNIQUE token_hash may anchor a lookup

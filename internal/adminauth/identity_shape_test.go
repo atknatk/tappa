@@ -125,6 +125,37 @@ func (s *shapeDB) SetIdentityPassword(context.Context, string, string) (int, err
 	return 0, errNoIdentityData
 }
 
+// The account page's six (M14-18) are not the sign-in's either.
+func (s *shapeDB) RequestIdentityVerification(context.Context, string, string) (db.IdentityVerification, error) {
+	s.op("request-verification")
+	return db.IdentityVerification{}, errNoIdentityData
+}
+
+func (s *shapeDB) VerifyIdentityEmail(context.Context, string, string) (bool, error) {
+	s.op("verify-email")
+	return false, errNoIdentityData
+}
+
+func (s *shapeDB) ConfirmWindow(context.Context, string) ([]db.ConfirmWindowRow, error) {
+	s.op("confirm-window")
+	return nil, errNoIdentityData
+}
+
+func (s *shapeDB) KeepAll(context.Context, string) error {
+	s.op("keep-all")
+	return errNoIdentityData
+}
+
+func (s *shapeDB) UnlinkMembership(context.Context, string, uuid.UUID) (db.UnlinkedMembership, error) {
+	s.op("unlink")
+	return db.UnlinkedMembership{}, errNoIdentityData
+}
+
+func (s *shapeDB) RelinkMembership(context.Context, string, uuid.UUID) (uuid.UUID, error) {
+	s.op("relink")
+	return uuid.Nil, errNoIdentityData
+}
+
 // countingBudget is a FailureBudget with a small limit, so the over-limit branch is reachable; it is
 // safe for concurrent use, like httpx.Limiter.
 type countingBudget struct {
@@ -349,8 +380,9 @@ func TestAuthenticatePerson_UnlookupableInputPaysAndAsksNothing(t *testing.T) {
 
 // TestVerifiedIdentity_HasOneProducerAndOneConsumer holds ADR 0031 §5.2's named exception 1 in the
 // source (00011 OBLIGATION 5's twin; manager.go:251-292's two-leg honesty, with one leg): in this
-// package's non-test files there is exactly ONE `verifiedIdentity{...}` literal, inside
-// AuthenticatePerson; exactly ONE call of the database's OpenIdentitySession, inside
+// package's non-test files the `verifiedIdentity{...}` literals are exactly AuthenticatePerson's and
+// (M14-18, the account page's fresh sessions) proveIdentity's -- each right after its comparison
+// returned true; exactly ONE call of the database's OpenIdentitySession, inside
 // openIdentitySession; and openIdentitySession takes a verifiedIdentity. A second producer or a
 // second caller is a red test, and the fix is to name it here, not to loosen the count.
 func TestVerifiedIdentity_HasOneProducerAndOneConsumer(t *testing.T) {
@@ -391,8 +423,11 @@ func TestVerifiedIdentity_HasOneProducerAndOneConsumer(t *testing.T) {
 			}
 		}
 	}
-	if !slices.Equal(literals, []string{"AuthenticatePerson"}) {
-		t.Errorf("verifiedIdentity literals in %v; want exactly one, in AuthenticatePerson", literals)
+	// M14-18: proveIdentity is the second producer (the account page's fresh sessions), built the
+	// same way -- right after its one comparison returned true.
+	slices.Sort(literals)
+	if !slices.Equal(literals, []string{"AuthenticatePerson", "proveIdentity"}) {
+		t.Errorf("verifiedIdentity literals in %v; want exactly two, one in AuthenticatePerson and one in proveIdentity", literals)
 	}
 	if !slices.Equal(calls, []string{"openIdentitySession"}) {
 		t.Errorf("OpenIdentitySession is reached from %v; want exactly openIdentitySession", calls)

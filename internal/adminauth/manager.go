@@ -57,6 +57,14 @@ type Database interface {
 	RevokeIdentitySessions(ctx context.Context, sessionHash string, keepCurrent bool) (int, error)
 	IdentityPasswordForSession(ctx context.Context, sessionHash string) (db.PasswordHash, error)
 	SetIdentityPassword(ctx context.Context, sessionHash, newDigest string) (int, error)
+
+	// The account page's identity acts (M14-18, identityaccount.go).
+	RequestIdentityVerification(ctx context.Context, sessionHash, tokenHash string) (db.IdentityVerification, error)
+	VerifyIdentityEmail(ctx context.Context, verificationHash, sessionHash string) (bool, error)
+	ConfirmWindow(ctx context.Context, sessionHash string) ([]db.ConfirmWindowRow, error)
+	KeepAll(ctx context.Context, sessionHash string) error
+	UnlinkMembership(ctx context.Context, freshSessionHash string, tenant uuid.UUID) (db.UnlinkedMembership, error)
+	RelinkMembership(ctx context.Context, freshSessionHash string, tenant uuid.UUID) (uuid.UUID, error)
 }
 
 // The one implementation, bound at compile time (reset.go's ResetDatabase has the same line).
@@ -225,6 +233,9 @@ type Manager struct {
 	dummy string
 	// proofKey is the key of Proof (proof.go), derived from the session HMAC key like hmacKey.
 	proofKey []byte
+	// verifyKey hashes an e-mail verification link (identityaccount.go, M14-18), derived like hmacKey
+	// under its own label: a session hash and a verification hash never share a key.
+	verifyKey []byte
 	// compareFn is the ONE bcrypt comparison every login path runs through (nil = Compare). It
 	// exists so a test can COUNT the comparisons of each sign-in exit exactly (ADR 0031 §5.6: every
 	// sign-in pays 1 + MaxCandidates), the way `dummy` exists so a test can make them cheap.
@@ -234,6 +245,10 @@ type Manager struct {
 	// cost). It exists for the reason Resets.digest does: one cost-12 bcrypt is ~11 s under -race,
 	// and the identity tests change passwords several times (M14-08). Production never sets it.
 	hashFn func(password string) (string, error)
+	// rowFn reads the account acts' session row (identityaccount.go's rowFactsOf); nil = the database.
+	// It exists so the comparison-count tests can run without one, like compareFn. Production never
+	// sets it.
+	rowFn func(s Resolved) (rowFacts, error)
 	// openCost is the measured duration of identity_open_session, which the decoy pads itself to
 	// (identity.go, S15). It is per Manager, never package state.
 	openCost *costMeter
@@ -257,7 +272,11 @@ func New(data Database, cfg *config.Config) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{data: data, hmacKey: key, dummy: dummyDigest, proofKey: proofKey, openCost: newCostMeter(openCostDefault)}, nil
+	verifyKey, err := deriveVerifyKey(cfg.SessionHMACKey)
+	if err != nil {
+		return nil, err
+	}
+	return &Manager{data: data, hmacKey: key, dummy: dummyDigest, proofKey: proofKey, verifyKey: verifyKey, openCost: newCostMeter(openCostDefault)}, nil
 }
 
 // hash is the one digest a password change writes (see hashFn).
