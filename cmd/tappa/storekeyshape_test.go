@@ -512,6 +512,13 @@ var storeSurface = map[string]string{
 	"ListAdminInvites":                 "(context.Context, uuid.UUID) ([]ListAdminInvitesRow{ID uuid.UUID; Email string; FullName string; Role string; InvitedBy uuid.UUID; CreatedAt time.Time; ExpiresAt time.Time; UsedAt *time.Time; CancelledAt *time.Time}, error)",
 	"CancelAdminInvite":                "(context.Context, CancelAdminInviteParams{TenantID uuid.UUID; ID uuid.UUID}) (CancelAdminInviteRow{ID uuid.UUID; ExpiresAt time.Time}, error)",
 	"AdminInviteBusinessSuspended":     "(context.Context, AdminInviteBusinessSuspendedParams{TenantID uuid.UUID; ID uuid.UUID}) (bool, error)",
+	// M14-16: the owner's side of a business's memberships. Ids, the role and status words, the name and
+	// the address the business holds for its own people -- no identity_id, no link column, no digest.
+	"LockActiveAdminOwners": "(context.Context, uuid.UUID) ([]uuid.UUID, error)",
+	"LockAdminMember":       "(context.Context, LockAdminMemberParams{TenantID uuid.UUID; ID uuid.UUID}) (LockAdminMemberRow{ID uuid.UUID; Role string; Status string}, error)",
+	"ListAdminMembers":      "(context.Context, uuid.UUID) ([]ListAdminMembersRow{ID uuid.UUID; FullName string; Email *string; Role string; Status string; CreatedAt time.Time; LastLoginAt *time.Time}, error)",
+	"SetAdminMemberStatus":  "(context.Context, SetAdminMemberStatusParams{Status string; TenantID uuid.UUID; ID uuid.UUID}) (uuid.UUID, error)",
+	"SetAdminMemberRole":    "(context.Context, SetAdminMemberRoleParams{Role string; TenantID uuid.UUID; ID uuid.UUID}) (uuid.UUID, error)",
 }
 
 // TestStoreSurface_IsTheOneRecorded is the inventory check.
@@ -1030,10 +1037,12 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 27 -> 28 on 2026-10-26 (M14-15): db/queries/admininvites.sql, the owner's side of an administrator
 	// invitation over admin_invites and admin_users; none calls a definer (the acceptances and the
 	// resolver are called by hand from internal/db/identity.go).
-	if files != 28 {
-		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-EIGHT were there when this was "+
-			"pinned (2026-10-26; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
-			"apiidempotency.sql, invitequeue.sql, punchfeed.sql, directory.sql, webhooks.sql, daycutoff.sql and admininvites.sql)", files)
+	// 28 -> 29 on 2026-10-27 (M14-16): db/queries/adminmembers.sql, the owner's side of a business's
+	// memberships over admin_users; none calls a definer.
+	if files != 29 {
+		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-NINE were there when this was "+
+			"pinned (2026-10-27; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
+			"apiidempotency.sql, invitequeue.sql, punchfeed.sql, directory.sql, webhooks.sql, daycutoff.sql, admininvites.sql and adminmembers.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -1141,14 +1150,17 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// InsertAdminInvite, ListAdminInvites, CancelAdminInvite, AdminInviteBusinessSuspended), each over
 	// the caller's own business's admin_invites (the INSERT from the inviter's own admin_users row, the
 	// suspension read joined to its tenants row); none calls a definer.
-	if named != 239 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND THIRTY-NINE were "+
-			"there when this was pinned (2026-10-26: 111 on 2026-08-24, + T73's three "+
+	// 239 -> 244 on 2026-10-27 (M14-16): adminmembers.sql's five (LockActiveAdminOwners, LockAdminMember,
+	// ListAdminMembers, SetAdminMemberStatus, SetAdminMemberRole), each over the caller's own business's
+	// admin_users; none calls a definer.
+	if named != 244 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND FORTY-FOUR were "+
+			"there when this was pinned (2026-10-27: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M14-15's five invitation queries). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M14-15's five invitation queries, + M14-16's five membership queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
@@ -1341,8 +1353,10 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// business-day settings screen's reads (six since the review round), in storeSurface; none carries bytes, none reads tags.
 	// 28 -> 29 (2026-10-26, M14-15): db/queries/admininvites.sql adds admininvites.sql.go -- the owner's
 	// side of an administrator invitation (five methods, in storeSurface); none carries bytes, none reads tags.
-	if len(out) != 29 {
-		t.Fatalf("parsed %d file(s) under %s; TWENTY-NINE were generated when this floor was last set "+
+	// 29 -> 30 (2026-10-27, M14-16): db/queries/adminmembers.sql adds adminmembers.sql.go -- the owner's
+	// side of a business's memberships (five methods, in storeSurface); none carries bytes, none reads tags.
+	if len(out) != 30 {
+		t.Fatalf("parsed %d file(s) under %s; THIRTY were generated when this floor was last set "+
 			"(2026-10-22). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}

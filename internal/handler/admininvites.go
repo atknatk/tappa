@@ -199,12 +199,19 @@ func (a *AdminAuth) managersPage(w http.ResponseWriter, r *http.Request) {
 		NameMaxLength: adminauth.MaxInviteNameRunes,
 	}
 	v.Kicker = "Owner only · who else runs this business in Taptime"
-	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("done")), managersWords(managersDone)...); word != "" {
-		v.Done = managersDone[word]
+	// The invitations' words and the memberships' (M14-16) are two closed tables; a word in neither
+	// prints nothing.
+	for _, done := range []map[string]string{managersDone, membersDone} {
+		if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("done")), managersWords(done)...); word != "" {
+			v.Done = done[word]
+		}
 	}
-	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("problem")), managersWords(managersProblem)...); word != "" {
-		v.Problem = managersProblem[word]
+	for _, problem := range []map[string]string{managersProblem, membersProblem} {
+		if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("problem")), managersWords(problem)...); word != "" {
+			v.Problem = problem[word]
+		}
 	}
+	a.membersView(r, id, &v)
 	list, err := a.adminInvites.List(r.Context(), id.TenantID())
 	if err != nil {
 		a.log.Error("panel: could not read the invitations", "err", err)

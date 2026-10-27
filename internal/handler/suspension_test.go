@@ -182,6 +182,9 @@ func suspensionExceptions(identity bool) map[string]string {
 		out["POST "+accountUnlinkHref] = "removing a business from one's own sign-in (M14-18)"
 		out["POST "+accountUndoHref] = "putting a removed business back (M14-18)"
 		out["POST "+accountLinkHref] = "linking a business (ADR 0025's M14 note, M14-18)"
+		// M14-16: the two membership presses that narrow who can act for the business.
+		out["POST "+membersDisableHref] = "disabling a membership (a defence, K-26's reasoning; ADR 0025's M14 note, M14-16)"
+		out["POST "+membersMakeManagerHref] = "making an owner a manager (a defence, K-26's reasoning; ADR 0025's M14 note, M14-16)"
 	}
 	return out
 }
@@ -224,10 +227,10 @@ func refusalEvents(tr *fakeTrail) []audit.Event {
 // code review's -- no completeness claim.
 func TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException(t *testing.T) {
 	tenant, admin, session := uuid.New(), uuid.New(), uuid.New()
-	for identity, want := range map[bool]int{false: 11, true: 19} {
+	for identity, want := range map[bool]int{false: 11, true: 21} {
 		if n := len(suspensionExceptions(identity)); n != want {
 			t.Fatalf("the exception list (identity flag %v) has %d entries; ADR 0025 §3 names eight, "+
-				"K-26 three and, under the flag, its M14 note's eight so far (M14-10, M14-11, M14-18's six)", identity, n)
+				"K-26 three and, under the flag, its M14 note's ten so far (M14-10, M14-11, M14-18's six, M14-16's two)", identity, n)
 		}
 	}
 

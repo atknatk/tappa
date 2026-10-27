@@ -26,6 +26,33 @@ type ManagersView struct {
 	NameMaxLength int
 	// Done and Problem are the outcome of the last press (a word in the redirect, a sentence here).
 	Done, Problem string
+
+	// The membership section (M14-16): drawn only while its surface is open (MembersShown).
+	MembersShown  bool
+	MembersFailed bool
+	Members       []ManagerMemberRow
+	// OnlyOwner: the reader is the business's only active owner -- the page says how a hand-over goes.
+	OnlyOwner                      bool
+	DisableHref, EnableHref        string
+	MakeOwnerHref, MakeManagerHref string
+	// APIKeysHref is the API Keys section, linked from KeysNote.
+	APIKeysHref string
+}
+
+// ManagerMemberRow is one membership of the business. The Can* fields draw the presses the service
+// would accept for this reader; the service still decides.
+type ManagerMemberRow struct {
+	ID    string
+	Name  string
+	Email string
+	// Role and Status are the words printed on the row: Owner/Manager, Active/Disabled.
+	Role, Status string
+	// Self: this row is the reader's own membership.
+	Self                                                             bool
+	CanDisable, CanEnable, CanMakeOwner, CanMakeManager, CanStepDown bool
+	// KeysNote: the row is an owner a press here would disable or demote -- the page says that the API
+	// keys this person created keep working (backlog T150).
+	KeysNote bool
 }
 
 // ManagerInviteRow is one invitation on the list.
