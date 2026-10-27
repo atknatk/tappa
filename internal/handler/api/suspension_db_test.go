@@ -821,8 +821,9 @@ func TestSuspension_ATapGoesOn(t *testing.T) {
 //	              suspendedAtReaders names one by one: no trigger function reads it
 //
 // suspendedAtReaders are the functions outside the operator's op_* allowed to read suspended_at,
-// each pinned to its exact signature, owner and volatility -- a READ (STABLE: it cannot write), no
-// trigger, called by the panel and never by a worker.
+// each pinned to its exact signature, owner and volatility -- a READ (STABLE: it cannot write), or
+// (M14-15) a writer that reads it only to refuse while suspended -- no trigger, called by the panel
+// and never by a worker.
 var suspendedAtReaders = map[string]struct{ owner, volatility, why string }{
 	// ADR 0031 §5.2 (the definer's matrix: tenants SELECT (id, name, suspended_at)) and K-10: the
 	// person's business switcher marks a suspended business; switching to it stays free (ADR 0025's
@@ -830,6 +831,14 @@ var suspendedAtReaders = map[string]struct{ owner, volatility, why string }{
 	// identity_open_session do NOT read it (measured: their bodies do not name it).
 	"identity_memberships(text)": {owner: "tappa_identitydefiner", volatility: "s",
 		why: "ADR 0031 §5.2 / K-10: the switcher marks a suspended business"},
+	// M14-15 (00077, the user's decision of 2026-10-27; ADR 0025's M14 note): the two invitation
+	// acceptances are WRITERS (VOLATILE) that read suspended_at only to REFUSE -- a suspended business
+	// takes no new manager; set (or no row) and they write nothing. A suspension stops them; nothing
+	// here acts past one. Called by the invitee's page, never by a worker.
+	"identity_accept_invite(text,text)": {owner: "tappa_identitydefiner", volatility: "v",
+		why: "M14-15: the acceptance refuses a suspended business"},
+	"identity_accept_invite_new(text,text)": {owner: "tappa_identitydefiner", volatility: "v",
+		why: "M14-15: the acceptance refuses a suspended business"},
 }
 
 func TestSuspension_NoWorkerOrTriggerReadsIt(t *testing.T) {

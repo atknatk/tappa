@@ -73,6 +73,9 @@ templ AdminAccount(v AccountView) {
 				@accountSignOutEverywhere(v)
 			}
 			@accountMessages(v)
+			if v.ManagersHref != "" {
+				@accountManagers(v)
+			}
 			if v.ShowDevelopers() {
 				@accountDevelopers(v)
 			}
@@ -533,6 +536,20 @@ templ accountMessages(v AccountView) {
 // state: those are the owner's and live behind the Developers section's own owner-only
 // gate, and this page is readable by a manager. The card is drawn only when the reader
 // may open that section (AccountView.DevelopersHref, set from the section's own gate).
+// accountManagers links to the owner's "Managers" page (M14-15): drawn only while the panel identity
+// flag opens the invitations, and only for an owner (AccountView.ManagersHref).
+templ accountManagers(v AccountView) {
+	<section class="panel-card min-w-0 flex-row flex-wrap items-center justify-between" aria-labelledby="account-managers-heading">
+		<div class="flex min-w-0 flex-[1_1_240px] flex-col gap-1">
+			@accountCardHeading("account-managers-heading", "Managers")
+			<p class="text-[13px] leading-normal text-ink/70">
+				Invite a manager by email and see the invitations you have sent. Only an owner sees it.
+			</p>
+		</div>
+		<a class="btn btn--line" href={ templ.URL(v.ManagersHref) }>Open Managers <span class="ml-1.5" aria-hidden="true">→</span></a>
+	</section>
+}
+
 templ accountDevelopers(v AccountView) {
 	<section class="panel-card min-w-0 flex-row flex-wrap items-center justify-between" aria-labelledby="account-developers-heading">
 		<div class="flex min-w-0 flex-[1_1_240px] flex-col gap-1">

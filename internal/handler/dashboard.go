@@ -128,6 +128,11 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 	a.mountGated(r, adminauth.SurfaceSwitch, func(r chi.Router) {
 		r.Get(adminSwitchHref, a.adminSwitchPage)
 	})
+	// THE MANAGERS PAGE (M14-15): the owner's invitations -- a read (it lists, it mints nothing),
+	// owner-only by the policy engine inside the handler, mounted only while TAPPA_ADMIN_IDENTITY is on.
+	a.mountGated(r, adminauth.SurfaceAdminInvites, func(r chi.Router) {
+		r.Get(managersHref, a.managersPage)
+	})
 }
 
 // mountWriting registers the panel's state-changing routes: the review decision
@@ -249,6 +254,13 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// stops is internal/webhook/endpoints' decision (OpenWhileSuspended), not a list
 		// here: the closed ones mount in this group, the open one in the sibling below.
 		a.mountWebhookWrites(r, false)
+		// 🔴 INVITING AND UN-INVITING A MANAGER (M14-15). Here, in the group a suspension stops: ADR
+		// 0025's closed list of exceptions names no invitation. Owner-only by the policy engine inside
+		// the handlers; mounted only while TAPPA_ADMIN_IDENTITY is on (ADR 0031 §8).
+		a.mountGated(r, adminauth.SurfaceAdminInvites, func(r chi.Router) {
+			r.Post(managersInviteHref, a.managersInvite)
+			r.Post(managersCancelHref, a.managersCancel)
+		})
 		// 🔴 THE ACCOUNT SECTION'S BRAND EDITOR (M10 WL-7): the colour and taking a logo
 		// or a colour back are two ordinary writes on this chain. The LOGO UPLOAD is a
 		// nested group for the encode relay's reason below: its gate (brandupload.go)

@@ -12,6 +12,10 @@ import (
 )
 
 type Querier interface {
+	// Whether the business an invitation belongs to is suspended (ADR 0025 §1) -- the acceptance page's
+	// "not now", after the acceptance itself refused (the functions read the same column under their
+	// locks). The invitation is the row; the business is read through it, scoped by @tenant_id.
+	AdminInviteBusinessSuspended(ctx context.Context, arg AdminInviteBusinessSuspendedParams) (bool, error)
 	// tags.sql -- tenant-scoped tag queries. Runs AFTER GetTagByUID (resolve.sql)
 	// has established the tenant context, so per CLAUDE.md section 4.5 every query
 	// here carries an explicit tenant_id filter (belt + braces on top of RLS).
@@ -146,6 +150,25 @@ type Querier interface {
 	// manager pressed a button for something that was already true, and the honest
 	// answer is to say so rather than to report a change that did not happen.
 	AttachPolicyResource(ctx context.Context, arg AttachPolicyResourceParams) (AttachPolicyResourceRow, error)
+	// One open invitation, by its id in this business. No row: unknown here, spent, or cancelled
+	// already -- the caller writes no audit row then.
+	CancelAdminInvite(ctx context.Context, arg CancelAdminInviteParams) (CancelAdminInviteRow, error)
+	// admininvites.sql -- the owner's side of an administrator invitation (M14-15, ADR 0031 §5.11;
+	// migration 00077). The owner issues, lists and cancels its own business's invitations.
+	//
+	// Every statement here runs inside WithTenant and carries an explicit tenant_id filter (CLAUDE.md
+	// §4.5, belt and braces). The acceptance is NOT here: it is keyed by the invitation token and runs
+	// through ADR 0031 §5.2's identity_accept_invite / identity_accept_invite_new (hand-written in
+	// internal/db/identity.go -- sqlc cannot type a RETURNS TABLE call).
+	//
+	// 🔴 NOTHING HERE READS A MEMBERSHIP OR AN IDENTITY (R18). The owner's answer, its timing and the
+	// list's state must be one shape whether or not the address already has a Taptime sign-in, so the
+	// issuing path writes the invitation and reads nothing else; token_hash is not readable by tappa_app
+	// and is not named.
+	// The address's open invitation in this business, if any, before a new one is issued (one open
+	// invitation per address per business -- the partial UNIQUE admin_invites_one_open_per_address).
+	// An expired one is open too until it is cancelled or spent, so it is retired here as well.
+	CancelOpenAdminInvitesForAddress(ctx context.Context, arg CancelOpenAdminInvitesForAddressParams) (int64, error)
 	// Retires every invitation of one employee that could still be spent, and returns
 	// the ids it retired (empty when there was nothing to retire -- idempotent).
 	//
@@ -3295,6 +3318,10 @@ type Querier interface {
 	// so it writes no audit row either (TestApiKeyRevocation_ConcurrentAndBulkAreSafe).
 	// id and created_at are the table's defaults; tappa_app cannot write them (00051).
 	InsertAPIKey(ctx context.Context, arg InsertAPIKeyParams) (InsertAPIKeyRow, error)
+	// id, created_at, used_at and cancelled_at are not tappa_app's to write (00077). The row is written
+	// FROM the inviter's own membership row: an active OWNER of this business (the panel's policy gate
+	// decided first; this is the belt -- no row, nothing written). tenant_id is the source row's own.
+	InsertAdminInvite(ctx context.Context, arg InsertAdminInviteParams) (InsertAdminInviteRow, error)
 	// THE MANAGER'S OWN RECORD AT A PEER'S VENUE (M11 API-1c, ADR 0027 §9 "Manuel kayıt"; K-1a: the
 	// record is the EMPLOYER's). InsertManualTransaction's statement and its narrowing, with the
 	// venue a PEER's: site_tenant_id and site_location_id are set, location_id and tag_uid are NULL
@@ -3649,6 +3676,9 @@ type Querier interface {
 	// The panel's list: newest first, revoked ones included (the owner sees what was issued and
 	// when it stopped working). token_hash is not readable by tappa_app and is not named.
 	ListAPIKeys(ctx context.Context, tenantID uuid.UUID) ([]ListAPIKeysRow, error)
+	// The owner's list: newest first, at most 50, spent and cancelled ones included (the owner sees
+	// what was sent and what became of it).
+	ListAdminInvites(ctx context.Context, tenantID uuid.UUID) ([]ListAdminInvitesRow, error)
 	// Every session of one admin, newest first: the read side of "sign out everywhere"
 	// and of the panel's device list. Revoked rows are included on purpose; the caller
 	// filters on revoked_at, so the history stays visible (section 4.6).

@@ -170,6 +170,9 @@ type AccountView struct {
 	// refuses, and then the card is not drawn at all. The card carries the link and
 	// nothing else: no key, prefix, count or webhook data travels on this view.
 	DevelopersHref string
+	// ManagersHref is the owner's "Managers" page (M14-15), "" while the panel identity flag keeps the
+	// invitations closed or for a reader who is not an owner -- then nothing of the card is drawn.
+	ManagersHref string
 
 	// --- the password form (T73) --------------------------------------------------
 

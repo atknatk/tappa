@@ -420,6 +420,51 @@ yine de açıkça yazılır — T5). Gövdede iki değişiklik, gerisi 00074'ün
   birlikte kanıtlayan kişi kendi kimliğine bağlayabilir; bu bir gasp yolu değildir, ama kuralın
   harfiyle ("hiç bağlanmaz") uyum için aynı yüklem oraya da gerekir — ayrı bir kart.
 
+**M14-15 uygulama notları (2026-10-26/27; kart dışı kararlar ve iki kullanıcı kararı, denetime açık):**
+- İmzalar (`00077`): `resolve_admin_invite_by_token_hash(p_token_hash text)` → `TABLE (id, tenant_id, role,
+  expires_at, used_at, cancelled_at)` (argüman adı `resolve_identity_reset_by_token_hash`'inki gibi
+  `p_token_hash`; tablo ikisini de `p_hash` diye kısaltır); `identity_accept_invite(p_invite_hash text,
+  p_session_hash text)` ve `identity_accept_invite_new(p_invite_hash text, p_new_hash text)` → `TABLE
+  (admin_user_id uuid, tenant_id uuid)` (doğan ya da yeniden bağlanan üyelik ve işletmesi; red 0 satır).
+- `admin_invites`'in sütun özetine `full_name` eklendi (yeni üyelik satırının `NOT NULL` adı — owner'ın
+  yazdığı ad); `role` CHECK'le yalnız `manager` (sahiplik M14-16'nın iki adımlı devriyle döner, e-posta
+  linkiyle değil); adres başına tek açık davet (kısmi UNIQUE) — yeni davet açık olanı iptal eder.
+  Definer matrisi: `admin_invites` SELECT (token_hash dahil dokuz sütun) + UPDATE (`used_at`),
+  `admin_users` INSERT (matrisin sekiz sütunu; `00077` bu yetkinin sahibidir — Down'ı onu yalnız
+  `identity_claim_signup` yokken geri alır, M14-17'nin `00078`'i almaz). `tappa_app`: `token_hash`
+  dışında SELECT, INSERT, yalnız `UPDATE (cancelled_at)`, DELETE yok.
+- **Reddedilmiş satır yalnız davetin rolündeyse geri bağlanır** (iki denetimin YÜKSEK bulgusu, 2026-10-27):
+  `linked_via='invite'`, **yeni** `linked_at`, `unlinked_at = NULL`, digest kopyası, `status='active'`;
+  yüklem `(identity_id IS NULL AND unlinked_at IS NOT NULL AND role = davetin rolü) IS NOT TRUE → 0 satır`.
+  Reddedilmiş bir **owner** satırı manager davetiyle hiçbir zaman geri gelmez (definer'da `UPDATE (role)`
+  yok; owner koltuğu M14-16'nın devridir) — kabul 0 satır, davet açık, yanıt tek tip. İşletmede adresin
+  başka bir satırı varsa da kabul 0 satır ve davet açık kalır: yanıt tıklayana gider, owner yok sayılmış
+  bir e-postanın gördüğünü görür (R18). Yeni üyelik satırına iki yolda da **davetin yazımı** yazılır.
+  Yeni kimlik `email_verified_at = now()` ile doğar (INSERT sonra UPDATE — definer'a `INSERT
+  (email_verified_at)` verilmez); onay penceresi açmaz.
+- **Askıdaki işletme yeni yönetici almaz** (kullanıcı kararı, 2026-10-27): iki kabul fonksiyonu kilitlerden
+  sonra `tenants.suspended_at`'i okur; doluysa ya da satır yoksa hiçbir şey yazmaz, davet açık kalır,
+  sayfa "şimdi kabul edilemez" der. Davetlinin sayfası (`/admin/invite`) panelin yazma rotalarından değil,
+  sıfırlama akışı gibi kendi bağlamasıyla bağlanır; askı istisna listesi 13'te kalır (ADR 0025'in M14 notu).
+- **ASCII adres kuralı**: davet adresi kaydedilmeden önce `mail.ValidRecipient`'ten geçer (form doğrulaması,
+  her okumadan önce — R18'i bozmaz) ve `admin_invites_email_ascii` CHECK'i yalnız yazdırılabilir ASCII'yi
+  saklar; `identity_accept_invite_new` M14-08a'nın 6b yüklemini **birebir** taşır (yukarıdaki not);
+  `identity_accept_invite` iki adresten biri ASCII değilse bağlamaz. `00077`'nin ön koşulu `00076`'dır.
+- Kemer: `admin_invites` kendi küresel UNIQUE `token_hash`'iyle bir tenant ilişkisini çapalar
+  (`identityTokenKeyed`); `resolve_admin_invite_*` gövdeleri de kemerde.
+- **Owner kapısı politika motorundandır** (`tenant.RuleWriter.MayInviteManager`): `policy:edit`; yeni bir
+  eylem kapalı sözlüğü (ADR 0004 §8) büyütür ve materyalize edilmiş baseline'da `deny sid=default` alırdı
+  (M7-07'nin tuzağı). Saklı kural kitabı **hiç yoksa** (hiç materyalize edilmemiş işletme) karar
+  **sevk edilen baseline**'la verilir (kullanıcı kararı, 2026-10-27) — bu yolda yazma yok;
+  materyalize edilmiş işletme saklı kitabıyla karar verir. İkinci kemer: davet INSERT'i davet edenin aktif
+  owner satırından yazılır.
+- Gönderme `mountWriting`'in askı halkalı ana grubunda (ADR 0025'in kapalı listesi daveti adlandırmaz).
+- Davet linkinin token'ı adres çubuğunda kalmaz: GET onu dar yollu bir çereze koyar ve temiz
+  `/admin/invite`'a 303 verir (sıfırlama akışının deseni).
+- Davet ve kabul audit satırları: `admin.invite.sent` / `admin.invite.undelivered` (handler, gönderimin
+  sonucuyla, `invite_id`), `admin.invite.cancelled`, `admin.invite.accepted` (definer, `{outcome,
+  invite_id}`, iki fonksiyonda aynı biçim). Adres, ad, token yok.
+
 Her fonksiyon: `SECURITY DEFINER`, `SET search_path = pg_catalog, pg_temp`, şema-nitelikli gövde,
 dinamik SQL yok, sabit dönüş sütunları, `REVOKE ALL … FROM PUBLIC`, `EXECUTE` **yalnız**
 `tappa_app` — **tek istisna `identity_reconcile()`**: `EXECUTE` yalnız `tappa_owner`'da (katalog testinin

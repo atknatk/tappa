@@ -186,7 +186,13 @@ SELECT line FROM (
 // added identity_create_for_signup (EXECUTE tappa_app and the owner) and the three grants its body
 // needs: admin_identities INSERT (email, password_hash), admin_users SELECT (password_hash) -- and
 // the system column xmin, which this catalogue (attnum > 0) does not list; identitycatalog_test.go's
-// identitySystemColumns pins it -- and tenants SELECT (created_at), read again at 00074) and READ
+// identitySystemColumns pins it -- and tenants SELECT (created_at), read again at 00074; 00077 -- M14-15, ADR 0031 §5.1/§5.2 -- added the
+// tenant-scoped admin_invites (the RLS five: ENABLE + FORCE and its tenant policy; tappa_app reads
+// every column but token_hash, inserts an invitation and updates cancelled_at alone -- the owner lists,
+// issues and cancels), its md.7 resolver (tappa_resolver reads the six columns it returns and the hash
+// it filters on), the two acceptances identity_accept_invite / _new (EXECUTE tappa_app and the owner)
+// and the grants their bodies need: admin_invites SELECT and UPDATE (used_at), admin_users INSERT (the
+// matrix's eight columns -- the membership an acceptance births), read again at 00077) and READ
 // line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
@@ -225,6 +231,12 @@ column admin_identity_verifications tappa_identitydefiner INSERT identity_id,tok
 column admin_identity_verifications tappa_identitydefiner SELECT id,identity_id,token_hash,expires_at,used_at
 column admin_identity_verifications tappa_identitydefiner UPDATE used_at
 column admin_identity_verifications tappa_resolver SELECT id,identity_id,token_hash,expires_at,used_at
+column admin_invites tappa_app INSERT tenant_id,email,full_name,role,token_hash,invited_by,expires_at
+column admin_invites tappa_app SELECT id,tenant_id,email,full_name,role,invited_by,created_at,expires_at,used_at,cancelled_at
+column admin_invites tappa_app UPDATE cancelled_at
+column admin_invites tappa_identitydefiner SELECT id,tenant_id,email,full_name,role,token_hash,expires_at,used_at,cancelled_at
+column admin_invites tappa_identitydefiner UPDATE used_at
+column admin_invites tappa_resolver SELECT id,tenant_id,role,token_hash,expires_at,used_at,cancelled_at
 column admin_sessions tappa_app INSERT id,tenant_id,admin_user_id,token_hash
 column admin_sessions tappa_app UPDATE last_used_at,revoked_at
 column admin_sessions tappa_identitydefiner INSERT tenant_id,admin_user_id,token_hash,authenticated_at
@@ -234,6 +246,7 @@ column admin_sessions tappa_resolver SELECT id,tenant_id,admin_user_id,token_has
 column admin_users tappa_app INSERT id,tenant_id,full_name,email,password_hash,role,status
 column admin_users tappa_app SELECT id,tenant_id,full_name,email,password_hash,role,status,created_at,last_login_at,identity_id
 column admin_users tappa_app UPDATE full_name,password_hash,role,status,last_login_at
+column admin_users tappa_identitydefiner INSERT tenant_id,full_name,email,password_hash,role,identity_id,linked_via,linked_at
 column admin_users tappa_identitydefiner SELECT id,tenant_id,email,password_hash,role,status,created_at,identity_id,linked_via,linked_at,unlinked_at
 column admin_users tappa_identitydefiner UPDATE password_hash,status,last_login_at,identity_id,linked_via,linked_at,unlinked_at
 column admin_users tappa_opdefiner SELECT tenant_id,email,status
@@ -354,6 +367,8 @@ function holding_site_gate() owner=tappa_holdingdefiner definer=true execute=tap
 function holding_site_locations(uuid) owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
 function holding_tap_site(character) owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
 function holding_timezone_lock() owner=tappa_holdingdefiner definer=true execute=tappa_holdingdefiner
+function identity_accept_invite(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function identity_accept_invite_new(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_consume_reset(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_consume_row_reset(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_create_for_signup(uuid,uuid) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
@@ -397,6 +412,7 @@ function op_suspend_tenant(text,uuid,text) owner=tappa_opdefiner definer=true ex
 function op_touch_session(text) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function punch_feed() owner=tappa_feedwriter definer=true execute=tappa_feedwriter
 function resolve_admin_by_email(citext) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
+function resolve_admin_invite_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_admin_session_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_api_key_by_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_identity_by_email(citext) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
@@ -428,6 +444,7 @@ rel admin_identities r owner=tappa_owner rls=enable,force
 rel admin_identity_events r owner=tappa_owner rls=enable,force
 rel admin_identity_resets r owner=tappa_owner rls=enable,force
 rel admin_identity_verifications r owner=tappa_owner rls=enable,force
+rel admin_invites r owner=tappa_owner rls=enable,force
 rel admin_sessions r owner=tappa_owner rls=enable,force
 rel admin_users r owner=tappa_owner rls=enable,force
 rel api_idempotency r owner=tappa_owner rls=enable,force

@@ -98,9 +98,20 @@ var identitySignaturesM1408 = []identitySignature{
 	{"identity_create_for_signup", "p_tenant_id uuid, p_admin_user_id uuid", "boolean", "tappa_identitydefiner"},
 }
 
+// identitySignaturesM1415 is M14-15's part (migration 00077): the invitation's md.7 resolver and its two
+// acceptances -- ADR 0031 §5.2's rows (the resolver's argument named p_token_hash like
+// resolve_identity_reset_by_token_hash's, the ADR's table writing both as p_hash). Each acceptance
+// answers the membership it made and its business, or nothing.
+var identitySignaturesM1415 = []identitySignature{
+	{"resolve_admin_invite_by_token_hash", "p_token_hash text",
+		"TABLE(id uuid, tenant_id uuid, role text, expires_at timestamp with time zone, used_at timestamp with time zone, cancelled_at timestamp with time zone)", "tappa_resolver"},
+	{"identity_accept_invite", "p_invite_hash text, p_session_hash text", "TABLE(admin_user_id uuid, tenant_id uuid)", "tappa_identitydefiner"},
+	{"identity_accept_invite_new", "p_invite_hash text, p_new_hash text", "TABLE(admin_user_id uuid, tenant_id uuid)", "tappa_identitydefiner"},
+}
+
 // identitySignatures is the union of every card's part: the whole closed list as far as it is built.
 // The functions tappa_identitydefiner owns are EXACTLY its tappa_identitydefiner rows.
-var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405, identitySignaturesM1408)
+var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405, identitySignaturesM1408, identitySignaturesM1415)
 
 // identitySignatureNames lists the table's names (resolve_admin_by_email is a row though neither
 // identity_* nor the definer's -- M14-05's redefinition).
@@ -443,6 +454,15 @@ var identityDefinerMatrixM1408 = map[string]string{
 	"tenants:SELECT":          "created_at",
 }
 
+// identityDefinerMatrixM1415 is what 00077 grants tappa_identitydefiner for the two acceptances: the
+// invitation it reads and spends, and the membership row it births (admin_users INSERT -- the ADR
+// matrix's eight columns). The refused row's relink uses 00072's UPDATE columns.
+var identityDefinerMatrixM1415 = map[string]string{
+	"admin_invites:SELECT": "id,tenant_id,email,full_name,role,token_hash,expires_at,used_at,cancelled_at",
+	"admin_invites:UPDATE": "used_at",
+	"admin_users:INSERT":   "tenant_id,full_name,email,password_hash,role,identity_id,linked_via,linked_at",
+}
+
 // identitySystemColumns are the system columns tappa_identitydefiner may SELECT, "table.column": the
 // whole list (ADR 0031 §5.2: admin_users' xmin for identity_create_for_signup -- M14-08; tenants' xmin
 // for identity_claim_signup arrives with M14-17).
@@ -455,7 +475,7 @@ var identityDefinerTableVerbs = map[string]string{
 }
 
 // identityDefinerMatrixParts are the cards' matrices; identityDefinerMatrix is their union.
-var identityDefinerMatrixParts = []map[string]string{identityDefinerMatrixM1404, identityDefinerMatrixM1405, identityDefinerMatrixM1408}
+var identityDefinerMatrixParts = []map[string]string{identityDefinerMatrixM1404, identityDefinerMatrixM1405, identityDefinerMatrixM1408, identityDefinerMatrixM1415}
 
 // identityDefinerMatrix unions the parts, cell by cell, as sorted column sets.
 func identityDefinerMatrix() map[string]string {
@@ -613,13 +633,15 @@ var identityResolverColumns = map[string]string{
 	// M14-05 (00072): the two token resolvers' columns.
 	"admin_identity_resets:SELECT":        "id,identity_id,token_hash,expires_at,used_at,cancelled_at",
 	"admin_identity_verifications:SELECT": "id,identity_id,token_hash,expires_at,used_at",
+	// M14-15 (00077): what resolve_admin_invite_by_token_hash returns and filters on.
+	"admin_invites:SELECT": "id,tenant_id,role,token_hash,expires_at,used_at,cancelled_at",
 }
 
 // TestIdentityResolver_ReachOnTheIdentityColumns pins tappa_resolver's SELECT on admin_identities
 // and admin_users (00011/00017's six and 00071's two) and nothing written on either.
 func TestIdentityResolver_ReachOnTheIdentityColumns(t *testing.T) {
 	ctx, tx := opTx(t)
-	for _, table := range []string{"admin_identities", "admin_users", "admin_identity_resets", "admin_identity_verifications"} {
+	for _, table := range []string{"admin_identities", "admin_users", "admin_identity_resets", "admin_identity_verifications", "admin_invites"} {
 		for _, priv := range []string{"SELECT", "INSERT", "UPDATE"} {
 			if got, want := opColumns(t, ctx, tx, "tappa_resolver", table, priv), identityResolverColumns[table+":"+priv]; got != want {
 				t.Errorf("tappa_resolver %s on %s = (%s), want (%s)", priv, table, got, want)
@@ -693,6 +715,40 @@ func identityExerciseM1405(t *testing.T, ctx context.Context, sp pgx.Tx) []ident
 	}
 }
 
+// identityExerciseM1415 is M14-15's world (00077): an identity with an UNVERIFIED address and a live
+// session in business F, an open invitation of its address into business G (a new membership: the
+// INSERT, the mailbox proof), one into business H where the address's row is REFUSED (the relink), and
+// an invitation of a NEW address into G (identity_accept_invite_new: the identity's birth). Each
+// invitation is read by the resolver first. Every 00077 column grant and the resolver's run.
+func identityExerciseM1415(t *testing.T, ctx context.Context, sp pgx.Tx) []identityStep {
+	t.Helper()
+	f, g, h := idTenant(t, ctx, sp, "exercise F"), idTenant(t, ctx, sp, "exercise G"), idTenant(t, ctx, sp, "exercise H")
+	email := aiEmail()
+	ident := aiIdentity(t, ctx, sp, email)
+	pf := aiAdmin(t, ctx, sp, f, email)
+	aiExec(t, ctx, sp, `UPDATE admin_users SET identity_id = $2, linked_via = 'backfill', linked_at = now(),
+	                           password_hash = (SELECT password_hash FROM admin_identities WHERE id = $2) WHERE id = $1`, pf, ident)
+	session := idSession(t, ctx, sp, f, pf, nil)
+	refused := aiAdmin(t, ctx, sp, h, email)
+	// A refused MANAGER row: a manager invitation relinks only a row of its own role (00077).
+	aiExec(t, ctx, sp, `UPDATE admin_users SET unlinked_at = now(), role = 'manager' WHERE id = $1`, refused)
+	ownerG, ownerH := aiAdmin(t, ctx, sp, g, aiEmail()), aiAdmin(t, ctx, sp, h, aiEmail())
+	toG, toH, toNew := opRandHex(t), opRandHex(t), opRandHex(t)
+	invite := func(tenant, by uuid.UUID, address, hash string) string {
+		return fmt.Sprintf(`INSERT INTO admin_invites (tenant_id, email, full_name, role, token_hash, invited_by, expires_at)
+		                    VALUES ('%s', '%s', 'M14 Invitee', 'manager', '%s', '%s', now() + interval '1 day')`, tenant, address, hash, by)
+	}
+	return []identityStep{
+		{name: "M14-15 resolve invitation", owner: invite(g, ownerG, email, toG),
+			sql: `SELECT * FROM resolve_admin_invite_by_token_hash($1)`, args: []any{toG}},
+		{name: "M14-15 accept with a session (new row)", sql: `SELECT * FROM identity_accept_invite($1, $2)`, args: []any{toG, session}},
+		{name: "M14-15 accept with a session (the refused row)", owner: invite(h, ownerH, email, toH),
+			sql: `SELECT * FROM identity_accept_invite($1, $2)`, args: []any{toH, session}},
+		{name: "M14-15 accept with a new password", owner: invite(g, ownerG, aiEmail(), toNew),
+			sql: `SELECT * FROM identity_accept_invite_new($1, $2)`, args: []any{toNew, opFakeDigest("n")}},
+	}
+}
+
 // identitySignupWorld is identity_create_for_signup's world (M14-08): a business and its one owner
 // row, written by the test's TOP-LEVEL transaction -- the function links only a row this transaction
 // wrote, and a row written inside a savepoint carries the subtransaction's xid (S13). Every exercise
@@ -738,6 +794,7 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx, signup ident
 		{name: "revoke", sql: revokeIdentitySessionsSQL, args: []any{h4, false}},
 	}
 	steps = append(steps, identityExerciseM1405(t, ctx, sp)...)
+	steps = append(steps, identityExerciseM1415(t, ctx, sp)...)
 	for _, s := range steps {
 		if s.owner != "" {
 			aiExec(t, ctx, sp, s.owner)
@@ -796,7 +853,7 @@ func TestIdentityDefiner_EveryGrantIsUsed(t *testing.T) {
 	for _, c := range []string{"identity_id", "unlinked_at"} {
 		grants = append(grants, grant{"tappa_resolver", "admin_users", "SELECT", c})
 	}
-	for _, table := range []string{"admin_identities", "admin_identity_resets", "admin_identity_verifications"} {
+	for _, table := range []string{"admin_identities", "admin_identity_resets", "admin_identity_verifications", "admin_invites"} {
 		for _, c := range strings.Split(identityResolverColumns[table+":SELECT"], ",") {
 			grants = append(grants, grant{"tappa_resolver", table, "SELECT", c})
 		}
