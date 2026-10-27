@@ -261,6 +261,14 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 			r.Post(managersInviteHref, a.managersInvite)
 			r.Post(managersCancelHref, a.managersCancel)
 		})
+		// 🔴 ENABLING A MEMBERSHIP AND MAKING SOMEONE AN OWNER (M14-16). Here, in the group a suspension
+		// stops: both WIDEN who can act for the business, like an invitation (ADR 0025's M14 note).
+		// Owner-only by the policy engine inside the handler; mounted only while TAPPA_ADMIN_IDENTITY is
+		// on (ADR 0031 §8). Their two narrowing twins are in the sibling group below.
+		a.mountGated(r, adminauth.SurfaceMembershipManagement, func(r chi.Router) {
+			r.Post(membersEnableHref, a.membersChange(adminauth.MemberEnable))
+			r.Post(membersMakeOwnerHref, a.membersChange(adminauth.MemberMakeOwner))
+		})
 		// 🔴 THE ACCOUNT SECTION'S BRAND EDITOR (M10 WL-7): the colour and taking a logo
 		// or a colour back are two ordinary writes on this chain. The LOGO UPLOAD is a
 		// nested group for the encode relay's reason below: its gate (brandupload.go)
@@ -335,6 +343,9 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 	//	switching businesses      ADR 0025's M14 note (M14-10): moving between one's own
 	//	                          businesses changes no business data, and a suspension keeps
 	//	                          sign-in open; mounted only while TAPPA_ADMIN_IDENTITY is on
+	//	disabling a membership;   ADR 0025's M14 note (M14-16): K-26's defence applied to people --
+	//	making an owner a manager both narrow who can act for the business; mounted only while
+	//	                          TAPPA_ADMIN_IDENTITY is on
 	r.Group(func(r chi.Router) {
 		r.Use(a.protectWritingThroughSuspension())
 		// 🔴 CHANGE-MY-OWN-PASSWORD (M7-05, T73). It shares this chain for the ordinary
@@ -387,6 +398,14 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		r.Post(apiKeyRevokeHref, a.apiKeyRevoke)
 		r.Post(apiKeyRevokeAllHref, a.apiKeyRevokeAll)
 		a.mountWebhookWrites(r, true)
+		// 🔴 DISABLING A MEMBERSHIP AND MAKING AN OWNER A MANAGER (M14-16) -- K-26's reasoning applied to
+		// people: both NARROW who can act for the business, and a suspended business that could not shut
+		// out a compromised manager is the opposite of what a suspension is for (ADR 0025's M14 note).
+		// Owner-only by the policy engine inside the handler; mounted only while TAPPA_ADMIN_IDENTITY is on.
+		a.mountGated(r, adminauth.SurfaceMembershipManagement, func(r chi.Router) {
+			r.Post(membersDisableHref, a.membersChange(adminauth.MemberDisable))
+			r.Post(membersMakeManagerHref, a.membersChange(adminauth.MemberMakeManager))
+		})
 	})
 }
 
