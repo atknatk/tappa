@@ -592,8 +592,10 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.createLimiter.Charge(ip)
-	link := s.dispatch(r, grant)
+	// Logged BEFORE the hand-over, so the worker's line can only follow it: the two addresses' logs are
+	// the same lines in the same order (CI run 40475667781 measured the race the other order left).
 	s.log.Info("signup: a registration draft was opened", "claim_id", grant.ClaimID, "ip", ip)
+	link := s.dispatch(r, grant)
 
 	// The "Check your inbox" page is a redirect target (a refresh must not open a second
 	// draft). The signed state carries the business name and -- only where the link is
