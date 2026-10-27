@@ -287,6 +287,11 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 	// signs out this business alone. With the flag ON a linked and an unlinked session may see
 	// different pages -- ADR 0031 §8's table opens the account page's identity sections then; R4's
 	// byte-identity is the flag-OFF rule, and with the flag off nothing of this card is drawn.
+	// "Managers" (M14-15): a link to the owner's invitation page, closed with the flag (ADR 0031 §8).
+	// The page's own gate is the policy engine's; the link follows the role the session carries.
+	if a.identityGate.Open(adminauth.SurfaceAdminInvites) && id.Live() && id.Admin.Role == adminRoleOwner {
+		v.ManagersHref = managersHref
+	}
 	if a.identityGate.Open(adminauth.SurfaceAccountIdentity) {
 		v.SignOutEverywhereHref = accountSignOutEverywhereHref
 		v.SignOutEverywhereEveryBusiness = id.Admin.Linked

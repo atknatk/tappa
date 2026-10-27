@@ -77,6 +77,15 @@ func (silentDB) GetPasswordResetByTokenHash(context.Context, string) (db.Resolve
 	return db.ResolvedPasswordReset{}, errSilent
 }
 func (silentDB) Ping(context.Context) error { return errSilent }
+
+// M14-17: the registration drafts' four calls (adminauth.SignupClaimDatabase).
+func (silentDB) OpenSignupClaim(context.Context, string, string, []byte, string, time.Time) (uuid.UUID, error) {
+	return uuid.Nil, errSilent
+}
+func (silentDB) GetSignupClaimByTokenHash(context.Context, string) (db.ResolvedSignupClaim, error) {
+	return db.ResolvedSignupClaim{}, errSilent
+}
+func (silentDB) SweepSignupClaims(context.Context) (int, error) { return 0, errSilent }
 func (silentDB) GetAPIKeyByHash(context.Context, string) (db.ResolvedAPIKey, error) {
 	return db.ResolvedAPIKey{}, errSilent
 }
@@ -163,7 +172,7 @@ type appFeatures struct {
 }
 
 func (f appFeatures) router(cfg *config.Config) http.Handler {
-	return appRouter(cfg, nil, f.activation, f.tap, f.panel, f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools)
+	return appRouter(cfg, nil, f.activation, f.tap, f.panel, f.panel.InviteAcceptance(), f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools)
 }
 
 func (f appFeatures) named() []struct {
@@ -174,7 +183,7 @@ func (f appFeatures) named() []struct {
 		name string
 		m    httpx.Mounter
 	}{
-		{"activation", f.activation}, {"tap", f.tap}, {"panel", f.panel}, {"logos", f.logos},
+		{"activation", f.activation}, {"tap", f.tap}, {"panel", f.panel}, {"invite", f.panel.InviteAcceptance()}, {"logos", f.logos},
 		{"marketing", f.marketing}, {"signup", f.signupFlow}, {"reset", f.resetFlow},
 		{"ready", f.ready}, {"theme", f.theme}, {"operator", f.operator},
 		{"api", f.api}, {"devtools", f.devTools},
@@ -277,9 +286,11 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	texts, err := legal.NewStore(data)
 	must(err)
-	provisioner, err := signup.NewProvisioner(data, trail, log)
+	provisioner, err := signup.NewProvisioner(data, log)
 	must(err)
-	signupFlow, err := handler.NewSignup(provisioner, noCheck{}, cfg, log)
+	signupClaims, err := adminauth.NewSignupClaims(data, cfg)
+	must(err)
+	signupFlow, err := handler.NewSignup(provisioner, signupClaims, noCheck{}, nil, cfg, log)
 	must(err)
 	ready, err := handler.NewHealth(data.Ping, log)
 	must(err)
@@ -357,7 +368,7 @@ func walkOf(t *testing.T, h http.Handler) []string {
 //	2 panel exception   ADR 0025's exceptions, by name: its eight, and K-26's three
 //	                    defences (ADR 0025's M11 note; plan §4.7); with the panel identity
 //	                    flag on (the configured walk), its M14 note's routes (M14-11).
-//	3 outside the panel the tap, activation, password recovery and sign-up routes and
+//	3 outside the panel the tap, activation, password recovery, invitation acceptance (M14-15) and sign-up routes and
 //	                    the dev-only simulator, by name; the configured operator surface's
 //	                    routes (its own host, its own identity -- ADR 0020; classified
 //	                    route by route by internal/handler/operator's own header classes);
@@ -395,6 +406,10 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		"POST /signup":          "signup",
 		"POST /signup/places":   "signup",
 		"POST /signup/account":  "signup",
+		// M14-17: the registration link's confirmation -- it creates a NEW business (no tenant's
+		// writing chain to gate: the business does not exist until this POST), like the wizard's
+		// own POSTs; under /admin only because the existing identity's proof is the panel cookie.
+		"POST /admin/signup/confirm": "signup",
 	}
 	// Panel exceptions that exist only with the panel identity flag on (ADR 0025's M14 note):
 	// signing yourself out everywhere (M14-11) and switching businesses (M14-10).
@@ -406,6 +421,9 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 	// Named routes that exist only with the optional surfaces on.
 	outsidePanelWhenOn := map[string]string{
 		"POST " + handler.DevSimulateTapPath: "devtools",
+		// M14-15: the invitee's acceptance -- mounted beside the panel, outside its chains (no session
+		// of the inviting business), only with the panel identity flag on.
+		"POST /admin/invite": "invite",
 	}
 	methodless := map[string]string{"/static/*": "router", "/operator": "operator", "/operator/*": "operator"}
 	// chi's own method list, less the two reads: what a methodless route is reported under.

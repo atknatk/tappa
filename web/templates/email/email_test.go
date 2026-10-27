@@ -103,6 +103,23 @@ func renderEach(t *testing.T, employeeName, tenantName string) []rendered {
 	if err != nil {
 		t.Fatalf("per-person notice: %v", err)
 	}
+	// M14-17: the registration's two letters.
+	sgv := testBase + signupConfirmPath + "?" + signupConfirmParam + "=" + randomValue(t)
+	msv, err := RenderSignupVerification(ctx, sgv, SignupView{BaseURL: testBase, ValidFor: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("registration verification: %v", err)
+	}
+	sgk := testBase + signupConfirmPath + "?" + signupConfirmParam + "=" + randomValue(t)
+	msk, err := RenderSignupKnownAddress(ctx, sgk, SignupView{BaseURL: testBase, ValidFor: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("registration with a known address: %v", err)
+	}
+	// M14-15: the manager invitation (the business named, VIES-verified).
+	adm := testBase + adminInvitePath + "?" + adminInviteParam + "=" + randomValue(t)
+	ma, err := RenderAdminInvitation(ctx, adm, AdminInvitationView{BaseURL: testBase, TenantName: tenantName, TenantVerified: true, ValidFor: 72 * time.Hour})
+	if err != nil {
+		t.Fatalf("manager invitation for tenant %q: %v", tenantName, err)
+	}
 	// M14-18: the identity's e-mail verification, held to every property the others are.
 	ver := testBase + verifyPath + "?" + verifyParam + "=" + randomValue(t)
 	mv, err := RenderEmailVerification(ctx, ver, EmailVerificationView{BaseURL: testBase, ValidFor: 24 * time.Hour})
@@ -111,6 +128,7 @@ func renderEach(t *testing.T, employeeName, tenantName string) []rendered {
 	}
 	return []rendered{{"invitation", inv, mi}, {"reset", rst, mr}, {"password changed", sin, mp},
 		{"reset, every business", rsp, mrp}, {"password changed, every business", sin, mpp},
+		{"registration verification", sgv, msv}, {"registration, known address", sgk, msk}, {"manager invitation", adm, ma},
 		{"e-mail verification", ver, mv}}
 }
 
@@ -1425,13 +1443,17 @@ func TestRender_TheTwoPartsSayTheSameWords(t *testing.T) {
 		"reset, every business":            resetLetter("1 hour", true),
 		"password changed":                 passwordChangedLetter(false),
 		"password changed, every business": passwordChangedLetter(true),
+		"registration verification":        signupVerifyLetter("1 day"),
+		"registration, known address":      signupKnownLetter("1 day"),
+		"manager invitation":               adminInvitationLetter("Kebab Factory Ltd.", true, "3 days"),
 		"e-mail verification":              verificationLetter("1 day"),
 	}
 	r := renderEach(t, "Maria Borg", "Kebab Factory Ltd.")
 	if len(r) != len(letters) {
 		t.Fatalf("renderEach renders %d message(s) and this test knows %d letter(s); a message is missing from one of them", len(r), len(letters))
 	}
-	for i, kind := range []string{"invitation", "reset", "password changed", "reset, every business", "password changed, every business", "e-mail verification"} {
+	for i, kind := range []string{"invitation", "reset", "password changed", "reset, every business", "password changed, every business",
+		"registration verification", "registration, known address", "manager invitation", "e-mail verification"} {
 		if r[i].kind != kind {
 			t.Fatalf("message %d is %q, want %q (renderEach's order)", i, r[i].kind, kind)
 		}
@@ -1653,5 +1675,91 @@ func TestReset_EveryBusinessIsThePersonsOneLink(t *testing.T) {
 	}
 	if byKind["reset, every business"].msg.Subject != subjectReset || byKind["password changed, every business"].msg.Subject != subjectPasswordChanged {
 		t.Error("a per-identity e-mail changed its fixed subject")
+	}
+}
+
+// TestSignupLetters_SayWhatTheConfirmationAsks (M14-17, ADR 0031 §5.10): the new address's letter says the
+// link asks again for the chosen password (R2) and that nothing exists before it is used; the known
+// address's letter says to sign in first, in the same browser (R18) -- and neither names a business or a
+// person, nor carries a link outside the confirmation page.
+func TestSignupLetters_SayWhatTheConfirmationAsks(t *testing.T) {
+	ctx := context.Background()
+	link := testBase + signupConfirmPath + "?" + signupConfirmParam + "=" + randomValue(t)
+	v := SignupView{BaseURL: testBase, ValidFor: 24 * time.Hour}
+	verify, err := RenderSignupVerification(ctx, link, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	known, err := RenderSignupKnownAddress(ctx, link, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		m    mail.Message
+		want []string
+	}{
+		{"verification", verify, []string{"you will be asked for the password you chose", "Nothing has been created yet", "stays valid for 1 day"}},
+		{"known address", known, []string{"already has a Taptime sign-in", "sign in with your usual password first", "in the same browser", "stays valid for 1 day"}},
+	} {
+		for _, w := range c.want {
+			if !strings.Contains(c.m.Text, w) || !strings.Contains(visibleText(t, c.m.HTML), w) {
+				t.Errorf("%s: a part does not say %q", c.name, w)
+			}
+		}
+	}
+	if verify.Subject == known.Subject {
+		t.Error("the two letters share a subject; the mailbox owner cannot tell them apart")
+	}
+	for _, bad := range []string{testBase + "/admin/reset/new?t=" + randomValue(t), testBase + "/signup/confirm?t=" + randomValue(t),
+		"https://evil.example" + signupConfirmPath + "?t=" + randomValue(t)} {
+		if _, err := RenderSignupVerification(ctx, bad, v); !errors.Is(err, ErrLink) {
+			t.Errorf("a verification rendered for %q: %v", bad, err)
+		}
+		if _, err := RenderSignupKnownAddress(ctx, bad, v); !errors.Is(err, ErrLink) {
+			t.Errorf("a known-address letter rendered for %q: %v", bad, err)
+		}
+	}
+}
+
+// TestRender_AcceptsTheAdminInvitationLinkAdminauthMints (M14-15): the link internal/adminauth builds
+// (IssuedInvite.Link over its InvitePath and InviteParam) is the one shape RenderAdminInvitation
+// accepts; another path or parameter is refused.
+func TestRender_AcceptsTheAdminInvitationLinkAdminauthMints(t *testing.T) {
+	if adminauth.InvitePath != adminInvitePath || adminauth.InviteParam != adminInviteParam {
+		t.Fatalf("internal/adminauth's invitation link is %s?%s=, this package checks %s?%s=",
+			adminauth.InvitePath, adminauth.InviteParam, adminInvitePath, adminInviteParam)
+	}
+	v := AdminInvitationView{BaseURL: testBase, ValidFor: 72 * time.Hour}
+	if _, err := RenderAdminInvitation(context.Background(), testBase+adminInvitePath+"?t="+randomValue(t), v); err != nil {
+		t.Fatalf("the minted shape was refused: %v", err)
+	}
+	for _, bad := range []string{testBase + resetPath + "?t=" + randomValue(t), testBase + adminInvitePath + "?code=" + randomValue(t),
+		"https://evil.example" + adminInvitePath + "?t=" + randomValue(t)} {
+		if _, err := RenderAdminInvitation(context.Background(), bad, v); !errors.Is(err, ErrLink) {
+			t.Errorf("%q: %v, want ErrLink", bad, err)
+		}
+	}
+}
+
+// TestAdminInvitation_NamesNoPersonAndTheBusinessOnlyWhenVerified (M14-15, ADR 0031 §5.14): unverified ->
+// the neutral "A business"; verified -> the name; and in both, no person is named and the words are the
+// same for an address with and without a sign-in (there is no field that could tell them apart).
+func TestAdminInvitation_NamesNoPersonAndTheBusinessOnlyWhenVerified(t *testing.T) {
+	link := testBase + adminInvitePath + "?t=" + randomValue(t)
+	for _, verified := range []bool{false, true} {
+		m, err := RenderAdminInvitation(context.Background(), link, AdminInvitationView{BaseURL: testBase, TenantName: "Kebab Factory", TenantVerified: verified, ValidFor: 72 * time.Hour})
+		if err != nil {
+			t.Fatal(err)
+		}
+		named := strings.Contains(m.Text, "Kebab Factory")
+		if named != verified || (!verified && !strings.Contains(m.Text, "A business has invited you")) {
+			t.Errorf("verified=%v: named=%v\n%s", verified, named, m.Text)
+		}
+		for _, both := range []string{"sign in first", "choose a password"} {
+			if !strings.Contains(m.Text, both) {
+				t.Errorf("verified=%v: the e-mail does not say %q -- it must serve both kinds of reader (R18)", verified, both)
+			}
+		}
 	}
 }

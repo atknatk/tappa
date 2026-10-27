@@ -33,6 +33,9 @@ var unboundPanelPost = map[string]bool{
 	"/admin/logout":       true,
 	adminResetPath:        true,
 	adminResetNewPath:     true,
+	// M14-15: the invitee's page -- reachable without a session of the business (the link from the
+	// e-mail); its own Origin check and synchronizer cookie (admininvites.go).
+	adminInvitePath: true,
 }
 
 // panelRouters maps a test router to the AdminAuth mounted on it, so the test browser can
@@ -195,8 +198,11 @@ func panelPost(h http.Handler, target, cookie string, body io.Reader) *httptest.
 var nonPanelPostActions = map[string]bool{
 	`"/admin/login"`: true, `"/admin/login/choose"`: true, `"/admin/logout"`: true,
 	`"/admin/reset"`: true, `"/admin/reset/new"`: true,
-	`"/signup"`: true, `"/signup/places"`: true, `"/signup/account"`: true,
-	`"/activate"`: true, `"/api/activate"`: true, `"/api/checkin"`: true,
+	`"/admin/invite"`: true, // M14-15: the invitee's acceptance (unboundPanelPost)
+	`"/signup"`:       true, `"/signup/places"`: true, `"/signup/account"`: true,
+	// M14-17: the registration link's confirmation -- it creates a business; no tenant to bind to yet.
+	`{ templ.URL(SignupConfirmPath) }`: true,
+	`"/activate"`:                      true, `"/api/activate"`: true, `"/api/checkin"`: true,
 	`{ templ.SafeURL(DevSimulateTapPath) }`: true,
 }
 

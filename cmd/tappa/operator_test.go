@@ -784,7 +784,7 @@ func TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator(t *testing.T) {
 		{open, "texts", []string{"arg1 of configuredSurface"}},
 		{open, "vies", []string{"arg2 of configuredSurface"}},
 		{run, boundName(run, "legal.NewStore"), []string{"recv of Refresh", "arg2 of openOperatorSurface", "arg0 of handler.NewMarketing"}},
-		{run, boundName(run, "signup.NewChecker"), []string{"arg3 of openOperatorSurface", "arg1 of handler.NewSignup"}},
+		{run, boundName(run, "signup.NewChecker"), []string{"arg3 of openOperatorSurface", "arg2 of handler.NewSignup"}},
 	} {
 		got := uses(hop.fn, hop.param)
 		sort.Strings(got)

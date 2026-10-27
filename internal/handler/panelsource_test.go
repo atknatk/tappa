@@ -51,6 +51,7 @@ var panelTemplates = map[string]bool{
 	"pages/admin.templ":              true,
 	"pages/adminswitch.templ":        true,
 	"pages/adminreset.templ":         true,
+	"pages/admininvites.templ":       true,
 	"pages/anomalies.templ":          true,
 	"pages/apikeys.templ":            true,
 	"pages/billing.templ":            true,

@@ -1365,6 +1365,14 @@ farkıyla taşındı; taban kaymasının değiştirdiği sayılar ve yerler ADR 
     kapılı, `mountSections`'ta). Liste **bayrak `off` iken on bir, `on` iken on üç rotadır**; iki test
     aynı commit'te güncellendi. Askıdaki işletmeye geçiş başarılıdır ve o oturumun sonraki yazması
     askı kapısına takılır (`TestAdminSwitchDB_IntoASuspendedBusinessIsReadOnlyThere`).
+  - **M14-15 (2026-10-27, kullanıcı kararı):** yönetici daveti istisna listesine **girmez**; liste bayrak
+    `on` iken on üç rotada kalır. Owner'ın gönderme ve iptal POST'ları `mountWriting`'in askı halkalı ana
+    grubunda (askıdaki işletme davet göndermez, iptal etmez). Davetlinin kabul sayfası (`/admin/invite`)
+    davet eden işletmenin oturumunu taşımaz ve panelin yazma zincirinde değildir — sıfırlama akışı gibi
+    kendi bağlamasıyla bağlanır; **askıdaki işletme yeni yönetici almaz**: iki kabul fonksiyonu
+    (`identity_accept_invite`, `identity_accept_invite_new`) kilitlerden sonra `tenants.suspended_at`'i
+    okur, doluysa (ya da satır yoksa) hiçbir şey yazmaz, davet açık kalır ve sayfa "şimdi kabul edilemez"
+    der (`TestAdminInvites_ASuspendedBusinessTakesNoNewManager`).
   - **M14-18 (2026-10-27):** altı rota aynı kardeş grupta, `mountGated(SurfaceAccountIdentity)` ile —
     e-posta doğrulama talebi (`POST /admin/account/verify-email`) ve onayı (`…/verify-email/confirm`),
     onay penceresinin üç işi (`…/confirm/keep-all`, `…/confirm/unlink`, `…/confirm/undo`) ve "Link a

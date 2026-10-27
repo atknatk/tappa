@@ -685,3 +685,51 @@ func TestLoad_TheBuildDecidesTheSandboxValue(t *testing.T) {
 		t.Errorf("the sandbox loaded with the invitation e-mailed: %v", err)
 	}
 }
+
+// TestConfig_RegistrationLinksOnScreenOnlyWithoutEmailOnDevOrSandbox (M14-17, the user's decision of
+// 2026-10-26): the verification link is shown on screen only where no e-mail is sent AND the installation
+// is a development or sandbox one -- never in production or staging, never where e-mail is on.
+func TestConfig_RegistrationLinksOnScreenOnlyWithoutEmailOnDevOrSandbox(t *testing.T) {
+	for _, c := range []struct {
+		env, delivery string
+		explicit      bool
+		want          bool
+	}{
+		{config.EnvDev, config.ResetDeliveryNone, true, true},
+		{config.EnvSandbox, config.ResetDeliveryNone, true, true},
+		{config.EnvStaging, config.ResetDeliveryNone, true, false},
+		{config.EnvProd, config.ResetDeliveryNone, true, false},
+		{config.EnvDev, config.ResetDeliveryEmail, true, false},
+		{config.EnvProd, config.ResetDeliveryEmail, true, false},
+		// M14-17's audit: dev only by DEFAULT (TAPPA_ENV unset) and no delivery set -- no links.
+		{config.EnvDev, "", false, false},
+		{config.EnvDev, config.ResetDeliveryNone, false, false},
+	} {
+		cfg := &config.Config{Env: c.env, ResetDelivery: c.delivery, EnvExplicit: c.explicit}
+		if got := cfg.RegistrationLinksOnScreen(); got != c.want {
+			t.Errorf("%s/%q/explicit=%v: %v, want %v", c.env, c.delivery, c.explicit, got, c.want)
+		}
+	}
+}
+
+// TestLoad_EnvExplicitIsTheVariableBeingSet: Load marks TAPPA_ENV set or defaulted -- the gate
+// RegistrationLinksOnScreen reads.
+func TestLoad_EnvExplicitIsTheVariableBeingSet(t *testing.T) {
+	if config.SandboxBuild() {
+		t.Skip("the sandbox build starts only with TAPPA_ENV=sandbox (envForBuild); the dev fallback this measures does not exist there")
+	}
+	for _, c := range []struct {
+		raw  string
+		want bool
+	}{{"", false}, {config.EnvDev, true}} {
+		setRequired(t)
+		t.Setenv("TAPPA_ENV", c.raw)
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatalf("TAPPA_ENV=%q: %v", c.raw, err)
+		}
+		if cfg.EnvExplicit != c.want || cfg.Env != config.EnvDev {
+			t.Errorf("TAPPA_ENV=%q: EnvExplicit=%v Env=%q, want %v dev", c.raw, cfg.EnvExplicit, cfg.Env, c.want)
+		}
+	}
+}

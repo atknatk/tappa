@@ -55,14 +55,3 @@ func TestSignupProgress_EachStepHasOneWord(t *testing.T) {
 		t.Errorf("before step one is answered the docket names %q", got)
 	}
 }
-
-// TestSignupDoneStepNo_RenumbersWhenSignInIsBlocked: the blocked confirmation drops the
-// sign-in item, so the list it prints starts at 01, not 02.
-func TestSignupDoneStepNo_RenumbersWhenSignInIsBlocked(t *testing.T) {
-	if got := signupDoneStepNo(false, 2); got != "02" {
-		t.Errorf("unblocked second item = %q", got)
-	}
-	if got := signupDoneStepNo(true, 2); got != "01" {
-		t.Errorf("blocked second item = %q, want 01", got)
-	}
-}

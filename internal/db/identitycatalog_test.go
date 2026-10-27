@@ -106,9 +106,32 @@ var identitySignaturesM1418 = []identitySignature{
 	{"identity_keep_all", "p_session_hash text", "TABLE(kept boolean)", "tappa_identitydefiner"},
 }
 
+// identitySignaturesM1415 is M14-15's part (migration 00077): the invitation's md.7 resolver and its two
+// acceptances -- ADR 0031 §5.2's rows (the resolver's argument named p_token_hash like
+// resolve_identity_reset_by_token_hash's, the ADR's table writing both as p_hash). Each acceptance
+// answers the membership it made and its business, or nothing.
+var identitySignaturesM1415 = []identitySignature{
+	{"resolve_admin_invite_by_token_hash", "p_token_hash text",
+		"TABLE(id uuid, tenant_id uuid, role text, expires_at timestamp with time zone, used_at timestamp with time zone, cancelled_at timestamp with time zone)", "tappa_resolver"},
+	{"identity_accept_invite", "p_invite_hash text, p_session_hash text", "TABLE(admin_user_id uuid, tenant_id uuid)", "tappa_identitydefiner"},
+	{"identity_accept_invite_new", "p_invite_hash text, p_new_hash text", "TABLE(admin_user_id uuid, tenant_id uuid)", "tappa_identitydefiner"},
+}
+
+// identitySignaturesM1417 is M14-17's part (migration 00078): the verified registration (ADR 0031 §5.10).
+// The resolver returns the draft last (the 2026-10-26 user decision, ADR 0031 §5.2); the open answers the
+// draft's id or NULL; the claim the owner row; the sweep how many drafts went.
+var identitySignaturesM1417 = []identitySignature{
+	{"resolve_signup_claim_by_token_hash", "p_token_hash text",
+		"TABLE(id uuid, email text, password_hash text, expires_at timestamp with time zone, used_at timestamp with time zone, draft jsonb)", "tappa_resolver"},
+	{"identity_open_signup_claim", "p_token_hash text, p_email citext, p_draft jsonb, p_password_hash text, p_expires_at timestamp with time zone",
+		"uuid", "tappa_identitydefiner"},
+	{"identity_claim_signup", "p_claim_hash text, p_tenant_id uuid, p_session_hash text", "TABLE(admin_user_id uuid)", "tappa_identitydefiner"},
+	{"identity_sweep_signup_claims", "", "integer", "tappa_identitydefiner"},
+}
+
 // identitySignatures is the union of every card's part: the whole closed list as far as it is built.
 // The functions tappa_identitydefiner owns are EXACTLY its tappa_identitydefiner rows.
-var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405, identitySignaturesM1408, identitySignaturesM1418)
+var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405, identitySignaturesM1408, identitySignaturesM1415, identitySignaturesM1417, identitySignaturesM1418)
 
 // identitySignatureNames lists the table's names (resolve_admin_by_email is a row though neither
 // identity_* nor the definer's -- M14-05's redefinition).
@@ -451,19 +474,42 @@ var identityDefinerMatrixM1408 = map[string]string{
 	"tenants:SELECT":          "created_at",
 }
 
+// identityDefinerMatrixM1415 is what 00077 grants tappa_identitydefiner for the two acceptances: the
+// invitation it reads and spends, and the membership row it births (admin_users INSERT -- the ADR
+// matrix's eight columns). The refused row's relink uses 00072's UPDATE columns.
+var identityDefinerMatrixM1415 = map[string]string{
+	"admin_invites:SELECT": "id,tenant_id,email,full_name,role,token_hash,expires_at,used_at,cancelled_at",
+	"admin_invites:UPDATE": "used_at",
+	"admin_users:INSERT":   "tenant_id,full_name,email,password_hash,role,identity_id,linked_via,linked_at",
+}
+
+// identityDefinerMatrixM1417 is what 00078 grants tappa_identitydefiner for the verified registration:
+// the draft table (its open, its claim and its sweep), the owner row identity_claim_signup writes (the
+// ADR's admin_users INSERT cell, whole -- SHARED with M14-15's 00077, which owns it: 00078 restates the
+// grant and its Down keeps it while an invite function exists), and the business's VAT number (predicate 5 -- its xmin, predicate
+// 3, is a system column: identitySystemColumns).
+var identityDefinerMatrixM1417 = map[string]string{
+	"admin_signup_claims:SELECT": "id,token_hash,email,draft,password_hash,expires_at,used_at",
+	"admin_signup_claims:INSERT": "token_hash,email,draft,password_hash,expires_at",
+	"admin_signup_claims:UPDATE": "used_at",
+	"admin_users:INSERT":         "tenant_id,full_name,email,password_hash,role,identity_id,linked_via,linked_at",
+	"tenants:SELECT":             "vat_number",
+}
+
 // identitySystemColumns are the system columns tappa_identitydefiner may SELECT, "table.column": the
 // whole list (ADR 0031 §5.2: admin_users' xmin for identity_create_for_signup -- M14-08; tenants' xmin
-// for identity_claim_signup arrives with M14-17).
-var identitySystemColumns = []string{"admin_users.xmin"}
+// for identity_claim_signup -- M14-17, S2/T7).
+var identitySystemColumns = []string{"admin_users.xmin", "tenants.xmin"}
 
 // identityDefinerTableVerbs are the table-level verbs the definer may hold, each with its one user:
 // ADR 0031 §5.1 / R17's sweep (identitybelt_test.go's identityPersonTableDeleters names the same).
 var identityDefinerTableVerbs = map[string]string{
 	"admin_identity_events:DELETE": "identity_sweep_events -- the event log's 90-day sweep (ADR 0031 §5.1, R17)",
+	"admin_signup_claims:DELETE":   "identity_sweep_signup_claims -- the drafts' sweep: expired or used (ADR 0031 §5.1, R17; M14-17)",
 }
 
 // identityDefinerMatrixParts are the cards' matrices; identityDefinerMatrix is their union.
-var identityDefinerMatrixParts = []map[string]string{identityDefinerMatrixM1404, identityDefinerMatrixM1405, identityDefinerMatrixM1408}
+var identityDefinerMatrixParts = []map[string]string{identityDefinerMatrixM1404, identityDefinerMatrixM1405, identityDefinerMatrixM1408, identityDefinerMatrixM1415, identityDefinerMatrixM1417}
 
 // identityDefinerMatrix unions the parts, cell by cell, as sorted column sets.
 func identityDefinerMatrix() map[string]string {
@@ -601,8 +647,9 @@ func TestIdentityDefiner_ColumnMatrix(t *testing.T) {
 		{"DELETE on the sessions", `GRANT DELETE ON admin_sessions TO tappa_identitydefiner`, "DELETE on admin_sessions"},
 		{"CREATE on public", `GRANT CREATE ON SCHEMA public TO tappa_identitydefiner`, "schema privilege"},
 		{"EXECUTE on a resolver", `GRANT EXECUTE ON FUNCTION public.resolve_admin_session_by_token_hash(text) TO tappa_identitydefiner`, "resolve_admin_session_by_token_hash"},
-		// M14-08: a system column outside identitySystemColumns (tenants' xmin is M14-17's, not yet granted).
-		{"tenants' xmin", `GRANT SELECT (xmin) ON tenants TO tappa_identitydefiner`, "tenants's system columns"},
+		// M14-08 / M14-17: a system column outside identitySystemColumns (tenants' xmin is granted since 00078;
+		// locations' is nobody's).
+		{"locations' xmin", `GRANT SELECT (xmin) ON locations TO tappa_identitydefiner`, "locations's system columns"},
 	} {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 			aiExec(t, ctx, sp, c.sql)
@@ -621,13 +668,17 @@ var identityResolverColumns = map[string]string{
 	// M14-05 (00072): the two token resolvers' columns.
 	"admin_identity_resets:SELECT":        "id,identity_id,token_hash,expires_at,used_at,cancelled_at",
 	"admin_identity_verifications:SELECT": "id,identity_id,token_hash,expires_at,used_at",
+	// M14-15 (00077): what resolve_admin_invite_by_token_hash returns and filters on.
+	"admin_invites:SELECT": "id,tenant_id,role,token_hash,expires_at,used_at,cancelled_at",
+	// M14-17 (00078): the registration draft's resolver -- the key and the six columns it returns.
+	"admin_signup_claims:SELECT": "id,token_hash,email,draft,password_hash,expires_at,used_at",
 }
 
 // TestIdentityResolver_ReachOnTheIdentityColumns pins tappa_resolver's SELECT on admin_identities
 // and admin_users (00011/00017's six and 00071's two) and nothing written on either.
 func TestIdentityResolver_ReachOnTheIdentityColumns(t *testing.T) {
 	ctx, tx := opTx(t)
-	for _, table := range []string{"admin_identities", "admin_users", "admin_identity_resets", "admin_identity_verifications"} {
+	for _, table := range []string{"admin_identities", "admin_users", "admin_identity_resets", "admin_identity_verifications", "admin_invites", "admin_signup_claims"} {
 		for _, priv := range []string{"SELECT", "INSERT", "UPDATE"} {
 			if got, want := opColumns(t, ctx, tx, "tappa_resolver", table, priv), identityResolverColumns[table+":"+priv]; got != want {
 				t.Errorf("tappa_resolver %s on %s = (%s), want (%s)", priv, table, got, want)
@@ -722,18 +773,85 @@ func identityExerciseM1418(t *testing.T, ctx context.Context, sp pgx.Tx) []ident
 	}
 }
 
+// identityExerciseM1415 is M14-15's world (00077): an identity with an UNVERIFIED address and a live
+// session in business F, an open invitation of its address into business G (a new membership: the
+// INSERT, the mailbox proof), one into business H where the address's row is REFUSED (the relink), and
+// an invitation of a NEW address into G (identity_accept_invite_new: the identity's birth). Each
+// invitation is read by the resolver first. Every 00077 column grant and the resolver's run.
+func identityExerciseM1415(t *testing.T, ctx context.Context, sp pgx.Tx) []identityStep {
+	t.Helper()
+	f, g, h := idTenant(t, ctx, sp, "exercise F"), idTenant(t, ctx, sp, "exercise G"), idTenant(t, ctx, sp, "exercise H")
+	email := aiEmail()
+	ident := aiIdentity(t, ctx, sp, email)
+	pf := aiAdmin(t, ctx, sp, f, email)
+	aiExec(t, ctx, sp, `UPDATE admin_users SET identity_id = $2, linked_via = 'backfill', linked_at = now(),
+	                           password_hash = (SELECT password_hash FROM admin_identities WHERE id = $2) WHERE id = $1`, pf, ident)
+	session := idSession(t, ctx, sp, f, pf, nil)
+	refused := aiAdmin(t, ctx, sp, h, email)
+	// A refused MANAGER row: a manager invitation relinks only a row of its own role (00077).
+	aiExec(t, ctx, sp, `UPDATE admin_users SET unlinked_at = now(), role = 'manager' WHERE id = $1`, refused)
+	ownerG, ownerH := aiAdmin(t, ctx, sp, g, aiEmail()), aiAdmin(t, ctx, sp, h, aiEmail())
+	toG, toH, toNew := opRandHex(t), opRandHex(t), opRandHex(t)
+	invite := func(tenant, by uuid.UUID, address, hash string) string {
+		return fmt.Sprintf(`INSERT INTO admin_invites (tenant_id, email, full_name, role, token_hash, invited_by, expires_at)
+		                    VALUES ('%s', '%s', 'M14 Invitee', 'manager', '%s', '%s', now() + interval '1 day')`, tenant, address, hash, by)
+	}
+	return []identityStep{
+		{name: "M14-15 resolve invitation", owner: invite(g, ownerG, email, toG),
+			sql: `SELECT * FROM resolve_admin_invite_by_token_hash($1)`, args: []any{toG}},
+		{name: "M14-15 accept with a session (new row)", sql: `SELECT * FROM identity_accept_invite($1, $2)`, args: []any{toG, session}},
+		{name: "M14-15 accept with a session (the refused row)", owner: invite(h, ownerH, email, toH),
+			sql: `SELECT * FROM identity_accept_invite($1, $2)`, args: []any{toH, session}},
+		{name: "M14-15 accept with a new password", owner: invite(g, ownerG, aiEmail(), toNew),
+			sql: `SELECT * FROM identity_accept_invite_new($1, $2)`, args: []any{toNew, opFakeDigest("n")}},
+	}
+}
+
 // identitySignupWorld is identity_create_for_signup's world (M14-08): a business and its one owner
 // row, written by the test's TOP-LEVEL transaction -- the function links only a row this transaction
 // wrote, and a row written inside a savepoint carries the subtransaction's xid (S13). Every exercise
 // runs in a savepoint over it, so the link it makes is rolled back with that savepoint.
-type identitySignupWorld struct{ tenant, admin uuid.UUID }
+//
+// M14-17: two more businesses born at the top level with NO membership -- what identity_claim_signup
+// claims (predicates 1-3) -- one for a new address and one for an existing identity's session.
+type identitySignupWorld struct {
+	tenant, admin      uuid.UUID
+	claimNew, claimOld idClaimTenant
+}
 
 func newIdentitySignupWorld(t *testing.T, ctx context.Context, tx pgx.Tx) identitySignupWorld {
 	t.Helper()
 	w := identitySignupWorld{tenant: idTenant(t, ctx, tx, "exercise signup")}
 	w.admin = aiAdmin(t, ctx, tx, w.tenant, aiEmail())
+	w.claimNew = newIdClaimTenant(t, ctx, tx, "exercise claim new")
+	w.claimOld = newIdClaimTenant(t, ctx, tx, "exercise claim known")
 	return w
 }
+
+// idClaimTenant is a business written by the test's transaction with no membership, and the draft that
+// names it (identity_claim_signup's predicate 5).
+type idClaimTenant struct {
+	id        uuid.UUID
+	name, vat string
+}
+
+func newIdClaimTenant(t *testing.T, ctx context.Context, tx pgx.Tx, label string) idClaimTenant {
+	t.Helper()
+	c := idClaimTenant{id: idTenant(t, ctx, tx, label)}
+	if err := tx.QueryRow(ctx, `SELECT name, vat_number FROM tenants WHERE id = $1`, c.id).Scan(&c.name, &c.vat); err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// draft is the closed-key registration draft (00078's CHECK) that names this business.
+func (c idClaimTenant) draft() string {
+	return fmt.Sprintf(`{"full_name": "M14 Owner", "business_name": %q, "vat_number": %q, "business_type": "restaurant", `+
+		`"structure": "single", "vat_check": "unknown", "venues": ["Front door"]}`, c.name, c.vat)
+}
+
+// idOpenClaimSQL opens a draft with an hour to live and answers its id, 0 rows when refused.
+const idOpenClaimSQL = `SELECT c FROM identity_open_signup_claim($1, $2::citext, $3::jsonb, $4, now() + interval '1 hour') AS c WHERE c IS NOT NULL`
 
 // identityExercise runs every function of the list through every branch that reads a column, as
 // tappa_app, on a world it builds in sp (as the owner). It returns the first error. With the full
@@ -767,6 +885,24 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx, signup ident
 		{name: "revoke", sql: revokeIdentitySessionsSQL, args: []any{h4, false}},
 	}
 	steps = append(steps, identityExerciseM1405(t, ctx, sp)...)
+	steps = append(steps, identityExerciseM1415(t, ctx, sp)...)
+	// M14-17 (00078): a draft for a new address opened, read and claimed; a draft for the identity above
+	// claimed through a fresh session of its linked row in A (its email_verified_at is NULL, so the first
+	// verification's branch runs); the sweep takes both used drafts.
+	hNew, hOld, hSession := opRandHex(t), opRandHex(t), opRandHex(t)
+	steps = append(steps,
+		identityStep{name: "M14-17 open claim, new", sql: idOpenClaimSQL, args: []any{hNew, aiEmail(), signup.claimNew.draft(), opFakeDigest("n")}},
+		identityStep{name: "M14-17 resolve claim", sql: resolveSignupClaimSQL, args: []any{hNew}},
+		identityStep{name: "M14-17 claim, new",
+			owner: `SELECT set_config('app.tenant_id', '` + signup.claimNew.id.String() + `', true)`,
+			sql:   claimSignupSQL, args: []any{hNew, signup.claimNew.id, nil}},
+		identityStep{name: "M14-17 open claim, known", sql: idOpenClaimSQL, args: []any{hOld, email, signup.claimOld.draft(), opFakeDigest("o")}},
+		identityStep{name: "M14-17 claim, known",
+			owner: `SELECT set_config('app.tenant_id', '` + signup.claimOld.id.String() + `', true); ` +
+				`INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash) VALUES ('` + a.String() + `', '` + ma.String() + `', '` + hSession + `')`,
+			sql: claimSignupSQL, args: []any{hOld, signup.claimOld.id, hSession}},
+		identityStep{name: "M14-17 sweep", sql: sweepSignupClaimsSQL},
+	)
 	steps = append(steps, identityExerciseM1418(t, ctx, sp)...)
 	for _, s := range steps {
 		if s.owner != "" {
@@ -826,7 +962,7 @@ func TestIdentityDefiner_EveryGrantIsUsed(t *testing.T) {
 	for _, c := range []string{"identity_id", "unlinked_at"} {
 		grants = append(grants, grant{"tappa_resolver", "admin_users", "SELECT", c})
 	}
-	for _, table := range []string{"admin_identities", "admin_identity_resets", "admin_identity_verifications"} {
+	for _, table := range []string{"admin_identities", "admin_identity_resets", "admin_identity_verifications", "admin_invites", "admin_signup_claims"} {
 		for _, c := range strings.Split(identityResolverColumns[table+":SELECT"], ",") {
 			grants = append(grants, grant{"tappa_resolver", table, "SELECT", c})
 		}

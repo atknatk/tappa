@@ -79,8 +79,11 @@ var identityTenantWideReads = map[string]int{
 	"identity_link_legacy":       1,
 	"identity_unlink_backfilled": 1,
 	"identity_relink_refused":    1,
-	// M14-18 (00079): the window's list of the identity's own memberships (LIMIT 50).
+	// M14-18 (00079): the window's list of the identity's own memberships (bounded by the identity; 49 list rows).
 	"identity_confirm_window": 1,
+	// M14-15 (00077): the lock on every membership of the identity before the business's row and the
+	// invitation are locked (the lock order).
+	"identity_accept_invite": 1,
 }
 
 // identitySessionKeyLookups names, per function, how many statements find a session -- or (M14-05) a
@@ -105,6 +108,13 @@ var identitySessionKeyLookups = map[string]int{
 	// M14-18 (00079): the session behind the window's read and behind "Keep all".
 	"identity_confirm_window": 1,
 	"identity_keep_all":       1,
+	// M14-17 (00078): the existing identity's own live session -- the only way the claim reaches it.
+	"identity_claim_signup": 1,
+	// M14-15 (00077): the invitation by its own token (admin_invites.token_hash, UNIQUE) -- the
+	// resolver's one statement, each acceptance's first read -- and identity_accept_invite's session.
+	"resolve_admin_invite_by_token_hash": 1,
+	"identity_accept_invite":             2,
+	"identity_accept_invite_new":         1,
 }
 
 // identityEmailWideReads names, per function, how many statements read admin_users by ONE ADDRESS
@@ -124,8 +134,10 @@ var identityEmailWideReads = map[string]int{
 
 // identityTokenKeyed are the tenant tables whose own globally UNIQUE token_hash may anchor a lookup
 // (counted in identitySessionKeyLookups): the panel session (00006) and, from M14-05, the per-row reset
-// link (00006/00019, password_resets_token_hash_key).
-var identityTokenKeyed = map[string]bool{"admin_sessions": true, "password_resets": true}
+// link (00006/00019, password_resets_token_hash_key); from M14-15 the administrator invitation
+// (00077, admin_invites_token_hash_key) -- the mailed secret the acceptance is keyed by; the
+// statement produces the invitation's tenant, it cannot name one (md.7's shape).
+var identityTokenKeyed = map[string]bool{"admin_sessions": true, "password_resets": true, "admin_invites": true}
 
 // identityUnkeyedIdentityStatement is the construct name of the identity key rule's finding.
 const identityUnkeyedIdentityStatement = "an identity-table statement keyed by no id, identity_id or token hash"
@@ -148,6 +160,28 @@ var identityBeltAllowedConstructs = map[string]map[string]string{
 	"identity_create_for_signup": {
 		`"CONFLICT" in a predicate`: "ADR 0031 §5.2 / S13: the identity INSERT's ON CONFLICT (email) DO NOTHING -- the second belt behind the " +
 			"address's advisory lock; a concurrent birth of the same address ends in no row, never a 500 ...",
+		`"DO" in a predicate`:      "... (ON CONFLICT's DO; the arbiter is admin_identities_email_key, an INSERT INTO an identity table needs no key) ...",
+		`"NOTHING" in a predicate`: "... (DO NOTHING: no row is updated, so no SET and no WHERE follow it)",
+	},
+	// M14-17 (00078). The new address's identity INSERT carries 00074's ON CONFLICT (email) DO NOTHING
+	// (S13: the second belt behind the address's advisory lock); its three words are named for this body
+	// alone, as for identity_create_for_signup.
+	"identity_claim_signup": {
+		`"CONFLICT" in a predicate`: "ADR 0031 §5.2 / S13: the new identity's INSERT ... ON CONFLICT (email) DO NOTHING -- a concurrent birth of " +
+			"the same address (another confirmation, an invitation, the old pod's identity_create_for_signup) ends in no row and a refusal, never a 500 ...",
+		`"DO" in a predicate`:      "... (ON CONFLICT's DO; the arbiter is admin_identities_email_key, an INSERT INTO an identity table needs no key) ...",
+		`"NOTHING" in a predicate`: "... (DO NOTHING: no row is updated, so no SET and no WHERE follow it)",
+	},
+	"identity_sweep_signup_claims": {
+		identityUnkeyedIdentityStatement: "ADR 0031 §5.1, R17: the registration drafts' sweep deletes the expired ones by age and the used ones " +
+			"by state, no argument, no identity (a draft is not a record); identityPersonTableDeleters names it the table's one deleter",
+	},
+	// M14-15 (00077): identity_accept_invite_new's identity INSERT, the same three words for the same
+	// reason as identity_create_for_signup's -- the address's advisory lock first, ON CONFLICT (email)
+	// DO NOTHING second (S13: an acceptance and a registration of one new address end in one identity).
+	"identity_accept_invite_new": {
+		`"CONFLICT" in a predicate`: "ADR 0031 §5.2 / S13: the identity INSERT's ON CONFLICT (email) DO NOTHING behind the address's advisory " +
+			"lock -- an identity that already carries the address makes the acceptance 0 rows, never a 500 ...",
 		`"DO" in a predicate`:      "... (ON CONFLICT's DO; the arbiter is admin_identities_email_key, an INSERT INTO an identity table needs no key) ...",
 		`"NOTHING" in a predicate`: "... (DO NOTHING: no row is updated, so no SET and no WHERE follow it)",
 	},
@@ -359,12 +393,14 @@ type identityBody struct {
 	Args      []string
 }
 
-// identityBodies reads the bodies the belt holds: every function tappa_identitydefiner owns and every
-// resolve_identity_*.
+// identityBodies reads the bodies the belt holds: every function tappa_identitydefiner owns, every
+// resolve_identity_* and (M14-15) every resolve_admin_invite_* -- the md.7 resolvers of ADR 0031's
+// closed list (BYPASSRLS, so their tenant-table reads are held to the belt too).
 func identityBodies(ctx context.Context, q opQuerier) ([]identityBody, error) {
 	rows, err := q.Query(ctx, `SELECT p.proname, p.prosrc, coalesce(p.proargnames, '{}')
 	                             FROM pg_proc p
 	                            WHERE p.proowner = 'tappa_identitydefiner'::regrole OR p.proname LIKE 'resolve\_identity\_%'
+	                               OR p.proname LIKE 'resolve\_admin\_invite\_%'
 	                            ORDER BY 1`)
 	if err != nil {
 		return nil, err
@@ -821,11 +857,14 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 		t.Fatalf("anti-vacuity: the scan saw %d references to a tenant table", refs)
 	}
 	const (
-		revoke     = "public.identity_revoke_sessions(text, boolean)"
-		switchFn   = "public.identity_switch_session(text, uuid, text)"
-		membership = "public.identity_memberships(text)"
-		openFn     = "public.identity_open_session(uuid, uuid, text, text)"
-		signupFn   = "public.identity_create_for_signup(uuid, uuid)"
+		revoke      = "public.identity_revoke_sessions(text, boolean)"
+		switchFn    = "public.identity_switch_session(text, uuid, text)"
+		membership  = "public.identity_memberships(text)"
+		openFn      = "public.identity_open_session(uuid, uuid, text, text)"
+		signupFn    = "public.identity_create_for_signup(uuid, uuid)"
+		acceptFn    = "public.identity_accept_invite(text, text)"
+		acceptNewFn = "public.identity_accept_invite_new(text, text)"
+		claimFn     = "public.identity_claim_signup(text, uuid, text)"
 	)
 	// M14-08a (00076): the e-mail-wide read is a FOR loop (its rows' addresses are tested in plpgsql).
 	emailRead := "    FOR r IN\n        SELECT a.email\n          FROM public.admin_users AS a\n         WHERE a.email OPERATOR(public.=) v_email\n           AND a.id <> p_admin_user_id\n    LOOP"
@@ -894,6 +933,29 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 		{name: "a second e-mail read the map does not count", fn: signupFn, cut: emailRead, put: emailRead + "\n        NULL;\n    END LOOP;\n" + emailRead},
 		{name: "an e-mail read in a function the map does not name", fn: switchFn, cut: switchRevoke,
 			put: "    PERFORM 1 FROM public.admin_users AS z WHERE z.email OPERATOR(public.=) p_new_hash;\n" + switchRevoke},
+		// M14-17 (00078): identity_claim_signup's tenant statements, each without what holds it.
+		{name: "the claim's membership test without its tenant", fn: claimFn,
+			cut: "WHERE a.tenant_id = p_tenant_id;", put: "WHERE a.identity_id IS NULL;"},
+		{name: "the claim's business read without its id", fn: claimFn,
+			cut: "WHERE t.id = p_tenant_id;", put: "WHERE t.id IS NOT NULL;"},
+		{name: "the claim's session joined by half its key", fn: claimFn,
+			cut: "JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id",
+			put: "JOIN public.admin_users AS a ON a.id = s.admin_user_id"},
+		{name: "the claim's owner row without its tenant", fn: claimFn,
+			cut: "INSERT INTO public.admin_users (tenant_id, full_name,", put: "INSERT INTO public.admin_users (full_name,"},
+		{name: "the claim's draft consumed without its key", fn: claimFn,
+			cut: "     WHERE c.id = v_claim\n       AND c.used_at IS NULL;", put: "     WHERE c.used_at IS NULL;"},
+		// M14-15 (00077): the acceptances' and the resolver's statements, each without what holds it.
+		{name: "the invitation's relink without its tenant", fn: acceptFn,
+			cut: "         WHERE a.id = v_row\n           AND a.tenant_id = v_tenant\n", put: "         WHERE a.id = v_row\n"},
+		{name: "the address's row in the business read without its tenant", fn: acceptFn,
+			cut: "     WHERE a.tenant_id = v_tenant\n       AND a.email OPERATOR(public.=) v_email\n       FOR UPDATE;",
+			put: "     WHERE a.email OPERATOR(public.=) v_email\n       FOR UPDATE;"},
+		{name: "the invitation spent without its tenant", fn: acceptNewFn,
+			cut: "     WHERE v.id = v_invite\n       AND v.tenant_id = v_tenant\n       AND v.used_at IS NULL;",
+			put: "     WHERE v.id = v_invite\n       AND v.used_at IS NULL;"},
+		{name: "the resolver without the invitation's token", fn: "public.resolve_admin_invite_by_token_hash(text)",
+			cut: "WHERE v.token_hash = p_token_hash", put: "WHERE v.used_at IS NULL"},
 		{name: "P3: a tenant read off an unkeyed identity row", fn: openFn,
 			cut: "WHERE i.id = p_identity_id\n       AND i.password_hash = p_verified_digest\n       FOR UPDATE;",
 			put: "WHERE i.password_hash = p_verified_digest\n     LIMIT 1;"},

@@ -706,7 +706,15 @@ func run() error {
 	// (internal/adminauth), which never refuses an owner who holds no live link — a
 	// count per mailbox did (EM-7C round 2, measured). Both wiring tests read this
 	// function to hold the shape.
-	var breaker *mail.Breaker
+	//
+	// 🔴 M14-17: THE ONE CAP IS BUILT HERE, BESIDE THE ONE BREAKER, because two flows now take it:
+	// the invitation route (scope = the business) and the registration letters (scope "signup",
+	// ADR 0031 §5.10's per-recipient cap). Still exactly one mail.NewRecipientCap around the one
+	// breaker (TestBreakerWiring_…); the reset channel still takes the breaker itself.
+	var (
+		breaker      *mail.Breaker
+		recipientCap *mail.RecipientCap
+	)
 	if cfg.ResetDelivery == config.ResetDeliveryEmail || cfg.InviteDelivery == config.InviteDeliveryEmail {
 		transport, err := mail.New(cfg.Mail)
 		if err != nil {
@@ -714,6 +722,9 @@ func run() error {
 		}
 		if breaker, err = mail.NewBreaker(transport, mail.BreakerConfig{Log: slog.Default()}); err != nil {
 			return fmt.Errorf("main: building the e-mail breaker: %w", err)
+		}
+		if recipientCap, err = mail.NewRecipientCap(breaker); err != nil {
+			return fmt.Errorf("main: building the per-mailbox cap: %w", err)
 		}
 	}
 	var resetChannel handler.ResetChannel
@@ -774,11 +785,7 @@ func run() error {
 		log := slog.Default()
 		log.Info("the invitation queue is off: TAPPA_INVITE_DELIVERY is panel, so no invitation is e-mailed")
 	case config.InviteDeliveryEmail:
-		invitationCap, err := mail.NewRecipientCap(breaker)
-		if err != nil {
-			return fmt.Errorf("main: building the per-mailbox cap: %w", err)
-		}
-		invitations, err := handler.NewEmailInvitations(invitationCap, cfg.BaseURL)
+		invitations, err := handler.NewEmailInvitations(recipientCap, cfg.BaseURL)
 		if err != nil {
 			return err
 		}
@@ -844,6 +851,15 @@ func run() error {
 			return err
 		}
 	}
+	// THE MANAGER INVITATION (M14-15, ADR 0031 §5.11): issued, listed and cancelled by the owner, accepted
+	// by the invitee through ADR 0031 §5.2's identity_accept_invite / _new. Built always; its routes are
+	// mounted only while TAPPA_ADMIN_IDENTITY is on, and its e-mail rides the invitation transport above
+	// (one per-mailbox cap, one breaker).
+	adminInvites, err := adminauth.NewAdminInvites(data, cfg)
+	if err != nil {
+		return err
+	}
+	panelOptions = append(panelOptions, handler.AdminInvitations(adminInvites))
 	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, encoder, resetFlow, cfg, slog.Default(), panelOptions...)
 	if err != nil {
 		return err
@@ -890,16 +906,33 @@ func run() error {
 	// shares that transaction. A registration that half-happened would leave a
 	// `tenants` row nobody can sign into, cannot be deleted (§4.6) and holds the VAT
 	// number against the customer's own second attempt.
-	provisioner, err := signup.NewProvisioner(data, trail, slog.Default())
+	//
+	// M14-17 (ADR 0031 §5.10): the trail row is the database's now (identity_claim_signup writes
+	// signup.completed in the registration's own transaction), so the provisioner takes none; a
+	// registration is a DRAFT until its link is confirmed (adminauth.SignupClaims), and the link
+	// goes out through the one per-mailbox cap (scope "signup") when TAPPA_RESET_DELIVERY=email --
+	// on a dev or sandbox installation without e-mail it is shown on screen, and anywhere else the
+	// wizard takes no registrations (the user's decision of 2026-10-26).
+	provisioner, err := signup.NewProvisioner(data, slog.Default())
 	if err != nil {
 		return err
+	}
+	signupClaims, err := adminauth.NewSignupClaims(data, cfg)
+	if err != nil {
+		return err
+	}
+	var signupMailer handler.SignupMailSender
+	if cfg.ResetDelivery == config.ResetDeliveryEmail {
+		signupMailer = recipientCap
 	}
 	// The VIES checker is the one built before the operator surface above -- the process's
 	// only outbound HTTP client, shared with the operator's VAT re-check.
-	signupFlow, err := handler.NewSignup(provisioner, vies, cfg, slog.Default())
+	signupFlow, err := handler.NewSignup(provisioner, signupClaims, vies, signupMailer, cfg, slog.Default())
 	if err != nil {
 		return err
 	}
+	// The drafts' fixed-period sweep (R17), for the life of the process.
+	go signupFlow.SweepEvery(ctx, time.Hour)
 
 	// READINESS (M8-01). /healthz is registered by the router itself and is given
 	// nothing; this is the endpoint that IS given the pool, because "can this process
@@ -952,7 +985,7 @@ func run() error {
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		BaseContext:       assetContext(assets),
-		Handler:           appRouter(cfg, slog.Default(), activation, tap, panelAuth, logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
+		Handler:           appRouter(cfg, slog.Default(), activation, tap, panelAuth, panelAuth.InviteAcceptance(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation
@@ -988,7 +1021,7 @@ func run() error {
 		// attendance record, and records are never lost (CLAUDE.md §4). The reset
 		// outbox drains beside them; the deferred closes above run after both.
 		slog.Info("shutting down")
-		return shutdown(srv, httpShutdownGrace, drainers{resetFlow, work}, handler.ResetDrainGrace)
+		return shutdown(srv, httpShutdownGrace, drainers{resetFlow, signupFlow, work}, handler.ResetDrainGrace)
 	}
 }
 

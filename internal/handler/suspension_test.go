@@ -227,7 +227,7 @@ func TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException(t *testing.T) 
 	for identity, want := range map[bool]int{false: 11, true: 19} {
 		if n := len(suspensionExceptions(identity)); n != want {
 			t.Fatalf("the exception list (identity flag %v) has %d entries; ADR 0025 §3 names eight, "+
-				"K-26 three and its M14 note, under the flag, eight so far (M14-10, M14-11, M14-18's six)", identity, n)
+				"K-26 three and, under the flag, its M14 note's eight so far (M14-10, M14-11, M14-18's six)", identity, n)
 		}
 	}
 

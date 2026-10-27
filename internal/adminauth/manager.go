@@ -134,9 +134,10 @@ var _ Database = (*db.DB)(nil)
 //   - THE ORDER IS created_at NOW (migration 00017), so the eight compared are the
 //     OLDEST. An EXISTING customer can no longer be displaced by later registrations
 //     — measured 5/5 — which is the half of the lockout that mattered. What remains
-//     is a customer registering INTO an address somebody has already stuffed, and
-//     internal/domain/signup.Provisioner.signInBlocked now tells them so on the
-//     confirmation instead of letting them discover it at a 401.
+//     is a customer registering INTO an address somebody has already stuffed. (M7-02's
+//     signInBlocked told them so on the confirmation; M14-17 retired it with the
+//     identity path -- an address names at most one identity -- and a registration
+//     now needs the mailbox, so stuffing an address costs a mailbox per row.)
 //   - EMAIL VERIFICATION WAS **NOT** BUILT. 00011 names it as the thing that closes
 //     the class and this comment used to say it was "M7-02's to build"; M7-02 has no
 //     email transport (Q02 is open, M7-04 owns it), so it is still open and is still

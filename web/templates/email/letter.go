@@ -102,6 +102,37 @@ func verificationLetter(life string) letter {
 	}
 }
 
+// adminInvitationLetter is the manager invitation (M14-15). The business is named only for a VIES-
+// verified business through nameShown (invitationLetter's rule); no person is named. It says what the
+// link does on both sides of R18 -- a person with a Taptime sign-in signs in and accepts, a new one
+// chooses a password -- without knowing which the reader is, and it promises nothing the page does not
+// do: accepting gives no session (the reader signs in afterwards).
+func adminInvitationLetter(tenantName string, verified bool, life string) letter {
+	business := "A business"
+	if verified {
+		if n, ok := nameShown(tenantName); ok {
+			business = n
+		}
+	}
+	return letter{
+		subject: subjectAdminInvitation,
+		heading: "You're invited to manage a business",
+		before: []string{
+			greetingWithoutName,
+			business + " has invited you to Taptime as a manager, so you can review time records, " +
+				"approve flagged check-ins and run reports in its panel.",
+		},
+		action: "Accept the invitation",
+		after: []string{
+			"If you already sign in to Taptime with this email address, sign in first and then open the " +
+				"link to accept. If you are new to Taptime, open the link and choose a password.",
+			"The link is yours alone and works once. It stays valid for " + life +
+				" — after that, ask whoever invited you for a new one.",
+		},
+		closing: "If you did not expect this, you can ignore this email — nothing happens unless the link is used.",
+	}
+}
+
 // resetLetter is the password reset. It names nobody (ResetView says why) and
 // repeats what the reset page itself promises: nothing changes until the link is
 // used, and using it signs every device out.
@@ -186,6 +217,51 @@ func passwordChangedLetter(everyBusiness bool) letter {
 				"forgotten-password link to set a new one straight away.",
 		},
 		closing: "This email is only a notice. Its one link opens the sign-in page and changes nothing.",
+	}
+}
+
+// signupVerifyLetter is the registration verification for an address with no Taptime sign-in (M14-17,
+// ADR 0031 §5.10): nothing exists until the link is used, and using it asks again for the password the
+// form chose -- so a click by somebody who did not choose it creates nothing (R2). It names nobody
+// (SignupView says why).
+func signupVerifyLetter(life string) letter {
+	return letter{
+		subject: subjectSignupVerify,
+		heading: "Confirm your registration",
+		before: []string{
+			"Someone started registering a business with Taptime using this email address. If it was " +
+				"you, use the link below to finish: you will be asked for the password you chose.",
+		},
+		action: "Finish registering",
+		after: []string{
+			"The link works once and stays valid for " + life + ". Nothing has been created yet, and " +
+				"nothing will be until the link is used.",
+			"Once it is done, you sign in with this email address and the password you chose.",
+		},
+		closing: "If you did not start a registration, you can ignore this email — nothing will be created.",
+	}
+}
+
+// signupKnownLetter is the registration letter for an address that already has a Taptime sign-in (M14-17,
+// ADR 0031 §5.14's "var olan adresle kayıt"): the new business is added to that sign-in only by its
+// owner -- signed in with their own password, in the browser that opens the link (R18). It names
+// nobody, and it says nothing about the person's other businesses.
+func signupKnownLetter(life string) letter {
+	return letter{
+		subject: subjectSignupKnown,
+		heading: "A registration used your address",
+		before: []string{
+			"Someone started registering a new business with Taptime using this email address, which " +
+				"already has a Taptime sign-in. If it was you, sign in with your usual password first, " +
+				"then open the link below in the same browser to add the new business to your sign-in.",
+		},
+		action: "Add the business",
+		after: []string{
+			"The link works once and stays valid for " + life + ". Nothing has been created yet, and " +
+				"nothing about your sign-in changes until the link is used.",
+			"Signing in does not add the business by itself: only the link, opened while you are signed in, does.",
+		},
+		closing: "If you did not start this, you can ignore this email — your sign-in stays as it is.",
 	}
 }
 

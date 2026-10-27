@@ -52,6 +52,20 @@ type AdminIdentityVerification struct {
 	UsedAt     *time.Time
 }
 
+type AdminInvite struct {
+	ID          uuid.UUID
+	TenantID    uuid.UUID
+	Email       string
+	FullName    string
+	Role        string
+	TokenHash   string
+	InvitedBy   uuid.UUID
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
+	UsedAt      *time.Time
+	CancelledAt *time.Time
+}
+
 type AdminSession struct {
 	ID              uuid.UUID
 	TenantID        uuid.UUID
@@ -61,6 +75,17 @@ type AdminSession struct {
 	LastUsedAt      *time.Time
 	RevokedAt       *time.Time
 	AuthenticatedAt *time.Time
+}
+
+type AdminSignupClaim struct {
+	ID           uuid.UUID
+	TokenHash    string
+	Email        string
+	Draft        []byte
+	PasswordHash string
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+	UsedAt       *time.Time
 }
 
 type AdminUser struct {
