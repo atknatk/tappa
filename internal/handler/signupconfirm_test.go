@@ -3,15 +3,19 @@ package handler
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -117,12 +121,13 @@ func drainLetters(t *testing.T, rec *recordingMail, n int) []recordedMail {
 
 var letterLinkRE = regexp.MustCompile(regexp.QuoteMeta(testBaseURL+signupConfirmPath) + `\?t=[A-Za-z0-9_-]+`)
 
-// TestSignupAccount_ANewAndAKnownAddressAreIndistinguishable is R18 at the boundary, MEASURED: two
-// registrations, one for an address that has a sign-in and one for an address that has none, with the
-// REAL floor -- the same status, the same Location, the same header names, the same "Check your inbox"
-// bytes, the same log lines (keys and messages), and both answers inside [floor, floor + 50 ms] over
-// alternating samples. The only difference is in the MAILBOX: each address got its own letter, through
-// scope "signup".
+// TestSignupAccount_ANewAndAKnownAddressAreIndistinguishable is R18 at the boundary, MEASURED: three
+// registrations -- an address that has a sign-in, one whose sign-in has no active business left (M14-17b),
+// and one that has none -- with the REAL floor: the same status, the same Location, the same header
+// names, the same "Check your inbox" bytes, the same log lines (keys and messages), and every answer inside
+// [floor, floor + 50 ms] over alternating samples. The only difference is in the MAILBOX, and only
+// between "has a sign-in" and "has none": the two sign-ins get the SAME letter (subject, scope,
+// recipient), through scope "signup" -- the letter is not chosen by the businesses.
 func TestSignupAccount_ANewAndAKnownAddressAreIndistinguishable(t *testing.T) {
 	const samples = 5
 	type arm struct {
@@ -134,15 +139,19 @@ func TestSignupAccount_ANewAndAKnownAddressAreIndistinguishable(t *testing.T) {
 		lines     []string
 		letters   []string
 	}
-	arms := map[bool]*arm{false: {}, true: {}}
+	kinds := []string{"new", "known", "sign-in-less"}
+	arms := map[string]*arm{"new": {}, "known": {}, "sign-in-less": {}}
 	logLine := regexp.MustCompile(`"msg":"([^"]*)"`)
-	for i := 0; i < 2*samples; i++ {
-		known := i%2 == 1
+	for i := 0; i < len(kinds)*samples; i++ {
+		kind := kinds[i%len(kinds)]
 		p := &fakeProvisioner{}
 		d, _, rec, logged := newEmailSignupDriver(t, p, signupClaimFloor)
 		form := accountForm("")
-		if known {
+		if kind != "new" {
 			d.claims.known[strings.ToLower(form.Get("email"))] = true
+		}
+		if kind == "sign-in-less" {
+			d.claims.signInless[strings.ToLower(form.Get("email"))] = "the sign-in's password"
 		}
 		csrf := d.walkToAccount(t)
 		d.advance(time.Minute)
@@ -150,7 +159,7 @@ func TestSignupAccount_ANewAndAKnownAddressAreIndistinguishable(t *testing.T) {
 		start := time.Now()
 		res := d.post(signupAccountPath, form)
 		took := time.Since(start)
-		a := arms[known]
+		a := arms[kind]
 		a.durations = append(a.durations, took)
 		a.status, a.location = res.Code, res.Header().Get("Location")
 		var names []string
@@ -176,25 +185,30 @@ func TestSignupAccount_ANewAndAKnownAddressAreIndistinguishable(t *testing.T) {
 		}
 		a.lines = lines
 	}
-	n, k := arms[false], arms[true]
-	if n.status != http.StatusSeeOther || n.status != k.status || n.location != k.location || n.location != signupSentPath {
-		t.Fatalf("status/location: new %d %q, known %d %q", n.status, n.location, k.status, k.location)
+	n, k, l := arms["new"], arms["known"], arms["sign-in-less"]
+	if n.status != http.StatusSeeOther || n.location != signupSentPath {
+		t.Fatalf("status/location: new %d %q", n.status, n.location)
 	}
-	if !slices.Equal(n.headers, k.headers) {
-		t.Errorf("header names differ: new %v, known %v", n.headers, k.headers)
-	}
-	if n.sentPage != k.sentPage {
-		t.Error("\"Check your inbox\" differs between a new and a known address")
-	}
-	if !slices.Equal(n.lines, k.lines) {
-		t.Errorf("the log lines differ: new %v, known %v", n.lines, k.lines)
+	for name, x := range map[string]*arm{"known": k, "sign-in-less": l} {
+		if x.status != n.status || x.location != n.location {
+			t.Errorf("status/location: new %d %q, %s %d %q", n.status, n.location, name, x.status, x.location)
+		}
+		if !slices.Equal(n.headers, x.headers) {
+			t.Errorf("header names differ: new %v, %s %v", n.headers, name, x.headers)
+		}
+		if n.sentPage != x.sentPage {
+			t.Errorf("\"Check your inbox\" differs between a new address and a %s one", name)
+		}
+		if !slices.Equal(n.lines, x.lines) {
+			t.Errorf("the log lines differ: new %v, %s %v", n.lines, name, x.lines)
+		}
 	}
 	median := func(ds []time.Duration) time.Duration {
 		s := slices.Clone(ds)
 		slices.Sort(s)
 		return s[len(s)/2]
 	}
-	for name, a := range map[string]*arm{"new": n, "known": k} {
+	for name, a := range arms {
 		m := median(a.durations)
 		t.Logf("%s address: median %v over %v", name, m, a.durations)
 		if m < signupClaimFloor || m > signupClaimFloor+50*time.Millisecond {
@@ -205,6 +219,9 @@ func TestSignupAccount_ANewAndAKnownAddressAreIndistinguishable(t *testing.T) {
 	if !strings.HasPrefix(n.letters[0], signupClaimScope+"|Confirm your Taptime registration|") ||
 		!strings.HasPrefix(k.letters[0], signupClaimScope+"|A Taptime registration used your address|") {
 		t.Errorf("letters: new %q, known %q", n.letters[0], k.letters[0])
+	}
+	if !slices.Equal(k.letters, l.letters) {
+		t.Errorf("the two sign-ins got different letters: %q / %q", k.letters, l.letters)
 	}
 }
 
@@ -364,6 +381,185 @@ func TestSignupConfirm_AKnownAddressNeedsItsOwnSignInInThisBrowser(t *testing.T)
 	}
 	if !strings.Contains(screenText(t, res.Body.String()), "one of the businesses of your sign-in") {
 		t.Error("the known address's done page does not say the business joined the sign-in")
+	}
+}
+
+// TestSignupConfirm_ASignInlessAddressConfirmsWithItsPassword (M14-17b, the user's decision of
+// 2026-10-27): an address whose sign-in has no active business left cannot sign in, so its page asks for
+// THAT sign-in's password (a password field, no "sign in first" form); an empty or wrong one re-renders
+// the form (422, no password echoed) and creates nothing, no session proof is ever asked; the right one
+// creates the business and the done page says it joined the sign-in. identity_claim_signup re-checks the
+// digest and the missing membership on Postgres (internal/db's
+// TestIdentityClaimSignup00080_EveryGuardRefusesAlone).
+func TestSignupConfirm_ASignInlessAddressConfirmsWithItsPassword(t *testing.T) {
+	p := &fakeProvisioner{}
+	d, _ := newSignupDriver(t, p, nil)
+	email := strings.ToLower(accountForm("").Get("email"))
+	d.claims.known[email] = true
+	d.claims.signInless[email] = "the sign-in's own password"
+	link := confirmWalk(t, d)
+	d.get(link)
+	page := d.get(signupConfirmPath)
+	body := screenText(t, page.Body.String())
+	if !strings.Contains(page.Body.String(), `name="password"`) || !strings.Contains(body, "Your Taptime password") ||
+		strings.Contains(body, "sign in with your usual password in this browser") {
+		t.Fatal("a sign-in-less address's page does not ask for the sign-in's password")
+	}
+	csrf := d.token(page)
+	for _, wrong := range []string{"", accountForm("").Get("password"), "an attacker's guess", strings.Repeat("x", signup.MaxPasswordBytes+1)} {
+		res := d.post(signupConfirmPath, url.Values{"csrf": {csrf}, "password": {wrong}})
+		if res.Code != http.StatusUnprocessableEntity {
+			t.Errorf("password %q...: %d, want 422", firstN(wrong, 6), res.Code)
+		}
+		if wrong != "" && strings.Contains(res.Body.String(), wrong) {
+			t.Error("the refused password was echoed")
+		}
+	}
+	if len(p.provisioned) != 0 || d.claims.sessionProofs != 0 {
+		t.Fatalf("a wrong password provisioned %d business(es), %d session proof(s)", len(p.provisioned), d.claims.sessionProofs)
+	}
+	res := d.post(signupConfirmPath, url.Values{"csrf": {csrf}, "password": {"the sign-in's own password"}})
+	if res.Code != http.StatusOK || len(p.provisioned) != 1 || d.claims.sessionProofs != 0 {
+		t.Fatalf("the right password: %d, %d business(es), %d session proof(s)", res.Code, len(p.provisioned), d.claims.sessionProofs)
+	}
+	if !strings.Contains(screenText(t, res.Body.String()), "one of the businesses of your sign-in") {
+		t.Error("the done page does not say the business joined the sign-in")
+	}
+}
+
+// TestSignupConfirm_ALinkPastItsGateRefusesEvenTheRightPassword (M14-17b; the 2026-10-27 security
+// audit's ORTA finding, the user's decision "İkisini birden"): a sign-in-less address's link answers
+// signupClaimLinkLimit wrong passwords with the ordinary 422; every later attempt on THAT link -- the right
+// password included -- gets the same "too many attempts" page (429), reaches no proof and creates nothing
+// (ratelimit.go's inviteFailureLimit gate, activate.go's overInviteBudget). The gate is per link: a NEW link
+// for the same address is answered normally. (The branch's identity counter is internal/adminauth's
+// TestSignupClaims_WrongIdentityPasswordsSpendTheIdentitysBudgetAcrossLinks; the claims fake here never
+// spends it.)
+//
+// MUTATION (measured, 0b3d018a): the gate's charge removed -> the right password after ten wrong ones
+// creates the business, red. The gate is now reserved at entry (TryCharge);
+// TestSignupConfirm_ConcurrentGuessesOnOneLinkStopAtTheGate holds the reservation.
+func TestSignupConfirm_ALinkPastItsGateRefusesEvenTheRightPassword(t *testing.T) {
+	p := &fakeProvisioner{}
+	d, wizard := newSignupDriver(t, p, nil)
+	email := strings.ToLower(accountForm("").Get("email"))
+	d.claims.known[email] = true
+	d.claims.signInless[email] = "the sign-in's own password"
+	link := confirmWalk(t, d)
+	d.get(link)
+	page := d.get(signupConfirmPath)
+	csrf := d.token(page)
+	// The per-address gate is not this test's: lift it so only the link's gate can refuse.
+	wizard.confirmLimiter = newLimiter(1000, signupConfirmPeriod)
+	for i := 0; i < signupClaimLinkLimit; i++ {
+		if res := d.post(signupConfirmPath, url.Values{"csrf": {csrf}, "password": {"guess " + strconv.Itoa(i)}}); res.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("wrong password %d: %d, want 422", i+1, res.Code)
+		}
+	}
+	proofs := d.claims.identityProofs
+	res := d.post(signupConfirmPath, url.Values{"csrf": {csrf}, "password": {"the sign-in's own password"}})
+	if res.Code != http.StatusTooManyRequests || !strings.Contains(screenText(t, res.Body.String()), "tried too many times") {
+		t.Fatalf("the right password past the link's gate: %d, want 429 and the paused page", res.Code)
+	}
+	if len(p.provisioned) != 0 || d.claims.identityProofs != proofs {
+		t.Fatalf("past the gate: %d business(es), %d more proof(s)", len(p.provisioned), d.claims.identityProofs-proofs)
+	}
+	// A NEW link for the same address: its own gate.
+	link2 := confirmWalk(t, d)
+	d.get(link2)
+	page2 := d.get(signupConfirmPath)
+	if res := d.post(signupConfirmPath, url.Values{"csrf": {d.token(page2)}, "password": {"the sign-in's own password"}}); res.Code != http.StatusOK || len(p.provisioned) != 1 {
+		t.Fatalf("a new link's right password: %d, %d business(es)", res.Code, len(p.provisioned))
+	}
+}
+
+// TestSignupConfirm_ConcurrentGuessesOnOneLinkStopAtTheGate is the 0b3d018a audits' ORTA at the link's gate
+// (run with -race): forty simultaneous wrong passwords on ONE link, from forty addresses, while each proof
+// takes 20 ms. The gate is RESERVED at entry (TryCharge), so at most signupClaimLinkLimit guesses reach a
+// proof and are answered 422; every other one is the paused page (429). Measured before the fix: forty
+// proofs, forty 422s.
+//
+// MUTATION (measured): Allowed at entry and Charge after the proof -> forty proofs, red.
+func TestSignupConfirm_ConcurrentGuessesOnOneLinkStopAtTheGate(t *testing.T) {
+	p := &fakeProvisioner{}
+	d, _ := newSignupDriver(t, p, nil)
+	email := strings.ToLower(accountForm("").Get("email"))
+	d.claims.known[email] = true
+	d.claims.signInless[email] = "the sign-in's own password"
+	link := confirmWalk(t, d)
+	d.get(link)
+	csrf := d.token(d.get(signupConfirmPath))
+	d.claims.proveDelay = 20 * time.Millisecond
+	jar := maps.Clone(d.jar)
+	const n = 40
+	var unprocessable, paused atomic.Int32
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			form := url.Values{"csrf": {csrf}, "password": {"guess " + strconv.Itoa(i)}}
+			req := httptest.NewRequest(http.MethodPost, signupConfirmPath, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("Origin", testBaseURL)
+			req.RemoteAddr = fmt.Sprintf("203.0.113.%d:4321", i+1)
+			for name, value := range jar {
+				req.AddCookie(&http.Cookie{Name: name, Value: value})
+			}
+			<-start
+			rec := httptest.NewRecorder()
+			d.router.ServeHTTP(rec, req)
+			switch rec.Code {
+			case http.StatusUnprocessableEntity:
+				unprocessable.Add(1)
+			case http.StatusTooManyRequests:
+				paused.Add(1)
+			default:
+				t.Errorf("guess %d answered %d", i, rec.Code)
+			}
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	d.claims.mu.Lock()
+	proofs := d.claims.identityProofs
+	d.claims.mu.Unlock()
+	t.Logf("%d guesses on one link: %d proofs, %d answered 422, %d paused", n, proofs, unprocessable.Load(), paused.Load())
+	if proofs > signupClaimLinkLimit || int(unprocessable.Load()) > signupClaimLinkLimit || len(p.provisioned) != 0 {
+		t.Fatalf("%d proofs and %d 422s for %d simultaneous guesses on one link, want at most %d each", proofs, unprocessable.Load(), n, signupClaimLinkLimit)
+	}
+}
+
+// TestSignupConfirm_ASpentIdentityBudgetPausesTheLink: while the branch's identity counter is spent
+// (adminauth.ErrClaimBudgetSpent) the branch answers the same paused page as the link's gate, right
+// password or wrong, and creates nothing. Without the counter the branch refuses with a 500 and asks no
+// proof -- never runs uncounted.
+func TestSignupConfirm_ASpentIdentityBudgetPausesTheLink(t *testing.T) {
+	p := &fakeProvisioner{}
+	d, wizard := newSignupDriver(t, p, nil)
+	email := strings.ToLower(accountForm("").Get("email"))
+	d.claims.known[email] = true
+	d.claims.signInless[email] = "the sign-in's own password"
+	link := confirmWalk(t, d)
+	d.get(link)
+	csrf := d.token(d.get(signupConfirmPath))
+	d.claims.budgetSpent = true
+	for _, pw := range []string{"the sign-in's own password", "a guess"} {
+		res := d.post(signupConfirmPath, url.Values{"csrf": {csrf}, "password": {pw}})
+		if res.Code != http.StatusTooManyRequests || !strings.Contains(screenText(t, res.Body.String()), "tried too many times") {
+			t.Fatalf("%q with the budget spent: %d, want 429 and the paused page", pw, res.Code)
+		}
+	}
+	if len(p.provisioned) != 0 {
+		t.Fatal("a spent budget created a business")
+	}
+	d.claims.budgetSpent = false
+	wizard.claimIdentityLimiter = nil
+	proofs := d.claims.identityProofs
+	if res := d.post(signupConfirmPath, url.Values{"csrf": {csrf}, "password": {"the sign-in's own password"}}); res.Code != http.StatusInternalServerError ||
+		d.claims.identityProofs != proofs || len(p.provisioned) != 0 {
+		t.Fatalf("no budget wired: %d, %d proof(s), %d business(es); want 500 and nothing", res.Code, d.claims.identityProofs-proofs, len(p.provisioned))
 	}
 }
 
@@ -548,5 +744,35 @@ func TestSignupConfirm_ARefusedClaimClearsTheLinkCookie(t *testing.T) {
 	}
 	if !cleared {
 		t.Fatal("the refused claim left the registration link's cookie in the browser")
+	}
+}
+
+var validForRE = regexp.MustCompile(`valid for (\d+ (?:day|days|hour|hours|minute|minutes))\b`)
+
+// TestSignupLink_ThePagesStateTheLettersLifetime (M14-17b's third-eye audit, DÜŞÜK-1): "Check your inbox"
+// and the dead-link page state a registration link's life in the words its letter uses -- one rounding
+// (email.Lifetime) of the draft's TTL, which is the 24-hour ceiling less the clock-skew margin, so never
+// "24 hours".
+//
+// MUTATION (measured): the sent page's lifetime back to the literal "24 hours" -> red.
+func TestSignupLink_ThePagesStateTheLettersLifetime(t *testing.T) {
+	p := &fakeProvisioner{}
+	d, _, rec, _ := newEmailSignupDriver(t, p, 0)
+	csrf := d.walkToAccount(t)
+	d.advance(time.Minute)
+	if res := d.post(signupAccountPath, accountForm(csrf)); res.Code != http.StatusSeeOther {
+		t.Fatalf("POST %s = %d", signupAccountPath, res.Code)
+	}
+	sent := screenText(t, d.get(signupSentPath).Body.String())
+	letter := drainLetters(t, rec, 1)[0].m.Text
+	lm, sm := validForRE.FindStringSubmatch(letter), validForRE.FindStringSubmatch(sent)
+	if lm == nil || sm == nil {
+		t.Fatalf("a lifetime is missing: letter %v, page %v", lm != nil, sm != nil)
+	}
+	if lm[1] != sm[1] || sm[1] == "24 hours" {
+		t.Fatalf("the letter says %q and \"Check your inbox\" %q; want the same, and not the 24-hour ceiling", lm[1], sm[1])
+	}
+	if !strings.Contains(problemSignupLinkDead.Message, "for "+lm[1]+".") {
+		t.Fatalf("the dead-link page says %q; want the letter's %q", problemSignupLinkDead.Message, lm[1])
 	}
 }

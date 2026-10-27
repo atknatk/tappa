@@ -747,7 +747,7 @@ templ SignupSent(v SignupSentView) {
 		<div class="flex flex-col gap-3 text-sm leading-normal text-ink md:text-[15px]">
 			<p>
 				Nothing has been created yet: the business exists only once the link is used. The link
-				stays valid for 24 hours and works once.
+				stays valid for { v.LinkLife } and works once.
 			</p>
 			if v.ScreenLink == "" {
 				<p>
@@ -777,6 +777,8 @@ templ SignupSent(v SignupSentView) {
 //   - AN ADDRESS THAT ALREADY HAS A SIGN-IN: the business is added to that sign-in only from
 //     a browser signed in with it (R18), so the page says to sign in first and press the
 //     button afterwards.
+//   - A SIGN-IN WITH NO ACTIVE BUSINESS LEFT (M14-17b): it cannot sign in, so the page asks
+//     for that sign-in's password; a wrong one creates nothing.
 templ SignupConfirm(v SignupConfirmView) {
 	@signupShell("Finish registering — Taptime", signupProgress{Step: 3, Name: v.BusinessName}, signupConfirmHeading(v.KnownAddress), "", layout.Share{}) {
 		<div class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper px-4 py-3.5 md:bg-porcelain md:px-[18px] md:py-4">
@@ -791,7 +793,37 @@ templ SignupConfirm(v SignupConfirmView) {
 				</ul>
 			}
 		</div>
-		if v.KnownAddress {
+		if v.IdentityPassword {
+			<p class="text-sm leading-normal text-ink md:text-[15px]">
+				This email address already has a Taptime sign-in. To add the business to it, type the
+				password of that sign-in below.
+			</p>
+			<form method="post" action={ templ.URL(SignupConfirmPath) } class="flex flex-col gap-6">
+				<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+				<div class="field-stack">
+					<label for="signup-confirm-password" class="lbl">Your Taptime password</label>
+					// NO value ATTRIBUTE, EVER (SignupAccount's rule).
+					<input
+						id="signup-confirm-password"
+						name="password"
+						type="password"
+						autocomplete="current-password"
+						required
+						autofocus
+						class={ "field-input field-input--mono " + signupFieldRing }
+						if fieldInvalid(v.Errors, "password") {
+							aria-invalid="true"
+							aria-describedby={ fieldErrorID("password") }
+						}
+					/>
+					<p class="field-help">The one you sign in to Taptime with, not a new one.</p>
+					@fieldError(v.Errors, "password")
+				</div>
+				<div>
+					<button type="submit" class={ "btn btn--primary w-full rounded-xl px-6 md:w-auto " + signupSubmitStates }>Add the business</button>
+				</div>
+			</form>
+		} else if v.KnownAddress {
 			if v.NotSignedIn {
 				@signupAlert("Sign in with this address first") {
 					<p>

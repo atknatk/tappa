@@ -793,7 +793,7 @@ func (p *Provisioner) Provision(ctx context.Context, c Claim) (Result, error) {
 //
 // ⚠️ SINCE M14-17 THE STAMP IS THE CONFIRMATION'S, NOT THE CHECK'S: VIES answered at step one
 // and the draft carries only the verdict (its closed keys hold no instant), so the stored time is
-// up to SignupClaimTTL (24 hours) after the answer it dates. The verdict itself is the one received.
+// up to SignupClaimTTL (just under 24 hours) after the answer it dates. The verdict itself is the one received.
 func checkedAt(s VATStatus) *time.Time {
 	if s == VATUnknown {
 		// ⚠️ THIS COLLAPSES TWO OF THE FOUR STATES AND THE LIMIT IS STATED. "Asked,

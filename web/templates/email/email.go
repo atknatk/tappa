@@ -610,6 +610,11 @@ func tokenByte(b byte) bool {
 // whole unit, so it never promises more time than it was given: 7 days less a
 // second reads "6 days". Under a minute is refused — no link the product mints is
 // that short, and "0 minutes" would read as a link that is already dead.
+// Lifetime is lifetime for the pages that state a link's life beside its letter (M14-17b's audit: the
+// registration's "Check your inbox" and dead-link pages said "24 hours" while its letter, from the same
+// lifetime, said "23 hours"): one rounding, so a page and its letter print the same length.
+func Lifetime(d time.Duration) (string, error) { return lifetime(d) }
+
 func lifetime(d time.Duration) (string, error) {
 	const day = 24 * time.Hour
 	switch {

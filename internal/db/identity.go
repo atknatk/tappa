@@ -439,7 +439,7 @@ const resolveSignupClaimSQL = `SELECT id, email, password_hash, expires_at, used
 FROM resolve_signup_claim_by_token_hash($1)`
 
 const claimSignupSQL = `SELECT admin_user_id
-FROM identity_claim_signup($1, $2, $3)`
+FROM identity_claim_signup($1, $2, $3, $4)`
 
 const sweepSignupClaimsSQL = `SELECT identity_sweep_signup_claims()`
 
@@ -488,20 +488,28 @@ func (d *DB) GetSignupClaimByTokenHash(ctx context.Context, tokenHash string) (R
 
 // ClaimSignup consumes a registration draft INSIDE the registration's own transaction (tx, under
 // tenantID's context, the tenant this transaction just created) and writes the owner membership -- for
-// a new address with a new identity (sessionHash nil: the caller compared the re-entered password with
-// the draft's digest first), for an existing identity through its own live session (sessionHash set).
-// It returns the owner row's id. pgx.ErrNoRows is the one refusal (a spent, expired or unknown link, a
-// business that is not this transaction's or already has a member, a draft that does not match it, a
-// session that is not the address's person, a concurrent birth of the address); the caller rolls back.
+// a new address with a new identity (sessionHash nil, verified zero: the caller compared the re-entered
+// password with the draft's digest first), for an existing identity through its own live session
+// (sessionHash set), or (M14-17b, 00080) for an existing identity with NO active membership through its
+// password (verified: the identity's digest, from ResolveIdentityByEmail, that the caller compared the
+// re-entered password with -- identity_claim_signup claims only while it is still the identity's digest,
+// under the person's lock). It returns the owner row's id. pgx.ErrNoRows is the one refusal (a spent,
+// expired or unknown link, a business that is not this transaction's or already has a member, a draft
+// that does not match it, a session that is not the address's person, a stale digest, an identity that
+// can sign in, a concurrent birth of the address); the caller rolls back.
 //
 // 🔴 tx MUST BE A TOP-LEVEL TRANSACTION (db.WithTenant, never db.WithTenantIn): the function requires the
 // tenant row's xmin to be this transaction's, which a savepoint's insert is not (S13).
 //
 // 🔴 ONE CALLER: internal/adminauth's claim proof (TestSignupClaimProof_HasItsProducersAndOneConsumer) --
 // the Go type that exists only after the password matched or with a session cookie in hand (S12).
-func ClaimSignup(ctx context.Context, tx pgx.Tx, claimHash string, tenantID uuid.UUID, sessionHash *string) (uuid.UUID, error) {
+func ClaimSignup(ctx context.Context, tx pgx.Tx, claimHash string, tenantID uuid.UUID, sessionHash *string, verified PasswordHash) (uuid.UUID, error) {
+	var digest *string
+	if d := verified.RevealForPasswordComparison(); d != "" {
+		digest = &d
+	}
 	var admin uuid.UUID
-	if err := tx.QueryRow(ctx, claimSignupSQL, claimHash, tenantID, sessionHash).Scan(&admin); err != nil {
+	if err := tx.QueryRow(ctx, claimSignupSQL, claimHash, tenantID, sessionHash, digest).Scan(&admin); err != nil {
 		return uuid.Nil, fmt.Errorf("db: claim signup: %w", err)
 	}
 	return admin, nil

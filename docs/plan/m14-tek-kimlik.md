@@ -332,7 +332,8 @@ ADR 0031 §5.2); `resolve_admin_by_email` `unlinked_at IS NULL` süzgeciyle ve d
   `prosecdef`, `proconfig`, `tappa_app` EXECUTE ve `tappa_resolver`'ın sütun yetkilerini pinler; eski
   binary'nin sorgusu (`SELECT id, tenant_id, password_hash, status FROM resolve_admin_by_email(…)`) yeni
   tanımda çalışır.
-- **Kimliği yazan her fonksiyon kimliği bir sırdan bulur** (üç adlandırılmış istisna hariç);
+- **Kimliği yazan her fonksiyon kimliği bir sırdan bulur** (dört adlandırılmış istisna hariç — dördüncüsü
+  `identity_claim_signup`'ın parola kolu, 2026-10-27 kullanıcı kararı, M14-17b);
   e-postayla çözen bir dual-write yolu yok (mutasyon: e-postayla çözülürse kırmızı). BYPASSRLS
   gövdelerinde tenant tablosuna dokunan her ifadede açık `tenant_id` yüklemi (metin taraması).
 - `identity_set_password`: bağlı oturumda kimlik + bağlı bütün satırlar, öbür oturumlar bütün

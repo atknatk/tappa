@@ -244,22 +244,26 @@ func signupVerifyLetter(life string) letter {
 
 // signupKnownLetter is the registration letter for an address that already has a Taptime sign-in (M14-17,
 // ADR 0031 §5.14's "var olan adresle kayıt"): the new business is added to that sign-in only by its
-// owner -- signed in with their own password, in the browser that opens the link (R18). It names
-// nobody, and it says nothing about the person's other businesses.
+// owner, proven with their own password -- signed in in the browser that opens the link (R18) or, when
+// the sign-in has no active business left and cannot sign in, by typing that password on the link's page
+// (M14-17b, the user's decision of 2026-10-27). ONE letter for both (R18: the letter is chosen by "the
+// address has a sign-in" alone, never by its businesses), so it names both ways. It names nobody, and it
+// says nothing about the person's other businesses.
 func signupKnownLetter(life string) letter {
 	return letter{
 		subject: subjectSignupKnown,
 		heading: "A registration used your address",
 		before: []string{
 			"Someone started registering a new business with Taptime using this email address, which " +
-				"already has a Taptime sign-in. If it was you, sign in with your usual password first, " +
-				"then open the link below in the same browser to add the new business to your sign-in.",
+				"already has a Taptime sign-in. If it was you, open the link below to add the new business " +
+				"to your sign-in: it asks for your usual Taptime password, either by signing in first in the " +
+				"same browser or by typing it on the page the link opens.",
 		},
 		action: "Add the business",
 		after: []string{
 			"The link works once and stays valid for " + life + ". Nothing has been created yet, and " +
 				"nothing about your sign-in changes until the link is used.",
-			"Signing in does not add the business by itself: only the link, opened while you are signed in, does.",
+			"Signing in does not add the business by itself: only the link, confirmed with your password, does.",
 		},
 		closing: "If you did not start this, you can ignore this email — your sign-in stays as it is.",
 	}

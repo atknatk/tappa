@@ -1680,8 +1680,9 @@ func TestReset_EveryBusinessIsThePersonsOneLink(t *testing.T) {
 
 // TestSignupLetters_SayWhatTheConfirmationAsks (M14-17, ADR 0031 §5.10): the new address's letter says the
 // link asks again for the chosen password (R2) and that nothing exists before it is used; the known
-// address's letter says to sign in first, in the same browser (R18) -- and neither names a business or a
-// person, nor carries a link outside the confirmation page.
+// address's letter names both of its proofs -- signing in first in the same browser (R18) or typing the
+// sign-in's password on the page (M14-17b, a sign-in with no active business) -- and neither names a
+// business or a person, nor carries a link outside the confirmation page.
 func TestSignupLetters_SayWhatTheConfirmationAsks(t *testing.T) {
 	ctx := context.Background()
 	link := testBase + signupConfirmPath + "?" + signupConfirmParam + "=" + randomValue(t)
@@ -1700,7 +1701,8 @@ func TestSignupLetters_SayWhatTheConfirmationAsks(t *testing.T) {
 		want []string
 	}{
 		{"verification", verify, []string{"you will be asked for the password you chose", "Nothing has been created yet", "stays valid for 1 day"}},
-		{"known address", known, []string{"already has a Taptime sign-in", "sign in with your usual password first", "in the same browser", "stays valid for 1 day"}},
+		{"known address", known, []string{"already has a Taptime sign-in", "your usual Taptime password", "signing in first in the same browser",
+			"typing it on the page the link opens", "stays valid for 1 day"}},
 	} {
 		for _, w := range c.want {
 			if !strings.Contains(c.m.Text, w) || !strings.Contains(visibleText(t, c.m.HTML), w) {
