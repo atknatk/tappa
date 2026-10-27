@@ -185,9 +185,11 @@ func (a *AdminAuth) membersView(r *http.Request, id httpx.AdminIdentity, v *page
 		v.MembersFailed = true
 		return
 	}
+	// The owners who can sign in (M14-16b): an active owner row the person refused on the confirmation
+	// list can get no session and is not counted -- the service's own rule (adminauth.Memberships).
 	owners := 0
 	for _, m := range list {
-		if m.Owner() && m.Active() {
+		if m.Owner() && m.Active() && !m.RefusedOwner {
 			owners++
 		}
 	}
@@ -203,10 +205,13 @@ func (a *AdminAuth) membersView(r *http.Request, id httpx.AdminIdentity, v *page
 		if !m.Active() {
 			row.Status = "Disabled"
 		}
+		if m.RefusedOwner {
+			row.Status, row.Refused = "Can't sign in", true
+		}
 		switch {
 		case row.Self:
-			row.CanStepDown = m.Owner() && m.Active() && owners >= 2
-			v.OnlyOwner = m.Owner() && m.Active() && owners < 2
+			row.CanStepDown = m.Owner() && m.Active() && !m.RefusedOwner && owners >= 2
+			v.OnlyOwner = m.Owner() && m.Active() && !m.RefusedOwner && owners < 2
 		case m.Active():
 			row.CanDisable = true
 			row.CanMakeOwner = !m.Owner()

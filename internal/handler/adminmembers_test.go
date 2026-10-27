@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -16,15 +17,24 @@ import (
 // countingMemberships is a panelMemberships that records the changes it is asked for.
 type countingMemberships struct {
 	changes []adminauth.MembershipAct
+	list    []adminauth.Member
 }
 
 func (c *countingMemberships) List(context.Context, uuid.UUID) ([]adminauth.Member, error) {
-	return nil, nil
+	return c.list, nil
 }
 
 func (c *countingMemberships) Change(_ context.Context, _, _, member uuid.UUID, act adminauth.MembershipAct) (adminauth.MembershipChange, error) {
 	c.changes = append(c.changes, act)
 	return adminauth.MembershipChange{Member: member}, nil
+}
+
+// emptyInvites is a panelAdminInvites with no invitation: the managers page draws its membership
+// section (any other call panics through the nil embedded interface).
+type emptyInvites struct{ panelAdminInvites }
+
+func (emptyInvites) List(context.Context, uuid.UUID) ([]adminauth.AdminInvite, error) {
+	return nil, nil
 }
 
 func membersBrowser(t *testing.T, scribe panelScribe, ms panelMemberships) *browser {
@@ -38,7 +48,7 @@ func membersBrowser(t *testing.T, scribe panelScribe, ms panelMemberships) *brow
 	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), scribe,
 		newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, cfg,
-		slog.New(slog.DiscardHandler), AdminMemberships(ms))
+		slog.New(slog.DiscardHandler), AdminMemberships(ms), AdminInvitations(emptyInvites{}))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -101,5 +111,35 @@ func TestAdminMembers_MakingAnOwnerNeedsTheTick(t *testing.T) {
 	rec = b.do(http.MethodPost, membersMakeOwnerHref, url.Values{"member_id": {member}, "confirm": {"yes"}})
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != managersHref+"?done=made-owner" || len(ms.changes) != 1 {
 		t.Fatalf("a ticked make-owner: %d %q, %d change(s)", rec.Code, rec.Header().Get("Location"), len(ms.changes))
+	}
+}
+
+// TestAdminMembers_ARefusedOwnerIsNotCountedOnThePage (M14-16b): the reader is an owner, and the only
+// other owner row is one the person refused (adminauth.Member.RefusedOwner). The page counts owners
+// the way the service does: no "Step down" for the reader, the "only owner" notice, and the refused row
+// says it cannot sign in and does not count. CONTROL: the same page with that row a real owner offers
+// the step-down and no notice. MUTATION (measured): membersView counting every active owner -> red.
+func TestAdminMembers_ARefusedOwnerIsNotCountedOnThePage(t *testing.T) {
+	const stepDown, only, refusedNote = "Step down to manager", "You are the only owner", "Can&#39;t sign in"
+	for _, refused := range []bool{true, false} {
+		ms := &countingMemberships{list: []adminauth.Member{
+			{ID: panelTestAdmin, FullName: "Owner", Email: "owner@members.example", Role: "owner", Status: "active"},
+			{ID: uuid.New(), FullName: "Other", Email: "other@members.example", Role: "owner", Status: "active", RefusedOwner: refused},
+		}}
+		b := membersBrowser(t, newFakeScribe(), ms)
+		rec := b.do(http.MethodGet, managersHref, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("refused=%v: GET %s = %d", refused, managersHref, rec.Code)
+		}
+		body := rec.Body.String()
+		if got := strings.Contains(body, stepDown); got == refused {
+			t.Errorf("refused=%v: the page offers the step-down: %v", refused, got)
+		}
+		if got := strings.Contains(body, only); got != refused {
+			t.Errorf("refused=%v: the only-owner notice shown: %v", refused, got)
+		}
+		if got := strings.Contains(body, refusedNote) && strings.Contains(body, "do not count as one of its owners"); got != refused {
+			t.Errorf("refused=%v: the refused row's words shown: %v", refused, got)
+		}
 	}
 }

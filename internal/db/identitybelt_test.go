@@ -394,13 +394,14 @@ type identityBody struct {
 }
 
 // identityBodies reads the bodies the belt holds: every function tappa_identitydefiner owns, every
-// resolve_identity_* and (M14-15) every resolve_admin_invite_* -- the md.7 resolvers of ADR 0031's
-// closed list (BYPASSRLS, so their tenant-table reads are held to the belt too).
+// resolve_identity_*, (M14-15) every resolve_admin_invite_* and (M14-16b) resolve_admin_owners_by_tenant
+// -- the tappa_resolver functions of ADR 0031's closed list (BYPASSRLS, so their tenant-table reads are
+// held to the belt too).
 func identityBodies(ctx context.Context, q opQuerier) ([]identityBody, error) {
 	rows, err := q.Query(ctx, `SELECT p.proname, p.prosrc, coalesce(p.proargnames, '{}')
 	                             FROM pg_proc p
 	                            WHERE p.proowner = 'tappa_identitydefiner'::regrole OR p.proname LIKE 'resolve\_identity\_%'
-	                               OR p.proname LIKE 'resolve\_admin\_invite\_%'
+	                               OR p.proname LIKE 'resolve\_admin\_invite\_%' OR p.proname = 'resolve_admin_owners_by_tenant'
 	                            ORDER BY 1`)
 	if err != nil {
 		return nil, err

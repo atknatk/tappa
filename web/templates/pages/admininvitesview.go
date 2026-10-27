@@ -45,8 +45,13 @@ type ManagerMemberRow struct {
 	ID    string
 	Name  string
 	Email string
-	// Role and Status are the words printed on the row: Owner/Manager, Active/Disabled.
+	// Role and Status are the words printed on the row: Owner/Manager, Active/Disabled -- or, for an
+	// active owner row that can get no session (Refused), "Can't sign in".
 	Role, Status string
+	// Refused: an active owner row that can get no session (M14-16b, adminauth.Member.RefusedOwner): the
+	// page says it does not count as an owner. Never set for a manager or a disabled row -- the panel
+	// cannot tell those.
+	Refused bool
 	// Self: this row is the reader's own membership.
 	Self                                                             bool
 	CanDisable, CanEnable, CanMakeOwner, CanMakeManager, CanStepDown bool

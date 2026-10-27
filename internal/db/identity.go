@@ -585,3 +585,31 @@ func (d *DB) AcceptAdminInviteNew(ctx context.Context, inviteHash, newDigest str
 	}
 	return a, nil
 }
+
+// --------------------------------------------------------------- M14-16b --
+
+// The owners of a business who can still get a session (ADR 0031 §5.2's note of 2026-10-27; migration
+// 00081): resolve_admin_owners_by_tenant, tappa_resolver's, read-only. M14-16's last-owner rule counts
+// these and not every active owner row: a membership the person refused keeps role='owner',
+// status='active' with unlinked_at stamped, which tappa_app cannot read (R16).
+const adminOwnersByTenantSQL = `SELECT admin_user_id
+FROM resolve_admin_owners_by_tenant($1)`
+
+// SignInOwners returns the active owner memberships of tenantID that can still get a session, in id
+// order (at most 200). Ids only: a refused owner row is told apart by its absence.
+//
+// 🔴 tx IS THE CALLER'S TENANT TRANSACTION (db.WithTenant): the function answers only for the tenant
+// the transaction's app.tenant_id names -- any other tenantID is no rows, never another business's
+// owners. Called after the owners' row lock (internal/adminauth.Memberships), it reads under it:
+// unlinked_at cannot change on a locked row (an unlink and a relink update the row).
+func SignInOwners(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := tx.Query(ctx, adminOwnersByTenantSQL, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("db: owners who can sign in: %w", err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return nil, fmt.Errorf("db: owners who can sign in: %w", err)
+	}
+	return ids, nil
+}

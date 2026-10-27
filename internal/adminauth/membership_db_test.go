@@ -210,9 +210,11 @@ func TestMemberships_DisablingDropsOnlyThisBusinesssSessions(t *testing.T) {
 	}
 }
 
-// TestMemberships_EnablingRevokesASessionThatLandedWhileDisabled is the security audit's ORTA: a
-// session opened beside a disable (identity_open_session / identity_switch_session read the row without
-// a lock) can land live on the disabled row -- modelled by inserting one there directly. While the row
+// TestMemberships_EnablingRevokesASessionThatLandedWhileDisabled is the security audit's ORTA, kept as
+// the second layer: before 00081 a session opened beside a disable (identity_open_session /
+// identity_switch_session read the row without a lock) could land live on the disabled row; 00081's row
+// lock closed that (TestMemberships_ASessionOpenedBesideADisableDoesNotOutliveIt), and a session put on a
+// disabled row by any other hand is modelled here by inserting one there directly. While the row
 // is disabled TouchAdminSession refuses it; the enable revokes it in its own transaction, so it is not
 // accepted afterwards either, and the trail row says one session ended. MUTATION (measured): the
 // enable's revocation removed -> red (the old cookie passes TouchAdminSession).

@@ -121,8 +121,13 @@ templ managersMembers(v ManagersView) {
 								<span class="mono-pill border-line">{ row.Status }</span>
 							</p>
 							<p class="break-all font-mono text-xs text-ink/70">{ row.Email }</p>
-							if row.KeysNote {
+							if row.Refused {
 								<p class="max-w-xl text-xs leading-normal text-ink/70">
+									This owner cannot sign in to this business, so they do not count as one of its owners.
+								</p>
+							}
+							if row.KeysNote {
+								<p class="mb-1 max-w-xl text-xs leading-normal text-ink/70">
 									Disabling or demoting this owner does not stop the API keys they created: those keep
 									working.
 									<a class="hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.SafeURL(v.APIKeysHref) }>Review the API keys</a>.
