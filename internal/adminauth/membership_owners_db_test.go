@@ -192,8 +192,18 @@ func (w *raceWorld) race(open func(token string) error) (MembershipChange, strin
 	if err := htx.Rollback(ctx); err != nil {
 		w.t.Fatal(err)
 	}
-	<-openDone
-	<-changeDone
+	// Bounded waits: a regression that wedges either side fails here, fast, and t's cleanups still run
+	// (the blocker's connection closes, nothing of the world stays in the database).
+	for _, side := range []struct {
+		what string
+		done <-chan struct{}
+	}{{"the opening", openDone}, {"the disable", changeDone}} {
+		select {
+		case <-side.done:
+		case <-time.After(15 * time.Second):
+			w.t.Fatalf("%s did not end within 15 s after the blocker rolled back", side.what)
+		}
+	}
 	if err := <-openErr; err != nil {
 		w.t.Fatalf("the opening: %v", err)
 	}
