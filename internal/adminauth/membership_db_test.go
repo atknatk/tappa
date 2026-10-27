@@ -14,9 +14,29 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/audit"
+	"github.com/atknatk/tappa/internal/store"
 )
+
+// touches reports whether TouchAdminSession -- the panel's per-request authority -- accepts session.
+func (w *memberWorld) touches(tenant, session uuid.UUID) bool {
+	w.t.Helper()
+	ok := false
+	err := testDB(w.t).WithTenant(context.Background(), tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := store.New(tx).TouchAdminSession(ctx, store.TouchAdminSessionParams{ID: session, TenantID: tenant})
+		if errors.Is(e, pgx.ErrNoRows) {
+			return nil
+		}
+		ok = e == nil
+		return e
+	})
+	if err != nil {
+		w.t.Fatalf("TouchAdminSession: %v", err)
+	}
+	return ok
+}
 
 // memberWorld is one business with one owner (owner), around an idWorld (a person with an identity).
 type memberWorld struct {
@@ -190,6 +210,42 @@ func TestMemberships_DisablingDropsOnlyThisBusinesssSessions(t *testing.T) {
 	}
 }
 
+// TestMemberships_EnablingRevokesASessionThatLandedWhileDisabled is the security audit's ORTA: a
+// session opened beside a disable (identity_open_session / identity_switch_session read the row without
+// a lock) can land live on the disabled row -- modelled by inserting one there directly. While the row
+// is disabled TouchAdminSession refuses it; the enable revokes it in its own transaction, so it is not
+// accepted afterwards either, and the trail row says one session ended. MUTATION (measured): the
+// enable's revocation removed -> red (the old cookie passes TouchAdminSession).
+func TestMemberships_EnablingRevokesASessionThatLandedWhileDisabled(t *testing.T) {
+	w := newMemberWorld(t)
+	mgr := w.person(w.tenant, "manager")
+	if _, err := w.s.Change(context.Background(), w.tenant, w.owner1, mgr, MemberDisable); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	late := w.liveSession(w.tenant, mgr)
+	if w.touches(w.tenant, late) {
+		t.Fatal("CONTROL: a session of a disabled row passed TouchAdminSession")
+	}
+	ch, err := w.s.Change(context.Background(), w.tenant, w.owner1, mgr, MemberEnable)
+	if err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	if w.touches(w.tenant, late) {
+		t.Fatal("the session that landed while the row was disabled passes TouchAdminSession after the enable")
+	}
+	if w.live(late) || ch.RevokedSessions != 1 {
+		t.Errorf("the late session live=%v, the enable revoked %d; want revoked, 1", w.live(late), ch.RevokedSessions)
+	}
+	fresh := w.liveSession(w.tenant, mgr)
+	if !w.touches(w.tenant, fresh) {
+		t.Error("CONTROL: a session opened after the enable is not accepted")
+	}
+	if got := w.details(w.tenant, ActionMembershipEnabled); len(got) != 1 ||
+		got[0] != w.owner1.String()+"|"+mgr.String()+`|{"outcome": "ok", "revoked_sessions": 1}` {
+		t.Errorf("the enable's trail = %q", got)
+	}
+}
+
 // TestMemberships_OwnershipMovesInTwoAuditedSteps is the transfer (K-11): stepping down first is
 // refused (the last owner); step one makes the manager an owner -- one admin.membership.promoted row;
 // step two, the old owner steps down -- one admin.membership.demoted row marked self. The business
@@ -336,6 +392,16 @@ func TestMemberships_TwoStepDownsRaceAndOneIsRefused(t *testing.T) {
 func TestMemberships_TwoOwnersDisablingEachOtherRaceAndOneIsRefused(t *testing.T) {
 	w := newMemberWorld(t)
 	owner2 := w.person(w.tenant, "owner")
+	// The first race test's hold: the first change waits after its decision for the second, so the two
+	// cannot simply run one after the other -- the lock, not the timing, decides.
+	var arrived atomic.Int32
+	w.s.beforeWrite = func() {
+		arrived.Add(1)
+		deadline := time.Now().Add(300 * time.Millisecond)
+		for arrived.Load() < 2 && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
 	var wg sync.WaitGroup
 	errs := make([]error, 2)
 	pairs := [][2]uuid.UUID{{w.owner1, owner2}, {owner2, w.owner1}}

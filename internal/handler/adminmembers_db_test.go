@@ -18,6 +18,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// keysNote is the sentence beside every press that disables or demotes an owner (backlog T150).
+const keysNote = "does not stop the API keys they created"
+
 // membersHarness is a flag-on panel with its owner signed in.
 func membersHarness(t *testing.T, label string) *panelHarness {
 	t.Helper()
@@ -145,8 +148,19 @@ func TestAdminMembersDB_OwnershipIsHandedOverInTwoPresses(t *testing.T) {
 	if _, page := p.get(t, managersHref); !strings.Contains(page, "You are the only owner") {
 		t.Error("the page does not tell the only owner how a hand-over goes")
 	}
-	if code, loc := p.press(t, membersMakeOwnerHref, heir); loc != managersHref+"?done=made-owner" {
+	if _, page := p.get(t, managersHref); strings.Contains(page, keysNote) {
+		t.Error("the API-key sentence is drawn while no press here disables or demotes an owner")
+	}
+	if code, loc := p.press(t, membersMakeOwnerHref, heir); loc != managersHref+"?problem=confirm-owner" {
+		t.Fatalf("press one without the tick: %d %q", code, loc)
+	}
+	if code, loc := p.press(t, membersMakeOwnerHref, heir, "confirm", "yes"); loc != managersHref+"?done=made-owner" {
 		t.Fatalf("press one: %d %q", code, loc)
+	}
+	// Two owners now: the heir's row (Disable, Make manager) and the presser's own (Step down) each
+	// carry the sentence that the owner's API keys keep working, with the API Keys link.
+	if _, page := p.get(t, managersHref); strings.Count(page, keysNote) != 2 || !strings.Contains(page, `href="`+apiKeysHref+`"`) {
+		t.Errorf("the API-key sentence appears %d time(s), want 2, with a link to %s", strings.Count(page, keysNote), apiKeysHref)
 	}
 	if code, loc := p.press(t, membersMakeManagerHref, p.adminID, "confirm", "yes"); code != http.StatusSeeOther || loc != accountReturn("stepped-down", "") {
 		t.Fatalf("press two: %d %q", code, loc)

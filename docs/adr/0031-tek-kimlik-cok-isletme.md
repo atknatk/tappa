@@ -945,21 +945,36 @@ status)`'u (`00017:380-381`) ve `RevokeAdminSessionsForAdmin` ile; yeni sorgular
   tetikleyici kümesini pinler. Eşzamanlılık: `TestMemberships_TwoStepDownsRaceAndOneIsRefused`.
 - **Reddedilmiş satır panelden yeniden açılamaz:** `tappa_app` `unlinked_at`'i okuyamadığı için (R16)
   panel reddedilmiş bir satırı `active` yapabilir; bu onu açmaz — oturum veren her yol `unlinked_at IS
-  NULL` süzer (`TestAdminMembers_EnablingARefusedRowGivesNoSession`). **Adlandırılmış kalıntı:** aynı
-  sebeple değişmez reddedilmiş bir owner satırını aktif owner sayar (contract ön koşulunun ayrı saydığı
-  satır); owner kendi eliyle böyle bir satırı owner yapıp çekilirse işletmede oturum alabilen owner
-  kalmaz. Kendi kararıdır ve geri dönüşü yeni bir davettir.
+  NULL` süzer (`TestAdminMembers_EnablingARefusedRowGivesNoSession`). **Adlandırılmış kalıntı (kullanıcı
+  kararı 2026-10-27: M14-16 için kabul, ayrı kart backlog'da):** aynı sebeple değişmez reddedilmiş bir
+  owner satırını aktif owner sayar (contract ön koşulunun ayrı saydığı satır). Bunun için bir basış
+  **gerekmez**: contract öncesi çözme satırı `active` bırakır, satır panelde zaten "Owner · Active"
+  görünür ve sayılır; contract sonrasında bir owner onu etkinleştirince sayılır. Owner böyle bir satırın
+  yanında çekilirse işletmede oturum alabilen owner kalmaz ve **ürün içinden geri dönüş yoktur**: davet
+  ve owner yapma yalnız owner'ındır ve hiçbiri giriş yapamaz. Geri dönüş yalnız veritabanı ya da operatör
+  müdahalesidir.
 - **Devre dışı bırakma yalnız o satırın o işletmedeki oturumlarını** iptal eder (`RevokeAdminSessionsForAdmin`,
-  `identity_revoke_sessions` değil — K-6); yeniden etkinleştirme eski oturumu geri getirmez
-  (`TestMemberships_DisablingDropsOnlyThisBusinesssSessions`, iki işletmeli).
+  `identity_revoke_sessions` değil — K-6; `TestMemberships_DisablingDropsOnlyThisBusinesssSessions`, iki
+  işletmeli). Bu iptal, o anda commit edilmekte olan bir oturumu **görmez**: `identity_open_session` /
+  `identity_switch_session` satırı kilitsiz okuyup oturumu ekler, devre dışı bırakmadan önce okumuş biri
+  devre dışı satıra canlı bir oturum bırakabilir (güvenlik denetimi ölçtü). Satır devre dışıyken o oturum
+  kullanılamaz (`TouchAdminSession`); **yeniden etkinleştirme de satırın bütün oturumlarını aynı
+  transaction'da iptal eder** — kişi yeniden giriş yapar
+  (`TestMemberships_EnablingRevokesASessionThatLandedWhileDisabled`). Kalan pencere: oturum açan
+  transaction'ın hem devre dışı bırakmanın hem etkinleştirmenin commit'ini kapsayacak kadar sürmesi.
 - **Owner kapısı M14-15'inkidir** (`a.mayInvite` → `tenant.RuleWriter.MayInviteManager`, `policy:edit`,
   materyalize edilmemiş kitapta sevk edilen baseline): yetki vermek / almak işletmenin yetkilendirmesini
   değiştirmektir ve yeni bir eylem materyalize kitaplarda `deny sid=default` alırdı.
 - **Askı** (ADR 0025'in M14 notu): daraltan iki basış (devre dışı bırakma, manager yapma) K-26'nın
   gerekçesiyle askıda da açıktır (`protectWritingThroughSuspension`); genişleten ikisi (etkinleştirme,
   owner yapma) askı halkalı ana gruptadır. Dördü de bayrakla kapılı ve tenant bağlıdır.
-- Audit satırları yalnız üyelik id'sini (hedef), sabit kelimeleri ve devre dışı bırakmada iptal edilen
-  oturum sayısını taşır — adres, ad, kimlik, başka işletme, üyelik sayısı yok.
+- Audit satırları yalnız üyelik id'sini (hedef), sabit kelimeleri ve devre dışı bırakmada ya da yeniden
+  etkinleştirmede iptal edilen oturum sayısını taşır — adres, ad, kimlik, başka işletme, üyelik sayısı yok.
+- **Onay kutuları:** "Step down" ve "Make owner" (bütün işletmeyi tek basışta verir) ikisi de
+  `confirm=yes` ister; handler denetler.
+- **API anahtarları (§5.13, backlog T150):** bir owner'ı devre dışı bırakan ya da manager yapan her
+  basışın yanında, o kişinin oluşturduğu API anahtarlarının çalışmaya devam ettiğini söyleyen cümle ve
+  API Keys bölümüne bağlantı durur — T150 karara bağlanana dek.
 
 ### 5.13 API anahtarları, webhook'lar, aktörler
 

@@ -74,11 +74,12 @@ var membersDone = map[string]string{
 }
 
 var membersProblem = map[string]string{
-	"last-owner": "A business always keeps at least one active owner, so that was not changed. Make someone else an owner first.",
-	"self":       "You cannot disable or enable yourself. To stop being an owner, step down to manager once someone else is an owner.",
-	"unchanged":  "That person already was that, so nothing was changed. Reload the page to see the current list.",
-	"unknown":    "That person is not part of this business, so nothing was changed.",
-	"confirm":    "Tick the box to confirm you are stepping down, then press the button again.",
+	"last-owner":    "A business always keeps at least one active owner, so that was not changed. Make someone else an owner first.",
+	"self":          "You cannot disable or enable yourself. To stop being an owner, step down to manager once someone else is an owner.",
+	"unchanged":     "That person already was that, so nothing was changed. Reload the page to see the current list.",
+	"unknown":       "That person is not part of this business, so nothing was changed.",
+	"confirm":       "Tick the box to confirm you are stepping down, then press the button again.",
+	"confirm-owner": "Tick the box to confirm you are making that person an owner, then press the button again.",
 }
 
 // membersRedirect is the managers page with one of the two closed vocabularies' words.
@@ -112,6 +113,12 @@ func (a *AdminAuth) membersChange(act adminauth.MembershipAct) http.HandlerFunc 
 		// tick, so a stray tap does not end someone's ownership.
 		if act == adminauth.MemberMakeManager && self && r.PostFormValue("confirm") != "yes" {
 			a.redirect(w, membersRedirect("problem", "confirm"))
+			return
+		}
+		// Making someone an owner hands them the whole business in one press -- the same tick (the
+		// third eye's DÜŞÜK, 2026-10-27).
+		if act == adminauth.MemberMakeOwner && r.PostFormValue("confirm") != "yes" {
+			a.redirect(w, membersRedirect("problem", "confirm-owner"))
 			return
 		}
 		ch, err := a.memberships.Change(r.Context(), id.TenantID(), actor, memberID, act)
@@ -167,6 +174,7 @@ func (a *AdminAuth) membersView(r *http.Request, id httpx.AdminIdentity, v *page
 	v.MembersShown = true
 	v.DisableHref, v.EnableHref = membersDisableHref, membersEnableHref
 	v.MakeOwnerHref, v.MakeManagerHref = membersMakeOwnerHref, membersMakeManagerHref
+	v.APIKeysHref = apiKeysHref
 	if a.memberships == nil {
 		v.MembersFailed = true
 		return
@@ -206,6 +214,9 @@ func (a *AdminAuth) membersView(r *http.Request, id httpx.AdminIdentity, v *page
 		default:
 			row.CanEnable = true
 		}
+		// An owner's integration keys outlive their ownership (backlog T150, ADR 0031 §5.13): until T150
+		// is decided, every press that disables or demotes an owner says so beside it.
+		row.KeysNote = m.Owner() && (row.CanDisable || row.CanMakeManager || row.CanStepDown)
 		v.Members = append(v.Members, row)
 	}
 }

@@ -86,3 +86,20 @@ func TestAdminMembers_SteppingDownNeedsTheTick(t *testing.T) {
 		t.Fatalf("another owner made manager: %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 }
+
+// TestAdminMembers_MakingAnOwnerNeedsTheTick: "Make owner" hands over the whole business, so it asks
+// for the same tick as a step-down; without confirm=yes the service is not asked. MUTATION
+// (measured): the make-owner confirm check removed -> red.
+func TestAdminMembers_MakingAnOwnerNeedsTheTick(t *testing.T) {
+	ms := &countingMemberships{}
+	b := membersBrowser(t, newFakeScribe(), ms)
+	member := uuid.NewString()
+	rec := b.do(http.MethodPost, membersMakeOwnerHref, url.Values{"member_id": {member}})
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != managersHref+"?problem=confirm-owner" || len(ms.changes) != 0 {
+		t.Fatalf("an unticked make-owner: %d %q, %d change(s)", rec.Code, rec.Header().Get("Location"), len(ms.changes))
+	}
+	rec = b.do(http.MethodPost, membersMakeOwnerHref, url.Values{"member_id": {member}, "confirm": {"yes"}})
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != managersHref+"?done=made-owner" || len(ms.changes) != 1 {
+		t.Fatalf("a ticked make-owner: %d %q, %d change(s)", rec.Code, rec.Header().Get("Location"), len(ms.changes))
+	}
+}

@@ -1380,5 +1380,11 @@ farkıyla taşındı; taban kaymasının değiştirdiği sayılar ve yerler ADR 
     ana grupta, davet gibi. Dördü de `mountGated(SurfaceMembershipManagement)` ile. Liste **bayrak `off`
     iken on bir, `on` iken on beş rotadır**; `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException`
     ve `cmd/tappa`'nın `TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses`'ı aynı commit'te güncellendi.
+    **Kabul edilen risk, adıyla (M14-16 güvenlik denetimi, DÜŞÜK, 2026-10-27):** askıda (ör.
+    `security_hold`) ele geçirilmiş bir owner öbür owner'ı devre dışı bırakabilir ya da manager yapabilir;
+    üçüncü bir owner onu askı kalkana dek geri **etkinleştiremez** ya da owner yapamaz, çünkü genişleten
+    iki basış askı halkalı gruptadır. Sınırı son-owner değişmezidir (işletme en az bir aktif owner'la
+    kalır) ve simetriktir: aynı daraltma meşru owner'ın da elindedir. Kod değişikliği yok; askı
+    kaldırılınca geri alma bugünkü panel basışıdır.
 - **Operatör değişmez** (K-12, ADR 0031 §5.12): ileride gelecek `op_disable_tenant_admins` (§7) yalnız
   üyelik `status`'una dokunabilir, kimliğe asla.

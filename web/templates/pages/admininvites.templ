@@ -121,10 +121,24 @@ templ managersMembers(v ManagersView) {
 								<span class="mono-pill border-line">{ row.Status }</span>
 							</p>
 							<p class="break-all font-mono text-xs text-ink/70">{ row.Email }</p>
+							if row.KeysNote {
+								<p class="max-w-xl text-xs leading-normal text-ink/70">
+									Disabling or demoting this owner does not stop the API keys they created: those keep
+									working.
+									<a class="hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.SafeURL(v.APIKeysHref) }>Review the API keys</a>.
+								</p>
+							}
 						</div>
 						<div class="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:justify-end">
 							if row.CanMakeOwner {
-								@memberPress(v.MakeOwnerHref, row.ID, false, "Make owner", row.Name)
+								<form method="post" action={ templ.URL(components.Bound(ctx, v.MakeOwnerHref)) } class="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+									<input type="hidden" name="member_id" value={ row.ID }/>
+									<label class="flex min-h-11 items-center gap-2 text-sm text-ink">
+										<input type="checkbox" name="confirm" value="yes" required class="min-h-11 w-11 accent-tappa-green"/>
+										Yes, they can run everything
+									</label>
+									<button class="btn btn--line w-full md:w-auto" type="submit">Make owner<span class="sr-only">{ " — " + row.Name }</span></button>
+								</form>
 							}
 							if row.CanMakeManager {
 								@memberPress(v.MakeManagerHref, row.ID, false, "Make manager", row.Name)

@@ -35,6 +35,8 @@ type ManagersView struct {
 	OnlyOwner                      bool
 	DisableHref, EnableHref        string
 	MakeOwnerHref, MakeManagerHref string
+	// APIKeysHref is the API Keys section, linked from KeysNote.
+	APIKeysHref string
 }
 
 // ManagerMemberRow is one membership of the business. The Can* fields draw the presses the service
@@ -48,6 +50,9 @@ type ManagerMemberRow struct {
 	// Self: this row is the reader's own membership.
 	Self                                                             bool
 	CanDisable, CanEnable, CanMakeOwner, CanMakeManager, CanStepDown bool
+	// KeysNote: the row is an owner a press here would disable or demote -- the page says that the API
+	// keys this person created keep working (backlog T150).
+	KeysNote bool
 }
 
 // ManagerInviteRow is one invitation on the list.

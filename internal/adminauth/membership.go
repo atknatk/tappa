@@ -45,6 +45,14 @@ import (
 // identity_switch_session, identity_memberships, resolve_admin_by_email), and the sessions it had were
 // revoked by the unlink. internal/db's TestAdminMembers_EnablingARefusedRowGivesNoSession holds it.
 //
+// ⚠️ THE NAMED RESIDUE THAT FOLLOWS FROM IT (R16; accepted for M14-16 by the user, 2026-10-27, a
+// follow-up card in the backlog): for the same reason the invariant counts a refused OWNER row as an
+// active owner. Before contract B such a row needs no press at all -- the unlink leaves it 'active',
+// so it already shows as "Owner · Active" and counts; after contract B it counts once an owner
+// enables it. Either way an owner who steps down beside it can leave the business with no owner who
+// can sign in, and there is NO in-product way back: only an owner can invite or promote, and none can
+// sign in. The way back is database or operator intervention.
+//
 // NOTHING HERE TOUCHES AN IDENTITY: no statement names identity_id or an identity table, and the
 // session revocation is the row's own in this business (RevokeAdminSessionsForAdmin) -- not
 // identity_revoke_sessions, which would sign the person out of every business.
@@ -225,8 +233,11 @@ func (s *Memberships) Change(ctx context.Context, tenantID, actorID, memberID uu
 				return unchanged(err)
 			}
 			// The row's own sessions in THIS business -- not the person's other businesses (K-6).
-			// TouchAdminSession already refuses a disabled row; the revocation is what keeps an
-			// enable from bringing an old cookie back.
+			// TouchAdminSession refuses a disabled row from now on. This revocation does NOT see a
+			// session another transaction is committing at this moment: identity_open_session and
+			// identity_switch_session read the row without a lock and insert the session, so one that
+			// read the row before this commit can land a live session on the disabled row (measured).
+			// The ENABLE below revokes again, which is what keeps such a session from coming back.
 			revoked, err := q.RevokeAdminSessionsForAdmin(ctx, store.RevokeAdminSessionsForAdminParams{TenantID: tenantID, AdminUserID: memberID})
 			if err != nil {
 				return err
@@ -237,7 +248,17 @@ func (s *Memberships) Change(ctx context.Context, tenantID, actorID, memberID uu
 			if _, err := q.SetAdminMemberStatus(ctx, store.SetAdminMemberStatusParams{Status: memberStatusActive, TenantID: tenantID, ID: memberID}); err != nil {
 				return unchanged(err)
 			}
-			ev.Action, ev.Detail = ActionMembershipEnabled, membershipDetail{Outcome: "ok"}
+			// 🔴 EVERY SESSION THE ROW HOLDS WHILE DISABLED IS REVOKED HERE, in the transaction that
+			// re-enables it (it holds the row's lock). A session of a disabled row is never usable
+			// (TouchAdminSession), so nothing legitimate is lost; without this, a session that landed
+			// beside the disable (see the disable's comment) would become usable again now. The person
+			// signs in afresh.
+			revoked, err := q.RevokeAdminSessionsForAdmin(ctx, store.RevokeAdminSessionsForAdminParams{TenantID: tenantID, AdminUserID: memberID})
+			if err != nil {
+				return err
+			}
+			out.RevokedSessions = len(revoked)
+			ev.Action, ev.Detail = ActionMembershipEnabled, membershipDetail{Outcome: "ok", RevokedSessions: len(revoked)}
 		case MemberMakeOwner:
 			if _, err := q.SetAdminMemberRole(ctx, store.SetAdminMemberRoleParams{Role: memberRoleOwner, TenantID: tenantID, ID: memberID}); err != nil {
 				return unchanged(err)
