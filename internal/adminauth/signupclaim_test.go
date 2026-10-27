@@ -24,8 +24,9 @@ import (
 
 // TestSignupClaimProof_HasItsProducersAndOneConsumer is the S12 guarantee read from the source, named like
 // TestVerifiedIdentity_HasOneProducerAndOneConsumer: a ClaimProof literal with fields exists only in
-// ProveWithPassword (after the comparison returned true) and ProveWithSession (with a session cookie's
-// hash), and db.ClaimSignup -- identity_claim_signup's one caller -- is reached from ClaimProof.Claim alone.
+// ProveWithPassword (after the comparison returned true), ProveWithSession (with a session cookie's
+// hash) and ProveWithIdentityPassword (M14-17b, after ITS comparison returned true), and db.ClaimSignup --
+// identity_claim_signup's one caller -- is reached from ClaimProof.Claim alone.
 func TestSignupClaimProof_HasItsProducersAndOneConsumer(t *testing.T) {
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, ".", func(fi fs.FileInfo) bool { return !strings.HasSuffix(fi.Name(), "_test.go") }, 0)
@@ -33,7 +34,7 @@ func TestSignupClaimProof_HasItsProducersAndOneConsumer(t *testing.T) {
 		t.Fatal(err)
 	}
 	var producers, consumers []string
-	comparedFirst := false
+	compared := map[string]bool{}
 	for _, pkg := range pkgs {
 		for _, f := range pkg.Files {
 			for _, decl := range f.Decls {
@@ -51,8 +52,8 @@ func TestSignupClaimProof_HasItsProducersAndOneConsumer(t *testing.T) {
 						if x.Sel.Name == "ClaimSignup" {
 							consumers = append(consumers, fn.Name.Name)
 						}
-						if fn.Name.Name == "ProveWithPassword" && x.Sel.Name == "compare" {
-							comparedFirst = true
+						if x.Sel.Name == "compare" {
+							compared[fn.Name.Name] = true
 						}
 					}
 					return true
@@ -61,14 +62,16 @@ func TestSignupClaimProof_HasItsProducersAndOneConsumer(t *testing.T) {
 		}
 	}
 	slices.Sort(producers)
-	if !slices.Equal(producers, []string{"ProveWithPassword", "ProveWithSession"}) {
-		t.Errorf("ClaimProof is built in %v; want exactly ProveWithPassword and ProveWithSession", producers)
+	if !slices.Equal(producers, []string{"ProveWithIdentityPassword", "ProveWithPassword", "ProveWithSession"}) {
+		t.Errorf("ClaimProof is built in %v; want exactly ProveWithIdentityPassword, ProveWithPassword and ProveWithSession", producers)
 	}
 	if !slices.Equal(consumers, []string{"Claim"}) {
 		t.Errorf("db.ClaimSignup is reached from %v; want exactly ClaimProof.Claim", consumers)
 	}
-	if !comparedFirst {
-		t.Error("ProveWithPassword no longer compares the password")
+	for _, fn := range []string{"ProveWithPassword", "ProveWithIdentityPassword"} {
+		if !compared[fn] {
+			t.Errorf("%s no longer compares the password", fn)
+		}
 	}
 }
 
@@ -140,16 +143,22 @@ func TestClaimSignup_HasNoCallerOutsideTheProof(t *testing.T) {
 
 // fakeClaimDB is SignupClaimDatabase in memory.
 type fakeClaimDB struct {
-	known  map[string]bool
-	digest string
-	stored map[string]db.ResolvedSignupClaim
-	opens  int
+	known map[string]bool
+	// signInless: known addresses whose identity has NO active membership, with the identity's digest.
+	signInless map[string]string
+	digest     string
+	stored     map[string]db.ResolvedSignupClaim
+	opens      int
 }
 
 func (f *fakeClaimDB) ResolveIdentityByEmail(_ context.Context, email string) (db.ResolvedIdentity, error) {
 	if f.known[strings.ToLower(email)] {
 		// The REGISTERED spelling is the lower-case one here; the caller may have typed another.
-		return db.ResolvedIdentity{ID: uuid.New(), Email: strings.ToLower(email)}, nil
+		if d, ok := f.signInless[strings.ToLower(email)]; ok {
+			return db.ResolvedIdentity{ID: uuid.New(), Email: strings.ToLower(email), PasswordHash: db.NewPasswordHash(d)}, nil
+		}
+		return db.ResolvedIdentity{ID: uuid.New(), Email: strings.ToLower(email), PasswordHash: db.NewPasswordHash("$2a$04$" + strings.Repeat("m", 53)),
+			HasActiveMembership: true}, nil
 	}
 	return db.ResolvedIdentity{}, pgx.ErrNoRows
 }
@@ -216,10 +225,13 @@ func TestSignupClaims_OpenHashesAtTheShippedCost(t *testing.T) {
 }
 
 // TestSignupClaims_OpenDoesTheSameWorkForEveryAddress (R18): a new and a known address each cost ONE
-// resolver read and ONE open; only KnownAddress (the letter's choice) differs; and the session proof is the
-// panel's own hash of the cookie (not the claim key's).
+// resolver read and ONE open; only KnownAddress (the letter's choice) differs -- and a known address whose
+// identity has no active membership (M14-17b) gets the known address's grant exactly (the letter is not
+// chosen by the businesses); and the session proof is the panel's own hash of the cookie (not the claim
+// key's).
 func TestSignupClaims_OpenDoesTheSameWorkForEveryAddress(t *testing.T) {
-	data := &fakeClaimDB{known: map[string]bool{"known@example.mt": true}, stored: map[string]db.ResolvedSignupClaim{}}
+	data := &fakeClaimDB{known: map[string]bool{"known@example.mt": true, "lapsed@example.mt": true},
+		signInless: map[string]string{"lapsed@example.mt": "$2a$04$" + strings.Repeat("l", 53)}, stored: map[string]db.ResolvedSignupClaim{}}
 	s := newTestSignupClaims(t, data)
 	s.digest = func(string) (string, error) { return "$2a$04$" + strings.Repeat("x", 53), nil }
 	gn, err := s.Open(context.Background(), "new@example.mt", "pw", []byte(`{}`))
@@ -230,8 +242,12 @@ func TestSignupClaims_OpenDoesTheSameWorkForEveryAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if data.opens != 2 || gn.KnownAddress || !gk.KnownAddress {
-		t.Fatalf("opens %d, known flags %v/%v", data.opens, gn.KnownAddress, gk.KnownAddress)
+	gl, err := s.Open(context.Background(), "Lapsed@example.mt", "pw", []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.opens != 3 || gn.KnownAddress || !gk.KnownAddress || !gl.KnownAddress {
+		t.Fatalf("opens %d, known flags %v/%v/%v", data.opens, gn.KnownAddress, gk.KnownAddress, gl.KnownAddress)
 	}
 	link := gk.Link("")
 	c, err := s.Resolve(context.Background(), ParseSignupClaimToken(strings.TrimPrefix(link, "?t=")))
@@ -275,4 +291,71 @@ func TestSignupClaims_AKnownAddressIsWrittenToAtItsRegisteredSpelling(t *testing
 	if gn.Recipient != "New@Example.MT" {
 		t.Errorf("a new address's letter goes to %q, want the typed address", gn.Recipient)
 	}
+}
+
+// TestSignupClaims_ASignInlessIdentityProvesWithItsOwnPassword (M14-17b, the user's decision of 2026-10-27):
+// Resolve marks a known address whose identity has NO active membership (IdentityPassword) and keeps the
+// identity's digest; ProveWithIdentityPassword compares the re-entered password with THAT digest -- the
+// draft's own password proves nothing there -- and the proof carries the digest for identity_claim_signup
+// to re-check under the person's lock. A known address that CAN sign in is not marked and no password
+// proves it (its proof is the session); neither does a new address's.
+//
+// MUTATION (measured): Resolve keeping the digest for every known address (the HasActiveMembership test
+// removed) -> "a known address that can sign in" red; ProveWithIdentityPassword comparing the draft's
+// digest -> "the draft's password" red.
+func TestSignupClaims_ASignInlessIdentityProvesWithItsOwnPassword(t *testing.T) {
+	identityDigest := "$2a$04$" + strings.Repeat("i", 53)
+	data := &fakeClaimDB{known: map[string]bool{"lapsed@example.mt": true, "active@example.mt": true},
+		signInless: map[string]string{"lapsed@example.mt": identityDigest}, stored: map[string]db.ResolvedSignupClaim{}}
+	s := newTestSignupClaims(t, data)
+	s.digest = func(string) (string, error) { return "$2a$04$" + strings.Repeat("d", 53), nil }
+	s.compare = func(d, p string) bool {
+		return (d == identityDigest && p == "the identity's password") || (d == "$2a$04$"+strings.Repeat("d", 53) && p == "the draft's password")
+	}
+	resolve := func(email string) SignupClaim {
+		t.Helper()
+		g, err := s.Open(context.Background(), email, "the draft's password", []byte(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, err := s.Resolve(context.Background(), ParseSignupClaimToken(strings.TrimPrefix(g.Link(""), "?t=")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	lapsed := resolve("Lapsed@example.mt")
+	if !lapsed.KnownAddress || !lapsed.IdentityPassword {
+		t.Fatalf("a sign-in with no active membership: known %v, identity password %v; want both", lapsed.KnownAddress, lapsed.IdentityPassword)
+	}
+	if _, ok := s.ProveWithIdentityPassword(lapsed, "the draft's password"); ok {
+		t.Error("the draft's password proved a sign-in's draft")
+	}
+	if _, ok := s.ProveWithIdentityPassword(lapsed, "not it"); ok {
+		t.Error("a wrong password proved the draft")
+	}
+	p, ok := s.ProveWithIdentityPassword(lapsed, "the identity's password")
+	if !ok || p.hash == "" || p.session != nil || p.verified.RevealForPasswordComparison() != identityDigest {
+		t.Fatal("the identity's password did not prove the draft, or the proof does not carry the identity's digest")
+	}
+	t.Run("a known address that can sign in", func(t *testing.T) {
+		active := resolve("active@example.mt")
+		if !active.KnownAddress || active.IdentityPassword {
+			t.Fatalf("known %v, identity password %v; want known only", active.KnownAddress, active.IdentityPassword)
+		}
+		for _, pw := range []string{"the identity's password", "the draft's password"} {
+			if _, ok := s.ProveWithIdentityPassword(active, pw); ok {
+				t.Errorf("%q proved a sign-in that can sign in -- its proof is its session", pw)
+			}
+		}
+	})
+	t.Run("a new address", func(t *testing.T) {
+		fresh := resolve("new@example.mt")
+		if fresh.KnownAddress || fresh.IdentityPassword {
+			t.Fatal("a new address reads as known")
+		}
+		if _, ok := s.ProveWithIdentityPassword(fresh, "the draft's password"); ok {
+			t.Error("the identity-password proof proved a new address")
+		}
+	})
 }

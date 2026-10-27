@@ -490,8 +490,9 @@ var identityAdminIdentitiesNonWriters = map[string]bool{
 // 00076's rule as a refusal: the registration's dual-write (00076) and, from M14-15 (00077), the
 // invitation's acceptance with a new password.
 var identityAddressRuleWriters = []string{"identity_create_for_signup(uuid,uuid)", "identity_accept_invite_new(text,text)",
-	// M14-17 (00078): a new address's identity is born in the registration's confirmation.
-	"identity_claim_signup(text,uuid,text)"}
+	// M14-17 (00078): a new address's identity is born in the registration's confirmation (00080, M14-17b:
+	// its fourth argument; the rule is 00078's, byte for byte).
+	"identity_claim_signup(text,uuid,text,text)"}
 
 // iaStripComments removes SQL / PL/pgSQL comments (-- to the end of the line, /* ... */, nested)
 // outside single-quoted literals, double-quoted identifiers and dollar-quoted strings, so a pattern

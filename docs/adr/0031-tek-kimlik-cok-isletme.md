@@ -304,7 +304,7 @@ tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi taşır (
 | `identity_accept_invite(p_invite_hash, p_session_hash)` | davet token'ı + canlı oturum | `identity.email = invite.email` (`OPERATOR(public.=)`) değilse 0 satır (iletilmiş link, bulgu 12). Üyelik doğar (`linked_via='invite'`, digest kopyası); **yeni oturum vermez**. Tıklama, aynı e-postalı kimliğin canlı oturumuyla yapıldığı için **posta kutusu kanıtıdır**: `email_verified_at` doluysa dokunulmaz, boşsa doldurulur ve onay penceresi açılır (orkestratör kararı, §13 K-7) |
 | `identity_accept_invite_new(p_invite_hash, p_new_hash)` | davet token'ı | Adreste kimlik yoksa: yeni kimlik (`email_verified_at` = tıklama) + üyelik; **oturum vermez** (ADR 0015 §1 deseni). Adreste kimlik varsa 0 satır. Kimlik INSERT'i `identity_create_for_signup` ile aynı e-posta kilidini alır ve `ON CONFLICT (email) DO NOTHING` (eşzamanlı davet kabulü + kayıt onayı → 500 yok, S13) |
 | `identity_open_signup_claim(p_token_hash, p_email, p_draft jsonb, p_password_hash, p_expires_at)` | ⚠️ **sır değil — yazar ama kimlik yazmaz** (S11) | Yalnız `admin_signup_claims`'e bir taslak satırı; başka hiçbir tabloya dokunmaz. Anahtar, çağıranın o anda ürettiği yeni token + e-posta; sınır `signupCreateLimit` + alıcı başına üst sınır. `p_draft` kapalı anahtarlı (ad, VAT, işletme adı, lokasyonlar; 2026-10-26 kullanıcı kararıyla + `business_type`, `structure`, `vat_check`); doğrulayıcı uygulamadadır |
-| `identity_claim_signup(p_claim_hash, p_tenant_id, p_session_hash NULL)` | kayıt token'ı (+ var olan kimlikte canlı oturum) | M14-17 (§5.10). **Tenant'ı uygulama yaratır** (bugünkü `Provision`, `WithTenant`); definer talebi tüketir ve kimliği + owner satırını yazar (`linked_via='claim'`, S7). **Yapısal yüklemler (S2, T7) — biri tutmazsa 0 satır:** tenant'ın hiç `admin_users` satırı yok (**asıl güvence**), `tenants.created_at = now()` (transaction başlangıcı; alt transaction'dan etkilenmez; `created_at` uygulamaya yazılamaz — `00016:84-88`'in INSERT/UPDATE sütun listelerinde yok), ek olarak `tenants.xmin = pg_current_xact_id()::xid` (denetçinin PostgreSQL 17.10 ölçümü: üst düzey transaction'da doğru, SAVEPOINT altında yanlış — kayıt üst düzey `WithTenant` kullanır, `signup.go:689`, SAVEPOINT'li `WithTenantIn` değil, `internal/db/tenant.go:115-119`; `GRANT SELECT (xmin)` mümkün), `p_tenant_id = current_setting('app.tenant_id')`, tenant'ın VAT'ı ve adı talebin taslağına eşit. Var olan kimlikte `identity.email = claim.email` (R18). Yeni adreste kimlik talebin saklı digest'ini alır; **parola karşılaştırması uygulamadadır** — çözümleyici talebin digest'ini yalnız talep sırrıyla döndürür, uygulama yeniden girilen parolayı onunla karşılaştırır ve fonksiyonu yalnız eşleşmede çağırır (Go tipiyle bağlı güvence, `identity_open_session` gibi — S12). Kimlik INSERT'i e-posta kilidi + `ON CONFLICT DO NOTHING` (S13) |
+| `identity_claim_signup(p_claim_hash, p_tenant_id, p_session_hash NULL, p_verified_digest NULL)` | kayıt token'ı (+ var olan kimlikte canlı oturum; **aktif üyeliği olmayan** var olan kimlikte doğrulanmış digest — M14-17b) | M14-17 (§5.10). **Tenant'ı uygulama yaratır** (bugünkü `Provision`, `WithTenant`); definer talebi tüketir ve kimliği + owner satırını yazar (`linked_via='claim'`, S7). **Yapısal yüklemler (S2, T7) — biri tutmazsa 0 satır:** tenant'ın hiç `admin_users` satırı yok (**asıl güvence**), `tenants.created_at = now()` (transaction başlangıcı; alt transaction'dan etkilenmez; `created_at` uygulamaya yazılamaz — `00016:84-88`'in INSERT/UPDATE sütun listelerinde yok), ek olarak `tenants.xmin = pg_current_xact_id()::xid` (denetçinin PostgreSQL 17.10 ölçümü: üst düzey transaction'da doğru, SAVEPOINT altında yanlış — kayıt üst düzey `WithTenant` kullanır, `signup.go:689`, SAVEPOINT'li `WithTenantIn` değil, `internal/db/tenant.go:115-119`; `GRANT SELECT (xmin)` mümkün), `p_tenant_id = current_setting('app.tenant_id')`, tenant'ın VAT'ı ve adı talebin taslağına eşit. Var olan kimlikte `identity.email = claim.email` (R18). Yeni adreste kimlik talebin saklı digest'ini alır; **parola karşılaştırması uygulamadadır** — çözümleyici talebin digest'ini yalnız talep sırrıyla döndürür, uygulama yeniden girilen parolayı onunla karşılaştırır ve fonksiyonu yalnız eşleşmede çağırır (Go tipiyle bağlı güvence, `identity_open_session` gibi — S12). Kimlik INSERT'i e-posta kilidi + `ON CONFLICT DO NOTHING` (S13). **M14-17b (2026-10-27 kullanıcı kararı, `00080`):** dördüncü argüman `p_verified_digest` — aktif üyeliği olmayan var olan kimliğin parola kanıtı (aşağıdaki M14-17b notu); oturum **ve** digest birlikte → 0 satır |
 | `identity_sweep_signup_claims()` / `identity_sweep_events()` | ⚠️ **sır değil — sabit periyotlu silme** (S11) | Süresi dolmuş taleplerin ve 90 günü geçmiş olayların tek silme yolu (R17); parametresiz, yalnız süreye göre |
 
 **M14-04 uygulama notları (2026-10-22; iki denetimin kabul ettiği kart dışı kararlar):**
@@ -339,6 +339,47 @@ yazdırılabilir ASCII olmayan bir adresi reddeder. Matris eki: `admin_signup_cl
 `draft`, `password_hash`, `expires_at`), UPDATE (`used_at`), DELETE (yalnız `identity_sweep_signup_claims`);
 `admin_users` INSERT (matrisin hücresinin tamamı); `tenants` SELECT (`vat_number`) ve `xmin`;
 `tappa_resolver`: `admin_signup_claims` SELECT (anahtar + döndürdüğü altı sütun).
+
+**M14-17b notu (2026-10-27 kullanıcı kararı — "parola kanıtıyla sahiplenme", seçenek (A) "Dördüncü
+parametre"; uygulama `00080`, backlog T168):** bütün üyelikleri devre dışı olan bir kimlik yeni işletme
+kaydedemiyordu: kayıt bilinen adresi var olan kimlik koluna yönlendirir, o kol kimliğin canlı oturumunu
+ister, aktif üyelik olmadığı için giriş mümkün değildir; yeni adres kolu ise `ON CONFLICT` ile 0 satırdır.
+`identity_claim_signup` bu yüzden **aynı adla, dördüncü argümanla** yeniden tanımlanır:
+`(p_claim_hash text, p_tenant_id uuid, p_session_hash text DEFAULT NULL, p_verified_digest text DEFAULT
+NULL)` → `TABLE(admin_user_id uuid)`. İmza değiştiği için `DROP` + `CREATE`; sahip, `SECURITY DEFINER`,
+`SET search_path`, `REVOKE ALL … FROM PUBLIC`, `GRANT EXECUTE … TO tappa_app` yeniden yazılır (T5). Eski
+binary'nin üç argümanlı çağrısı `DEFAULT` sayesinde yeni fonksiyona çözülür (expand,
+`TestIdentityClaimSignup00080_TheOldBinarysCallStillClaims`); Down 00078'in tanımını ve ACL'ini bayt bayt
+geri koyar (`TestIdentity00080_DownGivesBack00078sDefinitionByteForByte`). Gövde 00078'inkidir, iki ekle
+(`TestIdentity00080_TheBodyIs00078sPlusThePasswordBranch`):
+- **Tek kanıt:** oturum **ve** digest birlikte gelirse 0 satır.
+- **Parola kolu** (`p_session_hash IS NULL AND p_verified_digest IS NOT NULL`): **karşılaştırma uygulamadadır** —
+  `resolve_identity_by_email`'in döndürdüğü digest (yeni çözümleyici yok) ile yeniden girilen parola;
+  Go'da tek üreticisi `adminauth.ProveWithIdentityPassword` olan `ClaimProof` o digest'i taşır (S12, yeni
+  adres kolunun ve `identity_open_session`'ın güvencesiyle aynı tür). Definer (1) kimliği **talebin
+  adresiyle** bulur (talebi kayıt sırrı buldu; R18 yapı gereği tutar), adresin ad alanlı kilidi altında
+  (00074'ün anahtarı — S13); (2) kimliği `FOR UPDATE` ile yalnız `password_hash = p_verified_digest`
+  **iken** kilitler — araya giren bir sıfırlama ya da parola değişimi READ COMMITTED'da yeniden
+  değerlendirilir ve 0 satır olur (2026-10-23 kararının bu yoldaki karşılığı); (3) aynı kilit altında
+  **aktif üyelik yok** şartını arar (`status = 'active' AND unlinked_at IS NULL`, `has_active_membership`'in
+  yüklemi) — giriş yapabilen kişi canlı oturumla kanıtlar, parola tek başına oturum şartını **atlatamaz**;
+  (4) tıklama posta kutusu kanıtıdır: `email_verified_at` boşsa dolar, `first_verify` penceresi ve
+  `email_verified` olayı yazılır; owner satırı `linked_via='claim'`, kimliğin kayıtlı adresi ve digest'iyle
+  doğar. 6b (ASCII adres kuralı) her koldan önce aynen koşar; Kelvin işaretiyle citext'te katlanan bir
+  taslak adresi kimliği bulamaz.
+- **Yeni GRANT yok:** kol yalnız 00071/00072/00078'in verdiği hücreleri kullanır; matris değişmez.
+- **Kemerin dördüncü sınıfı** (`identityClaimAddressKeys`): bir `admin_identities` takma adı
+  `<alias>.email OPERATOR(public.=) X` ile — X yazarlarının hepsi kemerden geçmiş bir **değişken**, burada
+  kayıt token'ının bulduğu taslağın adresi — yalnız haritanın adlandırdığı fonksiyonda ve sayısıyla
+  anahtarlanır (`identity_claim_signup`: 1). "Aktif üyelik yok" okuması kimlikle sınırlı adlı geniş
+  okumadır (`identityTenantWideReads`: 1).
+- **R18 değişmez:** kayıt yanıtı, zamanlaması ve mektup seçimi yeni / üyelikli bilinen / üyeliksiz bilinen
+  adres için aynıdır; mektup yalnız "adreste kimlik var mı"ya göre seçilir, bilinen adresin tek mektubu
+  iki kanıtı da anlatır ve kayıtlı yazıma gider. Onay sayfası (yalnız talep sırrını tutan görür) "sign in"
+  ya da "Taptime parolanı yaz" der.
+- **Bayrak:** kayıt doğrulaması bayrakla kapılanmaz (§8); bu kol da kapılanmaz.
+- **§4.5 (3) metni değişmez:** kol kimliği kayıt token'ından bulur ve yazdığı her şey o token'ın
+  taslağına bağlıdır; adlandırılmış istisna sayısı üç kalır.
 
 **M14-14 notu (2026-10-26; kullanıcı onayı — AskUserQuestion, seçenek (A)):** `00075`,
 `resolve_identity_by_email` ve `identity_consume_reset`'i `DROP` + `CREATE` ile yeniden tanımlar; ikisinin de
@@ -536,7 +577,8 @@ kullanıcı onayı + ADR değişikliği ister. Kanonik biçim M14-04'te doğan *
 katalog testiyle birebir pinlenir. `tappa_identitydefiner`'ın **fiil × sütun matrisi** (özet; tam hâli
 M14-04'ün testinde): beş kimlik tablosunda gerektiği kadar — `admin_identities`: SELECT (`id`, `password_hash`,
 `last_used_tenant`), UPDATE (`last_used_tenant`, `last_login_at`) — M14-04; `password_hash` yalnız
-`identity_open_session`'ın kilit altındaki karşılaştırması için okunur, hiçbir fonksiyon döndürmez —
+`identity_open_session`'ın ve (M14-17b, 2026-10-27) `identity_claim_signup`'ın parola kolunun kilit altındaki
+karşılaştırması için okunur, hiçbir fonksiyon döndürmez —
 `identity_password_for_session` dışında, o da yalnız canlı oturumla (hesap sayfasının mevcut parola
 denetimi) (2026-10-23); INSERT (`email`, `password_hash`) — `identity_create_for_signup` (M14-08);
 `admin_identity_resets`: SELECT (`id`,
@@ -916,7 +958,14 @@ onay POST'tur:
 - **adreste kimlik varsa** → kişi **kendi parolasıyla** girer (canlı oturum) ve yeni işletmeyi sahiplenir;
   `identity.email = claim.email` değilse 0 satır (R18). Tıklama, aynı e-postalı kimliğin canlı
   oturumuyla yapıldığından **posta kutusu kanıtıdır** → `email_verified_at` boşsa doldurulur ve onay
-  penceresi açılır (orkestratör kararı, §13 K-9) — var olan müşterilere önce sıfırlama **dayatılmaz**.
+  penceresi açılır (orkestratör kararı, §13 K-9) — var olan müşterilere önce sıfırlama **dayatılmaz**;
+- **adreste kimlik var ama aktif üyeliği yoksa** (2026-10-27 kullanıcı kararı, M14-17b, `00080`) → kişi
+  giriş yapamaz; onay sayfası **kimliğin parolasını** ister, uygulama onu kimliğin digest'iyle
+  karşılaştırır ve `identity_claim_signup`'ı o digest'le çağırır; definer kişinin kilidi altında digest'in
+  hâlâ kimliğinki olduğunu ve aktif üyelik bulunmadığını yeniden denetler (§5.2 M14-17b notu). Tıklama yine
+  posta kutusu kanıtıdır (`email_verified_at`, `first_verify`). Aktif üyeliği olan kimlik bu yoldan 0
+  satırdır — onun kanıtı canlı oturumdur. Kayıt yanıtı, zamanlaması ve mektup seçimi üç durumda aynıdır
+  (R18); bilinen adresin tek mektubu iki kanıtı da anlatır.
 Oranlar: `signupCreateLimit` (adres başına) + **alıcı başına** üst sınır (EM-7C'nin `(mailbox)` kovası
 biçiminde) (bulgu 11, 32). `signInBlocked` kimlik yolunda emekli.
 
@@ -1027,7 +1076,10 @@ id'sini görmez.
 
 Yeni ya da değişen şablonlar, hepsi ADR 0022 §4 (sabit ASCII konu, alıcı kuralı), §3 (sızıntı), §9
 (oranlar) ve EM-7C sınırlarıyla: **yönetici daveti** · **kayıt doğrulaması** (yeni adres) · **var olan
-adresle kayıt** ("bu adresle bir işletme kaydı başlatıldı — sizseniz giriş yapıp sahiplenin") ·
+adresle kayıt** ("bu adresle bir işletme kaydı başlatıldı — sizseniz giriş yapıp sahiplenin"; 2026-10-27
+kullanıcı kararı, M14-17b: aynı tek mektup aktif üyeliği olmayan kimliğe de gider ve iki kanıtı birlikte
+anlatır — aynı tarayıcıda giriş ya da linkin açtığı sayfada parolayı yazmak; R18, mektup üyeliğe göre
+seçilmez) ·
 **e-posta doğrulaması** (var olan kimlik) · **kimlik başına sıfırlama** · **kişi başına "parolanız
 değişti"** (EM-9; bütün işletmelerde bir kez).
 

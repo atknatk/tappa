@@ -30,10 +30,16 @@ import (
 //   - AN EXISTING IDENTITY: the person signs in with their own password and confirms from that browser;
 //     ProveWithSession hashes that browser's panel session cookie, and identity_claim_signup accepts it
 //     only when the session's identity carries the draft's address (R18).
+//   - AN EXISTING IDENTITY WITH NO ACTIVE MEMBERSHIP (M14-17b, the user's decision of 2026-10-27; 00080):
+//     it cannot sign in, so the confirmation page asks for the IDENTITY'S password and
+//     ProveWithIdentityPassword compares it with the digest resolve_identity_by_email returned (Resolve
+//     keeps it only for such an identity). Only a match yields a proof, and the proof carries that very
+//     digest: identity_claim_signup claims only while it is still the identity's digest, under the
+//     person's lock, and only while the identity has no active membership (identity_open_session's rule).
 //
 // 🔴 ClaimProof IS THE GO-TYPE-BOUND GUARANTEE, NAMED LIKE identity_open_session's verifiedIdentity: its
-// fields are unexported, so no other package can build one; its producers are ProveWithPassword and
-// ProveWithSession alone and its one consumer of db.ClaimSignup is ClaimProof.Claim
+// fields are unexported, so no other package can build one; its producers are ProveWithPassword,
+// ProveWithSession and ProveWithIdentityPassword alone and its one consumer of db.ClaimSignup is ClaimProof.Claim
 // (TestSignupClaimProof_HasItsProducersAndOneConsumer reads the source; TestClaimSignup_HasNoCallerOutsideTheProof
 // reads the tree). The zero value claims nothing.
 //
@@ -179,6 +185,9 @@ func (s *SignupClaims) identityOf(ctx context.Context, email string) (db.Resolve
 type SignupClaim struct {
 	hash   string
 	digest db.PasswordHash
+	// identityDigest is the address's identity's digest -- set only when IdentityPassword (M14-17b); the
+	// zero value proves nothing (its "" matches no password).
+	identityDigest db.PasswordHash
 
 	ID        uuid.UUID
 	Email     string
@@ -188,6 +197,9 @@ type SignupClaim struct {
 	// KnownAddress: an identity carries Email now -- the existing identity's confirmation (sign in, then
 	// confirm) rather than the new address's (re-enter the password).
 	KnownAddress bool
+	// IdentityPassword (M14-17b): KnownAddress, and that identity has NO active membership -- it cannot
+	// sign in, so the confirmation asks for its password (ProveWithIdentityPassword) instead of a session.
+	IdentityPassword bool
 }
 
 // Live reports whether the draft can still be confirmed (identity_claim_signup checks it again).
@@ -210,23 +222,29 @@ func (s *SignupClaims) Resolve(ctx context.Context, t ResetToken) (SignupClaim, 
 	if err != nil {
 		return SignupClaim{}, fmt.Errorf("adminauth: resolve signup claim: %w", err)
 	}
-	_, known, err := s.identityOf(ctx, r.Email)
+	ident, known, err := s.identityOf(ctx, r.Email)
 	if err != nil {
 		return SignupClaim{}, fmt.Errorf("adminauth: resolve signup claim: %w", err)
 	}
-	return SignupClaim{hash: h, digest: r.PasswordHash, ID: r.ID, Email: r.Email, Draft: r.Draft,
-		ExpiresAt: r.ExpiresAt, UsedAt: r.UsedAt, KnownAddress: known}, nil
+	c := SignupClaim{hash: h, digest: r.PasswordHash, ID: r.ID, Email: r.Email, Draft: r.Draft,
+		ExpiresAt: r.ExpiresAt, UsedAt: r.UsedAt, KnownAddress: known}
+	if known && !ident.HasActiveMembership {
+		c.IdentityPassword, c.identityDigest = true, ident.PasswordHash
+	}
+	return c, nil
 }
 
 // Now is the flow's clock (the handler asks Live with it).
 func (s *SignupClaims) Now() time.Time { return s.now() }
 
 // ClaimProof is the ONLY way to identity_claim_signup (see this file's header): a draft's hash with
-// either a matched password (no session) or a panel session's hash. Its zero value claims nothing.
+// a matched password of the draft (nothing else), a panel session's hash, or the identity's digest a
+// matched password was compared with (verified). Its zero value claims nothing.
 type ClaimProof struct {
-	hash    string
-	session *string
-	draft   []byte
+	hash     string
+	session  *string
+	verified db.PasswordHash
+	draft    []byte
 }
 
 // Draft is the proven draft's JSON: the registration the caller creates the business from.
@@ -242,7 +260,7 @@ func (p ClaimProof) Claim(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (u
 	if p.hash == "" {
 		return uuid.Nil, errNoProof
 	}
-	return db.ClaimSignup(ctx, tx, p.hash, tenantID, p.session)
+	return db.ClaimSignup(ctx, tx, p.hash, tenantID, p.session, p.verified)
 }
 
 // ProveWithPassword is the new address's proof: the re-entered password against the draft's digest
@@ -264,6 +282,19 @@ func (s *SignupClaims) ProveWithSession(c SignupClaim, session Token) (ClaimProo
 		return ClaimProof{}, false
 	}
 	return ClaimProof{hash: c.hash, session: &h, draft: c.Draft}, true
+}
+
+// ProveWithIdentityPassword is the proof of an existing identity with NO active membership (M14-17b): the
+// re-entered password against the IDENTITY's digest -- the one resolve_identity_by_email returned to
+// Resolve (one bcrypt comparison, always paid). ok is false on a mismatch and for any other draft (its
+// identity digest is the zero value, which matches nothing). The proof carries that digest:
+// identity_claim_signup claims only while it is still the identity's, and only while the identity has no
+// active membership -- a person who can sign in proves themself with ProveWithSession.
+func (s *SignupClaims) ProveWithIdentityPassword(c SignupClaim, password string) (ClaimProof, bool) {
+	if !s.compare(c.identityDigest.RevealForPasswordComparison(), password) || c.hash == "" || !c.IdentityPassword {
+		return ClaimProof{}, false
+	}
+	return ClaimProof{hash: c.hash, verified: c.identityDigest, draft: c.Draft}, true
 }
 
 // Sweep deletes the expired and the used drafts (identity_sweep_signup_claims, R17).

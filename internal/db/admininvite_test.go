@@ -130,6 +130,8 @@ func TestAdminInvites00077_DownRefusesAnInvitationAndOtherwiseWalksBackAndUp(t *
 	// M14-17 (00078) shares the definer's admin_users INSERT (identity_claim_signup's owner row): 00077's
 	// Down takes it only while identity_claim_signup is absent. Both trees are walked: as the merged tree
 	// stands (the claim present -> the shared grant stays) and with the claim dropped first (-> it goes).
+	// 00080 (M14-17b) is walked back first: 00077's Down names 00078's three-argument signature.
+	icUndo00080(t, ctx, tx)
 	claimApplied := opInt(t, ctx, tx, `SELECT count(*) FROM pg_proc WHERE oid = to_regprocedure('public.identity_claim_signup(text,uuid,text)')`) == 1
 	for _, dropClaim := range []bool{false, true} {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {

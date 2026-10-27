@@ -68,7 +68,7 @@ func icCall(t *testing.T, ctx context.Context, q pgx.Tx, guc uuid.UUID, claim st
 	var admin uuid.UUID
 	err := aiApp(t, ctx, q, guc, func(sp pgx.Tx) error {
 		var e error
-		admin, e = ClaimSignup(ctx, sp, claim, tenant, session)
+		admin, e = ClaimSignup(ctx, sp, claim, tenant, session, PasswordHash{})
 		return e
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -194,7 +194,7 @@ func TestIdentityClaimSignup_EveryPredicateRefusesAlone(t *testing.T) {
 		guc      func(w world) uuid.UUID // nil: the business's own
 		cut, put string
 	}
-	const funcSig = "public.identity_claim_signup(text, uuid, text)"
+	const funcSig = "public.identity_claim_signup(text, uuid, text, text)"
 	cases := []refusal{
 		{name: "1: the business already has a membership row",
 			setup: func(sp pgx.Tx, w world) { aiAdmin(t, ctx, sp, w.b.tenant, aiEmail()) },
@@ -319,6 +319,24 @@ func TestIdentityClaimSignup_EveryPredicateRefusesAlone(t *testing.T) {
 	})
 }
 
+// ic00080File is M14-17b's migration: identity_claim_signup's fourth argument.
+const ic00080File = "00080_claim_a_signup_with_the_identity_password.sql"
+
+// icUndo00080 walks q (a transaction the test rolls back) back to 00078's identity_claim_signup when 00080
+// is applied -- an earlier migration's Down runs on the tree its own Up left, as goose orders them (00078's
+// and 00077's Downs name the three-argument function).
+func icUndo00080(t *testing.T, ctx context.Context, q pgx.Tx) {
+	t.Helper()
+	if opInt(t, ctx, q, `SELECT count(*) FROM pg_proc WHERE oid = to_regprocedure('public.identity_claim_signup(text,uuid,text,text)')`) == 0 {
+		return
+	}
+	_, down := opMigrationSections(t, ic00080File)
+	opRunSection(t, ctx, q, down, "00080 Down")
+	if opInt(t, ctx, q, `SELECT count(*) FROM pg_proc WHERE oid = to_regprocedure('public.identity_claim_signup(text,uuid,text)')`) != 1 {
+		t.Fatal("PREMISE: 00080's Down did not give 00078's identity_claim_signup back")
+	}
+}
+
 // icCommittedBusiness commits a business with no member on its own connection (an EXISTING tenant, from
 // before the test's transaction) and removes it when the test ends.
 func icCommittedBusiness(t *testing.T) icBusiness {
@@ -430,7 +448,7 @@ func TestIdentityClaimSignup_AnExistingIdentityClaimsOnlyWithItsOwnSession(t *te
 	t.Run("mutation: without the address equality another identity's session claims", func(t *testing.T) {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 			var def string
-			if err := sp.QueryRow(ctx, `SELECT pg_get_functiondef('public.identity_claim_signup(text, uuid, text)'::regprocedure)`).Scan(&def); err != nil {
+			if err := sp.QueryRow(ctx, `SELECT pg_get_functiondef('public.identity_claim_signup(text, uuid, text, text)'::regprocedure)`).Scan(&def); err != nil {
 				t.Fatal(err)
 			}
 			cut := "IF (FOUND AND v_id_email OPERATOR(public.=) v_email) IS NOT TRUE THEN"
@@ -694,6 +712,7 @@ func TestIdentityClaimSignup_AClaimRowIsOutOfFirstVerifyAndInReset(t *testing.T)
 // MUTATION (measured): the Down's guard removed (an unconditional REVOKE) -> STUB red.
 func TestIdentity00078_DownKeepsTheSharedGrant(t *testing.T) {
 	ctx, tx := opTx(t)
+	icUndo00080(t, ctx, tx)
 	_, down := opMigrationSections(t, "00078_verify_signups_by_e_mail.sql")
 	if tables := downTables(down); len(tables) > 0 {
 		lockForDowns(t, ctx, tx, tables)

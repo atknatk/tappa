@@ -170,6 +170,9 @@ type SignupConfirmView struct {
 	// wizard (R2); true asks the person to sign in with their existing sign-in in this
 	// browser and press the button (R18).
 	KnownAddress bool
+	// IdentityPassword (M14-17b): a known address whose sign-in has no active business left -- it
+	// cannot sign in, so the form asks for that sign-in's password instead (with KnownAddress true).
+	IdentityPassword bool
 	// SignInHref is the panel's sign-in page (the known address's first step).
 	SignInHref string
 	Errors     map[string]string

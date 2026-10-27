@@ -31,8 +31,10 @@ import (
 //	GET  /admin/signup/confirm?t=  the token into a short cookie, 303 to the clean URL (adminreset.go's
 //	                               readLink pattern: the token leaves the address bar after one hop)
 //	GET  /admin/signup/confirm     the page: the new address re-enters its password (R2); an address that
-//	                               already has a sign-in is asked to sign in in this browser first (R18)
-//	POST /admin/signup/confirm     the proof (the password compared HERE, in the application -- S12 -- or
+//	                               already has a sign-in is asked to sign in in this browser first (R18);
+//	                               an address whose sign-in has no active business left (it cannot sign
+//	                               in) is asked for that sign-in's password (M14-17b)
+//	POST /admin/signup/confirm     the proof (a password compared HERE, in the application -- S12 -- or
 //	                               this browser's panel session) and the business, in one transaction
 //
 // WHY UNDER /admin: the existing identity's proof is its panel session, and the panel cookie's Path is
@@ -82,6 +84,7 @@ type signupClaimer interface {
 	Resolve(ctx context.Context, t adminauth.ResetToken) (adminauth.SignupClaim, error)
 	ProveWithPassword(c adminauth.SignupClaim, password string) (adminauth.ClaimProof, bool)
 	ProveWithSession(c adminauth.SignupClaim, session adminauth.Token) (adminauth.ClaimProof, bool)
+	ProveWithIdentityPassword(c adminauth.SignupClaim, password string) (adminauth.ClaimProof, bool)
 	Now() time.Time
 	Sweep(ctx context.Context) (int, error)
 }
@@ -396,7 +399,10 @@ func (s *Signup) Confirm(w http.ResponseWriter, r *http.Request) {
 // 🔴 THE NEW ADDRESS'S PASSWORD IS COMPARED HERE (S12): adminauth.ProveWithPassword is the only way to a
 // proof for it, and a mismatch re-renders the form with nothing created (R2). The known address's proof
 // is this browser's panel session; identity_claim_signup decides whether it is the address's person
-// (R18). Either way the business is created by signup.Provision with that proof, in ONE transaction.
+// (R18). A known address whose identity has no active membership (M14-17b) cannot sign in: its proof is
+// the identity's password, compared here too (adminauth.ProveWithIdentityPassword) -- the database
+// claims only while that digest is still the identity's and the identity still cannot sign in. Each way
+// the business is created by signup.Provision with that proof, in ONE transaction.
 //
 // IT DOES NOT SIGN ANYBODY IN (the wizard's rule since M7-02): it ends at the sign-in page. The done
 // docket is rendered by this response (200), not behind a redirect -- the draft is spent, so a refresh
@@ -449,7 +455,19 @@ func (s *Signup) ConfirmSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var proof adminauth.ClaimProof
-	if c.KnownAddress {
+	if c.IdentityPassword {
+		password := r.PostFormValue("password")
+		if password == "" || len(password) > signup.MaxPasswordBytes {
+			view.Errors = map[string]string{"password": "Type the password of your Taptime sign-in."}
+			s.render(w, r, http.StatusUnprocessableEntity, pages.SignupConfirm(view))
+			return
+		}
+		if proof, ok = s.claims.ProveWithIdentityPassword(c, password); !ok {
+			view.Errors = map[string]string{"password": "That is not the password of this Taptime sign-in."}
+			s.render(w, r, http.StatusUnprocessableEntity, pages.SignupConfirm(view))
+			return
+		}
+	} else if c.KnownAddress {
 		session, err := s.panelCookies.Read(r)
 		if err == nil {
 			proof, ok = s.claims.ProveWithSession(c, session)
@@ -543,7 +561,7 @@ func (s *Signup) confirmView(csrf string, c adminauth.SignupClaim) (pages.Signup
 		venues = append(venues, v.Name)
 	}
 	return pages.SignupConfirmView{CSRFToken: csrf, BusinessName: d.Business.Name, Venues: venues,
-		KnownAddress: c.KnownAddress, SignInHref: adminLoginPath}, nil
+		KnownAddress: c.KnownAddress, IdentityPassword: c.IdentityPassword, SignInHref: adminLoginPath}, nil
 }
 
 func (s *Signup) setConfirmCookie(w http.ResponseWriter, v string) {

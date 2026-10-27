@@ -518,8 +518,9 @@ var m11Functions = map[string]m11FunctionACL{
 	// definer's open, claim and sweep.
 	"resolve_signup_claim_by_token_hash(text)":                                    {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
 	"identity_open_signup_claim(text,citext,jsonb,text,timestamp with time zone)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_claim_signup(text,uuid,text)":                                       {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_sweep_signup_claims()":                                              {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	// 00080 (M14-17b): identity_claim_signup's fourth argument (p_verified_digest), DROP + CREATE, restated.
+	"identity_claim_signup(text,uuid,text,text)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_sweep_signup_claims()":             {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every

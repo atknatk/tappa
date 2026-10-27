@@ -30,6 +30,11 @@ type fakeClaims struct {
 	claims map[string]*fakeClaim
 	// known are the addresses that "have a sign-in" (resolve_identity_by_email answers a row).
 	known map[string]bool
+	// signInless are the known addresses whose sign-in has NO active membership (M14-17b), with that
+	// sign-in's password: their confirmation asks for it.
+	signInless map[string]string
+	// identityProofs counts the identity-password proofs asked for.
+	identityProofs int
 	// openErr, when set, is Open's answer.
 	openErr error
 	// onOpen is called with every opened draft (the provisioner fake records them).
@@ -50,7 +55,7 @@ type fakeClaim struct {
 }
 
 func newFakeClaims() *fakeClaims {
-	return &fakeClaims{claims: map[string]*fakeClaim{}, known: map[string]bool{}, now: time.Now()}
+	return &fakeClaims{claims: map[string]*fakeClaim{}, known: map[string]bool{}, signInless: map[string]string{}, now: time.Now()}
 }
 
 // rawToken reads a ResetToken back through ClaimGrant.Link, its one window.
@@ -90,8 +95,9 @@ func (f *fakeClaims) Resolve(_ context.Context, t adminauth.ResetToken) (adminau
 	if !ok {
 		return adminauth.SignupClaim{}, adminauth.ErrNoSuchClaim
 	}
+	_, signInless := f.signInless[strings.ToLower(c.email)]
 	sc := adminauth.SignupClaim{ID: c.id, Email: c.email, Draft: c.draft, ExpiresAt: c.expires,
-		KnownAddress: f.known[strings.ToLower(c.email)]}
+		KnownAddress: f.known[strings.ToLower(c.email)], IdentityPassword: f.known[strings.ToLower(c.email)] && signInless}
 	if c.used {
 		u := f.now
 		sc.UsedAt = &u
@@ -125,6 +131,22 @@ func (f *fakeClaims) ProveWithSession(c adminauth.SignupClaim, _ adminauth.Token
 	f.sessionProofs++
 	fc := f.byID(c.ID)
 	if fc == nil {
+		return adminauth.ClaimProof{}, false
+	}
+	f.proved = fc
+	return adminauth.ClaimProof{}, true
+}
+
+func (f *fakeClaims) ProveWithIdentityPassword(c adminauth.SignupClaim, password string) (adminauth.ClaimProof, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.identityProofs++
+	fc := f.byID(c.ID)
+	if fc == nil {
+		return adminauth.ClaimProof{}, false
+	}
+	want, ok := f.signInless[strings.ToLower(fc.email)]
+	if !ok || !c.IdentityPassword || want != password {
 		return adminauth.ClaimProof{}, false
 	}
 	f.proved = fc
