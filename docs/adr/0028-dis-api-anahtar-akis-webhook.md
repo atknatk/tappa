@@ -621,6 +621,12 @@ bağlıdır.
 - **Hesap açılışı:** sandbox kendi operatör yüzeyini kendi ops host'unda çalıştırır; `/signup`
   prod'daki gibi; API, webhook ve holding **yalnız sandbox operatörü açınca** (K-22) — operatörsüz
   anahtar 403.
+  *M14-17 notu (2026-10-26, kullanıcı kararı):* kayıt e-posta doğrulamasıyla biter (ADR 0031 §5.10);
+  sandbox gerçek e-posta göndermediğinden (`TAPPA_RESET_DELIVERY=none`) doğrulama linki *"Check your
+  inbox"* ekranında gösterilir — davetin `panel` modunun karşılığı; prod'da `none` iken sihirbaz kayıt
+  almaz. Kabul edilen bedel (kullanıcının S2 kararı): sandbox'ta ve açıkça bildirilmiş dev'de link
+  ekranda göründüğü için `email_verified_at` posta kutusu kanıtı olmadan dolar ve onay sayfası isteyene
+  adresin o kurulumda bir kimliği olup olmadığını gösterir.
 - **E-posta:** gerçek e-posta yok; davet `panel` modunda.
 - **Altyapı:** ayrı namespace + Postgres; NetworkPolicy (prod'unki gibi kendi namespace'ini korur),
   Pod Security `restricted`, `ResourceQuota`/`LimitRange`.

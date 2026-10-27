@@ -103,6 +103,17 @@ func renderEach(t *testing.T, employeeName, tenantName string) []rendered {
 	if err != nil {
 		t.Fatalf("per-person notice: %v", err)
 	}
+	// M14-17: the registration's two letters.
+	sgv := testBase + signupConfirmPath + "?" + signupConfirmParam + "=" + randomValue(t)
+	msv, err := RenderSignupVerification(ctx, sgv, SignupView{BaseURL: testBase, ValidFor: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("registration verification: %v", err)
+	}
+	sgk := testBase + signupConfirmPath + "?" + signupConfirmParam + "=" + randomValue(t)
+	msk, err := RenderSignupKnownAddress(ctx, sgk, SignupView{BaseURL: testBase, ValidFor: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("registration with a known address: %v", err)
+	}
 	// M14-15: the manager invitation (the business named, VIES-verified).
 	adm := testBase + adminInvitePath + "?" + adminInviteParam + "=" + randomValue(t)
 	ma, err := RenderAdminInvitation(ctx, adm, AdminInvitationView{BaseURL: testBase, TenantName: tenantName, TenantVerified: true, ValidFor: 72 * time.Hour})
@@ -110,7 +121,8 @@ func renderEach(t *testing.T, employeeName, tenantName string) []rendered {
 		t.Fatalf("manager invitation for tenant %q: %v", tenantName, err)
 	}
 	return []rendered{{"invitation", inv, mi}, {"reset", rst, mr}, {"password changed", sin, mp},
-		{"reset, every business", rsp, mrp}, {"password changed, every business", sin, mpp}, {"manager invitation", adm, ma}}
+		{"reset, every business", rsp, mrp}, {"password changed, every business", sin, mpp},
+		{"registration verification", sgv, msv}, {"registration, known address", sgk, msk}, {"manager invitation", adm, ma}}
 }
 
 // hostileNames are names an open signup lets an attacker choose. Each must be
@@ -1408,13 +1420,16 @@ func TestRender_TheTwoPartsSayTheSameWords(t *testing.T) {
 		"reset, every business":            resetLetter("1 hour", true),
 		"password changed":                 passwordChangedLetter(false),
 		"password changed, every business": passwordChangedLetter(true),
+		"registration verification":        signupVerifyLetter("1 day"),
+		"registration, known address":      signupKnownLetter("1 day"),
 		"manager invitation":               adminInvitationLetter("Kebab Factory Ltd.", true, "3 days"),
 	}
 	r := renderEach(t, "Maria Borg", "Kebab Factory Ltd.")
 	if len(r) != len(letters) {
 		t.Fatalf("renderEach renders %d message(s) and this test knows %d letter(s); a message is missing from one of them", len(r), len(letters))
 	}
-	for i, kind := range []string{"invitation", "reset", "password changed", "reset, every business", "password changed, every business", "manager invitation"} {
+	for i, kind := range []string{"invitation", "reset", "password changed", "reset, every business", "password changed, every business",
+		"registration verification", "registration, known address", "manager invitation"} {
 		if r[i].kind != kind {
 			t.Fatalf("message %d is %q, want %q (renderEach's order)", i, r[i].kind, kind)
 		}
@@ -1636,6 +1651,50 @@ func TestReset_EveryBusinessIsThePersonsOneLink(t *testing.T) {
 	}
 	if byKind["reset, every business"].msg.Subject != subjectReset || byKind["password changed, every business"].msg.Subject != subjectPasswordChanged {
 		t.Error("a per-identity e-mail changed its fixed subject")
+	}
+}
+
+// TestSignupLetters_SayWhatTheConfirmationAsks (M14-17, ADR 0031 §5.10): the new address's letter says the
+// link asks again for the chosen password (R2) and that nothing exists before it is used; the known
+// address's letter says to sign in first, in the same browser (R18) -- and neither names a business or a
+// person, nor carries a link outside the confirmation page.
+func TestSignupLetters_SayWhatTheConfirmationAsks(t *testing.T) {
+	ctx := context.Background()
+	link := testBase + signupConfirmPath + "?" + signupConfirmParam + "=" + randomValue(t)
+	v := SignupView{BaseURL: testBase, ValidFor: 24 * time.Hour}
+	verify, err := RenderSignupVerification(ctx, link, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	known, err := RenderSignupKnownAddress(ctx, link, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		m    mail.Message
+		want []string
+	}{
+		{"verification", verify, []string{"you will be asked for the password you chose", "Nothing has been created yet", "stays valid for 1 day"}},
+		{"known address", known, []string{"already has a Taptime sign-in", "sign in with your usual password first", "in the same browser", "stays valid for 1 day"}},
+	} {
+		for _, w := range c.want {
+			if !strings.Contains(c.m.Text, w) || !strings.Contains(visibleText(t, c.m.HTML), w) {
+				t.Errorf("%s: a part does not say %q", c.name, w)
+			}
+		}
+	}
+	if verify.Subject == known.Subject {
+		t.Error("the two letters share a subject; the mailbox owner cannot tell them apart")
+	}
+	for _, bad := range []string{testBase + "/admin/reset/new?t=" + randomValue(t), testBase + "/signup/confirm?t=" + randomValue(t),
+		"https://evil.example" + signupConfirmPath + "?t=" + randomValue(t)} {
+		if _, err := RenderSignupVerification(ctx, bad, v); !errors.Is(err, ErrLink) {
+			t.Errorf("a verification rendered for %q: %v", bad, err)
+		}
+		if _, err := RenderSignupKnownAddress(ctx, bad, v); !errors.Is(err, ErrLink) {
+			t.Errorf("a known-address letter rendered for %q: %v", bad, err)
+		}
 	}
 }
 

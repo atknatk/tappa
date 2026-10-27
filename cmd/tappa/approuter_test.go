@@ -77,6 +77,15 @@ func (silentDB) GetPasswordResetByTokenHash(context.Context, string) (db.Resolve
 	return db.ResolvedPasswordReset{}, errSilent
 }
 func (silentDB) Ping(context.Context) error { return errSilent }
+
+// M14-17: the registration drafts' four calls (adminauth.SignupClaimDatabase).
+func (silentDB) OpenSignupClaim(context.Context, string, string, []byte, string, time.Time) (uuid.UUID, error) {
+	return uuid.Nil, errSilent
+}
+func (silentDB) GetSignupClaimByTokenHash(context.Context, string) (db.ResolvedSignupClaim, error) {
+	return db.ResolvedSignupClaim{}, errSilent
+}
+func (silentDB) SweepSignupClaims(context.Context) (int, error) { return 0, errSilent }
 func (silentDB) GetAPIKeyByHash(context.Context, string) (db.ResolvedAPIKey, error) {
 	return db.ResolvedAPIKey{}, errSilent
 }
@@ -259,9 +268,11 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	texts, err := legal.NewStore(data)
 	must(err)
-	provisioner, err := signup.NewProvisioner(data, trail, log)
+	provisioner, err := signup.NewProvisioner(data, log)
 	must(err)
-	signupFlow, err := handler.NewSignup(provisioner, noCheck{}, cfg, log)
+	signupClaims, err := adminauth.NewSignupClaims(data, cfg)
+	must(err)
+	signupFlow, err := handler.NewSignup(provisioner, signupClaims, noCheck{}, nil, cfg, log)
 	must(err)
 	ready, err := handler.NewHealth(data.Ping, log)
 	must(err)
@@ -377,6 +388,10 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		"POST /signup":          "signup",
 		"POST /signup/places":   "signup",
 		"POST /signup/account":  "signup",
+		// M14-17: the registration link's confirmation -- it creates a NEW business (no tenant's
+		// writing chain to gate: the business does not exist until this POST), like the wizard's
+		// own POSTs; under /admin only because the existing identity's proof is the panel cookie.
+		"POST /admin/signup/confirm": "signup",
 	}
 	// Panel exceptions that exist only with the panel identity flag on (ADR 0025's M14 note):
 	// signing yourself out everywhere (M14-11), switching businesses (M14-10), and the two membership

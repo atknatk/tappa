@@ -168,6 +168,19 @@ var m11Tables = map[string]map[string]m11TableACL{
 			Update: "used_at",
 		},
 	},
+	// 00078 (M14-17, ADR 0031 §5.1, §5.10): the registration drafts -- TENANT-SCOPE-LESS
+	// (m11ScopelessTables). tappa_app holds nothing (ADR 0031 §6). The resolver reads the key and the
+	// six columns it returns (the draft: the 2026-10-26 user decision); the definer opens a draft,
+	// reads and consumes it, and sweeps it (the one DELETE -- R17).
+	"admin_signup_claims": {
+		"tappa_resolver": {Select: "id,token_hash,email,draft,password_hash,expires_at,used_at"},
+		"tappa_identitydefiner": {
+			Select: "id,token_hash,email,draft,password_hash,expires_at,used_at",
+			Insert: "token_hash,email,draft,password_hash,expires_at",
+			Update: "used_at",
+			Delete: true,
+		},
+	},
 	// 00037 (K-17's queue): the worker reads it, a request is queued by naming the employee
 	// (the queue's order, the lease and the tries start at their defaults), the lease and the
 	// try count move, and a sent request leaves (DELETE). No column for a code exists at all.
@@ -290,7 +303,9 @@ const feedEventInsertColumns = "tenant_id,seq,punch_id,punch_tenant_id,roles,pun
 // (TestHoldingSchema_AppRoleHasNoVerbOnHoldingTables reads the waivers).
 var m11ScopelessTables = map[string]bool{"holdings": true, "holding_members": true, "admin_identities": true,
 	// 00072 (M14-05).
-	"admin_identity_resets": true, "admin_identity_verifications": true, "admin_identity_events": true}
+	"admin_identity_resets": true, "admin_identity_verifications": true, "admin_identity_events": true,
+	// 00078 (M14-17).
+	"admin_signup_claims": true}
 
 // m11Column is one column added at or after 00037 to a table that existed before, with each
 // role's verbs on it ("S", "I", "U" in that order; "" for nothing).
@@ -375,6 +390,8 @@ var m11Columns = []m11Column{
 	// 00077 (M14-15, ADR 0031 §5.2's matrix): the invitation's acceptance births the membership row, so
 	// tappa_identitydefiner INSERTs identity_id, linked_via and linked_at (with the five older columns
 	// the matrix names); unlinked_at is never inserted (a new row is not refused).
+	// 00078 (M14-17) RESTATES it for the owner row identity_claim_signup writes (00077 owns the shared
+	// grant; 00078's Down keeps it while an invite function exists).
 	{"admin_users", "identity_id", map[string]string{"tappa_app": "S", "tappa_resolver": "S", "tappa_identitydefiner": "SIU"}},
 	{"admin_users", "linked_via", map[string]string{"tappa_identitydefiner": "SIU"}},
 	{"admin_users", "linked_at", map[string]string{"tappa_identitydefiner": "SIU"}},
@@ -494,6 +511,12 @@ var m11Functions = map[string]m11FunctionACL{
 	"resolve_admin_invite_by_token_hash(text)": {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
 	"identity_accept_invite(text,text)":        {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 	"identity_accept_invite_new(text,text)":    {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	// 00078 (M14-17, ADR 0031 §5.10): the verified registration -- the md.7 resolver of a draft and the
+	// definer's open, claim and sweep.
+	"resolve_signup_claim_by_token_hash(text)":                                    {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"identity_open_signup_claim(text,citext,jsonb,text,timestamp with time zone)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_claim_signup(text,uuid,text)":                                       {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_sweep_signup_claims()":                                              {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every

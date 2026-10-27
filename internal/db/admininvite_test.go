@@ -127,17 +127,30 @@ func TestAdminInvites00077_DownRefusesAnInvitationAndOtherwiseWalksBackAndUp(t *
 			t.Fatalf("the Down with an invitation answered %v, want 55000", err)
 		}
 	})
-	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
-		aiExec(t, ctx, sp, `DELETE FROM admin_invites`)
-		opRunSection(t, ctx, sp, down, "00077 Down")
-		if got := shape(sp); got != "false,false,false,false,false" {
-			t.Fatalf("after the Down: %s", got)
-		}
-		opRunSection(t, ctx, sp, up, "00077 Up again")
-		if got := shape(sp); got != "true,true,true,true,true" {
-			t.Fatalf("after the Up again: %s", got)
-		}
-	})
+	// M14-17 (00078) shares the definer's admin_users INSERT (identity_claim_signup's owner row): 00077's
+	// Down takes it only while identity_claim_signup is absent. Both trees are walked: as the merged tree
+	// stands (the claim present -> the shared grant stays) and with the claim dropped first (-> it goes).
+	claimApplied := opInt(t, ctx, tx, `SELECT count(*) FROM pg_proc WHERE oid = to_regprocedure('public.identity_claim_signup(text,uuid,text)')`) == 1
+	for _, dropClaim := range []bool{false, true} {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			if dropClaim {
+				aiExec(t, ctx, sp, `DROP FUNCTION IF EXISTS public.identity_claim_signup(text, uuid, text)`)
+			}
+			aiExec(t, ctx, sp, `DELETE FROM admin_invites`)
+			opRunSection(t, ctx, sp, down, "00077 Down")
+			want := "false,false,false,false,false"
+			if claimApplied && !dropClaim {
+				want = "false,false,false,false,true"
+			}
+			if got := shape(sp); got != want {
+				t.Fatalf("after the Down (claim dropped %v): %s, want %s", dropClaim, got, want)
+			}
+			opRunSection(t, ctx, sp, up, "00077 Up again")
+			if got := shape(sp); got != "true,true,true,true,true" {
+				t.Fatalf("after the Up again: %s", got)
+			}
+		})
+	}
 }
 
 // kelvin is U+212A KELVIN SIGN: citext folds it onto the ASCII 'k' (the M14-08a finding, measured), so
