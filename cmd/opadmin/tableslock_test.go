@@ -29,7 +29,7 @@ var tablesLockDirs = []string{".", "../../internal/db", "../../internal/handler/
 // directory -- the closed list the scan must find (its control against going blind).
 var tablesLockStatements = map[string][]string{
 	".":                               {"sharedTablesLock"},
-	"../../internal/db":               {"TestOperatorDB_RunsAsTappaOperator", "bfTx", "opLiveFixture", "opTx"},
+	"../../internal/db":               {"TestOperatorDB_RunsAsTappaOperator", "bfTxLocking", "opLiveFixture", "opTx"},
 	"../../internal/handler/operator": {"newE2E"},
 	"../../internal/operatorauth":     {"sharedTablesLock"},
 	// M14-07: the identity worlds commit identities; M14-09's audit: every committed admin row too
@@ -1152,7 +1152,8 @@ func tablesLockOutsideFlaws(fset *token.FileSet, files []*ast.File, kind rowOuts
 	var bad []string
 	switch kind {
 	case rowOutsideExclusive:
-		bf := reachers(files, func(c *ast.CallExpr) bool { return calleeKey(c) == "bfTx" })
+		// bfTx, bfTxForDDL and the bfTxLocking both open with: every way into the EXCLUSIVE transaction.
+		bf := reachers(files, func(c *ast.CallExpr) bool { return strings.HasPrefix(calleeKey(c), "bfTx") })
 		for _, f := range files {
 			for _, d := range f.Decls {
 				fd, ok := d.(*ast.FuncDecl)
@@ -1586,6 +1587,7 @@ func TestBackfill(t *testing.T) { bfTx(t) }
 func TestBackfillParallel(t *testing.T) { t.Parallel(); bfTx(t) }
 func TestViaHelper(t *testing.T) { t.Run("s", func(t *testing.T) { t.Parallel(); helper(t) }) }
 func TestOther(t *testing.T) { t.Parallel(); opTx(t) }
+func TestDDLParallel(t *testing.T) { t.Parallel(); bfTxForDDL(t) }
 `
 	xf, err := parser.ParseFile(cfset, "exclusive.go", exclusiveControl, parser.SkipObjectResolution)
 	if err != nil {
@@ -1594,6 +1596,7 @@ func TestOther(t *testing.T) { t.Parallel(); opTx(t) }
 	got = tablesLockOutsideFlaws(cfset, []*ast.File{xf}, rowOutsideExclusive, tablesLockRowTables, nil, map[string]bool{})
 	want = []string{
 		"TestBackfillParallel reaches bfTx and calls .Parallel (line 5): it runs beside the package's other tests",
+		"TestDDLParallel reaches bfTx and calls .Parallel (line 8): it runs beside the package's other tests",
 		"TestViaHelper reaches bfTx and calls .Parallel (line 6): it runs beside the package's other tests",
 	}
 	if !slices.Equal(got, want) {
