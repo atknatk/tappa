@@ -3679,6 +3679,8 @@ type Querier interface {
 	// The owner's list: newest first, at most 50, spent and cancelled ones included (the owner sees
 	// what was sent and what became of it).
 	ListAdminInvites(ctx context.Context, tenantID uuid.UUID) ([]ListAdminInvitesRow, error)
+	// The owner's list: owners first, then by age. Bounded: a business's panel people are a handful.
+	ListAdminMembers(ctx context.Context, tenantID uuid.UUID) ([]ListAdminMembersRow, error)
 	// Every session of one admin, newest first: the read side of "sign out everywhere"
 	// and of the panel's device list. Revoked rows are included on purpose; the caller
 	// filters on revoked_at, so the history stays visible (section 4.6).
@@ -5331,6 +5333,22 @@ type Querier interface {
 	// explicit predicate -- and a context in which the row is not visible returns NO ROW and takes no
 	// lock, which the caller treats as a failure, never as "locked".
 	LockAPIDeactivationBudget(ctx context.Context, arg LockAPIDeactivationBudgetParams) (LockAPIDeactivationBudgetRow, error)
+	// adminmembers.sql -- the owner's side of a business's memberships (M14-16, ADR 0031 §5.12): the
+	// people who run this business in the panel, disabling and enabling one, and moving a membership
+	// between owner and manager (the two steps of an ownership transfer).
+	//
+	// Every statement runs inside WithTenant and carries an explicit tenant_id filter (CLAUDE.md §4.5,
+	// belt and braces). Nothing here names identity_id, linked_via, linked_at or unlinked_at (R16 --
+	// tappa_app reads only the first, and only TouchAdminSession may select it): a membership is managed
+	// per business (K-6), and no statement here reaches the person's identity or another business.
+	//
+	// THE LAST-OWNER INVARIANT IS THE CALLER'S (internal/adminauth.Memberships), under the lock the first
+	// statement below takes: every active owner row of the business, in id order, FOR NO KEY UPDATE --
+	// the strength a login's CreateAdminSession takes on a row, so two membership changes of one
+	// business serialise on the owners and a later one re-reads what an earlier one committed (READ
+	// COMMITTED re-checks a locked row's WHERE against its newest version).
+	// The business's active owners, locked in id order (one order for every caller: no lock cycle).
+	LockActiveAdminOwners(ctx context.Context, tenantID uuid.UUID) ([]uuid.UUID, error)
 	// SERIALISE ONE ADMINISTRATOR'S RECOVERY ISSUING (M10 EM-7C round 3, ADR 0022's
 	// "EM-7C note").
 	//
@@ -5353,6 +5371,8 @@ type Querier interface {
 	// "<tenant>:<employee>" string and the invitation limits' 'invite-limits:' one; a hash
 	// collision serialises two unrelated requests and never mixes their data.
 	LockAdminForResetIssue(ctx context.Context, arg LockAdminForResetIssueParams) error
+	// One membership of this business, locked; no row: not a membership here.
+	LockAdminMember(ctx context.Context, arg LockAdminMemberParams) (LockAdminMemberRow, error)
 	// One employee, row-locked FOR UPDATE until the API write's transaction ends -- the mode
 	// LockEmployeeForEmailChange takes and for its reason: it conflicts with the FOR KEY SHARE a
 	// concurrent CreateInvite's foreign-key check holds, so an invitation being minted right now
@@ -6151,6 +6171,11 @@ type Querier interface {
 	// never debounces (the safe zero value, section 4.6) — the same answer the
 	// unbounded query produced by returning an age too large to win the min.
 	SecondsSinceLastRecordedTap(ctx context.Context, arg SecondsSinceLastRecordedTapParams) (float64, error)
+	// owner <-> manager, on an ACTIVE membership only. No row when it is not here, not active, or
+	// already holds @role.
+	SetAdminMemberRole(ctx context.Context, arg SetAdminMemberRoleParams) (uuid.UUID, error)
+	// active <-> disabled. No row when the membership is not here or already holds @status.
+	SetAdminMemberStatus(ctx context.Context, arg SetAdminMemberStatusParams) (uuid.UUID, error)
 	// The business-day cutoff of a DEPARTMENT: it applies to its employees whatever their
 	// profile branch, and beats the branch level
 	// (M15-02, migration 00064, ADR 0032 §A.2). NULL = inherit the next level up;

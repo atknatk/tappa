@@ -1373,5 +1373,12 @@ farkıyla taşındı; taban kaymasının değiştirdiği sayılar ve yerler ADR 
     (`identity_accept_invite`, `identity_accept_invite_new`) kilitlerden sonra `tenants.suspended_at`'i
     okur, doluysa (ya da satır yoksa) hiçbir şey yazmaz, davet açık kalır ve sayfa "şimdi kabul edilemez"
     der (`TestAdminInvites_ASuspendedBusinessTakesNoNewManager`).
+  - **M14-16 (2026-10-27):** üyelik yönetiminin **daraltan** iki basışı — bir üyeliği devre dışı bırakmak
+    (`POST /admin/account/managers/disable`) ve bir owner'ı manager yapmak (`…/make-manager`) — K-26'nın
+    gerekçesiyle kardeş grupta: askıdaki bir işletmenin ele geçirilmiş bir yöneticiyi dışarıda
+    bırakamaması askının amacının tersidir. **Genişleten** ikisi (`…/enable`, `…/make-owner`) askı halkalı
+    ana grupta, davet gibi. Dördü de `mountGated(SurfaceMembershipManagement)` ile. Liste **bayrak `off`
+    iken on bir, `on` iken on beş rotadır**; `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException`
+    ve `cmd/tappa`'nın `TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses`'ı aynı commit'te güncellendi.
 - **Operatör değişmez** (K-12, ADR 0031 §5.12): ileride gelecek `op_disable_tenant_admins` (§7) yalnız
   üyelik `status`'una dokunabilir, kimliğe asla.

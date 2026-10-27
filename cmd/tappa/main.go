@@ -853,6 +853,15 @@ func run() error {
 		return err
 	}
 	panelOptions = append(panelOptions, handler.AdminInvitations(adminInvites))
+	// MEMBERSHIP MANAGEMENT (M14-16, ADR 0031 §5.12): disable / enable a membership and the two steps of
+	// an ownership transfer, under the last-owner invariant. Built always; its routes are mounted only
+	// while TAPPA_ADMIN_IDENTITY is on. The same audit recorder: each change's row is written in the
+	// change's own transaction.
+	memberships, err := adminauth.NewMemberships(data, trail)
+	if err != nil {
+		return err
+	}
+	panelOptions = append(panelOptions, handler.AdminMemberships(memberships))
 	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, encoder, resetFlow, cfg, slog.Default(), panelOptions...)
 	if err != nil {
 		return err

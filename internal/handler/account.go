@@ -100,7 +100,9 @@ var (
 	// "password" joins "saved" because a password change lands back here with its OWN
 	// flash (T73): it is a different act from a details save and reads a different
 	// sentence, so it cannot borrow "saved" without claiming the business's facts moved.
-	accountDoneWords    = []string{"saved", "password"}
+	// "stepped-down" (M14-16): an owner who stepped down to manager lands here -- the Managers page
+	// is an owner's -- with a sentence saying what they now are.
+	accountDoneWords    = []string{"saved", "password", "stepped-down"}
 	accountProblemWords = []string{"unreadable", "not-permitted", "unknown-business", "unavailable"}
 )
 
@@ -115,6 +117,9 @@ func accountDoneSentence(word string) string {
 		return "These details are what Taptime now has on file for this business. " +
 			"Everything on this page is read from the row that was just written, not " +
 			"from what was typed."
+	}
+	if word == "stepped-down" {
+		return "You stepped down: you are now a manager of this business. Its owners decide who runs it from here."
 	}
 	return ""
 }

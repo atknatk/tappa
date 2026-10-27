@@ -889,6 +889,44 @@ dışında kalabilir — geri gelirdi; bayrak açıkken davetli kimlik yolundan 
   gelecek `op_disable_tenant_admins`'i (`:620-621`) yalnız üyelik `status`'una dokunabilir, kimliğe
   asla (bulgu 25).
 
+**M14-16 uygulama notları (2026-10-27; kart dışı kararlar, denetime açık).** Migration yok; yeni
+`identity_*` fonksiyonu, sütun ya da yetki yok — dört yazma `tappa_app`'ın var olan `UPDATE (role,
+status)`'u (`00017:380-381`) ve `RevokeAdminSessionsForAdmin` ile; yeni sorgular `db/queries/adminmembers.sql`
+(hiçbiri `identity_id` / bağ sütunlarını anmaz).
+- **Dört basış** (owner'ın Managers sayfasında, işletmenin üyelik listesi davetlerin yanında): devre dışı
+  bırak, yeniden etkinleştir, owner yap, manager yap. **İki adımlı devir** = (1) yeni kişiyi owner yap —
+  işletmenin iki owner'ı olur, eski owner geri alabilir; (2) eski owner kendi üyeliğini manager'a indirir
+  ("step down", onay kutusu ister). Her adım kendi audit satırıdır (`admin.membership.promoted`,
+  `admin.membership.demoted` `{self: true}`); tek bir basış hem sahipliği verip hem kendininkini almaz.
+  Kendini devre dışı bırakma / etkinleştirme reddedilir.
+- **Son-owner değişmezi panelin kuralıdır, tetikleyici değildir** (`adminauth.Memberships`): değişiklik
+  önce işletmenin bütün aktif owner satırlarını id sırasıyla `FOR NO KEY UPDATE` kilitler, aktörün o
+  kümede olduğunu (kemer) ve hedef aktif bir owner'sa kümenin ≥ 2 olduğunu denetler, sonra yazar — tek
+  transaction, audit satırı dahil. Neden tetikleyici değil: iki meşru yazar bir işletmeyi aktif owner'sız
+  bırakır ve bir tetikleyici ikisini de adlandırılmış istisna olarak taşımak zorunda kalırdı —
+  `identity_unlink_backfilled` (kişinin kendi kararı; contract sonrası satırı `disabled` yapar — ONAY
+  notu 4, "aynı uyarı, izin ver") ve ADR 0025'in gelecek sert kilidi (`op_disable_tenant_admins`).
+  Definer'ın yolu yapı gereği etkilenmez; `TestAdminMembers_TheDefinersUnlinkIsNotStoppedByTheLastOwnerRule`
+  hem davranışı (son owner'ın çözülmesi contract öncesi ve sonrası geçer) hem `admin_users`'taki
+  tetikleyici kümesini pinler. Eşzamanlılık: `TestMemberships_TwoStepDownsRaceAndOneIsRefused`.
+- **Reddedilmiş satır panelden yeniden açılamaz:** `tappa_app` `unlinked_at`'i okuyamadığı için (R16)
+  panel reddedilmiş bir satırı `active` yapabilir; bu onu açmaz — oturum veren her yol `unlinked_at IS
+  NULL` süzer (`TestAdminMembers_EnablingARefusedRowGivesNoSession`). **Adlandırılmış kalıntı:** aynı
+  sebeple değişmez reddedilmiş bir owner satırını aktif owner sayar (contract ön koşulunun ayrı saydığı
+  satır); owner kendi eliyle böyle bir satırı owner yapıp çekilirse işletmede oturum alabilen owner
+  kalmaz. Kendi kararıdır ve geri dönüşü yeni bir davettir.
+- **Devre dışı bırakma yalnız o satırın o işletmedeki oturumlarını** iptal eder (`RevokeAdminSessionsForAdmin`,
+  `identity_revoke_sessions` değil — K-6); yeniden etkinleştirme eski oturumu geri getirmez
+  (`TestMemberships_DisablingDropsOnlyThisBusinesssSessions`, iki işletmeli).
+- **Owner kapısı M14-15'inkidir** (`a.mayInvite` → `tenant.RuleWriter.MayInviteManager`, `policy:edit`,
+  materyalize edilmemiş kitapta sevk edilen baseline): yetki vermek / almak işletmenin yetkilendirmesini
+  değiştirmektir ve yeni bir eylem materyalize kitaplarda `deny sid=default` alırdı.
+- **Askı** (ADR 0025'in M14 notu): daraltan iki basış (devre dışı bırakma, manager yapma) K-26'nın
+  gerekçesiyle askıda da açıktır (`protectWritingThroughSuspension`); genişleten ikisi (etkinleştirme,
+  owner yapma) askı halkalı ana gruptadır. Dördü de bayrakla kapılı ve tenant bağlıdır.
+- Audit satırları yalnız üyelik id'sini (hedef), sabit kelimeleri ve devre dışı bırakmada iptal edilen
+  oturum sayısını taşır — adres, ad, kimlik, başka işletme, üyelik sayısı yok.
+
 ### 5.13 API anahtarları, webhook'lar, aktörler
 
 Değişmez: `api_keys.created_by` üyeliğin bileşik FK'si (`00051:88-89`); devre dışı bir üyeliğin

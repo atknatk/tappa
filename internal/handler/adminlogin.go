@@ -330,6 +330,9 @@ type AdminAuth struct {
 	// budget in front of the acceptance (its bcrypt).
 	adminInvites        panelAdminInvites
 	inviteAcceptLimiter *limiter
+	// memberships is the membership management (M14-16, adminmembers.go), given by the
+	// AdminMemberships option; nil answers its gated routes with 503.
+	memberships panelMemberships
 
 	// See adminratelimit.go for why there are three and what each may refuse.
 	floodLimiter   *limiter
@@ -856,8 +859,9 @@ func (a *AdminAuth) ProtectWriting() func(http.Handler) http.Handler {
 // one user: the sibling group at the end of mountWriting, which holds the admin's own
 // password, the four record paths (adding a person, re-inviting, and the manual
 // record's two steps), K-26's defences (revoking API keys, switching the webhook
-// off) and, while TAPPA_ADMIN_IDENTITY is on, signing yourself out everywhere and switching
-// businesses (ADR 0025's M14 note, M14-11, M14-10). The record paths are not the business's settings but how an attendance record
+// off) and, while TAPPA_ADMIN_IDENTITY is on, signing yourself out everywhere, switching
+// businesses, and the two membership presses that narrow who can act for the business -- disabling a
+// membership and making an owner a manager (ADR 0025's M14 note, M14-11, M14-10, M14-16). The record paths are not the business's settings but how an attendance record
 // gets written or recovered (§4.3, §4.6) -- a suspension stops writes, not evidence --
 // and the defences only take away what the business exposes. An exception made by PATH
 // would open or close silently on a rename; made by GROUP, it is a visible edit in one

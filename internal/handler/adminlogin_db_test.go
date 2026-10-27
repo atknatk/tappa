@@ -283,6 +283,13 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 		t.Fatalf("NewAdminReset: %v", err)
 	}
 	var opts []AdminAuthOption
+	// The REAL membership management (M14-16), as cmd/tappa always gives it; its routes exist only
+	// with adminIdentity on.
+	memberships, err := adminauth.NewMemberships(data, trail)
+	if err != nil {
+		t.Fatalf("adminauth.NewMemberships: %v", err)
+	}
+	opts = append(opts, AdminMemberships(memberships))
 	if o.invitations != nil {
 		cfg.InviteDelivery = config.InviteDeliveryEmail
 		opts = append(opts, InvitationsByEmail(o.invitations(t, cfg)))
