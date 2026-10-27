@@ -71,6 +71,20 @@ func bfTx(t *testing.T) (context.Context, pgx.Tx) {
 	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '10s'`); err != nil {
 		t.Fatalf("set lock_timeout: %v", err)
 	}
+	// No other session may commit an admin_users row while the test runs (the third test-infra card's
+	// audit, measured): the advisory lock keeps out the packages that take it, but a dozen others commit
+	// plain admin rows without it (cmd/opadmin's tablesLockRowOutside), and the backfill reads every
+	// committed row (READ COMMITTED) -- TestAdminBackfill00073_TheClosingAssertion beside a ~200/s plain
+	// INSERT loop failed 8 runs of 8 ("7-40 identities born from no filled e-mail"), 8 of 8 passed with
+	// this lock. EXCLUSIVE, not SHARE (M14-09's third-eye audit): SHARE let a sign-in take its row lock
+	// (SELECT ... FOR NO KEY UPDATE takes ROW SHARE, which SHARE admits) and then wait on this table lock
+	// for its UPDATE, while the backfill waited on that row -- 40P01 / 55P03 against
+	// TestIssue_ConcurrentSignInsOfOneAdminDoNotDeadlock, 6 rounds of 6. EXCLUSIVE also refuses ROW
+	// SHARE, so such a sign-in waits before it holds anything; plain reads still pass. A writer waits
+	// for the test's transaction; this lock waits at most lock_timeout for a writer already open.
+	if _, err := tx.Exec(ctx, `LOCK TABLE admin_users IN EXCLUSIVE MODE`); err != nil {
+		t.Fatalf("lock admin_users: %v", err)
+	}
 	return ctx, tx
 }
 
@@ -343,18 +357,10 @@ func TestAdminBackfill00073_ItIsIdempotent(t *testing.T) {
 			opInt(t, ctx, q, `SELECT count(*) FROM admin_identities WHERE created_at = now()`))
 		return b.String()
 	}
-	// No other session may commit an admin_users row between the two runs: the backfill reads every
-	// committed row (READ COMMITTED), so a row another package's test commits in between would
-	// legitimately birth an identity in the second run and read as "not idempotent" (measured beside
-	// internal/adminauth's tests, M14-07's audit). EXCLUSIVE, not SHARE (M14-09's third-eye audit):
-	// SHARE let a sign-in take its row lock (SELECT ... FOR NO KEY UPDATE takes ROW SHARE, which SHARE
-	// admits) and then wait on this table lock for its UPDATE, while the backfill waited on that row
-	// -- 40P01 / 55P03 against TestIssue_ConcurrentSignInsOfOneAdminDoNotDeadlock, 6 rounds of 6.
-	// EXCLUSIVE also refuses ROW SHARE, so such a sign-in waits before it holds anything; plain reads
-	// still pass.
-	if _, err := tx.Exec(ctx, `LOCK TABLE admin_users IN EXCLUSIVE MODE`); err != nil {
-		t.Fatalf("lock admin_users: %v", err)
-	}
+	// No other session may commit an admin_users row between the two runs: a row another package's
+	// test commits in between would legitimately birth an identity in the second run and read as "not
+	// idempotent" (measured beside internal/adminauth's tests, M14-07's audit). bfTx holds admin_users
+	// IN EXCLUSIVE MODE for the whole test (it says why).
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 		opRunSection(t, ctx, sp, up, "00073 Up")
 		first := snapshot(sp)

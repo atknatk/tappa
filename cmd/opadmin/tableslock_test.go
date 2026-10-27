@@ -87,17 +87,19 @@ var tablesLockRowHolders = map[string][]string{
 //
 //   - rowOutsideExclusive: internal/db, the EXCLUSIVE side itself. bfTx's tests run there, and a test
 //     binary runs its sequential tests one at a time and its parallel ones only after all of them, so
-//     nothing else in it writes while one runs. Checked: no function that calls bfTx or opTx calls
+//     nothing else in it writes while one runs. Checked: no function that calls bfTx calls
 //     .Parallel.
 //   - rowOutsidePlain: directories that take no session lock and commit only PLAIN rows -- every write
 //     is one complete INSERT INTO admin_users (...) literal that names no link column (identity_id,
 //     linked_via, linked_at, unlinked_at) and no ON CONFLICT: a fresh row with no identity, which
-//     00073's closing assertion and its Down never count. RESIDUAL, ACCEPTED HERE: such a row committed
-//     inside one of bfTx's windows (a backfill test that sets every address aside and then runs the Up
-//     -- milliseconds) is still a candidate there; these packages have carried that since before M14,
-//     and covering it means a holder in each of them, serialising all of their tests with internal/db's
-//     EXCLUSIVE ones. A write text that is no statement (a message, a scanner's input) is named in
-//     tablesLockRowTexts.
+//     00073's closing assertion and its Down never count -- and no such row COMMITS while a bfTx test
+//     runs: bfTx holds admin_users IN EXCLUSIVE MODE for the whole test, so a plain INSERT elsewhere
+//     waits for it (closed by the third test-infra card's audit, measured: without that lock
+//     TestAdminBackfill00073_TheClosingAssertion beside a ~200/s plain INSERT loop failed 8 runs of 8,
+//     with it 8 of 8 passed, and the whole TestAdminBackfill set passed under the same load). The shape
+//     is still checked: an UPDATE, an upsert or a link written outside the holder is a different
+//     question from a fresh row's commit. A write text that is no statement (a message, a scanner's
+//     input) is named in tablesLockRowTexts.
 type rowOutsideKind int
 
 const (
@@ -464,14 +466,30 @@ func bypass(t *testing.T) { harness(t); lock(t) }
 // %06X" is a message.
 var rowOpensWrite = regexp.MustCompile(`(^|[^a-z0-9_$])(insert into|update( only)?|delete from( only)?|merge into)( %|$)|(^|;) ?(copy|truncate( table)?( only)?)( %|$)`)
 
-// normSQL: s lower-cased, white space collapsed to one space, the schema prefix `public.` and the
-// double quotes of a quoted identifier dropped -- so `INSERT INTO public."admin_users"` reads as the
-// plain spelling (the second test-infra card's audit, O-1).
+// normSQL: s with its SQL comments dropped, lower-cased, white space collapsed to one space, the double
+// quotes of a quoted identifier dropped and every qualifier chain before a name dropped -- so
+// `INSERT INTO public."admin_users"` (the second test-infra card's audit, O-1), `UPDATE /* c */
+// admin_users`, `UPDATE public . admin_users` and `UPDATE tappa.public.admin_users` (the third's) all
+// read as the plain spelling. A qualifier before a format slot is dropped for public. alone.
 func normSQL(s string) string {
+	s = sqlComment.ReplaceAllString(s, " ")
 	s = strings.ToLower(strings.Join(strings.Fields(s), " "))
 	s = strings.ReplaceAll(s, `"`, "")
-	return strings.ReplaceAll(s, "public.", "")
+	s = sqlDot.ReplaceAllString(s, ".")
+	s = strings.ReplaceAll(s, "public.", "")
+	// Any other qualifier only before a name: before a format slot ("may UPDATE tenants.%s", a test's
+	// message) it would turn a message into an open write.
+	for t := ""; t != s; {
+		t, s = s, sqlQualifier.ReplaceAllString(s, "$1")
+	}
+	return s
 }
+
+var (
+	sqlComment   = regexp.MustCompile(`(?s)/\*.*?\*/|--[^\n]*`)
+	sqlDot       = regexp.MustCompile(`\s*\.\s*`)
+	sqlQualifier = regexp.MustCompile(`\b[a-z_][a-z0-9_$]*\.([a-z_])`)
+)
 
 // litText is a string literal's value (its source text if it does not unquote).
 func litText(lit *ast.BasicLit) string {
@@ -584,6 +602,19 @@ func isIdentifierLit(c *ast.CompositeLit) bool {
 // one of tables, or when a part is not a literal. A bare "UPDATE" anywhere else (a test case's label) is
 // not one. Fail closed: what cannot be resolved syntactically counts as a write.
 func writesAt(n ast.Node, stack []ast.Node, tables []string) bool {
+	// pgx's CopyFrom(ctx, table, columns, rows) whose table is not a pgx.Identifier literal the scan can
+	// read (that one is judged as a node of its own, below): []string{...}, a conversion, a variable --
+	// fail closed (the third test-infra card's audit). pgconn's CopyFrom(ctx, r, sql) has three
+	// arguments and is judged by its SQL literal.
+	if c, ok := n.(*ast.CallExpr); ok {
+		if calleeKey(c) != ".CopyFrom" || len(c.Args) != 4 {
+			return false
+		}
+		if id, ok := ast.Unparen(c.Args[1]).(*ast.CompositeLit); ok && isIdentifierLit(id) {
+			return false
+		}
+		return true
+	}
 	if c, ok := n.(*ast.CompositeLit); ok {
 		if !isIdentifierLit(c) {
 			return false
@@ -616,9 +647,6 @@ func writesAt(n ast.Node, stack []ast.Node, tables []string) bool {
 		}
 		return writesRowSQL(text, tables) || opensWriteSQL(text)
 	}
-	if !opensWriteSQL(litText(lit)) {
-		return false
-	}
 	var parent ast.Node
 	for i := len(stack) - 1; i >= 0; i-- {
 		if _, ok := stack[i].(*ast.ParenExpr); !ok {
@@ -633,16 +661,44 @@ func writesAt(n ast.Node, stack []ast.Node, tables []string) bool {
 	if k := calleeKey(p); (k != ".Sprintf" && k != "Sprintf") || len(p.Args) == 0 || ast.Unparen(p.Args[0]) != ast.Expr(lit) {
 		return false
 	}
-	for _, a := range p.Args[1:] {
-		y, ok := strLit(a)
-		if !ok {
-			return true
-		}
-		if slices.Contains(tables, normSQL(litText(y))) {
+	// The format, rendered: a literal argument stands in its slot, any other as "%" -- so the verb or
+	// the table may be in an argument (`Sprintf("%s admin_users SET ...", "UPDATE")`, the third
+	// test-infra card's audit). A write is one rendered whole, a write left open ("UPDATE %"), or an
+	// unknown verb before a table ("% admin_users").
+	text := renderSprintf(litText(lit), p.Args[1:])
+	if writesRowSQL(text, tables) || opensWriteSQL(text) {
+		return true
+	}
+	norm := normSQL(text)
+	for _, tbl := range tables {
+		if regexp.MustCompile(`(^|[^a-z0-9_$])% ` + regexp.QuoteMeta(tbl) + `([^a-z0-9_$]|$)`).MatchString(norm) {
 			return true
 		}
 	}
 	return false
+}
+
+// sprintfVerb is a fmt verb (flags, width and precision included) or "%%".
+var sprintfVerb = regexp.MustCompile(`%%|%[-+# 0-9.*]*[a-zA-Z]`)
+
+// renderSprintf: format with each verb replaced by its argument when that is a string literal, by "%"
+// otherwise (and when the arguments run out); "%%" stays.
+func renderSprintf(format string, args []ast.Expr) string {
+	i := 0
+	return sprintfVerb.ReplaceAllStringFunc(format, func(v string) string {
+		if v == "%%" {
+			return v
+		}
+		if i >= len(args) {
+			return "%"
+		}
+		a := args[i]
+		i++
+		if l, ok := strLit(a); ok {
+			return litText(l)
+		}
+		return "%"
+	})
 }
 
 // rowWritesIn: the nodes under n that write a row of one of tables (writesAt).
@@ -1082,7 +1138,8 @@ func plainInsert(n ast.Node, tables []string) bool {
 		return false
 	}
 	norm := normSQL(litText(lit))
-	if rowLinkColumns.MatchString(norm) {
+	// One statement: a ";" other than a trailing one opens a second (the third test-infra card's audit).
+	if rowLinkColumns.MatchString(norm) || strings.Contains(strings.TrimRight(norm, "; "), ";") {
 		return false
 	}
 	m := rowPlainInsert.FindStringSubmatch(norm)
@@ -1238,13 +1295,17 @@ func testDirs(t *testing.T, root string) []string {
 // internal/domain/signup (sharedTablesLock) are read too. And the directories are a CLOSED inventory:
 // every test directory of the repository with a raw write is in tablesLockRowHolders or in
 // tablesLockRowOutside, with its kind's shape (tablesLockOutsideFlaws) -- measured: 21 directories, 4
-// read by the holder rule, 17 named outside it.
+// read by the holder rule, 17 named outside it. ITS AUDIT added: SQL comments, a spaced dot and any
+// qualifier chain before a table are read through; a Sprintf format is rendered with its literal
+// arguments (the verb may be one) and "%" for the others; pgx's CopyFrom with a table that is no
+// readable pgx.Identifier literal fails closed; a plain INSERT is one statement.
 //
 // NO COMPLETENESS CLAIM (as PART III above): the scan is syntactic. Not seen: a write whose verb and
 // table are both outside its literals (a whole statement in a variable, a function value, an interface,
 // another package), a statement assembled in any other way than + or Sprintf (strings.Join, a builder,
 // +=, a variable that holds the open half: q := "UPDATE "; exec(q + t) is seen only because the
-// literal ends its chain), a TRUNCATE list assembled from parts, an assembled COPY; a holder or a
+// literal ends its chain), a TRUNCATE list assembled from parts, an assembled COPY, a qualifier other
+// than public. before a format slot ("UPDATE tappa.%s"), a Sprintf whose format is no literal; a holder or a
 // release reached through a function value, an aliased release (r := release; r()), a release in a loop
 // or a goroutine counted only by where it stands, a release inside another function than the one
 // holding; a lock reached through another package (an exemption's transitive check reads the
@@ -1255,7 +1316,7 @@ func testDirs(t *testing.T, root string) []string {
 // named. Conservative: a deferred write registered after a deferred release counts as uncovered although
 // it runs first. The inventory reads every directory under the repository root but hidden ones and
 // testdata; rowOutsideExclusive trusts Go's test order (sequential tests one at a time, parallel ones
-// after them), and rowOutsidePlain's residual is accepted in its comment, not removed.
+// after them), and rowOutsidePlain relies on bfTx's table lock for the commits it cannot see.
 func TestTablesLock_AdminRowsAreWrittenUnderTheHolder(t *testing.T) {
 	const control = `package p
 func hold(t *testing.T) func() { lock(t); return nil }
@@ -1313,6 +1374,16 @@ func TestCopySchema(t *testing.T) { conn.CopyFrom(ctx, pgx.Identifier{"public", 
 func TestCopyVar(t *testing.T) { conn.CopyFrom(ctx, pgx.Identifier{schema, "x"}, cols, src) }
 func TestCopyOther(t *testing.T) { conn.CopyFrom(ctx, pgx.Identifier{"tenants"}, cols, src) }
 func TestCopySQL(t *testing.T) { conn.PgConn().CopyFrom(ctx, r, "COPY admin_users (id) FROM STDIN") }
+func TestSprintfVerb(t *testing.T) { exec(fmt.Sprintf("%s admin_users SET x = 1", "UPDATE")) }
+func TestSprintfVerbVar(t *testing.T) { exec(fmt.Sprintf("%s admin_users SET x = 1", verb)) }
+func TestComment(t *testing.T) { exec("UPDATE /* c */ admin_users SET x = 1") }
+func TestSpacedDot(t *testing.T) { exec("UPDATE public . admin_users SET x = 1") }
+func TestThreePart(t *testing.T) { exec("UPDATE tappa.public.admin_users SET x = 1") }
+func TestCopySlice(t *testing.T) { conn.CopyFrom(ctx, []string{"admin_users"}, cols, src) }
+func TestCopyConv(t *testing.T) { conn.CopyFrom(ctx, pgx.Identifier([]string{"admin_users"}), cols, src) }
+func TestCopyDot(t *testing.T) { ident := Identifier{"admin_users"}; copyInto(ident) }
+func TestSprintfOtherVerb(t *testing.T) { exec(fmt.Sprintf("%s tenants SET x = 1", "UPDATE")) }
+func TestCommentOnly(t *testing.T) { exec("SELECT 1 /* UPDATE admin_users SET x = 1 */ -- DELETE FROM admin_users") }
 `
 	cfset := token.NewFileSet()
 	cf, err := parser.ParseFile(cfset, "control.go", control, parser.SkipObjectResolution)
@@ -1359,6 +1430,18 @@ func TestCopySQL(t *testing.T) { conn.PgConn().CopyFrom(ctx, r, "COPY admin_user
 		"TestCopySchema writes [admin_users] (line 53) outside the holder [hold]",
 		"TestCopyVar writes [admin_users] (line 54) outside the holder [hold]",
 		"TestCopySQL writes [admin_users] (line 56) outside the holder [hold]",
+		// Its audit: the verb in a Sprintf argument (a literal, and one the scan cannot read); a comment, a
+		// spaced dot and a three-part name before the table; CopyFrom's table as a []string, a conversion
+		// and a dot-imported Identifier (held in a variable). Not a write: another table's verb argument, a statement in a
+		// comment only.
+		"TestSprintfVerb writes [admin_users] (line 57) outside the holder [hold]",
+		"TestSprintfVerbVar writes [admin_users] (line 58) outside the holder [hold]",
+		"TestComment writes [admin_users] (line 59) outside the holder [hold]",
+		"TestSpacedDot writes [admin_users] (line 60) outside the holder [hold]",
+		"TestThreePart writes [admin_users] (line 61) outside the holder [hold]",
+		"TestCopySlice writes [admin_users] (line 62) outside the holder [hold]",
+		"TestCopyConv writes [admin_users] (line 63) outside the holder [hold]",
+		"TestCopyDot writes [admin_users] (line 64) outside the holder [hold]",
 	}
 	sort.Strings(want)
 	if !slices.Equal(got, want) {
@@ -1472,6 +1555,9 @@ func label(name string) string { return name + ": INSERT INTO " + table }
 func labelSends(name string) { send(name + ": INSERT INTO " + table) }
 func send(q string) { conn.Exec(ctx, q) }
 func lock(t *testing.T) { conn.Exec(ctx, "SELECT pg_advisory_lock_shared(hashtext($1))", operatorTablesTestLock) }
+func TestTwoStatements(t *testing.T) { exec("INSERT INTO admin_users (id) VALUES ($1); DELETE FROM admin_users WHERE id = $2") }
+func TestOtherTableFirst(t *testing.T) { exec("INSERT INTO tenants (id) SELECT id FROM (UPDATE admin_users SET x = 1 RETURNING id) u") }
+func TestTrailingSemicolon(t *testing.T) { exec("INSERT INTO admin_users (id) VALUES ($1);") }
 `
 	pf, err := parser.ParseFile(cfset, "plain.go", plainControl, parser.SkipObjectResolution)
 	if err != nil {
@@ -1483,6 +1569,8 @@ func lock(t *testing.T) { conn.Exec(ctx, "SELECT pg_advisory_lock_shared(hashtex
 		"TestAssembled writes [admin_users] (line 6), and not as one plain INSERT of a fresh row",
 		"TestCopies writes [admin_users] (line 7), and not as one plain INSERT of a fresh row",
 		"TestLinks writes [admin_users] (line 4), and not as one plain INSERT of a fresh row",
+		"TestOtherTableFirst writes [admin_users] (line 13), and not as one plain INSERT of a fresh row",
+		"TestTwoStatements writes [admin_users] (line 12), and not as one plain INSERT of a fresh row",
 		"TestUpdates writes [admin_users] (line 3), and not as one plain INSERT of a fresh row",
 		"TestUpserts writes [admin_users] (line 5), and not as one plain INSERT of a fresh row",
 		"labelSends is named a text but sends SQL (itself or through a function it calls)",

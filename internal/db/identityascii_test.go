@@ -499,12 +499,13 @@ var identityAddressRuleWriters = []string{"identity_create_for_signup(uuid,uuid)
 // inside it is a LITERAL, kept as it is -- `PERFORM $a$/*$a$; INSERT ...; PERFORM $b$*/$b$;` and
 // `PERFORM $a$--$a$; INSERT ...` hide nothing any more. The body's delimiter is found, not guessed:
 // pg_get_functiondef lengthens $function$ until the body does not hold it, so the body may itself hold
-// a $function$ literal. With blankDollar, a literal's content is replaced by a space (iaCarriesTheRule:
-// a refusal written inside a string is no refusal).
+// a $function$ literal. With blank, a dollar-quoted literal's content is replaced by a space, and so is
+// a double-quoted identifier's (iaCarriesTheRule: a refusal written inside a string or as a column
+// alias is no refusal; the rule names no quoted identifier).
 func iaStripComments(s string) string { return iaStrip(s, true, false) }
 
-// iaRuleText is the body as iaCarriesTheRule reads it: comments stripped and the dollar-quoted literals
-// inside the body emptied.
+// iaRuleText is the body as iaCarriesTheRule reads it: comments stripped, and the dollar-quoted literals
+// and the double-quoted identifiers inside the body emptied.
 func iaRuleText(s string) string { return iaStrip(s, true, true) }
 
 // iaDollarTag is a dollar-quote delimiter at the start of s: $$ or $tag$, the tag an identifier that
@@ -515,7 +516,7 @@ func iaIdentByte(c byte) bool {
 	return c == '_' || c == '$' || c >= 0x80 || ('0' <= c && c <= '9') || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
 }
 
-func iaStrip(s string, body, blankDollar bool) string {
+func iaStrip(s string, body, blank bool) string {
 	var b strings.Builder
 	for i := 0; i < len(s); {
 		switch {
@@ -530,9 +531,9 @@ func iaStrip(s string, body, blankDollar bool) string {
 			b.WriteString(tag)
 			switch {
 			case body:
-				b.WriteString(iaStrip(inner, false, blankDollar))
+				b.WriteString(iaStrip(inner, false, blank))
 				body = false
-			case blankDollar:
+			case blank:
 				b.WriteByte(' ')
 			default:
 				b.WriteString(inner)
@@ -560,7 +561,11 @@ func iaStrip(s string, body, blankDollar bool) string {
 				j++
 			}
 			end := min(j+1, len(s))
-			b.WriteString(s[i:end])
+			if blank && q == '"' {
+				b.WriteString(`" "`)
+			} else {
+				b.WriteString(s[i:end])
+			}
 			i = end
 		case strings.HasPrefix(s[i:], "--"):
 			j := strings.IndexByte(s[i:], '\n')
@@ -596,9 +601,9 @@ var (
 	// from one block into the next.
 	iaRefusalBlock = regexp.MustCompile(`(?is)\bIF\s*\(([^;]*?)\)\s*IS\s+NOT\s+TRUE\s+THEN\s+(RETURN|CONTINUE)\b`)
 	// iaIdentityWrite is an INSERT, a MERGE or (the third test-infra card) a COPY whose TARGET is
-	// admin_identities, bare or quoted, with or without its schema (comments are stripped before it
-	// runs; a U&-escaped name is iaEscapedName).
-	iaIdentityWrite = regexp.MustCompile(`(?is)\b((insert|merge)\s+into|copy)\s+("?public"?\s*\.\s*)?"?admin_identities"?([^_a-z0-9]|$)`)
+	// admin_identities, bare or quoted, behind any chain of qualifiers -- public., tappa.public. (comments
+	// are stripped before it runs; a U&-escaped name is iaEscapedName).
+	iaIdentityWrite = regexp.MustCompile(`(?is)\b((insert|merge)\s+into|copy)\s+(("[^"]*"|[a-z0-9_$]+)\s*\.\s*)*"?admin_identities"?([^_a-z0-9]|$)`)
 	iaEscapedName   = regexp.MustCompile(`(?i)U&"`)
 	iaExecute       = regexp.MustCompile(`(?i)\bexecute\b`)
 )
@@ -667,18 +672,21 @@ func iaIdentityWriterFindings(t *testing.T, ctx context.Context, q pgx.Tx) (find
 	}
 	// A row reaches the table without an INSERT naming it (the third test-infra card, an audit's
 	// finding): through a VIEW over it -- a simple one is auto-updatable, so INSERT INTO the view inserts
-	// here, and no function naming the view is a candidate -- or as a row of a table that INHERITS it
-	// (every unqualified read of admin_identities returns the child's rows). Neither exists today
-	// (measured 2026-10-27, goose 77): any is a finding, to be reviewed and named here.
+	// here, and no function naming the view is a candidate -- as a row of a table that INHERITS it
+	// (every unqualified read of admin_identities returns the child's rows), or through a PARENT it is
+	// attached to as a partition (an INSERT into the parent routes the row here; the third test-infra
+	// card's audit). None exists today (measured 2026-10-27, goose 77): any is a finding, to be reviewed
+	// and named here.
 	var dependents int64
 	if err := q.QueryRow(ctx, `SELECT (SELECT count(*) FROM pg_depend d JOIN pg_rewrite r ON d.classid = 'pg_rewrite'::regclass AND d.objid = r.oid
 	                                   WHERE d.refclassid = 'pg_class'::regclass AND d.refobjid = 'public.admin_identities'::regclass
 	                                     AND r.ev_class <> 'public.admin_identities'::regclass)
-	                                + (SELECT count(*) FROM pg_inherits WHERE inhparent = 'public.admin_identities'::regclass)`).Scan(&dependents); err != nil {
+	                                + (SELECT count(*) FROM pg_inherits WHERE inhparent = 'public.admin_identities'::regclass)
+	                                + (SELECT count(*) FROM pg_inherits WHERE inhrelid = 'public.admin_identities'::regclass)`).Scan(&dependents); err != nil {
 		t.Fatal(err)
 	}
 	if dependents != 0 {
-		findings = append(findings, fmt.Sprintf("%d view(s) or child table(s) over admin_identities (a write through one is no INSERT naming it)", dependents))
+		findings = append(findings, fmt.Sprintf("%d view(s), child table(s) or parent(s) of admin_identities (a write through one is no INSERT naming it)", dependents))
 	}
 	return findings, candidates
 }
@@ -702,9 +710,10 @@ func iaIdentityWriterFindings(t *testing.T, ctx context.Context, q pgx.Tx) (find
 // pattern in a comment only, an allow-listed body that starts inserting, and a rewrite rule on the
 // table. And the positive control: a body with the rule as a real refusal is not named. The third
 // test-infra card added (an audit's finding): the INSERT an allow-listed body hides between a
-// dollar-quoted "/*" and "*/", after a dollar-quoted "--", behind the escaped quote of an E-prefixed string, or
-// spells as a COPY; the rule written inside a dollar-quoted string; a view over the table and a table
-// that inherits it.
+// dollar-quoted "/*" and "*/", after a dollar-quoted "--", behind the escaped quote of an E-prefixed
+// string, spells as a COPY or behind a three-part name; the rule written inside a dollar-quoted string
+// or as a quoted column alias; a view over the table, a table that inherits it, and a parent it is
+// attached to as a partition.
 //
 // NO COMPLETENESS CLAIM. The guard is a lexer and a catalogue read, not a parser or a data-flow
 // analysis. Not seen: a SECURITY INVOKER function whose OWNER lacks INSERT there but whose caller (a
@@ -751,6 +760,8 @@ func TestIdentityAddressRule_EveryIdentityInsertDecidesIt(t *testing.T) {
 		{"zz_m1408a_rule_in_a_comment", plpgsql("zz_m1408a_rule_in_a_comment", "/* "+rule+" */ -- "+rule+"\n INSERT INTO public.admin_identities "+ins)},
 		// The third test-infra card: the rule written inside a dollar-quoted string is no refusal.
 		{"zz_m1408a_rule_in_a_string", plpgsql("zz_m1408a_rule_in_a_string", "PERFORM $r$ "+rule+" $r$; INSERT INTO public.admin_identities "+ins)},
+		// ... nor written as a quoted column alias (its audit).
+		{"zz_m1408a_rule_in_an_identifier", plpgsql("zz_m1408a_rule_in_an_identifier", `PERFORM 1 AS "`+rule+`"; INSERT INTO public.admin_identities `+ins)},
 	} {
 		t.Run("control/"+c.name, func(t *testing.T) {
 			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
@@ -769,6 +780,7 @@ func TestIdentityAddressRule_EveryIdentityInsertDecidesIt(t *testing.T) {
 		{"between a dollar-quoted /* and */", "PERFORM $a$/*$a$; " + plantedInsert + " PERFORM $b$*/$b$;"},
 		{"after a dollar-quoted --", "PERFORM $a$--$a$; " + plantedInsert},
 		{"a COPY into it", "COPY public.admin_identities (email, password_hash) FROM '/nonexistent';"},
+		{"under a three-part name", "INSERT INTO tappa.public.admin_identities (email, password_hash) VALUES ('x@y.z', 'h');"},
 		{"behind an E'' string's escaped quote", "PERFORM E'\\'/*'; " + plantedInsert + " PERFORM '*/';"},
 	} {
 		t.Run("control/an allow-listed body that starts inserting/"+c.name, func(t *testing.T) {
@@ -794,11 +806,14 @@ func TestIdentityAddressRule_EveryIdentityInsertDecidesIt(t *testing.T) {
 		{"a view over the table", "CREATE VIEW public.zz_m1408a_view AS SELECT * FROM public.admin_identities; " +
 			plpgsql("zz_m1408a_through_the_view", "INSERT INTO public.zz_m1408a_view "+ins)},
 		{"a table that inherits it", "CREATE TABLE public.zz_m1408a_child () INHERITS (public.admin_identities)"},
+		{"a parent it is attached to as a partition", "CREATE TABLE public.zz_m1408a_parent (LIKE public.admin_identities) PARTITION BY LIST (email); " +
+			"ALTER TABLE public.zz_m1408a_parent ATTACH PARTITION public.admin_identities DEFAULT; " +
+			plpgsql("zz_m1408a_through_the_parent", "INSERT INTO public.zz_m1408a_parent "+ins)},
 	} {
 		t.Run("control/"+c.name, func(t *testing.T) {
 			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 				aiExec(t, ctx, sp, c.sql)
-				if f, _ := iaIdentityWriterFindings(t, ctx, sp); !slices.ContainsFunc(f, func(s string) bool { return strings.Contains(s, "view(s) or child table(s)") }) {
+				if f, _ := iaIdentityWriterFindings(t, ctx, sp); !slices.ContainsFunc(f, func(s string) bool { return strings.Contains(s, "view(s), child table(s) or parent(s)") }) {
 					t.Fatalf("CONTROL: %s is not named (%v)", c.name, f)
 				}
 			})
