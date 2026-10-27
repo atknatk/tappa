@@ -415,6 +415,15 @@ de yeşil; reddedilmiş satır hiçbir koşuda bağlanmaz; uzlaştırma ile eşz
 (T8); `tappa_app` fonksiyonu çağıramaz; M14-19'un iki ön-kontrol sayımı (kimliği olmayan
 dolu e-posta = 0, reddedilmişler hariç; bağlı satırda digest uyuşmazlığı = 0) bu kartın runbook adımıdır.
 
+**Adres kuralı (M14-08a, 2026-10-26, kullanıcı kararı — ADR 0031 §5.1/§5.8 notları):** grubun adayları
+yalnız adresi `mail.ValidRecipient`'ten geçen satırlardır — kilitlenen/seçilen satırlar 00076'nın
+deseniyle süzülür, homoglif (U+0130 / U+212A) satırı en eski aktif olsa bile seçilmez. Kural gövdede
+`IF (…) IS NOT TRUE THEN CONTINUE` reddi olarak yazılır; yoksa `identity_reconcile`
+`TestIdentityAddressRule_EveryIdentityInsertDecidesIt`'te kırmızıdır (yapısal kemer: varlığı denetler).
+**Birleşme ayrıca bir DAVRANIŞ testi ister:** en eski aktif satırı homoglif olan bir grupta kimlik ASCII
+yazımla (ve o satırın digest'iyle) doğar, homoglif satırı bağlanmamış kalır; filtre kaldırılınca kırmızı.
+M14-19'un "kimliği olmayan dolu e-posta" sayımı kuralı geçmeyen satırları ayrı sayar (adlandırılmış kalıntı).
+
 ---
 
 ## P2 — Domain / auth
