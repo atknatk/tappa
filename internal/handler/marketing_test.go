@@ -175,6 +175,17 @@ func withoutCreditHref(body string) (string, int) {
 	return strings.ReplaceAll(body, credit, `href=""`), strings.Count(body, credit)
 }
 
+// signupScreenLink is the "Check your inbox" screen's on-screen link (M14-17, ADR 0031 §5.10): only
+// on a development or sandbox installation that sends no e-mail, as the invitation's `panel` mode
+// does -- the registration's confirmation on this installation's OWN origin (TAPPA_BASE_URL), which a
+// reader follows and the page never loads. The test driver is such an installation.
+var signupScreenLink = regexp.MustCompile(`href="` + regexp.QuoteMeta(testBaseURL+pages.SignupConfirmPath) + `\?t=[A-Za-z0-9_-]+"`)
+
+// withoutSignupScreenLink is body with every signupScreenLink anchor href emptied, and how many it held.
+func withoutSignupScreenLink(body string) (string, int) {
+	return signupScreenLink.ReplaceAllString(body, `href=""`), len(signupScreenLink.FindAllString(body, -1))
+}
+
 // marketingURLs is every URL this feature serves, derived from the same tables the
 // chrome and Mount both read: the landing, the public site's own pages
 // (pages.PublicPages, LP-06) and the four legal documents.
@@ -773,6 +784,12 @@ func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 			body, credits := withoutCreditHref(body)
 			if credits != 2 {
 				t.Errorf("%s: the sign-up %s screen carries the credit href %d time(s), want 2", c.name, name, credits)
+			}
+			// THE THIRD EXEMPTION (M14-17, brought beside LP-11 by the merge of main into M14): the sent
+			// screen's on-screen link, on this installation's own origin, once, and on no other screen.
+			body, links := withoutSignupScreenLink(body)
+			if want := map[bool]int{true: 1, false: 0}[name == "sent"]; links != want {
+				t.Errorf("%s: the sign-up %s screen carries the on-screen confirmation link %d time(s), want %d", c.name, name, links, want)
 			}
 			if hit := externalReference.FindString(body); hit != "" {
 				t.Errorf("%s: the sign-up %s screen reaches outside this origin: %q", c.name, name, hit)
