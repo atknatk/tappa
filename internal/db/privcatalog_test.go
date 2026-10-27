@@ -206,10 +206,10 @@ SELECT line FROM (
 // xmin, outside this catalogue -- read again at 00078; 00079 -- M14-18,
 // ADR 0031 §5.2's 2026-10-27 note -- added identity_confirm_window and identity_keep_all (EXECUTE
 // tappa_app and the owner) and NO grant: both bodies run on the definer's 00071/00072 cells); 00081 --
-// M14-16b, ADR 0031 §5.2's 2026-10-27 note (the ghost owner, T169) -- added
+// M14-16b, ADR 0031 §5.2's 2026-10-27 note (the ghost owner, T171) -- added
 // resolve_admin_owners_by_tenant (tappa_resolver's, read-only; EXECUTE tappa_app and the owner) and the
 // one column its role filter needs, tappa_resolver SELECT (role) on admin_users; its redefinitions of
-// identity_open_session / identity_switch_session (a row lock, T170) change no line here) and READ
+// identity_open_session / identity_switch_session (a row lock, T172) change no line here) and READ
 // line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:

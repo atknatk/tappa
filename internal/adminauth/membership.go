@@ -38,7 +38,7 @@ import (
 // contract B the unlink leaves it 'active') with unlinked_at stamped, which tappa_app cannot read
 // (R16); it can never get a session (every session-giving path filters unlinked_at IS NULL), so it is
 // no owner for this rule. Counting it let a real owner step down beside it and leave the business with
-// no owner who could sign in, and no way back in the product (backlog T169). The set is read AFTER the
+// no owner who could sign in, and no way back in the product (backlog T171). The set is read AFTER the
 // owners' lock: an unlink or a relink updates the row, so on a locked row unlinked_at cannot change
 // until this transaction ends (TestMemberships_ARefusedOwnerIsNoOwnerForTheLastOwnerRule).
 //
@@ -265,7 +265,10 @@ func (s *Memberships) Change(ctx context.Context, tenantID, actorID, memberID uu
 			// they read it first and this transaction waited above (LockAdminMember) until their session
 			// was committed -- this later statement sees it -- or they read it after this commit and find
 			// it disabled (TestMemberships_ASessionOpenedBesideADisableDoesNotOutliveIt). The legacy
-			// CreateAdminSession takes the same lock (M14-07).
+			// CreateAdminSession takes the same lock (M14-07). In the second case the opening keeps
+			// the dropped row's lock to its end and may go on to lock its next membership (another
+			// business): it took both after the identity's lock and this transaction waits on no
+			// identity, so the two cannot deadlock.
 			revoked, err := q.RevokeAdminSessionsForAdmin(ctx, store.RevokeAdminSessionsForAdminParams{TenantID: tenantID, AdminUserID: memberID})
 			if err != nil {
 				return err

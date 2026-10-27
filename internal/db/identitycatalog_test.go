@@ -131,7 +131,7 @@ var identitySignaturesM1417 = []identitySignature{
 
 // identitySignaturesM1416b is M14-16b's part (migration 00081; ADR 0031 §5.2's note of 2026-10-27, the
 // user's decision): tappa_resolver's read of a business's owners who can still get a session -- ids
-// only, for the caller's own tenant context (the ghost owner, backlog T169).
+// only, for the caller's own tenant context (the ghost owner, backlog T171).
 var identitySignaturesM1416b = []identitySignature{
 	{"resolve_admin_owners_by_tenant", "p_tenant_id uuid", "TABLE(admin_user_id uuid)", "tappa_resolver"},
 }

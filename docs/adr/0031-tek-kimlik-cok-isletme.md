@@ -420,7 +420,7 @@ Sahibi `tappa_resolver`; `STABLE` plpgsql, `SECURITY DEFINER`, `SET search_path 
 zaten okur) — `tappa_app`'ın hiçbir yetkisi değişmez, `unlinked_at`'i hâlâ okuyamaz (R16). **Neden:** onay
 listesinde reddedilmiş bir owner satırı contract B'den önce `status='active'`, `role='owner'` kalır ve
 `unlinked_at` damgalıdır; M14-16'nın son-owner değişmezi onu owner sayıyordu ve gerçek owner'a "Step down"
-sunuyordu — basılırsa işletmede oturum alabilen owner kalmıyor, ürün içinden dönüş olmuyordu (backlog T169,
+sunuyordu — basılırsa işletmede oturum alabilen owner kalmıyor, ürün içinden dönüş olmuyordu (backlog T171,
 §5.12'nin M14-16 kalıntısı). Değişmez artık **bu kümeyi** sayar (`adminauth.Memberships`, owner satırlarının
 kilidinden **sonra** okunur: çözme ve geri alma satırı UPDATE eder, kilitli satırda `unlinked_at` değişemez;
 `TestMemberships_ARefusedOwnerIsNoOwnerForTheLastOwnerRule`). **Anahtar:** md.7'nin bağlamsız
@@ -434,7 +434,7 @@ bağlamıdır. **Panel ne görür:** yalnız aktif owner satırları için ayır
 sign in" diye yazar ve owner saymaz; reddedilmiş bir **manager** ya da **devre dışı** satır öbürlerinden
 ayırt edilemez, panel ona "Make owner" / "Enable" sunmayı sürdürür. Bu zararsızdır: satır yine oturum alamaz
 (oturum veren her yol `unlinked_at IS NULL` süzer) ve owner'a dönüşürse değişmez onu saymaz. **Kabul edilen
-gözlem:** işletmenin owner'ı, bir owner satırının oturum alamadığını (kişinin onu reddettiğini) bu farktan
+gözlem (2026-10-27 kullanıcı kararı — "Kabul, ADR'de adıyla"):** işletmenin owner'ı, bir owner satırının oturum alamadığını (kişinin onu reddettiğini) bu farktan
 öğrenir — hayalet owner'ı kapatan her biçim bunu gösterir (yalnız değişmezin reddi bile). Katalog (imza
 tablosu `identitySignaturesM1416b`, `privCatalogAllowed`, `m11Functions`, `tappa_resolver`'ın sütun listesi,
 "her yetki kullanılıyor" egzersizi) ve kemer taraması aynı commit'te genişler; kemer gövdeyi adıyla tarar.
@@ -972,7 +972,8 @@ Owner-only (policy motoru; `m7-portal.md:1570-1573`'ün `deny sid=default` tuza�
 gider, panelde gösterilmez. Kabul §5.2'deki iki fonksiyonla, POST ile; rızasız üyelik doğmaz; var olan
 kimlikle kabulde tıklama posta kutusu kanıtıdır (§5.10'daki gibi; önce sıfırlama dayatılmaz).
 **Davet eden owner, adresin bir kimliği olup olmadığını öğrenmez** (R18): davet yanıtı, zamanlaması ve
-davet listesindeki durumu iki durumda aynıdır. Holding üyeliği davetin yerine geçmez.
+davet listesindeki durumu iki durumda aynıdır (owner satırı için reddedilmiş/etkin ayrımı üyelik listesinde
+görünür — §5.2'nin M14-16b notu, kabul edilen gözlem). Holding üyeliği davetin yerine geçmez.
 **Reddedilmiş satıra davet** (ONAY notu 3): tenant'ta aynı adresle reddedilmiş bir satır varsa davet
 kabulü yeni satır yaratmaz, **o satırı** yeniden bağlar (owner'ın daveti + kimliğin canlı oturumu +
 posta kutusu kanıtı; `unlinked_at = NULL`, contract öncesi digest kopyası, contract sonrası

@@ -4,7 +4,7 @@ package db
 //
 //   - resolve_admin_owners_by_tenant, tappa_resolver's read-only answer to "which of this business's
 //     owners can still get a session" -- the panel's last-owner rule counts these (the ghost owner,
-//     backlog T169). The signature, owner, SECURITY DEFINER, search_path and EXECUTE pins are the
+//     backlog T171). The signature, owner, SECURITY DEFINER, search_path and EXECUTE pins are the
 //     catalogue tests' (identitycatalog_test.go's identitySignaturesM1416b, privcatalog_test.go,
 //     m11schema_test.go); its body is held to the belt (identitybelt_test.go);
 //   - the two redefined session functions: their Down gives 00071's bodies back byte for byte. What the

@@ -3,9 +3,9 @@ package adminauth
 // membership_owners_db_test.go -- M14-16b (migration 00081; ADR 0031 §5.2 and §5.12, the notes of
 // 2026-10-27) against real Postgres, committed, on the application pool (memberWorld):
 //
-//   - the ghost owner (backlog T169): an owner row the person refused is no owner for the last-owner
+//   - the ghost owner (backlog T171): an owner row the person refused is no owner for the last-owner
 //     rule -- resolve_admin_owners_by_tenant does not return it;
-//   - the race window (T170): a session opened beside a disable never outlives it, because
+//   - the race window (T172): a session opened beside a disable never outlives it, because
 //     identity_open_session / identity_switch_session read the membership FOR NO KEY UPDATE.
 
 import (
@@ -115,7 +115,9 @@ func newRaceWorld(t *testing.T) *raceWorld {
 	w.target = w.linked(w.tenant, "active", "backfill", 48*time.Hour)
 	w.exec(`UPDATE admin_users SET role = 'manager' WHERE id = $1`, w.target)
 	b := w.tenant2("M14-16b Source Co")
-	w.from = w.linked(b, "active", "backfill", 48*time.Hour)
+	// Younger than the target: with no business asked for and none used last, the sign-in's third
+	// branch (the oldest active membership) lands on the target.
+	w.from = w.linked(b, "active", "backfill", 24*time.Hour)
 	w.fromHash = "m14-16b-" + uuid.NewString()
 	w.exec(`INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3)`, b, w.from, w.fromHash)
 	return w
@@ -198,13 +200,25 @@ func (w *raceWorld) race(open func(token string) error) (MembershipChange, strin
 	return ch, newHash, changeErr
 }
 
+// signIn opens the identity's session asking for tenant (uuid.Nil: none) and requires it to land on
+// the target membership.
+func (w *raceWorld) signIn(tenant uuid.UUID, newHash string) error {
+	s, err := testDB(w.t).OpenIdentitySession(context.Background(), w.ident, tenant, newHash, db.NewPasswordHash(w.digest))
+	if err == nil && s.AdminUserID != w.target {
+		return errors.New("the sign-in landed on another membership")
+	}
+	return err
+}
+
 // liveOn counts the live sessions of row.
 func (w *raceWorld) liveOn(row uuid.UUID) int {
 	return w.int(`SELECT count(*) FROM admin_sessions WHERE admin_user_id = $1 AND revoked_at IS NULL`, row)
 }
 
-// TestMemberships_ASessionOpenedBesideADisableDoesNotOutliveIt is the race window of backlog T170,
-// closed (00081): a sign-in (identity_open_session asking for the business) and a switch into it
+// TestMemberships_ASessionOpenedBesideADisableDoesNotOutliveIt is the race window of backlog T172,
+// closed (00081): a sign-in through each of identity_open_session's three membership reads -- asking
+// for the business; asking for none with the business used last; asking for none with no business used
+// last and the business the person's oldest membership -- and a switch into it
 // (identity_switch_session), each held right after its membership read -- the blocker holds its INSERT
 // -- while the business's owner disables that membership. The disable waits on the opening's row lock,
 // so its revocation sees the opened session: the disabled row has NO live session the moment both end,
@@ -212,22 +226,27 @@ func (w *raceWorld) liveOn(row uuid.UUID) int {
 // revoked by the disable itself (the disable's trail counts it), not by the enable.
 //
 // MUTATIONS (measured): (1) 00071's bodies back (no FOR NO KEY UPDATE) -> the disable finishes first,
-// the session lands live on the disabled row: red for both openings; (2) the enable's revocation
+// the session lands live on the disabled row: red for every opening; (1b) the lock taken off the
+// oldest-membership read alone -> red for "sign-in, oldest" alone, and off the used-last read alone ->
+// red for "sign-in, used last" alone; (2) the enable's revocation
 // removed WITH the lock present -> still green (the lock alone closes the window; the enable's
 // revocation is the second layer).
 func TestMemberships_ASessionOpenedBesideADisableDoesNotOutliveIt(t *testing.T) {
 	for _, c := range []struct {
-		name string
-		open func(w *raceWorld, token string) error
+		name    string
+		prepare string // run as the owner before the race (the owner connection is not shared with the opening)
+		open    func(w *raceWorld, token string) error
 	}{
-		{"sign-in", func(w *raceWorld, token string) error {
-			s, err := testDB(w.t).OpenIdentitySession(context.Background(), w.ident, w.tenant, token, db.NewPasswordHash(w.digest))
-			if err == nil && s.AdminUserID != w.target {
-				return errors.New("the sign-in landed on another membership")
-			}
-			return err
+		{"sign-in", "", func(w *raceWorld, token string) error {
+			return w.signIn(w.tenant, token)
 		}},
-		{"switch", func(w *raceWorld, token string) error {
+		{"sign-in, used last", `UPDATE admin_identities SET last_used_tenant = $2 WHERE id = $1`, func(w *raceWorld, token string) error {
+			return w.signIn(uuid.Nil, token)
+		}},
+		{"sign-in, oldest", `UPDATE admin_identities SET last_used_tenant = NULL WHERE id = $1 AND $2::uuid IS NOT NULL`, func(w *raceWorld, token string) error {
+			return w.signIn(uuid.Nil, token)
+		}},
+		{"switch", "", func(w *raceWorld, token string) error {
 			s, err := testDB(w.t).SwitchIdentitySession(context.Background(), w.fromHash, w.tenant, token)
 			if err == nil && s.AdminUserID != w.target {
 				return errors.New("the switch landed on another membership")
@@ -237,6 +256,9 @@ func TestMemberships_ASessionOpenedBesideADisableDoesNotOutliveIt(t *testing.T) 
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			w := newRaceWorld(t)
+			if c.prepare != "" {
+				w.exec(c.prepare, w.ident, w.tenant)
+			}
 			ch, token, err := w.race(func(token string) error { return c.open(w, token) })
 			if err != nil {
 				t.Fatalf("the disable: %v", err)

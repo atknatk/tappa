@@ -1,6 +1,6 @@
 -- 00081 -- M14-16b (ADR 0031 §5.2 and §5.12, the notes of 2026-10-27; the user's decisions of
 -- 2026-10-27, "bayraktan önce kart" and "M14-16b ile birlikte kapat"). Two of M14-16's leftovers
--- (backlog T169 / T170):
+-- (backlog T171 / T172):
 --
 --   resolve_admin_owners_by_tenant(uuid)        tappa_resolver   NEW: read-only, the business's active
 --                                                                owners that can still get a session
@@ -12,7 +12,7 @@
 -- and ONE column grant: tappa_resolver SELECT (role) ON admin_users -- the resolver's role filter.
 -- Nothing else is granted, nothing is revoked from anyone.
 --
--- 1. THE GHOST OWNER (T169). A membership the person refused on the confirmation list keeps
+-- 1. THE GHOST OWNER (T171). A membership the person refused on the confirmation list keeps
 -- role='owner', status='active' (before contract B the unlink leaves it 'active') with unlinked_at
 -- stamped -- and tappa_app cannot read unlinked_at (R16). M14-16's last-owner rule therefore counted
 -- such a row as an owner and offered the real owner "Step down"; after it, no owner who can sign in
@@ -36,16 +36,20 @@
 -- tappa_app holds no SELECT on the column it filters on, and no "show everything when the context is
 -- NULL" branch (NULL context -> 0 rows). Bounded: LIMIT 200 (ListAdminMembers' bound).
 --
--- 2. THE RACE WINDOW (T170). identity_open_session and identity_switch_session read the target
+-- 2. THE RACE WINDOW (T172). identity_open_session and identity_switch_session read the target
 -- membership without a lock and insert the session; a disable (internal/adminauth.Memberships) that
 -- committed between that read and the function's own UPDATE ... last_login_at revoked the row's
 -- sessions without seeing the one being written, so a live session could land on a disabled row
 -- (M14-16's security audit measured it; the enable's revocation was what kept it from coming back).
 -- Both reads now take FOR NO KEY UPDATE -- the lock the UPDATE ... last_login_at a few lines later
--- took anyway, so the function holds no new lock and upgrades none (FOR SHARE would: M14-07's 40P01,
--- ADR 0031 §5.6). The lock order is unchanged (the identity, then the membership row). A disable that
--- commits first makes the read find nothing (READ COMMITTED re-checks status on the newest version);
--- one that comes second waits on the row and its revocation, a later statement, sees the session.
+-- takes on the row it lands on, so that row's lock is only taken earlier and never upgraded (FOR
+-- SHARE would be: M14-07's 40P01, ADR 0031 §5.6). One lock is new: a read whose re-check drops the
+-- row (a disable committed while it waited) keeps that row's lock to the end of the transaction, so a
+-- sign-in that falls through to its next branch may hold the disabled membership and the one it lands
+-- on together. Both are taken after the identity's lock, in branch order, and no writer waits on the
+-- identity while it holds a membership row -- there is no cycle. A disable that commits first makes
+-- the read find nothing (READ COMMITTED re-checks status on the newest version); one that comes
+-- second waits on the row and its revocation, a later statement, sees the session.
 -- The bodies are 00071's but for the lock clauses and a comment beside each; the Down gives 00071's
 -- bodies back byte for byte.
 --
@@ -125,7 +129,7 @@ REVOKE ALL ON FUNCTION public.resolve_admin_owners_by_tenant(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.resolve_admin_owners_by_tenant(uuid) TO tappa_app;
 
 -- ---------------------------------------------------------------------------
--- 2. identity_open_session: its three membership reads lock the row (T170)
+-- 2. identity_open_session: its three membership reads lock the row (T172)
 -- ---------------------------------------------------------------------------
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION public.identity_open_session(p_identity_id uuid, p_tenant uuid, p_token_hash text, p_verified_digest text)
@@ -225,7 +229,7 @@ REVOKE ALL ON FUNCTION public.identity_open_session(uuid, uuid, text, text) FROM
 GRANT EXECUTE ON FUNCTION public.identity_open_session(uuid, uuid, text, text) TO tappa_app;
 
 -- ---------------------------------------------------------------------------
--- 3. identity_switch_session: its target read locks the row (T170)
+-- 3. identity_switch_session: its target read locks the row (T172)
 -- ---------------------------------------------------------------------------
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION public.identity_switch_session(p_session_hash text, p_target_tenant uuid, p_new_hash text)
