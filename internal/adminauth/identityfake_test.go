@@ -53,3 +53,26 @@ func (noIdentityData) IdentityPasswordForSession(context.Context, string) (db.Pa
 func (noIdentityData) SetIdentityPassword(context.Context, string, string) (int, error) {
 	return 0, errNoIdentityData
 }
+
+// The account page's six (M14-18): not reached by the fakes' subjects either.
+func (noIdentityData) RequestIdentityVerification(context.Context, string, string) (db.IdentityVerification, error) {
+	return db.IdentityVerification{}, errNoIdentityData
+}
+
+func (noIdentityData) VerifyIdentityEmail(context.Context, string, string) (bool, error) {
+	return false, errNoIdentityData
+}
+
+func (noIdentityData) ConfirmWindow(context.Context, string) ([]db.ConfirmWindowRow, error) {
+	return nil, errNoIdentityData
+}
+
+func (noIdentityData) KeepAll(context.Context, string) error { return errNoIdentityData }
+
+func (noIdentityData) UnlinkMembership(context.Context, string, uuid.UUID) (db.UnlinkedMembership, error) {
+	return db.UnlinkedMembership{}, errNoIdentityData
+}
+
+func (noIdentityData) RelinkMembership(context.Context, string, uuid.UUID) (uuid.UUID, error) {
+	return uuid.Nil, errNoIdentityData
+}

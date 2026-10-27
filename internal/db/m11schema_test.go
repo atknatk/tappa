@@ -506,6 +506,9 @@ var m11Functions = map[string]m11FunctionACL{
 	// 00074 (M14-08, ADR 0031 §5.2 named exception 2): the registration's dual-write. EXECUTE
 	// tappa_app (and the owner) until M14-19 takes it away; contract B drops it.
 	"identity_create_for_signup(uuid,uuid)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	// 00079 (M14-18, ADR 0031 §5.2's 2026-10-27 note): the confirmation window's reader and "Keep all".
+	"identity_confirm_window(text)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_keep_all(text)":       {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 	// 00077 (M14-15, ADR 0031 §5.2): the invitation's md.7 resolver (tappa_resolver's) and its two
 	// acceptances -- keyed by the invitation token (and a live session) -- EXECUTE tappa_app alone.
 	"resolve_admin_invite_by_token_hash(text)": {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},

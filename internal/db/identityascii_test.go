@@ -476,6 +476,10 @@ var identityAdminIdentitiesNonWriters = map[string]bool{
 	"identity_switch_session(text,uuid,text)":                 true,
 	"identity_unlink_backfilled(text,uuid)":                   true,
 	"identity_verify_email(text,text)":                        true,
+	// M14-18 (00079): the window's reader (STABLE: it reads the identity by its key) and "Keep all"
+	// (an UPDATE of the window's three columns by the key) -- neither writes an identity row.
+	"identity_confirm_window(text)": true,
+	"identity_keep_all(text)":       true,
 	// M14-15 (00077): the session acceptance births no identity -- it locks the session's identity and,
 	// on the first mailbox proof, UPDATEs its email_verified_at and window; its two addresses are held
 	// to printable ASCII before it links anything (TestAdminInvites00077_NoIdentityIsBornOrLinkedForANonASCIIAddress).
