@@ -563,6 +563,11 @@ func iaCarriesTheRule(body string) bool {
 // rule as a refusal, or sits on the allow-list and neither writes the table nor executes dynamic SQL.
 // Anything else is a finding. And no rewrite rule may target admin_identities (a rule can turn any
 // statement into an INSERT there).
+// identityAdminIdentitiesWriters are the functions that insert into admin_identities, each carrying
+// 00076's rule: identity_create_for_signup (00074/00076) and identity_claim_signup (00078, M14-17 -- a
+// new address's identity is born there).
+var identityAdminIdentitiesWriters = []string{"identity_create_for_signup(uuid,uuid)", "identity_claim_signup(text,uuid,text)"}
+
 func iaIdentityWriterFindings(t *testing.T, ctx context.Context, q pgx.Tx) (findings, candidates []string) {
 	t.Helper()
 	rows, err := q.Query(ctx, `SELECT p.oid::regprocedure::text, pg_get_functiondef(p.oid)
@@ -630,9 +635,14 @@ func TestIdentityAddressRule_EveryIdentityInsertDecidesIt(t *testing.T) {
 	for _, f := range findings {
 		t.Error(f)
 	}
-	if len(candidates) != len(identityAdminIdentitiesNonWriters)+1 || !slices.Contains(candidates, "identity_create_for_signup(uuid,uuid)") {
-		t.Fatalf("anti-vacuity: the candidates are %v -- want identity_create_for_signup and the %d listed non-writers (a new one is reviewed and listed, or carries the rule)",
-			candidates, len(identityAdminIdentitiesNonWriters))
+	if len(candidates) != len(identityAdminIdentitiesNonWriters)+len(identityAdminIdentitiesWriters) {
+		t.Fatalf("anti-vacuity: the candidates are %v -- want the %d writers carrying the rule and the %d listed non-writers (a new one is reviewed and listed, or carries the rule)",
+			candidates, len(identityAdminIdentitiesWriters), len(identityAdminIdentitiesNonWriters))
+	}
+	for _, w := range identityAdminIdentitiesWriters {
+		if !slices.Contains(candidates, w) {
+			t.Fatalf("anti-vacuity: the writer %s is no candidate (%v)", w, candidates)
+		}
 	}
 	for name := range identityAdminIdentitiesNonWriters {
 		if !slices.Contains(candidates, name) {
