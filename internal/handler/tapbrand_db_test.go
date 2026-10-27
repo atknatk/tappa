@@ -40,6 +40,9 @@ import (
 func (h *tapHarness) brandBusiness(t *testing.T, tenantID uuid.UUID, seed uint8, accent string) brand.Logo {
 	t.Helper()
 	owner := uuid.New()
+	// The owner is COMMITTED: write it under the operator-tables lock, held shared around the insert
+	// (holdPanelTablesLock says why; cmd/opadmin's TestTablesLock_AdminRowsAreWrittenUnderTheHolder).
+	release := holdPanelTablesLock(t)
 	err := h.data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
@@ -47,6 +50,7 @@ func (h *tapHarness) brandBusiness(t *testing.T, tenantID uuid.UUID, seed uint8,
 			owner, tenantID, "wl9-"+uuid.NewString()+"@iso.example", fixtures.UnusablePasswordHash)
 		return e
 	})
+	release()
 	if err != nil {
 		t.Fatalf("fixture owner: %v", err)
 	}

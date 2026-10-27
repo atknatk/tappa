@@ -610,6 +610,47 @@ işletmeleri hakkında bilgi taşıyan her alan kimlik yolunda **kalkar** (R21):
   zamanlı karşılaştırır). Seçici blob'unun sürümü "2" oldu; rollout sırasında eski bir blob "yeniden
   giriş" ister.
 
+**M14-09 uygulama notu (2026-10-26; `4ccc6f69` … `5a45f7d6`, iki denetimin kabul ettiği biçim):**
+- **İniş.** Bayrak açıkken `Login` kimlik yoluna geçer (`adminlogin.go:1069-1070` → `loginAsPerson`).
+  Giriş formu işletme adlandırmaz, bu yüzden `AuthenticatePerson` `uuid.Nil` ile çağrılır
+  (`adminloginidentity.go:68-72`); `db.OpenIdentitySession` bunu `NULL` istenen işletmeye çevirir
+  (`internal/db/identity.go:133-136`) ve `identity_open_session` son kullanılan işletmeye
+  (`last_used_tenant`) iner; böyle bir işletme yoksa ya da oradaki üyelik aktif değilse en eski aktif üyeliğe
+  (`00071_resolve_identities_and_switch_sessions.sql:209-249`); indiği işletmeyi `last_used_tenant`'a
+  yazar (`:260-263`). Kimlik yolunda seçici yoktur; birden çok **eski** satır doğrularsa seçici
+  contract'a dek kalır. Başarı satırını `identity_open_session` yazar, handler ikincisini **yazmaz**
+  (`adminloginidentity.go:104-106`).
+- **R21.** Kimlik yolunda giriş akışının, kişinin öbür işletmeleri hakkında bir sayı ya da bir işletme
+  taşıyabilen her audit detail'i `loginDetail`'den geçer (kodun kendi sınırlaması,
+  `adminloginidentity.go:169-191`; çağrı yerleri `adminlogin.go:1194`, `:1273`, `:1543`). Bunu taşıyamayan
+  sabit biçimli satırlar doğrudan yazılır (ör. `adminlogin.go:1334`, `:1391`, `:1418`,
+  `adminloginidentity.go:118`, `:148`). `loginDetail` `VerifiedBusiness`,
+  `Resolved`, `Compared` ve `AttemptedTenant`'ı sıfırlar. Seçicinin satırları da buna dahildir, çünkü o yolda
+  seçici blob'unu yalnız `AuthenticatePerson`'ın eski kolu üretir. İşletmelerden **çoğul** söz eden üç sabit
+  gerekçe metni tekil ikizine çevrilir (`identityReasons`, `adminloginidentity.go:193-206`). Bağlanan eski
+  satır sayısı (`PersonSignIn.Linked`) yalnız log satırına gider, audit'e hiç gitmez
+  (`adminloginidentity.go:127-128`, `internal/adminauth/identity.go:88-91`). Bayrak kapalıyken detail
+  bugünküdür.
+- **`adminLoginWorkLimit` = 106.** Sabit artık türetilir (`adminratelimit.go:744-760`): operatör modelinin
+  karşılaştırma bütçesi `adminLoginWorkComparisons = 120 * 8 = 960`, kimlik yolunda bir girişin bedeli
+  `1 + MaxCandidates = 9` karşılaştırmadır (`MaxCandidates = 8`, `manager.go:146`) → `960 / 9 = 106` giriş /
+  10 dk. Bayrak kapalı yol (8 karşılaştırma) da aynı 106 ile sınırlıdır (848 karşılaştırma, eski tavanın
+  altında). Contract A eski pencereyi kaldırınca bölen 1'e iner ve sabit yeniden türetilir. Sevk edilen
+  değeri `TestPanelConstants_ShippedValuesArePinned` sabitler.
+- **Açılıştan önce geçersizleşen giriş → 409.** Doğrulanan kimlik bilgisi oturum yazılırken artık
+  tutmuyorsa (`ErrProofStale`, satır yok ya da `40P01` — `SignInLapsed`, `manager.go:870-876`) yanıt 500
+  değil `409 "Please sign in again"`'dir (`signInAgain`, `adminloginidentity.go:158-167`; kimlik yolu
+  `:78-83`, bayrak kapalı yol `adminlogin.go:1303-1308`). Metin "hiçbir şey değişmedi" demez: kimlik
+  yolunda bu durum, açılıp iptal edilmiş kanıt oturumlarından sonra da gelebilir
+  (`adminloginidentity.go:39-48`).
+- **Açılıştan sonra hata → 500 + oturum iptali.** `identity_open_session` commit ettikten sonraki bir hata
+  (ör. yazılamayan bir bağlama) kimlik oturumunu isteğin iptalini yok sayarak (`context.WithoutCancel`)
+  iptal eder ve `PersonSignIn.Abandoned` olarak döner (`internal/adminauth/identity.go:276-284`; alan ve tip
+  `:92-105`). Handler o işletmeye aynı oturumu adlandıran bir `admin.login.failed` satırı yazar
+  (`outcome = session_abandoned`; gerekçe iptalin tutup tutmadığını söyler) ve "nothing was changed"
+  demeyen bir 500 döner (`abandonedLogin`, `adminloginidentity.go:132-156`). Bu dal geçersizleşme
+  denetiminden **önce** gelir (`:73-77`), yani açılıştan sonraki bir `40P01` da 500'dür.
+
 ### 5.7 Birleştirme
 
 **Kural: iki satır yalnız kişi her ikisinin kimlik bilgisini kanıtlarsa birleşir** (K-2). "Aynı
