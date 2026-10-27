@@ -228,6 +228,24 @@ konur (`ADD COLUMN … DEFAULT now()` eski satırlara ALTER anını yazardı); `
 isteyen her denetim (R3) ve ileride gelecek mutlak ömür bunu fail-closed okur. Oturum hâlâ tek
 üyeliğe, tek tenant'a damgalıdır.
 
+**M14-08a notu — adres kuralı (2026-10-26; kullanıcı kararı):** bir kimliği **doğurabilen ya da ona
+anahtar olabilen** her saklı adres `mail.ValidRecipient`'ten geçer — `internal/mail`'in `Send`'inin
+uyguladığı kural (≤ 254 oktet, `=?` yok, net/mail'in kendine geri verdiği yazdırılabilir-ASCII
+addr-spec). Geçmeyen bir satır hiçbir kimliğe bağlanmaz ve kimlik doğurmaz. **Neden** (M14-08'in
+güvenlik denetimi; canlıyla aynı imaj ve yerel ayar, PostgreSQL 17.10 musl, 0x80–0x10FFFF taranarak):
+citext eşitliği tam iki ASCII-dışı kod noktasını ASCII'ye katlar — U+0130 (→ `i`) ve U+212A KELVIN SIGN
+(→ `k`); adresin danışma kilidinin anahtarı da eşittir. Kayıt her UTF-8 adresi kabul ettiği için
+homoglifi **önce** yazan, kimliği kendi yazımıyla doğururdu; posta yalnız yazdırılabilir-ASCII alıcılara
+gider, yani gerçek posta kutusunun sahibi o adrese hiçbir zaman sıfırlama alamazdı (devralma yok,
+numaralandırma kanalı yok; etkisi kalıcı erişim kaybı). **`admin_identities.email` üzerinde CHECK
+yok — ölçülerek:** ihlalin `DETAIL`'i (`Failing row contains …`) BYPASSRLS definer'ın SELECT edebildiği
+her sütunu, adresi **ve** digest'i, hataya ve sunucu log'una basar (00073 ve 00074'ün digest için
+belgelediği tuzak; CLAUDE.md §7). Kural yüklemlerdedir: her kimlik INSERT'i kuralı INSERT'ten **önce**
+karar verir (§5.2'nin M14-08a notu, §5.8'in M14-08a notu). **Düşünülen ama kurulmayan seçenek**
+(M14-08a güvenlik denetimi, 2026-10-27): sabit mesajlı bir `BEFORE INSERT OR UPDATE` tetikleyicisi —
+adresi hiçbir mesaja koymadan reddeden, sızıntısız bir veritabanı arkalığı. §5.2'nin kapalı
+listesine bir fonksiyon ekler; bu yüzden kullanıcı kararıdır ve bu kartta yapılmadı.
+
 ### 5.2 Roller ve fonksiyonlar — kapalı liste
 
 **`tappa_identitydefiner`**: NOLOGIN, BYPASSRLS, NOSUPERUSER, üyesi yok, varsayılan yetkisi yok,
@@ -365,6 +383,42 @@ satırıdır (`deploy/README.md`, M14-14).
 - Adresin danışma kilidi (`hashtextextended('admin-identity-email:' || lower(email), 0)`) ve
   yazımı, başka bir işletmenin aynı adresli satırını kilit beklerken commit eden bir oturumla
   pinlenir: bekleyen kayıt kimlik doğurmaz (`ON CONFLICT` burada yerine geçemez — çakışacak kimlik yok).
+
+**M14-08a notu (2026-10-26; kullanıcı kararı — §5.1'in adres kuralı):** `00076`
+`identity_create_for_signup`'ı **aynı imzayla** yeniden tanımlar (`CREATE OR REPLACE`; sahip,
+`SECURITY DEFINER`, `SET search_path`, `REVOKE ALL … FROM PUBLIC` ve `GRANT EXECUTE … TO tappa_app`
+yine de açıkça yazılır — T5). Gövdede iki değişiklik, gerisi 00074'ün baytları:
+- **Yeni yüklem (6b), adresin ad alanlı kilidinden önce:** satırın adresi `mail.ValidRecipient`'in
+  SQL'e yazılmış hâlinden geçer — `octet_length ≤ 254`, `=?` yok ve net/mail addr-spec deseni
+  (dot-atom `@` dot-atom ya da `net.ParseIP`'nin kabul ettiği IP alan literali), yazdırılabilir ASCII'de.
+  Tutmazsa `false`, hiçbir şey yazılmaz; `IS NOT TRUE` NULL'u da reddeder. Desen ile `ValidRecipient`
+  bir tablo (U+0130, U+212A, punycode, boşluk, denetim karakterleri, tırnak, noktalar, her literal biçimi)
+  ve üretilmiş bir külliyat üzerinde aynı cevabı verir (`TestIdentityAddressRule_SQLAgreesWithValidRecipient`).
+- **Adlandırılmış e-posta-geniş okuma** yazdırılabilir ASCII olmayan bir satırı artık **saymaz** (bir
+  FOR döngüsü; desen plpgsql'de karar verilir, kemerin modeli bozulmaz, okuma sayısı yine 1). Yoksa eski
+  binary'nin yazdığı bir homoglif satırı, gerçek adresin sahibinin kayıtta kimlik doğurmasını
+  engellerdi. Bu kümede yazdırılabilir ASCII tam kuraldır: 6b'den geçmiş bir adrese citext'te eşit
+  bir ASCII adres ondan yalnız harf büyüklüğüyle ayrılır ve kural harf büyüklüğünü görmez.
+- **Uygulama sınırı:** `signup.ValidateAccount` adresi aynı fonksiyondan (`mail.ValidRecipient`, kopya
+  değil) geçirir; ASCII olmayan adrese kendi cümlesi. Giriş ve sıfırlama formları yalnız **arar**,
+  değişmedi (düz zamanlama korunur; homoglifle yapılan bir giriş en çok gerçek kimliğe çözülür ve onun
+  parolasını ister).
+- **Bundan sonra doğan her kimlik INSERT'i** (`identity_reconcile`, `identity_accept_invite_new`,
+  `identity_claim_signup`) aynı kuralı INSERT'ten önce bir ret olarak taşır. CHECK'in yerine geçen
+  kemer yapısaldır ve kapalı başarısız olur (`TestIdentityAddressRule_EveryIdentityInsertDecidesIt`):
+  sahibi `admin_identities`'e INSERT edebilen (sütun yetkisi yeter) ve tanımı (`pg_get_functiondef` —
+  `BEGIN ATOMIC` gövdesi dahil) tabloyu herhangi bir yazımla anan ya da dinamik SQL (`EXECUTE`) koşan
+  her fonksiyon, kuralı yorumlar ayıklandıktan sonra gerçek bir `IF (…) IS NOT TRUE THEN RETURN |
+  CONTINUE` reddi olarak taşımalı ya da adıyla listelenmiş, oraya gerçekten yazmayan bir okuyucu
+  olmalıdır (bugün on dört `identity_*` fonksiyonu; `resolve_identity_by_email`'in sahibi INSERT
+  taşımadığı için aday değil); tabloyu hedefleyen rewrite kuralı sayısı 0'dır. Kemer **varlığı**
+  denetler; reddin eklenen değere uygulandığı her yazarın kendi davranış testidir. `00076`'nın Up'ı
+  ayrıca yazdırılabilir ASCII olmayan adresli bir kimlik görürse yalnız sayıyla durur (ön kontrol
+  ile `00073` arasındaki pencere).
+- **Kapsam dışı kalan (açık madde):** `identity_link_legacy` adresleri citext ile karşılaştırır ve bu
+  notla değişmedi. ASCII olmayan bir satırı ancak iki taze oturumu — satırın ve kimliğin parolasını —
+  birlikte kanıtlayan kişi kendi kimliğine bağlayabilir; bu bir gasp yolu değildir, ama kuralın
+  harfiyle ("hiç bağlanmaz") uyum için aynı yüklem oraya da gerekir — ayrı bir kart.
 
 Her fonksiyon: `SECURITY DEFINER`, `SET search_path = pg_catalog, pg_temp`, şema-nitelikli gövde,
 dinamik SQL yok, sabit dönüş sütunları, `REVOKE ALL … FROM PUBLIC`, `EXECUTE` **yalnız**
@@ -678,6 +732,24 @@ veritabanı; migration'lar seed'den önce koşar) iddia koşulsuz geçer (bulgu 
 atlar): backfill'den sonra doğan satırlar için kimlik yaratır/bağlar (`linked_via='reconcile'`).
 Expand'den **sonraki** deploy'da ve M14-19'dan **hemen önce** koşar (bulgu 6b, 23). Binary'yi
 expand'in altına geri almak yalnız uzlaştırmayla birlikte.
+
+**M14-08a notu (2026-10-26; kullanıcı kararı — §5.1'in adres kuralı):** backfill ve uzlaştırma yalnız
+**dolu ve ASCII** e-postalı satırlardan kimlik doğurur (kural tam olarak `mail.ValidRecipient`'tir,
+00076'nın deseni). Uzlaştırmada grubun adayları kuralı geçen satırlardır: bir homoglif satırı grubun en
+eski aktif satırı olsa bile **seçilmez**, kimlik grubun kuralı geçen satırının yazımı ve digest'iyle
+doğar; yalnız kuralı geçmeyen satırlardan oluşan grup kimlik doğurmaz. `00073` uygulanmış bir
+migration olduğu için değiştirilmedi (CLAUDE.md §6); onun tarafı Deploy 1'den önceki salt-okuma
+sayımıdır (`deploy/README.md`, Expand'in ikinci ön kontrolü: backfill adaylarında yazdırılabilir ASCII
+olmayan adres = 0, değilse **dur**); ön kontrol ile `00073` arasındaki pencereyi `00076`'nın Up'ı
+aynı goose koşusunda kapatır (yazdırılabilir ASCII olmayan bir kimlik → yalnız sayıyla hata). Kalan
+ASCII-dışı satırlar **adlandırılmış kalıntıdır**: hiçbir yoldan bağlanmaz ve kimlik doğurmaz; M14-19'un
+"kimliği olmayan dolu e-posta = 0" ön kontrolü onları ayrı sayar, K-3'ün son tarihi ve contract A'nın
+ön koşulu karşısında ne olacakları kullanıcının kararıdır. **İkinci adlandırılmış kalıntı** (M14-08a
+üçüncü göz denetimi, 2026-10-27): ASCII ama biçimi kurala uymayan adresler (`a..b@x.mt`, `"q"@x.mt` —
+eski `deliverableShape`'in geçirdiği şekiller). `00073` bunlara da kimlik doğurur; citext ASCII'de yalnız
+harf büyüklüğünü katladığı için bu bir gasp değildir, ama o kimliğe posta gidemez. Ön kontrolün üçüncü
+sayımı (`failing_send_rule`, 6b'nin yüklemi) onları sayar; DUR değildir, sayı deploy'dan önce kullanıcıya
+bildirilir.
 
 **Onay penceresi** (bulgu 15, R1, R2, S3–S5): iki kapsamla açılır —
 - **`first_verify`** — kimliğin **ilk** doğrulanması (doğrulama linki, davet/kayıt tıklaması):

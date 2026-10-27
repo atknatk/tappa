@@ -188,6 +188,55 @@ func TestValidateAccount_ServerSide(t *testing.T) {
 	}
 }
 
+// TestValidateAccount_RefusesAnAddressMailCannotReach is M14-08a (ADR 0031 §5.1's address rule,
+// 2026-10-26): the address births an identity, so it must be one internal/mail would send to.
+// The two homoglyphs citext folds onto ASCII (U+0130 -> 'i', U+212A -> 'k') are the finding: a
+// registration under either would squat the identity of the ASCII spelling's mailbox for good.
+// The rest are ValidRecipient's other refusals the shallow shape check lets through. The
+// controls pass both rules. The non-ASCII refusals carry their own sentence.
+//
+// MUTATION (measured): the ValidRecipient case removed from ValidateAccount -> the ASCII refusal
+// rows pass (red); the asciiOnly case removed -> the non-ASCII rows get the generic sentence (red
+// on the sentence check); both removed -> every refusal row is red.
+func TestValidateAccount_RefusesAnAddressMailCannotReach(t *testing.T) {
+	t.Parallel()
+	ok := Account{FullName: "Maria Borg", Email: "maria@kebabfactory.com.mt", Password: "correct horse battery"}
+	for _, tc := range []struct {
+		name, email string
+		nonASCII    bool
+	}{
+		{"U+0130 in the domain (folds onto 'i')", "ceo@cor\u0130p.com", true},
+		{"U+212A KELVIN SIGN in the local part (folds onto 'k')", "\u212aate@example.mt", true},
+		{"an accented local part", "jos\u00e9@example.mt", true},
+		{"a Cyrillic 'a' in the domain", "maria@ex\u0430mple.mt", true},
+		{"a quoted local part", `"maria"@example.mt`, false},
+		{"a leading dot", ".maria@example.mt", false},
+		{"two dots in a row", "maria..borg@example.mt", false},
+		{"a trailing dot before the @", "maria.@example.mt", false},
+		{"an encoded-word shape", "=?utf-8?q?x?=@example.mt", false},
+		{"a comma", "maria,borg@example.mt", false},
+		{"a domain literal that is no IP", "maria@[example.mt]", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, errs := ValidateAccount(withEmail(ok, tc.email))
+			msg, refused := errs["email"]
+			if !refused {
+				t.Fatalf("%q was accepted; mail.ValidRecipient refuses it", tc.email)
+			}
+			if got := strings.Contains(msg, "plain a–z"); got != tc.nonASCII {
+				t.Errorf("the sentence %q: names the plain-letter rule = %v, want %v", msg, got, tc.nonASCII)
+			}
+		})
+	}
+	// CONTROLS: what both rules accept -- letter case, an apostrophe and a plus tag included.
+	for _, good := range []string{"maria@kebabfactory.com.mt", "o'neil+tappa@example.mt", "MARIA.Borg@Example.MT"} {
+		if _, errs := ValidateAccount(withEmail(ok, good)); errs.Any() {
+			t.Errorf("%q was refused: %v", good, map[string]string(errs))
+		}
+	}
+}
+
 // TestValidateAccount_NeverReturnsThePassword — the §4.7 shape of this package.
 //
 // ValidateAccount hands back a normalised Account, so it is the one function here
