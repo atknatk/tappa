@@ -30,6 +30,15 @@ type fakeSignupClaims struct {
 	claims map[string]*fakeSignupClaim
 	// known are the addresses that "have a sign-in" (resolve_identity_by_email answers a row).
 	known map[string]bool
+	// signInless are the known addresses whose sign-in has NO active membership (M14-17b), with that
+	// sign-in's password: their confirmation asks for it.
+	signInless map[string]string
+	// identityProofs counts the identity-password proofs asked for; budgetSpent answers them as the
+	// identity's spent failure budget does (adminauth.ErrClaimBudgetSpent).
+	identityProofs int
+	budgetSpent    bool
+	// proveDelay stands in for the identity-password comparison's bcrypt (the concurrency test's window).
+	proveDelay time.Duration
 	// openErr, when set, is Open's answer.
 	openErr error
 	// onOpen is called with every opened draft (the provisioner fake records them).
@@ -50,7 +59,7 @@ type fakeSignupClaim struct {
 }
 
 func newFakeSignupClaims() *fakeSignupClaims {
-	return &fakeSignupClaims{claims: map[string]*fakeSignupClaim{}, known: map[string]bool{}, now: time.Now()}
+	return &fakeSignupClaims{claims: map[string]*fakeSignupClaim{}, known: map[string]bool{}, signInless: map[string]string{}, now: time.Now()}
 }
 
 // rawToken reads a ResetToken back through ClaimGrant.Link, its one window.
@@ -90,8 +99,9 @@ func (f *fakeSignupClaims) Resolve(_ context.Context, t adminauth.ResetToken) (a
 	if !ok {
 		return adminauth.SignupClaim{}, adminauth.ErrNoSuchClaim
 	}
+	_, signInless := f.signInless[strings.ToLower(c.email)]
 	sc := adminauth.SignupClaim{ID: c.id, Email: c.email, Draft: c.draft, ExpiresAt: c.expires,
-		KnownAddress: f.known[strings.ToLower(c.email)]}
+		KnownAddress: f.known[strings.ToLower(c.email)], IdentityPassword: f.known[strings.ToLower(c.email)] && signInless}
 	if c.used {
 		u := f.now
 		sc.UsedAt = &u
@@ -129,6 +139,28 @@ func (f *fakeSignupClaims) ProveWithSession(c adminauth.SignupClaim, _ adminauth
 	}
 	f.proved = fc
 	return adminauth.ClaimProof{}, true
+}
+
+func (f *fakeSignupClaims) ProveWithIdentityPassword(_ context.Context, c adminauth.SignupClaim, password string, _ adminauth.FailureBudget) (adminauth.ClaimProof, error) {
+	if f.proveDelay > 0 {
+		time.Sleep(f.proveDelay) // the comparison's time, outside the lock (the race test's window)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.identityProofs++
+	if f.budgetSpent {
+		return adminauth.ClaimProof{}, adminauth.ErrClaimBudgetSpent
+	}
+	fc := f.byID(c.ID)
+	if fc == nil {
+		return adminauth.ClaimProof{}, adminauth.ErrBadCredentials
+	}
+	want, ok := f.signInless[strings.ToLower(fc.email)]
+	if !ok || !c.IdentityPassword || want != password {
+		return adminauth.ClaimProof{}, adminauth.ErrBadCredentials
+	}
+	f.proved = fc
+	return adminauth.ClaimProof{}, nil
 }
 
 func (f *fakeSignupClaims) Now() time.Time {

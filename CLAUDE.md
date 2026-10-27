@@ -214,14 +214,15 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    bağlamında oturum alabilen owner'larının yalnız id'lerini veren `resolve_admin_owners_by_tenant`'la
    (`tappa_resolver`, ADR 0031 §5.2'nin M14-16b notu) olur. Kimliği yazan
    her fonksiyon kimliği bir **sırdan** bulur (canlı oturum, sıfırlama/davet/kayıt/doğrulama token'ı);
-   adlandırılmış üç istisna `identity_open_session` (Go tipiyle bağlı, 00011 YÜKÜMLÜLÜK 5'in
+   adlandırılmış dört istisna `identity_open_session` (Go tipiyle bağlı, 00011 YÜKÜMLÜLÜK 5'in
    karşılığı), geçici `identity_create_for_signup` (kendi transaction'ında yazılmış tek satır; M14-17'den
-   sonra kalkar) ve `identity_record_failed_login`'dir (yalnız `admin_identity_events`, kimlik kovasıyla
-   sınırlı). Bu kuralın dışında kalan üç bakım yazarının uygulama yolu yoktur: `identity_reconcile()`
+   sonra kalkar), `identity_record_failed_login` (yalnız `admin_identity_events`, kimlik kovasıyla
+   sınırlı) ve `identity_claim_signup`'ın parola koludur (Go tipiyle bağlı — parolayı Go doğrular; yalnız
+   aktif üyeliği olmayan kimliğe, kayıt taslağının token'ıyla ve taslağın adresindeki kimliğe yazar). Bu kuralın dışında kalan üç bakım yazarının uygulama yolu yoktur: `identity_reconcile()`
    (`EXECUTE` yalnız `tappa_owner`'da; M14-06b'nin migration'ı ve M14-19'dan önce runbook çağırır,
    contract B'de düşer), M14-06'nın backfill migration'ı (`tappa_owner`, ADR 0031 §5.8) ve M14-19'un
    migration'ı (`tappa_owner`; yalnız bayrak kapalıyken açılmış onay pencerelerinin `confirm_open_until`'i,
-   ADR 0031 §5.8, §8 adım 5); bunların ve adlandırılmış üç istisnanın dışında kimliği ya da
+   ADR 0031 §5.8, §8 adım 5); bunların ve adlandırılmış dört istisnanın dışında kimliği ya da
    `admin_users`'ın bağ sütunlarını (`identity_id`, `linked_via`, `linked_at`, `unlinked_at`) sırsız yazan
    yoktur. Kimlik yazmayan ama sırra da
    anahtarlı olmayan yazarlar adıyla şunlardır:

@@ -98,6 +98,8 @@ func identityOwner(t *testing.T) *pgx.Conn {
 		for _, sql := range []string{
 			`UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL, unlinked_at = NULL
 			  WHERE identity_id IN (SELECT id FROM admin_identities WHERE email LIKE $1)`,
+			// M14-17b: the email_verified events a password claim of an unverified identity writes.
+			`DELETE FROM admin_identity_events WHERE identity_id IN (SELECT id FROM admin_identities WHERE email LIKE $1)`,
 			`DELETE FROM admin_identities WHERE email LIKE $1`,
 			// M14-17: the drafts (a draft is not a record -- R17; the owner's cleanup, not the sweep's).
 			`DELETE FROM admin_signup_claims WHERE email LIKE $1`,
@@ -154,17 +156,19 @@ var fixtureDigest = func() string {
 	return string(b)
 }()
 
-// testClaim is a confirmed draft: its hash, and the session of an existing identity (nil: a new address).
+// testClaim is a confirmed draft: its hash, and the session of an existing identity (nil: a new address)
+// or (M14-17b) the digest of an existing identity with no active membership (zero: none).
 type testClaim struct {
-	hash    string
-	session *string
-	draft   []byte
+	hash     string
+	session  *string
+	verified db.PasswordHash
+	draft    []byte
 }
 
 func (c testClaim) Draft() []byte { return c.draft }
 
 func (c testClaim) Claim(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (uuid.UUID, error) {
-	return db.ClaimSignup(ctx, tx, c.hash, tenant, c.session)
+	return db.ClaimSignup(ctx, tx, c.hash, tenant, c.session, c.verified)
 }
 
 // rawDraft encodes d's closed keys WITHOUT validating them, so a test can store what the wizard would

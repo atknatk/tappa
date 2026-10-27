@@ -119,13 +119,14 @@ var identitySignaturesM1415 = []identitySignature{
 
 // identitySignaturesM1417 is M14-17's part (migration 00078): the verified registration (ADR 0031 §5.10).
 // The resolver returns the draft last (the 2026-10-26 user decision, ADR 0031 §5.2); the open answers the
-// draft's id or NULL; the claim the owner row; the sweep how many drafts went.
+// draft's id or NULL; the claim the owner row; the sweep how many drafts went. 00080 (M14-17b, the user's
+// decision of 2026-10-27): the claim's fourth argument, the identity's verified digest.
 var identitySignaturesM1417 = []identitySignature{
 	{"resolve_signup_claim_by_token_hash", "p_token_hash text",
 		"TABLE(id uuid, email text, password_hash text, expires_at timestamp with time zone, used_at timestamp with time zone, draft jsonb)", "tappa_resolver"},
 	{"identity_open_signup_claim", "p_token_hash text, p_email citext, p_draft jsonb, p_password_hash text, p_expires_at timestamp with time zone",
 		"uuid", "tappa_identitydefiner"},
-	{"identity_claim_signup", "p_claim_hash text, p_tenant_id uuid, p_session_hash text", "TABLE(admin_user_id uuid)", "tappa_identitydefiner"},
+	{"identity_claim_signup", "p_claim_hash text, p_tenant_id uuid, p_session_hash text, p_verified_digest text", "TABLE(admin_user_id uuid)", "tappa_identitydefiner"},
 	{"identity_sweep_signup_claims", "", "integer", "tappa_identitydefiner"},
 }
 
@@ -822,10 +823,11 @@ func identityExerciseM1415(t *testing.T, ctx context.Context, sp pgx.Tx) []ident
 // runs in a savepoint over it, so the link it makes is rolled back with that savepoint.
 //
 // M14-17: two more businesses born at the top level with NO membership -- what identity_claim_signup
-// claims (predicates 1-3) -- one for a new address and one for an existing identity's session.
+// claims (predicates 1-3) -- one for a new address and one for an existing identity's session; M14-17b:
+// a third for an existing identity with no active membership, claimed with its password (00080).
 type identitySignupWorld struct {
-	tenant, admin      uuid.UUID
-	claimNew, claimOld idClaimTenant
+	tenant, admin               uuid.UUID
+	claimNew, claimOld, claimPw idClaimTenant
 }
 
 func newIdentitySignupWorld(t *testing.T, ctx context.Context, tx pgx.Tx) identitySignupWorld {
@@ -834,6 +836,7 @@ func newIdentitySignupWorld(t *testing.T, ctx context.Context, tx pgx.Tx) identi
 	w.admin = aiAdmin(t, ctx, tx, w.tenant, aiEmail())
 	w.claimNew = newIdClaimTenant(t, ctx, tx, "exercise claim new")
 	w.claimOld = newIdClaimTenant(t, ctx, tx, "exercise claim known")
+	w.claimPw = newIdClaimTenant(t, ctx, tx, "exercise claim password")
 	return w
 }
 
@@ -898,18 +901,26 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx, signup ident
 	// M14-17 (00078): a draft for a new address opened, read and claimed; a draft for the identity above
 	// claimed through a fresh session of its linked row in A (its email_verified_at is NULL, so the first
 	// verification's branch runs); the sweep takes both used drafts.
-	hNew, hOld, hSession := opRandHex(t), opRandHex(t), opRandHex(t)
+	hNew, hOld, hSession, hPw := opRandHex(t), opRandHex(t), opRandHex(t), opRandHex(t)
+	// M14-17b (00080): an identity with no membership at all (unverified, so the mailbox proof's branch
+	// runs), its draft claimed with its digest.
+	emailPw := aiEmail()
+	aiIdentity(t, ctx, sp, emailPw)
 	steps = append(steps,
 		identityStep{name: "M14-17 open claim, new", sql: idOpenClaimSQL, args: []any{hNew, aiEmail(), signup.claimNew.draft(), opFakeDigest("n")}},
 		identityStep{name: "M14-17 resolve claim", sql: resolveSignupClaimSQL, args: []any{hNew}},
 		identityStep{name: "M14-17 claim, new",
 			owner: `SELECT set_config('app.tenant_id', '` + signup.claimNew.id.String() + `', true)`,
-			sql:   claimSignupSQL, args: []any{hNew, signup.claimNew.id, nil}},
+			sql:   claimSignupSQL, args: []any{hNew, signup.claimNew.id, nil, nil}},
 		identityStep{name: "M14-17 open claim, known", sql: idOpenClaimSQL, args: []any{hOld, email, signup.claimOld.draft(), opFakeDigest("o")}},
 		identityStep{name: "M14-17 claim, known",
 			owner: `SELECT set_config('app.tenant_id', '` + signup.claimOld.id.String() + `', true); ` +
 				`INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash) VALUES ('` + a.String() + `', '` + ma.String() + `', '` + hSession + `')`,
-			sql: claimSignupSQL, args: []any{hOld, signup.claimOld.id, hSession}},
+			sql: claimSignupSQL, args: []any{hOld, signup.claimOld.id, hSession, nil}},
+		identityStep{name: "M14-17b open claim, no membership", sql: idOpenClaimSQL, args: []any{hPw, emailPw, signup.claimPw.draft(), opFakeDigest("p")}},
+		identityStep{name: "M14-17b claim, the identity's password",
+			owner: `SELECT set_config('app.tenant_id', '` + signup.claimPw.id.String() + `', true)`,
+			sql:   claimSignupSQL, args: []any{hPw, signup.claimPw.id, nil, opFakeDigest("a")}},
 		identityStep{name: "M14-17 sweep", sql: sweepSignupClaimsSQL},
 	)
 	steps = append(steps, identityExerciseM1418(t, ctx, sp)...)

@@ -151,6 +151,8 @@ type wizardDriver struct {
 	// clock is what the handler's signed state reads. Tests move it forward to get
 	// past the minimum-fill-time gate without sleeping for it.
 	clock *time.Time
+	// remote, when set, is every request's RemoteAddr (a visitor at another address).
+	remote string
 }
 
 func newSignupDriver(t *testing.T, p signupProvisioner, vat vatChecker) (*wizardDriver, *Signup) {
@@ -190,6 +192,9 @@ func (d *wizardDriver) do(method, path string, form url.Values, decorate func(*h
 	}
 	for name, value := range d.jar {
 		req.AddCookie(&http.Cookie{Name: name, Value: value})
+	}
+	if d.remote != "" {
+		req.RemoteAddr = d.remote
 	}
 	if decorate != nil {
 		decorate(req)

@@ -81,6 +81,9 @@ var identityTenantWideReads = map[string]int{
 	"identity_relink_refused":    1,
 	// M14-18 (00079): the window's list of the identity's own memberships (bounded by the identity; 49 list rows).
 	"identity_confirm_window": 1,
+	// M14-17b (00080): "no active membership" -- the identity's memberships, under the person's lock, an
+	// existence test (it returns nothing and writes nothing).
+	"identity_claim_signup": 1,
 	// M14-15 (00077): the lock on every membership of the identity before the business's row and the
 	// invitation are locked (the lock order).
 	"identity_accept_invite": 1,
@@ -130,6 +133,16 @@ var identityEmailWideReads = map[string]int{
 	// identity's address, read from the identity row the session found; unlinked_at >= the window's
 	// opening), LIMIT 50. It writes nothing (STABLE) and lists only what the person may take back.
 	"identity_confirm_window": 1,
+}
+
+// identityClaimAddressKeys names, per function, how many statements key an admin_identities alias by
+// THE CLAIM'S ADDRESS -- `<alias>.email OPERATOR(public.=) X`, X a variable every writer of which passed
+// (there: the draft row the claim token found) -- the belt's fourth class (M14-17b, 00080). The identity
+// key rule otherwise forbids an address as a key: "a writer finds the identity only through a secret",
+// and here the secret is the registration token (ADR 0031 §5.2's "kayıt token'ı"), the address its draft's.
+var identityClaimAddressKeys = map[string]int{
+	// M14-17b (00080): the identity with no active membership, locked while its digest is the verified one.
+	"identity_claim_signup": 1,
 }
 
 // identityTokenKeyed are the tenant tables whose own globally UNIQUE token_hash may anchor a lookup
@@ -440,10 +453,10 @@ type identityBeltScope struct {
 
 // identityStatementVerdict is one statement held to the belt under a scope.
 type identityStatementVerdict struct {
-	findings           []string
-	passed             bool
-	wide, keyed, email int
-	writes             []string // the variables (INTO) or the record (FOR ... IN) the statement writes
+	findings                    []string
+	passed                      bool
+	wide, keyed, email, address int
+	writes                      []string // the variables (INTO) or the record (FOR ... IN) the statement writes
 }
 
 var (
@@ -583,6 +596,22 @@ func identityStatement(fn, stmt string, tenantRel map[string]bool, sc identityBe
 					keyed = keyed || sc.params[side[1]]
 				case alias + ".identity_id":
 					keyed = keyed || (table != "admin_identities" && isAnchor(side[1]))
+				}
+			}
+		}
+		// THE CLAIM'S ADDRESS (identityClaimAddressKeys): an admin_identities alias whose WHERE holds, at
+		// the top level, `<alias>.email OPERATOR(public.=) X` with X a trusted VARIABLE -- the operator read
+		// back from the statement -- keys it only in a function the map names.
+		if !keyed && table == "admin_identities" && identityClaimAddressKeys[fn] > 0 {
+			for _, p := range ops {
+				for _, side := range [][2]string{{p[0], p[1]}, {p[1], p[0]}} {
+					if keyed || side[0] != alias+".email" || !identityParamOrVar.MatchString(side[1]) || sc.params[side[1]] || !trustedValue(side[1]) {
+						continue
+					}
+					if regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(alias) + `\.email\s+OPERATOR\s*\(\s*public\s*\.\s*=\s*\)\s*` + regexp.QuoteMeta(side[1]) + `\b`).MatchString(stmt) {
+						keyed = true
+						v.address++
+					}
 				}
 			}
 		}
@@ -800,12 +829,13 @@ func identityBeltFindings(ctx context.Context, q opQuerier, wide, keyed map[stri
 				break
 			}
 		}
-		wideUsed, keyedUsed, emailUsed := 0, 0, 0
+		wideUsed, keyedUsed, emailUsed, addressUsed := 0, 0, 0, 0
 		for _, v := range verdicts {
 			out = append(out, v.findings...)
 			wideUsed += v.wide
 			keyedUsed += v.keyed
 			emailUsed += v.email
+			addressUsed += v.address
 		}
 		for _, s := range stmts {
 			refs += len(identityRef.FindAllString(s, -1))
@@ -815,6 +845,9 @@ func identityBeltFindings(ctx context.Context, q opQuerier, wide, keyed map[stri
 		}
 		if emailUsed != identityEmailWideReads[b.Name] {
 			out = append(out, fmt.Sprintf("%s: %d e-mail-wide read(s), identityEmailWideReads names %d", b.Name, emailUsed, identityEmailWideReads[b.Name]))
+		}
+		if addressUsed != identityClaimAddressKeys[b.Name] {
+			out = append(out, fmt.Sprintf("%s: %d identity lookup(s) by the claim's address, identityClaimAddressKeys names %d", b.Name, addressUsed, identityClaimAddressKeys[b.Name]))
 		}
 		if keyedUsed != keyed[b.Name] {
 			out = append(out, fmt.Sprintf("%s: %d session lookup(s) by its own key, identitySessionKeyLookups names %d", b.Name, keyedUsed, keyed[b.Name]))
@@ -865,18 +898,14 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 		signupFn    = "public.identity_create_for_signup(uuid, uuid)"
 		acceptFn    = "public.identity_accept_invite(text, text)"
 		acceptNewFn = "public.identity_accept_invite_new(text, text)"
-		claimFn     = "public.identity_claim_signup(text, uuid, text)"
+		claimFn     = "public.identity_claim_signup(text, uuid, text, text)"
 	)
 	// M14-08a (00076): the e-mail-wide read is a FOR loop (its rows' addresses are tested in plpgsql).
 	emailRead := "    FOR r IN\n        SELECT a.email\n          FROM public.admin_users AS a\n         WHERE a.email OPERATOR(public.=) v_email\n           AND a.id <> p_admin_user_id\n    LOOP"
 	switchRevoke := "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.tenant_id = v_tenant\n       AND o.revoked_at IS NULL;"
 	plainRevoke := "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE "
 	viewRevoke := "    UPDATE public.zz_belt_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.revoked_at IS NULL;"
-	type control struct {
-		name, fn, cut, put string
-		pre                []string
-	}
-	for _, c := range []control{
+	identityBeltRunControls(t, ctx, tx, []identityBeltControl{
 		{name: "the revoke loop's tenant", fn: revoke, cut: "WHERE x.tenant_id = m.tenant_id\n               AND ", put: "WHERE "},
 		{name: "the switch's target tenant", fn: switchFn, cut: "WHERE b.tenant_id = p_target_tenant\n       AND ", put: "WHERE "},
 		{name: "M5: the membership list without its identity", fn: membership, cut: "WHERE a.identity_id = v_identity\n           AND ", put: "WHERE "},
@@ -960,7 +989,20 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 		{name: "P3: a tenant read off an unkeyed identity row", fn: openFn,
 			cut: "WHERE i.id = p_identity_id\n       AND i.password_hash = p_verified_digest\n       FOR UPDATE;",
 			put: "WHERE i.password_hash = p_verified_digest\n     LIMIT 1;"},
-	} {
+	})
+}
+
+// identityBeltControl is one belt control: the body of fn with cut replaced by put (after the pre
+// statements) must turn the belt red.
+type identityBeltControl struct {
+	name, fn, cut, put string
+	pre                []string
+}
+
+// identityBeltRunControls runs each control in a savepoint of tx (rolled back with it).
+func identityBeltRunControls(t *testing.T, ctx context.Context, tx pgx.Tx, controls []identityBeltControl) {
+	t.Helper()
+	for _, c := range controls {
 		t.Run("control/"+c.name, func(t *testing.T) {
 			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 				var def string
@@ -985,6 +1027,39 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 			})
 		})
 	}
+}
+
+// TestIdentityBodies_TheClaimsPasswordBranchIsHeldByTheBelt is M14-17b's (00080) part of the belt's
+// controls, in a test of its own: each control re-reads every identity body, ~4 s apiece under -race on
+// CI, and the controls above already use most of opTx's three minutes (measured: the run with these six
+// inside it ended at 183 s, past the deadline). The password branch's identity lookup by the claim's
+// address (the fourth class, identityClaimAddressKeys) and its "no active membership" test, each without
+// what holds it, must turn the belt red.
+func TestIdentityBodies_TheClaimsPasswordBranchIsHeldByTheBelt(t *testing.T) {
+	ctx, tx := opTx(t)
+	const (
+		claimFn      = "public.identity_claim_signup(text, uuid, text, text)"
+		switchFn     = "public.identity_switch_session(text, uuid, text)"
+		switchRevoke = "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.tenant_id = v_tenant\n       AND o.revoked_at IS NULL;"
+	)
+	identityBeltRunControls(t, ctx, tx, []identityBeltControl{
+		// M14-17b (00080): the password branch's identity lookup by the claim's address (the fourth class,
+		// identityClaimAddressKeys) and its "no active membership" test, each without what holds it.
+		{name: "the claim's address key through another operator", fn: claimFn,
+			cut: "         WHERE i.email OPERATOR(public.=) v_email\n", put: "         WHERE i.email OPERATOR(public.<>) v_email\n"},
+		{name: "the claim's address key by a parameter", fn: claimFn,
+			cut: "         WHERE i.email OPERATOR(public.=) v_email\n", put: "         WHERE i.email OPERATOR(public.=) p_session_hash\n"},
+		{name: "the claim's address key by a value written by :=", fn: claimFn,
+			cut: "        SELECT i.id, i.email, i.password_hash, i.email_verified_at INTO",
+			put: "        v_email := v_name;\n        SELECT i.id, i.email, i.password_hash, i.email_verified_at INTO"},
+		{name: "a second claim's address key the map does not count", fn: claimFn,
+			cut: "        IF NOT FOUND THEN\n            RETURN;\n        END IF;\n        -- Under that lock",
+			put: "        PERFORM 1 FROM public.admin_identities AS z WHERE z.email OPERATOR(public.=) v_email;\n        -- Under that lock"},
+		{name: "an address key in a function the map does not name", fn: switchFn, cut: switchRevoke,
+			put: "    PERFORM 1 FROM public.admin_identities AS z WHERE z.email OPERATOR(public.=) v_identity;\n" + switchRevoke},
+		{name: "the claim's membership test without its identity", fn: claimFn,
+			cut: "          WHERE a.identity_id = v_identity\n            AND a.status = 'active'", put: "          WHERE a.status = 'active'"},
+	})
 }
 
 // TestIdentityLex_CommentsLiteralsAndQuotes pins the lexer the belt stands on: line comments, nested

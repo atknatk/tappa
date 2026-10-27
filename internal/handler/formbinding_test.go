@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -282,19 +283,12 @@ func TestPanelForms_EveryRenderedPostFormIsBound(t *testing.T) {
 		t.Fatalf("PREMISE: no binding for the owner (%q)", want)
 	}
 	forms := 0
-	check := func(h http.Handler, path string) {
-		b := newBrowser(t, h)
-		b.raw = true
-		b.cookies[adminauth.CookieName] = formBindingCookie
-		rec := b.do(http.MethodGet, path, nil)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("GET %s: %d", path, rec.Code)
-		}
+	scan := func(path, body string) {
 		// S14: a page whose forms carry a binding sends no Referer from it.
-		if !strings.Contains(rec.Body.String(), `<meta name="referrer" content="no-referrer">`) {
+		if !strings.Contains(body, `<meta name="referrer" content="no-referrer">`) {
 			t.Errorf("%s: the page does not send no-referrer", path)
 		}
-		for _, tag := range regexp.MustCompile(`<form[^>]*>`).FindAllString(rec.Body.String(), -1) {
+		for _, tag := range regexp.MustCompile(`<form[^>]*>`).FindAllString(body, -1) {
 			if !strings.Contains(tag, `method="post"`) {
 				continue
 			}
@@ -312,10 +306,45 @@ func TestPanelForms_EveryRenderedPostFormIsBound(t *testing.T) {
 			}
 		}
 	}
+	browserFor := func(h http.Handler) *browser {
+		b := newBrowser(t, h)
+		b.raw = true
+		b.cookies[adminauth.CookieName] = formBindingCookie
+		return b
+	}
+	check := func(h http.Handler, path string) string {
+		rec := browserFor(h).do(http.MethodGet, path, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s: %d", path, rec.Code)
+		}
+		scan(path, rec.Body.String())
+		return rec.Body.String()
+	}
 	for _, s := range pages.PanelSections {
 		check(router, s.Href)
 	}
 	check(brand.router, accountHref)
+	// The claim queue (M15-18, brought in by the merge of main into M14) is no PanelSection: its
+	// decision form is drawn only with a claim in focus, and its confirmation step only as the answer
+	// to an out-of-band Approve. Both are read here, raw.
+	claimed := inClaim(claimDay(0, 9, 0), claimDay(0, 5, 0))
+	queue := claimPanel(t, formBindingOwner(), newFakeClaimQueue(time.UTC, claimed)).h
+	if bindingFor(queue, formBindingCookie) != want {
+		t.Fatal("PREMISE: the claim queue's panel binds this session differently")
+	}
+	beforeClaims := forms
+	focus := check(queue, claimsHref+"?focus="+claimed.in.ClaimID.String())
+	if !strings.Contains(focus, `name="id" value="`+claimed.in.ClaimID.String()+`"`) {
+		t.Fatal("PREMISE: the claim queue drew no decision form for the claim in focus")
+	}
+	step := browserFor(queue).do(http.MethodPost, claimsHref, decisionForm(claimed.in.ClaimID, "approved"))
+	if step.Code != http.StatusOK || !strings.Contains(step.Body.String(), `name="confirm_token"`) {
+		t.Fatalf("PREMISE: an out-of-band Approve answered %d without the confirmation step", step.Code)
+	}
+	scan("the claim queue's confirmation step", step.Body.String())
+	if n := forms - beforeClaims; n != 2 {
+		t.Errorf("the claim queue's focus page and confirmation step drew %d POST form(s), want 2", n)
+	}
 	// The identity flag open: the Account section also draws M14-11's sign-out everywhere.
 	before := forms
 	_, identityOn := formBindingAuthUnder(t, true, formBindingOwner(), nil)

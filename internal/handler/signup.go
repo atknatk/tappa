@@ -130,6 +130,11 @@ type Signup struct {
 	attemptLimiter *limiter
 	createLimiter  *limiter
 	confirmLimiter *limiter
+	// claimLinkLimiter gates the identity-password branch per registration link (signupClaimLinkLimit).
+	claimLinkLimiter *limiter
+	// claimIdentityLimiter is the identity-password branch's own per-identity counter
+	// (signupClaimIdentityLimit; adminauth keys it per identity, never with the sign-in's key).
+	claimIdentityLimiter *limiter
 
 	log *slog.Logger
 }
@@ -182,6 +187,8 @@ func NewSignup(p signupProvisioner, claims signupClaimer, vat vatChecker, mailer
 		confirmLimiter: newLimiter(signupConfirmLimit, signupConfirmPeriod),
 		log:            log,
 	}
+	s.claimLinkLimiter = newLimiter(signupClaimLinkLimit, signupClaimLinkPeriod)
+	s.claimIdentityLimiter = newLimiter(signupClaimIdentityLimit, signupClaimIdentityPeriod)
 	if delivery == signupByEmail {
 		// The letter must be buildable from TAPPA_BASE_URL, asked once at boot (NewEmailResetChannel's
 		// reason): otherwise every draft would be opened and never delivered.
