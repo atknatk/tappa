@@ -845,15 +845,17 @@ policy_tautology() {
 # APPEND_ONLY — CLAUDE.md §4.3'un bagladigi `transactions` ve onunla ayni
 # muameleyi goren tablolar: `00021`in TRUNCATE korumasindaki alti tablo, 00026'nin
 # yedincisi `operator_audit_log` (platform operatorunun append-only izi) ve 00046'nin
-# sekizincisi `site_punches` (holding sahasinin izdusumu — M11 API-1c) ve 00048'in
-# dokuzuncusu `punch_events` (dis punch akisi — M11 API-2). Bu liste,
+# sekizincisi `site_punches` (holding sahasinin izdusumu — M11 API-1c), 00048'in
+# dokuzuncusu `punch_events` (dis punch akisi — M11 API-2) ve 00068'in onuncusu ile
+# on birincisi `punch_claims`, `punch_claim_decisions` (eksik yari talebi ve karari —
+# M15-15). Bu liste,
 # scripts/pg-restore-verify.sh'in `trunc_tables` listesi ve migration'lardaki
 # tappa_forbid_mutation tetikleyicileri UC temsildir; cmd/tappa/scriptguards_test.go
 # kumeyi migration'lardan TURETIP ikisini de karsilastirir, yani bir sekizincisi
 # eklenip burada unutulursa test kirmizi verir.
 # ⚠️ `operator_audit_log` asagidaki `[^ ]*` onekiyle `audit_log` alt dizgisinden de
 # yakalanirdi (tesadufen); acikca yazilir ki liste turetilmis kumeyle esit olsun.
-APPEND_ONLY='(transactions|audit_log|transaction_reviews|policy_versions|billing_periods|legal_documents|operator_audit_log|site_punches|punch_events)'
+APPEND_ONLY='(transactions|audit_log|transaction_reviews|policy_versions|billing_periods|legal_documents|operator_audit_log|site_punches|punch_events|punch_claims|punch_claim_decisions)'
 
 # R5b'nin 00058 muafiyetinin dosya sekli (asagida, muafiyetin yorumunda gerekcesiyle). 0 = sekil
 # sevk edilen dosyanin sekli; baska her sey (sha256 araci yoksa dahil) 1 -- muafiyet yok, FAIL.

@@ -112,9 +112,12 @@ var tablesLockRowOutside = map[string]rowOutsideKind{
 	// The api rig's business (surface_db_test.go) commits its owner through the application pool, no
 	// lock: its pg_advisory_xact_lock_shared is asOperator's and operatorSession's, around the operator
 	// tables only.
-	"../../internal/handler/api":       rowOutsidePlain,
-	"../../internal/domain/billing":    rowOutsidePlain,
-	"../../internal/domain/checkin":    rowOutsidePlain,
+	"../../internal/handler/api":    rowOutsidePlain,
+	"../../internal/domain/billing": rowOutsidePlain,
+	"../../internal/domain/checkin": rowOutsidePlain,
+	// main's M15-16 (brought into M14 before Deploy 1, 2026-10-27): claim_db_test.go's world commits
+	// its owner, and the forged-reviewer test a manager, each one plain INSERT INTO admin_users.
+	"../../internal/domain/claim":      rowOutsidePlain,
 	"../../internal/domain/ledger":     rowOutsidePlain,
 	"../../internal/domain/legal":      rowOutsidePlain,
 	"../../internal/domain/manual":     rowOutsidePlain,

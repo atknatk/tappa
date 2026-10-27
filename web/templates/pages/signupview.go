@@ -1,6 +1,10 @@
 package pages
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/atknatk/tappa/web/templates/layout"
+)
 
 // The SIGN-UP WIZARD's view models (M7-02).
 //
@@ -43,6 +47,10 @@ type SignupChoice struct {
 // The brand's rule is that an error says what to do rather than blaming, and a
 // message floating at the top of a form cannot say which field it means.
 type SignupBusinessView struct {
+	// Share is the page's link preview (LP-13): its description and the full URL of
+	// its share image, built by internal/handler. The zero value writes neither.
+	Share layout.Share
+
 	CSRFToken string
 	Types     []SignupChoice
 

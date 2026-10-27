@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Public states — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.eyebrow{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#1F5C41;margin:0}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.tapdocket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;box-shadow:0 1px 2px rgba(21,34,25,.08);padding:12px 16px;font-family:'IBM Plex Mono',monospace;font-size:14px}
+.tapdocket::before,.tapdocket::after{content:"";position:absolute;left:0;right:0;height:8px;background:radial-gradient(circle at 6px 4px,#EDF0EA 3px,transparent 3.5px) 0 0/12px 8px repeat-x}
+.tapdocket::before{top:-4px}.tapdocket::after{bottom:-4px}
+.stamp{display:inline-block;padding:3px 8px;border:2px solid;border-radius:0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-6deg);white-space:nowrap}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
+.stamp--flag{border-color:#D98E2B;box-shadow:inset 0 0 0 1px #D98E2B;background:rgba(217,142,43,.1);transform:rotate(-3deg)}
+.stamp--rej{border-color:#BE3D2A;box-shadow:inset 0 0 0 1px #BE3D2A;background:rgba(190,61,42,.1);transform:rotate(-10deg)}
+.btn{min-height:48px;padding:0 22px;border-radius:12px;font:700 15px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:9px;text-decoration:none;box-sizing:border-box;white-space:nowrap}
+.btn--green{background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
+.btn--green:hover{background:#152219;color:#FFFDF4}
+.btn--ghost{border:2px solid #152219;color:#152219;background:transparent}
+.btn--ghost:hover{background:#152219;color:#FFFDF4}
+.ico{flex:none;width:44px;height:44px;border-radius:12px;background:#E1EDE6;color:#1F5C41;display:inline-flex;align-items:center;justify-content:center}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:18px;box-sizing:border-box}
+details.qa{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px}
+details.qa summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:44px;font-weight:700;color:#152219}
+details.qa summary::-webkit-details-marker{display:none}
+details.qa .pl{flex:none;width:28px;height:28px;border-radius:50%;border:1px solid #C9D2C8;display:inline-flex;align-items:center;justify-content:center;color:#1F5C41;transition:transform .2s}
+details.qa[open] .pl{transform:rotate(45deg)}
+.flink{min-height:44px;display:inline-flex;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7);text-decoration:underline;text-underline-offset:4px}
+.flink:hover{color:#152219}
+.navlink{min-height:44px;display:inline-flex;align-items:center;font-size:14px;font-weight:500;color:rgba(21,34,25,.85);text-decoration:none}
+.navlink:hover{color:#152219}
+.navlink[aria-current]{color:#152219;font-weight:700;box-shadow:inset 0 -2px 0 #1F5C41}
+.fcol a{min-height:40px;display:flex;align-items:center;font-size:14px;color:rgba(21,34,25,.85);text-decoration:none}
+.fcol a:hover{color:#152219;text-decoration:underline;text-underline-offset:4px}
+details.menu>summary{list-style:none;cursor:pointer;min-height:44px;min-width:44px;padding:0 10px;box-sizing:border-box;border:1.5px solid #152219;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#152219;background:transparent}
+details.menu>summary::-webkit-details-marker{display:none}
+details.menu:not([open])>nav{display:none}
+details.menu[open]>summary{background:#152219;color:#FFFDF4;border-color:#152219}
+details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}details.menu[open] .mopen{display:none}
+.mlink{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:16px;font-weight:700;color:#152219;text-decoration:none;border-top:1px dashed #C9D2C8}
+.mlink:first-child{border-top:0}
+.hbtn{min-height:44px;padding:0 18px;border-radius:12px;font:700 14px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box;white-space:nowrap;background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
+.hbtn:hover{background:#152219;color:#FFFDF4}
+.mlink[aria-current]{color:#1F5C41;box-shadow:inset 3px 0 0 #1F5C41;padding-left:12px}
+:focus-visible{outline:2px solid #152219;outline-offset:2px}
+.ondark :focus-visible,.band--ink :focus-visible{outline-color:#FFFDF4}
+html{scroll-padding-top:72px}
+@media (max-width:599px){html{scroll-padding-bottom:80px}}
+.fitcard{transition:border-color .15s}.fitcard:hover{border-color:#152219;color:#152219}
+.band--paper .card,.band--paper .docket,.band--paper details.qa{border-color:rgba(21,34,25,.24)}
+.band--paper .docket{box-shadow:0 2px 6px rgba(21,34,25,.08)}
+.band--paper .docket::after{background:radial-gradient(circle at 7px 7px,#EDF0EA 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.more{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-weight:700;font-size:15px;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
+
+.stamp--sm{font-size:10px;padding:2px 7px;letter-spacing:.12em}
+.cell{display:flex;align-items:center;justify-content:center;min-height:92px;padding:16px 10px;box-sizing:border-box;border-radius:12px}
+.na{font-family:'IBM Plex Mono',monospace;font-size:12px;color:rgba(21,34,25,.7)}
+</style>
+</helmet>
+<div style="width: 390px; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
+    <div style="padding: 32px 16px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+      <div>
+        <p class="eyebrow" style="margin-bottom: 10px">LP-7 · states · phone</p>
+        <h1 style="margin: 0 0 8px; font-size: 30px; line-height: 1.1; letter-spacing: -0.03em">Every public control, on a phone</h1>
+        <p style="margin: 0; font-size: 15px; line-height: 1.55; color: rgba(21,34,25,.82)">Touch has no hover, so it is left out here; focus-visible still applies to keyboards and switch access. The header nav links live in the Menu on a phone.</p>
+      </div>
+      <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 16px">
+        <span class="lbl" style="color: #1F5C41; font-weight: 700">Focus ring — WCAG 2.2 focus appearance</span>
+        <p style="margin: 0; font-size: 15px; line-height: 1.6; max-width: 860px">One ring for every public control: <b>2 px solid, 2 px offset</b>. Because of the offset the ring always sits on the surface, never on the control. <b>Ink</b> on porcelain and paper; <b>paper</b> on green and ink. This replaces the landing's 3 px saffron ring: saffron measures 2.32:1 on porcelain and 2.62:1 on paper, below 3:1.</p>
+        <div style="display: grid; grid-template-columns: 1fr; gap: 10px">
+          <div style="display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 12px; background: #EDF0EA; border: 1px solid #C9D2C8">
+          <span style="width: 54px; height: 32px; border-radius: 8px; outline: 2px solid #152219; outline-offset: 2px; background: #1F5C41"></span>
+          <span style="display: flex; flex-direction: column; gap: 2px; color: #152219"><b style="font-size: 14px">Ink on porcelain</b><span class="mono" style="font-size: 12px">14.32:1</span></span>
+        </div>
+          <div style="display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 12px; background: #FFFDF4; border: 1px solid #C9D2C8">
+          <span style="width: 54px; height: 32px; border-radius: 8px; outline: 2px solid #152219; outline-offset: 2px; background: #1F5C41"></span>
+          <span style="display: flex; flex-direction: column; gap: 2px; color: #152219"><b style="font-size: 14px">Ink on paper</b><span class="mono" style="font-size: 12px">16.17:1</span></span>
+        </div>
+          <div style="display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 12px; background: #1F5C41; border: 1px solid #C9D2C8">
+          <span style="width: 54px; height: 32px; border-radius: 8px; outline: 2px solid #FFFDF4; outline-offset: 2px; background: #FFFDF4"></span>
+          <span style="display: flex; flex-direction: column; gap: 2px; color: #FFFDF4"><b style="font-size: 14px">Paper on green</b><span class="mono" style="font-size: 12px">7.73:1</span></span>
+        </div>
+          <div style="display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 12px; background: #152219; border: 1px solid #C9D2C8">
+          <span style="width: 54px; height: 32px; border-radius: 8px; outline: 2px solid #FFFDF4; outline-offset: 2px; background: #1F5C41"></span>
+          <span style="display: flex; flex-direction: column; gap: 2px; color: #FFFDF4"><b style="font-size: 14px">Paper on ink</b><span class="mono" style="font-size: 12px">16.17:1</span></span>
+        </div>
+        </div>
+        <p class="mono" style="margin: 0; font-size: 12px; line-height: 1.6; color: rgba(21,34,25,.75)">CSS: :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px } · --ring = ink, and paper inside green/ink bands. Pressed = :active. Disabled exists only on form submits. Visited links keep their default colour (navigation, not reading lists).</p>
+      </div>
+      <div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+        <span style="font-size: 16px; font-weight: 700">Phone Menu, open (on /security)</span>
+        <div role="img" aria-label="Phone header with the Menu open: the page list with Security marked current" style="border: 1px solid #C9D2C8; border-radius: 12px; overflow: hidden; background: #EDF0EA">
+          <div style="height: 56px; padding: 0 8px 0 12px; display: flex; align-items: center; justify-content: space-between; gap: 6px; border-bottom: 1px solid #C9D2C8">
+            <span style="display: flex; align-items: center; gap: 8px"><span aria-hidden="true" style="flex: none; width: 22px; height: 22px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 4px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span><b style="font-size: 17px; letter-spacing: -0.03em">taptime</b></span>
+            <span style="min-height: 44px; min-width: 44px; padding: 0 10px; box-sizing: border-box; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; background: #152219; color: #FFFDF4; border: 1.5px solid #152219">Close</span>
+          </div>
+          <div style="background: #FFFDF4; padding: 6px 12px 12px">
+            <span class="lbl" style="display: block; padding: 8px 0 4px">Pages</span><div style="border-top: 0"><span style="width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; box-sizing: border-box; font-size: 15px; font-weight: 700; color: #152219"><span>Product tour</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></span></div><div style="border-top: 1px dashed #C9D2C8"><span style="width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; box-sizing: border-box; font-size: 15px; font-weight: 700; color: #1F5C41; box-shadow: inset 3px 0 0 #1F5C41"><span>Security</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></span></div><div style="border-top: 1px dashed #C9D2C8"><span style="width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; box-sizing: border-box; font-size: 15px; font-weight: 700; color: #152219"><span>Pricing</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></span></div><div style="border-top: 1px dashed #C9D2C8"><span style="width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; box-sizing: border-box; font-size: 15px; font-weight: 700; color: #152219"><span>For restaurants &amp; bars</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></span></div><div style="border-top: 1px dashed #C9D2C8"><span style="width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; box-sizing: border-box; font-size: 15px; font-weight: 700; color: #152219"><span>For production &amp; facilities</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></span></div><div style="border-top: 1px dashed #C9D2C8"><span style="width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; box-sizing: border-box; font-size: 15px; font-weight: 700; color: #152219"><span>API docs</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></span></div>
+          </div>
+        </div>
+        <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">The panel overlays the page under the sticky header; closing it is the same summary, now reading "Close".</span>
+      </div>
+      <div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Primary button</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">.btn--green · hero, page ends</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">hover ink · pressed ink with a 2 px green inner edge, 1 px down · disabled only on a form submit (signup)</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 48px; padding: 0 20px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; text-decoration: none; border: 0; background: #1F5C41; color: #FFFDF4; box-shadow: 0 4px 14px rgba(31,92,65,.22)">Start free</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 48px; padding: 0 20px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; text-decoration: none; border: 0; background: #1F5C41; color: #FFFDF4; outline: 2px solid #152219; outline-offset: 2px">Start free</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 48px; padding: 0 20px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; text-decoration: none; border: 0; background: #152219; color: #FFFDF4; transform: translateY(1px); box-shadow: inset 0 0 0 2px #1F5C41">Start free</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Disabled</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><button disabled aria-disabled="true" style="min-height: 48px; padding: 0 20px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; text-decoration: none; border: 0; background: rgba(21,34,25,.12); color: rgba(21,34,25,.6); cursor: not-allowed">Start free</button></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Ghost button</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">.btn--ghost · second hero action</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">hover inverts to ink · ghost buttons are links: no disabled state</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 48px; padding: 0 20px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; text-decoration: none; border: 0; border: 2px solid #152219; color: #152219">Watch demo</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 48px; padding: 0 20px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; text-decoration: none; border: 0; border: 2px solid #152219; color: #152219; outline: 2px solid #152219; outline-offset: 2px">Watch demo</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 48px; padding: 0 20px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; text-decoration: none; border: 0; border: 2px solid #152219; background: #152219; color: #FFFDF4; transform: translateY(1px); box-shadow: inset 0 0 0 2px #1F5C41">Watch demo</span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">CTA band button</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">paper on the green &quot;Go punchless.&quot; band</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">on green the ring is paper (7.73:1 against green)</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #1F5C41; "><span style="min-height: 48px; padding: 0 20px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; text-decoration: none; border: 0; background: #FFFDF4; color: #1F5C41">Start free</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #1F5C41; "><span style="min-height: 48px; padding: 0 20px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; text-decoration: none; border: 0; background: #FFFDF4; color: #1F5C41; outline: 2px solid #FFFDF4; outline-offset: 2px">Start free</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #1F5C41; "><span style="min-height: 48px; padding: 0 20px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; text-decoration: none; border: 0; background: #152219; color: #FFFDF4; transform: translateY(1px); box-shadow: inset 0 0 0 2px #FFFDF4">Start free</span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Sign in</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">header link</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">visited = default (no visited colour)</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 44px; display: inline-flex; align-items: center; font-size: 14px; font-weight: 700; text-underline-offset: 4px; padding: 0 2px; color: #1F5C41; text-decoration: underline">Sign in</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 44px; display: inline-flex; align-items: center; font-size: 14px; font-weight: 700; text-underline-offset: 4px; padding: 0 2px; color: #1F5C41; text-decoration: underline; outline: 2px solid #152219; outline-offset: 2px; border-radius: 6px">Sign in</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 44px; display: inline-flex; align-items: center; font-size: 14px; font-weight: 700; text-underline-offset: 4px; padding: 0 2px; color: #152219; text-decoration: underline; text-decoration-thickness: 2px">Sign in</span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Footer link</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">.fcol a · Product and Legal columns</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">underline on hover; visited = default</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 40px; display: inline-flex; align-items: center; font-size: 14px; text-underline-offset: 4px; padding: 0 2px; color: rgba(21,34,25,.85); text-decoration: none">Product tour</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 40px; display: inline-flex; align-items: center; font-size: 14px; text-underline-offset: 4px; padding: 0 2px; color: #152219; text-decoration: none; outline: 2px solid #152219; outline-offset: 2px; border-radius: 6px">Product tour</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 40px; display: inline-flex; align-items: center; font-size: 14px; text-underline-offset: 4px; padding: 0 2px; color: #152219; text-decoration: underline; text-decoration-thickness: 2px">Product tour</span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Next-step link</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">.more · one per section end</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">the same style on every page; visited = default</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 44px; display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; text-underline-offset: 4px; padding: 0 2px; color: #1F5C41; text-decoration: underline">Pricing in detail<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 44px; display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; text-underline-offset: 4px; padding: 0 2px; color: #1F5C41; text-decoration: underline; outline: 2px solid #152219; outline-offset: 2px; border-radius: 6px">Pricing in detail<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 44px; display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; text-underline-offset: 4px; padding: 0 2px; color: #152219; text-decoration: underline; text-decoration-thickness: 2px">Pricing in detail<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">FAQ item</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">details.qa · closed and open</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">+ turns to × when open; the ring sits on the summary</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><div style="width: 100%; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 14px; box-sizing: border-box">
+          <div style="min-height: 44px; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 10px 12px; font-weight: 700; font-size: 13px; line-height: 1.35; border-radius: 13px"><span>What if someone doesn't have their phone that day?</span><span style="flex: none; width: 26px; height: 26px; border-radius: 50%; border: 1px solid #C9D2C8; display: inline-flex; align-items: center; justify-content: center; color: #1F5C41; "><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span></div>
+        </div></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><div style="width: 100%; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 14px; box-sizing: border-box">
+          <div style="min-height: 44px; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 10px 12px; font-weight: 700; font-size: 13px; line-height: 1.35; border-radius: 13px; outline: 2px solid #152219; outline-offset: 2px"><span>What if someone doesn't have their phone that day?</span><span style="flex: none; width: 26px; height: 26px; border-radius: 50%; border: 1px solid #C9D2C8; display: inline-flex; align-items: center; justify-content: center; color: #1F5C41; "><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span></div>
+        </div></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><div style="width: 100%; background: #FFFDF4; border: 1px solid #152219; border-radius: 14px; box-sizing: border-box">
+          <div style="min-height: 44px; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 10px 12px; font-weight: 700; font-size: 13px; line-height: 1.35; border-radius: 13px"><span>What if someone doesn't have their phone that day?</span><span style="flex: none; width: 26px; height: 26px; border-radius: 50%; border: 1px solid #C9D2C8; display: inline-flex; align-items: center; justify-content: center; color: #1F5C41; "><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span></div>
+        </div></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Current / open</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><div style="width: 100%; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 14px; box-sizing: border-box">
+          <div style="min-height: 44px; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 10px 12px; font-weight: 700; font-size: 13px; line-height: 1.35; border-radius: 13px"><span>What if someone doesn't have their phone that day?</span><span style="flex: none; width: 26px; height: 26px; border-radius: 50%; border: 1px solid #C9D2C8; display: inline-flex; align-items: center; justify-content: center; color: #1F5C41; transform: rotate(45deg)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span></div><p style="margin: 0; padding: 0 12px 12px; font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.82)">The shift lead records the entry from the dashboard.</p>
+        </div></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Phone Menu</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">details.menu summary</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">open = &quot;Close&quot; on ink; the panel lists the pages</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 44px; min-width: 44px; padding: 0 10px; box-sizing: border-box; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; border: 1.5px solid #152219; color: #152219">Menu</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 44px; min-width: 44px; padding: 0 10px; box-sizing: border-box; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; border: 1.5px solid #152219; color: #152219; outline: 2px solid #152219; outline-offset: 2px">Menu</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 44px; min-width: 44px; padding: 0 10px; box-sizing: border-box; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; border: 1.5px solid #152219; background: #152219; color: #FFFDF4">Menu</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Current / open</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 44px; min-width: 44px; padding: 0 10px; box-sizing: border-box; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; background: #152219; color: #FFFDF4; border: 1.5px solid #152219">Close</span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Menu link</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">.mlink · inside the open Menu</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">current page: green text + 3 px green bar</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #FFFDF4; border: 1px solid #C9D2C8"><span style="width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; box-sizing: border-box; font-size: 15px; font-weight: 700; color: #152219"><span>Security</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #FFFDF4; border: 1px solid #C9D2C8"><span style="width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; box-sizing: border-box; font-size: 15px; font-weight: 700; color: #152219; outline: 2px solid #152219; outline-offset: 2px; border-radius: 8px"><span>Security</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #FFFDF4; border: 1px solid #C9D2C8"><span style="width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; box-sizing: border-box; font-size: 15px; font-weight: 700; color: #152219; background: rgba(21,34,25,.08)"><span>Security</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Current / open</span>
+                <div class="cell" style="min-height: 76px; background: #FFFDF4; border: 1px solid #C9D2C8"><span style="width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; box-sizing: border-box; font-size: 15px; font-weight: 700; color: #1F5C41; box-shadow: inset 3px 0 0 #1F5C41"><span>Security</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Sticky phone bar</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">.mbar · every public phone page except Signup</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">touch: no hover; the button keeps its own states</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><div style="width: 100%; box-sizing: border-box; padding: 10px 12px 12px; background: rgba(237,240,234,.96); border-top: 1px solid #C9D2C8; box-shadow: 0 -8px 24px rgba(21,34,25,.08)"><span style="min-height: 48px; padding: 0 20px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; width: 100%; text-decoration: none; border: 0; background: #1F5C41; color: #FFFDF4; box-shadow: 0 4px 14px rgba(31,92,65,.22)">Start free</span></div></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><div style="width: 100%; box-sizing: border-box; padding: 10px 12px 12px; background: rgba(237,240,234,.96); border-top: 1px solid #C9D2C8; box-shadow: 0 -8px 24px rgba(21,34,25,.08)"><span style="min-height: 48px; padding: 0 20px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; width: 100%; text-decoration: none; border: 0; background: #1F5C41; color: #FFFDF4; outline: 2px solid #152219; outline-offset: 2px">Start free</span></div></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><div style="width: 100%; box-sizing: border-box; padding: 10px 12px 12px; background: rgba(237,240,234,.96); border-top: 1px solid #C9D2C8; box-shadow: 0 -8px 24px rgba(21,34,25,.08)"><span style="min-height: 48px; padding: 0 20px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; width: 100%; text-decoration: none; border: 0; background: #152219; color: #FFFDF4; transform: translateY(1px); box-shadow: inset 0 0 0 2px #1F5C41">Start free</span></div></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Whole-card link</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">a.card.fitcard · landing &quot;Built for both shapes&quot;</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">the whole card is one link; hover darkens the border; the ring wraps the card</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 14px; background: #FFFDF4; border: 1px solid #C9D2C8">
+          <span class="mono" style="font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #1F5C41">Multi-location</span>
+          <span style="font-size: 13px; font-weight: 700; line-height: 1.25">Restaurant &amp; retail chains</span>
+          <span class="mono" style="font-size: 10.5px; font-weight: 700; color: #1F5C41; display: inline-flex; align-items: center; gap: 4px">For restaurants &amp; bars <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+        </span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 14px; background: #FFFDF4; border: 1px solid #C9D2C8; outline: 2px solid #152219; outline-offset: 2px">
+          <span class="mono" style="font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #1F5C41">Multi-location</span>
+          <span style="font-size: 13px; font-weight: 700; line-height: 1.25">Restaurant &amp; retail chains</span>
+          <span class="mono" style="font-size: 10.5px; font-weight: 700; color: #1F5C41; display: inline-flex; align-items: center; gap: 4px">For restaurants &amp; bars <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+        </span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 14px; background: #EDF0EA; border: 1px solid #152219">
+          <span class="mono" style="font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #1F5C41">Multi-location</span>
+          <span style="font-size: 13px; font-weight: 700; line-height: 1.25">Restaurant &amp; retail chains</span>
+          <span class="mono" style="font-size: 10.5px; font-weight: 700; color: #1F5C41; display: inline-flex; align-items: center; gap: 4px">For restaurants &amp; bars <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+        </span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Index entry (docket)</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">/product &quot;On this page&quot; · desktop</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">an entry in the docket list; hover turns it green</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; box-sizing: border-box; background: #FFFDF4; border: 1px solid #C9D2C8; padding: 6px 10px">
+          <span style="min-height: 40px; display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 14px; color: #152219"><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); font-weight: 400">02</span>The Pass</span>
+        </span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; box-sizing: border-box; background: #FFFDF4; border: 1px solid #C9D2C8; padding: 6px 10px">
+          <span style="min-height: 40px; display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 14px; color: #152219; outline: 2px solid #152219; outline-offset: 2px; border-radius: 6px"><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); font-weight: 400">02</span>The Pass</span>
+        </span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; box-sizing: border-box; background: #FFFDF4; border: 1px solid #C9D2C8; padding: 6px 10px">
+          <span style="min-height: 40px; display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 14px; color: #1F5C41; text-decoration: underline; text-underline-offset: 4px"><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); font-weight: 400">02</span>The Pass</span>
+        </span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Index chip</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">/product &quot;On this page&quot; · tablet and phone</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">a chip; hover gets an ink border, pressed a green-lite fill</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 36px; padding: 0 12px; display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; color: #152219; font-size: 13.5px; font-weight: 700; border: 1px solid #C9D2C8; background: #FFFDF4"><span class="mono" style="font-size: 10.5px; font-weight: 400; color: rgba(21,34,25,.7)">02</span>The Pass</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 36px; padding: 0 12px; display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; color: #152219; font-size: 13.5px; font-weight: 700; border: 1px solid #C9D2C8; background: #FFFDF4; outline: 2px solid #152219; outline-offset: 2px"><span class="mono" style="font-size: 10.5px; font-weight: 400; color: rgba(21,34,25,.7)">02</span>The Pass</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 36px; padding: 0 12px; display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; color: #152219; font-size: 13.5px; font-weight: 700; border: 1px solid #152219; background: #E1EDE6"><span class="mono" style="font-size: 10.5px; font-weight: 400; color: rgba(21,34,25,.7)">02</span>The Pass</span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Home link (lockup)</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">ring + taptime · every public header</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">hover turns the word green; the ring wraps the lockup</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 44px; display: inline-flex; align-items: center; gap: 8px; padding: 0 4px; border-radius: 8px"><span aria-hidden="true" style="flex: none; width: 24px; height: 24px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 5px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span><b style="font-size: 20px; letter-spacing: -0.03em; color: #152219; ">taptime</b></span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 44px; display: inline-flex; align-items: center; gap: 8px; padding: 0 4px; border-radius: 8px; outline: 2px solid #152219; outline-offset: 2px"><span aria-hidden="true" style="flex: none; width: 24px; height: 24px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 5px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span><b style="font-size: 20px; letter-spacing: -0.03em; color: #152219; ">taptime</b></span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 44px; display: inline-flex; align-items: center; gap: 8px; padding: 0 4px; border-radius: 8px"><span aria-hidden="true" style="flex: none; width: 24px; height: 24px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 5px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span><b style="font-size: 20px; letter-spacing: -0.03em; color: #1F5C41; text-decoration: underline; text-underline-offset: 4px">taptime</b></span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Legal link (.flink)</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">Security hosting card · Privacy · Terms · Company details · Cookies</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">mono, uppercase, underlined</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #FFFDF4; border: 1px solid #C9D2C8"><span class="mono" style="min-height: 44px; display: inline-flex; align-items: center; padding: 0 2px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; text-decoration: underline; text-underline-offset: 4px; color: rgba(21,34,25,.7)">Privacy</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #FFFDF4; border: 1px solid #C9D2C8"><span class="mono" style="min-height: 44px; display: inline-flex; align-items: center; padding: 0 2px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; text-decoration: underline; text-underline-offset: 4px; color: rgba(21,34,25,.7); outline: 2px solid #152219; outline-offset: 2px; border-radius: 6px">Privacy</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #FFFDF4; border: 1px solid #C9D2C8"><span class="mono" style="min-height: 44px; display: inline-flex; align-items: center; padding: 0 2px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; text-decoration: underline; text-underline-offset: 4px; color: #152219; text-decoration-thickness: 2px">Privacy</span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Legal document switcher</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">Legal page · nav &quot;Legal documents&quot;</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">current = aria-current: paper with a 2 px ink border</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 14px; color: #152219; background: transparent; border: 1px solid #C9D2C8">
+          <b style="font-size: 14px">Privacy policy</b><span class="mono" style="font-size: 10.5px; color: rgba(21,34,25,.7)">/legal/privacy</span>
+        </span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 14px; color: #152219; background: transparent; border: 1px solid #C9D2C8; outline: 2px solid #152219; outline-offset: 2px">
+          <b style="font-size: 14px">Privacy policy</b><span class="mono" style="font-size: 10.5px; color: rgba(21,34,25,.7)">/legal/privacy</span>
+        </span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 14px; color: #152219; background: #FFFDF4; border: 1px solid #152219">
+          <b style="font-size: 14px">Privacy policy</b><span class="mono" style="font-size: 10.5px; color: rgba(21,34,25,.7)">/legal/privacy</span>
+        </span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Current / open</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 14px; color: #152219; background: #FFFDF4; border: 2px solid #152219">
+          <b style="font-size: 14px">Privacy policy</b><span class="mono" style="font-size: 10.5px; color: rgba(21,34,25,.7)">/legal/privacy</span>
+        </span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Text input</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">Signup · Business name, VAT number, Your name, Email</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">the focus ring replaces the old 1 px green outline; disabled only while submitting</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; display: flex; flex-direction: column; gap: 5px">
+          <span class="lbl" style="font-size: 10px">Business name</span>
+          <span class="mono" style="min-height: 44px; display: flex; align-items: center; padding: 0 10px; box-sizing: border-box; border-radius: 10px; font-size: 12.5px; color: #152219; border: 1px solid #C9D2C8; background: #FFFDF4">Kebab Factory Ltd.</span>
+        </span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; display: flex; flex-direction: column; gap: 5px">
+          <span class="lbl" style="font-size: 10px">Business name</span>
+          <span class="mono" style="min-height: 44px; display: flex; align-items: center; padding: 0 10px; box-sizing: border-box; border-radius: 10px; font-size: 12.5px; color: #152219; border: 1px solid #152219; background: #FFFDF4; outline: 2px solid #152219; outline-offset: 2px">Kebab Factory Ltd.</span>
+        </span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Disabled</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; display: flex; flex-direction: column; gap: 5px">
+          <span class="lbl" style="font-size: 10px">Business name</span>
+          <span class="mono" style="min-height: 44px; display: flex; align-items: center; padding: 0 10px; box-sizing: border-box; border-radius: 10px; font-size: 12.5px; color: #152219; border: 1px solid #C9D2C8; background: #EDF0EA; color: rgba(21,34,25,.6)">Kebab Factory Ltd.</span>
+        </span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Business-type chip</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">Signup step 1 · role=radio</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">checked: green-lite fill and a 2 px green border</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span role="radio" aria-checked="false" class="mono" style="min-height: 44px; padding: 0 14px; display: inline-flex; align-items: center; box-sizing: border-box; border-radius: 10px; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: #152219; background: #FFFDF4; border: 1px solid #C9D2C8">Restaurant</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span role="radio" aria-checked="false" class="mono" style="min-height: 44px; padding: 0 14px; display: inline-flex; align-items: center; box-sizing: border-box; border-radius: 10px; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: #152219; background: #FFFDF4; border: 1px solid #C9D2C8; outline: 2px solid #152219; outline-offset: 2px">Restaurant</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span role="radio" aria-checked="false" class="mono" style="min-height: 44px; padding: 0 14px; display: inline-flex; align-items: center; box-sizing: border-box; border-radius: 10px; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: #152219; background: #E1EDE6; border: 1px solid #152219">Restaurant</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Current / open</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span role="radio" aria-checked="true" class="mono" style="min-height: 44px; padding: 0 14px; display: inline-flex; align-items: center; box-sizing: border-box; border-radius: 10px; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: #152219; background: rgba(31,92,65,.12); border: 2px solid #1F5C41">Restaurant</span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Place-count card</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">Signup step 1 · One place / Several places · role=radio</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">checked: green-lite fill and a 2 px green border</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span role="radio" aria-checked="false" style="width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; color: #152219; background: #FFFDF4; border: 1px solid #C9D2C8">
+          <b style="font-size: 14px">Several places</b><span style="font-size: 11.5px; line-height: 1.4; color: rgba(21,34,25,.8)">Branches, sites or floors.</span>
+        </span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span role="radio" aria-checked="false" style="width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; color: #152219; background: #FFFDF4; border: 1px solid #C9D2C8; outline: 2px solid #152219; outline-offset: 2px">
+          <b style="font-size: 14px">Several places</b><span style="font-size: 11.5px; line-height: 1.4; color: rgba(21,34,25,.8)">Branches, sites or floors.</span>
+        </span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span role="radio" aria-checked="false" style="width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; color: #152219; background: #E1EDE6; border: 1px solid #152219">
+          <b style="font-size: 14px">Several places</b><span style="font-size: 11.5px; line-height: 1.4; color: rgba(21,34,25,.8)">Branches, sites or floors.</span>
+        </span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Current / open</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span role="radio" aria-checked="true" style="width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; color: #152219; background: rgba(31,92,65,.12); border: 2px solid #1F5C41">
+          <b style="font-size: 14px">Several places</b><span style="font-size: 11.5px; line-height: 1.4; color: rgba(21,34,25,.8)">Branches, sites or floors.</span>
+        </span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Password field</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">Signup step 3 · type=password, at least 8</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">the same states as a text input</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; display: flex; flex-direction: column; gap: 5px">
+          <span class="lbl" style="font-size: 10px">Password</span>
+          <span class="mono" style="min-height: 44px; display: flex; align-items: center; padding: 0 10px; box-sizing: border-box; border-radius: 10px; font-size: 12.5px; color: #152219; border: 1px solid #C9D2C8; background: #FFFDF4">••••••••••</span>
+        </span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; display: flex; flex-direction: column; gap: 5px">
+          <span class="lbl" style="font-size: 10px">Password</span>
+          <span class="mono" style="min-height: 44px; display: flex; align-items: center; padding: 0 10px; box-sizing: border-box; border-radius: 10px; font-size: 12.5px; color: #152219; border: 1px solid #152219; background: #FFFDF4; outline: 2px solid #152219; outline-offset: 2px">••••••••••</span>
+        </span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Disabled</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="width: 100%; display: flex; flex-direction: column; gap: 5px">
+          <span class="lbl" style="font-size: 10px">Password</span>
+          <span class="mono" style="min-height: 44px; display: flex; align-items: center; padding: 0 10px; box-sizing: border-box; border-radius: 10px; font-size: 12.5px; color: #152219; border: 1px solid #C9D2C8; background: #EDF0EA; color: rgba(21,34,25,.6)">••••••••••</span>
+        </span></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Submit</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">Signup · &quot;Create my account&quot; (.btn--primary)</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">disabled while the request is in flight</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 48px; padding: 0 12px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; text-decoration: none; border: 0; background: #1F5C41; color: #FFFDF4; box-shadow: 0 4px 14px rgba(31,92,65,.22)">Create my account</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 48px; padding: 0 12px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; text-decoration: none; border: 0; background: #1F5C41; color: #FFFDF4; outline: 2px solid #152219; outline-offset: 2px">Create my account</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><span style="min-height: 48px; padding: 0 12px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; text-decoration: none; border: 0; background: #152219; color: #FFFDF4; transform: translateY(1px); box-shadow: inset 0 0 0 2px #1F5C41">Create my account</span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Disabled</span>
+                <div class="cell" style="min-height: 76px; background: #EDF0EA; border: 1px solid #C9D2C8"><button disabled aria-disabled="true" style="min-height: 48px; padding: 0 12px; border-radius: 12px; font: 700 15px 'Space Grotesk', sans-serif; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; white-space: nowrap; text-decoration: none; border: 0; background: rgba(21,34,25,.12); color: rgba(21,34,25,.6); cursor: not-allowed">Create my account</button></div>
+              </div></div>
+          </div><div class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 16px; font-weight: 700">Demo dialog close</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.75)">44×44 · autofocus when the dialog opens</span>
+            <span style="font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.8)">the ring is ink now, not saffron</span>
+            <div style="display: flex; flex-direction: column; gap: 10px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Default</span>
+                <div class="cell" style="min-height: 76px; background: #FFFDF4; border: 1px solid #C9D2C8"><span aria-label="Close the demo" style="width: 44px; height: 44px; box-sizing: border-box; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; border: 2px solid #152219; color: #152219"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Focus-visible</span>
+                <div class="cell" style="min-height: 76px; background: #FFFDF4; border: 1px solid #C9D2C8"><span aria-label="Close the demo" style="width: 44px; height: 44px; box-sizing: border-box; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; border: 2px solid #152219; color: #152219; outline: 2px solid #152219; outline-offset: 2px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span></div>
+              </div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">Pressed</span>
+                <div class="cell" style="min-height: 76px; background: #FFFDF4; border: 1px solid #C9D2C8"><span aria-label="Close the demo" style="width: 44px; height: 44px; box-sizing: border-box; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; border: 2px solid #152219; background: #152219; color: #FFFDF4; transform: translateY(1px)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span></div>
+              </div></div>
+          </div>
+    </div>
+  </div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview": {"width": 390, "height": 13103}}'>
+class Component extends DCLogic {
+  renderVals() { return { menuOpen: false }; }
+}</script>
+</body>
+</html>

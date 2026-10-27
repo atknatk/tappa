@@ -77,10 +77,11 @@ import (
 // TestAppendOnly_TruncateProbeCannotOutwaitTheDeadlockDetector.
 // ============================================================================
 
-// truncateTargets are the six append-only tables and the statement that empties
-// each. Two of them are written with CASCADE because a FK child would otherwise
+// truncateTargets are the append-only tables -- 00021's six and 00068's two -- and the statement
+// that empties each. Three of them are written with CASCADE because a FK child would otherwise
 // refuse the statement before any trigger could fire (transaction_reviews under
-// transactions; transactions under policy_versions) -- and CASCADE is also the
+// transactions; transactions under policy_versions; punch_claim_decisions under punch_claims --
+// measured at 00068: "cannot truncate a table referenced in a foreign key constraint") -- and CASCADE is also the
 // interesting shape, see TestAppendOnly_TruncateCascadeIsRefusedToo.
 var truncateTargets = []struct {
 	name string
@@ -92,6 +93,11 @@ var truncateTargets = []struct {
 	{"billing_periods", "TRUNCATE billing_periods"},
 	{"policy_versions", "TRUNCATE policy_versions CASCADE"},
 	{"legal_documents", "TRUNCATE legal_documents"},
+	// 00068 (M15-15, ADR 0032 §C.2). With CASCADE the decisions' guard would refuse too, which is why
+	// the assertion below wants the message to name the table itself (measured at 00068: with
+	// punch_claims_no_truncate dropped, the refusal names punch_claim_decisions).
+	{"punch_claims", "TRUNCATE punch_claims CASCADE"},
+	{"punch_claim_decisions", "TRUNCATE punch_claim_decisions"},
 }
 
 // SQLSTATEs the retry loop classifies on, named rather than matched on message

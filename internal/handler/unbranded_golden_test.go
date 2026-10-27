@@ -39,6 +39,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/domain/checkin"
+	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/invite"
 	"github.com/atknatk/tappa/internal/session"
@@ -100,6 +101,11 @@ func unbrandedScreenRenders(t *testing.T) []screenGolden {
 	tapPage("tap-page-foreign-plaque", &fakeDirectory{
 		facts: tenant.TapPageFacts{EmployeeName: "Maria Borg"}, err: tenant.ErrForeignLocation,
 	})
+	// M15-12: the two directed shapes of the button (ADR 0032 §B.1). Written from this
+	// card's own render -- there was no "before" for a screen that did not exist; the
+	// undirected tap-page above is byte-identical to its pre-M15 golden.
+	tapPage("tap-page-clock-in", &fakeDirectory{facts: predicted(tap.TypeIn)})
+	tapPage("tap-page-clock-out", &fakeDirectory{facts: predicted(tap.TypeOut)})
 
 	// --- the tap family's failure screens ----------------------------------------
 	hBad, _ := newTapHandler(t, &fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()}, fixedSessions())
@@ -234,7 +240,10 @@ func goldenBytes(r screenGolden) []byte {
 //
 // 33 -> 36 on 2026-10-09 (M10 WL-13): activate-complete, activate-complete-replaced and
 // activate-already-set-up, written from e95a717 before WL-13 branded them.
-const unbrandedScreenCount = 36
+// 36 -> 38 on 2026-10-22 (M15-12): tap-page-clock-in and tap-page-clock-out. The same card
+// rewrote the ten result goldens whose headline carries a direction ("Tapped in/out" ->
+// "Clocked in/out", Q33) -- one word each, nothing else.
+const unbrandedScreenCount = 38
 
 // TestUnbrandedScreens_AreByteIdenticalToTheGolden is ADR 0023 Iddia B's PART I for
 // WL-9: every listed render of a business with no brand is byte-identical -- status,

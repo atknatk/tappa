@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/web/templates/components"
@@ -67,8 +69,9 @@ import (
 // altogether this panics at startup rather than silently building links to nowhere.
 var anomaliesHref = mustSectionHref(pages.TabAnomalies)
 
-// WHAT ONE VIEW OF THIS SECTION COSTS. The read is EIGHT queries in one transaction
-// over one week of one tenant.
+// WHAT ONE VIEW OF THIS SECTION COSTS. The read is one transaction of queries over one week
+// of one tenant (ledger.Reader.Anomalies; the table below is the eight it held on the day it
+// was measured -- later ones carry their own reading in db/queries/anomalies.sql).
 //
 // ⚠️ THE TIMINGS BELOW ARE ONE MACHINE'S OBSERVATION AND ARE NOT A PROPERTY OF THESE
 // QUERIES. Measured 2026-08-12 with EXPLAIN (ANALYZE, BUFFERS) against the development
@@ -88,7 +91,7 @@ var anomaliesHref = mustSectionHref(pages.TabAnomalies)
 // 🔴 HOW MUCH THOSE READINGS ARE WORTH, STATED RATHER THAN LEFT TO BE DISCOVERED: an
 // independent reviewer measured the LAST of them on a comparable table at 5.7 - 6.3 ms,
 // which is a quarter of what this machine saw. What the table is evidence for is the
-// SHAPE — eight statements, each bounded by the week rather than by history, none of
+// SHAPE — statements each bounded by the week rather than by history, none of
 // them growing with the tenant's history — and not for any millisecond in it.
 //
 // ⚠️ SINCE M15-05 THAT SHAPE HAS ONE STATED EXCEPTION. ListOpenCheckIns and
@@ -104,6 +107,12 @@ var anomaliesHref = mustSectionHref(pages.TabAnomalies)
 // fixed here (no migration in this card); the candidate is a partial index for the subplan --
 // `ON transactions (tenant_id, employee_id, occurred_at) WHERE practice`, tiny because practice
 // rows stopped being written (ADR 0026) -- measured before it is added.
+//
+// M15-06 ADDS ListCheckoutsWithoutCheckIn (the "check-in missing" list) and it keeps the week's
+// shape: its two lookups look BACK from each checkout of the week that carries a business day --
+// the record just before it (a Limit 1 backward probe that stops at the first directed,
+// non-practice row) and an `in` since its business day began (bounded by that day). Its header in
+// db/queries/anomalies.sql carries one reading on the seed tenant (3.0 - 4.5 ms, 2026-10-22).
 //
 // ⚠️ AND THE WINDOW'S OWN ROW COUNT IS NOT A CONSTANT EITHER, WHICH IS WHY IT IS A
 // QUERY HERE AND NOT A NUMBER. On the day these were taken the same window read 1 063
@@ -374,6 +383,21 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen, now time.
 			Age:          openAge(o.At, now),
 			ManagerTyped: o.ManagerTyped,
 			WasMaskable:  o.WasMaskable,
+			ClaimPending: o.ClaimPending,
+			ClaimHref:    pendingClaimHref(o.ClaimPending, o.PendingClaimID),
+		})
+	}
+
+	v.MoreInMissing = s.MoreInMissing
+	v.InMissing = make([]pages.AnomalyInMissingView, 0, len(s.InMissing))
+	for _, o := range s.InMissing {
+		v.InMissing = append(v.InMissing, pages.AnomalyInMissingView{
+			Who:             personName(o.EmployeeName),
+			Venue:           venueName(o.LocationName),
+			At:              o.At.In(zone).Format("Mon 2 Jan 15:04"),
+			AfterEarlierDay: o.AfterEarlierDay,
+			ClaimPending:    o.ClaimPending,
+			ClaimHref:       pendingClaimHref(o.ClaimPending, o.PendingClaimID),
 		})
 	}
 
@@ -725,4 +749,14 @@ func policyBucketName(r ledger.AnomalyPolicyRule) string {
 		return "At a partner business's venue (rules not shown)"
 	}
 	return ruleName(r.SID)
+}
+
+// pendingClaimHref is a "Claim pending" mark's link: the claim in focus on the Spike's "Time claims"
+// (M15-18 review round). The queue chooses only among the claims it lists, so an id it does not list
+// falls back to its first claim -- the link names nothing the queue would not show anyway.
+func pendingClaimHref(pending bool, claimID uuid.UUID) string {
+	if !pending || claimID == uuid.Nil {
+		return ""
+	}
+	return claimsHref + "?focus=" + claimID.String()
 }

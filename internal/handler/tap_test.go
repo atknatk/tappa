@@ -102,6 +102,10 @@ type fakeDirectory struct {
 	// got records the arguments, so the tenant the venue is read under can be
 	// asserted rather than assumed.
 	gotTenant, gotEmployee, gotLocation uuid.UUID
+	// gotPredict is the plaque-and-channel half of the prediction's gate the handler
+	// passed to the last page read (M15-12), and peerPredict the one it passed to the
+	// last peer read.
+	gotPredict, peerPredict bool
 
 	// The confirmation screen's brand read (M10 WL-9): what it answers, and who asked.
 	resultBrand    tenant.PageBrand
@@ -123,15 +127,28 @@ type fakeDirectory struct {
 // bounds: well past every bound under test, so reaching it is a measured failure.
 const resultStallCap = 8 * time.Second
 
-func (f *fakeDirectory) TapPage(_ context.Context, tenantID, employeeID, locationID uuid.UUID) (tenant.TapPageFacts, error) {
-	f.gotTenant, f.gotEmployee, f.gotLocation = tenantID, employeeID, locationID
-	return f.facts, f.err
+// TapPage answers f.facts / f.err. Like the real directory it reads no prediction unless the
+// handler asked for one: f.facts.Prediction is dropped when predict is false, so a fake cannot
+// make the plaque-and-channel half of the gate look satisfied (M15-12).
+func (f *fakeDirectory) TapPage(_ context.Context, tenantID, employeeID, locationID uuid.UUID, predict bool) (tenant.TapPageFacts, error) {
+	f.gotTenant, f.gotEmployee, f.gotLocation, f.gotPredict = tenantID, employeeID, locationID, predict
+	out := f.facts
+	if !predict {
+		out.Prediction = nil
+	}
+	return out, f.err
 }
 
-// PeerTapPage answers f.peerSite / f.peerFacts / f.peerErr (M11 API-1b), recording the plaque.
-func (f *fakeDirectory) PeerTapPage(_ context.Context, tenantID, employeeID uuid.UUID, uid string) (tenant.TapPageFacts, uuid.UUID, error) {
+// PeerTapPage answers f.peerSite / f.peerFacts / f.peerErr (M11 API-1b), recording the plaque,
+// with TapPage's rule for the prediction.
+func (f *fakeDirectory) PeerTapPage(_ context.Context, tenantID, employeeID uuid.UUID, uid string, predict bool) (tenant.TapPageFacts, uuid.UUID, error) {
 	f.peerAsked = append(f.peerAsked, uid)
-	return f.peerFacts, f.peerSite, f.peerErr
+	f.peerPredict = predict
+	out := f.peerFacts
+	if !predict {
+		out.Prediction = nil
+	}
+	return out, f.peerSite, f.peerErr
 }
 
 func (f *fakeDirectory) ResultBrand(ctx context.Context, tenantID uuid.UUID) (tenant.PageBrand, error) {
@@ -182,7 +199,7 @@ func newTapHandler(t *testing.T, pv *fakePreviewer, dir *fakeDirectory, sess *fa
 func newTapHandlerWithAudit(t *testing.T, pv *fakePreviewer, dir *fakeDirectory, sess *fakeSessions) (http.Handler, *Tap, *fakeAudit) {
 	t.Helper()
 	rec := &fakeAudit{}
-	tp, err := NewTap(pv, dir, sess, &fakeCheckins{}, noActivation{}, rec, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	tp, err := NewTap(pv, dir, sess, &fakeCheckins{}, noClaims{}, noActivation{}, rec, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
@@ -250,7 +267,7 @@ func TestTapPage_APendingActivationTakesTheTap(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			pv := &fakePreviewer{preview: okPreview(true)}
 			act := &pendingActivation{}
-			tp, err := NewTap(pv, &fakeDirectory{facts: okFacts()}, tc.sess, &fakeCheckins{}, act, &fakeAudit{},
+			tp, err := NewTap(pv, &fakeDirectory{facts: okFacts()}, tc.sess, &fakeCheckins{}, noClaims{}, act, &fakeAudit{},
 				tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 			if err != nil {
 				t.Fatalf("NewTap: %v", err)
@@ -282,7 +299,7 @@ func TestTapPage_AQRScanWithALiveSessionStaysACheckIn(t *testing.T) {
 	build := func(sess *fakeSessions) (http.Handler, *pendingActivation, *fakePreviewer) {
 		pv := &fakePreviewer{preview: okPreview(true)}
 		act := &pendingActivation{}
-		tp, err := NewTap(pv, &fakeDirectory{facts: okFacts()}, sess, &fakeCheckins{}, act, &fakeAudit{},
+		tp, err := NewTap(pv, &fakeDirectory{facts: okFacts()}, sess, &fakeCheckins{}, noClaims{}, act, &fakeAudit{},
 			tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 		if err != nil {
 			t.Fatalf("NewTap: %v", err)
@@ -320,7 +337,7 @@ func TestTapPage_AQRScanWithALiveSessionStaysACheckIn(t *testing.T) {
 func TestTapPage_ADeactivatedHolderStaysOnRowFour(t *testing.T) {
 	pv := &fakePreviewer{preview: okPreview(true)}
 	act := &pendingActivation{deactivated: true}
-	tp, err := NewTap(pv, &fakeDirectory{facts: okFacts()}, &fakeSessions{}, &fakeCheckins{}, act, &fakeAudit{},
+	tp, err := NewTap(pv, &fakeDirectory{facts: okFacts()}, &fakeSessions{}, &fakeCheckins{}, noClaims{}, act, &fakeAudit{},
 		tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
@@ -340,7 +357,7 @@ func TestNewTap_RequiresTheActivationFlow(t *testing.T) {
 	var typedNil *pendingActivation
 	for _, a := range []tapActivation{nil, typedNil} {
 		_, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-			&fakeSessions{}, &fakeCheckins{}, a, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+			&fakeSessions{}, &fakeCheckins{}, noClaims{}, a, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 		if err == nil {
 			t.Errorf("NewTap accepted a nil activation flow (%T)", a)
 		}
@@ -422,7 +439,7 @@ func TestTapPage_LiveSessionOfADeactivatedEmployeeStillRenders(t *testing.T) {
 // exactly that wiring mistake.
 func TestTapPage_UnresolvedIdentityIsNotNoSession(t *testing.T) {
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, &fakeCheckins{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, noClaims{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
@@ -790,7 +807,7 @@ func TestTapPage_IsNotCached(t *testing.T) {
 // hand-off 6).
 func TestTapPage_RateLimitIsMountedAndBranded(t *testing.T) {
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, &fakeCheckins{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, noClaims{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
@@ -954,7 +971,7 @@ func TestNewTap_RefusesATypedNilAuditRecorder(t *testing.T) {
 	var typedNil *audit.Recorder // nil pointer, non-nil interface once passed
 
 	_, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, &fakeCheckins{}, noActivation{}, typedNil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, noClaims{}, noActivation{}, typedNil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil {
 		t.Fatal("a typed-nil audit recorder was accepted: the trail would fail at the first " +
 			"refused tap instead of at startup")
@@ -996,7 +1013,7 @@ func TestTapPage_CarriesAContentPolicy(t *testing.T) {
 // now a startup error, so it cannot be made again by leaving an argument out.
 func TestNewTap_RefusesANilAuditRecorder(t *testing.T) {
 	_, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, &fakeCheckins{}, noActivation{}, nil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, noClaims{}, noActivation{}, nil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil {
 		t.Fatal("a nil audit recorder was accepted: half of an accepted M5-03 criterion would silently not happen")
 	}
@@ -1011,7 +1028,7 @@ func TestTapPage_MountOrderMetersTheSession(t *testing.T) {
 	// STABLE one — a fresh uuid per request would silently spread three requests
 	// across three buckets and the test would pass while measuring nothing.
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		fixedSessions(), &fakeCheckins{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		fixedSessions(), &fakeCheckins{}, noClaims{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}

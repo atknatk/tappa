@@ -316,7 +316,7 @@ func newSeedFlow(t *testing.T) *seedFlow {
 	if err != nil {
 		t.Fatalf("NewActivation: %v", err)
 	}
-	tp, err := NewTap(verifier, directory, sessions, checkins, act, trail, cfg, quiet)
+	tp, err := NewTap(verifier, directory, sessions, checkins, noClaims{}, act, trail, cfg, quiet)
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}

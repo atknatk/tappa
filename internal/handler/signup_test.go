@@ -55,7 +55,7 @@ type fakeProvisioner struct {
 	// result is what a successful call returns; the zero value is filled from the
 	// draft so a test does not have to state the obvious.
 	result *signup.Result
-	claims *fakeClaims
+	claims *fakeSignupClaims
 }
 
 func (f *fakeProvisioner) opened(d signup.Draft) {
@@ -142,7 +142,7 @@ func (f *fakeVAT) count() int {
 type wizardDriver struct {
 	t *testing.T
 	// claims is the drafts' fake (M14-17); confirmForm the last confirmation posted (refinish).
-	claims      *fakeClaims
+	claims      *fakeSignupClaims
 	confirmForm url.Values
 	// lastSent / lastConfirm are the "Check your inbox" page and the link's page finish read.
 	lastSent, lastConfirm string
@@ -155,7 +155,7 @@ type wizardDriver struct {
 
 func newSignupDriver(t *testing.T, p signupProvisioner, vat vatChecker) (*wizardDriver, *Signup) {
 	t.Helper()
-	claims := newFakeClaims()
+	claims := newFakeSignupClaims()
 	if fp, ok := p.(*fakeProvisioner); ok {
 		fp.claims = claims
 		claims.onOpen = fp.opened
@@ -837,7 +837,7 @@ func TestSignup_TheCreateBudgetBoundsHowManyBusinessesOneAddressMakes(t *testing
 	p := &fakeProvisioner{}
 	// ONE handler across every registration, so the budgets are the real shared ones
 	// rather than a fresh limiter per attempt.
-	claims := newFakeClaims()
+	claims := newFakeSignupClaims()
 	p.claims, claims.onOpen = claims, p.opened
 	wizard, err := NewSignup(p, claims, nil, nil, signupTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
@@ -874,7 +874,7 @@ func TestSignup_TheCreateBudgetBoundsHowManyBusinessesOneAddressMakes(t *testing
 func TestSignup_TheAttemptBudgetBoundsTheExpensiveRequest(t *testing.T) {
 	t.Parallel()
 	p := &fakeProvisioner{}
-	claims := newFakeClaims()
+	claims := newFakeSignupClaims()
 	p.claims, claims.onOpen = claims, p.opened
 	wizard, err := NewSignup(p, claims, nil, nil, signupTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
@@ -1031,9 +1031,9 @@ func TestSignup_MountsExactlyTheRoutesTheLandingPageOffers(t *testing.T) {
 	if rec := d.get(signupPath); rec.Code != http.StatusOK {
 		t.Fatalf("GET %s = %d; this is where the landing page's button points", signupPath, rec.Code)
 	}
-	if NewMarketing(nil, nil, "").signupHref != signupPath {
+	if NewMarketing(nil, nil, "", "").signupHref != signupPath {
 		t.Errorf("handler.Marketing points at %q and the wizard is mounted at %q",
-			NewMarketing(nil, nil, "").signupHref, signupPath)
+			NewMarketing(nil, nil, "", "").signupHref, signupPath)
 	}
 }
 
@@ -1045,7 +1045,7 @@ func TestSignup_MountsExactlyTheRoutesTheLandingPageOffers(t *testing.T) {
 // dependency here has to arrive with its own argument.
 func TestSignup_HoldsNoSessionCodec(t *testing.T) {
 	t.Parallel()
-	wizard, err := NewSignup(&fakeProvisioner{}, newFakeClaims(), nil, nil, signupTestConfig(), slog.New(slog.DiscardHandler))
+	wizard, err := NewSignup(&fakeProvisioner{}, newFakeSignupClaims(), nil, nil, signupTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}

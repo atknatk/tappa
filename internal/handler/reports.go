@@ -249,8 +249,9 @@ func fillReportsView(v *pages.ReportsView, s ledger.ReportScreen) {
 		AwaitingFigure: hoursMinutes(s.Totals.Awaiting),
 		RefusedFigure:  hoursMinutes(s.Totals.Refused),
 
-		Open:    s.Totals.Open,
-		TooLong: s.Totals.TooLong,
+		Open:         s.Totals.Open,
+		TooLong:      s.Totals.TooLong,
+		OutWithoutIn: s.Totals.OutWithoutIn,
 
 		OtherVenue:        s.Totals.OtherVenue,
 		OtherVenueUnknown: s.Totals.OtherVenueUnknown,
@@ -373,7 +374,7 @@ func reportRowView(p ledger.PersonHours) pages.ReportRowView {
 	// and a second rule here would be a second answer to "was this day elsewhere".
 	row.Marks = make([]pages.ReportMarkView, 0, len(p.Marks))
 	for _, m := range p.Marks {
-		row.Marks = append(row.Marks, pages.ReportMarkView{Other: m.Other, Manual: m.Manual, Open: m.Open})
+		row.Marks = append(row.Marks, pages.ReportMarkView{Other: m.Other, Manual: m.Manual, Open: m.Open, InMissing: m.InMissing})
 	}
 	row.Daily = make([]string, 0, len(p.Daily))
 	for _, d := range p.Daily {
@@ -402,6 +403,10 @@ func reportRowView(p ledger.PersonHours) pages.ReportRowView {
 	}
 	if p.Open > 0 {
 		row.Open = plural(p.Open, "check-in", "check-ins") + " with no checkout"
+	}
+	if p.OutWithoutIn > 0 {
+		// M15-06: the checkout-side twin of Open -- ADR 0032 §A.6's (b) and (c).
+		row.InMissing = plural(p.OutWithoutIn, "checkout", "checkouts") + " with no open check-in"
 	}
 	return row
 }

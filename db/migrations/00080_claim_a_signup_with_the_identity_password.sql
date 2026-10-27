@@ -1,7 +1,7 @@
 -- 00080 -- M14-17b: an identity whose memberships are ALL inactive can register a new business. Before
 -- this, the registration routed a known address to identity_claim_signup's existing-identity branch,
 -- which needs that identity's LIVE session -- and with no active membership the person cannot sign in
--- (a dead end; backlog T168). The new address's branch answers 0 rows for it (ON CONFLICT).
+-- (a dead end; backlog T170). The new address's branch answers 0 rows for it (ON CONFLICT).
 --
 -- NORMATIVE SOURCE: docs/adr/0031-tek-kimlik-cok-isletme.md §5.2 (the closed list: identity_claim_signup's
 -- row and its M14-17b note -- the user's decision of 2026-10-27, "parola kanıtıyla sahiplenme",

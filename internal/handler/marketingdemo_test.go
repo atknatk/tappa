@@ -3,6 +3,7 @@ package handler
 import (
 	"io/fs"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -64,14 +65,17 @@ var openerRE = regexp.MustCompile(`(?s)<a\b([^>]*\bid="demoOpen"[^>]*)>(.*?)</a>
 // TestLandingDemo_TheSecondHeroButtonSaysWatchDemoAndOpensTheDialog.
 //
 // The label is the user's instruction and the rest is what makes it not a lie: the
-// element keeps the reference's classes (so nothing moved or resized), it keeps an
-// href (so a browser that ran no script still goes somewhere real), it carries the
-// play glyph the user asked for, and the thing it points at exists on the page.
+// element carries the public site's ghost button (so it is the boards' 48px button,
+// beside the green one), it keeps an href (so a browser that ran no script still goes
+// somewhere real), it carries the play glyph the user asked for, and the thing it
+// points at exists on the page.
 //
 // ⚠️ IT USED TO ASSERT ONE BYTE-EXACT STRING, and that string went stale the day
-// the play icon arrived (the element gained lp-btn-withIcon and an inline <svg>
+// the play icon arrived (the element gained an icon class and an inline <svg>
 // before the label). The properties are now asserted one at a time, which is what
-// makes a failure say WHICH one changed.
+// makes a failure say WHICH one changed. LP-03 moved the hero onto the boards'
+// button (.lp-button, LP-01), which spaces a glyph from its word itself: the icon
+// class is gone and the spacing is asserted on the button's compiled rule instead.
 func TestLandingDemo_TheSecondHeroButtonSaysWatchDemoAndOpensTheDialog(t *testing.T) {
 	t.Parallel()
 	body := fetchMarketing(t, marketingRouter(t), "/", nil).Body.String()
@@ -87,12 +91,27 @@ func TestLandingDemo_TheSecondHeroButtonSaysWatchDemoAndOpensTheDialog(t *testin
 		t.Errorf("the page carries %d elements with id demoOpen; ids are unique", n)
 	}
 	attrs, inner := m[1], m[2]
-	// The reference's classes, so nothing moved or resized; the icon class, so the
-	// glyph has its spacing.
-	for _, class := range []string{"lp-btn", "lp-btn-ghost", "lp-btn-withIcon"} {
-		if !regexp.MustCompile(`class="[^"]*\b` + class + `\b[^"]*"`).MatchString(attrs) {
+	// The boards' button, so it has the public site's size and states; and that
+	// button's own rule lays the glyph beside the word with a gap, so the glyph has
+	// its spacing (what the retired icon class did).
+	var classes []string
+	if c := classAttrRE.FindStringSubmatch(attrs); c != nil {
+		classes = strings.Fields(c[1])
+	}
+	for _, class := range []string{"lp-button", "lp-button--ghost"} {
+		if !slices.Contains(classes, class) {
 			t.Errorf("the opener lost the class %q (attributes: %s)", class, strings.TrimSpace(attrs))
 		}
+	}
+	button := cssRule(t, readStaticFile(t, "css/app.css"), ".lp .lp-button{")
+	for _, want := range []string{"display:inline-flex", "align-items:center"} {
+		if !strings.Contains(button, want) {
+			t.Errorf(".lp .lp-button does not declare %s, so the play glyph is not laid out "+
+				"beside the label.\nrule: %s", want, button)
+		}
+	}
+	if !positiveGapRE.MatchString(button) {
+		t.Errorf(".lp .lp-button declares no positive gap, so the play glyph touches the label.\nrule: %s", button)
 	}
 	// The fallback: a browser with no script or no <dialog> follows the href, and it
 	// has to lead to the section that answers the same question in prose.
@@ -159,12 +178,92 @@ func TestLandingDemo_TheDialogIsLabelledAndCanBeClosedWithoutAMouse(t *testing.T
 				"a finger has to hit is 44x44.\nrule: %s", want, rule)
 		}
 	}
-	// AND THE OPENING MOVE IS ASKED FOR RATHER THAN ASSUMED. An animation declared
-	// outside a no-preference query plays for a reader who has said they do not want
-	// motion; that it is only 180ms does not make it their choice.
-	if !strings.Contains(css, "@media (prefers-reduced-motion:no-preference){.lp .demoDialog[open]{animation:") {
-		t.Error("the dialog's opening animation is not inside a prefers-reduced-motion: " +
-			"no-preference query")
+	// AND IT OPENS WITHOUT MOTION (LP-03, README O2 -- orchestrator decision: follow
+	// the boards, which draw none). Until LP-03 this asserted the opposite shape: an
+	// opening animation declared only inside prefers-reduced-motion: no-preference.
+	// With the animation gone there is no reader to ask, and no rule ANYWHERE in the
+	// compiled stylesheet that reaches the dialog -- by its id, by any of its classes,
+	// or as a `dialog` element, its ::backdrop included -- may declare one. The names
+	// are read from the page, so a renamed class is followed.
+	names := demoDialogNames(t, body)
+	hits, reached := dialogAnimations(css, names)
+	if reached < 2 {
+		t.Errorf("PREMISE: %d compiled rule(s) reach %v; the dialog and its backdrop are "+
+			"styled, so the scan read the wrong file", reached, names)
+	}
+	for _, h := range hits {
+		t.Errorf("%s; the dialog opens without motion (README O2)", h)
+	}
+}
+
+// positiveGapRE finds a gap greater than zero.
+var positiveGapRE = regexp.MustCompile(`(?:^|[;{])gap:(?:0*[1-9][0-9]*(?:\.[0-9]+)?|0*\.[0-9]*[1-9][0-9]*)(?:px|rem|em)`)
+
+// demoDialogTagRE reads the dialog's opening tag.
+var demoDialogTagRE = regexp.MustCompile(`<dialog\b[^>]*>`)
+
+// demoDialogNames is everything a stylesheet can name the demo dialog by: the element,
+// its id and its classes, read from the rendered page.
+func demoDialogNames(t *testing.T, body string) []string {
+	t.Helper()
+	tags := demoDialogTagRE.FindAllString(body, -1)
+	if len(tags) != 1 {
+		t.Fatalf("the landing renders %d <dialog> element(s), want one", len(tags))
+	}
+	names := []string{"dialog"}
+	if m := regexp.MustCompile(`\bid="([^"]+)"`).FindStringSubmatch(tags[0]); m != nil {
+		names = append(names, "#"+m[1])
+	}
+	if m := classAttrRE.FindStringSubmatch(tags[0]); m != nil {
+		for _, c := range strings.Fields(m[1]) {
+			names = append(names, "."+c)
+		}
+	}
+	if len(names) < 3 {
+		t.Fatalf("the dialog carries no id or class (%s)", tags[0])
+	}
+	return names
+}
+
+// dialogAnimations lists every rule in css that reaches one of names and declares an
+// animation; reached counts the rules that reach them at all.
+func dialogAnimations(css string, names []string) (hits []string, reached int) {
+	rules := cssRulesReaching(css, names)
+	for _, r := range rules {
+		if cssAnimationRE.MatchString(r.decls) {
+			hits = append(hits, strings.Join(r.selectors, ", ")+" declares an animation ("+r.decls+")")
+		}
+	}
+	return hits, len(rules)
+}
+
+// TestLandingDemo_DialogAnimationScanReachesEverySpelling is the scan's control: the
+// auditor's two spellings outside the .lp block (by id, and as an element) and the
+// others a stylesheet could use are reported; a look-alike name is not read.
+func TestLandingDemo_DialogAnimationScanReachesEverySpelling(t *testing.T) {
+	t.Parallel()
+	names := []string{"dialog", "#demoDialog", ".demoDialog"}
+	for name, css := range map[string]string{
+		"by id, outside .lp":         "#demoDialog[open]{animation:demoIn .18s ease-out both}",
+		"as an element":              "dialog[open]{animation:demoIn .18s}",
+		"the element's backdrop":     ".lp dialog::backdrop{animation-name:fade}",
+		"by class, in a media query": "@media (prefers-reduced-motion:no-preference){.lp .demoDialog[open]{animation:x 1s}}",
+		"inside :is()":               ":is(dialog)[open]{animation:x 1s}",
+		"second of a list":           ".lp .a,dialog{animation:x 1s}",
+	} {
+		if hits, _ := dialogAnimations(css, names); len(hits) == 0 {
+			t.Errorf("CONTROL %s: the scan passed it", name)
+		}
+	}
+	lookalikes := ".dialogue{animation:x 1s}.lp .demoDialogue{animation:x 1s}#demoDialogs{animation:x 1s}" +
+		".lp .notdialog{animation:x 1s}dialog{padding:0}"
+	if hits, reached := dialogAnimations(lookalikes, names); len(hits) != 0 || reached != 1 {
+		t.Errorf("CONTROL: the scan read look-alike names: %q over %d rule(s), want none over 1", hits, reached)
+	}
+	if !positiveGapRE.MatchString(".lp .lp-button{display:inline-flex;gap:9px}") ||
+		positiveGapRE.MatchString(".lp .lp-button{display:inline-flex;gap:0}") ||
+		positiveGapRE.MatchString(".lp .lp-button{gap:0px}") {
+		t.Error("CONTROL: positiveGapRE does not tell 9px from 0")
 	}
 }
 
@@ -386,9 +485,11 @@ func TestLandingDemo_NoOtherScreenOnThePublicSurfaceCarriesTheDialog(t *testing.
 	d.post(signupAccountPath, accountForm(d.token(account)))
 	screens[signupSentPath] = d.get(signupSentPath).Body.String()
 
-	if len(screens) != 8 {
-		t.Fatalf("collected %d screens, want 8 (four legal documents and four wizard "+
-			"steps); this test is looking at the wrong set", len(screens))
+	// Every public URL but the landing (the public site's pages and the four legal
+	// documents), and the four wizard steps.
+	if want := len(marketingURLs()) - 1 + 4; len(screens) != want || len(screens) < 8 {
+		t.Fatalf("collected %d screens, want %d (the public pages beyond the landing, the four "+
+			"legal documents and four wizard steps); this test is looking at the wrong set", len(screens), want)
 	}
 	for path, body := range screens {
 		// ANTI-VACUITY: an empty body or a redirect would pass every check below.

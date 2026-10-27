@@ -144,8 +144,44 @@ Anatomi:
 - **Tek ekran, tek buton, sıfır öğrenme.** Menü, sekme, ayar yok.
 - "Hello Maria" + lokasyon adı + tek büyük buton (min. 64px yükseklik,
   eldivenli/ıslak parmakla basılabilir).
+- **Düğme tahmini yönü söyler** (2026-10-22, M15-12 — kullanıcının §9 kararı 2026-10-21,
+  ADR 0032 §B.1–§B.3, Q33): *"Clock in"* / *"Clock out"*, altında küçük bir *"Not right? Clock
+  out"* (ya da *in*) — aynı formun ikinci `submit` düğmesi (`name="want"`), bağlantı ya da ikinci
+  form **değil**; ink, altı çizili, en az 44 px yüksek, birincil düğmeden 24 px aşağıda (formun
+  16 px aralığı + kendi 8 px üst boşluğu; Chrome'da 390/834/1200 px'te ölçüldü: aralık 24, yükseklik
+  44, yatay kaydırma yok, porcelain'de 14,32:1), **accent almaz**. HTML'de statik gizli `want`
+  yok; `tap.js` basılan değeri tek gizli alana yazar. Tahmin kapısından geçmeyen her durumda
+  (anahtar kapalı, CMAC doğrulanmadı, plaket aktif değil, kişi aktif değil, iş günü çözülemedi,
+  okuma başarısız) düğme eskisi gibi yönsüz *"Tap"*, altında hiçbir şey yok.
 - Onay ekranında **buton yok**: *"All done — you can close this page."*
   Sonraki işlem zaten yeni fiziksel dokunuş gerektiriyor.
+  **Tek istisna — talep kartı** (2026-10-26, M15-17; kullanıcının §9 kararı, ADR 0032 §C.1):
+  kaydın ardından bir yarının eksik olduğu M15 sonrası bir çapa varsa (talep yok, K4'ün iki
+  gösterimi içinde, `manual.MaxBackdate` içinde; yalnız `ok`/`flag`), docket'in **altında**,
+  kapanış cümlesinin **üstünde** tek bir kart: kaydı adlandıran cümle (*"Yesterday you clocked in
+  at 09:12 but there's no clock-out."* · aynı gün *"You clocked in at 11:00 and didn't clock
+  out."* · daha eski *"On Mon 27 Jul you clocked in at 09:12 but there's no clock-out."* — gün,
+  işletmenin bölgesindeki takvim günüdür; giriş eksikse aynı yapıda *"You clocked out at 12:00 but
+  there's no clock-in."* / *"Yesterday you clocked out …"* / *"On Mon 27 Jul you clocked out …"* —
+  kullanıcı kararı 2026-10-26), soru (*"What time did you leave?"* / *"What time did you come in?"*),
+  saat alanı (vardiyanın gerçek ucu pencere içindeyse dolu,
+  değilse **boş ve zorunlu**), *"Send to my manager"* ve *"You can skip this."* — **atlama düğmesi
+  yok**. Kart `paper` zeminde yuvarlak kart (`line` kenarlık, 18 px), alan ortak `.field-input
+  .field-input--mono` bileşeni + `.field-input--claim` (yazı **16 px**: iOS Safari 16 px altındaki
+  alana odaklanınca sayfayı yakınlaştırır, bu ekran çalışanın kendi telefonu; panelin alanı 14 px
+  kalır — `TestCompiledCSS_TheClaimFieldIsSixteenPixels`; 44 px; kayıt cümlesi ve sorun cümlesi `aria-describedby` ile bağlı,
+  hatada `aria-invalid` ve `autofocus` — betik yok; yeniden gösterilen formda `h1` *"Check the time"*),
+  düğme palet `tappa-green` zemin + `paper` yazı (7,73:1) ve 44 px — **accent almaz**, `.tap-button`
+  değildir. Betik yok: sonuç ekranı konum okumaz. `flag`'te kapanış cümlesi kartın altında kalır.
+  Kart, bu dokunuşun açık bıraktığı girişi soruyorsa o girişin ekran notu (*"your previous clock-in
+  has no clock-out"*) gösterilmez; kayıt notu değişmez (yapısal: `tap.Decision.EmployeeNoteAsked`).
+  Kartsız ekran bayt-aynı kalır. Gönderimin cevapları: *"Sent — your manager will review it."*
+  (ikinci gönderim de), pencere dışı saat → kart yeniden (problem cümlesi saffron sol çizgiyle),
+  *"This question has expired"*, *"Already resolved"*, pasif hesap, genel ekran — hiçbiri *"Nothing
+  was recorded"* demez. Chrome'da 390 px'te ölçüldü: yatay kaydırma yok; kart metni paper'da
+  16,17:1, *"You can skip this."* 6,05:1. Testler: `TestClaimScreens_AreByteIdenticalToTheGolden`,
+  `TestResultScreen_TheCardDrawsTheLogoAndNoAccent`,
+  `TestResultScreen_OnFlagTheClosingSentenceStaysBelowTheCard`.
 - Başarısız işlemde "Try again" **var**.
 - Marka mesajı onay sonrası gösterilir (yalnız sayılan `ok`'ta; practice, flag, ignored ve
   reject'te yok). **İşletmenin türüne göre seçilir, tenant düzenleyemez** — Account ekranı
@@ -253,7 +289,7 @@ mi" diye sorarsa cevap **hayır**.
 
 ## Ses tonu
 
-Kısa, sıcak, kendinden emin. *"Tapped in at 14:03."* — *"Your check-in operation
+Kısa, sıcak, kendinden emin. *"Clocked in at 14:03."* — *"Your check-in operation
 has been successfully processed."* değil. Hata mesajı suçlamaz, ne yapılacağını
 söyler: *"That tag was replaced. Ask your manager for the new plaque."*
 
@@ -366,6 +402,162 @@ golden'ı); panel yalnız kendi `Panel*` bileşenlerini kullanır.
   (`TestTransactionDocket_IsADocketAndCarriesEveryFieldTheCardAsksFor`; sonuç ekranıyla ortak) — tam
   docket'in dolgusu bu yüzden tasarımın tarifinden farklıdır (README §5.1).
 
+## Public site — kabuk ve `.lp` bileşenleri
+
+> Eklendi 2026-10-23 (LP-15, faz sonu). Normatif kaynak: `docs/design/landing-redesign/README.md`
+> (§4 kısıtlar, §5 CSS stratejisi, **§6 pano adı → ürün adı**, §7 olgu pinleme, §8 404, §9 OG) ve
+> `web/static/css/input.css`'in `.lp` bloğu (başlık yorumları LP-01 · LP-02 · LP-06 kararlarını taşır).
+> Sayfalar: `/`, `/product`, `/security`, `/pricing`, `/for/restaurants`, `/for/production`,
+> `/signup`, dört legal, `/docs/api`, `/docs/api/tr` + public 404.
+
+**Kabuk — `pages.PublicChrome(PublicChromeOpts{…})`** (`web/templates/pages/publicchrome.templ`).
+Tek DOM, her genişlik: header (`.lp-head` › `.lp-headIn` › `.lp-mark` + `.lp-headNav` içinde
+`.navlink` ×3, `.lp-signin`, `.hbtn`), telefon menüsü (`details.menu`, `.mopen`/`.mclose`, `.mlink`;
+betik yok, 768 px'ten itibaren gizli), telefonun alt çubuğu (`.mbar` › `.hbtn`), footer (`.lp-foot`,
+`.fcol` Product + Legal), skip link (`.lp-skip` → `#main`). Bağlantılar **tek tablodan**:
+`LandingNav`, `MountedPublicLinks(PublicProductLinks)`, `LegalPages` — yol elle yazılmaz;
+`Current` eşleşen girdi `aria-current="page"` alır. Seçenekler:
+- `OwnRoots` — gövdesi ürünün Tailwind yardımcılarıyla yazılmış sayfalar (signup, legal, API rehberi).
+  Kabuk kendi `.lp` köklerini kurar (`.lp.lp-top` yapışan, `.lp.lp-topStill` yapışmayan,
+  `.lp.lp-dock` alt çubuk), `<main>` her kökün **dışında** kalır. Gövde `PublicBodyFrame` (header'ın
+  kutusu) ve `PublicBodyRing` (tek odak halkası) taşır.
+- `InstantScroll` — yalnız API rehberi: `html:has(.lp.lp-instant)` yumuşak kaydırmayı kapatır
+  (~50 000 px sayfada içindekiler bağlantısı saniyelerce kayıyordu).
+- `StaticHeader` + `NoPhoneBar` + `SignInPrompt` — yalnız signup.
+
+**`.lp` kapsamı ve sıfırlama kuralı.** Her public kural `.lp` altında, `@layer` dışında düz CSS'tir
+(ağaç budaması yok; `TestLandingCSS_EverySelectorIsScopedUnderLp`). `.lp * { margin:0; padding:0 }`
+Tailwind boşluk yardımcılarıyla aynı özgüllükte ve dosyada sonra gelir → **`.lp` kökü içinde her
+`p-*`/`m-*` yardımcısı kaybeder** (ölçüldü: cookie sayfası 390'da 685 px, rehber 5 169 px kaybetti).
+Kural: `.lp` sınıflarıyla çizilen gövde `.lp` kökünde; yardımcılarla çizilen gövde asla `.lp`
+içinde değil (`OwnRoots`; `TestPublicChrome_UtilityBodiesStayOutsideTheLPRoot`). Ürünün sahip
+olduğu adlar `lp-` önekli: `.lp-button` (`.btn` değil), `.lp-slip` (`.docket` değil), `.lp-lbl`,
+`.lp-eyebrow`, `.lp-ico`. Her renk `.lp` üstünde token (`rgb(var(--ink-ch) / a)`), ham hex ve
+`style=` yok (`marketingCSP`: `style-src 'self'`).
+
+**Tek odak halkası:** `.lp :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px }`.
+`--ring` = ink (porselen 14,32:1, paper 16,17:1); koyu zeminde (`.band--ink`, yeşil `.ondark`)
+paper (yeşilde 7,73:1, ink'te 16,17:1). Eski 3 px saffron halka 2,32:1 ölçtüğü için gitti.
+Yardımcı gövdelerde aynı halka `PublicBodyRing` ile (`TestPublicPages_UtilityBodiesDrawTheOneRing`).
+Her çizilmiş durumun (`:hover`, `:active`, `[aria-current]`) kuralı var; disabled hücresi
+ulaşılamaz (signup'ın gönder düğmesi ürünün `.btn`'i ve sayfa betiksiz), bu yüzden `.lp` bloğu
+disabled kuralı yazmaz (`TestLandingCSS_EveryDrawnStateHasItsRule`).
+
+**Dokunma tabanı:** basılan her sınıf `min-height: 44px`; menü bağlantıları ve tam boy düğmeler
+48 px. Pano 40 px çizdiği yerde (footer bağlantısı) ürünün tabanı kazanır
+(`TestLandingCSS_EveryPressableClassReservesTheTouchFloor`).
+
+**Animasyon yok** (README O2): `@keyframes`/`animation` public blokta yasak
+(`TestLandingCSS_ThePublicSiteDeclaresNoAnimation`). Kalan tek hareket durum geçişidir
+(`details.qa .pl` dönüşü, `.fitcard` kenarı) ve `prefers-reduced-motion: no-preference` içindedir.
+**İstisna:** hero'nun fişi `landing.js` ile kendiliğinden kelime değiştirir — bu yüzden
+`.heroPause` düğmesi var (WCAG 2.2.2; panoda yok, orkestratör kararı). Demo diyaloğu tarayıcının
+`showModal()`'ı ile açılır, hareketsiz.
+
+**Kaşe dili:** public site kendi kaşesini çizmez — ürünün `.stamp .stamp--approved/--flagged/
+--rejected/--ignored`'ı (README O7; kelime her zaman ink, `TestCompiledCSS_StampWordIsInk`).
+Public'e özgü olan yalnız iki eğim (`.lp .stamp--rejected` −10°, `--ignored` −4°) ve küçük boy
+`.lp-stamp-sm`. Fiş: `.lp-slip` (alt kenarı perforeli), tap ekranı çizimindeki bilet `.tapdocket`.
+
+**Örnek veri kuralları** (`landingview.go` "the panel", `forrestaurantsview.go`,
+`forproductionview.go`):
+1. Örnek kişi **uydurmadır ve seed'de olmayan** biridir (seed kişisinin durumu/rolü çizimle
+   çelişirdi); mekânlar ve KM departmanları seed'inkidir (K1, "from our demo data").
+2. Örnek **görünür biçimde "sample" der**: `LandingPanelSampleNote`, `ForProductionSampleNote`,
+   erişilebilir ad "Sample screen: …", "The Roll · sample", hero fişinde "Sample record" ve sahnenin
+   adı "Sample scene: …"; not çizimin **durduğu yerde** olur (/product'ta her çizimin altında).
+   Hero kaydı sitenin başka bir çiziminin aynı kişisidir ve o çizimin kanıtını docket'in
+   kelimeleriyle gösterir ("IP yes · GPS no").
+3. Örnek **motordan geçer**: her örnek kayıt `tap.Decide`'dan geçirilir, damga/puan/not ürünün
+   üreteceğiyle aynı olmalı (`TestLandingPanel_TheSampleIsWhatTheProductWouldDraw`). Çizim kontrol
+   değildir (`role="img"`, düğmeler `span`).
+
+**"Her cümle pinli" düzeneği:** sayfa metni şablonda yazılmaz, view dosyasında veridir —
+`Line{Text, Facts}`, `Question`, sayfaya özgü yapılar. Üç sözlük: `Fact` (ürün olgusu),
+`Source` (motor olgusu), `Anchor` (şema/alan olgusu). Her bildirilen olgu üründen **türetilir**
+(kod, şema, migration, CSS, config ya da kararın yazılı olduğu belge — asla sayfanın kendi cümlesi)
+**ve** en az bir render edilen cümle tarafından talep edilir. Yeni sayfa: `pages.PublicPages`
+satırı + `Mount`'ta rota, `publicPagesCopy` girdisi, türetme tablosu `pageFactDerivations`'a
+eklenir (`internal/handler/marketing_facts_test.go`); değer **kendi URL'sinde** render edilmeli
+(`TestPublicPages_EveryValueIsRenderedOnItsOwnPageAndRestsOnAFact`,
+`TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed`). Pin cümleyi doğru yapmaz — kayma
+cırcırıdır; her cümle yine üründen okunur.
+
+**Yasaklı ifadeler** (her biri bir testte; bir public sayfada geri gelirse kırmızı):
+- Üstünlük: `superiorityClaim` — "safer/better/faster/cheaper … than", "the best", "industry-leading",
+  "unbeatable". Mekanizma karşılaştırılır, kazanan ilan edilmez.
+- Ölçülmemiş sayı: "under 10 minutes", "30 seconds", "under two seconds", "one click", "about €" …;
+  ürün olmayan yetenek: "live headcount", "live dashboard", "import your staff", "csv import",
+  "unlimited locations", "daily reports" …; hiçbir sayfada (baytlar dahil) "guarantee".
+- Sayfa kartlarının geri çektiği cümleler: `securityRefusedPhrasings` ("Four proofs on every single
+  tap", "never silently approved", "no NFC" …), `productRefusedPhrasings`,
+  `restaurantsRefusedPhrasings`, `forProductionRefusedPhrasings` ("per plaque"/"per tag" — debounce
+  kişi bazlıdır) — her birinin gerekçesi haritada yazılı.
+- İç kod adı yok — sayfa yalnız kullanıcıya görünen markayı ("Taptime") taşır
+  (`TestLanding_ShowsNoUserFacingInternalName`); `/v1` mount'luyken "no API" cümlesi yok
+  (`TestLanding_ClaimsNoAbsentAPIWhileV1IsMounted`).
+
+**Public 404** (ADR 0034, `internal/handler/notfound.go`): kabuk + tek cümle ("There is no page at
+this address.") + "Back to the home page", status 404, `noindex`, `no-store`, her yol ve
+ziyaretçi için aynı bayt (yol yazılmaz). Yalnız `GET`/`HEAD` ve `plainNotFoundRoots` dışındaki
+yollarda; `/admin`, `/t`, `/activate`, `/api`, `/brand`, `/static`, `/operator`, `/v1`, probe'lar ve
+`/dev` altında net/http'nin düz 404'ü kalır (marka ret özdeşliği, operatör yüzeyinin görünmezliği).
+
+**OG kartları** (K3, 2026-10-23 güncel; README §9): `web/static/og/` altında dokuz PNG,
+1200×630 (`landing`, `product`, `pricing`, `security`, `restaurants`, `production`, `signup`,
+`legal`, `api`). Pano elemanı + `shareCardBoardEdits` düzeltmeleri, yerelde headless Chrome ile
+self-hosted fontlarla çizilir ve commit edilir; test her PNG'nin sha256'sını düzeltilmiş kaynağın
+sha256'sıyla birlikte pinler (`TestShareImages_AreDrawnFromThePinnedSources`) — ikisi birlikte
+yenilenir. Görselde fiyat yok, kişiler uydurma. `og:image` mutlak URL'si `TAPPA_BASE_URL`'den;
+üçüncü taraf muafiyeti yalnız o origin'in `/static/og/` yolları
+(`TestShareImageExemption_IsNarrow`). Head etiketleri yalnız `marketingDocument` üzerinden — tap/
+aktivasyon head'leri golden'la bayt-aynı.
+
+## Operatör yüzeyi — kabuk ve `op-*` bileşenleri
+
+> Eklendi 2026-10-26 (M13-15, faz sonu). Normatif kaynak: `docs/design/operator-redesign/README.md`
+> (§2 OP-1 / OP-2 + OP-15 eki, §3 kısıtlar, **§6 katalog — gerçekleşen sınıf adları**, §6.1 ekran
+> tarifleri) ve `screens.md`; kararlar (a)–(f) `docs/plan/m13-operator-redesign.md` başında. Bu dosya
+> Tailwind'in taramadığı bir dosyadır.
+
+**Kabuk** (`web/templates/operatorpages/chrome.templ`, tek DOM): bant `<header class="op-bar">`
+(mürekkep + 4 px safran çizgi, `.op-lockup` "TAPTIME OPERATOR", imzalıysa `.op-signout` POST formu;
+satır telefonda 56, tabletten 64 px) → imzalı ekranda `.op-frame` › `<nav class="op-nav"
+aria-label="Operator sections">` (beş bağlantı, form/düğme yok: masaüstünde 232 px **açık** kâğıt
+sütun + `.op-nav-label` "PLATFORM", tablette yatay sekme satırı, telefonda `sticky` + `order-last
+mt-auto` kâğıt alt çubuk; `.op-nav-item`, ikon `.op-nav-icon` yalnız telefonda) + `.op-col` ›
+tek-tenant ekranında `<section class="op-tenant">` (ad bandı `<p>`, içinde `<nav class="op-subnav"
+aria-label="This tenant">`, `.op-subnav-item`, safran işaret) › `<main class="op-main …">`. İmzasız
+ekran: formsuz bant + ortalanmış tek sütun, nav yok. **`aria-current`** (karar (b)): ana nav
+`"true"` (bölüm), alt nav `"page"` (sayfa); imzalı problem sayfasında ikisi de yok. Panelin
+sınıfları (`panel-side`, `side-nav`, `bar-link`, `tab-link`, yeşil `taptime`) kullanılmaz.
+
+**Bileşenler — gerçekleşen adlarıyla** (`input.css` `@layer components`; templ bileşenleri
+`operatorpages` içinde dışa kapalı, `components.Notice` ve `layout.*` değişmez):
+
+| Aile | Sınıflar |
+|---|---|
+| Kart | `.op-card` — 14 px köşe, gölgesiz, telefonda 20 px, tabletten 22 / 24 px dolgu; **iç boşluk kuralda** (14 px sütun, M13-15). Tek istisna yasal metin düzenleyicisi: tam sınıf `op-card flex flex-col gap-0 overflow-hidden p-0` |
+| Başlık / etiket | `.op-label` (mono 11 px büyük harf), `.op-step` (16 / 17 px), `.op-heading` (19 px) |
+| Alan, bağlantı, sayfalayıcı | `.op-input` (10 px köşe), `.op-link`, `.op-pager` — hepsi 44 px; düğmeler `btn btn--primary` / `btn btn--quiet`, 10 px köşe |
+| Liste | `.docket` (keskin; dolgusu `.op-main .docket`) + `.op-row` / `.op-version` (kesikli çizgi); fatura şeridi `.op-receipt` |
+| Çip | `.tally` + kodun tonları; hap biçimi yalnız `.op-main .tally` |
+| Bildirim / problem | `opNotice(tone, heading)` → `.op-notice` + `--ok` / `--warn` / `--alert`; `.op-problem`, `.op-problem-title` |
+| Kayıt / askı | `.op-qr` (sayfadaki tek SVG), `.op-key`, `.op-uri`, `.op-token-field` · `.op-reasons`, `.op-reason-hold`, `.op-hold-warning` |
+
+**Kararlar:** (a) çip tonu kodun, pano tonu taşınmaz (tek yeniden tonlama `tally--running`);
+(b) yukarıdaki `aria-current`; (c) genel bakışın h1'i `<h1 class="docket-label">Tenant overview</h1>`,
+ad bandı `<p>` kalır; (d) bildirim tam çerçeve, 14 px köşe (README §6, panoların sol çizgisi değil);
+(e) ekran h1'inin boyu ekranın kendi panosundan, harf aralığı -0.03em; (f) docket satırında sözcükler
+Space Grotesk, değerler (sayı, saat, UID, çip) mono, tenant/kullanıcı adları Space Grotesk. Çelişkide
+**yerleşimde pano, bileşen biçiminde README §6**; kabuk ölçülerinde pano. Yardım metni **12 px**.
+
+**Kısıtlar:** tenant markası yok (`Theme{}`; logo, accent, adında `brand` geçen sınıf yok; CSP'de
+`img-src` yok → ikon ve QR satır içi SVG); imzalı her sayfada tam beş SVG (nav ikonları), kayıt ilk
+yüklemede bir (QR), öteki imzasızlarda sıfır (`TestEnrollQR_OnlyOnTheFirstLoad`); sayfada tek `<h1>`;
+yeni JS yok; operatör işaretlemesinin golden'ı yok, testler sabitler. Bir operatör CSS kuralı içerik
+gizlemez — bilinçli beş gizleme listelidir (`TestOperatorCSS_NoScopedRuleHidesContent`).
+
 ## Yapma
 
 Emoji ikon seti (marka mesajları hariç) · yuvarlatılmış adisyon ya da kaşe damgası ·
@@ -411,7 +603,7 @@ handler'da `mayEditAccount`, domain'de ikinci kez, rol ve durum DB'den
 | Yüzey | Logo | Accent | Logonun `alt`'ı | Kaynak |
 |---|---|---|---|---|
 | Tap ekranı | başlıkta 24 px yuva, altında 4 px aralıkla *"taptime · punchless"* (K-2b) | **tap düğmesinin zemini** | işletme adı | WL-9 — `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` |
-| Sonuç ekranı | tap ekranınınkiyle aynı başlık | **yok** — tema `<link>`'i 0, renkler durumu anlatır | işletme adı | WL-9 — `TestResultScreen_DrawsTheLogoAndNoAccent` |
+| Sonuç ekranı | tap ekranınınkiyle aynı başlık | **yok** — tema `<link>`'i 0, renkler durumu anlatır; talep kartının düğmesi de paletin (M15-17) | işletme adı | WL-9 — `TestResultScreen_DrawsTheLogoAndNoAccent`, M15-17 — `TestResultScreen_TheCardDrawsTheLogoAndNoAccent` |
 | Panel kabuğu | başlıkta 32 px kutu + işletme adı + co-brand | **4 px şerit** | **boş** (`alt=""`) — ad logonun yanında görünür metin | WL-8 — `TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection` |
 | Account → *"Your brand"* önizlemesi | önizlemedeki tap başlığı, kaynak `/admin/brand/logo/{sha}` | önizlemedeki tap düğmesi — **yalnız kaydedilen** accent | işletme adı | WL-7 — `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit` |
 | Aktivasyon ailesi — sihirbazın dört adımı, *"Activation complete"*, *"already set up"* | tap ekranının başlığı (24 px yuva + co-brand) — **yalnız VIES-doğrulanmış** işletmede; sihirbazda `/activate/logo/{sha}`, oturumlu iki ekranda `/t/logo/{sha}` | **adım 1–3'ün birincil düğmesinin zemini**; accent varken ilerleme çubuğu, 01/02/03 ve işaretli onay kutusu **ink** | işletme adı | WL-13 — `TestActivationScreens_ABrandedBusinessGetsTheTapScreensHeaderAndTheme` |
@@ -421,7 +613,9 @@ handler'da `mayEditAccount`, domain'de ikinci kez, rol ve durum DB'den
 - **Başka işletmenin plaketi:** tap ve sonuç ekranı Taptime varsayılanıyla açılır — `<img>`,
   tema bağlantısı ve `/t/logo/` 0 (`TestTapPage_AnotherBusinesssPlaqueShowsNoBrand`,
   `TestResultScreen_NoBrandWhereThePlaqueIsNotThisBusinesss`).
-- **Marka yoksa bayt-aynı:** tap, sonuç ve aktivasyon ailesinin 36 render'ı (WL-13'te 33 → 36)
+- **Marka yoksa bayt-aynı:** tap, sonuç ve aktivasyon ailesinin 38 render'ı (WL-13'te 33 → 36,
+  M15-12'de 36 → 38: tap ekranının iki yönlü şekli; aynı kart yönlü on sonuç golden'ını başlık
+  kelimesiyle yeniden yazdı)
   (`TestUnbrandedScreens_AreByteIdenticalToTheGolden`) ve WL-8'in 24 bileşen render'ı
   (`TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8` — 16'sı panel kabuğu, 8'i
   `documentHead`'e ulaşan öteki kabuklar: `Page`, `PageWithScript`, `Marketing` ve
@@ -436,7 +630,8 @@ handler'da `mayEditAccount`, domain'de ikinci kez, rol ve durum DB'den
 - **Tap düğmesinin sınıfı yedi `class` özniteliğinde** (2026-10-09'da sayıldı: `tap.templ`'de
   iki — gönderen yüz ve önizleme yüzü —, aktivasyon ailesinde beş: sihirbazın *Next*, *Agree and
   continue*, *I'm ready*'si, problem ekranının *Try again*'i, onay ekranının *Continue anyway*'i;
-  2026-10-06'da sekizdi, tur ADR 0026 ile kalktı), ama accent'i sınıf değil **sayfanın tema
+  2026-10-06'da sekizdi, tur ADR 0026 ile kalktı; 2026-10-22'de M15-12 ile yine sekiz: `tap.templ`'de
+  üç — yönsüz ve yönlü gönderen yüz, önizleme yüzü), ama accent'i sınıf değil **sayfanın tema
   bağlantısı** taşır: tema tap ekranına, panel kabuğuna ve (WL-13) aktivasyon ailesinin altı
   markalı ekranına, `app.css`'ten hemen sonra bağlanır; problem ve onay ekranlarındaki iki kullanım
   yeşil kalır (ADR 0023 §2, §4). Panelin içindeki Account önizlemesinin düğmesi accent'i bu yüzden
@@ -481,8 +676,11 @@ handler'da `mayEditAccount`, domain'de ikinci kez, rol ve durum DB'den
   ayrılır (kontrol: öznitelik ve yuva yokken bir kayma, 0,0144). Ölçülen: 512×128 → 96×24 ·
   512×16 → 179×24 · uzun ince 128×512 → **6×24** — yuva kararının bedeli (WL-9 sınır 7;
   `TestTapPage_TheLogoCarriesItsStoredBox`).
-- Ekran hâlâ **tek düğme**, kelimesi *"Tap"*, en az 64 px; tap ekranındaki tek yeni metin
-  logonun `alt`'ıdır (ADR 0023 §6 madde 10).
+- Ekran hâlâ **tek birincil düğme**, en az 64 px; markanın tap ekranına getirdiği tek yeni metin
+  logonun `alt`'ıdır (ADR 0023 §6 madde 10). *(2026-10-22, M15-12: burada "kelimesi 'Tap'"
+  yazıyordu; düğme artık tahmini yönü söyler — *"Clock in"* / *"Clock out"*, kapı kapalıyken
+  *"Tap"* — ve yönlü ekranda altında accent'siz *"Not right? …"* durur; ADR 0023 §6 madde 10'un
+  tarihli notu, ADR 0032 §B.1.)*
 - **Kırık logo:** logo isteği 404 alırsa (ör. logo değişti, eski sayfa açık) tarayıcı 24 px
   yuvada kırık görsel simgesini ve `alt`'ı — işletme adını — kırpılmış gösterir. `alt` = ad
   kabul şartının bedeli, kod değişmez (WL-9 sınır 11); ad serbest metin olduğu için bu,
@@ -677,7 +875,8 @@ ekranının görüntüsüdür.
   K-2a, K-2b) yalnız dört değişikliği kapsar: tap başlığında logo + co-brand, tap düğmesinde
   accent, sonuç başlığında logo + co-brand, logosuz ama accent'li tap ekranında ink `taptime`
   (ADR 0023 §7). Aktivasyon ailesinin üç kararı (2026-10-09) üç değişiklik daha kapsar (ADR 0023
-  §7'nin WL-13 eki: v–vii). Başka her tap/sonuç/aktivasyon değişikliği yeniden sorulur.
+  §7'nin WL-13 eki: v–vii). Sonuç ekranının talep kartı ayrı bir §9 kararıdır (ADR 0032 §C.1,
+  M15-17; yukarıda). Başka her tap/sonuç/aktivasyon değişikliği yeniden sorulur.
 - Şablon **yorumunda** yardımcı sınıf adı yazma, tarif et — `.templ` taranır, bu dosya
   taranmaz (yukarıdaki not).
 - Accent'i sonuç ekranına, damgaya, docket'e ya da panelin birincil düğmesine taşıma
@@ -686,5 +885,5 @@ ekranının görüntüsüdür.
 - Logo için uzak URL kullanma — e-postada da (izleme pikseli).
 - Logo pikselleri ve kırık logodaki `alt` durum kelimelerini taklit edebilir; bu kabul edilmiş
   bir risktir ([ADR 0005](../../../docs/adr/0005-kabul-edilen-riskler.md) risk 9) ve
-  hafifletenleri bu bölümün sayılarıdır: 24 px yuva, en çok sütunun yarısı, tek *"Tap"*
-  düğmesi, sonuçta logonun altındaki docket ve damga. Bu sayıları büyütmek riski büyütür.
+  hafifletenleri bu bölümün sayılarıdır: 24 px yuva, en çok sütunun yarısı, tek birincil
+  düğme, sonuçta logonun altındaki docket ve damga. Bu sayıları büyütmek riski büyütür.

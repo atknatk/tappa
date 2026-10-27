@@ -214,7 +214,7 @@ func (a *AdminAuth) membersView(r *http.Request, id httpx.AdminIdentity, v *page
 		default:
 			row.CanEnable = true
 		}
-		// An owner's integration keys outlive their ownership (backlog T150, ADR 0031 §5.13): until T150
+		// An owner's integration keys outlive their ownership (backlog T174, ADR 0031 §5.13): until T174
 		// is decided, every press that disables or demotes an owner says so beside it.
 		row.KeysNote = m.Owner() && (row.CanDisable || row.CanMakeManager || row.CanStepDown)
 		v.Members = append(v.Members, row)

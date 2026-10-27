@@ -12,7 +12,7 @@
   migration, CLAUDE.md değişikliği yok; CLAUDE.md metnini M14-01 bu ADR'nin §6.1'inden birebir
   uygular. Plan: [docs/plan/m14-tek-kimlik.md](../plan/m14-tek-kimlik.md).
   **2026-10-22:** M14-01 §6.1 metnini CLAUDE.md'ye uyguladı; **K-15 cevaplandı — (a)**, e-posta
-  değiştirme M14'ün dışında, kendi kartı ve kararıyla gelir (§13; open-questions Q34, backlog T149).
+  değiştirme M14'ün dışında, kendi kartı ve kararıyla gelir (§13; open-questions Q34, backlog T173).
   **2026-10-22:** M14-01'in güvenlik denetiminden sonra §6.1'in (3) metni kullanıcı onayıyla
   daraltıldı (bakım yazarları `identity_reconcile()`, backfill ve M14-19'un migration'ı adıyla; `tappa_app`'ın yazamadığı ve
   okuyamadığı bağ sütunları; operatör yasağına `resolve_identity_*`; onay cümlesine `tappa_app` /
@@ -341,7 +341,7 @@ yazdırılabilir ASCII olmayan bir adresi reddeder. Matris eki: `admin_signup_cl
 `tappa_resolver`: `admin_signup_claims` SELECT (anahtar + döndürdüğü altı sütun).
 
 **M14-17b notu (2026-10-27 kullanıcı kararı — "parola kanıtıyla sahiplenme", seçenek (A) "Dördüncü
-parametre"; uygulama `00080`, backlog T168):** bütün üyelikleri devre dışı olan bir kimlik yeni işletme
+parametre"; uygulama `00080`, backlog T170):** bütün üyelikleri devre dışı olan bir kimlik yeni işletme
 kaydedemiyordu: kayıt bilinen adresi var olan kimlik koluna yönlendirir, o kol kimliğin canlı oturumunu
 ister, aktif üyelik olmadığı için giriş mümkün değildir; yeni adres kolu ise `ON CONFLICT` ile 0 satırdır.
 `identity_claim_signup` bu yüzden **aynı adla, dördüncü argümanla** yeniden tanımlanır:
@@ -1073,9 +1073,9 @@ status)`'u (`00017:380-381`) ve `RevokeAdminSessionsForAdmin` ile; yeni sorgular
   etkinleştirmede iptal edilen oturum sayısını taşır — adres, ad, kimlik, başka işletme, üyelik sayısı yok.
 - **Onay kutuları:** "Step down" ve "Make owner" (bütün işletmeyi tek basışta verir) ikisi de
   `confirm=yes` ister; handler denetler.
-- **API anahtarları (§5.13, backlog T150):** bir owner'ı devre dışı bırakan ya da manager yapan her
+- **API anahtarları (§5.13, backlog T174):** bir owner'ı devre dışı bırakan ya da manager yapan her
   basışın yanında, o kişinin oluşturduğu API anahtarlarının çalışmaya devam ettiğini söyleyen cümle ve
-  API Keys bölümüne bağlantı durur — T150 karara bağlanana dek.
+  API Keys bölümüne bağlantı durur — T174 karara bağlanana dek.
 
 ### 5.13 API anahtarları, webhook'lar, aktörler
 

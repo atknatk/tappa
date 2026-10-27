@@ -1,0 +1,133 @@
+package pages
+
+import (
+	"strconv"
+
+	"github.com/atknatk/tappa/web/templates/layout"
+)
+
+// THE PRICING PAGE (LP-06), drawn from the Pricing, T-Pricing and M-Pricing boards: the
+// price card the landing carries, the worked examples beside a drawn frozen month, the
+// billing questions and the green sign-off, in the shared public chrome.
+//
+// THE WORDS AND THE FIGURES ARE NOT WRITTEN HERE. Every sentence that says something
+// about the product is a value in pricingview.go (or the landing's, for the card) with
+// the facts it rests on; every amount is computed by internal/handler from the
+// published price in integer cents and arrives in PricingView. What stays literal is
+// furniture: eyebrows, headings, the table's two labels and the drawing's own labels.
+//
+// NO SCRIPT, NO IMAGE, NO STYLE ATTRIBUTE: the page is served with the marketing policy
+// as it is. The drawn month is a picture (role img) of the Billing screen's receipt,
+// with the product's own FROZEN stamp; its figures are sample data and its caption
+// says so.
+
+// Pricing is the page at /pricing.
+templ Pricing(v PricingView) {
+	@layout.Marketing(PublicPageTitle(PricingPath), layout.RobotsPublic, v.Share) {
+		<div class="lp">
+			@PublicChrome(PublicChromeOpts{Current: PricingPath, SignInHref: v.SignInHref, SignupHref: v.SignupHref}) {
+				@pricingHead(v)
+				@pricingExamples(v)
+				@pricingBilling()
+				@signOff(v.FreeMonths, v.SignupHref)
+			}
+		</div>
+	}
+}
+
+// pricingHead is the page's opening: its one h1 and the landing's price card.
+templ pricingHead(v PricingView) {
+	<div class="band band--porcelain">
+		<section class="lp-pageHead" aria-label="Pricing">
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-pageEyebrow">Pricing</p>
+				<h1 class="lp-h1">{ LandingPricingHeading.Text }</h1>
+				<p class="lp-pageLede">{ LandingPricingLede.Text }</p>
+				@priceCard(priceCardOpts{Price: v.PricePerEmployeeMonth, FreeMonths: v.FreeMonths, ExampleHeadcount: v.ExampleHeadcount, ExampleMonthly: v.ExampleMonthly})
+			</div>
+		</section>
+	</div>
+}
+
+// pricingExamples is what a month costs at four team sizes, beside a drawn frozen month.
+// When the price could not be read there are no figures, and the section is not drawn at
+// all: a heading and a sentence over nothing would promise a table that is not there. No
+// link on the site names this section.
+templ pricingExamples(v PricingView) {
+	if len(v.Figures.Sizes) > 0 {
+		<div class="band band--paper">
+			<section id="examples" class="lp-sec" aria-labelledby="examples-title">
+				<div class="lp-wrap">
+					<p class="lp-eyebrow lp-secEyebrow">Examples</p>
+					<h2 id="examples-title" class="lp-h2">What a month costs at your size.</h2>
+					<p class="lp-lede">{ PricingExamplesLede.Text }</p>
+					<div class="lp-examples">
+						<div class="lp-examplesMain">
+							<div class="card lp-sizes">
+								<table class="lp-sizesTable" aria-labelledby="examples-title">
+									<thead>
+										<tr class="lp-lbl">
+											<th scope="col">Team size</th>
+											<th scope="col" class="lp-sizesAmt">Per month</th>
+										</tr>
+									</thead>
+									<tbody>
+										for _, r := range v.Figures.Sizes {
+											<tr>
+												<th scope="row" class="lp-sizesN">{ strconv.Itoa(r.People) } people</th>
+												<td class="lp-sizesAmt">{ "€" + r.Monthly }</td>
+											</tr>
+										}
+									</tbody>
+								</table>
+							</div>
+							<p class="lp-freeNote">{ PricingFreeNote.Text }</p>
+						</div>
+						@pricingReceipt(v.Figures.Receipt)
+					</div>
+				</div>
+			</section>
+		</div>
+	}
+}
+
+// pricingReceipt is the drawn frozen month: the Billing screen's receipt with the
+// product's stamp, the people counted, the price, the total, when it was frozen and the
+// file it offers. A picture, so nothing in it is pressed; the CSV is a drawn label.
+templ pricingReceipt(r PricingReceipt) {
+	<figure class="lp-receiptFig">
+		<article class="lp-slip lp-receipt" role="img" aria-label="Sample: a frozen month on the Billing screen">
+			<div class="lp-receiptTop">
+				<span class="lp-receiptMonth">{ PricingReceiptMonth }</span>
+				<span class="stamp stamp--approved lp-receiptStamp">FROZEN</span>
+			</div>
+			<div class="lp-receiptRows">
+				<div class="lp-receiptRow"><span>People</span><span>{ r.People }</span></div>
+				<div class="lp-receiptRow"><span>Price</span><span>{ r.Price }</span></div>
+			</div>
+			<div class="lp-receiptTotal">
+				<span class="lp-receiptTotalLbl">TOTAL</span>
+				<span class="lp-receiptTotalAmt">{ r.Total }</span>
+			</div>
+			<span class="lp-receiptWhen">frozen { PricingReceiptFrozenAt }</span>
+			<span class="lp-receiptCsv">Download CSV</span>
+		</article>
+		<figcaption class="lp-receiptCap">{ PricingReceiptCaption.Text }</figcaption>
+	</figure>
+}
+
+// pricingBilling is the billing questions, beside their heading from the desktop up,
+// as the landing's FAQ is drawn.
+templ pricingBilling() {
+	<div class="band band--porcelain">
+		<section id="billing" class="lp-sec">
+			<div class="lp-wrap lp-faq">
+				<div class="lp-faqHead">
+					<p class="lp-eyebrow lp-secEyebrow">Billing, answered</p>
+					<h2 class="lp-h2 lp-faqTitle">How the month is counted.</h2>
+				</div>
+				@qaList(PricingFAQ)
+			</div>
+		</section>
+	</div>
+}

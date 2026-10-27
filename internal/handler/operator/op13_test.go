@@ -434,7 +434,9 @@ func TestPlaqueScreen_NoKeyReachesThePage(t *testing.T) {
 		{db.TenantPlaqueInventory{}, []string{"Plaques", "TenantID", "TenantName", "Total"}},
 		{operatorpages.PlaqueRow{}, []string{"CreatedAt", "EncodedAt", "Label", "LastCtr", "Location", "LocationID", "ReplacedBy",
 			"RetiredAt", "Sentence", "StoredStatus", "Tone", "UID"}},
-		{operatorpages.TenantPlaquesView{}, []string{"ID", "Name", "Noun", "OverviewPath", "Rows", "Shown", "Total", "Truncated"}},
+		{operatorpages.TenantPlaquesView{}, []string{"ID", "Name", "Noun", "OverviewPath", "Rows", "Shown", "Tabs", "Total", "Truncated"}},
+		// Tabs (M13-01) is the sub-nav's four paths, strings the handler builds from the tenant's id.
+		{operatorpages.TenantTabs{}, []string{"Billing", "Overview", "Plaques", "VAT"}},
 	} {
 		if got := fields(c.v); !slices.Equal(got, c.want) {
 			t.Errorf("%T's fields are %v, want %v -- a new field is a new slot the page can print", c.v, got, c.want)
@@ -784,7 +786,7 @@ func TestPlaqueScreen_EachChipHasTheRuleTheContrastTestComputes(t *testing.T) {
 	for tone, w := range want {
 		var b strings.Builder
 		if err := operatorpages.TenantPlaques(operatorpages.TenantPlaquesView{Name: mustName(t, "FAKE Tone Ltd"), Total: "1", Shown: "1",
-			Noun: "plaque", OverviewPath: "/operator/tenants/x",
+			Noun: "plaque", OverviewPath: "/operator/tenants/x", Tabs: fixtureTabs,
 			Rows: []operatorpages.PlaqueRow{{UID: "04A1B2C3D4E5F6", Label: "L", Sentence: "S", Tone: tone}}}).Render(t.Context(), &b); err != nil {
 			t.Fatal(err)
 		}

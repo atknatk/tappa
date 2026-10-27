@@ -61,7 +61,7 @@ func emailSignupConfig() *config.Config {
 // its worker are real) and the log captured.
 func newEmailSignupDriver(t *testing.T, p *fakeProvisioner, floor time.Duration) (*wizardDriver, *Signup, *recordingMail, *lockedWriter) {
 	t.Helper()
-	claims := newFakeClaims()
+	claims := newFakeSignupClaims()
 	p.claims, claims.onOpen = claims, p.opened
 	rec := &recordingMail{}
 	logged := &lockedWriter{w: &bytes.Buffer{}, mu: &sync.Mutex{}}
@@ -521,7 +521,7 @@ func TestSignup_TheDeliveryModeIsTheInstallations(t *testing.T) {
 		if c.mailer {
 			mailer = &recordingMail{}
 		}
-		w, err := NewSignup(&fakeProvisioner{}, newFakeClaims(), nil, mailer, cfg, slog.New(slog.DiscardHandler))
+		w, err := NewSignup(&fakeProvisioner{}, newFakeSignupClaims(), nil, mailer, cfg, slog.New(slog.DiscardHandler))
 		if c.bootErr {
 			if err == nil {
 				t.Errorf("%s/%s/mailer=%v booted", c.env, c.delivery, c.mailer)

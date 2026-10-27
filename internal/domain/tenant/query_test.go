@@ -497,6 +497,17 @@ func TestReviewsQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 	fileBelt(t, "reviews.sql", 5)
 }
 
+// TestPunchClaimsQueries_CarryAnExplicitTenantPredicate is the same belt over punchclaims.sql (M15-15,
+// M15-16): the claim's INSERT built from the anchor, the decision's INSERT built from the claim, the
+// claim domain's four reads, and (M15-18) the panel's three -- the queue, the pending mark and the count, called from
+// internal/domain/ledger, whose TestPanelQueries_CarryAnExplicitTenantPredicate checks them too. The
+// claim domain carries a behavioural copy (TestPunchClaimQueries_TheNewStatementsCarryTheirOwnTenantPredicate,
+// the migration role with another tenant's id); this one is FILE-DERIVED, so a statement added to the
+// file is checked before anything calls it.
+func TestPunchClaimsQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
+	fileBelt(t, "punchclaims.sql", 9)
+}
+
 // TestTransactionsQueries_CarryAnExplicitTenantPredicate is the tags belt pointed at
 // transactions.sql (M6-08). See txnQueryFile for why it exists and what widening
 // further would cost.
@@ -577,9 +588,13 @@ func TestTransactionsQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 // Without it a blinded matcher would make the belt pass over unscoped SQL.
 func TestStaffScopeCheck_IsNotVacuous(t *testing.T) {
 	unscoped := map[string]string{
-		"no predicate at all":               "e.id = @id",
-		"neutralised by OR":                 "(e.tenant_id = @tenant_id OR TRUE)",
-		"OR at the top level":               "e.tenant_id = @tenant_id OR 1 = 1",
+		"no predicate at all": "e.id = @id",
+		"neutralised by OR":   "(e.tenant_id = @tenant_id OR TRUE)",
+		"OR at the top level": "e.tenant_id = @tenant_id OR 1 = 1",
+		// M15-16 review (security ORTA): an OR AFTER the scope conjunct -- AND alone split it off
+		"OR after the scope conjunct":       "e.tenant_id = @tenant_id AND e.id = @id OR true",
+		"OR a caller's switch":              "e.tenant_id = @tenant_id AND e.id = @id OR @all::boolean",
+		"OR after it, across lines":         "e.tenant_id = @tenant_id\n  AND e.status <> 'x'\n  OR e.id IS NOT NULL",
 		"a literal, not the caller":         "e.tenant_id = '00000000-0000-0000-0000-000000000000'",
 		"another column, not the parameter": "e.tenant_id = l.tenant_id",
 		// 🔴 THE CASE A MUTATION FOUND: the clause IS scoped -- just not the table
@@ -601,11 +616,28 @@ func TestStaffScopeCheck_IsNotVacuous(t *testing.T) {
 		"the subject beside another table": "l.tenant_id = @tenant_id AND e.tenant_id = @tenant_id",
 		"conjoined with filters":           "e.tenant_id = @tenant_id AND e.status <> 'deactivated'",
 		"second conjunct":                  "e.id = @id AND e.tenant_id = @tenant_id",
+		"a parenthesised OR is a filter":   "e.tenant_id = @tenant_id AND (e.id = @id OR e.status = 'x')",
+		"OR inside a string literal":       "e.tenant_id = @tenant_id AND e.name <> 'this OR that'",
 	}
 	for why, where := range scoped {
 		if !scopedBySubject(where, subject{table: "employees", alias: "e", column: "tenant_id"}) {
 			t.Errorf("the scope check REJECTED %q (%s), which IS correctly scoped -- a "+
 				"check that accepts only one spelling is a change detector", where, why)
+		}
+	}
+	// The whole statement, through scopeFindings (M15-16 review): an UPDATE and a SELECT whose WHERE
+	// is scoped and then OR-ed away are flagged; the same statements without the OR are not.
+	scopedTables := map[string]bool{"employees": true}
+	for _, body := range []string{
+		"UPDATE employees e SET status = 'deactivated' WHERE e.tenant_id = @tenant_id AND e.id = @id OR @all::boolean",
+		"SELECT e.id FROM employees e WHERE e.tenant_id = @tenant_id AND e.id = @id OR true",
+	} {
+		if f, n := scopeFindings(body, scopedTables); len(f) == 0 || n == 0 {
+			t.Errorf("scopeFindings accepted %q (%d checked)", body, n)
+		}
+		fixed := strings.Replace(strings.Replace(body, " OR @all::boolean", "", 1), " OR true", "", 1)
+		if f, _ := scopeFindings(fixed, scopedTables); len(f) != 0 {
+			t.Errorf("scopeFindings flagged the scoped %q: %v", fixed, f)
 		}
 	}
 }
@@ -1247,6 +1279,9 @@ func (s subject) qualified() string {
 // ⚠️ THIS IS NOT A CLAIM THAT LEDGER'S COPY IS WRONG. It is a claim that its matcher
 // does not cover the shape THIS package introduced, which is a different sentence.
 func scopedBySubject(where string, subj subject) bool {
+	if hasTopLevelOr(where) {
+		return false
+	}
 	for _, conjunct := range splitTopLevelAnd(where) {
 		if isScopeEquality(conjunct, subj) {
 			return true
@@ -1275,6 +1310,44 @@ func splitTopLevelAnd(s string) []string {
 		}
 	}
 	return append(parts, s[last:])
+}
+
+// hasTopLevelOr reports whether s has an OR outside every parenthesis, string literal and SQL
+// comment (M15-16 review, security ORTA, measured). Splitting on AND alone let
+// `x.tenant_id = @tenant_id AND a OR b` through: one conjunct IS the scope equality, but the
+// clause is (scope AND a) OR b -- every row whenever b holds. A WHERE with an OR at depth zero
+// therefore scopes nothing, whatever its conjuncts look like. A parenthesised OR (`AND (a OR b)`)
+// is depth one and stays a filter. An aggregate's `FILTER (WHERE ...)` is no row scope: ledger's
+// reader skips it, the other copies' readers would hand its OR here. Measured 2026-10-25 over
+// every statement in db/queries with tenant's reader and ledger's: the one depth-zero OR is
+// ListAnomalyVenues' `FILTER (WHERE t.ip_match IS NOT NULL OR t.gps_match IS NOT NULL)`, which
+// only ledger's belt reads -- so no shipped statement turns red, and a copy that met it would
+// fail closed (a false alarm, never a pass).
+func hasTopLevelOr(s string) bool {
+	depth := 0
+	upper := strings.ToUpper(s)
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '\'':
+			for i++; i < len(s) && s[i] != '\''; i++ {
+			}
+			continue
+		case strings.HasPrefix(s[i:], "--"):
+			for ; i < len(s) && s[i] != '\n'; i++ {
+			}
+			continue
+		case s[i] == '(':
+			depth++
+			continue
+		case s[i] == ')':
+			depth--
+			continue
+		}
+		if depth == 0 && strings.HasPrefix(upper[i:], "OR") && wordBoundary(upper, i, 2) {
+			return true
+		}
+	}
+	return false
 }
 
 func wordBoundary(s string, i, n int) bool {

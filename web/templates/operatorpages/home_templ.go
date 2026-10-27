@@ -25,6 +25,14 @@ import "github.com/atknatk/tappa/web/templates/components"
 //
 // It does not show the operator's address: the session resolves to an id, and no
 // definer reads an operator's email (a new op_* is a migration).
+//
+// THE REDESIGN (M13-06; docs/design/operator-redesign README §6.1 "Home hub", screens.md §3):
+// still one card -- the mono label over the h1, at the board's 28 px at every width; the four
+// links each beside its gloss from the tablet on and above it on the phone, every link 44 px
+// tall; the session sentence the card's last line. The links' 17 px comes from their list item,
+// not from a class on the anchor, whose whole tag is pinned. No icon tiles: the only drawings a
+// signed-in page carries are the nav's five (TestEnrollQR_OnlyOnTheFirstLoad). Pinned by
+// TestHomeScreen_IsOneCardOfFourLinksAndReadsNothing.
 func Home() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -58,13 +66,13 @@ func Home() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><p class=\"docket-label\">Operator console</p><h1 class=\"mt-1 font-display text-2xl font-bold tracking-tight\">You are signed in</h1><ul class=\"mt-4 flex flex-col gap-1\"><li><a href=\"/operator/tenants\" class=\"op-link\">Tenants</a> <span class=\"text-sm text-ink/70\">— find a business, and see what it has live</span></li><li><a href=\"/operator/legal\" class=\"op-link\">Legal texts</a> <span class=\"text-sm text-ink/70\">— Taptime's privacy policy, terms, company details and cookie notice</span></li><li><a href=\"/operator/holdings\" class=\"op-link\">Holdings</a> <span class=\"text-sm text-ink/70\">— group businesses that work in one timezone, and see who is in each</span></li><li><a href=\"/operator/audit\" class=\"op-link\">Audit log</a> <span class=\"text-sm text-ink/70\">— every sign-in, read and publication on this surface</span></li></ul><p class=\"mt-4 text-sm text-ink/70\">A session ends after 30 minutes without use, and after 8 hours in any case. Sign out when you are done.</p></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><div class=\"flex flex-col gap-1.5\"><p class=\"op-label\">Operator console</p><h1 class=\"font-display text-[28px] font-bold leading-[1.1] tracking-[-0.03em]\">You are signed in</h1></div><ul class=\"border-t border-line\"><li class=\"flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] md:grid md:grid-cols-[128px_minmax(0,1fr)] md:items-baseline md:justify-items-start md:gap-x-4 md:py-1\"><a href=\"/operator/tenants\" class=\"op-link\">Tenants</a> <span class=\"text-sm leading-[1.45] text-ink/70\">— find a business, and see what it has live</span></li><li class=\"flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] md:grid md:grid-cols-[128px_minmax(0,1fr)] md:items-baseline md:justify-items-start md:gap-x-4 md:py-1\"><a href=\"/operator/legal\" class=\"op-link\">Legal texts</a> <span class=\"text-sm leading-[1.45] text-ink/70\">— Taptime's privacy policy, terms, company details and cookie notice</span></li><li class=\"flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] md:grid md:grid-cols-[128px_minmax(0,1fr)] md:items-baseline md:justify-items-start md:gap-x-4 md:py-1\"><a href=\"/operator/holdings\" class=\"op-link\">Holdings</a> <span class=\"text-sm leading-[1.45] text-ink/70\">— group businesses that work in one timezone, and see who is in each</span></li><li class=\"flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] md:grid md:grid-cols-[128px_minmax(0,1fr)] md:items-baseline md:justify-items-start md:gap-x-4 md:py-1\"><a href=\"/operator/audit\" class=\"op-link\">Audit log</a> <span class=\"text-sm leading-[1.45] text-ink/70\">— every sign-in, read and publication on this surface</span></li></ul><p class=\"max-w-[620px] text-sm leading-normal text-ink/70\">A session ends after 30 minutes without use, and after 8 hours in any case. Sign out when you are done.</p></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = screen("Console", true).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = screen("Console", true, navConsole).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -74,6 +82,15 @@ func Home() templ.Component {
 
 // Problem is the operator surface's refusal and fault page. Its sentences come from the
 // handler's ProblemView constants.
+//
+// THE PAGE IS ONE ALERT CARD (M13-03; docs/design/operator-redesign README §6 "Problem page",
+// screens.md §4): the operator notice in its alert tone, holding the page's one h1 (the title) and
+// the message, and under it the way on, when the constant names one. Signed out it sits in the
+// narrow centred column of the sign-in, with no nav; signed in it sits in the frame, whose nav marks
+// no section (navNone: a refusal is no section's page) and which has no tenant banner, because no
+// problem names a tenant. No state chip either: the view carries no state, only words (D1). The
+// card's inner spacing is written here, on its two lines; its padding and type are the op-problem
+// rules of input.css.
 func Problem(v ProblemView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -107,6 +124,10 @@ func Problem(v ProblemView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<div class=\"op-problem\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
 			templ_7745c5c3_Var5 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -119,48 +140,44 @@ func Problem(v ProblemView) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<h1 class=\"font-display text-xl font-bold tracking-tight\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<h1 class=\"op-problem-title\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 56, Col: 70}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 76, Col: 42}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</h1><p class=\"mt-2\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</h1><p class=\"mt-2.5 text-[15px] leading-normal\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(v.Message)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 57, Col: 30}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 77, Col: 60}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = components.Notice(components.ToneAlert, "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, " ")
+			templ_7745c5c3_Err = opNotice(components.ToneAlert, "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if v.Back != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<p><a href=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<p class=\"text-[15px]\"><a href=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -176,7 +193,7 @@ func Problem(v ProblemView) templ.Component {
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(v.BackLabel)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 61, Col: 63}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 81, Col: 64}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
@@ -187,9 +204,13 @@ func Problem(v ProblemView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
 			return nil
 		})
-		templ_7745c5c3_Err = screen(v.Title, v.SignedIn).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = screen(v.Title, v.SignedIn, navNone).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -1,8 +1,10 @@
 package pages
 
 import (
+	"strconv"
 	"strings"
 
+	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/web/templates/layout"
 )
 
@@ -65,6 +67,10 @@ import (
 // TestLanding_PriceMatchesTheSchemaItIsCharged re-reads migration 00016 to
 // compare.
 type LandingView struct {
+	// Share is the page's link preview (LP-13): its description and the full URL of
+	// its share image, built by internal/handler. The zero value writes neither.
+	Share layout.Share
+
 	// SignupHref is where "Start free" points, or "" while self-service sign-up
 	// is not mounted. M7-02 sets it; nothing else about this page changes.
 	//
@@ -78,9 +84,10 @@ type LandingView struct {
 	// PricePerEmployeeMonth is the published price, formatted, without a currency
 	// symbol — "1.50". The symbol is in the template because it is typography.
 	PricePerEmployeeMonth string
-	// FreeMonths is the founding offer's free period. The PRODUCT enforces this:
-	// migration 00016's tappa_first_chargeable_month adds `interval '3 months'`
-	// for plan='founding', and the panel's billing screen reads it.
+	// FreeMonths is the founding offer's free period, the signup month included. The
+	// PRODUCT enforces this: migration 00016's tappa_first_chargeable_month adds
+	// `interval '3 months'` to the signup month's start for plan='founding', and the
+	// panel's billing screen reads it. The page says it with LandingFreeMonthsLine.
 	FreeMonths int
 	// ExampleHeadcount and ExampleMonthly are the price card's worked example —
 	// "A 60-person chain runs on €90/month" — and the second is COMPUTED from the
@@ -230,6 +237,13 @@ const (
 	// reflection over tap.Input and a scan for the function. It was a Fact until
 	// 2026-09-15; the only sentence that claims it now is in the two-shapes block.
 	AnchorDirectionFollowsLastOpenEntry Anchor = "tap:resolveDirection(Input.LastOpenIn)"
+	// AnchorDirectionPairsWithinTheBusinessDay — that pairing holds only within one
+	// business day (ADR 0032, M15): it starts at the business's cutoff, 05:00 unless the
+	// owner sets another (RestaurantsDayCutoff), and the rule is switched on in
+	// production. Derived by running tap.Decide with that cutoff and from migration 00064,
+	// the panel's business-day routes, the gather's switch and the deploy manifest — the
+	// same check as the restaurants page's FactDirectionPairsWithinTheBusinessDay.
+	AnchorDirectionPairsWithinTheBusinessDay Anchor = "tap:BusinessDayStart+00064 default+owner form+switch on"
 )
 
 // Fact is a PRODUCT fact one of the other blocks rests on.
@@ -310,14 +324,19 @@ const (
 	// an HR system "can write your people and locations"; it does not call that an
 	// import, because it is one profile per request, not a file.
 	FactAPIWritesPeopleAndLocations Fact = "route:PUT /v1/locations/{ref}+PUT /v1/employees/{ref}"
-	// Every punch reaches the integration from a feed or a webhook: GET /v1/punches is
+	// Every COUNTED TAP reaches the integration from a feed or a webhook (LP-08 review,
+	// 2026-10-22: it said "every punch", and a record typed by a manager is not in the
+	// feed -- 00049's punch_feed admits an ok NFC or QR tap and an approved flagged one,
+	// nothing on the manual channel; the integration guide says "Manual records do not
+	// enter the feed"). The sentences that rest on this say "counted tap" and say where
+	// a manager's entry goes instead (the hours CSV). GET /v1/punches is
 	// mounted (API-7), the punch feed's trigger (00049's punch_feed) queues a
 	// webhook_deliveries row for the business's endpoint, and so does the holding
 	// trigger (00049's holding_feed) for the employer of a holding punch — K-31: that
 	// punch's events are not punch_feed's, so "every" needs both — and cmd/tappa runs
 	// the sender (internal/webhook/delivery, API-10) whose body is the same
 	// punchwire.Punch the feed answers. Derived from all five.
-	FactAPIFeedsEveryPunch Fact = "route:GET /v1/punches+webhook:delivery"
+	FactAPIFeedsEveryCountedTap Fact = "route:GET /v1/punches+webhook:delivery (counted taps, no manual row)"
 	// The API is opened per business BY TAPPA, not by the business: a key of a tenant
 	// whose api_enabled_at is NULL is refused 403 api_disabled (apikey.ErrAPIClosed,
 	// the chain's refuse), migration 00038 refuses to run if tappa_app could write that
@@ -380,31 +399,165 @@ const (
 	// the offer, not a stock room; what the product provides is the mount and
 	// replace flows (FactPlaqueCanBeReplaced), and the plaque itself is hardware.
 	FactPlaquesIncludedAndReplacedFree Fact = "handoff:§11 plaques included and replaced free"
+	// The founding offer's price is fixed for life -- for FOUNDING CUSTOMERS, which is
+	// how the page says it (user decision K5, 2026-10-22). A PRICING TERM, pinned like
+	// the plaques line to the document that publishes the offer: docs/handoff.md §11's
+	// founding-offer line, "Founding offer: ilk 3 ay ücretsiz + ömür boyu fiyat sabit".
+	// The handoff ties the lock to the founding offer and to nothing wider, and the
+	// derivation reads it on that line only. ITS LIMIT, STATED: nothing in the product
+	// stores a promise about a future price; what it does hold is that the application
+	// cannot change a tenant's price at all (migration 00016 grants it no UPDATE on the
+	// column), and the sentence is the offer, as the price is.
+	FactPriceLockedForLife Fact = "handoff:§11 founding price fixed for life"
+	// A new business's signup month and the months after it, up to the founding offer's
+	// count, cost nothing (user decision K6, 2026-10-22: the page says what the code
+	// does). Derived from migration 00016's tappa_first_chargeable_month -- the first
+	// charged month is the SIGNUP month's start plus the founding interval, so the
+	// signup month is the first free one -- from both billing statements marking a month
+	// free exactly when it is before that, from the count equalling the page's
+	// FreeMonths, and from migration 00001's tenants.plan defaulting to 'founding', so a
+	// business that signs up today is on the offer. The handoff's "ilk 3 ay ücretsiz"
+	// ("the first 3 months free") left open whether the signup month is one of them; the
+	// code counts it, and the page now says so.
+	FactSignupMonthAndTheNextAreFree Fact = "sql:tappa_first_chargeable_month(signup month + founding interval)"
 	// The report totals per person and per venue. Delegates to
 	// AnchorPerVenueReport.
 	FactReportPerPersonAndVenue Fact = "fact:report-per-person-and-venue"
+	// The Pass hangs the day's records as dockets, newest first, each with its verdict's
+	// stamp (LP-05, "The panel"). Derived from three places together: the panel's record
+	// query (db/queries/transactions.sql ListPanelTransactions) ends ORDER BY
+	// t.occurred_at DESC, The Pass (pages/transactions.templ passBody) hangs its rail of
+	// components.RailDocket over those records, and RailDocket prints
+	// components.VerdictStamp, whose four words are the verdict's.
+	FactPassShowsTheDaysDocketsNewestFirst Fact = "templ:Pass rail of stamped dockets+query newest first"
+	// A manager's decision on a flagged record is one of two: approved or rejected.
+	// Derived from migration 0005's transaction_reviews.outcome CHECK (a closed set of
+	// exactly those two) and The Spike's decision form (pages/review.templ), whose two
+	// submit buttons send outcome=approved and outcome=rejected.
+	FactReviewIsApproveOrReject Fact = "schema:transaction_reviews.outcome+review form"
+	// The Roll is a week of hours per person: ledger.ReportDays is seven, ledger.WeekOf
+	// starts the period on a Monday, and The Roll (pages/reports.templ reportPeople)
+	// prints one row per person with one cell per day. Derived from the sources.
+	FactRollIsTheWeekPerPerson Fact = "ledger:ReportDays 7+reportPeople one row per person"
 )
 
 // --- nav --------------------------------------------------------------------------
 
-// NavLink is one in-page link in the landing page's own navigation bar.
+// NavLink is one entry of the public header's page links.
 type NavLink struct {
 	Label string
-	// Href is an in-page anchor — "#how" — and nothing else. The page's sections
-	// carry these ids, and TestLandingNav_EveryLinkPointsAtASectionOnThePage follows
-	// each one against the rendered page, so a section renamed without this list
-	// going with it is a red test rather than a link that scrolls nowhere.
+	// Href is either a section of the landing page -- "/#how", the path written out so
+	// the link works from every public page and not only from / -- or the route of a
+	// mounted public page ("/pricing"). TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage
+	// holds both shapes: a "/#…" entry must name an id the landing renders, a route must
+	// be a row of PublicPages, and the page an entry points at marks it as the current one.
 	Href string
 }
 
-// LandingNav is the sticky bar's three in-page links. The two OTHER things in the
-// bar — "Sign in" and "Start free" — are not here because they are not in-page:
-// they come from LandingView.SignInHref and LandingView.SignupHref for the reason
-// those fields record, and the header renders them from the view.
+// LandingNav is the header's three page links (every public page draws them). The two
+// OTHER things in the bar — "Sign in" and "Start free" — are not here because they
+// are not pages of this site: they come from the views' SignInHref and SignupHref for
+// the reason those fields record, and the header renders them from the view.
+//
+// AN ENTRY BECOMES ITS PAGE WHEN THE PAGE IS MOUNTED (plan decision O8): "Pricing"
+// pointed at the landing's #pricing section until LP-06 mounted /pricing, "Security"
+// at #security until LP-07 mounted /security, and the first was "How it works" on the
+// landing's #how until LP-08 mounted /product and it became "Product", the boards' label.
 var LandingNav = []NavLink{
-	{Label: "How it works", Href: "#how"},
-	{Label: "Security", Href: "#security"},
-	{Label: "Pricing", Href: "#pricing"},
+	{Label: "Product", Href: ProductPath},
+	{Label: "Security", Href: SecurityPath},
+	{Label: "Pricing", Href: PricingPath},
+}
+
+// --- the public chrome's link table (LP-02) ----------------------------------------
+//
+// THE ONE PLACE THE PUBLIC HEADER, THE PHONE MENU AND THE FOOTER TAKE THEIR LINKS
+// FROM (docs/plan/lp-landing-redesign.md, LP-02). Three lists, each already the
+// table its routes are mounted from or about to be:
+//
+//   - the header's three entries: LandingNav, above;
+//   - the Product column of the footer and of the phone menu: PublicProductLinks,
+//     below, in the boards' order;
+//   - the Legal column: LegalPages, the table internal/handler mounts the four
+//     documents from.
+//
+// 🔴 A LINK ARRIVES WITH ITS ROUTE, NEVER BEFORE (plan decision O8). The Product
+// column names all six entries the boards draw, but an entry whose Href is "" is a
+// page that is not mounted yet and the chrome renders NOTHING for it — no label, no
+// placeholder link. The card that mounts a page (LP-06 … LP-10) fills its Href in
+// the same commit, and TestMarketing_EveryInternalLinkResolves then follows it.
+// Filling an Href before the route exists is a red test, not a dead link.
+
+// PublicLink is one entry of the public chrome's Product column.
+type PublicLink struct {
+	Label string
+	// Href is the mounted route, or "" while the page does not exist.
+	Href string
+}
+
+// PublicProductLinks is the Product column of the footer and the phone menu, in the
+// boards' order. Mounted so far: the product tour (LP-08), the pricing page (LP-06), the
+// security page (LP-07), the restaurants page (LP-09), the production page (LP-10) and the
+// integration guide.
+var PublicProductLinks = []PublicLink{
+	{Label: "Product tour", Href: ProductPath},
+	{Label: "Security", Href: SecurityPath},
+	{Label: "Pricing", Href: PricingPath},
+	{Label: "For restaurants & bars", Href: ForRestaurantsPath},
+	{Label: "For production & facilities", Href: ForProductionPath},
+	{Label: "API docs", Href: APIGuidePath},
+}
+
+// --- the public pages beyond the landing (LP-06) ----------------------------------
+//
+// THE ONE LIST OF THE PUBLIC SITE'S OWN PAGES (README §7 step 4), in the shape
+// LegalPages already has. internal/handler mounts each page under a named path
+// constant equal to its row here, and its tests read this table to know the public
+// surface: every page in it is fetched by the scanners that hold the surface (the
+// policy, HEAD, no third party, every link resolving, no unmeasured claim, no
+// superiority claim, palette tokens only), and a test walks the mounted routes and
+// fails when a page is mounted without a row here or listed here without a route.
+//
+// A page card (LP-07 … LP-10) adds its row, its route and its view file in one commit.
+
+// PublicPage is one public page beyond the landing.
+type PublicPage struct {
+	// Path is the URL, and the identity of the row.
+	Path string
+	// Title is the browser tab's title.
+	Title string
+}
+
+// PublicPages is every public page beyond the landing, in the boards' order.
+var PublicPages = []PublicPage{
+	{Path: ProductPath, Title: "Product tour — Taptime"},
+	{Path: SecurityPath, Title: "Security — Taptime"},
+	{Path: PricingPath, Title: "Pricing — Taptime"},
+	{Path: ForRestaurantsPath, Title: "For restaurants & bars — Taptime"},
+	{Path: ForProductionPath, Title: "For production & facilities — Taptime"},
+}
+
+// PublicPageTitle is the title of the PublicPages row at path, so a page's tab title is
+// its row's and not a second string. A path with no row answers the brand alone.
+func PublicPageTitle(path string) string {
+	for _, p := range PublicPages {
+		if p.Path == path {
+			return p.Title
+		}
+	}
+	return "Taptime"
+}
+
+// MountedPublicLinks is the entries of ls whose route is mounted, in order — what the
+// chrome actually draws.
+func MountedPublicLinks(ls []PublicLink) []PublicLink {
+	out := make([]PublicLink, 0, len(ls))
+	for _, l := range ls {
+		if l.Href != "" {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // --- lines --------------------------------------------------------------------------
@@ -443,13 +596,18 @@ var LandingSetupLede = Line{
 	Facts: []Fact{FactTapPageNeedsNoApp, FactPlaqueIsPassive},
 }
 
-// LandingSecurityLede sits under "Four proofs on every single tap." — the four
-// signals are the four cards below it, and "before it lands in your records" is
-// §4.6: a tap that cannot be verified is still written, marked, and queued.
+// LandingSecurityLede sits under "Four checks behind every tap." -- the four checks
+// are the four cards below it, and "before it lands in your records" is §4.6: a tap
+// that cannot be verified is still written, marked, and queued.
+//
+// "UP TO FOUR" AND "CHECKS" ARE THE ORCHESTRATOR'S CORRECTION (LP-07, 2026-10-22). It
+// said "scored against four independent signals", which a QR check-in contradicts: it
+// carries no signature, and a phone may give no position. The heading said "Four
+// proofs on every single tap." for the same reason, and both pages now say "checks".
 var LandingSecurityLede = Line{
-	Text: "A tap isn't trusted — it's verified. Each clock-in is scored against four " +
-		"independent signals before it lands in your records.",
-	Facts: []Fact{FactFlaggedQueueDecidedByAManager},
+	Text: "A tap isn't trusted — it's verified. Each clock-in is checked against up to four " +
+		"signals before it lands in your records.",
+	Facts: []Fact{FactFlaggedQueueDecidedByAManager, FactRulesRunInOrder},
 }
 
 // LandingPrivacyNote is the green box under the four cards: §4.1 and §4.2 (the
@@ -476,6 +634,65 @@ var LandingPricingLede = Line{
 	Facts: []Fact{FactPricePerEmployee, FactPlaquesIncludedAndReplacedFree},
 }
 
+// LandingPriceLockedForLife is the price card's chip's second sentence, after the free
+// months. It names founding customers because the handoff ties the lock to the founding
+// offer (K5); no sentence on the public site says "locked for life" of anybody else.
+// The card renders on / and on /pricing.
+var LandingPriceLockedForLife = Line{
+	Text:  "Founding customers: price locked for life.",
+	Facts: []Fact{FactPriceLockedForLife},
+}
+
+// LandingFreeMonthsLine is the free period in words, for the founding offer's n months
+// (the view's FreeMonths, pinned to the function that grants them): "Your signup month
+// and the two after it are free." The signup month is the first of the n because the
+// code counts it (K6). It is a function of n so the count is never typed; n below one
+// is no offer and the line is empty, which the template renders as nothing.
+func LandingFreeMonthsLine(n int) Line {
+	facts := []Fact{FactSignupMonthAndTheNextAreFree}
+	switch {
+	case n < 1:
+		return Line{}
+	case n == 1:
+		return Line{Text: "Your signup month is free.", Facts: facts}
+	}
+	return Line{Text: "Your signup month and the " + countWord(n-1) + " after it are free.", Facts: facts}
+}
+
+// countWord spells a small count the way a sentence does ("two"), and a larger one in
+// digits.
+func countWord(n int) string {
+	words := []string{"zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+		"nine", "ten", "eleven", "twelve"}
+	if n >= 0 && n < len(words) {
+		return words[n]
+	}
+	return strconv.Itoa(n)
+}
+
+// SignupOffer is the sign-in screen's link to the wizard: "Start now — your signup
+// month and the two after it are free" (K6, 2026-10-22). It carries the same sentence
+// as the public pages, LandingFreeMonthsLine, so the screen that used to say "first 3
+// months free" says what tappa_first_chargeable_month does; with no free months it is
+// "Start now" alone.
+func SignupOffer(freeMonths int) string {
+	free := strings.TrimSuffix(LandingFreeMonthsLine(freeMonths).Text, ".")
+	if free == "" {
+		return "Start now"
+	}
+	return "Start now — " + strings.ToLower(free[:1]) + free[1:]
+}
+
+// FoundingChip is the price card's chip: the free months, then the founding customers'
+// price lock. One string so the two sentences keep their space between them.
+func FoundingChip(freeMonths int) string {
+	free := LandingFreeMonthsLine(freeMonths).Text
+	if free == "" {
+		return LandingPriceLockedForLife.Text
+	}
+	return free + " " + LandingPriceLockedForLife.Text
+}
+
 // --- the steps -------------------------------------------------------------------
 
 // Span is one run of a step's body: plain, or set in bold as the reference sets it.
@@ -490,22 +707,36 @@ type Span struct {
 
 // Step is one of the three cards under "How it works".
 type Step struct {
-	// Ordinal is printed in the data typeface above the icon — "STEP 1".
+	// Ordinal is printed in the data typeface beside the icon — "STEP 1".
 	Ordinal string
-	// Icon is the reference's own emoji for the card.
-	Icon  string
+	// Icon names the line drawing on the card (LP-04). The reference set an emoji
+	// here; an emoji's shape and colour belong to the reader's font, so the boards
+	// replaced it with a drawing in the page's own stroke, keyed by what it shows.
+	Icon  StepIcon
 	Title string
 	Body  []Span
 	// Facts are the product facts this step rests on — see Fact. Never empty.
 	Facts []Fact
 }
 
+// StepIcon names one of the drawings landingStepIcon renders. The set is closed:
+// a value the template does not know draws nothing, and
+// TestLandingSteps_EveryStepIsRenderedInOrder fails on it.
+type StepIcon string
+
+// The three step drawings: the wall plaque, the invitation, the phone at the tap.
+const (
+	StepIconPlaque StepIcon = "plaque"
+	StepIconInvite StepIcon = "invite"
+	StepIconTap    StepIcon = "tap"
+)
+
 // LandingSteps is the reference's three steps. Two sentences changed, both for a
 // number nobody measured and both recorded on the run that replaced them.
 var LandingSteps = []Step{
 	{
 		Ordinal: "STEP 1",
-		Icon:    "🏷️",
+		Icon:    StepIconPlaque,
 		Title:   "Stick the plaque",
 		Body: []Span{
 			{Text: "One branded A5 plaque per location, placed by the entrance — ideally in view of " +
@@ -517,7 +748,7 @@ var LandingSteps = []Step{
 	},
 	{
 		Ordinal: "STEP 2",
-		Icon:    "✉️",
+		Icon:    StepIconInvite,
 		Title:   "Invite your team",
 		// "30 seconds, ever" → "once, ever": the ONCE is the fact (one activation per
 		// person, GET /activate), the thirty seconds is a stopwatch nobody held.
@@ -533,17 +764,21 @@ var LandingSteps = []Step{
 	},
 	{
 		Ordinal: "STEP 3",
-		Icon:    "📶",
+		Icon:    StepIconTap,
 		Title:   "Tap in, tap out",
 		// "Under two seconds, even with wet or floury hands." → "Built for wet or
 		// floury hands.": the button's 64px floor is the rule the sentence describes
 		// (FactTapButtonSizedForAWetHand); the two seconds were never measured.
+		// "one button, done" → "one press, done" (main merge, 2026-10-25): under a
+		// predicted direction the screen also draws the small "Not right? …" button
+		// (ADR 0032 §B.1), so it is one press, not one button.
 		Body: []Span{
 			{Text: "Hold the phone to the plaque. The page opens by itself — no app — greets them " +
-				"by name, one button, done. "},
+				"by name, one press, done. "},
 			{Text: "Built for wet or floury hands.", Strong: true},
 		},
-		Facts: []Fact{FactTapPageNeedsNoApp, FactTapPageGreetsByName, FactTapButtonSizedForAWetHand},
+		Facts: []Fact{FactTapPageNeedsNoApp, FactTapPageGreetsByName, FactTapButtonSizedForAWetHand,
+			FactTapScreenIsOneButtonAndACorrection},
 	},
 }
 
@@ -680,12 +915,274 @@ var LandingEvidence = []Evidence{
 		Proof: "Backup proof of place",
 		Label: "GPS fallback",
 		// "150\u00a0m" is the reference's own no-break space, so the number and its
-		// unit cannot be split across a line.
-		Body: "WiFi down or phone on mobile data? GPS confirms presence within 150\u00a0m. Anything " +
-			"unverified is stored, flagged, and queued for manager review — never silently " +
-			"approved.",
+		// unit cannot be split across a line. "(the default radius)" (LP-15 fact review): the
+		// radius is a deployment setting (SourceGPSRadiusDefault). /security renders this
+		// body too, beside its own figure-driven "150 m by default", and its figures control
+		// refuses that phrase when the figures change -- so this one is worded apart from it
+		// and is pinned to internal/config's default by SourceGPSRadiusDefault instead.
+		// "never silently approved" became "by default, never approved without evidence"
+		// (LP-07 security review, 2026-10-22): the default sends an unverified tap to a
+		// manager, and an owner can still write a rule that allows one -- the sentence
+		// said more than the engine keeps.
+		Body: "WiFi down or phone on mobile data? GPS confirms presence within 150\u00a0m (the default radius). Anything " +
+			"unverified is stored, flagged, and queued for manager review — by default, never " +
+			"approved without evidence.",
 		Sources: []Source{SourceGPSOnlyAllow, SourceGPSRadiusDefault, SourceNoEvidenceReview},
 	},
+}
+
+// --- the panel (LP-05) -----------------------------------------------------------------
+//
+// "The panel": the three screens a manager works from, each drawn small beside one line
+// about it. The sentences are Lines and carry their pins like every other sentence on the
+// page. The drawings are SAMPLE DATA and say so on the page (LandingPanelSampleNote, and
+// each drawing's accessible name begins "Sample screen:").
+//
+// 🔴 THE SAMPLE IS INVENTED, AND IT IS STILL HELD TO THE PRODUCT. Nobody's record is
+// shown and nothing is read from the database: the names and times are made up for this
+// page. What is NOT made up is what the screens would say about such a record, because a
+// drawing of the panel that stamped a record the engine would not stamp, or printed a
+// score §5 cannot produce, is a claim in a picture. internal/handler runs every sample
+// record through tap.Decide and the panel's own words (the docket's signs, The Spike's
+// reasons and tiles, The Roll's hours format) and fails when the drawing and the product
+// disagree; the venues are the seed's (test/fixtures/seed.sql), as the hero's are, and no
+// sample person is one of the seed's people (whose status and role the drawing would then
+// contradict).
+//
+// Every label in the drawings is one the panel prints: "newest on the left" (The Pass's
+// rail), "Waiting for review: N", "Physical tap", "Network", "Location", "Approve",
+// "Reject" (The Spike), "Hours per person · week N", "Person", "Total", "CSV" and
+// "N shifts" (The Roll). Nothing in them is a control: they are pictures (role="img"),
+// and the drawn buttons are spans.
+
+// PanelScreen is one of the three screens: its name and the line beside its drawing.
+type PanelScreen struct {
+	Title string
+	Line  Line
+}
+
+// LandingPanelHeading is the section's heading. A record is written for every clock-in,
+// with or without evidence (§4.6 — base:no-evidence-review queues it rather than dropping
+// it), and The Pass lists the day's records.
+var LandingPanelHeading = Line{
+	Text:  "Every clock-in lands on The Pass.",
+	Facts: []Fact{FactPassShowsTheDaysDocketsNewestFirst, FactFlaggedQueueDecidedByAManager},
+}
+
+// LandingPanelLede is the line under it, naming the three screens.
+var LandingPanelLede = Line{
+	Text: "Managers work from the dashboard: the day's taps on The Pass, the ones the rules " +
+		"could not judge on The Spike, and the week's hours on The Roll.",
+	Facts: []Fact{FactPassShowsTheDaysDocketsNewestFirst, FactFlaggedQueueDecidedByAManager,
+		FactRollIsTheWeekPerPerson},
+}
+
+// The three screens, in the page's order.
+var (
+	LandingPanelPass = PanelScreen{
+		Title: "The Pass",
+		Line: Line{
+			Text:  "The day's taps as dockets, newest first, each stamped with its verdict.",
+			Facts: []Fact{FactPassShowsTheDaysDocketsNewestFirst},
+		},
+	}
+	LandingPanelSpike = PanelScreen{
+		Title: "The Spike",
+		Line: Line{
+			Text: "Taps the rules could not judge on evidence alone wait here for a manager to " +
+				"approve or reject.",
+			Facts: []Fact{FactFlaggedQueueDecidedByAManager, FactReviewIsApproveOrReject},
+		},
+	}
+	LandingPanelRoll = PanelScreen{
+		Title: "The Roll",
+		Line: Line{
+			Text:  "Hours per person for the week, with the CSV for your payroll.",
+			Facts: []Fact{FactRollIsTheWeekPerPerson, FactHoursExportAsCSV},
+		},
+	}
+)
+
+// LandingPanelSampleNote is printed under the three drawings. It is not a claim about the
+// product; it is the label that tells a visitor the drawings are not anybody's records.
+const LandingPanelSampleNote = "Drawn for this page — sample names and times."
+
+// PanelDocket is one invented record as the panel's dockets show it.
+type PanelDocket struct {
+	// Venue is one of the seed's venues.
+	Venue string
+	Who   string
+	// Direction is "IN" or "OUT". At is the local time shortened to HH:MM, as the boards
+	// draw it: the real rail prints seconds too (15:04:05), which a phone-width docket
+	// has no room for.
+	Direction string
+	At        string
+	// Channel is "nfc" or "qr", as the record's channel column holds it.
+	Channel string
+	// IP and GPS are the docket's two evidence signs: "yes" or "no".
+	IP  string
+	GPS string
+	// Verdict is the engine's: "ok" or "flag" (a sample on the panel is never rejected:
+	// The Pass is drawn on a good morning).
+	Verdict string
+	Trust   string
+}
+
+// LandingPanelPassDockets is The Pass's rail, newest on the left. The phone draws the
+// first two.
+var LandingPanelPassDockets = []PanelDocket{
+	{Venue: "KF St Julians", Who: "Maria Vella", Direction: "IN", At: "09:58", Channel: "nfc",
+		IP: "yes", GPS: "no", Verdict: "ok", Trust: "70"},
+	{Venue: "KF St Julians", Who: "Kevin Grech", Direction: "IN", At: "09:52", Channel: "nfc",
+		IP: "no", GPS: "yes", Verdict: "ok", Trust: "50"},
+	{Venue: "KF Msida", Who: "Claire Mifsud", Direction: "IN", At: "09:41", Channel: "nfc",
+		IP: "no", GPS: "no", Verdict: "flag", Trust: "20"},
+	{Venue: "Rusty Bar", Who: "Luke Borg", Direction: "OUT", At: "02:04", Channel: "nfc",
+		IP: "yes", GPS: "no", Verdict: "ok", Trust: "70"},
+}
+
+// PanelQueueItem is one record in The Spike's queue: the record, when (as the queue
+// prints it), the rule that sent it there and the queue's short reason for that rule.
+type PanelQueueItem struct {
+	Docket PanelDocket
+	When   string
+	Rule   string
+	Why    string
+}
+
+// LandingPanelSpikeQueue is The Spike's queue; the first is the record in focus, and it
+// is the same record as The Pass's flagged docket.
+var LandingPanelSpikeQueue = []PanelQueueItem{
+	{Docket: LandingPanelPassDockets[2], When: "today 09:41", Rule: "base:no-evidence-review",
+		Why: "no network, no location"},
+	{Docket: PanelDocket{Venue: "KF Valletta", Who: "Daniel Zammit", Direction: "IN", At: "08:57",
+		Channel: "qr", IP: "no", GPS: "yes", Verdict: "flag", Trust: "50"},
+		When: "today 08:57", Rule: "base:qr-requires-ip", Why: "QR without network"},
+	{Docket: PanelDocket{Venue: "KF Hamrun", Who: "Sara Camilleri", Direction: "OUT", At: "07:03",
+		Channel: "nfc", IP: "yes", GPS: "no", Verdict: "flag", Trust: "70"},
+		When: "today 07:03", Rule: "base:gps-conflict-review", Why: "location outside the venue"},
+}
+
+// PanelFocus is the record in focus on The Spike, with the lines its docket prints.
+type PanelFocus struct {
+	// Label is the venue and the plaque by its uid's last four characters.
+	Label string
+	// Line is direction, the date-ful time and the channel.
+	Line  string
+	Tiles []PanelTile
+}
+
+// PanelTile is one evidence tile: the panel's label and its value word. OK picks the
+// mark (✓ on green or ✗ on tomato); the word says the same thing, so the tone is never
+// told by colour alone.
+type PanelTile struct {
+	Label string
+	Value string
+	OK    bool
+}
+
+// LandingPanelSpikeFocus is the first queue item's docket as The Spike draws it.
+var LandingPanelSpikeFocus = PanelFocus{
+	Label: "KF Msida · plaque 7E10",
+	Line:  "IN · 20 Oct 09:41:12 · NFC",
+	Tiles: []PanelTile{
+		{Label: "Physical tap", Value: "yes", OK: true},
+		{Label: "Network", Value: "no"},
+		{Label: "Location", Value: "no"},
+	},
+}
+
+// LandingPanelPassDay is The Pass's eyebrow: the day the rail hangs.
+const LandingPanelPassDay = "Tue 20 Oct"
+
+// LandingPanelRollWeek is The Roll's ISO week, and LandingPanelRollDays its seven day
+// headings, as The Roll prints them ("Mon 2"). Week 42 of 2026 is Mon 12 – Sun 18 Oct.
+const LandingPanelRollWeek = 42
+
+var LandingPanelRollDays = []string{"Mon 12", "Tue 13", "Wed 14", "Thu 15", "Fri 16", "Sat 17", "Sun 18"}
+
+// PanelRollDay is one day of one person on The Roll.
+type PanelRollDay int
+
+// The two days that carry no worked minutes. Any positive value is minutes worked.
+const (
+	// RollNone is a day with no hours counted.
+	RollNone PanelRollDay = 0
+	// RollOpen is a check-in nobody closed: listed, not counted.
+	RollOpen PanelRollDay = -1
+)
+
+// PanelRollRow is one person's week on The Roll.
+type PanelRollRow struct {
+	Who       string
+	Role      string
+	HomeVenue string
+	Days      [7]PanelRollDay
+	// Away marks the days worked at a venue other than the person's home venue.
+	Away [7]bool
+}
+
+// LandingPanelRollRows is The Roll's sample week.
+var LandingPanelRollRows = []PanelRollRow{
+	{Who: "Maria Vella", Role: "Line Cook", HomeVenue: "KF St Julians",
+		Days: [7]PanelRollDay{482, 495, RollNone, 478, 510, 545, RollNone},
+		Away: [7]bool{3: true}},
+	{Who: "Kevin Grech", Role: "Kitchen Porter", HomeVenue: "KF St Julians",
+		Days: [7]PanelRollDay{360, RollOpen, 370, 365, RollNone, 480, 465}},
+	{Who: "Claire Mifsud", Role: "Line Cook", HomeVenue: "KF Msida",
+		Days: [7]PanelRollDay{480, 485, 478, 490, 482, RollNone, RollNone}},
+	{Who: "Luke Borg", Role: "Bartender", HomeVenue: "Rusty Bar",
+		Days: [7]PanelRollDay{486, RollNone, 465, 470, 480, 495, 510}},
+}
+
+// RollHours is minutes as The Roll prints hours: "8h 02m".
+func RollHours(minutes int) string {
+	m := minutes % 60
+	pad := ""
+	if m < 10 {
+		pad = "0"
+	}
+	return itoa(minutes/60) + "h " + pad + itoa(m) + "m"
+}
+
+// Cell is the text a day's cell prints: the hours, "open", or a dash for none.
+func (d PanelRollDay) Cell() string {
+	switch {
+	case d == RollOpen:
+		return "open"
+	case d <= RollNone:
+		return "—"
+	default:
+		return RollHours(int(d))
+	}
+}
+
+// Sub is the line under the name, as The Roll prints it: role · home venue.
+func (r PanelRollRow) Sub() string { return r.Role + " · " + r.HomeVenue }
+
+// Total is the week's counted hours; an open check-in is not in it.
+func (r PanelRollRow) Total() string {
+	sum := 0
+	for _, d := range r.Days {
+		if d > RollNone {
+			sum += int(d)
+		}
+	}
+	return RollHours(sum)
+}
+
+// Shifts is the number of worked shifts, as The Roll prints it.
+func (r PanelRollRow) Shifts() string {
+	n := 0
+	for _, d := range r.Days {
+		if d > RollNone {
+			n++
+		}
+	}
+	if n == 1 {
+		return "1 shift"
+	}
+	return itoa(n) + " shifts"
 }
 
 // --- the two shapes -------------------------------------------------------------------
@@ -710,6 +1207,12 @@ type Audience struct {
 	Points []Claim
 	// Example is the green chip under the paragraph.
 	Example Claim
+	// Href is the page the whole card links to, and Link the words at its foot -- the
+	// label PublicProductLinks gives that page. Href is "" while the page is not mounted,
+	// and the card is then no link and draws no foot (plan decision O8: a link arrives
+	// with its route; LP-09 mounted the restaurants page, LP-10 the production page).
+	Href string
+	Link string
 }
 
 // Paragraph is the card's sentences joined by one space, in the declared order —
@@ -749,15 +1252,18 @@ var LandingAudiences = []Audience{
 				Anchors: []Anchor{AnchorPlaqueBelongsToVenue, AnchorVenueShiftAndAddress},
 			},
 			{
-				Text: "Late-night bars welcome: overnight shifts pair check-outs to the last open " +
-					"check-in, not the calendar date.",
-				Anchors: []Anchor{AnchorDirectionFollowsLastOpenEntry},
+				Text: "Late-night bars welcome: a check-out pairs with the last open check-in of the same " +
+					"business day — a day that starts at a time you set, " + RestaurantsDayCutoff + " by default — " +
+					"not the calendar date.",
+				Anchors: []Anchor{AnchorDirectionFollowsLastOpenEntry, AnchorDirectionPairsWithinTheBusinessDay},
 			},
 		},
 		Example: Claim{
 			Text:    "9 sites · 1 dashboard · hours per location",
 			Anchors: []Anchor{AnchorPerVenueReport},
 		},
+		Href: ForRestaurantsPath,
+		Link: "For restaurants & bars",
 	},
 	{
 		Kicker: "Single site, many teams",
@@ -778,6 +1284,8 @@ var LandingAudiences = []Audience{
 			Text:    "5 departments · per-department shifts · records filtered by department",
 			Anchors: []Anchor{AnchorDepartmentShift, AnchorDepartmentOnEveryRecord},
 		},
+		Href: ForProductionPath,
+		Link: "For production & facilities",
 	},
 }
 
@@ -868,12 +1376,20 @@ var LandingFAQ = []Question{
 		Facts: []Fact{FactManualEntryNamesAManager},
 	},
 	{
-		Q: "What if the phone has no NFC?",
-		A: "The same page opens from a QR code with the camera. A QR tap carries no " +
-			"cryptographic signature — no proof of a physical touch — so it needs your " +
-			"venue's network address to match before it's approved. A position on its own " +
-			"is not enough: without the address it's stored, flagged and queued for review.",
-		Facts: []Fact{FactTapPageNeedsNoApp, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager},
+		// LP-09 review (2026-10-22): this asked "What if the phone has no NFC?" and answered
+		// with the QR code, but a phone is set up only by a real NFC tap (ADR 0026), so a
+		// phone with no NFC never gets as far as a check-in. The QR code is the fallback
+		// for a set-up phone whose NFC is off or fails, and the answer now says both.
+		// "By default" (LP-15 fact review), as /for/production and /security say it:
+		// base:qr-requires-ip is a baseline rule an owner may change.
+		Q: "What if a phone's NFC fails?",
+		A: "If a phone's NFC is off or fails on the day, the same page opens from the venue's QR " +
+			"code with the camera. A QR tap carries no cryptographic signature — no proof of a " +
+			"physical touch — so by default it needs your venue's network address to match before it's " +
+			"approved. A position on its own is not enough: without the address it's stored, " +
+			"flagged and queued for review. Setting a phone up still takes one real tap on a plaque.",
+		Facts: []Fact{FactTapPageNeedsNoApp, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager,
+			FactActivationEndsOnARealTap, FactSetupTakesARealTap},
 	},
 	{
 		Q: "Can someone clock in from home?",
@@ -882,13 +1398,15 @@ var LandingFAQ = []Question{
 		// opening of it loses (the counter guard). A check-in WITHOUT the code is the
 		// codeless channel: it needs the venue's address, and from anywhere else it is
 		// FLAGGED — recorded, queued, not approved. "Not without a manager seeing it"
-		// is therefore the honest answer, and "No" would have been too strong.
+		// is therefore the honest answer, and "No" would have been too strong. The
+		// address rule says "by default" (LP-15 fact review): base:qr-requires-ip is a
+		// baseline rule an owner may change.
 		A: "Not without a manager seeing it. The plaque's chip signs each tap with a " +
 			"one-time cryptogram, so the link only exists if a phone touched the plaque at " +
 			"that moment. A copied link, a screenshot, or yesterday's URL is rejected by " +
-			"the server. A check-in without the code needs your venue's network address to " +
-			"be approved; from anywhere else it's stored, flagged and queued for a manager " +
-			"rather than approved.",
+			"the server. By default, a check-in without the code needs your venue's network " +
+			"address to be approved; from anywhere else it's stored, flagged and queued for a " +
+			"manager rather than approved.",
 		Facts: []Fact{FactCopiedLinkIsRefused, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager},
 	},
 	{
@@ -906,10 +1424,11 @@ var LandingFAQ = []Question{
 		A: "Into your dashboard: hours per person and per site, and the monthly headcount " +
 			"you're billed on — both as CSV exports for your payroll. Once Taptime enables " +
 			"the integration API for you, your HR or payroll system can also read every " +
-			"punch from a feed or receive it by webhook. Taptime is the source of truth for " +
+			"counted tap from a feed or receive it by webhook; entries typed by a manager " +
+			"stay in the CSV. Taptime is the source of truth for " +
 			"in/out times — it doesn't try to replace your payroll.",
 		Facts: []Fact{FactReportPerPersonAndVenue, FactHoursExportAsCSV, FactBillingExportAsCSV,
-			FactAPIFeedsEveryPunch, FactAPIEnabledPerBusinessByTaptime},
+			FactAPIFeedsEveryCountedTap, FactAPIEnabledPerBusinessByTaptime},
 	},
 }
 
@@ -939,7 +1458,8 @@ type LegalPage struct {
 }
 
 // LegalPages is Q23's four documents. The card requires them reachable from the
-// footer, and they are: marketingChrome renders this exact slice.
+// footer, and they are: the public chrome's Legal column (PublicChrome) renders this
+// exact slice.
 //
 // 🔴 ALL FOUR SHIP AS SKELETONS AND THAT IS A DECISION, NOT AN OMISSION. A privacy
 // policy names a controller, an imprint names a registered company and an address,
@@ -1037,6 +1557,9 @@ type CookieRow struct {
 // LegalPageView is one legal document as rendered.
 type LegalPageView struct {
 	Page LegalPage
+	// Share is the page's link preview (LP-13): its description and the full URL of
+	// its share image, built by internal/handler. The zero value writes neither.
+	Share layout.Share
 	// SignInHref is the panel's sign-in page, for the shared chrome. Same reason
 	// LandingView carries it: internal/handler owns where the panel is mounted.
 	SignInHref string
@@ -1052,18 +1575,19 @@ type LegalPageView struct {
 	// other three it is nil and the template renders none.
 	Cookies []CookieRow
 
-	// Body is the PUBLISHED text, already split into paragraphs by
-	// internal/domain/legal.Paragraphs (M7-06). Empty means this document has no
-	// text yet and the skeleton renders instead.
+	// Body is the PUBLISHED text, already split into paragraphs of spans by
+	// internal/domain/legal.Paragraphs (M7-06; links since ADR 0033). Empty means this
+	// document has no text yet and the skeleton renders instead.
 	//
-	// 🔴 IT IS []string AND NOT HTML, AND THAT IS THE WHOLE SAFETY ARGUMENT. Every
-	// element goes through templ's `{ }` interpolation, i.e. html.EscapeString, so a
-	// legal text containing <script> renders as the characters somebody typed. The
-	// alternative — building <p> tags in Go and passing them to templ.Raw — is
-	// measured as a blind spot in this repository: templ.Raw has zero call sites and
-	// not one of the twelve tests that scan .templ files would see a first one
-	// appear.
-	Body []string
+	// 🔴 IT IS DATA AND NOT HTML, AND THAT IS THE WHOLE SAFETY ARGUMENT. Every span's
+	// text goes through templ's `{ }` interpolation, i.e. html.EscapeString, so a legal
+	// text containing <script> renders as the characters somebody typed; a span's Href
+	// is one legal.SafeHref accepted (http, https, mailto, tel) and goes into an
+	// attribute through templ.URL. The alternative — building <p> and <a> tags in Go
+	// and passing them to templ.Raw — is measured as a blind spot in this repository:
+	// templ.Raw has zero call sites and not one of the twelve tests that scan .templ
+	// files would see a first one appear.
+	Body []legal.Paragraph
 	// PublishedAt is when the current version was published, already formatted, or
 	// "" when there is none. It is shown because a legal document with no date is a
 	// legal document nobody can cite.

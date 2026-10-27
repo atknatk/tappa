@@ -28,6 +28,13 @@ import (
 // pending activation, the ordinary tap page for a live session. Nothing here
 // skips a check; it replaces the one thing a desktop browser cannot do, a touch.
 //
+// THE PRESS IS THE TAP PAGE'S OWN (ADR 0032 §B.3, M15-11). The simulator stops at GET /t
+// and posts nothing to /api/checkin: the button the developer presses there is the tap
+// page's form, so the direction it sends (want) reaches POST /api/checkin by the same
+// field, the same parser and the same switch gate as a real tap -- there is no second
+// copy of the field here to keep in step
+// (TestDevTapDB_ASimulatedTapCarriesTheChosenDirection).
+//
 // THREE GATES, any one of which keeps it out of a real deployment:
 //
 //  1. cmd/tappa only constructs and mounts it when DevToolsEnabled(cfg).

@@ -27,6 +27,7 @@ import (
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/billing"
 	"github.com/atknatk/tappa/internal/domain/checkin"
+	"github.com/atknatk/tappa/internal/domain/claim"
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/domain/manual"
@@ -248,7 +249,11 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	checkins, err := checkin.New(data, trail, cfg, log)
 	must(err)
-	tap, err := handler.NewTap(verifier, directory, sessions, checkins, activation, trail, cfg, log)
+	entries, err := manual.NewRecorder(data, trail, log)
+	must(err)
+	claims, err := claim.New(data, trail, entries, cfg.BusinessDayFrom, log)
+	must(err)
+	tap, err := handler.NewTap(verifier, directory, sessions, checkins, claims, activation, trail, cfg, log)
 	must(err)
 	admins, err := adminauth.New(data, cfg)
 	must(err)
@@ -261,8 +266,6 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	venues, err := tenant.NewVenues(data, trail, log)
 	must(err)
 	plaques, err := tenant.NewPlaques(data, trail, log)
-	must(err)
-	entries, err := manual.NewRecorder(data, trail, log)
 	must(err)
 	rules, err := tenant.NewRulebook(data, checkins.Params(), checkins.GPSRadiusM(), log)
 	must(err)
@@ -296,7 +299,7 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	f := appFeatures{
 		activation: activation, tap: tap, panel: panel, logos: logos,
-		marketing: handler.NewMarketing(texts, log, cfg.APIHost), signupFlow: signupFlow, resetFlow: resetFlow,
+		marketing: handler.NewMarketing(texts, log, cfg.APIHost, cfg.BaseURL), signupFlow: signupFlow, resetFlow: resetFlow,
 		ready: ready, theme: handler.NewBrandTheme(), operator: operator.Off(),
 	}
 	if !on {
@@ -401,6 +404,7 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		"POST /activate":        "activation",
 		"POST /api/activate":    "activation",
 		"POST /api/checkin":     "tap",
+		"POST /api/claim":       "tap",
 		"POST /admin/reset":     "reset",
 		"POST /admin/reset/new": "reset",
 		"POST /signup":          "signup",

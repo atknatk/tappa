@@ -39,6 +39,7 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/billing"
+	"github.com/atknatk/tappa/internal/domain/claim"
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/manual"
 	"github.com/atknatk/tappa/internal/domain/review"
@@ -47,6 +48,7 @@ import (
 	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/test/fixtures"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -100,6 +102,9 @@ type panelHarness struct {
 	// releaseTablesLock stops this harness holding the operator-tables lock (holdPanelTablesLock);
 	// the test's cleanup does it anyway.
 	releaseTablesLock func()
+	// claims is the punch claim service the panel's "Time claims" is wired with (M15-18), nil
+	// unless the harness was built with panelHarnessOptions.claims.
+	claims *claim.Service
 }
 
 func newPanelHarness(t *testing.T) *panelHarness {
@@ -147,6 +152,12 @@ type panelHarnessOptions struct {
 	// inviteSender (M14-15), when set, gives the panel the REAL manager invitation service
 	// (adminauth.AdminInvites on this database) and the invitation e-mail mode over this fake sender.
 	inviteSender *fakeMailSender
+	// claims wires the Spike's "Time claims" with the REAL claim service over this database and
+	// the real manual recorder (M15-18), the business-day switch on -- cmd/tappa's wiring.
+	claims bool
+	// wrapClaims, when set, wraps the claim service the PANEL is given (the harness keeps the real
+	// one) -- so a test can act between the handler's checks and Decide (M15-18 review round).
+	wrapClaims func(panelClaims) panelClaims
 }
 
 func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
@@ -290,6 +301,18 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 		t.Fatalf("adminauth.NewMemberships: %v", err)
 	}
 	opts = append(opts, AdminMemberships(memberships))
+	if o.claims {
+		svc, err := claim.New(data, trail, entries, fixtures.BusinessDaySwitchOn(), slog.New(slog.DiscardHandler))
+		if err != nil {
+			t.Fatalf("claim.New: %v", err)
+		}
+		ph.claims = svc
+		var panelSvc panelClaims = svc
+		if o.wrapClaims != nil {
+			panelSvc = o.wrapClaims(svc)
+		}
+		opts = append(opts, PunchClaims(records, panelSvc))
+	}
 	if o.invitations != nil {
 		cfg.InviteDelivery = config.InviteDeliveryEmail
 		opts = append(opts, InvitationsByEmail(o.invitations(t, cfg)))
