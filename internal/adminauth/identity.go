@@ -404,9 +404,9 @@ func (m *Manager) recordFailure(ctx context.Context, hasIdentity bool, id uuid.U
 
 // chargeIdentityFailure charges ONE failure against the identity's budget and answers the event call it
 // owes: login_failed for the identity within the budget, login_limited at the first refusal past it,
-// otherwise uuid.Nil (a call that writes nothing). The sign-in's failures (recordFailure) and the
-// registration's password branch (SignupClaims.ProveWithIdentityPassword, M14-17b) both charge here --
-// one key, one count, one trail.
+// otherwise uuid.Nil (a call that writes nothing). The sign-in's failures (recordFailure) charge here; the
+// registration's password branch keeps a counter of its own (claimBudgetKey, M14-17b's "Ret sayacını
+// ayır") and writes the same event rows.
 func chargeIdentityFailure(budget FailureBudget, id uuid.UUID) (uuid.UUID, string) {
 	within, count := budget.TryCharge(identityBudgetKey(id))
 	switch {

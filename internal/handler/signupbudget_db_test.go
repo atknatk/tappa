@@ -20,11 +20,11 @@ import (
 )
 
 // signupbudget_db_test.go -- M14-17b's two audits of 78a33f5c (the security audit's ORTA finding, the
-// third eye's ORTA-1; the user's decision "İkisini birden"): on an installation that shows the
-// registration link ON SCREEN (sandbox, explicit dev) anybody can mint links for a victim's address, so the
-// per-link gate is worth nothing there and the IDENTITY's brake is the whole defence. That brake is the
-// sign-in's own: AdminAuth's account limiter under the identity's key, handed to the wizard by
-// SignupSharesIdentityBudget. Real Postgres, the real adminauth.SignupClaims, the real panel sign-in.
+// third eye's ORTA-1; the user's decisions "İkisini birden" and "Ret sayacını ayır"): on an installation
+// that shows the registration link ON SCREEN (sandbox, explicit dev) anybody can mint links for a victim's
+// address, so the per-link gate is worth nothing there and the IDENTITY's counter of the branch is the whole
+// defence -- its OWN counter (claimIdentityLimiter), which the sign-in's failures never spend. Real Postgres,
+// the real adminauth.SignupClaims, the real panel sign-in.
 
 // countingProvisioner counts the proofs that reached it and creates nothing.
 type countingProvisioner struct {
@@ -39,18 +39,17 @@ func (c *countingProvisioner) Provision(context.Context, signup.Claim) (signup.R
 	return signup.Result{}, signup.ErrClaimRefused
 }
 
-// TestSignupConfirm_OnScreenGuessesAcrossLinksAndAddressesSpendTheSignInsBudget: an identity with no
-// active membership, its address typed by a stranger on the on-screen installation. Four failed panel
-// sign-ins of the identity, then six wrong passwords on the registration's password branch -- each on a
-// NEW link, from a NEW address, so neither the per-address nor the per-link gate ever binds -- are
-// answered normally (the sign-in's one failure; 422); together they spend the identity's budget
-// (adminAccountLimit = 10, the sign-in's own). The RIGHT password, on yet another link from yet another
-// address, is then refused with the paused page (429) and never reaches the provisioner. The trail is the
-// sign-in's: ten login_failed rows and one login_limited.
+// TestSignupConfirm_OnScreenGuessesAcrossLinksAndAddressesSpendTheBranchsCounter: an identity with no
+// active membership, its address typed by strangers on the on-screen installation. Ten failed panel
+// sign-ins spend the SIGN-IN's identity budget whole (ten login_failed; the panel's per-address gate stops
+// an eleventh from one address) -- and pause nothing here. Then ten wrong passwords on the registration's password branch -- each on a NEW link, from a NEW
+// address, so neither the per-address nor the per-link gate binds -- are each compared and answered 422;
+// they spend the branch's own counter (signupClaimIdentityLimit). The RIGHT password, on yet another link
+// from yet another address, is refused with the paused page (429) and never reaches the provisioner. The
+// trail is shared: twenty login_failed rows and the branch's one login_limited.
 //
-// MUTATION (measured): the registration branch's charge removed (adminauth's chargeIdentityFailure call on
-// the wrong password) -> the right password reaches the provisioner, red.
-func TestSignupConfirm_OnScreenGuessesAcrossLinksAndAddressesSpendTheSignInsBudget(t *testing.T) {
+// MUTATION (measured): adminauth's reservation removed -> the right password reaches the provisioner, red.
+func TestSignupConfirm_OnScreenGuessesAcrossLinksAndAddressesSpendTheBranchsCounter(t *testing.T) {
 	p := newIDPanel(t, panelHarnessOptions{})
 	email := "m14-17b-" + uuid.NewString() + "@identity.example"
 	const right = "the sign-in's own password"
@@ -73,15 +72,12 @@ func TestSignupConfirm_OnScreenGuessesAcrossLinksAndAddressesSpendTheSignInsBudg
 		t.Fatal(err)
 	}
 	prov := &countingProvisioner{}
-	wizard, err := NewSignup(prov, claims, nil, nil, cfg, slog.New(slog.DiscardHandler), SignupSharesIdentityBudget(p.auth))
+	wizard, err := NewSignup(prov, claims, nil, nil, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if wizard.delivery != signupOnScreen {
 		t.Fatal("PREMISE: the installation does not show the link on screen")
-	}
-	if wizard.identityBudget != p.auth.accountLimiter {
-		t.Fatal("the wizard's identity budget is not the sign-in's account limiter")
 	}
 	now := time.Now()
 	wizard.state.now = func() time.Time { return now }
@@ -115,27 +111,27 @@ func TestSignupConfirm_OnScreenGuessesAcrossLinksAndAddressesSpendTheSignInsBudg
 		return d.post(signupConfirmPath, url.Values{"csrf": {d.token(page)}, "password": {password}}).Code
 	}
 
-	for i := 0; i < 4; i++ {
+	for i := 0; i < adminAccountLimit; i++ {
 		res, _ := p.login(t, email, "a sign-in guess "+uuid.NewString())
 		if res.StatusCode == http.StatusSeeOther {
 			t.Fatalf("sign-in guess %d signed in", i+1)
 		}
 	}
-	for i := 0; i < 6; i++ {
+	for i := 0; i < signupClaimIdentityLimit; i++ {
 		if code := attempt(i, "a registration guess "+uuid.NewString()); code != http.StatusUnprocessableEntity {
-			t.Fatalf("registration guess %d: %d, want 422", i+1, code)
+			t.Fatalf("registration guess %d after the sign-in budget was spent: %d, want 422 (compared)", i+1, code)
 		}
 	}
-	if code := attempt(6, right); code != http.StatusTooManyRequests {
-		t.Fatalf("the right password after the shared budget was spent: %d, want 429", code)
+	if code := attempt(signupClaimIdentityLimit, right); code != http.StatusTooManyRequests {
+		t.Fatalf("the right password after the branch's counter was spent: %d, want 429", code)
 	}
 	if prov.n != 0 {
-		t.Fatalf("%d proof(s) reached the provisioner past the budget", prov.n)
+		t.Fatalf("%d proof(s) reached the provisioner past the counter", prov.n)
 	}
-	if n := p.count(t, `SELECT count(*) FROM admin_identity_events WHERE identity_id = $1 AND event = 'login_failed'`, ident); n != 10 {
-		t.Fatalf("%d login_failed rows from four sign-in and six registration guesses, want 10", n)
+	if n := p.count(t, `SELECT count(*) FROM admin_identity_events WHERE identity_id = $1 AND event = 'login_failed'`, ident); n != 20 {
+		t.Fatalf("%d login_failed rows from ten counted sign-in and ten registration guesses, want 20", n)
 	}
 	if n := p.count(t, `SELECT count(*) FROM admin_identity_events WHERE identity_id = $1 AND event = 'login_limited'`, ident); n != 1 {
-		t.Fatalf("%d login_limited rows, want 1", n)
+		t.Fatalf("%d login_limited rows, want the branch's one", n)
 	}
 }

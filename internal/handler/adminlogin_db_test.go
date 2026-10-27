@@ -105,9 +105,6 @@ type panelHarness struct {
 	// claims is the punch claim service the panel's "Time claims" is wired with (M15-18), nil
 	// unless the harness was built with panelHarnessOptions.claims.
 	claims *claim.Service
-	// auth is the panel itself -- its account limiter is the sign-in's identity failure budget, which
-	// the registration's password branch shares (M14-17b, SignupSharesIdentityBudget).
-	auth *AdminAuth
 }
 
 func newPanelHarness(t *testing.T) *panelHarness {
@@ -348,7 +345,6 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
-	ph.auth = h
 	h.Mount(r)
 	h.MountInviteAcceptance(r)
 	registerPanel(r, h)

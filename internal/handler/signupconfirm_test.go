@@ -3,7 +3,9 @@ package handler
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -429,12 +432,13 @@ func TestSignupConfirm_ASignInlessAddressConfirmsWithItsPassword(t *testing.T) {
 // signupClaimLinkLimit wrong passwords with the ordinary 422; every later attempt on THAT link -- the right
 // password included -- gets the same "too many attempts" page (429), reaches no proof and creates nothing
 // (ratelimit.go's inviteFailureLimit gate, activate.go's overInviteBudget). The gate is per link: a NEW link
-// for the same address is answered normally. (The identity's budget, shared with the sign-in, is
-// internal/adminauth's TestSignupClaims_WrongIdentityPasswordsSpendTheIdentitysBudgetAcrossLinks; the
-// claims fake here never spends it.)
+// for the same address is answered normally. (The branch's identity counter is internal/adminauth's
+// TestSignupClaims_WrongIdentityPasswordsSpendTheIdentitysBudgetAcrossLinks; the claims fake here never
+// spends it.)
 //
-// MUTATION (measured): the wrong-password charge removed -> the right password after ten wrong ones
-// creates the business, red.
+// MUTATION (measured, 0b3d018a): the gate's charge removed -> the right password after ten wrong ones
+// creates the business, red. The gate is now reserved at entry (TryCharge);
+// TestSignupConfirm_ConcurrentGuessesOnOneLinkStopAtTheGate holds the reservation.
 func TestSignupConfirm_ALinkPastItsGateRefusesEvenTheRightPassword(t *testing.T) {
 	p := &fakeProvisioner{}
 	d, wizard := newSignupDriver(t, p, nil)
@@ -469,10 +473,68 @@ func TestSignupConfirm_ALinkPastItsGateRefusesEvenTheRightPassword(t *testing.T)
 	}
 }
 
-// TestSignupConfirm_ASpentIdentityBudgetPausesTheLink: while the identity's failure budget is spent
-// (adminauth.ErrClaimBudgetSpent -- the sign-in's budget, shared) the branch answers the same paused page
-// as the link's gate, right password or wrong, and creates nothing. Without a budget wired the branch
-// refuses with a 500 and asks no proof -- never runs unbudgeted.
+// TestSignupConfirm_ConcurrentGuessesOnOneLinkStopAtTheGate is the 0b3d018a audits' ORTA at the link's gate
+// (run with -race): forty simultaneous wrong passwords on ONE link, from forty addresses, while each proof
+// takes 20 ms. The gate is RESERVED at entry (TryCharge), so at most signupClaimLinkLimit guesses reach a
+// proof and are answered 422; every other one is the paused page (429). Measured before the fix: forty
+// proofs, forty 422s.
+//
+// MUTATION (measured): Allowed at entry and Charge after the proof -> forty proofs, red.
+func TestSignupConfirm_ConcurrentGuessesOnOneLinkStopAtTheGate(t *testing.T) {
+	p := &fakeProvisioner{}
+	d, _ := newSignupDriver(t, p, nil)
+	email := strings.ToLower(accountForm("").Get("email"))
+	d.claims.known[email] = true
+	d.claims.signInless[email] = "the sign-in's own password"
+	link := confirmWalk(t, d)
+	d.get(link)
+	csrf := d.token(d.get(signupConfirmPath))
+	d.claims.proveDelay = 20 * time.Millisecond
+	jar := maps.Clone(d.jar)
+	const n = 40
+	var unprocessable, paused atomic.Int32
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			form := url.Values{"csrf": {csrf}, "password": {"guess " + strconv.Itoa(i)}}
+			req := httptest.NewRequest(http.MethodPost, signupConfirmPath, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("Origin", testBaseURL)
+			req.RemoteAddr = fmt.Sprintf("203.0.113.%d:4321", i+1)
+			for name, value := range jar {
+				req.AddCookie(&http.Cookie{Name: name, Value: value})
+			}
+			<-start
+			rec := httptest.NewRecorder()
+			d.router.ServeHTTP(rec, req)
+			switch rec.Code {
+			case http.StatusUnprocessableEntity:
+				unprocessable.Add(1)
+			case http.StatusTooManyRequests:
+				paused.Add(1)
+			default:
+				t.Errorf("guess %d answered %d", i, rec.Code)
+			}
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	d.claims.mu.Lock()
+	proofs := d.claims.identityProofs
+	d.claims.mu.Unlock()
+	t.Logf("%d guesses on one link: %d proofs, %d answered 422, %d paused", n, proofs, unprocessable.Load(), paused.Load())
+	if proofs > signupClaimLinkLimit || int(unprocessable.Load()) > signupClaimLinkLimit || len(p.provisioned) != 0 {
+		t.Fatalf("%d proofs and %d 422s for %d simultaneous guesses on one link, want at most %d each", proofs, unprocessable.Load(), n, signupClaimLinkLimit)
+	}
+}
+
+// TestSignupConfirm_ASpentIdentityBudgetPausesTheLink: while the branch's identity counter is spent
+// (adminauth.ErrClaimBudgetSpent) the branch answers the same paused page as the link's gate, right
+// password or wrong, and creates nothing. Without the counter the branch refuses with a 500 and asks no
+// proof -- never runs uncounted.
 func TestSignupConfirm_ASpentIdentityBudgetPausesTheLink(t *testing.T) {
 	p := &fakeProvisioner{}
 	d, wizard := newSignupDriver(t, p, nil)
@@ -493,7 +555,7 @@ func TestSignupConfirm_ASpentIdentityBudgetPausesTheLink(t *testing.T) {
 		t.Fatal("a spent budget created a business")
 	}
 	d.claims.budgetSpent = false
-	wizard.identityBudget = nil
+	wizard.claimIdentityLimiter = nil
 	proofs := d.claims.identityProofs
 	if res := d.post(signupConfirmPath, url.Values{"csrf": {csrf}, "password": {"the sign-in's own password"}}); res.Code != http.StatusInternalServerError ||
 		d.claims.identityProofs != proofs || len(p.provisioned) != 0 {

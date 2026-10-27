@@ -304,66 +304,66 @@ func (s *SignupClaims) ProveWithSession(c SignupClaim, session Token) (ClaimProo
 	return ClaimProof{hash: c.hash, session: &h, draft: c.Draft}, true
 }
 
-// ClaimBudget is the identity's failure budget as the registration's password branch uses it: the
-// sign-in's FailureBudget -- the SAME one, internal/handler hands over the sign-in's account limiter --
-// plus Allowed, because here a spent budget REFUSES (the sign-in only stops writing rows: a sign-in-less
-// identity's sign-in is no oracle, it answers ErrBadCredentials for every password). Declared at the
-// consumer (§7); *httpx.Limiter satisfies it.
-type ClaimBudget interface {
-	FailureBudget
-	Allowed(key string) bool
-}
+// claimBudgetKey namespaces the registration branch's own counter for an identity: never the sign-in's
+// identityBudgetKey, so the two can share no count even in one limiter (the user's decision of 2026-10-27,
+// "Ret sayacını ayır").
+func claimBudgetKey(id uuid.UUID) string { return "claim-identity:" + id.String() }
 
-// ErrClaimBudgetSpent is ProveWithIdentityPassword's refusal while the identity's failure budget is
-// spent -- for the right password as for a wrong one, so it tells nothing about the password.
-var ErrClaimBudgetSpent = errors.New("adminauth: the identity's failure budget is spent")
+// ErrClaimBudgetSpent is ProveWithIdentityPassword's refusal while the branch's counter for the identity
+// is spent -- for the right password as for a wrong one, so it tells nothing about the password.
+var ErrClaimBudgetSpent = errors.New("adminauth: the registration branch's budget is spent")
 
 // ProveWithIdentityPassword is the proof of an existing identity with NO active membership (M14-17b): the
 // re-entered password against the IDENTITY's digest -- the one resolve_identity_by_email returned to
-// Resolve (one bcrypt comparison, always paid). The proof carries that digest: identity_claim_signup claims
-// only while it is still the identity's, and only while the identity has no active membership -- a person
-// who can sign in proves themself with ProveWithSession.
+// Resolve. The proof carries that digest: identity_claim_signup claims only while it is still the
+// identity's, and only while the identity has no active membership -- a person who can sign in proves
+// themself with ProveWithSession.
 //
-// 🔴 A NEW PASSWORD ORACLE, BOUNDED LIKE THE SIGN-IN (the 2026-10-27 security audit's ORTA finding, the
-// user's decision "İkisini birden"): a wrong password here is the sign-in's failure against the same
-// identity -- ONE event step (identity_record_failed_login, ADR 0031 §5.2 named exception 3: login_failed
-// within the budget, one login_limited at the first refusal past it, otherwise a call that writes
-// nothing), charged to the SAME per-identity budget the sign-in charges (budget, identityBudgetKey), so
-// guessing here and at the sign-in share one count and one trail, and a fresh registration link does not
-// reset it. While that budget is spent this branch REFUSES (ErrClaimBudgetSpent) BEFORE the comparison,
-// right password or wrong (the third eye's ORTA-1: in a sandbox the link is on screen, anyone can mint
-// new links, and this budget is the whole defence). The per-link gate is internal/handler's
-// (signupClaimLinkLimit).
+// 🔴 A PASSWORD ORACLE, BRAKED (the 2026-10-27 audits of 78a33f5c and 0b3d018a; the user's decisions
+// "İkisini birden" and "Ret sayacını ayır"):
 //
-// FLAT (§5.6, as the sign-in's failures are): a wrong password and a draft that is not this branch's (no
-// identity: the call for an id no identity carries, which writes nothing) each pay the comparison and ONE
-// event round trip; a spent budget pays the round trip alone -- its answer is a page of its own and says
-// nothing about the password. Answers: (proof, nil); ErrBadCredentials for a wrong password or another
-// draft; ErrClaimBudgetSpent; any other error is the database's.
-func (s *SignupClaims) ProveWithIdentityPassword(ctx context.Context, c SignupClaim, password string, budget ClaimBudget) (ClaimProof, error) {
+//   - THE REFUSAL COUNTER IS THE BRANCH'S OWN: budget, keyed per identity (claimBudgetKey), charged by this
+//     branch alone -- a sign-in failure never pauses it (a sign-in-less identity's sign-in answers every
+//     password the same, so sharing its budget bought no security and let anybody who knows the address
+//     keep this branch paused). A fresh registration link does not reset it.
+//   - RESERVED BEFORE THE COMPARISON (TryCharge, never Allowed-then-Charge -- the EM-5A class: K
+//     simultaneous guesses must not all read "allowed" during a 250 ms bcrypt). Within the budget the
+//     password is compared -- a right one spends its unit too; past it the branch refuses WITHOUT
+//     comparing (ErrClaimBudgetSpent), right password or wrong.
+//   - THE TRACE IS THE SIGN-IN'S: identity_record_failed_login (ADR 0031 §5.2 named exception 3) --
+//     login_failed for a wrong password within the budget, the single login_limited at the first refusal
+//     past it, otherwise the call for an id no identity carries, which writes nothing.
+//
+// FLAT (§5.6, as the sign-in's failures are): a wrong password and a draft that is not this branch's each
+// pay the comparison and ONE event round trip; a spent budget pays the round trip alone -- its answer is a
+// page of its own and says nothing about the password. Answers: (proof, nil); ErrBadCredentials for a wrong
+// password or another draft; ErrClaimBudgetSpent; any other error is the database's.
+func (s *SignupClaims) ProveWithIdentityPassword(ctx context.Context, c SignupClaim, password string, budget FailureBudget) (ClaimProof, error) {
 	if budget == nil {
 		return ClaimProof{}, errors.New("adminauth: sign-in-less proof: no failure budget")
 	}
 	ours := c.IdentityPassword && c.hash != "" && c.identityID != uuid.Nil
-	if ours && !budget.Allowed(identityBudgetKey(c.identityID)) {
-		// SPENT: refused BEFORE the comparison -- right password or wrong, nothing is compared, so a spent
-		// budget answers nothing about the password and costs the guesser no bcrypt of ours. The refusal is
-		// charged like any failure past the budget: its first one writes the single login_limited row.
-		target, event := chargeIdentityFailure(budget, c.identityID)
-		if _, err := s.data.RecordFailedIdentityLogin(ctx, target, event); err != nil {
-			return ClaimProof{}, fmt.Errorf("adminauth: sign-in-less proof: %w", err)
+	if ours {
+		if within, count := budget.TryCharge(claimBudgetKey(c.identityID)); !within {
+			target, event := uuid.Nil, db.IdentityEventLoginFailed
+			if budget.FirstOverLimit(count) {
+				target, event = c.identityID, db.IdentityEventLoginLimited
+			}
+			if _, err := s.data.RecordFailedIdentityLogin(ctx, target, event); err != nil {
+				return ClaimProof{}, fmt.Errorf("adminauth: sign-in-less proof: %w", err)
+			}
+			return ClaimProof{}, ErrClaimBudgetSpent
 		}
-		return ClaimProof{}, ErrClaimBudgetSpent
 	}
 	matched := s.compare(c.identityDigest.RevealForPasswordComparison(), password)
 	if ours && matched {
 		return ClaimProof{hash: c.hash, verified: c.identityDigest, draft: c.Draft}, nil
 	}
-	target, event := uuid.Nil, db.IdentityEventLoginFailed
+	target := uuid.Nil
 	if ours {
-		target, event = chargeIdentityFailure(budget, c.identityID)
+		target = c.identityID
 	}
-	if _, err := s.data.RecordFailedIdentityLogin(ctx, target, event); err != nil {
+	if _, err := s.data.RecordFailedIdentityLogin(ctx, target, db.IdentityEventLoginFailed); err != nil {
 		return ClaimProof{}, fmt.Errorf("adminauth: sign-in-less proof: %w", err)
 	}
 	return ClaimProof{}, ErrBadCredentials

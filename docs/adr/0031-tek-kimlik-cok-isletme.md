@@ -285,7 +285,7 @@ tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi taşır (
 |---|---|---|
 | `identity_open_session(p_identity_id, p_tenant, p_token_hash, p_verified_digest)` | ⚠️ **sır değil — istisna 1** | Parolası uygulamada doğrulanmış kimlik için istenen / son kullanılan / en eski aktif üyelikte oturum açar, `authenticated_at = now()`, o tenant'a giriş audit'i. Kişinin kilidi altında kimliğin digest'i hâlâ `p_verified_digest` değilse 0 satır (2026-10-23 kullanıcı kararı: araya giren sıfırlama eski parolanın girişini düşürür). Tek çağrı yolu Go'daki doğrulanmış-kimlik tipidir (00011 YÜKÜMLÜLÜK 5'in karşılığı; bugünkü `Issue(Verified)` ile aynı güven) |
 | `identity_create_for_signup(p_tenant_id, p_admin_user_id)` | ⚠️ **sır değil — istisna 2, yalnız expand → M14-17 arası** | Kayıt transaction'ı içinde. **Neden zararsız** (R13): etkisi uzlaştırmanınkiyle aynıdır — tek satırlı bir e-posta grubundan kimlik. **Yapısal yüklemler:** tenant'ın **tek** `admin_users` satırı bu satırdır (asıl güvence — T7), satır bu transaction'ın başında doğmuş (`admin_users.created_at = now()`; `now()` transaction başlangıcıdır, alt transaction'dan etkilenmez, `created_at` uygulamaya yazılamaz — `00017:379-416`) ve **ek olarak** `xmin = pg_current_xact_id()::xid` (xmin "bu transaction'da **yazılmış**" demektir, "eklenmiş" değil — aynı transaction'daki bir UPDATE de onu koyar), `p_tenant_id = current_setting('app.tenant_id')`; e-posta hiçbir kimlikte ve başka hiçbir `admin_users` satırında yok → kimlik + bağ (`linked_via='signup'`); varsa hiçbir şey, satır bağlanmamış doğar. **Eşzamanlı iki kayıt** (READ COMMITTED'da ikisi de "başka satır yok" görür): repodaki ad alanlı kilit deseniyle (`passwordresets.sql:353`, `invites.sql:404`) `pg_advisory_xact_lock(hashtextextended('admin-identity-email:' || lower(email), 0))` — tap debounce'unun kilit uzayıyla çakışmaz (S13) — + kimlik INSERT'inde `ON CONFLICT (email) DO NOTHING` → ikincisi bağlanmamış satırla biter, **500 yok**. **SAVEPOINT tuzağı** (S13): `xmin` yüklemi bir alt transaction'da (pgx iç içe `Begin`) yazılan satırda tutmaz; sonuç güvenli (satır bağlanmamış doğar) ama sessizdir — kart testi **gerçek `Provision` yolundan** koşar ve kimlik doğmazsa kırmızıdır; `pg_current_xact_id()::xid` hedef PostgreSQL sürümünde (17.10) doğrulanır. M14-17 onu çağırmayı bırakır; **DROP bir sonraki deploy'dadır** (contract B, M14-20b — R8: rollout penceresindeki eski pod düşmüş bir fonksiyonu çağırmasın) |
-| `identity_record_failed_login(p_identity_id, p_event)` | ⚠️ **sır değil — istisna 3** (R9) | Parolası **doğrulanmamış** bir kimliğe karşı başarısız giriş: yalnız `admin_identity_events`'e bir satır yazar, başka hiçbir şeye dokunmaz. Sınır uygulamadadır: kimlik başına `adminAccountLimit` kovası (`adminratelimit.go:740-781`'in deseni) — limit aşılınca yalnız **bir** `FirstOverLimit` satırı, sonra hiç. **2026-10-27 kullanıcı kararı:** kaydın parola kolu da çağırır (aşağıdaki M14-17b güvenlik notu) |
+| `identity_record_failed_login(p_identity_id, p_event)` | ⚠️ **sır değil — istisna 3** (R9) | Parolası **doğrulanmamış** bir kimliğe karşı başarısız giriş: yalnız `admin_identity_events`'e bir satır yazar, başka hiçbir şeye dokunmaz. Sınır uygulamadadır: kimlik başına `adminAccountLimit` kovası (`adminratelimit.go:740-781`'in deseni) — limit aşılınca yalnız **bir** `FirstOverLimit` satırı, sonra hiç. **2026-10-27 kullanıcı kararları:** kaydın parola kolu da çağırır — iz paylaşılır, ret sayacı kolun kendisinindir (aşağıdaki M14-17b güvenlik notu) |
 | `identity_memberships(p_session_hash)` | canlı oturum | Kişinin aktif üyelikleri, ≤ 50, `(tenant_id, tenant_name, role, suspended, is_current)`; oturumun satırı bağlı değilse yalnız kendisi |
 | `identity_switch_session(p_session_hash, p_target_tenant, p_new_hash)` | canlı oturum | §5.4 |
 | `identity_revoke_sessions(p_session_hash, p_keep_current)` | canlı oturum | Kişinin **bütün** işletmelerdeki oturumlarını iptal; her tenant'a kendi sıradan çıkış satırı |
@@ -380,13 +380,17 @@ geri koyar (`TestIdentity00080_DownGivesBack00078sDefinitionByteForByte`). Gövd
   ya da "Taptime parolanı yaz" der.
 - **Bayrak:** kayıt doğrulaması bayrakla kapılanmaz (§8); bu kol da kapılanmaz.
 - **Dördüncü adlandırılmış istisna (2026-10-27 kullanıcı kararı — "Dördüncü istisna olarak yaz"; 78a33f5c
-  üçüncü göz denetiminin ORTA-2'si):** parola kolu **var olan** bir kimliği yazar (`email_verified_at`,
-  `first_verify` penceresi, `email_verified` olayı, yeni owner bağı), ama ne kayıt token'ı ne digest
-  `tappa_app`'a sırdır: `tappa_app` taslağı `identity_open_signup_claim` ile kendisi basar (token'ı o seçer)
-  ve digest'i `resolve_identity_by_email`'den okur. Kolun veritabanı düzeyindeki güvencesi bu yüzden
-  `identity_open_session`'ınki gibi **Go tipine bağlıdır** (parolayı Go doğrular,
-  `adminauth.ProveWithIdentityPassword` `ClaimProof`'un tek üreticisi). CLAUDE.md §4.5 (3) ve §6.1 bunu
-  dördüncü istisna olarak adıyla sayar (iki metin birebir, `TestClaudeMD_TheIdentityExceptionIsADR0031sSection61`).
+  üçüncü göz denetiminin ORTA-2'si; gerekçe 0b3d018a güvenlik denetiminin DÜŞÜK notuyla düzeltildi):** parola
+  kolu **var olan** bir kimliği yazar (`email_verified_at`, `first_verify` penceresi, `email_verified` olayı,
+  yeni owner bağı). Bu kolda kayıt token'ı yalnız **posta kutusunu** kanıtlar; var olan bir kimliğe
+  yazmayı mümkün kılan etken **parolanın kendisidir** ve parolayı veritabanı değil **Go** doğrular
+  (`adminauth.ProveWithIdentityPassword`, `ClaimProof`'un bu kol için tek üreticisi; definer yalnız
+  doğrulanmış digest'in kişinin kilidi altında hâlâ kimliğinki olduğunu yeniden denetler). Kolun güvencesi bu
+  yüzden `identity_open_session`'ınki gibi **Go tipine bağlıdır** — onu adlandırılmış istisna yapan budur,
+  token'ın kimin seçtiği değil (kimlik sıfırlama linkinin de hash'ini `tappa_app` seçer, ama orada token
+  kimliği bulan ve yazmayı yetkilendiren sırrın kendisidir; tüketim istisna değildir). CLAUDE.md §4.5 (3) ve
+  §6.1 bunu dördüncü istisna olarak adıyla sayar (iki metin birebir,
+  `TestClaudeMD_TheIdentityExceptionIsADR0031sSection61`).
 
 **M14-17b güvenlik notu (2026-10-27 kullanıcı kararı — "İkisini birden"; 78a33f5c güvenlik denetiminin
 ORTA bulgusu):** parola kolu, aktif üyeliği olmayan bir kimlik için **yeni bir parola kahini** açıyordu:
@@ -396,28 +400,41 @@ reddedilir. Saldırı: posta kutusuna erişen biri kurbanın adresiyle kayıt ba
 isabette işletme bağlanır, kimlik aktif üyelik kazanır, sıfırlama yolu açılır. **Kapanış, iki fren:**
 - **Link başına kapı** (`internal/handler` `signupClaimLinkLimit` = 10 / 10 dk, talebin id'siyle anahtarlı —
   token ya da hash'i değil): ratelimit.go'nun `inviteFailureLimit` kapısı biçimde ve sayıda; deneme
-  **öncesi** denetlenir, onuncu yanlıştan sonra o linkteki her deneme — doğru parola dahil — aynı "too many
-  attempts" sayfasını (429) alır, kapının kendi reddi de sayılır.
-- **Kimlik başına bütçe + iz:** yanlış parola girişin başarısızlığıyla **aynı** olaydır —
-  `identity_record_failed_login(kimlik, 'login_failed')` (istisna 3; bütçe içinde `login_failed`, aşıldığı ilk
-  anda tek `login_limited`, sonra yazmayan çağrı), girişin **aynı** kimlik bütçesine (`adminAccountLimit`,
-  girişin hesap sınırlayıcısı, `identityBudgetKey`) yüklenir. Kablolama tek örnek verir
-  (`handler.SignupSharesIdentityBudget(panelAuth)`, `TestSignupWiring_SharesTheSignInsIdentityBudget`): kayıttaki ve
-  girişteki tahminler tek sayaç ve tek iz paylaşır; yeni bir kayıt linki onu sıfırlamaz. Girişten farklı
-  olarak bütçe tükendiğinde parola kolu **reddeder** (`adminauth.ErrClaimBudgetSpent`, doğru ya da yanlış
-  parola; aynı duraklatma sayfası) — üyeliksiz kimliğin girişi kahin olmadığı için orada bütçe yalnız izdir.
-  Bütçe **karşılaştırmadan önce** okunur (üçüncü göz ORTA-1: linkin ekranda gösterildiği sandbox/dev
-  kurulumunda herkes yeni link basabilir, link kapısı orada değersizdir ve tek fren bu bütçedir); tükenmişse
-  bcrypt hiç ödenmez. Yanlış parola ve bu kolun olmayan bir taslağı bir karşılaştırma + bir olay çağrısı,
-  tükenmiş bütçe yalnız olay çağrısı öder (`TestSignupClaims_EveryIdentityPasswordRefusalTakesOneShape`);
-  uçtan uca: ekranda-link kurulumunda dört giriş + altı kayıt tahmini (her biri yeni link, yeni adres)
-  doğru parolayı 429'a düşürür (`TestSignupConfirm_OnScreenGuessesAcrossLinksAndAddressesSpendTheSignInsBudget`).
+  **öncesi** ayrılır (`TryCharge`), onuncu denemeden sonra o linkteki her deneme — doğru parola dahil — aynı
+  "too many attempts" sayfasını (429) alır.
+- **Kimlik başına sayaç + iz:** yanlış parola girişin başarısızlığıyla **aynı** olaydır —
+  `identity_record_failed_login(kimlik, 'login_failed')` (istisna 3; sayaç içinde `login_failed`, aşıldığı
+  ilk anda tek `login_limited`, sonra yazmayan çağrı) — **iz paylaşılır**. **Ret sayacı ise kolun kendisinindir
+  (2026-10-27 kullanıcı kararı — "Ret sayacını ayır"):** ilk tasarım girişin kimlik bütçesini paylaşıyordu;
+  iki denetim (0b3d018a) bunun bir DoS olduğunu gösterdi — giriş kimlik başına hiçbir şeyi reddetmez
+  (üyeliksiz kimliğin girişi her parolaya aynı cevabı verir, orada kahin yoktur, paylaşmak güvenlik
+  kazandırmıyordu), ama girişteki başarısızlıklar bu kolu duraklatıyordu: adresi bilen herkes tek IP'den
+  pencere başına on başarısız girişle kurbanın bu kolunu sonsuza dek 429'da tutabilirdi, kurbanın başka yolu da
+  yoktur (giriş yok, kimlik sıfırlaması yok). Şimdi kolun sayacı `Signup.claimIdentityLimiter`'dır
+  (`signupClaimIdentityLimit` = 10 / 10 dk — `adminAccountLimit`'in sayısı ve penceresi), anahtarı
+  `claim-identity:<id>` (`adminauth.claimBudgetKey`, girişin `identity:` anahtarı değil), yalnız bu kolun
+  denemeleri harcar; yeni bir kayıt linki onu sıfırlamaz. Tükendiğinde kol **reddeder**
+  (`adminauth.ErrClaimBudgetSpent`, doğru ya da yanlış parola; aynı duraklatma sayfası).
+- **Önce ayır, sonra karşılaştır** (0b3d018a'nın iki denetimi, ölçüldü: 40 eşzamanlı yanlış tahmin, 40
+  karşılaştırma, 40 adet 422, limit 10 — EM-5A sınıfı): link kapısı da kimlik sayacı da tek kilitli adımla
+  (`TryCharge`) **karşılaştırmadan önce** ayrılır; doğru parola da bir birim harcar. Sayaç tükenmişse bcrypt
+  hiç ödenmez. Yanlış parola ve bu kolun olmayan bir taslağı bir karşılaştırma + bir olay çağrısı, tükenmiş
+  sayaç yalnız olay çağrısı öder (`TestSignupClaims_EveryIdentityPasswordRefusalTakesOneShape`); eşzamanlılık
+  `TestSignupClaims_ConcurrentGuessesReserveBeforeComparing` ve
+  `TestSignupConfirm_ConcurrentGuessesOnOneLinkStopAtTheGate` (`-race`: 40 tahmin → en çok 10 karşılaştırma).
+- **Adlandırılmış kalıntı:** linkin ekranda gösterildiği kurulumda (sandbox, açık `dev` —
+  `config.RegistrationLinksOnScreen`) adresi bilen **herkes** link basıp kolun sayacını harcayabilir ve
+  kurbanın kolunu pencere başına duraklatabilir; orada müşteri verisi yoktur, kabul edildi. Üretimde
+  sayacı yalnız linkin sahibi (posta kutusu) harcayabilir. Uçtan uca:
+  `TestSignupConfirm_OnScreenGuessesAcrossLinksAndAddressesSpendTheBranchsCounter` (on başarısız giriş
+  girişin bütçesini bitirir ve kolu duraklatmaz; on kayıt tahmini — her biri yeni link, yeni adres — kolun
+  sayacını bitirir; doğru parola 429).
 - **Kapalı liste büyümez**, yalnız istisna 3'ün çağrı yeri genişler; migration yok (fonksiyonun gövdesinde
   çağıran denetimi yoktur, `EXECUTE` zaten `tappa_app`'tadır).
 - Testler: `TestSignupConfirm_ALinkPastItsGateRefusesEvenTheRightPassword`,
   `TestSignupConfirm_ASpentIdentityBudgetPausesTheLink`,
   `TestSignupClaims_WrongIdentityPasswordsSpendTheIdentitysBudgetAcrossLinks`,
-  `TestSignupClaims_TheSignInAndTheRegistrationShareOneBudget`.
+  `TestSignupClaims_SignInFailuresNeverPauseTheBranch`.
 
 **M14-14 notu (2026-10-26; kullanıcı onayı — AskUserQuestion, seçenek (A)):** `00075`,
 `resolve_identity_by_email` ve `identity_consume_reset`'i `DROP` + `CREATE` ile yeniden tanımlar; ikisinin de
@@ -1003,9 +1020,12 @@ onay POST'tur:
   hâlâ kimliğinki olduğunu ve aktif üyelik bulunmadığını yeniden denetler (§5.2 M14-17b notu). Tıklama yine
   posta kutusu kanıtıdır (`email_verified_at`, `first_verify`). Aktif üyeliği olan kimlik bu yoldan 0
   satırdır — onun kanıtı canlı oturumdur. Kayıt yanıtı, zamanlaması ve mektup seçimi üç durumda aynıdır
-  (R18); bilinen adresin tek mektubu iki kanıtı da anlatır. **Frenler (2026-10-27 kullanıcı kararı):**
-  link başına 10 / 10 dk kapı ve girişle **paylaşılan** kimlik başına başarısızlık bütçesi
-  (`identity_record_failed_login`); bütçe tükenince bu kol reddeder (§5.2 M14-17b güvenlik notu).
+  (R18); bilinen adresin tek mektubu iki kanıtı da anlatır. **Frenler (2026-10-27 kullanıcı kararları
+  "İkisini birden" ve "Ret sayacını ayır"):** link başına 10 / 10 dk kapı ve kolun **kendi** kimlik başına
+  sayacı (10 / 10 dk; girişin başarısızlıkları onu harcamaz — aksi hâlde adresi bilen herkes kolu
+  duraklatabilirdi), ikisi de karşılaştırmadan önce ayrılır; iz girişle paylaşılır
+  (`identity_record_failed_login`); sayaç tükenince bu kol reddeder. Kalıntı: ekranda-link kurulumunda
+  (sandbox/dev) herkes kolun sayacını harcayabilir (§5.2 M14-17b güvenlik notu).
 Oranlar: `signupCreateLimit` (adres başına) + **alıcı başına** üst sınır (EM-7C'nin `(mailbox)` kovası
 biçiminde) (bulgu 11, 32). `signInBlocked` kimlik yolunda emekli.
 

@@ -948,9 +948,7 @@ func run() error {
 	}
 	// The VIES checker is the one built before the operator surface above -- the process's
 	// only outbound HTTP client, shared with the operator's VAT re-check.
-	// The identity-password branch charges the SIGN-IN's identity failure budget (M14-17b).
-	signupFlow, err := handler.NewSignup(provisioner, signupClaims, vies, signupMailer, cfg, slog.Default(),
-		handler.SignupSharesIdentityBudget(panelAuth))
+	signupFlow, err := handler.NewSignup(provisioner, signupClaims, vies, signupMailer, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

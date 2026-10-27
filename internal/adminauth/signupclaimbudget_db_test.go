@@ -45,14 +45,14 @@ func budgetClaims(t *testing.T, w *idWorld) (*SignupClaims, func() SignupClaim) 
 }
 
 // TestSignupClaims_WrongIdentityPasswordsSpendTheIdentitysBudgetAcrossLinks: an identity with no active
-// membership, a budget of 3. Three wrong passwords, each on a NEW registration link -> three
+// membership, the branch's counter at 3. Three wrong passwords, each on a NEW registration link -> three
 // ErrBadCredentials and three login_failed rows (empty detail: no address, no digest); the fourth, on a
 // fourth link -> ErrClaimBudgetSpent and ONE login_limited row; then the RIGHT password, on a fifth link
-// -> still ErrClaimBudgetSpent and no row: new links do not reset the budget and a spent budget refuses.
-// CONTROL: with an unspent budget the right password proves the draft.
+// -> still ErrClaimBudgetSpent and no row: new links do not reset the counter and a spent counter refuses.
+// CONTROL: with an unspent counter the right password proves the draft.
 //
-// MUTATION (measured): the branch's charge-and-record removed (the call keeps the uuid.Nil round trip)
-// -> no rows and the right password proves at the end, red.
+// MUTATION (measured): the reservation removed -> the fourth guess is compared and the right password
+// proves at the end, red.
 func TestSignupClaims_WrongIdentityPasswordsSpendTheIdentitysBudgetAcrossLinks(t *testing.T) {
 	w := newIDWorld(t, ownerConn(t), true)
 	s, link := budgetClaims(t, w)
@@ -90,33 +90,36 @@ func TestSignupClaims_WrongIdentityPasswordsSpendTheIdentitysBudgetAcrossLinks(t
 	}
 }
 
-// TestSignupClaims_TheSignInAndTheRegistrationShareOneBudget: ONE budget (limit 3) handed to both, as
-// internal/handler hands the sign-in's account limiter to both. Two failed sign-ins of the identity
-// (AuthenticatePerson: a membership-less identity's sign-in is a failure whatever the password) and one
-// wrong password on a registration link spend it; the right password on the link is then refused
-// (ErrClaimBudgetSpent). Three login_failed rows, one trail.
+// TestSignupClaims_SignInFailuresNeverPauseTheBranch (the user's decision of 2026-10-27, "Ret sayacını
+// ayır"): ONE limiter (limit 3) handed to both, so only the KEYS keep them apart. Five failed sign-ins of the
+// identity spend its sign-in budget (three login_failed rows and the one login_limited) -- and the
+// registration's branch still compares: a wrong password is ErrBadCredentials (its own login_failed row,
+// the shared trail), the right one proves the draft. Before the decision anybody who knew the address
+// could keep the branch paused with failed sign-ins.
 //
-// MUTATION (measured): the branch charging another key than the sign-in's (identityBudgetKey) -> the right
-// password proves, red.
-func TestSignupClaims_TheSignInAndTheRegistrationShareOneBudget(t *testing.T) {
+// MUTATION (measured): the branch keyed with the sign-in's identityBudgetKey -> ErrClaimBudgetSpent, red.
+func TestSignupClaims_SignInFailuresNeverPauseTheBranch(t *testing.T) {
 	w := newIDWorld(t, ownerConn(t), true)
 	s, link := budgetClaims(t, w)
 	m := testManager(t, testDB(t))
 	ctx := context.Background()
 	budget := newCountingBudget(3)
 
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 5; i++ {
 		if _, err := m.AuthenticatePerson(ctx, w.email, "guess-"+uuid.NewString(), uuid.Nil, budget); !errors.Is(err, ErrBadCredentials) {
 			t.Fatalf("failed sign-in %d: %v", i+1, err)
 		}
 	}
+	if f, l := w.events("login_failed"), w.events("login_limited"); f != 3 || l != 1 {
+		t.Fatalf("PREMISE: the sign-in budget is not spent (%d login_failed, %d login_limited)", f, l)
+	}
 	if _, err := s.ProveWithIdentityPassword(ctx, link(), "guess-"+uuid.NewString(), budget); !errors.Is(err, ErrBadCredentials) {
-		t.Fatalf("the registration's wrong password: %v", err)
+		t.Fatalf("the branch's wrong password after the sign-in budget was spent: %v, want ErrBadCredentials", err)
 	}
-	if n := w.events("login_failed"); n != 3 {
-		t.Fatalf("%d login_failed rows from two sign-ins and one registration guess, want 3", n)
+	if n := w.events("login_failed"); n != 4 {
+		t.Fatalf("%d login_failed rows, want the branch's fourth on the shared trail", n)
 	}
-	if _, err := s.ProveWithIdentityPassword(ctx, link(), w.pw, budget); !errors.Is(err, ErrClaimBudgetSpent) {
-		t.Fatalf("the right password after the shared budget was spent: %v, want ErrClaimBudgetSpent", err)
+	if p, err := s.ProveWithIdentityPassword(ctx, link(), w.pw, budget); err != nil || p.hash == "" {
+		t.Fatalf("the right password after failed sign-ins: %v, want a proof", err)
 	}
 }

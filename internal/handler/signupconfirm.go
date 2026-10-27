@@ -77,10 +77,22 @@ const (
 	// ten refusals are answered normally and every later attempt on the link -- the right password
 	// included -- gets the same "too many attempts" page, and the gate's own refusal is charged too
 	// (activate.go's overInviteBudget). Ten: a person mistyping a password a few times stays well inside
-	// it; a loop does not. It bounds ONE link; the identity's budget (adminauth.ClaimBudget, the
-	// sign-in's account limiter) bounds every link and the sign-in together.
+	// it; a loop does not. It bounds ONE link; signupClaimIdentityLimit bounds every link of an identity.
 	signupClaimLinkLimit  = 10
 	signupClaimLinkPeriod = 10 * time.Minute
+
+	// signupClaimIdentityLimit / Period: attempts on the identity-password branch per IDENTITY, every link
+	// together (M14-17b; the user's decision of 2026-10-27, "Ret sayacını ayır"). Reserved before the
+	// comparison (a right password spends its unit too); past it the branch refuses without comparing.
+	// ITS OWN COUNTER, not the sign-in's: the sign-in charges the account limiter per identity, but a
+	// sign-in-less identity's sign-in answers every password the same -- no oracle -- so sharing that
+	// budget bought nothing and let anybody who knows the address keep this branch paused forever with ten
+	// failed sign-ins a window. Here only the link holder can spend it (the mailbox; in an on-screen
+	// sandbox or dev installation anybody can -- accepted: no customer data there). TEN IN TEN MINUTES is
+	// adminAccountLimit's number and window: the per-account ceiling the sign-in already uses for the same
+	// identity's trail, so one guesser gets no more against one identity here than its trail admits there.
+	signupClaimIdentityLimit  = 10
+	signupClaimIdentityPeriod = 10 * time.Minute
 
 	// signupOutboxSize, signupSendGrace: the letters' outbox (adminresetoutbox.go's shape, without the
 	// audit rows -- a draft has no business to write one into). A letter the outbox cannot take is not
@@ -96,7 +108,7 @@ type signupClaimer interface {
 	Resolve(ctx context.Context, t adminauth.ResetToken) (adminauth.SignupClaim, error)
 	ProveWithPassword(c adminauth.SignupClaim, password string) (adminauth.ClaimProof, bool)
 	ProveWithSession(c adminauth.SignupClaim, session adminauth.Token) (adminauth.ClaimProof, bool)
-	ProveWithIdentityPassword(ctx context.Context, c adminauth.SignupClaim, password string, budget adminauth.ClaimBudget) (adminauth.ClaimProof, error)
+	ProveWithIdentityPassword(ctx context.Context, c adminauth.SignupClaim, password string, budget adminauth.FailureBudget) (adminauth.ClaimProof, error)
 	Now() time.Time
 	Sweep(ctx context.Context) (int, error)
 }
@@ -557,16 +569,17 @@ var problemSignupClaimPaused = pages.SignupProblemView{
 // proveIdentityPassword is the identity-password branch (M14-17b): the link's gate, the password, and
 // the proof -- or the answer. It reports whether the caller may go on with the proof.
 //
-// 🔴 TWO BRAKES, the 2026-10-27 security audit's ORTA finding and the user's decision ("İkisini birden"):
-// the LINK's gate (signupClaimLinkLimit, keyed by the draft's id) and the IDENTITY's failure budget --
-// the sign-in's own account limiter, handed over at wiring (SignupSharesIdentityBudget), charged and
-// traced by adminauth (identity_record_failed_login) and refusing while spent. A wrong password is
-// charged to both; a link past its gate or an identity past its budget gets problemSignupClaimPaused
-// whatever was typed.
+// 🔴 TWO BRAKES, BOTH RESERVED BEFORE ANYTHING IS COMPARED (the 2026-10-27 audits; the user's decisions
+// "İkisini birden" and "Ret sayacını ayır"): the LINK's gate (claimLinkLimiter, signupClaimLinkLimit,
+// keyed by the draft's id) and the IDENTITY's counter of this branch (claimIdentityLimiter,
+// signupClaimIdentityLimit, charged and traced by adminauth -- its own key, never the sign-in's, so a
+// sign-in failure never pauses this branch). Each is ONE locked step (TryCharge): with Allowed-then-
+// Charge, K simultaneous guesses all read "allowed" during the 250 ms comparison (measured by both
+// audits of 0b3d018a: 40 guesses, 40 comparisons, against a limit of 10). Past either, the answer is
+// problemSignupClaimPaused whatever was typed.
 func (s *Signup) proveIdentityPassword(w http.ResponseWriter, r *http.Request, c adminauth.SignupClaim, view pages.SignupConfirmView) (adminauth.ClaimProof, bool) {
-	key := c.ID.String()
-	if !s.claimLinkLimiter.Allowed(key) {
-		if n := s.claimLinkLimiter.Charge(key); s.claimLinkLimiter.FirstOverLimit(n) {
+	if within, n := s.claimLinkLimiter.TryCharge(c.ID.String()); !within {
+		if s.claimLinkLimiter.FirstOverLimit(n) {
 			s.log.Warn("signup rate limited", "scope", "link", "claim_id", c.ID,
 				"limit", signupClaimLinkLimit, "period", signupClaimLinkPeriod.String())
 		}
@@ -579,22 +592,20 @@ func (s *Signup) proveIdentityPassword(w http.ResponseWriter, r *http.Request, c
 		s.render(w, r, http.StatusUnprocessableEntity, pages.SignupConfirm(view))
 		return adminauth.ClaimProof{}, false
 	}
-	if s.identityBudget == nil {
-		// A wiring defect, refused rather than run unbudgeted (cmd/tappa wires the sign-in's limiter).
+	if s.claimIdentityLimiter == nil {
+		// Unreachable from NewSignup; refused rather than run uncounted.
 		s.log.Error("signup: the sign-in-less branch has no failure budget", "claim_id", c.ID)
 		s.problem(w, r, http.StatusInternalServerError, problemSignupServer)
 		return adminauth.ClaimProof{}, false
 	}
-	proof, err := s.claims.ProveWithIdentityPassword(r.Context(), c, password, s.identityBudget)
+	proof, err := s.claims.ProveWithIdentityPassword(r.Context(), c, password, s.claimIdentityLimiter)
 	switch {
 	case err == nil:
 		return proof, true
 	case errors.Is(err, adminauth.ErrClaimBudgetSpent):
-		s.claimLinkLimiter.Charge(key)
-		s.log.Info("signup refused: the identity's failure budget is spent", "claim_id", c.ID)
+		s.log.Info("signup refused: the sign-in-less branch's budget is spent", "claim_id", c.ID)
 		s.problem(w, r, http.StatusTooManyRequests, problemSignupClaimPaused)
 	case errors.Is(err, adminauth.ErrBadCredentials):
-		s.claimLinkLimiter.Charge(key)
 		view.Errors = map[string]string{"password": "That is not the password of this Taptime sign-in."}
 		s.render(w, r, http.StatusUnprocessableEntity, pages.SignupConfirm(view))
 	default:

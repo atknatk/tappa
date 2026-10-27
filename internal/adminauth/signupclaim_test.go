@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -149,6 +151,7 @@ type fakeClaimDB struct {
 	// identity_record_failed_login calls (id, event), the uuid.Nil ones included.
 	ids    map[string]uuid.UUID
 	events [][2]string
+	mu     sync.Mutex
 	// signInless: known addresses whose identity has NO active membership, with the identity's digest.
 	signInless map[string]string
 	digest     string
@@ -194,6 +197,8 @@ func (f *fakeClaimDB) GetSignupClaimByTokenHash(_ context.Context, h string) (db
 func (f *fakeClaimDB) SweepSignupClaims(context.Context) (int, error) { return 0, nil }
 
 func (f *fakeClaimDB) RecordFailedIdentityLogin(_ context.Context, id uuid.UUID, event string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.events = append(f.events, [2]string{id.String(), event})
 	return id != uuid.Nil, nil
 }
@@ -389,11 +394,11 @@ func TestSignupClaims_ASignInlessIdentityProvesWithItsOwnPassword(t *testing.T) 
 // TestSignupClaims_EveryIdentityPasswordRefusalTakesOneShape (§5.6's flat failures, as the sign-in's): a
 // wrong password and a draft that is not this branch's (a new address) each pay ONE comparison and ONE
 // identity_record_failed_login round trip -- the uuid.Nil call when nothing is owed; a spent budget, right
-// password or wrong, is refused BEFORE any comparison (the third eye's ORTA-1) and pays the round trip
-// alone, its first refusal naming the identity (the one login_limited row).
+// password or wrong, is refused BEFORE any comparison and pays the round trip alone, its first refusal
+// naming the identity (the one login_limited row).
 //
-// MUTATION (measured): the spent budget's refusal returning before the event call -> red; the budget
-// checked after the comparison -> red.
+// MUTATION (measured): the spent budget's refusal returning before the event call -> red; a comparison
+// before the reservation -> red.
 func TestSignupClaims_EveryIdentityPasswordRefusalTakesOneShape(t *testing.T) {
 	identityDigest := "$2a$04$" + strings.Repeat("i", 53)
 	data := &fakeClaimDB{known: map[string]bool{"lapsed@example.mt": true},
@@ -420,7 +425,7 @@ func TestSignupClaims_EveryIdentityPasswordRefusalTakesOneShape(t *testing.T) {
 		name     string
 		claim    SignupClaim
 		pw       string
-		budget   ClaimBudget
+		budget   FailureBudget
 		want     error
 		compares int
 		named    bool
@@ -441,5 +446,58 @@ func TestSignupClaims_EveryIdentityPasswordRefusalTakesOneShape(t *testing.T) {
 		if named := data.events[0][0] != uuid.Nil.String(); named != c.named {
 			t.Errorf("%s: the event call names an identity: %v, want %v", c.name, named, c.named)
 		}
+	}
+}
+
+// TestSignupClaims_ConcurrentGuessesReserveBeforeComparing is the 0b3d018a audits' ORTA (run with -race):
+// forty simultaneous wrong passwords against ONE identity, a budget of ten and a comparison slow enough
+// (20 ms) that every guess is in flight at once. The budget is RESERVED before the comparison (TryCharge),
+// so at most ten comparisons run and at most ten guesses are answered ErrBadCredentials; every other one is
+// ErrClaimBudgetSpent and compares nothing. Measured before the fix: forty comparisons, forty answers.
+//
+// MUTATION (measured): Allowed-then-Charge (the reservation after the comparison) -> forty comparisons, red.
+func TestSignupClaims_ConcurrentGuessesReserveBeforeComparing(t *testing.T) {
+	identityDigest := "$2a$04$" + strings.Repeat("i", 53)
+	data := &fakeClaimDB{known: map[string]bool{"lapsed@example.mt": true},
+		signInless: map[string]string{"lapsed@example.mt": identityDigest}, stored: map[string]db.ResolvedSignupClaim{}}
+	s := newTestSignupClaims(t, data)
+	s.digest = func(string) (string, error) { return "$2a$04$" + strings.Repeat("d", 53), nil }
+	var compares atomic.Int32
+	s.compare = func(string, string) bool { compares.Add(1); time.Sleep(20 * time.Millisecond); return false }
+	g, err := s.Open(context.Background(), "lapsed@example.mt", "pw", []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.Resolve(context.Background(), ParseSignupClaimToken(strings.TrimPrefix(g.Link(""), "?t=")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n, limit = 40, 10
+	budget := newCountingBudget(limit)
+	var bad, spent atomic.Int32
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := s.ProveWithIdentityPassword(context.Background(), c, "a guess", budget)
+			switch {
+			case errors.Is(err, ErrBadCredentials):
+				bad.Add(1)
+			case errors.Is(err, ErrClaimBudgetSpent):
+				spent.Add(1)
+			default:
+				t.Errorf("a guess answered %v", err)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	t.Logf("%d guesses: %d comparisons, %d wrong-password answers, %d refused", n, compares.Load(), bad.Load(), spent.Load())
+	if compares.Load() > limit || bad.Load() > limit || bad.Load()+spent.Load() != n {
+		t.Fatalf("%d comparisons and %d wrong-password answers for %d simultaneous guesses, want at most %d each",
+			compares.Load(), bad.Load(), n, limit)
 	}
 }

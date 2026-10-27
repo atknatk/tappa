@@ -37,6 +37,8 @@ type fakeSignupClaims struct {
 	// identity's spent failure budget does (adminauth.ErrClaimBudgetSpent).
 	identityProofs int
 	budgetSpent    bool
+	// proveDelay stands in for the identity-password comparison's bcrypt (the concurrency test's window).
+	proveDelay time.Duration
 	// openErr, when set, is Open's answer.
 	openErr error
 	// onOpen is called with every opened draft (the provisioner fake records them).
@@ -139,7 +141,10 @@ func (f *fakeSignupClaims) ProveWithSession(c adminauth.SignupClaim, _ adminauth
 	return adminauth.ClaimProof{}, true
 }
 
-func (f *fakeSignupClaims) ProveWithIdentityPassword(_ context.Context, c adminauth.SignupClaim, password string, _ adminauth.ClaimBudget) (adminauth.ClaimProof, error) {
+func (f *fakeSignupClaims) ProveWithIdentityPassword(_ context.Context, c adminauth.SignupClaim, password string, _ adminauth.FailureBudget) (adminauth.ClaimProof, error) {
+	if f.proveDelay > 0 {
+		time.Sleep(f.proveDelay) // the comparison's time, outside the lock (the race test's window)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.identityProofs++
