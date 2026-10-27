@@ -70,6 +70,18 @@ const (
 	signupConfirmLimit  = 10
 	signupConfirmPeriod = 10 * time.Minute
 
+	// signupClaimLinkLimit / Period: refused identity-password confirmations per registration LINK
+	// (M14-17b; the 2026-10-27 security audit's ORTA finding, the user's decision "İkisini birden"), keyed
+	// by the draft's id -- never its token or its hash (ratelimit.go's `invite` key discipline). IT IS A
+	// GATE, ratelimit.go's inviteFailureLimit in shape and number: checked BEFORE the attempt, so exactly
+	// ten refusals are answered normally and every later attempt on the link -- the right password
+	// included -- gets the same "too many attempts" page, and the gate's own refusal is charged too
+	// (activate.go's overInviteBudget). Ten: a person mistyping a password a few times stays well inside
+	// it; a loop does not. It bounds ONE link; the identity's budget (adminauth.ClaimBudget, the
+	// sign-in's account limiter) bounds every link and the sign-in together.
+	signupClaimLinkLimit  = 10
+	signupClaimLinkPeriod = 10 * time.Minute
+
 	// signupOutboxSize, signupSendGrace: the letters' outbox (adminresetoutbox.go's shape, without the
 	// audit rows -- a draft has no business to write one into). A letter the outbox cannot take is not
 	// sent and is logged by its claim id; the person starts again. Its drain runs beside the reset
@@ -84,7 +96,7 @@ type signupClaimer interface {
 	Resolve(ctx context.Context, t adminauth.ResetToken) (adminauth.SignupClaim, error)
 	ProveWithPassword(c adminauth.SignupClaim, password string) (adminauth.ClaimProof, bool)
 	ProveWithSession(c adminauth.SignupClaim, session adminauth.Token) (adminauth.ClaimProof, bool)
-	ProveWithIdentityPassword(c adminauth.SignupClaim, password string) (adminauth.ClaimProof, bool)
+	ProveWithIdentityPassword(ctx context.Context, c adminauth.SignupClaim, password string, budget adminauth.ClaimBudget) (adminauth.ClaimProof, error)
 	Now() time.Time
 	Sweep(ctx context.Context) (int, error)
 }
@@ -326,18 +338,29 @@ func (s *Signup) Sent(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cookies.clear(w, signupStateCookieName)
 	s.cookies.clear(w, signupCookieName)
-	view := pages.SignupSentView{BusinessName: d.Name}
+	view := pages.SignupSentView{BusinessName: d.Name, LinkLife: signupLinkLife}
 	if s.delivery == signupOnScreen {
 		view.ScreenLink = d.Link
 	}
 	s.render(w, r, http.StatusOK, pages.SignupSent(view))
 }
 
+// signupLinkLife is a registration link's life as its letter states it (email.Lifetime of
+// adminauth.SignupClaimTTL -- "23 hours": the TTL is the 24-hour ceiling less the clock-skew margin, and
+// the length floors). The pages that state it print this, never a literal (M14-17b's audit, DÜŞÜK-1).
+var signupLinkLife = func() string {
+	life, err := email.Lifetime(adminauth.SignupClaimTTL)
+	if err != nil {
+		panic("handler: the registration link's lifetime does not render: " + err.Error())
+	}
+	return life
+}()
+
 // The confirmation's failure screens.
 var (
 	problemSignupLinkDead = pages.SignupProblemView{
 		Title:   "This link no longer works",
-		Message: "A registration link works once, for 24 hours. This one has been used or has expired.",
+		Message: "A registration link works once, for " + signupLinkLife + ". This one has been used or has expired.",
 		Hint:    "If your business was not created, start again — it takes a couple of minutes.",
 		Retry:   signupPath,
 	}
@@ -456,15 +479,7 @@ func (s *Signup) ConfirmSubmit(w http.ResponseWriter, r *http.Request) {
 
 	var proof adminauth.ClaimProof
 	if c.IdentityPassword {
-		password := r.PostFormValue("password")
-		if password == "" || len(password) > signup.MaxPasswordBytes {
-			view.Errors = map[string]string{"password": "Type the password of your Taptime sign-in."}
-			s.render(w, r, http.StatusUnprocessableEntity, pages.SignupConfirm(view))
-			return
-		}
-		if proof, ok = s.claims.ProveWithIdentityPassword(c, password); !ok {
-			view.Errors = map[string]string{"password": "That is not the password of this Taptime sign-in."}
-			s.render(w, r, http.StatusUnprocessableEntity, pages.SignupConfirm(view))
+		if proof, ok = s.proveIdentityPassword(w, r, c, view); !ok {
 			return
 		}
 	} else if c.KnownAddress {
@@ -528,6 +543,65 @@ func (s *Signup) ConfirmSubmit(w http.ResponseWriter, r *http.Request) {
 		KnownAddress: c.KnownAddress,
 		SignInHref:   adminLoginPath,
 	}))
+}
+
+// problemSignupClaimPaused is the identity-password branch's refusal past the link's gate or the identity's
+// failure budget (M14-17b): the same page for the right password and a wrong one, so it says nothing about
+// the password.
+var problemSignupClaimPaused = pages.SignupProblemView{
+	Title:   "Too many attempts",
+	Message: "This registration link has been tried too many times, so it is paused for now.",
+	Hint:    "Wait a few minutes, then open the link from your email again.",
+}
+
+// proveIdentityPassword is the identity-password branch (M14-17b): the link's gate, the password, and
+// the proof -- or the answer. It reports whether the caller may go on with the proof.
+//
+// 🔴 TWO BRAKES, the 2026-10-27 security audit's ORTA finding and the user's decision ("İkisini birden"):
+// the LINK's gate (signupClaimLinkLimit, keyed by the draft's id) and the IDENTITY's failure budget --
+// the sign-in's own account limiter, handed over at wiring (SignupSharesIdentityBudget), charged and
+// traced by adminauth (identity_record_failed_login) and refusing while spent. A wrong password is
+// charged to both; a link past its gate or an identity past its budget gets problemSignupClaimPaused
+// whatever was typed.
+func (s *Signup) proveIdentityPassword(w http.ResponseWriter, r *http.Request, c adminauth.SignupClaim, view pages.SignupConfirmView) (adminauth.ClaimProof, bool) {
+	key := c.ID.String()
+	if !s.claimLinkLimiter.Allowed(key) {
+		if n := s.claimLinkLimiter.Charge(key); s.claimLinkLimiter.FirstOverLimit(n) {
+			s.log.Warn("signup rate limited", "scope", "link", "claim_id", c.ID,
+				"limit", signupClaimLinkLimit, "period", signupClaimLinkPeriod.String())
+		}
+		s.problem(w, r, http.StatusTooManyRequests, problemSignupClaimPaused)
+		return adminauth.ClaimProof{}, false
+	}
+	password := r.PostFormValue("password")
+	if password == "" || len(password) > signup.MaxPasswordBytes {
+		view.Errors = map[string]string{"password": "Type the password of your Taptime sign-in."}
+		s.render(w, r, http.StatusUnprocessableEntity, pages.SignupConfirm(view))
+		return adminauth.ClaimProof{}, false
+	}
+	if s.identityBudget == nil {
+		// A wiring defect, refused rather than run unbudgeted (cmd/tappa wires the sign-in's limiter).
+		s.log.Error("signup: the sign-in-less branch has no failure budget", "claim_id", c.ID)
+		s.problem(w, r, http.StatusInternalServerError, problemSignupServer)
+		return adminauth.ClaimProof{}, false
+	}
+	proof, err := s.claims.ProveWithIdentityPassword(r.Context(), c, password, s.identityBudget)
+	switch {
+	case err == nil:
+		return proof, true
+	case errors.Is(err, adminauth.ErrClaimBudgetSpent):
+		s.claimLinkLimiter.Charge(key)
+		s.log.Info("signup refused: the identity's failure budget is spent", "claim_id", c.ID)
+		s.problem(w, r, http.StatusTooManyRequests, problemSignupClaimPaused)
+	case errors.Is(err, adminauth.ErrBadCredentials):
+		s.claimLinkLimiter.Charge(key)
+		view.Errors = map[string]string{"password": "That is not the password of this Taptime sign-in."}
+		s.render(w, r, http.StatusUnprocessableEntity, pages.SignupConfirm(view))
+	default:
+		s.log.Error("signup: the sign-in-less proof failed", "claim_id", c.ID, "err", err)
+		s.problem(w, r, http.StatusInternalServerError, problemSignupServer)
+	}
+	return adminauth.ClaimProof{}, false
 }
 
 // liveClaim resolves the cookie's token to a draft that can still be confirmed, or answers.

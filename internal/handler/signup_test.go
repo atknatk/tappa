@@ -151,6 +151,8 @@ type wizardDriver struct {
 	// clock is what the handler's signed state reads. Tests move it forward to get
 	// past the minimum-fill-time gate without sleeping for it.
 	clock *time.Time
+	// remote, when set, is every request's RemoteAddr (a visitor at another address).
+	remote string
 }
 
 func newSignupDriver(t *testing.T, p signupProvisioner, vat vatChecker) (*wizardDriver, *Signup) {
@@ -171,6 +173,9 @@ func newSignupDriver(t *testing.T, p signupProvisioner, vat vatChecker) (*wizard
 	wizard.state.now = func() time.Time { return now }
 	// The R18 floor is measured by its own test; the others do not wait for it.
 	wizard.floor = 0
+	// cmd/tappa hands the sign-in's account limiter over (SignupSharesIdentityBudget); a limiter of the
+	// same shape stands in for it here (the claims fake decides the budget's answer itself).
+	wizard.identityBudget = newLimiter(adminAccountLimit, adminAccountPeriod)
 	d := &wizardDriver{t: t, router: httpx.NewRouter(nil, nil, wizard), jar: map[string]string{}, clock: &now, claims: claims}
 	return d, wizard
 }
@@ -190,6 +195,9 @@ func (d *wizardDriver) do(method, path string, form url.Values, decorate func(*h
 	}
 	for name, value := range d.jar {
 		req.AddCookie(&http.Cookie{Name: name, Value: value})
+	}
+	if d.remote != "" {
+		req.RemoteAddr = d.remote
 	}
 	if decorate != nil {
 		decorate(req)

@@ -177,6 +177,13 @@ func (b *countingBudget) TryCharge(key string) (bool, int) {
 
 func (b *countingBudget) FirstOverLimit(count int) bool { return count == b.limit+1 }
 
+// Allowed is httpx.Limiter.Allowed's answer (M14-17b's ClaimBudget): below the limit, nothing charged.
+func (b *countingBudget) Allowed(key string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.n[key] < b.limit
+}
+
 // shapeManager is a Manager over d whose comparisons are counted (and cheap: the counter answers
 // "matched" when the digest is the password itself, so no bcrypt runs at all).
 func shapeManager(t *testing.T, d *shapeDB) (*Manager, *int) {

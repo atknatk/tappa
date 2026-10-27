@@ -28,6 +28,7 @@ import (
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/httpx"
 )
 
 // plantSignInless commits an identity for email with fixtureDigest and ONE disabled membership: it cannot
@@ -113,11 +114,12 @@ func TestSignupProvision_ASignInlessIdentityClaimsWithItsPassword(t *testing.T) 
 	if !c.IdentityPassword {
 		t.Fatal("the draft of a sign-in with no active membership does not ask for its password")
 	}
-	if _, ok := claims.ProveWithIdentityPassword(c, "the draft's own password"); ok {
+	budget := httpx.NewLimiter(10, 10*time.Minute)
+	if _, err := claims.ProveWithIdentityPassword(ctx, c, "the draft's own password", budget); !errors.Is(err, adminauth.ErrBadCredentials) {
 		t.Fatal("the draft's password proved a sign-in's draft")
 	}
-	proof, ok := claims.ProveWithIdentityPassword(c, fixturePassword)
-	if !ok {
+	proof, err := claims.ProveWithIdentityPassword(ctx, c, fixturePassword, budget)
+	if err != nil {
 		t.Fatal("the identity's password did not prove the draft")
 	}
 	res, err := p.Provision(ctx, proof)

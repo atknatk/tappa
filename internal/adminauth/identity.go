@@ -394,18 +394,28 @@ func (m *Manager) revokeProofs(ctx context.Context, proofs []proofSession) error
 func (m *Manager) recordFailure(ctx context.Context, hasIdentity bool, id uuid.UUID, budget FailureBudget) error {
 	target, event := uuid.Nil, db.IdentityEventLoginFailed
 	if hasIdentity {
-		within, count := budget.TryCharge(identityBudgetKey(id))
-		switch {
-		case within:
-			target = id
-		case budget.FirstOverLimit(count):
-			target, event = id, db.IdentityEventLoginLimited
-		}
+		target, event = chargeIdentityFailure(budget, id)
 	}
 	if _, err := m.data.RecordFailedIdentityLogin(ctx, target, event); err != nil {
 		return err
 	}
 	return nil
+}
+
+// chargeIdentityFailure charges ONE failure against the identity's budget and answers the event call it
+// owes: login_failed for the identity within the budget, login_limited at the first refusal past it,
+// otherwise uuid.Nil (a call that writes nothing). The sign-in's failures (recordFailure) and the
+// registration's password branch (SignupClaims.ProveWithIdentityPassword, M14-17b) both charge here --
+// one key, one count, one trail.
+func chargeIdentityFailure(budget FailureBudget, id uuid.UUID) (uuid.UUID, string) {
+	within, count := budget.TryCharge(identityBudgetKey(id))
+	switch {
+	case within:
+		return id, db.IdentityEventLoginFailed
+	case budget.FirstOverLimit(count):
+		return id, db.IdentityEventLoginLimited
+	}
+	return uuid.Nil, db.IdentityEventLoginFailed
 }
 
 // payOneComparison is one comparison whose answer is discarded, against digest or -- with none --

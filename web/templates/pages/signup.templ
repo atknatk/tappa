@@ -747,7 +747,7 @@ templ SignupSent(v SignupSentView) {
 		<div class="flex flex-col gap-3 text-sm leading-normal text-ink md:text-[15px]">
 			<p>
 				Nothing has been created yet: the business exists only once the link is used. The link
-				stays valid for 24 hours and works once.
+				stays valid for { v.LinkLife } and works once.
 			</p>
 			if v.ScreenLink == "" {
 				<p>

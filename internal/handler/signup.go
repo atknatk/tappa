@@ -130,8 +130,29 @@ type Signup struct {
 	attemptLimiter *limiter
 	createLimiter  *limiter
 	confirmLimiter *limiter
+	// claimLinkLimiter gates the identity-password branch per registration link (signupClaimLinkLimit).
+	claimLinkLimiter *limiter
+	// identityBudget is the SIGN-IN's identity failure budget (AdminAuth's account limiter), shared so a
+	// guess here and a guess at the sign-in count once (SignupSharesIdentityBudget). Nil: the
+	// identity-password branch refuses with a 500 -- never runs unbudgeted.
+	identityBudget adminauth.ClaimBudget
 
 	log *slog.Logger
+}
+
+// SignupOption configures NewSignup.
+type SignupOption func(*Signup)
+
+// SignupSharesIdentityBudget hands the registration's identity-password branch the sign-in's own identity
+// failure budget -- AdminAuth's account limiter, the one AuthenticatePerson charges (M14-17b, the
+// 2026-10-27 user decision): one count and one trail per identity across both, and a new registration
+// link does not reset it. cmd/tappa passes it (TestSignupWiring_SharesTheSignInsIdentityBudget, cmd/tappa).
+func SignupSharesIdentityBudget(a *AdminAuth) SignupOption {
+	return func(s *Signup) {
+		if a != nil {
+			s.identityBudget = a.accountLimiter
+		}
+	}
 }
 
 // NewSignup wires the wizard. The provisioner and the claims are required -- a nil one would put a
@@ -139,7 +160,7 @@ type Signup struct {
 // tested and DEAD in the wired product because two halves were never assembled). mailer is the
 // registration letters' sender: required with TAPPA_RESET_DELIVERY=email, refused without it
 // (signupDeliveryFor). With e-mail it starts the letters' one worker; Drain stops it.
-func NewSignup(p signupProvisioner, claims signupClaimer, vat vatChecker, mailer SignupMailSender, cfg *config.Config, log *slog.Logger) (*Signup, error) {
+func NewSignup(p signupProvisioner, claims signupClaimer, vat vatChecker, mailer SignupMailSender, cfg *config.Config, log *slog.Logger, opts ...SignupOption) (*Signup, error) {
 	if p == nil {
 		return nil, errors.New("handler: nil signup provisioner")
 	}
@@ -181,6 +202,10 @@ func NewSignup(p signupProvisioner, claims signupClaimer, vat vatChecker, mailer
 		createLimiter:  newLimiter(signupCreateLimit, signupCreatePeriod),
 		confirmLimiter: newLimiter(signupConfirmLimit, signupConfirmPeriod),
 		log:            log,
+	}
+	s.claimLinkLimiter = newLimiter(signupClaimLinkLimit, signupClaimLinkPeriod)
+	for _, o := range opts {
+		o(s)
 	}
 	if delivery == signupByEmail {
 		// The letter must be buildable from TAPPA_BASE_URL, asked once at boot (NewEmailResetChannel's

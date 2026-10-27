@@ -2,6 +2,7 @@ package adminauth
 
 import (
 	"context"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -144,6 +145,10 @@ func TestClaimSignup_HasNoCallerOutsideTheProof(t *testing.T) {
 // fakeClaimDB is SignupClaimDatabase in memory.
 type fakeClaimDB struct {
 	known map[string]bool
+	// ids keeps each known address's identity id stable across reads; events are the
+	// identity_record_failed_login calls (id, event), the uuid.Nil ones included.
+	ids    map[string]uuid.UUID
+	events [][2]string
 	// signInless: known addresses whose identity has NO active membership, with the identity's digest.
 	signInless map[string]string
 	digest     string
@@ -153,11 +158,18 @@ type fakeClaimDB struct {
 
 func (f *fakeClaimDB) ResolveIdentityByEmail(_ context.Context, email string) (db.ResolvedIdentity, error) {
 	if f.known[strings.ToLower(email)] {
+		if f.ids == nil {
+			f.ids = map[string]uuid.UUID{}
+		}
+		if _, ok := f.ids[strings.ToLower(email)]; !ok {
+			f.ids[strings.ToLower(email)] = uuid.New()
+		}
+		id := f.ids[strings.ToLower(email)]
 		// The REGISTERED spelling is the lower-case one here; the caller may have typed another.
 		if d, ok := f.signInless[strings.ToLower(email)]; ok {
-			return db.ResolvedIdentity{ID: uuid.New(), Email: strings.ToLower(email), PasswordHash: db.NewPasswordHash(d)}, nil
+			return db.ResolvedIdentity{ID: id, Email: strings.ToLower(email), PasswordHash: db.NewPasswordHash(d)}, nil
 		}
-		return db.ResolvedIdentity{ID: uuid.New(), Email: strings.ToLower(email), PasswordHash: db.NewPasswordHash("$2a$04$" + strings.Repeat("m", 53)),
+		return db.ResolvedIdentity{ID: id, Email: strings.ToLower(email), PasswordHash: db.NewPasswordHash("$2a$04$" + strings.Repeat("m", 53)),
 			HasActiveMembership: true}, nil
 	}
 	return db.ResolvedIdentity{}, pgx.ErrNoRows
@@ -180,6 +192,11 @@ func (f *fakeClaimDB) GetSignupClaimByTokenHash(_ context.Context, h string) (db
 }
 
 func (f *fakeClaimDB) SweepSignupClaims(context.Context) (int, error) { return 0, nil }
+
+func (f *fakeClaimDB) RecordFailedIdentityLogin(_ context.Context, id uuid.UUID, event string) (bool, error) {
+	f.events = append(f.events, [2]string{id.String(), event})
+	return id != uuid.Nil, nil
+}
 
 func newTestSignupClaims(t *testing.T, data SignupClaimDatabase) *SignupClaims {
 	t.Helper()
@@ -328,14 +345,23 @@ func TestSignupClaims_ASignInlessIdentityProvesWithItsOwnPassword(t *testing.T) 
 	if !lapsed.KnownAddress || !lapsed.IdentityPassword {
 		t.Fatalf("a sign-in with no active membership: known %v, identity password %v; want both", lapsed.KnownAddress, lapsed.IdentityPassword)
 	}
-	if _, ok := s.ProveWithIdentityPassword(lapsed, "the draft's password"); ok {
+	budget := newCountingBudget(1000)
+	proves := func(c SignupClaim, pw string) bool {
+		t.Helper()
+		_, err := s.ProveWithIdentityPassword(context.Background(), c, pw, budget)
+		if err != nil && !errors.Is(err, ErrBadCredentials) {
+			t.Fatalf("prove: %v", err)
+		}
+		return err == nil
+	}
+	if proves(lapsed, "the draft's password") {
 		t.Error("the draft's password proved a sign-in's draft")
 	}
-	if _, ok := s.ProveWithIdentityPassword(lapsed, "not it"); ok {
+	if proves(lapsed, "not it") {
 		t.Error("a wrong password proved the draft")
 	}
-	p, ok := s.ProveWithIdentityPassword(lapsed, "the identity's password")
-	if !ok || p.hash == "" || p.session != nil || p.verified.RevealForPasswordComparison() != identityDigest {
+	p, err := s.ProveWithIdentityPassword(context.Background(), lapsed, "the identity's password", budget)
+	if err != nil || p.hash == "" || p.session != nil || p.verified.RevealForPasswordComparison() != identityDigest {
 		t.Fatal("the identity's password did not prove the draft, or the proof does not carry the identity's digest")
 	}
 	t.Run("a known address that can sign in", func(t *testing.T) {
@@ -344,7 +370,7 @@ func TestSignupClaims_ASignInlessIdentityProvesWithItsOwnPassword(t *testing.T) 
 			t.Fatalf("known %v, identity password %v; want known only", active.KnownAddress, active.IdentityPassword)
 		}
 		for _, pw := range []string{"the identity's password", "the draft's password"} {
-			if _, ok := s.ProveWithIdentityPassword(active, pw); ok {
+			if proves(active, pw) {
 				t.Errorf("%q proved a sign-in that can sign in -- its proof is its session", pw)
 			}
 		}
@@ -354,8 +380,66 @@ func TestSignupClaims_ASignInlessIdentityProvesWithItsOwnPassword(t *testing.T) 
 		if fresh.KnownAddress || fresh.IdentityPassword {
 			t.Fatal("a new address reads as known")
 		}
-		if _, ok := s.ProveWithIdentityPassword(fresh, "the draft's password"); ok {
+		if proves(fresh, "the draft's password") {
 			t.Error("the identity-password proof proved a new address")
 		}
 	})
+}
+
+// TestSignupClaims_EveryIdentityPasswordRefusalTakesOneShape (§5.6's flat failures, as the sign-in's): a
+// wrong password and a draft that is not this branch's (a new address) each pay ONE comparison and ONE
+// identity_record_failed_login round trip -- the uuid.Nil call when nothing is owed; a spent budget, right
+// password or wrong, is refused BEFORE any comparison (the third eye's ORTA-1) and pays the round trip
+// alone, its first refusal naming the identity (the one login_limited row).
+//
+// MUTATION (measured): the spent budget's refusal returning before the event call -> red; the budget
+// checked after the comparison -> red.
+func TestSignupClaims_EveryIdentityPasswordRefusalTakesOneShape(t *testing.T) {
+	identityDigest := "$2a$04$" + strings.Repeat("i", 53)
+	data := &fakeClaimDB{known: map[string]bool{"lapsed@example.mt": true},
+		signInless: map[string]string{"lapsed@example.mt": identityDigest}, stored: map[string]db.ResolvedSignupClaim{}}
+	s := newTestSignupClaims(t, data)
+	s.digest = func(string) (string, error) { return "$2a$04$" + strings.Repeat("d", 53), nil }
+	compares := 0
+	s.compare = func(d, p string) bool { compares++; return d == identityDigest && p == "right" }
+	resolve := func(email string) SignupClaim {
+		t.Helper()
+		g, err := s.Open(context.Background(), email, "pw", []byte(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, err := s.Resolve(context.Background(), ParseSignupClaimToken(strings.TrimPrefix(g.Link(""), "?t=")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	lapsed, fresh := resolve("lapsed@example.mt"), resolve("new@example.mt")
+	spent := newCountingBudget(0)
+	for _, c := range []struct {
+		name     string
+		claim    SignupClaim
+		pw       string
+		budget   ClaimBudget
+		want     error
+		compares int
+		named    bool
+	}{
+		{"a wrong password", lapsed, "wrong", newCountingBudget(10), ErrBadCredentials, 1, true},
+		{"a spent budget, the right password (its first refusal)", lapsed, "right", spent, ErrClaimBudgetSpent, 0, true},
+		{"a spent budget, a wrong password", lapsed, "wrong", spent, ErrClaimBudgetSpent, 0, false},
+		{"a new address's draft", fresh, "right", newCountingBudget(10), ErrBadCredentials, 1, false},
+	} {
+		compares, data.events = 0, nil
+		if _, err := s.ProveWithIdentityPassword(context.Background(), c.claim, c.pw, c.budget); !errors.Is(err, c.want) {
+			t.Errorf("%s: %v, want %v", c.name, err, c.want)
+		}
+		if compares != c.compares || len(data.events) != 1 {
+			t.Errorf("%s: %d comparison(s), %d event call(s); want %d and 1", c.name, compares, len(data.events), c.compares)
+			continue
+		}
+		if named := data.events[0][0] != uuid.Nil.String(); named != c.named {
+			t.Errorf("%s: the event call names an identity: %v, want %v", c.name, named, c.named)
+		}
+	}
 }

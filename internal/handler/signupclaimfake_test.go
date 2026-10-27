@@ -33,8 +33,10 @@ type fakeSignupClaims struct {
 	// signInless are the known addresses whose sign-in has NO active membership (M14-17b), with that
 	// sign-in's password: their confirmation asks for it.
 	signInless map[string]string
-	// identityProofs counts the identity-password proofs asked for.
+	// identityProofs counts the identity-password proofs asked for; budgetSpent answers them as the
+	// identity's spent failure budget does (adminauth.ErrClaimBudgetSpent).
 	identityProofs int
+	budgetSpent    bool
 	// openErr, when set, is Open's answer.
 	openErr error
 	// onOpen is called with every opened draft (the provisioner fake records them).
@@ -137,20 +139,23 @@ func (f *fakeSignupClaims) ProveWithSession(c adminauth.SignupClaim, _ adminauth
 	return adminauth.ClaimProof{}, true
 }
 
-func (f *fakeSignupClaims) ProveWithIdentityPassword(c adminauth.SignupClaim, password string) (adminauth.ClaimProof, bool) {
+func (f *fakeSignupClaims) ProveWithIdentityPassword(_ context.Context, c adminauth.SignupClaim, password string, _ adminauth.ClaimBudget) (adminauth.ClaimProof, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.identityProofs++
+	if f.budgetSpent {
+		return adminauth.ClaimProof{}, adminauth.ErrClaimBudgetSpent
+	}
 	fc := f.byID(c.ID)
 	if fc == nil {
-		return adminauth.ClaimProof{}, false
+		return adminauth.ClaimProof{}, adminauth.ErrBadCredentials
 	}
 	want, ok := f.signInless[strings.ToLower(fc.email)]
 	if !ok || !c.IdentityPassword || want != password {
-		return adminauth.ClaimProof{}, false
+		return adminauth.ClaimProof{}, adminauth.ErrBadCredentials
 	}
 	f.proved = fc
-	return adminauth.ClaimProof{}, true
+	return adminauth.ClaimProof{}, nil
 }
 
 func (f *fakeSignupClaims) Now() time.Time {

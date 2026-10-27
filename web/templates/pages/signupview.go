@@ -166,6 +166,8 @@ type SignupSentView struct {
 	// ADR 0028 §11): the link is shown here, like an invitation's `panel` mode. Empty
 	// everywhere else -- production never shows it.
 	ScreenLink string
+	// LinkLife is how long the link lasts, as its letter says it (email.Lifetime of the draft's TTL).
+	LinkLife string
 }
 
 // SignupConfirmView is the registration link's page (GET, which spends nothing -- R19)

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -423,6 +424,83 @@ func TestSignupConfirm_ASignInlessAddressConfirmsWithItsPassword(t *testing.T) {
 	}
 }
 
+// TestSignupConfirm_ALinkPastItsGateRefusesEvenTheRightPassword (M14-17b; the 2026-10-27 security
+// audit's ORTA finding, the user's decision "İkisini birden"): a sign-in-less address's link answers
+// signupClaimLinkLimit wrong passwords with the ordinary 422; every later attempt on THAT link -- the right
+// password included -- gets the same "too many attempts" page (429), reaches no proof and creates nothing
+// (ratelimit.go's inviteFailureLimit gate, activate.go's overInviteBudget). The gate is per link: a NEW link
+// for the same address is answered normally. (The identity's budget, shared with the sign-in, is
+// internal/adminauth's TestSignupClaims_WrongIdentityPasswordsSpendTheIdentitysBudgetAcrossLinks; the
+// claims fake here never spends it.)
+//
+// MUTATION (measured): the wrong-password charge removed -> the right password after ten wrong ones
+// creates the business, red.
+func TestSignupConfirm_ALinkPastItsGateRefusesEvenTheRightPassword(t *testing.T) {
+	p := &fakeProvisioner{}
+	d, wizard := newSignupDriver(t, p, nil)
+	email := strings.ToLower(accountForm("").Get("email"))
+	d.claims.known[email] = true
+	d.claims.signInless[email] = "the sign-in's own password"
+	link := confirmWalk(t, d)
+	d.get(link)
+	page := d.get(signupConfirmPath)
+	csrf := d.token(page)
+	// The per-address gate is not this test's: lift it so only the link's gate can refuse.
+	wizard.confirmLimiter = newLimiter(1000, signupConfirmPeriod)
+	for i := 0; i < signupClaimLinkLimit; i++ {
+		if res := d.post(signupConfirmPath, url.Values{"csrf": {csrf}, "password": {"guess " + strconv.Itoa(i)}}); res.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("wrong password %d: %d, want 422", i+1, res.Code)
+		}
+	}
+	proofs := d.claims.identityProofs
+	res := d.post(signupConfirmPath, url.Values{"csrf": {csrf}, "password": {"the sign-in's own password"}})
+	if res.Code != http.StatusTooManyRequests || !strings.Contains(screenText(t, res.Body.String()), "tried too many times") {
+		t.Fatalf("the right password past the link's gate: %d, want 429 and the paused page", res.Code)
+	}
+	if len(p.provisioned) != 0 || d.claims.identityProofs != proofs {
+		t.Fatalf("past the gate: %d business(es), %d more proof(s)", len(p.provisioned), d.claims.identityProofs-proofs)
+	}
+	// A NEW link for the same address: its own gate.
+	link2 := confirmWalk(t, d)
+	d.get(link2)
+	page2 := d.get(signupConfirmPath)
+	if res := d.post(signupConfirmPath, url.Values{"csrf": {d.token(page2)}, "password": {"the sign-in's own password"}}); res.Code != http.StatusOK || len(p.provisioned) != 1 {
+		t.Fatalf("a new link's right password: %d, %d business(es)", res.Code, len(p.provisioned))
+	}
+}
+
+// TestSignupConfirm_ASpentIdentityBudgetPausesTheLink: while the identity's failure budget is spent
+// (adminauth.ErrClaimBudgetSpent -- the sign-in's budget, shared) the branch answers the same paused page
+// as the link's gate, right password or wrong, and creates nothing. Without a budget wired the branch
+// refuses with a 500 and asks no proof -- never runs unbudgeted.
+func TestSignupConfirm_ASpentIdentityBudgetPausesTheLink(t *testing.T) {
+	p := &fakeProvisioner{}
+	d, wizard := newSignupDriver(t, p, nil)
+	email := strings.ToLower(accountForm("").Get("email"))
+	d.claims.known[email] = true
+	d.claims.signInless[email] = "the sign-in's own password"
+	link := confirmWalk(t, d)
+	d.get(link)
+	csrf := d.token(d.get(signupConfirmPath))
+	d.claims.budgetSpent = true
+	for _, pw := range []string{"the sign-in's own password", "a guess"} {
+		res := d.post(signupConfirmPath, url.Values{"csrf": {csrf}, "password": {pw}})
+		if res.Code != http.StatusTooManyRequests || !strings.Contains(screenText(t, res.Body.String()), "tried too many times") {
+			t.Fatalf("%q with the budget spent: %d, want 429 and the paused page", pw, res.Code)
+		}
+	}
+	if len(p.provisioned) != 0 {
+		t.Fatal("a spent budget created a business")
+	}
+	d.claims.budgetSpent = false
+	wizard.identityBudget = nil
+	proofs := d.claims.identityProofs
+	if res := d.post(signupConfirmPath, url.Values{"csrf": {csrf}, "password": {"the sign-in's own password"}}); res.Code != http.StatusInternalServerError ||
+		d.claims.identityProofs != proofs || len(p.provisioned) != 0 {
+		t.Fatalf("no budget wired: %d, %d proof(s), %d business(es); want 500 and nothing", res.Code, d.claims.identityProofs-proofs, len(p.provisioned))
+	}
+}
+
 // TestSignupConfirm_ADeadLinkCreatesNothing: an expired draft (410), an unknown token (404), a spent one
 // (a second confirmation) and a link value no token can be (400) each answer the "no longer works" page
 // and provision nothing more.
@@ -604,5 +682,35 @@ func TestSignupConfirm_ARefusedClaimClearsTheLinkCookie(t *testing.T) {
 	}
 	if !cleared {
 		t.Fatal("the refused claim left the registration link's cookie in the browser")
+	}
+}
+
+var validForRE = regexp.MustCompile(`valid for (\d+ (?:day|days|hour|hours|minute|minutes))\b`)
+
+// TestSignupLink_ThePagesStateTheLettersLifetime (M14-17b's third-eye audit, DÜŞÜK-1): "Check your inbox"
+// and the dead-link page state a registration link's life in the words its letter uses -- one rounding
+// (email.Lifetime) of the draft's TTL, which is the 24-hour ceiling less the clock-skew margin, so never
+// "24 hours".
+//
+// MUTATION (measured): the sent page's lifetime back to the literal "24 hours" -> red.
+func TestSignupLink_ThePagesStateTheLettersLifetime(t *testing.T) {
+	p := &fakeProvisioner{}
+	d, _, rec, _ := newEmailSignupDriver(t, p, 0)
+	csrf := d.walkToAccount(t)
+	d.advance(time.Minute)
+	if res := d.post(signupAccountPath, accountForm(csrf)); res.Code != http.StatusSeeOther {
+		t.Fatalf("POST %s = %d", signupAccountPath, res.Code)
+	}
+	sent := screenText(t, d.get(signupSentPath).Body.String())
+	letter := drainLetters(t, rec, 1)[0].m.Text
+	lm, sm := validForRE.FindStringSubmatch(letter), validForRE.FindStringSubmatch(sent)
+	if lm == nil || sm == nil {
+		t.Fatalf("a lifetime is missing: letter %v, page %v", lm != nil, sm != nil)
+	}
+	if lm[1] != sm[1] || sm[1] == "24 hours" {
+		t.Fatalf("the letter says %q and \"Check your inbox\" %q; want the same, and not the 24-hour ceiling", lm[1], sm[1])
+	}
+	if !strings.Contains(problemSignupLinkDead.Message, "for "+lm[1]+".") {
+		t.Fatalf("the dead-link page says %q; want the letter's %q", problemSignupLinkDead.Message, lm[1])
 	}
 }
