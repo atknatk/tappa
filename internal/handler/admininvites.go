@@ -468,6 +468,12 @@ var problemInviteNoLink = pages.ProblemView{
 // writes nothing: the resolver's read decides (R19).
 func (a *AdminAuth) inviteAcceptPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
+	// THE ADDRESS CEILING FIRST (the sign-in pages' flood gate): the page is outside the panel's
+	// chains, and a bare GET with a cookie the caller writes costs one resolver read -- without this,
+	// unbounded (the 2026-10-27 re-audit).
+	if a.flooded(w, r, clientIP(r), "admin_invite_page") {
+		return
+	}
 	if a.adminInvites == nil {
 		a.renderProblem(w, r, http.StatusServiceUnavailable, problemInvitesUnavailable)
 		return
@@ -515,6 +521,9 @@ func (a *AdminAuth) inviteAcceptView(csrf string) pages.InviteAcceptView {
 func (a *AdminAuth) inviteAccept(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	ip := clientIP(r)
+	if a.flooded(w, r, ip, "admin_invite") {
+		return
+	}
 	if a.adminInvites == nil {
 		a.renderProblem(w, r, http.StatusServiceUnavailable, problemInvitesUnavailable)
 		return

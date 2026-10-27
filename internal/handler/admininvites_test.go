@@ -1,12 +1,18 @@
 package handler
 
 import (
+	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"log/slog"
+	"net/http"
+	"net/url"
 	"slices"
 	"sort"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/atknatk/tappa/internal/adminauth"
 )
@@ -70,5 +76,53 @@ func TestAdminInvite_TheSendCallsNothingThatReadsAnIdentity(t *testing.T) {
 		if !slices.Contains(managersInviteCalls, c) {
 			t.Errorf("managersInvite calls %s, which is not on R18's closed list -- the owner's send must read no identity and no membership", c)
 		}
+	}
+}
+
+// floodCountingInvites is a panelAdminInvites that counts the lookups the invitee's page makes.
+type floodCountingInvites struct {
+	panelAdminInvites
+	usable int
+}
+
+func (c *floodCountingInvites) Usable(context.Context, adminauth.InviteToken) error {
+	c.usable++
+	return nil // usable: the page keeps the cookie, so every request reaches the lookup
+}
+
+// TestAdminInvite_TheInviteePageIsBehindTheFloodCeiling (the 2026-10-27 re-audit): the invitee's page
+// is outside the panel's chains, and a bare GET carrying a cookie the caller writes costs one resolver
+// read. From one address, the first adminFloodLimit requests are answered (each one lookup) and the
+// next is 429 with NO lookup -- for the GET and for the POST alike. MUTATION (measured): the GET's
+// flooded call removed -> red (request limit+1 answers and reads).
+func TestAdminInvite_TheInviteePageIsBehindTheFloodCeiling(t *testing.T) {
+	cfg := adminTestConfig()
+	cfg.AdminIdentity = true
+	fake := &floodCountingInvites{}
+	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, cfg, slog.New(slog.DiscardHandler), AdminInvitations(fake))
+	if err != nil {
+		t.Fatalf("NewAdminAuth: %v", err)
+	}
+	r := chi.NewRouter()
+	h.MountInviteAcceptance(r)
+	b := newBrowser(t, r)
+	b.ip = "198.51.100.77:1234"
+	b.cookies[adminInviteCookieName] = "csrf.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	for i := 1; i <= adminFloodLimit; i++ {
+		if code := b.do(http.MethodGet, adminInvitePath, nil).Code; code == http.StatusTooManyRequests {
+			t.Fatalf("request %d was refused before the ceiling of %d", i, adminFloodLimit)
+		}
+	}
+	if fake.usable != adminFloodLimit {
+		t.Fatalf("PREMISE: %d lookups for %d answered requests", fake.usable, adminFloodLimit)
+	}
+	if code := b.do(http.MethodGet, adminInvitePath, nil).Code; code != http.StatusTooManyRequests {
+		t.Fatalf("GET %d answered %d, want 429", adminFloodLimit+1, code)
+	}
+	if code := b.do(http.MethodPost, adminInvitePath, url.Values{"csrf": {"csrf"}, "mode": {"new"}}).Code; code != http.StatusTooManyRequests {
+		t.Fatalf("POST past the ceiling answered %d, want 429", code)
+	}
+	if fake.usable != adminFloodLimit {
+		t.Errorf("past the ceiling the page still looked the link up (%d lookups)", fake.usable)
 	}
 }
