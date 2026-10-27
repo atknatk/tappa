@@ -904,11 +904,7 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 	switchRevoke := "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.tenant_id = v_tenant\n       AND o.revoked_at IS NULL;"
 	plainRevoke := "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE "
 	viewRevoke := "    UPDATE public.zz_belt_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.revoked_at IS NULL;"
-	type control struct {
-		name, fn, cut, put string
-		pre                []string
-	}
-	for _, c := range []control{
+	identityBeltRunControls(t, ctx, tx, []identityBeltControl{
 		{name: "the revoke loop's tenant", fn: revoke, cut: "WHERE x.tenant_id = m.tenant_id\n               AND ", put: "WHERE "},
 		{name: "the switch's target tenant", fn: switchFn, cut: "WHERE b.tenant_id = p_target_tenant\n       AND ", put: "WHERE "},
 		{name: "M5: the membership list without its identity", fn: membership, cut: "WHERE a.identity_id = v_identity\n           AND ", put: "WHERE "},
@@ -978,22 +974,6 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 			cut: "INSERT INTO public.admin_users (tenant_id, full_name,", put: "INSERT INTO public.admin_users (full_name,"},
 		{name: "the claim's draft consumed without its key", fn: claimFn,
 			cut: "     WHERE c.id = v_claim\n       AND c.used_at IS NULL;", put: "     WHERE c.used_at IS NULL;"},
-		// M14-17b (00080): the password branch's identity lookup by the claim's address (the fourth class,
-		// identityClaimAddressKeys) and its "no active membership" test, each without what holds it.
-		{name: "the claim's address key through another operator", fn: claimFn,
-			cut: "         WHERE i.email OPERATOR(public.=) v_email\n", put: "         WHERE i.email OPERATOR(public.<>) v_email\n"},
-		{name: "the claim's address key by a parameter", fn: claimFn,
-			cut: "         WHERE i.email OPERATOR(public.=) v_email\n", put: "         WHERE i.email OPERATOR(public.=) p_session_hash\n"},
-		{name: "the claim's address key by a value written by :=", fn: claimFn,
-			cut: "        SELECT i.id, i.email, i.password_hash, i.email_verified_at INTO",
-			put: "        v_email := v_name;\n        SELECT i.id, i.email, i.password_hash, i.email_verified_at INTO"},
-		{name: "a second claim's address key the map does not count", fn: claimFn,
-			cut: "        IF NOT FOUND THEN\n            RETURN;\n        END IF;\n        -- Under that lock",
-			put: "        PERFORM 1 FROM public.admin_identities AS z WHERE z.email OPERATOR(public.=) v_email;\n        -- Under that lock"},
-		{name: "an address key in a function the map does not name", fn: switchFn, cut: switchRevoke,
-			put: "    PERFORM 1 FROM public.admin_identities AS z WHERE z.email OPERATOR(public.=) v_identity;\n" + switchRevoke},
-		{name: "the claim's membership test without its identity", fn: claimFn,
-			cut: "          WHERE a.identity_id = v_identity\n            AND a.status = 'active'", put: "          WHERE a.status = 'active'"},
 		// M14-15 (00077): the acceptances' and the resolver's statements, each without what holds it.
 		{name: "the invitation's relink without its tenant", fn: acceptFn,
 			cut: "         WHERE a.id = v_row\n           AND a.tenant_id = v_tenant\n", put: "         WHERE a.id = v_row\n"},
@@ -1008,7 +988,20 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 		{name: "P3: a tenant read off an unkeyed identity row", fn: openFn,
 			cut: "WHERE i.id = p_identity_id\n       AND i.password_hash = p_verified_digest\n       FOR UPDATE;",
 			put: "WHERE i.password_hash = p_verified_digest\n     LIMIT 1;"},
-	} {
+	})
+}
+
+// identityBeltControl is one belt control: the body of fn with cut replaced by put (after the pre
+// statements) must turn the belt red.
+type identityBeltControl struct {
+	name, fn, cut, put string
+	pre                []string
+}
+
+// identityBeltRunControls runs each control in a savepoint of tx (rolled back with it).
+func identityBeltRunControls(t *testing.T, ctx context.Context, tx pgx.Tx, controls []identityBeltControl) {
+	t.Helper()
+	for _, c := range controls {
 		t.Run("control/"+c.name, func(t *testing.T) {
 			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 				var def string
@@ -1033,6 +1026,39 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 			})
 		})
 	}
+}
+
+// TestIdentityBodies_TheClaimsPasswordBranchIsHeldByTheBelt is M14-17b's (00080) part of the belt's
+// controls, in a test of its own: each control re-reads every identity body, ~4 s apiece under -race on
+// CI, and the controls above already use most of opTx's three minutes (measured: the run with these six
+// inside it ended at 183 s, past the deadline). The password branch's identity lookup by the claim's
+// address (the fourth class, identityClaimAddressKeys) and its "no active membership" test, each without
+// what holds it, must turn the belt red.
+func TestIdentityBodies_TheClaimsPasswordBranchIsHeldByTheBelt(t *testing.T) {
+	ctx, tx := opTx(t)
+	const (
+		claimFn      = "public.identity_claim_signup(text, uuid, text, text)"
+		switchFn     = "public.identity_switch_session(text, uuid, text)"
+		switchRevoke = "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.tenant_id = v_tenant\n       AND o.revoked_at IS NULL;"
+	)
+	identityBeltRunControls(t, ctx, tx, []identityBeltControl{
+		// M14-17b (00080): the password branch's identity lookup by the claim's address (the fourth class,
+		// identityClaimAddressKeys) and its "no active membership" test, each without what holds it.
+		{name: "the claim's address key through another operator", fn: claimFn,
+			cut: "         WHERE i.email OPERATOR(public.=) v_email\n", put: "         WHERE i.email OPERATOR(public.<>) v_email\n"},
+		{name: "the claim's address key by a parameter", fn: claimFn,
+			cut: "         WHERE i.email OPERATOR(public.=) v_email\n", put: "         WHERE i.email OPERATOR(public.=) p_session_hash\n"},
+		{name: "the claim's address key by a value written by :=", fn: claimFn,
+			cut: "        SELECT i.id, i.email, i.password_hash, i.email_verified_at INTO",
+			put: "        v_email := v_name;\n        SELECT i.id, i.email, i.password_hash, i.email_verified_at INTO"},
+		{name: "a second claim's address key the map does not count", fn: claimFn,
+			cut: "        IF NOT FOUND THEN\n            RETURN;\n        END IF;\n        -- Under that lock",
+			put: "        PERFORM 1 FROM public.admin_identities AS z WHERE z.email OPERATOR(public.=) v_email;\n        -- Under that lock"},
+		{name: "an address key in a function the map does not name", fn: switchFn, cut: switchRevoke,
+			put: "    PERFORM 1 FROM public.admin_identities AS z WHERE z.email OPERATOR(public.=) v_identity;\n" + switchRevoke},
+		{name: "the claim's membership test without its identity", fn: claimFn,
+			cut: "          WHERE a.identity_id = v_identity\n            AND a.status = 'active'", put: "          WHERE a.status = 'active'"},
+	})
 }
 
 // TestIdentityLex_CommentsLiteralsAndQuotes pins the lexer the belt stands on: line comments, nested
