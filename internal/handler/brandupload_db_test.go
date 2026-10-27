@@ -60,6 +60,9 @@ func newBrandDBFixture(t *testing.T) *brandDBFixture {
 	}
 	t.Cleanup(data.Close)
 	f := &brandDBFixture{data: data, tenantID: uuid.New(), owner: uuid.New(), manager: uuid.New()}
+	// The two admins are COMMITTED: written under the operator-tables lock, held shared around this
+	// transaction (holdPanelTablesLock; cmd/opadmin's TestTablesLock_AdminRowsAreWrittenUnderTheHolder).
+	release := holdPanelTablesLock(t)
 	err = data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		if _, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
@@ -77,6 +80,7 @@ func newBrandDBFixture(t *testing.T) *brandDBFixture {
 		}
 		return nil
 	})
+	release()
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}

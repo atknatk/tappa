@@ -341,11 +341,16 @@ func TestConsume_EveryFailureIsOneError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
-	if err := d.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+	// The change is COMMITTED: made under the operator-tables lock, held shared around it, as
+	// newAdminRow wrote the row (holdTablesLock; cmd/opadmin's TestTablesLock_AdminRowsAreWrittenUnderTheHolder).
+	release := holdTablesLock(t)
+	err = d.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx, `UPDATE admin_users SET status = 'disabled' WHERE id = $1 AND tenant_id = $2`,
 			disabledAdmin, tenantID)
 		return e
-	}); err != nil {
+	})
+	release()
+	if err != nil {
 		t.Fatalf("disable: %v", err)
 	}
 

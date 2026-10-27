@@ -45,6 +45,7 @@ import (
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/tenant"
+	"github.com/atknatk/tappa/internal/mail"
 	"github.com/atknatk/tappa/internal/store"
 )
 
@@ -434,6 +435,15 @@ func ValidateVenues(structure string, venues []Venue) ([]Venue, Errors) {
 // (exactly one '@', with something either side of it). A pattern claiming to
 // implement RFC 5322 would refuse genuine addresses and is the classic way to lose
 // a customer at the last step.
+//
+// 🔴 2026-10-26 (M14-08a, user decision — ADR 0031 §5.1's address rule): SHALLOW NO
+// LONGER, ON ONE AXIS. The address births an identity (00074) and is the only place a
+// reset can go, and citext folds U+0130 (LATIN CAPITAL LETTER I WITH DOT ABOVE) and
+// U+212A (KELVIN SIGN) onto ASCII: a homoglyph registered first would squat the real
+// mailbox's identity for good, because mail goes to printable-ASCII recipients alone. So the address must also pass
+// mail.ValidRecipient — the rule internal/mail's Send applies, the same function and not
+// a copy, so the "second source of truth" above does not arise: it is the truth of
+// what we can SEND to. Migration 00076 holds the database to the same rule.
 func ValidateAccount(a Account) (Account, Errors) {
 	errs := Errors{}
 	a.FullName = collapseSpaces(a.FullName)
@@ -454,6 +464,11 @@ func ValidateAccount(a Account) (Account, Errors) {
 		errs.add("email", "That address is too long.")
 	case !deliverableShape(a.Email):
 		errs.add("email", "That does not look like an email address.")
+	case !asciiOnly(a.Email):
+		errs.add("email", "That address has a letter we cannot send mail to — an accent or "+
+			"a non-Latin character. Type it with plain a–z letters.")
+	case !mail.ValidRecipient(a.Email):
+		errs.add("email", "That does not look like an email address we can send mail to.")
 	}
 
 	switch n := utf8.RuneCountInString(a.Password); {
@@ -862,6 +877,17 @@ func hasLetter(s string) bool {
 		}
 	}
 	return false
+}
+
+// asciiOnly reports whether every byte of s is below 0x80. It only picks the sentence:
+// mail.ValidRecipient refuses the same addresses (and more), and is the rule.
+func asciiOnly(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }
 
 // deliverableShape reports the minimum structure an address needs to be delivered

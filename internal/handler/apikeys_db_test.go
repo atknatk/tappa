@@ -54,7 +54,10 @@ func newAPIKeysDBFixture(t *testing.T) *apiKeysDBFixture {
 	}
 	t.Cleanup(data.Close)
 	f := &apiKeysDBFixture{data: data, tenantID: uuid.New(), owner: uuid.New(), manager: uuid.New(), logs: &bytes.Buffer{}}
-	if err := data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+	// The two admins are COMMITTED: written under the operator-tables lock, held shared around this
+	// transaction (holdPanelTablesLock; cmd/opadmin's TestTablesLock_AdminRowsAreWrittenUnderTheHolder).
+	release := holdPanelTablesLock(t)
+	err = data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		if _, e := tx.Exec(ctx, `INSERT INTO tenants (id, name, vat_number, business_type, structure, timezone)
 		                          VALUES ($1, 'API Keys Fixture Ltd', $2, 'restaurant', 'multi', 'Europe/Malta')`,
 			f.tenantID, "VAT-"+f.tenantID.String()); e != nil {
@@ -71,7 +74,9 @@ func newAPIKeysDBFixture(t *testing.T) *apiKeysDBFixture {
 			}
 		}
 		return nil
-	}); err != nil {
+	})
+	release()
+	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	f.setAPI(t, true)

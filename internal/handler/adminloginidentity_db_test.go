@@ -77,6 +77,12 @@ func (p *idPanel) identity(t *testing.T, email, digest string) uuid.UUID {
 		t.Fatalf("insert an identity: %v", err)
 	}
 	t.Cleanup(func() {
+		// The take-back COMMITS an unlink, at the end of the test -- after a caller that held the
+		// operator-tables lock only around one cell (TestPanelE2E_IdentityTimingIsFlatOverHTTP) has
+		// released it: hold it again around this (holdPanelTablesLock; cmd/opadmin's
+		// TestTablesLock_AdminRowsAreWrittenUnderTheHolder, a write in a Cleanup runs late).
+		release := holdPanelTablesLock(t)
+		defer release()
 		for _, sql := range []string{
 			`UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL, unlinked_at = NULL WHERE identity_id = $1`,
 			`DELETE FROM admin_identity_events WHERE identity_id = $1`,
