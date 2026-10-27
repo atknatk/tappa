@@ -11,17 +11,17 @@ import (
 // fakeIdentityHooks are fakeAdmins' account-page identity acts (M14-18). A nil hook answers the
 // harmless default: no window, every act refused, nothing written. calls records each act by name.
 type fakeIdentityHooks struct {
-	window   func() (adminauth.Window, error)
-	keepAll  func() error
-	request  func(s adminauth.Resolved) (adminauth.IssuedVerification, error)
-	verify   func(raw string) (bool, error)
-	unlink   func(s adminauth.Resolved, password string, target uuid.UUID) (adminauth.FreshAct, bool, error)
-	relink   func(s adminauth.Resolved, password string, target uuid.UUID) (adminauth.FreshAct, error)
-	link     func(s adminauth.Resolved, current, other string) (adminauth.LinkResult, error)
-	bucket   func(s adminauth.Resolved) (string, error)
-	calls    []string
-	budgets  []adminauth.FailureBudget
-	verified []string
+	window       func() (adminauth.Window, error)
+	keepAll      func() error
+	request      func(s adminauth.Resolved) (adminauth.IssuedVerification, error)
+	verify       func(raw string) (bool, error)
+	unlink       func(s adminauth.Resolved, password string, target uuid.UUID) (adminauth.FreshAct, bool, error)
+	relink       func(s adminauth.Resolved, password string, target uuid.UUID) (adminauth.FreshAct, error)
+	linkBusiness func(s adminauth.Resolved, current, other string) (adminauth.LinkResult, error)
+	bucket       func(s adminauth.Resolved) (string, error)
+	calls        []string
+	budgets      []adminauth.FailureBudget
+	verified     []string
 }
 
 func (f *fakeAdmins) identCall(name string) {
@@ -98,10 +98,10 @@ func (f *fakeAdmins) LinkBusiness(_ context.Context, s adminauth.Resolved, curre
 	f.mu.Lock()
 	f.ident.budgets = append(f.ident.budgets, budget)
 	f.mu.Unlock()
-	if f.ident.link == nil {
+	if f.ident.linkBusiness == nil {
 		return adminauth.LinkResult{}, nil
 	}
-	return f.ident.link(s, current, other)
+	return f.ident.linkBusiness(s, current, other)
 }
 
 func (f *fakeAdmins) AccountBucket(_ context.Context, s adminauth.Resolved) (string, error) {

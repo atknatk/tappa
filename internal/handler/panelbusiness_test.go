@@ -63,11 +63,12 @@ func shellBrowser(t *testing.T, flag, linked bool, name string, brands panelBran
 	r := chi.NewRouter()
 	h.Mount(r)
 	registerPanel(r, h)
+	// GETs only: the wrapper is not a registered panel router (it is a func, not a map key), and no
+	// test of this file posts a bound form through it.
 	wrapped := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		path = req.URL.Path
 		r.ServeHTTP(w, req)
 	})
-	inheritPanel(wrapped, r)
 	b := newBrowser(t, wrapped)
 	b.cookies[adminauth.CookieName] = panelCookie().Value
 	return b, admins

@@ -228,7 +228,7 @@ func TestAccountIdentity_LinkABusinessHasOneAnswer(t *testing.T) {
 	var answers []string
 	for _, linked := range []int{0, 1} {
 		admins := &fakeAdmins{}
-		admins.ident.link = func(adminauth.Resolved, string, string) (adminauth.LinkResult, error) {
+		admins.ident.linkBusiness = func(adminauth.Resolved, string, string) (adminauth.LinkResult, error) {
 			return adminauth.LinkResult{Linked: linked, FreshAct: adminauth.FreshAct{Temporary: []adminauth.Session{fresh}, Revoked: []bool{true}}}, nil
 		}
 		b, trail := identityPanel(t, true, true, admins, nil)
@@ -248,7 +248,7 @@ func TestAccountIdentity_LinkABusinessHasOneAnswer(t *testing.T) {
 		t.Fatalf("the two answers differ or are not the one redirect: %q vs %q", answers[0], answers[1])
 	}
 	admins := &fakeAdmins{}
-	admins.ident.link = func(adminauth.Resolved, string, string) (adminauth.LinkResult, error) {
+	admins.ident.linkBusiness = func(adminauth.Resolved, string, string) (adminauth.LinkResult, error) {
 		return adminauth.LinkResult{}, adminauth.ErrBadCredentials
 	}
 	b, _ := identityPanel(t, true, true, admins, nil)
@@ -265,7 +265,7 @@ func TestAccountIdentity_LinkABusinessHasOneAnswer(t *testing.T) {
 func TestAccountIdentity_AnUnlinkedSessionIsOfferedTheReverseLink(t *testing.T) {
 	admins := &fakeAdmins{}
 	var got adminauth.Resolved
-	admins.ident.link = func(s adminauth.Resolved, _, _ string) (adminauth.LinkResult, error) {
+	admins.ident.linkBusiness = func(s adminauth.Resolved, _, _ string) (adminauth.LinkResult, error) {
 		got = s
 		return adminauth.LinkResult{Linked: 1}, nil
 	}

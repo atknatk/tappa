@@ -113,7 +113,7 @@ func accountIdentityNotice(v *pages.AccountIdentityView, done, problem string) {
 
 // accountIdentityView builds the sections for a live session (accountView calls it only while the
 // surface is open). A read that fails is shown as such, never as an empty list (§4.6).
-func (a *AdminAuth) accountIdentityView(r *http.Request, id httpx.AdminIdentity) *pages.AccountIdentityView {
+func (a *AdminAuth) accountIdentityView(r *http.Request, id httpx.AdminIdentity, zone *time.Location) *pages.AccountIdentityView {
 	v := &pages.AccountIdentityView{
 		Linked:            id.Admin.Linked,
 		SwitchHref:        adminSwitchHref,
@@ -156,7 +156,8 @@ func (a *AdminAuth) accountIdentityView(r *http.Request, id httpx.AdminIdentity)
 	if w.Open {
 		v.WindowOpen = true
 		v.WindowReset = w.Scope == "reset"
-		v.WindowEnds = a.accountWindowEnds(r, w.OpenUntil)
+		// The business's own zone (CLAUDE.md §6: local time only in the render layer).
+		v.WindowEnds = w.OpenUntil.In(zone).Format("2 January 2006, 15:04")
 		for _, row := range w.Rows {
 			v.WindowRows = append(v.WindowRows, pages.AccountWindowRow{
 				TenantID: row.TenantID.String(), Name: row.TenantName, Role: row.Role,
@@ -165,16 +166,6 @@ func (a *AdminAuth) accountIdentityView(r *http.Request, id httpx.AdminIdentity)
 		}
 	}
 	return v
-}
-
-// accountWindowEnds is the window's end in this business's own zone (CLAUDE.md §6: local time only in
-// the render layer).
-func (a *AdminAuth) accountWindowEnds(r *http.Request, at time.Time) string {
-	zone := time.UTC
-	if s, err := a.accounts.Settings(r.Context(), httpx.AdminOf(r).TenantID()); err == nil {
-		zone = a.accountZone(s.Timezone)
-	}
-	return at.In(zone).Format("2 January 2006, 15:04")
 }
 
 // accountIdentityAgain renders the account page again (200, or status) with one sentence placed by

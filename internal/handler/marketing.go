@@ -830,6 +830,16 @@ func cookieNotice() []pages.CookieRow {
 			Scope:    adminauth.CookiePath,
 			Flags:    flags,
 		},
+		// M14-18: the e-mail verification link between its page and the press, scoped to the dashboard.
+		{
+			Name: accountVerifyCookieName,
+			Purpose: "Carries an email confirmation link from the email to the button that confirms it, so " +
+				"the link stays out of the address bar and out of browser history. Cleared when the " +
+				"button is pressed.",
+			Lifetime: humanSeconds(accountVerifyCookieMaxAge),
+			Scope:    adminauth.CookiePath,
+			Flags:    flags,
+		},
 		{
 			Name: adminResetLinkCookieName,
 			Purpose: "Carries a recovery link while a new password is being chosen, so the link " +

@@ -291,7 +291,7 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 		v.SignOutEverywhereHref = accountSignOutEverywhereHref
 		v.SignOutEverywhereEveryBusiness = id.Admin.Linked
 		// M14-18: "Your businesses", the verification, the window and "Link a business".
-		v.Identity = a.accountIdentityView(r, id)
+		v.Identity = a.accountIdentityView(r, id, zone)
 	}
 	fillAccountVAT(&v, s.VAT, zone)
 	// The "Your brand" editor (M10 WL-7), from the chrome built above -- the one brand
