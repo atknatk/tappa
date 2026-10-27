@@ -715,6 +715,9 @@ func TestConfig_RegistrationLinksOnScreenOnlyWithoutEmailOnDevOrSandbox(t *testi
 // TestLoad_EnvExplicitIsTheVariableBeingSet: Load marks TAPPA_ENV set or defaulted -- the gate
 // RegistrationLinksOnScreen reads.
 func TestLoad_EnvExplicitIsTheVariableBeingSet(t *testing.T) {
+	if config.SandboxBuild() {
+		t.Skip("the sandbox build starts only with TAPPA_ENV=sandbox (envForBuild); the dev fallback this measures does not exist there")
+	}
 	for _, c := range []struct {
 		raw  string
 		want bool
