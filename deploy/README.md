@@ -1938,21 +1938,34 @@ Sonra `main`'e birleştir; deploy `00069` ve `00070`'i uygular.
   ```sql
   BEGIN READ ONLY;
   SELECT count(*)                                                AS backfill_candidates,
-         count(*) FILTER (WHERE email::text !~ '^[\x21-\x7e]+$') AS not_printable_ascii
+         count(*) FILTER (WHERE email::text !~ '^[\x21-\x7e]+$') AS not_printable_ascii,
+         count(*) FILTER (WHERE NOT (octet_length(email::text) <= 254
+                                AND strpos(email::text, '=?') = 0
+                                AND email::text ~ '^[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*@([-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*|\[((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|(([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|([0-9A-Fa-f]{1,4}:){6}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,6})?|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,5})?|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,4})?|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,3})?|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,2})?|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,1})?|([0-9A-Fa-f]{1,4}:){5}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4})?|([0-9A-Fa-f]{1,4}:){6}[0-9A-Fa-f]{1,4}::|::([0-9A-Fa-f]{1,4}:){0,5}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,4}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,2}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,1}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])))\])$')) AS failing_send_rule
     FROM admin_users
    WHERE email IS NOT NULL AND btrim(email::text) <> '';
   ROLLBACK;
   ```
 
-  beklenen: `not_printable_ascii` = **0** (M14-02'nin 2026-10-22 sayılarıyla `4|0`). **0 değilse deploy
+  (Üçüncü sayımın yüklemi `00076`'nın 6b'sidir, `v_email` yerine `email`; desen dosyadaki ile bayt
+  bayt aynıdır — `TestIdentityAddressRule_TheRunbookCountsWithThePattern`.)
+
+  beklenen: `not_printable_ascii` = **0** (M14-02'nin 2026-10-22 sayılarıyla `4|0|0`). **0 değilse deploy
   yapılmaz — DUR**: o satırlar adıyla değil yalnız sayıyla bilinir (adres log'a ve bu dosyaya yazılmaz,
   CLAUDE.md §7); ne yapılacağı kullanıcının kararıdır. `email::text` dönüşümü şarttır: citext'in kendi
-  `~`'ı harf büyüklüğüne duyarsızdır. Desen `mail.ValidRecipient`'in ASCII yarısıdır (0x21–0x7e; boşluk,
-  denetim karakteri, DEL ve 0x80 üstü her bayt sayılır); homoglif tehdidi tam bu kümedir — yalnız
-  biçimi bozuk bir ASCII adres citext'te başka bir adrese katlanmaz (ASCII'de citext yalnız harf
-  büyüklüğünü katlar). Ölçüm (2026-10-26, bu dalın veritabanı, goose 76): `97|0`; geri alınan bir
-  transaction'da U+0130'lu, U+212A'lı ve başı boşluklu üç satır eklenince `101|3`, düz ASCII dördüncüsü
-  sayılmadı.
+  `~`'ı harf büyüklüğüne duyarsızdır. İkinci sayım `mail.ValidRecipient`'in ASCII yarısıdır (0x21–0x7e;
+  boşluk, denetim karakteri, DEL ve 0x80 üstü her bayt sayılır); homoglif tehdidi tam bu kümedir. **Üçüncü
+  sayım kuralın tamamıdır:** ikinciye ek olarak ASCII ama biçimi bozuk adresler (`a..b@x.mt`, `"q"@x.mt` —
+  eski `deliverableShape`'in geçirdiği şekiller). Böyle bir satır citext'te başka bir adrese katlanmaz
+  (ASCII'de citext yalnız harf büyüklüğünü katlar), yani gasp değildir; ama backfill ona postanın
+  gidemeyeceği bir adresle kimlik doğurur. Bu **adlandırılmış kalıntıdır** (ADR 0031 §5.8'in M14-08a
+  notu): kendi başına DUR değildir, `failing_send_rule − not_printable_ascii` sayısı deploy'dan önce
+  kullanıcıya bildirilir. **Pencere `00076`'da kapanır:** bu sayım ile `00073`'ün koşması arasında eski
+  binary hâlâ her UTF-8 adresi alır; `00076`'nın Up'ı aynı goose koşusunda yazdırılabilir ASCII olmayan
+  bir kimlik görürse **yalnız sayıyla** hata verir — migrate Job `Failed`, rollout yok, karar
+  kullanıcının. Ölçüm (2026-10-27, bu dalın veritabanı, goose 76): `293|0|0` (testlerin bıraktığı satırlarla); geri alınan bir
+  transaction'da U+0130'lu, U+212A'lı ve başı boşluklu üç satır ve `a..b@` biçimli bir satır eklenince
+  `298|3|4`, düz ASCII olan sayılmadı.
 
 **Eski binary yeni şemada çalışır** (ADR 0031 §8 expand): kayıt `identity_id NULL` ile satır yazar,
 oturum `authenticated_at`'i varsayılandan alır; `tappa_app`'ın `admin_users` okuması sütun listesine
@@ -2070,6 +2083,25 @@ satır) hiçbir şeyi değiştirmeden **reddeder** — geri dönüş önceki bin
   (00076'nın başlığı). Down 00074'ün gövdesini bayt bayt geri koyar.
 - Kayıt formu aynı kuralı sınırda uygular (`signup.ValidateAccount`); giriş ve sıfırlama formları yalnız
   arar, değişmedi. Backfill'in tarafı yukarıdaki ikinci ön kontroldür (Expand deploy'undan önce).
+- **Up'ın kendi iddiası:** koşan rol superuser ya da BYPASSRLS değilse, ya da yazdırılabilir ASCII
+  olmayan adresli tek bir kimlik varsa (`00073` onu önceki ön kontrolün görmediği bir satırdan doğurmuş
+  olabilir), dosya hiçbir şey değiştirmeden **yalnız sayıyla** hata verir.
+- **Migrate'ten sonra** (salt okuma, yalnız sayı; `tappa_owner`):
+
+  ```sql
+  BEGIN READ ONLY;
+  SELECT count(*)                                                AS identities,
+         count(*) FILTER (WHERE email::text !~ '^[\x21-\x7e]+$') AS not_printable_ascii,
+         count(*) FILTER (WHERE NOT (octet_length(email::text) <= 254
+                              AND strpos(email::text, '=?') = 0
+                              AND email::text ~ '^[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*@([-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*|\[((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|(([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|([0-9A-Fa-f]{1,4}:){6}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,6})?|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,5})?|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,4})?|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,3})?|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,2})?|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,1})?|([0-9A-Fa-f]{1,4}:){5}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4})?|([0-9A-Fa-f]{1,4}:){6}[0-9A-Fa-f]{1,4}::|::([0-9A-Fa-f]{1,4}:){0,5}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,4}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,2}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,1}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])))\])$')) AS failing_send_rule
+    FROM admin_identities;
+  ROLLBACK;
+  ```
+
+  beklenen: `not_printable_ascii` = 0 (00076 bunu garanti eder) ve `failing_send_rule` = ön kontrolün
+  üçüncü sayımı eksi ikincisi (backfill'in ASCII ama biçimi bozuk kalıntısı; 2026-10-22 sayılarıyla
+  `3|0|0`; bu dalın veritabanında 2026-10-27: `0|0|0`).
 
 ### Panel formlarının tenant bağı (M14-10a)
 

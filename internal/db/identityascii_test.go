@@ -11,15 +11,20 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
+	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/atknatk/tappa/internal/mail"
 )
@@ -449,52 +454,247 @@ func TestIdentityCreateForSignup_ANonASCIIAddressBirthsNothing(t *testing.T) {
 	})
 }
 
-// TestIdentityAddressRule_EveryIdentityInsertDecidesIt: every function body in the database that
-// INSERTs into admin_identities carries 00076's pattern, byte for byte. There is no CHECK behind the
-// predicates (00076's header: a violation's DETAIL prints the address and the digest into the
-// server log), so a writer that forgot the rule would birth squattable identities silently -- this
-// is where that turns red. Today the one such body is identity_create_for_signup; M14-06b's
-// identity_reconcile must carry the same pattern before it merges (00073's backfill is a DO block,
-// guarded by deploy/README.md's precheck). CONTROL: a definer that inserts without the pattern,
-// created in a savepoint, is named.
+// identityAdminIdentitiesNonWriters is the allow-list of TestIdentityAddressRule_EveryIdentityInsertDecidesIt:
+// the functions whose owner may INSERT into admin_identities and whose body names it, that write no
+// identity row -- each reads, locks or updates an existing identity by its key (re-derived 2026-10-27
+// on the M14-08a database: the fifteen tappa_identitydefiner bodies naming the table, minus
+// identity_create_for_signup; resolve_identity_by_email is tappa_resolver's, which holds no INSERT,
+// so it is no candidate). An allow-listed body is still read: an INSERT or a MERGE into
+// admin_identities, or an EXECUTE, in it is red.
+var identityAdminIdentitiesNonWriters = map[string]bool{
+	"identity_consume_reset(text,text)":                       true,
+	"identity_consume_row_reset(text,text)":                   true,
+	"identity_link_legacy(text,text)":                         true,
+	"identity_open_reset(uuid,text,timestamp with time zone)": true,
+	"identity_open_session(uuid,uuid,text,text)":              true,
+	"identity_password_for_session(text)":                     true,
+	"identity_record_failed_login(uuid,text)":                 true,
+	"identity_relink_refused(text,uuid)":                      true,
+	"identity_request_verification(text,text)":                true,
+	"identity_revoke_sessions(text,boolean)":                  true,
+	"identity_set_password(text,text)":                        true,
+	"identity_switch_session(text,uuid,text)":                 true,
+	"identity_unlink_backfilled(text,uuid)":                   true,
+	"identity_verify_email(text,text)":                        true,
+}
+
+// iaStripComments removes SQL / PL/pgSQL comments (-- to the end of the line, /* ... */, nested)
+// outside single-quoted literals and double-quoted identifiers, so a pattern written in a comment is
+// not mistaken for a predicate. Literals and identifiers are kept as they are.
+func iaStripComments(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		switch {
+		case s[i] == '\'' || s[i] == '"':
+			q := s[i]
+			j := i + 1
+			for j < len(s) {
+				if s[j] == q {
+					if j+1 < len(s) && s[j+1] == q { // '' or "" -- an escaped quote
+						j += 2
+						continue
+					}
+					break
+				}
+				j++
+			}
+			end := min(j+1, len(s))
+			b.WriteString(s[i:end])
+			i = end
+		case strings.HasPrefix(s[i:], "--"):
+			j := strings.IndexByte(s[i:], '\n')
+			if j < 0 {
+				return b.String()
+			}
+			i += j
+		case strings.HasPrefix(s[i:], "/*"):
+			depth, j := 1, i+2
+			for j < len(s) && depth > 0 {
+				switch {
+				case strings.HasPrefix(s[j:], "/*"):
+					depth, j = depth+1, j+2
+				case strings.HasPrefix(s[j:], "*/"):
+					depth, j = depth-1, j+2
+				default:
+					j++
+				}
+			}
+			b.WriteByte(' ')
+			i = j
+		default:
+			b.WriteByte(s[i])
+			i++
+		}
+	}
+	return b.String()
+}
+
+var (
+	// iaRefusalBlock is a refusal in the shape 6b is written in: IF (<predicate>) IS NOT TRUE THEN
+	// RETURN | CONTINUE -- the predicate without a statement end inside it, so the match cannot run
+	// from one block into the next.
+	iaRefusalBlock = regexp.MustCompile(`(?is)\bIF\s*\(([^;]*?)\)\s*IS\s+NOT\s+TRUE\s+THEN\s+(RETURN|CONTINUE)\b`)
+	// iaIdentityWrite is an INSERT or a MERGE whose TARGET is admin_identities, bare or quoted, with
+	// or without its schema (comments are stripped before it runs; a U&-escaped name is iaEscapedName).
+	iaIdentityWrite = regexp.MustCompile(`(?is)\b(insert|merge)\s+into\s+("?public"?\s*\.\s*)?"?admin_identities"?([^_a-z0-9]|$)`)
+	iaEscapedName   = regexp.MustCompile(`(?i)U&"`)
+	iaExecute       = regexp.MustCompile(`(?i)\bexecute\b`)
+)
+
+// iaCarriesTheRule reports whether body (comments stripped) holds 00076's rule as a refusal: an
+// iaRefusalBlock whose predicate has the length bound, the "=?" refusal and the pattern.
+func iaCarriesTheRule(body string) bool {
+	literal := `~ '` + strings.ReplaceAll(identityAddressPattern(), "'", "''") + `'`
+	for _, m := range iaRefusalBlock.FindAllStringSubmatch(body, -1) {
+		p := m[1]
+		if strings.Contains(p, literal) && strings.Contains(p, "octet_length(") && strings.Contains(p, "<= 254") &&
+			strings.Contains(p, "strpos(") && strings.Contains(p, "'=?') = 0") {
+			return true
+		}
+	}
+	return false
+}
+
+// iaIdentityWriterFindings is the guard. Candidates: every function (outside pg_catalog and
+// information_schema) whose OWNER may INSERT into admin_identities -- a column privilege is enough --
+// and whose definition (pg_get_functiondef: it covers a BEGIN ATOMIC body, whose prosrc is empty)
+// names admin_identities in any spelling the scan sees (bare, quoted, U&-escaped) or holds an
+// EXECUTE (dynamic SQL can spell the name any way at all). A candidate passes only if it carries the
+// rule as a refusal, or sits on the allow-list and neither writes the table nor executes dynamic SQL.
+// Anything else is a finding. And no rewrite rule may target admin_identities (a rule can turn any
+// statement into an INSERT there).
+func iaIdentityWriterFindings(t *testing.T, ctx context.Context, q pgx.Tx) (findings, candidates []string) {
+	t.Helper()
+	rows, err := q.Query(ctx, `SELECT p.oid::regprocedure::text, pg_get_functiondef(p.oid)
+	                             FROM pg_proc p
+	                            WHERE p.pronamespace NOT IN ('pg_catalog'::regnamespace, 'information_schema'::regnamespace)
+	                              AND p.prokind IN ('f', 'p')
+	                              AND has_any_column_privilege(p.proowner, 'public.admin_identities'::regclass, 'INSERT')
+	                              AND (pg_get_functiondef(p.oid) ~* 'admin_identities|\mexecute\M|U&"')
+	                            ORDER BY 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name, def string
+		if err := rows.Scan(&name, &def); err != nil {
+			t.Fatal(err)
+		}
+		candidates = append(candidates, name)
+		body := iaStripComments(def)
+		switch {
+		case iaCarriesTheRule(body):
+		case identityAdminIdentitiesNonWriters[name]:
+			if iaIdentityWrite.MatchString(body) || iaExecute.MatchString(body) || iaEscapedName.MatchString(body) {
+				findings = append(findings, name+": allow-listed as a non-writer, yet it writes admin_identities, executes dynamic SQL or escapes a name")
+			}
+		default:
+			findings = append(findings, name+": may write admin_identities and carries no refusal on 00076's address rule")
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	var rules int64
+	if err := q.QueryRow(ctx, `SELECT count(*) FROM pg_rewrite WHERE ev_class = 'public.admin_identities'::regclass`).Scan(&rules); err != nil {
+		t.Fatal(err)
+	}
+	if rules != 0 {
+		findings = append(findings, fmt.Sprintf("%d rewrite rule(s) target admin_identities", rules))
+	}
+	return findings, candidates
+}
+
+// TestIdentityAddressRule_EveryIdentityInsertDecidesIt: no function can write admin_identities
+// without deciding 00076's address rule first. There is no CHECK behind the predicates (00076's
+// header: a violation's DETAIL prints the address and the digest into the server log), so a writer
+// that forgot the rule would birth squattable identities silently -- this is where that turns red.
+// The guard (iaIdentityWriterFindings) FAILS CLOSED: a function whose owner may insert there and
+// whose body names the table or runs dynamic SQL is a finding unless it carries the rule as an
+// `IF (...) IS NOT TRUE THEN RETURN | CONTINUE` refusal (comments stripped first) or is a listed
+// non-writer that indeed writes nothing there. It is a STRUCTURAL guard: that the refusal is on the
+// value inserted is each writer's behaviour test (this file's for identity_create_for_signup;
+// M14-06b's for identity_reconcile). Today the one writer is identity_create_for_signup;
+// identity_reconcile must carry the refusal before it merges; 00073's backfill is a DO block, guarded
+// by 00076's own assertion and deploy/README.md's precheck.
+//
+// CONTROLS, in savepoints, each red: the six shapes the M14-08a third eye planted past the first
+// version of this test -- a BEGIN ATOMIC body, INSERT /* c */ INTO, a quoted "public"."admin_identities",
+// MERGE ... WHEN NOT MATCHED THEN INSERT, EXECUTE of a concatenated name, EXECUTE format(%I.%I) -- the
+// pattern in a comment only, an allow-listed body that starts inserting, and a rewrite rule on the
+// table. And the positive control: a body with the rule as a real refusal is not named.
 func TestIdentityAddressRule_EveryIdentityInsertDecidesIt(t *testing.T) {
 	ctx, tx := opTx(t)
-	literal := `'` + strings.ReplaceAll(identityAddressPattern(), "'", "''") + `'`
-	missing := func(q pgx.Tx) (found []string, bad []string) {
-		rows, err := q.Query(ctx, `SELECT p.oid::regprocedure::text, p.prosrc FROM pg_proc p
-		                            WHERE p.prosrc ~* 'insert[[:space:]]+into[[:space:]]+(public[[:space:]]*\.[[:space:]]*)?"?admin_identities"?[^_a-z0-9]'`)
-		if err != nil {
-			t.Fatal(err)
+	findings, candidates := iaIdentityWriterFindings(t, ctx, tx)
+	for _, f := range findings {
+		t.Error(f)
+	}
+	if len(candidates) != len(identityAdminIdentitiesNonWriters)+1 || !slices.Contains(candidates, "identity_create_for_signup(uuid,uuid)") {
+		t.Fatalf("anti-vacuity: the candidates are %v -- want identity_create_for_signup and the %d listed non-writers (a new one is reviewed and listed, or carries the rule)",
+			candidates, len(identityAdminIdentitiesNonWriters))
+	}
+	for name := range identityAdminIdentitiesNonWriters {
+		if !slices.Contains(candidates, name) {
+			t.Errorf("the allow-list names %s, which is no candidate any more -- take it off", name)
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var name, src string
-			if err := rows.Scan(&name, &src); err != nil {
+	}
+
+	literal := strings.ReplaceAll(identityAddressPattern(), "'", "''")
+	rule := "IF (pg_catalog.octet_length(p_email) <= 254 AND pg_catalog.strpos(p_email, '=?') = 0 AND p_email ~ '" + literal + "') IS NOT TRUE THEN RETURN; END IF;"
+	plpgsql := func(name, body string) string {
+		return "CREATE FUNCTION public." + name + "(p_email text) RETURNS void LANGUAGE plpgsql AS $f$ BEGIN " + body + " END $f$"
+	}
+	const ins = "(email, password_hash) VALUES (p_email, 'h');"
+	for _, c := range []struct{ name, sql string }{
+		{"zz_m1408a_atomic", "CREATE FUNCTION public.zz_m1408a_atomic(p_email text) RETURNS void LANGUAGE sql BEGIN ATOMIC INSERT INTO public.admin_identities (email, password_hash) VALUES (p_email, 'h'); END"},
+		{"zz_m1408a_comment_in_insert", plpgsql("zz_m1408a_comment_in_insert", "INSERT /* c */ INTO public.admin_identities "+ins)},
+		{"zz_m1408a_quoted", plpgsql("zz_m1408a_quoted", `INSERT INTO "public"."admin_identities" `+ins)},
+		{"zz_m1408a_merge", plpgsql("zz_m1408a_merge", "MERGE INTO public.admin_identities AS i USING (SELECT p_email AS e) AS s ON false WHEN NOT MATCHED THEN INSERT (email, password_hash) VALUES (s.e, 'h');")},
+		{"zz_m1408a_dynamic", plpgsql("zz_m1408a_dynamic", "EXECUTE 'INSERT INTO public.admin_' || 'identities (email, password_hash) VALUES ($1, ''h'')' USING p_email;")},
+		{"zz_m1408a_format", plpgsql("zz_m1408a_format", "EXECUTE format('INSERT INTO %I.%I (email, password_hash) VALUES ($1, ''h'')', 'public', 'admin_identities') USING p_email;")},
+		{"zz_m1408a_rule_in_a_comment", plpgsql("zz_m1408a_rule_in_a_comment", "/* "+rule+" */ -- "+rule+"\n INSERT INTO public.admin_identities "+ins)},
+	} {
+		t.Run("control/"+c.name, func(t *testing.T) {
+			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+				aiExec(t, ctx, sp, c.sql)
+				if f, _ := iaIdentityWriterFindings(t, ctx, sp); !slices.ContainsFunc(f, func(s string) bool { return strings.HasPrefix(s, c.name+"(") }) {
+					t.Fatalf("CONTROL: %s is not named (%v)", c.name, f)
+				}
+			})
+		})
+	}
+	t.Run("control/an allow-listed body that starts inserting", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			var def string
+			if err := sp.QueryRow(ctx, `SELECT pg_get_functiondef('public.identity_record_failed_login(uuid,text)'::regprocedure)`).Scan(&def); err != nil {
 				t.Fatal(err)
 			}
-			found = append(found, name)
-			if !strings.Contains(src, literal) {
-				bad = append(bad, name)
+			const anchor = "\nBEGIN\n"
+			if !strings.Contains(def, anchor) {
+				t.Fatal("PREMISE: no BEGIN line")
 			}
-		}
-		if err := rows.Err(); err != nil {
-			t.Fatal(err)
-		}
-		return found, bad
-	}
-	found, bad := missing(tx)
-	for _, b := range bad {
-		t.Errorf("%s inserts into admin_identities without 00076's address rule", b)
-	}
-	if !strings.Contains(strings.Join(found, ","), "identity_create_for_signup(uuid,uuid)") {
-		t.Fatalf("anti-vacuity: the scan did not find identity_create_for_signup (%v)", found)
-	}
-	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
-		aiExec(t, ctx, sp, `CREATE FUNCTION public.zz_m1408a_writer() RETURNS void LANGUAGE sql AS
-		                     $f$ INSERT INTO public.admin_identities (email, password_hash) VALUES ('x@y.z', 'h') $f$`)
-		if _, bad := missing(sp); !strings.Contains(strings.Join(bad, ","), "zz_m1408a_writer()") {
-			t.Fatalf("CONTROL: a writer without the rule is not named (%v)", bad)
-		}
+			aiExec(t, ctx, sp, strings.Replace(def, anchor, anchor+"    INSERT INTO public.admin_identities (email, password_hash) VALUES ('x@y.z', 'h');\n", 1))
+			if f, _ := iaIdentityWriterFindings(t, ctx, sp); !slices.ContainsFunc(f, func(s string) bool { return strings.HasPrefix(s, "identity_record_failed_login(") }) {
+				t.Fatalf("CONTROL: the allow-listed writer is not named (%v)", f)
+			}
+		})
+	})
+	t.Run("control/a rewrite rule on the table", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			aiExec(t, ctx, sp, `CREATE RULE zz_m1408a_rule AS ON UPDATE TO public.admin_identities DO ALSO NOTHING`)
+			if f, _ := iaIdentityWriterFindings(t, ctx, sp); !slices.ContainsFunc(f, func(s string) bool { return strings.Contains(s, "rewrite rule") }) {
+				t.Fatalf("CONTROL: the rule is not named (%v)", f)
+			}
+		})
+	})
+	t.Run("control/a writer that carries the rule as a refusal is not named", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			aiExec(t, ctx, sp, plpgsql("zz_m1408a_good", rule+" INSERT INTO public.admin_identities "+ins))
+			if f, _ := iaIdentityWriterFindings(t, ctx, sp); slices.ContainsFunc(f, func(s string) bool { return strings.HasPrefix(s, "zz_m1408a_good(") }) {
+				t.Fatalf("CONTROL: a writer with the refusal is named (%v)", f)
+			}
+		})
 	})
 }
 
@@ -502,10 +702,14 @@ func TestIdentityAddressRule_EveryIdentityInsertDecidesIt(t *testing.T) {
 // Down gives identity_create_for_signup back exactly as 00074 created it -- the body (prosrc) equal
 // to 00074's text between the dollar quotes, and the owner, SECURITY DEFINER, the pinned search_path
 // and the ACL equal to HEAD's -- and the Up again gives HEAD's definition and ACL back byte for byte.
-// The Down locks no table.
+// The Down locks no table. The database holds identities the way it does after 00073 (two
+// backfill-shaped ASCII ones, written here), so the Up's own assertion runs over real rows.
 func TestIdentity00076_DownGivesBack00074ByteForByte(t *testing.T) {
 	ctx, tx := opTx(t)
 	up, down := opMigrationSections(t, ia00076File)
+	for range 2 {
+		aiExec(t, ctx, tx, `INSERT INTO admin_identities (email, password_hash) VALUES ($1, $2)`, aiEmail(), opFakeDigest("b"))
+	}
 	if tables := downTables(down); len(tables) > 0 {
 		t.Fatalf("PREMISE: 00076's Down locks %v", tables)
 	}
@@ -552,4 +756,66 @@ func TestIdentity00076_DownGivesBack00074ByteForByte(t *testing.T) {
 			t.Error("the Up again does not give HEAD's definition and ACL back byte for byte")
 		}
 	})
+}
+
+// TestIdentity00076_UpRefusesANonASCIIIdentityWithItsCountAlone closes the precheck's window: an
+// identity 00073 birthed from a homoglyph row the manual count did not see (the old binary took it
+// in between) stops 00076's Up in the same goose run, and the error names the COUNT and no address
+// (CLAUDE.md §7). MUTATION, in the test: the assertion disabled -> the Up passes (red).
+func TestIdentity00076_UpRefusesANonASCIIIdentityWithItsCountAlone(t *testing.T) {
+	ctx, tx := opTx(t)
+	up, _ := opMigrationSections(t, ia00076File)
+	tag := uuid.NewString()[:8]
+	addresses := []string{"ceo-" + tag + "@cor\u0130p.example", "\u212aate-" + tag + "@corp.example"}
+	run := func(sp pgx.Tx, sql string) error {
+		_, err := sp.Conn().PgConn().Exec(ctx, sql).ReadAll()
+		return err
+	}
+	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		for _, a := range addresses {
+			aiExec(t, ctx, sp, `INSERT INTO admin_identities (email, password_hash) VALUES ($1, $2)`, a, opFakeDigest("h"))
+		}
+		aiSavepoint(t, ctx, sp, func(inner pgx.Tx) {
+			err := run(inner, up)
+			if err == nil {
+				t.Fatal("00076's Up passed over two identities whose addresses are not printable ASCII")
+			}
+			msg := err.Error()
+			var pe *pgconn.PgError
+			if errors.As(err, &pe) {
+				msg += " " + pe.Detail + " " + pe.Hint + " " + pe.Where
+			}
+			if !strings.Contains(msg, "2 identity row(s)") {
+				t.Errorf("the error does not give the count: %s", msg)
+			}
+			for _, a := range addresses {
+				if strings.Contains(msg, a) || strings.Contains(msg, tag) {
+					t.Errorf("the error names an address")
+				}
+			}
+		})
+		aiSavepoint(t, ctx, sp, func(inner pgx.Tx) {
+			const cut = "    IF n > 0 THEN\n"
+			if strings.Count(up, cut) != 1 {
+				t.Fatal("PREMISE: the Up's assertion is not where the test cuts it")
+			}
+			if err := run(inner, strings.Replace(up, cut, "    IF false THEN\n", 1)); err != nil {
+				t.Fatalf("MUTATION: with the assertion disabled the Up still fails: %v", err)
+			}
+		})
+	})
+}
+
+// TestIdentityAddressRule_TheRunbookCountsWithThePattern: deploy/README.md's precheck (before Deploy 1)
+// and its post-migrate count apply 00076's rule with the very pattern, byte for byte -- a hand copy
+// of 2 700 characters would drift silently otherwise.
+func TestIdentityAddressRule_TheRunbookCountsWithThePattern(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "deploy", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "AND email::text ~ '" + strings.ReplaceAll(identityAddressPattern(), "'", "''") + "'))"
+	if n := strings.Count(string(b), want); n != 2 {
+		t.Fatalf("deploy/README.md applies 00076's pattern %d times, want 2 (the precheck and the post-migrate count)", n)
+	}
 }

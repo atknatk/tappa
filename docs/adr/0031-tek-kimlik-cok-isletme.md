@@ -241,7 +241,10 @@ numaralandırma kanalı yok; etkisi kalıcı erişim kaybı). **`admin_identitie
 yok — ölçülerek:** ihlalin `DETAIL`'i (`Failing row contains …`) BYPASSRLS definer'ın SELECT edebildiği
 her sütunu, adresi **ve** digest'i, hataya ve sunucu log'una basar (00073 ve 00074'ün digest için
 belgelediği tuzak; CLAUDE.md §7). Kural yüklemlerdedir: her kimlik INSERT'i kuralı INSERT'ten **önce**
-karar verir (§5.2'nin M14-08a notu, §5.8'in M14-08a notu).
+karar verir (§5.2'nin M14-08a notu, §5.8'in M14-08a notu). **Düşünülen ama kurulmayan seçenek**
+(M14-08a güvenlik denetimi, 2026-10-27): sabit mesajlı bir `BEFORE INSERT OR UPDATE` tetikleyicisi —
+adresi hiçbir mesaja koymadan reddeden, sızıntısız bir veritabanı arkalığı. §5.2'nin kapalı
+listesine bir fonksiyon ekler; bu yüzden kullanıcı kararıdır ve bu kartta yapılmadı.
 
 ### 5.2 Roller ve fonksiyonlar — kapalı liste
 
@@ -401,9 +404,17 @@ yine de açıkça yazılır — T5). Gövdede iki değişiklik, gerisi 00074'ün
   değişmedi (düz zamanlama korunur; homoglifle yapılan bir giriş en çok gerçek kimliğe çözülür ve onun
   parolasını ister).
 - **Bundan sonra doğan her kimlik INSERT'i** (`identity_reconcile`, `identity_accept_invite_new`,
-  `identity_claim_signup`) aynı deseni INSERT'ten önce taşır; `admin_identities`'e INSERT eden ve
-  deseni taşımayan bir fonksiyon gövdesi `TestIdentityAddressRule_EveryIdentityInsertDecidesIt`'te
-  kırmızıdır (CHECK'in yerine geçen kemer).
+  `identity_claim_signup`) aynı kuralı INSERT'ten önce bir ret olarak taşır. CHECK'in yerine geçen
+  kemer yapısaldır ve kapalı başarısız olur (`TestIdentityAddressRule_EveryIdentityInsertDecidesIt`):
+  sahibi `admin_identities`'e INSERT edebilen (sütun yetkisi yeter) ve tanımı (`pg_get_functiondef` —
+  `BEGIN ATOMIC` gövdesi dahil) tabloyu herhangi bir yazımla anan ya da dinamik SQL (`EXECUTE`) koşan
+  her fonksiyon, kuralı yorumlar ayıklandıktan sonra gerçek bir `IF (…) IS NOT TRUE THEN RETURN |
+  CONTINUE` reddi olarak taşımalı ya da adıyla listelenmiş, oraya gerçekten yazmayan bir okuyucu
+  olmalıdır (bugün on dört `identity_*` fonksiyonu; `resolve_identity_by_email`'in sahibi INSERT
+  taşımadığı için aday değil); tabloyu hedefleyen rewrite kuralı sayısı 0'dır. Kemer **varlığı**
+  denetler; reddin eklenen değere uygulandığı her yazarın kendi davranış testidir. `00076`'nın Up'ı
+  ayrıca yazdırılabilir ASCII olmayan adresli bir kimlik görürse yalnız sayıyla durur (ön kontrol
+  ile `00073` arasındaki pencere).
 - **Kapsam dışı kalan (açık madde):** `identity_link_legacy` adresleri citext ile karşılaştırır ve bu
   notla değişmedi. ASCII olmayan bir satırı ancak iki taze oturumu — satırın ve kimliğin parolasını —
   birlikte kanıtlayan kişi kendi kimliğine bağlayabilir; bu bir gasp yolu değildir, ama kuralın
@@ -675,10 +686,16 @@ eski aktif satırı olsa bile **seçilmez**, kimlik grubun kuralı geçen satır
 doğar; yalnız kuralı geçmeyen satırlardan oluşan grup kimlik doğurmaz. `00073` uygulanmış bir
 migration olduğu için değiştirilmedi (CLAUDE.md §6); onun tarafı Deploy 1'den önceki salt-okuma
 sayımıdır (`deploy/README.md`, Expand'in ikinci ön kontrolü: backfill adaylarında yazdırılabilir ASCII
-olmayan adres = 0, değilse **dur**). Kalan ASCII-dışı satırlar **adlandırılmış kalıntıdır**: hiçbir
-yoldan bağlanmaz ve kimlik doğurmaz; M14-19'un "kimliği olmayan dolu e-posta = 0" ön kontrolü onları
-ayrı sayar, K-3'ün son tarihi ve contract A'nın ön koşulu karşısında ne olacakları kullanıcının
-kararıdır.
+olmayan adres = 0, değilse **dur**); ön kontrol ile `00073` arasındaki pencereyi `00076`'nın Up'ı
+aynı goose koşusunda kapatır (yazdırılabilir ASCII olmayan bir kimlik → yalnız sayıyla hata). Kalan
+ASCII-dışı satırlar **adlandırılmış kalıntıdır**: hiçbir yoldan bağlanmaz ve kimlik doğurmaz; M14-19'un
+"kimliği olmayan dolu e-posta = 0" ön kontrolü onları ayrı sayar, K-3'ün son tarihi ve contract A'nın
+ön koşulu karşısında ne olacakları kullanıcının kararıdır. **İkinci adlandırılmış kalıntı** (M14-08a
+üçüncü göz denetimi, 2026-10-27): ASCII ama biçimi kurala uymayan adresler (`a..b@x.mt`, `"q"@x.mt` —
+eski `deliverableShape`'in geçirdiği şekiller). `00073` bunlara da kimlik doğurur; citext ASCII'de yalnız
+harf büyüklüğünü katladığı için bu bir gasp değildir, ama o kimliğe posta gidemez. Ön kontrolün üçüncü
+sayımı (`failing_send_rule`, 6b'nin yüklemi) onları sayar; DUR değildir, sayı deploy'dan önce kullanıcıya
+bildirilir.
 
 **Onay penceresi** (bulgu 15, R1, R2, S3–S5): iki kapsamla açılır —
 - **`first_verify`** — kimliğin **ilk** doğrulanması (doğrulama linki, davet/kayıt tıklaması):

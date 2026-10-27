@@ -48,8 +48,13 @@
 -- digest, and CLAUDE.md §7 bans the address from every log. A CHECK would fire only when a writer
 -- forgot the predicate -- and then it would leak. The predicates stay the line: each identity INSERT
 -- decides the rule BEFORE it inserts (this body; M14-06b's identity_reconcile gets the same filter
--- in its lane), and identityascii_test.go fails while any function body that inserts into
--- admin_identities lacks this file's rule.
+-- in its lane). The guard instead of a CHECK is structural and fails closed
+-- (identityascii_test.go, TestIdentityAddressRule_EveryIdentityInsertDecidesIt): every function whose
+-- owner may INSERT into admin_identities and whose definition (pg_get_functiondef, BEGIN ATOMIC
+-- included) names the table in any spelling or runs dynamic SQL must carry this rule as a real
+-- `IF (...) IS NOT TRUE THEN RETURN | CONTINUE` refusal -- comments stripped first -- or be a listed
+-- non-writer that writes nothing there; and no rewrite rule may target the table. That the refusal
+-- guards the value inserted is each writer's own behaviour test.
 --
 -- EXPAND-SAFE (ADR 0031 §8): CREATE OR REPLACE, same arguments, same boolean result; the old binary's
 -- call works unchanged and, for a non-ASCII address, now gets false (the row is born unlinked, as for
@@ -60,7 +65,12 @@
 -- 00073 (the backfill) is NOT edited -- it is applied on every development and CI database and
 -- CLAUDE.md §6 forbids changing an applied migration. Its guard is a read-only precheck before
 -- Deploy 1 (deploy/README.md, the expand deploy's second precheck, "adres kuralı"): the backfill's
--- candidate rows whose address is not printable ASCII must number 0, or the deploy stops.
+-- candidate rows whose address is not printable ASCII must number 0, or the deploy stops. Between
+-- that count and 00073 the old binary still takes any UTF-8 address, so this file's precondition
+-- closes the window in the same goose run: an identity whose address is not printable ASCII stops
+-- the Up, with the count alone in the message (TestIdentity00076_UpRefusesANonASCIIIdentityWithItsCountAlone).
+-- An ASCII address of the wrong shape (a..b@x.mt) that 00073 birthed is no squat (citext folds only
+-- letter case in ASCII) and is a named residue the precheck's third count reports (ADR 0031 §5.8).
 --
 -- DOWN: 00074's definition back, byte for byte (TestIdentity00076_DownGivesBack00074ByteForByte).
 -- An identity the new body refused to birth was never written, so there is nothing to undo.
@@ -73,12 +83,33 @@ SET LOCAL lock_timeout = '1s';
 -- ---------------------------------------------------------------------------
 -- +goose StatementBegin
 DO $$
+DECLARE
+    n bigint;
 BEGIN
     IF pg_catalog.to_regprocedure('public.identity_create_for_signup(uuid,uuid)') IS NULL
        OR (SELECT pg_catalog.pg_get_function_result(p.oid) FROM pg_catalog.pg_proc p
             WHERE p.oid = 'public.identity_create_for_signup(uuid,uuid)'::pg_catalog.regprocedure) <> 'boolean' THEN
         RAISE EXCEPTION 'migration 00076 (M14-08a) redefines identity_create_for_signup as 00074 created it, and it is not there in that shape. Migrate in order. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
+    END IF;
+    -- THE PRECHECK'S WINDOW, CLOSED IN THIS GOOSE RUN (M14-08a audits). deploy/README.md's count runs
+    -- by hand before the deploy; between it and 00073 the old binary still takes any UTF-8 address,
+    -- and the backfill would birth an identity under it. Every identity is read here, after 00073 in
+    -- the same run: one whose address is not printable ASCII stops the deploy (the Job fails, no
+    -- rollout). The message carries the COUNT alone, never an address (CLAUDE.md §7). FORCE RLS on a
+    -- table without a policy would show this role 0 rows and pass silently, so the role is asserted
+    -- first, as 00073 does.
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r
+                    WHERE r.rolname = current_user AND (r.rolsuper OR r.rolbypassrls)) THEN
+        RAISE EXCEPTION 'migration 00076 (M14-08a) must run as a superuser or a BYPASSRLS role: under FORCE ROW LEVEL SECURITY it would read no identity and pass. Nothing was changed.'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    SELECT pg_catalog.count(*) INTO n
+      FROM public.admin_identities AS i
+     WHERE i.email::text !~ '^[\x21-\x7e]+$';
+    IF n > 0 THEN
+        RAISE EXCEPTION 'migration 00076 (M14-08a): % identity row(s) carry an address that is not printable ASCII (born before this file -- 00073''s backfill from a row the precheck did not see). Nothing was changed; deploy/README.md, "Adres kurali (M14-08a)", says what to do -- the decision is the user''s.', n
+            USING ERRCODE = 'check_violation';
     END IF;
 END
 $$;
