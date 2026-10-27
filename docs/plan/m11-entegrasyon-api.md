@@ -89,7 +89,7 @@ API-12'nin rehberinde bu liste **açıkça** yazılır.
 1. Aktivasyon dokunuşu punch **değildir**; ilk punch ikinci dokunuştur (K-2). Aktivasyon yalnız **kendi şirketinin** bir plaketinde tamamlanır (K-1b).
 2. `flag` verdict'li dokunuş yalnız **işveren şirketin yöneticisi onaylarsa**, onay anında akışa girer; reddedilen hiç gelmez (K-4, K-1a).
 3. v1'de `version` hep `1`, `voided` üretilmez (K-5).
-4. Ek alanlar: `channel` (`nfc` | `qr`) ve `direction` (`in` | `out` — işverenin hesapladığı yön, K-40); her iki kanalda `tagId` dolu.
+4. Ek alanlar: `channel` (`nfc` | `qr`) ve `direction` (`in` | `out` — işverende kaydedilen yön, K-40; 2026-10-23, M15-13: çalışan öbürünü seçebilir, `directionSource` söyler); her iki kanalda `tagId` dolu.
 5. `punchTime` = telefonun beyan ettiği an; çevrimdışı kuyruk **varsayılan** 120 sn'ye kadar `ok` (tenant'ça ayarlanabilir — `internal/policy/baseline.go:109-118`); tavan 72 sa. `recordedAt` = sunucunun yazdığı an.
 6. 60 sn içindeki tekrar dokunuş punch değildir — kişi bazlı, **iki şirketin plaketleri arasında da**.
 7. Lokasyon `timezone`'u tenant'ınkine eşit olmalı, değilse 422 (K-7).
@@ -115,7 +115,7 @@ API-12'nin rehberinde bu liste **açıkça** yazılır.
 27. **Şirketler arası punch'ta karşı tarafın kimlikleri** gelir: çalışanın `id`/`externalRef`/`employeeCode`/`company`'si ve lokasyonun `id`/`externalRef`/`name`/`company`'si, `tagId` (K-1f). Punch alanları **punch anındaki** değerlerdir (sonradan ad değişse de punch değişmez — K-32).
 28. Başka şirketin kayıp/emekli bir plaketine dokunuş reddedilir; punch olmaz (K-4).
 29. Rehber (`GET /v1/directory`) **sayfalıdır** (`cursor`, en çok 1000) — spec düz dizi gösteriyor.
-30. KF şubesinde başlayıp **KM plaketinde** biten bir KM vardiyasında KF-RMS (`scope=location`) yalnız **girişi** alır; çıkış bir KM lokasyonu punch'ıdır ve KM-ERP'nin iki kapsamında gelir. Her punch Tappa'nın **işverende** hesapladığı yönü taşır (`direction`: `in`/`out` — K-40); entegratör yönü kendisi çıkarmak zorunda değildir. KF panelinde holding çalışanlarının **dokunuşları** listelenir, **süreleri hesaplanmaz** ("süre işverende") — K-1e kaldırıldı.
+30. KF şubesinde başlayıp **KM plaketinde** biten bir KM vardiyasında KF-RMS (`scope=location`) yalnız **girişi** alır; çıkış bir KM lokasyonu punch'ıdır ve KM-ERP'nin iki kapsamında gelir. Her punch **işverende** kaydedilen yönü taşır (`direction`: `in`/`out` — K-40; 2026-10-23, M15-13: Tappa'nın hesapladığı ya da çalışanın seçtiği); entegratör yönü kendisi çıkarmak zorunda değildir. KF panelinde holding çalışanlarının **dokunuşları** listelenir, **süreleri hesaplanmaz** ("süre işverende") — K-1e kaldırıldı.
 31. **`scope=location` ile çalışma süresi hesaplayan entegratör dikkat:** başka şirketin çalışanının şube punch'ları, aradaki işveren olaylarını (diğer şirketin plaketlerindeki dokunuşlar) içermez; giriş/çıkışı yalnız bu kapsamdan eşlemek süreyi **fazla** sayabilir. **Yön alanıyla da geçerli** (K-40): her punch'ın yönü doğrudur, ama eksik olan **aradaki olaylardır** — bir şube `in`'inin eşi o şubede hiç görünmeyebilir ya da başka bir şubenin `out`'u olabilir. Holding çalışanlarının süresi için işveren şirketin verisi (onun `employer` kapsamı) esastır.
 
 ---

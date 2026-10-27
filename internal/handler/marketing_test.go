@@ -5,7 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/scanner"
+	"go/token"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -21,10 +24,12 @@ import (
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/apiguide"
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/store"
 	"github.com/atknatk/tappa/web/templates/components"
+	"github.com/atknatk/tappa/web/templates/layout"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -84,11 +89,11 @@ func marketingRouterWithTexts(t *testing.T, texts legalReader) http.Handler {
 func marketingRouterFor(t *testing.T, texts legalReader, apiHost string) http.Handler {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	wizard, err := NewSignup(&fakeProvisioner{}, newFakeClaims(), nil, nil, signupTestConfig(), log)
+	wizard, err := NewSignup(&fakeProvisioner{}, newFakeSignupClaims(), nil, nil, signupTestConfig(), log)
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}
-	return httpx.NewRouter(nil, nil, NewMarketing(texts, log, apiHost), wizard)
+	return httpx.NewRouter(nil, nil, NewMarketing(texts, log, apiHost, testBaseURL), wizard)
 }
 
 // testAPIHost is the API host the structural scans run with besides none.
@@ -100,28 +105,108 @@ const testAPIHost = "api.example.test"
 // href on the surface, the OpenAPI download on the API host. openAPI is that href, the
 // constructor's own openAPIHrefFor(host) and never a string written here, so the
 // exemption cannot widen to a host the constructor does not draw.
+//
+// shareImages is the other absolute URL the surface draws (LP-13): each page's og:image,
+// on the configured origin. Both routers are built with testBaseURL, so both carry them.
+// UNLIKE openAPI IT IS NOT THE CONSTRUCTOR'S OUTPUT: it is testBaseURL (an origin
+// already) and each file pages.ShareImageFiles names, so a constructor that drew the
+// image on any other host -- however it computed it -- is not exempted and goes red.
 type structuralConfig struct {
-	name    string
-	r       http.Handler
-	openAPI string
+	name        string
+	r           http.Handler
+	openAPI     string
+	shareImages []string
 }
 
 func structuralConfigs(t *testing.T) []structuralConfig {
 	t.Helper()
+	share := shareImageURLs(expectedShareImages(testBaseURL))
 	return []structuralConfig{
-		{"no API host", marketingRouter(t), ""},
-		{"API host " + testAPIHost, marketingRouterFor(t, nil, testAPIHost), openAPIHrefFor(testAPIHost)},
+		{"no API host", marketingRouter(t), "", share},
+		{"API host " + testAPIHost, marketingRouterFor(t, nil, testAPIHost), openAPIHrefFor(testAPIHost), share},
 	}
 }
 
-// marketingURLs is every URL this feature serves, derived from the same table the
-// footer and Mount both read.
+// expectedShareImages is each share image's URL on origin, written from the file names
+// alone -- what the constructor must draw, not what it does.
+func expectedShareImages(origin string) pages.ShareImages {
+	out := pages.ShareImageFiles
+	v := reflect.ValueOf(&out).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		v.Field(i).SetString(origin + "/static/" + v.Field(i).String())
+	}
+	return out
+}
+
+// shareImageURLs is every non-empty URL of imgs, each once.
+func shareImageURLs(imgs pages.ShareImages) []string {
+	v := reflect.ValueOf(imgs)
+	seen := map[string]bool{}
+	var out []string
+	for i := 0; i < v.NumField(); i++ {
+		if u := v.Field(i).String(); u != "" && !seen[u] {
+			seen[u] = true
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// withoutShareImages blanks the og:image lines that name exactly one of urls -- the whole
+// meta element as the head writes it, so the same URL in any other attribute or element
+// (a link, a script, a twitter:image, a second og:image on another host) is left for the
+// scanner -- and reports how many it blanked.
+func withoutShareImages(body string, urls []string) (string, int) {
+	n := 0
+	for _, u := range urls {
+		tag := `<meta property="og:image" content="` + u + `">`
+		n += strings.Count(body, tag)
+		body = strings.ReplaceAll(body, tag, `<meta property="og:image" content="">`)
+	}
+	return body, n
+}
+
+// withoutCreditHref blanks the operator company's credit (layout.CreditURL, 2026-10-23)
+// where it is written as exactly that href -- the head's <link rel="author"> and the
+// footer's "Built by" anchor -- and reports how many it blanked. Any other attribute, a
+// path below the site, or another host stays in front of the scanner.
+func withoutCreditHref(body string) (string, int) {
+	credit := `href="` + layout.CreditURL + `"`
+	return strings.ReplaceAll(body, credit, `href=""`), strings.Count(body, credit)
+}
+
+// marketingURLs is every URL this feature serves, derived from the same tables the
+// chrome and Mount both read: the landing, the public site's own pages
+// (pages.PublicPages, LP-06) and the four legal documents.
+//
+// THE PUBLIC 404 IS NOT ON THIS LIST, OR ON publicSurfaceURLs (LP-12): the scans over them
+// ask for a 200. It goes through the same scanners -- the policy, no third party, every
+// link resolving, the footer's red lines, one <h1>, the .lp root, the copy rules -- in
+// TestPublicNotFound_IsTheChromeAndOneSentence. A new shared scanner added over these
+// lists is added there too.
 func marketingURLs() []string {
 	out := []string{"/"}
+	out = append(out, publicPagePaths()...)
 	for _, p := range pages.LegalPages {
 		out = append(out, p.Path)
 	}
 	return out
+}
+
+// publicPagePaths is the path of every row of pages.PublicPages, in order.
+func publicPagePaths() []string {
+	var out []string
+	for _, p := range pages.PublicPages {
+		out = append(out, p.Path)
+	}
+	return out
+}
+
+// siteURLs is the landing and the public site's own pages, the ones whose content is
+// drawn in the public site's own classes. The legal documents, the guide and sign-up
+// draw the same chrome around bodies of their own since LP-11 (chromeOnlyURLs).
+func siteURLs() []string {
+	return append([]string{"/"}, publicPagePaths()...)
 }
 
 // publicSurfaceURLs is marketingURLs plus the integration guide's two pages (M11
@@ -211,9 +296,48 @@ func TestMarketing_HandlerHoldsNoStatefulDependency(t *testing.T) {
 		// interface, func, map or channel inside it, so a Guide that grew a capability would
 		// go red here even though its name stayed on this list.
 		"apiguide.Guide": true,
+		// 🔴 pages.PricingFigures, ADDED BY LP-06, AND THIS IS ITS ARGUMENT: the pricing
+		// page prints what four team sizes cost and a drawn frozen month, each the published
+		// price times a headcount in integer cents. Computing them per request would be
+		// harmless arithmetic, but the landing's example is computed once in NewMarketing
+		// and the two pages must print the same figures from the same place -- so the
+		// result is kept, as exampleMonthly's is. A value, not a dependency: plainData
+		// below refuses it the day it holds anything but strings and numbers.
+		"pages.PricingFigures": true,
+		// 🔴 pages.SecurityFigures AND pages.SecurityText, ADDED BY LP-07, AND THIS IS THEIR
+		// ARGUMENT: the security page prints numbers read from the product (the guardrail
+		// count from the list itself, the window from policy.DefaultParams) and sentences
+		// built from them. Both are computed once in NewMarketing and kept as the result,
+		// as the pricing figures are. Values, not dependencies: plainData below refuses
+		// either the day it holds anything but strings, numbers and slices of them.
+		"pages.SecurityFigures": true,
+		"pages.SecurityText":    true,
+		// 🔴 pages.ProductFigures AND pages.ProductText, ADDED BY LP-08, AND THIS IS THEIR
+		// ARGUMENT: the product tour prints the debounce window and the webhook header (the
+		// security page's own figures, so the two pages cannot disagree) and sentences built
+		// from them, computed once in NewMarketing and kept as the result. Values, not
+		// dependencies: plainData below refuses either the day it holds anything but
+		// strings, numbers, booleans and slices of them.
+		"pages.ProductFigures": true,
+		"pages.ProductText":    true,
+		// 🔴 pages.ShareImages, ADDED BY LP-13, AND THIS IS ITS ARGUMENT: every public page
+		// names its share image by a full URL (a crawler has no page address to resolve a
+		// path against), and whether the embedded tree carries each file is fixed when the
+		// binary is built -- so the URLs are resolved once in NewMarketing, as the demo
+		// video's are, and the type keeps the result. Nine strings, a value rather than a
+		// dependency: plainData below refuses it the day it holds anything else.
+		"pages.ShareImages": true,
+	}
+	for _, v := range []any{pages.SecurityFigures{}, pages.SecurityText{}, pages.ProductFigures{}, pages.ProductText{}, pages.ShareImages{}} {
+		if g := reflect.TypeOf(v); !plainData(g) {
+			t.Errorf("%v holds something other than strings, numbers and slices of them", g)
+		}
 	}
 	if g := reflect.TypeOf(apiguide.Guide{}); !plainData(g) {
 		t.Errorf("apiguide.Guide holds something other than strings, numbers and slices of them: %v", g)
+	}
+	if g := reflect.TypeOf(pages.PricingFigures{}); !plainData(g) {
+		t.Errorf("pages.PricingFigures holds something other than strings, numbers and slices of them: %v", g)
 	}
 	if typ.NumField() == 0 {
 		t.Fatal("handler.Marketing has no fields at all; this test would pass over anything")
@@ -541,7 +665,7 @@ func TestMarketing_AVisitorLeavingIsNotAnError(t *testing.T) {
 		{"a genuine failure this server caused", errors.New("template blew up"), slog.LevelError},
 	} {
 		var buf bytes.Buffer
-		m := NewMarketing(nil, slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})), "")
+		m := NewMarketing(nil, slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})), "", "")
 		rec := httptest.NewRecorder()
 		m.render(failingWriter{ResponseWriter: rec, err: tc.err},
 			httptest.NewRequest(http.MethodGet, "/", nil), pages.Landing(pages.LandingView{}))
@@ -565,7 +689,10 @@ func TestMarketing_AVisitorLeavingIsNotAnError(t *testing.T) {
 // externalReference matches a reference to somewhere that is not this origin: an
 // absolute URL in any attribute or stylesheet function, and a protocol-relative
 // one. mailto: and tel: are NOT matched -- they open a mail client rather than
-// making a request -- but the surface carries neither today.
+// making a request. Since ADR 0033 a PUBLISHED legal text can carry them, and http(s)
+// anchors too: those are links the operator typed and a reader follows, never a
+// resource the page loads, and the public suite's fake texts carry none, so this scan
+// still sees only what the product itself renders.
 var externalReference = regexp.MustCompile(
 	`(?i)(?:href|src|srcset|action|data|poster|content)\s*=\s*["']\s*(?:[a-z][a-z0-9+.-]*:)?//|` +
 		`url\(\s*["']?\s*(?:[a-z][a-z0-9+.-]*:)?//|` +
@@ -587,12 +714,43 @@ var externalReference = regexp.MustCompile(
 // loads. It is admitted only as the exact anchor href openAPIHrefFor(host) returns
 // (the adminLoginPath pattern below), and its count is pinned: it is drawn on the
 // guide's two pages, nowhere else.
+//
+// ⚠️ AND THE SECOND, SHAPED THE SAME WAY (LP-13): each page's og:image is a full URL,
+// because a crawler reading a pasted link has no page address to resolve a path
+// against. It names this product's own configured origin (TAPPA_BASE_URL) and a file
+// under /static/og, and the visitor's browser never loads it -- a preview is drawn by
+// whatever the link is pasted into. It is admitted only as the whole og:image element
+// with exactly the URL shareImagesFor resolves (withoutShareImages), and its count is
+// pinned: once on every page of the surface and once on the wizard's first screen.
+// TestShareImageExemption_IsNarrow is its control.
+//
+// ⚠️ AND THE OPERATOR COMPANY'S CREDIT (2026-10-23, user request): layout.CreditURL,
+// once as the footer's "Built by" anchor and once as the head's <link rel="author">.
+// Neither is a request -- an anchor is followed by a reader and a browser fetches no
+// rel="author" link -- so the cookie notice's "no third party is contacted" holds. It is
+// admitted only as that constant's exact href and its count is pinned: exactly two on
+// every page of the public surface, the public 404 and every sign-up screen
+// (withoutCreditHref). TestCreditExemption_IsNarrow is its control. The two exemptions
+// do not overlap: one admits a whole og:image element, the other one exact href.
 func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 	t.Parallel()
 	for _, c := range structuralConfigs(t) {
 		exempted := 0
+		if len(c.shareImages) != 9 {
+			t.Fatalf("%s: the constructor resolved %d share image(s), want 9 -- the share exemption "+
+				"below would be measuring nothing", c.name, len(c.shareImages))
+		}
 		for _, url := range publicSurfaceURLs() {
 			body := mustFetchMarketing(t, c.r, url)
+			body, shared := withoutShareImages(body, c.shareImages)
+			if shared != 1 {
+				t.Errorf("%s: GET %s carries %d share image(s) on the configured origin, want 1", c.name, url, shared)
+			}
+			body, credits := withoutCreditHref(body)
+			if credits != 2 {
+				t.Errorf("%s: GET %s carries the credit href %d time(s), want 2 (the head's "+
+					"rel=\"author\" and the footer's \"Built by\")", c.name, url, credits)
+			}
 			if c.openAPI != "" {
 				exempt := `href="` + c.openAPI + `"`
 				exempted += strings.Count(body, exempt)
@@ -605,6 +763,24 @@ func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 					"third party hands that party the visitor's address and the page they were "+
 					"reading.", c.name, url, hit)
 			}
+		}
+		// The sign-up wizard is served beside these pages and draws the same chrome
+		// (LP-11); its screens are rendered by the wizard's own driver.
+		sharedScreens := 0
+		for name, body := range signupSurfaceScreens(t) {
+			body, shared := withoutShareImages(body, c.shareImages)
+			sharedScreens += shared
+			body, credits := withoutCreditHref(body)
+			if credits != 2 {
+				t.Errorf("%s: the sign-up %s screen carries the credit href %d time(s), want 2", c.name, name, credits)
+			}
+			if hit := externalReference.FindString(body); hit != "" {
+				t.Errorf("%s: the sign-up %s screen reaches outside this origin: %q", c.name, name, hit)
+			}
+		}
+		// The wizard's share card is on its first screen only (Signup.Business).
+		if sharedScreens != 1 {
+			t.Errorf("%s: the sign-up screens carry %d share image(s), want 1 (the first step's)", c.name, sharedScreens)
 		}
 		// Anti-vacuity for the production half: the exemption is used, on the guide's two
 		// pages (the download link, at least once each), so the API-host router is really
@@ -710,6 +886,36 @@ func TestExternalReferenceScanner_CatchesWhatItExistsToCatch(t *testing.T) {
 	}
 }
 
+// TestCreditExemption_IsNarrow is the control for the credit exemption
+// (withoutCreditHref): it admits the head's and the footer's exact href to
+// layout.CreditURL and nothing else -- a path below that site, another host, the same
+// URL as a src or as a stylesheet's url() all stay in front of the scanner.
+func TestCreditExemption_IsNarrow(t *testing.T) {
+	t.Parallel()
+	for _, ok := range []string{
+		`<link rel="author" href="` + layout.CreditURL + `">`,
+		`<a href="` + layout.CreditURL + `" rel="noopener">` + layout.CreditName + `</a>`,
+	} {
+		if body, n := withoutCreditHref(ok); n != 1 || externalReference.FindString(body) != "" {
+			t.Errorf("the exact credit href was not admitted in %q (%d, %q)", ok, n, body)
+		}
+	}
+	for _, planted := range []string{
+		`<a href="` + layout.CreditURL + `/x">x</a>`,
+		`<a href="` + layout.CreditURL + `.evil.example">x</a>`,
+		`<a href="https://evil.example">` + layout.CreditName + `</a>`,
+		`<script src="` + layout.CreditURL + `"></script>`,
+		`<img src="` + layout.CreditURL + `">`,
+		`<meta name="author" content="` + layout.CreditURL + `">`,
+		`@import url("` + layout.CreditURL + `");`,
+	} {
+		body, _ := withoutCreditHref(planted)
+		if externalReference.FindString(body) == "" {
+			t.Errorf("CONTROL: %q passed the scanner after the exemption", planted)
+		}
+	}
+}
+
 // --- every link goes somewhere ----------------------------------------------
 
 // The anchor scanner is employees_test.go's hrefRE, reused rather than repeated:
@@ -756,37 +962,28 @@ func TestExternalReferenceScanner_CatchesWhatItExistsToCatch(t *testing.T) {
 // is its own surface, with its own tests). It is admitted only as openAPIHrefFor(host)'s
 // exact output, like adminLoginPath, and only on the guide's two pages: any other
 // absolute href, on any page, is red.
+//
+// 🔴 A LINK WITH A FRAGMENT IS TWO CLAIMS, AND BOTH ARE FOLLOWED (LP-06). From LP-06 the
+// header's sections are written "/#how" so they work from every public page, and
+// LP-07's "/security#proofs" is the same shape. Handed to the router as written, the
+// fragment stays in the path -- httptest.NewRequest("GET", "/#how", nil) asks chi for
+// the path "/#how", which answers 404 -- so the fragment is split off: the PATH must
+// answer 200, and a non-empty fragment must be the id of an element on THAT page
+// (internalLinkProblem). A section renamed without its links going with it is red here
+// rather than a link that lands at the top of the page. In-page links ("#main") are not
+// followed; the skip link's target is the chrome's own.
 func TestMarketing_EveryInternalLinkResolves(t *testing.T) {
 	t.Parallel()
-	guidePages := map[string]bool{pages.APIGuidePath: true, pages.APIGuideTRPath: true}
 	for _, c := range structuralConfigs(t) {
 		seen, openAPI := 0, 0
 		for _, url := range publicSurfaceURLs() {
 			body := mustFetchMarketing(t, c.r, url)
-			for _, m := range hrefRE.FindAllStringSubmatch(body, -1) {
-				href := m[1]
-				switch {
-				case href == "" || strings.HasPrefix(href, "#"):
-					continue
-				case c.openAPI != "" && href == c.openAPI && guidePages[url]:
-					// The API host's document; this router does not serve it.
-					openAPI++
-					continue
-				case !strings.HasPrefix(href, "/") || strings.HasPrefix(href, "//"):
-					t.Errorf("%s: %s links to %q, which is neither an in-page anchor nor a path on "+
-						"this site", c.name, url, href)
-					continue
-				case href == adminLoginPath:
-					// Served by AdminAuth; see the assertion below.
-					seen++
-					continue
-				}
-				seen++
-				if code := fetchMarketing(t, c.r, href, nil).Code; code != http.StatusOK {
-					t.Errorf("%s: %s links to %s, which answers %d. A dead link on the most public "+
-						"URL in the product is a promise the router does not keep.", c.name, url, href, code)
-				}
+			problems, followed, offSite := pageLinkProblems(t, c, url, body)
+			for _, p := range problems {
+				t.Errorf("%s: %s", c.name, p)
 			}
+			seen += followed
+			openAPI += offSite
 		}
 		// ANTI-VACUITY: a page whose links stopped rendering would pass everything above.
 		if seen < len(pages.LegalPages)+1 {
@@ -806,6 +1003,113 @@ func TestMarketing_EveryInternalLinkResolves(t *testing.T) {
 	if !strings.Contains(src, "r.Get(adminLoginPath,") {
 		t.Errorf("adminlogin.go no longer registers a GET on adminLoginPath, so the landing " +
 			"page's \"Sign in\" link points at a route nothing serves.")
+	}
+}
+
+// pageLinkProblems follows every link in body, the page served at url under c, and
+// says which do not resolve. followed counts the links it checked (the anti-vacuity
+// floor's input) and offSite the OpenAPI downloads it admitted on the guide's pages.
+// The footer's credit link (layout.CreditURL) is admitted by constant and must appear
+// exactly once.
+func pageLinkProblems(t *testing.T, c structuralConfig, url, body string) (problems []string, followed, offSite int) {
+	t.Helper()
+	guidePages := map[string]bool{pages.APIGuidePath: true, pages.APIGuideTRPath: true}
+	credits := 0
+	for _, m := range hrefRE.FindAllStringSubmatch(body, -1) {
+		href := m[1]
+		switch {
+		case href == "" || strings.HasPrefix(href, "#"):
+			continue
+		case href == layout.CreditURL:
+			// The operator company's credit in the footer (2026-10-23); an external
+			// site this router does not serve, admitted by constant and counted below.
+			credits++
+			continue
+		case c.openAPI != "" && href == c.openAPI && guidePages[url]:
+			// The API host's document; this router does not serve it.
+			offSite++
+			continue
+		case !strings.HasPrefix(href, "/") || strings.HasPrefix(href, "//"):
+			problems = append(problems, fmt.Sprintf("%s links to %q, which is neither an in-page anchor "+
+				"nor a path on this site", url, href))
+			continue
+		case href == adminLoginPath:
+			// Served by AdminAuth; see the registration assertion in the caller.
+			followed++
+			continue
+		}
+		followed++
+		if why := internalLinkProblem(t, c.r, href); why != "" {
+			problems = append(problems, fmt.Sprintf("%s links to %s: %s. A dead link on the most public "+
+				"URL in the product is a promise the router does not keep.", url, href, why))
+		}
+	}
+	if credits != 1 {
+		problems = append(problems, fmt.Sprintf("%s links the operator's company %d time(s), want once (the footer)", url, credits))
+	}
+	return problems, followed, offSite
+}
+
+// internalLinkProblem says why href -- a path on this site, perhaps with a fragment --
+// does not resolve on r, or "" when it does: the path answers GET with 200 and, when a
+// fragment is named, the page at that path renders an element carrying that id.
+func internalLinkProblem(t *testing.T, r http.Handler, href string) string {
+	t.Helper()
+	path, fragment, _ := strings.Cut(href, "#")
+	rec := fetchMarketing(t, r, path, nil)
+	if rec.Code != http.StatusOK {
+		return fmt.Sprintf("%s answers %d", path, rec.Code)
+	}
+	if fragment == "" {
+		return ""
+	}
+	for _, m := range idAttrRE.FindAllStringSubmatch(rec.Body.String(), -1) {
+		if m[1] == fragment {
+			return ""
+		}
+	}
+	return fmt.Sprintf("%s answers 200 and renders no element with id=%q, so the link lands at the top "+
+		"of the page instead of the section it names", path, fragment)
+}
+
+// TestMarketing_LinkCheckFollowsTheFragmentToItsSection is the control for the
+// fragment handling above (LP-06): a link to a section the landing does not have is
+// red, a link to a page that is not mounted is red even when the fragment exists on the
+// landing, and the header's own "/#how" is green -- each on its own and as a link
+// planted on the real landing page.
+func TestMarketing_LinkCheckFollowsTheFragmentToItsSection(t *testing.T) {
+	t.Parallel()
+	c := structuralConfigs(t)[0]
+	for _, tc := range []struct {
+		href string
+		ok   bool
+	}{
+		{"/#yok", false},
+		{"/yok#how", false},
+		{"/#how", true},
+		{"/#", true},
+		{pages.PricingPath + "#billing", true},
+		{pages.PricingPath + "#how", false},
+	} {
+		why := internalLinkProblem(t, c.r, tc.href)
+		if (why == "") != tc.ok {
+			t.Errorf("CONTROL %s: resolves=%v (%q), want %v", tc.href, why == "", why, tc.ok)
+		}
+	}
+	landing := mustFetchMarketing(t, c.r, "/")
+	base, _, _ := pageLinkProblems(t, c, "/", landing)
+	if len(base) != 0 {
+		t.Fatalf("PREMISE: the landing's own links do not resolve: %v", base)
+	}
+	for href, red := range map[string]bool{"/#yok": true, "/yok#how": true, "/#how": false} {
+		planted := strings.Replace(landing, "</main>", `<a href="`+href+`">x</a></main>`, 1)
+		if planted == landing {
+			t.Fatal("PREMISE: the landing renders no </main> to plant a link before")
+		}
+		got, _, _ := pageLinkProblems(t, c, "/", planted)
+		if (len(got) > 0) != red {
+			t.Errorf("CONTROL: a link to %s planted on the landing: problems %q, want red=%v", href, got, red)
+		}
 	}
 }
 
@@ -869,10 +1173,13 @@ func TestLanding_PriceMatchesTheSchemaItIsCharged(t *testing.T) {
 			"on their first invoice.", publishedPricePerEmployeeMonth, m[1])
 	}
 
-	body := mustFetchMarketing(t, marketingRouter(t), "/")
-	if !strings.Contains(body, publishedPricePerEmployeeMonth) {
-		t.Errorf("the landing page does not print the price at all; the pricing section is " +
-			"required by the M7-01 card and by handoff §11")
+	// Both pages that print the price card print it (LP-06: / and /pricing).
+	r := marketingRouter(t)
+	for _, url := range []string{"/", pages.PricingPath} {
+		if !strings.Contains(screenText(t, mustFetchMarketing(t, r, url)), "€"+publishedPricePerEmployeeMonth) {
+			t.Errorf("%s does not print the price at all; the price card is required by the M7-01 "+
+				"card and by handoff §11", url)
+		}
 	}
 }
 
@@ -917,13 +1224,63 @@ func TestLanding_ExampleTeamCostIsThePriceTimesTheHeadcount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the schema's price %q cannot be multiplied: %v", m[1], err)
 	}
-	text := screenText(t, mustFetchMarketing(t, marketingRouter(t), "/"))
+	r := marketingRouter(t)
 	sentence := "A " + strconv.Itoa(exampleHeadcount) + "-person chain runs on €" + want + "/month."
-	if !strings.Contains(text, sentence) {
-		t.Errorf("the price card does not say %q; the worked example has come apart from the price", sentence)
+	for _, url := range []string{"/", pages.PricingPath} {
+		text := screenText(t, mustFetchMarketing(t, r, url))
+		if !strings.Contains(text, sentence) {
+			t.Errorf("%s: the price card does not say %q; the worked example has come apart from the price", url, sentence)
+		}
+		if strings.Contains(strings.ToLower(text), "about €") {
+			t.Errorf("%s: the price card hedges the example with \"about\"; it is exact arithmetic on the published price", url)
+		}
 	}
-	if strings.Contains(strings.ToLower(text), "about €") {
-		t.Error("the price card hedges the example with \"about\"; it is exact arithmetic on the published price")
+
+	// THE PRICING PAGE'S TABLE AND DRAWN MONTH (LP-06) are the same arithmetic on the
+	// schema's price, in the Billing screen's two-decimal format: each size's row, and the
+	// drawn month's price and total.
+	text := screenText(t, mustFetchMarketing(t, r, pages.PricingPath))
+	if len(pricingExampleSizes) < 2 {
+		t.Fatalf("PREMISE: the pricing page prices %d team size(s)", len(pricingExampleSizes))
+	}
+	cents := func(headcount int) string {
+		c, err := monthlyCents(m[1], headcount)
+		if err != nil {
+			t.Fatalf("the schema's price %q: %v", m[1], err)
+		}
+		return fmt.Sprintf("€%d.%02d", c/100, c%100)
+	}
+	for _, n := range pricingExampleSizes {
+		row := strconv.Itoa(n) + " people " + cents(n)
+		if !strings.Contains(text, row) {
+			t.Errorf("the pricing table does not say %q; a row has come apart from the price", row)
+		}
+	}
+	for _, want := range []string{
+		"People " + strconv.Itoa(exampleHeadcount),
+		"Price " + cents(1),
+		"TOTAL " + cents(exampleHeadcount),
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the drawn frozen month does not say %q; its figures have come apart from the price", want)
+		}
+	}
+	// A figure that cannot be computed draws no examples section at all: no table, no
+	// drawn month, and no heading or sentence over nothing.
+	var pb strings.Builder
+	if err := pages.Pricing(pages.PricingView{SignupHref: signupPath, SignInHref: adminLoginPath,
+		PricePerEmployeeMonth: publishedPricePerEmployeeMonth, FreeMonths: foundingFreeMonths,
+		ExampleHeadcount: exampleHeadcount}).Render(t.Context(), &pb); err != nil {
+		t.Fatalf("rendering the pricing page without figures: %v", err)
+	}
+	for _, absent := range []string{`id="examples"`, "What a month costs at your size.", pages.PricingExamplesLede.Text,
+		`class="lp-sizesTable"`, "FROZEN", "-person chain runs on"} {
+		if strings.Contains(pb.String(), absent) {
+			t.Errorf("a pricing page with no computed figures still renders %q", absent)
+		}
+	}
+	if _, err := pricingFigures("1.5", pricingExampleSizes, exampleHeadcount); err == nil {
+		t.Error("pricingFigures accepts a price that is not <euros>.<cents>")
 	}
 	// AND THE EMPTY BRANCH RENDERS NO EXAMPLE rather than a wrong one.
 	var sb strings.Builder
@@ -942,9 +1299,12 @@ func TestLanding_ExampleTeamCostIsThePriceTimesTheHeadcount(t *testing.T) {
 // TestLanding_FreeMonthsMatchTheFunctionThatGrantsThem.
 //
 // The founding offer is the one commercial promise on this page that the PRODUCT
-// keeps rather than a human: tappa_first_chargeable_month adds three months for
-// plan='founding', db/queries/billing.sql calls it and the panel's billing screen
-// shows the result. The page may say "three months free" precisely because of that.
+// keeps rather than a human: tappa_first_chargeable_month adds three months to the
+// SIGNUP month's start for plan='founding', db/queries/billing.sql calls it and the
+// panel's billing screen shows the result. Because the signup month is the first of
+// the three, the pages say "Your signup month and the two after it are free." (user
+// decision K6, 2026-10-22) and never "first 3 months free", which left a mid-month
+// signup to guess whether its first, partial month was one of them.
 func TestLanding_FreeMonthsMatchTheFunctionThatGrantsThem(t *testing.T) {
 	t.Parallel()
 	mig := repoFile(t, "db", "migrations", "00016_add_billing_price_and_periods.sql")
@@ -962,6 +1322,173 @@ func TestLanding_FreeMonthsMatchTheFunctionThatGrantsThem(t *testing.T) {
 		t.Errorf("the landing page offers %d free months; migration 00016 grants %d",
 			foundingFreeMonths, granted)
 	}
+	// And both pages that carry the founding chip say it in the code's terms (LP-06,
+	// K6), and say the price lock of founding customers only (K5).
+	r := marketingRouter(t)
+	sentence := pages.LandingFreeMonthsLine(foundingFreeMonths).Text
+	if sentence == "" {
+		t.Fatal("PREMISE: the founding offer's free months render no sentence")
+	}
+	for _, url := range siteURLs() {
+		text := screenText(t, mustFetchMarketing(t, r, url))
+		if (url == "/" || url == pages.PricingPath) && !strings.Contains(text, sentence) {
+			t.Errorf("%s does not say %q", url, sentence)
+		}
+		for _, why := range freeMonthsCopyProblems(text) {
+			t.Errorf("%s: %s", url, why)
+		}
+	}
+	// The sentence counts the signup month as the first free one, for any count.
+	for n, want := range map[int]string{
+		0: "",
+		1: "Your signup month is free.",
+		2: "Your signup month and the one after it are free.",
+		3: "Your signup month and the two after it are free.",
+		4: "Your signup month and the three after it are free.",
+	} {
+		if got := pages.LandingFreeMonthsLine(n).Text; got != want {
+			t.Errorf("LandingFreeMonthsLine(%d) = %q, want %q", n, got, want)
+		}
+	}
+	// CONTROL: the two phrasings the pages used to carry are refused.
+	for _, old := range []string{
+		"FOUNDING OFFER: first 3 months free · pricing locked for life",
+		"Start yourself today — first 3 months free.",
+		"Start free — 3 months on us",
+	} {
+		if len(freeMonthsCopyProblems(old)) == 0 {
+			t.Errorf("CONTROL: %q passed the free-months copy check", old)
+		}
+	}
+	if p := freeMonthsCopyProblems(pages.FoundingChip(foundingFreeMonths)); len(p) != 0 {
+		t.Errorf("CONTROL: today's chip fails the copy check: %v", p)
+	}
+}
+
+// TestFreeMonths_NoUserFacingSourceCountsThemTheOldWay widens the K6 copy check from
+// the rendered public pages to every source a person reads text from: every template
+// (comments left out), the e-mail templates among them, every string literal in the
+// Go that builds screens and mails, and the integration guide and its OpenAPI document
+// (docs/api). No "first N months free", "N months on us" or "Start free — N months"
+// survives anywhere a user could read it. CONTROL: a planted literal of each kind is red.
+func TestFreeMonths_NoUserFacingSourceCountsThemTheOldWay(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join("..", "..")
+	read := 0
+	scan := func(rel, text string) []string {
+		var out []string
+		if hit := oldFreeMonthsRE.FindString(text); hit != "" {
+			out = append(out, fmt.Sprintf("%s says %q; the free months are the signup month and the ones after it (K6)", rel, hit))
+		}
+		return out
+	}
+	// web/static/js is read too: landing.js writes its words with textContent. The
+	// vendored scripts under web/static/vendor are other people's code and carry no copy
+	// of ours (the same line tailwind.config.js draws).
+	for _, dir := range []string{"web/templates", "internal", "cmd", "docs/api", "web/static/js"} {
+		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			rel, _ := filepath.Rel(root, path)
+			name := d.Name()
+			var text string
+			switch {
+			case strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, "_templ.go"):
+				return nil
+			case strings.HasSuffix(name, ".templ"):
+				text = templCommentRE.ReplaceAllString(mustRead(t, path), "")
+			case strings.HasSuffix(name, ".go"):
+				text = goStringLiterals(t, path, mustRead(t, path))
+			case strings.HasSuffix(name, ".js") || strings.HasSuffix(name, ".md") || strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") ||
+				strings.HasSuffix(name, ".txt") || strings.HasSuffix(name, ".html"):
+				text = mustRead(t, path)
+			default:
+				return nil
+			}
+			read++
+			for _, why := range scan(rel, text) {
+				t.Error(why)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s: %v", dir, err)
+		}
+	}
+	if read < 200 {
+		t.Fatalf("PREMISE: read %d source file(s); this scan is not reading the tree", read)
+	}
+	// CONTROL: the old link, in each shape the scan reads -- and a comment is not text.
+	for planted, red := range map[string]bool{
+		templCommentRE.ReplaceAllString("<a>Start now — first 3 months free →</a>\n", ""):                                                    true,
+		goStringLiterals(t, "planted.go", "package x\n// \"first 3 months free\" said a comment\nvar x = \"Start free — 3 months on us\"\n"): true,
+		goStringLiterals(t, "planted.go", "package x\n// \"first 3 months free\" said a comment\nvar x = 1\n"):                               false,
+		"Your first three months are free.":                                                            true,
+		"Your signup month and the two after it are free.":                                             false,
+		"## Trial\nThe first three months free.":                                                       true,
+		"el.textContent = 'Start free — 3 months on us';":                                              true,
+		templCommentRE.ReplaceAllString("// it used to say first 3 months free\n<a>Start now</a>", ""): false,
+	} {
+		if got := len(scan("planted", planted)) > 0; got != red {
+			t.Errorf("CONTROL: the scan on %q is red=%v, want %v", planted, got, red)
+		}
+	}
+}
+
+// templCommentRE is a templ line comment.
+var templCommentRE = regexp.MustCompile(`(?m)^\s*//.*$`)
+
+// goStringLiterals is every string literal in a Go source, read by the Go scanner so a
+// quotation inside a comment is not one.
+func goStringLiterals(t *testing.T, name, src string) string {
+	t.Helper()
+	var sc scanner.Scanner
+	fset := token.NewFileSet()
+	sc.Init(fset.AddFile(name, -1, len(src)), []byte(src), nil, 0)
+	var out []string
+	for {
+		_, tok, lit := sc.Scan()
+		if tok == token.EOF {
+			break
+		}
+		if tok == token.STRING {
+			out = append(out, lit)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// mustRead reads one file or stops the test.
+func mustRead(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	return string(b)
+}
+
+// oldFreeMonthsRE is a count of free months that does not say where it starts ("first
+// 3 months free", "3 months on us", "Start free — 3 months") -- the phrasing K6 retired.
+var oldFreeMonthsRE = regexp.MustCompile(`(?i)\b(?:first\s+)?(?:\d+|two|three|four)\s+months?\s+(?:free|on us)\b|` +
+	`\bfirst\s+(?:\d+|two|three|four)\s+months?\b|start free\s*[—–-]\s*\d+\s+months?`)
+
+// freeMonthsCopyProblems says how text departs from K5 and K6: no free-month count that
+// does not start at the signup month, and no "locked for life" that is not the founding
+// customers' own.
+func freeMonthsCopyProblems(text string) []string {
+	var out []string
+	if hit := oldFreeMonthsRE.FindString(text); hit != "" {
+		out = append(out, fmt.Sprintf("says %q; the free months are the signup month and the ones after it (K6)", hit))
+	}
+	lower := strings.ToLower(text)
+	if all, founding := strings.Count(lower, "locked for life"),
+		strings.Count(lower, strings.ToLower(pages.LandingPriceLockedForLife.Text)); all != founding {
+		out = append(out, fmt.Sprintf("says \"locked for life\" %d time(s), %d of them as the founding customers' "+
+			"(K5: the lock is the founding offer's only)", all, founding))
+	}
+	return out
 }
 
 // --- the claims ---------------------------------------------------------------
@@ -1021,11 +1548,16 @@ var superiorityClaim = regexp.MustCompile(
 // compares mechanisms, and it says so on the page rather than only in a comment.
 func TestLanding_ComparesMechanismsAndDeclaresNoWinner(t *testing.T) {
 	t.Parallel()
-	text := screenText(t, mustFetchMarketing(t, marketingRouter(t), "/"))
-	if hit := superiorityClaim.FindString(text); hit != "" {
-		t.Errorf("the landing page claims %q. That is a measurement nobody made. State what "+
-			"Tappa does and let the reader compare.", hit)
+	r := marketingRouter(t)
+	// Every page of the public site is held to it, not only the one with the table
+	// (LP-06; README §4.6).
+	for _, url := range siteURLs() {
+		if hit := superiorityClaim.FindString(screenText(t, mustFetchMarketing(t, r, url))); hit != "" {
+			t.Errorf("%s claims %q. That is a measurement nobody made. State what "+
+				"Taptime does and let the reader compare.", url, hit)
+		}
 	}
+	text := screenText(t, mustFetchMarketing(t, r, "/"))
 	const disclaimer = "It is not a benchmark"
 	if !strings.Contains(text, disclaimer) {
 		t.Errorf("the comparison table no longer carries its footnote (%q). Without it the "+
@@ -1239,6 +1771,7 @@ func anchorDerivations(t *testing.T) map[pages.Anchor]func() string {
 	mig04 := repoFile(t, "db", "migrations", "00004_create_tags.sql")
 	mig05 := repoFile(t, "db", "migrations", "00005_create_transactions_audit_reviews.sql")
 	tapSrc := repoFile(t, "internal", "domain", "tap", "decide.go")
+	businessDay := loadBusinessDaySources(t)
 
 	// The two shift-carrying tables, isolated from each other.
 	locations := createTableBlock(t, mig02, "locations")
@@ -1271,6 +1804,12 @@ func anchorDerivations(t *testing.T) map[pages.Anchor]func() string {
 				return "internal/domain/tap no longer has resolveDirection; the direction rule the page describes is gone"
 			}
 			return ""
+		},
+		pages.AnchorDirectionPairsWithinTheBusinessDay: func() string {
+			// The restaurants page's FactDirectionPairsWithinTheBusinessDay, over the same
+			// sources: the cutoff run through tap.Decide, its default, the owner's form, the
+			// gather's switch and production's manifest.
+			return businessDayProblem(businessDay)
 		},
 		pages.AnchorPerVenueReport: func() string {
 			f, ok := fieldNames(ledger.Report{})["Venues"]
@@ -1432,7 +1971,7 @@ var anchorConstRE = regexp.MustCompile(`(?m)^\s*(\w+)\s+Anchor\s*=\s*"([^"]+)"`)
 // audit walked through by adding a constant no test file mentioned.
 func declaredAnchors(t *testing.T) map[pages.Anchor]string {
 	t.Helper()
-	src := repoFile(t, "web", "templates", "pages", "landingview.go")
+	src := pagesViewSource(t)
 	out := map[pages.Anchor]string{}
 	for _, m := range anchorConstRE.FindAllStringSubmatch(src, -1) {
 		out[pages.Anchor(m[2])] = m[1]
@@ -1584,7 +2123,7 @@ func TestLegalPages_SkeletonsAreNotIndexedAndSayWhatTheyAreWaitingFor(t *testing
 	// They now live in legal_documents, so publication is "a text was published" and
 	// the fact lives on the VIEW rather than on the route table.
 	waiting := pages.LegalPageView{Page: pages.LegalPage{Path: "/legal/x", Title: "X", Needs: []string{"a fact somebody has to supply"}}}
-	finished := pages.LegalPageView{Page: pages.LegalPage{Path: "/legal/x", Title: "X"}, Body: []string{"The finished text."}}
+	finished := pages.LegalPageView{Page: pages.LegalPage{Path: "/legal/x", Title: "X"}, Body: legal.Paragraphs("The finished text.")}
 	if waiting.Published() {
 		t.Error("a document with no published text reports itself as published. Publication " +
 			"is defined as \"somebody published a text\" precisely so that it cannot be " +
@@ -2470,17 +3009,31 @@ func splitAtRuleBodies(css, name string) []atRuleBlock {
 // only itself current, every document without a published text carries the "Not in
 // force yet" mark and a published one does not, and the header's "Start free" goes to
 // the wizard the handler mounts.
+//
+// Since LP-11 the page marks itself in two places: the document navigation, and the
+// public chrome's footer, whose Legal column marks the document being read as it marks
+// any page. So the navigation must mark exactly this page, and no mark anywhere on the
+// page may point at another one.
 func TestLegalPages_NavigationMarksTheCurrentDocumentAndWhatIsNotInForce(t *testing.T) {
 	t.Parallel()
 	texts := newFakeTexts()
 	texts.put("privacy", "Kebab Factory Ltd is the controller of this fictional example.")
 	r := marketingRouterWithTexts(t, texts)
-	current := regexp.MustCompile(`<a href="([^"]*)"[^>]*aria-current="page"`)
+	current := regexp.MustCompile(`<a\b[^>]*\bhref="([^"]*)"[^>]*aria-current="page"`)
 	for _, p := range pages.LegalPages {
 		body := mustFetchMarketing(t, r, p.Path)
-		got := current.FindAllStringSubmatch(body, -1)
+		got := current.FindAllStringSubmatch(between(body, `<nav aria-label="Legal documents"`, "</nav>"), -1)
 		if len(got) != 1 || got[0][1] != p.Path {
-			t.Errorf("%s marks %v as the current document, want exactly %s", p.Path, got, p.Path)
+			t.Errorf("%s: the document navigation marks %v as the current document, want exactly %s", p.Path, got, p.Path)
+		}
+		all := current.FindAllStringSubmatch(body, -1)
+		for _, m := range all {
+			if m[1] != p.Path {
+				t.Errorf("%s marks %s as the current page", p.Path, m[1])
+			}
+		}
+		if len(all) != 2 {
+			t.Errorf("%s carries %d current-page mark(s); want the navigation's and the footer's", p.Path, len(all))
 		}
 		for _, q := range pages.LegalPages {
 			_, marked := withoutNavMark(body, q.Path)
@@ -2489,7 +3042,7 @@ func TestLegalPages_NavigationMarksTheCurrentDocumentAndWhatIsNotInForce(t *test
 					p.Path, q.Path, marked, want)
 			}
 		}
-		if !regexp.MustCompile(`<a href="` + regexp.QuoteMeta(signupPath) + `"[^>]*>\s*Start free\s*</a>`).MatchString(body) {
+		if !regexp.MustCompile(`<a\b[^>]*\bhref="` + regexp.QuoteMeta(signupPath) + `"[^>]*>\s*Start free\s*</a>`).MatchString(body) {
 			t.Errorf("%s offers no \"Start free\" to %s", p.Path, signupPath)
 		}
 	}

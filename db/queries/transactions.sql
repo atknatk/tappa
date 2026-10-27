@@ -104,16 +104,17 @@
 -- the entry stays open in the list. It takes a hand-written POST that hits the
 -- entry's microsecond, and it gains no hours: the pair counts zero time either way.
 --
--- business_day_start is in the list because this query returns the whole store
--- Transaction (a row type without it would be a second model); nothing here
--- filters on it. Whether this entry is still in the tap's business day is the
+-- business_day_start and direction_source (00065, M15-09) are in the list because
+-- this query returns the whole store Transaction (a row type without them would be a
+-- second model); nothing here filters on either. Whether this entry is still in the tap's business day is the
 -- engine's question (M15-03), and ADR 0032 §A.6 says why this query does not need
 -- the classification while the cutoff stays fixed.
 SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
-       site_tenant_id, site_location_id, site_tag_uid, business_day_start
+       site_tenant_id, site_location_id, site_tag_uid, business_day_start,
+       direction_source
 FROM transactions t
 WHERE t.tenant_id = @tenant_id
   AND t.employee_id = @employee_id
@@ -275,7 +276,8 @@ SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
-       site_tenant_id, site_location_id, site_tag_uid, business_day_start
+       site_tenant_id, site_location_id, site_tag_uid, business_day_start,
+       direction_source
 FROM transactions
 WHERE tenant_id = @tenant_id
   AND employee_id = @employee_id
@@ -332,24 +334,37 @@ LIMIT 1;
 -- on a PEER's plaque is the employer's row (above) and carries the employer's
 -- business day like any other; InsertManualSiteTransaction, the manual site sibling,
 -- has no such parameter.
+--
+-- direction_source (M15-09, migration 00065, ADR 0032 §B.4): who chose the direction
+-- -- 'auto' (the engine's D was recorded) or 'employee' (the person asked for the
+-- other one and it was recorded). NULL for an undirected decision, for the manual
+-- channel (the direction is the manager's; there is no 'manager' value) and for every
+-- row written before M15-11, whose insertParams writes it on every directed nfc/qr tap.
+-- On a directed nfc/qr row NULL reads as "before M15, the engine's choice"; the one
+-- place that says so is tap.RecordedDirectionSource. Two NOT VALID CHECKs (00065,
+-- validated by 00066) are the second safety. Neither manual statement has the
+-- parameter, and the column has no default, so their rows are NULL.
 INSERT INTO transactions (
     tenant_id, employee_id, location_id, department_id, tag_uid, ctr, type,
     occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match, sun_valid,
     trust, verdict, note, channel, entered_by, practice, queued,
     policy_version_id, matched_sid, policy_layer, policy_context,
-    site_tenant_id, site_location_id, site_tag_uid, business_day_start
+    site_tenant_id, site_location_id, site_tag_uid, business_day_start,
+    direction_source
 ) VALUES (
     @tenant_id, @employee_id, @location_id, @department_id, @tag_uid, @ctr, @type,
     @occurred_at, @source_ip, @ip_match, @gps_lat, @gps_lng, @gps_match,
     @sun_valid, @trust, @verdict, @note, @channel, @entered_by, @practice, @queued,
     @policy_version_id, @matched_sid, @policy_layer, @policy_context,
-    @site_tenant_id, @site_location_id, @site_tag_uid, @business_day_start
+    @site_tenant_id, @site_location_id, @site_tag_uid, @business_day_start,
+    @direction_source
 )
 RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
           type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
           sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
           created_at, policy_version_id, matched_sid, policy_layer, policy_context,
-          site_tenant_id, site_location_id, site_tag_uid, business_day_start;
+          site_tenant_id, site_location_id, site_tag_uid, business_day_start,
+          direction_source;
 
 -- name: InsertManualTransaction :one
 -- THE MANAGER'S OWN RECORD (M6-08). Somebody with no phone worked a shift, or an
@@ -500,6 +515,43 @@ SELECT @tenant_id, e.id, NULL, e.department_id, @type::text,
 FROM employees e
 WHERE e.tenant_id = @tenant_id
   AND e.id = sqlc.arg('employee_id')::uuid
+RETURNING id, occurred_at, created_at, type, verdict, channel, trust, practice, queued;
+
+-- name: InsertManualTransactionAtAnchor :one
+-- THE MANAGER'S RECORD THAT ANSWERS AN EMPLOYEE'S CLAIM, FILED AT THE CLAIM'S ANCHOR'S VENUE (M15-16,
+-- ADR 0032 §C.4: "mekân = çapanın mekânı"). InsertManualTransaction's statement and its narrowing --
+-- verdict 'ok', channel 'manual', practice and queued false, no evidence column named, trust a
+-- parameter, entered_by required -- word for word, with ONE difference: location_id is READ FROM THE
+-- ANCHOR ROW rather than from the employee row.
+--
+-- 🔴 WHY THE ANCHOR AND NOT THE HOME VENUE. InsertManualTransaction files at the person's home venue
+-- and calls that a COUNTED LIMIT: "there is no tapped location here". For a claim there IS one -- the
+-- anchor, the record whose missing half is claimed, taken at a plaque on a wall -- and the approved
+-- half belongs to the same shift at the same venue (§5: the TAPPED location, never the profile's).
+-- The venue still comes from a row the database holds, never from a form: the SELECT reads the
+-- anchor under its tenant AND its person (§4.5's belt; the composite FK (location_id, tenant_id) the
+-- braces), so another tenant's or another person's anchor, or an anchor filed at no local venue (a
+-- holding peer's -- internal/domain/manual files that one with InsertManualSiteTransaction -- or a
+-- plaque on no wall), is ZERO ROWS, never a foreign write.
+--
+-- department_id IS THE EMPLOYEE'S, as on every manual row (InsertManualSiteTransaction's sentence: a
+-- department is not a venue). created_at is not named: the database's clock (00068's decision trigger
+-- holds the row to being written no earlier than the claim).
+INSERT INTO transactions (
+    tenant_id, employee_id, location_id, department_id, type, occurred_at,
+    trust, verdict, note, channel, entered_by, practice, queued
+)
+SELECT @tenant_id, e.id, a.location_id, e.department_id, @type::text,
+       @occurred_at, @trust::smallint, 'ok', sqlc.narg('note')::text, 'manual',
+       @entered_by::uuid, false, false
+FROM transactions a
+JOIN employees e
+  ON e.id = a.employee_id
+ AND e.tenant_id = @tenant_id
+WHERE a.tenant_id = @tenant_id
+  AND a.id = sqlc.arg('anchor_id')::uuid
+  AND a.employee_id = sqlc.arg('employee_id')::uuid
+  AND a.location_id IS NOT NULL
 RETURNING id, occurred_at, created_at, type, verdict, channel, trust, practice, queued;
 
 -- name: ListPanelTransactions :many

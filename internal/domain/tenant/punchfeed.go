@@ -67,6 +67,12 @@ type PunchEvent struct {
 	RecordedAt time.Time
 	Channel    string
 	Direction  string
+	// DirectionSource is who chose Direction (M15-13, migration 00067; ADR 0032 §B.4): "auto" -- the
+	// direction Tappa computed -- or "employee" -- the person asked for the other one and it was
+	// recorded. nil on an event the feed wrote before it recorded this (the column is never
+	// back-filled). The trigger that wrote the event already applied the reader rule
+	// (tap.RecordedDirectionSource), so nothing here reads it again.
+	DirectionSource *string
 
 	EmployeeID      uuid.UUID
 	EmployeeRef     *string
@@ -174,7 +180,7 @@ func (f *PunchFeed) PunchPage(ctx context.Context, tenantID uuid.UUID, role Feed
 func punchEventOf(r store.ListPunchEventsRow) PunchEvent {
 	return PunchEvent{
 		Seq: r.Seq, PunchID: r.PunchID, Version: r.Version, Status: r.Status, PunchTime: r.PunchTime, RecordedAt: r.RecordedAt,
-		Channel: r.Channel, Direction: r.Direction,
+		Channel: r.Channel, Direction: r.Direction, DirectionSource: r.DirectionSource,
 		EmployeeID: r.EmployeeID, EmployeeRef: r.EmployeeRef, EmployeeCode: r.EmployeeCode, EmployeeCompany: r.EmployeeCompany,
 		LocationID: r.LocationID, LocationRef: r.LocationRef, LocationName: r.LocationName, LocationCompany: r.LocationCompany,
 		TagUID: r.TagUid,

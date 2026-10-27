@@ -284,6 +284,34 @@ ve `occurred_at ≥ S` olan bir `in` var mı; `W` = `P`, çıkıştan **sonra ya
     çıkışın `P`'si o kapanış çıkışıdır ve onu (e) yapmak için kapanış çıkışının **sonradan** yazılmış
     olması gerekir — yani çalışanın kendi geçmişini değiştirmesi değil, bir düzeltme. 120 sn'den uzun
     geriye beyan `flag` olur ve müdür görür; 72 sa üstü ya da gelecek reddedilir.
+  - *Düzeltme notu (2026-10-23, M15-14 güvenlik merceği DÜŞÜK + tek mercek ORTA-1, ölçüldü) — kararı
+    değiştirmez, yukarıdaki *"gizlenmez, yalnız yer değiştirir"* cümlesini daraltır.* Cümle yalnız
+    (c)'yi **(e)'ye** çevirme denemesi için doğrudur. Başka bir yol var: (c)'yi **kapatır**'a çevirmek.
+    Mola vakasında 17:00'nin (c) çıkışından (çalışanın seçtiği `out`) **önceye** geriye tarihli bir
+    `auto` `in` yazılırsa (o anda açık giriş yok, motor `in` der) 17:00'nin `P`'si o `in` olur, iki
+    koşul sağlanır, sınıf *kapatır*'dır ve çıkış *"Check-in missing"*ten **düşer**. Yukarıdaki kabul
+    edilmiş metnin kendi örneği (*"17:01'de `occurred_at = 16:59:59`"*, *"60 sn debounce sunucu saatinde
+    geçer"*) bu pencerenin içindedir; orada `out` beyan edildiği için (e) denemesi olarak okunmuştu.
+    **Debounce'un iki ayağı da sunucu anından ölçer:** beyan ayağı
+    `in.Now.Sub(in.LastForPerson.OccurredAt)`'tir (`internal/domain/tap/decide.go:959`) ve `Now` sunucu
+    anıdır (`internal/domain/checkin/checkin.go:755`, `Input.Now`); yeni dokunuşun **beyan ettiği an
+    debounce'a girmez**. Öbür ayak `SecondsSinceLastRecordedTap`'tir (veritabanı saati, `created_at`).
+    **Pencerenin koşulu:** sunucu anı çıkışın hem `occurred_at`'inden hem `created_at`'inden en az
+    debounce kadar sonradır; beyan çıkıştan önceki bir andır; geriye tarihleme (sunucu anı − beyan) en
+    çok `base:queued-window`'dur (`BaselineQueuedSkewSeconds`, aşan `flag`). **Varsayılanlarda ölçüm**
+    (mercek; varsayılan politikalarla `tap.Decide` + `ClassifyCheckout`, mola vakası, 17:00 seçilmiş
+    `out`): sunucu +59 sn / geriye tarihleme 60 sn → `ignored`; +60 sn / 61 sn → `ok`/`in`/`auto`, 17:00
+    *kapatır*; +119 sn / 120 sn → `ok`, *kapatır*; 121 sn → `flag` (queued-window). Yani pencere
+    **yaklaşık 60 sn**: geriye tarihleme 60 sn'den büyük ve en çok 120 sn. `POST /api/checkin`
+    `occurred_at` alanını kabul eder, yani yol tap yüzeyinden açıktır. Debounce 60 sn'nin altına
+    çekilirse (guardrail'in ayarlanabilir aralığı 30–300 sn, `DebounceMinSeconds`) ya da
+    `base:queued-window` gevşetilirse pencere genişler. **Bedeli sınırlı:** hiçbir kayıt silinmez (17:00
+    çıkışı ve geriye tarihli `in` `transactions`'ta, CLAUDE.md §4.3); kapanan aralık *geriye tarihleme −
+    (sunucu anı − 17:00)* ≤ geriye tarihleme − 60 sn, yani varsayılanlarda **en çok 60 sn**; 13:00–16:59
+    boşluğu yine sayılmaz, yalnız *"Check-in missing"*te görünmez. Kalan risk backlog **T159**'dadır
+    (olası çare yalnız öneri). Kabul edilmiş karar (`W` ve `I` ile (e)) değişmedi. *(Bu notun
+    2026-10-23'teki ilk hâli pencereyi "sıfır" sanıyordu — beyan ayağını yeni dokunuşun beyanından
+    ölçülür varsaymıştı; aynı gün düzeltildi.)*
   - **Eşzamanlı yazım:** `created_at` işlemin başlangıç anıdır; kişi başına advisory kilit beklerken iki
     dokunuşun yazım sırası ters dönebilir (ADR 0006 bunu ölçtü), ama aynı kişinin 60 sn içindeki ikinci
     yönlü dokunuşu `ignored`'dır — iki **yönlü** satır arasında ters dönme pratikte oluşmaz. Eşitlikte
@@ -544,6 +572,15 @@ bırakılan giriş notunda: kayıt *"previous check-in left open (no checkout re
 *"Your previous clock-in has no clock-out."* (metinleri yapıcı ve denetçi kesinleştirir; Q33 ile
 birlikte).
 
+*Metin notu (2026-10-22, M15-10).* Bu not kararı değiştirmez, yalnız yukarıdaki örnek metinleri
+kesinleştirir. Çalışanın ekranındaki metinler `you chose to clock in` / `you chose to clock out` ve
+`your previous clock-in has no clock-out`'tur; kaydın metinleri yukarıdakilerle aynıdır
+(`direction chosen by employee`, `previous check-in left open (no checkout recorded)`). Gerekçe: notlar
+kuralın cümlesine `; ` ile eklenir (`appendNote`), bu yüzden küçük harfle başlar ve kendi noktası olmaz.
+Faz A'nın `LeftOpenEmployeeNote`'u da bu kurala uyar. Sabitler `internal/domain/tap/decide.go`'dadır
+(`ChoseClockInEmployeeNote`, `ChoseClockOutEmployeeNote`, `LeftOpenEmployeeNote`, `DirectionChosenNote`,
+`LeftOpenNote`); sınamaları `TestDecide_RequestedDirectionNotesInTwoLanguages`.
+
 **B.5 Saat şişirme yolu ve sıra.** Çalışanın seçtiği bir `out`'un önceki iş gününün açık girişini
 kapatması §A.6'nın sınıflandırmasıyla **Faz A'da** kapanır; yetim çıkışın sayacı ve listesi de Faz
 A'dadır. Yolu açan şey arayüz değil `POST`'un `want` alanıdır; sıra: sınıflandırma → yetim çıkış →
@@ -558,6 +595,15 @@ Faz B ile **birlikte** sevk edilir; onaylı talepler akışa girmez (K-6). Alan 
 tenant'ının satırına da geçer (holding punch'ının iki hedefi — ADR 0028 §4); ADR 0027 §9 madde 3
 (`0027:915-918`) sahanın gördüğü sütunları katalogla pinler — o maddeye tarihli bir **K notu** ve katalog
 pininin genişletilmesi kartın kabul kriteridir.
+
+*Uygulama notu (2026-10-22, M15-13).* Bu not kararı değiştirmez. Migration `00067`'dir (plan `00068`
+diyordu; goose sırası yüzünden M15-15 ile yer değiştirdi — plan *"Migration ve ADR numaraları"*).
+`punch_events.direction_source` iki besleyici tetikleyicide (`punch_feed`, `holding_feed`) aynı tek ifadeyle
+yazılır: §B.4'ün okuyucu kuralının SQL kopyasıdır (yönlü nfc/qr satırında NULL → `auto`; manuel ve yönsüz
+satırda değer yok, saklanan değere güvenilmez). Go'daki tek yardımcıyla (`tap.RecordedDirectionSource`)
+`TestPunchDirectionSource_TheFeedsExpressionIsTheReaderRule` bağlar. Eski olaylar NULL kalır ve `/v1`
+onları `null` cevaplar (geri doldurma yok). Besleyicilerin `transactions` erişimi tek sütunla genişledi
+(onay kollarının okuması; `TestDirectionSource_TheFeedWritersReachIsNotWidened`).
 
 ### Faz C — eksik yarı talebi
 
@@ -596,6 +642,13 @@ sonra, isteğe bağlı **tek** kart (kullanıcının §9 onayı):
     sonraki ilk olay"*ı değiştirebilir ve bir gösterimi kaydırabilir (sınır yine iki fırsattır, ama hangi
     iki dokunuş olduğu değişebilir) — M9-01 kartına not.
 - Kart atlanabilir (*"You can skip this."*); atlama düğmesi yok.
+- *Not (2026-10-26, kullanıcı kararı "Cümle ekle", M15-17 genel merceği ORTA):* giriş kartı da çıkış kartı gibi
+  sorunun üstünde kaydı adlandıran bir cümle taşır — **her** gösterimde, yalnız ikincisinde değil: aynı gün *"You
+  clocked out at 12:00 but there's no clock-in."*, dün *"Yesterday you clocked out at 12:00 but there's no
+  clock-in."*, daha eski *"On Mon 27 Jul you clocked out at 12:00 but there's no clock-in."*; ardından *"What time
+  did you come in?"*. Gerekçe: ikinci gösterimde (günün sonraki `out`'u) yalnız soru hangi çıkışın girişsiz olduğunu
+  söylemiyordu. Gün, işletmenin bölgesindeki takvim günüdür (çapa ile kartı gösteren dokunuş arasında). Ölçüm:
+  `TestClaimCard_SaysWhichRecordItAsksAbout`.
 
 **K2 — kabul edilen sınır.** Geçmiş gün kartı yalnız *"What time did you leave?"* sorar. Gerçekte
 **girişin unutulduğu** gün (sabah dokunmadı, akşam tek dokunuş `in` yazıldı) kart yanlış soruyu sorar;
@@ -685,12 +738,111 @@ yönetici hem çalışan kimliği taşıyorsa kendi talebini onaylayabilir. Kapa
 17:00 → 8 sa, açık 0"*). Giriş talebi yetim bir çıkışın önüne bir `in` koyar; ADR 0011'in tuzağı ancak
 arada yanlış bir `in` varsa kurulur ve pencere (*"önceki yönlü olaydan sonra"*) bunu dışarıda bırakır.
 
+*Uygulama notu (2026-10-25, M15-16 — kararı değiştirmez, nasıl kurulduğunu söyler).* (1) **Mekân:** onayın
+manuel satırı çapanın yerel mekânındaysa yeni `InsertManualTransactionAtAnchor` ile yazılır — mekân bir formdan
+değil, çapa satırından, `tenant_id` + `employee_id` yüklemiyle okunur (`InsertManualTransaction`'ın *"ev
+mekânı"* sayılı sınırı talepte yoktur, çünkü bir dokunulmuş mekân vardır); eş mekândaki çapa
+`InsertManualSiteTransaction` yolundan; mekânı olmayan çapa ev mekânına. Eşlik bittiyse onay hiçbir şey yazmaz ve
+talep bağlamında `manual.ErrVenue`'nun *"no home venue"* cümlesi değil adlandırılmış `ErrPartnershipEnded` döner
+(yalnız Reject kalır); mekânsız çapa ve ev mekânı olmayan kişi `ErrNoVenue`. Ölçüm:
+`TestDecideDB_AnApprovalIsOneRecordOneDecisionAndTwoTrailRows`, `TestDecideDB_APeersVenueAnchorIsAnsweredAtThatVenue`,
+`TestWithin_AnAnswerToAClaimIsFiledAtItsAnchorsVenue`, `TestWithin_AnAnswerToAnotherPersonsAnchorWritesNothing`.
+(2) **Eş mekânda vardiya** yalnız çapanın **departmanından** okunur; motor eşin mekân vardiyasını
+`holding_tap_site`'tan okur, talep domain'i okumaz. Departman vardiyası yoksa ön dolgu yoktur ve onay adımı
+istenir — **muhafazakâr** tercih (eşin mekân satırı işverenin okuyabildiği bir satır değildir; ADR 0027 K-33).
+(3) **Kapanış sınaması iki okumadır:** saklanan satırın okuyucu sınıfı (manuel satırın S'si NULL — yalnız 18 sa)
+**ve** motorun o anda bir dokunuşu okuyacağı sınıf (bugünkü kesimle `S(at)`). Pencere çapanın dondurulmuş S'sinden
+çizilir. **Kesim çapadan sonra değişip çapanın iş gününü daha erken bitiriyorsa** (05:00 → 06:00, çapa 05:30:
+kaydedildiği gün Pzt'nin, bugünkü kurala göre Pzt 06:00'da biten Paz'ın) çapa hiç talep kabul etmez — kart
+çıkmaz, Submit ve Decide `ErrResolved` (*"already resolved"*), Reject kalır (`Chain.DayCutShort`, `WindowOf`'un
+okuduğu tek kural; M15-16 düzeltme turu D-1). Gerekçe: pencereye `Next(S_bugün(A.At))` ucunu eklemek de Submit
+ile Decide'ı uzlaştırırdı ama kartta kuralın sonradan yeniden çizdiği bir güne dair (05:30, 06:00) gibi bir
+kıymık bırakırdı; reddetmek daha az sorar, hiçbir zaman daha çok değil (§A.6: kesim değişirken muhafazakâr).
+*Düzeltme (2026-10-25, M15-16 genel merceği D-7, merceğin taramasıyla ölçüldü):* reddedilmeyen bir kesim
+değişikliği de pencereyi **oynatır** — önceki sürümdeki *"pencereye dokunmaz"* cümlesi yanlıştı. Pencerenin günlük
+ucu `NextBusinessDayStart(dondurulmuş S, bugünkü kesim)`'dir; ne eski kuralın ne bugünkünün gün sonudur. (i)
+Bugünkü kesim dondurulmuş S ile çapa arasına düşerse pencere **boş** olur (05:00 → 14:00, çapa Pzt 15:00: kart
+çıkmaz, Submit `ErrOutsideWindow`; taramada 54 123 çapa). (ii) Bazı vakalarda pencere dondurulmuş günün gerçek
+sonunu **aşar** (00:00 → 01:00, çapa Cmt 06:10, pencere Paz 00:10'a kadar; 8 422 vaka). İkisi de saat şişirmez ve
+kayıt kaybettirmez: (i) muhafazakârdır, (ii) bugünkü kuralla — kapanış sınamasının okuduğu kural — tutarlıdır. Kod
+değişmedi; dondurulmuş günün sonunu S'nin kendi duvar saatiyle hesaplamak backlog **T165**. Ölçüm:
+`TestClaimDB_ACutoffThatEndsTheAnchorsDayEarlierAdmitsNoClaim`,
+`TestWindow_ACutoffThatEndsTheAnchorsDayEarlierLeavesNoWindow`. (4) **Trail:** `claim.submitted` (aktör NULL) ve
+kararın iki sonucu için tek ad `claim.decided` (sonuç `detail`'de — `review.recorded`'ın gerekçesi); onay ayrıca
+manuel satırın kendi `record.entered` satırını yazar. (5) **İkinci gönderim** pencereye bakılmadan *"Sent"*tir
+(`ErrAlreadySent`; kilit altında okunur, UNIQUE kemerdir). (6) **Ön dolgu** gönderimde kilit altında sunucuda
+yeniden hesaplanır; formun değeri okunmaz.
+
+*Uygulama notu (2026-10-25, M15-16 düzeltme turu — **kural genişledi**, orkestratör kararı).* **Bant oluşacak
+aralığın iki ucunu da ölçer:** talep edilen (ya da *Edit* ile girilen) an **ve** çapa. Uçlardan biri §A.7
+bandının dışındaysa — ya da vardiya yoksa — Approve ilk basışta yazmaz, onay adımı ister; sapma iki uç için ayrı
+hesaplanır (`Assessment.Deviation`, `Assessment.AnchorDeviation`). Vaka (güvenlik merceği X2): 10:00–22:00 mekân,
+çapa Pzt 05:30, çıkış talebi 23:30 → 18 sa, talep edilen uç bandın içinde, çapa dışında → eskiden tek tık, şimdi
+onay adımı. Sonuç: onay adımı **daha çok** çıkar, **hiçbir zaman daha az**. Ölçüm:
+`TestAssess_TheBandJudgesBothEnds`, `TestDecideDB_X2TheAnchorsEndOutsideTheBandAsksTheConfirmationStep`.
+
+*Uygulama notu (2026-10-26, M15-17 — kararı değiştirmez, nasıl kurulduğunu söyler).* (1) **Talep bağlamı:**
+kendi türetilmiş anahtarı ve etiketi (`tappa/claim-context/v1|`), oturum id'si ek veri, 15 dk; içinde tür, çapa id'si,
+çapanın anı, **pencere** (iki uç ve dahil/hariç), `prefilled_at`, kartı gösteren dokunuşun anı ve işletmenin bölgesi.
+`/api/claim` çapayı ve türü **yalnız** bağlamdan okur — K4'ü gönderimde uygulayan tek şey budur (M15-16 güvenlik
+merceğinin devri); form çapa, tür ya da ön dolgu taşımaz. (2) **Duvar saati → an:** ön dolgunun kendi duvar saati
+ön dolgunun kendi anına döner (sonbaharın iki kez yaşanan saatinde vardiya ucu **geç** adaydır — `time.Date`; aksi
+hâlde *"default not changed"* sunucunun seçtiği değerde yanlış çıkardı); başka her saat, pencerenin dokunduğu takvim
+günlerinde pencere içindeki adaylardan **erken** olanıdır; ilkbaharda yaşanmamış saatin adayı yoktur → form yeniden.
+`Submit` pencereyi ve ön dolguyu kilit altında yine kendisi hesaplar. (3) **Okumanın yeri (G-O5):** kayıt commit
+edildikten sonra, isteğin değerleriyle ve iptali olmadan, `resultClaimWait` (2 sn) sınırıyla; hata ya da zaman aşımı
+kartı düşürür, sonuç ekranı kartsız hâliyle bayt bayt aynıdır. (4) **Not bastırma yapısal:** motor ekran notunu iki
+biçimde kurar (`EmployeeNote`, `EmployeeNoteAsked` — aynı parçalar, açık bırakma parçası hariç); kart **bu dokunuşun
+açık bıraktığı** girişi soruyorsa ekran ikincisini gösterir; kaydın notu değişmez. (5) **Kamu metni:** `/product`'ın
+*"There is no button on it."* cümlesi kart yüzünden yanlış oldu; *"Nothing on it records another tap."* ile
+değiştirildi ve olgu yeniden türetildi (kullanıcının *"Metni M15'e göre yaz"* kararının devamı). Ölçüm:
+`TestClaim_TheAnchorAndTheKindComeOnlyFromTheSignedContext`,
+`TestClaim_ACrossLabelOrForeignContextIsRefusedAndNothingIsSent`,
+`TestResolveClaimedAt_TheEarlierOfARepeatedAutumnHourAndTheDefaultAsItCame`,
+`TestResultScreen_AFailedOrLateCardReadDrawsTheScreenWithoutIt`,
+`TestResultScreen_TheCardTakesTheLeftOpenNoteOutStructurally`, `TestClaimDB_TheCardIsShownOnTwoTapsOnly`.
+*Düzeltme turu (2026-10-26, M15-17 mercekleri).* (6) **"Zaten gönderildi" pencereden önce:** formun alamadığı saat
+(boş, saat değil, pencere dışı) `Submit`'e **ansız** (sıfır an) gider; `Submit` önce gönderilmiş talebe bakar
+(*"Sent"*), sonra ansızlığı pencere dışı sayar — not (5) artık handler'da da doğru. (7) **Panik:** sonuç ekranının
+commit sonrası iki okuması (marka, kart) bir panikte yalnız kendilerini kaybeder; ekran ve kayıt kalır. Ölçüm:
+`TestClaim_ASecondSendIsSentWhateverItsTime`, `TestSubmitDB_ASecondSendIsAlreadySent`,
+`TestResultScreen_APanickingPostCommitReadDrawsTheScreenWithoutIt`.
+
+*Uygulama notu (2026-10-26, M15-18 — panelin kuyruğu nasıl kuruldu).* Rota `/admin/review/claims`
+(`claimsHref`, inceleme bölümünün alt rotası; karar POST'u ana yazma grubunda, aşağıda). **Onay adımının
+bağlaması:** bant dışı (ya da adım gerektiren) bir onayın ilk basışı `ErrNeedsConfirmation` alır ve adımı
+çizer; adım `adminConfirm` ile bir değer basar — eylem `claim.approve_outside_band`, konu
+`claim.ConfirmationSubject` (talep, adımın gösterdiği an ve değerlendirildiği vardiya örneği), bu panel
+oturumu için, 10 dakika (`adminConfirmTTL`), ikiz çerezle (HttpOnly, `Path=/admin`). İkinci basış konuyu
+`Decide`'a ancak değer, gönderdiği ana ve sunucunun o an yeniden okuduğu vardiyaya karşı doğrulandığında taşır;
+`Decide` konuyu **kişi kilidi altında kendisi** yeniden üretir ve `subtle.ConstantTimeCompare` ile karşılaştırır —
+arada vardiya değiştiyse adım yeniden istenir. İmzasız bir `shown` anı hiçbir zaman yazılan an değildir
+(`TestClaimQueue_AnUnsignedMomentIsNeverWritten`). Kullanıcı kararı *"Üç yerde sayı"* (2026-10-26): bekleyen
+talep sayısı Spike bağlantısında, Spike'ın boş durumunda ve The Pass kartında; bildirim ya da e-posta yok.
+*Edit* saati sonbaharın iki kez yaşanan saatinde **erken** adayı alır (`resolveInWindow`, kartın kuralı). Odaktaki
+*"Record after"* satırı, Inspect zinciri çapadan yalnız `StaleOpenIn` kadar ileri okuduğu için *"none within 18 h"*
+der, *"none"* değil. **Sapma 1:** çapanın *"They chose this direction"* işareti anomali sorgularından değil
+çapa satırından (`GetPunchClaimAnchor`'ın `channel` + `direction_source`'u, `tap.RecordedDirectionSource`)
+okunur; manuel satırdaki değere güvenilmez. Kart zinciri ve ölçümler: *"Uygulandı"* bölümü ve `state.md`'nin
+2026-10-26 M15-18 kayıtları.
+
+*Uygulama notu (2026-10-26, M15-19 — **kural genişledi**, orkestratör kararı S5).* **Çalışanın yönünü seçtiği
+çapada onay adımı HER ZAMAN istenir.** Güvenlik merceğinin ölçtüğü şekil: vardiyadan 1 sa 55 dk sonra tek dokunuş
+ve *"Not right? Clock out"* (yetim çıkış, (c)); kartın ön dolgusu vardiya başı, çalışan dokunmadan gönderir;
+oluşacak 9 sa 55 dk'lık aralığın iki ucu da bantta ve ikisi de çalışanın seçimi — bant tek başına tek bir
+Approve'a izin veriyordu. Kural `claim.Assessment.WithAnchorChosen`'dadır: `RequiresConfirmation = OutsideBand ∨
+AnchorChosen`; okuma `tap.RecordedDirectionSource` iledir (manuel satırın `'employee'`'si tetiklemez); domain ve
+panel aynı değerlendirmeyi okur ve adımın kutusu nedeni söyler (*"They chose this direction when they tapped, so it is not approved in one press."* — seçim telefondaki tap sayfasında, *"Not right?"* ile yapılır; QR çapasında plaket bile yoktur, odaktaki işaret de *"They chose this direction"* der). Onay konusu (`ConfirmationSubject`) ve adımın `adminConfirm` eylemi `claim.approve_outside_band` değişmedi; etiket artık bant dışını **ve** S5'i (çalışanın seçtiği çapayı) kapsar, adı tarihsel olarak kalır. Sonuç: onay adımı **daha çok**
+çıkar, **hiçbir zaman daha az**. Ölçüm: `TestDecideDB_S5AnAnchorThePersonChoseAlwaysAsksTheStep` (çalışanın seçtiği
+çapa → adım; motorun seçtiği bant içi çapa → tek basış; manuel + `'employee'` → tek basış),
+`TestAssess_WithAnchorChosenOnlyAddsTheStep`, `TestClaimQueue_S5AChosenRecordAsksTheStepAndSaysWhy`.
+
 **Askı (ADR 0025).** Karar yolu bir panel yazmasıdır ve `mountWriting`'in **ana grubuna**
-(`ProtectWriting`, `internal/handler/dashboard.go:166`; flag kararı `:167`'nin yanı) gider: askı talep
-kararını durdurur. ADR 0025'in kapalı istisna listesi (`0025:46-53`, `:87`; kardeş grup
-`dashboard.go:309`, manuel kayıt `:330-331`) **genişletilmez** — telafi yolu zaten oradadır. Çalışanın
-talep gönderimi (`POST /api/claim`) bir tap yüzeyidir (`Tap.Mount`, `internal/handler/tap.go:270-276`,
-`chain()`) ve askıyı bilmez (`0025:49-53`).
+(`ProtectWriting`, `internal/handler/dashboard.go:168`; flag kararı `:169`, talep kararı `:173`) gider: askı
+talep kararını durdurur. ADR 0025'in kapalı istisna listesi (`0025:46-53`, `:87`; kardeş grup
+`dashboard.go:320-321`, manuel kayıt `:342-343`) **genişletilmez** — telafi yolu zaten oradadır. Çalışanın
+talep gönderimi (`POST /api/claim`) bir tap yüzeyidir (`Tap.Mount`, `internal/handler/tap.go:294-303`,
+`chain()`) ve askıyı bilmez (`0025:49-53`). *(Satır atıfları 2026-10-26'da `grep -n` ile güncellendi, M15-19.)*
 
 **C.5 Ret, süre, deaktivasyon.**
 - **Ret:** karar + audit; anomali kalır, müdür yine manuel kayıt girebilir. Aynı çapaya ikinci talep yok.
@@ -852,3 +1004,110 @@ gönderim, müdür kararı (onay → manuel kayıt). ADR 0032.*
 - **Öz-onay** (§C.4) bugün engellenmez.
 - **Talep sonucu çalışana bildirilmez** (Q32) — çalışan sonucu M9-05'e kadar göremez.
 - **Geçmiş** düzelmez (§A.8).
+
+## Uygulandı (2026-10-26, M15-19)
+
+M15'in kartları kodda. Bu ADR'nin normatif metni değişmedi; uygulamanın sapmaları ve ölçülerek düzeltilmiş
+cümleler kartların tarihli notlarındadır (§A.6 düzeltme notu 2026-10-23, §C.1 ve §C.4 uygulama notları).
+
+**Faz A canlıda.** M15-01…05, M15-07 ve M15-08 `main`'de:
+- **T0** (2026-10-22): PR #9 → merge `c7226c3`; deploy 39749168776, 00064 üretimde 16 ms, goose 64;
+  `TAPPA_BUSINESS_DAY_FROM` boş (yalnız 18 sa kuralı, ayar ekranları, Account → *Business day check*,
+  çakışma bildirimi, duyurunun liste cümlesi).
+- **Çakışma raporunun sonucu:** KM'nin kesimi owner tarafından canlıda 23:00 yapıldı (2026-10-22 14:24 UTC,
+  `tenant.day_cutoff_updated`); KF, Codevera Labs ve Creekville 05:00 varsayılanında; şube, departman ve kişi
+  düzeyinde değer yok (Q30).
+- **T2** (aynı gün): `ae8fe70` → PR #10 → merge `3e5a00f`; `TAPPA_BUSINESS_DAY_FROM=2026-10-22T16:30:00Z`
+  (prod ve sandbox ConfigMap'i), deploy 16:15 UTC, başlangıç logu `active=false`, kural 16:30 UTC'de sunucu
+  saatiyle açıldı.
+- **İlk gerçek satır** 2026-10-23 13:02:25 UTC: Kebab Factory Ltd., `nfc/in/ok`,
+  `business_day_start = 2026-10-23 03:00 UTC` (Malta 05:00). Yönlü nfc/qr satırında S'siz satır: 0.
+- **Panel duyurusu** iş günü cümlesiyle T2'den beri görünür; T2 + 28 gün = **2026-11-19 16:30 UTC**'de kalkar.
+
+**Faz B ve Faz C dalda** (`plan/m15-is-gunu`; `main`'e alınmadı). Kart başına commit zinciri
+(`git log --oneline origin/main..HEAD`, 45 commit; bu not hariç):
+
+| Kart | Commit'ler |
+|---|---|
+| M15-06 (Faz A, sevk kapısının dışında; B ile sevk) | `e3bd8b2b` · `06d8d97a` · `e366bb1b` · `8fcbcded` |
+| M15-09 (00065, 00066) | `dcc451f2` · `9c89eb5a` |
+| M15-10 | `34a00b68` · `1746cfd9` · `1349e260` · `474a08df` |
+| M15-11 | `60409a8b` · `40df0c05` · `f47e9347` |
+| M15-12 | `e4689ce2` · `373f5986` · `bf282b69` |
+| M15-13 (00067) | `bfa97aa2` · `80a6aef9` · `a1af08ea` · `2b3ad059` |
+| M15-14 (Faz B kapanışı) | `fe9cf6d1` · `429a5266` · `2d849ece` · `eb1228d3` · `ef6aa18d` · `e65b107a` · `64dcb7bb` · `09d3347d` |
+| M15-15 (00068) | `2d04cb46` · `fea757ff` · `95fbd44c` |
+| M15-16 | `09a753c5` · `8f5db081` · `6b3bbd34` |
+| M15-17 | `1d33608c` · `9d298fb3` · `6e68a0f1` |
+| M15-18 | `052e6556` · `86bbcc68` · `f092ec80` |
+| M15-19 | bu commit |
+
+Kart dışı: `a19c1faf`, `31b61a48` (durum kaydı) · `725c7d19`, `d8178a01` (`main`'i dala alan iki merge) ·
+`d660fabd` (public sitenin tap ekranı çizimi; *"Metni M15'e göre yaz"*).
+
+**Migration'lar:** 00064 (M15-02, canlıda) → 00065 `transactions.direction_source` + iki `NOT VALID` CHECK
+(M15-09) → 00066 iki CHECK'in `VALIDATE`'i (M15-09) → 00067 `punch_events.direction_source` (M15-13) →
+00068 `punch_claims` + `punch_claim_decisions` (M15-15). Numaralar 2026-10-22 notundaki gibi: 00067
+M15-13'ün, 00068 M15-15'in. Down'ların hepsi kanıt taşıyan satır varken reddeder (00066'nın Down'ı veri
+düşürmez); geri dönüş bu yüzden binary'dir.
+
+**Uygulama sırasındaki kullanıcı kararları** (kabul notundaki K1–K6 ve Q30–Q33'e ek):
+- 2026-10-22: Faz A CI yeşilse PR ile `main`'e; T2 kesimler canlıda ayarlanınca; sandbox aynı değerle. Faz B ve
+  C birlikte `main`'e, M15 M14'ten önce.
+- 2026-10-23, *"Sözleşmeyi aç + kural yaz"* (M15-13): punch yanıt şemaları ek alanlara açık, istek gövdeleri
+  kapalı; rehberde kural, ADR 0028 §8'de K notu. Kapsamın bütün yanıt şemalarına genişlemesi orkestratörün kararı.
+- 2026-10-23, *"Sayfayı yenile"* → aynı gün *"Yenileme yalnız QR'da"* (M15-14, bfcache): QR'da geri gelen
+  tap sayfası kendini yeniler; NFC'de donuk kalır, sonraki gerçek dokunuş doğru kaydı yazar (T160).
+- 2026-10-25, *"Metni M15'e göre yaz"*: public site `main` birleşmesinde tap/sonuç ekranını anlatan metin ve
+  çizimler M15'e göre yazıldı (`FactTapScreenIsOneButtonAndACorrection`, `FactResultScreenRecordsNoOtherTap`).
+- 2026-10-26, *"Cümle ekle"* (M15-17): giriş kartı sorduğu kaydı adlandırır.
+- 2026-10-26, *"Üç yerde sayı"* (M15-18): bekleyen talep sayısı Spike bağlantısında, Spike'ın boş durumunda
+  ve The Pass kartında; bildirim ya da e-posta yok.
+
+**Kapanış ölçümleri (M15-19, 2026-10-26, dal `f092ec80` + bu commit):**
+Go 1.26.10 (CI pini), `tappa-m15-db` (goose 68).
+- Statik kapılar: `gofmt -l -s` (Makefile'ın kümesi) boş · `templ fmt` changed=0 · `make gen` + `make css`
+  sonrası üretilen dosyalarda fark yok · `go vet` ve staticcheck 2025.1.1, etiketsiz ve `-tags sandbox`, dördü
+  exit 0 · govulncheck v1.6.0 kodu etkileyen 0 açık, exit 0 · `scripts/redline-check.sh` exit 0.
+- **Tam suite** `go test -race -count=1 -timeout 75m ./...`: 1207 sn, 10 226 PASS / 3 FAIL / 6 SKIP; 45 paket
+  yeşil. Kırmızı yalnız `cmd/tappa`'nın üç VCS-damgası testi (`TestPackaging_TheArtifactKnowsWhatItWasBuiltFrom`,
+  `TestArtifact_ServesFromAnEmptyWorkingDirectory`, `TestArtifact_SaysWhatItIsEVENWhenTheBootFails`): bu
+  worktree'de derlenen ikili `vcs.*` damgası taşımıyor (`go version -m` hiçbirini göstermiyor), M15-14'teki
+  ortam kırmızısının aynısı; CI'da yeşil. `TestEveryNamedTestExists` yeşil. İki yeni tablonun RLS testleri
+  (`TestRLS_PunchClaims_*`) ve TRUNCATE testleri (`TestAppendOnly_TruncateIsRefusedEvenForTheOwner` ve
+  `TestAppendOnly_AppHasNoTruncatePrivilege`, `punch_claims` + `punch_claim_decisions` alt testleri) yeşil.
+- Sandbox adımı (`-tags sandbox`, CI'ın `SANDBOX_SKIP`'i): 115 sn, 477 PASS; kırmızı yalnız aynı üç VCS testi.
+- DST tam taraması (`TAPPA_TEST_FULL_DST_SWEEP=1`): 12 bölge × 1095 gün, bölge başına 30 274 560 nokta, 0 ihlal.
+- **Uçtan uca senaryo** (`internal/handler/m15_e2e_db_test.go`, gerçek tap yönlendiricisi + gerçek panel,
+  gerçek Postgres): `TestM15DB_AForgottenCheckoutIsClaimedApprovedAndPaid` — dünün açık girişi, bugünkü gerçek
+  dokunuş `in`, sonuç ekranında *"What time did you leave?"* kartı, `POST /api/claim`, anomali ekranında
+  *"Claim pending"*, Spike'ta tek basışla onay → tek yeni manuel `out` satırı, unutulan gün raporda 8 sa, giriş
+  anomali listesinden çıktı. `TestM15DB_ARejectedClaimLeavesTheForgottenDayListed` — ret: kayıt yok, gün 0 sa,
+  giriş listede (işaretsiz). İkisi de yeşil; `TestFarDayCutoff_EveryDirectionChainTestHasACutoffAwayFromNow`
+  envanterinde.
+- **"İki sabit saatli koşum"** için repoda saati sabitleyen bir kip yok; M15-04 kartı bunun yerine yardımcının
+  özelliğini koydu (DB testlerinin bir kısmı satırını veritabanının `now()`'ıyla kurar, sabit duvar saati onlara
+  uygulanamaz): `TestFarDayCutoff_NoBusinessDayBoundaryFallsNearNow` (Malta'nın 2026-10-25 ve 2027-10-31
+  geri dönüşü dahil, 5 dk ızgarası) ve kaynak düzeyi envanter testi, ikisi de tam suite'te yeşil. Ek olarak
+  saate bağlı paketler (`./internal/domain/...`, `./test/fixtures/...`, `./internal/handler/`) ikinci bir süreç
+  saat dilimiyle (`TZ=Pacific/Chatham`, UTC+13:45) `-race` ile yeniden koşuldu: 694 sn, 4981 PASS / 0 FAIL /
+  1 SKIP. Bu, süreç saat diliminden bağımsızlığı ölçer; duvar saatinin kendisini sabitlemez — iki koşum gerçek
+  anlarda yapıldı (12:15Z ve 12:42Z).
+
+**Bilinçli olarak yok** (plan §*"Bilinçli olarak yok"*; bu notla değişmedi): otomatik çıkış üretimi (Q18) ·
+iki yönlü geçmiş gün sorusu (K2) · talep sonucunun çalışana bildirimi (Q32) · rapor sayacı ve CSV sütunu
+olarak *"chosen by employee"* · bayat sayfa ile bilerek düzeltmenin ayrımı · tahmin için sayaç kontrolü (§4.4;
+QR'da tahmin var, K5) · lokasyon düzeyinde saat dilimi (Q01) · öz-onay güvencesi (M14'e bağlı) · *"On the
+floor"* ve şerit okuma ufku 18 sa · geçmiş ters kayıtların düzeltilmesi (§4.3).
+
+**Açık backlog (M15 kökenli, 2026-10-26'da numaraları doğrulandı):** T145 (M15-08) · T155–T166 (T162 = eski
+T154). Arada kalan T146–T154 başka dalların maddeleridir (LP / `main`); T154 landing'in palet dışı hex'i,
+M15'in değil. Hiçbiri kapanmadı. **T159** (geriye tarihli `auto` `in` ~60 sn'lik pencerede bir çıkışı *"Check-in
+missing"*ten düşürür) M15 kapsamının dışında, **kabul edilmiş bir sınır** olarak açık kalır (orkestratör kararı,
+2026-10-26): pencere ~60 sn, kazanç ≤ 60 sn, kayıt silinmez; çare motor/ADR düzeyindedir ve T160 ile birlikte ele
+alınır.
+
+**Sevk.** Faz B ve C `main`'e birlikte ve M14'ten önce girer; birleştirme kullanıcının kararıdır. Toplu geçiş
+deploy notu (migration sırası, `main`'in en büyük migration'ının yeniden ölçümü, M14 dallarının durumu, geri
+dönüş) `docs/plan/state.md`'nin 2026-10-26 M15-19 kaydındadır. Bu not yazıldığında M15-19'un iki merceği
+(genel + `tappa-security-auditor`) henüz karar vermemişti; kart onlarla kapanır.

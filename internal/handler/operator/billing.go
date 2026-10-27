@@ -173,6 +173,7 @@ func (s *Surface) readBilling(w http.ResponseWriter, r *http.Request, id operato
 		ID:            tl.TenantID.String(),
 		OverviewPath:  pathTenants + "/" + tl.TenantID.String(),
 		BillingPath:   billingPath(tl.TenantID),
+		Tabs:          tenantTabs(tl.TenantID),
 		Page:          int(page),
 		LastPage:      maxBillingPage,
 		MonthsPerPage: db.TenantBillingMonthsPerPage,

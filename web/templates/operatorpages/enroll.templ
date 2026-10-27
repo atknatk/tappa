@@ -26,78 +26,87 @@ func EnrollScript() string { return enrollScript }
 // The key is shown three times (ADR 0020 §3, QR note; the user's decision of 2026-10-09):
 // first as the otpauth:// URI's QR code, drawn into this page from EnrollView.QR (qr.go)
 // -- ink on paper, the quiet zone inside the drawing, the colours as SVG attributes, so the
-// page's policy is unchanged and the key is in no other request -- then, under it, as
-// grouped base32 and as the URI, for an app that does not scan.
+// page's policy is unchanged and the key is in no other request -- then after it, in the
+// page and to a screen reader, as grouped base32 and as the URI, for an app that does not
+// scan.
+//
+// THE CARD (M13-05; docs/design/operator-redesign screens.md §2, boards OpEnroll): one card
+// filling scriptedScreen's column, its blocks spaced by the card -- the heading and the line
+// under it, the first step (the QR beside the key from the tablet, above it on the phone, then
+// the URI), or on a re-render the notices, then the form under a dashed rule with the second
+// step. The steps are headings of their own; the page's one h1 is the card's.
 templ Enroll(v EnrollView) {
 	@scriptedScreen("Set up your account", enrollScript) {
-		<section class="op-card">
-			<h1 class="font-display text-2xl font-bold tracking-tight">Set up your operator account</h1>
-			<p class="mt-2 text-sm text-ink/70">This link works once, for 30 minutes from when it was made.</p>
+		<section class="op-card w-full">
+			<div class="flex flex-col gap-2">
+				<h1 class="font-display text-[26px] font-bold leading-[1.08] tracking-[-0.03em] md:text-[30px]">Set up your operator account</h1>
+				<p class="text-sm leading-[1.45] text-ink/70">This link works once, for 30 minutes from when it was made.</p>
+			</div>
 			if v.Key != "" {
-				<div class="mt-6 flex flex-col gap-3">
-					<p class="docket-label">Step 1 · Add this key to your authenticator app</p>
+				<div class="flex flex-col gap-3.5">
+					<h2 class="op-step">Step 1 · Add this key to your authenticator app</h2>
 					if len(v.QR) > 0 {
-						<svg class="op-qr" role="img" aria-label="Scan with your authenticator app" viewBox={ qrViewBox(v.QR) } width={ qrPixels(v.QR) } height={ qrPixels(v.QR) } shape-rendering="crispEdges">
-							<title>Scan with your authenticator app</title>
-							<rect width={ qrSide(v.QR) } height={ qrSide(v.QR) } fill={ qrPaper }></rect>
-							<path d={ qrPath(v.QR) } fill={ qrInk }></path>
-						</svg>
-						<p class="text-sm text-ink/70">Scan the code with your app, or type this key:</p>
+						<div class="flex flex-col gap-3 md:flex-row md:items-center md:gap-6">
+							<svg class="op-qr" role="img" aria-label="Scan with your authenticator app" viewBox={ qrViewBox(v.QR) } width={ qrPixels(v.QR) } height={ qrPixels(v.QR) } shape-rendering="crispEdges">
+								<title>Scan with your authenticator app</title>
+								<rect width={ qrSide(v.QR) } height={ qrSide(v.QR) } fill={ qrPaper }></rect>
+								<path d={ qrPath(v.QR) } fill={ qrInk }></path>
+							</svg>
+							<div class="flex min-w-0 flex-col gap-2 md:flex-1">
+								<p class="text-sm leading-[1.45] text-ink/70">Scan the code with your app, or type this key:</p>
+								<p class="op-key">{ v.Key }</p>
+							</div>
+						</div>
+					} else {
+						<p class="op-key">{ v.Key }</p>
 					}
-					<p class="op-key">{ v.Key }</p>
-					<p class="text-sm text-ink/70">If your app takes a setup link instead, use this one:</p>
-					<p class="op-uri">{ v.URI }</p>
+					<div class="flex flex-col gap-2">
+						<p class="text-sm leading-[1.45] text-ink/70">If your app takes a setup link instead, use this one:</p>
+						<p class="op-uri">{ v.URI }</p>
+					</div>
 				</div>
 			} else {
-				<div class="mt-6">
-					@components.Notice(components.ToneWarn, "Use the key you already added") {
-						<p>
-							Type a code from the authenticator entry this page gave you. If you did not add
-							it, open your link again for a new key.
-						</p>
-					}
-				</div>
+				@opNotice(components.ToneWarn, "Use the key you already added") {
+					<p>
+						Type a code from the authenticator entry this page gave you. If you did not add
+						it, open your link again for a new key.
+					</p>
+				}
 			}
 			if v.Mismatch {
-				<div class="mt-6">
-					@components.Notice(components.ToneAlert, "The two passwords differ") {
-						<p>Type the same new password in both fields.</p>
-					}
-				</div>
+				@opNotice(components.ToneAlert, "The two passwords differ") {
+					<p>Type the same new password in both fields.</p>
+				}
 			}
 			if v.WeakPassword {
-				<div class="mt-6">
-					@components.Notice(components.ToneAlert, "Choose another password") {
-						<p>Use at least 14 characters and at most 72 bytes. A letter with an accent, or from another alphabet, takes two bytes or more.</p>
-					}
-				</div>
+				@opNotice(components.ToneAlert, "Choose another password") {
+					<p>Use at least 14 characters and at most 72 bytes. A letter with an accent, or from another alphabet, takes two bytes or more.</p>
+				}
 			}
 			if v.CodeRejected {
-				<div class="mt-6">
-					@components.Notice(components.ToneAlert, "That code was not accepted") {
-						<p>Check that your phone's clock is right, then type the next code.</p>
-					}
-				</div>
+				@opNotice(components.ToneAlert, "That code was not accepted") {
+					<p>Check that your phone's clock is right, then type the next code.</p>
+				}
 			}
-			<form method="post" action="/operator/enroll" class="mt-6 flex flex-col gap-5">
-				<p class="docket-label">Step 2 · Choose a password and confirm the code</p>
+			<form method="post" action="/operator/enroll" class="flex flex-col gap-[18px] border-t border-dashed border-line pt-[22px]">
+				<h2 class="op-step">Step 2 · Choose a password and confirm the code</h2>
 				<input type="hidden" name="id" value={ v.AccountID }/>
 				<input type="hidden" name="blob" value={ v.Blob }/>
 				<div id="enroll-token-wrap" class="op-token-field">
-					<label for="enroll-token" class="docket-label">Link code</label>
+					<label for="enroll-token" class="op-label">Link code</label>
 					<input id="enroll-token" name="token" type="password" autocomplete="off" required value={ v.Token } class="op-input"/>
 					<p class="text-xs text-ink/70">The part of your link after the # sign.</p>
 				</div>
 				<div class="flex flex-col gap-1.5">
-					<label for="enroll-password" class="docket-label">New password</label>
+					<label for="enroll-password" class="op-label">New password</label>
 					<input id="enroll-password" name="password" type="password" autocomplete="new-password" minlength="14" required class="op-input"/>
 				</div>
 				<div class="flex flex-col gap-1.5">
-					<label for="enroll-password-again" class="docket-label">New password again</label>
+					<label for="enroll-password-again" class="op-label">New password again</label>
 					<input id="enroll-password-again" name="password_again" type="password" autocomplete="new-password" minlength="14" required class="op-input"/>
 				</div>
 				<div class="flex flex-col gap-1.5">
-					<label for="enroll-code" class="docket-label">Code from the app</label>
+					<label for="enroll-code" class="op-label">Code from the app</label>
 					<input id="enroll-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" required class="op-input"/>
 				</div>
 				<button type="submit" class="btn btn--primary">Finish setup</button>

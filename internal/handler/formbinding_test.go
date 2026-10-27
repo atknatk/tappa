@@ -194,7 +194,7 @@ func panelPost(h http.Handler, target, cookie string, body io.Reader) *httptest.
 
 // nonPanelPostActions are the POST forms in web/templates that are not panel writes: the
 // sign-in family and sign-out (unboundPanelPost), the sign-up wizard, the activation
-// wizard, the tap form, and the development tap strip.
+// wizard, the tap form, the employee's claim card, and the development tap strip.
 var nonPanelPostActions = map[string]bool{
 	`"/admin/login"`: true, `"/admin/login/choose"`: true, `"/admin/logout"`: true,
 	`"/admin/reset"`: true, `"/admin/reset/new"`: true,
@@ -204,6 +204,8 @@ var nonPanelPostActions = map[string]bool{
 	`{ templ.URL(SignupConfirmPath) }`: true,
 	`"/activate"`:                      true, `"/api/activate"`: true, `"/api/checkin"`: true,
 	`{ templ.SafeURL(DevSimulateTapPath) }`: true,
+	// M15-15: the employee's claim card on the tap result -- the tap side's own form, no panel session.
+	`"/api/claim"`: true,
 }
 
 // boundAction is how a bound form writes its action (components.Bound on the render ctx).

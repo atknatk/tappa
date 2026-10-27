@@ -124,9 +124,12 @@ const (
 	sentenceVATNotAskable   = "This number is not in the format VIES accepts for its country, so it cannot be sent from here. Only the platform owner can correct it, in the database."
 )
 
-// vatForm is the screen's form, as the page writes it, for tenant id.
+// vatForm is the screen's form, as the page writes it, for tenant id: method before action, no
+// field, only the button. Its class is the redesign's (M13-11): the button the card's width on the
+// phone, at the row's end from the tablet.
 func vatForm(id string) string {
-	return `<form method="post" action="` + vatPathOf(id) + `" class="mt-4"><button type="submit" class="btn btn--primary">Ask VIES again</button></form>`
+	return `<form method="post" action="` + vatPathOf(id) + `" class="flex flex-col md:ml-auto md:block md:shrink-0">` +
+		`<button type="submit" class="btn btn--primary">Ask VIES again</button></form>`
 }
 
 // ------------------------------------------------------------ the header table --
@@ -1517,7 +1520,7 @@ func TestVATScreen_EachChipHasTheRuleTheContrastTestComputes(t *testing.T) {
 	classes := map[string]bool{}
 	for tone, w := range want {
 		var b strings.Builder
-		if err := operatorpages.TenantVAT(operatorpages.TenantVATView{Name: mustName(t, "FAKE Tone Ltd"), Label: "L", Sentence: "S",
+		if err := operatorpages.TenantVAT(operatorpages.TenantVATView{Name: mustName(t, "FAKE Tone Ltd"), Tabs: fixtureTabs, Label: "L", Sentence: "S",
 			Tone: tone}).Render(t.Context(), &b); err != nil {
 			t.Fatal(err)
 		}

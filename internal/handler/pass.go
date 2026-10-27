@@ -60,6 +60,9 @@ func (a *AdminAuth) fillPass(ctx context.Context, v *pages.TransactionsView, scr
 	v.Today = true
 	v.Floor = floorView(screen.Floor)
 	v.Spike = spikeView(v.PanelChrome.Pending)
+	if a.claims != nil {
+		v.Spike.Claims = spikeClaimsLine(v.PanelChrome.Pending.Claims)
+	}
 	v.LeftOpen = leftOpenView(screen.LeftOpen)
 	v.Tape = tapeView(screen.Tape, local)
 	v.PassPlaques = a.passPlaques(ctx, id, screen.Options.Locations)
@@ -252,6 +255,23 @@ func spikeView(p pages.PendingBadge) pages.SpikeView {
 		c += "+"
 	}
 	return pages.SpikeView{State: pages.WidgetRead, Count: c, Href: reviewHref}
+}
+
+// spikeClaimsLine is the "On the spike" card's line for the time claims (M15-18 review round), from
+// the same badge read: a failed count is said, never printed as none.
+func spikeClaimsLine(c pages.PendingClaims) string {
+	switch {
+	case c.Failed:
+		return "time claims not counted"
+	case !c.Queried:
+		return ""
+	case c.N <= 0:
+		return "no time claims waiting"
+	case c.N == 1 && !c.Capped:
+		return "1 time claim waiting"
+	default:
+		return c.Count() + " time claims waiting"
+	}
 }
 
 // leftOpenView maps "left open since yesterday", with its link to yesterday's week on Odd shapes.

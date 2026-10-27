@@ -177,8 +177,10 @@ WHERE e.tenant_id = @tenant_id
 --
 -- WHAT EACH COLUMN DECIDES, so nothing here is decoration:
 --   * status         -> sys:employee-deactivated (§5 row 4: reject, RECORD it,
---                       and raise a security alert). The tap page deliberately
---                       does not read this; a page cannot record a refusal.
+--                       and raise a security alert). The tap page does not
+--                       REFUSE on it -- a page cannot record a refusal; since
+--                       M15-12 it reads it for one thing only: a person who is
+--                       not active gets no predicted direction (ADR 0032 §B.2).
 --   * location_id    -> the employee's HOME location, compared against the
 --                       TAPPED one for the cross-location fact (Q17). It never
 --                       penalises a tap — chain staff move between branches —
@@ -240,6 +242,11 @@ WHERE e.tenant_id = @tenant_id
 -- department or branch id of another tenant contributes nothing. tenants.day_cutoff
 -- is NOT NULL, so the coalesce always has a value. The cutoff is only an input:
 -- whether it APPLIES (the TAPPA_BUSINESS_DAY_FROM switch, §A.8) is decided in Go.
+--
+-- A SECOND READER SINCE M15-12, ON PURPOSE: the tap screen's predicted direction
+-- (internal/domain/tenant, predictTap) reads status, timezone and
+-- effective_day_cutoff through THIS query, so the button and the record are judged
+-- from one resolution of the person's day (ADR 0032 §B.2). It renders none of them.
 SELECT e.status, e.location_id, e.department_id, e.activated_at,
        t.timezone AS tenant_timezone, t.business_type AS tenant_business_type,
        coalesce(e.day_cutoff, d.day_cutoff, l.day_cutoff, t.day_cutoff)::time AS effective_day_cutoff

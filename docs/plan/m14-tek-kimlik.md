@@ -169,7 +169,7 @@ yer kararın yanında yazılıdır (ADR 0031 §13 tam tablo).
 14. **K-14 — `admin_users.email` ayna, `full_name` üyelikte.** (a) seçildi. ⚠️ *Sıkılaştı (bulgu 21):*
     `tappa_app`'ın `UPDATE (email)`'i expand'de kapanır.
 15. **K-15 — E-posta değiştirme (yeni, bulgu 12).** **(a) seçildi (kullanıcı, 2026-10-22, M14-01;
-    [open-questions.md](open-questions.md) Q34, backlog T149).** (a) M14'ün dışında;
+    [open-questions.md](open-questions.md) Q34, backlog T173).** (a) M14'ün dışında;
     kendi kartı ve kararıyla gelir (mevcut parola + yeni adres doğrulaması + eski adrese bildirim +
     çakışmada aynı "gelen kutunu kontrol et" + aynanın bütün işletmelerde definer ile güncellenmesi).
     (b) M14'e ek kart. — **Öneri: (a).** ADR 0031 (a)'yı varsayar.

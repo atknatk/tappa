@@ -459,6 +459,17 @@ templ manualConfirmStep(v ManualEntryView) {
 					Rather than correcting one, get this one right.
 				</p>
 			}
+			// THE SURPLUS HAS A NAME (ADR 0032 §A.6, class (e); M15-06). Correcting a checkout
+			// recorded too late with an earlier one works, and the late one is left over: the
+			// report counts it apart as an extra checkout, and it is NOT listed as a missing
+			// check-in. Said for a checkout only -- it is the one direction that leaves it.
+			if v.Direction == "out" {
+				<p>
+					If this checkout corrects one recorded too late, the late one stays on record as
+					an extra checkout. It is counted apart from the hours and is not listed as a
+					missing check-in.
+				</p>
+			}
 		</div>
 		<input type="hidden" name="id" value={ v.EmployeeID }/>
 		<input type="hidden" name="direction" value={ v.Direction }/>

@@ -63,7 +63,9 @@ func TestInputDecision_construct(t *testing.T) {
 			Overnight: true,
 			Timezone:  "Europe/Malta",
 		},
-		Debounce: 60 * time.Second,
+		DayCutoff:          &DayCutoff{Cutoff: 5 * time.Hour, Timezone: "Europe/Malta"},
+		RequestedDirection: func() *Type { d := TypeOut; return &d }(),
+		Debounce:           60 * time.Second,
 	}
 
 	if in.Tag.Status != TagActive || in.Employee.Status != EmployeeActive {
@@ -84,6 +86,17 @@ func TestInputDecision_construct(t *testing.T) {
 		Practice:      false,
 		Redirect:      RedirectNone,
 		Security:      false,
+		// ADR 0032 §B.3/§B.4 (M15-10): who chose the direction and the two anchors.
+		DirectionSource: DirectionEmployee,
+		LeftOpen:        &LeftOpen{ID: uuid.New(), Reason: LeftOpenEmployeeChoice},
+		MissingIn:       CheckoutOrphan,
+	}
+	reasons := map[LeftOpenReason]struct{}{LeftOpenPreviousBusinessDay: {}, LeftOpenStale: {}, LeftOpenEmployeeChoice: {}}
+	if len(reasons) != 3 {
+		t.Fatalf("left-open reasons collide: %v", reasons)
+	}
+	if (Decision{}).DirectionSource != "" || (Decision{}).MissingIn != "" {
+		t.Fatalf("a zero Decision must carry no direction source and no anchor")
 	}
 	if dec.Verdict != VerdictOK || *dec.Type != TypeIn {
 		t.Fatalf("decision wiring broken: verdict=%q type=%v", dec.Verdict, dec.Type)

@@ -169,6 +169,10 @@ func (a *AdminAuth) reviewSection(w http.ResponseWriter, r *http.Request) {
 		// hand-edited URL can turn the sentence on but cannot put anything in it.
 		Clipped: r.URL.Query().Get("clipped") == "1",
 	}
+	if a.claims != nil {
+		v.Queues = pages.SpikeQueuesView{ReviewHref: reviewHref, ClaimsHref: claimsHref, ClaimsCount: v.PanelChrome.Pending.Claims.Count(),
+			ClaimsWaiting: v.PanelChrome.Pending.Claims.Waiting()}
+	}
 	v.PanelChrome.Kicker = "Every day · newest first · shrinks as you work it"
 	// "N decided today" (M12-25) in its three states; the template prints "not counted" for a
 	// failed count and nothing for one never asked -- never a 0 nobody measured.
@@ -657,6 +661,7 @@ func (a *AdminAuth) chromeInGroup(r *http.Request, tab pages.PanelTab, inGroup b
 		a.log.Error("panel: could not count the review queue", "err", err)
 		return c
 	}
-	c.Pending = pages.PendingBadge{Known: true, N: p.N, Capped: p.Capped}
+	c.Pending = pages.PendingBadge{Known: true, N: p.N, Capped: p.Capped,
+		Claims: pages.PendingClaims{Queried: p.Claims.Queried, Failed: p.Claims.Failed, N: p.Claims.N, Capped: p.Claims.Capped}}
 	return c
 }

@@ -21,34 +21,47 @@ import "strconv"
 //
 // NO PERSON IS LISTED: the read returns counts, the view has no field for a name, and no
 // row links anywhere. The page says so in a sentence.
+//
+// THE REDESIGN (M13-10; docs/design/operator-redesign README §6 "Billing receipt strip", "Pager",
+// §6.1 "Billing row", screens.md §8, boards OpBilling): one card -- the mono label, the h1 at the
+// board's 26 / 28 / 32 px, the intro, the note and the two links; the card spaces its blocks, its
+// bodies carry no top margin -- then the months on the docket and the pager under it. A row still
+// opens with the month, the chip beside it; then the sentence, the four figures as a receipt strip
+// (a term list: each label above its value, the amount at the strip's end and larger; two by two
+// on the phone), the three dated facts in one wrapper, and the free-window and floor sentences. A
+// month with no figure -- before sign-up, unreadable -- has no strip at all, not an empty one. The
+// pager's two ways are outlined buttons; on the phone, where the row has room for both, each takes
+// half of it, and at 320 px, where it has not, they stack (a button never breaks its word). The
+// row's layout and type are scoped rules in input.css, because the row's markup is pinned.
+// Pinned by TestBillingScreen_IsTheIntroCardAndTheDocket.
 templ TenantBilling(v TenantBillingView) {
-	@TenantScreen("Billing", v.Name) {
+	@TenantScreen("Billing", v.Name, v.Tabs, TabBilling) {
 		<section class="op-card">
-			<p class="docket-label">Billing</p>
-			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Billing months</h1>
-			<p class="mt-3 text-sm">
+			<p class="op-label">Billing</p>
+			<h1 class="font-display text-[26px] font-bold leading-[1.1] tracking-[-0.03em] md:text-[28px] desk:text-[32px]">Billing months</h1>
+			<p class="text-[15px] leading-[1.55]">
 				<span class="font-mono">{ strconv.Itoa(v.MonthsPerPage) }</span> of this tenant's own months per page, newest
 				first, each in the time zone it is counted in. These are the tenant's own figures: the arithmetic of its
 				billing screen, read when this page was opened.
 			</p>
-			<p class="mt-1 text-xs text-ink/70">
+			<p class="text-sm text-ink/70">
 				Nothing on this page closes, changes or charges a month. A count is all a month keeps: no person is
 				listed, here or anywhere a month links.
 			</p>
-			<p class="mt-2 flex flex-wrap gap-x-6">
+			<p class="flex flex-col items-start text-sm md:flex-row md:flex-wrap md:gap-x-6">
 				<a href={ templ.URL(v.OverviewPath) } class="op-link">Back to the overview</a>
 				<a href="/operator/tenants" class="op-link">Back to the tenants</a>
 			</p>
 		</section>
 		<section class="docket" aria-labelledby="tenant-billing">
 			<h2 id="tenant-billing" class="docket-label">Newest first · page <span class="font-mono">{ strconv.Itoa(v.Page) }</span> of <span class="font-mono">{ strconv.Itoa(v.LastPage) }</span></h2>
-			<ol class="mt-2">
+			<ol>
 				for _, r := range v.Rows {
 					@billingRow(r)
 				}
 			</ol>
 			if v.Page == v.LastPage {
-				<p class="mt-3 text-xs text-ink/70">
+				<p class="mt-1.5 border-t-2 border-dashed border-line pt-3 font-display text-[13px] text-ink/70">
 					This is the oldest page this screen shows: <span class="font-mono">{ strconv.Itoa(v.LastPage*v.MonthsPerPage) }</span> months, the
 					tenant's own history depth.
 				</p>
@@ -58,24 +71,30 @@ templ TenantBilling(v TenantBillingView) {
 	}
 }
 
-// billingRow is one month. Its facts are spans of their own, so they wrap on a phone.
+// billingRow is one month: the month and its chip on the head line, the sentence, then -- only for
+// a month with figures -- the receipt strip of the four figures, the dated facts (each a span of
+// its own, one per line on the phone) and the free-window and floor sentences.
 templ billingRow(r BillingRow) {
 	<li class="op-row">
 		<span class="font-mono font-bold">{ r.Month }</span>
 		@billingChip(r)
 		<span class="w-full text-sm">{ r.Sentence }</span>
 		if r.HasFigures {
-			<span class="text-sm">Plan <span class="font-mono">{ r.Plan }</span></span>
-			<span class="text-sm">People counted <span class="font-mono">{ r.People }</span></span>
-			<span class="text-sm">Price per person <span class="font-mono">{ r.UnitPrice }</span></span>
-			<span class="text-sm">Amount <span class="font-mono">{ r.Amount }</span></span>
-			if r.ClosedAt != "" {
-				<span class="text-sm">Closed <span class="font-mono">{ r.ClosedAt }</span></span>
-			}
-			if r.FirstCharged != "" {
-				<span class="text-sm">First charged month <span class="font-mono">{ r.FirstCharged }</span></span>
-			}
-			<span class="text-sm">Counted over <span class="font-mono">{ r.Period }</span></span>
+			<dl class="op-receipt">
+				<div><dt class="docket-label">Plan</dt><dd class="font-mono">{ r.Plan }</dd></div>
+				<div><dt class="docket-label">People counted</dt><dd class="font-mono">{ r.People }</dd></div>
+				<div><dt class="docket-label">Price per person</dt><dd class="font-mono">{ r.UnitPrice }</dd></div>
+				<div><dt class="docket-label">Amount</dt><dd class="font-mono">{ r.Amount }</dd></div>
+			</dl>
+			<p class="flex w-full flex-col gap-0.5 font-display text-ink/70 md:flex-row md:flex-wrap md:gap-x-[22px] md:gap-y-1">
+				if r.ClosedAt != "" {
+					<span class="text-sm">Closed <span class="font-mono">{ r.ClosedAt }</span></span>
+				}
+				if r.FirstCharged != "" {
+					<span class="text-sm">First charged month <span class="font-mono">{ r.FirstCharged }</span></span>
+				}
+				<span class="text-sm">Counted over <span class="font-mono">{ r.Period }</span></span>
+			</p>
 			if r.Free {
 				<span class="w-full text-sm">
 					Inside the founding offer's free window: the amount is zero because of the offer, not because nobody was
@@ -112,10 +131,13 @@ templ billingChip(r BillingRow) {
 }
 
 // billingPager is the way to the newer and the older page -- each a form that posts the page
-// number to this screen; the URL carries none.
+// number to this screen; the URL carries none. On the phone each form grows from nothing and its
+// button fills it: side by side, half the row each, where both fit (390 px), one above the other
+// where they do not (320 px) -- as the phone board draws it, its forms growing from nothing and
+// its button never breaking its word.
 templ billingPager(v TenantBillingView) {
 	if v.Page > 1 || v.Page < v.LastPage {
-		<nav class="flex flex-wrap items-center gap-x-6" aria-label="Pages of the billing months">
+		<nav class="flex flex-wrap gap-2.5 md:gap-3 max-md:*:grid max-md:*:flex-1" aria-label="Pages of the billing months">
 			if v.Page > 1 {
 				@billingPageForm(v.BillingPath, v.Page-1, "Newer months")
 			}
@@ -129,6 +151,6 @@ templ billingPager(v TenantBillingView) {
 templ billingPageForm(action string, page int, label string) {
 	<form method="post" action={ templ.URL(action) }>
 		<input type="hidden" name="page" value={ strconv.Itoa(page) }/>
-		<button type="submit" class="op-link">{ label }</button>
+		<button type="submit" class="op-pager">{ label }</button>
 	</form>
 }
