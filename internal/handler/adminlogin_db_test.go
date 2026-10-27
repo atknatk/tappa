@@ -94,6 +94,9 @@ type panelHarness struct {
 	// reset is the recovery flow itself, so a test can drain its outbox (M10 EM-5:
 	// the send happens on a worker, after the response).
 	reset *AdminReset
+	// invites is the manager invitation service the panel was given (M14-15), nil without
+	// panelHarnessOptions.inviteSender.
+	invites *adminauth.AdminInvites
 	// releaseTablesLock stops this harness holding the operator-tables lock (holdPanelTablesLock);
 	// the test's cleanup does it anyway.
 	releaseTablesLock func()
@@ -141,6 +144,9 @@ type panelHarnessOptions struct {
 	// adminIdentity is TAPPA_ADMIN_IDENTITY (ADR 0031 §8): on mounts the identity surfaces (M14-11)
 	// and the sign-in takes the identity path (M14-09).
 	adminIdentity bool
+	// inviteSender (M14-15), when set, gives the panel the REAL manager invitation service
+	// (adminauth.AdminInvites on this database) and the invitation e-mail mode over this fake sender.
+	inviteSender *fakeMailSender
 }
 
 func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
@@ -281,6 +287,22 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 		cfg.InviteDelivery = config.InviteDeliveryEmail
 		opts = append(opts, InvitationsByEmail(o.invitations(t, cfg)))
 	}
+	if o.inviteSender != nil {
+		svc, err := adminauth.NewAdminInvites(data, cfg)
+		if err != nil {
+			t.Fatalf("adminauth.NewAdminInvites: %v", err)
+		}
+		ph.invites = svc
+		opts = append(opts, AdminInvitations(svc))
+		if o.invitations == nil {
+			cfg.InviteDelivery = config.InviteDeliveryEmail
+			inv, err := NewEmailInvitations(o.inviteSender, cfg.BaseURL)
+			if err != nil {
+				t.Fatalf("NewEmailInvitations: %v", err)
+			}
+			opts = append(opts, InvitationsByEmail(inv))
+		}
+	}
 	panelLog := o.log
 	if panelLog == nil {
 		panelLog = slog.New(slog.DiscardHandler)
@@ -294,6 +316,7 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
 	h.Mount(r)
+	h.MountInviteAcceptance(r)
 	registerPanel(r, h)
 
 	// 🔴 THE ACTIVATION FLOW IS MOUNTED BESIDE THE PANEL (M6-05 phase B, round 3), so

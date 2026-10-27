@@ -2102,24 +2102,15 @@ func ipCatalogue(t *testing.T, ctx context.Context, q pgx.Tx) string {
 func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndUp(t *testing.T) {
 	ctx, tx := opTx(t)
 	later := aiLaterMigrations(t)
-	// M14-17: 00078's Down drops admin_signup_claims -- its table lock is taken first (lockForDowns),
-	// like every walk over a Down that names a table.
-	var laterTables []string
-	for _, f := range later {
-		if f.name >= "00074" {
-			laterTables = append(laterTables, downTables(f.down)...)
-		}
-	}
-	for _, tb := range laterTables {
-		if tb != "admin_signup_claims" {
-			t.Fatalf("PREMISE: a Down above 00074 locks %s; walk it with lockForDowns", tb)
-		}
-	}
-	if len(laterTables) > 0 {
-		lockForDowns(t, ctx, tx, laterTables)
-	}
+	// M14-15: a later Down that locks tables (00077's locks tenants, admin_users and the table it drops)
+	// has them taken first, as identityAt00070 takes every later Down's tables, so the walk queues behind
+	// nothing.
 	for i := len(later) - 1; i >= 0; i-- {
 		if later[i].name >= "00074" {
+			if tables := downTables(later[i].down); len(tables) > 0 {
+				slices.Sort(tables)
+				lockForDowns(t, ctx, tx, slices.Compact(tables))
+			}
 			opRunSection(t, ctx, tx, later[i].down, later[i].name+" Down")
 		}
 	}
@@ -2131,6 +2122,26 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 		if !slices.Contains(tables, want) {
 			t.Fatalf("PREMISE: downTables found %v in 00072's Down, not %s", tables, want)
 		}
+	}
+	// THE NARROWING, NAMED. The strong locks the later Downs leave in this transaction are theirs, not
+	// 00072's Down's -- and the check below cannot see a lock 00072's Down would take on a table already
+	// locked here (a backend holds a lock once). So the exemption is CLOSED and each entry says why:
+	// anything else a later Down locks is red here, and 00072's Down itself must not name a table of
+	// this list it does not already name (tenants above all: a strong tenants lock from 00072's Down
+	// would hide behind 00077's).
+	laterDownLocks := map[string]string{
+		"admin_invites": "00077's Down drops its own table",
+		"admin_users":   "00077's Down: admin_invites' composite FK to admin_users",
+		"tenants":       "00077's Down: admin_invites' FK to tenants",
+	}
+	walked := strongTableLocksOutside(t, ctx, tx, tables)
+	for _, w := range walked {
+		if _, named := laterDownLocks[w]; !named {
+			t.Fatalf("a later Down left a strong lock on %s, which laterDownLocks does not name", w)
+		}
+	}
+	if regexp.MustCompile(`(?i)\btenants\b`).MatchString(identityLineComment.ReplaceAllString(down, "")) {
+		t.Fatal("00072's Down names tenants: a strong lock it took there would hide behind 00077's (laterDownLocks)")
 	}
 	lockForDowns(t, ctx, tx, tables)
 	head := ipCatalogue(t, ctx, tx)
@@ -2195,7 +2206,7 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 			                     FROM pg_proc p WHERE p.oid = 'public.resolve_admin_by_email(citext)'::regprocedure`) != 1 {
 			t.Errorf("after 00072's Down resolve_admin_by_email is not 00017's (four columns, definer, tappa_app alone):\n%s", at70)
 		}
-		if extra := strongTableLocksOutside(t, ctx, sp, tables); len(extra) > 0 {
+		if extra := strongTableLocksOutside(t, ctx, sp, append(slices.Clone(tables), walked...)); len(extra) > 0 {
 			t.Errorf("the Down took a strong lock on %v, outside the tables it names", extra)
 		}
 		opRunSection(t, ctx, sp, up, "00072 Up again")

@@ -325,6 +325,12 @@ type AdminAuth struct {
 	// is mailed or shown is decided by this field and nothing else.
 	inviteMail *EmailInvitations
 
+	// adminInvites is the manager invitation (M14-15, admininvites.go), given by the AdminInvitations
+	// option; nil answers the gated routes with 503. inviteAcceptLimiter is the invitee's per-address
+	// budget in front of the acceptance (its bcrypt).
+	adminInvites        panelAdminInvites
+	inviteAcceptLimiter *limiter
+
 	// See adminratelimit.go for why there are three and what each may refuse.
 	floodLimiter   *limiter
 	attemptLimiter *limiter
@@ -531,6 +537,8 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		sessionLimiter: newLimiter(adminSessionLimit, adminSessionPeriod),
 		logoutLimiter:  newLimiter(adminLogoutLimit, adminLogoutPeriod),
 		switchLimiter:  newLimiter(adminSwitchLimit, adminSwitchPeriod),
+
+		inviteAcceptLimiter: newLimiter(adminInviteAcceptLimit, adminInviteAcceptPeriod),
 
 		switchPersonLimiter: newLimiter(adminSwitchPersonLimit, adminSwitchPersonPeriod),
 		encodeLimiter:       newLimiter(adminEncodeLimit, adminEncodePeriod),

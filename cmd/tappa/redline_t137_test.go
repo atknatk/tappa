@@ -237,6 +237,7 @@ func TestRedline_T137_TheBodyWhitelistIsPinned(t *testing.T) {
 		"db/migrations/00039_open_the_api_from_the_operator.sql",
 		"db/migrations/00042_put_holdings_on_the_operator_surface.sql",
 		"db/migrations/00063_suspend_a_tenant_from_the_operator.sql",
+		"db/migrations/00077_invite_administrators.sql",
 		// M14-17 (ORTA-1): the Down's guarded REVOKE of the owner-row INSERT it shares with 00077.
 		"db/migrations/00078_verify_signups_by_e_mail.sql",
 	}

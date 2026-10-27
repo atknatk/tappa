@@ -150,6 +150,24 @@ var m11Tables = map[string]map[string]m11TableACL{
 	"admin_identity_events": {
 		"tappa_identitydefiner": {Select: "created_at", Insert: "identity_id,event,detail", Delete: true},
 	},
+	// 00077 (M14-15, ADR 0031 §5.1): the administrator invitation -- TENANT-SCOPED (the RLS five).
+	// tappa_app (the owner's panel) reads every column but token_hash (a lookup by token is the
+	// resolver's), issues an invitation by naming it (created_at, used_at and cancelled_at are not its
+	// to write) and cancels it (cancelled_at alone) -- never deletes. tappa_resolver reads what
+	// resolve_admin_invite_by_token_hash returns and filters on; tappa_identitydefiner reads the
+	// invitation it accepts and spends it (used_at alone -- ADR 0031 §5.2's matrix).
+	"admin_invites": {
+		"tappa_app": {
+			Select: "id,tenant_id,email,full_name,role,invited_by,created_at,expires_at,used_at,cancelled_at",
+			Insert: "tenant_id,email,full_name,role,token_hash,invited_by,expires_at",
+			Update: "cancelled_at",
+		},
+		"tappa_resolver": {Select: "id,tenant_id,role,token_hash,expires_at,used_at,cancelled_at"},
+		"tappa_identitydefiner": {
+			Select: "id,tenant_id,email,full_name,role,token_hash,expires_at,used_at,cancelled_at",
+			Update: "used_at",
+		},
+	},
 	// 00078 (M14-17, ADR 0031 §5.1, §5.10): the registration drafts -- TENANT-SCOPE-LESS
 	// (m11ScopelessTables). tappa_app holds nothing (ADR 0031 §6). The resolver reads the key and the
 	// six columns it returns (the draft: the 2026-10-26 user decision); the definer opens a draft,
@@ -369,7 +387,11 @@ var m11Columns = []m11Column{
 	// unlinked_at (resolve_identity_by_email's has_active_membership; resolve_admin_by_email's new
 	// column and filter); tappa_identitydefiner reads them (the session functions find the person and
 	// refuse a refused row) and, from 00072, writes the link (link, unlink, relink).
-	// 00078 (M14-17): the definer INSERTs the owner row identity_claim_signup writes, its link included.
+	// 00077 (M14-15, ADR 0031 §5.2's matrix): the invitation's acceptance births the membership row, so
+	// tappa_identitydefiner INSERTs identity_id, linked_via and linked_at (with the five older columns
+	// the matrix names); unlinked_at is never inserted (a new row is not refused).
+	// 00078 (M14-17) RESTATES it for the owner row identity_claim_signup writes (00077 owns the shared
+	// grant; 00078's Down keeps it while an invite function exists).
 	{"admin_users", "identity_id", map[string]string{"tappa_app": "S", "tappa_resolver": "S", "tappa_identitydefiner": "SIU"}},
 	{"admin_users", "linked_via", map[string]string{"tappa_identitydefiner": "SIU"}},
 	{"admin_users", "linked_at", map[string]string{"tappa_identitydefiner": "SIU"}},
@@ -484,6 +506,11 @@ var m11Functions = map[string]m11FunctionACL{
 	// 00074 (M14-08, ADR 0031 §5.2 named exception 2): the registration's dual-write. EXECUTE
 	// tappa_app (and the owner) until M14-19 takes it away; contract B drops it.
 	"identity_create_for_signup(uuid,uuid)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	// 00077 (M14-15, ADR 0031 §5.2): the invitation's md.7 resolver (tappa_resolver's) and its two
+	// acceptances -- keyed by the invitation token (and a live session) -- EXECUTE tappa_app alone.
+	"resolve_admin_invite_by_token_hash(text)": {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"identity_accept_invite(text,text)":        {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_accept_invite_new(text,text)":    {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 	// 00078 (M14-17, ADR 0031 §5.10): the verified registration -- the md.7 resolver of a draft and the
 	// definer's open, claim and sweep.
 	"resolve_signup_claim_by_token_hash(text)":                                    {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},

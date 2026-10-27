@@ -154,7 +154,7 @@ type appFeatures struct {
 }
 
 func (f appFeatures) router(cfg *config.Config) http.Handler {
-	return appRouter(cfg, nil, f.activation, f.tap, f.panel, f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools)
+	return appRouter(cfg, nil, f.activation, f.tap, f.panel, f.panel.InviteAcceptance(), f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools)
 }
 
 func (f appFeatures) named() []struct {
@@ -165,7 +165,7 @@ func (f appFeatures) named() []struct {
 		name string
 		m    httpx.Mounter
 	}{
-		{"activation", f.activation}, {"tap", f.tap}, {"panel", f.panel}, {"logos", f.logos},
+		{"activation", f.activation}, {"tap", f.tap}, {"panel", f.panel}, {"invite", f.panel.InviteAcceptance()}, {"logos", f.logos},
 		{"marketing", f.marketing}, {"signup", f.signupFlow}, {"reset", f.resetFlow},
 		{"ready", f.ready}, {"theme", f.theme}, {"operator", f.operator},
 		{"api", f.api}, {"devtools", f.devTools},
@@ -350,7 +350,7 @@ func walkOf(t *testing.T, h http.Handler) []string {
 //	2 panel exception   ADR 0025's exceptions, by name: its eight, and K-26's three
 //	                    defences (ADR 0025's M11 note; plan §4.7); with the panel identity
 //	                    flag on (the configured walk), its M14 note's routes (M14-11).
-//	3 outside the panel the tap, activation, password recovery and sign-up routes and
+//	3 outside the panel the tap, activation, password recovery, invitation acceptance (M14-15) and sign-up routes and
 //	                    the dev-only simulator, by name; the configured operator surface's
 //	                    routes (its own host, its own identity -- ADR 0020; classified
 //	                    route by route by internal/handler/operator's own header classes);
@@ -399,6 +399,9 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 	// Named routes that exist only with the optional surfaces on.
 	outsidePanelWhenOn := map[string]string{
 		"POST " + handler.DevSimulateTapPath: "devtools",
+		// M14-15: the invitee's acceptance -- mounted beside the panel, outside its chains (no session
+		// of the inviting business), only with the panel identity flag on.
+		"POST /admin/invite": "invite",
 	}
 	methodless := map[string]string{"/static/*": "router", "/operator": "operator", "/operator/*": "operator"}
 	// chi's own method list, less the two reads: what a methodless route is reported under.

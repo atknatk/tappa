@@ -2048,6 +2048,8 @@ var cookieWriters = map[string]cookieWriter{
 	"tappa_admin_login":   {[]string{"internal", "handler", "logincontext.go"}, "set"},
 	"tappa_admin_choice":  {[]string{"internal", "handler", "logincontext.go"}, "set"},
 	"tappa_admin_confirm": {[]string{"internal", "handler", "logincontext.go"}, "set"},
+	// M14-15: the invitation link's cookie (its own narrow path, like the recovery link's).
+	"tappa_admin_invite": {[]string{"internal", "handler", "admininvites.go"}, "setInviteLink"},
 	// The two the sign-up wizard sets (M7-02). They share a setter for the same
 	// reason the three above do: signupCookies.set takes the name as a parameter and
 	// applies the same attributes to both.
@@ -2164,6 +2166,8 @@ func TestCookieNotice_FlagsAndScopeMatchTheCookieTheCodeWrites(t *testing.T) {
 			"adminResetLinkCookiePath": adminResetLinkCookiePath,
 			// M14-17. The registration LINK cookie: the confirmation page alone.
 			"signupConfirmPath": signupConfirmPath,
+			// M14-15. The invitation LINK cookie, scoped to the one page that reads it.
+			"adminInvitePath": adminInvitePath,
 		}[attrs["Path"]]
 		if wantPath == "" {
 			t.Errorf("%s: %s writes Path: %s, which this test cannot resolve. Resolve it here "+

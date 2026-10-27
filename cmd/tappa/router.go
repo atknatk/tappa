@@ -40,6 +40,7 @@ func appRouter(cfg *config.Config, log *slog.Logger,
 	activation *handler.Activation,
 	tap *handler.Tap,
 	panel *handler.AdminAuth,
+	invite httpx.Mounter,
 	logos *handler.BrandLogos,
 	marketing *handler.Marketing,
 	signupFlow *handler.Signup,
@@ -50,5 +51,8 @@ func appRouter(cfg *config.Config, log *slog.Logger,
 	integrationAPI httpx.Mounter,
 	devTools httpx.Mounter,
 ) http.Handler {
-	return httpx.NewRouter(cfg, log, activation, tap, panel, logos, marketing, signupFlow, resetFlow, ready, theme, operatorSurface, integrationAPI, devTools)
+	// invite is the manager invitation's page (M14-15, the panel's InviteAcceptance), mounted beside the
+	// panel like the recovery flow: it is reached without a session of the inviting business, so it is
+	// outside the panel's chains.
+	return httpx.NewRouter(cfg, log, activation, tap, panel, invite, logos, marketing, signupFlow, resetFlow, ready, theme, operatorSurface, integrationAPI, devTools)
 }

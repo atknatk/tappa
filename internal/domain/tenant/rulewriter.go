@@ -1315,3 +1315,43 @@ func isUniqueViolation(err error) bool {
 	var pg *pgconn.PgError
 	return errors.As(err, &pg) && pg.Code == "23505"
 }
+
+// MayInviteManager is the manager invitation's owner gate (M14-15, ADR 0031 §5.11): the SAME question
+// May asks -- policy:edit on this business, the policy engine's -- with one difference the user decided
+// on 2026-10-27: a business whose stored rulebook is EMPTY (never materialised -- no tap yet) is asked
+// against the SHIPPED baseline, where the owner holds policy:edit, instead of being refused by the
+// fail-closed default. Nothing is written on this path (no materialisation from a panel request -- the
+// StoredSet rule), and no action is added to the closed vocabulary. A business with ANY stored row is
+// decided by what is stored, exactly as May: a rulebook with an unreadable document still refuses.
+//
+// The guardrail stage first, as in refusalFor: sys:policy-edit-owner-only refuses a non-owner
+// terminally whatever the rulebook.
+func (w *RuleWriter) MayInviteManager(ctx context.Context, tenantID uuid.UUID, actor Actor) bool {
+	if tenantID == uuid.Nil || actor.ID == uuid.Nil {
+		return false
+	}
+	in := policyEditContext(tenantID, actor)
+	noPolicyAtAll := policy.Evaluate(policy.Set{}, in)
+	guardrails := policy.Guardrails(w.params)
+	if d := policy.Evaluate(policy.Set{Guardrails: guardrails}, in); d.MatchedSid != noPolicyAtAll.MatchedSid {
+		return false
+	}
+	if policy.Evaluate(w.authority.StoredSet(ctx, tenantID), in).Effect == policy.EffectAllow {
+		return true
+	}
+	var stored int
+	if err := w.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		rows, e := store.New(tx).ListPolicySet(ctx, tenantID)
+		stored = len(rows)
+		return e
+	}); err != nil {
+		w.log.ErrorContext(ctx, "tenant: reading whether the rulebook is empty failed; the invitation gate refuses",
+			"tenant_id", tenantID, "err", err)
+		return false
+	}
+	if stored != 0 {
+		return false
+	}
+	shipped := policy.Set{Guardrails: guardrails, Baseline: policy.BaselinePolicies(func(string) uuid.UUID { return uuid.Nil })}
+	return policy.Evaluate(shipped, in).Effect == policy.EffectAllow
+}

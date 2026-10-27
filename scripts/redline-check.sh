@@ -1080,6 +1080,11 @@ done
 # 00063 (M10 OP-15, 2026-10-20): onuncu satir, ayni sekil -- Up'ta ve Down'da birer DO blogu,
 # govdelerinde 4 `alter`in 4'u `alter table public.operator_audit_log add constraint
 # operator_audit_log_kind_check` (NOT VALID / VALIDATED dallari); EXECUTE kodu yok.
+# 00077 (M14-15, 2026-10-27): on birinci satir, BASKA bir sekil -- Down'da tek bir DO blogu, govdesinde
+# 1 `revoke`: `REVOKE INSERT (<sekiz sutun>) ON public.admin_users FROM tappa_identitydefiner`, yalniz
+# `to_regprocedure('public.identity_claim_signup(text,uuid,text)') IS NULL` iken (M14-17'nin 00078'i
+# ayni yetkiyi kullanir ve geri almaz -- orkestrator karari). Statik, tablo ve rol adi yazili, yetkiyi
+# yalniz DARALTIR; RLS/politika/sahiplik degistirmiyor; EXECUTE kodu yok.
 # 00078 (M14-17, 2026-10-27 denetimi ORTA-1): Down'da tek DO blogu, govdesinde 1 `revoke` --
 # `REVOKE INSERT (<owner satirinin sekiz sutunu>) ON public.admin_users FROM tappa_identitydefiner`,
 # yalniz `identity_accept_invite*` (00077) yokken: paylasilan bir sutun yetkisi referans sayilmaz,
@@ -1097,6 +1102,7 @@ R5B_BODY_DDL='
 00039_open_the_api_from_the_operator.sql 2e0f577c880f6814c057d7477e275b1b90ae4596c9492a99799569d49b3f71b7
 00042_put_holdings_on_the_operator_surface.sql ebcf1ce2ebe977910e25255dfb91915d7d336b84c808fda722c79031133130a5
 00063_suspend_a_tenant_from_the_operator.sql ff003d61db146d20479be927e8cb257f2840f39715c68b07d5b4c81e73e85585
+00077_invite_administrators.sql 5cb0b95eefc218083148f9d8c1c13573e3302c5fca5bbfb99f02765ee4349382
 00078_verify_signups_by_e_mail.sql c87177d2b719e11b4782e7737c73c2fba68311bfa8ebf029fbfb9094d4b21e4e
 '
 

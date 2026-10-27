@@ -476,7 +476,18 @@ var identityAdminIdentitiesNonWriters = map[string]bool{
 	"identity_switch_session(text,uuid,text)":                 true,
 	"identity_unlink_backfilled(text,uuid)":                   true,
 	"identity_verify_email(text,text)":                        true,
+	// M14-15 (00077): the session acceptance births no identity -- it locks the session's identity and,
+	// on the first mailbox proof, UPDATEs its email_verified_at and window; its two addresses are held
+	// to printable ASCII before it links anything (TestAdminInvites00077_NoIdentityIsBornOrLinkedForANonASCIIAddress).
+	"identity_accept_invite(text,text)": true,
 }
+
+// identityAddressRuleWriters are the functions that DO insert into admin_identities, each carrying
+// 00076's rule as a refusal: the registration's dual-write (00076) and, from M14-15 (00077), the
+// invitation's acceptance with a new password.
+var identityAddressRuleWriters = []string{"identity_create_for_signup(uuid,uuid)", "identity_accept_invite_new(text,text)",
+	// M14-17 (00078): a new address's identity is born in the registration's confirmation.
+	"identity_claim_signup(text,uuid,text)"}
 
 // iaStripComments removes SQL / PL/pgSQL comments (-- to the end of the line, /* ... */, nested)
 // outside single-quoted literals and double-quoted identifiers, so a pattern written in a comment is
@@ -563,11 +574,6 @@ func iaCarriesTheRule(body string) bool {
 // rule as a refusal, or sits on the allow-list and neither writes the table nor executes dynamic SQL.
 // Anything else is a finding. And no rewrite rule may target admin_identities (a rule can turn any
 // statement into an INSERT there).
-// identityAdminIdentitiesWriters are the functions that insert into admin_identities, each carrying
-// 00076's rule: identity_create_for_signup (00074/00076) and identity_claim_signup (00078, M14-17 -- a
-// new address's identity is born there).
-var identityAdminIdentitiesWriters = []string{"identity_create_for_signup(uuid,uuid)", "identity_claim_signup(text,uuid,text)"}
-
 func iaIdentityWriterFindings(t *testing.T, ctx context.Context, q pgx.Tx) (findings, candidates []string) {
 	t.Helper()
 	rows, err := q.Query(ctx, `SELECT p.oid::regprocedure::text, pg_get_functiondef(p.oid)
@@ -635,13 +641,13 @@ func TestIdentityAddressRule_EveryIdentityInsertDecidesIt(t *testing.T) {
 	for _, f := range findings {
 		t.Error(f)
 	}
-	if len(candidates) != len(identityAdminIdentitiesNonWriters)+len(identityAdminIdentitiesWriters) {
-		t.Fatalf("anti-vacuity: the candidates are %v -- want the %d writers carrying the rule and the %d listed non-writers (a new one is reviewed and listed, or carries the rule)",
-			candidates, len(identityAdminIdentitiesWriters), len(identityAdminIdentitiesNonWriters))
+	if len(candidates) != len(identityAdminIdentitiesNonWriters)+len(identityAddressRuleWriters) {
+		t.Fatalf("anti-vacuity: the candidates are %v -- want %v and the %d listed non-writers (a new one is reviewed and listed, or carries the rule)",
+			candidates, identityAddressRuleWriters, len(identityAdminIdentitiesNonWriters))
 	}
-	for _, w := range identityAdminIdentitiesWriters {
+	for _, w := range identityAddressRuleWriters {
 		if !slices.Contains(candidates, w) {
-			t.Fatalf("anti-vacuity: the writer %s is no candidate (%v)", w, candidates)
+			t.Errorf("anti-vacuity: the writer %s is no candidate", w)
 		}
 	}
 	for name := range identityAdminIdentitiesNonWriters {

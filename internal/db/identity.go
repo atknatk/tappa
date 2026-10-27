@@ -516,3 +516,72 @@ func (d *DB) SweepSignupClaims(ctx context.Context) (int, error) {
 	}
 	return int(n), nil
 }
+
+// ---------------------------------------------------------------- M14-15 --
+
+// The administrator invitation (ADR 0031 §5.11, §5.2; M14-15, migration 00077): the md.7 resolver the
+// acceptance page asks "is this link still usable", and the two acceptances -- keyed by the
+// invitation token's hash, the first also by a live session's hash (the only way to the identity).
+// Neither acceptance gives a session; each answers the membership it made and its business, or
+// nothing (pgx.ErrNoRows). No hash ever reaches an error.
+const resolveAdminInviteSQL = `SELECT id, tenant_id, role, expires_at, used_at, cancelled_at
+FROM resolve_admin_invite_by_token_hash($1)`
+
+const acceptAdminInviteSQL = `SELECT admin_user_id, tenant_id
+FROM identity_accept_invite($1, $2)`
+
+const acceptAdminInviteNewSQL = `SELECT admin_user_id, tenant_id
+FROM identity_accept_invite_new($1, $2)`
+
+// ResolvedAdminInvite is resolve_admin_invite_by_token_hash's row: an invitation and the three facts
+// that decide whether it could be accepted. It carries no address, no name and no inviter.
+type ResolvedAdminInvite struct {
+	ID          uuid.UUID
+	TenantID    uuid.UUID
+	Role        string
+	ExpiresAt   time.Time
+	UsedAt      *time.Time
+	CancelledAt *time.Time
+}
+
+// AcceptedAdminInvite is an acceptance's row: the membership the invitation made (or relinked) and
+// its business.
+type AcceptedAdminInvite struct {
+	AdminUserID uuid.UUID
+	TenantID    uuid.UUID
+}
+
+// GetAdminInviteByTokenHash resolves an invitation by its token's hash (ADR 0002 md.7; it writes
+// nothing). pgx.ErrNoRows when no invitation carries it.
+func (d *DB) GetAdminInviteByTokenHash(ctx context.Context, tokenHash string) (ResolvedAdminInvite, error) {
+	var r ResolvedAdminInvite
+	if err := d.pool.QueryRow(ctx, resolveAdminInviteSQL, tokenHash).Scan(&r.ID, &r.TenantID, &r.Role, &r.ExpiresAt, &r.UsedAt, &r.CancelledAt); err != nil {
+		return ResolvedAdminInvite{}, fmt.Errorf("db: resolve admin invite: %w", err)
+	}
+	return r, nil
+}
+
+// AcceptAdminInvite accepts an invitation with the live session of the identity whose address it
+// names (identity_accept_invite): the membership is born (or the address's refused row relinked), the
+// invitation spent, the mailbox proved. pgx.ErrNoRows: the invitation is not usable, the session is not
+// a live linked one, its person is not the invitation's address, or the address is already in that
+// business.
+func (d *DB) AcceptAdminInvite(ctx context.Context, inviteHash, sessionHash string) (AcceptedAdminInvite, error) {
+	var a AcceptedAdminInvite
+	if err := d.pool.QueryRow(ctx, acceptAdminInviteSQL, inviteHash, sessionHash).Scan(&a.AdminUserID, &a.TenantID); err != nil {
+		return AcceptedAdminInvite{}, fmt.Errorf("db: accept admin invite: %w", err)
+	}
+	return a, nil
+}
+
+// AcceptAdminInviteNew accepts an invitation for an address with NO identity, with the digest of the
+// password the invitee chose (identity_accept_invite_new): the identity is born verified, with its
+// membership. pgx.ErrNoRows: the invitation is not usable, the address already has an identity or is
+// already in that business, or the digest is not a bcrypt digest.
+func (d *DB) AcceptAdminInviteNew(ctx context.Context, inviteHash, newDigest string) (AcceptedAdminInvite, error) {
+	var a AcceptedAdminInvite
+	if err := d.pool.QueryRow(ctx, acceptAdminInviteNewSQL, inviteHash, newDigest).Scan(&a.AdminUserID, &a.TenantID); err != nil {
+		return AcceptedAdminInvite{}, fmt.Errorf("db: accept admin invite (new sign-in): %w", err)
+	}
+	return a, nil
+}

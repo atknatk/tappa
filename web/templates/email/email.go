@@ -226,6 +226,8 @@ const (
 	// the existing address's "a registration was started with your address".
 	subjectSignupVerify = "Confirm your Taptime registration"
 	subjectSignupKnown  = "A Taptime registration used your address"
+	// subjectAdminInvitation is the manager invitation's (M14-15, ADR 0031 §5.14).
+	subjectAdminInvitation = "You're invited to manage a business on Taptime"
 )
 
 // Where each link must point, relative to the configured BaseURL. They are the
@@ -248,6 +250,11 @@ const (
 	// signupConfirmPath, held here like signInPath (the handler's constructor renders once at boot).
 	signupConfirmPath  = "/admin/signup/confirm"
 	signupConfirmParam = "t"
+	// adminInvitePath is the manager invitation's page (M14-15): internal/adminauth's InvitePath and
+	// InviteParam written a second time for signInPath's reason -- the producer builds the link from its
+	// own constants, this package checks it (TestRender_AcceptsTheAdminInvitationLinkAdminauthMints).
+	adminInvitePath  = "/admin/invite"
+	adminInviteParam = "t"
 )
 
 // maxLinkValue bounds the code or token in a link. Both producers write 43
@@ -386,6 +393,37 @@ func checkSignInLink(baseURL, link string) error {
 		return ErrLink
 	}
 	return nil
+}
+
+// AdminInvitationView is what the manager invitation says besides its link (M14-15, ADR 0031 §5.14).
+//
+// IT NAMES THE BUSINESS ONLY WHEN VIES VERIFIED IT, and then only through nameShown -- the employee
+// invitation's rule (ADR 0022 counted limit 22): the name is text an open signup chose and this e-mail
+// is DKIM-signed for Taptime's domain. It names NO person: not the inviting owner (a name a stranger
+// typed in an unverified business would be the same risk) and not the invitee. And it is the SAME
+// e-mail whether or not the address already has a Taptime sign-in (R18): the page the link opens
+// offers both ways in.
+type AdminInvitationView struct {
+	// BaseURL is cfg.BaseURL; the link must be BaseURL + "/admin/invite?t=" + the token.
+	BaseURL string
+	// TenantName appears only when TenantVerified and nameShown accepts it; neutral words otherwise.
+	TenantName     string
+	TenantVerified bool
+	// ValidFor is the invitation's lifetime: its expires_at − created_at.
+	ValidFor time.Duration
+}
+
+// RenderAdminInvitation renders the manager invitation for its link. The returned Message has Subject,
+// Text and HTML; the caller sets To and Ref.
+func RenderAdminInvitation(ctx context.Context, link string, v AdminInvitationView) (mail.Message, error) {
+	if err := checkLink(v.BaseURL, adminInvitePath, adminInviteParam, link); err != nil {
+		return mail.Message{}, err
+	}
+	life, err := lifetime(v.ValidFor)
+	if err != nil {
+		return mail.Message{}, err
+	}
+	return render(ctx, adminInvitationLetter(v.TenantName, v.TenantVerified, life), link)
 }
 
 // RenderInvitation renders the invitation for the activation link. The returned
