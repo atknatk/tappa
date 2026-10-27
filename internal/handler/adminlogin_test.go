@@ -87,6 +87,8 @@ type fakeAdmins struct {
 	switchTargets []uuid.UUID
 	// memberships is the hook for Memberships (M14-10). Nil means none.
 	memberships func() ([]adminauth.Membership, error)
+	// ident is the account page's identity acts (M14-18, accountidentityfake_test.go).
+	ident fakeIdentityHooks
 }
 
 func (f *fakeAdmins) Switch(_ context.Context, _ adminauth.Token, target uuid.UUID) (adminauth.Issued, error) {
@@ -2839,6 +2841,18 @@ func TestPanelConstants_ShippedValuesArePinned(t *testing.T) {
 				"addresses' worth of adminSwitchLimit, one switch every 5 s sustained.",
 		},
 		{
+			"adminVerifyRequestLimit", adminVerifyRequestLimit, 5,
+			"e-mail verification links per PERSON per hour (M14-18's inherited obligation: " +
+				"identity_request_verification writes a link on every call). Each ask is one e-mail; " +
+				"a person missing the first asks a couple of times.",
+		},
+		{
+			"adminIdentityActLimit", adminIdentityActLimit, 10,
+			"link / unlink / Undo presses per PERSON per 10 minutes (M14-18): a link costs up to " +
+				"1 + MaxCandidates comparisons, and a held cookie guesses another password at most " +
+				"once a minute.",
+		},
+		{
 			"adminAccountLimit", adminAccountLimit, 10,
 			"bounds audit_log writes per account per window and gates NOTHING (a per-account " +
 				"gate would be an account lockout an attacker triggers with a known email). " +
@@ -2881,6 +2895,9 @@ func TestPanelConstants_ShippedValuesArePinned(t *testing.T) {
 		{"adminLogoutPeriod", adminLogoutPeriod, 10 * time.Minute},
 		{"adminSwitchPeriod", adminSwitchPeriod, 10 * time.Minute},
 		{"adminSwitchPersonPeriod", adminSwitchPersonPeriod, 10 * time.Minute},
+		{"adminIdentityActPeriod", adminIdentityActPeriod, 10 * time.Minute},
+		// M14-18: the verification's budget is per HOUR -- an e-mail's, not a sign-in's, window.
+		{"adminVerifyRequestPeriod", adminVerifyRequestPeriod, time.Hour},
 		{"adminChoiceTTL", adminChoiceTTL, 5 * time.Minute},
 		{"adminChoiceFutureSkew", adminChoiceFutureSkew, time.Minute},
 	}

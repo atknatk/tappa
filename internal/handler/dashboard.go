@@ -359,6 +359,14 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// any live admin, like the password.
 		a.mountGated(r, adminauth.SurfaceAccountIdentity, func(r chi.Router) {
 			r.Post(accountSignOutEverywhereHref, a.accountSignOutEverywhere)
+			// M14-18 (ADR 0025's M14 note): the person's own address, the confirmation window and
+			// "Link a business" -- personal acts, beside the password; any live admin.
+			r.Post(accountVerifyHref, a.accountVerifyRequest)
+			r.Post(accountVerifyConfirmHref, a.accountVerifyConfirm)
+			r.Post(accountKeepAllHref, a.accountKeepAll)
+			r.Post(accountUnlinkHref, a.accountUnlink)
+			r.Post(accountUndoHref, a.accountUndo)
+			r.Post(accountLinkHref, a.accountLink)
 		})
 		// SWITCHING BUSINESSES (M14-10): moving into or out of a suspended business stays open
 		// (ADR 0031 §5.4, ADR 0025's M14 note -- sign-in and reading are open during a

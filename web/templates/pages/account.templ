@@ -56,6 +56,10 @@ templ AdminAccount(v AccountView) {
 				<p>{ v.Saved }</p>
 			}
 		}
+		if v.Identity != nil && v.Identity.WindowOpen {
+			// M14-18: the confirmation window comes first while it is open -- it asks for a decision.
+			@accountWindowCard(*v.Identity)
+		}
 		<div class="grid grid-cols-1 items-start gap-5 desk:grid-cols-2">
 			@accountIdentity(v)
 			if v.BusinessDay != nil {
@@ -69,6 +73,11 @@ templ AdminAccount(v AccountView) {
 			}
 			@accountBrand(v.Brand, v.PanelChrome)
 			@accountPasswordForm(v)
+			if v.Identity != nil {
+				// M14-18: the person's businesses (and the e-mail verification), and linking another.
+				@accountBusinessesCard(*v.Identity)
+				@accountLinkCard(*v.Identity)
+			}
 			if v.SignOutEverywhereHref != "" {
 				@accountSignOutEverywhere(v)
 			}

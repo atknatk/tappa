@@ -1373,12 +1373,20 @@ farkıyla taşındı; taban kaymasının değiştirdiği sayılar ve yerler ADR 
     (`identity_accept_invite`, `identity_accept_invite_new`) kilitlerden sonra `tenants.suspended_at`'i
     okur, doluysa (ya da satır yoksa) hiçbir şey yazmaz, davet açık kalır ve sayfa "şimdi kabul edilemez"
     der (`TestAdminInvites_ASuspendedBusinessTakesNoNewManager`).
+  - **M14-18 (2026-10-27):** altı rota aynı kardeş grupta, `mountGated(SurfaceAccountIdentity)` ile —
+    e-posta doğrulama talebi (`POST /admin/account/verify-email`) ve onayı (`…/verify-email/confirm`),
+    onay penceresinin üç işi (`…/confirm/keep-all`, `…/confirm/unlink`, `…/confirm/undo`) ve "Link a
+    business" (`POST /admin/account/link`). Hepsi kişinin kendi işidir (adresi, girişinin bağları): işletmenin
+    iş verisine dokunmaz, yalnız kişinin kendi üyelik satırına ve onun audit satırına dokunur; askıdaki bir işletme, kişinin girişinin hangi işletmelere uzandığını
+    denetlemesini engellememeli. Liste **bayrak `off` iken on bir, `on` iken on dokuz rotadır**; iki test
+    aynı commit'te güncellendi. E-postadaki linkin iniş sayfası (`GET /admin/verify-email`) bir okumadır
+    (kısa ömürlü çerez + yönlendirme, hiçbir şey doğrulamaz).
   - **M14-16 (2026-10-27):** üyelik yönetiminin **daraltan** iki basışı — bir üyeliği devre dışı bırakmak
     (`POST /admin/account/managers/disable`) ve bir owner'ı manager yapmak (`…/make-manager`) — K-26'nın
     gerekçesiyle kardeş grupta: askıdaki bir işletmenin ele geçirilmiş bir yöneticiyi dışarıda
     bırakamaması askının amacının tersidir. **Genişleten** ikisi (`…/enable`, `…/make-owner`) askı halkalı
     ana grupta, davet gibi. Dördü de `mountGated(SurfaceMembershipManagement)` ile. Liste **bayrak `off`
-    iken on bir, `on` iken on beş rotadır**; `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException`
+    iken on bir, `on` iken yirmi bir rotadır** (M14-18'in altısıyla); `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException`
     ve `cmd/tappa`'nın `TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses`'ı aynı commit'te güncellendi.
     **Kabul edilen risk, adıyla (M14-16 güvenlik denetimi, DÜŞÜK, 2026-10-27):** askıda (ör.
     `security_hold`) ele geçirilmiş bir owner öbür owner'ı devre dışı bırakabilir ya da manager yapabilir;

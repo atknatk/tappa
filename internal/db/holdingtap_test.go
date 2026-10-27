@@ -1746,6 +1746,9 @@ var holdingDownTables = []string{
 	// keys name -- tenants and api_keys, both above.
 	"api_idempotency",
 	// 00055 (API-8) takes no table lock (its index is 00056's, never walked here).
+	// 00079 (M14-18): its Down gives admin_identity_events' event CHECK back (an ALTER TABLE) before
+	// 00072's Down drops the table.
+	"admin_identity_events",
 }
 
 // holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every one of

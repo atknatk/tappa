@@ -121,6 +121,24 @@ func (silentDB) IdentityPasswordForSession(context.Context, string) (db.Password
 func (silentDB) SetIdentityPassword(context.Context, string, string) (int, error) {
 	return 0, errSilent
 }
+
+// The account page's identity acts (M14-18).
+func (silentDB) RequestIdentityVerification(context.Context, string, string) (db.IdentityVerification, error) {
+	return db.IdentityVerification{}, errSilent
+}
+func (silentDB) VerifyIdentityEmail(context.Context, string, string) (bool, error) {
+	return false, errSilent
+}
+func (silentDB) ConfirmWindow(context.Context, string) ([]db.ConfirmWindowRow, error) {
+	return nil, errSilent
+}
+func (silentDB) KeepAll(context.Context, string) error { return errSilent }
+func (silentDB) UnlinkMembership(context.Context, string, uuid.UUID) (db.UnlinkedMembership, error) {
+	return db.UnlinkedMembership{}, errSilent
+}
+func (silentDB) RelinkMembership(context.Context, string, uuid.UUID) (uuid.UUID, error) {
+	return uuid.Nil, errSilent
+}
 func (silentDB) ConsumeIdentityRowReset(context.Context, string, string) (db.ConsumedIdentityRowReset, error) {
 	return db.ConsumedIdentityRowReset{}, errSilent
 }
@@ -394,13 +412,16 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		"POST /admin/signup/confirm": "signup",
 	}
 	// Panel exceptions that exist only with the panel identity flag on (ADR 0025's M14 note):
-	// signing yourself out everywhere (M14-11), switching businesses (M14-10), and the two membership
-	// presses that narrow who can act for the business -- disabling a membership and making an owner a
-	// manager (M14-16, K-26's reasoning).
-	panelExceptionsWhenOn := map[string]bool{
-		"POST /admin/account/sign-out-everywhere": true, "POST /admin/switch": true,
-		"POST /admin/account/managers/disable": true, "POST /admin/account/managers/make-manager": true,
-	}
+	// signing yourself out everywhere (M14-11), switching businesses (M14-10), the account page's
+	// identity acts (M14-18) and the two membership presses that narrow who can act for the business --
+	// disabling a membership and making an owner a manager (M14-16, K-26's reasoning).
+	panelExceptionsWhenOn := map[string]bool{"POST /admin/account/sign-out-everywhere": true, "POST /admin/switch": true,
+		// M14-18: the account page's identity acts (ADR 0025's M14 note).
+		"POST /admin/account/verify-email": true, "POST /admin/account/verify-email/confirm": true,
+		"POST /admin/account/confirm/keep-all": true, "POST /admin/account/confirm/unlink": true,
+		"POST /admin/account/confirm/undo": true, "POST /admin/account/link": true,
+		// M14-16: the two narrowing membership presses.
+		"POST /admin/account/managers/disable": true, "POST /admin/account/managers/make-manager": true}
 	// Named routes that exist only with the optional surfaces on.
 	outsidePanelWhenOn := map[string]string{
 		"POST " + handler.DevSimulateTapPath: "devtools",

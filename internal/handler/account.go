@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -102,8 +103,8 @@ var (
 	// sentence, so it cannot borrow "saved" without claiming the business's facts moved.
 	// "stepped-down" (M14-16): an owner who stepped down to manager lands here -- the Managers page
 	// is an owner's -- with a sentence saying what they now are.
-	accountDoneWords    = []string{"saved", "password", "stepped-down"}
-	accountProblemWords = []string{"unreadable", "not-permitted", "unknown-business", "unavailable"}
+	accountDoneWords    = append([]string{"saved", "password", "stepped-down"}, accountIdentityDoneWords...)
+	accountProblemWords = append([]string{"unreadable", "not-permitted", "unknown-business", "unavailable"}, accountIdentityProblemWords...)
 )
 
 // accountDoneSentence and accountProblemSentence turn one of those words into the
@@ -174,7 +175,20 @@ func (a *AdminAuth) accountSection(w http.ResponseWriter, r *http.Request) {
 	// THE ECHOED WORDS ARE FILTERED THROUGH THE CLOSED LISTS BEFORE THEY BECOME
 	// SENTENCES, so a query string carrying anything at all produces no notice rather
 	// than a reflected value.
-	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("done")), accountDoneWords...); word != "" {
+	done := oneOfWords(strings.TrimSpace(r.URL.Query().Get("done")), accountDoneWords...)
+	problem := oneOfWords(strings.TrimSpace(r.URL.Query().Get("problem")), accountProblemWords...)
+	// The identity sections' words (M14-18) are said in their own cards, never in the page's
+	// "Saved" / "That was not saved" notices.
+	if v.Identity != nil {
+		accountIdentityNotice(v.Identity, done, problem)
+	}
+	if slices.Contains(accountIdentityDoneWords, done) {
+		done = ""
+	}
+	if slices.Contains(accountIdentityProblemWords, problem) {
+		problem = ""
+	}
+	if word := done; word != "" {
 		// "password" is the T73 flash and belongs beside the password form, not in the
 		// top-of-page "Saved" notice that speaks about the business's stored details.
 		if word == "password" {
@@ -183,7 +197,7 @@ func (a *AdminAuth) accountSection(w http.ResponseWriter, r *http.Request) {
 			v.Saved = accountDoneSentence(word)
 		}
 	}
-	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("problem")), accountProblemWords...); word != "" {
+	if word := problem; word != "" {
 		v.Problem = accountProblemSentence(word)
 	}
 	// The brand editor's own notice (M10 WL-7), from its own closed vocabulary.
@@ -286,6 +300,8 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 	if a.identityGate.Open(adminauth.SurfaceAccountIdentity) {
 		v.SignOutEverywhereHref = accountSignOutEverywhereHref
 		v.SignOutEverywhereEveryBusiness = id.Admin.Linked
+		// M14-18: "Your businesses", the verification, the window and "Link a business".
+		v.Identity = a.accountIdentityView(r, id, zone)
 	}
 	fillAccountVAT(&v, s.VAT, zone)
 	// The "Your brand" editor (M10 WL-7), from the chrome built above -- the one brand
