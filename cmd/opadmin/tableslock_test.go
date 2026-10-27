@@ -8,11 +8,14 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -26,7 +29,7 @@ var tablesLockDirs = []string{".", "../../internal/db", "../../internal/handler/
 // directory -- the closed list the scan must find (its control against going blind).
 var tablesLockStatements = map[string][]string{
 	".":                               {"sharedTablesLock"},
-	"../../internal/db":               {"TestOperatorDB_RunsAsTappaOperator", "bfTx", "opLiveFixture", "opTx"},
+	"../../internal/db":               {"TestOperatorDB_RunsAsTappaOperator", "bfTxLocking", "opLiveFixture", "opTx"},
 	"../../internal/handler/operator": {"newE2E"},
 	"../../internal/operatorauth":     {"sharedTablesLock"},
 	// M14-07: the identity worlds commit identities; M14-09's audit: every committed admin row too
@@ -62,10 +65,92 @@ var tablesLockReentrant = map[string][]string{
 // audit's finding: TestNoticeRecipient_IsTheAddressOnTheRowAndNothingElse committed a raw admin row after
 // newAdminRow had released). TestTablesLock_AdminRowsAreWrittenUnderTheHolder reads it. internal/handler
 // since the second test-infra card: its panel harnesses commit admin rows, and so did six fixtures
-// that held nothing.
+// that held nothing. The third test-infra card added the two other directories that take the lock (an
+// audit's finding: their raw writes were read by nothing): internal/handler/operator, whose newE2E
+// takes it on its own connection for the whole test (op8, op12 and op15cross's fixtures write admin
+// rows under it), and internal/domain/signup, whose sharedTablesLock holds it until its connection
+// closes (identityOwner, and the tests built on it). Neither is re-entrant -- the rule does not need
+// it: what holds is derived from the holder's call alone.
 var tablesLockRowHolders = map[string][]string{
-	"../../internal/adminauth": {"holdTablesLock"},
-	"../../internal/handler":   {"holdPanelTablesLock"},
+	"../../internal/adminauth":        {"holdTablesLock"},
+	"../../internal/handler":          {"holdPanelTablesLock"},
+	"../../internal/handler/operator": {"newE2E"},
+	"../../internal/domain/signup":    {"sharedTablesLock"},
+}
+
+// tablesLockRowOutside are the test directories of the repository with a raw write of
+// tablesLockRowTables that tablesLockRowHolders does not read, each with its reason (the third
+// test-infra card, an audit's finding: "a directory outside tablesLockRowHolders is not read" was a
+// blind spot; it is now a CLOSED inventory -- TestTablesLock_AdminRowsAreWrittenUnderTheHolder walks
+// every test directory, and one with such a write must be in tablesLockRowHolders or here). Measured
+// 2026-10-27 on m14-identity @ ba673e12. Two kinds, each checked (tablesLockOutsideFlaws):
+//
+//   - rowOutsideExclusive: internal/db, the EXCLUSIVE side itself. bfTx's tests run there, and a test
+//     binary runs its sequential tests one at a time and its parallel ones only after all of them, so
+//     nothing else in it writes while one runs. Checked: no function that calls bfTx calls
+//     .Parallel.
+//   - rowOutsidePlain: directories that take no session lock and commit only PLAIN rows -- every write
+//     is one complete INSERT INTO admin_users (...) literal that names no link column (identity_id,
+//     linked_via, linked_at, unlinked_at) and no ON CONFLICT: a fresh row with no identity, which
+//     00073's closing assertion and its Down never count -- and no such row COMMITS while a bfTx test
+//     runs: bfTx holds admin_users IN EXCLUSIVE MODE for the whole test, so a plain INSERT elsewhere
+//     waits for it (closed by the third test-infra card's audit, measured: without that lock
+//     TestAdminBackfill00073_TheClosingAssertion beside a ~200/s plain INSERT loop failed 8 runs of 8,
+//     with it 8 of 8 passed, and every TestAdminBackfill00073_ test passed under the same load). The shape
+//     is still checked: an UPDATE, an upsert or a link written outside the holder is a different
+//     question from a fresh row's commit. A write text that is no statement (a message, a scanner's
+//     input) is named in tablesLockRowTexts.
+type rowOutsideKind int
+
+const (
+	rowOutsideExclusive rowOutsideKind = iota + 1
+	rowOutsidePlain
+)
+
+var tablesLockRowOutside = map[string]rowOutsideKind{
+	"../../internal/db": rowOutsideExclusive,
+	// The api rig's business (surface_db_test.go) commits its owner through the application pool, no
+	// lock: its pg_advisory_xact_lock_shared is asOperator's and operatorSession's, around the operator
+	// tables only.
+	"../../internal/handler/api":    rowOutsidePlain,
+	"../../internal/domain/billing": rowOutsidePlain,
+	"../../internal/domain/checkin": rowOutsidePlain,
+	// main's M15-16 (brought into M14 before Deploy 1, 2026-10-27): claim_db_test.go's world commits
+	// its owner, and the forged-reviewer test a manager, each one plain INSERT INTO admin_users.
+	"../../internal/domain/claim":      rowOutsidePlain,
+	"../../internal/domain/ledger":     rowOutsidePlain,
+	"../../internal/domain/legal":      rowOutsidePlain,
+	"../../internal/domain/manual":     rowOutsidePlain,
+	"../../internal/domain/tenant":     rowOutsidePlain,
+	"../../internal/apikey":            rowOutsidePlain,
+	"../../internal/egress":            rowOutsidePlain,
+	"../../internal/encode":            rowOutsidePlain,
+	"../../internal/invite":            rowOutsidePlain,
+	"../../internal/sandbox":           rowOutsidePlain,
+	"../../internal/webhook/endpoints": rowOutsidePlain,
+	"../../cmd/tappa":                  rowOutsidePlain,
+	"../../cmd/opadmin":                rowOutsidePlain,
+	"../../web/templates/email":        rowOutsidePlain,
+}
+
+// tablesLockRowTexts are, per directory of tablesLockRowOutside, the functions whose write-shaped
+// literals are no statement sent to a database, each with its reason. Checked: the function is there,
+// the scan sees a write in it, and neither it nor anything of its package it calls sends SQL
+// (rowSendsSQL).
+var tablesLockRowTexts = map[string]map[string]string{
+	"../../cmd/opadmin": {
+		"TestTablesLock_AdminRowsAreWrittenUnderTheHolder": "this scan's own positive controls: Go sources it parses",
+	},
+	"../../cmd/tappa": {
+		"insertScopeFindings":                             "a finding's label (name + \": INSERT INTO \" + table) of a scanner over db/queries",
+		"TestRedline_R4R7R7bR7dCatchDeliberateViolations": "\"UPD\" + \"ATE\": the redline script's planted violation, spelled at run time",
+	},
+	"../../internal/domain/tenant": {
+		"insertFindings": "Sprintf messages of a scanner over db/queries (\"has an INSERT into %s ...\")",
+	},
+	"../../web/templates/email": {
+		"seedNames": "a regexp over test/fixtures/seed.sql (`INSERT INTO ` + table)",
+	},
 }
 
 // tablesLockRowTables are the tables a raw write of which (INSERT, UPDATE, DELETE) changes what
@@ -377,17 +462,37 @@ func bypass(t *testing.T) { harness(t); lock(t) }
 	}
 }
 
-// rowWriteVerbs open a write of a row; normSQL's form.
-var rowWriteVerbs = []string{"insert into ", "update ", "delete from "}
+// rowOpensWrite: a text (normSQL's form) that leaves the table of a write open -- it ends in a write
+// verb ("UPDATE " + name) or carries a format slot right after one ("INSERT INTO %s"). The third
+// test-infra card added UPDATE ONLY, DELETE FROM ONLY, MERGE INTO, TRUNCATE and COPY (an audit's
+// finding: each wrote a row unseen); TRUNCATE and COPY only where a statement starts -- "the Go copy
+// %06X" is a message.
+var rowOpensWrite = regexp.MustCompile(`(^|[^a-z0-9_$])(insert into|update( only)?|delete from( only)?|merge into)( %|$)|(^|;) ?(copy|truncate( table)?( only)?)( %|$)`)
 
-// normSQL: s lower-cased, white space collapsed to one space, the schema prefix `public.` and the
-// double quotes of a quoted identifier dropped -- so `INSERT INTO public."admin_users"` reads as the
-// plain spelling (the second test-infra card's audit, O-1).
+// normSQL: s with its SQL comments dropped, lower-cased, white space collapsed to one space, the double
+// quotes of a quoted identifier dropped and every qualifier chain before a name dropped -- so
+// `INSERT INTO public."admin_users"` (the second test-infra card's audit, O-1), `UPDATE /* c */
+// admin_users`, `UPDATE public . admin_users` and `UPDATE tappa.public.admin_users` (the third's) all
+// read as the plain spelling. A qualifier before a format slot is dropped for public. alone.
 func normSQL(s string) string {
+	s = sqlComment.ReplaceAllString(s, " ")
 	s = strings.ToLower(strings.Join(strings.Fields(s), " "))
 	s = strings.ReplaceAll(s, `"`, "")
-	return strings.ReplaceAll(s, "public.", "")
+	s = sqlDot.ReplaceAllString(s, ".")
+	s = strings.ReplaceAll(s, "public.", "")
+	// Any other qualifier only before a name: before a format slot ("may UPDATE tenants.%s", a test's
+	// message) it would turn a message into an open write.
+	for t := ""; t != s; {
+		t, s = s, sqlQualifier.ReplaceAllString(s, "$1")
+	}
+	return s
 }
+
+var (
+	sqlComment   = regexp.MustCompile(`(?s)/\*.*?\*/|--[^\n]*`)
+	sqlDot       = regexp.MustCompile(`\s*\.\s*`)
+	sqlQualifier = regexp.MustCompile(`\b[a-z_][a-z0-9_$]*\.([a-z_])`)
+)
 
 // litText is a string literal's value (its source text if it does not unquote).
 func litText(lit *ast.BasicLit) string {
@@ -398,21 +503,35 @@ func litText(lit *ast.BasicLit) string {
 	return s
 }
 
-// writesRowSQL: s writes a row of one of tables -- INSERT INTO, UPDATE, DELETE FROM. A table name that
-// ends s counts, so a statement built by concatenation is still seen.
+// writesRowSQL: s writes a row of one of tables -- INSERT INTO, UPDATE [ONLY], DELETE FROM [ONLY],
+// MERGE INTO, COPY (either way: fail closed), or TRUNCATE naming it anywhere in its list. A table name
+// that ends s counts, so a statement built by concatenation is still seen.
 func writesRowSQL(s string, tables []string) bool {
-	norm := normSQL(s) + " "
+	norm := normSQL(s)
 	for _, tbl := range tables {
-		if strings.Contains(norm, "insert into "+tbl+"(") {
-			return true
-		}
-		for _, v := range rowWriteVerbs {
-			if strings.Contains(norm, v+tbl+" ") {
+		for _, re := range rowWriteREs(tbl) {
+			if re.MatchString(norm) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+var rowWriteRECache sync.Map // table -> []*regexp.Regexp
+
+// rowWriteREs: writesRowSQL's two patterns for tbl, over normSQL's form.
+func rowWriteREs(tbl string) []*regexp.Regexp {
+	if v, ok := rowWriteRECache.Load(tbl); ok {
+		return v.([]*regexp.Regexp)
+	}
+	t := regexp.QuoteMeta(tbl)
+	res := []*regexp.Regexp{
+		regexp.MustCompile(`(^|[^a-z0-9_$])(insert into|update( only)?|delete from( only)?|merge into|copy) ` + t + `([^a-z0-9_$]|$)`),
+		regexp.MustCompile(`(^|[^a-z0-9_$])truncate( table)?( only)? ([a-z0-9_$]+\*? ?, ?(only )?)*` + t + `([^a-z0-9_$]|$)`),
+	}
+	rowWriteRECache.Store(tbl, res)
+	return res
 }
 
 // writesRow: lit is a string literal that writes a row of one of tables on its own (writesRowSQL).
@@ -420,61 +539,172 @@ func writesRow(lit *ast.BasicLit, tables []string) bool {
 	return lit.Kind == token.STRING && writesRowSQL(litText(lit), tables)
 }
 
-// opensWrite: lit leaves the table of a write open -- it ends in a write verb ("UPDATE " + name) or
+// opensWriteSQL: s leaves the table of a write open -- it ends in a write verb ("UPDATE " + name) or
 // carries a format slot right after one ("INSERT INTO %s").
-func opensWrite(lit *ast.BasicLit) bool {
-	if lit.Kind != token.STRING {
+func opensWriteSQL(s string) bool {
+	return rowOpensWrite.MatchString(normSQL(s))
+}
+
+// strLit: e, parentheses dropped, is a string literal.
+func strLit(e ast.Expr) (*ast.BasicLit, bool) {
+	l, ok := ast.Unparen(e).(*ast.BasicLit)
+	return l, ok && l.Kind == token.STRING
+}
+
+// addChain: the operands of the outermost + chain lit stands in (stack: lit's ancestors, its parent
+// last), parentheses dropped and the chain flattened -- `p + "UPDATE " + t` and `("UPDATE ") + t` alike --
+// and lit's index there; nil when lit is in no +.
+func addChain(lit *ast.BasicLit, stack []ast.Node) ([]ast.Expr, int) {
+	var root *ast.BinaryExpr
+	for i := len(stack) - 1; i >= 0; i-- {
+		if _, ok := stack[i].(*ast.ParenExpr); ok {
+			continue
+		}
+		b, ok := stack[i].(*ast.BinaryExpr)
+		if !ok || b.Op != token.ADD {
+			break
+		}
+		root = b
+	}
+	if root == nil {
+		return nil, -1
+	}
+	var flat func(e ast.Expr, out []ast.Expr) []ast.Expr
+	flat = func(e ast.Expr, out []ast.Expr) []ast.Expr {
+		e = ast.Unparen(e)
+		if b, ok := e.(*ast.BinaryExpr); ok && b.Op == token.ADD {
+			return flat(b.Y, flat(b.X, out))
+		}
+		return append(out, e)
+	}
+	ops := flat(root, nil)
+	return ops, slices.Index(ops, ast.Expr(lit))
+}
+
+// isIdentifierLit: c is a pgx.Identifier composite literal (by the type's name alone).
+func isIdentifierLit(c *ast.CompositeLit) bool {
+	switch t := c.Type.(type) {
+	case *ast.Ident:
+		return t.Name == "Identifier"
+	case *ast.SelectorExpr:
+		return t.Sel.Name == "Identifier"
+	}
+	return false
+}
+
+// writesAt: n, with its ancestors on stack (its parent last), is a write of a row of tables. A string
+// literal is one on its own (writesRow), or as the open half of one (opensWriteSQL) in the two places a
+// statement is assembled:
+//   - a + chain (parentheses dropped, any position -- the third test-infra card, an audit's finding:
+//     `prefix + "UPDATE " + tbl` and `("UPDATE ") + tbl` slipped): the literal and the literals right
+//     after it, joined, write the row, or leave a write open and are followed by a non-literal or end
+//     the chain;
+//   - the format of a Sprintf whose arguments are not all literals naming none of tables.
+//
+// A pgx.Identifier composite literal (CopyFrom's table) is one when its parts, joined with ".", name
+// one of tables, or when a part is not a literal. A bare "UPDATE" anywhere else (a test case's label) is
+// not one. Fail closed: what cannot be resolved syntactically counts as a write.
+func writesAt(n ast.Node, stack []ast.Node, tables []string) bool {
+	// pgx's CopyFrom(ctx, table, columns, rows) whose table is not a pgx.Identifier literal the scan can
+	// read (that one is judged as a node of its own, below): []string{...}, a conversion, a variable --
+	// fail closed (the third test-infra card's audit). pgconn's CopyFrom(ctx, r, sql) has three
+	// arguments and is judged by its SQL literal.
+	if c, ok := n.(*ast.CallExpr); ok {
+		if calleeKey(c) != ".CopyFrom" || len(c.Args) != 4 {
+			return false
+		}
+		if id, ok := ast.Unparen(c.Args[1]).(*ast.CompositeLit); ok && isIdentifierLit(id) {
+			return false
+		}
+		return true
+	}
+	if c, ok := n.(*ast.CompositeLit); ok {
+		if !isIdentifierLit(c) {
+			return false
+		}
+		var parts []string
+		for _, e := range c.Elts {
+			l, ok := strLit(e)
+			if !ok {
+				return true
+			}
+			parts = append(parts, litText(l))
+		}
+		return slices.Contains(tables, normSQL(strings.Join(parts, ".")))
+	}
+	lit, ok := n.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
 		return false
 	}
-	norm := normSQL(litText(lit))
-	for _, v := range rowWriteVerbs {
-		if strings.HasSuffix(norm+" ", v) || strings.Contains(norm, v+"%") {
+	if writesRow(lit, tables) {
+		return true
+	}
+	if ops, i := addChain(lit, stack); i >= 0 {
+		text, j := "", i
+		for ; j < len(ops); j++ {
+			l, ok := strLit(ops[j])
+			if !ok {
+				break
+			}
+			text += litText(l)
+		}
+		return writesRowSQL(text, tables) || opensWriteSQL(text)
+	}
+	var parent ast.Node
+	for i := len(stack) - 1; i >= 0; i-- {
+		if _, ok := stack[i].(*ast.ParenExpr); !ok {
+			parent = stack[i]
+			break
+		}
+	}
+	p, ok := parent.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	if k := calleeKey(p); (k != ".Sprintf" && k != "Sprintf") || len(p.Args) == 0 || ast.Unparen(p.Args[0]) != ast.Expr(lit) {
+		return false
+	}
+	// The format, rendered: a literal argument stands in its slot, any other as "%" -- so the verb or
+	// the table may be in an argument (`Sprintf("%s admin_users SET ...", "UPDATE")`, the third
+	// test-infra card's audit). A write is one rendered whole, a write left open ("UPDATE %"), or an
+	// unknown verb before a table ("% admin_users").
+	text := renderSprintf(litText(lit), p.Args[1:])
+	if writesRowSQL(text, tables) || opensWriteSQL(text) {
+		return true
+	}
+	norm := normSQL(text)
+	for _, tbl := range tables {
+		if regexp.MustCompile(`(^|[^a-z0-9_$])% ` + regexp.QuoteMeta(tbl) + `([^a-z0-9_$]|$)`).MatchString(norm) {
 			return true
 		}
 	}
 	return false
 }
 
-// writesAt: lit, whose parent node is parent, is a write of a row of tables -- on its own (writesRow),
-// or as the open half of one (opensWrite) in the two places a statement is assembled: the left operand
-// of a + whose right side is not a literal naming another table, and the format of a Sprintf whose
-// arguments are not all literals naming none of tables. A bare "UPDATE" anywhere else (a test case's
-// label) is not one. Fail closed: what cannot be resolved syntactically counts as a write.
-func writesAt(lit *ast.BasicLit, parent ast.Node, tables []string) bool {
-	if writesRow(lit, tables) {
-		return true
-	}
-	if !opensWrite(lit) {
-		return false
-	}
-	switch p := parent.(type) {
-	case *ast.BinaryExpr:
-		if p.Op != token.ADD || p.X != lit {
-			return false
+// sprintfVerb is a fmt verb (flags, width and precision included) or "%%".
+var sprintfVerb = regexp.MustCompile(`%%|%[-+# 0-9.*]*[a-zA-Z]`)
+
+// renderSprintf: format with each verb replaced by its argument when that is a string literal, by "%"
+// otherwise (and when the arguments run out); "%%" stays.
+func renderSprintf(format string, args []ast.Expr) string {
+	i := 0
+	return sprintfVerb.ReplaceAllStringFunc(format, func(v string) string {
+		if v == "%%" {
+			return v
 		}
-		if y, ok := p.Y.(*ast.BasicLit); ok && y.Kind == token.STRING {
-			return writesRowSQL(litText(lit)+litText(y), tables)
+		if i >= len(args) {
+			return "%"
 		}
-		return true
-	case *ast.CallExpr:
-		if k := calleeKey(p); (k != ".Sprintf" && k != "Sprintf") || len(p.Args) == 0 || p.Args[0] != lit {
-			return false
+		a := args[i]
+		i++
+		if l, ok := strLit(a); ok {
+			return litText(l)
 		}
-		for _, a := range p.Args[1:] {
-			y, ok := a.(*ast.BasicLit)
-			if !ok || y.Kind != token.STRING {
-				return true
-			}
-			if slices.Contains(tables, normSQL(litText(y))) {
-				return true
-			}
-		}
-		return false
-	}
-	return false
+		return "%"
+	})
 }
 
-// rowWritesIn: the string literals under n that write a row of one of tables (writesAt).
+// rowWritesIn: the nodes under n that write a row of one of tables (writesAt).
 func rowWritesIn(n ast.Node, tables []string) []token.Pos {
 	var at []token.Pos
 	var stack []ast.Node
@@ -483,14 +713,8 @@ func rowWritesIn(n ast.Node, tables []string) []token.Pos {
 			stack = stack[:len(stack)-1]
 			return true
 		}
-		if lit, ok := n.(*ast.BasicLit); ok {
-			var parent ast.Node
-			if len(stack) > 0 {
-				parent = stack[len(stack)-1]
-			}
-			if writesAt(lit, parent, tables) {
-				at = append(at, lit.Pos())
-			}
+		if writesAt(n, stack, tables) {
+			at = append(at, n.Pos())
 		}
 		stack = append(stack, n)
 		return true
@@ -607,11 +831,10 @@ func readRowFunc(fd *ast.FuncDecl, holders map[string]bool, tables []string) *ro
 			_, deferred := stack[len(stack)-1].(*ast.DeferStmt)
 			return rowPoint{pos: pos, end: end, scopes: rowScopes(stack), deferred: deferred, late: rowLate(stack)}
 		}
+		if writesAt(n, stack, tables) {
+			rf.writes = append(rf.writes, point(n.Pos(), n.End()))
+		}
 		switch x := n.(type) {
-		case *ast.BasicLit:
-			if writesAt(x, stack[len(stack)-1], tables) {
-				rf.writes = append(rf.writes, point(x.Pos(), x.End()))
-			}
 		case *ast.ReturnStmt:
 			rf.returns = append(rf.returns, point(x.Pos(), x.End()))
 		case *ast.CallExpr:
@@ -798,8 +1021,13 @@ func reportsText(c *ast.CallExpr) bool {
 //     write;
 //   - it calls .Rollback (nothing is committed);
 //   - it calls no holder, nor anything that holds through one: a second lock on a second connection
-//     is the deadlock TestTablesLock_IsTakenOncePerTestTree is about.
-func exemptionFlaws(fd *ast.FuncDecl, rf *rowFunc) []string {
+//     is the deadlock TestTablesLock_IsTakenOncePerTestTree is about;
+//   - (the third test-infra card, an audit's finding) it reaches the session lock statement through NO
+//     call path at all -- reaches, its sites in tablesLockSites read with no re-entrant holder, so a call
+//     to the holder is a site too. A fixture that holds the lock and releases it (internal/handler's
+//     brandBusiness) is no derived holder, so the rule above missed it, yet it asks for the lock again
+//     on a second connection while this function's transaction holds it.
+func exemptionFlaws(fd *ast.FuncDecl, rf *rowFunc, reaches []lockSite) []string {
 	var flaws []string
 	if len(rf.writes) == 0 {
 		flaws = append(flaws, "it writes no row")
@@ -840,7 +1068,196 @@ func exemptionFlaws(fd *ast.FuncDecl, rf *rowFunc) []string {
 	if len(rf.holds) > 0 {
 		flaws = append(flaws, "it also calls a holder (a second lock on a second connection)")
 	}
+	if len(reaches) > 0 {
+		var via []string
+		for _, r := range reaches {
+			if r.via == "" {
+				r.via = "the statement itself"
+			}
+			if !slices.Contains(via, r.via) {
+				via = append(via, r.via)
+			}
+		}
+		sort.Strings(via)
+		flaws = append(flaws, fmt.Sprintf("it reaches the session lock through %s (a second lock on a second connection)", strings.Join(via, ", ")))
+	}
 	return flaws
+}
+
+// reachers: the functions of files that make a call match accepts, directly or through other functions
+// of files (methods matched by name alone).
+func reachers(files []*ast.File, match func(*ast.CallExpr) bool) map[string]bool {
+	decls := map[string]*ast.FuncDecl{}
+	for _, f := range files {
+		for _, d := range f.Decls {
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
+				decls[funcKey(fd)] = fd
+			}
+		}
+	}
+	set := map[string]bool{}
+	for changed := true; changed; {
+		changed = false
+		for k, fd := range decls {
+			if set[k] {
+				continue
+			}
+			found := false
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				if c, ok := n.(*ast.CallExpr); ok && (match(c) || set[calleeKey(c)]) {
+					found = true
+				}
+				return !found
+			})
+			if found {
+				set[k], changed = true, true
+			}
+		}
+	}
+	return set
+}
+
+// sendsSQL: c hands SQL to a database -- pgx's and internal/db's calls, by method name.
+func sendsSQL(c *ast.CallExpr) bool {
+	switch calleeKey(c) {
+	case ".Exec", ".Query", ".QueryRow", ".CopyFrom", ".SendBatch", ".Begin", ".BeginTx", ".WithTenant":
+		return true
+	}
+	return false
+}
+
+// rowLinkColumns: what a plain row does not name -- the link columns, and an upsert. rowPlainInsert: the
+// statement's start, its table captured.
+var (
+	rowLinkColumns = regexp.MustCompile(`identity_id|linked_via|linked_at|unlinked_at|on conflict`)
+	rowPlainInsert = regexp.MustCompile(`^insert into ([a-z0-9_$]+) ?\(`)
+)
+
+// plainInsert: n is ONE string literal that inserts a fresh row of one of tables and names no link
+// column and no ON CONFLICT (rowOutsidePlain).
+func plainInsert(n ast.Node, tables []string) bool {
+	lit, ok := n.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return false
+	}
+	norm := normSQL(litText(lit))
+	// One statement: a ";" other than a trailing one opens a second (the third test-infra card's audit).
+	if rowLinkColumns.MatchString(norm) || strings.Contains(strings.TrimRight(norm, "; "), ";") {
+		return false
+	}
+	m := rowPlainInsert.FindStringSubmatch(norm)
+	return m != nil && slices.Contains(tables, m[1])
+}
+
+// tablesLockOutsideFlaws: what one package (files) of a tablesLockRowOutside directory lacks of its
+// kind's shape; texts is the directory's tablesLockRowTexts, and seen collects the text functions found.
+func tablesLockOutsideFlaws(fset *token.FileSet, files []*ast.File, kind rowOutsideKind, tables []string, texts map[string]string, seen map[string]bool) []string {
+	var bad []string
+	switch kind {
+	case rowOutsideExclusive:
+		// bfTx, bfTxForDDL and the bfTxLocking both open with: every way into the EXCLUSIVE transaction.
+		bf := reachers(files, func(c *ast.CallExpr) bool { return strings.HasPrefix(calleeKey(c), "bfTx") })
+		for _, f := range files {
+			for _, d := range f.Decls {
+				fd, ok := d.(*ast.FuncDecl)
+				if !ok || fd.Body == nil || !bf[funcKey(fd)] {
+					continue
+				}
+				// Its own body, func literals (subtests) included: a .Parallel there runs it beside others.
+				ast.Inspect(fd.Body, func(n ast.Node) bool {
+					if c, ok := n.(*ast.CallExpr); ok && calleeKey(c) == ".Parallel" {
+						bad = append(bad, fmt.Sprintf("%s reaches bfTx and calls .Parallel (line %d): it runs beside the package's other tests", funcKey(fd), fset.Position(c.Pos()).Line))
+					}
+					return true
+				})
+			}
+		}
+	case rowOutsidePlain:
+		// A directory that takes the session lock AND writes rows belongs in tablesLockRowHolders; one
+		// whose every write is a text (cmd/opadmin: this scan's controls) does not.
+		statements := 0
+		var lockAt []string
+		for fn, ss := range tablesLockSites(fset, files, nil) {
+			for _, s := range ss {
+				if s.via == "" {
+					lockAt = append(lockAt, fmt.Sprintf("%s sends the session lock statement (line %d): a directory that takes it belongs in tablesLockRowHolders", fn, s.at.Line))
+				}
+			}
+		}
+		sends := reachers(files, sendsSQL)
+		bad = append(bad, packageRowWrites(fset, files, tables)...)
+		for _, f := range files {
+			for _, d := range f.Decls {
+				fd, ok := d.(*ast.FuncDecl)
+				if !ok || fd.Body == nil {
+					continue
+				}
+				k := funcKey(fd)
+				var writes []ast.Node
+				var stack []ast.Node
+				ast.Inspect(fd.Body, func(n ast.Node) bool {
+					if n == nil {
+						stack = stack[:len(stack)-1]
+						return true
+					}
+					if writesAt(n, stack, tables) {
+						writes = append(writes, n)
+					}
+					stack = append(stack, n)
+					return true
+				})
+				if texts[k] != "" {
+					seen[k] = true
+					if len(writes) == 0 {
+						bad = append(bad, fmt.Sprintf("%s is named a text but the scan sees no write in it", k))
+					}
+					if sends[k] {
+						bad = append(bad, fmt.Sprintf("%s is named a text but sends SQL (itself or through a function it calls)", k))
+					}
+					continue
+				}
+				statements += len(writes)
+				for _, w := range writes {
+					if !plainInsert(w, tables) {
+						bad = append(bad, fmt.Sprintf("%s writes %v (line %d), and not as one plain INSERT of a fresh row", k, tables, fset.Position(w.Pos()).Line))
+					}
+				}
+			}
+		}
+		if statements > 0 {
+			bad = append(bad, lockAt...)
+		}
+	default:
+		bad = append(bad, fmt.Sprintf("unknown kind %d", kind))
+	}
+	sort.Strings(bad)
+	return bad
+}
+
+// testDirs: every directory under root holding a _test.go file, as root-relative paths joined to root
+// (the spelling tablesLockRowHolders uses); hidden directories and testdata skipped.
+func testDirs(t *testing.T, root string) []string {
+	t.Helper()
+	var dirs []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if p != root && (strings.HasPrefix(d.Name(), ".") || d.Name() == "testdata" || d.Name() == "node_modules") {
+			return filepath.SkipDir
+		}
+		if m, _ := filepath.Glob(filepath.Join(p, "*_test.go")); len(m) > 0 {
+			dirs = append(dirs, p)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dirs
 }
 
 // TestTablesLock_AdminRowsAreWrittenUnderTheHolder -- the M14 test-infra card (an audit's finding).
@@ -873,15 +1290,37 @@ func exemptionFlaws(fd *ast.FuncDecl, rf *rowFunc) []string {
 // release counted as covered though it runs after the release; D-2, the exemption passed on any
 // literal naming the xact lock, a log text included.
 //
+// THE THIRD TEST-INFRA CARD (an audit's LOW findings) widened it again: a write-verb literal anywhere in
+// a + chain (`prefix + "UPDATE " + tbl`, ending the chain fails closed), in parentheses, split over
+// literals; UPDATE ONLY, DELETE FROM ONLY, MERGE INTO, TRUNCATE (any place in its list) and COPY; a
+// pgx.Identifier{"admin_users"} (CopyFrom's table, with or without its schema, fail closed on a part
+// it cannot read). An exemption may reach the session lock through NO call path (a fixture that holds
+// and releases, like brandBusiness, is no derived holder). internal/handler/operator (newE2E) and
+// internal/domain/signup (sharedTablesLock) are read too. And the directories are a CLOSED inventory:
+// every test directory of the repository with a raw write is in tablesLockRowHolders or in
+// tablesLockRowOutside, with its kind's shape (tablesLockOutsideFlaws) -- measured: 21 directories, 4
+// read by the holder rule, 17 named outside it. ITS AUDIT added: SQL comments, a spaced dot and any
+// qualifier chain before a table are read through; a Sprintf format is rendered with its literal
+// arguments (the verb may be one) and "%" for the others; pgx's CopyFrom with a table that is no
+// readable pgx.Identifier literal fails closed; a plain INSERT is one statement.
+//
 // NO COMPLETENESS CLAIM (as PART III above): the scan is syntactic. Not seen: a write whose verb and
 // table are both outside its literals (a whole statement in a variable, a function value, an interface,
-// another package), a statement assembled in any other way than + or Sprintf (strings.Join, a builder);
-// a holder or a release reached through a function value, an aliased release (r := release; r()), a
-// release in a loop or a goroutine counted only by where it stands, a release inside another function
-// than the one holding; a directory outside tablesLockRowHolders. A method is matched by its name alone,
-// a release by its field name (releaseTablesLock) or the variable a holder's result was assigned to, and
-// a Cleanup by the method name .Cleanup. Conservative: a deferred write registered after a deferred
-// release counts as uncovered although it runs first.
+// another package), a statement assembled in any other way than + or Sprintf (strings.Join, a builder,
+// +=, a variable that holds the open half: q := "UPDATE "; exec(q + t) is seen only because the
+// literal ends its chain), a TRUNCATE list assembled from parts, an assembled COPY, a qualifier other
+// than public. before a format slot ("UPDATE tappa.%s"), a Sprintf whose format is no literal; a holder or a
+// release reached through a function value, an aliased release (r := release; r()), a release in a loop
+// or a goroutine counted only by where it stands, a release inside another function than the one
+// holding; a lock reached through another package (an exemption's transitive check reads the
+// directory's own functions). A method is matched by its name alone, a release by its field name
+// (releaseTablesLock) or the variable a holder's result was assigned to, a Cleanup by the method name
+// .Cleanup, pgx.Identifier by its type name, SQL sent by method name (sendsSQL). Fail closed, hence
+// tablesLockRowTexts: a message or a scanner's input assembled like a statement counts as a write until
+// named. Conservative: a deferred write registered after a deferred release counts as uncovered although
+// it runs first. The inventory reads every directory under the repository root but hidden ones and
+// testdata; rowOutsideExclusive trusts Go's test order (sequential tests one at a time, parallel ones
+// after them), and rowOutsidePlain relies on bfTx's table lock for the commits it cannot see.
 func TestTablesLock_AdminRowsAreWrittenUnderTheHolder(t *testing.T) {
 	const control = `package p
 func hold(t *testing.T) func() { lock(t); return nil }
@@ -925,6 +1364,30 @@ func TestCleanupHeld(t *testing.T) { whole(t); t.Cleanup(func() { exec("DELETE F
 func TestCleanupHoldsItself(t *testing.T) { t.Cleanup(func() { release := hold(t); defer release(); exec("DELETE FROM admin_users WHERE id = $1") }) }
 func registers(t *testing.T) { t.Cleanup(func() { exec("DELETE FROM admin_users WHERE id = $1") }) }
 func TestHelperLate(t *testing.T) { release := hold(t); registers(t); release() }
+func TestPlusRight(t *testing.T) { exec(prefix + "UPDATE " + adminUsers + " SET x = 1") }
+func TestParen(t *testing.T) { exec(("UPDATE ") + adminUsers) }
+func TestParenSprintf(t *testing.T) { exec(fmt.Sprintf(("DELETE FROM %s WHERE id = $1"), table)) }
+func TestPlusSplit(t *testing.T) { exec("UPD" + "ATE " + adminUsers) }
+func TestPlusEnds(t *testing.T) { q := prefix + "DELETE FROM "; exec(q + table) }
+func TestOnly(t *testing.T) { exec("UPDATE ONLY admin_users SET x = 1"); exec("DELETE FROM ONLY public.admin_users") }
+func TestMerge(t *testing.T) { exec("MERGE INTO admin_users AS a USING s ON false WHEN NOT MATCHED THEN INSERT (id) VALUES (s.id)") }
+func TestTruncate(t *testing.T) { exec("TRUNCATE admin_sessions, admin_users CASCADE") }
+func TestTruncateOther(t *testing.T) { exec("TRUNCATE admin_users_archive, tenants") }
+func TestCopy(t *testing.T) { conn.CopyFrom(ctx, pgx.Identifier{"admin_users"}, cols, src) }
+func TestCopySchema(t *testing.T) { conn.CopyFrom(ctx, pgx.Identifier{"public", "admin_users"}, cols, src) }
+func TestCopyVar(t *testing.T) { conn.CopyFrom(ctx, pgx.Identifier{schema, "x"}, cols, src) }
+func TestCopyOther(t *testing.T) { conn.CopyFrom(ctx, pgx.Identifier{"tenants"}, cols, src) }
+func TestCopySQL(t *testing.T) { conn.PgConn().CopyFrom(ctx, r, "COPY admin_users (id) FROM STDIN") }
+func TestSprintfVerb(t *testing.T) { exec(fmt.Sprintf("%s admin_users SET x = 1", "UPDATE")) }
+func TestSprintfVerbVar(t *testing.T) { exec(fmt.Sprintf("%s admin_users SET x = 1", verb)) }
+func TestComment(t *testing.T) { exec("UPDATE /* c */ admin_users SET x = 1") }
+func TestSpacedDot(t *testing.T) { exec("UPDATE public . admin_users SET x = 1") }
+func TestThreePart(t *testing.T) { exec("UPDATE tappa.public.admin_users SET x = 1") }
+func TestCopySlice(t *testing.T) { conn.CopyFrom(ctx, []string{"admin_users"}, cols, src) }
+func TestCopyConv(t *testing.T) { conn.CopyFrom(ctx, pgx.Identifier([]string{"admin_users"}), cols, src) }
+func TestCopyDot(t *testing.T) { ident := Identifier{"admin_users"}; copyInto(ident) }
+func TestSprintfOtherVerb(t *testing.T) { exec(fmt.Sprintf("%s tenants SET x = 1", "UPDATE")) }
+func TestCommentOnly(t *testing.T) { exec("SELECT 1 /* UPDATE admin_users SET x = 1 */ -- DELETE FROM admin_users") }
 `
 	cfset := token.NewFileSet()
 	cf, err := parser.ParseFile(cfset, "control.go", control, parser.SkipObjectResolution)
@@ -954,7 +1417,37 @@ func TestHelperLate(t *testing.T) { release := hold(t); registers(t); release() 
 		"a package-level declaration writes [admin_users] (control.go:32) -- inline it where it runs, so the scan can see under what",
 		"registers writes [admin_users] (line 41) outside the holder [hold]", // late, reached from TestHelperLate
 		"shared writes [admin_users] (line 12) outside the holder [hold]",    // TestSharedBare
+		// The third test-infra card (an audit's finding): the verb literal mid-chain, in parentheses
+		// (in a + and as a Sprintf format), split over two literals, or ending a chain (fail closed);
+		// UPDATE ONLY / DELETE FROM ONLY (twice: two literals), MERGE, a TRUNCATE list, COPY, and a
+		// pgx.Identifier table -- with its schema, and with a part the scan cannot read (fail closed).
+		"TestPlusRight writes [admin_users] (line 43) outside the holder [hold]",
+		"TestParen writes [admin_users] (line 44) outside the holder [hold]",
+		"TestParenSprintf writes [admin_users] (line 45) outside the holder [hold]",
+		"TestPlusSplit writes [admin_users] (line 46) outside the holder [hold]",
+		"TestPlusEnds writes [admin_users] (line 47) outside the holder [hold]",
+		"TestOnly writes [admin_users] (line 48) outside the holder [hold]",
+		"TestOnly writes [admin_users] (line 48) outside the holder [hold]",
+		"TestMerge writes [admin_users] (line 49) outside the holder [hold]",
+		"TestTruncate writes [admin_users] (line 50) outside the holder [hold]",
+		"TestCopy writes [admin_users] (line 52) outside the holder [hold]",
+		"TestCopySchema writes [admin_users] (line 53) outside the holder [hold]",
+		"TestCopyVar writes [admin_users] (line 54) outside the holder [hold]",
+		"TestCopySQL writes [admin_users] (line 56) outside the holder [hold]",
+		// Its audit: the verb in a Sprintf argument (a literal, and one the scan cannot read); a comment, a
+		// spaced dot and a three-part name before the table; CopyFrom's table as a []string, a conversion
+		// and a dot-imported Identifier (held in a variable). Not a write: another table's verb argument, a statement in a
+		// comment only.
+		"TestSprintfVerb writes [admin_users] (line 57) outside the holder [hold]",
+		"TestSprintfVerbVar writes [admin_users] (line 58) outside the holder [hold]",
+		"TestComment writes [admin_users] (line 59) outside the holder [hold]",
+		"TestSpacedDot writes [admin_users] (line 60) outside the holder [hold]",
+		"TestThreePart writes [admin_users] (line 61) outside the holder [hold]",
+		"TestCopySlice writes [admin_users] (line 62) outside the holder [hold]",
+		"TestCopyConv writes [admin_users] (line 63) outside the holder [hold]",
+		"TestCopyDot writes [admin_users] (line 64) outside the holder [hold]",
 	}
+	sort.Strings(want)
 	if !slices.Equal(got, want) {
 		t.Fatalf("POSITIVE CONTROL FAILED: the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
@@ -965,26 +1458,33 @@ func TestHelperLate(t *testing.T) { release := hold(t); registers(t); release() 
 	}
 	// ... and the exemption's shape (D-2): each function below lacks exactly what its name says.
 	const exemptControl = `package p
+func lock(t *testing.T) { conn.Exec(ctx, "SELECT pg_advisory_lock_shared(hashtext($1))", operatorTablesTestLock) }
 func hold(t *testing.T) func() { lock(t); return nil }
+func brand(t *testing.T) { release := hold(t); defer release(); exec("INSERT INTO tenants (id) VALUES ($1)") }
+func brandVia(t *testing.T) { brand(t) }
 func TestGood(t *testing.T) { tx := begin(); defer func() { tx.Rollback(ctx) }(); exec("SELECT pg_advisory_xact_lock_shared(hashtext($1))", key); exec("INSERT INTO admin_users (id) VALUES ($1)") }
 func TestLogged(t *testing.T) { tx := begin(); defer tx.Rollback(ctx); t.Log("SELECT pg_advisory_xact_lock_shared(hashtext($1))", key); exec("INSERT INTO admin_users (id) VALUES ($1)") }
 func TestLockAfter(t *testing.T) { tx := begin(); defer tx.Rollback(ctx); exec("INSERT INTO admin_users (id) VALUES ($1)"); exec("SELECT pg_advisory_xact_lock_shared(hashtext($1))", key) }
 func TestCommits(t *testing.T) { tx := begin(); exec("SELECT pg_advisory_xact_lock_shared(hashtext($1))", key); exec("INSERT INTO admin_users (id) VALUES ($1)"); tx.Commit(ctx) }
 func TestHeldToo(t *testing.T) { hold(t); tx := begin(); defer tx.Rollback(ctx); exec("SELECT pg_advisory_xact_lock_shared(hashtext($1))", key); exec("INSERT INTO admin_users (id) VALUES ($1)") }
 func TestNoWrite(t *testing.T) { tx := begin(); defer tx.Rollback(ctx); exec("SELECT pg_advisory_xact_lock_shared(hashtext($1))", key) }
+func TestFixtureToo(t *testing.T) { tx := begin(); defer tx.Rollback(ctx); exec("SELECT pg_advisory_xact_lock_shared(hashtext($1))", key); exec("INSERT INTO admin_users (id) VALUES ($1)"); t.Run("s", func(t *testing.T) { brandVia(t) }) }
 `
 	ef, err := parser.ParseFile(cfset, "exempt.go", exemptControl, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatal(err)
 	}
 	efuncs, _ := rowHoldersOf([]*ast.File{ef}, []string{"hold"}, tablesLockRowTables)
+	esites := tablesLockSites(cfset, []*ast.File{ef}, nil)
 	wantFlaws := map[string]string{
 		"TestGood":      "",
 		"TestLogged":    "it sends no SELECT pg_advisory_xact_lock statement",
 		"TestLockAfter": "a write stands before its transaction-scoped lock",
 		"TestCommits":   "it calls no Rollback",
-		"TestHeldToo":   "it also calls a holder (a second lock on a second connection)",
+		"TestHeldToo":   "it also calls a holder (a second lock on a second connection); it reaches the session lock through hold (a second lock on a second connection)",
 		"TestNoWrite":   "it writes no row",
+		// brand holds and releases -- no derived holder -- and is reached two calls down, in a subtest.
+		"TestFixtureToo": "it reaches the session lock through brandVia (a second lock on a second connection)",
 	}
 	for _, d := range ef.Decls {
 		fd := d.(*ast.FuncDecl)
@@ -992,7 +1492,7 @@ func TestNoWrite(t *testing.T) { tx := begin(); defer tx.Rollback(ctx); exec("SE
 		if !ok {
 			continue
 		}
-		if got := strings.Join(exemptionFlaws(fd, efuncs[fd.Name.Name]), "; "); got != want {
+		if got := strings.Join(exemptionFlaws(fd, efuncs[fd.Name.Name], esites[fd.Name.Name]), "; "); got != want {
 			t.Errorf("POSITIVE CONTROL FAILED (exemption shape): %s has flaws %q, want %q", fd.Name.Name, got, want)
 		}
 	}
@@ -1008,6 +1508,7 @@ func TestNoWrite(t *testing.T) { tx := begin(); defer tx.Rollback(ctx); exec("SE
 				t.Errorf("%s: %s", dir, f)
 			}
 			funcs, set := rowHoldersOf(files, holders, tablesLockRowTables)
+			lockSites := tablesLockSites(fset, files, nil)
 			for k := range set {
 				if !slices.Contains(holders, k) && !strings.HasPrefix(k, "Test") {
 					derived = append(derived, k)
@@ -1025,7 +1526,7 @@ func TestNoWrite(t *testing.T) { tx := begin(); defer tx.Rollback(ctx); exec("SE
 					// not a stale name, and not a way round the holder (exemptionFlaws).
 					if exempt[funcKey(fd)] != "" {
 						seen[funcKey(fd)] = true
-						if flaws := exemptionFlaws(fd, funcs[funcKey(fd)]); len(flaws) > 0 {
+						if flaws := exemptionFlaws(fd, funcs[funcKey(fd)], lockSites[funcKey(fd)]); len(flaws) > 0 {
 							t.Errorf("%s: %s is exempt but is not the exempted shape: %s", dir, funcKey(fd), strings.Join(flaws, "; "))
 						}
 					}
@@ -1044,4 +1545,112 @@ func TestNoWrite(t *testing.T) { tx := begin(); defer tx.Rollback(ctx); exec("SE
 		sort.Strings(derived)
 		t.Logf("%s: %d raw writes of %v checked against %v and the helpers that hold through them %v; exempt %v", dir, writers, tablesLockRowTables, holders, derived, exempt)
 	}
+
+	// THE CLOSED INVENTORY (the third test-infra card): every test directory with a raw write is read by
+	// the holder rule or named in tablesLockRowOutside, whose kind's shape it has. Its controls first.
+	const plainControl = `package p
+func TestPlain(t *testing.T) { exec("INSERT INTO admin_users (id, email) VALUES ($1, $2)") }
+func TestUpdates(t *testing.T) { exec("UPDATE admin_users SET status = 'disabled' WHERE id = $1") }
+func TestLinks(t *testing.T) { exec("INSERT INTO admin_users (id, identity_id) VALUES ($1, $2)") }
+func TestUpserts(t *testing.T) { exec("INSERT INTO admin_users (id) VALUES ($1) ON CONFLICT (id) DO UPDATE SET email = 'x'") }
+func TestAssembled(t *testing.T) { exec("INSERT INTO " + table + " (id) VALUES ($1)") }
+func TestCopies(t *testing.T) { conn.CopyFrom(ctx, pgx.Identifier{"admin_users"}, cols, src) }
+func label(name string) string { return name + ": INSERT INTO " + table }
+func labelSends(name string) { send(name + ": INSERT INTO " + table) }
+func send(q string) { conn.Exec(ctx, q) }
+func lock(t *testing.T) { conn.Exec(ctx, "SELECT pg_advisory_lock_shared(hashtext($1))", operatorTablesTestLock) }
+func TestTwoStatements(t *testing.T) { exec("INSERT INTO admin_users (id) VALUES ($1); DELETE FROM admin_users WHERE id = $2") }
+func TestOtherTableFirst(t *testing.T) { exec("INSERT INTO tenants (id) SELECT id FROM (UPDATE admin_users SET x = 1 RETURNING id) u") }
+func TestTrailingSemicolon(t *testing.T) { exec("INSERT INTO admin_users (id) VALUES ($1);") }
+`
+	pf, err := parser.ParseFile(cfset, "plain.go", plainControl, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pseen := map[string]bool{}
+	got = tablesLockOutsideFlaws(cfset, []*ast.File{pf}, rowOutsidePlain, tablesLockRowTables, map[string]string{"label": "a label", "labelSends": "a label"}, pseen)
+	want = []string{
+		"TestAssembled writes [admin_users] (line 6), and not as one plain INSERT of a fresh row",
+		"TestCopies writes [admin_users] (line 7), and not as one plain INSERT of a fresh row",
+		"TestLinks writes [admin_users] (line 4), and not as one plain INSERT of a fresh row",
+		"TestOtherTableFirst writes [admin_users] (line 13), and not as one plain INSERT of a fresh row",
+		"TestTwoStatements writes [admin_users] (line 12), and not as one plain INSERT of a fresh row",
+		"TestUpdates writes [admin_users] (line 3), and not as one plain INSERT of a fresh row",
+		"TestUpserts writes [admin_users] (line 5), and not as one plain INSERT of a fresh row",
+		"labelSends is named a text but sends SQL (itself or through a function it calls)",
+		"lock sends the session lock statement (line 11): a directory that takes it belongs in tablesLockRowHolders",
+	}
+	if !slices.Equal(got, want) || !pseen["label"] || !pseen["labelSends"] {
+		t.Fatalf("POSITIVE CONTROL FAILED (plain directory): the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	const exclusiveControl = `package p
+func bfTx(t *testing.T) (context.Context, pgx.Tx) { return nil, nil }
+func helper(t *testing.T) { bfTx(t) }
+func TestBackfill(t *testing.T) { bfTx(t) }
+func TestBackfillParallel(t *testing.T) { t.Parallel(); bfTx(t) }
+func TestViaHelper(t *testing.T) { t.Run("s", func(t *testing.T) { t.Parallel(); helper(t) }) }
+func TestOther(t *testing.T) { t.Parallel(); opTx(t) }
+func TestDDLParallel(t *testing.T) { t.Parallel(); bfTxForDDL(t) }
+`
+	xf, err := parser.ParseFile(cfset, "exclusive.go", exclusiveControl, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = tablesLockOutsideFlaws(cfset, []*ast.File{xf}, rowOutsideExclusive, tablesLockRowTables, nil, map[string]bool{})
+	want = []string{
+		"TestBackfillParallel reaches bfTx and calls .Parallel (line 5): it runs beside the package's other tests",
+		"TestDDLParallel reaches bfTx and calls .Parallel (line 8): it runs beside the package's other tests",
+		"TestViaHelper reaches bfTx and calls .Parallel (line 6): it runs beside the package's other tests",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("POSITIVE CONTROL FAILED (the exclusive side): the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	inventory := map[string]bool{}
+	for _, dir := range testDirs(t, filepath.Join("..", "..")) {
+		writes := 0
+		pkgs := parsePackages(t, fset, dir)
+		for _, files := range pkgs {
+			for _, f := range files {
+				writes += len(rowWritesIn(f, tablesLockRowTables))
+			}
+		}
+		if writes == 0 {
+			continue
+		}
+		inventory[dir] = true
+		if tablesLockRowHolders[dir] != nil {
+			continue
+		}
+		kind := tablesLockRowOutside[dir]
+		if kind == 0 {
+			t.Errorf("%s: %d raw writes of %v, and the directory is in neither tablesLockRowHolders nor tablesLockRowOutside -- give it a holder, or name it with its reason", dir, writes, tablesLockRowTables)
+			continue
+		}
+		seen := map[string]bool{}
+		for _, files := range pkgs {
+			for _, f := range tablesLockOutsideFlaws(fset, files, kind, tablesLockRowTables, tablesLockRowTexts[dir], seen) {
+				t.Errorf("%s: %s", dir, f)
+			}
+		}
+		for fn := range tablesLockRowTexts[dir] {
+			if !seen[fn] {
+				t.Errorf("%s: tablesLockRowTexts names %s, which is not a function there", dir, fn)
+			}
+		}
+	}
+	for dir := range tablesLockRowOutside {
+		if !inventory[dir] {
+			t.Errorf("%s: named in tablesLockRowOutside, but the scan sees no raw write there -- take it off", dir)
+		}
+		if tablesLockRowHolders[dir] != nil {
+			t.Errorf("%s: both in tablesLockRowHolders and in tablesLockRowOutside", dir)
+		}
+	}
+	for dir := range tablesLockRowTexts {
+		if tablesLockRowOutside[dir] != rowOutsidePlain {
+			t.Errorf("%s: tablesLockRowTexts names a directory that is no rowOutsidePlain one", dir)
+		}
+	}
+	t.Logf("the inventory: %d test directories write %v raw; %d read by the holder rule, %d named outside it", len(inventory), tablesLockRowTables, len(tablesLockRowHolders), len(tablesLockRowOutside))
 }
