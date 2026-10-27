@@ -1365,5 +1365,13 @@ farkıyla taşındı; taban kaymasının değiştirdiği sayılar ve yerler ADR 
     kapılı, `mountSections`'ta). Liste **bayrak `off` iken on bir, `on` iken on üç rotadır**; iki test
     aynı commit'te güncellendi. Askıdaki işletmeye geçiş başarılıdır ve o oturumun sonraki yazması
     askı kapısına takılır (`TestAdminSwitchDB_IntoASuspendedBusinessIsReadOnlyThere`).
+  - **M14-18 (2026-10-27):** altı rota aynı kardeş grupta, `mountGated(SurfaceAccountIdentity)` ile —
+    e-posta doğrulama talebi (`POST /admin/account/verify-email`) ve onayı (`…/verify-email/confirm`),
+    onay penceresinin üç işi (`…/confirm/keep-all`, `…/confirm/unlink`, `…/confirm/undo`) ve "Link a
+    business" (`POST /admin/account/link`). Hepsi kişinin kendi işidir (adresi, girişinin bağları), hiçbir
+    işletmenin verisini değiştirmez; askıdaki bir işletme, kişinin girişinin hangi işletmelere uzandığını
+    denetlemesini engellememeli. Liste **bayrak `off` iken on bir, `on` iken on dokuz rotadır**; iki test
+    aynı commit'te güncellendi. E-postadaki linkin iniş sayfası (`GET /admin/verify-email`) bir okumadır
+    (kısa ömürlü çerez + yönlendirme, hiçbir şey doğrulamaz).
 - **Operatör değişmez** (K-12, ADR 0031 §5.12): ileride gelecek `op_disable_tenant_admins` (§7) yalnız
   üyelik `status`'una dokunabilir, kimliğe asla.

@@ -40,9 +40,14 @@ func shellBrowser(t *testing.T, flag, linked bool, name string, brands panelBran
 			Role: "owner", FullName: "KF Owner", Linked: linked, TenantName: name,
 		}, nil
 	}}
+	// M14-18: the account page's "Your businesses" (flag on) is the one panel page that reads the
+	// list -- in its body, never in the shell; every other path asking for it is the failure.
 	var once sync.Once
+	var path string
 	admins.memberships = func() ([]adminauth.Membership, error) {
-		once.Do(func() { t.Errorf("a panel section asked for the person's membership list") })
+		if path != accountHref {
+			once.Do(func() { t.Errorf("a panel section asked for the person's membership list (%s)", path) })
+		}
 		return nil, nil
 	}
 	cfg := adminTestConfig()
@@ -58,7 +63,12 @@ func shellBrowser(t *testing.T, flag, linked bool, name string, brands panelBran
 	r := chi.NewRouter()
 	h.Mount(r)
 	registerPanel(r, h)
-	b := newBrowser(t, r)
+	wrapped := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		path = req.URL.Path
+		r.ServeHTTP(w, req)
+	})
+	inheritPanel(wrapped, r)
+	b := newBrowser(t, wrapped)
 	b.cookies[adminauth.CookieName] = panelCookie().Value
 	return b, admins
 }

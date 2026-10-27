@@ -841,6 +841,23 @@ const (
 	// their panel.
 	adminSwitchPersonLimit  = 120
 	adminSwitchPersonPeriod = 10 * time.Minute
+
+	// adminVerifyRequestLimit / adminVerifyRequestPeriod: e-mail verification links asked for, per
+	// PERSON (M14-18; the inherited obligation of identity_request_verification, which writes a link
+	// on every call -- 00072 bounds neither the count nor the live links). Keyed by the switch's
+	// opaque person bucket, so a person's businesses share it. Five an hour: a person who did not
+	// get the first e-mail asks again a couple of times; each ask is one e-mail, also counted by the
+	// mailbox cap and the breaker. A refusal mints nothing and sends nothing.
+	adminVerifyRequestLimit  = 5
+	adminVerifyRequestPeriod = time.Hour
+
+	// adminIdentityActLimit / adminIdentityActPeriod: the account page's password-gated identity
+	// acts -- "Link a business" (up to 1 + MaxCandidates bcrypt comparisons), the window's unlink and
+	// Undo (one) -- per PERSON (adminauth.AccountBucket: the identity, or for an unlinked row the
+	// identity its address names). Ten in ten minutes is far above a person working through a list
+	// by hand and bounds a held cookie's guessing of another password at one a minute.
+	adminIdentityActLimit  = 10
+	adminIdentityActPeriod = 10 * time.Minute
 )
 
 // ⚠️ THE VALUES ABOVE ARE PINNED BY TestPanelConstants_ShippedValuesArePinned

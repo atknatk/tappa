@@ -79,6 +79,29 @@ func invitationLetter(employeeName, tenantName string, verified bool, life strin
 	}
 }
 
+// verificationLetter is the identity's e-mail verification (M14-18). It names nobody, and it says the
+// one thing that decides whether the press works: the link must be opened in a browser where the
+// reader is signed in to Taptime (identity_verify_email wants that browser's session -- R2), and
+// nothing is confirmed until they press the button on the page it opens.
+func verificationLetter(life string) letter {
+	return letter{
+		subject: subjectEmailVerification,
+		heading: "Confirm your email address",
+		before: []string{
+			greetingWithoutName,
+			"Someone signed in to Taptime asked to confirm that this email address belongs to them. " +
+				"If it was you, open the link below in the browser where you are signed in to Taptime, " +
+				"then press the button on the page it opens.",
+		},
+		action: "Confirm my email address",
+		after: []string{
+			"The link works once and stays valid for " + life + ". Opening it confirms nothing " +
+				"until you press the button.",
+		},
+		closing: "If you did not ask for this, you can ignore this email — nothing changes unless the link is used.",
+	}
+}
+
 // resetLetter is the password reset. It names nobody (ResetView says why) and
 // repeats what the reset page itself promises: nothing changes until the link is
 // used, and using it signs every device out.

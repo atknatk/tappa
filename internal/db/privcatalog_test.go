@@ -186,7 +186,9 @@ SELECT line FROM (
 // added identity_create_for_signup (EXECUTE tappa_app and the owner) and the three grants its body
 // needs: admin_identities INSERT (email, password_hash), admin_users SELECT (password_hash) -- and
 // the system column xmin, which this catalogue (attnum > 0) does not list; identitycatalog_test.go's
-// identitySystemColumns pins it -- and tenants SELECT (created_at), read again at 00074) and READ
+// identitySystemColumns pins it -- and tenants SELECT (created_at), read again at 00074; 00079 -- M14-18,
+// ADR 0031 §5.2's 2026-10-27 note -- added identity_confirm_window and identity_keep_all (EXECUTE
+// tappa_app and the owner) and NO grant: both bodies run on the definer's 00071/00072 cells) and READ
 // line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
@@ -354,9 +356,11 @@ function holding_site_gate() owner=tappa_holdingdefiner definer=true execute=tap
 function holding_site_locations(uuid) owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
 function holding_tap_site(character) owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
 function holding_timezone_lock() owner=tappa_holdingdefiner definer=true execute=tappa_holdingdefiner
+function identity_confirm_window(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_consume_reset(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_consume_row_reset(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_create_for_signup(uuid,uuid) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function identity_keep_all(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_link_legacy(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_memberships(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_open_reset(uuid,text,timestamp with time zone) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner

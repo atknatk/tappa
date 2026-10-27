@@ -281,6 +281,8 @@ tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi taşır (
 | `identity_relink_refused(p_session_hash, p_tenant)` | **taze** canlı oturum + kimlik parolasının yeniden girilmesi | S4/T4: çözme pencere açıkken **geri alınabilir**. Yüklem: `tenant_id = p_tenant` **ve** `email OPERATOR(public.=) identity.email` (e-posta global tekil; K-15 kapsam dışı) **ve** `unlinked_at >= confirm_opened_at` (yalnız **bu** pencerede reddedilmiş satır) **ve** `now() < confirm_open_until`; o tenant'ta kimliğin başka bir üyeliği varsa (arada davetle doğmuş — `UNIQUE (tenant_id, identity_id)`) 0 satır. Satırı yeniden bağlar (`linked_via='account'`, **özgün `linked_at` korunur** → satır pencerenin geri kalanında listede kalır; ele geçirilmiş 5 dakikalık bir oturumun ya da yanlış tıklamanın etkisi aynı pencerede geri alınabilir), `unlinked_at = NULL`, digest kopyası contract B'ye dek. Pencere kapandıktan sonra satır için geri alma yolu **yoktur**; üyelik ancak owner'ın **yeni bir daveti** ile döner ve kabul **aynı satırı** yeniden bağlar (§5.11, ONAY notu 3). Arada "davetle doğmuş başka üyelik" dalı bu yüzden oluşamaz (aynı tenant'ta aynı e-postalı ikinci satır `00006:96-97` ile imkânsızdır); 0 satır kuralı savunma olarak kalır |
 | `identity_request_verification(p_session_hash, p_token_hash)` | canlı oturum | Doğrulama token'ını **isteyen kimliğe** bağlı yazar |
 | `identity_verify_email(p_verification_hash, p_session_hash)` | doğrulama token'ı + tıklayan tarayıcıdaki **aynı kimliğin** canlı oturumu | Tıklayan tarayıcıda token'ı isteyen **kimliğin** canlı bir oturumu yoksa 0 satır (R2: başka bir tarayıcıdan tıklama kimseyi doğrulamaz). Bağ oturuma değil kimliğe: istek ile tıklama arasında işletme değiştiren (yeni oturum) kişi kırılmaz (S16). `email_verified_at`; ilk doğrulamada `first_verify` kapsamlı onay penceresi |
+| `identity_confirm_window(p_session_hash)` → `TABLE (verified boolean, scope text, open_until timestamptz, tenant_id uuid, tenant_name text, role text, refused boolean, last_active_owner boolean)` | canlı oturum (taze değil) | M14-18, 2026-10-27 kullanıcı kararı: onay penceresinin **okuyucusu** (STABLE). İlk satır başlıktır (`tenant_id` NULL; `verified`, pencere açıksa `scope` ve `open_until`); pencere açıkken (`email_verified_at` dolu **ve** `now() < confirm_open_until`) ardından kapsamdaki üyelikler (`identity_unlink_backfilled`'ın iki kapsam testi aynen) ve **bu pencerede** reddedilmiş satırlar (`refused`, `identity_relink_refused`'ın yüklemi: kimliğin adresi, `identity_id IS NULL`, `unlinked_at >= confirm_opened_at`). `last_active_owner`: satır aktif owner ve işletmesinde başka aktif, reddedilmemiş owner yok (S4 uyarısı; sayı değil). Toplam en çok 50 satır. Bağlanmamış satırın oturumu 0 satır. Kemer: oturum kendi anahtarıyla, üyelik listesi kimlikle sınırlı adlı geniş okuma, reddedilmiş satırlar adlı e-posta-geniş okuma (kimliğin kendi adresi) |
+| `identity_keep_all(p_session_hash)` → `TABLE (kept boolean)` | canlı oturum (taze değil — **tek tık**, T11) | M14-18, 2026-10-27 kullanıcı kararı: **"Keep all"** — açık pencerenin üç sütunu (`confirm_opened_at`, `confirm_open_until`, `confirm_scope`) **tek UPDATE'te** NULL (00069'un `admin_identities_confirm_window_whole` CHECK'i başka biçimi reddeder), `email_verified_at` korunur, tek `confirm_kept` olayı (`detail` yalnız kapatılan `scope`). Kimlik kilidi önce, oturum kilit altında yeniden denetlenir; pencere kilitlerden sonra hâlâ açık değilse 0 satır. Üyeliğe ve `audit_log`'a yazmaz. Sonrasında çözme ve geri alma pencere kapalı olduğu için 0 satırdır |
 | `identity_accept_invite(p_invite_hash, p_session_hash)` | davet token'ı + canlı oturum | `identity.email = invite.email` (`OPERATOR(public.=)`) değilse 0 satır (iletilmiş link, bulgu 12). Üyelik doğar (`linked_via='invite'`, digest kopyası); **yeni oturum vermez**. Tıklama, aynı e-postalı kimliğin canlı oturumuyla yapıldığı için **posta kutusu kanıtıdır**: `email_verified_at` doluysa dokunulmaz, boşsa doldurulur ve onay penceresi açılır (orkestratör kararı, §13 K-7) |
 | `identity_accept_invite_new(p_invite_hash, p_new_hash)` | davet token'ı | Adreste kimlik yoksa: yeni kimlik (`email_verified_at` = tıklama) + üyelik; **oturum vermez** (ADR 0015 §1 deseni). Adreste kimlik varsa 0 satır. Kimlik INSERT'i `identity_create_for_signup` ile aynı e-posta kilidini alır ve `ON CONFLICT (email) DO NOTHING` (eşzamanlı davet kabulü + kayıt onayı → 500 yok, S13) |
 | `identity_open_signup_claim(p_token_hash, p_email, p_draft jsonb, p_password_hash, p_expires_at)` | ⚠️ **sır değil — yazar ama kimlik yazmaz** (S11) | Yalnız `admin_signup_claims`'e bir taslak satırı; başka hiçbir tabloya dokunmaz. Anahtar, çağıranın o anda ürettiği yeni token + e-posta; sınır `signupCreateLimit` + alıcı başına üst sınır. `p_draft` kapalı anahtarlı (ad, VAT, işletme adı, lokasyonlar); doğrulayıcı uygulamadadır |
@@ -332,6 +334,21 @@ işletmesi **olmayan** işletmelere yazdığı detail'i yazar — `outcome`, ve 
 (`TestIdentityConsumeReset00075_TheDetailHasTheRowPathsShape`). **Bayrak bir kesme anahtarı değildir:**
 tüketim bayraktan bağımsızdır (§8); canlı kimlik linklerini acilen iptal etmek runbook'un tek
 satırıdır (`deploy/README.md`, M14-14).
+
+**M14-18 notu (2026-10-27 kullanıcı kararı):** kapalı liste iki fonksiyonla büyür —
+`identity_confirm_window` ve `identity_keep_all` (yukarıdaki iki satır; migration `00079`). Gerekçe
+(M14-18'in STOP raporu, 2026-10-26): 00069–00075 onay penceresini **açıyor** ve üstünde **iş yapıyordu**
+(çözme, geri alma), ama `tappa_app`'a pencereyi **okutan** (kapsam, bitiş, liste, reddedilmiş satırlar,
+son-owner uyarısı — `linked_via` / `linked_at` / `unlinked_at` R16 gereği okunamaz) ve onu **kapatan**
+("Keep all") bir fonksiyon yoktu; kartın onay listesi maddesi çizilemiyordu. **Yeni GRANT yok:** iki
+gövde de definer'ın 00071/00072 hücrelerinde koşar (`admin_identities` SELECT/UPDATE pencere sütunları,
+`admin_users` SELECT `role`/`status`/`linked_via`/`linked_at`/`unlinked_at`/`email`, `tenants` SELECT
+`name`, `admin_identity_events` INSERT); 00079'un Down'ı bu yüzden hiçbir şey REVOKE etmez. Olay
+kümesi (§5.1, `admin_identity_events_event_known`) bir değerle büyür: **`confirm_kept`** — "Keep all"ın
+kabul edilen riskinin adlandırılmış hafifletmesi (§5.8 notu). İkisi de oturumla anahtarlıdır, yani §6.1
+metnindeki "sırsız yazar" kümesine girmez; CLAUDE.md §4.5 (3) değişmez. İmza katalog testi, kemer
+taraması (`identityTenantWideReads`, `identitySessionKeyLookups`, `identityEmailWideReads`) ve
+"her yetki kullanılıyor" egzersizi aynı commit'te genişler.
 
 **M14-08 uygulama notları (2026-10-23; kart dışı kararlar, denetime açık):**
 - `identity_create_for_signup(p_tenant_id uuid, p_admin_user_id uuid)` → **`boolean`** (bağladı mı)
@@ -657,6 +674,12 @@ expand'in altına geri almak yalnız uzlaştırmayla birlikte.
   migration'ı** (deterministik, testli — T9) bayrak kapalıyken açılmış bütün pencerelerin yalnız
   `confirm_open_until`'ini `now() + 7 gün` yapar; `confirm_opened_at` **korunur** (reset listesinin
   kümesi ona bağlıdır) — yani pencere = `max(olay, bayrak günü) + 7 gün` (S5).
+- **"Keep all" tek tıktır ve canlı oturum yeter** (M14-18, 2026-10-27 kullanıcı kararı; T11). **Kabul
+  edilen risk, adıyla:** bir oturumu çalan kişi (canlı çerez) pencereyi kapatıp listeyi gerçek sahibinden
+  **gizleyebilir** — üyeliklerin hiçbiri çözülmez, ama kişi onları gözden geçirme fırsatını kaybeder.
+  Hafifletenler: her sıfırlama tüketimi **bütün** oturumları iptal eder ve yeni bir `reset` penceresi
+  açar (çalınmış çerez o anda ölür, liste yeniden açılır); her basış bir `confirm_kept` olay satırı
+  bırakır (`admin_identity_events`, 90 gün). Çözme ve geri alma parolayı yeniden sormaya devam eder.
 - Çözme taze oturum + kimlik parolasının yeniden girilmesini ister, pencere açıkken
   `identity_relink_refused` ile geri alınır, son aktif owner için açık uyarı gösterir (S4); satıra
   nöbetçi digest + `unlinked_at` yazar → kurbanın parolası saldırganın işletmesini **açmaz**, sonraki

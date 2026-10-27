@@ -51,6 +51,17 @@ type adminAuthenticator interface {
 	// Memberships lists the businesses of the person behind the cookie's session (the switch
 	// page, M14-10), keyed by the token like Switch.
 	Memberships(ctx context.Context, current adminauth.Token) ([]adminauth.Membership, error)
+	// The account page's identity acts (M14-18, accountidentity.go): each keyed by the verified
+	// session (and the cookie's token, or a fresh session adminauth opens after the password is
+	// typed again).
+	ConfirmWindow(ctx context.Context, current adminauth.Token) (adminauth.Window, error)
+	KeepAll(ctx context.Context, current adminauth.Token) error
+	RequestVerification(ctx context.Context, s adminauth.Resolved, current adminauth.Token) (adminauth.IssuedVerification, error)
+	VerifyEmail(ctx context.Context, raw string, current adminauth.Token) (bool, error)
+	Unlink(ctx context.Context, s adminauth.Resolved, password string, target uuid.UUID, budget adminauth.FailureBudget) (adminauth.FreshAct, bool, error)
+	Relink(ctx context.Context, s adminauth.Resolved, password string, target uuid.UUID, budget adminauth.FailureBudget) (adminauth.FreshAct, error)
+	LinkBusiness(ctx context.Context, s adminauth.Resolved, current, other string, budget adminauth.FailureBudget) (adminauth.LinkResult, error)
+	AccountBucket(ctx context.Context, s adminauth.Resolved) (string, error)
 }
 
 // Audit actions written by the panel auth flow. The vocabulary is free text by
@@ -333,8 +344,12 @@ type AdminAuth struct {
 	// enough once M7-02 made a valid credential self-service.
 	workLimiter    *limiter
 	accountLimiter *limiter
-	sessionLimiter *limiter
-	logoutLimiter  *limiter
+	// verifyLimiter and identityActLimiter are the account page's per-person budgets (M14-18,
+	// accountidentity.go): verification links asked for, and link / unlink / Undo presses.
+	verifyLimiter      *limiter
+	identityActLimiter *limiter
+	sessionLimiter     *limiter
+	logoutLimiter      *limiter
 	// switchLimiter is the switch's budget, keyed by the person and the address
 	// (adminSwitchLimit says why not the session).
 	switchLimiter *limiter
@@ -528,9 +543,12 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		attemptLimiter: newLimiter(adminAttemptLimit, adminAttemptPeriod),
 		workLimiter:    newLimiter(adminLoginWorkLimit, adminLoginWorkPeriod),
 		accountLimiter: newLimiter(adminAccountLimit, adminAccountPeriod),
-		sessionLimiter: newLimiter(adminSessionLimit, adminSessionPeriod),
-		logoutLimiter:  newLimiter(adminLogoutLimit, adminLogoutPeriod),
-		switchLimiter:  newLimiter(adminSwitchLimit, adminSwitchPeriod),
+
+		verifyLimiter:      newLimiter(adminVerifyRequestLimit, adminVerifyRequestPeriod),
+		identityActLimiter: newLimiter(adminIdentityActLimit, adminIdentityActPeriod),
+		sessionLimiter:     newLimiter(adminSessionLimit, adminSessionPeriod),
+		logoutLimiter:      newLimiter(adminLogoutLimit, adminLogoutPeriod),
+		switchLimiter:      newLimiter(adminSwitchLimit, adminSwitchPeriod),
 
 		switchPersonLimiter: newLimiter(adminSwitchPersonLimit, adminSwitchPersonPeriod),
 		encodeLimiter:       newLimiter(adminEncodeLimit, adminEncodePeriod),
@@ -599,6 +617,12 @@ func (a *AdminAuth) Mount(r chi.Router) {
 	r.Post(adminLoginPath, a.Login)
 	r.Get("/admin/login/choose", a.ChoosePage)
 	r.Post("/admin/login/choose", a.Choose)
+	// THE E-MAILED VERIFICATION LINK'S LANDING (M14-18, accountidentity.go): reachable without a
+	// session -- it writes a short-lived cookie and redirects to the account page, it verifies nothing
+	// (R19). Its own flood ceiling; mounted only while TAPPA_ADMIN_IDENTITY is on.
+	a.mountGated(r, adminauth.SurfaceAccountIdentity, func(r chi.Router) {
+		r.With(a.floodGate("admin_verify_link")).Get(verifyLinkPath, a.verifyLinkLanding)
+	})
 
 	// THE DASHBOARD GROUP. Protect() carries the whole chain, so the panel mounts
 	// inside this group — or uses Protect() in its own — and inherits every stage.

@@ -103,8 +103,15 @@ func renderEach(t *testing.T, employeeName, tenantName string) []rendered {
 	if err != nil {
 		t.Fatalf("per-person notice: %v", err)
 	}
+	// M14-18: the identity's e-mail verification, held to every property the others are.
+	ver := testBase + verifyPath + "?" + verifyParam + "=" + randomValue(t)
+	mv, err := RenderEmailVerification(ctx, ver, EmailVerificationView{BaseURL: testBase, ValidFor: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("e-mail verification: %v", err)
+	}
 	return []rendered{{"invitation", inv, mi}, {"reset", rst, mr}, {"password changed", sin, mp},
-		{"reset, every business", rsp, mrp}, {"password changed, every business", sin, mpp}}
+		{"reset, every business", rsp, mrp}, {"password changed, every business", sin, mpp},
+		{"e-mail verification", ver, mv}}
 }
 
 // hostileNames are names an open signup lets an attacker choose. Each must be
@@ -460,6 +467,22 @@ func TestRender_AcceptsTheResetLinkAdminauthMints(t *testing.T) {
 			t.Errorf("base with trailing slash %v: the link adminauth mints was refused: %v",
 				strings.HasSuffix(base, "/"), err)
 		}
+	}
+}
+
+// TestRender_AcceptsTheVerificationLinkAdminauthMints holds this package's verifyPath / verifyParam to
+// internal/adminauth's (M14-18): the link the account page mails is the one this renderer accepts, and
+// a link to any other path is refused.
+func TestRender_AcceptsTheVerificationLinkAdminauthMints(t *testing.T) {
+	if adminauth.VerifyPath != verifyPath || adminauth.VerifyParam != verifyParam {
+		t.Fatalf("adminauth mints %s?%s=, this package checks %s?%s=", adminauth.VerifyPath, adminauth.VerifyParam, verifyPath, verifyParam)
+	}
+	link := testBase + adminauth.VerifyPath + "?" + adminauth.VerifyParam + "=" + randomValue(t)
+	if _, err := RenderEmailVerification(context.Background(), link, EmailVerificationView{BaseURL: testBase, ValidFor: 24 * time.Hour}); err != nil {
+		t.Errorf("the link adminauth mints was refused: %v", err)
+	}
+	if _, err := RenderEmailVerification(context.Background(), testBase+resetPath+"?t="+randomValue(t), EmailVerificationView{BaseURL: testBase, ValidFor: time.Hour}); err == nil {
+		t.Error("CONTROL: a reset link passed as a verification link")
 	}
 }
 
@@ -1402,12 +1425,13 @@ func TestRender_TheTwoPartsSayTheSameWords(t *testing.T) {
 		"reset, every business":            resetLetter("1 hour", true),
 		"password changed":                 passwordChangedLetter(false),
 		"password changed, every business": passwordChangedLetter(true),
+		"e-mail verification":              verificationLetter("1 day"),
 	}
 	r := renderEach(t, "Maria Borg", "Kebab Factory Ltd.")
 	if len(r) != len(letters) {
 		t.Fatalf("renderEach renders %d message(s) and this test knows %d letter(s); a message is missing from one of them", len(r), len(letters))
 	}
-	for i, kind := range []string{"invitation", "reset", "password changed", "reset, every business", "password changed, every business"} {
+	for i, kind := range []string{"invitation", "reset", "password changed", "reset, every business", "password changed, every business", "e-mail verification"} {
 		if r[i].kind != kind {
 			t.Fatalf("message %d is %q, want %q (renderEach's order)", i, r[i].kind, kind)
 		}

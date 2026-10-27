@@ -98,9 +98,17 @@ var identitySignaturesM1408 = []identitySignature{
 	{"identity_create_for_signup", "p_tenant_id uuid, p_admin_user_id uuid", "boolean", "tappa_identitydefiner"},
 }
 
+// identitySignaturesM1418 is M14-18's part (migration 00079; ADR 0031 §5.2's note of 2026-10-27, the
+// user's decision): the confirmation window's reader and its one-click close ("Keep all", T11).
+var identitySignaturesM1418 = []identitySignature{
+	{"identity_confirm_window", "p_session_hash text",
+		"TABLE(verified boolean, scope text, open_until timestamp with time zone, tenant_id uuid, tenant_name text, role text, refused boolean, last_active_owner boolean)", "tappa_identitydefiner"},
+	{"identity_keep_all", "p_session_hash text", "TABLE(kept boolean)", "tappa_identitydefiner"},
+}
+
 // identitySignatures is the union of every card's part: the whole closed list as far as it is built.
 // The functions tappa_identitydefiner owns are EXACTLY its tappa_identitydefiner rows.
-var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405, identitySignaturesM1408)
+var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405, identitySignaturesM1408, identitySignaturesM1418)
 
 // identitySignatureNames lists the table's names (resolve_admin_by_email is a row though neither
 // identity_* nor the definer's -- M14-05's redefinition).
@@ -693,6 +701,27 @@ func identityExerciseM1405(t *testing.T, ctx context.Context, sp pgx.Tx) []ident
 	}
 }
 
+// identityExerciseM1418 builds M14-18's world (an identity of its own, a backfilled membership in F, a
+// first_verify window open) and returns its calls: the window read (the header, the listed row and its
+// last-owner test), then "Keep all" -- every column 00079's two bodies read or write is reached.
+func identityExerciseM1418(t *testing.T, ctx context.Context, sp pgx.Tx) []identityStep {
+	t.Helper()
+	f, g := idTenant(t, ctx, sp, "exercise F"), idTenant(t, ctx, sp, "exercise G")
+	email := aiEmail()
+	ident := aiIdentity(t, ctx, sp, email)
+	pf, pg := aiAdmin(t, ctx, sp, f, email), aiAdmin(t, ctx, sp, g, email)
+	aiExec(t, ctx, sp, `UPDATE admin_users SET identity_id = $2, linked_via = 'backfill', linked_at = now() - interval '2 days',
+	                           password_hash = (SELECT password_hash FROM admin_identities WHERE id = $2) WHERE id = $1`, pf, ident)
+	aiExec(t, ctx, sp, `UPDATE admin_users SET unlinked_at = now() WHERE id = $1`, pg)
+	aiExec(t, ctx, sp, `UPDATE admin_identities SET email_verified_at = now(), confirm_opened_at = now() - interval '1 minute',
+	                           confirm_open_until = now() + interval '7 days', confirm_scope = 'first_verify' WHERE id = $1`, ident)
+	sf := idSession(t, ctx, sp, f, pf, nil)
+	return []identityStep{
+		{name: "M14-18 confirm window", sql: confirmWindowSQL, args: []any{sf}},
+		{name: "M14-18 keep all", sql: keepAllSQL, args: []any{sf}},
+	}
+}
+
 // identitySignupWorld is identity_create_for_signup's world (M14-08): a business and its one owner
 // row, written by the test's TOP-LEVEL transaction -- the function links only a row this transaction
 // wrote, and a row written inside a savepoint carries the subtransaction's xid (S13). Every exercise
@@ -738,6 +767,7 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx, signup ident
 		{name: "revoke", sql: revokeIdentitySessionsSQL, args: []any{h4, false}},
 	}
 	steps = append(steps, identityExerciseM1405(t, ctx, sp)...)
+	steps = append(steps, identityExerciseM1418(t, ctx, sp)...)
 	for _, s := range steps {
 		if s.owner != "" {
 			aiExec(t, ctx, sp, s.owner)

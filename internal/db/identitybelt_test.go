@@ -79,6 +79,8 @@ var identityTenantWideReads = map[string]int{
 	"identity_link_legacy":       1,
 	"identity_unlink_backfilled": 1,
 	"identity_relink_refused":    1,
+	// M14-18 (00079): the window's list of the identity's own memberships (LIMIT 50).
+	"identity_confirm_window": 1,
 }
 
 // identitySessionKeyLookups names, per function, how many statements find a session -- or (M14-05) a
@@ -100,6 +102,9 @@ var identitySessionKeyLookups = map[string]int{
 	"identity_request_verification": 1,
 	"identity_verify_email":         1,
 	"identity_consume_row_reset":    1,
+	// M14-18 (00079): the session behind the window's read and behind "Keep all".
+	"identity_confirm_window": 1,
+	"identity_keep_all":       1,
 }
 
 // identityEmailWideReads names, per function, how many statements read admin_users by ONE ADDRESS
@@ -110,6 +115,10 @@ var identityEmailWideReads = map[string]int{
 	// M14-08 (00074): "the address is in no other admin_users row" -- an existence test (PERFORM,
 	// FOUND), under the address's namespaced lock; it returns nothing and writes nothing.
 	"identity_create_for_signup": 1,
+	// M14-18 (00079): the rows refused in THIS window -- identity_relink_refused's own predicate (the
+	// identity's address, read from the identity row the session found; unlinked_at >= the window's
+	// opening), LIMIT 50. It writes nothing (STABLE) and lists only what the person may take back.
+	"identity_confirm_window": 1,
 }
 
 // identityTokenKeyed are the tenant tables whose own globally UNIQUE token_hash may anchor a lookup

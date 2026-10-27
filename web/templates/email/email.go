@@ -222,6 +222,8 @@ const (
 	subjectInvitation      = "Your Taptime invitation"
 	subjectReset           = "Reset your Taptime password"
 	subjectPasswordChanged = "Your Taptime password was changed"
+	// subjectEmailVerification is the identity's e-mail verification (M14-18, ADR 0031 §5.14).
+	subjectEmailVerification = "Confirm your email address for Taptime"
 )
 
 // Where each link must point, relative to the configured BaseURL. They are the
@@ -240,6 +242,11 @@ const (
 	// checks it, so the two disagreeing refuses every render, and the e-mail
 	// channel's constructor renders once at boot (NewEmailResetChannel).
 	signInPath = "/admin/login"
+	// verifyPath / verifyParam are the e-mail verification's link (M14-18): internal/adminauth's
+	// VerifyPath and VerifyParam written a second time for signInPath's reason -- the producer builds
+	// the link from its constants, this package checks it (TestRender_AcceptsTheVerificationLinkAdminauthMints).
+	verifyPath  = "/admin/verify-email"
+	verifyParam = "t"
 )
 
 // maxLinkValue bounds the code or token in a link. Both producers write 43
@@ -342,6 +349,31 @@ func checkSignInLink(baseURL, link string) error {
 		return ErrLink
 	}
 	return nil
+}
+
+// EmailVerificationView is what the e-mail verification says besides its link (M14-18, ADR 0031
+// §5.14: "e-posta doğrulaması (var olan kimlik)").
+//
+// IT NAMES NOBODY AND NO BUSINESS: it is sent to the identity's own registered address, and the act
+// it confirms is the address's, not a business's. It carries no value slot but the lifetime.
+type EmailVerificationView struct {
+	// BaseURL is cfg.BaseURL; the link must be BaseURL + "/admin/verify-email?t=" + the token.
+	BaseURL string
+	// ValidFor is the link's lifetime (24 hours, 00072).
+	ValidFor time.Duration
+}
+
+// RenderEmailVerification renders the verification e-mail for its link. The returned Message has
+// Subject, Text and HTML; the caller sets To and Ref.
+func RenderEmailVerification(ctx context.Context, link string, v EmailVerificationView) (mail.Message, error) {
+	if err := checkLink(v.BaseURL, verifyPath, verifyParam, link); err != nil {
+		return mail.Message{}, err
+	}
+	life, err := lifetime(v.ValidFor)
+	if err != nil {
+		return mail.Message{}, err
+	}
+	return render(ctx, verificationLetter(life), link)
 }
 
 // RenderInvitation renders the invitation for the activation link. The returned
