@@ -96,7 +96,7 @@ var tablesLockRowHolders = map[string][]string{
 //     runs: bfTx holds admin_users IN EXCLUSIVE MODE for the whole test, so a plain INSERT elsewhere
 //     waits for it (closed by the third test-infra card's audit, measured: without that lock
 //     TestAdminBackfill00073_TheClosingAssertion beside a ~200/s plain INSERT loop failed 8 runs of 8,
-//     with it 8 of 8 passed, and the whole TestAdminBackfill set passed under the same load). The shape
+//     with it 8 of 8 passed, and every TestAdminBackfill00073_ test passed under the same load). The shape
 //     is still checked: an UPDATE, an upsert or a link written outside the holder is a different
 //     question from a fresh row's commit. A write text that is no statement (a message, a scanner's
 //     input) is named in tablesLockRowTexts.
