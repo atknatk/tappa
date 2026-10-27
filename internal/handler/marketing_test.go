@@ -741,8 +741,19 @@ var externalReference = regexp.MustCompile(
 // rel="author" link -- so the cookie notice's "no third party is contacted" holds. It is
 // admitted only as that constant's exact href and its count is pinned: exactly two on
 // every page of the public surface, the public 404 and every sign-up screen
-// (withoutCreditHref). TestCreditExemption_IsNarrow is its control. The two exemptions
-// do not overlap: one admits a whole og:image element, the other one exact href.
+// (withoutCreditHref). TestCreditExemption_IsNarrow is its control.
+//
+// ⚠️ AND THE SIGN-UP SCREEN LINK (M14-17, beside LP-11 since the merge of main into M14):
+// on a development or sandbox installation that sends no e-mail, "Check your inbox" shows
+// the registration's confirmation link -- on this installation's OWN origin
+// (TAPPA_BASE_URL + /admin/signup/confirm?t=...), followed by a reader, never loaded by the
+// page; production never draws it. It is admitted only in that shape (withoutSignupScreenLink)
+// and its count is pinned: once on the sent screen, on no other sign-up screen.
+// TestSignupScreenLinkExemption_IsNarrow is its control.
+//
+// The three exemptions on the public surface do not overlap: the share exemption admits a
+// whole og:image element, the credit one exact href, the screen link one href of one shape
+// (and the OpenAPI link above is the guide's, by its own exact href).
 func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 	t.Parallel()
 	for _, c := range structuralConfigs(t) {
@@ -927,6 +938,31 @@ func TestCreditExemption_IsNarrow(t *testing.T) {
 		`@import url("` + layout.CreditURL + `");`,
 	} {
 		body, _ := withoutCreditHref(planted)
+		if externalReference.FindString(body) == "" {
+			t.Errorf("CONTROL: %q passed the scanner after the exemption", planted)
+		}
+	}
+}
+
+// TestSignupScreenLinkExemption_IsNarrow is the control of the sign-up screen link's exemption: the
+// confirmation link on the installation's own origin is admitted, and nothing that only looks like
+// it -- another host, another path, a token of another alphabet, a resource the page would load.
+func TestSignupScreenLinkExemption_IsNarrow(t *testing.T) {
+	t.Parallel()
+	link := testBaseURL + pages.SignupConfirmPath + "?t=AbC_d-9"
+	if body, n := withoutSignupScreenLink(`<a href="` + link + `" class="x">` + link + `</a>`); n != 1 || externalReference.FindString(body) != "" {
+		t.Errorf("the screen link was not admitted (%d, %q)", n, body)
+	}
+	for _, planted := range []string{
+		`<a href="https://evil.example` + pages.SignupConfirmPath + `?t=AbC">x</a>`,
+		`<a href="` + testBaseURL + `.evil.example` + pages.SignupConfirmPath + `?t=AbC">x</a>`,
+		`<a href="` + testBaseURL + `/admin/signup/other?t=AbC">x</a>`,
+		`<a href="` + testBaseURL + pages.SignupConfirmPath + `">x</a>`,
+		`<a href="` + testBaseURL + pages.SignupConfirmPath + `?t=AbC&amp;next=https://evil.example">x</a>`,
+		`<img src="` + link + `">`,
+		`<script src="` + link + `"></script>`,
+	} {
+		body, _ := withoutSignupScreenLink(planted)
 		if externalReference.FindString(body) == "" {
 			t.Errorf("CONTROL: %q passed the scanner after the exemption", planted)
 		}
