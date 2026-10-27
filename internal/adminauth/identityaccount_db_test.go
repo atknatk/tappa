@@ -3,6 +3,7 @@ package adminauth
 import (
 	"context"
 	"errors"
+	"regexp"
 	"testing"
 	"time"
 
@@ -416,4 +417,67 @@ func (w *idWorld) int2(tenant uuid.UUID) uuid.UUID {
 		w.t.Fatal(err)
 	}
 	return id
+}
+
+// TestAccountBucket_IsThePersonsAndAnUnlinkedRowNeverGetsIt is O3 and the security audit's YÜKSEK:
+// the same identity's sessions in two businesses share one bucket; another identity's is another; no
+// bucket carries a uuid. An UNLINKED row of the person's address -- the pre-seeded attacker's row --
+// gets its own row bucket, never the person's (so its presses cannot spend the person's window and
+// verification budget), and its ReverseBucket is a key the person's acts never use, shared by every
+// unlinked row of the address. MUTATION: AccountBucket giving an unlinked row the bucket its address
+// names (the pre-fix code) -> red.
+func TestAccountBucket_IsThePersonsAndAnUnlinkedRowNeverGetsIt(t *testing.T) {
+	d := testDB(t)
+	m := testManager(t, d)
+	owner := ownerConn(t)
+	w, other := newIDWorld(t, owner, true), newIDWorld(t, owner, true)
+	ta, tb, tz, ty := w.tenant("M14-18 Bucket A"), w.tenant("M14-18 Bucket B"), w.tenant("M14-18 Bucket Z"), w.tenant("M14-18 Bucket Y")
+	w.linked(ta, "active", "backfill", 48*time.Hour)
+	w.linked(tb, "active", "backfill", 48*time.Hour)
+	other.linked(other.tenant("M14-18 Bucket Other"), "active", "backfill", 48*time.Hour)
+	zPW := "z-" + uuid.NewString()
+	w.row(tz, fixtureDigest(t, zPW), "active", time.Hour)
+	w.row(ty, fixtureDigest(t, zPW), "active", time.Hour)
+	ctx := context.Background()
+
+	ra, _ := w.verifiedOn(m, ta)
+	rb, _ := w.verifiedOn(m, tb)
+	ro, _ := other.verifiedOn(m, uuid.Nil)
+	rz, _ := w.legacyOn(m, zPW, tz)
+	ry, _ := w.legacyOn(m, zPW, ty)
+	bucket := func(r Resolved) string {
+		b, err := m.AccountBucket(ctx, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	reverse := func(r Resolved) string {
+		b, err := m.ReverseBucket(ctx, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	if bucket(ra) != bucket(rb) {
+		t.Error("one identity's sessions in two businesses have two buckets")
+	}
+	if bucket(ra) == bucket(ro) {
+		t.Error("two identities share a bucket")
+	}
+	if bucket(rz) == bucket(ra) || reverse(rz) == bucket(ra) {
+		t.Error("an unlinked row of the person's address is charged in the person's own bucket")
+	}
+	if bucket(rz) == bucket(ry) {
+		t.Error("two unlinked rows share a row bucket")
+	}
+	if reverse(rz) != reverse(ry) {
+		t.Error("the reverse link's guesses from two unlinked rows of one address are not bounded together")
+	}
+	uuidRe := regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+	for _, b := range []string{bucket(ra), bucket(ro), bucket(rz), reverse(rz)} {
+		if uuidRe.MatchString(b) {
+			t.Errorf("bucket %q carries a uuid", b)
+		}
+	}
 }

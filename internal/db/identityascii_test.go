@@ -476,6 +476,10 @@ var identityAdminIdentitiesNonWriters = map[string]bool{
 	"identity_switch_session(text,uuid,text)":                 true,
 	"identity_unlink_backfilled(text,uuid)":                   true,
 	"identity_verify_email(text,text)":                        true,
+	// M14-18 (00079): the window's reader (STABLE: it reads the identity by its key) and "Keep all"
+	// (an UPDATE of the window's three columns by the key) -- neither writes an identity row.
+	"identity_confirm_window(text)": true,
+	"identity_keep_all(text)":       true,
 }
 
 // iaStripComments removes SQL / PL/pgSQL comments (-- to the end of the line, /* ... */, nested)

@@ -19,6 +19,7 @@ type fakeIdentityHooks struct {
 	relink       func(s adminauth.Resolved, password string, target uuid.UUID) (adminauth.FreshAct, error)
 	linkBusiness func(s adminauth.Resolved, current, other string) (adminauth.LinkResult, error)
 	bucket       func(s adminauth.Resolved) (string, error)
+	reverse      func(s adminauth.Resolved) (string, error)
 	calls        []string
 	budgets      []adminauth.FailureBudget
 	verified     []string
@@ -109,4 +110,11 @@ func (f *fakeAdmins) AccountBucket(_ context.Context, s adminauth.Resolved) (str
 		return "row:" + s.AdminUserID.String(), nil
 	}
 	return f.ident.bucket(s)
+}
+
+func (f *fakeAdmins) ReverseBucket(_ context.Context, s adminauth.Resolved) (string, error) {
+	if f.ident.reverse == nil {
+		return "reverse|row:" + s.AdminUserID.String(), nil
+	}
+	return f.ident.reverse(s)
 }

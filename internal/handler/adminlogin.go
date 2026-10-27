@@ -62,6 +62,7 @@ type adminAuthenticator interface {
 	Relink(ctx context.Context, s adminauth.Resolved, password string, target uuid.UUID, budget adminauth.FailureBudget) (adminauth.FreshAct, error)
 	LinkBusiness(ctx context.Context, s adminauth.Resolved, current, other string, budget adminauth.FailureBudget) (adminauth.LinkResult, error)
 	AccountBucket(ctx context.Context, s adminauth.Resolved) (string, error)
+	ReverseBucket(ctx context.Context, s adminauth.Resolved) (string, error)
 }
 
 // Audit actions written by the panel auth flow. The vocabulary is free text by

@@ -244,6 +244,10 @@ type Manager struct {
 	// cost). It exists for the reason Resets.digest does: one cost-12 bcrypt is ~11 s under -race,
 	// and the identity tests change passwords several times (M14-08). Production never sets it.
 	hashFn func(password string) (string, error)
+	// rowFn reads the account acts' session row (identityaccount.go's rowFactsOf); nil = the database.
+	// It exists so the comparison-count tests can run without one, like compareFn. Production never
+	// sets it.
+	rowFn func(s Resolved) (rowFacts, error)
 	// openCost is the measured duration of identity_open_session, which the decoy pads itself to
 	// (identity.go, S15). It is per Manager, never package state.
 	openCost *costMeter

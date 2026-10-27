@@ -6,6 +6,7 @@ package db
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -358,5 +359,97 @@ func TestIdentity00079_DownRefusesWhileAKeepAllIsRecordedAndOtherwiseWalksBackAn
 	opRunSection(t, ctx, tx, up, "00079 Up")
 	if n := opInt(t, ctx, tx, `SELECT count(*) FROM pg_proc WHERE proname IN ('identity_confirm_window', 'identity_keep_all') AND prosecdef`); n != 2 {
 		t.Errorf("%d definer functions after the Up, want 2", n)
+	}
+}
+
+// TestIdentityUnlink00079_AnUndoneRowStaysOnTheFirstVerifyListAndUnlinksAgain is O1 (the user's
+// decision of 2026-10-27, option (a)): in a first_verify window a backfilled membership is unlinked,
+// taken back (identity_relink_refused writes linked_via 'account'), and is STILL on the list -- and can
+// be unlinked again. MUTATION: the scope without 'account' (00072's body) -> red.
+func TestIdentityUnlink00079_AnUndoneRowStaysOnTheFirstVerifyListAndUnlinksAgain(t *testing.T) {
+	ctx, tx := opTx(t)
+	w := iaNewWorld(t, ctx, tx, "first_verify")
+	fresh := ipSession(t, ctx, tx, w.a, w.ma, ipFresh)
+	other := idTenant(t, ctx, tx, "window G")
+	mg := ipMember(t, ctx, tx, other, w.p.email, w.p.digest)
+	ipLink(t, ctx, tx, mg, w.p.id, "backfill", "3 days")
+	if n := ipRows(t, ctx, tx, `SELECT * FROM identity_unlink_backfilled($1, $2)`, fresh, other); n != 1 {
+		t.Fatalf("the first unlink: %d rows", n)
+	}
+	if n := ipRows(t, ctx, tx, `SELECT * FROM identity_relink_refused($1, $2)`, fresh, other); n != 1 {
+		t.Fatalf("the Undo: %d rows", n)
+	}
+	if r, ok := iaListed(t, iaWindow(t, ctx, tx, w.session))[other]; !ok || r.Refused {
+		t.Fatalf("after the Undo the row is %+v, %v; want listed as a membership", r, ok)
+	}
+	if n := ipRows(t, ctx, tx, `SELECT * FROM identity_unlink_backfilled($1, $2)`, fresh, other); n != 1 {
+		t.Fatal("the row taken back could not be unlinked again")
+	}
+}
+
+// TestIdentity00079_DownGivesTheUnlinkBodyBackByteForByte: 00079's Down restores
+// identity_unlink_backfilled exactly as 00072 wrote it (prosrc equal to 00072's body text), its
+// properties and grants restated; the Up's body differs from it only by the 'account' literal.
+func TestIdentity00079_DownGivesTheUnlinkBodyBackByteForByte(t *testing.T) {
+	ctx, tx := opTx(t)
+	up, down := opMigrationSections(t, ia00079File)
+	src72, _ := opMigrationSections(t, ip00072File)
+	body := func(src string) string {
+		i := strings.Index(src, "public.identity_unlink_backfilled(p_session_hash text, p_tenant uuid)")
+		if i < 0 {
+			t.Fatal("no identity_unlink_backfilled in the section")
+		}
+		a := strings.Index(src[i:], "AS $$") + i + len("AS $$")
+		b := strings.Index(src[a:], "\n$$;") + a
+		return src[a : b+1]
+	}
+	prosrc := func() string {
+		var s string
+		if err := tx.QueryRow(ctx, `SELECT prosrc FROM pg_proc WHERE oid = 'public.identity_unlink_backfilled(text,uuid)'::regprocedure`).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	acl := func() string {
+		var s string
+		if err := tx.QueryRow(ctx, `SELECT pg_get_userbyid(proowner) || '|' || prosecdef || '|' || array_to_string(proconfig, ',') || '|' || coalesce(proacl::text, '')
+		                             FROM pg_proc WHERE oid = 'public.identity_unlink_backfilled(text,uuid)'::regprocedure`).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	if got, want := prosrc(), body(up); got != want {
+		t.Fatal("HEAD's body is not 00079's")
+	}
+	if strings.Replace(body(up), ", 'account')", ")", 1) != body(src72) {
+		t.Fatal("00079's body differs from 00072's by more than the 'account' literal")
+	}
+	headACL := acl()
+	lockForDowns(t, ctx, tx, []string{"admin_identity_events"})
+	opRunSection(t, ctx, tx, down, "00079 Down")
+	if prosrc() != body(src72) {
+		t.Fatal("the Down did not give 00072's body back byte for byte")
+	}
+	if acl() != headACL {
+		t.Errorf("the Down changed the owner, definer, search_path or grants: %s -> %s", headACL, acl())
+	}
+}
+
+// TestIdentityConfirmWindow00079_TheLimitComesAfterTheScope: 55 memberships outside the first_verify
+// scope (invite links, older) and one inside it (backfill, newer): the in-scope row is listed -- the 49
+// list rows are counted after the scope test, not 50 memberships before it. MUTATION: LIMIT 50 on the
+// read (the first version) -> red.
+func TestIdentityConfirmWindow00079_TheLimitComesAfterTheScope(t *testing.T) {
+	ctx, tx := opTx(t)
+	w := iaNewWorld(t, ctx, tx, "first_verify")
+	for i := 0; i < 55; i++ {
+		m := ipMember(t, ctx, tx, idTenant(t, ctx, tx, "window out of scope"), w.p.email, w.p.digest)
+		ipLink(t, ctx, tx, m, w.p.id, "invite", "10 days")
+	}
+	late := idTenant(t, ctx, tx, "window late")
+	ml := ipMember(t, ctx, tx, late, w.p.email, w.p.digest)
+	ipLink(t, ctx, tx, ml, w.p.id, "backfill", "1 second")
+	if _, ok := iaListed(t, iaWindow(t, ctx, tx, w.session))[late]; !ok {
+		t.Fatal("an in-scope membership behind 55 out-of-scope ones is not listed")
 	}
 }

@@ -196,3 +196,57 @@ func TestAccountIdentityDB_AnUnlinkedSessionLinksItselfFromTheAccountPage(t *tes
 		t.Errorf("%d live sessions in A, want the browser's one", n)
 	}
 }
+
+// TestAccountIdentityDB_AnUnlinkedRowCannotSpendThePersonsBudget is the security audit's YÜKSEK, end to
+// end (ADR 0031 §5.8, S3/T1's pre-seeded attacker): the attacker's UNLINKED row Z carries the person's
+// address and its own password. From Z's browser: eleven junk unlinks, eleven junk links and six
+// verification asks. The person's own unlink press and verification ask are then NOT refused by a
+// budget (no 429); the attacker's own link presses are (its row and the reverse key). MUTATION:
+// AccountBucket giving an unlinked row the bucket its address names -> the person's unlink is 429, red.
+func TestAccountIdentityDB_AnUnlinkedRowCannotSpendThePersonsBudget(t *testing.T) {
+	p := newPanelHarnessWith(t, panelHarnessOptions{adminIdentity: true, tenantName: "Budget E2E A Ltd"})
+	owner := linkHarness(t, p)
+	forgetIdentityRows(t, owner, p.email)
+	ctx := context.Background()
+	var ident uuid.UUID
+	if err := owner.QueryRow(ctx, `SELECT identity_id FROM admin_users WHERE id = $1`, p.adminID).Scan(&ident); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE admin_identities SET email_verified_at = now(), confirm_opened_at = now(),
+	                                 confirm_open_until = now() + interval '7 days', confirm_scope = 'reset' WHERE id = $1`, ident); err != nil {
+		t.Fatal(err)
+	}
+	// Z: the attacker's business, a row of the person's address with the attacker's password.
+	z := addBusiness(t, p, owner, uuid.Nil, "Budget E2E Z Ltd")
+	if _, err := owner.Exec(ctx, `UPDATE admin_users SET password_hash = $2 WHERE id = $1`, z.admin, victimDigest); err != nil {
+		t.Fatal(err)
+	}
+	attacker := p.anotherBrowser(t)
+	attacker.password = victimPassword
+	attacker.signInTo(t, z.tenant)
+	p.signInTo(t, p.tenantID)
+
+	junk := url.Values{"tenant_id": {p.tenantID.String()}, "password": {"junk"}}
+	linked := 0
+	for i := 0; i < adminIdentityActLimit+1; i++ {
+		attacker.post(t, accountUnlinkHref, junk)
+		res, _ := attacker.post(t, accountLinkHref, url.Values{"current_password": {victimPassword}, "other_password": {"junk"}})
+		if res.StatusCode == http.StatusTooManyRequests {
+			linked++
+		}
+	}
+	for i := 0; i < adminVerifyRequestLimit+1; i++ {
+		attacker.post(t, accountVerifyHref, url.Values{})
+	}
+	if linked == 0 {
+		t.Error("CONTROL: the attacker's own link presses were never limited")
+	}
+	res, _ := p.post(t, accountUnlinkHref, url.Values{"tenant_id": {z.tenant.String()}, "password": {"not-the-password"}})
+	if res.StatusCode == http.StatusTooManyRequests {
+		t.Fatal("the person's unlink was refused by a budget an unlinked row spent")
+	}
+	res, _ = p.post(t, accountVerifyHref, url.Values{})
+	if res.StatusCode == http.StatusTooManyRequests {
+		t.Fatal("the person's verification ask was refused by a budget an unlinked row spent")
+	}
+}

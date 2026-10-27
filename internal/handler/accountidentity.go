@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/web/templates/email"
 	"github.com/atknatk/tappa/web/templates/pages"
@@ -232,14 +234,52 @@ func (a *AdminAuth) accountActBudget(w http.ResponseWriter, r *http.Request, id 
 	return true
 }
 
-// recordFresh writes the ordinary sign-out row of every fresh identity session an act opened and
-// revoked (its sign-in row is identity_open_session's).
-func (a *AdminAuth) recordFresh(r *http.Request, act adminauth.FreshAct, where string) {
-	for i, s := range act.Temporary {
-		if !act.Revoked[i] {
-			a.log.Error("panel identity act: a fresh session could not be revoked", "session_id", s.ID, "tenant_id", s.TenantID, "at", where)
+// reverseLinkBudget is the reverse link's SECOND bucket: the guesses of the password of the identity
+// the unlinked row's address names, keyed "reverse|..." (adminauth.ReverseBucket) -- bounded across
+// every unlinked row of that address, and never the key of the identity's own acts.
+func (a *AdminAuth) reverseLinkBudget(w http.ResponseWriter, r *http.Request, id httpx.AdminIdentity) bool {
+	key, err := a.admins.ReverseBucket(r.Context(), id.Admin)
+	if err != nil {
+		a.log.Error("panel: the reverse link's bucket could not be read", "actor_id", id.Admin.AdminUserID, "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		return false
+	}
+	if n := a.identityActLimiter.Charge(key); n > adminIdentityActLimit {
+		if a.identityActLimiter.FirstOverLimit(n) {
+			a.log.Warn("panel identity act rate limited", "actor_id", id.Admin.AdminUserID, "at", "reverse_link")
 		}
-		a.record(r.Context(), adminLoggedOutEvent(s.TenantID, s.AdminUserID, s.ID))
+		a.accountIdentityAgain(w, r, http.StatusTooManyRequests, func(v *pages.AccountIdentityView) {
+			accountIdentityNotice(v, "", "too-many")
+		})
+		return false
+	}
+	return true
+}
+
+// recordFresh writes the trail of every fresh identity session an act opened (its sign-in row is
+// identity_open_session's): the ordinary sign-out row when it was revoked again; when the revocation
+// failed, the abandoned-session row the sign-in writes in that case (abandonedLogin's shape) -- an
+// "ok" sign-out would claim a session ended that may still be live. The write ignores the request's
+// cancellation: the session exists whatever the client does next.
+func (a *AdminAuth) recordFresh(r *http.Request, act adminauth.FreshAct, where string) {
+	ctx := context.WithoutCancel(r.Context())
+	for i, s := range act.Temporary {
+		if act.Revoked[i] {
+			a.record(ctx, adminLoggedOutEvent(s.TenantID, s.AdminUserID, s.ID))
+			continue
+		}
+		a.log.Error("panel identity act: a fresh session could not be revoked", "session_id", s.ID, "tenant_id", s.TenantID, "at", where)
+		a.record(ctx, audit.Event{
+			TenantID: s.TenantID,
+			ActorID:  ptr(s.AdminUserID),
+			Action:   ActionAdminLoginFailed,
+			Target:   s.AdminUserID.String(),
+			Detail: adminLoginDetail{
+				Outcome:   "session_abandoned",
+				Reason:    "the session was opened but the sign-in could not complete, and revoking it failed",
+				SessionID: s.ID.String(),
+			},
+		})
 	}
 }
 
@@ -269,8 +309,13 @@ func (a *AdminAuth) accountVerifyRequest(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	// The person's bucket (adminauth.AccountBucket: the session's person when its row is linked --
-	// an unlinked row is refused below by RequestVerification itself).
+	// AN UNLINKED ROW IS REFUSED BEFORE ANY CHARGE (M14-18's security audit): it has no address of its
+	// own to verify, and charging the bucket its address names would let it spend the real person's.
+	if !id.Admin.Linked {
+		a.redirect(w, accountReturn("", "unavailable"))
+		return
+	}
+	// The person's own bucket (adminauth.AccountBucket: Resolved.SwitchBucket for a linked row).
 	bucket, err := a.admins.AccountBucket(r.Context(), id.Admin)
 	if err != nil {
 		a.log.Error("panel: the verification's bucket could not be read", "actor_id", id.Admin.AdminUserID, "err", err)
@@ -408,7 +453,8 @@ func (a *AdminAuth) accountWindowAct(w http.ResponseWriter, r *http.Request, act
 		return
 	}
 	target, ok := accountWindowTarget(r)
-	if !ok {
+	// An unlinked row has no window: refused before any charge (M14-18's security audit).
+	if !ok || !id.Admin.Linked {
 		a.redirect(w, accountReturn("", "window-refused"))
 		return
 	}
@@ -479,6 +525,9 @@ func (a *AdminAuth) accountLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !a.accountActBudget(w, r, id, "link") {
+		return
+	}
+	if !id.Admin.Linked && !a.reverseLinkBudget(w, r, id) {
 		return
 	}
 	res, err := a.admins.LinkBusiness(r.Context(), id.Admin, current, other, a.accountLimiter)

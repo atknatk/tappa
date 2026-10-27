@@ -10,6 +10,9 @@
 --                                            the window's three columns NULL in ONE UPDATE, one
 --                                            confirm_kept event. Nothing else.
 --
+-- And it redefines identity_unlink_backfilled (same signature): its first_verify scope lists 'account'
+-- links too -- an Undo's relink (section 4; the user's decision of 2026-10-27, option (a)).
+--
 -- WHY (M14-18's STOP, 2026-10-26). 00069-00075 OPEN the window (identity_verify_email, the two reset
 -- consumptions; 00077's invitation) and act on it (identity_unlink_backfilled,
 -- identity_relink_refused), but nothing READ it for tappa_app -- which holds nothing on
@@ -42,7 +45,8 @@
 --   * the session by its own key (admin_sessions.token_hash = p_session_hash), joined by both halves
 --     of the composite key -- one per function (identitySessionKeyLookups);
 --   * identity_confirm_window's membership list, bounded by the session's identity
---     (`a.identity_id = v_identity`, LIMIT 50) -- a NAMED tenant-wide read (identityTenantWideReads);
+--     (`a.identity_id = v_identity`; the list stops at 49 rows AFTER the scope test) -- a NAMED
+--     tenant-wide read (identityTenantWideReads);
 --   * its refused rows, by the identity's OWN address (`a.email OPERATOR(public.=) v_email`, v_email
 --     read from the identity row the session found, `unlinked_at >= confirm_opened_at`, LIMIT 50) --
 --     the NAMED e-mail-wide read identity_relink_refused's predicate already is
@@ -53,9 +57,9 @@
 -- THE ROWS (identity_confirm_window). The FIRST row is the header: tenant_id NULL; verified,
 -- scope and open_until the identity's (scope and open_until NULL unless the window is open -- the
 -- address verified AND now < confirm_open_until; a closed window is no list). While it is open, after
--- it: each listed membership (refused false; first_verify: linked_via backfill / reconcile / signup;
--- reset: linked_at < confirm_opened_at, every linked_via -- 00072's identity_unlink_backfilled's two
--- scopes, the same test), then each row refused in THIS window (refused true; the rows
+-- it: each listed membership (refused false; first_verify: linked_via backfill / reconcile / signup /
+-- account; reset: linked_at < confirm_opened_at, every linked_via -- identity_unlink_backfilled's two
+-- scopes as section 4 leaves them, the same test), then each row refused in THIS window (refused true; the rows
 -- identity_relink_refused would take back). At most 49 of them, so at most 50 rows in all. A session
 -- that is not live, or whose row is not linked, gets 0 rows: an unlinked row has no window.
 --   last_active_owner: the listed row is an active owner and its business holds no OTHER active,
@@ -176,8 +180,8 @@ BEGIN
     END IF;
     RETURN QUERY SELECT true, v_scope, v_until, NULL::uuid, NULL::text, NULL::text, false, false;
 
-    -- NAMED TENANT-WIDE READ: the identity's own memberships, bounded by it and by LIMIT 50; the scope
-    -- decides, in plpgsql, which are on the list (identity_unlink_backfilled's test, verbatim).
+    -- NAMED TENANT-WIDE READ: the identity's own memberships, bounded by it; the scope decides, in
+    -- plpgsql, which are on the list (identity_unlink_backfilled's test as section 4 leaves it).
     v_n := 0;
     FOR r IN SELECT a.id, a.tenant_id, a.role, a.status, a.linked_via, a.linked_at, t.name
                FROM public.admin_users AS a
@@ -185,9 +189,12 @@ BEGIN
               WHERE a.identity_id = v_identity
                 AND a.unlinked_at IS NULL
               ORDER BY a.linked_at, a.tenant_id
-              LIMIT 50
     LOOP
-        v_listed := ((v_scope = 'first_verify' AND r.linked_via IN ('backfill', 'reconcile', 'signup'))
+        -- The 49 list rows are taken AFTER the scope test, so a person with more memberships than the
+        -- list holds loses no in-scope row to rows the scope drops (the read is bounded by the
+        -- identity -- the person's own memberships).
+        EXIT WHEN v_n >= 49;
+        v_listed := ((v_scope = 'first_verify' AND r.linked_via IN ('backfill', 'reconcile', 'signup', 'account'))
                      OR (v_scope = 'reset' AND r.linked_at < v_opened)) IS TRUE;
         IF v_listed AND v_n < 49 THEN
             v_last := false;
@@ -306,8 +313,156 @@ ALTER FUNCTION public.identity_keep_all(text) OWNER TO tappa_identitydefiner;
 REVOKE ALL ON FUNCTION public.identity_keep_all(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.identity_keep_all(text) TO tappa_app;
 
+-- ---------------------------------------------------------------------------
+-- 4. identity_unlink_backfilled: first_verify lists 'account' too (O1)
+-- ---------------------------------------------------------------------------
+-- The user's decision of 2026-10-27 (ADR 0031 §5.2 / §5.8 notes, option (a)). An Undo in a first_verify
+-- window (identity_relink_refused) writes linked_via = 'account', which first_verify did not list: the
+-- row taken back fell off the list and could not be unlinked again. In a first_verify window an
+-- 'account' link can only be such a relink -- 'account' has no other writer, and a reset fills
+-- email_verified_at, so a first_verify window never opens again after one. The body is 00072's, word
+-- for word, but for that one literal; the same signature (CREATE OR REPLACE keeps the grants, which are
+-- restated anyway -- ADR 0031 §5.2, T5). The Down gives 00072's body back byte for byte.
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION public.identity_unlink_backfilled(p_session_hash text, p_tenant uuid)
+    RETURNS TABLE (admin_user_id uuid, revoked_sessions integer)
+    LANGUAGE plpgsql
+    VOLATILE
+    SECURITY DEFINER
+    SET search_path = pg_catalog, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+    v_identity   uuid;
+    v_scope      text;
+    v_opened     timestamptz;
+    v_target     uuid;
+    v_via        text;
+    v_linked_at  timestamptz;
+    v_sentinel   text;
+    v_constraint text;
+    v_n          integer;
+    v_session    uuid;
+    v_tenant     uuid;
+    v_now        timestamptz;
+    v_fresh      timestamptz;
+    v_auth       timestamptz;
+    v_auth_found boolean;
+    v_until      timestamptz;
+    v_verified   timestamptz;
+BEGIN
+    v_now := pg_catalog.clock_timestamp();
+    v_fresh := v_now - interval '5 minutes';
+    SELECT s.id, s.tenant_id, a.identity_id INTO v_session, v_tenant, v_identity
+      FROM public.admin_sessions AS s
+      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+     WHERE s.token_hash = p_session_hash
+       AND s.revoked_at IS NULL
+       AND s.authenticated_at > v_fresh
+       AND s.authenticated_at <= v_now
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id IS NOT NULL;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+
+    SELECT i.confirm_scope, i.confirm_opened_at, i.confirm_open_until, i.email_verified_at
+      INTO v_scope, v_opened, v_until, v_verified
+      FROM public.admin_identities AS i
+     WHERE i.id = v_identity
+       FOR UPDATE;
+    -- Lock order: the identity (above), every membership of it, then the session and token rows.
+    PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
+    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
+    -- reset or a revocation that committed while this call waited); its freshness is judged AFTER the
+    -- row lock, with the clock read again -- a lock wait must not leave a stale v_now.
+    SELECT s.authenticated_at INTO v_auth
+      FROM public.admin_sessions AS s
+      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+     WHERE s.id = v_session
+       AND s.tenant_id = v_tenant
+       AND s.revoked_at IS NULL
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id = v_identity
+       FOR UPDATE OF s;
+    v_auth_found := FOUND;
+    v_now := pg_catalog.clock_timestamp();
+    IF (v_auth_found AND v_auth > v_now - interval '5 minutes' AND v_auth <= v_now) IS NOT TRUE THEN
+        RETURN;
+    END IF;
+    -- The window too, after the locks (NULL fails closed).
+    IF (v_verified IS NOT NULL AND v_until > v_now) IS NOT TRUE THEN
+        RETURN;
+    END IF;
+
+    -- The membership in p_tenant (UNIQUE (tenant_id, identity_id): at most one); the window's scope
+    -- decides, in plpgsql, whether it is on the list.
+    SELECT a.id, a.linked_via, a.linked_at INTO v_target, v_via, v_linked_at
+      FROM public.admin_users AS a
+     WHERE a.tenant_id = p_tenant
+       AND a.identity_id = v_identity
+       AND a.unlinked_at IS NULL
+       FOR UPDATE;
+    -- Fails closed on NULL (a NULL linked_via or linked_at is on no list): `IS NOT TRUE`, never `NOT`.
+    IF NOT FOUND
+       OR ((v_scope = 'first_verify' AND v_via IN ('backfill', 'reconcile', 'signup', 'account'))
+           OR (v_scope = 'reset' AND v_linked_at < v_opened)) IS NOT TRUE THEN
+        RETURN;
+    END IF;
+
+    -- ORDER (M14-01's audit): the row's UPDATE (sentinel + unlinked_at) runs BEFORE the statement that
+    -- revokes the tenant's sessions. A legacy login that holds the row FOR SHARE while it inserts a
+    -- session makes the unlink wait; the revocation, a LATER statement, then sees that session and
+    -- revokes it (READ COMMITTED takes a new snapshot per statement). Here the wait already comes at
+    -- the FOR UPDATE above, so both statements follow it; the order keeps that true if the lock moves.
+    BEGIN
+        -- The 32 random bytes exist only inside this expression (S20).
+        v_sentinel := public.crypt(pg_catalog.encode(public.gen_random_bytes(32), 'hex'), public.gen_salt('bf', 12));
+        UPDATE public.admin_users AS a
+           SET identity_id = NULL, unlinked_at = now(), password_hash = v_sentinel
+         WHERE a.id = v_target AND a.tenant_id = p_tenant AND a.identity_id = v_identity;
+    EXCEPTION WHEN check_violation THEN
+        GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+        -- Only a CHECK this file does not know (contract B's) takes the disable branch; no name (GET
+        -- STACKED DIAGNOSTICS gives '' for a bare RAISE, NULL never) re-raises.
+        IF coalesce(v_constraint, '') = '' OR v_constraint IN ('admin_users_link_has_a_time', 'admin_users_linked_via_known',
+                            'admin_users_password_hash_is_bcrypt', 'admin_users_role_check',
+                            'admin_users_status_check') THEN
+            RAISE;
+        END IF;
+        UPDATE public.admin_users AS a
+           SET unlinked_at = now(), status = 'disabled'
+         WHERE a.id = v_target AND a.tenant_id = p_tenant AND a.identity_id = v_identity;
+    END;
+
+    UPDATE public.password_resets AS r SET cancelled_at = now()
+     WHERE r.tenant_id = p_tenant AND r.admin_user_id = v_target
+       AND r.used_at IS NULL AND r.cancelled_at IS NULL AND r.expires_at > v_now;
+    UPDATE public.admin_sessions AS s SET revoked_at = now()
+     WHERE s.tenant_id = p_tenant AND s.admin_user_id = v_target AND s.revoked_at IS NULL;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    INSERT INTO public.audit_log (tenant_id, actor_id, action, target, detail)
+    VALUES (p_tenant, v_target, 'admin.membership.unlinked', v_target::text,
+            pg_catalog.jsonb_build_object('outcome', 'ok', 'revoked_sessions', v_n));
+    INSERT INTO public.admin_identity_events (identity_id, event, detail)
+    VALUES (v_identity, 'membership_unlinked',
+            pg_catalog.jsonb_build_object('tenant', p_tenant::text, 'scope', v_scope));
+
+    RETURN QUERY SELECT v_target, v_n;
+END;
+$$;
+-- +goose StatementEnd
+ALTER FUNCTION public.identity_unlink_backfilled(text, uuid) OWNER TO tappa_identitydefiner;
+REVOKE ALL ON FUNCTION public.identity_unlink_backfilled(text, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.identity_unlink_backfilled(text, uuid) TO tappa_app;
+
 -- +goose Down
 SET LOCAL lock_timeout = '1s';
+-- The table first (00072's Down's order): no confirm_kept row can be written between the check and the
+-- CHECK's restore.
+LOCK TABLE admin_identity_events IN ACCESS EXCLUSIVE MODE;
 -- The event set goes back to 00072's, so a confirm_kept row would break the CHECK: refuse while one is
 -- there (00072's Down refuses on its rows the same way). Nothing is REVOKEd -- this file granted
 -- nothing (see the header).
@@ -321,6 +476,141 @@ BEGIN
 END
 $$;
 -- +goose StatementEnd
+-- 00072's identity_unlink_backfilled, byte for byte, its properties restated.
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION public.identity_unlink_backfilled(p_session_hash text, p_tenant uuid)
+    RETURNS TABLE (admin_user_id uuid, revoked_sessions integer)
+    LANGUAGE plpgsql
+    VOLATILE
+    SECURITY DEFINER
+    SET search_path = pg_catalog, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+    v_identity   uuid;
+    v_scope      text;
+    v_opened     timestamptz;
+    v_target     uuid;
+    v_via        text;
+    v_linked_at  timestamptz;
+    v_sentinel   text;
+    v_constraint text;
+    v_n          integer;
+    v_session    uuid;
+    v_tenant     uuid;
+    v_now        timestamptz;
+    v_fresh      timestamptz;
+    v_auth       timestamptz;
+    v_auth_found boolean;
+    v_until      timestamptz;
+    v_verified   timestamptz;
+BEGIN
+    v_now := pg_catalog.clock_timestamp();
+    v_fresh := v_now - interval '5 minutes';
+    SELECT s.id, s.tenant_id, a.identity_id INTO v_session, v_tenant, v_identity
+      FROM public.admin_sessions AS s
+      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+     WHERE s.token_hash = p_session_hash
+       AND s.revoked_at IS NULL
+       AND s.authenticated_at > v_fresh
+       AND s.authenticated_at <= v_now
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id IS NOT NULL;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+
+    SELECT i.confirm_scope, i.confirm_opened_at, i.confirm_open_until, i.email_verified_at
+      INTO v_scope, v_opened, v_until, v_verified
+      FROM public.admin_identities AS i
+     WHERE i.id = v_identity
+       FOR UPDATE;
+    -- Lock order: the identity (above), every membership of it, then the session and token rows.
+    PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
+    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
+    -- reset or a revocation that committed while this call waited); its freshness is judged AFTER the
+    -- row lock, with the clock read again -- a lock wait must not leave a stale v_now.
+    SELECT s.authenticated_at INTO v_auth
+      FROM public.admin_sessions AS s
+      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+     WHERE s.id = v_session
+       AND s.tenant_id = v_tenant
+       AND s.revoked_at IS NULL
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id = v_identity
+       FOR UPDATE OF s;
+    v_auth_found := FOUND;
+    v_now := pg_catalog.clock_timestamp();
+    IF (v_auth_found AND v_auth > v_now - interval '5 minutes' AND v_auth <= v_now) IS NOT TRUE THEN
+        RETURN;
+    END IF;
+    -- The window too, after the locks (NULL fails closed).
+    IF (v_verified IS NOT NULL AND v_until > v_now) IS NOT TRUE THEN
+        RETURN;
+    END IF;
+
+    -- The membership in p_tenant (UNIQUE (tenant_id, identity_id): at most one); the window's scope
+    -- decides, in plpgsql, whether it is on the list.
+    SELECT a.id, a.linked_via, a.linked_at INTO v_target, v_via, v_linked_at
+      FROM public.admin_users AS a
+     WHERE a.tenant_id = p_tenant
+       AND a.identity_id = v_identity
+       AND a.unlinked_at IS NULL
+       FOR UPDATE;
+    -- Fails closed on NULL (a NULL linked_via or linked_at is on no list): `IS NOT TRUE`, never `NOT`.
+    IF NOT FOUND
+       OR ((v_scope = 'first_verify' AND v_via IN ('backfill', 'reconcile', 'signup'))
+           OR (v_scope = 'reset' AND v_linked_at < v_opened)) IS NOT TRUE THEN
+        RETURN;
+    END IF;
+
+    -- ORDER (M14-01's audit): the row's UPDATE (sentinel + unlinked_at) runs BEFORE the statement that
+    -- revokes the tenant's sessions. A legacy login that holds the row FOR SHARE while it inserts a
+    -- session makes the unlink wait; the revocation, a LATER statement, then sees that session and
+    -- revokes it (READ COMMITTED takes a new snapshot per statement). Here the wait already comes at
+    -- the FOR UPDATE above, so both statements follow it; the order keeps that true if the lock moves.
+    BEGIN
+        -- The 32 random bytes exist only inside this expression (S20).
+        v_sentinel := public.crypt(pg_catalog.encode(public.gen_random_bytes(32), 'hex'), public.gen_salt('bf', 12));
+        UPDATE public.admin_users AS a
+           SET identity_id = NULL, unlinked_at = now(), password_hash = v_sentinel
+         WHERE a.id = v_target AND a.tenant_id = p_tenant AND a.identity_id = v_identity;
+    EXCEPTION WHEN check_violation THEN
+        GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+        -- Only a CHECK this file does not know (contract B's) takes the disable branch; no name (GET
+        -- STACKED DIAGNOSTICS gives '' for a bare RAISE, NULL never) re-raises.
+        IF coalesce(v_constraint, '') = '' OR v_constraint IN ('admin_users_link_has_a_time', 'admin_users_linked_via_known',
+                            'admin_users_password_hash_is_bcrypt', 'admin_users_role_check',
+                            'admin_users_status_check') THEN
+            RAISE;
+        END IF;
+        UPDATE public.admin_users AS a
+           SET unlinked_at = now(), status = 'disabled'
+         WHERE a.id = v_target AND a.tenant_id = p_tenant AND a.identity_id = v_identity;
+    END;
+
+    UPDATE public.password_resets AS r SET cancelled_at = now()
+     WHERE r.tenant_id = p_tenant AND r.admin_user_id = v_target
+       AND r.used_at IS NULL AND r.cancelled_at IS NULL AND r.expires_at > v_now;
+    UPDATE public.admin_sessions AS s SET revoked_at = now()
+     WHERE s.tenant_id = p_tenant AND s.admin_user_id = v_target AND s.revoked_at IS NULL;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    INSERT INTO public.audit_log (tenant_id, actor_id, action, target, detail)
+    VALUES (p_tenant, v_target, 'admin.membership.unlinked', v_target::text,
+            pg_catalog.jsonb_build_object('outcome', 'ok', 'revoked_sessions', v_n));
+    INSERT INTO public.admin_identity_events (identity_id, event, detail)
+    VALUES (v_identity, 'membership_unlinked',
+            pg_catalog.jsonb_build_object('tenant', p_tenant::text, 'scope', v_scope));
+
+    RETURN QUERY SELECT v_target, v_n;
+END;
+$$;
+-- +goose StatementEnd
+ALTER FUNCTION public.identity_unlink_backfilled(text, uuid) OWNER TO tappa_identitydefiner;
+REVOKE ALL ON FUNCTION public.identity_unlink_backfilled(text, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.identity_unlink_backfilled(text, uuid) TO tappa_app;
 DROP FUNCTION public.identity_keep_all(text);
 DROP FUNCTION public.identity_confirm_window(text);
 ALTER TABLE admin_identity_events

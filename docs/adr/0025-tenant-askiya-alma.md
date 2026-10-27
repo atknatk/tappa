@@ -1368,8 +1368,8 @@ farkıyla taşındı; taban kaymasının değiştirdiği sayılar ve yerler ADR 
   - **M14-18 (2026-10-27):** altı rota aynı kardeş grupta, `mountGated(SurfaceAccountIdentity)` ile —
     e-posta doğrulama talebi (`POST /admin/account/verify-email`) ve onayı (`…/verify-email/confirm`),
     onay penceresinin üç işi (`…/confirm/keep-all`, `…/confirm/unlink`, `…/confirm/undo`) ve "Link a
-    business" (`POST /admin/account/link`). Hepsi kişinin kendi işidir (adresi, girişinin bağları), hiçbir
-    işletmenin verisini değiştirmez; askıdaki bir işletme, kişinin girişinin hangi işletmelere uzandığını
+    business" (`POST /admin/account/link`). Hepsi kişinin kendi işidir (adresi, girişinin bağları): işletmenin
+    iş verisine dokunmaz, yalnız kişinin kendi üyelik satırına ve onun audit satırına dokunur; askıdaki bir işletme, kişinin girişinin hangi işletmelere uzandığını
     denetlemesini engellememeli. Liste **bayrak `off` iken on bir, `on` iken on dokuz rotadır**; iki test
     aynı commit'te güncellendi. E-postadaki linkin iniş sayfası (`GET /admin/verify-email`) bir okumadır
     (kısa ömürlü çerez + yönlendirme, hiçbir şey doğrulamaz).

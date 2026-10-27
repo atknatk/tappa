@@ -807,8 +807,9 @@ func ipUnlink(t *testing.T, ctx context.Context, tx pgx.Tx, session string, tena
 }
 
 // TestIdentityUnlink_TheWindowsScopeDecidesWhatIsListed is §5.8's two scopes (S3, T1): under
-// first_verify a backfill / reconcile / signup link is listed and a password / claim / invite /
-// account link is not; under reset EVERY link made before the window opened is listed -- the
+// first_verify a backfill / reconcile / signup link is listed -- and, since 00079 (M14-18, the user's
+// decision of 2026-10-27, O1), an account link (an Undo's relink in this window) -- and a password /
+// claim / invite link is not; under reset EVERY link made before the window opened is listed -- the
 // pre-planted attacker's password link (S3) and a claim made with a forwarded link (T1; modelled as
 // an admin_users row linked 'claim', since M14-17's claim tables do not exist yet) included -- and a
 // link made at or after the opening is not. The S3 / T1 scenarios run through the real reset
@@ -825,7 +826,7 @@ func TestIdentityUnlink_TheWindowsScopeDecidesWhatIsListed(t *testing.T) {
 		{"first_verify", "password", "1 day", false},
 		{"first_verify", "claim", "1 day", false},
 		{"first_verify", "invite", "1 day", false},
-		{"first_verify", "account", "1 day", false},
+		{"first_verify", "account", "1 day", true}, // 00079 (O1): the window's own relink stays listed
 		{"reset", "password", "1 day", true},
 		{"reset", "claim", "1 day", true},
 		{"reset", "invite", "1 day", true},

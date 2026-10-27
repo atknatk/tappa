@@ -343,3 +343,32 @@ func TestAccountIdentity_TheWindow(t *testing.T) {
 		t.Error("the cookie survived the unlink of its own business")
 	}
 }
+
+// TestAccountIdentity_AFreshSessionThatCouldNotBeRevokedIsRecordedAbandoned (D-sec2): when adminauth
+// reports a fresh session's revocation failed, the business gets the sign-in's abandoned-session row
+// (admin.login.failed, outcome session_abandoned, the session's id) -- never an ordinary sign-out that
+// would claim it ended. A revoked one gets the ordinary sign-out row.
+func TestAccountIdentity_AFreshSessionThatCouldNotBeRevokedIsRecordedAbandoned(t *testing.T) {
+	stuck := adminauth.Session{ID: uuid.New(), TenantID: panelTestTenant, AdminUserID: panelTestAdmin}
+	ended := adminauth.Session{ID: uuid.New(), TenantID: panelTestTenant, AdminUserID: panelTestAdmin}
+	admins := &fakeAdmins{}
+	admins.ident.unlink = func(adminauth.Resolved, string, uuid.UUID) (adminauth.FreshAct, bool, error) {
+		return adminauth.FreshAct{Temporary: []adminauth.Session{stuck, ended}, Revoked: []bool{false, true}}, false, nil
+	}
+	b, trail := identityPanel(t, true, true, admins, nil)
+	b.do(http.MethodPost, accountUnlinkHref, url.Values{"tenant_id": {uuid.NewString()}, "password": {"pw"}})
+	var abandoned, outs int
+	for _, e := range trail.eventsSnapshot() {
+		switch e.Action {
+		case ActionAdminLoginFailed:
+			if d, ok := e.Detail.(adminLoginDetail); ok && d.Outcome == "session_abandoned" && d.SessionID == stuck.ID.String() {
+				abandoned++
+			}
+		case ActionAdminLoggedOut:
+			outs++
+		}
+	}
+	if abandoned != 1 || outs != 1 {
+		t.Fatalf("%d abandoned rows for the stuck session and %d sign-out rows; want 1 and 1 (the revoked one)", abandoned, outs)
+	}
+}

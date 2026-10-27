@@ -103,24 +103,47 @@ func (v IssuedVerification) Link(base string) string {
 	return base + VerifyPath + "?" + VerifyParam + "=" + v.token.reveal()
 }
 
-// rowEmail reads the session row's own address (GetAdminByID, in its own tenant): the key every
-// identity lookup below starts from. "" when the row has none.
-func (m *Manager) rowEmail(ctx context.Context, s Resolved) (string, error) {
-	var email string
+// rowFacts is what the account acts read of the session row itself, in its own tenant: its address
+// (GetAdminByID) and its digest and status (GetAdminPasswordHashByID -- the reverse link's own-password
+// comparison). The digest never leaves this package.
+type rowFacts struct {
+	email, digest, status string
+}
+
+// rowFactsOf reads them (rowFn in a test; production never sets it -- compareFn's precedent: the
+// comparison-count tests run without a database).
+func (m *Manager) rowFactsOf(ctx context.Context, s Resolved) (rowFacts, error) {
+	if m.rowFn != nil {
+		return m.rowFn(s)
+	}
+	var f rowFacts
 	err := m.data.WithTenant(ctx, s.TenantID, func(ctx context.Context, tx pgx.Tx) error {
-		row, e := store.New(tx).GetAdminByID(ctx, store.GetAdminByIDParams{ID: s.AdminUserID, TenantID: s.TenantID})
+		q := store.New(tx)
+		row, e := q.GetAdminByID(ctx, store.GetAdminByIDParams{ID: s.AdminUserID, TenantID: s.TenantID})
 		if e != nil {
 			return e
 		}
 		if row.Email != nil {
-			email = *row.Email
+			f.email = *row.Email
 		}
+		d, e := q.GetAdminPasswordHashByID(ctx, store.GetAdminPasswordHashByIDParams{ID: s.AdminUserID, TenantID: s.TenantID})
+		if e != nil {
+			return e
+		}
+		f.digest, f.status = d.PasswordHash, d.Status
 		return nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("adminauth: read the row's address: %w", err)
+		return rowFacts{}, fmt.Errorf("adminauth: read the session's row: %w", err)
 	}
-	return email, nil
+	return f, nil
+}
+
+// rowEmail is the session row's own address: the key every identity lookup below starts from. ""
+// when the row has none.
+func (m *Manager) rowEmail(ctx context.Context, s Resolved) (string, error) {
+	f, err := m.rowFactsOf(ctx, s)
+	return f.email, err
 }
 
 // identityOfSession resolves the identity a LINKED session's row names by its address and holds it
@@ -151,14 +174,38 @@ func (m *Manager) identityOfSession(ctx context.Context, s Resolved) (db.Resolve
 	return ident, nil
 }
 
-// AccountBucket is the per-person rate bucket of the account page's identity acts: the session's
-// person (Resolved.SwitchBucket) when its row is linked; for an unlinked row, the person the row's
-// address names (the reverse link's target), and the row itself when it names none. An opaque
-// string: no id leaves this package.
-func (m *Manager) AccountBucket(ctx context.Context, s Resolved) (string, error) {
-	if b, ok := s.SwitchBucket(); ok {
+// AccountBucket is the rate bucket of the account page's identity acts (M14-18): the LINKED session's
+// own person (Resolved.SwitchBucket); for an unlinked row the row itself ("row:" + its id). An opaque
+// string: no id of an identity leaves this package.
+//
+// 🔴 AN UNLINKED ROW NEVER GETS THE IDENTITY'S BUCKET (M14-18's security audit, YÜKSEK). A row whose
+// address names an identity is not that identity -- the pre-seeded attacker of ADR 0031 §5.8 (S3, T1)
+// holds exactly such a row. Charging the identity's bucket from it let eleven junk presses an
+// unlinked row sent lock the real person out of "Remove" and of the verification for the whole
+// window. The reverse link's guesses against the identity are bounded by ReverseBucket instead, a
+// key the identity's own acts never use.
+func (m *Manager) AccountBucket(_ context.Context, s Resolved) (string, error) {
+	if b, ok := s.SwitchBucket(); ok && s.Linked {
 		return b, nil
 	}
+	return m.rowBucket(s), nil
+}
+
+// rowBucketLabel is the domain of a row's own bucket under this package's key.
+const rowBucketLabel = "tappa/admin-account-row-bucket/v1|"
+
+// rowBucket is an unlinked row's own bucket: an opaque MAC of the row's id (no id in a limiter key).
+func (m *Manager) rowBucket(s Resolved) string {
+	h := hmac.New(sha256.New, m.hmacKey)
+	_, _ = h.Write([]byte(rowBucketLabel + s.TenantID.String() + "|" + s.AdminUserID.String())) // hash writes never fail
+	return "row:" + base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+}
+
+// ReverseBucket bounds the reverse link's guesses of an identity's password from unlinked rows: the
+// identity the row's address names, under a prefix no other act uses ("reverse|" + its bucket), or
+// the row itself when the address names none. Guesses from many unlinked rows of one address share
+// it; the identity's own acts (verification, unlink, Undo, link) never charge it.
+func (m *Manager) ReverseBucket(ctx context.Context, s Resolved) (string, error) {
 	email, err := m.rowEmail(ctx, s)
 	if err != nil {
 		return "", err
@@ -166,14 +213,14 @@ func (m *Manager) AccountBucket(ctx context.Context, s Resolved) (string, error)
 	if email != "" && isLookupableEmail(email) {
 		ident, err := m.data.ResolveIdentityByEmail(ctx, email)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return "", fmt.Errorf("adminauth: account bucket: %w", err)
+			return "", fmt.Errorf("adminauth: reverse bucket: %w", err)
 		}
 		if err == nil {
 			b := m.switchBucketOf(&ident.ID)
-			return base64.RawURLEncoding.EncodeToString(b[:]), nil
+			return "reverse|" + base64.RawURLEncoding.EncodeToString(b[:]), nil
 		}
 	}
-	return "row:" + s.AdminUserID.String(), nil
+	return "reverse|" + m.rowBucket(s), nil
 }
 
 // ---------------------------------------------------------------- verification --
@@ -563,29 +610,36 @@ func (m *Manager) linkCandidates(ctx context.Context, s Resolved, identityHash, 
 }
 
 func (m *Manager) linkReverse(ctx context.Context, s Resolved, current, other string, budget FailureBudget) (LinkResult, error) {
-	// This row's own password, typed again: its digest from the row (GetAdminPasswordHashByID).
-	var digest string
-	err := m.data.WithTenant(ctx, s.TenantID, func(ctx context.Context, tx pgx.Tx) error {
-		row, e := store.New(tx).GetAdminPasswordHashByID(ctx, store.GetAdminPasswordHashByIDParams{ID: s.AdminUserID, TenantID: s.TenantID})
-		if e != nil {
-			return e
-		}
-		if row.Status != "active" {
-			return ErrNoSuchAdmin
-		}
-		digest = row.PasswordHash
-		return nil
-	})
-	if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, ErrNoSuchAdmin) {
+	// This row's own password, typed again, compared with the row's digest.
+	f, err := m.rowFactsOf(ctx, s)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return LinkResult{}, ErrNoSuchAdmin
 	}
 	if err != nil {
 		return LinkResult{}, fmt.Errorf("adminauth: link a business: %w", err)
 	}
-	if !m.compare(digest, current) {
+	if f.status != "active" {
+		return LinkResult{}, ErrNoSuchAdmin
+	}
+	if !m.compare(f.digest, current) {
 		return LinkResult{}, ErrBadCredentials
 	}
-	proof, err := m.openLegacyProofSession(ctx, s.AdminUserID, s.TenantID, db.NewPasswordHash(digest))
+	// The identity side: ONE comparison whatever the address holds (a dummy when it names no
+	// identity), and ONE event step whatever the outcome (recordFailure: the identity's
+	// login_failed within its budget, the same call for an id no identity carries otherwise) -- the
+	// sign-in's shape, so a present and an absent identity do the same work (M14-18's audit, D3).
+	v, ident, has, err := m.proveIdentity(ctx, f.email, other)
+	if err != nil {
+		return LinkResult{}, err
+	}
+	if v == nil {
+		if err := m.recordFailure(ctx, has, ident.ID, budget); err != nil {
+			return LinkResult{}, err
+		}
+		return LinkResult{}, nil // the one result: nothing linked
+	}
+	// Both passwords verified: the two fresh sessions, the link.
+	proof, err := m.openLegacyProofSession(ctx, s.AdminUserID, s.TenantID, db.NewPasswordHash(f.digest))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return LinkResult{}, ErrNoSuchAdmin
 	}
@@ -593,7 +647,7 @@ func (m *Manager) linkReverse(ctx context.Context, s Resolved, current, other st
 		return LinkResult{}, fmt.Errorf("adminauth: link a business: %w", err)
 	}
 	var res LinkResult
-	n, err := m.linkThisRow(ctx, s, &res, proof, other, budget)
+	n, err := m.linkThisRow(ctx, &res, proof, *v)
 	res.Linked = n
 	if n == 0 {
 		// Not consumed by identity_link_legacy (which revokes it on success): revoked here.
@@ -604,29 +658,13 @@ func (m *Manager) linkReverse(ctx context.Context, s Resolved, current, other st
 	return res, err
 }
 
-// linkThisRow is the reverse link's identity side: the identity the row's address names, proven by
-// other (ONE comparison, a dummy when the address names none), a fresh identity session, the link.
-// 0 with a nil error is the one result for "no identity", "wrong password" and "nothing to link".
-func (m *Manager) linkThisRow(ctx context.Context, s Resolved, res *LinkResult, proof proofSession, other string, budget FailureBudget) (int, error) {
-	email, err := m.rowEmail(ctx, s)
-	if err != nil {
-		return 0, err
-	}
-	v, ident, has, err := m.proveIdentity(ctx, email, other)
-	if err != nil {
-		return 0, err
-	}
-	if v == nil {
-		if has {
-			if err := m.recordFailure(ctx, true, ident.ID, budget); err != nil {
-				return 0, err
-			}
-		}
-		return 0, nil
-	}
-	issued, identityHash, err := m.openIdentitySession(ctx, *v, uuid.Nil)
+// linkThisRow opens the proven identity's fresh session and links the proof session's row to it. 0
+// with a nil error when there is nothing to link to (a reset since, no active membership, or the
+// link refused).
+func (m *Manager) linkThisRow(ctx context.Context, res *LinkResult, proof proofSession, v verifiedIdentity) (int, error) {
+	issued, identityHash, err := m.openIdentitySession(ctx, v, uuid.Nil)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, nil // a reset since, or no active membership: nothing to link to
+		return 0, nil
 	}
 	if err != nil {
 		return 0, fmt.Errorf("adminauth: link a business: %w", err)

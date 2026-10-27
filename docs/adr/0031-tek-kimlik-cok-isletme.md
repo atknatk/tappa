@@ -368,6 +368,20 @@ metnindeki "sırsız yazar" kümesine girmez; CLAUDE.md §4.5 (3) değişmez. İ
 taraması (`identityTenantWideReads`, `identitySessionKeyLookups`, `identityEmailWideReads`) ve
 "her yetki kullanılıyor" egzersizi aynı commit'te genişler.
 
+**M14-18 denetim notu (2026-10-27 kullanıcı kararı, O1 seçenek (a)):** `00079`
+`identity_unlink_backfilled`'ı **aynı imzayla** yeniden tanımlar: `first_verify` kapsamı `'account'`
+bağlarını da listeler (`identity_confirm_window` aynı testi kullanır). Sebep: pencere açıkken yapılan
+Undo (`identity_relink_refused`) satıra `linked_via='account'` yazar; `first_verify` onu listelemediği
+için geri alınan satır listeden düşüyor ve bir daha çözülemiyordu. Bir `first_verify` penceresinde
+`'account'` bir satır **yalnız bu pencerede yapılmış bir geri alma** olabilir: `'account'`'ın başka
+yazarı yoktur ve sıfırlama `email_verified_at`'i doldurduğu için `first_verify` bir daha açılmaz. Gövde
+00072'ninkidir, tek fark bu sabit; `SECURITY DEFINER`, `search_path`, sahip, `REVOKE ALL … FROM PUBLIC` ve
+`GRANT EXECUTE … TO tappa_app` yeniden yazılır; Down 00072'nin gövdesini bayt bayt geri koyar. Aynı
+denetimin **oran kovası** kararı: hesap eylemlerinin kovası bağlı oturumun **kendi** kişisidir; bağlanmamış
+bir satır (önceden ekilmiş saldırganın satırı, §5.8) kişinin kovasını asla harcayamaz — doğrulama, çözme
+ve geri alma ondan ücret almadan reddedilir, ters bağlamanın parola denemeleri kimliğin hiçbir eyleminin
+kullanmadığı ayrı bir anahtarla (`reverse|…`) sınırlanır.
+
 **M14-08 uygulama notları (2026-10-23; kart dışı kararlar, denetime açık):**
 - `identity_create_for_signup(p_tenant_id uuid, p_admin_user_id uuid)` → **`boolean`** (bağladı mı)
   `00074`'te doğdu. Yüklemler tablodakilerin hepsi (`app.tenant_id` eşitliği, satırın bu tenant'ın,
@@ -787,6 +801,9 @@ bildirilir.
   migration'ı** (deterministik, testli — T9) bayrak kapalıyken açılmış bütün pencerelerin yalnız
   `confirm_open_until`'ini `now() + 7 gün` yapar; `confirm_opened_at` **korunur** (reset listesinin
   kümesi ona bağlıdır) — yani pencere = `max(olay, bayrak günü) + 7 gün` (S5).
+- **Geri alınan satır listede kalır ve yeniden çözülebilir** (M14-18, 2026-10-27 kullanıcı kararı, O1):
+  `first_verify` kapsamı `'account'` bağlarını da sayar — bu pencerede `'account'` ancak pencerenin kendi
+  geri almasıdır (§5.2 notu).
 - **"Keep all" tek tıktır ve canlı oturum yeter** (M14-18, 2026-10-27 kullanıcı kararı; T11). **Kabul
   edilen risk, adıyla:** bir oturumu çalan kişi (canlı çerez) pencereyi kapatıp listeyi gerçek sahibinden
   **gizleyebilir** — üyeliklerin hiçbiri çözülmez, ama kişi onları gözden geçirme fırsatını kaybeder.
@@ -895,7 +912,7 @@ yaklaştığında contract konuşulur.
 |---|---|
 | Tenant verisi (`admin_users`, `admin_sessions`, `admin_invites`, iş tabloları) | RLS + FORCE + açık `tenant_id`, değişmez |
 | Kişi verisi (§5.1'in beş tablosu) | Tenant-kapsamsız; `tappa_app`, `tappa_operator`, `tappa_opdefiner` yetkisiz; yalnız `tappa_identitydefiner` / `tappa_resolver` sahipli kapalı liste |
-| Tenant sınırını geçen hareketler | Giriş, geçiş, davet kabulü, kayıt sahiplenme, bağlama, sıfırlama — her biri bir **sırra** anahtarlı (üç adlandırılmış istisna hariç), sonucu tek-tenant bir oturum ya da tek-tenant satır yazmaları. Bir istek asla iki tenant'ta koşmaz |
+| Tenant sınırını geçen hareketler | Giriş, geçiş, davet kabulü, kayıt sahiplenme, bağlama, sıfırlama — her biri bir **sırra** anahtarlı (üç adlandırılmış istisna hariç), sonucu tek-tenant bir oturum ya da tek-tenant satır yazmaları. Bir istek asla iki tenant'ta koşmaz — **aynı anda** demektir: art arda iki ayrı `WithTenant` (tenant id'si veritabanından, istekten değil) bu kurala uyar; hesap sayfasının taze oturumlarına yazılan sıradan `admin.logout` satırı bunun örneğidir, girişteki proof oturumları emsalidir (M14-18 güvenlik denetimi, 2026-10-27) |
 | BYPASSRLS gövdeleri | Tenant tablosuna dokunan her ifade açık `tenant_id` yüklemi taşır (kuşak + kemer) |
 | `tappa_app`'ın kimlik bağı yazması | Sütun düzeyinde kapalı + bağlı satır tetikleyicisi (INVOKER) |
 | Çapraz sızıntı | Audit satırları karşı tenant'ı, üyelik sayısını, `identity_id`'yi, `linked_via`'yı anmaz; liste yalnız kişinin kendi oturumuyla |
