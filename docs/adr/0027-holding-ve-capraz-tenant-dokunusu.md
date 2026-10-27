@@ -918,6 +918,26 @@ e-postaları, iki tenant'ın mesai kayıtları (CLAUDE.md §4.3, §4.6), holding
    (katalog pinleri; `sun_valid`'in değeri başka sütunlardan türetilebilir — §13 madde 22). KM, KF'nin `static_ips`'ini ve GPS'ini görmez (K-39); KM satırının `ip_match`'i ve
    `policy_context`'i KF'nin ağını/koordinatını **dolaylı** açabilir — adlandırılmış bedel (§13).
    **K-1i (2026-10-14) ile KM kendi satırından plaketin dokunuştan önceki mutlak `last_ctr`'ını türetebilir** (`ctr − tap:ctrGap − 1`; ölçüldü: 150, 49 → 100) — `ctr` KF'nin yeni değerini `00043`'ten beri zaten taşıyor; K-1i'nin eklediği, KM'nin iki dokunuşu arasında KF'nin ya da başka bir eşin kabul edilmiş son okumasının sayaç değeridir; replay için sömürülemez (sayaç yalnız artar, ilerletme katı `<`).
+   *K notu (2026-10-22, M15-13 — `directionSource`: sahanın gördüğü sütunlara eklendi):* holding punch'ının
+   saha satırı (`punch_events`, `roles = {location}`) işverenin satırıyla **aynı** `direction_source`'u taşır
+   (`00067`; `/v1`'de `directionSource`: `auto` | `employee` | `null`) — `direction` gibi işverenin kaydıdır
+   (K-40), ADR 0032 §B.4'ün okuyucu kuralıyla tetikleyicide bir kez yazılır. Sahaya açtığı tek bilgi yönün
+   kimden geldiğidir: `auto` = motorun dokunuş anında hesapladığı yön, `employee` = kaydedilen yön motorunki
+   değil — çoğunlukla çalışanın *"Not right?"* seçimi, ama iş günü sınırından önce açılıp sonra basılan bir
+   sayfanın ana düğmesi de (`TestCheckinDB_AStalePagePressedAfterTheCutoffIsTheChoiceAndListedAsCheckInMissing`; tanım
+   2026-10-23'te, M15-14 genel merceğinin ORTA-1'iyle *"yalnız Not right?"* darlığından düzeltildi); not, politika bağlamı, `verdict` ve
+   kanıt sütunu değildir ve yukarıdaki *"asla"* listesi değişmez. `site_punches` (sahanın izdüşümü)
+   değişmedi. Katalog pini gevşemedi, yeni sütunu adıyla içerir: `feedWrittenColumns`
+   (`TestFeedCatalog_TwoRolesTriggerOrderExecuteOwnerOnlyRelid`), `tappa_app`'in `punch_events` SELECT
+   listesi (`TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`) ve iki satırın aynı değeri
+   (`TestPunchDirectionSource_BothFeedWritersCarryTheRowsSource`). *Kabul edilmiş çıkarım (güvenlik
+   merceği, 2026-10-23):* saha tenant'ı `direction` + `direction_source`'tan motorun o dokunuş için
+   hesapladığı yönü çıkarabilir; bundan öğrenebildiği yalnız *"çalışanın işverende bu iş gününde
+   kapatılabilir bir açık girişi var mıydı"*dır — ADR 0032'nin yön kuralı açık girişi yalnız aynı iş
+   gününde ve 18 saatten (`StaleOpenIn`) yeniyken kapatır, daha eski bir açık giriş motorun yönünü
+   değiştirmez. Bu bilgi türü `00049`'dan beri `auto` satırlarda (`direction` motorun yönüdür) zaten
+   vardır, `00067` onu `employee` satırlarına da ekler (seçilen yönün tersi motorunkidir) — kabul edilmiş
+   bir durumdur.
 4. **Kendi tenant'ındaki ayrıcalıklı olmayan kod yolu (SQL kusuru, enjeksiyon) `tappa_app` olarak.**
    Erişebileceği en geniş yüzey: kapalı listedeki fonksiyonların sabit dönüşleri, yalnız eş
    tenant'ın anahtarlarıyla. Tetikleyicileri bağlayamaz (EXECUTE yalnız sahipte + `TG_RELID`

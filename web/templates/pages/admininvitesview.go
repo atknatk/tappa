@@ -56,7 +56,7 @@ type ManagerMemberRow struct {
 	Self                                                             bool
 	CanDisable, CanEnable, CanMakeOwner, CanMakeManager, CanStepDown bool
 	// KeysNote: the row is an owner a press here would disable or demote -- the page says that the API
-	// keys this person created keep working (backlog T150).
+	// keys this person created keep working (backlog T174).
 	KeysNote bool
 }
 

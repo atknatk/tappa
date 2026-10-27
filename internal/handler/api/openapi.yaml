@@ -40,6 +40,11 @@ info:
 
     Identifiers: `emp_`, `loc_`, `pch_` and `dlv_` followed by a UUID; `tag_` followed by the plaque's
     UID. Instants are RFC 3339 in UTC with at most microsecond precision.
+
+    Compatibility within version 1: a field may be added to an answer or a webhook body -- ignore a
+    field you do not know (every answer and webhook schema is open: additionalProperties true).
+    Removing a field, renaming one or changing what a value means is a new version. Request bodies
+    stay closed: a field the endpoint does not take is 422 `unknown_field`.
   x-limits:
     requestsPerAddressPerMinute: 1200
     requestsPerKeyPerMinute: 600
@@ -587,7 +592,7 @@ paths:
                   value: {"data": [
                       {"id": "pch_00d216d4-3012-4d76-9c35-8f24028b432a", "version": 1, "status": "valid",
                         "punchTime": "2026-10-16T09:13:13.008183Z", "recordedAt": "2026-10-16T09:13:13.051707Z",
-                        "channel": "nfc", "direction": "in",
+                        "channel": "nfc", "direction": "in", "directionSource": "auto",
                         "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001",
                           "employeeCode": "2001", "company": "KM"},
                         "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT",
@@ -595,7 +600,7 @@ paths:
                         "tagId": "tag_0DD4F2FE3B9A6A"},
                       {"id": "pch_04ce3ad0-fb32-477d-9d5d-7c0e9b079b41", "version": 1, "status": "valid",
                         "punchTime": "2026-10-16T09:13:13.083662Z", "recordedAt": "2026-10-16T09:13:13.116875Z",
-                        "channel": "nfc", "direction": "in",
+                        "channel": "nfc", "direction": "in", "directionSource": "auto",
                         "employee": {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "externalRef": "E-1042",
                           "employeeCode": "1042", "company": "KF"},
                         "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT",
@@ -607,7 +612,7 @@ paths:
                   value: {"data": [
                       {"id": "pch_00d216d4-3012-4d76-9c35-8f24028b432a", "version": 1, "status": "valid",
                         "punchTime": "2026-10-16T09:13:13.008183Z", "recordedAt": "2026-10-16T09:13:13.051707Z",
-                        "channel": "nfc", "direction": "in",
+                        "channel": "nfc", "direction": "in", "directionSource": "auto",
                         "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001",
                           "employeeCode": "2001", "company": "KM"},
                         "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT",
@@ -615,7 +620,7 @@ paths:
                         "tagId": "tag_0DD4F2FE3B9A6A"},
                       {"id": "pch_f01406af-dfcc-4fc0-bc4e-c3d982645fe8", "version": 1, "status": "valid",
                         "punchTime": "2026-10-16T09:14:14.253191Z", "recordedAt": "2026-10-16T09:14:14.261497Z",
-                        "channel": "nfc", "direction": "out",
+                        "channel": "nfc", "direction": "out", "directionSource": "auto",
                         "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001",
                           "employeeCode": "2001", "company": "KM"},
                         "location": {"id": "loc_4b6d2cc5-44e7-42c0-9830-abd1b8e370bb", "externalRef": "DEP-1",
@@ -769,7 +774,7 @@ webhooks:
                 value: {"event": "punch", "deliveryId": "dlv_44721ce2-0f54-41ce-a757-7ee03cfec107",
                   "id": "pch_04ce3ad0-fb32-477d-9d5d-7c0e9b079b41", "version": 1, "status": "valid",
                   "punchTime": "2026-10-16T09:13:13.083662Z", "recordedAt": "2026-10-16T09:13:13.116875Z",
-                  "channel": "nfc", "direction": "in",
+                  "channel": "nfc", "direction": "in", "directionSource": "auto",
                   "employee": {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "externalRef": "E-1042",
                     "employeeCode": "1042", "company": "KF"},
                   "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT",
@@ -932,7 +937,7 @@ components:
           description: Optional. When present it must be the reference in the path.
     Location:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [id, externalRef, name, timezone, active, createdAt]
       properties:
         id:
@@ -982,7 +987,7 @@ components:
           description: Optional. When present it must be the reference in the path.
     Employee:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [id, externalRef, employeeCode, firstName, lastName, fullName, active, activated, activatedAt, hasEmail, activationEmail, createdAt, updatedAt]
       properties:
         id:
@@ -1014,7 +1019,7 @@ components:
           description: Whether an e-mail address is on file. The address itself is never answered.
         activationEmail:
           type: object
-          additionalProperties: false
+          additionalProperties: true
           required: [status, at]
           properties:
             status:
@@ -1033,7 +1038,7 @@ components:
           format: date-time
     PunchEmployee:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [id, externalRef, employeeCode, company]
       description: The employee as they were at the punch.
       properties:
@@ -1050,7 +1055,7 @@ components:
           description: The employee's business's company code.
     PunchLocation:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [id, externalRef, name, company]
       description: |
         The location as it was at the punch. id, externalRef and name are null for a plaque that
@@ -1070,8 +1075,9 @@ components:
           description: The location's business's company code.
     Punch:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [id, version, status, punchTime, recordedAt, channel, direction, employee, location, tagId]
+      description: A punch. Open -- version 1 may add fields; ignore a field you do not know.
       properties:
         id:
           type: string
@@ -1100,7 +1106,23 @@ components:
         direction:
           type: string
           enum: [in, out]
-          description: In or out, as Taptime computed it for the employee's own business.
+          description: In or out, the direction recorded at the employee's own business -- the one Taptime computed at the tap, or the other one (directionSource).
+        directionSource:
+          type: ["string", "null"]
+          enum: [auto, employee, null]
+          description: |
+            Whose `direction` it is. `auto` -- the direction Taptime computed at the tap. `employee` -- the
+            recorded direction is not the one Taptime computed at the tap: most often the employee chose the
+            other one on the tap page ("Not right?"); the page's main button can give it too when the page was
+            opened before the employer's business day began and pressed after. Do not pair a punch with
+            `employee` with the punch before it: when such an `out` is recorded it has nothing to close (no
+            open clock-in of that business day -- Taptime lists it as "Check-in missing" -- or a clock-in more than
+            18 hours old, which stays open) and Taptime counts no time for it; a manual clock-in a manager
+            enters later can change that, and a manual record is not in the feed. Such an `in` leaves the
+            previous clock-in without a clock-out. For hours, Taptime's report is the record (the guide's
+            section 6.3). null
+            for a punch the feed recorded before it carried this field. Added to version 1 (the guide's
+            edition 3) and not required: a client that does not read it reads every other field as before.
         employee:
           $ref: "#/components/schemas/PunchEmployee"
         location:
@@ -1111,9 +1133,9 @@ components:
           description: The plaque touched (also for a QR punch).
     PunchDelivery:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [event, deliveryId, id, version, status, punchTime, recordedAt, channel, direction, employee, location, tagId]
-      description: A webhook delivery's body -- the Punch with event and deliveryId.
+      description: A webhook delivery's body -- the Punch with event and deliveryId. Open -- version 1 may add fields; ignore a field you do not know.
       properties:
         event:
           type: string
@@ -1149,7 +1171,23 @@ components:
         direction:
           type: string
           enum: [in, out]
-          description: In or out, as Taptime computed it for the employee's own business.
+          description: In or out, the direction recorded at the employee's own business -- the one Taptime computed at the tap, or the other one (directionSource).
+        directionSource:
+          type: ["string", "null"]
+          enum: [auto, employee, null]
+          description: |
+            Whose `direction` it is. `auto` -- the direction Taptime computed at the tap. `employee` -- the
+            recorded direction is not the one Taptime computed at the tap: most often the employee chose the
+            other one on the tap page ("Not right?"); the page's main button can give it too when the page was
+            opened before the employer's business day began and pressed after. Do not pair a punch with
+            `employee` with the punch before it: when such an `out` is recorded it has nothing to close (no
+            open clock-in of that business day -- Taptime lists it as "Check-in missing" -- or a clock-in more than
+            18 hours old, which stays open) and Taptime counts no time for it; a manual clock-in a manager
+            enters later can change that, and a manual record is not in the feed. Such an `in` leaves the
+            previous clock-in without a clock-out. For hours, Taptime's report is the record (the guide's
+            section 6.3). null
+            for a punch the feed recorded before it carried this field. Added to version 1 (the guide's
+            edition 3) and not required: a client that does not read it reads every other field as before.
         employee:
           $ref: "#/components/schemas/PunchEmployee"
         location:
@@ -1160,7 +1198,7 @@ components:
           description: The plaque touched (also for a QR punch).
     Ping:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [event, id, sentAt]
       properties:
         event:
@@ -1175,7 +1213,7 @@ components:
           format: date-time
     PunchPage:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [data, nextCursor, hasMore]
       properties:
         data:
@@ -1190,7 +1228,7 @@ components:
           description: The feed held more than this page when it was read; read on.
     EmployeePage:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [data, nextCursor]
       properties:
         data:
@@ -1202,7 +1240,7 @@ components:
           description: Set when the page is full (it holds `limit` employees); null on a shorter page, the last.
     DirectoryEntry:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [id, company, externalRef, employeeCode, firstName, lastName, fullName, active, updatedAt]
       properties:
         id:
@@ -1233,7 +1271,7 @@ components:
           description: When a directory field of the employee last changed (UTC).
     DirectoryPage:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [data, nextCursor, hasMore, asOf]
       properties:
         data:
@@ -1252,7 +1290,7 @@ components:
           description: The walk's clock (UTC), the same on each of its pages. After the last page, the next walk's `updatedSince`.
     Error:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [code, message, details]
       properties:
         code:
@@ -1265,7 +1303,7 @@ components:
           $ref: "#/components/schemas/ErrorDetails"
     ErrorDetails:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       description: Machine-readable specifics; may be empty. Every key is optional; none repeats a value the request sent.
       properties:
         field:

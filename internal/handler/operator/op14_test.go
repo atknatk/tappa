@@ -701,13 +701,15 @@ func TestAuditScreen_TheBoundaryRefusesBeforeTheStore(t *testing.T) {
 //
 // PART I -- the entries sit in ONE <section class="docket"> labelled by its heading, and every
 // row is inside it; the heading is a docket label and its page number is in the data face;
-// the kind filter is the op-input select and the pager's two buttons are op-link buttons; and
-// web/static/css/input.css gives op-input and op-link the 44 px touch target (min-h-11 in
-// their one-line or multi-line @apply).
+// the kind filter is the op-input select and the pager's two buttons are op-pager buttons (the
+// outlined button, M13-12; README §6 "Pager") and neither is the op-link button they were; and
+// web/static/css/input.css gives op-input, op-link and op-pager -- with the nav's items -- the
+// 44 px touch target (min-h-11 in their one-line or multi-line @apply).
 //
 // PART II -- red on: the docket section replaced or doubled; a row outside it; the heading's
-// class or its mono page number dropped; the select's or a pager button's class changed; the
-// touch target dropped from either rule. PART III -- These classes only (no completeness claim).
+// class or its mono page number dropped; the select's or a pager button's class changed (back to
+// op-link included); the touch target dropped from any rule. PART III -- These classes only (no
+// completeness claim).
 func TestAuditScreen_WearsTheDocketAnatomy(t *testing.T) {
 	g := newRig(t)
 	c := g.signIn(g.active())
@@ -739,18 +741,26 @@ func TestAuditScreen_WearsTheDocketAnatomy(t *testing.T) {
 	for what, want := range map[string]string{
 		"the docket's heading, a docket label with a mono page number": `<h2 id="audit-list" class="docket-label">Newest first · Signed in · page <span class="font-mono">2</span></h2>`,
 		"the kind filter, the op-input select":                         `<select id="audit-kind" name="kind" class="op-input">`,
-		"the pager's Previous, an op-link button":                      `<button type="submit" class="op-link">Previous page</button>`,
-		"the pager's Next, an op-link button":                          `<button type="submit" class="op-link">Next page</button>`,
+		"the pager's Previous, an op-pager button":                     `<button type="submit" class="op-pager">Previous page</button>`,
+		"the pager's Next, an op-pager button":                         `<button type="submit" class="op-pager">Next page</button>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("%s: %q is not on the page", what, want)
+		}
+	}
+	// M13-12: the old link-styled pager button is gone, so the new one is not found beside a leftover.
+	for _, label := range []string{"Previous page", "Next page"} {
+		if strings.Contains(body, `class="op-link">`+label+`</button>`) {
+			t.Errorf("the pager's %s is still an op-link button", label)
 		}
 	}
 	css, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, class := range []string{"op-input", "op-link"} {
+	// The operator nav's and the tenant sub-nav's items (M13-01) are pressable op-* classes too,
+	// and so is the pager's outlined button (M13-02; the screens take it in M13-10, -12, -13).
+	for _, class := range []string{"op-input", "op-link", "op-nav-item", "op-subnav-item", "op-pager"} {
 		m := regexp.MustCompile(`(?m)^\s*\.` + class + `\s*\{\s*@apply ([^;]+);`).FindStringSubmatch(string(css))
 		if m == nil || !slices.Contains(strings.Fields(m[1]), "min-h-11") {
 			t.Errorf("input.css's .%s rule does not give the 44 px touch target (min-h-11)", class)
@@ -1008,12 +1018,17 @@ func TestAuditScreen_NoCredentialFieldReachesThePage(t *testing.T) {
 
 // TestAuditScreen_TheTextClearsAA recomputes, from tailwind.config.js's palette, the contrast
 // of the audit screen's text on its grounds (WCAG 2.1 relative luminance, sRGB; a
-// translucent token composited on its ground): ink on paper (the rows, the card, the
-// "Search:" label of an unknown class -- 2nd round, no colour class of its own), ink at 70%
-// on paper (the last-page note), ink on ink at 10% over paper (the unrecognised chip),
-// tappa-green on paper (the card's and a row's tenant links) and on porcelain (the pager's
-// links), paper on tappa-green (the Show button) -- each against AA's 4.5:1 (the chip is
-// 11px, the rest 14px and smaller: none is large text). And it ties the one chip the screen
+// translucent token composited on its ground): ink on paper (the rows' values, the card, the
+// "Search:" label of an unknown class -- 2nd round, no colour class of its own; M13-12 -- the
+// pager's word, ink on the op-pager's own paper, whose ink-at-30% frame carries no text, README §6
+// "Pager"), ink at 70% on paper (the last-page note; M13-12 -- the rows' fact words and the card's
+// label), ink at 70% on ink at 3% over paper (M13-12 -- the Kind label in the filter's framed
+// box; the select draws its own paper and the button its own green), ink on ink at 10% over paper (the unrecognised
+// chip), tappa-green on paper (the card's and a row's tenant links) and on porcelain (an op-link
+// on the page's own ground, outside any card or docket; since M13-12 no element of this screen is
+// drawn so -- the line is kept as the screen's floor for one, its threshold unchanged), paper on
+// tappa-green (the Show button) -- each against AA's 4.5:1 (the chip and the label are 11px, the
+// rest 13-15px and the h1 26-32px bold; this test does not relax for the h1 as large text). And it ties the one chip the screen
 // writes to the ground computed here: web/static/css/input.css has exactly one rule naming
 // tally--unrecognised, and it applies the ink frame on the ink at 10% ground.
 func TestAuditScreen_TheTextClearsAA(t *testing.T) {
@@ -1048,11 +1063,12 @@ func TestAuditScreen_TheTextClearsAA(t *testing.T) {
 		what   string
 		fg, bg [3]float64
 	}{
-		{"ink on paper", ink, paper},
+		{"ink on paper (the rows' values; the pager's word)", ink, paper},
 		{"ink at 70% on paper", over(ink, 0.7, paper), paper},
+		{"ink at 70% on ink at 3% over paper (the filter's Kind label)", over(ink, 0.7, over(ink, 0.03, paper)), over(ink, 0.03, paper)},
 		{"ink on ink at 10% over paper (unrecognised)", ink, over(ink, 0.1, paper)},
 		{"tappa-green on paper", green, paper},
-		{"tappa-green on porcelain", green, porcelain},
+		{"tappa-green on porcelain (an op-link on the page's ground; none on this screen since M13-12)", green, porcelain},
 		{"paper on tappa-green", paper, green},
 	} {
 		if got := contrast(c.fg, c.bg); got < 4.5 {

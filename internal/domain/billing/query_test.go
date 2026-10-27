@@ -155,6 +155,9 @@ func TestBillingQueries_TheScopeCheckIsNotVacuous(t *testing.T) {
 		// The refusals, each a real way to look scoped without being scoped.
 		{"neutralised by OR", "(b.tenant_id = @tenant_id OR TRUE)", "tenant_id", false},
 		{"OR at top level", "b.tenant_id = @tenant_id OR b.id IS NOT NULL", "tenant_id", false},
+		{"OR after the scope conjunct", "b.tenant_id = @tenant_id AND x OR true", "tenant_id", false},
+		{"OR a caller's switch", "b.tenant_id = @tenant_id AND x = 1 OR @all::boolean", "tenant_id", false},
+		{"a parenthesised OR is a filter", "b.tenant_id = @tenant_id AND (x OR y)", "tenant_id", true},
 		{"a different parameter", "b.tenant_id = @other_id", "tenant_id", false},
 		{"a different column", "b.location_id = @tenant_id", "tenant_id", false},
 		{"scoped to a literal rather than the caller", "b.tenant_id = '00000000-0000-0000-0000-000000000000'", "tenant_id", false},
@@ -408,6 +411,9 @@ func whereBlocks(body string) []whereBlock {
 // scope column and the tenant parameter. Top-level is the whole point:
 // `(a = @tenant_id OR TRUE)` scopes nothing.
 func scopedByTenant(where, column string) bool {
+	if hasTopLevelOr(where) {
+		return false
+	}
 	for _, conjunct := range splitTopLevelAnd(where) {
 		if isScopeEquality(conjunct, column) {
 			return true
@@ -436,6 +442,44 @@ func splitTopLevelAnd(s string) []string {
 		}
 	}
 	return append(parts, s[last:])
+}
+
+// hasTopLevelOr reports whether s has an OR outside every parenthesis, string literal and SQL
+// comment (M15-16 review, security ORTA, measured). Splitting on AND alone let
+// `x.tenant_id = @tenant_id AND a OR b` through: one conjunct IS the scope equality, but the
+// clause is (scope AND a) OR b -- every row whenever b holds. A WHERE with an OR at depth zero
+// therefore scopes nothing, whatever its conjuncts look like. A parenthesised OR (`AND (a OR b)`)
+// is depth one and stays a filter. An aggregate's `FILTER (WHERE ...)` is no row scope: ledger's
+// reader skips it, the other copies' readers would hand its OR here. Measured 2026-10-25 over
+// every statement in db/queries with tenant's reader and ledger's: the one depth-zero OR is
+// ListAnomalyVenues' `FILTER (WHERE t.ip_match IS NOT NULL OR t.gps_match IS NOT NULL)`, which
+// only ledger's belt reads -- so no shipped statement turns red, and a copy that met it would
+// fail closed (a false alarm, never a pass).
+func hasTopLevelOr(s string) bool {
+	depth := 0
+	upper := strings.ToUpper(s)
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '\'':
+			for i++; i < len(s) && s[i] != '\''; i++ {
+			}
+			continue
+		case strings.HasPrefix(s[i:], "--"):
+			for ; i < len(s) && s[i] != '\n'; i++ {
+			}
+			continue
+		case s[i] == '(':
+			depth++
+			continue
+		case s[i] == ')':
+			depth--
+			continue
+		}
+		if depth == 0 && strings.HasPrefix(upper[i:], "OR") && wordBoundary(upper, i, 2) {
+			return true
+		}
+	}
+	return false
 }
 
 func wordBoundary(s string, i, n int) bool {

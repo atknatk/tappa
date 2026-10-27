@@ -164,7 +164,7 @@ type screenRow struct {
 
 var (
 	screenChip  = regexp.MustCompile(`<span class="tally tally--[a-z-]+">([^<]*)</span>`)
-	screenFact  = regexp.MustCompile(`<span class="text-sm">([A-Za-z ]+) <span class="font-mono">([^<]*)</span></span>`)
+	screenFact  = regexp.MustCompile(`<span class="text-sm">([A-Za-z ]+) <span class="font-mono">([^<]*)</span></span>|<div><dt class="docket-label">([A-Za-z ]+)</dt><dd class="font-mono">([^<]*)</dd></div>`)
 	screenMonth = regexp.MustCompile(`^\s*<span class="font-mono font-bold">([^<]*)</span>`)
 	screenFloor = regexp.MustCompile(`The count is a FLOOR: <span class="font-mono">([0-9]+)</span>`)
 )
@@ -185,8 +185,14 @@ func readScreen(t *testing.T, body string) []screenRow {
 		}
 		row := screenRow{month: billing.Month{Year: at.Year(), Month: at.Month()}, word: html.UnescapeString(cm[1]), facts: map[string]string{},
 			free: strings.Contains(r, "Inside the founding offer")}
+		// A fact is an inline span (Closed, First charged month, Counted over) or a cell of the
+		// receipt strip (Plan, People counted, Price per person, Amount -- M13-10).
 		for _, f := range screenFact.FindAllStringSubmatch(r, -1) {
-			row.facts[f[1]] = html.UnescapeString(f[2])
+			if f[1] != "" {
+				row.facts[f[1]] = html.UnescapeString(f[2])
+			} else {
+				row.facts[f[3]] = html.UnescapeString(f[4])
+			}
 		}
 		if fm := screenFloor.FindStringSubmatch(r); fm != nil {
 			row.floor = fm[1]

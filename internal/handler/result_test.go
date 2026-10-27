@@ -467,9 +467,9 @@ func TestResultScreen_BrandMessageFollowsTheTenantKindAndTheDirection(t *testing
 					t.Fatalf("business type %q direction %q also rendered %q: the wrong tenant's copy", tc.businessType, tc.direction, no)
 				}
 			}
-			// The direction also has to survive into the headline, or "Tapped in"
+			// The direction also has to survive into the headline, or "Clocked in"
 			// and the send-off could disagree with each other.
-			wantHeadline := "Tapped " + tc.direction
+			wantHeadline := "Clocked " + tc.direction
 			if !strings.Contains(body, wantHeadline) {
 				t.Fatalf("headline is not %q: the direction did not reach the screen", wantHeadline)
 			}
@@ -952,27 +952,27 @@ func TestResultScreen_SaysExactlyThisAndNothingElse(t *testing.T) {
 			name: "ok in, restaurant",
 			res: checkin.Result{Decision: withNote(decisionOf("ok", "in", false), noteIPMatched),
 				BusinessType: "restaurant"},
-			want: shellText + " St Julians Tapped in 14:03:22 APPROVED Trust 100 " + noteIPMatched +
+			want: shellText + " St Julians Clocked in 14:03:22 APPROVED Trust 100 " + noteIPMatched +
 				" Have a great shift — keep those kebabs rolling! 🌯 All done — you can close this page.",
 		},
 		{
 			name: "ok out, production",
 			res: checkin.Result{Decision: withNote(decisionOf("ok", "out", false), noteIPMatched),
 				BusinessType: "production"},
-			want: shellText + " St Julians Tapped out 14:03:22 APPROVED Trust 100 " + noteIPMatched +
+			want: shellText + " St Julians Clocked out 14:03:22 APPROVED Trust 100 " + noteIPMatched +
 				" Shift complete. Thank you for your work today! 👋 All done — you can close this page.",
 		},
 		{
 			name: "ok, practice: the training line replaces the send-off",
 			res: checkin.Result{Decision: withNote(decisionOf("ok", "in", true), noteIPMatched),
 				BusinessType: "restaurant"},
-			want: shellText + " St Julians Tapped in 14:03:22 APPROVED TRAINING This practice tap does not" +
+			want: shellText + " St Julians Clocked in 14:03:22 APPROVED TRAINING This practice tap does not" +
 				" count toward your hours. Trust 100 " + noteIPMatched + " All done — you can close this page.",
 		},
 		{
 			name: "ok with an empty note (a tenant rule with no reason)",
 			res:  checkin.Result{Decision: decisionOf("ok", "in", false), BusinessType: "restaurant"},
-			want: shellText + " St Julians Tapped in 14:03:22 APPROVED Trust 100" +
+			want: shellText + " St Julians Clocked in 14:03:22 APPROVED Trust 100" +
 				" Have a great shift — keep those kebabs rolling! 🌯 All done — you can close this page.",
 		},
 		{
@@ -981,7 +981,7 @@ func TestResultScreen_SaysExactlyThisAndNothingElse(t *testing.T) {
 			name: "flag",
 			res: checkin.Result{Decision: withNote(decisionOf("flag", "in", false), noteNoPlace),
 				BusinessType: "restaurant"},
-			want: shellText + " St Julians Tapped in 14:03:22 FLAGGED Trust 100 " + noteNoPlace +
+			want: shellText + " St Julians Clocked in 14:03:22 FLAGGED Trust 100 " + noteNoPlace +
 				" Recorded — it needs your manager's approval before it counts toward your hours." +
 				" Tell them if that looks wrong. You can close this page.",
 		},
@@ -989,7 +989,7 @@ func TestResultScreen_SaysExactlyThisAndNothingElse(t *testing.T) {
 			name: "flag, practice: one voice, no 'before it counts'",
 			res: checkin.Result{Decision: withNote(decisionOf("flag", "in", true), noteNoPlace),
 				BusinessType: "restaurant"},
-			want: shellText + " St Julians Tapped in 14:03:22 FLAGGED TRAINING This practice tap does not" +
+			want: shellText + " St Julians Clocked in 14:03:22 FLAGGED TRAINING This practice tap does not" +
 				" count toward your hours. Trust 100 " + noteNoPlace +
 				" Recorded, and your manager will see it. Tell them if that looks wrong. You can close this page.",
 		},
@@ -1017,7 +1017,7 @@ func TestResultScreen_SaysExactlyThisAndNothingElse(t *testing.T) {
 			res: checkin.Result{
 				Decision:     withNote(decisionOf("ok", "out", false), noteIPMatched+"; "+noteStaleOpenIn),
 				BusinessType: "restaurant"},
-			want: shellText + " St Julians Tapped out 14:03:22 APPROVED Trust 100 " +
+			want: shellText + " St Julians Clocked out 14:03:22 APPROVED Trust 100 " +
 				noteIPMatched + "; " + noteStaleOpenIn +
 				" Great work today. See you next shift! 👋 All done — you can close this page.",
 		},
@@ -1029,7 +1029,7 @@ func TestResultScreen_SaysExactlyThisAndNothingElse(t *testing.T) {
 			name: "ok out, stale check-in, and no rule reason at all",
 			res: checkin.Result{Decision: withNote(decisionOf("ok", "out", false), noteStaleOpenIn),
 				BusinessType: "production"},
-			want: shellText + " St Julians Tapped out 14:03:22 APPROVED Trust 100 " + noteStaleOpenIn +
+			want: shellText + " St Julians Clocked out 14:03:22 APPROVED Trust 100 " + noteStaleOpenIn +
 				" Shift complete. Thank you for your work today! 👋 All done — you can close this page.",
 		},
 		{
@@ -1270,15 +1270,15 @@ func TestResultScreen_HeadlineMatchesTheVerdict(t *testing.T) {
 		direction string
 		want      string
 	}{
-		{"ok in", "ok", "in", "Tapped in"},
-		{"ok out", "ok", "out", "Tapped out"},
-		{"flag keeps its direction", "flag", "in", "Tapped in"},
+		{"ok in", "ok", "in", "Clocked in"},
+		{"ok out", "ok", "out", "Clocked out"},
+		{"flag keeps its direction", "flag", "in", "Clocked in"},
 		{"ok with no direction is neutral", "ok", "", "Tapped"},
 		{"ignored says a tap happened, nothing more", "ignored", "", "Already tapped"},
 		// THE ONE THIS TEST EXISTS FOR: the hours were refused, the record was not.
 		{"reject says the hours did not count", "reject", "", "Not counted"},
 		// An unrecognised verdict used to fall through to the DIRECTION arms and
-		// render "Tapped in" — a counted-looking headline under a RECORDED stamp.
+		// render "Clocked in" — a counted-looking headline under a RECORDED stamp.
 		{"an unknown verdict is neutral, not directional", "something-new", "in", "Tapped"},
 	}
 	for _, tc := range tests {
@@ -1290,9 +1290,10 @@ func TestResultScreen_HeadlineMatchesTheVerdict(t *testing.T) {
 				BusinessType: "restaurant",
 			}, nil)
 			// The trailing <span> is part of the assertion ON PURPOSE: it is the
-			// boundary. Without it "Tapped " is a PREFIX of "Tapped in ", so a
-			// mutation that made an unknown verdict directional again passed this
-			// test (measured — it stayed green until this line was tightened).
+			// boundary. Without it "Tapped " was a PREFIX of "Tapped in " (the
+			// directional words before M15-12), so a mutation that made an unknown
+			// verdict directional again passed this test (measured — it stayed green
+			// until this line was tightened). It stays: it pins the WHOLE headline.
 			want := `tracking-tight text-ink">` + tc.want + ` <span class="block font-mono`
 			if !strings.Contains(body, want) {
 				t.Fatalf("verdict %q direction %q: headline is not exactly %q", tc.verdict, tc.direction, tc.want)

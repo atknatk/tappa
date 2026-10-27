@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// keysNote is the sentence beside every press that disables or demotes an owner (backlog T150).
+// keysNote is the sentence beside every press that disables or demotes an owner (backlog T174).
 const keysNote = "does not stop the API keys they created"
 
 // membersHarness is a flag-on panel with its owner signed in.

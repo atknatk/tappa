@@ -3,7 +3,7 @@ package ledger
 // anomaly.go -- the READ side of the ANOMALIES section (M6-11).
 //
 // 🔴 IT WRITES NOTHING, AND THAT IS THE PROPERTY THIS FILE IS FOR. Every one of the
-// eight store calls below is a SELECT over `transactions`, which §4.3 makes
+// store calls below is a SELECT over `transactions`, which §4.3 makes
 // immutable; there is no correction here, no acknowledgement, no "mark as reviewed"
 // and no counter that a page view increments. Two independent proofs rather than a
 // sentence: TestAnomalies_IssuesOnlySelects (internal/domain/ledger) parses THIS file,
@@ -61,12 +61,14 @@ package ledger
 // TENANT SCOPE (§4.5, belt + braces) is the package's, unchanged: every read runs
 // inside db.(*DB).WithTenant so RLS applies, AND passes the same tenant id as an
 // explicit predicate. The id is the caller's, taken from the signed panel session.
-// What asserts the second half over these eight queries is this package's existing
+// What asserts the second half over these queries is this package's existing
 // TestPanelQueries_CarryAnExplicitTenantPredicate (query_test.go), which DERIVES its
 // subject list from the store calls this package makes -- so a query added here is
 // covered because it is CALLED, with no list to forget to update. Verified:
 // `go test ./internal/domain/ledger -run TestPanelQueries_CarryAnExplicitTenantPredicate -v`
-// lists all eight by name.
+// lists every one of them by name. (No count is written here: it was "eight" for a long time
+// after it stopped being true -- M15-06's review counted thirteen calls -- and a number in a
+// comment is a second representation of the code below it.)
 
 import (
 	"context"
@@ -355,6 +357,9 @@ type AnomalyPair struct {
 
 // AnomalyOpen is a check-in with no later checkout.
 type AnomalyOpen struct {
+	// ID is the check-in's own row id (transactions.id, M15-18): what the "claim pending" mark is
+	// bound by -- an instant alone does not pick one row.
+	ID           uuid.UUID
 	EmployeeName string
 	LocationName string
 	At           time.Time
@@ -364,6 +369,30 @@ type AnomalyOpen struct {
 	// the shape ADR 0008 fixed, and one an ordinary new starter also produces. It is
 	// a hint about where to look, and the screen says exactly that.
 	WasMaskable bool
+	// ClaimPending: the person sent a claim of this check-in's missing checkout and nobody has
+	// decided it yet (M15-18; ADR 0032 §C.4) -- bound by ID to punch_claims.anchor_transaction_id.
+	// PendingClaimID is that claim (the mark links to it in the queue).
+	ClaimPending   bool
+	PendingClaimID uuid.UUID
+}
+
+// AnomalyInMissing is a checkout with no open check-in for it to close -- ADR 0032 §A.6's (b) and
+// (c), the "check-in missing" list (M15-06; ListCheckoutsWithoutCheckIn). Like an
+// open check-in it is a record a manager completes, and nothing here completes it.
+type AnomalyInMissing struct {
+	// ID is the checkout's own row id (M15-18), AnomalyOpen.ID's reason.
+	ID           uuid.UUID
+	EmployeeName string
+	LocationName string
+	At           time.Time
+	// AfterEarlierDay is (b): the record before it is a check-in of an EARLIER business day, which
+	// is itself on the open list. False is (c): nothing, or a checkout tapped before it, is before
+	// it.
+	AfterEarlierDay bool
+	// ClaimPending and PendingClaimID are AnomalyOpen's twins: an undecided claim of the missing
+	// check-in.
+	ClaimPending   bool
+	PendingClaimID uuid.UUID
 }
 
 // MaskedOpenTally is the retrospective half of the ADR 0008 devir note: the week's check-ins a
@@ -409,14 +438,17 @@ type Anomalies struct {
 	Period  Period
 	Zone    *time.Location
 
-	Totals   AnomalyTotals
-	People   []AnomalyPerson
-	Venues   []AnomalyVenue
-	Plaques  []AnomalyPlaque
-	Pairs    []AnomalyPair
-	Open     []AnomalyOpen
-	Masked   MaskedOpenTally
-	Policies []AnomalyPolicyRule
+	Totals  AnomalyTotals
+	People  []AnomalyPerson
+	Venues  []AnomalyVenue
+	Plaques []AnomalyPlaque
+	Pairs   []AnomalyPair
+	Open    []AnomalyOpen
+	// InMissing is the "check-in missing" list (M15-06), beside Open: the week's checkouts with no
+	// open check-in for them to close.
+	InMissing []AnomalyInMissing
+	Masked    MaskedOpenTally
+	Policies  []AnomalyPolicyRule
 	// LostPlaques are this business's lost plaques a holding peer's staff touched this week (M11
 	// API-1c). Empty for a business in no holding.
 	LostPlaques []AnomalyLostPlaque
@@ -429,6 +461,8 @@ type Anomalies struct {
 	MorePlaques bool
 	MorePairs   bool
 	MoreOpen    bool
+	// MoreInMissing is its twin for the "check-in missing" list.
+	MoreInMissing bool
 	// MorePolicies is its twin for the rule breakdown.
 	MorePolicies bool
 	MoreLost     bool
@@ -454,11 +488,11 @@ type AnomalyScreen struct {
 // struct here would be the "second representation" shape this repository keeps paying
 // for, with the drift invisible because each copy is self-consistent.
 //
-// ONE TRANSACTION, EIGHT QUERIES -- the shape Hours and Screen use. The clock has to
+// ONE TRANSACTION, EVERY QUERY IN IT -- the shape Hours and Screen use. The clock has to
 // be read before the week's boundaries can be computed, and running the rest in the
-// same transaction means the eight answers cannot disagree about which records existed.
+// same transaction means their answers cannot disagree about which records existed.
 //
-// ⚠️ WHAT EIGHT QUERIES IN ONE TRANSACTION COST is measured rather than assumed; the
+// ⚠️ WHAT THOSE QUERIES IN ONE TRANSACTION COST is measured rather than assumed; the
 // figures, their tenant and their row counts are in internal/handler/anomalies.go.
 func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilter) (AnomalyScreen, error) {
 	var out AnomalyScreen
@@ -670,6 +704,7 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 		body.Open = make([]AnomalyOpen, 0, len(open))
 		for _, o := range open {
 			body.Open = append(body.Open, AnomalyOpen{
+				ID:           o.ID,
 				EmployeeName: deref(o.EmployeeName),
 				LocationName: deref(o.LocationName),
 				At:           o.OccurredAt,
@@ -678,8 +713,38 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 			})
 		}
 
-		// M11 API-1c: name the peers' venues the three listings above reached (ADR 0027 §9) --
-		// one holding_site_locations read, and none when no row names a peer's venue.
+		// M15-06: the "check-in missing" list -- the checkouts of the week with no open check-in
+		// for them to close (ADR 0032 §A.6, (b) and (c); never (d) or (e)). The open list's
+		// shape: the window, the cap read one past, oldest first.
+		inMissing, err := q.ListCheckoutsWithoutCheckIn(ctx, store.ListCheckoutsWithoutCheckInParams{
+			TenantID: tenantID,
+			FromAt:   period.From,
+			ToAt:     period.To,
+			RowLimit: anomalyReadLimit(),
+		})
+		if err != nil {
+			return fmt.Errorf("list checkouts without a check-in: %w", err)
+		}
+		inMissing, body.MoreInMissing = trimAnomalyRows(inMissing)
+		body.InMissing = make([]AnomalyInMissing, 0, len(inMissing))
+		for _, o := range inMissing {
+			body.InMissing = append(body.InMissing, AnomalyInMissing{
+				ID:              o.ID,
+				EmployeeName:    deref(o.EmployeeName),
+				LocationName:    deref(o.LocationName),
+				At:              o.OccurredAt,
+				AfterEarlierDay: o.AfterEarlierDay,
+			})
+		}
+
+		// M15-18: the "claim pending" mark on the two lists above -- one read over the listed rows'
+		// ids, and none when both lists are empty.
+		if err := markPendingClaims(ctx, q, tenantID, body.Open, body.InMissing); err != nil {
+			return err
+		}
+
+		// M11 API-1c: name the peers' venues the listings above reached (ADR 0027 §9) -- one
+		// holding_site_locations read, and none when no row names a peer's venue.
 		need := false
 		for _, v := range body.Venues {
 			need = need || v.Partner
@@ -688,6 +753,9 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 			need = need || id != nil
 		}
 		for _, o := range open {
+			need = need || o.SiteLocationID != nil
+		}
+		for _, o := range inMissing {
 			need = need || o.SiteLocationID != nil
 		}
 		venuesOfPeers, err := siteVenuesFor(ctx, tx, need)
@@ -707,6 +775,11 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 		for i, o := range open {
 			if o.SiteLocationID != nil {
 				body.Open[i].LocationName = venuesOfPeers.name(*o.SiteLocationID)
+			}
+		}
+		for i, o := range inMissing {
+			if o.SiteLocationID != nil {
+				body.InMissing[i].LocationName = venuesOfPeers.name(*o.SiteLocationID)
 			}
 		}
 
@@ -867,6 +940,39 @@ func togetherOn(days []pgtype.Date, period Period, zone *time.Location) []bool {
 // them to lose the second statement -- silently, because a page that is one row short
 // looks exactly like a page that is complete.
 func anomalyReadLimit() int32 { return readLimit(AnomalyRowCap) }
+
+// markPendingClaims sets ClaimPending on the listed check-ins and checkouts that are the anchor of
+// an undecided punch claim (M15-18). THE BINDING IS THE ROW'S ID, NEVER ITS INSTANT: two records of
+// one person can share an occurred_at, and a mark matched by time would land on both. A failed read
+// fails the screen with the rest of its reads -- the mark is not dropped silently, which would say
+// "no claim" about rows nobody asked about (§4.6).
+func markPendingClaims(ctx context.Context, q *store.Queries, tenantID uuid.UUID, open []AnomalyOpen, inMissing []AnomalyInMissing) error {
+	ids := make([]uuid.UUID, 0, len(open)+len(inMissing))
+	for _, o := range open {
+		ids = append(ids, o.ID)
+	}
+	for _, o := range inMissing {
+		ids = append(ids, o.ID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := q.ListPendingPunchClaimAnchors(ctx, store.ListPendingPunchClaimAnchorsParams{TenantID: tenantID, AnchorIds: ids})
+	if err != nil {
+		return fmt.Errorf("list the pending claims of the listed records: %w", err)
+	}
+	pending := make(map[uuid.UUID]uuid.UUID, len(rows))
+	for _, r := range rows {
+		pending[r.AnchorTransactionID] = r.ID
+	}
+	for i := range open {
+		open[i].PendingClaimID, open[i].ClaimPending = pending[open[i].ID]
+	}
+	for i := range inMissing {
+		inMissing[i].PendingClaimID, inMissing[i].ClaimPending = pending[inMissing[i].ID]
+	}
+	return nil
+}
 
 func trimAnomalyRows[T any](rows []T) (kept []T, more bool) {
 	if len(rows) > AnomalyRowCap {

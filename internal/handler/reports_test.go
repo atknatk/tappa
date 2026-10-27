@@ -116,6 +116,8 @@ func TestReportsSection_PrintsEveryFigureItHoldsBackFromTheTotal(t *testing.T) {
 			Refused:  time.Hour,
 			Open:     2,
 			TooLong:  1,
+			// M15-06: the checkouts with no open check-in for them to close.
+			OutWithoutIn: 3,
 		}
 		r.PracticeTaps = 4
 		r.StartedEarlier = 2
@@ -139,6 +141,8 @@ func TestReportsSection_PrintsEveryFigureItHoldsBackFromTheTotal(t *testing.T) {
 		"2 checkouts belong to shifts that began before this week",
 		"1 record in this week names no employee",
 		"treated as a missed checkout rather than a shift",
+		"3 checkouts have no open check-in for them to close",
+		"Checkouts with no open check-in",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the page never says %q", want)
@@ -945,5 +949,98 @@ func TestReportsSection_AFullPageStaysUnderItsCeiling(t *testing.T) {
 		t.Errorf("a full Roll page is %d B, over the %d B ceiling. The page is no-store and re-sent on "+
 			"every view, and before its two listing caps it measured 559 968 B; a page this size "+
 			"means a list is growing past its cap or a row has grown a repeated chain.", len(body), reportsPageByteCeiling)
+	}
+}
+
+// TestReportsSection_NamesACheckoutWithNoCheckInOnThePersonsRow is the per-person half of M15-06:
+// a person with checkouts that have no open check-in to close carries the words under
+// their name, and the day's cell says it to a screen reader. A person with none carries neither.
+func TestReportsSection_NamesACheckoutWithNoCheckInOnThePersonsRow(t *testing.T) {
+	records := newFakeLedger()
+	records.hours = reportWith(func(r *ledger.Report) {
+		r.Totals = ledger.Totals{OutWithoutIn: 2, Shifts: 1, Worked: time.Hour}
+		marks := make([]ledger.DayMarks, ledger.ReportDays)
+		marks[1].InMissing = true
+		r.People = []ledger.PersonHours{
+			{Name: "Maria Borg", Daily: make([]time.Duration, ledger.ReportDays), Marks: marks, OutWithoutIn: 2},
+			{Name: "Antoine Vella", Worked: time.Hour, Shifts: 1,
+				Daily: make([]time.Duration, ledger.ReportDays), Marks: make([]ledger.DayMarks, ledger.ReportDays)},
+		}
+	})
+	body := reportBrowser(t, records).do(http.MethodGet, reportsHref, nil).Body.String()
+	if n := strings.Count(body, ">2 checkouts with no open check-in<"); n != 1 {
+		t.Errorf("the person's tally is printed %d times, want once", n)
+	}
+	if n := strings.Count(body, ", a checkout with no open check-in"); n != 1 {
+		t.Errorf("the day's cell words are printed %d times, want once (Tuesday)", n)
+	}
+	if !strings.Contains(body, "2 checkouts have no open check-in for them to close") {
+		t.Error("the receipt's sentence is missing")
+	}
+}
+
+// TestReportsSection_SaysTheTotalIsShortForEitherHalfOfAnUnpairedShift is CLAUDE.md §5 / Q18 on
+// the checkout side too (M15-06 review, ORTA-1): the "SHORT" box is drawn when a check-in has no
+// checkout, when a checkout has no open check-in to close, and when both -- and each line it
+// carries is the one that is true. Measured before the fix: a week whose only gap was a missing
+// check-in (the break: 09 in, 12 out, 17 out) drew no box at all.
+func TestReportsSection_SaysTheTotalIsShortForEitherHalfOfAnUnpairedShift(t *testing.T) {
+	const short = "The figure above is SHORT by whatever these add up to"
+	cases := []struct {
+		name               string
+		open, outWithoutIn int
+		want, absent       []string
+	}{
+		{"a missing check-in alone", 0, 1,
+			[]string{short, "A check-in is missing.", "1 checkout with no open check-in to close.", "Missing check-ins on Odd shapes"},
+			[]string{"Not closed yet.", "with no checkout.", "Open check-ins on Odd shapes"}},
+		{"two missing check-ins alone", 0, 2,
+			[]string{short, "Check-ins are missing.", "2 checkouts with no open check-in to close."},
+			[]string{"Not closed yet.", "A check-in is missing."}},
+		{"an open check-in alone", 1, 0,
+			[]string{short, "Not closed yet.", "1 check-in with no checkout.", "Open check-ins on Odd shapes"},
+			[]string{"with no open check-in to close.", "Missing check-ins on Odd shapes", "A check-in is missing."}},
+		{"both", 2, 1,
+			[]string{short, "Not closed yet.", "2 check-ins with no checkout.", "1 checkout with no open check-in to close.",
+				"Open and missing check-ins on Odd shapes"},
+			[]string{"A check-in is missing."}},
+		{"neither", 0, 0, nil, []string{short, "Not closed yet.", "A check-in is missing."}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			records := newFakeLedger()
+			records.hours = reportWith(func(r *ledger.Report) {
+				r.Totals = ledger.Totals{Worked: 3 * time.Hour, Shifts: 1, Open: c.open, OutWithoutIn: c.outWithoutIn}
+			})
+			body := reportBrowser(t, records).do(http.MethodGet, reportsHref, nil).Body.String()
+			for _, w := range c.want {
+				if !strings.Contains(body, w) {
+					t.Errorf("the page never says %q", w)
+				}
+			}
+			for _, w := range c.absent {
+				if strings.Contains(body, w) {
+					t.Errorf("the page says %q, which is not true of this week", w)
+				}
+			}
+		})
+	}
+}
+
+// TestReportsSection_NamesASingleCheckoutWithNoOpenCheckInInTheSingular: the person's tally is
+// "1 checkout", not "1 checkouts" (M15-06 review, DÜŞÜK-3 u2).
+func TestReportsSection_NamesASingleCheckoutWithNoOpenCheckInInTheSingular(t *testing.T) {
+	records := newFakeLedger()
+	records.hours = reportWith(func(r *ledger.Report) {
+		r.Totals = ledger.Totals{OutWithoutIn: 1}
+		r.People = []ledger.PersonHours{{Name: "Maria Borg", Daily: make([]time.Duration, ledger.ReportDays),
+			Marks: make([]ledger.DayMarks, ledger.ReportDays), OutWithoutIn: 1}}
+	})
+	body := reportBrowser(t, records).do(http.MethodGet, reportsHref, nil).Body.String()
+	if !strings.Contains(body, ">1 checkout with no open check-in<") {
+		t.Error("the person's tally is not the singular \"1 checkout with no open check-in\"")
+	}
+	if strings.Contains(body, "1 checkouts") {
+		t.Error("\"1 checkouts\" is printed")
 	}
 }

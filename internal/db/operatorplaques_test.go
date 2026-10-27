@@ -154,6 +154,15 @@ var opAtVersionSkips = map[int]string{
 	64: "the business-day cutoffs, transactions.business_day_start and tappa_checkout_class (M15-02) -- no operator " +
 		"object; its Down takes ACCESS EXCLUSIVE on employees, departments, locations, tenants and transactions, and " +
 		"refuses while a row carries a business day",
+	65: "transactions.direction_source and its two NOT VALID CHECKs (M15-09) -- no operator object; its Down takes " +
+		"ACCESS EXCLUSIVE on transactions and refuses while a row carries a direction source",
+	66: "the validation of 00064's and 00065's three transactions CHECKs (M15-09) -- no operator object; its Down drops " +
+		"and adds them again NOT VALID under ACCESS EXCLUSIVE on transactions",
+	67: "punch_events.direction_source and the two feed triggers that write it (M15-13) -- no operator object; its Down " +
+		"takes ACCESS EXCLUSIVE on punch_events and refuses while an event carries a direction source",
+	68: "punch_claims, punch_claim_decisions and their two trigger functions (M15-15) -- no operator object; its Down " +
+		"takes ACCESS EXCLUSIVE on transactions, employees, admin_users and tenants (the DROPs' keys) and refuses while " +
+		"either table holds a row",
 	69: "admin_identities, the membership link columns, admin_sessions.authenticated_at and the linked-row trigger " +
 		"(M14-03) -- no operator object; its Down takes ACCESS EXCLUSIVE on admin_sessions and admin_users, and " +
 		"refuses while an identity exists",

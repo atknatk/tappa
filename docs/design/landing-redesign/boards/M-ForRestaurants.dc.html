@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>For restaurants — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.eyebrow{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#1F5C41;margin:0}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.tapdocket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;box-shadow:0 1px 2px rgba(21,34,25,.08);padding:12px 16px;font-family:'IBM Plex Mono',monospace;font-size:14px}
+.tapdocket::before,.tapdocket::after{content:"";position:absolute;left:0;right:0;height:8px;background:radial-gradient(circle at 6px 4px,#EDF0EA 3px,transparent 3.5px) 0 0/12px 8px repeat-x}
+.tapdocket::before{top:-4px}.tapdocket::after{bottom:-4px}
+.stamp{display:inline-block;padding:3px 8px;border:2px solid;border-radius:0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-6deg);white-space:nowrap}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
+.stamp--flag{border-color:#D98E2B;box-shadow:inset 0 0 0 1px #D98E2B;background:rgba(217,142,43,.1);transform:rotate(-3deg)}
+.stamp--rej{border-color:#BE3D2A;box-shadow:inset 0 0 0 1px #BE3D2A;background:rgba(190,61,42,.1);transform:rotate(-10deg)}
+.btn{min-height:48px;padding:0 22px;border-radius:12px;font:700 15px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:9px;text-decoration:none;box-sizing:border-box;white-space:nowrap}
+.btn--green{background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
+.btn--green:hover{background:#152219;color:#FFFDF4}
+.btn--ghost{border:2px solid #152219;color:#152219;background:transparent}
+.btn--ghost:hover{background:#152219;color:#FFFDF4}
+.ico{flex:none;width:44px;height:44px;border-radius:12px;background:#E1EDE6;color:#1F5C41;display:inline-flex;align-items:center;justify-content:center}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:18px;box-sizing:border-box}
+details.qa{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px}
+details.qa summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:44px;font-weight:700;color:#152219}
+details.qa summary::-webkit-details-marker{display:none}
+details.qa .pl{flex:none;width:28px;height:28px;border-radius:50%;border:1px solid #C9D2C8;display:inline-flex;align-items:center;justify-content:center;color:#1F5C41;transition:transform .2s}
+details.qa[open] .pl{transform:rotate(45deg)}
+.flink{min-height:44px;display:inline-flex;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7);text-decoration:underline;text-underline-offset:4px}
+.flink:hover{color:#152219}
+.navlink{min-height:44px;display:inline-flex;align-items:center;font-size:14px;font-weight:500;color:rgba(21,34,25,.85);text-decoration:none}
+.navlink:hover{color:#152219}
+.navlink[aria-current]{color:#152219;font-weight:700;box-shadow:inset 0 -2px 0 #1F5C41}
+.fcol a{min-height:40px;display:flex;align-items:center;font-size:14px;color:rgba(21,34,25,.85);text-decoration:none}
+.fcol a:hover{color:#152219;text-decoration:underline;text-underline-offset:4px}
+details.menu>summary{list-style:none;cursor:pointer;min-height:44px;min-width:44px;padding:0 10px;box-sizing:border-box;border:1.5px solid #152219;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#152219;background:transparent}
+details.menu>summary::-webkit-details-marker{display:none}
+details.menu:not([open])>nav{display:none}
+details.menu[open]>summary{background:#152219;color:#FFFDF4;border-color:#152219}
+details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}details.menu[open] .mopen{display:none}
+.mlink{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:16px;font-weight:700;color:#152219;text-decoration:none;border-top:1px dashed #C9D2C8}
+.mlink:first-child{border-top:0}
+.hbtn{min-height:44px;padding:0 18px;border-radius:12px;font:700 14px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box;white-space:nowrap;background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
+.hbtn:hover{background:#152219;color:#FFFDF4}
+.mlink[aria-current]{color:#1F5C41;box-shadow:inset 3px 0 0 #1F5C41;padding-left:12px}
+:focus-visible{outline:2px solid #152219;outline-offset:2px}
+.ondark :focus-visible,.band--ink :focus-visible{outline-color:#FFFDF4}
+html{scroll-padding-top:72px}
+@media (max-width:599px){html{scroll-padding-bottom:80px}}
+.fitcard{transition:border-color .15s}.fitcard:hover{border-color:#152219;color:#152219}
+.band--paper .card,.band--paper .docket,.band--paper details.qa{border-color:rgba(21,34,25,.24)}
+.band--paper .docket{box-shadow:0 2px 6px rgba(21,34,25,.08)}
+.band--paper .docket::after{background:radial-gradient(circle at 7px 7px,#EDF0EA 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.more{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-weight:700;font-size:15px;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
+
+.stamp--ign{border-color:#C9D2C8;box-shadow:inset 0 0 0 1px #C9D2C8;background:rgba(201,210,200,.1);transform:rotate(-4deg)}
+.stamp--sm{font-size:9.5px;padding:2px 6px;letter-spacing:.12em}
+.chk{display:inline-flex;align-items:center;justify-content:center;flex:none;width:18px;height:18px;border-radius:5px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700}
+.chk--ok{background:#1F5C41;color:#FFFDF4}.chk--no{background:#BE3D2A;color:#FFFDF4}.chk--na{border:1px solid #C9D2C8;color:rgba(21,34,25,.7)}
+.tick{position:absolute;top:0;bottom:0;width:1px;background:rgba(21,34,25,.12)}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
+  <header style="position: sticky; top: 0; z-index: 5; background: rgba(237,240,234,.94); border-bottom: 1px solid #C9D2C8">
+    <div style="height: 60px; padding: 0 12px 0 16px; display: flex; align-items: center; justify-content: space-between; gap: 6px">
+      <a href="Landing.dc.html" style="text-decoration: none; color: #152219; display: flex; align-items: center; gap: 9px; min-height: 44px">
+        <span aria-hidden="true" style="flex: none; width: 26px; height: 26px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 5px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
+        <span style="display: flex; flex-direction: column; gap: 1px">
+          <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
+          <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">PUNCHLESS</span>
+        </span>
+      </a>
+      <div style="display: flex; align-items: center; gap: 4px">
+        <a href="SignIn.dc.html" style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
+        <a href="Signup.dc.html" class="hbtn" style="padding: 0 12px; box-shadow: none">Start free</a>
+        <details class="menu" open="{{menuOpen}}">
+          <summary>
+            <span class="mopen">Menu</span><span class="mclose">Close</span>
+          </summary>
+          <sc-if value="{{menuOpen}}" hint-placeholder-val="{{false}}"><nav aria-label="Pages" style="position: absolute; left: 0; right: 0; top: 60px; background: #FFFDF4; border-bottom: 1px solid #C9D2C8; box-shadow: 0 18px 40px rgba(21,34,25,.16); padding: 8px 16px 16px">
+            <span class="lbl" style="display: block; padding: 10px 0 4px">Pages</span>
+            <div style="display: flex; flex-direction: column"><a href="Product.dc.html" class="mlink"><span>Product tour</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></a><a href="Security.dc.html" class="mlink"><span>Security</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></a><a href="Pricing.dc.html" class="mlink"><span>Pricing</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></a><a href="ForRestaurants.dc.html" class="mlink"><span>For restaurants & bars</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></a><a href="ForProduction.dc.html" class="mlink"><span>For production & facilities</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></a><a href="#api-docs" class="mlink"><span>API docs</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></a></div>
+          </nav></sc-if>
+        </details>
+      </div>
+    </div>
+  </header>
+  <section aria-label="Multi-location" style="padding: 36px 0 48px">
+    <div style="padding: 0 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 36px">
+      <div style="min-width: 0; display: flex; flex-direction: column">
+        <p class="eyebrow" style="margin-bottom: 18px">Multi-location</p>
+        <h1 style="margin: 0 0 22px; font-size: 36px; line-height: 1.04; letter-spacing: -0.035em; font-weight: 700">Restaurant &amp; retail chains</h1>
+        <p style="margin: 0 0 16px; font-size: 17px; line-height: 1.55; color: rgba(21,34,25,.85); max-width: 520px">One plaque per site, each with its own network address on file. Late-night bars welcome: overnight shifts pair check-outs to the last open check-in, not the calendar date.</p>
+        <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.8)">Built for a chain where staff cover each other's venues and the bar closes after midnight.</p>
+        <div style="display: flex; gap: 12px; margin-top: 14px; flex-direction: column; align-items: stretch">
+          <a class="btn btn--green" href="Signup.dc.html">Start free — 3 months on us</a>
+          <a class="btn btn--ghost" href="Security.dc.html">How a tap is verified</a>
+        </div>
+      </div>
+      <div role="img" aria-label="Nine venues, each with its own plaque and hours, feeding one dashboard" class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 14px; min-width: 0; box-shadow: 0 20px 50px rgba(21,34,25,.10)"><span class="lbl">A chain of nine venues · sample setup</span>
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px"><div style="min-width: 0; padding: 8px 7px; border-radius: 10px; background: #FFFDF4; border: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 4px">
+              <span style="display: flex; align-items: center; justify-content: space-between; gap: 4px; color: #1F5C41"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"/><path d="M10.4 12.4a2.2 2.2 0 0 1 3.2 0"/><circle cx="12" cy="14.6" r=".5" fill="currentColor"/><path d="M9 18.2h6"/></svg></span>
+              <span class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; line-height: 1.25">KF Hamrun</span>
+              <span class="mono" style="font-size: 9.5px; color: rgba(21,34,25,.72)">10:00–22:00</span>
+            </div><div style="min-width: 0; padding: 8px 7px; border-radius: 10px; background: #FFFDF4; border: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 4px">
+              <span style="display: flex; align-items: center; justify-content: space-between; gap: 4px; color: #1F5C41"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"/><path d="M10.4 12.4a2.2 2.2 0 0 1 3.2 0"/><circle cx="12" cy="14.6" r=".5" fill="currentColor"/><path d="M9 18.2h6"/></svg></span>
+              <span class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; line-height: 1.25">KF Mellieha</span>
+              <span class="mono" style="font-size: 9.5px; color: rgba(21,34,25,.72)">10:00–22:00</span>
+            </div><div style="min-width: 0; padding: 8px 7px; border-radius: 10px; background: #FFFDF4; border: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 4px">
+              <span style="display: flex; align-items: center; justify-content: space-between; gap: 4px; color: #1F5C41"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"/><path d="M10.4 12.4a2.2 2.2 0 0 1 3.2 0"/><circle cx="12" cy="14.6" r=".5" fill="currentColor"/><path d="M9 18.2h6"/></svg></span>
+              <span class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; line-height: 1.25">KF Msida</span>
+              <span class="mono" style="font-size: 9.5px; color: rgba(21,34,25,.72)">10:00–22:00</span>
+            </div><div style="min-width: 0; padding: 8px 7px; border-radius: 10px; background: #FFFDF4; border: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 4px">
+              <span style="display: flex; align-items: center; justify-content: space-between; gap: 4px; color: #1F5C41"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"/><path d="M10.4 12.4a2.2 2.2 0 0 1 3.2 0"/><circle cx="12" cy="14.6" r=".5" fill="currentColor"/><path d="M9 18.2h6"/></svg></span>
+              <span class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; line-height: 1.25">KF Valletta</span>
+              <span class="mono" style="font-size: 9.5px; color: rgba(21,34,25,.72)">10:00–22:00</span>
+            </div><div style="min-width: 0; padding: 8px 7px; border-radius: 10px; background: #FFFDF4; border: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 4px">
+              <span style="display: flex; align-items: center; justify-content: space-between; gap: 4px; color: #1F5C41"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"/><path d="M10.4 12.4a2.2 2.2 0 0 1 3.2 0"/><circle cx="12" cy="14.6" r=".5" fill="currentColor"/><path d="M9 18.2h6"/></svg></span>
+              <span class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; line-height: 1.25">KF San Gwann</span>
+              <span class="mono" style="font-size: 9.5px; color: rgba(21,34,25,.72)">10:00–22:00</span>
+            </div><div style="min-width: 0; padding: 8px 7px; border-radius: 10px; background: #FFFDF4; border: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 4px">
+              <span style="display: flex; align-items: center; justify-content: space-between; gap: 4px; color: #1F5C41"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"/><path d="M10.4 12.4a2.2 2.2 0 0 1 3.2 0"/><circle cx="12" cy="14.6" r=".5" fill="currentColor"/><path d="M9 18.2h6"/></svg></span>
+              <span class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; line-height: 1.25">KF St Julians</span>
+              <span class="mono" style="font-size: 9.5px; color: rgba(21,34,25,.72)">10:00–22:00</span>
+            </div><div style="min-width: 0; padding: 8px 7px; border-radius: 10px; background: #FFFDF4; border: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 4px">
+              <span style="display: flex; align-items: center; justify-content: space-between; gap: 4px; color: #1F5C41"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"/><path d="M10.4 12.4a2.2 2.2 0 0 1 3.2 0"/><circle cx="12" cy="14.6" r=".5" fill="currentColor"/><path d="M9 18.2h6"/></svg></span>
+              <span class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; line-height: 1.25">KF Paceville</span>
+              <span class="mono" style="font-size: 9.5px; color: rgba(21,34,25,.72)">11:00–23:00</span>
+            </div><div style="min-width: 0; padding: 8px 7px; border-radius: 10px; background: #FFFDF4; border: 1px solid #152219; display: flex; flex-direction: column; gap: 4px">
+              <span style="display: flex; align-items: center; justify-content: space-between; gap: 4px; color: #1F5C41"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"/><path d="M10.4 12.4a2.2 2.2 0 0 1 3.2 0"/><circle cx="12" cy="14.6" r=".5" fill="currentColor"/><path d="M9 18.2h6"/></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"/></svg></span>
+              <span class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; line-height: 1.25">Rusty Bar</span>
+              <span class="mono" style="font-size: 9.5px; color: rgba(21,34,25,.72)">18:00–02:00</span>
+            </div><div style="min-width: 0; padding: 8px 7px; border-radius: 10px; background: #FFFDF4; border: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 4px">
+              <span style="display: flex; align-items: center; justify-content: space-between; gap: 4px; color: #1F5C41"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"/><path d="M10.4 12.4a2.2 2.2 0 0 1 3.2 0"/><circle cx="12" cy="14.6" r=".5" fill="currentColor"/><path d="M9 18.2h6"/></svg></span>
+              <span class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; line-height: 1.25">KF Headquarter</span>
+              <span class="mono" style="font-size: 9.5px; color: rgba(21,34,25,.72)">09:00–17:00</span>
+            </div></div>
+          <svg aria-hidden="true" viewBox="0 0 300 26" width="100%" height="26" preserveAspectRatio="none" style="display: block"><path d="M50 0 L150 24 M150 0 L150 24 M250 0 L150 24" stroke="#1F5C41" stroke-width="1.6" fill="none" vector-effect="non-scaling-stroke"/></svg>
+          <div style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; background: #152219; color: #FFFDF4">
+              <span aria-hidden="true" style="flex: none; width: 26px; height: 26px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 5px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
+              <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 15px; font-weight: 700">One dashboard</span><span class="mono" style="font-size: 11px; color: rgba(255,253,244,.72)">hours per person and per venue</span></span>
+            </div>
+          <span class="mono" style="align-self: flex-start; font-size: 11.5px; line-height: 1.5; color: #1F5C41; background: #E1EDE6; border-radius: 10px; padding: 6px 12px">9 sites · 1 dashboard · hours per location</span></div>
+    </div>
+  </section>
+  <div style="border-top: 1px solid #C9D2C8; border-bottom: 1px solid #C9D2C8; background: rgba(255,253,244,.55)">
+    <div class="mono" style="display: flex; align-items: center; flex-direction: column; gap: 10px; padding: 20px 16px; text-align: center; font-size: 12px; color: rgba(21,34,25,.75)">
+      <span>Piloting with teams in Malta</span>
+      <b style="color: #152219; letter-spacing: .04em">KEBAB FACTORY LTD. — 9 locations</b>
+      <b style="color: #152219; letter-spacing: .04em">KEBAB MANUFACTURING CO. — 5 departments</b>
+    </div>
+  </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 56px">
+  <section id="overnight" style="padding: 56px 0 0">
+    <div style="padding: 0 16px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">Late nights</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 30px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">A shift that ends after midnight is still one shift.</h2>
+      <p style="margin: 0 0 28px; max-width: 600px; font-size: 16px; line-height: 1.6; color: rgba(21,34,25,.85)">Late-night bars welcome: overnight shifts pair check-outs to the last open check-in, not the calendar date.</p><div style="display: flex; flex-direction: column; gap: 24px"><div style="min-width: 0"><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; font-size: 15.5px; line-height: 1.55; color: rgba(21,34,25,.85)"><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>In or out is decided by the person's last open check-in, so the 02:04 tap closes the 17:58 one.</span></li><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>The hours land on the day the shift started, at the venue where it started.</span></li><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>Lateness is measured against the hours of the venue where the person tapped: Rusty Bar's 18:00, not a daytime venue's 10:00.</span></li></ul></div><div role="img" aria-label="A timeline from 16:00 to 04:00: a check-in at 17:58 Monday and a check-out at 02:04 Tuesday are paired into one 8 hour 6 minute shift" class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0"><span class="lbl">An overnight shift at Rusty Bar · sample</span>
+          <div style="position: relative; margin: 54px 0 4px">
+            <span class="mono" style="position: absolute; left: 16.39%; right: 16.11%; top: -52px; text-align: center; font-size: 12px; font-weight: 700; color: #1F5C41">8h 06m · one shift</span>
+            <span aria-hidden="true" style="position: absolute; left: 16.39%; right: 16.11%; top: -34px; height: 8px; border: 2px solid #1F5C41; border-bottom: 0"></span>
+            <div style="position: relative; height: 34px; border-radius: 8px; background: #EDF0EA; border: 1px solid #C9D2C8">
+              <span class="tick" style="left: 16.67%"></span><span class="tick" style="left: 33.33%"></span><span class="tick" style="left: 50.0%"></span><span class="tick" style="left: 66.67%"></span><span class="tick" style="left: 83.33%"></span>
+              <span style="position: absolute; left: 16.67%; right: 16.67%; top: 6px; bottom: 6px; border-radius: 5px; background: rgba(31,92,65,.16); border: 1px solid #1F5C41"></span>
+              <span class="mono" style="position: absolute; left: 16.67%; top: 9px; padding-left: 8px; font-size: 10.5px; font-weight: 700; color: #1F5C41">RUSTY BAR 18:00–02:00</span>
+              <span style="position: absolute; left: 66.67%; top: -8px; bottom: -8px; width: 0; border-left: 2px dashed #152219"></span>
+              <span style="position: absolute; left: 16.39%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #152219"></span>
+            <span class="mono" style="position: absolute; left: 16.39%; bottom: -24px; transform: translateX(-50%); font-size: 11px; font-weight: 700; white-space: nowrap; padding: 1px 6px; border: 1px solid #152219; background: #FFFDF4">IN 17:58</span>
+              <span style="position: absolute; left: 83.89%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #152219"></span>
+            <span class="mono" style="position: absolute; left: 83.89%; bottom: -24px; transform: translateX(-50%); font-size: 11px; font-weight: 700; white-space: nowrap; padding: 1px 6px; border: 1px solid #152219; background: #FFFDF4">OUT 02:04</span>
+            </div>
+            <div style="position: relative; height: 16px; margin-top: 30px"><span class="mono" style="position: absolute; left: 0.0%; top: 0; transform: translateX(-0%); font-size: 10px; color: rgba(21,34,25,.75)">16:00</span><span class="mono" style="position: absolute; left: 33.33%; top: 0; transform: translateX(-50%); font-size: 10px; color: rgba(21,34,25,.75)">20:00</span><span class="mono" style="position: absolute; left: 66.67%; top: 0; transform: translateX(-50%); font-size: 10px; color: rgba(21,34,25,.75)">00:00</span><span class="mono" style="position: absolute; left: 100.0%; top: 0; transform: translateX(-100%); font-size: 10px; color: rgba(21,34,25,.75)">04:00</span></div>
+            <div style="position: relative; height: 16px; margin-top: 4px">
+              <span class="mono" style="position: absolute; left: 0; font-size: 11px; font-weight: 700">MON</span>
+              <span class="mono" style="position: absolute; left: 66.67%; padding-left: 6px; font-size: 11px; font-weight: 700">TUE</span>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-bottom: 7px"><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(0deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">RUSTY BAR · MON</span>
+                <span style="align-self: flex-end"><span class="stamp stamp--ok stamp--sm" style="flex: none">Approved</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Luke Borg</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">IN</span><span style="font-size: 15px">17:58</span></span>
+              
+            </div><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(0deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">RUSTY BAR · TUE</span>
+                <span style="align-self: flex-end"><span class="stamp stamp--ok stamp--sm" style="flex: none">Approved</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Luke Borg</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">OUT</span><span style="font-size: 15px">02:04</span></span>
+              
+            </div></div></div></div>
+    </div>
+  </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 56px">
+  <section id="venues" style="padding: 56px 0 0">
+    <div style="padding: 0 16px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">Every venue on its own terms</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 30px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">Each venue keeps its own hours and its own network.</h2>
+      <p style="margin: 0 0 28px; max-width: 600px; font-size: 16px; line-height: 1.6; color: rgba(21,34,25,.85)">One plaque per site, each with its own network address on file.</p><div style="display: flex; flex-direction: column; gap: 24px"><div style="display: flex; flex-direction: column; gap: 16px; min-width: 0">
+            <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; font-size: 15.5px; line-height: 1.55; color: rgba(21,34,25,.85)"><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>Plaques are bound to a venue, so the venue of a tap comes from the plaque, not from the phone.</span></li><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>A venue's network only counts if the range is narrow enough to describe one place; the venue page refuses a list that is too wide.</span></li></ul>
+            <span class="mono" style="align-self: flex-start; font-size: 12px; color: #1F5C41; background: #E1EDE6; border-radius: 10px; padding: 7px 12px">Locations &amp; departments, each on its own hours</span>
+            <a class="more" href="Security.dc.html#proofs">How the network check works <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          </div><div style="min-width: 0"><div style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 14px; overflow: hidden">
+            <table style="width: 100%; border-collapse: collapse"><caption class="lbl" style="caption-side: top; text-align: left; padding: 12px 14px; border-bottom: 1px solid #C9D2C8">Sample setup · from our demo data</caption>
+              <tbody><tr style="">
+                <th scope="row" style="text-align: left; padding: 11px 0 11px 14px; font-weight: 400"><span style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span style="font-size: 14px; font-weight: 700">KF Hamrun</span><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.72)">203.0.113.10/32</span></span></th>
+                <td class="mono" style="padding: 11px 14px 11px 8px; text-align: right; white-space: nowrap; font-size: 12px; font-weight: 700"><span style="display: inline-flex; align-items: center; gap: 5px">10:00–22:00</span></td>
+              </tr><tr style="border-top: 1px dashed #C9D2C8">
+                <th scope="row" style="text-align: left; padding: 11px 0 11px 14px; font-weight: 400"><span style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span style="font-size: 14px; font-weight: 700">KF Mellieha</span><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.72)">203.0.113.11/32</span></span></th>
+                <td class="mono" style="padding: 11px 14px 11px 8px; text-align: right; white-space: nowrap; font-size: 12px; font-weight: 700"><span style="display: inline-flex; align-items: center; gap: 5px">10:00–22:00</span></td>
+              </tr><tr style="border-top: 1px dashed #C9D2C8">
+                <th scope="row" style="text-align: left; padding: 11px 0 11px 14px; font-weight: 400"><span style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span style="font-size: 14px; font-weight: 700">KF Msida</span><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.72)">203.0.113.12/32</span></span></th>
+                <td class="mono" style="padding: 11px 14px 11px 8px; text-align: right; white-space: nowrap; font-size: 12px; font-weight: 700"><span style="display: inline-flex; align-items: center; gap: 5px">10:00–22:00</span></td>
+              </tr><tr style="border-top: 1px dashed #C9D2C8">
+                <th scope="row" style="text-align: left; padding: 11px 0 11px 14px; font-weight: 400"><span style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span style="font-size: 14px; font-weight: 700">KF Valletta</span><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.72)">203.0.113.13/32</span></span></th>
+                <td class="mono" style="padding: 11px 14px 11px 8px; text-align: right; white-space: nowrap; font-size: 12px; font-weight: 700"><span style="display: inline-flex; align-items: center; gap: 5px">10:00–22:00</span></td>
+              </tr><tr style="border-top: 1px dashed #C9D2C8">
+                <th scope="row" style="text-align: left; padding: 11px 0 11px 14px; font-weight: 400"><span style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span style="font-size: 14px; font-weight: 700">KF San Gwann</span><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.72)">203.0.113.14/32</span></span></th>
+                <td class="mono" style="padding: 11px 14px 11px 8px; text-align: right; white-space: nowrap; font-size: 12px; font-weight: 700"><span style="display: inline-flex; align-items: center; gap: 5px">10:00–22:00</span></td>
+              </tr><tr style="border-top: 1px dashed #C9D2C8">
+                <th scope="row" style="text-align: left; padding: 11px 0 11px 14px; font-weight: 400"><span style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span style="font-size: 14px; font-weight: 700">KF St Julians</span><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.72)">203.0.113.15/32</span></span></th>
+                <td class="mono" style="padding: 11px 14px 11px 8px; text-align: right; white-space: nowrap; font-size: 12px; font-weight: 700"><span style="display: inline-flex; align-items: center; gap: 5px">10:00–22:00</span></td>
+              </tr><tr style="border-top: 1px dashed #C9D2C8">
+                <th scope="row" style="text-align: left; padding: 11px 0 11px 14px; font-weight: 400"><span style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span style="font-size: 14px; font-weight: 700">KF Paceville</span><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.72)">203.0.113.16/32</span></span></th>
+                <td class="mono" style="padding: 11px 14px 11px 8px; text-align: right; white-space: nowrap; font-size: 12px; font-weight: 700"><span style="display: inline-flex; align-items: center; gap: 5px">11:00–23:00</span></td>
+              </tr><tr style="border-top: 1px dashed #C9D2C8">
+                <th scope="row" style="text-align: left; padding: 11px 0 11px 14px; font-weight: 400"><span style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span style="font-size: 14px; font-weight: 700">Rusty Bar</span><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.72)">203.0.113.17/32</span></span></th>
+                <td class="mono" style="padding: 11px 14px 11px 8px; text-align: right; white-space: nowrap; font-size: 12px; font-weight: 700"><span style="display: inline-flex; align-items: center; gap: 5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"/></svg>18:00–02:00</span></td>
+              </tr><tr style="border-top: 1px dashed #C9D2C8">
+                <th scope="row" style="text-align: left; padding: 11px 0 11px 14px; font-weight: 400"><span style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span style="font-size: 14px; font-weight: 700">KF Headquarter</span><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.72)">203.0.113.18/32</span></span></th>
+                <td class="mono" style="padding: 11px 14px 11px 8px; text-align: right; white-space: nowrap; font-size: 12px; font-weight: 700"><span style="display: inline-flex; align-items: center; gap: 5px">09:00–17:00</span></td>
+              </tr></tbody>
+            </table>
+          </div></div></div>
+    </div>
+  </section>
+  </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 56px">
+  <section id="cover" style="padding: 56px 0 0">
+    <div style="padding: 0 16px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">Covering another venue</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 30px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">Staff can cover any venue in the chain.</h2><div aria-hidden="true" style="height: 12px"></div><div style="display: flex; flex-direction: column; gap: 24px"><div style="display: flex; flex-direction: column; gap: 16px; min-width: 0">
+            <p style="margin: 0 0 0px; font-size: 15.5px; line-height: 1.6; color: rgba(21,34,25,.82)">A tap at another venue is judged on that venue's evidence and that venue's hours, exactly as a tap at home would be.</p>
+            <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; font-size: 15.5px; line-height: 1.55; color: rgba(21,34,25,.85)"><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>The record carries a note that the tap was away from home; the employee's screen does not mention it.</span></li><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>The Roll counts those shifts as at another venue, so cover is visible without being treated as a problem.</span></li></ul>
+          </div><div role="img" aria-label="Maria's home venue is KF St Julians; she taps at KF Msida and the approved record carries a cross-location note" class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0"><span class="lbl">Covering another venue · sample</span>
+          <div style="display: flex; align-items: center; gap: 10px"><div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 12px; border: 1.5px dashed #C9D2C8">
+              <span class="lbl" style="font-size: 9.5px">Home venue</span><span class="mono" style="font-size: 12px; font-weight: 700">KF ST JULIANS</span>
+            </div><span aria-hidden="true" style="flex: none; color: #1F5C41; display: inline-flex; "><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 12px; border: 1.5px solid #152219; background: #FFFDF4">
+              <span class="lbl" style="font-size: 9.5px">Tapped on Thursday</span><span class="mono" style="font-size: 12px; font-weight: 700">KF MSIDA</span>
+            </div></div>
+          <div style="padding-bottom: 7px"><div class="docket" style=" box-sizing: border-box; padding: 13px 14px 13px; display: flex; flex-direction: column; gap: 7px; transform: rotate(0deg); transform-origin: top center; box-shadow: 0 8px 20px rgba(21,34,25,.08)">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px">
+                <span class="lbl" style="font-size: 9.5px; letter-spacing: .08em; padding-top: 3px; min-width: 0">KF MSIDA · THU · PLAQUE 04A1C33C2B7E10</span>
+                <span style="flex: none"><span class="stamp stamp--ok stamp--sm" style="flex: none">Approved</span></span>
+              </div>
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.01em">Maria Vella</span>
+              <span class="mono" style="font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap"><span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border: 1px solid #152219">IN</span><span style="font-size: 15px">10:04</span></span>
+              <span class="mono" style="font-size: 10.5px; color: rgba(21,34,25,.72); border-top: 1px dashed #C9D2C8; padding-top: 7px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px"><span>TRUST 70</span><span>IP yes · GPS n/a</span></span><span class="mono" style="font-size: 10.5px; line-height: 1.5; color: rgba(21,34,25,.8); background: rgba(21,34,25,.04); border-left: 2px solid #C9D2C8; padding: 5px 8px">tapped at a location other than the employee's home location (recorded as cross-location)</span>
+            </div></div></div></div>
+    </div>
+  </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 56px">
+  <section id="forgot" style="padding: 56px 0 0">
+    <div style="padding: 0 16px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">When someone forgets</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 30px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">Taptime never invents a check-out.</h2><div aria-hidden="true" style="height: 12px"></div><div role="img" aria-label="An open check-in is listed for a manager, who closes it by hand" style="min-width: 0"><div style="display: flex; flex-direction: column; gap: 10px; align-items: stretch"><div class="card" style="flex: 1 1 0; min-width: 0; padding: 16px; display: flex; flex-direction: column; gap: 8px">
+              <span class="mono" style="font-size: 11px; font-weight: 700; color: #1F5C41">01</span>
+              <span style="font-size: 15px; font-weight: 700; line-height: 1.3">A check-in nobody closed</span>
+              <span class="mono" style="font-size: 11.5px; line-height: 1.5; color: rgba(21,34,25,.75)">KF HAMRUN · IN 10:02 · no check-out</span>
+            </div><span style="align-self: center"><span aria-hidden="true" style="flex: none; color: #1F5C41; display: inline-flex; transform: rotate(90deg);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></span><div class="card" style="flex: 1 1 0; min-width: 0; padding: 16px; display: flex; flex-direction: column; gap: 8px">
+              <span class="mono" style="font-size: 11px; font-weight: 700; color: #1F5C41">02</span>
+              <span style="font-size: 15px; font-weight: 700; line-height: 1.3">Listed for a manager</span>
+              <span class="mono" style="font-size: 11.5px; line-height: 1.5; color: rgba(21,34,25,.75)">Open check-ins, not counted</span>
+            </div><span style="align-self: center"><span aria-hidden="true" style="flex: none; color: #1F5C41; display: inline-flex; transform: rotate(90deg);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></span><div class="card" style="flex: 1 1 0; min-width: 0; padding: 16px; display: flex; flex-direction: column; gap: 8px">
+              <span class="mono" style="font-size: 11px; font-weight: 700; color: #1F5C41">03</span>
+              <span style="font-size: 15px; font-weight: 700; line-height: 1.3">Closed by hand</span>
+              <span class="mono" style="font-size: 11.5px; line-height: 1.5; color: rgba(21,34,25,.75)">Entered by a manager · OUT 22:05</span>
+            </div></div></div><div style="margin-top: 24px; max-width: 760px"><ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; font-size: 15.5px; line-height: 1.55; color: rgba(21,34,25,.85)"><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>A check-in nobody closed stays open and is listed for a manager, who enters the check-out by hand.</span></li><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>Open check-ins are left out of the hours, and the Roll says how many there are.</span></li></ul></div>
+    </div>
+  </section>
+  </div>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 56px">
+  <section id="day-to-day" style="padding: 56px 0 0">
+    <div style="padding: 0 16px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">Day to day</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 30px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">Hiring, leaving, broken plaques, dead Wi-Fi.</h2><div aria-hidden="true" style="height: 12px"></div><div style="display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 12px"><div class="card" style="padding: 16px; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; align-items: start">
+              <span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.8 6.6 12 12.8l8.2-6.2"/></svg></span>
+              <span style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span class="lbl" style="font-size: 10.5px">New-hire setup</span>
+              <span style="font-size: 15.5px; font-weight: 700; line-height: 1.35; letter-spacing: -0.01em">Invite link, activated on their own phone</span></span>
+            </div><div class="card" style="padding: 16px; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; align-items: start">
+              <span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19.5c.6-3.1 2.8-5 5.5-5s4.9 1.9 5.5 5"/><circle cx="16.8" cy="9.5" r="2.6"/><path d="M16 14.6c2.4 0 4 1.6 4.5 4.4"/></svg></span>
+              <span style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span class="lbl" style="font-size: 10.5px">When someone leaves</span>
+              <span style="font-size: 15.5px; font-weight: 700; line-height: 1.35; letter-spacing: -0.01em">Switch off in the dashboard — the next tap is refused</span></span>
+            </div><div class="card" style="padding: 16px; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; align-items: start">
+              <span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"/><path d="M10.4 12.4a2.2 2.2 0 0 1 3.2 0"/><circle cx="12" cy="14.6" r=".5" fill="currentColor"/><path d="M9 18.2h6"/></svg></span>
+              <span style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span class="lbl" style="font-size: 10.5px">If it breaks</span>
+              <span style="font-size: 15.5px; font-weight: 700; line-height: 1.35; letter-spacing: -0.01em">Stick a spare plaque and swap it in the dashboard</span></span>
+            </div><div class="card" style="padding: 16px; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; align-items: start">
+              <span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.8 9.2a13.5 13.5 0 0 1 18.4 0"/><path d="M5.9 12.6a9 9 0 0 1 12.2 0"/><path d="M9 16a4.4 4.4 0 0 1 6 0"/><circle cx="12" cy="19.2" r=".9" fill="currentColor"/></svg></span>
+              <span style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span class="lbl" style="font-size: 10.5px">Internet down on site</span>
+              <span style="font-size: 15.5px; font-weight: 700; line-height: 1.35; letter-spacing: -0.01em">Phones fall back to mobile data + GPS</span></span>
+            </div></div>
+    </div>
+  </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 56px">
+  <section id="hours" style="padding: 56px 0 0">
+    <div style="padding: 0 16px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">Hours</p>
+      <h2 style="margin: 0 0 16px; max-width: 680px; font-size: 30px; line-height: 1.1; letter-spacing: -0.03em; color: #152219">Hours per person and per venue, ready for payroll.</h2><div aria-hidden="true" style="height: 12px"></div><div style="display: flex; flex-direction: column; gap: 24px"><div style="display: flex; flex-direction: column; gap: 16px; min-width: 0">
+            <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; font-size: 15.5px; line-height: 1.55; color: rgba(21,34,25,.85)"><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>Hours &amp; headcount reports, CSV export for your payroll flow</span></li><li style="display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start"><span style="color: #1F5C41; padding-top: 2px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>Manual entries, marked apart from tapped ones</span></li></ul>
+            <p style="margin: 0 0 0px; font-size: 13px; line-height: 1.6; color: rgba(21,34,25,.7); font-family: 'IBM Plex Mono', monospace">Sample names and hours, drawn for this page.</p>
+          </div><div role="img" aria-label="Sample screen: The Roll — hours per person for the week, with a shift at another venue and an open check-in marked" class="card" style="padding: 16px 14px 16px; display: flex; flex-direction: column; gap: 12px; background: #EDF0EA; box-shadow: 0 18px 40px rgba(21,34,25,.10); min-width: 0">
+          <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 10px">
+            <span style="display: flex; flex-direction: column; gap: 4px"><span class="lbl" style="font-size: 10px">Hours per person · week 42</span><span style="font-size: 22px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">The Roll</span></span>
+            <span style="flex: none; min-height: 32px; padding: 0 12px; border-radius: 10px; border: 1px solid #152219; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>CSV</span>
+          </div>
+          <div style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 14px; padding: 4px 14px"><div style="padding: 11px 0; display: flex; flex-direction: column; gap: 7px; ">
+                <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px"><span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 14px; font-weight: 700">Maria Vella</span><span class="mono" style="font-size: 10px; color: rgba(21,34,25,.7)">Line Cook · KF St Julians</span></span><span class="mono" style="font-size: 14px; font-weight: 700; white-space: nowrap">41h 50m</span></div>
+                <div aria-hidden="true" style="display: flex; gap: 5px; align-items: center"><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; border: 1px solid #C9D2C8"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15); box-shadow: inset 0 0 0 1px #152219"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; border: 1px solid #C9D2C8"></span></div>
+              </div><div style="padding: 11px 0; display: flex; flex-direction: column; gap: 7px; border-top: 1px dashed #C9D2C8">
+                <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px"><span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 14px; font-weight: 700">Kevin Grech</span><span class="mono" style="font-size: 10px; color: rgba(21,34,25,.7)">Kitchen Porter · KF St Julians</span></span><span class="mono" style="font-size: 14px; font-weight: 700; white-space: nowrap">34h 00m</span></div>
+                <div aria-hidden="true" style="display: flex; gap: 5px; align-items: center"><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; border: 1px dashed #D98E2B; background: rgba(217,142,43,.1)"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; border: 1px solid #C9D2C8"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span><span class="mono" style="margin-left: 6px; font-size: 10px; color: rgba(21,34,25,.75)">1 open check-in</span></div>
+              </div><div style="padding: 11px 0; display: flex; flex-direction: column; gap: 7px; border-top: 1px dashed #C9D2C8">
+                <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px"><span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 14px; font-weight: 700">Luke Borg</span><span class="mono" style="font-size: 10px; color: rgba(21,34,25,.7)">Bar · Rusty Bar</span></span><span class="mono" style="font-size: 14px; font-weight: 700; white-space: nowrap">48h 26m</span></div>
+                <div aria-hidden="true" style="display: flex; gap: 5px; align-items: center"><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; border: 1px solid #C9D2C8"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span><span style="width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span></div>
+              </div></div><p class="mono" style="margin: 0; display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 11px; line-height: 1.5; color: rgba(21,34,25,.72)"><span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; box-sizing: border-box; background: rgba(31,92,65,.15)"></span>worked</span><span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; box-sizing: border-box; box-shadow: inset 0 0 0 1px #152219"></span>at a venue other than their home venue</span><span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; box-sizing: border-box; border: 1px dashed #D98E2B; background: rgba(217,142,43,.1)"></span>open check-in, not counted</span><span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true">—</span>no hours counted</span></p>
+        </div></div>
+    </div>
+  </section>
+  </div>
+  <section id="pilot" style="padding: 56px 0 0">
+    <div style="padding: 0 16px; box-sizing: border-box">
+      <div class="ondark" style="background: #1F5C41; border-radius: 24px; padding: 44px 22px; text-align: center; color: #FFFDF4; position: relative; overflow: hidden">
+        <span aria-hidden="true" style="position: absolute; width: 420px; height: 420px; top: -190px; left: -140px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
+        <span aria-hidden="true" style="position: absolute; width: 280px; height: 280px; bottom: -120px; right: -80px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
+        <h2 style="position: relative; margin: 0 0 14px; font-size: 36px; line-height: 1.05; letter-spacing: -0.035em; color: #FFFDF4">Go punchless.</h2>
+        <p style="position: relative; margin: 0 0 30px; font-size: 16.5px; line-height: 1.55; color: rgba(255,253,244,.82)">{{ctaLine}}</p>
+        <a class="btn" href="{{v.signup}}" style="position: relative; background: #FFFDF4; color: #1F5C41">{{ctaBtn}}</a>
+      </div>
+    </div>
+  </section>
+  <footer style="margin-top: 56px; border-top: 1px solid #C9D2C8">
+    <div style="padding: 0 16px; box-sizing: border-box; padding-top: 40px; padding-bottom: 40px; display: flex; flex-direction: column; gap: 28px">
+        <div style="display: flex; flex-direction: column; gap: 12px; min-width: 0">
+          <span style="display: flex; align-items: center; gap: 10px">
+            <span aria-hidden="true" style="flex: none; width: 22px; height: 22px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 4px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.8)">© 2026 Taptime · Malta</span>
+          </span>
+          <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">tap in · tap out · that's it</span>
+          <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-width: 460px">
+            <span class="lbl">Taptime</span>
+            <p style="margin: 0; font-size: 14px; line-height: 1.55; color: rgba(21,34,25,.85)">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p>
+          </div>
+        </div>
+        <nav aria-label="Product" class="fcol" style="display: flex; flex-direction: column; min-width: 0">
+          <span class="lbl" style="padding-bottom: 6px">Product</span><a href="Product.dc.html">Product tour</a><a href="Security.dc.html">Security</a><a href="Pricing.dc.html">Pricing</a><a href="ForRestaurants.dc.html">For restaurants & bars</a><a href="ForProduction.dc.html">For production & facilities</a><a href="#api-docs">API docs</a>
+        </nav>
+        <nav aria-label="Legal" class="fcol" style="display: flex; flex-direction: column; min-width: 0">
+          <span class="lbl" style="padding-bottom: 6px">Legal</span><a href="Legal.dc.html">Privacy</a><a href="Legal.dc.html">Terms</a><a href="Legal.dc.html">Company details</a><a href="Legal.dc.html">Cookies</a>
+        </nav>
+    </div>
+  </footer>
+  <div class="mbar" style="position: sticky; bottom: 0; z-index: 4; padding: 10px 16px 12px; background: rgba(237,240,234,.96); border-top: 1px solid #C9D2C8; box-shadow: 0 -8px 24px rgba(21,34,25,.08)">
+    <a href="Signup.dc.html" class="hbtn" style="width: 100%; min-height: 48px; font-size: 15px">Start free</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"menu": {"editor": "enum", "options": ["closed", "open"], "default": "closed"}, "$preview": {"width": 390, "height": 7648}}'>
+class Component extends DCLogic {
+  renderVals() {
+    // LandingView values the shared furniture prints (internal/handler builds them): FreeMonths 3.
+    const v = { signup: 'Signup.dc.html', signin: 'SignIn.dc.html', free: 3 };
+    const free = String(v.free);
+    // The production page draws the employee's tap screen (pages.Tap, unchanged) for an INVENTED record at the
+    // seed's single KM venue, KM Plant (test/fixtures/seed.sql).
+    const ticket = { n: 'Anna Farrugia', t: 'CLOCK IN', time: '04:02', loc: 'KM Plant', plaque: 'KM PLANT · 2F04-1B9A' };
+    return {
+      v, ticket,
+      menuOpen: (this.props.menu || 'closed') === 'open',
+      ctaLine: 'Start yourself today — first ' + free + ' months free.',
+      ctaBtn: 'Start free — ' + free + ' months'
+    };
+  }
+}</script>
+</body>
+</html>

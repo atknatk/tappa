@@ -383,7 +383,7 @@ func (j *Job) claim(ctx context.Context, tenantID uuid.UUID) (work, outcome, err
 func eventOf(r store.GetPunchEventForDeliveryRow) tenant.PunchEvent {
 	return tenant.PunchEvent{
 		Seq: r.Seq, PunchID: r.PunchID, Version: r.Version, Status: r.Status, PunchTime: r.PunchTime, RecordedAt: r.RecordedAt,
-		Channel: r.Channel, Direction: r.Direction,
+		Channel: r.Channel, Direction: r.Direction, DirectionSource: r.DirectionSource,
 		EmployeeID: r.EmployeeID, EmployeeRef: r.EmployeeRef, EmployeeCode: r.EmployeeCode, EmployeeCompany: r.EmployeeCompany,
 		LocationID: r.LocationID, LocationRef: r.LocationRef, LocationName: r.LocationName, LocationCompany: r.LocationCompany,
 		TagUID: r.TagUid,

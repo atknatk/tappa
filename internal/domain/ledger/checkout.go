@@ -15,8 +15,13 @@ package ledger
 // (the period's first midnight; the tape's midnight - tap.StaleOpenIn), so a checkout whose
 // predecessor lies before it has no P here (it classifies as (c) or (d)) where the SQL half,
 // which looks back without a bound, may find one. For the report that is ADR 0032 §A.6's
-// "Dönem sınırı": such a checkout is the period's seam and is counted StartedEarlier whichever
-// of the two it is; the parity test (checkout_parity_db_test.go) runs on chains read whole.
+// "Dönem sınırı": such a checkout is the period's seam and is counted StartedEarlier when it is
+// (d), or (c) of a business day that began before the period. A (c) whose business day began
+// INSIDE the period is a missing check-in whatever lies before the read (M15-06): the SQL half's
+// P there is a record before the business day, so it is (b) or (c) -- an `in` of that day, or an
+// `out` after one (I), would be inside the read and would be the walker's P too -- and (b) and (c)
+// are one counter, Totals.OutWithoutIn. The parity test (checkout_parity_db_test.go) runs on
+// chains read whole.
 
 import (
 	"time"

@@ -835,6 +835,9 @@ func TestManualEntryConfirm_SaysBOTHMeasuredConsequencesAndOnlyWhereTheyApply(t 
 	const (
 		money       = "shorten the shift but never"
 		uncloseable = "nothing you enter afterwards can close it"
+		// M15-06: the surplus of an "out too late" correction is named (ADR 0032 §A.6's (e)),
+		// for a checkout only -- the one direction that leaves it.
+		extra = "stays on record as an extra checkout"
 	)
 	cases := []struct {
 		direction   string
@@ -859,6 +862,11 @@ func TestManualEntryConfirm_SaysBOTHMeasuredConsequencesAndOnlyWhereTheyApply(t 
 					"specific to a check-in: correcting one leaves an entry the report can "+
 					"never close, and every attempt writes another permanent row.",
 					got, c.wantUnclose, c.direction)
+			}
+			if got := strings.Contains(page, extra); got != !c.wantUnclose {
+				t.Errorf("the extra-checkout sentence present=%v, want %v for a %q: it names what a "+
+					"checkout correction leaves behind (ADR 0032 §A.6 (e)), and only a checkout leaves it",
+					got, !c.wantUnclose, c.direction)
 			}
 		})
 	}

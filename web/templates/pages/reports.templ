@@ -155,6 +155,8 @@ templ reportReceipt(v ReportsView) {
 					@receiptLine("Arrivals typed by a manager", itoa(v.Totals.ManualArrivals))
 					@receiptLine("Approved on The Spike", itoa(v.Totals.Approved))
 					@receiptLine("Open check-ins, not counted", itoa(v.Totals.Open))
+					// M15-06: the checkout-side twin of the line above (ADR 0032 §A.6's (b) and (c)).
+					@receiptLine("Checkouts with no open check-in", itoa(v.Totals.OutWithoutIn))
 					@receiptLine("Waiting for a decision", v.Totals.AwaitingFigure)
 					@receiptLine("A manager refused", v.Totals.RefusedFigure)
 				</dl>
@@ -164,12 +166,24 @@ templ reportReceipt(v ReportsView) {
 				</div>
 			</div>
 			<div class="flex flex-col gap-2.5">
-				if v.Totals.Open > 0 {
+				if v.Totals.Open > 0 || v.Totals.OutWithoutIn > 0 {
 					// "NOT CLOSED YET." rather than "Incomplete.": that word belongs to the
 					// truncation notice above, which is a different fault.
+					//
+					// 🔴 TWO CAUSES, ONE SENTENCE (M15-06). A check-in with no checkout and a
+					// checkout with no open check-in to close are the two halves of a shift the
+					// report cannot pair, and each leaves the total short in the same way, so the
+					// box is drawn for either and names the ones present (shortHeading and the two
+					// lines below). Drawn for open check-ins alone it said nothing on a week whose
+					// only gap was a missing check-in -- measured by the M15-06 review.
 					<div class="flex flex-col gap-1 rounded-[10px] border border-dashed border-saffron bg-saffron/10 px-3 py-2.5 font-display text-[13px] leading-normal text-ink">
-						<p class="font-bold">Not closed yet.</p>
-						<p>{ openCount(v.Totals.Open) } with no checkout.</p>
+						<p class="font-bold">{ shortHeading(v.Totals.Open, v.Totals.OutWithoutIn) }</p>
+						if v.Totals.Open > 0 {
+							<p>{ openCount(v.Totals.Open) } with no checkout.</p>
+						}
+						if v.Totals.OutWithoutIn > 0 {
+							<p>{ checkoutCount(v.Totals.OutWithoutIn) } with no open check-in to close.</p>
+						}
 						// 🔴 THE SENTENCE Q18 REQUIRES, AND IT SAYS "SHORT" RATHER THAN IMPLYING
 						// IT. Counting an unclosed entry as zero hours would silently under-pay
 						// somebody; saying nothing about it would do the same thing more quietly.
@@ -178,7 +192,7 @@ templ reportReceipt(v ReportsView) {
 							counted as zero hours — it is simply not counted, and it stays visible
 							until somebody deals with it.
 						</p>
-						<a class="inline-flex min-h-11 items-center gap-1 font-bold underline underline-offset-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink" href={ templ.URL(v.AnomaliesHref) }>Open check-ins on Odd shapes <span aria-hidden="true">→</span></a>
+						<a class="inline-flex min-h-11 items-center gap-1 font-bold underline underline-offset-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink" href={ templ.URL(v.AnomaliesHref) }>{ shortLink(v.Totals.Open, v.Totals.OutWithoutIn) } <span aria-hidden="true">→</span></a>
 						if len(v.Open) > 0 {
 							<a class="inline-flex min-h-11 items-center gap-1 font-bold underline underline-offset-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink" href="#open">See the open list <span aria-hidden="true">↓</span></a>
 						}
@@ -208,6 +222,9 @@ templ reportReceipt(v ReportsView) {
 					}
 					if v.Totals.TooLong > 0 {
 						<p>{ tooLongLine(v.Totals.TooLong) }</p>
+					}
+					if v.Totals.OutWithoutIn > 0 {
+						<p>{ outWithoutInLine(v.Totals.OutWithoutIn) }</p>
 					}
 					if v.Unattributable > 0 {
 						<p>{ unattributableLine(v.Unattributable) }</p>
@@ -299,7 +316,7 @@ templ reportPeople(v ReportsView) {
 // late arrivals, arrivals with no yardstick, hours held out of the total, typed arrivals,
 // check-ins nobody closed.
 templ reportTallies(p ReportRowView) {
-	if p.Late != "" || p.Unmeasured != "" || p.Awaiting != "" || p.Refused != "" || p.Manual != "" || p.Open != "" {
+	if p.Late != "" || p.Unmeasured != "" || p.Awaiting != "" || p.Refused != "" || p.Manual != "" || p.Open != "" || p.InMissing != "" {
 		<span class="mt-1.5 flex flex-wrap gap-1">
 			if p.Late != "" {
 				<span class="tally tally--queued roll-qual">{ p.Late }</span>
@@ -318,6 +335,9 @@ templ reportTallies(p ReportRowView) {
 			}
 			if p.Open != "" {
 				<span class="tally tally--queued roll-qual">{ p.Open }</span>
+			}
+			if p.InMissing != "" {
+				<span class="tally tally--queued roll-qual">{ p.InMissing }</span>
 			}
 		</span>
 	}
@@ -525,6 +545,11 @@ func rollCellWords(worked bool, m ReportMarkView) string {
 	if m.Manual {
 		w += ", check-in typed by a manager"
 	}
+	if m.InMissing {
+		// Words only: the person's row says it on the page (the tally under the name), and a
+		// cell look of its own would be a new legend entry for a mark the tally already carries.
+		w += ", a checkout with no open check-in"
+	}
 	return w
 }
 
@@ -586,6 +611,40 @@ func needsActionLine(needsAction, open int) string {
 	}
 }
 
+// shortHeading opens the box that says the total is short. "Not closed yet." is about a
+// check-in, so a week whose only gap is a checkout with no open check-in to close gets its own
+// words; with both, the check-in's heading stays and the two lines below say each.
+func shortHeading(open, outWithoutIn int) string {
+	switch {
+	case open > 0:
+		return "Not closed yet."
+	case outWithoutIn == 1:
+		return "A check-in is missing."
+	default:
+		return "Check-ins are missing."
+	}
+}
+
+// shortLink names what the link to Odd shapes lands on: the open check-ins, the missing
+// check-ins, or both lists. One link either way -- both lists are on the same page.
+func shortLink(open, outWithoutIn int) string {
+	switch {
+	case open > 0 && outWithoutIn > 0:
+		return "Open and missing check-ins on Odd shapes"
+	case outWithoutIn > 0:
+		return "Missing check-ins on Odd shapes"
+	default:
+		return "Open check-ins on Odd shapes"
+	}
+}
+
+func checkoutCount(n int) string {
+	if n == 1 {
+		return "1 checkout"
+	}
+	return itoa(n) + " checkouts"
+}
+
 func openCount(n int) string {
 	if n == 1 {
 		return "1 check-in"
@@ -627,6 +686,15 @@ func tooLongLine(n int) string {
 		return "1 check-in was closed so much later that it is treated as a missed checkout rather than a shift; it is in the open list below."
 	}
 	return itoa(n) + " check-ins were closed so much later that they are treated as missed checkouts rather than shifts; they are in the open list below."
+}
+
+// outWithoutInLine explains the checkouts with no open check-in for them to close
+// (ledger.Totals.OutWithoutIn, M15-06): nothing is guessed for them, and Odd shapes lists them.
+func outWithoutInLine(n int) string {
+	if n == 1 {
+		return "1 checkout has no open check-in for it to close, so no hours are counted for the shift it ends; it is listed on Odd shapes under \"Check-in missing\"."
+	}
+	return itoa(n) + " checkouts have no open check-in for them to close, so no hours are counted for the shifts they end; they are listed on Odd shapes under \"Check-in missing\"."
 }
 
 // unattributableLine covers the record §4.6 requires to exist and no chain can hold:

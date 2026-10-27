@@ -1,0 +1,63 @@
+package operatorpages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// opNotice is the operator surface's status box (M13-03; docs/design/operator-redesign
+// README §6 "Operator notice"): the sentence about a sign-in, an enrollment step, a write's
+// answer, a VAT re-check, a legal text behind its page, the suspend form's hold warning and the
+// problem page's refusal.
+//
+// IT IS NOT components.Notice, ON PURPOSE. That box is the tap and activation screens' too, and
+// their bytes are pinned by internal/handler's golden (TestUnbrandedScreens_AreByteIdenticalToTheGolden),
+// so the operator's frame, with its round corners, is drawn here and the shared box stays as it is. The tone is
+// still components.Tone: the brand's one status vocabulary (ok, warn, alert), never inverted, and
+// the reason this package imports components at all.
+//
+// THE MEANING IS IN THE WORDS. Every caller states the outcome in its heading or its first
+// sentence; the frame repeats it in colour. An alert is announced at once (role alert), the other
+// two politely (role status) -- and a page carries at most one alert: each alert-toned caller is one
+// branch of a choice the handler makes (signin.go, enroll.go) or the problem page itself.
+//
+// THE HEADING STAYS A PARAGRAPH whose text closes it (the shape ">heading</p>"): three test helpers
+// find a notice by that shape -- headingsOn (holdings), apiHeadingsOn (the API card) and the legal
+// screen's warnNotice. The root stays a section: the suspend form's test cuts the hold warning at
+// the first section's end. Without a heading (the problem page, whose title is the page's h1 and
+// is written by the caller) the body opens the box with no space above it.
+templ opNotice(tone components.Tone, heading string) {
+	<section role={ opNoticeRole(tone) } class={ opNoticeClass(tone) }>
+		if heading != "" {
+			<p class="font-display font-bold tracking-tight">{ heading }</p>
+			<div class="mt-1 text-sm text-ink/85">
+				{ children... }
+			</div>
+		} else {
+			<div class="text-sm text-ink/85">
+				{ children... }
+			</div>
+		}
+	</section>
+}
+
+// opNoticeRole is the live-region role of a tone. An unknown tone is the alert, as its frame is:
+// a tone nobody named is not quietly a success.
+func opNoticeRole(t components.Tone) string {
+	switch t {
+	case components.ToneOK, components.ToneWarn:
+		return "status"
+	default:
+		return "alert"
+	}
+}
+
+// opNoticeClass is a tone's frame, written out whole per tone so the stylesheet's scan finds each
+// name (a class name is never assembled in Go).
+func opNoticeClass(t components.Tone) string {
+	switch t {
+	case components.ToneOK:
+		return "op-notice op-notice--ok"
+	case components.ToneWarn:
+		return "op-notice op-notice--warn"
+	default:
+		return "op-notice op-notice--alert"
+	}
+}

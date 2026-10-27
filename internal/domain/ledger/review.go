@@ -68,6 +68,20 @@ const QueuePageSize = PageSize
 type Pending struct {
 	N      int
 	Capped bool
+	// Claims is the undecided punch claims (M15-18 review round, user decision "Üç yerde sayı"):
+	// The Spike's "Time claims · N", its empty state and The Pass's "On the spike" card read it from
+	// this one read, so the three cannot disagree with each other.
+	Claims ClaimCount
+}
+
+// ClaimCount is the undecided punch claims AS FAR AS THEY WERE COUNTED: the flagged count's three
+// states -- Queried false says nothing was asked, Failed says the count could not be read (never 0),
+// and N is exact unless Capped (then a floor).
+type ClaimCount struct {
+	Queried bool
+	Failed  bool
+	N       int
+	Capped  bool
 }
 
 // Pending counts the flagged records that have no decision yet.
@@ -93,6 +107,23 @@ func (r *Reader) Pending(ctx context.Context, tenantID uuid.UUID) (Pending, erro
 		out = Pending{N: int(n)}
 		if out.N > PendingCap {
 			out = Pending{N: PendingCap, Capped: true}
+		}
+		// THE CLAIMS ARE COUNTED IN A SAVEPOINT of the same transaction: a failure costs their figure
+		// ("not counted") and never the flagged badge. Capped like the flags, PendingCap + 1.
+		if err := inSavepoint(ctx, tx, func(q *store.Queries) error {
+			c, err := q.CountPendingPunchClaims(ctx, store.CountPendingPunchClaimsParams{TenantID: tenantID, Cap: int32(PendingCap) + 1})
+			if err != nil {
+				return err
+			}
+			out.Claims = ClaimCount{Queried: true, N: int(c)}
+			if out.Claims.N > PendingCap {
+				out.Claims.N, out.Claims.Capped = PendingCap, true
+			}
+			return nil
+		}); err != nil {
+			r.log.Error("ledger: could not count the pending punch claims; the panel says they were not counted",
+				"err", err, "tenant_id", tenantID)
+			out.Claims = ClaimCount{Failed: true}
 		}
 		return nil
 	})

@@ -1,0 +1,303 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/layout"
+
+// THE PUBLIC SITE'S SHARED CHROME (LP-02, 2026-10-21): the header, the phone menu,
+// the phone's Start free bar and the footer every public board draws
+// (docs/design/landing-redesign/boards, README §3, §6). One component, so the
+// landing page, the five pages of the public site (LP-06 … LP-10), sign-up, the legal
+// documents and the integration guide (LP-11) cannot drift apart.
+//
+// ONE DOM FOR EVERY WIDTH. The header is written once; the phone shows its sign-in
+// pair and the Menu, the tablet and the desktop show the page links beside the same
+// pair, and the stylesheet decides which (input.css, the LP-02 section). The menu
+// lists the Product column, not the header's entries, so no link is written twice
+// for two widths.
+//
+// THE LINKS COME FROM ONE TABLE (landingview.go): the header's three from
+// LandingNav, the Product column from PublicProductLinks (mounted entries only —
+// a page arrives with its route, plan decision O8), the Legal column from
+// LegalPages. Nothing here types a path but the home page's. An entry pointing at
+// the page being drawn (Current) is marked as the current page wherever it appears.
+//
+// IT RENDERS INSIDE A .lp ROOT: every class it uses is a .lp rule, and the reset at
+// the top of that block would beat Tailwind's spacing utilities, so none are written
+// here. No style attribute, no colour value: the page is served with style-src 'self'.
+//
+// 🔴 WHOSE ROOT DEPENDS ON THE PAGE'S BODY (LP-11). The landing and the five pages of
+// the public site draw their content with .lp classes and wrap everything, chrome
+// included, in one .lp root of their own. Sign-up, the four legal documents and the
+// integration guide draw theirs with the product's utility classes, and inside a .lp
+// root `.lp *` zeroes every margin and padding those classes set (same specificity,
+// later in app.css). Measured in Chrome 2026-10-23 by adding the class to <main>: the
+// cookie notice lost 685 px at 390 and 647 px at 1440, the guide 5169 px at 390, the
+// first sign-up screen 121 px. So those pages ask for OwnRoots, and the chrome brings
+// its own roots — one around the skip link and the header, one around the footer,
+// one around the phone bar — and leaves <main> outside every one of them.
+//
+// THE OWN ROOTS ARE WHAT STICKS. An element pinned this way sticks only inside its parent,
+// and a root that holds nothing but the header is exactly the header's height, so the
+// header root itself is what sticks to the top (and the phone bar's root to the
+// bottom); the rules are the LP-11 section of input.css.
+//
+// THE MENU NEEDS NO SCRIPT: it is a native <details>; the summary reads Menu while
+// closed and Close while open.
+
+// PublicChromeOpts is what a public page tells the chrome about itself.
+type PublicChromeOpts struct {
+	// Current is the page's own path. A header, menu or footer entry pointing at it
+	// carries aria-current="page"; the landing page passes "/", which no entry names.
+	Current string
+	// SignInHref is the panel's sign-in page (internal/handler owns where it is).
+	SignInHref string
+	// SignupHref is the wizard, or "" while it is not mounted: then neither the
+	// header nor the phone bar draws a Start free.
+	SignupHref string
+	// NoPhoneBar leaves the phone's Start free bar out. Sign-up sets it (the boards
+	// draw the bar on every public phone page except Signup).
+	NoPhoneBar bool
+	// OwnRoots draws the chrome in .lp roots of its own and the page's content
+	// outside them: for a page whose body is written in the product's utility
+	// classes (sign-up, the legal documents, the integration guide). See above.
+	OwnRoots bool
+	// StaticHeader lets the header scroll away instead of sticking (OwnRoots only).
+	// Sign-up sets it: its phone screens stick their own progress bar to the top, as
+	// the Signup boards draw it under a header that does not stick, and two bars
+	// pinned over a form would leave a phone with a keyboard open little room.
+	StaticHeader bool
+	// SignInPrompt prints "Already with Taptime?" before Sign in from the desk width,
+	// as the Signup board does, for a visitor who may have come to the wrong door. It
+	// is text outside the link, so the link's words stay "Sign in".
+	SignInPrompt bool
+	// InstantScroll makes an anchor jump a jump rather than a glide (OwnRoots only, and
+	// only with a header that sticks). The integration guide sets it: on a page some
+	// 50,000 px long, the smooth scrolling every public page has (html:has(.lp)) turns
+	// one press of a link in its table of contents into seconds of text sliding past. A decision of the
+	// orchestrator's (LP-11 review); the rule is input.css's.
+	InstantScroll bool
+}
+
+// PublicChrome wraps a public page's content in the shared header and footer.
+templ PublicChrome(c PublicChromeOpts) {
+	if c.OwnRoots {
+		@publicChromeRooted(c) {
+			{ children... }
+		}
+	} else {
+		@publicChromeInRoot(c) {
+			{ children... }
+		}
+	}
+}
+
+// PublicBodyFrame is the box a body written in the product's utility classes sits in —
+// sign-up, the legal documents and the integration guide, the pages that ask for
+// OwnRoots — so the body's left edge is the wordmark's (LP-14). It is the header's and
+// the footer's own box (input.css, THE PUBLIC CHROME) spelled in utilities, because
+// those bodies stay outside every .lp root: 16 px a side on the phone, 40 px from the
+// tablet, and from the desk width at most 1180 px wide, centred, with
+// clamp(16px, 3vw, 40px) a side. Before it the legal and sign-up bodies were at most
+// 1152 px, centred, with 16 or 28 px a side, and their left edge sat 22 to 26 px left of
+// the wordmark's on a desk (1200 and 1440 px windows) and 12 px left of it on a tablet
+// (measured in Chrome).
+// TestPublicBodyFrame_IsTheChromeBox holds the two descriptions equal; the vertical
+// space stays each page's own.
+const PublicBodyFrame = "mx-auto w-full px-4 md:px-10 desk:max-w-[1180px] desk:px-[clamp(16px,3vw,40px)]"
+
+// PublicBodyRing gives every control inside such a body the public site's one focus ring
+// — 2 px of ink, 2 px out, as `.lp :focus-visible` draws it inside the .lp roots — on the
+// element that holds the body, so it reaches what no template of ours writes: the
+// integration guide's converted links, its scrollable code blocks and tables, and the
+// legal switcher (LP-14, board States-Public). Without it those controls drew the
+// browser's own ring. Ink on paper 16.17:1, on porcelain 14.32:1.
+// TestPublicPages_UtilityBodiesDrawTheOneRing holds every such body to it.
+const PublicBodyRing = "[&_:focus-visible]:outline [&_:focus-visible]:outline-2 [&_:focus-visible]:outline-offset-2 [&_:focus-visible]:outline-ink"
+
+// publicChromeInRoot is the chrome inside the caller's own .lp root.
+templ publicChromeInRoot(c PublicChromeOpts) {
+	<a class="lp-skip" href="#main">Skip to content</a>
+	@publicHeader(c)
+	<main id="main">
+		{ children... }
+	</main>
+	@publicFooter(c)
+	if publicPhoneBarShown(c) {
+		@publicPhoneBar(c)
+	}
+}
+
+// publicChromeRooted is the chrome in roots of its own, with the content outside them.
+templ publicChromeRooted(c PublicChromeOpts) {
+	<div class={ publicTopRoot(c) }>
+		<a class="lp-skip" href="#main">Skip to content</a>
+		@publicHeader(c)
+	</div>
+	<main id="main">
+		{ children... }
+	</main>
+	<div class="lp">
+		@publicFooter(c)
+	</div>
+	if publicPhoneBarShown(c) {
+		<div class="lp lp-dock">
+			@publicPhoneBar(c)
+		</div>
+	}
+}
+
+// publicTopRoot is the class of the root around the header: the one that sticks (with or
+// without the instant scroll), or the one that scrolls away. All are literals.
+func publicTopRoot(c PublicChromeOpts) string {
+	switch {
+	case c.StaticHeader:
+		return "lp lp-topStill"
+	case c.InstantScroll:
+		return "lp lp-top lp-instant"
+	default:
+		return "lp lp-top"
+	}
+}
+
+// publicPhoneBarShown says whether the phone's Start free bar is drawn: there is a
+// wizard to start and the page has not left the bar out.
+func publicPhoneBarShown(c PublicChromeOpts) bool {
+	return c.SignupHref != "" && !c.NoPhoneBar
+}
+
+// publicPhoneBar is the phone's Start free bar, pinned to the bottom.
+templ publicPhoneBar(c PublicChromeOpts) {
+	<div class="mbar">
+		<a class="hbtn" href={ templ.URL(c.SignupHref) }>Start free</a>
+	</div>
+}
+
+// publicHeader is the bar at the top. Its first <nav> carries the page links, Sign
+// in and Start free — TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage reads that
+// element as the bar.
+templ publicHeader(c PublicChromeOpts) {
+	<header class="lp-head" aria-label="Site">
+		<div class="lp-headIn">
+			<a class="lp-mark" href="/">
+				<span class="lp-markDot" aria-hidden="true"></span>
+				<span class="lp-markWords"><span class="lp-markName">taptime</span><span class="lp-markTag">punchless</span></span>
+			</a>
+			<div class="lp-headEnd">
+				<nav class="lp-headNav" aria-label="Primary">
+					for _, l := range LandingNav {
+						<a
+							class="navlink"
+							href={ templ.URL(l.Href) }
+							if l.Href == c.Current {
+								aria-current="page"
+							}
+						>{ l.Label }</a>
+					}
+					<span class="lp-headSep" aria-hidden="true"></span>
+					if c.SignInPrompt {
+						<span class="lp-signinPair">
+							<span class="lp-signinAsk">Already with Taptime?</span>
+							<a class="lp-signin" href={ templ.URL(c.SignInHref) }>Sign in</a>
+						</span>
+					} else {
+						<a class="lp-signin" href={ templ.URL(c.SignInHref) }>Sign in</a>
+					}
+					if c.SignupHref != "" {
+						<a class="hbtn" href={ templ.URL(c.SignupHref) }>Start free</a>
+					}
+				</nav>
+				<details class="menu">
+					<summary><span class="mopen">Menu</span><span class="mclose">Close</span></summary>
+					<nav aria-label="Menu">
+						<span class="lp-lbl lp-menuHead">Pages</span>
+						<div class="lp-menuList">
+							for _, l := range MountedPublicLinks(PublicProductLinks) {
+								<a
+									class="mlink"
+									href={ templ.URL(l.Href) }
+									if l.Href == c.Current {
+										aria-current="page"
+									}
+								>
+									<span>{ l.Label }</span>
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"></path></svg>
+								</a>
+							}
+						</div>
+					</nav>
+				</details>
+			</div>
+		</div>
+	</header>
+}
+
+// publicFooter is the brand, the red-line sentence and the two link columns.
+//
+// 🔴 THE MIDDLE SENTENCE IS WORDED THE WAY pages.Activate WORDS IT, AND STAYS ON ONE
+// LINE. That is not house style — it removed the need to widen a red-line scanner. A
+// first draft of the old legal chrome's footer (marketingChrome, retired in LP-11, whose
+// sentence this is word for word) phrased the denial without naming the three things,
+// which trips redline-check.sh's R1 and forced a new allowlist entry; the
+// employee-facing screen has used the fuller phrasing since M5-02, and that clears the
+// scanner's ORIGINAL exemption because the denial it already recognises appears ON THE
+// SAME LINE. So the public pages and the screen a worker actually reads make the §4.1
+// promise in the same words. ADR 0012 records what remains and why. KEEP THE DENIAL ON
+// ONE LINE — the scanner is line-local. The sentence after it is the position promise
+// of CLAUDE.md §4.2.
+//
+// ⚠️ THE SIGN-UP WIZARD RENDERS THIS TOO, which is why nothing here says "report",
+// "export" or "notification": that surface refuses a capability word nothing derives
+// (TestSignupSurface_UsesNoUnanchoredCapabilityWord), and a word added to this footer
+// arrives on every one of its screens.
+//
+// THE "Built by" LINE (main 807045b4, user request 2026-10-23) credits the platform
+// operator's company, layout.CreditURL — the line the retired landing footer and
+// marketingChrome carried, moved here when main was merged into the public site. It is
+// a plain followable link: no nofollow, sponsored or ugc, because it is the operator's
+// own company and an honest editorial link; rel="noopener" only. It is the only absolute
+// href this footer has, and the public-surface scans admit it by that constant and
+// nothing else (withoutCreditHref, pageLinkProblems). It wears .flink, the public
+// site's mono legal link, so its drawn states are that row of the States-Public matrix.
+// Not a word here says "report", "export" or "notification" (sign-up renders this).
+//
+// No emoji: the old landing footer's flag is not on the boards.
+templ publicFooter(c PublicChromeOpts) {
+	<footer class="lp-foot">
+		<div class="lp-footIn">
+			<div class="lp-footAbout">
+				<span class="lp-footMark"><span class="lp-markDot lp-markDot--sm" aria-hidden="true"></span><span class="lp-footCopy">© 2026 Taptime · Malta</span></span>
+				<span class="lp-footLine">tap in · tap out · that's it</span>
+				<div class="lp-footNote">
+					<span class="lp-lbl">Taptime</span>
+					<p>
+						Punchless time and attendance.
+						Taptime collects no biometric data of any kind: no fingerprints, no face, no voice.
+						A phone's position is read only at the moment somebody presses the button.
+					</p>
+				</div>
+				<p class="lp-footLine">Built by <a href={ templ.URL(layout.CreditURL) } rel="noopener" class="flink">{ layout.CreditName }</a></p>
+			</div>
+			<nav class="fcol" aria-label="Product">
+				<span class="lp-lbl lp-fcolHead">Product</span>
+				for _, l := range MountedPublicLinks(PublicProductLinks) {
+					<a
+						href={ templ.URL(l.Href) }
+						if l.Href == c.Current {
+							aria-current="page"
+						}
+					>{ l.Label }</a>
+				}
+			</nav>
+			<nav class="fcol" aria-label="Legal">
+				<span class="lp-lbl lp-fcolHead">Legal</span>
+				for _, p := range LegalPages {
+					<a
+						href={ templ.URL(p.Path) }
+						if p.Path == c.Current {
+							aria-current="page"
+						}
+					>{ p.NavLabel }</a>
+				}
+			</nav>
+		</div>
+	</footer>
+}
