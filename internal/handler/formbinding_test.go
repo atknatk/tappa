@@ -200,7 +200,9 @@ var nonPanelPostActions = map[string]bool{
 	`"/admin/reset"`: true, `"/admin/reset/new"`: true,
 	`"/admin/invite"`: true, // M14-15: the invitee's acceptance (unboundPanelPost)
 	`"/signup"`:       true, `"/signup/places"`: true, `"/signup/account"`: true,
-	`"/activate"`: true, `"/api/activate"`: true, `"/api/checkin"`: true,
+	// M14-17: the registration link's confirmation -- it creates a business; no tenant to bind to yet.
+	`{ templ.URL(SignupConfirmPath) }`: true,
+	`"/activate"`:                      true, `"/api/activate"`: true, `"/api/checkin"`: true,
 	`{ templ.SafeURL(DevSimulateTapPath) }`: true,
 }
 

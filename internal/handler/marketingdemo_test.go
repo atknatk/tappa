@@ -384,7 +384,7 @@ func TestLandingDemo_NoOtherScreenOnThePublicSurfaceCarriesTheDialog(t *testing.
 	screens[signupAccountPath] = account.Body.String()
 	d.advance(time.Minute)
 	d.post(signupAccountPath, accountForm(d.token(account)))
-	screens[signupDonePath] = d.get(signupDonePath).Body.String()
+	screens[signupSentPath] = d.get(signupSentPath).Body.String()
 
 	if len(screens) != 8 {
 		t.Fatalf("collected %d screens, want 8 (four legal documents and four wizard "+

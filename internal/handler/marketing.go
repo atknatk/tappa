@@ -864,10 +864,20 @@ func cookieNotice() []pages.CookieRow {
 			Name: signupStateCookieName,
 			Purpose: "Carries the answers already given — the business name, the VAT number and " +
 				"the places — from one step of the registration form to the next, signed by " +
-				"this server. It never holds a password. Cleared as soon as the business is " +
-				"created.",
+				"this server. It never holds a password or an email address. Cleared once the " +
+				"\"check your inbox\" page has been shown.",
 			Lifetime: humanSeconds(signupCookieMaxAge),
 			Scope:    signupCookiePath,
+			Flags:    flags,
+		},
+		// M14-17: the registration link's page (ADR 0031 §5.10), the recovery link's pattern.
+		{
+			Name: signupConfirmCookieName,
+			Purpose: "Carries a registration link while it is being confirmed, so the link stays " +
+				"out of the address bar and out of browser history. Cleared as soon as the " +
+				"registration is finished or the link is refused.",
+			Lifetime: humanSeconds(signupConfirmCookieMaxAge),
+			Scope:    signupConfirmPath,
 			Flags:    flags,
 		},
 	}

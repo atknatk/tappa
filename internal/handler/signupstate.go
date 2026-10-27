@@ -213,12 +213,9 @@ type signupDraft struct {
 	VATCheck string `json:"vc"`
 
 	Venues []string `json:"loc,omitempty"`
-
-	// Blocked is set only on the CONFIRMATION state (signupDoneStep): the account
-	// that was just created cannot be reached by the sign-in path. It is carried
-	// rather than recomputed because the measurement was taken once, at the moment of
-	// the write, by the code that did the writing.
-	Blocked bool `json:"b,omitempty"`
+	// Link is the registration link, ONLY where this installation shows it on screen (a dev or
+	// sandbox one with no e-mail -- M14-17, the user's decision of 2026-10-26). Empty otherwise.
+	Link string `json:"l,omitempty"`
 
 	// Step is the highest step this state has completed: 1 after the business step,
 	// 2 after the venues step, signupDoneStep once the business EXISTS. A caller

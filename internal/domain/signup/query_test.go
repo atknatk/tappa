@@ -100,12 +100,13 @@ func TestSignupQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 	declared := declaredQueries(t)
 	names := storeQueryNames(t, declared)
 	// ANTI-VACUITY: an empty derivation would make every assertion below pass over
-	// nothing. This package makes three store calls (CreateTenant, CreateLocation,
-	// CreateAdminUser); the floor is set at three rather than at "today's number plus
-	// room", because a floor that tracks the present goes red on correct deletions.
-	if len(names) < 3 {
+	// nothing. This package makes two store calls (CreateTenant, CreateLocation) --
+	// three until M14-17, when the owner row moved into identity_claim_signup (migration
+	// 00078: the definer writes it, linked to the identity, ADR 0031 §5.10); the floor
+	// follows that deletion, it does not track "today's number plus room".
+	if len(names) < 2 {
 		t.Fatalf("derived %d store call(s) from this package's non-test files (%v); "+
-			"signup.go makes three, so the scan is reading the wrong directory",
+			"signup.go makes two, so the scan is reading the wrong directory",
 			len(names), names)
 	}
 	sorted := append([]string(nil), names...)
