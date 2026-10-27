@@ -46,9 +46,23 @@ import (
 // WHAT NEVER LEAVES: the token (a ResetToken -- it cannot print itself), the digest (db.PasswordHash),
 // the address and the draft (personal data -- never a log line or an error).
 
-// SignupClaimTTL is how long a registration link lives: one day, 00078's ceiling (00019's for a link). A
-// person registers, then opens their mail -- possibly the next morning.
-const SignupClaimTTL = 24 * time.Hour
+// signupClaimCeiling is 00078's ceiling on a draft's life: identity_open_signup_claim refuses an expiry
+// later than the DATABASE's now() + 24 hours (and the table's CHECK holds created_at + 24 hours) -- 00019's
+// ceiling for a link. TestSignupClaimTTL_LeavesTheSkewMarginUnderThe00078Ceiling reads it from the file.
+const signupClaimCeiling = 24 * time.Hour
+
+// signupClaimSkewMargin is the room left under that ceiling for clock skew (M14-17b's finding, the
+// coordinator's fix of 2026-10-27): Open dates the expiry by THIS process's clock, the ceiling is measured
+// by the database's, and the two are different machines. With the expiry exactly at the ceiling a database
+// clock behind the application's by more than the round trip refused EVERY registration -- measured on the
+// development database (its now() behind the host's on 200 of 200 probes; the registration's real-path
+// test failed intermittently with "open signup claim: refused"). Five minutes is far beyond any synchronised
+// pair of clocks and costs the person nothing they can notice (the letter states the time left in hours).
+const signupClaimSkewMargin = 5 * time.Minute
+
+// SignupClaimTTL is how long a registration link lives: just under one day -- 00078's ceiling less the skew
+// margin. A person registers, then opens their mail -- possibly the next morning.
+const SignupClaimTTL = signupClaimCeiling - signupClaimSkewMargin
 
 // signupClaimKeyLabel derives this flow's HMAC key from the session key, apart from every other link's.
 const signupClaimKeyLabel = "tappa/admin-signup-claim/v1/key-derivation"

@@ -978,6 +978,18 @@ Prod'da (ve staging'de) `none` ise sihirbaz bu kurulumun kayıt almadığını s
 sayfası `/admin/signup/confirm`'dadır: var olan kimliğin kanıtı panel oturumudur ve panel çerezinin
 yolu `/admin`'dir. Bayrak bu yüzeyi kapılamaz (§8 tablosu).
 
+**Saat kayması notu (2026-10-27, M14-17b bulgusu, orkestratör kararı):** taslağın bitişini uygulama
+kendi saatiyle yazar, `identity_open_signup_claim` ise onu **veritabanının** `now() + 24 saat` tavanıyla
+karşılaştırır (`00078`). Bitiş tam tavandayken veritabanı saati uygulamanınkinin gerisinde kaldığında
+(geliştirme veritabanında 200 ölçümün 200'ünde öyleydi) kayıt aralıklı olarak reddediliyordu — bayrak bu
+yüzeyi kapılamadığı için Deploy 1 canlı kullanıcılara taşırdı. Düzeltme migration'sızdır:
+`adminauth.SignupClaimTTL = tavan − signupClaimSkewMargin` (5 dakika); mektup kalan süreyi saat olarak
+yazdığı için kişi farkı görmez. Testler: `TestSignupClaimTTL_LeavesTheSkewMarginUnderThe00078Ceiling`
+(TTL + pay = tavan, tavan 00078'in metni) ve `TestSignupClaims_OpenSurvivesADatabaseClockBehindTheApplications`
+(veritabanı saati 2 sn geride → taslak yazılır; pay 0 → kırmızı). Aynı desen başka yerde yok: davetin
+72 saati 7 günlük tavanın, sıfırlamanın 1 saati 24 saatlik tavanın çok altında; doğrulama linkinin bitişi
+veritabanında hesaplanır.
+
 **Sıralama (bulgu 7):** M14-17'den önce kayıt, var olan ile yeni e-posta için farklı bir iz bırakır
 (bağlanmamış satır / kimlik). Bu fark **yalnız bayrağın kapattığı yüzeylerden** görünür (§8 bayrak
 tablosu); bayrak M14-17'den önce açılmaz.
