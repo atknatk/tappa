@@ -513,6 +513,51 @@ yenilenir. Görselde fiyat yok, kişiler uydurma. `og:image` mutlak URL'si `TAPP
 (`TestShareImageExemption_IsNarrow`). Head etiketleri yalnız `marketingDocument` üzerinden — tap/
 aktivasyon head'leri golden'la bayt-aynı.
 
+## Operatör yüzeyi — kabuk ve `op-*` bileşenleri
+
+> Eklendi 2026-10-26 (M13-15, faz sonu). Normatif kaynak: `docs/design/operator-redesign/README.md`
+> (§2 OP-1 / OP-2 + OP-15 eki, §3 kısıtlar, **§6 katalog — gerçekleşen sınıf adları**, §6.1 ekran
+> tarifleri) ve `screens.md`; kararlar (a)–(f) `docs/plan/m13-operator-redesign.md` başında. Bu dosya
+> Tailwind'in taramadığı bir dosyadır.
+
+**Kabuk** (`web/templates/operatorpages/chrome.templ`, tek DOM): bant `<header class="op-bar">`
+(mürekkep + 4 px safran çizgi, `.op-lockup` "TAPTIME OPERATOR", imzalıysa `.op-signout` POST formu;
+satır telefonda 56, tabletten 64 px) → imzalı ekranda `.op-frame` › `<nav class="op-nav"
+aria-label="Operator sections">` (beş bağlantı, form/düğme yok: masaüstünde 232 px **açık** kâğıt
+sütun + `.op-nav-label` "PLATFORM", tablette yatay sekme satırı, telefonda `sticky` + `order-last
+mt-auto` kâğıt alt çubuk; `.op-nav-item`, ikon `.op-nav-icon` yalnız telefonda) + `.op-col` ›
+tek-tenant ekranında `<section class="op-tenant">` (ad bandı `<p>`, içinde `<nav class="op-subnav"
+aria-label="This tenant">`, `.op-subnav-item`, safran işaret) › `<main class="op-main …">`. İmzasız
+ekran: formsuz bant + ortalanmış tek sütun, nav yok. **`aria-current`** (karar (b)): ana nav
+`"true"` (bölüm), alt nav `"page"` (sayfa); imzalı problem sayfasında ikisi de yok. Panelin
+sınıfları (`panel-side`, `side-nav`, `bar-link`, `tab-link`, yeşil `taptime`) kullanılmaz.
+
+**Bileşenler — gerçekleşen adlarıyla** (`input.css` `@layer components`; templ bileşenleri
+`operatorpages` içinde dışa kapalı, `components.Notice` ve `layout.*` değişmez):
+
+| Aile | Sınıflar |
+|---|---|
+| Kart | `.op-card` — 14 px köşe, gölgesiz, telefonda 20 px, tabletten 22 / 24 px dolgu; **iç boşluk kuralda** (14 px sütun, M13-15). Tek istisna yasal metin düzenleyicisi: tam sınıf `op-card flex flex-col gap-0 overflow-hidden p-0` |
+| Başlık / etiket | `.op-label` (mono 11 px büyük harf), `.op-step` (16 / 17 px), `.op-heading` (19 px) |
+| Alan, bağlantı, sayfalayıcı | `.op-input` (10 px köşe), `.op-link`, `.op-pager` — hepsi 44 px; düğmeler `btn btn--primary` / `btn btn--quiet`, 10 px köşe |
+| Liste | `.docket` (keskin; dolgusu `.op-main .docket`) + `.op-row` / `.op-version` (kesikli çizgi); fatura şeridi `.op-receipt` |
+| Çip | `.tally` + kodun tonları; hap biçimi yalnız `.op-main .tally` |
+| Bildirim / problem | `opNotice(tone, heading)` → `.op-notice` + `--ok` / `--warn` / `--alert`; `.op-problem`, `.op-problem-title` |
+| Kayıt / askı | `.op-qr` (sayfadaki tek SVG), `.op-key`, `.op-uri`, `.op-token-field` · `.op-reasons`, `.op-reason-hold`, `.op-hold-warning` |
+
+**Kararlar:** (a) çip tonu kodun, pano tonu taşınmaz (tek yeniden tonlama `tally--running`);
+(b) yukarıdaki `aria-current`; (c) genel bakışın h1'i `<h1 class="docket-label">Tenant overview</h1>`,
+ad bandı `<p>` kalır; (d) bildirim tam çerçeve, 14 px köşe (README §6, panoların sol çizgisi değil);
+(e) ekran h1'inin boyu ekranın kendi panosundan, harf aralığı -0.03em; (f) docket satırında sözcükler
+Space Grotesk, değerler (sayı, saat, UID, çip) mono, tenant/kullanıcı adları Space Grotesk. Çelişkide
+**yerleşimde pano, bileşen biçiminde README §6**; kabuk ölçülerinde pano. Yardım metni **12 px**.
+
+**Kısıtlar:** tenant markası yok (`Theme{}`; logo, accent, adında `brand` geçen sınıf yok; CSP'de
+`img-src` yok → ikon ve QR satır içi SVG); imzalı her sayfada tam beş SVG (nav ikonları), kayıt ilk
+yüklemede bir (QR), öteki imzasızlarda sıfır (`TestEnrollQR_OnlyOnTheFirstLoad`); sayfada tek `<h1>`;
+yeni JS yok; operatör işaretlemesinin golden'ı yok, testler sabitler. Bir operatör CSS kuralı içerik
+gizlemez — bilinçli beş gizleme listelidir (`TestOperatorCSS_NoScopedRuleHidesContent`).
+
 ## Yapma
 
 Emoji ikon seti (marka mesajları hariç) · yuvarlatılmış adisyon ya da kaşe damgası ·

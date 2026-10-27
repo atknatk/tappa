@@ -396,7 +396,7 @@ değişikliğidir.
 | Problem sayfaları (tap ve aktivasyon akışları) ve aktivasyonun *"phone already in use"* onayı (`pages.Confirm`) | yok | yok | — | Taptime | değişmez *(WL-13: marka yalnız kullanılabilir bir davetten bilinir ve bu ekranlarda ölü bir linki canlıdan ayırırdı; `pages.Problem` ve `pages.Confirm` marka parametresi almaz)* |
 | AdminChoose, yönetici girişi, parola sıfırlama | yok | yok | — | Taptime | değişmez (WL-8 kabulü: AdminChoose değişmez) |
 | Landing, legal, signup | yok | yok | — | Taptime | değişmez |
-| Operatör yüzeyi (`/operator`) | yok | yok | OP-8'in başlık kuralı | *TAPTIME OPERATOR* kabuğu | değişmez; bu ADR `op_*` eklemez |
+| Operatör yüzeyi (`/operator`) | yok | yok | OP-8'in başlık kuralı | *TAPTIME OPERATOR* kabuğu | değişmez; bu ADR `op_*` eklemez *(M13-01 notu, 2026-10-25: kullanıcı kararı OP-1 ile imzalı ekranlara bir gezinme eklendi — paper sütun / sekme satırı / alt çubuk ve tek-tenant ekranlarında bandın içinde safran işaretli alt gezinme, yalnız `op-*` sınıfları; marka kuralı **değişmedi**: hâlâ *TAPTIME OPERATOR* kabuğu, `Theme{}`, logo, accent ve tema bağlantısı yok — `TestOperatorScreens_CarryNoPanelShellAndNoTenantBrand` her operatör render'ında panel kabuğunun ve tenant markasının işaretlerini arar. ADR 0020 §4 M13-01 notu.)* |
 | E-posta | faz 1: yok (K8) | yok | gövdede, kaçışlı | gönderen sabit Taptime (EM-K5) | **WL-11** (SES akışıyla) |
 | CSV / rapor | yok | yok | — | değişmez | — |
 

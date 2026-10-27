@@ -26,6 +26,23 @@ import (
 //
 // The texts reach the page as data: the editor's content and every list value are
 // templ expressions, escaped (TestLegalScreen_ReopensOnPastedMarkupWithoutExecutingIt).
+//
+// THE REDESIGN (M13-14; docs/design/operator-redesign README §6 "Card", §6.1 "Legal editor",
+// "Legal versions", screens.md §12, boards OpLegal): the intro card -- the mono label, the h1 at
+// the board's 26 / 28 / 32 px, the intro, where the public pages are and the way back; the card
+// spaces its blocks and its bodies carry no top margin. Then one editor card per document, the
+// whole column's width, which is the one operator card with no padding and no gap of its own: it
+// is split in bands, each inset by the card scale (24 px from the tablet, 20 px on the phone) --
+// the head (the path in the data face on the left; on the right a dot that only decorates and
+// the words that carry the state), the warning when the public page is behind, and the form: the
+// text in a framed box under a label bar, the help on the left and the button on the right (the
+// whole width on the phone). The versions are the docket: from the tablet each row is the
+// boards' five columns (time, path, length, publisher, the Live chip); on the phone the time and
+// the chip share the first line, the path the second, the length and the publisher the third.
+// The row's markup is the code's; its places are rules in input.css scoped from the docket's
+// heading id. Words are Space Grotesk, values the data face; the publisher's name is someone's
+// own text and Space Grotesk. Pinned by TestLegalScreen_IsTheIntroCardTheEditorsAndTheDocket and
+// TestLegalVersions_TheScopedRulesKeepTheBoardsColumns.
 func Legal(v LegalView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -59,7 +76,7 @@ func Legal(v LegalView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><p class=\"docket-label\">Legal texts</p><h1 class=\"mt-1 font-display text-2xl font-bold tracking-tight\">Taptime's legal texts</h1><p class=\"mt-3 text-sm\">Publishing adds a new version; nothing is overwritten. To undo a change, publish the earlier text again.</p><p class=\"mt-3 text-sm text-ink/70\">The public pages are on the customer site, under /legal.</p><p class=\"mt-2 text-sm\"><a href=\"/operator\" class=\"op-link\">Back to the console</a></p></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><p class=\"op-label\">Legal texts</p><h1 class=\"font-display text-[26px] font-bold leading-[1.1] tracking-[-0.03em] md:text-[28px] desk:text-[32px]\">Taptime's legal texts</h1><p class=\"text-[15px] leading-[1.55]\">Publishing adds a new version; nothing is overwritten. To undo a change, publish the earlier text again.</p><p class=\"text-sm text-ink/70\">The public pages are on the customer site, under <span class=\"font-mono\">/legal</span>.</p><p class=\"text-sm\"><a href=\"/operator\" class=\"op-link\">Back to the console</a></p></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -79,7 +96,7 @@ func Legal(v LegalView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = screen("Legal texts", true).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = screen("Legal texts", true, navLegal).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -91,6 +108,11 @@ func Legal(v LegalView) templ.Component {
 // checks it against the closed set, and the form carries nothing else but the text. When
 // the public page is behind the list's live version (LegalDoc.Behind) the editor says so
 // above the form: it opened on the page's text, not on the newest version.
+//
+// The card has no padding and no gap: its bands carry the inset. The status dot is
+// decoration for a sighted reader (aria-hidden); the sentence beside it says the state. The
+// focus ring is drawn on the text's frame, not on the text, whose box the frame clips; so is
+// the transparent outline a forced-colours display paints in its place.
 func legalEditor(d LegalDoc) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -112,40 +134,40 @@ func legalEditor(d LegalDoc) templ.Component {
 			templ_7745c5c3_Var3 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<section class=\"op-card\" aria-labelledby=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<section class=\"op-card flex flex-col gap-0 overflow-hidden p-0\" aria-labelledby=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs("legal-" + d.Slug)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 47, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 69, Col: 101}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\"><h2 id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\"><div class=\"flex flex-wrap items-center justify-between gap-x-5 gap-y-1.5 border-b border-line px-5 pt-[18px] pb-3.5 md:px-6 md:pt-5 md:pb-4\"><h2 id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs("legal-" + d.Slug)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 48, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 71, Col: 29}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" class=\"font-mono text-base font-bold\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" class=\"min-w-0 font-mono text-[17px] font-bold leading-[1.3] [overflow-wrap:anywhere] md:text-[18px]\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(d.Path)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 48, Col: 77}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 71, Col: 142}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 		if templ_7745c5c3_Err != nil {
@@ -156,31 +178,35 @@ func legalEditor(d LegalDoc) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if d.Published {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<p class=\"mt-1 text-sm text-ink/70\">Live since <span class=\"font-mono\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<p class=\"flex min-w-0 items-start gap-2 text-sm leading-[1.4] text-ink/75\"><span class=\"mt-1.5 size-2 flex-none rounded-full bg-tappa-green\" aria-hidden=\"true\"></span><span>Live since <span class=\"font-mono text-[13px] text-ink\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(d.PublishedAt)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 50, Col: 89}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 73, Col: 249}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</span></p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</span></span></p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<p class=\"mt-1 text-sm text-ink/70\">Not published. The public page shows its placeholder.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<p class=\"flex min-w-0 items-start gap-2 text-sm leading-[1.4] text-ink/75\"><span class=\"mt-1.5 size-2 flex-none rounded-full border-[1.5px] border-ink/45\" aria-hidden=\"true\"></span><span>Not published. The public page shows its placeholder.</span></p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
 		if d.Behind {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<div class=\"mt-4\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<div class=\"px-5 pt-4 md:px-6\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -196,87 +222,87 @@ func legalEditor(d LegalDoc) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<p>The newest version, published <span class=\"font-mono\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<p>The newest version, published <span class=\"font-mono\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(d.LiveAt)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 58, Col: 70}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 82, Col: 70}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</span>, has not reached the public page yet. This editor opened on the text the page shows, so publishing it replaces the newest version.</p><p class=\"mt-2\">Reload this screen to try again. The page also catches up after the next publication or a restart.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</span>, has not reached the public page yet. This editor opened on the text the page shows, so publishing it replaces the newest version.</p><p class=\"mt-2\">Reload this screen to try again. The page also catches up after the next publication or a restart.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = components.Notice(components.ToneWarn, "The public page is behind").Render(templ.WithChildren(ctx, templ_7745c5c3_Var8), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = opNotice(components.ToneWarn, "The public page is behind").Render(templ.WithChildren(ctx, templ_7745c5c3_Var8), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<form method=\"post\" action=\"/operator/legal\" class=\"mt-5 flex flex-col gap-3\"><input type=\"hidden\" name=\"slug\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<form method=\"post\" action=\"/operator/legal\" class=\"flex flex-col gap-3 px-5 pt-[18px] pb-[22px] md:px-6\"><input type=\"hidden\" name=\"slug\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(d.Slug)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 67, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 91, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "\"> <label for=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "\"><div class=\"overflow-hidden rounded-[10px] border border-line bg-paper focus-within:border-tappa-green focus-within:outline-none focus-within:ring-1 focus-within:ring-tappa-green\"><div class=\"flex min-h-9 items-center border-b border-line bg-ink/[0.04] px-4\"><label for=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs("legal-body-" + d.Slug)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 68, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 94, Col: 40}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "\" class=\"docket-label\">Text</label> <textarea id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\" class=\"docket-label\">Text</label></div><textarea id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var12 string
 		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs("legal-body-" + d.Slug)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 69, Col: 40}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 96, Col: 41}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\" name=\"body\" rows=\"12\" required class=\"op-input\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "\" name=\"body\" rows=\"12\" required class=\"op-input block resize-y rounded-none border-0 bg-transparent px-3.5 py-[18px] leading-[1.7] focus:ring-0 md:px-5 desk:px-[22px]\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var13 string
 		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(d.Body)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 69, Col: 99}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 96, Col: 219}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</textarea><p class=\"text-xs text-ink/70\">A blank line starts a new paragraph. Addresses starting with http:// or https://, e-mail addresses and phone numbers starting with + become links; <span class=\"font-mono\">[text](https://…)</span> links your own text. At most 256 KiB.</p><button type=\"submit\" class=\"btn btn--primary\">Publish a new version</button></form></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</textarea></div><div class=\"flex flex-wrap items-center justify-between gap-x-5 gap-y-3\"><p class=\"min-w-0 flex-[1_1_220px] text-xs leading-[1.45] text-ink/70\">A blank line starts a new paragraph. Addresses starting with http:// or https://, e-mail addresses and phone numbers starting with + become links; <span class=\"font-mono\">[text](https://…)</span> links your own text. At most 256 KiB.</p><button type=\"submit\" class=\"btn btn--primary w-full md:w-auto\">Publish a new version</button></div></form></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -285,8 +311,8 @@ func legalEditor(d LegalDoc) templ.Component {
 }
 
 // legalVersions is the version list, newest first, on a docket: the publication time
-// (UTC), the document, the length and the publisher, mono, with the live version of
-// each document marked.
+// (UTC), the document, the length in the data face and the publisher, with the live
+// version of each document marked.
 func legalVersions(v LegalView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -308,44 +334,31 @@ func legalVersions(v LegalView) templ.Component {
 			templ_7745c5c3_Var14 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<section class=\"docket\" aria-labelledby=\"legal-versions\"><h2 id=\"legal-versions\" class=\"docket-label\">Versions, newest first</h2>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<section class=\"docket\" aria-labelledby=\"legal-versions\"><h2 id=\"legal-versions\" class=\"docket-label\">Versions, newest first</h2>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if len(v.Versions) == 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<p class=\"mt-2\">Nothing has been published yet.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<p class=\"pt-[22px] pb-2 font-display text-[15px] leading-normal\">Nothing has been published yet.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<ol class=\"mt-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<ol>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			for _, r := range v.Versions {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<li class=\"op-version\"><span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<li class=\"op-version\"><span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var15 string
 				templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(r.PublishedAt)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 92, Col: 27}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 122, Col: 27}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "</span> <span>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var16 string
-				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(r.Path)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 93, Col: 20}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -353,12 +366,12 @@ func legalVersions(v LegalView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var17 string
-				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(r.Bytes)
+				var templ_7745c5c3_Var16 string
+				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(r.Path)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 94, Col: 21}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 123, Col: 20}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -366,55 +379,68 @@ func legalVersions(v LegalView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
+				var templ_7745c5c3_Var17 string
+				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(r.Bytes)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 124, Col: 21}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</span> <span>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(r.Publisher)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 95, Col: 25}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 125, Col: 25}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</span> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if r.Current {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "<span class=\"tally tally--active\">Live</span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<span class=\"tally tally--active\">Live</span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "</li>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "</li>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "</ol>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</ol>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if v.Limit > 0 && len(v.Versions) >= v.Limit {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<p class=\"mt-2 text-xs text-ink/70\">The newest ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<p class=\"mt-1 border-t-2 border-dashed border-line pt-3 font-display text-[13px] text-ink/70\">The newest <span class=\"font-mono\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var19 string
 				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(v.Limit))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 103, Col: 74}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/legal.templ`, Line: 133, Col: 157}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, " are listed. Older versions are not shown here.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "</span> are listed. Older versions are not shown here.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "</section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "</section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

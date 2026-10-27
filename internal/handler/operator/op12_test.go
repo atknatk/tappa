@@ -188,8 +188,29 @@ func billingPathOf(id string) string { return "/operator/tenants/" + id + "/bill
 // billingRowRe is one month of the screen.
 var billingRowRe = regexp.MustCompile(`(?s)<li class="op-row">(.*?)</li>`)
 
-// fact is a row's labelled fact as the screen writes it.
+// receiptLabels are the four figures of a month the screen writes as its receipt strip (M13-10;
+// README §6 "Billing receipt strip"), in the strip's order.
+var receiptLabels = []string{"Plan", "People counted", "Price per person", "Amount"}
+
+// receiptCell is one cell of a month's receipt strip as the screen writes it: the label a docket
+// label above, the value in the data face.
+func receiptCell(label, value string) string {
+	return `<div><dt class="docket-label">` + label + `</dt><dd class="font-mono">` + html.EscapeString(value) + `</dd></div>`
+}
+
+// oldFigure is the inline span the four figures were written as before M13-10, for the controls
+// that it is gone.
+func oldFigure(label string) string {
+	return `<span class="text-sm">` + label + ` <span class="font-mono">`
+}
+
+// fact is a row's labelled fact as the screen writes it: one of the four figures as its receipt
+// strip's cell (M13-10), any other fact -- Closed, First charged month, Counted over -- as its
+// inline span.
 func fact(label, value string) string {
+	if slices.Contains(receiptLabels, label) {
+		return receiptCell(label, value)
+	}
 	return `<span class="text-sm">` + label + ` <span class="font-mono">` + html.EscapeString(value) + `</span></span>`
 }
 
@@ -510,10 +531,23 @@ func TestBillingScreen_EveryStateSaysItsWordAndNoVerdict(t *testing.T) {
 		if !strings.Contains(r, `<span class="w-full text-sm">`+html.EscapeString(w.sentence)+`</span>`) {
 			t.Errorf("row %d (%s): the sentence is not %q", i+1, w.month, w.sentence)
 		}
-		for _, label := range []string{"People counted", "Price per person", "Amount", "Plan", "Counted over"} {
-			if got := strings.Contains(r, `<span class="text-sm">`+label+` <span class="font-mono">`); got != w.figures {
+		// The four figures are the receipt strip's cells (M13-10), Counted over the row's span.
+		for _, label := range receiptLabels {
+			if got := strings.Contains(r, `<div><dt class="docket-label">`+label+`</dt><dd class="font-mono">`); got != w.figures {
 				t.Errorf("row %d (%s): %q present = %v, want %v", i+1, w.month, label, got, w.figures)
 			}
+		}
+		if got := strings.Contains(r, `<span class="text-sm">Counted over <span class="font-mono">`); got != w.figures {
+			t.Errorf("row %d (%s): \"Counted over\" present = %v, want %v", i+1, w.month, got, w.figures)
+		}
+		// A row with figures has one strip of exactly four cells; a row without has none (§4.6:
+		// not even an empty strip, not even a zero).
+		strips, cells := strings.Count(r, `<dl class="op-receipt">`), strings.Count(r, `<div><dt class="docket-label">`)
+		if w.figures && (strips != 1 || cells != 4 || strings.Count(r, "<dl") != 1 || strings.Count(r, "<dt") != 4 || strings.Count(r, "<dd") != 4) {
+			t.Errorf("row %d (%s): %d strip(s) of %d cell(s), want one of four", i+1, w.month, strips, cells)
+		}
+		if !w.figures && (strings.Contains(r, "op-receipt") || strings.Contains(r, "<dl") || strings.Contains(r, "<dt") || strings.Contains(r, "<dd")) {
+			t.Errorf("row %d (%s), before sign-up, carries a receipt strip", i+1, w.month)
 		}
 		if !w.figures && strings.Contains(r, "€") {
 			t.Errorf("row %d (%s), before sign-up, carries an amount", i+1, w.month)
@@ -536,6 +570,13 @@ func TestBillingScreen_EveryStateSaysItsWordAndNoVerdict(t *testing.T) {
 			t.Errorf("the page does not carry %q", f)
 		}
 	}
+	// CONTROL (M13-10): the four figures' inline spans are gone from the page, so the strip is not
+	// matched alongside a leftover.
+	for _, label := range receiptLabels {
+		if strings.Contains(body, oldFigure(label)) {
+			t.Errorf("the page still writes %s as an inline span", label)
+		}
+	}
 
 	// Shapes the read does not document: unreadable, no figure, logged.
 	odd := billingPageOfEveryState(2026, time.October)
@@ -556,8 +597,9 @@ func TestBillingScreen_EveryStateSaysItsWordAndNoVerdict(t *testing.T) {
 			!strings.Contains(r, `<span class="w-full text-sm">`+html.EscapeString(sentenceUnread)+`</span>`) {
 			t.Errorf("odd row %d is not drawn as unreadable", i+1)
 		}
-		if strings.Contains(r, "€") || strings.Contains(r, "People counted") || strings.Contains(r, "0.00") {
-			t.Errorf("odd row %d, unreadable, carries a figure", i+1)
+		if strings.Contains(r, "€") || strings.Contains(r, "People counted") || strings.Contains(r, "0.00") ||
+			strings.Contains(r, "op-receipt") || strings.Contains(r, "<dl") {
+			t.Errorf("odd row %d, unreadable, carries a figure or a receipt strip", i+1)
 		}
 	}
 	if !strings.Contains(oddRows[8], `<span class="font-mono font-bold">A month with no date</span>`) {
@@ -703,7 +745,9 @@ func TestBillingScreen_SaysTheCountIsAFloor(t *testing.T) {
 //
 // PART I -- every href and action on the page (page 3, so the pager has both forms) is one of
 // the tenant's overview, the tenant list, the screen's own path (the pager's posts) and the
-// bar's sign-out, besides /static/; the page says no person is listed; the read's month type,
+// bar's sign-out, besides /static/ -- read on the page with the operator nav and the tenant sub-nav
+// cut out (M13-01); those two are read on their own and link exactly the five sections and the
+// tenant's four screens, none of which names a person; the page says no person is listed; the read's month type,
 // the view and the row have exactly the fields written below -- none for a person -- read by
 // reflection.
 //
@@ -722,8 +766,39 @@ func TestBillingScreen_OffersNoItemisationAnywhere(t *testing.T) {
 	body := w.Body.String()
 	allowed := map[string]bool{"/operator/tenants/" + tenant.String(): true, "/operator/tenants": true,
 		billingPathOf(tenant.String()): true, "/operator/logout": true}
+	// The operator nav and the tenant sub-nav (M13-01) are cut out of the page and read on their
+	// own: each links exactly its fixed list, in order.
+	targets := regexp.MustCompile(`\s(href|action)="([^"]*)"`)
+	page := body
+	for _, nav := range []struct {
+		open string
+		want []string
+	}{
+		{`<nav class="op-nav" aria-label="Operator sections">`, []string{"/operator", "/operator/tenants", "/operator/holdings",
+			"/operator/audit", "/operator/legal"}},
+		{`<nav class="op-subnav" aria-label="This tenant">`, []string{"/operator/tenants/" + tenant.String(),
+			"/operator/tenants/" + tenant.String() + "/plaques", billingPathOf(tenant.String()), vatPathOf(tenant.String())}},
+	} {
+		at := strings.Index(page, nav.open)
+		end := -1
+		if at >= 0 {
+			end = strings.Index(page[at:], "</nav>")
+		}
+		if strings.Count(page, nav.open) != 1 || end < 0 {
+			t.Errorf("the billing screen does not carry %s once", nav.open)
+			continue
+		}
+		var got []string
+		for _, m := range targets.FindAllStringSubmatch(page[at:at+end], -1) {
+			got = append(got, m[2])
+		}
+		if !slices.Equal(got, nav.want) {
+			t.Errorf("%s links %v, want %v", nav.open, got, nav.want)
+		}
+		page = page[:at] + page[at+end+len("</nav>"):]
+	}
 	n := 0
-	for _, m := range regexp.MustCompile(`\s(href|action)="([^"]*)"`).FindAllStringSubmatch(body, -1) {
+	for _, m := range targets.FindAllStringSubmatch(page, -1) {
 		if strings.HasPrefix(m[2], "/static/") {
 			continue
 		}
@@ -753,7 +828,9 @@ func TestBillingScreen_OffersNoItemisationAnywhere(t *testing.T) {
 			"FirstChargeableMonth", "Free", "EmployeeCount", "UnstampedEmployees", "UnitPrice", "Currency", "AmountDue", "ClosedAt", "HasEnded"}},
 		"db.TenantBillingTimeline": {fields(db.TenantBillingTimeline{}), []string{"TenantID", "TenantName", "Page", "Months"}},
 		"operatorpages.TenantBillingView": {fields(operatorpages.TenantBillingView{}), []string{"Name", "ID", "OverviewPath", "BillingPath",
-			"Page", "LastPage", "MonthsPerPage", "Rows"}},
+			"Tabs", "Page", "LastPage", "MonthsPerPage", "Rows"}},
+		// Tabs (M13-01) is the sub-nav's four paths, strings the handler builds from the tenant's id.
+		"operatorpages.TenantTabs": {fields(operatorpages.TenantTabs{}), []string{"Overview", "Plaques", "Billing", "VAT"}},
 		"operatorpages.BillingRow": {fields(operatorpages.BillingRow{}), []string{"Month", "Label", "Sentence", "Tone", "HasFigures", "Plan",
 			"People", "UnitPrice", "Amount", "Free", "FirstCharged", "ClosedAt", "Period", "Floor"}},
 	} {
@@ -1355,7 +1432,10 @@ func TestBillingScreen_TimesAreTheMonthsOwnZone(t *testing.T) {
 // PART I -- page 1 offers "Older months" (a form posting page 2 to the screen's path) and no
 // "Newer months"; page 3 offers both (2 and 4); page 5 offers only "Newer months" (4) and says
 // it is the oldest page, 60 months; each page's heading names its number and 5, in the data
-// face, and lists twelve rows.
+// face, and lists twelve rows. M13-10: each offered way is a form whose button is the outlined
+// op-pager (README §6 "Pager"); the page carries exactly as many forms posting to the screen's
+// path and op-pager buttons as it offers ways (two on page 3, one on pages 1 and 5); CONTROL:
+// neither label is an op-link button anywhere on the page.
 //
 // PART II -- the list above. PART III -- no completeness claim.
 func TestBillingScreen_PagesAreFiveOfTwelve(t *testing.T) {
@@ -1369,7 +1449,7 @@ func TestBillingScreen_PagesAreFiveOfTwelve(t *testing.T) {
 	path := billingPathOf(tenant.String())
 	form := func(page int, label string) string {
 		return `<form method="post" action="` + path + `"><input type="hidden" name="page" value="` + strconv.Itoa(page) +
-			`"> <button type="submit" class="op-link">` + label + `</button></form>`
+			`"> <button type="submit" class="op-pager">` + label + `</button></form>`
 	}
 	for _, c2 := range []struct {
 		page         int
@@ -1386,6 +1466,23 @@ func TestBillingScreen_PagesAreFiveOfTwelve(t *testing.T) {
 		if got := strings.Contains(body, form(c2.page-1, "Newer months")); got != c2.newer {
 			t.Errorf("page %d: Newer months offered = %v, want %v", c2.page, got, c2.newer)
 		}
+		// M13-10: the pager is the outlined op-pager button; the old link-styled one is gone, and the
+		// page carries exactly the pager's forms that it offers (both on page 3).
+		for _, label := range []string{"Older months", "Newer months"} {
+			if strings.Contains(body, `class="op-link">`+label+`</button>`) {
+				t.Errorf("page %d: %s is still an op-link button", c2.page, label)
+			}
+		}
+		offered := 0
+		for _, o := range []bool{c2.older, c2.newer} {
+			if o {
+				offered++
+			}
+		}
+		if n := strings.Count(body, `<form method="post" action="`+path+`">`); n != offered ||
+			strings.Count(body, `<button type="submit" class="op-pager">`) != offered {
+			t.Errorf("page %d: %d pager form(s), want %d", c2.page, n, offered)
+		}
 		heading := `page <span class="font-mono">` + strconv.Itoa(c2.page) + `</span> of <span class="font-mono">5</span>`
 		if !strings.Contains(body, heading) {
 			t.Errorf("page %d: the heading does not say %q", c2.page, heading)
@@ -1401,13 +1498,16 @@ func TestBillingScreen_PagesAreFiveOfTwelve(t *testing.T) {
 //
 // PART I -- the months sit in ONE <section class="docket"> labelled by its heading, and every
 // row is inside it; the heading is a docket label with the page numbers in the data face;
-// every figure of a row is in the data face; the pager's buttons and (2nd round) the two ways
-// back -- to the overview, to the tenants -- are op-link controls; and
-// web/static/css/input.css gives op-link the 44 px touch target.
+// every figure of a row is in the data face -- the four of the receipt strip (M13-10) as a
+// docket-label term over a mono value, the three dated facts as an inline span with a mono
+// value; the pager's button is an op-pager control (M13-10; README §6 "Pager") and no pager
+// button is an op-link one; (2nd round) the two ways back -- to the overview, to the tenants --
+// are op-link controls; and web/static/css/input.css gives op-link the 44 px touch target
+// (op-pager's is op14_test.go's 44 px check).
 //
 // PART II -- red on: the docket replaced or doubled; a row outside it; the heading's class or
-// a mono number dropped; a figure out of the data face; a pager button's or a way back's class
-// changed; the touch target dropped. PART III -- These classes only (no completeness claim).
+// a mono number dropped; a figure out of the data face or out of its strip; a pager button's
+// or a way back's class changed; the touch target dropped. PART III -- These classes only (no completeness claim).
 func TestBillingScreen_WearsTheDocketAnatomy(t *testing.T) {
 	g := newRig(t)
 	c := g.signIn(g.active())
@@ -1433,13 +1533,23 @@ func TestBillingScreen_WearsTheDocketAnatomy(t *testing.T) {
 	if !strings.Contains(body, `<h2 id="tenant-billing" class="docket-label">Newest first · page <span class="font-mono">1</span> of <span class="font-mono">5</span></h2>`) {
 		t.Error("the docket's heading is not a docket label with its page numbers in the data face")
 	}
-	for _, label := range []string{"Plan", "People counted", "Price per person", "Amount", "First charged month", "Closed", "Counted over"} {
+	// M13-10: the four figures are the receipt strip's term and value, the value in the data face;
+	// the three dated facts stay inline spans with their value in the data face.
+	for _, label := range receiptLabels {
+		if !regexp.MustCompile(`<div><dt class="docket-label">` + label + `</dt><dd class="font-mono">[^<]+</dd></div>`).MatchString(body) {
+			t.Errorf("the %s figure is not a receipt cell in the data face", label)
+		}
+	}
+	for _, label := range []string{"First charged month", "Closed", "Counted over"} {
 		if !regexp.MustCompile(`<span class="text-sm">` + label + ` <span class="font-mono">[^<]+</span></span>`).MatchString(body) {
 			t.Errorf("the %s fact is not in the data face", label)
 		}
 	}
-	if !strings.Contains(body, `<button type="submit" class="op-link">Older months</button>`) {
-		t.Error("the pager's button is not an op-link button")
+	if !strings.Contains(body, `<button type="submit" class="op-pager">Older months</button>`) {
+		t.Error("the pager's button is not an op-pager button")
+	}
+	if strings.Contains(body, `class="op-link">Older months</button>`) || strings.Contains(body, `class="op-link">Newer months</button>`) {
+		t.Error("CONTROL: a pager button is still an op-link button")
 	}
 	// 2nd round: the screen's two ways back are op-link links too (the 44 px target below).
 	for _, link := range []string{`<a href="/operator/tenants/` + tenant.String() + `" class="op-link">Back to the overview</a>`,
@@ -1461,12 +1571,19 @@ func TestBillingScreen_WearsTheDocketAnatomy(t *testing.T) {
 // TestBillingScreen_TheChipsAndTextClearAA recomputes, from tailwind.config.js's palette, the
 // contrast of the billing screen's text on its grounds (WCAG 2.1 relative luminance, sRGB; a
 // translucent token composited on paper, the docket's ground): ink on the four chip grounds
-// (green-lite for a frozen month, saffron-lite for one ended and not closed, line at 10% for a
-// running month and one before sign-up, ink at 10% for an unreadable one), ink and ink at 70%
-// on paper (the rows, the help line), tappa-green on paper (the two ways back, in the intro
-// card) and tappa-green on porcelain (the pager, which sits outside the docket on the page's
-// ground -- 2nd round: the first version said "on paper" of it, which it is not) -- each
-// against AA's 4.5:1 (the chips' words are 11px, the rest 14px and smaller). No ground is
+// (green-lite for a frozen month, saffron-lite for one ended and not closed, line at 10% for
+// one before sign-up, ink at 10% for an unreadable one), ink and ink at 70% on paper (the rows,
+// the help line, and -- M13-02 -- a running month's chip, whose ground is paper inside a dashed
+// saffron frame; the frame carries no text; M13-10 -- the pager's word, ink on the op-pager's
+// own paper, whose ink-at-30% frame carries no text either (README §6 "Pager"), and at 70% the
+// receipt strip's labels and the dated facts' words), tappa-green on paper (the two ways back,
+// in the intro card) and tappa-green on porcelain (an op-link on the page's own ground, outside
+// any card or docket; since M13-10 no element of this screen is drawn so -- the line is kept as
+// the screen's floor for one, its threshold unchanged) -- each against AA's 4.5:1, the normal-text
+// threshold, held for every size on the screen: the docket heading and the strip's labels are
+// 10px, the chips' words 11px, the sentences and facts 13-14px, the intro and the pager's word
+// 15px, the month and the strip's values 16px, the amount 20px bold and the h1 26-32px bold (the
+// last two would need only 3:1 as large text; this test does not relax for them). No ground is
 // new: the four are the plaque screen's and the review queue's.
 func TestBillingScreen_TheChipsAndTextClearAA(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "..", "..", "tailwind.config.js"))
@@ -1502,12 +1619,12 @@ func TestBillingScreen_TheChipsAndTextClearAA(t *testing.T) {
 	}{
 		{"ink on green-lite (frozen)", ink, hexOf("green-lite")},
 		{"ink on saffron-lite (ended, not closed)", ink, hexOf("saffron-lite")},
-		{"ink on line at 10% over paper (running, before sign-up)", ink, over(hexOf("line"), 0.1, paper)},
+		{"ink on line at 10% over paper (before sign-up)", ink, over(hexOf("line"), 0.1, paper)},
 		{"ink on ink at 10% over paper (unreadable)", ink, over(ink, 0.1, paper)},
-		{"ink on paper", ink, paper},
+		{"ink on paper (the rows; a running month's chip; the pager's word)", ink, paper},
 		{"ink at 70% on paper", over(ink, 0.7, paper), paper},
 		{"tappa-green on paper (the ways back, in the intro card)", hexOf("tappa-green"), paper},
-		{"tappa-green on porcelain (the pager, outside the docket)", hexOf("tappa-green"), hexOf("porcelain")},
+		{"tappa-green on porcelain (an op-link on the page's ground; none on this screen since M13-10)", hexOf("tappa-green"), hexOf("porcelain")},
 	} {
 		if got := contrast(c.fg, c.bg); got < 4.5 {
 			t.Errorf("%s = %.2f:1, want at least 4.5:1", c.what, got)
@@ -1523,34 +1640,42 @@ func TestBillingScreen_TheChipsAndTextClearAA(t *testing.T) {
 // has exactly one rule whose selector list names its class, and that rule's @apply names the
 // ground and the frame of its tone and nothing else (2nd round: a third utility -- the third
 // eye's MZ8, text-saffron in the waiting tone, 2.27:1 -- passed the first version) -- the
-// brand's fixed mapping. It reads input.css, the committed source.
+// brand's fixed mapping. M13-02 re-toned the running month to the polished boards' live month,
+// a dashed saffron frame on paper: for that tone ONLY, exactly border-dashed is a third token,
+// and it is required (the dashed line is what tells a live month from an ended one at a glance).
+// It reads input.css, the committed source.
+//
+// CONTROLS, read by the same check: the running rule without border-dashed is a finding (the
+// dash is measured, not merely allowed); the running rule with a fourth token is a finding; the
+// waiting tone with border-dashed added is a finding (the allowance is that tone's alone).
 //
 // PART II -- red on: a tone class with no rule, with two rules, or with a rule of another
-// ground or frame or of a third utility; two tones drawing one class. PART III -- A rule written outside the
+// ground or frame or of a third utility (but the running tone's border-dashed); the running tone
+// without its dash; two tones drawing one class. PART III -- A rule written outside the
 // `selectors { @apply … }` shape this reads, or a later rule that overrides one, is code
 // review's -- no completeness claim.
 func TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes(t *testing.T) {
-	css, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	css := string(raw)
 	want := map[operatorpages.BillingTone][2]string{ // ground, frame
 		operatorpages.BillingToneFrozen:       {"bg-green-lite", "border-tappa-green"},
 		operatorpages.BillingToneUnclosed:     {"bg-saffron-lite", "border-saffron"},
-		operatorpages.BillingToneRunning:      {"bg-line/10", "border-line"},
+		operatorpages.BillingToneRunning:      {"bg-paper", "border-saffron"},
 		operatorpages.BillingToneBeforeSignup: {"bg-line/10", "border-line"},
 		operatorpages.BillingToneUnreadable:   {"bg-ink/10", "border-ink"},
 	}
+	// The one tone with a third token, and the token: the live month's dashed frame (M13-02).
+	third := map[operatorpages.BillingTone]string{operatorpages.BillingToneRunning: "border-dashed"}
 	chipRe := regexp.MustCompile(`<span class="tally (tally--[a-z-]+)">`)
 	ruleRe := regexp.MustCompile(`(?m)((?:^\s*\.[a-z-]+,\s*\n)*^\s*\.[a-z-]+\s*)\{\s*@apply ([^;]+);\s*\}`)
-	rules := ruleRe.FindAllStringSubmatch(string(css), -1)
-	if len(rules) < 10 {
-		t.Fatalf("PREMISE: %d one-line @apply rule(s) read from input.css", len(rules))
-	}
+	classOf := map[operatorpages.BillingTone]string{}
 	classes := map[string]bool{}
-	for tone, w := range want {
+	for tone := range want {
 		var b strings.Builder
-		if err := operatorpages.TenantBilling(operatorpages.TenantBillingView{Name: mustName(t, "FAKE Tone Ltd"), Page: 1, LastPage: 5,
+		if err := operatorpages.TenantBilling(operatorpages.TenantBillingView{Name: mustName(t, "FAKE Tone Ltd"), Tabs: fixtureTabs, Page: 1, LastPage: 5,
 			MonthsPerPage: 12, Rows: []operatorpages.BillingRow{{Month: "M", Label: "L", Sentence: "S", Tone: tone}}}).Render(t.Context(), &b); err != nil {
 			t.Fatal(err)
 		}
@@ -1563,21 +1688,61 @@ func TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes(t *testing.T) {
 			t.Errorf("two tones draw %s", class)
 		}
 		classes[class] = true
-		var found []string
-		for _, r := range rules {
-			for _, sel := range strings.Split(r[1], ",") {
-				if strings.TrimSpace(sel) == "."+class {
-					found = append(found, r[2])
+		classOf[tone] = class
+	}
+	check := func(css string) []string {
+		rules := ruleRe.FindAllStringSubmatch(css, -1)
+		if len(rules) < 10 {
+			return []string{fmt.Sprintf("PREMISE: %d one-line @apply rule(s) read from input.css", len(rules))}
+		}
+		var findings []string
+		for tone, w := range want {
+			class := classOf[tone]
+			var found []string
+			for _, r := range rules {
+				for _, sel := range strings.Split(r[1], ",") {
+					if strings.TrimSpace(sel) == "."+class {
+						found = append(found, r[2])
+					}
 				}
 			}
+			if len(found) != 1 {
+				findings = append(findings, fmt.Sprintf("%s: %d rule(s) in input.css, want one", class, len(found)))
+				continue
+			}
+			tokens := strings.Fields(found[0])
+			wantN := 2
+			if x, ok := third[tone]; ok {
+				wantN = 3
+				if !slices.Contains(tokens, x) {
+					findings = append(findings, fmt.Sprintf("%s's rule applies %q; want %s too", class, found[0], x))
+				}
+			}
+			if len(tokens) != wantN || !slices.Contains(tokens, w[0]) || !slices.Contains(tokens, w[1]) {
+				but := ""
+				if wantN == 3 {
+					but = " but " + third[tone]
+				}
+				findings = append(findings, fmt.Sprintf("%s's rule applies %q; want the ground %s and the frame %s and nothing else%s",
+					class, found[0], w[0], w[1], but))
+			}
 		}
-		if len(found) != 1 {
-			t.Errorf("%s: %d rule(s) in input.css, want one", class, len(found))
-			continue
+		return findings
+	}
+	for _, f := range check(css) {
+		t.Error(f)
+	}
+	for _, c := range []struct{ what, from, to string }{
+		{"the running month without its dash", "border-dashed border-saffron bg-paper; }", "border-saffron bg-paper; }"},
+		{"the running month with a fourth token", "border-dashed border-saffron bg-paper; }", "border-dashed border-saffron bg-paper rounded-full; }"},
+		{"the waiting tone dashed too", "border-saffron bg-saffron-lite; }", "border-dashed border-saffron bg-saffron-lite; }"},
+	} {
+		mutated := strings.Replace(css, c.from, c.to, 1)
+		if mutated == css {
+			t.Fatalf("CONTROL %s: %q is not in input.css", c.what, c.from)
 		}
-		tokens := strings.Fields(found[0])
-		if len(tokens) != 2 || !slices.Contains(tokens, w[0]) || !slices.Contains(tokens, w[1]) {
-			t.Errorf("%s's rule applies %q; want the ground %s and the frame %s and nothing else", class, found[0], w[0], w[1])
+		if len(check(mutated)) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the check is blind", c.what)
 		}
 	}
 }
@@ -1605,16 +1770,24 @@ func tallyWordUtility(u string) bool { return u == "text-ink" || strings.HasPref
 //
 // PART I -- comments stripped, every flat rule whose selector text names `.tally` is either the
 // base rule (its selector exactly `.tally`; exactly one; its @apply carries text-ink and no
-// other text- utility but an arbitrary size, and no opacity utility) or a tone rule (every
+// other text- utility but an arbitrary size, and no opacity utility), a tone rule (every
 // selector of its list exactly `.tally--<name>`; its body one @apply of border- and bg-
-// utilities only -- no text-, no opacity, no declaration of its own); and the tone rules name,
-// among others, the five billing tones and OP-13's five plaque ones. CONTROL: a tone rule with
-// a text-saffron utility added, read by the same function, is a finding.
+// utilities only -- no text-, no opacity, no declaration of its own), or -- M13-02, the one
+// shape added -- the operator's chip shape (its selector exactly `.op-main .tally`; at most one;
+// its body one @apply of shape and type utilities only: rounded-, px-, py-, min-h-, leading-,
+// tracking- and font-bold -- no colour, no opacity); the tone rules name, among others, the five
+// billing tones and OP-13's five plaque ones; and the operator's chip shape exists and rounds
+// the chip (rounded-full, user decision D2). CONTROLS, each read by the same function and each a
+// finding: a tone rule with text-saffron added; a tone rule with rounded-full added (M12-52's:
+// the scoped exception is no road for a shape into a tone rule); the operator's chip shape with
+// a text, ground, frame-colour or opacity utility added; the operator's chip shape under any
+// other selector (.op-col .tally).
 //
 // PART II -- red on: a tone rule with a text-, opacity- or other non-frame non-ground utility, or
 // a declaration of its own (color: …); a second base rule, or one without text-ink or with
-// another colour; a rule that names a chip in any other shape (a compound or descendant
-// selector); one of the ten tones missing. PART III -- the escapes in the threat model;
+// another colour; a second operator chip shape, or one applying anything but shape and type; a
+// rule that names a chip in any other shape (a compound or descendant selector but the one
+// above); one of the ten tones missing; the operator's chip shape missing or not round. PART III -- the escapes in the threat model;
 // TestCompiledCSS_TallyWordIsInkOnEveryChip reads the compiled half -- no completeness claim.
 func TestTallyRules_NoToneRuleColoursTheWord(t *testing.T) {
 	css, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
@@ -1631,17 +1804,46 @@ func TestTallyRules_NoToneRuleColoursTheWord(t *testing.T) {
 			t.Errorf("no tone rule names .tally--%s (read: %v)", want, slices.Sorted(maps.Keys(tones)))
 		}
 	}
-	mutated := strings.Replace(string(css), "bg-saffron-lite; }", "bg-saffron-lite text-saffron; }", 1)
-	if mutated == string(css) {
-		t.Fatal("CONTROL: the waiting tone's rule is not where this test looks for it")
+	scoped := regexp.MustCompile(`(?m)^\s*\.op-main \.tally \{ @apply ([^;]+); \}`).FindStringSubmatch(string(css))
+	if scoped == nil || !slices.Contains(strings.Fields(scoped[1]), "rounded-full") {
+		t.Error("input.css has no `.op-main .tally { @apply … rounded-full … }`: the operator's chips are not round")
 	}
-	if _, f := readTallyRules(mutated); len(f) == 0 {
-		t.Error("CONTROL: a tone rule with text-saffron added is not a finding; the reading is blind")
+	for _, c := range []struct{ what, from, to string }{
+		{"a tone rule with text-saffron added", "bg-saffron-lite; }", "bg-saffron-lite text-saffron; }"},
+		{"a tone rule with rounded-full added", "bg-saffron-lite; }", "bg-saffron-lite rounded-full; }"},
+		{"the operator's chip shape with text-saffron added", "tracking-[0.08em]; }", "tracking-[0.08em] text-saffron; }"},
+		{"the operator's chip shape with bg-saffron-lite added", "tracking-[0.08em]; }", "tracking-[0.08em] bg-saffron-lite; }"},
+		{"the operator's chip shape with border-saffron added", "tracking-[0.08em]; }", "tracking-[0.08em] border-saffron; }"},
+		{"the operator's chip shape with opacity-80 added", "tracking-[0.08em]; }", "tracking-[0.08em] opacity-80; }"},
+		{"the operator's chip shape under another selector", ".op-main .tally {", ".op-col .tally {"},
+	} {
+		mutated := strings.Replace(string(css), c.from, c.to, 1)
+		if mutated == string(css) {
+			t.Fatalf("CONTROL %s: %q is not in input.css", c.what, c.from)
+		}
+		if _, f := readTallyRules(mutated); len(f) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
+		}
 	}
 }
 
+// tallyShapeUtility is an @apply utility the operator's chip shape (`.op-main .tally`, M13-02)
+// may carry: the boards' pill -- its corners, its padding, its height, its line, its tracking,
+// its weight. Nothing that colours the word, the frame or the ground, and no opacity.
+func tallyShapeUtility(u string) bool {
+	if strings.Contains(u, "opacity") {
+		return false
+	}
+	for _, p := range []string{"rounded-", "px-", "py-", "min-h-", "leading-", "tracking-"} {
+		if strings.HasPrefix(u, p) {
+			return true
+		}
+	}
+	return u == "font-bold"
+}
+
 // readTallyRules is TestTallyRules_NoToneRuleColoursTheWord's reading of input.css: the tones
-// its rules name and every rule naming a chip that is not of the two allowed shapes.
+// its rules name and every rule naming a chip that is not of the three allowed shapes.
 func readTallyRules(css string) (map[string]bool, []string) {
 	src := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
 	rule := regexp.MustCompile(`([^{}]*)\{([^{}]*)\}`)
@@ -1650,7 +1852,7 @@ func readTallyRules(css string) (map[string]bool, []string) {
 	apply := regexp.MustCompile(`^@apply ([^;]+);$`)
 	tones := map[string]bool{}
 	var findings []string
-	base := 0
+	base, scoped := 0, 0
 	for _, m := range rule.FindAllStringSubmatch(src, -1) {
 		sel, body := strings.TrimSpace(m[1]), strings.TrimSpace(m[2])
 		if !names.MatchString(sel) {
@@ -1666,6 +1868,19 @@ func readTallyRules(css string) (map[string]bool, []string) {
 			for _, u := range strings.Fields(a[1]) {
 				if (strings.HasPrefix(u, "text-") && !tallyWordUtility(u)) || strings.Contains(u, "opacity") {
 					findings = append(findings, "the chip's base rule applies "+u)
+				}
+			}
+			continue
+		}
+		if sel == ".op-main .tally" {
+			scoped++
+			if a == nil {
+				findings = append(findings, "the operator's chip shape is not one @apply: "+sel+" { "+body+" }")
+				continue
+			}
+			for _, u := range strings.Fields(a[1]) {
+				if !tallyShapeUtility(u) {
+					findings = append(findings, "the operator's chip shape applies "+u+", which is neither shape nor type: "+sel)
 				}
 			}
 			continue
@@ -1703,7 +1918,435 @@ func readTallyRules(css string) (map[string]bool, []string) {
 	if base != 1 {
 		findings = append(findings, fmt.Sprintf("%d base rule(s) for the chip, want 1", base))
 	}
+	if scoped > 1 {
+		findings = append(findings, fmt.Sprintf("%d operator chip shape rule(s), want at most 1", scoped))
+	}
 	return tones, findings
+}
+
+// TestOperatorComponentRules_KeepTheDecidedCorners pins, in web/static/css/input.css (the
+// committed source), the corner and rule decisions M13-02 made for the operator's components
+// (user decision D2: a docket and a stamp stay sharp; a card, a field and a button may round; a
+// chip is a pill on the operator's surface only):
+//
+// PART I -- comments stripped, read as flat `selectors { @apply …; }` rules: the docket's own
+// rule (selector `.docket`) and the operator's docket padding (selector `.op-main .docket`) each
+// exist and apply nothing that rounds; the chip's base rule (selector `.tally`) applies nothing
+// that rounds -- a chip is round only under the operator's `<main>`; the operator card's rule
+// (selector `.op-card`) exists, applies no shadow and applies flex, flex-col and gap-3.5 (the
+// card's inner spacing, moved from each screen's markup into the rule by M13-15; README §6
+// "Card"); the operator's row rule (the list naming
+// `.op-row` and `.op-version`) applies border-dashed; the audit row's tenant link is an
+// inline-block from the tablet, not inline (a wrapping inline link splits in two and its 44 px
+// overlay collapsed to 18 px -- measured, M13-02 review). CONTROLS, each read by the same
+// function and each a finding: rounded-sm on the docket; rounded-[14px] on the operator's docket;
+// rounded-full on the chip's base; shadow-sm on the card; the row without its dash; the audit
+// link back to md:inline; the card's rule without gap-3.5, without flex-col, without flex.
+//
+// PART II -- red on: any of the nine above. PART III -- a rule written outside the shape read
+// here, a later rule that overrides one, or a utility class in a template is code review's --
+// no completeness claim.
+func TestOperatorComponentRules_KeepTheDecidedCorners(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(raw)
+	for _, f := range readOperatorComponentRules(css) {
+		t.Error(f)
+	}
+	for _, c := range []struct{ what, from, to string }{
+		{"a rounded docket", "shadow-sm px-4 py-3 font-mono text-sm;", "shadow-sm px-4 py-3 font-mono text-sm rounded-sm;"},
+		{"a rounded operator docket", "md:px-6 md:py-[18px]; }", "md:px-6 md:py-[18px] rounded-[14px]; }"},
+		{"a round chip everywhere", "uppercase tracking-widest text-ink;", "uppercase tracking-widest text-ink rounded-full;"},
+		{"a card with a shadow", "md:px-6 md:py-[22px]; }", "md:px-6 md:py-[22px] shadow-sm; }"},
+		{"a row without its dash", "border-b border-dashed border-line py-2.5", "border-b border-line py-2.5"},
+		{"an inline audit link", "md:relative md:inline-block md:min-h-0", "md:relative md:inline md:min-h-0"},
+		{"a card without its gap", "@apply flex flex-col gap-3.5 rounded-[14px]", "@apply flex flex-col rounded-[14px]"},
+		{"a card that is not a column", "@apply flex flex-col gap-3.5 rounded-[14px]", "@apply flex gap-3.5 rounded-[14px]"},
+		{"a card that is not a flex box", "@apply flex flex-col gap-3.5 rounded-[14px]", "@apply flex-col gap-3.5 rounded-[14px]"},
+	} {
+		mutated := strings.Replace(css, c.from, c.to, 1)
+		if mutated == css {
+			t.Fatalf("CONTROL %s: %q is not in input.css", c.what, c.from)
+		}
+		if len(readOperatorComponentRules(mutated)) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
+		}
+	}
+}
+
+// readOperatorComponentRules is TestOperatorComponentRules_KeepTheDecidedCorners's reading of
+// input.css: one finding per decision the source breaks.
+func readOperatorComponentRules(css string) []string {
+	src := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
+	rule := regexp.MustCompile(`([^{}]*)\{([^{}]*)\}`)
+	apply := regexp.MustCompile(`^@apply ([^;]+);$`)
+	// utilities of the rule whose selector list is exactly the given selectors, each list once
+	found := map[string][][]string{}
+	for _, m := range rule.FindAllStringSubmatch(src, -1) {
+		var sels []string
+		for _, s := range strings.Split(m[1], ",") {
+			sels = append(sels, strings.Join(strings.Fields(s), " "))
+		}
+		key := strings.Join(sels, ", ")
+		a := apply.FindStringSubmatch(strings.TrimSpace(m[2]))
+		if a == nil {
+			continue
+		}
+		found[key] = append(found[key], strings.Fields(a[1]))
+	}
+	var findings []string
+	one := func(key string) []string {
+		if len(found[key]) != 1 {
+			findings = append(findings, fmt.Sprintf("%d `%s { @apply … }` rule(s) in input.css, want 1", len(found[key]), key))
+			return nil
+		}
+		return found[key][0]
+	}
+	for _, key := range []string{".docket", ".op-main .docket", ".tally"} {
+		for _, u := range one(key) {
+			if strings.Contains(u, "rounded") {
+				findings = append(findings, "`"+key+"` applies "+u+": it must stay sharp (D2; a chip rounds only under .op-main)")
+			}
+		}
+	}
+	card := one(".op-card")
+	for _, u := range card {
+		if strings.Contains(u, "shadow") {
+			findings = append(findings, "`.op-card` applies "+u+": no operator card casts a shadow")
+		}
+	}
+	// The card's inner spacing is the rule's since M13-15 (README §6 "Card"): a column of
+	// blocks 14 px apart, no longer written on each screen's markup.
+	for _, u := range []string{"flex", "flex-col", "gap-3.5"} {
+		if card != nil && !slices.Contains(card, u) {
+			findings = append(findings, "`.op-card` does not apply "+u+": a card stacks its blocks 14 px apart (README §6 \"Card\")")
+		}
+	}
+	if us := one(".op-version, .op-row"); us != nil && !slices.Contains(us, "border-dashed") {
+		findings = append(findings, "`.op-version, .op-row` does not apply border-dashed: the rows' rule is dashed")
+	}
+	const hit = `[aria-labelledby="audit-list"] .op-row > span > .op-link`
+	if us := one(hit); us != nil && (!slices.Contains(us, "md:inline-block") || slices.Contains(us, "md:inline")) {
+		findings = append(findings, "`"+hit+"` is not md:inline-block: a wrapping inline link splits and its 44 px overlay collapses")
+	}
+	return findings
+}
+
+// operatorCSSHides are the deliberate hidings in input.css's operator rules, each by selector and
+// the one hiding it applies -- none of them hides the page's content (TestOperatorCSS_NoScopedRuleHidesContent):
+// the nav's "Platform" label is the desktop column's only (desk:block beside it); the current
+// item's marker is a decoration on the phone bar only; the nav's icons are aria-hidden and give
+// way to the words from the tablet; the token field honours its own hidden attribute (enroll.js
+// shows it); the security hold's warning stays hidden until its reason is checked (the rule after
+// it shows it). Hiding utilities on the markup (md:hidden / hidden md:inline short-label pairs)
+// are not CSS rules and are not read here.
+var operatorCSSHides = map[string]string{
+	".op-nav-label": "hidden",
+	`.op-nav-item[aria-current="true"]::before`: "md:hidden",
+	".op-nav-icon":            "md:hidden",
+	".op-token-field[hidden]": "display:none",
+	".op-hold-warning":        "hidden",
+}
+
+// TestOperatorCSS_NoScopedRuleHidesContent (M13-15; README §3, §6) reads web/static/css/input.css
+// (comments stripped, every flat `selectors { … }` rule at any nesting) and, for each rule whose
+// selector names an operator class (`.op-…`, which covers `.op-main`) or any aria-labelledby
+// attribute selector (=, ^=, *=, $= -- the legal editors' ids are built at render time), finds every way the rule hides content: a hiding utility in an
+// @apply at any variant (hidden, sr-only, invisible, collapse, opacity-0 or a bracketed zero
+// opacity, text-transparent, scale-0 / scale-x-0 / scale-y-0 or a bracketed zero, a zero font size, a clip or clip-path or display/visibility/opacity/font-size
+// arbitrary property, a zero height, width, size or max height beside an overflow that clips) or
+// a declaration (display:none, visibility:hidden or collapse, opacity or font-size or scale at a
+// zero in any spelling -- 0, .0, 0.0, 0% --, a transform scaling to zero, clip, clip-path,
+// color:transparent, content-visibility:hidden, a zero height or width beside
+// overflow:hidden). The deliberate hidings are listed (operatorCSSHides) by exact selector and
+// exact hiding; a listed rule with another hiding, or a listed hiding that no longer exists, is a
+// finding. CONTROLS, each appended to the source and each a finding: the M13-12 review's living
+// mutation `.op-main .op-row > span:last-child { @apply hidden; }`; sr-only on a card's
+// paragraph; md:invisible on an operator chip; a zero height with overflow-hidden; text-transparent;
+// display:none and opacity:0 as declarations; hidden on a rule scoped by an operator list's id;
+// hidden behind a bracketed variant; display:none as an arbitrary property; a second hiding on a
+// listed selector; opacity-[0]; scale-y-0; opacity:.0 and opacity:0% as declarations; display:none
+// under `[aria-labelledby^="legal-"]`; transform:scale(0).
+//
+// PART II -- red on: a scoped rule that hides content, a deliberate hiding changed. PART III --
+// a hiding through a selector that names neither an operator class nor an operator id (a bare
+// `main p`), through a colour equal to its ground, or through position/transform tricks is not
+// read; no completeness claim.
+func TestOperatorCSS_NoScopedRuleHidesContent(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := operatorLabelledByIDs(t)
+	css := string(raw)
+	scoped, findings := readOperatorCSSHides(css, ids)
+	for _, f := range findings {
+		t.Error(f)
+	}
+	if scoped < 60 {
+		t.Errorf("PREMISE: %d operator rule(s) read, want at least 60 (the reading found the operator's block)", scoped)
+	}
+	for _, c := range []struct{ what, rule string }{
+		{"the M13-12 review's living mutation", `.op-main .op-row > span:last-child { @apply hidden; }`},
+		{"sr-only on a card's paragraph", `.op-card > p { @apply sr-only; }`},
+		{"an invisible chip from the tablet", `.op-main .tally { @apply md:invisible; }`},
+		{"a zero height that clips", `.op-main .docket ol { @apply h-0 overflow-hidden; }`},
+		{"transparent words", `.op-row > span { @apply text-transparent; }`},
+		{"display none as a declaration", `.op-main dd { display: none; }`},
+		{"opacity 0 as a declaration", `.op-col p { opacity: 0; }`},
+		{"hidden on a rule scoped by an operator list's id", `[aria-labelledby="holding-list"] > ol > li > :nth-child(2) { @apply hidden; }`},
+		{"hidden behind a bracketed variant", `.op-row { @apply aria-[current=true]:md:hidden; }`},
+		{"display none as an arbitrary property", `.op-main dt { @apply md:[display:none]; }`},
+		{"a listed rule given a second hiding", `.op-nav-icon { @apply sr-only; }`},
+		{"an arbitrary zero opacity", `.op-main dd { @apply opacity-[0]; }`},
+		{"a zero vertical scale", `.op-row > span { @apply scale-y-0; }`},
+		{"opacity .0 as a declaration", `.op-col p { opacity: .0; }`},
+		{"display none under a dynamic id prefix", `[aria-labelledby^="legal-"] p { display: none; }`},
+		{"opacity 0% as a declaration", `.op-main li { opacity: 0%; }`},
+		{"a zero scale in a transform", `.op-main dt { transform: scale(0); }`},
+	} {
+		mutated := strings.Replace(css, "@layer components {", "@layer components {\n  "+c.rule, 1)
+		if mutated == css {
+			t.Fatal("CONTROL: input.css has no components layer to append to")
+		}
+		if _, f := readOperatorCSSHides(mutated, ids); len(f) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
+		}
+	}
+}
+
+// operatorLabelledByIDs are the aria-labelledby ids the operatorpages templates declare literally.
+func operatorLabelledByIDs(t *testing.T) []string {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join("..", "..", "..", "web", "templates", "operatorpages", "*.templ"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no operatorpages templates (%v)", err)
+	}
+	seen := map[string]bool{}
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range regexp.MustCompile(`aria-labelledby="([a-z0-9-]+)"`).FindAllStringSubmatch(string(raw), -1) {
+			seen[m[1]] = true
+		}
+	}
+	var ids []string
+	for id := range seen {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	if !slices.Contains(ids, "audit-list") || !slices.Contains(ids, "holding-list") {
+		t.Fatalf("PREMISE: the operator's list ids are not among %v", ids)
+	}
+	return ids
+}
+
+// readOperatorCSSHides is TestOperatorCSS_NoScopedRuleHidesContent's reading: the number of
+// operator rules read and one finding per hiding not on operatorCSSHides (or per listed hiding
+// gone or joined by another).
+func readOperatorCSSHides(css string, ids []string) (int, []string) {
+	src := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
+	rule := regexp.MustCompile(`([^{}]*)\{([^{}]*)\}`)
+	applyRe := regexp.MustCompile(`@apply\s+([^;]+);`)
+	opClass := regexp.MustCompile(`\.op-[a-z]`)
+	// zero is a numeric zero in any of its spellings: 0, 00, .0, 0.0, 0%, 0px.
+	const zero = `(?:0+(?:\.0*)?|\.0+)(?:%|px|rem|em)?`
+	hideUtility := regexp.MustCompile(`^(?:hidden|sr-only|invisible|collapse|opacity-0|opacity-\[` + zero + `\]|text-transparent|scale-(?:[xy]-)?0|scale-(?:[xy]-)?\[` + zero + `\]|text-\[` + zero + `\]|\[(?:clip|clip-path|display:none|visibility:(?:hidden|collapse)|opacity:` + zero + `|font-size:` + zero + `|scale:` + zero + `|transform:scale\(` + zero + `)[^\]]*\])$`)
+	zeroBox := regexp.MustCompile(`^(?:h-0|w-0|size-0|max-h-0|max-w-0|h-px|w-px)$`)
+	clips := regexp.MustCompile(`^overflow(?:-[xy])?-(?:hidden|clip)$`)
+	decl := regexp.MustCompile(`(?:^|;|\s)(display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse)|opacity\s*:\s*` + zero + `\s*(?:;|$|!)|clip(?:-path)?\s*:|font-size\s*:\s*` + zero + `\s*(?:;|$|!)|color\s*:\s*transparent|content-visibility\s*:\s*hidden|scale\s*:\s*` + zero + `\s*(?:;|$|!)|transform\s*:[^;]*scale(?:[XY])?\(\s*` + zero + `\s*[,)])`)
+	zeroDecl := regexp.MustCompile(`(?:^|;|\s)(?:height|width|max-height)\s*:\s*0(?:px)?\s*(?:;|$)`)
+	clipDecl := regexp.MustCompile(`overflow(?:-[xy])?\s*:\s*(?:hidden|clip)`)
+	read, findings := 0, []string{}
+	listed := map[string]int{}
+	for _, m := range rule.FindAllStringSubmatch(src, -1) {
+		sel := strings.Join(strings.Fields(m[1]), " ")
+		if i := strings.LastIndex(sel, ";"); i >= 0 {
+			sel = strings.TrimSpace(sel[i+1:])
+		}
+		// Every aria-labelledby selector counts, whatever its operator (=, ^=, *=, $=): the editor
+		// cards' ids are built at render time ("legal-" + slug), so no literal id list covers them.
+		operator := opClass.MatchString(sel) || strings.Contains(sel, "[aria-labelledby")
+		for _, id := range ids {
+			if strings.Contains(sel, `[aria-labelledby="`+id+`"]`) {
+				operator = true
+			}
+		}
+		if !operator {
+			continue
+		}
+		read++
+		body := m[2]
+		var hides []string
+		var utils []string
+		for _, a := range applyRe.FindAllStringSubmatch(body, -1) {
+			utils = append(utils, strings.Fields(a[1])...)
+		}
+		clipping := false
+		for _, u := range utils {
+			if clips.MatchString(utilityBase(u)) {
+				clipping = true
+			}
+		}
+		for _, u := range utils {
+			base := utilityBase(u)
+			if hideUtility.MatchString(base) || (zeroBox.MatchString(base) && clipping) {
+				hides = append(hides, u)
+			}
+		}
+		rest := applyRe.ReplaceAllString(body, "")
+		for _, d := range decl.FindAllStringSubmatch(rest, -1) {
+			hides = append(hides, strings.Join(strings.Fields(strings.TrimRight(d[1], ";!")), ""))
+		}
+		if zeroDecl.MatchString(rest) && clipDecl.MatchString(rest) {
+			hides = append(hides, "a zero box with overflow hidden")
+		}
+		for _, h := range hides {
+			if want, ok := operatorCSSHides[sel]; ok && h == want {
+				listed[sel]++
+				continue
+			}
+			findings = append(findings, "`"+sel+"` hides content with "+h+": an operator rule may not hide what the markup prints")
+		}
+	}
+	for sel, h := range operatorCSSHides {
+		if listed[sel] != 1 {
+			findings = append(findings, fmt.Sprintf("the deliberate hiding `%s { %s }` is read %d time(s), want 1: the exception list is stale", sel, h, listed[sel]))
+		}
+	}
+	slices.Sort(findings)
+	return read, findings
+}
+
+// utilityBase is a Tailwind class without its variants and its important mark: the text after
+// the last colon outside square brackets ("aria-[current=true]:md:hidden" -> "hidden",
+// "md:[display:none]" -> "[display:none]").
+func utilityBase(u string) string {
+	depth, last := 0, -1
+	for i, r := range u {
+		switch r {
+		case '[':
+			depth++
+		case ']':
+			depth--
+		case ':':
+			if depth == 0 {
+				last = i
+			}
+		}
+	}
+	return strings.TrimPrefix(u[last+1:], "!")
+}
+
+// legalEditorCardClass is the one operator card whose markup keeps layout utilities after M13-15:
+// the legal texts' editor, padding-less and gap-less (README §6 "Card" exception, §6.1 "Legal
+// editor"). Its utilities win over `.op-card`'s padding and gap, so dropping one of them hands the
+// editor the card rule's.
+const legalEditorCardClass = "op-card flex flex-col gap-0 overflow-hidden p-0"
+
+// TestOperatorCards_TakeTheirInnerGapFromTheCardRule (M13-15; README §6 "Card") reads every
+// `class="op-card…"` attribute -- in the templ sources of web/templates/operatorpages and in
+// every screens() render -- and finds none that writes the card's inner spacing back on the
+// markup: no utility beside op-card, at any variant, that changes the card's display, direction or
+// inner spacing (cardLayoutUtility: block, inline*, flex, flex-row/col/wrap*, grid*, contents,
+// hidden, table*, space-x/y-*, gap-*, divide-*), except the legal editor's exact class
+// (legalEditorCardClass), which must keep its gap-0 and p-0. The rule's half -- `.op-card`
+// applies flex, flex-col and gap-3.5 -- is TestOperatorComponentRules_KeepTheDecidedCorners's.
+// CONTROLS, each read by the same function and each a finding: a card's tag given back
+// `flex flex-col gap-3.5`; a card given block, flex-row, space-y-4, grid, md:flex-row; the
+// editor's gap-0 dropped; the editor's p-0 dropped; and the
+// premise that the readings found the cards (at least seventeen tags in the sources, the editor
+// among them, and a card on every signed-in data screen render).
+//
+// PART II -- red on: a card's moved utilities back on its markup, a gap of its own on a card, the
+// editor's exception lost. PART III -- a card built without the literal `op-card` class token
+// first in its attribute is not read here; no completeness claim on CSS overrides.
+func TestOperatorCards_TakeTheirInnerGapFromTheCardRule(t *testing.T) {
+	dir := filepath.Join("..", "..", "..", "web", "templates", "operatorpages")
+	files, err := filepath.Glob(filepath.Join(dir, "*.templ"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no templ sources in %s (%v)", dir, err)
+	}
+	var src strings.Builder
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src.Write(raw)
+	}
+	sources := src.String()
+	n, editor, findings := readCardClasses(sources)
+	for _, f := range findings {
+		t.Error("templ: " + f)
+	}
+	if n < 17 || editor != 1 {
+		t.Errorf("PREMISE: %d op-card tag(s) and %d legal editor(s) in the templ sources, want at least 17 and 1", n, editor)
+	}
+	editors := 0
+	for name, body := range screens(t) {
+		n, e, findings := readCardClasses(body)
+		for _, f := range findings {
+			t.Errorf("%s: %s", name, f)
+		}
+		editors += e
+		if n == 0 && !strings.HasPrefix(name, "problem") && name != "tenant screen" {
+			t.Errorf("PREMISE: %s renders no op-card", name)
+		}
+	}
+	if editors == 0 {
+		t.Error("PREMISE: no screens() render carries the legal editor's card")
+	}
+	for _, c := range []struct{ what, from, to string }{
+		{"a card's gap back on its markup", `<section class="op-card">`, `<section class="op-card flex flex-col gap-3.5">`},
+		{"a card made a block", `<section class="op-card">`, `<section class="op-card block">`},
+		{"a card made a row", `<section class="op-card">`, `<section class="op-card flex-row">`},
+		{"a card spaced by space-y", `<section class="op-card">`, `<section class="op-card space-y-4">`},
+		{"a card made a grid", `<section class="op-card">`, `<section class="op-card grid">`},
+		{"a card made a row from the tablet", `<section class="op-card">`, `<section class="op-card md:flex-row">`},
+		{"the editor's gap-0 dropped", legalEditorCardClass, "op-card flex flex-col overflow-hidden p-0"},
+		{"the editor's p-0 dropped", legalEditorCardClass, "op-card flex flex-col gap-0 overflow-hidden"},
+	} {
+		mutated := strings.Replace(sources, c.from, c.to, 1)
+		if mutated == sources {
+			t.Fatalf("CONTROL %s: %q is not in the templ sources", c.what, c.from)
+		}
+		if _, _, f := readCardClasses(mutated); len(f) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
+		}
+	}
+}
+
+// cardLayoutUtility matches a utility (variants stripped) that changes an op-card's display, its
+// direction or the spacing between its blocks -- what the card rule decides (M13-15).
+var cardLayoutUtility = regexp.MustCompile(`^(?:block|inline(?:-.+)?|flex|flex-(?:row|col|wrap|nowrap)(?:-.+)?|grid(?:-.+)?|contents|hidden|table(?:-.+)?|flow-root|list-item|space-[xy]-.+|gap(?:-[xy])?-.+|divide-[xy](?:-.+)?)$`)
+
+// readCardClasses is TestOperatorCards_TakeTheirInnerGapFromTheCardRule's reading: the number of
+// op-card class attributes in s, how many are the legal editor's, and one finding per attribute
+// that carries the card's inner spacing on the markup.
+func readCardClasses(s string) (cards, editors int, findings []string) {
+	for _, m := range regexp.MustCompile(`class="(op-card(?:\s[^"]*)?)"`).FindAllStringSubmatch(s, -1) {
+		cards++
+		class := m[1]
+		if class == legalEditorCardClass {
+			editors++
+			continue
+		}
+		if strings.Contains(class, "gap-0") || strings.Contains(class, "p-0") {
+			findings = append(findings, "an op-card with the legal editor's exception but not its exact class: "+class)
+			continue
+		}
+		for _, u := range strings.Fields(class)[1:] {
+			if cardLayoutUtility.MatchString(strings.TrimPrefix(utilityBase(u), "-")) {
+				findings = append(findings, "an op-card writes "+u+" on its markup (the card rule sets its display, direction and spacing): "+class)
+			}
+		}
+	}
+	return cards, editors, findings
 }
 
 // TestCompiledCSS_TallyWordIsInkOnEveryChip is TestTallyRules_NoToneRuleColoursTheWord's

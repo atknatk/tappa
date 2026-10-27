@@ -725,8 +725,9 @@
   /* M10 OP-12 adds a billing month's four states to the same groups: a month the business
      closed is settled (the active tone -- the tenant's own screen stamps it in the same
      green), one that ended and was not closed waits for a person to look (the waiting tone;
-     a fact, not a verdict), and a running month and one before sign-up are neutral. No
-     ground is new; TestBillingScreen_TheChipsAndTextClearAA computes each from the palette. */
+     a fact, not a verdict), and a running month and one before sign-up are neutral (M13-02
+     re-toned the running month, below). No ground is new; TestBillingScreen_TheChipsAndTextClearAA
+     computes each from the palette. */
   /* M10 OP-16 adds the four VAT verdicts of a tenant's VAT screen to the same groups, in the
      customer account screen's mapping: a number the register confirmed is the active tone, one
      it does not know the rejection tone (above), no answer the waiting tone, never asked the
@@ -745,9 +746,15 @@
   .tally--manual,
   .tally--deactivated,
   .tally--stock,
-  .tally--running,
   .tally--before-signup,
   .tally--vat-not-checked { @apply border-line bg-line/10; }
+  /* M13-02: a running billing month left the neutral group above for a tone of its own -- a
+     dashed saffron frame on paper, the polished billing boards' live month (their .t-saffron-o).
+     A month still counting is neither settled nor waiting for a person: the dashed frame says
+     "not final yet" in the warning hue without borrowing the ended-not-closed month's ground.
+     No new ground: the word is ink on paper, 16.17:1, which
+     TestBillingScreen_TheChipsAndTextClearAA computes; the frame carries no text. */
+  .tally--running { @apply border-dashed border-saffron bg-paper; }
   /* M6-09: the LOCK tone, and it is the one chip on the product that is not a
      status. A guardrail is not a state a rule is in — it is structure, part of the
      product rather than a setting — and the policies screen has to make that
@@ -1114,17 +1121,180 @@
   .op-bar     { @apply border-b-4 border-saffron bg-ink text-paper; }
   .op-lockup  { @apply font-mono text-sm font-bold uppercase tracking-widest text-paper; }
   .op-signout {
-    @apply inline-flex min-h-11 items-center border border-paper px-4 font-display text-sm
+    @apply inline-flex min-h-11 items-center rounded-[10px] border border-paper px-4 font-display text-sm
            font-bold tracking-tight text-paper hover:border-saffron hover:text-saffron
            focus:outline-none focus:ring-2 focus:ring-saffron;
   }
   .op-tenant  { @apply border-b border-saffron bg-saffron-lite text-ink; }
-  .op-card    { @apply border border-line bg-paper px-6 py-7 shadow-sm; }
+  /* The banner's name at the boards' sizes: 26 px on the phone, 30 px on the tablet, 34 px on
+     the desktop, line height 1.12, tracking -0.03em. Set from the banner, not on the name's paragraph, whose class is pinned
+     (TestTenantOverview_AnUnnamedTenantIsNamedByItsID); the name is the banner's second
+     paragraph in both of its shapes (the label first, the id, when shown, third). The
+     selector names no utility: a utility's name in a selector here makes Tailwind add the
+     rule to every class that applies that utility (measured, M13-01: every font-display
+     user grew 24 and 30 px rules). A name with no space in it breaks anywhere rather than
+     widening the page (the boards' name breaks so; a tenant chose its name, and a 130-character
+     word widened a 320 px page to 1972 px -- measured, M13-08 review). */
+  .op-tenant > div > p:nth-of-type(2) { @apply text-[26px] leading-[1.12] tracking-[-0.03em] md:text-[30px] desk:text-[34px] [overflow-wrap:anywhere]; }
+
+  /* --- THE OPERATOR'S NAVIGATION (M13-01, user decision OP-1: "Menü ekle") ---
+     One nav element for the three widths, restyled here (docs/design/operator-redesign
+     README §6 "Frame", "Main nav", "Tenant sub-nav", "Content column"):
+     - desktop (desk): a 232 px PAPER column left of the content, a mono "Platform" label
+       over five items, the current one marked by an ink 3 px left rule and an ink/5 ground;
+     - tablet (md): a row of text tabs under the band, the current one on an ink 3 px
+       underline; it wraps if it must;
+     - phone: a paper bar of five items, icon over a short label, at the foot of the
+       viewport, the current one ink and bold under an ink 3 px top marker.
+     The phone bar is position: sticky at bottom 0, NOT position: fixed: the frame is a flex
+     column at least the viewport tall (minus the band: its row, 56 px on the phone and 64 px
+     from the tablet, and its 4 px rule -- 3.75rem and 4.25rem),
+     the nav is ordered last and pushed down by an automatic top margin, so on a short page it
+     rests on the viewport's lower edge and on a long one it sticks while scrolling and comes to
+     rest under the last control -- it keeps its place in the flow and never covers the page,
+     so the page needs no clearance under it. Nothing on the frame or above the nav may clip
+     its overflow: that would turn the sticky bar into an ordinary one. The tablet and desktop
+     undo the bar (back in the flow, first, no top margin).
+     Never the panel's shell classes (panel-side, side-nav, bar-link, tab-link): the two
+     surfaces must not be mistaken for each other (chrome.templ).
+
+     TONES, computed (WCAG 2.1, sRGB; TestOperatorChrome_TheColouredTextClearsAA recomputes
+     them): an inactive phone label, ink at 70 % on paper, 6.05:1; ink on paper 16.17:1; the
+     current desktop item, ink on ink/5 over paper, 14.67:1; the sub-nav's ink on the banner's
+     saffron-lite 13.97:1. */
+  .op-frame {
+    @apply flex min-h-[calc(100vh-3.75rem)] flex-col md:min-h-[calc(100vh-4.25rem)] desk:flex-row;
+  }
+  .op-col { @apply min-w-0 flex-1; }
+  .op-nav {
+    @apply sticky bottom-0 z-10 order-last mt-auto grid grid-cols-5 border-t border-line bg-paper
+           pb-[env(safe-area-inset-bottom)]
+           md:static md:order-first md:mt-0 md:flex md:flex-row md:flex-wrap md:border-b md:border-t-0
+           md:px-3 md:pb-0
+           desk:order-none desk:w-[232px] desk:flex-none desk:flex-col desk:flex-nowrap desk:border-b-0
+           desk:border-r desk:px-0 desk:py-7;
+  }
+  .op-nav-label {
+    @apply hidden px-6 pb-2.5 font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70 desk:block;
+  }
+  .op-nav-item {
+    @apply relative flex min-h-11 flex-col items-center justify-center gap-[3px] py-2 font-display
+           text-[11px] font-medium leading-4 text-ink/70 no-underline hover:bg-ink/5 hover:text-ink
+           aria-[current=true]:font-bold aria-[current=true]:text-ink max-md:min-h-[60px]
+           md:-mb-px md:flex-row md:border-b-[3px] md:border-transparent md:px-3 md:py-0 md:text-[15px] md:font-normal
+           md:leading-normal md:text-ink md:aria-[current=true]:border-ink
+           desk:mb-0 desk:justify-start desk:border-b-0 desk:border-l-[3px] desk:pl-[21px] desk:pr-4
+           desk:aria-[current=true]:bg-ink/5
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink;
+  }
+  .op-nav-item[aria-current="true"]::before {
+    content: '';
+    @apply absolute inset-x-[20%] -top-px h-[3px] bg-ink md:hidden;
+  }
+  .op-nav-icon { @apply size-[22px] shrink-0 md:hidden; }
+  /* The tenant sub-nav sits INSIDE the banner, under the name, on the banner's saffron-lite;
+     each tab's 3 px underline overlaps the banner's own 1 px saffron rule (the banner has no
+     bottom padding for that reason). The current tab -- the page -- is saffron-marked, the
+     warning tone, because the screen shows another business. 14 px and wrapping on the phone. */
+  .op-subnav { @apply -ml-2.5 mt-2 flex flex-wrap md:-ml-3; }
+  .op-subnav-item {
+    @apply -mb-px inline-flex min-h-11 items-center whitespace-nowrap border-b-[3px] border-transparent
+           px-2.5 font-display text-sm text-ink no-underline hover:bg-saffron/10
+           aria-[current=page]:border-saffron aria-[current=page]:font-bold md:px-3 md:text-[15px]
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink;
+  }
+  /* --- THE OPERATOR'S COMPONENTS, ROUNDED AS DRAWN (M13-02, docs/design/operator-redesign
+     README §5-§6; user decision D2: a card, a field and a button may round, a docket and a stamp
+     stay sharp, a chip is a full pill) ---
+     One padding scale for every card and docket of the surface, no per-screen padding: 20 px
+     round a card on the phone, 22 px 24 px from the tablet, so a card's text and a docket's
+     start on one vertical line. No operator card casts a shadow (the boards removed it).
+     A card stacks its blocks 14 px apart (README §6 "Card"; moved here from each screen's
+     markup once every screen carried it, M13-15), so no body carries a top margin. The legal
+     texts' editor card keeps no padding and no gap: its utilities on the markup win over this
+     rule (the utilities layer comes after the components layer). */
+  .op-card    { @apply flex flex-col gap-3.5 rounded-[14px] border border-line bg-paper p-5 md:px-6 md:py-[22px]; }
+  /* The docket keeps its own padding for the panel; on the operator's surface it takes the
+     card's scale, from the content column, so the docket's markup stays as pinned. Sharp. */
+  .op-main .docket { @apply px-5 py-4 md:px-6 md:py-[18px]; }
+  /* The operator's buttons round like its fields; the panel's keep their own corners. */
+  .op-main .btn { @apply rounded-[10px]; }
+  /* A chip on the operator's surface is the boards' pill: 24 px tall (18 px line, 2 px above
+     and below, the 1 px frame), 10 px sides, bold, tracking .08em. Scoped from the content
+     column, never a class on the span (its markup is regex-pinned). SHAPE AND TYPE ONLY: the
+     word's colour, the frame's and the ground stay the tone rules' -- this is the one shape
+     TestTallyRules_NoToneRuleColoursTheWord allows besides the base and the tone lists. */
+  .op-main .tally { @apply rounded-full px-2.5 py-0.5 font-bold leading-[18px] tracking-[0.08em]; }
+  /* --- THE OPERATOR'S NOTICE AND PROBLEM CARD (M13-03, docs/design/operator-redesign README §6
+     "Operator notice", "Problem page") ---
+     The operator's own status box (operatorpages/notice.templ), so the tap screens' shared one
+     keeps its bytes: a card with 14 px corners, 16 px 18 px inside, the tone in the frame and the
+     ground, the words ink. ok is a 1 px tappa-green frame on tappa-green at 10 %, warn a 1 px
+     saffron frame on saffron-lite, alert a 2 px tomato frame on paper -- the panel's notice frames,
+     without the panel's label word and mark (the operator's headings already say the outcome).
+     TONES, computed (WCAG 2.1, sRGB): the heading ink and the body ink at 85 % on the ok ground,
+     over paper 13.85:1 and 9.06:1, over porcelain 12.34:1 and 8.30:1 (the ground is a tint, so it
+     is computed over both: the holdings' and the API's answers sit on the page's porcelain); on
+     saffron-lite 13.97:1 and 9.13:1; on paper 16.17:1 and 10.16:1. TestOperatorNotice_TheWordsClearAAOnEveryTone
+     recomputes them from these rules. */
+  .op-notice { @apply rounded-[14px] border px-[18px] py-4 text-ink; }
+  .op-notice--ok { @apply border-tappa-green bg-tappa-green/10; }
+  .op-notice--warn { @apply border-saffron bg-saffron-lite; }
+  .op-notice--alert { @apply border-2 border-tomato bg-paper; }
+  /* The problem page: the alert notice is its card, at most 640 px wide (560 px signed out, M13-04:
+     the signed-out column of chrome.templ's screen is no wider), 20 px 18 px inside on the
+     phone and 24 px 28 px from the tablet; the title 24 px, 28 px from the tablet, line height 1.12,
+     tracking -0.03em, ink. */
+  .op-problem { @apply flex w-full max-w-[640px] flex-col gap-4; }
+  .op-problem > .op-notice { @apply px-[18px] py-5 md:px-7 md:py-6; }
+  .op-problem-title {
+    @apply font-display text-2xl font-bold leading-[1.12] tracking-[-0.03em] text-ink md:text-[28px];
+  }
+  /* A new in-card eyebrow: mono 11 px capitals, ink at 70 % on paper (6.05:1). */
+  .op-label   { @apply font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70; }
+  /* The two in-card headings the boards draw where the code writes a docket label today: an
+     enrollment step (16 px, 17 px from the tablet; line height 1.3, the boards', so a step that
+     wraps on a phone stays one heading) and a card's own heading (19 px). */
+  .op-step    { @apply font-display text-base font-bold leading-[1.3] tracking-tight md:text-[17px]; }
+  .op-heading { @apply font-display text-[19px] font-bold tracking-tight; }
+  /* The pager (Billing, Audit, Holdings): an outlined button in the panel's manner. The frame,
+     ink at 30 %, is no text; the word is ink on paper, 16.17:1. */
+  .op-pager {
+    @apply inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-[10px] border
+           border-ink/30 bg-paper px-[22px] font-display text-[15px] font-bold text-ink no-underline
+           hover:border-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-ink;
+  }
+  /* A billing month's four figures as a receipt strip: two by two on the phone, four across
+     from the tablet with the amount's column a little wider and its figure larger, set at the
+     strip's end. The labels are the docket label; the words stay the code's. */
+  .op-receipt {
+    @apply grid grid-cols-2 gap-x-5 gap-y-3 border-y border-dashed border-line py-3
+           md:grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,1.2fr)];
+  }
+  .op-receipt dd { @apply text-base; }
+  .op-receipt > div:last-child { @apply text-right; }
+  .op-receipt > div:last-child dd { @apply text-xl font-bold; }
   .op-input {
-    @apply min-h-11 w-full rounded-sm border border-line bg-paper px-3 py-2 font-mono text-sm
+    @apply min-h-11 w-full rounded-[10px] border border-line bg-paper px-3 py-2 font-mono text-sm
            text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green;
   }
-  .op-link    { @apply inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline underline-offset-4 hover:text-ink; }
+  .op-link {
+    @apply inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline underline-offset-4
+           hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-ink;
+  }
+  /* The audit row's tenant link, inside a sentence: from the tablet it keeps the line's height
+     (no 44 px box of its own) and takes a transparent 44 px overlay centred on it, so the target
+     stays 44 px without opening the row up. On the phone the link's own 44 px box stands. Scoped
+     from the list; the link's markup is pinned.
+     INLINE-BLOCK, NOT INLINE (measured, M13-02 review): an inline link that wraps -- a tenant
+     name of about 95 characters at 834 px, 110 at 1440, and the name has no length limit -- is
+     split into two fragments, and the overlay, positioned against them, collapsed to 18 px. As
+     one box the link keeps a 44 px overlay at one line and at two. */
+  [aria-labelledby="audit-list"] .op-row > span > .op-link { @apply md:relative md:inline-block md:min-h-0; }
+  [aria-labelledby="audit-list"] .op-row > span > .op-link::before {
+    content: '';
+    @apply md:absolute md:inset-x-0 md:top-1/2 md:h-11 md:-translate-y-1/2;
+  }
   /* The enrollment key: grouped base32, read aloud and typed by a person -- mono, wide
      tracking, wrapped anywhere rather than overflowing a phone. */
   .op-key     { @apply break-all font-mono text-lg font-bold tracking-widest text-ink; }
@@ -1157,8 +1327,241 @@
      in TestTenantScreens_TheTextClearsAA. */
   .op-version,
   .op-row {
-    @apply flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-line py-2 text-ink last:border-b-0;
+    @apply flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-dashed border-line py-2.5 text-ink last:border-b-0;
   }
+  /* THE TENANT LIST'S ROW IN THE REDESIGN (M13-07; docs/design/operator-redesign README §6.1
+     "Tenants row", boards OpTenants, T-OpTenants, M-OpTenants). Scoped from the list's heading
+     id, because the row's markup is pinned (<li class="op-row">, the plan's bare span, the id's
+     span with its three classes): nothing here is a class on an element.
+     PHONE: the name link alone on its first line, 44 px tall (the link's own height), when it
+     signed up and the plan on the line under it -- the chip, on a suspended tenant, flowing after
+     the plan -- and the id on a line of its own.
+     TABLET: three tracks (name, since, plan) and the id on a full line under them.
+     DESKTOP: one line of four tracks; the id is placed in the fourth, on the first line, at the
+     line's end -- so a suspended tenant's chip, the row's fifth child, between the plan and the
+     id, is auto-placed in the first free cell after the plan: the second line, under the name.
+     A row without one keeps the board's single line. Items keep their own width (start), so the
+     chip is not stretched to its track. The plan is mono by its own rule, not only by the
+     docket's. NO SELECTOR HERE NAMES THE CHIP'S CLASS: TestTallyRules_NoToneRuleColoursTheWord
+     reads every rule that does. A name or an id that cannot break (no space in it) breaks
+     anywhere rather than widening the page. Each of the four rules is one @apply, read and
+     pinned by TestTenantsRow_TheScopedRulesKeepTheBoardsTracks. */
+  [aria-labelledby="tenant-list"] .op-row {
+    @apply gap-y-0.5 pt-1 pb-3 md:grid md:grid-cols-[minmax(0,1fr)_auto_76px] md:items-center md:justify-items-start
+           md:gap-x-5 md:gap-y-0 md:pt-1.5 md:pb-2.5 desk:grid-cols-[minmax(0,1fr)_auto_76px_auto] desk:pb-1.5;
+  }
+  [aria-labelledby="tenant-list"] .op-row > :first-child { @apply min-w-0 basis-full text-[15px] [overflow-wrap:anywhere]; }
+  [aria-labelledby="tenant-list"] .op-row > :nth-child(3) { @apply font-mono; }
+  [aria-labelledby="tenant-list"] .op-row > :last-child {
+    @apply basis-full md:col-span-full desk:col-span-1 desk:col-start-4 desk:row-start-1 desk:justify-self-end;
+  }
+  /* THE OVERVIEW'S COUNTS IN THE REDESIGN (M13-08; screens.md §6, boards OpTenant, T-OpTenant,
+     M-OpTenant): the four figures of "Live now" at the boards' sizes -- 30 px on the phone, 32 px
+     on the tablet, 34 px on the desktop -- with the boards' line height of 1.1. Scoped from the
+     docket's heading id, because the figure's markup is pinned (the overview's count regex in
+     TestTenantOverview_NamesTheTenantInTheBannerAndRefusesABadPath); the scoped selector outranks
+     the figure's own size class, which stays the phone's. One @apply, read and pinned by
+     TestTenantOverviewCounts_TheScopedRuleKeepsTheBoardsSizes. */
+  [aria-labelledby="tenant-live"] dd { @apply leading-[1.1] md:text-[32px] desk:text-[34px]; }
+  /* THE PLAQUE ROW IN THE REDESIGN (M13-09; docs/design/operator-redesign README §6.1 "Plaque
+     row", boards OpPlaques, T-OpPlaques, M-OpPlaques). Scoped from the docket's heading id,
+     because the row's markup is pinned (<li class="op-row"> opening with the uid's span).
+     PHONE: the row's own wrapping flex, its rows 14 px apart in their padding; the wrapper after
+     the uid draws no box there, so the uid and the chip share the head line, 10 px apart, and
+     the sentence and each fact take a line of their own (their own classes).
+     TABLET AND DESKTOP: two columns -- the uid in the first, 156 px on the tablet and 168 px on
+     the desktop as the boards draw it, the wrapper with the chip, the sentence and the facts in
+     the second -- 24 px apart, 16 px above and below; the uid's baseline sits on the chip's.
+     The uid is 15 px and breaks anywhere (a uid is one word of hex).
+     THE WRAPPER'S CHILDREN, AS THE BOARDS SET THEM: the chip first, in the docket's mono; the
+     sentence and the facts (every child after the chip) in Space Grotesk; each fact's word at
+     ink 70 % (6.05:1 on paper) and its value -- the time, the figure, the uid, the location's
+     name -- in ink (16.17:1), the values keeping their own mono class. The facts' size stays the
+     docket row's 14 px (README §6 "Docket list"). NO SELECTOR HERE NAMES THE CHIP'S CLASS
+     (TestTallyRules_NoToneRuleColoursTheWord reads every rule that does). Each rule is one
+     @apply, read and pinned by TestPlaqueRow_TheScopedRulesKeepTheBoardsColumns. */
+  [aria-labelledby="tenant-plaques"] .op-row {
+    @apply gap-x-2.5 py-3.5 md:grid md:grid-cols-[156px_minmax(0,1fr)] md:gap-x-6 md:gap-y-1 md:py-4
+           desk:grid-cols-[168px_minmax(0,1fr)];
+  }
+  [aria-labelledby="tenant-plaques"] .op-row > :first-child { @apply break-all text-[15px]; }
+  [aria-labelledby="tenant-plaques"] .op-row > div > :nth-child(n+2) { @apply font-display; }
+  [aria-labelledby="tenant-plaques"] .op-row > div > :nth-child(n+3) { @apply text-ink/70; }
+  [aria-labelledby="tenant-plaques"] .op-row > div > :nth-child(n+3) > * { @apply text-ink; }
+  /* THE BILLING MONTHS IN THE REDESIGN (M13-10; docs/design/operator-redesign README §6.1
+     "Billing row", boards OpBilling, T-OpBilling, M-OpBilling). Scoped from the docket's heading
+     id, because the heading's and the row's markup are pinned (the heading's words and spans, a
+     row opening with the month's span).
+     THE HEADING: the boards' rule under it, a 2 px dash in the perforation tone, 12 px below the
+     words; the page numbers bold, in ink.
+     THE ROW: 18 px above and below on the phone, 20 px from the tablet, the last row 6 px below;
+     its blocks 12 px apart, the month and the chip 14 px apart; on the phone the chip is pushed
+     to the head line's end, as the phone board draws it (a chip that wraps to a line of its own
+     starts it). Every value breaks anywhere rather than widening the page. The month 16 px.
+     THE TYPE, AS THE BOARDS SET IT (orchestrator decision (f)): the sentence and the free-window
+     and floor sentences in Space Grotesk (the floor's figure keeps its mono class); the dated
+     facts' wrapper sets its own face and its words' ink at 70 % (6.05:1 on paper), and the
+     values here are ink (16.17:1), keeping their mono class. The receipt strip takes the row's
+     width; its labels stay the docket's mono, as the boards' strip sets them. NO SELECTOR HERE
+     NAMES THE CHIP'S CLASS (TestTallyRules_NoToneRuleColoursTheWord reads every rule that does).
+     Each rule is one @apply, read and pinned by TestBillingRow_TheScopedRulesKeepTheBoardsReceipt. */
+  [aria-labelledby="tenant-billing"] > h2 { @apply border-b-2 border-dashed border-line pb-3; }
+  [aria-labelledby="tenant-billing"] > h2 > span { @apply font-bold text-ink; }
+  [aria-labelledby="tenant-billing"] .op-row {
+    @apply gap-x-3.5 gap-y-3 py-[18px] [overflow-wrap:anywhere] last:pb-1.5 max-md:justify-between md:py-5;
+  }
+  [aria-labelledby="tenant-billing"] .op-row > :first-child { @apply text-base; }
+  [aria-labelledby="tenant-billing"] .op-row > span:nth-child(n+3) { @apply font-display; }
+  [aria-labelledby="tenant-billing"] .op-row > dl { @apply w-full; }
+  [aria-labelledby="tenant-billing"] .op-row > p > span > span { @apply text-ink; }
+  /* THE VAT RECORD IN THE REDESIGN (M13-11; docs/design/operator-redesign README §6.1 "VAT On
+     file", boards OpVat, T-OpVat, M-OpVat). The time line under the verdict is one paragraph
+     whose word is a bare text run and whose time a pinned span ("Last answer" / "Asked" and
+     the time's mono span, op16_test.go), so the boards' two tones are set from the docket's
+     heading id: the paragraph's word at ink 70 % (6.05:1 on paper, written on the markup) and
+     the time here in ink (16.17:1). NO SELECTOR HERE NAMES THE CHIP'S CLASS (the chip sits in
+     the term list, never in a paragraph of the docket). One @apply, read and pinned by
+     TestVATRecord_TheScopedRuleKeepsTheTimeInInk. */
+  [aria-labelledby="tenant-vat"] > p > span { @apply text-ink; }
+  /* THE AUDIT LOG IN THE REDESIGN (M13-12; docs/design/operator-redesign README §6.1 "Audit row",
+     screens.md §10, boards OpAudit, T-OpAudit, M-OpAudit). Scoped from the docket's heading id,
+     because the heading's and the row's markup are pinned (the heading's words and spans; a row
+     opening with the time's span, then the kind's, then one span per fact, the tenant's link in
+     its sentence) -- nothing here is a class on an element.
+     THE HEADING: the boards' rule under it, a 2 px dash in the perforation tone, 12 px below the
+     words; the page number bold, in ink.
+     PHONE: one column -- the time, the kind and each fact a line of its own, 4 px apart (6 px
+     under the kind, the boards' gap between the kind and the facts), 14 px above and below the
+     row. The tenant's fact is the link's own 44 px, its word centred on the
+     link as the phone board draws it (a sentence holding the link is a wrapping flex there; on a
+     line box the word sat above the link's, measured at 390 px).
+     TABLET AND DESKTOP: the boards' two columns without a wrapper -- the time in the first, 182 px
+     drawn on the tablet and 196 px on the desktop, 24 px from the second; the kind and the facts
+     in the second, the kind alone on its line and the facts wrapping under it, 18 px apart, 2 px
+     between their lines, 6 px under the kind; 16 px above and below. The row stays the one wrapping
+     flex the code draws: it is indented by the first column, and the time is pulled back into the
+     indent by a negative margin as wide as the indent, its own box 18 px narrower, so with the
+     gap the time takes no room on its line and the kind, the line's whole width, still fits
+     beside it; every later fact wraps to the indent. The time and the kind share their baseline.
+     The time is 13 px and never breaks (23 characters of the data face, 0.6 em each: 179 px).
+     THE TYPE, AS THE BOARDS SET IT (orchestrator decisions (f)): the kind 15 px; every fact in
+     Space Grotesk at ink 70 % (6.05:1 on paper), its values -- the time's and the ids' data face,
+     the names the code isolates, a chip's word -- in ink (16.17:1); the tenant's link keeps its
+     own colour. The facts' size stays the docket row's 14 px. Every value breaks anywhere rather
+     than widening the page (a name has no length limit and may have no space).
+     NO SELECTOR HERE NAMES THE CHIP'S CLASS (TestTallyRules_NoToneRuleColoursTheWord reads every
+     rule that does). Each rule is one @apply, read and pinned by
+     TestAuditRow_TheScopedRulesKeepTheBoardsColumns. */
+  [aria-labelledby="audit-list"] > h2 { @apply border-b-2 border-dashed border-line pb-3; }
+  [aria-labelledby="audit-list"] > h2 > span { @apply font-bold text-ink; }
+  [aria-labelledby="audit-list"] .op-row {
+    @apply flex-col items-start gap-y-1 py-3.5 [overflow-wrap:anywhere] last:pb-1.5 md:flex-row md:items-baseline
+           md:gap-x-[18px] md:gap-y-0.5 md:py-4 md:pl-[206px] desk:pl-[220px];
+  }
+  [aria-labelledby="audit-list"] .op-row > :first-child {
+    @apply whitespace-nowrap text-[13px] md:-ml-[206px] md:w-[188px] desk:-ml-[220px] desk:w-[202px];
+  }
+  [aria-labelledby="audit-list"] .op-row > :nth-child(2) { @apply mb-0.5 text-[15px] leading-[1.35] md:mb-1 md:basis-full; }
+  [aria-labelledby="audit-list"] .op-row > :nth-child(n+3) { @apply font-display text-ink/70; }
+  [aria-labelledby="audit-list"] .op-row > :nth-child(n+3) > :not(a) { @apply text-ink; }
+  [aria-labelledby="audit-list"] .op-row > span:has(> .op-link) { @apply max-md:flex max-md:flex-wrap max-md:items-center max-md:gap-x-1.5; }
+  /* THE HOLDINGS IN THE REDESIGN (M13-13; docs/design/operator-redesign README §6.1 "Holdings",
+     screens.md §11, boards OpHoldings, T-OpHoldings, M-OpHoldings). Scoped from the docket's
+     heading id: the membership's <li class="op-row"> is pinned, and every element keeps the
+     code's order in the document -- each rule here only places it.
+     THE HEADING: the boards' rule under it, a 2 px dash in the perforation tone, 12 px below the
+     words; the page number bold, in ink.
+     A HOLDING: a block between 2 px dashed rules, 22 px above and 24 px below (the last 8 px, no
+     rule), its parts 14 px apart. Its head: the name, the id 2 px under it and, from the tablet,
+     the creation time at the line's end on the name's baseline; on the phone the name, the id and
+     the time each take a line, the time 4 px under the id (the name and the id are drawn first,
+     the time keeping its place in the document). Every later part takes the whole width; the
+     memberships open with a dashed 1 px rule. A name or an id with no space in it breaks anywhere rather
+     than widening the page (a holding's name is up to 120 characters, a business's has no limit;
+     measured in M13-08: both widened the page at every width).
+     A MEMBERSHIP, the boards' grid (.mrow): on the phone one column -- the name and the chip, the
+     business's id 3 px under them, the timezone and the API code, the times, then Remove (at
+     least 120 px wide, 4 px lower), 6 px apart, 14 px above and below. On the tablet three tracks
+     (the name and the id across two, the timezone and the times side by side under them, Remove
+     in the third, centred, at the end), 8 px apart. On the desktop four tracks, 172 px, 212 px and
+     96 px after the name's: the name with the id under it, the timezone and the API code, the
+     times, Remove. The name's row is as tall as the name and the id's takes whatever the taller
+     facts beside them need, so the id stays 3 px under the name however long a zone name wraps
+     (measured, M13-13 review: two rows sharing the extra height moved the id 4 to 21 px down).
+     18 px between the tracks. Under each membership the docket row's own dashed 1 px rule, the
+     last without one, and one over the list (README §6 "Docket list"; the boards draw it solid).
+     The facts' words at ink 70 % (6.05:1 on paper, on the markup) at the docket row's 14 px,
+     their values in ink (16.17:1). A time never breaks: at 14 px "Joined 2026-10-12 09:00 UTC"
+     is wider than the desktop's 212 px track, and a wrapped time left "UTC" alone on a line;
+     whole, the time (20 characters of the data face, 168 px) moves under its word and fits
+     every track. A zone name still breaks anywhere (its track is narrower than the longest). The name's link keeps the line's height from the tablet and takes the audit link's
+     transparent 44 px overlay (README §6 "Inline link hit area"); on the phone its own 44 px box
+     stands. NO SELECTOR HERE NAMES THE CHIP'S CLASS (TestTallyRules_NoToneRuleColoursTheWord reads
+     every rule that does). Each rule is one @apply but the overlay, read and pinned by
+     TestHoldingsDocket_TheScopedRulesKeepTheBoardsGrid. */
+  [aria-labelledby="holding-list"] > h2 { @apply border-b-2 border-dashed border-line pb-3; }
+  [aria-labelledby="holding-list"] > h2 > span { @apply font-bold text-ink; }
+  [aria-labelledby="holding-list"] > ol > li {
+    @apply flex flex-wrap items-baseline gap-x-5 gap-y-3.5 border-b-2 border-dashed border-line pt-[22px] pb-6
+           [overflow-wrap:anywhere] last:border-b-0 last:pb-2;
+  }
+  [aria-labelledby="holding-list"] > ol > li > :first-child { @apply min-w-0 max-md:-order-1 max-md:basis-full md:flex-1; }
+  [aria-labelledby="holding-list"] > ol > li > :nth-child(2) { @apply max-md:-mt-2.5; }
+  [aria-labelledby="holding-list"] > ol > li > :nth-child(3) { @apply -mt-3 basis-full max-md:-order-1; }
+  [aria-labelledby="holding-list"] > ol > li > :nth-child(n+4) { @apply basis-full; }
+  [aria-labelledby="holding-list"] > ol > li > ol { @apply border-t border-dashed border-line; }
+  [aria-labelledby="holding-list"] .op-row {
+    @apply grid grid-cols-1 items-start gap-x-[18px] gap-y-1.5 py-3.5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_92px] md:gap-y-2
+           desk:grid-cols-[minmax(0,1fr)_172px_212px_96px] desk:grid-rows-[auto_1fr] desk:gap-y-1.5;
+  }
+  [aria-labelledby="holding-list"] .op-row > div:first-child { @apply row-start-1 md:col-start-1 md:col-end-3 desk:col-end-2; }
+  [aria-labelledby="holding-list"] .op-row > div:nth-child(2) {
+    @apply md:col-start-1 md:row-start-3 desk:col-start-2 desk:row-start-1 desk:row-end-3;
+  }
+  [aria-labelledby="holding-list"] .op-row > div:nth-child(3) {
+    @apply md:col-start-2 md:row-start-3 desk:col-start-3 desk:row-start-1 desk:row-end-3;
+  }
+  [aria-labelledby="holding-list"] .op-row > span {
+    @apply row-start-2 -mt-[3px] md:col-start-1 md:col-end-3 md:-mt-[5px] desk:col-end-2 desk:-mt-[3px];
+  }
+  [aria-labelledby="holding-list"] .op-row > form {
+    @apply mt-1 md:col-start-3 md:row-start-1 md:row-end-4 md:mt-0 md:self-center md:justify-self-end desk:col-start-4 desk:row-end-3;
+  }
+  [aria-labelledby="holding-list"] .op-row > form > button { @apply max-md:min-w-[120px]; }
+  [aria-labelledby="holding-list"] .op-row > div > span > span { @apply text-ink; }
+  [aria-labelledby="holding-list"] .op-row > div:nth-child(3) > span > span { @apply whitespace-nowrap; }
+  [aria-labelledby="holding-list"] .op-row > div > .op-link { @apply md:relative md:min-h-0; }
+  [aria-labelledby="holding-list"] .op-row > div > .op-link::before {
+    content: '';
+    @apply md:absolute md:inset-x-0 md:top-1/2 md:h-11 md:-translate-y-1/2;
+  }
+  /* THE LEGAL TEXTS' VERSIONS IN THE REDESIGN (M13-14; docs/design/operator-redesign README §6.1
+     "Legal versions", screens.md §12, boards OpLegal, T-OpLegal, M-OpLegal). Scoped from the
+     docket's heading id: the row's markup is pinned (<li class="op-version">, its four bare spans
+     and, on a document's live version, the chip), and each rule here only places or sets a child.
+     THE HEADING: the boards' rule under it, a 2 px dash in the perforation tone, 12 px below.
+     A ROW from the tablet: the boards' five columns -- the time (bold), the path, the length (at
+     ink 70 %, set at its column's end, never broken), the publisher, the chip at the row's end;
+     a row with no chip leaves the last column empty -- 164 / 136 / 92 / the rest / 64 px on the
+     tablet, 172 / 150 / 96 / the rest / 64 px on the desktop, 20 px apart, centred, at least 44 px
+     tall, 10 px above and below. On the phone the time and the chip share the first line (the
+     chip drawn second, the document keeping it last), the path takes the second, the length and
+     the publisher the third, 14 px apart, 12 px above and below. The values are the data face at
+     13 px, the publisher's name Space Grotesk at 14 px; a value with no space in it breaks
+     anywhere rather than widening the page. Under each row the docket row's own dashed rule.
+     NO SELECTOR HERE NAMES THE CHIP'S CLASS (TestTallyRules_NoToneRuleColoursTheWord). Ink on
+     paper 16.17:1, ink at 70 % on paper 6.05:1 (TestLegalScreen_TheTextClearsAA). Each rule is one
+     @apply, read and pinned by TestLegalVersions_TheScopedRulesKeepTheBoardsColumns. */
+  [aria-labelledby="legal-versions"] > h2 { @apply border-b-2 border-dashed border-line pb-3; }
+  [aria-labelledby="legal-versions"] .op-version {
+    @apply gap-x-3.5 gap-y-0.5 py-3 text-[13px] [overflow-wrap:anywhere] md:grid md:min-h-11 md:grid-cols-[164px_136px_92px_minmax(0,1fr)_64px]
+           md:items-center md:gap-x-5 md:gap-y-1 md:py-2.5 desk:grid-cols-[172px_150px_96px_minmax(0,1fr)_64px];
+  }
+  [aria-labelledby="legal-versions"] .op-version > :first-child { @apply -order-2 flex-1 font-bold md:order-none; }
+  [aria-labelledby="legal-versions"] .op-version > :nth-child(2) { @apply basis-full; }
+  [aria-labelledby="legal-versions"] .op-version > :nth-child(3) { @apply whitespace-nowrap text-ink/70 md:text-right; }
+  [aria-labelledby="legal-versions"] .op-version > :nth-child(4) { @apply min-w-0 font-display text-sm; }
+  [aria-labelledby="legal-versions"] .op-version > :nth-child(5) { @apply -order-1 md:order-none md:justify-self-end; }
 
   /* THE INTEGRATION GUIDE'S BODY (M11 DOCS-1, /docs/api). internal/apiguide converts the
      Markdown with goldmark, whose output carries no class, so every rule here is scoped

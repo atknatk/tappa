@@ -13,25 +13,36 @@ package operatorpages
 // where it is mounted, when its encode was recorded, when it was added and retired, what
 // replaced it and its counter -- every figure and time in the data face. A state the
 // handler's reading does not know is drawn as such, with the status as it is stored.
+//
+// THE REDESIGN (M13-09; docs/design/operator-redesign README §6.1 "Plaque row", screens.md §7,
+// boards OpPlaques): one card -- the mono label, the h1 at the board's 28 px at every width, the
+// summary, the note and the links, stacked on the phone and in a row from the tablet; the card
+// spaces its blocks, its bodies carry no top margin -- then the rows on the docket. A row still
+// opens with the uid; everything else stands in one wrapper after it, so from the tablet the uid
+// has a column of its own (input.css, scoped from the docket's heading id) and the chip, the
+// sentence and the facts wrap beside it. On the phone the wrapper draws no box of its own: the
+// uid and the chip share the head line and each fact takes a line. The wrapper is no form and
+// no button. A value that cannot break (no space in it) breaks anywhere rather than widening
+// the page. Pinned by TestPlaqueScreen_IsTheSummaryCardAndTheDocket.
 templ TenantPlaques(v TenantPlaquesView) {
-	@TenantScreen("Plaques", v.Name) {
+	@TenantScreen("Plaques", v.Name, v.Tabs, TabPlaques) {
 		<section class="op-card">
-			<p class="docket-label">Plaques</p>
-			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Plaque inventory</h1>
+			<p class="op-label">Plaques</p>
+			<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-[-0.03em]">Plaque inventory</h1>
 			if len(v.Rows) == 0 {
-				<p class="mt-3 text-sm">This tenant has no plaques.</p>
+				<p class="text-sm">This tenant has no plaques.</p>
 			} else if v.Truncated {
-				<p class="mt-3 text-sm">
+				<p class="text-sm">
 					The first <span class="font-mono">{ v.Shown }</span> of <span class="font-mono">{ v.Total }</span> plaques are listed, in the
 					panel's own order: those with no location first.
 				</p>
 			} else {
-				<p class="mt-3 text-sm">
+				<p class="text-sm">
 					<span class="font-mono">{ v.Total }</span> { v.Noun }, in the panel's own order: those with no location first.
 				</p>
 			}
-			<p class="mt-1 text-xs text-ink/70">Read when this page was opened. Nothing on this page changes a plaque.</p>
-			<p class="mt-2 flex flex-wrap gap-x-6">
+			<p class="text-xs leading-[1.45] text-ink/70">Read when this page was opened. Nothing on this page changes a plaque.</p>
+			<p class="flex flex-col items-start text-sm md:flex-row md:flex-wrap md:gap-x-6">
 				<a href={ templ.URL(v.OverviewPath) } class="op-link">Back to the overview</a>
 				<a href="/operator/tenants" class="op-link">Back to the tenants</a>
 			</p>
@@ -39,7 +50,7 @@ templ TenantPlaques(v TenantPlaquesView) {
 		if len(v.Rows) > 0 {
 			<section class="docket" aria-labelledby="tenant-plaques">
 				<h2 id="tenant-plaques" class="docket-label">Plaques of this tenant</h2>
-				<ol class="mt-2">
+				<ol class="mt-3">
 					for _, r := range v.Rows {
 						@plaqueRow(r)
 					}
@@ -54,31 +65,33 @@ templ TenantPlaques(v TenantPlaquesView) {
 templ plaqueRow(r PlaqueRow) {
 	<li class="op-row">
 		<span class="font-mono font-bold">{ r.UID }</span>
-		@plaqueChip(r)
-		<span class="w-full text-sm">{ r.Sentence }</span>
-		if r.StoredStatus != "" {
-			<span class="text-sm">Stored status <span class="font-mono">{ r.StoredStatus }</span></span>
-		}
-		if r.LocationID == "" {
-			<span class="text-sm">No location</span>
-		} else if r.Location != "" {
-			<span class="text-sm">At <bdi>{ r.Location }</bdi></span>
-		} else {
-			<span class="text-sm">At an unnamed location <span class="break-all font-mono">{ r.LocationID }</span></span>
-		}
-		if r.EncodedAt != "" {
-			<span class="text-sm">Encoded <span class="font-mono">{ r.EncodedAt }</span></span>
-		} else {
-			<span class="text-sm">No encode recorded</span>
-		}
-		<span class="text-sm">Added <span class="font-mono">{ r.CreatedAt }</span></span>
-		if r.RetiredAt != "" {
-			<span class="text-sm">Retired <span class="font-mono">{ r.RetiredAt }</span></span>
-		}
-		if r.ReplacedBy != "" {
-			<span class="text-sm">Replaced by <span class="font-mono">{ r.ReplacedBy }</span></span>
-		}
-		<span class="text-sm">Counter <span class="font-mono">{ r.LastCtr }</span></span>
+		<div class="contents [overflow-wrap:anywhere] md:flex md:min-w-0 md:flex-wrap md:items-baseline md:gap-x-[22px] md:gap-y-1.5">
+			@plaqueChip(r)
+			<span class="w-full text-sm">{ r.Sentence }</span>
+			if r.StoredStatus != "" {
+				<span class="basis-full text-sm md:basis-auto">Stored status <span class="font-mono">{ r.StoredStatus }</span></span>
+			}
+			if r.LocationID == "" {
+				<span class="basis-full text-sm md:basis-auto">No location</span>
+			} else if r.Location != "" {
+				<span class="basis-full text-sm md:basis-auto">At <bdi>{ r.Location }</bdi></span>
+			} else {
+				<span class="basis-full text-sm md:basis-auto">At an unnamed location <span class="break-all font-mono">{ r.LocationID }</span></span>
+			}
+			if r.EncodedAt != "" {
+				<span class="basis-full text-sm md:basis-auto">Encoded <span class="font-mono">{ r.EncodedAt }</span></span>
+			} else {
+				<span class="basis-full text-sm md:basis-auto">No encode recorded</span>
+			}
+			<span class="basis-full text-sm md:basis-auto">Added <span class="font-mono">{ r.CreatedAt }</span></span>
+			if r.RetiredAt != "" {
+				<span class="basis-full text-sm md:basis-auto">Retired <span class="font-mono">{ r.RetiredAt }</span></span>
+			}
+			if r.ReplacedBy != "" {
+				<span class="basis-full text-sm md:basis-auto">Replaced by <span class="font-mono">{ r.ReplacedBy }</span></span>
+			}
+			<span class="basis-full text-sm md:basis-auto">Counter <span class="font-mono">{ r.LastCtr }</span></span>
+		</div>
 	</li>
 }
 

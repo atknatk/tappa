@@ -488,8 +488,10 @@ func TestLegalPublish_AFailedRefreshRedirectsAndTheScreenSaysThePageIsBehind(t *
 	}
 }
 
-// warnNotice is a ToneWarn components.Notice block and its contents.
-var warnNotice = regexp.MustCompile(`(?s)<section class="border-l-4 border-saffron[^"]*">(.*?)</section>`)
+// warnNotice is a warn-toned operator notice (operatorpages' opNotice, M13-03 -- the screen's own
+// box since it stopped using components.Notice) and its contents. The test above needs exactly one
+// on the behind page, so a pattern that found none would be red there, not blind.
+var warnNotice = regexp.MustCompile(`(?s)<section role="status" class="op-notice op-notice--warn">(.*?)</section>`)
 
 // liveHash is the hash of one of the fake's live sessions -- the publisher of a version a
 // test commits behind the screen's back.
@@ -839,11 +841,14 @@ func TestLegalScreen_ReopensOnPastedMarkupWithoutExecutingIt(t *testing.T) {
 
 // TestLegalScreen_TheTextClearsAA recomputes, from tailwind.config.js's palette, the
 // contrast of the legal screen's text colours on their grounds (WCAG 2.1 relative
-// luminance, sRGB; ink at 70% composited on its ground): ink on paper (the cards, the
-// docket, the list), ink at 70% on paper (the docket label, the status and help lines),
-// ink on green-lite (the Live chip), paper on tappa-green (the publish button), and the
-// behind warning's ink heading and ink-at-85% text on saffron-lite (components.Notice,
-// ToneWarn) -- each against AA's 4.5:1 (14px and smaller text is not large text).
+// luminance, sRGB; a translucent token composited on its ground): ink on paper (the cards,
+// the docket, the list, the text in its frame), ink at 70% on paper (the labels, the help,
+// the length of a version, the cap note), ink on green-lite (the Live chip), paper on
+// tappa-green (the publish button), and the behind warning's ink heading and ink-at-85%
+// text on saffron-lite (opNotice, ToneWarn since M13-03) -- and, since the redesign
+// (M13-14), ink at 75% on paper (the editor's state line), ink at 70% on ink at 4% over
+// paper (the TEXT label on its bar) and tappa-green on paper (the way back) -- each against
+// AA's 4.5:1 (14px and smaller text is not large text).
 func TestLegalScreen_TheTextClearsAA(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "..", "..", "tailwind.config.js"))
 	if err != nil {
@@ -882,6 +887,9 @@ func TestLegalScreen_TheTextClearsAA(t *testing.T) {
 		{"paper on tappa-green", paper, green},
 		{"ink on saffron-lite", ink, saffronLite},
 		{"ink at 85% on saffron-lite", over(ink, 0.85, saffronLite), saffronLite},
+		{"ink at 75% on paper (the state line)", over(ink, 0.75, paper), paper},
+		{"ink at 70% on ink at 4% over paper (the TEXT bar)", over(ink, 0.7, over(ink, 0.04, paper)), over(ink, 0.04, paper)},
+		{"tappa-green on paper (the way back)", green, paper},
 	} {
 		if got := contrast(c.fg, c.bg); got < 4.5 {
 			t.Errorf("%s = %.2f:1, want at least 4.5:1", c.what, got)

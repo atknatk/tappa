@@ -494,7 +494,23 @@ func TestSuspension_NothingIsWrittenWithoutTheBoxOrAKnownReason(t *testing.T) {
 		if got := g.store.count("SuspendTenant") + g.store.count("ReinstateTenant") - n; got != 0 {
 			t.Errorf("POST %s %v made %d write call(s), want none", path, f, got)
 		}
-		if strings.Contains(w.Body.String(), id.String()) || (len(strings.TrimSpace(posted)) > 2 && strings.Contains(w.Body.String(), html.EscapeString(posted))) {
+		// The posted value is looked for in the whole page but the operator nav (M13-01): the nav
+		// says aria-hidden="true" on its icons, constant markup that is no echo of a posted
+		// "true". Only <nav class="op-nav" ...>...</nav> is cut out; the title, the band and the
+		// page are searched.
+		body := w.Body.String()
+		withoutNav := body
+		if at := strings.Index(body, `<nav class="op-nav" aria-label="Operator sections">`); at >= 0 {
+			end := strings.Index(body[at:], "</nav>")
+			if end < 0 || strings.Count(body, "<nav") != 1 {
+				t.Errorf("POST %s %v: the refusal page's nav is not one closed element", path, f)
+			} else {
+				withoutNav = body[:at] + body[at+end+len("</nav>"):]
+			}
+		} else {
+			t.Errorf("POST %s %v: the signed-in refusal page has no operator nav", path, f)
+		}
+		if strings.Contains(body, id.String()) || (len(strings.TrimSpace(posted)) > 2 && strings.Contains(withoutNav, html.EscapeString(posted))) {
 			t.Errorf("POST %s %v: the refusal page carries the tenant's id or the posted value", path, f)
 		}
 	}

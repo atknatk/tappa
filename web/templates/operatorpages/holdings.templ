@@ -21,40 +21,55 @@ import (
 // Every form posts to a path the handler parses; the add form's one field is the business's id,
 // and each live membership has its own Remove button, whose path names the holding and the
 // business (the body carries nothing).
+//
+// THE REDESIGN (M13-13; docs/design/operator-redesign README §6 "Pager", §6.1 "Holdings",
+// screens.md §11, boards OpHoldings): the intro card -- the mono label, the h1 at the board's
+// 26 / 28 / 32 px, the intro and the way back -- then the create card under its 19 px heading,
+// the field and its button on one line from the tablet and the help under them; the cards space
+// their blocks and their bodies carry no top margin. On the docket each holding is a block
+// between dashed rules: its name with its id under it and the time it was created beside it
+// (under them on the phone), its memberships, and the add form in a dashed box of its own. A
+// membership is the boards' grid: the name and the chip, the business's id under them, the
+// timezone and the API code, the times, and Remove. Every element keeps the code's order in the
+// document; the place each takes is a rule in input.css scoped from the docket's heading id, and
+// so is the rule that breaks a name or an id with no space in it anywhere rather than widening
+// the page. Words are Space Grotesk, the values the code prints in the data face keep it. The
+// pager's links are drawn as outlined buttons. Pinned by
+// TestHoldingsScreen_IsTheCreateCardAndTheDocket and TestHoldingsDocket_TheScopedRulesKeepTheBoardsGrid.
 templ Holdings(v HoldingsView) {
-	@screen("Holdings", true) {
+	@screen("Holdings", true, navHoldings) {
 		<section class="op-card">
-			<p class="docket-label">Holdings</p>
-			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Holdings</h1>
-			<p class="mt-3 text-sm">
+			<p class="op-label">Holdings</p>
+			<h1 class="font-display text-[26px] font-bold leading-[1.1] tracking-[-0.03em] md:text-[28px] desk:text-[32px]">Holdings</h1>
+			<p class="text-[15px] leading-[1.55]">
 				A holding groups businesses that work in one timezone; while a business is in one, and for 60
 				seconds after it leaves, its owner cannot change its timezone. Only this screen changes who is
 				in a holding.
 			</p>
-			<p class="mt-2 text-sm">
+			<p class="text-sm">
 				<a href="/operator" class="op-link">Back to the console</a>
 			</p>
 		</section>
 		@holdingNotice(v)
 		<section class="op-card" aria-labelledby="holding-create">
-			<h2 id="holding-create" class="docket-label">Create a holding</h2>
-			<form method="post" action="/operator/holdings" class="mt-4 flex flex-col gap-3">
-				<label for="holding-name" class="docket-label">Name</label>
-				<input id="holding-name" type="text" name="name" maxlength="120" required autocomplete="off" spellcheck="false" class="op-input"/>
-				<p class="text-xs text-ink/70">One line of at most 120 characters. The new holding has no business in it yet.</p>
-				<button type="submit" class="btn btn--primary">Create</button>
+			<h2 id="holding-create" class="op-heading">Create a holding</h2>
+			<form method="post" action="/operator/holdings" class="flex flex-wrap gap-x-2.5 gap-y-1.5">
+				<label for="holding-name" class="op-label basis-full">Name</label>
+				<input id="holding-name" type="text" name="name" maxlength="120" required autocomplete="off" spellcheck="false" class="op-input min-w-0 max-w-[520px] flex-[1_1_240px]"/>
+				<p class="order-last basis-full text-xs text-ink/70">One line of at most 120 characters. The new holding has no business in it yet.</p>
+				<button type="submit" class="btn btn--primary max-md:basis-full">Create</button>
 			</form>
 		</section>
 		<section class="docket" aria-labelledby="holding-list">
 			<h2 id="holding-list" class="docket-label">Newest first · page <span class="font-mono">{ strconv.Itoa(v.Page) }</span></h2>
 			if len(v.Holdings) == 0 {
 				if v.Page > 1 {
-					<p class="mt-2">This page is empty: the list ended on the page before.</p>
+					<p class="pt-[22px] pb-2 font-display text-[15px] leading-normal">This page is empty: the list ended on the page before.</p>
 				} else {
-					<p class="mt-2">There are no holdings yet.</p>
+					<p class="pt-[22px] pb-2 font-display text-[15px] leading-normal">There are no holdings yet.</p>
 				}
 			} else {
-				<ol class="mt-2 flex flex-col gap-6">
+				<ol>
 					for _, h := range v.Holdings {
 						@holdingEntry(h)
 					}
@@ -70,14 +85,14 @@ templ Holdings(v HoldingsView) {
 templ holdingNotice(v HoldingsView) {
 	switch v.NoticeTone {
 		case HoldingNoticeOK:
-			@components.Notice(components.ToneOK, v.NoticeHeading) {
+			@opNotice(components.ToneOK, v.NoticeHeading) {
 				<p>{ v.Notice }</p>
 			}
 		case HoldingNoticeWarn:
-			@components.Notice(components.ToneWarn, v.NoticeHeading) {
+			@opNotice(components.ToneWarn, v.NoticeHeading) {
 				<p>{ v.Notice }</p>
 				if len(v.NoticeRules) > 0 {
-					<ul class="mt-2 flex flex-col gap-1">
+					<ul class="mt-1 list-disc pl-5">
 						for _, rule := range v.NoticeRules {
 							<li>{ rule }</li>
 						}
@@ -88,23 +103,23 @@ templ holdingNotice(v HoldingsView) {
 }
 
 // holdingEntry is one holding: its name, id and creation time, its memberships, and the form that
-// adds a business to it.
+// adds a business to it. The block's layout is input.css's, scoped from the docket's heading id.
 templ holdingEntry(h HoldingView) {
-	<li class="flex flex-col gap-2">
-		<p class="font-display text-lg font-bold tracking-tight">
+	<li>
+		<p class="font-display text-[21px] font-bold leading-[1.2] tracking-[-0.02em]">
 			if h.Name == "" {
 				<span class="italic">Unnamed holding</span>
 			} else {
 				<bdi>{ h.Name }</bdi>
 			}
 		</p>
-		<p class="text-sm">Created <span class="font-mono">{ h.CreatedAt }</span></p>
+		<p class="font-display text-sm text-ink/70">Created <span class="font-mono font-bold text-ink">{ h.CreatedAt }</span></p>
 		<p class="break-all text-xs text-ink/70">{ h.ID }</p>
 		if h.ContinuedFromBefore {
-			<p class="text-sm">Its first memberships are on the page before.</p>
+			<p class="font-display text-sm leading-normal">Its first memberships are on the page before.</p>
 		}
 		if len(h.Members) == 0 {
-			<p class="text-sm">No business has been in this holding.</p>
+			<p class="font-display text-sm leading-normal">No business has been in this holding.</p>
 		} else {
 			<ol>
 				for _, m := range h.Members {
@@ -113,45 +128,53 @@ templ holdingEntry(h HoldingView) {
 			</ol>
 		}
 		if h.ContinuesAfter {
-			<p class="text-sm">More of its memberships are on the next page.</p>
+			<p class="font-display text-sm leading-normal">More of its memberships are on the next page.</p>
 		}
-		<form method="post" action={ templ.URL(h.MembersPath) } class="flex flex-col gap-2">
-			<label for={ "holding-add-" + h.ID } class="docket-label">Add a business</label>
-			<input id={ "holding-add-" + h.ID } type="text" name="tenant_id" maxlength="64" required autocomplete="off" spellcheck="false" class="op-input"/>
-			<p class="text-xs text-ink/70">The business's id, from its overview. It must work in the timezone of every member.</p>
-			<button type="submit" class="btn btn--primary">Add</button>
+		<form method="post" action={ templ.URL(h.MembersPath) } class="flex flex-wrap gap-x-2.5 gap-y-1.5 rounded-xl border border-dashed border-line bg-ink/[.03] p-3.5 md:px-4">
+			<label for={ "holding-add-" + h.ID } class="op-label basis-full">Add a business</label>
+			<input id={ "holding-add-" + h.ID } type="text" name="tenant_id" maxlength="64" required autocomplete="off" spellcheck="false" class="op-input min-w-0 max-w-[440px] flex-[1_1_240px]"/>
+			<p class="order-last basis-full font-display text-xs text-ink/70">The business's id, from its overview. It must work in the timezone of every member.</p>
+			<button type="submit" class="btn btn--primary max-md:basis-full">Add</button>
 		</form>
 	</li>
 }
 
 // holdingMember is one membership on the docket: the business (its overview a link), a chip saying
 // whether the membership is live or ended, the timezone and API code, the times, the business's
-// id and -- live only -- its Remove button.
+// id and -- live only -- its Remove button. The name and the chip, the timezone and the API code,
+// and the times are each a block of their own, in the code's order; where each block, the id and
+// the button stand is input.css's, scoped from the docket's heading id.
 templ holdingMember(m HoldingMemberView) {
 	<li class="op-row">
-		<a href={ templ.URL(m.TenantPath) } class="op-link">
-			if m.Name == "" {
-				<span class="italic">{ unnamedTenant }</span>
+		<div class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[15px] leading-snug">
+			<a href={ templ.URL(m.TenantPath) } class="op-link">
+				if m.Name == "" {
+					<span class="italic">{ unnamedTenant }</span>
+				} else {
+					<bdi>{ m.Name }</bdi>
+				}
+			</a>
+			if m.Live {
+				<span class="tally tally--active">Live</span>
 			} else {
-				<bdi>{ m.Name }</bdi>
+				<span class="tally tally--deactivated">Ended</span>
 			}
-		</a>
-		if m.Live {
-			<span class="tally tally--active">Live</span>
-		} else {
-			<span class="tally tally--deactivated">Ended</span>
-		}
-		<span class="text-sm">Timezone <span class="font-mono">{ m.Timezone }</span></span>
-		if m.APICode == "" {
-			<span class="text-sm">No API code</span>
-		} else {
-			<span class="text-sm">API code <span class="font-mono">{ m.APICode }</span></span>
-		}
-		<span class="text-sm">Joined <span class="font-mono">{ m.JoinedAt }</span></span>
-		if !m.Live {
-			<span class="text-sm">Left <span class="font-mono">{ m.LeftAt }</span></span>
-		}
-		<span class="w-full break-all text-xs text-ink/70">{ m.TenantID }</span>
+		</div>
+		<div class="flex flex-col gap-px">
+			<span class="font-display text-sm text-ink/70">Timezone <span class="font-mono">{ m.Timezone }</span></span>
+			if m.APICode == "" {
+				<span class="font-display text-sm text-ink/70">No API code</span>
+			} else {
+				<span class="font-display text-sm text-ink/70">API code <span class="font-mono">{ m.APICode }</span></span>
+			}
+		</div>
+		<div class="flex flex-col gap-px">
+			<span class="font-display text-sm text-ink/70">Joined <span class="font-mono">{ m.JoinedAt }</span></span>
+			if !m.Live {
+				<span class="font-display text-sm text-ink/70">Left <span class="font-mono">{ m.LeftAt }</span></span>
+			}
+		</div>
+		<span class="break-all text-xs text-ink/70">{ m.TenantID }</span>
 		if m.Live {
 			<form method="post" action={ templ.URL(m.RemovePath) }>
 				<button type="submit" class="btn btn--quiet">Remove</button>
@@ -161,15 +184,16 @@ templ holdingMember(m HoldingMemberView) {
 }
 
 // holdingPager is the way to the page before and after this one -- links, each a page number in
-// the URL (a page number is not personal data, unlike the tenant search's term).
+// the URL (a page number is not personal data, unlike the tenant search's term), drawn as the
+// outlined pager buttons; on the phone each grows from nothing, half the row each where both fit.
 templ holdingPager(v HoldingsView) {
 	if v.Page > 1 || v.HasNext {
-		<nav class="flex flex-wrap items-center gap-x-6" aria-label="Pages of the list">
+		<nav class="flex flex-wrap gap-2.5 md:gap-3 max-md:*:flex-1" aria-label="Pages of the list">
 			if v.Page > 1 {
-				<a href={ templ.URL("/operator/holdings?page=" + strconv.Itoa(v.Page-1)) } class="op-link">Previous page</a>
+				<a href={ templ.URL("/operator/holdings?page=" + strconv.Itoa(v.Page-1)) } class="op-pager">Previous page</a>
 			}
 			if v.HasNext {
-				<a href={ templ.URL("/operator/holdings?page=" + strconv.Itoa(v.Page+1)) } class="op-link">Next page</a>
+				<a href={ templ.URL("/operator/holdings?page=" + strconv.Itoa(v.Page+1)) } class="op-pager">Next page</a>
 			}
 		</nav>
 	}

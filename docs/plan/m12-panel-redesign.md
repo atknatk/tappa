@@ -71,7 +71,7 @@ adları (`ip`, `gps`, `lat`, `addr`, `code`, `key` …) · saat/para float'sız 
 | M12-06 | P1 | Signup boş giriş href'i geçiyor | yapıcı | — |
 | M12-07 | P1 | Signup 3. adım "yöneticilerini sonra davet et" diyor | yapıcı | — |
 | M12-50 | P1 | Rules: iki guardrail cümlesi pencereyi "yours to set" diye vaat ediyor (backlog T72) | yapıcı | — |
-| M12-52 | P1 | `.tally--pill` çip ton-kuralı okuyucusunu kırıyordu — ✅ **ad değişikliği kodda** (`5524505` + `00ca1e6`: `.pill-tally`; test yeşil); kalan: biçim-yardımcısı mutasyon kontrolü — M13-02'nin ön koşulu | yapıcı (`tappa-brand`) | — |
+| M12-52 | P1 | `.tally--pill` çip ton-kuralı okuyucusunu kırıyordu — ✅ **ad değişikliği kodda** (`5524505` + `00ca1e6`: `.pill-tally`; test yeşil); kalan biçim-yardımcısı mutasyon kontrolü **M13-02'nin kabulüne taşındı** (orkestratör onayı, 2026-10-25); bu kart M13-02'yi bloke etmez | yapıcı (`tappa-brand`) | — |
 | M12-08 | P2 | Token / tarif katmanı (`input.css`) + kova yardımcıları + dokunma hedefleri | yapıcı (`tappa-brand`) | M12-01 |
 | M12-09 | P2 | `PanelNotice` + `PanelEmpty`; `EmptyState` çağıranları | yapıcı (`tappa-brand`) | M12-08 |
 | M12-10 | P2 | `PanelProblem` + `renderProblem` geçişi | yapıcı + güvenlik | M12-08 |
@@ -325,6 +325,10 @@ kaldırıldı).
 
 > Numara sıradaki boş ID'dir (ID'ler yeniden kullanılmaz); içerik olarak bir **P1 kusuru**dur — M12-08'in
 > (`2afa9db`) bıraktığı kırmızı bir test — ve operatör kartı M13-02'den önce koşar.
+>
+> **Not (2026-10-25, M13 OP-15 eki):** ad değişikliği M12 ile canlıda; aşağıdaki **kalan** KONTROL
+> (biçim yardımcısı mutasyonu) testte hâlâ yok ve **M13-02'nin kabulüne taşındı** (orkestratör onayı) —
+> [m13-operator-redesign.md → M13-02](m13-operator-redesign.md). Bu kart artık M13-02'nin ön koşulu değildir.
 >
 > **Yol (a) kodda:** `5524505` (`fix(panel): name the pill tally a shape, not a tone`, `.tally-pill`) +
 > `00ca1e6` (`.pill-tally` — `.tally-pill` de `.tally` ile başladığı için okuyucuya takılıyordu);

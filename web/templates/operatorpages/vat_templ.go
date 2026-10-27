@@ -26,6 +26,18 @@ import "github.com/atknatk/tappa/web/templates/components"
 // the number could not be sent, the session's VIES budget -- answers with this same screen and
 // a notice above the record saying that nothing was changed; a POST whose answer was recorded
 // answers with a redirect to this screen, which reads the record again.
+//
+// THE REDESIGN (M13-11; docs/design/operator-redesign README §6.1 "VAT On file", screens.md §9,
+// boards OpVat): one card -- the mono label, the h1 at the board's 28 px at every width, the
+// intro and the two links, stacked on the phone and in a row from the tablet; the card spaces its
+// blocks, its bodies carry no top margin -- then the notice, the record on the docket and the
+// card that asks again. On the docket the number and the verdict stand side by side from the
+// tablet, the number's column as wide as the number and never wider than the row leaves beside
+// the whole chip (a long number breaks, the chip keeps its word on one line), and one above the
+// other on the phone; the sentence and the time line are set in Space Grotesk, the
+// time in the data face. The asking card's sentence and its one button share a row from the
+// tablet; on the phone the button takes the card's width. Pinned by
+// TestVATScreen_IsTheIntroCardTheRecordAndTheAsking.
 func TenantVAT(v TenantVATView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -59,7 +71,7 @@ func TenantVAT(v TenantVATView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><p class=\"docket-label\">VAT number</p><h1 class=\"mt-1 font-display text-2xl font-bold tracking-tight\">VAT re-check</h1><p class=\"mt-3 text-sm\">The VAT number this business registered with, and the answer of the EU VAT register (VIES) on file for it.</p><p class=\"mt-2 flex flex-wrap gap-x-6\"><a href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><p class=\"op-label\">VAT number</p><h1 class=\"font-display text-[28px] font-bold leading-[1.1] tracking-[-0.03em]\">VAT re-check</h1><p class=\"text-sm\">The VAT number this business registered with, and the answer of the EU VAT register (VIES) on file for it.</p><p class=\"flex flex-col items-start text-sm md:flex-row md:flex-wrap md:gap-x-6\"><a href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -92,7 +104,7 @@ func TenantVAT(v TenantVATView) templ.Component {
 					var templ_7745c5c3_Var5 string
 					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(v.Notice)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 36, Col: 17}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 48, Col: 17}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 					if templ_7745c5c3_Err != nil {
@@ -104,25 +116,25 @@ func TenantVAT(v TenantVATView) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = components.Notice(components.ToneWarn, v.NoticeHeading).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = opNotice(components.ToneWarn, v.NoticeHeading).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, " <section class=\"docket\" aria-labelledby=\"tenant-vat\"><h2 id=\"tenant-vat\" class=\"docket-label\">On file</h2><dl class=\"mt-3 flex flex-col gap-3\"><div><dt class=\"docket-label\">VAT number</dt><dd class=\"mt-1 break-all font-mono text-lg font-bold\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, " <section class=\"docket\" aria-labelledby=\"tenant-vat\"><h2 id=\"tenant-vat\" class=\"docket-label\">On file</h2><dl class=\"mt-3 flex flex-col gap-3 md:grid md:grid-cols-[minmax(0,max-content)_minmax(max-content,1fr)] md:gap-x-14\"><div><dt class=\"docket-label\">VAT number</dt><dd class=\"mt-1 break-all font-mono text-lg font-bold\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.Number)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 44, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 56, Col: 70}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</dd></div><div><dt class=\"docket-label\">VIES answer</dt><dd class=\"mt-1\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</dd></div><div><dt class=\"docket-label\">VIES answer</dt><dd class=\"mt-1.5\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -130,14 +142,14 @@ func TenantVAT(v TenantVATView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</dd></div></dl><p class=\"mt-3 text-sm\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</dd></div></dl><p class=\"mt-3 font-display\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(v.Sentence)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 53, Col: 39}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 65, Col: 44}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
@@ -148,14 +160,14 @@ func TenantVAT(v TenantVATView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if v.AskedAt != "" && v.Answered {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<p class=\"mt-2 text-sm\">Last answer <span class=\"font-mono\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<p class=\"mt-2 font-display text-ink/70\">Last answer <span class=\"font-mono\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var8 string
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(v.AskedAt)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 55, Col: 75}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 67, Col: 92}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 				if templ_7745c5c3_Err != nil {
@@ -166,14 +178,14 @@ func TenantVAT(v TenantVATView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			} else if v.AskedAt != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<p class=\"mt-2 text-sm\">Asked <span class=\"font-mono\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<p class=\"mt-2 font-display text-ink/70\">Asked <span class=\"font-mono\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(v.AskedAt)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 57, Col: 69}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 69, Col: 86}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
@@ -184,7 +196,7 @@ func TenantVAT(v TenantVATView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<p class=\"mt-2 text-sm\">No time of asking is on file.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<p class=\"mt-2 font-display text-ink/70\">No time of asking is on file.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -194,7 +206,7 @@ func TenantVAT(v TenantVATView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if v.Askable {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<p class=\"mt-2 text-sm\">Sends the number above to VIES now. If VIES answers, its answer replaces the one on file and is written to this tenant's own audit log; if it does not answer, nothing changes.</p><form method=\"post\" action=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<div class=\"flex flex-col gap-3.5 md:flex-row md:items-center md:gap-6\"><p class=\"text-sm md:max-w-[560px]\">Sends the number above to VIES now. If VIES answers, its answer replaces the one on file and is written to this tenant's own audit log; if it does not answer, nothing changes.</p><form method=\"post\" action=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -203,12 +215,12 @@ func TenantVAT(v TenantVATView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "\" class=\"mt-4\"><button type=\"submit\" class=\"btn btn--primary\">Ask VIES again</button></form>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "\" class=\"flex flex-col md:ml-auto md:block md:shrink-0\"><button type=\"submit\" class=\"btn btn--primary\">Ask VIES again</button></form></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<p class=\"mt-2 text-sm\">This number is not in the format VIES accepts for its country, so it cannot be sent from here. Only the platform owner can correct it, in the database.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<p class=\"text-sm\">This number is not in the format VIES accepts for its country, so it cannot be sent from here. Only the platform owner can correct it, in the database.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -219,7 +231,7 @@ func TenantVAT(v TenantVATView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = TenantScreen("VAT number", v.Name).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = TenantScreen("VAT number", v.Name, v.Tabs, TabVAT).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -259,7 +271,7 @@ func vatChip(v TenantVATView) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(v.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 86, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 100, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
@@ -277,7 +289,7 @@ func vatChip(v TenantVATView) templ.Component {
 			var templ_7745c5c3_Var13 string
 			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(v.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 88, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 102, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 			if templ_7745c5c3_Err != nil {
@@ -295,7 +307,7 @@ func vatChip(v TenantVATView) templ.Component {
 			var templ_7745c5c3_Var14 string
 			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(v.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 90, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 104, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 			if templ_7745c5c3_Err != nil {
@@ -313,7 +325,7 @@ func vatChip(v TenantVATView) templ.Component {
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(v.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 92, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 106, Col: 55}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 			if templ_7745c5c3_Err != nil {
@@ -331,7 +343,7 @@ func vatChip(v TenantVATView) templ.Component {
 			var templ_7745c5c3_Var16 string
 			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(v.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 94, Col: 52}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/vat.templ`, Line: 108, Col: 52}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 			if templ_7745c5c3_Err != nil {
