@@ -99,7 +99,7 @@ func NewSignupClaims(data SignupClaimDatabase, cfg *config.Config) (*SignupClaim
 }
 
 // ClaimGrant is a draft just opened: the token for the link (it cannot print itself), the address the
-// link goes to and when it dies. KnownAddress says the address has an identity -- it picks the letter
+// link goes to (claimRecipient: a known address's REGISTERED spelling) and when it dies. KnownAddress says the address has an identity -- it picks the letter
 // ("someone started a registration with this address: sign in and claim it") and NOTHING else: the
 // response, its timing and every log line are the same for both (R18).
 type ClaimGrant struct {
@@ -135,7 +135,7 @@ func (s *SignupClaims) Open(ctx context.Context, email, password string, draft [
 	if err != nil {
 		return ClaimGrant{}, fmt.Errorf("adminauth: open signup claim: %w", err)
 	}
-	known, err := s.knownAddress(ctx, email)
+	ident, known, err := s.identityOf(ctx, email)
 	if err != nil {
 		return ClaimGrant{}, fmt.Errorf("adminauth: open signup claim: %w", err)
 	}
@@ -144,19 +144,35 @@ func (s *SignupClaims) Open(ctx context.Context, email, password string, draft [
 	if err != nil {
 		return ClaimGrant{}, fmt.Errorf("adminauth: open signup claim: %w", err)
 	}
-	return ClaimGrant{ClaimID: id, Token: t, Recipient: email, ExpiresAt: expires, KnownAddress: known}, nil
+	return ClaimGrant{ClaimID: id, Token: t, Recipient: signupRecipientOf(email, ident, known).address, ExpiresAt: expires,
+		KnownAddress: known}, nil
 }
 
-// knownAddress reports whether an identity carries email.
-func (s *SignupClaims) knownAddress(ctx context.Context, email string) (bool, error) {
-	_, err := s.data.ResolveIdentityByEmail(ctx, email)
+// signupRecipient is the address a draft's letter goes to (M14-17's audit; M14-14's identityRecipient
+// rule): for a known address the identity's REGISTERED spelling -- a column of the same resolver row
+// that said "known" -- never the visitor's typing, which is equal under citext and not byte for byte;
+// for a new address the typed address, which is what the draft stores and the identity will be born
+// with. Its one constructor is signupRecipientOf. The response and its timing do not depend on it.
+type signupRecipient struct{ address string }
+
+// signupRecipientOf is signupRecipient's only constructor.
+func signupRecipientOf(typed string, ident db.ResolvedIdentity, known bool) signupRecipient {
+	if known {
+		return signupRecipient{address: ident.Email}
+	}
+	return signupRecipient{address: typed}
+}
+
+// identityOf resolves email to its identity, reporting whether there is one.
+func (s *SignupClaims) identityOf(ctx context.Context, email string) (db.ResolvedIdentity, bool, error) {
+	r, err := s.data.ResolveIdentityByEmail(ctx, email)
 	switch {
 	case err == nil:
-		return true, nil
+		return r, true, nil
 	case errors.Is(err, pgx.ErrNoRows):
-		return false, nil
+		return db.ResolvedIdentity{}, false, nil
 	}
-	return false, err
+	return db.ResolvedIdentity{}, false, err
 }
 
 // SignupClaim is a draft its link resolved to. Only the link's holder ever sees one.
@@ -194,7 +210,7 @@ func (s *SignupClaims) Resolve(ctx context.Context, t ResetToken) (SignupClaim, 
 	if err != nil {
 		return SignupClaim{}, fmt.Errorf("adminauth: resolve signup claim: %w", err)
 	}
-	known, err := s.knownAddress(ctx, r.Email)
+	_, known, err := s.identityOf(ctx, r.Email)
 	if err != nil {
 		return SignupClaim{}, fmt.Errorf("adminauth: resolve signup claim: %w", err)
 	}

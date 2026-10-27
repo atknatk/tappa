@@ -526,3 +526,27 @@ func (d *wizardDriver) finishAfterWalk(t *testing.T) *httptest.ResponseRecorder 
 	d.post(signupAccountPath, accountForm(csrf))
 	return d.finish(t)
 }
+
+// TestSignupConfirm_ARefusedClaimClearsTheLinkCookie (the cookie notice: "cleared as soon as the
+// registration is finished or the link is refused"): identity_claim_signup's refusal answers the
+// refusal page AND expires tappa_signup_claim.
+//
+// MUTATION (measured): the clear removed from the ErrClaimRefused branch -> red.
+func TestSignupConfirm_ARefusedClaimClearsTheLinkCookie(t *testing.T) {
+	p := &fakeProvisioner{err: signup.ErrClaimRefused}
+	d, _ := newSignupDriver(t, p, nil)
+	confirmWalk(t, d)
+	res := d.finishFromLink(t)
+	if res.Code != http.StatusConflict {
+		t.Fatalf("a refused claim = %d, want 409", res.Code)
+	}
+	cleared := false
+	for _, c := range res.Result().Cookies() {
+		if c.Name == signupConfirmCookieName && c.MaxAge < 0 && c.Path == signupConfirmPath {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatal("the refused claim left the registration link's cookie in the browser")
+	}
+}

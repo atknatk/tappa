@@ -38,6 +38,7 @@ import (
 func signupTestConfig() *config.Config {
 	return &config.Config{
 		Env:            config.EnvDev,
+		EnvExplicit:    true,
 		BaseURL:        testBaseURL,
 		SessionHMACKey: []byte("0123456789abcdef0123456789abcdef"),
 	}

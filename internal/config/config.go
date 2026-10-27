@@ -287,6 +287,11 @@ type Config struct {
 	// TAPPA_BASE_URL to localhost, so those two alone are not a gate).
 	DevTools bool
 
+	// EnvExplicit reports that TAPPA_ENV was SET, not defaulted: an unset TAPPA_ENV falls back to dev,
+	// so dev alone is not a gate for anything that must never reach production
+	// (RegistrationLinksOnScreen, M14-17's audit -- the DevTools rule's reason).
+	EnvExplicit bool
+
 	// LogFormat is "text" or "json" and it is a DEPLOYMENT decision rather than a
 	// taste, because the two readers of this process's output want opposite things
 	// (M8-03, measured on the live cluster 2026-08-19).
@@ -309,10 +314,11 @@ type Config struct {
 func Load() (*Config, error) {
 	rawEnv := os.Getenv("TAPPA_ENV")
 	c := &Config{
-		Env:      envDefault(rawEnv, sandboxBuild),
-		Addr:     env("TAPPA_ADDR", ":8080"),
-		BaseURL:  env("TAPPA_BASE_URL", "http://localhost:8080"),
-		LogLevel: env("TAPPA_LOG_LEVEL", "info"),
+		Env:         envDefault(rawEnv, sandboxBuild),
+		EnvExplicit: rawEnv != "",
+		Addr:        env("TAPPA_ADDR", ":8080"),
+		BaseURL:     env("TAPPA_BASE_URL", "http://localhost:8080"),
+		LogLevel:    env("TAPPA_LOG_LEVEL", "info"),
 		// 🔴 UNLIKE TAPPA_LOG_LEVEL, A TYPO HERE IS A STARTUP FAILURE. parseLevel
 		// falls back to info on an unparseable level, which is the right shape for a
 		// verbosity knob. It is the WRONG shape here: TAPPA_LOG_FORMAT=jsn would
@@ -717,10 +723,15 @@ func (c *Config) IsHardened() bool { return c.Env == EnvProd || c.Env == EnvSand
 // RegistrationLinksOnScreen reports whether a registration's verification link is shown on the
 // wizard's "Check your inbox" page instead of being e-mailed (M14-17, the user's decision of
 // 2026-10-26; ADR 0031 §5.10, ADR 0028 §11): only where no e-mail is sent (TAPPA_RESET_DELIVERY=none)
-// AND the installation is a development or a sandbox one -- data there is not a customer's. With no
-// e-mail anywhere else the wizard takes no registrations; production never shows a link.
+// AND the installation is a sandbox one or an EXPLICITLY declared development one -- data there is
+// not a customer's. TAPPA_ENV unset falls back to dev and an unset delivery to none, so a pod missing
+// both must not show links (M14-17's audit; DevTools' rule). With no e-mail anywhere else the wizard
+// takes no registrations; production never shows a link.
 func (c *Config) RegistrationLinksOnScreen() bool {
-	return c.ResetDelivery != ResetDeliveryEmail && (c.Env == EnvDev || c.Env == EnvSandbox)
+	if c.ResetDelivery == ResetDeliveryEmail {
+		return false
+	}
+	return c.Env == EnvSandbox || (c.Env == EnvDev && c.EnvExplicit)
 }
 
 // retentionYearsMin / retentionYearsMax bound TAPPA_RETENTION_YEARS.

@@ -679,3 +679,68 @@ func TestIdentityClaimSignup_AClaimRowIsOutOfFirstVerifyAndInReset(t *testing.T)
 		}
 	})
 }
+
+// TestIdentity00078_DownKeepsTheSharedGrant is the shared-grant rule (M14-17's audit, ORTA-1): 00077
+// (M14-15) and 00078 both give tappa_identitydefiner admin_users INSERT on the owner row's columns, and a
+// column privilege is not reference-counted -- so 00078's Down must leave the grant while an invite
+// function (identity_accept_invite / identity_accept_invite_new) still needs it, and take it when none does.
+// In the test's transaction (rolled back), 00078's Down run whole:
+//
+//	CONTROL     both invite functions absent (dropped in a savepoint when 00077 is applied) -> the grant goes;
+//	STUB        a stand-in identity_accept_invite(text,text) present -> the grant stays (runs on any tree);
+//	THE REAL    00077 applied -> the grant stays. SKIPPED ONLY WHILE identity_accept_invite IS ABSENT (this
+//	            branch before 00077 is merged); after the merge it runs.
+//
+// MUTATION (measured): the Down's guard removed (an unconditional REVOKE) -> STUB red.
+func TestIdentity00078_DownKeepsTheSharedGrant(t *testing.T) {
+	ctx, tx := opTx(t)
+	_, down := opMigrationSections(t, "00078_verify_signups_by_e_mail.sql")
+	if tables := downTables(down); len(tables) > 0 {
+		lockForDowns(t, ctx, tx, tables)
+	}
+	held := func(q pgx.Tx) bool {
+		var ok bool
+		if err := q.QueryRow(ctx, `SELECT bool_and(has_column_privilege('tappa_identitydefiner', 'public.admin_users', c, 'INSERT'))
+		                             FROM unnest(ARRAY['tenant_id','full_name','email','password_hash','role','identity_id','linked_via','linked_at']) AS c`).Scan(&ok); err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	if !held(tx) {
+		t.Fatal("PREMISE: the definer does not hold the owner row's INSERT")
+	}
+	inviteApplied := opInt(t, ctx, tx, `SELECT count(*) FROM pg_proc WHERE oid = to_regprocedure('public.identity_accept_invite(text,text)')`) == 1
+
+	t.Run("control: no invite function -> the grant goes", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			aiExec(t, ctx, sp, `DROP FUNCTION IF EXISTS public.identity_accept_invite(text, text)`)
+			aiExec(t, ctx, sp, `DROP FUNCTION IF EXISTS public.identity_accept_invite_new(text, text)`)
+			opRunSection(t, ctx, sp, down, "00078 Down")
+			if held(sp) {
+				t.Fatal("with no invite function the Down left the grant behind")
+			}
+		})
+	})
+	t.Run("stub: an invite function -> the grant stays", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			if !inviteApplied {
+				aiExec(t, ctx, sp, `CREATE FUNCTION public.identity_accept_invite(p_invite_hash text, p_session_hash text) RETURNS void LANGUAGE sql AS 'SELECT'`)
+			}
+			opRunSection(t, ctx, sp, down, "00078 Down")
+			if !held(sp) {
+				t.Fatal("the Down took the grant an invite function still needs")
+			}
+		})
+	})
+	t.Run("the real 00077", func(t *testing.T) {
+		if !inviteApplied {
+			t.Skip("identity_accept_invite is absent: 00077 (M14-15) is not on this tree yet -- this branch runs after the merge")
+		}
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			opRunSection(t, ctx, sp, down, "00078 Down")
+			if !held(sp) {
+				t.Fatal("00078's Down broke identity_accept_invite*'s grant while 00077 stays applied")
+			}
+		})
+	})
+}

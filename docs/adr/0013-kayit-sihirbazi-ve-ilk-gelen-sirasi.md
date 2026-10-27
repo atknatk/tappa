@@ -397,6 +397,7 @@ o güne dek eski kol bugünkü korumalarıyla sürer (ADR 0031 §7):
   sırası (`resolve_admin_by_email`'in `ORDER BY a.created_at, a.tenant_id`'si) contract'a dek aynen
   kalır (M14-05'in yeniden tanımı incumbent-first sırayı korur) ve fonksiyon contract B'de düşer
   (ADR 0031 §8 adım 8.3).
+- **`signInBlocked` erken emekli (2026-10-27, M14-17):** contract yerine M14-17'de emekli oldu (kayıt artık kimlik yoluyla ve posta kutusu kanıtıyla biter; bir adres en çok bir kimliğe çözülür). Bedeli: bayrak kapalıyken, tek adreste 8 ya da daha çok satırı olan bir kişi yeni işletmeye eski kol üzerinden ulaşamayabilir (o kol karşılaştırma penceresini hâlâ okur).
 - **Kabul edilen risk 3** (*"daha önce kaydolmuş saldırgan"*): ADR 0031 §5.8'in onay penceresi
   (çözülen satıra nöbetçi digest + `unlinked_at`) bunu kapatır; kayıt da doğrulama tıklamasından önce
   hiçbir şey doğurmaz (ADR 0031 §5.10, K-9).

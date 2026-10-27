@@ -725,7 +725,7 @@ biçiminde) (bulgu 11, 32). `signInBlocked` kimlik yolunda emekli.
 **Teslim notu (2026-10-26 kullanıcı kararı — S2 "Dev/sandbox'ta linki göster"; uygulama M14-17):**
 doğrulama linki `TAPPA_RESET_DELIVERY=email` iken posta ile gider — her gönderim **tek kesiciden**
 geçer, alıcı başına tavan `mail.RecipientCap` (`scope="signup"`, posta kutusu başına saatte 5 / günde 20;
-davet yoluyla aynı tek tavan örneği). Teslim `none` **ve** `TAPPA_ENV ∈ {dev, sandbox}` ise link *"Check
+davet yoluyla aynı tek tavan örneği). Teslim `none` **ve** kurulum sandbox ya da **açıkça** `TAPPA_ENV=dev` ise (boş `TAPPA_ENV`'nin dev'e düşmesi sayılmaz — M14-17 denetimi) link *"Check
 your inbox"* ekranında gösterilir (davetin `panel` modu gibi; `config.RegistrationLinksOnScreen`).
 Prod'da (ve staging'de) `none` ise sihirbaz bu kurulumun kayıt almadığını söyler (her adımda 503). Onay
 sayfası `/admin/signup/confirm`'dadır: var olan kimliğin kanıtı panel oturumudur ve panel çerezinin
@@ -1001,6 +1001,7 @@ kalabalıklaştırma kanalları emekli; parola/sıfırlama/"her yerden çık" te
 giriş kolu (contract'a dek); iki contract deploy'u; kayıt akışına e-posta doğrulaması.
 
 **Kabul edilen riskler:**
+- **`signInBlocked` erken emekli (2026-10-27, M14-17):** contract yerine M14-17'de emekli oldu (kayıt artık kimlik yoluyla ve posta kutusu kanıtıyla biter; bir adres en çok bir kimliğe çözülür). Bedeli: bayrak kapalıyken, tek adreste 8 ya da daha çok satırı olan bir kişi yeni işletmeye eski kol üzerinden ulaşamayabilir (o kol karşılaştırma penceresini hâlâ okur).
 - **Çalınan çerezin etki alanı büyür** (bulgu 14): bugün bir panel çerezi tek işletmeye açılır;
   M14'te kişinin bütün işletmelerine geçebilir. Geçiş `authenticated_at`'i taşır (yenilemez), ama
   oturumun sunucu tarafı mutlak ömrü yoktur (`cookie.go:57-75`) — backlog maddesi (mutlak ömür +

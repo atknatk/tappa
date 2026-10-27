@@ -692,18 +692,41 @@ func TestLoad_TheBuildDecidesTheSandboxValue(t *testing.T) {
 func TestConfig_RegistrationLinksOnScreenOnlyWithoutEmailOnDevOrSandbox(t *testing.T) {
 	for _, c := range []struct {
 		env, delivery string
+		explicit      bool
 		want          bool
 	}{
-		{config.EnvDev, config.ResetDeliveryNone, true},
-		{config.EnvSandbox, config.ResetDeliveryNone, true},
-		{config.EnvStaging, config.ResetDeliveryNone, false},
-		{config.EnvProd, config.ResetDeliveryNone, false},
-		{config.EnvDev, config.ResetDeliveryEmail, false},
-		{config.EnvProd, config.ResetDeliveryEmail, false},
+		{config.EnvDev, config.ResetDeliveryNone, true, true},
+		{config.EnvSandbox, config.ResetDeliveryNone, true, true},
+		{config.EnvStaging, config.ResetDeliveryNone, true, false},
+		{config.EnvProd, config.ResetDeliveryNone, true, false},
+		{config.EnvDev, config.ResetDeliveryEmail, true, false},
+		{config.EnvProd, config.ResetDeliveryEmail, true, false},
+		// M14-17's audit: dev only by DEFAULT (TAPPA_ENV unset) and no delivery set -- no links.
+		{config.EnvDev, "", false, false},
+		{config.EnvDev, config.ResetDeliveryNone, false, false},
 	} {
-		cfg := &config.Config{Env: c.env, ResetDelivery: c.delivery}
+		cfg := &config.Config{Env: c.env, ResetDelivery: c.delivery, EnvExplicit: c.explicit}
 		if got := cfg.RegistrationLinksOnScreen(); got != c.want {
-			t.Errorf("%s/%s: %v, want %v", c.env, c.delivery, got, c.want)
+			t.Errorf("%s/%q/explicit=%v: %v, want %v", c.env, c.delivery, c.explicit, got, c.want)
+		}
+	}
+}
+
+// TestLoad_EnvExplicitIsTheVariableBeingSet: Load marks TAPPA_ENV set or defaulted -- the gate
+// RegistrationLinksOnScreen reads.
+func TestLoad_EnvExplicitIsTheVariableBeingSet(t *testing.T) {
+	for _, c := range []struct {
+		raw  string
+		want bool
+	}{{"", false}, {config.EnvDev, true}} {
+		setRequired(t)
+		t.Setenv("TAPPA_ENV", c.raw)
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatalf("TAPPA_ENV=%q: %v", c.raw, err)
+		}
+		if cfg.EnvExplicit != c.want || cfg.Env != config.EnvDev {
+			t.Errorf("TAPPA_ENV=%q: EnvExplicit=%v Env=%q, want %v dev", c.raw, cfg.EnvExplicit, cfg.Env, c.want)
 		}
 	}
 }

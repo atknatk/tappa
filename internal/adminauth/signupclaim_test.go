@@ -148,7 +148,8 @@ type fakeClaimDB struct {
 
 func (f *fakeClaimDB) ResolveIdentityByEmail(_ context.Context, email string) (db.ResolvedIdentity, error) {
 	if f.known[strings.ToLower(email)] {
-		return db.ResolvedIdentity{ID: uuid.New(), Email: email}, nil
+		// The REGISTERED spelling is the lower-case one here; the caller may have typed another.
+		return db.ResolvedIdentity{ID: uuid.New(), Email: strings.ToLower(email)}, nil
 	}
 	return db.ResolvedIdentity{}, pgx.ErrNoRows
 }
@@ -248,5 +249,30 @@ func TestSignupClaims_OpenDoesTheSameWorkForEveryAddress(t *testing.T) {
 	}
 	if _, ok := s.ProveWithSession(c, Token{}); ok {
 		t.Fatal("a malformed cookie proved the draft")
+	}
+}
+
+// TestSignupClaims_AKnownAddressIsWrittenToAtItsRegisteredSpelling (M14-17's audit): the known address's
+// letter goes to the identity's REGISTERED address (the resolver row's, M14-14's identityRecipient), not
+// to the visitor's typing; a new address's goes to what was typed.
+//
+// MUTATION (measured): signupRecipientOf returning the typed address on both branches -> red.
+func TestSignupClaims_AKnownAddressIsWrittenToAtItsRegisteredSpelling(t *testing.T) {
+	data := &fakeClaimDB{known: map[string]bool{"known@example.mt": true}, stored: map[string]db.ResolvedSignupClaim{}}
+	s := newTestSignupClaims(t, data)
+	s.digest = func(string) (string, error) { return "$2a$04$" + strings.Repeat("x", 53), nil }
+	gk, err := s.Open(context.Background(), "KNOWN@Example.MT", "pw", []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gk.Recipient != "known@example.mt" {
+		t.Errorf("a known address's letter goes to %q, want the registered %q", gk.Recipient, "known@example.mt")
+	}
+	gn, err := s.Open(context.Background(), "New@Example.MT", "pw", []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gn.Recipient != "New@Example.MT" {
+		t.Errorf("a new address's letter goes to %q, want the typed address", gn.Recipient)
 	}
 }

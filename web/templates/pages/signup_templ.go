@@ -1767,7 +1767,7 @@ func SignupDone(v SignupDoneView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if v.KnownAddress {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 131, "<span><span class=\"font-display font-bold tracking-tight\">Open it.</span> It is now one of the businesses of your sign-in: sign in with your usual password and switch to it.</span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 131, "<span><span class=\"font-display font-bold tracking-tight\">Open it.</span> It is now one of the businesses of your sign-in: sign in with your usual password and choose it.</span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

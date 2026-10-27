@@ -73,8 +73,12 @@
 -- SELECT (vat_number) and the system column xmin -- predicates 3 and 5. Everything else the bodies touch
 -- 00071, 00072 and 00074 already granted.
 --
--- INDEPENDENT OF 00076 AND 00077 (built in parallel; goose runs without allow-missing): nothing here
--- reads or names what they add.
+-- INDEPENDENT OF 00076 AND 00077 (built in parallel; goose runs without allow-missing) -- WITH ONE
+-- SHARED GRANT. 00077 (M14-15) gives tappa_identitydefiner the same admin_users INSERT columns for
+-- identity_accept_invite*. Column privileges are not reference-counted, so the rule is "the
+-- lower-numbered file owns a shared grant": this file GRANTs it too (it must stand alone), and its
+-- Down REVOKEs it only while neither invite function exists (TestIdentity00078_DownKeepsTheSharedGrant).
+-- Nothing else here reads or names what 00076/00077 add.
 
 -- +goose Up
 SET LOCAL lock_timeout = '1s';
@@ -502,8 +506,19 @@ DROP FUNCTION public.identity_claim_signup(text, uuid, text);
 DROP FUNCTION public.identity_open_signup_claim(text, citext, jsonb, text, timestamptz);
 DROP FUNCTION public.resolve_signup_claim_by_token_hash(text);
 SET LOCAL lock_timeout = '1s';
-REVOKE INSERT (tenant_id, full_name, email, password_hash, role, identity_id, linked_via, linked_at)
-    ON admin_users FROM tappa_identitydefiner;
+-- The owner-row INSERT is SHARED with 00077 (the header): it goes only when no invite function still
+-- needs it, or the Down would turn identity_accept_invite* into 42501s while 00077 stays applied.
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF pg_catalog.to_regprocedure('public.identity_accept_invite(text,text)') IS NULL
+       AND pg_catalog.to_regprocedure('public.identity_accept_invite_new(text,text)') IS NULL THEN
+        REVOKE INSERT (tenant_id, full_name, email, password_hash, role, identity_id, linked_via, linked_at)
+            ON public.admin_users FROM tappa_identitydefiner;
+    END IF;
+END
+$$;
+-- +goose StatementEnd
 SET LOCAL lock_timeout = '1s';
 REVOKE SELECT (vat_number, xmin) ON tenants FROM tappa_identitydefiner;
 DROP TABLE admin_signup_claims;

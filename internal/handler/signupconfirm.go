@@ -490,6 +490,9 @@ func (s *Signup) ConfirmSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	case errors.Is(err, signup.ErrClaimRefused):
 		s.log.Info("signup: the registration link was refused at confirmation", "claim_id", c.ID, "ip", ip)
+		// The cookie notice's promise: cleared as soon as the link is refused. The person opens the
+		// link from the e-mail again (the page says so).
+		s.clearConfirmCookie(w)
 		s.problem(w, r, http.StatusConflict, problemSignupClaimRefused)
 		return
 	case err != nil:
