@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/adminauth"
@@ -109,9 +110,9 @@ var (
 		Hint:    "Nothing is wrong with your account. Ask an owner of the business if someone needs access.",
 	}
 	problemManagersNotSetUp = pages.ProblemView{
-		Title:   "Invitations are not available for this business yet",
-		Message: "Who may invite a manager is decided by the business's rules, and they are not set up yet or cannot be read right now.",
-		Hint:    "The rules are set up with the first check-in at one of your plaques; the Policies section shows their state.",
+		Title:   "Invitations are not available for this business right now",
+		Message: "Who may invite a manager is decided by the business's rules, and they cannot be read right now.",
+		Hint:    "The Policies section shows the state of each rule.",
 	}
 	problemInvitesUnavailable = pages.ProblemView{
 		Title:   "Invitations are not available",
@@ -162,9 +163,10 @@ func managersWords(m map[string]string) []string {
 }
 
 // mayInvite is the owner gate: the policy engine's policy:edit, asked of the stored rulebook without
-// materialising it (tenant.RuleWriter.May).
+// materialising it -- and, for a business with NO stored rule, of the shipped baseline (the user's
+// decision of 2026-10-27; tenant.RuleWriter.MayInviteManager).
 func (a *AdminAuth) mayInvite(ctx context.Context, id httpx.AdminIdentity) bool {
-	return id.Live() && a.scribe.May(ctx, id.TenantID(), tenant.Actor{ID: id.Admin.AdminUserID, Role: id.Admin.Role})
+	return id.Live() && a.scribe.MayInviteManager(ctx, id.TenantID(), tenant.Actor{ID: id.Admin.AdminUserID, Role: id.Admin.Role})
 }
 
 // refuseManagers answers a refused gate: an owner the engine refused (no usable rulebook) gets the
@@ -388,17 +390,111 @@ func (a *AdminAuth) managersCancel(w http.ResponseWriter, r *http.Request) {
 
 // ------------------------------------------------------------- the invitee --
 
-// inviteAcceptPage serves GET adminInvitePath. It writes nothing: the resolver's read decides between
-// the forms and the one "no longer works" screen (R19).
+// MountInviteAcceptance mounts the invitee's page -- GET and POST adminInvitePath -- on r, outside the
+// panel's chains and mounted by its own call, as the recovery flow's pages are (AdminReset.Mount): the
+// invitee holds no session of the inviting business, so neither the panel's protect chain nor its
+// writing chain is its gate, and it is no panel write of that business (ADR 0025's census walks the
+// panel). Its own gates: Origin, the synchronizer cookie, the per-address budget -- and, only while
+// TAPPA_ADMIN_IDENTITY is on, the routes exist at all (mountGated).
+func (a *AdminAuth) MountInviteAcceptance(r chi.Router) {
+	a.mountGated(r, adminauth.SurfaceAdminInvites, func(r chi.Router) {
+		r.Get(adminInvitePath, a.inviteAcceptPage)
+		r.Post(adminInvitePath, a.inviteAccept)
+	})
+}
+
+// inviteAcceptance is the invitee's page as an httpx.Mounter of its own (cmd/tappa's router mounts it
+// beside the panel, as it mounts the recovery flow).
+type inviteAcceptance struct{ a *AdminAuth }
+
+// Mount mounts the invitee's page.
+func (m inviteAcceptance) Mount(r chi.Router) { m.a.MountInviteAcceptance(r) }
+
+// InviteAcceptance is the invitee's page, for the application router.
+func (a *AdminAuth) InviteAcceptance() httpx.Mounter { return inviteAcceptance{a: a} }
+
+// The invitation link's token travels in an HttpOnly cookie after the first hop, as the recovery
+// link's does (adminreset.go's adminResetLinkCookieName gives the four reasons): GET ?t=… sets
+// "<csrf>.<token>" and answers 303 to the bare path, so the address bar, history and any Referer are
+// clean, and no response body carries the token. The path is the page's own -- the narrowest that
+// reaches every read and every clear; the clearer carries the same path or the cookie cannot be
+// deleted.
+func (c adminCookies) setInviteLink(w http.ResponseWriter, value string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     adminInviteCookieName,
+		Value:    value,
+		Path:     adminInvitePath,
+		MaxAge:   adminInviteCookieMaxAge,
+		HttpOnly: true,
+		Secure:   c.secure(),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (c adminCookies) clearInviteLink(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     adminInviteCookieName,
+		Value:    "",
+		Path:     adminInvitePath,
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   c.secure(),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// readInviteLink lifts "<csrf>.<token>" off the request; a cookie that does not split into two
+// non-empty halves is absent (readLink's rule).
+func readInviteLink(r *http.Request) (csrf, token string, ok bool) {
+	ck, err := r.Cookie(adminInviteCookieName)
+	if err != nil || ck.Value == "" {
+		return "", "", false
+	}
+	csrf, token, found := strings.Cut(ck.Value, ".")
+	if !found || csrf == "" || token == "" {
+		return "", "", false
+	}
+	return csrf, token, true
+}
+
+var problemInviteNoLink = pages.ProblemView{
+	Title:   "Open the link from your email",
+	Message: "This page works from the invitation link in your email, and this browser has not opened one in the last half hour.",
+	Hint:    "Open the link from the email again. If cookies are blocked for this site, allow them first.",
+}
+
+// inviteAcceptPage serves GET adminInvitePath. With ?t= it moves the token into the cookie and
+// answers 303 to the bare path; bare, it shows the forms (or the one "no longer works" screen). It
+// writes nothing: the resolver's read decides (R19).
 func (a *AdminAuth) inviteAcceptPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	if a.adminInvites == nil {
 		a.renderProblem(w, r, http.StatusServiceUnavailable, problemInvitesUnavailable)
 		return
 	}
-	raw := r.URL.Query().Get(adminauth.InviteParam)
+	if t := r.URL.Query().Get(adminauth.InviteParam); t != "" {
+		if strings.Contains(t, ".") || len(t) > 200 || !cookieSafe(t) {
+			a.render(w, r, http.StatusOK, pages.AdminInviteAccept(pages.InviteAcceptView{Dead: true, SignInHref: adminLoginPath}))
+			return
+		}
+		csrf, err := newCSRFToken()
+		if err != nil {
+			a.log.Error("panel invitation page: minting the csrf value failed", "err", err)
+			a.renderProblem(w, r, http.StatusInternalServerError, problemInviteServer)
+			return
+		}
+		a.short.setInviteLink(w, csrf+"."+t)
+		a.redirect(w, adminInvitePath)
+		return
+	}
+	csrf, raw, ok := readInviteLink(r)
+	if !ok {
+		a.renderProblem(w, r, http.StatusBadRequest, problemInviteNoLink)
+		return
+	}
 	err := a.adminInvites.Usable(r.Context(), adminauth.ParseInviteToken(raw))
 	if errors.Is(err, adminauth.ErrInviteUnusable) {
+		a.short.clearInviteLink(w)
 		a.render(w, r, http.StatusOK, pages.AdminInviteAccept(pages.InviteAcceptView{Dead: true, SignInHref: adminLoginPath}))
 		return
 	}
@@ -407,22 +503,15 @@ func (a *AdminAuth) inviteAcceptPage(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusInternalServerError, problemInviteServer)
 		return
 	}
-	csrf, err := newCSRFToken()
-	if err != nil {
-		a.log.Error("panel invitation page: minting the csrf value failed", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemInviteServer)
-		return
-	}
-	a.short.set(w, adminInviteCookieName, csrf, adminInviteCookieMaxAge)
-	a.render(w, r, http.StatusOK, pages.AdminInviteAccept(a.inviteAcceptView(csrf, raw)))
+	a.render(w, r, http.StatusOK, pages.AdminInviteAccept(a.inviteAcceptView(csrf)))
 }
 
-func (a *AdminAuth) inviteAcceptView(csrf, raw string) pages.InviteAcceptView {
-	return pages.InviteAcceptView{CSRFToken: csrf, Token: raw, SignInHref: adminLoginPath, MinPasswordChars: signup.MinPasswordRunes}
+func (a *AdminAuth) inviteAcceptView(csrf string) pages.InviteAcceptView {
+	return pages.InviteAcceptView{CSRFToken: csrf, SignInHref: adminLoginPath, MinPasswordChars: signup.MinPasswordRunes}
 }
 
-// inviteAccept serves POST adminInvitePath: Origin, the synchronizer cookie, the per-address budget,
-// then one of the two acceptances.
+// inviteAccept serves POST adminInvitePath: Origin, the synchronizer half of the cookie, the
+// per-address budget, then one of the two acceptances with the token half.
 func (a *AdminAuth) inviteAccept(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	ip := clientIP(r)
@@ -435,9 +524,9 @@ func (a *AdminAuth) inviteAccept(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusBadRequest, problemInviteRestart)
 		return
 	}
-	ck, err := r.Cookie(adminInviteCookieName)
-	if err != nil || ck.Value == "" {
-		a.renderProblem(w, r, http.StatusBadRequest, problemInviteRestart)
+	csrf, raw, ok := readInviteLink(r)
+	if !ok {
+		a.renderProblem(w, r, http.StatusBadRequest, problemInviteNoLink)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, adminInviteMaxFormBytes)
@@ -445,7 +534,7 @@ func (a *AdminAuth) inviteAccept(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusBadRequest, problemInviteRestart)
 		return
 	}
-	if !constantTimeMatch(ck.Value, r.PostFormValue("csrf")) {
+	if !constantTimeMatch(csrf, r.PostFormValue("csrf")) {
 		a.log.Warn("panel invitation refused: csrf mismatch", "ip", ip)
 		a.renderProblem(w, r, http.StatusBadRequest, problemInviteRestart)
 		return
@@ -457,11 +546,11 @@ func (a *AdminAuth) inviteAccept(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusTooManyRequests, problemInviteTooMany)
 		return
 	}
-	raw := r.PostFormValue(adminauth.InviteParam)
 	tok := adminauth.ParseInviteToken(raw)
 	mode := r.PostFormValue("mode")
 	var (
 		got db.AcceptedAdminInvite
+		err error
 	)
 	switch mode {
 	case "session":
@@ -474,7 +563,7 @@ func (a *AdminAuth) inviteAccept(w http.ResponseWriter, r *http.Request) {
 		got, err = a.adminInvites.AcceptWithSession(r.Context(), tok, session)
 	case "new":
 		if msg := checkNewPassword(r.PostFormValue("password"), r.PostFormValue("password_confirm")); msg != "" {
-			v := a.inviteAcceptView(ck.Value, raw)
+			v := a.inviteAcceptView(csrf)
 			v.Error, v.ErrorFor = msg, "new"
 			a.render(w, r, http.StatusUnprocessableEntity, pages.AdminInviteAccept(v))
 			return
@@ -487,14 +576,20 @@ func (a *AdminAuth) inviteAccept(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		a.log.Info("panel invitation accepted", "tenant_id", got.TenantID, "admin_user_id", got.AdminUserID, "mode", mode)
-		a.short.set(w, adminInviteCookieName, "", -1)
+		a.short.clearInviteLink(w)
 		a.render(w, r, http.StatusOK, pages.AdminInviteAccepted(pages.InviteAcceptedView{
 			SignInHref: adminLoginPath, WithSession: mode == "session", SwitchHref: adminSwitchHref,
 		}))
 	case errors.Is(err, adminauth.ErrInviteUnusable):
+		a.short.clearInviteLink(w)
 		a.render(w, r, http.StatusOK, pages.AdminInviteAccept(pages.InviteAcceptView{Dead: true, SignInHref: adminLoginPath}))
+	case errors.Is(err, adminauth.ErrInviteNotNow):
+		v := a.inviteAcceptView(csrf)
+		v.ErrorFor = mode
+		v.Error = "This invitation cannot be accepted right now: the business that sent it has paused changes on Taptime. The link keeps working until it runs out -- try again later."
+		a.render(w, r, http.StatusOK, pages.AdminInviteAccept(v))
 	case errors.Is(err, adminauth.ErrInviteNotAccepted):
-		v := a.inviteAcceptView(ck.Value, raw)
+		v := a.inviteAcceptView(csrf)
 		v.ErrorFor = mode
 		if mode == "session" {
 			v.Error = "This browser is not signed in with the email address the invitation was sent to, or that address is already part of this business. Sign in with the invited address and open the link again."

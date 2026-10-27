@@ -833,10 +833,11 @@ func cookieNotice() []pages.CookieRow {
 		// M14-15: the manager invitation's acceptance page, scoped to the dashboard.
 		{
 			Name: adminInviteCookieName,
-			Purpose: "Protects the page an invitation link opens against being submitted from another " +
-				"site. Exists only while somebody is accepting an invitation.",
+			Purpose: "Carries an invitation link while it is being accepted, so the link stays out of the " +
+				"address bar and out of browser history, and protects that page against being submitted " +
+				"from another site. Cleared as soon as the invitation is accepted or found unusable.",
 			Lifetime: humanSeconds(adminInviteCookieMaxAge),
-			Scope:    adminauth.CookiePath,
+			Scope:    adminInvitePath,
 			Flags:    flags,
 		},
 		{

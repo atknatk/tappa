@@ -12,6 +12,29 @@ import (
 	"github.com/google/uuid"
 )
 
+const adminInviteBusinessSuspended = `-- name: AdminInviteBusinessSuspended :one
+SELECT (t.suspended_at IS NOT NULL)::boolean AS suspended
+FROM admin_invites v
+JOIN tenants t ON t.id = v.tenant_id
+WHERE v.tenant_id = $1
+  AND v.id = $2
+`
+
+type AdminInviteBusinessSuspendedParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+// Whether the business an invitation belongs to is suspended (ADR 0025 §1) -- the acceptance page's
+// "not now", after the acceptance itself refused (the functions read the same column under their
+// locks). The invitation is the row; the business is read through it, scoped by @tenant_id.
+func (q *Queries) AdminInviteBusinessSuspended(ctx context.Context, arg AdminInviteBusinessSuspendedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, adminInviteBusinessSuspended, arg.TenantID, arg.ID)
+	var suspended bool
+	err := row.Scan(&suspended)
+	return suspended, err
+}
+
 const cancelAdminInvite = `-- name: CancelAdminInvite :one
 UPDATE admin_invites
 SET cancelled_at = clock_timestamp()

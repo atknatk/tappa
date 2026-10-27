@@ -12,6 +12,10 @@ import (
 )
 
 type Querier interface {
+	// Whether the business an invitation belongs to is suspended (ADR 0025 §1) -- the acceptance page's
+	// "not now", after the acceptance itself refused (the functions read the same column under their
+	// locks). The invitation is the row; the business is read through it, scoped by @tenant_id.
+	AdminInviteBusinessSuspended(ctx context.Context, arg AdminInviteBusinessSuspendedParams) (bool, error)
 	// tags.sql -- tenant-scoped tag queries. Runs AFTER GetTagByUID (resolve.sql)
 	// has established the tenant context, so per CLAUDE.md section 4.5 every query
 	// here carries an explicit tenant_id filter (belt + braces on top of RLS).

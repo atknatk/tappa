@@ -2123,9 +2123,26 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 			t.Fatalf("PREMISE: downTables found %v in 00072's Down, not %s", tables, want)
 		}
 	}
-	// The strong locks the later Downs left in this transaction (00077's Down locks its two
-	// foreign keys' tables, tenants among them) are theirs, not 00072's Down's.
+	// THE NARROWING, NAMED. The strong locks the later Downs leave in this transaction are theirs, not
+	// 00072's Down's -- and the check below cannot see a lock 00072's Down would take on a table already
+	// locked here (a backend holds a lock once). So the exemption is CLOSED and each entry says why:
+	// anything else a later Down locks is red here, and 00072's Down itself must not name a table of
+	// this list it does not already name (tenants above all: a strong tenants lock from 00072's Down
+	// would hide behind 00077's).
+	laterDownLocks := map[string]string{
+		"admin_invites": "00077's Down drops its own table",
+		"admin_users":   "00077's Down: admin_invites' composite FK to admin_users",
+		"tenants":       "00077's Down: admin_invites' FK to tenants",
+	}
 	walked := strongTableLocksOutside(t, ctx, tx, tables)
+	for _, w := range walked {
+		if _, named := laterDownLocks[w]; !named {
+			t.Fatalf("a later Down left a strong lock on %s, which laterDownLocks does not name", w)
+		}
+	}
+	if regexp.MustCompile(`(?i)\btenants\b`).MatchString(identityLineComment.ReplaceAllString(down, "")) {
+		t.Fatal("00072's Down names tenants: a strong lock it took there would hide behind 00077's (laterDownLocks)")
+	}
 	lockForDowns(t, ctx, tx, tables)
 	head := ipCatalogue(t, ctx, tx)
 

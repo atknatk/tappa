@@ -131,6 +131,11 @@ func (f *fakeScribe) May(_ context.Context, _ uuid.UUID, actor tenant.Actor) boo
 	return f.may
 }
 
+// MayInviteManager answers what May answers (the manager invitation's gate, M14-15).
+func (f *fakeScribe) MayInviteManager(ctx context.Context, tenantID uuid.UUID, actor tenant.Actor) bool {
+	return f.May(ctx, tenantID, actor)
+}
+
 // gate mirrors the production writer's FIRST act. Every exported write on
 // tenant.RuleWriter calls authorise before it opens a transaction and answers
 // ErrNotPermitted; this double did not, so an actor it reported as refused could

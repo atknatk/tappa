@@ -79,6 +79,9 @@ var (
 	// ErrInviteBusy is the partial UNIQUE refusing a second open invitation for the address -- two
 	// presses at once; the second is told to try again.
 	ErrInviteBusy = errors.New("adminauth: another invitation for that address is being issued")
+	// ErrInviteNotNow: the link is usable but its business is suspended -- nothing is accepted while it
+	// is (the user's decision of 2026-10-27); the invitation stays open.
+	ErrInviteNotNow = errors.New("adminauth: the invitation cannot be accepted while the business is suspended")
 	// ErrInviteNotOwner: the inviter is not an active owner of the business (the INSERT's belt).
 	ErrInviteNotOwner = errors.New("adminauth: the inviter is not an active owner of the business")
 )
@@ -432,6 +435,20 @@ func (s *AdminInvites) refusal(ctx context.Context, inviteHash string) error {
 	}
 	if r.UsedAt != nil || r.CancelledAt != nil || !s.now().Before(r.ExpiresAt) {
 		return ErrInviteUnusable
+	}
+	// A suspended business takes no new manager (the user's decision of 2026-10-27; the functions
+	// refuse it): the page says "not now" rather than "sign in with the invited address". A fact
+	// about the business the link names -- not about any identity.
+	var suspended bool
+	if err := s.data.WithTenant(ctx, r.TenantID, func(ctx context.Context, tx pgx.Tx) error {
+		var e error
+		suspended, e = store.New(tx).AdminInviteBusinessSuspended(ctx, store.AdminInviteBusinessSuspendedParams{TenantID: r.TenantID, ID: r.ID})
+		return e
+	}); err != nil {
+		return fmt.Errorf("adminauth: read the business's suspension: %w", err)
+	}
+	if suspended {
+		return ErrInviteNotNow
 	}
 	return ErrInviteNotAccepted
 }

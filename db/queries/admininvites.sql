@@ -44,6 +44,16 @@ WHERE tenant_id = @tenant_id
 ORDER BY created_at DESC, id
 LIMIT 50;
 
+-- name: AdminInviteBusinessSuspended :one
+-- Whether the business an invitation belongs to is suspended (ADR 0025 §1) -- the acceptance page's
+-- "not now", after the acceptance itself refused (the functions read the same column under their
+-- locks). The invitation is the row; the business is read through it, scoped by @tenant_id.
+SELECT (t.suspended_at IS NOT NULL)::boolean AS suspended
+FROM admin_invites v
+JOIN tenants t ON t.id = v.tenant_id
+WHERE v.tenant_id = @tenant_id
+  AND v.id = @id;
+
 -- name: CancelAdminInvite :one
 -- One open invitation, by its id in this business. No row: unknown here, spent, or cancelled
 -- already -- the caller writes no audit row then.

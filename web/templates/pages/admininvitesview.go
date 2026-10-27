@@ -4,9 +4,7 @@ package pages
 //
 // 🔴 NO VIEW HERE HAS A FIELD AN INVITATION LINK OR ITS TOKEN COULD TRAVEL IN on the OWNER's side:
 // the link goes to the invitee's own mailbox and is never shown on the panel (M7-07's second
-// criterion). The invitee's acceptance page carries the token back in its own form (InviteAcceptView's
-// Token -- the one declared exception, the AdminResetNew shape before the reset moved its token into a
-// cookie), never in a link.
+// criterion). On the invitee's page the token travels in an HttpOnly cookie, never in a view.
 //
 // 🔴 NOTHING ON THE OWNER'S SCREENS SAYS WHETHER AN ADDRESS HAS A TAPTIME SIGN-IN (R18): a row's state
 // is open, accepted, cancelled or expired -- the same four for every address -- and no field could carry
@@ -47,9 +45,6 @@ type ManagerInviteRow struct {
 type InviteAcceptView struct {
 	// CSRFToken is the synchronizer value the two forms echo (not a §4.7 secret).
 	CSRFToken string
-	// Token is the invitation token, carried back by the two forms in a hidden field (the declared
-	// exception above). Empty when Dead.
-	Token string
 	// Dead: the link cannot be used (unknown, spent, cancelled, expired) -- one screen for all.
 	Dead bool
 	// SignInHref is the sign-in page. (Both forms post to "/admin/invite", written in the template the

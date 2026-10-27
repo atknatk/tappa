@@ -22,8 +22,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-
-	"github.com/atknatk/tappa/internal/adminauth"
 )
 
 var inviteLinkRe = regexp.MustCompile(`/admin/invite\?t=([A-Za-z0-9_-]+)`)
@@ -242,19 +240,28 @@ func TestAdminInvitesDB_OpeningTheLinkConsumesNothingAndThePressAccepts(t *testi
 	}
 	link := adminInvitePath + "?t=" + m[1]
 	invitee := p.anotherBrowser(t)
+	// D2: the first hop moves the token into the cookie and answers 303 to the bare path; the token is
+	// in no later URL and in no body.
+	res, _ := invitee.get(t, link)
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != adminInvitePath {
+		t.Fatalf("the link's first hop: %d %q, want 303 to %s", res.StatusCode, res.Header.Get("Location"), adminInvitePath)
+	}
 	var page string
 	for i := 0; i < 3; i++ {
 		var res *http.Response
-		res, page = invitee.get(t, link)
+		res, page = invitee.get(t, adminInvitePath)
 		if res.StatusCode != http.StatusOK || !strings.Contains(page, "Accept and set my password") || res.Header.Get("Referrer-Policy") != "no-referrer" {
 			t.Fatalf("open %d: %d", i, res.StatusCode)
+		}
+		if strings.Contains(page, m[1]) {
+			t.Fatal("the page body carries the invitation token")
 		}
 	}
 	var open int
 	if err := owner.QueryRow(context.Background(), `SELECT count(*) FROM admin_invites WHERE tenant_id = $1 AND used_at IS NULL AND cancelled_at IS NULL`, p.tenantID).Scan(&open); err != nil || open != 1 {
 		t.Fatalf("after three opens %d open invitations (%v), want 1", open, err)
 	}
-	res, body := invitee.post(t, adminInvitePath, url.Values{"csrf": {csrfFrom(t, page)}, adminauth.InviteParam: {m[1]}, "mode": {"new"},
+	res, body := invitee.post(t, adminInvitePath, url.Values{"csrf": {csrfFrom(t, page)}, "mode": {"new"},
 		"password": {"a fine new password"}, "password_confirm": {"a fine new password"}})
 	if res.StatusCode != http.StatusOK || !strings.Contains(body, "You&#39;re in") && !strings.Contains(body, "You're in") {
 		t.Fatalf("the press: %d %s", res.StatusCode, body)
@@ -262,7 +269,8 @@ func TestAdminInvitesDB_OpeningTheLinkConsumesNothingAndThePressAccepts(t *testi
 	if invitee.panelCookie(t) != "" {
 		t.Error("the acceptance set a panel session")
 	}
-	if _, after := invitee.get(t, link); !strings.Contains(after, "That link no longer works") {
+	invitee.get(t, link)
+	if _, after := invitee.get(t, adminInvitePath); !strings.Contains(after, "That link no longer works") {
 		t.Error("the spent link still offers the forms")
 	}
 	var rows int

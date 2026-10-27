@@ -138,7 +138,6 @@ templ AdminInviteAccept(v InviteAcceptView) {
 						}
 						<form method="post" action="/admin/invite" class="flex flex-col gap-3">
 							<input type="hidden" name="csrf" value={ v.CSRFToken }/>
-							<input type="hidden" name="t" value={ v.Token }/>
 							<input type="hidden" name="mode" value="session"/>
 							<button type="submit" class="btn btn--primary min-h-[52px] w-full rounded-xl">Accept with my sign-in</button>
 						</form>
@@ -159,7 +158,6 @@ templ AdminInviteAccept(v InviteAcceptView) {
 						}
 						<form method="post" action="/admin/invite" class="flex flex-col gap-4">
 							<input type="hidden" name="csrf" value={ v.CSRFToken }/>
-							<input type="hidden" name="t" value={ v.Token }/>
 							<input type="hidden" name="mode" value="new"/>
 							<div class="field-stack">
 								<label for="invite-password" class="lbl">Password</label>

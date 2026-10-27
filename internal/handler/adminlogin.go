@@ -607,13 +607,6 @@ func (a *AdminAuth) Mount(r chi.Router) {
 	r.Post(adminLoginPath, a.Login)
 	r.Get("/admin/login/choose", a.ChoosePage)
 	r.Post("/admin/login/choose", a.Choose)
-	// THE INVITEE'S PAGE (M14-15, admininvites.go): reachable without a session -- the link from the
-	// e-mail -- under the panel cookie's path so a session reaches the press. Its own Origin check,
-	// synchronizer cookie and budget; mounted only while TAPPA_ADMIN_IDENTITY is on.
-	a.mountGated(r, adminauth.SurfaceAdminInvites, func(r chi.Router) {
-		r.Get(adminInvitePath, a.inviteAcceptPage)
-		r.Post(adminInvitePath, a.inviteAccept)
-	})
 
 	// THE DASHBOARD GROUP. Protect() carries the whole chain, so the panel mounts
 	// inside this group — or uses Protect() in its own — and inherits every stage.

@@ -730,7 +730,8 @@ func identityExerciseM1415(t *testing.T, ctx context.Context, sp pgx.Tx) []ident
 	                           password_hash = (SELECT password_hash FROM admin_identities WHERE id = $2) WHERE id = $1`, pf, ident)
 	session := idSession(t, ctx, sp, f, pf, nil)
 	refused := aiAdmin(t, ctx, sp, h, email)
-	aiExec(t, ctx, sp, `UPDATE admin_users SET unlinked_at = now() WHERE id = $1`, refused)
+	// A refused MANAGER row: a manager invitation relinks only a row of its own role (00077).
+	aiExec(t, ctx, sp, `UPDATE admin_users SET unlinked_at = now(), role = 'manager' WHERE id = $1`, refused)
 	ownerG, ownerH := aiAdmin(t, ctx, sp, g, aiEmail()), aiAdmin(t, ctx, sp, h, aiEmail())
 	toG, toH, toNew := opRandHex(t), opRandHex(t), opRandHex(t)
 	invite := func(tenant, by uuid.UUID, address, hash string) string {

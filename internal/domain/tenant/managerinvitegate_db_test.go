@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/policy"
 )
@@ -25,14 +26,11 @@ import (
 func TestRuleWriterDB_TheManagerInvitationGateLetsAMaterialisedOwnerIn(t *testing.T) {
 	f := newWriterFixture(t)
 	ctx := context.Background()
-	if f.writer.May(ctx, f.tenantID, f.owner) {
-		t.Fatal("PREMISE: the owner of a business with nothing stored is allowed")
-	}
 	f.seedAuthzDocument(t, f.tenantID)
-	if !f.writer.May(ctx, f.tenantID, f.owner) {
+	if !f.writer.MayInviteManager(ctx, f.tenantID, f.owner) || !f.writer.May(ctx, f.tenantID, f.owner) {
 		t.Fatal("the owner of a materialised business is refused the invitation gate -- the M7-07 lockout")
 	}
-	if f.writer.May(ctx, f.tenantID, f.manager) {
+	if f.writer.MayInviteManager(ctx, f.tenantID, f.manager) {
 		t.Fatal("a manager passes the invitation gate")
 	}
 	set := storedAuthority{data: f.data, params: testParams()}.StoredSet(ctx, f.tenantID)
@@ -44,7 +42,45 @@ func TestRuleWriterDB_TheManagerInvitationGateLetsAMaterialisedOwnerIn(t *testin
 			got.Effect, got.MatchedSid, policy.EffectDeny, empty.MatchedSid)
 	}
 	t.Logf("measured: policy:edit owner allowed, manager refused; a new action -> %s sid=%s (the M7-07 lockout the gate avoids)", got.Effect, got.MatchedSid)
-	if f.writer.May(ctx, uuid.New(), f.owner) {
-		t.Error("an unknown business allows the owner")
+	// A stored rulebook with an unreadable document is decided by what is stored: refused (the shipped
+	// baseline answers only for a business with NOTHING stored).
+	name, _ := shippedDoc(t, 0)
+	f.appendVersion(t, f.tenantID, f.baselineID(t, f.tenantID, name), 2, []byte(`{}`))
+	if f.writer.MayInviteManager(ctx, f.tenantID, f.owner) {
+		t.Error("an owner whose stored rulebook cannot be read passes the invitation gate")
 	}
+}
+
+// TestRuleWriterDB_AFreshBusinessOwnerMayInviteFromTheShippedBaseline is the user's decision of
+// 2026-10-27: a business with NO stored rule (never materialised -- no tap yet) decides the invitation
+// gate on the SHIPPED baseline -- its owner may invite, its manager may not -- and the gate writes
+// nothing (the rulebook is still empty afterwards). policy:edit itself (May) is unchanged: still refused
+// there, the policies screen's state. MUTATION (measured): the shipped-baseline step removed -> red.
+func TestRuleWriterDB_AFreshBusinessOwnerMayInviteFromTheShippedBaseline(t *testing.T) {
+	f := newWriterFixture(t)
+	ctx := context.Background()
+	if !f.writer.MayInviteManager(ctx, f.tenantID, f.owner) {
+		t.Fatal("the owner of a business with no rulebook may not invite")
+	}
+	if f.writer.MayInviteManager(ctx, f.tenantID, f.manager) {
+		t.Fatal("a manager of a business with no rulebook may invite")
+	}
+	if f.writer.May(ctx, f.tenantID, f.owner) {
+		t.Error("May (policy:edit) changed for an empty rulebook")
+	}
+	if n := f.policyCount(t, f.tenantID); n != 0 {
+		t.Errorf("the gate wrote %d policy row(s)", n)
+	}
+}
+
+// policyCount is how many policies rows tenantID holds (read in its own context).
+func (f *writerFixture) policyCount(t *testing.T, tenantID uuid.UUID) int {
+	t.Helper()
+	var n int
+	if err := f.data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM policies WHERE tenant_id = $1`, tenantID).Scan(&n)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }

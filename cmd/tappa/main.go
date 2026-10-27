@@ -961,7 +961,7 @@ func run() error {
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		BaseContext:       assetContext(assets),
-		Handler:           appRouter(cfg, slog.Default(), activation, tap, panelAuth, logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
+		Handler:           appRouter(cfg, slog.Default(), activation, tap, panelAuth, panelAuth.InviteAcceptance(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation

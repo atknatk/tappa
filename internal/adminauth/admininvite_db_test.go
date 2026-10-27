@@ -14,6 +14,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -299,32 +301,53 @@ func TestAdminInvites_AForwardedLinkAcceptsNothing(t *testing.T) {
 	}
 }
 
-// TestAdminInvites_ARefusedRowIsRelinked (ONAY note 3): the business holds a REFUSED row of the address
-// (the person unlinked it from the confirmation list: unlinked_at, a sentinel digest, no link); a new
-// invitation accepted with the person's session relinks THAT row -- same id, linked_via 'invite',
-// unlinked_at NULL, the identity's digest, active -- and no second row exists.
+// TestAdminInvites_ARefusedRowIsRelinked (ONAY note 3 and the 2026-10-27 audits' YÜKSEK finding): the
+// business holds a REFUSED row of the address (the person unlinked it from the confirmation list:
+// unlinked_at, a sentinel digest, no link).
+//   - a MANAGER row: a manager invitation accepted with the person's session relinks THAT row -- same
+//     id, role 'manager', linked_via 'invite', unlinked_at NULL, the identity's digest, active -- and no
+//     second row exists;
+//   - an OWNER row: the manager invitation brings nothing back -- ErrInviteNotAccepted, the row still
+//     refused and an owner, unlinked, the invitation open. MUTATION (measured): the role predicate
+//     removed from the relink gate -> red (the owner row came back as an active owner).
 func TestAdminInvites_ARefusedRowIsRelinked(t *testing.T) {
-	owner := ownerConn(t)
-	w := newInviteWorld(t, owner, true)
-	a := w.business("M14-15 A")
-	rowA := w.linked(a, "active", "backfill", 48*time.Hour)
-	refused := w.row(w.tenant, fixtureDigest(t, "sentinel"), "active", 72*time.Hour)
-	w.exec(`UPDATE admin_users SET unlinked_at = now() - interval '1 day' WHERE id = $1`, refused)
-	is := w.issue(w.tenant, w.ownerRow, w.email)
-	got, err := w.s.AcceptWithSession(context.Background(), is.Token, w.session(a, rowA))
-	if err != nil {
-		t.Fatalf("AcceptWithSession: %v", err)
-	}
-	if got.AdminUserID != refused {
-		t.Fatalf("the acceptance made %s, want the refused row %s relinked", got.AdminUserID, refused)
-	}
-	if n := w.int(`SELECT count(*) FROM admin_users u JOIN admin_identities i ON i.id = u.identity_id
-	                WHERE u.id = $1 AND u.linked_via = 'invite' AND u.unlinked_at IS NULL AND u.status = 'active'
-	                  AND u.password_hash = i.password_hash`, refused); n != 1 {
-		t.Error("the refused row is not relinked with the identity's digest")
-	}
-	if n := w.rowsOf(w.tenant, w.email); n != 1 {
-		t.Errorf("%d rows of the address in the business, want 1", n)
+	for _, role := range []string{"manager", "owner"} {
+		t.Run(role, func(t *testing.T) {
+			owner := ownerConn(t)
+			w := newInviteWorld(t, owner, true)
+			a := w.business("M14-15 A")
+			rowA := w.linked(a, "active", "backfill", 48*time.Hour)
+			refused := w.row(w.tenant, fixtureDigest(t, "sentinel"), "active", 72*time.Hour)
+			w.exec(`UPDATE admin_users SET unlinked_at = now() - interval '1 day', role = $2 WHERE id = $1`, refused, role)
+			is := w.issue(w.tenant, w.ownerRow, w.email)
+			got, err := w.s.AcceptWithSession(context.Background(), is.Token, w.session(a, rowA))
+			if role == "owner" {
+				if !errors.Is(err, ErrInviteNotAccepted) {
+					t.Fatalf("a manager invitation over a refused OWNER row answered %+v, %v; want ErrInviteNotAccepted", got, err)
+				}
+				if n := w.int(`SELECT count(*) FROM admin_users WHERE id = $1 AND role = 'owner' AND identity_id IS NULL AND unlinked_at IS NOT NULL`, refused); n != 1 {
+					t.Error("the refused owner row changed")
+				}
+				if st := w.inviteState(is.Invite.ID); st != "open" {
+					t.Errorf("the invitation is %s, want open", st)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("AcceptWithSession: %v", err)
+			}
+			if got.AdminUserID != refused {
+				t.Fatalf("the acceptance made %s, want the refused row %s relinked", got.AdminUserID, refused)
+			}
+			if n := w.int(`SELECT count(*) FROM admin_users u JOIN admin_identities i ON i.id = u.identity_id
+			                WHERE u.id = $1 AND u.linked_via = 'invite' AND u.unlinked_at IS NULL AND u.status = 'active'
+			                  AND u.role = 'manager' AND u.password_hash = i.password_hash`, refused); n != 1 {
+				t.Error("the refused manager row is not relinked as an active manager with the identity's digest")
+			}
+			if n := w.rowsOf(w.tenant, w.email); n != 1 {
+				t.Errorf("%d rows of the address in the business, want 1", n)
+			}
+		})
 	}
 }
 
@@ -512,19 +535,36 @@ func TestAdminInvites_ConcurrentAcceptanceAndRegistrationOfOneAddress(t *testing
 		if _, err := gate.Exec(context.Background(), `SELECT pg_advisory_lock($1)`, key); err != nil {
 			t.Fatal(err)
 		}
+		// NO t.Fatal WHILE THE TWO RUN (S13 hygiene): a failure here lets the gate go, closes whichever
+		// start is still shut and waits for both goroutines before the test stops -- none outlives it.
+		started := map[chan struct{}]bool{}
+		start := func(c chan struct{}) { close(c); started[c] = true }
+		stop := func(format string, args ...any) {
+			t.Helper()
+			if _, err := gate.Exec(context.Background(), `SELECT pg_advisory_unlock_all()`); err != nil {
+				t.Errorf("let the gate go: %v", err)
+			}
+			for _, c := range []chan struct{}{startAccept, startRegister} {
+				if !started[c] {
+					close(c)
+				}
+			}
+			wg.Wait()
+			t.Fatalf(format, args...)
+		}
 		waitFor := func(n int) {
 			deadline := time.Now().Add(15 * time.Second)
 			for {
 				var waiting int
 				if err := gate.QueryRow(context.Background(), `SELECT count(*) FROM pg_locks l WHERE l.locktype = 'advisory' AND NOT l.granted
 				                                                AND l.classid = ((($1::int8) >> 32) & 4294967295)::oid AND l.objid = (($1::int8) & 4294967295)::oid`, key).Scan(&waiting); err != nil {
-					t.Fatal(err)
+					stop("round %d: read the lock queue: %v", i, err)
 				}
 				if waiting >= n {
 					return
 				}
 				if time.Now().After(deadline) {
-					t.Fatalf("round %d: %d of %d callers reached the address's lock", i, waiting, n)
+					stop("round %d: %d of %d callers reached the address's lock", i, waiting, n)
 				}
 				time.Sleep(2 * time.Millisecond)
 			}
@@ -533,12 +573,12 @@ func TestAdminInvites_ConcurrentAcceptanceAndRegistrationOfOneAddress(t *testing
 		if i%2 == 1 {
 			first, second = startAccept, startRegister
 		}
-		close(first)
+		start(first)
 		waitFor(1)
-		close(second)
+		start(second)
 		waitFor(2)
 		if _, err := gate.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, key); err != nil {
-			t.Fatal(err)
+			stop("round %d: let the gate go: %v", i, err)
 		}
 		wg.Wait()
 		if registerErr != nil {
@@ -645,5 +685,123 @@ func TestAdminInvites_ANonASCIIAddressIsNeverStored(t *testing.T) {
 	}
 	if _, err := w.s.Issue(context.Background(), w.tenant, w.ownerRow, local+"k@identity.example", "X"); err != nil {
 		t.Errorf("CONTROL: the ASCII address was refused: %v", err)
+	}
+}
+
+// TestAdminInvites_ASuspendedBusinessTakesNoNewManager is the user's decision of 2026-10-27: while the
+// inviting business is suspended, BOTH acceptances refuse -- ErrInviteNotNow (the page says "not
+// now"), no row, no identity, the invitation still open -- and once the suspension is lifted the same
+// link works. MUTATION (measured): the suspension read removed from either function -> red.
+func TestAdminInvites_ASuspendedBusinessTakesNoNewManager(t *testing.T) {
+	owner := ownerConn(t)
+	w := newInviteWorld(t, owner, true)
+	a := w.business("M14-15 A")
+	rowA := w.linked(a, "active", "backfill", 48*time.Hour)
+	stranger := "m14-15-susp-" + uuid.NewString() + "@identity.example"
+	w.cleanIdentityOf(stranger)
+	withSession, fresh := w.issue(w.tenant, w.ownerRow, w.email), w.issue(w.tenant, w.ownerRow, stranger)
+	w.exec(`UPDATE tenants SET suspended_at = now(), suspension_reason = 'security_hold' WHERE id = $1`, w.tenant)
+	t.Cleanup(func() {
+		if _, err := owner.Exec(context.Background(), `UPDATE tenants SET suspended_at = NULL, suspension_reason = NULL WHERE id = $1`, w.tenant); err != nil {
+			t.Errorf("lift the suspension: %v", err)
+		}
+	})
+	session := w.session(a, rowA)
+	if _, err := w.s.AcceptWithSession(context.Background(), withSession.Token, session); !errors.Is(err, ErrInviteNotNow) {
+		t.Errorf("the session acceptance into a suspended business answered %v, want ErrInviteNotNow", err)
+	}
+	if _, err := w.s.AcceptNew(context.Background(), fresh.Token, "a new password"); !errors.Is(err, ErrInviteNotNow) {
+		t.Errorf("the new-password acceptance into a suspended business answered %v, want ErrInviteNotNow", err)
+	}
+	if n := w.rowsOf(w.tenant, w.email) + w.rowsOf(w.tenant, stranger); n != 0 {
+		t.Errorf("%d rows written into a suspended business", n)
+	}
+	if n := w.int(`SELECT count(*) FROM admin_identities WHERE email = $1`, stranger); n != 0 {
+		t.Error("an identity was born for an invitation into a suspended business")
+	}
+	if w.inviteState(withSession.Invite.ID) != "open" || w.inviteState(fresh.Invite.ID) != "open" {
+		t.Error("an invitation into a suspended business was spent")
+	}
+	w.exec(`UPDATE tenants SET suspended_at = NULL, suspension_reason = NULL WHERE id = $1`, w.tenant)
+	if _, err := w.s.AcceptWithSession(context.Background(), withSession.Token, session); err != nil {
+		t.Errorf("CONTROL: after the suspension the link does not work: %v", err)
+	}
+}
+
+// TestAdminInvites_TheMembershipCarriesTheInvitationsSpelling (D1/D4): the invited address as the owner
+// typed it is what the new membership row stores, on both paths -- the identity's own spelling never
+// reaches this business's rows (M14-16's list would show the person's other spelling).
+func TestAdminInvites_TheMembershipCarriesTheInvitationsSpelling(t *testing.T) {
+	owner := ownerConn(t)
+	w := newInviteWorld(t, owner, true)
+	a := w.business("M14-15 A")
+	rowA := w.linked(a, "active", "backfill", 48*time.Hour)
+	typed := strings.ToUpper(w.email[:1]) + w.email[1:]
+	is := w.issue(w.tenant, w.ownerRow, typed)
+	got, err := w.s.AcceptWithSession(context.Background(), is.Token, w.session(a, rowA))
+	if err != nil {
+		t.Fatalf("AcceptWithSession: %v", err)
+	}
+	var stored string
+	if err := owner.QueryRow(context.Background(), `SELECT email::text FROM admin_users WHERE id = $1`, got.AdminUserID).Scan(&stored); err != nil || stored != typed {
+		t.Errorf("the membership stores %q (%v), want the invitation's %q", stored, err, typed)
+	}
+}
+
+// TestAdminInvites_AHoldingMembershipBirthsNoInvitation (ADR 0031 §5.11: "holding üyeliği davet
+// doğurmaz"): nothing but the owner's send writes admin_invites and nothing but the three functions of
+// 00077 reads it -- no function body in the database (the holding definers' op_* and holding_* among
+// them) names the table, and no store query outside admininvites.sql does. So a business joining a
+// holding, or a holding member acting, can never create an invitation or a membership through one.
+// CONTROL (in the scan): a holding-shaped function that inserts an invitation is named.
+func TestAdminInvites_AHoldingMembershipBirthsNoInvitation(t *testing.T) {
+	owner := ownerConn(t)
+	allowed := []string{"identity_accept_invite", "identity_accept_invite_new", "resolve_admin_invite_by_token_hash"}
+	scan := func(q interface {
+		Query(context.Context, string, ...any) (pgx.Rows, error)
+	}) []string {
+		rows, err := q.Query(context.Background(), `SELECT p.proname FROM pg_proc p
+		                                              WHERE p.pronamespace = 'public'::regnamespace AND p.prosrc ~* 'admin_invites'
+		                                              ORDER BY 1`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return names
+	}
+	got := scan(owner)
+	if !slices.Equal(got, allowed) {
+		t.Errorf("the functions naming admin_invites are %v, want exactly %v", got, allowed)
+	}
+	tx, err := owner.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := tx.Rollback(context.Background()); err != nil {
+			t.Errorf("roll the control back: %v", err)
+		}
+	}()
+	if _, err := tx.Exec(context.Background(), `CREATE FUNCTION public.zz_holding_invites() RETURNS void LANGUAGE sql AS 'INSERT INTO public.admin_invites (tenant_id) VALUES (NULL)'`); err != nil {
+		t.Fatal(err)
+	}
+	if c := scan(tx); slices.Equal(c, allowed) {
+		t.Error("CONTROL: a holding-shaped writer of admin_invites is not named")
+	}
+	entries, err := os.ReadDir(filepath.Join("..", "..", "db", "queries"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		b, err := os.ReadFile(filepath.Join("..", "..", "db", "queries", e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e.Name() != "admininvites.sql" && strings.Contains(string(b), "admin_invites") {
+			t.Errorf("db/queries/%s names admin_invites", e.Name())
+		}
 	}
 }

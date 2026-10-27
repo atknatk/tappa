@@ -175,10 +175,6 @@ func suspensionExceptions(identity bool) map[string]string {
 	if identity {
 		out["POST "+accountSignOutEverywhereHref] = "signing yourself out everywhere (ADR 0025's M14 note, M14-11)"
 		out["POST "+adminSwitchHref] = "switching businesses (ADR 0025's M14 note, M14-10)"
-		// M14-15: the invitee's press is outside the writing chain like signing in -- the invitee holds
-		// no session of the inviting business; a membership it makes in a suspended business is read-only
-		// there like every other. The owner's two invitation writes ARE gated (mountWriting's main group).
-		out["POST "+adminInvitePath] = "accepting an invitation (outside the writing chain, M14-15)"
 	}
 	return out
 }
@@ -221,10 +217,10 @@ func refusalEvents(tr *fakeTrail) []audit.Event {
 // code review's -- no completeness claim.
 func TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException(t *testing.T) {
 	tenant, admin, session := uuid.New(), uuid.New(), uuid.New()
-	for identity, want := range map[bool]int{false: 11, true: 14} {
+	for identity, want := range map[bool]int{false: 11, true: 13} {
 		if n := len(suspensionExceptions(identity)); n != want {
 			t.Fatalf("the exception list (identity flag %v) has %d entries; ADR 0025 §3 names eight, "+
-				"K-26 three and, under the flag, its M14 note's two so far and M14-15's acceptance (outside the writing chain, like signing in)", identity, n)
+				"K-26 three and, under the flag, its M14 note's two so far", identity, n)
 		}
 	}
 

@@ -316,6 +316,7 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
 	h.Mount(r)
+	h.MountInviteAcceptance(r)
 	registerPanel(r, h)
 
 	// 🔴 THE ACTIVATION FLOW IS MOUNTED BESIDE THE PANEL (M6-05 phase B, round 3), so

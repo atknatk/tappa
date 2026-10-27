@@ -46,12 +46,18 @@
 -- RELINKS that row (identity_id, linked_via 'invite', a new linked_at, unlinked_at NULL, the digest
 -- copy until contract B, status 'active' -- the owner's invitation is the intent to have the person
 -- back; §5.11 names 'active' after contract B, and before it a refused row is 'active' unless an owner
--- disabled it, which this owner's fresh invitation overrides). Any OTHER row of the address in the
+-- disabled it, which this owner's fresh invitation overrides) -- ONLY WHEN THE ROW HOLDS THE
+-- INVITATION'S ROLE (the 2026-10-27 audits' finding: a manager invitation must never bring a refused
+-- OWNER row back as an active owner; the definer has no UPDATE (role)). Any OTHER row of the address in the
 -- business (active or disabled, linked or not) refuses the acceptance with 0 rows and leaves the
 -- invitation open: the answer goes to the person who clicked -- the mailbox owner -- and the inviting
 -- owner sees the same open invitation as for an ignored e-mail. The issuing path never reads a
 -- membership or an identity (internal/adminauth's AdminInvites), so the owner's answer, its timing and
 -- the list's state are one shape whatever the address is (R18).
+--
+-- A SUSPENDED BUSINESS TAKES NO NEW MANAGER (the user's decision of 2026-10-27): both acceptances
+-- read tenants.suspended_at after their locks; set, or no row, refuses with nothing written and the
+-- invitation open (ADR 0025's M14 note).
 --
 -- THE MAILBOX PROOF (§5.11, K-7's orchestrator note). identity_accept_invite is clicked with a live
 -- session of the identity whose address the invitation names: when the identity's email_verified_at
@@ -93,6 +99,13 @@ BEGIN
             WHERE p.oid = 'public.identity_consume_reset(text,text)'::pg_catalog.regprocedure)
           <> 'TABLE(identity_id uuid, revoked_sessions integer, email text)' THEN
         RAISE EXCEPTION 'migration 00077 (M14-15) needs 00069-00075 (the identity tables and functions). Migrate in order. Nothing was changed.'
+            USING ERRCODE = 'object_not_in_prerequisite_state';
+    END IF;
+    -- 00076 (M14-08a) first: its address rule is the one identity_accept_invite_new repeats.
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
+                    WHERE p.oid = 'public.identity_create_for_signup(uuid,uuid)'::pg_catalog.regprocedure
+                      AND pg_catalog.strpos(p.prosrc, '-- 6b. THE ADDRESS RULE (M14-08a)') > 0) THEN
+        RAISE EXCEPTION 'migration 00077 (M14-15) needs 00076 (M14-08a: the address rule in identity_create_for_signup). Migrate in order. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
     IF pg_catalog.to_regclass('public.admin_invites') IS NOT NULL
@@ -257,6 +270,9 @@ DECLARE
     v_row            uuid;
     v_row_identity   uuid;
     v_row_refused    timestamptz;
+    v_row_role       text;
+    v_suspended      timestamptz;
+    v_tenant_found   boolean;
     v_row_found      boolean;
     v_admin          uuid;
     v_now            timestamptz;
@@ -302,7 +318,7 @@ BEGIN
         RETURN;
     END IF;
     PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
-    SELECT a.id, a.identity_id, a.unlinked_at INTO v_row, v_row_identity, v_row_refused
+    SELECT a.id, a.identity_id, a.unlinked_at, a.role INTO v_row, v_row_identity, v_row_refused, v_row_role
       FROM public.admin_users AS a
      WHERE a.tenant_id = v_tenant
        AND a.email OPERATOR(public.=) v_email
@@ -336,11 +352,23 @@ BEGIN
     IF (v_found AND v_expires > v_now) IS NOT TRUE THEN
         RETURN;
     END IF;
+    -- A SUSPENDED business takes no new manager (the user's decision of 2026-10-27): read after the
+    -- locks; set -- or no row at all -- refuses, nothing is written, the invitation stays open.
+    SELECT t.suspended_at INTO v_suspended
+      FROM public.tenants AS t
+     WHERE t.id = v_tenant;
+    v_tenant_found := FOUND;
+    IF (v_tenant_found AND v_suspended IS NULL) IS NOT TRUE THEN
+        RETURN;
+    END IF;
 
     IF v_row_found THEN
-        -- Only a REFUSED row of the address is taken back (ONAY note 3); any other row means the
-        -- address is already in this business.
-        IF (v_row_identity IS NULL AND v_row_refused IS NOT NULL) IS NOT TRUE THEN
+        -- Only a REFUSED row of the address is taken back (ONAY note 3), and only when it holds the
+        -- invitation's role: a manager invitation never brings a refused OWNER row back (the definer
+        -- holds no UPDATE (role), and an owner seat is M14-16's two-step transfer). Any other row --
+        -- active, disabled-unrefused, linked, or of another role -- refuses with the one answer, and the
+        -- invitation stays open.
+        IF (v_row_identity IS NULL AND v_row_refused IS NOT NULL AND v_row_role = v_role) IS NOT TRUE THEN
             RETURN;
         END IF;
         UPDATE public.admin_users AS a
@@ -359,7 +387,7 @@ BEGIN
         v_admin := v_row;
     ELSE
         INSERT INTO public.admin_users AS a (tenant_id, full_name, email, password_hash, role, identity_id, linked_via, linked_at)
-        VALUES (v_tenant, v_name, v_identity_email, v_digest, v_role, v_identity, 'invite', pg_catalog.now())
+        VALUES (v_tenant, v_name, v_email, v_digest, v_role, v_identity, 'invite', pg_catalog.now())
         RETURNING a.id INTO v_admin;
     END IF;
 
@@ -427,6 +455,8 @@ DECLARE
     v_identity uuid;
     v_admin    uuid;
     v_now      timestamptz;
+    v_suspended    timestamptz;
+    v_tenant_found boolean;
 BEGIN
     v_now := pg_catalog.clock_timestamp();
     SELECT v.id, v.tenant_id, v.email INTO v_invite, v_tenant, v_email
@@ -441,10 +471,14 @@ BEGIN
     IF (p_new_hash ~ '^\$2[aby]\$(0[4-9]|1[0-4])\$[./A-Za-z0-9]{53}$') IS NOT TRUE THEN
         RETURN;
     END IF;
-    -- THE ASCII ADDRESS RULE (2026-10-26): no identity is ever born for a non-ASCII address -- citext
-    -- folds 'İ' (U+0130) and the Kelvin sign (U+212A) onto ASCII letters, so such an identity would squat
-    -- the ASCII address it folds to. Checked before the lock and any write; NULL fails closed.
-    IF (v_email::text ~ '^[\x21-\x7e]+$') IS NOT TRUE THEN
+    -- 6b. THE ADDRESS RULE (M14-08a, 00076's predicate verbatim): no identity is ever born for an
+    -- address internal/mail would not send to -- at most 254 octets, no "=?", an addr-spec net/mail parses
+    -- back to itself in printable ASCII. citext folds 'İ' (U+0130) and the Kelvin sign (U+212A) onto
+    -- ASCII letters, so such an identity would squat the ASCII address it folds to. Before the lock and
+    -- any write; NULL fails closed.
+    IF (pg_catalog.octet_length(v_email::text) <= 254
+        AND pg_catalog.strpos(v_email::text, '=?') = 0
+        AND v_email::text ~ '^[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*@([-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*|\[((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|(([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|([0-9A-Fa-f]{1,4}:){6}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,6})?|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,5})?|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,4})?|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,3})?|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,2})?|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,1})?|([0-9A-Fa-f]{1,4}:){5}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4})?|([0-9A-Fa-f]{1,4}:){6}[0-9A-Fa-f]{1,4}::|::([0-9A-Fa-f]{1,4}:){0,5}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,4}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,2}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,1}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])))\])$') IS NOT TRUE THEN
         RETURN;
     END IF;
 
@@ -469,6 +503,15 @@ BEGIN
     v_found := FOUND;
     v_now := pg_catalog.clock_timestamp();
     IF (v_found AND v_expires > v_now) IS NOT TRUE THEN
+        RETURN;
+    END IF;
+    -- A SUSPENDED business takes no new manager (the user's decision of 2026-10-27): read after the
+    -- locks; set -- or no row at all -- refuses, nothing is written, the invitation stays open.
+    SELECT t.suspended_at INTO v_suspended
+      FROM public.tenants AS t
+     WHERE t.id = v_tenant;
+    v_tenant_found := FOUND;
+    IF (v_tenant_found AND v_suspended IS NULL) IS NOT TRUE THEN
         RETURN;
     END IF;
 
@@ -574,7 +617,16 @@ $$;
 DROP FUNCTION public.identity_accept_invite_new(text, text);
 DROP FUNCTION public.identity_accept_invite(text, text);
 DROP FUNCTION public.resolve_admin_invite_by_token_hash(text);
-SET LOCAL lock_timeout = '1s';
-REVOKE INSERT (tenant_id, full_name, email, password_hash, role, identity_id, linked_via, linked_at)
-    ON admin_users FROM tappa_identitydefiner;
 DROP TABLE admin_invites;
+-- The definer's admin_users INSERT is this file's; M14-17's identity_claim_signup (00078) uses it too and
+-- does not revoke it -- so it goes only while that function does not exist.
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF pg_catalog.to_regprocedure('public.identity_claim_signup(text,uuid,text)') IS NULL THEN
+        REVOKE INSERT (tenant_id, full_name, email, password_hash, role, identity_id, linked_via, linked_at)
+            ON public.admin_users FROM tappa_identitydefiner;
+    END IF;
+END
+$$;
+-- +goose StatementEnd
