@@ -1996,7 +1996,7 @@ adım yok.
 - **Kilit:** tablo kilidi yok; aday satırlar `id` sırasıyla `FOR UPDATE` kilitlenir, ifadenin kendi
   `SET LOCAL lock_timeout = '1s'`'i altında. Bir satırı tutan bir yazarın arkasında 55P03 ile düşer —
   hiçbir şey yazılmaz, Job `Failed`, rollout yapılmaz, sakin bir anda yeniden koşulur. Kilitten sonra
-  doğan satır (eski pod'un kaydı) M14-06b'nin (uzlaştırma) işidir. İfade sürerken aday satırlarda
+  doğan satır (eski pod'un kaydı) M14-06b'nin (uzlaştırma, `00082`) işidir. İfade sürerken aday satırlarda
   girişin `last_login_at` UPDATE'i ve yeni oturum INSERT'inin yabancı anahtar denetimi (`FOR KEY SHARE`)
   bekler; panel istekleri (`TouchAdminSession` `admin_users`'ı yalnız okur) beklemez — canlıda ~8 ms.
 - **Süre (M14-02 sayısıyla):** canlıda 4 `admin_users` satırı, 3 e-posta grubu (2 tekli, 1 çiftli) →
@@ -2103,7 +2103,7 @@ satır) hiçbir şeyi değiştirmeden **reddeder** — geri dönüş önceki bin
   üçüncü sayımı eksi ikincisi (backfill'in ASCII ama biçimi bozuk kalıntısı; 2026-10-22 sayılarıyla
   `3|0|0`; bu dalın veritabanında 2026-10-27: `0|0|0`).
 
-### Uzlaştırma (M14-06b) — `00074`
+### Uzlaştırma (M14-06b) — `00082` (Deploy 2)
 
 `identity_reconcile()` bir **bakım fonksiyonudur** (ADR 0031 §5.2, §5.8; CLAUDE.md §4.5 (3)): backfill'den
 **sonra** doğan `admin_users` satırlarına (expand rollout penceresinde eski pod'un kayıtları, expand ile
@@ -2112,25 +2112,52 @@ e-posta grubunun **en eski aktif** satırı (yoksa en eskisi) bağlanır (`linke
 `linked_at=now()`), kimlik o satırın digest'iyle doğar, öbür satırlar bağlanmamış kalır. Adresinde zaten
 bir kimlik olan grup ve bağlı ya da reddedilmiş (`unlinked_at`) satır taşıyan grup **dokunulmadan** kalır:
 sonradan doğan bir satır, adresin önceki bir satırının doğurduğu kimliğe asla katılmaz (M14-06 güvenlik
-notu); reddedilmiş satır hiçbir koşuda bağlanmaz. İdempotenttir: ikinci koşu 0 satır bağlar. Sahibi
-`tappa_identitydefiner`; `EXECUTE` **yalnız `tappa_owner`'da** — `tappa_app` (ve operatör rolleri) onu
-çağıramaz, uygulama yolu yoktur. Dönüş değeri: o çağrıda bağlanan satır sayısı.
+notu); reddedilmiş satır hiçbir koşuda bağlanmaz. Davet kabulünün (`00077`, `invite`) ve kaydın onayının
+(`00078`/`00080`, `claim`) yazdığı satırlar **bağlı doğar**: aday değildir, grupları da dokunulmadan kalır.
+İdempotenttir: ikinci koşu 0 satır bağlar. Sahibi `tappa_identitydefiner`; `EXECUTE` **yalnız
+`tappa_owner`'da** — `tappa_app` (ve operatör rolleri) onu çağıramaz, uygulama yolu yoktur. Dönüş değeri: o
+çağrıda bağlanan satır sayısı. Yeni yetki yok: gövdenin `00071`/`00072`'nin ötesinde kullandığı iki hücre
+(`admin_users` `SELECT (password_hash)`, `admin_identities` `INSERT (email, password_hash)`) `00074`'ündür.
 
-- **Deploy 2 (ADR 0031 §8, adım 3):** `00074`'ün migrate Job'ı fonksiyonu yaratır ve **bir kez çağırır**;
-  ayrı bir adım yok. Dosya başta koşan rolün superuser ya da BYPASSRLS olduğunu doğrular, sonda
-  (kapanış iddiası): bu transaction'dan önce doğmuş satırlar arasında kuralın alması gereken **hiçbir
-  grup** kimliksiz kalmamış (definer BYPASSRLS'ini yitirmişse fonksiyon 0 satır görür — dosya o zaman
-  "başarılı" kaydedilmez, reddeder; boş veritabanı koşulsuz geçer), `reconcile` ile bağlı her satırın
-  digest'i kimliğinkine eşit, hiçbir kimlik iki `reconcile` satırıyla bağlı değil, fonksiyonun katalog
-  biçimi (definer, `search_path`, `EXECUTE` yalnız `tappa_owner`) doğru.
+- **Adres kuralı (M14-08a — ADR 0031 §5.8'in notu):** grubun adayları yalnız adresi `mail.ValidRecipient`'ten
+  geçen satırlardır (00076'nın 6b yüklemi, desen bayt bayt). Homoglif satırı (U+0130 `İ`, U+212A KELVIN
+  SIGN — citext onları ASCII harfe katlar) grubun **en eski aktif** satırı olsa bile **seçilmez**: kimlik
+  grubun kuralı geçen satırının yazımı ve digest'iyle doğar, homoglif satırı bağlanmamış kalır. Yalnız
+  kuralı geçmeyen satırlardan oluşan grup (karşılığı olmayan homoglif; ASCII ama biçimi bozuk `a..b@x.mt`)
+  kimlik **doğurmaz** — adlandırılmış kalıntıdır; aşağıdaki M14-19 sayımı onu ayrı sayar, ne olacağı
+  kullanıcının kararıdır (ADR 0031 §5.8).
+- **Deploy 2 (ADR 0031 §8, adım 3)** — Deploy 1'den (expand; canlıda 2026-10-28, goose 81, bayrak `off`)
+  **sonraki ayrı** deploy. Binary'nin işi yok: `00082`'nin migrate Job'ı (rollout'tan önce) fonksiyonu
+  yaratır ve **bir kez çağırır**; ayrı bir adım yok, bayrak `off` kalır. `main`'e birleştirme deploy
+  kararıdır (kullanıcının). Dosya başta koşan rolün superuser ya da BYPASSRLS olduğunu, `00076`'nın adres
+  kuralının ve `00074`'ün iki yetkisinin yerinde olduğunu doğrular; sonda (kapanış iddiası): bu
+  transaction'dan önce doğmuş, **kuralı geçen** satırlar arasında kuralın alması gereken **hiçbir grup**
+  kimliksiz kalmamış (definer BYPASSRLS'ini yitirmişse fonksiyon 0 satır görür — dosya o zaman "başarılı"
+  kaydedilmez, reddeder; boş veritabanı koşulsuz geçer), `reconcile` ile bağlı her satırın digest'i
+  kimliğinkine eşit, hiçbir kimlik iki `reconcile` satırıyla bağlı değil, `reconcile` ile bağlı hiçbir
+  kimliğin adresi kuralı çiğnemiyor, fonksiyonun katalog biçimi (definer, `search_path`, `EXECUTE` yalnız
+  `tappa_owner`) doğru.
+  - **Önce (salt okuma, yalnız sayı; kullanıcı koşar):** aşağıdaki "M14-19'un ön-kontrol sayımları"
+    sorgusu, olduğu gibi. 2026-10-28 ölçümüyle (Deploy 1'den sonra, salt okuma: 3 kimlik, 3 bağlı satır,
+    kimliği olmayan 1 dolu e-postalı satır — M14-06'nın beklenen tek bağlanmamış aktif owner'ı, çift
+    grubun ikinci satırı; adresinde kimlik var; adres sayımları `4|0|0`) beklenen `BEGIN` · `0|0` · `0` ·
+    `ROLLBACK`. Birinci sayı 0'dan büyükse Deploy 2'nin çağrısı tam o kadar grubu bağlayacaktır (Deploy
+    1'den beri `identity_create_for_signup`'ın bağlamadığı kayıtlar — eski pod'un rollout penceresi).
+  - **Sonra:** goose sürümü `82`; Job log'unda `OK 00082_reconcile_admin_identities.sql`. Aynı sayım
+    yeniden: birinci sayı `0` (çağrı onları bağladı), ikincisi öncekiyle aynı, üçüncüsü `0`. Job `Failed`
+    ise hiçbir şey yazılmamıştır (dosya tek transaction): 55P03 → sakin bir anda yeniden; kapanış
+    iddiası ya da digest reddi → **DUR**, rollout yok, mesaj satır ya da adres anmaz.
 - **Canlı uygulamayla eşzamanlılık (T8):** her grup için önce adresin ad alanlı danışma kilidi
-  (`hashtextextended('admin-identity-email:' || lower(email), 0)` — her kimlik INSERT'inin aldığı anahtar),
-  sonra grubun aday satırları `id` sırasıyla `FOR UPDATE` (kimlikleri tutulur); bağlı/reddedilmiş grup
-  kontrolü bu kilitlerden **sonra** okunur (danışma kilidini almayan bir bağlayıcının — `identity_link_legacy`
-  — arada commit ettiği bağ görülür); seçim **yalnız kilitlenen satırlar** arasından yapılır (bekleme
-  sırasında doğan satır kilitsiz seçilmez, kimlik bayat bir digest'le doğmaz); kimlik INSERT'i `ON CONFLICT (email) DO NOTHING` — aynı adresin eşzamanlı bir kaydı ya da ikinci bir uzlaştırma
-  **500 vermez**, grup atlanır. Tablo kilidi yok; `SET LOCAL lock_timeout = '1s'` altında bir satırı tutan
-  yazarın arkasında 55P03 ile düşer — hiçbir şey yazılmaz, Job `Failed`, sakin bir anda yeniden koşulur.
+  (`hashtextextended('admin-identity-email:' || lower(email), 0)` — her kimlik INSERT'inin aldığı anahtar;
+  citext eşitliği `lower()`'ınki olduğu için bir homoglif ve katlandığı ASCII yazım aynı anahtarı paylaşır),
+  sonra grubun aday satırları `id` sırasıyla `FOR UPDATE` (kuralı geçenlerin kimlikleri tutulur);
+  bağlı/reddedilmiş grup kontrolü bu kilitlerden **sonra** okunur (danışma kilidini almayan bir bağlayıcının
+  — `identity_link_legacy` — arada commit ettiği bağ görülür); seçim **yalnız kilitlenen, kuralı geçen
+  satırlar** arasından yapılır (bekleme sırasında doğan satır kilitsiz seçilmez, kimlik bayat bir digest'le
+  doğmaz); kimlik INSERT'i `ON CONFLICT (email) DO NOTHING` — aynı adresin eşzamanlı bir kaydı ya da ikinci
+  bir uzlaştırma **500 vermez**, grup atlanır. Tablo kilidi yok; `SET LOCAL lock_timeout = '1s'` altında bir
+  satırı tutan yazarın arkasında 55P03 ile düşer — hiçbir şey yazılmaz, Job `Failed`, sakin bir anda yeniden
+  koşulur.
 - **Digest:** seçilen satırın digest'i bcrypt biçiminde değilse çağrı **hiçbir şey yazmadan** reddeder;
   mesaj satırı ve adresi anmaz (CLAUDE.md §7). Çözüm backfill'deki gibi: o hesabın parolasını sıfırla,
   yeniden koş. (`00018`'den sonra doğan satırda imkânsız — CHECK yeni satırı denetler.)
@@ -2146,7 +2173,7 @@ kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
 BEGIN;
 SET LOCAL lock_timeout = '1s';
 SELECT public.identity_reconcile();
--- 00074'ün kapanış iddiası (b), COMMIT'ten ÖNCE: uyuşmazlık varsa hata -> ON_ERROR_STOP -> hiçbir şey commit edilmez.
+-- 00082'nin kapanış iddiası (b), COMMIT'ten ÖNCE: uyuşmazlık varsa hata -> ON_ERROR_STOP -> hiçbir şey commit edilmez.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM admin_users a JOIN admin_identities i ON i.id = a.identity_id
@@ -2163,19 +2190,29 @@ beklenen: `BEGIN` · `SET` · bir sayı (bu çağrının bağladığı satır �
 sayısı; sıfır da olabilir) · `DO` · `COMMIT`. `DO` hata verirse psql durur ve transaction commit edilmez —
 DUR, bayrak açılmaz. 55P03 → sakin bir anda yeniden. Başka bir hata → DUR, bayrak açılmaz.
 
-**M14-19'un iki ön-kontrol sayımı** (bu kartın runbook adımı; yeniden çağrıdan **sonra**; salt okuma, yalnız
-sayı, `READ ONLY` transaction ve `ROLLBACK`):
+**M14-19'un ön-kontrol sayımları** (bu kartın runbook adımı; yeniden çağrıdan **sonra**; salt okuma, yalnız
+sayı, `READ ONLY` transaction ve `ROLLBACK`). Birinci sorgu iki sayı basar: kuralı geçen kimliksiz dolu
+e-posta adresleri ve — **ayrı**, adlandırılmış kalıntı olarak — kuralı (`mail.ValidRecipient`, 00076'nın
+6b deseni, bayt bayt) geçmeyen kimliksiz satırlar:
 
 ```bash
 kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
     sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
 BEGIN TRANSACTION READ ONLY;
--- 1. Kimliği olmayan dolu e-posta (reddedilmiş satırlar hariç): adreste kimlik yok.
-SELECT count(DISTINCT a.email) AS identityless_filled_email
-  FROM admin_users a
- WHERE a.email IS NOT NULL AND btrim(a.email::text) <> ''
-   AND a.unlinked_at IS NULL
-   AND NOT EXISTS (SELECT 1 FROM admin_identities i WHERE i.email = a.email);
+-- 1. Kimliği olmayan dolu e-posta (reddedilmiş satırlar hariç): adreste kimlik yok. Kuralı geçen adresler
+--    (DUR sayısı) ve kuralı geçmeyen satırlar (adlandırılmış kalıntı, ayrı).
+WITH identityless AS (
+    SELECT a.email,
+           (NOT (octet_length(email::text) <= 254
+                 AND strpos(email::text, '=?') = 0
+                 AND email::text ~ '^[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*@([-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*|\[((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|(([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|([0-9A-Fa-f]{1,4}:){6}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,6})?|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,5})?|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,4})?|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,3})?|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,2})?|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,1})?|([0-9A-Fa-f]{1,4}:){5}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4})?|([0-9A-Fa-f]{1,4}:){6}[0-9A-Fa-f]{1,4}::|::([0-9A-Fa-f]{1,4}:){0,5}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,4}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,2}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,1}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])))\])$')) AS residue
+      FROM admin_users a
+     WHERE a.email IS NOT NULL AND btrim(a.email::text) <> ''
+       AND a.unlinked_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM admin_identities i WHERE i.email = a.email))
+SELECT count(DISTINCT email) FILTER (WHERE NOT residue) AS identityless_filled_email,
+       count(*) FILTER (WHERE residue)                  AS identityless_rule_residue
+  FROM identityless;
 -- 2. Bağlı satırda digest uyuşmazlığı (dual-write değişmezi, ADR 0031 §5.1).
 SELECT count(*) AS linked_digest_mismatch
   FROM admin_users a
@@ -2185,19 +2222,22 @@ ROLLBACK;
 SQL
 ```
 
-beklenen: `BEGIN` · `0` · `0` · `ROLLBACK`. Sayılardan biri 0 değilse **bayrak açılmaz** (M14-19 durur): birincisi için yeniden çağrı bir kez
+beklenen: `BEGIN` · `0|N` · `0` · `ROLLBACK` — `N` kalıntıdır (2026-10-28 ölçümüyle `0`). `identityless_filled_email`
+ya da `linked_digest_mismatch` 0 değilse **bayrak açılmaz** (M14-19 durur): birincisi için yeniden çağrı bir kez
 daha koşulur (araya bir kayıt girmiş olabilir); hâlâ 0 değilse grup ya legacy digest taşıyor (çağrı zaten
-reddederdi) ya da bağlı/reddedilmiş bir satırı olup adresi kimliksiz — inceleme, kart dışı. İkincisi her
-zaman bir hatadır. (`count(identity_id IS NOT NULL AND unlinked_at IS NOT NULL) = 0` — S19 — M14-19'un
-kendi üçüncü sayımıdır.)
+reddederdi) ya da bağlı/reddedilmiş bir satırı olup adresi kimliksiz — inceleme, kart dışı. Digest
+uyuşmazlığı her zaman bir hatadır. `N > 0` bayrağı **durdurmaz**: o satırlar hiçbir yoldan bağlanmaz ve
+kimlik doğurmaz (homoglif ya da biçimi bozuk adres); sayı deploy'dan önce kullanıcıya bildirilir, K-3'ün
+son tarihi ve contract A'nın ön koşulu karşısında ne olacakları kullanıcının kararıdır (ADR 0031 §5.8).
+(`count(identity_id IS NOT NULL AND unlinked_at IS NOT NULL) = 0` — S19 — M14-19'un kendi üçüncü sayımıdır.)
 
 **Down:** `00073`'ünkünün aynası, `linked_via='reconcile'` için: o satırları çözer ve yalnız onların
 kimliklerini siler (bir `reconcile` bağı daima aynı çağrının doğurduğu kimliğedir); kimliklerden biri
-**yaşamışsa** (başka bir bağ, ret damgası, doğrulanmış adres, onay penceresi, giriş, son kullanılan işletme,
-ona işaret eden başka bir tablo satırı) hiçbir şeyi değiştirmeden **reddeder**. Sonra fonksiyonu düşürür ve
-yalnız `00074`'ün verdiği iki yetkiyi geri alır (`admin_users` `SELECT (password_hash)`, `admin_identities`
-`INSERT (email, password_hash)`). Canlıda koşulmaz — geri dönüş önceki binary'dir (ADR 0031 §8).
-Contract B (M14-20b) fonksiyonu düşürür.
+**yaşamışsa** (başka bir bağ — davetle ya da kayıt onayıyla dahil —, ret damgası, doğrulanmış adres, onay
+penceresi, giriş, son kullanılan işletme, ona işaret eden başka bir tablo satırı) hiçbir şeyi değiştirmeden
+**reddeder**. Sonra fonksiyonu düşürür; yetki geri almaz (`00082` yetki vermedi; kullandığı iki hücre
+`00074`'ündür, onun Down'ı alır). Canlıda koşulmaz — geri dönüş önceki binary'dir (ADR 0031 §8). Contract B
+(M14-20b) fonksiyonu düşürür.
 
 ### Panel formlarının tenant bağı (M14-10a)
 

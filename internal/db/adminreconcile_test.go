@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -14,7 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// adminreconcile_test.go -- migration 00074 (M14-06b, ADR 0031 §5.2, §5.8, §8) against real
+// adminreconcile_test.go -- migration 00082 (M14-06b, ADR 0031 §5.2, §5.8, §8) against real
 // Postgres: identity_reconcile(), the maintenance pass that gives the e-mail groups born after the
 // backfill their identity by 00073's own rule (linked_via = 'reconcile'); who may call it; its
 // concurrency with the live application (T8); the file's role assertion, postcondition and Down.
@@ -24,9 +26,9 @@ import (
 // transaction (adminbackfill_test.go's reasons: the pass locks every committed candidate row of the
 // shared database FOR UPDATE; a savepoint's row locks go with its rollback).
 
-const rcFile = "00074_reconcile_admin_identities.sql"
+const rcFile = "00082_reconcile_admin_identities.sql"
 
-// rcSections returns 00074's Up, its postcondition (the Up's last DO block) and its Down.
+// rcSections returns 00082's Up, its postcondition (the Up's last DO block) and its Down.
 func rcSections(t *testing.T) (up, post, down string) {
 	t.Helper()
 	up, down = opMigrationSections(t, rcFile)
@@ -288,7 +290,7 @@ func TestIdentityReconcile_ItIsIdempotent(t *testing.T) {
 
 // TestIdentityReconcile_AnEmptyDatabase (R11, the backfill's empty-database case): with no filled
 // e-mail anywhere -- every address set aside in the savepoint, plus an e-mail-less, an empty and a
-// blank row -- the pass links nothing and makes no identity, and the whole of 00074's Up (Down
+// blank row -- the pass links nothing and makes no identity, and the whole of 00082's Up (Down
 // first, then Up: the call and the postcondition) passes.
 func TestIdentityReconcile_AnEmptyDatabase(t *testing.T) {
 	ctx, tx := bfTx(t)
@@ -304,8 +306,8 @@ func TestIdentityReconcile_AnEmptyDatabase(t *testing.T) {
 		if n := rcRun(t, ctx, sp); n != 0 {
 			t.Errorf("the pass linked %d rows of no filled e-mail", n)
 		}
-		opRunSection(t, ctx, sp, down, "00074 Down")
-		opRunSection(t, ctx, sp, up, "00074 Up over a database with no filled e-mail")
+		opRunSection(t, ctx, sp, down, "00082 Down")
+		opRunSection(t, ctx, sp, up, "00082 Up over a database with no filled e-mail")
 		if n := opInt(t, ctx, sp, `SELECT count(*) FROM admin_identities`); n != 0 {
 			t.Errorf("%d identities born from no filled e-mail", n)
 		}
@@ -373,6 +375,177 @@ func TestIdentityReconcile_ADigestTheIdentityRefusesStopsIt(t *testing.T) {
 				t.Errorf("want the skipped row unlinked and the other linked: %s / %s", bfRow(t, ctx, sp, row), bfRow(t, ctx, sp, ok))
 			}
 		})
+	})
+}
+
+// ------------------------------------------------------------------- the address rule (M14-08a) --
+
+// rcAddressRuleWorld writes, in q, the e-mail groups the address rule decides (ADR 0031 §5.8's
+// M14-08a note) and returns the check of what a pass must leave: each failure is one line.
+//   - U+0130 (citext folds it onto 'i'): the group's OLDEST ACTIVE row is the homoglyph spelling; the
+//     identity is born with the ASCII row's spelling and digest, the homoglyph row stays unlinked;
+//   - U+212A (the Kelvin sign, folded onto 'k'): an active homoglyph row and a DISABLED ASCII one --
+//     "oldest active" counts rule-passing rows only, so the disabled ASCII row births the identity;
+//   - a group of one homoglyph row with no ASCII twin, and a group of one ASCII row of the wrong shape
+//     (a..b, which mail.ValidRecipient refuses): each births nothing (the named residues).
+func rcAddressRuleWorld(t *testing.T, ctx context.Context, q pgx.Tx) func(q pgx.Tx) []string {
+	t.Helper()
+	d := opFakeDigest
+	u := uuid.NewString()
+	dotted, dottedH := "m14-06b-rc-"+u+"@corip.example", "m14-06b-rc-"+u+"@corİp.example"
+	kelvin, kelvinH := "m14-06b-rc-"+u+"@park.example", "m14-06b-rc-"+u+"@parK.example"
+	alone := "m14-06b-rc-alone-" + u + "@corİp.example"
+	shape := "m14-06b-rc.." + u + "@corip.example"
+	hI := bfAdmin(t, ctx, q, aiTenant(t, ctx, q), dottedH, "active", 30, d("h"))
+	aI := bfAdmin(t, ctx, q, aiTenant(t, ctx, q), dotted, "active", 10, d("a"))
+	hK := bfAdmin(t, ctx, q, aiTenant(t, ctx, q), kelvinH, "active", 30, d("k"))
+	aK := bfAdmin(t, ctx, q, aiTenant(t, ctx, q), kelvin, "disabled", 5, d("b"))
+	lone := bfAdmin(t, ctx, q, aiTenant(t, ctx, q), alone, "active", 20, d("c"))
+	bad := bfAdmin(t, ctx, q, aiTenant(t, ctx, q), shape, "active", 20, d("s"))
+	return func(q pgx.Tx) []string {
+		var out []string
+		for _, c := range []struct {
+			what string
+			id   uuid.UUID
+		}{{"the ASCII row of a group whose oldest active row is U+0130", aI}, {"the disabled ASCII row beside an active U+212A row", aK}} {
+			if !rcLinked(t, ctx, q, c.id) {
+				out = append(out, c.what+" is not linked to an identity of its own spelling and digest: "+bfRow(t, ctx, q, c.id))
+			}
+		}
+		for _, c := range []struct {
+			what string
+			id   uuid.UUID
+		}{{"the U+0130 homoglyph row", hI}, {"the U+212A homoglyph row", hK}, {"a homoglyph row with no ASCII twin", lone}, {"an ASCII row of the wrong shape", bad}} {
+			if !bfUnlinked(t, ctx, q, c.id) {
+				out = append(out, c.what+" is linked: "+bfRow(t, ctx, q, c.id))
+			}
+		}
+		if n := opInt(t, ctx, q, `SELECT count(*) FROM admin_identities WHERE email::text = ANY ($1::text[])`, []string{dottedH, kelvinH, alone, shape}); n != 0 {
+			out = append(out, fmt.Sprintf("%d identities were born with a spelling mail.ValidRecipient refuses", n))
+		}
+		if n := bfIdentities(t, ctx, q, dotted, kelvin); n != 2 {
+			out = append(out, fmt.Sprintf("the two folded groups hold %d identities, want one each", n))
+		}
+		return out
+	}
+}
+
+// TestIdentityReconcile_TheAddressRuleChoosesTheASCIIRow (the card's "Adres kuralı (M14-08a)"
+// paragraph: the merge's BEHAVIOUR test): on rcAddressRuleWorld's groups, two passes leave every
+// group as the rule says -- the identity born with the ASCII spelling and that row's digest, never a
+// homoglyph's, even when the homoglyph is the oldest active row; a group of rule-failing rows alone
+// births nothing -- and the file's postcondition passes over them (its first check counts rule-passing
+// rows only).
+//
+// MUTATION CONTROLS, in savepoints, each red: the body with its `IF (...) IS NOT TRUE THEN CONTINUE`
+// refusal cut (redefined from pg_get_functiondef) chooses the homoglyph row -- the check above fails
+// and the postcondition's last check refuses the homoglyph identity; and the postcondition's first
+// check without the rule takes the rule-failing groups for a miss ("saw fewer rows").
+func TestIdentityReconcile_TheAddressRuleChoosesTheASCIIRow(t *testing.T) {
+	ctx, tx := bfTx(t)
+	_, post, _ := rcSections(t)
+
+	t.Run("the pass", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			check := rcAddressRuleWorld(t, ctx, sp)
+			for run := 1; run <= 2; run++ {
+				rcRun(t, ctx, sp)
+				for _, f := range check(sp) {
+					t.Errorf("run %d: %s", run, f)
+				}
+			}
+			if err := holdingNestedRun(t, ctx, sp, post); err != nil {
+				t.Fatalf("the postcondition over the rule-failing groups: %v", err)
+			}
+		})
+	})
+
+	t.Run("control/the body without its address refusal", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			var def string
+			if err := sp.QueryRow(ctx, `SELECT pg_get_functiondef('public.identity_reconcile()'::regprocedure)`).Scan(&def); err != nil {
+				t.Fatal(err)
+			}
+			refusal := regexp.MustCompile(`(?s)\n\s*IF \(pg_catalog\.octet_length\(r\.email::text\) <= 254.*?\) IS NOT TRUE THEN\s*CONTINUE;\s*END IF;`)
+			if n := len(refusal.FindAllStringIndex(def, -1)); n != 1 {
+				t.Fatalf("PREMISE: the body holds %d address refusals, want 1", n)
+			}
+			aiExec(t, ctx, sp, refusal.ReplaceAllString(def, ""))
+			check := rcAddressRuleWorld(t, ctx, sp)
+			rcRun(t, ctx, sp)
+			if f := check(sp); len(f) == 0 {
+				t.Fatal("MUTATION: without the refusal the pass still leaves every group as the rule says")
+			} else {
+				t.Logf("red without the refusal: %v", f)
+			}
+			bfWantRefusal(t, holdingNestedRun(t, ctx, sp, post), "mail.ValidRecipient refuses", "the postcondition over a homoglyph identity")
+		})
+	})
+
+	t.Run("control/the postcondition's first check without the rule", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			rule := regexp.MustCompile(`(?m)^\s+AND pg_catalog\.octet_length\(a\.email::text\) <= 254\n\s+AND pg_catalog\.strpos\(a\.email::text, '=\?'\) = 0\n\s+AND a\.email::text ~ '[^\n]*'\n`)
+			if n := len(rule.FindAllStringIndex(post, -1)); n != 1 {
+				t.Fatalf("PREMISE: the postcondition holds the first check's rule %d times, want 1", n)
+			}
+			rcAddressRuleWorld(t, ctx, sp)
+			rcRun(t, ctx, sp)
+			bfWantRefusal(t, holdingNestedRun(t, ctx, sp, rule.ReplaceAllString(post, "")), "saw fewer rows than this runner",
+				"the postcondition's first check without the rule")
+		})
+	})
+}
+
+// rcRunbookCounts returns deploy/README.md's two M14-19 precheck statements (the M14-06b section's
+// runbook step): the identityless count with its residue, and the digest mismatch.
+func rcRunbookCounts(t *testing.T) (identityless, mismatch string) {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", "deploy", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt := func(from string) string {
+		doc := string(b)
+		if n := strings.Count(doc, from); n != 1 {
+			t.Fatalf("PREMISE: deploy/README.md holds %q %d times, want 1", from, n)
+		}
+		rest := doc[strings.Index(doc, from):]
+		return rest[:strings.Index(rest, ";\n")]
+	}
+	return stmt("WITH identityless AS ("), stmt("SELECT count(*) AS linked_digest_mismatch")
+}
+
+// TestIdentityReconcile_TheRunbookCountsTheResidueApart: deploy/README.md's M14-19 precheck, run as it is
+// written on rcAddressRuleWorld's groups (every other row's address set aside in the savepoint, so the
+// counts are the world's): before the pass two addresses are identityless and four rows are the
+// residue (the two homoglyph rows still beside identityless ASCII twins, the lone homoglyph, the a..b
+// row); after it the identityless count is 0 and the residue is the two rows the rule keeps out for
+// good -- never a stop; the digest mismatch is 0 throughout.
+func TestIdentityReconcile_TheRunbookCountsTheResidueApart(t *testing.T) {
+	ctx, tx := bfTx(t)
+	identityless, mismatch := rcRunbookCounts(t)
+	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		// TestIdentityReconcile_AnEmptyDatabase's setting aside: links undone first (00069's trigger
+		// keeps a linked row's e-mail), the identities gone, every address NULL.
+		aiExec(t, ctx, sp, `UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL, unlinked_at = NULL
+		                     WHERE identity_id IS NOT NULL OR unlinked_at IS NOT NULL OR linked_via IS NOT NULL`)
+		aiExec(t, ctx, sp, `DELETE FROM admin_identities`)
+		aiExec(t, ctx, sp, `UPDATE admin_users SET email = NULL WHERE email IS NOT NULL`)
+		rcAddressRuleWorld(t, ctx, sp)
+		counts := func() string {
+			var addresses, residue int64
+			if err := sp.QueryRow(ctx, identityless).Scan(&addresses, &residue); err != nil {
+				t.Fatalf("the runbook's identityless count: %v", err)
+			}
+			return fmt.Sprintf("%d|%d|%d", addresses, residue, opInt(t, ctx, sp, mismatch))
+		}
+		if got := counts(); got != "2|4|0" {
+			t.Errorf("before the pass the runbook counts %s, want 2|4|0", got)
+		}
+		rcRun(t, ctx, sp)
+		if got := counts(); got != "0|2|0" {
+			t.Errorf("after the pass the runbook counts %s, want 0|2|0", got)
+		}
 	})
 }
 
@@ -732,15 +905,15 @@ func TestIdentityReconcile_ConcurrentWritersOfOneAddress(t *testing.T) {
 
 // ------------------------------------------------------------------- the file --
 
-// TestIdentityReconcile00074_TheRunnerAndThePostcondition:
+// TestIdentityReconcile00082_TheRunnerAndThePostcondition:
 //   - the role assertion: a runner that is neither superuser nor BYPASSRLS (a role inheriting
 //     tappa_owner's ownership, nothing but FORCE RLS between it and the rows) is refused by the Up
 //     and the Down before anything changes;
 //   - the postcondition: with tappa_identitydefiner stripped of BYPASSRLS the pass sees 0 rows and
-//     links nothing, and the Up REFUSES ("saw fewer rows") instead of recording 00074 as done;
+//     links nothing, and the Up REFUSES ("saw fewer rows") instead of recording 00082 as done;
 //   - a row linked 'reconcile' without its identity's digest, and an identity linked through two
 //     reconcile rows, are refused by the postcondition alone.
-func TestIdentityReconcile00074_TheRunnerAndThePostcondition(t *testing.T) {
+func TestIdentityReconcile00082_TheRunnerAndThePostcondition(t *testing.T) {
 	ctx, tx := bfTx(t)
 	up, post, down := rcSections(t)
 	mail := bfEmail("rc-runner")
@@ -748,7 +921,7 @@ func TestIdentityReconcile00074_TheRunnerAndThePostcondition(t *testing.T) {
 
 	t.Run("a runner that obeys RLS is refused", func(t *testing.T) {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
-			opRunSection(t, ctx, sp, down, "00074 Down")
+			opRunSection(t, ctx, sp, down, "00082 Down")
 			aiExec(t, ctx, sp, `CREATE ROLE zz_m14_06b_rls_runner NOLOGIN NOSUPERUSER NOBYPASSRLS`)
 			aiExec(t, ctx, sp, `GRANT tappa_owner TO zz_m14_06b_rls_runner`)
 			aiExec(t, ctx, sp, `SET LOCAL SESSION AUTHORIZATION zz_m14_06b_rls_runner`)
@@ -763,11 +936,11 @@ func TestIdentityReconcile00074_TheRunnerAndThePostcondition(t *testing.T) {
 
 	t.Run("a definer that lost BYPASSRLS: the Up refuses", func(t *testing.T) {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
-			opRunSection(t, ctx, sp, down, "00074 Down")
+			opRunSection(t, ctx, sp, down, "00082 Down")
 			aiExec(t, ctx, sp, `ALTER ROLE tappa_identitydefiner NOBYPASSRLS`)
 			bfWantRefusal(t, holdingNestedRun(t, ctx, sp, up), "saw fewer rows than this runner", "the Up with a definer that obeys RLS", mail)
 			aiExec(t, ctx, sp, `ALTER ROLE tappa_identitydefiner BYPASSRLS`)
-			opRunSection(t, ctx, sp, up, "00074 Up")
+			opRunSection(t, ctx, sp, up, "00082 Up")
 			if !rcLinked(t, ctx, sp, row) {
 				t.Errorf("the Up did not link the row: %s", bfRow(t, ctx, sp, row))
 			}
@@ -799,14 +972,15 @@ func TestIdentityReconcile00074_TheRunnerAndThePostcondition(t *testing.T) {
 	})
 }
 
-// TestIdentityReconcile00074_DownUndoesOnlyItsOwnAndUpAgain (ADR 0031 §8: a Down removes only what
+// TestIdentityReconcile00082_DownUndoesOnlyItsOwnAndUpAgain (ADR 0031 §8: a Down removes only what
 // its file added -- 00073's Down for 'backfill', this one for 'reconcile'):
 //   - the Down unlinks the pass's rows and deletes their identities; a backfilled row and its identity
-//     stay; the function and its two grants are gone; the Up again links the same rows the same way;
+//     stay; the function is gone, 00074's two grants it used stay; the Up again links the same rows
+//     the same way;
 //   - the Down refuses, changing nothing, when an identity the pass made has lived: another row linked
 //     to it, a verified address, a login, a window, a last-used business, a refused row of its address,
 //     a row of another table pointing at it; and when a foreign key onto admin_identities cascades.
-func TestIdentityReconcile00074_DownUndoesOnlyItsOwnAndUpAgain(t *testing.T) {
+func TestIdentityReconcile00082_DownUndoesOnlyItsOwnAndUpAgain(t *testing.T) {
 	ctx, tx := bfTx(t)
 	bfUp, _, _ := bfSections(t)
 	up, _, down := rcSections(t)
@@ -841,7 +1015,7 @@ func TestIdentityReconcile00074_DownUndoesOnlyItsOwnAndUpAgain(t *testing.T) {
 			after := shape(sp)
 			born := []uuid.UUID{identityOf(sp, first), identityOf(sp, single)}
 			backfilledRow := bfRow(t, ctx, sp, backfilled)
-			opRunSection(t, ctx, sp, down, "00074 Down")
+			opRunSection(t, ctx, sp, down, "00082 Down")
 			for _, id := range []uuid.UUID{first, second, single} {
 				if !bfUnlinked(t, ctx, sp, id) {
 					t.Errorf("after the Down a reconciled row is still linked: %s", bfRow(t, ctx, sp, id))
@@ -856,16 +1030,18 @@ func TestIdentityReconcile00074_DownUndoesOnlyItsOwnAndUpAgain(t *testing.T) {
 			if n := opInt(t, ctx, sp, `SELECT count(*) FROM pg_proc WHERE proname = 'identity_reconcile'`); n != 0 {
 				t.Error("after the Down identity_reconcile exists")
 			}
+			// 00082 grants nothing: the two cells its body needs beyond 00071/00072's are 00074's
+			// (identity_create_for_signup's), and its Down leaves them to 00074's Down.
 			for _, c := range []struct{ table, col, priv string }{{"admin_users", "password_hash", "SELECT"}, {"admin_identities", "email", "INSERT"}, {"admin_identities", "password_hash", "INSERT"}} {
 				var held bool
 				if err := sp.QueryRow(ctx, `SELECT has_column_privilege('tappa_identitydefiner', $1::regclass, $2, $3)`, c.table, c.col, c.priv).Scan(&held); err != nil {
 					t.Fatal(err)
 				}
-				if held {
-					t.Errorf("after the Down tappa_identitydefiner still holds %s (%s) on %s", c.priv, c.col, c.table)
+				if !held {
+					t.Errorf("after the Down tappa_identitydefiner lost %s (%s) on %s, which is 00074's", c.priv, c.col, c.table)
 				}
 			}
-			opRunSection(t, ctx, sp, up, "00074 Up again")
+			opRunSection(t, ctx, sp, up, "00082 Up again")
 			if again := shape(sp); again != after {
 				t.Errorf("the Up again:\n%s\nwant\n%s", again, after)
 			}
@@ -921,10 +1097,10 @@ func TestIdentityReconcile00074_DownUndoesOnlyItsOwnAndUpAgain(t *testing.T) {
 	}
 }
 
-// TestIdentityReconcile00074_TheDownLocksTheIdentitiesBeforeItReadsThem pins in the Down's text what
+// TestIdentityReconcile00082_TheDownLocksTheIdentitiesBeforeItReadsThem pins in the Down's text what
 // a suite cannot exercise without committing an identity (00073's test, the same reason): the pass's
 // identities are taken FOR UPDATE after `theirs` is filled and BEFORE the first check that reads them.
-func TestIdentityReconcile00074_TheDownLocksTheIdentitiesBeforeItReadsThem(t *testing.T) {
+func TestIdentityReconcile00082_TheDownLocksTheIdentitiesBeforeItReadsThem(t *testing.T) {
 	_, _, down := rcSections(t)
 	var b strings.Builder
 	for _, line := range strings.Split(down, "\n") {

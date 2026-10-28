@@ -160,7 +160,7 @@ func identitySignatureNames() []string {
 
 // identityExecuteExceptions names the functions whose EXECUTE is NOT tappa_app's (ADR 0031 §5.2,
 // ONAY note 1): identity_reconcile() -- M14-06b's maintenance function, EXECUTE in tappa_owner
-// alone. Its signature row arrived with M14-06b (identitySignaturesM1406b, 00074).
+// alone. Its signature row arrived with M14-06b (identitySignaturesM1406b, 00082).
 var identityExecuteExceptions = map[string]string{
 	"identity_reconcile": "tappa_owner",
 }
@@ -284,7 +284,7 @@ func TestIdentityCatalog_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 		t.Fatalf("anti-vacuity: tappa_identitydefiner owns %d functions, the table has %d", n, owned)
 	}
 
-	// M14-06b: identity_reconcile() is real (00074) and green above with EXECUTE in tappa_owner alone;
+	// M14-06b: identity_reconcile() is real (00082) and green above with EXECUTE in tappa_owner alone;
 	// its controls act on it, and withoutReconcile is the table before its row arrived.
 	withoutReconcile := slices.DeleteFunc(slices.Clone(identitySignatures), func(s identitySignature) bool { return s.name == "identity_reconcile" })
 	controls := []struct {
@@ -519,9 +519,10 @@ var identityDefinerTableVerbs = map[string]string{
 	"admin_signup_claims:DELETE":   "identity_sweep_signup_claims -- the drafts' sweep: expired or used (ADR 0031 §5.1, R17; M14-17)",
 }
 
-// identityDefinerMatrixM1406b is what identity_reconcile() (00074) reads and writes. 00074 grants only
-// the two cells nobody granted before -- admin_users SELECT (password_hash), the chosen row's digest,
-// and admin_identities INSERT (email, password_hash), the identity's birth; the rest is 00071/00072's.
+// identityDefinerMatrixM1406b is what identity_reconcile() (00082) reads and writes. 00082 grants
+// nothing: admin_users SELECT (password_hash), the chosen row's digest, and admin_identities INSERT
+// (email, password_hash), the identity's birth, are 00074's (identity_create_for_signup reads and
+// writes the same two); the rest is 00071/00072's.
 var identityDefinerMatrixM1406b = map[string]string{
 	"admin_users:SELECT":      "id,tenant_id,email,password_hash,status,created_at,identity_id,unlinked_at",
 	"admin_users:UPDATE":      "identity_id,linked_via,linked_at",

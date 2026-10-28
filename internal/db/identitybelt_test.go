@@ -157,7 +157,7 @@ var identityClaimAddressKeys = map[string]int{
 // from. A scan is a read (SELECT, PERFORM ... FOR UPDATE, IF EXISTS); a write of the scanned alias is
 // never one.
 var identityMaintenanceScans = map[string]int{
-	// M14-06b (00074): the candidate addresses, the group's linked-or-refused check, the group's
+	// M14-06b (00082): the candidate addresses, the group's linked-or-refused check, the group's
 	// candidates locked FOR UPDATE, and the choice read again after the lock. The link it then writes
 	// is pinned to the chosen row's id and tenant.
 	"identity_reconcile": 4,
@@ -252,6 +252,12 @@ var identityBeltAllowedCounts = map[string]map[string]int{
 		`"ANY" in a predicate`:           1, // the choice among the locked ids
 	},
 	"identity_unlink_backfilled": {"a call to public.crypt": 1, "a call to public.gen_random_bytes": 1, "a call to public.gen_salt": 1},
+	// The ON CONFLICT (email) DO NOTHING of the other identity births (M14-08 00074/00076, M14-15 00077,
+	// M14-17 00078/00080): one arbiter clause each; and the registration drafts' sweep (00078).
+	"identity_create_for_signup":   {`"CONFLICT" in a predicate`: 1, `"DO" in a predicate`: 1, `"NOTHING" in a predicate`: 1},
+	"identity_accept_invite_new":   {`"CONFLICT" in a predicate`: 1, `"DO" in a predicate`: 1, `"NOTHING" in a predicate`: 1},
+	"identity_claim_signup":        {`"CONFLICT" in a predicate`: 1, `"DO" in a predicate`: 1, `"NOTHING" in a predicate`: 1},
+	"identity_sweep_signup_claims": {identityUnkeyedIdentityStatement: 2}, // the expired drafts, then the used ones
 }
 
 // identityPersonTables are ADR 0031 §5.1's five tenant-scope-less identity tables.

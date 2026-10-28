@@ -1,4 +1,4 @@
--- 00074 -- M14-06b: the reconciliation. identity_reconcile() applies 00073's rule to the admin_users
+-- 00082 -- M14-06b: the reconciliation. identity_reconcile() applies 00073's rule to the admin_users
 -- rows born AFTER the backfill (the previous pod's signups during the expand rollout, every signup
 -- between the expand and M14-17): each filled e-mail group that has no identity yet gets one, born
 -- with the digest of the group's OLDEST ACTIVE row (else its oldest), and that row alone is linked
@@ -14,9 +14,10 @@
 -- CLAUDE.md (the three maintenance writers). The card is docs/plan/m14-tek-kimlik.md -> M14-06b.
 --
 -- THE RULE IS 00073's, CASE FOR CASE, so the two never diverge (adminreconcile_test.go
--- runs one fixture through both and compares):
+-- runs one fixture through both and compares) -- plus the address rule below, which 00073 (applied
+-- before the rule existed) does not carry:
 --   * a candidate is a row with a filled e-mail (NOT NULL, not blank), no identity and no refusal
---     stamp (unlinked_at);
+--     stamp (unlinked_at) whose address passes the address rule;
 --   * a group is taken only when NO IDENTITY HAS ITS ADDRESS YET and NO ROW OF IT IS LINKED OR
 --     REFUSED. This is the M14-06 security note: a reconcile that joined a later row to an identity
 --     already under the address would hand the victim's business to an identity an EARLIER active
@@ -29,6 +30,21 @@
 --     check_violation would print the address (CLAUDE.md §7) -- and nothing is written.
 -- E-mail equality is citext's, written OPERATOR(public.=): the body's search_path is pg_catalog,
 -- pg_temp, where a bare `=` would fall back to text's case-sensitive one.
+--
+-- THE ADDRESS RULE (M14-08a, the user's decision of 2026-10-26; ADR 0031 §5.1 and §5.8's notes): a
+-- group's candidates are only the rows whose address internal/mail would send to -- mail.ValidRecipient,
+-- written out as 00076's predicate 6b with its pattern byte for byte (at most 254 octets, no "=?", the
+-- addr-spec in printable ASCII). Each row the group's lock takes is held to it by an
+-- `IF (...) IS NOT TRUE THEN CONTINUE` refusal BEFORE its id joins the locked set the choice reads, so a
+-- homoglyph row (U+0130, U+212A: citext folds them onto ASCII letters -- 00076's finding) is never
+-- chosen, not even as the group's oldest active row: the identity is born with the spelling and the
+-- digest of the group's oldest active rule-passing row (else its oldest); a group of rule-failing rows
+-- alone births nothing -- the named residue the M14-19 precheck counts apart (deploy/README.md).
+-- identityascii_test.go's TestIdentityAddressRule_EveryIdentityInsertDecidesIt sees this function as a
+-- writer that decides the rule; adminreconcile_test.go holds the refusal to the value it guards. A
+-- rule-failing row is still locked with its group (the FOR UPDATE takes every candidate row), and it
+-- shares the group's advisory lock: citext's equality is lower()'s, so a homoglyph and the ASCII
+-- spelling it folds onto have one lock key ('admin-identity-email:' || lower(email)).
 --
 -- THE APPLICATION IS LIVE WHILE IT RUNS (T8). Per group, in this order -- the lock order of M14-05
 -- (identity -> membership rows -> token / session rows) with the identity not yet born:
@@ -63,17 +79,29 @@
 -- can name it), its INSERT carries ON CONFLICT and its choice reads `a.id = ANY (v_locked)`; each is
 -- named in identityBeltAllowedConstructs and pinned by count (identityBeltAllowedCounts).
 --
--- GRANTS. tappa_identitydefiner gains exactly what the body needs and 00071/00072 did not grant:
--- SELECT (password_hash) on admin_users (the chosen row's digest) and INSERT (email, password_hash)
--- on admin_identities -- both inside ADR 0031 §5.2's matrix. The rest it reads and writes is
--- 00071/00072's (the Down's comment lists them). EXECUTE: tappa_owner alone (plus the owner).
+-- GRANTS: NONE. The two cells the body needs beyond 00071/00072's -- SELECT (password_hash) on
+-- admin_users (the chosen row's digest) and INSERT (email, password_hash) on admin_identities, both
+-- inside ADR 0031 §5.2's matrix -- are 00074's (identity_create_for_signup needs the same two); the
+-- precondition checks they are held and the Down leaves them to 00074's Down. EXECUTE: tappa_owner
+-- alone (plus the owner).
+--
+-- THE CARDS SINCE (00075-00081). The rows an invitation's acceptance (00077, linked_via 'invite') and
+-- a registration's claim (00078/00080, 'claim') write are born LINKED: no candidate, and their group
+-- holds a linked row, so it is left alone. identity_create_for_signup (00074/00076) links 'signup' at
+-- birth, or leaves the row unlinked under an address that already has an identity (skipped here) or
+-- that fails the rule (filtered here). The confirmation window (00079) lists 'reconcile' links on
+-- first_verify as it lists the backfill's (ADR 0031 §5.8); this pass opens no window and writes no
+-- identity column but email and password_hash at the birth. resolve_admin_owners_by_tenant (00081)
+-- reads links and writes none.
 --
 -- THE POSTCONDITION (last DO block), as 00073's: the runner must be superuser or BYPASSRLS (first DO
 -- block) so it sees every row, then -- (a) no group the rule would take is left among the rows born
 -- before this transaction began (a definer that lost BYPASSRLS would see 0 rows, link nothing and
 -- "succeed"; a database with no filled e-mail passes unconditionally -- R11); (b) every row linked
 -- 'reconcile' carries its identity's digest (§5.1); (c) no identity is linked through two reconcile
--- rows; (d) the function's catalogue shape. (a)'s `created_at < now()` keeps the previous pod's
+-- rows; (d) the function's catalogue shape; (e) no identity linked 'reconcile' carries an address the
+-- rule refuses. (a) counts only rule-passing rows (a group of rule-failing rows alone is the named
+-- residue, not a miss), and its `created_at < now()` keeps the previous pod's
 -- signups that start while this file runs out of it; one whose transaction began before this one and
 -- commits in the milliseconds between the call and the check fails the file -- nothing is written,
 -- the Job is Failed and is run again.
@@ -91,8 +119,8 @@
 -- a verified address, an opened window, a login, a last-used business, a row of another table
 -- pointing at it) -- the way back from the expand is the previous binary (ADR 0031 §8), which runs on
 -- this schema; a binary below the expand is brought back up only together with the reconciliation
--- (§5.8). ADR 0031 §8: "expand Down'ı yalnız eklediğini kaldırır". Then it drops the function and
--- revokes the two grants this file alone added.
+-- (§5.8). ADR 0031 §8: "expand Down'ı yalnız eklediğini kaldırır". Then it drops the function; the
+-- two grants it used stay (00074's).
 
 -- +goose Up
 -- ---------------------------------------------------------------------------
@@ -103,16 +131,30 @@ DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles
                     WHERE rolname = current_user AND (rolsuper OR rolbypassrls)) THEN
-        RAISE EXCEPTION 'migration 00074 (M14-06b): the running role is neither superuser nor BYPASSRLS; under FORCE ROW LEVEL SECURITY it could not check what the reconciliation left (ADR 0031 5.8). Run the migrations as tappa_owner. Nothing was changed.'
+        RAISE EXCEPTION 'migration 00082 (M14-06b): the running role is neither superuser nor BYPASSRLS; under FORCE ROW LEVEL SECURITY it could not check what the reconciliation left (ADR 0031 5.8). Run the migrations as tappa_owner. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
     IF pg_catalog.to_regclass('public.admin_identities') IS NULL
        OR pg_catalog.to_regprocedure('public.identity_unlink_backfilled(text,uuid)') IS NULL THEN
-        RAISE EXCEPTION 'migration 00074 (M14-06b) needs 00069-00073 (admin_identities, the identity functions, the backfill). Migrate in order. Nothing was changed.'
+        RAISE EXCEPTION 'migration 00082 (M14-06b) needs 00069-00073 (admin_identities, the identity functions, the backfill). Migrate in order. Nothing was changed.'
+            USING ERRCODE = 'object_not_in_prerequisite_state';
+    END IF;
+    -- 00076 (M14-08a) first: its address rule is the one the body repeats.
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
+                    WHERE p.oid = pg_catalog.to_regprocedure('public.identity_create_for_signup(uuid,uuid)')
+                      AND pg_catalog.strpos(p.prosrc, '-- 6b. THE ADDRESS RULE (M14-08a)') > 0) THEN
+        RAISE EXCEPTION 'migration 00082 (M14-06b) needs 00076 (M14-08a: the address rule in identity_create_for_signup). Migrate in order. Nothing was changed.'
+            USING ERRCODE = 'object_not_in_prerequisite_state';
+    END IF;
+    -- The two cells the body needs beyond 00071/00072's are 00074's; this file grants nothing.
+    IF NOT (pg_catalog.has_column_privilege('tappa_identitydefiner', 'public.admin_users', 'password_hash', 'SELECT')
+            AND pg_catalog.has_column_privilege('tappa_identitydefiner', 'public.admin_identities', 'email', 'INSERT')
+            AND pg_catalog.has_column_privilege('tappa_identitydefiner', 'public.admin_identities', 'password_hash', 'INSERT')) THEN
+        RAISE EXCEPTION 'migration 00082 (M14-06b) needs 00074''s grants to tappa_identitydefiner (admin_users SELECT (password_hash), admin_identities INSERT (email, password_hash)). Migrate in order. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
     IF pg_catalog.to_regprocedure('public.identity_reconcile()') IS NOT NULL THEN
-        RAISE EXCEPTION 'migration 00074 (M14-06b) creates identity_reconcile() and it is already there. Migrate in order. Nothing was changed.'
+        RAISE EXCEPTION 'migration 00082 (M14-06b) creates identity_reconcile() and it is already there. Migrate in order. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
 END
@@ -120,15 +162,7 @@ $$;
 -- +goose StatementEnd
 
 -- ---------------------------------------------------------------------------
--- 1. GRANTS (ADR 0031 §5.2's matrix; identitycatalog_test.go's identityDefinerMatrixM1406b)
--- ---------------------------------------------------------------------------
--- GRANT takes no table lock (measured, ADR 0027's API-1b note); the timeout is the hot-table rule.
-SET LOCAL lock_timeout = '1s';
-GRANT SELECT (password_hash) ON admin_users TO tappa_identitydefiner;
-GRANT INSERT (email, password_hash) ON admin_identities TO tappa_identitydefiner;
-
--- ---------------------------------------------------------------------------
--- 2. identity_reconcile() (ADR 0031 §5.2, §5.8; T3, T8)
+-- 1. identity_reconcile() (ADR 0031 §5.2, §5.8; T3, T8)
 -- ---------------------------------------------------------------------------
 -- Returns the number of rows it linked in this call.
 -- +goose StatementBegin
@@ -175,11 +209,12 @@ BEGIN
                     WHERE i.email OPERATOR(public.=) c.email) THEN
             CONTINUE;
         END IF;
-        -- 3. The group's candidates, locked in id order; their ids are kept. A row committed while
-        -- this waited is not among them and is not chosen (it is the next call's).
+        -- 3. The group's candidates, locked in id order; the ids of those whose address passes the
+        -- address rule are kept. A row committed while this waited is not among them and is not chosen
+        -- (it is the next call's).
         v_locked := '{}';
         FOR r IN
-            SELECT a.id
+            SELECT a.id, a.email
               FROM public.admin_users AS a
              WHERE a.email OPERATOR(public.=) c.email
                AND a.identity_id IS NULL
@@ -187,6 +222,15 @@ BEGIN
              ORDER BY a.id
                FOR UPDATE
         LOOP
+            -- 6b. THE ADDRESS RULE (M14-08a, 00076's predicate): only a row whose address is one
+            -- internal/mail would send to -- mail.ValidRecipient: at most 254 octets, no "=?", an
+            -- addr-spec net/mail parses back to itself in printable ASCII -- may be chosen. A homoglyph
+            -- row (U+0130, U+212A) is not, even as the group's oldest active one. NULL fails closed.
+            IF (pg_catalog.octet_length(r.email::text) <= 254
+                AND pg_catalog.strpos(r.email::text, '=?') = 0
+                AND r.email::text ~ '^[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*@([-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*|\[((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|(([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|([0-9A-Fa-f]{1,4}:){6}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,6})?|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,5})?|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,4})?|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,3})?|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,2})?|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,1})?|([0-9A-Fa-f]{1,4}:){5}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4})?|([0-9A-Fa-f]{1,4}:){6}[0-9A-Fa-f]{1,4}::|::([0-9A-Fa-f]{1,4}:){0,5}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,4}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,2}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,1}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])))\])$') IS NOT TRUE THEN
+                CONTINUE;
+            END IF;
             v_locked := pg_catalog.array_append(v_locked, r.id);
         END LOOP;
 
@@ -200,8 +244,9 @@ BEGIN
             CONTINUE;
         END IF;
 
-        -- 4. The choice, among the LOCKED rows only, read after the wait: no status or digest of a
-        -- row it may choose can change before the link.
+        -- 4. The choice, among the LOCKED rule-passing rows only, read after the wait: no status or
+        -- digest of a row it may choose can change before the link. None (every row of the group fails
+        -- the address rule): the group births nothing.
         SELECT a.id, a.tenant_id, a.email, a.password_hash
           INTO v_row, v_tenant, v_email, v_digest
           FROM public.admin_users AS a
@@ -256,13 +301,13 @@ REVOKE ALL ON FUNCTION public.identity_reconcile() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.identity_reconcile() TO tappa_owner;
 
 -- ---------------------------------------------------------------------------
--- 3. DEPLOY 2: THE CALL (ADR 0031 §8 step 3)
+-- 2. DEPLOY 2: THE CALL (ADR 0031 §8 step 3)
 -- ---------------------------------------------------------------------------
 SET LOCAL lock_timeout = '1s';
 SELECT public.identity_reconcile();
 
 -- ---------------------------------------------------------------------------
--- 4. THE POSTCONDITION
+-- 3. THE POSTCONDITION
 -- ---------------------------------------------------------------------------
 -- +goose StatementBegin
 DO $$
@@ -271,24 +316,36 @@ BEGIN
                 WHERE a.email IS NOT NULL AND pg_catalog.btrim(a.email::text) <> ''
                   AND a.identity_id IS NULL AND a.unlinked_at IS NULL
                   AND a.created_at < pg_catalog.now()
+                  AND pg_catalog.octet_length(a.email::text) <= 254
+                  AND pg_catalog.strpos(a.email::text, '=?') = 0
+                  AND a.email::text ~ '^[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*@([-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*|\[((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|(([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|([0-9A-Fa-f]{1,4}:){6}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,6})?|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,5})?|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,4})?|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,3})?|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,2})?|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,1})?|([0-9A-Fa-f]{1,4}:){5}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4})?|([0-9A-Fa-f]{1,4}:){6}[0-9A-Fa-f]{1,4}::|::([0-9A-Fa-f]{1,4}:){0,5}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,4}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,2}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,1}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])))\])$'
                   AND NOT EXISTS (SELECT 1 FROM public.admin_identities i WHERE i.email = a.email)
                   AND NOT EXISTS (SELECT 1 FROM public.admin_users o
                                    WHERE o.email = a.email
                                      AND (o.identity_id IS NOT NULL OR o.unlinked_at IS NOT NULL))) THEN
-        RAISE EXCEPTION 'migration 00074 postcondition: an e-mail group the reconciliation should have taken holds no identity; identity_reconcile saw fewer rows than this runner (is tappa_identitydefiner still BYPASSRLS?) (ADR 0031 5.8). Nothing was changed.'
+        RAISE EXCEPTION 'migration 00082 postcondition: an e-mail group the reconciliation should have taken holds no identity; identity_reconcile saw fewer rows than this runner (is tappa_identitydefiner still BYPASSRLS?) (ADR 0031 5.8). Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
     IF EXISTS (SELECT 1 FROM public.admin_users a
                 WHERE a.linked_via = 'reconcile' AND a.identity_id IS NOT NULL
                   AND a.password_hash IS DISTINCT FROM
                       (SELECT i.password_hash FROM public.admin_identities i WHERE i.id = a.identity_id)) THEN
-        RAISE EXCEPTION 'migration 00074 postcondition: a row linked by the reconciliation does not carry its identity''s password digest (ADR 0031 5.1). Nothing was changed.'
+        RAISE EXCEPTION 'migration 00082 postcondition: a row linked by the reconciliation does not carry its identity''s password digest (ADR 0031 5.1). Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
     IF EXISTS (SELECT 1 FROM public.admin_users
                 WHERE linked_via = 'reconcile' AND identity_id IS NOT NULL
                 GROUP BY identity_id HAVING count(*) > 1) THEN
-        RAISE EXCEPTION 'migration 00074 postcondition: an identity is linked through more than one reconcile row; the reconciliation links one row per e-mail group (ADR 0031 5.8). Nothing was changed.'
+        RAISE EXCEPTION 'migration 00082 postcondition: an identity is linked through more than one reconcile row; the reconciliation links one row per e-mail group (ADR 0031 5.8). Nothing was changed.'
+            USING ERRCODE = 'object_not_in_prerequisite_state';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.admin_users a
+                 JOIN public.admin_identities i ON i.id = a.identity_id
+                WHERE a.linked_via = 'reconcile'
+                  AND (pg_catalog.octet_length(i.email::text) <= 254
+                       AND pg_catalog.strpos(i.email::text, '=?') = 0
+                       AND i.email::text ~ '^[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*@([-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*|\[((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|(([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|([0-9A-Fa-f]{1,4}:){6}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,6})?|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,5})?|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,4})?|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,3})?|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,2})?|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,1})?|([0-9A-Fa-f]{1,4}:){5}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4})?|([0-9A-Fa-f]{1,4}:){6}[0-9A-Fa-f]{1,4}::|::([0-9A-Fa-f]{1,4}:){0,5}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,4}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,2}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,1}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])))\])$') IS NOT TRUE) THEN
+        RAISE EXCEPTION 'migration 00082 postcondition: an identity the reconciliation linked carries an address mail.ValidRecipient refuses (M14-08a, ADR 0031 5.8). Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
@@ -300,7 +357,7 @@ BEGIN
                        OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(p.proacl) x
                                    WHERE x.privilege_type = 'EXECUTE'
                                      AND x.grantee NOT IN (p.proowner, 'tappa_owner'::pg_catalog.regrole)))) THEN
-        RAISE EXCEPTION 'migration 00074 postcondition: identity_reconcile is not a SECURITY DEFINER of tappa_identitydefiner with the pinned search_path and EXECUTE for tappa_owner alone (ADR 0031 5.2)';
+        RAISE EXCEPTION 'migration 00082 postcondition: identity_reconcile is not a SECURITY DEFINER of tappa_identitydefiner with the pinned search_path and EXECUTE for tappa_owner alone (ADR 0031 5.2)';
     END IF;
 END
 $$;
@@ -312,7 +369,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles
                     WHERE rolname = current_user AND (rolsuper OR rolbypassrls)) THEN
-        RAISE EXCEPTION 'migration 00074 Down: the running role is neither superuser nor BYPASSRLS; under FORCE ROW LEVEL SECURITY it would see no linked row and undo nothing. Run the migrations as tappa_owner. Nothing was changed.'
+        RAISE EXCEPTION 'migration 00082 Down: the running role is neither superuser nor BYPASSRLS; under FORCE ROW LEVEL SECURITY it would see no linked row and undo nothing. Run the migrations as tappa_owner. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
 END
@@ -330,7 +387,7 @@ BEGIN
                 WHERE c.contype = 'f'
                   AND c.confrelid = 'public.admin_identities'::pg_catalog.regclass
                   AND c.confdeltype NOT IN ('a', 'r')) THEN
-        RAISE EXCEPTION 'migration 00074 Down: a foreign key onto admin_identities cascades or nulls a delete; deleting the reconciliation''s identities would take another table''s rows with them. Nothing was changed.'
+        RAISE EXCEPTION 'migration 00082 Down: a foreign key onto admin_identities cascades or nulls a delete; deleting the reconciliation''s identities would take another table''s rows with them. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
 
@@ -358,7 +415,7 @@ BEGIN
                    WHERE i.id = ANY (theirs)
                      AND (i.email_verified_at IS NOT NULL OR i.confirm_opened_at IS NOT NULL
                           OR i.last_login_at IS NOT NULL OR i.last_used_tenant IS NOT NULL)) THEN
-        RAISE EXCEPTION 'migration 00074 Down: an identity the reconciliation made has lived since (another link, a refusal, a verified address, a confirmation window or a login); deleting it would drop that. Go back with the previous binary, which runs on this schema (ADR 0031 8). Nothing was changed.'
+        RAISE EXCEPTION 'migration 00082 Down: an identity the reconciliation made has lived since (another link, a refusal, a verified address, a confirmation window or a login); deleting it would drop that. Go back with the previous binary, which runs on this schema (ADR 0031 8). Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
 
@@ -369,7 +426,7 @@ BEGIN
     BEGIN
         DELETE FROM public.admin_identities WHERE id = ANY (theirs);
     EXCEPTION WHEN foreign_key_violation THEN
-        RAISE EXCEPTION 'migration 00074 Down: a row of another table points at an identity the reconciliation made; deleting it would drop that row''s subject. Go back with the previous binary (ADR 0031 8). Nothing was changed.'
+        RAISE EXCEPTION 'migration 00082 Down: a row of another table points at an identity the reconciliation made; deleting it would drop that row''s subject. Go back with the previous binary (ADR 0031 8). Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END;
 END
@@ -378,11 +435,10 @@ $$;
 
 DROP FUNCTION public.identity_reconcile();
 
--- ONLY WHAT 00074 ALONE GRANTS. The function also uses grants 00071 / 00072 made, which stay (their
--- Downs revoke them):
---   admin_users      SELECT (id, tenant_id, email, status, created_at, identity_id, unlinked_at),
---                    UPDATE (identity_id, linked_via, linked_at)
---   admin_identities SELECT (id, email)
-SET LOCAL lock_timeout = '1s';
-REVOKE SELECT (password_hash) ON admin_users FROM tappa_identitydefiner;
-REVOKE INSERT (email, password_hash) ON admin_identities FROM tappa_identitydefiner;
+-- NO REVOKE: this file granted nothing. The grants the function used stay with the files that made
+-- them (their Downs revoke them):
+--   00071/00072  admin_users      SELECT (id, tenant_id, email, status, created_at, identity_id,
+--                                         unlinked_at), UPDATE (identity_id, linked_via, linked_at)
+--                admin_identities SELECT (id, email)
+--   00074        admin_users      SELECT (password_hash)
+--                admin_identities INSERT (email, password_hash)
