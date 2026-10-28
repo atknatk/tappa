@@ -209,7 +209,11 @@ SELECT line FROM (
 // M14-16b, ADR 0031 §5.2's 2026-10-27 note (the ghost owner, T171) -- added
 // resolve_admin_owners_by_tenant (tappa_resolver's, read-only; EXECUTE tappa_app and the owner) and the
 // one column its role filter needs, tappa_resolver SELECT (role) on admin_users; its redefinitions of
-// identity_open_session / identity_switch_session (a row lock, T172) change no line here) and READ
+// identity_open_session / identity_switch_session (a row lock, T172) change no line here); 00082 --
+// M14-06b, ADR 0031 §5.2/§5.8 -- added identity_reconcile() (EXECUTE in tappa_owner alone: a superuser
+// here, so the line shows the owner only -- m11schema_test.go pins the ACL itself) and NO grant: its
+// body runs on the definer's 00071/00072 cells and the two 00074 gave identity_create_for_signup --
+// admin_identities INSERT (email, password_hash), admin_users SELECT (password_hash) -- and READ
 // line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
@@ -406,6 +410,7 @@ function identity_open_reset(uuid,text,timestamp with time zone) owner=tappa_ide
 function identity_open_session(uuid,uuid,text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_open_signup_claim(text,citext,jsonb,text,timestamp with time zone) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_password_for_session(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function identity_reconcile() owner=tappa_identitydefiner definer=true execute=tappa_identitydefiner
 function identity_record_failed_login(uuid,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_relink_refused(text,uuid) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_request_verification(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner

@@ -47,6 +47,11 @@ package db
 // M14-05 and later cards add their functions' counts to identityTenantWideReads /
 // identitySessionKeyLookups (identitycatalog_test.go's skeleton rule) and, for a construct the scanner
 // does not model, a named entry in identityBeltAllowedConstructs with its reason.
+//
+// M14-06b adds a third named class, identityMaintenanceScans: a READ of admin_users bounded by no
+// tenant and no identity, allowed only in a function the map names and pinned by count there. Such a
+// statement never writes the scanned alias (an UPDATE / DELETE of it is a finding as before); the
+// write it drives must anchor on its own.
 
 import (
 	"context"
@@ -145,6 +150,19 @@ var identityClaimAddressKeys = map[string]int{
 	"identity_claim_signup": 1,
 }
 
+// identityMaintenanceScans names, per function, how many statements read admin_users across EVERY
+// tenant with no tenant and no identity to bound them (ADR 0021 §3.2: "bilerek bütün tenant'ları
+// tarayan fonksiyonlar adıyla bellidir"). Only a maintenance writer -- EXECUTE in tappa_owner alone,
+// no application path (CLAUDE.md §4.5 (3), ADR 0031 §5.2) -- has one: there is no tenant to start
+// from. A scan is a read (SELECT, PERFORM ... FOR UPDATE, IF EXISTS); a write of the scanned alias is
+// never one.
+var identityMaintenanceScans = map[string]int{
+	// M14-06b (00082): the candidate addresses, the group's linked-or-refused check, the group's
+	// candidates locked FOR UPDATE, and the choice read again after the lock. The link it then writes
+	// is pinned to the chosen row's id and tenant.
+	"identity_reconcile": 4,
+}
+
 // identityTokenKeyed are the tenant tables whose own globally UNIQUE token_hash may anchor a lookup
 // (counted in identitySessionKeyLookups): the panel session (00006) and, from M14-05, the per-row reset
 // link (00006/00019, password_resets_token_hash_key); from M14-15 the administrator invitation
@@ -198,11 +216,48 @@ var identityBeltAllowedConstructs = map[string]map[string]string{
 		`"DO" in a predicate`:      "... (ON CONFLICT's DO; the arbiter is admin_identities_email_key, an INSERT INTO an identity table needs no key) ...",
 		`"NOTHING" in a predicate`: "... (DO NOTHING: no row is updated, so no SET and no WHERE follow it)",
 	},
+	// M14-06b (00082).
+	"identity_reconcile": {
+		identityUnkeyedIdentityStatement: "ADR 0031 §5.2 / §5.8 (T8): the maintenance pass checks whether an address already HAS an " +
+			"identity before it births one -- no identity exists yet for it to be keyed by, no secret can name it; the check " +
+			"reads (EXISTS), never writes, compares the globally UNIQUE address with OPERATOR(public.=), and its only outcome " +
+			"is to SKIP the group (the M14-06 security note: a later row never joins an earlier row's identity)",
+		`"CONFLICT" in a predicate`: "ADR 0031 §5.2 (T8, S13): the identity INSERT's ON CONFLICT (email) DO NOTHING -- an arbiter " +
+			"clause, not a join predicate; an identity committed meanwhile makes the INSERT insert nothing (no 23505, no 500) ...",
+		`"DO" in a predicate`:      "... the same clause's DO ...",
+		`"NOTHING" in a predicate`: "... and NOTHING: no row of another identity is read or written by it",
+		`"ANY" in a predicate`: "00073's way (M14-06b audit): the choice reads only the group rows this call LOCKED, " +
+			"`a.id = ANY (v_locked)` -- a row committed while it waited is never chosen unlocked; the write it drives is " +
+			"pinned to the chosen row's id and tenant",
+	},
 	"identity_unlink_backfilled": {
 		"a call to public.crypt":            "ADR 0031 §5.8, S20: the sentinel digest is bcrypt (pgcrypto, a C function that reads no table) of ...",
 		"a call to public.gen_random_bytes": "... 32 random bytes from pgcrypto's strong source, discarded in the same expression ...",
 		"a call to public.gen_salt":         "... at cost 12 (adminauth.Cost); pgcrypto lives in public (scripts/db-init/01-roles.sql), 00072's precondition checks it",
 	},
+}
+
+// identityBeltAllowedCounts pins, per function, how many times each construct
+// identityBeltAllowedConstructs allows for it is used (M14-06b audit): an allowance is not
+// function-wide -- one more unkeyed identity statement, one more call, is a finding. Every allowance
+// has a count here; a missing one is a finding too.
+var identityBeltAllowedCounts = map[string]map[string]int{
+	"resolve_identity_by_email": {identityUnkeyedIdentityStatement: 1},
+	"identity_sweep_events":     {identityUnkeyedIdentityStatement: 1},
+	"identity_reconcile": {
+		identityUnkeyedIdentityStatement: 1, // the address check (EXISTS)
+		`"CONFLICT" in a predicate`:      1, // the identity INSERT's arbiter clause
+		`"DO" in a predicate`:            1,
+		`"NOTHING" in a predicate`:       1,
+		`"ANY" in a predicate`:           1, // the choice among the locked ids
+	},
+	"identity_unlink_backfilled": {"a call to public.crypt": 1, "a call to public.gen_random_bytes": 1, "a call to public.gen_salt": 1},
+	// The ON CONFLICT (email) DO NOTHING of the other identity births (M14-08 00074/00076, M14-15 00077,
+	// M14-17 00078/00080): one arbiter clause each; and the registration drafts' sweep (00078).
+	"identity_create_for_signup":   {`"CONFLICT" in a predicate`: 1, `"DO" in a predicate`: 1, `"NOTHING" in a predicate`: 1},
+	"identity_accept_invite_new":   {`"CONFLICT" in a predicate`: 1, `"DO" in a predicate`: 1, `"NOTHING" in a predicate`: 1},
+	"identity_claim_signup":        {`"CONFLICT" in a predicate`: 1, `"DO" in a predicate`: 1, `"NOTHING" in a predicate`: 1},
+	"identity_sweep_signup_claims": {identityUnkeyedIdentityStatement: 2}, // the expired drafts, then the used ones
 }
 
 // identityPersonTables are ADR 0031 §5.1's five tenant-scope-less identity tables.
@@ -449,14 +504,16 @@ type identityBeltScope struct {
 	params, declared, records map[string]bool
 	trusted                   map[string]bool
 	assigned                  map[string]bool // written by := from anything but a parameter
+	maintenance               bool            // the function is named in identityMaintenanceScans
 }
 
 // identityStatementVerdict is one statement held to the belt under a scope.
 type identityStatementVerdict struct {
-	findings                    []string
-	passed                      bool
-	wide, keyed, email, address int
-	writes                      []string // the variables (INTO) or the record (FOR ... IN) the statement writes
+	findings                           []string
+	passed                             bool
+	wide, keyed, email, address, scans int
+	writes                             []string       // the variables (INTO) or the record (FOR ... IN) the statement writes
+	allowed                            map[string]int // the allowed constructs it used, each occurrence counted
 }
 
 var (
@@ -471,12 +528,14 @@ var (
 )
 
 func identityStatement(fn, stmt string, tenantRel map[string]bool, sc identityBeltScope) identityStatementVerdict {
-	var v identityStatementVerdict
+	v := identityStatementVerdict{allowed: map[string]int{}}
 	bad := func(format string, a ...any) { v.findings = append(v.findings, fn+": "+fmt.Sprintf(format, a...)) }
 	unmodelled := func(what string) {
 		if _, ok := identityBeltAllowedConstructs[fn][what]; !ok {
 			bad("%s -- a construct the belt does not model (name it in identityBeltAllowedConstructs, with its reason, or rewrite it)", what)
+			return
 		}
+		v.allowed[what]++
 	}
 	if m := identityForRecord.FindStringSubmatch(stmt); m != nil {
 		v.writes = append(v.writes, m[1])
@@ -703,6 +762,10 @@ func identityStatement(fn, stmt string, tenantRel map[string]bool, sc identityBe
 			}
 		case emailBounded[alias] && identityEmailWideReads[fn] > 0:
 			v.email++
+		case sc.maintenance && table == "admin_users" &&
+			!regexp.MustCompile(`(?i)\b(UPDATE(\s+ONLY)?|DELETE\s+FROM(\s+ONLY)?|MERGE\s+INTO)\s+public\.admin_users\s+AS\s+`+regexp.QuoteMeta(alias)+`\b`).MatchString(stmt):
+			// identityMaintenanceScans: a read across every tenant, by name and by count.
+			v.scans++
 		default:
 			bad("%s AS %s is anchored by no tenant (parameter, trusted variable, trusted FOR record), no session key and no identity", table, alias)
 		}
@@ -724,7 +787,7 @@ func identityStatement(fn, stmt string, tenantRel map[string]bool, sc identityBe
 //
 // Everything the scanner does not model is a finding of its own (fail closed). The counts of both
 // named classes are pinned per function.
-func identityBeltFindings(ctx context.Context, q opQuerier, wide, keyed map[string]int) ([]string, int, error) {
+func identityBeltFindings(ctx context.Context, q opQuerier, wide, keyed, scans map[string]int) ([]string, int, error) {
 	tenantRelations, err := identityTenantRelations(ctx, q)
 	if err != nil {
 		return nil, 0, err
@@ -762,10 +825,13 @@ func identityBeltFindings(ctx context.Context, q opQuerier, wide, keyed map[stri
 	refs := 0
 	for _, b := range bodies {
 		lx := identityLex(b.Src)
+		allowedUsed := map[string]int{}
 		flag := func(what string) {
 			if _, ok := identityBeltAllowedConstructs[b.Name][what]; !ok {
 				out = append(out, fmt.Sprintf("%s: %s -- a construct the belt does not model (name it in identityBeltAllowedConstructs, with its reason, or rewrite it)", b.Name, what))
+				return
 			}
+			allowedUsed[what]++
 		}
 		if lx.quoted {
 			flag("a double-quoted identifier")
@@ -781,7 +847,8 @@ func identityBeltFindings(ctx context.Context, q opQuerier, wide, keyed map[stri
 		if n, m := len(anyMention.FindAllString(lx.code, -1)), len(qualified.FindAllString(lx.code, -1)); n != m {
 			flag(fmt.Sprintf("a tenant relation reached other than as public.<name> (%d mention(s), %d qualified)", n, m))
 		}
-		sc := identityBeltScope{params: map[string]bool{}, declared: map[string]bool{}, records: map[string]bool{}, trusted: map[string]bool{}, assigned: map[string]bool{}}
+		sc := identityBeltScope{params: map[string]bool{}, declared: map[string]bool{}, records: map[string]bool{}, trusted: map[string]bool{}, assigned: map[string]bool{},
+			maintenance: scans[b.Name] > 0}
 		for _, a := range b.Args {
 			if strings.HasPrefix(a, "p_") {
 				sc.params[a] = true
@@ -829,13 +896,26 @@ func identityBeltFindings(ctx context.Context, q opQuerier, wide, keyed map[stri
 				break
 			}
 		}
-		wideUsed, keyedUsed, emailUsed, addressUsed := 0, 0, 0, 0
+		wideUsed, keyedUsed, emailUsed, addressUsed, scansUsed := 0, 0, 0, 0, 0
 		for _, v := range verdicts {
 			out = append(out, v.findings...)
 			wideUsed += v.wide
 			keyedUsed += v.keyed
 			emailUsed += v.email
 			addressUsed += v.address
+			scansUsed += v.scans
+			for what, n := range v.allowed {
+				allowedUsed[what] += n
+			}
+		}
+		for what := range identityBeltAllowedConstructs[b.Name] {
+			pinned, ok := identityBeltAllowedCounts[b.Name][what]
+			switch {
+			case !ok:
+				out = append(out, fmt.Sprintf("%s: the allowance %q has no pinned count (identityBeltAllowedCounts)", b.Name, what))
+			case allowedUsed[what] != pinned:
+				out = append(out, fmt.Sprintf("%s: %q used %d time(s), identityBeltAllowedCounts pins %d", b.Name, what, allowedUsed[what], pinned))
+			}
 		}
 		for _, s := range stmts {
 			refs += len(identityRef.FindAllString(s, -1))
@@ -851,6 +931,9 @@ func identityBeltFindings(ctx context.Context, q opQuerier, wide, keyed map[stri
 		}
 		if keyedUsed != keyed[b.Name] {
 			out = append(out, fmt.Sprintf("%s: %d session lookup(s) by its own key, identitySessionKeyLookups names %d", b.Name, keyedUsed, keyed[b.Name]))
+		}
+		if scansUsed != scans[b.Name] {
+			out = append(out, fmt.Sprintf("%s: %d maintenance scan(s) across every tenant, identityMaintenanceScans names %d", b.Name, scansUsed, scans[b.Name]))
 		}
 	}
 	sort.Strings(out)
@@ -880,7 +963,7 @@ func identityBeltFindings(ctx context.Context, q opQuerier, wide, keyed map[stri
 //     one: a relation the belt does not know).
 func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 	ctx, tx := opTx(t)
-	findings, refs, err := identityBeltFindings(ctx, tx, identityTenantWideReads, identitySessionKeyLookups)
+	findings, refs, err := identityBeltFindings(ctx, tx, identityTenantWideReads, identitySessionKeyLookups, identityMaintenanceScans)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -997,6 +1080,7 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 type identityBeltControl struct {
 	name, fn, cut, put string
 	pre                []string
+	want               string // when set, a finding must contain it (not merely any finding)
 }
 
 // identityBeltRunControls runs each control in a savepoint of tx (rolled back with it).
@@ -1016,17 +1100,68 @@ func identityBeltRunControls(t *testing.T, ctx context.Context, tx pgx.Tx, contr
 					aiExec(t, ctx, sp, p)
 				}
 				aiExec(t, ctx, sp, strings.Replace(def, c.cut, c.put, 1))
-				got, _, err := identityBeltFindings(ctx, sp, identityTenantWideReads, identitySessionKeyLookups)
+				got, _, err := identityBeltFindings(ctx, sp, identityTenantWideReads, identitySessionKeyLookups, identityMaintenanceScans)
 				if err != nil {
 					t.Fatal(err)
 				}
 				if len(got) == 0 {
 					t.Fatalf("the rewritten body passed the belt")
 				}
+				if c.want != "" && !slices.ContainsFunc(got, func(f string) bool { return strings.Contains(f, c.want) }) {
+					t.Fatalf("flagged, but not with %q: %v", c.want, got)
+				}
 				t.Logf("flagged: %v", got)
 			})
 		})
 	}
+}
+
+// TestIdentityBodies_TheReconciliationIsHeldByTheBelt is M14-06b's (00082) part of the belt's controls,
+// in a test of its own for TestIdentityBodies_TheClaimsPasswordBranchIsHeldByTheBelt's reason (each
+// control re-reads every identity body; the first test's controls already use most of opTx's three
+// minutes). The maintenance class excuses a READ across every tenant, by count -- never the link's
+// missing tenant, a write across every tenant, or one scan more than the map names.
+func TestIdentityBodies_TheReconciliationIsHeldByTheBelt(t *testing.T) {
+	ctx, tx := opTx(t)
+	const reconcileFn = "public.identity_reconcile()"
+	identityBeltRunControls(t, ctx, tx, []identityBeltControl{
+		{name: "M14-06b: the reconcile link without its tenant", fn: reconcileFn,
+			cut: "WHERE a.id = v_row\n           AND a.tenant_id = v_tenant\n", put: "WHERE a.id = v_row\n"},
+		{name: "M14-06b: a write across every tenant", fn: reconcileFn, cut: "        IF v_row IS NULL THEN",
+			put: "        UPDATE public.admin_users AS z SET last_login_at = NULL WHERE z.identity_id IS NULL;\n        IF v_row IS NULL THEN"},
+		{name: "M14-06b: one maintenance scan more than the map names", fn: reconcileFn, cut: "        IF v_row IS NULL THEN",
+			put: "        PERFORM 1 FROM public.admin_users AS z WHERE z.status IS NOT NULL;\n        IF v_row IS NULL THEN"},
+		{name: "M14-06b: the tenant read by a scan of another tenant table", fn: reconcileFn, cut: "        IF v_row IS NULL THEN",
+			put: "        PERFORM 1 FROM public.admin_sessions AS z WHERE z.revoked_at IS NULL;\n        IF v_row IS NULL THEN"},
+		// The audit's write forms: none of them is a maintenance READ -- each is the unanchored write it is.
+		{name: "M14-06b: UPDATE ONLY across every tenant", fn: reconcileFn, cut: "        IF v_row IS NULL THEN",
+			put:  "        UPDATE ONLY public.admin_users AS z SET last_login_at = NULL WHERE z.identity_id IS NULL;\n        IF v_row IS NULL THEN",
+			want: "admin_users AS z is anchored by no tenant"},
+		{name: "M14-06b: DELETE FROM ONLY across every tenant", fn: reconcileFn, cut: "        IF v_row IS NULL THEN",
+			put:  "        DELETE FROM ONLY public.admin_users AS z WHERE z.identity_id IS NULL;\n        IF v_row IS NULL THEN",
+			want: "admin_users AS z is anchored by no tenant"},
+		{name: "M14-06b: MERGE INTO across every tenant", fn: reconcileFn, cut: "        IF v_row IS NULL THEN",
+			put:  "        MERGE INTO public.admin_users AS z USING public.admin_users AS y ON y.identity_id IS NULL WHEN MATCHED THEN DO NOTHING;\n        IF v_row IS NULL THEN",
+			want: "admin_users AS z is anchored by no tenant"},
+		// The audit's pin: the address check's allowance is counted -- one more unkeyed identity
+		// statement (an UPDATE, here) is a finding, the allowance notwithstanding.
+		{name: "M14-06b: one more unkeyed identity statement", fn: reconcileFn, cut: "        IF v_row IS NULL THEN",
+			put:  "        UPDATE public.admin_identities AS z SET last_login_at = NULL WHERE z.email IS NOT NULL;\n        IF v_row IS NULL THEN",
+			want: "used 2 time(s), identityBeltAllowedCounts pins 1"},
+	})
+	// M14-06b: the same body with identity_reconcile taken out of identityMaintenanceScans -- its four
+	// cross-tenant reads are findings again (the class is the map's, not the scanner's default).
+	t.Run("control/M14-06b: a maintenance scan in a function the map does not name", func(t *testing.T) {
+		got, _, err := identityBeltFindings(ctx, tx, identityTenantWideReads, identitySessionKeyLookups, map[string]int{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(got, func(f string) bool {
+			return strings.HasPrefix(f, "identity_reconcile: admin_users AS ") && strings.Contains(f, "anchored by no tenant")
+		}) {
+			t.Fatalf("the cross-tenant reads passed without the map: %v", got)
+		}
+	})
 }
 
 // TestIdentityBodies_TheClaimsPasswordBranchIsHeldByTheBelt is M14-17b's (00080) part of the belt's

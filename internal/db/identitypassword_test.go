@@ -2099,7 +2099,8 @@ func ipCatalogue(t *testing.T, ctx context.Context, q pgx.Tx) string {
 // M14-08: "HEAD" here is the catalogue 00072 hands on, so the files above 00073 (00073 grants nothing
 // and writes data only) are walked down first, in the test's transaction, newest first -- 00074 gives
 // the definer admin_identities INSERT (email, password_hash) and admin_users SELECT (password_hash),
-// which a 00072 Down taken at the true HEAD would rightly leave in place.
+// which a 00072 Down taken at the true HEAD would rightly leave in place. M14-06b's 00082 is one of
+// them: its Down unlinks the reconciliation's rows and drops identity_reconcile().
 func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndUp(t *testing.T) {
 	ctx, tx := opTx(t)
 	later := aiLaterMigrations(t)

@@ -492,7 +492,11 @@ var identityAdminIdentitiesNonWriters = map[string]bool{
 var identityAddressRuleWriters = []string{"identity_create_for_signup(uuid,uuid)", "identity_accept_invite_new(text,text)",
 	// M14-17 (00078): a new address's identity is born in the registration's confirmation (00080, M14-17b:
 	// its fourth argument; the rule is 00078's, byte for byte).
-	"identity_claim_signup(text,uuid,text,text)"}
+	"identity_claim_signup(text,uuid,text,text)",
+	// M14-06b (00082): the maintenance pass births a group's identity from a locked row that passed the
+	// rule (`IF (...) IS NOT TRUE THEN CONTINUE` in the lock loop); TestIdentityReconcile_TheAddressRuleChoosesTheASCIIRow
+	// holds the refusal to the value inserted.
+	"identity_reconcile()"}
 
 // iaStripComments removes SQL / PL/pgSQL comments (-- to the end of the line, /* ... */, nested)
 // outside single-quoted literals, double-quoted identifiers and dollar-quoted strings, so a pattern
@@ -705,9 +709,9 @@ func iaIdentityWriterFindings(t *testing.T, ctx context.Context, q pgx.Tx) (find
 // `IF (...) IS NOT TRUE THEN RETURN | CONTINUE` refusal (comments stripped first) or is a listed
 // non-writer that indeed writes nothing there. It is a STRUCTURAL guard: that the refusal is on the
 // value inserted is each writer's behaviour test (this file's for identity_create_for_signup;
-// M14-06b's for identity_reconcile). Today the one writer is identity_create_for_signup;
-// identity_reconcile must carry the refusal before it merges; 00073's backfill is a DO block, guarded
-// by 00076's own assertion and deploy/README.md's precheck.
+// M14-06b's for identity_reconcile). The writers are identityAddressRuleWriters -- identity_reconcile
+// (00082) among them, with a control of its own below (its refusal cut, it is named); 00073's backfill
+// is a DO block, guarded by 00076's own assertion and deploy/README.md's precheck.
 //
 // CONTROLS, in savepoints, each red: the six shapes the M14-08a third eye planted past the first
 // version of this test -- a BEGIN ATOMIC body, INSERT /* c */ INTO, a quoted "public"."admin_identities",
@@ -824,6 +828,24 @@ func TestIdentityAddressRule_EveryIdentityInsertDecidesIt(t *testing.T) {
 			})
 		})
 	}
+	// M14-06b (00082): identity_reconcile with its address refusal cut -- the one writer of the list
+	// that refuses with CONTINUE -- is named.
+	t.Run("control/identity_reconcile without its address refusal", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			var def string
+			if err := sp.QueryRow(ctx, `SELECT pg_get_functiondef('public.identity_reconcile()'::regprocedure)`).Scan(&def); err != nil {
+				t.Fatal(err)
+			}
+			refusal := regexp.MustCompile(`(?s)\n\s*IF \(pg_catalog\.octet_length\(r\.email::text\) <= 254.*?\) IS NOT TRUE THEN\s*CONTINUE;\s*END IF;`)
+			if n := len(refusal.FindAllStringIndex(def, -1)); n != 1 {
+				t.Fatalf("PREMISE: identity_reconcile holds %d address refusals, want 1", n)
+			}
+			aiExec(t, ctx, sp, refusal.ReplaceAllString(def, ""))
+			if f, _ := iaIdentityWriterFindings(t, ctx, sp); !slices.ContainsFunc(f, func(s string) bool { return strings.HasPrefix(s, "identity_reconcile(") }) {
+				t.Fatalf("CONTROL: identity_reconcile without its refusal is not named (%v)", f)
+			}
+		})
+	})
 	t.Run("control/a rewrite rule on the table", func(t *testing.T) {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 			aiExec(t, ctx, sp, `CREATE RULE zz_m1408a_rule AS ON UPDATE TO public.admin_identities DO ALSO NOTHING`)
@@ -950,16 +972,16 @@ func TestIdentity00076_UpRefusesANonASCIIIdentityWithItsCountAlone(t *testing.T)
 	})
 }
 
-// TestIdentityAddressRule_TheRunbookCountsWithThePattern: deploy/README.md's precheck (before Deploy 1)
-// and its post-migrate count apply 00076's rule with the very pattern, byte for byte -- a hand copy
-// of 2 700 characters would drift silently otherwise.
+// TestIdentityAddressRule_TheRunbookCountsWithThePattern: deploy/README.md's precheck (before Deploy 1),
+// its post-migrate count and (M14-06b) the M14-19 precheck's residue count apply 00076's rule with the
+// very pattern, byte for byte -- a hand copy of 2 700 characters would drift silently otherwise.
 func TestIdentityAddressRule_TheRunbookCountsWithThePattern(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "..", "deploy", "README.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := "AND email::text ~ '" + strings.ReplaceAll(identityAddressPattern(), "'", "''") + "'))"
-	if n := strings.Count(string(b), want); n != 2 {
-		t.Fatalf("deploy/README.md applies 00076's pattern %d times, want 2 (the precheck and the post-migrate count)", n)
+	if n := strings.Count(string(b), want); n != 3 {
+		t.Fatalf("deploy/README.md applies 00076's pattern %d times, want 3 (the precheck, the post-migrate count and M14-19's residue count)", n)
 	}
 }

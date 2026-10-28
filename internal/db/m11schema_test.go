@@ -118,6 +118,8 @@ var m11Tables = map[string]map[string]m11TableACL{
 	// (K-15). identitycatalog_test.go holds the union inside the ADR's matrix and shows every column
 	// used. 00074 (M14-08, named exception 2): the identity's birth at registration --
 	// identity_create_for_signup INSERTs (email, password_hash) and nothing else (no mailbox proof).
+	// 00082 (M14-06b, ADR 0031 §5.2, §5.8) uses the same INSERT, granted by 00074: identity_reconcile()
+	// births the identity of an e-mail group that has none, with the chosen row's digest.
 	"admin_identities": {
 		"tappa_resolver": {Select: "id,email,password_hash,email_verified_at"},
 		"tappa_identitydefiner": {
@@ -554,6 +556,10 @@ var m11Functions = map[string]m11FunctionACL{
 	// 00080 (M14-17b): identity_claim_signup's fourth argument (p_verified_digest), DROP + CREATE, restated.
 	"identity_claim_signup(text,uuid,text,text)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 	"identity_sweep_signup_claims()":             {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	// 00082 (M14-06b, ADR 0031 §5.2, ONAY note 1): the maintenance function -- the closed list's one
+	// EXECUTE that is not tappa_app's: tappa_owner alone (the migration calls it, the runbook calls it
+	// again before M14-19, contract B drops it).
+	"identity_reconcile()": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_identitydefiner,tappa_owner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every
