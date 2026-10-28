@@ -251,17 +251,28 @@ func TestIdentityReconcile_RowsBornAfterTheBackfill(t *testing.T) {
 	})
 }
 
+// rcSetAside empties the shared database's admin_users of filled e-mails inside the savepoint (rolled
+// back with it): links undone first (00069's trigger keeps a linked row's e-mail), then every address
+// NULL. A pass then sees only the rows the test writes after it -- other packages' committed rows and
+// identities, which they may change between two calls (an identity a cleanup deletes makes its address
+// a candidate again), are out of its reach. The identities stay: with no row of their address they are
+// no group's (TestIdentityReconcile_AnEmptyDatabase deletes them itself).
+func rcSetAside(t *testing.T, ctx context.Context, sp pgx.Tx) {
+	t.Helper()
+	aiExec(t, ctx, sp, `UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL, unlinked_at = NULL
+	                     WHERE identity_id IS NOT NULL OR unlinked_at IS NOT NULL OR linked_via IS NOT NULL`)
+	aiExec(t, ctx, sp, `UPDATE admin_users SET email = NULL WHERE email IS NOT NULL`)
+}
+
 // TestIdentityReconcile_ItIsIdempotent (the card: "iki koşu aynı sonuç"): a second call links
-// nothing, births no identity anywhere, and leaves every row as the first left it.
+// nothing, births no identity anywhere, and leaves every row as the first left it. The shared
+// database is set aside first (rcSetAside), so both counts are exact: on CI a committed identity of
+// another package, deleted by its cleanup between the two calls, once made the second call link a row
+// that was not the test's (run 39935647526).
 func TestIdentityReconcile_ItIsIdempotent(t *testing.T) {
 	ctx, tx := bfTx(t)
 	shared, single := bfEmail("rc-twice-shared"), bfEmail("rc-twice-single")
-	ids := []uuid.UUID{
-		bfAdmin(t, ctx, tx, aiTenant(t, ctx, tx), shared, "active", 20, opFakeDigest("a")),
-		bfAdmin(t, ctx, tx, aiTenant(t, ctx, tx), shared, "active", 10, opFakeDigest("b")),
-		bfAdmin(t, ctx, tx, aiTenant(t, ctx, tx), single, "disabled", 5, opFakeDigest("c")),
-		bfAdmin(t, ctx, tx, aiTenant(t, ctx, tx), nil, "active", 5, opFakeDigest("d")),
-	}
+	var ids []uuid.UUID
 	snapshot := func(q pgx.Tx) string {
 		var b strings.Builder
 		for _, id := range ids {
@@ -272,8 +283,15 @@ func TestIdentityReconcile_ItIsIdempotent(t *testing.T) {
 		return b.String()
 	}
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
-		if n := rcRun(t, ctx, sp); n < 2 {
-			t.Fatalf("PREMISE: the first run linked %d rows", n)
+		rcSetAside(t, ctx, sp)
+		ids = []uuid.UUID{
+			bfAdmin(t, ctx, sp, aiTenant(t, ctx, sp), shared, "active", 20, opFakeDigest("a")),
+			bfAdmin(t, ctx, sp, aiTenant(t, ctx, sp), shared, "active", 10, opFakeDigest("b")),
+			bfAdmin(t, ctx, sp, aiTenant(t, ctx, sp), single, "disabled", 5, opFakeDigest("c")),
+			bfAdmin(t, ctx, sp, aiTenant(t, ctx, sp), nil, "active", 5, opFakeDigest("d")),
+		}
+		if n := rcRun(t, ctx, sp); n != 2 {
+			t.Fatalf("PREMISE: the first run linked %d rows, want 2", n)
 		}
 		first := snapshot(sp)
 		if !strings.Contains(first, "identities=2 ") {
@@ -296,10 +314,8 @@ func TestIdentityReconcile_AnEmptyDatabase(t *testing.T) {
 	ctx, tx := bfTx(t)
 	up, _, down := rcSections(t)
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
-		aiExec(t, ctx, sp, `UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL, unlinked_at = NULL
-		                     WHERE identity_id IS NOT NULL OR unlinked_at IS NOT NULL OR linked_via IS NOT NULL`)
+		rcSetAside(t, ctx, sp)
 		aiExec(t, ctx, sp, `DELETE FROM admin_identities`)
-		aiExec(t, ctx, sp, `UPDATE admin_users SET email = NULL WHERE email IS NOT NULL`)
 		bfAdmin(t, ctx, sp, aiTenant(t, ctx, sp), nil, "active", 3, opFakeDigest("a"))
 		bfAdmin(t, ctx, sp, aiTenant(t, ctx, sp), "", "active", 3, opFakeDigest("b"))
 		bfAdmin(t, ctx, sp, aiTenant(t, ctx, sp), " ", "active", 3, opFakeDigest("c"))
@@ -525,12 +541,7 @@ func TestIdentityReconcile_TheRunbookCountsTheResidueApart(t *testing.T) {
 	ctx, tx := bfTx(t)
 	identityless, mismatch := rcRunbookCounts(t)
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
-		// TestIdentityReconcile_AnEmptyDatabase's setting aside: links undone first (00069's trigger
-		// keeps a linked row's e-mail), the identities gone, every address NULL.
-		aiExec(t, ctx, sp, `UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL, unlinked_at = NULL
-		                     WHERE identity_id IS NOT NULL OR unlinked_at IS NOT NULL OR linked_via IS NOT NULL`)
-		aiExec(t, ctx, sp, `DELETE FROM admin_identities`)
-		aiExec(t, ctx, sp, `UPDATE admin_users SET email = NULL WHERE email IS NOT NULL`)
+		rcSetAside(t, ctx, sp)
 		rcAddressRuleWorld(t, ctx, sp)
 		counts := func() string {
 			var addresses, residue int64
