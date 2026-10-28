@@ -2277,7 +2277,7 @@ Bayrağı açmak **bir `main` birleştirmesidir = bir deploy = kullanıcının k
 `m14-flag` iki parça taşır ve sıra bilinçlidir: önce migration commit'i (`00083`, aşağıda), **en son**
 ayrı bir commit — `feat(deploy): turn the admin identity on` — yalnız `deploy/k8s/05-config.yaml`'ın
 `TAPPA_ADMIN_IDENTITY` satırını `"on"` yapar (ve onu sabitleyen paketleme testini,
-`cmd/tappa/identityflag_packaging_test.go`). `kubectl edit` **yasak**: bir sonraki deploy dosyayı yeniden
+`TestPackaging_TheIdentityFlagShipsOn`). `kubectl edit` **yasak**: bir sonraki deploy dosyayı yeniden
 uygular ve değeri sessizce geri çevirir.
 
 **`00083` ne yapar** (tek dosya, tek transaction, `tappa_owner`; deterministik ve testli —

@@ -210,11 +210,13 @@ data:
   # is today's, /admin/switch is 404, the account page has no identity section (internal/adminauth's
   # IdentityGate holds the whole table, in one place). The dual-write — a password change, a legacy
   # reset link and a registration writing the identity — runs in BOTH states.
-  # TURNING IT ON IS THE USER'S DECISION (M14-19, after M14-17's verified registration is live and
-  # its pre-checks pass): a commit to THIS line and a main deploy. Never `kubectl edit` — the next
-  # deploy applies this file and silently turns it back. The way back is "off", committed and
-  # deployed. cmd/tappa's TestPackaging_TheIdentityFlagShipsOff pins this value.
-  TAPPA_ADMIN_IDENTITY: "off"
+  # ON since M14-19 (the user's decision; deploy/README.md, "M14-19 — bayrak": the pre-checks, the
+  # reconciliation's re-call, migration 00083 in the same deploy, the smoke list). The K-3 clock — 60
+  # days to contract A — starts on the day this line was deployed (docs/plan/state.md records it).
+  # Never `kubectl edit` — the next deploy applies this file and silently turns it back. The way back
+  # is "off", committed and deployed (the runbook's (f): the schema stays, the legacy arm works on it).
+  # cmd/tappa's TestPackaging_TheIdentityFlagShipsOn pins this value.
+  TAPPA_ADMIN_IDENTITY: "on"
 
   # (Tappa's own legal texts are published by the platform operator on its own host,
   # /operator/legal -- M10 OP-10, ADR 0020 §7. The customer panel's legal screen and
