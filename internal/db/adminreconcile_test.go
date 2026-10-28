@@ -1061,6 +1061,71 @@ func TestIdentityReconcile00082_ThePreconditionRefusesAnUnreadyDatabase(t *testi
 	})
 }
 
+// rcPatternCopyFindings holds every `<alias>.email::text ~ '...'` literal of text (00082's file) to
+// identityAddressPattern(), byte for byte, and to the exact list of aliases, in order.
+func rcPatternCopyFindings(text string, aliases []string) []string {
+	var out []string
+	want := strings.ReplaceAll(identityAddressPattern(), "'", "''")
+	copies := regexp.MustCompile(`\b([a-z]+)\.email::text ~ '((?:[^']|'')*)'`).FindAllStringSubmatch(text, -1)
+	if len(copies) != len(aliases) {
+		out = append(out, fmt.Sprintf("%d pattern copies, want %d (%v)", len(copies), len(aliases), aliases))
+	}
+	for i, c := range copies {
+		if i < len(aliases) && c[1] != aliases[i] {
+			out = append(out, fmt.Sprintf("copy %d is on %s.email, want %s.email", i, c[1], aliases[i]))
+		}
+		if c[2] != want {
+			out = append(out, fmt.Sprintf("copy %d (%s.email) is not identityAddressPattern(), byte for byte", i, c[1]))
+		}
+	}
+	return out
+}
+
+// TestIdentityReconcile00082_EveryPatternCopyIsTheAddressRule: 00082 carries 00076's 6b pattern three
+// times -- the lock loop's refusal (r.email), the postcondition's first check (a.email) and its check
+// (e) (i.email) -- and each is identityAddressPattern(), byte for byte; the count is exact. The
+// behaviour tests cannot see a drift in (a) or (e) (one octet of an IPv6 group, measured by the
+// third-eye audit: {1,4} -> {1,5} in (a) left them green), so the copies are pinned here. CONTROLS,
+// on copies of the file's text: (a) drifted, (e) drifted, a fourth copy, and the refusal's copy
+// removed -- each a finding.
+func TestIdentityReconcile00082_EveryPatternCopyIsTheAddressRule(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", rcFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	aliases := []string{"r", "a", "i"}
+	for _, f := range rcPatternCopyFindings(text, aliases) {
+		t.Error(f)
+	}
+	nth := func(alias string) int {
+		i := strings.Index(text, alias+".email::text ~ '")
+		if i < 0 {
+			t.Fatalf("PREMISE: no %s.email copy", alias)
+		}
+		return i
+	}
+	drift := func(alias string) string {
+		i := nth(alias)
+		j := strings.Index(text[i:], "{1,4}")
+		return text[:i+j] + "{1,5}" + text[i+j+len("{1,4}"):]
+	}
+	for _, c := range []struct{ name, text string }{
+		{"(a)'s copy drifted", drift("a")},
+		{"(e)'s copy drifted", drift("i")},
+		{"the refusal's copy drifted", drift("r")},
+		{"a fourth copy", text + "\n-- x.email::text ~ '" + strings.ReplaceAll(identityAddressPattern(), "'", "''") + "'\n"},
+	} {
+		t.Run("control/"+c.name, func(t *testing.T) {
+			if f := rcPatternCopyFindings(c.text, aliases); len(f) == 0 {
+				t.Fatalf("CONTROL: %s is no finding", c.name)
+			} else {
+				t.Logf("red: %v", f)
+			}
+		})
+	}
+}
+
 // rcRecallChecks returns what deploy/README.md's re-call before M14-19 must repeat, byte for byte,
 // from 00082's Up: the role assertion (the first DO block's IF) and the postcondition's checks (b),
 // (c) and (e).
