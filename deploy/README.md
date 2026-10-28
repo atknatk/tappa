@@ -2274,11 +2274,12 @@ penceresi, giriş, son kullanılan işletme, ona işaret eden başka bir tablo s
 ### M14-19 — bayrak: `TAPPA_ADMIN_IDENTITY=on` ve `00083`
 
 Bayrağı açmak **bir `main` birleştirmesidir = bir deploy = kullanıcının kararı** (ADR 0031 §8). Dal
-`m14-flag` iki parça taşır ve sıra bilinçlidir: önce migration commit'i (`00083`, aşağıda), **en son**
-ayrı bir commit — `feat(deploy): turn the admin identity on` — yalnız `deploy/k8s/05-config.yaml`'ın
-`TAPPA_ADMIN_IDENTITY` satırını `"on"` yapar (ve onu sabitleyen paketleme testini,
-`TestPackaging_TheIdentityFlagShipsOn`). `kubectl edit` **yasak**: bir sonraki deploy dosyayı yeniden
-uygular ve değeri sessizce geri çevirir.
+`m14-flag` migration commit'ini (`00083`, aşağıda) ve ayrı bir commit'i — `feat(deploy): turn the admin
+identity on` — taşır; ikincisi yalnız `deploy/k8s/05-config.yaml`'ın `TAPPA_ADMIN_IDENTITY` satırını `"on"`
+yapar (ve onu sabitleyen paketleme testini, `TestPackaging_TheIdentityFlagShipsOn`). **İkisi tek
+birleştirmede çıkar** (aşağıdaki boşluk (ii); kullanıcı kararı 2026-10-28). Sandbox da `"on"`dur (ayrı
+commit `feat(deploy): turn the admin identity on in the sandbox`, aynı karar). `kubectl edit` **yasak**:
+bir sonraki deploy dosyayı yeniden uygular ve değeri sessizce geri çevirir.
 
 **`00083` ne yapar** (tek dosya, tek transaction, `tappa_owner`; deterministik ve testli —
 `internal/db/adminflag_test.go`):
@@ -2310,13 +2311,16 @@ bayrak kapalıyken daha uzun bir pencere görünmez — canlıda koşulmaz, geri
 
 🔴 **İki adlandırılmış boşluk.** (i) Aynı deploy'un rollout'unda eski pod (bayrak kapalı) Job'dan sonraki
 birkaç dakikada bir pencere açabilir; o pencere kendi olayı + 7'de biter — bayrak günü + 7'den dakikalar
-kısa, kabul. (ii) Migration bayrak commit'inden **önceki** bir deploy'la çıkarsa, iki deploy arasında
-açılan her pencere olay + 7'de kalır ve bayrak onu gösteremeden kapanabilir. **Öneri: iki commit tek
-birleştirmede, tek deploy'da.** Ayırmak kullanıcının kararıdır, bedeli budur (migration bayrak kapalıyken
-güvenlidir — `TestPanelIdentityFlagOff_AWindowMovedBy00083ChangesNothing`: taşınmış bir pencereyle bile
-kabuk, hesap sayfası ve `/admin/switch` bağsız oturumunkiyle bayt-aynı, "Keep all" 404). Bir `off → on`
-döngüsü de `00083`'ü yeniden koşturmaz: geri dönüşten sonraki ikinci açılışta, aradaki kapalı günlerde
-açılan pencereler taşınmaz.
+kısa, kabul. (ii) Migration bayrak commit'inden **önceki** bir deploy'la çıkarsa iki şey olur: iki deploy
+arasında açılan her pencere olay + 7'de kalır, **ve** `00083`'ün o gün taşıdığı pencereler de *o günün*
++ 7'sinde biter — bayrak deploy'u 7 günden geç gelirse **hepsi** bayrak onları gösteremeden kapanmış olur.
+Ölçüsü (d)'nin üçüncü sorgusudur: `windows_ending_early > 0`. **Karar (kullanıcı, 2026-10-28): iki commit
+tek birleştirmede, tek deploy'da.** (Migration bayrak kapalıyken yine de güvenlidir —
+`TestPanelIdentityFlagOff_AWindowMovedBy00083ChangesNothing`: taşınmış bir pencereyle bile kabuk, hesap
+sayfası ve `/admin/switch` bağsız oturumunkiyle bayt-aynı, "Keep all" 404.) (iii) Bir `off → on` döngüsü
+`00083`'ü yeniden koşturmaz: geri dönüşten sonraki ikinci açılışta, aradaki kapalı günlerde açılan
+pencereler **taşınmaz**. Çaresi yeni bir migration olurdu — CLAUDE.md §4.5 (3)'ün adlandırılmış bakım
+yazarlarına bir yenisini eklemek demektir; o gün **kullanıcının kararıdır**, bu kart onu kurmaz.
 
 **(a) Ön kontroller** (salt okuma, yalnız sayı; kullanıcı koşar; birleştirmeden **hemen önce**):
 
@@ -2352,9 +2356,20 @@ açılan pencereler taşınmaz.
 gibi. ⚠️ Bu **canlı bir YAZMADIR** (kimlik doğurur, satır bağlar); kullanıcı koşar, `tappa_owner`.
 Beklenen çıktı ve DUR koşulları orada yazılı. Sonra (a)'yı koş.
 
-**(c) Birleştirme = deploy.** `m14-flag` → `main` (PR, CI yeşil). `deploy.yml` sırası: `05-config.yaml`
-uygulanır (808), migrate Job `00083`'ü koşar (888), sonra rollout (934) — yeni pod env'i başlarken okur ve
-bayrak `on` ile kalkar. Eski pod rollout bitene dek `off`'tur (yukarıdaki boşluk (i)).
+**(c) Birleştirme = deploy.** Yol: `m14-flag` → `m14-identity` (birleştirme) → PR → `main` (CI yeşil);
+`m14-identity` bu deploy'a T178 (kuşağın aileye bölünmesi) ve T181'i (backlog) da taşır. `deploy.yml`
+sırası: `05-config.yaml` uygulanır (808), migrate Job `00083`'ü koşar (888), sonra rollout (934) — yeni
+pod env'i başlarken okur ve bayrak `on` ile kalkar. Eski pod rollout bitene dek `off`'tur (yukarıdaki
+boşluk (i)).
+
+🔴 **Migrate Job `Failed` ise (ör. 55P03) ConfigMap ZATEN `on`'dur** — şema 82'de kalır ve o an yeniden
+başlayan eski pod bayrak açık kalkar (kimlik yüzeyleri 00083'süz şemada: pencereler taşınmamış). **Hemen,
+herhangi bir pod yeniden başlamadan önce:** iş akışını sakin bir anda yeniden koştur (Job tek
+transaction'dır, hiçbir şey yazmamıştır) **ya da** `main`'in önceki `05-config.yaml`'ını uygula
+(`git show <önceki main>:deploy/k8s/05-config.yaml | kubectl --context hetzner-k8s-1 apply -f -` —
+asla `kubectl edit`); sonra pod'un açılış satırındaki `"admin_identity"` değerini oku
+(`kubectl -n tappa logs deployment/tappa | grep '"admin_identity"'`). Kalıcı çözüm — ConfigMap'i Job'dan
+sonra uygulamak — `deploy.yml`'in değişmesi demektir ve bu kartın kapsamı dışındadır.
 
 **(d) Deploy'dan sonra** (salt okuma; Job log'unda `OK   00083_prepare_the_admin_identity_flag.sql`;
 pod'un açılış satırı `"admin_identity":"on"`):
@@ -2399,9 +2414,16 @@ KM'de birer owner üyeliği, ikisi bağlı; davet için kendi posta kutusu):
    parolayla giriş sürer. (Art arda denemeler oran sınırına takılır — bunu canlıda zorlamayın.)
 6. **Davet.** Owner olarak Managers → kendi kontrolündeki **yeni** bir adrese davet → e-posta gelir →
    link → yeni parola → davetli girer ve yalnız o işletmeyi görür. Temizlik: davetli üyeliği devre dışı
-   bırak (Members). Var olan bir kimliğe davet aynı e-postalı kimliğin canlı oturumuyla kabul edilir.
-7. (İsteğe bağlı) Bağlanmamış ikinci satırı olan kişi (M14-06'nın tek beklenen satırı): Hesap →
-   **"Link a business"** iki parolayla bağlar; Choose paragrafı onu oraya yönlendirir.
+   bırak (aynı sayfanın **"People who run this business"** bölümü). Var olan bir kimliğe davet aynı
+   e-postalı kimliğin canlı oturumuyla kabul edilir.
+7. 🔴 **ZORUNLU, açılıştan hemen sonra: "Link a business".** Canlıda bağlanmamış **bir** aktif owner satırı
+   var: adresinde zaten bir kimlik olan grubun ikinci satırı (M14-06'nın beklenen tek satırı — (a)'nın
+   kimliksiz sayımı onu **saymaz**, çünkü adresin kimliği var). O kişi kimlik yoluyla girer ama o satır
+   kimliğe bağlı değildir: **"Sign out everywhere"** onun oturumlarını **iptal etmez** (yalnız kimliğe bağlı
+   satırları kapsar, sayfa "every business you belong to" dese de) ve kimlik parolası değişikliği o satıra
+   **ulaşmaz**. Kişi Hesap → **"Link a business"**'te kendi parolasını ve o işletmenin (eski) parolasını
+   girer → satır bağlanır (yerel provada ölçüldü, aşağıda (f)); sonra (a)'nın S19 sorgusu ve haftalık
+   sayımın `unlinked_active_rows`'u bir azalmış olmalı. Choose paragrafı onu oraya yönlendirir.
 
 Herhangi bir adım 5xx verirse ya da beklenenden saparsa → (f).
 
@@ -2417,11 +2439,48 @@ geçişle açılmış oturumlar (sıradan, tek işletmeli oturumlardır; yaşar)
 süreleri dolarsa yeniden açılışta yeniden davet), basılmış kimlik sıfırlama linkleri (ömürleri boyunca
 harcanabilir — bayrak kesme anahtarı değildir, yukarıdaki M14-14 bölümü). **Kapanan:** geçiş, hesap
 sayfasının kimlik bölümleri, davet, üyelik yönetimi, kimlik başına sıfırlama talebi (satır başına döner),
-kimlik yolu girişi (herkes eski yoldan). **Prova (kart şartı, bir kez):** kullanıcının seçeceği sakin bir
-anda, açılıştan sonra: `off` deploy'u → duman 1 (eski yol girişi, seçici olabilir), 5 ve bir parola
-değişikliği (bağlı satırda kimlik üzerinden yazar) → yeniden `on` (revert'in revert'i) → duman 1–2. Prova
-günü ve sonucu `state.md`'ye; `on`'a dönüşte aradaki kapalı günlerde açılan pencereler taşınmaz (boşluk
-(ii)'nin aynısı).
+kimlik yolu girişi (herkes eski yoldan). **Yeniden açtıktan sonra** (d)'nin üçüncü sorgusunu koş, ama
+`WHERE`'ine `AND confirm_opened_at >= '<off deploy'unun anı>'` ekleyerek (ilk açılışta taşınmış pencereler
+o gün + 7'de biter; daraltmasız sorgu onları da sayar): `windows_ending_early > 0` boşluk (iii)'tür —
+kapalı günlerde açılmış, taşınmamış pencereler (sayı yalnız bildirilir; çaresi kullanıcının kararı).
+
+**Prova: 2026-10-28, yerel** (kullanıcı kararı: *"Yerelde, birleştirmeden önce"*). Dalın gerçek ikilisi
+(`go build ./cmd/tappa`, `m14-flag` HEAD), `TAPPA_ENV=dev`, lane veritabanı goose `83`; aynı ikili üç kez
+başlatıldı: `on` → `off` → `on` (açılış satırı her seferinde `"admin_identity":"on"/"off"/"on"`). Durum:
+bir kişi (KF ve KM'de bağlı owner satırı, bir kimlik), aynı adresin **bağlanmamış** üçüncü satırı (başka
+bir işletmede, başka parola — canlıdaki M14-06 satırının şekli), bağlanmamış bir manager (KF), açık bir
+`reset` penceresi, bekleyen bir yönetici daveti (`AdminInvites.Issue`) ve bekleyen bir kayıt taslağı
+(`SignupClaims.Open`). HTTP kodları `curl` ile ölçüldü:
+
+| Faz | Adım | Gözlenen |
+|---|---|---|
+| on | kişinin girişi | `303 /admin`, `path=identity`, son kullanılan yok → en eski üyelik (KF) |
+| on | `GET /admin/switch` · KM'ye geçiş | `200` · `303 /admin`; KF oturumu iptal, KM oturumu canlı |
+| on | eski KF sekmesinden form | `409` *"This page belongs to another business — reload it."*, satır değişmedi |
+| on | hesap sayfası (pencere açık) · davet linki · kayıt linki/sayfası | "Keep all" görünür · `303 /admin/invite` · `303` / `200` |
+| on | bağlanmamış manager'ın girişi | `303 /admin`, `path=legacy` |
+| off | kimlik yolunda açılmış KM oturumu | `GET /admin` `200` (yaşar) |
+| off | `/admin/switch` · keep-all POST · davet linki | `404` · `404` · `404` |
+| off | hesap sayfası | "Keep all" / "Your businesses" / "Sign out everywhere" yok |
+| off | kayıt linki/sayfası | `303` / `200` (iki durumda da açık) |
+| off | kişinin yeni girişi (eski kol) | `303 /admin/login/choose`, seçici KF ve KM'yi sunar (üçüncü satır o parolayla doğrulanmaz); KF seçildi → `303 /admin`, `path=legacy` |
+| off | bağlanmamış üçüncü satır, kendi parolasıyla | `303 /admin`, `path=legacy` |
+| off | bağlı satırda parola değişikliği | `303 …?done=password`; kimlik ve iki bağlı satır aynı yeni digest, kişinin öbür oturumu iptal (eski KM oturumu → `303 /admin/login`) |
+| off | bağlanmamış iki satırda parola değişikliği | ikisi de `303 …?done=password`; satır kendi digest'ini yazar, bağsız kalır |
+| off | bağlı satıra doğrudan yazım (sahip rolüyle) | tetikleyici reddeder (*"written through the identity alone"*) |
+| on | eski kolla açılmış oturumlar (manager, kişinin KF'si) | `GET /admin` `200`; kişininkiyle `/admin/switch` `200` |
+| on | kişinin girişi, yeni parola | `303 /admin`, `path=identity`, KM'ye iner (geçişin yazdığı son kullanılan işletme — K-4) |
+| on | hesap sayfası · davet linki · kayıt linki/sayfası | "Keep all", "Your businesses", "Link a business" görünür · `303` · `303` / `200` |
+| on | "Link a business" (kendi + üçüncü satırın parolası) | `303 …?done=linked`; satır bağlandı, digest kimliğinkine eşit |
+| on | "Sign out everywhere" | `303 /admin/login`; kişinin **üç** satırında canlı oturum `0`, manager'ınki yaşar |
+
+Sayımlar (salt okuma, fazlar arasında): `goose=83`, `digest_mismatch=0` üç fazda da; bekleyen davet `1` ve
+bekleyen taslak `1` üç fazda da kaldı; pencere `reset`/açık üç fazda da kaldı (kapalıyken görünmedi,
+kapanmadı). İkinci `on`'dan sonra (d)'nin üçüncü sorgusu `1|1` verdi: provanın kendi penceresi `00083`'ten
+**sonra** (bir gün geriye tarihlenerek) açılmıştı — boşluk (iii)'ün tam şekli, sorgu onu görüyor. Hata
+satırı yalnız ilk fazda iki tane: provanın kendi uydurduğu geçersiz bir taslak (`500`, düzeltilip yeniden
+açıldı). Prova verisi lane veritabanından silindi. **Canlıda prova yapılmadı**; canlıda geri dönüş
+gerekirse yukarıdaki adımlar aynıdır.
 
 **(g) İzleme — e-postasız sayaçlar** (ADR 0031 §5.15; contract'ın ölçüsü). Hepsi `TAPPA_LOG_FORMAT=json`
 log satırlarından hesaplanır; hiçbiri adres, `identity_id` ya da token taşımaz (alanlar `admin_user_id` /
