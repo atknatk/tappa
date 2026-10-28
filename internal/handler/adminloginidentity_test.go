@@ -30,10 +30,16 @@ import (
 // *AdminAuth too (a test compares what it handed over with its own fields).
 func newLoginAuth(t *testing.T, admins *fakeAdmins, trail *fakeTrail, on bool) (*AdminAuth, http.Handler) {
 	t.Helper()
+	return newLoginAuthLogging(t, admins, trail, on, slog.New(slog.DiscardHandler))
+}
+
+// newLoginAuthLogging is newLoginAuth with the panel's logger given.
+func newLoginAuthLogging(t *testing.T, admins *fakeAdmins, trail *fakeTrail, on bool, log *slog.Logger) (*AdminAuth, http.Handler) {
+	t.Helper()
 	cfg := adminTestConfig()
 	cfg.AdminIdentity = on
 	records := newFakeLedger()
-	h, err := NewAdminAuth(admins, trail, records, records, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, cfg, slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(admins, trail, records, records, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, cfg, log)
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -246,6 +252,72 @@ func TestAdminLoginIdentity_LegacyRowsSignInAsToday(t *testing.T) {
 			t.Fatalf("the choice: %d, issued %+v; want the chosen row", rec.Code, admins.issuedFor)
 		}
 	})
+}
+
+// TestAdminLogin_TheSignInLineNamesItsArm is M14-19's counter pair (deploy/README.md, "M14-19 —
+// bayrak"; ADR 0031 §5.15): every successful sign-in writes ONE "panel sign-in" line whose path says
+// the arm -- "identity" for the identity path, "legacy" for the per-business arm with the flag off and
+// with it on -- and the line carries no address (CLAUDE.md §7: the counters are e-mail-less) and no
+// identity id. MUTATION: completeLogin's "path", "legacy" removed -> the two legacy rows are red.
+func TestAdminLogin_TheSignInLineNamesItsArm(t *testing.T) {
+	row := adminauth.Attempt{AdminUserID: uuid.New(), TenantID: uuid.New(), PasswordMatched: true, Active: true}
+	identityAdmin := uuid.New()
+	identitySession := func(string, string, uuid.UUID, adminauth.FailureBudget) (adminauth.PersonSignIn, error) {
+		return adminauth.PersonSignIn{Session: &adminauth.Issued{
+			Session: adminauth.Session{ID: uuid.New(), TenantID: uuid.New(), AdminUserID: identityAdmin},
+			Token:   fakeIssuedToken(),
+		}, Linked: 1}, nil
+	}
+	legacyRow := func(string, string, uuid.UUID, adminauth.FailureBudget) (adminauth.PersonSignIn, error) {
+		return adminauth.PersonSignIn{Legacy: legacyOf(row)}, nil
+	}
+	for _, c := range []struct {
+		name   string
+		on     bool
+		admins *fakeAdmins
+		admin  uuid.UUID
+		want   string
+	}{
+		{"flag off, the per-business arm", false, &fakeAdmins{authenticate: func(string, string) (adminauth.Authentication, error) {
+			return legacyOf(row), nil
+		}}, row.AdminUserID, "legacy"},
+		{"flag on, the per-business arm", true, &fakeAdmins{person: legacyRow}, row.AdminUserID, "legacy"},
+		{"flag on, the identity path", true, &fakeAdmins{person: identitySession}, identityAdmin, "identity"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var buf strings.Builder
+			_, h := newLoginAuthLogging(t, c.admins, &fakeTrail{}, c.on, slog.New(slog.NewJSONHandler(&buf, nil)))
+			rec := signInWith(t, newBrowser(t, h), "right")
+			if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin" {
+				t.Fatalf("the sign-in: %d to %q, want 303 to /admin", rec.Code, rec.Header().Get("Location"))
+			}
+			var lines []map[string]any
+			for _, l := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+				var m map[string]any
+				if err := json.Unmarshal([]byte(l), &m); err != nil {
+					t.Fatalf("a log line is not JSON: %q", l)
+				}
+				if strings.Contains(l, "person@example.test") {
+					t.Errorf("a log line carries the address: %s", l)
+				}
+				if m["msg"] == "panel sign-in" {
+					lines = append(lines, m)
+				}
+			}
+			if len(lines) != 1 {
+				t.Fatalf("%d \"panel sign-in\" lines, want 1", len(lines))
+			}
+			if got := lines[0]["path"]; got != c.want {
+				t.Errorf("path = %v, want %q", got, c.want)
+			}
+			if got := lines[0]["admin_user_id"]; got != c.admin.String() {
+				t.Errorf("admin_user_id = %v, want the membership signed in", got)
+			}
+			if _, ok := lines[0]["identity_id"]; ok {
+				t.Error("the line names the identity")
+			}
+		})
+	}
 }
 
 // TestAdminLogin_ALapsedSignInAsksToSignInAgain: Issue's three lapses -- the stale proof, no row to

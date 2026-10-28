@@ -160,9 +160,12 @@ func identitySignatureNames() []string {
 
 // identityExecuteExceptions names the functions whose EXECUTE is NOT tappa_app's (ADR 0031 §5.2,
 // ONAY note 1): identity_reconcile() -- M14-06b's maintenance function, EXECUTE in tappa_owner
-// alone. Its signature row arrived with M14-06b (identitySignaturesM1406b, 00082).
+// alone. Its signature row arrived with M14-06b (identitySignaturesM1406b, 00082). An EMPTY caller is
+// a function no role but its owner may call: identity_create_for_signup since M14-19 (00083, S18) --
+// no binary calls it, and it waits for contract B's DROP.
 var identityExecuteExceptions = map[string]string{
-	"identity_reconcile": "tappa_owner",
+	"identity_reconcile":         "tappa_owner",
+	"identity_create_for_signup": "",
 }
 
 // identityCatalogFindings is the catalogue test over EVERY schema:
@@ -174,7 +177,8 @@ var identityExecuteExceptions = map[string]string{
 //	(iv)  every function named identity\_% or resolve\_identity\_% in any schema is a row of sigs;
 //	(v)   prosecdef true, proconfig exactly the search path;
 //	(vi)  EXECUTE (aclexplode over coalesce(proacl, acldefault) -- a NULL ACL is PUBLIC's EXECUTE)
-//	      exactly {owner, tappa_app}, or {owner, <exception>} for a name identityExecuteExceptions holds.
+//	      exactly {owner, tappa_app}, or {owner, <exception>} for a name identityExecuteExceptions holds
+//	      ({owner} alone for an empty exception).
 func identityCatalogFindings(ctx context.Context, q opQuerier, sigs []identitySignature) ([]string, error) {
 	names := make([]string, 0, len(sigs))
 	for _, s := range sigs {
@@ -244,7 +248,10 @@ func identityCatalogFindings(ctx context.Context, q opQuerier, sigs []identitySi
 		if e, ok := identityExecuteExceptions[f.name]; ok {
 			caller = e
 		}
-		wantExec := []string{f.owner, caller}
+		wantExec := []string{f.owner}
+		if caller != "" {
+			wantExec = append(wantExec, caller)
+		}
 		slices.Sort(wantExec)
 		if f.execute != strings.Join(wantExec, ",") {
 			bad("(vi) EXECUTE is held by {%s}, want exactly {%s}", f.execute, strings.Join(wantExec, ","))
@@ -332,6 +339,10 @@ func TestIdentityCatalog_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 		{"identity_reconcile, EXECUTE taken from tappa_owner", []string{
 			`REVOKE EXECUTE ON FUNCTION public.identity_reconcile() FROM tappa_owner`}, identitySignatures, "(vi)"},
 		{"identity_reconcile without its row in the table", nil, withoutReconcile, "(i)"},
+		// M14-19 (00083): identity_create_for_signup's EXECUTE is its owner's alone; given back to
+		// tappa_app (00083's Down, a later file's slip) it is flagged.
+		{"identity_create_for_signup, EXECUTE in its owner alone (M14-19)", nil, identitySignatures, ""},
+		{"identity_create_for_signup, EXECUTE given back to tappa_app", []string{isGrantSignupDoorBack}, identitySignatures, "(vi)"},
 	}
 	for _, c := range controls {
 		t.Run("control/"+c.name, func(t *testing.T) {
@@ -899,8 +910,10 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx, signup ident
 	steps := []identityStep{
 		// M14-08 (00074) first: its row was written by the TOP-LEVEL transaction (identitySignupWorld) and
 		// must still be the business's only one. `WHERE` turns its false (a refusal) into 0 rows.
+		// M14-19 (00083) took tappa_app's EXECUTE; the definer cells the body uses stay until contract B,
+		// so the step gives the grant back inside this savepoint alone.
 		{name: "M14-08 create for signup",
-			owner: `SELECT set_config('app.tenant_id', '` + signup.tenant.String() + `', true)`,
+			owner: `SELECT set_config('app.tenant_id', '` + signup.tenant.String() + `', true); ` + isGrantSignupDoorBack,
 			sql:   `SELECT 1 WHERE ` + strings.TrimPrefix(createIdentityForSignupSQL, "SELECT "), args: []any{signup.tenant, signup.admin}},
 		{name: "resolve", sql: resolveIdentityByEmailSQL, args: []any{email}},
 		{name: "open, requested", sql: openIdentitySessionSQL, args: []any{ident, a, h1, opFakeDigest("a")}},

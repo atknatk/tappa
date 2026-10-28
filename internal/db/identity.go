@@ -247,8 +247,8 @@ func (d *DB) IdentitySessionDecoy(ctx context.Context) error {
 // ---------------------------------------------------------------- M14-08 --
 
 // The dual-write's callers (ADR 0031 §5.2, §5.9, §8; M14-08): the account page's password change and
-// the legacy reset link of a LINKED row write the identity and every row linked to it (00072), and a
-// registration births an identity for a new address (00074, named exception 2). They run whatever
+// the legacy reset link of a LINKED row write the identity and every row linked to it (00072); a
+// registration's identity is born by its confirmation (identity_claim_signup, M14-17). They run whatever
 // TAPPA_ADMIN_IDENTITY says: a linked row refuses a direct password write (00069's trigger), so the
 // only way to change its password is through the identity.
 const identityPasswordForSessionSQL = `SELECT password_hash
@@ -260,7 +260,11 @@ FROM identity_set_password($1, $2)`
 const consumeIdentityRowResetSQL = `SELECT admin_user_id, tenant_id, reset_id, revoked_sessions
 FROM identity_consume_row_reset($1, $2)`
 
-const createIdentityForSignupSQL = `SELECT identity_create_for_signup($1, $2)`
+// (The registration's own dual-write -- 00074's named exception 2 -- has no caller here any more:
+// M14-17 (00078) stopped the registration calling it and M14-19 (00083) took tappa_app's EXECUTE. Its
+// SQL and wrapper live in identitysignup_test.go, where the function's body is still tested until
+// contract B drops it; TestIdentityCreateForSignup_NoBinaryCallsIt keeps every non-test file of the
+// module from naming it.)
 
 // IdentityPasswordForSession is the digest of the identity behind a live session -- the account
 // page's "current password" check. pgx.ErrNoRows when the session is not live or its membership is
@@ -312,25 +316,6 @@ func (d *DB) ConsumeIdentityRowReset(ctx context.Context, resetHash, newDigest s
 	}
 	c.RevokedSessions = int(n)
 	return c, nil
-}
-
-// CreateIdentityForSignup is the registration's dual-write -- ADR 0031 §5.2's named exception 2
-// (migration 00074): inside the registration's OWN transaction (tx, under tenantID's context), it
-// births an identity for the new owner's address and links the row to it, or -- when the address is
-// already anyone's -- does nothing. It reports whether it linked.
-//
-// 🔴 tx MUST BE A TOP-LEVEL TRANSACTION (db.WithTenant), NEVER A SAVEPOINT (db.WithTenantIn): the
-// function only links a row this transaction wrote, and a row written under a savepoint carries the
-// subtransaction's xid -- the call would then refuse silently (S13, measured on 17.10 in 00074).
-//
-// 🔴 THE ANSWER STAYS IN THE CALLER. It says whether the address was new; ADR 0031 §5.10 allows that
-// difference on no surface the flag does not close -- not a response, a log line or an audit row.
-func CreateIdentityForSignup(ctx context.Context, tx pgx.Tx, tenantID, adminUserID uuid.UUID) (bool, error) {
-	var linked bool
-	if err := tx.QueryRow(ctx, createIdentityForSignupSQL, tenantID, adminUserID).Scan(&linked); err != nil {
-		return false, fmt.Errorf("db: create identity for signup: %w", err)
-	}
-	return linked, nil
 }
 
 // ---------------------------------------------------------------- M14-14 --

@@ -1,10 +1,15 @@
 package db
 
 // identitysignup_test.go -- M14-08 (ADR 0031 §5.2 named exception 2, migration 00074):
-// identity_create_for_signup against real Postgres, called AS tappa_app through the very SQL
-// CreateIdentityForSignup sends, in opTx's transaction (rolled back -- 00069's Down refuses while an
-// identity exists). internal/domain/signup's tests drive the same function through the real Provision
-// path, committed, and two registrations at once.
+// identity_create_for_signup against real Postgres, called AS tappa_app through the very SQL the
+// registration sent until M14-17, in opTx's transaction (rolled back -- 00069's Down refuses while an
+// identity exists).
+//
+// M14-19 (00083): tappa_app no longer holds EXECUTE on it and no binary calls it
+// (TestIdentityCreateForSignup_NoBinaryCallsIt) -- the function stays until contract B drops it.
+// So its SQL and wrapper live HERE, not in identity.go, and isCall gives tappa_app the grant back
+// INSIDE the test's own transaction (rolled back with it, never committed, invisible to every other
+// session): the body is still what this file tests, as the door stood from 00074 to 00082.
 //
 // 🔴 THE WORLDS ARE WRITTEN AT THE TOP LEVEL OF THE TEST'S TRANSACTION, every call in a savepoint
 // over them. The function links only a row THIS transaction wrote (xmin = pg_current_xact_id()), and
@@ -14,6 +19,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -45,14 +51,36 @@ func isNewWorld(t *testing.T, ctx context.Context, q pgx.Tx, tenantAge, adminAge
 	return w
 }
 
+// createIdentityForSignupSQL is the statement the registration sent from M14-08 to M14-17
+// (internal/db/identity.go's until M14-19).
+const createIdentityForSignupSQL = `SELECT identity_create_for_signup($1, $2)`
+
+// isGrantSignupDoorBack gives tappa_app the EXECUTE 00083 took, inside q's transaction alone (q is
+// rolled back by its owner: opTx, a savepoint). A committed GRANT here would be a §6 breach of the
+// shared database -- the catalogue tests of every package read it.
+const isGrantSignupDoorBack = `GRANT EXECUTE ON FUNCTION public.identity_create_for_signup(uuid, uuid) TO tappa_app`
+
+// createIdentityForSignup is the registration's former dual-write wrapper: inside the registration's
+// OWN transaction (tx, under tenantID's context) it births an identity for the new owner's address and
+// links the row to it, or does nothing. tx must be top-level (S13: a row written under a savepoint
+// carries the subtransaction's xid and is refused).
+func createIdentityForSignup(ctx context.Context, tx pgx.Tx, tenantID, adminUserID uuid.UUID) (bool, error) {
+	var linked bool
+	if err := tx.QueryRow(ctx, createIdentityForSignupSQL, tenantID, adminUserID).Scan(&linked); err != nil {
+		return false, fmt.Errorf("db: create identity for signup: %w", err)
+	}
+	return linked, nil
+}
+
 // isCall calls identity_create_for_signup AS tappa_app under the context guc (the business's own,
-// unless the case says otherwise) and returns its answer.
+// unless the case says otherwise) and returns its answer -- the grant given back in q first.
 func isCall(t *testing.T, ctx context.Context, q pgx.Tx, guc, tenant, admin uuid.UUID) bool {
 	t.Helper()
+	aiExec(t, ctx, q, isGrantSignupDoorBack)
 	var linked bool
 	err := aiApp(t, ctx, q, guc, func(sp pgx.Tx) error {
 		var e error
-		linked, e = CreateIdentityForSignup(ctx, sp, tenant, admin)
+		linked, e = createIdentityForSignup(ctx, sp, tenant, admin)
 		return e
 	})
 	if err != nil {
