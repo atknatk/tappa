@@ -89,7 +89,7 @@ func marketingRouterWithTexts(t *testing.T, texts legalReader) http.Handler {
 func marketingRouterFor(t *testing.T, texts legalReader, apiHost string) http.Handler {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	wizard, err := NewSignup(&fakeProvisioner{}, nil, signupTestConfig(), log)
+	wizard, err := NewSignup(&fakeProvisioner{}, newFakeSignupClaims(), nil, nil, signupTestConfig(), log)
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}
@@ -173,6 +173,17 @@ func withoutShareImages(body string, urls []string) (string, int) {
 func withoutCreditHref(body string) (string, int) {
 	credit := `href="` + layout.CreditURL + `"`
 	return strings.ReplaceAll(body, credit, `href=""`), strings.Count(body, credit)
+}
+
+// signupScreenLink is the "Check your inbox" screen's on-screen link (M14-17, ADR 0031 §5.10): only
+// on a development or sandbox installation that sends no e-mail, as the invitation's `panel` mode
+// does -- the registration's confirmation on this installation's OWN origin (TAPPA_BASE_URL), which a
+// reader follows and the page never loads. The test driver is such an installation.
+var signupScreenLink = regexp.MustCompile(`href="` + regexp.QuoteMeta(testBaseURL+pages.SignupConfirmPath) + `\?t=[A-Za-z0-9_-]+"`)
+
+// withoutSignupScreenLink is body with every signupScreenLink anchor href emptied, and how many it held.
+func withoutSignupScreenLink(body string) (string, int) {
+	return signupScreenLink.ReplaceAllString(body, `href=""`), len(signupScreenLink.FindAllString(body, -1))
 }
 
 // marketingURLs is every URL this feature serves, derived from the same tables the
@@ -730,8 +741,19 @@ var externalReference = regexp.MustCompile(
 // rel="author" link -- so the cookie notice's "no third party is contacted" holds. It is
 // admitted only as that constant's exact href and its count is pinned: exactly two on
 // every page of the public surface, the public 404 and every sign-up screen
-// (withoutCreditHref). TestCreditExemption_IsNarrow is its control. The two exemptions
-// do not overlap: one admits a whole og:image element, the other one exact href.
+// (withoutCreditHref). TestCreditExemption_IsNarrow is its control.
+//
+// ⚠️ AND THE SIGN-UP SCREEN LINK (M14-17, beside LP-11 since the merge of main into M14):
+// on a development or sandbox installation that sends no e-mail, "Check your inbox" shows
+// the registration's confirmation link -- on this installation's OWN origin
+// (TAPPA_BASE_URL + /admin/signup/confirm?t=...), followed by a reader, never loaded by the
+// page; production never draws it. It is admitted only in that shape (withoutSignupScreenLink)
+// and its count is pinned: once on the sent screen, on no other sign-up screen.
+// TestSignupScreenLinkExemption_IsNarrow is its control.
+//
+// The three exemptions on the public surface do not overlap: the share exemption admits a
+// whole og:image element, the credit one exact href, the screen link one href of one shape
+// (and the OpenAPI link above is the guide's, by its own exact href).
 func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 	t.Parallel()
 	for _, c := range structuralConfigs(t) {
@@ -773,6 +795,12 @@ func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 			body, credits := withoutCreditHref(body)
 			if credits != 2 {
 				t.Errorf("%s: the sign-up %s screen carries the credit href %d time(s), want 2", c.name, name, credits)
+			}
+			// THE THIRD EXEMPTION (M14-17, brought beside LP-11 by the merge of main into M14): the sent
+			// screen's on-screen link, on this installation's own origin, once, and on no other screen.
+			body, links := withoutSignupScreenLink(body)
+			if want := map[bool]int{true: 1, false: 0}[name == "sent"]; links != want {
+				t.Errorf("%s: the sign-up %s screen carries the on-screen confirmation link %d time(s), want %d", c.name, name, links, want)
 			}
 			if hit := externalReference.FindString(body); hit != "" {
 				t.Errorf("%s: the sign-up %s screen reaches outside this origin: %q", c.name, name, hit)
@@ -910,6 +938,31 @@ func TestCreditExemption_IsNarrow(t *testing.T) {
 		`@import url("` + layout.CreditURL + `");`,
 	} {
 		body, _ := withoutCreditHref(planted)
+		if externalReference.FindString(body) == "" {
+			t.Errorf("CONTROL: %q passed the scanner after the exemption", planted)
+		}
+	}
+}
+
+// TestSignupScreenLinkExemption_IsNarrow is the control of the sign-up screen link's exemption: the
+// confirmation link on the installation's own origin is admitted, and nothing that only looks like
+// it -- another host, another path, a token of another alphabet, a resource the page would load.
+func TestSignupScreenLinkExemption_IsNarrow(t *testing.T) {
+	t.Parallel()
+	link := testBaseURL + pages.SignupConfirmPath + "?t=AbC_d-9"
+	if body, n := withoutSignupScreenLink(`<a href="` + link + `" class="x">` + link + `</a>`); n != 1 || externalReference.FindString(body) != "" {
+		t.Errorf("the screen link was not admitted (%d, %q)", n, body)
+	}
+	for _, planted := range []string{
+		`<a href="https://evil.example` + pages.SignupConfirmPath + `?t=AbC">x</a>`,
+		`<a href="` + testBaseURL + `.evil.example` + pages.SignupConfirmPath + `?t=AbC">x</a>`,
+		`<a href="` + testBaseURL + `/admin/signup/other?t=AbC">x</a>`,
+		`<a href="` + testBaseURL + pages.SignupConfirmPath + `">x</a>`,
+		`<a href="` + testBaseURL + pages.SignupConfirmPath + `?t=AbC&amp;next=https://evil.example">x</a>`,
+		`<img src="` + link + `">`,
+		`<script src="` + link + `"></script>`,
+	} {
+		body, _ := withoutSignupScreenLink(planted)
 		if externalReference.FindString(body) == "" {
 			t.Errorf("CONTROL: %q passed the scanner after the exemption", planted)
 		}
@@ -2587,11 +2640,17 @@ var cookieWriters = map[string]cookieWriter{
 	"tappa_admin_login":   {[]string{"internal", "handler", "logincontext.go"}, "set"},
 	"tappa_admin_choice":  {[]string{"internal", "handler", "logincontext.go"}, "set"},
 	"tappa_admin_confirm": {[]string{"internal", "handler", "logincontext.go"}, "set"},
+	// M14-18: the e-mail verification link's cookie, through the same setter.
+	"tappa_admin_verify": {[]string{"internal", "handler", "logincontext.go"}, "set"},
+	// M14-15: the invitation link's cookie (its own narrow path, like the recovery link's).
+	"tappa_admin_invite": {[]string{"internal", "handler", "admininvites.go"}, "setInviteLink"},
 	// The two the sign-up wizard sets (M7-02). They share a setter for the same
 	// reason the three above do: signupCookies.set takes the name as a parameter and
 	// applies the same attributes to both.
 	"tappa_signup":       {[]string{"internal", "handler", "signupstate.go"}, "set"},
 	"tappa_signup_state": {[]string{"internal", "handler", "signupstate.go"}, "set"},
+	// M14-17: the registration link's cookie, its own writer (a narrower Path, the link's page).
+	"tappa_signup_claim": {[]string{"internal", "handler", "signupconfirm.go"}, "setConfirmCookie"},
 	// The two the recovery flow sets (M7-04 phase B), and they name DIFFERENT
 	// writers, which is the disclosure this map exists to keep honest. The
 	// synchronizer cookie goes through the shared adminCookies.set like the three
@@ -2699,6 +2758,10 @@ func TestCookieNotice_FlagsAndScopeMatchTheCookieTheCodeWrites(t *testing.T) {
 			// cookie: it is the only one carrying a §4.7 secret, so it is scoped to
 			// the single route that reads it.
 			"adminResetLinkCookiePath": adminResetLinkCookiePath,
+			// M14-17. The registration LINK cookie: the confirmation page alone.
+			"signupConfirmPath": signupConfirmPath,
+			// M14-15. The invitation LINK cookie, scoped to the one page that reads it.
+			"adminInvitePath": adminInvitePath,
 		}[attrs["Path"]]
 		if wantPath == "" {
 			t.Errorf("%s: %s writes Path: %s, which this test cannot resolve. Resolve it here "+

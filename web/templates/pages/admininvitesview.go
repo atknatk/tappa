@@ -1,0 +1,99 @@
+package pages
+
+// The MANAGER INVITATION screens' view models (M14-15, ADR 0031 §5.11).
+//
+// 🔴 NO VIEW HERE HAS A FIELD AN INVITATION LINK OR ITS TOKEN COULD TRAVEL IN on the OWNER's side:
+// the link goes to the invitee's own mailbox and is never shown on the panel (M7-07's second
+// criterion). On the invitee's page the token travels in an HttpOnly cookie, never in a view.
+//
+// 🔴 NOTHING ON THE OWNER'S SCREENS SAYS WHETHER AN ADDRESS HAS A TAPTIME SIGN-IN (R18): a row's state
+// is open, accepted, cancelled or expired -- the same four for every address -- and no field could carry
+// the difference.
+
+// ManagersView is the owner's "Managers" page: the invitations of this business and the form to send
+// one.
+type ManagersView struct {
+	PanelChrome
+	// CanSend is false when this deployment mails no invitations (TAPPA_INVITE_DELIVERY is not email):
+	// the page says so and draws no form -- a fact about the server, never about an address.
+	CanSend bool
+	// ListFailed: the invitations could not be read on this response.
+	ListFailed bool
+	Invites    []ManagerInviteRow
+	InviteHref string
+	CancelHref string
+	// NameMaxLength is the name box's ceiling (adminauth.MaxInviteNameRunes).
+	NameMaxLength int
+	// Done and Problem are the outcome of the last press (a word in the redirect, a sentence here).
+	Done, Problem string
+
+	// The membership section (M14-16): drawn only while its surface is open (MembersShown).
+	MembersShown  bool
+	MembersFailed bool
+	Members       []ManagerMemberRow
+	// OnlyOwner: the reader is the business's only active owner -- the page says how a hand-over goes.
+	OnlyOwner                      bool
+	DisableHref, EnableHref        string
+	MakeOwnerHref, MakeManagerHref string
+	// APIKeysHref is the API Keys section, linked from KeysNote.
+	APIKeysHref string
+}
+
+// ManagerMemberRow is one membership of the business. The Can* fields draw the presses the service
+// would accept for this reader; the service still decides.
+type ManagerMemberRow struct {
+	ID    string
+	Name  string
+	Email string
+	// Role and Status are the words printed on the row: Owner/Manager, Active/Disabled -- or, for an
+	// active owner row that can get no session (Refused), "Can't sign in".
+	Role, Status string
+	// Refused: an active owner row that can get no session (M14-16b, adminauth.Member.RefusedOwner): the
+	// page says it does not count as an owner. Never set for a manager or a disabled row -- the panel
+	// cannot tell those.
+	Refused bool
+	// Self: this row is the reader's own membership.
+	Self                                                             bool
+	CanDisable, CanEnable, CanMakeOwner, CanMakeManager, CanStepDown bool
+	// KeysNote: the row is an owner a press here would disable or demote -- the page says that the API
+	// keys this person created keep working (backlog T174).
+	KeysNote bool
+}
+
+// ManagerInviteRow is one invitation on the list.
+type ManagerInviteRow struct {
+	ID    string
+	Email string
+	Name  string
+	// State is the word printed on the row: Open, Accepted, Cancelled, Expired.
+	State string
+	// Open draws the cancel button.
+	Open   bool
+	SentOn string
+	EndsOn string
+}
+
+// InviteAcceptView is the page an invitation link opens.
+type InviteAcceptView struct {
+	// CSRFToken is the synchronizer value the two forms echo (not a §4.7 secret).
+	CSRFToken string
+	// Dead: the link cannot be used (unknown, spent, cancelled, expired) -- one screen for all.
+	Dead bool
+	// SignInHref is the sign-in page. (Both forms post to "/admin/invite", written in the template the
+	// way the recovery forms write theirs -- internal/handler's adminInvitePath; a handler test holds
+	// the two together.)
+	SignInHref string
+	// MinPasswordChars is the panel's password floor (internal/domain/signup's).
+	MinPasswordChars int
+	// Error is a sentence for the form that was just refused; ErrorFor says which ("session" or
+	// "new").
+	Error, ErrorFor string
+}
+
+// InviteAcceptedView is the answer to an accepted invitation. It names no business and no person.
+type InviteAcceptedView struct {
+	SignInHref string
+	// WithSession: the person accepted with a session they hold in another business; they can switch.
+	WithSession bool
+	SwitchHref  string
+}

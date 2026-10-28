@@ -1341,3 +1341,58 @@ farkıyla taşındı; taban kaymasının değiştirdiği sayılar ve yerler ADR 
   Aynı turda test, panelin reddinin bıraktığı satırı da pinler: askı adımında işletmenin `audit_log`'unda
   **tam bir** `tenant.write_refused` (aktör sahip, hedef `/admin/locations/venue`, `detail` tam olarak
   `{"reason": "non_payment"}`), kaldırmadan sonra yeni ret satırı yok.
+
+## M14 notu (2026-10-22) — istisna listesi ve geçiş ([ADR 0031](0031-tek-kimlik-cok-isletme.md) §5.4, §5.12)
+
+*Bu not yalnız ekler; yukarıdaki metin ve ekler değişmedi.*
+
+- **Askıdaki işletmeye geçiş serbesttir** (K-10): giriş ve okuma askıda açıktır (§4 *"Parola sıfırlama
+  … ve giriş/seçim/çıkış"*); geçişten sonra panel o işletmede salt okunurdur.
+- **Kapalı istisna listesi M14 ile birden fazla rota büyür** (ADR 0031 §5.4, bulgu 16): `/admin/switch`
+  (M14-10), "Sign out everywhere" (M14-11), "Link a business" ve e-posta doğrulama talebi (M14-18). Hepsi
+  `mountWriting`'in askı halkası olmayan kardeş grubunda, `protectWritingThroughSuspension` zincirinde
+  durur (`internal/handler/adminlogin.go`, `protectWritingThroughSuspension`) — yöneticinin kendi parolası rotasının yanında
+  (`accountPasswordHref`, §3 listesi). Rotalar bu kartlarla doğar; liste her birinde bu nota göre
+  genişler ve sayısı B fazı ekinin *"bugün on bir rota"*sından o kartlarda güncellenir.
+  - **M14-11 (2026-10-23):** `POST /admin/account/sign-out-everywhere` kardeş grupta, kendi parolası
+    rotasının hemen altında, `mountGated(SurfaceAccountIdentity)` ile — bayrak `off` iken hiç bağlanmaz
+    (panelin hiç sahip olmadığı bir yol), `on` iken istisnadır. Liste **bayrak `off` iken on bir, `on`
+    iken on iki rotadır**; `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException` yürüyüşü iki
+    bayrak durumunda da koşar, `cmd/tappa`'nın `TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses`'ı
+    yapılandırılmış yürüyüşte bayrağı açar.
+  - **M14-10 (2026-10-26):** `POST /admin/switch` aynı kardeş grupta, "Sign out everywhere"ın hemen
+    altında, `mountGated(SurfaceSwitch)` ile (okuma tarafı `GET /admin/switch` de aynı yüzeyle
+    kapılı, `mountSections`'ta). Liste **bayrak `off` iken on bir, `on` iken on üç rotadır**; iki test
+    aynı commit'te güncellendi. Askıdaki işletmeye geçiş başarılıdır ve o oturumun sonraki yazması
+    askı kapısına takılır (`TestAdminSwitchDB_IntoASuspendedBusinessIsReadOnlyThere`).
+  - **M14-15 (2026-10-27, kullanıcı kararı):** yönetici daveti istisna listesine **girmez**; liste bayrak
+    `on` iken on üç rotada kalır. Owner'ın gönderme ve iptal POST'ları `mountWriting`'in askı halkalı ana
+    grubunda (askıdaki işletme davet göndermez, iptal etmez). Davetlinin kabul sayfası (`/admin/invite`)
+    davet eden işletmenin oturumunu taşımaz ve panelin yazma zincirinde değildir — sıfırlama akışı gibi
+    kendi bağlamasıyla bağlanır; **askıdaki işletme yeni yönetici almaz**: iki kabul fonksiyonu
+    (`identity_accept_invite`, `identity_accept_invite_new`) kilitlerden sonra `tenants.suspended_at`'i
+    okur, doluysa (ya da satır yoksa) hiçbir şey yazmaz, davet açık kalır ve sayfa "şimdi kabul edilemez"
+    der (`TestAdminInvites_ASuspendedBusinessTakesNoNewManager`).
+  - **M14-18 (2026-10-27):** altı rota aynı kardeş grupta, `mountGated(SurfaceAccountIdentity)` ile —
+    e-posta doğrulama talebi (`POST /admin/account/verify-email`) ve onayı (`…/verify-email/confirm`),
+    onay penceresinin üç işi (`…/confirm/keep-all`, `…/confirm/unlink`, `…/confirm/undo`) ve "Link a
+    business" (`POST /admin/account/link`). Hepsi kişinin kendi işidir (adresi, girişinin bağları): işletmenin
+    iş verisine dokunmaz, yalnız kişinin kendi üyelik satırına ve onun audit satırına dokunur; askıdaki bir işletme, kişinin girişinin hangi işletmelere uzandığını
+    denetlemesini engellememeli. Liste **bayrak `off` iken on bir, `on` iken on dokuz rotadır**; iki test
+    aynı commit'te güncellendi. E-postadaki linkin iniş sayfası (`GET /admin/verify-email`) bir okumadır
+    (kısa ömürlü çerez + yönlendirme, hiçbir şey doğrulamaz).
+  - **M14-16 (2026-10-27):** üyelik yönetiminin **daraltan** iki basışı — bir üyeliği devre dışı bırakmak
+    (`POST /admin/account/managers/disable`) ve bir owner'ı manager yapmak (`…/make-manager`) — K-26'nın
+    gerekçesiyle kardeş grupta: askıdaki bir işletmenin ele geçirilmiş bir yöneticiyi dışarıda
+    bırakamaması askının amacının tersidir. **Genişleten** ikisi (`…/enable`, `…/make-owner`) askı halkalı
+    ana grupta, davet gibi. Dördü de `mountGated(SurfaceMembershipManagement)` ile. Liste **bayrak `off`
+    iken on bir, `on` iken yirmi bir rotadır** (M14-18'in altısıyla); `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException`
+    ve `cmd/tappa`'nın `TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses`'ı aynı commit'te güncellendi.
+    **Kabul edilen risk, adıyla (M14-16 güvenlik denetimi, DÜŞÜK, 2026-10-27):** askıda (ör.
+    `security_hold`) ele geçirilmiş bir owner öbür owner'ı devre dışı bırakabilir ya da manager yapabilir;
+    üçüncü bir owner onu askı kalkana dek geri **etkinleştiremez** ya da owner yapamaz, çünkü genişleten
+    iki basış askı halkalı gruptadır. Sınırı son-owner değişmezidir (işletme en az bir aktif owner'la
+    kalır) ve simetriktir: aynı daraltma meşru owner'ın da elindedir. Kod değişikliği yok; askı
+    kaldırılınca geri alma bugünkü panel basışıdır.
+- **Operatör değişmez** (K-12, ADR 0031 §5.12): ileride gelecek `op_disable_tenant_admins` (§7) yalnız
+  üyelik `status`'una dokunabilir, kimliğe asla.

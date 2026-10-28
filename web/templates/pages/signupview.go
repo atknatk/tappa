@@ -142,27 +142,57 @@ type SignupDoneView struct {
 	VATVerified bool
 	VATRefused  bool
 
-	// SignInBlocked is the one state in which this screen must NOT tell somebody to
-	// sign in, because it was MEASURED that they cannot.
-	//
-	// 🔴 IT IS THE OTHER HALF OF A TRADE MIGRATION 00017 MADE AND DID NOT BUILD.
-	// Ordering the login resolver by created_at protects an existing customer from
-	// being displaced and, in exchange, puts a NEW registration last — so an address
-	// already carrying adminauth.MaxCandidates identities produces an account nobody
-	// can sign into. 00017 called that acceptable because the customer "finds out
-	// immediately, at a moment when they are on our page and can be told something",
-	// and an audit measured that the product did no such thing: APPROVED, "Sign in",
-	// then 401.
-	//
-	// FALSE IS THE DEFAULT AND ALSO THE ANSWER WHEN THE CHECK COULD NOT BE TAKEN. A
-	// read failure on our side must not tell a customer their account is broken.
-	SignInBlocked bool
+	// KnownAddress: the business was added to an EXISTING sign-in (the address's own
+	// session confirmed it -- ADR 0031 §5.10), so the next step is "switch to it", not
+	// "sign in with the password you chose". Only the link's holder ever sees this screen.
+	KnownAddress bool
 
 	// SignInHref is where the wizard ends. It is a link to the panel's sign-in page
-	// rather than a session: internal/handler/signup.go's Done says why the wizard
-	// deliberately does not sign anybody in.
+	// rather than a session: internal/handler/signup.go's ConfirmSubmit says why the
+	// confirmation deliberately does not sign anybody in.
 	SignInHref string
 }
+
+// SignupSentView is "check your inbox" (M14-17, ADR 0031 §5.10): the page every
+// registration ends on before its link is used.
+//
+// 🔴 IT IS THE SAME FOR EVERY ADDRESS (R18): a new address and one that already has a
+// sign-in get these bytes (the business name and the token aside), so it has no field
+// that could tell them apart.
+type SignupSentView struct {
+	BusinessName string
+	// ScreenLink is set only where this installation sends no e-mail and is a
+	// development or sandbox one (the user's decision of 2026-10-26, ADR 0031 §5.10 /
+	// ADR 0028 §11): the link is shown here, like an invitation's `panel` mode. Empty
+	// everywhere else -- production never shows it.
+	ScreenLink string
+	// LinkLife is how long the link lasts, as its letter says it (email.Lifetime of the draft's TTL).
+	LinkLife string
+}
+
+// SignupConfirmView is the registration link's page (GET, which spends nothing -- R19)
+// and its POST's re-render.
+type SignupConfirmView struct {
+	CSRFToken    string
+	BusinessName string
+	Venues       []string
+	// KnownAddress picks the form: false asks again for the password chosen in the
+	// wizard (R2); true asks the person to sign in with their existing sign-in in this
+	// browser and press the button (R18).
+	KnownAddress bool
+	// IdentityPassword (M14-17b): a known address whose sign-in has no active business left -- it
+	// cannot sign in, so the form asks for that sign-in's password instead (with KnownAddress true).
+	IdentityPassword bool
+	// SignInHref is the panel's sign-in page (the known address's first step).
+	SignInHref string
+	Errors     map[string]string
+	// NotSignedIn: the known address's confirmation was pressed with no live session of
+	// that sign-in in this browser.
+	NotSignedIn bool
+}
+
+// SignupConfirmPath is the registration link's page: the form posts back to it.
+const SignupConfirmPath = "/admin/signup/confirm"
 
 // VATNote is the one sentence the confirmation says about the VAT check.
 //
@@ -326,16 +356,6 @@ func (p signupProgress) barTitle() string {
 func (p signupProgress) mark(i int) string {
 	if p.state(i) == "done" {
 		return "✓"
-	}
-	return "0" + strconv.Itoa(i)
-}
-
-// signupDoneStepNo numbers the confirmation's "what happens next" list. The sign-in
-// item is absent when signing in was measured to be impossible, so the numbers that
-// follow move up rather than starting at 02.
-func signupDoneStepNo(signInBlocked bool, i int) string {
-	if signInBlocked {
-		i--
 	}
 	return "0" + strconv.Itoa(i)
 }

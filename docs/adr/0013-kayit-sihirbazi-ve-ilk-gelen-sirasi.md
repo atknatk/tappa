@@ -385,3 +385,20 @@ tarıyor, bir panel ekranı sütunu **okumaya başladığı gün** cümle serbes
 Paneli göstermenin iki adayı **ölçülüp reddedildi**: paylaşılan chrome **her panel
 isteğine bir okuma** ekliyor, billing ekranı ise M6-12'nin çitli yüzeyine altı dosya
 + M7-05'in sonra taşıması demek.
+
+## M14 notu (2026-10-22) — contract'ta emekli olanlar ([ADR 0031](0031-tek-kimlik-cok-isletme.md) §7, §8)
+
+Panel yöneticisinin tek kimliği (ADR 0031) bu ADR'nin kapattığı sınıfı **yapısal olarak** kapatır;
+o güne dek eski kol bugünkü korumalarıyla sürer (ADR 0031 §7):
+
+- **Contract'ta emekli:** eski giriş kolu kalkar; `admin_users.email` ve `password_hash` doğrulamada
+  okunmaz. Bu ADR'nin mekanizmaları onunla birlikte emekli olur — `MaxCandidates`, dolgu
+  (`padComparisons`), `PickerCap`, `signInBlocked` ve ön-kayıt sınırı (ADR 0031 §7). Karar 2'nin
+  sırası (`resolve_admin_by_email`'in `ORDER BY a.created_at, a.tenant_id`'si) contract'a dek aynen
+  kalır (M14-05'in yeniden tanımı incumbent-first sırayı korur) ve fonksiyon contract B'de düşer
+  (ADR 0031 §8 adım 8.3).
+- **`signInBlocked` erken emekli (2026-10-27, M14-17):** contract yerine M14-17'de emekli oldu (kayıt artık kimlik yoluyla ve posta kutusu kanıtıyla biter; bir adres en çok bir kimliğe çözülür). Bedeli: bayrak kapalıyken, tek adreste 8 ya da daha çok satırı olan bir kişi yeni işletmeye eski kol üzerinden ulaşamayabilir (o kol karşılaştırma penceresini hâlâ okur).
+- **Kabul edilen risk 3** (*"daha önce kaydolmuş saldırgan"*): ADR 0031 §5.8'in onay penceresi
+  (çözülen satıra nöbetçi digest + `unlinked_at`) bunu kapatır; kayıt da doğrulama tıklamasından önce
+  hiçbir şey doğurmaz (ADR 0031 §5.10, K-9).
+- K-4: eski kolda birden çok satır doğrularsa seçici contract'a dek kalır (ADR 0031 §13).

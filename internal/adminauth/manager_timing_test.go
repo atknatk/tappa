@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -38,6 +42,7 @@ import (
 // trip is noise an order of magnitude below the signal and a second source of
 // variance in a test whose whole content is a variance comparison.
 type fakeResolver struct {
+	noIdentityData
 	rows []db.ResolvedAdmin
 	err  error
 }
@@ -869,10 +874,13 @@ func TestTimingConfig_RejectsTheKnownBadTuples(t *testing.T) {
 // address that IS registered more than once" — died when M7-02 made an attacker able
 // to CREATE that condition.
 //
-// IT IS A RATIO ASSERTION, NOT A DELTA. The two arms now do the same NUMBER of
-// comparisons (MaxCandidates), so their times track each other whatever the machine is
-// doing; a mutation that removes the padding makes the unknown arm 8x faster, which no
-// amount of load can imitate.
+// IT IS A COUNT AND TWO RATIOS, NOT A DELTA. The two arms do the same NUMBER of comparisons
+// (MaxCandidates), each at the shipped work factor -- asserted exactly, through the
+// comparison seam, so no load can imitate or hide it -- and the clock is read twice, the arms
+// running at the same time: the ratio of each arm's MEDIAN comparison, and the ratio of the
+// two whole logins. The total is the gate for work the seam cannot see (a bcrypt run past
+// m.compare -- its source-side twin is TestAuthenticate_PadsEveryExitToTheCap); a mutation that
+// removes the padding makes the unknown arm 8x cheaper, which fails all three.
 func TestAuthenticate_TimingDoesNotCountTheCandidates(t *testing.T) {
 	if testing.Short() {
 		t.Skip("-short: skipping the bcrypt wall-clock SAMPLE. The COUNT this measures is " +
@@ -889,51 +897,106 @@ func TestAuthenticate_TimingDoesNotCountTheCandidates(t *testing.T) {
 	}})
 	none := newFakeManager(t, nil)
 
-	measure := func(m *Manager) time.Duration {
-		start := time.Now()
-		_, _ = m.Authenticate(context.Background(), "probe@example.test", "not-the-password")
-		return time.Since(start)
+	// EACH ARM'S COMPARISONS ARE WATCHED, NOT REPLACED: the wrapper runs the real Compare (the
+	// SHIPPED cost stays the subject) and records, per comparison, the digest's work factor and
+	// how long it took. compareFn is the seam every login path compares through (manager.go).
+	type arm struct {
+		costs []int
+		took  []time.Duration
+		total time.Duration
 	}
-	// Interleaved, so load moves both arms together; the minimum is the cleanest
-	// estimator of the work actually done.
-	// ⚠️ ONE ROUND PER ARM, NOT THREE (M7-02, after measurement). At three it cost
-	// 200.1 s under -race — 6 logins x MaxCandidates cost-12 comparisons — which is a
-	// quarter of the whole package for a check whose signal is an 8x ratio. Shrunk to
-	// the smallest sample that still exercises both arms at the SHIPPED cost; the
-	// five-arm comparison at a cheap shared cost is TestAuthenticate_TimingIsFlat's
-	// job, and the exact, sample-free statement is
-	// TestAuthenticate_PadsEveryExitToTheCap.
-	//
-	// WHAT THE SHRINK COSTS: with one round there is no min-of-N smoothing, so a
-	// single scheduler stall can move a reading. The gate is a factor of TWO against a
-	// mutation that produces a factor of EIGHT, so there is 4x of headroom for that
-	// noise — and the anti-vacuity floor below independently catches "the padding did
-	// not run at all".
-	var minNone, minOne time.Duration
-	for i := 0; i < 1; i++ {
-		if d := measure(none); minNone == 0 || d < minNone {
-			minNone = d
-		}
-		if d := measure(one); minOne == 0 || d < minOne {
-			minOne = d
+	watch := func(m *Manager, a *arm) {
+		m.compareFn = func(digest, password string) bool {
+			c, err := bcrypt.Cost([]byte(digest))
+			if err != nil {
+				c = -1 // not a bcrypt digest: no work factor at all, and the assertion below says so
+			}
+			start := time.Now()
+			ok := Compare(digest, password)
+			a.took = append(a.took, time.Since(start))
+			a.costs = append(a.costs, c)
+			return ok
 		}
 	}
-	t.Logf("0 candidates: %v · 1 candidate: %v (both must be %d comparisons)",
-		minNone.Round(time.Millisecond), minOne.Round(time.Millisecond), MaxCandidates)
+	var armNone, armOne arm
+	watch(none, &armNone)
+	watch(one, &armOne)
 
-	ratio := float64(minOne) / float64(minNone)
-	if ratio < 0.5 || ratio > 2.0 {
-		t.Errorf("an unregistered address takes %v and a registered one %v (ratio %.2f). "+
-			"They must be within a factor of two: a variable comparison count is a timing "+
-			"oracle for 'is this address registered', measured at 216 ms vs 437 ms before "+
-			"padComparisons existed.", minNone, minOne, ratio)
+	// 🔴 THE TWO ARMS RUN AT THE SAME TIME (M14 test-infra card). They ran one after the other,
+	// one login each, and the gate compared the two totals: when several -race packages ran in
+	// parallel a stall that fell on one arm alone read 73 s against 30 s (ratio 0.41) for the same
+	// eight comparisons -- the machine, not the code. Run concurrently, whatever the machine does
+	// it does to both arms (each comparison is CPU-bound on its own goroutine), and the timing gate
+	// below reads the MEDIAN comparison of each arm, which one stall cannot move. It also halves the
+	// wall time the old sequential pair cost (one cost-12 comparison is ~11 s under -race).
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		start := time.Now()
+		_, _ = none.Authenticate(context.Background(), "probe@example.test", "not-the-password")
+		armNone.total = time.Since(start)
+	}()
+	start := time.Now()
+	_, _ = one.Authenticate(context.Background(), "probe@example.test", "not-the-password")
+	armOne.total = time.Since(start)
+	<-done
+	t.Logf("0 candidates: %d comparisons, %v · 1 candidate: %d comparisons, %v (both must be %d)",
+		len(armNone.took), armNone.total.Round(time.Millisecond),
+		len(armOne.took), armOne.total.Round(time.Millisecond), MaxCandidates)
+
+	// THE PROPERTY ITSELF, EXACTLY: the response time cannot count the candidates when the work
+	// does not -- the same NUMBER of comparisons on both arms, each at the SHIPPED work factor. A
+	// mutation that removes the padding (the unknown arm 8x cheaper) or pads against a cheaper
+	// digest fails here whatever the machine is doing.
+	for _, a := range []struct {
+		name string
+		arm  arm
+	}{{"an unregistered address", armNone}, {"a registered address", armOne}} {
+		if len(a.arm.took) != MaxCandidates {
+			t.Fatalf("%s made %d comparisons, want %d: a variable comparison count is a timing "+
+				"oracle for 'is this address registered', measured at 216 ms vs 437 ms before "+
+				"padComparisons existed", a.name, len(a.arm.took), MaxCandidates)
+		}
+		for i, c := range a.arm.costs {
+			if c != Cost {
+				t.Errorf("%s: comparison %d ran at work factor %d, want the shipped %d -- padding "+
+					"that is cheaper than a real comparison counts the candidates", a.name, i+1, c, Cost)
+			}
+		}
 	}
-	// ANTI-VACUITY: both arms must really be doing the full padded work. One
-	// comparison alone cannot take this long at the shipped cost.
-	if floor := time.Duration(MaxCandidates/2) * 100 * time.Millisecond; minNone < floor {
+
+	// AND THE CLOCK AGREES: the median comparison of each arm within a factor of two (the gate is
+	// unchanged; a padding against a cheap digest is far outside it).
+	median := func(ds []time.Duration) time.Duration {
+		s := slices.Clone(ds)
+		slices.Sort(s)
+		return s[len(s)/2]
+	}
+	medNone, medOne := median(armNone.took), median(armOne.took)
+	ratio := float64(medOne) / float64(medNone)
+	if ratio < 0.5 || ratio > 2.0 {
+		t.Errorf("a comparison for an unregistered address takes %v and one for a registered "+
+			"address %v (median of %d each, ratio %.2f). They must be within a factor of two: "+
+			"otherwise the response time still counts the candidates.", medNone, medOne,
+			MaxCandidates, ratio)
+	}
+	// AND THE WHOLE LOGIN AGREES: the two totals within the same factor of two. The seam above sees
+	// only the comparisons that go through m.compare; work that bypasses it -- a registered
+	// candidate that pays extra bcrypt runs of its own -- shows only here (the third-eye audit's
+	// mutation: 16 extra Compare calls on the candidate loop left the count at 8/8 and the medians
+	// equal, totals 7.93 s vs 2.87 s). Concurrent arms read ~1.00 under load (measured, -race).
+	if total := float64(armOne.total) / float64(armNone.total); total < 0.5 || total > 2.0 {
+		t.Errorf("an unregistered address takes %v and a registered one %v (ratio %.2f). "+
+			"They must be within a factor of two: a variable amount of work is a timing "+
+			"oracle for 'is this address registered', measured at 216 ms vs 437 ms before "+
+			"padComparisons existed.", armNone.total, armOne.total, total)
+	}
+	// ANTI-VACUITY: both arms must really be doing the full padded work. One comparison alone
+	// cannot take this long at the shipped cost, and a stall only makes a login slower.
+	if floor := time.Duration(MaxCandidates/2) * 100 * time.Millisecond; armNone.total < floor {
 		t.Errorf("an unregistered address took %v, which is below the floor %d cost-%d "+
 			"comparisons can take (%v) — the padding is not running",
-			minNone, MaxCandidates, Cost, floor)
+			armNone.total, MaxCandidates, Cost, floor)
 	}
 }
 
@@ -986,4 +1049,148 @@ func TestAuthenticate_PadsEveryExitToTheCap(t *testing.T) {
 		t.Error("Authenticate calls CompareDummy directly; every dummy must go through " +
 			"padComparisons or the total stops being constant")
 	}
+
+	// NO BCRYPT PAST THE SEAM (the M14 test-infra card's audit). Authenticate and pad compare ONLY
+	// through m.compare (pad's loop) and m.pad: a direct Compare / CompareDummy / bcrypt.* call in
+	// either is work the comparison count cannot see, so a registered address could pay more of it
+	// than an unknown one with the count still 8/8. Read from the syntax tree, not the text, so a
+	// comment or a string naming Compare is not a finding. NO COMPLETENESS CLAIM: a call through
+	// another helper of the package is not followed.
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "manager.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parsing manager.go: %v", err)
+	}
+	if bad := bcryptPastTheSeam(fset, f, "Authenticate", "pad"); len(bad) > 0 {
+		t.Errorf("the sign-in path's bcrypt seam (bcrypt work outside m.compare, a method the scan cannot find, or the seam gone):\n%s", strings.Join(bad, "\n"))
+	}
+	// POSITIVE CONTROL: the same scan finds each shape in a source written here, and not the seam.
+	const control = `package p
+func (m *Manager) Authenticate() { m.compare("d", "p"); m.pad("p", "", 0); Compare("d", "p"); _ = CompareDummy("p") }
+func (m *Manager) pad() { _ = m.compare("d", "p"); bcrypt.CompareHashAndPassword(nil, nil) }
+func (m *Manager) compare() { Compare("d", "p") }
+`
+	cf, err := parser.ParseFile(fset, "control.go", control, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := bcryptPastTheSeam(fset, cf, "Authenticate", "pad")
+	want := []string{
+		"Authenticate calls Compare (control.go:2)",
+		"Authenticate calls CompareDummy (control.go:2)",
+		"pad calls bcrypt.CompareHashAndPassword (control.go:3)",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("POSITIVE CONTROL FAILED: the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	// ... and AGAINST GOING BLIND (the second test-infra card): a method the scan is told to read and
+	// cannot find -- renamed, or moved out of the file -- is a finding, not zero findings. Measured
+	// when written: Authenticate renamed in a copy of manager.go turned the check above red.
+	got = bcryptPastTheSeam(fset, cf, "Authenticate", "padded")
+	want = []string{
+		"Authenticate calls Compare (control.go:2)",
+		"Authenticate calls CompareDummy (control.go:2)",
+		"padded: no Manager method of that name in control.go -- the scan read nothing of it",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("POSITIVE CONTROL FAILED (a method not found): the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	// ... and the SEAM ITSELF (its audit, D-3): compare renamed everywhere -- declaration and calls --
+	// left every named method found and no Compare outside it, so the scan was green with no seam to
+	// stand behind. Each named method must call m.compare, and the file must declare it. Measured when
+	// written: compare -> compareHash throughout a copy of manager.go turned the check above red.
+	const renamed = `package p
+func (m *Manager) Authenticate() { m.compareHash("d", "p"); m.pad("p", "", 0) }
+func (m *Manager) pad() { _ = m.compareHash("d", "p") }
+func (m *Manager) compareHash() { Compare("d", "p") }
+`
+	rf, err := parser.ParseFile(fset, "renamed.go", renamed, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = bcryptPastTheSeam(fset, rf, "Authenticate", "pad")
+	want = []string{
+		"Authenticate makes no m.compare call -- the seam is gone from it",
+		"compare: no Manager method of that name in renamed.go -- the seam is gone",
+		"pad makes no m.compare call -- the seam is gone from it",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("POSITIVE CONTROL FAILED (the seam missing): the scan reports\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// bcryptPastTheSeam lists the calls in the named Manager methods of f that do bcrypt work
+// without going through m.compare: Compare, CompareDummy, or anything of package bcrypt -- and
+// every named method f does not declare (with a body), every named method that makes no m.compare
+// call, and the seam m.compare itself when f does not declare it -- so a rename of a method or of the
+// seam cannot leave the scan reading nothing and reporting nothing.
+func bcryptPastTheSeam(fset *token.FileSet, f *ast.File, methods ...string) []string {
+	var bad []string
+	read := map[string]bool{}
+	seam := false
+	for _, d := range f.Decls {
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok || fd.Recv == nil || len(fd.Recv.List) != 1 || fd.Body == nil {
+			continue
+		}
+		if fd.Name.Name == "compare" && isManagerRecv(fd) {
+			seam = true
+		}
+		if !slices.Contains(methods, fd.Name.Name) {
+			continue
+		}
+		if !isManagerRecv(fd) {
+			continue
+		}
+		read[fd.Name.Name] = true
+		throughSeam := false
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			c, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if sel, ok := c.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "compare" {
+				throughSeam = true
+			}
+			name := ""
+			switch fn := c.Fun.(type) {
+			case *ast.Ident:
+				if fn.Name == "Compare" || fn.Name == "CompareDummy" {
+					name = fn.Name
+				}
+			case *ast.SelectorExpr:
+				if x, ok := fn.X.(*ast.Ident); ok && x.Name == "bcrypt" {
+					name = "bcrypt." + fn.Sel.Name
+				}
+			}
+			if name != "" {
+				p := fset.Position(c.Pos())
+				bad = append(bad, fmt.Sprintf("%s calls %s (%s:%d)", fd.Name.Name, name, p.Filename, p.Line))
+			}
+			return true
+		})
+		if !throughSeam {
+			bad = append(bad, fmt.Sprintf("%s makes no m.compare call -- the seam is gone from it", fd.Name.Name))
+		}
+	}
+	for _, m := range methods {
+		if !read[m] {
+			bad = append(bad, fmt.Sprintf("%s: no Manager method of that name in %s -- the scan read nothing of it", m, fset.Position(f.Pos()).Filename))
+		}
+	}
+	if !seam {
+		bad = append(bad, fmt.Sprintf("compare: no Manager method of that name in %s -- the seam is gone", fset.Position(f.Pos()).Filename))
+	}
+	sort.Strings(bad)
+	return bad
+}
+
+// isManagerRecv: fd is a method of Manager (value or pointer receiver).
+func isManagerRecv(fd *ast.FuncDecl) bool {
+	recv := fd.Recv.List[0].Type
+	if st, ok := recv.(*ast.StarExpr); ok {
+		recv = st.X
+	}
+	id, ok := recv.(*ast.Ident)
+	return ok && id.Name == "Manager"
 }

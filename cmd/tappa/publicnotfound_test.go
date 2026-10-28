@@ -74,6 +74,16 @@ func (f appFeatures) publicRoutes(t *testing.T) map[string]bool {
 	return out
 }
 
+// publicUnderThePanelRoot are the routes the sign-up wizard mounts under /admin (M14-17, ADR 0031
+// §5.10): the registration's confirmation needs the panel cookie, whose Path is /admin
+// (internal/handler/signupconfirm.go, "WHY UNDER /admin"). They are known routes, so no 404 is
+// theirs; an unknown path beside them is the panel root's and keeps its plain answer, which this
+// test goes on to probe. Counting them as public would call /admin a mixed root.
+var publicUnderThePanelRoot = map[string]bool{
+	"GET /admin/signup/confirm":  true,
+	"POST /admin/signup/confirm": true,
+}
+
 // firstSegment is a route pattern's first path segment ("/admin/login" -> "admin").
 func firstSegment(pattern string) string {
 	p := strings.TrimPrefix(pattern, "/")
@@ -102,7 +112,7 @@ func TestAppRouter_EveryNonPublicRouteIsUnderAPlainRoot(t *testing.T) {
 		plainSegs, publicSegs := map[string]bool{}, map[string]bool{}
 		for _, mr := range walkOf(t, full) {
 			_, pattern, _ := strings.Cut(mr, " ")
-			if public[mr] {
+			if public[mr] && !publicUnderThePanelRoot[mr] {
 				publicSegs[firstSegment(pattern)] = true
 				continue
 			}
@@ -233,7 +243,7 @@ func TestAppRouter_ThePublicNotFoundIsLoggedWithoutItsPath(t *testing.T) {
 	cfg := walkConfig(t, false)
 	f := buildAppFeatures(t, cfg, false)
 	var buf bytes.Buffer
-	h := appRouter(cfg, slog.New(slog.NewJSONHandler(&buf, nil)), f.activation, f.tap, f.panel, f.logos, f.marketing,
+	h := appRouter(cfg, slog.New(slog.NewJSONHandler(&buf, nil)), f.activation, f.tap, f.panel, f.panel.InviteAcceptance(), f.logos, f.marketing,
 		f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools)
 	if got := answerOf(h, http.MethodGet, customerHost, "/lp12canary/x?q=lp12canary"); !got.isThePage() {
 		t.Fatalf("PREMISE: the canary path got %d without the page", got.status)

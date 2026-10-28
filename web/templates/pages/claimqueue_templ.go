@@ -888,7 +888,7 @@ func claimFocusForm(action string, f ClaimFocusView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var45 templ.SafeURL = templ.URL(action)
+		var templ_7745c5c3_Var45 templ.SafeURL = templ.URL(components.Bound(ctx, action))
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var45)))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -1045,7 +1045,7 @@ func claimConfirmForm(action string, f ClaimFocusView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var52 templ.SafeURL = templ.URL(action)
+		var templ_7745c5c3_Var52 templ.SafeURL = templ.URL(components.Bound(ctx, action))
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var52)))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err

@@ -1749,6 +1749,9 @@ var holdingDownTables = []string{
 	// 00068 (M15-15): no Down here drops the claim tables, but holdingSetAsideSiteRows' TRUNCATE takes
 	// them with transactions (they reference it).
 	"punch_claims", "punch_claim_decisions",
+	// 00079 (M14-18): its Down gives admin_identity_events' event CHECK back (an ALTER TABLE) before
+	// 00072's Down drops the table.
+	"admin_identity_events",
 }
 
 // holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every one of
@@ -1830,7 +1833,7 @@ func lockForDowns(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string)
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("lock the tables the Downs touch: %d rounds, still busy", round+1)
+			t.Fatalf("lock the tables the Downs touch: %d rounds, still busy; holders now:\n%s", round+1, lockHolders(t, ctx, tx, list))
 		}
 		time.Sleep(25 * time.Millisecond)
 	}

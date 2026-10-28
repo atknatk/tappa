@@ -682,6 +682,7 @@ func TestBrandPreview_TheLogoIsThePanelRoute(t *testing.T) {
 	r := chi.NewRouter()
 	tp.Mount(r)
 	panel.Mount(r)
+	registerPanel(r, panel)
 	logos.Mount(r)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = panelCookie().Value

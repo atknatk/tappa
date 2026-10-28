@@ -248,13 +248,14 @@ func TestAdminLogin_ChromeLinksReachRoutesThatAreMounted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAdminReset: %v", err)
 	}
-	wizard, err := NewSignup(&fakeProvisioner{}, nil, signupTestConfig(),
+	wizard, err := NewSignup(&fakeProvisioner{}, newFakeSignupClaims(), nil, nil, signupTestConfig(),
 		slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}
 	r := chi.NewRouter()
 	auth.Mount(r)
+	registerPanel(r, auth)
 	reset.Mount(r)
 	wizard.Mount(r)
 

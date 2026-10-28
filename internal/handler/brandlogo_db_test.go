@@ -38,6 +38,9 @@ import (
 func logoDBBusiness(t *testing.T, data *db.DB) (tenantID, ownerID uuid.UUID) {
 	t.Helper()
 	tenantID, ownerID = uuid.New(), uuid.New()
+	// The owner is COMMITTED: written under the operator-tables lock, held shared around this
+	// transaction (holdPanelTablesLock; cmd/opadmin's TestTablesLock_AdminRowsAreWrittenUnderTheHolder).
+	release := holdPanelTablesLock(t)
 	err := data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
@@ -51,6 +54,7 @@ func logoDBBusiness(t *testing.T, data *db.DB) (tenantID, ownerID uuid.UUID) {
 			ownerID, tenantID, "wl6-"+uuid.NewString()+"@iso.example", fixtures.UnusablePasswordHash)
 		return err
 	})
+	release()
 	if err != nil {
 		t.Fatalf("fixture business: %v", err)
 	}

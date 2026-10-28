@@ -1,6 +1,10 @@
 package handler
 
-import "time"
+import (
+	"time"
+
+	"github.com/atknatk/tappa/internal/adminauth"
+)
 
 // The PANEL AUTH budgets — migration 00011's PHASE B OBLIGATION 3, first half.
 //
@@ -664,6 +668,8 @@ const (
 	//
 	// THE CEILING IS UNCHANGED AND WAS ALREADY WRITTEN FOR THIS. That is what made the
 	// trade affordable: this budget was sized on "10 x 8 candidates", not on "10 x 1".
+	// (On the identity path -- M14-09 -- a failure is 1 + 8 = 9 comparisons: 10 x 9 x
+	// 0.38 s = ~34 s, ~5.7% of one core. The number stays.)
 	//
 	// ONLY FAILURES ARE CHARGED, and that is what keeps a shared office address
 	// safe: ten people signing in correctly spend nothing here, so the budget
@@ -734,8 +740,24 @@ const (
 	// wrong passwords, and ten is fewer than one busy office does legitimately. Reusing
 	// it would lock real operators out of their own panel — the harm this file spends
 	// its longest paragraph refusing.
-	adminLoginWorkLimit  = 120
-	adminLoginWorkPeriod = 10 * time.Minute
+	//
+	// 🔴 RE-SIZED FOR THE IDENTITY PATH (ADR 0031 §5.6, M14-09): a sign-in there pays 1 +
+	// MaxCandidates = 9 comparisons, not 8 -- the identity's, then the legacy window padded --
+	// until contract. The limit is now DERIVED from the comparison budget the operator model
+	// above set (120 sign-ins x 8 = adminLoginWorkComparisons), so the CPU ceiling stays where
+	// it was argued rather than growing by an eighth:
+	//
+	//	960 / 9 = 106 sign-ins     106 x 9 x 0.38 s = ~362 CPU-s per window = ~0.60 core
+	//	                           (before: 120 x 8 x 0.38 s = ~365, ~0.61 core)
+	//	measured (M14-09, this workstation, go1.26.10, no -race): one cost-12 comparison
+	//	195-213 ms (9 samples, one 568 ms outlier) -> 106 x 9 x ~0.2 s = ~191 CPU-s, ~0.32 core
+	//
+	// The headroom over the largest modelled office (60) falls from 2x to ~1.8x, and the flag-off
+	// path (8 comparisons) is bounded by the same 106 -- 848 comparisons, under the old ceiling.
+	// When contract A drops the legacy window, re-derive: the divisor falls to 1.
+	adminLoginWorkComparisons = 120 * 8
+	adminLoginWorkLimit       = adminLoginWorkComparisons / (1 + adminauth.MaxCandidates)
+	adminLoginWorkPeriod      = 10 * time.Minute
 
 	// adminAccountLimit / adminAccountPeriod: 10 attributable failures in 10
 	// minutes against ONE admin account, bounding audit_log ONLY.
@@ -780,6 +802,62 @@ const (
 	// rather than half-built.
 	adminAccountLimit  = 10
 	adminAccountPeriod = 10 * time.Minute
+
+	// adminSwitchLimit / adminSwitchPeriod: switching businesses (M14-10, ADR 0031 §5.4, bulgu
+	// 8), keyed by the PERSON and the address together -- adminSwitchKey.
+	//
+	// 🔴 NOT THE SESSION BUDGET, BECAUSE EVERY SWITCH IS A NEW SESSION. sessionGate keys on the
+	// session id, and a switch revokes that session and issues another: A -> B -> A -> B... would
+	// start a fresh 300 on every hop and never be refused. Keyed by the person, the count
+	// survives the hop.
+	//
+	// WHAT IT BOUNDS. Each switch that goes through writes four rows that nothing deletes -- a
+	// session in the new business, the revocation stamp on the old one, and an ordinary sign-out
+	// and sign-in audit row (identity_switch_session, 00071) -- and takes the person's row lock.
+	// 30 per 10 minutes is one every 20 seconds sustained; a person moving between their
+	// businesses by hand does a handful an hour, so the ceiling is never in a real person's way,
+	// and a script holding a stolen cookie leaves at most 120 rows a window per address. A refusal
+	// here writes nothing at all (no audit row, no session) -- the audit trail stops growing at
+	// the limit, which is the card's measurement.
+	//
+	// WHY THE ADDRESS IS PART OF THE KEY (ADR 0031 §5.4: "identity_id (+ kaynak adres)"): one
+	// address spends only its own 30 of this bucket. It does NOT stop one address from locking the
+	// person out of switching: every attempt is charged to adminSwitchPersonLimit's bucket too, so
+	// somebody holding the person's cookie can exhaust that one (120) from a single address -- the
+	// cost to the person is at most one window (10 minutes) of switching; signing out and back in
+	// stays open. adminFloodLimit still bounds what one address can send in total.
+	adminSwitchLimit  = 30
+	adminSwitchPeriod = 10 * time.Minute
+
+	// adminSwitchPersonLimit / adminSwitchPersonPeriod: the switch's SECOND, looser bucket, keyed
+	// by the person alone (M14-10 security review). The (person, address) bucket above has no
+	// ceiling across addresses: N addresses would buy 30 x N switches a window, each writing four
+	// rows nothing deletes. This one caps the person whatever the addresses: 120 a window -- four
+	// addresses' worth of the first bucket, still one every five seconds sustained and far above
+	// anybody switching by hand -- so a cookie held from many addresses leaves at most 480 rows a
+	// window in all. Both are charged on every attempt past the synchronizer; either one
+	// exhausted is the 429. It is the bucket the first one's comment declined -- the person alone
+	// -- kept loose enough that a thief spending it costs the person minutes of switching, not
+	// their panel.
+	adminSwitchPersonLimit  = 120
+	adminSwitchPersonPeriod = 10 * time.Minute
+
+	// adminVerifyRequestLimit / adminVerifyRequestPeriod: e-mail verification links asked for, per
+	// PERSON (M14-18; the inherited obligation of identity_request_verification, which writes a link
+	// on every call -- 00072 bounds neither the count nor the live links). Keyed by the switch's
+	// opaque person bucket, so a person's businesses share it. Five an hour: a person who did not
+	// get the first e-mail asks again a couple of times; each ask is one e-mail, also counted by the
+	// mailbox cap and the breaker. A refusal mints nothing and sends nothing.
+	adminVerifyRequestLimit  = 5
+	adminVerifyRequestPeriod = time.Hour
+
+	// adminIdentityActLimit / adminIdentityActPeriod: the account page's password-gated identity
+	// acts -- "Link a business" (up to 1 + MaxCandidates bcrypt comparisons), the window's unlink and
+	// Undo (one) -- per PERSON (adminauth.AccountBucket: the identity, or for an unlinked row the
+	// identity its address names). Ten in ten minutes is far above a person working through a list
+	// by hand and bounds a held cookie's guessing of another password at one a minute.
+	adminIdentityActLimit  = 10
+	adminIdentityActPeriod = 10 * time.Minute
 )
 
 // ⚠️ THE VALUES ABOVE ARE PINNED BY TestPanelConstants_ShippedValuesArePinned

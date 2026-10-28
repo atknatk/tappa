@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -56,6 +57,12 @@ type fakeAdmins struct {
 	// changePassword is the hook for ChangeOwnPassword (T73). Nil means "succeed,
 	// revoking nothing", so every test that does not care about this path is unaffected.
 	changePassword func(tenantID, adminID, exceptSessionID uuid.UUID, current, next string) (int, error)
+	// changeRecorded is what a successful ChangeOwnPassword reports as Recorded (M14-08): true is a
+	// linked row's change, whose audit row the database wrote.
+	changeRecorded bool
+	// revokeAll is the hook for RevokeAll (M14-11). Nil means today's unlinked row with only the
+	// current session: revoked, not through the identity, its id handed back for the row.
+	revokeAll func(tenantID, adminID, sessionID uuid.UUID, keepCurrent bool) (adminauth.Revocation, error)
 
 	authCalls   int
 	issuedFor   []adminauth.Verified
@@ -64,6 +71,57 @@ type fakeAdmins struct {
 	// changeArgs records every ChangeOwnPassword call in order, so a test can assert the
 	// handler passed the SESSION's ids (§4.5, K3) rather than anything from the request.
 	changeArgs []changePasswordArgs
+	// revokeAllArgs records every RevokeAll call: the session's ids and keepCurrent.
+	revokeAllArgs []revokeAllArgs
+
+	// person is the hook for AuthenticatePerson (M14-09, the identity path). Nil means "every
+	// sign-in fails" (ErrBadCredentials), Authenticate's default. personCalls counts the calls and
+	// personBudgets keeps the failure budget each was handed, in order.
+	person        func(email, password string, want uuid.UUID, budget adminauth.FailureBudget) (adminauth.PersonSignIn, error)
+	personCalls   int
+	personBudgets []adminauth.FailureBudget
+
+	// switchTo is the hook for Switch (M14-10). Nil means "refused" (ErrSwitchRefused), so no
+	// test that does not care moves a session. switchTargets records every target asked for.
+	switchTo      func(target uuid.UUID) (adminauth.Issued, error)
+	switchTargets []uuid.UUID
+	// memberships is the hook for Memberships (M14-10). Nil means none.
+	memberships func() ([]adminauth.Membership, error)
+	// ident is the account page's identity acts (M14-18, accountidentityfake_test.go).
+	ident fakeIdentityHooks
+}
+
+func (f *fakeAdmins) Switch(_ context.Context, _ adminauth.Token, target uuid.UUID) (adminauth.Issued, error) {
+	f.mu.Lock()
+	f.switchTargets = append(f.switchTargets, target)
+	hook := f.switchTo
+	f.mu.Unlock()
+	if hook == nil {
+		return adminauth.Issued{}, adminauth.ErrSwitchRefused
+	}
+	return hook(target)
+}
+
+func (f *fakeAdmins) switchCalls() []uuid.UUID {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.switchTargets)
+}
+
+func (f *fakeAdmins) Memberships(context.Context, adminauth.Token) ([]adminauth.Membership, error) {
+	f.mu.Lock()
+	hook := f.memberships
+	f.mu.Unlock()
+	if hook == nil {
+		return nil, nil
+	}
+	return hook()
+}
+
+// revokeAllArgs is one recorded RevokeAll call.
+type revokeAllArgs struct {
+	tenantID, adminID, sessionID uuid.UUID
+	linked, keepCurrent          bool
 }
 
 // changePasswordArgs is one recorded ChangeOwnPassword call. It deliberately keeps the
@@ -82,6 +140,18 @@ func (f *fakeAdmins) Authenticate(_ context.Context, email, password string) (ad
 		return adminauth.Authentication{}, adminauth.ErrBadCredentials
 	}
 	return f.authenticate(email, password)
+}
+
+func (f *fakeAdmins) AuthenticatePerson(_ context.Context, email, password string, want uuid.UUID, budget adminauth.FailureBudget) (adminauth.PersonSignIn, error) {
+	f.mu.Lock()
+	f.personCalls++
+	f.personBudgets = append(f.personBudgets, budget)
+	hook := f.person
+	f.mu.Unlock()
+	if hook == nil {
+		return adminauth.PersonSignIn{}, adminauth.ErrBadCredentials
+	}
+	return hook(email, password, want, budget)
 }
 
 func (f *fakeAdmins) TenantChoices(_ context.Context, v []adminauth.Verified) ([]adminauth.Choice, error) {
@@ -156,15 +226,34 @@ func (f *fakeAdmins) Revoke(_ context.Context, _, _ uuid.UUID) error {
 	return nil
 }
 
-func (f *fakeAdmins) ChangeOwnPassword(_ context.Context, tenantID, adminID, exceptSessionID uuid.UUID, current, next string) (int, error) {
+func (f *fakeAdmins) ChangeOwnPassword(_ context.Context, tenantID, adminID, exceptSessionID uuid.UUID, _ adminauth.Token, current, next string) (adminauth.PasswordChange, error) {
 	f.mu.Lock()
 	f.changeArgs = append(f.changeArgs, changePasswordArgs{tenantID, adminID, exceptSessionID, current, next})
-	hook := f.changePassword
+	hook, recorded := f.changePassword, f.changeRecorded
 	f.mu.Unlock()
 	if hook == nil {
-		return 0, nil
+		return adminauth.PasswordChange{Recorded: recorded}, nil
 	}
-	return hook(tenantID, adminID, exceptSessionID, current, next)
+	n, err := hook(tenantID, adminID, exceptSessionID, current, next)
+	return adminauth.PasswordChange{RevokedOtherSessions: n, Recorded: recorded && err == nil}, err
+}
+
+func (f *fakeAdmins) RevokeAll(_ context.Context, tenantID, adminID, sessionID uuid.UUID, linked bool, _ adminauth.Token, keepCurrent bool) (adminauth.Revocation, error) {
+	f.mu.Lock()
+	f.revokeAllArgs = append(f.revokeAllArgs, revokeAllArgs{tenantID, adminID, sessionID, linked, keepCurrent})
+	hook := f.revokeAll
+	f.mu.Unlock()
+	if hook == nil {
+		return adminauth.Revocation{Revoked: 1, Sessions: []uuid.UUID{sessionID}}, nil
+	}
+	return hook(tenantID, adminID, sessionID, keepCurrent)
+}
+
+// revokeAllCalls returns the recorded RevokeAll calls.
+func (f *fakeAdmins) revokeAllCalls() []revokeAllArgs {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]revokeAllArgs(nil), f.revokeAllArgs...)
 }
 
 // changeCalls is how many times the handler reached ChangeOwnPassword — the number that
@@ -270,6 +359,11 @@ type fakeLedger struct {
 	leftOpen ledger.LeftOpen
 	// tally is the day's verdict counts (M12-16), read for every day; NotQueried by default.
 	tally ledger.VerdictTally
+	// asOf is the clock reading TODAY's screen was measured at (ledger.Screen.AsOf), as the real
+	// reader stamps it (passWidgets). Zero -- the default -- leaves the handler to read the clock
+	// itself; a test that compares two renders of The Pass byte for byte sets it, because the
+	// kicker prints the minute (pass.go) and two renders can straddle one.
+	asOf time.Time
 
 	// M6-04's read side. queue/pending default to "asked, and there is nothing
 	// waiting", for the same reason page does: an unqueried zero value renders
@@ -1308,13 +1402,14 @@ func (f *fakeLedger) Screen(_ context.Context, tenantID uuid.UUID, filter ledger
 	f.mu.Lock()
 	tally := f.tally
 	f.mu.Unlock()
+	var asOf time.Time
 	if filter.Date.Zero() {
 		f.mu.Lock()
-		floor, tape, leftOpen = f.floor, f.tape, f.leftOpen
+		floor, tape, leftOpen, asOf = f.floor, f.tape, f.leftOpen, f.asOf
 		f.mu.Unlock()
 	}
 	return ledger.Screen{Page: f.snapshot(filter), Options: f.opts, Plaques: f.plaques, History: f.history,
-		Floor: floor, Tape: tape, LeftOpen: leftOpen, Tally: tally}, nil
+		Floor: floor, Tape: tape, LeftOpen: leftOpen, Tally: tally, AsOf: asOf}, nil
 }
 
 func (f *fakeLedger) Day(_ context.Context, tenantID uuid.UUID, filter ledger.Filter) (ledger.Page, error) {
@@ -1401,12 +1496,20 @@ func newAdminRouterWithReviewer(t *testing.T, admins *fakeAdmins, trail *fakeTra
 // own limiter measures its own limiter.
 func newAdminRouterWithActions(t *testing.T, admins *fakeAdmins, trail *fakeTrail, records *fakeLedger, reviewer panelReviewer, staff panelStaff, invites panelInviter) http.Handler {
 	t.Helper()
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), slog.New(slog.DiscardHandler))
+	return newAdminRouterWithActionsUnder(t, adminTestConfig(), admins, trail, records, reviewer, staff, invites)
+}
+
+// newAdminRouterWithActionsUnder is the same wiring under a configuration the caller shapes (the
+// panel identity flag -- M14-11).
+func newAdminRouterWithActionsUnder(t *testing.T, cfg *config.Config, admins *fakeAdmins, trail *fakeTrail, records *fakeLedger, reviewer panelReviewer, staff panelStaff, invites panelInviter) http.Handler {
+	t.Helper()
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	return r
 }
 
@@ -1421,6 +1524,66 @@ type browser struct {
 	ip string
 	// origin is what the browser claims; "" omits the header entirely.
 	origin string
+	// tb is the last tenant binding a page this browser loaded put in a form's action
+	// (ADR 0031 §5.5, M14-10a). A POST to a bound panel route that names none is sent
+	// with it, which is what a real browser does when it submits the form it was shown.
+	// unbound turns that off, for the tests that measure the gate itself.
+	tb      string
+	unbound bool
+	// raw keeps the binding in the recorded page (learnBinding).
+	raw bool
+}
+
+// boundFormAction lifts a tenant binding out of a rendered form action.
+var boundFormAction = regexp.MustCompile(`[?&;]tb=([A-Za-z0-9_-]{43})`)
+
+// withBinding is path with the browser's last binding appended, when path is a panel
+// write the binding gate guards and does not already carry one.
+func (b *browser) withBinding(method, path string) string {
+	if method != http.MethodPost || b.unbound || strings.Contains(path, "tb=") ||
+		!strings.HasPrefix(path, "/admin/") || unboundPanelPost[strings.SplitN(path, "?", 2)[0]] {
+		return path
+	}
+	// A cross-origin POST is refused before the resolver; computing a binding for it
+	// would cost the fake a resolver answer the request itself never asked for.
+	if b.origin != testBaseURL {
+		return path
+	}
+	tb := bindingFor(b.h, b.cookies[adminauth.CookieName])
+	if tb == "" {
+		tb = b.tb
+	}
+	if tb == "" {
+		return path
+	}
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "tb=" + tb
+}
+
+// learnBinding keeps the binding the response's forms carry, if any, and then takes it
+// OUT of the recorded page unless the browser is raw.
+//
+// WHY THE PAGE IS NORMALISED: the binding is per session and per tenant, so every form
+// action in every page now ends in a different ?tb=…. The tests that read a page ask
+// where its forms post (a route, a field, a count); they predate the binding and are not
+// about it. The binding's own presence on every bound form is measured on the RAW page by
+// formbinding_test.go (TestPanelForms_EveryRenderedPostFormIsBound), and the gate's
+// answer to a missing or foreign one by the tests there.
+func (b *browser) learnBinding(rec *httptest.ResponseRecorder) {
+	m := boundFormAction.FindStringSubmatch(rec.Body.String())
+	if m == nil {
+		return
+	}
+	b.tb = m[1]
+	if b.raw {
+		return
+	}
+	body := strings.NewReplacer("?tb="+m[1], "", "&amp;tb="+m[1], "", "&tb="+m[1], "").Replace(rec.Body.String())
+	rec.Body.Reset()
+	rec.Body.WriteString(body)
 }
 
 func newBrowser(t *testing.T, h http.Handler) *browser {
@@ -1429,6 +1592,7 @@ func newBrowser(t *testing.T, h http.Handler) *browser {
 
 func (b *browser) do(method, path string, form url.Values) *httptest.ResponseRecorder {
 	b.t.Helper()
+	path = b.withBinding(method, path)
 	var req *http.Request
 	if form == nil {
 		req = httptest.NewRequest(method, path, nil)
@@ -1445,6 +1609,7 @@ func (b *browser) do(method, path string, form url.Values) *httptest.ResponseRec
 	}
 	rec := httptest.NewRecorder()
 	b.h.ServeHTTP(rec, req)
+	b.learnBinding(rec)
 	for _, ck := range rec.Result().Cookies() {
 		if ck.MaxAge < 0 || ck.Value == "" {
 			delete(b.cookies, ck.Name)
@@ -1459,6 +1624,7 @@ func (b *browser) do(method, path string, form url.Values) *httptest.ResponseRec
 // url.Values path would hide. Same cookies, same origin, same address as do().
 func (b *browser) doRaw(method, path, body string) *httptest.ResponseRecorder {
 	b.t.Helper()
+	path = b.withBinding(method, path)
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.RemoteAddr = b.ip
@@ -2360,14 +2526,34 @@ func TestAdminScreens_NeverRenderACredential(t *testing.T) {
 // TestAdminRoutes_AreAllUnderTheCookiePath. The panel cookie is Path=/admin, so a
 // route outside that prefix would arrive with no cookie and look permanently
 // signed out. This is a structural tripwire for the next person adding a route.
+//
+// BOTH STATES OF THE PANEL IDENTITY FLAG are walked (M14-10's third-eye audit): the identity
+// surfaces are mounted only while TAPPA_ADMIN_IDENTITY is on (mountGated), so a walk with the
+// flag off never saw /admin/switch or "sign out everywhere". With the flag on the walk must
+// report those routes -- the positive check that the surfaces were walked at all.
+//
+// MUTATION (measured): adminSwitchHref = "/switch" -> red here (outside the cookie path, and
+// the expected route not walked).
 func TestAdminRoutes_AreAllUnderTheCookiePath(t *testing.T) {
+	for _, identity := range []bool{false, true} {
+		t.Run(map[bool]string{false: "flag off", true: "flag on"}[identity], func(t *testing.T) {
+			adminRoutesUnderTheCookiePath(t, identity)
+		})
+	}
+}
+
+func adminRoutesUnderTheCookiePath(t *testing.T, identity bool) {
+	t.Helper()
+	cfg := adminTestConfig()
+	cfg.AdminIdentity = identity
 	nilCfgLedger := newFakeLedger()
-	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, nilCfgLedger, nilCfgLedger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, nilCfgLedger, nilCfgLedger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 
 	var routes []string
 	err = chi.Walk(r, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
@@ -2391,6 +2577,13 @@ func TestAdminRoutes_AreAllUnderTheCookiePath(t *testing.T) {
 	}
 	if len(routes) == 0 {
 		t.Fatalf("no routes were mounted — the assertion is vacuous")
+	}
+	// The identity surfaces, by their literal paths (not the constants, which a mutation moves).
+	surfaces := []string{"GET /admin/switch", "POST /admin/switch", "POST /admin/account/sign-out-everywhere"}
+	for _, want := range surfaces {
+		if walked := slices.Contains(routes, want); walked != identity {
+			t.Errorf("flag on=%v: %s walked=%v, want %v", identity, want, walked, identity)
+		}
 	}
 	t.Logf("panel routes (%d): %s", len(routes), strings.Join(routes, ", "))
 }
@@ -2626,6 +2819,40 @@ func TestPanelConstants_ShippedValuesArePinned(t *testing.T) {
 				"linearly — see adminauth.MaxCandidates, which carries the other half.",
 		},
 		{
+			"adminLoginWorkLimit", adminLoginWorkLimit, 106,
+			"every sign-in that reaches the password loop, success included (M7-02's hole). " +
+				"RE-SIZED IN M14-09 for the identity path's 1 + MaxCandidates = 9 comparisons: the " +
+				"operator model's comparison budget (120 sign-ins x 8 = 960) divided by 9 = 106, so " +
+				"the CPU ceiling stays ~362 CPU-s per window per address (~0.60 core at 0.38 s a " +
+				"comparison) instead of growing to ~410. Still above the largest modelled office (60).",
+		},
+		{
+			"adminSwitchLimit", adminSwitchLimit, 30,
+			"switching businesses, keyed by the PERSON (+ address), never the session: every switch " +
+				"is a new session, so a session budget would reset on each hop (ADR 0031 §5.4, bulgu 8). " +
+				"30 per 10 minutes = one every 20 s sustained, far above a person's handful an hour; " +
+				"each switch writes a session row, a revocation stamp and two audit rows, so a stolen " +
+				"cookie leaves at most 120 rows a window per address.",
+		},
+		{
+			"adminSwitchPersonLimit", adminSwitchPersonLimit, 120,
+			"the switch's per-PERSON cap across addresses (M14-10 security review): without it N " +
+				"addresses buy 30 x N switches, each writing four permanent rows. 120 = four " +
+				"addresses' worth of adminSwitchLimit, one switch every 5 s sustained.",
+		},
+		{
+			"adminVerifyRequestLimit", adminVerifyRequestLimit, 5,
+			"e-mail verification links per PERSON per hour (M14-18's inherited obligation: " +
+				"identity_request_verification writes a link on every call). Each ask is one e-mail; " +
+				"a person missing the first asks a couple of times.",
+		},
+		{
+			"adminIdentityActLimit", adminIdentityActLimit, 10,
+			"link / unlink / Undo presses per PERSON per 10 minutes (M14-18): a link costs up to " +
+				"1 + MaxCandidates comparisons, and a held cookie guesses another password at most " +
+				"once a minute.",
+		},
+		{
 			"adminAccountLimit", adminAccountLimit, 10,
 			"bounds audit_log writes per account per window and gates NOTHING (a per-account " +
 				"gate would be an account lockout an attacker triggers with a known email). " +
@@ -2666,6 +2893,11 @@ func TestPanelConstants_ShippedValuesArePinned(t *testing.T) {
 		{"adminAccountPeriod", adminAccountPeriod, 10 * time.Minute},
 		{"adminSessionPeriod", adminSessionPeriod, 10 * time.Minute},
 		{"adminLogoutPeriod", adminLogoutPeriod, 10 * time.Minute},
+		{"adminSwitchPeriod", adminSwitchPeriod, 10 * time.Minute},
+		{"adminSwitchPersonPeriod", adminSwitchPersonPeriod, 10 * time.Minute},
+		{"adminIdentityActPeriod", adminIdentityActPeriod, 10 * time.Minute},
+		// M14-18: the verification's budget is per HOUR -- an e-mail's, not a sign-in's, window.
+		{"adminVerifyRequestPeriod", adminVerifyRequestPeriod, time.Hour},
 		{"adminChoiceTTL", adminChoiceTTL, 5 * time.Minute},
 		{"adminChoiceFutureSkew", adminChoiceFutureSkew, time.Minute},
 	}

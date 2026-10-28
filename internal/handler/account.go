@@ -3,11 +3,13 @@ package handler
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/web/templates/pages"
@@ -99,8 +101,10 @@ var (
 	// "password" joins "saved" because a password change lands back here with its OWN
 	// flash (T73): it is a different act from a details save and reads a different
 	// sentence, so it cannot borrow "saved" without claiming the business's facts moved.
-	accountDoneWords    = []string{"saved", "password"}
-	accountProblemWords = []string{"unreadable", "not-permitted", "unknown-business", "unavailable"}
+	// "stepped-down" (M14-16): an owner who stepped down to manager lands here -- the Managers page
+	// is an owner's -- with a sentence saying what they now are.
+	accountDoneWords    = append([]string{"saved", "password", "stepped-down"}, accountIdentityDoneWords...)
+	accountProblemWords = append([]string{"unreadable", "not-permitted", "unknown-business", "unavailable"}, accountIdentityProblemWords...)
 )
 
 // accountDoneSentence and accountProblemSentence turn one of those words into the
@@ -114,6 +118,9 @@ func accountDoneSentence(word string) string {
 		return "These details are what Taptime now has on file for this business. " +
 			"Everything on this page is read from the row that was just written, not " +
 			"from what was typed."
+	}
+	if word == "stepped-down" {
+		return "You stepped down: you are now a manager of this business. Its owners decide who runs it from here."
 	}
 	return ""
 }
@@ -168,7 +175,20 @@ func (a *AdminAuth) accountSection(w http.ResponseWriter, r *http.Request) {
 	// THE ECHOED WORDS ARE FILTERED THROUGH THE CLOSED LISTS BEFORE THEY BECOME
 	// SENTENCES, so a query string carrying anything at all produces no notice rather
 	// than a reflected value.
-	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("done")), accountDoneWords...); word != "" {
+	done := oneOfWords(strings.TrimSpace(r.URL.Query().Get("done")), accountDoneWords...)
+	problem := oneOfWords(strings.TrimSpace(r.URL.Query().Get("problem")), accountProblemWords...)
+	// The identity sections' words (M14-18) are said in their own cards, never in the page's
+	// "Saved" / "That was not saved" notices.
+	if v.Identity != nil {
+		accountIdentityNotice(v.Identity, done, problem)
+	}
+	if slices.Contains(accountIdentityDoneWords, done) {
+		done = ""
+	}
+	if slices.Contains(accountIdentityProblemWords, problem) {
+		problem = ""
+	}
+	if word := done; word != "" {
 		// "password" is the T73 flash and belongs beside the password form, not in the
 		// top-of-page "Saved" notice that speaks about the business's stored details.
 		if word == "password" {
@@ -177,7 +197,7 @@ func (a *AdminAuth) accountSection(w http.ResponseWriter, r *http.Request) {
 			v.Saved = accountDoneSentence(word)
 		}
 	}
-	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("problem")), accountProblemWords...); word != "" {
+	if word := problem; word != "" {
 		v.Problem = accountProblemSentence(word)
 	}
 	// The brand editor's own notice (M10 WL-7), from its own closed vocabulary.
@@ -263,6 +283,25 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 	// else; this page reads no key and no webhook.
 	if mayManageAPIKeys(id) {
 		v.DevelopersHref = apiKeysHref
+	}
+	// "Sign out everywhere" (M14-11) is an identity section of this page (ADR 0031 §8): closed
+	// while the flag is off, and then the page is today's. Any live admin -- it is personal.
+	//
+	// THE CARD'S SENTENCE FOLLOWS WHAT THE PRESS WILL DO: "every business" only for a session whose
+	// row is linked (id.Admin.Linked, from the same TouchAdminSession read); an unlinked row's press
+	// signs out this business alone. With the flag ON a linked and an unlinked session may see
+	// different pages -- ADR 0031 §8's table opens the account page's identity sections then; R4's
+	// byte-identity is the flag-OFF rule, and with the flag off nothing of this card is drawn.
+	// "Managers" (M14-15): a link to the owner's invitation page, closed with the flag (ADR 0031 §8).
+	// The page's own gate is the policy engine's; the link follows the role the session carries.
+	if a.identityGate.Open(adminauth.SurfaceAdminInvites) && id.Live() && id.Admin.Role == adminRoleOwner {
+		v.ManagersHref = managersHref
+	}
+	if a.identityGate.Open(adminauth.SurfaceAccountIdentity) {
+		v.SignOutEverywhereHref = accountSignOutEverywhereHref
+		v.SignOutEverywhereEveryBusiness = id.Admin.Linked
+		// M14-18: "Your businesses", the verification, the window and "Link a business".
+		v.Identity = a.accountIdentityView(r, id, zone)
 	}
 	fillAccountVAT(&v, s.VAT, zone)
 	// The "Your brand" editor (M10 WL-7), from the chrome built above -- the one brand

@@ -257,15 +257,21 @@ func TestNoticeRecipient_IsTheAddressOnTheRowAndNothingElse(t *testing.T) {
 	stored := strings.ToUpper(randEmail(t))
 	active := newAdminRow(t, d, home, stored, "p", "active", "owner", "Notice Owner")
 	disabled := newAdminRow(t, d, home, randEmail(t), "p", "disabled", "manager", "Notice Disabled")
-	// admin_users.email is nullable (00006); newAdminRow always writes one.
-	noAddress := uuid.New()
-	if err := d.WithTenant(ctx, home, func(ctx context.Context, tx pgx.Tx) error {
+	// admin_users.email is nullable (00006); newAdminRow always writes one. The row is COMMITTED, so
+	// it is written under the operator-tables lock exactly as newAdminRow writes its own: held shared
+	// around the insert (holdTablesLock says why; newAdminRow released it on return, so the calls
+	// above hold nothing here -- cmd/opadmin's TestTablesLock_AdminRowsAreWrittenUnderTheHolder).
+	noAddress, digest := uuid.New(), fixtureDigest(t, "p")
+	release := holdTablesLock(t)
+	err := d.WithTenant(ctx, home, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
 			 VALUES ($1, $2, 'Notice Nowhere', NULL, $3, 'owner', 'active')`,
-			noAddress, home, fixtureDigest(t, "p"))
+			noAddress, home, digest)
 		return e
-	}); err != nil {
+	})
+	release()
+	if err != nil {
 		t.Fatalf("inserting an administrator with no address: %v", err)
 	}
 

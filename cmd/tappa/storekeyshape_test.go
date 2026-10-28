@@ -274,27 +274,31 @@ var storeSurface = map[string]string{
 	"CountRecentInvites":                        "(context.Context, CountRecentInvitesParams{EmployeeID uuid.UUID; TenantID uuid.UUID}) (CountRecentInvitesRow{TenantLastHour int32; TenantLastDay int32; EmployeeLastHour int32}, error)",
 	"CountReviewsSince":                         "(context.Context, CountReviewsSinceParams{TenantID uuid.UUID; Since time.Time}) (int32, error)",
 	"CountTenantPlaques":                        "(context.Context, uuid.UUID) (CountTenantPlaquesRow{InService int64; InStock int64; ReadyToMount int64; Loaded int64}, error)",
-	"CreateAdminSession":                        "(context.Context, CreateAdminSessionParams{TokenHash string; AdminUserID uuid.UUID; TenantID uuid.UUID}) (CreateAdminSessionRow{ID uuid.UUID; TenantID uuid.UUID; AdminUserID uuid.UUID; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time}, error)",
-	"CreateAdminUser":                           "(context.Context, CreateAdminUserParams{FullName string; Email *string; PasswordHash string; Role string; TenantID uuid.UUID}) (CreateAdminUserRow{ID uuid.UUID; TenantID uuid.UUID; FullName string; Role string; Status string; CreatedAt time.Time}, error)",
-	"CreateDepartment":                          "(context.Context, CreateDepartmentParams{TenantID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; LocationID uuid.UUID}) (Department{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; DayCutoff pgtype.Time}, error)",
-	"CreateEmployee":                            "(context.Context, CreateEmployeeParams{TenantID uuid.UUID; FullName string; Role *string; Email *string; DepartmentID *uuid.UUID; LocationID uuid.UUID}) (CreateEmployeeRow{ID uuid.UUID; TenantID uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; FullName string; Role *string; Status string; CreatedAt time.Time}, error)",
-	"CreateInvite":                              "(context.Context, CreateInviteParams{TenantID uuid.UUID; EmployeeID uuid.UUID; CodeHash string; ExpiresAt time.Time}) (CreateInviteRow{ID uuid.UUID; TenantID uuid.UUID; EmployeeID uuid.UUID; CreatedAt time.Time; ExpiresAt time.Time; UsedAt *time.Time}, error)",
-	"CreateLocation":                            "(context.Context, CreateLocationParams{Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; TenantID uuid.UUID}) (CreateLocationRow{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; CreatedAt time.Time}, error)",
-	"CreatePasswordReset":                       "(context.Context, CreatePasswordResetParams{TokenHash string; ExpiresAt time.Time; AdminUserID uuid.UUID; TenantID uuid.UUID}) (CreatePasswordResetRow{ID uuid.UUID; TenantID uuid.UUID; AdminUserID uuid.UUID; CreatedAt time.Time; ExpiresAt time.Time; RetiredCount int64}, error)",
-	"CreateSession":                             "(context.Context, CreateSessionParams{TenantID uuid.UUID; EmployeeID uuid.UUID; TokenHash string; DeviceInfo *string}) (CreateSessionRow{ID uuid.UUID; TenantID uuid.UUID; EmployeeID uuid.UUID; DeviceInfo *string; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time}, error)",
-	"CreateTenant":                              "(context.Context, CreateTenantParams{ID uuid.UUID; Name string; VatNumber string; BusinessType string; Structure string; Timezone string; VatVerified *bool; VatCheckedAt *time.Time}) (CreateTenantRow{ID uuid.UUID; Name string; VatNumber string; BusinessType string; Structure string; Plan string; Timezone string; PricePerEmployeeMonth pgtype.Numeric; VatVerified *bool; VatCheckedAt *time.Time; CreatedAt time.Time}, error)",
-	"CreateTenantPolicy":                        "(context.Context, CreateTenantPolicyParams{TenantID uuid.UUID; Name string; Enabled bool; CreatedBy *uuid.UUID}) (CreateTenantPolicyRow{ID uuid.UUID; Name string; Layer string; Enabled bool}, error)",
-	"DeactivateEmployee":                        "(context.Context, DeactivateEmployeeParams{TenantID uuid.UUID; ID uuid.UUID}) (DeactivateEmployeeRow{ID uuid.UUID; FullName string; Status string; DeactivatedAt *time.Time}, error)",
-	"DeleteDepartment":                          "(context.Context, DeleteDepartmentParams{TenantID uuid.UUID; ID uuid.UUID}) (DeleteDepartmentRow{ID uuid.UUID; LocationID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time}, error)",
-	"DeleteLocation":                            "(context.Context, DeleteLocationParams{TenantID uuid.UUID; ID uuid.UUID}) (DeleteLocationRow{ID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; CreatedAt time.Time}, error)",
-	"DetachPolicyResource":                      "(context.Context, DetachPolicyResourceParams{TenantID uuid.UUID; PolicyID uuid.UUID; Resource string}) (DetachPolicyResourceRow{ID uuid.UUID; Resource string}, error)",
-	"EnsureBaselinePolicy":                      "(context.Context, EnsureBaselinePolicyParams{ID uuid.UUID; TenantID uuid.UUID; Name string}) (error)",
-	"EnsureBaselinePolicyVersion":               "(context.Context, EnsureBaselinePolicyVersionParams{ID uuid.UUID; TenantID uuid.UUID; PolicyID uuid.UUID; Document []byte}) (error)",
-	"EnsurePolicyAttachment":                    "(context.Context, EnsurePolicyAttachmentParams{TenantID uuid.UUID; PolicyID uuid.UUID; Resource string}) (error)",
-	"EnsureTenantBrand":                         "(context.Context, EnsureTenantBrandParams{TenantID uuid.UUID; UpdatedBy uuid.UUID}) (error)",
-	"FirstChargeableMonthShift":                 "(context.Context, FirstChargeableMonthShiftParams{Timezone string; TenantID uuid.UUID}) (FirstChargeableMonthShiftRow{CurrentMonth pgtype.Date; ProposedMonth pgtype.Date}, error)",
-	"GetAdminByID":                              "(context.Context, GetAdminByIDParams{ID uuid.UUID; TenantID uuid.UUID}) (GetAdminByIDRow{ID uuid.UUID; TenantID uuid.UUID; FullName string; Email *string; Role string; Status string; CreatedAt time.Time; LastLoginAt *time.Time}, error)",
-	"GetAdminForTenantChoice":                   "(context.Context, GetAdminForTenantChoiceParams{ID uuid.UUID; TenantID uuid.UUID}) (GetAdminForTenantChoiceRow{ID uuid.UUID; TenantID uuid.UUID; Role string; FullName string; TenantName string}, error)",
+	// M14-07 (ADR 0031 §5.2): VerifiedDigest is the bcrypt digest the password was compared with,
+	// handed IN so the INSERT ... SELECT takes the row only while it still carries it (a refused
+	// membership's sentinel, a changed password -> 0 rows). A parameter, never returned: the Row is
+	// unchanged and carries no digest.
+	"CreateAdminSession":          "(context.Context, CreateAdminSessionParams{TokenHash string; AdminUserID uuid.UUID; TenantID uuid.UUID; VerifiedDigest string}) (CreateAdminSessionRow{ID uuid.UUID; TenantID uuid.UUID; AdminUserID uuid.UUID; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time}, error)",
+	"CreateAdminUser":             "(context.Context, CreateAdminUserParams{FullName string; Email *string; PasswordHash string; Role string; TenantID uuid.UUID}) (CreateAdminUserRow{ID uuid.UUID; TenantID uuid.UUID; FullName string; Role string; Status string; CreatedAt time.Time}, error)",
+	"CreateDepartment":            "(context.Context, CreateDepartmentParams{TenantID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; LocationID uuid.UUID}) (Department{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; DayCutoff pgtype.Time}, error)",
+	"CreateEmployee":              "(context.Context, CreateEmployeeParams{TenantID uuid.UUID; FullName string; Role *string; Email *string; DepartmentID *uuid.UUID; LocationID uuid.UUID}) (CreateEmployeeRow{ID uuid.UUID; TenantID uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; FullName string; Role *string; Status string; CreatedAt time.Time}, error)",
+	"CreateInvite":                "(context.Context, CreateInviteParams{TenantID uuid.UUID; EmployeeID uuid.UUID; CodeHash string; ExpiresAt time.Time}) (CreateInviteRow{ID uuid.UUID; TenantID uuid.UUID; EmployeeID uuid.UUID; CreatedAt time.Time; ExpiresAt time.Time; UsedAt *time.Time}, error)",
+	"CreateLocation":              "(context.Context, CreateLocationParams{Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; TenantID uuid.UUID}) (CreateLocationRow{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; CreatedAt time.Time}, error)",
+	"CreatePasswordReset":         "(context.Context, CreatePasswordResetParams{TokenHash string; ExpiresAt time.Time; AdminUserID uuid.UUID; TenantID uuid.UUID}) (CreatePasswordResetRow{ID uuid.UUID; TenantID uuid.UUID; AdminUserID uuid.UUID; CreatedAt time.Time; ExpiresAt time.Time; RetiredCount int64}, error)",
+	"CreateSession":               "(context.Context, CreateSessionParams{TenantID uuid.UUID; EmployeeID uuid.UUID; TokenHash string; DeviceInfo *string}) (CreateSessionRow{ID uuid.UUID; TenantID uuid.UUID; EmployeeID uuid.UUID; DeviceInfo *string; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time}, error)",
+	"CreateTenant":                "(context.Context, CreateTenantParams{ID uuid.UUID; Name string; VatNumber string; BusinessType string; Structure string; Timezone string; VatVerified *bool; VatCheckedAt *time.Time}) (CreateTenantRow{ID uuid.UUID; Name string; VatNumber string; BusinessType string; Structure string; Plan string; Timezone string; PricePerEmployeeMonth pgtype.Numeric; VatVerified *bool; VatCheckedAt *time.Time; CreatedAt time.Time}, error)",
+	"CreateTenantPolicy":          "(context.Context, CreateTenantPolicyParams{TenantID uuid.UUID; Name string; Enabled bool; CreatedBy *uuid.UUID}) (CreateTenantPolicyRow{ID uuid.UUID; Name string; Layer string; Enabled bool}, error)",
+	"DeactivateEmployee":          "(context.Context, DeactivateEmployeeParams{TenantID uuid.UUID; ID uuid.UUID}) (DeactivateEmployeeRow{ID uuid.UUID; FullName string; Status string; DeactivatedAt *time.Time}, error)",
+	"DeleteDepartment":            "(context.Context, DeleteDepartmentParams{TenantID uuid.UUID; ID uuid.UUID}) (DeleteDepartmentRow{ID uuid.UUID; LocationID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time}, error)",
+	"DeleteLocation":              "(context.Context, DeleteLocationParams{TenantID uuid.UUID; ID uuid.UUID}) (DeleteLocationRow{ID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; CreatedAt time.Time}, error)",
+	"DetachPolicyResource":        "(context.Context, DetachPolicyResourceParams{TenantID uuid.UUID; PolicyID uuid.UUID; Resource string}) (DetachPolicyResourceRow{ID uuid.UUID; Resource string}, error)",
+	"EnsureBaselinePolicy":        "(context.Context, EnsureBaselinePolicyParams{ID uuid.UUID; TenantID uuid.UUID; Name string}) (error)",
+	"EnsureBaselinePolicyVersion": "(context.Context, EnsureBaselinePolicyVersionParams{ID uuid.UUID; TenantID uuid.UUID; PolicyID uuid.UUID; Document []byte}) (error)",
+	"EnsurePolicyAttachment":      "(context.Context, EnsurePolicyAttachmentParams{TenantID uuid.UUID; PolicyID uuid.UUID; Resource string}) (error)",
+	"EnsureTenantBrand":           "(context.Context, EnsureTenantBrandParams{TenantID uuid.UUID; UpdatedBy uuid.UUID}) (error)",
+	"FirstChargeableMonthShift":   "(context.Context, FirstChargeableMonthShiftParams{Timezone string; TenantID uuid.UUID}) (FirstChargeableMonthShiftRow{CurrentMonth pgtype.Date; ProposedMonth pgtype.Date}, error)",
+	"GetAdminByID":                "(context.Context, GetAdminByIDParams{ID uuid.UUID; TenantID uuid.UUID}) (GetAdminByIDRow{ID uuid.UUID; TenantID uuid.UUID; FullName string; Email *string; Role string; Status string; CreatedAt time.Time; LastLoginAt *time.Time}, error)",
+	"GetAdminForTenantChoice":     "(context.Context, GetAdminForTenantChoiceParams{ID uuid.UUID; TenantID uuid.UUID}) (GetAdminForTenantChoiceRow{ID uuid.UUID; TenantID uuid.UUID; Role string; FullName string; TenantName string}, error)",
 	// PRE-EXISTING SYNC (not md.5): the three admin-password methods below shipped in
 	// T73 (change own password) whose commit did not update this inventory, so this
 	// test was already RED on the branch before ADR 0018's app_key_ref work. They are
@@ -429,14 +433,16 @@ var storeSurface = map[string]string{
 	"SetTenantAccent":                  "(context.Context, SetTenantAccentParams{Accent string; UpdatedBy uuid.UUID; TenantID uuid.UUID}) (int64, error)",
 	"SetTenantLogo":                    "(context.Context, SetTenantLogoParams{Logo []byte; LogoSha256 string; LogoMime string; LogoWidth int32; LogoHeight int32; UpdatedBy uuid.UUID; TenantID uuid.UUID}) (int64, error)",
 	"TenantHasAnyTransaction":          "(context.Context, uuid.UUID) (bool, error)",
-	"TouchAdminSession":                "(context.Context, TouchAdminSessionParams{ID uuid.UUID; TenantID uuid.UUID}) (TouchAdminSessionRow{ID uuid.UUID; LastUsedAt *time.Time; AdminUserID uuid.UUID; Role string; FullName string; SuspendedAt *time.Time; SuspensionReason *string}, error)",
-	"TouchSession":                     "(context.Context, TouchSessionParams{ID uuid.UUID; TenantID uuid.UUID}) (TouchSessionRow{ID uuid.UUID; LastUsedAt *time.Time}, error)",
-	"UnmountTagFromWall":               "(context.Context, UnmountTagFromWallParams{TenantID uuid.UUID; Uid string}) (UnmountTagFromWallRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
-	"UpdateDepartment":                 "(context.Context, UpdateDepartmentParams{Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; TenantID uuid.UUID; ID uuid.UUID}) (Department{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; DayCutoff pgtype.Time}, error)",
-	"UpdateLocation":                   "(context.Context, UpdateLocationParams{Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; TenantID uuid.UUID; ID uuid.UUID}) (UpdateLocationRow{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; CreatedAt time.Time}, error)",
-	"UpdateTenantAccount":              "(context.Context, UpdateTenantAccountParams{Name string; BusinessType string; Timezone string; TenantID uuid.UUID}) (UpdateTenantAccountRow{ID uuid.UUID; Name string; VatNumber string; BusinessType string; Timezone string; VatVerified *bool; VatCheckedAt *time.Time; CreatedAt time.Time}, error)",
-	"WithdrawPasswordReset":            "(context.Context, WithdrawPasswordResetParams{TenantID uuid.UUID; ID uuid.UUID}) (error)",
-	"WithTx":                           "(pgx.Tx) (*Queries)",
+	// M14-04 (ADR 0031 §5.3): the business's name (a string the shell prints) and the membership's
+	// identity_id (a uuid, the switch's rate bucket) -- neither is key material: no []byte, no row dump.
+	"TouchAdminSession":     "(context.Context, TouchAdminSessionParams{ID uuid.UUID; TenantID uuid.UUID}) (TouchAdminSessionRow{ID uuid.UUID; LastUsedAt *time.Time; AdminUserID uuid.UUID; Role string; FullName string; SuspendedAt *time.Time; SuspensionReason *string; TenantName string; IdentityID *uuid.UUID}, error)",
+	"TouchSession":          "(context.Context, TouchSessionParams{ID uuid.UUID; TenantID uuid.UUID}) (TouchSessionRow{ID uuid.UUID; LastUsedAt *time.Time}, error)",
+	"UnmountTagFromWall":    "(context.Context, UnmountTagFromWallParams{TenantID uuid.UUID; Uid string}) (UnmountTagFromWallRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
+	"UpdateDepartment":      "(context.Context, UpdateDepartmentParams{Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; TenantID uuid.UUID; ID uuid.UUID}) (Department{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; DayCutoff pgtype.Time}, error)",
+	"UpdateLocation":        "(context.Context, UpdateLocationParams{Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; TenantID uuid.UUID; ID uuid.UUID}) (UpdateLocationRow{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; CreatedAt time.Time}, error)",
+	"UpdateTenantAccount":   "(context.Context, UpdateTenantAccountParams{Name string; BusinessType string; Timezone string; TenantID uuid.UUID}) (UpdateTenantAccountRow{ID uuid.UUID; Name string; VatNumber string; BusinessType string; Timezone string; VatVerified *bool; VatCheckedAt *time.Time; CreatedAt time.Time}, error)",
+	"WithdrawPasswordReset": "(context.Context, WithdrawPasswordResetParams{TenantID uuid.UUID; ID uuid.UUID}) (error)",
+	"WithTx":                "(pgx.Tx) (*Queries)",
 	// M11 API-1b (migration 00043): InsertTransaction, GetLastOpenTransaction and
 	// GetLastTransactionForEmployee carry transactions' three site columns -- the site
 	// tenant (uuid), its venue (uuid) and the plaque's uid (text, already in tag_uid's
@@ -526,6 +532,21 @@ var storeSurface = map[string]string{
 	"DeleteSettledWebhookDeliveries": "(context.Context, DeleteSettledWebhookDeliveriesParams{TenantID uuid.UUID; RetentionDays int32; MaxRows int32}) (int64, error)",
 	// M11 API-10: an approval's site business (K-19's second tenant) -- an id, nothing of the record.
 	"GetReviewedPunchSite": "(context.Context, GetReviewedPunchSiteParams{TenantID uuid.UUID; ID uuid.UUID}) (*uuid.UUID, error)",
+	// M14-15 (00077): the owner's side of an administrator invitation. The token's HASH goes in (a
+	// 64-hex string, never the token) and is never handed back -- tappa_app cannot read token_hash; the
+	// list returns the address and the name the owner typed, to the owner's page alone.
+	"CancelOpenAdminInvitesForAddress": "(context.Context, CancelOpenAdminInvitesForAddressParams{TenantID uuid.UUID; Email string}) (int64, error)",
+	"InsertAdminInvite":                "(context.Context, InsertAdminInviteParams{Email string; FullName string; Role string; TokenHash string; ExpiresAt time.Time; TenantID uuid.UUID; InvitedBy uuid.UUID}) (InsertAdminInviteRow{ID uuid.UUID; CreatedAt time.Time; ExpiresAt time.Time}, error)",
+	"ListAdminInvites":                 "(context.Context, uuid.UUID) ([]ListAdminInvitesRow{ID uuid.UUID; Email string; FullName string; Role string; InvitedBy uuid.UUID; CreatedAt time.Time; ExpiresAt time.Time; UsedAt *time.Time; CancelledAt *time.Time}, error)",
+	"CancelAdminInvite":                "(context.Context, CancelAdminInviteParams{TenantID uuid.UUID; ID uuid.UUID}) (CancelAdminInviteRow{ID uuid.UUID; ExpiresAt time.Time}, error)",
+	"AdminInviteBusinessSuspended":     "(context.Context, AdminInviteBusinessSuspendedParams{TenantID uuid.UUID; ID uuid.UUID}) (bool, error)",
+	// M14-16: the owner's side of a business's memberships. Ids, the role and status words, the name and
+	// the address the business holds for its own people -- no identity_id, no link column, no digest.
+	"LockActiveAdminOwners": "(context.Context, uuid.UUID) ([]uuid.UUID, error)",
+	"LockAdminMember":       "(context.Context, LockAdminMemberParams{TenantID uuid.UUID; ID uuid.UUID}) (LockAdminMemberRow{ID uuid.UUID; Role string; Status string}, error)",
+	"ListAdminMembers":      "(context.Context, uuid.UUID) ([]ListAdminMembersRow{ID uuid.UUID; FullName string; Email *string; Role string; Status string; CreatedAt time.Time; LastLoginAt *time.Time}, error)",
+	"SetAdminMemberStatus":  "(context.Context, SetAdminMemberStatusParams{Status string; TenantID uuid.UUID; ID uuid.UUID}) (uuid.UUID, error)",
+	"SetAdminMemberRole":    "(context.Context, SetAdminMemberRoleParams{Role string; TenantID uuid.UUID; ID uuid.UUID}) (uuid.UUID, error)",
 }
 
 // TestStoreSurface_IsTheOneRecorded is the inventory check.
@@ -1043,11 +1064,17 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// calls a definer.
 	// 27 -> 28 on 2026-10-23 (M15-15, migration 00068): db/queries/punchclaims.sql, the claim's INSERT
 	// built from its anchor row (transactions); it calls no definer.
-	if files != 28 {
-		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-EIGHT were there when this was "+
-			"pinned (2026-10-23; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
-			"apiidempotency.sql, invitequeue.sql, punchfeed.sql, directory.sql, webhooks.sql, daycutoff.sql and "+
-			"punchclaims.sql)", files)
+	// 28 -> 29 on 2026-10-26 (M14-15): db/queries/admininvites.sql, the owner's side of an administrator
+	// invitation over admin_invites and admin_users; none calls a definer (the acceptances and the
+	// resolver are called by hand from internal/db/identity.go).
+	// 29 -> 30 on 2026-10-27 (M14-16): db/queries/adminmembers.sql, the owner's side of a business's
+	// memberships over admin_users; none calls a definer. (M14's two were counted 27 -> 29 on their
+	// branch; the merge that brought main into M14 adds M15's one.)
+	if files != 30 {
+		t.Fatalf("read %d .sql file(s) under db/queries; THIRTY were there when this was "+
+			"pinned (2026-10-27; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
+			"apiidempotency.sql, invitequeue.sql, punchfeed.sql, directory.sql, webhooks.sql, daycutoff.sql, "+
+			"punchclaims.sql, admininvites.sql and adminmembers.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -1165,14 +1192,22 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// caller's own rows; neither calls a definer.
 	// 244 -> 245 on 2026-10-26 (M15-18 review round): punchclaims.sql's CountPendingPunchClaims, the
 	// capped count of the caller's own undecided claims beside the flagged badge; it calls no definer.
-	if named != 245 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND FORTY-FIVE were "+
-			"there when this was pinned (2026-10-26: 111 on 2026-08-24, + T73's three "+
+	// 245 -> 250 on 2026-10-27 (M14-15, counted on its own branch as 234 -> 239 and added up at the
+	// merge that brought main into M14): admininvites.sql's five (CancelOpenAdminInvitesForAddress,
+	// InsertAdminInvite, ListAdminInvites, CancelAdminInvite, AdminInviteBusinessSuspended), each over
+	// the caller's own business's admin_invites (the INSERT from the inviter's own admin_users row, the
+	// suspension read joined to its tenants row); none calls a definer.
+	// 250 -> 255 on 2026-10-27 (M14-16, 239 -> 244 on its branch): adminmembers.sql's five
+	// (LockActiveAdminOwners, LockAdminMember, ListAdminMembers, SetAdminMemberStatus,
+	// SetAdminMemberRole), each over the caller's own business's admin_users; none calls a definer.
+	if named != 255 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND FIFTY-FIVE were "+
+			"there when this was pinned (2026-10-27: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue, its pending mark and its count). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue, its pending mark and its count, + M14-15's five invitation queries, + M14-16's five membership queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
@@ -1365,9 +1400,15 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// business-day settings screen's reads (six since the review round), in storeSurface; none carries bytes, none reads tags.
 	// 28 -> 29 (2026-10-23, M15-15): db/queries/punchclaims.sql adds punchclaims.sql.go -- the claim's
 	// INSERT (one method, in storeSurface); it carries no bytes and reads no tags.
-	if len(out) != 29 {
-		t.Fatalf("parsed %d file(s) under %s; TWENTY-NINE were generated when this floor was last set "+
-			"(2026-10-23). If sqlc genuinely emits a different number now, change this number "+
+	// 29 -> 30 (2026-10-26, M14-15): db/queries/admininvites.sql adds admininvites.sql.go -- the owner's
+	// side of an administrator invitation (five methods, in storeSurface); none carries bytes, none reads tags.
+	// 30 -> 31 (2026-10-27, M14-16): db/queries/adminmembers.sql adds adminmembers.sql.go -- the owner's
+	// side of a business's memberships (five methods, in storeSurface); none carries bytes, none reads tags.
+	// (M14's two and M15's one were counted on separate branches; the merge that brought main into M14
+	// before Deploy 1 adds them up, 2026-10-27.)
+	if len(out) != 31 {
+		t.Fatalf("parsed %d file(s) under %s; THIRTY-ONE were generated when this floor was last set "+
+			"(2026-10-27). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}
 	return out, fset

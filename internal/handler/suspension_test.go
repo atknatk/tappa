@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -78,25 +79,42 @@ func codePtr(c db.SuspensionReason) *db.SuspensionReason { return &c }
 // of this file: only the authenticator and the audit recorder answer.
 func tripwirePanel(t *testing.T, admins *fakeAdmins, trail auditRecorder, log *slog.Logger) http.Handler {
 	t.Helper()
+	return tripwirePanelUnder(t, false, admins, trail, log)
+}
+
+// tripwirePanelUnder is tripwirePanel under a panel identity flag (TAPPA_ADMIN_IDENTITY): on, the
+// identity surfaces' routes are mounted too (ADR 0031 §8, M14-11).
+func tripwirePanelUnder(t *testing.T, identity bool, admins *fakeAdmins, trail auditRecorder, log *slog.Logger) http.Handler {
+	t.Helper()
+	cfg := adminTestConfig()
+	cfg.AdminIdentity = identity
 	h, err := NewAdminAuth(admins, trail,
 		struct{ panelLedger }{}, struct{ panelQueue }{}, struct{ panelReviewer }{},
 		struct{ panelStaff }{}, struct{ panelInviter }{}, struct{ panelVenues }{},
 		struct{ panelPlaques }{}, struct{ panelRecorder }{}, struct{ panelRules }{},
 		struct{ panelScribe }{}, struct{ panelBooks }{}, struct{ panelAccounts }{},
 		struct{ panelBrands }{}, struct{ panelBrandWriter }{}, struct{ PlaqueEncoder }{},
-		struct{ passwordNotifier }{}, adminTestConfig(), log)
+		struct{ passwordNotifier }{}, cfg, log)
 	if err != nil {
 		t.Fatalf("NewAdminAuth (tripwire): %v", err)
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	return r
 }
 
 // suspensionDrive sends one request the way a signed-in browser on this origin would,
 // and recovers a tripwire's panic into the second result.
 func suspensionDrive(h http.Handler, method, route string) (rec *httptest.ResponseRecorder, tripped any) {
-	req := httptest.NewRequest(method, route, strings.NewReader(""))
+	target := route
+	if method == http.MethodPost {
+		// The page's binding, as the form a signed-in browser submits carries it
+		// (M14-10a): without it every write would stop at the binding ring, one ring
+		// before the suspension gate this walk measures.
+		target = boundPath(h, suspensionCookieValue, route)
+	}
+	req := httptest.NewRequest(method, target, strings.NewReader(""))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", testBaseURL)
 	req.RemoteAddr = "203.0.113.9:1234"
@@ -135,12 +153,13 @@ func isRead(methodRoute string) bool {
 // eight -- the three sign-in routes that were never behind the writing chain and the
 // five record paths of mountWriting's sibling group -- and K-26's three defences (ADR
 // 0025's M11 note; plan §4.7: revoking a key, revoking every key, switching the webhook
-// off). It is written out rather than derived on purpose -- deriving it from the sibling
-// group (or from internal/webhook/endpoints' table) would make a further route an
-// exception by construction, and the point of the list is that a further one is a
-// decision.
-func suspensionExceptions() map[string]string {
-	return map[string]string{
+// off); with the panel identity flag on, the identity surfaces ADR 0025's M14 note adds
+// (M14-11: signing yourself out everywhere; M14-10: switching businesses). It is written out rather than derived on
+// purpose -- deriving it from the sibling group (or from internal/webhook/endpoints'
+// table) would make a further route an exception by construction, and the point of the
+// list is that a further one is a decision.
+func suspensionExceptions(identity bool) map[string]string {
+	out := map[string]string{
 		"POST " + apiKeyRevokeHref:    "revoking an API key (a defence, K-26)",
 		"POST " + apiKeyRevokeAllHref: "revoking every API key (a defence, K-26)",
 		"POST " + webhookDisableHref:  "switching the webhook off (a defence, K-26; endpoints.OpenWhileSuspended)",
@@ -153,6 +172,21 @@ func suspensionExceptions() map[string]string {
 		"POST " + manualEntryHref:     "the manual record's review step (a record path, K-B1 = (i))",
 		"POST " + manualRecordHref:    "the manual record itself (a record path, K-B1 = (i))",
 	}
+	if identity {
+		out["POST "+accountSignOutEverywhereHref] = "signing yourself out everywhere (ADR 0025's M14 note, M14-11)"
+		out["POST "+adminSwitchHref] = "switching businesses (ADR 0025's M14 note, M14-10)"
+		// M14-18 (ADR 0025's M14 note): the person's own address, the confirmation window, "Link a business".
+		out["POST "+accountVerifyHref] = "asking for an e-mail verification link (ADR 0025's M14 note, M14-18)"
+		out["POST "+accountVerifyConfirmHref] = "confirming one's own e-mail address (ADR 0025's M14 note, M14-18)"
+		out["POST "+accountKeepAllHref] = "keeping every business of the confirmation window (M14-18)"
+		out["POST "+accountUnlinkHref] = "removing a business from one's own sign-in (M14-18)"
+		out["POST "+accountUndoHref] = "putting a removed business back (M14-18)"
+		out["POST "+accountLinkHref] = "linking a business (ADR 0025's M14 note, M14-18)"
+		// M14-16: the two membership presses that narrow who can act for the business.
+		out["POST "+membersDisableHref] = "disabling a membership (a defence, K-26's reasoning; ADR 0025's M14 note, M14-16)"
+		out["POST "+membersMakeManagerHref] = "making an owner a manager (a defence, K-26's reasoning; ADR 0025's M14 note, M14-16)"
+	}
+	return out
 }
 
 // refusalEvents are the trail's tenant.write_refused rows.
@@ -180,7 +214,9 @@ func refusalEvents(tr *fakeTrail) []audit.Event {
 //	                            everybody would pass the first row
 //
 // and an exception, suspended, answers neither 403 nor a refusal row. Every exception
-// must be a route the router serves, and there must be exactly eleven.
+// must be a route the router serves, and there must be exactly eleven -- thirteen with
+// the panel identity flag on, which mounts its surfaces (M14-11, M14-10); the walk runs
+// under both.
 //
 // PART II -- what it catches: the gate taken out of ProtectWriting; the gate moved
 // ahead of the resolver (no identity -- no row); a route added to the sibling group
@@ -191,9 +227,11 @@ func refusalEvents(tr *fakeTrail) []audit.Event {
 // code review's -- no completeness claim.
 func TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException(t *testing.T) {
 	tenant, admin, session := uuid.New(), uuid.New(), uuid.New()
-	exceptions := suspensionExceptions()
-	if len(exceptions) != 11 {
-		t.Fatalf("the exception list has %d entries; ADR 0025 §3 names eight and K-26 three", len(exceptions))
+	for identity, want := range map[bool]int{false: 11, true: 21} {
+		if n := len(suspensionExceptions(identity)); n != want {
+			t.Fatalf("the exception list (identity flag %v) has %d entries; ADR 0025 §3 names eight, "+
+				"K-26 three and, under the flag, its M14 note's ten so far (M14-10, M14-11, M14-18's six, M14-16's two)", identity, n)
+		}
 	}
 
 	// BOTH ROLES (2nd round, F2): the gate runs before any handler's role check, so a
@@ -201,27 +239,32 @@ func TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException(t *testing.T) 
 	// call. The vacuity check below is the owner's: a manager is refused some writes by
 	// role anyway (owner-only routes answer 403 without a suspension too), so for the
 	// manager it only requires that such a 403 is not the suspension's.
-	for _, role := range []string{"owner", "manager"} {
-		for _, code := range db.SuspensionReasons() {
-			t.Run(role+"/"+string(code), func(t *testing.T) {
-				everyPanelWriteIsGated(t, role, code, tenant, admin, session, exceptions)
-			})
+	for _, identity := range []bool{false, true} {
+		exceptions := suspensionExceptions(identity)
+		for _, role := range []string{"owner", "manager"} {
+			for _, code := range db.SuspensionReasons() {
+				t.Run(fmt.Sprintf("identity=%v/%s/%s", identity, role, code), func(t *testing.T) {
+					everyPanelWriteIsGated(t, identity, role, code, tenant, admin, session, exceptions)
+				})
+			}
 		}
 	}
 }
 
 // everyPanelWriteIsGated is one (role, code) run of the test above.
-func everyPanelWriteIsGated(t *testing.T, role string, code db.SuspensionReason, tenant, admin, session uuid.UUID, exceptions map[string]string) {
+func everyPanelWriteIsGated(t *testing.T, identity bool, role string, code db.SuspensionReason, tenant, admin, session uuid.UUID, exceptions map[string]string) {
 	t.Helper()
 	suspendedAdmins := suspendedIdentityAs(role, tenant, admin, session, &code)
 	trail := &fakeTrail{}
-	gatedPanel := tripwirePanel(t, suspendedAdmins, trail, discardLogger())
+	gatedPanel := tripwirePanelUnder(t, identity, suspendedAdmins, trail, discardLogger())
 	// The SAME suspended identity over the ordinary fakes, for the exceptions:
 	// their handlers run, so a tripwire would trip on a legitimate call.
+	cfg := adminTestConfig()
+	cfg.AdminIdentity = identity
 	exceptionTrail := &fakeTrail{}
-	exceptionPanel := newAdminRouterWithActions(t, suspendedIdentityAs(role, tenant, admin, session, &code),
+	exceptionPanel := newAdminRouterWithActionsUnder(t, cfg, suspendedIdentityAs(role, tenant, admin, session, &code),
 		exceptionTrail, newFakeLedger(), &fakeReviewer{}, &fakeStaff{}, &fakeInviter{})
-	openPanel := newAdminRouterWithActions(t, suspendedIdentityAs(role, tenant, admin, session, nil),
+	openPanel := newAdminRouterWithActionsUnder(t, cfg, suspendedIdentityAs(role, tenant, admin, session, nil),
 		&fakeTrail{}, newFakeLedger(), &fakeReviewer{}, &fakeStaff{}, &fakeInviter{})
 	isSuspensionAnswer := func(rec *httptest.ResponseRecorder) bool {
 		return rec.Code == http.StatusForbidden &&
@@ -276,7 +319,7 @@ func everyPanelWriteIsGated(t *testing.T, role string, code db.SuspensionReason,
 		if !reflect.DeepEqual(e, want) {
 			t.Errorf("%s: the refusal row is %+v, want %+v", mr, e, want)
 		}
-		if n := len(suspendedAdmins.issuedFor) + suspendedAdmins.authCalls + suspendedAdmins.revokeCalls; n != authBefore || suspendedAdmins.changeCalls() != 0 {
+		if n := len(suspendedAdmins.issuedFor) + suspendedAdmins.authCalls + suspendedAdmins.revokeCalls; n != authBefore || suspendedAdmins.changeCalls() != 0 || len(suspendedAdmins.revokeAllCalls()) != 0 {
 			t.Errorf("%s: the refusal reached the authenticator beyond resolving the session", mr)
 		}
 		ct := rec.Header().Get("Content-Type")
@@ -413,6 +456,7 @@ func TestSuspensionStrip_EverySectionShowsItInTheBusinesssTimezone(t *testing.T)
 		}
 		r := chi.NewRouter()
 		h.Mount(r)
+		registerPanel(r, h)
 		rec, tripped := suspensionDrive(r, http.MethodGet, href)
 		if tripped != nil || rec.Code != http.StatusOK {
 			t.Fatalf("GET %s = %d (%v)", href, rec.Code, tripped)
@@ -601,7 +645,7 @@ func TestSuspensionGate_AFailedRefusalRowStillRefusesAndLogsThreeFields(t *testi
 			tenant := uuid.New()
 			code := c.code
 			h := tripwirePanel(t, suspendedIdentity(tenant, uuid.New(), uuid.New(), &code), trail, log)
-			req := httptest.NewRequest(http.MethodPost, route, strings.NewReader("full_name=PROBE-FORM-VALUE"))
+			req := httptest.NewRequest(http.MethodPost, boundPath(h, suspensionCookieValue, route), strings.NewReader("full_name=PROBE-FORM-VALUE"))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			req.Header.Set("Origin", testBaseURL)
 			req.RemoteAddr = "203.0.113.9:1234"
@@ -657,7 +701,7 @@ func TestSuspensionGate_TheRowIsWrittenBeforeTheAnswer(t *testing.T) {
 	for _, route := range []string{venueSaveHref, plaqueEncodeStepHref} {
 		trail := &orderTrail{}
 		h := tripwirePanel(t, suspendedIdentity(uuid.New(), uuid.New(), uuid.New(), codePtr(db.SuspensionNonPayment)), trail, discardLogger())
-		req := httptest.NewRequest(http.MethodPost, route, strings.NewReader(""))
+		req := httptest.NewRequest(http.MethodPost, boundPath(h, suspensionCookieValue, route), strings.NewReader(""))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("Origin", testBaseURL)
 		req.RemoteAddr = "203.0.113.9:1234"
@@ -774,10 +818,13 @@ func TestSuspensionChain_TheGateIsTheLastRingOfProtectWriting(t *testing.T) {
 		}
 		return rings
 	}
-	if got, want := ringsOf("ProtectWriting"), []string{"floodGate", "sameOriginGate", "requireAdmin", "sessionGate", "suspensionGate"}; !slices.Equal(got, want) {
+	// M14-10a (ADR 0031 §5.5): the form binding is a ring of BOTH chains, after the
+	// session budget and BEFORE the suspension ring, so a stale page's POST is refused
+	// without the suspension gate writing its refusal row into the other business.
+	if got, want := ringsOf("ProtectWriting"), []string{"floodGate", "sameOriginGate", "requireAdmin", "sessionGate", "formBindingGate", "suspensionGate"}; !slices.Equal(got, want) {
 		t.Errorf("ProtectWriting is %v, want %v", got, want)
 	}
-	if got, want := ringsOf("protectWritingThroughSuspension"), []string{"floodGate", "sameOriginGate", "requireAdmin", "sessionGate"}; !slices.Equal(got, want) {
+	if got, want := ringsOf("protectWritingThroughSuspension"), []string{"floodGate", "sameOriginGate", "requireAdmin", "sessionGate", "formBindingGate"}; !slices.Equal(got, want) {
 		t.Errorf("protectWritingThroughSuspension is %v, want %v", got, want)
 	}
 	// The declaration's name is not a selector, so the one selector is mountWriting's
@@ -852,7 +899,8 @@ func TestSuspensionChain_TheGateIsTheLastRingOfProtectWriting(t *testing.T) {
 		return true
 	})
 	sort.Strings(exempt)
-	want := []string{"Post accountPasswordSave", "Post apiKeyRevoke", "Post apiKeyRevokeAll", "Post employeeAdd",
+	want := []string{"Post accountKeepAll", "Post accountLink", "Post accountPasswordSave", "Post accountSignOutEverywhere", "Post accountUndo",
+		"Post accountUnlink", "Post accountVerifyConfirm", "Post accountVerifyRequest", "Post adminSwitch", "Post apiKeyRevoke", "Post apiKeyRevokeAll", "Post employeeAdd",
 		"Post employeeInvite", "Post manualEntryRecord", "Post manualEntryReview"}
 	if !slices.Equal(exempt, want) {
 		t.Errorf("the exempt group registers %v, want exactly %v", exempt, want)

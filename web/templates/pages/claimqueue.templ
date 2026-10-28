@@ -178,7 +178,7 @@ templ claimFacts(f ClaimFocusView) {
 
 // claimFocusForm is the ONE form: the facts, the Edit, the note and the two outcomes.
 templ claimFocusForm(action string, f ClaimFocusView) {
-	<form method="post" action={ templ.URL(action) } class="flex flex-col gap-[18px]">
+	<form method="post" action={ templ.URL(components.Bound(ctx, action)) } class="flex flex-col gap-[18px]">
 		<input type="hidden" name="id" value={ f.ID }/>
 		@claimFacts(f)
 		if f.CanApprove {
@@ -220,7 +220,7 @@ templ claimFocusForm(action string, f ClaimFocusView) {
 // the first Approve was: YÜKSEK-1), then the note and the record's facts. The moment and its signature
 // travel as hidden fields; the note comes back filled.
 templ claimConfirmForm(action string, f ClaimFocusView) {
-	<form method="post" action={ templ.URL(action) } class="flex flex-col gap-[18px]">
+	<form method="post" action={ templ.URL(components.Bound(ctx, action)) } class="flex flex-col gap-[18px]">
 		<input type="hidden" name="id" value={ f.ID }/>
 		<input type="hidden" name="shown" value={ f.Confirm.Shown }/>
 		<input type="hidden" name="confirm_token" value={ f.Confirm.Token }/>

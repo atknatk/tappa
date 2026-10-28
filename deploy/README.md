@@ -80,7 +80,8 @@ küme kapsamlı olanlar **hâlâ 3**, çünkü `CronJob` namespace'li):
 > `CronJob`'ı. İkisi de namespace'li, yani küme kapsamlı sayı **hâlâ 3**. `--dry-run=client`
 > ölçümü orkestratörün küme adımlarında.
 > ⚠️ 2026-10-10 (T112): `41-operator-ingress.yaml`'ın iki `Ingress`'i (namespace'li) →
-> **Güncel sayım: 20/3/17** (toplam / küme kapsamlı / namespace'li). Bu satır artık elle
+> ⚠️ 2026-10-26 (M14-10a): `40-ingress.yaml`'ın üçüncü `Ingress`'i (`tappa-panel`, namespace'li) →
+> **Güncel sayım: 21/3/18** (toplam / küme kapsamlı / namespace'li). Bu satır artık elle
 > tutulmuyor: `TestPackaging_TheReadmeCountsTheManifestObjects` dosyalardaki sütun-0 `kind:`
 > satırlarını sayar (yukarıdaki `grep`'in aynısı), türleri kapsamına göre ayırır ve bu çapayı
 > arar — bir manifest eklenip sayı güncellenmezse kırmızı. `--dry-run=client` ölçümü yine
@@ -1809,6 +1810,365 @@ bir migration ilk ifadesinde kendi `lock_timeout`'unu **2 sn'nin altına** koyar
 kuralının aynısı); trafik akarken bu tablolarda elle `SELECT … FOR UPDATE`, `LOCK`, `VACUUM FULL`,
 `CLUSTER` ya da `CONCURRENTLY` olmayan `CREATE INDEX` koşulmaz. Geri yükleme adımının
 `UPDATE public.feed_counters …`'u uygulama **kapalıyken** koşar (aşağıda).
+
+---
+
+## Identity role (M14-03) — tek seferlik kurulum
+
+**Ne:** migration `00069` (panel yöneticisinin kimliği — ADR 0031 §5.1) bir **küme** rolüne dayanır:
+`tappa_identitydefiner` — kapalı `identity_*` listesinin (ADR 0031 §5.2; fonksiyonlar M14-04'ten
+itibaren gelir) sahibi; NOLOGIN, **BYPASSRLS**, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOREPLICATION,
+**üyesi yok, hiçbir rolün üyesi değil, varsayılan yetkisi yok**; yetkisi yalnız migration'ların tek tek
+verdiği sütun grant'larıdır (`00069` ona hiçbir şey vermez). `admin_users`'ın bağlı satır tetikleyicisi
+(`00069`) bu rolün **adını** okur: bağlı ya da reddedilmiş bir satırın parolasını yalnız bu rol olarak
+koşan bir gövde değiştirir. Migration rolü **yaratmaz** (rol küme nesnesidir — *"Holding role (M11
+API-1a)"* bölümünün gerekçesi; migration'da `CREATE ROLE` R5b'yi kırar). Tanımı
+`scripts/db-init/01-roles.sql`'in `>>> IDENTITY ROLE (M14-03) >>>` … `<<< IDENTITY ROLE (M14-03) <<<`
+bloğudur: taze kurulum, CI, `make db-reset` ve **B YOLU geri yüklemesinin sıfırdan kurulan pod'u** onu
+kendiliğinden alır; **halihazırda çalışan** bir veritabanı almaz. Blok **idempotenttir**; üyeliği
+temizlemez — `00069`'un ön koşulu iki yönü, varsayılan yetkiyi ve rolün önceden sahip olduğu her tablo
+yetkisini sınar ve reddeder. Bloğu ve ön koşulu `internal/db` →
+`TestAdminIdentities00069_DownRefusesAnIdentityAndOtherwiseWalksBackAndUp` koşar.
+
+**🔴 Sıra:** önce bu bölüm (rol + `USAGE` GRANT'ı), **sonra** `main`'e birleştirme. Rol yoksa `00069`'un
+ilk ifadesi bu bölümü adıyla gösterip **düşer** (`SQLSTATE 55000`, *"Nothing was changed."*) —
+migrate Job'ı `Failed`, rollout yapılmaz, eski pod servis vermeye devam eder.
+
+### Geliştirme veritabanı
+
+```bash
+sed -n '/^-- >>> IDENTITY ROLE (M14-03) >>>/,/^-- <<< IDENTITY ROLE (M14-03) <<</p' \
+    scripts/db-init/01-roles.sql \
+  | docker exec -i tappa-db \
+      sh -c 'psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+make migrate
+```
+
+### Canlı küme (kullanıcı / orkestratör — ajan `kubectl` koşmaz)
+
+0) Kesimi doğrula (boş girdiyle psql -1 exit 0 verir): bir CREATE ROLE ve kapanış işareti.
+
+```bash
+sed -n '/^-- >>> IDENTITY ROLE (M14-03) >>>/,/^-- <<< IDENTITY ROLE (M14-03) <<</p' \
+    scripts/db-init/01-roles.sql | grep -cE '^ *CREATE ROLE|^-- <<< IDENTITY ROLE'
+```
+
+beklenen: 2 (başka bir sayı -> DUR)
+
+1) Uygula: tek transaction (-1), ilk hatada dur.
+
+```bash
+sed -n '/^-- >>> IDENTITY ROLE (M14-03) >>>/,/^-- <<< IDENTITY ROLE (M14-03) <<</p' \
+    scripts/db-init/01-roles.sql \
+  | kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+      sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+```
+
+beklenen: DO · ALTER ROLE · GRANT
+
+2) Doğrula
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT r.rolname, r.rolcanlogin, r.rolsuper, r.rolbypassrls,
+       (SELECT count(*) FROM pg_auth_members m WHERE m.roleid = r.oid) AS members,
+       (SELECT count(*) FROM pg_auth_members m WHERE m.member = r.oid) AS member_of,
+       has_schema_privilege(r.rolname, 'public', 'USAGE') AS usage,
+       (SELECT count(*) FROM pg_db_role_setting s WHERE s.setrole = r.oid) AS role_settings,
+       (SELECT count(*) FROM pg_default_acl d WHERE d.defaclrole = r.oid
+                                                OR d.defaclacl::text ~ '(^|[{,])tappa_identitydefiner=') AS default_acl
+  FROM pg_roles r
+ WHERE r.rolname = 'tappa_identitydefiner';
+SQL
+```
+
+beklenen: tappa_identitydefiner|f|f|t|0|0|t|0|0
+
+Sonra `main`'e birleştir; deploy `00069` ve `00070`'i uygular.
+
+- **`00069`** `admin_sessions` ve `admin_users`'ta `ACCESS EXCLUSIVE` alır (sütun ekleme, CHECK, yabancı
+  anahtar, tetikleyici) ve `tenants`'ta `SHARE ROW EXCLUSIVE` (yeni tablonun `tenants`'a yabancı
+  anahtarı — bir tenant güncellemesini bekletir, dokunuşun okumasını değil). Her ifadeden önce kendi
+  `SET LOCAL lock_timeout = '1s'`'i var: uzun bir okuyucunun (02:30 dökümü, açık bir panel işlemi)
+  arkasında 55P03 ile düşer — migrate Job'ı `Failed`, rollout yapılmaz, sakin bir anda yeniden koşulur.
+  Kilit altındaki iş `admin_users`'ın bir taramasıdır (CHECK ve yabancı anahtar; `identity_id` hepsi
+  `NULL`) — birkaç bin satır. **Deploy saati:** 02:30 yedeğinin penceresinden uzak.
+- **`00070`** `UNIQUE (tenant_id, identity_id)` indeksini `CONCURRENTLY` kurar (`NO TRANSACTION`):
+  hiçbir istek onu beklemez; kendisi kendinden eski işlemleri bekler (uzun bir okuyucu onu uzatır,
+  paneli değil). Yarıda kesilirse geride `INVALID` bir indeks kalır; dosya yeniden koşulunca önce onu
+  düşürür, sonra yeniden kurar (goose `NO TRANSACTION` dosyasını yalnız sonunda kaydeder).
+
+- **`00072`** (M14-05) üç tenant-kapsamsız tabloyu (`admin_identity_resets`, `_verifications`,
+  `_events`), kimlik fonksiyonlarını ve `resolve_admin_by_email`'in yeni tanımını getirir. Sıcak tabloda
+  kilit yok (yalnız sütun GRANT'ı — GRANT tablo kilidi almaz); yeni tabloların `admin_identities`'e
+  yabancı anahtarı orada `SHARE ROW EXCLUSIVE` alır. `resolve_admin_by_email` `DROP` + `CREATE` ile tek
+  transaction'da değişir: o an giriş yapan istek fonksiyonun kilidini bekler, eski binary'nin sorgusu
+  (dört sütun, adıyla) yeni tanımda çalışır. Ön koşul: `pgcrypto` (`crypt`, `gen_salt`,
+  `gen_random_bytes` — `scripts/db-init/01-roles.sql`'in uzantısı) `public`'te; yoksa dosya hiçbir şey
+  değiştirmeden reddeder. Down, üç tablodan birinde satır ya da reddedilmiş (`unlinked_at`) bir üyelik
+  varken **reddeder** — canlıda koşulmaz; geri dönüş önceki binary'dir.
+
+  **Expand deploy'undan ÖNCE, üretimde, salt okuma ön kontrolü** (kullanıcı koşar; 00072 `pgcrypto`'ya
+  dayanan ilk migration'dır — `00027` ondan bilerek kaçındı). Önce bu bölümün "Identity role (M14-03)"
+  adımıyla `tappa_identitydefiner` yaratılmış olmalı. `tappa_owner` ile, `BEGIN READ ONLY` içinde:
+
+  ```sql
+  BEGIN READ ONLY;
+  SELECT extnamespace::regnamespace FROM pg_extension WHERE extname = 'pgcrypto';
+  SELECT has_function_privilege('tappa_identitydefiner', 'public.crypt(text,text)', 'EXECUTE'),
+         has_function_privilege('tappa_identitydefiner', 'public.gen_salt(text,integer)', 'EXECUTE'),
+         has_function_privilege('tappa_identitydefiner', 'public.gen_random_bytes(integer)', 'EXECUTE');
+  ROLLBACK;
+  ```
+
+  beklenen: `public` ve `t|t|t`. `crypt(text,text)` hiç yoksa `has_function_privilege` sonuç vermez,
+  **hata** verir — o da "deploy yok" demektir. Satır yoksa ya da `f` varsa deploy yapılmaz (migration zaten hiçbir şey
+  değiştirmeden reddeder; Job `Failed` olur): uzantı `01-roles.sql`'deki gibi `public`'te kurulur ya da
+  yetki düzeltilir, sonra yeniden denenir.
+
+  **İkinci ön kontrol — adres kuralı (M14-08a, ADR 0031 §5.1'in 2026-10-26 notu; kullanıcı koşar,
+  salt okuma, yalnız sayı).** `00073`'ün backfill'i her dolu e-posta grubuna, grubun seçilen satırının
+  **yazımıyla** kimlik doğurur ve citext U+0130'u (`İ` → `i`) ve U+212A'yı (KELVIN SIGN → `k`) ASCII'ye
+  katlar: yazdırılabilir ASCII olmayan bir satır seçilirse kimlik postanın gidemeyeceği bir yazımla
+  doğar ve gerçek posta kutusunun sahibi o adrese bir daha sıfırlama alamaz. `00073` uygulanmış bir
+  migration'dır (geliştirme ve CI veritabanlarında) ve değiştirilmez (CLAUDE.md §6); kuralın backfill
+  tarafı bu sayımdır. `tappa_owner` ile, backfill'in aday kümesi (`email` dolu ve boş değil) üzerinde:
+
+  ```sql
+  BEGIN READ ONLY;
+  SELECT count(*)                                                AS backfill_candidates,
+         count(*) FILTER (WHERE email::text !~ '^[\x21-\x7e]+$') AS not_printable_ascii,
+         count(*) FILTER (WHERE NOT (octet_length(email::text) <= 254
+                                AND strpos(email::text, '=?') = 0
+                                AND email::text ~ '^[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*@([-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*|\[((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|(([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|([0-9A-Fa-f]{1,4}:){6}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,6})?|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,5})?|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,4})?|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,3})?|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,2})?|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,1})?|([0-9A-Fa-f]{1,4}:){5}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4})?|([0-9A-Fa-f]{1,4}:){6}[0-9A-Fa-f]{1,4}::|::([0-9A-Fa-f]{1,4}:){0,5}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,4}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,2}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,1}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])))\])$')) AS failing_send_rule
+    FROM admin_users
+   WHERE email IS NOT NULL AND btrim(email::text) <> '';
+  ROLLBACK;
+  ```
+
+  (Üçüncü sayımın yüklemi `00076`'nın 6b'sidir, `v_email` yerine `email`; desen dosyadaki ile bayt
+  bayt aynıdır — `TestIdentityAddressRule_TheRunbookCountsWithThePattern`.)
+
+  beklenen: `not_printable_ascii` = **0** (M14-02'nin 2026-10-22 sayılarıyla `4|0|0`). **0 değilse deploy
+  yapılmaz — DUR**: o satırlar adıyla değil yalnız sayıyla bilinir (adres log'a ve bu dosyaya yazılmaz,
+  CLAUDE.md §7); ne yapılacağı kullanıcının kararıdır. `email::text` dönüşümü şarttır: citext'in kendi
+  `~`'ı harf büyüklüğüne duyarsızdır. İkinci sayım `mail.ValidRecipient`'in ASCII yarısıdır (0x21–0x7e;
+  boşluk, denetim karakteri, DEL ve 0x80 üstü her bayt sayılır); homoglif tehdidi tam bu kümedir. **Üçüncü
+  sayım kuralın tamamıdır:** ikinciye ek olarak ASCII ama biçimi bozuk adresler (`a..b@x.mt`, `"q"@x.mt` —
+  eski `deliverableShape`'in geçirdiği şekiller). Böyle bir satır citext'te başka bir adrese katlanmaz
+  (ASCII'de citext yalnız harf büyüklüğünü katlar), yani gasp değildir; ama backfill ona postanın
+  gidemeyeceği bir adresle kimlik doğurur. Bu **adlandırılmış kalıntıdır** (ADR 0031 §5.8'in M14-08a
+  notu): kendi başına DUR değildir, `failing_send_rule − not_printable_ascii` sayısı deploy'dan önce
+  kullanıcıya bildirilir. **Pencere `00076`'da kapanır:** bu sayım ile `00073`'ün koşması arasında eski
+  binary hâlâ her UTF-8 adresi alır; `00076`'nın Up'ı aynı goose koşusunda yazdırılabilir ASCII olmayan
+  bir kimlik görürse **yalnız sayıyla** hata verir — migrate Job `Failed`, rollout yok, karar
+  kullanıcının. Ölçüm (2026-10-27, bu dalın veritabanı, goose 76): `293|0|0` (testlerin bıraktığı satırlarla); geri alınan bir
+  transaction'da U+0130'lu, U+212A'lı ve başı boşluklu üç satır ve `a..b@` biçimli bir satır eklenince
+  `298|3|4`, düz ASCII olan sayılmadı.
+
+**Eski binary yeni şemada çalışır** (ADR 0031 §8 expand): kayıt `identity_id NULL` ile satır yazar,
+oturum `authenticated_at`'i varsayılandan alır; `tappa_app`'ın `admin_users` okuması sütun listesine
+indi ama bugünkü hiçbir sorgu o listenin dışını okumaz
+(`TestAdminUsers00069_EveryGeneratedStatementOnTheAdminTablesStillPlansAsTheApp`). **Adlandırılmış
+bedel:** bağlı bir satıra (M14-06'nın backfill'inden sonra) eski pod'un parola değişimi ya da sıfırlama
+tüketimi tetikleyiciyle reddedilir (23001 → 500) — rollout penceresinde birkaç dakika (ADR 0031 §5.1).
+
+**Geri alma:** expand'den geri dönüş **önceki binary'dir** (şemayla çalışır), Down değil. `00069`'un
+Down'ı `admin_identities`'te tek bir kimlik ya da bağlı / reddedilmiş tek bir satır varken **reddeder**
+(kimliğin tek kopyası ve bağlar düşerdi) — canlıda koşulmaz. Rol Down'la gitmez (küme nesnesi).
+
+### Backfill (M14-06) — `00073`
+
+Expand deploy'unun migrate Job'ında, rollout'tan **önce**, eski binary canlıyken koşar (ADR 0031 §5.8,
+§8). Her dolu e-posta grubuna bir kimlik doğar ve grubun **tek** satırı ona bağlanır
+(`linked_via='backfill'`, `linked_at=now()`): **en eski aktif** satır, aktif satır yoksa en eskisi
+(eşitlikte `tenant_id`, sonra `id`). Kimlik o satırın digest'iyle doğar; grubun öbür satırları
+bağlanmamış kalır; e-postasız (ya da boş) satıra kimlik yok. Migration `tappa_owner` ile koşar; ayrı bir
+adım yok.
+
+- **Rol iddiası:** koşan rol superuser ya da BYPASSRLS değilse dosya hiçbir şey yazmadan **hata** verir
+  (FORCE RLS altında 0 satır görüp "başarılı" kaydedilirdi). Canlıda `tappa_owner` `rolsuper = t`,
+  `rolbypassrls = t` (M14-02 ölçümü).
+- **Kapanış iddiası:** e-postalı satır varken bağlı satır 0 ise hata; boş veritabanı (CI, yeni
+  geliştirme veritabanı — migration seed'den önce koşar) koşulsuz geçer. Ayrıca: bağlı her satırın
+  digest'i kimliğinkine eşit, hiçbir kimlik iki backfill satırıyla bağlı değil.
+- **Kilit:** tablo kilidi yok; aday satırlar `id` sırasıyla `FOR UPDATE` kilitlenir, ifadenin kendi
+  `SET LOCAL lock_timeout = '1s'`'i altında. Bir satırı tutan bir yazarın arkasında 55P03 ile düşer —
+  hiçbir şey yazılmaz, Job `Failed`, rollout yapılmaz, sakin bir anda yeniden koşulur. Kilitten sonra
+  doğan satır (eski pod'un kaydı) M14-06b'nin (uzlaştırma) işidir. İfade sürerken aday satırlarda
+  girişin `last_login_at` UPDATE'i ve yeni oturum INSERT'inin yabancı anahtar denetimi (`FOR KEY SHARE`)
+  bekler; panel istekleri (`TouchAdminSession` `admin_users`'ı yalnız okur) beklemez — canlıda ~8 ms.
+- **Süre (M14-02 sayısıyla):** canlıda 4 `admin_users` satırı, 3 e-posta grubu (2 tekli, 1 çiftli) →
+  **3 kimlik, 3 bağlı satır, 1 aktif owner satırı bağlanmamış** (çiftli grubun yeni olanı — contract ön
+  koşulunun başlangıç değeri `05f` = 1). Ölçüm (bu dosyanın veritabanı, PostgreSQL 17, satırlar
+  yazıldıktan sonra `ANALYZE` yok — en kötü istatistik), backfill ifadesi = aday satırların kilitli
+  kaldığı süre: **4 satır 8 ms**, 3 000 satır (1 500 çift grup) 0,48 sn, 20 000 satır 3,9 sn —
+  doğrusal, yazmalar baskın. Tek transaction, bölme yok: canlının boyutunda bölmenin kazancı yok ve
+  kapanış iddiasını yazdığı satırlardan ayırırdı.
+- **Digest:** `admin_users`'taki bcrypt CHECK'i `NOT VALID`'dir (`00018`), `admin_identities`'teki
+  değil. Seçilen bir satırın digest'i bcrypt biçiminde değilse dosya **yalnız sayıyla** reddeder (INSERT'in
+  kendi hatası başarısız satırı — e-postayı — Job log'una basardı, CLAUDE.md §7). Canlıda 0 (`08i`).
+  Çözüm: o hesabın parolasını eski binary ile sıfırla, yeniden koş.
+- **Eski binary:** bağlı satırlardaki parola değişimi / sıfırlama tüketimi rollout penceresinde
+  tetikleyiciyle 500 alır (yukarıdaki adlandırılmış bedel); backfill satırların parolasına ve
+  e-postasına dokunmaz, tetikleyici onu durdurmaz.
+
+Sonrası (salt-okur, yalnız sayı; `tappa_owner`):
+
+```sql
+SELECT (SELECT count(*) FROM admin_identities)                               AS identities,
+       (SELECT count(*) FROM admin_users WHERE linked_via = 'backfill')      AS backfill_links,
+       (SELECT count(*) FROM admin_users
+         WHERE email IS NOT NULL AND btrim(email::text) <> '' AND identity_id IS NULL) AS unlinked_with_email;
+```
+
+beklenen (2026-10-22 sayılarıyla): `3|3|1`.
+
+**Down:** yalnız `linked_via='backfill'` satırlarını çözer ve yalnız onların kimliklerini siler. O
+kimliklerden biri backfill'den sonra **yaşamışsa** (başka yolla bağlanmış bir satır, ret damgası,
+doğrulanmış adres, onay penceresi, giriş, son kullanılan işletme ya da başka bir tablodan ona işaret eden
+satır) hiçbir şeyi değiştirmeden **reddeder** — geri dönüş önceki binary'dir (ADR 0031 §8).
+
+### Kimlik başına sıfırlama (M14-14) — `00075` ve canlı kimlik linklerinin acil iptali
+
+- **`00075`** `resolve_identity_by_email` ve `identity_consume_reset`'i `DROP` + `CREATE` ile yeniden
+  tanımlar (dönüşlerine kimliğin kayıtlı adresi eklenir — ADR 0031 §5.2'nin 2026-10-26 notu). Tablo
+  kilidi yok; o an giriş yapan istek fonksiyonun kilidini bir transaction boyu bekler. Eski binary
+  `resolve_identity_by_email`'i sütun adlarıyla okur ve yeni tanımda çalışır; `identity_consume_reset`'i
+  çağırmaz. Yeni yetki yok. Down 00071/00072 tanımlarını bayt bayt geri koyar.
+- **Bayrak bir kesme anahtarı DEĞİLDİR.** `TAPPA_ADMIN_IDENTITY=off` yalnız yeni kimlik linki basılmasını
+  durdurur; basılmış bir kimlik linki ömrü (1 saat) boyunca **harcanabilir** — tüketim bayraktan
+  bağımsızdır (ADR 0031 §8: yazma yolları kapılanmaz). Canlı kimlik linklerini hemen öldürmek gerekirse
+  (sızmış bir posta kutusu, hatalı bir gönderim), `tappa_owner` ile. **Önce rol denetimi** —
+  `admin_identity_resets` FORCE RLS altında ve politikasız; BYPASSRLS olmayan bir rol aşağıdaki sayımdan
+  da UPDATE'ten de **sessizce 0** alır. Şu satır `t` dönmeli, dönmüyorsa durulur:
+
+  ```sql
+  SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user;
+  ```
+
+  sonra salt okuma sayımı:
+
+  ```sql
+  BEGIN READ ONLY;
+  SELECT count(*) FROM admin_identity_resets WHERE used_at IS NULL AND cancelled_at IS NULL AND expires_at > now();
+  ROLLBACK;
+  ```
+
+  sonra iptal — yüklemi sayımınkiyle **aynı** (süresi dolmuş linklere dokunmaz: onların "expired" izi
+  "superseded"e dönmesin); dönen satır sayısı yukarıdakine yakın olmalı, çok farklıysa `ROLLBACK`:
+
+  ```sql
+  BEGIN;
+  SET LOCAL lock_timeout = '1s';
+  UPDATE admin_identity_resets SET cancelled_at = now() WHERE used_at IS NULL AND cancelled_at IS NULL AND expires_at > now();
+  COMMIT;
+  ```
+
+  Yalnız `cancelled_at` değişir (geri çekmenin kendisi — `identity_withdraw_reset`'in yazdığı sütun);
+  link satırı silinmez, kimliğe ve üyeliklere dokunulmaz. İptal edilen linki tıklayan kişi tek tip "That
+  link no longer works" ekranını görür ve yeni bir link isteyebilir (bayrak açıksa kimlik linki, kapalıysa
+  satır başı link). Satır başı linkler (`password_resets`) bu ifadenin kapsamında değildir.
+
+### Adres kuralı (M14-08a) — `00076`
+
+- **`00076`** `identity_create_for_signup`'ı aynı imzayla (`CREATE OR REPLACE`) yeniden tanımlar: kaydın
+  adresi `mail.ValidRecipient`'ten geçmiyorsa (254 oktet, `=?` yok, yazdırılabilir ASCII'de net/mail'in
+  kendine geri verdiği addr-spec) kimlik doğmaz ve satır bağlanmaz; adresin e-posta-geniş okuması
+  yazdırılabilir ASCII olmayan bir satırı artık saymaz (bir homoglif satırı gerçek adresin kimliğini
+  engellemesin). Tablo kilidi yok, yeni yetki yok; eski binary aynı çağrıyı yapar ve ASCII olmayan
+  adreste `false` alır (satır bağlanmamış doğar — bilinen bir adres gibi). `admin_identities.email`'e
+  CHECK **eklenmedi**: ölçüldü, ihlalin `DETAIL`'i adresi ve digest'i hataya ve sunucu log'una basar
+  (00076'nın başlığı). Down 00074'ün gövdesini bayt bayt geri koyar.
+- Kayıt formu aynı kuralı sınırda uygular (`signup.ValidateAccount`); giriş ve sıfırlama formları yalnız
+  arar, değişmedi. Backfill'in tarafı yukarıdaki ikinci ön kontroldür (Expand deploy'undan önce).
+- **Up'ın kendi iddiası:** koşan rol superuser ya da BYPASSRLS değilse, ya da yazdırılabilir ASCII
+  olmayan adresli tek bir kimlik varsa (`00073` onu önceki ön kontrolün görmediği bir satırdan doğurmuş
+  olabilir), dosya hiçbir şey değiştirmeden **yalnız sayıyla** hata verir.
+- **Migrate'ten sonra** (salt okuma, yalnız sayı; `tappa_owner`):
+
+  ```sql
+  BEGIN READ ONLY;
+  SELECT count(*)                                                AS identities,
+         count(*) FILTER (WHERE email::text !~ '^[\x21-\x7e]+$') AS not_printable_ascii,
+         count(*) FILTER (WHERE NOT (octet_length(email::text) <= 254
+                              AND strpos(email::text, '=?') = 0
+                              AND email::text ~ '^[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*@([-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*|\[((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|(([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|([0-9A-Fa-f]{1,4}:){6}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,6})?|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,5})?|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,4})?|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,3})?|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,2})?|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,1})?|([0-9A-Fa-f]{1,4}:){5}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4})?|([0-9A-Fa-f]{1,4}:){6}[0-9A-Fa-f]{1,4}::|::([0-9A-Fa-f]{1,4}:){0,5}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,4}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,2}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,1}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])))\])$')) AS failing_send_rule
+    FROM admin_identities;
+  ROLLBACK;
+  ```
+
+  beklenen: `not_printable_ascii` = 0 (00076 bunu garanti eder) ve `failing_send_rule` = ön kontrolün
+  üçüncü sayımı eksi ikincisi (backfill'in ASCII ama biçimi bozuk kalıntısı; 2026-10-22 sayılarıyla
+  `3|0|0`; bu dalın veritabanında 2026-10-27: `0|0|0`).
+
+### Panel formlarının tenant bağı (M14-10a)
+
+Her panel POST formunun `action`'ı `?tb=<bağ>` taşır (ADR 0031 §5.5): oturumun işletmesinin, oturumun
+**ham** token'ından türetilmiş anahtarla MAC'i (`internal/adminauth/formbind.go`). İki yazma zinciri
+(`ProtectWriting`, `protectWritingThroughSuspension`) bağı gövdeye dokunmadan, askı halkasından ve her
+yazmadan **önce** karşılaştırır; uyuşmazsa **409** *"This page belongs to another business — reload it."*
+Bayraktan bağımsız, her zaman açık. Tek adlandırılmış istisna plaket encode rölesinin üç rotası (form
+değil; Android rölesi sayfa çizmez ve bağı öğrenemez — kullanıcı kararı 2026-10-26, ADR 0031 §5.5'in
+M14-10a notu 1; onları Origin, oturum, oturum bütçesi, askı ve encode tavanı korumaya devam eder).
+
+**Adlandırılmış bedeller:**
+
+- **Bu binary'nin rollout'u:** eski binary'nin çizdiği sayfalarda bağ yok. Rollout'tan sonra açık kalmış
+  her panel formu **bir kez** 409 alır ve hiçbir şey yazmaz; sayfayı yenilemek çözer. Destek cümlesi:
+  *"sayfayı yenileyin"*.
+- **`TAPPA_SESSION_HMAC_KEY` rotasyonu:** aynı anahtar hem `admin_sessions.token_hash`'i
+  (`internal/adminauth/token.go`, `deriveKey`) hem bağı anahtarlar. Rotasyonda **önce oturumlar ölür**:
+  açık bir formun POST'u çözümleyicide düşer ve `303 → /admin/login` alır (409 değil), hiçbir şey
+  yazılmaz; herkes yeniden girer. İleride oturumları rotasyondan geçiren bir ikili anahtar eklenirse açık
+  formların payı 409 olur. İki durumda da bedel: açık her panel formu bir kez reddedilir.
+
+**Bağ hiçbir URL'de kalmamalı (S14) — ölçülenler:**
+
+- Uygulama log'u yalnız rota desenini yazar, URL'yi değil (`internal/httpx/requestlog.go`, `AccessLog`).
+- Panel `<meta name="referrer" content="no-referrer">` gönderir (`web/templates/layout/base.templ`).
+- Kapı bağı isteğin URL'sinden **siler**; handler onu göremez, yönlendirme hedefi taşıyamaz. Her bağlı
+  rotada `Location`'da `tb` yok (`TestFormBinding_NoRedirectCarriesTheBinding`).
+- **Sayfayla cevap veren POST'lar** (doğrulama hatasında yeniden çizilen form, inceleme/onay adımları,
+  bir kez gösterilen anahtar/link ekranı) adres çubuğunda ve geçmişte `?tb=…`'yi bırakır. **Kabul
+  edildi** (kullanıcı kararı 2026-10-26, ADR 0031 §5.5 not 2): bağ o oturumun ham çerezi olmadan ne
+  üretilebilir ne de tek başına oynatılabilir. PRG yönlendirmeyle biten her yazmada geçerli (yukarıdaki test).
+- **Ingress erişim log'u panel yollarında KAPALI** (kullanıcı kararı 2026-10-26, ADR 0031 §5.5 not 3).
+  Ölçüm (yalnız repodan, 2026-10-23): `ingress-nginx` ConfigMap'i boş (`deploy/k8s/40-ingress.yaml`'ın
+  ölçüm notu), yani denetleyicinin erişim log'u açık ve varsayılan `log-format-upstream` `"$request"`'i
+  — sorgu dahil tam istek satırını — yazar; ADR 0020 de *"Ingress erişim log'u URL'yi yazar"* der.
+  Değişiklik: `40-ingress.yaml`'a üçüncü Ingress **`tappa-panel`** — host `taptime.mt`, tek yol `/admin`
+  (Prefix; panel çerezinin `Path`'i), TLS/sınıf/backend/etiketler ve notlar `tappa`'nınkiyle aynı,
+  artı `nginx.ingress.kubernetes.io/enable-access-log: "false"`; cert-manager issuer notu yalnız
+  `tappa`'da (tek sır `taptime-tls`, tek Certificate — 41'in konsol/legal çiftinin kuralı). `tappa`
+  `/`'yi yönlendirmeye devam eder; ingress-nginx en uzun öneki seçtiği için `/admin` ve altı **yalnız**
+  `tappa-panel`'e gider. Bedel: panel istekleri ingress erişim log'unda görünmez (süreç log'u rota
+  desenini yazmaya devam eder). Pin: `TestPackaging_ThePanelPathsAreRoutedWithoutAnAccessLog`.
+  **Kabul edilen bedel:** not yalnız erişim log'unu kapatır; denetleyicinin **hata** log'u, nginx'in
+  kendisinin düşürdüğü bir panel isteğinde (1m'yi aşan logo gövdesinin 413'ü, upstream bağlantı hatası,
+  zaman aşımı) istek satırını sorgusuyla yazmaya devam eder — gerekçe kararın 2. maddesiyle aynı (bağ ham
+  çerez olmadan işe yaramaz; ADR 0031 §5.5 not 3). Yapılandırma değişmez.
+  Deploy aynı `kubectl apply -f deploy/k8s/40-ingress.yaml` adımıyla uygular (RBAC'ta `create` var).
+
+  **Doğrulama (deploy'dan sonra, küme yöneticisi, salt-okur).** Önce iki nesne, yolları ve log notu;
+  beklenen `tappa` için `/` ve `<none>`, `tappa-panel` için `/admin` ve `false`:
+
+  ```bash
+  kubectl -n tappa get ingress tappa tappa-panel \
+    -o custom-columns='NAME:.metadata.name,PATHS:.spec.rules[*].http.paths[*].path,ACCESSLOG:.metadata.annotations.nginx\.ingress\.kubernetes\.io/enable-access-log'
+  ```
+
+  Sonra panelde bir sayfa açıp bir form gönderdikten sonra, denetleyicinin log'unda panel satırı
+  sayısı — yalnız sayı basar; denetleyici bir DaemonSet ise `deploy/` yerine `ds/`. Beklenen `0` ve `0`
+  (öteki yollar, ör. ` /t?`, log'da görünmeye devam eder). ⚠️ İki sayı hata satırlarını da sayar
+  (`logs` erişim ve hata log'unu birlikte basar): `0` yalnız o pencerede panel isteklerinde nginx hatası
+  olmadıysa beklenir; `> 0` görülürse önce o satırların hata satırı olup olmadığına bakılır:
+
+  ```bash
+  kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --since=10m | grep -c ' /admin'
+  kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --since=10m | grep -c 'tb='
+  ```
 
 ---
 
@@ -3982,6 +4342,217 @@ satırı birlikte değiştiren pin `cmd/tappa/deployregistry_test.go`'dadır
 sınır 18'in kalan yarısını (eski etiketlerin herkese açık olması) kapatır. İkisi aynı kararın iki
 yüzü: OPS-2 yeterince koştuktan sonra verilir, önce gerekirse son OPS-2 öncesi imaj yukarıdaki gibi
 Harbor'a taşınır.
+
+---
+
+## M14-02 — admin identity starting counts (ölçüldü 2026-10-22)
+
+ADR 0031'in (tek kimlik, çok işletme) backfill'i (§5.8) ve contract ön koşulu (*"tek aktif owner'ı
+bağlanmamış tenant = 0"*, K-3, plan M14-20a) **hangi sayılardan başladığını** bilmek için canlı
+veritabanında bir kez koşturuldu.
+
+**Neye yeniden kullanılır, neye kullanılmaz.** Bu sorgu yalnız **M14-06'dan (backfill) önce** yeniden
+koşturulup bu tabloyla karşılaştırılır. `05f`, `05h` ve `08*` backfill'i **taklit eder** (`pick` /
+`linked` CTE'leri: en eski aktif, yoksa en eski); `identity_id`, `unlinked_at`, M14-18'in bağlarını ya
+da uzlaştırmayı (M14-06b) **hiç okumaz** — kişi o işletmeye bağlandıktan sonra da `05f` yine 1 basar.
+M14-19 ve M14-20a ön kontrolleri gerçek bağı **ayrı bir sorguyla** ölçer (bağlı = `identity_id IS NOT
+NULL AND unlinked_at IS NULL`; reddedilmiş — `unlinked_at` damgalı — satırların tenant'ları ayrı
+sayılır, ADR 0031 §5.12, plan M14-20a). `05f` yalnız backfill öncesi bir simülasyondur.
+
+**Contract ön koşulunun başlangıç değeri `05f` = 1'dir.** Kartın lafzı (*"tek aktif owner'ı bir
+çok-satırlı grupta olan tenant"*) `05e` = 2'yi verir; o kullanılmadı, çünkü backfill çok satırlı
+grubun bir satırını zaten bağlar — o grubun tenant'larından biri bağlı başlar.
+
+**Kim koşturur.** Kullanıcı / orkestratör koşturur; 2026-10-22 ölçümü kullanıcı yetkisiyle,
+salt-okur yapıldı (*"ajan `kubectl` koşmaz"* kuralına bu kart için kullanıcı izni).
+
+**Yalnız sayı.** Sorgunun döndürdüğü her satır sabit bir etiket ve bir sayıdır: e-posta, ad, `id`,
+tenant adı, token ya da digest veritabanından çıkmaz; ne ekrana, ne bu belgeye, ne log'a yazılır
+(CLAUDE.md §7). **Parolaların aynı olup olmadığı ölçülemez:** `password_hash` tuzlu bcrypt'tir, aynı
+parolanın iki digest'i farklıdır — `08k` yalnız *bayt-aynı* digest'i (bir satırdan ötekine
+kopyalanmış) sayar, parola eşitliğini değil.
+
+**Erişim (sır yok).** Tailnet'ten, `tappa_owner` ile (canlı kümede superuser — FORCE RLS satır
+gizlemez; şema sorgusuyla ölçüldü: `rolsuper = t`, `rolbypassrls = t`), SQL **stdin'den dosyayla**,
+`READ ONLY` transaction, sonunda `ROLLBACK`:
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -U tappa_owner -d tappa -v ON_ERROR_STOP=1 -At' \
+    < m14-02-measure.sql
+```
+
+Ölçüm anında şema: goose sürümü **64**; `admin_sessions`'ta `expires_at` **yok** (`id, tenant_id,
+admin_user_id, token_hash, created_at, last_used_at, revoked_at`) — sunucu tarafında oturumu bitiren
+yalnız `revoked_at` ve yöneticinin `status`'üdür (`internal/adminauth/cookie.go` 12 saatlik
+`Max-Age` yalnız ipucu). `admin_users_tenant_email_key` = `UNIQUE (tenant_id, email) WHERE email IS
+NOT NULL` (citext) → aynı kişinin aynı tenant'ta iki satırı **yapısal olarak imkânsız**; `02g` bunu
+ayrıca sayar. `admin_users_password_hash_is_bcrypt` canlıda `NOT VALID` (00018'in kararı) — `08j`
+eski satırların kalıba uyup uymadığını sayar, çünkü `admin_identities.password_hash` aynı CHECK'i
+taşıyacak ve backfill seçilen satırın digest'ini kopyalayacak.
+
+**Gruplama anahtarı backfill'inkiyle bire bir değil.** Sorgu `NULLIF(btrim(lower(email)), '')` ile
+gruplar; backfill (`00073`) citext eşitliğiyle ve yalnız dolu e-postayla (`email IS NOT NULL AND
+btrim(email) <> ''`) gruplar — boş ya da yalnız boşluktan oluşan adresi ikisi de dışarıda bırakır. İkisi
+artık yalnız baş-son boşluklu adreslerde ayrışır (sorgu kırpar, backfill kırpmaz): **`01d` ≠ 0 ise
+`08a` / `05f` backfill'le uyuşmaz.** 2026-10-22'de 0'dı, yani aşağıdaki sayılar backfill'in
+göreceğiyle aynıdır. (Kaydedilen sayılar bu SQL'in çıktısı olduğu için SQL değiştirilmedi.)
+
+`m14-02-measure.sql` (metnin tamamı):
+
+```sql
+-- M14-02: admin identity starting counts. Aggregates only: every row returned is a
+-- constant label and a count. No e-mail, name, id, tenant name, token or digest leaves
+-- the database. tappa_owner is a superuser on the live cluster, so FORCE RLS does not
+-- hide rows. READ ONLY transaction, rolled back.
+BEGIN TRANSACTION READ ONLY;
+
+WITH r AS (
+  SELECT a.id, a.tenant_id, a.role, a.status, a.created_at, a.password_hash,
+         NULLIF(btrim(lower(a.email::text)), '') AS k,
+         a.email IS NULL                                            AS email_null,
+         a.email IS NOT NULL AND btrim(a.email::text) = ''          AS email_blank,
+         a.email IS NOT NULL AND a.email::text <> btrim(a.email::text) AS email_padded,
+         a.password_hash ~ '^\$2[aby]\$(0[4-9]|1[0-4])\$[./A-Za-z0-9]{53}$' AS bcrypt_ok
+    FROM admin_users a
+),
+g AS (                                    -- one row per filled e-mail group
+  SELECT k, count(*) AS n, count(DISTINCT tenant_id) AS nt,
+         count(*) FILTER (WHERE status = 'active') AS nactive,
+         count(DISTINCT password_hash) AS ndigest,
+         count(DISTINCT email_raw) AS nspell
+    FROM (SELECT r.*, a.email::text AS email_raw FROM r JOIN admin_users a ON a.id = r.id) x
+   WHERE k IS NOT NULL
+   GROUP BY k
+),
+pick AS (                                 -- ADR 0031 §5.8: oldest active, else oldest
+  SELECT r.*, g.n,
+         row_number() OVER (PARTITION BY r.k
+                            ORDER BY (r.status = 'active') DESC, r.created_at, r.tenant_id, r.id) = 1
+           AS picked
+    FROM r JOIN g USING (k)
+),
+linked AS (                               -- row would be linked by the backfill
+  SELECT id FROM pick WHERE picked
+),
+ao AS (                                   -- active owners, with backfill fate
+  SELECT r.tenant_id, r.k, (r.id IN (SELECT id FROM linked)) AS will_link,
+         coalesce(g.n, 0) AS group_n
+    FROM r LEFT JOIN g USING (k)
+   WHERE r.role = 'owner' AND r.status = 'active'
+),
+t AS (
+  SELECT tn.id,
+         (SELECT count(*) FROM admin_users a WHERE a.tenant_id = tn.id) AS nrows,
+         (SELECT count(*) FROM ao WHERE ao.tenant_id = tn.id) AS nao,
+         (SELECT count(*) FROM ao WHERE ao.tenant_id = tn.id AND ao.will_link) AS nao_linked,
+         (SELECT count(*) FROM ao WHERE ao.tenant_id = tn.id AND ao.group_n > 1) AS nao_multi,
+         (SELECT count(*) FROM ao WHERE ao.tenant_id = tn.id AND ao.k IS NULL) AS nao_noemail
+    FROM tenants tn
+),
+s AS (
+  SELECT s.*, a.status AS admin_status
+    FROM admin_sessions s JOIN admin_users a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+)
+SELECT label, value FROM (VALUES
+ -- 6. totals
+ ('06a tenants_total',                       (SELECT count(*) FROM tenants)),
+ ('06b admin_users_total',                   (SELECT count(*) FROM r)),
+ -- 1. e-mail presence
+ ('01a rows_email_filled',                   (SELECT count(*) FROM r WHERE k IS NOT NULL)),
+ ('01b rows_email_null',                     (SELECT count(*) FROM r WHERE email_null)),
+ ('01c rows_email_blank_string',             (SELECT count(*) FROM r WHERE email_blank)),
+ ('01d rows_email_with_outer_whitespace',    (SELECT count(*) FROM r WHERE email_padded)),
+ -- 2. group sizes over lower(email)
+ ('02a groups_total',                        (SELECT count(*) FROM g)),
+ ('02b groups_size_1',                       (SELECT count(*) FROM g WHERE n = 1)),
+ ('02c groups_size_2',                       (SELECT count(*) FROM g WHERE n = 2)),
+ ('02d groups_size_3plus',                   (SELECT count(*) FROM g WHERE n >= 3)),
+ ('02e rows_in_multirow_groups',             (SELECT coalesce(sum(n), 0) FROM g WHERE n > 1)),
+ ('02f max_group_size',                      (SELECT coalesce(max(n), 0) FROM g)),
+ ('02g groups_with_rows_sharing_a_tenant',   (SELECT count(*) FROM g WHERE nt < n)),
+ ('02h groups_with_case_variant_spellings',  (SELECT count(*) FROM g WHERE nspell > 1)),
+ -- 3. status x role
+ ('03a rows_active_owner',                   (SELECT count(*) FROM r WHERE status = 'active'   AND role = 'owner')),
+ ('03b rows_active_manager',                 (SELECT count(*) FROM r WHERE status = 'active'   AND role = 'manager')),
+ ('03c rows_disabled_owner',                 (SELECT count(*) FROM r WHERE status = 'disabled' AND role = 'owner')),
+ ('03d rows_disabled_manager',               (SELECT count(*) FROM r WHERE status = 'disabled' AND role = 'manager')),
+ ('03e rows_disabled_in_multirow_groups',    (SELECT count(*) FROM pick WHERE n > 1 AND status = 'disabled')),
+ -- 4. panel sessions (admin_sessions has no expires_at: server-side, "live" = not revoked)
+ ('04a sessions_total',                      (SELECT count(*) FROM s)),
+ ('04b sessions_not_revoked',                (SELECT count(*) FROM s WHERE revoked_at IS NULL)),
+ ('04c sessions_not_revoked_admin_active',   (SELECT count(*) FROM s WHERE revoked_at IS NULL AND admin_status = 'active')),
+ ('04d sessions_live_used_within_12h',       (SELECT count(*) FROM s WHERE revoked_at IS NULL AND admin_status = 'active'
+                                                AND coalesce(last_used_at, created_at) > now() - interval '12 hours')),
+ ('04e sessions_live_used_within_30d',       (SELECT count(*) FROM s WHERE revoked_at IS NULL AND admin_status = 'active'
+                                                AND coalesce(last_used_at, created_at) > now() - interval '30 days')),
+ ('04f admins_with_a_live_session',          (SELECT count(DISTINCT admin_user_id) FROM s WHERE revoked_at IS NULL AND admin_status = 'active')),
+ -- 5. tenants and their active owners
+ ('05a tenants_with_0_admin_rows',           (SELECT count(*) FROM t WHERE nrows = 0)),
+ ('05b tenants_with_0_active_owners',        (SELECT count(*) FROM t WHERE nao = 0)),
+ ('05c tenants_with_1_active_owner',         (SELECT count(*) FROM t WHERE nao = 1)),
+ ('05d tenants_with_2plus_active_owners',    (SELECT count(*) FROM t WHERE nao > 1)),
+ ('05e only_owner_in_multirow_group',        (SELECT count(*) FROM t WHERE nao = 1 AND nao_multi = 1)),
+ ('05f only_owner_not_linked_by_backfill',   (SELECT count(*) FROM t WHERE nao = 1 AND nao_linked = 0)),
+ ('05g   of_which_owner_has_no_email',       (SELECT count(*) FROM t WHERE nao = 1 AND nao_linked = 0 AND nao_noemail = 1)),
+ ('05h tenants_with_owners_none_linked',     (SELECT count(*) FROM t WHERE nao >= 1 AND nao_linked = 0)),
+ -- backfill starting values (ADR 0031 §5.8)
+ ('08a backfill_identities_to_create',       (SELECT count(*) FROM g)),
+ ('08b backfill_rows_left_unlinked_w_email', (SELECT count(*) FROM pick WHERE NOT picked)),
+ ('08c   of_which_active',                   (SELECT count(*) FROM pick WHERE NOT picked AND status = 'active')),
+ ('08d   of_which_active_owner',             (SELECT count(*) FROM pick WHERE NOT picked AND status = 'active' AND role = 'owner')),
+ ('08e groups_with_2plus_active_rows',       (SELECT count(*) FROM g WHERE nactive > 1)),
+ ('08f groups_with_0_active_rows',           (SELECT count(*) FROM g WHERE nactive = 0)),
+ ('08g multirow_groups_picked_row_is_owner', (SELECT count(*) FROM pick WHERE picked AND n > 1 AND role = 'owner')),
+ ('08h multirow_groups_picked_row_is_mgr',   (SELECT count(*) FROM pick WHERE picked AND n > 1 AND role = 'manager')),
+ ('08i picked_rows_failing_bcrypt_check',    (SELECT count(*) FROM pick WHERE picked AND NOT bcrypt_ok)),
+ ('08j all_rows_failing_bcrypt_check',       (SELECT count(*) FROM r WHERE NOT bcrypt_ok)),
+ ('08k multirow_groups_one_identical_digest',(SELECT count(*) FROM g WHERE n > 1 AND ndigest = 1))
+) v(label, value)
+ORDER BY label;
+
+ROLLBACK;
+```
+
+**Sonuçlar — 2026-10-22, canlı (`hetzner-k8s-1`, goose 64):**
+
+| Etiket | Anlamı | Sayı |
+|---|---|---|
+| `06a` | tenant | **4** |
+| `06b` | `admin_users` satırı | **4** |
+| `01a` | dolu e-postalı satır | **4** |
+| `01b` / `01c` / `01d` | e-postasız (`NULL`) / boş dize / baş-son boşluklu | 0 / 0 / 0 |
+| `02a` | `lower(email)` grubu (= backfill'in yaratacağı kimlik, `08a`) | **3** |
+| `02b` / `02c` / `02d` | tam 1 / tam 2 / 3+ satırlı grup | **2 / 1 / 0** |
+| `02e` / `02f` | çok satırlı gruplardaki satır / en büyük grup | 2 / 2 |
+| `02g` | aynı tenant'ta iki satırı olan grup | 0 |
+| `02h` | yalnız harf farkıyla yazılmış grup | 0 |
+| `03a` / `03b` | aktif owner / aktif manager | **4** / 0 |
+| `03c` / `03d` / `03e` | `disabled` owner / `disabled` manager / çok satırlı grupta `disabled` | 0 / 0 / 0 |
+| `04a` | `admin_sessions` satırı (hepsi) | 52 |
+| `04b` / `04c` | iptal edilmemiş / iptal edilmemiş ve yöneticisi aktif (= sunucuya göre canlı) | **40** / **40** |
+| `04d` / `04e` | canlı ve son 12 saatte / son 30 günde kullanılmış | 1 / 33 |
+| `04f` | canlı oturumu olan yönetici | 3 |
+| `05a` / `05b` | hiç yöneticisi olmayan / aktif owner'ı 0 olan tenant | 0 / 0 |
+| `05c` / `05d` | tam 1 / 2+ aktif owner'lı tenant | 4 / 0 |
+| `05e` | tek aktif owner'ı çok satırlı bir grupta olan tenant | **2** |
+| `05f` | tek aktif owner'ı backfill'de **bağlanmayacak** tenant (contract ön koşulunun başlangıç değeri) | **1** |
+| `05g` | `05f`'nin e-postasız owner yüzünden olanı | 0 |
+| `05h` | aktif owner'ı var, hiçbiri bağlanmayacak tenant | 1 |
+| `08a` | backfill'in yaratacağı kimlik | 3 |
+| `08b` / `08c` / `08d` | e-postalı ama bağlanmayacak satır / bunun aktifi / aktif owner'ı | 1 / 1 / 1 |
+| `08e` / `08f` | 2+ aktif satırlı grup / hiç aktif satırı olmayan grup (en eskiye düşer) | 1 / 0 |
+| `08g` / `08h` | çok satırlı grupta seçilen satır owner / manager | 1 / 0 |
+| `08i` / `08j` | bcrypt kalıbına uymayan seçilen satır / bütün satırlar | 0 / 0 |
+| `08k` | bayt-aynı tek digest'li çok satırlı grup | 0 |
+
+**Okuma.** Canlıda tek bir kişi iki işletmenin aktif owner'ıdır (bir grup, iki tenant, iki aktif
+owner satırı, digest'leri farklı). Backfill o grubun en eski aktif satırını bağlar; öbür tenant'ın
+**tek** aktif owner'ı bağlanmamış kalır → contract ön koşulu **1**'den başlar ve kişinin o işletmeye
+bir kez kimlik yoluyla bağlanmasıyla (M14-18) 0'a iner. Öbür iki tenant'ın owner'ı tek satırlı
+grupta, backfill'le bağlanır. Aktif owner'ı olmayan, e-postasız, `disabled` ya da bcrypt kalıbına
+uymayan satır yok. `internal/adminauth/resetrequest.go:52`'nin *"1 675"* adresi (birden çok satıra
+çözülen) geliştirme veritabanının sayısıdır; canlıda bu sayı **1**'dir (`02c` + `02d`), en büyük grup 2.
 
 ---
 

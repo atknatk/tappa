@@ -73,6 +73,7 @@ func newAdminRouterWithPlaques(t *testing.T, admins *fakeAdmins, venues panelVen
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	return r
 }
 

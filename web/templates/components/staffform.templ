@@ -81,7 +81,7 @@ templ RosterAdd(v RosterAddView) {
 templ StaffForm(v StaffFormView) {
 	<div class="flex flex-col gap-7 desk:flex-row desk:items-start">
 		<section class="panel-card min-w-0 desk:flex-[999_1_520px]" aria-label="Add somebody to this business">
-			<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-[18px]">
+			<form method="post" action={ templ.URL(Bound(ctx, v.Action)) } class="flex flex-col gap-[18px]">
 				@hiddenFields(v.Hidden)
 				<div class="field-stack">
 					<label class="lbl" for="add-full-name">Name</label>

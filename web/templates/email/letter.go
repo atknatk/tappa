@@ -79,6 +79,60 @@ func invitationLetter(employeeName, tenantName string, verified bool, life strin
 	}
 }
 
+// verificationLetter is the identity's e-mail verification (M14-18). It names nobody, and it says the
+// one thing that decides whether the press works: the link must be opened in a browser where the
+// reader is signed in to Taptime (identity_verify_email wants that browser's session -- R2), and
+// nothing is confirmed until they press the button on the page it opens.
+func verificationLetter(life string) letter {
+	return letter{
+		subject: subjectEmailVerification,
+		heading: "Confirm your email address",
+		before: []string{
+			greetingWithoutName,
+			"Someone signed in to Taptime asked to confirm that this email address belongs to them. " +
+				"If it was you, open the link below in the browser where you are signed in to Taptime, " +
+				"then press the button on the page it opens.",
+		},
+		action: "Confirm my email address",
+		after: []string{
+			"The link works once and stays valid for " + life + ". Opening it confirms nothing " +
+				"until you press the button.",
+		},
+		closing: "If you did not ask for this, you can ignore this email — nothing changes unless the link is used.",
+	}
+}
+
+// adminInvitationLetter is the manager invitation (M14-15). The business is named only for a VIES-
+// verified business through nameShown (invitationLetter's rule); no person is named. It says what the
+// link does on both sides of R18 -- a person with a Taptime sign-in signs in and accepts, a new one
+// chooses a password -- without knowing which the reader is, and it promises nothing the page does not
+// do: accepting gives no session (the reader signs in afterwards).
+func adminInvitationLetter(tenantName string, verified bool, life string) letter {
+	business := "A business"
+	if verified {
+		if n, ok := nameShown(tenantName); ok {
+			business = n
+		}
+	}
+	return letter{
+		subject: subjectAdminInvitation,
+		heading: "You're invited to manage a business",
+		before: []string{
+			greetingWithoutName,
+			business + " has invited you to Taptime as a manager, so you can review time records, " +
+				"approve flagged check-ins and run reports in its panel.",
+		},
+		action: "Accept the invitation",
+		after: []string{
+			"If you already sign in to Taptime with this email address, sign in first and then open the " +
+				"link to accept. If you are new to Taptime, open the link and choose a password.",
+			"The link is yours alone and works once. It stays valid for " + life +
+				" — after that, ask whoever invited you for a new one.",
+		},
+		closing: "If you did not expect this, you can ignore this email — nothing happens unless the link is used.",
+	}
+}
+
 // resetLetter is the password reset. It names nobody (ResetView says why) and
 // repeats what the reset page itself promises: nothing changes until the link is
 // used, and using it signs every device out.
@@ -89,15 +143,20 @@ func invitationLetter(employeeName, tenantName string, verified bool, life strin
 // The recovery page says the same (web/templates/pages/adminreset.templ);
 // TestReset_AskingAgainSaysWhatTheFlowDoes pins this sentence and internal/handler's
 // TestAdminReset_TheSentPageSaysWhatAskingAgainDoes the page's.
-func resetLetter(life string) letter {
+//
+// everyBusiness (M14-14) is the per-identity link: one password for every business the person signs
+// in to with this address, so the opening sentence says that instead -- still naming no business.
+func resetLetter(life string, everyBusiness bool) letter {
+	opening := "Someone asked to reset the password of a Taptime administrator account that uses " +
+		"this email address. If it was you, use the link below."
+	if everyBusiness {
+		opening = resetEveryBusiness
+	}
 	return letter{
 		subject: subjectReset,
 		heading: "Reset your password",
-		before: []string{
-			"Someone asked to reset the password of a Taptime administrator account that uses " +
-				"this email address. If it was you, use the link below.",
-		},
-		action: "Set a new password",
+		before:  []string{opening},
+		action:  "Set a new password",
 		after: []string{
 			"The link works once and stays valid for " + life + ". " + resetAskAgain,
 			"Nothing has changed yet: your current password keeps working until you use the " +
@@ -113,6 +172,20 @@ func resetLetter(life string) letter {
 // a link that arrived late still works only as long as the e-mail itself states.
 const resetAskAgain = "Asking again sends no new link while this one still works."
 
+// resetEveryBusiness opens the per-identity reset e-mail (M14-14): the one link sets the password of the
+// sign-in -- every business LINKED to it, which is what identity_consume_reset writes. Not "every
+// business you manage": an account of the same address that is not linked keeps its own password and
+// sessions and gets its own, per-account e-mail (M14-14's third-eye audit).
+const resetEveryBusiness = "Someone asked to reset the password of your Taptime sign-in that uses this email " +
+	"address. The new password will work for every business this sign-in is linked to. If it was you, use " +
+	"the link below."
+
+// changedEveryBusiness opens the per-identity notice (M14-14, EM-9): one notice for the sign-in, true for
+// exactly the businesses identity_consume_reset wrote and signed out.
+const changedEveryBusiness = "The password of your Taptime sign-in that uses this email address was just " +
+	"changed for every business this sign-in is linked to, and every device signed in to those businesses " +
+	"was signed out."
+
 // passwordChangedLetter is the "your password was changed" notice (M10 EM-9). It
 // takes NO argument, so its words are the same for every account: it names nobody
 // (PasswordChangedView says why) and it carries no instant, no device and no
@@ -123,21 +196,76 @@ const resetAskAgain = "Asking again sends no new link while this one still works
 // session but the one that made it, so "any other device ... was signed out" holds
 // for both. The advice names the sign-in page's forgotten-password link by what it
 // does rather than by its label, so a relabelled link does not make the e-mail wrong.
-func passwordChangedLetter() letter {
+//
+// everyBusiness (M14-14) is the person's notice after a per-identity reset: the same e-mail but for its
+// opening, which says the change holds for every business -- the person gets ONE notice, not one per
+// business.
+func passwordChangedLetter(everyBusiness bool) letter {
+	opening := "The password of a Taptime administrator account that uses this email address was just " +
+		"changed, and any other device signed in to that account was signed out."
+	if everyBusiness {
+		opening = changedEveryBusiness
+	}
 	return letter{
 		subject: subjectPasswordChanged,
 		heading: "Your password was changed",
-		before: []string{
-			"The password of a Taptime administrator account that uses this email address was just " +
-				"changed, and any other device signed in to that account was signed out.",
-		},
-		action: "Go to the sign-in page",
+		before:  []string{opening},
+		action:  "Go to the sign-in page",
 		after: []string{
 			"If you made this change, there is nothing more to do.",
 			"If you did not, someone else may have your password. Open the sign-in page and use its " +
 				"forgotten-password link to set a new one straight away.",
 		},
 		closing: "This email is only a notice. Its one link opens the sign-in page and changes nothing.",
+	}
+}
+
+// signupVerifyLetter is the registration verification for an address with no Taptime sign-in (M14-17,
+// ADR 0031 §5.10): nothing exists until the link is used, and using it asks again for the password the
+// form chose -- so a click by somebody who did not choose it creates nothing (R2). It names nobody
+// (SignupView says why).
+func signupVerifyLetter(life string) letter {
+	return letter{
+		subject: subjectSignupVerify,
+		heading: "Confirm your registration",
+		before: []string{
+			"Someone started registering a business with Taptime using this email address. If it was " +
+				"you, use the link below to finish: you will be asked for the password you chose.",
+		},
+		action: "Finish registering",
+		after: []string{
+			"The link works once and stays valid for " + life + ". Nothing has been created yet, and " +
+				"nothing will be until the link is used.",
+			"Once it is done, you sign in with this email address and the password you chose.",
+		},
+		closing: "If you did not start a registration, you can ignore this email — nothing will be created.",
+	}
+}
+
+// signupKnownLetter is the registration letter for an address that already has a Taptime sign-in (M14-17,
+// ADR 0031 §5.14's "var olan adresle kayıt"): the new business is added to that sign-in only by its
+// owner, proven with their own password -- signed in in the browser that opens the link (R18) or, when
+// the sign-in has no active business left and cannot sign in, by typing that password on the link's page
+// (M14-17b, the user's decision of 2026-10-27). ONE letter for both (R18: the letter is chosen by "the
+// address has a sign-in" alone, never by its businesses), so it names both ways. It names nobody, and it
+// says nothing about the person's other businesses.
+func signupKnownLetter(life string) letter {
+	return letter{
+		subject: subjectSignupKnown,
+		heading: "A registration used your address",
+		before: []string{
+			"Someone started registering a new business with Taptime using this email address, which " +
+				"already has a Taptime sign-in. If it was you, open the link below to add the new business " +
+				"to your sign-in: it asks for your usual Taptime password, either by signing in first in the " +
+				"same browser or by typing it on the page the link opens.",
+		},
+		action: "Add the business",
+		after: []string{
+			"The link works once and stays valid for " + life + ". Nothing has been created yet, and " +
+				"nothing about your sign-in changes until the link is used.",
+			"Signing in does not add the business by itself: only the link, confirmed with your password, does.",
+		},
+		closing: "If you did not start this, you can ignore this email — your sign-in stays as it is.",
 	}
 }
 

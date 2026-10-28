@@ -79,14 +79,21 @@ func randAdminEmail(t *testing.T) string {
 
 // newAdminSession issues a session through the real query and returns its id plus
 // the token hash it was stored under (a random string: no token exists anywhere).
+// The verified digest is the row's CURRENT one (read in the same transaction), as a
+// password that verified a moment ago would have it.
 func newAdminSession(t *testing.T, d *DB, tenantID, adminID uuid.UUID) (uuid.UUID, string) {
 	t.Helper()
 	tokenHash := "admin-" + uuid.NewString()
 	var row store.CreateAdminSessionRow
 	if err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		var e error
-		row, e = store.New(tx).CreateAdminSession(ctx, store.CreateAdminSessionParams{
+		q := store.New(tx)
+		cur, e := q.GetAdminPasswordHashByID(ctx, store.GetAdminPasswordHashByIDParams{ID: adminID, TenantID: tenantID})
+		if e != nil {
+			return e
+		}
+		row, e = q.CreateAdminSession(ctx, store.CreateAdminSessionParams{
 			TenantID: tenantID, AdminUserID: adminID, TokenHash: tokenHash,
+			VerifiedDigest: cur.PasswordHash,
 		})
 		return e
 	}); err != nil {
@@ -386,10 +393,12 @@ func TestResolveAdmin_SecurityDefinerProperties(t *testing.T) {
 		wantResult string
 	}{
 		{
-			name:       "resolve_admin_by_email",
-			signature:  "resolve_admin_by_email(citext)",
-			wantArgs:   "p_email citext",
-			wantResult: "TABLE(id uuid, tenant_id uuid, password_hash text, status text)",
+			name:      "resolve_admin_by_email",
+			signature: "resolve_admin_by_email(citext)",
+			wantArgs:  "p_email citext",
+			// 00072 (M14-05, ADR 0031 §5.2 T2): identity_id joined the surface -- md.7 (iii)'s
+			// widening, written with its reason in the ADR; the old binary selects by name.
+			wantResult: "TABLE(id uuid, tenant_id uuid, password_hash text, status text, identity_id uuid)",
 		},
 		{
 			name:       "resolve_admin_session_by_token_hash",
@@ -766,6 +775,8 @@ func TestCreateAdminSession_RefusesDisabledAdmin(t *testing.T) {
 	if err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, queryErr = store.New(tx).CreateAdminSession(ctx, store.CreateAdminSessionParams{
 			TenantID: tenantID, AdminUserID: disabled, TokenHash: tokenHash,
+			// The row's own digest, so the refusal below is the status test alone.
+			VerifiedDigest: fixtures.UnusablePasswordHash,
 		})
 		return nil // deliberately NOT propagated: the transaction commits
 	}); err != nil {
@@ -798,6 +809,7 @@ func TestCreateAdminSession_RefusesForeignAdmin(t *testing.T) {
 	err := d.WithTenant(context.Background(), tenantB, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := store.New(tx).CreateAdminSession(ctx, store.CreateAdminSessionParams{
 			TenantID: tenantB, AdminUserID: adminA, TokenHash: "admin-" + uuid.NewString(),
+			VerifiedDigest: fixtures.UnusablePasswordHash,
 		})
 		return e
 	})
@@ -840,6 +852,7 @@ func TestResolvedAdmin_ZeroValueFailsClosed(t *testing.T) {
 	err := d.WithTenant(context.Background(), tenantA, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := store.New(tx).CreateAdminSession(ctx, store.CreateAdminSessionParams{
 			TenantID: tenantA, AdminUserID: zero.ID, TokenHash: "admin-" + uuid.NewString(),
+			VerifiedDigest: zero.PasswordHash.RevealForPasswordComparison(),
 		})
 		return e
 	})
@@ -854,6 +867,7 @@ func TestResolvedAdmin_ZeroValueFailsClosed(t *testing.T) {
 	err = d.WithTenant(context.Background(), tenantA, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := store.New(tx).CreateAdminSession(ctx, store.CreateAdminSessionParams{
 			TenantID: zero.TenantID, AdminUserID: zero.ID, TokenHash: "admin-" + uuid.NewString(),
+			VerifiedDigest: zero.PasswordHash.RevealForPasswordComparison(),
 		})
 		return e
 	})

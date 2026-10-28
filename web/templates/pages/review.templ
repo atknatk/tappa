@@ -132,7 +132,7 @@ templ AdminReview(v ReviewView) {
 					</section>
 					<section aria-label="The record being decided" class="flex min-w-0 flex-col gap-[18px] desk:grow-[999] desk:basis-[520px]">
 						@reviewPager(v.Pager)
-						<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-[18px]">
+						<form method="post" action={ templ.URL(components.Bound(ctx, v.Action)) } class="flex flex-col gap-[18px]">
 							<input type="hidden" name="id" value={ v.FocusID }/>
 							@components.SpikeDocket(v.Focus) {
 								<div class="field-stack">

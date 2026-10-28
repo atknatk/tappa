@@ -485,6 +485,36 @@
   .side-coline {
     @apply font-mono text-[10px] uppercase tracking-widest text-ink/70 md:text-paper/70;
   }
+  /* The business block (M14-12, pages.panelBusiness): the business's name and, while the
+     identity flag is on, "Switch business". Phone: a row of the porcelain top bar, the name
+     wrapping at the left, the link at the right. Tablet rail: the name SHOWN in the rail tabs'
+     10px type, centred in the 72px column, at most three lines (the rest is cut visually, still
+     read in full) -- an unbranded rail has no initial or logo, so hiding the name there would
+     leave the business unnamed at that width (M14-12 review); the link a 72px rail tile like a
+     section link. Sidebar: the name under the lockup, the link under the name.
+     CONTRAST, measured: ink on porcelain 14.32:1 (name and link on the phone); paper on ink
+     16.2:1 (rail and sidebar). The tenant accent reaches none of it (ADR 0023 §2). The link's
+     44px is held by panelTouchTargets. */
+  .side-biz {
+    @apply flex items-center justify-between gap-3 px-4 pb-2
+           md:flex-col md:items-center md:gap-1 md:px-2 md:pb-0
+           desk:items-stretch desk:gap-0 desk:px-7;
+  }
+  .side-biz-name {
+    @apply min-w-0 flex-1 break-words font-display text-sm font-bold leading-tight tracking-tight
+           text-ink md:line-clamp-3 md:w-[72px] md:flex-none md:text-center md:text-[10px]
+           md:text-paper desk:line-clamp-none desk:w-auto desk:text-left desk:text-base;
+  }
+  .side-switch {
+    @apply inline-flex min-h-11 shrink-0 items-center font-display text-sm font-medium text-ink
+           underline underline-offset-4 hover:text-tappa-green
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-ink
+           md:w-[72px] md:justify-center md:rounded-[14px] md:text-center md:text-[10px]
+           md:leading-tight md:text-paper md:no-underline md:hover:bg-paper/10 md:hover:text-paper
+           md:focus-visible:ring-paper
+           desk:w-auto desk:justify-start desk:rounded-none desk:text-left desk:text-sm
+           desk:underline desk:hover:bg-transparent;
+  }
   .side-nav {
     @apply hidden md:flex md:flex-1 md:flex-col md:items-center md:gap-1 md:px-2
            desk:items-stretch desk:gap-0.5 desk:px-4;
@@ -738,6 +768,11 @@
   .tally--frozen,
   .tally--vat-confirmed,
   .tally--tenant-active { @apply border-tappa-green bg-green-lite; }
+  /* M14-13 adds a business whose changes are paused (ADR 0031 K-10) to the waiting group: the
+     switch page marks a suspended business in the tone of the panel's own suspension strip
+     (a warning notice, saffron), not the operator's rejection tone -- the customer reads "you
+     can go in and read", not "refused". No ground is new. */
+  .tally--changes-paused,
   .tally--queued,
   .tally--invited,
   .tally--unencoded,

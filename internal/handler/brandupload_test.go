@@ -54,7 +54,7 @@ func rawUpload(t *testing.T, s *httptest.Server, contentType string, contentLeng
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	head := "POST " + brandLogoHref + " HTTP/1.1\r\n" +
+	head := "POST " + boundPath(s.Config.Handler, panelCookie().Value, brandLogoHref) + " HTTP/1.1\r\n" +
 		"Host: " + s.Listener.Addr().String() + "\r\n" +
 		"Origin: " + testBaseURL + "\r\n" +
 		"Cookie: " + adminauth.CookieName + "=" + panelCookie().Value + "\r\n" +
@@ -410,7 +410,7 @@ func TestBrandUpload_ABodyOverTheCapIsRefused(t *testing.T) {
 	// different refusal, unreadable) until the body cap stops the read.
 	body, ct := oneLogo(t, inkLogo(t))
 	big := append(bytes.Repeat([]byte("a preamble line\r\n"), brandUploadMaxBody/16+10), body...)
-	req, _ := http.NewRequest(http.MethodPost, s.URL+brandLogoHref, io.MultiReader(bytes.NewReader(big)))
+	req, _ := http.NewRequest(http.MethodPost, s.URL+boundPath(s.Config.Handler, panelCookie().Value, brandLogoHref), io.MultiReader(bytes.NewReader(big)))
 	req.ContentLength = -1
 	req.Header.Set("Content-Type", ct)
 	req.Header.Set("Origin", testBaseURL)
@@ -578,6 +578,7 @@ func TestBrandUpload_TheReadDeadlineReachesTheConnectionThroughTheRouter(t *test
 	p.h.brandUploadTimeout = 300 * time.Millisecond
 	s := httptest.NewServer(httpx.NewRouter(nil, slog.New(slog.DiscardHandler), p.h))
 	t.Cleanup(s.Close)
+	registerPanel(s.Config.Handler, p.h)
 	body, ct := oneLogo(t, inkLogo(t))
 	res, _ := upload(t, s, body, ct)
 	if got := outcomeOf(res); got != "logo-saved" {
@@ -596,7 +597,7 @@ func TestBrandUpload_TheReadDeadlineReachesTheConnectionThroughTheRouter(t *test
 func TestBrandUpload_WithoutAConnectionDeadlineNothingIsRead(t *testing.T) {
 	p := newBrandPanel(t, "owner", panelTestTenant)
 	body, ct := oneLogo(t, inkLogo(t))
-	req := httptest.NewRequest(http.MethodPost, brandLogoHref, bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, boundPath(p.router, panelCookie().Value, brandLogoHref), bytes.NewReader(body))
 	req.Header.Set("Content-Type", ct)
 	req.Header.Set("Origin", testBaseURL)
 	req.AddCookie(panelCookie())
@@ -775,7 +776,7 @@ func TestBrandUpload_ARefusalLogsItsClassAndNeverTheFile(t *testing.T) {
 // never read past its first byte.
 func gateTry(b *browser, contentLength int64) *httptest.ResponseRecorder {
 	b.t.Helper()
-	req := httptest.NewRequest(http.MethodPost, brandLogoHref, strings.NewReader("x"))
+	req := httptest.NewRequest(http.MethodPost, b.withBinding(http.MethodPost, brandLogoHref), strings.NewReader("x"))
 	req.ContentLength = contentLength
 	req.Header.Set("Content-Type", "multipart/form-data; boundary=x")
 	req.RemoteAddr = b.ip
@@ -958,9 +959,11 @@ func formReaderHits(fn *ast.FuncDecl, anyField bool) []string {
 var requestMethodsAllowed = map[string]bool{"Context": true, "MultipartReader": true}
 
 // requestCalleesAllowed are the calls outside this package the request itself may be
-// handed to: the panel's identity, and the gate's own next handler (brandLogoSave, a
-// root of the reach).
-var requestCalleesAllowed = map[string]bool{"httpx.AdminOf": true, "next.ServeHTTP": true}
+// handed to: the panel's identity, the gate's own next handler (brandLogoSave, a root of
+// the reach), and (M14-10a) the panel cookie's reader -- adminauth.Cookies.Read is
+// r.Cookie and nothing else (cookie.go), which the page's form binding needs at render
+// time (formbinding.go, formBindingContext). It reads a header, never the body.
+var requestCalleesAllowed = map[string]bool{"httpx.AdminOf": true, "next.ServeHTTP": true, "a.cookies.Read": true}
 
 // exprName is a call's callee as written: a name, or names joined by dots; "?" for
 // anything else.

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/atknatk/tappa/internal/mail"
 	"github.com/atknatk/tappa/web/templates/email"
 )
@@ -173,7 +175,7 @@ func signInLink(baseURL string) string {
 // wrapped sentinel on a render failure, and writes ONE line on an accepted send: the
 // administrator's id and the relay's message id, never the address or the message.
 func (c *emailResetChannel) DeliverPasswordNotice(ctx context.Context, n PasswordNotice) error {
-	m, err := email.RenderPasswordChanged(ctx, signInLink(c.baseURL), email.PasswordChangedView{BaseURL: c.baseURL})
+	m, err := email.RenderPasswordChanged(ctx, signInLink(c.baseURL), email.PasswordChangedView{BaseURL: c.baseURL, EveryBusiness: n.EveryBusiness})
 	if err != nil {
 		return fmt.Errorf("handler: rendering the change notice: %w", err)
 	}
@@ -183,6 +185,11 @@ func (c *emailResetChannel) DeliverPasswordNotice(ctx context.Context, n Passwor
 	receipt, err := c.sender.SendExempt(ctx, m)
 	if err != nil {
 		return err
+	}
+	if n.IdentityID != uuid.Nil {
+		c.log.InfoContext(ctx, "panel credential notice: the relay accepted the e-mail",
+			"identity_id", n.IdentityID, "message_id", receipt.MessageID)
+		return nil
 	}
 	c.log.InfoContext(ctx, "panel credential notice: the relay accepted the e-mail",
 		"admin_user_id", n.AdminUserID, "tenant_id", n.TenantID, "message_id", receipt.MessageID)
@@ -197,7 +204,7 @@ func (c *emailResetChannel) DeliverPasswordNotice(ctx context.Context, n Passwor
 // under a minute left is refused by the renderer and the grant is recorded
 // undelivered.
 func (c *emailResetChannel) DeliverReset(ctx context.Context, d ResetDelivery) error {
-	m, err := email.RenderPasswordReset(ctx, d.Link, email.ResetView{BaseURL: c.baseURL, ValidFor: time.Until(d.ExpiresAt)})
+	m, err := email.RenderPasswordReset(ctx, d.Link, email.ResetView{BaseURL: c.baseURL, ValidFor: time.Until(d.ExpiresAt), EveryBusiness: d.EveryBusiness})
 	if err != nil {
 		return fmt.Errorf("handler: rendering the reset e-mail: %w", err)
 	}

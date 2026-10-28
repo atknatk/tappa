@@ -20,13 +20,16 @@ FROM admin_users a
 WHERE a.id = $2
   AND a.tenant_id = $3
   AND a.status = 'active'
+  AND a.password_hash = $4::text
+FOR NO KEY UPDATE OF a
 RETURNING id, tenant_id, admin_user_id, created_at, last_used_at, revoked_at
 `
 
 type CreateAdminSessionParams struct {
-	TokenHash   string
-	AdminUserID uuid.UUID
-	TenantID    uuid.UUID
+	TokenHash      string
+	AdminUserID    uuid.UUID
+	TenantID       uuid.UUID
+	VerifiedDigest string
 }
 
 type CreateAdminSessionRow struct {
@@ -154,8 +157,40 @@ type CreateAdminSessionRow struct {
 //
 // token_hash is the HMAC of a token this query never sees; it is written, never
 // returned.
+//
+// THE SESSION IS WRITTEN ONLY WHILE THE ROW STILL CARRIES THE DIGEST THE PASSWORD WAS
+// VERIFIED AGAINST, UNDER A LOCK ON THE ROW (ADR 0031 §5.2, identity_unlink_backfilled's
+// row; M14-07). tappa_app cannot read admin_users.unlinked_at (R16), so this statement cannot
+// see that a membership was refused between the password comparison and this write -- but
+// the refusal writes a SENTINEL digest in the same transaction, and a password change or a
+// reset writes a new one, so `a.password_hash = @verified_digest` says "nothing rewrote this
+// row's credential since it verified". @verified_digest is the digest internal/adminauth
+// compared the typed password with (never a value from a request). FOR NO KEY UPDATE OF a is what
+// makes the predicate hold against a CONCURRENT refusal: without it a write that started
+// while the refusal's transaction was open read the old row version and left a live session
+// on the refused row (measured on 17.10, M14-05's audit); with it the write waits for the
+// refusal, READ COMMITTED re-evaluates the predicate on the committed version, and the answer
+// is 0 rows. The lock needs an UPDATE privilege on admin_users -- tappa_app's UPDATE (status)
+// (00017) -- and FORCE RLS applies the UPDATE policy's USING to the locked row as well
+// (internal/db's adminsessiondigest_test.go measures both).
+//
+// NO KEY UPDATE, NOT SHARE (2026-10-23, M14-07's audit, measured 86/120 deadlocks): Issue runs
+// MarkAdminLoggedIn -- an UPDATE of this same row -- in the same transaction, so a SHARE lock
+// had to be upgraded, and two concurrent sign-ins of one admin (a double click) each held SHARE
+// and waited for the other's: 40P01, a 500. FOR NO KEY UPDATE is the lock that UPDATE takes
+// anyway, so there is no upgrade (0/120); it still conflicts with the refusal's FOR UPDATE, and
+// it does not block the foreign-key checks (KEY SHARE) of other sessions being written.
+//
+// The old binary's statement
+// (without the two) keeps working on the same schema: this is a change of the new binary's
+// query text alone.
 func (q *Queries) CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (CreateAdminSessionRow, error) {
-	row := q.db.QueryRow(ctx, createAdminSession, arg.TokenHash, arg.AdminUserID, arg.TenantID)
+	row := q.db.QueryRow(ctx, createAdminSession,
+		arg.TokenHash,
+		arg.AdminUserID,
+		arg.TenantID,
+		arg.VerifiedDigest,
+	)
 	var i CreateAdminSessionRow
 	err := row.Scan(
 		&i.ID,
@@ -395,11 +430,13 @@ type GetAdminPasswordHashByIDRow struct {
 //
 // 🔴 THIS IS THE QUERY THE HEADER'S INVARIANT NAMES. It is the SECOND and last reader
 // of password_hash in the product (the first is the context-less login resolver), and
-// it returns the digest as a PLAIN string to EXACTLY ONE caller, internal/adminauth,
-// which feeds it straight to bcrypt.Compare and never logs, emits or re-returns it. No
+// it returns the digest as a PLAIN string to EXACTLY ONE package, internal/adminauth,
+// which never logs, emits or re-returns it. Two uses there: ChangeOwnPassword feeds it
+// to bcrypt.Compare, and Issue (M14-07) checks the sign-in's Proof against it and hands
+// it to CreateAdminSession as @verified_digest, inside the same transaction. No
 // secret-wrapper type is used or needed: the login resolver wraps its hash because it
 // runs WITHOUT a tenant context and hands a value across a wider boundary; this read
-// runs POST-authentication inside WithTenant and its result never leaves adminauth.
+// runs inside WithTenant and its result never leaves adminauth.
 //
 // status is RETURNED, not filtered (the GetAdminByID precedent): a caller that finds
 // a disabled admin can say so and audit it, where "no such row" could not be told
@@ -691,7 +728,7 @@ WHERE s.id = $1
   AND a.status = 'active'
   AND t.id = s.tenant_id
 RETURNING s.id, s.last_used_at, a.id AS admin_user_id, a.role, a.full_name,
-          t.suspended_at, t.suspension_reason
+          t.suspended_at, t.suspension_reason, t.name AS tenant_name, a.identity_id
 `
 
 type TouchAdminSessionParams struct {
@@ -707,6 +744,8 @@ type TouchAdminSessionRow struct {
 	FullName         string
 	SuspendedAt      *time.Time
 	SuspensionReason *string
+	TenantName       string
+	IdentityID       *uuid.UUID
 }
 
 // THE per-request authority for the panel, and the reason the session resolver
@@ -739,6 +778,14 @@ type TouchAdminSessionRow struct {
 // never "signed in and not suspended". `tenants` is only READ here: UPDATE ... FROM
 // locks the target's rows, not the joined table's, so a suspension being written does
 // not hold this statement up (measured: TestVerifyDB_DoesNotWaitForTheSuspensionsRowLock).
+//
+// TWO MORE COLUMNS RIDE ON IT (ADR 0031 §5.3, M14-04), neither costing a read: tenants.name -- the
+// shell names the business it is in (K-5) -- and admin_users.identity_id, the key of the switch's
+// rate bucket (§5.4: a switch is a new session, so a bucket keyed by the session would reset on every
+// switch). identity_id is ADR 0031 §6's NAMED RESIDUE: a cross-tenant correlation key in the
+// application's memory. THIS IS THE ONE sqlc STATEMENT ALLOWED TO SELECT IT (internal/db's
+// query-text scan pins that, and that no statement selects linked_via or `*` on admin_users); it is
+// never rendered, logged or written to an audit row.
 func (q *Queries) TouchAdminSession(ctx context.Context, arg TouchAdminSessionParams) (TouchAdminSessionRow, error) {
 	row := q.db.QueryRow(ctx, touchAdminSession, arg.ID, arg.TenantID)
 	var i TouchAdminSessionRow
@@ -750,6 +797,8 @@ func (q *Queries) TouchAdminSession(ctx context.Context, arg TouchAdminSessionPa
 		&i.FullName,
 		&i.SuspendedAt,
 		&i.SuspensionReason,
+		&i.TenantName,
+		&i.IdentityID,
 	)
 	return i, err
 }

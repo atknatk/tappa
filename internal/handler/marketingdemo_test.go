@@ -483,7 +483,7 @@ func TestLandingDemo_NoOtherScreenOnThePublicSurfaceCarriesTheDialog(t *testing.
 	screens[signupAccountPath] = account.Body.String()
 	d.advance(time.Minute)
 	d.post(signupAccountPath, accountForm(d.token(account)))
-	screens[signupDonePath] = d.get(signupDonePath).Body.String()
+	screens[signupSentPath] = d.get(signupSentPath).Body.String()
 
 	// Every public URL but the landing (the public site's pages and the four legal
 	// documents), and the four wizard steps.

@@ -119,6 +119,13 @@ func fixtureDigest(t *testing.T, password string) string {
 func newAdminRow(t *testing.T, d *db.DB, tenantID uuid.UUID, email, password, status, role, fullName string) uuid.UUID {
 	t.Helper()
 	digest := fixtureDigest(t, password)
+	// The row is COMMITTED: the operator-tables lock is held shared AROUND THE INSERT (holdTablesLock
+	// says why), so no admin row is committed while internal/db's exclusive tests run. Not for the
+	// whole test: the sign-ins that follow add no admin row (ItIsIdempotent's EXCLUSIVE table lock
+	// keeps their UPDATEs out of its way), and a whole-test hold made every exclusive waiter -- and
+	// every shared request queued behind it -- wait out this package's tests (M14-09, measured on CI).
+	release := holdTablesLock(t)
+	defer release()
 	id := uuid.New()
 	err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
@@ -491,11 +498,16 @@ func TestVerify_RefusesADisabledAdminWithoutRevocation(t *testing.T) {
 		t.Fatalf("control: Verify failed before the admin was disabled: %v", err)
 	}
 
-	if err := d.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+	// The change is COMMITTED: made under the operator-tables lock, held shared around it, as
+	// newAdminRow wrote the row (holdTablesLock; cmd/opadmin's TestTablesLock_AdminRowsAreWrittenUnderTheHolder).
+	release := holdTablesLock(t)
+	err = d.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx, `UPDATE admin_users SET status = 'disabled' WHERE id = $1 AND tenant_id = $2`,
 			adminID, tenantID)
 		return e
-	}); err != nil {
+	})
+	release()
+	if err != nil {
 		t.Fatalf("disable: %v", err)
 	}
 
@@ -515,7 +527,15 @@ func TestIssue_RefusesIncompleteIdentities(t *testing.T) {
 	m := testManager(t, d)
 	ctx := context.Background()
 	tenantID := newTenantRow(t, d, "Incomplete Ltd")
-	adminID := newAdminRow(t, d, tenantID, randEmail(t), "the-right-password", "active", "owner", "Owner")
+	email := randEmail(t)
+	adminID := newAdminRow(t, d, tenantID, email, "the-right-password", "active", "owner", "Owner")
+	// Each case below carries a proof that WOULD hold for its pair (M14-07), so what refuses it is
+	// the pair itself -- the nil check, or the tenant-scoped read under RLS -- not a missing proof.
+	rows, err := d.GetAdminByEmail(ctx, email)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("GetAdminByEmail: %v", err)
+	}
+	digest := rows[0].PasswordHash.RevealForPasswordComparison()
 
 	tests := []struct {
 		name string
@@ -528,10 +548,16 @@ func TestIssue_RefusesIncompleteIdentities(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			tc.v.Proof = m.proofOf(tc.v.AdminUserID, tc.v.TenantID, digest)
 			if _, err := m.Issue(ctx, tc.v); err == nil {
 				t.Fatalf("Issue accepted %s", tc.name)
 			}
 		})
+	}
+	// Control: the same construction for the real pair is accepted, so the refusals above are the
+	// pairs' and not the hand-made proof's.
+	if _, err := m.Issue(ctx, Verified{AdminUserID: adminID, TenantID: tenantID, Proof: m.proofOf(adminID, tenantID, digest)}); err != nil {
+		t.Fatalf("control: Issue for the real pair with its proof: %v", err)
 	}
 }
 

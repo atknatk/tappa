@@ -271,6 +271,7 @@ func newBrandPanel(t *testing.T, role string, tenantID uuid.UUID) *brandPanel {
 	p.h = h
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	p.router = r
 	return p
 }
@@ -301,7 +302,7 @@ func noRedirects() *http.Client {
 // upload posts body to the logo route of s as a signed-in, same-origin browser does.
 func upload(t *testing.T, s *httptest.Server, body []byte, contentType string) (*http.Response, string) {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodPost, s.URL+brandLogoHref, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, s.URL+boundPath(s.Config.Handler, panelCookie().Value, brandLogoHref), bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}

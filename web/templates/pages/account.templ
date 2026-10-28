@@ -56,6 +56,10 @@ templ AdminAccount(v AccountView) {
 				<p>{ v.Saved }</p>
 			}
 		}
+		if v.Identity != nil && v.Identity.WindowOpen {
+			// M14-18: the confirmation window comes first while it is open -- it asks for a decision.
+			@accountWindowCard(*v.Identity)
+		}
 		<div class="grid grid-cols-1 items-start gap-5 desk:grid-cols-2">
 			@accountIdentity(v)
 			if v.BusinessDay != nil {
@@ -69,7 +73,18 @@ templ AdminAccount(v AccountView) {
 			}
 			@accountBrand(v.Brand, v.PanelChrome)
 			@accountPasswordForm(v)
+			if v.Identity != nil {
+				// M14-18: the person's businesses (and the e-mail verification), and linking another.
+				@accountBusinessesCard(*v.Identity)
+				@accountLinkCard(*v.Identity)
+			}
+			if v.SignOutEverywhereHref != "" {
+				@accountSignOutEverywhere(v)
+			}
 			@accountMessages(v)
+			if v.ManagersHref != "" {
+				@accountManagers(v)
+			}
 			if v.ShowDevelopers() {
 				@accountDevelopers(v)
 			}
@@ -242,7 +257,7 @@ templ accountVATMarker(v AccountView) {
 // A FIELD WITH A MESSAGE IS MARKED INVALID, so the frame a sighted owner sees and the
 // state a screen reader announces come from one attribute.
 templ accountForm(v AccountView) {
-	<form method="post" action={ templ.URL(v.PostHref) } class="flex flex-col gap-4 border-t border-dashed border-line pt-4">
+	<form method="post" action={ templ.URL(components.Bound(ctx, v.PostHref)) } class="flex flex-col gap-4 border-t border-dashed border-line pt-4">
 		<div class="field-stack">
 			<label class="lbl" for="account-name">Business name</label>
 			<input
@@ -371,7 +386,7 @@ templ accountForm(v AccountView) {
 // 🔴 NO SYNCHRONIZER TOKEN FIELD, matching every other panel write (sameOriginGate is the
 // CSRF defence, not a hidden field), and PanelShell loads no script for it.
 templ accountPasswordForm(v AccountView) {
-	<form method="post" action={ templ.URL(v.PasswordPostHref) } class="panel-card min-w-0" aria-labelledby="account-password-heading">
+	<form method="post" action={ templ.URL(components.Bound(ctx, v.PasswordPostHref)) } class="panel-card min-w-0" aria-labelledby="account-password-heading">
 		@accountCardHeading("account-password-heading", "Your password")
 		<p class="text-[13px] leading-normal text-ink/70">
 			This changes the password you sign in to Taptime with. Changing it keeps you
@@ -440,6 +455,35 @@ templ accountPasswordForm(v AccountView) {
 	</form>
 }
 
+// accountSignOutEverywhere is "Sign out everywhere" (M14-11), drawn only while the panel identity
+// flag is on (the handler leaves the href empty otherwise, and then nothing of it is written).
+//
+// IT IS ITS OWN FORM AND ITS OWN CARD, beside the password: one press, no field. The button is the
+// outlined one the page already uses for a secondary act -- it ends sessions, it destroys no data.
+// The sentence says the one surprise in plain words: this device is signed out too -- and, only when
+// the session's row is linked to an identity, every other business the person belongs to; an
+// unlinked row's press reaches this business alone, and the sentence says so. No synchronizer token
+// field, like every other panel write.
+templ accountSignOutEverywhere(v AccountView) {
+	<form method="post" action={ templ.URL(components.Bound(ctx, v.SignOutEverywhereHref)) } class="panel-card min-w-0" aria-labelledby="account-everywhere-heading">
+		@accountCardHeading("account-everywhere-heading", "Sign out everywhere")
+		<p class="text-[13px] leading-normal text-ink/70">
+			if v.SignOutEverywhereEveryBusiness {
+				This signs you out of Taptime on every phone and computer, in every business you
+				belong to — this device too.
+			} else {
+				This signs you out of Taptime on every phone and computer in this business — this
+				device too.
+			}
+			Use it if you signed in somewhere you no longer trust. You can sign straight back in
+			with your password.
+		</p>
+		<div>
+			<button class="btn btn--line" type="submit">Sign out everywhere</button>
+		</div>
+	</form>
+}
+
 // accountStillOnFile names the gap between the box and the file, for ONE field.
 //
 // 🔴 IT IS THE OTHER HALF OF KEEPING THE CUSTOMER'S TYPING. The box holds what they
@@ -501,6 +545,20 @@ templ accountMessages(v AccountView) {
 // state: those are the owner's and live behind the Developers section's own owner-only
 // gate, and this page is readable by a manager. The card is drawn only when the reader
 // may open that section (AccountView.DevelopersHref, set from the section's own gate).
+// accountManagers links to the owner's "Managers" page (M14-15): drawn only while the panel identity
+// flag opens the invitations, and only for an owner (AccountView.ManagersHref).
+templ accountManagers(v AccountView) {
+	<section class="panel-card min-w-0 flex-row flex-wrap items-center justify-between" aria-labelledby="account-managers-heading">
+		<div class="flex min-w-0 flex-[1_1_240px] flex-col gap-1">
+			@accountCardHeading("account-managers-heading", "Managers")
+			<p class="text-[13px] leading-normal text-ink/70">
+				Invite a manager by email and see the invitations you have sent. Only an owner sees it.
+			</p>
+		</div>
+		<a class="btn btn--line" href={ templ.URL(v.ManagersHref) }>Open Managers <span class="ml-1.5" aria-hidden="true">→</span></a>
+	</section>
+}
+
 templ accountDevelopers(v AccountView) {
 	<section class="panel-card min-w-0 flex-row flex-wrap items-center justify-between" aria-labelledby="account-developers-heading">
 		<div class="flex min-w-0 flex-[1_1_240px] flex-col gap-1">
@@ -623,7 +681,7 @@ templ TapPreviewHeading(employeeName string) {
 // longer see.
 templ accountBrandLogo(e BrandEditor) {
 	<div class="flex flex-col gap-2.5 border-t border-dashed border-line pt-4">
-		<form method="post" action={ templ.URL(e.LogoPostHref) } enctype="multipart/form-data" class="flex flex-col gap-2.5">
+		<form method="post" action={ templ.URL(components.Bound(ctx, e.LogoPostHref)) } enctype="multipart/form-data" class="flex flex-col gap-2.5">
 			<label class="lbl" for="brand-logo">Logo</label>
 			<div class="flex flex-col gap-2 rounded-[14px] border-2 border-dashed border-ink/50 p-3">
 				<input
@@ -647,7 +705,7 @@ templ accountBrandLogo(e BrandEditor) {
 			</div>
 		</form>
 		if e.HasLogo {
-			<form method="post" action={ templ.URL(e.ResetPostHref) }>
+			<form method="post" action={ templ.URL(components.Bound(ctx, e.ResetPostHref)) }>
 				<input type="hidden" name="what" value="logo"/>
 				<button class="btn btn--line" type="submit">Remove the logo</button>
 			</form>
@@ -672,7 +730,7 @@ templ accountBrandLogo(e BrandEditor) {
 // to print.
 templ accountBrandAccent(e BrandEditor) {
 	<div class="flex flex-col gap-2.5 border-t border-dashed border-line pt-4">
-		<form method="post" action={ templ.URL(e.AccentPostHref) } class="flex flex-col gap-2.5">
+		<form method="post" action={ templ.URL(components.Bound(ctx, e.AccentPostHref)) } class="flex flex-col gap-2.5">
 			<label class="lbl" for="brand-accent">Accent colour</label>
 			<div class="flex flex-wrap items-center gap-2">
 				<input
@@ -714,7 +772,7 @@ templ accountBrandAccent(e BrandEditor) {
 					</p>
 				}
 				if e.Suggest != "" {
-					<form method="post" action={ templ.URL(e.AccentPostHref) } class="flex flex-wrap items-center gap-2">
+					<form method="post" action={ templ.URL(components.Bound(ctx, e.AccentPostHref)) } class="flex flex-wrap items-center gap-2">
 						<input type="hidden" name="accent_hex" value={ e.SuggestHex }/>
 						<input class="field-input w-11 shrink-0 px-1" type="color" value={ e.SuggestValue() } disabled aria-label="The suggested colour"/>
 						<button class="btn btn--line bg-paper" type="submit">Use <span class="ml-1 font-mono">{ e.Suggest }</span></button>
@@ -723,7 +781,7 @@ templ accountBrandAccent(e BrandEditor) {
 			</div>
 		}
 		if e.HasAccent {
-			<form method="post" action={ templ.URL(e.ResetPostHref) }>
+			<form method="post" action={ templ.URL(components.Bound(ctx, e.ResetPostHref)) }>
 				<input type="hidden" name="what" value="accent"/>
 				<button class="btn btn--line" type="submit">Back to Taptime green</button>
 			</form>

@@ -12,14 +12,80 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type AdminSession struct {
+type AdminIdentity struct {
+	ID               uuid.UUID
+	Email            string
+	PasswordHash     string
+	EmailVerifiedAt  *time.Time
+	ConfirmOpenedAt  *time.Time
+	ConfirmOpenUntil *time.Time
+	ConfirmScope     *string
+	LastUsedTenant   *uuid.UUID
+	CreatedAt        time.Time
+	LastLoginAt      *time.Time
+}
+
+type AdminIdentityEvent struct {
+	ID         uuid.UUID
+	IdentityID uuid.UUID
+	Event      string
+	CreatedAt  time.Time
+	Detail     []byte
+}
+
+type AdminIdentityReset struct {
 	ID          uuid.UUID
-	TenantID    uuid.UUID
-	AdminUserID uuid.UUID
+	IdentityID  uuid.UUID
 	TokenHash   string
 	CreatedAt   time.Time
-	LastUsedAt  *time.Time
-	RevokedAt   *time.Time
+	ExpiresAt   time.Time
+	UsedAt      *time.Time
+	CancelledAt *time.Time
+}
+
+type AdminIdentityVerification struct {
+	ID         uuid.UUID
+	IdentityID uuid.UUID
+	TokenHash  string
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	UsedAt     *time.Time
+}
+
+type AdminInvite struct {
+	ID          uuid.UUID
+	TenantID    uuid.UUID
+	Email       string
+	FullName    string
+	Role        string
+	TokenHash   string
+	InvitedBy   uuid.UUID
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
+	UsedAt      *time.Time
+	CancelledAt *time.Time
+}
+
+type AdminSession struct {
+	ID              uuid.UUID
+	TenantID        uuid.UUID
+	AdminUserID     uuid.UUID
+	TokenHash       string
+	CreatedAt       time.Time
+	LastUsedAt      *time.Time
+	RevokedAt       *time.Time
+	AuthenticatedAt *time.Time
+}
+
+type AdminSignupClaim struct {
+	ID           uuid.UUID
+	TokenHash    string
+	Email        string
+	Draft        []byte
+	PasswordHash string
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+	UsedAt       *time.Time
 }
 
 type AdminUser struct {
@@ -32,6 +98,10 @@ type AdminUser struct {
 	Status       string
 	CreatedAt    time.Time
 	LastLoginAt  *time.Time
+	IdentityID   *uuid.UUID
+	LinkedVia    *string
+	LinkedAt     *time.Time
+	UnlinkedAt   *time.Time
 }
 
 type ApiIdempotency struct {

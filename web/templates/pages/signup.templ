@@ -605,7 +605,7 @@ templ SignupAccount(v SignupAccountView) {
 					</p>
 				</div>
 			</div>
-			@signupActions("Create my account", "/signup/places")
+			@signupActions("Email me a link to finish", "/signup/places")
 		</form>
 	}
 }
@@ -651,46 +651,32 @@ templ SignupDone(v SignupDoneView) {
 		// The note's frame follows the register's answer (a literal per outcome); the
 		// sentence carries the answer itself, so the colour only repeats it.
 		<p class={ signupVATNoteClass(v) }>{ v.VATNote() }</p>
-		if v.SignInBlocked {
-			// 🔴 THE ONE STATE IN WHICH THIS SCREEN MUST NOT SAY "SIGN IN".
-			// signupview.go carries the whole argument: the business EXISTS,
-			// and it was measured that this address cannot reach the sign-in
-			// path. Sending them to a form that answers 401 without an
-			// explanation — which it must not give — is the defect this
-			// branch was added to stop.
-			@signupAlert("This email address cannot sign in") {
-				<p>
-					{ v.BusinessName } is set up and nothing about it is lost. But this
-					email address is already in use by more accounts than we can check at
-					once, so signing in with it will not work.
-				</p>
-				<p>
-					Write to us and we will move the business onto an address you can use.
-					Please do not register it a second time — it already exists.
-				</p>
-			}
-		}
 		<section class="flex flex-col gap-3.5 border-t border-line pt-5 md:pt-[22px]">
 			<h2 class="lbl">What happens next</h2>
 			<ol class="flex flex-col gap-3 md:gap-3.5">
-				if !v.SignInBlocked {
-					<li class="grid grid-cols-[28px_1fr] gap-2.5 text-sm leading-normal text-ink md:grid-cols-[34px_1fr] md:gap-3 md:text-[15px]">
-						<span class="font-mono font-bold" aria-hidden="true">{ signupDoneStepNo(v.SignInBlocked, 1) }</span>
+				<li class="grid grid-cols-[28px_1fr] gap-2.5 text-sm leading-normal text-ink md:grid-cols-[34px_1fr] md:gap-3 md:text-[15px]">
+					<span class="font-mono font-bold" aria-hidden="true">01</span>
+					if v.KnownAddress {
+						<span>
+							<span class="font-display font-bold tracking-tight">Open it.</span>
+							It is now one of the businesses of your sign-in: sign in with your usual password and choose it.
+						</span>
+					} else {
 						<span>
 							<span class="font-display font-bold tracking-tight">Sign in.</span>
-							Use the email address and password you just chose.
+							Use this email address and the password you chose.
 						</span>
-					</li>
-				}
+					}
+				</li>
 				<li class="grid grid-cols-[28px_1fr] gap-2.5 text-sm leading-normal text-ink md:grid-cols-[34px_1fr] md:gap-3 md:text-[15px]">
-					<span class="font-mono font-bold" aria-hidden="true">{ signupDoneStepNo(v.SignInBlocked, 2) }</span>
+					<span class="font-mono font-bold" aria-hidden="true">02</span>
 					<span>
 						<span class="font-display font-bold tracking-tight">Invite your team.</span>
 						Each person opens their own link once, on their own phone.
 					</span>
 				</li>
 				<li class="grid grid-cols-[28px_1fr] gap-2.5 text-sm leading-normal text-ink md:grid-cols-[34px_1fr] md:gap-3 md:text-[15px]">
-					<span class="font-mono font-bold" aria-hidden="true">{ signupDoneStepNo(v.SignInBlocked, 3) }</span>
+					<span class="font-mono font-bold" aria-hidden="true">03</span>
 					// 🔴 IT NO LONGER SAYS "POSTS THEM TO YOU" (2026-08-14). Nothing in
 					// this product knows whether a plaque has been ordered, packed or
 					// sent: there is no order, no shipment and no date in the schema.
@@ -707,13 +693,11 @@ templ SignupDone(v SignupDoneView) {
 				</li>
 			</ol>
 		</section>
-		if !v.SignInBlocked {
-			<div>
-				<a href={ templ.URL(v.SignInHref) } class={ "btn btn--primary w-full rounded-xl px-6 md:w-auto " + signupSubmitStates }>
-					Sign in to your dashboard
-				</a>
-			</div>
-		}
+		<div>
+			<a href={ templ.URL(v.SignInHref) } class={ "btn btn--primary w-full rounded-xl px-6 md:w-auto " + signupSubmitStates }>
+				Sign in to your dashboard
+			</a>
+		</div>
 	}
 }
 
@@ -750,4 +734,164 @@ templ SignupProblem(v SignupProblemView) {
 			</div>
 		}
 	}
+}
+
+// SignupSent is "check your inbox" (M14-17, ADR 0031 §5.10): the page every registration
+// ends on until its link is used. NOTHING EXISTS YET, so there is no stamp: the docket is
+// drawn without one (the progress shows the last step done, not the business).
+//
+// 🔴 THE SAME PAGE FOR EVERY ADDRESS (R18). It says "the address you gave", never the
+// address and never whether it already has a sign-in.
+templ SignupSent(v SignupSentView) {
+	@signupShell("Check your inbox — Taptime", signupProgress{Step: 3, Name: v.BusinessName}, signupSentHeading(v), signupSentBlurb(v), layout.Share{}) {
+		<div class="flex flex-col gap-3 text-sm leading-normal text-ink md:text-[15px]">
+			<p>
+				Nothing has been created yet: the business exists only once the link is used. The link
+				stays valid for { v.LinkLife } and works once.
+			</p>
+			if v.ScreenLink == "" {
+				<p>
+					If it is not in your inbox within a few minutes, look in your spam folder, or start again.
+				</p>
+			}
+		</div>
+		if v.ScreenLink != "" {
+			<div class="flex flex-col gap-2 rounded-[14px] border border-dashed border-ink/50 bg-porcelain px-4 py-3.5 md:px-[18px] md:py-4">
+				<p class="lbl">No email on this installation</p>
+				<p class="text-sm leading-normal text-ink">
+					It is a development or sandbox installation, so the link is shown here instead.
+				</p>
+				<p>
+					<a href={ templ.SafeURL(v.ScreenLink) } class="inline-flex min-h-11 items-center break-all font-mono text-[13px] font-bold text-tappa-green underline underline-offset-4 hover:text-ink">{ v.ScreenLink }</a>
+				</p>
+			</div>
+		}
+	}
+}
+
+// SignupConfirm is the registration link's page (M14-17, ADR 0031 §5.10). Its GET spends
+// nothing (R19); the button POSTs.
+//
+//   - A NEW ADDRESS: it asks again for the password chosen in the wizard. The person who
+//     clicks must be the person who chose it (R2): a wrong one creates nothing.
+//   - AN ADDRESS THAT ALREADY HAS A SIGN-IN: the business is added to that sign-in only from
+//     a browser signed in with it (R18), so the page says to sign in first and press the
+//     button afterwards.
+//   - A SIGN-IN WITH NO ACTIVE BUSINESS LEFT (M14-17b): it cannot sign in, so the page asks
+//     for that sign-in's password; a wrong one creates nothing.
+templ SignupConfirm(v SignupConfirmView) {
+	@signupShell("Finish registering — Taptime", signupProgress{Step: 3, Name: v.BusinessName}, signupConfirmHeading(v.KnownAddress), "", layout.Share{}) {
+		<div class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper px-4 py-3.5 md:bg-porcelain md:px-[18px] md:py-4">
+			<p class="lbl">You are creating</p>
+			<p class="break-words font-display text-base font-bold tracking-tight text-ink">{ v.BusinessName }</p>
+			if len(v.Venues) > 0 {
+				<p class="lbl mt-1.5">Places</p>
+				<ul class="flex flex-col gap-0.5">
+					for _, name := range v.Venues {
+						<li class="break-words font-mono text-[13px] text-ink">{ name }</li>
+					}
+				</ul>
+			}
+		</div>
+		if v.IdentityPassword {
+			<p class="text-sm leading-normal text-ink md:text-[15px]">
+				This email address already has a Taptime sign-in. To add the business to it, type the
+				password of that sign-in below.
+			</p>
+			<form method="post" action={ templ.URL(SignupConfirmPath) } class="flex flex-col gap-6">
+				<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+				<div class="field-stack">
+					<label for="signup-confirm-password" class="lbl">Your Taptime password</label>
+					// NO value ATTRIBUTE, EVER (SignupAccount's rule).
+					<input
+						id="signup-confirm-password"
+						name="password"
+						type="password"
+						autocomplete="current-password"
+						required
+						autofocus
+						class={ "field-input field-input--mono " + signupFieldRing }
+						if fieldInvalid(v.Errors, "password") {
+							aria-invalid="true"
+							aria-describedby={ fieldErrorID("password") }
+						}
+					/>
+					<p class="field-help">The one you sign in to Taptime with, not a new one.</p>
+					@fieldError(v.Errors, "password")
+				</div>
+				<div>
+					<button type="submit" class={ "btn btn--primary w-full rounded-xl px-6 md:w-auto " + signupSubmitStates }>Add the business</button>
+				</div>
+			</form>
+		} else if v.KnownAddress {
+			if v.NotSignedIn {
+				@signupAlert("Sign in with this address first") {
+					<p>
+						This browser is not signed in to Taptime with the address this link was sent to.
+						Sign in with your usual password, then open the link from your email again.
+					</p>
+				}
+			}
+			<p class="text-sm leading-normal text-ink md:text-[15px]">
+				This email address already has a Taptime sign-in. To add the business to it, sign in with
+				your usual password in this browser, then press the button below.
+			</p>
+			<p>
+				<a href={ templ.URL(v.SignInHref) } class="inline-flex min-h-11 items-center font-display text-[13px] font-bold text-tappa-green underline underline-offset-4 hover:text-ink">Sign in</a>
+			</p>
+			<form method="post" action={ templ.URL(SignupConfirmPath) } class="flex flex-col gap-6">
+				<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+				<div>
+					<button type="submit" class={ "btn btn--primary w-full rounded-xl px-6 md:w-auto " + signupSubmitStates }>Add the business</button>
+				</div>
+			</form>
+		} else {
+			<form method="post" action={ templ.URL(SignupConfirmPath) } class="flex flex-col gap-6">
+				<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+				<div class="field-stack">
+					<label for="signup-confirm-password" class="lbl">The password you chose</label>
+					// NO value ATTRIBUTE, EVER (SignupAccount's rule).
+					<input
+						id="signup-confirm-password"
+						name="password"
+						type="password"
+						autocomplete="current-password"
+						required
+						autofocus
+						class={ "field-input field-input--mono " + signupFieldRing }
+						if fieldInvalid(v.Errors, "password") {
+							aria-invalid="true"
+							aria-describedby={ fieldErrorID("password") }
+						}
+					/>
+					<p class="field-help">The one you typed when you started registering.</p>
+					@fieldError(v.Errors, "password")
+				</div>
+				<div>
+					<button type="submit" class={ "btn btn--primary w-full rounded-xl px-6 md:w-auto " + signupSubmitStates }>Create my business</button>
+				</div>
+			</form>
+		}
+	}
+}
+
+func signupSentHeading(v SignupSentView) string {
+	if v.ScreenLink != "" {
+		return "Open your link"
+	}
+	return "Check your inbox"
+}
+
+func signupSentBlurb(v SignupSentView) string {
+	if v.ScreenLink != "" {
+		return "Open the link below to finish registering " + v.BusinessName + "."
+	}
+	return "We emailed a link to the address you gave. Open it to finish registering " + v.BusinessName + "."
+}
+
+func signupConfirmHeading(known bool) string {
+	if known {
+		return "Add this business to your sign-in"
+	}
+	return "Finish registering"
 }

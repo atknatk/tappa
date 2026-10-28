@@ -791,8 +791,11 @@ func TestPunchClaims00068_DownRefusesWhileAClaimExists(t *testing.T) {
 	ctx, tx := opTx(t)
 	_, down := opMigrationSections(t, pc00068File)
 	tables := append(downTables(down), "transactions", "employees", "admin_users", "tenants")
-	if got := strings.Join(downTables(down), ","); got != "punch_claims,punch_claim_decisions,punch_claims" {
-		t.Fatalf("PREMISE: the Down's own statements name %q, want its LOCK and its two DROPs", got)
+	// The pattern reads the LOCK's first name and the two DROPs; since M14-05 downTables also reads
+	// the LOCK's whole list (00072's Down locks five tables in one statement), so the LOCK's two names
+	// come again at the end (the merge that brought main into M14, 2026-10-27).
+	if got := strings.Join(downTables(down), ","); got != "punch_claims,punch_claim_decisions,punch_claims,punch_claims,punch_claim_decisions" {
+		t.Fatalf("PREMISE: the Down's own statements name %q, want its LOCK, its two DROPs and the LOCK's list", got)
 	}
 	lockForDowns(t, ctx, tx, tables)
 

@@ -92,6 +92,10 @@ func opOwnerDSN(t *testing.T) string {
 	return dsn
 }
 
+// opLockWait bounds the wait for the operator-tables lock in opTx and bfTx (their own three minutes
+// start after it).
+const opLockWait = 15 * time.Minute
+
 // opTx opens a dedicated owner connection and a REPEATABLE READ transaction that is
 // rolled back when the test ends. REPEATABLE READ so that every count this suite
 // takes sees this transaction's own writes and nothing another session committed in
@@ -104,8 +108,12 @@ func opOwnerDSN(t *testing.T) string {
 func opTx(t *testing.T, onNotice ...pgconn.NoticeHandler) (context.Context, pgx.Tx) {
 	t.Helper()
 	dsn := opOwnerDSN(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	t.Cleanup(cancel)
+	// THE TEST'S THREE MINUTES START ONCE THE LOCK IS HELD (M14-09's third-eye audit): the wait for
+	// the operator-tables lock runs on its own, longer context, because the packages that hold it
+	// SHARED keep it for a whole test -- ~120 s for a cost-12 HTTP timing sample under -race -- and a
+	// wait counted against the test's own budget left the Downs' table locks too little of it.
+	lockCtx, lockCancel := context.WithTimeout(context.Background(), opLockWait)
+	t.Cleanup(lockCancel)
 	cfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		t.Fatalf("parse the owner connection string: %v", err)
@@ -117,7 +125,7 @@ func opTx(t *testing.T, onNotice ...pgconn.NoticeHandler) (context.Context, pgx.
 	default:
 		t.Fatalf("opTx takes at most one notice handler, got %d", len(onNotice))
 	}
-	conn, err := pgx.ConnectConfig(ctx, cfg)
+	conn, err := pgx.ConnectConfig(lockCtx, cfg)
 	if err != nil {
 		t.Fatalf("connect as the owner: %v", err)
 	}
@@ -139,9 +147,11 @@ func opTx(t *testing.T, onNotice ...pgconn.NoticeHandler) (context.Context, pgx.
 	// keep the two spellings equal), so the two packages' operator-table tests take
 	// turns instead of racing. It is taken before any table lock, on both sides, so it
 	// cannot join a cycle.
-	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext($1))`, operatorTablesTestLock); err != nil {
+	if _, err := conn.Exec(lockCtx, `SELECT pg_advisory_lock(hashtext($1))`, operatorTablesTestLock); err != nil {
 		t.Fatalf("operator-tables test lock: %v", err)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	t.Cleanup(cancel)
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		t.Fatalf("BEGIN: %v", err)
@@ -510,11 +520,19 @@ func opReverseFindings(ctx context.Context, q opQuerier) ([]string, error) {
 		// TestHoldingPeer_InvokerVolatileOwnedByDefinerExecutableOnlyByOwner.
 		// M11 API-2 (ADR 0028 §4): and by tappa_feedwriter, the owner of the own-tenant feed
 		// triggers (punch_feed, feed_open_counter -- 00048/00049) -- NOBYPASSRLS, member of nothing.
-		{"a SECURITY DEFINER owned outside {tappa_resolver, tappa_opdefiner, tappa_holdingdefiner, tappa_feedwriter} or by a superuser", `
+		// M14-03 (ADR 0031 §5.2): and by tappa_identitydefiner, the owner of the closed identity_*
+		// list (M14-04 onwards) -- BYPASSRLS, NOLOGIN, member of nothing, no member, no default ACL.
+		{"a SECURITY DEFINER owned outside {tappa_resolver, tappa_opdefiner, tappa_holdingdefiner, tappa_feedwriter, tappa_identitydefiner} or by a superuser", `
 			SELECT p.oid::regprocedure::text || ' owned by ' || r.rolname || ' rolsuper=' || r.rolsuper
 			  FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
 			 WHERE p.prosecdef
-			   AND (r.rolname NOT IN ('tappa_resolver', 'tappa_opdefiner', 'tappa_holdingdefiner', 'tappa_feedwriter') OR r.rolsuper)`},
+			   AND (r.rolname NOT IN ('tappa_resolver', 'tappa_opdefiner', 'tappa_holdingdefiner', 'tappa_feedwriter', 'tappa_identitydefiner') OR r.rolsuper)`},
+		{"tappa_identitydefiner has a member (one SET ROLE from BYPASSRLS and every identity_*)", `
+			SELECT pg_get_userbyid(m.member) FROM pg_auth_members m
+			 WHERE m.roleid = 'tappa_identitydefiner'::regrole`},
+		{"tappa_identitydefiner is a member of a role (its identity_* would inherit that role's reach)", `
+			SELECT pg_get_userbyid(m.roleid) FROM pg_auth_members m
+			 WHERE m.member = 'tappa_identitydefiner'::regrole`},
 		{"tappa_feedwriter has a member (it would write the feed with no trigger in the way)", `
 			SELECT pg_get_userbyid(m.member) FROM pg_auth_members m
 			 WHERE m.roleid = 'tappa_feedwriter'::regrole`},
@@ -554,20 +572,21 @@ func opReverseFindings(ctx context.Context, q opQuerier) ([]string, error) {
 			SELECT pg_get_userbyid(s.setrole) || ' ' || array_to_string(s.setconfig, ',')
 			  FROM pg_db_role_setting s
 			 WHERE s.setrole IN ('tappa_operator'::regrole, 'tappa_opdefiner'::regrole, 'tappa_holdingdefiner'::regrole,
-			                     'tappa_feedwriter'::regrole)`},
+			                     'tappa_feedwriter'::regrole, 'tappa_identitydefiner'::regrole)`},
 		{"a role has the wrong attributes (ADR 0021 §1)", `
 			SELECT rolname || ' super=' || rolsuper || ' bypassrls=' || rolbypassrls || ' login=' || rolcanlogin
 			  FROM pg_roles
 			 WHERE (rolname = 'tappa_opdefiner' AND (rolsuper OR NOT rolbypassrls OR rolcanlogin OR rolcreaterole OR rolcreatedb))
 			    OR (rolname = 'tappa_operator'  AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb))
 			    OR (rolname = 'tappa_holdingdefiner' AND (rolsuper OR NOT rolbypassrls OR rolcanlogin OR rolcreaterole OR rolcreatedb OR rolreplication))
-			    OR (rolname = 'tappa_feedwriter' AND (rolsuper OR rolbypassrls OR rolcanlogin OR rolcreaterole OR rolcreatedb OR rolreplication))`},
+			    OR (rolname = 'tappa_feedwriter' AND (rolsuper OR rolbypassrls OR rolcanlogin OR rolcreaterole OR rolcreatedb OR rolreplication))
+			    OR (rolname = 'tappa_identitydefiner' AND (rolsuper OR NOT rolbypassrls OR rolcanlogin OR rolcreaterole OR rolcreatedb OR rolreplication))`},
 		{"a default privilege names an operator role (ADR 0021 §1: none)", `
 			SELECT pg_get_userbyid(d.defaclrole) || ' ' || d.defaclobjtype::text || ' ' || d.defaclacl::text
 			  FROM pg_default_acl d
 			 WHERE d.defaclrole IN ('tappa_operator'::regrole, 'tappa_opdefiner'::regrole, 'tappa_holdingdefiner'::regrole,
-			                        'tappa_feedwriter'::regrole)
-			    OR d.defaclacl::text ~ '(^|[{,])tappa_(op(erator|definer)|holdingdefiner|feedwriter)='`},
+			                        'tappa_feedwriter'::regrole, 'tappa_identitydefiner'::regrole)
+			    OR d.defaclacl::text ~ '(^|[{,])tappa_(op(erator|definer)|holdingdefiner|feedwriter|identitydefiner)='`},
 	}
 	for _, c := range checks {
 		if err := collect(c.sql, c.label); err != nil {
@@ -623,6 +642,14 @@ func TestOperator00026_ReverseCatalogPin(t *testing.T) {
 			LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS 'SELECT 1'`, "SECURITY DEFINER owned outside"},
 		{"a default privilege for the operator", `ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public
 			GRANT SELECT ON TABLES TO tappa_operator`, "default privilege"},
+		// M14-03 (ADR 0031 §5.2): the identity definer's five.
+		{"a member of tappa_identitydefiner", `GRANT tappa_identitydefiner TO tappa_app`, "tappa_identitydefiner has a member"},
+		{"tappa_identitydefiner made a member of the owner", `GRANT tappa_owner TO tappa_identitydefiner`, "tappa_identitydefiner is a member of a role"},
+		{"an identity definer that logs in", `ALTER ROLE tappa_identitydefiner LOGIN`, "wrong attributes"},
+		{"an identity definer that obeys RLS", `ALTER ROLE tappa_identitydefiner NOBYPASSRLS`, "wrong attributes"},
+		{"a default privilege for the identity definer", `ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public
+			GRANT SELECT ON TABLES TO tappa_identitydefiner`, "default privilege"},
+		{"a role-level setting on tappa_identitydefiner", `ALTER ROLE tappa_identitydefiner SET search_path = public`, "role-level setting"},
 	}
 	for _, c := range controls {
 		t.Run("control/"+c.name, func(t *testing.T) {

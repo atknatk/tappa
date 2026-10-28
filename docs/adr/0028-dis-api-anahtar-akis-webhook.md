@@ -678,6 +678,12 @@ bağlıdır.
 - **Hesap açılışı:** sandbox kendi operatör yüzeyini kendi ops host'unda çalıştırır; `/signup`
   prod'daki gibi; API, webhook ve holding **yalnız sandbox operatörü açınca** (K-22) — operatörsüz
   anahtar 403.
+  *M14-17 notu (2026-10-26, kullanıcı kararı):* kayıt e-posta doğrulamasıyla biter (ADR 0031 §5.10);
+  sandbox gerçek e-posta göndermediğinden (`TAPPA_RESET_DELIVERY=none`) doğrulama linki *"Check your
+  inbox"* ekranında gösterilir — davetin `panel` modunun karşılığı; prod'da `none` iken sihirbaz kayıt
+  almaz. Kabul edilen bedel (kullanıcının S2 kararı): sandbox'ta ve açıkça bildirilmiş dev'de link
+  ekranda göründüğü için `email_verified_at` posta kutusu kanıtı olmadan dolar ve onay sayfası isteyene
+  adresin o kurulumda bir kimliği olup olmadığını gösterir.
 - **E-posta:** gerçek e-posta yok; davet `panel` modunda.
 - **Altyapı:** ayrı namespace + Postgres; NetworkPolicy (prod'unki gibi kendi namespace'ini korur),
   Pod Security `restricted`, `ResourceQuota`/`LimitRange`.
@@ -3842,3 +3848,11 @@ satır bırakır (internal/operatorauth'un commit eden testlerinin bedeli). (3) 
    önce yazma bırakılır, sonra askı kalkar). `FOR SHARE` mutantında `TheReadHoldsNoLockOnTheTenant`
    30 sn yerine 0,41 sn'de, `AWriteInFlightAtTheSuspensionIsLetThrough` 2,13 sn'de kırmızı; yeşil davranış
    aynı.
+
+## M14 notu (2026-10-22) — devre dışı üyeliğin anahtarı ([ADR 0031](0031-tek-kimlik-cok-isletme.md) §5.13)
+
+M14 bu ADR'yi değiştirmez: `api_keys.created_by` üyeliğin (`admin_users`) bileşik FK'si kalır
+(`00051:88-89`); aktör id'leri üyelik id'sidir, webhook'ların aktörü yoktur. M14'te devre dışı bırakma
+üyelik başınadır (K-6) ve devre dışı bir üyeliğin oluşturduğu anahtarlar bugünkü gibi çalışır — bu ADR
+o durumu ele almıyor; karar backlog'da (**T174**). Panel oturumunun mutlak ömrü de backlog'dadır
+(**T175**, ADR 0031 §10).

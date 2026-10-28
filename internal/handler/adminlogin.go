@@ -24,6 +24,9 @@ import (
 // declared HERE at the consumer (section 7).
 type adminAuthenticator interface {
 	Authenticate(ctx context.Context, email, password string) (adminauth.Authentication, error)
+	// AuthenticatePerson is the identity path of the sign-in (ADR 0031 §5.6, M14-09): asked only
+	// while adminauth.SurfaceLoginIdentity is open (adminloginidentity.go).
+	AuthenticatePerson(ctx context.Context, email, password string, want uuid.UUID, budget adminauth.FailureBudget) (adminauth.PersonSignIn, error)
 	TenantChoices(ctx context.Context, verified []adminauth.Verified) ([]adminauth.Choice, error)
 	Issue(ctx context.Context, v adminauth.Verified) (adminauth.Issued, error)
 	Verify(ctx context.Context, t adminauth.Token) (adminauth.Resolved, error)
@@ -31,7 +34,35 @@ type adminAuthenticator interface {
 	// ChangeOwnPassword rotates the signed-in admin's own credential (M7-05, T73). It
 	// takes exceptSessionID -- the CURRENT session's id -- so the change keeps this
 	// device signed in and revokes the others (K3), and returns how many it revoked.
-	ChangeOwnPassword(ctx context.Context, tenantID, adminID, exceptSessionID uuid.UUID, current, next string) (int, error)
+	// session is the request's own cookie token (M14-08): a row linked to an identity
+	// changes through the identity, keyed by that token's hash (adminauth.PasswordChange
+	// says which path ran and whether the database already wrote the trail).
+	ChangeOwnPassword(ctx context.Context, tenantID, adminID, exceptSessionID uuid.UUID, session adminauth.Token, current, next string) (adminauth.PasswordChange, error)
+	// RevokeAll signs the person behind the cookie out everywhere (M14-11, ADR 0031 §5.2): through
+	// the identity when the row is linked (every business; the database writes each its sign-out
+	// rows), this admin in this business otherwise (the caller writes those rows -- Sessions).
+	// linked is the verified session's Resolved.Linked: a linked session never takes the one-business
+	// fallback.
+	RevokeAll(ctx context.Context, tenantID, adminID, sessionID uuid.UUID, linked bool, current adminauth.Token, keepCurrent bool) (adminauth.Revocation, error)
+	// Switch moves the cookie's session to another business of the same person (M14-10, ADR 0031
+	// §5.4): a new session there, the old one revoked, the two ordinary audit rows -- all the
+	// database's. ErrSwitchRefused is its one refusal; the caller then touches no cookie.
+	Switch(ctx context.Context, current adminauth.Token, target uuid.UUID) (adminauth.Issued, error)
+	// Memberships lists the businesses of the person behind the cookie's session (the switch
+	// page, M14-10), keyed by the token like Switch.
+	Memberships(ctx context.Context, current adminauth.Token) ([]adminauth.Membership, error)
+	// The account page's identity acts (M14-18, accountidentity.go): each keyed by the verified
+	// session (and the cookie's token, or a fresh session adminauth opens after the password is
+	// typed again).
+	ConfirmWindow(ctx context.Context, current adminauth.Token) (adminauth.Window, error)
+	KeepAll(ctx context.Context, current adminauth.Token) error
+	RequestVerification(ctx context.Context, s adminauth.Resolved, current adminauth.Token) (adminauth.IssuedVerification, error)
+	VerifyEmail(ctx context.Context, raw string, current adminauth.Token) (bool, error)
+	Unlink(ctx context.Context, s adminauth.Resolved, password string, target uuid.UUID, budget adminauth.FailureBudget) (adminauth.FreshAct, bool, error)
+	Relink(ctx context.Context, s adminauth.Resolved, password string, target uuid.UUID, budget adminauth.FailureBudget) (adminauth.FreshAct, error)
+	LinkBusiness(ctx context.Context, s adminauth.Resolved, current, other string, budget adminauth.FailureBudget) (adminauth.LinkResult, error)
+	AccountBucket(ctx context.Context, s adminauth.Resolved) (string, error)
+	ReverseBucket(ctx context.Context, s adminauth.Resolved) (string, error)
 }
 
 // Audit actions written by the panel auth flow. The vocabulary is free text by
@@ -94,6 +125,10 @@ type AdminAuth struct {
 	// cookies writes the PANEL SESSION cookie (internal/adminauth owns its
 	// attributes).
 	cookies adminauth.Cookies
+	// identityGate is TAPPA_ADMIN_IDENTITY's table of surfaces (ADR 0031 §8, M14-08): every
+	// identity surface of the panel is mounted through mountGated (identitygate.go): a closed
+	// surface is not mounted at all.
+	identityGate adminauth.IdentityGate
 	// short writes the two SHORT-LIVED auth cookies: the synchronizer token and
 	// the signed verified-candidate set (logincontext.go).
 	short   adminCookies
@@ -103,6 +138,13 @@ type AdminAuth struct {
 	// label, its own TTL, its own bindings — so a blob minted for one purpose can
 	// never be spent on the other.
 	confirm adminConfirm
+	// forms binds every panel form to the business it was rendered for (ADR 0031 §5.5,
+	// M14-10a; formbinding.go): rendered into each POST form's action, checked by
+	// formBindingGate in both writing chains before the body is read.
+	forms adminauth.FormBinder
+	// switches mints and checks the switch form's synchronizer token (M14-10, ADR 0031 §5.4;
+	// adminswitch.go).
+	switches adminauth.SwitchTokens
 	// baseURL is this deployment's own origin, for the Origin header check.
 	baseURL string
 
@@ -300,6 +342,15 @@ type AdminAuth struct {
 	// is mailed or shown is decided by this field and nothing else.
 	inviteMail *EmailInvitations
 
+	// adminInvites is the manager invitation (M14-15, admininvites.go), given by the AdminInvitations
+	// option; nil answers the gated routes with 503. inviteAcceptLimiter is the invitee's per-address
+	// budget in front of the acceptance (its bcrypt).
+	adminInvites        panelAdminInvites
+	inviteAcceptLimiter *limiter
+	// memberships is the membership management (M14-16, adminmembers.go), given by the
+	// AdminMemberships option; nil answers its gated routes with 503.
+	memberships panelMemberships
+
 	// See adminratelimit.go for why there are three and what each may refuse.
 	floodLimiter   *limiter
 	attemptLimiter *limiter
@@ -308,8 +359,18 @@ type AdminAuth struct {
 	// enough once M7-02 made a valid credential self-service.
 	workLimiter    *limiter
 	accountLimiter *limiter
-	sessionLimiter *limiter
-	logoutLimiter  *limiter
+	// verifyLimiter and identityActLimiter are the account page's per-person budgets (M14-18,
+	// accountidentity.go): verification links asked for, and link / unlink / Undo presses.
+	verifyLimiter      *limiter
+	identityActLimiter *limiter
+	sessionLimiter     *limiter
+	logoutLimiter      *limiter
+	// switchLimiter is the switch's budget, keyed by the person and the address
+	// (adminSwitchLimit says why not the session).
+	switchLimiter *limiter
+	// switchPersonLimiter is the switch's per-person cap across addresses
+	// (adminSwitchPersonLimit).
+	switchPersonLimiter *limiter
 	// encodeLimiter is the plaque relay's own per-session ceiling. It is a SEVENTH
 	// bucket rather than a share of sessionLimiter's, and plaqueencode.go's
 	// adminEncodeLimit carries the arithmetic for why.
@@ -446,6 +507,14 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	if err != nil {
 		return nil, err
 	}
+	forms, err := adminauth.NewFormBinder(cfg.SessionHMACKey)
+	if err != nil {
+		return nil, err
+	}
+	switches, err := adminauth.NewSwitchTokens(cfg.SessionHMACKey)
+	if err != nil {
+		return nil, err
+	}
 	if log == nil {
 		log = slog.Default()
 	}
@@ -478,18 +547,29 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		encoder:        encoder,
 		notices:        notices,
 		cookies:        adminauth.NewCookies(cfg),
+		identityGate:   adminauth.NewIdentityGate(cfg.AdminIdentity),
 		short:          newAdminCookies(cfg),
 		choices:        choices,
 		confirm:        confirm,
+		forms:          forms,
+		switches:       switches,
 		baseURL:        originOf(cfg.BaseURL),
 		floodLimiter:   newLimiter(adminFloodLimit, adminFloodPeriod),
 		attemptLimiter: newLimiter(adminAttemptLimit, adminAttemptPeriod),
 		workLimiter:    newLimiter(adminLoginWorkLimit, adminLoginWorkPeriod),
 		accountLimiter: newLimiter(adminAccountLimit, adminAccountPeriod),
-		sessionLimiter: newLimiter(adminSessionLimit, adminSessionPeriod),
-		logoutLimiter:  newLimiter(adminLogoutLimit, adminLogoutPeriod),
-		encodeLimiter:  newLimiter(adminEncodeLimit, adminEncodePeriod),
-		log:            log,
+
+		verifyLimiter:      newLimiter(adminVerifyRequestLimit, adminVerifyRequestPeriod),
+		identityActLimiter: newLimiter(adminIdentityActLimit, adminIdentityActPeriod),
+		sessionLimiter:     newLimiter(adminSessionLimit, adminSessionPeriod),
+		logoutLimiter:      newLimiter(adminLogoutLimit, adminLogoutPeriod),
+		switchLimiter:      newLimiter(adminSwitchLimit, adminSwitchPeriod),
+
+		inviteAcceptLimiter: newLimiter(adminInviteAcceptLimit, adminInviteAcceptPeriod),
+
+		switchPersonLimiter: newLimiter(adminSwitchPersonLimit, adminSwitchPersonPeriod),
+		encodeLimiter:       newLimiter(adminEncodeLimit, adminEncodePeriod),
+		log:                 log,
 
 		brandUploadLimiter: newLimiter(brandUploadLimit, brandUploadPeriod),
 		brandWriteLimiter:  newLimiter(brandWriteLimit, brandWritePeriod),
@@ -554,6 +634,12 @@ func (a *AdminAuth) Mount(r chi.Router) {
 	r.Post(adminLoginPath, a.Login)
 	r.Get("/admin/login/choose", a.ChoosePage)
 	r.Post("/admin/login/choose", a.Choose)
+	// THE E-MAILED VERIFICATION LINK'S LANDING (M14-18, accountidentity.go): reachable without a
+	// session -- it writes a short-lived cookie and redirects to the account page, it verifies nothing
+	// (R19). Its own flood ceiling; mounted only while TAPPA_ADMIN_IDENTITY is on.
+	a.mountGated(r, adminauth.SurfaceAccountIdentity, func(r chi.Router) {
+		r.With(a.floodGate("admin_verify_link")).Get(verifyLinkPath, a.verifyLinkLanding)
+	})
 
 	// THE DASHBOARD GROUP. Protect() carries the whole chain, so the panel mounts
 	// inside this group — or uses Protect() in its own — and inherits every stage.
@@ -790,7 +876,8 @@ func (a *AdminAuth) ProtectWriting() func(http.Handler) http.Handler {
 			a.sameOriginGate(
 				a.requireAdmin()(
 					a.sessionGate(
-						a.suspensionGate(next)))))
+						a.formBindingGate(
+							a.suspensionGate(next))))))
 	}
 }
 
@@ -801,8 +888,10 @@ func (a *AdminAuth) ProtectWriting() func(http.Handler) http.Handler {
 // 🔴 IT IS THE NAMED CHAIN OF ADR 0025 §3's CLOSED EXCEPTION LIST, and it has exactly
 // one user: the sibling group at the end of mountWriting, which holds the admin's own
 // password, the four record paths (adding a person, re-inviting, and the manual
-// record's two steps) and K-26's defences (revoking API keys, switching the webhook
-// off). The record paths are not the business's settings but how an attendance record
+// record's two steps), K-26's defences (revoking API keys, switching the webhook
+// off) and, while TAPPA_ADMIN_IDENTITY is on, signing yourself out everywhere, switching
+// businesses, and the two membership presses that narrow who can act for the business -- disabling a
+// membership and making an owner a manager (ADR 0025's M14 note, M14-11, M14-10, M14-16). The record paths are not the business's settings but how an attendance record
 // gets written or recovered (§4.3, §4.6) -- a suspension stops writes, not evidence --
 // and the defences only take away what the business exposes. An exception made by PATH
 // would open or close silently on a rename; made by GROUP, it is a visible edit in one
@@ -813,7 +902,8 @@ func (a *AdminAuth) protectWritingThroughSuspension() func(http.Handler) http.Ha
 		return a.floodGate("admin_panel")(
 			a.sameOriginGate(
 				a.requireAdmin()(
-					a.sessionGate(next))))
+					a.sessionGate(
+						a.formBindingGate(next)))))
 	}
 }
 
@@ -1015,6 +1105,14 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 	email := strings.TrimSpace(r.PostFormValue("email"))
 	password := r.PostFormValue("password")
 
+	// THE IDENTITY PATH (ADR 0031 §5.6, M14-09) while its row of §8's table is open; today's
+	// sign-in, byte for byte, while it is closed. Everything above -- the three budgets, Origin,
+	// the synchronizer token -- is the same for both.
+	if a.identityPath() {
+		a.loginAsPerson(w, r, ip, st, email, password)
+		return
+	}
+
 	auth, err := a.admins.Authenticate(r.Context(), email, password)
 	if err != nil && !errors.Is(err, adminauth.ErrBadCredentials) {
 		// A database or internal failure is NOT bad credentials: saying so would
@@ -1024,6 +1122,13 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusInternalServerError, problemAdminServer)
 		return
 	}
+	a.concludeLogin(w, r, ip, st, auth, err)
+}
+
+// concludeLogin is the sign-in's tail once the passwords were compared: the failure, the one
+// verified business, or the picker. auth is Authenticate's -- or, on the identity path, the legacy
+// arm's (adminauth.PersonSignIn.Legacy) -- and err is nil or adminauth.ErrBadCredentials.
+func (a *AdminAuth) concludeLogin(w http.ResponseWriter, r *http.Request, ip string, st adminLoginState, auth adminauth.Authentication, err error) {
 	if auth.Truncated() {
 		// The one signal that keeps the lockout named at adminauth.MaxCandidates
 		// from being invisible. No email in the line (section 4.7 spirit: an address
@@ -1128,11 +1233,11 @@ func (a *AdminAuth) ChoosePage(w http.ResponseWriter, r *http.Request) {
 				ActorID:  &verified[0].AdminUserID,
 				Action:   ActionAdminLoginFailed,
 				Target:   verified[0].AdminUserID.String(),
-				Detail: adminLoginDetail{
+				Detail: a.loginDetail(adminLoginDetail{
 					Outcome:          "rejected",
-					Reason:           "password verified but every business was disabled before the choice",
+					Reason:           reasonDisabledByChoice,
 					VerifiedBusiness: len(verified),
-				},
+				}),
 			})
 		}
 		a.log.Warn("panel sign-in: every verified business was disabled before the choice",
@@ -1141,7 +1246,8 @@ func (a *AdminAuth) ChoosePage(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusOK, problemAdminRestart)
 		return
 	}
-	v := pages.AdminChooseView{CSRFToken: st.csrf}
+	// The paragraph names the panel's switch only where it exists (ADR 0031 §8).
+	v := pages.AdminChooseView{CSRFToken: st.csrf, PanelSwitch: a.identityGate.Open(adminauth.SurfaceSwitch)}
 	for _, c := range choices {
 		v.Businesses = append(v.Businesses, pages.AdminBusiness{
 			TenantID:   c.TenantID.String(),
@@ -1206,12 +1312,12 @@ func (a *AdminAuth) Choose(w http.ResponseWriter, r *http.Request) {
 				ActorID:  &verified[0].AdminUserID,
 				Action:   ActionAdminLoginRefused,
 				Target:   verified[0].AdminUserID.String(),
-				Detail: adminLoginDetail{
+				Detail: a.loginDetail(adminLoginDetail{
 					Outcome:          "refused",
-					Reason:           "chosen business was not in the verified set",
+					Reason:           reasonChoiceRefused,
 					AttemptedTenant:  tenantID.String(),
 					VerifiedBusiness: len(verified),
-				},
+				}),
 			})
 		}
 		a.resetLogin(w)
@@ -1236,6 +1342,14 @@ func (a *AdminAuth) Choose(w http.ResponseWriter, r *http.Request) {
 // whose password verified in the same attempt, which is the obligation.
 func (a *AdminAuth) completeLogin(w http.ResponseWriter, r *http.Request, ip string, v adminauth.Verified) {
 	issued, err := a.admins.Issue(r.Context(), v)
+	if err != nil && adminauth.SignInLapsed(err) {
+		// The credential this sign-in verified no longer held when its session was written:
+		// the password changed, the row was disabled or refused, or the write lost a deadlock
+		// to that change (M14-07's proof, §5.2's predicate). Nothing was signed in, and it is
+		// not an outage: the person signs in again (M14-09).
+		a.signInAgain(w, r, v.AdminUserID, err)
+		return
+	}
 	if err != nil {
 		// The password was right and the account is active, but no session exists.
 		// This must be visible: it is not "wrong credentials" and telling the
@@ -1268,16 +1382,7 @@ func (a *AdminAuth) completeLogin(w http.ResponseWriter, r *http.Request, ip str
 		return
 	}
 	a.resetLogin(w)
-	a.record(r.Context(), audit.Event{
-		TenantID: v.TenantID,
-		ActorID:  &v.AdminUserID,
-		Action:   ActionAdminLoginSucceeded,
-		Target:   v.AdminUserID.String(),
-		Detail: adminLoginDetail{
-			Outcome:   "ok",
-			SessionID: issued.Session.ID.String(),
-		},
-	})
+	a.record(r.Context(), adminLoginSucceededEvent(v.TenantID, v.AdminUserID, issued.Session.ID))
 	a.log.Info("panel sign-in", "admin_user_id", v.AdminUserID, "ip", ip)
 	a.redirect(w, "/admin")
 }
@@ -1364,7 +1469,15 @@ func (a *AdminAuth) failLogin(w http.ResponseWriter, r *http.Request, ip string,
 		// spirit: an email is personal data and this path is unauthenticated, so a
 		// flood of guesses would otherwise write a list of guessed addresses into
 		// the process log).
-		a.log.Info("panel sign-in refused", "reason", "no such admin", "ip", ip)
+		//
+		// On the identity path "no such admin" would be false for a person whose rows are all
+		// linked: their failure is the identity's own event row (admin_identity_events), and no
+		// UNLINKED row was compared here.
+		reason := "no such admin"
+		if a.identityPath() {
+			reason = "no unlinked admin row compared"
+		}
+		a.log.Info("panel sign-in refused", "reason", reason, "ip", ip)
 	}
 	a.renderLoginFailure(w, r, st)
 }
@@ -1469,14 +1582,13 @@ func (a *AdminAuth) recordCandidateProbe(r *http.Request, ip string, auth admina
 		ActorID:  &verified[0].AdminUserID,
 		Action:   ActionAdminLoginTruncated,
 		Target:   verified[0].AdminUserID.String(),
-		Detail: adminLoginDetail{
-			Outcome: "ok",
-			Reason: "the address is registered in more businesses than one sign-in compares, " +
-				"and this attempt authenticated against a subset",
+		Detail: a.loginDetail(adminLoginDetail{
+			Outcome:          "ok",
+			Reason:           reasonTruncated,
 			VerifiedBusiness: len(verified),
 			Resolved:         auth.Resolved,
 			Compared:         len(auth.Attempts),
-		},
+		}),
 	})
 	a.log.Warn("panel sign-in: an address resolved past the per-request cap AND authenticated",
 		"ip", ip, "resolved", auth.Resolved, "compared", len(auth.Attempts),
@@ -1530,14 +1642,38 @@ func (a *AdminAuth) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.cookies.Clear(w)
-	a.record(r.Context(), audit.Event{
-		TenantID: id.Admin.TenantID,
-		ActorID:  ptr(id.Admin.AdminUserID),
-		Action:   ActionAdminLoggedOut,
-		Target:   id.Admin.AdminUserID.String(),
-		Detail:   adminLoginDetail{Outcome: "ok", SessionID: id.Admin.SessionID.String()},
-	})
+	a.record(r.Context(), adminLoggedOutEvent(id.Admin.TenantID, id.Admin.AdminUserID, id.Admin.SessionID))
 	a.redirect(w, adminLoginPath)
+}
+
+// adminLoginSucceededEvent and adminLoggedOutEvent are the ORDINARY sign-in and sign-out rows: the
+// two events every tenant's log already carries for its own administrators.
+//
+// 🔴 THE DATABASE WRITES THE SAME TWO ROWS (ADR 0031 §5.4, migration 00071): identity_open_session
+// writes the sign-in row, identity_switch_session a sign-out in the business left and a sign-in in
+// the business entered, identity_revoke_sessions a sign-out per session. They must be byte-identical
+// to these -- action, actor, target, detail -- so a business's owner cannot tell from its own log that
+// a person arrived from, or left for, another business (bulgu 17). identityaudit_db_test.go writes
+// these events and the definers' rows side by side and compares them; a field added here, or there,
+// is red.
+func adminLoginSucceededEvent(tenant, admin, session uuid.UUID) audit.Event {
+	return audit.Event{
+		TenantID: tenant,
+		ActorID:  ptr(admin),
+		Action:   ActionAdminLoginSucceeded,
+		Target:   admin.String(),
+		Detail:   adminLoginDetail{Outcome: "ok", SessionID: session.String()},
+	}
+}
+
+func adminLoggedOutEvent(tenant, admin, session uuid.UUID) audit.Event {
+	return audit.Event{
+		TenantID: tenant,
+		ActorID:  ptr(admin),
+		Action:   ActionAdminLoggedOut,
+		Target:   admin.String(),
+		Detail:   adminLoginDetail{Outcome: "ok", SessionID: session.String()},
+	}
 }
 
 // adminLoginDetail is the audit payload for this flow.
@@ -1547,6 +1683,11 @@ func (a *AdminAuth) Logout(w http.ResponseWriter, r *http.Request) {
 // could travel, so no later edit adds one by accident and the section 4.7 promise
 // is a property of the type rather than of the author's memory. Everything in it
 // is an opaque id or a fixed string written in this file.
+//
+// 🔴 ON THE IDENTITY PATH FOUR OF ITS FIELDS ARE NEVER WRITTEN (ADR 0031 §5.6, R21): AttemptedTenant,
+// VerifiedBusiness, Resolved and Compared tell a business's owner about the person's OTHER businesses.
+// Every row of this flow that can carry one passes through AdminAuth.loginDetail
+// (adminloginidentity.go), which drops them while that path is open.
 type adminLoginDetail struct {
 	Outcome string `json:"outcome"`
 	Reason  string `json:"reason,omitempty"`
@@ -1808,7 +1949,7 @@ func (a *AdminAuth) renderWithPolicy(w http.ResponseWriter, r *http.Request, sta
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", policy)
 	w.WriteHeader(status)
-	if err := c.Render(r.Context(), w); err != nil {
+	if err := c.Render(a.formBindingContext(r), w); err != nil {
 		// The status line is already on the wire, so there is nothing to send but a
 		// log line. Never swallowed (section 7).
 		a.log.Error("rendering the panel page failed", "err", err)

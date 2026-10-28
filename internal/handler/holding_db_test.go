@@ -225,6 +225,11 @@ func newLogoPeerFixture(t *testing.T, vies any) *logoPeerFixture {
 		t.Fatal(err)
 	}
 	business := func(name string) (uuid.UUID, uuid.UUID, string) {
+		// The owner row is COMMITTED (owner autocommits each statement): written under the
+		// operator-tables lock, held shared while this business is written (holdPanelTablesLock;
+		// cmd/opadmin's TestTablesLock_AdminRowsAreWrittenUnderTheHolder).
+		release := holdPanelTablesLock(t)
+		defer release()
 		id, adm, venue := uuid.New(), uuid.New(), uuid.New()
 		b := make([]byte, 7)
 		key := make([]byte, 44)

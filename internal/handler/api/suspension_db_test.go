@@ -817,7 +817,30 @@ func TestSuspension_ATapGoesOn(t *testing.T) {
 //	              invitequeue.sql, invites.sql), names the suspension -- its two columns, the store
 //	              read, the reader, the word
 //	the database  (DATABASE_URL) the only functions whose bodies name suspended_at are 00063's op_*
-//	              (owned by tappa_opdefiner, tappa_operator's surface): no trigger function reads it
+//	              (owned by tappa_opdefiner, tappa_operator's surface) and the readers
+//	              suspendedAtReaders names one by one: no trigger function reads it
+//
+// suspendedAtReaders are the functions outside the operator's op_* allowed to read suspended_at,
+// each pinned to its exact signature, owner and volatility -- a READ (STABLE: it cannot write), or
+// (M14-15) a writer that reads it only to refuse while suspended -- no trigger, called by the panel
+// and never by a worker.
+var suspendedAtReaders = map[string]struct{ owner, volatility, why string }{
+	// ADR 0031 §5.2 (the definer's matrix: tenants SELECT (id, name, suspended_at)) and K-10: the
+	// person's business switcher marks a suspended business; switching to it stays free (ADR 0025's
+	// M14 note -- sign-in and reading are open while suspended). identity_switch_session and
+	// identity_open_session do NOT read it (measured: their bodies do not name it).
+	"identity_memberships(text)": {owner: "tappa_identitydefiner", volatility: "s",
+		why: "ADR 0031 §5.2 / K-10: the switcher marks a suspended business"},
+	// M14-15 (00077, the user's decision of 2026-10-27; ADR 0025's M14 note): the two invitation
+	// acceptances are WRITERS (VOLATILE) that read suspended_at only to REFUSE -- a suspended business
+	// takes no new manager; set (or no row) and they write nothing. A suspension stops them; nothing
+	// here acts past one. Called by the invitee's page, never by a worker.
+	"identity_accept_invite(text,text)": {owner: "tappa_identitydefiner", volatility: "v",
+		why: "M14-15: the acceptance refuses a suspended business"},
+	"identity_accept_invite_new(text,text)": {owner: "tappa_identitydefiner", volatility: "v",
+		why: "M14-15: the acceptance refuses a suspended business"},
+}
+
 func TestSuspension_NoWorkerOrTriggerReadsIt(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	words := []string{"suspended_at", "suspension_reason", "GetTenantSuspended", "WriteSuspension", "Suspended(", "Suspension", "suspend"}
@@ -874,7 +897,8 @@ func TestSuspension_NoWorkerOrTriggerReadsIt(t *testing.T) {
 	}
 	r := newDBRig(t)
 	rows, err := r.owner.Query(context.Background(), `
-		SELECT p.proname, pg_catalog.pg_get_userbyid(p.proowner), p.prorettype = 'trigger'::regtype
+		SELECT p.proname, p.oid::pg_catalog.regprocedure::text, pg_catalog.pg_get_userbyid(p.proowner),
+		       p.prorettype = 'trigger'::regtype, p.provolatile::text
 		  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
 		 WHERE n.nspname = 'public' AND p.prosrc LIKE '%suspended_at%'
 		 ORDER BY 1`)
@@ -884,12 +908,19 @@ func TestSuspension_NoWorkerOrTriggerReadsIt(t *testing.T) {
 	defer rows.Close()
 	var names []string
 	for rows.Next() {
-		var name, owner string
+		var name, signature, owner, volatility string
 		var trigger bool
-		if err := rows.Scan(&name, &owner, &trigger); err != nil {
+		if err := rows.Scan(&name, &signature, &owner, &trigger, &volatility); err != nil {
 			t.Fatal(err)
 		}
 		names = append(names, name)
+		if r, named := suspendedAtReaders[signature]; named {
+			if trigger || owner != r.owner || volatility != r.volatility {
+				t.Errorf("%s (owner %s, trigger %v, volatility %s) is a named reader of suspended_at (%s) and no longer its shape: owner %s, volatility %s, no trigger",
+					signature, owner, trigger, volatility, r.why, r.owner, r.volatility)
+			}
+			continue
+		}
 		if trigger || !strings.HasPrefix(name, "op_") || owner != "tappa_opdefiner" {
 			t.Errorf("%s (owner %s, trigger %v) reads suspended_at: only the operator's op_* may", name, owner, trigger)
 		}

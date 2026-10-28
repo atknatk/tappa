@@ -12,6 +12,10 @@ import (
 )
 
 type Querier interface {
+	// Whether the business an invitation belongs to is suspended (ADR 0025 §1) -- the acceptance page's
+	// "not now", after the acceptance itself refused (the functions read the same column under their
+	// locks). The invitation is the row; the business is read through it, scoped by @tenant_id.
+	AdminInviteBusinessSuspended(ctx context.Context, arg AdminInviteBusinessSuspendedParams) (bool, error)
 	// tags.sql -- tenant-scoped tag queries. Runs AFTER GetTagByUID (resolve.sql)
 	// has established the tenant context, so per CLAUDE.md section 4.5 every query
 	// here carries an explicit tenant_id filter (belt + braces on top of RLS).
@@ -146,6 +150,25 @@ type Querier interface {
 	// manager pressed a button for something that was already true, and the honest
 	// answer is to say so rather than to report a change that did not happen.
 	AttachPolicyResource(ctx context.Context, arg AttachPolicyResourceParams) (AttachPolicyResourceRow, error)
+	// One open invitation, by its id in this business. No row: unknown here, spent, or cancelled
+	// already -- the caller writes no audit row then.
+	CancelAdminInvite(ctx context.Context, arg CancelAdminInviteParams) (CancelAdminInviteRow, error)
+	// admininvites.sql -- the owner's side of an administrator invitation (M14-15, ADR 0031 §5.11;
+	// migration 00077). The owner issues, lists and cancels its own business's invitations.
+	//
+	// Every statement here runs inside WithTenant and carries an explicit tenant_id filter (CLAUDE.md
+	// §4.5, belt and braces). The acceptance is NOT here: it is keyed by the invitation token and runs
+	// through ADR 0031 §5.2's identity_accept_invite / identity_accept_invite_new (hand-written in
+	// internal/db/identity.go -- sqlc cannot type a RETURNS TABLE call).
+	//
+	// 🔴 NOTHING HERE READS A MEMBERSHIP OR AN IDENTITY (R18). The owner's answer, its timing and the
+	// list's state must be one shape whether or not the address already has a Taptime sign-in, so the
+	// issuing path writes the invitation and reads nothing else; token_hash is not readable by tappa_app
+	// and is not named.
+	// The address's open invitation in this business, if any, before a new one is issued (one open
+	// invitation per address per business -- the partial UNIQUE admin_invites_one_open_per_address).
+	// An expired one is open too until it is cancelled or spent, so it is retired here as well.
+	CancelOpenAdminInvitesForAddress(ctx context.Context, arg CancelOpenAdminInvitesForAddressParams) (int64, error)
 	// Retires every invitation of one employee that could still be spent, and returns
 	// the ids it retired (empty when there was nothing to retire -- idempotent).
 	//
@@ -1254,6 +1277,33 @@ type Querier interface {
 	//
 	// token_hash is the HMAC of a token this query never sees; it is written, never
 	// returned.
+	//
+	// THE SESSION IS WRITTEN ONLY WHILE THE ROW STILL CARRIES THE DIGEST THE PASSWORD WAS
+	// VERIFIED AGAINST, UNDER A LOCK ON THE ROW (ADR 0031 §5.2, identity_unlink_backfilled's
+	// row; M14-07). tappa_app cannot read admin_users.unlinked_at (R16), so this statement cannot
+	// see that a membership was refused between the password comparison and this write -- but
+	// the refusal writes a SENTINEL digest in the same transaction, and a password change or a
+	// reset writes a new one, so `a.password_hash = @verified_digest` says "nothing rewrote this
+	// row's credential since it verified". @verified_digest is the digest internal/adminauth
+	// compared the typed password with (never a value from a request). FOR NO KEY UPDATE OF a is what
+	// makes the predicate hold against a CONCURRENT refusal: without it a write that started
+	// while the refusal's transaction was open read the old row version and left a live session
+	// on the refused row (measured on 17.10, M14-05's audit); with it the write waits for the
+	// refusal, READ COMMITTED re-evaluates the predicate on the committed version, and the answer
+	// is 0 rows. The lock needs an UPDATE privilege on admin_users -- tappa_app's UPDATE (status)
+	// (00017) -- and FORCE RLS applies the UPDATE policy's USING to the locked row as well
+	// (internal/db's adminsessiondigest_test.go measures both).
+	//
+	// NO KEY UPDATE, NOT SHARE (2026-10-23, M14-07's audit, measured 86/120 deadlocks): Issue runs
+	// MarkAdminLoggedIn -- an UPDATE of this same row -- in the same transaction, so a SHARE lock
+	// had to be upgraded, and two concurrent sign-ins of one admin (a double click) each held SHARE
+	// and waited for the other's: 40P01, a 500. FOR NO KEY UPDATE is the lock that UPDATE takes
+	// anyway, so there is no upgrade (0/120); it still conflicts with the refusal's FOR UPDATE, and
+	// it does not block the foreign-key checks (KEY SHARE) of other sessions being written.
+	//
+	// The old binary's statement
+	// (without the two) keeps working on the same schema: this is a change of the new binary's
+	// query text alone.
 	CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (CreateAdminSessionRow, error)
 	// Creates a panel operator. THE FIRST INSERT INTO admin_users ANY APPLICATION PATH
 	// IN THIS PRODUCT HAS EVER MADE (M7-02) -- internal/adminauth/password.go names this
@@ -2157,11 +2207,13 @@ type Querier interface {
 	//
 	// 🔴 THIS IS THE QUERY THE HEADER'S INVARIANT NAMES. It is the SECOND and last reader
 	// of password_hash in the product (the first is the context-less login resolver), and
-	// it returns the digest as a PLAIN string to EXACTLY ONE caller, internal/adminauth,
-	// which feeds it straight to bcrypt.Compare and never logs, emits or re-returns it. No
+	// it returns the digest as a PLAIN string to EXACTLY ONE package, internal/adminauth,
+	// which never logs, emits or re-returns it. Two uses there: ChangeOwnPassword feeds it
+	// to bcrypt.Compare, and Issue (M14-07) checks the sign-in's Proof against it and hands
+	// it to CreateAdminSession as @verified_digest, inside the same transaction. No
 	// secret-wrapper type is used or needed: the login resolver wraps its hash because it
 	// runs WITHOUT a tenant context and hands a value across a wider boundary; this read
-	// runs POST-authentication inside WithTenant and its result never leaves adminauth.
+	// runs inside WithTenant and its result never leaves adminauth.
 	//
 	// status is RETURNED, not filtered (the GetAdminByID precedent): a caller that finds
 	// a disabled admin can say so and audit it, where "no such row" could not be told
@@ -3307,6 +3359,10 @@ type Querier interface {
 	// so it writes no audit row either (TestApiKeyRevocation_ConcurrentAndBulkAreSafe).
 	// id and created_at are the table's defaults; tappa_app cannot write them (00051).
 	InsertAPIKey(ctx context.Context, arg InsertAPIKeyParams) (InsertAPIKeyRow, error)
+	// id, created_at, used_at and cancelled_at are not tappa_app's to write (00077). The row is written
+	// FROM the inviter's own membership row: an active OWNER of this business (the panel's policy gate
+	// decided first; this is the belt -- no row, nothing written). tenant_id is the source row's own.
+	InsertAdminInvite(ctx context.Context, arg InsertAdminInviteParams) (InsertAdminInviteRow, error)
 	// THE MANAGER'S OWN RECORD AT A PEER'S VENUE (M11 API-1c, ADR 0027 §9 "Manuel kayıt"; K-1a: the
 	// record is the EMPLOYER's). InsertManualTransaction's statement and its narrowing, with the
 	// venue a PEER's: site_tenant_id and site_location_id are set, location_id and tag_uid are NULL
@@ -3721,6 +3777,11 @@ type Querier interface {
 	// The panel's list: newest first, revoked ones included (the owner sees what was issued and
 	// when it stopped working). token_hash is not readable by tappa_app and is not named.
 	ListAPIKeys(ctx context.Context, tenantID uuid.UUID) ([]ListAPIKeysRow, error)
+	// The owner's list: newest first, at most 50, spent and cancelled ones included (the owner sees
+	// what was sent and what became of it).
+	ListAdminInvites(ctx context.Context, tenantID uuid.UUID) ([]ListAdminInvitesRow, error)
+	// The owner's list: owners first, then by age. Bounded: a business's panel people are a handful.
+	ListAdminMembers(ctx context.Context, tenantID uuid.UUID) ([]ListAdminMembersRow, error)
 	// Every session of one admin, newest first: the read side of "sign out everywhere"
 	// and of the panel's device list. Revoked rows are included on purpose; the caller
 	// filters on revoked_at, so the history stays visible (section 4.6).
@@ -5468,6 +5529,22 @@ type Querier interface {
 	// explicit predicate -- and a context in which the row is not visible returns NO ROW and takes no
 	// lock, which the caller treats as a failure, never as "locked".
 	LockAPIDeactivationBudget(ctx context.Context, arg LockAPIDeactivationBudgetParams) (LockAPIDeactivationBudgetRow, error)
+	// adminmembers.sql -- the owner's side of a business's memberships (M14-16, ADR 0031 §5.12): the
+	// people who run this business in the panel, disabling and enabling one, and moving a membership
+	// between owner and manager (the two steps of an ownership transfer).
+	//
+	// Every statement runs inside WithTenant and carries an explicit tenant_id filter (CLAUDE.md §4.5,
+	// belt and braces). Nothing here names identity_id, linked_via, linked_at or unlinked_at (R16 --
+	// tappa_app reads only the first, and only TouchAdminSession may select it): a membership is managed
+	// per business (K-6), and no statement here reaches the person's identity or another business.
+	//
+	// THE LAST-OWNER INVARIANT IS THE CALLER'S (internal/adminauth.Memberships), under the lock the first
+	// statement below takes: every active owner row of the business, in id order, FOR NO KEY UPDATE --
+	// the strength a login's CreateAdminSession takes on a row, so two membership changes of one
+	// business serialise on the owners and a later one re-reads what an earlier one committed (READ
+	// COMMITTED re-checks a locked row's WHERE against its newest version).
+	// The business's active owners, locked in id order (one order for every caller: no lock cycle).
+	LockActiveAdminOwners(ctx context.Context, tenantID uuid.UUID) ([]uuid.UUID, error)
 	// SERIALISE ONE ADMINISTRATOR'S RECOVERY ISSUING (M10 EM-7C round 3, ADR 0022's
 	// "EM-7C note").
 	//
@@ -5490,6 +5567,8 @@ type Querier interface {
 	// "<tenant>:<employee>" string and the invitation limits' 'invite-limits:' one; a hash
 	// collision serialises two unrelated requests and never mixes their data.
 	LockAdminForResetIssue(ctx context.Context, arg LockAdminForResetIssueParams) error
+	// One membership of this business, locked; no row: not a membership here.
+	LockAdminMember(ctx context.Context, arg LockAdminMemberParams) (LockAdminMemberRow, error)
 	// One employee, row-locked FOR UPDATE until the API write's transaction ends -- the mode
 	// LockEmployeeForEmailChange takes and for its reason: it conflicts with the FOR KEY SHARE a
 	// concurrent CreateInvite's foreign-key check holds, so an invitation being minted right now
@@ -6288,6 +6367,11 @@ type Querier interface {
 	// never debounces (the safe zero value, section 4.6) — the same answer the
 	// unbounded query produced by returning an age too large to win the min.
 	SecondsSinceLastRecordedTap(ctx context.Context, arg SecondsSinceLastRecordedTapParams) (float64, error)
+	// owner <-> manager, on an ACTIVE membership only. No row when it is not here, not active, or
+	// already holds @role.
+	SetAdminMemberRole(ctx context.Context, arg SetAdminMemberRoleParams) (uuid.UUID, error)
+	// active <-> disabled. No row when the membership is not here or already holds @status.
+	SetAdminMemberStatus(ctx context.Context, arg SetAdminMemberStatusParams) (uuid.UUID, error)
 	// The business-day cutoff of a DEPARTMENT: it applies to its employees whatever their
 	// profile branch, and beats the branch level
 	// (M15-02, migration 00064, ADR 0032 §A.2). NULL = inherit the next level up;
@@ -6489,6 +6573,14 @@ type Querier interface {
 	// never "signed in and not suspended". `tenants` is only READ here: UPDATE ... FROM
 	// locks the target's rows, not the joined table's, so a suspension being written does
 	// not hold this statement up (measured: TestVerifyDB_DoesNotWaitForTheSuspensionsRowLock).
+	//
+	// TWO MORE COLUMNS RIDE ON IT (ADR 0031 §5.3, M14-04), neither costing a read: tenants.name -- the
+	// shell names the business it is in (K-5) -- and admin_users.identity_id, the key of the switch's
+	// rate bucket (§5.4: a switch is a new session, so a bucket keyed by the session would reset on every
+	// switch). identity_id is ADR 0031 §6's NAMED RESIDUE: a cross-tenant correlation key in the
+	// application's memory. THIS IS THE ONE sqlc STATEMENT ALLOWED TO SELECT IT (internal/db's
+	// query-text scan pins that, and that no statement selects linked_via or `*` on admin_users); it is
+	// never rendered, logged or written to an audit row.
 	TouchAdminSession(ctx context.Context, arg TouchAdminSessionParams) (TouchAdminSessionRow, error)
 	// Refreshes last_used_at on use (the card's "kullanimda yenilenir"). The
 	// revoked_at IS NULL guard makes the refresh fail CLOSED: a session revoked

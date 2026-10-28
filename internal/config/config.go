@@ -247,6 +247,24 @@ type Config struct {
 	// would switch the rule on before any business set its cutoff.
 	BusinessDayFrom *time.Time
 
+	// AdminIdentity is the panel identity flag (TAPPA_ADMIN_IDENTITY, ADR 0031 §8): true when every
+	// surface where a session linked to a person's identity could look different from an unlinked
+	// one is open -- the identity sign-in, "Switch business", the account page's identity sections,
+	// invitations, membership management, the per-identity reset. internal/adminauth's IdentityGate
+	// holds the table of those surfaces, in one place; this field is only its input.
+	//
+	// 🔴 THE WRITE PATHS DO NOT READ IT (ADR 0031 §8): the dual-write of a password change, of a
+	// legacy reset link and of a registration runs whatever this says, because a linked row refuses
+	// a direct password write (00069's trigger) and a pod with the flag on and one with it off serve
+	// the same people during a rollout.
+	//
+	// "off" | "on", empty = off. An unknown value is a STARTUP FAILURE, never a silent off: "On",
+	// "true" or "1" typed by someone who meant to open the surfaces must not boot a server that kept
+	// them closed without saying so. Turning it on is a commit to deploy/k8s/05-config.yaml and a
+	// main deploy -- the user's decision (M14-19), never `kubectl edit` (the next deploy would
+	// silently turn it back).
+	AdminIdentity bool
+
 	// RetentionYears is how long attendance records are kept, in whole years. It
 	// is REQUIRED and has no default because it is a LEGAL statement: the GDPR
 	// Art. 13 notice on the activation page renders this number, and a number
@@ -268,6 +286,11 @@ type Config struct {
 	// configuration (an unset TAPPA_ENV falls back to dev and an unset
 	// TAPPA_BASE_URL to localhost, so those two alone are not a gate).
 	DevTools bool
+
+	// EnvExplicit reports that TAPPA_ENV was SET, not defaulted: an unset TAPPA_ENV falls back to dev,
+	// so dev alone is not a gate for anything that must never reach production
+	// (RegistrationLinksOnScreen, M14-17's audit -- the DevTools rule's reason).
+	EnvExplicit bool
 
 	// LogFormat is "text" or "json" and it is a DEPLOYMENT decision rather than a
 	// taste, because the two readers of this process's output want opposite things
@@ -291,10 +314,11 @@ type Config struct {
 func Load() (*Config, error) {
 	rawEnv := os.Getenv("TAPPA_ENV")
 	c := &Config{
-		Env:      envDefault(rawEnv, sandboxBuild),
-		Addr:     env("TAPPA_ADDR", ":8080"),
-		BaseURL:  env("TAPPA_BASE_URL", "http://localhost:8080"),
-		LogLevel: env("TAPPA_LOG_LEVEL", "info"),
+		Env:         envDefault(rawEnv, sandboxBuild),
+		EnvExplicit: rawEnv != "",
+		Addr:        env("TAPPA_ADDR", ":8080"),
+		BaseURL:     env("TAPPA_BASE_URL", "http://localhost:8080"),
+		LogLevel:    env("TAPPA_LOG_LEVEL", "info"),
 		// 🔴 UNLIKE TAPPA_LOG_LEVEL, A TYPO HERE IS A STARTUP FAILURE. parseLevel
 		// falls back to info on an unparseable level, which is the right shape for a
 		// verbosity knob. It is the WRONG shape here: TAPPA_LOG_FORMAT=jsn would
@@ -445,6 +469,9 @@ func Load() (*Config, error) {
 	if c.BusinessDayFrom, err = ParseBusinessDayFrom(os.Getenv(EnvBusinessDayFrom), time.Now()); err != nil {
 		push(err)
 	}
+	if c.AdminIdentity, err = adminIdentityFlag(os.Getenv(EnvAdminIdentity)); err != nil {
+		push(err)
+	}
 	for _, err := range sandboxSettings(c) {
 		push(err)
 	}
@@ -541,6 +568,42 @@ func validLogFormat(v string) error {
 
 // EnvBusinessDayFrom is the business-day switch's variable (ADR 0032 §A.8, Config.BusinessDayFrom).
 const EnvBusinessDayFrom = "TAPPA_BUSINESS_DAY_FROM"
+
+// EnvAdminIdentity is the panel identity flag's variable (ADR 0031 §8); AdminIdentityOff and
+// AdminIdentityOn are its only values.
+const (
+	EnvAdminIdentity = "TAPPA_ADMIN_IDENTITY"
+	AdminIdentityOff = "off"
+	AdminIdentityOn  = "on"
+)
+
+// adminIdentityFlag parses TAPPA_ADMIN_IDENTITY: "off" or "on", empty = off. Exact spelling --
+// unlike the delivery modes it forgives no case and no blank, because it is a security boundary
+// with a two-word vocabulary and every other spelling is somebody's guess (Config.AdminIdentity).
+// The value is not repeated in the error.
+func adminIdentityFlag(v string) (bool, error) {
+	switch v {
+	case "", AdminIdentityOff:
+		return false, nil
+	case AdminIdentityOn:
+		return true, nil
+	}
+	return false, fmt.Errorf("%s: must be %q or %q (ADR 0031 §8; empty means %q). The value is not repeated here",
+		EnvAdminIdentity, AdminIdentityOff, AdminIdentityOn, AdminIdentityOff)
+}
+
+// AnnounceAdminIdentity writes the panel identity flag's state at start-up, a line in both states,
+// so "off" is read rather than inferred from silence (AnnounceBusinessDay's rule).
+func AnnounceAdminIdentity(log *slog.Logger, on bool) {
+	if on {
+		log.Info("panel identity flag is ON: the identity sign-in, the business switch and the identity "+
+			"sections of the account page are open", "variable", EnvAdminIdentity, "admin_identity", AdminIdentityOn)
+		return
+	}
+	log.Info("panel identity flag is OFF: every panel surface answers as before the identity; the "+
+		"dual-write of credentials, reset links and registrations runs regardless", "variable", EnvAdminIdentity,
+		"admin_identity", AdminIdentityOff)
+}
 
 // BusinessDayFromMaxAhead is how far past the start-up instant TAPPA_BUSINESS_DAY_FROM may lie
 // (ADR 0032 §A.8, security lens F-3): a release writes the switch for the coming days, so a value
@@ -656,6 +719,20 @@ func validEnv(v string) error {
 //
 // IsHardened is a convenience, never a security boundary by itself.
 func (c *Config) IsHardened() bool { return c.Env == EnvProd || c.Env == EnvSandbox }
+
+// RegistrationLinksOnScreen reports whether a registration's verification link is shown on the
+// wizard's "Check your inbox" page instead of being e-mailed (M14-17, the user's decision of
+// 2026-10-26; ADR 0031 §5.10, ADR 0028 §11): only where no e-mail is sent (TAPPA_RESET_DELIVERY=none)
+// AND the installation is a sandbox one or an EXPLICITLY declared development one -- data there is
+// not a customer's. TAPPA_ENV unset falls back to dev and an unset delivery to none, so a pod missing
+// both must not show links (M14-17's audit; DevTools' rule). With no e-mail anywhere else the wizard
+// takes no registrations; production never shows a link.
+func (c *Config) RegistrationLinksOnScreen() bool {
+	if c.ResetDelivery == ResetDeliveryEmail {
+		return false
+	}
+	return c.Env == EnvSandbox || (c.Env == EnvDev && c.EnvExplicit)
+}
 
 // retentionYearsMin / retentionYearsMax bound TAPPA_RETENTION_YEARS.
 //
