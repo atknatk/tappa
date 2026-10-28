@@ -130,9 +130,17 @@ var identitySignaturesM1417 = []identitySignature{
 	{"identity_sweep_signup_claims", "", "integer", "tappa_identitydefiner"},
 }
 
+// identitySignaturesM1416b is M14-16b's part (migration 00081; ADR 0031 §5.2's note of 2026-10-27, the
+// user's decision): tappa_resolver's read of a business's owners who can still get a session -- ids
+// only, for the caller's own tenant context (the ghost owner, backlog T171).
+var identitySignaturesM1416b = []identitySignature{
+	{"resolve_admin_owners_by_tenant", "p_tenant_id uuid", "TABLE(admin_user_id uuid)", "tappa_resolver"},
+}
+
 // identitySignatures is the union of every card's part: the whole closed list as far as it is built.
 // The functions tappa_identitydefiner owns are EXACTLY its tappa_identitydefiner rows.
-var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405, identitySignaturesM1408, identitySignaturesM1415, identitySignaturesM1417, identitySignaturesM1418)
+var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405, identitySignaturesM1408, identitySignaturesM1415,
+	identitySignaturesM1417, identitySignaturesM1418, identitySignaturesM1416b)
 
 // identitySignatureNames lists the table's names (resolve_admin_by_email is a row though neither
 // identity_* nor the definer's -- M14-05's redefinition).
@@ -665,7 +673,8 @@ func TestIdentityDefiner_ColumnMatrix(t *testing.T) {
 // resolve_identity_by_email returns and filters on. M14-05 adds its token tables' columns here.
 var identityResolverColumns = map[string]string{
 	"admin_identities:SELECT": "id,email,password_hash,email_verified_at",
-	"admin_users:SELECT":      "id,tenant_id,email,password_hash,status,created_at,identity_id,unlinked_at",
+	// M14-16b (00081): + role -- resolve_admin_owners_by_tenant's owner filter.
+	"admin_users:SELECT": "id,tenant_id,email,password_hash,role,status,created_at,identity_id,unlinked_at",
 	// M14-05 (00072): the two token resolvers' columns.
 	"admin_identity_resets:SELECT":        "id,identity_id,token_hash,expires_at,used_at,cancelled_at",
 	"admin_identity_verifications:SELECT": "id,identity_id,token_hash,expires_at,used_at",
@@ -915,6 +924,10 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx, signup ident
 		identityStep{name: "M14-17 sweep", sql: sweepSignupClaimsSQL},
 	)
 	steps = append(steps, identityExerciseM1418(t, ctx, sp)...)
+	// M14-16b (00081): business A's owners who can sign in, in A's own context (plain is its owner).
+	steps = append(steps, identityStep{name: "M14-16b owners who can sign in",
+		owner: `SELECT set_config('app.tenant_id', '` + a.String() + `', true)`,
+		sql:   adminOwnersByTenantSQL, args: []any{a}})
 	for _, s := range steps {
 		if s.owner != "" {
 			aiExec(t, ctx, sp, s.owner)
@@ -969,8 +982,9 @@ func TestIdentityDefiner_EveryGrantIsUsed(t *testing.T) {
 		table, col, _ := strings.Cut(c, ".")
 		grants = append(grants, grant{"tappa_identitydefiner", table, "SELECT", col})
 	}
-	// The resolver's two NEW admin_users columns and its four admin_identities columns (00071).
-	for _, c := range []string{"identity_id", "unlinked_at"} {
+	// The resolver's two NEW admin_users columns and its four admin_identities columns (00071); role
+	// (00081, M14-16b): resolve_admin_owners_by_tenant's filter.
+	for _, c := range []string{"identity_id", "unlinked_at", "role"} {
 		grants = append(grants, grant{"tappa_resolver", "admin_users", "SELECT", c})
 	}
 	for _, table := range []string{"admin_identities", "admin_identity_resets", "admin_identity_verifications", "admin_invites", "admin_signup_claims"} {

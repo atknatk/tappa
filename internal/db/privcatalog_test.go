@@ -205,7 +205,11 @@ SELECT line FROM (
 // keeps it while an invite function exists) and added tenants SELECT (vat_number) -- plus the system column
 // xmin, outside this catalogue -- read again at 00078; 00079 -- M14-18,
 // ADR 0031 §5.2's 2026-10-27 note -- added identity_confirm_window and identity_keep_all (EXECUTE
-// tappa_app and the owner) and NO grant: both bodies run on the definer's 00071/00072 cells) and READ
+// tappa_app and the owner) and NO grant: both bodies run on the definer's 00071/00072 cells); 00081 --
+// M14-16b, ADR 0031 §5.2's 2026-10-27 note (the ghost owner, T171) -- added
+// resolve_admin_owners_by_tenant (tappa_resolver's, read-only; EXECUTE tappa_app and the owner) and the
+// one column its role filter needs, tappa_resolver SELECT (role) on admin_users; its redefinitions of
+// identity_open_session / identity_switch_session (a row lock, T172) change no line here) and READ
 // line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
@@ -267,7 +271,7 @@ column admin_users tappa_identitydefiner INSERT tenant_id,full_name,email,passwo
 column admin_users tappa_identitydefiner SELECT id,tenant_id,email,password_hash,role,status,created_at,identity_id,linked_via,linked_at,unlinked_at
 column admin_users tappa_identitydefiner UPDATE password_hash,status,last_login_at,identity_id,linked_via,linked_at,unlinked_at
 column admin_users tappa_opdefiner SELECT tenant_id,email,status
-column admin_users tappa_resolver SELECT id,tenant_id,email,password_hash,status,created_at,identity_id,unlinked_at
+column admin_users tappa_resolver SELECT id,tenant_id,email,password_hash,role,status,created_at,identity_id,unlinked_at
 column api_idempotency tappa_app INSERT tenant_id,key_id,idem_key,request_hash
 column api_idempotency tappa_app SELECT tenant_id,key_id,idem_key,request_hash,status,result_ref,created_at
 column api_idempotency tappa_app UPDATE status,result_ref
@@ -439,6 +443,7 @@ function op_touch_session(text) owner=tappa_opdefiner definer=true execute=tappa
 function punch_feed() owner=tappa_feedwriter definer=true execute=tappa_feedwriter
 function resolve_admin_by_email(citext) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_admin_invite_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
+function resolve_admin_owners_by_tenant(uuid) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_admin_session_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_api_key_by_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_identity_by_email(citext) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver

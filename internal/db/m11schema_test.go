@@ -542,8 +542,11 @@ var m11Functions = map[string]m11FunctionACL{
 	// 00077 (M14-15, ADR 0031 §5.2): the invitation's md.7 resolver (tappa_resolver's) and its two
 	// acceptances -- keyed by the invitation token (and a live session) -- EXECUTE tappa_app alone.
 	"resolve_admin_invite_by_token_hash(text)": {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
-	"identity_accept_invite(text,text)":        {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_accept_invite_new(text,text)":    {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	// 00081 (M14-16b, ADR 0031 §5.2's 2026-10-27 note): the business's owners who can still get a session,
+	// for the panel's last-owner rule -- read-only, answering only for the caller's own tenant context.
+	"resolve_admin_owners_by_tenant(uuid)":  {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"identity_accept_invite(text,text)":     {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_accept_invite_new(text,text)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 	// 00078 (M14-17, ADR 0031 §5.10): the verified registration -- the md.7 resolver of a draft and the
 	// definer's open, claim and sweep.
 	"resolve_signup_claim_by_token_hash(text)":                                    {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},

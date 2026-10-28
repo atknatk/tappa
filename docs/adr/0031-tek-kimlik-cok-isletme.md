@@ -503,6 +503,38 @@ bir satır (önceden ekilmiş saldırganın satırı, §5.8) kişinin kovasını
 ve geri alma ondan ücret almadan reddedilir, ters bağlamanın parola denemeleri kimliğin hiçbir eyleminin
 kullanmadığı ayrı bir anahtarla (`reverse|…`) sınırlanır.
 
+**M14-16b notu (2026-10-27 kullanıcı kararı — "bayraktan önce kart"; uygulama `00081`):** kapalı liste
+bir **salt-okuma** fonksiyonla büyür:
+
+| Fonksiyon | Anahtar | Dönüş |
+|---|---|---|
+| `resolve_admin_owners_by_tenant(p_tenant_id uuid)` → `TABLE (admin_user_id uuid)` | çağıranın **kendi** tenant bağlamı: `p_tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid` değilse (NULL dahil) 0 satır | İşletmenin `role = 'owner' AND status = 'active' AND unlinked_at IS NULL` üyelik satırlarının id'leri, id sırasıyla, en çok 200. Adres, ad, `identity_id`, bağ sütunları, sayı **yok**; reddedilmiş satır yalnız **yokluğuyla** ayrılır |
+
+Sahibi `tappa_resolver`; `STABLE` plpgsql, `SECURITY DEFINER`, `SET search_path = pg_catalog, pg_temp`,
+`REVOKE ALL … FROM PUBLIC`, `EXECUTE` yalnız `tappa_app`. **Tek yeni yetki:** `tappa_resolver`'a
+`admin_users SELECT (role)` (rolün filtresi; `id`, `tenant_id`, `status`, `unlinked_at`'i 00011/00017/00071'den
+zaten okur) — `tappa_app`'ın hiçbir yetkisi değişmez, `unlinked_at`'i hâlâ okuyamaz (R16). **Neden:** onay
+listesinde reddedilmiş bir owner satırı contract B'den önce `status='active'`, `role='owner'` kalır ve
+`unlinked_at` damgalıdır; M14-16'nın son-owner değişmezi onu owner sayıyordu ve gerçek owner'a "Step down"
+sunuyordu — basılırsa işletmede oturum alabilen owner kalmıyor, ürün içinden dönüş olmuyordu (backlog T171,
+§5.12'nin M14-16 kalıntısı). Değişmez artık **bu kümeyi** sayar (`adminauth.Memberships`, owner satırlarının
+kilidinden **sonra** okunur: çözme ve geri alma satırı UPDATE eder, kilitli satırda `unlinked_at` değişemez;
+`TestMemberships_ARefusedOwnerIsNoOwnerForTheLastOwnerRule`). **Anahtar:** md.7'nin bağlamsız
+çözümleyicileri bağlamı **üretir**; bu fonksiyon bağlamın **içinde** koşar ve yalnız onu okur — parametre
+yalnız kemer içindir (gövdenin tek ifadesi `a.tenant_id = p_tenant_id` ile çapalanır), bağlamdan başka bir
+tenant'ı soramaz (`identity_create_for_signup` / `identity_claim_signup`'ın `app.tenant_id` yüklemi emsali;
+`TestAdminOwners00081_AnswersOnlyForTheCallersOwnTenant`). md.7'nin öbür kısıtları aynen: salt okuma, sabit
+tek sütun, `SELECT *` yüzeyi yok, `tappa_app`'ın süzülen sütunda yetkisi yok, "bağlam NULL iken her şey" dalı
+yok; ≤ 1 satır kısıtı **yoktur** (bir işletmenin birden çok owner'ı olur) — sınır `LIMIT 200` ve tenant
+bağlamıdır. **Panel ne görür:** yalnız aktif owner satırları için ayırt edilebilir — panel o satırı "Can't
+sign in" diye yazar ve owner saymaz; reddedilmiş bir **manager** ya da **devre dışı** satır öbürlerinden
+ayırt edilemez, panel ona "Make owner" / "Enable" sunmayı sürdürür. Bu zararsızdır: satır yine oturum alamaz
+(oturum veren her yol `unlinked_at IS NULL` süzer) ve owner'a dönüşürse değişmez onu saymaz. **Kabul edilen
+gözlem (2026-10-27 kullanıcı kararı — "Kabul, ADR'de adıyla"):** işletmenin owner'ı, bir owner satırının oturum alamadığını (kişinin onu reddettiğini) bu farktan
+öğrenir — hayalet owner'ı kapatan her biçim bunu gösterir (yalnız değişmezin reddi bile). Katalog (imza
+tablosu `identitySignaturesM1416b`, `privCatalogAllowed`, `m11Functions`, `tappa_resolver`'ın sütun listesi,
+"her yetki kullanılıyor" egzersizi) ve kemer taraması aynı commit'te genişler; kemer gövdeyi adıyla tarar.
+
 **M14-08 uygulama notları (2026-10-23; kart dışı kararlar, denetime açık):**
 - `identity_create_for_signup(p_tenant_id uuid, p_admin_user_id uuid)` → **`boolean`** (bağladı mı)
   `00074`'te doğdu. Yüklemler tablodakilerin hepsi (`app.tenant_id` eşitliği, satırın bu tenant'ın,
@@ -1061,7 +1093,8 @@ Owner-only (policy motoru; `m7-portal.md:1570-1573`'ün `deny sid=default` tuza�
 gider, panelde gösterilmez. Kabul §5.2'deki iki fonksiyonla, POST ile; rızasız üyelik doğmaz; var olan
 kimlikle kabulde tıklama posta kutusu kanıtıdır (§5.10'daki gibi; önce sıfırlama dayatılmaz).
 **Davet eden owner, adresin bir kimliği olup olmadığını öğrenmez** (R18): davet yanıtı, zamanlaması ve
-davet listesindeki durumu iki durumda aynıdır. Holding üyeliği davetin yerine geçmez.
+davet listesindeki durumu iki durumda aynıdır (owner satırı için reddedilmiş/etkin ayrımı üyelik listesinde
+görünür — §5.2'nin M14-16b notu, kabul edilen gözlem). Holding üyeliği davetin yerine geçmez.
 **Reddedilmiş satıra davet** (ONAY notu 3): tenant'ta aynı adresle reddedilmiş bir satır varsa davet
 kabulü yeni satır yaratmaz, **o satırı** yeniden bağlar (owner'ın daveti + kimliğin canlı oturumu +
 posta kutusu kanıtı; `unlinked_at = NULL`, contract öncesi digest kopyası, contract sonrası
@@ -1113,16 +1146,22 @@ status)`'u (`00017:380-381`) ve `RevokeAdminSessionsForAdmin` ile; yeni sorgular
   görünür ve sayılır; contract sonrasında bir owner onu etkinleştirince sayılır. Owner böyle bir satırın
   yanında çekilirse işletmede oturum alabilen owner kalmaz ve **ürün içinden geri dönüş yoktur**: davet
   ve owner yapma yalnız owner'ındır ve hiçbiri giriş yapamaz. Geri dönüş yalnız veritabanı ya da operatör
-  müdahalesidir.
+  müdahalesidir. **Kapandı — M14-16b (2026-10-27 kullanıcı kararı, `00081`):** değişmez artık
+  `resolve_admin_owners_by_tenant`'ın döndürdüğü, oturum alabilen owner'ları sayar (§5.2'nin M14-16b notu).
 - **Devre dışı bırakma yalnız o satırın o işletmedeki oturumlarını** iptal eder (`RevokeAdminSessionsForAdmin`,
   `identity_revoke_sessions` değil — K-6; `TestMemberships_DisablingDropsOnlyThisBusinesssSessions`, iki
-  işletmeli). Bu iptal, o anda commit edilmekte olan bir oturumu **görmez**: `identity_open_session` /
-  `identity_switch_session` satırı kilitsiz okuyup oturumu ekler, devre dışı bırakmadan önce okumuş biri
-  devre dışı satıra canlı bir oturum bırakabilir (güvenlik denetimi ölçtü). Satır devre dışıyken o oturum
-  kullanılamaz (`TouchAdminSession`); **yeniden etkinleştirme de satırın bütün oturumlarını aynı
-  transaction'da iptal eder** — kişi yeniden giriş yapar
-  (`TestMemberships_EnablingRevokesASessionThatLandedWhileDisabled`). Kalan pencere: oturum açan
-  transaction'ın hem devre dışı bırakmanın hem etkinleştirmenin commit'ini kapsayacak kadar sürmesi.
+  işletmeli). Bu iptal, o anda commit edilmekte olan bir oturumu **görmüyordu**: `identity_open_session` /
+  `identity_switch_session` satırı kilitsiz okuyup oturumu ekliyordu; pencere tam olarak **üyelik okuması ile
+  fonksiyonun kendi `UPDATE … last_login_at`'i arasıydı** (o UPDATE satırın `FOR NO KEY UPDATE` kilidini
+  alır) — orada devre dışı bırakma commit ederse devre dışı satıra canlı bir oturum kalabiliyordu (güvenlik
+  denetimi ölçtü). **Kapandı — M14-16b (2026-10-27 kullanıcı kararı, `00081`):** iki fonksiyonun üyelik
+  okuması aynı kilidi (`FOR NO KEY UPDATE`; yükseltme yok, `FOR SHARE` değil — §5.6'nın M14-07 dersi) okumadan
+  itibaren alır; önce commit eden devre dışı bırakma okumayı boşa düşürür, sonra gelen satırda bekler ve
+  iptali oturumu görür (`TestMemberships_ASessionOpenedBesideADisableDoesNotOutliveIt`, giriş ve geçiş;
+  gövdeler 00071'inkidir, Down onları bayt bayt geri koyar —
+  `TestIdentity00081_DownGivesBack00071ByteForByte`). **Yeniden etkinleştirme satırın bütün oturumlarını
+  aynı transaction'da iptal etmeyi sürdürür** — ikinci katman: devre dışı bir satıra başka bir el oturum
+  koyarsa etkinleştirme onu açmaz (`TestMemberships_EnablingRevokesASessionThatLandedWhileDisabled`).
 - **Owner kapısı M14-15'inkidir** (`a.mayInvite` → `tenant.RuleWriter.MayInviteManager`, `policy:edit`,
   materyalize edilmemiş kitapta sevk edilen baseline): yetki vermek / almak işletmenin yetkilendirmesini
   değiştirmektir ve yeni bir eylem materyalize kitaplarda `deny sid=default` alırdı.
@@ -1188,7 +1227,9 @@ yazıcısı"*; (2) maddesinin sonundaki parantezden sonra şu madde eklenir:
 > `unlinked_at`'i yazamaz, `linked_via` / `linked_at` / `unlinked_at`'i okuyamaz. Erişim yalnız ADR 0031 §5.2'deki **kapalı** `identity_*`
 > listesiyle (sahibi `tappa_identitydefiner`: NOLOGIN, BYPASSRLS, NOSUPERUSER, üyesiz, varsayılan
 > yetkisi yok, yalnız sütun düzeyi GRANT) ve salt okuma `resolve_identity_*` / `resolve_admin_invite_*`
-> / `resolve_signup_claim_*` çözümleyicileriyle (`tappa_resolver`, ADR 0002 md.7) olur. Kimliği yazan
+> / `resolve_signup_claim_*` çözümleyicileriyle (`tappa_resolver`, ADR 0002 md.7) ve işletmenin kendi
+> bağlamında oturum alabilen owner'larının yalnız id'lerini veren `resolve_admin_owners_by_tenant`'la
+> (`tappa_resolver`, ADR 0031 §5.2'nin M14-16b notu) olur. Kimliği yazan
 > her fonksiyon kimliği bir **sırdan** bulur (canlı oturum, sıfırlama/davet/kayıt/doğrulama token'ı);
 > adlandırılmış dört istisna `identity_open_session` (Go tipiyle bağlı, 00011 YÜKÜMLÜLÜK 5'in
 > karşılığı), geçici `identity_create_for_signup` (kendi transaction'ında yazılmış tek satır; M14-17'den

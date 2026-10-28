@@ -24,12 +24,23 @@ import (
 // and the old owner can still take it back; (2) the old owner steps down to manager -- which only the
 // last-owner invariant can refuse. No single press both gives ownership away and removes one's own.
 //
-// 🔴 THE LAST-OWNER INVARIANT: a business keeps at least one ACTIVE OWNER through every change made
-// here -- the last one can be neither disabled nor demoted. It holds under concurrency by a lock, not
-// by a read: Change first locks every active owner row of the business in id order (FOR NO KEY
-// UPDATE), so two changes of one business serialise on the owners, and the second re-reads what the
-// first committed (READ COMMITTED re-checks a locked row's WHERE against its newest version). Two
-// owners stepping down at once: exactly one of them does (TestMemberships_TwoStepDownsRaceAndOneIsRefused).
+// 🔴 THE LAST-OWNER INVARIANT: a business keeps at least one ACTIVE OWNER WHO CAN SIGN IN through
+// every change made here -- the last one can be neither disabled nor demoted. It holds under
+// concurrency by a lock, not by a read: Change first locks every active owner row of the business in
+// id order (FOR NO KEY UPDATE), so two changes of one business serialise on the owners, and the second
+// re-reads what the first committed (READ COMMITTED re-checks a locked row's WHERE against its newest
+// version). Two owners stepping down at once: exactly one of them does
+// (TestMemberships_TwoStepDownsRaceAndOneIsRefused).
+//
+// 🔴 WHO COUNTS (M14-16b, ADR 0031 §5.2/§5.12 notes of 2026-10-27): the owners db.SignInOwners returns
+// -- resolve_admin_owners_by_tenant (00081, tappa_resolver's), the locked owners minus every row the
+// person REFUSED on the confirmation list. Such a row keeps role='owner', status='active' (before
+// contract B the unlink leaves it 'active') with unlinked_at stamped, which tappa_app cannot read
+// (R16); it can never get a session (every session-giving path filters unlinked_at IS NULL), so it is
+// no owner for this rule. Counting it let a real owner step down beside it and leave the business with
+// no owner who could sign in, and no way back in the product (backlog T171). The set is read AFTER the
+// owners' lock: an unlink or a relink updates the row, so on a locked row unlinked_at cannot change
+// until this transaction ends (TestMemberships_ARefusedOwnerIsNoOwnerForTheLastOwnerRule).
 //
 // 🔴 IT IS THE PANEL'S RULE, NOT A TRIGGER, ON PURPOSE. Two writers outside this file legitimately leave
 // a business with no active owner, and a database trigger would have had to name both as exceptions:
@@ -45,13 +56,11 @@ import (
 // identity_switch_session, identity_memberships, resolve_admin_by_email), and the sessions it had were
 // revoked by the unlink. internal/db's TestAdminMembers_EnablingARefusedRowGivesNoSession holds it.
 //
-// ⚠️ THE NAMED RESIDUE THAT FOLLOWS FROM IT (R16; accepted for M14-16 by the user, 2026-10-27, a
-// follow-up card in the backlog): for the same reason the invariant counts a refused OWNER row as an
-// active owner. Before contract B such a row needs no press at all -- the unlink leaves it 'active',
-// so it already shows as "Owner · Active" and counts; after contract B it counts once an owner
-// enables it. Either way an owner who steps down beside it can leave the business with no owner who
-// can sign in, and there is NO in-product way back: only an owner can invite or promote, and none can
-// sign in. The way back is database or operator intervention.
+// WHAT THE PANEL CAN TELL (M14-16b): the resolver answers for ACTIVE OWNER rows alone, so a refused row
+// is recognisable only while it is an active owner (List marks it, Member.RefusedOwner). A refused
+// manager row or a disabled one looks like any other, and the panel still offers to make it an owner
+// or to enable it. That press is harmless: the row stays without a session (above), and an owner it
+// becomes is not counted here.
 //
 // NOTHING HERE TOUCHES AN IDENTITY: no statement names identity_id or an identity table, and the
 // session revocation is the row's own in this business (RevokeAdminSessionsForAdmin) -- not
@@ -112,6 +121,10 @@ type Member struct {
 	Status      string
 	CreatedAt   time.Time
 	LastLoginAt *time.Time
+	// RefusedOwner: an active owner row that can get no session -- the person refused it on the
+	// confirmation list (M14-16b; resolve_admin_owners_by_tenant does not return it). It is not counted
+	// as an owner. False for every row that is not an active owner: the panel cannot tell those.
+	RefusedOwner bool
 }
 
 // Active reports whether the membership is enabled.
@@ -163,11 +176,16 @@ func NewMemberships(data MembershipDatabase, trail *audit.Recorder) (*Membership
 	return &Memberships{data: data, trail: trail}, nil
 }
 
-// List is the business's memberships, owners first.
+// List is the business's memberships, owners first, each active owner marked when it can get no
+// session (RefusedOwner).
 func (s *Memberships) List(ctx context.Context, tenantID uuid.UUID) ([]Member, error) {
 	var out []Member
 	err := s.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		rows, e := store.New(tx).ListAdminMembers(ctx, tenantID)
+		if e != nil {
+			return e
+		}
+		live, e := db.SignInOwners(ctx, tx, tenantID)
 		if e != nil {
 			return e
 		}
@@ -177,6 +195,7 @@ func (s *Memberships) List(ctx context.Context, tenantID uuid.UUID) ([]Member, e
 			if r.Email != nil {
 				m.Email = *r.Email
 			}
+			m.RefusedOwner = m.Owner() && m.Active() && !slices.Contains(live, m.ID)
 			out = append(out, m)
 		}
 		return nil
@@ -209,7 +228,8 @@ func (s *Memberships) Change(ctx context.Context, tenantID, actorID, memberID uu
 		if !slices.Contains(owners, actorID) {
 			return ErrMemberNotOwner
 		}
-		target, err := q.LockAdminMember(ctx, store.LockAdminMemberParams{TenantID: tenantID, ID: memberID})
+		// The target row's lock (the one a session-giving path takes on it -- 00081) and its existence here.
+		_, err = q.LockAdminMember(ctx, store.LockAdminMemberParams{TenantID: tenantID, ID: memberID})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrMemberUnknown
 		}
@@ -219,8 +239,14 @@ func (s *Memberships) Change(ctx context.Context, tenantID, actorID, memberID uu
 		if out.Self && (act == MemberDisable || act == MemberEnable) {
 			return ErrMemberSelf
 		}
+		// The owners who can sign in, read under the owners' lock (WHO COUNTS, above). A target outside
+		// that set -- a manager, a disabled row, a refused owner -- takes no such owner away.
+		live, err := db.SignInOwners(ctx, tx, tenantID)
+		if err != nil {
+			return err
+		}
 		takesAnOwnerAway := act == MemberDisable || act == MemberMakeManager
-		if takesAnOwnerAway && target.Role == memberRoleOwner && target.Status == memberStatusActive && len(owners) <= 1 {
+		if takesAnOwnerAway && slices.Contains(live, memberID) && len(live) <= 1 {
 			return ErrLastOwner
 		}
 		if s.beforeWrite != nil {
@@ -233,11 +259,16 @@ func (s *Memberships) Change(ctx context.Context, tenantID, actorID, memberID uu
 				return unchanged(err)
 			}
 			// The row's own sessions in THIS business -- not the person's other businesses (K-6).
-			// TouchAdminSession refuses a disabled row from now on. This revocation does NOT see a
-			// session another transaction is committing at this moment: identity_open_session and
-			// identity_switch_session read the row without a lock and insert the session, so one that
-			// read the row before this commit can land a live session on the disabled row (measured).
-			// The ENABLE below revokes again, which is what keeps such a session from coming back.
+			// TouchAdminSession refuses a disabled row from now on. A session another transaction is
+			// opening at this moment cannot slip past this revocation: identity_open_session and
+			// identity_switch_session read the membership FOR NO KEY UPDATE (00081, M14-16b), so either
+			// they read it first and this transaction waited above (LockAdminMember) until their session
+			// was committed -- this later statement sees it -- or they read it after this commit and find
+			// it disabled (TestMemberships_ASessionOpenedBesideADisableDoesNotOutliveIt). The legacy
+			// CreateAdminSession takes the same lock (M14-07). In the second case the opening keeps
+			// the dropped row's lock to its end and may go on to lock its next membership (another
+			// business): it took both after the identity's lock and this transaction waits on no
+			// identity, so the two cannot deadlock.
 			revoked, err := q.RevokeAdminSessionsForAdmin(ctx, store.RevokeAdminSessionsForAdminParams{TenantID: tenantID, AdminUserID: memberID})
 			if err != nil {
 				return err
@@ -250,9 +281,10 @@ func (s *Memberships) Change(ctx context.Context, tenantID, actorID, memberID uu
 			}
 			// 🔴 EVERY SESSION THE ROW HOLDS WHILE DISABLED IS REVOKED HERE, in the transaction that
 			// re-enables it (it holds the row's lock). A session of a disabled row is never usable
-			// (TouchAdminSession), so nothing legitimate is lost; without this, a session that landed
-			// beside the disable (see the disable's comment) would become usable again now. The person
-			// signs in afresh.
+			// (TouchAdminSession), so nothing legitimate is lost. Since 00081 no session-giving path
+			// can land one beside the disable (see the disable's comment); this stays as the second
+			// layer -- a session a future writer, or a hand, put on a disabled row does not become
+			// usable again now. The person signs in afresh.
 			revoked, err := q.RevokeAdminSessionsForAdmin(ctx, store.RevokeAdminSessionsForAdminParams{TenantID: tenantID, AdminUserID: memberID})
 			if err != nil {
 				return err

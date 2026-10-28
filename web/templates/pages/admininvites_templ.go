@@ -460,8 +460,14 @@ func managersMembers(v ManagersView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
+				if row.Refused {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "<p class=\"max-w-xl text-xs leading-normal text-ink/70\">This owner cannot sign in to this business, so they do not count as one of its owners.</p>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
 				if row.KeysNote {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "<p class=\"max-w-xl text-xs leading-normal text-ink/70\">Disabling or demoting this owner does not stop the API keys they created: those keep working. <a class=\"hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green\" href=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<p class=\"mb-1 max-w-xl text-xs leading-normal text-ink/70\">Disabling or demoting this owner does not stop the API keys they created: those keep working. <a class=\"hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green\" href=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -470,17 +476,17 @@ func managersMembers(v ManagersView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "\">Review the API keys</a>.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "\">Review the API keys</a>.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "</div><div class=\"flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:justify-end\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "</div><div class=\"flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:justify-end\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if row.CanMakeOwner {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "<form method=\"post\" action=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "<form method=\"post\" action=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -489,33 +495,33 @@ func managersMembers(v ManagersView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "\" class=\"flex flex-col gap-2 md:flex-row md:items-center md:gap-3\"><input type=\"hidden\" name=\"member_id\" value=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "\" class=\"flex flex-col gap-2 md:flex-row md:items-center md:gap-3\"><input type=\"hidden\" name=\"member_id\" value=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var24 string
 					templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(row.ID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 135, Col: 61}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 140, Col: 61}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "\"> <label class=\"flex min-h-11 items-center gap-2 text-sm text-ink\"><input type=\"checkbox\" name=\"confirm\" value=\"yes\" required class=\"min-h-11 w-11 accent-tappa-green\"> Yes, they can run everything</label> <button class=\"btn btn--line w-full md:w-auto\" type=\"submit\">Make owner<span class=\"sr-only\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "\"> <label class=\"flex min-h-11 items-center gap-2 text-sm text-ink\"><input type=\"checkbox\" name=\"confirm\" value=\"yes\" required class=\"min-h-11 w-11 accent-tappa-green\"> Yes, they can run everything</label> <button class=\"btn btn--line w-full md:w-auto\" type=\"submit\">Make owner<span class=\"sr-only\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var25 string
 					templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(" — " + row.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 140, Col: 122}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 145, Col: 122}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "</span></button></form>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "</span></button></form>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -539,7 +545,7 @@ func managersMembers(v ManagersView) templ.Component {
 					}
 				}
 				if row.CanStepDown {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "<form method=\"post\" action=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "<form method=\"post\" action=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -548,35 +554,35 @@ func managersMembers(v ManagersView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "\" class=\"flex flex-col gap-2 md:flex-row md:items-center md:gap-3\"><input type=\"hidden\" name=\"member_id\" value=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "\" class=\"flex flex-col gap-2 md:flex-row md:items-center md:gap-3\"><input type=\"hidden\" name=\"member_id\" value=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var27 string
 					templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(row.ID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 154, Col: 61}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 159, Col: 61}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "\"> <label class=\"flex min-h-11 items-center gap-2 text-sm text-ink\"><input type=\"checkbox\" name=\"confirm\" value=\"yes\" required class=\"min-h-11 w-11 accent-tappa-green\"> Yes, I am no longer an owner</label> <button class=\"btn btn--danger w-full md:w-auto\" type=\"submit\">Step down to manager</button></form>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "\"> <label class=\"flex min-h-11 items-center gap-2 text-sm text-ink\"><input type=\"checkbox\" name=\"confirm\" value=\"yes\" required class=\"min-h-11 w-11 accent-tappa-green\"> Yes, I am no longer an owner</label> <button class=\"btn btn--danger w-full md:w-auto\" type=\"submit\">Step down to manager</button></form>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "</div></li>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "</div></li>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "</ul>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "</ul>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "</section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "</section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -607,7 +613,7 @@ func memberPress(href, id string, danger bool, label, name string) templ.Compone
 			templ_7745c5c3_Var28 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "<form method=\"post\" action=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "<form method=\"post\" action=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -616,87 +622,87 @@ func memberPress(href, id string, danger bool, label, name string) templ.Compone
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "\" class=\"flex-none\"><input type=\"hidden\" name=\"member_id\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "\" class=\"flex-none\"><input type=\"hidden\" name=\"member_id\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var30 string
 		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(id)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 174, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 179, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "\"> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "\"> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if danger {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "<button class=\"btn btn--danger w-full md:w-auto\" type=\"submit\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "<button class=\"btn btn--danger w-full md:w-auto\" type=\"submit\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var31 string
 			templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 176, Col: 73}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 181, Col: 73}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "<span class=\"sr-only\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "<span class=\"sr-only\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var32 string
 			templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(" — " + name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 176, Col: 113}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 181, Col: 113}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "</span></button>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "</span></button>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "<button class=\"btn btn--line w-full md:w-auto\" type=\"submit\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "<button class=\"btn btn--line w-full md:w-auto\" type=\"submit\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var33 string
 			templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 178, Col: 71}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 183, Col: 71}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "<span class=\"sr-only\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "<span class=\"sr-only\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var34 string
 			templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(" — " + name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 178, Col: 111}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 183, Col: 111}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "</span></button>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "</span></button>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "</form>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "</form>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -726,7 +732,7 @@ func managersInviteForm(v ManagersView) templ.Component {
 			templ_7745c5c3_Var35 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "<form method=\"post\" action=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "<form method=\"post\" action=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -735,20 +741,20 @@ func managersInviteForm(v ManagersView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "\" class=\"flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end\"><div class=\"field-stack md:flex-1\"><label class=\"lbl\" for=\"manager-name\">Their name</label> <input class=\"field-input\" id=\"manager-name\" type=\"text\" name=\"full_name\" required maxlength=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "\" class=\"flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end\"><div class=\"field-stack md:flex-1\"><label class=\"lbl\" for=\"manager-name\">Their name</label> <input class=\"field-input\" id=\"manager-name\" type=\"text\" name=\"full_name\" required maxlength=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var37 string
 		templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(v.NameMaxLength))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 188, Col: 119}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 193, Col: 119}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "\" autocomplete=\"off\"></div><div class=\"field-stack md:flex-1\"><label class=\"lbl\" for=\"manager-email\">Their email</label> <input class=\"field-input field-input--mono\" id=\"manager-email\" type=\"email\" name=\"email\" required autocomplete=\"off\"></div><button class=\"btn btn--primary w-full rounded-xl md:w-auto\" type=\"submit\">Send invitation</button></form>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, "\" autocomplete=\"off\"></div><div class=\"field-stack md:flex-1\"><label class=\"lbl\" for=\"manager-email\">Their email</label> <input class=\"field-input field-input--mono\" id=\"manager-email\" type=\"email\" name=\"email\" required autocomplete=\"off\"></div><button class=\"btn btn--primary w-full rounded-xl md:w-auto\" type=\"submit\">Send invitation</button></form>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -795,7 +801,7 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, " <main class=\"mx-auto flex w-full max-w-[1040px] flex-col gap-6 px-4 pb-10 pt-3 md:px-10 md:pb-14 md:pt-6 desk:px-14 desk:pb-[72px] desk:pt-8\"><div class=\"flex w-full max-w-[520px] flex-col gap-6\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, " <main class=\"mx-auto flex w-full max-w-[1040px] flex-col gap-6 px-4 pb-10 pt-3 md:px-10 md:pb-14 md:pt-6 desk:px-14 desk:pb-[72px] desk:pt-8\"><div class=\"flex w-full max-w-[520px] flex-col gap-6\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -812,7 +818,7 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "<h1 class=\"font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]\">That link no longer works</h1><p class=\"text-[15px] leading-normal text-ink/85\">An invitation link works once, for three days. This one has been used, has run out, or was cancelled.</p><p class=\"text-sm leading-normal text-ink/70\">Ask whoever invited you to send a new one.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 64, "<h1 class=\"font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]\">That link no longer works</h1><p class=\"text-[15px] leading-normal text-ink/85\">An invitation link works once, for three days. This one has been used, has run out, or was cancelled.</p><p class=\"text-sm leading-normal text-ink/70\">Ask whoever invited you to send a new one.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -835,7 +841,7 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 64, "<div class=\"flex flex-col gap-2\"><h1 class=\"font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]\">You're invited to manage a business</h1><p class=\"text-[15px] leading-normal text-ink/70\">Accept below. Nothing happens until you press a button, and accepting does not sign you in — you sign in afterwards.</p></div>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "<div class=\"flex flex-col gap-2\"><h1 class=\"font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]\">You're invited to manage a business</h1><p class=\"text-[15px] leading-normal text-ink/70\">Accept below. Nothing happens until you press a button, and accepting does not sign you in — you sign in afterwards.</p></div>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -845,7 +851,7 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 66, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -861,7 +867,7 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 66, "<h2 class=\"font-display text-xl font-bold leading-tight tracking-tight\">I already use Taptime</h2><p class=\"text-sm leading-normal text-ink/70\">Sign in with the email address this invitation was sent to, in this browser, then open the link from the email again and press Accept.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 67, "<h2 class=\"font-display text-xl font-bold leading-tight tracking-tight\">I already use Taptime</h2><p class=\"text-sm leading-normal text-ink/70\">Sign in with the email address this invitation was sent to, in this browser, then open the link from the email again and press Accept.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -878,20 +884,20 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 								}()
 							}
 							ctx = templ.InitializeContext(ctx)
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 67, "<p>")
+							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "<p>")
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
 							var templ_7745c5c3_Var44 string
 							templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(v.Error)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 232, Col: 20}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 237, Col: 20}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "</p>")
+							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, "</p>")
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
@@ -902,20 +908,20 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 							return templ_7745c5c3_Err
 						}
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, " <form method=\"post\" action=\"/admin/invite\" class=\"flex flex-col gap-3\"><input type=\"hidden\" name=\"csrf\" value=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 70, " <form method=\"post\" action=\"/admin/invite\" class=\"flex flex-col gap-3\"><input type=\"hidden\" name=\"csrf\" value=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var45 string
 					templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(v.CSRFToken)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 236, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 241, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 70, "\"> <input type=\"hidden\" name=\"mode\" value=\"session\"> <button type=\"submit\" class=\"btn btn--primary min-h-[52px] w-full rounded-xl\">Accept with my sign-in</button></form><p class=\"text-sm\"><a href=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "\"> <input type=\"hidden\" name=\"mode\" value=\"session\"> <button type=\"submit\" class=\"btn btn--primary min-h-[52px] w-full rounded-xl\">Accept with my sign-in</button></form><p class=\"text-sm\"><a href=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -924,7 +930,7 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "\" class=\"inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline\">Sign in first</a></p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, "\" class=\"inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline\">Sign in first</a></p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -934,7 +940,7 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -950,20 +956,20 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, "<h2 class=\"font-display text-xl font-bold leading-tight tracking-tight\">I'm new to Taptime</h2><p class=\"text-sm leading-normal text-ink/70\">Choose a password. At least ")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, "<h2 class=\"font-display text-xl font-bold leading-tight tracking-tight\">I'm new to Taptime</h2><p class=\"text-sm leading-normal text-ink/70\">Choose a password. At least ")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var48 string
 					templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(v.MinPasswordChars))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 247, Col: 61}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 252, Col: 61}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, " characters — a few words beats a short one.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 75, " characters — a few words beats a short one.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -980,20 +986,20 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 								}()
 							}
 							ctx = templ.InitializeContext(ctx)
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 75, "<p>")
+							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "<p>")
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
 							var templ_7745c5c3_Var50 string
 							templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(v.Error)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 252, Col: 20}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 257, Col: 20}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "</p>")
+							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 77, "</p>")
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
@@ -1004,20 +1010,20 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 							return templ_7745c5c3_Err
 						}
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 77, " <form method=\"post\" action=\"/admin/invite\" class=\"flex flex-col gap-4\"><input type=\"hidden\" name=\"csrf\" value=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, " <form method=\"post\" action=\"/admin/invite\" class=\"flex flex-col gap-4\"><input type=\"hidden\" name=\"csrf\" value=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var51 string
 					templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(v.CSRFToken)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 256, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 261, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, "\"> <input type=\"hidden\" name=\"mode\" value=\"new\"><div class=\"field-stack\"><label for=\"invite-password\" class=\"lbl\">Password</label> <input id=\"invite-password\" name=\"password\" type=\"password\" autocomplete=\"new-password\" required class=\"field-input field-input--mono min-h-12\"></div><div class=\"field-stack\"><label for=\"invite-password-confirm\" class=\"lbl\">Type it again</label> <input id=\"invite-password-confirm\" name=\"password_confirm\" type=\"password\" autocomplete=\"new-password\" required class=\"field-input field-input--mono min-h-12\"></div><button type=\"submit\" class=\"btn btn--primary min-h-[52px] w-full rounded-xl\">Accept and set my password</button></form>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "\"> <input type=\"hidden\" name=\"mode\" value=\"new\"><div class=\"field-stack\"><label for=\"invite-password\" class=\"lbl\">Password</label> <input id=\"invite-password\" name=\"password\" type=\"password\" autocomplete=\"new-password\" required class=\"field-input field-input--mono min-h-12\"></div><div class=\"field-stack\"><label for=\"invite-password-confirm\" class=\"lbl\">Type it again</label> <input id=\"invite-password-confirm\" name=\"password_confirm\" type=\"password\" autocomplete=\"new-password\" required class=\"field-input field-input--mono min-h-12\"></div><button type=\"submit\" class=\"btn btn--primary min-h-[52px] w-full rounded-xl\">Accept and set my password</button></form>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1028,7 +1034,7 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "</div></main>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "</div></main>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1080,7 +1086,7 @@ func AdminInviteAccepted(v InviteAcceptedView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, " <main class=\"mx-auto flex w-full max-w-[1040px] flex-col gap-6 px-4 pb-10 pt-3 md:px-10 md:pb-14 md:pt-6 desk:px-14 desk:pb-[72px] desk:pt-8\"><div class=\"w-full max-w-[520px]\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 81, " <main class=\"mx-auto flex w-full max-w-[1040px] flex-col gap-6 px-4 pb-10 pt-3 md:px-10 md:pb-14 md:pt-6 desk:px-14 desk:pb-[72px] desk:pt-8\"><div class=\"w-full max-w-[520px]\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1096,12 +1102,12 @@ func AdminInviteAccepted(v InviteAcceptedView) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 81, "<h1 class=\"font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]\">You're in</h1><p class=\"text-[15px] leading-normal text-ink/85\">You are now a manager of the business that invited you.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, "<h1 class=\"font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]\">You're in</h1><p class=\"text-[15px] leading-normal text-ink/85\">You are now a manager of the business that invited you.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if v.WithSession {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, "<p class=\"text-sm leading-normal text-ink/70\">Switch to it from the panel, or sign in again to land there.</p><p class=\"flex flex-wrap gap-4\"><a href=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "<p class=\"text-sm leading-normal text-ink/70\">Switch to it from the panel, or sign in again to land there.</p><p class=\"flex flex-wrap gap-4\"><a href=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1110,7 +1116,7 @@ func AdminInviteAccepted(v InviteAcceptedView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "\" class=\"inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline\">Switch business</a> <a href=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 84, "\" class=\"inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline\">Switch business</a> <a href=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1119,12 +1125,12 @@ func AdminInviteAccepted(v InviteAcceptedView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 84, "\" class=\"inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline\">Sign in</a></p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 85, "\" class=\"inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline\">Sign in</a></p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				} else {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 85, "<p class=\"text-sm leading-normal text-ink/70\">Sign in with your email address and the password you just chose.</p><p><a href=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 86, "<p class=\"text-sm leading-normal text-ink/70\">Sign in with your email address and the password you just chose.</p><p><a href=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1133,7 +1139,7 @@ func AdminInviteAccepted(v InviteAcceptedView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 86, "\" class=\"inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline\">Sign in</a></p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "\" class=\"inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline\">Sign in</a></p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1144,7 +1150,7 @@ func AdminInviteAccepted(v InviteAcceptedView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "</div></main>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "</div></main>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
