@@ -56,6 +56,9 @@ package db
 import (
 	"context"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"regexp"
 	"slices"
 	"sort"
@@ -940,27 +943,190 @@ func identityBeltFindings(ctx context.Context, q opQuerier, wide, keyed, scans m
 	return slices.Compact(out), refs, nil
 }
 
+// THE BELT'S CONTROLS (T178). Each control rewrites one real body in a savepoint and re-runs the
+// whole scan over every identity body: ~1.7 s apiece locally under -race (measured 2026-10-28: the
+// catalogue reads are ~10 ms, the scan itself is the cost), ~4.5 s on CI -- the belt's first test, its
+// base scan and forty controls, ran 182 s there and missed opTx's three minutes (main, run
+// 40713606398). The controls are therefore split by function family, one test per family, each with
+// its own opTx budget; identityBeltFamilies names which test runs which family and
+// TestIdentityBodies_EveryBeltControlRunsInItsFamilysTest pins the union and the size of each.
+
+// The bodies and statements the controls rewrite.
+const (
+	identityBeltRevokeFn     = "public.identity_revoke_sessions(text, boolean)"
+	identityBeltSwitchFn     = "public.identity_switch_session(text, uuid, text)"
+	identityBeltMembershipFn = "public.identity_memberships(text)"
+	identityBeltOpenFn       = "public.identity_open_session(uuid, uuid, text, text)"
+	identityBeltSignupFn     = "public.identity_create_for_signup(uuid, uuid)"
+	identityBeltAcceptFn     = "public.identity_accept_invite(text, text)"
+	identityBeltAcceptNewFn  = "public.identity_accept_invite_new(text, text)"
+	identityBeltClaimFn      = "public.identity_claim_signup(text, uuid, text, text)"
+	identityBeltReconcileFn  = "public.identity_reconcile()"
+	identityBeltSwitchRevoke = "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.tenant_id = v_tenant\n       AND o.revoked_at IS NULL;"
+	identityBeltPlainRevoke  = "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE "
+	identityBeltViewRevoke   = "    UPDATE public.zz_belt_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.revoked_at IS NULL;"
+	// M14-08a (00076): the e-mail-wide read is a FOR loop (its rows' addresses are tested in plpgsql).
+	identityBeltEmailRead = "    FOR r IN\n        SELECT a.email\n          FROM public.admin_users AS a\n         WHERE a.email OPERATOR(public.=) v_email\n           AND a.id <> p_admin_user_id\n    LOOP"
+)
+
+// identityBeltFamilies: the test -> the controls it runs. A test finds its family by its own name
+// (identityBeltFamily), so a family no test runs, or a test that runs none, is a failure.
+var identityBeltFamilies = map[string]func() []identityBeltControl{
+	"TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant":   identityBeltSessionControls,
+	"TestIdentityBodies_TheParserEvasionsAreHeldByTheBelt":         identityBeltParserEvasionControls,
+	"TestIdentityBodies_TheRegionAndTrustEvasionsAreHeldByTheBelt": identityBeltRegionAndTrustControls,
+	"TestIdentityBodies_TheSignupIsHeldByTheBelt":                  identityBeltSignupControls,
+	"TestIdentityBodies_TheClaimIsHeldByTheBelt":                   identityBeltClaimControls,
+	"TestIdentityBodies_TheInvitationIsHeldByTheBelt":              identityBeltInvitationControls,
+	"TestIdentityBodies_TheReconciliationIsHeldByTheBelt":          identityBeltReconcileControls,
+	"TestIdentityBodies_TheClaimsPasswordBranchIsHeldByTheBelt":    identityBeltClaimsPasswordControls,
+}
+
+// identityBeltFamily is the calling test's family.
+func identityBeltFamily(t *testing.T) []identityBeltControl {
+	t.Helper()
+	f, ok := identityBeltFamilies[t.Name()]
+	if !ok {
+		t.Fatalf("%s runs no family of identityBeltFamilies", t.Name())
+	}
+	return f()
+}
+
+// identityBeltFamilyMax bounds a family: at ~4.5 s a control on CI (T178), ten take about a quarter of
+// opTx's three minutes. A family that grows past it is split again, never given a longer deadline.
+const identityBeltFamilyMax = 10
+
+// identityBeltExpectedControls is every belt control, by name, across the families (T178: the split
+// of 2026-10-28 moved them and lost none). TestIdentityBodies_TheReconciliationIsHeldByTheBelt runs one
+// more, outside the table: the reconciliation with identityMaintenanceScans emptied.
+var identityBeltExpectedControls = []string{
+	"E1: a top-level OR",
+	"E2: the anchor in a block comment",
+	"E3: a CTE column as the anchor",
+	"E4: a quoted table name",
+	"M14-06b: DELETE FROM ONLY across every tenant",
+	"M14-06b: MERGE INTO across every tenant",
+	"M14-06b: UPDATE ONLY across every tenant",
+	"M14-06b: a write across every tenant",
+	"M14-06b: one maintenance scan more than the map names",
+	"M14-06b: one more unkeyed identity statement",
+	"M14-06b: the reconcile link without its tenant",
+	"M14-06b: the tenant read by a scan of another tenant table",
+	"M5: the membership list without its identity",
+	"M9: the revoke correlated to itself",
+	"P3: a tenant read off an unkeyed identity row",
+	"V1: IS DISTINCT FROM before a top-level OR",
+	"V2: CASE before a top-level OR",
+	"V3: an equality that is not the conjunct",
+	"V4: the anchor written by :=",
+	"V4: the anchor written by a statement that names no tenant",
+	"V5: a view with a tenant_id",
+	"V5: a view without one",
+	"a second claim's address key the map does not count",
+	"a second e-mail read the map does not count",
+	"a spaced qualification",
+	"a subquery in FROM",
+	"a tenant table without its schema",
+	"an address key in a function the map does not name",
+	"an e-mail read in a function the map does not name",
+	"the address's row in the business read without its tenant",
+	"the anchor inside parentheses with an OR",
+	"the claim's address key by a parameter",
+	"the claim's address key by a value written by :=",
+	"the claim's address key through another operator",
+	"the claim's business read without its id",
+	"the claim's draft consumed without its key",
+	"the claim's membership test without its identity",
+	"the claim's membership test without its tenant",
+	"the claim's owner row without its tenant",
+	"the claim's session joined by half its key",
+	"the e-mail read by a value written by :=",
+	"the e-mail read through another operator",
+	"the e-mail read with a top-level OR",
+	"the invitation spent without its tenant",
+	"the invitation's relink without its tenant",
+	"the login's identity stamp without its key",
+	"the resolver without the invitation's token",
+	"the revoke loop's tenant",
+	"the session joined by half its key",
+	"the signup's link without its tenant",
+	"the signup's membership count without its tenant",
+	"the signup's row read without its tenant",
+	"the switch's last-used hint without its key",
+	"the switch's target tenant",
+}
+
+// TestIdentityBodies_EveryBeltControlRunsInItsFamilysTest pins the split (T178): the families together
+// hold exactly identityBeltExpectedControls, each name once; no family is empty or larger than
+// identityBeltFamilyMax; and every family's test is a test function of this file that runs it (a map
+// key the compiler does not check would otherwise leave a family run by nothing).
+func TestIdentityBodies_EveryBeltControlRunsInItsFamilysTest(t *testing.T) {
+	var got []string
+	for test, family := range identityBeltFamilies {
+		controls := family()
+		if len(controls) == 0 || len(controls) > identityBeltFamilyMax {
+			t.Errorf("%s: %d control(s), want 1..%d (split the family)", test, len(controls), identityBeltFamilyMax)
+		}
+		for _, c := range controls {
+			got = append(got, c.name)
+		}
+	}
+	sort.Strings(got)
+	for i := 1; i < len(got); i++ {
+		if got[i] == got[i-1] {
+			t.Errorf("the control %q appears more than once across the families", got[i])
+		}
+	}
+	for _, name := range identityBeltExpectedControls {
+		if !slices.Contains(got, name) {
+			t.Errorf("the control %q runs in no family (identityBeltExpectedControls names it)", name)
+		}
+	}
+	for _, name := range got {
+		if !slices.Contains(identityBeltExpectedControls, name) {
+			t.Errorf("the control %q is in a family but not in identityBeltExpectedControls", name)
+		}
+	}
+	if len(got) != len(identityBeltExpectedControls) {
+		t.Errorf("%d control(s) across the families, identityBeltExpectedControls names %d", len(got), len(identityBeltExpectedControls))
+	}
+
+	file, err := parser.ParseFile(token.NewFileSet(), "identitybelt_test.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := map[string]bool{} // test function -> its body calls identityBeltFamily
+	for _, d := range file.Decls {
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok || fd.Recv != nil || !strings.HasPrefix(fd.Name.Name, "Test") {
+			continue
+		}
+		runs[fd.Name.Name] = false
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "identityBeltFamily" {
+					runs[fd.Name.Name] = true
+				}
+			}
+			return true
+		})
+	}
+	for test := range identityBeltFamilies {
+		if called, ok := runs[test]; !ok || !called {
+			t.Errorf("%s: no test function of that name runs identityBeltFamily (declared: %v)", test, ok)
+		}
+	}
+	for test, called := range runs {
+		if _, ok := identityBeltFamilies[test]; called && !ok {
+			t.Errorf("%s runs identityBeltFamily but identityBeltFamilies names no family for it", test)
+		}
+	}
+}
+
 // TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant is the belt (ADR 0031 §5.2: both owners
-// are BYPASSRLS, so the explicit predicate is the only barrier). CONTROLS: the real body rewritten in
-// a savepoint -- each must turn the belt red:
-//   - the revoke loop's tenant, and the switch target's tenant, removed;
-//   - M5: the membership list without `a.identity_id = v_identity` (left with a SELECT-list
-//     `a.tenant_id = v_tenant` and the join `t.id = a.tenant_id`);
-//   - M9: the revoke's UPDATE correlated only to itself (`FROM admin_users a WHERE a.id =
-//     x.admin_user_id AND a.tenant_id = x.tenant_id` -- every session of every business);
-//   - the session lookup joined by half its composite key;
-//   - E1: a top-level OR (`AND NOT p_keep_current OR x.id <> v_session` -- the parentheses gone);
-//   - E2: the anchor inside a block comment;
-//   - E3: a CTE column as the "anchor";
-//   - E4: a quoted name (`public."admin_sessions"`);
-//   - an anchor inside parentheses with an OR, a spaced qualification, an unqualified tenant table,
-//     a subquery in FROM;
-//   - V1: a region an inner `IS DISTINCT FROM` used to cut before a later top-level OR;
-//   - V2: the same with `CASE ... THEN`;
-//   - V3: `o.tenant_id = v_tenant IS NOT TRUE` (an equality that is not the conjunct);
-//   - V4: the anchor variable written by `:=`, and written by a statement that names no tenant;
-//   - V5: the table behind a view (with a tenant_id column: a tenant relation unanchored; without
-//     one: a relation the belt does not know).
+// are BYPASSRLS, so the explicit predicate is the only barrier): no body has a finding. Its CONTROLS
+// are the session family (identityBeltSessionControls); the others run in a test per family
+// (identityBeltFamilies, T178).
 func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 	ctx, tx := opTx(t)
 	findings, refs, err := identityBeltFindings(ctx, tx, identityTenantWideReads, identitySessionKeyLookups, identityMaintenanceScans)
@@ -973,22 +1139,28 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 	if refs < 25 {
 		t.Fatalf("anti-vacuity: the scan saw %d references to a tenant table", refs)
 	}
+	identityBeltRunControls(t, ctx, tx, identityBeltFamily(t))
+}
+
+// identityBeltSessionControls: the session family -- the real body rewritten in a savepoint, each must
+// turn the belt red:
+//   - the revoke loop's tenant, and the switch target's tenant, removed;
+//   - M5: the membership list without `a.identity_id = v_identity` (left with a SELECT-list
+//     `a.tenant_id = v_tenant` and the join `t.id = a.tenant_id`);
+//   - M9: the revoke's UPDATE correlated only to itself (`FROM admin_users a WHERE a.id =
+//     x.admin_user_id AND a.tenant_id = x.tenant_id` -- every session of every business);
+//   - the session lookup joined by half its composite key;
+//   - the identity key rule (round 5): the login's and the switch's identity UPDATE without its key,
+//     and P3 -- a tenant read off an unkeyed identity row and then used as the landing's anchor.
+func identityBeltSessionControls() []identityBeltControl {
 	const (
-		revoke      = "public.identity_revoke_sessions(text, boolean)"
-		switchFn    = "public.identity_switch_session(text, uuid, text)"
-		membership  = "public.identity_memberships(text)"
-		openFn      = "public.identity_open_session(uuid, uuid, text, text)"
-		signupFn    = "public.identity_create_for_signup(uuid, uuid)"
-		acceptFn    = "public.identity_accept_invite(text, text)"
-		acceptNewFn = "public.identity_accept_invite_new(text, text)"
-		claimFn     = "public.identity_claim_signup(text, uuid, text, text)"
+		revoke     = identityBeltRevokeFn
+		switchFn   = identityBeltSwitchFn
+		membership = identityBeltMembershipFn
+		openFn     = identityBeltOpenFn
 	)
-	// M14-08a (00076): the e-mail-wide read is a FOR loop (its rows' addresses are tested in plpgsql).
-	emailRead := "    FOR r IN\n        SELECT a.email\n          FROM public.admin_users AS a\n         WHERE a.email OPERATOR(public.=) v_email\n           AND a.id <> p_admin_user_id\n    LOOP"
-	switchRevoke := "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.tenant_id = v_tenant\n       AND o.revoked_at IS NULL;"
-	plainRevoke := "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE "
-	viewRevoke := "    UPDATE public.zz_belt_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.revoked_at IS NULL;"
-	identityBeltRunControls(t, ctx, tx, []identityBeltControl{
+	return []identityBeltControl{
+
 		{name: "the revoke loop's tenant", fn: revoke, cut: "WHERE x.tenant_id = m.tenant_id\n               AND ", put: "WHERE "},
 		{name: "the switch's target tenant", fn: switchFn, cut: "WHERE b.tenant_id = p_target_tenant\n       AND ", put: "WHERE "},
 		{name: "M5: the membership list without its identity", fn: membership, cut: "WHERE a.identity_id = v_identity\n           AND ", put: "WHERE "},
@@ -998,6 +1170,39 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 		{name: "the session joined by half its key", fn: membership,
 			cut: "JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id\n     WHERE s.token_hash",
 			put: "JOIN public.admin_users AS a ON a.id = s.admin_user_id\n     WHERE s.token_hash"},
+		// The identity key rule (round 5): an identity-table UPDATE without its key, and P3 -- a tenant
+		// read off an unkeyed identity row and then used as the landing's anchor.
+		{name: "the login's identity stamp without its key", fn: openFn, cut: "WHERE i.id = p_identity_id;", put: "WHERE true;"},
+		{name: "the switch's last-used hint without its key", fn: switchFn, cut: "WHERE i.id = v_identity;", put: "WHERE true;"},
+		{name: "P3: a tenant read off an unkeyed identity row", fn: openFn,
+			cut: "WHERE i.id = p_identity_id\n       AND i.password_hash = p_verified_digest\n       FOR UPDATE;",
+			put: "WHERE i.password_hash = p_verified_digest\n     LIMIT 1;"},
+	}
+}
+
+// TestIdentityBodies_TheParserEvasionsAreHeldByTheBelt: text the scanner must not misread as an
+// anchor, each on a real body in a savepoint (identityBeltParserEvasionControls).
+func TestIdentityBodies_TheParserEvasionsAreHeldByTheBelt(t *testing.T) {
+	ctx, tx := opTx(t)
+	identityBeltRunControls(t, ctx, tx, identityBeltFamily(t))
+}
+
+// identityBeltParserEvasionControls: the third eye's first rounds --
+//   - E1: a top-level OR (`AND NOT p_keep_current OR x.id <> v_session` -- the parentheses gone);
+//   - E2: the anchor inside a block comment;
+//   - E3: a CTE column as the "anchor";
+//   - E4: a quoted name (`public."admin_sessions"`);
+//   - an anchor inside parentheses with an OR, a spaced qualification, an unqualified tenant table,
+//     a subquery in FROM.
+func identityBeltParserEvasionControls() []identityBeltControl {
+	const (
+		revoke       = identityBeltRevokeFn
+		switchFn     = identityBeltSwitchFn
+		switchRevoke = identityBeltSwitchRevoke
+		plainRevoke  = identityBeltPlainRevoke
+	)
+	return []identityBeltControl{
+
 		{name: "E1: a top-level OR", fn: revoke, cut: "AND (NOT p_keep_current OR x.id <> v_session)", put: "AND NOT p_keep_current OR x.id <> v_session"},
 		{name: "E2: the anchor in a block comment", fn: switchFn, cut: switchRevoke,
 			put: plainRevoke + "/* o.tenant_id = v_tenant */ o.id IS NOT NULL\n       AND o.id = v_session\n       AND o.revoked_at IS NULL;"},
@@ -1012,6 +1217,33 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 		{name: "a tenant table without its schema", fn: switchFn, cut: "    UPDATE public.admin_sessions AS o\n", put: "    UPDATE admin_sessions AS o\n"},
 		{name: "a subquery in FROM", fn: switchFn, cut: switchRevoke,
 			put: "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n      FROM (SELECT v_tenant AS tenant_id) AS c\n     WHERE o.id = v_session\n       AND o.tenant_id = c.tenant_id\n       AND o.revoked_at IS NULL;"},
+	}
+}
+
+// TestIdentityBodies_TheRegionAndTrustEvasionsAreHeldByTheBelt: a WHERE region the scanner must not
+// cut wrongly, an anchor value it must not trust, a relation it must not take at its word
+// (identityBeltRegionAndTrustControls).
+func TestIdentityBodies_TheRegionAndTrustEvasionsAreHeldByTheBelt(t *testing.T) {
+	ctx, tx := opTx(t)
+	identityBeltRunControls(t, ctx, tx, identityBeltFamily(t))
+}
+
+// identityBeltRegionAndTrustControls:
+//   - V1: a region an inner `IS DISTINCT FROM` used to cut before a later top-level OR;
+//   - V2: the same with `CASE ... THEN`;
+//   - V3: `o.tenant_id = v_tenant IS NOT TRUE` (an equality that is not the conjunct);
+//   - V4: the anchor variable written by `:=`, and written by a statement that names no tenant;
+//   - V5: the table behind a view (with a tenant_id column: a tenant relation unanchored; without
+//     one: a relation the belt does not know).
+func identityBeltRegionAndTrustControls() []identityBeltControl {
+	const (
+		switchFn     = identityBeltSwitchFn
+		switchRevoke = identityBeltSwitchRevoke
+		plainRevoke  = identityBeltPlainRevoke
+		viewRevoke   = identityBeltViewRevoke
+	)
+	return []identityBeltControl{
+
 		{name: "V1: IS DISTINCT FROM before a top-level OR", fn: switchFn, cut: switchRevoke,
 			put: plainRevoke + "o.id IS DISTINCT FROM v_session AND o.tenant_id = v_tenant OR o.id = v_session;"},
 		{name: "V2: CASE before a top-level OR", fn: switchFn, cut: switchRevoke,
@@ -1025,10 +1257,25 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 			pre: []string{`CREATE VIEW public.zz_belt_sessions AS SELECT * FROM public.admin_sessions`}},
 		{name: "V5: a view without one", fn: switchFn, cut: switchRevoke, put: viewRevoke,
 			pre: []string{`CREATE VIEW public.zz_belt_sessions AS SELECT id, revoked_at FROM public.admin_sessions`}},
-		// The identity key rule (round 5): an identity-table UPDATE without its key, and P3 -- a tenant
-		// read off an unkeyed identity row and then used as the landing's anchor.
-		{name: "the login's identity stamp without its key", fn: openFn, cut: "WHERE i.id = p_identity_id;", put: "WHERE true;"},
-		{name: "the switch's last-used hint without its key", fn: switchFn, cut: "WHERE i.id = v_identity;", put: "WHERE true;"},
+	}
+}
+
+// TestIdentityBodies_TheSignupIsHeldByTheBelt: M14-08's (00074/00076) statements and named exception 2,
+// the e-mail-wide read, each without what holds it (identityBeltSignupControls).
+func TestIdentityBodies_TheSignupIsHeldByTheBelt(t *testing.T) {
+	ctx, tx := opTx(t)
+	identityBeltRunControls(t, ctx, tx, identityBeltFamily(t))
+}
+
+func identityBeltSignupControls() []identityBeltControl {
+	const (
+		switchFn     = identityBeltSwitchFn
+		signupFn     = identityBeltSignupFn
+		switchRevoke = identityBeltSwitchRevoke
+		emailRead    = identityBeltEmailRead
+	)
+	return []identityBeltControl{
+
 		// M14-08 (00074): named exception 2's statements, each without what holds it.
 		{name: "the signup's row read without its tenant", fn: signupFn,
 			cut: "WHERE a.id = p_admin_user_id\n       AND a.tenant_id = p_tenant_id\n       AND a.identity_id IS NULL\n       AND a.unlinked_at IS NULL\n       AND a.status",
@@ -1046,6 +1293,21 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 		{name: "a second e-mail read the map does not count", fn: signupFn, cut: emailRead, put: emailRead + "\n        NULL;\n    END LOOP;\n" + emailRead},
 		{name: "an e-mail read in a function the map does not name", fn: switchFn, cut: switchRevoke,
 			put: "    PERFORM 1 FROM public.admin_users AS z WHERE z.email OPERATOR(public.=) p_new_hash;\n" + switchRevoke},
+	}
+}
+
+// TestIdentityBodies_TheClaimIsHeldByTheBelt: M14-17's (00078) identity_claim_signup, its tenant
+// statements each without what holds it (identityBeltClaimControls). Its password branch (M14-17b) is
+// TestIdentityBodies_TheClaimsPasswordBranchIsHeldByTheBelt.
+func TestIdentityBodies_TheClaimIsHeldByTheBelt(t *testing.T) {
+	ctx, tx := opTx(t)
+	identityBeltRunControls(t, ctx, tx, identityBeltFamily(t))
+}
+
+func identityBeltClaimControls() []identityBeltControl {
+	const claimFn = identityBeltClaimFn
+	return []identityBeltControl{
+
 		// M14-17 (00078): identity_claim_signup's tenant statements, each without what holds it.
 		{name: "the claim's membership test without its tenant", fn: claimFn,
 			cut: "WHERE a.tenant_id = p_tenant_id;", put: "WHERE a.identity_id IS NULL;"},
@@ -1058,6 +1320,23 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 			cut: "INSERT INTO public.admin_users (tenant_id, full_name,", put: "INSERT INTO public.admin_users (full_name,"},
 		{name: "the claim's draft consumed without its key", fn: claimFn,
 			cut: "     WHERE c.id = v_claim\n       AND c.used_at IS NULL;", put: "     WHERE c.used_at IS NULL;"},
+	}
+}
+
+// TestIdentityBodies_TheInvitationIsHeldByTheBelt: M14-15's (00077) acceptances and resolver, each
+// statement without what holds it (identityBeltInvitationControls).
+func TestIdentityBodies_TheInvitationIsHeldByTheBelt(t *testing.T) {
+	ctx, tx := opTx(t)
+	identityBeltRunControls(t, ctx, tx, identityBeltFamily(t))
+}
+
+func identityBeltInvitationControls() []identityBeltControl {
+	const (
+		acceptFn    = identityBeltAcceptFn
+		acceptNewFn = identityBeltAcceptNewFn
+	)
+	return []identityBeltControl{
+
 		// M14-15 (00077): the acceptances' and the resolver's statements, each without what holds it.
 		{name: "the invitation's relink without its tenant", fn: acceptFn,
 			cut: "         WHERE a.id = v_row\n           AND a.tenant_id = v_tenant\n", put: "         WHERE a.id = v_row\n"},
@@ -1069,10 +1348,7 @@ func TestIdentityBodies_EveryTenantTableReferenceNamesItsTenant(t *testing.T) {
 			put: "     WHERE v.id = v_invite\n       AND v.used_at IS NULL;"},
 		{name: "the resolver without the invitation's token", fn: "public.resolve_admin_invite_by_token_hash(text)",
 			cut: "WHERE v.token_hash = p_token_hash", put: "WHERE v.used_at IS NULL"},
-		{name: "P3: a tenant read off an unkeyed identity row", fn: openFn,
-			cut: "WHERE i.id = p_identity_id\n       AND i.password_hash = p_verified_digest\n       FOR UPDATE;",
-			put: "WHERE i.password_hash = p_verified_digest\n     LIMIT 1;"},
-	})
+	}
 }
 
 // identityBeltControl is one belt control: the body of fn with cut replaced by put (after the pre
@@ -1116,15 +1392,31 @@ func identityBeltRunControls(t *testing.T, ctx context.Context, tx pgx.Tx, contr
 	}
 }
 
-// TestIdentityBodies_TheReconciliationIsHeldByTheBelt is M14-06b's (00082) part of the belt's controls,
-// in a test of its own for TestIdentityBodies_TheClaimsPasswordBranchIsHeldByTheBelt's reason (each
-// control re-reads every identity body; the first test's controls already use most of opTx's three
-// minutes). The maintenance class excuses a READ across every tenant, by count -- never the link's
-// missing tenant, a write across every tenant, or one scan more than the map names.
+// TestIdentityBodies_TheReconciliationIsHeldByTheBelt is M14-06b's (00082) family of the belt's controls
+// (identityBeltReconcileControls; a test per family -- T178). The maintenance class excuses a READ across
+// every tenant, by count -- never the link's missing tenant, a write across every tenant, or one scan
+// more than the map names.
 func TestIdentityBodies_TheReconciliationIsHeldByTheBelt(t *testing.T) {
 	ctx, tx := opTx(t)
-	const reconcileFn = "public.identity_reconcile()"
-	identityBeltRunControls(t, ctx, tx, []identityBeltControl{
+	identityBeltRunControls(t, ctx, tx, identityBeltFamily(t))
+	// M14-06b: the same body with identity_reconcile taken out of identityMaintenanceScans -- its four
+	// cross-tenant reads are findings again (the class is the map's, not the scanner's default).
+	t.Run("control/M14-06b: a maintenance scan in a function the map does not name", func(t *testing.T) {
+		got, _, err := identityBeltFindings(ctx, tx, identityTenantWideReads, identitySessionKeyLookups, map[string]int{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(got, func(f string) bool {
+			return strings.HasPrefix(f, "identity_reconcile: admin_users AS ") && strings.Contains(f, "anchored by no tenant")
+		}) {
+			t.Fatalf("the cross-tenant reads passed without the map: %v", got)
+		}
+	})
+}
+
+func identityBeltReconcileControls() []identityBeltControl {
+	const reconcileFn = identityBeltReconcileFn
+	return []identityBeltControl{
 		{name: "M14-06b: the reconcile link without its tenant", fn: reconcileFn,
 			cut: "WHERE a.id = v_row\n           AND a.tenant_id = v_tenant\n", put: "WHERE a.id = v_row\n"},
 		{name: "M14-06b: a write across every tenant", fn: reconcileFn, cut: "        IF v_row IS NULL THEN",
@@ -1148,36 +1440,26 @@ func TestIdentityBodies_TheReconciliationIsHeldByTheBelt(t *testing.T) {
 		{name: "M14-06b: one more unkeyed identity statement", fn: reconcileFn, cut: "        IF v_row IS NULL THEN",
 			put:  "        UPDATE public.admin_identities AS z SET last_login_at = NULL WHERE z.email IS NOT NULL;\n        IF v_row IS NULL THEN",
 			want: "used 2 time(s), identityBeltAllowedCounts pins 1"},
-	})
-	// M14-06b: the same body with identity_reconcile taken out of identityMaintenanceScans -- its four
-	// cross-tenant reads are findings again (the class is the map's, not the scanner's default).
-	t.Run("control/M14-06b: a maintenance scan in a function the map does not name", func(t *testing.T) {
-		got, _, err := identityBeltFindings(ctx, tx, identityTenantWideReads, identitySessionKeyLookups, map[string]int{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !slices.ContainsFunc(got, func(f string) bool {
-			return strings.HasPrefix(f, "identity_reconcile: admin_users AS ") && strings.Contains(f, "anchored by no tenant")
-		}) {
-			t.Fatalf("the cross-tenant reads passed without the map: %v", got)
-		}
-	})
+	}
 }
 
-// TestIdentityBodies_TheClaimsPasswordBranchIsHeldByTheBelt is M14-17b's (00080) part of the belt's
-// controls, in a test of its own: each control re-reads every identity body, ~4 s apiece under -race on
-// CI, and the controls above already use most of opTx's three minutes (measured: the run with these six
-// inside it ended at 183 s, past the deadline). The password branch's identity lookup by the claim's
+// TestIdentityBodies_TheClaimsPasswordBranchIsHeldByTheBelt is M14-17b's (00080) family of the belt's
+// controls (identityBeltClaimsPasswordControls), the first one split out: the run with these six inside
+// the belt's first test ended at 183 s, past opTx's deadline (T178 split the rest). The password branch's identity lookup by the claim's
 // address (the fourth class, identityClaimAddressKeys) and its "no active membership" test, each without
 // what holds it, must turn the belt red.
 func TestIdentityBodies_TheClaimsPasswordBranchIsHeldByTheBelt(t *testing.T) {
 	ctx, tx := opTx(t)
+	identityBeltRunControls(t, ctx, tx, identityBeltFamily(t))
+}
+
+func identityBeltClaimsPasswordControls() []identityBeltControl {
 	const (
 		claimFn      = "public.identity_claim_signup(text, uuid, text, text)"
 		switchFn     = "public.identity_switch_session(text, uuid, text)"
 		switchRevoke = "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.tenant_id = v_tenant\n       AND o.revoked_at IS NULL;"
 	)
-	identityBeltRunControls(t, ctx, tx, []identityBeltControl{
+	return []identityBeltControl{
 		// M14-17b (00080): the password branch's identity lookup by the claim's address (the fourth class,
 		// identityClaimAddressKeys) and its "no active membership" test, each without what holds it.
 		{name: "the claim's address key through another operator", fn: claimFn,
@@ -1194,7 +1476,7 @@ func TestIdentityBodies_TheClaimsPasswordBranchIsHeldByTheBelt(t *testing.T) {
 			put: "    PERFORM 1 FROM public.admin_identities AS z WHERE z.email OPERATOR(public.=) v_identity;\n" + switchRevoke},
 		{name: "the claim's membership test without its identity", fn: claimFn,
 			cut: "          WHERE a.identity_id = v_identity\n            AND a.status = 'active'", put: "          WHERE a.status = 'active'"},
-	})
+	}
 }
 
 // TestIdentityLex_CommentsLiteralsAndQuotes pins the lexer the belt stands on: line comments, nested
