@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -26,6 +27,7 @@ import (
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/billing"
 	"github.com/atknatk/tappa/internal/domain/checkin"
+	"github.com/atknatk/tappa/internal/domain/claim"
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/domain/manual"
@@ -76,8 +78,80 @@ func (silentDB) GetPasswordResetByTokenHash(context.Context, string) (db.Resolve
 	return db.ResolvedPasswordReset{}, errSilent
 }
 func (silentDB) Ping(context.Context) error { return errSilent }
+
+// M14-17: the registration drafts' four calls (adminauth.SignupClaimDatabase).
+func (silentDB) OpenSignupClaim(context.Context, string, string, []byte, string, time.Time) (uuid.UUID, error) {
+	return uuid.Nil, errSilent
+}
+func (silentDB) GetSignupClaimByTokenHash(context.Context, string) (db.ResolvedSignupClaim, error) {
+	return db.ResolvedSignupClaim{}, errSilent
+}
+func (silentDB) SweepSignupClaims(context.Context) (int, error) { return 0, errSilent }
 func (silentDB) GetAPIKeyByHash(context.Context, string) (db.ResolvedAPIKey, error) {
 	return db.ResolvedAPIKey{}, errSilent
+}
+
+// The identity sign-in's five (adminauth.Database, M14-07).
+func (silentDB) ResolveIdentityByEmail(context.Context, string) (db.ResolvedIdentity, error) {
+	return db.ResolvedIdentity{}, errSilent
+}
+func (silentDB) OpenIdentitySession(context.Context, uuid.UUID, uuid.UUID, string, db.PasswordHash) (db.IdentitySession, error) {
+	return db.IdentitySession{}, errSilent
+}
+func (silentDB) IdentitySessionDecoy(context.Context) error { return errSilent }
+func (silentDB) LinkLegacySession(context.Context, string, string) (db.LinkedMembership, error) {
+	return db.LinkedMembership{}, errSilent
+}
+func (silentDB) RecordFailedIdentityLogin(context.Context, uuid.UUID, string) (bool, error) {
+	return false, errSilent
+}
+
+// The session-keyed four and the legacy link's dual-write (adminauth.Database / ResetDatabase, M14-08).
+func (silentDB) SwitchIdentitySession(context.Context, string, uuid.UUID, string) (db.IdentitySession, error) {
+	return db.IdentitySession{}, errSilent
+}
+func (silentDB) IdentityMemberships(context.Context, string) ([]db.IdentityMembership, error) {
+	return nil, errSilent
+}
+func (silentDB) RevokeIdentitySessions(context.Context, string, bool) (int, error) {
+	return 0, errSilent
+}
+func (silentDB) IdentityPasswordForSession(context.Context, string) (db.PasswordHash, error) {
+	return db.PasswordHash{}, errSilent
+}
+func (silentDB) SetIdentityPassword(context.Context, string, string) (int, error) {
+	return 0, errSilent
+}
+
+// The account page's identity acts (M14-18).
+func (silentDB) RequestIdentityVerification(context.Context, string, string) (db.IdentityVerification, error) {
+	return db.IdentityVerification{}, errSilent
+}
+func (silentDB) VerifyIdentityEmail(context.Context, string, string) (bool, error) {
+	return false, errSilent
+}
+func (silentDB) ConfirmWindow(context.Context, string) ([]db.ConfirmWindowRow, error) {
+	return nil, errSilent
+}
+func (silentDB) KeepAll(context.Context, string) error { return errSilent }
+func (silentDB) UnlinkMembership(context.Context, string, uuid.UUID) (db.UnlinkedMembership, error) {
+	return db.UnlinkedMembership{}, errSilent
+}
+func (silentDB) RelinkMembership(context.Context, string, uuid.UUID) (uuid.UUID, error) {
+	return uuid.Nil, errSilent
+}
+func (silentDB) ConsumeIdentityRowReset(context.Context, string, string) (db.ConsumedIdentityRowReset, error) {
+	return db.ConsumedIdentityRowReset{}, errSilent
+}
+func (silentDB) OpenIdentityReset(context.Context, uuid.UUID, string, time.Time) (db.OpenedIdentityReset, error) {
+	return db.OpenedIdentityReset{}, errSilent
+}
+func (silentDB) WithdrawIdentityReset(context.Context, string) (bool, error) { return false, errSilent }
+func (silentDB) ConsumeIdentityReset(context.Context, string, string) (db.ConsumedIdentityReset, error) {
+	return db.ConsumedIdentityReset{}, errSilent
+}
+func (silentDB) GetIdentityResetByTokenHash(context.Context, string) (db.ResolvedIdentityReset, error) {
+	return db.ResolvedIdentityReset{}, errSilent
 }
 
 // appFeatures is every feature appRouter takes, built as run() builds it, plus the
@@ -99,7 +173,7 @@ type appFeatures struct {
 }
 
 func (f appFeatures) router(cfg *config.Config) http.Handler {
-	return appRouter(cfg, nil, f.activation, f.tap, f.panel, f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools)
+	return appRouter(cfg, nil, f.activation, f.tap, f.panel, f.panel.InviteAcceptance(), f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools)
 }
 
 func (f appFeatures) named() []struct {
@@ -110,7 +184,7 @@ func (f appFeatures) named() []struct {
 		name string
 		m    httpx.Mounter
 	}{
-		{"activation", f.activation}, {"tap", f.tap}, {"panel", f.panel}, {"logos", f.logos},
+		{"activation", f.activation}, {"tap", f.tap}, {"panel", f.panel}, {"invite", f.panel.InviteAcceptance()}, {"logos", f.logos},
 		{"marketing", f.marketing}, {"signup", f.signupFlow}, {"reset", f.resetFlow},
 		{"ready", f.ready}, {"theme", f.theme}, {"operator", f.operator},
 		{"api", f.api}, {"devtools", f.devTools},
@@ -133,6 +207,9 @@ func walkConfig(t *testing.T, on bool) *config.Config {
 		cfg.OperatorTOTPKEK, cfg.OperatorTokenHMACKey, cfg.OperatorHost = randBytes(t, 32), randBytes(t, 32), "ops.taptime.mt"
 		cfg.APIHost = "api.taptime.mt"
 		cfg.DevTools, cfg.BaseURL = true, "http://localhost:8080"
+		// The panel identity flag (ADR 0031 §8): on, the panel mounts its identity surfaces, and
+		// the walk must classify them too (M14-11).
+		cfg.AdminIdentity = true
 	}
 	return cfg
 }
@@ -172,7 +249,11 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	checkins, err := checkin.New(data, trail, cfg, log)
 	must(err)
-	tap, err := handler.NewTap(verifier, directory, sessions, checkins, activation, trail, cfg, log)
+	entries, err := manual.NewRecorder(data, trail, log)
+	must(err)
+	claims, err := claim.New(data, trail, entries, cfg.BusinessDayFrom, log)
+	must(err)
+	tap, err := handler.NewTap(verifier, directory, sessions, checkins, claims, activation, trail, cfg, log)
 	must(err)
 	admins, err := adminauth.New(data, cfg)
 	must(err)
@@ -185,8 +266,6 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	venues, err := tenant.NewVenues(data, trail, log)
 	must(err)
 	plaques, err := tenant.NewPlaques(data, trail, log)
-	must(err)
-	entries, err := manual.NewRecorder(data, trail, log)
 	must(err)
 	rules, err := tenant.NewRulebook(data, checkins.Params(), checkins.GPSRadiusM(), log)
 	must(err)
@@ -210,15 +289,17 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	texts, err := legal.NewStore(data)
 	must(err)
-	provisioner, err := signup.NewProvisioner(data, trail, log)
+	provisioner, err := signup.NewProvisioner(data, log)
 	must(err)
-	signupFlow, err := handler.NewSignup(provisioner, noCheck{}, cfg, log)
+	signupClaims, err := adminauth.NewSignupClaims(data, cfg)
+	must(err)
+	signupFlow, err := handler.NewSignup(provisioner, signupClaims, noCheck{}, nil, cfg, log)
 	must(err)
 	ready, err := handler.NewHealth(data.Ping, log)
 	must(err)
 	f := appFeatures{
 		activation: activation, tap: tap, panel: panel, logos: logos,
-		marketing: handler.NewMarketing(texts, log, cfg.APIHost), signupFlow: signupFlow, resetFlow: resetFlow,
+		marketing: handler.NewMarketing(texts, log, cfg.APIHost, cfg.BaseURL), signupFlow: signupFlow, resetFlow: resetFlow,
 		ready: ready, theme: handler.NewBrandTheme(), operator: operator.Off(),
 	}
 	if !on {
@@ -288,8 +369,9 @@ func walkOf(t *testing.T, h http.Handler) []string {
 //	                    by internal/handler's
 //	                    TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException.
 //	2 panel exception   ADR 0025's exceptions, by name: its eight, and K-26's three
-//	                    defences (ADR 0025's M11 note; plan §4.7).
-//	3 outside the panel the tap, activation, password recovery and sign-up routes and
+//	                    defences (ADR 0025's M11 note; plan §4.7); with the panel identity
+//	                    flag on (the configured walk), its M14 note's routes (M14-11).
+//	3 outside the panel the tap, activation, password recovery, invitation acceptance (M14-15) and sign-up routes and
 //	                    the dev-only simulator, by name; the configured operator surface's
 //	                    routes (its own host, its own identity -- ADR 0020; classified
 //	                    route by route by internal/handler/operator's own header classes);
@@ -322,15 +404,34 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		"POST /activate":        "activation",
 		"POST /api/activate":    "activation",
 		"POST /api/checkin":     "tap",
+		"POST /api/claim":       "tap",
 		"POST /admin/reset":     "reset",
 		"POST /admin/reset/new": "reset",
 		"POST /signup":          "signup",
 		"POST /signup/places":   "signup",
 		"POST /signup/account":  "signup",
+		// M14-17: the registration link's confirmation -- it creates a NEW business (no tenant's
+		// writing chain to gate: the business does not exist until this POST), like the wizard's
+		// own POSTs; under /admin only because the existing identity's proof is the panel cookie.
+		"POST /admin/signup/confirm": "signup",
 	}
+	// Panel exceptions that exist only with the panel identity flag on (ADR 0025's M14 note):
+	// signing yourself out everywhere (M14-11), switching businesses (M14-10), the account page's
+	// identity acts (M14-18) and the two membership presses that narrow who can act for the business --
+	// disabling a membership and making an owner a manager (M14-16, K-26's reasoning).
+	panelExceptionsWhenOn := map[string]bool{"POST /admin/account/sign-out-everywhere": true, "POST /admin/switch": true,
+		// M14-18: the account page's identity acts (ADR 0025's M14 note).
+		"POST /admin/account/verify-email": true, "POST /admin/account/verify-email/confirm": true,
+		"POST /admin/account/confirm/keep-all": true, "POST /admin/account/confirm/unlink": true,
+		"POST /admin/account/confirm/undo": true, "POST /admin/account/link": true,
+		// M14-16: the two narrowing membership presses.
+		"POST /admin/account/managers/disable": true, "POST /admin/account/managers/make-manager": true}
 	// Named routes that exist only with the optional surfaces on.
 	outsidePanelWhenOn := map[string]string{
 		"POST " + handler.DevSimulateTapPath: "devtools",
+		// M14-15: the invitee's acceptance -- mounted beside the panel, outside its chains (no session
+		// of the inviting business), only with the panel identity flag on.
+		"POST /admin/invite": "invite",
 	}
 	methodless := map[string]string{"/static/*": "router", "/operator": "operator", "/operator/*": "operator"}
 	// chi's own method list, less the two reads: what a methodless route is reported under.
@@ -349,10 +450,12 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 			for mr, who := range outsidePanel {
 				named[mr] = who
 			}
+			exceptions := maps.Clone(panelExceptions)
 			if on {
 				for mr, who := range outsidePanelWhenOn {
 					named[mr] = who
 				}
+				maps.Copy(exceptions, panelExceptionsWhenOn)
 			}
 
 			owner := map[string]string{}
@@ -405,7 +508,7 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 				method, route, _ := strings.Cut(mr, " ")
 				who := owner[mr]
 				switch {
-				case who == "panel" && panelExceptions[mr]:
+				case who == "panel" && exceptions[mr]:
 					counts[2]++
 					found[mr] = true
 				case who == "panel":
@@ -426,7 +529,7 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 						"chain that ADR 0025 §3 has not named", mr, who)
 				}
 			}
-			for mr := range panelExceptions {
+			for mr := range exceptions {
 				if !found[mr] {
 					t.Errorf("the panel exception %s is not served", mr)
 				}
@@ -447,7 +550,7 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 						"either it gained a method or this walk stopped looking at every method", route, got, allWrites)
 				}
 			}
-			if counts[1] < 20 || counts[2] != len(panelExceptions) || (on && api == 0) {
+			if counts[1] < 20 || counts[2] != len(exceptions) || (on && api == 0) {
 				t.Fatalf("classes %v (/v1 %d): the panel's writes or the API's were not walked", counts, api)
 			}
 			t.Logf("%s: class 1 (panel, gated) %d · class 2 (named exceptions) %d · class 3 (outside the panel) %d, of them /v1 %d · class 4 (methodless) %d",

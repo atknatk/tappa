@@ -167,6 +167,7 @@ func tenantPlaquesView(inv db.TenantPlaqueInventory, name operatorpages.TenantNa
 		Name:         name,
 		ID:           inv.TenantID.String(),
 		OverviewPath: pathTenants + "/" + inv.TenantID.String(),
+		Tabs:         tenantTabs(inv.TenantID),
 		Total:        strconv.FormatInt(inv.Total, 10),
 		Shown:        strconv.Itoa(len(inv.Plaques)),
 		Truncated:    inv.Truncated(),

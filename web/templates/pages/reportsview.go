@@ -166,6 +166,10 @@ type ReportTotalsView struct {
 	// TooLong counts pairs further apart than that threshold, which are not treated
 	// as very long shifts but as an unclosed entry plus a stray checkout.
 	TooLong int
+	// OutWithoutIn counts the week's checkouts with no open check-in for them to close
+	// (ledger.Totals.OutWithoutIn, M15-06): no hours are counted for their shift, so the total
+	// is short by them as it is by an open check-in.
+	OutWithoutIn int
 	// OtherVenue counts the counted shifts that began away from the person's home venue;
 	// OtherVenueUnknown the counted shifts that could not be compared with one (no home
 	// venue, no venue on the record). The receipt prints the second beside the first.
@@ -191,7 +195,7 @@ type ReportRowView struct {
 	Daily  []string
 	Marks  []ReportMarkView
 	Shifts int
-	// The four qualifiers, each "" when it does not apply. They are words rather
+	// The qualifiers, each "" when it does not apply. They are words rather
 	// than numbers alone because a bare count beside a name says nothing about what
 	// it counts.
 	Awaiting   string
@@ -200,15 +204,18 @@ type ReportRowView struct {
 	Unmeasured string
 	Manual     string
 	Open       string
+	// InMissing is the checkouts with no open check-in to close (ledger.PersonHours.OutWithoutIn), "" for none.
+	InMissing string
 }
 
 // ReportMarkView is what one day cell says besides its hours (ledger.DayMarks): a counted
 // shift that began at another venue, a check-in a manager typed, a check-in with no
-// checkout. Each is false unless measured.
+// checkout, a checkout with no open check-in. Each is false unless measured.
 type ReportMarkView struct {
-	Other  bool
-	Manual bool
-	Open   bool
+	Other     bool
+	Manual    bool
+	Open      bool
+	InMissing bool
 }
 
 // ReportVenueView is one location's week.

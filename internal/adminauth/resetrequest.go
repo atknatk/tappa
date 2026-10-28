@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/store"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -80,9 +81,17 @@ const ResetWindow = MaxCandidates
 // ⚠️ IT IS PERSONAL DATA AND IT IS NOT A §4.7 SECRET. Neither is it loggable: every
 // log line in this flow is written WITHOUT the address, for the reason
 // internal/handler/adminlogin.go gives on the unauthenticated sign-in path.
+//
+// A PER-IDENTITY GRANT (M14-14, IssueForPerson) sets IdentityID: its Recipient is the identity's
+// registered address -- read from the very resolve_identity_by_email row whose id the link was opened
+// for (identityRecipient) -- and its Issued.Reset carries no tenant and no administrator (the link
+// belongs to the person, not to a business).
 type ResetGrant struct {
 	Issued    IssuedReset
 	Recipient string
+	// IdentityID is the identity a per-identity link was opened for; uuid.Nil for a per-row link. A
+	// cross-tenant key: logs only (ADR 0031 §5.15), never a response or an audit row.
+	IdentityID uuid.UUID
 }
 
 // IssueForEmail mints a reset link for every administrator an address resolves to
@@ -174,6 +183,14 @@ func (r *Resets) IssueForEmail(ctx context.Context, email string) ([]ResetGrant,
 		candidates = candidates[:ResetWindow]
 	}
 
+	return r.issueForRows(ctx, candidates)
+}
+
+// issueForRows is the per-row half of a request: for each resolved administrator row (the caller has
+// already cut the window), a link unless the row holds a live one. Shared by IssueForEmail and, for
+// the rows not linked to an identity, IssueForPerson (identityreset.go), so the two cannot mint
+// per-row links differently.
+func (r *Resets) issueForRows(ctx context.Context, candidates []db.ResolvedAdmin) ([]ResetGrant, []Reset, error) {
 	grants := make([]ResetGrant, 0, len(candidates))
 	var kept []Reset
 	for _, c := range candidates {
@@ -201,7 +218,7 @@ func (r *Resets) IssueForEmail(ctx context.Context, email string) ([]ResetGrant,
 		// for identities the resolver already returned.
 		to, err := r.recipient(ctx, c.TenantID, c.ID)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, r.withdrawAfterFailure(ctx, err, grants)
 		}
 		if to == "" {
 			// Disabled or gone between the resolver and this read. Skipped in silence
@@ -213,7 +230,9 @@ func (r *Resets) IssueForEmail(ctx context.Context, email string) ([]ResetGrant,
 			if errors.Is(err, ErrNoSuchAdmin) {
 				continue
 			}
-			return nil, nil, err
+			// The rows minted before this one are withdrawn (M14-14's audit): an error answers the
+			// whole request, so none of its grants is ever delivered.
+			return nil, nil, r.withdrawAfterFailure(ctx, err, grants)
 		}
 		if live != nil {
 			kept = append(kept, *live)

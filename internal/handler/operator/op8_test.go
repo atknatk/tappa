@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -29,15 +30,19 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/brand"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/handler/operator"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/operatorauth"
 	"github.com/atknatk/tappa/internal/qrcode"
 	"github.com/atknatk/tappa/internal/session"
+	"github.com/atknatk/tappa/web/templates/layout"
 	"github.com/atknatk/tappa/web/templates/operatorpages"
+	"github.com/atknatk/tappa/web/templates/pages"
 )
 
 // operatorRoutes are the routes OP-8 mounts, with the method each answers -- and OP-10's
@@ -572,6 +577,14 @@ func screens(t *testing.T) map[string]string {
 		CreatedAt: "2026-07-05 09:30 UTC", Plan: "founding"}
 	suspendedRow := row
 	suspendedRow.Suspended = true
+	// Beside it a tenant that is not suspended (M13-07): the list with one chip, so the two rows'
+	// columns can be compared at every width.
+	activeRow := operatorpages.TenantRow{ID: "10000000-0000-4000-8000-000000000003",
+		Path: "/operator/tenants/10000000-0000-4000-8000-000000000003", Name: "Rusty Bar",
+		CreatedAt: "2026-07-24 10:02 UTC", Plan: "standard"}
+	// The tenant's sub-nav (M13-01): the four {id} routes of the row's tenant.
+	tabs := operatorpages.TenantTabs{Overview: row.Path, Plaques: row.Path + "/plaques", Billing: row.Path + "/billing",
+		VAT: row.Path + "/vat"}
 	// The overview's suspension (OP-15 C): the suspend form with its four reasons on the active
 	// overview; the reinstate form on a suspended one, with a reason's label and with an
 	// unrecognised code.
@@ -580,7 +593,7 @@ func screens(t *testing.T) map[string]string {
 		{Value: "customer_request", Label: "At the business's request"}}
 	overview := operatorpages.TenantOverviewView{Name: name, ID: row.ID, CreatedAt: row.CreatedAt, Plan: "founding",
 		BusinessType: "restaurant", Locations: "9", ActiveEmployees: "41", ActivePlaques: "9", ActiveAdmins: "2",
-		PlaquesPath: row.Path + "/plaques", BillingPath: row.Path + "/billing", VATPath: row.Path + "/vat",
+		PlaquesPath: row.Path + "/plaques", BillingPath: row.Path + "/billing", VATPath: row.Path + "/vat", Tabs: tabs,
 		API: operatorpages.TenantAPIView{Open: true, OpenedAt: "2026-10-16 09:30 UTC", Code: "KF",
 			OpenPath: row.Path + "/integration", ClosePath: row.Path + "/integration/close"},
 		Suspension: operatorpages.TenantSuspensionView{SuspendPath: row.Path + "/suspend", ReinstatePath: row.Path + "/reinstate",
@@ -609,11 +622,12 @@ func screens(t *testing.T) map[string]string {
 		{UID: "04A1B2C3D4E5FA", Label: "Unrecognised", Sentence: "S", StoredStatus: `"quarantined"`,
 			CreatedAt: "2026-07-01 09:30 UTC", LastCtr: "0"},
 	}
-	plaques := operatorpages.TenantPlaquesView{Name: name, ID: row.ID, OverviewPath: row.Path, Total: "5", Shown: "5",
+	plaques := operatorpages.TenantPlaquesView{Name: name, ID: row.ID, OverviewPath: row.Path, Tabs: tabs, Total: "5", Shown: "5",
 		Noun: "plaques", Rows: plaqueRows}
 	plaquesFirst := plaques
 	plaquesFirst.Total, plaquesFirst.Truncated = "205", true
-	plaquesNone := operatorpages.TenantPlaquesView{Name: name, ID: row.ID, OverviewPath: row.Path, Total: "0", Shown: "0", Noun: "plaques"}
+	plaquesNone := operatorpages.TenantPlaquesView{Name: name, ID: row.ID, OverviewPath: row.Path, Tabs: tabs, Total: "0", Shown: "0",
+		Noun: "plaques"}
 	plaquesUnnamed := plaques
 	plaquesUnnamed.Name = unnamed
 	// The audit log (OP-14): one row of each shape a fact can take -- a named and an
@@ -670,12 +684,12 @@ func screens(t *testing.T) map[string]string {
 		{Month: "February 2026", Label: "Unreadable", Sentence: "S"},
 	}
 	billing := operatorpages.TenantBillingView{Name: name, ID: row.ID, OverviewPath: row.Path, BillingPath: row.Path + "/billing",
-		Page: 1, LastPage: 5, MonthsPerPage: 12, Rows: billingRows}
+		Tabs: tabs, Page: 1, LastPage: 5, MonthsPerPage: 12, Rows: billingRows}
 	billingMiddle, billingLast, billingUnnamed := billing, billing, billing
 	billingMiddle.Page, billingLast.Page, billingUnnamed.Name = 3, 5, unnamed
 	// The VAT screen (OP-16): each of the four states' chips, the number VIES does not take (no
 	// form), the notice of a POST that changed nothing, and a tenant named by its id.
-	vat := operatorpages.TenantVATView{Name: name, ID: row.ID, OverviewPath: row.Path, VATPath: row.Path + "/vat",
+	vat := operatorpages.TenantVATView{Name: name, ID: row.ID, OverviewPath: row.Path, VATPath: row.Path + "/vat", Tabs: tabs,
 		Number: "MT12345678", Label: "Confirmed", Sentence: "S", Tone: operatorpages.VATToneConfirmed,
 		AskedAt: "2026-10-07 14:03 UTC", Askable: true}
 	vatNever, vatNoAnswer, vatNotFound, vatOdd, vatNotice := vat, vat, vat, vat, vat
@@ -724,7 +738,7 @@ func screens(t *testing.T) map[string]string {
 		"home":               operatorpages.Home(),
 		"problem":            operatorpages.Problem(operatorpages.ProblemView{Title: "T", Message: "M", Back: "/operator/login", BackLabel: "B"}),
 		"problem, signed in": operatorpages.Problem(operatorpages.ProblemView{Title: "T", Message: "M", SignedIn: true}),
-		"tenant screen":      operatorpages.TenantScreen("Plaques", name),
+		"tenant screen":      operatorpages.TenantScreen("Plaques", name, tabs, operatorpages.TabPlaques),
 		"legal":              operatorpages.Legal(operatorpages.LegalView{Limit: 100}),
 		"legal, published": operatorpages.Legal(operatorpages.LegalView{Limit: 1,
 			Docs: []operatorpages.LegalDoc{{Slug: "privacy", Path: "/legal/privacy", Published: true, PublishedAt: "2026-10-03 09:30 UTC", Body: "T"},
@@ -733,7 +747,7 @@ func screens(t *testing.T) map[string]string {
 				Publisher: "tenant admin (legacy)", Current: true}}}),
 		"tenants":                                 operatorpages.Tenants(operatorpages.TenantsView{Page: 1}),
 		"tenants, a page":                         operatorpages.Tenants(operatorpages.TenantsView{Page: 1, Rows: []operatorpages.TenantRow{row, {ID: row.ID, Path: row.Path, CreatedAt: row.CreatedAt, Plan: "standard"}}, HasNext: true}),
-		"tenants, a suspended row":                operatorpages.Tenants(operatorpages.TenantsView{Page: 1, Rows: []operatorpages.TenantRow{suspendedRow}}),
+		"tenants, a suspended row":                operatorpages.Tenants(operatorpages.TenantsView{Page: 1, Rows: []operatorpages.TenantRow{suspendedRow, activeRow}}),
 		"tenants, searched":                       operatorpages.Tenants(operatorpages.TenantsView{Search: "kebab", Page: 1, Rows: []operatorpages.TenantRow{row}}),
 		"tenants, a later page":                   operatorpages.Tenants(operatorpages.TenantsView{Search: "kebab", Page: 2, Rows: []operatorpages.TenantRow{row}, HasNext: true}),
 		"tenants, past the end":                   operatorpages.Tenants(operatorpages.TenantsView{Page: 3}),
@@ -776,11 +790,72 @@ func screens(t *testing.T) map[string]string {
 	return out
 }
 
+// fixtureTabs is the sub-nav screens() gives its one-tenant fixtures (M13-01): the four
+// {id} routes of its one tenant.
+var fixtureTabs = operatorpages.TenantTabs{Overview: "/operator/tenants/10000000-0000-4000-8000-000000000001",
+	Plaques: "/operator/tenants/10000000-0000-4000-8000-000000000001/plaques",
+	Billing: "/operator/tenants/10000000-0000-4000-8000-000000000001/billing",
+	VAT:     "/operator/tenants/10000000-0000-4000-8000-000000000001/vat"}
+
+// operatorNavHrefs is the operator nav's five links in their order (M13-01, OP-1).
+var operatorNavHrefs = []string{"/operator", "/operator/tenants", "/operator/holdings", "/operator/audit", "/operator/legal"}
+
+// navCurrentOf is the main nav's current section on a signed-in render of screens(), as the
+// href of its item (README §2 "OP-15 annex" (b)): Console on home, Tenants on the list and
+// the four one-tenant screens, each platform-wide screen its own; "" on the signed-in problem
+// page, which is no section.
+func navCurrentOf(render string) string {
+	switch {
+	case render == "home":
+		return "/operator"
+	case render == "problem, signed in":
+		return ""
+	case strings.HasPrefix(render, "tenant"):
+		return "/operator/tenants"
+	case strings.HasPrefix(render, "holdings"):
+		return "/operator/holdings"
+	case strings.HasPrefix(render, "audit log"):
+		return "/operator/audit"
+	case strings.HasPrefix(render, "legal"):
+		return "/operator/legal"
+	}
+	return "?"
+}
+
+// subNavCurrentOf is the tab a one-tenant render of screens() marks as the page, and ""
+// for a render that is not a one-tenant screen (the bare "tenant screen" fixture passes
+// Plaques).
+func subNavCurrentOf(render string) string {
+	switch {
+	case render == "tenant screen", strings.HasPrefix(render, "tenant plaques"):
+		return "Plaques"
+	case strings.HasPrefix(render, "tenant overview"):
+		return "Overview"
+	case strings.HasPrefix(render, "tenant billing"):
+		return "Billing"
+	case strings.HasPrefix(render, "tenant VAT"):
+		return "VAT number"
+	}
+	return ""
+}
+
 // TestOperatorScreens_EveryOneWearsTheOperatorChrome: each of the 49 renders screens()
 // makes (fourteen exported screen constructors; the "Every" of the name is these 49) opens
 // with the operator bar -- the "TAPTIME OPERATOR" lockup on the ink band -- and none of
 // the 49 carries the restaurant panel's chrome (its tab bar, its green wordmark). The
 // sign-out control is on the forty signed-in renders and absent from the other nine.
+//
+// THE NAVIGATION (M13-01, user decision OP-1). Each of the forty signed-in renders carries
+// exactly one <nav class="op-nav"> (one element for the three widths), between the bar and
+// <main, whose links are exactly the five sections in order; the nine signed-out renders
+// carry none. In it, aria-current="true" marks exactly one item -- the render's section,
+// navCurrentOf -- on the 39 renders other than "problem, signed in", which marks none; the
+// nav carries no other aria-current (never "page": the nav names the section, not the
+// page). Each of the 19 one-tenant renders (the 18 overview, plaques, billing and VAT
+// fixtures and the bare "tenant screen") carries exactly one <nav class="op-subnav"> INSIDE
+// the tenant banner, after its name and before <main, whose links are exactly the tenant's
+// four paths and whose one aria-current="page" marks subNavCurrentOf's tab; no other render
+// carries a sub-nav. PREMISE: 19 one-tenant renders, 39 with a current section.
 func TestOperatorScreens_EveryOneWearsTheOperatorChrome(t *testing.T) {
 	signedIn := map[string]bool{"home": true, "problem, signed in": true, "tenant screen": true, "legal": true, "legal, published": true,
 		"tenants": true, "tenants, a page": true, "tenants, searched": true, "tenants, a later page": true, "tenants, past the end": true,
@@ -797,6 +872,7 @@ func TestOperatorScreens_EveryOneWearsTheOperatorChrome(t *testing.T) {
 	if len(all) != 49 || len(signedIn) != 40 {
 		t.Fatalf("PREMISE: %d render(s), %d signed in; the comment says 49 and 40", len(all), len(signedIn))
 	}
+	oneTenant, withCurrent := 0, 0
 	for name, html := range all {
 		bar := strings.Index(html, `<header class="op-bar">`)
 		main := strings.Index(html, "<main")
@@ -817,6 +893,325 @@ func TestOperatorScreens_EveryOneWearsTheOperatorChrome(t *testing.T) {
 		if !strings.Contains(html, "Taptime operator</title>") {
 			t.Errorf("%s: the document title does not name the operator surface", name)
 		}
+		if signedIn[name] {
+			navAt := strings.Index(html, `<nav class="op-nav" aria-label="Operator sections">`)
+			if n := strings.Count(html, `<nav class="op-nav"`); n != 1 || navAt < 0 || navAt < bar || navAt > main {
+				t.Errorf("%s: %d operator nav(s), the labelled one at %d (bar %d, main %d); want one, between the bar and the page",
+					name, n, navAt, bar, main)
+			} else {
+				seg := html[navAt : navAt+strings.Index(html[navAt:], "</nav>")]
+				// One frame, the nav its first child and the content column its sibling after it
+				// -- never inside the column (README §2 "DOM order").
+				frame := strings.Index(html, `<div class="op-frame">`)
+				col := strings.Index(html, `<div class="op-col">`)
+				if strings.Count(html, `<div class="op-frame">`) != 1 || strings.Count(html, `<div class="op-col">`) != 1 ||
+					frame < bar || !strings.HasPrefix(strings.TrimLeft(html[frame+len(`<div class="op-frame">`):], " \t\n"), `<nav class="op-nav"`) ||
+					col < navAt+len(seg) || col > main {
+					t.Errorf("%s: the order is not op-frame > op-nav, then op-col (frame %d, nav %d-%d, col %d, main %d)",
+						name, frame, navAt, navAt+len(seg), col, main)
+				}
+				var hrefs []string
+				for _, m := range navHref.FindAllStringSubmatch(seg, -1) {
+					hrefs = append(hrefs, m[1])
+				}
+				if !slices.Equal(hrefs, operatorNavHrefs) {
+					t.Errorf("%s: the operator nav links %v, want %v", name, hrefs, operatorNavHrefs)
+				}
+				want := navCurrentOf(name)
+				cur := navCurrent.FindAllStringSubmatch(seg, -1)
+				switch {
+				case want == "" && len(cur) != 0, want != "" && (len(cur) != 1 || cur[0][1] != want):
+					t.Errorf("%s: the nav's current items are %v, want %q", name, cur, want)
+				}
+				if got := strings.Count(seg, "aria-current"); got != len(cur) {
+					t.Errorf("%s: the nav carries %d aria-current, of which %d are \"true\" on an item", name, got, len(cur))
+				}
+				if strings.Contains(seg, `aria-current="page"`) {
+					t.Errorf("%s: the operator nav says aria-current=\"page\"", name)
+				}
+				if want != "" {
+					withCurrent++
+				}
+			}
+		} else if strings.Contains(html, "op-nav") || strings.Contains(html, "op-frame") {
+			t.Errorf("%s: a signed-out render carries the operator nav or its frame", name)
+		}
+		tab := subNavCurrentOf(name)
+		if tab == "" {
+			if strings.Contains(html, "op-subnav") {
+				t.Errorf("%s: carries a tenant sub-nav and is not a one-tenant screen", name)
+			}
+			continue
+		}
+		oneTenant++
+		section := strings.Index(html, `<section class="op-tenant" aria-label="Tenant">`)
+		sub := strings.Index(html, `<nav class="op-subnav" aria-label="This tenant">`)
+		end := -1
+		if section >= 0 {
+			if e := strings.Index(html[section:], "</section>"); e >= 0 {
+				end = section + e
+			}
+		}
+		if strings.Count(html, `<nav class="op-subnav"`) != 1 || section < 0 || sub < section || end < sub || end > main ||
+			!strings.Contains(html[section:sub], "</p>") {
+			t.Errorf("%s: the sub-nav is not one, inside the banner after its name, before the page (banner %d, sub-nav %d, banner end %d, main %d)",
+				name, section, sub, end, main)
+			continue
+		}
+		seg := html[sub:end]
+		var hrefs []string
+		for _, m := range navHref.FindAllStringSubmatch(seg, -1) {
+			hrefs = append(hrefs, m[1])
+		}
+		if wantTabs := []string{fixtureTabs.Overview, fixtureTabs.Plaques, fixtureTabs.Billing, fixtureTabs.VAT}; !slices.Equal(hrefs, wantTabs) {
+			t.Errorf("%s: the sub-nav links %v, want %v", name, hrefs, wantTabs)
+		}
+		cur := subNavCurrent.FindAllStringSubmatch(seg, -1)
+		if len(cur) != 1 || cur[0][1] != tab || strings.Count(seg, "aria-current") != 1 {
+			t.Errorf("%s: the sub-nav's current tabs are %v (%d aria-current), want exactly %q", name, cur, strings.Count(seg, "aria-current"), tab)
+		}
+	}
+	if oneTenant != 19 || withCurrent != 39 {
+		t.Fatalf("PREMISE: %d one-tenant render(s), %d with a current section; the comment says 19 and 39", oneTenant, withCurrent)
+	}
+}
+
+// TestOperatorShell_ThePhoneBarStaysInTheFlowAndTheBannerNameIsItsSecondParagraph (M13-01):
+// two facts of the shell input.css relies on and no render shows.
+//
+// PART I -- the stylesheet: .op-nav's rule makes the phone bar sticky and never fixed (a fixed
+// bar covers the page's last control), and neither .op-frame's nor .op-col's rule, nor the
+// nav's own, clips its overflow (a clipping ancestor turns a sticky bar into an ordinary one).
+// PART II -- the banner: input.css sizes the tenant's name as the banner's second paragraph
+// (.op-tenant > div > p:nth-of-type(2)), and that one rule breaks the name anywhere
+// ([overflow-wrap:anywhere], M13-08 review: a name with no space in it widened a 320 px page to
+// 735 px); on every one-tenant render of screens() the banner's section opens on that div, and
+// its second <p> is the name's (named or unnamed). CONTROL: the rules are found and the 19
+// banners are read; the name's rule without its break helper is a finding of the same reading.
+func TestOperatorShell_ThePhoneBarStaysInTheFlowAndTheBannerNameIsItsSecondParagraph(t *testing.T) {
+	css, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := func(class string) []string {
+		m := regexp.MustCompile(`(?m)^\s*\.` + class + `\s*\{\s*@apply ([^;]+);`).FindSubmatch(css)
+		if m == nil {
+			t.Fatalf("CONTROL: input.css has no .%s rule", class)
+		}
+		return strings.Fields(string(m[1]))
+	}
+	nav := rule("op-nav")
+	if !slices.Contains(nav, "sticky") || !slices.Contains(nav, "bottom-0") {
+		t.Errorf(".op-nav does not make the phone bar sticky at the bottom: %v", nav)
+	}
+	for _, class := range []string{"op-frame", "op-col", "op-nav"} {
+		for _, u := range rule(class) {
+			if u == "fixed" || strings.HasSuffix(u, ":fixed") || strings.Contains(u, "overflow") {
+				t.Errorf(".%s applies %s", class, u)
+			}
+		}
+	}
+	if !strings.Contains(string(css), ".op-tenant > div > p:nth-of-type(2) {") {
+		t.Fatal("CONTROL: input.css does not size the banner's name as its second paragraph")
+	}
+	if f := bannerNameBreakFinding(string(css)); f != "" {
+		t.Error(f)
+	}
+	const helper = " [overflow-wrap:anywhere];"
+	if !strings.Contains(string(css), helper) || bannerNameBreakFinding(strings.Replace(string(css),
+		"desk:text-[34px]"+helper, "desk:text-[34px];", 1)) == "" {
+		t.Fatal("CONTROL: the banner name's rule without its break helper is not a finding; the reading is blind")
+	}
+	banners := 0
+	for name, html := range screens(t) {
+		at := strings.Index(html, `<section class="op-tenant" aria-label="Tenant">`)
+		if at < 0 {
+			continue
+		}
+		banners++
+		in := html[at+len(`<section class="op-tenant" aria-label="Tenant">`):]
+		in = in[:strings.Index(in, "</section>")]
+		if !strings.HasPrefix(strings.TrimLeft(in, " \t\n"), "<div") {
+			t.Errorf("%s: the banner does not open on its div", name)
+		}
+		ps := regexp.MustCompile(`<p[ >][^>]*>?`).FindAllString(in, -1)
+		if len(ps) < 2 || ps[1] != `<p class="font-display text-xl font-bold tracking-tight">` {
+			t.Errorf("%s: the banner's second paragraph is %q, not the name's", name, ps)
+		}
+	}
+	if banners != 19 {
+		t.Fatalf("CONTROL: %d banner(s) read, want 19", banners)
+	}
+}
+
+// bannerNameBreakFinding is "" when input.css's one rule for the banner's name breaks it anywhere
+// -- the rule exactly once, one @apply, among its utilities [overflow-wrap:anywhere] -- and says
+// what is wrong otherwise.
+func bannerNameBreakFinding(css string) string {
+	src := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
+	m := regexp.MustCompile(`\.op-tenant > div > p:nth-of-type\(2\)\s*\{\s*@apply ([^;]+);\s*\}`).FindAllStringSubmatch(src, -1)
+	if len(m) != 1 {
+		return fmt.Sprintf("%d rule(s) for the banner's name, want one @apply", len(m))
+	}
+	if !slices.Contains(strings.Fields(m[0][1]), "[overflow-wrap:anywhere]") {
+		return "the banner's name does not break anywhere: " + m[0][1]
+	}
+	return ""
+}
+
+// TestTenantScreens_TheSubNavIsTheReadTenantsFourScreens (M13-01): through the surface's
+// handlers -- not the fixtures --, the overview, the plaques, the billing months and the VAT
+// number of a tenant each carry the sub-nav whose four links are THAT tenant's overview,
+// plaques, billing and VAT paths, in that order, with the screen's own tab marked
+// aria-current="page", and the operator nav marks Tenants. Each of the four tenants is a
+// different one, so a sub-nav built from another tenant's id, or with two paths swapped, is
+// red. CONTROL: each response is a 200 that names its tenant in the banner.
+func TestTenantScreens_TheSubNavIsTheReadTenantsFourScreens(t *testing.T) {
+	g := newRig(t)
+	c := g.signIn(g.active())
+	overview := g.seedTenant(uuid.Nil, "FAKE Overview Ltd", nil, "")
+	plaques := g.seedPlaques("FAKE Plaques Ltd")
+	billing := g.seedBilling("FAKE Billing Ltd", billingPageOfEveryState(2026, time.October)...)
+	vat := g.seedVAT(uuid.Nil, "FAKE VAT Ltd", "MT12345678", nil, nil)
+	for _, c2 := range []struct {
+		id         uuid.UUID
+		path, name string
+		tab        string
+	}{
+		{overview, "/operator/tenants/" + overview.String(), "FAKE Overview Ltd", "Overview"},
+		{plaques, plaquePath(plaques.String()), "FAKE Plaques Ltd", "Plaques"},
+		{billing, billingPathOf(billing.String()), "FAKE Billing Ltd", "Billing"},
+		{vat, vatPathOf(vat.String()), "FAKE VAT Ltd", "VAT number"},
+	} {
+		w := g.get(c2.path, c)
+		body := w.Body.String()
+		banner := strings.Index(body, `<section class="op-tenant" aria-label="Tenant">`)
+		if w.Code != http.StatusOK || banner < 0 || !strings.Contains(body[banner:], c2.name) {
+			t.Fatalf("CONTROL: GET %s = %d, banner at %d", c2.path, w.Code, banner)
+		}
+		sub := strings.Index(body, `<nav class="op-subnav" aria-label="This tenant">`)
+		end := strings.Index(body[banner:], "</section>") + banner
+		if sub < banner || sub > end {
+			t.Errorf("GET %s: no sub-nav inside the banner", c2.path)
+			continue
+		}
+		var hrefs []string
+		for _, m := range navHref.FindAllStringSubmatch(body[sub:end], -1) {
+			hrefs = append(hrefs, m[1])
+		}
+		base := "/operator/tenants/" + c2.id.String()
+		if want := []string{base, base + "/plaques", base + "/billing", base + "/vat"}; !slices.Equal(hrefs, want) {
+			t.Errorf("GET %s: the sub-nav links %v, want %v", c2.path, hrefs, want)
+		}
+		if cur := subNavCurrent.FindAllStringSubmatch(body[sub:end], -1); len(cur) != 1 || cur[0][1] != c2.tab {
+			t.Errorf("GET %s: the sub-nav's current tabs are %v, want %q", c2.path, cur, c2.tab)
+		}
+		if cur := navCurrent.FindAllStringSubmatch(body, -1); len(cur) != 1 || cur[0][1] != "/operator/tenants" {
+			t.Errorf("GET %s: the nav's current items are %v, want Tenants", c2.path, cur)
+		}
+	}
+}
+
+var (
+	navHref       = regexp.MustCompile(`<a href="([^"]*)"`)
+	navCurrent    = regexp.MustCompile(`<a href="([^"]*)" class="op-nav-item" aria-current="true">`)
+	subNavCurrent = regexp.MustCompile(`class="op-subnav-item" aria-current="page">([^<]*)</a>`)
+)
+
+// TestOperatorScreens_CarryNoPanelShellAndNoTenantBrand (M13-01): none of the 49 renders
+// screens() makes carries a marker of the restaurant panel's shell (its sidebar, rail, tab
+// and bottom-bar classes, its More sheet, its content well and accent stripe, the
+// "punchless" line, the green "taptime" wordmark) or of a tenant's brand (a /brand/ path --
+// the accent stylesheet and the logo routes --, the accent utility and variable, an <img>).
+// The bare words "brand" and "accent" are not searched: the weak-password notice says "a
+// letter with an accent". CONTROL: the same search finds a panel marker on the panel's own
+// shell and a brand marker on a branded panel's.
+func TestOperatorScreens_CarryNoPanelShellAndNoTenantBrand(t *testing.T) {
+	panelMarkers := []string{"panel-side", "side-nav", "bar-link", "tab-link", "sheet-", "panel-well", "panel-stripe", "punchless",
+		`text-tappa-green">taptime`}
+	brandMarkers := []string{"/brand/", "bg-brand", "--brand", "<img"}
+	found := func(html string, markers []string) []string {
+		var out []string
+		for _, m := range markers {
+			if strings.Contains(html, m) {
+				out = append(out, m)
+			}
+		}
+		return out
+	}
+	all := screens(t)
+	if len(all) != 49 {
+		t.Fatalf("PREMISE: %d render(s), the comment says 49", len(all))
+	}
+	for name, html := range all {
+		if got := found(html, panelMarkers); len(got) != 0 {
+			t.Errorf("%s: carries the panel shell's %q", name, got)
+		}
+		if got := found(html, brandMarkers); len(got) != 0 {
+			t.Errorf("%s: carries a tenant brand's %q", name, got)
+		}
+	}
+	accent, err := brand.ParseAccent("1F5C41")
+	if err != nil {
+		t.Fatal(err)
+	}
+	render := func(c templ.Component) string {
+		var b bytes.Buffer
+		if err := c.Render(context.Background(), &b); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	panel := render(pages.PanelShell(pages.PanelChrome{FullName: "Ops", Role: "owner", Tab: pages.TabAccount}))
+	branded := render(pages.PanelShell(pages.PanelChrome{FullName: "Ops", Role: "owner", Tab: pages.TabAccount,
+		Brand: pages.PanelBrand{Name: "Kebab Factory", Theme: layout.ThemeOf(accent),
+			Logo: pages.PanelLogo{Src: "/admin/brand/logo/0123", Width: 32, Height: 32}}}))
+	if len(found(panel, panelMarkers)) == 0 || len(found(branded, brandMarkers)) == 0 {
+		t.Fatalf("CONTROL: the panel's shell shows %v, a branded one %v; want at least one marker each",
+			found(panel, panelMarkers), found(branded, brandMarkers))
+	}
+	t.Logf("CONTROL: the panel's shell shows %v, a branded one %v", found(panel, panelMarkers), found(branded, brandMarkers))
+}
+
+// TestTenantScreen_RefusesToRenderWithoutItsTabs (M13-01): a one-tenant screen is not
+// rendered with a sub-nav that misses one of its four paths, or that names no current tab
+// or one outside the four -- TenantScreen returns ErrNoTenantTabs and writes 0 bytes, and
+// the surface's render answers a plain 500 with no page. CONTROL: the full sub-nav with
+// each of the four current tabs renders.
+func TestTenantScreen_RefusesToRenderWithoutItsTabs(t *testing.T) {
+	name, err := operatorpages.NewTenantName("Kebab Factory Ltd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing := []operatorpages.TenantTabs{fixtureTabs, fixtureTabs, fixtureTabs, fixtureTabs, {}}
+	missing[0].Overview, missing[1].Plaques, missing[2].Billing, missing[3].VAT = "", "", "", ""
+	for i, tabs := range missing {
+		var b bytes.Buffer
+		err := operatorpages.TenantScreen("Plaques", name, tabs, operatorpages.TabPlaques).Render(context.Background(), &b)
+		if !errors.Is(err, operatorpages.ErrNoTenantTabs) || b.Len() != 0 {
+			t.Errorf("tabs %d (%+v) rendered (err %v, %d bytes)", i, tabs, err, b.Len())
+		}
+	}
+	for _, cur := range []operatorpages.TenantTab{0, operatorpages.TabVAT + 1, -1} {
+		var b bytes.Buffer
+		err := operatorpages.TenantScreen("Plaques", name, fixtureTabs, cur).Render(context.Background(), &b)
+		if !errors.Is(err, operatorpages.ErrNoTenantTabs) || b.Len() != 0 {
+			t.Errorf("current tab %d rendered (err %v, %d bytes)", cur, err, b.Len())
+		}
+	}
+	for _, cur := range []operatorpages.TenantTab{operatorpages.TabOverview, operatorpages.TabPlaques, operatorpages.TabBilling, operatorpages.TabVAT} {
+		var b bytes.Buffer
+		if err := operatorpages.TenantScreen("Plaques", name, fixtureTabs, cur).Render(context.Background(), &b); err != nil ||
+			strings.Count(b.String(), `aria-current="page"`) != 1 {
+			t.Fatalf("CONTROL: current tab %d: err %v, %d aria-current=\"page\"", cur, err, strings.Count(b.String(), `aria-current="page"`))
+		}
+	}
+	g := newRig(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	operator.RenderForTest(g.surface, w, r, operatorpages.TenantScreen("Plaques", name, operatorpages.TenantTabs{}, operatorpages.TabPlaques))
+	if w.Code != http.StatusInternalServerError || strings.Contains(w.Body.String(), "<html") {
+		t.Errorf("a refused tenant screen through render = %d %q", w.Code, w.Body.String())
 	}
 }
 
@@ -832,7 +1227,7 @@ func TestTenantScreen_RefusesToRenderWithoutAName(t *testing.T) {
 		}
 	}
 	var b bytes.Buffer
-	err := operatorpages.TenantScreen("Plaques", operatorpages.TenantName{}).Render(context.Background(), &b)
+	err := operatorpages.TenantScreen("Plaques", operatorpages.TenantName{}, fixtureTabs, operatorpages.TabPlaques).Render(context.Background(), &b)
 	if err == nil || b.Len() != 0 {
 		t.Fatalf("the zero TenantName rendered (err %v, %d bytes)", err, b.Len())
 	}
@@ -841,7 +1236,7 @@ func TestTenantScreen_RefusesToRenderWithoutAName(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.Reset()
-	if err := operatorpages.TenantScreen("Plaques", name).Render(context.Background(), &b); err != nil {
+	if err := operatorpages.TenantScreen("Plaques", name, fixtureTabs, operatorpages.TabPlaques).Render(context.Background(), &b); err != nil {
 		t.Fatal(err)
 	}
 	html := b.String()
@@ -857,7 +1252,7 @@ func TestTenantScreen_RefusesToRenderWithoutAName(t *testing.T) {
 	g := newRig(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	operator.RenderForTest(g.surface, w, r, operatorpages.TenantScreen("Plaques", operatorpages.TenantName{}))
+	operator.RenderForTest(g.surface, w, r, operatorpages.TenantScreen("Plaques", operatorpages.TenantName{}, fixtureTabs, operatorpages.TabPlaques))
 	if w.Code != http.StatusInternalServerError || strings.Contains(w.Body.String(), "<html") {
 		t.Errorf("a refused tenant screen through render = %d %q", w.Code, w.Body.String())
 	}
@@ -879,24 +1274,41 @@ func TestTenantScreen_RefusesToRenderWithoutAName(t *testing.T) {
 // membership's Remove button to its removal (an ended one has none), a membership links its
 // business's overview, and the pager links the list's next and previous pages; and (OP-15 C) the
 // active overview's one suspension form posts to the tenant's suspend path and a suspended
-// overview's one to its reinstate path.
+// overview's one to its reinstate path. Since M13-01 the controls that a link IS there read
+// the page from <main on, because the operator nav and the tenant sub-nav before it link the console, the tenants
+// and a tenant's four screens on every signed-in page; and the CONTROL adds the nav's five
+// sections (on home, a signed-in problem page, a one-tenant page and the holdings) and the
+// overview's sub-nav's four paths, which the walk then requires to be mounted routes. The nav
+// and the sub-nav add no form: every form count above is unchanged.
 func TestOperatorScreens_EveryActionAndLinkIsAMountedRoute(t *testing.T) {
 	attr := regexp.MustCompile(`\s(action|href|src)="([^"]*)"`)
 	absolute := 0
 	all := screens(t)
-	if !strings.Contains(all["home"], `href="/operator/tenants"`) ||
-		!strings.Contains(all["tenants, a page"], `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) ||
-		!strings.Contains(all["tenant overview"], `href="/operator/tenants/10000000-0000-4000-8000-000000000001/plaques"`) ||
-		!strings.Contains(all["tenant plaques"], `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) {
+	// A link the page itself is meant to carry is looked for inside <main (M13-01): the nav and
+	// the tenant sub-nav before it link the console, the tenants and a tenant's four screens on
+	// every signed-in page, and must not stand in for it. Every count and every absence is read
+	// on the WHOLE page: a form or a link the shell gained would be one too many there.
+	inMain := func(render string) string {
+		h := all[render]
+		at := strings.Index(h, "<main")
+		if at < 0 {
+			t.Fatalf("PREMISE: %s has no <main", render)
+		}
+		return h[at:]
+	}
+	if !strings.Contains(inMain("home"), `href="/operator/tenants"`) ||
+		!strings.Contains(inMain("tenants, a page"), `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) ||
+		!strings.Contains(inMain("tenant overview"), `href="/operator/tenants/10000000-0000-4000-8000-000000000001/plaques"`) ||
+		!strings.Contains(inMain("tenant plaques"), `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) {
 		t.Fatal("CONTROL: the console does not link the tenants, a list row its overview, the overview its plaques or the plaques the overview")
 	}
-	if !strings.Contains(all["tenant overview"], `href="/operator/tenants/10000000-0000-4000-8000-000000000001/billing"`) ||
-		!strings.Contains(all["tenant billing"], `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) ||
+	if !strings.Contains(inMain("tenant overview"), `href="/operator/tenants/10000000-0000-4000-8000-000000000001/billing"`) ||
+		!strings.Contains(inMain("tenant billing"), `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) ||
 		strings.Count(all["tenant billing, page 3"], `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/billing">`) != 2 {
 		t.Fatal("CONTROL: the overview does not link the billing, the billing does not link the overview, or its pager does not post to it")
 	}
-	if !strings.Contains(all["tenant overview"], `href="/operator/tenants/10000000-0000-4000-8000-000000000001/vat"`) ||
-		!strings.Contains(all["tenant VAT"], `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) ||
+	if !strings.Contains(inMain("tenant overview"), `href="/operator/tenants/10000000-0000-4000-8000-000000000001/vat"`) ||
+		!strings.Contains(inMain("tenant VAT"), `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) ||
 		strings.Count(all["tenant VAT"], `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/vat"`) != 1 ||
 		strings.Contains(all["tenant VAT, odd number"], `action="/operator/tenants/10000000-0000-4000-8000-000000000001/vat"`) {
 		t.Fatal("CONTROL: the overview does not link the VAT screen, the VAT screen does not link the overview, its form does not post to it, or the number VIES does not take still has the form")
@@ -907,15 +1319,15 @@ func TestOperatorScreens_EveryActionAndLinkIsAMountedRoute(t *testing.T) {
 		strings.Contains(all["tenant overview, unnamed"], `/integration/close"`) {
 		t.Fatal("CONTROL: the overview's integration API forms are not where they should be (open: both; closed: the open form alone)")
 	}
-	if !strings.Contains(all["home"], `<a href="/operator/holdings" class="op-link">Holdings</a>`) ||
+	if !strings.Contains(inMain("home"), `<a href="/operator/holdings" class="op-link">Holdings</a>`) ||
 		strings.Count(all["holdings"], `<form method="post" action="/operator/holdings" class=`) != 1 ||
 		strings.Count(all["holdings"], `<form method="post" action="/operator/holdings/60000000-0000-4000-8000-000000000001/members"`) != 1 ||
 		strings.Count(all["holdings"], `<form method="post" action="/operator/holdings/60000000-0000-4000-8000-000000000002/members"`) != 1 ||
 		strings.Count(all["holdings"], `action="/operator/holdings/60000000-0000-4000-8000-000000000001/members/`) != 1 ||
-		!strings.Contains(all["holdings"], `<form method="post" action="/operator/holdings/60000000-0000-4000-8000-000000000001/members/10000000-0000-4000-8000-000000000001/remove">`) ||
-		!strings.Contains(all["holdings"], `href="/operator/tenants/10000000-0000-4000-8000-000000000002"`) ||
-		!strings.Contains(all["holdings"], `href="/operator/holdings?page=2"`) ||
-		!strings.Contains(all["holdings, past the end"], `href="/operator/holdings?page=2"`) {
+		!strings.Contains(inMain("holdings"), `<form method="post" action="/operator/holdings/60000000-0000-4000-8000-000000000001/members/10000000-0000-4000-8000-000000000001/remove">`) ||
+		!strings.Contains(inMain("holdings"), `href="/operator/tenants/10000000-0000-4000-8000-000000000002"`) ||
+		!strings.Contains(inMain("holdings"), `href="/operator/holdings?page=2"`) ||
+		!strings.Contains(inMain("holdings, past the end"), `href="/operator/holdings?page=2"`) {
 		t.Fatal("CONTROL: the console does not link the holdings, or the holdings' forms, membership links and pager are not where they should be")
 	}
 	if strings.Count(all["tenant overview"], `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/suspend"`) != 1 ||
@@ -924,10 +1336,24 @@ func TestOperatorScreens_EveryActionAndLinkIsAMountedRoute(t *testing.T) {
 		strings.Contains(all["tenant overview, suspended"], `/suspend"`) {
 		t.Fatal("CONTROL: the active overview's one form does not post to its suspend path, or the suspended one's to its reinstate path")
 	}
-	if !strings.Contains(all["home"], `<a href="/operator/audit" class="op-link">Audit log</a>`) ||
-		!strings.Contains(all["audit log"], `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) ||
+	if !strings.Contains(inMain("home"), `<a href="/operator/audit" class="op-link">Audit log</a>`) ||
+		!strings.Contains(inMain("audit log"), `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) ||
 		strings.Count(all["audit log, filtered"], `<form method="post" action="/operator/audit"`) != 3 {
 		t.Fatal("CONTROL: the console does not link the audit log, an audit row does not link its tenant, or the filter and the pager do not post to the log")
+	}
+	// The nav (M13-01): its five sections on every signed-in page, the tenant's four screens in
+	// a one-tenant page's sub-nav -- the loop below then requires each to be a mounted route.
+	for _, render := range []string{"home", "problem, signed in", "tenant VAT", "holdings"} {
+		for _, p := range operatorNavHrefs {
+			if !strings.Contains(all[render], `<a href="`+p+`" class="op-nav-item"`) {
+				t.Fatalf("CONTROL: %s's nav does not link %s", render, p)
+			}
+		}
+	}
+	for _, p := range []string{fixtureTabs.Overview, fixtureTabs.Plaques, fixtureTabs.Billing, fixtureTabs.VAT} {
+		if !strings.Contains(all["tenant overview"], `<a href="`+p+`" class="op-subnav-item"`) {
+			t.Fatalf("CONTROL: the overview's sub-nav does not link %s", p)
+		}
 	}
 	for name, html := range all {
 		for _, m := range attr.FindAllStringSubmatch(html, -1) {
@@ -1004,6 +1430,64 @@ func TestOperatorChrome_TheColouredTextClearsAA(t *testing.T) {
 			t.Errorf("%s on ink = %.2f:1, want at least 4.5:1", tok, got)
 		} else {
 			t.Logf("%s on ink = %.2f:1", tok, got)
+		}
+	}
+	// The operator nav and the tenant sub-nav (M13-01), from input.css's op-nav-item,
+	// op-nav-label and op-subnav-item rules: an inactive phone label, and the desktop's
+	// "Platform" label, are ink at 70 % on the nav's paper; the
+	// tablet's and the desktop's labels are ink on paper; the current desktop item is ink on
+	// ink at 5 % over paper; a sub-nav tab is ink on the banner's saffron-lite -- and, should the
+	// banner's ground ever be dropped, on paper. Alpha blended in sRGB, as the browser paints.
+	over := func(fg [3]float64, alpha float64, bg [3]float64) [3]float64 {
+		var c [3]float64
+		for i := range c {
+			c[i] = alpha*fg[i] + (1-alpha)*bg[i]
+		}
+		return c
+	}
+	paper := hex("paper")
+	for _, c := range []struct {
+		what   string
+		fg, bg [3]float64
+	}{
+		{"the nav's inactive phone label and its Platform label, ink/70 on paper", over(ink, 0.7, paper), paper},
+		{"the nav's label, ink on paper", ink, paper},
+		{"the nav's current item, ink on ink/5 over paper", ink, over(ink, 0.05, paper)},
+		{"the sub-nav's tab, ink on saffron-lite", ink, hex("saffron-lite")},
+		{"the sub-nav's tab, ink on paper", ink, paper},
+	} {
+		if got := contrast(c.fg, c.bg); got < 4.5 {
+			t.Errorf("%s = %.2f:1, want at least 4.5:1", c.what, got)
+		} else {
+			t.Logf("%s = %.2f:1", c.what, got)
+		}
+	}
+	css, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "static", "css", "input.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// PREMISE: the tones above are the ones the rules apply.
+	for class, tones := range map[string][]string{
+		"op-nav-item":    {"text-ink/70", "md:text-ink", "aria-[current=true]:text-ink", "desk:aria-[current=true]:bg-ink/5"},
+		"op-nav":         {"bg-paper"},
+		"op-nav-label":   {"text-ink/70"},
+		"op-subnav-item": {"text-ink"},
+		"op-tenant":      {"bg-saffron-lite", "text-ink"},
+	} {
+		m := regexp.MustCompile(`(?m)^\s*\.` + class + `\s*\{\s*@apply ([^;]+);`).FindSubmatch(css)
+		if m == nil {
+			t.Fatalf("PREMISE: input.css has no .%s rule", class)
+		}
+		for _, tone := range tones {
+			if !slices.Contains(strings.Fields(string(m[1])), tone) {
+				t.Errorf("PREMISE: .%s does not apply %s", class, tone)
+			}
+		}
+		for _, f := range strings.Fields(string(m[1])) {
+			if (strings.Contains(f, "text-") || strings.Contains(f, "bg-")) && !slices.Contains(tones, f) &&
+				!strings.HasPrefix(f, "hover:") && !regexp.MustCompile(`text-(\[|xs|sm|base|lg|xl)`).MatchString(f) {
+				t.Errorf(".%s applies %s, a tone this test does not compute", class, f)
+			}
 		}
 	}
 }

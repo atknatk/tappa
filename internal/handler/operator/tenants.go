@@ -296,6 +296,14 @@ func tenantID(raw string) (uuid.UUID, bool) {
 // zero-width or filler characters would render a banner and a link that name nobody.
 func namedVisibly(name string) bool { return visibleText(name) }
 
+// tenantTabs is the sub-nav a tenant's screen carries inside its banner (M13-01, OP-1): the
+// four mounted {id} routes of the one tenant the screen's read returned -- its overview,
+// plaques, billing months and VAT number. Links only: the sub-nav adds no read and no form.
+func tenantTabs(tenant uuid.UUID) operatorpages.TenantTabs {
+	return operatorpages.TenantTabs{Overview: pathTenants + "/" + tenant.String(), Plaques: plaquesPath(tenant),
+		Billing: billingPath(tenant), VAT: vatPath(tenant)}
+}
+
 // tenantBanner is the name a tenant's screen carries in its banner and title: the
 // tenant's own name, or -- when the name has no visible character -- the placeholder
 // that names the tenant by its id (operatorpages.UnnamedTenant). The overview, the plaque
@@ -366,6 +374,7 @@ func tenantOverviewView(o db.TenantOverview, name operatorpages.TenantName, noti
 		PlaquesPath:     plaquesPath(o.ID),
 		BillingPath:     billingPath(o.ID),
 		VATPath:         vatPath(o.ID),
+		Tabs:            tenantTabs(o.ID),
 		CreatedAt:       utcStamp(o.CreatedAt),
 		Plan:            o.Plan,
 		BusinessType:    o.BusinessType,

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -249,13 +248,14 @@ func TestAdminLogin_ChromeLinksReachRoutesThatAreMounted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAdminReset: %v", err)
 	}
-	wizard, err := NewSignup(&fakeProvisioner{}, nil, signupTestConfig(),
+	wizard, err := NewSignup(&fakeProvisioner{}, newFakeSignupClaims(), nil, nil, signupTestConfig(),
 		slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}
 	r := chi.NewRouter()
 	auth.Mount(r)
+	registerPanel(r, auth)
 	reset.Mount(r)
 	wizard.Mount(r)
 
@@ -323,30 +323,28 @@ func TestAdminLogin_BrandPanelClaimsOnlyWhatTheProductDoes(t *testing.T) {
 	// into the markup. migration 00016's tappa_first_chargeable_month is what actually
 	// grants the months; TestLanding_FreeMonthsMatchTheFunctionThatGrantsThem ties
 	// that function to foundingFreeMonths, and this ties foundingFreeMonths to what
-	// this screen advertises.
+	// this screen advertises -- in the code's terms since K6 (2026-10-22): the signup
+	// month and the ones after it, never "first N months free".
 	//
 	// ⚠️ THE SAFFRON BADGE THAT ALSO CARRIED THIS NUMBER WAS REMOVED ON THE USER'S
 	// INSTRUCTION (2026-09-14), so the sign-up link at the top is now the screen's
 	// ONLY mention of the offer and the only thing holding it to the constant. That
 	// is why the assertion below is a count as well as a match: if the last mention
 	// goes too, this test must fail rather than pass over an empty page.
-	offer := fmt.Sprintf("first %d months free", foundingFreeMonths)
-	if n := strings.Count(strings.ToLower(body), offer); n == 0 {
+	offer := strings.ToLower(pages.SignupOffer(foundingFreeMonths))
+	if !strings.Contains(offer, "your signup month") {
+		t.Fatalf("PREMISE: the sign-up offer %q does not name the signup month", offer)
+	}
+	if n := strings.Count(strings.ToLower(screenText(t, body)), offer); n == 0 {
 		t.Errorf("the sign-in screen no longer says %q anywhere; a free period advertised "+
 			"here that disagrees with the one the schema grants is the worst kind of wrong "+
 			"page, because both halves look right on their own", offer)
 	}
 
-	// And no OTHER number may claim to be the offer. A "3" typed into the markup
-	// beside a constant that has moved is exactly the drift the paragraph above
-	// exists to catch, and it would otherwise sit here looking correct.
-	for n := 1; n <= 12; n++ {
-		if n == foundingFreeMonths {
-			continue
-		}
-		if stray := fmt.Sprintf("first %d months free", n); strings.Contains(strings.ToLower(body), stray) {
-			t.Errorf("the sign-in screen says %q while foundingFreeMonths is %d", stray, foundingFreeMonths)
-		}
+	// And no other wording of the offer: the K6 copy check refuses a count of free
+	// months that does not start at the signup month, any number of them.
+	for _, why := range freeMonthsCopyProblems(screenText(t, body)) {
+		t.Errorf("the sign-in screen %s", why)
 	}
 
 	// The three shapes that were deliberately not carried across from the drawing.

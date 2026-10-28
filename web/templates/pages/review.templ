@@ -52,6 +52,9 @@ import "github.com/atknatk/tappa/web/templates/components"
 templ AdminReview(v ReviewView) {
 	@PanelActions(reviewMeta(v)) {
 		@PanelShell(v.PanelChrome) {
+			// M15-18: the pair of links to the Spike's second queue, "Time claims" -- nothing on a
+			// panel built without the claim service.
+			@SpikeQueues(v.Queues)
 			if v.Done != "" {
 				@components.PanelNotice(components.ToneOK, doneHeading(v.Done)) {
 					<p>
@@ -129,7 +132,7 @@ templ AdminReview(v ReviewView) {
 					</section>
 					<section aria-label="The record being decided" class="flex min-w-0 flex-col gap-[18px] desk:grow-[999] desk:basis-[520px]">
 						@reviewPager(v.Pager)
-						<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-[18px]">
+						<form method="post" action={ templ.URL(components.Bound(ctx, v.Action)) } class="flex flex-col gap-[18px]">
 							<input type="hidden" name="id" value={ v.FocusID }/>
 							@components.SpikeDocket(v.Focus) {
 								<div class="field-stack">
@@ -162,11 +165,18 @@ templ AdminReview(v ReviewView) {
 					</section>
 				</div>
 			} else if v.Queried {
-				@components.PanelEmpty(SectionLabel(TabReview), "Nothing is waiting for review", components.PanelEmptyCTA{}) {
+				// M15-18 review round (user decision "Üç yerde sayı"): the heading names WHICH queue is
+				// empty, and the time claims still waiting are said here, with their queue's link.
+				@components.PanelEmpty(SectionLabel(TabReview), "No flagged tap is waiting", components.PanelEmptyCTA{}) {
 					<p>
 						Every flagged tap has been decided. New ones arrive here when the engine
 						records a tap it could not judge on evidence alone.
 					</p>
+					if v.Queues.ClaimsHref != "" && v.Queues.ClaimsWaiting != "" {
+						<p class="mt-2">
+							<a class="hit-link font-bold text-ink underline" href={ templ.URL(v.Queues.ClaimsHref) }>{ v.Queues.ClaimsWaiting } →</a>
+						</p>
+					}
 					<p class="mt-2">
 						Decided records stay on The Pass, with the
 						flag they were given and the decision beside it.

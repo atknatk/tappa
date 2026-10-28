@@ -151,7 +151,7 @@ func livePanel(tenantID uuid.UUID) *fakeAdmins {
 func logoSurfaces(t *testing.T, reader logoReader, sess *fakeSessions, admins *fakeAdmins) (*Tap, *AdminAuth, *BrandLogos) {
 	t.Helper()
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		sess, &fakeCheckins{}, noActivation{}, &fakeAudit{}, tapCfg(), discardLogger())
+		sess, &fakeCheckins{}, noClaims{}, noActivation{}, &fakeAudit{}, tapCfg(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
@@ -176,6 +176,7 @@ func logoRouter(t *testing.T, reader logoReader, sess *fakeSessions, admins *fak
 	r := chi.NewRouter()
 	tp.Mount(r)
 	panel.Mount(r)
+	registerPanel(r, panel)
 	logos.Mount(r)
 	return r
 }

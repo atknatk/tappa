@@ -91,8 +91,11 @@ func TestApiKeyPanel_TheKeyIsShownEvenWhenTheListCannotBeRead(t *testing.T) {
 	raw := apikey.LivePrefix + strings.Repeat("Q", 42) + "A"
 	cfg := adminTestConfig()
 	cfg.APIKeyHMACKey = []byte(strings.Repeat("a", 32))
+	// One tenant for the whole test (M14-10a): a session resolves to the same business on
+	// every request, which is what the page's form binding is computed against.
+	tenantID := uuid.New()
 	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
-		return adminauth.Resolved{SessionID: uuid.New(), TenantID: uuid.New(), AdminUserID: uuid.New(), Role: "owner", FullName: "Owner"}, nil
+		return adminauth.Resolved{SessionID: uuid.New(), TenantID: tenantID, AdminUserID: uuid.New(), Role: "owner", FullName: "Owner"}, nil
 	}}
 	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
 		&fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(),
@@ -102,6 +105,7 @@ func TestApiKeyPanel_TheKeyIsShownEvenWhenTheListCannotBeRead(t *testing.T) {
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	rec := b.do(http.MethodPost, apiKeysHref, url.Values{"name": {"Payroll"}})

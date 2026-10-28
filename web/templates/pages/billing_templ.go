@@ -658,7 +658,7 @@ func billingDraft(v BillingView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var33 templ.SafeURL = templ.URL(v.CloseHref)
+			var templ_7745c5c3_Var33 templ.SafeURL = templ.URL(components.Bound(ctx, v.CloseHref))
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var33)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1359,7 +1359,7 @@ func AdminBillingClose(v BillingCloseView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var71 templ.SafeURL = templ.URL(v.Action)
+			var templ_7745c5c3_Var71 templ.SafeURL = templ.URL(components.Bound(ctx, v.Action))
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var71)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

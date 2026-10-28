@@ -2,19 +2,22 @@ package signup
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/atknatk/tappa/internal/adminauth"
-	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 )
@@ -47,26 +50,161 @@ import (
 // that tried would be testing something the product refuses. Fresh random ids keep
 // runs from colliding and `make db-reset` clears the development database.
 
+// THE IDENTITIES A REGISTRATION BIRTHS ARE TAKEN BACK (M14-08). From migration 00074 on, Provision of
+// a new address commits an identity and links the row to it (ADR 0031 §5.2 named exception 2). An
+// identity left behind would make internal/db's Down walks refuse (00069's Down refuses while one
+// exists) and, committed while those run, would change what they read -- so every fixture here holds
+// internal/db's operator-tables test lock SHARED for the length of the test (cmd/opadmin's
+// TestTablesLock_IsTakenOncePerTestTree lists this package) and, at the end, unlinks and deletes the
+// identities of this package's addresses (signupIdentityAddresses). The tenants and rows stay, as
+// every other fixture's do.
+
+// operatorTablesTestLock is internal/db's schema-test lock; the spelling is read from its source
+// (TestSignupFixtures_TakeTheLockInternalDBTakes).
+const operatorTablesTestLock = "tappa/test/operator-tables"
+
+// signupIdentityAddresses matches every address this package's fixtures register (draftFor) or plant.
+const signupIdentityAddresses = "%@signup.example"
+
+// sharedTablesLock takes the operator-tables lock SHARED on conn, held until conn closes.
+func sharedTablesLock(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock_shared(hashtext($1))`, operatorTablesTestLock); err != nil {
+		t.Fatalf("operator-tables test lock: %v", err)
+	}
+}
+
+// identityOwner is a dedicated owner connection holding the lock for the test, which unlinks and
+// deletes this package's identities when the test ends. It returns the connection (the identity
+// assertions read admin_users' link columns, which tappa_app may not).
+func identityOwner(t *testing.T) *pgx.Conn {
+	t.Helper()
+	dsn := os.Getenv("DATABASE_MIGRATE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_MIGRATE_URL not set; a registration births an identity and the fixture must take it back (real Postgres required)")
+	}
+	ctx := context.Background()
+	c, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect as the owner: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := c.Close(context.Background()); err != nil {
+			t.Errorf("close the owner connection: %v", err)
+		}
+	})
+	sharedTablesLock(t, ctx, c)
+	t.Cleanup(func() {
+		for _, sql := range []string{
+			`UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL, unlinked_at = NULL
+			  WHERE identity_id IN (SELECT id FROM admin_identities WHERE email LIKE $1)`,
+			// M14-17b: the email_verified events a password claim of an unverified identity writes.
+			`DELETE FROM admin_identity_events WHERE identity_id IN (SELECT id FROM admin_identities WHERE email LIKE $1)`,
+			`DELETE FROM admin_identities WHERE email LIKE $1`,
+			// M14-17: the drafts (a draft is not a record -- R17; the owner's cleanup, not the sweep's).
+			`DELETE FROM admin_signup_claims WHERE email LIKE $1`,
+		} {
+			if _, err := c.Exec(context.Background(), sql, signupIdentityAddresses); err != nil {
+				t.Errorf("take the registrations' identities back (%s): %v", sql, err)
+			}
+		}
+	})
+	return c
+}
+
 func newProvisionerFixture(t *testing.T) (*Provisioner, *db.DB) {
+	t.Helper()
+	p, data, _ := newProvisionerFixtureWithOwner(t)
+	return p, data
+}
+
+// newProvisionerFixtureWithOwner is newProvisionerFixture for a test that also reads what only the
+// owner may (an identity, a row's link) -- through the same locked connection.
+func newProvisionerFixtureWithOwner(t *testing.T) (*Provisioner, *db.DB, *pgx.Conn) {
 	t.Helper()
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping signup provisioning tests (real Postgres required)")
 	}
+	owner := identityOwner(t)
 	data, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}
 	t.Cleanup(data.Close)
-	trail, err := audit.New(data)
-	if err != nil {
-		t.Fatalf("audit.New: %v", err)
-	}
-	p, err := NewProvisioner(data, trail, slog.New(slog.DiscardHandler))
+	p, err := NewProvisioner(data, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewProvisioner: %v", err)
 	}
-	return p, data
+	return p, data, owner
+}
+
+// THE CONFIRMED DRAFT (M14-17). Provision takes a Claim -- in production adminauth.ClaimProof, which
+// exists only after the re-entered password matched or with the address's own session (S12). These
+// fixtures open the draft through the real identity_open_signup_claim and claim it through the real
+// identity_claim_signup (db.ClaimSignup), with a MinCost digest: the shipped cost is adminauth's to
+// hold (TestSignupClaims_OpenHashesAtTheShippedCost), and a cost-12 bcrypt is ~11 s under -race.
+
+// fixturePassword / fixtureDigest are the drafts' password and its MinCost digest.
+const fixturePassword = "a passphrase nobody guesses"
+
+var fixtureDigest = func() string {
+	b, err := bcrypt.GenerateFromPassword([]byte(fixturePassword), bcrypt.MinCost)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}()
+
+// testClaim is a confirmed draft: its hash, and the session of an existing identity (nil: a new address)
+// or (M14-17b) the digest of an existing identity with no active membership (zero: none).
+type testClaim struct {
+	hash     string
+	session  *string
+	verified db.PasswordHash
+	draft    []byte
+}
+
+func (c testClaim) Draft() []byte { return c.draft }
+
+func (c testClaim) Claim(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (uuid.UUID, error) {
+	return db.ClaimSignup(ctx, tx, c.hash, tenant, c.session, c.verified)
+}
+
+// rawDraft encodes d's closed keys WITHOUT validating them, so a test can store what the wizard would
+// refuse and watch Provision refuse it.
+func rawDraft(t *testing.T, d Draft) []byte {
+	t.Helper()
+	venues := make([]string, 0, len(d.Venues))
+	for _, v := range d.Venues {
+		venues = append(venues, v.Name)
+	}
+	b, err := json.Marshal(claimDraft{FullName: d.Account.FullName, BusinessName: d.Business.Name, VATNumber: d.Business.VATNumber,
+		BusinessType: d.Business.BusinessType, Structure: d.Business.Structure, VATCheck: d.Business.VAT.String(), Venues: venues})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// openClaim opens d's draft for d.Account.Email through identity_open_signup_claim.
+func openClaim(t *testing.T, data *db.DB, d Draft) testClaim {
+	t.Helper()
+	h := make([]byte, 32)
+	if _, err := rand.Read(h); err != nil {
+		t.Fatal(err)
+	}
+	c := testClaim{hash: hex.EncodeToString(h), draft: rawDraft(t, d)}
+	if _, err := data.OpenSignupClaim(context.Background(), c.hash, d.Account.Email, c.draft, fixtureDigest, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("open the draft: %v", err)
+	}
+	return c
+}
+
+// provisionDraft opens d's draft and confirms it as a new address (Provision's real path).
+func provisionDraft(t *testing.T, p *Provisioner, d Draft) (Result, error) {
+	t.Helper()
+	return p.Provision(context.Background(), openClaim(t, p.data.(*db.DB), d))
 }
 
 // ownerData opens a pool connecting as the MIGRATION role.
@@ -83,69 +221,6 @@ func newProvisionerFixture(t *testing.T) (*Provisioner, *db.DB) {
 // internal/db/rls_test.go's ownerDB carries the same argument for the same reason;
 // redline R5 forbids the migration role in PRODUCTION code and excludes _test.go, so
 // the env key is a plain literal here.
-func ownerData(t *testing.T) *db.DB {
-	t.Helper()
-	raw := os.Getenv("DATABASE_MIGRATE_URL")
-	if raw == "" {
-		t.Skip("DATABASE_MIGRATE_URL not set; skipping the fixtures that must plant backdated rows")
-	}
-	d, err := db.New(context.Background(), &config.Config{DatabaseURL: raw})
-	if err != nil {
-		t.Fatalf("db.New(owner): %v", err)
-	}
-	t.Cleanup(d.Close)
-	return d
-}
-
-// assertAppCannotBackdate is the tripwire that rides with ownerData: if the
-// application role regains the ability to plant a backdated identity, 00017's ordering
-// guarantee is gone and this fixture is the first thing that should notice.
-//
-// 🔴 IT CREATES A REAL TENANT FIRST, AND THE FIRST VERSION DID NOT — WHICH MADE IT
-// VACUOUS. It scoped to a fresh random uuid, so the INSERT was refused by the FOREIGN
-// KEY to `tenants` rather than by the privilege, and the mutation that restores
-// table-wide INSERT came back GREEN. A refusal proves nothing unless you know WHAT
-// refused. The tenant is written by the OWNER so the probe's own setup cannot be the
-// thing being tested.
-//
-// AND IT DISTINGUISHES THE TWO OUTCOMES BY SQLSTATE: 42501 is insufficient_privilege,
-// which is the one this asserts. Anything else means the probe stopped measuring what
-// it claims to.
-func assertAppCannotBackdate(t *testing.T, data *db.DB, owner *db.DB, email string) {
-	t.Helper()
-	ctx := context.Background()
-	tenantID := uuid.New()
-	if err := owner.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx,
-			`INSERT INTO tenants (id,name,vat_number,business_type,structure)
-			 VALUES ($1::uuid,'Tripwire','MT'||substr(replace($2,'-',''),1,8),'other','single')`,
-			tenantID, tenantID.String())
-		return e
-	}); err != nil {
-		t.Fatalf("the tripwire could not create its own tenant: %v", err)
-	}
-
-	err := data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx,
-			`INSERT INTO admin_users (id,tenant_id,full_name,email,password_hash,role,created_at)
-			 VALUES ($1,$2,'Probe',$3,$4,'owner', now() - interval '400 days')`,
-			uuid.New(), tenantID, email, "$2a$04$"+strings.Repeat("c", 53))
-		return e
-	})
-	if err == nil {
-		t.Fatal("tappa_app planted a BACKDATED admin_users row into a tenant that EXISTS. " +
-			"Migration 00017 revoked created_at from its INSERT grant so that nothing " +
-			"running as the application can put a row in front of an existing customer in " +
-			"the login resolver's order — the account lockout that migration exists to " +
-			"close. The grant has been widened.")
-	}
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
-		t.Fatalf("the backdated INSERT was refused by %v, not by insufficient_privilege "+
-			"(42501). A refusal for another reason means this tripwire is not measuring the "+
-			"grant.", err)
-	}
-}
 
 // draftFor builds a registration with a VAT number nothing else uses.
 func draftFor(t *testing.T, structure string, venues ...string) Draft {
@@ -188,7 +263,7 @@ func TestSignupProvision_CreatesTheWholeBusinessInOneTransaction(t *testing.T) {
 	ctx := context.Background()
 
 	d := draftFor(t, StructureMulti, "St Julians", "Sliema", "Valletta")
-	res, err := p.Provision(ctx, d)
+	res, err := provisionDraft(t, p, d)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -263,23 +338,12 @@ func TestSignupProvision_CreatesTheWholeBusinessInOneTransaction(t *testing.T) {
 		t.Errorf("the first operator is role=%q status=%q, want owner/active", role, status)
 	}
 
-	// 🔴 THE DIGEST'S SHAPE — internal/adminauth's fourth timing arm. A row with an
-	// empty or malformed password_hash answers about a million times faster than an
-	// unregistered address, which is a one-request enumeration oracle.
-	//
-	// ⚠️ THIS ASSERTION IS NARROWER THAN THE SCHEMA'S, AND IT IS THE HALF THE SCHEMA
-	// CANNOT MAKE. Migration 00018 now constrains the column to digests bcrypt will
-	// actually PROCESS, so the '' and malformed arms are closed structurally and this
-	// line no longer carries them. What 00018 deliberately does NOT enforce is the
-	// COST: a cost-4 digest is a perfectly valid bcrypt digest and still answers 210x
-	// faster than the dummy, but excluding it would outlaw the bcrypt.MinCost fixtures
-	// this repo's DB tests depend on (+156 s on internal/adminauth alone — ADR 0014).
-	// So the cost floor is held HERE, by reading the digest back out of the database
-	// and checking what the wizard actually stored. Deleting this check would reopen
-	// the 210x arm silently.
-	if !strings.HasPrefix(digest, "$2a$12$") {
-		t.Errorf("password_hash does not begin $2a$12$ (it begins %q); the wizard must only "+
-			"ever write adminauth.Hash output", safePrefix(digest))
+	// 🔴 THE DIGEST IS THE DRAFT'S, BYTE FOR BYTE -- the one the form's password was hashed into when
+	// the draft was opened (adminauth.SignupClaims.Open, at the shipped cost:
+	// TestSignupClaims_OpenHashesAtTheShippedCost holds the cost there) and the one the confirmation's
+	// re-entered password was compared with (S12). Never the clear text.
+	if digest != fixtureDigest {
+		t.Errorf("password_hash is not the draft's digest (it begins %q)", safePrefix(digest))
 	}
 	if digest == d.Account.Password {
 		t.Fatal("the password was stored in the clear")
@@ -304,7 +368,7 @@ func TestSignupProvision_CreatesTheWholeBusinessInOneTransaction(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dv := draftFor(t, StructureSingle, "Front door")
 			dv.Business.VAT = tc.status
-			r, err := p.Provision(ctx, dv)
+			r, err := provisionDraft(t, p, dv)
 			if err != nil {
 				t.Fatalf("Provision: %v", err)
 			}
@@ -358,13 +422,13 @@ func TestSignupProvision_IsInvisibleToEveryOtherTenant(t *testing.T) {
 	p, data := newProvisionerFixture(t)
 	ctx := context.Background()
 
-	newBusiness, err := p.Provision(ctx, draftFor(t, StructureSingle, "Front door"))
+	newBusiness, err := provisionDraft(t, p, draftFor(t, StructureSingle, "Front door"))
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	// A SECOND, UNRELATED business, created the same way. It is the attacker's seat:
 	// a real tenant with a real context, not a made-up uuid.
-	other, err := p.Provision(ctx, draftFor(t, StructureSingle, "Their door"))
+	other, err := provisionDraft(t, p, draftFor(t, StructureSingle, "Their door"))
 	if err != nil {
 		t.Fatalf("Provision (the other business): %v", err)
 	}
@@ -435,424 +499,166 @@ func newBusinessVAT(t *testing.T, data *db.DB, tenantID uuid.UUID) string {
 	return vat
 }
 
-// TestSignupProvision_ADuplicateVATLeavesNOTHINGBEHIND.
+// TestSignupProvision_TwoPendingDraftsWithOneVATNumber (ADR 0031 §5.10): a draft reserves nothing.
+// Two drafts carry one VAT number; the first CONFIRMED gets the business, the second confirmation gets
+// today's VAT conflict (ErrVATTaken) and LEAVES NOTHING BEHIND -- no venue, no member, no identity, and
+// its draft unspent (it never reached the claim).
 //
-// 🔴 THE HALF-TENANT IS THE WORST OUTCOME AVAILABLE HERE and it is what M7-03's card
-// asks about ("Başarısızlıkta yarım tenant kalmıyor (rollback)"). A `tenants` row
-// with no operator cannot be signed into, cannot be deleted, and holds the VAT number
-// against the customer's own second attempt.
-//
-// The duplicate VAT number is used as the failure because it is the one failure a
-// real customer will actually hit, and because it fails on the FIRST statement — so
-// this also proves the venues and the admin never got written.
-func TestSignupProvision_ADuplicateVATLeavesNothingBehind(t *testing.T) {
-	p, data := newProvisionerFixture(t)
+// 🔴 THE HALF-TENANT IS THE WORST OUTCOME AVAILABLE HERE and it is what M7-03's card asks about
+// ("Başarısızlıkta yarım tenant kalmıyor (rollback)"). The duplicate VAT number fails on the FIRST
+// statement, so this also proves the venues and the claim never ran.
+func TestSignupProvision_TwoPendingDraftsWithOneVATNumber(t *testing.T) {
+	p, data, owner := newProvisionerFixtureWithOwner(t)
 	ctx := context.Background()
 
 	first := draftFor(t, StructureSingle, "Front door")
-	firstRes, err := p.Provision(ctx, first)
-	if err != nil {
-		t.Fatalf("the first registration: %v", err)
-	}
-
 	second := draftFor(t, StructureSingle, "Another door")
 	second.Business.VATNumber = first.Business.VATNumber
-	if _, err := p.Provision(ctx, second); !errors.Is(err, ErrVATTaken) {
-		t.Fatalf("the second registration returned %v, want ErrVATTaken", err)
+	// Both drafts pending at once: neither confirmation has run.
+	c1, c2 := openClaim(t, data, first), openClaim(t, data, second)
+
+	firstRes, err := p.Provision(ctx, c1)
+	if err != nil {
+		t.Fatalf("the first confirmation: %v", err)
+	}
+	if _, err := p.Provision(ctx, c2); !errors.Is(err, ErrVATTaken) {
+		t.Fatalf("the second confirmation returned %v, want ErrVATTaken", err)
 	}
 
-	// NOTHING FROM THE SECOND ATTEMPT EXISTS. The probe runs inside the FIRST
-	// tenant's context — the only context in which a row carrying that VAT number
-	// could be visible at all — and looks for the values that were unique to the
-	// refused attempt.
 	var locations, admins int
 	if err := data.WithTenant(ctx, firstRes.TenantID, func(ctx context.Context, tx pgx.Tx) error {
-		if e := tx.QueryRow(ctx, `SELECT count(*) FROM locations WHERE name = 'Another door'`).
-			Scan(&locations); e != nil {
+		if e := tx.QueryRow(ctx, `SELECT count(*) FROM locations WHERE name = 'Another door'`).Scan(&locations); e != nil {
 			return e
 		}
 		return tx.QueryRow(ctx, `SELECT count(*) FROM admin_users`).Scan(&admins)
 	}); err != nil {
 		t.Fatalf("reading back: %v", err)
 	}
-	if locations != 0 {
-		t.Errorf("the failed registration left %d location(s) behind", locations)
+	if locations != 0 || admins != 1 {
+		t.Errorf("the refused confirmation left locations=%d, and the first business holds %d operator(s) (want 0 and 1)", locations, admins)
 	}
-	if admins != 1 {
-		t.Errorf("the first tenant holds %d operator(s), want exactly its own 1; the failed "+
-			"registration must have written none", admins)
+	var identities, spent int
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM admin_identities WHERE email = $1`, second.Account.Email).Scan(&identities); err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM admin_signup_claims WHERE token_hash = $1 AND used_at IS NOT NULL`, c2.hash).Scan(&spent); err != nil {
+		t.Fatal(err)
+	}
+	if identities != 0 || spent != 0 {
+		t.Errorf("the refused confirmation birthed %d identit(ies) and spent its draft (%d): it must leave nothing", identities, spent)
 	}
 }
 
 // TestSignupProvision_RefusesADraftThatDidNotValidateAndWritesNothing.
 //
-// Provision is the function that WRITES, so it re-checks rather than trusting
-// whichever caller assembled the draft — a rule enforced only by the wizard is a rule
-// the next caller (an API, M7-03) does not inherit.
+// Provision is the function that WRITES, so it re-checks the stored draft rather than trusting
+// whichever caller opened it -- a rule enforced only by the wizard is a rule the next caller does not
+// inherit. The drafts below pass the table's shape CHECK (00078) and fail the domain's rules.
 //
-// 🔴 "IT WROTE NOTHING" IS PROVED WITHOUT A GLOBAL COUNT, because there is no honest
-// way to take one: tappa_app is RLS-bound and sees one tenant at a time, so a
-// `SELECT count(*) FROM tenants` from the application role returns zero whatever
-// happened. The proof used instead is the VAT number itself — it is globally UNIQUE,
-// so if a refused draft had created a tenant, registering the SAME number afterwards
-// would fail. It succeeds, which is a stronger statement than a count: the row is not
-// merely invisible, it does not exist.
+// THE PROOF IS THE VAT NUMBER (globally UNIQUE): if a refused draft had created a tenant, provisioning
+// the SAME number afterwards would fail. It succeeds.
 func TestSignupProvision_RefusesADraftThatDidNotValidateAndWritesNothing(t *testing.T) {
-	p, _ := newProvisionerFixture(t)
+	p, data := newProvisionerFixture(t)
 	ctx := context.Background()
 
 	bad := draftFor(t, StructureSingle, "Front door")
 	bad.Business.VATNumber = "not-a-vat-number"
-	if _, err := p.Provision(ctx, bad); err == nil {
-		t.Fatal("Provision accepted a draft with an invalid VAT number")
+	if _, err := provisionDraft(t, p, bad); !errors.Is(err, ErrDraftInvalid) {
+		t.Fatalf("Provision accepted a draft with an invalid VAT number (%v)", err)
 	}
-
-	// A draft whose password reaches adminauth.Hash and is refused there. A
-	// registration that got past it would store a digest of the empty string, i.e. an
-	// account whose password is "press enter".
-	noPassword := draftFor(t, StructureSingle, "Front door")
-	if _, err := p.Provision(ctx, noPassword.withPassword("")); err == nil {
-		t.Fatal("Provision accepted a draft with no password")
-	}
-	// A draft whose venue list contradicts its structure. It validates in the DOMAIN,
-	// not in the database, so nothing but this check refuses it.
 	twoDoors := draftFor(t, StructureSingle, "Front door", "Back door")
-	if _, err := p.Provision(ctx, twoDoors); err == nil {
-		t.Fatal("Provision accepted two venues for a single-place business")
+	if _, err := provisionDraft(t, p, twoDoors); !errors.Is(err, ErrDraftInvalid) {
+		t.Fatalf("Provision accepted two venues for a single-place business (%v)", err)
+	}
+	// An unknown key cannot reach the table (its CHECK), so it is offered directly to Provision.
+	extra := openClaim(t, data, draftFor(t, StructureSingle, "Front door"))
+	extra.draft = []byte(strings.Replace(string(extra.draft), `{`, `{"password":"x",`, 1))
+	if _, err := p.Provision(ctx, extra); !errors.Is(err, ErrDraftInvalid) {
+		t.Fatalf("Provision accepted a draft with a key outside the closed set (%v)", err)
 	}
 
-	// THE PROOF: the VAT numbers those three attempts carried are still free.
-	for i, d := range []Draft{noPassword, twoDoors} {
-		good := d
-		good.Account.Password = "a passphrase nobody guesses"
-		good.Venues = good.Venues[:1]
-		good.Business.Structure = StructureSingle
-		if _, err := p.Provision(ctx, good); err != nil {
-			t.Fatalf("attempt %d: the VAT number of a REFUSED registration is taken, so that "+
-				"registration wrote a tenant row after all: %v", i, err)
-		}
+	good := twoDoors
+	good.Venues = good.Venues[:1]
+	if _, err := provisionDraft(t, p, good); err != nil {
+		t.Fatalf("the VAT number of a REFUSED registration is taken, so that registration wrote a tenant row after all: %v", err)
 	}
-}
-
-// withPassword returns the draft with a different password, for the table above.
-func (d Draft) withPassword(p string) Draft {
-	d.Account.Password = p
-	return d
-}
-
-// failingTrail is a Trail whose RecordTx fails. It is the ONLY way to make a
-// registration fail in the MIDDLE of its transaction: the audit row is the last
-// statement, so by the time it runs the tenant, its venues and its operator have all
-// been written.
-type failingTrail struct{ err error }
-
-func (f failingTrail) RecordTx(context.Context, pgx.Tx, audit.Event) (uuid.UUID, error) {
-	return uuid.Nil, f.err
-}
-
-// Record is the OTHER half of Trail (the sign-in reachability observation, which is
-// taken after the transaction commits and so cannot share it). It fails too: this
-// double is for the rollback test, and a failure there must not be rescued by a write
-// that happens to succeed.
-func (f failingTrail) Record(context.Context, audit.Event) (uuid.UUID, error) {
-	return uuid.Nil, f.err
 }
 
 // TestSignupProvision_AFailureInTheMiddleLeavesNothingBehind.
 //
-// 🔴 THE GAP THIS CLOSES WAS NAMED BY AN AUDIT AND IT WAS REAL. The other rollback
-// test uses a duplicate VAT number, which violates the UNIQUE constraint on the
-// FIRST statement — so nothing had been written yet and "no half tenant survives"
-// was proved for the one case where there was nothing to roll back. That is not the
-// case M7-03's criterion is about.
+// HERE THE TRANSACTION GETS TO ITS LAST STATEMENT. The tenant row and its venues are written and then
+// identity_claim_signup refuses (a spent draft), so the rollback takes the business back -- the shape
+// M7-03's criterion is about ("Başarısızlıkta yarım tenant kalmıyor"), and the claim's refusal is
+// ErrClaimRefused, never a half business.
 //
-// HERE THE TRANSACTION GETS ALL THE WAY TO ITS LAST STATEMENT. The tenant row, its
-// venues and its first operator are written and then the trail write fails, so the
-// rollback has to take four kinds of row back at once — including one in `locations`
-// and one in `admin_users`, neither of which the application can DELETE (the grants
-// and §4.6 see to that). If ROLLBACK did not do it, nothing could.
-//
-// THE PROOF IS THE VAT NUMBER, not a count: it is globally UNIQUE, so if the failed
-// registration had left a `tenants` row behind, registering the same number again
-// would be refused. It is not.
+// THE PROOF IS WITHOUT A TENANT CONTEXT: the owner (BYPASSRLS as superuser) counts the business by its
+// VAT number across the whole database -- a row of the failed attempt carries the failed attempt's
+// tenant id, invisible from any other tenant's context.
 func TestSignupProvision_AFailureInTheMiddleLeavesNothingBehind(t *testing.T) {
-	_, data := newProvisionerFixture(t)
+	p, data, owner := newProvisionerFixtureWithOwner(t)
 	ctx := context.Background()
-
-	boom := errors.New("the trail could not be written")
-	broken, err := NewProvisioner(data, failingTrail{err: boom}, slog.New(slog.DiscardHandler))
-	if err != nil {
-		t.Fatalf("NewProvisioner: %v", err)
-	}
 
 	d := draftFor(t, StructureMulti, "Doomed door A", "Doomed door B")
-	if _, err := broken.Provision(ctx, d); err == nil {
-		t.Fatal("Provision succeeded although the audit write failed; the trail and the " +
-			"business must share one fate")
-	} else if !strings.Contains(err.Error(), boom.Error()) {
-		t.Fatalf("Provision failed with %v, which does not carry the underlying cause", err)
+	c := openClaim(t, data, d)
+	if _, err := owner.Exec(ctx, `UPDATE admin_signup_claims SET used_at = now() WHERE token_hash = $1`, c.hash); err != nil {
+		t.Fatal(err)
 	}
-
-	// 1. THE VAT NUMBER IS STILL FREE, so no tenant row survived.
-	good, err := NewProvisioner(data, mustTrail(t, data), slog.New(slog.DiscardHandler))
-	if err != nil {
-		t.Fatalf("NewProvisioner: %v", err)
+	if _, err := p.Provision(ctx, c); !errors.Is(err, ErrClaimRefused) {
+		t.Fatalf("a spent draft returned %v, want ErrClaimRefused", err)
 	}
-	res, err := good.Provision(ctx, d)
-	if err != nil {
-		t.Fatalf("the VAT number of a rolled-back registration is taken, so a `tenants` row "+
-			"survived the failure: %v", err)
+	var tenants, locations int
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM tenants WHERE vat_number = $1`, d.Business.VATNumber).Scan(&tenants); err != nil {
+		t.Fatal(err)
 	}
-
-	// 2. THE SURVIVING TENANT HOLDS EXACTLY ITS OWN ROWS.
-	var locations, admins, trail int
-	if err := data.WithTenant(ctx, res.TenantID, func(ctx context.Context, tx pgx.Tx) error {
-		if e := tx.QueryRow(ctx, `SELECT count(*) FROM locations`).Scan(&locations); e != nil {
-			return e
-		}
-		if e := tx.QueryRow(ctx, `SELECT count(*) FROM admin_users`).Scan(&admins); e != nil {
-			return e
-		}
-		return tx.QueryRow(ctx, `SELECT count(*) FROM audit_log`).Scan(&trail)
-	}); err != nil {
-		t.Fatalf("reading back: %v", err)
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM locations WHERE name LIKE 'Doomed door %' AND tenant_id NOT IN (SELECT id FROM tenants)`).Scan(&locations); err != nil {
+		t.Fatal(err)
 	}
-	if locations != 2 || admins != 1 || trail != 1 {
-		t.Errorf("the surviving tenant holds locations=%d admins=%d audit=%d, want 2/1/1",
-			locations, admins, trail)
+	if tenants != 0 || locations != 0 {
+		t.Fatalf("the refused confirmation left %d business(es) and %d orphan venue(s)", tenants, locations)
 	}
-
-	// 3. 🔴 AND NO ORPHAN SURVIVED **ANYWHERE**, WHICH IS WHAT (2) DOES NOT PROVE. An
-	// audit named the gap: a row written by the FAILED attempt would carry the FAILED
-	// attempt's tenant id, so it is invisible from inside the surviving tenant's
-	// context whether it exists or not — the check above would pass over it. The only
-	// way to see it is to look WITHOUT a tenant context at all.
-	//
-	// THE RESOLVER IS WHAT MAKES THAT POSSIBLE WITHOUT A SECOND ROLE. The email is
-	// unique to this test, and resolve_admin_by_email is SECURITY DEFINER over
-	// admin_users with no tenant scope (migration 00011), so it sees every row that
-	// exists anywhere. Exactly ONE identity may carry this address: the one the
-	// SUCCESSFUL registration wrote.
-	rows, err := data.GetAdminByEmail(ctx, d.Account.Email)
-	if err != nil {
-		t.Fatalf("GetAdminByEmail: %v", err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("%d admin identit(ies) carry this address across the WHOLE database, want 1. "+
-			"The rolled-back attempt wrote one that survived, and no tenant-scoped read "+
-			"could have seen it.", len(rows))
-	}
-	if rows[0].TenantID != res.TenantID {
-		t.Errorf("the surviving identity belongs to tenant %s, not to the registration that "+
-			"succeeded (%s)", rows[0].TenantID, res.TenantID)
-	}
-	if rows[0].ID != res.AdminUserID {
-		t.Errorf("the surviving identity is %s, not the one the successful registration "+
-			"returned (%s)", rows[0].ID, res.AdminUserID)
+	// And the same draft, opened afresh, provisions -- the number is free.
+	if _, err := provisionDraft(t, p, d); err != nil {
+		t.Fatalf("the VAT number of a rolled-back registration is taken: %v", err)
 	}
 }
 
-// mustTrail builds a real recorder for the second half of the test above.
-func mustTrail(t *testing.T, data *db.DB) Trail {
-	t.Helper()
-	trail, err := audit.New(data)
-	if err != nil {
-		t.Fatalf("audit.New: %v", err)
-	}
-	return trail
-}
-
-// TestSignupProvision_TellsACustomerWhoCannotSignIn.
-//
-// 🔴 THE OTHER HALF OF MIGRATION 00017's TRADE, WHICH WAS ARGUED AND NOT BUILT. The
-// incumbent-first ordering protects an EXISTING customer and, deterministically, puts
-// a NEW registration last — so an address already carrying adminauth.MaxCandidates
-// identities produces an account nobody can sign into. 00017 and ADR 0013 defended
-// that as acceptable because the customer "finds out immediately, at a moment when
-// they are on our page and can be told something"; an audit measured that the product
-// said nothing at all: 303, APPROVED, "Sign in", then 401 on the one screen that must
-// not explain itself.
-//
-// THE POSITIVE CONTROL IS THE FIRST HALF OF THE TABLE: an ordinary registration, and
-// one against an address that already has SOME accounts but not enough to fill the
-// window, must both come back false — or the warning would fire for people who are
-// perfectly able to sign in.
-//
-// 🔴 AND THE TABLE IS ALSO THE MEASUREMENT OF THE CHANNEL THIS CHECK OPENS, which five
-// places in this repository used to deny. Read the last two rows as an ATTACKER: plant
-// MaxCandidates-1 rows, then complete one more registration. If the address was
-// unknown the total is MaxCandidates and the flag is false; if ONE account was already
-// there the total is MaxCandidates+1 and the flag is true. That is the "7 -> false,
-// 8 -> true" pair below, and the 8 is the attacker's seven plus the victim's one.
-// signInBlocked carries the price and the trail; nothing here closes it.
-func TestSignupProvision_TellsACustomerWhoCannotSignIn(t *testing.T) {
-	p, data := newProvisionerFixture(t)
+// TestSignupProvision_AnAddressWithManyAccountsGetsOneIdentity is what retired signInBlocked
+// (signup.sign_in_unreachable, M7-02 round 4): on the identity path an address names at most ONE
+// identity (admin_identities.email is globally UNIQUE), so there is no candidate window for a new
+// registration to fall outside of. An address already carrying adminauth.MaxCandidates+1 unlinked
+// accounts, confirmed: one identity, the new owner row linked to it, and the md.7 resolver answers that
+// one identity -- whatever the row count. (With TAPPA_ADMIN_IDENTITY off the legacy sign-in still
+// reads the window; ADR 0031 §5.10/§8 -- the stuffing it needed now costs a mailbox per draft.)
+func TestSignupProvision_AnAddressWithManyAccountsGetsOneIdentity(t *testing.T) {
+	p, data, owner := newProvisionerFixtureWithOwner(t)
 	ctx := context.Background()
-
-	// plant writes an admin row for `email` in a tenant of its own, older than
-	// anything this test creates afterwards.
-	owner := ownerData(t)
-	plant := func(email string) {
-		t.Helper()
-		tenantID := uuid.New()
-		if err := owner.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
-			if _, e := tx.Exec(ctx,
-				`INSERT INTO tenants (id,name,vat_number,business_type,structure)
-				 VALUES ($1::uuid,'Crowd',  'MT'||substr(replace($2,'-',''),1,8),'other','single')`,
-				tenantID, tenantID.String()); e != nil {
-				return e
-			}
-			_, e := tx.Exec(ctx,
-				`INSERT INTO admin_users (id,tenant_id,full_name,email,password_hash,role,created_at)
-				 VALUES ($1,$2,'Crowd',$3,$4,'owner', now() - interval '400 days')`,
-				uuid.New(), tenantID, email, "$2a$04$"+strings.Repeat("c", 53))
-			return e
-		}); err != nil {
-			t.Fatalf("planting: %v", err)
-		}
-	}
-
-	// The tripwire that rides with ownerData: if tappa_app regains the ability to plant
-	// a backdated identity, 00017's ordering guarantee is gone.
-	assertAppCannotBackdate(t, data, ownerData(t), "tripwire-"+uuid.NewString()+"@probe.example")
-
-	for _, tc := range []struct {
-		name    string
-		planted int
-		want    bool
-	}{
-		{"an ordinary registration", 0, false},
-		{"an address with a few existing accounts", 3, false},
-		// THE ORACLE, read as the attacker reads it: these two rows differ by ONE
-		// pre-existing identity and the flag differs with it.
-		{"an address one short of the window", adminauth.MaxCandidates - 1, false},
-		{"an address that already fills the window", adminauth.MaxCandidates, true},
-		{"an address stuffed well past the window", adminauth.MaxCandidates + 5, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			d := draftFor(t, StructureSingle, "Front door")
-			for i := 0; i < tc.planted; i++ {
-				plant(d.Account.Email)
-			}
-			res, err := p.Provision(ctx, d)
-			if err != nil {
-				t.Fatalf("Provision: %v", err)
-			}
-			if res.SignInBlocked != tc.want {
-				t.Fatalf("SignInBlocked = %v, want %v (%d row(s) planted before the "+
-					"registration, window is %d)",
-					res.SignInBlocked, tc.want, tc.planted, adminauth.MaxCandidates)
-			}
-			// AND THE MEASUREMENT IS REAL, not a count: when it says blocked, the login
-			// resolver genuinely does not carry this identity in its compared window.
-			rows, err := data.GetAdminByEmail(ctx, d.Account.Email)
-			if err != nil {
-				t.Fatalf("GetAdminByEmail: %v", err)
-			}
-			inWindow := false
-			for i, r := range rows {
-				if i >= adminauth.MaxCandidates {
-					break
-				}
-				if r.ID == res.AdminUserID {
-					inWindow = true
-				}
-			}
-			if inWindow == res.SignInBlocked {
-				t.Errorf("the flag says blocked=%v while the resolver puts the new row "+
-					"in-window=%v across %d resolved row(s)",
-					res.SignInBlocked, inWindow, len(rows))
-			}
-		})
-	}
-}
-
-// TestSignupProvision_AnUnreachableAccountIsObservable — E1's "counted" half.
-//
-// 🔴 THE RULE THIS ENFORCES: a channel that is not closed must at least be VISIBLE.
-// signInBlocked reports the edge of the comparison window to the caller, which an
-// audit showed is an oracle for "does this address already have an account" (and, by
-// varying the plant count, for how many). It is kept because removing it restores a
-// certain loss to a real customer — but until this test it left no trail at all, which
-// is the one thing internal/handler.AdminAuth.recordCandidateProbe exists to avoid on
-// the login side.
-func TestSignupProvision_AnUnreachableAccountIsObservable(t *testing.T) {
-	p, data := newProvisionerFixture(t)
-	ctx := context.Background()
-
 	d := draftFor(t, StructureSingle, "Front door")
-	// The planted rows must be BACKDATED (the resolver orders by created_at), which
-	// 00017 removed from tappa_app's grant — see ownerData.
-	owner := ownerData(t)
-	assertAppCannotBackdate(t, data, owner, d.Account.Email)
-	// Fill the window before this registration arrives.
-	for i := 0; i < adminauth.MaxCandidates; i++ {
+	for i := 0; i < adminauth.MaxCandidates+1; i++ {
 		tenantID := uuid.New()
-		if err := owner.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
-			if _, e := tx.Exec(ctx,
-				`INSERT INTO tenants (id,name,vat_number,business_type,structure)
-				 VALUES ($1::uuid,'Crowd','MT'||substr(replace($2,'-',''),1,8),'other','single')`,
-				tenantID, tenantID.String()); e != nil {
-				return e
-			}
-			_, e := tx.Exec(ctx,
-				`INSERT INTO admin_users (id,tenant_id,full_name,email,password_hash,role,created_at)
-				 VALUES ($1,$2,'Crowd',$3,$4,'owner', now() - interval '400 days')`,
-				uuid.New(), tenantID, d.Account.Email, "$2a$04$"+strings.Repeat("c", 53))
-			return e
-		}); err != nil {
-			t.Fatalf("planting: %v", err)
+		if _, err := owner.Exec(ctx, `INSERT INTO tenants (id, name, vat_number, business_type, structure)
+		                              VALUES ($1, 'Crowd', $2, 'other', 'single')`, tenantID, "VAT-M1417C-"+tenantID.String()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := owner.Exec(ctx, `INSERT INTO admin_users (tenant_id, full_name, email, password_hash, role, created_at)
+		                              VALUES ($1, 'Crowd', $2, $3, 'owner', now() - interval '400 days')`, tenantID, d.Account.Email,
+			"$2a$04$"+strings.Repeat("c", 53)); err != nil {
+			t.Fatal(err)
 		}
 	}
-
-	res, err := p.Provision(ctx, d)
+	res, err := provisionDraft(t, p, d)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
-	if !res.SignInBlocked {
-		t.Fatal("the fixture did not reproduce the unreachable case")
-	}
-
-	var rows int
-	var detail string
-	if err := data.WithTenant(ctx, res.TenantID, func(ctx context.Context, tx pgx.Tx) error {
-		return tx.QueryRow(ctx,
-			`SELECT count(*), coalesce(string_agg(detail::text, ' '), '') FROM audit_log
-			 WHERE tenant_id = $1 AND action = $2`,
-			res.TenantID, ActionSignupUnreachable).Scan(&rows, &detail)
-	}); err != nil {
-		t.Fatalf("reading the trail: %v", err)
-	}
-	if rows != 1 {
-		t.Fatalf("%d %s row(s), want exactly 1 — an unclosed channel that leaves no trace "+
-			"is one nobody can tell was used", rows, ActionSignupUnreachable)
-	}
-	// §4.7: counts, never the address.
-	if strings.Contains(detail, d.Account.Email) {
-		t.Error("the trail row carries the email address; audit_log cannot be deleted from")
-	}
-	for _, want := range []string{`"resolved"`, `"compared"`} {
-		if !strings.Contains(detail, want) {
-			t.Errorf("the trail row carries no %s, so an investigator cannot see how far past "+
-				"the window the address was stuffed", want)
-		}
-	}
-
-	// THE NEGATIVE CONTROL: an ordinary registration writes no such row, or the signal
-	// would be drowned by every customer who ever signed up.
-	other, err := p.Provision(ctx, draftFor(t, StructureSingle, "Front door"))
+	ident, err := data.ResolveIdentityByEmail(ctx, d.Account.Email)
 	if err != nil {
-		t.Fatalf("Provision (ordinary): %v", err)
+		t.Fatalf("the address resolves to no identity: %v", err)
 	}
-	var none int
-	if err := data.WithTenant(ctx, other.TenantID, func(ctx context.Context, tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE action = $1`,
-			ActionSignupUnreachable).Scan(&none)
-	}); err != nil {
-		t.Fatalf("reading back: %v", err)
+	var linked uuid.UUID
+	if err := owner.QueryRow(ctx, `SELECT identity_id FROM admin_users WHERE id = $1`, res.AdminUserID).Scan(&linked); err != nil {
+		t.Fatal(err)
 	}
-	if none != 0 {
-		t.Errorf("an ordinary registration wrote %d %s row(s)", none, ActionSignupUnreachable)
+	if linked != ident.ID || !ident.HasActiveMembership {
+		t.Fatalf("the new owner row is linked to %s, the address's identity is %s (active membership %v)", linked, ident.ID, ident.HasActiveMembership)
 	}
 }
 
@@ -876,7 +682,6 @@ func TestSignupProvision_AnUnreachableAccountIsObservable(t *testing.T) {
 //     is minted per call and cannot be a function of the input.
 func TestSignupProvision_TenantIDIsNeverTakenFromTheRequest(t *testing.T) {
 	p, _ := newProvisionerFixture(t)
-	ctx := context.Background()
 
 	// 1. THE TYPE CANNOT CARRY ONE. Walked recursively: a uuid at any depth of Draft
 	// would be a channel through which a request could name its own tenant.
@@ -903,6 +708,9 @@ func TestSignupProvision_TenantIDIsNeverTakenFromTheRequest(t *testing.T) {
 		}
 	}
 	walk(reflect.TypeOf(Draft{}), "Draft")
+	// M14-17: and the stored draft's closed keys carry none either -- the confirmation reads the
+	// business from it.
+	walk(reflect.TypeOf(claimDraft{}), "claimDraft")
 
 	// ANTI-VACUITY: the walker must actually recognise a uuid where there is one.
 	found := false
@@ -935,11 +743,11 @@ func TestSignupProvision_TenantIDIsNeverTakenFromTheRequest(t *testing.T) {
 	second.Business.Name = first.Business.Name
 	second.Account.FullName = first.Account.FullName
 
-	a, err := p.Provision(ctx, first)
+	a, err := provisionDraft(t, p, first)
 	if err != nil {
 		t.Fatalf("Provision (first): %v", err)
 	}
-	b, err := p.Provision(ctx, second)
+	b, err := provisionDraft(t, p, second)
 	if err != nil {
 		t.Fatalf("Provision (second): %v", err)
 	}

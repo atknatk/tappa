@@ -78,10 +78,32 @@ var constantTimeInventory = map[string]int{
 	"internal/handler/policyactions.go": 1,
 	// The login state: CSRF, the signed cookie, and the tenant match.
 	"internal/handler/logincontext.go": 3,
+	// The panel session's password proof (M14-07, ADR 0031 §5.2): Issue checks the
+	// Verified's Proof -- a MAC of the digest the password verified against, carried
+	// through the picker's cookie -- against the MAC of the row's CURRENT digest.
+	// Attacker-fed in shape (the cookie travels through the browser; its own signature
+	// is checked first), so it decides an authentication outcome.
+	"internal/adminauth/proof.go": 1,
+	// The panel form's tenant binding (M14-10a, ADR 0031 §5.5): the `tb` query value a
+	// POST carries against the binding of the session's tenant under its raw token. It
+	// is ATTACKER-FED (the query string) and it is a synchronizer token, so it decides
+	// whether a write reaches the handler at all.
+	"internal/adminauth/formbind.go": 1,
+	// The switch's synchronizer token (M14-10, ADR 0031 §5.4): the posted csrf field against
+	// HMAC(key from the raw session token, "tappa/admin-switch/v1|" + session_id). ATTACKER-FED
+	// (the form body), and it decides whether a request may move the session to another business.
+	"internal/adminauth/switchtoken.go": 1,
 	// The signup state: CSRF and the signed cookie.
 	"internal/handler/signupstate.go": 2,
 	// The tap context's signed cookie.
 	"internal/handler/tapcontext.go": 1,
+	// The claim card's signed context (M15-17): the posted MAC against the one this
+	// session's key computes. Attacker-fed (the form field).
+	"internal/handler/claimcontext.go": 1,
+	// The punch claim decision's confirmation subject (M15-18 review round): the subject the panel's
+	// step was signed for against the one Decide computes under the lock. Not a secret -- the MAC was
+	// checked in the panel -- but caller-carried, so compared the redline's way.
+	"internal/domain/claim/decide.go": 1,
 	// The chip's SDM MAC (CLAUDE.md §4.7). Also pinned, more strictly, by
 	// internal/sun/verify_mac_test.go, which asserts the SPELLING inside verifyMAC.
 	"internal/sun/verify_mac.go": 1,

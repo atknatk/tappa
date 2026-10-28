@@ -176,7 +176,7 @@ templ billingDraft(v BillingView) {
 				// (a guess on this route would freeze a month nobody asked for), and the month
 				// on this card lives only in the query string — which a POST to CloseHref does
 				// not carry. Without this field the button always answered "unreadable".
-				<form class="flex flex-col gap-2 md:min-w-[16rem]" method="post" action={ templ.URL(v.CloseHref) }>
+				<form class="flex flex-col gap-2 md:min-w-[16rem]" method="post" action={ templ.URL(components.Bound(ctx, v.CloseHref)) }>
 					<input type="hidden" name="month" value={ v.MonthValue }/>
 					<button class="btn btn--ink w-full" type="submit">{ v.CloseLabel }</button>
 					<span class="text-xs leading-normal text-ink/70">Freezing fixes the figure. It can&#39;t be undone.</span>
@@ -384,7 +384,7 @@ templ AdminBillingClose(v BillingCloseView) {
 					// THE FORM CARRIES THE MONTH AND THE CONFIRMATION AND NOTHING ELSE: no amount,
 					// no price, no count. Freeze comes first and Cancel second, which is the order
 					// focus takes.
-					<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-2.5 md:flex-row md:flex-wrap md:gap-3">
+					<form method="post" action={ templ.URL(components.Bound(ctx, v.Action)) } class="flex flex-col gap-2.5 md:flex-row md:flex-wrap md:gap-3">
 						<input type="hidden" name="month" value={ v.Month }/>
 						<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
 						<button class="btn btn--ink min-h-14 rounded-[14px] text-base md:flex-[1_1_220px]" type="submit">Freeze this month</button>

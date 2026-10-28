@@ -88,7 +88,7 @@ templ PlaqueCard(v PlaqueFormView) {
 		}
 		switch v.Mode {
 			case "mount":
-				<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-4 border-t border-dashed border-line pt-4">
+				<form method="post" action={ templ.URL(Bound(ctx, v.Action)) } class="flex flex-col gap-4 border-t border-dashed border-line pt-4">
 					<input type="hidden" name="uid" value={ v.Plaque.UID }/>
 					<div class="field-stack">
 						<label class="lbl" for="plaque-venue">Mount it at</label>
@@ -128,7 +128,7 @@ templ PlaqueCard(v PlaqueFormView) {
 								happened at this door changes.
 							</p>
 						</div>
-						<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-4">
+						<form method="post" action={ templ.URL(Bound(ctx, v.Action)) } class="flex flex-col gap-4">
 							<input type="hidden" name="uid" value={ v.Plaque.UID }/>
 							<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
 							<div class="field-stack">
@@ -172,7 +172,7 @@ templ PlaqueCard(v PlaqueFormView) {
 						{ v.Plaque.Venue }, a tap there is REJECTED, so do this when you have the
 						plaque in your hand.
 					</p>
-					<form method="post" action={ templ.URL(v.Action) } class="mt-1.5 flex flex-wrap gap-2.5">
+					<form method="post" action={ templ.URL(Bound(ctx, v.Action)) } class="mt-1.5 flex flex-wrap gap-2.5">
 						<input type="hidden" name="uid" value={ v.Plaque.UID }/>
 						<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
 						<button type="submit" class="btn btn--ink">{ v.Submit }</button>

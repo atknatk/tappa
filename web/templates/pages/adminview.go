@@ -78,8 +78,8 @@ type AdminLoginView struct {
 	// than rendering a dead one — the third state ResetHref already documents.
 	SignupHref string
 
-	// FreeMonths is the founding offer's free period, printed on the brand panel's
-	// badge and in the sign-up line beside it.
+	// FreeMonths is the founding offer's free period, printed in the sign-up link as
+	// SignupOffer words it -- the signup month and the ones after it (K6, 2026-10-22).
 	//
 	// 🔴 IT IS PASSED IN RATHER THAN WRITTEN AS "3" IN THE MARKUP. The product
 	// ENFORCES this number — migration 00016's tappa_first_chargeable_month adds
@@ -180,6 +180,10 @@ type AdminBusiness struct {
 type AdminChooseView struct {
 	CSRFToken  string
 	Businesses []AdminBusiness
+	// PanelSwitch is true while the panel's switch exists (TAPPA_ADMIN_IDENTITY on, ADR 0031
+	// §8's /admin/switch row): the paragraph then says how to move between businesses without
+	// signing out instead of "sign out and switch".
+	PanelSwitch bool
 }
 
 // adminRoleOwner is the role a PanelSection's OwnerOnly flag is compared against.
@@ -447,6 +451,10 @@ type PanelChrome struct {
 	// stylesheet after app.css, no <img>, no business name (panelbrandview.go).
 	Brand PanelBrand
 
+	// Business is the business this session is in and, while the identity flag is on, the
+	// link to switch to another (M14-12; panelbusinessview.go). The zero value draws nothing.
+	Business PanelBusiness
+
 	// InGroup draws the Group tab (GRP-1): true only when the database answered that the business is a
 	// live member of a holding. The zero value -- no holding, or a read that failed -- draws the
 	// chrome exactly as it was before GRP-1.
@@ -580,6 +588,45 @@ type PendingBadge struct {
 	// Capped means the count stopped at its cap, so the badge reads "N+".
 	// internal/domain/ledger.PendingCap says why an exact count is not taken.
 	Capped bool
+	// Claims is the undecided punch claims (M15-18 review round), read with the badge. The navigation
+	// badge does not add them; The Spike's queue link, its empty state and The Pass's card print them.
+	Claims PendingClaims
+}
+
+// PendingClaims is the undecided punch claims as far as counted: Queried false says nothing was
+// asked, Failed says the count could not be read (never 0), N is a floor when Capped.
+type PendingClaims struct {
+	Queried bool
+	Failed  bool
+	N       int
+	Capped  bool
+}
+
+// Count is the number as printed: "12", "100+", "?" for a failed count, "" when nothing was asked.
+func (c PendingClaims) Count() string {
+	switch {
+	case c.Failed:
+		return "?"
+	case !c.Queried:
+		return ""
+	case c.Capped:
+		return itoa(c.N) + "+"
+	default:
+		return itoa(c.N)
+	}
+}
+
+// Waiting is the sentence "N time claims are waiting" ("1 time claim is waiting"), "" for none and
+// for a count not measured.
+func (c PendingClaims) Waiting() string {
+	switch {
+	case !c.Queried || c.Failed || c.N <= 0:
+		return ""
+	case c.N == 1 && !c.Capped:
+		return "1 time claim is waiting"
+	default:
+		return c.Count() + " time claims are waiting"
+	}
 }
 
 // Label is what the badge prints: "" when nothing is waiting, "?" when the count

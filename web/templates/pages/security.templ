@@ -1,0 +1,624 @@
+package pages
+
+import (
+	"strconv"
+
+	"github.com/atknatk/tappa/web/templates/layout"
+)
+
+// THE SECURITY PAGE (LP-07), drawn from the Security, T-Security and M-Security boards:
+// the four proofs and how each works, the decision ladder, what happens to a tap the
+// evidence cannot carry, corrections, privacy, isolation and hosting, in the shared
+// public chrome.
+//
+// THE WORDS AND THE NUMBERS ARE NOT WRITTEN HERE. Every sentence that says something
+// about the product is a value in securityview.go (SecurityCopy, or the landing's own
+// values where this page repeats them) with the facts it rests on; every number arrives
+// in SecurityView.Figures from internal/handler. What stays literal is furniture: the
+// eyebrows, the headings that name a section, the drawings' own labels and the sample
+// values those drawings say are samples.
+//
+// NO SCRIPT, NO IMAGE, NO STYLE ATTRIBUTE: the page is served with the marketing policy
+// as it is. Each drawing is a picture (role img) with a name that says it is a sample;
+// its geometry is SVG attributes and classes, and the one proportion that depends on the
+// product (the address limit on its scale) is computed from the figures.
+//
+// ONE DOM FOR EVERY WIDTH; input.css's LP-07 rules place it.
+
+// Security is the page at /security.
+templ Security(v SecurityView) {
+	@layout.Marketing(PublicPageTitle(SecurityPath), layout.RobotsPublic, v.Share) {
+		<div class="lp">
+			@PublicChrome(PublicChromeOpts{Current: SecurityPath, SignInHref: v.SignInHref, SignupHref: v.SignupHref}) {
+				@securityHead(v)
+				@securityProofs(v)
+				@securityLadder(v)
+				@securityNeverLost(v.Copy)
+				@securityCorrections(v.Copy)
+				@securityPrivacy(v.Copy)
+				@securityIsolation(v.Copy)
+				@securityHosting(v.Copy)
+				@signOff(v.FreeMonths, v.SignupHref)
+			}
+		</div>
+	}
+}
+
+// securityHead is the page's opening: its one h1, the landing's lede, the line that says
+// where the checks run, and a sample tap checked four ways.
+templ securityHead(v SecurityView) {
+	<div class="band band--porcelain">
+		<section class="lp-pageHead" aria-label="Security and privacy">
+			<div class="lp-wrap lp-secHero">
+				<div class="lp-secHeroCopy">
+					<p class="lp-eyebrow lp-pageEyebrow">Security &amp; privacy</p>
+					<h1 class="lp-h1">Four checks behind every tap.</h1>
+					<p class="lp-pageLede lp-secHeroLede">{ LandingSecurityLede.Text }</p>
+					<p class="lp-secServer">{ v.Copy.Server.Text }</p>
+					<div class="lp-secBtns">
+						if v.SignupHref != "" {
+							<a class="lp-button lp-button--green" href={ templ.URL(v.SignupHref) }>Start free</a>
+						}
+						<a class="lp-button lp-button--ghost" href="#ladder">How a tap is decided</a>
+					</div>
+				</div>
+				@securityHeroCard(v.Copy)
+			</div>
+		</section>
+	</div>
+}
+
+// securityHeroCard is one sample tap checked four ways and written as a stamped record:
+// SecurityHeroDocket, a matched network and no position given (securityview.go records
+// why), which internal/handler runs through the engine.
+templ securityHeroCard(c SecurityText) {
+	<div class="card lp-secCheck" role="img" aria-label="Sample record: one tap checked four ways — plaque signature, phone session, venue network, and GPS as the backup — then written as a stamped record">
+		<span class="lp-lbl">One tap · four checks · sample record</span>
+		<ol class="lp-secChecks">
+			<li class="lp-secCheckRow">
+				<span class="lp-ico lp-secCheckIco">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="2.5" width="14" height="19" rx="2.5"></rect><path d="M8.8 10.2a4.6 4.6 0 0 1 6.4 0"></path><path d="M10.4 12.4a2.2 2.2 0 0 1 3.2 0"></path><path d="M9 18.2h6"></path></svg>
+				</span>
+				<span class="lp-secCheckName"><span class="lp-lbl">Proof 1</span><span>Plaque signature</span></span>
+				<span class="lp-secChip">{ c.ChipSUN.Text }</span>
+			</li>
+			<li class="lp-secCheckRow">
+				<span class="lp-ico lp-secCheckIco">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="6" y="2.5" width="12" height="19" rx="2.4"></rect><path d="M10.5 18.5h3"></path></svg>
+				</span>
+				<span class="lp-secCheckName"><span class="lp-lbl">Proof 2</span><span>Phone session</span></span>
+				<span class="lp-secChip">{ c.ChipSession.Text }</span>
+			</li>
+			<li class="lp-secCheckRow">
+				<span class="lp-ico lp-secCheckIco">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2.8 9.2a13.5 13.5 0 0 1 18.4 0"></path><path d="M5.9 12.6a9 9 0 0 1 12.2 0"></path><path d="M9 16a4.4 4.4 0 0 1 6 0"></path><circle cx="12" cy="19.2" r=".9"></circle></svg>
+				</span>
+				<span class="lp-secCheckName"><span class="lp-lbl">Proof 3</span><span>Venue network</span></span>
+				<span class="lp-secChip">{ c.ChipIP.Text }</span>
+			</li>
+			<li class="lp-secCheckRow">
+				<span class="lp-ico lp-secCheckIco">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 21s-6.5-6.1-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 14.9 12 21 12 21z"></path><circle cx="12" cy="9.8" r="2.3"></circle></svg>
+				</span>
+				<span class="lp-secCheckName"><span class="lp-lbl">Proof 4</span><span>GPS position</span></span>
+				<span class="lp-secChip lp-secChip--quiet">{ c.ChipGPS.Text }</span>
+			</li>
+		</ol>
+		<span class="lp-secDown">
+			@moreArrow()
+		</span>
+		@securityDocket(SecurityHeroDocket, "")
+	</div>
+}
+
+// securityDocket is one sample record as the panel's docket draws it: the venue, the
+// stamp, the person, the direction and time, and the trust with the two evidence signs.
+// kick, when not empty, goes before the venue (the flow's step number).
+templ securityDocket(d PanelDocket, kick string) {
+	<div class="lp-slip lp-secDocket">
+		<div class="lp-secDocketTop">
+			<span class="lp-lbl lp-secDocketVenue">
+				if kick != "" {
+					{ kick + " · " }
+				}
+				{ d.Venue }
+			</span>
+			@securityStamp(d.Verdict)
+		</div>
+		<span class="lp-secDocketWho">{ d.Who }</span>
+		<span class="lp-secDocketTime"><span class="lp-dir">{ d.Direction }</span><span>{ d.At }</span></span>
+		<span class="lp-secDocketFoot"><span>Trust { d.Trust }</span><span>IP { d.IP } · GPS { d.GPS }</span></span>
+	</div>
+}
+
+// securityStamp is the product's stamp, small, for a verdict code; a code with no
+// verdict draws nothing.
+templ securityStamp(verdict string) {
+	switch verdict {
+		case "ok":
+			<span class="stamp stamp--approved lp-stamp-sm lp-secStamp">{ SecurityStampWord(verdict) }</span>
+		case "flag":
+			<span class="stamp stamp--flagged lp-stamp-sm lp-secStamp">{ SecurityStampWord(verdict) }</span>
+		case "reject":
+			<span class="stamp stamp--rejected lp-stamp-sm lp-secStamp">{ SecurityStampWord(verdict) }</span>
+		case "ignored":
+			<span class="stamp stamp--ignored lp-stamp-sm lp-secStamp">{ SecurityStampWord(verdict) }</span>
+	}
+}
+
+// securityProofs is the four proofs: for each, the landing's card, what happens under
+// the hood, and a drawing of it. The landing's "How each proof works" lands here.
+templ securityProofs(v SecurityView) {
+	<div class="band band--paper">
+		<section id={ SecurityProofsID } class="lp-sec" aria-labelledby="proofs-title">
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">The four proofs</p>
+				<h2 id="proofs-title" class="lp-h2">What each signal proves, and how.</h2>
+				<p class="lp-lede">{ v.Copy.ProofsLede.Text }</p>
+				<div class="lp-secProofs">
+					@securityProofRow(LandingEvidence[0]) {
+						<div class="lp-secHood">
+							<span class="lp-lbl lp-secHoodKick">Under the hood</span>
+							<h3 class="lp-secHoodTitle">{ v.Copy.LinkTitle.Text }</h3>
+							<p>{ v.Copy.LinkFresh.Text }</p>
+							<p>{ v.Copy.LinkOnce.Text }</p>
+							<p>{ v.Copy.LinkKeys.Text }</p>
+						</div>
+						@securityLinkDrawing(v.Copy)
+					}
+					@securityProofRow(LandingEvidence[1]) {
+						<div class="lp-secHood">
+							<span class="lp-lbl lp-secHoodKick">Under the hood</span>
+							<h3 class="lp-secHoodTitle">{ v.Copy.PersonTitle.Text }</h3>
+							<p>{ v.Copy.PersonActivation.Text }</p>
+							<p>{ v.Copy.PersonToken.Text }</p>
+							<p>{ v.Copy.PersonOff.Text }</p>
+						</div>
+						@securitySessionDrawing(v.Copy)
+					}
+					@securityProofRow(LandingEvidence[2]) {
+						<div class="lp-secHood">
+							<span class="lp-lbl lp-secHoodKick">Under the hood</span>
+							<h3 class="lp-secHoodTitle">{ v.Copy.PlaceTitle.Text }</h3>
+							<p>{ v.Copy.PlaceAddress.Text }</p>
+							<p>{ v.Copy.PlaceWidth.Text }</p>
+						</div>
+						@securityScaleDrawing(v.Figures, v.Copy)
+					}
+					@securityProofRow(LandingEvidence[3]) {
+						<div class="lp-secHood">
+							<span class="lp-lbl lp-secHoodKick">Under the hood</span>
+							<h3 class="lp-secHoodTitle">{ v.Copy.BackupTitle.Text }</h3>
+							<p>{ v.Copy.BackupOnce.Text }</p>
+							<p>{ v.Copy.BackupRadius.Text }</p>
+							<p>{ v.Copy.BackupQR.Text }</p>
+						</div>
+						@securityRadiusDrawing(v.Copy)
+					}
+				</div>
+			</div>
+		</section>
+	</div>
+}
+
+// securityProofRow is one proof: the landing's card (the same Evidence value the landing
+// renders), then the caller's two cells -- what happens under the hood and its drawing.
+templ securityProofRow(e Evidence) {
+	<div class="lp-secProof">
+		<div class="lp-slip lp-proof lp-secProofCard">
+			<span class="lp-proofKick">{ e.Proof }</span>
+			<h3 class="lp-proofTitle">{ e.Label }</h3>
+			<p class="lp-proofBody">{ e.Body }</p>
+		</div>
+		{ children... }
+	</div>
+}
+
+// securityLinkDrawing is the link a tap opens and the counter as the server keeps it.
+// The values are samples; the parameter names are internal/sun's.
+templ securityLinkDrawing(c SecurityText) {
+	<div class="card lp-secDraw" role="img" aria-label="Sample: the link a tap opens, and how the counter accepts one read and rejects a replay">
+		<span class="lp-lbl">The link a tap opens · sample values</span>
+		<span class="mono lp-secUrl">/t?tag=…&amp;ctr=…&amp;cmac=…</span>
+		<div class="lp-secParams">
+			<span class="lp-secParam"><span class="mono">tag=<b>04A1C33C2B7E10</b></span><span class="lp-lbl">The plaque</span></span>
+			<span class="lp-secParam"><span class="mono">ctr=<b>000642</b></span><span class="lp-lbl">Counter, goes up</span></span>
+			<span class="lp-secParam"><span class="mono">cmac=<b>{ c.LinkSigLabel.Text }</b></span><span class="lp-lbl">Signature, new each read</span></span>
+		</div>
+		<span class="lp-lbl">The counter, as the server sees it</span>
+		<ol class="lp-secCtr">
+			<li class="lp-secCtrRow"><span class="chk chk--na" aria-hidden="true">–</span><span class="mono">000641</span><span>Last accepted read</span></li>
+			<li class="lp-secCtrRow lp-secCtrRow--ok"><span class="chk chk--ok" aria-hidden="true">✓</span><span class="mono">000642</span><span>{ c.CtrAccepted.Text }</span></li>
+			<li class="lp-secCtrRow lp-secCtrRow--no"><span class="chk chk--no" aria-hidden="true">✗</span><span class="mono">000642</span><span>{ c.CtrSame.Text }</span></li>
+			<li class="lp-secCtrRow lp-secCtrRow--no"><span class="chk chk--no" aria-hidden="true">✗</span><span class="mono">000640</span><span>{ c.CtrOlder.Text }</span></li>
+		</ol>
+	</div>
+}
+
+// securitySessionDrawing is activation in three steps and what each side keeps.
+templ securitySessionDrawing(c SecurityText) {
+	<div class="card lp-secDraw" role="img" aria-label="Activation in three steps ending in a session on the phone; the phone keeps a random token and the database keeps only a keyed hash">
+		<span class="lp-lbl">{ c.ActivationLabel.Text }</span>
+		<ol class="lp-secSteps">
+			<li class="lp-secStep"><span class="mono">01</span><span>Opens the invite link</span></li>
+			<li class="lp-secStep"><span class="mono">02</span><span>Agrees on this phone</span></li>
+			<li class="lp-secStep"><span class="mono">03</span><span>First NFC tap at your plaque</span></li>
+		</ol>
+		<div class="lp-secSession">
+			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="10.5" width="14" height="10" rx="2.2"></rect><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"></path></svg>
+			<span>{ c.PersonNoRecord.Text }</span>
+		</div>
+		<span class="lp-lbl">What each side keeps</span>
+		<div class="lp-secKeeps">
+			<div class="lp-secKeep">
+				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="6" y="2.5" width="12" height="19" rx="2.4"></rect><path d="M10.5 18.5h3"></path></svg>
+				<span class="lp-secKeepText"><span class="lp-lbl">On the phone</span><span class="mono">{ c.PersonPhoneKeeps.Text }</span></span>
+			</div>
+			<div class="lp-secKeep">
+				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><ellipse cx="12" cy="5.8" rx="7" ry="2.8"></ellipse><path d="M5 5.8v12.4c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V5.8"></path><path d="M5 12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8"></path></svg>
+				<span class="lp-secKeepText"><span class="lp-lbl">In the database</span><span class="mono">{ c.PersonDBKeeps.Text }</span></span>
+			</div>
+		</div>
+	</div>
+}
+
+// scaleX is where a prefix length sits on the drawn IPv4 scale: /32 at the left edge,
+// /0 at the right, linear in the number of host bits.
+func scaleX(prefix int) string {
+	return strconv.Itoa((32 - prefix) * 10)
+}
+
+// securityScaleDrawing is the width of a venue's address list on a scale from one
+// address (/32) to every address (/0), with the limit placed from the figures.
+templ securityScaleDrawing(f SecurityFigures, c SecurityText) {
+	<div class="card lp-secDraw" role="img" aria-label={ "A scale of address-list widths from one address to every address; lists up to a /" + strconv.Itoa(f.IPv4Prefix) + " can count as evidence, wider lists are refused" }>
+		<span class="lp-lbl">How wide a venue's network list may be · IPv4</span>
+		<svg class="lp-secScale" viewBox="-14 0 348 66" width="100%" aria-hidden="true" focusable="false">
+			<rect class="lp-fillGreenLite lp-strokeGreen" x="0" y="18" width={ scaleX(f.IPv4Prefix) } height="22" stroke-width="1"></rect>
+			<rect class="lp-fillTomato" x={ scaleX(f.IPv4Prefix) } y="18" width={ strconv.Itoa(320 - (32-f.IPv4Prefix)*10) } height="22"></rect>
+			<line class="lp-strokeInk" x1={ scaleX(f.IPv4Prefix) } y1="13" x2={ scaleX(f.IPv4Prefix) } y2="45" stroke-width="2"></line>
+			<text class="lp-fillInk lp-secScaleMark" x={ scaleX(f.IPv4Prefix) } y="9" text-anchor="middle">{ "limit /" + strconv.Itoa(f.IPv4Prefix) }</text>
+			<text class="lp-fillInk lp-secScaleTick" x="0" y="60" text-anchor="middle">/32</text>
+			<text class="lp-fillInk lp-secScaleTick" x="80" y="60" text-anchor="middle">/24</text>
+			<text class="lp-fillInk lp-secScaleTick" x="160" y="60" text-anchor="middle">/16</text>
+			<text class="lp-fillInk lp-secScaleTick" x="240" y="60" text-anchor="middle">/8</text>
+			<text class="lp-fillInk lp-secScaleTick" x="320" y="60" text-anchor="middle">/0</text>
+		</svg>
+		<ul class="lp-secLegend">
+			<li><span class="chk chk--ok" aria-hidden="true">✓</span><span>{ c.PlaceNarrow.Text }</span></li>
+			<li><span class="chk chk--no" aria-hidden="true">✗</span><span>{ c.PlaceWide.Text }</span></li>
+		</ul>
+		<span class="mono lp-secDrawNote">{ c.PlaceV6.Text }</span>
+	</div>
+}
+
+// securityRadiusDrawing is the venue with its radius, one phone inside and one outside.
+templ securityRadiusDrawing(c SecurityText) {
+	<div class="card lp-secDraw" role="img" aria-label="A venue with its GPS radius; a phone inside the radius counts as proof of place, a phone outside is sent to a manager">
+		<span class="lp-lbl">The backup check · one position, read at the tap</span>
+		<svg class="lp-secRadius" viewBox="0 0 300 200" width="100%" aria-hidden="true" focusable="false">
+			<circle class="lp-fillGreenLite lp-strokeGreen" cx="140" cy="104" r="82" stroke-width="1.6" stroke-dasharray="5 5"></circle>
+			<path class="lp-strokeGreen" d="M140 104 L222 104" stroke-width="1.4"></path>
+			<text class="lp-fillInk lp-secSvgBold" x="190" y="96" text-anchor="middle">radius</text>
+			<path class="lp-fillInk" d="M140 102s-10-9.3-10-17.2a10 10 0 0 1 20 0C150 92.7 140 102 140 102z"></path><circle class="lp-fillPaper" cx="140" cy="84.6" r="3.6"></circle>
+			<text class="lp-fillInk lp-secSvgSoft" x="140" y="122" text-anchor="middle">venue</text>
+			<rect class="lp-fillPaper lp-strokeInk" x="92" y="100" width="16" height="26" rx="3.5" stroke-width="1.6"></rect><circle class="lp-fillGreen" cx="100" cy="91" r="7"></circle><path class="lp-strokePaper" d="M96.6 90.8l2.3 2.3 4.4-4.6" stroke-width="1.6" fill="none" stroke-linecap="round"></path>
+			<text class="lp-fillInk lp-secSvgBold" x="100" y="141" text-anchor="middle">inside</text>
+			<rect class="lp-fillPaper lp-strokeInk" x="258" y="30" width="16" height="26" rx="3.5" stroke-width="1.6"></rect><circle class="lp-fillSaffron" cx="266" cy="21" r="7"></circle><path class="lp-strokeInk" d="M266 17v4.5M266 24.4v.2" stroke-width="1.8" stroke-linecap="round"></path>
+			<text class="lp-fillInk lp-secSvgBold" x="266" y="72" text-anchor="middle">outside</text>
+		</svg>
+		<span class="mono lp-secDrawNote lp-secCenter">{ c.BackupDefault.Text }</span>
+		<ul class="lp-secLegend">
+			<li><span class="chk chk--ok" aria-hidden="true">✓</span><span>{ c.BackupInside.Text }</span></li>
+			<li><span class="chk lp-chk--flag" aria-hidden="true">!</span><span>{ c.BackupOutside.Text }</span></li>
+		</ul>
+	</div>
+}
+
+// securityLadder is how a tap is decided: the guardrails, the business's baseline and the
+// engine's last rung, beside the trust score and the per-person window, and the note that
+// names what the cards do not show.
+templ securityLadder(v SecurityView) {
+	<div class="band band--porcelain">
+		<section id="ladder" class="lp-sec" aria-labelledby="ladder-title">
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">The decision</p>
+				<h2 id="ladder-title" class="lp-h2">{ v.Copy.LadderHeading.Text }</h2>
+				<p class="lp-lede">{ v.Copy.LadderLede.Text }</p>
+				<div class="lp-ladder">
+					<div class="lp-ladderSteps">
+						<div class="card lp-rung">
+							<div class="lp-rungHead">
+								<span class="mono lp-rungNo">1</span>
+								<span class="lp-rungTitles"><span class="lp-rungTitle">Guardrails</span><span class="lp-lbl">{ v.Copy.GuardrailLabel.Text }</span></span>
+							</div>
+							@securityRules(v.Copy.Guardrails)
+						</div>
+						<span class="lp-rungLink" aria-hidden="true"></span>
+						<div class="card lp-rung">
+							<div class="lp-rungHead">
+								<span class="mono lp-rungNo">2</span>
+								<span class="lp-rungTitles"><span class="lp-rungTitle">Your rules</span><span class="lp-lbl">{ v.Copy.BaselineLabel.Text }</span></span>
+							</div>
+							@securityRules(v.Copy.Baseline)
+						</div>
+						<span class="lp-rungLink" aria-hidden="true"></span>
+						<div class="card lp-rung">
+							<div class="lp-rungHead">
+								<span class="lp-rungNo lp-rungNo--lock">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="10.5" width="14" height="10" rx="2.2"></rect><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"></path></svg>
+								</span>
+								<span class="lp-rungTitles"><span class="lp-rungTitle">Nothing decided</span><span class="lp-lbl">{ v.Copy.DefaultLabel.Text }</span></span>
+							</div>
+							@securityRules([]SecurityRule{v.Copy.Default})
+						</div>
+					</div>
+					<div class="lp-ladderSide">
+						<div class="lp-slip lp-secTrust">
+							<span class="lp-lbl">Trust score</span>
+							<dl class="mono lp-secTrustRows">
+								<div><dt>Every tap</dt><dd>{ strconv.Itoa(v.Figures.TrustBase) }</dd></div>
+								<div><dt>Venue network</dt><dd>{ "+ " + strconv.Itoa(v.Figures.TrustIP) }</dd></div>
+								<div><dt>GPS inside the radius</dt><dd>{ "+ " + strconv.Itoa(v.Figures.TrustGPS) }</dd></div>
+							</dl>
+							<p>{ v.Copy.TrustNote.Text }</p>
+						</div>
+						<div class="card lp-secDebounce">
+							<span class="lp-ico">
+								<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="9" cy="8.5" r="3.2"></circle><path d="M3.5 19.5c.6-3.1 2.8-5 5.5-5s4.9 1.9 5.5 5"></path><circle cx="16.8" cy="9.5" r="2.6"></circle><path d="M16 14.6c2.4 0 4 1.6 4.5 4.4"></path></svg>
+							</span>
+							<h3 class="lp-secCardTitle">{ v.Copy.DebounceTitle.Text }</h3>
+							<p>{ v.Copy.DebounceQueue.Text }</p>
+							<p>{ v.Copy.DebounceClock.Text }</p>
+						</div>
+					</div>
+				</div>
+				<p class="mono lp-secLadderNote">{ v.Copy.LadderNote.Text }</p>
+			</div>
+		</section>
+	</div>
+}
+
+// securityRules is one ladder card's rungs: what happens, and the stamp (with its small
+// note) it ends in.
+templ securityRules(rs []SecurityRule) {
+	<ol class="lp-rules">
+		for _, r := range rs {
+			<li class="lp-rule">
+				<span class="lp-ruleText">{ r.Text.Text }</span>
+				<span class="lp-ruleEnd">
+					@securityStamp(r.Verdict)
+					for _, n := range r.Notes {
+						<span class="mono lp-ruleNote">{ n.Text }</span>
+					}
+				</span>
+			</li>
+		}
+	</ol>
+}
+
+// securityNeverLost is what happens to a tap the evidence cannot carry: written, flagged,
+// decided by a person. The flagged record is the landing panel's third sample.
+templ securityNeverLost(c SecurityText) {
+	<div class="band band--paper">
+		<section id="never-lost" class="lp-sec" aria-labelledby="never-lost-title">
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">When the evidence is thin</p>
+				<h2 id="never-lost-title" class="lp-h2">{ c.NeverLostHeading.Text }</h2>
+				<p class="lp-lede">{ c.NeverLostLede.Text }</p>
+				<div class="card lp-secFlow" role="img" aria-label="Sample: a tap without evidence becomes a flagged record, waits on The Spike for a manager, and its hours are counted or refused once decided">
+					<div class="card lp-secFlowStep">
+						<span class="lp-lbl">1 · The tap</span>
+						<span class="lp-secFlowTitle">Real NFC tap, no venue network, no GPS</span>
+						<span class="mono lp-secFlowMeta">{ LandingPanelPassDockets[2].Venue + " · " + LandingPanelPassDockets[2].At }</span>
+					</div>
+					<span class="lp-secFlowArrow">
+						@moreArrow()
+					</span>
+					@securityDocket(LandingPanelPassDockets[2], "2")
+					<span class="lp-secFlowArrow">
+						@moreArrow()
+					</span>
+					<div class="card lp-secFlowStep">
+						<span class="lp-lbl">3 · The Spike</span>
+						<span class="lp-secFlowTitle">Waiting for review</span>
+						<span class="lp-secFakeBtns"><span class="lp-fakeBtn lp-fakeBtn--approve">Approve</span><span class="lp-fakeBtn lp-fakeBtn--reject">Reject</span></span>
+					</div>
+					<span class="lp-secFlowArrow">
+						@moreArrow()
+					</span>
+					<div class="card lp-secFlowStep">
+						<span class="lp-lbl">4 · The Roll</span>
+						<span class="lp-secFlowLine"><span class="chk chk--ok" aria-hidden="true">✓</span><span>{ c.RollCounted.Text }</span></span>
+						<span class="lp-secFlowLine"><span class="chk chk--no" aria-hidden="true">✗</span><span>{ c.RollRefused.Text }</span></span>
+						<span class="lp-secFlowLine"><span class="chk chk--na" aria-hidden="true">–</span><span>{ c.RollWaiting.Text }</span></span>
+					</div>
+				</div>
+				// The flow draws an invented person (The Pass's flagged sample), so it says so
+				// where a reader sees it (LP-15 fact review); the label is the landing panel's.
+				<p class="lp-prodNote">{ LandingPanelSampleNote }</p>
+				<ul class="lp-secTicks">
+					@securityTick(c.NeverLostOnce.Text)
+					@securityTick(c.NeverLostHeld.Text)
+					@securityTick(c.NeverLostBeside.Text)
+				</ul>
+			</div>
+		</section>
+	</div>
+}
+
+// securityTick is one line of a ticked list.
+templ securityTick(text string) {
+	<li>
+		<span class="lp-priceTick">
+			<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l4.2 4.2L19 7"></path></svg>
+		</span>
+		<span>{ text }</span>
+	</li>
+}
+
+// securityCorrections is how a record is corrected without being changed: a new record
+// typed by a manager, beside the original. The drawing is a sample.
+templ securityCorrections(c SecurityText) {
+	<div class="band band--porcelain">
+		<section id="immutable" class="lp-sec" aria-labelledby="immutable-title">
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">Corrections</p>
+				<h2 id="immutable-title" class="lp-h2 lp-secH2Solo">{ c.ImmutableHeading.Text }</h2>
+				<div class="lp-secPair">
+					<div class="lp-secText">
+						<p>{ c.ImmutableRefused.Text }</p>
+						<p>{ c.ImmutableManual.Text }</p>
+						<span class="mono lp-secTextNote">{ LandingPricingIncludes[4].Text }</span>
+					</div>
+					<div class="card lp-secDraw" role="img" aria-label="Sample: the original check-in stays unchanged; the correction is a new record marked as entered by a manager, with an audit log line">
+						<span class="lp-lbl">A forgotten check-out, corrected · sample</span>
+						<div class="lp-secPairDockets">
+							<div class="lp-slip lp-secDocket">
+								<div class="lp-secDocketTop">
+									<span class="lp-lbl lp-secDocketVenue">KF St Julians · Tue</span>
+									@securityStamp("ok")
+								</div>
+								<span class="lp-secDocketWho">Kevin Grech</span>
+								<span class="lp-secDocketTime"><span class="lp-dir">IN</span><span>10:02</span></span>
+								<span class="lp-secDocketFoot"><span>Original record</span><span>unchanged</span></span>
+							</div>
+							<div class="lp-slip lp-secDocket">
+								<div class="lp-secDocketTop">
+									<span class="lp-lbl lp-secDocketVenue">KF St Julians · Tue</span>
+									@securityStamp("ok")
+								</div>
+								<span class="lp-secDocketWho">Kevin Grech</span>
+								<span class="lp-secDocketTime"><span class="lp-dir">OUT</span><span>18:00</span></span>
+								<span class="lp-secDocketFoot"><span>Entered by a manager</span></span>
+							</div>
+						</div>
+						<div class="mono lp-secAudit"><span>AUDIT LOG</span><span>entry by hand</span><span>by a manager</span><span>Wed 09:12</span></div>
+					</div>
+				</div>
+			</div>
+		</section>
+	</div>
+}
+
+// securityPrivacy is the three things Taptime does not do, and the landing's privacy note.
+//
+// The three cards' headings are Lines (securityview.go); the first carries its denial
+// on the same line as the word it denies, because scripts/redline-check.sh's R1 reads
+// one line at a time.
+templ securityPrivacy(c SecurityText) {
+	<div class="band band--paper">
+		<section id="privacy" class="lp-sec" aria-labelledby="privacy-title">
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">Privacy</p>
+				<h2 id="privacy-title" class="lp-h2 lp-secH2Solo">{ c.PrivacyHeading.Text }</h2>
+				<div class="lp-secCards">
+					<div class="card lp-secCard">
+						<span class="lp-ico">
+							<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+								<path d="M7.5 11a4.5 4.5 0 0 1 9 0v2.2"></path>
+								<path d="M9.8 18.6a10 10 0 0 0 .6-4.6V11a1.6 1.6 0 0 1 3.2 0v1.5"></path>
+								<path d="M5 15.2c.5-1 .5-2.3.5-4.2a6.5 6.5 0 0 1 10.7-5"></path>
+								<path d="M3.5 3.5l17 17"></path>
+							</svg>
+						</span>
+						<h3 class="lp-secCardTitle">{ c.FingerTitle.Text }</h3>
+						<span class="mono lp-secCardKick">{ c.PrivacyNone.Text }</span>
+						<p>{ c.PrivacyFinger.Text }</p>
+					</div>
+					<div class="card lp-secCard">
+						<span class="lp-ico">
+							<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8.3 5.3A6.5 6.5 0 0 1 18.5 9.8c0 1.8-.8 3.8-1.9 5.6M14.2 17.9C13 19.6 12 21 12 21s-6.5-6.1-6.5-11.2c0-.9.2-1.8.5-2.6"></path><path d="M3.5 3.5l17 17"></path></svg>
+						</span>
+						<h3 class="lp-secCardTitle">{ c.LocationTitle.Text }</h3>
+						<p>{ c.PrivacyLocation.Text }</p>
+					</div>
+					<div class="card lp-secCard">
+						<span class="lp-ico">
+							<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20.4 13.3A8.5 8.5 0 1 1 10.7 3.6a3 3 0 0 0 3.9 3.9 3 3 0 0 0 3.9 3.9c.6.6 1.3.8 1.9 1.9z"></path><path d="M3 3l18 18"></path></svg>
+						</span>
+						<h3 class="lp-secCardTitle">{ c.CookiesTitle.Text }</h3>
+						<p>{ c.PrivacyCookies.Text }</p>
+					</div>
+				</div>
+				<div class="lp-privacy">
+					<span class="lp-privacyIco">
+						<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l7 3v5.2c0 4.4-3 8-7 9.8-4-1.8-7-5.4-7-9.8V6z"></path><path d="M9 12.2l2.1 2.1L15.2 10"></path></svg>
+					</span>
+					<p><b>Privacy by design:</b> { LandingPrivacyNote.Text }</p>
+				</div>
+			</div>
+		</section>
+	</div>
+}
+
+// securityIsolation is how one business is kept from another, from Taptime's staff, and
+// how the records that leave are signed. The drawing is a sample.
+templ securityIsolation(c SecurityText) {
+	<div class="band band--porcelain">
+		<section id="isolation" class="lp-sec" aria-labelledby="isolation-title">
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">Isolation</p>
+				<h2 id="isolation-title" class="lp-h2 lp-secH2Solo">{ c.IsolationHeading.Text }</h2>
+				<div class="lp-secPair">
+					<div class="lp-secText">
+						<p>{ c.IsolationRLS.Text }</p>
+						<p>{ c.IsolationOperator.Text }</p>
+						<p>{ c.IsolationGroup.Text }</p>
+						<p>{ c.IsolationWebhook.Text }</p>
+					</div>
+					<div class="card lp-secDraw" role="img" aria-label="Sample: two businesses in one database separated by row-level security; neither side's queries return the other's rows">
+						<span class="lp-lbl">One database · two businesses · sample rows</span>
+						<div class="lp-secWall">
+							<div class="lp-secSide">
+								<span class="lp-secSideName">Your business</span>
+								<span class="mono lp-secRow"><span>IN 09:58</span><span>yours</span></span>
+								<span class="mono lp-secRow"><span>IN 09:52</span><span>yours</span></span>
+								<span class="mono lp-secRow"><span>OUT 02:04</span><span>yours</span></span>
+							</div>
+							<div class="lp-secRls">
+								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="10.5" width="14" height="10" rx="2.2"></rect><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"></path></svg>
+								<span class="mono">ROW-LEVEL SECURITY</span>
+							</div>
+							<div class="lp-secSide">
+								<span class="lp-secSideName">Another business</span>
+								<span class="mono lp-secRow"><span>IN 04:02</span><span>theirs</span></span>
+								<span class="mono lp-secRow"><span>IN 04:55</span><span>theirs</span></span>
+								<span class="mono lp-secRow"><span>OUT 12:31</span><span>theirs</span></span>
+							</div>
+						</div>
+						<span class="mono lp-secDrawNote">{ c.IsolationDrawing.Text }</span>
+					</div>
+				</div>
+			</div>
+		</section>
+	</div>
+}
+
+// securityHosting is where production runs (user decision K2: the country and the
+// union, nothing finer) and the four legal documents.
+templ securityHosting(c SecurityText) {
+	<div class="band band--paper">
+		<section id="hosting" class="lp-sec" aria-labelledby="hosting-title">
+			<div class="lp-wrap">
+				<p class="lp-eyebrow lp-secEyebrow">Hosting &amp; GDPR</p>
+				<h2 id="hosting-title" class="lp-h2 lp-secH2Solo">Where Taptime runs.</h2>
+				<div class="card lp-secHost">
+					<span class="lp-ico lp-secHostIco">
+						<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17M12 3.5c2.4 2.4 3.6 5.2 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.2-3.6-8.5S9.6 5.9 12 3.5z"></path></svg>
+					</span>
+					<div class="lp-secHostText">
+						<h3 class="lp-secCardTitle">{ c.HostingWhere.Text }</h3>
+						<p>{ c.HostingServer.Text }</p>
+						<p>{ c.HostingGDPR.Text }</p>
+						<nav class="lp-secHostLinks" aria-label="Legal documents">
+							for _, p := range LegalPages {
+								<a class="flink" href={ templ.URL(p.Path) }>{ p.NavLabel }</a>
+							}
+						</nav>
+					</div>
+				</div>
+			</div>
+		</section>
+	</div>
+}

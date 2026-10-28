@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/atknatk/tappa/internal/domain/tap"
 )
 
 // correction_test.go -- what an APPENDED record does to a week's hours (M6-08).
@@ -242,6 +244,134 @@ func TestReport_AnOpenEntryLeftByACorrectionCanNEVERBeClosed(t *testing.T) {
 				closed.Totals.Worked, closed.Totals.Open)
 		}
 	})
+}
+
+// correctionWorld is the S-set half of the two ADR 0011 tables (M15-06 step 3): the records being
+// corrected are the ENGINE's -- a business day frozen on each, written at its own instant -- and
+// every correction is a manager's -- no business day (a manual row), written the evening after,
+// as manual.Recorder writes it (created_at is the moment it is typed; ADR 0032 §A.6's W).
+type correctionWorld struct {
+	who    uuid.UUID
+	day    func(h, m int) time.Time
+	period Period
+	now    time.Time
+	t      *testing.T
+}
+
+func newCorrectionWorld(t *testing.T) correctionWorld {
+	zone := time.UTC
+	return correctionWorld{
+		who:    uuid.New(),
+		day:    func(h, m int) time.Time { return time.Date(2026, time.August, 5, h, m, 0, 0, zone) },
+		period: WeekOf(Date{Year: 2026, Month: time.August, Day: 5}, zone),
+		now:    time.Date(2026, time.August, 6, 12, 0, 0, 0, zone),
+		t:      t,
+	}
+}
+
+// tapped is an engine row: its 05:00 business day frozen, written at its instant.
+func (w correctionWorld) tapped(dir string, h, m int) reportEvent {
+	at := w.day(h, m)
+	s, ok := tap.BusinessDayStart(at, tap.DayCutoff{Cutoff: 5 * time.Hour, Timezone: "UTC"})
+	if !ok {
+		w.t.Fatal("UTC did not resolve")
+	}
+	return reportEvent{EmployeeID: w.who, Name: "Maria Borg", At: at, Direction: dir, Verdict: "ok", CreatedAt: at, DayStart: &s}
+}
+
+// typed is a manager's correction: no business day, written at 21:00 plus n minutes.
+func (w correctionWorld) typed(dir string, h, m, n int) reportEvent {
+	return reportEvent{EmployeeID: w.who, Name: "Maria Borg", At: w.day(h, m), Direction: dir, Verdict: "ok", Manual: true,
+		CreatedAt: w.day(21, n)}
+}
+
+// TestReport_ACorrectingRecordCanOnlySHORTENWithABusinessDayToo is ADR 0011's table with the
+// engine's records carrying a business day (M15-06 step 3; ADR 0032 §A.6 "ADR 0011'in iki tablosu
+// S dolu varyantlarda da aynı sonucu verir"): the same four rows and the compensating pair give the
+// same figures as the S NULL table above -- and no row is a missing check-in. The one that needs
+// the (e) class to say so is "checkout typed too LATE": the engine's 20:00 checkout has the
+// manager's 17:00 before it, written later (W), and Monday's 09:00 check-in on its day (I) -- the
+// surplus, StartedEarlier, never OutWithoutIn.
+func TestReport_ACorrectingRecordCanOnlySHORTENWithABusinessDayToo(t *testing.T) {
+	t.Parallel()
+	w := newCorrectionWorld(t)
+	cases := []struct {
+		name           string
+		evs            []reportEvent
+		worked         time.Duration
+		open           int
+		startedEarlier int
+		applied        bool
+	}{
+		{"the truth, recorded once", []reportEvent{w.tapped("in", 9, 0), w.tapped("out", 17, 0)},
+			8 * time.Hour, 0, 0, true},
+		{"checkout tapped too EARLY, then corrected", []reportEvent{w.tapped("in", 9, 0), w.tapped("out", 12, 0), w.typed("out", 17, 0, 0)},
+			3 * time.Hour, 0, 1, false},
+		{"checkout tapped too LATE, then corrected -- the surplus is (e)", []reportEvent{w.tapped("in", 9, 0), w.typed("out", 17, 0, 0), w.tapped("out", 20, 0)},
+			8 * time.Hour, 0, 1, true},
+		{"check-in tapped too LATE, then corrected", []reportEvent{w.typed("in", 9, 0, 0), w.tapped("in", 10, 0), w.tapped("out", 17, 0)},
+			7 * time.Hour, 1, 0, false},
+		{"check-in tapped too EARLY, then corrected", []reportEvent{w.tapped("in", 8, 0), w.typed("in", 9, 0, 0), w.tapped("out", 17, 0)},
+			8 * time.Hour, 1, 0, true},
+		{"the compensating pair after a checkout tapped too early", []reportEvent{w.tapped("in", 9, 0), w.tapped("out", 12, 0),
+			w.typed("in", 12, 1, 0), w.typed("out", 17, 0, 1)},
+			7*time.Hour + 59*time.Minute, 0, 0, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := accumulate(c.evs, w.period, time.UTC, w.now)
+			if got.Totals.Worked != c.worked || got.Totals.Open != c.open || got.StartedEarlier != c.startedEarlier {
+				t.Errorf("worked %v open %d startedEarlier %d, want %v %d %d -- the S NULL table's figures",
+					got.Totals.Worked, got.Totals.Open, got.StartedEarlier, c.worked, c.open, c.startedEarlier)
+			}
+			if got.Totals.OutWithoutIn != 0 {
+				t.Errorf("OutWithoutIn = %d, want 0: a correction leaves no missing check-in behind it (ADR 0032 §A.6 (e))",
+					got.Totals.OutWithoutIn)
+			}
+			if applied := got.Totals.Worked == 8*time.Hour; applied != c.applied {
+				t.Errorf("the correction reached the total = %v, want %v", applied, c.applied)
+			}
+		})
+	}
+}
+
+// TestReport_AnOpenEntryLeftByACorrectionCanNEVERBeClosedWithABusinessDayToo is the uncloseable
+// chain with the engine's records carrying a business day (M15-06 step 3): the engine tapped
+// 10:00 in and 17:00 out, the manager types the 09:00 check-in and then three checkouts to close
+// it. The figures are the S NULL chain's -- 7 h, one open entry, StartedEarlier 1, 2, 3 -- and
+// none of the attempts is a missing check-in: each is a manager's row ((d), or (e) where it sorts
+// before the engine's 17:00).
+func TestReport_AnOpenEntryLeftByACorrectionCanNEVERBeClosedWithABusinessDayToo(t *testing.T) {
+	t.Parallel()
+	w := newCorrectionWorld(t)
+	base := []reportEvent{w.typed("in", 9, 0, 0), w.tapped("in", 10, 0), w.tapped("out", 17, 0)}
+	steps := []struct {
+		name           string
+		evs            []reportEvent
+		startedEarlier int
+		open           int
+	}{
+		{"the wrong pair", []reportEvent{w.tapped("in", 10, 0), w.tapped("out", 17, 0)}, 0, 0},
+		{"+ the correcting check-in", base, 0, 1},
+		{"+ one attempt to close it", append(append([]reportEvent(nil), base...), w.typed("out", 17, 0, 5)), 1, 1},
+		{"+ a second attempt", append(append([]reportEvent(nil), base...), w.typed("out", 17, 0, 5), w.typed("out", 17, 30, 10)), 2, 1},
+		{"+ a third attempt", append(append([]reportEvent(nil), base...), w.typed("out", 17, 0, 5), w.typed("out", 17, 30, 10),
+			w.typed("out", 18, 0, 15)), 3, 1},
+		// The manager's 17:00 sorting BEFORE the engine's (a smaller id): it closes 10:00 and the
+		// engine's 17:00 is the surplus (e) -- the same figures.
+		{"+ one attempt, sorted before the engine's checkout", append(append([]reportEvent(nil), base[:2]...),
+			w.typed("out", 17, 0, 5), w.tapped("out", 17, 0)), 1, 1},
+	}
+	for _, s := range steps {
+		t.Run(s.name, func(t *testing.T) {
+			got := accumulate(s.evs, w.period, time.UTC, w.now)
+			if got.Totals.Worked != 7*time.Hour || got.Totals.Open != s.open || got.StartedEarlier != s.startedEarlier ||
+				got.Totals.OutWithoutIn != 0 {
+				t.Errorf("worked %v open %d startedEarlier %d OutWithoutIn %d, want 7h %d %d 0",
+					got.Totals.Worked, got.Totals.Open, got.StartedEarlier, got.Totals.OutWithoutIn, s.open, s.startedEarlier)
+			}
+		})
+	}
 }
 
 // TestPersonHours_ManualArrivalsCountsARRIVALSAndSaysSo.

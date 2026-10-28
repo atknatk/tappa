@@ -41,6 +41,12 @@ func (f *shutdownResets) IssueForEmail(context.Context, string) ([]adminauth.Res
 // counts.
 func (f *shutdownResets) Withdraw(context.Context, uuid.UUID, uuid.UUID) error { return nil }
 
+func (f *shutdownResets) IssueForPerson(context.Context, string) (adminauth.PersonResets, error) {
+	return adminauth.PersonResets{}, nil
+}
+
+func (f *shutdownResets) WithdrawIdentity(context.Context, adminauth.ResetToken) error { return nil }
+
 func (f *shutdownResets) Consume(context.Context, adminauth.ResetToken, string) (adminauth.ConsumedReset, db.ResolvedPasswordReset, error) {
 	return adminauth.ConsumedReset{}, db.ResolvedPasswordReset{}, errors.New("not reached in this test")
 }

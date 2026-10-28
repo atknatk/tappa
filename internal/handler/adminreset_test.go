@@ -60,6 +60,12 @@ type fakeResets struct {
 	consumedWith  []string
 	consumePasswd []string
 
+	// personFor is what IssueForPerson returns for an address (M14-14, the flag on); identityWithdrawn
+	// counts WithdrawIdentity's calls.
+	personFor         map[string]adminauth.PersonResets
+	personCalls       int
+	identityWithdrawn int
+
 	// recipients is what NoticeRecipient reads for an administrator (M10 EM-9): the
 	// address "on the row". A missing entry is a row with nowhere to send to.
 	recipients     map[uuid.UUID]string
@@ -90,6 +96,28 @@ func (f *fakeResets) IssueForEmail(_ context.Context, email string) ([]adminauth
 		return nil, nil, err
 	}
 	return grants, kept, nil
+}
+
+func (f *fakeResets) IssueForPerson(_ context.Context, email string) (adminauth.PersonResets, error) {
+	f.mu.Lock()
+	f.personCalls++
+	f.issuedFor = append(f.issuedFor, email)
+	delay, err, p := f.issueDelay, f.issueErr, f.personFor[email]
+	f.mu.Unlock()
+	if delay > 0 && !p.Empty() {
+		time.Sleep(delay)
+	}
+	if err != nil {
+		return adminauth.PersonResets{}, err
+	}
+	return p, nil
+}
+
+func (f *fakeResets) WithdrawIdentity(context.Context, adminauth.ResetToken) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.identityWithdrawn++
+	return f.withdrawErr
 }
 
 func (f *fakeResets) Withdraw(_ context.Context, _, resetID uuid.UUID) error {
@@ -704,6 +732,28 @@ func TestAdminReset_SuccessSendsThePersonToSignIn(t *testing.T) {
 				"investigation reads to know the takeover's cookies died with the password",
 				d.RevokedSessions)
 		}
+	}
+}
+
+// TestAdminReset_ALinkedRowsRecoveryIsRecordedOnce (M14-08, ADR 0031 §5.9): a link of a row linked
+// to an identity is spent by identity_consume_row_reset, which writes admin.recovery.completed itself
+// (adminauth.ConsumedReset.Recorded); the handler writes none, and the person still lands on the
+// sign-in form.
+//
+// MUTATION (measured): the `!consumed.Recorded` guard removed -> 1 row here, red.
+func TestAdminReset_ALinkedRowsRecoveryIsRecordedOnce(t *testing.T) {
+	t.Parallel()
+	resets := &fakeResets{consumed: adminauth.ConsumedReset{
+		ResetID: uuid.New(), TenantID: uuid.New(), AdminUserID: uuid.New(), RevokedSessions: 2, Recorded: true,
+	}}
+	trail := &fakeTrail{}
+	router, _ := newResetRouter(t, resets, &recordingChannel{}, trail)
+	rec := submitLink(t, newBrowser(t, router), "qCq0TQlXqhQ0T2vJmMHhVh2mSpXk4rKzM0f7YyQvCJ8", "a-good-enough-password")
+	if rec.Code != http.StatusSeeOther || !strings.HasPrefix(rec.Header().Get("Location"), adminLoginPath) {
+		t.Fatalf("a linked row's recovery: %d %q, want 303 to the sign-in form", rec.Code, rec.Header().Get("Location"))
+	}
+	if n := trail.count(ActionAdminResetCompleted); n != 0 {
+		t.Fatalf("the handler wrote %d completed row(s) for a recovery the database already recorded", n)
 	}
 }
 

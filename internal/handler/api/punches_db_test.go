@@ -139,6 +139,8 @@ type punchRow struct {
 	ago      time.Duration
 	// at, when set, is the declared instant itself (the history query's tests); ago is then unused.
 	at *time.Time
+	// source is transactions.direction_source (M15-09); nil: NULL, as every row before M15-11.
+	source *string
 }
 
 // own is an ok tap on b's own plaque.
@@ -187,13 +189,13 @@ func (w *punchWorld) insertPunch(ctx context.Context, tx pgx.Tx, row punchRow) (
 	err := tx.QueryRow(ctx, `
 		INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel, type, practice,
 		                          site_tenant_id, site_location_id, site_tag_uid, ctr, sun_valid, entered_by,
-		                          note, source_ip, gps_lat, gps_lng, trust, policy_layer, matched_sid, policy_context)
+		                          note, source_ip, gps_lat, gps_lng, trust, policy_layer, matched_sid, policy_context, direction_source)
 		VALUES ($1, $2, $3, $4, coalesce($23::timestamptz, date_trunc('milliseconds', clock_timestamp()) - $5::interval), $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-		        $16, $17::inet, $18, $19, 77, $20, $21, $22::jsonb)
+		        $16, $17::inet, $18, $19, 77, $20, $21, $22::jsonb, $24)
 		RETURNING id`,
 		b.id, b.emp, location, tag, fmt.Sprintf("%d milliseconds", row.ago.Milliseconds()), row.verdict, row.channel, kind, row.practice,
 		siteTenant, siteLocation, siteTag, ctr, sun, enteredBy,
-		note, ip, lat, lng, layer, sid, pctx, row.at).Scan(&id)
+		note, ip, lat, lng, layer, sid, pctx, row.at, row.source).Scan(&id)
 	return id, err
 }
 
@@ -274,6 +276,7 @@ type feedRow struct {
 	empRef, empCode, empCompany       *string
 	locID                             *uuid.UUID
 	locRef, locName, locCompany, tag  *string
+	directionSource                   *string // 00067 (M15-13)
 }
 
 // feedOf is tenant's feed in seq order, as the owner (no RLS) reads it.
@@ -281,7 +284,8 @@ func (w *punchWorld) feedOf(tenant uuid.UUID) []feedRow {
 	w.r.t.Helper()
 	rows, err := w.r.owner.Query(w.ctx, `
 		SELECT seq, punch_id, employee_id, array_to_string(roles, ','), channel, direction, status, version, punch_time, recorded_at,
-		       employee_ref, employee_code, employee_company, location_id, location_ref, location_name, location_company, tag_uid
+		       employee_ref, employee_code, employee_company, location_id, location_ref, location_name, location_company, tag_uid,
+		       direction_source
 		  FROM punch_events WHERE tenant_id = $1 ORDER BY seq`, tenant)
 	if err != nil {
 		w.r.t.Fatal(err)
@@ -289,7 +293,7 @@ func (w *punchWorld) feedOf(tenant uuid.UUID) []feedRow {
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (feedRow, error) {
 		var f feedRow
 		err := r.Scan(&f.seq, &f.punch, &f.employee, &f.roles, &f.channel, &f.direction, &f.status, &f.version, &f.punchTime, &f.recordedAt,
-			&f.empRef, &f.empCode, &f.empCompany, &f.locID, &f.locRef, &f.locName, &f.locCompany, &f.tag)
+			&f.empRef, &f.empCode, &f.empCompany, &f.locID, &f.locRef, &f.locName, &f.locCompany, &f.tag, &f.directionSource)
 		return f, err
 	})
 	if err != nil {
@@ -336,6 +340,8 @@ func sameAsFeed(p punchBody, f feedRow) error {
 		return fmt.Errorf("location %+v, want the event's", p.Location)
 	case !eqStr(p.TagID, tag):
 		return fmt.Errorf("tagId %v, want %v", p.TagID, tag)
+	case !eqStr(p.DirectionSource, f.directionSource):
+		return fmt.Errorf("directionSource %v, want the event's %v", p.DirectionSource, f.directionSource)
 	}
 	return nil
 }
@@ -726,7 +732,8 @@ func TestPunches_NothingButTheFeedsColumnsAnswers(t *testing.T) {
 				}
 				for _, p := range raw.Data {
 					n++
-					if got := keysOf(p); !slices.Equal(got, []string{"channel", "direction", "employee", "id", "location", "punchTime", "recordedAt", "status", "tagId", "version"}) {
+					// directionSource: M15-13 (00067) -- who chose the direction, the one key v1 gained.
+					if got := keysOf(p); !slices.Equal(got, []string{"channel", "direction", "directionSource", "employee", "id", "location", "punchTime", "recordedAt", "status", "tagId", "version"}) {
 						t.Errorf("a punch's keys: %v", got)
 					}
 					var e, l map[string]json.RawMessage

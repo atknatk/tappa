@@ -47,16 +47,18 @@ type feedEvent struct {
 	punchTime, recordedAt, createdAt                time.Time
 	version                                         int32
 	status                                          string
+	directionSource                                 *string // 00067 (M15-13)
 }
 
-// feedEventsOf reads every event of punch, the employer's first.
+// feedEventsOf reads every event of punch, the employer's first. direction_source is read through the
+// row's JSON, so a walk below 00067 (no such column) reads it as nil instead of failing.
 func feedEventsOf(t *testing.T, ctx context.Context, q opQuerier, punch uuid.UUID) []feedEvent {
 	t.Helper()
 	rows, err := q.Query(ctx, `
 		SELECT tenant_id, punch_tenant_id, employee_id, seq, array_to_string(roles, ','), channel, direction, employee_ref, employee_code,
 		       employee_company, location_id, location_ref, location_name, location_company, tag_uid, punch_time, recorded_at,
-		       created_at, version, status
-		  FROM punch_events WHERE punch_id = $1
+		       created_at, version, status, to_jsonb(e) ->> 'direction_source'
+		  FROM punch_events AS e WHERE punch_id = $1
 		 ORDER BY (tenant_id = punch_tenant_id) DESC, tenant_id`, punch)
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +67,7 @@ func feedEventsOf(t *testing.T, ctx context.Context, q opQuerier, punch uuid.UUI
 		var e feedEvent
 		err := r.Scan(&e.tenant, &e.punchTenant, &e.employee, &e.seq, &e.roles, &e.channel, &e.direction, &e.employeeRef, &e.employeeCode,
 			&e.employeeCompany, &e.locationID, &e.locationRef, &e.locationName, &e.locationCompany, &e.tag, &e.punchTime,
-			&e.recordedAt, &e.createdAt, &e.version, &e.status)
+			&e.recordedAt, &e.createdAt, &e.version, &e.status, &e.directionSource)
 		return e, err
 	})
 	if err != nil {
@@ -121,6 +123,7 @@ type feedRow struct {
 	siteTag            *string
 	ctr                *int32
 	sunValid           *bool
+	source             *string // transactions.direction_source (00065); nil: NULL, every row before M15-11
 }
 
 // feedInsert writes r and returns its id.
@@ -134,10 +137,10 @@ func feedInsert(t *testing.T, ctx context.Context, tx pgx.Tx, r feedRow) (uuid.U
 	err := holdingAppIn(t, ctx, tx, r.tenant, func(sp pgx.Tx) error {
 		return sp.QueryRow(ctx, `
 			INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel, type, practice,
-			                          site_tenant_id, site_location_id, site_tag_uid, ctr, sun_valid)
-			VALUES ($1, $2, $3, $4, now() - interval '5 seconds', $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+			                          site_tenant_id, site_location_id, site_tag_uid, ctr, sun_valid, direction_source)
+			VALUES ($1, $2, $3, $4, now() - interval '5 seconds', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
 			r.tenant, r.employee, r.location, r.tag, r.verdict, r.channel, kind, r.practice,
-			r.site, r.siteLocation, r.siteTag, r.ctr, r.sunValid).Scan(&id)
+			r.site, r.siteLocation, r.siteTag, r.ctr, r.sunValid, r.source).Scan(&id)
 	})
 	return id, err
 }
@@ -252,7 +255,7 @@ func feedSetAsideRows(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	}
 }
 
-// feedBelow48 takes the savepoint's database below 00048 -- 00062's Down (GRP-1), 00060's Down (T124), 00058's (T130), 00055's (API-8), 00049's, then
+// feedBelow48 takes the savepoint's database below 00048 -- 00067's Down (M15-13), 00062's Down (GRP-1), 00060's Down (T124), 00058's (T130), 00055's (API-8), 00049's, then
 // 00048's -- with the
 // feed rows set aside first. The caller's savepoint is a holdingLockedSavepoint; the lock is taken
 // again here, as holdingBelow46 does.
@@ -260,6 +263,12 @@ func feedBelow48(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
 	holdingLockForDowns(t, ctx, sp)
 	feedSetAsideRows(t, ctx, sp)
+	// M15-13: 00067's Down first -- it gives 00049's two trigger bodies back before 00049's Down
+	// replaces holding_feed and drops punch_feed, and drops punch_events.direction_source; the rows
+	// are set aside above, so it does not refuse. Its one table lock is punch_events, in
+	// holdingDownTables. feedUpAgain gives it back.
+	_, down67 := opMigrationSections(t, ds00067File)
+	opRunSection(t, ctx, sp, down67, "00067 Down")
 	// API-8: 00055's Down first -- holding_directory is a definer's function and its four employees
 	// grants are the definer's, so a walk below 00047 must not find them (feedUpAgain gives them back).
 	// It takes no table lock; the directory's index is 00056's and is not walked.
@@ -284,7 +293,7 @@ func feedBelow48(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	opRunSection(t, ctx, sp, down48, "00048 Down")
 }
 
-// feedUpAgain runs 00048's, 00049's, 00055's, 00058's, 00059's, 00060's and 00062's Ups -- after feedBelow48 and whatever the test walked
+// feedUpAgain runs 00048's, 00049's, 00055's, 00058's, 00059's, 00060's, 00062's and 00067's Ups -- after feedBelow48 and whatever the test walked
 // below it, to compare with HEAD.
 func feedUpAgain(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
@@ -302,6 +311,10 @@ func feedUpAgain(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	opRunSection(t, ctx, sp, up60, "00060 Up again")
 	up62, _ := opMigrationSections(t, op00062File)
 	opRunSection(t, ctx, sp, up62, "00062 Up again")
+	// M15-13: 00067's Up last -- its precondition asks for 00049's two bodies, which the Ups above
+	// gave back.
+	up67, _ := opMigrationSections(t, ds00067File)
+	opRunSection(t, ctx, sp, up67, "00067 Up again")
 }
 
 func feedStr(p *string) string {
@@ -1088,8 +1101,10 @@ var feedTriggerOrder = map[string][]string{
 var feedWrittenColumns = map[string]string{
 	"site_punches": "tenant_id,id,transaction_id,employer_tenant_id,employer_api_code,employee_id,employee_ref,employee_code," +
 		"employee_name,site_location_id,site_tag_uid,ctr,sun_valid,bucket_hour,occurred_at,channel,type,outcome,ctr_gap,created_at",
+	// direction_source (M15-13, 00067): who chose the direction -- the site's row carries it too (ADR
+	// 0027 §9 item 3's K note).
 	"punch_events": "tenant_id,seq,punch_id,punch_tenant_id,roles,version,status,punch_time,recorded_at,channel,direction,employee_id," +
-		"employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,created_at",
+		"employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,created_at,direction_source",
 	// settled_at (T130, 00058): when the delivery arrived or died -- the retention's clock, the
 	// database's (its trigger), not a fact about the punch.
 	"webhook_deliveries": "tenant_id,id,endpoint_id,punch_event_seq,attempt,next_attempt_at,lease_until,state,last_status," +
@@ -1246,10 +1261,11 @@ var feedwriterMatrix = map[string]string{
 	"punch_events:INSERT":       feedEventInsertColumns,
 	"webhook_deliveries:INSERT": "tenant_id,endpoint_id,punch_event_seq",
 	"webhook_endpoints:SELECT":  "tenant_id,id,active",
-	"transactions:SELECT":       "id,tenant_id,employee_id,location_id,tag_uid,type,occurred_at,verdict,channel,practice,site_tenant_id",
-	"employees:SELECT":          "id,tenant_id,external_ref,employee_code",
-	"locations:SELECT":          "id,tenant_id,name,external_ref",
-	"tenants:SELECT":            "id,api_enabled_at,api_code",
+	// direction_source (M15-13, 00067): the approval arm's read of the approved row.
+	"transactions:SELECT": "id,tenant_id,employee_id,location_id,tag_uid,type,occurred_at,verdict,channel,practice,site_tenant_id,direction_source",
+	"employees:SELECT":    "id,tenant_id,external_ref,employee_code",
+	"locations:SELECT":    "id,tenant_id,name,external_ref",
+	"tenants:SELECT":      "id,api_enabled_at,api_code",
 }
 
 // TestFeedwriter_EveryGrantIsIndividuallyNecessary is plan §5 API-2 (o), ADR 0028 §4 ("bu modelde
@@ -1421,7 +1437,17 @@ func TestFeed00048And00049_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 	if !strings.Contains(head, "punch_feed") || !strings.Contains(head, "punch_events") || strings.Contains(head, feedHoldingFeed00046MD5) {
 		t.Fatalf("PREMISE at HEAD: %s", head)
 	}
+	up67, down67 := opMigrationSections(t, ds00067File)
 	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
+		// M15-13: the walk starts at 00066 -- 00067's Down first (it gives 00049's two bodies back), with
+		// any direction source another package committed set aside inside the savepoint -- and ends with
+		// 00067's Up again, so the last comparison is with HEAD itself.
+		feedSetAsideDirectionSources(t, ctx, sp)
+		opRunSection(t, ctx, sp, down67, "00067 Down")
+		at66 := read(sp)
+		if strings.Contains(at66, "direction_source") {
+			t.Fatalf("PREMISE after 00067's Down: a feed writer still reads direction_source: %s", at66)
+		}
 		w := feedWorldTx(t, ctx, sp, "")
 		before := feedMust(t, ctx, sp, w.own(w.kf, w.kfEmployee, w.kfVenue, w.kfTag, "nfc", "ok"))
 		seqBefore := feedEventsOf(t, ctx, sp, before)[0].seq
@@ -1455,8 +1481,8 @@ func TestFeed00048And00049_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		if ev := feedEventsOf(t, ctx, sp, before); len(ev) != 1 || ev[0].seq != seqBefore {
 			t.Errorf("00049's Up again rewrote an event: %+v", ev)
 		}
-		if again := read(sp); again != head {
-			t.Errorf("after 00049's Up again:\n %s\nwant HEAD's\n %s", again, head)
+		if again := read(sp); again != at66 {
+			t.Errorf("after 00049's Up again:\n %s\nwant 00066's\n %s", again, at66)
 		}
 		opRunSection(t, ctx, sp, down49, "00049 Down (2)")
 		opWant(t, holdingTryDown(t, ctx, sp, down48), sqlstatePrerequisiteState, "00048's Down while the feed holds events")
@@ -1469,10 +1495,34 @@ func TestFeed00048And00049_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		}
 		opRunSection(t, ctx, sp, up48, "00048 Up again")
 		opRunSection(t, ctx, sp, up49, "00049 Up again")
+		if again := read(sp); again != at66 {
+			t.Errorf("after the Ups again:\n %s\nwant 00066's\n %s", again, at66)
+		}
+		opRunSection(t, ctx, sp, up67, "00067 Up again")
 		if again := read(sp); again != head {
-			t.Errorf("after the Ups again:\n %s\nwant HEAD's\n %s", again, head)
+			t.Errorf("after 00067's Up again:\n %s\nwant HEAD's\n %s", again, head)
 		}
 	})
+}
+
+// feedSetAsideDirectionSources NULLs every punch_events.direction_source inside the caller's savepoint
+// (the append-only trigger off for the one UPDATE, on again) -- the events other packages' taps
+// committed would make 00067's Down refuse, which is that Down's own test, not the caller's. The
+// rollback restores them. The caller holds punch_events (holdingLockedSavepoint).
+func feedSetAsideDirectionSources(t *testing.T, ctx context.Context, sp pgx.Tx) {
+	t.Helper()
+	if opInt(t, ctx, sp, `SELECT count(*) FROM punch_events WHERE direction_source IS NOT NULL`) == 0 {
+		return
+	}
+	for _, s := range []string{
+		`ALTER TABLE punch_events DISABLE TRIGGER punch_events_no_mutation`,
+		`UPDATE punch_events SET direction_source = NULL WHERE direction_source IS NOT NULL`,
+		`ALTER TABLE punch_events ENABLE TRIGGER punch_events_no_mutation`,
+	} {
+		if _, err := sp.Exec(ctx, s); err != nil {
+			t.Fatalf("%s: %v", s, err)
+		}
+	}
 }
 
 // feedBackfillBlock cuts 00050's DO block from the file goose runs -- its COMMITs taken out (a

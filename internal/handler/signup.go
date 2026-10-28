@@ -3,15 +3,22 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
+	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/domain/signup"
+	"github.com/atknatk/tappa/web"
+	"github.com/atknatk/tappa/web/templates/email"
+	"github.com/atknatk/tappa/web/templates/layout"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -24,13 +31,13 @@ const (
 	signupPath        = "/signup"
 	signupPlacesPath  = "/signup/places"
 	signupAccountPath = "/signup/account"
-	signupDonePath    = "/signup/done"
 )
 
 // signupProvisioner is the slice of signup.Provisioner this package needs, declared
-// HERE at the consumer (§7).
+// HERE at the consumer (§7). Since M14-17 it takes a CONFIRMED draft's proof
+// (adminauth.ClaimProof), never the wizard's form.
 type signupProvisioner interface {
-	Provision(ctx context.Context, d signup.Draft) (signup.Result, error)
+	Provision(ctx context.Context, c signup.Claim) (signup.Result, error)
 }
 
 // vatChecker is the slice of signup.Checker this package needs (§7).
@@ -72,38 +79,36 @@ type vatChecker interface {
 //
 // WHAT IT DELIBERATELY DOES NOT DO:
 //
-//   - NOTHING ON THIS TYPE ASKS THE DATABASE WHETHER AN EMAIL EXISTS. That would be
-//     an enumeration oracle on an unauthenticated endpoint, and migration 00011's
-//     OBLIGATION 1 spends real effort making the LOGIN path refuse to answer that
-//     question. There is no field here through which a query could be made at all —
-//     this type holds a provisioner and a VAT checker, not a pool.
-//
-//     ⚠️ AND THE STATEMENT IS SCOPED TO **THIS TYPE**, WHICH IT WAS NOT WHEN IT FIRST
-//     READ "IT NEVER ASKS". internal/domain/signup DOES resolve the address, ONCE,
-//     AFTER the provisioning transaction has committed, to answer whether the row it
-//     just wrote can ever be reached by a sign-in (Provisioner.signInBlocked, and
-//     migration 00017 for why that question had to be answerable). It is not the same
-//     question and not the same price: it costs a COMPLETED registration rather than a
-//     request.
-//
-//     🔴 IT IS STILL A CHANNEL, AND THIS COMMENT USED TO DENY IT. It read "an address
-//     with one, two or seven existing accounts answers exactly as an unknown one
-//     does" — true only while the attacker plants nothing, which is the premise every
-//     other control in this area is built against.
-//     internal/domain/signup.Provisioner.signInBlocked carries the measurement, the
-//     price (adminauth.MaxCandidates completed registrations per address, ~3 hours
-//     from one address) and the fact that varying the plant count reveals k EXACTLY
-//     rather than one bit. It is counted and observable (signup.sign_in_unreachable),
-//     not closed. Writing "never" here while a sibling package does it would be the
-//     defect this task was blocked for twice — a sentence stating a guarantee wider
-//     than the one the product keeps.
+//   - NOTHING IT ANSWERS DEPENDS ON WHETHER AN EMAIL EXISTS (ADR 0031 §5.10, R18).
+//     Since M14-17 the last step DOES resolve the address -- adminauth.SignupClaims.Open
+//     asks resolve_identity_by_email which of the two letters the address gets -- and
+//     that answer reaches the MAILBOX and nothing else: the response, its status, its
+//     body and its time (signupClaimFloor) are the same for a new address and for one
+//     that already has a sign-in, and so is every log line. The address's owner, who
+//     reads the letter, is the only one told. signInBlocked and its
+//     signup.sign_in_unreachable row -- the channel this paragraph used to count -- are
+//     retired with the identity path (an address names at most one identity; there is
+//     no candidate window to fall outside of).
 //
 //     The VAT number is treated differently again, and internal/domain/signup says
 //     why: it is public data in a public register.
 //
-//   - IT DOES NOT SIGN ANYBODY IN. See Done.
+//   - IT DOES NOT SIGN ANYBODY IN. See ConfirmSubmit.
 type Signup struct {
 	provisioner signupProvisioner
+	// claims opens, reads and proves registration drafts (M14-17, signupconfirm.go).
+	claims signupClaimer
+	// delivery is how a link reaches the address; mailer and outbox exist only by e-mail.
+	delivery signupDelivery
+	mailer   SignupMailSender
+	outbox   *signupOutbox
+	// confirmBase is the link's page (cfg.BaseURL + signupConfirmPath); mailBase the base the
+	// letter renderer holds the link to.
+	confirmBase, mailBase string
+	// panelCookies reads the panel session of an existing identity's confirmation.
+	panelCookies adminauth.Cookies
+	// floor is signupClaimFloor; a field so a test can measure the arms without it.
+	floor time.Duration
 	// vat may be nil: every check then answers "not verified", which is stored as
 	// such. It is OPTIONAL rather than required because a deployment with no
 	// outbound network must still be able to register a customer — the whole point
@@ -114,23 +119,37 @@ type Signup struct {
 	state   signupState
 	// baseURL is this deployment's own origin, for the Origin header check.
 	baseURL string
+	// shareImage is the full URL of the wizard's share image (LP-13), resolved once in
+	// NewSignup from the configured origin, the way handler.Marketing resolves its
+	// pages' (shareImagesFor). "" draws none.
+	shareImage string
 
 	// See signupratelimit.go for what each may refuse.
 	floodLimiter   *limiter
 	checkLimiter   *limiter
 	attemptLimiter *limiter
 	createLimiter  *limiter
+	confirmLimiter *limiter
+	// claimLinkLimiter gates the identity-password branch per registration link (signupClaimLinkLimit).
+	claimLinkLimiter *limiter
+	// claimIdentityLimiter is the identity-password branch's own per-identity counter
+	// (signupClaimIdentityLimit; adminauth keys it per identity, never with the sign-in's key).
+	claimIdentityLimiter *limiter
 
 	log *slog.Logger
 }
 
-// NewSignup wires the wizard. The provisioner is required — a nil one would put a
-// "Create my account" button on a screen where pressing it panics, which is the
-// M5-04 shape (a capability delivered, tested and DEAD in the wired product because
-// two halves were never assembled).
-func NewSignup(p signupProvisioner, vat vatChecker, cfg *config.Config, log *slog.Logger) (*Signup, error) {
+// NewSignup wires the wizard. The provisioner and the claims are required -- a nil one would put a
+// button on a screen where pressing it panics, which is the M5-04 shape (a capability delivered,
+// tested and DEAD in the wired product because two halves were never assembled). mailer is the
+// registration letters' sender: required with TAPPA_RESET_DELIVERY=email, refused without it
+// (signupDeliveryFor). With e-mail it starts the letters' one worker; Drain stops it.
+func NewSignup(p signupProvisioner, claims signupClaimer, vat vatChecker, mailer SignupMailSender, cfg *config.Config, log *slog.Logger) (*Signup, error) {
 	if p == nil {
 		return nil, errors.New("handler: nil signup provisioner")
+	}
+	if claims == nil {
+		return nil, errors.New("handler: nil signup claims")
 	}
 	if cfg == nil {
 		return nil, errors.New("handler: nil config")
@@ -139,26 +158,53 @@ func NewSignup(p signupProvisioner, vat vatChecker, cfg *config.Config, log *slo
 	if err != nil {
 		return nil, err
 	}
+	delivery, err := signupDeliveryFor(cfg, mailer)
+	if err != nil {
+		return nil, err
+	}
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Signup{
+	base := strings.TrimRight(cfg.BaseURL, "/")
+	s := &Signup{
 		provisioner:    p,
+		claims:         claims,
+		delivery:       delivery,
+		mailer:         mailer,
+		confirmBase:    base + signupConfirmPath,
+		mailBase:       cfg.BaseURL,
+		panelCookies:   adminauth.NewCookies(cfg),
+		floor:          signupClaimFloor,
 		vat:            vat,
 		cookies:        newSignupCookies(cfg),
 		state:          st,
 		baseURL:        originOf(cfg.BaseURL),
+		shareImage:     shareImageURL(web.Static(), shareOrigin(cfg.BaseURL), pages.ShareImageFiles.Signup),
 		floodLimiter:   newLimiter(signupFloodLimit, signupFloodPeriod),
 		checkLimiter:   newLimiter(signupCheckLimit, signupCheckPeriod),
 		attemptLimiter: newLimiter(signupAttemptLimit, signupAttemptPeriod),
 		createLimiter:  newLimiter(signupCreateLimit, signupCreatePeriod),
+		confirmLimiter: newLimiter(signupConfirmLimit, signupConfirmPeriod),
 		log:            log,
-	}, nil
+	}
+	s.claimLinkLimiter = newLimiter(signupClaimLinkLimit, signupClaimLinkPeriod)
+	s.claimIdentityLimiter = newLimiter(signupClaimIdentityLimit, signupClaimIdentityPeriod)
+	if delivery == signupByEmail {
+		// The letter must be buildable from TAPPA_BASE_URL, asked once at boot (NewEmailResetChannel's
+		// reason): otherwise every draft would be opened and never delivered.
+		if _, err := email.RenderSignupVerification(context.Background(), s.confirmBase+"?t=probe",
+			email.SignupView{BaseURL: cfg.BaseURL, ValidFor: time.Hour}); err != nil {
+			return nil, fmt.Errorf("handler: the registration letter cannot be built from TAPPA_BASE_URL: %w", err)
+		}
+		s.outbox = newSignupOutbox(signupOutboxSize)
+		go s.work()
+	}
+	return s, nil
 }
 
 // Mount registers the routes.
 //
-// SEVEN ROUTES, THREE FORMS AND ONE CONFIRMATION. Every POST answers 303 rather
+// NINE ROUTES, FOUR FORMS, "CHECK YOUR INBOX" AND THE LINK'S PAGE (M14-17). Every POST answers 303 rather
 // than rendering, which is the shape adminlogin.go argues for and it matters more
 // here: a rendered POST means a refresh RE-SUBMITS, and on the last step that would
 // mean a second registration attempt with the same password.
@@ -174,7 +220,9 @@ func (s *Signup) Mount(r chi.Router) {
 	r.Post(signupPlacesPath, s.SubmitPlaces)
 	r.Get(signupAccountPath, s.Account)
 	r.Post(signupAccountPath, s.SubmitAccount)
-	r.Get(signupDonePath, s.Done)
+	r.Get(signupSentPath, s.Sent)
+	r.Get(signupConfirmPath, s.Confirm)
+	r.Post(signupConfirmPath, s.ConfirmSubmit)
 }
 
 // The failure screens. They follow adminlogin.go's shape: ONE view used for several
@@ -215,7 +263,7 @@ var (
 
 // Business serves GET /signup — step one of three.
 func (s *Signup) Business(w http.ResponseWriter, r *http.Request) {
-	if s.flooded(w, r, "signup_business") {
+	if s.flooded(w, r, "signup_business") || s.closed(w, r) {
 		return
 	}
 	// A FRESH synchronizer pair on every render of the FIRST step, and only there. It
@@ -235,6 +283,10 @@ func (s *Signup) Business(w http.ResponseWriter, r *http.Request) {
 	// leaving it would let a stale draft survive into a new registration.
 	s.cookies.clear(w, signupStateCookieName)
 	s.render(w, r, http.StatusOK, pages.SignupBusiness(pages.SignupBusinessView{
+		// The share card is the wizard's first screen only: it is the address a link
+		// to sign-up names, and the later steps and the refused re-renders are
+		// answers to a form, not pages anybody shares.
+		Share:     layout.Share{Description: pages.SignOffLine(foundingFreeMonths), Image: s.shareImage},
 		CSRFToken: st.csrf,
 		Types:     businessTypeOptions(),
 	}))
@@ -253,7 +305,7 @@ func (s *Signup) Business(w http.ResponseWriter, r *http.Request) {
 //	VIES           LAST, and only for a number that passed the FORMAT check, so
 //	               garbage costs no outbound request.
 func (s *Signup) SubmitBusiness(w http.ResponseWriter, r *http.Request) {
-	if s.flooded(w, r, "signup_business_post") {
+	if s.flooded(w, r, "signup_business_post") || s.closed(w, r) {
 		return
 	}
 	st, ok := s.beginPost(w, r, "signup_business_post")
@@ -350,7 +402,7 @@ func (s *Signup) checkVAT(r *http.Request, normalisedVAT string) signup.VATStatu
 
 // Places serves GET /signup/places — step two.
 func (s *Signup) Places(w http.ResponseWriter, r *http.Request) {
-	if s.flooded(w, r, "signup_places") {
+	if s.flooded(w, r, "signup_places") || s.closed(w, r) {
 		return
 	}
 	st, d, ok := s.readState(w, r, 1)
@@ -362,7 +414,7 @@ func (s *Signup) Places(w http.ResponseWriter, r *http.Request) {
 
 // SubmitPlaces serves POST /signup/places.
 func (s *Signup) SubmitPlaces(w http.ResponseWriter, r *http.Request) {
-	if s.flooded(w, r, "signup_places_post") {
+	if s.flooded(w, r, "signup_places_post") || s.closed(w, r) {
 		return
 	}
 	st, ok := s.beginPost(w, r, "signup_places_post")
@@ -419,7 +471,7 @@ func (s *Signup) SubmitPlaces(w http.ResponseWriter, r *http.Request) {
 
 // Account serves GET /signup/account — step three.
 func (s *Signup) Account(w http.ResponseWriter, r *http.Request) {
-	if s.flooded(w, r, "signup_account") {
+	if s.flooded(w, r, "signup_account") || s.closed(w, r) {
 		return
 	}
 	st, d, ok := s.readState(w, r, 2)
@@ -441,7 +493,7 @@ func (s *Signup) Account(w http.ResponseWriter, r *http.Request) {
 // attempt budget is checked here and nowhere else, and why the create budget is
 // charged only after the transaction commits.
 func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
-	if s.flooded(w, r, "signup_account_post") {
+	if s.flooded(w, r, "signup_account_post") || s.closed(w, r) {
 		return
 	}
 	st, ok := s.beginPost(w, r, "signup_account_post")
@@ -512,8 +564,9 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The create budget is checked BEFORE the transaction and charged after it
-	// succeeds, so a refused attempt costs no rows and a failed one costs no budget.
+	// The create budget is checked BEFORE the draft is opened and charged after it is,
+	// so a refused attempt costs no row and a failed one costs no budget. Since M14-17
+	// it counts DRAFTS (ADR 0031 §5.10: signupCreateLimit + the per-recipient cap).
 	if !s.createLimiter.Allowed(ip) {
 		if n := s.createLimiter.Charge(ip); s.createLimiter.FirstOverLimit(n) {
 			s.log.Warn("signup rate limited", "scope", "create", "ip", ip,
@@ -524,129 +577,72 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	s.attemptLimiter.Charge(ip)
 
-	res, err := s.provisioner.Provision(r.Context(), signup.Draft{
-		Business: d.business(),
-		Venues:   d.venues(),
-		Account:  account,
-	})
+	// 🔴 FROM HERE TO THE RESPONSE THE TWO ADDRESSES ARE ONE (R18): a new address and one
+	// that already has a sign-in pay the same bcrypt, the same resolver read and the same
+	// insert (adminauth.SignupClaims.Open), the letter is chosen in memory and sent by the
+	// outbox, and the response waits for the same floor. Nothing below branches on which.
+	start := time.Now()
+	draft, valid, err := signup.EncodeDraft(signup.Draft{Business: d.business(), Venues: d.venues(), Account: account})
+	if err != nil {
+		// Unreachable through the wizard (every step validated as it was posted).
+		s.log.Error("signup: the registration did not encode", "err", err)
+		s.problem(w, r, http.StatusInternalServerError, problemSignupServer)
+		return
+	}
+	grant, err := s.claims.Open(r.Context(), valid.Account.Email, account.Password, draft)
 	switch {
-	case errors.Is(err, signup.ErrVATTaken):
-		// The one failure the visitor can act on, and the one place this flow
-		// deliberately answers a question about existing data. internal/domain/signup
-		// argues why a VAT number is different from an email address: it is public in
-		// a public register, so refusing to say costs a real customer the sentence
-		// that tells them what to do and buys an attacker nothing.
-		//
-		// 🔴 IT SENDS THEM BACK TO STEP ONE, WHERE THE FIELD IS. Re-rendering the
-		// account form with a VAT error attached would put the message on a page that
-		// does not contain the input it is about.
-		// The state cookie is left ALONE — it still carries step two and the venue
-		// list, so correcting the number and posting step one again keeps everything
-		// the visitor already typed (SubmitBusiness carries it forward).
-		s.log.Info("signup refused: the VAT number is already registered", "ip", ip)
-		s.render(w, r, http.StatusConflict, pages.SignupBusiness(pages.SignupBusinessView{
-			CSRFToken:    st.csrf,
-			Types:        businessTypeOptions(),
-			Name:         d.Name,
-			VATNumber:    d.VATNumber,
-			BusinessType: d.BusinessType,
-			Structure:    d.Structure,
-			Errors: map[string]string{
-				"vat_number": "That VAT number is already registered with Taptime. If this is your " +
-					"business, sign in instead of registering again.",
-			},
-			SignInHref: adminLoginPath,
+	case errors.Is(err, pgx.ErrNoRows):
+		// The database refused the draft: an address it will not store (the ASCII address rule --
+		// the caller's bytes decide this, never server state, so the answer reveals nothing).
+		s.render(w, r, http.StatusUnprocessableEntity, pages.SignupAccount(pages.SignupAccountView{
+			CSRFToken:     st.csrf,
+			BusinessName:  d.Name,
+			Venues:        d.Venues,
+			HoneypotField: signupHoneypotField,
+			FullName:      echoSafe(account.FullName),
+			Email:         echoSafe(account.Email),
+			Errors:        map[string]string{"email": "We cannot send email to that address. Use one written in plain letters, without accents."},
 		}))
 		return
 	case err != nil:
-		s.log.Error("signup: provisioning failed", "err", err)
+		s.log.Error("signup: opening the registration draft failed", "err", err)
 		s.problem(w, r, http.StatusInternalServerError, problemSignupServer)
 		return
 	}
 	s.createLimiter.Charge(ip)
+	// Logged BEFORE the hand-over, so the worker's line can only follow it: the two addresses' logs are
+	// the same lines in the same order (CI run 40475667781 measured the race the other order left).
+	s.log.Info("signup: a registration draft was opened", "claim_id", grant.ClaimID, "ip", ip)
+	link := s.dispatch(r, grant)
 
-	// THE DONE PAGE IS A REDIRECT TARGET, NOT THIS RESPONSE. A rendered POST means a
-	// refresh re-submits, which here would mean a second registration attempt.
-	//
-	// WHAT CARRIES THE RESULT ACROSS THE REDIRECT is the same signed cookie the
-	// wizard already uses, re-minted at step 3. It holds a business name, the venue
-	// names and one VIES verdict — all of which the visitor just typed or was already
-	// shown — and NO id, NO email and NO token. So the done screen needs no query
-	// parameter and nothing about the new tenant reaches an address bar, browser
-	// history or a Referer.
-	done := signupDraft{
-		Name:      res.BusinessName,
+	// The "Check your inbox" page is a redirect target (a refresh must not open a second
+	// draft). The signed state carries the business name and -- only where the link is
+	// shown on screen -- the link; never the address and never which letter.
+	sent := signupDraft{
+		Name:      d.Name,
 		VATNumber: d.VATNumber,
-		VATCheck:  res.VAT.String(),
-		Venues:    res.VenueNames,
+		VATCheck:  d.VATCheck,
 		Structure: d.Structure,
-		Blocked:   res.SignInBlocked,
-		Step:      3,
-		// A FRESH stamp, unlike every other transition. The wizard's TTL measured how
-		// long somebody had to FILL THE FORM; from here it measures how long the
-		// confirmation stays readable on a reload, which is a different clock.
+		Link:      link,
+		Step:      signupDoneStep,
+		// A FRESH stamp: from here it measures how long "Check your inbox" stays readable.
 		Issued: 0,
 	}
-	blob, err := s.state.mint(done, st.bind)
+	blob, err := s.state.mint(sent, st.bind)
 	if err != nil {
-		// The business EXISTS at this point. Losing the confirmation screen must not
-		// read as a failed registration, so this is an error to us and a redirect to
-		// the sign-in page for them.
-		s.log.Error("signup: the business was created but its confirmation could not be minted",
-			"tenant_id", res.TenantID, "err", err)
-		s.redirect(w, adminLoginPath)
-		return
+		s.log.Error("signup: the draft was opened but its page could not be minted", "claim_id", grant.ClaimID, "err", err)
+	} else {
+		s.cookies.set(w, signupStateCookieName, blob)
 	}
-	s.cookies.set(w, signupStateCookieName, blob)
-	s.redirect(w, signupDonePath)
-}
-
-// Done serves GET /signup/done — the APPROVED docket the card asks for.
-//
-// 🔴 IT DOES NOT SIGN ANYBODY IN, AND THAT IS A DECISION WITH A COST. handoff §9's
-// portal ends at "Go to my dashboard"; this ends at the sign-in page with the
-// address they just registered. Two reasons, and the first is the one that decides
-// it: issuing a panel session here would put adminauth.Manager — a session codec, a
-// token minter and a database write — on a type whose whole security argument is
-// that it holds none of those, on the one unauthenticated surface in this product
-// that writes. The second is that a customer who signs in once, immediately, has
-// proved to themselves that the password they just chose works, which is worth more
-// than one saved click on the day they set up payroll evidence.
-//
-// THE COST IS ONE EXTRA STEP and it is named here rather than left as a surprise for
-// whoever reads handoff §9 next.
-func (s *Signup) Done(w http.ResponseWriter, r *http.Request) {
-	if s.flooded(w, r, "signup_done") {
-		return
+	if wait := s.floor - time.Since(start); wait > 0 {
+		t := time.NewTimer(wait)
+		select {
+		case <-t.C:
+		case <-r.Context().Done():
+			t.Stop()
+		}
 	}
-	_, d, ok := s.readState(w, r, 3)
-	if !ok {
-		return
-	}
-	// The confirmation is spent: both cookies are cleared so a shared browser does
-	// not keep a finished registration lying around, and so a reload after a back
-	// button shows the honest "that expired" screen rather than a second APPROVED
-	// stamp over a business that was created once.
-	s.cookies.clear(w, signupStateCookieName)
-	s.cookies.clear(w, signupCookieName)
-	if d.Blocked {
-		// 🔴 THE ONE CASE WHERE THE CONFIRMATION MUST NOT SAY "SIGN IN". The account
-		// exists and cannot be used: internal/domain/signup MEASURED that this address
-		// resolves past the window a login compares. Sending them to a form that
-		// answers 401 with no explanation — because 00011's OBLIGATION 1 forbids one —
-		// is the defect an audit found under the APPROVED stamp.
-		s.log.Warn("signup: the new account cannot be reached by sign-in",
-			"ip", clientIP(r), "venues", len(d.Venues))
-	}
-	s.render(w, r, http.StatusOK, pages.SignupDone(pages.SignupDoneView{
-		BusinessName:  d.Name,
-		Venues:        d.Venues,
-		VATNumber:     d.VATNumber,
-		VATVerified:   d.VATCheck == signup.VATValid.String(),
-		VATRefused:    d.VATCheck == signup.VATInvalid.String(),
-		SignInBlocked: d.Blocked,
-		SignInHref:    adminLoginPath,
-	}))
+	s.redirect(w, signupSentPath)
 }
 
 // ------------------------------------------------------------------ plumbing --

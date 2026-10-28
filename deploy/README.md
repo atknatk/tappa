@@ -80,7 +80,8 @@ küme kapsamlı olanlar **hâlâ 3**, çünkü `CronJob` namespace'li):
 > `CronJob`'ı. İkisi de namespace'li, yani küme kapsamlı sayı **hâlâ 3**. `--dry-run=client`
 > ölçümü orkestratörün küme adımlarında.
 > ⚠️ 2026-10-10 (T112): `41-operator-ingress.yaml`'ın iki `Ingress`'i (namespace'li) →
-> **Güncel sayım: 20/3/17** (toplam / küme kapsamlı / namespace'li). Bu satır artık elle
+> ⚠️ 2026-10-26 (M14-10a): `40-ingress.yaml`'ın üçüncü `Ingress`'i (`tappa-panel`, namespace'li) →
+> **Güncel sayım: 21/3/18** (toplam / küme kapsamlı / namespace'li). Bu satır artık elle
 > tutulmuyor: `TestPackaging_TheReadmeCountsTheManifestObjects` dosyalardaki sütun-0 `kind:`
 > satırlarını sayar (yukarıdaki `grep`'in aynısı), türleri kapsamına göre ayırır ve bu çapayı
 > arar — bir manifest eklenip sayı güncellenmezse kırmızı. `--dry-run=client` ölçümü yine
@@ -1926,6 +1927,46 @@ Sonra `main`'e birleştir; deploy `00069` ve `00070`'i uygular.
   değiştirmeden reddeder; Job `Failed` olur): uzantı `01-roles.sql`'deki gibi `public`'te kurulur ya da
   yetki düzeltilir, sonra yeniden denenir.
 
+  **İkinci ön kontrol — adres kuralı (M14-08a, ADR 0031 §5.1'in 2026-10-26 notu; kullanıcı koşar,
+  salt okuma, yalnız sayı).** `00073`'ün backfill'i her dolu e-posta grubuna, grubun seçilen satırının
+  **yazımıyla** kimlik doğurur ve citext U+0130'u (`İ` → `i`) ve U+212A'yı (KELVIN SIGN → `k`) ASCII'ye
+  katlar: yazdırılabilir ASCII olmayan bir satır seçilirse kimlik postanın gidemeyeceği bir yazımla
+  doğar ve gerçek posta kutusunun sahibi o adrese bir daha sıfırlama alamaz. `00073` uygulanmış bir
+  migration'dır (geliştirme ve CI veritabanlarında) ve değiştirilmez (CLAUDE.md §6); kuralın backfill
+  tarafı bu sayımdır. `tappa_owner` ile, backfill'in aday kümesi (`email` dolu ve boş değil) üzerinde:
+
+  ```sql
+  BEGIN READ ONLY;
+  SELECT count(*)                                                AS backfill_candidates,
+         count(*) FILTER (WHERE email::text !~ '^[\x21-\x7e]+$') AS not_printable_ascii,
+         count(*) FILTER (WHERE NOT (octet_length(email::text) <= 254
+                                AND strpos(email::text, '=?') = 0
+                                AND email::text ~ '^[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*@([-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*|\[((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|(([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|([0-9A-Fa-f]{1,4}:){6}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,6})?|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,5})?|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,4})?|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,3})?|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,2})?|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,1})?|([0-9A-Fa-f]{1,4}:){5}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4})?|([0-9A-Fa-f]{1,4}:){6}[0-9A-Fa-f]{1,4}::|::([0-9A-Fa-f]{1,4}:){0,5}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,4}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,2}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,1}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])))\])$')) AS failing_send_rule
+    FROM admin_users
+   WHERE email IS NOT NULL AND btrim(email::text) <> '';
+  ROLLBACK;
+  ```
+
+  (Üçüncü sayımın yüklemi `00076`'nın 6b'sidir, `v_email` yerine `email`; desen dosyadaki ile bayt
+  bayt aynıdır — `TestIdentityAddressRule_TheRunbookCountsWithThePattern`.)
+
+  beklenen: `not_printable_ascii` = **0** (M14-02'nin 2026-10-22 sayılarıyla `4|0|0`). **0 değilse deploy
+  yapılmaz — DUR**: o satırlar adıyla değil yalnız sayıyla bilinir (adres log'a ve bu dosyaya yazılmaz,
+  CLAUDE.md §7); ne yapılacağı kullanıcının kararıdır. `email::text` dönüşümü şarttır: citext'in kendi
+  `~`'ı harf büyüklüğüne duyarsızdır. İkinci sayım `mail.ValidRecipient`'in ASCII yarısıdır (0x21–0x7e;
+  boşluk, denetim karakteri, DEL ve 0x80 üstü her bayt sayılır); homoglif tehdidi tam bu kümedir. **Üçüncü
+  sayım kuralın tamamıdır:** ikinciye ek olarak ASCII ama biçimi bozuk adresler (`a..b@x.mt`, `"q"@x.mt` —
+  eski `deliverableShape`'in geçirdiği şekiller). Böyle bir satır citext'te başka bir adrese katlanmaz
+  (ASCII'de citext yalnız harf büyüklüğünü katlar), yani gasp değildir; ama backfill ona postanın
+  gidemeyeceği bir adresle kimlik doğurur. Bu **adlandırılmış kalıntıdır** (ADR 0031 §5.8'in M14-08a
+  notu): kendi başına DUR değildir, `failing_send_rule − not_printable_ascii` sayısı deploy'dan önce
+  kullanıcıya bildirilir. **Pencere `00076`'da kapanır:** bu sayım ile `00073`'ün koşması arasında eski
+  binary hâlâ her UTF-8 adresi alır; `00076`'nın Up'ı aynı goose koşusunda yazdırılabilir ASCII olmayan
+  bir kimlik görürse **yalnız sayıyla** hata verir — migrate Job `Failed`, rollout yok, karar
+  kullanıcının. Ölçüm (2026-10-27, bu dalın veritabanı, goose 76): `293|0|0` (testlerin bıraktığı satırlarla); geri alınan bir
+  transaction'da U+0130'lu, U+212A'lı ve başı boşluklu üç satır ve `a..b@` biçimli bir satır eklenince
+  `298|3|4`, düz ASCII olan sayılmadı.
+
 **Eski binary yeni şemada çalışır** (ADR 0031 §8 expand): kayıt `identity_id NULL` ile satır yazar,
 oturum `authenticated_at`'i varsayılandan alır; `tappa_app`'ın `admin_users` okuması sütun listesine
 indi ama bugünkü hiçbir sorgu o listenin dışını okumaz
@@ -1988,6 +2029,79 @@ beklenen (2026-10-22 sayılarıyla): `3|3|1`.
 kimliklerden biri backfill'den sonra **yaşamışsa** (başka yolla bağlanmış bir satır, ret damgası,
 doğrulanmış adres, onay penceresi, giriş, son kullanılan işletme ya da başka bir tablodan ona işaret eden
 satır) hiçbir şeyi değiştirmeden **reddeder** — geri dönüş önceki binary'dir (ADR 0031 §8).
+
+### Kimlik başına sıfırlama (M14-14) — `00075` ve canlı kimlik linklerinin acil iptali
+
+- **`00075`** `resolve_identity_by_email` ve `identity_consume_reset`'i `DROP` + `CREATE` ile yeniden
+  tanımlar (dönüşlerine kimliğin kayıtlı adresi eklenir — ADR 0031 §5.2'nin 2026-10-26 notu). Tablo
+  kilidi yok; o an giriş yapan istek fonksiyonun kilidini bir transaction boyu bekler. Eski binary
+  `resolve_identity_by_email`'i sütun adlarıyla okur ve yeni tanımda çalışır; `identity_consume_reset`'i
+  çağırmaz. Yeni yetki yok. Down 00071/00072 tanımlarını bayt bayt geri koyar.
+- **Bayrak bir kesme anahtarı DEĞİLDİR.** `TAPPA_ADMIN_IDENTITY=off` yalnız yeni kimlik linki basılmasını
+  durdurur; basılmış bir kimlik linki ömrü (1 saat) boyunca **harcanabilir** — tüketim bayraktan
+  bağımsızdır (ADR 0031 §8: yazma yolları kapılanmaz). Canlı kimlik linklerini hemen öldürmek gerekirse
+  (sızmış bir posta kutusu, hatalı bir gönderim), `tappa_owner` ile. **Önce rol denetimi** —
+  `admin_identity_resets` FORCE RLS altında ve politikasız; BYPASSRLS olmayan bir rol aşağıdaki sayımdan
+  da UPDATE'ten de **sessizce 0** alır. Şu satır `t` dönmeli, dönmüyorsa durulur:
+
+  ```sql
+  SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user;
+  ```
+
+  sonra salt okuma sayımı:
+
+  ```sql
+  BEGIN READ ONLY;
+  SELECT count(*) FROM admin_identity_resets WHERE used_at IS NULL AND cancelled_at IS NULL AND expires_at > now();
+  ROLLBACK;
+  ```
+
+  sonra iptal — yüklemi sayımınkiyle **aynı** (süresi dolmuş linklere dokunmaz: onların "expired" izi
+  "superseded"e dönmesin); dönen satır sayısı yukarıdakine yakın olmalı, çok farklıysa `ROLLBACK`:
+
+  ```sql
+  BEGIN;
+  SET LOCAL lock_timeout = '1s';
+  UPDATE admin_identity_resets SET cancelled_at = now() WHERE used_at IS NULL AND cancelled_at IS NULL AND expires_at > now();
+  COMMIT;
+  ```
+
+  Yalnız `cancelled_at` değişir (geri çekmenin kendisi — `identity_withdraw_reset`'in yazdığı sütun);
+  link satırı silinmez, kimliğe ve üyeliklere dokunulmaz. İptal edilen linki tıklayan kişi tek tip "That
+  link no longer works" ekranını görür ve yeni bir link isteyebilir (bayrak açıksa kimlik linki, kapalıysa
+  satır başı link). Satır başı linkler (`password_resets`) bu ifadenin kapsamında değildir.
+
+### Adres kuralı (M14-08a) — `00076`
+
+- **`00076`** `identity_create_for_signup`'ı aynı imzayla (`CREATE OR REPLACE`) yeniden tanımlar: kaydın
+  adresi `mail.ValidRecipient`'ten geçmiyorsa (254 oktet, `=?` yok, yazdırılabilir ASCII'de net/mail'in
+  kendine geri verdiği addr-spec) kimlik doğmaz ve satır bağlanmaz; adresin e-posta-geniş okuması
+  yazdırılabilir ASCII olmayan bir satırı artık saymaz (bir homoglif satırı gerçek adresin kimliğini
+  engellemesin). Tablo kilidi yok, yeni yetki yok; eski binary aynı çağrıyı yapar ve ASCII olmayan
+  adreste `false` alır (satır bağlanmamış doğar — bilinen bir adres gibi). `admin_identities.email`'e
+  CHECK **eklenmedi**: ölçüldü, ihlalin `DETAIL`'i adresi ve digest'i hataya ve sunucu log'una basar
+  (00076'nın başlığı). Down 00074'ün gövdesini bayt bayt geri koyar.
+- Kayıt formu aynı kuralı sınırda uygular (`signup.ValidateAccount`); giriş ve sıfırlama formları yalnız
+  arar, değişmedi. Backfill'in tarafı yukarıdaki ikinci ön kontroldür (Expand deploy'undan önce).
+- **Up'ın kendi iddiası:** koşan rol superuser ya da BYPASSRLS değilse, ya da yazdırılabilir ASCII
+  olmayan adresli tek bir kimlik varsa (`00073` onu önceki ön kontrolün görmediği bir satırdan doğurmuş
+  olabilir), dosya hiçbir şey değiştirmeden **yalnız sayıyla** hata verir.
+- **Migrate'ten sonra** (salt okuma, yalnız sayı; `tappa_owner`):
+
+  ```sql
+  BEGIN READ ONLY;
+  SELECT count(*)                                                AS identities,
+         count(*) FILTER (WHERE email::text !~ '^[\x21-\x7e]+$') AS not_printable_ascii,
+         count(*) FILTER (WHERE NOT (octet_length(email::text) <= 254
+                              AND strpos(email::text, '=?') = 0
+                              AND email::text ~ '^[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*@([-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*|\[((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|(([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|([0-9A-Fa-f]{1,4}:){6}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,6})?|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,5})?|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,4})?|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,3})?|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,2})?|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,1})?|([0-9A-Fa-f]{1,4}:){5}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4})?|([0-9A-Fa-f]{1,4}:){6}[0-9A-Fa-f]{1,4}::|::([0-9A-Fa-f]{1,4}:){0,5}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,4}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,2}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,1}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])))\])$')) AS failing_send_rule
+    FROM admin_identities;
+  ROLLBACK;
+  ```
+
+  beklenen: `not_printable_ascii` = 0 (00076 bunu garanti eder) ve `failing_send_rule` = ön kontrolün
+  üçüncü sayımı eksi ikincisi (backfill'in ASCII ama biçimi bozuk kalıntısı; 2026-10-22 sayılarıyla
+  `3|0|0`; bu dalın veritabanında 2026-10-27: `0|0|0`).
 
 ### Uzlaştırma (M14-06b) — `00074`
 
@@ -2084,6 +2198,73 @@ ona işaret eden başka bir tablo satırı) hiçbir şeyi değiştirmeden **redd
 yalnız `00074`'ün verdiği iki yetkiyi geri alır (`admin_users` `SELECT (password_hash)`, `admin_identities`
 `INSERT (email, password_hash)`). Canlıda koşulmaz — geri dönüş önceki binary'dir (ADR 0031 §8).
 Contract B (M14-20b) fonksiyonu düşürür.
+
+### Panel formlarının tenant bağı (M14-10a)
+
+Her panel POST formunun `action`'ı `?tb=<bağ>` taşır (ADR 0031 §5.5): oturumun işletmesinin, oturumun
+**ham** token'ından türetilmiş anahtarla MAC'i (`internal/adminauth/formbind.go`). İki yazma zinciri
+(`ProtectWriting`, `protectWritingThroughSuspension`) bağı gövdeye dokunmadan, askı halkasından ve her
+yazmadan **önce** karşılaştırır; uyuşmazsa **409** *"This page belongs to another business — reload it."*
+Bayraktan bağımsız, her zaman açık. Tek adlandırılmış istisna plaket encode rölesinin üç rotası (form
+değil; Android rölesi sayfa çizmez ve bağı öğrenemez — kullanıcı kararı 2026-10-26, ADR 0031 §5.5'in
+M14-10a notu 1; onları Origin, oturum, oturum bütçesi, askı ve encode tavanı korumaya devam eder).
+
+**Adlandırılmış bedeller:**
+
+- **Bu binary'nin rollout'u:** eski binary'nin çizdiği sayfalarda bağ yok. Rollout'tan sonra açık kalmış
+  her panel formu **bir kez** 409 alır ve hiçbir şey yazmaz; sayfayı yenilemek çözer. Destek cümlesi:
+  *"sayfayı yenileyin"*.
+- **`TAPPA_SESSION_HMAC_KEY` rotasyonu:** aynı anahtar hem `admin_sessions.token_hash`'i
+  (`internal/adminauth/token.go`, `deriveKey`) hem bağı anahtarlar. Rotasyonda **önce oturumlar ölür**:
+  açık bir formun POST'u çözümleyicide düşer ve `303 → /admin/login` alır (409 değil), hiçbir şey
+  yazılmaz; herkes yeniden girer. İleride oturumları rotasyondan geçiren bir ikili anahtar eklenirse açık
+  formların payı 409 olur. İki durumda da bedel: açık her panel formu bir kez reddedilir.
+
+**Bağ hiçbir URL'de kalmamalı (S14) — ölçülenler:**
+
+- Uygulama log'u yalnız rota desenini yazar, URL'yi değil (`internal/httpx/requestlog.go`, `AccessLog`).
+- Panel `<meta name="referrer" content="no-referrer">` gönderir (`web/templates/layout/base.templ`).
+- Kapı bağı isteğin URL'sinden **siler**; handler onu göremez, yönlendirme hedefi taşıyamaz. Her bağlı
+  rotada `Location`'da `tb` yok (`TestFormBinding_NoRedirectCarriesTheBinding`).
+- **Sayfayla cevap veren POST'lar** (doğrulama hatasında yeniden çizilen form, inceleme/onay adımları,
+  bir kez gösterilen anahtar/link ekranı) adres çubuğunda ve geçmişte `?tb=…`'yi bırakır. **Kabul
+  edildi** (kullanıcı kararı 2026-10-26, ADR 0031 §5.5 not 2): bağ o oturumun ham çerezi olmadan ne
+  üretilebilir ne de tek başına oynatılabilir. PRG yönlendirmeyle biten her yazmada geçerli (yukarıdaki test).
+- **Ingress erişim log'u panel yollarında KAPALI** (kullanıcı kararı 2026-10-26, ADR 0031 §5.5 not 3).
+  Ölçüm (yalnız repodan, 2026-10-23): `ingress-nginx` ConfigMap'i boş (`deploy/k8s/40-ingress.yaml`'ın
+  ölçüm notu), yani denetleyicinin erişim log'u açık ve varsayılan `log-format-upstream` `"$request"`'i
+  — sorgu dahil tam istek satırını — yazar; ADR 0020 de *"Ingress erişim log'u URL'yi yazar"* der.
+  Değişiklik: `40-ingress.yaml`'a üçüncü Ingress **`tappa-panel`** — host `taptime.mt`, tek yol `/admin`
+  (Prefix; panel çerezinin `Path`'i), TLS/sınıf/backend/etiketler ve notlar `tappa`'nınkiyle aynı,
+  artı `nginx.ingress.kubernetes.io/enable-access-log: "false"`; cert-manager issuer notu yalnız
+  `tappa`'da (tek sır `taptime-tls`, tek Certificate — 41'in konsol/legal çiftinin kuralı). `tappa`
+  `/`'yi yönlendirmeye devam eder; ingress-nginx en uzun öneki seçtiği için `/admin` ve altı **yalnız**
+  `tappa-panel`'e gider. Bedel: panel istekleri ingress erişim log'unda görünmez (süreç log'u rota
+  desenini yazmaya devam eder). Pin: `TestPackaging_ThePanelPathsAreRoutedWithoutAnAccessLog`.
+  **Kabul edilen bedel:** not yalnız erişim log'unu kapatır; denetleyicinin **hata** log'u, nginx'in
+  kendisinin düşürdüğü bir panel isteğinde (1m'yi aşan logo gövdesinin 413'ü, upstream bağlantı hatası,
+  zaman aşımı) istek satırını sorgusuyla yazmaya devam eder — gerekçe kararın 2. maddesiyle aynı (bağ ham
+  çerez olmadan işe yaramaz; ADR 0031 §5.5 not 3). Yapılandırma değişmez.
+  Deploy aynı `kubectl apply -f deploy/k8s/40-ingress.yaml` adımıyla uygular (RBAC'ta `create` var).
+
+  **Doğrulama (deploy'dan sonra, küme yöneticisi, salt-okur).** Önce iki nesne, yolları ve log notu;
+  beklenen `tappa` için `/` ve `<none>`, `tappa-panel` için `/admin` ve `false`:
+
+  ```bash
+  kubectl -n tappa get ingress tappa tappa-panel \
+    -o custom-columns='NAME:.metadata.name,PATHS:.spec.rules[*].http.paths[*].path,ACCESSLOG:.metadata.annotations.nginx\.ingress\.kubernetes\.io/enable-access-log'
+  ```
+
+  Sonra panelde bir sayfa açıp bir form gönderdikten sonra, denetleyicinin log'unda panel satırı
+  sayısı — yalnız sayı basar; denetleyici bir DaemonSet ise `deploy/` yerine `ds/`. Beklenen `0` ve `0`
+  (öteki yollar, ör. ` /t?`, log'da görünmeye devam eder). ⚠️ İki sayı hata satırlarını da sayar
+  (`logs` erişim ve hata log'unu birlikte basar): `0` yalnız o pencerede panel isteklerinde nginx hatası
+  olmadıysa beklenir; `> 0` görülürse önce o satırların hata satırı olup olmadığına bakılır:
+
+  ```bash
+  kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --since=10m | grep -c ' /admin'
+  kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --since=10m | grep -c 'tb='
+  ```
 
 ---
 

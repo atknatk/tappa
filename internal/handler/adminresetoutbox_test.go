@@ -696,6 +696,12 @@ func (f *freshResets) IssueForEmail(context.Context, string) ([]adminauth.ResetG
 // Withdraw: the undelivered links' retirement is not what these tests count.
 func (f *freshResets) Withdraw(context.Context, uuid.UUID, uuid.UUID) error { return nil }
 
+func (f *freshResets) IssueForPerson(context.Context, string) (adminauth.PersonResets, error) {
+	return adminauth.PersonResets{}, nil
+}
+
+func (f *freshResets) WithdrawIdentity(context.Context, adminauth.ResetToken) error { return nil }
+
 func (f *freshResets) Consume(context.Context, adminauth.ResetToken, string) (adminauth.ConsumedReset, db.ResolvedPasswordReset, error) {
 	return adminauth.ConsumedReset{}, db.ResolvedPasswordReset{}, adminauth.ErrResetUnusable
 }
@@ -1135,6 +1141,12 @@ func (f *cancellingResets) IssueForEmail(context.Context, string) ([]adminauth.R
 
 // Withdraw: the undelivered links' retirement is not what this test counts.
 func (f *cancellingResets) Withdraw(context.Context, uuid.UUID, uuid.UUID) error { return nil }
+
+func (f *cancellingResets) IssueForPerson(context.Context, string) (adminauth.PersonResets, error) {
+	return adminauth.PersonResets{}, nil
+}
+
+func (f *cancellingResets) WithdrawIdentity(context.Context, adminauth.ResetToken) error { return nil }
 
 func (f *cancellingResets) Consume(context.Context, adminauth.ResetToken, string) (adminauth.ConsumedReset, db.ResolvedPasswordReset, error) {
 	return adminauth.ConsumedReset{}, db.ResolvedPasswordReset{}, adminauth.ErrResetUnusable

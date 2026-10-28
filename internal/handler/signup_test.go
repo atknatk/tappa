@@ -38,28 +38,51 @@ import (
 func signupTestConfig() *config.Config {
 	return &config.Config{
 		Env:            config.EnvDev,
+		EnvExplicit:    true,
 		BaseURL:        testBaseURL,
 		SessionHMACKey: []byte("0123456789abcdef0123456789abcdef"),
 	}
 }
 
-// fakeProvisioner records what the boundary handed the domain.
+// fakeProvisioner records what the boundary handed the domain. Since M14-17 that is TWO moments:
+// the wizard's last POST opens a draft (calls -- recorded by the claims fake's Open, with the address
+// and the password), and the confirmation provisions the proven draft (provisioned).
 type fakeProvisioner struct {
-	mu    sync.Mutex
-	calls []signup.Draft
-	err   error
+	mu          sync.Mutex
+	calls       []signup.Draft
+	provisioned []signup.Draft
+	err         error
 	// result is what a successful call returns; the zero value is filled from the
 	// draft so a test does not have to state the obvious.
 	result *signup.Result
+	claims *fakeSignupClaims
 }
 
-func (f *fakeProvisioner) Provision(_ context.Context, d signup.Draft) (signup.Result, error) {
+func (f *fakeProvisioner) opened(d signup.Draft) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, d)
+}
+
+func (f *fakeProvisioner) Provision(_ context.Context, _ signup.Claim) (signup.Result, error) {
+	if f.claims == nil {
+		return signup.Result{}, signup.ErrClaimRefused
+	}
+	c := f.claims.takeProved()
+	if c == nil {
+		return signup.Result{}, signup.ErrClaimRefused
+	}
+	d, err := signup.DecodeDraft(c.draft)
+	if err != nil {
+		return signup.Result{}, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.err != nil {
 		return signup.Result{}, f.err
 	}
+	f.claims.spend(c)
+	f.provisioned = append(f.provisioned, d)
 	if f.result != nil {
 		return *f.result, nil
 	}
@@ -73,6 +96,7 @@ func (f *fakeProvisioner) Provision(_ context.Context, d signup.Draft) (signup.R
 		BusinessName: d.Business.Name,
 		VenueNames:   names,
 		VAT:          d.Business.VAT,
+		VATNumber:    d.Business.VATNumber,
 	}, nil
 }
 
@@ -116,17 +140,29 @@ func (f *fakeVAT) count() int {
 // wizardDriver walks the wizard the way a browser does: one cookie jar, one 303 per
 // step, and the synchronizer token read out of the rendered form.
 type wizardDriver struct {
-	t      *testing.T
-	router http.Handler
-	jar    map[string]string
+	t *testing.T
+	// claims is the drafts' fake (M14-17); confirmForm the last confirmation posted (refinish).
+	claims      *fakeSignupClaims
+	confirmForm url.Values
+	// lastSent / lastConfirm are the "Check your inbox" page and the link's page finish read.
+	lastSent, lastConfirm string
+	router                http.Handler
+	jar                   map[string]string
 	// clock is what the handler's signed state reads. Tests move it forward to get
 	// past the minimum-fill-time gate without sleeping for it.
 	clock *time.Time
+	// remote, when set, is every request's RemoteAddr (a visitor at another address).
+	remote string
 }
 
 func newSignupDriver(t *testing.T, p signupProvisioner, vat vatChecker) (*wizardDriver, *Signup) {
 	t.Helper()
-	wizard, err := NewSignup(p, vat, signupTestConfig(), slog.New(slog.DiscardHandler))
+	claims := newFakeSignupClaims()
+	if fp, ok := p.(*fakeProvisioner); ok {
+		fp.claims = claims
+		claims.onOpen = fp.opened
+	}
+	wizard, err := NewSignup(p, claims, vat, nil, signupTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}
@@ -135,7 +171,9 @@ func newSignupDriver(t *testing.T, p signupProvisioner, vat vatChecker) (*wizard
 	// past signupMinFillSeconds in microseconds instead of eight seconds x every case.
 	now := time.Now()
 	wizard.state.now = func() time.Time { return now }
-	d := &wizardDriver{t: t, router: httpx.NewRouter(nil, nil, wizard), jar: map[string]string{}, clock: &now}
+	// The R18 floor is measured by its own test; the others do not wait for it.
+	wizard.floor = 0
+	d := &wizardDriver{t: t, router: httpx.NewRouter(nil, nil, wizard), jar: map[string]string{}, clock: &now, claims: claims}
 	return d, wizard
 }
 
@@ -154,6 +192,9 @@ func (d *wizardDriver) do(method, path string, form url.Values, decorate func(*h
 	}
 	for name, value := range d.jar {
 		req.AddCookie(&http.Cookie{Name: name, Value: value})
+	}
+	if d.remote != "" {
+		req.RemoteAddr = d.remote
 	}
 	if decorate != nil {
 		decorate(req)
@@ -257,9 +298,9 @@ func TestSignup_TheWholeWizardReachesAnApprovedStamp(t *testing.T) {
 	csrf := d.walkToAccount(t)
 	d.advance(time.Minute) // a person filling a form in
 	rec := d.post(signupAccountPath, accountForm(csrf))
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != signupDonePath {
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != signupSentPath {
 		t.Fatalf("POST %s = %d -> %q, want 303 -> %s\n%s",
-			signupAccountPath, rec.Code, rec.Header().Get("Location"), signupDonePath, rec.Body.String())
+			signupAccountPath, rec.Code, rec.Header().Get("Location"), signupSentPath, rec.Body.String())
 	}
 	if p.count() != 1 {
 		t.Fatalf("the provisioner was called %d time(s), want 1", p.count())
@@ -279,9 +320,16 @@ func TestSignup_TheWholeWizardReachesAnApprovedStamp(t *testing.T) {
 		t.Errorf("the account reached the domain without its email or its password")
 	}
 
-	done := d.get(signupDonePath)
+	// M14-17: NOTHING WAS CREATED BY THE WIZARD -- the draft waits for its link.
+	p.mu.Lock()
+	early := len(p.provisioned)
+	p.mu.Unlock()
+	if early != 0 {
+		t.Fatal("the wizard's last POST created a business; it must only open a draft (ADR 0031 §5.10)")
+	}
+	done := d.finish(t)
 	if done.Code != http.StatusOK {
-		t.Fatalf("GET %s = %d", signupDonePath, done.Code)
+		t.Fatalf("POST %s = %d\n%s", signupConfirmPath, done.Code, done.Body.String())
 	}
 	body := done.Body.String()
 	if !strings.Contains(body, `class="stamp stamp--approved"`) || !strings.Contains(body, "APPROVED") {
@@ -296,7 +344,7 @@ func TestSignup_TheWholeWizardReachesAnApprovedStamp(t *testing.T) {
 	}
 	// THE CONFIRMATION IS SPENT. A reload must not print a second APPROVED stamp over
 	// a business that was created once.
-	if again := d.get(signupDonePath); again.Code == http.StatusOK &&
+	if again := d.refinish(t); again.Code == http.StatusOK &&
 		strings.Contains(again.Body.String(), "stamp--approved") {
 		t.Error("the confirmation can be re-read after it was shown, so a shared browser keeps " +
 			"a finished registration lying around")
@@ -452,7 +500,7 @@ func TestSignup_TheStepsCannotBeSkipped(t *testing.T) {
 	d, _ := newSignupDriver(t, p, nil)
 
 	// Cold, with no state at all.
-	for _, path := range []string{signupPlacesPath, signupAccountPath, signupDonePath} {
+	for _, path := range []string{signupPlacesPath, signupAccountPath, signupSentPath} {
 		if rec := d.get(path); rec.Code != http.StatusBadRequest {
 			t.Errorf("GET %s with no wizard state = %d, want 400", path, rec.Code)
 		}
@@ -583,7 +631,7 @@ func TestSignup_AVIESOutageDoesNotStopTheRegistration(t *testing.T) {
 				t.Errorf("the recorded verdict is %v, want %v", got, tc.want)
 			}
 			// And the confirmation says which of the three it was, in words.
-			done := d.get(signupDonePath)
+			done := d.finish(t)
 			text := screenText(t, done.Body.String())
 			switch tc.want {
 			case signup.VATInvalid:
@@ -794,10 +842,13 @@ func TestSignup_TheCreateBudgetBoundsHowManyBusinessesOneAddressMakes(t *testing
 	p := &fakeProvisioner{}
 	// ONE handler across every registration, so the budgets are the real shared ones
 	// rather than a fresh limiter per attempt.
-	wizard, err := NewSignup(p, nil, signupTestConfig(), slog.New(slog.DiscardHandler))
+	claims := newFakeSignupClaims()
+	p.claims, claims.onOpen = claims, p.opened
+	wizard, err := NewSignup(p, claims, nil, nil, signupTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}
+	wizard.floor = 0
 	now := time.Now()
 	wizard.state.now = func() time.Time { return now }
 	router := httpx.NewRouter(nil, nil, wizard)
@@ -828,10 +879,13 @@ func TestSignup_TheCreateBudgetBoundsHowManyBusinessesOneAddressMakes(t *testing
 func TestSignup_TheAttemptBudgetBoundsTheExpensiveRequest(t *testing.T) {
 	t.Parallel()
 	p := &fakeProvisioner{}
-	wizard, err := NewSignup(p, nil, signupTestConfig(), slog.New(slog.DiscardHandler))
+	claims := newFakeSignupClaims()
+	p.claims, claims.onOpen = claims, p.opened
+	wizard, err := NewSignup(p, claims, nil, nil, signupTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}
+	wizard.floor = 0
 	now := time.Now()
 	wizard.state.now = func() time.Time { return now }
 	router := httpx.NewRouter(nil, nil, wizard)
@@ -879,7 +933,8 @@ func TestSignup_EveryScreenIsUncacheableAndCarriesThePolicy(t *testing.T) {
 	account := recs[len(recs)-1]
 	d.advance(time.Minute)
 	recs = append(recs, d.post(signupAccountPath, accountForm(d.token(account))))
-	recs = append(recs, d.get(signupDonePath))
+	recs = append(recs, d.finish(t))
+	// The link's GET (a redirect) and its page are covered by the confirmation's own tests.
 	// A refusal screen too.
 	recs = append(recs, d.get(signupAccountPath))
 
@@ -951,7 +1006,10 @@ func TestSignup_IsNeverIndexed(t *testing.T) {
 	screens[signupAccountPath] = account.Body.String()
 	d.advance(time.Minute)
 	d.post(signupAccountPath, accountForm(d.token(account)))
-	screens[signupDonePath] = d.get(signupDonePath).Body.String()
+	done := d.finish(t)
+	screens["done"] = done.Body.String()
+	screens[signupSentPath] = d.lastSent
+	screens[signupConfirmPath] = d.lastConfirm
 
 	for path, body := range screens {
 		if !strings.Contains(body, `name="robots" content="noindex, nofollow"`) {
@@ -959,12 +1017,12 @@ func TestSignup_IsNeverIndexed(t *testing.T) {
 		}
 		// ANTI-VACUITY: the collected screen must be the real one. A problem page
 		// carries no form, so this distinguishes them.
-		if path != signupDonePath && !strings.Contains(body, `name="csrf"`) {
+		if path != "done" && path != signupSentPath && !strings.Contains(body, `name="csrf"`) {
 			t.Errorf("%s was collected as a screen with no form on it, so this test is "+
 				"measuring the wrong page", path)
 		}
 	}
-	if !strings.Contains(screens[signupDonePath], "stamp--approved") {
+	if !strings.Contains(screens["done"], "stamp--approved") {
 		t.Error("the confirmation screen was not collected")
 	}
 }
@@ -978,9 +1036,9 @@ func TestSignup_MountsExactlyTheRoutesTheLandingPageOffers(t *testing.T) {
 	if rec := d.get(signupPath); rec.Code != http.StatusOK {
 		t.Fatalf("GET %s = %d; this is where the landing page's button points", signupPath, rec.Code)
 	}
-	if NewMarketing(nil, nil, "").signupHref != signupPath {
+	if NewMarketing(nil, nil, "", "").signupHref != signupPath {
 		t.Errorf("handler.Marketing points at %q and the wizard is mounted at %q",
-			NewMarketing(nil, nil, "").signupHref, signupPath)
+			NewMarketing(nil, nil, "", "").signupHref, signupPath)
 	}
 }
 
@@ -992,7 +1050,7 @@ func TestSignup_MountsExactlyTheRoutesTheLandingPageOffers(t *testing.T) {
 // dependency here has to arrive with its own argument.
 func TestSignup_HoldsNoSessionCodec(t *testing.T) {
 	t.Parallel()
-	wizard, err := NewSignup(&fakeProvisioner{}, nil, signupTestConfig(), slog.New(slog.DiscardHandler))
+	wizard, err := NewSignup(&fakeProvisioner{}, newFakeSignupClaims(), nil, nil, signupTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}
@@ -1011,7 +1069,7 @@ func TestSignup_HoldsNoSessionCodec(t *testing.T) {
 				"sign-in page and issues no session", c.Name)
 		}
 	}
-	done := d.get(signupDonePath)
+	done := d.finish(t)
 	if !strings.Contains(done.Body.String(), adminLoginPath) {
 		t.Error("the confirmation does not link to the sign-in page, so a customer who just " +
 			"registered has nowhere to go")
@@ -1142,18 +1200,8 @@ func signupClaims() []signupClaim {
 				if !strings.Contains(src, "r.Post(adminLoginPath, a.Login)") {
 					return "no POST is registered on adminLoginPath, so there is nothing to sign in to"
 				}
-				// AND the screen must not say it to somebody who cannot. This is the
-				// round-4 blocking finding, pinned.
-				var blocked strings.Builder
-				if err := pages.SignupDone(pages.SignupDoneView{
-					BusinessName: "X", SignInBlocked: true, SignInHref: adminLoginPath,
-				}).Render(t.Context(), &blocked); err != nil {
-					return "the blocked confirmation does not render: " + err.Error()
-				}
-				if strings.Contains(strings.ToLower(screenText(t, blocked.String())), "sign in to your dashboard") {
-					return "the confirmation still invites a sign-in it has MEASURED to be " +
-						"impossible; that is the round-4 finding"
-				}
+				// The round-4 "blocked" state is retired (M14-17: the identity path has no
+				// candidate window), so every confirmation may invite the sign-in.
 				return ""
 			},
 		},
@@ -1211,6 +1259,24 @@ func signupClaims() []signupClaim {
 			},
 		},
 		{
+			// M14-17: "Check your inbox" says the link was emailed -- only where it was.
+			word: "we email",
+			why:  "the registration link really goes to the address, through the one cap and breaker",
+			derive: func(t *testing.T) string {
+				src := repoFile(t, "internal", "handler", "signupconfirm.go")
+				for _, want := range []string{"email.RenderSignupVerification", "email.RenderSignupKnownAddress", "s.mailer.Send(ctx, signupClaimScope, m)"} {
+					if !strings.Contains(src, want) {
+						return "the registration flow no longer renders and sends its letter (" + want + ")"
+					}
+				}
+				if !strings.Contains(repoFile(t, "web", "templates", "pages", "signup.templ"), `if v.ScreenLink != "" {
+		return "Open the link below`) {
+					return "the on-screen installation's page would say a link was emailed"
+				}
+				return ""
+			},
+		},
+		{
 			word: "free",
 			why:  "the founding offer really gives free months, enforced by the schema",
 			derive: func(t *testing.T) string {
@@ -1262,12 +1328,16 @@ func signupSurfaceScreens(t *testing.T) map[string]string {
 	screens["account"] = account.Body.String()
 	d.advance(time.Minute)
 	d.post(signupAccountPath, accountForm(d.token(account)))
-	screens["done"] = d.get(signupDonePath).Body.String()
-	// The screens a handler can reach that a walk does not: the problem family and the
-	// blocked confirmation.
+	screens["done"] = d.finish(t).Body.String()
+	screens["sent"] = d.lastSent
+	screens["confirm"] = d.lastConfirm
+	// The screens a handler can reach that a walk does not: the problem family, the known
+	// address's confirmation and its done page (M14-17).
 	for name, v := range map[string]pages.SignupProblemView{
 		"problem-restart": problemSignupRestart, "problem-nocookie": problemSignupNoCookie,
 		"problem-toomany": problemSignupTooMany, "problem-server": problemSignupServer,
+		"problem-closed": problemSignupClosed, "problem-linkdead": problemSignupLinkDead,
+		"problem-confirm-nocookie": problemSignupConfirmNoCookie, "problem-claim-refused": problemSignupClaimRefused,
 	} {
 		var sb strings.Builder
 		if err := pages.SignupProblem(v).Render(t.Context(), &sb); err != nil {
@@ -1275,14 +1345,22 @@ func signupSurfaceScreens(t *testing.T) map[string]string {
 		}
 		screens[name] = sb.String()
 	}
-	var blocked strings.Builder
+	var known strings.Builder
 	if err := pages.SignupDone(pages.SignupDoneView{
 		BusinessName: "Probe Ltd", Venues: []string{"Front door"}, VATNumber: "MT12345678",
-		SignInBlocked: true, SignInHref: adminLoginPath,
-	}).Render(t.Context(), &blocked); err != nil {
-		t.Fatalf("rendering the blocked confirmation: %v", err)
+		KnownAddress: true, SignInHref: adminLoginPath,
+	}).Render(t.Context(), &known); err != nil {
+		t.Fatalf("rendering the known address's confirmation: %v", err)
 	}
-	screens["done-blocked"] = blocked.String()
+	screens["done-known"] = known.String()
+	var confirmKnown strings.Builder
+	if err := pages.SignupConfirm(pages.SignupConfirmView{
+		CSRFToken: "x", BusinessName: "Probe Ltd", Venues: []string{"Front door"}, KnownAddress: true,
+		NotSignedIn: true, SignInHref: adminLoginPath,
+	}).Render(t.Context(), &confirmKnown); err != nil {
+		t.Fatalf("rendering the known address's link page: %v", err)
+	}
+	screens["confirm-known"] = confirmKnown.String()
 
 	if len(screens) < 9 {
 		t.Fatalf("collected %d screen(s); a scan over these is not covering the surface",

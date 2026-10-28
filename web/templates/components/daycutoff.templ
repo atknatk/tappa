@@ -50,7 +50,7 @@ templ dayCutoffBody(v DayCutoffView) {
 		}
 	}
 	if v.CanChange {
-		<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-2.5">
+		<form method="post" action={ templ.URL(Bound(ctx, v.Action)) } class="flex flex-col gap-2.5">
 			@hiddenFields(v.Hidden)
 			<div class="field-stack">
 				<label class="lbl" for={ v.InputID }>Business day starts at</label>

@@ -166,8 +166,11 @@ func TestRuleWriter_EveryWriteRefusesBeforeItOpensATransaction(t *testing.T) {
 	// keeps paying for. reflect gives the real set; the exemptions are named with a
 	// reason, which is an edit somebody has to defend.
 	exempt := map[string]string{
-		"May":           "asks the gate and returns its answer; it IS the read, not a write",
-		"RecordRefusal": "writes only a trail row, and only for an actor the gate has ALREADY refused",
+		"May": "asks the gate and returns its answer; it IS the read, not a write",
+		// M14-15: the manager invitation's gate -- May's question, read-only (it lists the stored rows
+		// and evaluates; it writes nothing, the materialisation-free rule of StoredSet).
+		"MayInviteManager": "asks the invitation gate and returns its answer; a read, not a write",
+		"RecordRefusal":    "writes only a trail row, and only for an actor the gate has ALREADY refused",
 	}
 	typ := reflect.TypeOf(w)
 	for i := 0; i < typ.NumMethod(); i++ {

@@ -131,6 +131,11 @@ func (f *fakeScribe) May(_ context.Context, _ uuid.UUID, actor tenant.Actor) boo
 	return f.may
 }
 
+// MayInviteManager answers what May answers (the manager invitation's gate, M14-15).
+func (f *fakeScribe) MayInviteManager(ctx context.Context, tenantID uuid.UUID, actor tenant.Actor) bool {
+	return f.May(ctx, tenantID, actor)
+}
+
 // gate mirrors the production writer's FIRST act. Every exported write on
 // tenant.RuleWriter calls authorise before it opens a transaction and answers
 // ErrNotPermitted; this double did not, so an actor it reported as refused could
@@ -277,7 +282,7 @@ func policyBrowserWith(t *testing.T, rules panelRules, scribe panelScribe) *brow
 	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
 		return adminauth.Resolved{
 			SessionID: panelTestSession, TenantID: panelTestTenant, AdminUserID: panelTestAdmin,
-			Role: policyTestAdminRole, FullName: policyTestAdminName,
+			Role: policyTestAdminRole, FullName: policyTestAdminName, TenantName: policyTestBusinessName,
 		}, nil
 	}}
 	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
@@ -288,6 +293,7 @@ func policyBrowserWith(t *testing.T, rules panelRules, scribe panelScribe) *brow
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	return b
@@ -1501,6 +1507,7 @@ func mountedRoutes(t *testing.T) map[string]bool {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
 	h.Mount(r)
+	registerPanel(r, h)
 	out := map[string]bool{}
 	if err := chi.Walk(r, func(_, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
 		out[route] = true
@@ -1733,8 +1740,9 @@ func policySectionSlice(t *testing.T, body string) (section, outside string) {
 // baseline below has to be rendered with the SAME chrome, and two copies of a name
 // is exactly the drift this file keeps paying for.
 const (
-	policyTestAdminName = "KF Owner"
-	policyTestAdminRole = "owner"
+	policyTestAdminName    = "KF Owner"
+	policyTestAdminRole    = "owner"
+	policyTestBusinessName = "Kebab Factory"
 )
 
 // policyShellBaseline renders the panel shell with an EMPTY body: the exact bytes
@@ -1756,9 +1764,9 @@ const (
 // above the wrapper -- a form, a link, a paragraph -- makes the comparison fail.
 //
 // ⚠️ THE CHROME IS RECONSTRUCTED, WHICH IS THE ONE PLACE THIS MIRRORS PRODUCTION.
-// AdminAuth.chrome fills three fields from the resolved session and a fourth from
-// the queue reader; this builds the same four from the same constants and the SAME
-// fake reader. If chrome ever grows a fifth, this comparison fails LOUDLY with a
+// AdminAuth.chrome fills four fields from the resolved session (the fourth, the
+// business block, since M14-12) and a fifth from the queue reader; this builds the same
+// five from the same constants and the SAME fake reader. If chrome ever grows a sixth, this comparison fails LOUDLY with a
 // byte offset rather than silently passing -- the safe direction, and the reason it
 // is acceptable to mirror three lines here.
 func policyShellBaseline(t *testing.T) string {
@@ -1768,6 +1776,9 @@ func policyShellBaseline(t *testing.T) string {
 		// The section's eyebrow (M12-37) is part of the shell's head, so the baseline the
 		// page is compared with carries the same one -- the same constant, not a copy.
 		Kicker: policiesKicker,
+		// M14-12: the business block, from the session's own TouchAdminSession name; the
+		// identity flag is off under adminTestConfig, so no switch link.
+		Business: pages.PanelBusiness{Name: policyTestBusinessName},
 	}
 	p, err := newFakeLedger().Pending(context.Background(), panelTestTenant)
 	if err != nil {

@@ -39,6 +39,7 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/billing"
+	"github.com/atknatk/tappa/internal/domain/claim"
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/manual"
 	"github.com/atknatk/tappa/internal/domain/review"
@@ -47,6 +48,7 @@ import (
 	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/test/fixtures"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -94,6 +96,15 @@ type panelHarness struct {
 	// reset is the recovery flow itself, so a test can drain its outbox (M10 EM-5:
 	// the send happens on a worker, after the response).
 	reset *AdminReset
+	// invites is the manager invitation service the panel was given (M14-15), nil without
+	// panelHarnessOptions.inviteSender.
+	invites *adminauth.AdminInvites
+	// releaseTablesLock stops this harness holding the operator-tables lock (holdPanelTablesLock);
+	// the test's cleanup does it anyway.
+	releaseTablesLock func()
+	// claims is the punch claim service the panel's "Time claims" is wired with (M15-18), nil
+	// unless the harness was built with panelHarnessOptions.claims.
+	claims *claim.Service
 }
 
 func newPanelHarness(t *testing.T) *panelHarness {
@@ -135,6 +146,18 @@ type panelHarnessOptions struct {
 	// recovery flow and the domain packages keep the real one) — so a test can make
 	// one action's row fail (M10 EM-7B round 3).
 	wrapTrail func(auditRecorder) auditRecorder
+	// adminIdentity is TAPPA_ADMIN_IDENTITY (ADR 0031 §8): on mounts the identity surfaces (M14-11)
+	// and the sign-in takes the identity path (M14-09).
+	adminIdentity bool
+	// inviteSender (M14-15), when set, gives the panel the REAL manager invitation service
+	// (adminauth.AdminInvites on this database) and the invitation e-mail mode over this fake sender.
+	inviteSender *fakeMailSender
+	// claims wires the Spike's "Time claims" with the REAL claim service over this database and
+	// the real manual recorder (M15-18), the business-day switch on -- cmd/tappa's wiring.
+	claims bool
+	// wrapClaims, when set, wraps the claim service the PANEL is given (the harness keeps the real
+	// one) -- so a test can act between the handler's checks and Decide (M15-18 review round).
+	wrapClaims func(panelClaims) panelClaims
 }
 
 func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
@@ -145,6 +168,9 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 		t.Skip("DATABASE_URL not set; skipping panel end-to-end tests (real Postgres required). " +
 			"Run `make test` — a bare `go test` skips this silently and proves nothing.")
 	}
+	// The rows below are COMMITTED: hold the operator-tables lock shared while this harness lives
+	// (holdPanelTablesLock says why and how).
+	releaseTablesLock := holdPanelTablesLock(t)
 	data, err := db.New(context.Background(), &config.Config{DatabaseURL: withSmallPool(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
@@ -173,6 +199,7 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 		// while the two were conflated.
 		InviteHMACKey: []byte("fedcba9876543210fedcba9876543210"),
 		DatabaseURL:   dsn,
+		AdminIdentity: o.adminIdentity,
 	}
 
 	admins, err := adminauth.New(data, cfg)
@@ -267,9 +294,44 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 		t.Fatalf("NewAdminReset: %v", err)
 	}
 	var opts []AdminAuthOption
+	// The REAL membership management (M14-16), as cmd/tappa always gives it; its routes exist only
+	// with adminIdentity on.
+	memberships, err := adminauth.NewMemberships(data, trail)
+	if err != nil {
+		t.Fatalf("adminauth.NewMemberships: %v", err)
+	}
+	opts = append(opts, AdminMemberships(memberships))
+	if o.claims {
+		svc, err := claim.New(data, trail, entries, fixtures.BusinessDaySwitchOn(), slog.New(slog.DiscardHandler))
+		if err != nil {
+			t.Fatalf("claim.New: %v", err)
+		}
+		ph.claims = svc
+		var panelSvc panelClaims = svc
+		if o.wrapClaims != nil {
+			panelSvc = o.wrapClaims(svc)
+		}
+		opts = append(opts, PunchClaims(records, panelSvc))
+	}
 	if o.invitations != nil {
 		cfg.InviteDelivery = config.InviteDeliveryEmail
 		opts = append(opts, InvitationsByEmail(o.invitations(t, cfg)))
+	}
+	if o.inviteSender != nil {
+		svc, err := adminauth.NewAdminInvites(data, cfg)
+		if err != nil {
+			t.Fatalf("adminauth.NewAdminInvites: %v", err)
+		}
+		ph.invites = svc
+		opts = append(opts, AdminInvitations(svc))
+		if o.invitations == nil {
+			cfg.InviteDelivery = config.InviteDeliveryEmail
+			inv, err := NewEmailInvitations(o.inviteSender, cfg.BaseURL)
+			if err != nil {
+				t.Fatalf("NewEmailInvitations: %v", err)
+			}
+			opts = append(opts, InvitationsByEmail(inv))
+		}
 	}
 	panelLog := o.log
 	if panelLog == nil {
@@ -284,6 +346,8 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
 	h.Mount(r)
+	h.MountInviteAcceptance(r)
+	registerPanel(r, h)
 
 	// 🔴 THE ACTIVATION FLOW IS MOUNTED BESIDE THE PANEL (M6-05 phase B, round 3), so
 	// one harness can drive the WHOLE loop a manager and an employee share: press
@@ -337,6 +401,7 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 	}
 
 	ph.server = srv
+	ph.releaseTablesLock = releaseTablesLock
 	ph.data = data
 	ph.password = ownerPassword
 	ph.email = "panel-e2e-" + uuid.NewString() + "@m6.example"
@@ -399,12 +464,19 @@ func (p *panelHarness) get(t *testing.T, path string) (*http.Response, string) {
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
 	}
-	return res, readAll(t, res)
+	return res, withoutBinding(readAll(t, res))
 }
 
+// post submits a form as the signed-in browser does: to a bound panel route it carries
+// the binding the page it was shown would have carried (M14-10a), computed for the jar's
+// current session cookie by the panel's own binder and resolver.
 func (p *panelHarness) post(t *testing.T, path string, form url.Values) (*http.Response, string) {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodPost, p.server.URL+path, strings.NewReader(form.Encode()))
+	target := path
+	if strings.HasPrefix(path, "/admin/") && !strings.Contains(path, "tb=") && !unboundPanelPost[strings.SplitN(path, "?", 2)[0]] {
+		target = boundPath(p.server.Config.Handler, p.panelCookie(t), path)
+	}
+	req, err := http.NewRequest(http.MethodPost, p.server.URL+target, strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
@@ -414,7 +486,22 @@ func (p *panelHarness) post(t *testing.T, path string, form url.Values) (*http.R
 	if err != nil {
 		t.Fatalf("POST %s: %v", path, err)
 	}
-	return res, readAll(t, res)
+	return res, withoutBinding(readAll(t, res))
+}
+
+// panelCookie is the panel session cookie the jar holds, or "".
+func (p *panelHarness) panelCookie(t *testing.T) string {
+	t.Helper()
+	u, err := url.Parse(p.server.URL + adminauth.CookiePath + "/")
+	if err != nil {
+		t.Fatalf("parse server url: %v", err)
+	}
+	for _, c := range p.client.Jar.Cookies(u) {
+		if c.Name == adminauth.CookieName {
+			return c.Value
+		}
+	}
+	return ""
 }
 
 // setCookie puts a cookie back into the jar by hand.
@@ -805,6 +892,9 @@ func TestPanelE2E_TimingIsFlatOverHTTP(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("re-hash: %v", err)
 	}
+	// The committed fixture is in place and the cost-12 sample below writes no admin row: stop holding
+	// the operator-tables lock for its minutes (holdPanelTablesLock).
+	p.releaseTablesLock()
 
 	_, page := p.get(t, "/admin/login")
 	csrf := csrfFrom(t, page)

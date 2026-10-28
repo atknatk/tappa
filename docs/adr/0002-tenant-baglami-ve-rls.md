@@ -564,6 +564,17 @@ Kararın kendisi değişmez; M14'ün etkisi:
   geçersiz kılan istisnası kimlik yolunda kalkar (ADR 0031 §5.2, §10). Eski kol
   (`resolve_admin_by_email`, M14-05'te `identity_id` ile yeniden tanım — md.7 (iii) genişlemesi,
   gerekçesi ADR 0031 §5.2) contract'a dek sürer.
+- **md.7 (iii) genişlemesi — `resolve_identity_by_email` + `email` (M14-14, 00075, 2026-10-26, kullanıcı
+  onayı):** dönüşe kimliğin **kayıtlı** adresi eklenir. Gerekçe: çağıranın aradığı anahtarın kendisidir
+  — `OPERATOR(public.=)` ile eşleşmiş değerin saklanan yazımı; harf büyüklüğü dışında yeni bir olgu
+  taşımaz. Kimlik başına sıfırlama linki yazılan yazıma değil bu değere gider (ADR 0031 §5.2'nin
+  2026-10-26 notu). Kısıtlar aynen: salt okuma, ≤ 1 satır, sabit sütun listesi, yeni yetki yok
+  (`tappa_resolver`'ın `admin_identities SELECT (email)`'i 00071'den).
+- **`resolve_admin_owners_by_tenant` (M14-16b, 00081, 2026-10-27 kullanıcı onayı) md.7'nin sayımına
+  girmez:** `tappa_resolver`'ındır ve salt okumadır, ama bağlamı **üretmez** — çağıranın kurduğu
+  `app.tenant_id`'nin **içinde** koşar ve yalnız o tenant'ı yanıtlar (`p_tenant_id` bağlama eşit değilse 0
+  satır); bir işletmenin oturum alabilen owner'larının id'lerini verir (birden çok satır — ≤ 1 kısıtı onun
+  değildir). Gerekçe ve sınırlar: [ADR 0031](0031-tek-kimlik-cok-isletme.md) §5.2'nin M14-16b notu.
 - **Yazan `identity_*` fonksiyonları md.7 değildir**, CLAUDE.md §4.5'in **(3)** numaralı bilinçli
   istisnasıdır (ADR 0031 §6, §6.1; sahibi `tappa_identitydefiner`). md.7'de yalnız salt okuma
   çözümleyiciler kalır (ADR 0031 §13, K-13).

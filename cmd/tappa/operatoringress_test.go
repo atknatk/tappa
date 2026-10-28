@@ -415,7 +415,8 @@ func TestPackaging_TheIngressFilesParseAsWritten(t *testing.T) {
 		sort.Strings(out)
 		return out
 	}
-	if got := hosts(customerIngressFile); strings.Join(got, ",") != "tappa.everva.com.tr,taptime.mt,www.taptime.mt" {
+	// taptime.mt twice since M14-10a: `tappa` and the panel's own `tappa-panel` (no access log).
+	if got := hosts(customerIngressFile); strings.Join(got, ",") != "tappa.everva.com.tr,taptime.mt,taptime.mt,www.taptime.mt" {
 		t.Errorf("CONTROL FAILED: %s parsed to hosts %v", customerIngressFile, got)
 	}
 	if got := hosts(operatorIngressFile); strings.Join(got, ",") != "ops.taptime.mt,ops.taptime.mt" {

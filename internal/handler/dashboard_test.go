@@ -35,6 +35,7 @@ import (
 	"io/fs"
 	"math"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -51,6 +52,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/domain/claim"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/web"
 	"github.com/atknatk/tappa/web/templates/pages"
@@ -609,6 +611,38 @@ func panelNonSectionScreens(t *testing.T) map[string]string {
 			t.Fatalf("the plaque card %s answered %d, want 200", q, rec.Code)
 		}
 		out["GET "+locationsHref+q] = htmlOf(t, rec)
+	}
+
+	// THE TIME CLAIMS QUEUE (M15-18; M15-19 DÜŞÜK-5): /admin/review/claims is a sub-route of the
+	// review section, so none of its states was in this corpus. Three states draw every control: the
+	// focus (Approve, the Edit's <details>, Reject, the queue links), the confirmation step (a POST
+	// that renders: its own Approve and Reject), and the Edit open on a claim a later record narrowed.
+	inBand := outClaim(claimDay(0, 9, 5), claimDay(0, 17, 0), nil)
+	outBand := inClaim(claimDay(0, 9, 0), claimDay(0, 5, 0))
+	narrowed := outClaim(claimDay(1, 9, 5), claimDay(1, 17, 0), nil)
+	narrowWin := claim.Window{From: claim.Bound{At: claimDay(1, 9, 5)}, To: claim.Bound{At: claimDay(1, 16, 0)}}
+	narrowed.in.State, narrowed.in.Window = claim.StateOutsideWindow, &narrowWin
+	cq := claimPanel(t, claimAdmins("owner", false), newFakeClaimQueue(time.UTC, inBand, outBand, narrowed))
+	for name, req := range map[string]func() *httptest.ResponseRecorder{
+		"GET " + claimsHref + " (the focus)": func() *httptest.ResponseRecorder {
+			return cq.do(http.MethodGet, claimsHref+"?focus="+inBand.in.ClaimID.String(), nil)
+		},
+		"POST " + claimsHref + " (the confirmation step)": func() *httptest.ResponseRecorder {
+			return cq.do(http.MethodPost, claimsHref, decisionForm(outBand.in.ClaimID, "approved"))
+		},
+		"GET " + claimsHref + " (the Edit open)": func() *httptest.ResponseRecorder {
+			return cq.do(http.MethodGet, claimsHref+"?focus="+narrowed.in.ClaimID.String(), nil)
+		},
+	} {
+		rec = req()
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s answered %d, want 200", name, rec.Code)
+		}
+		out[name] = htmlOf(t, rec)
+	}
+	if !strings.Contains(out["POST "+claimsHref+" (the confirmation step)"], "Confirm this interval") ||
+		!strings.Contains(out["GET "+claimsHref+" (the Edit open)"], `<details class="panel-card" open`) {
+		t.Fatal("the claim queue's step or open Edit is not what this corpus entry thinks it is")
 	}
 
 	// The screens and states M12-49 found outside this corpus (panelcorpus_test.go).
@@ -1274,6 +1308,9 @@ var panelTouchTargets = map[string]int{
 	// real <a> elements, so both halves of the pair reach them.
 	"bar-link":   60, // .bar-link   -> min-h-[60px]
 	"sheet-link": 48, // .sheet-link -> min-h-12 = 3rem
+	// The shell's "Switch business" link (M14-12, pages.panelBusiness): a real <a> at every
+	// width -- a row link on the phone, a rail tile, a sidebar link -- so both halves reach it.
+	"side-switch": 44, // .side-switch -> min-h-11 = 2.75rem
 	// A section's breadcrumb link (M12-01, pages.panelHead): every crumb before the current
 	// page is a real <a>, so both halves of the pair reach it.
 	"panel-crumb": 44, // .panel-crumb -> min-h-11 = 2.75rem

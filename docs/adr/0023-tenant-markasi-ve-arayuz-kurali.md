@@ -396,7 +396,7 @@ değişikliğidir.
 | Problem sayfaları (tap ve aktivasyon akışları) ve aktivasyonun *"phone already in use"* onayı (`pages.Confirm`) | yok | yok | — | Taptime | değişmez *(WL-13: marka yalnız kullanılabilir bir davetten bilinir ve bu ekranlarda ölü bir linki canlıdan ayırırdı; `pages.Problem` ve `pages.Confirm` marka parametresi almaz)* |
 | AdminChoose, yönetici girişi, parola sıfırlama | yok | yok | — | Taptime | değişmez (WL-8 kabulü: AdminChoose değişmez) |
 | Landing, legal, signup | yok | yok | — | Taptime | değişmez |
-| Operatör yüzeyi (`/operator`) | yok | yok | OP-8'in başlık kuralı | *TAPTIME OPERATOR* kabuğu | değişmez; bu ADR `op_*` eklemez |
+| Operatör yüzeyi (`/operator`) | yok | yok | OP-8'in başlık kuralı | *TAPTIME OPERATOR* kabuğu | değişmez; bu ADR `op_*` eklemez *(M13-01 notu, 2026-10-25: kullanıcı kararı OP-1 ile imzalı ekranlara bir gezinme eklendi — paper sütun / sekme satırı / alt çubuk ve tek-tenant ekranlarında bandın içinde safran işaretli alt gezinme, yalnız `op-*` sınıfları; marka kuralı **değişmedi**: hâlâ *TAPTIME OPERATOR* kabuğu, `Theme{}`, logo, accent ve tema bağlantısı yok — `TestOperatorScreens_CarryNoPanelShellAndNoTenantBrand` her operatör render'ında panel kabuğunun ve tenant markasının işaretlerini arar. ADR 0020 §4 M13-01 notu.)* |
 | E-posta | faz 1: yok (K8) | yok | gövdede, kaçışlı | gönderen sabit Taptime (EM-K5) | **WL-11** (SES akışıyla) |
 | CSV / rapor | yok | yok | — | değişmez | — |
 
@@ -861,6 +861,16 @@ mutasyon: `.stamp`'e accent zemini → kırmızı, ölçüldü — §4 WL-5 notu
 10. Kullanıcıya görünen metin: tenant adı dışında yeni kelime yok — tap ekranında yeni metin
     logonun `alt`'ıdır (WL-9); K-2b'nin co-brand satırı bugün Wordmark'ta duran iki kelimeyi
     (`taptime`, `punchless`) tek satırda taşır.
+    *Tarihli not (2026-10-22, M15-12 — ADR 0032 §B.1, kullanıcının §9 kararı 2026-10-21, Q33).*
+    Bu madde markanın getirdiği metni sayar ve o sayı değişmedi: marka hâlâ yalnız logonun
+    `alt`'ını ekler. Tap ekranının **kendi** metni ise artık tek kelime değildir — birincil düğme
+    tahmini yönü söyler (*"Clock in"* / *"Clock out"*; tahmin kapısından geçmeyen her durumda
+    eskisi gibi *"Tap"*) ve yönlü ekranda altında ink, altı çizili, accent'siz bir *"Not right?
+    Clock out"* (ya da *in*) düğmesi durur; sonuç başlığı *"Tapped in / out"* → *"Clocked in /
+    Clocked out"*. Accent'in tap ekranındaki slotu değişmedi (§2): birincil düğmenin zemini —
+    *"Not right? …"* hiçbir marka değişkeni okumaz (`TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse`
+    üç düğme şeklinde × dört marka şeklinde). Markasız golden 36 → 38 render
+    (`tap-page-clock-in`, `tap-page-clock-out`); yönsüz `tap-page` bayt-aynı kaldı.
 
 **"Birden çok vurgu rengi" (skill → Yapma) ile ilişki.** Panelde iki renk yan yana durur:
 Taptime yeşili panelin kendi eylemlerinde, tenant rengi 4 px şeritte ve Account önizlemesindeki

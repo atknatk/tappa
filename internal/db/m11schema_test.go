@@ -116,8 +116,9 @@ var m11Tables = map[string]map[string]m11TableACL{
 	// 00072 (M14-05, ADR 0031 §5.2): what the M14-05 bodies read and write of an identity -- the
 	// address, the digest, the verification and the confirmation window; never an e-mail write
 	// (K-15). identitycatalog_test.go holds the union inside the ADR's matrix and shows every column
-	// used.
-	// 00074 (M14-06b, ADR 0031 §5.2, §5.8): INSERT (email, password_hash) -- identity_reconcile()
+	// used. 00074 (M14-08, named exception 2): the identity's birth at registration --
+	// identity_create_for_signup INSERTs (email, password_hash) and nothing else (no mailbox proof).
+	// 00082 (M14-06b, ADR 0031 §5.2, §5.8) uses the same INSERT, granted by 00074: identity_reconcile()
 	// births the identity of an e-mail group that has none, with the chosen row's digest.
 	"admin_identities": {
 		"tappa_resolver": {Select: "id,email,password_hash,email_verified_at"},
@@ -150,6 +151,37 @@ var m11Tables = map[string]map[string]m11TableACL{
 	},
 	"admin_identity_events": {
 		"tappa_identitydefiner": {Select: "created_at", Insert: "identity_id,event,detail", Delete: true},
+	},
+	// 00077 (M14-15, ADR 0031 §5.1): the administrator invitation -- TENANT-SCOPED (the RLS five).
+	// tappa_app (the owner's panel) reads every column but token_hash (a lookup by token is the
+	// resolver's), issues an invitation by naming it (created_at, used_at and cancelled_at are not its
+	// to write) and cancels it (cancelled_at alone) -- never deletes. tappa_resolver reads what
+	// resolve_admin_invite_by_token_hash returns and filters on; tappa_identitydefiner reads the
+	// invitation it accepts and spends it (used_at alone -- ADR 0031 §5.2's matrix).
+	"admin_invites": {
+		"tappa_app": {
+			Select: "id,tenant_id,email,full_name,role,invited_by,created_at,expires_at,used_at,cancelled_at",
+			Insert: "tenant_id,email,full_name,role,token_hash,invited_by,expires_at",
+			Update: "cancelled_at",
+		},
+		"tappa_resolver": {Select: "id,tenant_id,role,token_hash,expires_at,used_at,cancelled_at"},
+		"tappa_identitydefiner": {
+			Select: "id,tenant_id,email,full_name,role,token_hash,expires_at,used_at,cancelled_at",
+			Update: "used_at",
+		},
+	},
+	// 00078 (M14-17, ADR 0031 §5.1, §5.10): the registration drafts -- TENANT-SCOPE-LESS
+	// (m11ScopelessTables). tappa_app holds nothing (ADR 0031 §6). The resolver reads the key and the
+	// six columns it returns (the draft: the 2026-10-26 user decision); the definer opens a draft,
+	// reads and consumes it, and sweeps it (the one DELETE -- R17).
+	"admin_signup_claims": {
+		"tappa_resolver": {Select: "id,token_hash,email,draft,password_hash,expires_at,used_at"},
+		"tappa_identitydefiner": {
+			Select: "id,token_hash,email,draft,password_hash,expires_at,used_at",
+			Insert: "token_hash,email,draft,password_hash,expires_at",
+			Update: "used_at",
+			Delete: true,
+		},
 	},
 	// 00037 (K-17's queue): the worker reads it, a request is queued by naming the employee
 	// (the queue's order, the lease and the tries start at their defaults), the lease and the
@@ -209,9 +241,12 @@ var m11Tables = map[string]map[string]m11TableACL{
 		"tappa_feedwriter":     {Select: "tenant_id,last_seq", Insert: "tenant_id,last_seq", Update: "last_seq"},
 		"tappa_holdingdefiner": {Select: "tenant_id,last_seq", Insert: "tenant_id,last_seq", Update: "last_seq"},
 	},
+	// 00067 (M15-13, ADR 0032 §B.6): direction_source -- tappa_app reads it (the API), both writers
+	// insert it (the event's snapshot), nobody updates it.
 	"punch_events": {
 		"tappa_app": {Select: "tenant_id,seq,punch_id,punch_tenant_id,roles,version,status,punch_time,recorded_at,channel," +
-			"direction,employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,created_at"},
+			"direction,employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,created_at," +
+			"direction_source"},
 		"tappa_feedwriter":     {Insert: feedEventInsertColumns},
 		"tappa_holdingdefiner": {Insert: feedEventInsertColumns},
 	},
@@ -259,12 +294,28 @@ var m11Tables = map[string]map[string]m11TableACL{
 		"tappa_feedwriter":     {Insert: "tenant_id,endpoint_id,punch_event_seq"},
 		"tappa_holdingdefiner": {Insert: "tenant_id,endpoint_id,punch_event_seq"},
 	},
+	// 00068 (M15-15, ADR 0032 §C.2): the employee's claim of a missing half and the manager's
+	// decision on it -- append-only, so tappa_app reads every column and inserts the ones a writer
+	// names (id and created_at take their defaults: the database's clock), and updates and deletes
+	// nothing. No other role reaches either: no definer, resolver or operator reads a claim.
+	"punch_claims": {
+		"tappa_app": {
+			Select: "id,tenant_id,employee_id,anchor_transaction_id,kind,claimed_at,prefilled_at,created_at",
+			Insert: "tenant_id,employee_id,anchor_transaction_id,kind,claimed_at,prefilled_at",
+		},
+	},
+	"punch_claim_decisions": {
+		"tappa_app": {
+			Select: "id,tenant_id,claim_id,outcome,decided_by,approved_at,transaction_id,note,created_at",
+			Insert: "tenant_id,claim_id,outcome,decided_by,approved_at,transaction_id,note",
+		},
+	},
 }
 
 // feedEventInsertColumns are the columns both feed writers insert into punch_events (attnum order;
-// version, status and created_at take their defaults).
+// version, status and created_at take their defaults). direction_source is 00067's (M15-13).
 const feedEventInsertColumns = "tenant_id,seq,punch_id,punch_tenant_id,roles,punch_time,recorded_at,channel,direction,employee_id," +
-	"employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid"
+	"employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,direction_source"
 
 // m11ScopelessTables are the matrix's tenant-scope-less tables (CLAUDE.md §6): ENABLE and FORCE
 // row level security like every other, and NO policy at all -- no role that obeys RLS reads or
@@ -273,7 +324,9 @@ const feedEventInsertColumns = "tenant_id,seq,punch_id,punch_tenant_id,roles,pun
 // (TestHoldingSchema_AppRoleHasNoVerbOnHoldingTables reads the waivers).
 var m11ScopelessTables = map[string]bool{"holdings": true, "holding_members": true, "admin_identities": true,
 	// 00072 (M14-05).
-	"admin_identity_resets": true, "admin_identity_verifications": true, "admin_identity_events": true}
+	"admin_identity_resets": true, "admin_identity_verifications": true, "admin_identity_events": true,
+	// 00078 (M14-17).
+	"admin_signup_claims": true}
 
 // m11Column is one column added at or after 00037 to a table that existed before, with each
 // role's verbs on it ("S", "I", "U" in that order; "" for nothing).
@@ -345,6 +398,12 @@ var m11Columns = []m11Column{
 	// SELECT and INSERT (00005), nothing else: written once by the tap's INSERT, never updated (§4.3).
 	// Neither feed writer reads it -- the punch event and the site projection carry no business day.
 	{"transactions", "business_day_start", map[string]string{"tappa_app": "SI"}},
+	// 00065 (M15-09, ADR 0032 §B.4): who chose a tap's direction. transactions' table-level SELECT
+	// and INSERT (00005), nothing else: written once by the tap's INSERT, never updated (§4.3).
+	// 00067 (M15-13, ADR 0032 §B.6): and both feed writers READ it -- the approval arms of punch_feed
+	// and holding_feed read the approved row by its key (an ok tap's arm reads NEW, which needs no
+	// privilege); nothing else of theirs on it.
+	{"transactions", "direction_source", map[string]string{"tappa_app": "SI", "tappa_feedwriter": "S", "tappa_holdingdefiner": "S"}},
 	// 00069 (M14-03, ADR 0031 §5.1): the membership's link to an identity. admin_users hands
 	// tappa_app SELECT column by column from 00069 on (the table-level SELECT of 00006 is gone --
 	// S9) and INSERT / UPDATE column by column since 00017, none of which names a new column: it
@@ -355,9 +414,14 @@ var m11Columns = []m11Column{
 	// unlinked_at (resolve_identity_by_email's has_active_membership; resolve_admin_by_email's new
 	// column and filter); tappa_identitydefiner reads them (the session functions find the person and
 	// refuse a refused row) and, from 00072, writes the link (link, unlink, relink).
-	{"admin_users", "identity_id", map[string]string{"tappa_app": "S", "tappa_resolver": "S", "tappa_identitydefiner": "SU"}},
-	{"admin_users", "linked_via", map[string]string{"tappa_identitydefiner": "SU"}},
-	{"admin_users", "linked_at", map[string]string{"tappa_identitydefiner": "SU"}},
+	// 00077 (M14-15, ADR 0031 §5.2's matrix): the invitation's acceptance births the membership row, so
+	// tappa_identitydefiner INSERTs identity_id, linked_via and linked_at (with the five older columns
+	// the matrix names); unlinked_at is never inserted (a new row is not refused).
+	// 00078 (M14-17) RESTATES it for the owner row identity_claim_signup writes (00077 owns the shared
+	// grant; 00078's Down keeps it while an invite function exists).
+	{"admin_users", "identity_id", map[string]string{"tappa_app": "S", "tappa_resolver": "S", "tappa_identitydefiner": "SIU"}},
+	{"admin_users", "linked_via", map[string]string{"tappa_identitydefiner": "SIU"}},
+	{"admin_users", "linked_at", map[string]string{"tappa_identitydefiner": "SIU"}},
 	{"admin_users", "unlinked_at", map[string]string{"tappa_resolver": "S", "tappa_identitydefiner": "SU"}},
 	// 00069 (M14-03, R15): the instant of the session's password proof. admin_sessions hands
 	// tappa_app SELECT table-wide (00006) and UPDATE only on last_used_at and revoked_at (00011):
@@ -435,6 +499,11 @@ var m11Functions = map[string]m11FunctionACL{
 	// reads no table (its callers find P, I and W), so its owner is the migration role and its reach
 	// is nothing but its arguments. EXECUTE to tappa_app alone, whose queries call it (M15-05).
 	"tappa_checkout_class(timestamp with time zone,boolean,boolean,boolean,timestamp with time zone,timestamp with time zone)": {owner: "tappa_owner", execute: "tappa_app,tappa_owner"},
+	// 00068 (M15-15, ADR 0032 §C.2-§C.3): the two claim tables' BEFORE INSERT checks -- SECURITY
+	// INVOKER trigger functions (00005's tappa_check_transaction_review shape), EXECUTE in their
+	// owner alone, bodies asserting TG_RELID.
+	"tappa_check_punch_claim()":          {owner: "tappa_owner", execute: "tappa_owner"},
+	"tappa_check_punch_claim_decision()": {owner: "tappa_owner", execute: "tappa_owner"},
 	// 00069 (M14-03, ADR 0031 §5.1): the linked-row trigger function -- SECURITY INVOKER, NEVER
 	// definer (its test is current_user, which a definer body would read as its owner), EXECUTE in
 	// its owner alone, its body asserting TG_RELID (adminidentity_test.go binds it elsewhere).
@@ -466,7 +535,28 @@ var m11Functions = map[string]m11FunctionACL{
 	"identity_sweep_events()":                                 {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 	"identity_open_reset(uuid,text,timestamp with time zone)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 	"identity_withdraw_reset(text)":                           {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	// 00074 (M14-06b, ADR 0031 §5.2, ONAY note 1): the maintenance function -- the closed list's one
+	// 00074 (M14-08, ADR 0031 §5.2 named exception 2): the registration's dual-write. EXECUTE
+	// tappa_app (and the owner) until M14-19 takes it away; contract B drops it.
+	"identity_create_for_signup(uuid,uuid)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	// 00079 (M14-18, ADR 0031 §5.2's 2026-10-27 note): the confirmation window's reader and "Keep all".
+	"identity_confirm_window(text)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_keep_all(text)":       {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	// 00077 (M14-15, ADR 0031 §5.2): the invitation's md.7 resolver (tappa_resolver's) and its two
+	// acceptances -- keyed by the invitation token (and a live session) -- EXECUTE tappa_app alone.
+	"resolve_admin_invite_by_token_hash(text)": {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	// 00081 (M14-16b, ADR 0031 §5.2's 2026-10-27 note): the business's owners who can still get a session,
+	// for the panel's last-owner rule -- read-only, answering only for the caller's own tenant context.
+	"resolve_admin_owners_by_tenant(uuid)":  {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"identity_accept_invite(text,text)":     {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_accept_invite_new(text,text)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	// 00078 (M14-17, ADR 0031 §5.10): the verified registration -- the md.7 resolver of a draft and the
+	// definer's open, claim and sweep.
+	"resolve_signup_claim_by_token_hash(text)":                                    {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"identity_open_signup_claim(text,citext,jsonb,text,timestamp with time zone)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	// 00080 (M14-17b): identity_claim_signup's fourth argument (p_verified_digest), DROP + CREATE, restated.
+	"identity_claim_signup(text,uuid,text,text)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_sweep_signup_claims()":             {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	// 00082 (M14-06b, ADR 0031 §5.2, ONAY note 1): the maintenance function -- the closed list's one
 	// EXECUTE that is not tappa_app's: tappa_owner alone (the migration calls it, the runbook calls it
 	// again before M14-19, contract B drops it).
 	"identity_reconcile()": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_identitydefiner,tappa_owner"},
@@ -1169,6 +1259,7 @@ var employeeLocationReaders = []string{
 var employeeLocationNonReaders = map[string]string{
 	"CountPanelTransactionsByVerdict": "t.location_id, the venue filter on transactions (ListPanelTransactions' own); employees is matched by full_name in the name CTE",
 	"ListFlaggedForReview":            "t.location_id, the record's venue; employees is joined for full_name",
+	"ListCheckoutsWithoutCheckIn":     "o.location_id, the checkout's venue; employees is joined for full_name (M15-06)",
 	"ListOpenCheckIns":                "t.location_id, the record's venue; employees is joined for full_name",
 	"ListPanelTransactions":           "t.location_id and the venue filter on transactions; employees is matched and joined for full_name",
 	"ListTapsTakenTogether":           "transactions' location_id through its ordered/pairs CTEs; employees is joined for full_name",
@@ -1177,6 +1268,10 @@ var employeeLocationNonReaders = map[string]string{
 	// a site row names no local venue) and the venue is the peer's site_location_id; employees is
 	// read for the id and the department alone, so an employee with no home venue is filed the same.
 	"InsertManualSiteTransaction": "writes location_id NULL and the peer's site_location_id; employees is read for id and department_id",
+	// M15-16: the manual record answering a punch claim -- its venue is the ANCHOR's a.location_id (a
+	// transactions row), never the employee's; employees is read for id and department_id, so a
+	// person with no home venue is filed the same (at the anchor's venue).
+	"InsertManualTransactionAtAnchor": "a.location_id, the claim's anchor's venue; employees is read for id and department_id",
 }
 
 // TestEmployeeLocationReaders_Counted pins K-14's count: the statements of db/queries that

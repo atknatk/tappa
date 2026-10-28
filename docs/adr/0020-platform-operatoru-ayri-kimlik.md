@@ -753,6 +753,26 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   **L21** — araya sokulan aynı adlı bir çerez operatörü tarayıcıdan atabilir: sunucu yarısında
   ilk çerez okunur ve çöp-önce istek 303'tür; tarayıcı yarısı doğrulanamadı; sonucu zorla
   çıkıştır, erişim vermez.
+- **M13-01 notu (2026-10-25) — operatör gezinmesi (kullanıcı kararı OP-1, *"Menü ekle"*).** Bu
+  maddenin `/operator` için yazdığı *"konsol: menü"* artık tek gezinme değil: her **imzalı** ekran
+  (konsol, her veri ekranı, imzalı problem sayfası) bandın altında tek bir
+  `<nav class="op-nav" aria-label="Operator sections">` taşır — beş bağlantı, sırasıyla
+  `/operator`, `/operator/tenants`, `/operator/holdings`, `/operator/audit`, `/operator/legal`;
+  masaüstünde açık (paper) sol sütun, tablette sekme satırı, telefonda ekranın altındaki çubuk, **tek
+  DOM**. Tek-tenant ekranları (genel bakış, plaketler, faturalama, VAT) ayrıca tenant bandının
+  **içinde**, adın altında `<nav class="op-subnav" aria-label="This tenant">` taşır — o tenant'ın dört
+  `{id}` yolu. Ana gezinmenin geçerli öğesi **bölümdür** (`aria-current="true"`), alt gezinmeninki
+  **sayfadır** (`aria-current="page"`); imzalı problem sayfası hiçbir öğeyi işaretlemez. **Yeni okuma,
+  yeni rota, yeni form yok:** yalnız zaten monte edilmiş yollara bağlantı; okuma bütçesi ve audit
+  satırları değişmedi. İmzasız ekranlar (giriş, kod, kayıt, imzasız problemler) gezinme taşımaz. §9'un
+  başlık kuralı aynen: tek-tenant ekranı tenant'ı bantta **adıyla** gösterir (`TenantScreen` adsız
+  tenant'ı ve eksik bir alt gezinmeyi — dört yoldan biri boş ya da geçerli sekme yok — render etmez,
+  düz 500). Sabitleyen testler: `TestOperatorScreens_EveryOneWearsTheOperatorChrome` (genişletildi),
+  `TestOperatorScreens_CarryNoPanelShellAndNoTenantBrand`,
+  `TestTenantScreens_TheSubNavIsTheReadTenantsFourScreens`,
+  `TestTenantScreen_RefusesToRenderWithoutItsTabs`, `TestEnrollQR_OnlyOnTheFirstLoad` (imzalı
+  render'da tam beş SVG — gezinmenin ikonları). Tasarım: `docs/design/operator-redesign/README.md`
+  §2 OP-1; marka kuralı değişmedi (ADR 0023 operatör satırı).
 
 ### 5. Audit
 

@@ -845,15 +845,17 @@ policy_tautology() {
 # APPEND_ONLY — CLAUDE.md §4.3'un bagladigi `transactions` ve onunla ayni
 # muameleyi goren tablolar: `00021`in TRUNCATE korumasindaki alti tablo, 00026'nin
 # yedincisi `operator_audit_log` (platform operatorunun append-only izi) ve 00046'nin
-# sekizincisi `site_punches` (holding sahasinin izdusumu — M11 API-1c) ve 00048'in
-# dokuzuncusu `punch_events` (dis punch akisi — M11 API-2). Bu liste,
+# sekizincisi `site_punches` (holding sahasinin izdusumu — M11 API-1c), 00048'in
+# dokuzuncusu `punch_events` (dis punch akisi — M11 API-2) ve 00068'in onuncusu ile
+# on birincisi `punch_claims`, `punch_claim_decisions` (eksik yari talebi ve karari —
+# M15-15). Bu liste,
 # scripts/pg-restore-verify.sh'in `trunc_tables` listesi ve migration'lardaki
 # tappa_forbid_mutation tetikleyicileri UC temsildir; cmd/tappa/scriptguards_test.go
 # kumeyi migration'lardan TURETIP ikisini de karsilastirir, yani bir sekizincisi
 # eklenip burada unutulursa test kirmizi verir.
 # ⚠️ `operator_audit_log` asagidaki `[^ ]*` onekiyle `audit_log` alt dizgisinden de
 # yakalanirdi (tesadufen); acikca yazilir ki liste turetilmis kumeyle esit olsun.
-APPEND_ONLY='(transactions|audit_log|transaction_reviews|policy_versions|billing_periods|legal_documents|operator_audit_log|site_punches|punch_events)'
+APPEND_ONLY='(transactions|audit_log|transaction_reviews|policy_versions|billing_periods|legal_documents|operator_audit_log|site_punches|punch_events|punch_claims|punch_claim_decisions)'
 
 # R5b'nin 00058 muafiyetinin dosya sekli (asagida, muafiyetin yorumunda gerekcesiyle). 0 = sekil
 # sevk edilen dosyanin sekli; baska her sey (sha256 araci yoksa dahil) 1 -- muafiyet yok, FAIL.
@@ -1080,6 +1082,17 @@ done
 # 00063 (M10 OP-15, 2026-10-20): onuncu satir, ayni sekil -- Up'ta ve Down'da birer DO blogu,
 # govdelerinde 4 `alter`in 4'u `alter table public.operator_audit_log add constraint
 # operator_audit_log_kind_check` (NOT VALID / VALIDATED dallari); EXECUTE kodu yok.
+# 00077 (M14-15, 2026-10-27): on birinci satir, BASKA bir sekil -- Down'da tek bir DO blogu, govdesinde
+# 1 `revoke`: `REVOKE INSERT (<sekiz sutun>) ON public.admin_users FROM tappa_identitydefiner`, yalniz
+# `to_regprocedure('public.identity_claim_signup(text,uuid,text)') IS NULL` iken (M14-17'nin 00078'i
+# ayni yetkiyi kullanir ve geri almaz -- orkestrator karari). Statik, tablo ve rol adi yazili, yetkiyi
+# yalniz DARALTIR; RLS/politika/sahiplik degistirmiyor; EXECUTE kodu yok.
+# 00078 (M14-17, 2026-10-27 denetimi ORTA-1): Down'da tek DO blogu, govdesinde 1 `revoke` --
+# `REVOKE INSERT (<owner satirinin sekiz sutunu>) ON public.admin_users FROM tappa_identitydefiner`,
+# yalniz `identity_accept_invite*` (00077) yokken: paylasilan bir sutun yetkisi referans sayilmaz,
+# kucuk numarali dosya (00077) sahibidir. Statik, tablo ve rol adi yazili, yalniz GERI ALIR (yetki
+# vermez, RLS/politika/sahiplik degistirmez); EXECUTE kodu yok. Pin dosyanin butun govdelerinin
+# (fonksiyonlar dahil) ozetidir.
 R5B_BODY_DDL='
 00027_move_legal_publishing_to_the_operator.sql ff642e7342eea75e9bd9e5a1f565ed86236a67bce4df45224a1f076ba82d6515
 00029_read_tenants_from_the_operator.sql 40dfbcc6552251d0262e558bafe6b232c9002f5aafa380ffd11dc05310258d1b
@@ -1091,6 +1104,8 @@ R5B_BODY_DDL='
 00039_open_the_api_from_the_operator.sql 2e0f577c880f6814c057d7477e275b1b90ae4596c9492a99799569d49b3f71b7
 00042_put_holdings_on_the_operator_surface.sql ebcf1ce2ebe977910e25255dfb91915d7d336b84c808fda722c79031133130a5
 00063_suspend_a_tenant_from_the_operator.sql ff003d61db146d20479be927e8cb257f2840f39715c68b07d5b4c81e73e85585
+00077_invite_administrators.sql 5cb0b95eefc218083148f9d8c1c13573e3302c5fca5bbfb99f02765ee4349382
+00078_verify_signups_by_e_mail.sql c87177d2b719e11b4782e7737c73c2fba68311bfa8ebf029fbfb9094d4b21e4e
 '
 
 # R5B_SET_CONFIG -- bir migration'in `set_config` ile kurabilecegi ayarlar (fix1, 2026-10-19). Sevk

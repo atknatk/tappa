@@ -253,7 +253,7 @@ func manualTimeInvalid(problem string) bool {
 // mis-file somebody through. The one exception is a person with NO home venue (K-14):
 // the form then asks for the venue, and the statement reads it only for them.
 templ manualFormStep(v ManualEntryView) {
-	<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-4 font-display md:gap-[18px]">
+	<form method="post" action={ templ.URL(components.Bound(ctx, v.Action)) } class="flex flex-col gap-4 font-display md:gap-[18px]">
 		<input type="hidden" name="id" value={ v.EmployeeID }/>
 		<fieldset class="flex flex-col">
 			<legend class="lbl mb-2">What happened</legend>
@@ -404,7 +404,7 @@ templ manualFormStep(v ManualEntryView) {
 // reading order. The form carries only hidden fields and the button: nothing on this step
 // can be typed into, so what is posted is what the summary says.
 templ manualConfirmStep(v ManualEntryView) {
-	<form method="post" action={ templ.URL(v.RecordAction) } class="flex flex-col gap-4 font-display">
+	<form method="post" action={ templ.URL(components.Bound(ctx, v.RecordAction)) } class="flex flex-col gap-4 font-display">
 		<div class="flex flex-col gap-1 rounded-xl border border-dashed border-ink/50 px-3.5 py-3 font-mono md:px-4 md:py-3.5">
 			<p class="lbl">About to be recorded</p>
 			<p class="text-sm font-bold text-ink md:text-[15px]">
@@ -457,6 +457,17 @@ templ manualConfirmStep(v ManualEntryView) {
 					And if you are fixing a check-in you already entered, the old one stays in
 					&#34;needs action&#34; for good: nothing you enter afterwards can close it.
 					Rather than correcting one, get this one right.
+				</p>
+			}
+			// THE SURPLUS HAS A NAME (ADR 0032 §A.6, class (e); M15-06). Correcting a checkout
+			// recorded too late with an earlier one works, and the late one is left over: the
+			// report counts it apart as an extra checkout, and it is NOT listed as a missing
+			// check-in. Said for a checkout only -- it is the one direction that leaves it.
+			if v.Direction == "out" {
+				<p>
+					If this checkout corrects one recorded too late, the late one stays on record as
+					an extra checkout. It is counted apart from the hours and is not listed as a
+					missing check-in.
 				</p>
 			}
 		</div>

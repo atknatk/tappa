@@ -640,7 +640,7 @@ func TestAdminUsers00069_TheBinaryBeforeItRunsOnIt(t *testing.T) {
 			return err
 		}
 		if session, err = q.CreateAdminSession(ctx, store.CreateAdminSessionParams{
-			TenantID: tenant, AdminUserID: created.ID, TokenHash: opRandHex(t),
+			TenantID: tenant, AdminUserID: created.ID, TokenHash: opRandHex(t), VerifiedDigest: opFakeDigest("a"),
 		}); err != nil {
 			return err
 		}

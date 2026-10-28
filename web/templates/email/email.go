@@ -222,6 +222,14 @@ const (
 	subjectInvitation      = "Your Taptime invitation"
 	subjectReset           = "Reset your Taptime password"
 	subjectPasswordChanged = "Your Taptime password was changed"
+	// subjectEmailVerification is the identity's e-mail verification (M14-18, ADR 0031 §5.14).
+	subjectEmailVerification = "Confirm your email address for Taptime"
+	// M14-17 (ADR 0031 §5.14): the registration's two letters -- the new address's verification and
+	// the existing address's "a registration was started with your address".
+	subjectSignupVerify = "Confirm your Taptime registration"
+	subjectSignupKnown  = "A Taptime registration used your address"
+	// subjectAdminInvitation is the manager invitation's (M14-15, ADR 0031 §5.14).
+	subjectAdminInvitation = "You're invited to manage a business on Taptime"
 )
 
 // Where each link must point, relative to the configured BaseURL. They are the
@@ -240,6 +248,20 @@ const (
 	// checks it, so the two disagreeing refuses every render, and the e-mail
 	// channel's constructor renders once at boot (NewEmailResetChannel).
 	signInPath = "/admin/login"
+	// verifyPath / verifyParam are the e-mail verification's link (M14-18): internal/adminauth's
+	// VerifyPath and VerifyParam written a second time for signInPath's reason -- the producer builds
+	// the link from its constants, this package checks it (TestRender_AcceptsTheVerificationLinkAdminauthMints).
+	verifyPath  = "/admin/verify-email"
+	verifyParam = "t"
+	// signupConfirmPath is the registration link's page (M14-17): internal/handler's
+	// signupConfirmPath, held here like signInPath (the handler's constructor renders once at boot).
+	signupConfirmPath  = "/admin/signup/confirm"
+	signupConfirmParam = "t"
+	// adminInvitePath is the manager invitation's page (M14-15): internal/adminauth's InvitePath and
+	// InviteParam written a second time for signInPath's reason -- the producer builds the link from its
+	// own constants, this package checks it (TestRender_AcceptsTheAdminInvitationLinkAdminauthMints).
+	adminInvitePath  = "/admin/invite"
+	adminInviteParam = "t"
 )
 
 // maxLinkValue bounds the code or token in a link. Both producers write 43
@@ -294,6 +316,11 @@ type ResetView struct {
 	BaseURL string
 	// ValidFor is the link's lifetime (adminauth.ResetTTL today).
 	ValidFor time.Duration
+	// EveryBusiness: a per-identity link (M14-14, ADR 0031 §5.14's "kimlik başına sıfırlama") -- one
+	// link resets the sign-in's password for every business LINKED to it (an unlinked account of the
+	// same address is not touched). The e-mail says that in one sentence and still names no business. False (the zero value) is the per-row e-mail,
+	// unchanged byte for byte.
+	EveryBusiness bool
 }
 
 // PasswordChangedView is what the "your password was changed" notice needs besides
@@ -307,6 +334,46 @@ type ResetView struct {
 type PasswordChangedView struct {
 	// BaseURL is cfg.BaseURL; the link must be exactly BaseURL + "/admin/login".
 	BaseURL string
+	// EveryBusiness: the change was a per-identity reset (M14-14) -- the person's ONE notice for every
+	// business (EM-9, ADR 0031 §5.14). It is a fact about the change, not a name: the notice still
+	// names nobody. False (the zero value) is the per-account notice, unchanged byte for byte.
+	EveryBusiness bool
+}
+
+// SignupView is what the registration letters say besides their link (M14-17, ADR 0031 §5.10, §5.14).
+//
+// IT NAMES NOBODY AND NO BUSINESS, ON PURPOSE: anyone can start a registration with any address, so
+// the business name and the person's name are text a stranger chose -- ADR 0022 counted limit 22's
+// reason, and the reset e-mail's. And there is no field that says which of the two letters this is:
+// the caller picks the renderer.
+type SignupView struct {
+	// BaseURL is cfg.BaseURL; the link must be BaseURL + "/admin/signup/confirm?t=" + the token.
+	BaseURL string
+	// ValidFor is the link's lifetime: the time it has left when the e-mail is sent.
+	ValidFor time.Duration
+}
+
+// RenderSignupVerification renders the new address's letter: open the link and re-enter the password
+// chosen in the form. The returned Message has Subject, Text and HTML; the caller sets To and Ref.
+func RenderSignupVerification(ctx context.Context, link string, v SignupView) (mail.Message, error) {
+	return renderSignup(ctx, link, v, signupVerifyLetter)
+}
+
+// RenderSignupKnownAddress renders the existing address's letter: someone started a registration with
+// this address; if it was you, sign in and open the link in the same browser.
+func RenderSignupKnownAddress(ctx context.Context, link string, v SignupView) (mail.Message, error) {
+	return renderSignup(ctx, link, v, signupKnownLetter)
+}
+
+func renderSignup(ctx context.Context, link string, v SignupView, letterOf func(life string) letter) (mail.Message, error) {
+	if err := checkLink(v.BaseURL, signupConfirmPath, signupConfirmParam, link); err != nil {
+		return mail.Message{}, err
+	}
+	life, err := lifetime(v.ValidFor)
+	if err != nil {
+		return mail.Message{}, err
+	}
+	return render(ctx, letterOf(life), link)
 }
 
 // RenderPasswordChanged renders the notice for the sign-in page's address. The
@@ -315,7 +382,7 @@ func RenderPasswordChanged(ctx context.Context, link string, v PasswordChangedVi
 	if err := checkSignInLink(v.BaseURL, link); err != nil {
 		return mail.Message{}, err
 	}
-	return render(ctx, passwordChangedLetter(), link)
+	return render(ctx, passwordChangedLetter(v.EveryBusiness), link)
 }
 
 // checkSignInLink holds the notice's link to ONE string: the base (trailing slashes
@@ -333,6 +400,62 @@ func checkSignInLink(baseURL, link string) error {
 		return ErrLink
 	}
 	return nil
+}
+
+// EmailVerificationView is what the e-mail verification says besides its link (M14-18, ADR 0031
+// §5.14: "e-posta doğrulaması (var olan kimlik)").
+//
+// IT NAMES NOBODY AND NO BUSINESS: it is sent to the identity's own registered address, and the act
+// it confirms is the address's, not a business's. It carries no value slot but the lifetime.
+type EmailVerificationView struct {
+	// BaseURL is cfg.BaseURL; the link must be BaseURL + "/admin/verify-email?t=" + the token.
+	BaseURL string
+	// ValidFor is the link's lifetime (24 hours, 00072).
+	ValidFor time.Duration
+}
+
+// RenderEmailVerification renders the verification e-mail for its link. The returned Message has
+// Subject, Text and HTML; the caller sets To and Ref.
+func RenderEmailVerification(ctx context.Context, link string, v EmailVerificationView) (mail.Message, error) {
+	if err := checkLink(v.BaseURL, verifyPath, verifyParam, link); err != nil {
+		return mail.Message{}, err
+	}
+	life, err := lifetime(v.ValidFor)
+	if err != nil {
+		return mail.Message{}, err
+	}
+	return render(ctx, verificationLetter(life), link)
+}
+
+// AdminInvitationView is what the manager invitation says besides its link (M14-15, ADR 0031 §5.14).
+//
+// IT NAMES THE BUSINESS ONLY WHEN VIES VERIFIED IT, and then only through nameShown -- the employee
+// invitation's rule (ADR 0022 counted limit 22): the name is text an open signup chose and this e-mail
+// is DKIM-signed for Taptime's domain. It names NO person: not the inviting owner (a name a stranger
+// typed in an unverified business would be the same risk) and not the invitee. And it is the SAME
+// e-mail whether or not the address already has a Taptime sign-in (R18): the page the link opens
+// offers both ways in.
+type AdminInvitationView struct {
+	// BaseURL is cfg.BaseURL; the link must be BaseURL + "/admin/invite?t=" + the token.
+	BaseURL string
+	// TenantName appears only when TenantVerified and nameShown accepts it; neutral words otherwise.
+	TenantName     string
+	TenantVerified bool
+	// ValidFor is the invitation's lifetime: its expires_at − created_at.
+	ValidFor time.Duration
+}
+
+// RenderAdminInvitation renders the manager invitation for its link. The returned Message has Subject,
+// Text and HTML; the caller sets To and Ref.
+func RenderAdminInvitation(ctx context.Context, link string, v AdminInvitationView) (mail.Message, error) {
+	if err := checkLink(v.BaseURL, adminInvitePath, adminInviteParam, link); err != nil {
+		return mail.Message{}, err
+	}
+	life, err := lifetime(v.ValidFor)
+	if err != nil {
+		return mail.Message{}, err
+	}
+	return render(ctx, adminInvitationLetter(v.TenantName, v.TenantVerified, life), link)
 }
 
 // RenderInvitation renders the invitation for the activation link. The returned
@@ -358,7 +481,7 @@ func RenderPasswordReset(ctx context.Context, link string, v ResetView) (mail.Me
 	if err != nil {
 		return mail.Message{}, err
 	}
-	return render(ctx, resetLetter(life), link)
+	return render(ctx, resetLetter(life, v.EveryBusiness), link)
 }
 
 func render(ctx context.Context, l letter, link string) (mail.Message, error) {
@@ -487,6 +610,11 @@ func tokenByte(b byte) bool {
 // whole unit, so it never promises more time than it was given: 7 days less a
 // second reads "6 days". Under a minute is refused — no link the product mints is
 // that short, and "0 minutes" would read as a link that is already dead.
+// Lifetime is lifetime for the pages that state a link's life beside its letter (M14-17b's audit: the
+// registration's "Check your inbox" and dead-link pages said "24 hours" while its letter, from the same
+// lifetime, said "23 hours"): one rounding, so a page and its letter print the same length.
+func Lifetime(d time.Duration) (string, error) { return lifetime(d) }
+
 func lifetime(d time.Duration) (string, error) {
 	const day = 24 * time.Hour
 	switch {

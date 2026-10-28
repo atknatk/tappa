@@ -62,7 +62,7 @@ func TestTapPageDB_TheBrandComesWithTheGreetingAndTheVenue(t *testing.T) {
 
 	read := func(what string, location uuid.UUID) (TapPageFacts, error) {
 		t.Helper()
-		facts, err := dir.TapPage(ctx, f.tenant, emp, location)
+		facts, err := dir.TapPage(ctx, f.tenant, emp, location, false)
 		if facts.EmployeeName != "Maria Borg" {
 			t.Fatalf("%s: greeting %q", what, facts.EmployeeName)
 		}
@@ -202,7 +202,7 @@ func TestTapPageDB_ABrandReadFailureKeepsTheGreetingAndTheVenue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDirectory: %v", err)
 	}
-	facts, err := dir.TapPage(context.Background(), f.tenant, emp, loc)
+	facts, err := dir.TapPage(context.Background(), f.tenant, emp, loc, false)
 	var pgErr *pgconn.PgError
 	if !errors.Is(err, ErrBrandUnread) || !errors.As(err, &pgErr) || pgErr.Code != "22012" {
 		t.Fatalf("err = %v; want ErrBrandUnread wrapping the database's 22012", err)
@@ -212,7 +212,7 @@ func TestTapPageDB_ABrandReadFailureKeepsTheGreetingAndTheVenue(t *testing.T) {
 	}
 	// CONTROL: the same database without the failure gives the brand.
 	ok, _ := NewDirectory(f.data, nil)
-	if facts, err := ok.TapPage(context.Background(), f.tenant, emp, loc); err != nil || !facts.Brand.HasAccent {
+	if facts, err := ok.TapPage(context.Background(), f.tenant, emp, loc, false); err != nil || !facts.Brand.HasAccent {
 		t.Fatalf("control: %+v, %v", facts, err)
 	}
 }

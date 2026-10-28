@@ -503,6 +503,7 @@ func newPathHarness(t *testing.T, verified []adminauth.Verified) *pathHarness {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
 	h.Mount(r)
+	registerPanel(r, h)
 	for _, p := range tapSurfacePaths {
 		r.Get(p, cookieSpy)
 		r.Post(p, cookieSpy)

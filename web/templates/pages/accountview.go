@@ -170,6 +170,9 @@ type AccountView struct {
 	// refuses, and then the card is not drawn at all. The card carries the link and
 	// nothing else: no key, prefix, count or webhook data travels on this view.
 	DevelopersHref string
+	// ManagersHref is the owner's "Managers" page (M14-15), "" while the panel identity flag keeps the
+	// invitations closed or for a reader who is not an owner -- then nothing of the card is drawn.
+	ManagersHref string
 
 	// --- the password form (T73) --------------------------------------------------
 
@@ -187,6 +190,82 @@ type AccountView struct {
 	// It names the K3 sign-out (other devices signed out, this one kept) and, like
 	// Saved, comes from a closed vocabulary the query string can only select from.
 	PasswordSaved string
+
+	// --- sign out everywhere (M14-11) ----------------------------------------------
+
+	// SignOutEverywhereHref is where the "Sign out everywhere" button posts, "" while
+	// TAPPA_ADMIN_IDENTITY is off -- and then the card is not drawn at all, so the page is
+	// byte for byte today's (ADR 0031 §8). Drawn for every live admin: it is personal, like
+	// the password.
+	SignOutEverywhereHref string
+	// SignOutEverywhereEveryBusiness is whether the press reaches every business of the person --
+	// true only when this session's row is linked to an identity. An unlinked row's press signs out
+	// this business alone (adminauth.RevokeAll's fallback), and the card must not promise more.
+	SignOutEverywhereEveryBusiness bool
+
+	// --- the identity sections (M14-18) --------------------------------------------
+
+	// Identity is "Your businesses", "Verify your e-mail", the confirmation window and "Link a
+	// business" (ADR 0031 §8's account row): nil while TAPPA_ADMIN_IDENTITY is off -- and then none of
+	// it is drawn, so the page is today's.
+	Identity *AccountIdentityView
+}
+
+// AccountIdentityView is the account page's identity sections (M14-18). Every sentence on it is the
+// handler's, from closed vocabularies; nothing a request typed is echoed.
+type AccountIdentityView struct {
+	// Linked: the session's row is linked to an identity (the forward link, the verification and the
+	// window exist); false is an older per-business sign-in -- the reverse link is offered instead.
+	Linked bool
+	// Businesses is the person's businesses (identity_memberships), the current one first; Unreadable
+	// says the list could not be read (shown instead of an empty list -- §4.6).
+	Businesses []AccountBusiness
+	Unreadable bool
+	SwitchHref string
+
+	// Verified is the identity's address verified; VerifyHref the request's form (linked, unverified
+	// only); VerifyConfirmHref the confirmation's -- drawn when this browser holds a link it opened.
+	Verified          bool
+	VerifyHref        string
+	VerifyConfirmHref string
+	VerifyNotice      string
+	VerifyProblem     string
+
+	// The confirmation window (ADR 0031 §5.8): drawn while it is open.
+	WindowOpen    bool
+	WindowReset   bool // the reset scope (every link) rather than the first verification's
+	WindowEnds    string
+	WindowRows    []AccountWindowRow
+	KeepAllHref   string
+	UnlinkHref    string
+	UndoHref      string
+	WindowNotice  string
+	WindowProblem string
+
+	// "Link a business" (ADR 0031 §5.7 (2)): LinkHref posts both passwords.
+	LinkHref    string
+	LinkNotice  string
+	LinkProblem string
+}
+
+// AccountBusiness is one business of the person, for display.
+type AccountBusiness struct {
+	Name      string
+	Role      string
+	Current   bool
+	Suspended bool
+}
+
+// AccountWindowRow is one row of the confirmation list: a membership the person may unlink, or one
+// they refused in this window and may take back (Refused).
+type AccountWindowRow struct {
+	TenantID        string
+	Name            string
+	Role            string
+	Refused         bool
+	LastActiveOwner bool
+	// Error is the sentence beside THIS row's form after a refused press (a wrong password).
+	Error string
 }
 
 // AccountForm is the three editable fields.

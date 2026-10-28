@@ -1,0 +1,249 @@
+package pages
+
+import (
+	"strconv"
+
+	"github.com/atknatk/tappa/web/templates/components"
+)
+
+// The account page's IDENTITY SECTIONS (M14-18, ADR 0031 §5.7, §5.8, §8): "Your businesses" with the
+// e-mail verification, the confirmation window, and "Link a business". Drawn only while the panel
+// identity flag is on (AccountView.Identity is nil otherwise, and then nothing of this file is
+// written -- the page is today's).
+//
+// EVERY FORM IS ITS OWN, carries the tenant binding in its action (components.Bound, ADR 0031 §5.5)
+// and no synchronizer field (sameOriginGate is the CSRF defence, the password form's rule). The
+// window's rows each have their own small form: the password is asked again for every unlink and
+// every Undo (S4), so a row's press cannot be another row's.
+//
+// THE WORDS: plain, short, no jargon -- "sign-in" for the identity, "business" for the membership.
+// The colours are the panel's: the window is a warning card while it is open, the unlink is the
+// destructive outlined button, Keep all the primary one.
+
+// accountWindowCard is the confirmation window (ADR 0031 §5.8): the list, one "Keep all" press that
+// needs no password (T11), and per row an unlink -- or, for a row refused in this window, its Undo --
+// each asking the sign-in's password again. A row that is its business's last active owner says so
+// before the press (S4).
+templ accountWindowCard(v AccountIdentityView) {
+	<section class="panel-card min-w-0 border-2 border-saffron" aria-labelledby="account-window-heading">
+		@accountCardHeading("account-window-heading", "Check the businesses on your sign-in")
+		<p class="text-[13px] leading-normal text-ink/85">
+			if v.WindowReset {
+				Your password was just reset. Make sure every business below is one you run: if one is
+				not, remove it from your sign-in.
+			} else {
+				You have just confirmed your email address. These businesses were added to your sign-in
+				automatically — make sure each one is yours.
+			}
+			You can check until <span class="font-mono">{ v.WindowEnds }</span>.
+		</p>
+		if v.WindowNotice != "" {
+			@components.PanelNotice(components.ToneOK, "Done") {
+				<p>{ v.WindowNotice }</p>
+			}
+		}
+		if v.WindowProblem != "" {
+			@components.PanelNotice(components.ToneAlert, "Nothing was changed") {
+				<p>{ v.WindowProblem }</p>
+			}
+		}
+		<form method="post" action={ templ.URL(components.Bound(ctx, v.KeepAllHref)) } class="flex flex-wrap items-center gap-3">
+			<button class="btn btn--primary rounded-xl" type="submit">Keep all</button>
+			<p class="text-[13px] leading-normal text-ink/70">Every business below stays on your sign-in.</p>
+		</form>
+		<ul class="flex flex-col divide-y divide-dashed divide-line border-t border-dashed border-line">
+			for i, row := range v.WindowRows {
+				<li class="flex flex-col gap-3 py-4">
+					<p class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+						<span class="font-display text-base font-bold tracking-tight text-ink">{ businessLabel(row.Name) }</span>
+						<span class="lbl">{ row.Role }</span>
+						if row.Refused {
+							<span class="lbl">Removed from your sign-in</span>
+						}
+					</p>
+					if row.LastActiveOwner && !row.Refused {
+						@components.PanelNotice(components.ToneWarn, "You are its only owner") {
+							<p>
+								Nobody else can run this business's account. If you remove it from your sign-in, no
+								one will be able to sign in to it as an owner.
+							</p>
+						}
+					}
+					if row.Error != "" {
+						@components.PanelNotice(components.ToneAlert, "Nothing was changed") {
+							<p>{ row.Error }</p>
+						}
+					}
+					<form method="post" action={ templ.URL(components.Bound(ctx, windowRowHref(v, row))) } class="flex flex-col gap-3 md:flex-row md:items-end">
+						<input type="hidden" name="tenant_id" value={ row.TenantID }/>
+						<div class="field-stack min-w-0 md:flex-1">
+							<label class="lbl" for={ windowFieldID(i) }>Your password</label>
+							<input
+								class="field-input field-input--mono"
+								id={ windowFieldID(i) }
+								type="password"
+								name="password"
+								autocomplete="current-password"
+								required
+							/>
+						</div>
+						if row.Refused {
+							<button class="btn btn--line" type="submit">Put it back</button>
+						} else {
+							<button class="btn btn--danger" type="submit">Remove from my sign-in</button>
+						}
+					</form>
+				</li>
+			}
+		</ul>
+	</section>
+}
+
+// accountBusinessesCard is "Your businesses" (identity_memberships) and, for a linked sign-in whose
+// address is not verified yet, "Verify your e-mail": a request form, and -- in the browser that opened
+// the e-mailed link -- the confirmation press (R2, R19: the link is spent here, never on its GET).
+templ accountBusinessesCard(v AccountIdentityView) {
+	<section class="panel-card min-w-0" aria-labelledby="account-businesses-heading">
+		@accountCardHeading("account-businesses-heading", "Your businesses")
+		if v.Unreadable {
+			@components.PanelNotice(components.ToneAlert, "Not shown just now") {
+				<p>Your businesses could not be read just now. Nothing has changed; reload the page in a moment.</p>
+			}
+		} else {
+			<ul class="flex flex-col divide-y divide-dashed divide-line">
+				for _, b := range v.Businesses {
+					<li class="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3">
+						<span class="font-display text-base font-bold tracking-tight text-ink">{ businessLabel(b.Name) }</span>
+						<span class="lbl">{ b.Role }</span>
+						if b.Current {
+							<span class="lbl">You are here</span>
+						}
+						if b.Suspended {
+							<span class="tally tally--changes-paused">Changes paused</span>
+						}
+					</li>
+				}
+			</ul>
+		}
+		if !v.Linked {
+			<p class="text-[13px] leading-normal text-ink/70">
+				This business has its own sign-in. Link it to your Taptime sign-in below to move between
+				your businesses without signing out.
+			</p>
+		} else if len(v.Businesses) > 1 {
+			<div>
+				<a class="btn btn--line" href={ templ.URL(v.SwitchHref) }>Switch business</a>
+			</div>
+		}
+		if v.VerifyNotice != "" {
+			@components.PanelNotice(components.ToneOK, "Email address") {
+				<p>{ v.VerifyNotice }</p>
+			}
+		}
+		if v.VerifyProblem != "" {
+			@components.PanelNotice(components.ToneAlert, "Email address") {
+				<p>{ v.VerifyProblem }</p>
+			}
+		}
+		if v.VerifyConfirmHref != "" {
+			<form method="post" action={ templ.URL(components.Bound(ctx, v.VerifyConfirmHref)) } class="flex flex-col gap-3 border-t border-dashed border-line pt-4">
+				<p class="text-[13px] leading-normal text-ink/85">
+					You opened the confirmation link from your email. Press the button to confirm that the
+					address belongs to you.
+				</p>
+				<div>
+					<button class="btn btn--primary rounded-xl" type="submit">Confirm my email address</button>
+				</div>
+			</form>
+		} else if v.VerifyHref != "" {
+			<form method="post" action={ templ.URL(components.Bound(ctx, v.VerifyHref)) } class="flex flex-col gap-3 border-t border-dashed border-line pt-4">
+				<p class="text-[13px] leading-normal text-ink/70">
+					Your email address is not confirmed yet. We will send you a link; open it in this browser
+					while you are signed in.
+				</p>
+				<div>
+					<button class="btn btn--line" type="submit">Send me a confirmation link</button>
+				</div>
+			</form>
+		}
+	</section>
+}
+
+// accountLinkCard is "Link a business" (ADR 0031 §5.7 (2)): two passwords -- this sign-in's own,
+// asked again, and the other side's. A linked sign-in links an older per-business sign-in of the same
+// address; an unlinked one (M14-13's Choose paragraph sends that person here) links itself to the
+// Taptime sign-in. The answer is the same sentence whether or not anything was linked.
+templ accountLinkCard(v AccountIdentityView) {
+	<form method="post" action={ templ.URL(components.Bound(ctx, v.LinkHref)) } class="panel-card min-w-0" aria-labelledby="account-link-heading">
+		if v.Linked {
+			@accountCardHeading("account-link-heading", "Link a business")
+			<p class="text-[13px] leading-normal text-ink/70">
+				Do you manage a business on Taptime with the same email address but a different password?
+				Type both passwords to put it on this sign-in.
+			</p>
+		} else {
+			@accountCardHeading("account-link-heading", "Link to your Taptime sign-in")
+			<p class="text-[13px] leading-normal text-ink/70">
+				Do you also manage other businesses on Taptime with this email address? Type both
+				passwords to put this business on that sign-in.
+			</p>
+		}
+		if v.LinkNotice != "" {
+			@components.PanelNotice(components.ToneOK, "Checked") {
+				<p>{ v.LinkNotice }</p>
+			}
+		}
+		if v.LinkProblem != "" {
+			@components.PanelNotice(components.ToneAlert, "Nothing was linked") {
+				<p>{ v.LinkProblem }</p>
+			}
+		}
+		<div class="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
+			<div class="field-stack min-w-0">
+				<label class="lbl" for="account-link-current">
+					if v.Linked {
+						Your password
+					} else {
+						This business's password
+					}
+				</label>
+				<input class="field-input field-input--mono" id="account-link-current" type="password" name="current_password" autocomplete="current-password" required/>
+			</div>
+			<div class="field-stack min-w-0">
+				<label class="lbl" for="account-link-other">
+					if v.Linked {
+						The other business's password
+					} else {
+						Your Taptime sign-in's password
+					}
+				</label>
+				<input class="field-input field-input--mono" id="account-link-other" type="password" name="other_password" autocomplete="off" required/>
+			</div>
+		</div>
+		<div>
+			<button class="btn btn--primary rounded-xl" type="submit">Link</button>
+		</div>
+	</form>
+}
+
+// windowRowHref is the row's form target: the Undo for a row refused in this window, the unlink
+// otherwise.
+func windowRowHref(v AccountIdentityView, row AccountWindowRow) string {
+	if row.Refused {
+		return v.UndoHref
+	}
+	return v.UnlinkHref
+}
+
+// windowFieldID is a row's password field id, unique on the page.
+func windowFieldID(i int) string {
+	return "account-window-password-" + strconv.Itoa(i)
+}
+
+// businessLabel is a business's name, or neutral words when the row holds none.
+func businessLabel(name string) string {
+	if name == "" {
+		return "A business without a name"
+	}
+	return name
+}

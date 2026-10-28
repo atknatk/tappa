@@ -548,6 +548,8 @@ IFS= read -r -d '' R7D_WAIVERS <<'R7DW' || true
 ^internal/encode/rows_db_test[.]go$;39c2f60a96559bba116842cbf37812f2ef559f4818c7a461ea5e53b34a9498e0;alfabe dolgusu, bcrypt bicimli
 ^internal/handler/adminlogin_db_test[.]go$;906e4ceca519293d8b1697c23be5145a095c4c6fb2db33ef123057a64f9a436c;sentetik test bcrypt ozeti
 ^internal/handler/adminlogin_db_test[.]go$;ee1991f8375fecadff1e7ccae57b6d210a732c8462beb9bcf869f528b8eed94f;sentetik test bcrypt ozeti
+^internal/handler/adminloginidentity_db_test[.]go$;5f81c5628597f77de2bad95eb5d24d924dce183014cbde6e42a355b26a84c2e5;sentetik test bcrypt ozeti (cost 12, M14-09 zamanlama)
+^internal/handler/adminloginidentity_db_test[.]go$;a28ddf1f5699cc6a6e03dae92345752fdf44406e4c498b6901f22a1873f85430;sentetik test bcrypt ozeti (cost 12, M14-09 zamanlama)
 ^internal/handler/adminreset_test[.]go$;6ece128e489085ef0306f3be8ca7ae84770ddb3cfdd93bf7e119296935abb80a;sentetik sifirlama akisi test degeri
 ^internal/handler/adminreset_test[.]go$;844dca6e2715e0b8326f83f26b0a08a0886617e686d69b1ab77284937648f22f;sentetik sifirlama akisi test degeri
 ^internal/handler/adminreset_test[.]go$;1f2619e8660e1670335bccceb2877e3804a88aa824bc958d81313166ddbc248d;sentetik sifirlama akisi test degeri

@@ -76,7 +76,7 @@ func TestCheckinDB_ACrossLocationNoteStaysOffTheEmployeesScreen(t *testing.T) {
 	if awayText != homeText {
 		t.Errorf("the screen at another venue differs from the screen at home:\n away: %s\n home: %s", awayText, homeText)
 	}
-	want := shellText + " St Julians Tapped in <clock> APPROVED Trust 70 " + noteIPMatched +
+	want := shellText + " St Julians Clocked in <clock> APPROVED Trust 70 " + noteIPMatched +
 		" Have a great shift — keep those kebabs rolling! 🌯 All done — you can close this page."
 	if homeText != want {
 		t.Errorf("the home screen is not production's ok screen:\n got: %s\nwant: %s", homeText, want)

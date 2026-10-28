@@ -71,9 +71,33 @@ var evidenceReaders = map[string]evidenceReaderClass{
 	"InsertTransaction":             {"not-rendered", "", 0, "the writer"},
 	"InsertManualTransaction":       {"not-rendered", "", 0, "the writer (manual)"},
 	"InsertManualSiteTransaction":   {"not-rendered", "", 0, "the writer (manual at a peer's venue)"},
-	"InsertTransactionReview":       {"not-rendered", "", 0, "the review writer reads the decided row's verdict to refuse a non-flag"},
+	"InsertManualTransactionAtAnchor": {"not-rendered", "", 0,
+		"the writer (manual, answering a punch claim at its anchor's local venue -- M15-16); it reads the anchor's location_id only, " +
+			"and a peer's-venue anchor is filed by InsertManualSiteTransaction instead"},
+	"InsertTransactionReview": {"not-rendered", "", 0, "the review writer reads the decided row's verdict to refuse a non-flag"},
 	"GetTapOutcome": {"go-blank", "site_location_id", 0,
 		"the sandbox simulation's answer (M11 API-11): internal/sandbox's tapBodyOf blanks trust and the rule of a row at a partner venue; the verdict is the residue"},
+}
+
+// evidenceNonReaders are statements filed as reading NO evidence or decision column although they
+// read transactions and sit beside the readers above on a screen -- the decision is recorded
+// rather than left to the scan's silence (M15-06; the engine lens's M-DÜŞÜK 6). Each must exist
+// and must NOT be a candidate: adding an evidence column (a verdict, an address, a distance) to one
+// is red here until it is filed above with its K-39 class instead.
+var evidenceNonReaders = map[string]string{
+	"ListCheckoutsWithoutCheckIn": "Odd shapes' check-in missing list (M15-06): who, the venue's name, when, and the checkout's class " +
+		"from type, occurred_at, created_at and business_day_start -- a row at a peer's venue names the venue and nothing the peer's " +
+		"evidence showed",
+	"InsertPunchClaim": "the claim's INSERT built from its anchor row (M15-15, 00068): it reads the anchor's id, tenant_id and " +
+		"employee_id and nothing else -- no verdict, no address, no coordinate; the claim carries ids and two moments, and the " +
+		"queue (M15-18) reads the anchor through GetPunchClaimAnchor and ListPendingPunchClaims, both filed here",
+	"GetPunchClaimAnchor": "a claim's anchor (M15-16, internal/domain/claim): its direction, channel, direction_source (M15-18, read " +
+		"through tap.RecordedDirectionSource), instants, business day, practice flag, venue ids and resolved shift -- no verdict, " +
+		"no address, no coordinate, no note",
+	"ListPendingPunchClaims": "the panel's claim queue (M15-18): the claim's ids, kind and two instants, the person's name and the " +
+		"anchor's occurred_at -- nothing the anchor was judged on; a claim on a record at a peer's venue names no venue here at all",
+	"ListPunchClaimChain": "the person's direction chain around a claim (M15-16): ids, direction, two instants, the business day and " +
+		"the channel -- the classification's inputs, nothing the tap was judged on",
 }
 
 // evidenceColumnRE names the columns a K-39 leak would be computed from.
@@ -165,6 +189,18 @@ func TestEvidenceReaders_EveryOneIsClassified(t *testing.T) {
 	}
 	for _, f := range check(src.String()) {
 		t.Error(f)
+	}
+	all := evidenceCandidates(src.String())
+	for name := range evidenceNonReaders {
+		if !regexp.MustCompile(`(?m)^-- name: ` + name + `\b`).MatchString(src.String()) {
+			t.Errorf("%s: filed in evidenceNonReaders but no statement of db/queries has that name", name)
+		}
+		if _, ok := all[name]; ok {
+			t.Errorf("%s: filed as reading no evidence column, but it reads one -- file it in evidenceReaders with its K-39 class", name)
+		}
+		if _, ok := evidenceReaders[name]; ok {
+			t.Errorf("%s: in both evidenceReaders and evidenceNonReaders", name)
+		}
 	}
 	if len(evidenceReaders) < 15 {
 		t.Fatalf("anti-vacuity: %d readers", len(evidenceReaders))

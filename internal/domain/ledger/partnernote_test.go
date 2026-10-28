@@ -62,3 +62,23 @@ func TestPartnerNote_KeepsTheLeftOpenAnnotation(t *testing.T) {
 		}
 	}
 }
+
+// TestPartnerNote_KeepsTheChosenDirectionAnnotation: a record whose direction the employee chose
+// (ADR 0032 §B.4, M15-10) ends in tap.DirectionChosenNote, alone or after the left-open note, and a
+// partner venue's record keeps it after PartnerVenueNote in the engine's order.
+// MUTANT: partnerKeptAnnotations without tap.DirectionChosenNote -> every row loses the sentence.
+func TestPartnerNote_KeepsTheChosenDirectionAnnotation(t *testing.T) {
+	cases := []struct{ sid, note, want string }{
+		{"base:ip-or-gps-ok", "network proof of place: the source IP matches the location; " + tap.DirectionChosenNote,
+			PartnerVenueNote + "; " + tap.DirectionChosenNote},
+		{"base:ip-or-gps-ok", "network proof of place: the source IP matches the location; " + tap.LeftOpenNote + "; " + tap.DirectionChosenNote,
+			PartnerVenueNote + "; " + tap.LeftOpenNote + "; " + tap.DirectionChosenNote},
+		{"base:gps-only-allow", "verified via GPS only — no network proof of place; " + crossNote + "; " + tap.LeftOpenNote + "; " + tap.DirectionChosenNote,
+			PartnerVenueNote + "; " + crossNote + "; " + tap.LeftOpenNote + "; " + tap.DirectionChosenNote},
+	}
+	for _, c := range cases {
+		if got := partnerNote(Record{Note: c.note, RuleSID: c.sid}); got != c.want {
+			t.Errorf("%s %q: got %q, want %q", c.sid, c.note, got, c.want)
+		}
+	}
+}

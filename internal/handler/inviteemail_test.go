@@ -99,6 +99,7 @@ func emailPanel(t *testing.T, role string, staff *fakeStaff, invites *fakeInvite
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	return b, logs
@@ -558,7 +559,7 @@ func TestInviteEmail_AShowRefusalIsRecordedWhenTheVisitorLeaves(t *testing.T) {
 		t.Fatal("CONTROL: the recorder accepts a cancelled context, so this test measures nothing")
 	}
 	form := url.Values{"id": {uuid.NewString()}, inviteDeliverField: {inviteDeliverScreen}}
-	req := httptest.NewRequest(http.MethodPost, employeeInviteHref, strings.NewReader(form.Encode())).WithContext(gone)
+	req := httptest.NewRequest(http.MethodPost, b.withBinding(http.MethodPost, employeeInviteHref), strings.NewReader(form.Encode())).WithContext(gone)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", b.origin)
 	req.RemoteAddr = b.ip

@@ -1,6 +1,19 @@
-// The tap screen's only script. It does ONE thing: when the button is pressed,
-// ask the browser for a single position fix, put it in three hidden fields, and
-// submit the form.
+// The tap screen's only script. It does ONE thing: when a button is pressed,
+// remember which direction it said, ask the browser for a single position fix, put
+// it in three hidden fields, and submit the form.
+//
+// THE PRESSED DIRECTION IS WRITTEN FIRST (ADR 0032 §B.3, M15-12). The primary
+// button ("Clock in" / "Clock out") and the "Not right? …" button under it each carry
+// name="want" and the direction they say; a browser without this file sends the
+// pressed one's value natively. With it, two things would lose that value:
+// form.submit() never sends a submitter, and markPending disables the buttons at
+// once -- a disabled submitter sends nothing either. So the submit handler's first
+// act after its re-entry guard, before markPending and before the location branch,
+// copies the pressed button's value (event.submitter, or the one the click handler
+// remembered for a browser without submitter) into ONE hidden want field: found and
+// reused if a previous submit left it (a page restored from the back-forward cache),
+// created otherwise, never two. A press whose value cannot be read sends no want and
+// the engine chooses. The direction-neutral "Tap" has no name, so it sends none.
 //
 // 🔴 CLAUDE.md §4.2 IS THE SPEC OF THIS FILE: location is read ONLY at the
 // moment of a tap, and none of the three shapes of continuous location — from
@@ -39,11 +52,74 @@
   var form = document.querySelector('[data-tap-form]');
   if (!form) return;
 
+  // A QR PAGE THE BROWSER RESTORED FROM ITS BACK-FORWARD CACHE RELOADS ITSELF;
+  // AN NFC PAGE DOES NOT (user decisions 2026-10-23, M15-14). Back from the
+  // confirmation screen, the browser can hand this page back exactly as it was
+  // left -- measured in Chrome 156 despite Cache-Control: no-store: `submitting`
+  // still true, both buttons disabled, "Tapping…" on the primary one and a
+  // prediction that is no longer true -- so a second press posted nothing.
+  //
+  // For a QR code a reload fetches the page again: a fresh prediction (the
+  // button's words may change with it), a fresh signed context and buttons that
+  // work. It cannot loop: a reloaded page is a new navigation, never a restore,
+  // so its pageshow is not persisted.
+  //
+  // For NFC the URL's counter is already spent. Reloading it would draw a page
+  // whose press can only record a sun-invalid reject -- and that reject starts
+  // the person's 60-second debounce, so their real tap a moment later would be
+  // `ignored` and the checkout lost. The restored NFC page stays as it is; the
+  // next real touch of the plaque is a fresh URL and records correctly.
+  //
+  // The channel is the server's (the form's data-tap-channel), never parsed from
+  // the address here. Nothing asks for a position (§4.2: only at a press).
+  var restoredPageReloads = form.getAttribute('data-tap-channel') === 'qr';
+  window.addEventListener('pageshow', function (event) {
+    if (event.persisted === true && restoredPageReloads) {
+      window.location.reload();
+    }
+  });
+
   var button = form.querySelector('[data-tap-button]');
   var lat = form.querySelector('[data-tap-lat]');
   var lng = form.querySelector('[data-tap-lng]');
   var acc = form.querySelector('[data-tap-acc]');
   if (!button || !lat || !lng || !acc) return;
+
+  // Every submit button of the form: the primary one and, under a predicted
+  // direction, the "Not right? …" one. They are disabled together.
+  var buttons = form.querySelectorAll('button[type="submit"]');
+
+  // The value of the button pressed last, for a browser whose submit event has no
+  // submitter. A click on a button fires before the submit it causes.
+  var pressed = '';
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].addEventListener('click', function (event) {
+      pressed = event.currentTarget.name === 'want' ? event.currentTarget.value : '';
+    });
+  }
+
+  // writeWant puts the pressed direction into the form's ONE hidden want field. An
+  // empty value empties a field a previous submit left, and creates none: the server
+  // reads an empty want as no request.
+  function writeWant(value) {
+    var field = form.querySelector('input[type="hidden"][name="want"]');
+    if (!field) {
+      if (!value) return;
+      field = document.createElement('input');
+      field.type = 'hidden';
+      field.name = 'want';
+      form.appendChild(field);
+    }
+    field.value = value;
+  }
+
+  // pressedValue is the submitting button's want: event.submitter where the browser
+  // has it, the click handler's memory where it does not.
+  function pressedValue(event) {
+    var by = event.submitter;
+    if (by) return by.name === 'want' ? by.value : '';
+    return pressed;
+  }
 
   // Guards the whole interaction. Once a submit is really under way the button
   // is disabled and this stays true, so a double tap on a laggy phone cannot
@@ -65,6 +141,9 @@
   // waited for, and a button that still looks pressable is a button that gets
   // pressed again by someone with wet hands and a queue behind them.
   function markPending() {
+    for (var j = 0; j < buttons.length; j++) {
+      buttons[j].disabled = true;
+    }
     if (button) {
       button.disabled = true;
       button.textContent = 'Tapping…';
@@ -93,6 +172,10 @@
       return;
     }
     submitting = true;
+
+    // FIRST, before markPending disables the submitter and before the location
+    // branch takes the submit over: the direction the person pressed.
+    writeWant(pressedValue(event));
 
     if (!navigator.geolocation) {
       // No geolocation at all (an old browser, an embedded webview). Let THIS

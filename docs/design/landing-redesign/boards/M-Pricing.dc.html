@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pricing — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.eyebrow{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#1F5C41;margin:0}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.tapdocket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;box-shadow:0 1px 2px rgba(21,34,25,.08);padding:12px 16px;font-family:'IBM Plex Mono',monospace;font-size:14px}
+.tapdocket::before,.tapdocket::after{content:"";position:absolute;left:0;right:0;height:8px;background:radial-gradient(circle at 6px 4px,#EDF0EA 3px,transparent 3.5px) 0 0/12px 8px repeat-x}
+.tapdocket::before{top:-4px}.tapdocket::after{bottom:-4px}
+.stamp{display:inline-block;padding:3px 8px;border:2px solid;border-radius:0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-6deg);white-space:nowrap}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
+.stamp--flag{border-color:#D98E2B;box-shadow:inset 0 0 0 1px #D98E2B;background:rgba(217,142,43,.1);transform:rotate(-3deg)}
+.stamp--rej{border-color:#BE3D2A;box-shadow:inset 0 0 0 1px #BE3D2A;background:rgba(190,61,42,.1);transform:rotate(-10deg)}
+.btn{min-height:48px;padding:0 22px;border-radius:12px;font:700 15px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:9px;text-decoration:none;box-sizing:border-box;white-space:nowrap}
+.btn--green{background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
+.btn--green:hover{background:#152219;color:#FFFDF4}
+.btn--ghost{border:2px solid #152219;color:#152219;background:transparent}
+.btn--ghost:hover{background:#152219;color:#FFFDF4}
+.ico{flex:none;width:44px;height:44px;border-radius:12px;background:#E1EDE6;color:#1F5C41;display:inline-flex;align-items:center;justify-content:center}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:18px;box-sizing:border-box}
+details.qa{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px}
+details.qa summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:44px;font-weight:700;color:#152219}
+details.qa summary::-webkit-details-marker{display:none}
+details.qa .pl{flex:none;width:28px;height:28px;border-radius:50%;border:1px solid #C9D2C8;display:inline-flex;align-items:center;justify-content:center;color:#1F5C41;transition:transform .2s}
+details.qa[open] .pl{transform:rotate(45deg)}
+.flink{min-height:44px;display:inline-flex;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7);text-decoration:underline;text-underline-offset:4px}
+.flink:hover{color:#152219}
+.navlink{min-height:44px;display:inline-flex;align-items:center;font-size:14px;font-weight:500;color:rgba(21,34,25,.85);text-decoration:none}
+.navlink:hover{color:#152219}
+.navlink[aria-current]{color:#152219;font-weight:700;box-shadow:inset 0 -2px 0 #1F5C41}
+.fcol a{min-height:40px;display:flex;align-items:center;font-size:14px;color:rgba(21,34,25,.85);text-decoration:none}
+.fcol a:hover{color:#152219;text-decoration:underline;text-underline-offset:4px}
+details.menu>summary{list-style:none;cursor:pointer;min-height:44px;min-width:44px;padding:0 10px;box-sizing:border-box;border:1.5px solid #152219;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#152219;background:transparent}
+details.menu>summary::-webkit-details-marker{display:none}
+details.menu:not([open])>nav{display:none}
+details.menu[open]>summary{background:#152219;color:#FFFDF4;border-color:#152219}
+details.menu .mclose{display:none}details.menu[open] .mclose{display:inline}details.menu[open] .mopen{display:none}
+.mlink{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:16px;font-weight:700;color:#152219;text-decoration:none;border-top:1px dashed #C9D2C8}
+.mlink:first-child{border-top:0}
+.hbtn{min-height:44px;padding:0 18px;border-radius:12px;font:700 14px 'Space Grotesk',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box;white-space:nowrap;background:#1F5C41;color:#FFFDF4;box-shadow:0 4px 14px rgba(31,92,65,.22)}
+.hbtn:hover{background:#152219;color:#FFFDF4}
+.mlink[aria-current]{color:#1F5C41;box-shadow:inset 3px 0 0 #1F5C41;padding-left:12px}
+:focus-visible{outline:2px solid #152219;outline-offset:2px}
+.ondark :focus-visible,.band--ink :focus-visible{outline-color:#FFFDF4}
+html{scroll-padding-top:72px}
+@media (max-width:599px){html{scroll-padding-bottom:80px}}
+.fitcard{transition:border-color .15s}.fitcard:hover{border-color:#152219;color:#152219}
+.band--paper .card,.band--paper .docket,.band--paper details.qa{border-color:rgba(21,34,25,.24)}
+.band--paper .docket{box-shadow:0 2px 6px rgba(21,34,25,.08)}
+.band--paper .docket::after{background:radial-gradient(circle at 7px 7px,#EDF0EA 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.more{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-weight:700;font-size:15px;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
+  <header style="position: sticky; top: 0; z-index: 5; background: rgba(237,240,234,.94); border-bottom: 1px solid #C9D2C8">
+    <div style="height: 60px; padding: 0 12px 0 16px; display: flex; align-items: center; justify-content: space-between; gap: 6px">
+      <a href="Landing.dc.html" style="text-decoration: none; color: #152219; display: flex; align-items: center; gap: 9px; min-height: 44px">
+        <span aria-hidden="true" style="flex: none; width: 26px; height: 26px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 5px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
+        <span style="display: flex; flex-direction: column; gap: 1px">
+          <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
+          <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">PUNCHLESS</span>
+        </span>
+      </a>
+      <div style="display: flex; align-items: center; gap: 4px">
+        <a href="SignIn.dc.html" style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
+        <a href="Signup.dc.html" class="hbtn" style="padding: 0 12px; box-shadow: none">Start free</a>
+        <details class="menu" open="{{menuOpen}}">
+          <summary>
+            <span class="mopen">Menu</span><span class="mclose">Close</span>
+          </summary>
+          <sc-if value="{{menuOpen}}" hint-placeholder-val="{{false}}"><nav aria-label="Pages" style="position: absolute; left: 0; right: 0; top: 60px; background: #FFFDF4; border-bottom: 1px solid #C9D2C8; box-shadow: 0 18px 40px rgba(21,34,25,.16); padding: 8px 16px 16px">
+            <span class="lbl" style="display: block; padding: 10px 0 4px">Pages</span>
+            <div style="display: flex; flex-direction: column"><a href="Product.dc.html" class="mlink"><span>Product tour</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></a><a href="Security.dc.html" class="mlink"><span>Security</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></a><a href="Pricing.dc.html" class="mlink" aria-current="page"><span>Pricing</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></a><a href="ForRestaurants.dc.html" class="mlink"><span>For restaurants & bars</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></a><a href="ForProduction.dc.html" class="mlink"><span>For production & facilities</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></a><a href="#api-docs" class="mlink"><span>API docs</span><span style="color: #1F5C41"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span></a></div>
+          </nav></sc-if>
+        </details>
+      </div>
+    </div>
+  </header>
+  <section aria-label="Pricing" style="padding: 40px 0 0">
+    <div style="padding: 0 16px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 18px">Pricing</p>
+      <h1 style="margin: 0 0 20px; max-width: 760px; font-size: 38px; line-height: 1.05; letter-spacing: -0.035em; font-weight: 700">{{priceHeading}}</h1>
+      <p style="margin: 0 0 28px; max-width: 560px; font-size: 17px; line-height: 1.55; color: rgba(21,34,25,.85)">{{priceLede}}</p>
+      
+      <div style="background: #FFFDF4; border: 1.5px solid #1F5C41; border-radius: 24px; box-shadow: 0 20px 50px rgba(31,92,65,.10); padding: 32px 22px; display: flex; flex-direction: column; gap: 28px">
+        <div style="display: flex; flex-direction: column; align-items: flex-start">
+          <div style="display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px">
+            <span style="font-size: 56px; font-weight: 700; letter-spacing: -0.045em; line-height: 1">{{priceNum}}</span>
+            <span style="font-size: 17px; font-weight: 500; color: rgba(21,34,25,.8)">/ employee / month</span>
+          </div>
+          <sc-if value="{{hasExample}}" hint-placeholder-val="{{true}}">
+            <p style="margin: 14px 0 0; font-size: 15px; color: rgba(21,34,25,.85)">{{priceNote}}</p>
+          </sc-if>
+          <span class="mono" style="margin-top: 22px; font-size: 12px; line-height: 1.5; color: #152219; background: #F7EBD6; border: 1px solid #D98E2B; border-radius: 10px; padding: 7px 12px">{{founding}}</span>
+        </div>
+        <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; font-size: 15px; line-height: 1.45">
+          <sc-for list="{{includes}}" as="l" hint-placeholder-count="5">
+            <li style="display: grid; grid-template-columns: 26px 1fr; gap: 8px; align-items: start"><span style="color: #1F5C41; padding-top: 1px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg></span><span>{{l}}</span></li>
+          </sc-for>
+        </ul>
+      </div>
+
+    </div>
+  </section>
+  <div class="band band--paper" style="background: #FFFDF4; padding-bottom: 56px">
+  <section id="examples" style="padding: 56px 0 0">
+    <div style="padding: 0 16px; box-sizing: border-box">
+      <p class="eyebrow" style="margin-bottom: 14px">Examples</p>
+      <h2 style="margin: 0 0 16px; font-size: 30px; line-height: 1.1; letter-spacing: -0.03em">{{price.examplesH2}}</h2>
+      <p style="margin: 0 0 28px; max-width: 600px; font-size: 16px; line-height: 1.6; color: rgba(21,34,25,.85)">{{price.examplesSub}}</p>
+      <div style="display: flex; flex-direction: column; gap: 36px"><div style="min-width: 0; display: flex; flex-direction: column; gap: 16px">
+          <div class="card" style="padding: 6px 0">
+            <div class="lbl" style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 12px 18px 10px; border-bottom: 1px solid #C9D2C8"><span>Team size</span><span style="text-align: right">Per month</span></div>
+            <sc-for list="{{price.rows}}" as="r" hint-placeholder-count="4">
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 12px; padding: 14px 18px; {{r.sep}}">
+                <span style="font-size: 16px; font-weight: 700">{{r.size}}</span>
+                <span class="mono" style="font-size: 20px; font-weight: 700; letter-spacing: -0.02em">{{r.amount}}</span>
+              </div>
+            </sc-for>
+          </div>
+          <p style="margin: 0; display: flex; gap: 10px; align-items: flex-start; font-size: 14.5px; line-height: 1.55; color: #152219; background: #F7EBD6; border: 1px solid #D98E2B; border-radius: 12px; padding: 12px 16px">{{price.freeNote}}</p>
+        </div><figure style="margin: 0; display: flex; flex-direction: column; gap: 14px; min-width: 0">
+          <article role="img" aria-label="Sample: a frozen month on the Billing screen" class="docket" style="padding: 22px 22px 24px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 14px 30px rgba(21,34,25,.10); transform: rotate(-1deg)">
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px">
+              <span style="font-size: 18px; font-weight: 700; letter-spacing: -0.015em; text-decoration: underline; text-decoration-color: #C9D2C8; text-underline-offset: 4px; min-height: 30px">{{price.receipt.month}}</span>
+              <span class="stamp stamp--ok" style="flex: none">Frozen</span>
+            </div>
+            <div class="mono" style="display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed #C9D2C8; padding-top: 12px; font-size: 13px">
+              <div style="display: flex; justify-content: space-between; gap: 8px"><span>People</span><span>{{price.receipt.people}}</span></div>
+              <div style="display: flex; justify-content: space-between; gap: 8px"><span>Price</span><span>{{price.receipt.unit}}</span></div>
+            </div>
+            <div class="mono" style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; border-top: 1px dashed #C9D2C8; padding-top: 12px">
+              <span style="font-size: 12px; font-weight: 700">TOTAL</span><span style="font-size: 20px; font-weight: 700">{{price.receipt.total}}</span>
+            </div>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">frozen 2026-10-01T08:12:40Z</span>
+            <span class="mono" style="font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 4px">Download CSV</span>
+          </article>
+          <figcaption class="mono" style="font-size: 11.5px; line-height: 1.5; color: rgba(21,34,25,.7)">{{price.receiptCap}}</figcaption>
+        </figure></div>
+    </div>
+  </section>
+  </div>
+  <div class="band band--porcelain" style="background: #EDF0EA; padding-bottom: 56px">
+  <section id="billing" style="padding: 56px 0 0">
+    <div style="padding: 0 16px; box-sizing: border-box">
+      <div><p class="eyebrow" style="margin-bottom: 14px">Billing, answered</p>
+          <h2 style="margin: 0; font-size: 30px; line-height: 1.1; letter-spacing: -0.03em">{{price.faqH2}}</h2></div>
+      <div style="margin-top: 32px; display: flex; flex-direction: column; gap: 12px">
+          <sc-for list="{{price.faq}}" as="q" hint-placeholder-count="6">
+            <details class="qa" open="{{q.open}}">
+              <summary style="padding: 16px 16px; font-size: 15px; line-height: 1.4"><span>{{q.q}}</span><span class="pl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span></summary>
+              <p style="margin: 0; padding: 0 16px 18px; font-size: 14.5px; line-height: 1.6; color: rgba(21,34,25,.82)">{{q.a}}</p>
+            </details>
+          </sc-for>
+      </div>
+    </div>
+  </section>
+  </div>
+  <section id="pilot" style="padding: 56px 0 0">
+    <div style="padding: 0 16px; box-sizing: border-box">
+      <div class="ondark" style="background: #1F5C41; border-radius: 24px; padding: 44px 22px; text-align: center; color: #FFFDF4; position: relative; overflow: hidden">
+        <span aria-hidden="true" style="position: absolute; width: 420px; height: 420px; top: -190px; left: -140px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
+        <span aria-hidden="true" style="position: absolute; width: 280px; height: 280px; bottom: -120px; right: -80px; border-radius: 50%; border: 1.5px solid rgba(255,253,244,.14)"></span>
+        <h2 style="position: relative; margin: 0 0 14px; font-size: 36px; line-height: 1.05; letter-spacing: -0.035em; color: #FFFDF4">Go punchless.</h2>
+        <p style="position: relative; margin: 0 0 30px; font-size: 16.5px; line-height: 1.55; color: rgba(255,253,244,.82)">{{ctaLine}}</p>
+        <a class="btn" href="{{v.signup}}" style="position: relative; background: #FFFDF4; color: #1F5C41">{{ctaBtn}}</a>
+      </div>
+    </div>
+  </section>
+  <footer style="margin-top: 56px; border-top: 1px solid #C9D2C8">
+    <div style="padding: 0 16px; box-sizing: border-box; padding-top: 40px; padding-bottom: 40px; display: flex; flex-direction: column; gap: 28px">
+        <div style="display: flex; flex-direction: column; gap: 12px; min-width: 0">
+          <span style="display: flex; align-items: center; gap: 10px">
+            <span aria-hidden="true" style="flex: none; width: 22px; height: 22px; border-radius: 50%; background: #1F5C41; position: relative; display: inline-block"><span style="position: absolute; inset: 4px; border-radius: 50%; border: 2px solid #FFFDF4; opacity: .92"></span></span>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.8)">© 2026 Taptime · Malta</span>
+          </span>
+          <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">tap in · tap out · that's it</span>
+          <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-width: 460px">
+            <span class="lbl">Taptime</span>
+            <p style="margin: 0; font-size: 14px; line-height: 1.55; color: rgba(21,34,25,.85)">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p>
+          </div>
+        </div>
+        <nav aria-label="Product" class="fcol" style="display: flex; flex-direction: column; min-width: 0">
+          <span class="lbl" style="padding-bottom: 6px">Product</span><a href="Product.dc.html">Product tour</a><a href="Security.dc.html">Security</a><a href="Pricing.dc.html">Pricing</a><a href="ForRestaurants.dc.html">For restaurants & bars</a><a href="ForProduction.dc.html">For production & facilities</a><a href="#api-docs">API docs</a>
+        </nav>
+        <nav aria-label="Legal" class="fcol" style="display: flex; flex-direction: column; min-width: 0">
+          <span class="lbl" style="padding-bottom: 6px">Legal</span><a href="Legal.dc.html">Privacy</a><a href="Legal.dc.html">Terms</a><a href="Legal.dc.html">Company details</a><a href="Legal.dc.html">Cookies</a>
+        </nav>
+    </div>
+  </footer>
+  <div class="mbar" style="position: sticky; bottom: 0; z-index: 4; padding: 10px 16px 12px; background: rgba(237,240,234,.96); border-top: 1px solid #C9D2C8; box-shadow: 0 -8px 24px rgba(21,34,25,.08)">
+    <a href="Signup.dc.html" class="hbtn" style="width: 100%; min-height: 48px; font-size: 15px">Start free</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"menu": {"editor": "enum", "options": ["closed", "open"], "default": "closed"}, "$preview": {"width": 390, "height": 3931}}'>
+class Component extends DCLogic {
+  renderVals() {
+    // LandingView, as internal/handler builds it today (pages.LandingView):
+    //   SignupHref → the wizard, SignInHref → the panel sign-in, PricePerEmployeeMonth "1.50" (migration 00016),
+    //   FreeMonths 3 (tappa_first_chargeable_month), ExampleHeadcount 60, ExampleMonthly "90" (exampleTeamMonthly, computed).
+    // exampleTeamMonthly mirrors internal/handler/marketing.go exampleTeamMonthly: headcount × price in integer
+    // CENTS (no float), "90" or "37.50", no currency sign. EVERY monthly figure on every board comes from it —
+    // the landing's example AND the /pricing team-size table — so the price is typed exactly once (here, v.price).
+    const exampleTeamMonthly = (price, headcount) => {
+      const [e, c] = price.split('.');
+      const total = (Number(e) * 100 + Number(c)) * headcount;
+      return total % 100 === 0 ? String(total / 100) : Math.floor(total / 100) + '.' + String(total % 100).padStart(2, '0');
+    };
+    // billing.Money as the Billing screen prints it (money(): "€" + two decimals) — same cents arithmetic.
+    const moneyOf = (price, headcount) => {
+      const [e, c] = price.split('.');
+      const total = (Number(e) * 100 + Number(c)) * headcount;
+      return '€' + Math.floor(total / 100) + '.' + String(total % 100).padStart(2, '0');
+    };
+    const v = { signup: 'Signup.dc.html', signin: 'SignIn.dc.html', price: '1.50', free: 3, headcount: 60 };
+    v.monthly = exampleTeamMonthly(v.price, v.headcount);
+    // The hero rotates through landing.js's four invented records. User decision (fix round): landing.js also swaps the
+    // phone's greeting name + venue and the plaque's venue/uid line, so ticket, phone and plaque always show ONE record.
+    const TICKETS = {
+      maria: { n: 'Maria Vella', t: 'CLOCK IN', time: '09:58', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55' },
+      kevin: { n: 'Kevin Grech', t: 'CLOCK IN', time: '09:52', loc: 'KF St Julians', plaque: 'KF ST JULIANS · 91AC-7E55' },
+      anna: { n: 'Anna Farrugia', t: 'CLOCK IN', time: '04:02', loc: 'KM Plant', plaque: 'KM PLANT · 2F04-1B9A' },
+      luke: { n: 'Luke Borg', t: 'CLOCK OUT', time: '02:04', loc: 'Rusty Bar', plaque: 'RUSTY BAR · 6D31-C8E2' }
+    };
+    const ticket = TICKETS[this.props.ticket] || TICKETS.maria;
+    const free = String(v.free);
+    const B = 'font-weight:700;color:#152219', N = '';
+    // pages.LandingSteps — Icon (emoji) is replaced by a line icon key; the text is verbatim.
+    const steps = [
+      { ord: 'STEP 1', title: 'Stick the plaque', plaque: true, invite: false, tap: false, body: [
+        { t: 'One branded A5 plaque per location, placed by the entrance — ideally in view of your camera. Inside it: a cryptographic NFC chip that identifies ', s: N },
+        { t: 'the place', s: B }, { t: ', not the person.', s: N }] },
+      { ord: 'STEP 2', title: 'Invite your team', plaque: false, invite: true, tap: false, body: [
+        { t: 'Create a profile, send the invite. Each person activates on their own phone — ', s: N },
+        { t: 'once, ever', s: B },
+        { t: '. New hires clock in on day one; leavers are switched off from the dashboard — their next tap is refused.', s: N }] },
+      { ord: 'STEP 3', title: 'Tap in, tap out', plaque: false, invite: false, tap: true, body: [
+        { t: 'Hold the phone to the plaque. The page opens by itself — no app — greets them by name, one button, done. ', s: N },
+        { t: 'Built for wet or floury hands.', s: B }] }
+    ];
+    // pages.LandingComparison + LandingComparisonNote
+    const rows = [
+      ['Hardware per site', 'Reader + wiring + maintenance', 'One passive sticker-plaque'],
+      ['New-hire setup', 'Enrollment at the device', 'Invite link, activated on their own phone'],
+      ['When someone leaves', 'Delete from each terminal', 'Switch off in the dashboard — the next tap is refused'],
+      ['If it breaks', 'Site goes blind until repair', 'Stick a spare plaque and swap it in the dashboard'],
+      ['Internet down on site', 'Device offline, records stuck', 'Phones fall back to mobile data + GPS'],
+      ['Biometric data', 'Fingerprints stored = GDPR weight', 'None collected, ever']
+    ].map(([aspect, terminal, tappa], i) => ({ aspect, no: '✗  ' + terminal, yes: '✓  ' + tappa, terminal, tappa, first: i === 0 }));
+    const ledgerNote = 'This table compares how the two approaches work. It is not a benchmark: we have measured no device against Taptime and make no claim about accuracy or reliability.';
+    // pages.LandingEvidence
+    const proofs = [
+      { proof: 'Proof of moment', label: 'One-time signature', body: 'The plaque\'s NTAG 424 DNA chip signs every tap with a fresh counter + AES cryptogram. Copied or replayed links are rejected — you must physically be at the plaque, right now.' },
+      { proof: 'Proof of person', label: 'Phone session', body: 'Identity lives in a secure session on each employee\'s own phone, behind their own screen lock. No shared PINs, no swappable cards — the phone has to be there.' },
+      { proof: 'Proof of place', label: 'Site IP match', body: 'Requests from your site\'s WiFi carry its static IP — hard evidence the person is inside the building.' },
+      { proof: 'Backup proof of place', label: 'GPS fallback', body: 'WiFi down or phone on mobile data? GPS confirms presence within 150 m. Anything unverified is stored, flagged, and queued for manager review — never silently approved.' }
+    ];
+    // pages.LandingAudiences — Paragraph() joins the points with one space.
+    const fits = [
+      { k: 'Multi-location', title: 'Restaurant & retail chains',
+        p: 'One plaque per site, each with its own network address on file. Late-night bars welcome: overnight shifts pair check-outs to the last open check-in, not the calendar date.',
+        ex: '9 sites · 1 dashboard · hours per location', link: 'For restaurants & bars', href: 'ForRestaurants.dc.html' },
+      { k: 'Single site, many teams', title: 'Production & facilities',
+        p: 'One plaque at the gate; departments resolve automatically from each employee\'s profile — bakers against their 04:00 shift, meat production against 05:00. No extra hardware per floor.',
+        ex: '5 departments · per-department shifts · records filtered by department', link: 'For production & facilities', href: 'ForProduction.dc.html' }
+    ];
+    // pages.LandingPricingIncludes
+    const includes = ['Locations & departments, each on its own hours', 'Branded wall plaques included & replaced free', 'Dashboard, flags & manager review queue', 'Hours & headcount reports, CSV export for your payroll flow', 'Manual entries, marked apart from tapped ones'];
+    // pages.LandingFAQ
+    const faq = [
+      ['What if someone doesn\'t have their phone that day?', 'The shift lead records the entry from the dashboard. It\'s stored with a "Entered by a manager" label, so your reports always show exactly which records were tapped and which were vouched for.'],
+      ['What if the phone has no NFC?', 'The same page opens from a QR code with the camera. A QR tap carries no cryptographic signature — no proof of a physical touch — so it needs your venue\'s network address to match before it\'s approved. A position on its own is not enough: without the address it\'s stored, flagged and queued for review.'],
+      ['Can someone clock in from home?', 'Not without a manager seeing it. The plaque\'s chip signs each tap with a one-time cryptogram, so the link only exists if a phone touched the plaque at that moment. A copied link, a screenshot, or yesterday\'s URL is rejected by the server. A check-in without the code needs your venue\'s network address to be approved; from anywhere else it\'s stored, flagged and queued for a manager rather than approved.'],
+      ['How do we migrate from our current device?', "Add your people from the dashboard and hand out invite links — one profile at a time; there is no file import today. If your HR system already holds the list, the integration API can write your people and locations once Taptime enables it for you. The old box is yours to unplug whenever you're ready — Taptime doesn't talk to it."],
+      ['Where does the data go?', "Into your dashboard: hours per person and per site, and the monthly headcount you're billed on — both as CSV exports for your payroll. Once Taptime enables the integration API for you, your HR or payroll system can also read every punch from a feed or receive it by webhook. Taptime is the source of truth for in/out times — it doesn't try to replace your payroll."]
+    ].map(([q, a], i) => ({ q, a, open: i === 0 }));
+    // ---- "The panel" showcase: INVENTED SAMPLE DATA, drawn for this page (no record is real). ----
+    // No figure may trip TestLanding_MakesNoUnmeasuredNumericClaim: no "100", "99" or "%" anywhere (so no trust 100).
+    const STAMP = { APPROVED: 'stamp stamp--ok', FLAGGED: 'stamp stamp--flag', REJECTED: 'stamp stamp--rej' };
+    const pass = [
+      ['KF ST JULIANS', 'Maria Vella', 'IN', '09:58', 'APPROVED', 'TRUST 70', 'IP yes · GPS n/a', -1.5],
+      ['KF ST JULIANS', 'Kevin Grech', 'IN', '09:52', 'APPROVED', 'TRUST 50', 'IP no · GPS yes', 1],
+      ['KF MSIDA', 'Grace Attard', 'IN', '09:41', 'FLAGGED', 'TRUST 20', 'IP no · GPS n/a', -0.5],
+      ['RUSTY BAR', 'Luke Borg', 'OUT', '02:04', 'APPROVED', 'TRUST 70', 'IP yes · GPS n/a', 1.5]
+    ].map(([venue, name, dir, time, stamp, trust, ev, tilt]) => ({ venue, name, dir, time, stamp, stampCls: STAMP[stamp], trust, ev, tilt }));
+    const passM = pass.slice(0, 2);
+    const spike = [
+      ['Grace Attard', '09:41', 'KF Msida · IN · no network, no location', true],
+      ['Daniel Zammit', '08:57', 'KF Valletta · IN · QR without network', false],
+      ['Sara Camilleri', '07:03', 'KF Hamrun · OUT · location outside the venue', false]
+    ].map(([name, when, line, on]) => ({ name, when, line, style: 'display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:10px;background:#FFFDF4;' + (on ? 'border:2px solid #152219' : 'border:1px solid #C9D2C8') }));
+    const hm = m => Math.floor(m / 60) + 'h ' + String(m % 60).padStart(2, '0') + 'm';
+    const roll = [
+      ['Maria Vella', 'Line Cook · KF St Julians', [482, 495, 0, 478, 510, 545, 0], [3]],
+      ['Kevin Grech', 'Kitchen Porter · KF St Julians', [360, -1, 370, 365, 0, 480, 465]],
+      ['Grace Attard', 'Line Cook · KF Msida', [480, 485, 478, 490, 482, 0, 0]],
+      ['Luke Borg', 'Bar · Rusty Bar', [486, 0, 465, 470, 480, 495, 510]]
+    ].map(([name, sub, days, other], ri) => {
+      const total = days.reduce((a, m) => a + Math.max(m, 0), 0);
+      const shifts = days.filter(m => m > 0).length;
+      return { name, sub, total: hm(total), shifts: shifts + ' shifts', sep: ri ? 'border-top:1px dashed #C9D2C8' : '',
+        // the product's .roll-cell looks (reports.templ rollCellClass): worked green/15, other venue inset ink ring,
+        // open dashed saffron + saffron/10, none ink/70 dash.
+        cells: days.map((m, di) => ({ v: m < 0 ? 'open' : m === 0 ? '—' : hm(m),
+          style: 'padding:6px 2px;text-align:center;white-space:nowrap;' + (m === 0 ? 'color:rgba(21,34,25,.7)' : 'color:#152219'),
+          box: 'display:inline-block;padding:2px 3px;border-radius:4px;' + (m < 0 ? 'border:1px dashed #D98E2B;background:rgba(217,142,43,.1)' : m === 0 ? '' : 'background:rgba(31,92,65,.15)' + ((other || []).includes(di) ? ';box-shadow:inset 0 0 0 1px #152219' : '')) })),
+        dots: days.map((m, di) => ({ style: 'width:14px;height:14px;border-radius:4px;box-sizing:border-box;' + (m < 0 ? 'border:1px dashed #D98E2B;background:rgba(217,142,43,.1)' : m === 0 ? 'border:1px solid #C9D2C8' : 'background:rgba(31,92,65,.15)' + ((other || []).includes(di) ? ';box-shadow:inset 0 0 0 1px #152219' : '')) })) };
+    });
+    const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    const railIcons = [1, 2, 3, 4, 5, 6, 7];
+    const panelCards = [
+      { title: 'The Pass', line: 'The day\'s taps as dockets, newest first, each stamped with its verdict.' },
+      { title: 'The Spike', line: 'Taps the rules could not judge on evidence alone wait here for a manager to approve or reject.' },
+      { title: 'The Roll', line: 'Hours per person for the week, with the CSV for your payroll.' }
+    ];
+
+    // ======================= LP-6 (builder A): new landing sections + /product + /pricing =======================
+    // Every sentence below that is not marked EXISTING is a NEW CLAIM listed in handoff/LP6-inventory-A.md with
+    // the code fact that makes it true. ASCII apostrophes, no emoji.
+    const NEW = {};
+    // ---- landing: the employee experience ----
+    NEW.team = {
+      h2: 'One screen, one button.',
+      sub: 'No menu, no settings, no history to scroll: a greeting, the venue that was tapped and one button.',
+      points: [
+        { browser: true, t: 'No app to install', b: 'The plaque opens an ordinary web page in the phone\'s own browser.' },
+        { hello: true, t: 'Greeted by name', b: 'The page says hello by name and shows the venue that was tapped.' },
+        { drop: true, t: 'Made for wet hands', b: 'One large button, sized for a wet or gloved finger.' },
+        { done: true, t: 'Done means done', b: 'A counted tap ends on its stamp and "All done — you can close this page." There is no button on it.' }
+      ],
+      capTap: 'What opens when the phone touches the plaque.',
+      capFlag: 'When the evidence is short, the screen says so.',
+      foot: 'Drawn as the product renders them — sample name, venue and time.'
+    };
+    // The phones' sample record (invented; KF tenant, matches the panel showcase's FLAGGED docket).
+    // The result strings are the product's own: result.templ (flag branch) + base:no-evidence-review's note.
+    NEW.sample = { n: 'Grace Attard', loc: 'KF Msida', time: '09:41', trust: '20', note: 'neither IP nor GPS could place this tap' };
+    // ---- landing: a shift, start to finish ----
+    NEW.shift = {
+      h2: 'From the invite link to the payroll file.',
+      sub: 'Who does what, from a new hire\'s first link to the hours your payroll reads.',
+      steps: [
+        { n: '01', who: 'Manager', t: 'Invite', b: 'Add the person in People, then hand over their invite link.' },
+        { n: '02', who: 'Employee', t: 'Activation tap', b: 'They open the link on their own phone. Their first tap on one of your plaques finishes the setup — it records no hours.' },
+        { n: '03', who: 'Employee', t: 'Clock in', b: 'From then on, a tap opens the tap screen and one press records it.' },
+        { n: '04', who: 'Taptime', t: 'Flag', b: 'If neither the venue\'s network nor GPS can place the tap, it is still recorded — flagged, never approved in silence.' },
+        { n: '05', who: 'Manager', t: 'Decision', b: 'A manager approves or rejects it on The Spike. The decision stays beside the record.' },
+        { n: '06', who: 'Manager', t: 'The Roll', b: 'Hours add up per person on The Roll, and the week downloads as CSV for your payroll.' }
+      ].map((s, i) => ({ ...s, tilt: [-1, 0.8, -0.6, 1.2, -1.2, 0.6][i], flag: s.t === 'Flag', line: i === 5 ? 'background: transparent' : 'background: rgba(21,34,25,.2)' }))
+    };
+    NEW.shift.rows6 = [NEW.shift.steps];
+    NEW.shift.rows3 = [NEW.shift.steps.slice(0, 3), NEW.shift.steps.slice(3)];
+    // ---- landing (+ /product): integrations strip ----
+    NEW.integ = {
+      h2: 'Hand the hours to the payroll you already run.',
+      items: [
+        { csv: true, t: 'CSV export', b: 'Hours per person and per venue, and the monthly headcount you\'re billed on, download as CSV.', code: ['Download CSV'] },
+        { api: true, t: 'Integration API', b: 'Your HR system can write your people and locations, and read every punch from a feed.', code: ['PUT /v1/employees/{ref}', 'PUT /v1/locations/{ref}', 'GET /v1/punches'] },
+        { hook: true, t: 'Webhooks', b: 'Each punch can also be sent to one endpoint of yours, signed so you can check it came from Taptime.', code: ['X-Taptime-Signature: sha256=…'] }
+      ],
+      note: 'The integration API and webhooks are enabled by Taptime for your business.'
+    };
+    NEW.integ.items = NEW.integ.items.map((it, i) => ({ ...it, sepL: i ? 'border-left: 1px dashed #C9D2C8' : '', sepT: i ? 'border-top: 1px dashed #C9D2C8' : '' }));
+    // ---- /product ----
+    NEW.prod = {
+      h1: 'From one tap to the week\'s hours.',
+      lede: 'Your people touch a plaque with their own phone. Managers read the record, settle the doubtful ones and export the week. These are the screens in between.',
+      index: ['The tap', 'The Pass', 'The Spike', 'The Roll', 'People', 'Venues & plaques', 'Rules'].map((t, i) => ({ n: String(i + 1).padStart(2, '0'), t })),
+      tour: [
+        { k: 'For your team', t: 'The tap', line: '', bullets: [
+          'The phone\'s position is read once, at the press — never in the background.',
+          'A second tap by the same person moments later is recorded, not counted.',
+          'The answer is a stamped docket: APPROVED, FLAGGED, REJECTED or IGNORED.'] },
+        { k: 'For managers', t: 'The Pass', line: 'The day\'s taps as dockets, newest first, each stamped with its verdict.', bullets: [
+          'Pick any earlier day to read it in full.',
+          'A record typed in by a manager carries "Entered by a manager".',
+          'Nothing here can be edited or deleted: a correction is a new record.'] },
+        { k: 'For managers', t: 'The Spike', line: 'Taps the rules could not judge on evidence alone wait here for a manager to approve or reject.', bullets: [
+          'Each record shows its evidence and the rule\'s own sentence for why it is here.',
+          'A note can go on the record with the decision.',
+          'Nobody can decide on their own record.'] },
+        { k: 'For managers', t: 'The Roll', line: 'Hours per person for the week, with the CSV for your payroll.', bullets: [
+          'A check-in with no check-out is listed, not counted, and the totals say they are incomplete.',
+          'Manual entries, marked apart from tapped ones',
+          'Lateness is measured against the person\'s own shift: their department\'s, else the venue they tapped.'] },
+        { k: 'For managers', t: 'People', line: 'Add somebody, hand over the invite, and switch them off the day they leave.', bullets: [
+          'Each person shows one status: INVITED, ACTIVE or DEACTIVATED.',
+          'The link is shown once, on the next screen. Taptime keeps no copy of it.',
+          'Switch off in the dashboard — the next tap is refused',
+          'A shift nobody tapped can be entered by hand from the person\'s card.'] },
+        { k: 'For managers', t: 'Venues & plaques', line: 'Each venue keeps its own plaques, network addresses, GPS point and shift hours.', bullets: [
+          'A replaced or lost plaque decides nothing: its taps are refused.',
+          'An address list too wide to be one venue\'s network is refused, and never counted as evidence.',
+          'Departments can keep shift hours of their own.'] },
+        { k: 'For the owner', t: 'Rules', line: 'You can switch a Taptime baseline rule off, and write your own version of one that applies at the venues you choose. Every change is shown to you in words before it is written, and every change is recorded with your name against it.', bullets: [
+          'The Taptime guarantees come first and cannot be switched off.',
+          'Only the owner can change a rule; managers read the page.',
+          'When no rule decides a tap, it goes to The Spike — never approved by default.'] }
+      ].map((s, i) => ({ ...s, n: String(i + 1).padStart(2, '0'), hasLine: s.line !== '' }))
+    };
+    // Sample data for the new miniatures (invented, one tenant: Kebab Factory).
+    NEW.people = [
+      // consistent with the Spike queue: everyone with a tap there is ACTIVE; the INVITED person has no session,
+      // the DEACTIVATED one (the seed's Paul Spiteri) keeps a live session (deactivation does not sign phones out).
+      ['MV', 'Maria Vella', 'KF St Julians', 'ACTIVE', '1 signed in'],
+      ['GA', 'Grace Attard', 'KF Msida', 'ACTIVE', '1 signed in'],
+      ['DZ', 'Daniel Zammit', 'KF Valletta', 'ACTIVE', '1 signed in'],
+      ['AH', 'Ahmed Hassan', 'KF Valletta', 'INVITED', 'none signed in'],
+      ['PS', 'Paul Spiteri', 'KF St Julians', 'DEACTIVATED', '1 signed in']
+    ].map(([ini, name, venue, status, dev], i) => ({ ini, name, venue, status, dev, sep: i ? 'border-top: 1px dashed #C9D2C8' : '',
+      pill: 'flex: none; padding: 2px 8px; border-radius: 999px; font-size: 9.5px; font-weight: 700; letter-spacing: .08em; color: #152219; ' +
+        (status === 'ACTIVE' ? 'border: 1px solid #1F5C41; background: #E1EDE6' : status === 'INVITED' ? 'border: 1px dashed #D98E2B; background: #F7EBD6' : 'border: 1px solid #C9D2C8; background: transparent') }));
+    NEW.venues = [
+      // test/fixtures/seed.sql: every KF venue has one /32 on file and a GPS point.
+      ['KF St Julians', '10:00 – 22:00', true, true, true],
+      ['KF Msida', '10:00 – 22:00', true, true, false],
+      ['KF Valletta', '10:00 – 22:00', true, true, false],
+      ['Rusty Bar', '18:00 – 02:00', true, true, false]
+    ].map(([name, hours, ip, gps, on]) => ({ name, hours, ip: ip ? 'IP ✓' : 'IP –', gps: gps ? 'GPS ✓' : 'GPS –',
+      card: 'display: flex; flex-direction: column; gap: 6px; padding: 9px 11px; border-radius: 10px; background: #FFFDF4; ' + (on ? 'border: 2px solid #152219' : 'border: 1px solid #C9D2C8'),
+      ipChip: 'padding: 1px 6px; border-radius: 6px; font-size: 9.5px; font-weight: 700; ' + (ip ? 'border: 1px solid #1F5C41; background: #E1EDE6' : 'border: 1px dashed #C9D2C8'),
+      gpsChip: 'padding: 1px 6px; border-radius: 6px; font-size: 9.5px; font-weight: 700; ' + (gps ? 'border: 1px solid #1F5C41; background: #E1EDE6' : 'border: 1px dashed #C9D2C8') }));
+    NEW.plaques = [['0491AC7E55A3C1', 'IN SERVICE', true], ['04E41290AB3E12', 'RETIRED', false]]
+      .map(([uid, st, live], i) => ({ uid, st, sep: i ? 'border-top: 1px dashed #C9D2C8' : '',
+        pill: 'padding: 1px 7px; border-radius: 999px; font-size: 9px; font-weight: 700; letter-spacing: .08em; white-space: nowrap; ' + (live ? 'border: 1px solid #1F5C41; background: #E1EDE6' : 'border: 1px solid #C9D2C8') }));
+    // Rules miniature: the guardrails' own phrases (internal/domain/tenant/rulebook.go guardrailWhen) and effect
+    // labels (internal/handler/policies.go effectLabel); the baseline names (policy.Baseline tapDoc names).
+    NEW.guards = [['03', 'The NFC signature is wrong, or the plaque\'s counter did not move', 'Reject'],
+      ['05', 'The person has been deactivated', 'Reject'],
+      ['08', 'The same person taps again inside the repeat window', 'Ignore — recorded, counts nothing']]
+      .map(([n, t, e]) => ({ n, t, e }));
+    NEW.baseRows = [['IP proof of place', 'Approve'], ['GPS-only allowance', 'Approve'], ['no evidence needs review', 'Send to The Spike']]
+      .map(([t, e], i) => ({ t, e, sep: i ? 'border-top: 1px dashed #C9D2C8' : '' }));
+    // ---- /pricing ----
+    const SIZES = [10, 25, 60, 150];
+    NEW.price = {
+      examplesH2: 'What a month costs at your size.',
+      examplesSub: 'People counted in the month, times the price per person.',
+      // COMPUTED: the port computes these server-side with exampleTeamMonthly (marketing.go) — never typed.
+      rows: SIZES.map((n, i) => ({ size: n + ' people', amount: '€' + exampleTeamMonthly(v.price, n), sep: i ? 'border-top: 1px dashed #C9D2C8' : '', ex: n === v.headcount })),
+      freeNote: 'Inside the founding offer\'s free months, the amount is zero.',
+      receipt: { month: 'September 2026', people: String(v.headcount), unit: '€' + v.price, total: moneyOf(v.price, v.headcount) },
+      receiptCap: 'A frozen month on the Billing screen — sample figures.',
+      faqH2: 'How the month is counted.',
+      faq: [
+        ['Who counts as a person?', 'Everybody whose employment overlapped the month — anybody who was on the books for even one day of it.'],
+        ['Does hiring or letting someone go change a past month?', 'No. A finished month is counted over its own dates, not over today\'s list of people. Until it is frozen, correcting somebody\'s joining or leaving dates can still move it.'],
+        ['What does freezing a month do?', 'It fixes that month\'s figures: nothing recomputes them afterwards, and it can\'t be undone. Only the owner can freeze a month, and only once the month is over.'],
+        ['Can we check the figure ourselves?', 'Yes. Every month downloads as CSV from the Billing screen, frozen or not.'],
+        ['When does the founding offer start charging?', 'The Billing screen names the first month that is charged for, so the end of the free months is never a guess.'],
+        ['How do we get the integration API?', 'Ask Taptime: the integration API and webhooks are switched on per business by Taptime, not from your dashboard.']
+      ].map(([q, a], i) => ({ q, a, open: i === 0 }))
+    };
+
+    return {
+      v, ticket, steps, rows, ledgerNote, proofs, fits, includes, faq,
+      menuOpen: this.props.menu === 'open',
+      ...NEW,
+      pass, passM, spike, roll, days, railIcons, panel: panelCards,
+      heroLede: 'Stick one smart plaque on the wall. Your team taps their own phone on it and they\'re clocked in — verified, timestamped, on the right site.',
+      heroFoot: 'Set up a location · works with the phone already in every pocket',
+      heroCta: 'Start free — ' + free + ' months on us',
+      setupLede: 'There is nothing to install, enroll, or maintain. The plaque is passive — no battery, no software, no internet of its own.',
+      securityLede: 'A tap isn\'t trusted — it\'s verified. Each clock-in is scored against four independent signals before it lands in your records.',
+      privacy: 'Taptime stores no fingerprints, no face scans, and never tracks location — GPS is read only at the moment of the tap. Built for GDPR from day one.',
+      priceHeading: 'Pay per person. Nothing per device — there are none.',
+      priceLede: 'No hardware bill, no installation fee, no maintenance contract. Plaques included.',
+      priceNum: '€' + v.price,
+      priceNote: v.monthly ? 'A ' + v.headcount + '-person chain runs on €' + v.monthly + '/month.' : '',
+      hasExample: v.monthly !== '',
+      founding: 'FOUNDING OFFER: first ' + free + ' months free · pricing locked for life',
+      ctaLine: 'Start yourself today — first ' + free + ' months free.',
+      ctaBtn: 'Start free — ' + free + ' months',
+      demoState: this.props.state || 'soon',
+      demoVideo: (this.props.state || 'soon') === 'video',
+      demoSoon: (this.props.state || 'soon') !== 'video',
+      demoTitle: (this.props.state || 'soon') === 'video' ? 'The Taptime demo' : 'The demo is being recorded'
+    };
+  }
+}
+</script>
+</body>
+</html>

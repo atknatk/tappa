@@ -82,8 +82,8 @@ func TestAdminChoices_RefusesEverythingItDidNotMint(t *testing.T) {
 	// signature of the REAL one. This is the attack shape: an attacker who sees a
 	// blob and edits the tenant list.
 	forgedPayload := base64.RawURLEncoding.EncodeToString(
-		[]byte("1|" + timestampOf(t, payload) + "|" +
-			"cccccccc-0000-4000-8000-000000000003:33333333-0000-4000-8000-000000000003"))
+		[]byte(adminChoiceVersion + "|" + timestampOf(t, payload) + "|" +
+			"cccccccc-0000-4000-8000-000000000003:33333333-0000-4000-8000-000000000003:"))
 
 	tests := []struct {
 		name  string
@@ -510,16 +510,18 @@ func TestAdminChoiceMaxEntries_TracksTheBcryptCap(t *testing.T) {
 func TestAdminChoices_ParseRefusesAWrongFieldCount(t *testing.T) {
 	c := newTestChoices(t, nil)
 	stamp := strconv.FormatInt(time.Now().Truncate(time.Second).Unix(), 10)
-	entry := "aaaaaaaa-0000-4000-8000-000000000001:11111111-0000-4000-8000-000000000001"
+	// admin:tenant:proof -- the proof empty, which parse accepts (Issue is what refuses it).
+	entry := "aaaaaaaa-0000-4000-8000-000000000001:11111111-0000-4000-8000-000000000001:"
+	v := adminChoiceVersion
 
 	tests := []struct {
 		name    string
 		payload string
 	}{
-		{"four fields — a future author adding one", "1|" + stamp + "|" + entry + "|extra"},
-		{"two fields — a field removed", "1|" + stamp},
-		{"one field", "1"},
-		{"five fields", "1|" + stamp + "|" + entry + "|a|b"},
+		{"four fields — a future author adding one", v + "|" + stamp + "|" + entry + "|extra"},
+		{"two fields — a field removed", v + "|" + stamp},
+		{"one field", v},
+		{"five fields", v + "|" + stamp + "|" + entry + "|a|b"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -541,10 +543,54 @@ func TestAdminChoices_ParseRefusesAWrongFieldCount(t *testing.T) {
 	// POSITIVE CONTROL: the correct three-field payload, signed the same way,
 	// parses — so the refusals above are about the COUNT and not about the
 	// hand-built blob being unreadable.
-	ok := "1|" + stamp + "|" + entry
+	ok := v + "|" + stamp + "|" + entry
 	blob := base64.RawURLEncoding.EncodeToString([]byte(ok)) + "." +
 		base64.RawURLEncoding.EncodeToString(c.sign(ok, "the-binding-value"))
 	if _, err := c.parse(blob, "the-binding-value"); err != nil {
 		t.Fatalf("control: a correctly shaped hand-built blob failed to parse: %v", err)
+	}
+}
+
+// TestAdminChoices_CarryTheProofUnchanged (M14-07): each identity's adminauth.Proof -- the MAC of the
+// digest its password verified against, which Issue requires -- rides the signed payload and comes
+// back equal, so the picker's second step can open only what the first step's comparison proved. A
+// proof field that is not exactly an Encode result is malformed (signed with the real key, so only
+// the field is wrong), and so is an entry without the field (the previous binary's "1" layout).
+func TestAdminChoices_CarryTheProofUnchanged(t *testing.T) {
+	c := newTestChoices(t, nil)
+	p1, err := adminauth.ParseProof(strings.Repeat("ab", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := adminauth.ParseProof(strings.Repeat("0f", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := twoVerified()
+	want[0].Proof, want[1].Proof = p1, p2
+	blob, err := c.mint(want, "the-binding-value")
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	got, err := c.parse(blob, "the-binding-value")
+	if err != nil || len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("parse = %+v, %v; want both identities with their proofs", got, err)
+	}
+
+	stamp := strconv.FormatInt(time.Now().Truncate(time.Second).Unix(), 10)
+	ids := "aaaaaaaa-0000-4000-8000-000000000001:11111111-0000-4000-8000-000000000001"
+	for _, tc := range []struct{ name, entry string }{
+		{"a proof that is not hex", ids + ":" + strings.Repeat("zz", 32)},
+		{"a short proof", ids + ":abcd"},
+		{"an upper-case proof", ids + ":" + strings.Repeat("AB", 32)},
+		{"no proof field", ids},
+		{"a fourth field", ids + "::extra"},
+	} {
+		payload := adminChoiceVersion + "|" + stamp + "|" + tc.entry
+		forged := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." +
+			base64.RawURLEncoding.EncodeToString(c.sign(payload, "the-binding-value"))
+		if got, err := c.parse(forged, "the-binding-value"); !errors.Is(err, errChoiceMalformed) || len(got) != 0 {
+			t.Errorf("%s: parse = %v, %v; want errChoiceMalformed", tc.name, got, err)
+		}
 	}
 }

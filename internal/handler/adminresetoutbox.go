@@ -424,7 +424,7 @@ func (h *AdminReset) dispatch(r *http.Request, ip string, g adminauth.ResetGrant
 		reason, state = resetReasonOutboxShut, "closing"
 	}
 	h.log.WarnContext(base, "panel recovery: the delivery queue did not take the link, so it was not sent",
-		"ip", ip, "admin_user_id", g.Issued.Reset.AdminUserID, "reset_id", g.Issued.Reset.ID, "queue", state)
+		append(append([]any{"ip", ip}, grantIDs(g)...), "queue", state)...)
 	h.recordFallback(base, g, reason)
 }
 
@@ -474,7 +474,7 @@ func (h *AdminReset) contain(j resetJob, f func()) (panicked bool) {
 		if recover() != nil {
 			panicked = true
 			h.log.ErrorContext(j.base, "panel recovery: a delivery panicked; the worker recovered and moved on",
-				"admin_user_id", j.g.Issued.Reset.AdminUserID, "reset_id", j.g.Issued.Reset.ID)
+				grantIDs(j.g)...)
 		}
 	}()
 	f()

@@ -12,6 +12,7 @@ Hiçbir adımı atlamadan, önceki işi bozmadan.
 | **[state.md](state.md)** | **Tek canlı durum kaynağı.** Nerede kaldık, sırada ne var, hangi görev bitti/bloke, hangi commit'te | **Her oturumun sonunda** |
 | [roadmap.md](roadmap.md) | Kilometre taşları, sıralama gerekçesi, riskler, kapsam dışı | Ürün veya sıra kararı değişince |
 | `m0…m9-*.md` | **Görev kartları** — her görevin değişmez spec'i | Kapsam değişirse (gerekçesi yazılarak) |
+| [lp-landing-redesign.md](lp-landing-redesign.md) | Public site fazının görev kartları (`LP-NN`; kilometre taşı numarası almaz, M13'ten önce yürür) | Kapsam değişirse (gerekçesi yazılarak) |
 | [agent-brief.md](agent-brief.md) | Yapıcı/denetçi brief şablonları, sabit kurallar, öğrenilen dersler | Yeni bir ders çıkınca |
 | [open-questions.md](open-questions.md) | Karara bağlanmamış konular, hangi görevi blokladıkları | Soru çıkınca / cevaplanınca |
 
@@ -96,7 +97,7 @@ turda RED aldı ve her seferinde gerçek bir kusur çıktı.
 
 ## Görev ID şeması
 
-`M<kilometre taşı>-<sıra>` → `M2-05`. ID'ler **yeniden kullanılmaz**. Bir görev
+`M<kilometre taşı>-<sıra>` → `M2-05` (public site fazı: `LP-<sıra>` → `LP-06`). ID'ler **yeniden kullanılmaz**. Bir görev
 iptal edilirse ledger'da `skipped` olarak kalır ve nedeni yazılır; numara boşta
 bırakılmaz.
 

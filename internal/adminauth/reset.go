@@ -291,6 +291,20 @@ type ResetDatabase interface {
 	// (resetrequest.go), in THIS package rather than in a handler, because the answer
 	// is a rule about identities and not about HTTP.
 	GetAdminByEmail(ctx context.Context, email string) ([]db.ResolvedAdmin, error)
+	// ConsumeIdentityRowReset spends a per-row link whose row is LINKED to an identity (ADR 0031 §5.9,
+	// M14-08: ADR 0015's meaning change starts here) -- identity_consume_row_reset, keyed by the link's
+	// own hash. pgx.ErrNoRows sends Consume down today's path.
+	ConsumeIdentityRowReset(ctx context.Context, resetHash, newDigest string) (db.ConsumedIdentityRowReset, error)
+
+	// The per-identity reset (M14-14, ADR 0031 §5.9; identityreset.go). ResolveIdentityByEmail is the
+	// one e-mail -> identity path (md.7; it writes nothing) and since 00075 carries the identity's
+	// registered address; OpenIdentityReset is keyed by the id that resolution returned (not a
+	// secret -- the caller's type binds it to the address); the other three are keyed by a link's hash.
+	ResolveIdentityByEmail(ctx context.Context, email string) (db.ResolvedIdentity, error)
+	OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenHash string, expiresAt time.Time) (db.OpenedIdentityReset, error)
+	WithdrawIdentityReset(ctx context.Context, tokenHash string) (bool, error)
+	ConsumeIdentityReset(ctx context.Context, resetHash, newDigest string) (db.ConsumedIdentityReset, error)
+	GetIdentityResetByTokenHash(ctx context.Context, tokenHash string) (db.ResolvedIdentityReset, error)
 }
 
 // The one implementation, bound AT COMPILE TIME rather than in a test. An audit found
@@ -524,6 +538,27 @@ type ConsumedReset struct {
 	// the same transaction as the password write: a reset that could not revoke does
 	// not happen at all.
 	RevokedSessions int
+	// Recorded: the database wrote every business's admin.recovery.completed row itself, so the caller
+	// writes none (a second row would double a business's trail). Two paths set it: a per-row link of a
+	// LINKED row (identity_consume_row_reset -- the link's own business gets the handler's detail key for
+	// key, reset_id and retired_count included, since 00074) and a per-identity link
+	// (identity_consume_reset, IdentityID below). RetiredCount stays 0 on both: neither function
+	// returns its count to the caller.
+	Recorded bool
+
+	// IdentityID is set when the link was a PER-IDENTITY one (M14-14, identity_consume_reset): the
+	// person's password changed in every business linked to the identity, every business got its
+	// admin.recovery.completed row from the definer (Recorded is true), and TenantID / AdminUserID /
+	// ResetID are zero -- the link belongs to no business. It is a cross-tenant key: logs only
+	// (ADR 0031 §5.15), never a response or an audit row.
+	IdentityID uuid.UUID
+	// NoticeTo is the identity's registered address, set with IdentityID: where the ONE "your password
+	// was changed" notice goes (EM-9, ADR 0031 §5.14). Personal data; never logged.
+	NoticeTo string
+	// IdentityRefusal is set, alongside ErrResetUnusable, when the token is a per-identity link that
+	// resolved but could not be spent: the trail's facts (used, cancelled, expired). The link belongs
+	// to no business, so the trail is a log line, not an audit row.
+	IdentityRefusal *db.ResolvedIdentityReset
 }
 
 // Consume spends a reset token and writes the new password, then signs the
@@ -616,8 +651,51 @@ func (r *Resets) Consume(ctx context.Context, t ResetToken, newPassword string) 
 		return ConsumedReset{}, db.ResolvedPasswordReset{}, fmt.Errorf("adminauth: consume reset: %w", err)
 	}
 
+	// A PER-IDENTITY LINK (M14-14, ADR 0031 §5.9) is tried first: its hash lives in another table, so
+	// at most one of the two consumptions can match. It runs whatever TAPPA_ADMIN_IDENTITY says -- a
+	// link issued while the flag was on stays spendable for its hour if the flag goes off (ADR 0031
+	// §8: write paths are not gated). Every attempt pays this round trip, so it decides no timing.
+	if c, err := r.data.ConsumeIdentityReset(ctx, h, digest); err == nil {
+		return ConsumedReset{
+			IdentityID:      c.IdentityID,
+			NoticeTo:        c.Email,
+			RevokedSessions: c.RevokedSessions,
+			Recorded:        true,
+		}, db.ResolvedPasswordReset{}, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return ConsumedReset{}, db.ResolvedPasswordReset{}, fmt.Errorf("adminauth: consume reset: %w", err)
+	}
+
+	// 🔴 A LINKED ROW'S LINK WRITES THE IDENTITY (ADR 0031 §5.9, M14-08), whatever
+	// TAPPA_ADMIN_IDENTITY says: the row refuses a direct password write (00069's trigger), so
+	// today's statement would answer 500 for it. The definer re-checks the link under the person's
+	// lock (single use, not cancelled, not expired by the clock read after the lock) and also marks
+	// the mailbox proved and opens a reset-scope confirmation window -- the person who clicked the
+	// mail is the address's owner (S5). Unknown, spent, expired, cancelled, unlinked, disabled or
+	// refused -> 0 rows, and today's path below decides, exactly as before M14.
+	if c, err := r.data.ConsumeIdentityRowReset(ctx, h, digest); err == nil {
+		return ConsumedReset{
+			ResetID:         c.ResetID,
+			TenantID:        c.TenantID,
+			AdminUserID:     c.AdminUserID,
+			RevokedSessions: c.RevokedSessions,
+			Recorded:        true,
+		}, db.ResolvedPasswordReset{}, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return ConsumedReset{}, db.ResolvedPasswordReset{}, fmt.Errorf("adminauth: consume reset: %w", err)
+	}
+
 	resolved, err := r.data.GetPasswordResetByTokenHash(ctx, h)
 	if errors.Is(err, pgx.ErrNoRows) {
+		// Not a per-row link: perhaps a per-identity one that could not be spent. Its facts go back
+		// for the trail; the answer is the same one error either way.
+		ir, ierr := r.data.GetIdentityResetByTokenHash(ctx, h)
+		switch {
+		case ierr == nil:
+			return ConsumedReset{IdentityRefusal: &ir}, db.ResolvedPasswordReset{}, ErrResetUnusable
+		case !errors.Is(ierr, pgx.ErrNoRows):
+			return ConsumedReset{}, db.ResolvedPasswordReset{}, fmt.Errorf("adminauth: consume reset: %w", ierr)
+		}
 		return ConsumedReset{}, db.ResolvedPasswordReset{}, ErrResetUnusable
 	}
 	if err != nil {

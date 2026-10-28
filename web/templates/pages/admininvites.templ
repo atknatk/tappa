@@ -1,0 +1,309 @@
+package pages
+
+import (
+	"github.com/atknatk/tappa/web/templates/components"
+	"github.com/atknatk/tappa/web/templates/layout"
+)
+
+// The MANAGER INVITATION screens (M14-15, ADR 0031 §5.11; M7-07). skill tappa-brand: palette tokens
+// only, Space Grotesk for display, IBM Plex Mono for every stored value and date, status as a WORD,
+// touch targets at least 44 px, no script.
+//
+// THE OWNER'S PAGE lists the business's invitations and sends one. The link is never on it -- it goes
+// to the invitee's own mailbox -- and nothing on it says whether an address already has a Taptime
+// sign-in: the answer to "Send" and a row's state are the same for every address (R18).
+//
+// THE INVITEE'S PAGE is reachable without a session (the link from the e-mail). It offers both ways
+// in, because the page does not know -- and must not tell -- which one applies: a person who already
+// signs in to Taptime with the invited address accepts with that sign-in; a new person chooses a
+// password. Opening it changes nothing (R19): only a press accepts.
+
+// AdminManagers is the owner's "Managers" page.
+templ AdminManagers(v ManagersView) {
+	@PanelShell(v.PanelChrome) {
+		<div class="flex flex-col gap-5 md:gap-6">
+			if v.Problem != "" {
+				@components.PanelNotice(components.ToneAlert, "That did not happen") {
+					<p>{ v.Problem }</p>
+				}
+			}
+			if v.Done != "" {
+				@components.PanelNotice(components.ToneOK, "") {
+					<p>{ v.Done }</p>
+				}
+			}
+			if v.MembersShown {
+				@managersMembers(v)
+			}
+			<section class="panel-card" aria-labelledby="managers-invite-title">
+				<div class="flex min-w-0 flex-col gap-1.5">
+					<h2 id="managers-invite-title" class="font-display text-[19px] font-bold leading-tight tracking-[-0.02em] text-ink md:text-xl desk:text-[22px]">Invite a manager</h2>
+					<p class="max-w-2xl text-sm leading-normal text-ink/70">
+						A manager reviews time records, approves flagged check-ins and runs reports for this
+						business. They get an email with a link that works once, for three days. They choose
+						their own password, or use the Taptime sign-in they already have — you never see it.
+					</p>
+				</div>
+				if v.CanSend {
+					@managersInviteForm(v)
+				} else {
+					@components.PanelNotice(components.ToneWarn, "This Taptime does not send invitation emails") {
+						<p>
+							Sending is not switched on for this server, so no invitation can be sent from here.
+						</p>
+					}
+				}
+			</section>
+			<section class="panel-card" aria-labelledby="managers-list-title">
+				<h2 id="managers-list-title" class="font-display text-[19px] font-bold leading-tight tracking-[-0.02em] text-ink md:text-xl desk:text-[22px]">Invitations</h2>
+				if v.ListFailed {
+					<p class="text-sm text-ink/70">The invitations could not be read just now. Reload the page in a moment.</p>
+				} else if len(v.Invites) == 0 {
+					<p class="text-sm text-ink/70">No invitation has been sent from this business.</p>
+				} else {
+					<ul class="flex flex-col">
+						for _, row := range v.Invites {
+							<li class="flex items-center justify-between gap-3 border-t border-dashed border-line py-3">
+								<div class="flex min-w-0 flex-col gap-1">
+									<p class="flex flex-wrap items-center gap-2">
+										<span class="break-words font-display text-[15px] font-bold text-ink">{ row.Name }</span>
+										<span class="mono-pill border-line">{ row.State }</span>
+									</p>
+									<p class="break-all font-mono text-xs text-ink/70">{ row.Email }</p>
+									<p class="font-mono text-xs text-ink/70">Sent { row.SentOn } · link ends { row.EndsOn }</p>
+								</div>
+								if row.Open {
+									<form method="post" action={ templ.URL(components.Bound(ctx, v.CancelHref)) } class="flex-none">
+										<input type="hidden" name="invite_id" value={ row.ID }/>
+										<button class="btn btn--danger" type="submit">Cancel<span class="sr-only">{ " the invitation of " + row.Name }</span></button>
+									</form>
+								}
+							</li>
+						}
+					</ul>
+				}
+			</section>
+		</div>
+	}
+}
+
+// managersMembers is the people who run this business (M14-16): each membership's role and state as
+// words, and the presses the reader may make on it. Handing the business over is two presses -- make
+// the new person an owner, then step down -- and the page says so.
+templ managersMembers(v ManagersView) {
+	<section class="panel-card" aria-labelledby="managers-members-title">
+		<div class="flex min-w-0 flex-col gap-1.5">
+			<h2 id="managers-members-title" class="font-display text-[19px] font-bold leading-tight tracking-[-0.02em] text-ink md:text-xl desk:text-[22px]">People who run this business</h2>
+			<p class="max-w-2xl text-sm leading-normal text-ink/70">
+				Disabling someone signs them out of this business at once; their other businesses on Taptime
+				are not affected, and you can enable them again. To hand the business over, make the new person
+				an owner first, then step down to manager yourself. A business always keeps at least one owner.
+			</p>
+		</div>
+		if v.MembersFailed {
+			<p class="text-sm text-ink/70">The people of this business could not be read just now. Reload the page in a moment.</p>
+		} else {
+			if v.OnlyOwner {
+				@components.PanelNotice(components.ToneWarn, "You are the only owner") {
+					<p>To step down, make someone an owner first. Until then, the owner's seat stays with you.</p>
+				}
+			}
+			<ul class="flex flex-col">
+				for _, row := range v.Members {
+					<li class="flex flex-col gap-3 border-t border-dashed border-line py-3 md:flex-row md:items-center md:justify-between">
+						<div class="flex min-w-0 flex-col gap-1">
+							<p class="flex flex-wrap items-center gap-2">
+								<span class="break-words font-display text-[15px] font-bold text-ink">{ row.Name }</span>
+								if row.Self {
+									<span class="font-mono text-xs text-ink/70">(you)</span>
+								}
+								<span class="mono-pill border-line">{ row.Role }</span>
+								<span class="mono-pill border-line">{ row.Status }</span>
+							</p>
+							<p class="break-all font-mono text-xs text-ink/70">{ row.Email }</p>
+							if row.Refused {
+								<p class="max-w-xl text-xs leading-normal text-ink/70">
+									This owner cannot sign in to this business, so they do not count as one of its owners.
+								</p>
+							}
+							if row.KeysNote {
+								<p class="mb-1 max-w-xl text-xs leading-normal text-ink/70">
+									Disabling or demoting this owner does not stop the API keys they created: those keep
+									working.
+									<a class="hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.SafeURL(v.APIKeysHref) }>Review the API keys</a>.
+								</p>
+							}
+						</div>
+						<div class="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:justify-end">
+							if row.CanMakeOwner {
+								<form method="post" action={ templ.URL(components.Bound(ctx, v.MakeOwnerHref)) } class="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+									<input type="hidden" name="member_id" value={ row.ID }/>
+									<label class="flex min-h-11 items-center gap-2 text-sm text-ink">
+										<input type="checkbox" name="confirm" value="yes" required class="min-h-11 w-11 accent-tappa-green"/>
+										Yes, they can run everything
+									</label>
+									<button class="btn btn--line w-full md:w-auto" type="submit">Make owner<span class="sr-only">{ " — " + row.Name }</span></button>
+								</form>
+							}
+							if row.CanMakeManager {
+								@memberPress(v.MakeManagerHref, row.ID, false, "Make manager", row.Name)
+							}
+							if row.CanEnable {
+								@memberPress(v.EnableHref, row.ID, false, "Enable", row.Name)
+							}
+							if row.CanDisable {
+								@memberPress(v.DisableHref, row.ID, true, "Disable", row.Name)
+							}
+							if row.CanStepDown {
+								<form method="post" action={ templ.URL(components.Bound(ctx, v.MakeManagerHref)) } class="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+									<input type="hidden" name="member_id" value={ row.ID }/>
+									<label class="flex min-h-11 items-center gap-2 text-sm text-ink">
+										<input type="checkbox" name="confirm" value="yes" required class="min-h-11 w-11 accent-tappa-green"/>
+										Yes, I am no longer an owner
+									</label>
+									<button class="btn btn--danger w-full md:w-auto" type="submit">Step down to manager</button>
+								</form>
+							}
+						</div>
+					</li>
+				}
+			</ul>
+		}
+	</section>
+}
+
+// memberPress is one press on one membership: a form with the membership's id and one button --
+// the destructive look for a press that takes access away.
+templ memberPress(href, id string, danger bool, label, name string) {
+	<form method="post" action={ templ.URL(components.Bound(ctx, href)) } class="flex-none">
+		<input type="hidden" name="member_id" value={ id }/>
+		if danger {
+			<button class="btn btn--danger w-full md:w-auto" type="submit">{ label }<span class="sr-only">{ " — " + name }</span></button>
+		} else {
+			<button class="btn btn--line w-full md:w-auto" type="submit">{ label }<span class="sr-only">{ " — " + name }</span></button>
+		}
+	</form>
+}
+
+// managersInviteForm is the name and the address. Stacked on a phone, side by side from the tablet up.
+templ managersInviteForm(v ManagersView) {
+	<form method="post" action={ templ.URL(components.Bound(ctx, v.InviteHref)) } class="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end">
+		<div class="field-stack md:flex-1">
+			<label class="lbl" for="manager-name">Their name</label>
+			<input class="field-input" id="manager-name" type="text" name="full_name" required maxlength={ itoa(v.NameMaxLength) } autocomplete="off"/>
+		</div>
+		<div class="field-stack md:flex-1">
+			<label class="lbl" for="manager-email">Their email</label>
+			<input class="field-input field-input--mono" id="manager-email" type="email" name="email" required autocomplete="off"/>
+		</div>
+		<button class="btn btn--primary w-full rounded-xl md:w-auto" type="submit">Send invitation</button>
+	</form>
+}
+
+// AdminInviteAccept is what an invitation link opens: the two ways in, or one screen for a link that no
+// longer works.
+templ AdminInviteAccept(v InviteAcceptView) {
+	@layout.Auth("Your invitation — Taptime", "") {
+		@AuthHeader(v.SignInHref)
+		<main class="mx-auto flex w-full max-w-[1040px] flex-col gap-6 px-4 pb-10 pt-3 md:px-10 md:pb-14 md:pt-6 desk:px-14 desk:pb-[72px] desk:pt-8">
+			<div class="flex w-full max-w-[520px] flex-col gap-6">
+				if v.Dead {
+					@resetCard() {
+						<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]">That link no longer works</h1>
+						<p class="text-[15px] leading-normal text-ink/85">
+							An invitation link works once, for three days. This one has been used, has run out, or
+							was cancelled.
+						</p>
+						<p class="text-sm leading-normal text-ink/70">Ask whoever invited you to send a new one.</p>
+					}
+				} else {
+					@resetCard() {
+						<div class="flex flex-col gap-2">
+							<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]">You're invited to manage a business</h1>
+							<p class="text-[15px] leading-normal text-ink/70">
+								Accept below. Nothing happens until you press a button, and accepting does not sign
+								you in — you sign in afterwards.
+							</p>
+						</div>
+					}
+					@resetCard() {
+						<h2 class="font-display text-xl font-bold leading-tight tracking-tight">I already use Taptime</h2>
+						<p class="text-sm leading-normal text-ink/70">
+							Sign in with the email address this invitation was sent to, in this browser, then open
+							the link from the email again and press Accept.
+						</p>
+						if v.ErrorFor == "session" && v.Error != "" {
+							@components.Notice(components.ToneAlert, "That didn't work") {
+								<p>{ v.Error }</p>
+							}
+						}
+						<form method="post" action="/admin/invite" class="flex flex-col gap-3">
+							<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+							<input type="hidden" name="mode" value="session"/>
+							<button type="submit" class="btn btn--primary min-h-[52px] w-full rounded-xl">Accept with my sign-in</button>
+						</form>
+						<p class="text-sm">
+							<a href={ templ.SafeURL(v.SignInHref) } class="inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline">Sign in first</a>
+						</p>
+					}
+					@resetCard() {
+						<h2 class="font-display text-xl font-bold leading-tight tracking-tight">I'm new to Taptime</h2>
+						<p class="text-sm leading-normal text-ink/70">
+							Choose a password. At least { itoa(v.MinPasswordChars) } characters — a few words beats a
+							short one.
+						</p>
+						if v.ErrorFor == "new" && v.Error != "" {
+							@components.Notice(components.ToneAlert, "That didn't work") {
+								<p>{ v.Error }</p>
+							}
+						}
+						<form method="post" action="/admin/invite" class="flex flex-col gap-4">
+							<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+							<input type="hidden" name="mode" value="new"/>
+							<div class="field-stack">
+								<label for="invite-password" class="lbl">Password</label>
+								<input id="invite-password" name="password" type="password" autocomplete="new-password" required class="field-input field-input--mono min-h-12"/>
+							</div>
+							<div class="field-stack">
+								<label for="invite-password-confirm" class="lbl">Type it again</label>
+								<input id="invite-password-confirm" name="password_confirm" type="password" autocomplete="new-password" required class="field-input field-input--mono min-h-12"/>
+							</div>
+							<button type="submit" class="btn btn--primary min-h-[52px] w-full rounded-xl">Accept and set my password</button>
+						</form>
+					}
+				}
+			</div>
+		</main>
+	}
+}
+
+// AdminInviteAccepted is the answer to an accepted invitation.
+templ AdminInviteAccepted(v InviteAcceptedView) {
+	@layout.Auth("Invitation accepted — Taptime", "") {
+		@AuthHeader(v.SignInHref)
+		<main class="mx-auto flex w-full max-w-[1040px] flex-col gap-6 px-4 pb-10 pt-3 md:px-10 md:pb-14 md:pt-6 desk:px-14 desk:pb-[72px] desk:pt-8">
+			<div class="w-full max-w-[520px]">
+				@resetCard() {
+					<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]">You're in</h1>
+					<p class="text-[15px] leading-normal text-ink/85">
+						You are now a manager of the business that invited you.
+					</p>
+					if v.WithSession {
+						<p class="text-sm leading-normal text-ink/70">
+							Switch to it from the panel, or sign in again to land there.
+						</p>
+						<p class="flex flex-wrap gap-4">
+							<a href={ templ.SafeURL(v.SwitchHref) } class="inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline">Switch business</a>
+							<a href={ templ.SafeURL(v.SignInHref) } class="inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline">Sign in</a>
+						</p>
+					} else {
+						<p class="text-sm leading-normal text-ink/70">Sign in with your email address and the password you just chose.</p>
+						<p>
+							<a href={ templ.SafeURL(v.SignInHref) } class="inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline">Sign in</a>
+						</p>
+					}
+				}
+			</div>
+		</main>
+	}
+}

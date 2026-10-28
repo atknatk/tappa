@@ -4,7 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -34,10 +40,38 @@ const bfFile = "00073_backfill_admin_identities.sql"
 
 func bfTx(t *testing.T) (context.Context, pgx.Tx) {
 	t.Helper()
+	return bfTxLocking(t, func(ctx context.Context, tx pgx.Tx) {
+		if _, err := tx.Exec(ctx, `LOCK TABLE admin_users IN EXCLUSIVE MODE`); err != nil {
+			t.Fatalf("lock admin_users: %v", err)
+		}
+	})
+}
+
+// bfTxForDDL is bfTx for a test that changes admin_users' definition (an ALTER TABLE: ACCESS
+// EXCLUSIVE). It takes ACCESS EXCLUSIVE as the table's FIRST lock, through lockForDowns, instead of
+// EXCLUSIVE: asking for it on top of a held EXCLUSIVE is an UPGRADE, and a session that has read
+// admin_users (ACCESS SHARE) and then asks for ROW SHARE (an FK check, FOR NO KEY UPDATE) waits on our
+// EXCLUSIVE while we wait on its ACCESS SHARE -- 40P01 (the third test-infra card's re-audit; measured:
+// TestAdminBackfill00073_ADigestTheIdentityRefusesStopsItByCount beside a read-then-FOR-NO-KEY-UPDATE
+// loop, 3 of 3 deadlocked with the upgrade). ACCESS EXCLUSIVE keeps every writer out as EXCLUSIVE does.
+func bfTxForDDL(t *testing.T) (context.Context, pgx.Tx) {
+	t.Helper()
+	return bfTxLocking(t, func(ctx context.Context, tx pgx.Tx) {
+		lockForDowns(t, ctx, tx, []string{"admin_users"})
+	})
+}
+
+// bfTxLocking opens bfTx's transaction and takes admin_users' table lock with lock.
+func bfTxLocking(t *testing.T, lock func(ctx context.Context, tx pgx.Tx)) (context.Context, pgx.Tx) {
+	t.Helper()
 	dsn := opOwnerDSN(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	t.Cleanup(cancel)
-	conn, err := pgx.Connect(ctx, dsn)
+	// THE TEST'S THREE MINUTES START ONCE THE LOCK IS HELD (M14-09's third-eye audit): the wait for
+	// the operator-tables lock runs on its own, longer context, because the packages that hold it
+	// SHARED keep it for a whole test -- ~120 s for a cost-12 HTTP timing sample under -race -- and a
+	// wait counted against the test's own budget left the Downs' table locks too little of it.
+	lockCtx, lockCancel := context.WithTimeout(context.Background(), opLockWait)
+	t.Cleanup(lockCancel)
+	conn, err := pgx.Connect(lockCtx, dsn)
 	if err != nil {
 		t.Fatalf("connect as the owner: %v", err)
 	}
@@ -46,6 +80,15 @@ func bfTx(t *testing.T) (context.Context, pgx.Tx) {
 			t.Logf("close owner connection: %v", err)
 		}
 	})
+	// The operator-tables test lock, EXCLUSIVE like opTx's (M14-07's audit): the backfill reads and
+	// locks every committed admin_users row of the shared database, and another package's committed
+	// identity world (internal/adminauth's, which holds the lock SHARED) made its postcondition and
+	// its Down see identities that are not its own -- measured as FAILs when the two ran in parallel.
+	if _, err := conn.Exec(lockCtx, `SELECT pg_advisory_lock(hashtext($1))`, operatorTablesTestLock); err != nil {
+		t.Fatalf("operator-tables test lock: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	t.Cleanup(cancel)
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		t.Fatalf("BEGIN: %v", err)
@@ -58,6 +101,20 @@ func bfTx(t *testing.T) (context.Context, pgx.Tx) {
 	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '10s'`); err != nil {
 		t.Fatalf("set lock_timeout: %v", err)
 	}
+	// No other session may commit an admin_users row while the test runs (the third test-infra card's
+	// audit, measured): the advisory lock keeps out the packages that take it, but a dozen others commit
+	// plain admin rows without it (cmd/opadmin's tablesLockRowOutside), and the backfill reads every
+	// committed row (READ COMMITTED) -- TestAdminBackfill00073_TheClosingAssertion beside a ~200/s plain
+	// INSERT loop failed 8 runs of 8 ("7-40 identities born from no filled e-mail"), 8 of 8 passed with
+	// this lock. EXCLUSIVE, not SHARE (M14-09's third-eye audit): SHARE let a sign-in take its row lock
+	// (SELECT ... FOR NO KEY UPDATE takes ROW SHARE, which SHARE admits) and then wait on this table lock
+	// for its UPDATE, while the backfill waited on that row -- 40P01 / 55P03 against
+	// TestIssue_ConcurrentSignInsOfOneAdminDoNotDeadlock, 6 rounds of 6. EXCLUSIVE also refuses ROW
+	// SHARE, so such a sign-in waits before it holds anything; plain reads still pass. A writer waits
+	// for the test's transaction; this lock waits at most lock_timeout for a writer already open. A test
+	// that needs a stronger lock on admin_users takes it here, first (bfTxForDDL): never as an upgrade
+	// (TestAdminBackfill00073_NoTestUpgradesItsTableLock).
+	lock(ctx, tx)
 	return ctx, tx
 }
 
@@ -330,6 +387,10 @@ func TestAdminBackfill00073_ItIsIdempotent(t *testing.T) {
 			opInt(t, ctx, q, `SELECT count(*) FROM admin_identities WHERE created_at = now()`))
 		return b.String()
 	}
+	// No other session may commit an admin_users row between the two runs: a row another package's
+	// test commits in between would legitimately birth an identity in the second run and read as "not
+	// idempotent" (measured beside internal/adminauth's tests, M14-07's audit). bfTx holds admin_users
+	// IN EXCLUSIVE MODE for the whole test (it says why).
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 		opRunSection(t, ctx, sp, up, "00073 Up")
 		first := snapshot(sp)
@@ -456,11 +517,10 @@ func TestAdminBackfill00073_TheClosingAssertion(t *testing.T) {
 // print the failing row and its address -- and nothing is written. (The CHECK is dropped inside the
 // savepoint to write such a row; the rollback restores it.)
 func TestAdminBackfill00073_ADigestTheIdentityRefusesStopsItByCount(t *testing.T) {
-	ctx, tx := bfTx(t)
+	ctx, tx := bfTxForDDL(t)
 	up, _, _ := bfSections(t)
 	mail := bfEmail("legacy")
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
-		lockForDowns(t, ctx, sp, []string{"admin_users"})
 		aiExec(t, ctx, sp, `ALTER TABLE admin_users DROP CONSTRAINT admin_users_password_hash_is_bcrypt`)
 		row := bfAdmin(t, ctx, sp, aiTenant(t, ctx, sp), mail, "active", 3, "legacy-"+opRandHex(t))
 		bfWantRefusal(t, holdingNestedRun(t, ctx, sp, up), "1 chosen admin_users row(s) carry a password digest that is not bcrypt-shaped",
@@ -622,5 +682,67 @@ func TestAdminBackfill00073_TheDownLocksTheIdentitiesBeforeItReadsThem(t *testin
 	if !(filled[1] <= lock[0] && lock[1] <= firstCheck) {
 		t.Errorf("the identity lock is at %d, want after theirs is filled (%d) and before the first check that reads them (%d)",
 			lock[0], filled[1], firstCheck)
+	}
+}
+
+// TestAdminBackfill00073_NoTestUpgradesItsTableLock: a test on bfTx (which holds admin_users IN
+// EXCLUSIVE MODE) asks for no stronger lock on the table later -- no lockForDowns, and no LOCK, ALTER,
+// DROP, TRUNCATE, VACUUM, CLUSTER or REINDEX statement naming admin_users: that would be an upgrade, the
+// deadlock bfTxForDDL describes. Such a test opens with bfTxForDDL instead. Read from this file's
+// source. CONTROL first: a source with each shape. NO COMPLETENESS CLAIM: a statement built at run
+// time, a helper in another file, and a lock taken inside a migration section are not read.
+func TestAdminBackfill00073_NoTestUpgradesItsTableLock(t *testing.T) {
+	const control = `package p
+func a(t *testing.T) { ctx, tx := bfTx(t); lockForDowns(t, ctx, tx, []string{"admin_users"}) }
+func b(t *testing.T) { bfTx(t); exec("ALTER TABLE admin_users DROP CONSTRAINT x") }
+func c(t *testing.T) { bfTx(t); exec("LOCK TABLE public.admin_users IN ACCESS EXCLUSIVE MODE") }
+func d(t *testing.T) { ctx, tx := bfTxForDDL(t); lockForDowns(t, ctx, tx, nil); exec("ALTER TABLE admin_users DROP CONSTRAINT x") }
+func e(t *testing.T) { bfTx(t); exec("SELECT * FROM admin_users FOR UPDATE") }
+`
+	upgrades := func(src string) []string {
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, "src.go", src, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stronger := regexp.MustCompile(`(?is)\b(lock|alter|drop|truncate|vacuum|cluster|reindex)\b.*\badmin_users\b`)
+		var bad []string
+		for _, d := range f.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Body == nil {
+				continue
+			}
+			onBfTx, found := false, ""
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				switch x := n.(type) {
+				case *ast.CallExpr:
+					if id, ok := x.Fun.(*ast.Ident); ok {
+						onBfTx = onBfTx || id.Name == "bfTx"
+						if id.Name == "lockForDowns" && found == "" {
+							found = "lockForDowns"
+						}
+					}
+				case *ast.BasicLit:
+					if s, err := strconv.Unquote(x.Value); err == nil && x.Kind == token.STRING && stronger.MatchString(s) && found == "" {
+						found = s
+					}
+				}
+				return true
+			})
+			if onBfTx && found != "" {
+				bad = append(bad, fd.Name.Name)
+			}
+		}
+		return bad
+	}
+	if got := upgrades(control); !slices.Equal(got, []string{"a", "b", "c"}) {
+		t.Fatalf("CONTROL: the scan names %v, want [a b c]", got)
+	}
+	src, err := os.ReadFile("adminbackfill_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := upgrades(string(src)); len(got) > 0 {
+		t.Errorf("tests on bfTx that ask for a stronger lock on admin_users later (an upgrade -- open them with bfTxForDDL): %v", got)
 	}
 }

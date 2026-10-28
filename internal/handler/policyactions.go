@@ -72,6 +72,9 @@ import (
 // who is asking, and the concrete type refuses before it opens a transaction.
 type panelScribe interface {
 	May(ctx context.Context, tenantID uuid.UUID, actor tenant.Actor) bool
+	// MayInviteManager is the manager invitation's gate (M14-15): May's question, with the shipped
+	// baseline answering for a business that has no stored rule at all.
+	MayInviteManager(ctx context.Context, tenantID uuid.UUID, actor tenant.Actor) bool
 	SetEnabled(ctx context.Context, c tenant.EnableCommand) (tenant.SwitchResult, error)
 	Bind(ctx context.Context, c tenant.BindCommand) error
 	Unbind(ctx context.Context, c tenant.BindCommand) error

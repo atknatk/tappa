@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -17,9 +18,14 @@ import (
 	apidocs "github.com/atknatk/tappa/docs/api"
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/apiguide"
+	"github.com/atknatk/tappa/internal/domain/billing"
 	"github.com/atknatk/tappa/internal/domain/legal"
+	"github.com/atknatk/tappa/internal/domain/tap"
+	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/session"
+	"github.com/atknatk/tappa/internal/webhook"
 	"github.com/atknatk/tappa/web"
+	"github.com/atknatk/tappa/web/templates/layout"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -169,6 +175,23 @@ type Marketing struct {
 	// be read, in which case the page renders no example (see
 	// pages.LandingView.ExampleMonthly). Computed once, here, by exampleTeamMonthly.
 	exampleMonthly string
+	// pricing is the pricing page's figures (LP-06): what each example team size costs a
+	// month and the drawn frozen month, computed ONCE, here, by pricingFigures from the
+	// published price in integer cents -- strings and ints only, a value rather than a
+	// dependency (TestMarketing_HandlerHoldsNoStatefulDependency walks it). Empty Sizes
+	// when the price could not be read: the page then draws no figure at all.
+	pricing pages.PricingFigures
+	// security and securityCopy are the security page's numbers and its sentences
+	// built from them (LP-07), computed ONCE, here, by securityFigures and
+	// pages.SecurityCopy: ints, strings and slices of them, a value rather than a
+	// dependency (TestMarketing_HandlerHoldsNoStatefulDependency walks it).
+	security     pages.SecurityFigures
+	securityCopy pages.SecurityText
+	// product and productCopy are the product tour's numbers and its sentences built
+	// from them (LP-08), computed ONCE, here, by productFigures and pages.ProductCopy: a
+	// value rather than a dependency, like the security page's.
+	product     pages.ProductFigures
+	productCopy pages.ProductText
 	// guideEN and guideTR are the integration guide's two pages (M11 DOCS-1, ADR 0030):
 	// docs/api's embedded Markdown, converted ONCE, in the constructor, by
 	// internal/apiguide. A request serves the converted bytes and converts nothing, so
@@ -182,6 +205,12 @@ type Marketing struct {
 	// https://<TAPPA_API_HOST>/v1/openapi.yaml, or "" on a deployment with no API host,
 	// where no link is drawn (openAPIHrefFor says why).
 	openAPIHref string
+	// share is the full URL of each page's share image (LP-13), resolved ONCE, here, by
+	// shareImagesFor -- the demo video's shape: an image the embedded tree does not
+	// carry, or a deployment with no usable origin, is "" and its page draws no image.
+	// Strings only, a value rather than a dependency
+	// (TestMarketing_HandlerHoldsNoStatefulDependency walks it).
+	share pages.ShareImages
 }
 
 // legalReader is the slice of internal/domain/legal.Store the PUBLIC surface needs.
@@ -206,7 +235,12 @@ type legalReader interface {
 //
 // apiHost is TAPPA_API_HOST (config.APIHost), "" when this deployment has none; the
 // integration guide's pages link the OpenAPI document on it (openAPIHrefFor).
-func NewMarketing(texts legalReader, log *slog.Logger, apiHost string) *Marketing {
+//
+// baseURL is TAPPA_BASE_URL (config.BaseURL): the origin the share images are named on
+// (LP-13, shareImagesFor). It is configuration and never the request's Host, so the
+// pages stay the same bytes for every visitor and a forged Host header cannot point a
+// cached page's preview anywhere else. "" names no image.
+func NewMarketing(texts legalReader, log *slog.Logger, apiHost, baseURL string) *Marketing {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -227,6 +261,15 @@ func NewMarketing(texts legalReader, log *slog.Logger, apiHost string) *Marketin
 		log.Error("landing: the worked example cannot be computed; rendering none", "err", err)
 		example = ""
 	}
+	pricing, err := pricingFigures(publishedPricePerEmployeeMonth, pricingExampleSizes, exampleHeadcount)
+	if err != nil {
+		// The same programming error as above, and the same answer: the pricing page draws
+		// no figure rather than a wrong one.
+		log.Error("pricing: the example figures cannot be computed; rendering none", "err", err)
+		pricing = pages.PricingFigures{}
+	}
+	security := securityFigures()
+	product := productFigures(security)
 	return &Marketing{
 		signupHref:     signupPath,
 		texts:          texts,
@@ -235,9 +278,15 @@ func NewMarketing(texts legalReader, log *slog.Logger, apiHost string) *Marketin
 		demoPosterSrc:  poster,
 		landingPolicy:  landingCSPFor(video, poster),
 		exampleMonthly: example,
+		pricing:        pricing,
+		security:       security,
+		securityCopy:   pages.SecurityCopy(security),
+		product:        product,
+		productCopy:    pages.ProductCopy(product),
 		guideEN:        guideEN,
 		guideTR:        guideTR,
 		openAPIHref:    openAPI,
+		share:          shareImagesFor(static, baseURL),
 	}
 }
 
@@ -318,6 +367,54 @@ func staticAssetURL(fsys fs.FS, name string) string {
 	return "/static/" + name
 }
 
+// shareImagesFor resolves every share image (pages.ShareImageFiles) to the full URL a
+// crawler reads in og:image: the configured origin and the file's /static path.
+//
+// 🔴 IT IS THE BARE URL, WITHOUT web.AssetURL's ?v=. A crawler fetches the image once,
+// when a link is pasted, so the year-long pin that query buys (internal/httpx/static.go)
+// saves nothing on a navigation; the bare name is answered no-cache with its ETag, which
+// is that file's rule. And the page's bytes would otherwise depend on whether the serving
+// process put its asset table in the context -- the tests render without one -- while
+// this value is computed once, here, with no request in sight. The cost, stated: a
+// platform that caches previews by URL keeps an old image until its own cache expires
+// after a PNG changes under the same name.
+func shareImagesFor(fsys fs.FS, baseURL string) pages.ShareImages {
+	origin := shareOrigin(baseURL)
+	at := func(name string) string { return shareImageURL(fsys, origin, name) }
+	f := pages.ShareImageFiles
+	return pages.ShareImages{
+		Landing:     at(f.Landing),
+		Product:     at(f.Product),
+		Pricing:     at(f.Pricing),
+		Security:    at(f.Security),
+		Restaurants: at(f.Restaurants),
+		Production:  at(f.Production),
+		Signup:      at(f.Signup),
+		Legal:       at(f.Legal),
+		API:         at(f.API),
+	}
+}
+
+// shareImageURL is origin followed by name's /static path, or "" when either is
+// missing: an og:image that answers 404 is a broken preview, and no image is not.
+func shareImageURL(fsys fs.FS, origin, name string) string {
+	p := staticAssetURL(fsys, name)
+	if origin == "" || p == "" {
+		return ""
+	}
+	return origin + p
+}
+
+// shareOrigin is the scheme and host of the configured base URL, or "" when it is not
+// an http or https URL with a host -- the one shape a crawler can fetch.
+func shareOrigin(baseURL string) string {
+	u, err := url.Parse(baseURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
 // Mount registers the routes on r.
 //
 // 🔴 IT MOUNTS NO MIDDLEWARE OF ITS OWN, which is the visible half of the decision
@@ -368,6 +465,21 @@ func staticAssetURL(fsys fs.FS, name string) string {
 func (m *Marketing) Mount(r chi.Router) {
 	r.Get("/", m.Landing)
 	r.Head("/", m.Landing)
+	// THE PUBLIC SITE'S OWN PAGES (LP-06 …), each under a named path equal to its row of
+	// pages.PublicPages. Registered by name, not by ranging over that table, for the
+	// reason the guide's routes below give (the employee-route derivation resolves a
+	// name); TestPublicPages_TheTableIsTheMountedRoutes holds the table and these
+	// registrations equal in both directions.
+	r.Get(productPath, m.Product)
+	r.Head(productPath, m.Product)
+	r.Get(securityPath, m.Security)
+	r.Head(securityPath, m.Security)
+	r.Get(pricingPath, m.Pricing)
+	r.Head(pricingPath, m.Pricing)
+	r.Get(forRestaurantsPath, m.ForRestaurants)
+	r.Head(forRestaurantsPath, m.ForRestaurants)
+	r.Get(forProductionPath, m.ForProduction)
+	r.Head(forProductionPath, m.ForProduction)
 	for _, p := range pages.LegalPages {
 		page := p
 		serve := func(w http.ResponseWriter, r *http.Request) {
@@ -383,6 +495,11 @@ func (m *Marketing) Mount(r chi.Router) {
 	r.Head(apiGuidePath, m.apiGuideEN)
 	r.Get(apiGuideTRPath, m.apiGuideTR)
 	r.Head(apiGuideTRPath, m.apiGuideTR)
+	// THE PUBLIC 404 (LP-12, K4; ADR 0034). r is the router itself, so this is the
+	// answer for every path nothing is mounted on, and chi hands it to the subrouters
+	// that have none of their own (the operator surface's). notFound decides which of
+	// those requests get the page and which keep http.NotFound's bytes.
+	r.NotFound(m.notFound)
 }
 
 // The guide's two routes. They are pages.APIGuidePath and pages.APIGuideTRPath -- the
@@ -398,7 +515,7 @@ func (m *Marketing) apiGuideEN(w http.ResponseWriter, r *http.Request) { m.apiGu
 func (m *Marketing) apiGuideTR(w http.ResponseWriter, r *http.Request) { m.apiGuide(w, r, true) }
 
 // apiGuide serves /docs/api or /docs/api/tr: the guide converted at construction, in
-// the legal pages' chrome, cacheable and indexable like them.
+// the public chrome, cacheable and indexable like the legal pages.
 func (m *Marketing) apiGuide(w http.ResponseWriter, r *http.Request, turkish bool) {
 	g := m.guideEN
 	if turkish {
@@ -410,16 +527,19 @@ func (m *Marketing) apiGuide(w http.ResponseWriter, r *http.Request, turkish boo
 		return
 	}
 	m.render(w, r, pages.APIGuide(pages.APIGuideView{
+		Share:       layout.Share{Description: pages.APIGuideDescription(turkish).Text, Image: m.share.API},
 		Guide:       g,
 		Turkish:     turkish,
 		OpenAPIHref: m.openAPIHref,
 		SignInHref:  adminLoginPath,
+		SignupHref:  m.signupHref,
 	}))
 }
 
 // Landing serves GET /.
 func (m *Marketing) Landing(w http.ResponseWriter, r *http.Request) {
 	m.renderWith(w, r, m.landingPolicy, pages.Landing(pages.LandingView{
+		Share:                 layout.Share{Description: pages.LandingHeroLede.Text, Image: m.share.Landing},
 		SignupHref:            m.signupHref,
 		SignInHref:            adminLoginPath,
 		PricePerEmployeeMonth: publishedPricePerEmployeeMonth,
@@ -431,6 +551,153 @@ func (m *Marketing) Landing(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
+// pricingPath is pages.PricingPath, spelled out so the route scan can read it; the
+// public-page table test holds the two equal.
+const pricingPath = "/pricing"
+
+// Pricing serves GET /pricing (LP-06): the price card's four figures as the landing has
+// them, and the page's own figures computed once in NewMarketing.
+func (m *Marketing) Pricing(w http.ResponseWriter, r *http.Request) {
+	m.render(w, r, pages.Pricing(pages.PricingView{
+		Share:                 layout.Share{Description: pages.LandingPricingLede.Text, Image: m.share.Pricing},
+		SignupHref:            m.signupHref,
+		SignInHref:            adminLoginPath,
+		PricePerEmployeeMonth: publishedPricePerEmployeeMonth,
+		FreeMonths:            foundingFreeMonths,
+		ExampleHeadcount:      exampleHeadcount,
+		ExampleMonthly:        m.exampleMonthly,
+		Figures:               m.pricing,
+	}))
+}
+
+// securityPath is pages.SecurityPath, spelled out so the route scan can read it; the
+// public-page table test holds the two equal.
+const securityPath = "/security"
+
+// Security serves GET /security (LP-07): the page's figures and sentences, computed
+// once in NewMarketing.
+func (m *Marketing) Security(w http.ResponseWriter, r *http.Request) {
+	m.render(w, r, pages.Security(pages.SecurityView{
+		Share:      layout.Share{Description: pages.LandingSecurityLede.Text, Image: m.share.Security},
+		SignupHref: m.signupHref,
+		SignInHref: adminLoginPath,
+		FreeMonths: foundingFreeMonths,
+		Figures:    m.security,
+		Copy:       m.securityCopy,
+	}))
+}
+
+// productPath is pages.ProductPath, spelled out so the route scan can read it; the
+// public-page table test holds the two equal.
+const productPath = "/product"
+
+// Product serves GET /product (LP-08): the tour's figures and sentences, computed once in
+// NewMarketing.
+func (m *Marketing) Product(w http.ResponseWriter, r *http.Request) {
+	m.render(w, r, pages.Product(pages.ProductView{
+		Share:      layout.Share{Description: pages.ProductDescription(m.productCopy), Image: m.share.Product},
+		SignupHref: m.signupHref,
+		SignInHref: adminLoginPath,
+		FreeMonths: foundingFreeMonths,
+		Figures:    m.product,
+		Copy:       m.productCopy,
+	}))
+}
+
+// forRestaurantsPath is pages.ForRestaurantsPath, spelled out so the route scan can read
+// it; the public-page table test holds the two equal.
+const forRestaurantsPath = "/for/restaurants"
+
+// ForRestaurants serves GET /for/restaurants (LP-09). The page's sentences and its demo
+// table are values of the pages package (pages.RestaurantsCopy, pages.RestaurantsVenues);
+// what the handler hands in is the chrome's two ways in and the founding offer's months.
+func (m *Marketing) ForRestaurants(w http.ResponseWriter, r *http.Request) {
+	m.render(w, r, pages.ForRestaurants(pages.ForRestaurantsView{
+		Share:      layout.Share{Description: pages.LandingAudiences[0].Points[1].Text, Image: m.share.Restaurants},
+		SignupHref: m.signupHref,
+		SignInHref: adminLoginPath,
+		FreeMonths: foundingFreeMonths,
+	}))
+}
+
+// forProductionPath is pages.ForProductionPath, spelled out so the route scan can read it;
+// the public-page table test holds the two equal.
+const forProductionPath = "/for/production"
+
+// ForProduction serves GET /for/production (LP-10). Its one figure is the repeat window
+// the security page already holds (m.security, computed once in NewMarketing), and its
+// sentences are built from it here: a handful of strings, no state, no read -- so the
+// page keeps no field of its own on Marketing.
+func (m *Marketing) ForProduction(w http.ResponseWriter, r *http.Request) {
+	f := forProductionFigures(m.security)
+	m.render(w, r, pages.ForProduction(pages.ForProductionView{
+		Share:      layout.Share{Description: pages.LandingAudiences[1].Points[0].Text, Image: m.share.Production},
+		SignupHref: m.signupHref,
+		SignInHref: adminLoginPath,
+		FreeMonths: foundingFreeMonths,
+		Figures:    f,
+		Copy:       pages.ForProductionCopy(f),
+	}))
+}
+
+// forProductionFigures is the production page's numbers: the repeat window, the security
+// page's own figure (securityFigures holds it to policy.DefaultParams and to the config
+// default), so the pages cannot disagree.
+func forProductionFigures(s pages.SecurityFigures) pages.ForProductionFigures {
+	return pages.ForProductionFigures{DebounceSeconds: s.DebounceSeconds}
+}
+
+// productFigures is the product tour's numbers: the debounce window and the webhook
+// header, the same values the security page prints (securityFigures holds each to its
+// source), so the two pages cannot disagree.
+func productFigures(s pages.SecurityFigures) pages.ProductFigures {
+	return pages.ProductFigures{DebounceSeconds: s.DebounceSeconds, WebhookHeader: s.WebhookHeader}
+}
+
+// The security page's figures that no exported value of the product carries. EACH IS A
+// MIRROR OF THE CODE NAMED BESIDE IT, the way foundingFreeMonths mirrors migration
+// 00016, and internal/handler's security tests read that code and hold the two equal --
+// so a change there turns the page's test red instead of leaving the page wrong.
+const (
+	// internal/sun's cmacHexLen: the signature in the plaque's link, in hex characters.
+	securitySignatureHexChars = 16
+	// internal/sun's tagKeyLen (16 bytes), in bits: a plaque's own AES key.
+	securityPlaqueKeyBits = 128
+	// internal/session's tokenBytes (32), in bits.
+	securityTokenBits = 256
+	// internal/netx's maxProofHostBitsV4 (25) and maxProofHostBitsV6 (97), as the prefix
+	// length of a block that size: 32-25 and 128-97.
+	securityIPv4Prefix = 7
+	securityIPv6Prefix = 31
+	// internal/config's TAPPA_GPS_RADIUS_M default.
+	securityGPSRadiusM = 150
+	// tap.trustScore's two additions: an address match and a position match.
+	securityTrustIP  = 50
+	securityTrustGPS = 30
+)
+
+// securityFigures is the security page's numbers: the mirrors above, and the ones the
+// product exports read from it directly -- the guardrail count from the list itself, the
+// default window from policy.DefaultParams (which internal/config's default matches),
+// the trust score's base from tap.TrustBase, and the webhook header's name.
+func securityFigures() pages.SecurityFigures {
+	params := policy.DefaultParams()
+	return pages.SecurityFigures{
+		SignatureHexChars: securitySignatureHexChars,
+		PlaqueKeyBits:     securityPlaqueKeyBits,
+		TokenBits:         securityTokenBits,
+		IPv4Prefix:        securityIPv4Prefix,
+		IPv6Prefix:        securityIPv6Prefix,
+		GPSRadiusM:        securityGPSRadiusM,
+		DebounceSeconds:   int(params.DebounceWindow / time.Second),
+		Guardrails:        len(policy.Guardrails(params)),
+		TrustBase:         tap.TrustBase,
+		TrustIP:           securityTrustIP,
+		TrustGPS:          securityTrustGPS,
+		WebhookHeader:     webhook.SignatureHeader,
+	}
+}
+
 // legal serves one document under /legal.
 //
 // 🔴 THE TEXT COMES FROM A MAP LOOKUP AND NOTHING ELSE HAPPENS HERE (M7-06). No
@@ -439,7 +706,12 @@ func (m *Marketing) Landing(w http.ResponseWriter, r *http.Request) {
 // the pages were skeletons. A document with no text renders the skeleton, which is
 // the state the whole of pages.legal.templ was designed around.
 func (m *Marketing) legal(w http.ResponseWriter, r *http.Request, p pages.LegalPage) {
-	v := pages.LegalPageView{Page: p, SignInHref: adminLoginPath, SignupHref: m.signupHref}
+	v := pages.LegalPageView{
+		Page:       p,
+		Share:      layout.Share{Description: p.Lede, Image: m.share.Legal},
+		SignInHref: adminLoginPath,
+		SignupHref: m.signupHref,
+	}
 	if p.Path == cookieNoticePath {
 		v.Cookies = cookieNotice()
 	}
@@ -513,11 +785,19 @@ func (m *Marketing) render(w http.ResponseWriter, r *http.Request, c templ.Compo
 // above keeps its three-argument shape so that "the marketing policy" stays the
 // default a caller gets without asking.
 func (m *Marketing) renderWith(w http.ResponseWriter, r *http.Request, policy string, c templ.Component) {
+	m.writePage(w, r, http.StatusOK, marketingCacheControl, policy, r.URL.Path, c)
+}
+
+// writePage is renderWith with the status, the Cache-Control and the path the log
+// names spelled out. The public 404 (notfound.go) is its one other caller: it answers
+// 404 with no-store, and its logPath is "" because the path it was asked for is
+// whatever a stranger typed -- this surface's log names only its own routes' paths.
+func (m *Marketing) writePage(w http.ResponseWriter, r *http.Request, status int, cacheControl, policy, logPath string, c templ.Component) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", policy)
-	w.Header().Set("Cache-Control", marketingCacheControl)
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Cache-Control", cacheControl)
+	w.WriteHeader(status)
 	if err := c.Render(r.Context(), w); err != nil {
 		// 🔴 A CLIENT THAT WENT AWAY IS NOT AN ERROR, AND LOGGING IT AS ONE WAS
 		// MEASURED COSTING SOMETHING REAL. 200 cancelled page loads produced 200
@@ -537,7 +817,11 @@ func (m *Marketing) renderWith(w http.ResponseWriter, r *http.Request, policy st
 		// to render, or a write that fails on a live connection, is this server's
 		// fault and is rare.
 		if errors.Is(err, context.Canceled) {
-			m.log.Debug("a visitor left before the page finished", "path", r.URL.Path)
+			if logPath == "" {
+				m.log.Debug("a visitor left before the page finished")
+				return
+			}
+			m.log.Debug("a visitor left before the page finished", "path", logPath)
 			return
 		}
 		// The status line is already on the wire, so there is nothing to send but a
@@ -669,26 +953,74 @@ const exampleHeadcount = 60
 // already requires — and anything else is an error, which NewMarketing turns into
 // "render no example" rather than a wrong number.
 func exampleTeamMonthly(price string, headcount int) (string, error) {
-	euros, cents, ok := strings.Cut(price, ".")
-	if !ok || len(cents) != 2 {
-		return "", fmt.Errorf("example cost: price %q is not <euros>.<cents>", price)
+	total, err := monthlyCents(price, headcount)
+	if err != nil {
+		return "", err
 	}
-	e, err := strconv.Atoi(euros)
-	if err != nil || e < 0 {
-		return "", fmt.Errorf("example cost: price %q: bad euros", price)
-	}
-	c, err := strconv.Atoi(cents)
-	if err != nil || c < 0 {
-		return "", fmt.Errorf("example cost: price %q: bad cents", price)
-	}
-	if headcount <= 0 {
-		return "", fmt.Errorf("example cost: headcount %d is not positive", headcount)
-	}
-	total := (e*100 + c) * headcount
 	if total%100 == 0 {
 		return strconv.Itoa(total / 100), nil
 	}
 	return fmt.Sprintf("%d.%02d", total/100, total%100), nil
+}
+
+// monthlyCents is headcount × price in cents: the one multiplication behind every
+// figure the public pages print. The price is "<euros>.<two digits>" and nothing else.
+func monthlyCents(price string, headcount int) (int, error) {
+	euros, cents, ok := strings.Cut(price, ".")
+	if !ok || len(cents) != 2 {
+		return 0, fmt.Errorf("example cost: price %q is not <euros>.<cents>", price)
+	}
+	e, err := strconv.Atoi(euros)
+	if err != nil || e < 0 {
+		return 0, fmt.Errorf("example cost: price %q: bad euros", price)
+	}
+	c, err := strconv.Atoi(cents)
+	if err != nil || c < 0 {
+		return 0, fmt.Errorf("example cost: price %q: bad cents", price)
+	}
+	if headcount <= 0 {
+		return 0, fmt.Errorf("example cost: headcount %d is not positive", headcount)
+	}
+	return (e*100 + c) * headcount, nil
+}
+
+// pricingExampleSizes are the team sizes the pricing page's table prices (the Pricing
+// board's four). They are examples, not claims: what the page states about each is the
+// arithmetic, and the sixty is the landing's worked example, so the two pages agree.
+var pricingExampleSizes = []int{10, 25, exampleHeadcount, 150}
+
+// pricingFigures computes the pricing page's figures from the published price: each
+// size's monthly cost and the drawn frozen month for headcount people, all in the
+// Billing screen's own money format -- two decimals, "15.00" in the table (the template
+// writes the sign) and "€90.00" on the drawing, through billing.Money and money() -- so
+// the table and the drawing beside it print amounts one way, the way the screen they
+// depict prints them. (The Pricing boards mixed "€15" and "€37.50" inside one column;
+// the landing's sentence keeps its own "€90/month".) Integer cents throughout
+// (CLAUDE.md §6).
+func pricingFigures(price string, sizes []int, headcount int) (pages.PricingFigures, error) {
+	var out pages.PricingFigures
+	euros := func(cents int) string { return money(billing.NewMoney(int64(cents), billing.DefaultCurrency)) }
+	for _, n := range sizes {
+		c, err := monthlyCents(price, n)
+		if err != nil {
+			return pages.PricingFigures{}, err
+		}
+		out.Sizes = append(out.Sizes, pages.PricingSize{People: n, Monthly: strings.TrimPrefix(euros(c), "€")})
+	}
+	unit, err := monthlyCents(price, 1)
+	if err != nil {
+		return pages.PricingFigures{}, err
+	}
+	total, err := monthlyCents(price, headcount)
+	if err != nil {
+		return pages.PricingFigures{}, err
+	}
+	out.Receipt = pages.PricingReceipt{
+		People: strconv.Itoa(headcount),
+		Price:  euros(unit),
+		Total:  euros(total),
+	}
+	return out, nil
 }
 
 // foundingFreeMonths is the founding offer's free period.
@@ -830,6 +1162,26 @@ func cookieNotice() []pages.CookieRow {
 			Scope:    adminauth.CookiePath,
 			Flags:    flags,
 		},
+		// M14-18: the e-mail verification link between its page and the press, scoped to the dashboard.
+		{
+			Name: accountVerifyCookieName,
+			Purpose: "Carries an email confirmation link from the email to the button that confirms it, so " +
+				"the link stays out of the address bar and out of browser history. Cleared when the " +
+				"button is pressed.",
+			Lifetime: humanSeconds(accountVerifyCookieMaxAge),
+			Scope:    adminauth.CookiePath,
+			Flags:    flags,
+		},
+		// M14-15: the manager invitation's acceptance page, scoped to the dashboard.
+		{
+			Name: adminInviteCookieName,
+			Purpose: "Carries an invitation link while it is being accepted, so the link stays out of the " +
+				"address bar and out of browser history, and protects that page against being submitted " +
+				"from another site. Cleared as soon as the invitation is accepted or found unusable.",
+			Lifetime: humanSeconds(adminInviteCookieMaxAge),
+			Scope:    adminInvitePath,
+			Flags:    flags,
+		},
 		{
 			Name: adminResetLinkCookieName,
 			Purpose: "Carries a recovery link while a new password is being chosen, so the link " +
@@ -854,10 +1206,20 @@ func cookieNotice() []pages.CookieRow {
 			Name: signupStateCookieName,
 			Purpose: "Carries the answers already given — the business name, the VAT number and " +
 				"the places — from one step of the registration form to the next, signed by " +
-				"this server. It never holds a password. Cleared as soon as the business is " +
-				"created.",
+				"this server. It never holds a password or an email address. Cleared once the " +
+				"\"check your inbox\" page has been shown.",
 			Lifetime: humanSeconds(signupCookieMaxAge),
 			Scope:    signupCookiePath,
+			Flags:    flags,
+		},
+		// M14-17: the registration link's page (ADR 0031 §5.10), the recovery link's pattern.
+		{
+			Name: signupConfirmCookieName,
+			Purpose: "Carries a registration link while it is being confirmed, so the link stays " +
+				"out of the address bar and out of browser history. Cleared as soon as the " +
+				"registration is finished or the link is refused.",
+			Lifetime: humanSeconds(signupConfirmCookieMaxAge),
+			Scope:    signupConfirmPath,
 			Flags:    flags,
 		},
 	}

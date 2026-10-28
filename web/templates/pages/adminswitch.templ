@@ -1,0 +1,76 @@
+package pages
+
+import (
+	"github.com/atknatk/tappa/web/templates/components"
+	"github.com/atknatk/tappa/web/templates/layout"
+)
+
+// AdminSwitch is the switch page (ADR 0031 §5.4, K-5; M14-13): the Choose board inside a session.
+// The sign-in family's frame, because the page is a step between businesses rather than a section
+// of one: it carries no business's brand, so the accent's slots stay the two they are.
+//
+// THE SAME DOCKETS AS "WHICH BUSINESS?" (businessRail, businessRailItem, businessDocketBody in
+// admin.templ): name, role, "Continue to {name}", and the suspension mark (K-10). Each docket is
+// its own form, as on the picker; each posts the session's synchronizer token in its body and the
+// tenant binding in its action (§5.4, §5.5), so a page drawn in one business cannot switch from
+// another.
+//
+// THE CURRENT BUSINESS IS NOT A ROW. It is named above the heading (with its mark when it is
+// suspended): a docket for it would be a button that can only be refused.
+//
+// ONE BUSINESS IS A STATE OF ITS OWN: the shell's link may be on for everybody (M14-12), and a
+// person with one business on this sign-in is told so, and how others would appear, instead of
+// meeting an empty rail.
+templ AdminSwitch(v AdminSwitchView) {
+	@layout.Auth("Switch business — Taptime", "") {
+		@AuthHeader("")
+		<main class="mx-auto flex w-full max-w-[1040px] flex-col gap-[22px] px-4 pb-10 pt-4 md:gap-[30px] md:px-10 md:pb-14 md:pt-6 desk:gap-9 desk:px-14 desk:pb-[72px] desk:pt-8">
+			<div class="flex flex-col gap-2 md:gap-2.5 desk:max-w-[620px]">
+				if v.Current != "" {
+					<p class="flex flex-wrap items-center gap-x-3 gap-y-1">
+						<span class="lbl">You are in { v.Current }</span>
+						if v.CurrentSuspended {
+							<span class="tally tally--changes-paused">Changes paused</span>
+						}
+					</p>
+				}
+				<h1 class="font-display text-3xl font-bold leading-none tracking-tight md:text-[40px] desk:text-5xl">Switch business</h1>
+				if len(v.Others) > 0 {
+					<p class="max-w-[560px] text-[15px] leading-normal text-ink/70 md:text-base">
+						Pick the business you want to work in. You stay signed in — there is no need to sign out first.
+					</p>
+				} else {
+					<p class="max-w-[560px] text-[15px] leading-normal text-ink/70 md:text-base">
+						if v.Current != "" {
+							{ v.Current } is the only business on this sign-in, so there is nothing to switch to.
+						} else {
+							There is no other business on this sign-in to switch to.
+						}
+					</p>
+					<p class="max-w-[560px] text-[15px] leading-normal text-ink/70 md:text-base">
+						Businesses you manage under the same sign-in appear here, and you can move between them without signing out.
+					</p>
+				}
+			</div>
+			if len(v.Others) > 0 {
+				@businessRail() {
+					for _, b := range v.Others {
+						@businessRailItem() {
+							<form method="post" action={ templ.URL(components.Bound(ctx, v.SwitchHref)) } class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-5 desk:flex-col desk:items-stretch desk:gap-3.5">
+								<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+								<input type="hidden" name="tenant_id" value={ b.TenantID }/>
+								@businessDocketBody(b.TenantName, b.Role, b.Suspended)
+							</form>
+						}
+					}
+				}
+			}
+			<p>
+				<a href={ templ.SafeURL(v.BackHref) } class="inline-flex min-h-11 items-center gap-1 font-display text-sm font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline">
+					<span aria-hidden="true">←</span>
+					Back to the panel
+				</a>
+			</p>
+		</main>
+	}
+}

@@ -108,3 +108,106 @@ func strs(v []any) []string {
 	}
 	return out
 }
+
+// TestSandboxOpenAPI_AnswersAreOpenTheRequestIsClosed is v1's compatibility rule on the sandbox's own
+// document (the user's decision, 2026-10-23; the shipped document's
+// TestOpenAPI_EveryAnswerSchemaIsOpenEveryRequestClosed): every schema an answer uses says
+// additionalProperties: true -- an answer may gain fields -- and the schema a requestBody names stays
+// false (422 unknown_field).
+func TestSandboxOpenAPI_AnswersAreOpenTheRequestIsClosed(t *testing.T) {
+	var doc struct {
+		Paths map[string]map[string]struct {
+			RequestBody struct {
+				Content map[string]struct {
+					Schema struct {
+						Ref string `json:"$ref"`
+					} `json:"schema"`
+				} `json:"content"`
+			} `json:"requestBody"`
+		} `json:"paths"`
+		Components struct {
+			Schemas map[string]struct {
+				Type                 string `json:"type"`
+				AdditionalProperties *bool  `json:"additionalProperties"`
+			} `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(OpenAPI(), &doc); err != nil {
+		t.Fatalf("the document is not JSON: %v", err)
+	}
+	requests := map[string]bool{}
+	for _, ops := range doc.Paths {
+		for _, op := range ops {
+			for _, c := range op.RequestBody.Content {
+				if name, ok := strings.CutPrefix(c.Schema.Ref, "#/components/schemas/"); ok {
+					requests[name] = true
+				}
+			}
+		}
+	}
+	if !requests["SimulatedTap"] || len(requests) != 1 {
+		t.Fatalf("PREMISE: the request schemas are %v, want SimulatedTap alone", requests)
+	}
+	open := 0
+	for name, s := range doc.Components.Schemas {
+		if s.Type != "object" {
+			continue
+		}
+		want := !requests[name]
+		if s.AdditionalProperties == nil || *s.AdditionalProperties != want {
+			t.Errorf("%s: additionalProperties %v, want %v", name, s.AdditionalProperties, want)
+		}
+		if want {
+			open++
+		}
+	}
+	if open < 4 {
+		t.Errorf("anti-vacuity: %d open answer schemas", open)
+	}
+}
+
+// TestSandboxOpenAPI_TheAnswerIsTheWireStructKeyForKey is the sandbox answer's leak pin now that its
+// schema is open (2026-10-23): the simulation answers json.NewEncoder(w).Encode(tapBodyOf(...)), so
+// the keys tapBody and refBody encode are exactly SimulatedTapResult's and Ref's documented
+// properties, both ways -- a key added to the struct (or dropped from the document) is red.
+func TestSandboxOpenAPI_TheAnswerIsTheWireStructKeyForKey(t *testing.T) {
+	var doc struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+			} `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(OpenAPI(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	keysOf := func(v any) []string {
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(b, &m); err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for k := range m {
+			out = append(out, k)
+		}
+		sort.Strings(out)
+		return out
+	}
+	for _, c := range []struct {
+		schema string
+		wire   any
+	}{{"SimulatedTapResult", tapBody{}}, {"Ref", refBody{}}} {
+		var documented []string
+		for k := range doc.Components.Schemas[c.schema].Properties {
+			documented = append(documented, k)
+		}
+		sort.Strings(documented)
+		if got := keysOf(c.wire); !slices.Equal(got, documented) || len(got) == 0 {
+			t.Errorf("%s: the wire encodes %v, the document names %v", c.schema, got, documented)
+		}
+	}
+}

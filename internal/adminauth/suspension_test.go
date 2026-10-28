@@ -33,10 +33,16 @@ type touchScript struct {
 // from its script. Nothing else is implemented: a second statement would panic on the
 // embedded nil Tx, which is the point -- Verify runs exactly one.
 type scriptedDB struct {
+	noIdentityData
 	tenant, admin, session uuid.UUID
 	role                   string
 	script                 touchScript
 	sql                    string
+	// tenantName is the business's name the statement answers ("" answers "Scripted Business").
+	tenantName string
+	// statements counts the statements run through the tenant transaction (M14-12: the shell's
+	// name costs none of its own).
+	statements int
 }
 
 func (s *scriptedDB) WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error {
@@ -61,6 +67,7 @@ type scriptedTx struct {
 
 func (t *scriptedTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
 	t.db.sql = sql
+	t.db.statements++
 	return scriptedRow{t.db}
 }
 
@@ -82,6 +89,9 @@ func (r scriptedRow) Scan(dest ...any) error {
 	*dest[5].(**time.Time) = r.db.script.at
 	*dest[6].(**string) = r.db.script.reason
 	*dest[7].(*string) = "Scripted Business"
+	if r.db.tenantName != "" {
+		*dest[7].(*string) = r.db.tenantName
+	}
 	*dest[8].(**uuid.UUID) = nil
 	return nil
 }

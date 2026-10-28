@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -30,6 +31,7 @@ import (
 //	slugs and pages are one set          TestLegalSlugs_AreExactlyTheDocumentsWithAPage
 //	§4.5 — structurally, over the types  TestLegalStore_CannotNameATenantAtAll
 //	no operator element on the panel     TestCustomerPanel_EverySectionCarriesNoOperatorElement
+//	links are escaped and allow-listed   TestLegalPublicPage_LinksAreEscapedAndAllowListed
 //
 // The first four lived in legaladmin_test.go beside the M7-06 panel screen that
 // published for an env allow-list of customer admins; that screen, its route
@@ -294,6 +296,7 @@ func panelBrowserAs(t *testing.T, role string, accounts *fakeAccounts) *browser 
 	}
 	r := chi.NewRouter()
 	h.Mount(r)
+	registerPanel(r, h)
 	b := newBrowser(t, r)
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	return b
@@ -370,4 +373,54 @@ func mustReadRepoFile(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(b)
+}
+
+// TestLegalPublicPage_LinksAreEscapedAndAllowListed renders a published text through
+// the real public route (ADR 0033): the closed link grammar becomes <a href> for the
+// allowed schemes only, and every character the operator typed -- inside a label and
+// around it -- is still escaped.
+func TestLegalPublicPage_LinksAreEscapedAndAllowListed(t *testing.T) {
+	t.Parallel()
+	texts := newFakeTexts()
+	texts.put("imprint", "Taptime is operated by Ozcan Duzce\n\nContact:\n\n"+
+		"info@taptime.mt +356 9931 0184\n\nhttps://codeveralabs.com\n\n"+
+		"<script>alert(1)</script> [<b>bold</b> & co](https://x.mt/a?b=1&c=2) "+
+		"[click](javascript:alert(1)) [img](data:text/html,x) javascript:alert(2)")
+	body := mustFetchMarketing(t, marketingRouterWithTexts(t, texts), "/legal/imprint")
+
+	for _, want := range []string{
+		`<a href="mailto:info@taptime.mt" class="`,
+		`>info@taptime.mt</a>`,
+		`<a href="tel:+35699310184" class="`,
+		`>+356 9931 0184</a>`,
+		`<a href="https://codeveralabs.com" rel="noopener noreferrer" class="`,
+		`>https://codeveralabs.com</a>`,
+		// The label's markup is text; the href's & is attribute-escaped.
+		`<a href="https://x.mt/a?b=1&amp;c=2" rel="noopener noreferrer"`,
+		`>&lt;b&gt;bold&lt;/b&gt; &amp; co</a>`,
+		// Around the links, markup is text too.
+		`&lt;script&gt;alert(1)&lt;/script&gt;`,
+		// A refused target stays visible as what was typed.
+		`[click](javascript:alert(1))`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("/legal/imprint does not contain %q", want)
+		}
+	}
+	for _, bad := range []string{"<script>", "<b>bold", `href="javascript:`, `href="data:`, "TemplFailedSanitizationURL"} {
+		if strings.Contains(body, bad) {
+			t.Errorf("/legal/imprint contains %q", bad)
+		}
+	}
+	// No href on the page, the chrome's included, names a scheme outside the allow-list.
+	for _, m := range regexp.MustCompile(`href="([^"]*)"`).FindAllStringSubmatch(body, -1) {
+		h := strings.ToLower(m[1])
+		if i := strings.Index(h, ":"); i >= 0 && !strings.HasPrefix(h, "/") && !strings.HasPrefix(h, "#") {
+			switch h[:i] {
+			case "http", "https", "mailto", "tel":
+			default:
+				t.Errorf("/legal/imprint carries href %q", m[1])
+			}
+		}
+	}
 }

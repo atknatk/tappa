@@ -24,6 +24,17 @@ import (
 // disabled account -- each proving both the RETURN and that the stored digest moved (or
 // did not) as it should.
 
+// freshToken is a well-formed token that names no session: an unlinked row's change never needs its
+// own (identity_password_for_session answers 0 rows for it either way).
+func freshToken(t *testing.T) Token {
+	t.Helper()
+	tok, err := newToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tok
+}
+
 // sessionRevoked reports whether one admin session has been revoked.
 func sessionRevoked(t *testing.T, d *db.DB, tenantID, sessionID uuid.UUID) bool {
 	t.Helper()
@@ -50,11 +61,11 @@ func TestChangeOwnPassword_WrongCurrentIsRefusedAndHashUnchanged(t *testing.T) {
 	admin := newAdminRow(t, d, tenantID, randEmail(t), "the-real-current-pw", "active", "owner", "Owner Person")
 	before := readDigest(t, d, tenantID, admin)
 
-	revoked, err := m.ChangeOwnPassword(ctx, tenantID, admin, uuid.New(), "not-the-current-pw", "a-fresh-new-password")
+	change, err := m.ChangeOwnPassword(ctx, tenantID, admin, uuid.New(), freshToken(t), "not-the-current-pw", "a-fresh-new-password")
 	if !errors.Is(err, ErrWrongCurrentPassword) {
 		t.Fatalf("err = %v, want ErrWrongCurrentPassword", err)
 	}
-	if revoked != 0 {
+	if revoked := change.RevokedOtherSessions; revoked != 0 {
 		t.Errorf("revoked = %d, want 0 -- a refused change revokes nothing", revoked)
 	}
 	if after := readDigest(t, d, tenantID, admin); after != before {
@@ -74,11 +85,11 @@ func TestChangeOwnPassword_NewEqualToCurrentIsRefused(t *testing.T) {
 	admin := newAdminRow(t, d, tenantID, randEmail(t), pw, "active", "owner", "Owner Person")
 	before := readDigest(t, d, tenantID, admin)
 
-	revoked, err := m.ChangeOwnPassword(ctx, tenantID, admin, uuid.New(), pw, pw)
+	change, err := m.ChangeOwnPassword(ctx, tenantID, admin, uuid.New(), freshToken(t), pw, pw)
 	if !errors.Is(err, ErrSameAsCurrentPassword) {
 		t.Fatalf("err = %v, want ErrSameAsCurrentPassword", err)
 	}
-	if revoked != 0 {
+	if revoked := change.RevokedOtherSessions; revoked != 0 {
 		t.Errorf("revoked = %d, want 0", revoked)
 	}
 	if after := readDigest(t, d, tenantID, admin); after != before {
@@ -108,12 +119,15 @@ func TestChangeOwnPassword_SucceedsAndRevokesOtherSessionsKeepingThisOne(t *test
 		t.Fatalf("fixture: %d live sessions, want 3", n)
 	}
 
-	revoked, err := m.ChangeOwnPassword(ctx, tenantID, admin, keep, oldPW, newPW)
+	change, err := m.ChangeOwnPassword(ctx, tenantID, admin, keep, freshToken(t), oldPW, newPW)
 	if err != nil {
 		t.Fatalf("ChangeOwnPassword: %v", err)
 	}
-	if revoked != 2 {
+	if revoked := change.RevokedOtherSessions; revoked != 2 {
 		t.Fatalf("revoked = %d, want 2 (the two OTHER sessions)", revoked)
+	}
+	if change.Recorded {
+		t.Error("an unlinked row's change reports the database wrote the trail; the caller must write it")
 	}
 
 	// The digest moved to the new password.
@@ -150,11 +164,11 @@ func TestChangeOwnPassword_DisabledAdminIsRefusedAndHashUnchanged(t *testing.T) 
 	admin := newAdminRow(t, d, tenantID, randEmail(t), pw, "disabled", "manager", "Disabled Person")
 	before := readDigest(t, d, tenantID, admin)
 
-	revoked, err := m.ChangeOwnPassword(ctx, tenantID, admin, uuid.New(), pw, "a-new-password-for-nobody")
+	change, err := m.ChangeOwnPassword(ctx, tenantID, admin, uuid.New(), freshToken(t), pw, "a-new-password-for-nobody")
 	if !errors.Is(err, ErrNoSuchAdmin) {
 		t.Fatalf("err = %v, want ErrNoSuchAdmin", err)
 	}
-	if revoked != 0 {
+	if revoked := change.RevokedOtherSessions; revoked != 0 {
 		t.Errorf("revoked = %d, want 0", revoked)
 	}
 	if after := readDigest(t, d, tenantID, admin); after != before {

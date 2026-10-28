@@ -307,8 +307,13 @@ var ipLineComment = regexp.MustCompile(`--[^\n]*`)
 // TestResolveAdminByEmail00072_ReturnsTheLinkAndHidesARefusedRow is T2 / S8 / T5: the redefined
 // resolver returns identity_id, keeps 00017's incumbent-first order and no LIMIT (eight linked rows
 // and one unlinked row of one person are all returned, the unlinked one told apart by its NULL),
-// never returns a refused row, and the binary before 00072's statement (getAdminByEmailSQL, four
-// columns by name) runs on it as tappa_app.
+// never returns a refused row, and the binary before 00072's statement (four columns by name --
+// getAdminByEmailSQL until M14-07 added identity_id to it; held here as that binary's literal) runs
+// on it as tappa_app.
+// getAdminByEmailSQLBefore00072 is the statement the binary before 00072 (and before M14-07) sends.
+const getAdminByEmailSQLBefore00072 = `SELECT id, tenant_id, password_hash, status
+FROM resolve_admin_by_email($1::citext)`
+
 func TestResolveAdminByEmail00072_ReturnsTheLinkAndHidesARefusedRow(t *testing.T) {
 	ctx, tx := opTx(t)
 	p := ipNewPerson(t, ctx, tx)
@@ -350,7 +355,7 @@ func TestResolveAdminByEmail00072_ReturnsTheLinkAndHidesARefusedRow(t *testing.T
 		t.Errorf("resolve_admin_by_email = %v, want the eight linked rows oldest first, then the unlinked one %v (and never the refused %s)", ids, want, refused)
 	}
 	if err := opAs(t, ctx, tx, "tappa_app", func(sp pgx.Tx) error {
-		r, err := sp.Query(ctx, getAdminByEmailSQL, p.email)
+		r, err := sp.Query(ctx, getAdminByEmailSQLBefore00072, p.email)
 		if err != nil {
 			return err
 		}
@@ -802,8 +807,9 @@ func ipUnlink(t *testing.T, ctx context.Context, tx pgx.Tx, session string, tena
 }
 
 // TestIdentityUnlink_TheWindowsScopeDecidesWhatIsListed is §5.8's two scopes (S3, T1): under
-// first_verify a backfill / reconcile / signup link is listed and a password / claim / invite /
-// account link is not; under reset EVERY link made before the window opened is listed -- the
+// first_verify a backfill / reconcile / signup link is listed -- and, since 00079 (M14-18, the user's
+// decision of 2026-10-27, O1), an account link (an Undo's relink in this window) -- and a password /
+// claim / invite link is not; under reset EVERY link made before the window opened is listed -- the
 // pre-planted attacker's password link (S3) and a claim made with a forwarded link (T1; modelled as
 // an admin_users row linked 'claim', since M14-17's claim tables do not exist yet) included -- and a
 // link made at or after the opening is not. The S3 / T1 scenarios run through the real reset
@@ -820,7 +826,7 @@ func TestIdentityUnlink_TheWindowsScopeDecidesWhatIsListed(t *testing.T) {
 		{"first_verify", "password", "1 day", false},
 		{"first_verify", "claim", "1 day", false},
 		{"first_verify", "invite", "1 day", false},
-		{"first_verify", "account", "1 day", false},
+		{"first_verify", "account", "1 day", true}, // 00079 (O1): the window's own relink stays listed
 		{"reset", "password", "1 day", true},
 		{"reset", "claim", "1 day", true},
 		{"reset", "invite", "1 day", true},
@@ -2090,20 +2096,33 @@ func ipCatalogue(t *testing.T, ctx context.Context, q pgx.Tx) string {
 // and table, takes away every grant 00072 ALONE gives and keeps the ones 00071 gives too, taking no
 // strong lock outside the tables it names; the Up gives HEAD's catalogue back byte for byte.
 //
-// M14-06b: the test pins the catalogue AT 00072 -- the files above it (00073's backfill, 00074's
-// reconciliation, whose Down takes back 00074's two grants) are walked down first, newest first, in
-// the rolled-back transaction, the tables their Downs touch locked with 00072's.
+// M14-08: "HEAD" here is the catalogue 00072 hands on, so the files above 00073 (00073 grants nothing
+// and writes data only) are walked down first, in the test's transaction, newest first -- 00074 gives
+// the definer admin_identities INSERT (email, password_hash) and admin_users SELECT (password_hash),
+// which a 00072 Down taken at the true HEAD would rightly leave in place. M14-06b's 00082 is one of
+// them: its Down unlinks the reconciliation's rows and drops identity_reconcile().
 func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndUp(t *testing.T) {
 	ctx, tx := opTx(t)
-	up, down := opMigrationSections(t, ip00072File)
-	tables := downTables(down)
-	var above []aiLaterMigration
-	for _, f := range aiLaterMigrations(t) {
-		if f.name > ip00072File {
-			above = append(above, f)
-			tables = append(tables, downTables(f.down)...)
+	later := aiLaterMigrations(t)
+	// M14-18: 00079's Down restores admin_identity_events' event CHECK (an ALTER TABLE), so the tables
+	// the later Downs lock are taken first, in one statement (identityAt00070's walk).
+	var laterTables []string
+	for _, f := range later {
+		if f.name >= "00074" {
+			laterTables = append(laterTables, downTables(f.down)...)
 		}
 	}
+	if len(laterTables) > 0 {
+		slices.Sort(laterTables)
+		lockForDowns(t, ctx, tx, slices.Compact(laterTables))
+	}
+	for i := len(later) - 1; i >= 0; i-- {
+		if later[i].name >= "00074" {
+			opRunSection(t, ctx, tx, later[i].down, later[i].name+" Down")
+		}
+	}
+	up, down := opMigrationSections(t, ip00072File)
+	tables := downTables(down)
 	slices.Sort(tables)
 	tables = slices.Compact(tables)
 	for _, want := range []string{"admin_identities", "admin_identity_events", "admin_identity_resets", "admin_identity_verifications", "admin_users"} {
@@ -2111,10 +2130,27 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 			t.Fatalf("PREMISE: downTables found %v in 00072's Down, not %s", tables, want)
 		}
 	}
-	lockForDowns(t, ctx, tx, tables)
-	for i := len(above) - 1; i >= 0; i-- {
-		opRunSection(t, ctx, tx, above[i].down, above[i].name+" Down")
+	// THE NARROWING, NAMED. The strong locks the later Downs leave in this transaction are theirs, not
+	// 00072's Down's -- and the check below cannot see a lock 00072's Down would take on a table already
+	// locked here (a backend holds a lock once). So the exemption is CLOSED and each entry says why:
+	// anything else a later Down locks is red here, and 00072's Down itself must not name a table of
+	// this list it does not already name (tenants above all: a strong tenants lock from 00072's Down
+	// would hide behind 00077's).
+	laterDownLocks := map[string]string{
+		"admin_invites": "00077's Down drops its own table",
+		"admin_users":   "00077's Down: admin_invites' composite FK to admin_users",
+		"tenants":       "00077's Down: admin_invites' FK to tenants",
 	}
+	walked := strongTableLocksOutside(t, ctx, tx, tables)
+	for _, w := range walked {
+		if _, named := laterDownLocks[w]; !named {
+			t.Fatalf("a later Down left a strong lock on %s, which laterDownLocks does not name", w)
+		}
+	}
+	if regexp.MustCompile(`(?i)\btenants\b`).MatchString(identityLineComment.ReplaceAllString(down, "")) {
+		t.Fatal("00072's Down names tenants: a strong lock it took there would hide behind 00077's (laterDownLocks)")
+	}
+	lockForDowns(t, ctx, tx, tables)
 	head := ipCatalogue(t, ctx, tx)
 
 	for _, c := range []struct{ what, setup string }{
@@ -2177,7 +2213,7 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 			                     FROM pg_proc p WHERE p.oid = 'public.resolve_admin_by_email(citext)'::regprocedure`) != 1 {
 			t.Errorf("after 00072's Down resolve_admin_by_email is not 00017's (four columns, definer, tappa_app alone):\n%s", at70)
 		}
-		if extra := strongTableLocksOutside(t, ctx, sp, tables); len(extra) > 0 {
+		if extra := strongTableLocksOutside(t, ctx, sp, append(slices.Clone(tables), walked...)); len(extra) > 0 {
 			t.Errorf("the Down took a strong lock on %v, outside the tables it names", extra)
 		}
 		opRunSection(t, ctx, sp, up, "00072 Up again")

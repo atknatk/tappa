@@ -49,6 +49,7 @@ import (
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/billing"
 	"github.com/atknatk/tappa/internal/domain/checkin"
+	"github.com/atknatk/tappa/internal/domain/claim"
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/domain/manual"
@@ -157,6 +158,8 @@ func run() error {
 	// The business-day switch's state (ADR 0032 §A.8): configuration, not a secret, and a line
 	// in both states, so "off" is read rather than inferred from silence.
 	config.AnnounceBusinessDay(slog.Default(), cfg.BusinessDayFrom, time.Now())
+	// The panel identity flag's state (ADR 0031 §8), the same way: a line in both states.
+	config.AnnounceAdminIdentity(slog.Default(), cfg.AdminIdentity)
 
 	// 🔴 A DELIVERY MODE THE CONFIGURATION ACCEPTS AND THIS BUILD DOES NOT IMPLEMENT
 	// STOPS THE BOOT HERE, before the database is dialled (M10 EM-3). Since M10 EM-7B
@@ -390,7 +393,28 @@ func run() error {
 	// An open window is ANNOUNCED, repeatedly, for the whole time it stays open:
 	// see announceKEKRotationWindow.
 	go announceKEKRotationWindow(ctx, len(cfg.TagKEKPrevious) > 0, slog.Default())
-	tap, err := handler.NewTap(verifier, directory, sessions, checkins, activation, trail, cfg, slog.Default())
+	// The manual record writer (M6-08) — the SECOND writer of `transactions` in this
+	// process, and the first that is not a tap. It exists because Q18 decided the
+	// system produces no checkout of its own: an hour the software invented is an hour
+	// that stops being evidence, so somebody has to type it.
+	//
+	// Same audit recorder again, and here the reason is the strongest of the five: the
+	// record and its trail row are ONE act, `transactions` takes no UPDATE and no
+	// DELETE, and a record that appeared with no trail would be an hour on a payslip
+	// that nobody can be shown to have entered.
+	entries, err := manual.NewRecorder(data, trail, slog.Default())
+	if err != nil {
+		return err
+	}
+	// The punch claim service (M15-16/17, ADR 0032 Faz C): the result screen's card and
+	// POST /api/claim on the tap surface, the decision on the panel (M15-18). It writes a claim
+	// and its trail row in one act, and an approval only through the manual writer above --
+	// the one writer of manual records -- so it takes that writer and the same trail.
+	claims, err := claim.New(data, trail, entries, cfg.BusinessDayFrom, slog.Default())
+	if err != nil {
+		return err
+	}
+	tap, err := handler.NewTap(verifier, directory, sessions, checkins, claims, activation, trail, cfg, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -485,19 +509,6 @@ func run() error {
 		tap.EnableDevTools(cfg)
 		log := slog.Default()
 		log.Warn("DEV TOOLS ARE MOUNTED: POST /dev/simulate-tap mints plaque taps (dev on loopback only)")
-	}
-	// The manual record writer (M6-08) — the SECOND writer of `transactions` in this
-	// process, and the first that is not a tap. It exists because Q18 decided the
-	// system produces no checkout of its own: an hour the software invented is an hour
-	// that stops being evidence, so somebody has to type it.
-	//
-	// Same audit recorder again, and here the reason is the strongest of the five: the
-	// record and its trail row are ONE act, `transactions` takes no UPDATE and no
-	// DELETE, and a record that appeared with no trail would be an hour on a payslip
-	// that nobody can be shown to have entered.
-	entries, err := manual.NewRecorder(data, trail, slog.Default())
-	if err != nil {
-		return err
 	}
 	// records is passed TWICE, as the day reader and as the queue reader. Two
 	// parameters rather than one because internal/handler declares two narrow
@@ -704,7 +715,15 @@ func run() error {
 	// (internal/adminauth), which never refuses an owner who holds no live link — a
 	// count per mailbox did (EM-7C round 2, measured). Both wiring tests read this
 	// function to hold the shape.
-	var breaker *mail.Breaker
+	//
+	// 🔴 M14-17: THE ONE CAP IS BUILT HERE, BESIDE THE ONE BREAKER, because two flows now take it:
+	// the invitation route (scope = the business) and the registration letters (scope "signup",
+	// ADR 0031 §5.10's per-recipient cap). Still exactly one mail.NewRecipientCap around the one
+	// breaker (TestBreakerWiring_…); the reset channel still takes the breaker itself.
+	var (
+		breaker      *mail.Breaker
+		recipientCap *mail.RecipientCap
+	)
 	if cfg.ResetDelivery == config.ResetDeliveryEmail || cfg.InviteDelivery == config.InviteDeliveryEmail {
 		transport, err := mail.New(cfg.Mail)
 		if err != nil {
@@ -712,6 +731,9 @@ func run() error {
 		}
 		if breaker, err = mail.NewBreaker(transport, mail.BreakerConfig{Log: slog.Default()}); err != nil {
 			return fmt.Errorf("main: building the e-mail breaker: %w", err)
+		}
+		if recipientCap, err = mail.NewRecipientCap(breaker); err != nil {
+			return fmt.Errorf("main: building the per-mailbox cap: %w", err)
 		}
 	}
 	var resetChannel handler.ResetChannel
@@ -765,6 +787,9 @@ func run() error {
 		return err
 	}
 	panelOptions = append(panelOptions, handler.BusinessDays(dayCutoffs))
+	// The Spike's "Time claims" (M15-18): the list from the panel's read side, the focus and the
+	// decision from the same claim service the tap surface submits through.
+	panelOptions = append(panelOptions, handler.PunchClaims(records, claims))
 	switch cfg.InviteDelivery {
 	case config.InviteDeliveryPanel:
 		// No e-mail transport: the integration API's invitation requests wait in the queue (an
@@ -772,11 +797,7 @@ func run() error {
 		log := slog.Default()
 		log.Info("the invitation queue is off: TAPPA_INVITE_DELIVERY is panel, so no invitation is e-mailed")
 	case config.InviteDeliveryEmail:
-		invitationCap, err := mail.NewRecipientCap(breaker)
-		if err != nil {
-			return fmt.Errorf("main: building the per-mailbox cap: %w", err)
-		}
-		invitations, err := handler.NewEmailInvitations(invitationCap, cfg.BaseURL)
+		invitations, err := handler.NewEmailInvitations(recipientCap, cfg.BaseURL)
 		if err != nil {
 			return err
 		}
@@ -842,6 +863,24 @@ func run() error {
 			return err
 		}
 	}
+	// THE MANAGER INVITATION (M14-15, ADR 0031 §5.11): issued, listed and cancelled by the owner, accepted
+	// by the invitee through ADR 0031 §5.2's identity_accept_invite / _new. Built always; its routes are
+	// mounted only while TAPPA_ADMIN_IDENTITY is on, and its e-mail rides the invitation transport above
+	// (one per-mailbox cap, one breaker).
+	adminInvites, err := adminauth.NewAdminInvites(data, cfg)
+	if err != nil {
+		return err
+	}
+	panelOptions = append(panelOptions, handler.AdminInvitations(adminInvites))
+	// MEMBERSHIP MANAGEMENT (M14-16, ADR 0031 §5.12): disable / enable a membership and the two steps of
+	// an ownership transfer, under the last-owner invariant. Built always; its routes are mounted only
+	// while TAPPA_ADMIN_IDENTITY is on. The same audit recorder: each change's row is written in the
+	// change's own transaction.
+	memberships, err := adminauth.NewMemberships(data, trail)
+	if err != nil {
+		return err
+	}
+	panelOptions = append(panelOptions, handler.AdminMemberships(memberships))
 	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, encoder, resetFlow, cfg, slog.Default(), panelOptions...)
 	if err != nil {
 		return err
@@ -875,7 +914,7 @@ func run() error {
 	//
 	// IT IS MOUNTED LAST for readability only — chi matches on the pattern, not on
 	// registration order, and these paths overlap with nothing above.
-	marketing := handler.NewMarketing(texts, slog.Default(), cfg.APIHost)
+	marketing := handler.NewMarketing(texts, slog.Default(), cfg.APIHost, cfg.BaseURL)
 
 	// 🔴 THE SIGN-UP WIZARD (M7-02) — THE FIRST PATH IN THIS PROCESS THAT CREATES A
 	// TENANT. Until this line, `INSERT INTO tenants` existed only in the seed fixture
@@ -888,16 +927,33 @@ func run() error {
 	// shares that transaction. A registration that half-happened would leave a
 	// `tenants` row nobody can sign into, cannot be deleted (§4.6) and holds the VAT
 	// number against the customer's own second attempt.
-	provisioner, err := signup.NewProvisioner(data, trail, slog.Default())
+	//
+	// M14-17 (ADR 0031 §5.10): the trail row is the database's now (identity_claim_signup writes
+	// signup.completed in the registration's own transaction), so the provisioner takes none; a
+	// registration is a DRAFT until its link is confirmed (adminauth.SignupClaims), and the link
+	// goes out through the one per-mailbox cap (scope "signup") when TAPPA_RESET_DELIVERY=email --
+	// on a dev or sandbox installation without e-mail it is shown on screen, and anywhere else the
+	// wizard takes no registrations (the user's decision of 2026-10-26).
+	provisioner, err := signup.NewProvisioner(data, slog.Default())
 	if err != nil {
 		return err
+	}
+	signupClaims, err := adminauth.NewSignupClaims(data, cfg)
+	if err != nil {
+		return err
+	}
+	var signupMailer handler.SignupMailSender
+	if cfg.ResetDelivery == config.ResetDeliveryEmail {
+		signupMailer = recipientCap
 	}
 	// The VIES checker is the one built before the operator surface above -- the process's
 	// only outbound HTTP client, shared with the operator's VAT re-check.
-	signupFlow, err := handler.NewSignup(provisioner, vies, cfg, slog.Default())
+	signupFlow, err := handler.NewSignup(provisioner, signupClaims, vies, signupMailer, cfg, slog.Default())
 	if err != nil {
 		return err
 	}
+	// The drafts' fixed-period sweep (R17), for the life of the process.
+	go signupFlow.SweepEvery(ctx, time.Hour)
 
 	// READINESS (M8-01). /healthz is registered by the router itself and is given
 	// nothing; this is the endpoint that IS given the pool, because "can this process
@@ -950,7 +1006,7 @@ func run() error {
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		BaseContext:       assetContext(assets),
-		Handler:           appRouter(cfg, slog.Default(), activation, tap, panelAuth, logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
+		Handler:           appRouter(cfg, slog.Default(), activation, tap, panelAuth, panelAuth.InviteAcceptance(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation
@@ -986,7 +1042,7 @@ func run() error {
 		// attendance record, and records are never lost (CLAUDE.md §4). The reset
 		// outbox drains beside them; the deferred closes above run after both.
 		slog.Info("shutting down")
-		return shutdown(srv, httpShutdownGrace, drainers{resetFlow, work}, handler.ResetDrainGrace)
+		return shutdown(srv, httpShutdownGrace, drainers{resetFlow, signupFlow, work}, handler.ResetDrainGrace)
 	}
 }
 

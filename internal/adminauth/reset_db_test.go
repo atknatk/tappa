@@ -61,14 +61,21 @@ func cheapResets(t *testing.T, data ResetDatabase) *Resets {
 	return r
 }
 
-// newSessionRow issues a panel session through the real query and returns its id.
+// newSessionRow issues a panel session through the real query and returns its id. The verified
+// digest is the row's current one, read in the same transaction -- what a password that verified a
+// moment ago would hand CreateAdminSession (M14-07).
 func newSessionRow(t *testing.T, d *db.DB, tenantID, adminID uuid.UUID) uuid.UUID {
 	t.Helper()
 	var row store.CreateAdminSessionRow
 	err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		var e error
-		row, e = store.New(tx).CreateAdminSession(ctx, store.CreateAdminSessionParams{
+		q := store.New(tx)
+		cur, e := q.GetAdminPasswordHashByID(ctx, store.GetAdminPasswordHashByIDParams{ID: adminID, TenantID: tenantID})
+		if e != nil {
+			return e
+		}
+		row, e = q.CreateAdminSession(ctx, store.CreateAdminSessionParams{
 			TenantID: tenantID, AdminUserID: adminID, TokenHash: "reset-fixture-" + uuid.NewString(),
+			VerifiedDigest: cur.PasswordHash,
 		})
 		return e
 	})
@@ -334,11 +341,16 @@ func TestConsume_EveryFailureIsOneError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
-	if err := d.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+	// The change is COMMITTED: made under the operator-tables lock, held shared around it, as
+	// newAdminRow wrote the row (holdTablesLock; cmd/opadmin's TestTablesLock_AdminRowsAreWrittenUnderTheHolder).
+	release := holdTablesLock(t)
+	err = d.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx, `UPDATE admin_users SET status = 'disabled' WHERE id = $1 AND tenant_id = $2`,
 			disabledAdmin, tenantID)
 		return e
-	}); err != nil {
+	})
+	release()
+	if err != nil {
 		t.Fatalf("disable: %v", err)
 	}
 
@@ -480,6 +492,34 @@ func (x *txCountingDB) GetPasswordResetByTokenHash(ctx context.Context, h string
 
 func (x *txCountingDB) GetAdminByEmail(ctx context.Context, email string) ([]db.ResolvedAdmin, error) {
 	return x.inner.GetAdminByEmail(ctx, email)
+}
+
+// ConsumeIdentityRowReset is the linked row's path (M14-08); it is no tenant transaction of this
+// package's, so it is not counted -- the unlinked rows these tests reset answer it 0 rows.
+func (x *txCountingDB) ConsumeIdentityRowReset(ctx context.Context, h, digest string) (db.ConsumedIdentityRowReset, error) {
+	return x.inner.ConsumeIdentityRowReset(ctx, h, digest)
+}
+
+// The per-identity reset's five (M14-14): no tenant transaction of this package's either, so none is
+// counted -- the per-row links these tests reset answer the identity consumption 0 rows.
+func (x *txCountingDB) ResolveIdentityByEmail(ctx context.Context, email string) (db.ResolvedIdentity, error) {
+	return x.inner.ResolveIdentityByEmail(ctx, email)
+}
+
+func (x *txCountingDB) OpenIdentityReset(ctx context.Context, id uuid.UUID, h string, exp time.Time) (db.OpenedIdentityReset, error) {
+	return x.inner.OpenIdentityReset(ctx, id, h, exp)
+}
+
+func (x *txCountingDB) WithdrawIdentityReset(ctx context.Context, h string) (bool, error) {
+	return x.inner.WithdrawIdentityReset(ctx, h)
+}
+
+func (x *txCountingDB) ConsumeIdentityReset(ctx context.Context, h, digest string) (db.ConsumedIdentityReset, error) {
+	return x.inner.ConsumeIdentityReset(ctx, h, digest)
+}
+
+func (x *txCountingDB) GetIdentityResetByTokenHash(ctx context.Context, h string) (db.ResolvedIdentityReset, error) {
+	return x.inner.GetIdentityResetByTokenHash(ctx, h)
 }
 
 // TestConsume_BothWritesShareOneTransaction is reset.go's first 🔴 claim -- "a reset

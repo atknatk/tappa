@@ -52,8 +52,9 @@
 - Uygulanmış migration değişmez (§6); bugün son `00063`. **Migration numaraları (R20):** M14 toplam
   **on bir** dosya doğurur — M14-03 iki (N: tablo + sütunlar + tetikleyici; N+1: `CONCURRENTLY` indeksi),
   M14-04 bir (N+2), M14-05 bir (N+3), M14-06 bir (N+4), M14-06b bir, M14-15 bir, M14-16 bir, M14-17 bir,
-  M14-19 bir (yalnız `REVOKE EXECUTE`), M14-20b bir (M14-20a şemaya dokunmaz; M14-08…M14-14 ve M14-18 migration doğurmaz — doğurursa kart
-  numara ister). **Paralel şema hattı için N … N+4 beş numara**, M14-03 açılırken orkestratörce birlikte
+  M14-19 bir (yalnız `REVOKE EXECUTE`), M14-20b bir (M14-20a şemaya dokunmaz; M14-09…M14-13 ve M14-18 migration doğurmaz — doğurursa kart
+  numara ister; **M14-08 bir doğurdu: `00074`** (`identity_create_for_signup` + `identity_consume_row_reset` audit şekli); **M14-14 bir doğurdu: `00075`** — `resolve_identity_by_email` ve `identity_consume_reset`'in
+  dönüşüne kimliğin kayıtlı adresi (`email`) eklenir, 2026-10-26 kullanıcı onayı, ADR 0031 §5.2 notu). **M14-18 bir doğurdu: `00079`** — `identity_confirm_window` + `identity_keep_all` ve olay kümesine `confirm_kept` (2026-10-27 kullanıcı kararı, ADR 0031 §5.2 notu; yeni GRANT yok). **Paralel şema hattı için N … N+4 beş numara**, M14-03 açılırken orkestratörce birlikte
   ayrılır (bugün N = `00064`, o gün başka bir migration girmediyse); kalanlar kart açılırken sırayla.
 - Henüz var olmayan testin adı belgeye yazılmaz (`TestEveryNamedTestExists`); testi tarif et.
 - **Dal:** kullanıcının açacağı feature dalı (öneri `m14-identity`). Her `main` birleştirmesi bir
@@ -168,7 +169,7 @@ yer kararın yanında yazılıdır (ADR 0031 §13 tam tablo).
 14. **K-14 — `admin_users.email` ayna, `full_name` üyelikte.** (a) seçildi. ⚠️ *Sıkılaştı (bulgu 21):*
     `tappa_app`'ın `UPDATE (email)`'i expand'de kapanır.
 15. **K-15 — E-posta değiştirme (yeni, bulgu 12).** **(a) seçildi (kullanıcı, 2026-10-22, M14-01;
-    [open-questions.md](open-questions.md) Q34, backlog T149).** (a) M14'ün dışında;
+    [open-questions.md](open-questions.md) Q34, backlog T173).** (a) M14'ün dışında;
     kendi kartı ve kararıyla gelir (mevcut parola + yeni adres doğrulaması + eski adrese bildirim +
     çakışmada aynı "gelen kutunu kontrol et" + aynanın bütün işletmelerde definer ile güncellenmesi).
     (b) M14'e ek kart. — **Öneri: (a).** ADR 0031 (a)'yı varsayar.
@@ -331,7 +332,8 @@ ADR 0031 §5.2); `resolve_admin_by_email` `unlinked_at IS NULL` süzgeciyle ve d
   `prosecdef`, `proconfig`, `tappa_app` EXECUTE ve `tappa_resolver`'ın sütun yetkilerini pinler; eski
   binary'nin sorgusu (`SELECT id, tenant_id, password_hash, status FROM resolve_admin_by_email(…)`) yeni
   tanımda çalışır.
-- **Kimliği yazan her fonksiyon kimliği bir sırdan bulur** (üç adlandırılmış istisna hariç);
+- **Kimliği yazan her fonksiyon kimliği bir sırdan bulur** (dört adlandırılmış istisna hariç — dördüncüsü
+  `identity_claim_signup`'ın parola kolu, 2026-10-27 kullanıcı kararı, M14-17b);
   e-postayla çözen bir dual-write yolu yok (mutasyon: e-postayla çözülürse kırmızı). BYPASSRLS
   gövdelerinde tenant tablosuna dokunan her ifadede açık `tenant_id` yüklemi (metin taraması).
 - `identity_set_password`: bağlı oturumda kimlik + bağlı bütün satırlar, öbür oturumlar bütün
@@ -414,6 +416,15 @@ de yeşil; reddedilmiş satır hiçbir koşuda bağlanmaz; uzlaştırma ile eşz
 (T8); `tappa_app` fonksiyonu çağıramaz; M14-19'un iki ön-kontrol sayımı (kimliği olmayan
 dolu e-posta = 0, reddedilmişler hariç; bağlı satırda digest uyuşmazlığı = 0) bu kartın runbook adımıdır.
 
+**Adres kuralı (M14-08a, 2026-10-26, kullanıcı kararı — ADR 0031 §5.1/§5.8 notları):** grubun adayları
+yalnız adresi `mail.ValidRecipient`'ten geçen satırlardır — kilitlenen/seçilen satırlar 00076'nın
+deseniyle süzülür, homoglif (U+0130 / U+212A) satırı en eski aktif olsa bile seçilmez. Kural gövdede
+`IF (…) IS NOT TRUE THEN CONTINUE` reddi olarak yazılır; yoksa `identity_reconcile`
+`TestIdentityAddressRule_EveryIdentityInsertDecidesIt`'te kırmızıdır (yapısal kemer: varlığı denetler).
+**Birleşme ayrıca bir DAVRANIŞ testi ister:** en eski aktif satırı homoglif olan bir grupta kimlik ASCII
+yazımla (ve o satırın digest'iyle) doğar, homoglif satırı bağlanmamış kalır; filtre kaldırılınca kırmızı.
+M14-19'un "kimliği olmayan dolu e-posta" sayımı kuralı geçmeyen satırları ayrı sayar (adlandırılmış kalıntı).
+
 ---
 
 ## P2 — Domain / auth
@@ -450,14 +461,14 @@ dolu e-posta = 0, reddedilmişler hariç; bağlı satırda digest uyuşmazlığ�
   `FirstOverLimit` satırı); log'da e-posta yok.
 - **Eski kolun oturum yazımı doğrulanan digest'e koşulludur ve satırı kilitler** (ADR 0031 §5.2,
   `identity_unlink_backfilled` satırı): `CreateAdminSession`'ın `INSERT … SELECT`'i `a.password_hash =
-  <doğrulanan digest>` yüklemini **ve** `FOR SHARE OF a` kilidini taşır (`tappa_app` `password_hash`'i
+  <doğrulanan digest>` yüklemini **ve** `FOR NO KEY UPDATE OF a` kilidini taşır (2026-10-23, M14-07 denetimi: önce `FOR SHARE OF a` yazılmıştı; aynı transaction'daki `MarkAdminLoggedIn` UPDATE'i paylaşımlı kilidi yükseltmeye çalıştığından aynı yöneticinin iki eşzamanlı `Issue`'su 40P01 ile kilitleniyordu — 86/120 ölçüldü; `FOR NO KEY UPDATE` ile 0/120, çözmenin `FOR UPDATE`'iyle yine çakışır) (`tappa_app` `password_hash`'i
   okur); kilit çözmeyle çakışır, READ COMMITTED yüklemi yeni sürümde yeniden değerlendirir → 0 satır.
   Çözme nöbetçi digest'i aynı transaction'da yazar; aradaki bir parola değişikliği de girişi reddeder.
   Satır kilidi bir UPDATE yetkisi ister: `tappa_app`'ın `UPDATE (status)`'ı (`00017:380-381`) yeter;
   M14-07 FORCE RLS altındaki UPDATE politikasını ölçer. Test fikirleri: (1) `Verify` ile
   `CreateAdminSession` arasında çözme commit edilir → 0 satır, oturum yok; (2) eşzamanlı: çözme
   transaction'ı açıkken oturum yazımı başlar → çözme commit eder → 0 satır, canlı oturum yok. Mutasyonlar:
-  yüklem silinince (1), `FOR SHARE` silinince (2) kırmızı.
+  yüklem silinince (1), satır kilidi silinince (2) kırmızı; `FOR SHARE`'e dönülünce eşzamanlı iki `Issue` 40P01 ile kırmızı.
 
 ## M14-08 — Oturum işlemleri, bayrak, dual-write
 
@@ -515,6 +526,12 @@ başlar**.
 - Başarısızlık gövdesi senkronizör token dışında bayt-aynı; bayrak `off` yolunda
   `TestAdminLogin_OneVerifiedBusinessSkipsThePicker`, `TestAdminChoose_RefusesATenantOutsideTheSignedSet`
   değişmeden yeşil.
+- (M14-07 denetimi, 2026-10-23) Kimlik yolunda handler **ikinci bir `admin.login.succeeded` satırı
+  yazmaz**: `identity_open_session` satırı kendisi yazar (`adminauth.PersonSignIn.Session`'ın notu); test
+  kimlikli girişte o işletmede tam bir satır olduğunu doğrular.
+- (M14-07 denetimi, 2026-10-23) `Issue`'nun eski-proof reddi (`ErrProofStale`), `pgx.ErrNoRows` ve
+  40P01, `completeLogin`'de (`adminlogin.go:1239`) 500 değil **"tekrar giriş yapın"** problemine çevrilir
+  (parola giriş ile oturum yazımı arasında değişmiş, satır çözülmüş ya da devre dışı kalmış olabilir).
 
 ## M14-10a — Panel formlarının tenant bağı
 
@@ -748,6 +765,8 @@ NULL` süzer).
   eski parolayla en çok 8 aday (dolgulu) → `identity_link_legacy` → karşı geçici oturum iptal; ters yön
   de; reddedilmiş satır aday değil; sonuç tek tip; kimlik başına oran sınırı. Test: 6 dakikalık oturum +
   parola yeniden girişi → bağlama başarılı (S6).
+- Ters yön **bağlanmamış (eski kol) oturumdan** erişilebilir: M14-13'ün Choose paragrafı bayrak `on` iken
+  bağlanmamış kişiye "hesap sayfasında bağla" der; bu yolu sınayan bir test vakası (M14-13 üçüncü göz notu).
 - Bütün rotalar `protectWritingThroughSuspension` grubunda ve tenant bağlı (M14-10a).
 
 ---
@@ -844,7 +863,7 @@ açabilirdi): `identity_unlink_backfilled`'ın yeni gövdesi `identity_id`'yi ko
 `identity_open_session` ve yeniden tanımlanan `resolve_admin_by_email` `unlinked_at IS NULL` süzer;
 `TouchAdminSession` süzmez (`tappa_app` `unlinked_at`'i okuyamaz, R16). Güvence: çözme o tenant'ın
 oturumlarını aynı transaction'da iptal eder, oturum **veren** her yol süzer, contract sonrasında
-`status='disabled'` (ADR 0031 §5.2). Oturum veren yollar çözümleme anında süzer; eski kolun `CreateAdminSession`'ı (`db/queries/admins.sql:117-123`) satırı yalnız `status = 'active'` ile yeniden okur ve `unlinked_at`'e bakamaz (R16). Yükümlülük (M14-07, eski kol): `CreateAdminSession`'ın `INSERT … SELECT`'i `a.password_hash = <doğrulanan digest>` yüklemini **ve** `FOR SHARE OF a` kilidini taşır; kilit çözmeyle çakışır, READ COMMITTED yüklemi yeni sürümde yeniden değerlendirir → 0 satır (çözme nöbetçi digest'i aynı transaction'da yazar; kilitsiz biçim, çözme transaction'ı açıkken başlayan bir yazımda canlı oturum bırakıyordu — PostgreSQL 17.10'da ölçüldü). Satır kilidi bir UPDATE yetkisi ister: `tappa_app`'ın `UPDATE (status)`'ı (`00017:380-381`) yeter; M14-07 FORCE RLS altındaki UPDATE politikasını ölçer. Contract B'den sonra eski kol yoktur. Test: çözülen satırı başka
+`status='disabled'` (ADR 0031 §5.2). Oturum veren yollar çözümleme anında süzer; eski kolun `CreateAdminSession`'ı (`db/queries/admins.sql:117-123`) satırı yalnız `status = 'active'` ile yeniden okur ve `unlinked_at`'e bakamaz (R16). Yükümlülük (M14-07, eski kol): `CreateAdminSession`'ın `INSERT … SELECT`'i `a.password_hash = <doğrulanan digest>` yüklemini **ve** `FOR NO KEY UPDATE OF a` kilidini taşır (2026-10-23, M14-07 denetimi: önce `FOR SHARE OF a` yazılmıştı; aynı transaction'daki `MarkAdminLoggedIn` UPDATE'i paylaşımlı kilidi yükseltmeye çalıştığından aynı yöneticinin iki eşzamanlı `Issue`'su 40P01 ile kilitleniyordu — 86/120 ölçüldü; `FOR NO KEY UPDATE` ile 0/120, çözmenin `FOR UPDATE`'iyle yine çakışır); kilit çözmeyle çakışır, READ COMMITTED yüklemi yeni sürümde yeniden değerlendirir → 0 satır (çözme nöbetçi digest'i aynı transaction'da yazar; kilitsiz biçim, çözme transaction'ı açıkken başlayan bir yazımda canlı oturum bırakıyordu — PostgreSQL 17.10'da ölçüldü). Satır kilidi bir UPDATE yetkisi ister: `tappa_app`'ın `UPDATE (status)`'ı (`00017:380-381`) yeter; M14-07 FORCE RLS altındaki UPDATE politikasını ölçer. Contract B'den sonra eski kol yoktur. Test: çözülen satırı başka
 bir owner panelden `active` yapar → kişi yine geçemez/giremez. Bu yol son-owner değişmezinin bilinçli
 istisnasıdır (M14-16).
 

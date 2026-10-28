@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/config"
+	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/session"
@@ -70,6 +71,9 @@ type Tap struct {
 	directory tapDirectory
 	sessions  sessionVerifier
 	checkins  checkinRecorder
+	// claims offers the result screen's claim card and takes its answer (ADR 0032 Faz C,
+	// M15-17; claim.go). Required: without it the card could never be drawn or sent.
+	claims tapClaims
 	// activation completes a CONSENTED activation on its first NFC tap (ADR
 	// 0026). It is the Activation handler, reached through the narrow interface
 	// below: the advancing SUN verify it needs lives THERE, so this handler's
@@ -77,7 +81,10 @@ type Tap struct {
 	activation tapActivation
 	cookies    session.Cookies
 	contexts   tapContexts
-	limiter    *httpx.TapLimiter
+	// claimContexts signs the claim card's context under its own key and label
+	// (claimcontext.go): a tap context does not verify as one, nor the other way round.
+	claimContexts claimContexts
+	limiter       *httpx.TapLimiter
 	// devTools marks renders for the DEV-ONLY simulate-tap strip; false unless
 	// cmd/tappa calls EnableDevTools on a DevToolsEnabled deployment.
 	devTools bool
@@ -88,6 +95,9 @@ type Tap struct {
 	// brandWait bounds the confirmation screen's brand read: resultBrandWait
 	// (checkin.go), a field so a test can shorten it.
 	brandWait time.Duration
+	// claimWait bounds the result screen's claim-card read: resultClaimWait (claim.go), a
+	// field so a test can shorten it.
+	claimWait time.Duration
 	log       *slog.Logger
 }
 
@@ -107,13 +117,16 @@ type (
 	tapPreviewer interface {
 		PreviewWithoutReplayProtection(ctx context.Context, p sun.Params) (sun.Preview, error)
 	}
+	// predict, on both page reads, is the plaque-and-channel half of the prediction's gate
+	// (predictionAllowed, ADR 0032 §B.2): the directory reads the person's day only when it is
+	// set, and answers the rest of the gate -- the person active, the switch on -- itself.
 	tapDirectory interface {
-		TapPage(ctx context.Context, tenantID, employeeID, locationID uuid.UUID) (tenant.TapPageFacts, error)
+		TapPage(ctx context.Context, tenantID, employeeID, locationID uuid.UUID, predict bool) (tenant.TapPageFacts, error)
 		// PeerTapPage is the page's facts for a plaque of a PEER business of the session's
 		// (M11 API-1b, ADR 0027 §5/§10, K-1c): the peer's venue and brand, read through
 		// holding_tap_site on the session's context, and the peer business (uuid.Nil: not
 		// a peer) -- an id to compare, never to render.
-		PeerTapPage(ctx context.Context, tenantID, employeeID uuid.UUID, uid string) (tenant.TapPageFacts, uuid.UUID, error)
+		PeerTapPage(ctx context.Context, tenantID, employeeID uuid.UUID, uid string, predict bool) (tenant.TapPageFacts, uuid.UUID, error)
 		// ResultBrand is the confirmation screen's half of the business's brand: its
 		// logo and name, never its accent (user decision D-C; checkin.go).
 		ResultBrand(ctx context.Context, tenantID uuid.UUID) (tenant.PageBrand, error)
@@ -134,7 +147,7 @@ type (
 
 // NewTap wires the screen. Every dependency is required: a nil one cannot fail
 // safely on a path whose failure mode is a missing hour on a payslip.
-func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checkins checkinRecorder, activation tapActivation, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*Tap, error) {
+func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checkins checkinRecorder, claims tapClaims, activation tapActivation, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*Tap, error) {
 	switch {
 	case preview == nil:
 		return nil, errors.New("handler: nil sun previewer")
@@ -155,6 +168,10 @@ func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checki
 		// at boot. isNil rather than == nil because a TYPED nil in an interface
 		// parameter is not nil (the same trap the recorder check documents).
 		return nil, errors.New("handler: nil checkin service")
+	case isNil(claims):
+		// REQUIRED (M15-17): the result screen's card and POST /api/claim both need it, and
+		// a nil one would be found at the first card, as a panic, rather than at boot.
+		return nil, errors.New("handler: nil claim service")
 	case isNil(rec):
 		// REQUIRED, not optional. httpx.TapLimiter accepts a nil recorder
 		// because it must be constructible before a database is (tests, a future
@@ -183,17 +200,24 @@ func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checki
 	if err != nil {
 		return nil, err
 	}
+	claimCtxs, err := newClaimContexts(cfg)
+	if err != nil {
+		return nil, err
+	}
 	t := &Tap{
-		sun:        preview,
-		directory:  dir,
-		sessions:   sess,
-		checkins:   checkins,
-		activation: activation,
-		cookies:    session.NewCookies(cfg),
-		contexts:   ctxs,
-		baseURL:    originOf(cfg.BaseURL),
-		brandWait:  resultBrandWait,
-		log:        log,
+		sun:           preview,
+		directory:     dir,
+		sessions:      sess,
+		checkins:      checkins,
+		claims:        claims,
+		activation:    activation,
+		cookies:       session.NewCookies(cfg),
+		contexts:      ctxs,
+		claimContexts: claimCtxs,
+		baseURL:       originOf(cfg.BaseURL),
+		brandWait:     resultBrandWait,
+		claimWait:     resultClaimWait,
+		log:           log,
 	}
 	t.limiter = httpx.NewTapLimiter(httpx.TapLimitParams{
 		Log: log,
@@ -272,6 +296,10 @@ func (t *Tap) Mount(r chi.Router) {
 		r.Use(t.chain()...)
 		r.Get(TapPath, t.Page)
 		r.Post("/api/checkin", t.Checkin)
+		// The claim card's answer (M15-17): the same chain, the same limiter instance -- a
+		// claim is the tail of a tap, metered with it -- and, like the tap, no suspension
+		// gate (ADR 0025, ADR 0032 §C.4).
+		r.Post(ClaimPath, t.Claim)
 	})
 }
 
@@ -488,14 +516,15 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 	// tenant takes: the page renders, the button is pressed, and the POST RECORDS the
 	// refusal (§4.6) instead of the page silently dropping it.
 	wall := tappedWallOf(pv)
-	facts, err := t.directory.TapPage(r.Context(), id.Session.TenantID, id.Session.EmployeeID, wall)
+	predict := predictionAllowed(p, pv)
+	facts, err := t.directory.TapPage(r.Context(), id.Session.TenantID, id.Session.EmployeeID, wall, predict)
 	if errors.Is(err, tenant.ErrForeignLocation) && pv.TenantID != id.Session.TenantID {
 		// A PEER'S PLAQUE (M11 API-1b; ADR 0027 §5, §10; K-1c): another business of the
 		// session's holding. holding_tap_site answers on the session's context, and the
 		// page then names the peer's venue and draws the peer's brand -- the plaque is
 		// theirs. Not a peer: the ordinary foreign-plaque page below, and the POST's
 		// sys:tenant-mismatch refuses it.
-		peerFacts, site, perr := t.directory.PeerTapPage(r.Context(), id.Session.TenantID, id.Session.EmployeeID, p.UID)
+		peerFacts, site, perr := t.directory.PeerTapPage(r.Context(), id.Session.TenantID, id.Session.EmployeeID, p.UID, predict)
 		switch {
 		case perr != nil && !errors.Is(perr, tenant.ErrBrandUnread):
 			err = perr
@@ -506,8 +535,12 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 	// look is the business's brand as this page draws it (M10 WL-9). It stays the
 	// zero value -- Taptime's own screen -- unless the directory answered without an
 	// error, so the two cases below that keep the page also keep it unbranded no
-	// matter what facts.Brand holds.
-	var look layout.Brand
+	// matter what facts.Brand holds. direction follows the same rule (M15-12): the
+	// direction-neutral "Tap" unless the directory answered without an error.
+	var (
+		look      layout.Brand
+		direction pages.TapDirection
+	)
 	switch {
 	case errors.Is(err, tenant.ErrForeignLocation):
 		// The plaque belongs to another tenant. The page renders WITHOUT a venue
@@ -541,6 +574,13 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 				"tenant_id", id.TenantID())
 		}
 		look = tapBrandOf(facts.Brand)
+		if facts.PredictionErr != nil {
+			// §4.6: a prediction never costs the page. The button is the
+			// direction-neutral "Tap" and the engine decides at POST time.
+			t.log.ErrorContext(ctx, "tap page: reading the predicted direction failed; the button says Tap",
+				"tenant_id", id.TenantID(), "employee_id", id.EmployeeID(), "err", facts.PredictionErr)
+		}
+		direction = tapDirectionOf(facts.Prediction)
 	}
 
 	signed, err := t.contexts.mint(tapContext{
@@ -567,7 +607,60 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 		EmployeeName: facts.EmployeeName,
 		LocationName: facts.LocationName,
 		TapContext:   signed,
+		Direction:    direction,
+		QR:           p.Channel == sun.ChannelQR,
 	}, look), look.Logo().Drawn())
+}
+
+// predictionAllowed is the plaque-and-channel half of the prediction's gate (ADR 0032 §B.2;
+// security lens G-O3, F-1; K5). The page renders for a plaque that is out of service and for a
+// CMAC that did not verify -- the refusal's RECORD is written by the POST (§4.6) -- but the
+// prediction says whether this person is at work right now, so it is shown only for:
+//
+//	an NFC URL whose CMAC verified, or
+//	a QR URL (K5: a QR has no CMAC to verify -- internal/sun's preview reports none for it;
+//	  this function is reached only after PreviewWithoutReplayProtection answered without an
+//	  error, which is the QR half of the gate),
+//
+// on a plaque whose status is active. The other half -- the person active, the business-day
+// switch on at the server's clock -- is the directory's (tenant.TapPageFacts.Prediction), where
+// the switch is the ONE gate the decision also asks (Directory.DayCutoff -> SwitchedDayCutoff).
+//
+// NO COUNTER IS COMPARED, AND NONE CAN BE (ADR 0032 §B.2): sun.Preview carries none on purpose
+// (§4.4's TOCTOU), so a saved NFC URL shows its holder a prediction -- an accepted risk, as is a
+// photographed QR with a stolen session cookie (security lens v4 O-3): what it shows is the
+// session holder's own state, and the cookie can already tap.
+func predictionAllowed(p sun.Params, pv sun.Preview) bool {
+	if pv.TagStatus != string(tap.TagActive) {
+		return false
+	}
+	switch p.Channel {
+	case sun.ChannelNFC:
+		return pv.CMACValid
+	case sun.ChannelQR:
+		return true
+	default:
+		return false
+	}
+}
+
+// tapDirectionOf is what the button says for the directory's prediction: the direction only
+// when there is a prediction WITH a business day. A prediction without one (a zone the server
+// cannot load) is the engine's "no business day", in which the decision drops a request (ADR
+// 0032 §B.5; tap.resolveDirection), so the screen offers none either -- the M15-10 lens's
+// hand-off: a "Not right?" the engine would ignore is a promise the record does not keep.
+func tapDirectionOf(pr *tap.Prediction) pages.TapDirection {
+	if pr == nil || pr.BusinessDayStart == nil {
+		return pages.TapUndirected
+	}
+	switch pr.Direction {
+	case tap.TypeIn:
+		return pages.TapClockIn
+	case tap.TypeOut:
+		return pages.TapClockOut
+	default:
+		return pages.TapUndirected
+	}
 }
 
 // tapBrandOf maps the domain's brand onto the tap screen's two slots: the logo
@@ -611,7 +704,7 @@ func (t *Tap) peerTapInstead(ctx context.Context, r *http.Request, p sun.Params,
 	if !p.HasSUN() {
 		return false
 	}
-	_, site, err := t.directory.PeerTapPage(ctx, id.Session.TenantID, id.Session.EmployeeID, p.UID)
+	_, site, err := t.directory.PeerTapPage(ctx, id.Session.TenantID, id.Session.EmployeeID, p.UID, false)
 	if err != nil && !errors.Is(err, tenant.ErrBrandUnread) {
 		t.log.ErrorContext(ctx, "tap page: reading a peer's plaque for a pending activation failed", "tag_uid", p.UID, "err", err)
 		return false

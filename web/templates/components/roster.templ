@@ -222,7 +222,7 @@ templ RosterActions(v RosterActionsView) {
 					<p class="text-sm text-ink">No address on file.</p>
 				}
 				if v.CanChangeEmail {
-					<form method="post" action={ templ.URL(v.EmailAction) } class="flex flex-col gap-2.5">
+					<form method="post" action={ templ.URL(Bound(ctx, v.EmailAction)) } class="flex flex-col gap-2.5">
 						@hiddenFields(v.Hidden)
 						<div class="field-stack">
 							<label class="lbl" for="change-email">New address</label>
@@ -263,7 +263,7 @@ templ RosterActions(v RosterActionsView) {
 						<p class="text-sm text-ink">Not linked to an HR or ERP record.</p>
 					}
 					if v.CanChangeExternalRef {
-						<form method="post" action={ templ.URL(v.ExternalRefAction) } class="flex flex-col gap-2.5">
+						<form method="post" action={ templ.URL(Bound(ctx, v.ExternalRefAction)) } class="flex flex-col gap-2.5">
 							@hiddenFields(v.Hidden)
 							<div class="field-stack">
 								<label class="lbl" for="change-external-ref">External ref</label>
@@ -295,7 +295,7 @@ templ RosterActions(v RosterActionsView) {
 			}
 			<form
 				method="post"
-				action={ templ.URL(v.MoveAction) }
+				action={ templ.URL(Bound(ctx, v.MoveAction)) }
 				class="flex min-w-0 flex-col gap-3 border-t border-dashed border-line pt-4"
 				aria-label="Where"
 			>
@@ -348,7 +348,7 @@ templ RosterActions(v RosterActionsView) {
 							and their old records stay where they are.
 						</p>
 						<div class="flex flex-wrap items-center gap-3">
-							<form method="post" action={ templ.URL(v.DeactivateAction) }>
+							<form method="post" action={ templ.URL(Bound(ctx, v.DeactivateAction)) }>
 								@hiddenFields(v.Hidden)
 								// THE ONE-SHOT CONFIRMATION. Its twin is an HttpOnly cookie bound
 								// to this person, so this field alone proves nothing and its
@@ -395,7 +395,7 @@ func ownerOnlyAlone(canEmail bool, refAction string, canRef bool) bool {
 templ inviteControls(v RosterActionsView) {
 	if v.CanInvite && v.InviteByEmail {
 		if v.Email != "" {
-			<form method="post" action={ templ.URL(v.InviteAction) }>
+			<form method="post" action={ templ.URL(Bound(ctx, v.InviteAction)) }>
 				@hiddenFields(v.Hidden)
 				<button type="submit" class={ inviteButtonClass(v.Status) }>{ v.InviteLabel }</button>
 			</form>
@@ -408,7 +408,7 @@ templ inviteControls(v RosterActionsView) {
 				No address on file, so no link can be emailed. The owner can add one below.
 			</p>
 			if v.CanShowLink {
-				<form method="post" action={ templ.URL(v.InviteAction) }>
+				<form method="post" action={ templ.URL(Bound(ctx, v.InviteAction)) }>
 					@hiddenFields(v.Hidden)
 					<input type="hidden" name={ v.ShowLinkField } value={ v.ShowLinkValue }/>
 					<button type="submit" class="btn btn--line">Show the link on screen</button>
@@ -420,7 +420,7 @@ templ inviteControls(v RosterActionsView) {
 			}
 		}
 	} else if v.CanInvite {
-		<form method="post" action={ templ.URL(v.InviteAction) }>
+		<form method="post" action={ templ.URL(Bound(ctx, v.InviteAction)) }>
 			@hiddenFields(v.Hidden)
 			<button type="submit" class={ inviteButtonClass(v.Status) }>{ v.InviteLabel }</button>
 		</form>
