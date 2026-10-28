@@ -2144,7 +2144,8 @@ notu); reddedilmiş satır hiçbir koşuda bağlanmaz. Davet kabulünün (`00077
     `ROLLBACK`. Birinci sayı 0'dan büyükse Deploy 2'nin çağrısı tam o kadar grubu bağlayacaktır (Deploy
     1'den beri `identity_create_for_signup`'ın bağlamadığı kayıtlar — eski pod'un rollout penceresi).
   - **Sonra:** goose sürümü `82`; Job log'unda `OK 00082_reconcile_admin_identities.sql`. Aynı sayım
-    yeniden: birinci sayı `0` (çağrı onları bağladı), ikincisi öncekiyle aynı, üçüncüsü `0`. Job `Failed`
+    yeniden: birinci sayı `0` (çağrı onları bağladı), ikincisi öncekinden **büyük değil** (bu çağrıda
+    ASCII ikizi kimliğini alan bir homoglif satırı kalıntıdan düşer; 2026-10-28 olgularıyla `0` → `0`), üçüncüsü `0`. Job `Failed`
     ise hiçbir şey yazılmamıştır (dosya tek transaction): 55P03 → sakin bir anda yeniden; kapanış
     iddiası ya da digest reddi → **DUR**, rollout yok, mesaj satır ya da adres anmaz.
 - **Canlı uygulamayla eşzamanlılık (T8):** her grup için önce adresin ad alanlı danışma kilidi
@@ -2172,13 +2173,43 @@ kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
     sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
 BEGIN;
 SET LOCAL lock_timeout = '1s';
-SELECT public.identity_reconcile();
--- 00082'nin kapanış iddiası (b), COMMIT'ten ÖNCE: uyuşmazlık varsa hata -> ON_ERROR_STOP -> hiçbir şey commit edilmez.
+-- 00082'nin rol iddiası, bayt bayt: superuser ya da BYPASSRLS olmayan bir rol FORCE RLS altında aşağıdaki
+-- denetimlerde 0 satır görür ve sessizce geçerdi.
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM admin_users a JOIN admin_identities i ON i.id = a.identity_id
-                WHERE a.linked_via = 'reconcile' AND a.password_hash IS DISTINCT FROM i.password_hash) THEN
-        RAISE EXCEPTION 'reconcile re-call: a reconcile-linked row does not carry its identity''s digest; nothing was committed';
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles
+                    WHERE rolname = current_user AND (rolsuper OR rolbypassrls)) THEN
+        RAISE EXCEPTION 'migration 00082 (M14-06b): the running role is neither superuser nor BYPASSRLS; under FORCE ROW LEVEL SECURITY it could not check what the reconciliation left (ADR 0031 5.8). Run the migrations as tappa_owner. Nothing was changed.'
+            USING ERRCODE = 'object_not_in_prerequisite_state';
+    END IF;
+END
+$$;
+SELECT public.identity_reconcile();
+-- 00082'nin kapanış iddiası (b), (c) ve (e), bayt bayt, COMMIT'ten ÖNCE: biri tutmazsa hata -> ON_ERROR_STOP ->
+-- hiçbir şey commit edilmez (TestIdentityReconcile_TheRunbookRecallRepeatsTheFilesChecks bunları dosyayla eşler).
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM public.admin_users a
+                WHERE a.linked_via = 'reconcile' AND a.identity_id IS NOT NULL
+                  AND a.password_hash IS DISTINCT FROM
+                      (SELECT i.password_hash FROM public.admin_identities i WHERE i.id = a.identity_id)) THEN
+        RAISE EXCEPTION 'migration 00082 postcondition: a row linked by the reconciliation does not carry its identity''s password digest (ADR 0031 5.1). Nothing was changed.'
+            USING ERRCODE = 'object_not_in_prerequisite_state';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.admin_users
+                WHERE linked_via = 'reconcile' AND identity_id IS NOT NULL
+                GROUP BY identity_id HAVING count(*) > 1) THEN
+        RAISE EXCEPTION 'migration 00082 postcondition: an identity is linked through more than one reconcile row; the reconciliation links one row per e-mail group (ADR 0031 5.8). Nothing was changed.'
+            USING ERRCODE = 'object_not_in_prerequisite_state';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.admin_users a
+                 JOIN public.admin_identities i ON i.id = a.identity_id
+                WHERE a.linked_via = 'reconcile'
+                  AND (pg_catalog.octet_length(i.email::text) <= 254
+                       AND pg_catalog.strpos(i.email::text, '=?') = 0
+                       AND i.email::text ~ '^[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*@([-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+(\.[-A-Za-z0-9!#$%&''*+/=?^_`{|}~]+)*|\[((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|(([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|([0-9A-Fa-f]{1,4}:){6}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,6})?|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,5})?|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,4})?|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,3})?|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,2})?|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){0,1})?|([0-9A-Fa-f]{1,4}:){5}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4})?|([0-9A-Fa-f]{1,4}:){6}[0-9A-Fa-f]{1,4}::|::([0-9A-Fa-f]{1,4}:){0,5}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,4}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,2}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,1}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])|([0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])))\])$') IS NOT TRUE) THEN
+        RAISE EXCEPTION 'migration 00082 postcondition: an identity the reconciliation linked carries an address mail.ValidRecipient refuses (M14-08a, ADR 0031 5.8). Nothing was changed.'
+            USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
 END
 $$;
@@ -2186,9 +2217,9 @@ COMMIT;
 SQL
 ```
 
-beklenen: `BEGIN` · `SET` · bir sayı (bu çağrının bağladığı satır — Deploy 2'den beri doğmuş kimliksiz grup
-sayısı; sıfır da olabilir) · `DO` · `COMMIT`. `DO` hata verirse psql durur ve transaction commit edilmez —
-DUR, bayrak açılmaz. 55P03 → sakin bir anda yeniden. Başka bir hata → DUR, bayrak açılmaz.
+beklenen: `BEGIN` · `SET` · `DO` · bir sayı (bu çağrının bağladığı satır — Deploy 2'den beri doğmuş
+kimliksiz grup sayısı; sıfır da olabilir) · `DO` · `COMMIT`. Bir `DO` hata verirse psql durur ve transaction
+commit edilmez — DUR, bayrak açılmaz (mesaj satır ya da adres anmaz). 55P03 → sakin bir anda yeniden. Başka bir hata → DUR, bayrak açılmaz.
 
 **M14-19'un ön-kontrol sayımları** (bu kartın runbook adımı; yeniden çağrıdan **sonra**; salt okuma, yalnız
 sayı, `READ ONLY` transaction ve `ROLLBACK`). Birinci sorgu iki sayı basar: kuralı geçen kimliksiz dolu

@@ -983,6 +983,195 @@ func TestIdentityReconcile00082_TheRunnerAndThePostcondition(t *testing.T) {
 	})
 }
 
+// TestIdentityReconcile00082_ThePreconditionRefusesAnUnreadyDatabase: after the Down, in savepoints,
+//   - tappa_identitydefiner without one of 00074's two cells (INSERT (password_hash) on
+//     admin_identities taken away) -- the Up refuses with "00074's grants" before it creates anything;
+//   - identity_create_for_signup without 00076's address-rule marker (redefined from
+//     pg_get_functiondef with the marker line reworded) -- the Up refuses with "needs 00076".
+//
+// MUTATION CONTROLS: the same Up with that precondition cut out of its text does not answer the
+// refusal -- so each check is what refuses, not something after it.
+func TestIdentityReconcile00082_ThePreconditionRefusesAnUnreadyDatabase(t *testing.T) {
+	ctx, tx := bfTx(t)
+	up, _, down := rcSections(t)
+	cut := func(from string) string {
+		t.Helper()
+		if n := strings.Count(up, from); n != 1 {
+			t.Fatalf("PREMISE: the Up holds %q %d times, want 1", from, n)
+		}
+		i := strings.Index(up, from)
+		j := strings.Index(up[i:], "    END IF;\n")
+		if j < 0 {
+			t.Fatalf("PREMISE: no END IF after %q", from)
+		}
+		return up[:i] + up[i+j+len("    END IF;\n"):]
+	}
+	withoutGrants := cut("    -- The two cells the body needs beyond 00071/00072's are 00074's; this file grants nothing.\n")
+	without00076 := cut("    -- 00076 (M14-08a) first: its address rule is the one the body repeats.\n")
+	notRefusedWith := func(t *testing.T, err error, want string) {
+		t.Helper()
+		if err != nil && strings.Contains(err.Error(), want) {
+			t.Fatalf("MUTATION: without its precondition the Up still answers %q: %v", want, err)
+		}
+	}
+
+	grantGone := func(sp pgx.Tx) {
+		opRunSection(t, ctx, sp, down, "00082 Down")
+		aiExec(t, ctx, sp, `REVOKE INSERT (password_hash) ON admin_identities FROM tappa_identitydefiner`)
+	}
+	t.Run("without 00074's grants", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			grantGone(sp)
+			bfWantRefusal(t, holdingNestedRun(t, ctx, sp, up), "needs 00074's grants", "the Up without 00074's INSERT (password_hash)")
+			if n := opInt(t, ctx, sp, `SELECT count(*) FROM pg_proc WHERE proname = 'identity_reconcile'`); n != 0 {
+				t.Error("the refused Up left identity_reconcile behind")
+			}
+		})
+	})
+	t.Run("control/without 00074's grants, the precondition cut", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			grantGone(sp)
+			notRefusedWith(t, holdingNestedRun(t, ctx, sp, withoutGrants), "needs 00074's grants")
+		})
+	})
+
+	markerGone := func(sp pgx.Tx) {
+		opRunSection(t, ctx, sp, down, "00082 Down")
+		var def string
+		if err := sp.QueryRow(ctx, `SELECT pg_get_functiondef('public.identity_create_for_signup(uuid,uuid)'::regprocedure)`).Scan(&def); err != nil {
+			t.Fatal(err)
+		}
+		const marker = "-- 6b. THE ADDRESS RULE (M14-08a)"
+		if !strings.Contains(def, marker) {
+			t.Fatal("PREMISE: identity_create_for_signup lacks 00076's marker")
+		}
+		aiExec(t, ctx, sp, strings.Replace(def, marker, "-- 6b. the address rule", 1))
+	}
+	t.Run("without 00076's address rule", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			markerGone(sp)
+			bfWantRefusal(t, holdingNestedRun(t, ctx, sp, up), "needs 00076", "the Up without 00076's marker")
+		})
+	})
+	t.Run("control/without 00076's address rule, the precondition cut", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			markerGone(sp)
+			notRefusedWith(t, holdingNestedRun(t, ctx, sp, without00076), "needs 00076")
+		})
+	})
+}
+
+// rcRecallChecks returns what deploy/README.md's re-call before M14-19 must repeat, byte for byte,
+// from 00082's Up: the role assertion (the first DO block's IF) and the postcondition's checks (b),
+// (c) and (e).
+func rcRecallChecks(t *testing.T) (role string, post []string) {
+	t.Helper()
+	up, last, _ := rcSections(t)
+	block := func(text, from, key string) string {
+		k := strings.Index(text, key)
+		if k < 0 {
+			t.Fatalf("PREMISE: 00082 lacks %q", key)
+		}
+		i := strings.LastIndex(text[:k], from)
+		j := strings.Index(text[k:], "    END IF;\n")
+		if i < 0 || j < 0 {
+			t.Fatalf("PREMISE: no IF block around %q", key)
+		}
+		return text[i : k+j+len("    END IF;\n")]
+	}
+	role = block(up, "    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles", "the running role is neither superuser nor BYPASSRLS; under FORCE ROW LEVEL SECURITY it could not check")
+	for _, key := range []string{"does not carry its identity''s password digest", "more than one reconcile row", "mail.ValidRecipient refuses"} {
+		post = append(post, block(last, "    IF EXISTS", key))
+	}
+	return role, post
+}
+
+// rcRecallScript returns the re-call's SQL between BEGIN; and COMMIT; (both excluded).
+func rcRecallScript(t *testing.T, readme string) string {
+	t.Helper()
+	const from = "**M14-19'dan hemen önce: yeniden çağrı**"
+	i := strings.Index(readme, from)
+	if i < 0 {
+		t.Fatal("PREMISE: deploy/README.md has no re-call before M14-19")
+	}
+	rest := readme[i:]
+	b, c := strings.Index(rest, "BEGIN;\n"), strings.Index(rest, "COMMIT;\n")
+	if b < 0 || c < b {
+		t.Fatal("PREMISE: the re-call has no BEGIN; ... COMMIT;")
+	}
+	return rest[b+len("BEGIN;\n") : c]
+}
+
+// rcRecallFindings: what the re-call script misses or misplaces of 00082's checks.
+func rcRecallFindings(script, role string, post []string) []string {
+	var out []string
+	call := strings.Index(script, "SELECT public.identity_reconcile();")
+	if call < 0 {
+		return []string{"the re-call does not call identity_reconcile()"}
+	}
+	if i := strings.Index(script, role); i < 0 || i > call {
+		out = append(out, "the role assertion is missing or not before the call")
+	}
+	for n, p := range post {
+		if i := strings.Index(script, p); i < 0 || i < call {
+			out = append(out, fmt.Sprintf("postcondition check %d is missing or not after the call", n))
+		}
+	}
+	return out
+}
+
+// TestIdentityReconcile_TheRunbookRecallRepeatsTheFilesChecks: deploy/README.md's re-call before M14-19
+// repeats 00082's role assertion before the call and its postcondition checks (b), (c), (e) after it,
+// byte for byte (rcRecallFindings) -- a hand copy would drift -- and the script runs as written: in a
+// savepoint it passes on a sound database and refuses, before COMMIT, a reconcile link without its
+// identity's digest and an identity whose address breaks the rule. CONTROL: the README text without
+// check (e) is a finding.
+func TestIdentityReconcile_TheRunbookRecallRepeatsTheFilesChecks(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "deploy", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	role, post := rcRecallChecks(t)
+	script := rcRecallScript(t, string(b))
+	for _, f := range rcRecallFindings(script, role, post) {
+		t.Error(f)
+	}
+	t.Run("control/the re-call without check (e)", func(t *testing.T) {
+		if f := rcRecallFindings(strings.Replace(script, post[2], "", 1), role, post); len(f) == 0 {
+			t.Fatal("CONTROL: a re-call without check (e) passes")
+		}
+	})
+
+	ctx, tx := bfTx(t)
+	t.Run("it runs", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			bfAdmin(t, ctx, sp, aiTenant(t, ctx, sp), bfEmail("rc-recall"), "active", 1, opFakeDigest("a"))
+			if err := holdingNestedRun(t, ctx, sp, script); err != nil {
+				t.Fatalf("the re-call on a sound database: %v", err)
+			}
+		})
+	})
+	t.Run("it refuses a reconcile link without its identity's digest", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			row := bfAdmin(t, ctx, sp, aiTenant(t, ctx, sp), bfEmail("rc-recall-digest"), "active", 1, opFakeDigest("a"))
+			rcRun(t, ctx, sp)
+			aiExec(t, ctx, sp, `UPDATE admin_identities SET password_hash = $2
+			                     WHERE id = (SELECT identity_id FROM admin_users WHERE id = $1)`, row, opFakeDigest("b"))
+			bfWantRefusal(t, holdingNestedRun(t, ctx, sp, script), "does not carry its identity's password digest", "the re-call over a digest mismatch")
+		})
+	})
+	t.Run("it refuses a reconcile-linked identity whose address breaks the rule", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			mail := "m14-06b-rc-recall-" + uuid.NewString() + "@corİp.example"
+			row := bfAdmin(t, ctx, sp, aiTenant(t, ctx, sp), mail, "active", 1, opFakeDigest("a"))
+			ident := aiIdentity(t, ctx, sp, mail)
+			aiExec(t, ctx, sp, `UPDATE admin_identities SET password_hash = $2 WHERE id = $1`, ident, opFakeDigest("a"))
+			aiExec(t, ctx, sp, `UPDATE admin_users SET identity_id = $2, linked_via = 'reconcile', linked_at = now() WHERE id = $1`, row, ident)
+			bfWantRefusal(t, holdingNestedRun(t, ctx, sp, script), "mail.ValidRecipient refuses", "the re-call over a homoglyph identity")
+		})
+	})
+}
+
 // TestIdentityReconcile00082_DownUndoesOnlyItsOwnAndUpAgain (ADR 0031 §8: a Down removes only what
 // its file added -- 00073's Down for 'backfill', this one for 'reconcile'):
 //   - the Down unlinks the pass's rows and deletes their identities; a backfilled row and its identity
