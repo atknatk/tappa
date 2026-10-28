@@ -193,12 +193,17 @@ func TestSandboxManifests_AreTheSandboxsOwn(t *testing.T) {
 // hardened, both e-mail flows off, the API on api.<domain> -- and the untagged build refuses. Read
 // in whichever build runs it. It carries the business-day switch (M15-08: the sandbox can be
 // switched on like production), with a value the server's own parser accepts -- empty, the
-// switch off, until release day.
+// switch off, until release day. And (M14-19) the panel identity flag "on", loaded as on.
 func TestSandboxManifests_TheConfigMapStartsOnlyTheSandboxBuild(t *testing.T) {
 	docs := sandboxDocs(t)
 	cm := configMapValues(t, sandboxDoc1(t, docs, "ConfigMap", "tappa-config").body)
 	if cm["TAPPA_ENV"] != config.EnvSandbox || cm["TAPPA_RESET_DELIVERY"] != config.ResetDeliveryNone || cm["TAPPA_INVITE_DELIVERY"] != config.InviteDeliveryPanel {
 		t.Fatalf("the ConfigMap: env %q reset %q invite %q", cm["TAPPA_ENV"], cm["TAPPA_RESET_DELIVERY"], cm["TAPPA_INVITE_DELIVERY"])
+	}
+	// M14-19 (the user's decision of 2026-10-28): the sandbox runs the panel identity "on", as
+	// production does. Pinned here on purpose, so a stray edit of the line does not pass unnoticed.
+	if got := cm[config.EnvAdminIdentity]; got != config.AdminIdentityOn {
+		t.Errorf("the sandbox ConfigMap ships %s=%q; it ships %q since M14-19", config.EnvAdminIdentity, got, config.AdminIdentityOn)
 	}
 	raw, ok := cm[config.EnvBusinessDayFrom]
 	if !ok {
@@ -241,6 +246,9 @@ func TestSandboxManifests_TheConfigMapStartsOnlyTheSandboxBuild(t *testing.T) {
 	}
 	if !c.IsHardened() || c.APIHost != "api.sandbox.example" || c.OperatorHost != "ops.sandbox.example" {
 		t.Errorf("the sandbox loaded as hardened=%v api=%q ops=%q", c.IsHardened(), c.APIHost, c.OperatorHost)
+	}
+	if !c.AdminIdentity {
+		t.Errorf("the sandbox build loaded %s as off; its ConfigMap says on", config.EnvAdminIdentity)
 	}
 	if (from == nil) != (c.BusinessDayFrom == nil) || (from != nil && !from.Equal(*c.BusinessDayFrom)) {
 		t.Errorf("the sandbox loaded the switch as %v, its ConfigMap says %v", c.BusinessDayFrom, from)
