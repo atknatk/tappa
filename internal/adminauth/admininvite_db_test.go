@@ -454,8 +454,10 @@ func TestAdminInvites_ACancelledOrExpiredLinkIsUnusable(t *testing.T) {
 
 // TestAdminInvites_ConcurrentAcceptanceAndRegistrationOfOneAddress is S13 (ADR 0031 §5.2): an invitee
 // accepts with a NEW password while, at the same instant, a registration of the SAME new address commits
-// (identity_create_for_signup in its own transaction -- the registration's dual-write as it exists
-// today; M14-17's claim takes the same lock and is not built in this lane). N rounds, each a barrier and
+// (identity_create_for_signup in its own transaction -- the registration's dual-write until M14-17;
+// M14-17's claim takes the same lock). Since M14-19 (00083) tappa_app holds no EXECUTE on it and no
+// binary calls it, so the registration calls it as the migration role -- the function and its lock
+// stay until contract B, and the race is still the body's. N rounds, each a barrier and
 // two goroutines (-race). Every round ends with NO error but the acceptance's ordinary refusal, and
 // exactly ONE identity of the address: the acceptance's (the registration's row unlinked) or the
 // registration's (the acceptance refused, nothing of it written). A second pair races two acceptances
@@ -507,9 +509,6 @@ func TestAdminInvites_ConcurrentAcceptanceAndRegistrationOfOneAddress(t *testing
 				}
 				if _, err := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'S13 Owner', $3, $4, 'owner')`,
 					signupRow, signupTenant, w.email, w.digest); err != nil {
-					return err
-				}
-				if _, err := tx.Exec(ctx, `SET LOCAL SESSION AUTHORIZATION tappa_app`); err != nil {
 					return err
 				}
 				if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, signupTenant.String()); err != nil {

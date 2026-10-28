@@ -41,7 +41,8 @@ data:
   # live service does. Empty would be OFF. config.Load refuses a malformed value or one more than
   # 30 days ahead, here as there (TestSandboxManifests_TheConfigMapStartsOnlyTheSandboxBuild).
   TAPPA_BUSINESS_DAY_FROM: "2026-10-22T16:30:00Z"
-  # TAPPA_ADMIN_IDENTITY — the panel identity flag (ADR 0031 §8, M14-08), "off" as in production
-  # (deploy/k8s/05-config.yaml says why and who turns it on). Unset would also be off; an unknown
-  # value stops the boot. Written out so the sandbox's state is read, not inferred.
-  TAPPA_ADMIN_IDENTITY: "off"
+  # TAPPA_ADMIN_IDENTITY — the panel identity flag (ADR 0031 §8, M14-08), "on" as in production since
+  # M14-19 (the user's decision of 2026-10-28; deploy/k8s/05-config.yaml says what it opens and the way
+  # back). Unset would be off; an unknown value stops the boot. Written out so the sandbox's state is
+  # read, not inferred.
+  TAPPA_ADMIN_IDENTITY: "on"

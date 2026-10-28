@@ -1383,7 +1383,11 @@ func (a *AdminAuth) completeLogin(w http.ResponseWriter, r *http.Request, ip str
 	}
 	a.resetLogin(w)
 	a.record(r.Context(), adminLoginSucceededEvent(v.TenantID, v.AdminUserID, issued.Session.ID))
-	a.log.Info("panel sign-in", "admin_user_id", v.AdminUserID, "ip", ip)
+	// path names the arm for M14-19's counters (deploy/README.md, "M14-19 -- bayrak"): every sign-in
+	// that ends here is the per-business (legacy) arm, the flag off or on; the identity path's line is
+	// completePersonLogin's, path=identity. The contract is talked about when this one nears zero
+	// (ADR 0031 §5.15).
+	a.log.Info("panel sign-in", "admin_user_id", v.AdminUserID, "ip", ip, "path", "legacy")
 	a.redirect(w, "/admin")
 }
 

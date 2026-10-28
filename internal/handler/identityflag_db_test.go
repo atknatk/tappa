@@ -188,7 +188,13 @@ func TestPanelIdentityFlagOff_ALinkedAndAnUnlinkedSessionSeeTheSamePanel(t *test
 	}
 	unlinked.signIn(t) // today's sign-in: the flag is off
 	linked.signIn(t)
+	r4SamePanels(t, unlinked, linked)
+}
 
+// r4SamePanels is the R4 comparison: the shell, the account page and /admin/switch (404) of two
+// signed-in harnesses, status, Content-Type and normalised body equal.
+func r4SamePanels(t *testing.T, unlinked, linked *panelHarness) {
+	t.Helper()
 	for _, path := range []string{"/admin", accountHref, "/admin/switch"} {
 		ur, ub := unlinked.get(t, path)
 		lr, lb := linked.get(t, path)
@@ -205,6 +211,59 @@ func TestPanelIdentityFlagOff_ALinkedAndAnUnlinkedSessionSeeTheSamePanel(t *test
 		if nu, nl := r4Normal(unlinked, ub), r4Normal(linked, lb); nu != nl {
 			t.Errorf("%s: the linked session's page differs from the unlinked one's:\n%s", path, r4FirstDifference(nu, nl))
 		}
+	}
+}
+
+// TestPanelIdentityFlagOff_AWindowMovedBy00083ChangesNothing is M14-19's "00083 applied, flag still
+// off: everything as today" (the migration must be safe to ship before the flag commit). The linked
+// row's identity carries what 00083 leaves behind -- a verified address and a reset-scope window
+// opened two days ago whose END was moved to now() + 7 days -- and with TAPPA_ADMIN_IDENTITY off:
+// the shell, the account page and /admin/switch are byte for byte the unlinked session's (R4), no
+// page says anything of the window, and "Keep all" -- the one press that would close it -- is not
+// mounted (404) and leaves the window exactly as it was. CONTROL: the window really is open.
+// MUTATION (measured): identityGate opened for the account surface while the flag is off ->
+// the account page differs (red).
+func TestPanelIdentityFlagOff_AWindowMovedBy00083ChangesNothing(t *testing.T) {
+	opts := panelHarnessOptions{tenantName: "M14-19 Same Business Ltd"}
+	unlinked := newPanelHarnessWith(t, opts)
+	linked := newPanelHarnessWith(t, opts)
+	owner := linkHarness(t, linked)
+	ctx := context.Background()
+	if _, err := owner.Exec(ctx, `UPDATE admin_identities
+	                                 SET email_verified_at = now() - interval '2 days',
+	                                     confirm_opened_at = now() - interval '2 days',
+	                                     confirm_open_until = now() + interval '7 days',
+	                                     confirm_scope = 'reset'
+	                               WHERE id = (SELECT identity_id FROM admin_users WHERE id = $1)`, linked.adminID); err != nil {
+		t.Fatalf("give the identity 00083's window: %v", err)
+	}
+	window := func() string {
+		var w string
+		if err := owner.QueryRow(ctx, `SELECT concat_ws('|', i.confirm_scope, i.confirm_opened_at::text, i.confirm_open_until::text, i.confirm_open_until > now())
+		                                 FROM admin_identities i JOIN admin_users a ON a.identity_id = i.id WHERE a.id = $1`, linked.adminID).Scan(&w); err != nil {
+			t.Fatalf("read the window: %v", err)
+		}
+		return w
+	}
+	before := window()
+	if !strings.HasPrefix(before, "reset|") || !strings.HasSuffix(before, "|t") {
+		t.Fatalf("CONTROL: the identity's window is not open: %q", before)
+	}
+	unlinked.signIn(t)
+	linked.signIn(t)
+	r4SamePanels(t, unlinked, linked)
+	_, page := linked.get(t, accountHref)
+	for _, word := range []string{"Keep all", accountKeepAllHref, "Your businesses"} {
+		if strings.Contains(page, word) {
+			t.Errorf("with the flag off the account page says %q", word)
+		}
+	}
+	res, _ := linked.post(t, accountKeepAllHref, url.Values{})
+	if res.StatusCode != http.StatusNotFound {
+		t.Errorf("POST %s with the flag off: %d, want 404", accountKeepAllHref, res.StatusCode)
+	}
+	if after := window(); after != before {
+		t.Errorf("the window changed with the flag off: %q -> %q", before, after)
 	}
 }
 

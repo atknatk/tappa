@@ -10,7 +10,8 @@ package signup
 //
 // (M14-08's tests of the registration's dual-write lived here; Provision no longer calls
 // identity_create_for_signup. The function stays until contract B and internal/db's
-// identitysignup_test.go still holds it.)
+// identitysignup_test.go still holds it. Since M14-19 (00083) tappa_app cannot call it: the old pod's
+// registration below calls it as the migration role.)
 
 import (
 	"context"
@@ -26,7 +27,6 @@ import (
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/config"
-	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/store"
 )
 
@@ -184,12 +184,23 @@ func TestSignupProvision_TheRealProofsReachTheClaim(t *testing.T) {
 	}
 }
 
-// legacyRegistration is the OLD POD's registration during this deploy's rollout (R8): a business, its
-// owner row and identity_create_for_signup, in one top-level transaction -- what M14-08's Provision did.
-func legacyRegistration(ctx context.Context, data *db.DB, d Draft) (bool, error) {
+// legacyRegistration is the OLD POD's registration during M14-17's rollout (R8): a business, its owner
+// row and identity_create_for_signup, in one top-level transaction under the business's context --
+// what M14-08's Provision did. Since M14-19 (00083) tappa_app holds no EXECUTE on the function (no
+// binary calls it; contract B drops it), so the transaction is the migration role's, on its own
+// connection: the statements, the context and the address's lock are the old pod's.
+func legacyRegistration(ctx context.Context, d Draft) (bool, error) {
+	conn, err := pgx.Connect(ctx, os.Getenv("DATABASE_MIGRATE_URL"))
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
 	tenantID := uuid.New()
 	var linked bool
-	err := data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+	err = pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
+		if _, e := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenantID.String()); e != nil {
+			return e
+		}
 		q := store.New(tx)
 		if _, e := q.CreateTenant(ctx, store.CreateTenantParams{ID: tenantID, Name: d.Business.Name, VatNumber: d.Business.VATNumber,
 			BusinessType: d.Business.BusinessType, Structure: d.Business.Structure, Timezone: DefaultTimezone}); e != nil {
@@ -201,8 +212,7 @@ func legacyRegistration(ctx context.Context, data *db.DB, d Draft) (bool, error)
 		if e != nil {
 			return e
 		}
-		linked, e = db.CreateIdentityForSignup(ctx, tx, tenantID, row.ID)
-		return e
+		return tx.QueryRow(ctx, `SELECT identity_create_for_signup($1, $2)`, tenantID, row.ID).Scan(&linked)
 	})
 	return linked, err
 }
@@ -284,7 +294,7 @@ func TestSignupProvision_ConcurrentBirthsOfOneNewAddress(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		legacyOK, legacyErr = legacyRegistration(ctx, data, drafts[claimsN])
+		legacyOK, legacyErr = legacyRegistration(ctx, drafts[claimsN])
 	}()
 	probe, err := pgx.Connect(ctx, os.Getenv("DATABASE_MIGRATE_URL"))
 	if err != nil {
