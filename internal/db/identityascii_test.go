@@ -867,7 +867,8 @@ func TestIdentityAddressRule_EveryIdentityInsertDecidesIt(t *testing.T) {
 // TestIdentity00076_DownGivesBack00074ByteForByte: in the test's transaction (rolled back), 00076's
 // Down gives identity_create_for_signup back exactly as 00074 created it -- the body (prosrc) equal
 // to 00074's text between the dollar quotes, and the owner, SECURITY DEFINER, the pinned search_path
-// and the ACL equal to HEAD's -- and the Up again gives HEAD's definition and ACL back byte for byte.
+// and the ACL equal to the one below 00083 (M14-19 took tappa_app's EXECUTE; goose takes 00083's Down
+// first) -- and the Up again gives that definition and ACL back byte for byte, 00083's Up HEAD's.
 // The Down locks no table. The database holds identities the way it does after 00073 (two
 // backfill-shaped ASCII ones, written here), so the Up's own assertion runs over real rows.
 func TestIdentity00076_DownGivesBack00074ByteForByte(t *testing.T) {
@@ -908,18 +909,31 @@ func TestIdentity00076_DownGivesBack00074ByteForByte(t *testing.T) {
 	}
 	want := rest[a+len("AS $$") : b+1]
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		// M14-19: 00083 took tappa_app's EXECUTE. goose takes 00083's Down before 00076's, so the ACL
+		// 00076's Down must give back is the one 00083's Down leaves -- 00082's, tappa_app included.
+		_, down83 := opMigrationSections(t, afFile)
+		up83, _ := opMigrationSections(t, afFile)
+		opRunSection(t, ctx, sp, down83, "00083 Down")
+		at82 := read(sp)
+		if !strings.Contains(at82.acl, "tappa_app=X/") || strings.Contains(head.acl, "tappa_app=X/") {
+			t.Fatalf("PREMISE: the ACL at HEAD is %q and below 00083 %q; 00083 takes tappa_app's EXECUTE", head.acl, at82.acl)
+		}
 		opRunSection(t, ctx, sp, down, "00076 Down")
 		got := read(sp)
 		if got.src != want {
 			t.Error("after the Down the body is not 00074's byte for byte")
 		}
-		if got.owner != "tappa_identitydefiner" || got.config != "search_path=pg_catalog, pg_temp/true" || got.acl != head.acl {
-			t.Errorf("after the Down: owner %s, config %q, acl %q; want tappa_identitydefiner, the pinned definer, HEAD's acl %q",
-				got.owner, got.config, got.acl, head.acl)
+		if got.owner != "tappa_identitydefiner" || got.config != "search_path=pg_catalog, pg_temp/true" || got.acl != at82.acl {
+			t.Errorf("after the Down: owner %s, config %q, acl %q; want tappa_identitydefiner, the pinned definer, 00082's acl %q",
+				got.owner, got.config, got.acl, at82.acl)
 		}
 		opRunSection(t, ctx, sp, up, "00076 Up again")
+		if again := read(sp); again != at82 {
+			t.Error("the Up again does not give 00082's definition and ACL back byte for byte")
+		}
+		opRunSection(t, ctx, sp, up83, "00083 Up again")
 		if again := read(sp); again != head {
-			t.Error("the Up again does not give HEAD's definition and ACL back byte for byte")
+			t.Error("00083's Up again does not give HEAD's definition and ACL back byte for byte")
 		}
 	})
 }

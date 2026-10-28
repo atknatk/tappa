@@ -213,7 +213,10 @@ SELECT line FROM (
 // M14-06b, ADR 0031 §5.2/§5.8 -- added identity_reconcile() (EXECUTE in tappa_owner alone: a superuser
 // here, so the line shows the owner only -- m11schema_test.go pins the ACL itself) and NO grant: its
 // body runs on the definer's 00071/00072 cells and the two 00074 gave identity_create_for_signup --
-// admin_identities INSERT (email, password_hash), admin_users SELECT (password_hash) -- and READ
+// admin_identities INSERT (email, password_hash), admin_users SELECT (password_hash); 00083 -- M14-19,
+// ADR 0031 §8 step 5 (S18) -- took tappa_app's EXECUTE on identity_create_for_signup (no binary calls
+// it since M14-17; contract B drops it), so its line shows the owner alone, and granted nothing (its
+// other job, the confirmation windows' end, is data) -- and READ
 // line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
@@ -402,7 +405,7 @@ function identity_claim_signup(text,uuid,text,text) owner=tappa_identitydefiner 
 function identity_confirm_window(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_consume_reset(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_consume_row_reset(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
-function identity_create_for_signup(uuid,uuid) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function identity_create_for_signup(uuid,uuid) owner=tappa_identitydefiner definer=true execute=tappa_identitydefiner
 function identity_keep_all(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_link_legacy(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_memberships(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner

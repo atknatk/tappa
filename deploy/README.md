@@ -2260,7 +2260,8 @@ reddederdi) ya da bağlı/reddedilmiş bir satırı olup adresi kimliksiz — in
 uyuşmazlığı her zaman bir hatadır. `N > 0` bayrağı **durdurmaz**: o satırlar hiçbir yoldan bağlanmaz ve
 kimlik doğurmaz (homoglif ya da biçimi bozuk adres); sayı deploy'dan önce kullanıcıya bildirilir, K-3'ün
 son tarihi ve contract A'nın ön koşulu karşısında ne olacakları kullanıcının kararıdır (ADR 0031 §5.8).
-(`count(identity_id IS NOT NULL AND unlinked_at IS NOT NULL) = 0` — S19 — M14-19'un kendi üçüncü sayımıdır.)
+(`count(identity_id IS NOT NULL AND unlinked_at IS NOT NULL) = 0` — S19 — M14-19'un kendi üçüncü sayımıdır:
+aşağıdaki "M14-19 — bayrak" bölümünün (a) 2. adımı.)
 
 **Down:** `00073`'ünkünün aynası, `linked_via='reconcile'` için: o satırları çözer ve yalnız onların
 kimliklerini siler (bir `reconcile` bağı daima aynı çağrının doğurduğu kimliğedir); kimliklerden biri
@@ -2269,6 +2270,229 @@ penceresi, giriş, son kullanılan işletme, ona işaret eden başka bir tablo s
 **reddeder**. Sonra fonksiyonu düşürür; yetki geri almaz (`00082` yetki vermedi; kullandığı iki hücre
 `00074`'ündür, onun Down'ı alır). Canlıda koşulmaz — geri dönüş önceki binary'dir (ADR 0031 §8). Contract B
 (M14-20b) fonksiyonu düşürür.
+
+### M14-19 — bayrak: `TAPPA_ADMIN_IDENTITY=on` ve `00083`
+
+Bayrağı açmak **bir `main` birleştirmesidir = bir deploy = kullanıcının kararı** (ADR 0031 §8). Dal
+`m14-flag` iki parça taşır ve sıra bilinçlidir: önce migration commit'i (`00083`, aşağıda), **en son**
+ayrı bir commit — `feat(deploy): turn the admin identity on` — yalnız `deploy/k8s/05-config.yaml`'ın
+`TAPPA_ADMIN_IDENTITY` satırını `"on"` yapar (ve onu sabitleyen paketleme testini,
+`cmd/tappa/identityflag_packaging_test.go`). `kubectl edit` **yasak**: bir sonraki deploy dosyayı yeniden
+uygular ve değeri sessizce geri çevirir.
+
+**`00083` ne yapar** (tek dosya, tek transaction, `tappa_owner`; deterministik ve testli —
+`internal/db/adminflag_test.go`):
+
+1. **Onay pencereleri (S5, T9).** `confirm_opened_at IS NOT NULL` olan **her** kimliğin yalnız
+   `confirm_open_until`'i `GREATEST(confirm_open_until, now() + 7 gün)` olur; `confirm_opened_at` ve
+   `confirm_scope` **değişmez** (reset listesi `linked_at < confirm_opened_at`'tir). **Neden bu yüklem:**
+   bayrak şemada kayıtlı değil (pod env'i); şemanın bildiği tek şey bir pencerenin **var** olduğudur
+   (`00069`'un `admin_identities_confirm_window_whole` CHECK'i: üç sütun birlikte NULL). Bu dosyaya kadar
+   bayrak hiçbir veritabanında açılmadı ve kapalıyken bir pencereyi saatinden başka hiçbir şey kapatamaz
+   ("Keep all", çözme, geri alma bayrağın kapattığı yüzeylerdir) — yani dosyanın gördüğü her pencere
+   bayrak kapalıyken açılmıştır; süresi **dolmuş** olanlar da dahil (kişi listeyi hiç görmedi: ADR'nin
+   `max(olay, bayrak günü) + 7`'si). "Keep all" ile kapanmış pencerenin sütunu yoktur, dokunulmaz.
+   `GREATEST`: bu transaction başladıktan sonra commit eden bir açılış zaten `now() + 7`'den saniyeler
+   sonra biter; kısaltılmaz.
+2. **`REVOKE EXECUTE ON FUNCTION identity_create_for_signup FROM tappa_app` (S18).** M14-17'den beri hiçbir
+   binary onu çağırmıyor: bu dalın kaynağı ve `main` `8d94a95e`'nin derlenmiş `cmd/tappa`, `cmd/opadmin`
+   ve sandbox ikilileri adı taşımıyor (M14-19'da ölçüldü; kontrol olarak `identity_claim_signup`
+   ikilide bulundu) ve `TestIdentityCreateForSignup_NoBinaryCallsIt` modülün test dışı her dosyasını
+   tarar — rollout penceresindeki eski pod da onu çağırmaz, expand/contract kuralı tutar. Fonksiyon
+   **kalır**; `DROP` contract B'nin (M14-20b).
+
+Başta rol iddiası (superuser ya da BYPASSRLS değilse FORCE RLS altında 0 pencere görür → **reddeder**),
+sonda postcondition (bayrak günü + 7'den önce biten pencere kalmadı; fonksiyon sahibinden başka hiçbir
+rolce çağrılamaz ve `00076`'nın bıraktığı biçimde). `lock_timeout = '1s'`: pencereli kimlik satırlarını
+tutan canlı bir yazar varsa 55P03 → hiçbir şey yazılmaz, Job `Failed`, sakin bir anda yeniden. Tablo
+kilidi yok. **Down** yalnız yetkiyi geri verir; pencerelerin eski sonları hiçbir yerde tutulmadı ve
+bayrak kapalıyken daha uzun bir pencere görünmez — canlıda koşulmaz, geri dönüş aşağıdaki (f)'dir.
+
+🔴 **İki adlandırılmış boşluk.** (i) Aynı deploy'un rollout'unda eski pod (bayrak kapalı) Job'dan sonraki
+birkaç dakikada bir pencere açabilir; o pencere kendi olayı + 7'de biter — bayrak günü + 7'den dakikalar
+kısa, kabul. (ii) Migration bayrak commit'inden **önceki** bir deploy'la çıkarsa, iki deploy arasında
+açılan her pencere olay + 7'de kalır ve bayrak onu gösteremeden kapanabilir. **Öneri: iki commit tek
+birleştirmede, tek deploy'da.** Ayırmak kullanıcının kararıdır, bedeli budur (migration bayrak kapalıyken
+güvenlidir — `TestPanelIdentityFlagOff_AWindowMovedBy00083ChangesNothing`: taşınmış bir pencereyle bile
+kabuk, hesap sayfası ve `/admin/switch` bağsız oturumunkiyle bayt-aynı, "Keep all" 404). Bir `off → on`
+döngüsü de `00083`'ü yeniden koşturmaz: geri dönüşten sonraki ikinci açılışta, aradaki kapalı günlerde
+açılan pencereler taşınmaz.
+
+**(a) Ön kontroller** (salt okuma, yalnız sayı; kullanıcı koşar; birleştirmeden **hemen önce**):
+
+1. Yukarıdaki *"M14-19'un ön-kontrol sayımları"* (Uzlaştırma bölümü), **(b)'deki yeniden çağrıdan
+   sonra**, olduğu gibi: beklenen `BEGIN` · `0|N` · `0` · `ROLLBACK`. `identityless_filled_email` ya da
+   `linked_digest_mismatch` 0 değilse **DUR**, bayrak açılmaz; `N` (kalıntı) durdurmaz, kullanıcıya bildirilir.
+2. S19 ve pencerelerin bugünkü sayısı:
+
+   ```bash
+   kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+       sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+   BEGIN TRANSACTION READ ONLY;
+   -- S19: bağlı ama ret damgalı satır. Çözme (identity_unlink_backfilled) bağı kaldırır ve damgalar; ikisi
+   -- birlikte bir tutarsızlıktır.
+   SELECT count(*) AS linked_but_refused
+     FROM admin_users
+    WHERE identity_id IS NOT NULL AND unlinked_at IS NOT NULL;
+   -- 00083'ün taşıyacağı pencereler: hepsi | süresi dolmuş olanlar.
+   SELECT count(*) AS windows_to_move,
+          count(*) FILTER (WHERE confirm_open_until <= now()) AS windows_expired
+     FROM admin_identities
+    WHERE confirm_opened_at IS NOT NULL;
+   ROLLBACK;
+   SQL
+   ```
+
+   beklenen: `BEGIN` · `0` · `W|E` · `ROLLBACK`. `linked_but_refused` 0 değilse **DUR** (inceleme, kart
+   dışı). `W` ve `E` yalnız kayıt içindir (deploy sonrası karşılaştırma). Bayrak kapalıyken pencere açan
+   yollar koddan okunduğu kadarıyla ikidir: bağlı bir satırın satır başı sıfırlama linkinin tüketimi
+   (`identity_consume_row_reset`) ve var olan bir adresle kayıt onayı (`identity_claim_signup`).
+
+**(b) Uzlaştırmanın yeniden çağrısı** — yukarıdaki *"M14-19'dan hemen önce: yeniden çağrı"* bloğu, olduğu
+gibi. ⚠️ Bu **canlı bir YAZMADIR** (kimlik doğurur, satır bağlar); kullanıcı koşar, `tappa_owner`.
+Beklenen çıktı ve DUR koşulları orada yazılı. Sonra (a)'yı koş.
+
+**(c) Birleştirme = deploy.** `m14-flag` → `main` (PR, CI yeşil). `deploy.yml` sırası: `05-config.yaml`
+uygulanır (808), migrate Job `00083`'ü koşar (888), sonra rollout (934) — yeni pod env'i başlarken okur ve
+bayrak `on` ile kalkar. Eski pod rollout bitene dek `off`'tur (yukarıdaki boşluk (i)).
+
+**(d) Deploy'dan sonra** (salt okuma; Job log'unda `OK   00083_prepare_the_admin_identity_flag.sql`;
+pod'un açılış satırı `"admin_identity":"on"`):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+SELECT max(version_id) AS goose_version FROM goose_db_version WHERE is_applied;
+SELECT has_function_privilege('tappa_app', 'public.identity_create_for_signup(uuid,uuid)', 'EXECUTE') AS app_calls_signup_door,
+       has_function_privilege('tappa_identitydefiner', 'public.identity_create_for_signup(uuid,uuid)', 'EXECUTE') AS owner_keeps_it;
+-- Deploy'dan sonraki ilk saat içinde koşulur: o saatte bayrak günü + 7'den bir saatten fazla erken biten
+-- pencere olmamalı (eski pod'un rollout dakikalarında açtığı bile en çok dakikalarca erkendir).
+SELECT count(*) AS windows,
+       count(*) FILTER (WHERE confirm_open_until < now() + interval '7 days' - interval '1 hour') AS windows_ending_early
+  FROM admin_identities
+ WHERE confirm_opened_at IS NOT NULL;
+ROLLBACK;
+SQL
+```
+
+beklenen: `BEGIN` · `83` · `f|t` · `W'|0` (`W'` ≥ (a)'daki `W`) · `ROLLBACK`. `app_calls_signup_door = t`
+ya da `windows_ending_early > 0` → migration'ın koştuğu sürüm yanlış; incele (geri dönüş gerekmez, bayrak
+güvenlik açığı doğurmaz). **K-3 saati:** bu deploy'un günü (UTC) — orkestratör `state.md`'ye tarihiyle
+yazar; contract A en erken bu tarih + 60 gün.
+
+**(e) Duman** (`https://taptime.mt/admin`, kullanıcının kendi test hesaplarıyla — aynı e-postanın KF ve
+KM'de birer owner üyeliği, ikisi bağlı; davet için kendi posta kutusu):
+
+1. **Giriş (kimlik yolu).** Çıkış yap → e-posta + parola → son kullanılan işletmeye iner (K-4), seçici
+   yok; kabukta işletmenin adı ve **"Switch business"** bağlantısı var.
+2. **KF ↔ KM geçişi.** "Switch business" → liste iki işletmeyi gösterir → KM → kabuk KM'yi gösterir;
+   tekrar KF'ye. Her iki işletmenin denetim kaydında geçiş sıradan bir çıkış + giriş satırıdır (karşı
+   işletmenin adı yok).
+3. **Eski sekme 409.** KF'de bir formu (ör. hesap sayfası) bir sekmede açık bırak; başka sekmede KM'ye
+   geç; eski sekmede formu gönder → **409** *"This page belongs to another business — reload it."*,
+   hiçbir şey yazılmaz; sayfayı yenilemek KM'nin formunu getirir.
+4. **Sign out everywhere.** İkinci bir tarayıcıda (gizli pencere) da gir; ilkinde Hesap → **"Sign out
+   everywhere"** → ikinci tarayıcının bir sonraki tıklaması `/admin/login`'e döner; iki işletmenin
+   oturumları da biter.
+5. **Yanlış parola.** Doğru e-posta + yanlış parola → genel hata (adresin varlığını söylemez); doğru
+   parolayla giriş sürer. (Art arda denemeler oran sınırına takılır — bunu canlıda zorlamayın.)
+6. **Davet.** Owner olarak Managers → kendi kontrolündeki **yeni** bir adrese davet → e-posta gelir →
+   link → yeni parola → davetli girer ve yalnız o işletmeyi görür. Temizlik: davetli üyeliği devre dışı
+   bırak (Members). Var olan bir kimliğe davet aynı e-postalı kimliğin canlı oturumuyla kabul edilir.
+7. (İsteğe bağlı) Bağlanmamış ikinci satırı olan kişi (M14-06'nın tek beklenen satırı): Hesap →
+   **"Link a business"** iki parolayla bağlar; Choose paragrafı onu oraya yönlendirir.
+
+Herhangi bir adım 5xx verirse ya da beklenenden saparsa → (f).
+
+**(f) Geri dönüş = `off` commit'i + deploy** (kullanıcı kararı). Yeni bir dalda bayrak commit'ini geri al
+(`git revert <bayrak commit'i>` — `05-config.yaml` `"off"`, paketleme testi geri döner), PR, CI, `main`.
+Migration geri **alınmaz**: binary aynı, şema `83` kalır ve eski kol bu şemada bugünkü gibi çalışır
+(`00083` yalnız kimsenin çağırmadığı bir yetkiyi aldı ve pencere sonlarını uzattı; bayrak kapalıyken
+pencere görünmez — `TestPanelIdentityFlagOff_AWindowMovedBy00083ChangesNothing`). **Ne kalır:** kimlikler,
+bütün bağlar (açıkken kurulan `password` / `account` / `invite` / `claim` bağları dahil — dual-write
+parolaları satırlarda doğru tutar, eski kol bağlı satıra kimliğin digest'iyle girer), pencereler olduğu
+gibi (kapalıyken görünmez, saatleri işler), reddedilmiş satırlar (nöbetçi digest: eski kolla da girilemez),
+geçişle açılmış oturumlar (sıradan, tek işletmeli oturumlardır; yaşar), bekleyen davetler (kabul 404 —
+süreleri dolarsa yeniden açılışta yeniden davet), basılmış kimlik sıfırlama linkleri (ömürleri boyunca
+harcanabilir — bayrak kesme anahtarı değildir, yukarıdaki M14-14 bölümü). **Kapanan:** geçiş, hesap
+sayfasının kimlik bölümleri, davet, üyelik yönetimi, kimlik başına sıfırlama talebi (satır başına döner),
+kimlik yolu girişi (herkes eski yoldan). **Prova (kart şartı, bir kez):** kullanıcının seçeceği sakin bir
+anda, açılıştan sonra: `off` deploy'u → duman 1 (eski yol girişi, seçici olabilir), 5 ve bir parola
+değişikliği (bağlı satırda kimlik üzerinden yazar) → yeniden `on` (revert'in revert'i) → duman 1–2. Prova
+günü ve sonucu `state.md`'ye; `on`'a dönüşte aradaki kapalı günlerde açılan pencereler taşınmaz (boşluk
+(ii)'nin aynısı).
+
+**(g) İzleme — e-postasız sayaçlar** (ADR 0031 §5.15; contract'ın ölçüsü). Hepsi `TAPPA_LOG_FORMAT=json`
+log satırlarından hesaplanır; hiçbiri adres, `identity_id` ya da token taşımaz (alanlar `admin_user_id` /
+`actor_id`, `ip`, `path`, `linked`, `outcome`):
+
+| Sayaç | Olay (`msg`) ve filtre | Kaynak |
+|---|---|---|
+| kimlik yoluyla giriş | `panel sign-in`, `path = "identity"` | `adminloginidentity.go` `completePersonLogin` |
+| eski kolla giriş | `panel sign-in`, `path = "legacy"` (bu dalla eklendi; önceki binary'lerin satırında `path` yok) | `adminlogin.go` `completeLogin` |
+| girişte otomatik bağlanan satır | `panel sign-in`, `path = "identity"`, `linked` toplamı | aynı satır |
+| hesap sayfasından bağlama | `panel identity link`, `outcome = "linked"` (`"none"` = sonuç yok) | `accountidentity.go` |
+| geçiş | `panel switched business` | `adminswitch.go` |
+| geçiş reddi | `panel switch refused` · `panel switch refused: synchronizer missing or wrong` · `panel switch refused: no live admin session` · `panel switch budget reached` | `adminswitch.go` |
+
+`TestAdminLogin_TheSignInLineNamesItsArm` iki `path` değerini ve satırda adres olmadığını sabitler.
+SigNoz'da elle sorgu (ClickHouse SQL; **ölçülmedi** — kural dosyasının biçimiyle yazıldı, ilk koşu
+orkestratörün salt-okuma sorgusudur):
+
+```sql
+SELECT toStartOfDay(fromUnixTimestamp64Nano(timestamp)) AS day,
+       countIf(JSONExtractString(body,'msg') = 'panel sign-in' AND JSONExtractString(body,'path') = 'identity') AS identity_sign_ins,
+       countIf(JSONExtractString(body,'msg') = 'panel sign-in' AND JSONExtractString(body,'path') = 'legacy') AS legacy_sign_ins,
+       sumIf(JSONExtractInt(body,'linked'), JSONExtractString(body,'msg') = 'panel sign-in' AND JSONExtractString(body,'path') = 'identity') AS linked_at_sign_in,
+       countIf(JSONExtractString(body,'msg') = 'panel identity link' AND JSONExtractString(body,'outcome') = 'linked') AS linked_on_account_page,
+       countIf(JSONExtractString(body,'msg') = 'panel switched business') AS switches,
+       countIf(JSONExtractString(body,'msg') IN ('panel switch refused', 'panel switch refused: synchronizer missing or wrong',
+                                                 'panel switch refused: no live admin session', 'panel switch budget reached')) AS switch_refusals
+  FROM signoz_logs.distributed_logs_v2
+ WHERE timestamp >= toUnixTimestamp64Nano(now64(9) - INTERVAL 7 DAY)
+   AND resources_string['k8s.namespace.name'] = 'tappa' AND resources_string['k8s.container.name'] = 'tappa'
+ GROUP BY day ORDER BY day
+```
+
+⛔ **Kullanıcı/operatör gerektiren:** bu sorguyu SigNoz'da bir pano olarak kaydetmek kümeye ve SigNoz
+hesabına erişim ister (bu kartın yapıcısında yok); kural değil sayaçtır — `signoz-alert-rules.json`'a
+**eklenmez** (o dosya uyarı kurallarıdır ve runbook tablosuyla satır satır eşlenir). Log saklama (Q28 (b),
+15 gün) haftalık okumaya yeter, 60 günlük soak'un tamamına yetmez: her hafta okunan sayı `state.md`'ye
+yazılır.
+
+**Haftalık sayımlar** (salt okuma, yalnız sayı; sonuç `state.md`'ye — K-3 ve contract A'nın ön koşulu):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+-- 1. Bağlanmamış satırlar (kimliksiz, reddedilmemiş): aktif | hepsi | e-postasız (hiçbir yoldan bağlanamaz).
+SELECT count(*) FILTER (WHERE status = 'active')                                   AS unlinked_active_rows,
+       count(*)                                                                    AS unlinked_rows,
+       count(*) FILTER (WHERE email IS NULL OR btrim(email::text) = '')            AS unlinked_without_email
+  FROM admin_users
+ WHERE identity_id IS NULL AND unlinked_at IS NULL;
+-- 2. Contract A'nın ön koşulu: aktif owner'ı olup hiçbir aktif owner'ı bağlı (ve reddedilmemiş) olmayan
+--    işletme | bunların içinde tek aktif owner'lı olanlar (planın lafzı: "tek owner'ı bağlanmamış").
+SELECT count(*)                         AS tenants_no_linked_active_owner,
+       count(*) FILTER (WHERE owners = 1) AS tenants_single_owner_unlinked
+  FROM (SELECT tenant_id, count(*) AS owners
+          FROM admin_users
+         WHERE role = 'owner' AND status = 'active'
+         GROUP BY tenant_id
+        HAVING count(*) FILTER (WHERE identity_id IS NOT NULL AND unlinked_at IS NULL) = 0) AS t;
+-- 3. Ayrı: reddedilmiş satırlar ve işletmeleri (kullanıcı karar verir — ADR 0031 §5.12).
+SELECT count(*) AS refused_rows, count(DISTINCT tenant_id) AS tenants_with_refused_rows
+  FROM admin_users
+ WHERE unlinked_at IS NOT NULL;
+ROLLBACK;
+SQL
+```
+
+beklenen: `BEGIN` · `A|U|X` · `T|S` · `R|RT` · `ROLLBACK`. Contract A ancak `T = 0` iken konuşulur
+(ADR 0031 §8, plan M14-20a); `RT` ayrı raporlanır. Satır, adres, ad ya da kimlik id'si basılmaz
+(CLAUDE.md §7). `internal/db/adminflag_test.go` bu bölümün sorgularını yazıldıkları gibi bir dünyada koşar.
 
 ### Panel formlarının tenant bağı (M14-10a)
 
