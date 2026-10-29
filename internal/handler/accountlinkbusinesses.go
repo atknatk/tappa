@@ -60,9 +60,6 @@ const (
 	// panel path, half an hour.
 	accountLinkCookieName   = "tappa_admin_link"
 	accountLinkCookieMaxAge = 30 * 60
-	// linkBucketPrefix keeps the link's budget apart from the verification's in the same limiter: the
-	// same number per person per hour (adminVerifyRequestLimit), counted on its own.
-	linkBucketPrefix = "link|"
 )
 
 // The page's outcome words (closed tables; a word in neither prints nothing).
@@ -192,7 +189,14 @@ func (a *AdminAuth) accountLinkRequest(w http.ResponseWriter, r *http.Request) {
 		a.redirect(w, linkBusinessesReturn("", "unavailable"))
 		return
 	}
-	bucket, err := a.admins.AccountBucket(r.Context(), id.Admin)
+	// The budget's key (adminauth.LinkBucket): the link's own for a verified address; the VERIFICATION's
+	// for an unverified one, so the two requests together mail an unproven address at most
+	// adminVerifyRequestLimit times an hour.
+	bucket, err := a.admins.LinkBucket(r.Context(), id.Admin)
+	if errors.Is(err, adminauth.ErrNotLinked) {
+		a.redirect(w, linkBusinessesReturn("", "unavailable"))
+		return
+	}
 	if err != nil {
 		a.log.Error("panel: the link's bucket could not be read", "actor_id", id.Admin.AdminUserID, "err", err)
 		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
@@ -200,7 +204,7 @@ func (a *AdminAuth) accountLinkRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	// THE PER-PERSON BUDGET, BEFORE ANY WORK: every request mints a link and sends an e-mail. One locked
 	// step (TryCharge): N concurrent presses cannot all pass a check before any is counted.
-	if within, n := a.verifyLimiter.TryCharge(linkBucketPrefix + bucket); !within {
+	if within, n := a.verifyLimiter.TryCharge(bucket); !within {
 		if a.verifyLimiter.FirstOverLimit(n) {
 			a.log.Warn("panel link by e-mail rate limited", "actor_id", id.Admin.AdminUserID)
 		}

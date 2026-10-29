@@ -20,6 +20,7 @@ type fakeIdentityHooks struct {
 	bucket  func(s adminauth.Resolved) (string, error)
 	// The link by e-mail (M14-22): the banner's answer (nil: no banner), the request, the press.
 	toAdd       func(s adminauth.Resolved) (bool, error)
+	linkBucket  func(s adminauth.Resolved) (string, error)
 	requestLink func(s adminauth.Resolved) (adminauth.IssuedLink, error)
 	linkByEmail func(raw string) (adminauth.LinkedBusinesses, error)
 	calls       []string
@@ -109,6 +110,16 @@ func (f *fakeAdmins) HasBusinessToAdd(_ context.Context, s adminauth.Resolved) (
 		return false, nil
 	}
 	return f.ident.toAdd(s)
+}
+
+// LinkBucket answers the verified address's key by default ("link|" + the person's bucket); a test of an
+// unverified address returns the verification's own key.
+func (f *fakeAdmins) LinkBucket(ctx context.Context, s adminauth.Resolved) (string, error) {
+	if f.ident.linkBucket != nil {
+		return f.ident.linkBucket(s)
+	}
+	b, err := f.AccountBucket(ctx, s)
+	return "link|" + b, err
 }
 
 func (f *fakeAdmins) RequestLink(_ context.Context, s adminauth.Resolved, _ adminauth.Token) (adminauth.IssuedLink, error) {

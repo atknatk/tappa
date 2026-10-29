@@ -121,6 +121,8 @@ func linkBusinessesLetter(life string) letter {
 		after: []string{
 			"The link works once and stays valid for " + life + ". Opening it adds nothing until you " +
 				"press the button.",
+			"When you do, those businesses' own passwords stop working, and any device signed in to them " +
+				"(a shop tablet, for example) is signed out.",
 			"Afterwards you move between your businesses with Switch business, without signing out, and " +
 				"you sign in to all of them with your Taptime password.",
 		},

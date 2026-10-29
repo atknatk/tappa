@@ -53,6 +53,10 @@ templ AdminLinkBusinesses(v LinkBusinessesView) {
 						your email address to this sign-in. Then you move between them with Switch business,
 						without signing out.
 					</p>
+					<p class="text-[13px] leading-normal text-ink/85">
+						Their own passwords will stop working, and any device signed in to them — a shop tablet,
+						for example — will be signed out. You sign in to them with your Taptime password.
+					</p>
 					<form method="post" action={ templ.URL(components.Bound(ctx, v.ConfirmHref)) }>
 						<button class="btn btn--primary rounded-xl" type="submit">Add them</button>
 					</form>

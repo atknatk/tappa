@@ -374,3 +374,75 @@ func TestLinkByEmail_TheLockOrderMeetsTheOtherActsWithoutADeadlock(t *testing.T)
 	}
 	w.digestInvariant()
 }
+
+// TestLinkByEmail_ARowBornAfterTheLinkWaitsForALinkOfItsOwn (the security audit's DÜŞÜK, 2026-10-29): a
+// row of the address that appears AFTER the person asked for the link -- the business the person saw on
+// the banner is not it -- is not linked by the press; the banner still offers it, and a new link adds it.
+// The guard is identity_link_by_email's `a.created_at < v_born`; its mutation is
+// TestIdentityLinkByEmail00084_EveryGuardHoldsItsCase's "a row born after the link" (internal/db).
+func TestLinkByEmail_ARowBornAfterTheLinkWaitsForALinkOfItsOwn(t *testing.T) {
+	d := testDB(t)
+	m := testManager(t, d)
+	w := newIDWorld(t, ownerConn(t), true)
+	forgetLinks(t, w)
+	ta, tb, tc := w.tenant("M14-22 Born A"), w.tenant("M14-22 Born B"), w.tenant("M14-22 Born C")
+	w.linked(ta, "active", "backfill", 72*time.Hour)
+	before := w.row(tb, fixtureDigest(t, "b-"+uuid.NewString()), "active", time.Hour)
+	ctx := context.Background()
+	ra, tok := w.verifiedOn(m, ta)
+	issued, err := m.RequestLink(ctx, ra, tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Born after the link: its own transaction, committed later (created_at is the database's own clock).
+	after := uuid.New()
+	w.exec(`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
+	        VALUES ($1, $2, 'M14-22 Late', $3, $4, 'owner', 'active')`, after, tc, w.email, fixtureDigest(t, "c-"+uuid.NewString()))
+	res, err := m.LinkByEmail(ctx, issued.token.reveal(), tok)
+	if err != nil || res.Linked != 1 {
+		t.Fatalf("the press: %+v, %v; want the earlier business alone", res, err)
+	}
+	if id, _ := w.link(before); id != w.ident {
+		t.Error("the business born before the link was not added")
+	}
+	if id, _ := w.link(after); id != uuid.Nil {
+		t.Fatal("the business born after the link was added by it")
+	}
+	if add, err := m.HasBusinessToAdd(ctx, ra); err != nil || !add {
+		t.Errorf("the banner after the press: %v, %v; want it to offer the later business", add, err)
+	}
+	again, err := m.RequestLink(ctx, ra, tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res, err := m.LinkByEmail(ctx, again.token.reveal(), tok); err != nil || res.Linked != 1 {
+		t.Fatalf("a new link: %+v, %v; want the later business", res, err)
+	}
+}
+
+// TestLinkBucket_AnUnverifiedAddressSharesTheVerificationsBucket (the audits' DÜŞÜK, 2026-10-29): while the
+// identity's address is unverified the link's bucket IS the verification's (AccountBucket), so the two
+// requests share one mail budget; once verified, it is a bucket of its own. MUTATION: LinkBucket always
+// prefixing -> red.
+func TestLinkBucket_AnUnverifiedAddressSharesTheVerificationsBucket(t *testing.T) {
+	d := testDB(t)
+	m := testManager(t, d)
+	w := newIDWorld(t, ownerConn(t), true)
+	ta := w.tenant("M14-22 Bucket A")
+	w.linked(ta, "active", "backfill", 72*time.Hour)
+	ctx := context.Background()
+	ra, _ := w.verifiedOn(m, ta)
+	account, err := m.AccountBucket(ctx, ra)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link, err := m.LinkBucket(ctx, ra)
+	if err != nil || link != account {
+		t.Fatalf("unverified: the link's bucket %q, %v; want the verification's %q", link, err, account)
+	}
+	w.exec(`UPDATE admin_identities SET email_verified_at = now() WHERE id = $1`, w.ident)
+	link, err = m.LinkBucket(ctx, ra)
+	if err != nil || link == account || !strings.HasSuffix(link, account) {
+		t.Fatalf("verified: the link's bucket %q, %v; want its own, beside %q", link, err, account)
+	}
+}

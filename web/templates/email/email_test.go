@@ -529,6 +529,11 @@ func TestRender_AcceptsTheLinkBusinessesLinkAdminauthMints(t *testing.T) {
 	if !strings.Contains(m.Text, link) || m.Subject != subjectLinkBusinesses {
 		t.Error("the letter does not carry its link or its subject")
 	}
+	// The third eye's DÜŞÜK (2026-10-29): what the press does to the other businesses' sign-ins, said
+	// before it is pressed.
+	if !strings.Contains(m.Text, "own passwords stop working, and any device signed in to them") {
+		t.Error("the letter does not say the old passwords stop working and their devices are signed out")
+	}
 	if _, err := RenderLinkBusinesses(context.Background(), testBase+verifyPath+"?t="+randomValue(t), LinkBusinessesView{BaseURL: testBase, ValidFor: time.Hour}); err == nil {
 		t.Error("CONTROL: a verification link passed as a link link")
 	}

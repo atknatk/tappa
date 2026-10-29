@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"html"
 	"net/http"
 	"net/url"
@@ -117,6 +118,30 @@ func TestLinkBusinesses_TheRequestsBudgetRefusesTheSixthAsk(t *testing.T) {
 	}
 }
 
+// TestLinkBusinesses_AnUnverifiedAddressSharesTheVerificationsBudget (the audits' DÜŞÜK, 2026-10-29):
+// while the address is unverified adminauth.LinkBucket answers the verification's own key, so
+// adminVerifyRequestLimit verification asks spend the link's budget too -- the next "Add it" is 429 and
+// reaches nothing: an unproven address gets at most the one budget of mails an hour, not two.
+// MUTATION: the handler charging a key of its own ("link|" + the answer) -> the ask passes, red.
+func TestLinkBusinesses_AnUnverifiedAddressSharesTheVerificationsBudget(t *testing.T) {
+	admins := &fakeAdmins{}
+	admins.ident.request = func(adminauth.Resolved) (adminauth.IssuedVerification, error) {
+		return adminauth.IssuedVerification{}, adminauth.ErrAlreadyVerified
+	}
+	admins.ident.linkBucket = func(s adminauth.Resolved) (string, error) { return admins.AccountBucket(context.Background(), s) }
+	admins.ident.requestLink = func(adminauth.Resolved) (adminauth.IssuedLink, error) {
+		return adminauth.IssuedLink{}, adminauth.ErrNothingToAdd
+	}
+	b, _ := identityPanel(t, true, true, admins, &fakeMailSender{})
+	for i := 0; i < adminVerifyRequestLimit; i++ {
+		b.do(http.MethodPost, accountVerifyHref, url.Values{})
+	}
+	res := b.do(http.MethodPost, accountLinkBusinessesHref, url.Values{})
+	if res.Code != http.StatusTooManyRequests || countCalls(admins, "request-link") != 0 {
+		t.Fatalf("an ask after the verification's budget: %d, %d calls; want 429 and none", res.Code, countCalls(admins, "request-link"))
+	}
+}
+
 // TestLinkBusinesses_TheLinksGETSpendsNothingAndThePressDoes (criterion 3, R19): the e-mailed link's GET
 // links nothing -- no call to LinkByEmail -- moves the value into a short-lived cookie under the panel
 // path and sends the browser to the page, which offers the one press; the press spends THAT value with
@@ -149,6 +174,10 @@ func TestLinkBusinesses_TheLinksGETSpendsNothingAndThePressDoes(t *testing.T) {
 	}
 	if strings.Contains(page, "Another business uses your email.") {
 		t.Error("the page draws the banner that leads to itself")
+	}
+	// Said before the press (the third eye's DÜŞÜK, 2026-10-29), naming no business.
+	if !strings.Contains(page, "Their own passwords will stop working, and any device signed in to them — a shop tablet,") {
+		t.Error("the confirmation does not say the old passwords stop working and their devices are signed out")
 	}
 	if countCalls(admins, "link-by-email") != 0 {
 		t.Fatal("the page's GET reached LinkByEmail")

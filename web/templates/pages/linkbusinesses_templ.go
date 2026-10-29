@@ -218,7 +218,7 @@ func AdminLinkBusinesses(v LinkBusinessesView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, " <p class=\"text-[13px] leading-normal text-ink/85\">You opened the link we emailed you. Press the button to add every business that uses your email address to this sign-in. Then you move between them with Switch business, without signing out.</p><form method=\"post\" action=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, " <p class=\"text-[13px] leading-normal text-ink/85\">You opened the link we emailed you. Press the button to add every business that uses your email address to this sign-in. Then you move between them with Switch business, without signing out.</p><p class=\"text-[13px] leading-normal text-ink/85\">Their own passwords will stop working, and any device signed in to them — a shop tablet, for example — will be signed out. You sign in to them with your Taptime password.</p><form method=\"post\" action=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

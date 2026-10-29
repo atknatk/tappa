@@ -482,7 +482,8 @@ var (
 
 // linkKeyLabel separates the link link's hash from every other HMAC this package makes -- the
 // verification link's included: a verification token presented as a link (or the reverse) hashes to a
-// value no row holds, and the database's purpose column refuses it besides.
+// value no row holds. The database refuses both directions besides: identity_link_by_email spends
+// 'link' rows alone and identity_verify_email (redefined by 00084) 'verify' rows alone.
 const linkKeyLabel = "tappa/admin-email-link/v1/key-derivation"
 
 // deriveLinkKey is the link link's HMAC key, from the session HMAC key (deriveVerifyKey's shape).
@@ -517,6 +518,31 @@ type IssuedLink struct {
 // Link is the e-mail's one link: base + LinkPath + "?t=" + the token.
 func (l IssuedLink) Link(base string) string {
 	return base + LinkPath + "?" + LinkParam + "=" + l.token.reveal()
+}
+
+// linkBucketPrefix keeps the link's mail budget apart from the verification's -- for a VERIFIED address
+// only (LinkBucket).
+const linkBucketPrefix = "link|"
+
+// LinkBucket is the rate bucket of the link by e-mail's request ("Add it"): the person's own
+// (AccountBucket), under a prefix of its own while the identity's address is verified. While it is NOT
+// verified the bucket IS the verification's, unprefixed: both requests mail the same unproven address, and
+// together they may send it no more than the one budget (the audits' DÜŞÜK, 2026-10-29) -- otherwise an
+// unverified address could be sent twice the verification's mails an hour. ErrNotLinked as
+// identityOfSession says it.
+func (m *Manager) LinkBucket(ctx context.Context, s Resolved) (string, error) {
+	b, err := m.AccountBucket(ctx, s)
+	if err != nil {
+		return "", err
+	}
+	ident, err := m.identityOfSession(ctx, s)
+	if err != nil {
+		return "", err
+	}
+	if ident.EmailVerifiedAt == nil {
+		return b, nil
+	}
+	return linkBucketPrefix + b, nil
 }
 
 // unlinkedAtAddress reports whether address holds an active row that is linked to no identity -- a

@@ -64,6 +64,7 @@ type adminAuthenticator interface {
 	// The link by e-mail (M14-22, accountlinkbusinesses.go): the banner's yes or no, the mailed link,
 	// and its press -- keyed by the verified session and the cookie's token.
 	HasBusinessToAdd(ctx context.Context, s adminauth.Resolved) (bool, error)
+	LinkBucket(ctx context.Context, s adminauth.Resolved) (string, error)
 	RequestLink(ctx context.Context, s adminauth.Resolved, current adminauth.Token) (adminauth.IssuedLink, error)
 	LinkByEmail(ctx context.Context, raw string, current adminauth.Token) (adminauth.LinkedBusinesses, error)
 }
